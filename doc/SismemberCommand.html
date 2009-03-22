@@ -1,0 +1,43 @@
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<html>
+    <head>
+        <link type="text/css" rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <div id="page">
+        
+            <div id='header'>
+            <a href="index.html">
+            <img style="border:none" alt="Redis Documentation" src="redis.png">
+            </a>
+            </div>
+        
+            <div id="pagecontent">
+                <div class="index">
+<!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
+<b>SismemberCommand: Contents</b><br>&nbsp;&nbsp;<a href="#SISMEMBER _key_ _member_">SISMEMBER _key_ _member_</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#See also">See also</a>
+                </div>
+                
+                <h1 class="wikiname">SismemberCommand</h1>
+
+                <div class="summary">
+                    
+                </div>
+
+                <div class="narrow">
+                    <h1><a name="SISMEMBER _key_ _member_">SISMEMBER _key_ _member_</a></h1>
+<i>Time complexity O(1)</i><blockquote>Return 1 if <i>member</i> is a member of the set stored at <i>key</i>, otherwise0 is returned. On error a negative value is returned. Client librariesshould raise an error when a negative value is returned instead to passthe value to the caller.</blockquote>
+<h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Integer reply</a>, specifically:<br/><br/><pre class="codeblock python" name="code">
+1 if the element is a member of the set
+0 if the element is not a member of the set OR if the key does not exist
+-2 if the key does not hold a set value
+</pre><h2><a name="See also">See also</a></h2>
+<ul><li> <a href="SremCommand.html">SREM</a></li><li> <a href="SismemberCommand.html">SISMEMBER</a></li><li> <a href="ScardCommand.html">SCARD</a></li><li> <a href="SmembersCommand.html">SMEMBERS</a></li><li> <a href="SinterCommand.html">SINTER</a></li><li> <a href="SinterstoreCommand.html">SINTERSTORE</a></li></ul>
+                </div>
+        
+            </div>
+        </div>
+    </body>
+</html>
+

@@ -1,0 +1,44 @@
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<html>
+    <head>
+        <link type="text/css" rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <div id="page">
+        
+            <div id='header'>
+            <a href="index.html">
+            <img style="border:none" alt="Redis Documentation" src="redis.png">
+            </a>
+            </div>
+        
+            <div id="pagecontent">
+                <div class="index">
+<!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
+<b>ReplyTypes: Contents</b><br>&nbsp;&nbsp;<a href="#Redis Reply Types">Redis Reply Types</a><br>&nbsp;&nbsp;<a href="#Status code reply">Status code reply</a><br>&nbsp;&nbsp;<a href="#Integer reply">Integer reply</a><br>&nbsp;&nbsp;<a href="#Bulk reply">Bulk reply</a><br>&nbsp;&nbsp;<a href="#Multi bulk reply">Multi bulk reply</a>
+                </div>
+                
+                <h1 class="wikiname">ReplyTypes</h1>
+
+                <div class="summary">
+                    
+                </div>
+
+                <div class="narrow">
+                    <h1><a name="Redis Reply Types">Redis Reply Types</a></h1>Redis commands can reply to the client with four different kind of replies, you can find the protocol level specification of this replies in the <a href="ProtocolSpecification.html">Redis Protocol Specification</a>. This page is instead an higher level description of the four types of replies from the point of view of the final user.<h1><a name="Status code reply">Status code reply</a></h1>
+Status code replies are in the form of a <b>+OK</b> from the server, or a <b>-ERR</b> followed by an error string. At the protocol level this replies are sent as a single line. Client libraries should return <i>true</i> on <b>OK</b>, and should raise an exception in form of an error that stops the execution of the program on <b>ERR</b> replies from server, because this kind of replies are used by operations that usually fails because of a programming error, an inconsistent DB, and so on.<h1><a name="Integer reply">Integer reply</a></h1>
+At protocol level integer replies are single line replies in form of a decimal singed number. Redis commands returning <i>true</i> or <i>false</i> will use an integer reply and &quot;1&quot; and &quot;0&quot; as replies. A negative value in an integer reply is used to signal an error by all the commands, with the exception of <a href="IncrCommand.html">INCR</a>/<a href="IncrCommand.html">INCRBY</a>/<a href="IncrCommand.html">DECR</a>/<a href="IncrCommand.html">DECRBY</a> where negative return values are allowed (this command never fails).<br/><br/>All the integer replies using negative values to return errors will use the same values to signal the same errors:
+<b> -1 key not found
+</b> -2 key contains a value of the wrong type
+<b> -3 source object and destination object are the same
+</b> -4 out of range argument<br/><br/>Integer replies are usually passed by client libraries as integer values. On negative integer reply an exception should be raised (excluding the INCR family commands).<h1><a name="Bulk reply">Bulk reply</a></h1>
+A bulk reply is a binary-safe reply that is used to return a single string value (string is not limited to alphanumerical strings, it may contain binary data of any kind). Client libraries will usually return a string as return value of Redis commands returning bulk replies. There is a special bulk reply that signal that the element does not exist. When this happens the client library should return 'nil', 'false', or some other special element that can be distinguished by an empty string.<h1><a name="Multi bulk reply">Multi bulk reply</a></h1>
+While a bulk reply returns a single string value, multi bulk replies are used to return multiple values: lists, sets, and so on. Elements of a bulk reply can be missing (-1 length count at protocol level). Client libraries should return 'nil' or 'false' in order to make this elements distinguishable from empty strings. Client libraries should return multi bulk replies that are about ordered elements like list ranges as lists, and bulk replies about sets as hashes.
+                </div>
+        
+            </div>
+        </div>
+    </body>
+</html>
+

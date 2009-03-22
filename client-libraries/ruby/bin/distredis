@@ -1,0 +1,33 @@
+require 'fileutils'
+
+class RedisCluster
+  
+  def initialize(opts={})
+    opts = {:port => 6379, :host => 'localhost', :basedir => "#{Dir.pwd}/rdsrv" }.merge(opts)
+    FileUtils.mkdir_p opts[:basedir]
+    opts[:size].times do |i|
+      port = opts[:port] + i
+      FileUtils.mkdir_p "#{opts[:basedir]}/#{port}"
+      File.open("#{opts[:basedir]}/#{port}.conf", 'w'){|f| f.write(make_config(port, "#{opts[:basedir]}/#{port}", "#{opts[:basedir]}/#{port}.log"))}
+      system(%Q{#{File.join(File.expand_path(File.dirname(__FILE__)), "../redis/redis-server #{opts[:basedir]}/#{port}.conf &" )}})
+    end  
+  end
+
+  def make_config(port=6379, data=port, logfile='stdout', loglevel='debug')
+    config = %Q{
+timeout 300
+save 900 1
+save 300 10
+save 60 10000
+dir #{data}
+loglevel #{loglevel}
+logfile #{logfile}
+databases 16
+port #{port}
+    }
+  end
+  
+end
+
+
+RedisCluster.new :size => 4

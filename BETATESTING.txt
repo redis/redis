@@ -1,0 +1,12 @@
+Hello betatester!
+
+This Redis Server distribution is just a preview, it is by no mean an usable
+product, but probably it can already give you some feeling about what the
+final release is going to be.
+
+Be aware that if you want to use Redis in production the server may not be perfectly stable or may cotanin unfixed bugs. We did our best to ensure this distribution is of good quality and bug free but the development is currently very fast.
+
+Please send feedbacks to antirez at gmail dot com.
+
+Enjoy,
+antirez

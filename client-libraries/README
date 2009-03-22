@@ -1,0 +1,28 @@
+Redis client libraries
+----------------------
+
+In this directory you'll find client libraries for different languages.
+This are the latest releases available at the time this Redis tar.gz for this
+release was created, and are good for most uses, but if you need more fresh
+code or recent bugfixes read more.
+
+How to get the lastest versions of client libraries source code
+---------------------------------------------------------------
+
+Note that while the PHP and Python versions are the most uptodate available
+libraries, the Ruby and Erlang libraries have their own sites so you may want
+to grab this libraries from their main sites:
+
+Ruby lib source code:
+http://github.com/ezmobius/redis-rb/tree/master
+
+Erlang lib source code:
+http://bitbucket.org/adroll/erldis/
+
+For the languages with development code in the Redis SVN, check this urls for unstable versions of the libs:
+
+Python lib source code:
+http://code.google.com/p/redis/source/browse/#svn/trunk/client-libraries/python
+
+PHP lib source code:
+http://code.google.com/p/redis/source/browse/#svn/trunk/client-libraries/php

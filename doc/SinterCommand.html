@@ -1,0 +1,40 @@
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<html>
+    <head>
+        <link type="text/css" rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <div id="page">
+        
+            <div id='header'>
+            <a href="index.html">
+            <img style="border:none" alt="Redis Documentation" src="redis.png">
+            </a>
+            </div>
+        
+            <div id="pagecontent">
+                <div class="index">
+<!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
+<b>SinterCommand: Contents</b><br>&nbsp;&nbsp;<a href="#SINTER _key1_ _key2_ ... _keyN_">SINTER _key1_ _key2_ ... _keyN_</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#See also">See also</a>
+                </div>
+                
+                <h1 class="wikiname">SinterCommand</h1>
+
+                <div class="summary">
+                    
+                </div>
+
+                <div class="narrow">
+                    <h1><a name="SINTER _key1_ _key2_ ... _keyN_">SINTER _key1_ _key2_ ... _keyN_</a></h1>
+<i>Time complexity O(N<b>M) worst case where N is the cardinality of the smallest set and M the number of sets_<br/><br/><blockquote>Return the members of a set resulting from the intersection of all thesets hold at the specified keys. Like in LRANGE the result is sent tothe client as a multi-bulk reply (see the protocol specification formore information). If just a single key is specified, then this commandproduces the same result as SELEMENTS. Actually SELEMENTS is just syntaxsugar for SINTERSECT.</blockquote>
+<blockquote>If at least one of the specified keys does not exist or does not holda set value an error is returned.</blockquote>
+<h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Multi bulk reply</a>, specifically the list of common elements.<h2><a name="See also">See also</a></h2>
+<blockquote>* <a href="SremCommand.html">SREM</a>* <a href="SismemberCommand.html">SISMEMBER</a>* <a href="ScardCommand.html">SCARD</a>* <a href="SmembersCommand.html">SMEMBERS</a>* <a href="SinterCommand.html">SINTER</a>* <a href="SinterstoreCommand.html">SINTERSTORE</a></blockquote></b></i>
+                </div>
+        
+            </div>
+        </div>
+    </body>
+</html>
+

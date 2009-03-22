@@ -1,0 +1,17 @@
+BETA 8 TODO
+- keys expire
+- sunion ssub
+- write integers in a special way on disk (and on memory?)
+- compact types for disk storing of short strings (no 4 bytes overhead!)
+- network layer stresser in test in demo
+- maxclients directive
+- check 'server.dirty' everywere
+- replication tests
+- command line client. If the last argument of a bulk command is missing get it from stdin. Example:
+    $ echo "bar" | redis-client SET foo
+    $ redis-client SET foo bar
+    $ redis-client GET foo
+    bar
+    $
+- Make Redis aware of the memory it is using thanks to getrusage() and report this info with the INFO command.
+- INFO command: clients, slave/master, requests/second in the last N seconds, memory usage, uptime, dirty, lastsave
