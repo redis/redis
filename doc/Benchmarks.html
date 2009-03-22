@@ -111,6 +111,14 @@ GET: 45497.73 requests per second
 INCR: 39370.47 requests per second
 LPUSH: 34803.41 requests per second
 LPOP: 37367.20 requests per second
+</pre>Another one using a 64 bit box, a Xeon L5420 clocked at 2.5 Ghz:<br/><br/><pre class="codeblock python python python" name="code">
+ ./redis-benchmark -q -n 100000
+PING: 111731.84 requests per second
+SET: 108114.59 requests per second
+GET: 98717.67 requests per second
+INCR: 95241.91 requests per second
+LPUSH: 104712.05 requests per second
+LPOP: 93722.59 requests per second
 </pre>
                 </div>
         
