@@ -553,6 +553,23 @@ proc main {server port} {
         list [redis_lrange $fd mylist 0 -1] $res
     } {{foo bar foobar foobared zap test} 2}
 
+    test {MGET} {
+        redis_flushall $fd
+        redis_set $fd foo BAR
+        redis_set $fd bar FOO
+        redis_mget $fd foo bar
+    } {BAR FOO}
+
+    test {MGET against non existing key} {
+        redis_mget $fd foo baazz bar
+    } {BAR {} FOO}
+
+    test {MGET against non-string key} {
+        redis_sadd $fd myset ciao
+        redis_sadd $fd myset bau
+        redis_mget $fd foo baazz bar myset
+    } {BAR {} FOO {}}
+
     # Leave the user with a clean DB before to exit
     test {FLUSHALL} {
         redis_flushall $fd
@@ -589,9 +606,10 @@ proc redis_readnl {fd len} {
     return $buf
 }
 
-proc redis_bulk_read fd {
+proc redis_bulk_read {fd {multi 0}} {
     set count [redis_read_integer $fd]
     if {$count eq {nil}} return {}
+    if {$multi && $count == -1} return {}
     set len [expr {abs($count)}]
     set buf [redis_readnl $fd $len]
     if {$count < 0} {return "***ERROR*** $buf"}
@@ -608,7 +626,7 @@ proc redis_multi_bulk_read fd {
     }
     set l {}
     for {set i 0} {$i < $count} {incr i} {
-        lappend l [redis_bulk_read $fd]
+        lappend l [redis_bulk_read $fd 1]
     }
     return $l
 }
@@ -707,6 +725,11 @@ proc redis_lindex {fd key index} {
 
 proc redis_lrange {fd key first last} {
     redis_writenl $fd "lrange $key $first $last"
+    redis_multi_bulk_read $fd
+}
+
+proc redis_mget {fd args} {
+    redis_writenl $fd "mget [join $args]"
     redis_multi_bulk_read $fd
 }
 
