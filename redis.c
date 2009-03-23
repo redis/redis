@@ -89,6 +89,7 @@
 #define REDIS_CLOSE 1       /* This client connection should be closed ASAP */
 #define REDIS_SLAVE 2       /* This client is a slave server */
 #define REDIS_MASTER 4      /* This client is a master server */
+#define REDIS_MONITOR 8      /* This client is a slave monitor, see MONITOR */
 
 /* Server replication state */
 #define REDIS_REPL_NONE 0   /* No active replication */
@@ -138,7 +139,7 @@ typedef struct redisClient {
     list *reply;
     int sentlen;
     time_t lastinteraction; /* time of the last interaction, used for timeout */
-    int flags; /* REDIS_CLOSE | REDIS_SLAVE */
+    int flags; /* REDIS_CLOSE | REDIS_SLAVE | REDIS_MONITOR */
     int slaveseldb; /* slave selected db, if this client is a slave */
 } redisClient;
 
@@ -154,7 +155,7 @@ struct redisServer {
     dict **dict;
     long long dirty;            /* changes to DB from the last save */
     list *clients;
-    list *slaves;
+    list *slaves, *monitors;
     char neterr[ANET_ERR_LEN];
     aeEventLoop *el;
     int cronloops;              /* number of times the cron function run */
@@ -235,7 +236,7 @@ static void addReplySds(redisClient *c, sds s);
 static void incrRefCount(robj *o);
 static int saveDbBackground(char *filename);
 static robj *createStringObject(char *ptr, size_t len);
-static void replicationFeedSlaves(struct redisCommand *cmd, int dictid, robj **argv, int argc);
+static void replicationFeedSlaves(list *slaves, struct redisCommand *cmd, int dictid, robj **argv, int argc);
 static int syncWithMaster(void);
 
 static void pingCommand(redisClient *c);
@@ -283,6 +284,7 @@ static void sortCommand(redisClient *c);
 static void lremCommand(redisClient *c);
 static void infoCommand(redisClient *c);
 static void mgetCommand(redisClient *c);
+static void monitorCommand(redisClient *c);
 
 /*================================= Globals ================================= */
 
@@ -335,6 +337,7 @@ static struct redisCommand cmdTable[] = {
     {"flushall",flushallCommand,1,REDIS_CMD_INLINE},
     {"sort",sortCommand,-2,REDIS_CMD_INLINE},
     {"info",infoCommand,1,REDIS_CMD_INLINE},
+    {"monitor",monitorCommand,1,REDIS_CMD_INLINE},
     {NULL,NULL,0,0}
 };
 
@@ -739,11 +742,12 @@ static void initServer() {
 
     server.clients = listCreate();
     server.slaves = listCreate();
+    server.monitors = listCreate();
     server.objfreelist = listCreate();
     createSharedObjects();
     server.el = aeCreateEventLoop();
     server.dict = zmalloc(sizeof(dict*)*server.dbnum);
-    if (!server.dict || !server.clients || !server.slaves || !server.el || !server.objfreelist)
+    if (!server.dict || !server.clients || !server.slaves || !server.monitors || !server.el || !server.objfreelist)
         oom("server initialization"); /* Fatal OOM */
     server.fd = anetTcpServer(server.neterr, server.port, server.bindaddr);
     if (server.fd == -1) {
@@ -922,9 +926,10 @@ static void freeClient(redisClient *c) {
     assert(ln != NULL);
     listDelNode(server.clients,ln);
     if (c->flags & REDIS_SLAVE) {
-        ln = listSearchKey(server.slaves,c);
+        list *l = (c->flags & REDIS_MONITOR) ? server.monitors : server.slaves;
+        ln = listSearchKey(l,c);
         assert(ln != NULL);
-        listDelNode(server.slaves,ln);
+        listDelNode(l,ln);
     }
     if (c->flags & REDIS_MASTER) {
         server.master = NULL;
@@ -1083,7 +1088,9 @@ static int processCommand(redisClient *c) {
     dirty = server.dirty;
     cmd->proc(c);
     if (server.dirty-dirty != 0 && listLength(server.slaves))
-        replicationFeedSlaves(cmd,c->dictid,c->argv,c->argc);
+        replicationFeedSlaves(server.slaves,cmd,c->dictid,c->argv,c->argc);
+    if (listLength(server.monitors))
+        replicationFeedSlaves(server.monitors,cmd,c->dictid,c->argv,c->argc);
     server.stat_numcommands++;
 
     /* Prepare the client for the next command */
@@ -1095,8 +1102,8 @@ static int processCommand(redisClient *c) {
     return 1;
 }
 
-static void replicationFeedSlaves(struct redisCommand *cmd, int dictid, robj **argv, int argc) {
-    listNode *ln = server.slaves->head;
+static void replicationFeedSlaves(list *slaves, struct redisCommand *cmd, int dictid, robj **argv, int argc) {
+    listNode *ln = slaves->head;
     robj *outv[REDIS_MAX_ARGS*4]; /* enough room for args, spaces, newlines */
     int outc = 0, j;
     
@@ -3019,6 +3026,13 @@ static int syncWithMaster(void) {
     server.master->flags |= REDIS_MASTER;
     server.replstate = REDIS_REPL_CONNECTED;
     return REDIS_OK;
+}
+
+static void monitorCommand(redisClient *c) {
+    c->flags |= (REDIS_SLAVE|REDIS_MONITOR);
+    c->slaveseldb = 0;
+    if (!listAddNodeTail(server.monitors,c)) oom("listAddNodeTail");
+    addReply(c,shared.ok);
 }
 
 /* =================================== Main! ================================ */
