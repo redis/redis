@@ -27,7 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define REDIS_VERSION "0.07"
+#define REDIS_VERSION "0.08"
 
 #include <stdio.h>
 #include <stdlib.h>

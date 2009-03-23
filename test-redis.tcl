@@ -784,37 +784,37 @@ proc redis_sismember {fd key val} {
 }
 
 proc redis_sinter {fd args} {
-    redis_writenl $fd "sinter [join $args]\r\n"
+    redis_writenl $fd "sinter [join $args]"
     redis_multi_bulk_read $fd
 }
 
 proc redis_sinterstore {fd args} {
-    redis_writenl $fd "sinterstore [join $args]\r\n"
+    redis_writenl $fd "sinterstore [join $args]"
     redis_read_retcode $fd
 }
 
 proc redis_smembers {fd key} {
-    redis_writenl $fd "smembers $key\r\n"
+    redis_writenl $fd "smembers $key"
     redis_multi_bulk_read $fd
 }
 
 proc redis_echo {fd str} {
-    redis_writenl $fd "echo [string length $str]\r\n$str\r\n"
-    redis_writenl $fd "smembers $key\r\n"
+    redis_writenl $fd "echo [string length $str]\r\n$str"
+    redis_writenl $fd "smembers $key"
 }
 
 proc redis_save {fd} {
-    redis_writenl $fd "save\r\n"
+    redis_writenl $fd "save"
     redis_read_retcode $fd
 }
 
 proc redis_flushall {fd} {
-    redis_writenl $fd "flushall\r\n"
+    redis_writenl $fd "flushall"
     redis_read_retcode $fd
 }
 
 proc redis_flushdb {fd} {
-    redis_writenl $fd "flushdb\r\n"
+    redis_writenl $fd "flushdb"
     redis_read_retcode $fd
 }
 
@@ -823,8 +823,35 @@ proc redis_lrem {fd key count val} {
     redis_read_integer $fd
 }
 
+proc stress {} {
+    set fd [socket 127.0.0.1 6379]
+    fconfigure $fd -translation binary
+    redis_flushall $fd
+    while 1 {
+        set randkey [expr int(rand()*10000)]
+        set randval [expr int(rand()*10000)]
+        set randidx0 [expr int(rand()*10)]
+        set randidx1 [expr int(rand()*10)]
+        set cmd [expr int(rand()*10)]
+        if {$cmd == 0} {redis_set $fd $randkey $randval}
+        if {$cmd == 1} {redis_get $fd $randkey}
+        if {$cmd == 2} {redis_incr $fd $randkey}
+        if {$cmd == 3} {redis_lpush $fd $randkey $randval}
+        if {$cmd == 4} {redis_rpop $fd $randkey}
+        if {$cmd == 5} {redis_del $fd $randkey}
+        if {$cmd == 6} {redis_lrange $fd $randkey $randidx0 $randidx1}
+        if {$cmd == 7} {redis_ltrim $fd $randkey $randidx0 $randidx1}
+        if {$cmd == 8} {redis_lindex $fd $randkey $randidx0}
+        if {$cmd == 9} {redis_lset $fd $randkey $randidx0 $randval}
+        flush stdout
+    }
+    close $fd
+}
+
 if {[llength $argv] == 0} {
     main 127.0.0.1 6379
+} elseif {[llength $argv] == 1 && [lindex $argv 0] eq {stress}} {
+    stress
 } else {
     main [lindex $argv 0] [lindex $argv 1]
 }
