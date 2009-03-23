@@ -135,11 +135,13 @@ static sds cliReadLine(int fd) {
 
     while(1) {
         char c;
+        ssize_t ret;
 
-        if (read(fd,&c,1) == -1) {
+        ret = read(fd,&c,1);
+        if (ret == -1) {
             sdsfree(line);
             return NULL;
-        } else if (c == '\n') {
+        } else if ((ret == 0) || (c == '\n')) {
             break;
         } else {
             line = sdscatlen(line,&c,1);
