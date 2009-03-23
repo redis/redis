@@ -3,3 +3,4 @@
 redis-cli
 redis-server
 redis-benchmark
+doc-tools
