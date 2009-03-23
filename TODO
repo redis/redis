@@ -15,3 +15,22 @@ BETA 8 TODO
     $
 - Make Redis aware of the memory it is using thanks to getrusage() and report this info with the INFO command.
 - INFO command: clients, slave/master, requests/second in the last N seconds, memory usage, uptime, dirty, lastsave
+
+FUTURE
+
+ROLLBACK command:
+
+    ROLLBACK UNSET x
+    SET x 10
+    EXPIRE x 3600
+    COMMIT
+
+    (multiple rollbacks are allowed)
+
+    or alternatively
+
+    TRANSACTION SET x 1000
+    TRANSACTION EXPIRE x 1000
+    COMMIT
+
+    but this sucks since there is no way to check the error message.
