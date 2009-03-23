@@ -2919,6 +2919,9 @@ static void syncCommand(redisClient *c) {
     time_t start = time(NULL);
     char sizebuf[32];
 
+    /* ignore SYNC if aleady slave or in monitor mode */
+    if (c->flags & REDIS_SLAVE) return;
+
     redisLog(REDIS_NOTICE,"Slave ask for syncronization");
     if (flushClientOutput(c) == REDIS_ERR || saveDb(server.dbfilename) != REDIS_OK)
         goto closeconn;
@@ -3029,6 +3032,9 @@ static int syncWithMaster(void) {
 }
 
 static void monitorCommand(redisClient *c) {
+    /* ignore MONITOR if aleady slave or in monitor mode */
+    if (c->flags & REDIS_SLAVE) return;
+
     c->flags |= (REDIS_SLAVE|REDIS_MONITOR);
     c->slaveseldb = 0;
     if (!listAddNodeTail(server.monitors,c)) oom("listAddNodeTail");

@@ -34,3 +34,5 @@ ROLLBACK command:
     COMMIT
 
     but this sucks since there is no way to check the error message.
+
+- Prevent the client to issue SYNC or MONITOR multiple times
