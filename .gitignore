@@ -1,0 +1,8 @@
+*.o
+*.rdb
+redis-cli
+redis-server
+redis-benchmark
+doc-tools
+mkrelease.sh
+release

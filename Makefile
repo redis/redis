@@ -23,7 +23,7 @@ anet.o: anet.c anet.h
 benchmark.o: benchmark.c ae.h anet.h sds.h adlist.h
 dict.o: dict.c dict.h
 redis-cli.o: redis-cli.c anet.h sds.h adlist.h
-redis.o: redis.c ae.h sds.h anet.h dict.h adlist.h
+redis.o: redis.c ae.h sds.h anet.h dict.h adlist.h zmalloc.c zmalloc.h
 sds.o: sds.c sds.h
 sha1.o: sha1.c sha1.h
 zmalloc.o: zmalloc.c
