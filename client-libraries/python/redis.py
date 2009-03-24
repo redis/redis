@@ -140,6 +140,19 @@ class Redis(object):
         self._write('GET %s\r\n' % name)
         return self._get_value()
     
+    def mget(self, *args):
+        """
+        >>> r = Redis()
+        >>> r.set('a', 'pippo'), r.set('b', 15), r.set('c', '\\r\\naaa\\nbbb\\r\\ncccc\\nddd\\r\\n'), r.set('d', '\\r\\n')
+        ('OK', 'OK', 'OK', 'OK')
+        >>> r.mget('a', 'b', 'c', 'd')
+        ['pippo', '15', '\\r\\naaa\\nbbb\\r\\ncccc\\nddd\\r\\n', '\\r\\n']
+        >>> 
+        """
+        self.connect()
+        self._write('MGET %s\r\n' % ' '.join(args))
+        return self._get_multi_response()
+    
     def incr(self, name, amount=1):
         """
         >>> r = Redis()
@@ -826,6 +839,26 @@ class Redis(object):
         self.connect()
         self._write('%s\r\n' % ('FLUSHALL' if all_dbs else 'FLUSHDB'))
         return self._get_simple_response()
+    
+    def info(self):
+        """
+        >>> r = Redis()
+        >>> info = r.info()
+        >>> info and isinstance(info, dict)
+        True
+        >>> isinstance(info.get('connected_clients'), int)
+        True
+        >>> 
+        """
+        self.connect()
+        self._write('INFO\r\n')
+        info = dict()
+        for l in self._get_value().split('\r\n'):
+            if not l:
+                continue
+            k, v = l.split(':', 1)
+            info[k] = int(v) if v.isdigit() else v
+        return info
     
     def _get_value(self, negative_as_nil=False):
         data = self._read().strip()
