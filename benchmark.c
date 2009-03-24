@@ -190,11 +190,11 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask)
             if (c->replytype == REPLY_BULK) {
                 *p = '\0';
                 *(p-1) = '\0';
-                if (memcmp(c->ibuf,"nil",3) == 0) {
+                c->readlen = atoi(c->ibuf+1)+2;
+                if (c->readlen == -1) {
                     clientDone(c);
                     return;
                 }
-                c->readlen = atoi(c->ibuf)+2;
                 c->ibuf = sdsrange(c->ibuf,(p-c->ibuf)+1,-1);
             } else {
                 c->ibuf = sdstrim(c->ibuf,"\r\n");
