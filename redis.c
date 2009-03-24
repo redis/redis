@@ -215,7 +215,7 @@ typedef struct _redisSortOperation {
 
 struct sharedObjectsStruct {
     robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *pong, *space,
-    *colon, *minus1, *nullbulk, *nullmultibulk,
+    *colon, *nullbulk, *nullmultibulk,
     *emptymultibulk, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
     *outofrangeerr, *plus,
     *select0, *select1, *select2, *select3, *select4,
@@ -667,7 +667,6 @@ static void createSharedObjects(void) {
     shared.nullmultibulk = createObject(REDIS_STRING,sdsnew("*-1\r\n"));
     shared.emptymultibulk = createObject(REDIS_STRING,sdsnew("*0\r\n"));
     /* no such key */
-    shared.minus1 = createObject(REDIS_STRING,sdsnew("-1\r\n"));
     shared.pong = createObject(REDIS_STRING,sdsnew("+PONG\r\n"));
     shared.wrongtypeerr = createObject(REDIS_STRING,sdsnew(
         "-ERR Operation against a key holding the wrong kind of value\r\n"));
@@ -1532,13 +1531,19 @@ static int saveDbBackground(char *filename) {
     return REDIS_OK; /* unreached */
 }
 
+static int loadType(FILE *fp) {
+    uint8_t type;
+    if (fread(&type,1,1,fp) == 0) return -1;
+    return type;
+}
+
 static int loadDb(char *filename) {
     FILE *fp;
     char buf[REDIS_LOADBUF_LEN];    /* Try to use this buffer instead of */
     char vbuf[REDIS_LOADBUF_LEN];   /* malloc() when the element is small */
     char *key = NULL, *val = NULL;
     uint32_t klen,vlen,dbid;
-    uint8_t type;
+    int type;
     int retval;
     dict *d = server.dict[0];
 
@@ -1554,7 +1559,7 @@ static int loadDb(char *filename) {
         robj *o;
 
         /* Read type. */
-        if (fread(&type,1,1,fp) == 0) goto eoferr;
+        if ((type = loadType(fp)) == -1) goto eoferr;
         if (type == REDIS_EOF) break;
         /* Handle SELECT DB opcode as a special case */
         if (type == REDIS_SELECTDB) {
@@ -2280,7 +2285,7 @@ static void lremCommand(redisClient *c) {
     
     de = dictFind(c->dict,c->argv[1]);
     if (de == NULL) {
-        addReply(c,shared.minus1);
+        addReply(c,shared.nokeyerr);
     } else {
         robj *o = dictGetEntryVal(de);
         
