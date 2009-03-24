@@ -29,7 +29,7 @@
                     <h1><a name="Protocol Specification">Protocol Specification</a></h1>The Redis protocol is a compromise between being easy to parse by a computer
 and being easy to parse by an human. Before reading this section you are
 strongly encouraged to read the &quot;REDIS TUTORIAL&quot; section of this README in order
-to get a first feeling of the protocol playing with it by TELNET.<h2><a name="Networking layer">Networking layer</a></h2>A client connects to a Redis server creating a TCP connection to the port 6973.
+to get a first feeling of the protocol playing with it by TELNET.<h2><a name="Networking layer">Networking layer</a></h2>A client connects to a Redis server creating a TCP connection to the port 6379.
 Every redis command or data transmitted by the client and the server is
 terminated by &quot;\r\n&quot; (CRLF).<h2><a name="Simple INLINE commands">Simple INLINE commands</a></h2>The simplest commands are the inline commands. This is an example of a
 server/client chat (the server chat starts with S:, the client chat with C:)<br/><br/><pre class="codeblock python" name="code">

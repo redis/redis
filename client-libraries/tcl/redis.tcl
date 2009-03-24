@@ -106,6 +106,6 @@ proc ::redis::redis_read_reply fd {
         - {return -code error [redis_read_line $fd]}
         $ {redis_bulk_read $fd}
         * {redis_multi_bulk_read $fd}
-        default {return -code error "Bad protocl, $type as reply type byte"}
+        default {return -code error "Bad protocol, $type as reply type byte"}
     }
 }
