@@ -124,16 +124,16 @@ proc main {server port} {
         puts -nonewline $fd "SET k1 4\r\nxyzk\r\nGET k1\r\nPING\r\n"
         flush $fd
         set res {}
-        append res [string match +OK* [redis_read_retcode $fd]]
-        append res [redis_bulk_read $fd]
-        append res [string match +PONG* [redis_read_retcode $fd]]
+        append res [string match OK* [redis_read_reply $fd]]
+        append res [redis_read_reply $fd]
+        append res [string match PONG* [redis_read_reply $fd]]
         format $res
     } {1xyzk1}
 
     test {Non existing command} {
         puts -nonewline $fd "foo\r\n"
         flush $fd
-        string match -ERR* [redis_read_retcode $fd]
+        string match ERR* [redis_read_reply $fd]
     } {1}
 
     test {Basic LPUSH, RPUSH, LLENGTH, LINDEX} {
@@ -181,19 +181,19 @@ proc main {server port} {
         redis_del $fd mylist
         redis_set $fd mylist foobar
         redis_llen $fd mylist
-    } {-2}
+    } {ERR*}
 
     test {LINDEX against non-list value error} {
         redis_lindex $fd mylist 0
-    } {*ERROR*}
+    } {ERR*}
 
     test {LPUSH against non-list value error} {
         redis_lpush $fd mylist 0
-    } {-ERR*}
+    } {ERR*}
 
     test {RPUSH against non-list value error} {
         redis_rpush $fd mylist 0
-    } {-ERR*}
+    } {ERR*}
 
     test {RENAME basic usage} {
         redis_set $fd mykey hello
@@ -236,11 +236,11 @@ proc main {server port} {
 
     test {RENAME against non existing source key} {
         redis_rename $fd nokey foobar
-    } {-ERR*}
+    } {ERR*}
 
     test {RENAME where source and dest key is the same} {
         redis_rename $fd mykey mykey
-    } {-ERR*}
+    } {ERR*}
 
     test {DEL all keys again (DB 0)} {
         foreach key [redis_keys $fd *] {
@@ -309,7 +309,7 @@ proc main {server port} {
     test {LPOP against non list value} {
         redis_set $fd notalist foo
         redis_lpop $fd notalist
-    } {*ERROR*against*}
+    } {ERR*kind*}
 
     test {Mass LPUSH/LPOP} {
         set sum 0
@@ -363,16 +363,16 @@ proc main {server port} {
 
     test {LSET out of range index} {
         redis_lset $fd mylist 10 foo
-    } {-ERR*range*}
+    } {ERR*range*}
 
     test {LSET against non existing key} {
         redis_lset $fd nosuchkey 10 foo
-    } {-ERR*key*}
+    } {ERR*key*}
 
     test {LSET against non list value} {
         redis_set $fd nolist foobar
         redis_lset $fd nolist 0 foo
-    } {-ERR*value*}
+    } {ERR*value*}
 
     test {SADD, SCARD, SISMEMBER, SMEMBERS basics} {
         redis_sadd $fd myset foo
@@ -391,7 +391,7 @@ proc main {server port} {
 
     test {SADD against non set} {
         redis_sadd $fd mylist foo
-    } {-2}
+    } {ERR*kind*}
 
     test {SREM basics} {
         redis_sadd $fd myset ciao
@@ -431,7 +431,7 @@ proc main {server port} {
         redis_set $fd myemptykey {}
         redis_set $fd mynormalkey {blablablba}
         redis_save $fd
-    } {+OK}
+    } {OK}
     
     test {Create a random list} {
         set tosort {}
@@ -606,221 +606,224 @@ proc redis_readnl {fd len} {
     return $buf
 }
 
-proc redis_bulk_read {fd {multi 0}} {
-    set count [redis_read_integer $fd]
-    if {$count eq {nil}} return {}
-    if {$multi && $count == -1} return {}
-    set len [expr {abs($count)}]
-    set buf [redis_readnl $fd $len]
-    if {$count < 0} {return "***ERROR*** $buf"}
+proc redis_bulk_read {fd} {
+    set count [redis_read_line $fd]
+    if {$count == -1} return {}
+    set buf [redis_readnl $fd $count]
     return $buf
 }
 
 proc redis_multi_bulk_read fd {
-    set count [redis_read_integer $fd]
-    if {$count eq {nil}} return {}
-    if {$count < 0} {
-        set len [expr {abs($count)}]
-        set buf [redis_readnl $fd $len]
-        return "***ERROR*** $buf"
-    }
+    set count [redis_read_line $fd]
+    if {$count == -1} return {}
     set l {}
     for {set i 0} {$i < $count} {incr i} {
-        lappend l [redis_bulk_read $fd 1]
+        lappend l [redis_read_reply $fd]
     }
     return $l
 }
 
-proc redis_read_retcode fd {
-    set retcode [string trim [gets $fd]]
-    # puts "S: $retcode"
-    return $retcode
+proc redis_read_line fd {
+    string trim [gets $fd]
 }
 
-proc redis_read_integer fd {
-    string trim [gets $fd]
+proc redis_read_reply fd {
+    set type [read $fd 1]
+    if {$type eq {:}} {
+        redis_read_line $fd
+    } elseif {$type eq {-}} {
+        redis_read_line $fd
+    } elseif {$type eq {+}} {
+        redis_read_line $fd
+    } elseif {$type eq {$}} {
+        redis_bulk_read $fd
+    } elseif {$type eq {*}} {
+        redis_multi_bulk_read $fd
+    } else {
+        error "Bad protocol: $type as initial reply byte"
+    }
 }
 
 ### Actual API ###
 
 proc redis_set {fd key val} {
     redis_writenl $fd "set $key [string length $val]\r\n$val"
-    redis_read_retcode $fd
+    redis_read_reply $fd
 }
 
 proc redis_setnx {fd key val} {
     redis_writenl $fd "setnx $key [string length $val]\r\n$val"
-    redis_read_integer $fd
+    redis_read_reply $fd
 }
 
 proc redis_get {fd key} {
     redis_writenl $fd "get $key"
-    redis_bulk_read $fd
+    redis_read_reply $fd
 }
 
 proc redis_select {fd id} {
     redis_writenl $fd "select $id"
-    redis_read_retcode $fd
+    redis_read_reply $fd
 }
 
 proc redis_move {fd key id} {
     redis_writenl $fd "move $key $id"
-    redis_read_integer $fd
+    redis_read_reply $fd
 }
 
 proc redis_del {fd key} {
     redis_writenl $fd "del $key"
-    redis_read_integer $fd
+    redis_read_reply $fd
 }
 
 proc redis_keys {fd pattern} {
     redis_writenl $fd "keys $pattern"
-    split [redis_bulk_read $fd]
+    split [redis_read_reply $fd]
 }
 
 proc redis_dbsize {fd} {
     redis_writenl $fd "dbsize"
-    redis_read_integer $fd
+    redis_read_reply $fd
 }
 
 proc redis_incr {fd key} {
     redis_writenl $fd "incr $key"
-    redis_read_integer $fd
+    redis_read_reply $fd
 }
 
 proc redis_decr {fd key} {
     redis_writenl $fd "decr $key"
-    redis_read_integer $fd
+    redis_read_reply $fd
 }
 
 proc redis_exists {fd key} {
     redis_writenl $fd "exists $key"
-    redis_read_integer $fd
+    redis_read_reply $fd
 }
 
 proc redis_lpush {fd key val} {
     redis_writenl $fd "lpush $key [string length $val]\r\n$val"
-    redis_read_retcode $fd
+    redis_read_reply $fd
 }
 
 proc redis_rpush {fd key val} {
     redis_writenl $fd "rpush $key [string length $val]\r\n$val"
-    redis_read_retcode $fd
+    redis_read_reply $fd
 }
 
 proc redis_llen {fd key} {
     redis_writenl $fd "llen $key"
-    redis_read_integer $fd
+    redis_read_reply $fd
 }
 
 proc redis_scard {fd key} {
     redis_writenl $fd "scard $key"
-    redis_read_integer $fd
+    redis_read_reply $fd
 }
 
 proc redis_lindex {fd key index} {
     redis_writenl $fd "lindex $key $index"
-    redis_bulk_read $fd
+    redis_read_reply $fd
 }
 
 proc redis_lrange {fd key first last} {
     redis_writenl $fd "lrange $key $first $last"
-    redis_multi_bulk_read $fd
+    redis_read_reply $fd
 }
 
 proc redis_mget {fd args} {
     redis_writenl $fd "mget [join $args]"
-    redis_multi_bulk_read $fd
+    redis_read_reply $fd
 }
 
 proc redis_sort {fd key {params {}}} {
     redis_writenl $fd "sort $key $params"
-    redis_multi_bulk_read $fd
+    redis_read_reply $fd
 }
 
 proc redis_ltrim {fd key first last} {
     redis_writenl $fd "ltrim $key $first $last"
-    redis_read_retcode $fd
+    redis_read_reply $fd
 }
 
 proc redis_rename {fd key1 key2} {
     redis_writenl $fd "rename $key1 $key2"
-    redis_read_retcode $fd
+    redis_read_reply $fd
 }
 
 proc redis_renamenx {fd key1 key2} {
     redis_writenl $fd "renamenx $key1 $key2"
-    redis_read_integer $fd
+    redis_read_reply $fd
 }
 
 proc redis_lpop {fd key} {
     redis_writenl $fd "lpop $key"
-    redis_bulk_read $fd
+    redis_read_reply $fd
 }
 
 proc redis_rpop {fd key} {
     redis_writenl $fd "rpop $key"
-    redis_bulk_read $fd
+    redis_read_reply $fd
 }
 
 proc redis_lset {fd key index val} {
     redis_writenl $fd "lset $key $index [string length $val]\r\n$val"
-    redis_read_retcode $fd
+    redis_read_reply $fd
 }
 
 proc redis_sadd {fd key val} {
     redis_writenl $fd "sadd $key [string length $val]\r\n$val"
-    redis_read_integer $fd
+    redis_read_reply $fd
 }
 
 proc redis_srem {fd key val} {
     redis_writenl $fd "srem $key [string length $val]\r\n$val"
-    redis_read_integer $fd
+    redis_read_reply $fd
 }
 
 proc redis_sismember {fd key val} {
     redis_writenl $fd "sismember $key [string length $val]\r\n$val"
-    redis_read_integer $fd
+    redis_read_reply $fd
 }
 
 proc redis_sinter {fd args} {
     redis_writenl $fd "sinter [join $args]"
-    redis_multi_bulk_read $fd
+    redis_read_reply $fd
 }
 
 proc redis_sinterstore {fd args} {
     redis_writenl $fd "sinterstore [join $args]"
-    redis_read_retcode $fd
+    redis_read_reply $fd
 }
 
 proc redis_smembers {fd key} {
     redis_writenl $fd "smembers $key"
-    redis_multi_bulk_read $fd
+    redis_read_reply $fd
 }
 
 proc redis_echo {fd str} {
     redis_writenl $fd "echo [string length $str]\r\n$str"
-    redis_writenl $fd "smembers $key"
+    redis_read_reply $fd
 }
 
 proc redis_save {fd} {
     redis_writenl $fd "save"
-    redis_read_retcode $fd
+    redis_read_reply $fd
 }
 
 proc redis_flushall {fd} {
     redis_writenl $fd "flushall"
-    redis_read_retcode $fd
+    redis_read_reply $fd
 }
 
 proc redis_flushdb {fd} {
     redis_writenl $fd "flushdb"
-    redis_read_retcode $fd
+    redis_read_reply $fd
 }
 
 proc redis_lrem {fd key count val} {
     redis_writenl $fd "lrem $key $count [string length $val]\r\n$val"
-    redis_read_integer $fd
+    redis_read_reply $fd
 }
 
 proc stress {} {
