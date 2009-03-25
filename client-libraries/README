@@ -9,9 +9,9 @@ code or recent bugfixes read more.
 How to get the lastest versions of client libraries source code
 ---------------------------------------------------------------
 
-Note that while the PHP and Python versions are the most uptodate available
-libraries, the Ruby and Erlang libraries have their own sites so you may want
-to grab this libraries from their main sites:
+Note that while the pure PHP, Tcl and Python libraries are the most uptodate
+available libraries, all the other libraries have their own repositories where
+it's possible to grab the most recent version:
 
 Ruby lib source code:
 http://github.com/ezmobius/redis-rb/tree/master
@@ -19,10 +19,11 @@ http://github.com/ezmobius/redis-rb/tree/master
 Erlang lib source code:
 http://bitbucket.org/adroll/erldis/
 
-For the languages with development code in the Redis SVN, check this urls for unstable versions of the libs:
+Perl lib source code:
+(web) http://svn.rot13.org/index.cgi/Redis
+(svn) svn://svn.rot13.org/Redis/
 
-Python lib source code:
-http://code.google.com/p/redis/source/browse/#svn/trunk/client-libraries/python
+Redis-php PHP C module:
+http://code.google.com/p/phpredis/
 
-PHP lib source code:
-http://code.google.com/p/redis/source/browse/#svn/trunk/client-libraries/php
+For all the rest check the Redis tarball or Git repository.

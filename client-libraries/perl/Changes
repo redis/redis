@@ -1,0 +1,8 @@
+Revision history for Redis
+
+0.01    Sun Mar 22 19:02:17 CET 2009
+        First version, tracking git://github.com/antirez/redis
+
+0.08	Tue Mar 24 22:38:59 CET 2009
+	This version supports new protocol introduced in beta 8
+	Version bump to be in-sync with Redis version

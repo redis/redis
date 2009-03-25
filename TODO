@@ -7,3 +7,6 @@
 - maxclients directive
 - check 'server.dirty' everywere
 - replication automated tests
+- a command, or an external tool, to perform the MD5SUM of the whole dataset, so that if the dataset between two servers is identical, so will be the MD5SUM
+
+* Include Lua and Perl bindings
