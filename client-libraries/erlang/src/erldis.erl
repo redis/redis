@@ -31,7 +31,7 @@ incrby(Client, Key, By) -> client:ssend(Client, incrby, [Key, By]).
 decr(Client, Key) -> client:ssend(Client, decr, [Key]).
 decrby(Client, Key, By) -> client:ssend(Client, decrby, [Key, By]).
 get(Client, Key) -> client:ssend(Client, get, [Key]).
-
+mget(Client, Keys) -> client:ssend(Client, mget, Keys).
 
 %% Commands operating on every value
 exists(Client, Key) -> client:ssend(Client, exists, [Key]).
