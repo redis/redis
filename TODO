@@ -8,5 +8,6 @@
 - check 'server.dirty' everywere
 - replication automated tests
 - a command, or an external tool, to perform the MD5SUM of the whole dataset, so that if the dataset between two servers is identical, so will be the MD5SUM
+- objects sharing, "objectsharing yes", "objectsharingpool 1024"
 
 * Include Lua and Perl bindings
