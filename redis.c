@@ -1099,10 +1099,6 @@ static int processCommand(redisClient *c) {
         addReplySds(c,sdsnew("-ERR wrong number of arguments\r\n"));
         resetClient(c);
         return 1;
-    } else if (server.requirepass && !c->authenticated && strcmp(c->argv[0]->ptr,"auth")) {
-        addReplySds(c,sdsnew("-ERR operation not permitted\r\n"));
-        resetClient(c);
-        return 1;
     } else if (cmd->flags & REDIS_CMD_BULK && c->bulklen == -1) {
         int bulklen = atoi(c->argv[c->argc-1]->ptr);
 
@@ -1131,6 +1127,13 @@ static int processCommand(redisClient *c) {
         for(j = 1; j < c->argc; j++)
             c->argv[j] = tryObjectSharing(c->argv[j]);
     }
+    /* Check if the user is authenticated */
+    if (server.requirepass && !c->authenticated && cmd->proc != authCommand) {
+        addReplySds(c,sdsnew("-ERR operation not permitted\r\n"));
+        resetClient(c);
+        return 1;
+    }
+
     /* Exec the command */
     dirty = server.dirty;
     cmd->proc(c);

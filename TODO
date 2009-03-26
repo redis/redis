@@ -1,7 +1,7 @@
 - Protocol changes as discussed in the Redis group
 - keys expire
 - sunion ssub
-- write integers in a special way on disk (and on memory?)
+- write integers in a special way on disk, use the unused 11|.... length.
 - compact types for disk storing of short strings (no 4 bytes overhead!)
 - network layer stresser in test in demo
 - maxclients directive
