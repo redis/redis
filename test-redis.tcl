@@ -22,6 +22,14 @@ proc main {server port} {
     set r [redis $server $port]
     set err ""
 
+    # The following AUTH test should be enabled only when requirepass
+    # <PASSWORD> is set in redis.conf and redis-server was started with
+    # redis.conf as the first argument.  
+
+    #test {AUTH with requirepass in redis.conf} {
+    #    $r auth foobared
+    #} {OK}
+
     test {DEL all keys to start with a clean DB} {
         foreach key [$r keys *] {$r del $key}
         $r dbsize

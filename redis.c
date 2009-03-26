@@ -161,6 +161,7 @@ typedef struct redisClient {
     time_t lastinteraction; /* time of the last interaction, used for timeout */
     int flags; /* REDIS_CLOSE | REDIS_SLAVE | REDIS_MONITOR */
     int slaveseldb; /* slave selected db, if this client is a slave */
+    int authenticated;    /* when requirepass is non-NULL */
 } redisClient;
 
 struct saveparam {
@@ -201,6 +202,7 @@ struct redisServer {
     char *logfile;
     char *bindaddr;
     char *dbfilename;
+    char *requirepass;
     int shareobjects;
     /* Replication related */
     int isslave;
@@ -263,6 +265,7 @@ static void replicationFeedSlaves(list *slaves, struct redisCommand *cmd, int di
 static int syncWithMaster(void);
 static robj *tryObjectSharing(robj *o);
 
+static void authCommand(redisClient *c);
 static void pingCommand(redisClient *c);
 static void echoCommand(redisClient *c);
 static void setCommand(redisClient *c);
@@ -349,6 +352,7 @@ static struct redisCommand cmdTable[] = {
     {"renamenx",renamenxCommand,3,REDIS_CMD_INLINE},
     {"keys",keysCommand,2,REDIS_CMD_INLINE},
     {"dbsize",dbsizeCommand,1,REDIS_CMD_INLINE},
+    {"auth",authCommand,2,REDIS_CMD_INLINE},
     {"ping",pingCommand,1,REDIS_CMD_INLINE},
     {"echo",echoCommand,2,REDIS_CMD_BULK},
     {"save",saveCommand,1,REDIS_CMD_INLINE},
@@ -744,6 +748,7 @@ static void initServerConfig() {
     server.daemonize = 0;
     server.pidfile = "/var/run/redis.pid";
     server.dbfilename = "dump.rdb";
+    server.requirepass = NULL;
     server.shareobjects = 0;
     ResetServerSaveParams();
 
@@ -914,6 +919,8 @@ static void loadServerConfig(char *filename) {
             else {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
+        } else if (!strcmp(argv[0],"requirepass") && argc == 2) {
+          server.requirepass = zstrdup(argv[1]);
         } else if (!strcmp(argv[0],"pidfile") && argc == 2) {
           server.pidfile = zstrdup(argv[1]);
         } else {
@@ -1090,6 +1097,10 @@ static int processCommand(redisClient *c) {
     } else if ((cmd->arity > 0 && cmd->arity != c->argc) ||
                (c->argc < -cmd->arity)) {
         addReplySds(c,sdsnew("-ERR wrong number of arguments\r\n"));
+        resetClient(c);
+        return 1;
+    } else if (server.requirepass && !c->authenticated && strcmp(c->argv[0]->ptr,"auth")) {
+        addReplySds(c,sdsnew("-ERR operation not permitted\r\n"));
         resetClient(c);
         return 1;
     } else if (cmd->flags & REDIS_CMD_BULK && c->bulklen == -1) {
@@ -1303,6 +1314,7 @@ static redisClient *createClient(int fd) {
     c->sentlen = 0;
     c->flags = 0;
     c->lastinteraction = time(NULL);
+    c->authenticated = 0;
     if ((c->reply = listCreate()) == NULL) oom("listCreate");
     listSetFreeMethod(c->reply,decrRefCount);
     if (aeCreateFileEvent(server.el, c->fd, AE_READABLE,
@@ -1762,6 +1774,16 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
 }
 
 /*================================== Commands =============================== */
+
+static void authCommand(redisClient *c) {
+    if (!strcmp(c->argv[1]->ptr, server.requirepass)) {
+      c->authenticated = 1;
+      addReply(c,shared.ok);
+    } else {
+      c->authenticated = 0;
+      addReply(c,shared.err);
+    }
+}
 
 static void pingCommand(redisClient *c) {
     addReply(c,shared.pong);
