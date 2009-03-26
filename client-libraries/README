@@ -26,4 +26,7 @@ Perl lib source code:
 Redis-php PHP C module:
 http://code.google.com/p/phpredis/
 
+Lua lib source code:
+http://github.com/nrk/redis-lua/tree/master
+
 For all the rest check the Redis tarball or Git repository.
