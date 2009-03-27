@@ -38,7 +38,7 @@ typedef char *sds;
 struct sdshdr {
     long len;
     long free;
-    char buf[0];
+    char buf[];
 };
 
 sds sdsnewlen(const void *init, size_t initlen);
