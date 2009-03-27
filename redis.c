@@ -27,7 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define REDIS_VERSION "0.08"
+#define REDIS_VERSION "0.09"
+
+#include "fmacros.h"
 
 #include <stdio.h>
 #include <stdlib.h>

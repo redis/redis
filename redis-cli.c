@@ -28,6 +28,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "fmacros.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
