@@ -278,8 +278,10 @@ sds *sdssplitlen(char *s, int len, char *sep, int seplen, int *count) {
     for (j = 0; j < (len-(seplen-1)); j++) {
         /* make sure there is room for the next element and the final one */
         if (slots < elements+2) {
+            sds *newtokens;
+
             slots *= 2;
-            sds *newtokens = zrealloc(tokens,sizeof(sds)*slots);
+            newtokens = zrealloc(tokens,sizeof(sds)*slots);
             if (newtokens == NULL) {
 #ifdef SDS_ABORT_ON_OOM
                 sdsOomAbort();

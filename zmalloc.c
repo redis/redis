@@ -38,7 +38,7 @@ void *zmalloc(size_t size) {
 
     *((size_t*)ptr) = size;
     used_memory += size+sizeof(size_t);
-    return ptr+sizeof(size_t);
+    return (char*)ptr+sizeof(size_t);
 }
 
 void *zrealloc(void *ptr, size_t size) {
@@ -47,7 +47,7 @@ void *zrealloc(void *ptr, size_t size) {
     void *newptr;
 
     if (ptr == NULL) return zmalloc(size);
-    realptr = ptr-sizeof(size_t);
+    realptr = (char*)ptr-sizeof(size_t);
     oldsize = *((size_t*)realptr);
     newptr = realloc(realptr,size+sizeof(size_t));
     if (!newptr) return NULL;
@@ -55,7 +55,7 @@ void *zrealloc(void *ptr, size_t size) {
     *((size_t*)newptr) = size;
     used_memory -= oldsize;
     used_memory += size;
-    return newptr+sizeof(size_t);
+    return (char*)newptr+sizeof(size_t);
 }
 
 void zfree(void *ptr) {
@@ -63,7 +63,7 @@ void zfree(void *ptr) {
     size_t oldsize;
 
     if (ptr == NULL) return;
-    realptr = ptr-sizeof(size_t);
+    realptr = (char*)ptr-sizeof(size_t);
     oldsize = *((size_t*)realptr);
     used_memory -= oldsize+sizeof(size_t);
     free(realptr);
