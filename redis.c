@@ -104,7 +104,7 @@
 #define REDIS_RDB_6BITLEN 0
 #define REDIS_RDB_14BITLEN 1
 #define REDIS_RDB_32BITLEN 2
-#define REDIS_RDB_64BITLEN 3
+#define REDIS_RDB_ENCVAL 3
 #define REDIS_RDB_LENERR UINT_MAX
 
 /* When a length of a string object stored on disk has the first two bits
@@ -1518,7 +1518,7 @@ static int rdbSaveLen(FILE *fp, uint32_t len) {
         /* Save a 14 bit len */
         buf[0] = ((len>>8)&0xFF)|(REDIS_RDB_14BITLEN<<6);
         buf[1] = len&0xFF;
-        if (fwrite(buf,4,1,fp) == 0) return -1;
+        if (fwrite(buf,2,1,fp) == 0) return -1;
     } else {
         /* Save a 32 bit len */
         buf[0] = (REDIS_RDB_32BITLEN<<6);
@@ -1670,11 +1670,14 @@ static uint32_t rdbLoadLen(FILE *fp, int rdbver) {
         if (fread(&len,4,1,fp) == 0) return REDIS_RDB_LENERR;
         return ntohl(len);
     } else {
+        int type;
+
         if (fread(buf,1,1,fp) == 0) return REDIS_RDB_LENERR;
-        if ((buf[0]&0xC0) == REDIS_RDB_6BITLEN) {
+        type = (buf[0]&0xC0)>>6;
+        if (type == REDIS_RDB_6BITLEN) {
             /* Read a 6 bit len */
             return buf[0];
-        } else if ((buf[0]&0xC0) == REDIS_RDB_14BITLEN) {
+        } else if (type == REDIS_RDB_14BITLEN) {
             /* Read a 14 bit len */
             if (fread(buf+1,1,1,fp) == 0) return REDIS_RDB_LENERR;
             return ((buf[0]&0x3F)<<8)|buf[1];
