@@ -163,6 +163,9 @@ end
 # Another name for Timeout::Error, defined for backwards compatibility with
 # earlier versions of timeout.rb.
 
+class Object
+  remove_const(:TimeoutError) if const_defined?(:TimeoutError)
+end
 TimeoutError = Timeout::Error # :nodoc:
 
 if __FILE__ == $0

@@ -7,7 +7,7 @@ require 'tasks/redis.tasks'
 
 
 GEM = 'redis'
-GEM_VERSION = '0.0.2'
+GEM_VERSION = '0.0.3'
 AUTHORS = ['Ezra Zygmuntowicz', 'Taylor Weibley']
 EMAIL = "ez@engineyard.com"
 HOMEPAGE = "http://github.com/ezmobius/redis-rb"

@@ -24,7 +24,7 @@ class DistRedis
   end
   
   def method_missing(sym, *args, &blk)
-    if redis = node_for_key(args.first)
+    if redis = node_for_key(args.first.to_s)
       redis.send sym, *args, &blk
     else
       super
@@ -94,11 +94,11 @@ r = DistRedis.new 'localhost:6379', 'localhost:6380', 'localhost:6381', 'localho
   r.push_tail 'listor', 'foo4'
   r.push_tail 'listor', 'foo5'
   
-  p r.pop_tail 'listor'
-  p r.pop_tail 'listor'
-  p r.pop_tail 'listor'
-  p r.pop_tail 'listor'
-  p r.pop_tail 'listor'
+  p r.pop_tail('listor')
+  p r.pop_tail('listor')
+  p r.pop_tail('listor')
+  p r.pop_tail('listor')
+  p r.pop_tail('listor')
   
   puts "key distribution:"
   

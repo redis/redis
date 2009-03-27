@@ -12,7 +12,7 @@ class Foo
 end  
 
 describe "redis" do
-  before do
+  before(:each) do
     @r = Redis.new
     @r.select_db(15) # use database 15 for testing so we dont accidentally step on you real data
     @r['foo'] = 'bar'
@@ -20,15 +20,9 @@ describe "redis" do
   
   after do
     @r.keys('*').each {|k| @r.delete k }
+    @r.quit
   end  
 
-  it "should properly marshall objects" do
-   class MyFail; def fail; 'it will' end; end
-
-   @r['fail'] = MyFail.new
-   @r['fail'].fail.should == 'it will'
-
-  end
 
   it "should be able to GET a key" do
     @r['foo'].should == 'bar'
@@ -45,14 +39,14 @@ describe "redis" do
     @r.set_unless_exists 'foo', 'bar'
     @r['foo'].should == 'nik'
   end
-  
+  # 
   it "should be able to INCR(increment) a key" do
     @r.delete('counter')
     @r.incr('counter').should == 1
     @r.incr('counter').should == 2
     @r.incr('counter').should == 3
   end
-  
+  # 
   it "should be able to DECR(decrement) a key" do
     @r.delete('counter')
     @r.incr('counter').should == 1
@@ -62,11 +56,11 @@ describe "redis" do
     @r.decr('counter').should == 1
     @r.decr('counter').should == 0
   end
-  
+  # 
   it "should be able to RANDKEY(return a random key)" do
     @r.randkey.should_not be_nil
   end
-  
+  # 
   it "should be able to RENAME a key" do
     @r.delete 'foo'
     @r.delete 'bar'
@@ -74,23 +68,23 @@ describe "redis" do
     @r.rename! 'foo', 'bar'
     @r['bar'].should == 'hi'
   end
-  
+  # 
   it "should be able to RENAMENX(rename unless the new key already exists) a key" do
     @r.delete 'foo'
     @r.delete 'bar'
     @r['foo'] = 'hi'
     @r['bar'] = 'ohai'
-    lambda {@r.rename 'foo', 'bar'}.should raise_error(RedisError)
+    lambda {@r.rename 'foo', 'bar'}.should raise_error(RedisRenameError)
     @r['bar'].should == 'ohai'
   end
-  
+  # 
   it "should be able to EXISTS(check if key exists)" do
     @r['foo'] = 'nik'
     @r.key?('foo').should be_true
     @r.delete 'foo'
     @r.key?('foo').should be_false
   end
-  
+  # 
   it "should be able to KEYS(glob for keys)" do
     @r.keys("f*").each do |key|
       @r.delete key
@@ -100,14 +94,14 @@ describe "redis" do
     @r['foo'] = 'qux'
     @r.keys("f*").sort.should == ['f','fo', 'foo'].sort
   end
-  
+  # 
   it "should be able to check the TYPE of a key" do
     @r['foo'] = 'nik'
     @r.type?('foo').should == "string"
     @r.delete 'foo'
     @r.type?('foo').should == "none"
   end
-  
+  # 
   it "should be able to push to the head of a list" do
     @r.push_head "list", 'hello'
     @r.push_head "list", 42
@@ -116,14 +110,14 @@ describe "redis" do
     @r.pop_head('list').should == '42'
     @r.delete('list')
   end
-  
+  # 
   it "should be able to push to the tail of a list" do
     @r.push_tail "list", 'hello'
     @r.type?('list').should == "list"
     @r.list_length('list').should == 1
     @r.delete('list')
   end
-  
+  # 
   it "should be able to pop the tail of a list" do
     @r.push_tail "list", 'hello'
     @r.push_tail "list", 'goodbye'
@@ -132,7 +126,7 @@ describe "redis" do
     @r.pop_tail('list').should == 'goodbye'
     @r.delete('list')
   end
-  
+  # 
   it "should be able to pop the head of a list" do
     @r.push_tail "list", 'hello'
     @r.push_tail "list", 'goodbye'
@@ -141,7 +135,7 @@ describe "redis" do
     @r.pop_head('list').should == 'hello'
     @r.delete('list')
   end
-  
+  # 
   it "should be able to get the length of a list" do
     @r.push_tail "list", 'hello'
     @r.push_tail "list", 'goodbye'
@@ -149,7 +143,7 @@ describe "redis" do
     @r.list_length('list').should == 2
     @r.delete('list')
   end
-  
+  # 
   it "should be able to get a range of values from a list" do
     @r.push_tail "list", 'hello'
     @r.push_tail "list", 'goodbye'
@@ -161,7 +155,7 @@ describe "redis" do
     @r.list_range('list', 2, -1).should == ['1', '2', '3']
     @r.delete('list')
   end
-
+  # 
   it "should be able to trim a list" do
     @r.push_tail "list", 'hello'
     @r.push_tail "list", 'goodbye'
@@ -175,7 +169,7 @@ describe "redis" do
     @r.list_range('list', 0, -1).should == ['hello', 'goodbye']
     @r.delete('list')
   end
-  
+  # 
   it "should be able to get a value by indexing into a list" do
     @r.push_tail "list", 'hello'
     @r.push_tail "list", 'goodbye'
@@ -184,7 +178,7 @@ describe "redis" do
     @r.list_index('list', 1).should == 'goodbye'
     @r.delete('list')
   end
-  
+  # 
   it "should be able to set a value by indexing into a list" do
     @r.push_tail "list", 'hello'
     @r.push_tail "list", 'hello'
@@ -194,7 +188,17 @@ describe "redis" do
     @r.list_index('list', 1).should == 'goodbye'
     @r.delete('list')
   end
-  
+  # 
+  it "should be able to remove values from a list LREM" do
+    @r.push_tail "list", 'hello'
+    @r.push_tail "list", 'goodbye'
+    @r.type?('list').should == "list"
+    @r.list_length('list').should == 2
+    @r.list_rm('list', 1, 'hello').should == 1
+    @r.list_range('list', 0, -1).should == ['goodbye']
+    @r.delete('list')
+  end
+  # 
   it "should be able add members to a set" do
     @r.set_add "set", 'key1'
     @r.set_add "set", 'key2'
@@ -203,7 +207,7 @@ describe "redis" do
     @r.set_members('set').sort.should == ['key1', 'key2'].sort
     @r.delete('set')
   end
-  
+  # 
   it "should be able delete members to a set" do
     @r.set_add "set", 'key1'
     @r.set_add "set", 'key2'
@@ -215,7 +219,7 @@ describe "redis" do
     @r.set_members('set').should == Set.new(['key2'])
     @r.delete('set')
   end
-  
+  # 
   it "should be able count the members of a set" do
     @r.set_add "set", 'key1'
     @r.set_add "set", 'key2'
@@ -223,7 +227,7 @@ describe "redis" do
     @r.set_count('set').should == 2
     @r.delete('set')
   end
-  
+  # 
   it "should be able test for set membership" do
     @r.set_add "set", 'key1'
     @r.set_add "set", 'key2'
@@ -234,7 +238,7 @@ describe "redis" do
     @r.set_member?('set', 'notthere').should be_false
     @r.delete('set')
   end
-  
+  # 
   it "should be able to do set intersection" do
     @r.set_add "set", 'key1'
     @r.set_add "set", 'key2'
@@ -242,7 +246,7 @@ describe "redis" do
     @r.set_intersect('set', 'set2').should == Set.new(['key2'])
     @r.delete('set')
   end
-  
+  # 
   it "should be able to do set intersection and store the results in a key" do
     @r.set_add "set", 'key1'
     @r.set_add "set", 'key2'
@@ -251,7 +255,7 @@ describe "redis" do
     @r.set_members('newone').should == Set.new(['key2'])
     @r.delete('set')
   end
-  
+  # 
   it "should be able to do crazy SORT queries" do
     @r['dog_1'] = 'louie'
     @r.push_tail 'dogs', 1
@@ -264,4 +268,50 @@ describe "redis" do
     @r.sort('dogs', :get => 'dog_*', :limit => [0,1]).should == ['louie']
     @r.sort('dogs', :get => 'dog_*', :limit => [0,1], :order => 'desc alpha').should == ['taj']
   end
+  # 
+  it "should provide info" do
+    [:last_save_time, :redis_version, :total_connections_received, :connected_clients, :total_commands_processed, :connected_slaves, :uptime_in_seconds, :used_memory, :uptime_in_days, :changes_since_last_save].each do |x|
+    @r.info.keys.should include(x)
+    end
+  end
+  # 
+  it "should be able to flush the database" do
+    @r['key1'] = 'keyone'
+    @r['key2'] = 'keytwo'
+    @r.keys('*').sort.should == ['foo', 'key1', 'key2'] #foo from before
+    @r.flush_db
+    @r.keys('*').should == []
+  end
+  # 
+  it "should be able to provide the last save time" do
+    savetime = @r.last_save
+    Time.at(savetime).class.should == Time
+    Time.at(savetime).should <= Time.now
+  end
+  
+  it "should be able to MGET keys" do
+    @r['foo'] = 1000
+    @r['bar'] = 2000
+    @r.mget('foo', 'bar').should == ['1000', '2000']
+    @r.mget('foo', 'bar', 'baz').should == ['1000', '2000', nil]
+  end
+  
+  it "should bgsave" do
+     lambda {@r.bgsave}.should_not raise_error(RedisError)
+  end
+  
+  it "should handle multiple servers" do
+    require 'dist_redis'
+    @r = DistRedis.new('localhost:6379', '127.0.0.1:6379')
+    @r.select_db(15) # use database 15 for testing so we dont accidentally step on you real data
+
+    100.times do |idx|
+      @r[idx] = "foo#{idx}"
+    end
+
+    100.times do |idx|
+      @r[idx].should == "foo#{idx}"
+    end
+  end
+
 end

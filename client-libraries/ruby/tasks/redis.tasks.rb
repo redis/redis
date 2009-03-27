@@ -52,6 +52,12 @@ namespace :redis do
   task :stop do
     RedisRunner.stop
   end
+  
+  desc 'Restart redis'
+  task :restart do
+    RedisRunner.stop
+    RedisRunner.start
+  end
 
   desc 'Attach to redis dtach socket'
   task :attach do
@@ -60,9 +66,12 @@ namespace :redis do
   
   desc 'Install the lastest redis from svn'
   task :install => [:about, :download, :make] do
-    sh 'sudo cp /tmp/redis/redis-server /usr/bin/'
-    sh 'sudo cp /tmp/redis/redis-benchmark /usr/bin/'
-    puts 'Installed redis-server and redis-benchmark to /usr/bin/'
+    %w(redis-benchmark redis-cli redis-server).each do |bin|
+      sh "sudo cp /tmp/redis/#{bin} /usr/bin/"
+    end
+
+    puts "Installed redis-benchmark, redis-cli and redis-server to /usr/bin/"
+        
     unless File.exists?('/etc/redis.conf')
       sh 'sudo cp /tmp/redis/redis.conf /etc/'
       puts "Installed redis.conf to /etc/ \n You should look at this file!"
@@ -76,8 +85,9 @@ namespace :redis do
   
   desc "Download package"
   task :download do
-    system 'svn checkout http://redis.googlecode.com/svn/trunk /tmp/redis' unless File.exists?(RedisRunner.redisdir)
-    system 'svn up' if File.exists?("#{RedisRunner.redisdir}/.svn")
+    sh 'rm -rf /tmp/redis/' if File.exists?("#{RedisRunner.redisdir}/.svn")
+    sh 'git clone git://github.com/antirez/redis.git /tmp/redis' unless File.exists?(RedisRunner.redisdir)
+    sh "cd #{RedisRunner.redisdir} && git pull" if File.exists?("#{RedisRunner.redisdir}/.git")
   end    
 
 end
