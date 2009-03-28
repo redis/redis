@@ -7,7 +7,16 @@
 - maxclients directive
 - check 'server.dirty' everywere
 - replication automated tests
-- a command, or an external tool, to perform the MD5SUM of the whole dataset, so that if the dataset between two servers is identical, so will be the MD5SUM
+- a command, or an external tool, to perform the SHA1SUM of the whole dataset, so that if the dataset between two servers is identical, so will be the MD5SUM
+- an external tool able to perform the 'difference' between two Redis servers. It's like 'diff', but against Redis servers, and the output is the set of commands needed to turn the first server into the second, suitable to be sent via netcat.
+
+   $ ./redis-diff 192.168.1.1 192.168.1.2 > diff.txt
+   $ cat diff.txt | nc 192.168.1.1 6379
+   $ ./redis-diff 192.168.1.1 192.168.1.2
+   $ # No output now the servers are identical
+
+This command should be smart and don't use too much memory, that is, take two connections at the same time against the two servers and perform the comparison key by key. Probably the initial "KEYS *" is unavoidable.
+
 - objects sharing, "objectsharing yes", "objectsharingpool 1024"
 
 * Include Lua and Perl bindings
