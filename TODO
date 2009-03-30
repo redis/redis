@@ -1,13 +1,10 @@
-- Protocol changes as discussed in the Redis group
+- GETSET
 - keys expire
 - sunion ssub
-- write integers in a special way on disk, use the unused 11|.... length.
-- compact types for disk storing of short strings (no 4 bytes overhead!)
 - network layer stresser in test in demo
 - maxclients directive
 - check 'server.dirty' everywere
 - replication automated tests
-- a command, or an external tool, to perform the SHA1SUM of the whole dataset, so that if the dataset between two servers is identical, so will be the MD5SUM
 - an external tool able to perform the 'difference' between two Redis servers. It's like 'diff', but against Redis servers, and the output is the set of commands needed to turn the first server into the second, suitable to be sent via netcat.
 
    $ ./redis-diff 192.168.1.1 192.168.1.2 > diff.txt
@@ -18,5 +15,3 @@
 This command should be smart and don't use too much memory, that is, take two connections at the same time against the two servers and perform the comparison key by key. Probably the initial "KEYS *" is unavoidable.
 
 - objects sharing, "objectsharing yes", "objectsharingpool 1024"
-
-* Include Lua and Perl bindings
