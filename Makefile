@@ -56,3 +56,6 @@ test:
 
 bench:
 	./redis-benchmark
+
+log:
+	git log '--pretty=format:%ad %s' --date=short > Changelog

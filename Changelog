@@ -1,0 +1,43 @@
+2009-03-28 redis-sha1 utility added
+2009-03-28 Integer encoding implemented in dump file. Doc updated
+2009-03-27 feature macros defined to play well with C99
+2009-03-27 feature macros defined to play well with C99
+2009-03-27 now Redis is C99-ok
+2009-03-27 IMPORTANT FIX: new dump format implementation was broken. Now it's ok but tests for the 32-bit case values are needed
+2009-03-27 ANSI-C compatibility changes
+2009-03-27 Ruby client library updated. Important changes in this new version!
+2009-03-26 Lua client added thanks to Daniele Alessandri
+2009-03-26 Lua client added thanks to Daniele Alessandri
+2009-03-26 AUTH merged from Brian Hammond fork, reworked a bit to fix minor problems
+2009-03-25 Adds AUTH command.
+2009-03-25 Nasty bug of the new DB format fixed, objects sharing implemented
+2009-03-25 doc update
+2009-03-25 Erlang client synched with Valentiono's repo
+2009-03-25 New file dump format, perl client library added
+2009-03-25 New protocol fix for LREM
+2009-03-24 two typos fixed
+2009-03-24 Now the Redis test uses the proper Tcl client library
+2009-03-24 Tcl client library
+2009-03-24 redis-benchmark sync with the new protocol
+2009-03-24 git mess :)
+2009-03-24 sync python client to the new protocol
+2009-03-24 protocol fix in SORT reply with null elements
+2009-03-24 protocol doc changed
+2009-03-24 Server replies now in the new format, test-redis.tcl and redis-cli modified accordingly
+2009-03-24 Python client library updated, thanks to Ludo!
+2009-03-24 random tested mode for test-redis.tcl, minor other stuff, version switched to 0.8
+2009-03-23 Now MONITOR/SYNC cannot be issued multiple times
+2009-03-23 MONITOR command implemented.
+2009-03-23 lucsky changes imported. pid file path can now be configured, redis-cli fixes
+2009-03-23 Merge git://github.com/lucsky/redis
+2009-03-23 another missing free->zfree replacement fixed. Thanks to Ludo
+2009-03-23 Fixed redis-cli readLine loop to correctly handle EOF.
+2009-03-23 Display the port on server startup.
+2009-03-23 Allow to specify the pid file from the config file.
+2009-03-23 Added gitignore file.
+2009-03-22 MGET tests added
+2009-03-22 doc changes
+2009-03-22 added doc for MGET
+2009-03-22 redis-cli now checks the arity of vararg commnads
+2009-03-22 INFO fixed, MGET implemented, redis-cli implements INFO/MGET
+2009-03-22 first commit
