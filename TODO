@@ -1,4 +1,5 @@
 - GETSET
+- Fix pure-PHP lib for the new protocol
 - keys expire
 - sunion ssub
 - network layer stresser in test in demo

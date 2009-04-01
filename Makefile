@@ -6,7 +6,7 @@ DEBUG?= -g
 CFLAGS?= -std=c99 -pedantic -O2 -Wall -W -DSDS_ABORT_ON_OOM
 CCOPT= $(CFLAGS)
 
-OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o
+OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o fastlz.o
 BENCHOBJ = ae.o anet.o benchmark.o sds.o adlist.o zmalloc.o
 CLIOBJ = anet.o sds.o adlist.o redis-cli.o zmalloc.o
 

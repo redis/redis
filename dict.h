@@ -107,8 +107,8 @@ typedef struct dictIterator {
 
 #define dictGetEntryKey(he) ((he)->key)
 #define dictGetEntryVal(he) ((he)->val)
-#define dictGetHashTableSize(ht) ((ht)->size)
-#define dictGetHashTableUsed(ht) ((ht)->used)
+#define dictSlots(ht) ((ht)->size)
+#define dictSize(ht) ((ht)->used)
 
 /* API */
 dict *dictCreate(dictType *type, void *privDataPtr);
