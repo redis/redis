@@ -32,17 +32,18 @@ class Redis(object):
     """The main Redis client.
     """
     
-    def __init__(self, host=None, port=None, timeout=None):
+    def __init__(self, host=None, port=None, timeout=None, db=None):
         self.host = host or 'localhost'
         self.port = port or 6379
         if timeout:
             socket.setdefaulttimeout(timeout)
         self._sock = None
         self._fp = None
+        self.db = db
         
     def _write(self, s):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.connect()
         >>> r._sock.close()
         >>> try:
@@ -76,7 +77,7 @@ class Redis(object):
     
     def ping(self):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.ping()
         'PONG'
         >>> 
@@ -87,7 +88,7 @@ class Redis(object):
     
     def set(self, name, value, preserve=False):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.set('a', 'pippo')
         'OK'
         >>> try:
@@ -118,8 +119,8 @@ class Redis(object):
     
     def get(self, name):
         """
-        >>> r = Redis()
-        >>> r.set('a', 'pippo'), r.set('b', 15), r.set('c', '\\r\\naaa\\nbbb\\r\\ncccc\\nddd\\r\\n'), r.set('d', '\\r\\n')
+        >>> r = Redis(db=9)
+        >>> r.set('a', 'pippo'), r.set('b', 15), r.set('c', ' \\r\\naaa\\nbbb\\r\\ncccc\\nddd\\r\\n '), r.set('d', '\\r\\n')
         ('OK', 'OK', 'OK', 'OK')
         >>> r.get('a')
         'pippo'
@@ -130,9 +131,9 @@ class Redis(object):
         >>> r.get('b')
         '15'
         >>> r.get('c')
-        '\\r\\naaa\\nbbb\\r\\ncccc\\nddd\\r\\n'
+        ' \\r\\naaa\\nbbb\\r\\ncccc\\nddd\\r\\n '
         >>> r.get('c')
-        '\\r\\naaa\\nbbb\\r\\ncccc\\nddd\\r\\n'
+        ' \\r\\naaa\\nbbb\\r\\ncccc\\nddd\\r\\n '
         >>> r.get('ajhsd')
         >>> 
         """
@@ -142,7 +143,7 @@ class Redis(object):
     
     def mget(self, *args):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.set('a', 'pippo'), r.set('b', 15), r.set('c', '\\r\\naaa\\nbbb\\r\\ncccc\\nddd\\r\\n'), r.set('d', '\\r\\n')
         ('OK', 'OK', 'OK', 'OK')
         >>> r.mget('a', 'b', 'c', 'd')
@@ -155,7 +156,7 @@ class Redis(object):
     
     def incr(self, name, amount=1):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.delete('a')
         1
         >>> r.incr('a')
@@ -175,7 +176,7 @@ class Redis(object):
 
     def decr(self, name, amount=1):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> if r.get('a'):
         ...     r.delete('a')
         ... else:
@@ -198,7 +199,7 @@ class Redis(object):
     
     def exists(self, name):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.exists('dsjhfksjdhfkdsjfh')
         0
         >>> r.set('a', 'a')
@@ -213,7 +214,7 @@ class Redis(object):
 
     def delete(self, name):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.delete('dsjhfksjdhfkdsjfh')
         0
         >>> r.set('a', 'a')
@@ -240,7 +241,7 @@ class Redis(object):
     
     def keys(self, pattern):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.flush()
         'OK'
         >>> r.set('a', 'a')
@@ -263,7 +264,7 @@ class Redis(object):
     
     def randomkey(self):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.set('a', 'a')
         'OK'
         >>> isinstance(r.randomkey(), str)
@@ -277,7 +278,7 @@ class Redis(object):
     
     def rename(self, src, dst, preserve=False):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> try:
         ...     r.rename('a', 'a')
         ... except ResponseError, e:
@@ -302,11 +303,11 @@ class Redis(object):
             return self.get_response()
         else:
             self._write('RENAME %s %s\r\n' % (src, dst))
-            return self.get_response().strip()
+            return self.get_response() #.strip()
     
     def push(self, name, value, tail=False):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.delete('l')
         1
         >>> r.push('l', 'a')
@@ -333,7 +334,7 @@ class Redis(object):
     
     def llen(self, name):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.delete('l')
         1
         >>> r.push('l', 'a')
@@ -352,7 +353,7 @@ class Redis(object):
 
     def lrange(self, name, start, end):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.delete('l')
         1
         >>> r.lrange('l', 0, 1)
@@ -379,7 +380,7 @@ class Redis(object):
         
     def ltrim(self, name, start, end):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.delete('l')
         1
         >>> try:
@@ -409,7 +410,7 @@ class Redis(object):
     
     def lindex(self, name, index):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> res = r.delete('l')
         >>> r.lindex('l', 0)
         >>> r.push('l', 'aaa')
@@ -431,7 +432,7 @@ class Redis(object):
         
     def pop(self, name, tail=False):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.delete('l')
         1
         >>> r.pop('l')
@@ -461,7 +462,7 @@ class Redis(object):
     
     def lset(self, name, index, value):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.delete('l')
         1
         >>> try:
@@ -494,7 +495,7 @@ class Redis(object):
     
     def lrem(self, name, value, num=0):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.delete('l')
         1
         >>> r.push('l', 'aaa')
@@ -531,7 +532,7 @@ class Redis(object):
     
     def sort(self, name, by=None, get=None, start=None, num=None, desc=False, alpha=False):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.delete('l')
         1
         >>> r.push('l', 'ccc')
@@ -592,7 +593,7 @@ class Redis(object):
     
     def sadd(self, name, value):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> res = r.delete('s')
         >>> r.sadd('s', 'a')
         1
@@ -613,7 +614,7 @@ class Redis(object):
         
     def srem(self, name, value):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.delete('s')
         1
         >>> r.srem('s', 'aaa')
@@ -639,7 +640,7 @@ class Redis(object):
     
     def sismember(self, name, value):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.delete('s')
         1
         >>> r.sismember('s', 'b')
@@ -665,7 +666,7 @@ class Redis(object):
     
     def sinter(self, *args):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> res = r.delete('s1')
         >>> res = r.delete('s2')
         >>> res = r.delete('s3')
@@ -697,7 +698,7 @@ class Redis(object):
     
     def sinterstore(self, dest, *args):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> res = r.delete('s1')
         >>> res = r.delete('s2')
         >>> res = r.delete('s3')
@@ -721,7 +722,7 @@ class Redis(object):
 
     def smembers(self, name):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.delete('s')
         1
         >>> r.sadd('s', 'a')
@@ -743,7 +744,7 @@ class Redis(object):
 
     def select(self, db):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.delete('a')
         1
         >>> r.select(1)
@@ -761,28 +762,26 @@ class Redis(object):
     
     def move(self, name, db):
         """
-        >>> r = Redis()
-        >>> r.select(0)
-        'OK'
+        >>> r = Redis(db=9)
         >>> r.set('a', 'a')
         'OK'
-        >>> r.select(1)
+        >>> r.select(10)
         'OK'
         >>> if r.get('a'):
         ...     r.delete('a')
         ... else:
         ...     print 1
         1
-        >>> r.select(0)
+        >>> r.select(9)
         'OK'
-        >>> r.move('a', 1)
+        >>> r.move('a', 10)
         1
         >>> r.get('a')
-        >>> r.select(1)
+        >>> r.select(10)
         'OK'
         >>> r.get('a')
         'a'
-        >>> r.select(0)
+        >>> r.select(9)
         'OK'
         >>> 
         """
@@ -792,7 +791,7 @@ class Redis(object):
     
     def save(self, background=False):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.save()
         'OK'
         >>> try:
@@ -813,7 +812,7 @@ class Redis(object):
     def lastsave(self):
         """
         >>> import time
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> t = int(time.time())
         >>> r.save()
         'OK'
@@ -827,11 +826,10 @@ class Redis(object):
     
     def flush(self, all_dbs=False):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.flush()
         'OK'
-        >>> r.flush(all_dbs=True)
-        'OK'
+        >>> # r.flush(all_dbs=True)
         >>> 
         """
         self.connect()
@@ -840,7 +838,7 @@ class Redis(object):
     
     def info(self):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> info = r.info()
         >>> info and isinstance(info, dict)
         True
@@ -889,17 +887,13 @@ class Redis(object):
         if c != '$':
             raise InvalidResponse("Unkown response prefix for '%s'" % data)
         buf = []
-        while i > 0:
+        while True:
             data = self._read()
             i -= len(data)
-            if len(data) > i:
-                # we got the ending crlf
-                data = data.rstrip()
             buf.append(data)
-        if i == 0:
-            # the data has a trailing crlf embedded, let's restore it
-            buf.append(self._read())
-        return ''.join(buf)
+            if i < 0:
+                break
+        return ''.join(buf)[:-2]
     
     def disconnect(self):
         if isinstance(self._sock, socket.socket):
@@ -912,10 +906,11 @@ class Redis(object):
             
     def connect(self):
         """
-        >>> r = Redis()
+        >>> r = Redis(db=9)
         >>> r.connect()
         >>> isinstance(r._sock, socket.socket)
         True
+        >>> r.disconnect()
         >>> 
         """
         if isinstance(self._sock, socket.socket):
@@ -928,7 +923,9 @@ class Redis(object):
         else:
             self._sock = sock
             self._fp = self._sock.makefile('r')
-        
+            if self.db:
+                self.select(self.db)
+                
             
 if __name__ == '__main__':
     import doctest
