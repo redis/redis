@@ -1691,7 +1691,7 @@ static int rdbSaveStringObject(FILE *fp, robj *obj) {
 
     /* Try LZF compression - under 20 bytes it's unable to compress even
      * aaaaaaaaaaaaaaaaaa so to try is just useful to make the CPU hot */
-    if (len > 20) {
+    if (0 && len > 20) {
         int retval;
 
         retval = rdbSaveLzfStringObject(fp,obj);
