@@ -747,11 +747,11 @@ class Redis(object):
         >>> r = Redis(db=9)
         >>> r.delete('a')
         1
-        >>> r.select(1)
+        >>> r.select(10)
         'OK'
         >>> r.set('a', 1)
         'OK'
-        >>> r.select(0)
+        >>> r.select(9)
         'OK'
         >>> r.get('a')
         >>> 
