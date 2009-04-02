@@ -88,7 +88,7 @@
  * deterministic/repeatable when the configuration otherwise is the same).
  */
 #ifndef INIT_HTAB
-# define INIT_HTAB 0
+# define INIT_HTAB 1
 #endif
 
 /*
