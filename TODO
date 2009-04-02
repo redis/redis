@@ -16,3 +16,4 @@
 This command should be smart and don't use too much memory, that is, take two connections at the same time against the two servers and perform the comparison key by key. Probably the initial "KEYS *" is unavoidable.
 
 - objects sharing, "objectsharing yes", "objectsharingpool 1024"
+- if in-memory values compression will be implemented, make sure to implement this so that addReply() is able to handle compressed objects, just creating an uncompressed version on the fly and adding this to the output queue instead of the original one. When insetad we need to look at the object string value (SORT BY for example), call a function that will turn the object into an uncompresed one.

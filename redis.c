@@ -56,6 +56,7 @@
 #include "dict.h"   /* Hash tables */
 #include "adlist.h" /* Linked lists */
 #include "zmalloc.h" /* total memory usage aware version of malloc/free */
+#include "lzf.h"
 
 /* Error codes */
 #define REDIS_OK                0
@@ -116,7 +117,7 @@
 #define REDIS_RDB_ENC_INT8 0        /* 8 bit signed integer */
 #define REDIS_RDB_ENC_INT16 1       /* 16 bit signed integer */
 #define REDIS_RDB_ENC_INT32 2       /* 32 bit signed integer */
-#define REDIS_RDB_ENC_FLZ 3         /* string compressed with FASTLZ */
+#define REDIS_RDB_ENC_LZF 3         /* string compressed with FASTLZ */
 
 /* Client flags */
 #define REDIS_CLOSE 1       /* This client connection should be closed ASAP */
@@ -1645,12 +1646,41 @@ int rdbTryIntegerEncoding(sds s, unsigned char *enc) {
     }
 }
 
+static int rdbSaveLzfStringObject(FILE *fp, robj *obj) {
+    unsigned int comprlen, outlen;
+    unsigned char byte;
+    void *out;
+
+    /* We require at least four bytes compression for this to be worth it */
+    outlen = sdslen(obj->ptr)-4;
+    if (outlen <= 0) return 0;
+    if ((out = zmalloc(outlen)) == NULL) return 0;
+    comprlen = lzf_compress(obj->ptr, sdslen(obj->ptr), out, outlen);
+    if (comprlen == 0) {
+        free(out);
+        return 0;
+    }
+    /* Data compressed! Let's save it on disk */
+    byte = (REDIS_RDB_ENCVAL<<6)|REDIS_RDB_ENC_LZF;
+    if (fwrite(&byte,1,1,fp) == 0) goto writeerr;
+    if (rdbSaveLen(fp,comprlen) == -1) goto writeerr;
+    if (rdbSaveLen(fp,sdslen(obj->ptr)) == -1) goto writeerr;
+    if (fwrite(out,comprlen,1,fp) == 0) goto writeerr;
+    free(out);
+    return comprlen;
+
+writeerr:
+    free(out);
+    return -1;
+}
+
 /* Save a string objet as [len][data] on disk. If the object is a string
  * representation of an integer value we try to safe it in a special form */
 static int rdbSaveStringObject(FILE *fp, robj *obj) {
     size_t len = sdslen(obj->ptr);
     int enclen;
 
+    /* Try integer encoding */
     if (len <= 11) {
         unsigned char buf[5];
         if ((enclen = rdbTryIntegerEncoding(obj->ptr,buf)) > 0) {
@@ -1658,6 +1688,19 @@ static int rdbSaveStringObject(FILE *fp, robj *obj) {
             return 0;
         }
     }
+
+    /* Try LZF compression - under 20 bytes it's unable to compress even
+     * aaaaaaaaaaaaaaaaaa so to try is just useful to make the CPU hot */
+    if (len > 20) {
+        int retval;
+
+        retval = rdbSaveLzfStringObject(fp,obj);
+        if (retval == -1) return -1;
+        if (retval > 0) return 0;
+        /* retval == 0 means data can't be compressed, save the old way */
+    }
+
+    /* Store verbatim */
     if (rdbSaveLen(fp,len) == -1) return -1;
     if (len && fwrite(obj->ptr,len,1,fp) == 0) return -1;
     return 0;
@@ -2123,7 +2166,7 @@ static void selectCommand(redisClient *c) {
     int id = atoi(c->argv[1]->ptr);
     
     if (selectDb(c,id) == REDIS_ERR) {
-        addReplySds(c,"-ERR invalid DB index\r\n");
+        addReplySds(c,sdsnew("-ERR invalid DB index\r\n"));
     } else {
         addReply(c,shared.ok);
     }
