@@ -2009,7 +2009,7 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
 /*================================== Commands =============================== */
 
 static void authCommand(redisClient *c) {
-    if (!strcmp(c->argv[1]->ptr, server.requirepass)) {
+    if (!server.requirepass || !strcmp(c->argv[1]->ptr, server.requirepass)) {
       c->authenticated = 1;
       addReply(c,shared.ok);
     } else {
