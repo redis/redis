@@ -2811,6 +2811,7 @@ static void sinterGenericCommand(redisClient *c, robj **setskeys, int setsnum, r
         deleteKey(c->db,dstkey);
         dictAdd(c->db->dict,dstkey,dstset);
         incrRefCount(dstkey);
+        server.dirty++;
     }
 
     /* Iterate all the elements of the first (smallest) set, and test
@@ -2835,6 +2836,7 @@ static void sinterGenericCommand(redisClient *c, robj **setskeys, int setsnum, r
         } else {
             dictAdd(dstset->ptr,ele,NULL);
             incrRefCount(ele);
+            server.dirty++;
         }
     }
     dictReleaseIterator(di);
@@ -2857,12 +2859,14 @@ static void sinterstoreCommand(redisClient *c) {
 static void flushdbCommand(redisClient *c) {
     dictEmpty(c->db->dict);
     dictEmpty(c->db->expires);
+    server.dirty++;
     addReply(c,shared.ok);
     rdbSave(server.dbfilename);
 }
 
 static void flushallCommand(redisClient *c) {
     emptyDb();
+    server.dirty++;
     addReply(c,shared.ok);
     rdbSave(server.dbfilename);
 }
@@ -3229,6 +3233,7 @@ static int deleteIfVolatile(redisDb *db, robj *key) {
        (de = dictFind(db->expires,key)) == NULL) return 0;
 
     /* Delete the key */
+    server.dirty++;
     dictDelete(db->expires,key);
     return dictDelete(db->dict,key) == DICT_OK;
 }

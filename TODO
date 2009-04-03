@@ -1,11 +1,13 @@
+BEFORE REDIS 1.0.0-rc1
+
 - GETSET
-- Fix pure-PHP lib for the new protocol
-- keys expire
-- sunion ssub
+- Fix pure-PHP lib version 4 for the new protocol
+- persistent expires
 - network layer stresser in test in demo
 - maxclients directive
 - check 'server.dirty' everywere
 - replication automated tests
+- replication non stopping master<->slave syncronization
 - an external tool able to perform the 'difference' between two Redis servers. It's like 'diff', but against Redis servers, and the output is the set of commands needed to turn the first server into the second, suitable to be sent via netcat.
 
    $ ./redis-diff 192.168.1.1 192.168.1.2 > diff.txt
@@ -15,5 +17,8 @@
 
 This command should be smart and don't use too much memory, that is, take two connections at the same time against the two servers and perform the comparison key by key. Probably the initial "KEYS *" is unavoidable.
 
-- objects sharing, "objectsharing yes", "objectsharingpool 1024"
+- objects sharing configuration, add the directive "objectsharingpool <size>"
+
+FUTURE HINTS
+
 - if in-memory values compression will be implemented, make sure to implement this so that addReply() is able to handle compressed objects, just creating an uncompressed version on the fly and adding this to the output queue instead of the original one. When insetad we need to look at the object string value (SORT BY for example), call a function that will turn the object into an uncompresed one.
