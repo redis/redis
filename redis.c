@@ -2310,6 +2310,10 @@ static void typeCommand(redisClient *c) {
 }
 
 static void saveCommand(redisClient *c) {
+    if (server.bgsaveinprogress) {
+        addReplySds(c,sdsnew("-ERR background save in progress\r\n"));
+        return;
+    }
     if (rdbSave(server.dbfilename) == REDIS_OK) {
         addReply(c,shared.ok);
     } else {
