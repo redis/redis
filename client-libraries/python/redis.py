@@ -231,13 +231,20 @@ class Redis(object):
         self._write('DEL %s\r\n' % name)
         return self.get_response()
 
-    def key_type(self, name):
+    def get_type(self, name):
         """
-        Not yet implemented.
+        >>> r = Redis(db=9)
+        >>> r.set('a', 3)
+        'OK'
+        >>> r.get_type('a')
+        'string'
+        >>> r.get_type('zzz')
+        >>> 
         """
         self.connect()
         self._write('TYPE %s\r\n' % name)
-        return self.get_response()
+        res = self.get_response()
+        return None if res == 'none' else res
     
     def keys(self, pattern):
         """
@@ -304,6 +311,21 @@ class Redis(object):
         else:
             self._write('RENAME %s %s\r\n' % (src, dst))
             return self.get_response() #.strip()
+        
+    def expire(self, name, time):
+        """
+        >>> r = Redis(db=9)
+        >>> r.set('a', 1)
+        'OK'
+        >>> r.expire('a', 1)
+        1
+        >>> r.expire('zzzzz', 1)
+        0
+        >>> 
+        """
+        self.connect()
+        self._write('EXPIRE %s %s\r\n' % (name, time))
+        return self.get_response()
     
     def push(self, name, value, tail=False):
         """
