@@ -156,8 +156,8 @@
 
 /* A redis object, that is a type able to hold a string / list / set */
 typedef struct redisObject {
-    int type;
     void *ptr;
+    int type;
     int refcount;
 } robj;
 
