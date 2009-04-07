@@ -205,7 +205,7 @@ struct redisServer {
     int cronloops;              /* number of times the cron function run */
     list *objfreelist;          /* A list of freed objects to avoid malloc() */
     time_t lastsave;            /* Unix time of last save succeeede */
-    int usedmemory;             /* Used memory in megabytes */
+    size_t usedmemory;             /* Used memory in megabytes */
     /* Fields used only for stats */
     time_t stat_starttime;         /* server start time */
     long long stat_numcommands;    /* number of processed commands */
@@ -664,7 +664,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Show information about connected clients */
     if (!(loops % 5)) {
-        redisLog(REDIS_DEBUG,"%d clients connected (%d slaves), %d bytes in use",
+        redisLog(REDIS_DEBUG,"%d clients connected (%d slaves), %zu bytes in use",
             listLength(server.clients)-listLength(server.slaves),
             listLength(server.slaves),
             server.usedmemory,
@@ -3202,7 +3202,7 @@ static void infoCommand(redisClient *c) {
         "redis_version:%s\r\n"
         "connected_clients:%d\r\n"
         "connected_slaves:%d\r\n"
-        "used_memory:%d\r\n"
+        "used_memory:%zu\r\n"
         "changes_since_last_save:%lld\r\n"
         "last_save_time:%d\r\n"
         "total_connections_received:%lld\r\n"
