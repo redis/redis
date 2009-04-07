@@ -79,7 +79,7 @@ class Redis
    info = {}
    write("INFO\r\n")
    x = get_response
-   x.each do |kv|
+   x.each_line do |kv|
      k,v = kv.split(':', 2)
      k,v = k.chomp, v = v.chomp
      info[k.to_sym] = v
