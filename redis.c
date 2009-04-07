@@ -2237,9 +2237,10 @@ static void randomkeyCommand(redisClient *c) {
    
     while(1) {
         de = dictGetRandomKey(c->db->dict);
-        if (expireIfNeeded(c->db,dictGetEntryKey(de)) == 0) break;
+        if (!de || expireIfNeeded(c->db,dictGetEntryKey(de)) == 0) break;
     }
     if (de == NULL) {
+        addReply(c,shared.plus);
         addReply(c,shared.crlf);
     } else {
         addReply(c,shared.plus);

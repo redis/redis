@@ -588,6 +588,29 @@ proc main {server port} {
         $r mget foo baazz bar myset
     } {BAR {} FOO {}}
 
+    test {RANDOMKEY} {
+        $r flushall
+        $r set foo x
+        $r set bar y
+        set foo_seen 0
+        set bar_seen 0
+        for {set i 0} {$i < 100} {incr i} {
+            set rkey [$r randomkey]
+            if {$rkey eq {foo}} {
+                set foo_seen 1
+            }
+            if {$rkey eq {bar}} {
+                set bar_seen 1
+            }
+        }
+        list $foo_seen $bar_seen
+    } {1 1}
+
+    test {RANDOMKEY against empty DB} {
+        $r flushall
+        $r randomkey
+    } {}
+
     # Leave the user with a clean DB before to exit
     test {FLUSHALL} {
         $r flushall
