@@ -6,6 +6,8 @@ require_once('redis.php');
 
 $r =& new Redis('localhost');
 $r->connect();
+$r->select_db(9);
+$r->flush();
 echo $r->ping() . "\n";
 echo $r->do_echo('ECHO test') . "\n";
 echo "SET aaa " . $r->set('aaa', 'bbb') . "\n";
@@ -61,18 +63,24 @@ echo 'SREM s0 bbb ' . $r->srem('s0', 'bbb') . "\n";
 echo 'SINTER s0 s1 ' . print_r($r->sinter(array('s0', 's1')), true) . "\n";
 echo 'SMEMBERS s1 ' . print_r($r->smembers('s1'), true) . "\n";
 
-echo 'SELECT 1 ' . $r->select_db(1) . "\n";
+echo 'SELECT 8 ' . $r->select_db(8) . "\n";
+echo 'EXISTS s1 ' . $r->exists('s1') . "\n";
+if ($r->exists('s1'))
+    echo 'SMEMBERS s1 ' . print_r($r->smembers('s1'), true) . "\n";
+echo 'SELECT 9 ' . $r->select_db(9) . "\n";
 echo 'SMEMBERS s1 ' . print_r($r->smembers('s1'), true) . "\n";
-echo 'SELECT 0 ' . $r->select_db(0) . "\n";
+echo 'MOVE s1 8 ' . $r->move('s1', 8) . "\n";
+echo 'EXISTS s1 ' . $r->exists('s1') . "\n";
+if ($r->exists('s1'))
+    echo 'SMEMBERS s1 ' . print_r($r->smembers('s1'), true) . "\n";
+echo 'SELECT 8 ' . $r->select_db(8) . "\n";
 echo 'SMEMBERS s1 ' . print_r($r->smembers('s1'), true) . "\n";
-echo 'MOVE s1 1 ' . $r->move('s1', 1) . "\n";
-echo 'SMEMBERS s1 ' . print_r($r->smembers('s1'), true) . "\n";
-echo 'SELECT 1 ' . $r->select_db(1) . "\n";
-echo 'SMEMBERS s1 ' . print_r($r->smembers('s1'), true) . "\n";
-echo 'SELECT 0 ' . $r->select_db(0) . "\n";
+echo 'SELECT 9 ' . $r->select_db(9) . "\n";
 
 echo 'SAVE ' . $r->save() . "\n";
 echo 'BGSAVE ' . $r->save(true) . "\n";
 echo 'LASTSAVE ' . $r->lastsave() . "\n";
+
+echo 'INFO ' . print_r($r->info()) . "\n";
 
 ?>
