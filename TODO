@@ -2,18 +2,12 @@ BEFORE REDIS 1.0.0-rc1
 
 - Remove max number of args limit
 - GETSET
-- Fix pure-PHP lib version 4 for the new protocol
-- persistent expires
 - network layer stresser in test in demo
 - maxclients directive
 - check 'server.dirty' everywere
 - replication automated tests
 - replication non stopping master<->slave syncronization
 - an external tool able to perform the 'difference' between two Redis servers. It's like 'diff', but against Redis servers, and the output is the set of commands needed to turn the first server into the second, suitable to be sent via netcat.
-- Shutdown must kill other background savings before to start saving. Otherwise the DB can get replaced by the child that rename(2) after the parent for some reason.
-- Add missing commands in documentation
-- Document replication
-
    $ ./redis-diff 192.168.1.1 192.168.1.2 > diff.txt
    $ cat diff.txt | nc 192.168.1.1 6379
    $ ./redis-diff 192.168.1.1 192.168.1.2
@@ -21,7 +15,10 @@ BEFORE REDIS 1.0.0-rc1
 
 This command should be smart and don't use too much memory, that is, take two connections at the same time against the two servers and perform the comparison key by key. Probably the initial "KEYS *" is unavoidable.
 
-- objects sharing configuration, add the directive "objectsharingpool <size>"
+- Shutdown must kill other background savings before to start saving. Otherwise the DB can get replaced by the child that rename(2) after the parent for some reason.
+- Add missing commands in documentation
+- Document replication
+- Objects sharing configuration, add the directive "objectsharingpool <size>"
 
 FUTURE HINTS
 
