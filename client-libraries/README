@@ -15,6 +15,7 @@ it's possible to grab the most recent version:
 
 Ruby lib source code:
 http://github.com/ezmobius/redis-rb/tree/master
+git://github.com/ezmobius/redis-rb.git
 
 Erlang lib source code:
 http://bitbucket.org/adroll/erldis/

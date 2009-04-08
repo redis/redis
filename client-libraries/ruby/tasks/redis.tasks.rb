@@ -31,7 +31,7 @@ class RedisRunner
   end
   
   def self.stop
-    sh 'killall redis-server'
+    sh 'echo "SHUTDOWN" | nc localhost 6379'
   end
 
 end

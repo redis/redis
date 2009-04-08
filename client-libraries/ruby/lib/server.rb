@@ -88,12 +88,9 @@ class Server
   end
 
   def connect_to(host, port, timeout=nil)
-    addrs = Socket.getaddrinfo('localhost', nil)
+    addrs = Socket.getaddrinfo(host, nil)
     addr = addrs.detect { |ad| ad[0] == 'AF_INET' }
     sock = Socket.new(Socket::AF_INET, Socket::SOCK_STREAM, 0)
-    #addr = Socket.getaddrinfo(host, nil)
-    #sock = Socket.new(Socket.const_get(addr[0][0]), Socket::SOCK_STREAM, 0)
-
     if timeout
       secs = Integer(timeout)
       usecs = Integer((timeout - secs) * 1_000_000)
@@ -101,7 +98,7 @@ class Server
       sock.setsockopt Socket::SOL_SOCKET, Socket::SO_RCVTIMEO, optval
       sock.setsockopt Socket::SOL_SOCKET, Socket::SO_SNDTIMEO, optval
     end
-    sock.connect(Socket.pack_sockaddr_in('6379', addr[3]))
+    sock.connect(Socket.pack_sockaddr_in(port, addr[3]))
     sock
   end
 
