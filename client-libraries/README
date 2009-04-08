@@ -28,5 +28,6 @@ http://code.google.com/p/phpredis/
 
 Lua lib source code:
 http://github.com/nrk/redis-lua/tree/master
+git://github.com/nrk/redis-lua.git
 
 For all the rest check the Redis tarball or Git repository.
