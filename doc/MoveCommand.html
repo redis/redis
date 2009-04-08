@@ -28,10 +28,10 @@
                 <div class="narrow">
                     <h1><a name="MOVE _key_ _dbindex_">MOVE _key_ _dbindex_</a></h1>
 <blockquote>Move the specified key from the currently selected DB to the specifieddestination DB. Note that this command returns 1 only if the key wassuccessfully moved, and 0 if the target key was already there or if thesource key was not found at all, so it is possible to use MOVE as a lockingprimitive.</blockquote>
-<h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Integer reply</a>, specifically:<br/><br/>1 if the key was moved
+<h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Integer reply</a>, specifically:<br/><br/><pre class="codeblock python" name="code">
+1 if the key was moved
 0 if the key was not moved because already present on the target DB or was not found in the current DB.
--3 if the destination DB is the same as the source DB
--4 if the database index if out of range<h2><a name="See also">See also</a></h2>
+</pre><h2><a name="See also">See also</a></h2>
 <ul><li> <a href="SelectCommand.html">SELECT</a></li><li> <a href="RenameCommand.html">RENAME</a></li></ul>
                 </div>
         

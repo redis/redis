@@ -30,8 +30,6 @@
 <i>Time complexity: O(N) (with N being the length of the list)</i><blockquote>Remove the first <i>count</i> occurrences of the <i>value</i> element from the list.If <i>count</i> is zero all the elements are removed. If <i>count</i> is negativeelements are removed from tail to head, instead to go from head to tailthat is the normal behaviour. So for example LREM with count -2 and_hello_ as value to remove against the list (a,b,c,hello,x,hello,hello) willlave the list (a,b,c,hello,x). The number of removed elements is returnedas an integer, see below for more information aboht the returned value.</blockquote>
 <h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Integer Reply</a>, specifically:<br/><br/><pre class="codeblock python" name="code">
 The number of removed elements if the operation succeeded
--1 if the specified key does not exist
--2 if the specified key does not hold a list value
 </pre><h2><a name="See also">See also</a></h2>
 <ul><li> <a href="LlenCommand.html">LLEN</a></li><li> <a href="LrangeCommand.html">LRANGE</a></li><li> <a href="LtrimCommand.html">LTRIM</a></li><li> <a href="LdelCommand.html">LDEL</a></li><li> <a href="LindexCommand.html">LINDEX</a></li><li> <a href="LsetCommand.html">LSET</a></li></ul>
                 </div>

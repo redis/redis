@@ -27,10 +27,9 @@
 
                 <div class="narrow">
                     <h1><a name="SCARD _key_">SCARD _key_</a></h1>
-<i>Time complexity O(1)</i><blockquote>Return the set cardinality (number of elements). If the <i>key</i> does notexist 0 is returned, like for empty sets. If the <i>key</i> does not holda set value -1 is returned. Client libraries should raise an errorwhen -1 is returned instead to pass the value to the caller.</blockquote>
+<i>Time complexity O(1)</i><blockquote>Return the set cardinality (number of elements). If the <i>key</i> does notexist 0 is returned, like for empty sets.</blockquote>
 <h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Integer reply</a>, specifically:<br/><br/><pre class="codeblock python" name="code">
-the cardinality (number of elements) of the set as an integer `&gt;=` 0 if the operation succeeded
--2 if the specified key does not hold a set value
+the cardinality (number of elements) of the set as an integer.
 </pre><h2><a name="See also">See also</a></h2>
 <ul><li> <a href="SremCommand.html">SREM</a></li><li> <a href="SismemberCommand.html">SISMEMBER</a></li><li> <a href="ScardCommand.html">SCARD</a></li><li> <a href="SmembersCommand.html">SMEMBERS</a></li><li> <a href="SinterCommand.html">SINTER</a></li><li> <a href="SinterstoreCommand.html">SINTERSTORE</a></li></ul>
                 </div>
