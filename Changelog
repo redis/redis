@@ -1,3 +1,27 @@
+2009-04-08 Merge git://github.com/ludoo/redis
+2009-04-08 add expire command to the php lib
+2009-04-08 fix decode bug, add flush and info commands
+2009-04-07 Rearrange redisObject struct to reduce memory usage in 64bit environments (as recommended http://groups.google.com/group/redis-db/msg/68f5a743f8f4e287)
+2009-04-07 ruby19 compat: use each_line on string
+2009-04-07 64bit fixes for usedmemory
+2009-04-08 RANDOMKEY issue 26 fixed, generic test + regression added
+2009-04-06 Don't accept SAVE if BGSAVE is in progress
+2009-04-06 add expire command to the python lib
+2009-04-03 persistent EXPIRE
+2009-04-03 dirty increment was missing in two points. TODO updated
+2009-04-02 LZF configured to initalize the HT in order to be determinsitic and play well with valgrind
+2009-04-02 fix select test
+2009-04-02 fix trailing cr+nl in values
+2009-04-02 compression/decompression of large values on disk now working
+2009-04-02 disable LZF compression since it's not able to load the DB for now, the load part is missing
+2009-04-02 new LZF files added
+2009-04-02 Fixed issue 23 about AUTH
+2009-04-02 Issue 22 fixed
+2009-04-01 non-lazy expired keys purging implemented
+2009-04-01 fastlz dependence removed
+2009-04-01 Initial implementation of EXPIRE
+2009-03-30 TODO updated
+2009-03-30 changelog added
 2009-03-28 redis-sha1 utility added
 2009-03-28 Integer encoding implemented in dump file. Doc updated
 2009-03-27 feature macros defined to play well with C99
