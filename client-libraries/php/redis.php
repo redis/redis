@@ -118,6 +118,12 @@ class Redis {
         return $this->get_response();
     }
     
+    function &expire($name, $time) {
+        $this->connect();
+        $this->_write("EXPIRE $name $time\r\n");
+        return $this->get_response();
+    }
+    
     function &push($name, $value, $tail=true) {
         // default is to append the element to the list
         $this->connect();
