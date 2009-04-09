@@ -1,5 +1,6 @@
 BEFORE REDIS 1.0.0-rc1
 
+- Add a new field as INFO output: bgsaveinprogress
 - Remove max number of args limit
 - GETSET
 - network layer stresser in test in demo
