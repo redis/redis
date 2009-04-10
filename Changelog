@@ -1,3 +1,11 @@
+2009-04-10 SINTER/SINTERSTORE/SLEMENTS fix: misisng keys are now not errors, but just like empty sets
+2009-04-09 doc changes
+2009-04-08 TODO changes, minor change to default redis.conf
+2009-04-08 html doc updated
+2009-04-08 library clients update scripts
+2009-04-08 Ruby client updated
+2009-04-08 Lua client updated
+2009-04-08 Changelog updated
 2009-04-08 Merge git://github.com/ludoo/redis
 2009-04-08 add expire command to the php lib
 2009-04-08 fix decode bug, add flush and info commands
