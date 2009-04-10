@@ -1,5 +1,6 @@
 BEFORE REDIS 1.0.0-rc1
 
+- Fix INCRBY argument that is limited to 32bit int.
 - Add a new field as INFO output: bgsaveinprogress
 - Remove max number of args limit
 - GETSET

@@ -2826,7 +2826,12 @@ static void sinterGenericCommand(redisClient *c, robj **setskeys, int setsnum, r
                     lookupKeyRead(c->db,setskeys[j]);
         if (!setobj) {
             zfree(dv);
-            addReply(c,shared.nokeyerr);
+            if (dstkey) {
+                deleteKey(c->db,dstkey);
+                addReply(c,shared.ok);
+            } else {
+                addReply(c,shared.nullmultibulk);
+            }
             return;
         }
         if (setobj->type != REDIS_SET) {
