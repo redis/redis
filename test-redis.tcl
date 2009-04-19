@@ -424,11 +424,20 @@ proc main {server port} {
         }
         lsort [$r sinter set1 set2]
     } {995 996 997 998 999}
+
+    test {SUNION with two sets} {
+        lsort [$r sunion set1 set2]
+    } [lsort -uniq "[$r smembers set1] [$r smembers set2]"]
     
     test {SINTERSTORE with two sets} {
         $r sinterstore setres set1 set2
         lsort [$r smembers setres]
     } {995 996 997 998 999}
+
+    test {SUNIONSTORE with two sets} {
+        $r sunionstore setres set1 set2
+        lsort [$r smembers setres]
+    } [lsort -uniq "[$r smembers set1] [$r smembers set2]"]
 
     test {SINTER against three sets} {
         $r sadd set3 999
@@ -442,7 +451,11 @@ proc main {server port} {
         $r sinterstore setres set1 set2 set3
         lsort [$r smembers setres]
     } {995 999}
-    
+
+    test {SUNION with non existing keys} {
+        lsort [$r sunion nokey1 set1 set2 nokey2]
+    } [lsort -uniq "[$r smembers set1] [$r smembers set2]"]
+
     test {SAVE - make sure there are all the types as values} {
         $r lpush mysavelist hello
         $r lpush mysavelist world

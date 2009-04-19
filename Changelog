@@ -1,3 +1,4 @@
+2009-04-10 Redis 0.091 released
 2009-04-10 SINTER/SINTERSTORE/SLEMENTS fix: misisng keys are now not errors, but just like empty sets
 2009-04-09 doc changes
 2009-04-08 TODO changes, minor change to default redis.conf
