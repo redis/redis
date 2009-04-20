@@ -11,7 +11,6 @@ BEFORE REDIS 1.0.0-rc1
 - check 'server.dirty' everywere
 - config parameter to change the name of the DB file
 - replication automated tests
-- replication non stopping master<->slave syncronization
 - an external tool able to perform the 'difference' between two Redis servers. It's like 'diff', but against Redis servers, and the output is the set of commands needed to turn the first server into the second, suitable to be sent via netcat.
    $ ./redis-diff 192.168.1.1 192.168.1.2 > diff.txt
    $ cat diff.txt | nc 192.168.1.1 6379
@@ -24,7 +23,7 @@ This command should be smart and don't use too much memory, that is, take two co
 - Add missing commands in documentation
 - Document replication
 - Objects sharing configuration, add the directive "objectsharingpool <size>"
-- Make sure to confert all the fstat() calls to 64bit versions.
+- Make sure to convert all the fstat() calls to 64bit versions.
 
 FUTURE HINTS
 
