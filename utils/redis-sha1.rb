@@ -29,4 +29,7 @@ def redisSha1(opts={})
     sha1
 end
 
-p "Dataset SHA1: #{redisSha1()}"
+host = (ARGV[0] or "127.0.0.1")
+port = (ARGV[1] or "6379")
+puts "Performing SHA1 of Redis server #{host} #{port}"
+p "Dataset SHA1: #{redisSha1(:host => host, :port => port.to_i)}"

@@ -143,7 +143,7 @@ void listDelNode(list *list, listNode *node)
 }
 
 /* Returns a list iterator 'iter'. After the initialization every
- * call to listNextElement() will return the next element of the list.
+ * call to listNext() will return the next element of the list.
  *
  * This function can't fail. */
 listIter *listGetIterator(list *list, int direction)
@@ -164,6 +164,17 @@ void listReleaseIterator(listIter *iter) {
     zfree(iter);
 }
 
+/* Create an iterator in the list private iterator structure */
+void listRewind(list *list) {
+    list->iter.next = list->head;
+    list->iter.direction = AL_START_HEAD;
+}
+
+void listRewindTail(list *list) {
+    list->iter.next = list->tail;
+    list->iter.direction = AL_START_TAIL;
+}
+
 /* Return the next element of an iterator.
  * It's valid to remove the currently returned element using
  * listDelNode(), but not to remove other elements.
@@ -178,7 +189,7 @@ void listReleaseIterator(listIter *iter) {
  * }
  *
  * */
-listNode *listNextElement(listIter *iter)
+listNode *listNext(listIter *iter)
 {
     listNode *current = iter->next;
 
@@ -189,6 +200,11 @@ listNode *listNextElement(listIter *iter)
             iter->next = current->prev;
     }
     return current;
+}
+
+/* List Yield just call listNext() against the list private iterator */
+listNode *listYield(list *list) {
+    return listNext(&list->iter);
 }
 
 /* Duplicate the whole list. On out of memory NULL is returned.
@@ -211,7 +227,7 @@ list *listDup(list *orig)
     copy->free = orig->free;
     copy->match = orig->match;
     iter = listGetIterator(orig, AL_START_HEAD);
-    while((node = listNextElement(iter)) != NULL) {
+    while((node = listNext(iter)) != NULL) {
         void *value;
 
         if (copy->dup) {
@@ -248,7 +264,7 @@ listNode *listSearchKey(list *list, void *key)
     listNode *node;
 
     iter = listGetIterator(list, AL_START_HEAD);
-    while((node = listNextElement(iter)) != NULL) {
+    while((node = listNext(iter)) != NULL) {
         if (list->match) {
             if (list->match(node->value, key)) {
                 listReleaseIterator(iter);

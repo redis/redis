@@ -1,12 +1,15 @@
 BEFORE REDIS 1.0.0-rc1
 
+- What happens if the saving child gets killed instead to end normally? Handle this.
 - Fix INCRBY argument that is limited to 32bit int.
+- Make sinterstore / unionstore / sdiffstore returning the cardinality of the resulting set.
 - Add a new field as INFO output: bgsaveinprogress
 - Remove max number of args limit
 - GETSET
-- network layer stresser in test in demo
+- network layer stresser in test in demo, make sure to set/get random streams of data and check that what we read back is byte-by-byte the same.
 - maxclients directive
 - check 'server.dirty' everywere
+- config parameter to change the name of the DB file
 - replication automated tests
 - replication non stopping master<->slave syncronization
 - an external tool able to perform the 'difference' between two Redis servers. It's like 'diff', but against Redis servers, and the output is the set of commands needed to turn the first server into the second, suitable to be sent via netcat.
@@ -21,6 +24,7 @@ This command should be smart and don't use too much memory, that is, take two co
 - Add missing commands in documentation
 - Document replication
 - Objects sharing configuration, add the directive "objectsharingpool <size>"
+- Make sure to confert all the fstat() calls to 64bit versions.
 
 FUTURE HINTS
 
