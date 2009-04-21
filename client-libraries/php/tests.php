@@ -7,7 +7,8 @@ require_once('redis.php');
 $r =& new Redis('localhost');
 $r->connect();
 $r->select_db(9);
-$r->flush();
+$r->flushdb();
+echo "<pre>\n";
 echo $r->ping() . "\n";
 echo $r->do_echo('ECHO test') . "\n";
 echo "SET aaa " . $r->set('aaa', 'bbb') . "\n";
@@ -29,15 +30,15 @@ echo 'SET a1 a2 a3' . $r->set('a1', 'a') . $r->set('a2', 'b') . $r->set('a3', 'c
 echo 'KEYS a* ' . print_r($r->keys('a*'), true) . "\n";
 echo 'RANDOMKEY ' . $r->randomkey('a*') . "\n";
 echo 'RENAME a1 a0 ' . $r->rename('a1', 'a0') . "\n";
-echo 'RENAMENX a0 a2 ' . $r->rename('a0', 'a2', true) . "\n";
-echo 'RENAMENX a0 a1 ' . $r->rename('a0', 'a1', true) . "\n";
+echo 'RENAMENX a0 a2 ' . $r->renamenx('a0', 'a2') . "\n";
+echo 'RENAMENX a0 a1 ' . $r->renamenx('a0', 'a1') . "\n";
 
 echo 'LPUSH a0 aaa ' . $r->push('a0', 'aaa') . "\n";
 echo 'LPUSH a0 bbb ' . $r->push('a0', 'bbb') . "\n";
 echo 'RPUSH a0 ccc ' . $r->push('a0', 'ccc', false) . "\n";
 echo 'LLEN a0 ' . $r->llen('a0') . "\n";
 echo 'LRANGE sdkjhfskdjfh 0 100 ' . print_r($r->lrange('sdkjhfskdjfh', 0, 100), true) . "\n";
-echo 'LRANGE a0 0 0 ' . print_r($r->lrange('sdkjhfskdjfh', 0, 0), true) . "\n";
+echo 'LRANGE a0 0 0 ' . print_r($r->lrange('a0', 0, 0), true) . "\n";
 echo 'LRANGE a0 0 100 ' . print_r($r->lrange('a0', 0, 100), true) . "\n";
 echo 'LTRIM a0 0 1 ' . $r->ltrim('a0', 0, 1) . "\n";
 echo 'LRANGE a0 0 100 ' . print_r($r->lrange('a0', 0, 100), true) . "\n";
@@ -82,5 +83,5 @@ echo 'BGSAVE ' . $r->save(true) . "\n";
 echo 'LASTSAVE ' . $r->lastsave() . "\n";
 
 echo 'INFO ' . print_r($r->info()) . "\n";
-
+echo "</pre>\n";
 ?>
