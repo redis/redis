@@ -875,13 +875,16 @@ static void initServer() {
 }
 
 /* Empty the whole database */
-static void emptyDb() {
+static long long emptyDb() {
     int j;
+    long long removed = 0;
 
     for (j = 0; j < server.dbnum; j++) {
+        removed += dictSize(server.db[j].dict);
         dictEmpty(server.db[j].dict);
         dictEmpty(server.db[j].expires);
     }
+    return removed;
 }
 
 /* I agree, this is a very rudimental way to load a configuration...
@@ -3038,18 +3041,17 @@ static void sunionstoreCommand(redisClient *c) {
 }
 
 static void flushdbCommand(redisClient *c) {
+    server.dirty += dictSize(c->db->dict);
     dictEmpty(c->db->dict);
     dictEmpty(c->db->expires);
-    server.dirty++;
     addReply(c,shared.ok);
-    rdbSave(server.dbfilename);
 }
 
 static void flushallCommand(redisClient *c) {
-    emptyDb();
-    server.dirty++;
+    server.dirty += emptyDb();
     addReply(c,shared.ok);
     rdbSave(server.dbfilename);
+    server.dirty++;
 }
 
 redisSortOperation *createSortOperation(int type, robj *pattern) {
