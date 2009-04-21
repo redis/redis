@@ -358,8 +358,11 @@ class Redis {
     }
 }
 
+/*
 $r = new Redis();
+var_dump($r->set("foo","bar"));
 var_dump($r->get("foo"));
 var_dump($r->info());
+*/
 
 ?>
