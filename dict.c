@@ -377,7 +377,7 @@ dictEntry *dictGetRandomKey(dict *ht)
     unsigned int h;
     int listlen, listele;
 
-    if (ht->size == 0) return NULL;
+    if (ht->used == 0) return NULL;
     do {
         h = random() & ht->sizemask;
         he = ht->table[h];

@@ -68,6 +68,12 @@ class Redis {
         $this->write("GET $name\r\n");
         return $this->get_response();
     }
+
+    public function mget($keys) {
+        $this->connect();
+        $this->write("MGET ".implode(" ",$keys)."\r\n");
+        return $this->get_response();
+    }
     
     public function incr($name, $amount=1) {
         $this->connect();

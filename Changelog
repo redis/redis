@@ -1,3 +1,9 @@
+2009-04-22 FLUSHALL/FLUSHDB no longer sync on disk. Just increment the dirty counter by the number of elements removed, that will probably trigger a background saving operation
+2009-04-21 forgot to comment testing code in PHP lib. Now it is ok
+2009-04-21 PHP client ported to PHP5 and fixed
+2009-04-21 doc update
+2009-04-20 Non blocking replication (finally!). C-side linked lists API improved.
+2009-04-19 SUNION, SUNIONSTORE, Initial work on non blocking replication
 2009-04-10 Redis 0.091 released
 2009-04-10 SINTER/SINTERSTORE/SLEMENTS fix: misisng keys are now not errors, but just like empty sets
 2009-04-09 doc changes
