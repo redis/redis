@@ -624,6 +624,13 @@ proc main {server port} {
         $r randomkey
     } {}
 
+    test {RANDOMKEY regression 1} {
+        $r flushall
+        $r set x 10
+        $r del x
+        $r randomkey
+    } {}
+
     # Leave the user with a clean DB before to exit
     test {FLUSHALL} {
         $r flushall
