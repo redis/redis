@@ -101,6 +101,21 @@ proc main {server port} {
         $r incr novar
     } {101}
 
+    test {INCR over 32bit value} {
+        $r set novar 17179869184
+        $r incr novar
+    } {17179869185}
+
+    test {INCRBY over 32bit value with over 32bit increment} {
+        $r set novar 17179869184
+        $r incrby novar 17179869184
+    } {34359738368}
+
+    test {DECRBY over 32bit value with over 32bit increment, negative res} {
+        $r set novar 17179869184
+        $r decrby novar 17179869185
+    } {-1}
+
     test {SETNX target key missing} {
         $r setnx novar2 foobared
         $r get novar2

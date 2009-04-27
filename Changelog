@@ -1,3 +1,5 @@
+2009-04-23 RANDOMKEY regression test added
+2009-04-23 dictGetRandomKey bug fixed, RANDOMKEY will not block the server anymore
 2009-04-22 FLUSHALL/FLUSHDB no longer sync on disk. Just increment the dirty counter by the number of elements removed, that will probably trigger a background saving operation
 2009-04-21 forgot to comment testing code in PHP lib. Now it is ok
 2009-04-21 PHP client ported to PHP5 and fixed

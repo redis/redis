@@ -2195,7 +2195,7 @@ static void mgetCommand(redisClient *c) {
     }
 }
 
-static void incrDecrCommand(redisClient *c, int incr) {
+static void incrDecrCommand(redisClient *c, long long incr) {
     long long value;
     int retval;
     robj *o;
@@ -2237,12 +2237,12 @@ static void decrCommand(redisClient *c) {
 }
 
 static void incrbyCommand(redisClient *c) {
-    int incr = atoi(c->argv[2]->ptr);
+    long long incr = strtoll(c->argv[2]->ptr, NULL, 10);
     incrDecrCommand(c,incr);
 }
 
 static void decrbyCommand(redisClient *c) {
-    int incr = atoi(c->argv[2]->ptr);
+    long long incr = strtoll(c->argv[2]->ptr, NULL, 10);
     incrDecrCommand(c,-incr);
 }
 

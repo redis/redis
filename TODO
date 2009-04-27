@@ -1,7 +1,6 @@
 BEFORE REDIS 1.0.0-rc1
 
 - What happens if the saving child gets killed instead to end normally? Handle this.
-- Fix INCRBY argument that is limited to 32bit int.
 - Make sinterstore / unionstore / sdiffstore returning the cardinality of the resulting set.
 - Add a new field as INFO output: bgsaveinprogress
 - Remove max number of args limit
@@ -24,6 +23,7 @@ This command should be smart and don't use too much memory, that is, take two co
 - Document replication
 - Objects sharing configuration, add the directive "objectsharingpool <size>"
 - Make sure to convert all the fstat() calls to 64bit versions.
+- SINTERCOUNT, SUNIONCOUNT, SDIFFCOUNT
 
 FUTURE HINTS
 
