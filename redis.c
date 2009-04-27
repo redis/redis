@@ -3343,6 +3343,7 @@ static void infoCommand(redisClient *c) {
         "connected_slaves:%d\r\n"
         "used_memory:%zu\r\n"
         "changes_since_last_save:%lld\r\n"
+        "bgsave_in_progress:%d\r\n"
         "last_save_time:%d\r\n"
         "total_connections_received:%lld\r\n"
         "total_commands_processed:%lld\r\n"
@@ -3353,6 +3354,7 @@ static void infoCommand(redisClient *c) {
         listLength(server.slaves),
         server.usedmemory,
         server.dirty,
+        server.bgsaveinprogress,
         server.lastsave,
         server.stat_numconnections,
         server.stat_numcommands,
