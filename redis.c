@@ -1001,6 +1001,8 @@ static void loadServerConfig(char *filename) {
           server.requirepass = zstrdup(argv[1]);
         } else if (!strcmp(argv[0],"pidfile") && argc == 2) {
           server.pidfile = zstrdup(argv[1]);
+        } else if (!strcmp(argv[0],"dbfilename") && argc == 2) {
+          server.dbfilename = zstrdup(argv[1]);
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }

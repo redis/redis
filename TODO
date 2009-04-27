@@ -7,7 +7,6 @@ BEFORE REDIS 1.0.0-rc1
 - network layer stresser in test in demo, make sure to set/get random streams of data and check that what we read back is byte-by-byte the same.
 - maxclients directive
 - check 'server.dirty' everywere
-- config parameter to change the name of the DB file
 - replication automated tests
 - an external tool able to perform the 'difference' between two Redis servers. It's like 'diff', but against Redis servers, and the output is the set of commands needed to turn the first server into the second, suitable to be sent via netcat.
    $ ./redis-diff 192.168.1.1 192.168.1.2 > diff.txt
