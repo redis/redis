@@ -887,6 +887,12 @@ static long long emptyDb() {
     return removed;
 }
 
+static int yesnotoi(char *s) {
+    if (!strcasecmp(s,"yes")) return 1;
+    else if (!strcasecmp(s,"no")) return 0;
+    else return -1;
+}
+
 /* I agree, this is a very rudimental way to load a configuration...
    will improve later if the config gets more complex */
 static void loadServerConfig(char *filename) {
@@ -980,24 +986,15 @@ static void loadServerConfig(char *filename) {
             server.masterport = atoi(argv[2]);
             server.replstate = REDIS_REPL_CONNECT;
         } else if (!strcmp(argv[0],"glueoutputbuf") && argc == 2) {
-            sdstolower(argv[1]);
-            if (!strcmp(argv[1],"yes")) server.glueoutputbuf = 1;
-            else if (!strcmp(argv[1],"no")) server.glueoutputbuf = 0;
-            else {
+            if ((server.glueoutputbuf = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcmp(argv[0],"shareobjects") && argc == 2) {
-            sdstolower(argv[1]);
-            if (!strcmp(argv[1],"yes")) server.shareobjects = 1;
-            else if (!strcmp(argv[1],"no")) server.shareobjects = 0;
-            else {
+            if ((server.shareobjects = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcmp(argv[0],"daemonize") && argc == 2) {
-            sdstolower(argv[1]);
-            if (!strcmp(argv[1],"yes")) server.daemonize = 1;
-            else if (!strcmp(argv[1],"no")) server.daemonize = 0;
-            else {
+            if ((server.daemonize = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcmp(argv[0],"requirepass") && argc == 2) {
