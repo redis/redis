@@ -655,6 +655,41 @@ proc main {server port} {
         list [$r getset foo xyz] [$r get foo]
     } {bar xyz}
 
+    test {SMOVE basics} {
+        $r sadd myset1 a
+        $r sadd myset1 b
+        $r sadd myset1 c
+        $r sadd myset2 x
+        $r sadd myset2 y
+        $r sadd myset2 z
+        $r smove myset1 myset2 a
+        list [lsort [$r smembers myset2]] [lsort [$r smembers myset1]]
+    } {{a x y z} {b c}}
+
+    test {SMOVE non existing key} {
+        list [$r smove myset1 myset2 foo] [lsort [$r smembers myset2]] [lsort [$r smembers myset1]]
+    } {0 {a x y z} {b c}}
+
+    test {SMOVE non existing src set} {
+        list [$r smove noset myset2 foo] [lsort [$r smembers myset2]]
+    } {0 {a x y z}}
+
+    test {SMOVE non existing dst set} {
+        list [$r smove myset2 myset3 y] [lsort [$r smembers myset2]] [lsort [$r smembers myset3]]
+    } {1 {a x z} y}
+
+    test {SMOVE wrong src key type} {
+        $r set x 10
+        catch {$r smove x myset2 foo} err
+        format $err
+    } {ERR*}
+
+    test {SMOVE wrong dst key type} {
+        $r set x 10
+        catch {$r smove myset2 x foo} err
+        format $err
+    } {ERR*}
+
     # Leave the user with a clean DB before to exit
     test {FLUSHALL} {
         $r flushall
