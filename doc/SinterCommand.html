@@ -30,7 +30,7 @@
 <i>Time complexity O(N<b>M) worst case where N is the cardinality of the smallest set and M the number of sets_<br/><br/><blockquote>Return the members of a set resulting from the intersection of all thesets hold at the specified keys. Like in LRANGE the result is sent tothe client as a multi-bulk reply (see the protocol specification formore information). If just a single key is specified, then this commandproduces the same result as SELEMENTS. Actually SELEMENTS is just syntaxsugar for SINTERSECT.</blockquote>
 <blockquote>Non existing keys are considered like empty sets, so if one of the keys ismissing an empty set is returned (since the intersection with an emptyset always is an empty set).</blockquote>
 <h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Multi bulk reply</a>, specifically the list of common elements.<h2><a name="See also">See also</a></h2>
-<blockquote>* <a href="SremCommand.html">SREM</a>* <a href="SismemberCommand.html">SISMEMBER</a>* <a href="ScardCommand.html">SCARD</a>* <a href="SmembersCommand.html">SMEMBERS</a>* <a href="SinterstoreCommand.html">SINTERSTORE</a>* <a href="SunionCommand.html">SUNION</a>* <a href="SunionstoreCommand.html">SUNIONSTORE</a></blockquote></b></i>
+<blockquote>* <a href="SaddCommand.html">SADD</a>* <a href="SremCommand.html">SREM</a>* <a href="SismemberCommand.html">SISMEMBER</a>* <a href="ScardCommand.html">SCARD</a>* <a href="SmembersCommand.html">SMEMBERS</a>* <a href="SinterstoreCommand.html">SINTERSTORE</a>* <a href="SunionCommand.html">SUNION</a>* <a href="SunionstoreCommand.html">SUNIONSTORE</a>* <a href="SmoveCommand.html">SMOVE</a></blockquote></b></i>
                 </div>
         
             </div>

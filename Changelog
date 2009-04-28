@@ -1,3 +1,5 @@
+2009-04-28 less CPU usage in command parsing, case insensitive config directives
+2009-04-28 GETSET command doc added
 2009-04-28 GETSET tests
 2009-04-28 GETSET implemented
 2009-04-27 ability to specify a different file name for the DB

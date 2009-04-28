@@ -341,6 +341,7 @@ static void typeCommand(redisClient *c);
 static void lsetCommand(redisClient *c);
 static void saddCommand(redisClient *c);
 static void sremCommand(redisClient *c);
+static void smoveCommand(redisClient *c);
 static void sismemberCommand(redisClient *c);
 static void scardCommand(redisClient *c);
 static void sinterCommand(redisClient *c);
@@ -383,6 +384,7 @@ static struct redisCommand cmdTable[] = {
     {"lrem",lremCommand,4,REDIS_CMD_BULK},
     {"sadd",saddCommand,3,REDIS_CMD_BULK},
     {"srem",sremCommand,3,REDIS_CMD_BULK},
+    {"smove",smoveCommand,4,REDIS_CMD_BULK},
     {"sismember",sismemberCommand,3,REDIS_CMD_BULK},
     {"scard",scardCommand,2,REDIS_CMD_INLINE},
     {"sinter",sinterCommand,-2,REDIS_CMD_INLINE},
@@ -2817,6 +2819,41 @@ static void sremCommand(redisClient *c) {
             addReply(c,shared.czero);
         }
     }
+}
+
+static void smoveCommand(redisClient *c) {
+    robj *srcset, *dstset;
+
+    srcset = lookupKeyWrite(c->db,c->argv[1]);
+    dstset = lookupKeyWrite(c->db,c->argv[2]);
+
+    /* If the source key does not exist return 0, if it's of the wrong type
+     * raise an error */
+    if (srcset == NULL || srcset->type != REDIS_SET) {
+        addReply(c, srcset ? shared.wrongtypeerr : shared.czero);
+        return;
+    }
+    /* Error if the destination key is not a set as well */
+    if (dstset && dstset->type != REDIS_SET) {
+        addReply(c,shared.wrongtypeerr);
+        return;
+    }
+    /* Remove the element from the source set */
+    if (dictDelete(srcset->ptr,c->argv[3]) == DICT_ERR) {
+        /* Key not found in the src set! return zero */
+        addReply(c,shared.czero);
+        return;
+    }
+    server.dirty++;
+    /* Add the element to the destination set */
+    if (!dstset) {
+        dstset = createSetObject();
+        dictAdd(c->db->dict,c->argv[2],dstset);
+        incrRefCount(c->argv[2]);
+    }
+    if (dictAdd(dstset->ptr,c->argv[3],NULL) == DICT_OK)
+        incrRefCount(c->argv[3]);
+    addReply(c,shared.cone);
 }
 
 static void sismemberCommand(redisClient *c) {

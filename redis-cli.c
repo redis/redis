@@ -76,6 +76,7 @@ static struct redisCommand cmdTable[] = {
     {"lrem",4,REDIS_CMD_BULK},
     {"sadd",3,REDIS_CMD_BULK},
     {"srem",3,REDIS_CMD_BULK},
+    {"smove",4,REDIS_CMD_BULK},
     {"sismember",3,REDIS_CMD_BULK},
     {"scard",2,REDIS_CMD_INLINE},
     {"sinter",-2,REDIS_CMD_INLINE},
