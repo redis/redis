@@ -356,6 +356,7 @@ static void infoCommand(redisClient *c);
 static void mgetCommand(redisClient *c);
 static void monitorCommand(redisClient *c);
 static void expireCommand(redisClient *c);
+static void getSetCommand(redisClient *c);
 
 /*================================= Globals ================================= */
 
@@ -391,6 +392,7 @@ static struct redisCommand cmdTable[] = {
     {"smembers",sinterCommand,2,REDIS_CMD_INLINE},
     {"incrby",incrbyCommand,3,REDIS_CMD_INLINE},
     {"decrby",decrbyCommand,3,REDIS_CMD_INLINE},
+    {"getset",getSetCommand,3,REDIS_CMD_BULK},
     {"randomkey",randomkeyCommand,1,REDIS_CMD_INLINE},
     {"select",selectCommand,2,REDIS_CMD_INLINE},
     {"move",moveCommand,3,REDIS_CMD_INLINE},
@@ -2172,6 +2174,18 @@ static void getCommand(redisClient *c) {
             addReply(c,shared.crlf);
         }
     }
+}
+
+static void getSetCommand(redisClient *c) {
+    getCommand(c);
+    if (dictAdd(c->db->dict,c->argv[1],c->argv[2]) == DICT_ERR) {
+        dictReplace(c->db->dict,c->argv[1],c->argv[2]);
+    } else {
+        incrRefCount(c->argv[1]);
+    }
+    incrRefCount(c->argv[2]);
+    server.dirty++;
+    removeExpire(c->db,c->argv[1]);
 }
 
 static void mgetCommand(redisClient *c) {

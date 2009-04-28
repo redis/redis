@@ -85,6 +85,7 @@ static struct redisCommand cmdTable[] = {
     {"smembers",2,REDIS_CMD_INLINE},
     {"incrby",3,REDIS_CMD_INLINE},
     {"decrby",3,REDIS_CMD_INLINE},
+    {"getset",3,REDIS_CMD_BULK},
     {"randomkey",1,REDIS_CMD_INLINE},
     {"select",2,REDIS_CMD_INLINE},
     {"move",3,REDIS_CMD_INLINE},
