@@ -646,6 +646,15 @@ proc main {server port} {
         $r randomkey
     } {}
 
+    test {GETSET (set new value)} {
+        list [$r getset foo xyz] [$r get foo]
+    } {{} xyz}
+
+    test {GETSET (replace old value)} {
+        $r set foo bar
+        list [$r getset foo xyz] [$r get foo]
+    } {bar xyz}
+
     # Leave the user with a clean DB before to exit
     test {FLUSHALL} {
         $r flushall
