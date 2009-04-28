@@ -1704,7 +1704,7 @@ static int rdbSaveLzfStringObject(FILE *fp, robj *obj) {
     /* We require at least four bytes compression for this to be worth it */
     outlen = sdslen(obj->ptr)-4;
     if (outlen <= 0) return 0;
-    if ((out = zmalloc(outlen)) == NULL) return 0;
+    if ((out = zmalloc(outlen+1)) == NULL) return 0;
     comprlen = lzf_compress(obj->ptr, sdslen(obj->ptr), out, outlen);
     if (comprlen == 0) {
         zfree(out);
@@ -1741,7 +1741,7 @@ static int rdbSaveStringObject(FILE *fp, robj *obj) {
 
     /* Try LZF compression - under 20 bytes it's unable to compress even
      * aaaaaaaaaaaaaaaaaa so skip it */
-    if (len > 20) {
+    if (1 && len > 20) {
         int retval;
 
         retval = rdbSaveLzfStringObject(fp,obj);
