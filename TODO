@@ -3,7 +3,6 @@ BEFORE REDIS 1.0.0-rc1
 - What happens if the saving child gets killed instead to end normally? Handle this.
 - Make sinterstore / unionstore / sdiffstore returning the cardinality of the resulting set.
 - Remove max number of args limit
-- GETSET
 - network layer stresser in test in demo, make sure to set/get random streams of data and check that what we read back is byte-by-byte the same.
 - maxclients directive
 - check 'server.dirty' everywere

@@ -1,3 +1,6 @@
+2009-04-28 GETSET tests
+2009-04-28 GETSET implemented
+2009-04-27 ability to specify a different file name for the DB
 2009-04-27 log file parsing code improved a bit
 2009-04-27 bgsave_in_progress field in INFO output
 2009-04-27 INCRBY/DECRBY now support 64bit increments, with tests
