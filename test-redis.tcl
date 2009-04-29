@@ -18,6 +18,26 @@ proc test {name code okpattern} {
     }
 }
 
+proc randstring {min max {type binary}} {
+    set len [expr {$min+int(rand()*($max-$min+1))}]
+    set output {}
+    if {$type eq {binary}} {
+        set minval 0
+        set maxval 255
+    } elseif {$type eq {alpha}} {
+        set minval 48
+        set maxval 122
+    } elseif {$type eq {compr}} {
+        set minval 48
+        set maxval 52
+    }
+    while {$len} {
+        append output [format "%c" [expr {$minval+int(rand()*($maxval-$minval+1))}]]
+        incr len -1
+    }
+    return $output
+}
+
 proc main {server port} {
     set r [redis $server $port]
     set err ""
@@ -689,6 +709,22 @@ proc main {server port} {
         catch {$r smove myset2 x foo} err
         format $err
     } {ERR*}
+
+    foreach fuzztype {binary alpha compr} {
+        test "FUZZ stresser with data model $fuzztype" {
+            set err 0
+            for {set i 0} {$i < 1000} {incr i} {
+                set fuzz [randstring 0 512 $fuzztype]
+                $r set foo $fuzz
+                set got [$r get foo]
+                if {$got ne $fuzz} {
+                    incr err
+                    break
+                }
+            }
+            format $err
+        } {0}
+    }
 
     # Leave the user with a clean DB before to exit
     test {FLUSHALL} {

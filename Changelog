@@ -1,3 +1,9 @@
+2009-04-29 fixed for HT resize check 32bits overflow
+2009-04-29 Check for fork() failure in background saving
+2009-04-29 fix for the LZF off-by-one bug added
+2009-04-28 print bytes used at exit on SHUTDOWN
+2009-04-28 SMOVE test added
+2009-04-28 SMOVE command implemented
 2009-04-28 less CPU usage in command parsing, case insensitive config directives
 2009-04-28 GETSET command doc added
 2009-04-28 GETSET tests
