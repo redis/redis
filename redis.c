@@ -27,7 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define REDIS_VERSION "0.091"
+#define REDIS_VERSION "0.100"
 
 #include "fmacros.h"
 
@@ -664,7 +664,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* If the percentage of used slots in the HT reaches REDIS_HT_MINFILL
      * we resize the hash table to save memory */
     for (j = 0; j < server.dbnum; j++) {
-        int size, used, vkeys;
+        long long size, used, vkeys;
 
         size = dictSlots(server.db[j].dict);
         used = dictSize(server.db[j].dict);
