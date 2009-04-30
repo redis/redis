@@ -60,7 +60,7 @@ static void _dictPanic(const char *fmt, ...)
 
 /* ------------------------- Heap Management Wrappers------------------------ */
 
-static void *_dictAlloc(int size)
+static void *_dictAlloc(size_t size)
 {
     void *p = zmalloc(size);
     if (p == NULL)
