@@ -1,5 +1,7 @@
 BEFORE REDIS 1.0.0-rc1
 
+- Resize the expires hash tables if needed as well
+- Elapsed time in logs for SAVE when saving is going to take more than 2 seconds
 - TTL command that returns -1 if a key is not volatile otherwise the time to live of a volatile key.
 - Remove max number of args limit
 - What happens if the saving child gets killed or segfaults instead of ending normally? Handle this.

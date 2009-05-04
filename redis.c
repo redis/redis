@@ -652,6 +652,25 @@ void closeTimedoutClients(void) {
     }
 }
 
+/* If the percentage of used slots in the HT reaches REDIS_HT_MINFILL
+ * we resize the hash table to save memory */
+void tryResizeHashTables(void) {
+    int j;
+
+    for (j = 0; j < server.dbnum; j++) {
+        long long size, used;
+
+        size = dictSlots(server.db[j].dict);
+        used = dictSize(server.db[j].dict);
+        if (size && used && size > REDIS_HT_MINSLOTS &&
+            (used*100/size < REDIS_HT_MINFILL)) {
+            redisLog(REDIS_NOTICE,"The hash table %d is too sparse, resize it...",j);
+            dictResize(server.db[j].dict);
+            redisLog(REDIS_NOTICE,"Hash table %d resized.",j);
+        }
+    }
+}
+
 int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     int j, loops = server.cronloops++;
     REDIS_NOTUSED(eventLoop);
@@ -661,8 +680,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Update the global state with the amount of used memory */
     server.usedmemory = zmalloc_used_memory();
 
-    /* If the percentage of used slots in the HT reaches REDIS_HT_MINFILL
-     * we resize the hash table to save memory */
+    /* Show some info about non-empty databases */
     for (j = 0; j < server.dbnum; j++) {
         long long size, used, vkeys;
 
@@ -673,13 +691,15 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             redisLog(REDIS_DEBUG,"DB %d: %d keys (%d volatile) in %d slots HT.",j,used,vkeys,size);
             /* dictPrintStats(server.dict); */
         }
-        if (size && used && size > REDIS_HT_MINSLOTS &&
-            (used*100/size < REDIS_HT_MINFILL)) {
-            redisLog(REDIS_NOTICE,"The hash table %d is too sparse, resize it...",j);
-            dictResize(server.db[j].dict);
-            redisLog(REDIS_NOTICE,"Hash table %d resized.",j);
-        }
     }
+
+    /* We don't want to resize the hash tables while a bacground saving
+     * is in progress: the saving child is created using fork() that is
+     * implemented with a copy-on-write semantic in most modern systems, so
+     * if we resize the HT while there is the saving child at work actually
+     * a lot of memory movements in the parent will cause a lot of pages
+     * copied. */
+    if (!server.bgsaveinprogress) tryResizeHashTables();
 
     /* Show information about connected clients */
     if (!(loops % 5)) {
@@ -3815,6 +3835,28 @@ static int syncWithMaster(void) {
 
 /* =================================== Main! ================================ */
 
+#ifdef __linux__
+int linuxOvercommitMemoryValue(void) {
+    FILE *fp = fopen("/proc/sys/vm/overcommit_memory","r");
+    char buf[64];
+
+    if (!fp) return -1;
+    if (fgets(buf,64,fp) == NULL) {
+        fclose(fp);
+        return -1;
+    }
+    fclose(fp);
+
+    return atoi(buf);
+}
+
+void linuxOvercommitMemoryWarning(void) {
+    if (linuxOvercommitMemoryValue() == 0) {
+        redisLog(REDIS_WARNING,"WARNING overcommit_memory is set to 0! Background save may fail under low condition memory. To fix this issue add 'echo 1 > /proc/sys/vm/overcommit_memory' in your init scripts.");
+    }
+}
+#endif /* __linux__ */
+
 static void daemonize(void) {
     int fd;
     FILE *fp;
@@ -3840,6 +3882,10 @@ static void daemonize(void) {
 }
 
 int main(int argc, char **argv) {
+#ifdef __linux__
+    linuxOvercommitMemoryWarning();
+#endif
+
     initServerConfig();
     if (argc == 2) {
         ResetServerSaveParams();
