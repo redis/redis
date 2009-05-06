@@ -67,7 +67,7 @@
 #define REDIS_MAXIDLETIME       (60*5)  /* default client timeout */
 #define REDIS_IOBUF_LEN         1024
 #define REDIS_LOADBUF_LEN       1024
-#define REDIS_MAX_ARGS          16
+#define REDIS_STATIC_ARGS       4
 #define REDIS_DEFAULT_DBNUM     16
 #define REDIS_CONFIGLINE_MAX    1024
 #define REDIS_OBJFREELIST_MAX   1000000 /* Max number of objects to cache */
@@ -183,7 +183,7 @@ typedef struct redisClient {
     redisDb *db;
     int dictid;
     sds querybuf;
-    robj *argv[REDIS_MAX_ARGS];
+    robj **argv;
     int argc;
     int bulklen;            /* bulk read len. -1 if not in bulk read mode */
     list *reply;
@@ -1078,6 +1078,7 @@ static void freeClient(redisClient *c) {
         server.master = NULL;
         server.replstate = REDIS_REPL_CONNECT;
     }
+    zfree(c->argv);
     zfree(c);
 }
 
@@ -1257,8 +1258,17 @@ static int processCommand(redisClient *c) {
 
 static void replicationFeedSlaves(list *slaves, struct redisCommand *cmd, int dictid, robj **argv, int argc) {
     listNode *ln;
-    robj *outv[REDIS_MAX_ARGS*4]; /* enough room for args, spaces, newlines */
     int outc = 0, j;
+    robj **outv;
+    /* (args*2)+1 is enough room for args, spaces, newlines */
+    robj *static_outv[REDIS_STATIC_ARGS*2+1];
+
+    if (argc <= REDIS_STATIC_ARGS) {
+        outv = static_outv;
+    } else {
+        outv = zmalloc(sizeof(robj*)*(argc*2+1));
+        if (!outv) oom("replicationFeedSlaves");
+    }
     
     for (j = 0; j < argc; j++) {
         if (j != 0) outv[outc++] = shared.space;
@@ -1312,6 +1322,7 @@ static void replicationFeedSlaves(list *slaves, struct redisCommand *cmd, int di
         for (j = 0; j < outc; j++) addReply(slave,outv[j]);
     }
     for (j = 0; j < outc; j++) decrRefCount(outv[j]);
+    if (outv != static_outv) zfree(outv);
 }
 
 static void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
@@ -1369,9 +1380,14 @@ again:
                 return;
             }
             argv = sdssplitlen(query,sdslen(query)," ",1,&argc);
-            sdsfree(query);
             if (argv == NULL) oom("sdssplitlen");
-            for (j = 0; j < argc && j < REDIS_MAX_ARGS; j++) {
+            sdsfree(query);
+
+            if (c->argv) zfree(c->argv);
+            c->argv = zmalloc(sizeof(robj*)*argc);
+            if (c->argv == NULL) oom("allocating arguments list for client");
+
+            for (j = 0; j < argc; j++) {
                 if (sdslen(argv[j])) {
                     c->argv[c->argc] = createObject(REDIS_STRING,argv[j]);
                     c->argc++;
@@ -1430,6 +1446,7 @@ static redisClient *createClient(int fd) {
     c->fd = fd;
     c->querybuf = sdsempty();
     c->argc = 0;
+    c->argv = NULL;
     c->bulklen = -1;
     c->sentlen = 0;
     c->flags = 0;
