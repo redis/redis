@@ -1,0 +1,41 @@
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<html>
+    <head>
+        <link type="text/css" rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <div id="page">
+        
+            <div id='header'>
+            <a href="index.html">
+            <img style="border:none" alt="Redis Documentation" src="redis.png">
+            </a>
+            </div>
+        
+            <div id="pagecontent">
+                <div class="index">
+<!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
+<b>ReplicationHowto: Contents</b><br>&nbsp;&nbsp;<a href="#Redis Replication Howto">Redis Replication Howto</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#General Information">General Information</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#How Redis replication works">How Redis replication works</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Configuration">Configuration</a>
+                </div>
+                
+                <h1 class="wikiname">ReplicationHowto</h1>
+
+                <div class="summary">
+                    
+                </div>
+
+                <div class="narrow">
+                    <h1><a name="Redis Replication Howto">Redis Replication Howto</a></h1><h2><a name="General Information">General Information</a></h2>Redis replication is a very simple to use and configure master-slave replication that allows slave Redis servers to be exact copies of master servers. The following are some very important facts about Redis replication:<br/><br/><ul><li> A master can have multiple slaves.</li><li> Slaves are able to accept other slaves connections, so instead to connect a number of slaves against the same master it is also possible to connect some of the slaves to other slaves in a graph-alike structure.</li><li> Redis replication is non-blocking on the master side, this means that the master will continue to serve queries while one or more slaves are performing the first synchronization. Instead replication is blocking on the slave side: while the slave is performing the first synchronization it can't reply to queries.</li><li> Replications can be used both for scalability, in order to have multiple slaves for read-only queries (for example heavy <a href="SortCommand.html">SORT</a> operations can be launched against slaves), or simply for data redundancy.</li><li> It is possible to use replication to avoid the saving process on the master side: just configure your master redis.conf in order to avoid saving at all (just comment al the &quot;save&quot; directives), then connect a slave configured to save from time to time.</li></ul>
+<h2><a name="How Redis replication works">How Redis replication works</a></h2>In order to start the replication, or after the connection closes in order resynchronize with the master, the client connects to the master and issues the SYNC command.<br/><br/>The master starts a background saving, and at the same time starts to collect all the new commands received that had the effect to modify the dataset. When the background saving completed the master starts the transfer of the database file to the slave, that saves it on disk, and then load it in memory. At this point the master starts to send all the accumulated commands, and all the new commands received from clients, that had the effect of a dataset modification.<br/><br/>You can try it yourself via telnet. Connect to the Redis port while the server is doing some work and issue the SYNC command. You'll see a bulk transfer and then every command received by the master will be re-issued in the telnet session.<br/><br/>Slaves are able to automatically reconnect when the master <code name="code" class="python">&lt;-&gt;</code> slave link goes down for some reason. If the master receives multiple concurrent slave synchronization requests it performs a single background saving in order to serve all them.<h2><a name="Configuration">Configuration</a></h2>To configure replication is trivial: just add the following line to the slave configuration file:
+<pre class="codeblock python" name="code">
+slaveof 192.168.1.1 6379
+</pre>
+Of course you need to replace 192.168.1.1 6379 with your master ip address (or hostname) and port.
+                </div>
+        
+            </div>
+        </div>
+    </body>
+</html>
+

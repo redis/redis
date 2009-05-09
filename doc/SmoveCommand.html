@@ -28,7 +28,7 @@
                 <div class="narrow">
                     <h1><a name="SMOVE _srckey_ _dstkey_ _member_">SMOVE _srckey_ _dstkey_ _member_</a></h1>
 <i>Time complexity O(1)</i><blockquote>Move the specifided <i>member</i> from the set at <i>srckey</i> to the set at <i>dstkey</i>.This operation is atomic, in every given moment the element will appear tobe in the source or destination set for accessing clients.</blockquote>
-<blockquote>If the source set does not exist or does not contain the specified elementno operation is performed and zero is returned, otherwise the element isremoved from the source set and added to the destination set. On successone is returned, even if the element was already present in the destionationset.</blockquote>
+<blockquote>If the source set does not exist or does not contain the specified elementno operation is performed and zero is returned, otherwise the element isremoved from the source set and added to the destination set. On successone is returned, even if the element was already present in the destinationset.</blockquote>
 <blockquote>An error is raised if the source or destination keys contain a non Set value.</blockquote>
 <h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Integer reply</a>, specifically:<br/><br/><pre class="codeblock python" name="code">
 1 if the element was moved
