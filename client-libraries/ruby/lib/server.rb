@@ -1,3 +1,24 @@
+begin
+  # Timeout code is courtesy of Ruby memcache-client
+  #   http://github.com/mperham/memcache-client/tree
+  # Try to use the SystemTimer gem instead of Ruby's timeout library
+  # when running on something that looks like Ruby 1.8.x.  See:
+  #   http://ph7spot.com/articles/system_timer
+  # We don't want to bother trying to load SystemTimer on jruby and
+  # ruby 1.9+.
+  if defined?(JRUBY_VERSION) || (RUBY_VERSION >= '1.9')
+    require 'timeout'
+    RedisTimer = Timeout
+  else
+    require 'system_timer'
+    RedisTimer = SystemTimer
+  end
+rescue LoadError => e
+  puts "[redis-rb] Could not load SystemTimer gem, falling back to Ruby's slower/unsafe timeout library: #{e.message}"
+  require 'timeout'
+  RedisTimer = Timeout
+end
+
 ##
 # This class represents a redis server instance.
 
@@ -38,7 +59,7 @@ class Server
   # Create a new Redis::Server object for the redis instance
   # listening on the given host and port.
 
-  def initialize(host, port = DEFAULT_PORT)
+  def initialize(host, port = DEFAULT_PORT, timeout = 10)
     raise ArgumentError, "No host specified" if host.nil? or host.empty?
     raise ArgumentError, "No port specified" if port.nil? or port.to_i.zero?
 
@@ -48,7 +69,7 @@ class Server
     @sock   = nil
     @retry  = nil
     @status = 'NOT CONNECTED'
-    @timeout = 1
+    @timeout = timeout
   end
 
   ##
@@ -83,23 +104,34 @@ class Server
       puts "Unable to open socket: #{err.class.name}, #{err.message}" if $debug
       mark_dead err
     end
-
-    return @sock
+    @sock
   end
 
   def connect_to(host, port, timeout=nil)
-    addrs = Socket.getaddrinfo(host, nil)
-    addr = addrs.detect { |ad| ad[0] == 'AF_INET' }
-    sock = Socket.new(Socket::AF_INET, Socket::SOCK_STREAM, 0)
+    socket = TCPSocket.new(host, port, 0)
     if timeout
-      secs = Integer(timeout)
-      usecs = Integer((timeout - secs) * 1_000_000)
-      optval = [secs, usecs].pack("l_2")
-      sock.setsockopt Socket::SOL_SOCKET, Socket::SO_RCVTIMEO, optval
-      sock.setsockopt Socket::SOL_SOCKET, Socket::SO_SNDTIMEO, optval
+      socket.instance_eval <<-EOR
+        alias :blocking_gets :gets
+        def gets(*args)
+          RedisTimer.timeout(#{timeout}) do
+            self.blocking_gets(*args)
+          end
+        end
+        alias :blocking_read :read
+        def read(*args)
+          RedisTimer.timeout(#{timeout}) do
+            self.blocking_read(*args)
+          end
+        end
+        alias :blocking_write :write
+        def write(*args)
+          RedisTimer.timeout(#{timeout}) do
+            self.blocking_write(*args)
+          end
+        end
+      EOR
     end
-    sock.connect(Socket.pack_sockaddr_in(port, addr[3]))
-    sock
+    socket
   end
 
   ##

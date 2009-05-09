@@ -7,10 +7,11 @@ require 'tasks/redis.tasks'
 
 
 GEM = 'redis'
-GEM_VERSION = '0.0.3'
-AUTHORS = ['Ezra Zygmuntowicz', 'Taylor Weibley']
-EMAIL = "ez@engineyard.com"
-HOMEPAGE = "http://github.com/ezmobius/redis-rb"
+GEM_NAME = 'redis'
+GEM_VERSION = '0.0.3.3'
+AUTHORS = ['Ezra Zygmuntowicz', 'Taylor Weibley', 'Matthew Clark']
+EMAIL = "matt.clark@punchstock.com"
+HOMEPAGE = "http://github.com/winescout/redis-rb"
 SUMMARY = "Ruby client library for redis key value storage server"
 
 spec = Gem::Specification.new do |s|

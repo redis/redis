@@ -1,3 +1,4 @@
 nohup.out
 redis/*
 rdsrv
+pkg/*

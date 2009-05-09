@@ -1,5 +1,6 @@
 BEFORE REDIS 1.0.0-rc1
 
+- Contrib dir with RHL for Centos and other contributions like init scripts
 - Update the FAQ with max number of keys in a DB and the overcommit thing
 - Add number of keys for every DB in INFO
 - maxmemory support in config file.

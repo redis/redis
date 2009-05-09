@@ -39,6 +39,19 @@ describe "redis" do
     @r['foo'].should == 'nik'
   end
   
+  it "should properly handle trailing newline characters" do
+    @r['foo'] = "bar\n"
+    @r['foo'].should == "bar\n"
+  end
+  
+  it "should store and retrieve all possible characters at the beginning and the end of a string" do
+    (0..255).each do |char_idx|
+      string = "#{char_idx.chr}---#{char_idx.chr}"
+      @r['foo'] = string
+      @r['foo'].should == string
+    end
+  end
+  
   it "should be able to SET a key with an expiry" do
     @r.set('foo', 'bar', 1)
     @r['foo'].should == 'bar'
@@ -271,11 +284,60 @@ describe "redis" do
     @r.set_add "set", 'key1'
     @r.set_add "set", 'key2'
     @r.set_add "set2", 'key2'
-    @r.set_inter_store('newone', 'set', 'set2')
+    @r.set_inter_store('newone', 'set', 'set2').should == 'OK'
     @r.set_members('newone').should == Set.new(['key2'])
     @r.delete('set')
   end
+  #
+  it "should be able to do set union" do
+    @r.set_add "set", 'key1'
+    @r.set_add "set", 'key2'
+    @r.set_add "set2", 'key2'
+    @r.set_add "set2", 'key3'
+    @r.set_union('set', 'set2').should == Set.new(['key1','key2','key3'])
+    @r.delete('set')
+  end
   # 
+  it "should be able to do set union and store the results in a key" do
+    @r.set_add "set", 'key1'
+    @r.set_add "set", 'key2'
+    @r.set_add "set2", 'key2'
+    @r.set_add "set2", 'key3'
+    @r.set_union_store('newone', 'set', 'set2').should == 'OK'
+    @r.set_members('newone').should == Set.new(['key1','key2','key3'])
+    @r.delete('set')
+  end
+  
+  # these don't seem to be implemented in redis head?
+  # it "should be able to do set difference" do
+  #   @r.set_add "set", 'key1'
+  #   @r.set_add "set", 'key2'
+  #   @r.set_add "set2", 'key2'
+  #   @r.set_add "set2", 'key3'
+  #   @r.set_diff('set', 'set2').should == Set.new(['key1','key3'])
+  #   @r.delete('set')
+  # end
+  # # 
+  # it "should be able to do set difference and store the results in a key" do
+  #   @r.set_add "set", 'key1'
+  #   @r.set_add "set", 'key2'
+  #   @r.set_add "set2", 'key2'
+  #   @r.set_add "set2", 'key3'
+  #   count = @r.set_diff_store('newone', 'set', 'set2')
+  #   count.should == 3
+  #   @r.set_members('newone').should == Set.new(['key1','key3'])
+  #   @r.delete('set')
+  # end
+  # 
+  it "should be able move elements from one set to another" do
+    @r.set_add 'set1', 'a'
+    @r.set_add 'set1', 'b'
+    @r.set_add 'set2', 'x'
+    @r.set_move('set1', 'set2', 'a').should == true
+    @r.set_member?('set2', 'a').should == true
+    @r.delete('set1')
+  end
+  #
   it "should be able to do crazy SORT queries" do
     @r['dog_1'] = 'louie'
     @r.push_tail 'dogs', 1
@@ -334,4 +396,15 @@ describe "redis" do
     end
   end
 
+  it "should be able to pipeline writes" do
+    @r.pipelined do |pipeline|
+      pipeline.push_head "list", "hello"
+      pipeline.push_head "list", 42
+    end
+    
+    @r.type?('list').should == "list"
+    @r.list_length('list').should == 2
+    @r.pop_head('list').should == '42'
+    @r.delete('list')
+  end
 end
