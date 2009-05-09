@@ -1,18 +1,15 @@
 BEFORE REDIS 1.0.0-rc1
 
-- Contrib dir with RHL for Centos and other contributions like init scripts
-- Update the FAQ with max number of keys in a DB and the overcommit thing
+- SDIFF, SDIFFSTORE
 - Add number of keys for every DB in INFO
-- maxmemory support in config file.
-- Resize the expires hash tables if needed as well
-- TTL command that returns -1 if a key is not volatile otherwise the time to live of a volatile key.
-- Remove max number of args limit
+- maxmemory support
+- maxclients support
+- Resize the expires and Sets hash tables if needed as well? For Sets the right moment to check for this is probably in SREM
+- TTL command that returns -1 if a key is not volatile otherwise the time to live of a volatile key in seconds.
 - What happens if the saving child gets killed or segfaults instead of ending normally? Handle this.
 - Make sinterstore / unionstore / sdiffstore returning the cardinality of the resulting set.
-- maxclients directive
 - check 'server.dirty' everywere
 - Shutdown must kill other background savings before to start saving. Otherwise the DB can get replaced by the child that rename(2) after the parent for some reason. Child should trap the signal and remove the temp file name.
-- Document replication
 - Objects sharing configuration, add the directive "objectsharingpool <size>"
 - Make sure to convert all the fstat() calls to 64bit versions.
 - SINTERCOUNT, SUNIONCOUNT, SDIFFCOUNT
@@ -25,6 +22,7 @@ AFTER 1.0 stable release
 - Write the hash table size of every db in the dump, so that Redis can resize the hash table just one time when loading a big DB.
 - Elapsed time in logs for SAVE when saving is going to take more than 2 seconds
 - replication automated tests
+- LOCK / TRYLOCK / UNLOCK as described many times in the google group
 
 FUTURE HINTS
 

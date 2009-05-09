@@ -1,3 +1,11 @@
+2009-05-09 doc changes
+2009-05-09 CPP client added thanks to Brian Hammond
+2009-05-06 Infinite number of arguments for MGET and all the other commands
+2009-05-04 Warns if /proc/sys/vm/overcommit_memory is set to 0 on Linux. Also make sure to don't resize the hash tables while the child process is saving in order to avoid copy-on-write of memory pages
+2009-04-30 zmalloc fix, return NULL or real malloc failure
+2009-04-30 more fixes for dict.c and the 150 million keys limit
+2009-04-30 dict.c modified to be able to handle more than 150,000,000 keys
+2009-04-29 fuzz stresser implemented in redis-test
 2009-04-29 fixed for HT resize check 32bits overflow
 2009-04-29 Check for fork() failure in background saving
 2009-04-29 fix for the LZF off-by-one bug added
