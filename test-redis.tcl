@@ -65,6 +65,13 @@ proc main {server port} {
         $r get x
     } {}
 
+    test {Vararg DEL} {
+        $r set foo1 a
+        $r set foo2 b
+        $r set foo3 c
+        list [$r del foo1 foo2 foo3 foo4] [$r mget foo1 foo2 foo3]
+    } {3 {{} {} {}}}
+
     test {KEYS with pattern} {
         foreach key {key_x key_y key_z foo_a foo_b foo_c} {
             $r set $key hello
