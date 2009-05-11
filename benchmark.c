@@ -137,6 +137,7 @@ static void resetClient(client c) {
     c->written = 0;
     c->state = CLIENT_SENDQUERY;
     c->start = mstime();
+    createMissingClients(c);
 }
 
 static void randomizeClientKey(client c) {

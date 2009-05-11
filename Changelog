@@ -1,3 +1,8 @@
+2009-05-11 disconnect when we cannot read from the socket
+2009-05-11 benchmark utility now supports random keys
+2009-05-10 minor doc changes
+2009-05-09 added tests for vararg DEL
+2009-05-09 DEL is now a vararg, IMPORTANT: memory leak fixed in loading DB code
 2009-05-09 doc changes
 2009-05-09 CPP client added thanks to Brian Hammond
 2009-05-06 Infinite number of arguments for MGET and all the other commands
