@@ -880,6 +880,9 @@ class Redis(object):
     
     def get_response(self):
         data = self._read().strip()
+        if not data:
+            self.disconnect()
+            raise ConnectionError("Socket closed on remote end")
         c = data[0]
         if c == '-':
             raise ResponseError(data[5:] if data[:5] == '-ERR ' else data[1:])
