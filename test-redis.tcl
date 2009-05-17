@@ -498,6 +498,23 @@ proc main {server port} {
         lsort [$r sunion nokey1 set1 set2 nokey2]
     } [lsort -uniq "[$r smembers set1] [$r smembers set2]"]
 
+    test {SDIFF with two sets} {
+        for {set i 5} {$i < 1000} {incr i} {
+            $r sadd set4 $i
+        }
+        lsort [$r sdiff set1 set4]
+    } {0 1 2 3 4}
+
+    test {SDIFF with three sets} {
+        $r sadd set5 0
+        lsort [$r sdiff set1 set4 set5]
+    } {1 2 3 4}
+
+    test {SDIFFSTORE with three sets} {
+        $r sdiffstore sres set1 set4 set5
+        lsort [$r smembers sres]
+    } {1 2 3 4}
+
     test {SAVE - make sure there are all the types as values} {
         $r lpush mysavelist hello
         $r lpush mysavelist world
