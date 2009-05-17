@@ -3112,6 +3112,7 @@ static void sunionDiffGenericCommand(redisClient *c, robj **setskeys, int setsnu
     /* Iterate all the elements of all the sets, add every element a single
      * time to the result set */
     for (j = 0; j < setsnum; j++) {
+        if (op == REDIS_OP_DIFF && j == 0 && !dv[j]) break; /* result set is empty */
         if (!dv[j]) continue; /* non existing keys are like empty sets */
 
         di = dictGetIterator(dv[j]);
@@ -3134,6 +3135,8 @@ static void sunionDiffGenericCommand(redisClient *c, robj **setskeys, int setsnu
             }
         }
         dictReleaseIterator(di);
+
+        if (op == REDIS_OP_DIFF && cardinality == 0) break; /* result set is empty */
     }
 
     /* Output the content of the resulting set, if not in STORE mode */
