@@ -10,6 +10,6 @@
 
 void
 pqsort(void *a, size_t n, size_t es,
-    int (*cmp) __P((const void *, const void *)), size_t lrange, size_t rrange)
+    int (*cmp) __P((const void *, const void *)), size_t lrange, size_t rrange);
 
 #endif

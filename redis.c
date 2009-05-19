@@ -56,7 +56,8 @@
 #include "dict.h"   /* Hash tables */
 #include "adlist.h" /* Linked lists */
 #include "zmalloc.h" /* total memory usage aware version of malloc/free */
-#include "lzf.h"
+#include "lzf.h"    /* LZF compression library */
+#include "pqsort.h" /* Partial qsort for SORT+LIMIT */
 
 /* Error codes */
 #define REDIS_OK                0
@@ -3426,7 +3427,10 @@ static void sortCommand(redisClient *c) {
         server.sort_desc = desc;
         server.sort_alpha = alpha;
         server.sort_bypattern = sortby ? 1 : 0;
-        qsort(vector,vectorlen,sizeof(redisSortObject),sortCompare);
+        if (sortby && (start != 0 || end != vectorlen-1))
+            pqsort(vector,vectorlen,sizeof(redisSortObject),sortCompare, start,end);
+        else
+            qsort(vector,vectorlen,sizeof(redisSortObject),sortCompare);
     }
 
     /* Send command output to the output buffer, performing the specified
