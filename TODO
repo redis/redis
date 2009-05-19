@@ -1,8 +1,7 @@
 BEFORE REDIS 1.0.0-rc1
 
+ * S*STORE should allow as dest key one of the source keys
  * Warning if using default config, with hint about 'redis-server redis.conf'
- * Log timestamp
- * SDIFF, SDIFFSTORE
  * Add number of keys for every DB in INFO
  * maxmemory support
  * maxclients support
