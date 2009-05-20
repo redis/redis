@@ -51,6 +51,14 @@ class RedisClient
         raise "SELECT not allowed, use the :db option when creating the object"
     end
 
+    def [](key)
+        get(key)
+    end
+
+    def []=(key,value)
+        set(key,value)
+    end
+
     def read_reply
         line = @sock.gets
         case line[0..0]
