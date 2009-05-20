@@ -19,8 +19,7 @@ class RedisClient
         @host = opts[:host]
         @port = opts[:port]
         @db = opts[:db]
-        @sock = connect_to_server
-        call_command(["select",@db]) if @db != 0
+        connect_to_server
     end
 
     def to_s
@@ -28,7 +27,8 @@ class RedisClient
     end
 
     def connect_to_server
-        TCPSocket.new(@host, @port, 0)
+        @sock = TCPSocket.new(@host, @port, 0)
+        call_command(["select",@db]) if @db != 0
     end
 
     def method_missing(*argv)
@@ -36,6 +36,19 @@ class RedisClient
     end
 
     def call_command(argv)
+        # this wrapper to raw_call_command handle reconnection on socket
+        # error. We try to reconnect just one time, otherwise let the error
+        # araise.
+        begin
+            raw_call_command(argv)
+        rescue Errno::ECONNRESET
+            @sock.close
+            connect_to_server
+            raw_call_command(argv)
+        end
+    end
+
+    def raw_call_command(argv)
         bulk = nil
         argv[0] = argv[0].to_s.downcase
         if BulkCommands[argv[0]]
@@ -61,6 +74,7 @@ class RedisClient
 
     def read_reply
         line = @sock.gets
+        raise Errno::ECONNRESET,"Connection lost" if !line
         case line[0..0]
         when "-"
             raise line.strip
