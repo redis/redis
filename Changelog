@@ -1,3 +1,13 @@
+2009-05-20 Aman Gupta changes merged
+2009-05-20 Merge git://github.com/tmm1/redis
+2009-05-19 Allow timeout=0 config to disable client timeouts
+2009-05-19 Partial qsort implemented in SORT command, only when both BY and LIMIT is used. minor fix for a warning compiling under Linux.
+2009-05-19 psort.c/h added. This is a partial qsort implementation that Redis will use when SORT+LIMIT is requested
+2009-05-17 Fix SINTER/UNIONSTORE to allow for &=/|= style operations (i.e. SINTERSTORE set1 set1 set2)
+2009-05-17 Optimize SDIFF to return as soon as the result set is empty
+2009-05-17 SDIFF/SDIFFSTORE implemnted unifying it with the implementation of SUNION/SUNIONSTORE
+2009-05-11 timestamp in log lines
+2009-05-11 Python client updated pushing from Ludo's repository
 2009-05-11 disconnect when we cannot read from the socket
 2009-05-11 benchmark utility now supports random keys
 2009-05-10 minor doc changes
