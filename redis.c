@@ -720,7 +720,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Close connections of timedout clients */
-    if (!(loops % 10))
+    if (server.maxidletime && !(loops % 10))
         closeTimedoutClients();
 
     /* Check if a background saving in progress terminated */
@@ -959,7 +959,7 @@ static void loadServerConfig(char *filename) {
         /* Execute config directives */
         if (!strcasecmp(argv[0],"timeout") && argc == 2) {
             server.maxidletime = atoi(argv[1]);
-            if (server.maxidletime < 1) {
+            if (server.maxidletime < 0) {
                 err = "Invalid timeout value"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"port") && argc == 2) {
