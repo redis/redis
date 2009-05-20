@@ -77,6 +77,3 @@ class RedisClient
         end
     end
 end
-
-r = RedisClient.new(:db=>0)
-p r.keys("*")
