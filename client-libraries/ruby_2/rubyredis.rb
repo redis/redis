@@ -20,6 +20,7 @@ class RedisClient
         @port = opts[:port]
         @db = opts[:db]
         @sock = connect_to_server
+        call_command(["select",@db]) if @db != 0
     end
 
     def to_s
@@ -44,6 +45,10 @@ class RedisClient
         @sock.write(argv.join(" ")+"\r\n")
         @sock.write(bulk+"\r\n") if bulk
         read_reply
+    end
+
+    def select(*args)
+        raise "SELECT not allowed, use the :db option when creating the object"
     end
 
     def read_reply
@@ -72,3 +77,6 @@ class RedisClient
         end
     end
 end
+
+r = RedisClient.new(:db=>0)
+p r.keys("*")
