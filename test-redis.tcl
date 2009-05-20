@@ -481,11 +481,6 @@ proc main {server port} {
         lsort [$r smembers setres]
     } [lsort -uniq "[$r smembers set1] [$r smembers set2]"]
 
-    test {SUNIONSTORE with same src and dest} {
-        $r sunionstore set1 set1 set1
-        $r scard set1
-    } {1000}
-
     test {SINTER against three sets} {
         $r sadd set3 999
         $r sadd set3 995
@@ -498,11 +493,6 @@ proc main {server port} {
         $r sinterstore setres set1 set2 set3
         lsort [$r smembers setres]
     } {995 999}
-
-    test {SINTERSTORE with same src and dest} {
-       $r sinterstore set1 set1 set1
-       $r scard set1
-    } {1000}
 
     test {SUNION with non existing keys} {
         lsort [$r sunion nokey1 set1 set2 nokey2]
