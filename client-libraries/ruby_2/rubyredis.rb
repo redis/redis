@@ -39,10 +39,6 @@ class RedisClient
         }
     }
 
-    def convert_to_bool(r)
-        r == 0 ? false : r
-    end
-
     def initialize(opts={})
         opts = {:host => 'localhost', :port => '6379', :db => 0}.merge(opts)
         @host = opts[:host]
