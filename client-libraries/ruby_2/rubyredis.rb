@@ -31,8 +31,7 @@ class RedisClient
         "info" => lambda{|r| 
             info = {}
             r.each_line {|kv|
-                k,v = kv.split(':', 2)
-                k,v = k.chomp, v = v.chomp
+                k,v = kv.split(":",2).map{|x| x.chomp}
                 info[k.to_sym] = v
             }
             info
