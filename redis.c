@@ -2973,7 +2973,7 @@ static void sinterGenericCommand(redisClient *c, robj **setskeys, int setsnum, r
     robj *lenobj = NULL, *dstset = NULL;
     int j, cardinality = 0;
 
-    if (!dv) oom("sinterCommand");
+    if (!dv) oom("sinterGenericCommand");
     for (j = 0; j < setsnum; j++) {
         robj *setobj;
 
@@ -3151,7 +3151,6 @@ static void sunionDiffGenericCommand(redisClient *c, robj **setskeys, int setsnu
         deleteKey(c->db,dstkey);
         dictAdd(c->db->dict,dstkey,dstset);
         incrRefCount(dstkey);
-        server.dirty++;
     }
 
     /* Cleanup */

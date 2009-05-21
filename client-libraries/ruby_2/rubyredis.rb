@@ -14,6 +14,35 @@ class RedisClient
         "echo"=>true, "getset"=>true, "smove"=>true
     }
 
+    ConvertToBool = lambda{|r| r == 0 ? false : r}
+
+    ReplyProcessor = {
+        "exists" => ConvertToBool,
+        "sismember"=> ConvertToBool,
+        "sadd"=> ConvertToBool,
+        "srem"=> ConvertToBool,
+        "smove"=> ConvertToBool,
+        "move"=> ConvertToBool,
+        "setnx"=> ConvertToBool,
+        "del"=> ConvertToBool,
+        "renamenx"=> ConvertToBool,
+        "expire"=> ConvertToBool,
+        "keys" => lambda{|r| r.split(" ")},
+        "info" => lambda{|r| 
+            info = {}
+            r.each_line {|kv|
+                k,v = kv.split(':', 2)
+                k,v = k.chomp, v = v.chomp
+                info[k.to_sym] = v
+            }
+            info
+        }
+    }
+
+    def convert_to_bool(r)
+        r == 0 ? false : r
+    end
+
     def initialize(opts={})
         opts = {:host => 'localhost', :port => '6379', :db => 0}.merge(opts)
         @host = opts[:host]
@@ -52,12 +81,15 @@ class RedisClient
         bulk = nil
         argv[0] = argv[0].to_s.downcase
         if BulkCommands[argv[0]]
-            bulk = argv[-1]
+            bulk = argv[-1].to_s
             argv[-1] = bulk.length
         end
         @sock.write(argv.join(" ")+"\r\n")
         @sock.write(bulk+"\r\n") if bulk
-        read_reply
+
+        # Post process the reply if needed
+        processor = ReplyProcessor[argv[0]]
+        processor ? processor.call(read_reply) : read_reply
     end
 
     def select(*args)
