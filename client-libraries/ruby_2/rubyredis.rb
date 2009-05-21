@@ -8,15 +8,15 @@
 require 'socket'
 
 begin
-  if (RUBY_VERSION >= '1.9')
-    require 'timeout'
-    RedisTimer = Timeout
-  else
-    require 'system_timer'
-    RedisTimer = SystemTimer
-  end
+    if (RUBY_VERSION >= '1.9')
+        require 'timeout'
+        RedisTimer = Timeout
+    else
+        require 'system_timer'
+        RedisTimer = SystemTimer
+    end
 rescue LoadError
-  RedisTimer = nil
+    RedisTimer = nil
 end
 
 class RedisClient
