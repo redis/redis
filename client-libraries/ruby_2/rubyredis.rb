@@ -7,6 +7,18 @@
 
 require 'socket'
 
+begin
+  if (RUBY_VERSION >= '1.9')
+    require 'timeout'
+    RedisTimer = Timeout
+  else
+    require 'system_timer'
+    RedisTimer = SystemTimer
+  end
+rescue LoadError
+  RedisTimer = nil
+end
+
 class RedisClient
     BulkCommands = {
         "set"=>true, "setnx"=>true, "rpush"=>true, "lpush"=>true, "lset"=>true,
@@ -38,11 +50,44 @@ class RedisClient
         }
     }
 
+    Aliases = {
+        "flush_db" => "flushdb",
+        "flush_all" => "flushall",
+        "last_save" => "lastsave",
+        "key?" => "exists",
+        "delete" => "del",
+        "randkey" => "randomkey",
+        "list_length" => "llen",
+        "type?" => "type",
+        "push_tail" => "rpush",
+        "push_head" => "lpush",
+        "pop_tail" => "rpop",
+        "pop_head" => "lpop",
+        "list_set" => "lset",
+        "list_range" => "lrange",
+        "list_trim" => "ltrim",
+        "list_index" => "lindex",
+        "list_rm" => "lrem",
+        "set_add" => "sadd",
+        "set_delete" => "srem",
+        "set_count" => "scard",
+        "set_member?" => "sismember",
+        "set_members" => "smembers",
+        "set_intersect" => "sinter",
+        "set_inter_store" => "sinterstore",
+        "set_union" => "sunion",
+        "set_union_store" => "sunionstore",
+        "set_diff" => "sdiff",
+        "set_diff_store" => "sdiffstore",
+        "set_move" => "smove",
+        "set_unless_exists" => "setnx"
+    }
+
     def initialize(opts={})
-        opts = {:host => 'localhost', :port => '6379', :db => 0}.merge(opts)
-        @host = opts[:host]
-        @port = opts[:port]
-        @db = opts[:db]
+        @host = opts[:host] || '127.0.0.1'
+        @port = opts[:port] || 6379
+        @db = opts[:db] || 0
+        @timeout = opts[:timeout] || 0
         connect_to_server
     end
 
@@ -51,8 +96,35 @@ class RedisClient
     end
 
     def connect_to_server
-        @sock = TCPSocket.new(@host, @port, 0)
+        @sock = connect_to(@host,@port,@timeout == 0 ? nil : @timeout)
         call_command(["select",@db]) if @db != 0
+    end
+
+    def connect_to(host, port, timeout=nil)
+        # We support connect() timeout only if system_timer is availabe
+        # or if we are running against Ruby >= 1.9
+        # Timeout reading from the socket instead will be supported anyway.
+        if @timeout != 0 and RedisTimer
+            begin
+                sock = TCPSocket.new(host, port, 0)
+            rescue Timeout::Error
+                raise Timeout::Error, "Timeout connecting to the server"
+            end
+        else
+            sock = TCPSocket.new(host, port, 0)
+        end
+
+        # If the timeout is set we set the low level socket options in order
+        # to make sure a blocking read will return after the specified number
+        # of seconds. This hack is from memcached ruby client.
+        if timeout
+            secs = Integer(timeout)
+            usecs = Integer((timeout - secs) * 1_000_000)
+            optval = [secs, usecs].pack("l_2")
+            sock.setsockopt Socket::SOL_SOCKET, Socket::SO_RCVTIMEO, optval
+            sock.setsockopt Socket::SOL_SOCKET, Socket::SO_SNDTIMEO, optval
+        end
+        sock
     end
 
     def method_missing(*argv)
@@ -63,6 +135,7 @@ class RedisClient
         # this wrapper to raw_call_command handle reconnection on socket
         # error. We try to reconnect just one time, otherwise let the error
         # araise.
+        connect_to_server if !@sock
         begin
             raw_call_command(argv)
         rescue Errno::ECONNRESET
@@ -75,6 +148,7 @@ class RedisClient
     def raw_call_command(argv)
         bulk = nil
         argv[0] = argv[0].to_s.downcase
+        argv[0] = Aliases[argv[0]] if Aliases[argv[0]]
         if BulkCommands[argv[0]]
             bulk = argv[-1].to_s
             argv[-1] = bulk.length
@@ -99,30 +173,62 @@ class RedisClient
         set(key,value)
     end
 
+    def sort(key, opts={})
+        cmd = []
+        cmd << "SORT #{key}"
+        cmd << "BY #{opts[:by]}" if opts[:by]
+        cmd << "GET #{[opts[:get]].flatten * ' GET '}" if opts[:get]
+        cmd << "#{opts[:order]}" if opts[:order]
+        cmd << "LIMIT #{opts[:limit].join(' ')}" if opts[:limit]
+        call_command(cmd)
+    end
+
+    def incr(key,increment=nil)
+        call_command(increment ? ["incrby",key,increment] :  ["incr",key])
+    end
+
+    def decr(key,decrement=nil)
+        call_command(decrement ? ["decrby",key,decrement] :  ["decr",key])
+    end
+
     def read_reply
+        # We read the first byte using read() mainly because gets() is
+        # immune to raw socket timeouts.
+        begin
+            rtype = @sock.read(1)
+        rescue Errno::EAGAIN
+            # We want to make sure it reconnects on the next command after the
+            # timeout. Otherwise the server may reply in the meantime leaving
+            # the protocol in a desync status.
+            @sock = nil
+            raise Errno::EAGAIN, "Timeout reading from the socket"
+        end
+
+        raise Errno::ECONNRESET,"Connection lost" if !rtype
         line = @sock.gets
-        raise Errno::ECONNRESET,"Connection lost" if !line
-        case line[0..0]
+        case rtype
         when "-"
-            raise line.strip
+            raise "-"+line.strip
         when "+"
-            line[1..-1].strip
+            line.strip
         when ":"
-            line[1..-1].to_i
+            line.to_i
         when "$"
-            bulklen = line[1..-1].to_i
+            bulklen = line.to_i
             return nil if bulklen == -1
             data = @sock.read(bulklen)
             @sock.read(2) # CRLF
             data
         when "*"
-            objects = line[1..-1].to_i
+            objects = line.to_i
             return nil if bulklen == -1
             res = []
             objects.times {
                 res << read_reply
             }
             res
+        else
+            raise "Protocol error, got '#{rtype}' as initial reply bye"
         end
     end
 end
