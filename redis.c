@@ -657,6 +657,7 @@ void closeTimedoutClients(void) {
     while ((ln = listYield(server.clients)) != NULL) {
         c = listNodeValue(ln);
         if (!(c->flags & REDIS_SLAVE) &&    /* no timeout for slaves */
+            !(c->flags & REDIS_MASTER) &&   /* no timeout for masters */
              (now - c->lastinteraction > server.maxidletime)) {
             redisLog(REDIS_DEBUG,"Closing idle client");
             freeClient(c);
