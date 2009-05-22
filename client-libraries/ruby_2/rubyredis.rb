@@ -236,7 +236,7 @@ class RedisClient
             }
             res
         else
-            raise "Protocol error, got '#{rtype}' as initial reply bye"
+            raise "Protocol error, got '#{rtype}' as initial reply byte"
         end
     end
 end
