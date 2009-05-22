@@ -81,22 +81,21 @@ our key was added without problems. Actually SET can never fail but
 the &quot;+OK&quot; sent lets us know that the server received everything and
 the command was actually executed.<br/><br/>Let's try to get the key content now:<br/><br/><pre class="codeblock python python" name="code">
 GET foo
-3
+$3
 bar
 </pre>Ok that's very similar to 'set', just the other way around. We sent &quot;get foo&quot;,
-the server replied with a first line that is just a number of bytes the value
-stored at key contained, followed by the actual bytes. Again &quot;\r\n&quot; are appended
-both to the bytes count and the actual data.<br/><br/>What about requesting a non existing key?<br/><br/><pre class="codeblock python python python" name="code">
+the server replied with a first line that is just the $ character follwed by
+the number of bytes the value stored at key contained, followed by the actual
+bytes. Again &quot;\r\n&quot; are appended both to the bytes count and the actual data. In Redis slang this is called a bulk reply.<br/><br/>What about requesting a non existing key?<br/><br/><pre class="codeblock python python python" name="code">
 GET blabla
-nil
-</pre>When the key does not exist instead of the length just the &quot;nil&quot; string is sent.
-Another way to check if a given key exists or not is indeed the EXISTS command:<br/><br/><pre class="codeblock python python python python" name="code">
+$-1
+</pre>When the key does not exist instead of the length, just the &quot;$-1&quot; string is sent. Since a -1 length of a bulk reply has no meaning it is used in order to specifiy a 'nil' value and distinguish it from a zero length value. Another way to check if a given key exists or not is indeed the EXISTS command:<br/><br/><pre class="codeblock python python python python" name="code">
 EXISTS nokey
-0
+:0
 EXISTS foo
-1
-</pre>As you can see the server replied '0' the first time since 'nokey' does not
-exist, and '1' for 'foo', a key that actually exists.<br/><br/>Ok... now you know the basics, read the <a href="CommandReference.html">REDIS COMMAND REFERENCE</a> section to
+:1
+</pre>As you can see the server replied ':0' the first time since 'nokey' does not
+exist, and ':1' for 'foo', a key that actually exists. Replies starting with the colon character are integer reply.<br/><br/>Ok... now you know the basics, read the <a href="CommandReference.html">REDIS COMMAND REFERENCE</a> section to
 learn all the commands supported by Redis and the <a href="ProtocolSpecification.html">PROTOCOL SPECIFICATION</a>
 section for more details about the protocol used if you plan to implement one
 for a language missing a decent client implementation.<h1><a name="License">License</a></h1>Redis is released under the BSD license. See the COPYING file for more information.<h1><a name="Credits">Credits</a></h1>Redis is written and maintained by Salvatore Sanfilippo, Aka 'antirez'.<br/><br/>Enjoy,
