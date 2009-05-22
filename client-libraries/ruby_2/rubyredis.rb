@@ -6,6 +6,7 @@
 # method_missing instead.
 
 require 'socket'
+require 'set'
 
 begin
     if (RUBY_VERSION >= '1.9')
@@ -27,6 +28,7 @@ class RedisClient
     }
 
     ConvertToBool = lambda{|r| r == 0 ? false : r}
+    ConvertToSet = lambda{|r| Set.new(r)}
 
     ReplyProcessor = {
         "exists" => ConvertToBool,
@@ -39,6 +41,10 @@ class RedisClient
         "del"=> ConvertToBool,
         "renamenx"=> ConvertToBool,
         "expire"=> ConvertToBool,
+        "smembers" => ConvertToSet,
+        "sinter" => ConvertToSet,
+        "sunion" => ConvertToSet,
+        "sdiff" => ConvertToSet,
         "keys" => lambda{|r| r.split(" ")},
         "info" => lambda{|r| 
             info = {}
@@ -58,7 +64,6 @@ class RedisClient
         "delete" => "del",
         "randkey" => "randomkey",
         "list_length" => "llen",
-        "type?" => "type",
         "push_tail" => "rpush",
         "push_head" => "lpush",
         "pop_tail" => "rpop",
@@ -74,13 +79,15 @@ class RedisClient
         "set_member?" => "sismember",
         "set_members" => "smembers",
         "set_intersect" => "sinter",
+        "set_intersect_store" => "sinterstore",
         "set_inter_store" => "sinterstore",
         "set_union" => "sunion",
         "set_union_store" => "sunionstore",
         "set_diff" => "sdiff",
         "set_diff_store" => "sdiffstore",
         "set_move" => "smove",
-        "set_unless_exists" => "setnx"
+        "set_unless_exists" => "setnx",
+        "rename_unless_exists" => "renamenx"
     }
 
     def initialize(opts={})
@@ -108,6 +115,7 @@ class RedisClient
             begin
                 sock = TCPSocket.new(host, port, 0)
             rescue Timeout::Error
+                @sock = nil
                 raise Timeout::Error, "Timeout connecting to the server"
             end
         else
