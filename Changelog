@@ -1,3 +1,16 @@
+2009-05-22 S*STORE now return the cardinality of the resulting set
+2009-05-22 rubyredis more compatible with Redis-rb
+2009-05-21 minor indentation fix
+2009-05-21 timeout support and Redis-rb compatibility aliases implemented in RubyRedis
+2009-05-21 RubyRedis info postprocessor rewritten in a more functional way
+2009-05-21 dead code removed from RubyRedis
+2009-05-21 command postprocessing implemented into RubyRedis
+2009-05-20 Automagically reconnection of RubyRedis
+2009-05-20 RubyRedis: Array alike operators implemented
+2009-05-20 random testing code removed
+2009-05-20 RubyRedis DB selection forced at object creation
+2009-05-20 Initial version of an alternative Ruby client added
+2009-05-20 SDIFF / SDIFFSTORE added to doc
 2009-05-20 Aman Gupta changes merged
 2009-05-20 Merge git://github.com/tmm1/redis
 2009-05-19 Allow timeout=0 config to disable client timeouts
