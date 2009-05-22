@@ -1119,7 +1119,8 @@ static void glueReplyBuffersIfNeeded(redisClient *c) {
             listDelNode(c->reply,ln);
         }
         /* Now the output buffer is empty, add the new single element */
-        addReplySds(c,sdsnewlen(buf,totlen));
+        o = createObject(REDIS_STRING,sdsnewlen(buf,totlen));
+        if (!listAddNodeTail(c->reply,o)) oom("listAddNodeTail");
     }
 }
 
