@@ -28,7 +28,6 @@ class RedisClient
     }
 
     ConvertToBool = lambda{|r| r == 0 ? false : r}
-    ConvertToSet = lambda{|r| Set.new(r)}
 
     ReplyProcessor = {
         "exists" => ConvertToBool,
@@ -41,10 +40,6 @@ class RedisClient
         "del"=> ConvertToBool,
         "renamenx"=> ConvertToBool,
         "expire"=> ConvertToBool,
-        "smembers" => ConvertToSet,
-        "sinter" => ConvertToSet,
-        "sunion" => ConvertToSet,
-        "sdiff" => ConvertToSet,
         "keys" => lambda{|r| r.split(" ")},
         "info" => lambda{|r| 
             info = {}
