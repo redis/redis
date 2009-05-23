@@ -110,6 +110,7 @@ static struct redisCommand cmdTable[] = {
     {"mget",-2,REDIS_CMD_INLINE},
     {"expire",3,REDIS_CMD_INLINE},
     {"ttl",2,REDIS_CMD_INLINE},
+    {"slaveof",3,REDIS_CMD_INLINE},
     {NULL,0,0}
 };
 

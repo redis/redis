@@ -362,6 +362,7 @@ static void monitorCommand(redisClient *c);
 static void expireCommand(redisClient *c);
 static void getSetCommand(redisClient *c);
 static void ttlCommand(redisClient *c);
+static void slaveofCommand(redisClient *c);
 
 /*================================= Globals ================================= */
 
@@ -406,6 +407,7 @@ static struct redisCommand cmdTable[] = {
     {"move",moveCommand,3,REDIS_CMD_INLINE},
     {"rename",renameCommand,3,REDIS_CMD_INLINE},
     {"renamenx",renamenxCommand,3,REDIS_CMD_INLINE},
+    {"expire",expireCommand,3,REDIS_CMD_INLINE},
     {"keys",keysCommand,2,REDIS_CMD_INLINE},
     {"dbsize",dbsizeCommand,1,REDIS_CMD_INLINE},
     {"auth",authCommand,2,REDIS_CMD_INLINE},
@@ -422,8 +424,8 @@ static struct redisCommand cmdTable[] = {
     {"sort",sortCommand,-2,REDIS_CMD_INLINE},
     {"info",infoCommand,1,REDIS_CMD_INLINE},
     {"monitor",monitorCommand,1,REDIS_CMD_INLINE},
-    {"expire",expireCommand,3,REDIS_CMD_INLINE},
     {"ttl",ttlCommand,2,REDIS_CMD_INLINE},
+    {"slaveof",slaveofCommand,3,REDIS_CMD_INLINE},
     {NULL,NULL,0,0}
 };
 
@@ -3916,6 +3918,28 @@ static int syncWithMaster(void) {
     server.master->flags |= REDIS_MASTER;
     server.replstate = REDIS_REPL_CONNECTED;
     return REDIS_OK;
+}
+
+static void slaveofCommand(redisClient *c) {
+    if (!strcasecmp(c->argv[1]->ptr,"no") &&
+        !strcasecmp(c->argv[2]->ptr,"one")) {
+        if (server.masterhost) {
+            sdsfree(server.masterhost);
+            server.masterhost = NULL;
+            if (server.master) freeClient(server.master);
+            server.replstate = REDIS_REPL_NONE;
+            redisLog(REDIS_NOTICE,"MASTER MODE enabled (user request)");
+        }
+    } else {
+        sdsfree(server.masterhost);
+        server.masterhost = sdsdup(c->argv[1]->ptr);
+        server.masterport = atoi(c->argv[2]->ptr);
+        if (server.master) freeClient(server.master);
+        server.replstate = REDIS_REPL_CONNECT;
+        redisLog(REDIS_NOTICE,"SLAVE OF %s:%d enabled (user request)",
+            server.masterhost, server.masterport);
+    }
+    addReply(c,shared.ok);
 }
 
 /* =================================== Main! ================================ */

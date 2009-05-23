@@ -1,5 +1,7 @@
 BEFORE REDIS 1.0.0-rc1
 
+ * redis-cli should work on scripts too
+ * Replication status in INFO command. role: (master|slave) slaveof: <host:port>, slavestatus: (disconnected|ok)
  * Warning if using default config, with hint about 'redis-server redis.conf'
  * Add number of keys for every DB in INFO
  * maxmemory support

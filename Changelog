@@ -1,3 +1,9 @@
+2009-05-22 Fix: no connection timeout for the master!
+2009-05-22 replication slave timeout when receiving the initial bulk data set to 3600 seconds, now that replication is non-blocking the server must save the db before to start the async replication and this can take a lot of time with huge datasets
+2009-05-22 README tutorial now reflects the new proto
+2009-05-22 critical bug about glueoutputbuffers=yes fixed. Under load and with pipelining and clients disconnecting on the middle of the chat with the server, Redis could block. Now it's ok
+2009-05-22 TTL command doc added
+2009-05-22 TTL command implemented
 2009-05-22 S*STORE now return the cardinality of the resulting set
 2009-05-22 rubyredis more compatible with Redis-rb
 2009-05-21 minor indentation fix
