@@ -245,6 +245,7 @@ struct redisServer {
     int masterport;
     redisClient *master;    /* client that is master for this slave */
     int replstate;
+    unsigned int maxclients;
     /* Sort parameters - qsort_r() is only available under BSD so we
      * have to take this state global, in order to pass it to sortCompare() */
     int sort_desc;
@@ -862,6 +863,7 @@ static void initServerConfig() {
     server.dbfilename = "dump.rdb";
     server.requirepass = NULL;
     server.shareobjects = 0;
+    server.maxclients = 0;
     ResetServerSaveParams();
 
     appendServerSaveParams(60*60,1);  /* save after 1 hour and 1 change */
@@ -1020,6 +1022,8 @@ static void loadServerConfig(char *filename) {
             if (server.dbnum < 1) {
                 err = "Invalid number of databases"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"maxclients") && argc == 2) {
+            server.maxclients = atoi(argv[1]);
         } else if (!strcasecmp(argv[0],"slaveof") && argc == 3) {
             server.masterhost = sdsnew(argv[1]);
             server.masterport = atoi(argv[2]);
@@ -1500,6 +1504,7 @@ static void addReplySds(redisClient *c, sds s) {
 static void acceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
     char cip[128];
+    redisClient *c;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
@@ -1510,9 +1515,21 @@ static void acceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         return;
     }
     redisLog(REDIS_DEBUG,"Accepted %s:%d", cip, cport);
-    if (createClient(cfd) == NULL) {
+    if ((c = createClient(cfd)) == NULL) {
         redisLog(REDIS_WARNING,"Error allocating resoures for the client");
         close(cfd); /* May be already closed, just ingore errors */
+        return;
+    }
+    /* If maxclient directive is set and this is one client more... close the
+     * connection. Note that we create the client instead to check before
+     * for this condition, since now the socket is already set in nonblocking
+     * mode and we can send an error for free using the Kernel I/O */
+    if (server.maxclients && listLength(server.clients) > server.maxclients) {
+        char *err = "-ERR max number of clients reached\r\n";
+
+        /* That's a best effort error message, don't check write errors */
+        write(c->fd,err,strlen(err));
+        freeClient(c);
         return;
     }
     server.stat_numconnections++;
