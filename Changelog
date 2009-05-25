@@ -1,3 +1,6 @@
+2009-05-25 maxclients implemented, see redis.conf for details
+2009-05-25 INFO command now reports replication info
+2009-05-25 minor fix to RubyRedis about bulk commands sent without arguments
 2009-05-24 Warns if using the default config
 2009-05-24 Issue with redis-client used in scripts solved, now to check if the latest argument must come from standard input we do not check that stdin is or not a tty but the command arity
 2009-05-23 RubyRedis: now sets are returned as arrays again, and not as Set objects

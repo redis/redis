@@ -2,7 +2,6 @@ BEFORE REDIS 1.0.0-rc1
 
  * Add number of keys for every DB in INFO
  * maxmemory support
- * maxclients support
  * Resize the expires and Sets hash tables if needed as well? For Sets the right moment to check for this is probably in SREM
  * What happens if the saving child gets killed or segfaults instead of ending normally? Handle this.
  * check 'server.dirty' everywere. Make it proprotional to the number of objects modified.
@@ -21,6 +20,15 @@ AFTER 1.0 stable release
  * Elapsed time in logs for SAVE when saving is going to take more than 2 seconds
  * LOCK / TRYLOCK / UNLOCK as described many times in the google group
  * Replication automated tests
+ * some kind of sorted type, example:
+        ZADD mykey foo 100
+        ZADD mykey bar 50
+   ZRANGE mykey 0 1 => bar foo
+   This is able to take elements sorted because a binary tree is used to store
+   the elements by 'score', with the actual value being the key. On the other
+   side the type also takes an hash table with key->score mapping, so that when
+   there is an update we lookup the current score and can traverse the tree.
+ * BITMAP type
 
 FUTURE HINTS
 

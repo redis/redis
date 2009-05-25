@@ -116,6 +116,7 @@ class RedisClient
         else
             sock = TCPSocket.new(host, port, 0)
         end
+        sock.setsockopt Socket::IPPROTO_TCP, Socket::TCP_NODELAY, 1
 
         # If the timeout is set we set the low level socket options in order
         # to make sure a blocking read will return after the specified number
