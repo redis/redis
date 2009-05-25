@@ -1,6 +1,5 @@
 BEFORE REDIS 1.0.0-rc1
 
- * Replication status in INFO command. role: (master|slave) slaveof: <host:port>, slavestatus: (disconnected|ok)
  * Add number of keys for every DB in INFO
  * maxmemory support
  * maxclients support
