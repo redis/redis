@@ -1,3 +1,8 @@
+2009-05-24 Warns if using the default config
+2009-05-24 Issue with redis-client used in scripts solved, now to check if the latest argument must come from standard input we do not check that stdin is or not a tty but the command arity
+2009-05-23 RubyRedis: now sets are returned as arrays again, and not as Set objects
+2009-05-23 SLAVEOF command documented
+2009-05-23 SLAVEOF command implemented for replication remote control
 2009-05-22 Fix: no connection timeout for the master!
 2009-05-22 replication slave timeout when receiving the initial bulk data set to 3600 seconds, now that replication is non-blocking the server must save the db before to start the async replication and this can take a lot of time with huge datasets
 2009-05-22 README tutorial now reflects the new proto

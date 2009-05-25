@@ -152,7 +152,7 @@ class RedisClient
         bulk = nil
         argv[0] = argv[0].to_s.downcase
         argv[0] = Aliases[argv[0]] if Aliases[argv[0]]
-        if BulkCommands[argv[0]]
+        if BulkCommands[argv[0]] and argv.length > 1
             bulk = argv[-1].to_s
             argv[-1] = bulk.length
         end
