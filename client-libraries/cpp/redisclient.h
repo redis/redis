@@ -421,7 +421,7 @@ namespace redis
                   const string_type & by_pattern, 
                   int_type limit_start, 
                   int_type limit_end, 
-                  const string_type & get_pattern, 
+                  const string_vector & get_patterns, 
                   sort_order order = sort_order_ascending,
                   bool lexicographically = false);
 

@@ -1,3 +1,6 @@
+2009-05-26 ignore gcc warning about write() return code not checked. It is esplicitily this way since the "max number of clients reached" is a best-effort error
+2009-05-26 max bytes of a received command enlarged from 1k to 16k
+2009-05-26 RubyRedis: set TCP_NODELAY TCP socket option to to disable the neagle algorithm. Makes a huge difference under some OS, notably Linux
 2009-05-25 maxclients implemented, see redis.conf for details
 2009-05-25 INFO command now reports replication info
 2009-05-25 minor fix to RubyRedis about bulk commands sent without arguments

@@ -64,7 +64,7 @@ namespace :redis do
     RedisRunner.attach
   end
   
-  desc 'Install the lastest redis from svn'
+  desc 'Install the lastest verison of Redis from Github (requires git, duh)'
   task :install => [:about, :download, :make] do
     %w(redis-benchmark redis-cli redis-server).each do |bin|
       sh "sudo cp /tmp/redis/#{bin} /usr/bin/"

@@ -316,7 +316,7 @@ redis_commands = {
         function(client, command) 
             -- let's fire and forget! the connection is closed as soon 
             -- as the SHUTDOWN command is received by the server.
-            network.write(command .. protocol.newline)
+            network.write(client, command .. protocol.newline)
         end
     ), 
 

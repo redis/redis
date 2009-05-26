@@ -663,16 +663,24 @@ namespace redis
                                 const client::string_type & by_pattern, 
                                 client::int_type limit_start, 
                                 client::int_type limit_end, 
-                                const client::string_type & get_pattern, 
+                                const client::string_vector & get_patterns, 
                                 client::sort_order order,
                                 bool lexicographically)
   {
-    send_(makecmd("SORT") << key 
-             << " BY "    << by_pattern
-             << " LIMIT " << limit_start << ' ' << limit_end
-             << " GET "   << get_pattern
-             << (order == sort_order_ascending ? " ASC" : " DESC")
-             << (lexicographically ? " ALPHA" : ""));
+    makecmd m("SORT");
+
+    m << key 
+      << " BY "    << by_pattern
+      << " LIMIT " << limit_start << ' ' << limit_end;
+
+    client::string_vector::const_iterator it = get_patterns.begin();
+    for ( ; it != get_patterns.end(); ++it) 
+      m << " GET " << *it;
+
+    m << (order == sort_order_ascending ? " ASC" : " DESC")
+      << (lexicographically ? " ALPHA" : "");
+
+    send_(m);
 
     return recv_multi_bulk_reply_(out);
   }
@@ -681,7 +689,7 @@ namespace redis
   {
     send_(makecmd("SAVE", true));
     recv_ok_reply_();
-  e.g. }
+  }
 
   void client::bgsave()
   {

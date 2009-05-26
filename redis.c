@@ -1528,7 +1528,7 @@ static void acceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         char *err = "-ERR max number of clients reached\r\n";
 
         /* That's a best effort error message, don't check write errors */
-        (void)write(c->fd,err,strlen(err));
+        (void) write(c->fd,err,strlen(err));
         freeClient(c);
         return;
     }

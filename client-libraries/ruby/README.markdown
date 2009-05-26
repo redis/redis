@@ -12,7 +12,10 @@ See [redis on code.google.com](http://code.google.com/p/redis/wiki/README) for m
 
 ## Dependencies
 
-1. redis - 
+1. rspec - 
+		sudo gem install rspec
+
+2. redis - 
 
 		rake redis:install
 
@@ -20,7 +23,7 @@ See [redis on code.google.com](http://code.google.com/p/redis/wiki/README) for m
 
 		rake dtach:install
 
-3. svn - git is the new black, but we need it for the google codes.
+3. git - git is the new black.
 
 ## Setup
 

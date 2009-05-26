@@ -2,3 +2,4 @@ nohup.out
 redis/*
 rdsrv
 pkg/*
+.idea

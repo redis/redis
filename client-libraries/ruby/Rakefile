@@ -8,10 +8,10 @@ require 'tasks/redis.tasks'
 
 GEM = 'redis'
 GEM_NAME = 'redis'
-GEM_VERSION = '0.0.3.3'
+GEM_VERSION = '0.0.3.4'
 AUTHORS = ['Ezra Zygmuntowicz', 'Taylor Weibley', 'Matthew Clark']
-EMAIL = "matt.clark@punchstock.com"
-HOMEPAGE = "http://github.com/winescout/redis-rb"
+EMAIL = "ez@engineyard.com"
+HOMEPAGE = "http://github.com/ezmobius/redis-rb"
 SUMMARY = "Ruby client library for redis key value storage server"
 
 spec = Gem::Specification.new do |s|
@@ -25,10 +25,7 @@ spec = Gem::Specification.new do |s|
   s.authors = AUTHORS
   s.email = EMAIL
   s.homepage = HOMEPAGE
-  
-  # Uncomment this to add a dependency
-  # s.add_dependency "foo"
-  
+  s.add_dependency "rspec"
   s.require_path = 'lib'
   s.autorequire = GEM
   s.files = %w(LICENSE README.markdown Rakefile) + Dir.glob("{lib,spec}/**/*")

@@ -1,9 +1,16 @@
-+ finish command implementations 
-= finish unit tests
-  Only a few left, to test the SORT command's edge cases (e.g. BY pattern)
-+ determine if we should not use bool return values and instead throw redis_error. (latter).
-+ maybe more fine-grained exceptions (not just redis_error but operation_not_permitted_error, etc.)
-- benchmarking
+command handlers:
+- support DEL as vararg
+- support MLLEN and MSCARD
+
+unit tests:
+- sort with limit
+- sort lexicographically
+- sort with pattern and weights
+
+extras:
+- benchmarking "test" app
 - consistent hashing?
-- make all string literals constants so they can be easily changed (minor)
+
+maybe/someday:
+- make all string literals constants so they can be easily changed
 - add conveniences that store a std::set in its entirety (same for std::list, std::vector)
