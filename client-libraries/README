@@ -9,9 +9,9 @@ code or recent bugfixes read more.
 How to get the lastest versions of client libraries source code
 ---------------------------------------------------------------
 
-Note that while the pure PHP, Tcl and Python libraries are the most uptodate
-available libraries, all the other libraries have their own repositories where
-it's possible to grab the most recent version:
+Note that while the pure PHP, Tcl, Python and Ruby_2 (Ruby alternative lib)
+libraries are the most uptodate available libraries, all the other libraries
+have their own repositories where it's possible to grab the most recent version:
 
 Ruby lib source code:
 http://github.com/ezmobius/redis-rb/tree/master
