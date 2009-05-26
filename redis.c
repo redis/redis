@@ -1421,7 +1421,7 @@ again:
              * on the query buffer try to process the next command. */
             if (processCommand(c) && sdslen(c->querybuf)) goto again;
             return;
-        } else if (sdslen(c->querybuf) >= 1024) {
+        } else if (sdslen(c->querybuf) >= 1024*32) {
             redisLog(REDIS_DEBUG, "Client protocol error");
             freeClient(c);
             return;
