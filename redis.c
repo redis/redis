@@ -80,8 +80,13 @@
 #define REDIS_HT_MINSLOTS       16384   /* Never resize the HT under this */
 
 /* Command flags */
-#define REDIS_CMD_BULK          1
-#define REDIS_CMD_INLINE        2
+#define REDIS_CMD_BULK          1       /* Bulk write command */
+#define REDIS_CMD_INLINE        2       /* Inline command */
+/* REDIS_CMD_DENYOOM reserves a longer comment: all the commands marked with
+   this flags will return an error when the 'maxmemory' option is set in the
+   config file and the server is using more than maxmemory bytes of memory.
+   In short this commands are denied on low memory conditions. */
+#define REDIS_CMD_DENYOOM       4
 
 /* Object types */
 #define REDIS_STRING 0
@@ -246,6 +251,7 @@ struct redisServer {
     redisClient *master;    /* client that is master for this slave */
     int replstate;
     unsigned int maxclients;
+    unsigned int maxmemory;
     /* Sort parameters - qsort_r() is only available under BSD so we
      * have to take this state global, in order to pass it to sortCompare() */
     int sort_desc;
@@ -307,6 +313,7 @@ static int deleteKey(redisDb *db, robj *key);
 static time_t getExpire(redisDb *db, robj *key);
 static int setExpire(redisDb *db, robj *key, time_t when);
 static void updateSalvesWaitingBgsave(int bgsaveerr);
+static void freeMemoryIfNeeded(void);
 
 static void authCommand(redisClient *c);
 static void pingCommand(redisClient *c);
@@ -371,38 +378,38 @@ static void slaveofCommand(redisClient *c);
 static struct redisServer server; /* server global state */
 static struct redisCommand cmdTable[] = {
     {"get",getCommand,2,REDIS_CMD_INLINE},
-    {"set",setCommand,3,REDIS_CMD_BULK},
-    {"setnx",setnxCommand,3,REDIS_CMD_BULK},
+    {"set",setCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
+    {"setnx",setnxCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
     {"del",delCommand,-2,REDIS_CMD_INLINE},
     {"exists",existsCommand,2,REDIS_CMD_INLINE},
-    {"incr",incrCommand,2,REDIS_CMD_INLINE},
-    {"decr",decrCommand,2,REDIS_CMD_INLINE},
+    {"incr",incrCommand,2,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
+    {"decr",decrCommand,2,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
     {"mget",mgetCommand,-2,REDIS_CMD_INLINE},
-    {"rpush",rpushCommand,3,REDIS_CMD_BULK},
-    {"lpush",lpushCommand,3,REDIS_CMD_BULK},
+    {"rpush",rpushCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
+    {"lpush",lpushCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
     {"rpop",rpopCommand,2,REDIS_CMD_INLINE},
     {"lpop",lpopCommand,2,REDIS_CMD_INLINE},
     {"llen",llenCommand,2,REDIS_CMD_INLINE},
     {"lindex",lindexCommand,3,REDIS_CMD_INLINE},
-    {"lset",lsetCommand,4,REDIS_CMD_BULK},
+    {"lset",lsetCommand,4,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
     {"lrange",lrangeCommand,4,REDIS_CMD_INLINE},
     {"ltrim",ltrimCommand,4,REDIS_CMD_INLINE},
     {"lrem",lremCommand,4,REDIS_CMD_BULK},
-    {"sadd",saddCommand,3,REDIS_CMD_BULK},
+    {"sadd",saddCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
     {"srem",sremCommand,3,REDIS_CMD_BULK},
     {"smove",smoveCommand,4,REDIS_CMD_BULK},
     {"sismember",sismemberCommand,3,REDIS_CMD_BULK},
     {"scard",scardCommand,2,REDIS_CMD_INLINE},
-    {"sinter",sinterCommand,-2,REDIS_CMD_INLINE},
-    {"sinterstore",sinterstoreCommand,-3,REDIS_CMD_INLINE},
-    {"sunion",sunionCommand,-2,REDIS_CMD_INLINE},
-    {"sunionstore",sunionstoreCommand,-3,REDIS_CMD_INLINE},
-    {"sdiff",sdiffCommand,-2,REDIS_CMD_INLINE},
-    {"sdiffstore",sdiffstoreCommand,-3,REDIS_CMD_INLINE},
+    {"sinter",sinterCommand,-2,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
+    {"sinterstore",sinterstoreCommand,-3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
+    {"sunion",sunionCommand,-2,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
+    {"sunionstore",sunionstoreCommand,-3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
+    {"sdiff",sdiffCommand,-2,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
+    {"sdiffstore",sdiffstoreCommand,-3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
     {"smembers",sinterCommand,2,REDIS_CMD_INLINE},
-    {"incrby",incrbyCommand,3,REDIS_CMD_INLINE},
-    {"decrby",decrbyCommand,3,REDIS_CMD_INLINE},
-    {"getset",getSetCommand,3,REDIS_CMD_BULK},
+    {"incrby",incrbyCommand,3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
+    {"decrby",decrbyCommand,3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
+    {"getset",getSetCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
     {"randomkey",randomkeyCommand,1,REDIS_CMD_INLINE},
     {"select",selectCommand,2,REDIS_CMD_INLINE},
     {"move",moveCommand,3,REDIS_CMD_INLINE},
@@ -422,7 +429,7 @@ static struct redisCommand cmdTable[] = {
     {"sync",syncCommand,1,REDIS_CMD_INLINE},
     {"flushdb",flushdbCommand,1,REDIS_CMD_INLINE},
     {"flushall",flushallCommand,1,REDIS_CMD_INLINE},
-    {"sort",sortCommand,-2,REDIS_CMD_INLINE},
+    {"sort",sortCommand,-2,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
     {"info",infoCommand,1,REDIS_CMD_INLINE},
     {"monitor",monitorCommand,1,REDIS_CMD_INLINE},
     {"ttl",ttlCommand,2,REDIS_CMD_INLINE},
@@ -864,6 +871,7 @@ static void initServerConfig() {
     server.requirepass = NULL;
     server.shareobjects = 0;
     server.maxclients = 0;
+    server.maxmemory = 0;
     ResetServerSaveParams();
 
     appendServerSaveParams(60*60,1);  /* save after 1 hour and 1 change */
@@ -1024,6 +1032,8 @@ static void loadServerConfig(char *filename) {
             }
         } else if (!strcasecmp(argv[0],"maxclients") && argc == 2) {
             server.maxclients = atoi(argv[1]);
+        } else if (!strcasecmp(argv[0],"maxmemory") && argc == 2) {
+            server.maxmemory = atoi(argv[1]);
         } else if (!strcasecmp(argv[0],"slaveof") && argc == 3) {
             server.masterhost = sdsnew(argv[1]);
             server.masterport = atoi(argv[2]);
@@ -1207,6 +1217,9 @@ static int processCommand(redisClient *c) {
     struct redisCommand *cmd;
     long long dirty;
 
+    /* Free some memory if needed (maxmemory setting) */
+    if (server.maxmemory) freeMemoryIfNeeded();
+
     /* The QUIT command is handled as a special case. Normal command
      * procs are unable to close the client connection safely */
     if (!strcasecmp(c->argv[0]->ptr,"quit")) {
@@ -1221,6 +1234,10 @@ static int processCommand(redisClient *c) {
     } else if ((cmd->arity > 0 && cmd->arity != c->argc) ||
                (c->argc < -cmd->arity)) {
         addReplySds(c,sdsnew("-ERR wrong number of arguments\r\n"));
+        resetClient(c);
+        return 1;
+    } else if (server.maxmemory && cmd->flags & REDIS_CMD_DENYOOM && zmalloc_used_memory() > server.maxmemory) {
+        addReplySds(c,sdsnew("-ERR command not allowed when used memory > 'maxmemory'\r\n"));
         resetClient(c);
         return 1;
     } else if (cmd->flags & REDIS_CMD_BULK && c->bulklen == -1) {
@@ -3972,6 +3989,58 @@ static void slaveofCommand(redisClient *c) {
             server.masterhost, server.masterport);
     }
     addReply(c,shared.ok);
+}
+
+/* ============================ Maxmemory directive  ======================== */
+
+/* This function gets called when 'maxmemory' is set on the config file to limit
+ * the max memory used by the server, and we are out of memory.
+ * This function will try to, in order:
+ *
+ * - Free objects from the free list
+ * - Try to remove keys with an EXPIRE set
+ *
+ * It is not possible to free enough memory to reach used-memory < maxmemory
+ * the server will start refusing commands that will enlarge even more the
+ * memory usage.
+ */
+static void freeMemoryIfNeeded(void) {
+    while (server.maxmemory && zmalloc_used_memory() > server.maxmemory) {
+        if (listLength(server.objfreelist)) {
+            robj *o;
+
+            listNode *head = listFirst(server.objfreelist);
+            o = listNodeValue(head);
+            listDelNode(server.objfreelist,head);
+            zfree(o);
+        } else {
+            int j, k, freed = 0;
+
+            for (j = 0; j < server.dbnum; j++) {
+                int minttl = -1;
+                robj *minkey = NULL;
+                struct dictEntry *de;
+
+                if (dictSize(server.db[j].expires)) {
+                    freed = 1;
+                    /* From a sample of three keys drop the one nearest to
+                     * the natural expire */
+                    for (k = 0; k < 3; k++) {
+                        time_t t;
+
+                        de = dictGetRandomKey(server.db[j].expires);
+                        t = (time_t) dictGetEntryVal(de);
+                        if (minttl == -1 || t < minttl) {
+                            minkey = dictGetEntryKey(de);
+                            minttl = t;
+                        }
+                    }
+                    deleteKey(server.db+j,minkey);
+                }
+            }
+            if (!freed) return; /* nothing to free... */
+        }
+    }
 }
 
 /* =================================== Main! ================================ */
