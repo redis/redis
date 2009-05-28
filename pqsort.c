@@ -37,6 +37,8 @@
  * SUCH DAMAGE.
  */
 
+#define __P(protos) protos
+
 #include <sys/cdefs.h>
 #if defined(LIBC_SCCS) && !defined(lint)
 #if 0
