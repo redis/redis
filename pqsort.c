@@ -37,10 +37,6 @@
  * SUCH DAMAGE.
  */
 
-#ifndef __P
-#define __P(protos) protos
-#endif
-
 #include <sys/cdefs.h>
 #if defined(LIBC_SCCS) && !defined(lint)
 #if 0
@@ -56,9 +52,9 @@ __RCSID("$NetBSD: qsort.c,v 1.19 2009/01/30 23:38:44 lukem Exp $");
 #include <errno.h>
 #include <stdlib.h>
 
-static inline char	*med3 __P((char *, char *, char *,
-    int (*)(const void *, const void *)));
-static inline void	 swapfunc __P((char *, char *, size_t, int));
+static inline char	*med3 (char *, char *, char *,
+    int (*)(const void *, const void *));
+static inline void	 swapfunc (char *, char *, size_t, int);
 
 #define min(a, b)	(a) < (b) ? a : b
 
@@ -101,7 +97,7 @@ swapfunc(char *a, char *b, size_t n, int swaptype)
 
 static inline char *
 med3(char *a, char *b, char *c,
-    int (*cmp) __P((const void *, const void *)))
+    int (*cmp) (const void *, const void *))
 {
 
 	return cmp(a, b) < 0 ?
@@ -111,7 +107,7 @@ med3(char *a, char *b, char *c,
 
 static void
 _pqsort(void *a, size_t n, size_t es,
-    int (*cmp) __P((const void *, const void *)), void *lrange, void *rrange)
+    int (*cmp) (const void *, const void *), void *lrange, void *rrange)
 {
 	char *pa, *pb, *pc, *pd, *pl, *pm, *pn;
 	size_t d, r;
@@ -203,7 +199,7 @@ loop:	SWAPINIT(a, es);
 
 void
 pqsort(void *a, size_t n, size_t es,
-    int (*cmp) __P((const void *, const void *)), size_t lrange, size_t rrange)
+    int (*cmp) (const void *, const void *), size_t lrange, size_t rrange)
 {
     _pqsort(a,n,es,cmp,((unsigned char*)a)+(lrange*es),
                        ((unsigned char*)a)+((rrange+1)*es)-1);
