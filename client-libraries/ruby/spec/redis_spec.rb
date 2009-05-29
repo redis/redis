@@ -22,7 +22,7 @@ describe "redis" do
   end
 
   after(:each) do
-    @r.keys('*').each {|k| @r.delete k}
+    @r.keys('*').each {|k| @r.del k}
   end  
 
   after(:all) do
@@ -30,7 +30,7 @@ describe "redis" do
   end  
 
   it 'should be able to PING' do
-    @r.ping.should == true
+    @r.ping.should == 'PONG' 
   end
 
   it "should be able to GET a key" do
@@ -62,22 +62,22 @@ describe "redis" do
     @r['foo'].should == nil
   end
   
-  it "should be able to SETNX(set_unless_exists)" do
+  it "should be able to SETNX" do
     @r['foo'] = 'nik'
     @r['foo'].should == 'nik'
-    @r.set_unless_exists 'foo', 'bar'
+    @r.setnx 'foo', 'bar'
     @r['foo'].should == 'nik'
   end
   # 
-  it "should be able to INCR(increment) a key" do
-    @r.delete('counter')
+  it "should be able to INCR a key" do
+    @r.del('counter')
     @r.incr('counter').should == 1
     @r.incr('counter').should == 2
     @r.incr('counter').should == 3
   end
   # 
-  it "should be able to DECR(decrement) a key" do
-    @r.delete('counter')
+  it "should be able to DECR a key" do
+    @r.del('counter')
     @r.incr('counter').should == 1
     @r.incr('counter').should == 2
     @r.incr('counter').should == 3
@@ -85,24 +85,24 @@ describe "redis" do
     @r.decr('counter', 2).should == 0
   end
   # 
-  it "should be able to RANDKEY(return a random key)" do
+  it "should be able to RANDKEY" do
     @r.randkey.should_not be_nil
   end
   # 
   it "should be able to RENAME a key" do
-    @r.delete 'foo'
-    @r.delete 'bar'
+    @r.del 'foo'
+    @r.del'bar'
     @r['foo'] = 'hi'
-    @r.rename! 'foo', 'bar'
+    @r.rename 'foo', 'bar'
     @r['bar'].should == 'hi'
   end
   # 
-  it "should be able to RENAMENX(rename unless the new key already exists) a key" do
-    @r.delete 'foo'
-    @r.delete 'bar'
+  it "should be able to RENAMENX a key" do
+    @r.del 'foo'
+    @r.del 'bar'
     @r['foo'] = 'hi'
     @r['bar'] = 'ohai'
-    lambda {@r.rename 'foo', 'bar'}.should raise_error(RedisRenameError)
+    @r.renamenx 'foo', 'bar'
     @r['bar'].should == 'ohai'
   end
   #
@@ -117,251 +117,224 @@ describe "redis" do
   #
   it "should be able to EXPIRE a key" do
     @r['foo'] = 'bar'
-    @r.expire('foo', 1)
+    @r.expire 'foo', 1
     @r['foo'].should == "bar"
     sleep 2
     @r['foo'].should == nil
   end
   #
-  it "should be able to EXISTS(check if key exists)" do
+  it "should be able to EXISTS" do
     @r['foo'] = 'nik'
-    @r.key?('foo').should be_true
-    @r.delete 'foo'
-    @r.key?('foo').should be_false
+    @r.exists('foo').should be_true
+    @r.del 'foo'
+    @r.exists('foo').should be_false
   end
   # 
-  it "should be able to KEYS(glob for keys)" do
-    @r.keys("f*").each do |key|
-      @r.delete key
-    end  
+  it "should be able to KEYS" do
+    @r.keys("f*").each { |key| @r.del key }
     @r['f'] = 'nik'
     @r['fo'] = 'nak'
     @r['foo'] = 'qux'
     @r.keys("f*").sort.should == ['f','fo', 'foo'].sort
   end
-  # 
+  #BTM - TODO 
   it "should be able to check the TYPE of a key" do
     @r['foo'] = 'nik'
-    @r.type?('foo').should == "string"
-    @r.delete 'foo'
-    @r.type?('foo').should == "none"
+    @r.type('foo').should == "string"
+    @r.del 'foo'
+    @r.type('foo').should == "none"
   end
   # 
-  it "should be able to push to the head of a list" do
-    @r.push_head "list", 'hello'
-    @r.push_head "list", 42
-    @r.type?('list').should == "list"
-    @r.list_length('list').should == 2
-    @r.pop_head('list').should == '42'
-    @r.delete('list')
+  it "should be able to push to the head of a list (LPUSH)" do
+    @r.lpush "list", 'hello'
+    @r.lpush "list", 42
+    @r.type('list').should == "list"
+    @r.llen('list').should == 2
+    @r.lpop('list').should == '42'
   end
   # 
-  it "should be able to push to the tail of a list" do
-    @r.push_tail "list", 'hello'
-    @r.type?('list').should == "list"
-    @r.list_length('list').should == 1
-    @r.delete('list')
+  it "should be able to push to the tail of a list (RPUSH)" do
+    @r.rpush "list", 'hello'
+    @r.type('list').should == "list"
+    @r.llen('list').should == 1
   end
   # 
-  it "should be able to pop the tail of a list" do
-    @r.push_tail "list", 'hello'
-    @r.push_tail "list", 'goodbye'
-    @r.type?('list').should == "list"
-    @r.list_length('list').should == 2
-    @r.pop_tail('list').should == 'goodbye'
-    @r.delete('list')
+  it "should be able to pop the tail of a list (RPOP)" do
+    @r.rpush "list", 'hello'
+    @r.rpush"list", 'goodbye'
+    @r.type('list').should == "list"
+    @r.llen('list').should == 2
+    @r.rpop('list').should == 'goodbye'
   end
   # 
-  it "should be able to pop the head of a list" do
-    @r.push_tail "list", 'hello'
-    @r.push_tail "list", 'goodbye'
-    @r.type?('list').should == "list"
-    @r.list_length('list').should == 2
-    @r.pop_head('list').should == 'hello'
-    @r.delete('list')
+  it "should be able to pop the head of a list (LPOP)" do
+    @r.rpush "list", 'hello'
+    @r.rpush "list", 'goodbye'
+    @r.type('list').should == "list"
+    @r.llen('list').should == 2
+    @r.lpop('list').should == 'hello'
   end
   # 
-  it "should be able to get the length of a list" do
-    @r.push_tail "list", 'hello'
-    @r.push_tail "list", 'goodbye'
-    @r.type?('list').should == "list"
-    @r.list_length('list').should == 2
-    @r.delete('list')
+  it "should be able to get the length of a list (LLEN)" do
+    @r.rpush "list", 'hello'
+    @r.rpush "list", 'goodbye'
+    @r.type('list').should == "list"
+    @r.llen('list').should == 2
   end
   # 
-  it "should be able to get a range of values from a list" do
-    @r.push_tail "list", 'hello'
-    @r.push_tail "list", 'goodbye'
-    @r.push_tail "list", '1'
-    @r.push_tail "list", '2'
-    @r.push_tail "list", '3'
-    @r.type?('list').should == "list"
-    @r.list_length('list').should == 5
-    @r.list_range('list', 2, -1).should == ['1', '2', '3']
-    @r.delete('list')
+  it "should be able to get a range of values from a list (LRANGE)" do
+    @r.rpush "list", 'hello'
+    @r.rpush "list", 'goodbye'
+    @r.rpush "list", '1'
+    @r.rpush "list", '2'
+    @r.rpush "list", '3'
+    @r.type('list').should == "list"
+    @r.llen('list').should == 5
+    @r.lrange('list', 2, -1).should == ['1', '2', '3']
   end
   # 
-  it "should be able to trim a list" do
-    @r.push_tail "list", 'hello'
-    @r.push_tail "list", 'goodbye'
-    @r.push_tail "list", '1'
-    @r.push_tail "list", '2'
-    @r.push_tail "list", '3'
-    @r.type?('list').should == "list"
-    @r.list_length('list').should == 5
-    @r.list_trim 'list', 0, 1
-    @r.list_length('list').should == 2
-    @r.list_range('list', 0, -1).should == ['hello', 'goodbye']
-    @r.delete('list')
+  it "should be able to trim a list (LTRIM)" do
+    @r.rpush "list", 'hello'
+    @r.rpush "list", 'goodbye'
+    @r.rpush "list", '1'
+    @r.rpush "list", '2'
+    @r.rpush "list", '3'
+    @r.type('list').should == "list"
+    @r.llen('list').should == 5
+    @r.ltrim 'list', 0, 1
+    @r.llen('list').should == 2
+    @r.lrange('list', 0, -1).should == ['hello', 'goodbye']
   end
   # 
-  it "should be able to get a value by indexing into a list" do
-    @r.push_tail "list", 'hello'
-    @r.push_tail "list", 'goodbye'
-    @r.type?('list').should == "list"
-    @r.list_length('list').should == 2
-    @r.list_index('list', 1).should == 'goodbye'
-    @r.delete('list')
+  it "should be able to get a value by indexing into a list (LINDEX)" do
+    @r.rpush "list", 'hello'
+    @r.rpush "list", 'goodbye'
+    @r.type('list').should == "list"
+    @r.llen('list').should == 2
+    @r.lindex('list', 1).should == 'goodbye'
   end
   # 
-  it "should be able to set a value by indexing into a list" do
-    @r.push_tail "list", 'hello'
-    @r.push_tail "list", 'hello'
-    @r.type?('list').should == "list"
-    @r.list_length('list').should == 2
-    @r.list_set('list', 1, 'goodbye').should be_true
-    @r.list_index('list', 1).should == 'goodbye'
-    @r.delete('list')
+  it "should be able to set a value by indexing into a list (LSET)" do
+    @r.rpush "list", 'hello'
+    @r.rpush "list", 'hello'
+    @r.type('list').should == "list"
+    @r.llen('list').should == 2
+    @r.lset('list', 1, 'goodbye').should == 'OK'
+    @r.lindex('list', 1).should == 'goodbye'
   end
   # 
-  it "should be able to remove values from a list LREM" do
-    @r.push_tail "list", 'hello'
-    @r.push_tail "list", 'goodbye'
-    @r.type?('list').should == "list"
-    @r.list_length('list').should == 2
-    @r.list_rm('list', 1, 'hello').should == 1
-    @r.list_range('list', 0, -1).should == ['goodbye']
-    @r.delete('list')
+  it "should be able to remove values from a list (LREM)" do
+    @r.rpush "list", 'hello'
+    @r.rpush "list", 'goodbye'
+    @r.type('list').should == "list"
+    @r.llen('list').should == 2
+    @r.lrem('list', 1, 'hello').should == 1
+    @r.lrange('list', 0, -1).should == ['goodbye']
   end
   # 
-  it "should be able add members to a set" do
-    @r.set_add "set", 'key1'
-    @r.set_add "set", 'key2'
-    @r.type?('set').should == "set"
-    @r.set_count('set').should == 2
-    @r.set_members('set').sort.should == ['key1', 'key2'].sort
-    @r.delete('set')
+  it "should be able add members to a set (SADD)" do
+    @r.sadd "set", 'key1'
+    @r.sadd "set", 'key2'
+    @r.type('set').should == "set"
+    @r.scard('set').should == 2
+    @r.smembers('set').sort.should == ['key1', 'key2'].sort
   end
   # 
-  it "should be able delete members to a set" do
-    @r.set_add "set", 'key1'
-    @r.set_add "set", 'key2'
-    @r.type?('set').should == "set"
-    @r.set_count('set').should == 2
-    @r.set_members('set').should == Set.new(['key1', 'key2'])
-    @r.set_delete('set', 'key1')
-    @r.set_count('set').should == 1
-    @r.set_members('set').should == Set.new(['key2'])
-    @r.delete('set')
+  it "should be able delete members to a set (SREM)" do
+    @r.sadd "set", 'key1'
+    @r.sadd "set", 'key2'
+    @r.type('set').should == "set"
+    @r.scard('set').should == 2
+    @r.smembers('set').sort.should == ['key1', 'key2'].sort
+    @r.srem('set', 'key1')
+    @r.scard('set').should == 1
+    @r.smembers('set').should == ['key2']
   end
   # 
-  it "should be able count the members of a set" do
-    @r.set_add "set", 'key1'
-    @r.set_add "set", 'key2'
-    @r.type?('set').should == "set"
-    @r.set_count('set').should == 2
-    @r.delete('set')
+  it "should be able count the members of a set (SCARD)" do
+    @r.sadd "set", 'key1'
+    @r.sadd "set", 'key2'
+    @r.type('set').should == "set"
+    @r.scard('set').should == 2
   end
   # 
-  it "should be able test for set membership" do
-    @r.set_add "set", 'key1'
-    @r.set_add "set", 'key2'
-    @r.type?('set').should == "set"
-    @r.set_count('set').should == 2
-    @r.set_member?('set', 'key1').should be_true
-    @r.set_member?('set', 'key2').should be_true
-    @r.set_member?('set', 'notthere').should be_false
-    @r.delete('set')
+  it "should be able test for set membership (SISMEMBER)" do
+    @r.sadd "set", 'key1'
+    @r.sadd "set", 'key2'
+    @r.type('set').should == "set"
+    @r.scard('set').should == 2
+    @r.sismember('set', 'key1').should be_true
+    @r.sismember('set', 'key2').should be_true
+    @r.sismember('set', 'notthere').should be_false
   end
   # 
-  it "should be able to do set intersection" do
-    @r.set_add "set", 'key1'
-    @r.set_add "set", 'key2'
-    @r.set_add "set2", 'key2'
-    @r.set_intersect('set', 'set2').should == Set.new(['key2'])
-    @r.delete('set')
+  it "should be able to do set intersection (SINTER)" do
+    @r.sadd "set", 'key1'
+    @r.sadd "set", 'key2'
+    @r.sadd "set2", 'key2'
+    @r.sinter('set', 'set2').should == ['key2']
   end
   # 
-  it "should be able to do set intersection and store the results in a key" do
-    @r.set_add "set", 'key1'
-    @r.set_add "set", 'key2'
-    @r.set_add "set2", 'key2'
-    @r.set_inter_store('newone', 'set', 'set2').should == 'OK'
-    @r.set_members('newone').should == Set.new(['key2'])
-    @r.delete('set')
-    @r.delete('set2')
+  it "should be able to do set intersection and store the results in a key (SINTERSTORE)" do
+    @r.sadd "set", 'key1'
+    @r.sadd "set", 'key2'
+    @r.sadd "set2", 'key2'
+    @r.sinterstore('newone', 'set', 'set2').should == 1
+    @r.smembers('newone').should == ['key2']
   end
   #
-  it "should be able to do set union" do
-    @r.set_add "set", 'key1'
-    @r.set_add "set", 'key2'
-    @r.set_add "set2", 'key2'
-    @r.set_add "set2", 'key3'
-    @r.set_union('set', 'set2').should == Set.new(['key1','key2','key3'])
-    @r.delete('set')
-    @r.delete('set2')
+  it "should be able to do set union (SUNION)" do
+    @r.sadd "set", 'key1'
+    @r.sadd "set", 'key2'
+    @r.sadd "set2", 'key2'
+    @r.sadd "set2", 'key3'
+    @r.sunion('set', 'set2').sort.should == ['key1','key2','key3'].sort
   end
   # 
-  it "should be able to do set union and store the results in a key" do
-    @r.set_add "set", 'key1'
-    @r.set_add "set", 'key2'
-    @r.set_add "set2", 'key2'
-    @r.set_add "set2", 'key3'
-    @r.set_union_store('newone', 'set', 'set2').should == 'OK'
-    @r.set_members('newone').should == Set.new(['key1','key2','key3'])
-    @r.delete('set')
-    @r.delete('set2')
+  it "should be able to do set union and store the results in a key (SUNIONSTORE)" do
+    @r.sadd "set", 'key1'
+    @r.sadd "set", 'key2'
+    @r.sadd "set2", 'key2'
+    @r.sadd "set2", 'key3'
+    @r.sunionstore('newone', 'set', 'set2').should == 3
+    @r.smembers('newone').sort.should == ['key1','key2','key3'].sort
   end
   # 
-  it "should be able to do set difference" do
-     @r.set_add "set", 'a'
-     @r.set_add "set", 'b'
-     @r.set_add "set2", 'b'
-     @r.set_add "set2", 'c'
-     @r.set_diff('set', 'set2').should == Set.new(['a'])
-     @r.delete('set')
-     @r.delete('set2')
+  it "should be able to do set difference (SDIFF)" do
+     @r.sadd "set", 'a'
+     @r.sadd "set", 'b'
+     @r.sadd "set2", 'b'
+     @r.sadd "set2", 'c'
+     @r.sdiff('set', 'set2').should == ['a']
    end
   # 
-  it "should be able to do set difference and store the results in a key" do
-     @r.set_add "set", 'a'
-     @r.set_add "set", 'b'
-     @r.set_add "set2", 'b'
-     @r.set_add "set2", 'c'
-     @r.set_diff_store('newone', 'set', 'set2')
-     @r.set_members('newone').should == Set.new(['a'])
-     @r.delete('set')
-     @r.delete('set2')
+  it "should be able to do set difference and store the results in a key (SDIFFSTORE)" do
+     @r.sadd "set", 'a'
+     @r.sadd "set", 'b'
+     @r.sadd "set2", 'b'
+     @r.sadd "set2", 'c'
+     @r.sdiffstore('newone', 'set', 'set2')
+     @r.smembers('newone').should == ['a']
    end
   # 
-  it "should be able move elements from one set to another" do
-    @r.set_add 'set1', 'a'
-    @r.set_add 'set1', 'b'
-    @r.set_add 'set2', 'x'
-    @r.set_move('set1', 'set2', 'a').should == true
-    @r.set_member?('set2', 'a').should == true
+  it "should be able move elements from one set to another (SMOVE)" do
+    @r.sadd 'set1', 'a'
+    @r.sadd 'set1', 'b'
+    @r.sadd 'set2', 'x'
+    @r.smove('set1', 'set2', 'a').should be_true 
+    @r.sismember('set2', 'a').should be_true
     @r.delete('set1')
   end
   #
   it "should be able to do crazy SORT queries" do
     @r['dog_1'] = 'louie'
-    @r.push_tail 'dogs', 1
+    @r.rpush 'dogs', 1
     @r['dog_2'] = 'lucy'
-    @r.push_tail 'dogs', 2
+    @r.rpush 'dogs', 2
     @r['dog_3'] = 'max'
-    @r.push_tail 'dogs', 3
+    @r.rpush 'dogs', 3
     @r['dog_4'] = 'taj'
-    @r.push_tail 'dogs', 4
+    @r.rpush 'dogs', 4
     @r.sort('dogs', :get => 'dog_*', :limit => [0,1]).should == ['louie']
     @r.sort('dogs', :get => 'dog_*', :limit => [0,1], :order => 'desc alpha').should == ['taj']
   end
@@ -369,16 +342,16 @@ describe "redis" do
   it "should be able to handle array of :get using SORT" do
     @r['dog:1:name'] = 'louie'
     @r['dog:1:breed'] = 'mutt'
-    @r.push_tail 'dogs', 1
+    @r.rpush 'dogs', 1
     @r['dog:2:name'] = 'lucy'
     @r['dog:2:breed'] = 'poodle'
-    @r.push_tail 'dogs', 2
+    @r.rpush 'dogs', 2
     @r['dog:3:name'] = 'max'
     @r['dog:3:breed'] = 'hound'
-    @r.push_tail 'dogs', 3
+    @r.rpush 'dogs', 3
     @r['dog:4:name'] = 'taj'
     @r['dog:4:breed'] = 'terrier'
-    @r.push_tail 'dogs', 4
+    @r.rpush 'dogs', 4
     @r.sort('dogs', :get => ['dog:*:name', 'dog:*:breed'], :limit => [0,1]).should == ['louie', 'mutt']
     @r.sort('dogs', :get => ['dog:*:name', 'dog:*:breed'], :limit => [0,1], :order => 'desc alpha').should == ['taj', 'terrier']
   end
@@ -392,13 +365,13 @@ describe "redis" do
   it "should be able to flush the database" do
     @r['key1'] = 'keyone'
     @r['key2'] = 'keytwo'
-    @r.keys('*').sort.should == ['foo', 'key1', 'key2'] #foo from before
-    @r.flush_db
+    @r.keys('*').sort.should == ['foo', 'key1', 'key2'].sort #foo from before
+    @r.flushdb
     @r.keys('*').should == []
   end
   # 
-  it "should be able to provide the last save time" do
-    savetime = @r.last_save
+  it "should be able to provide the last save time (LASTSAVE)" do
+    savetime = @r.lastsave
     Time.at(savetime).class.should == Time
     Time.at(savetime).should <= Time.now
   end
@@ -411,13 +384,12 @@ describe "redis" do
   end
   
   it "should bgsave" do
-     lambda {@r.bgsave}.should_not raise_error(RedisError)
+    @r.bgsave.should == 'OK'
   end
   
   it "should handle multiple servers" do
     require 'dist_redis'
-    @r = DistRedis.new('localhost:6379', '127.0.0.1:6379')
-    @r.select_db(15) # use database 15 for testing so we dont accidentally step on you real data
+    @r = DistRedis.new(:hosts=> ['localhost:6379', '127.0.0.1:6379'], :db => 15)
 
     100.times do |idx|
       @r[idx] = "foo#{idx}"
@@ -430,16 +402,13 @@ describe "redis" do
 
   it "should be able to pipeline writes" do
     @r.pipelined do |pipeline|
-      pipeline.push_head "list", "hello"
-      pipeline.push_head "list", 42
+      pipeline.lpush 'list', "hello"
+      pipeline.lpush 'list', 42
     end
     
-    @r.type?('list').should == "list"
-    @r.list_length('list').should == 2
-    @r.pop_head('list').should == '42'
-    @r.delete('list')
+    @r.type('list').should == "list"
+    @r.llen('list').should == 2
+    @r.lpop('list').should == '42'
   end
   
-  it "should select db on connection"
-  it "should re-select db on reconnection"
 end

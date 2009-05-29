@@ -2,13 +2,20 @@ require 'redis'
 require 'hash_ring'
 class DistRedis
   attr_reader :ring
-  def initialize(*servers)
-    srvs = []
-    servers.each do |s|
-      server, port = s.split(':')
-      srvs << Redis.new(:host => server, :port => port)
+  def initialize(opts={})
+    hosts = []
+    
+    db = opts[:db] || nil
+    timeout = opts[:timeout] || nil 
+
+    raise Error, "No hosts given" unless opts[:hosts]
+
+    opts[:hosts].each do |h|
+      host, port = h.split(':')
+      hosts << Redis.new(:host => host, :port => port, :db => db, :timeout => timeout, :db => db)
     end
-    @ring = HashRing.new srvs
+
+    @ring = HashRing.new hosts 
   end
   
   def node_for_key(key)
