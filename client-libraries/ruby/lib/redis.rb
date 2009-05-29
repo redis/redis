@@ -20,13 +20,7 @@ class Redis
         "echo"=>true, "getset"=>true, "smove"=>true
     }
 
-    ConvertToBool = lambda do |r| 
-      case r 
-        when 0 then false
-        when 1 then true
-        else r
-      end
-    end
+    ConvertToBool = lambda{|r| r == 0 ? false : r}
 
     ReplyProcessor = {
         "exists" => ConvertToBool,
