@@ -16,6 +16,7 @@ __date__ = "$LastChangedDate: 2009-03-17 16:15:55 +0100 (Mar, 17 Mar 2009) $"[18
 
 
 import socket
+import decimal
 
 
 BUFSIZE = 4096
@@ -32,15 +33,28 @@ class Redis(object):
     """The main Redis client.
     """
     
-    def __init__(self, host=None, port=None, timeout=None, db=None):
+    def __init__(self, host=None, port=None, timeout=None, db=None, nodelay=None, charset='utf8', errors='strict'):
         self.host = host or 'localhost'
         self.port = port or 6379
         if timeout:
             socket.setdefaulttimeout(timeout)
+        self.nodelay = nodelay
+        self.charset = charset
+        self.errors = errors
         self._sock = None
         self._fp = None
         self.db = db
         
+    def _encode(self, s):
+        if isinstance(s, str):
+            return s
+        if isinstance(s, unicode):
+            try:
+                return s.encode(self.charset, self.errors)
+            except UnicodeEncodeError, e:
+                raise InvalidData("Error encoding unicode value '%s': %s" % (value.encode(self.charset, 'replace'), e))
+        return str(s)
+    
     def _write(self, s):
         """
         >>> r = Redis(db=9)
@@ -86,35 +100,34 @@ class Redis(object):
         self._write('PING\r\n')
         return self.get_response()
     
-    def set(self, name, value, preserve=False):
+    def set(self, name, value, preserve=False, getset=False):
         """
         >>> r = Redis(db=9)
         >>> r.set('a', 'pippo')
         'OK'
-        >>> try:
-        ...     r.set('a', u'pippo \u3235')
-        ... except InvalidData, e:
-        ...     print e
-        Error encoding unicode value for key 'a': 'ascii' codec can't encode character u'\u3235' in position 15: ordinal not in range(128).
+        >>> r.set('a', u'pippo \u3235')
+        'OK'
+        >>> r.get('a')
+        u'pippo \u3235'
         >>> r.set('b', 105.2)
         'OK'
         >>> r.set('b', 'xxx', preserve=True)
         0
         >>> r.get('b')
-        '105.2'
+        Decimal("105.2")
         >>> 
         """
         self.connect()
         # the following will raise an error for unicode values that can't be encoded to ascii
         # we could probably add an 'encoding' arg to init, but then what do we do with get()?
         # convert back to unicode? and what about ints, or pickled values?
-        try:
-            value = value if isinstance(value, basestring) else str(value)
-            self._write('%s %s %s\r\n%s\r\n' % (
-                'SETNX' if preserve else 'SET', name, len(value), value
+        if getset: command = 'GETSET'
+        elif preserve: command = 'SETNX'
+        else: command = 'SET'
+        value = self._encode(value)
+        self._write('%s %s %s\r\n%s\r\n' % (
+                command, name, len(value), value
             ))
-        except UnicodeEncodeError, e:
-            raise InvalidData("Error encoding unicode value for key '%s': %s." % (name, e))
         return self.get_response()
     
     def get(self, name):
@@ -123,17 +136,17 @@ class Redis(object):
         >>> r.set('a', 'pippo'), r.set('b', 15), r.set('c', ' \\r\\naaa\\nbbb\\r\\ncccc\\nddd\\r\\n '), r.set('d', '\\r\\n')
         ('OK', 'OK', 'OK', 'OK')
         >>> r.get('a')
-        'pippo'
+        u'pippo'
         >>> r.get('b')
-        '15'
+        15
         >>> r.get('d')
-        '\\r\\n'
+        u'\\r\\n'
         >>> r.get('b')
-        '15'
+        15
         >>> r.get('c')
-        ' \\r\\naaa\\nbbb\\r\\ncccc\\nddd\\r\\n '
+        u' \\r\\naaa\\nbbb\\r\\ncccc\\nddd\\r\\n '
         >>> r.get('c')
-        ' \\r\\naaa\\nbbb\\r\\ncccc\\nddd\\r\\n '
+        u' \\r\\naaa\\nbbb\\r\\ncccc\\nddd\\r\\n '
         >>> r.get('ajhsd')
         >>> 
         """
@@ -141,13 +154,24 @@ class Redis(object):
         self._write('GET %s\r\n' % name)
         return self.get_response()
     
+    def getset(self, name, value):
+        """
+        >>> r = Redis(db=9)
+        >>> r.set('a', 'pippo')
+        'OK'
+        >>> r.getset('a', 2)
+        u'pippo'
+        >>> 
+        """
+        return self.set(name, value, getset=True)
+        
     def mget(self, *args):
         """
         >>> r = Redis(db=9)
         >>> r.set('a', 'pippo'), r.set('b', 15), r.set('c', '\\r\\naaa\\nbbb\\r\\ncccc\\nddd\\r\\n'), r.set('d', '\\r\\n')
         ('OK', 'OK', 'OK', 'OK')
         >>> r.mget('a', 'b', 'c', 'd')
-        ['pippo', '15', '\\r\\naaa\\nbbb\\r\\ncccc\\nddd\\r\\n', '\\r\\n']
+        [u'pippo', 15, u'\\r\\naaa\\nbbb\\r\\ncccc\\nddd\\r\\n', u'\\r\\n']
         >>> 
         """
         self.connect()
@@ -254,11 +278,11 @@ class Redis(object):
         >>> r.set('a', 'a')
         'OK'
         >>> r.keys('a*')
-        ['a']
+        [u'a']
         >>> r.set('a2', 'a')
         'OK'
         >>> r.keys('a*')
-        ['a', 'a2']
+        [u'a', u'a2']
         >>> r.delete('a2')
         1
         >>> r.keys('sjdfhskjh*')
@@ -312,6 +336,34 @@ class Redis(object):
             self._write('RENAME %s %s\r\n' % (src, dst))
             return self.get_response() #.strip()
         
+    def dbsize(self):
+        """
+        >>> r = Redis(db=9)
+        >>> type(r.dbsize())
+        <type 'int'>
+        >>> 
+        """
+        self.connect()
+        self._write('DBSIZE\r\n')
+        return self.get_response()
+    
+    def ttl(self, name):
+        """
+        >>> r = Redis(db=9)
+        >>> r.ttl('a')
+        -1
+        >>> r.expire('a', 10)
+        1
+        >>> r.ttl('a')
+        10
+        >>> r.expire('a', 0)
+        0
+        >>> 
+        """
+        self.connect()
+        self._write('TTL %s\r\n' % name)
+        return self.get_response()
+    
     def expire(self, name, time):
         """
         >>> r = Redis(db=9)
@@ -344,14 +396,10 @@ class Redis(object):
         >>> 
         """
         self.connect()
-        # same considerations on unicode as in set() apply here
-        try:
-            value = value if isinstance(value, basestring) else str(value)
-            self._write('%s %s %s\r\n%s\r\n' % (
-                'LPUSH' if tail else 'RPUSH', name, len(value), value
-            ))
-        except UnicodeEncodeError, e:
-            raise InvalidData("Error encoding unicode value for element in list '%s': %s." % (name, e))
+        value = self._encode(value)
+        self._write('%s %s %s\r\n%s\r\n' % (
+            'LPUSH' if tail else 'RPUSH', name, len(value), value
+        ))
         return self.get_response()
     
     def llen(self, name):
@@ -383,17 +431,17 @@ class Redis(object):
         >>> r.push('l', 'aaa')
         'OK'
         >>> r.lrange('l', 0, 1)
-        ['aaa']
+        [u'aaa']
         >>> r.push('l', 'bbb')
         'OK'
         >>> r.lrange('l', 0, 0)
-        ['aaa']
+        [u'aaa']
         >>> r.lrange('l', 0, 1)
-        ['aaa', 'bbb']
+        [u'aaa', u'bbb']
         >>> r.lrange('l', -1, 0)
         []
         >>> r.lrange('l', -1, -1)
-        ['bbb']
+        [u'bbb']
         >>> 
         """
         self.connect()
@@ -438,14 +486,14 @@ class Redis(object):
         >>> r.push('l', 'aaa')
         'OK'
         >>> r.lindex('l', 0)
-        'aaa'
+        u'aaa'
         >>> r.lindex('l', 2)
         >>> r.push('l', 'ccc')
         'OK'
         >>> r.lindex('l', 1)
-        'ccc'
+        u'ccc'
         >>> r.lindex('l', -1)
-        'ccc'
+        u'ccc'
         >>> 
         """
         self.connect()
@@ -463,18 +511,18 @@ class Redis(object):
         >>> r.push('l', 'bbb')
         'OK'
         >>> r.pop('l')
-        'aaa'
+        u'aaa'
         >>> r.pop('l')
-        'bbb'
+        u'bbb'
         >>> r.pop('l')
         >>> r.push('l', 'aaa')
         'OK'
         >>> r.push('l', 'bbb')
         'OK'
         >>> r.pop('l', tail=True)
-        'bbb'
+        u'bbb'
         >>> r.pop('l')
-        'aaa'
+        u'aaa'
         >>> r.pop('l')
         >>> 
         """
@@ -502,17 +550,14 @@ class Redis(object):
         >>> r.lset('l', 0, 'bbb')
         'OK'
         >>> r.lrange('l', 0, 1)
-        ['bbb']
+        [u'bbb']
         >>> 
         """
         self.connect()
-        try:
-            value = value if isinstance(value, basestring) else str(value)
-            self._write('LSET %s %s %s\r\n%s\r\n' % (
-                name, index, len(value), value
-            ))
-        except UnicodeEncodeError, e:
-            raise InvalidData("Error encoding unicode value for element %s in list '%s': %s." % (index, name, e))
+        value = self._encode(value)
+        self._write('LSET %s %s %s\r\n%s\r\n' % (
+            name, index, len(value), value
+        ))
         return self.get_response()
     
     def lrem(self, name, value, num=0):
@@ -529,7 +574,7 @@ class Redis(object):
         >>> r.lrem('l', 'aaa')
         2
         >>> r.lrange('l', 0, 10)
-        ['bbb']
+        [u'bbb']
         >>> r.push('l', 'aaa')
         'OK'
         >>> r.push('l', 'aaa')
@@ -543,13 +588,10 @@ class Redis(object):
         >>> 
         """
         self.connect()
-        try:
-            value = value if isinstance(value, basestring) else str(value)
-            self._write('LREM %s %s %s\r\n%s\r\n' % (
-                name, num, len(value), value
-            ))
-        except UnicodeEncodeError, e:
-            raise InvalidData("Error encoding unicode value for element %s in list '%s': %s." % (index, name, e))
+        value = self._encode(value)
+        self._write('LREM %s %s %s\r\n%s\r\n' % (
+            name, num, len(value), value
+        ))
         return self.get_response()
     
     def sort(self, name, by=None, get=None, start=None, num=None, desc=False, alpha=False):
@@ -566,27 +608,27 @@ class Redis(object):
         >>> r.push('l', 'bbb')
         'OK'
         >>> r.sort('l', alpha=True)
-        ['aaa', 'bbb', 'ccc', 'ddd']
+        [u'aaa', u'bbb', u'ccc', u'ddd']
         >>> r.delete('l')
         1
         >>> for i in range(1, 5):
         ...     res = r.push('l', 1.0 / i)
         >>> r.sort('l')
-        ['0.25', '0.333333333333', '0.5', '1.0']
+        [Decimal("0.25"), Decimal("0.333333333333"), Decimal("0.5"), Decimal("1.0")]
         >>> r.sort('l', desc=True)
-        ['1.0', '0.5', '0.333333333333', '0.25']
+        [Decimal("1.0"), Decimal("0.5"), Decimal("0.333333333333"), Decimal("0.25")]
         >>> r.sort('l', desc=True, start=2, num=1)
-        ['0.333333333333']
+        [Decimal("0.333333333333")]
         >>> r.set('weight_0.5', 10)
         'OK'
         >>> r.sort('l', desc=True, by='weight_*')
-        ['0.5', '1.0', '0.333333333333', '0.25']
+        [Decimal("0.5"), Decimal("1.0"), Decimal("0.333333333333"), Decimal("0.25")]
         >>> for i in r.sort('l', desc=True):
         ...     res = r.set('test_%s' % i, 100 - float(i))
         >>> r.sort('l', desc=True, get='test_*')
-        ['99.0', '99.5', '99.6666666667', '99.75']
+        [Decimal("99.0"), Decimal("99.5"), Decimal("99.6666666667"), Decimal("99.75")]
         >>> r.sort('l', desc=True, by='weight_*', get='test_*')
-        ['99.5', '99.0', '99.6666666667', '99.75']
+        [Decimal("99.5"), Decimal("99.0"), Decimal("99.6666666667"), Decimal("99.75")]
         >>> r.sort('l', desc=True, by='weight_*', get='missing_*')
         [None, None, None, None]
         >>> 
@@ -624,14 +666,10 @@ class Redis(object):
         >>> 
         """
         self.connect()
-        # same considerations on unicode as in set() apply here
-        try:
-            value = value if isinstance(value, basestring) else str(value)
-            self._write('SADD %s %s\r\n%s\r\n' % (
-                name, len(value), value
-            ))
-        except UnicodeEncodeError, e:
-            raise InvalidData("Error encoding unicode value for element in set '%s': %s." % (name, e))
+        value = self._encode(value)
+        self._write('SADD %s %s\r\n%s\r\n' % (
+            name, len(value), value
+        ))
         return self.get_response()
         
     def srem(self, name, value):
@@ -650,14 +688,10 @@ class Redis(object):
         >>> 
         """
         self.connect()
-        # same considerations on unicode as in set() apply here
-        try:
-            value = value if isinstance(value, basestring) else str(value)
-            self._write('SREM %s %s\r\n%s\r\n' % (
-                name, len(value), value
-            ))
-        except UnicodeEncodeError, e:
-            raise InvalidData("Error encoding unicode value for element in set '%s': %s." % (name, e))
+        value = self._encode(value)
+        self._write('SREM %s %s\r\n%s\r\n' % (
+            name, len(value), value
+        ))
         return self.get_response()
     
     def sismember(self, name, value):
@@ -676,14 +710,10 @@ class Redis(object):
         >>>
         """
         self.connect()
-        # same considerations on unicode as in set() apply here
-        try:
-            value = value if isinstance(value, basestring) else str(value)
-            self._write('SISMEMBER %s %s\r\n%s\r\n' % (
-                name, len(value), value
-            ))
-        except UnicodeEncodeError, e:
-            raise InvalidData("Error encoding unicode value for element in set '%s': %s." % (name, e))
+        value = self._encode(value)
+        self._write('SISMEMBER %s %s\r\n%s\r\n' % (
+            name, len(value), value
+        ))
         return self.get_response()
     
     def sinter(self, *args):
@@ -711,7 +741,7 @@ class Redis(object):
         >>> r.sinter('s1', 's2', 's3')
         set([])
         >>> r.sinter('s1', 's2')
-        set(['a'])
+        set([u'a'])
         >>> 
         """
         self.connect()
@@ -731,11 +761,11 @@ class Redis(object):
         >>> r.sadd('s3', 'b')
         1
         >>> r.sinterstore('s_s', 's1', 's2', 's3')
-        'OK'
+        0
         >>> r.sinterstore('s_s', 's1', 's2')
-        'OK'
+        1
         >>> r.smembers('s_s')
-        set(['a'])
+        set([u'a'])
         >>> 
         """
         self.connect()
@@ -757,7 +787,7 @@ class Redis(object):
         ...     print e
         Operation against a key holding the wrong kind of value
         >>> r.smembers('s')
-        set(['a', 'b'])
+        set([u'a', u'b'])
         >>> 
         """
         self.connect()
@@ -802,7 +832,7 @@ class Redis(object):
         >>> r.select(10)
         'OK'
         >>> r.get('a')
-        'a'
+        u'a'
         >>> r.select(9)
         'OK'
         >>> 
@@ -878,6 +908,11 @@ class Redis(object):
             info[k] = int(v) if v.isdigit() else v
         return info
     
+    def auth(self, passwd):
+        self.connect()
+        self._write('AUTH %s\r\n' % passwd)
+        return self.get_response()
+    
     def get_response(self):
         data = self._read().strip()
         if not data:
@@ -918,7 +953,11 @@ class Redis(object):
             buf.append(data)
             if i < 0:
                 break
-        return ''.join(buf)[:-2]
+        data = ''.join(buf)[:-2]
+        try:
+            return int(data) if data.find('.') == -1 else decimal.Decimal(data)
+        except (ValueError, decimal.InvalidOperation):
+            return data.decode(self.charset)
     
     def disconnect(self):
         if isinstance(self._sock, socket.socket):
@@ -950,6 +989,8 @@ class Redis(object):
             self._fp = self._sock.makefile('r')
             if self.db:
                 self.select(self.db)
+            if self.nodelay is not None:
+                self._sock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, self.nodelay)
                 
             
 if __name__ == '__main__':
