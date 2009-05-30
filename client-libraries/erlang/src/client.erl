@@ -48,15 +48,18 @@ connect(Host) ->
 connect(Host, Port) ->
     gen_server:start_link(?MODULE, [Host, Port], []).
 
+% This is the simple send with a single row of commands
 ssend(Client, Cmd) -> ssend(Client, Cmd, []).
 ssend(Client, Cmd, Args) ->
     gen_server:cast(Client, {send, sformat([Cmd|Args])}).
 
+% This is the complete send with multiple rows
 send(Client, Cmd) -> send(Client, Cmd, []).
 send(Client, Cmd, Args) ->
     gen_server:cast(Client, {send,
         string:join([str(Cmd), format(Args)], " ")}).
 
+% asynchronous send, we don't care about the result.
 asend(Client, Cmd) ->
     gen_server:cast(Client, {asend, Cmd}).
 disconnect(Client) ->

@@ -14,7 +14,7 @@ utils_test() ->
     ?assertEqual(client:format([[1, 2, 3]]), "1 2 3"),
     ?assertEqual(client:format([[1,2,3], [4,5,6]]), "1 2 3\r\n4 5 6").
 
-pipeline_test() ->
+basic_test() ->
     {ok, Client} = erldis:connect("localhost"),
     erldis:flushall(Client),
     erldis:get(Client, "pippo"),
