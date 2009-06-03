@@ -29,6 +29,7 @@ AFTER 1.0 stable release
    side the type also takes an hash table with key->score mapping, so that when
    there is an update we lookup the current score and can traverse the tree.
  * BITMAP type
+ * LRANGE 4 0 should return the same elements as LRANGE 0 4 but in reverse order
 
 FUTURE HINTS
 

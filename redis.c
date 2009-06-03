@@ -1046,6 +1046,11 @@ static void loadServerConfig(char *filename) {
             if ((server.shareobjects = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"shareobjectspoolsize") && argc == 2) {
+            server.sharingpoolsize = atoi(argv[1]);
+            if (server.sharingpoolsize < 1) {
+                err = "invalid object sharing pool size"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"daemonize") && argc == 2) {
             if ((server.daemonize = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
