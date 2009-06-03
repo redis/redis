@@ -1,6 +1,11 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 """ redis.py - A client for the Redis daemon.
+
+History:
+
+        - 20090603 fix missing errno import, add sunion and sunionstore commands,
+          generalize shebang (Jochen Kupperschmidt)
 
 """
 
@@ -17,6 +22,7 @@ __date__ = "$LastChangedDate: 2009-03-17 16:15:55 +0100 (Mar, 17 Mar 2009) $"[18
 
 import socket
 import decimal
+import errno
 
 
 BUFSIZE = 4096
@@ -793,6 +799,52 @@ class Redis(object):
         self.connect()
         self._write('SMEMBERS %s\r\n' % name)
         return set(self.get_response())
+
+    def sunion(self, *args):
+        """
+        >>> r = Redis(db=9)
+        >>> res = r.delete('s1')
+        >>> res = r.delete('s2')
+        >>> res = r.delete('s3')
+        >>> r.sadd('s1', 'a')
+        1
+        >>> r.sadd('s2', 'a')
+        1
+        >>> r.sadd('s3', 'b')
+        1
+        >>> r.sunion('s1', 's2', 's3')
+        set([u'a', u'b'])
+        >>> r.sadd('s2', 'c')
+        1
+        >>> r.sunion('s1', 's2', 's3')
+        set([u'a', u'c', u'b'])
+        >>> 
+        """
+        self.connect()
+        self._write('SUNION %s\r\n' % ' '.join(args))
+        return set(self.get_response())
+
+    def sunionstore(self, dest, *args):
+        """
+        >>> r = Redis(db=9)
+        >>> res = r.delete('s1')
+        >>> res = r.delete('s2')
+        >>> res = r.delete('s3')
+        >>> r.sadd('s1', 'a')
+        1
+        >>> r.sadd('s2', 'a')
+        1
+        >>> r.sadd('s3', 'b')
+        1
+        >>> r.sunionstore('s4', 's1', 's2', 's3')
+        2
+        >>> r.smembers('s4')
+        set([u'a', u'b'])
+        >>> 
+        """
+        self.connect()
+        self._write('SUNIONSTORE %s %s\r\n' % (dest, ' '.join(args)))
+        return self.get_response()
 
     def select(self, db):
         """
