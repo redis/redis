@@ -1,3 +1,17 @@
+2009-06-04 backtrace support removed: unreliable stack trace :(
+2009-06-04 initial backtrace dumping on sigsegv/sigbus + debug command
+2009-06-03 Python lib updated
+2009-06-03 shareobjectspoolsize implemented in reds.conf, in order to control the pool size when object sharing is on
+2009-05-30 Erlang client updated
+2009-05-30 Python client library updated
+2009-05-29 Redis-rb minor bool convertion fix
+2009-05-29 ruby library client is not Redis-rb merged with RubyRedis "engine" by Brian McKinney
+2009-05-28 __P completely removed from pqsort.c/h
+2009-05-28 another minor fix for Solaris boxes
+2009-05-28 minor fix for Solaris boxes
+2009-05-28 minor fix for Solaris boxes
+2009-05-27 maxmemory implemented
+2009-05-26 Redis git version modified to 0.101 in order to distinguish that from the latest tar.gz via INFO ;)
 2009-05-26 Redis 0.100 released
 2009-05-26 client libraries synched in git
 2009-05-26 ignore gcc warning about write() return code not checked. It is esplicitily this way since the "max number of clients reached" is a best-effort error
