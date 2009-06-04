@@ -29,7 +29,8 @@ AFTER 1.0 stable release
    side the type also takes an hash table with key->score mapping, so that when
    there is an update we lookup the current score and can traverse the tree.
  * BITMAP type
- * LRANGE 4 0 should return the same elements as LRANGE 0 4 but in reverse order
+ * LRANGE 4 0 should return the same elements as LRANGE 0 4 but in reverse order (only if we get enough motivated requests about it)
+ * zmalloc() should avoid to add a private header for archs where there is some other kind of libc-specific way to get the size of a malloced block.
 
 FUTURE HINTS
 
