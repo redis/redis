@@ -49,6 +49,7 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <limits.h>
+#include <execinfo.h>
 
 #include "ae.h"     /* Event driven programming library */
 #include "sds.h"    /* Dynamic safe strings */
@@ -314,6 +315,7 @@ static time_t getExpire(redisDb *db, robj *key);
 static int setExpire(redisDb *db, robj *key, time_t when);
 static void updateSalvesWaitingBgsave(int bgsaveerr);
 static void freeMemoryIfNeeded(void);
+static void onSigsegv(int sig);
 
 static void authCommand(redisClient *c);
 static void pingCommand(redisClient *c);
@@ -371,6 +373,7 @@ static void expireCommand(redisClient *c);
 static void getSetCommand(redisClient *c);
 static void ttlCommand(redisClient *c);
 static void slaveofCommand(redisClient *c);
+static void debugCommand(redisClient *c);
 
 /*================================= Globals ================================= */
 
@@ -434,6 +437,7 @@ static struct redisCommand cmdTable[] = {
     {"monitor",monitorCommand,1,REDIS_CMD_INLINE},
     {"ttl",ttlCommand,2,REDIS_CMD_INLINE},
     {"slaveof",slaveofCommand,3,REDIS_CMD_INLINE},
+    {"debug",debugCommand,-2,REDIS_CMD_INLINE},
     {NULL,NULL,0,0}
 };
 
@@ -890,6 +894,8 @@ static void initServer() {
 
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
+    signal(SIGSEGV, onSigsegv);
+    signal(SIGBUS, onSigsegv);
 
     server.clients = listCreate();
     server.slaves = listCreate();
@@ -4046,6 +4052,28 @@ static void freeMemoryIfNeeded(void) {
             if (!freed) return; /* nothing to free... */
         }
     }
+}
+
+/* ================================= Debugging ============================== */
+
+static void debugCommand(redisClient *c) {
+    if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
+        *((char*)-1) = 'x';
+    } else {
+        addReplySds(c,sdsnew("-ERR Syntax error, try DEBUG SEGFAULT\r\n"));
+    }
+}
+
+static void onSigsegv(int sig) {
+    void *trace[25];
+    int n = backtrace(trace, 25);
+    char **symbols = backtrace_symbols(trace, n);
+
+    redisLog(REDIS_WARNING,"Got %s!!! Redis crashed, backtrace:",
+        sig == SIGSEGV ? "SIGSEGV" : "SIGBUS");
+    for (int i = 0; i < n; i++)
+        redisLog(REDIS_WARNING,symbols[i]);
+    exit(1);
 }
 
 /* =================================== Main! ================================ */
