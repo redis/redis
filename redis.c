@@ -315,7 +315,6 @@ static time_t getExpire(redisDb *db, robj *key);
 static int setExpire(redisDb *db, robj *key, time_t when);
 static void updateSalvesWaitingBgsave(int bgsaveerr);
 static void freeMemoryIfNeeded(void);
-static void onSigsegv(int sig);
 
 static void authCommand(redisClient *c);
 static void pingCommand(redisClient *c);
@@ -894,8 +893,6 @@ static void initServer() {
 
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
-    signal(SIGSEGV, onSigsegv);
-    signal(SIGBUS, onSigsegv);
 
     server.clients = listCreate();
     server.slaves = listCreate();
@@ -4062,18 +4059,6 @@ static void debugCommand(redisClient *c) {
     } else {
         addReplySds(c,sdsnew("-ERR Syntax error, try DEBUG SEGFAULT\r\n"));
     }
-}
-
-static void onSigsegv(int sig) {
-    void *trace[25];
-    int n = backtrace(trace, 25);
-    char **symbols = backtrace_symbols(trace, n);
-
-    redisLog(REDIS_WARNING,"Got %s!!! Redis crashed, backtrace:",
-        sig == SIGSEGV ? "SIGSEGV" : "SIGBUS");
-    for (int i = 0; i < n; i++)
-        redisLog(REDIS_WARNING,symbols[i]);
-    exit(1);
 }
 
 /* =================================== Main! ================================ */
