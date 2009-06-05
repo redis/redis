@@ -1,12 +1,10 @@
 BEFORE REDIS 1.0.0-rc1
 
  * Add number of keys for every DB in INFO
- * maxmemory support
  * Resize the expires and Sets hash tables if needed as well? For Sets the right moment to check for this is probably in SREM
  * What happens if the saving child gets killed or segfaults instead of ending normally? Handle this.
  * check 'server.dirty' everywere. Make it proprotional to the number of objects modified.
  * Shutdown must kill other background savings before to start saving. Otherwise the DB can get replaced by the child that rename(2) after the parent for some reason. Child should trap the signal and remove the temp file name.
- * Objects sharing configuration, add the directive `objectsharingpool <size>`
  * Make sure to convert all the fstat() calls to 64bit versions.
  * Cover most of the source code with test-redis.tcl
 

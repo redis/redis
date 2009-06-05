@@ -30,12 +30,7 @@
 
 #include <stdlib.h>
 #include <string.h>
-
-#ifdef __APPLE__
-#include <malloc/malloc.h>
-#define HAVE_MALLOC_SIZE
-#define redis_malloc_size(p) malloc_size(p)
-#endif
+#include "config.h"
 
 static size_t used_memory = 0;
 
