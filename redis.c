@@ -240,6 +240,7 @@ struct redisServer {
     int daemonize;
     char *pidfile;
     int bgsaveinprogress;
+    pid_t bgsavechildpid;
     struct saveparam *saveparams;
     int saveparamslen;
     char *logfile;
@@ -748,16 +749,21 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         /* XXX: TODO handle the case of the saving child killed */
         if (wait4(-1,&statloc,WNOHANG,NULL)) {
             int exitcode = WEXITSTATUS(statloc);
-            if (exitcode == 0) {
+            int bysignal = WIFSIGNALED(statloc);
+
+            if (!bysignal && exitcode == 0) {
                 redisLog(REDIS_NOTICE,
                     "Background saving terminated with success");
                 server.dirty = 0;
                 server.lastsave = time(NULL);
+            } else if (!bysignal && exitcode != 0) {
+                redisLog(REDIS_WARNING, "Background saving error");
             } else {
                 redisLog(REDIS_WARNING,
-                    "Background saving error");
+                    "Background saving terminated by signal");
             }
             server.bgsaveinprogress = 0;
+            server.bgsavechildpid = -1;
             updateSalvesWaitingBgsave(exitcode == 0 ? REDIS_OK : REDIS_ERR);
         }
     } else {
@@ -919,6 +925,7 @@ static void initServer() {
     }
     server.cronloops = 0;
     server.bgsaveinprogress = 0;
+    server.bgsavechildpid = -1;
     server.lastsave = time(NULL);
     server.dirty = 0;
     server.usedmemory = 0;
@@ -1983,6 +1990,7 @@ static int rdbSaveBackground(char *filename) {
         }
         redisLog(REDIS_NOTICE,"Background saving started by pid %d",childpid);
         server.bgsaveinprogress = 1;
+        server.bgsavechildpid = childpid;
         return REDIS_OK;
     }
     return REDIS_OK; /* unreached */
@@ -2505,11 +2513,13 @@ static void bgsaveCommand(redisClient *c) {
 
 static void shutdownCommand(redisClient *c) {
     redisLog(REDIS_WARNING,"User requested shutdown, saving DB...");
-    /* XXX: TODO kill the child if there is a bgsave in progress */
+    if (server.bgsaveinprogress) {
+        redisLog(REDIS_WARNING,"There is a live saving child. Killing it!");
+        kill(server.bgsavechildpid,SIGKILL);
+    }
     if (rdbSave(server.dbfilename) == REDIS_OK) {
-        if (server.daemonize) {
+        if (server.daemonize)
             unlink(server.pidfile);
-        }
         redisLog(REDIS_WARNING,"%zu bytes used at exit",zmalloc_used_memory());
         redisLog(REDIS_WARNING,"Server exit now, bye bye...");
         exit(1);

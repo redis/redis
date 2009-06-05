@@ -27,7 +27,7 @@
 
                 <div class="narrow">
                     <h1><a name="LREM _key_ _count_ _value_">LREM _key_ _count_ _value_</a></h1>
-<i>Time complexity: O(N) (with N being the length of the list)</i><blockquote>Remove the first <i>count</i> occurrences of the <i>value</i> element from the list.If <i>count</i> is zero all the elements are removed. If <i>count</i> is negativeelements are removed from tail to head, instead to go from head to tailthat is the normal behaviour. So for example LREM with count -2 and_hello_ as value to remove against the list (a,b,c,hello,x,hello,hello) willlave the list (a,b,c,hello,x). The number of removed elements is returnedas an integer, see below for more information aboht the returned value.</blockquote>
+<i>Time complexity: O(N) (with N being the length of the list)</i><blockquote>Remove the first <i>count</i> occurrences of the <i>value</i> element from the list.If <i>count</i> is zero all the elements are removed. If <i>count</i> is negativeelements are removed from tail to head, instead to go from head to tailthat is the normal behaviour. So for example LREM with count -2 and_hello_ as value to remove against the list (a,b,c,hello,x,hello,hello) willlave the list (a,b,c,hello,x). The number of removed elements is returnedas an integer, see below for more information about the returned value.Note that non existing keys are considered like empty lists by LREM, so LREMagainst non existing keys will always return 0.</blockquote>
 <h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Integer Reply</a>, specifically:<br/><br/><pre class="codeblock python" name="code">
 The number of removed elements if the operation succeeded
 </pre><h2><a name="See also">See also</a></h2>
