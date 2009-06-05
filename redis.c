@@ -77,6 +77,7 @@
 #define REDIS_OBJFREELIST_MAX   1000000 /* Max number of objects to cache */
 #define REDIS_MAX_SYNC_TIME     60      /* Slave can't take more to sync */
 #define REDIS_EXPIRELOOKUPS_PER_CRON    100 /* try to expire 100 keys/second */
+#define REDIS_MAX_WRITE_PER_EVENT (1024*64)
 
 /* Hash table parameters */
 #define REDIS_HT_MINFILL        10      /* Minimal hash table fill 10% */
@@ -1177,6 +1178,7 @@ static void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask)
         }
 
         if (c->flags & REDIS_MASTER) {
+            /* Don't reply to a master */
             nwritten = objlen - c->sentlen;
         } else {
             nwritten = write(fd, ((char*)o->ptr)+c->sentlen, objlen - c->sentlen);
@@ -1189,6 +1191,12 @@ static void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask)
             listDelNode(c->reply,listFirst(c->reply));
             c->sentlen = 0;
         }
+        /* Note that we avoid to send more thank REDIS_MAX_WRITE_PER_EVENT
+         * bytes, in a single threaded server it's a good idea to server
+         * other clients as well, even if a very large request comes from
+         * super fast link that is always able to accept data (in real world
+         * terms think to 'KEYS *' against the loopback interfae) */
+        if (totwritten > REDIS_MAX_WRITE_PER_EVENT) break;
     }
     if (nwritten == -1) {
         if (errno == EAGAIN) {
@@ -2515,6 +2523,7 @@ static void shutdownCommand(redisClient *c) {
     redisLog(REDIS_WARNING,"User requested shutdown, saving DB...");
     if (server.bgsaveinprogress) {
         redisLog(REDIS_WARNING,"There is a live saving child. Killing it!");
+        signal(SIGCHLD, SIG_IGN);
         kill(server.bgsavechildpid,SIGKILL);
     }
     if (rdbSave(server.dbfilename) == REDIS_OK) {
@@ -2524,6 +2533,7 @@ static void shutdownCommand(redisClient *c) {
         redisLog(REDIS_WARNING,"Server exit now, bye bye...");
         exit(1);
     } else {
+        signal(SIGCHLD, SIG_DFL);
         redisLog(REDIS_WARNING,"Error trying to save the DB, can't exit"); 
         addReplySds(c,sdsnew("-ERR can't quit, problems saving the DB\r\n"));
     }
