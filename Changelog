@@ -1,3 +1,10 @@
+2009-06-06 Makefile dependencies updated
+2009-06-05 Avoid a busy loop while sending very large replies against very fast links, this allows to be more responsive with other clients even under a KEY * against the loopback interface
+2009-06-05 Kill the background saving process before performing SHUTDOWN to avoid races
+2009-06-05 LREM now returns :0 for non existing keys
+2009-06-05 added config.h for #ifdef business isolation, added fstat64 for Mac OS X
+2009-06-04 macosx specific zmalloc.c, uses malloc_size function in order to avoid to waste memory and time to put an additional header
+2009-06-04 DEBUG OBJECT implemented
 2009-06-04 backtrace support removed: unreliable stack trace :(
 2009-06-04 initial backtrace dumping on sigsegv/sigbus + debug command
 2009-06-03 Python lib updated
