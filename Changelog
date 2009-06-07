@@ -1,8 +1,18 @@
+2009-06-07 Dump a backtrace on sigsegv/sigbus, original coded thanks to Diego Rosario Brogna, modified in order to work on different OSes and to enhance reliability
+2009-06-06 Merge git://github.com/dierbro/redis
+2009-06-06 add more output
+2009-06-06 store static function pointer for a useful stack trace
+2009-06-06 TODO updated
 2009-06-06 Makefile dependencies updated
 2009-06-05 Avoid a busy loop while sending very large replies against very fast links, this allows to be more responsive with other clients even under a KEY * against the loopback interface
 2009-06-05 Kill the background saving process before performing SHUTDOWN to avoid races
 2009-06-05 LREM now returns :0 for non existing keys
+2009-06-05 - put some order in code - better output
 2009-06-05 added config.h for #ifdef business isolation, added fstat64 for Mac OS X
+2009-06-04 remove die() :-)
+2009-06-04 add compile options to debug
+2009-06-04 initial commit print stack trace
+2009-06-04 initial commit print stack trace
 2009-06-04 macosx specific zmalloc.c, uses malloc_size function in order to avoid to waste memory and time to put an additional header
 2009-06-04 DEBUG OBJECT implemented
 2009-06-04 backtrace support removed: unreliable stack trace :(

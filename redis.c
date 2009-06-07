@@ -4108,6 +4108,7 @@ static void debugCommand(redisClient *c) {
     }
 }
 
+#if defined(__APPLE__) || defined(__linux__)
 static struct redisFunctionSym symsTable[] = {
 {"freeStringObject", (unsigned long)freeStringObject},
 {"freeListObject", (unsigned long)freeListObject},
@@ -4288,6 +4289,7 @@ static void segvHandler(int sig, siginfo_t *info, void *secret) {
 }
 
 static void setupSigSegvAction(void) {
+#if defined(__APPLE__) || defined(__linux__)
     struct sigaction act;
 
     sigemptyset (&act.sa_mask);
@@ -4297,7 +4299,12 @@ static void setupSigSegvAction(void) {
     act.sa_sigaction = segvHandler;
     sigaction (SIGSEGV, &act, NULL);
     sigaction (SIGBUS, &act, NULL);
+#else
+    return;
+#endif
 }
+
+#endif /* if __APPLE__ or __linux__ */
 
 /* =================================== Main! ================================ */
 
