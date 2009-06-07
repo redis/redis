@@ -28,6 +28,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define SDS_ABORT_ON_OOM
+
 #include "sds.h"
 #include <stdio.h>
 #include <stdlib.h>
