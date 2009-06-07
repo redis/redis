@@ -330,7 +330,6 @@ static int setExpire(redisDb *db, robj *key, time_t when);
 static void updateSalvesWaitingBgsave(int bgsaveerr);
 static void freeMemoryIfNeeded(void);
 static int processCommand(redisClient *c);
-static void segvHandler(int sig, siginfo_t *info, void *secret);
 static void setupSigSegvAction(void);
 
 static void authCommand(redisClient *c);
@@ -4108,7 +4107,7 @@ static void debugCommand(redisClient *c) {
     }
 }
 
-#if defined(__APPLE__) || defined(__linux__)
+#ifdef HAVE_BACKTRACE
 static struct redisFunctionSym symsTable[] = {
 {"freeStringObject", (unsigned long)freeStringObject},
 {"freeListObject", (unsigned long)freeListObject},
@@ -4192,7 +4191,6 @@ static struct redisFunctionSym symsTable[] = {
 {"debugCommand", (unsigned long)debugCommand},
 {"processCommand", (unsigned long)processCommand},
 {"setupSigSegvAction", (unsigned long)setupSigSegvAction},
-{"segvHandler", (unsigned long)segvHandler},
 {"readQueryFromClient", (unsigned long)readQueryFromClient},
 {NULL,0}
 };
@@ -4274,7 +4272,7 @@ static void segvHandler(int sig, siginfo_t *info, void *secret) {
     trace[1] = getMcontextEip(uc);
     messages = backtrace_symbols(trace, trace_size);
 
-    for (i=0; i<trace_size; ++i) {
+    for (i=1; i<trace_size; ++i) {
         char *fn = findFuncName(trace[i], &offset), *p;
 
         p = strchr(messages[i],'+');
@@ -4289,7 +4287,6 @@ static void segvHandler(int sig, siginfo_t *info, void *secret) {
 }
 
 static void setupSigSegvAction(void) {
-#if defined(__APPLE__) || defined(__linux__)
     struct sigaction act;
 
     sigemptyset (&act.sa_mask);
@@ -4299,12 +4296,12 @@ static void setupSigSegvAction(void) {
     act.sa_sigaction = segvHandler;
     sigaction (SIGSEGV, &act, NULL);
     sigaction (SIGBUS, &act, NULL);
-#else
     return;
-#endif
 }
-
-#endif /* if __APPLE__ or __linux__ */
+#else /* HAVE_BACKTRACE */
+static void setupSigSegvAction(void) {
+}
+#endif /* HAVE_BACKTRACE */
 
 /* =================================== Main! ================================ */
 
