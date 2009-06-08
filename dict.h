@@ -73,7 +73,7 @@ typedef struct dictIterator {
 } dictIterator;
 
 /* This is the initial size of every hash table */
-#define DICT_HT_INITIAL_SIZE     16
+#define DICT_HT_INITIAL_SIZE     4
 
 /* ------------------------------- Macros ------------------------------------*/
 #define dictFreeEntryVal(ht, entry) \

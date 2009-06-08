@@ -515,6 +515,14 @@ proc main {server port} {
         lsort [$r smembers sres]
     } {1 2 3 4}
 
+    test {SPOP basics} {
+        $r del myset
+        $r sadd myset 1
+        $r sadd myset 2
+        $r sadd myset 3
+        list [lsort [list [$r spop myset] [$r spop myset] [$r spop myset]]] [$r scard myset]
+    } {{1 2 3} 0}
+
     test {SAVE - make sure there are all the types as values} {
         $r lpush mysavelist hello
         $r lpush mysavelist world
