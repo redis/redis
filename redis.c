@@ -82,6 +82,7 @@
 #define REDIS_MAX_SYNC_TIME     60      /* Slave can't take more to sync */
 #define REDIS_EXPIRELOOKUPS_PER_CRON    100 /* try to expire 100 keys/second */
 #define REDIS_MAX_WRITE_PER_EVENT (1024*64)
+#define REDIS_REQUEST_MAX_SIZE  (1024*1024) /* max bytes in inline command */
 
 /* Hash table parameters */
 #define REDIS_HT_MINFILL        10      /* Minimal hash table fill 10% */
@@ -763,7 +764,6 @@ static int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientD
     /* Check if a background saving in progress terminated */
     if (server.bgsaveinprogress) {
         int statloc;
-        /* XXX: TODO handle the case of the saving child killed */
         if (wait4(-1,&statloc,WNOHANG,NULL)) {
             int exitcode = WEXITSTATUS(statloc);
             int bysignal = WIFSIGNALED(statloc);
@@ -1437,6 +1437,7 @@ again:
         /* Read the first line of the query */
         char *p = strchr(c->querybuf,'\n');
         size_t querylen;
+
         if (p) {
             sds query, *argv;
             int argc, j;
@@ -1480,7 +1481,7 @@ again:
              * on the query buffer try to process the next command. */
             if (processCommand(c) && sdslen(c->querybuf)) goto again;
             return;
-        } else if (sdslen(c->querybuf) >= 1024*32) {
+        } else if (sdslen(c->querybuf) >= REDIS_REQUEST_MAX_SIZE) {
             redisLog(REDIS_DEBUG, "Client protocol error");
             freeClient(c);
             return;

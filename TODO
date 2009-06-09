@@ -1,13 +1,14 @@
 BEFORE REDIS 1.0.0-rc1
 
+ * SPOP man page
  * Add number of keys for every DB in INFO
- * Resize the expires and Sets hash tables if needed as well? For Sets the right moment to check for this is probably in SREM
  * check 'server.dirty' everywere. Make it proprotional to the number of objects modified.
  * Cover most of the source code with test-redis.tcl
  * Remove tmp-.... files when saving child exits in the wrong way, to do so use tmp-pid.rdb as filename so that the parent can rebuild the file name just from the child pid.
 
 AFTER 1.0 stable release
 
+ * Max command payload bytes configurable, with a pretty large default.
  * Consistent hashing implemented in all the client libraries having an user base
  * SORT: Don't copy the list into a vector when BY argument is constant.
  * SORT ... STORE keyname. Instead to return the SORTed data set it into key.
