@@ -154,7 +154,7 @@ class Redis
     connect_to_server if !@sock
     begin
       raw_call_command(argv.dup)
-    rescue Errno::ECONNRESET
+    rescue Errno::ECONNRESET, Errno::EPIPE
       @sock.close
       connect_to_server
       raw_call_command(argv.dup)
