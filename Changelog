@@ -1,3 +1,12 @@
+2009-06-14 Clojure library thanks to Ragnar Dahlén
+2009-06-10 It is now possible to specify - as config file name to read it from stdin
+2009-06-10 sync with jodosha redis-rb
+2009-06-10 Redis-rb sync
+2009-06-10 max inline request raised again to 1024*1024*256 bytes
+2009-06-10 max bytes in an inline command raised to 1024*1024 bytes, in order to allow for very large MGETs and still protect from client crashes
+2009-06-08 SPOP implemented. Hash table resizing for Sets and Expires too. Changed the resize policy to play better with RANDOMKEY and SPOP.
+2009-06-07 some minor changes to the backtrace code
+2009-06-07 enable backtrace capabilities only for Linux and MacOSX
 2009-06-07 Dump a backtrace on sigsegv/sigbus, original coded thanks to Diego Rosario Brogna, modified in order to work on different OSes and to enhance reliability
 2009-06-06 Merge git://github.com/dierbro/redis
 2009-06-06 add more output
