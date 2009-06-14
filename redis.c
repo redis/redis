@@ -2892,8 +2892,8 @@ static void ltrimCommand(redisClient *c) {
                 ln = listLast(list);
                 listDelNode(list,ln);
             }
-            addReply(c,shared.ok);
             server.dirty++;
+            addReply(c,shared.ok);
         }
     }
 }

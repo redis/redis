@@ -1,0 +1,90 @@
+<project name="redis" default="jar">
+  <description>
+    Redis client library for Clojure.
+  </description>
+ 
+  <property file="build.properties"/>
+
+  <property name="dist.dir" location="dist"/>
+  <property name="build.dir" location="classes"/>
+  <property name="lib.dir" location="lib"/>
+  <property name="source.dir" location="src"/>
+
+  <property name="redis-clojure.jar" location="redis-clojure.jar"/>
+
+  <target name="clean" description="Remove generated files">
+    <delete file="redis-clojure.jar"/>
+    <delete dir="${build.dir}"/>
+  </target>
+ 
+  <target name="init" depends="clean">
+    <tstamp/>
+    <mkdir dir="${build.dir}"/>
+  </target>
+ 
+  <target name="compile" depends="init" description="Compile sources">
+    <java classname="clojure.lang.Compile"> 
+      <classpath>
+        <path location="${build.dir}"/>
+        <path location="${source.dir}"/>
+        <path location="${clojure.jar}"/>
+        <path location="${clojure-contrib.jar}"/>
+      </classpath>
+      <sysproperty key="clojure.compile.path" value="${build.dir}"/>
+      <arg value="redis" />
+    </java>
+  </target>
+ 
+  <target name="jar" description="Create jar file" depends="compile">
+    <jar jarfile="${redis-clojure.jar}">
+      <path location="LICENSE"/>
+      <fileset dir="${source.dir}" includes="**/*.clj"/>
+      <!--<fileset dir="${build.dir}" includes="**/*.class"/>-->
+      <manifest>
+        <attribute name="Built-By" value="${user.name}"/>
+      </manifest>
+    </jar>
+  </target>
+
+  <target name="test" description="Run tests">
+    <java classname="clojure.main">
+      <classpath>
+        <path location="${source.dir}"/>
+        <path location="${clojure.jar}"/>
+        <path location="${clojure-contrib.jar}"/>
+      </classpath>
+      <arg value="-e" />
+      <arg value="(require 'redis.tests 'redis.tests.internal) (clojure.contrib.test-is/run-tests 'redis.tests 'redis.tests.internal)" />
+    </java>
+  </target>
+
+  <target name="bm" depends="benchmark"/>
+
+  <target name="benchmark" description="Run benchmark">
+    <java classname="clojure.main">
+      <classpath>
+        <path location="${basedir}"/>
+        <path location="${source.dir}"/>
+        <path location="${clojure.jar}"/>
+        <path location="${clojure-contrib.jar}"/>
+      </classpath>
+      <arg value="-e" />
+      <arg value="(require 'benchmarks.clojure) (benchmarks.clojure/run-all-benchmarks 'benchmarks.clojure)" />
+    </java>
+  </target>
+
+  <target name="benchmark-ruby" description="Run benchmark equivalent to the benchmarks of the Ruby library">
+    <java classname="clojure.main">
+      <classpath>
+        <path location="${basedir}"/>
+        <path location="${source.dir}"/>
+        <!--<path location="${redis-clojure.jar}"/>-->
+        <path location="${clojure.jar}"/>
+        <path location="${clojure-contrib.jar}"/>
+      </classpath>
+      <arg value="-e" />
+      <arg value="(require 'benchmarks.ruby)" />
+    </java>
+  </target>
+
+</project>
