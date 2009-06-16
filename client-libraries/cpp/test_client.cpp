@@ -478,7 +478,7 @@ int main(int argc, char ** argv)
       keys.push_back("seta");
       keys.push_back("setb");
 
-      c.sinterstore("setc", keys);
+      ASSERT_EQUAL(c.sinterstore("setc", keys), 2L);
 
       redis::client::string_set members;
       ASSERT_EQUAL(c.smembers("setc", members), 2L);
@@ -510,7 +510,7 @@ int main(int argc, char ** argv)
       keys.push_back("setf");
       keys.push_back("setg");
 
-      c.sunionstore("seth", keys);
+      ASSERT_EQUAL(c.sunionstore("seth", keys), 2L);
 
       redis::client::string_set members;
       ASSERT_EQUAL(c.smembers("seth", members), 2L);

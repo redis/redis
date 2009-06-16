@@ -1,6 +1,12 @@
+general:
+- check for complete support for 0.100 (compiles; existing tests pass)
+
 command handlers:
 - support DEL as vararg
 - support MLLEN and MSCARD
+- support SDIFF
+- support SDIFFSTORE
+
 
 unit tests:
 - sort with limit

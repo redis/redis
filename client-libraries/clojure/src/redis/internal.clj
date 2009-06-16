@@ -39,7 +39,8 @@
   (let [{:keys [host port timeout]} server
         socket (Socket. #^String host #^Integer port)]
     (doto socket
-      (.setTcpNoDelay true))))
+      (.setTcpNoDelay true)
+      (.setKeepAlive true))))
 
 (defn with-server*
   [server-spec func]
@@ -99,8 +100,7 @@
 
 (defn reply-type
   ([#^BufferedReader reader]
-     (let [type (char (.read reader))]
-       type)))
+     (char (.read reader))))
 
 (defmulti parse-reply reply-type :default :unknown)
 

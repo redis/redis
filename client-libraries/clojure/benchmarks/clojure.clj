@@ -30,7 +30,6 @@
   :requests)
 
 
-
 (defmacro defbenchmark [name & body]
   (let [benchmark-name (symbol (str name "-benchmark"))]
     `(def ~(with-meta benchmark-name {:benchmark true})
@@ -64,7 +63,7 @@
   (redis/get (str "key-" (rand-int 1000))))
 
 (defbenchmark set
-  (redis/set (str "key-" (rand-int 1000)) "blahojga!"))
+  (redis/set (str "key-" (rand-int 1000)) "abc"))
 
 (defbenchmark exists-set-and-get
   (let [key (str "key-" (rand-int 100))]
@@ -77,7 +76,7 @@
                          :host "127.0.0.1"
                          :port 6379
                          :db 15
-                         :clients 4
+                         :clients 1
                          :requests 10000))
 
 (defn create-clients [options]
@@ -103,9 +102,14 @@
 (defn report-request-times [clients requests]
   (let [requests-dist (map #(let [perc (* 100 (/ (last %) requests))]
                              (conj % perc)) (requests-by-ms clients))]
-    (dorun
-     (map #(println (format "%.2f%% < %d ms" (float (last %)) (inc (first %))))
-          requests-dist))))
+    (loop [items requests-dist
+           seen 0]
+      (if-not (empty? items)
+        (do 
+          (let [item (first items)
+                seen (+ seen (last item))]
+            (println (format "%.2f%% < %d ms" (float seen) (inc (first item))))
+            (recur (rest items) seen)))))))
 
 (defn report-client-rps [client]
   (let [{:keys [id requests-performed request-times]} @client]
@@ -128,7 +132,7 @@
       (println (format "====== %s =====\n" name))
       (println (format "   %d requests completed in %f seconds\n" requests time-in-seconds))
       (println (format "   %d parallel clients\n" (:clients options)))
-      ;(report-request-times clients requests)
+      (report-request-times clients requests)
       ;(dorun (map report-client-rps clients))
       (println (format "%f requests per second\n\n" requests-per-second))
       )

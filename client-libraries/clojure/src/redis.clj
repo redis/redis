@@ -1,10 +1,10 @@
 ;(add-classpath "file:///Users/ragge/Projects/clojure/redis-clojure/src/")
 
-(set! *warn-on-reflection* true)
-
 (ns redis
   (:refer-clojure :exclude [get set type keys sort])
   (:use redis.internal))
+
+;(set! *warn-on-reflection* true)
 
 (defmacro with-server
   "Evaluates body in the context of a new connection to a Redis server
@@ -100,6 +100,7 @@
   ;; Set commands
   (sadd        [key member] :bulk int-to-bool)
   (srem        [key member] :bulk int-to-bool)
+  (spop        [key] :inline)
   (smove       [srckey destkey member] :bulk int-to-bool)
   (scard       [key] :inline)
   (sismember   [key member] :bulk int-to-bool)
@@ -122,6 +123,7 @@
   (bgsave      [] :inline)
   (lastsave    [] :inline int-to-date)
   (shutdown    [] :inline)
+  ;; Remote control
   (info        [] :inline string-to-map)
   ;;(monitor     [] :inline))
 )

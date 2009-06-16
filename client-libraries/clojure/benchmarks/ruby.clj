@@ -1,10 +1,9 @@
 (ns benchmarks.ruby
   (:require redis))
 
-
-(dotimes [n 2]
+(dotimes [n 4]
   (redis/with-server 
-   {}
+   {:db 15}
    (redis/set "foo" "The first line we sent to the server is some text")
    (time 
     (dotimes [i 20000]

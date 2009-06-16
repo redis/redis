@@ -39,6 +39,12 @@
 
 namespace redis 
 {
+  enum server_role
+  {
+    role_master,
+    role_slave
+  };
+
   struct server_info 
   {
     std::string version;
@@ -52,6 +58,7 @@ namespace redis
     unsigned long total_commands_processed;
     unsigned long uptime_in_seconds;
     unsigned long uptime_in_days;
+    server_role role;
   };
 
   // Generic error that is thrown when communicating with the redis server.
@@ -355,8 +362,9 @@ namespace redis
 
     // Compute the intersection between the sets stored at key1, key2, ..., 
     // keyN, and store the resulting set at dstkey
+    // Returns the number of items in the intersection
 
-    void sinterstore(const string_type & dstkey, const string_vector & keys);
+    int_type sinterstore(const string_type & dstkey, const string_vector & keys);
 
     // Return the union between the sets stored at key1, key2, ..., keyN
 
@@ -364,8 +372,9 @@ namespace redis
 
     // Compute the union between the sets stored at key1, key2, ..., keyN, 
     // and store the resulting set at dstkey
+    // Returns the number of items in the intersection
 
-    void sunionstore(const string_type & dstkey, const string_vector & keys);
+    int_type sunionstore(const string_type & dstkey, const string_vector & keys);
 
     // Return all the members of the set value at key
 

@@ -29,7 +29,11 @@ describe "redis" do
     @r.quit
   end  
 
-  it 'should be able to PING' do
+  it "should be able connect without a timeout" do
+    lambda { Redis.new :timeout => 0 }.should_not raise_error
+  end
+
+  it "should be able to PING" do
     @r.ping.should == 'PONG' 
   end
 
@@ -61,12 +65,22 @@ describe "redis" do
     sleep 2
     @r['foo'].should == nil
   end
-  
+
+  it "should be able to return a TTL for a key" do
+    @r.set('foo', 'bar', 1)
+    @r.ttl('foo').should == 1
+  end
+
   it "should be able to SETNX" do
     @r['foo'] = 'nik'
     @r['foo'].should == 'nik'
     @r.setnx 'foo', 'bar'
     @r['foo'].should == 'nik'
+  end
+  #
+  it "should be able to GETSET" do
+   @r.getset('foo', 'baz').should == 'bar'
+   @r['foo'].should == 'baz'
   end
   # 
   it "should be able to INCR a key" do
@@ -75,7 +89,14 @@ describe "redis" do
     @r.incr('counter').should == 2
     @r.incr('counter').should == 3
   end
-  # 
+  #
+  it "should be able to INCRBY a key" do
+    @r.del('counter')
+    @r.incrby('counter', 1).should == 1
+    @r.incrby('counter', 2).should == 3
+    @r.incrby('counter', 3).should == 6
+  end
+  #
   it "should be able to DECR a key" do
     @r.del('counter')
     @r.incr('counter').should == 1
@@ -136,6 +157,10 @@ describe "redis" do
     @r['fo'] = 'nak'
     @r['foo'] = 'qux'
     @r.keys("f*").sort.should == ['f','fo', 'foo'].sort
+  end
+  #
+  it "should be able to return a random key (RANDOMKEY)" do
+    3.times { @r.exists(@r.randomkey).should be_true }
   end
   #BTM - TODO 
   it "should be able to check the TYPE of a key" do
@@ -356,20 +381,24 @@ describe "redis" do
     @r.sort('dogs', :get => ['dog:*:name', 'dog:*:breed'], :limit => [0,1], :order => 'desc alpha').should == ['taj', 'terrier']
   end
   # 
-  it "should provide info" do
+  it "should provide info (INFO)" do
     [:last_save_time, :redis_version, :total_connections_received, :connected_clients, :total_commands_processed, :connected_slaves, :uptime_in_seconds, :used_memory, :uptime_in_days, :changes_since_last_save].each do |x|
     @r.info.keys.should include(x)
     end
   end
   # 
-  it "should be able to flush the database" do
+  it "should be able to flush the database (FLUSHDB)" do
     @r['key1'] = 'keyone'
     @r['key2'] = 'keytwo'
     @r.keys('*').sort.should == ['foo', 'key1', 'key2'].sort #foo from before
     @r.flushdb
     @r.keys('*').should == []
   end
-  # 
+  #
+  it "should raise exception when manually try to change the database" do
+    lambda { @r.select(0) }.should raise_error
+  end
+  #
   it "should be able to provide the last save time (LASTSAVE)" do
     savetime = @r.lastsave
     Time.at(savetime).class.should == Time
@@ -387,6 +416,10 @@ describe "redis" do
     @r.bgsave.should == 'OK'
   end
   
+  it "should should be able to ECHO" do
+    @r.echo("message in a bottle\n").should == "message in a bottle\n"
+  end
+
   it "should handle multiple servers" do
     require 'dist_redis'
     @r = DistRedis.new(:hosts=> ['localhost:6379', '127.0.0.1:6379'], :db => 15)

@@ -214,20 +214,25 @@
   (redis/lset "list" -1 "test3")
   (is (= "test3" (redis/lindex "list" 2))))
 
-
-;; TBD
 (deftest lrem
   (is (thrown? Exception (redis/lrem "foo" 0 "bar")))
-  (is (= 0 (redis/lrem "list" 0 ""))))
+  (is (= 0 (redis/lrem "newlist" 0 "")))
+  (is (= 1 (redis/lrem "list" 1 "two")))
+  (is (= 1 (redis/lrem "list" 42 "three")))
+  (is (= 1 (redis/llen "list"))))
 
 
 (deftest lpop
   (is (thrown? Exception (redis/lpop "foo")))
-  (is (= "one" (redis/lpop "list"))))
+  (is (= nil (redis/lpop "newlist")))
+  (is (= "one" (redis/lpop "list")))
+  (is (= 2 (redis/llen "list"))))
 
 (deftest rpop
   (is (thrown? Exception (redis/rpop "foo")))
-  (is (= "three" (redis/rpop "list"))))
+  (is (= nil (redis/rpop "newlist")))
+  (is (= "three" (redis/rpop "list")))
+  (is (= 2 (redis/llen "list"))))
 
 ;;
 ;; Set commands
@@ -242,10 +247,15 @@
 
 (deftest srem
   (is (thrown? Exception (redis/srem "foo" "bar")))
-  (is (thrown? Exception (redis/srem "newset" "member")))
+  (is (= false (redis/srem "newset" "member")))
   (is (= true (redis/srem "set" "two")))
   (is (= false (redis/sismember "set" "two")))
   (is (= false (redis/srem "set" "blahonga"))))
+
+(deftest spop
+  (is (thrown? Exception (redis/spop "foo" "bar")))
+  (is (= nil (redis/spop "newset")))
+  (is (contains? #{"one" "two" "three"} (redis/spop "set"))))
 
 (deftest smove
   (is (thrown? Exception (redis/smove "foo" "set" "one")))

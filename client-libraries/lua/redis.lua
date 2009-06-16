@@ -239,6 +239,7 @@ redis_commands = {
     set_preserve  = bulk('SETNX', toboolean), 
     get           = inline('GET'), 
     get_multiple  = inline('MGET'), 
+    get_set       = bulk('GETSET'), 
     increment     = inline('INCR'), 
     increment_by  = inline('INCRBY'), 
     decrement     = inline('DECR'), 
@@ -262,6 +263,7 @@ redis_commands = {
     rename_preserve  = inline('RENAMENX'), 
     expire           = inline('EXPIRE', toboolean), 
     database_size    = inline('DBSIZE'), 
+    time_to_live     = inline('TTL'), 
 
     -- commands operating on lists
     push_tail    = bulk('RPUSH'), 
@@ -276,12 +278,17 @@ redis_commands = {
     pop_last     = inline('RPOP'), 
 
     -- commands operating on sets
-    set_add                 = inline('SADD'), 
-    set_remove              = inline('SREM'), 
+    set_add                 = bulk('SADD'), 
+    set_remove              = bulk('SREM'), 
+    set_move                = bulk('SMOVE'), 
     set_cardinality         = inline('SCARD'), 
     set_is_member           = inline('SISMEMBER'), 
     set_intersection        = inline('SINTER'), 
     set_intersection_store  = inline('SINTERSTORE'), 
+    set_union               = inline('SUNION'), 
+    set_union_store         = inline('SUNIONSTORE'), 
+    set_diff                = inline('SDIFF'), 
+    set_diff_store          = inline('SDIFFSTORE'), 
     set_members             = inline('SMEMBERS'), 
 
     -- multiple databases handling commands
@@ -321,7 +328,7 @@ redis_commands = {
     ), 
 
     -- remote server control commands
-    info  = inline('INFO', 
+    info = inline('INFO', 
         function(response) 
             local info = {}
             response:gsub('([^\r\n]*)\r\n', function(kv) 
@@ -329,6 +336,12 @@ redis_commands = {
                 info[k] = v
             end)
             return info
+        end
+    ),
+    slave_of        = inline('SLAVEOF'), 
+    slave_of_no_one = custom('SLAVEOF', 
+        function(client, command)
+            return request.inline(client, command, 'NO ONE')
         end
     ),
 }
