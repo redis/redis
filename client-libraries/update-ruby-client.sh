@@ -2,8 +2,8 @@
 rm -rf temp
 mkdir temp
 cd temp
-#git clone git://github.com/ezmobius/redis-rb.git
-git clone git://github.com/jodosha/redis-rb.git
+git clone git://github.com/ezmobius/redis-rb.git
+#git clone git://github.com/jodosha/redis-rb.git
 cd redis-rb
 rm -rf .git
 cd ..
