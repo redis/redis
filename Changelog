@@ -1,3 +1,6 @@
+2009-06-16 Better handling of background saving process killed or crashed
+2009-06-14 number of keys info in INFO command thanks to Diego Rosario Brogna
+2009-06-14 SPOP documented
 2009-06-14 Clojure library thanks to Ragnar Dahlén
 2009-06-10 It is now possible to specify - as config file name to read it from stdin
 2009-06-10 sync with jodosha redis-rb

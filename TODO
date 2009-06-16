@@ -1,7 +1,6 @@
 BEFORE REDIS 1.0.0-rc1
 
  * Cover most of the source code with test-redis.tcl
- * Remove tmp-.... files when saving child exits in the wrong way, to do so use tmp-pid.rdb as filename so that the parent can rebuild the file name just from the child pid.
 
 AFTER 1.0 stable release
 
