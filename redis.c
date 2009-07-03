@@ -3758,10 +3758,12 @@ static void expireCommand(redisClient *c) {
         return;
     } else {
         time_t when = time(NULL)+seconds;
-        if (setExpire(c->db,c->argv[1],when))
+        if (setExpire(c->db,c->argv[1],when)) {
             addReply(c,shared.cone);
-        else
+            server.dirty++;
+        } else {
             addReply(c,shared.czero);
+        }
         return;
     }
 }
