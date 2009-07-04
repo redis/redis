@@ -4305,8 +4305,12 @@ static void *getMcontextEip(ucontext_t *uc) {
     return (void*) uc->uc_mcontext.eip;
 #elif defined(__APPLE__)
     return (void*) uc->uc_mcontext->__ss.__eip;
-#else /* Linux */
+#elif defined(__i386__) || defined(__X86_64__) /* Linux x86 */
     return (void*) uc->uc_mcontext.gregs[REG_EIP];
+#elif defined(__ia64__) /* Linux IA64 */
+    return (void*) uc->uc_mcontext.sc_ip;
+#else
+    return NULL;
 #endif
 }
 
@@ -4348,7 +4352,9 @@ static void segvHandler(int sig, siginfo_t *info, void *secret) {
     
     trace_size = backtrace(trace, 100);
     /* overwrite sigaction with caller's address */
-    trace[1] = getMcontextEip(uc);
+    if (getMcontextEip(uc) != NULL) {
+        trace[1] = getMcontextEip(uc);
+    }
     messages = backtrace_symbols(trace, trace_size);
 
     for (i=1; i<trace_size; ++i) {
@@ -4404,7 +4410,7 @@ int linuxOvercommitMemoryValue(void) {
 
 void linuxOvercommitMemoryWarning(void) {
     if (linuxOvercommitMemoryValue() == 0) {
-        redisLog(REDIS_WARNING,"WARNING overcommit_memory is set to 0! Background save may fail under low condition memory. To fix this issue add 'echo 1 > /proc/sys/vm/overcommit_memory' in your init scripts.");
+        redisLog(REDIS_WARNING,"WARNING overcommit_memory is set to 0! Background save may fail under low condition memory. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.");
     }
 }
 #endif /* __linux__ */
@@ -4434,10 +4440,6 @@ static void daemonize(void) {
 }
 
 int main(int argc, char **argv) {
-#ifdef __linux__
-    linuxOvercommitMemoryWarning();
-#endif
-    
     initServerConfig();
     if (argc == 2) {
         ResetServerSaveParams();
@@ -4451,6 +4453,9 @@ int main(int argc, char **argv) {
     initServer();
     if (server.daemonize) daemonize();
     redisLog(REDIS_NOTICE,"Server started, Redis version " REDIS_VERSION);
+#ifdef __linux__
+    linuxOvercommitMemoryWarning();
+#endif
     if (rdbLoad(server.dbfilename) == REDIS_OK)
         redisLog(REDIS_NOTICE,"DB loaded from disk");
     if (aeCreateFileEvent(server.el, server.fd, AE_READABLE,
