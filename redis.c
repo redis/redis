@@ -30,6 +30,7 @@
 #define REDIS_VERSION "0.900"
 
 #include "fmacros.h"
+#include "config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,8 +39,12 @@
 #include <unistd.h>
 #define __USE_POSIX199309
 #include <signal.h>
+
+#ifdef HAVE_BACKTRACE
 #include <execinfo.h>
 #include <ucontext.h>
+#endif /* HAVE_BACKTRACE */
+
 #include <sys/wait.h>
 #include <errno.h>
 #include <assert.h>
@@ -52,7 +57,6 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <limits.h>
-#include <execinfo.h>
 
 #include "redis.h"
 #include "ae.h"     /* Event driven programming library */
@@ -63,8 +67,6 @@
 #include "zmalloc.h" /* total memory usage aware version of malloc/free */
 #include "lzf.h"    /* LZF compression library */
 #include "pqsort.h" /* Partial qsort for SORT+LIMIT */
-
-#include "config.h"
 
 /* Error codes */
 #define REDIS_OK                0
