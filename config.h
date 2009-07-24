@@ -1,6 +1,10 @@
 #ifndef __CONFIG_H
 #define __CONFIG_H
 
+#ifdef __APPLE__
+#include <AvailabilityMacros.h>
+#endif
+
 /* test for malloc_size() */
 #ifdef __APPLE__
 #include <malloc/malloc.h>
@@ -9,7 +13,7 @@
 #endif
 
 /* define redis_fstat to fstat or fstat64() */
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
 #define redis_fstat fstat64
 #define redis_stat stat64
 #else
