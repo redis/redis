@@ -4308,7 +4308,11 @@ static void *getMcontextEip(ucontext_t *uc) {
 #elif defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
     return (void*) uc->uc_mcontext->__ss.__eip;
 #elif defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
+  #ifdef _STRUCT_X86_THREAD_STATE64
     return (void*) uc->uc_mcontext->__ss.__rip;
+  #else
+    return (void*) uc->uc_mcontext->__ss.__eip;
+  #endif 
 #elif defined(__i386__) || defined(__X86_64__) /* Linux x86 */
     return (void*) uc->uc_mcontext.gregs[REG_EIP];
 #elif defined(__ia64__) /* Linux IA64 */
