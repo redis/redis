@@ -1,6 +1,7 @@
 BEFORE REDIS 1.0.0-rc1
 
  * Cover most of the source code with test-redis.tcl
+ * Expiring algorithm should be adaptive, if there are a lot of keys with an expire set and many of this happen to be already expired it should be, proportionally, more aggressive.
 
 AFTER 1.0 stable release
 
