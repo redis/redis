@@ -1488,7 +1488,7 @@ again:
             /* Execute the command. If the client is still valid
              * after processCommand() return and there is something
              * on the query buffer try to process the next command. */
-            if (processCommand(c) && sdslen(c->querybuf)) goto again;
+            if (c->argc && processCommand(c) && sdslen(c->querybuf)) goto again;
             return;
         } else if (sdslen(c->querybuf) >= REDIS_REQUEST_MAX_SIZE) {
             redisLog(REDIS_DEBUG, "Client protocol error");
