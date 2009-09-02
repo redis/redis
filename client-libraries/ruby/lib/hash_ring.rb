@@ -31,8 +31,9 @@ class HashRing
   end
   
   def remove_node(node)
+    @nodes.reject!{|n| n.to_s == node.to_s}
     @replicas.times do |i|
-      key = Zlib.crc32("#{node}:#{count}")
+      key = Zlib.crc32("#{node}:#{i}")
       @ring.delete(key)
       @sorted_keys.reject! {|k| k == key}
     end

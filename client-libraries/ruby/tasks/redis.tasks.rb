@@ -1,5 +1,6 @@
 # Inspired by rabbitmq.rake the Redbox project at http://github.com/rick/redbox/tree/master
 require 'fileutils'
+require 'open-uri'
 
 class RedisRunner
   
@@ -106,10 +107,8 @@ namespace :dtach do
     unless File.exists?('/tmp/dtach-0.8.tar.gz')
       require 'net/http'
       
-      Net::HTTP.start('superb-west.dl.sourceforge.net') do |http|
-        resp = http.get('/sourceforge/dtach/dtach-0.8.tar.gz')
-        open('/tmp/dtach-0.8.tar.gz', 'wb') do |file| file.write(resp.body) end
-      end
+      url = 'http://downloads.sourceforge.net/project/dtach/dtach/0.8/dtach-0.8.tar.gz'
+      open('/tmp/dtach-0.8.tar.gz', 'wb') do |file| file.write(open(url).read) end
     end
 
     unless File.directory?('/tmp/dtach-0.8')    
