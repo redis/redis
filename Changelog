@@ -1,3 +1,14 @@
+2009-09-02 QuickStart added
+2009-09-01 Fixed crash with only space and newline as command (issue 61), thanks to a guy having as nick "fixxxerrr"
+2009-08-11 TODO list modified
+2009-07-24 more snow leopard related fixes (for 32bit systems)
+2009-07-24 fixed compilation with Snow Leopard, thanks to Lon Baker for providing SSH access to Snow Leopard box
+2009-07-22 Fixed NetBSD compile problems
+2009-07-17 now the size of the shared pool can be really modified via config, also the number of objects in the sharing pool is logged when the log level is set to debug. Thanks to Aman Gupta
+2009-07-05 added utils/redis-copy.rb, a script that is able to copy data from one Redis server to another one on the fly.
+2009-07-04 Applied three different patches thanks to Chris Lamb, one to fix compilation and get the IP register value on Linux IA64 and other systems. One in order to log the overcommit problem on the logs instead of the standard output when Redis is demonized. The latest in order to suggest a more consistent way in order to switch to 1 the memory overcommit Linux feature.
+2009-07-03 bugfix: EXPIRE now propagates to the Slave.
+2009-06-16 Redis version modified to 0.900
 2009-06-16 update-ruby-client script already points to ezmobius repo
 2009-06-16 client libraries updated
 2009-06-16 Redis release candidate 1
