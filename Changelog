@@ -1,3 +1,8 @@
+2009-09-03 Redis 1.0.0 release
+2009-09-02 Redis version pushed to 1.0
+2009-09-02 Ruby client lib updated to the latest git version
+2009-09-02 update-scala-client script added
+2009-09-02 Scala client added thanks to Alejanro Crosa
 2009-09-02 QuickStart added
 2009-09-01 Fixed crash with only space and newline as command (issue 61), thanks to a guy having as nick "fixxxerrr"
 2009-08-11 TODO list modified

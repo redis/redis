@@ -1,10 +1,4 @@
-BEFORE REDIS 1.0.0-rc1
-
- * Cover most of the source code with test-redis.tcl
  * Expiring algorithm should be adaptive, if there are a lot of keys with an expire set and many of this happen to be already expired it should be, proportionally, more aggressive.
-
-AFTER 1.0 stable release
-
  * Add a command to inspect the currently selected DB index
  * Consistent hashing implemented in all the client libraries having an user base
  * SORT: Don't copy the list into a vector when BY argument is constant.
@@ -22,7 +16,7 @@ AFTER 1.0 stable release
    the elements by 'score', with the actual value being the key. On the other
    side the type also takes an hash table with key->score mapping, so that when
    there is an update we lookup the current score and can traverse the tree.
- * BITMAP type
+ * BITMAP / BYTEARRAY type?
  * LRANGE 4 0 should return the same elements as LRANGE 0 4 but in reverse order (only if we get enough motivated requests about it)
  * zmalloc() should avoid to add a private header for archs where there is some other kind of libc-specific way to get the size of a malloced block.
 
