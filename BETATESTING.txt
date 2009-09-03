@@ -1,12 +1,9 @@
-Hello betatester!
+This is a stable release, for beta testing make sure to download the latest source code from Git:
 
-This Redis Server distribution is just a preview, it is by no mean an usable
-product, but probably it can already give you some feeling about what the
-final release is going to be.
+    git clone git://github.com/antirez/redis.git
 
-Be aware that if you want to use Redis in production the server may not be perfectly stable or may cotanin unfixed bugs. We did our best to ensure this distribution is of good quality and bug free but the development is currently very fast.
+It's also possibe to download the latest source code as a tarball:
 
-Please send feedbacks to antirez at gmail dot com.
+    http://github.com/antirez/redis/tree/master
 
-Enjoy,
-antirez
+(use the download button)
