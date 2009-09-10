@@ -3,7 +3,7 @@
 # This file is released under the BSD license, see the COPYING file
 
 DEBUG?= -g -rdynamic -ggdb 
-CFLAGS?= -std=c99 -pedantic -O2 -Wall -W
+CFLAGS?= -std=c99 -O2 -pedantic -Wall -W
 CCOPT= $(CFLAGS)
 
 OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o
