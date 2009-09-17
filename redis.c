@@ -269,7 +269,7 @@ struct redisServer {
     redisClient *master;    /* client that is master for this slave */
     int replstate;
     unsigned int maxclients;
-    unsigned int maxmemory;
+    unsigned long maxmemory;
     /* Sort parameters - qsort_r() is only available under BSD so we
      * have to take this state global, in order to pass it to sortCompare() */
     int sort_desc;
@@ -1116,7 +1116,7 @@ static void loadServerConfig(char *filename) {
         } else if (!strcasecmp(argv[0],"maxclients") && argc == 2) {
             server.maxclients = atoi(argv[1]);
         } else if (!strcasecmp(argv[0],"maxmemory") && argc == 2) {
-            server.maxmemory = atoi(argv[1]);
+            server.maxmemory = strtoll(argv[1], NULL, 10);
         } else if (!strcasecmp(argv[0],"slaveof") && argc == 3) {
             server.masterhost = sdsnew(argv[1]);
             server.masterport = atoi(argv[2]);
