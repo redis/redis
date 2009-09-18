@@ -651,6 +651,14 @@ proc main {server port} {
         list [$r lrange mylist 0 -1] $res
     } {{foo bar foobar foobared zap test} 2}
 
+    test {LREM, deleting objects that may be encoded as integers} {
+        $r lpush myotherlist 1
+        $r lpush myotherlist 2
+        $r lpush myotherlist 3
+        $r lrem myotherlist 1 2
+        $r llen myotherlist
+    } {2}
+
     test {MGET} {
         $r flushall
         $r set foo BAR
