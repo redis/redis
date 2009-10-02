@@ -28,6 +28,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+ /* TODO: check if it can happen that _len+free > USHRT_MAX */
+
 #define SDS_ABORT_ON_OOM
 
 #include "sds.h"
@@ -46,13 +48,25 @@ static void sdsOomAbort(void) {
 sds sdsnewlen(const void *init, size_t initlen) {
     struct sdshdr *sh;
 
-    sh = zmalloc(sizeof(struct sdshdr)+initlen+1);
-#ifdef SDS_ABORT_ON_OOM
-    if (sh == NULL) sdsOomAbort();
-#else
-    if (sh == NULL) return NULL;
-#endif
-    sh->len = initlen;
+    if (initlen >= USHRT_MAX) {
+        sh = zmalloc(sizeof(struct sdshdr)+initlen+1);
+        sh->len = initlen;
+        sh->_len = USHRT_MAX;
+        #ifdef SDS_ABORT_ON_OOM
+            if (sh == NULL) sdsOomAbort();
+        #else
+            if (sh == NULL) return NULL;
+        #endif
+    } else {
+        sh = zmalloc(sizeof(int)+initlen+1);
+        sh = (struct sdshdr*) (((char*)sh)-sizeof(int));
+        #ifdef SDS_ABORT_ON_OOM
+            if (sh == NULL) sdsOomAbort();
+        #else
+            if (sh == NULL) return NULL;
+        #endif
+        sh->_len = initlen;
+    }
     sh->free = 0;
     if (initlen) {
         if (init) memcpy(sh->buf, init, initlen);
@@ -73,7 +87,10 @@ sds sdsnew(const char *init) {
 
 size_t sdslen(const sds s) {
     struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
-    return sh->len;
+    if (sh->_len == USHRT_MAX)
+        return sh->len;
+    else
+        return sh->_len;
 }
 
 sds sdsdup(const sds s) {
@@ -81,8 +98,14 @@ sds sdsdup(const sds s) {
 }
 
 void sdsfree(sds s) {
+    struct sdshdr *sh;
+
     if (s == NULL) return;
-    zfree(s-sizeof(struct sdshdr));
+    sh = (void*) (s-(sizeof(struct sdshdr)));
+    if (sh->_len == USHRT_MAX)
+        zfree(s-sizeof(struct sdshdr));
+    else
+        zfree(s-sizeof(struct sdshdr)+sizeof(int));
 }
 
 size_t sdsavail(sds s) {
@@ -93,40 +116,73 @@ size_t sdsavail(sds s) {
 void sdsupdatelen(sds s) {
     struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
     int reallen = strlen(s);
-    sh->free += (sh->len-reallen);
-    sh->len = reallen;
+
+    if (sh->_len == USHRT_MAX) {
+        sh->free += (sh->len-reallen);
+        sh->len = reallen;
+    } else {
+        sh->free += (sh->_len-reallen);
+        sh->_len = reallen;
+    }
 }
 
 static sds sdsMakeRoomFor(sds s, size_t addlen) {
     struct sdshdr *sh, *newsh;
     size_t free = sdsavail(s);
-    size_t len, newlen;
+    size_t len, newlen, newfree;
 
-    if (free >= addlen) return s;
+    if (free >= addlen) {
+        sh = (void*) (s-(sizeof(struct sdshdr)));
+        if (sh->_len == USHRT_MAX) {
+            sh->len += addlen;
+        } else {
+            sh->_len += addlen;
+        }
+        sh->free -= addlen;
+        return s;
+    }
     len = sdslen(s);
     sh = (void*) (s-(sizeof(struct sdshdr)));
-    newlen = (len+addlen)*2;
-    newsh = zrealloc(sh, sizeof(struct sdshdr)+newlen+1);
+    newlen = (len+addlen);
+    newfree = ((addlen*2) > USHRT_MAX) ? USHRT_MAX : (addlen*2);
+    if (newlen+newfree >= USHRT_MAX || sh->_len == USHRT_MAX) {
+        if (sh->_len == USHRT_MAX) {
+            newsh = zrealloc(sh, sizeof(struct sdshdr)+newlen+1+newfree);
+        } else {
+            newsh = zmalloc(sizeof(struct sdshdr)+newlen+1+newfree);
+            if (!newsh) return NULL;
+            memcpy(newsh->buf,sh->buf,len);
+            newsh->buf[len] = '\0';
+            zfree(((char*)sh)+sizeof(int));
+        }
 #ifdef SDS_ABORT_ON_OOM
-    if (newsh == NULL) sdsOomAbort();
+        if (newsh == NULL) sdsOomAbort();
 #else
-    if (newsh == NULL) return NULL;
+        if (newsh == NULL) return NULL;
 #endif
-
-    newsh->free = newlen - len;
+        newsh->_len = USHRT_MAX;
+        newsh->free = newfree;
+        newsh->len = newlen;
+    } else {
+        newsh = zrealloc(((char*)sh)+sizeof(int), sizeof(int)+newlen+1+newfree);
+        newsh = (struct sdshdr*) (((char*)newsh)-sizeof(int));
+#ifdef SDS_ABORT_ON_OOM
+        if (newsh == NULL) sdsOomAbort();
+#else
+        if (newsh == NULL) return NULL;
+#endif
+        newsh->_len = newlen;
+        newsh->free = newfree;
+    }
     return newsh->buf;
 }
 
 sds sdscatlen(sds s, void *t, size_t len) {
-    struct sdshdr *sh;
     size_t curlen = sdslen(s);
 
     s = sdsMakeRoomFor(s,len);
     if (s == NULL) return NULL;
-    sh = (void*) (s-(sizeof(struct sdshdr)));
     memcpy(s+curlen, t, len);
-    sh->len = curlen+len;
-    sh->free = sh->free-len;
     s[curlen+len] = '\0';
     return s;
 }
@@ -137,18 +193,20 @@ sds sdscat(sds s, char *t) {
 
 sds sdscpylen(sds s, char *t, size_t len) {
     struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
-    size_t totlen = sh->free+sh->len;
+    size_t totlen;
+    
+    if (sh->_len == USHRT_MAX) {
+        totlen = sh->free+sh->len;
+    } else {
+        totlen = sh->free+sh->_len;
+    }
 
     if (totlen < len) {
         s = sdsMakeRoomFor(s,len-totlen);
         if (s == NULL) return NULL;
-        sh = (void*) (s-(sizeof(struct sdshdr)));
-        totlen = sh->free+sh->len;
     }
     memcpy(s, t, len);
     s[len] = '\0';
-    sh->len = len;
-    sh->free = totlen-len;
     return s;
 }
 
@@ -196,8 +254,13 @@ sds sdstrim(sds s, const char *cset) {
     len = (sp > ep) ? 0 : ((ep-sp)+1);
     if (sh->buf != sp) memmove(sh->buf, sp, len);
     sh->buf[len] = '\0';
-    sh->free = sh->free+(sh->len-len);
-    sh->len = len;
+    if (sh->_len == USHRT_MAX) {
+        sh->free = sh->free+(sh->len-len);
+        sh->len = len;
+    } else {
+        sh->free = sh->free+(sh->_len-len);
+        sh->_len = len;
+    }
     return s;
 }
 
@@ -224,8 +287,13 @@ sds sdsrange(sds s, long start, long end) {
     }
     if (start != 0) memmove(sh->buf, sh->buf+start, newlen);
     sh->buf[newlen] = 0;
-    sh->free = sh->free+(sh->len-newlen);
-    sh->len = newlen;
+    if (sh->_len == USHRT_MAX) {
+        sh->free = sh->free+(sh->len-newlen);
+        sh->len = newlen;
+    } else {
+        sh->free = sh->free+(sh->_len-newlen);
+        sh->_len = newlen;
+    }
     return s;
 }
 

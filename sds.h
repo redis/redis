@@ -32,12 +32,14 @@
 #define __SDS_H
 
 #include <sys/types.h>
+#include <limits.h>
 
 typedef char *sds;
 
 struct sdshdr {
-    long len;
-    long free;
+    int len;
+    unsigned short free;
+    unsigned short _len; /* USHRT_MAX if it is a "long" sds string */
     char buf[];
 };
 

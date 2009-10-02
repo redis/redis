@@ -1,3 +1,8 @@
+2009-09-18 LREM fixed, used to crash since the new object integer encoding is on the stage
+2009-09-17 maxmemory didn't worked in 64 systems for values > 4GB since it used to be an unsigned int. Fixed
+2009-09-10 incremented version number to 1.001, AKA Redis edge is no longer stable...
+2009-09-10 in-memory specialized object encoding (for now 32 signed integers only)
+2009-09-03 Latest doc changes for 1.0
 2009-09-03 Redis 1.0.0 release
 2009-09-02 Redis version pushed to 1.0
 2009-09-02 Ruby client lib updated to the latest git version
