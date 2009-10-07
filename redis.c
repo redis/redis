@@ -206,9 +206,10 @@ typedef struct redisClient {
     redisDb *db;
     int dictid;
     sds querybuf;
-    robj **argv;
-    int argc;
+    robj **argv, **mbargv;
+    int argc, mbargc;
     int bulklen;            /* bulk read len. -1 if not in bulk read mode */
+    int multibulk;          /* multi bulk command format active */
     list *reply;
     int sentlen;
     time_t lastinteraction; /* time of the last interaction, used for timeout */
@@ -1169,7 +1170,10 @@ static void freeClientArgv(redisClient *c) {
 
     for (j = 0; j < c->argc; j++)
         decrRefCount(c->argv[j]);
+    for (j = 0; j < c->mbargc; j++)
+        decrRefCount(c->mbargv[j]);
     c->argc = 0;
+    c->mbargc = 0;
 }
 
 static void freeClient(redisClient *c) {
@@ -1197,6 +1201,7 @@ static void freeClient(redisClient *c) {
         server.replstate = REDIS_REPL_CONNECT;
     }
     zfree(c->argv);
+    zfree(c->mbargv);
     zfree(c);
 }
 
@@ -1299,6 +1304,7 @@ static struct redisCommand *lookupCommand(char *name) {
 static void resetClient(redisClient *c) {
     freeClientArgv(c);
     c->bulklen = -1;
+    c->multibulk = 0;
 }
 
 /* If this function gets called we already read a whole
@@ -1315,6 +1321,74 @@ static int processCommand(redisClient *c) {
 
     /* Free some memory if needed (maxmemory setting) */
     if (server.maxmemory) freeMemoryIfNeeded();
+
+    /* Handle the multi bulk command type. This is an alternative protocol
+     * supported by Redis in order to receive commands that are composed of
+     * multiple binary-safe "bulk" arguments. The latency of processing is
+     * a bit higher but this allows things like multi-sets, so if this
+     * protocol is used only for MSET and similar commands this is a big win. */
+    if (c->multibulk == 0 && c->argc == 1 && ((char*)(c->argv[0]->ptr))[0] == '*') {
+        c->multibulk = atoi(((char*)c->argv[0]->ptr)+1);
+        if (c->multibulk <= 0) {
+            resetClient(c);
+            return 1;
+        } else {
+            decrRefCount(c->argv[c->argc-1]);
+            c->argc--;
+            return 1;
+        }
+    } else if (c->multibulk) {
+        if (c->bulklen == -1) {
+            if (((char*)c->argv[0]->ptr)[0] != '$') {
+                addReplySds(c,sdsnew("-ERR multi bulk protocol error\r\n"));
+                resetClient(c);
+                return 1;
+            } else {
+                int bulklen = atoi(((char*)c->argv[0]->ptr)+1);
+                decrRefCount(c->argv[0]);
+                if (bulklen < 0 || bulklen > 1024*1024*1024) {
+                    c->argc--;
+                    addReplySds(c,sdsnew("-ERR invalid bulk write count\r\n"));
+                    resetClient(c);
+                    return 1;
+                }
+                c->argc--;
+                c->bulklen = bulklen+2; /* add two bytes for CR+LF */
+                return 1;
+            }
+        } else {
+            c->mbargv = zrealloc(c->mbargv,(sizeof(robj*))*(c->mbargc+1));
+            c->mbargv[c->mbargc] = c->argv[0];
+            c->mbargc++;
+            c->argc--;
+            c->multibulk--;
+            if (c->multibulk == 0) {
+                robj **auxargv;
+                int auxargc;
+
+                /* Here we need to swap the multi-bulk argc/argv with the
+                 * normal argc/argv of the client structure. */
+                auxargv = c->argv;
+                c->argv = c->mbargv;
+                c->mbargv = auxargv;
+
+                auxargc = c->argc;
+                c->argc = c->mbargc;
+                c->mbargc = auxargc;
+
+                /* We need to set bulklen to something different than -1
+                 * in order for the code below to process the command without
+                 * to try to read the last argument of a bulk command as
+                 * a special argument. */
+                c->bulklen = 0;
+                /* continue below and process the command */
+            } else {
+                c->bulklen = -1;
+                return 1;
+            }
+        }
+    }
+    /* -- end of multi bulk commands processing -- */
 
     /* The QUIT command is handled as a special case. Normal command
      * procs are unable to close the client connection safely */
@@ -1587,6 +1661,9 @@ static redisClient *createClient(int fd) {
     c->argc = 0;
     c->argv = NULL;
     c->bulklen = -1;
+    c->multibulk = 0;
+    c->mbargc = 0;
+    c->mbargv = NULL;
     c->sentlen = 0;
     c->flags = 0;
     c->lastinteraction = time(NULL);
