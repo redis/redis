@@ -16,6 +16,7 @@ namespace eval redis {}
 set ::redis::id 0
 array set ::redis::fd {}
 array set ::redis::bulkarg {}
+array set ::redis::multibulkarg {}
 
 # Flag commands requiring last argument as a bulk write operation
 foreach redis_bulk_cmd {
@@ -23,7 +24,16 @@ foreach redis_bulk_cmd {
 } {
     set ::redis::bulkarg($redis_bulk_cmd) {}
 }
+
+# Flag commands requiring last argument as a bulk write operation
+foreach redis_multibulk_cmd {
+    mset
+} {
+    set ::redis::multibulkarg($redis_multibulk_cmd) {}
+}
+
 unset redis_bulk_cmd
+unset redis_multibulk_cmd
 
 proc redis {{server 127.0.0.1} {port 6379}} {
     set fd [socket $server $port]
@@ -36,15 +46,24 @@ proc redis {{server 127.0.0.1} {port 6379}} {
 proc ::redis::__dispatch__ {id method args} {
     set fd $::redis::fd($id)
     if {[info command ::redis::__method__$method] eq {}} {
-        set cmd "$method "
         if {[info exists ::redis::bulkarg($method)]} {
+            set cmd "$method "
             append cmd [join [lrange $args 0 end-1]]
             append cmd " [string length [lindex $args end]]\r\n"
             append cmd [lindex $args end]
+            ::redis::redis_writenl $fd $cmd
+        } elseif {[info exists ::redis::multibulkarg($method)]} {
+            set cmd "*[expr {[llength $args]}+1]\r\n"
+            append cmd "$[string length $method]\r\n$method\r\n"
+            foreach a $args {
+                append cmd "$[string length $a]\r\n$a\r\n"
+            }
+            ::redis::redis_write $fd $cmd
         } else {
+            set cmd "$method "
             append cmd [join $args]
+            ::redis::redis_writenl $fd $cmd
         }
-        ::redis::redis_writenl $fd $cmd
         ::redis::redis_read_reply $fd
     } else {
         uplevel 1 [list ::redis::__method__$method $id $fd] $args

@@ -1,4 +1,10 @@
- * Expiring algorithm should be adaptive, if there are a lot of keys with an expire set and many of this happen to be already expired it should be, proportionally, more aggressive.
+Pre 1.1 todo
+
+* For now only the last argument gets integer encoded, so make sure that: 1) every multi bulk commands implemented will have the last arg that is indeed a value, and not used otherwise. 2) to explicitly call the function to encode the object in MSET and other commands where there are multiple "values".
+
+After 1.1 todo
+
+* Expiring algorithm should be adaptive, if there are a lot of keys with an expire set and many of this happen to be already expired it should be, proportionally, more aggressive.
  * Add a command to inspect the currently selected DB index
  * Consistent hashing implemented in all the client libraries having an user base
  * SORT: Don't copy the list into a vector when BY argument is constant.
