@@ -1360,10 +1360,6 @@ static int processCommand(redisClient *c) {
                 }
                 c->argc--;
                 c->bulklen = bulklen+2; /* add two bytes for CR+LF */
-                /*
-                if (sdslen(c->querybuf) > 0)
-                    processInputBuffer(c);
-                    */
                 return 1;
             }
         } else {
@@ -1394,10 +1390,6 @@ static int processCommand(redisClient *c) {
                 /* continue below and process the command */
             } else {
                 c->bulklen = -1;
-                /*
-                if (sdslen(c->querybuf) > 0)
-                    processInputBuffer(c);
-                    */
                 return 1;
             }
         }
@@ -1437,7 +1429,10 @@ static int processCommand(redisClient *c) {
         c->argc--;
         c->bulklen = bulklen+2; /* add two bytes for CR+LF */
         /* It is possible that the bulk read is already in the
-         * buffer. Check this condition and handle it accordingly */
+         * buffer. Check this condition and handle it accordingly.
+         * This is just a fast path, alternative to call processInputBuffer().
+         * It's a good idea since the code is small and this condition
+         * happens most of the times. */
         if ((signed)sdslen(c->querybuf) >= c->bulklen) {
             c->argv[c->argc] = createStringObject(c->querybuf,c->bulklen-2);
             c->argc++;
