@@ -4128,9 +4128,16 @@ static void msetGenericCommand(redisClient *c, int nx) {
     }
 
     for (j = 1; j < c->argc; j += 2) {
-        dictAdd(c->db->dict,c->argv[j],c->argv[j+1]);
-        incrRefCount(c->argv[j]);
-        incrRefCount(c->argv[j+1]);
+        int retval;
+
+        retval = dictAdd(c->db->dict,c->argv[j],c->argv[j+1]);
+        if (retval == DICT_ERR) {
+            dictReplace(c->db->dict,c->argv[j],c->argv[j+1]);
+            incrRefCount(c->argv[j+1]);
+        } else {
+            incrRefCount(c->argv[j]);
+            incrRefCount(c->argv[j+1]);
+        }
         removeExpire(c->db,c->argv[j]);
     }
     server.dirty += (c->argc-1)/2;
