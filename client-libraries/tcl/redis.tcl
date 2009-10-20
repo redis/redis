@@ -27,7 +27,7 @@ foreach redis_bulk_cmd {
 
 # Flag commands requiring last argument as a bulk write operation
 foreach redis_multibulk_cmd {
-    mset
+    mset msetnx
 } {
     set ::redis::multibulkarg($redis_multibulk_cmd) {}
 }
@@ -53,12 +53,13 @@ proc ::redis::__dispatch__ {id method args} {
             append cmd [lindex $args end]
             ::redis::redis_writenl $fd $cmd
         } elseif {[info exists ::redis::multibulkarg($method)]} {
-            set cmd "*[expr {[llength $args]}+1]\r\n"
+            set cmd "*[expr {[llength $args]+1}]\r\n"
             append cmd "$[string length $method]\r\n$method\r\n"
             foreach a $args {
                 append cmd "$[string length $a]\r\n$a\r\n"
             }
             ::redis::redis_write $fd $cmd
+            flush $fd
         } else {
             set cmd "$method "
             append cmd [join $args]

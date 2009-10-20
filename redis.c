@@ -1936,7 +1936,7 @@ static robj *tryObjectSharing(robj *o) {
  *
  * If so, the function returns REDIS_OK and *longval is set to the value
  * of the number. Otherwise REDIS_ERR is returned */
-static int isStringRepresentableAsLong(char *s, long *longval) {
+static int isStringRepresentableAsLong(sds s, long *longval) {
     char buf[32], *endptr;
     long value;
     int slen;
@@ -1947,7 +1947,7 @@ static int isStringRepresentableAsLong(char *s, long *longval) {
 
     /* If the number converted back into a string is not identical
      * then it's not possible to encode the string as integer */
-    if (strlen(buf) != (unsigned)slen || memcmp(buf,s,slen)) return REDIS_ERR;
+    if (sdslen(s) != (unsigned)slen || memcmp(buf,s,slen)) return REDIS_ERR;
     if (longval) *longval = value;
     return REDIS_OK;
 }

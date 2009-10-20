@@ -750,19 +750,37 @@ proc main {server port} {
         format $err
     } {ERR*}
 
+    test {MSET base case} {
+        $r mset x 10 y "foo bar" z "x x x x x x x\n\n\r\n"
+        $r mget x y z
+    } [list 10 {foo bar} "x x x x x x x\n\n\r\n"]
+
+    test {MSET wrong number of args} {
+        catch {$r mset x 10 y "foo bar" z} err
+        format $err
+    } {*wrong number*}
+
+    test {MSETNX with already existent key} {
+        list [$r msetnx x1 xxx y2 yyy x 20] [$r exists x1] [$r exists y2]
+    } {0 0 0}
+
+    test {MSETNX with not existing keys} {
+        list [$r msetnx x1 xxx y2 yyy] [$r get x1] [$r get y2]
+    } {1 xxx yyy}
+
     foreach fuzztype {binary alpha compr} {
         test "FUZZ stresser with data model $fuzztype" {
             set err 0
-            for {set i 0} {$i < 1000} {incr i} {
+            for {set i 0} {$i < 10000} {incr i} {
                 set fuzz [randstring 0 512 $fuzztype]
                 $r set foo $fuzz
                 set got [$r get foo]
                 if {$got ne $fuzz} {
-                    incr err
+                    set err [list $fuzz $got]
                     break
                 }
             }
-            format $err
+            set _ $err
         } {0}
     }
 
