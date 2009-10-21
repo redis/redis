@@ -385,6 +385,7 @@ static void smoveCommand(redisClient *c);
 static void sismemberCommand(redisClient *c);
 static void scardCommand(redisClient *c);
 static void spopCommand(redisClient *c);
+static void srandmemberCommand(redisClient *c);
 static void sinterCommand(redisClient *c);
 static void sinterstoreCommand(redisClient *c);
 static void sunionCommand(redisClient *c);
@@ -436,6 +437,7 @@ static struct redisCommand cmdTable[] = {
     {"sismember",sismemberCommand,3,REDIS_CMD_BULK},
     {"scard",scardCommand,2,REDIS_CMD_INLINE},
     {"spop",spopCommand,2,REDIS_CMD_INLINE},
+    {"srandmember",srandmemberCommand,2,REDIS_CMD_INLINE},
     {"sinter",sinterCommand,-2,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
     {"sinterstore",sinterstoreCommand,-3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
     {"sunion",sunionCommand,-2,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
@@ -3387,6 +3389,31 @@ static void spopCommand(redisClient *c) {
     }
 }
 
+static void srandmemberCommand(redisClient *c) {
+    robj *set;
+    dictEntry *de;
+
+    set = lookupKeyRead(c->db,c->argv[1]);
+    if (set == NULL) {
+        addReply(c,shared.nullbulk);
+    } else {
+        if (set->type != REDIS_SET) {
+            addReply(c,shared.wrongtypeerr);
+            return;
+        }
+        de = dictGetRandomKey(set->ptr);
+        if (de == NULL) {
+            addReply(c,shared.nullbulk);
+        } else {
+            robj *ele = dictGetEntryKey(de);
+
+            addReplyBulkLen(c,ele);
+            addReply(c,ele);
+            addReply(c,shared.crlf);
+        }
+    }
+}
+
 static int qsortCompareSetsByCardinality(const void *s1, const void *s2) {
     dict **d1 = (void*) s1, **d2 = (void*) s2;
 
@@ -4629,6 +4656,7 @@ static struct redisFunctionSym symsTable[] = {
 {"sismemberCommand", (unsigned long)sismemberCommand},
 {"scardCommand", (unsigned long)scardCommand},
 {"spopCommand", (unsigned long)spopCommand},
+{"srandmemberCommand", (unsigned long)srandmemberCommand},
 {"sinterCommand", (unsigned long)sinterCommand},
 {"sinterstoreCommand", (unsigned long)sinterstoreCommand},
 {"sunionCommand", (unsigned long)sunionCommand},
