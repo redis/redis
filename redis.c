@@ -27,7 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define REDIS_VERSION "1.001"
+#define REDIS_VERSION "1.050"
 
 #include "fmacros.h"
 #include "config.h"
@@ -102,7 +102,8 @@
 #define REDIS_STRING 0
 #define REDIS_LIST 1
 #define REDIS_SET 2
-#define REDIS_HASH 3
+#define REDIS_ZSET 3
+#define REDIS_HASH 4
 
 /* Objects encoding */
 #define REDIS_ENCODING_RAW 0    /* Raw representation */
@@ -303,6 +304,11 @@ typedef struct _redisSortOperation {
     int type;
     robj *pattern;
 } redisSortOperation;
+
+typedef struct zset {
+    dict *dict;
+    tree *tree;
+} zset;
 
 struct sharedObjectsStruct {
     robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *pong, *space,
@@ -633,6 +639,12 @@ static void redisLog(int level, const char *fmt, ...) {
  * keys and radis objects as values (objects can hold SDS strings,
  * lists, sets). */
 
+static void dictVanillaFree(void *privdata, void *val)
+{
+    DICT_NOTUSED(privdata);
+    zfree(val);
+}
+
 static int sdsDictKeyCompare(void *privdata, const void *key1,
         const void *key2)
 {
@@ -707,6 +719,15 @@ static dictType setDictType = {
     dictEncObjKeyCompare,      /* key compare */
     dictRedisObjectDestructor, /* key destructor */
     NULL                       /* val destructor */
+};
+
+static dictType zsetDictType = {
+    dictEncObjHash,            /* hash function */
+    NULL,                      /* key dup */
+    NULL,                      /* val dup */
+    dictEncObjKeyCompare,      /* key compare */
+    dictRedisObjectDestructor, /* key destructor */
+    dictVanillaFree            /* val destructor */
 };
 
 static dictType hashDictType = {
@@ -1808,6 +1829,12 @@ static robj *createSetObject(void) {
     dict *d = dictCreate(&setDictType,NULL);
     if (!d) oom("dictCreate");
     return createObject(REDIS_SET,d);
+}
+
+static robj *createZsetObject(void) {
+    dict *d = dictCreate(&zsetDictType,NULL);
+    if (!d) oom("dictCreate");
+    return createObject(REDIS_ZSET,d);
 }
 
 static void freeStringObject(robj *o) {

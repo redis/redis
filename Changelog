@@ -1,3 +1,15 @@
+2009-10-21 TODO updated
+2009-10-21 SRANDMEMBER added
+2009-10-20 Imporant bug leading to data corruption fixed (NOT affecting stable distribution), Tcl client lib MSET/MSETNX implementation fixed, Added new tests for MSET and MSETNX in test-redis.tcl
+2009-10-17 added multi-bulk protocol support to redis-cli and support for MSET and MSETNX
+2009-10-17 MSET fixed, was not able to replace keys already set for a stupid bug
+2009-10-16 some dead code removed
+2009-10-16 multi bulk input protocol fixed
+2009-10-16 MSET and MSETNX commands implemented
+2009-10-07 undoed all the sds hacking that lead just to random bugs and no memory saving ;)
+2009-10-07 initial multi-bulk query protocol, this will allow MSET and other interesting features.
+2009-10-03 benchmark now outputs the right command line to shorten the TIME_WAIT interval on Mac OS X when keep alive is set
+2009-10-02 Issue 69 fixed. Object integer encoding now works with replication and MONITORing again.
 2009-09-18 LREM fixed, used to crash since the new object integer encoding is on the stage
 2009-09-17 maxmemory didn't worked in 64 systems for values > 4GB since it used to be an unsigned int. Fixed
 2009-09-10 incremented version number to 1.001, AKA Redis edge is no longer stable...
