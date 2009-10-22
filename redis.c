@@ -307,7 +307,7 @@ typedef struct _redisSortOperation {
 
 typedef struct zset {
     dict *dict;
-    tree *tree;
+    /* tree *tree; */
 } zset;
 
 struct sharedObjectsStruct {
@@ -639,11 +639,13 @@ static void redisLog(int level, const char *fmt, ...) {
  * keys and radis objects as values (objects can hold SDS strings,
  * lists, sets). */
 
+#if 0
 static void dictVanillaFree(void *privdata, void *val)
 {
     DICT_NOTUSED(privdata);
     zfree(val);
 }
+#endif
 
 static int sdsDictKeyCompare(void *privdata, const void *key1,
         const void *key2)
@@ -721,6 +723,7 @@ static dictType setDictType = {
     NULL                       /* val destructor */
 };
 
+#if 0
 static dictType zsetDictType = {
     dictEncObjHash,            /* hash function */
     NULL,                      /* key dup */
@@ -729,6 +732,7 @@ static dictType zsetDictType = {
     dictRedisObjectDestructor, /* key destructor */
     dictVanillaFree            /* val destructor */
 };
+#endif
 
 static dictType hashDictType = {
     dictObjHash,                /* hash function */
@@ -1831,11 +1835,13 @@ static robj *createSetObject(void) {
     return createObject(REDIS_SET,d);
 }
 
+#if 0
 static robj *createZsetObject(void) {
     dict *d = dictCreate(&zsetDictType,NULL);
     if (!d) oom("dictCreate");
     return createObject(REDIS_ZSET,d);
 }
+#endif
 
 static void freeStringObject(robj *o) {
     if (o->encoding == REDIS_ENCODING_RAW) {
@@ -4745,7 +4751,7 @@ static void *getMcontextEip(ucontext_t *uc) {
 #elif defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
     return (void*) uc->uc_mcontext->__ss.__eip;
 #elif defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
-  #ifdef _STRUCT_X86_THREAD_STATE64
+  #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
     return (void*) uc->uc_mcontext->__ss.__rip;
   #else
     return (void*) uc->uc_mcontext->__ss.__eip;
