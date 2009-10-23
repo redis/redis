@@ -3744,7 +3744,7 @@ static void zslInsert(zskiplist *zsl, double score, robj *obj) {
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
-        while (x->forward[i]->score < score)
+        while (x->forward[i] && x->forward[i]->score < score)
             x = x->forward[i];
         update[i] = x;
     }
