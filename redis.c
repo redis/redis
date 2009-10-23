@@ -4866,6 +4866,15 @@ static struct redisFunctionSym symsTable[] = {
 {"msetGenericCommand", (unsigned long)msetGenericCommand},
 {"msetCommand", (unsigned long)msetCommand},
 {"msetnxCommand", (unsigned long)msetnxCommand},
+{"zslCreateNode", (unsigned long)zslCreateNode},
+{"zslCreate", (unsigned long)zslCreate},
+{"zslFreeNode",(unsigned long)zslFreeNode},
+{"zslFree",(unsigned long)zslFree},
+{"zslRandomLevel",(unsigned long)zslRandomLevel},
+{"zslInsert",(unsigned long)zslInsert},
+{"zslDelete",(unsigned long)zslDelete},
+{"createZsetObject",(unsigned long)createZsetObject},
+{"zaddCommand",(unsigned long)zaddCommand},
 {NULL,0}
 };
 
