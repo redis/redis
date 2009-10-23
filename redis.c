@@ -370,6 +370,7 @@ static void rdbRemoveTempFile(pid_t childpid);
 static size_t stringObjectLen(robj *o);
 static void processInputBuffer(redisClient *c);
 static zskiplist *zslCreate(void);
+static void zslFree(zskiplist *zsl);
 
 static void authCommand(redisClient *c);
 static void pingCommand(redisClient *c);
@@ -432,6 +433,7 @@ static void slaveofCommand(redisClient *c);
 static void debugCommand(redisClient *c);
 static void msetCommand(redisClient *c);
 static void msetnxCommand(redisClient *c);
+static void zaddCommand(redisClient *c);
 
 /*================================= Globals ================================= */
 
@@ -470,6 +472,7 @@ static struct redisCommand cmdTable[] = {
     {"sdiff",sdiffCommand,-2,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
     {"sdiffstore",sdiffstoreCommand,-3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
     {"smembers",sinterCommand,2,REDIS_CMD_INLINE},
+    {"zadd",zaddCommand,4,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
     {"incrby",incrbyCommand,3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
     {"decrby",decrbyCommand,3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
     {"getset",getsetCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
@@ -1863,6 +1866,14 @@ static void freeSetObject(robj *o) {
     dictRelease((dict*) o->ptr);
 }
 
+static void freeZsetObject(robj *o) {
+    zset *zs = o->ptr;
+
+    dictRelease(zs->dict);
+    zslFree(zs->zsl);
+    zfree(zs);
+}
+
 static void freeHashObject(robj *o) {
     dictRelease((dict*) o->ptr);
 }
@@ -1887,6 +1898,7 @@ static void decrRefCount(void *obj) {
         case REDIS_STRING: freeStringObject(o); break;
         case REDIS_LIST: freeListObject(o); break;
         case REDIS_SET: freeSetObject(o); break;
+        case REDIS_ZSET: freeZsetObject(o); break;
         case REDIS_HASH: freeHashObject(o); break;
         default: assert(0 != 0); break;
         }
@@ -3704,6 +3716,21 @@ static zskiplist *zslCreate(void) {
     return zsl;
 }
 
+static void zslFreeNode(zskiplistNode *node) {
+    decrRefCount(node->obj);
+    zfree(node);
+}
+
+static void zslFree(zskiplist *zsl) {
+    zskiplistNode *node = zsl->header->forward[1], *next;
+
+    while(node) {
+        next = node->forward[1];
+        zslFreeNode(node);
+        node = next;
+    }
+}
+
 static int zslRandomLevel(void) {
     int level = 1;
     while ((random()&0xFFFF) < (ZSKIPLIST_P * 0xFFFF))
@@ -3736,6 +3763,59 @@ static void zslInsert(zskiplist *zsl, double score, robj *obj) {
     for (i = 0; i < level; i++) {
         x->forward[i] = update[i]->forward[i];
         update[i]->forward[i] = x;
+    }
+}
+
+static int zslDelete(zskiplist *zsl, double score, robj *obj) {
+    return 1;
+}
+
+/* The actual Z-commands implementations */
+
+static void zaddCommand(redisClient *c) {
+    robj *zsetobj;
+    zset *zs;
+    double *score;
+
+    zsetobj = lookupKeyWrite(c->db,c->argv[1]);
+    if (zsetobj == NULL) {
+        zsetobj = createZsetObject();
+        dictAdd(c->db->dict,c->argv[1],zsetobj);
+        incrRefCount(c->argv[1]);
+    } else {
+        if (zsetobj->type != REDIS_ZSET) {
+            addReply(c,shared.wrongtypeerr);
+            return;
+        }
+    }
+    score = zmalloc(sizeof(double));
+    *score = strtod(c->argv[2]->ptr,NULL);
+    zs = zsetobj->ptr;
+    if (dictAdd(zs->dict,c->argv[3],score) == DICT_OK) {
+        /* case 1: New element */
+        incrRefCount(c->argv[3]); /* added to hash */
+        zslInsert(zs->zsl,*score,c->argv[3]);
+        incrRefCount(c->argv[3]); /* added to skiplist */
+        server.dirty++;
+        addReply(c,shared.cone);
+    } else {
+        dictEntry *de;
+        double *oldscore;
+        
+        /* case 2: Score update operation */
+        de = dictFind(zs->dict,c->argv[3]);
+        assert(de != NULL);
+        oldscore = dictGetEntryVal(de);
+        if (*score != *oldscore) {
+            int deleted;
+
+            deleted = zslDelete(zs->zsl,*score,c->argv[3]);
+            assert(deleted != 0);
+            zslInsert(zs->zsl,*score,c->argv[3]);
+            incrRefCount(c->argv[3]);
+            server.dirty++;
+        }
+        addReply(c,shared.czero);
     }
 }
 

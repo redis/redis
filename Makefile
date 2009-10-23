@@ -4,7 +4,7 @@
 
 DEBUG?= -g -rdynamic -ggdb 
 CFLAGS?= -std=c99 -O2 -pedantic -Wall -W
-CCOPT= $(CFLAGS)
+CCOPT= $(CFLAGS) $(ARCH)
 
 OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o
 BENCHOBJ = ae.o anet.o benchmark.o sds.o adlist.o zmalloc.o
@@ -61,3 +61,6 @@ bench:
 
 log:
 	git log '--pretty=format:%ad %s' --date=short > Changelog
+
+32bit:
+	make ARCH="-arch i386"
