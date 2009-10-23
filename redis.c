@@ -3794,6 +3794,7 @@ static int zslDelete(zskiplist *zsl, double score, robj *obj) {
             zslFreeNode(x);
             while(zsl->level > 1 && zsl->header->forward[zsl->level-1] == NULL)
                 zsl->level--;
+            zsl->length--;
             return 1;
         } else {
             x = x->forward[0];
