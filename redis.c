@@ -436,6 +436,7 @@ static void msetnxCommand(redisClient *c);
 static void zaddCommand(redisClient *c);
 static void zrangeCommand(redisClient *c);
 static void zlenCommand(redisClient *c);
+static void zremCommand(redisClient *c);
 
 /*================================= Globals ================================= */
 
@@ -475,6 +476,7 @@ static struct redisCommand cmdTable[] = {
     {"sdiffstore",sdiffstoreCommand,-3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
     {"smembers",sinterCommand,2,REDIS_CMD_INLINE},
     {"zadd",zaddCommand,4,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
+    {"zrem",zremCommand,3,REDIS_CMD_BULK},
     {"zrange",zrangeCommand,4,REDIS_CMD_INLINE},
     {"zlen",zlenCommand,2,REDIS_CMD_INLINE},
     {"incrby",incrbyCommand,3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
@@ -3853,6 +3855,41 @@ static void zaddCommand(redisClient *c) {
     }
 }
 
+static void zremCommand(redisClient *c) {
+    robj *zsetobj;
+    zset *zs;
+
+    zsetobj = lookupKeyWrite(c->db,c->argv[1]);
+    if (zsetobj == NULL) {
+        addReply(c,shared.czero);
+    } else {
+        dictEntry *de;
+        double *oldscore;
+        int deleted;
+
+        if (zsetobj->type != REDIS_ZSET) {
+            addReply(c,shared.wrongtypeerr);
+            return;
+        }
+        zs = zsetobj->ptr;
+        de = dictFind(zs->dict,c->argv[2]);
+        if (de == NULL) {
+            addReply(c,shared.czero);
+            return;
+        }
+        /* Delete from the skiplist */
+        oldscore = dictGetEntryVal(de);
+        deleted = zslDelete(zs->zsl,*oldscore,c->argv[2]);
+        assert(deleted != 0);
+
+        /* Delete from the hash table */
+        dictDelete(zs->dict,c->argv[2]);
+        if (htNeedsResize(zs->dict)) dictResize(zs->dict);
+        server.dirty++;
+        addReply(c,shared.cone);
+    }
+}
+
 static void zrangeCommand(redisClient *c) {
     robj *o;
     int start = atoi(c->argv[2]->ptr);
@@ -4980,6 +5017,7 @@ static struct redisFunctionSym symsTable[] = {
 {"createZsetObject",(unsigned long)createZsetObject},
 {"zaddCommand",(unsigned long)zaddCommand},
 {"zrangeCommand",(unsigned long)zrangeCommand},
+{"zremCommand",(unsigned long)zremCommand},
 {NULL,0}
 };
 

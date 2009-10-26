@@ -20,7 +20,7 @@ array set ::redis::multibulkarg {}
 
 # Flag commands requiring last argument as a bulk write operation
 foreach redis_bulk_cmd {
-    set setnx rpush lpush lset lrem sadd srem sismember echo getset smove zadd
+    set setnx rpush lpush lset lrem sadd srem sismember echo getset smove zadd zrem
 } {
     set ::redis::bulkarg($redis_bulk_cmd) {}
 }
