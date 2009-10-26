@@ -5,9 +5,10 @@
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 ifeq ($(uname_S),SunOS)
   CFLAGS?= -std=c99 -pedantic -O2 -Wall -W -D__EXTENSIONS__ -D_XPG6
-  CCLINK?= -ldl -lnsl -lsocket
+  CCLINK?= -ldl -lnsl -lsocket -lm
 else
   CFLAGS?= -std=c99 -pedantic -O2 -Wall -W
+  CCLINK?= -lm
 endif
 CCOPT= $(CFLAGS) $(CCLINK) $(ARCH)
 DEBUG?= -g -rdynamic -ggdb 
