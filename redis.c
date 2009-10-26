@@ -3731,17 +3731,21 @@ static zskiplist *zslCreate(void) {
 
 static void zslFreeNode(zskiplistNode *node) {
     decrRefCount(node->obj);
+    zfree(node->forward);
     zfree(node);
 }
 
 static void zslFree(zskiplist *zsl) {
-    zskiplistNode *node = zsl->header->forward[1], *next;
+    zskiplistNode *node = zsl->header->forward[0], *next;
 
+    zfree(zsl->header->forward);
+    zfree(zsl->header);
     while(node) {
         next = node->forward[0];
         zslFreeNode(node);
         node = next;
     }
+    zfree(zsl);
 }
 
 static int zslRandomLevel(void) {
