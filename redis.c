@@ -379,6 +379,7 @@ static size_t stringObjectLen(robj *o);
 static void processInputBuffer(redisClient *c);
 static zskiplist *zslCreate(void);
 static void zslFree(zskiplist *zsl);
+static void zslInsert(zskiplist *zsl, double score, robj *obj);
 
 static void authCommand(redisClient *c);
 static void pingCommand(redisClient *c);
@@ -2352,6 +2353,21 @@ static int rdbSave(char *filename) {
                     if (rdbSaveStringObject(fp,eleobj) == -1) goto werr;
                 }
                 dictReleaseIterator(di);
+            } else if (o->type == REDIS_ZSET) {
+                /* Save a set value */
+                zset *zs = o->ptr;
+                dictIterator *di = dictGetIterator(zs->dict);
+                dictEntry *de;
+
+                if (rdbSaveLen(fp,dictSize(zs->dict)) == -1) goto werr;
+                while((de = dictNext(di)) != NULL) {
+                    robj *eleobj = dictGetEntryKey(de);
+                    double *score = dictGetEntryVal(de);
+
+                    if (rdbSaveStringObject(fp,eleobj) == -1) goto werr;
+                    if (rdbSaveDoubleValue(fp,*score) == -1) goto werr;
+                }
+                dictReleaseIterator(di);
             } else {
                 assert(0 != 0);
             }
@@ -2630,6 +2646,27 @@ static int rdbLoad(char *filename) {
                 } else {
                     dictAdd((dict*)o->ptr,ele,NULL);
                 }
+            }
+        } else if (type == REDIS_ZSET) {
+            /* Read list/set value */
+            uint32_t zsetlen;
+            zset *zs;
+
+            if ((zsetlen = rdbLoadLen(fp,rdbver,NULL)) == REDIS_RDB_LENERR)
+                goto eoferr;
+            o = createZsetObject();
+            zs = o->ptr;
+            /* Load every single element of the list/set */
+            while(zsetlen--) {
+                robj *ele;
+                double *score = zmalloc(sizeof(double));
+
+                if ((ele = rdbLoadStringObject(fp,rdbver)) == NULL) goto eoferr;
+                tryObjectEncoding(ele);
+                if (rdbLoadDoubleValue(fp,score) == -1) goto eoferr;
+                dictAdd(zs->dict,ele,score);
+                zslInsert(zs->zsl,*score,ele);
+                incrRefCount(ele); /* added to skiplist */
             }
         } else {
             assert(0 != 0);
@@ -5114,6 +5151,8 @@ static struct redisFunctionSym symsTable[] = {
 {"zrangeCommand",(unsigned long)zrangeCommand},
 {"zrevrangeCommand",(unsigned long)zrevrangeCommand},
 {"zremCommand",(unsigned long)zremCommand},
+{"rdbSaveDoubleValue",(unsigned long)rdbSaveDoubleValue},
+{"rdbLoadDoubleValue",(unsigned long)rdbLoadDoubleValue},
 {NULL,0}
 };
 
