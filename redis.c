@@ -3855,7 +3855,10 @@ static void zslInsert(zskiplist *zsl, double score, robj *obj) {
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
-        while (x->forward[i] && x->forward[i]->score < score)
+        while (x->forward[i] &&
+            (x->forward[i]->score < score ||
+                (x->forward[i]->score == score &&
+                compareStringObjects(x->forward[i]->obj,obj) < 0)))
             x = x->forward[i];
         update[i] = x;
     }
@@ -3888,34 +3891,34 @@ static int zslDelete(zskiplist *zsl, double score, robj *obj) {
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
-        while (x->forward[i] && x->forward[i]->score < score)
+        while (x->forward[i] &&
+            (x->forward[i]->score < score ||
+                (x->forward[i]->score == score &&
+                compareStringObjects(x->forward[i]->obj,obj) < 0)))
             x = x->forward[i];
         update[i] = x;
     }
     /* We may have multiple elements with the same score, what we need
      * is to find the element with both the right score and object. */
     x = x->forward[0];
-    while(x->score == score) {
-        if (compareStringObjects(x->obj,obj) == 0) {
-            for (i = 0; i < zsl->level; i++) {
-                if (update[i]->forward[i] != x) break;
-                update[i]->forward[i] = x->forward[i];
-            }
-            if (x->forward[0]) {
-                x->forward[0]->backward = (x->backward == zsl->header) ?
-                                            NULL : x->backward;
-            } else {
-                zsl->tail = x->backward;
-            }
-            zslFreeNode(x);
-            while(zsl->level > 1 && zsl->header->forward[zsl->level-1] == NULL)
-                zsl->level--;
-            zsl->length--;
-            return 1;
-        } else {
-            x = x->forward[0];
-            if (!x) return 0; /* end of the list reached, not found */
+    if (compareStringObjects(x->obj,obj) == 0) {
+        for (i = 0; i < zsl->level; i++) {
+            if (update[i]->forward[i] != x) break;
+            update[i]->forward[i] = x->forward[i];
         }
+        if (x->forward[0]) {
+            x->forward[0]->backward = (x->backward == zsl->header) ?
+                                        NULL : x->backward;
+        } else {
+            zsl->tail = x->backward;
+        }
+        zslFreeNode(x);
+        while(zsl->level > 1 && zsl->header->forward[zsl->level-1] == NULL)
+            zsl->level--;
+        zsl->length--;
+        return 1;
+    } else {
+        return 0; /* not found */
     }
     return 0; /* not found */
 }
