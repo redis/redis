@@ -3738,7 +3738,7 @@ static void zslFree(zskiplist *zsl) {
     zskiplistNode *node = zsl->header->forward[1], *next;
 
     while(node) {
-        next = node->forward[1];
+        next = node->forward[0];
         zslFreeNode(node);
         node = next;
     }
