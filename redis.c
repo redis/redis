@@ -3869,7 +3869,10 @@ static void zaddCommand(redisClient *c) {
             assert(deleted != 0);
             zslInsert(zs->zsl,*score,c->argv[3]);
             incrRefCount(c->argv[3]);
+            dictReplace(zs->dict,c->argv[3],score);
             server.dirty++;
+        } else {
+            zfree(score);
         }
         addReply(c,shared.czero);
     }
