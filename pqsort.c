@@ -37,15 +37,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-#if defined(LIBC_SCCS) && !defined(lint)
-#if 0
-static char sccsid[] = "@(#)qsort.c	8.1 (Berkeley) 6/4/93";
-#else
-__RCSID("$NetBSD: qsort.c,v 1.19 2009/01/30 23:38:44 lukem Exp $");
-#endif
-#endif /* LIBC_SCCS and not lint */
-
 #include <sys/types.h>
 
 #include <assert.h>

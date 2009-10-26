@@ -2,9 +2,15 @@
 # Copyright (C) 2009 Salvatore Sanfilippo <antirez at gmail dot com>
 # This file is released under the BSD license, see the COPYING file
 
+uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
+ifeq ($(uname_S),SunOS)
+  CFLAGS?= -std=c99 -pedantic -O2 -Wall -W -D__EXTENSIONS__ -D_XPG6
+  CCLINK?= -ldl -lnsl -lsocket
+else
+  CFLAGS?= -std=c99 -pedantic -O2 -Wall -W
+endif
+CCOPT= $(CFLAGS) $(CCLINK) $(ARCH)
 DEBUG?= -g -rdynamic -ggdb 
-CFLAGS?= -std=c99 -O2 -pedantic -Wall -W
-CCOPT= $(CFLAGS) $(ARCH)
 
 OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o
 BENCHOBJ = ae.o anet.o benchmark.o sds.o adlist.o zmalloc.o
@@ -45,7 +51,7 @@ redis-cli: $(CLIOBJ)
 	$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ)
 
 .c.o:
-	$(CC) -c $(CCOPT) $(DEBUG) $(COMPILE_TIME) $<
+	$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
 
 clean:
 	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) *.o
