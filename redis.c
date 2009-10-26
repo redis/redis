@@ -4128,7 +4128,7 @@ static void zrangebyscoreCommand(redisClient *c) {
             lenobj = createObject(REDIS_STRING,NULL);
             addReply(c,lenobj);
 
-            while(ln->score <= max) {
+            while(ln && ln->score <= max) {
                 ele = ln->obj;
                 addReplyBulkLen(c,ele);
                 addReply(c,ele);
