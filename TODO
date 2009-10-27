@@ -1,12 +1,15 @@
-Pre 1.1 todo
+VERSION 1.1 TODO
 
 * For now only the last argument gets integer encoded, so make sure that: 1) every multi bulk commands implemented will have the last arg that is indeed a value, and not used otherwise. 2) to explicitly call the function to encode the object in MSET and other commands where there are multiple "values".
-* Man pages for MSET MSETNX and SRANDMEMBER.
-* Hashes (HSET, HGET, HEXISTS, HLEN, ...).
+* Man pages for MSET MSETNX and SRANDMEMBER, Z-commands, ...
 * ZSETs missing stuff: ZINCRBY
+
+VERSION 1.2 TODO
+
+* Hashes (HSET, HGET, HEXISTS, HLEN, ...).
 * An utility able to export an .rdb file into a text-only JSON dump, we can't live anymore without such a tool. Probably an extension to redis-cli.
 
-After 1.1 todo
+LONG TERM TODO
 
 * Expiring algorithm should be adaptive, if there are a lot of keys with an expire set and many of this happen to be already expired it should be, proportionally, more aggressive.
  * Add a command to inspect the currently selected DB index
@@ -18,18 +21,9 @@ After 1.1 todo
  * Elapsed time in logs for SAVE when saving is going to take more than 2 seconds
  * LOCK / TRYLOCK / UNLOCK as described many times in the google group
  * Replication automated tests
- * some kind of sorted type, example:
-        ZADD mykey foo 100
-        ZADD mykey bar 50
-   ZRANGE mykey 0 1 => bar foo
-   This is able to take elements sorted because a binary tree is used to store
-   the elements by 'score', with the actual value being the key. On the other
-   side the type also takes an hash table with key->score mapping, so that when
-   there is an update we lookup the current score and can traverse the tree.
  * BITMAP / BYTEARRAY type?
- * LRANGE 4 0 should return the same elements as LRANGE 0 4 but in reverse order (only if we get enough motivated requests about it)
  * zmalloc() should avoid to add a private header for archs where there is some other kind of libc-specific way to get the size of a malloced block.
 
 FUTURE HINTS
 
-- In memory compression: if in-memory values compression will be implemented, make sure to implement this so that addReply() is able to handle compressed objects, just creating an uncompressed version on the fly and adding this to the output queue instead of the original one. When insetad we need to look at the object string value (SORT BY for example), call a function that will turn the object into an uncompresed one.
+- In memory compression: if in-memory values compression will be implemented, make sure to implement this so that addReply() is able to handle compressed objects, just creating an uncompressed version on the fly and adding this to the output queue instead of the original one. When insetad we need to look at the object string value (SORT BY for example), call a function that will turn the object into an uncompresed one. (Note, Redis 1.1 beta already has this feature actually, but is for now only used to compress strings representing integers)
