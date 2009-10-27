@@ -58,7 +58,8 @@
 #include <sys/resource.h>
 #include <limits.h>
 #include <math.h>
-#if defined(__sun) && defined(__GNUC__)
+
+#if defined(__sun)
 #include "solarisfixes.h"
 #endif
 

@@ -1,5 +1,6 @@
 /* Solaris specific fixes */
 
+#if defined(__GNUC__)
 #undef isnan
 #define isnan(x) \
      __extension__({ __typeof (x) __x_a = (x); \
@@ -14,3 +15,4 @@
 #define isinf(x) \
      __extension__ ({ __typeof (x) __x_i = (x); \
      __builtin_expect(!isnan(__x_i) && !isfinite(__x_i), 0); })
+#endif /* __GNUC__ */
