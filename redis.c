@@ -58,6 +58,9 @@
 #include <sys/resource.h>
 #include <limits.h>
 #include <math.h>
+#if defined(__sun) && defined(__GNUC__)
+#include "solarisfixes.h"
+#endif
 
 #include "redis.h"
 #include "ae.h"     /* Event driven programming library */
