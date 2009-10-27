@@ -38,6 +38,13 @@ proc randstring {min max {type binary}} {
     return $output
 }
 
+# Useful for some test
+proc zlistAlikeSort {a b} {
+    if {[lindex $a 0] > [lindex $b 0]} {return 1}
+    if {[lindex $a 0] < [lindex $b 0]} {return -1}
+    string compare [lindex $a 1] [lindex $b 1]
+}
+
 proc main {server port} {
     set r [redis $server $port]
     set err ""
@@ -528,6 +535,9 @@ proc main {server port} {
         $r lpush mysavelist world
         $r set myemptykey {}
         $r set mynormalkey {blablablba}
+        $r zadd mytestzset a 10
+        $r zadd mytestzset b 20
+        $r zadd mytestzset c 30
         $r save
     } {OK}
     
@@ -767,6 +777,87 @@ proc main {server port} {
     test {MSETNX with not existing keys} {
         list [$r msetnx x1 xxx y2 yyy] [$r get x1] [$r get y2]
     } {1 xxx yyy}
+
+    test {ZSET basic ZADD and score update} {
+        $r zadd ztmp 10 x
+        $r zadd ztmp 20 y
+        $r zadd ztmp 30 z
+        set aux1 [$r zrange ztmp 0 -1]
+        $r zadd ztmp 1 y
+        set aux2 [$r zrange ztmp 0 -1]
+        list $aux1 $aux2
+    } {{x y z} {y x z}}
+
+    test {ZSCORE} {
+        list [$r zscore ztmp x] [$r zscore ztmp y] [$r zscore ztmp z]
+    } {10 1 30}
+
+    test {ZRANGE and ZREVRANGE} {
+        list [$r zrange ztmp 0 -1] [$r zrevrange ztmp 0 -1]
+    } {{y x z} {z x y}}
+
+    test {ZSETs stress tester - sorting is working well?} {
+        set delta 0
+        for {set test 0} {$test < 2} {incr test} {
+            unset -nocomplain auxarray
+            array set auxarray {}
+            set auxlist {}
+            $r del myzset
+            for {set i 0} {$i < 1000} {incr i} {
+                if {$test == 0} {
+                    set score [expr rand()]
+                } else {
+                    set score [expr int(rand()*10)]
+                }
+                set auxarray($i) $score
+                $r zadd myzset $score $i
+                # Random update
+                if {[expr rand()] < .2} {
+                    set j [expr int(rand()*1000)]
+                    if {$test == 0} {
+                        set score [expr rand()]
+                    } else {
+                        set score [expr int(rand()*10)]
+                    }
+                    set auxarray($j) $score
+                    $r zadd myzset $score $j
+                }
+            }
+            foreach {item score} [array get auxarray] {
+                lappend auxlist [list $score $item]
+            }
+            set sorted [lsort -command zlistAlikeSort $auxlist]
+            set auxlist {}
+            foreach x $sorted {
+                lappend auxlist [lindex $x 1]
+            }
+            set fromredis [$r zrange myzset 0 -1]
+            set delta 0
+            for {set i 0} {$i < [llength $fromredis]} {incr i} {
+                if {[lindex $fromredis $i] != [lindex $auxlist $i]} {
+                    incr delta
+                }
+            }
+        }
+        format $delta
+    } {0}
+
+    test {ZSETs skiplist implementation backlink consistency test} {
+        set diff 0
+        set elements 10000
+        for {set j 0} {$j < $elements} {incr j} {
+            $r zadd myzset [expr rand()] "Element-$j"
+            $r zrem myzset "Element-[expr int(rand()*$elements)]"
+        }
+        set l1 [$r zrange myzset 0 -1]
+        set l2 [$r zrevrange myzset 0 -1]
+        for {set j 0} {$j < [llength $l1]} {incr j} {
+            if {[lindex $l1 $j] ne [lindex $l2 end-$j]} {
+                incr diff
+            }
+        }
+        format $diff
+    } {0}
 
     foreach fuzztype {binary alpha compr} {
         test "FUZZ stresser with data model $fuzztype" {
