@@ -7,7 +7,7 @@ ifeq ($(uname_S),SunOS)
   CFLAGS?= -std=c99 -pedantic -O2 -Wall -W -D__EXTENSIONS__ -D_XPG6
   CCLINK?= -ldl -lnsl -lsocket -lm
 else
-  CFLAGS?= -std=c99 -pedantic -O2 -Wall -W
+  CFLAGS?= -std=c99 -pedantic -O2 -Wall -W $(ARCH)
   CCLINK?= -lm
 endif
 CCOPT= $(CFLAGS) $(CCLINK) $(ARCH)
