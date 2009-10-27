@@ -3,7 +3,7 @@ Pre 1.1 todo
 * For now only the last argument gets integer encoded, so make sure that: 1) every multi bulk commands implemented will have the last arg that is indeed a value, and not used otherwise. 2) to explicitly call the function to encode the object in MSET and other commands where there are multiple "values".
 * Man pages for MSET MSETNX and SRANDMEMBER.
 * Hashes (HSET, HGET, HEXISTS, HLEN, ...).
-* ZSETs missing stuff: ZINCRBY, ZSCORE, ZREVRANGE, ZRANGEBYSCORE
+* ZSETs missing stuff: ZINCRBY, ZSCORE.
 * An utility able to export an .rdb file into a text-only JSON dump, we can't live anymore without such a tool. Probably an extension to redis-cli.
 
 After 1.1 todo
