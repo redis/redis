@@ -1,3 +1,33 @@
+2009-10-27 TODO reworked to reflect the real roadmap
+2009-10-27 Fix for 'make 32bit'
+2009-10-27 a fix for the solaris fix itself ;)
+2009-10-27 More Solaris fixes
+2009-10-27 A lot of ZSETs tests implemented, and a bug fixed thanks to this new tests
+2009-10-27 zmalloc Solaris fixes thanks to Alan Harder
+2009-10-27 ZSCORE implemented
+2009-10-26 fix for ZRANGEBYSCORE
+2009-10-26 ZRANGEBYSCORE implemented. Redis got range queries!
+2009-10-26 A trivial change makes the new implementation O(log(N)) instead of O(log(N))+O(M) when there are M repeated scores!
+2009-10-26 ZSET now saved on disk like any other type
+2009-10-26 double serialization routines implemented
+2009-10-26 ZSETs random fixes. Now the implementation appears to be pretty stable
+2009-10-26 another leak fixed. Can't find more for now, but still a bug in ZSETs to fix
+2009-10-26 ZSETs memory leak #1 solved, another one missing
+2009-10-26 Fix for skiplists backward link
+2009-10-26 Merged Solaris patches provided by Alan Harder
+2009-10-26 backward support to skiplists for ZREVRANGE, still broken, committing since I've to merge the Solaris patches
+2009-10-26 TODO updated
+2009-10-26 ZREM implemented
+2009-10-24 fix for ZADD in score update mode
+2009-10-24 some work on ZADD against existing element (score update), still broken...
+2009-10-23 zrange now starts to work. zadd still does not support update and will crash or leak or b000mmmmm
+2009-10-23 zrange initial hack (not working for now)
+2009-10-23 first skiplist fix, courtesy of valgrind
+2009-10-23 zset symbols added to stack trace code. ZSets will simply crash at the moment
+2009-10-23 more work on ZSETs and a new make target called 32bit to build i386 binaries on mac os x leopard
+2009-10-23 initial skiplist implementation. Most memory checks removed and zmalloc() modified to fail with an error message and abort. Anyway Redis is not designed to recover from out of memory conditions.
+2009-10-23 Fixed compilation in mac os x snow leopard when compiling a 32 bit binary.
+2009-10-22 version incremented to 1.050 to distinguish from 1.001 stable and next stable versions with minor fixes
 2009-10-21 TODO updated
 2009-10-21 SRANDMEMBER added
 2009-10-20 Imporant bug leading to data corruption fixed (NOT affecting stable distribution), Tcl client lib MSET/MSETNX implementation fixed, Added new tests for MSET and MSETNX in test-redis.tcl

@@ -450,7 +450,7 @@ static void zaddCommand(redisClient *c);
 static void zrangeCommand(redisClient *c);
 static void zrangebyscoreCommand(redisClient *c);
 static void zrevrangeCommand(redisClient *c);
-static void zlenCommand(redisClient *c);
+static void zcardCommand(redisClient *c);
 static void zremCommand(redisClient *c);
 static void zscoreCommand(redisClient *c);
 
@@ -496,7 +496,7 @@ static struct redisCommand cmdTable[] = {
     {"zrange",zrangeCommand,4,REDIS_CMD_INLINE},
     {"zrangebyscore",zrangebyscoreCommand,4,REDIS_CMD_INLINE},
     {"zrevrange",zrevrangeCommand,4,REDIS_CMD_INLINE},
-    {"zlen",zlenCommand,2,REDIS_CMD_INLINE},
+    {"zcard",zcardCommand,2,REDIS_CMD_INLINE},
     {"zscore",zscoreCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
     {"incrby",incrbyCommand,3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
     {"decrby",decrbyCommand,3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
@@ -4154,7 +4154,7 @@ static void zrangebyscoreCommand(redisClient *c) {
     }
 }
 
-static void zlenCommand(redisClient *c) {
+static void zcardCommand(redisClient *c) {
     robj *o;
     zset *zs;
     
