@@ -4648,7 +4648,7 @@ static void infoCommand(redisClient *c) {
             server.masterport,
             (server.replstate == REDIS_REPL_CONNECTED) ?
                 "up" : "down",
-            (int)(time(NULL)-server.master->lastinteraction)
+            server.master ? ((int)(time(NULL)-server.master->lastinteraction)) : -1
         );
     }
     for (j = 0; j < server.dbnum; j++) {
