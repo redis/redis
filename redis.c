@@ -4746,8 +4746,9 @@ static void expireGenericCommand(redisClient *c, robj *key, time_t seconds) {
         addReply(c,shared.czero);
         return;
     }
-    if (seconds <= 0) {
-        addReply(c, shared.czero);
+    if (seconds < 0) {
+        if (deleteKey(c->db,key)) server.dirty++;
+        addReply(c, shared.cone);
         return;
     } else {
         time_t when = time(NULL)+seconds;
