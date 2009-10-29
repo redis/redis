@@ -6,6 +6,7 @@ VERSION 1.1 TODO
 * Add all the missing symbols for the statis functions into the table. This backtrace on segfault is indeed *very* useful.
 * Use strcoll() to compare objects in sorted sets, like it already happens for SORT.
 * LMOVE, as discussed in the Redis group.
+* EXPIRE and EXPIREAT tests.
 
 VERSION 1.2 TODO
 

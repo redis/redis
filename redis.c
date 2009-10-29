@@ -440,6 +440,7 @@ static void infoCommand(redisClient *c);
 static void mgetCommand(redisClient *c);
 static void monitorCommand(redisClient *c);
 static void expireCommand(redisClient *c);
+static void expireatCommand(redisClient *c);
 static void getsetCommand(redisClient *c);
 static void ttlCommand(redisClient *c);
 static void slaveofCommand(redisClient *c);
@@ -511,6 +512,7 @@ static struct redisCommand cmdTable[] = {
     {"rename",renameCommand,3,REDIS_CMD_INLINE},
     {"renamenx",renamenxCommand,3,REDIS_CMD_INLINE},
     {"expire",expireCommand,3,REDIS_CMD_INLINE},
+    {"expireat",expireatCommand,3,REDIS_CMD_INLINE},
     {"keys",keysCommand,2,REDIS_CMD_INLINE},
     {"dbsize",dbsizeCommand,1,REDIS_CMD_INLINE},
     {"auth",authCommand,2,REDIS_CMD_INLINE},
@@ -4736,11 +4738,10 @@ static int deleteIfVolatile(redisDb *db, robj *key) {
     return dictDelete(db->dict,key) == DICT_OK;
 }
 
-static void expireCommand(redisClient *c) {
+static void expireGenericCommand(redisClient *c, robj *key, time_t seconds) {
     dictEntry *de;
-    int seconds = atoi(c->argv[2]->ptr);
 
-    de = dictFind(c->db->dict,c->argv[1]);
+    de = dictFind(c->db->dict,key);
     if (de == NULL) {
         addReply(c,shared.czero);
         return;
@@ -4750,7 +4751,7 @@ static void expireCommand(redisClient *c) {
         return;
     } else {
         time_t when = time(NULL)+seconds;
-        if (setExpire(c->db,c->argv[1],when)) {
+        if (setExpire(c->db,key,when)) {
             addReply(c,shared.cone);
             server.dirty++;
         } else {
@@ -4758,6 +4759,14 @@ static void expireCommand(redisClient *c) {
         }
         return;
     }
+}
+
+static void expireCommand(redisClient *c) {
+    expireGenericCommand(c,c->argv[1],strtol(c->argv[2]->ptr,NULL,10));
+}
+
+static void expireatCommand(redisClient *c) {
+    expireGenericCommand(c,c->argv[1],strtol(c->argv[2]->ptr,NULL,10)-time(NULL));
 }
 
 static void ttlCommand(redisClient *c) {
@@ -5312,6 +5321,7 @@ static struct redisFunctionSym symsTable[] = {
 {"mgetCommand", (unsigned long)mgetCommand},
 {"monitorCommand", (unsigned long)monitorCommand},
 {"expireCommand", (unsigned long)expireCommand},
+{"expireatCommand", (unsigned long)expireatCommand},
 {"getsetCommand", (unsigned long)getsetCommand},
 {"ttlCommand", (unsigned long)ttlCommand},
 {"slaveofCommand", (unsigned long)slaveofCommand},
