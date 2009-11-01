@@ -1580,9 +1580,9 @@ static int processCommand(redisClient *c) {
     /* Exec the command */
     dirty = server.dirty;
     cmd->proc(c);
-    if (server.appendonly != 0)
+    if (server.appendonly && server.dirty-dirty)
         feedAppendOnlyFile(cmd,c->db->id,c->argv,c->argc);
-    if (server.dirty-dirty != 0 && listLength(server.slaves))
+    if (server.dirty-dirty && listLength(server.slaves))
         replicationFeedSlaves(server.slaves,cmd,c->db->id,c->argv,c->argc);
     if (listLength(server.monitors))
         replicationFeedSlaves(server.monitors,cmd,c->db->id,c->argv,c->argc);
