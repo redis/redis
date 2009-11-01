@@ -3,10 +3,11 @@ VERSION 1.1 TODO
 * For now only the last argument gets integer encoded, so make sure that: 1) every multi bulk commands implemented will have the last arg that is indeed a value, and not used otherwise. 2) to explicitly call the function to encode the object in MSET and other commands where there are multiple "values".
 * Man pages for MSET MSETNX and SRANDMEMBER, Z-commands, ...
 * ZSETs missing stuff: ZINCRBY
-* Add all the missing symbols for the statis functions into the table. This backtrace on segfault is indeed *very* useful.
+* Add all the missing symbols for the static functions into the table. Crete a Tcl script to check this. This backtrace on segfault is indeed *very* useful.
 * Use strcoll() to compare objects in sorted sets, like it already happens for SORT.
 * LMOVE, as discussed in the Redis group.
 * EXPIRE and EXPIREAT tests.
+* Write docs for the "STORE" operaiton of SORT.
 
 VERSION 1.2 TODO
 
