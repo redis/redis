@@ -8,11 +8,11 @@ VERSION 1.1 TODO
 * LMOVE, as discussed in the Redis group.
 * EXPIRE and EXPIREAT tests.
 * Write docs for the "STORE" operaiton of SORT.
+* Append only mode: testing and a command to rebuild the log from scratch.
 
 VERSION 1.2 TODO
 
 * Basic Redis-cluster (at least all the features of the Ruby client distribute implementation + ability to set every key in M nodes).
-* Append mode log
 * Hashes (HSET, HGET, HEXISTS, HLEN, ...).
 * An utility able to export an .rdb file into a text-only JSON dump, we can't live anymore without such a tool. Probably an extension to redis-cli.
 
