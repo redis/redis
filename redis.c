@@ -1101,7 +1101,7 @@ static void initServer() {
     server.stat_numcommands = 0;
     server.stat_numconnections = 0;
     server.stat_starttime = time(NULL);
-    aeCreateTimeEvent(server.el, 1000, serverCron, NULL, NULL);
+    aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL);
 
     if (server.appendonly) {
         server.appendfd = open(server.appendfilename,O_WRONLY|O_APPEND|O_CREAT,0644);
