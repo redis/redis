@@ -1255,11 +1255,11 @@ static void loadServerConfig(char *filename) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"appendfsync") && argc == 2) {
-            if (strcasecmp(argv[1],"no")) {
+            if (!strcasecmp(argv[1],"no")) {
                 server.appendfsync = APPENDFSYNC_NO;
-            } else if (strcasecmp(argv[1],"always")) {
+            } else if (!strcasecmp(argv[1],"always")) {
                 server.appendfsync = APPENDFSYNC_ALWAYS;
-            } else if (strcasecmp(argv[1],"everysec")) {
+            } else if (!strcasecmp(argv[1],"everysec")) {
                 server.appendfsync = APPENDFSYNC_EVERYSEC;
             } else {
                 err = "argument must be 'no', 'always' or 'everysec'";
