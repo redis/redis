@@ -21,7 +21,6 @@ LONG TERM TODO
  * Add a command to inspect the currently selected DB index
  * Consistent hashing implemented in all the client libraries having an user base
  * SORT: Don't copy the list into a vector when BY argument is constant.
- * SORT ... STORE keyname. Instead to return the SORTed data set it into key.
  * Profiling and optimization in order to limit the CPU usage at minimum
  * Write the hash table size of every db in the dump, so that Redis can resize the hash table just one time when loading a big DB.
  * Elapsed time in logs for SAVE when saving is going to take more than 2 seconds
