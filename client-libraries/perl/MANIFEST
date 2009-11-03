@@ -1,8 +1,0 @@
-Changes
-MANIFEST
-Makefile.PL
-README
-lib/Redis.pm
-t/00-load.t
-t/pod-coverage.t
-t/pod.t
