@@ -1,6 +1,6 @@
 # TODO # test pipelining
 
-source client-libraries/tcl/redis.tcl
+source redis.tcl
 
 set ::passed 0
 set ::failed 0
