@@ -789,8 +789,21 @@ proc main {server port} {
     } {{x y z} {y x z}}
 
     test {ZSCORE} {
-        list [$r zscore ztmp x] [$r zscore ztmp y] [$r zscore ztmp z]
-    } {10 1 30}
+        set aux {}
+        set err {}
+        for {set i 0} {$i < 1000} {incr i} {
+            set score [expr rand()]
+            lappend aux $score
+            $r zadd zscoretest $score $i
+        }
+        for {set i 0} {$i < 1000} {incr i} {
+            if {[$r zscore zscoretest $i] != [lindex $aux $i]} {
+                set err "Expected score was [lindex $aux $i] but got [$r zscore zscoretest $i] for element $i"
+                break
+            }
+        }
+        set _ $err
+    } {}
 
     test {ZRANGE and ZREVRANGE} {
         list [$r zrange ztmp 0 -1] [$r zrevrange ztmp 0 -1]

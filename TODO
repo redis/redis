@@ -6,8 +6,8 @@ VERSION 1.1 TODO
 * Add all the missing symbols for the static functions into the table. Crete a Tcl script to check this. This backtrace on segfault is indeed *very* useful.
 * Use strcoll() to compare objects in sorted sets, like it already happens for SORT.
 * LMOVE, as discussed in the Redis group.
-* EXPIRE and EXPIREAT tests.
-* Write docs for the "STORE" operaiton of SORT.
+* EXPIRE, EXPIREAT, ZSCORE tests.
+* Write docs for the "STORE" operaiton of SORT, and GET "#" option.
 * Append only mode: testing and a command to rebuild the log from scratch.
 
 VERSION 1.2 TODO
