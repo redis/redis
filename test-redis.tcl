@@ -47,6 +47,7 @@ proc zlistAlikeSort {a b} {
 
 proc main {server port} {
     set r [redis $server $port]
+    $r select 9
     set err ""
 
     # The following AUTH test should be enabled only when requirepass
@@ -312,47 +313,47 @@ proc main {server port} {
     } {0}
 
     test {DEL all keys again (DB 1)} {
-        $r select 1
+        $r select 10
         foreach key [$r keys *] {
             $r del $key
         }
         set res [$r dbsize]
-        $r select 0
+        $r select 9
         format $res
     } {0}
 
     test {MOVE basic usage} {
         $r set mykey foobar
-        $r move mykey 1
+        $r move mykey 10
         set res {}
         lappend res [$r exists mykey]
         lappend res [$r dbsize]
-        $r select 1
+        $r select 10
         lappend res [$r get mykey]
         lappend res [$r dbsize]
-        $r select 0
+        $r select 9
         format $res
     } [list 0 0 foobar 1]
 
     test {MOVE against key existing in the target DB} {
         $r set mykey hello
-        $r move mykey 1
+        $r move mykey 10
     } {0}
 
     test {SET/GET keys in different DBs} {
         $r set a hello
         $r set b world
-        $r select 1
+        $r select 10
         $r set a foo
         $r set b bared
-        $r select 0
+        $r select 9
         set res {}
         lappend res [$r get a]
         lappend res [$r get b]
-        $r select 1
+        $r select 10
         lappend res [$r get a]
         lappend res [$r get b]
-        $r select 0
+        $r select 9
         format $res
     } {hello world foo bared}
 
@@ -618,7 +619,7 @@ proc main {server port} {
     } [lsort -real {1.1 5.10 3.10 7.44 2.1 5.75 6.12 0.25 1.15}]
 
     test {LREM, remove all the occurrences} {
-        $r flushall
+        $r flushdb
         $r rpush mylist foo
         $r rpush mylist bar
         $r rpush mylist foobar
@@ -642,7 +643,7 @@ proc main {server port} {
     } {{foobar foobared zap test foo} 0}
 
     test {LREM, starting from tail with negative count} {
-        $r flushall
+        $r flushdb
         $r rpush mylist foo
         $r rpush mylist bar
         $r rpush mylist foobar
@@ -670,7 +671,7 @@ proc main {server port} {
     } {2}
 
     test {MGET} {
-        $r flushall
+        $r flushdb
         $r set foo BAR
         $r set bar FOO
         $r mget foo bar
@@ -687,7 +688,7 @@ proc main {server port} {
     } {BAR {} FOO {}}
 
     test {RANDOMKEY} {
-        $r flushall
+        $r flushdb
         $r set foo x
         $r set bar y
         set foo_seen 0
@@ -705,12 +706,12 @@ proc main {server port} {
     } {1 1}
 
     test {RANDOMKEY against empty DB} {
-        $r flushall
+        $r flushdb
         $r randomkey
     } {}
 
     test {RANDOMKEY regression 1} {
-        $r flushall
+        $r flushdb
         $r set x 10
         $r del x
         $r randomkey
@@ -889,10 +890,15 @@ proc main {server port} {
     }
 
     # Leave the user with a clean DB before to exit
-    test {FLUSHALL} {
-        $r flushall
-        $r dbsize
-    } {0}
+    test {FLUSHDB} {
+        set aux {}
+        $r select 9
+        $r flushdb
+        lappend aux [$r dbsize]
+        $r select 10
+        $r flushdb
+        lappend aux [$r dbsize]
+    } {0 0}
 
     puts "\n[expr $::passed+$::failed] tests, $::passed passed, $::failed failed"
     if {$::failed > 0} {
@@ -903,7 +909,8 @@ proc main {server port} {
 
 proc stress {} {
     set r [redis]
-    $r flushall
+    $r select 9
+    $r flushdb
     while 1 {
         set randkey [expr int(rand()*10000)]
         set randval [expr int(rand()*10000)]
@@ -924,8 +931,24 @@ proc stress {} {
         }
         flush stdout
     }
+    $r flushdb
     $r close
 }
+
+# Before to run the test check if DB 9 and DB 10 are empty
+set r [redis]
+$r select 9
+set db9size [$r dbsize]
+$r select 10
+set db10size [$r dbsize]
+if {$db9size != 0 || $db10size != 0} {
+    puts "Can't run the tests against DB 9 and 10: DBs are not empty."
+    exit 1
+}
+$r close
+unset r
+unset db9size
+unset db10size
 
 if {[llength $argv] == 0} {
     main 127.0.0.1 6379
