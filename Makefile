@@ -7,10 +7,10 @@ ifeq ($(uname_S),SunOS)
   CFLAGS?= -std=c99 -pedantic -O2 -Wall -W -D__EXTENSIONS__ -D_XPG6
   CCLINK?= -ldl -lnsl -lsocket -lm
 else
-  CFLAGS?= -std=c99 -pedantic -O2 -Wall -W $(ARCH)
+  CFLAGS?= -std=c99 -pedantic -O2 -Wall -W $(ARCH) $(PROF)
   CCLINK?= -lm
 endif
-CCOPT= $(CFLAGS) $(CCLINK) $(ARCH)
+CCOPT= $(CFLAGS) $(CCLINK) $(ARCH) $(PROF)
 DEBUG?= -g -rdynamic -ggdb 
 
 OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o
@@ -71,3 +71,9 @@ log:
 
 32bit:
 	make ARCH="-arch i386"
+
+gprof:
+	make PROF="-pg"
+
+32bitgprof:
+	make PROF="-pg" ARCH="-arch i386"
