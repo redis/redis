@@ -4664,7 +4664,9 @@ static void sortCommand(redisClient *c) {
                 }
             }
         }
-        dictReplace(c->db->dict,storekey,listObject);
+        if (dictReplace(c->db->dict,storekey,listObject)) {
+            incrRefCount(storekey);
+        }
         /* Note: we add 1 because the DB is dirty anyway since even if the
          * SORT result is empty a new key is set and maybe the old content
          * replaced. */

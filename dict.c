@@ -226,7 +226,10 @@ int dictAdd(dict *ht, void *key, void *val)
     return DICT_OK;
 }
 
-/* Add an element, discarding the old if the key already exists */
+/* Add an element, discarding the old if the key already exists.
+ * Return 1 if the key was added from scratch, 0 if there was already an
+ * element with such key and dictReplace() just performed a value update
+ * operation. */
 int dictReplace(dict *ht, void *key, void *val)
 {
     dictEntry *entry;
@@ -234,13 +237,13 @@ int dictReplace(dict *ht, void *key, void *val)
     /* Try to add the element. If the key
      * does not exists dictAdd will suceed. */
     if (dictAdd(ht, key, val) == DICT_OK)
-        return DICT_OK;
+        return 1;
     /* It already exists, get the entry */
     entry = dictFind(ht, key);
     /* Free the old value and set the new one */
     dictFreeEntryVal(ht, entry);
     dictSetHashVal(ht, entry, val);
-    return DICT_OK;
+    return 0;
 }
 
 /* Search and remove an element */
