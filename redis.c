@@ -940,14 +940,21 @@ static int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientD
          }
     }
 
-    /* Try to expire a few timed out keys */
+    /* Try to expire a few timed out keys. The algorithm used is adaptive and
+     * will use few CPU cycles if there are few expiring keys, otherwise
+     * it will get more aggressive to avoid that too much memory is used by
+     * keys that can be removed from the keyspace. */
     for (j = 0; j < server.dbnum; j++) {
+        int expired;
         redisDb *db = server.db+j;
-        int num = dictSize(db->expires);
 
-        if (num) {
+        /* Continue to expire if at the end of the cycle more than 25%
+         * of the keys were expired. */
+        do {
+            int num = dictSize(db->expires);
             time_t now = time(NULL);
 
+            expired = 0;
             if (num > REDIS_EXPIRELOOKUPS_PER_CRON)
                 num = REDIS_EXPIRELOOKUPS_PER_CRON;
             while (num--) {
@@ -958,9 +965,10 @@ static int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientD
                 t = (time_t) dictGetEntryVal(de);
                 if (now > t) {
                     deleteKey(db,dictGetEntryKey(de));
+                    expired++;
                 }
             }
-        }
+        } while (expired > REDIS_EXPIRELOOKUPS_PER_CRON/4);
     }
 
     /* Check if we should connect to a MASTER */
