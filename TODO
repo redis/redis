@@ -10,7 +10,6 @@ VERSION 1.1 TODO
 * Write docs for the "STORE" operaiton of SORT, and GET "#" option.
 * Append only mode: testing and a command to rebuild the log from scratch.
 * Profiling and optimizations. For instance the commands lookup is probably starting to eat too CPU being a simple list. To implement binary search or an hash table lookup can be a win probably.
-* Expiring algorithm should be adaptive. Use the following algorithm. Start testing REDIS_EXPIRELOOKUPS_PER_CRON in the first iteration, and continue with the same amount of keys until the percentage of expired keys > 25%.
 
 VERSION 1.2 TODO
 

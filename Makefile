@@ -60,6 +60,9 @@ clean:
 dep:
 	$(CC) -MM *.c
 
+staticsymbols:
+	tclsh utils/build-static-symbols.tcl > staticsymbols.h
+
 test:
 	tclsh test-redis.tcl
 
