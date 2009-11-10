@@ -9,6 +9,8 @@ VERSION 1.1 TODO
 * EXPIRE, EXPIREAT, ZSCORE tests.
 * Write docs for the "STORE" operaiton of SORT, and GET "#" option.
 * Append only mode: testing and a command to rebuild the log from scratch.
+* Profiling and optimizations. For instance the commands lookup is probably starting to eat too CPU being a simple list. To implement binary search or an hash table lookup can be a win probably.
+* Expiring algorithm should be adaptive. Use the following algorithm. Start testing REDIS_EXPIRELOOKUPS_PER_CRON in the first iteration, and continue with the same amount of keys until the percentage of expired keys > 25%.
 
 VERSION 1.2 TODO
 
@@ -18,7 +20,6 @@ VERSION 1.2 TODO
 
 LONG TERM TODO
 
-* Expiring algorithm should be adaptive, if there are a lot of keys with an expire set and many of this happen to be already expired it should be, proportionally, more aggressive.
  * Add a command to inspect the currently selected DB index
  * Consistent hashing implemented in all the client libraries having an user base
  * SORT: Don't copy the list into a vector when BY argument is constant.

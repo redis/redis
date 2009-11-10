@@ -1,3 +1,36 @@
+2009-11-04 redis-test is now a better Redis citizen, testing everything against DB 9 and 10 and only if this DBs are empty.
+2009-11-04 fixed a refcounting bug with SORT ... STORE leading to random crashes
+2009-11-04 masterauth option merged, thanks to Anthony Lauzon
+2009-11-03 ZSets double to string serialization fixed
+2009-11-03 client-libraries directory readded
+2009-11-03 redis.tcl put at toplevel since it's uesd for the test-redis.tcl script
+2009-11-03 client libs removed from Redis git
+2009-11-03 redis-cli now accepts a -r (repeat) switch. Still there is a memory leaks to fix
+2009-11-01 TODO updated again
+2009-11-01 TODO updated
+2009-11-01 redis-cli now makes clear when the returned string is an integer
+2009-11-01 SORT STORE option
+2009-11-01 now Redis prints DB stats just after the startup without to wait a second for the first report
+2009-11-01 another fix for append only mode, now read-only operations are not appended
+2009-11-01 appendfsync parsing in config file fixed. If you benchmarked Redis against different appendfsync options is time to try again ;)
+2009-11-01 append only file loading fixed
+2009-11-01 first version of append only file loading -- STILL BROKEN don't use it
+2009-10-31 Fixed Issue 83:Using TYPE on a zset results in a malformed response from the Redis server
+2009-10-31 Fixed compilation on Linux
+2009-10-30 append only mode is now able to translate EXPIRE into EXPIREAT transparently
+2009-10-30 appendfsync is now set to NO by default
+2009-10-30 support for appendonly mode no, always, everysec
+2009-10-30 first fix for append only mode
+2009-10-30 Initial implementation of append-only mode. Loading still not implemented.
+2009-10-30 EXPIRE behaviour changed a bit, a negative TTL or an EXPIREAT with unix time in the past will now delete the key. It seems saner to me than doing nothing.
+2009-10-30 EXPIREAT implemented, will be useful for the append-only mode
+2009-10-29 Fixed Issue 74 (ERR just returned on invalid password), now the error message is -ERR invalid password.
+2009-10-29 Fixed issue 72 (SLAVEOF shutdowns redis-server on malformed reply)
+2009-10-29 Fixed issue 77 (Incorrect time in log files) thanks to youwantalex
+2009-10-29 Fixed  Issue 76 (redis-server crashes when it can't connect to MASTER and client connects to SLAVE)
+2009-10-29 ZREMRANGEBYSCORE implemented. Remove a range of elements with score between min and max
+2009-10-28 TODO changes and mostly theoretical minor skiplist change
+2009-10-28 ZLEN renamed ZCARD for consistency with SCARD
 2009-10-27 TODO reworked to reflect the real roadmap
 2009-10-27 Fix for 'make 32bit'
 2009-10-27 a fix for the solaris fix itself ;)
