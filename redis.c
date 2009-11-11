@@ -446,6 +446,7 @@ static void flushdbCommand(redisClient *c);
 static void flushallCommand(redisClient *c);
 static void sortCommand(redisClient *c);
 static void lremCommand(redisClient *c);
+static void lpoppushCommand(redisClient *c);
 static void infoCommand(redisClient *c);
 static void mgetCommand(redisClient *c);
 static void monitorCommand(redisClient *c);
@@ -489,6 +490,7 @@ static struct redisCommand cmdTable[] = {
     {"lrange",lrangeCommand,4,REDIS_CMD_INLINE},
     {"ltrim",ltrimCommand,4,REDIS_CMD_INLINE},
     {"lrem",lremCommand,4,REDIS_CMD_BULK},
+    {"lpoppush",lpoppushCommand,3,REDIS_CMD_BULK},
     {"sadd",saddCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
     {"srem",sremCommand,3,REDIS_CMD_BULK},
     {"smove",smoveCommand,4,REDIS_CMD_BULK},
@@ -1403,10 +1405,10 @@ static void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask)
             c->sentlen = 0;
         }
         /* Note that we avoid to send more thank REDIS_MAX_WRITE_PER_EVENT
-         * bytes, in a single threaded server it's a good idea to server
+         * bytes, in a single threaded server it's a good idea to serve
          * other clients as well, even if a very large request comes from
          * super fast link that is always able to accept data (in real world
-         * terms think to 'KEYS *' against the loopback interfae) */
+         * scenario think about 'KEYS *' against the loopback interfae) */
         if (totwritten > REDIS_MAX_WRITE_PER_EVENT) break;
     }
     if (nwritten == -1) {
@@ -3467,6 +3469,70 @@ static void lremCommand(redisClient *c) {
         }
     }
 }
+
+/* This is the semantic of this command:
+ *  LPOPPUSH srclist dstlist:
+ *   IF LLEN(srclist) > 0
+ *     element = RPOP srclist
+ *     LPUSH dstlist element
+ *     RETURN element
+ *   ELSE
+ *     RETURN nil
+ *   END
+ *  END
+ *
+ * The idea is to be able to get an element from a list in a reliable way
+ * since the element is not just returned but pushed against another list
+ * as well. This command was originally proposed by Ezra Zygmuntowicz.
+ */
+static void lpoppushCommand(redisClient *c) {
+    robj *sobj;
+
+    sobj = lookupKeyWrite(c->db,c->argv[1]);
+    if (sobj == NULL) {
+        addReply(c,shared.nullbulk);
+    } else {
+        if (sobj->type != REDIS_LIST) {
+            addReply(c,shared.wrongtypeerr);
+        } else {
+            list *srclist = sobj->ptr;
+            listNode *ln = listLast(srclist);
+
+            if (ln == NULL) {
+                addReply(c,shared.nullbulk);
+            } else {
+                robj *dobj = lookupKeyWrite(c->db,c->argv[2]);
+                robj *ele = listNodeValue(ln);
+                list *dstlist;
+
+                if (dobj == NULL) {
+
+                    /* Create the list if the key does not exist */
+                    dobj = createListObject();
+                    dictAdd(c->db->dict,c->argv[2],dobj);
+                    incrRefCount(c->argv[2]);
+                } else if (dobj->type != REDIS_LIST) {
+                    addReply(c,shared.wrongtypeerr);
+                    return;
+                }
+                /* Add the element to the target list */
+                dstlist = dobj->ptr;
+                listAddNodeHead(dstlist,ele);
+                incrRefCount(ele);
+
+                /* Send the element to the client as reply as well */
+                addReplyBulkLen(c,ele);
+                addReply(c,ele);
+                addReply(c,shared.crlf);
+
+                /* Finally remove the element from the source list */
+                listDelNode(srclist,ln);
+                server.dirty++;
+            }
+        }
+    }
+}
+
 
 /* ==================================== Sets ================================ */
 

@@ -3,13 +3,13 @@ VERSION 1.1 TODO
 * For now only the last argument gets integer encoded, so make sure that: 1) every multi bulk commands implemented will have the last arg that is indeed a value, and not used otherwise. 2) to explicitly call the function to encode the object in MSET and other commands where there are multiple "values".
 * Man pages for MSET MSETNX and SRANDMEMBER, Z-commands, ...
 * ZSETs missing stuff: ZINCRBY
-* Add all the missing symbols for the static functions into the table. Crete a Tcl script to check this. This backtrace on segfault is indeed *very* useful.
 * Use strcoll() to compare objects in sorted sets, like it already happens for SORT.
 * LMOVE, as discussed in the Redis group.
 * EXPIRE, EXPIREAT, ZSCORE tests.
 * Write docs for the "STORE" operaiton of SORT, and GET "#" option.
 * Append only mode: testing and a command to rebuild the log from scratch.
 * Profiling and optimizations. For instance the commands lookup is probably starting to eat too CPU being a simple list. To implement binary search or an hash table lookup can be a win probably.
+* Redis-cli should be able to select a different DB than 0 using some switch.
 
 VERSION 1.2 TODO
 

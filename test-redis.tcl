@@ -916,7 +916,7 @@ proc stress {} {
         set randval [expr int(rand()*10000)]
         set randidx0 [expr int(rand()*10)]
         set randidx1 [expr int(rand()*10)]
-        set cmd [expr int(rand()*10)]
+        set cmd [expr int(rand()*20)]
         catch {
             if {$cmd == 0} {$r set $randkey $randval}
             if {$cmd == 1} {$r get $randkey}
@@ -924,10 +924,16 @@ proc stress {} {
             if {$cmd == 3} {$r lpush $randkey $randval}
             if {$cmd == 4} {$r rpop $randkey}
             if {$cmd == 5} {$r del $randkey}
-            if {$cmd == 6} {$r lrange $randkey $randidx0 $randidx1}
-            if {$cmd == 7} {$r ltrim $randkey $randidx0 $randidx1}
-            if {$cmd == 8} {$r lindex $randkey $randidx0}
-            if {$cmd == 9} {$r lset $randkey $randidx0 $randval}
+            if {$cmd == 6} {$r llen $randkey}
+            if {$cmd == 7} {$r lrange $randkey $randidx0 $randidx1}
+            if {$cmd == 8} {$r ltrim $randkey $randidx0 $randidx1}
+            if {$cmd == 9} {$r lindex $randkey $randidx0}
+            if {$cmd == 10} {$r lset $randkey $randidx0 $randval}
+            if {$cmd == 11} {$r sadd $randkey $randval}
+            if {$cmd == 12} {$r srem $randkey $randval}
+            if {$cmd == 13} {$r smove $randkey $randval}
+            if {$cmd == 14} {$r scard $randkey}
+            if {$cmd == 15} {$r expire $randkey [expr $randval%60]}
         }
         flush stdout
     }
