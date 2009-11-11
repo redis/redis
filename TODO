@@ -7,7 +7,6 @@ VERSION 1.1 TODO
 * LPOPPUSH, EXPIRE, EXPIREAT, ZSCORE, SRANDMEMBER tests.
 * Write docs for the "STORE" operaiton of SORT, and GET "#" option.
 * Append only mode: testing and a command to rebuild the log from scratch.
-* Profiling and optimizations. For instance the commands lookup is probably starting to eat too CPU being a simple list. To implement binary search or an hash table lookup can be a win probably.
 * Redis-cli should be able to select a different DB than 0 using some switch.
 
 VERSION 1.2 TODO

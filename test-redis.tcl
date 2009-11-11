@@ -1,5 +1,6 @@
 # TODO # test pipelining
 
+set tcl_precision 17
 source redis.tcl
 
 set ::passed 0
