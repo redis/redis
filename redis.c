@@ -446,7 +446,7 @@ static void flushdbCommand(redisClient *c);
 static void flushallCommand(redisClient *c);
 static void sortCommand(redisClient *c);
 static void lremCommand(redisClient *c);
-static void lpoppushCommand(redisClient *c);
+static void rpoplpushcommand(redisClient *c);
 static void infoCommand(redisClient *c);
 static void mgetCommand(redisClient *c);
 static void monitorCommand(redisClient *c);
@@ -490,7 +490,7 @@ static struct redisCommand cmdTable[] = {
     {"lrange",lrangeCommand,4,REDIS_CMD_INLINE},
     {"ltrim",ltrimCommand,4,REDIS_CMD_INLINE},
     {"lrem",lremCommand,4,REDIS_CMD_BULK},
-    {"lpoppush",lpoppushCommand,3,REDIS_CMD_BULK},
+    {"rpoplpush",rpoplpushcommand,3,REDIS_CMD_BULK},
     {"sadd",saddCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
     {"srem",sremCommand,3,REDIS_CMD_BULK},
     {"smove",smoveCommand,4,REDIS_CMD_BULK},
@@ -3473,7 +3473,7 @@ static void lremCommand(redisClient *c) {
 }
 
 /* This is the semantic of this command:
- *  LPOPPUSH srclist dstlist:
+ *  RPOPLPUSH srclist dstlist:
  *   IF LLEN(srclist) > 0
  *     element = RPOP srclist
  *     LPUSH dstlist element
@@ -3487,7 +3487,7 @@ static void lremCommand(redisClient *c) {
  * since the element is not just returned but pushed against another list
  * as well. This command was originally proposed by Ezra Zygmuntowicz.
  */
-static void lpoppushCommand(redisClient *c) {
+static void rpoplpushcommand(redisClient *c) {
     robj *sobj;
 
     sobj = lookupKeyWrite(c->db,c->argv[1]);
