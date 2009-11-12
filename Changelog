@@ -1,3 +1,16 @@
+2009-11-12 Merge git://github.com/ianxm/redis
+2009-11-12 ZSCORE fixed, now returns NULL on missing key or missing element
+2009-11-12 Redis test will not fail the SAVE test even if a background save is in progress
+2009-11-12 LPOPPUSH renamed into RPOPLPUSH
+2009-11-11 can select db num
+2009-11-11 Workaround for test-redis.tcl and Tcl 8.4.x about ZSCORE test
+2009-11-11 Removed a long time warning compiling with recent GCC on Linux
+2009-11-11 TODO updated
+2009-11-11 LPUSHPOP first implementation
+2009-11-10 Tcl script, make target, and redis.c changes to build the static symbol table automagically
+2009-11-10 Implemented a much better lazy expiring algorithm for EXPIRE
+2009-11-10 Fixed issue 92 in redis: redis-cli (nil) return value lacks CR/LF
+2009-11-10 Minor TODO change with new expiring algorithm description. New expiring algorithm moved since it'll go in 1.1
 2009-11-04 redis-test is now a better Redis citizen, testing everything against DB 9 and 10 and only if this DBs are empty.
 2009-11-04 fixed a refcounting bug with SORT ... STORE leading to random crashes
 2009-11-04 masterauth option merged, thanks to Anthony Lauzon
