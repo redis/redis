@@ -533,6 +533,17 @@ proc main {server port} {
     } {{1 2 3} 0}
 
     test {SAVE - make sure there are all the types as values} {
+        # Wait for a background saving in progress to terminate
+        while 1 {
+            set i [$r info]
+            if {[string match {*bgsave_in_progress:1*} $i]} {
+                puts -nonewline "\nWaiting for background save to finish... "
+                flush stdout
+                after 100
+            } else {
+                break
+            }
+        }
         $r lpush mysavelist hello
         $r lpush mysavelist world
         $r set myemptykey {}
