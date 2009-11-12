@@ -4372,7 +4372,7 @@ static void zscoreCommand(redisClient *c) {
     
     o = lookupKeyRead(c->db,c->argv[1]);
     if (o == NULL) {
-        addReply(c,shared.czero);
+        addReply(c,shared.nullbulk);
         return;
     } else {
         if (o->type != REDIS_ZSET) {
