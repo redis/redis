@@ -486,6 +486,7 @@ int main(int argc, char **argv) {
     }
 
     do {
+#if 0
         prepareForBenchmark();
         c = createClient();
         if (!c) exit(1);
@@ -547,6 +548,7 @@ int main(int argc, char **argv) {
         aeMain(config.el);
         endBenchmark("PING");
 
+#endif
         prepareForBenchmark();
         c = createClient();
         if (!c) exit(1);
@@ -556,6 +558,7 @@ int main(int argc, char **argv) {
         aeMain(config.el);
         endBenchmark("LPUSH (again, in order to bench LRANGE)");
 
+#if 0
         prepareForBenchmark();
         c = createClient();
         if (!c) exit(1);
@@ -582,6 +585,7 @@ int main(int argc, char **argv) {
         createMissingClients(c);
         aeMain(config.el);
         endBenchmark("LRANGE (first 450 elements)");
+#endif
 
         prepareForBenchmark();
         c = createClient();

@@ -912,6 +912,10 @@ proc main {server port} {
         lappend aux [$r dbsize]
     } {0 0}
 
+    test {Perform a final SAVE to leave a clean DB on disk} {
+        $r save
+    } {OK}
+
     puts "\n[expr $::passed+$::failed] tests, $::passed passed, $::failed failed"
     if {$::failed > 0} {
         puts "\n*** WARNING!!! $::failed FAILED TESTS ***\n"

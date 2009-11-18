@@ -1351,33 +1351,29 @@ static void freeClient(redisClient *c) {
 
 #define GLUEREPLY_UP_TO (1024)
 static void glueReplyBuffersIfNeeded(redisClient *c) {
-    int totlen = 0;
+    int copylen = 0;
+    char buf[GLUEREPLY_UP_TO];
     listNode *ln;
     robj *o;
 
     listRewind(c->reply);
     while((ln = listYield(c->reply))) {
-        o = ln->value;
-        totlen += sdslen(o->ptr);
-        /* This optimization makes more sense if we don't have to copy
-         * too much data */
-        if (totlen > GLUEREPLY_UP_TO) return;
-    }
-    if (totlen > 0) {
-        char buf[GLUEREPLY_UP_TO];
-        int copylen = 0;
+        int objlen;
 
-        listRewind(c->reply);
-        while((ln = listYield(c->reply))) {
-            o = ln->value;
-            memcpy(buf+copylen,o->ptr,sdslen(o->ptr));
-            copylen += sdslen(o->ptr);
+        o = ln->value;
+        objlen = sdslen(o->ptr);
+        if (copylen + objlen <= GLUEREPLY_UP_TO) {
+            memcpy(buf+copylen,o->ptr,objlen);
+            copylen += objlen;
             listDelNode(c->reply,ln);
+        } else {
+            if (copylen == 0) return;
+            break;
         }
-        /* Now the output buffer is empty, add the new single element */
-        o = createObject(REDIS_STRING,sdsnewlen(buf,totlen));
-        listAddNodeTail(c->reply,o);
     }
+    /* Now the output buffer is empty, add the new single element */
+    o = createObject(REDIS_STRING,sdsnewlen(buf,copylen));
+    listAddNodeHead(c->reply,o);
 }
 
 static void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
@@ -1387,8 +1383,6 @@ static void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask)
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
 
-    if (server.glueoutputbuf && listLength(c->reply) > 1)
-        glueReplyBuffersIfNeeded(c);
 
     /* Use writev() if we have enough buffers to send */
 #if 0
@@ -1401,6 +1395,9 @@ static void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask)
 #endif
 
     while(listLength(c->reply)) {
+        if (server.glueoutputbuf && listLength(c->reply) > 1)
+            glueReplyBuffersIfNeeded(c);
+
         o = listNodeValue(listFirst(c->reply));
         objlen = sdslen(o->ptr);
 
