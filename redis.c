@@ -1349,6 +1349,7 @@ static void freeClient(redisClient *c) {
     zfree(c);
 }
 
+#define GLUEREPLY_UP_TO (1024)
 static void glueReplyBuffersIfNeeded(redisClient *c) {
     int totlen = 0;
     listNode *ln;
@@ -1360,10 +1361,10 @@ static void glueReplyBuffersIfNeeded(redisClient *c) {
         totlen += sdslen(o->ptr);
         /* This optimization makes more sense if we don't have to copy
          * too much data */
-        if (totlen > 1024) return;
+        if (totlen > GLUEREPLY_UP_TO) return;
     }
     if (totlen > 0) {
-        char buf[1024];
+        char buf[GLUEREPLY_UP_TO];
         int copylen = 0;
 
         listRewind(c->reply);
