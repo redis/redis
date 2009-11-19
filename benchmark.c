@@ -365,9 +365,7 @@ static void createMissingClients(client c) {
         sdsfree(new->obuf);
         new->obuf = sdsdup(c->obuf);
         if (config.randomkeys) randomizeClientKey(c);
-        new->replytype = c->replytype;
-        if (c->replytype == REPLY_BULK)
-            new->readlen = -1;
+        prepareClientForReply(new,c->replytype);
     }
 }
 

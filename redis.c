@@ -1385,6 +1385,7 @@ static void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask)
 
 
     /* Use writev() if we have enough buffers to send */
+    #if 0
     if (!server.glueoutputbuf &&
         listLength(c->reply) > REDIS_WRITEV_THRESHOLD && 
         !(c->flags & REDIS_MASTER))
@@ -1392,6 +1393,7 @@ static void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask)
         sendReplyToClientWritev(el, fd, privdata, mask);
         return;
     }
+    #endif
 
     while(listLength(c->reply)) {
         if (server.glueoutputbuf && listLength(c->reply) > 1)
