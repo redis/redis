@@ -4278,9 +4278,9 @@ static void zaddGenericCommand(redisClient *c, robj *key, robj *ele, double scor
         incrRefCount(ele); /* added to skiplist */
         server.dirty++;
         if (doincrement)
-            addReply(c,shared.cone);
-        else
             addReplyDouble(c,*score);
+        else
+            addReply(c,shared.cone);
     } else {
         dictEntry *de;
         double *oldscore;
