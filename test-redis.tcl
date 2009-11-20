@@ -296,6 +296,33 @@ proc main {server port} {
         list $v1 $v2 $l1 $l2
     } {d c {a b} {c d x}}
 
+    test {RPOPLPUSH against non existing key} {
+        $r del mylist
+        $r del newlist
+        set v1 [$r rpoplpush mylist newlist]
+        list $v1 [$r exists mylist] [$r exists newlist]
+    } {{} 0 0}
+
+    test {RPOPLPUSH against non list src key} {
+        $r del mylist
+        $r del newlist
+        $r set mylist x
+        catch {$r rpoplpush mylist newlist} err
+        list [$r type mylist] [$r exists newlist] [string range $err 0 2]
+    } {string 0 ERR}
+
+    test {RPOPLPUSH against non list dst key} {
+        $r del mylist
+        $r del newlist
+        $r rpush mylist a
+        $r rpush mylist b
+        $r rpush mylist c
+        $r rpush mylist d
+        $r set newlist x
+        catch {$r rpoplpush mylist newlist} err
+        list [$r lrange mylist 0 -1] [$r type newlist] [string range $err 0 2]
+    } {{a b c d} string ERR}
+
     test {RENAME basic usage} {
         $r set mykey hello
         $r rename mykey mykey1
