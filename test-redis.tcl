@@ -934,6 +934,32 @@ proc main {server port} {
         format $delta
     } {0}
 
+    test {EXPIRE - don't set timeouts multiple times} {
+        $r set x foobar
+        set v1 [$r expire x 5]
+        set v2 [$r ttl x]
+        set v3 [$r expire x 10]
+        set v4 [$r ttl x]
+        list $v1 $v2 $v3 $v4
+    } {1 5 0 5}
+
+    test {EXPIRE - It should be still possible to read 'x'} {
+        $r get x
+    } {foobar}
+
+    test {EXPIRE - After 6 seconds the key should no longer be here} {
+        after 6000
+        list [$r get x] [$r exists x]
+    } {{} 0}
+
+    test {EXPIRE - Delete on write policy} {
+        $r del x
+        $r lpush x foo
+        $r expire x 1000
+        $r lpush x bar
+        $r lrange x 0 -1
+    } {bar}
+
     test {ZSETs skiplist implementation backlink consistency test} {
         set diff 0
         set elements 10000
