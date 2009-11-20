@@ -466,7 +466,7 @@ static void debugCommand(redisClient *c);
 static void msetCommand(redisClient *c);
 static void msetnxCommand(redisClient *c);
 static void zaddCommand(redisClient *c);
-static void zincrscorebyCommand(redisClient *c);
+static void zincrbyCommand(redisClient *c);
 static void zrangeCommand(redisClient *c);
 static void zrangebyscoreCommand(redisClient *c);
 static void zrevrangeCommand(redisClient *c);
@@ -514,7 +514,7 @@ static struct redisCommand cmdTable[] = {
     {"sdiffstore",sdiffstoreCommand,-3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
     {"smembers",sinterCommand,2,REDIS_CMD_INLINE},
     {"zadd",zaddCommand,4,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
-    {"zincrscoreby",zincrscorebyCommand,4,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
+    {"zincrby",zincrbyCommand,4,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
     {"zrem",zremCommand,3,REDIS_CMD_BULK},
     {"zremrangebyscore",zremrangebyscoreCommand,4,REDIS_CMD_INLINE},
     {"zrange",zrangeCommand,4,REDIS_CMD_INLINE},
@@ -4229,9 +4229,9 @@ static zskiplistNode *zslFirstWithScore(zskiplist *zsl, double score) {
 
 /* The actual Z-commands implementations */
 
-/* This generic command implements both ZADD and ZINCRSCOREBY.
+/* This generic command implements both ZADD and ZINCRBY.
  * scoreval is the score if the operation is a ZADD (doincrement == 0) or
- * the increment if the operation is a ZINCRSCOREBY (doincrement == 1). */
+ * the increment if the operation is a ZINCRBY (doincrement == 1). */
 static void zaddGenericCommand(redisClient *c, robj *key, robj *ele, double scoreval, int doincrement) {
     robj *zsetobj;
     zset *zs;
@@ -4250,7 +4250,7 @@ static void zaddGenericCommand(redisClient *c, robj *key, robj *ele, double scor
     }
     zs = zsetobj->ptr;
 
-    /* Ok now since we implement both ZADD and ZINCRSCOREBY here the code
+    /* Ok now since we implement both ZADD and ZINCRBY here the code
      * needs to handle the two different conditions. It's all about setting
      * '*score', that is, the new score to set, to the right value. */
     score = zmalloc(sizeof(double));
@@ -4270,7 +4270,7 @@ static void zaddGenericCommand(redisClient *c, robj *key, robj *ele, double scor
     }
 
     /* What follows is a simple remove and re-insert operation that is common
-     * to both ZADD and ZINCRSCOREBY... */
+     * to both ZADD and ZINCRBY... */
     if (dictAdd(zs->dict,ele,score) == DICT_OK) {
         /* case 1: New element */
         incrRefCount(ele); /* added to hash */
@@ -4317,7 +4317,7 @@ static void zaddCommand(redisClient *c) {
     zaddGenericCommand(c,c->argv[1],c->argv[3],scoreval,0);
 }
 
-static void zincrscorebyCommand(redisClient *c) {
+static void zincrbyCommand(redisClient *c) {
     double scoreval;
 
     scoreval = strtod(c->argv[2]->ptr,NULL);
