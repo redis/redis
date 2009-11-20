@@ -257,6 +257,45 @@ proc main {server port} {
         format $err
     } {ERR*}
 
+    test {RPOPLPUSH base case} {
+        $r del mylist
+        $r rpush mylist a
+        $r rpush mylist b
+        $r rpush mylist c
+        $r rpush mylist d
+        set v1 [$r rpoplpush mylist newlist]
+        set v2 [$r rpoplpush mylist newlist]
+        set l1 [$r lrange mylist 0 -1]
+        set l2 [$r lrange newlist 0 -1]
+        list $v1 $v2 $l1 $l2
+    } {d c {a b} {c d}}
+
+    test {RPOPLPUSH with the same list as src and dst} {
+        $r del mylist
+        $r rpush mylist a
+        $r rpush mylist b
+        $r rpush mylist c
+        set l1 [$r lrange mylist 0 -1]
+        set v [$r rpoplpush mylist mylist]
+        set l2 [$r lrange mylist 0 -1]
+        list $l1 $v $l2
+    } {{a b c} c {c a b}}
+
+    test {RPOPLPUSH target list already exists} {
+        $r del mylist
+        $r del newlist
+        $r rpush mylist a
+        $r rpush mylist b
+        $r rpush mylist c
+        $r rpush mylist d
+        $r rpush newlist x
+        set v1 [$r rpoplpush mylist newlist]
+        set v2 [$r rpoplpush mylist newlist]
+        set l1 [$r lrange mylist 0 -1]
+        set l2 [$r lrange newlist 0 -1]
+        list $v1 $v2 $l1 $l2
+    } {d c {a b} {c d x}}
+
     test {RENAME basic usage} {
         $r set mykey hello
         $r rename mykey mykey1
