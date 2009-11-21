@@ -4598,7 +4598,10 @@ static robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     ssub = subst->ptr;
     if (sdslen(spat)+sdslen(ssub)-1 > REDIS_SORTKEY_MAX) return NULL;
     p = strchr(spat,'*');
-    if (!p) return NULL;
+    if (!p) {
+        decrRefCount(subst);
+        return NULL;
+    }
 
     prefixlen = p-spat;
     sublen = sdslen(ssub);
