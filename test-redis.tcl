@@ -619,6 +619,19 @@ proc main {server port} {
         $r zadd mytestzset c 30
         $r save
     } {OK}
+
+    test {SRANDMEMBER} {
+        $r del myset
+        $r sadd myset a
+        $r sadd myset b
+        $r sadd myset c
+        unset -nocomplain myset
+        array set myset {}
+        for {set i 0} {$i < 100} {incr i} {
+            set myset([$r srandmember myset]) 1
+        }
+        lsort [array names myset]
+    } {a b c}
     
     test {Create a random list} {
         set tosort {}
