@@ -696,6 +696,15 @@ proc main {server port} {
         $r sort mylist
     } [lsort -real {1.1 5.10 3.10 7.44 2.1 5.75 6.12 0.25 1.15}]
 
+    test {SORT with GET #} {
+        $r del mylist
+        $r lpush mylist 1
+        $r lpush mylist 2
+        $r lpush mylist 3
+        $r mset weight_1 10 weight_2 5 weight_3 30
+        $r sort mylist BY weight_* GET #
+    } {2 1 3}
+
     test {LREM, remove all the occurrences} {
         $r flushdb
         $r rpush mylist foo
@@ -933,6 +942,23 @@ proc main {server port} {
         }
         format $delta
     } {0}
+
+    test {ZINCRBY - can create a new sorted set} {
+        $r del zset
+        $r zincrby zset 1 foo
+        list [$r zrange zset 0 -1] [$r zscore zset foo]
+    } {foo 1}
+
+    test {ZINCRBY - increment and decrement} {
+        $r zincrby zset 2 foo
+        $r zincrby zset 1 bar
+        set v1 [$r zrange zset 0 -1]
+        $r zincrby zset 10 bar
+        $r zincrby zset -5 foo
+        $r zincrby zset -5 bar
+        set v2 [$r zrange zset 0 -1]
+        list $v1 $v2 [$r zscore zset foo] [$r zscore zset bar]
+    } {{bar foo} {foo bar} -2 6}
 
     test {EXPIRE - don't set timeouts multiple times} {
         $r set x foobar

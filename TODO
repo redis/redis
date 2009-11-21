@@ -3,10 +3,9 @@ VERSION 1.1 TODO
 * For now only the last argument gets integer encoded, so make sure that: 1) every multi bulk commands implemented will have the last arg that is indeed a value, and not used otherwise. 2) to explicitly call the function to encode the object in MSET and other commands where there are multiple "values".
 * Man pages for MSET MSETNX and SRANDMEMBER, Z-commands, ...
 * Use strcoll() to compare objects in sorted sets, like it already happens for SORT.
-* Tests for: EXPIREAT, ZSCORE, ZINCRBY, SRANDMEMBER, SORT with #.
+* Tests for: ZINCRBY, SRANDMEMBER, SORT with #.
 * Write docs for the "STORE" operaiton of SORT, and GET "#" option.
 * Append only mode: testing and a command to rebuild the log from scratch.
-* Redis-cli should be able to select a different DB than 0 using some switch.
 
 VERSION 1.2 TODO
 

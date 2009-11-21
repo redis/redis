@@ -4577,13 +4577,24 @@ static robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
         char buf[REDIS_SORTKEY_MAX+1];
     } keyname;
 
+    /* If the pattern is "#" return the substitution object itself in order
+     * to implement the "SORT ... GET #" feature. */
+    spat = pattern->ptr;
+    if (spat[0] == '#' && spat[1] == '\0') {
+        return subst;
+    }
+
+    /* The substitution object may be specially encoded. If so we create
+     * a decoded object on the fly. */
     if (subst->encoding == REDIS_ENCODING_RAW)
+        /* If we don't need to get a decoded object increment the refcount
+         * so that the final decrRefCount() call will restore the original
+         * count */
         incrRefCount(subst);
     else {
         subst = getDecodedObject(subst);
     }
 
-    spat = pattern->ptr;
     ssub = subst->ptr;
     if (sdslen(spat)+sdslen(ssub)-1 > REDIS_SORTKEY_MAX) return NULL;
     p = strchr(spat,'*');
