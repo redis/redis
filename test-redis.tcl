@@ -960,6 +960,13 @@ proc main {server port} {
         $r lrange x 0 -1
     } {bar}
 
+    test {EXPIREAT - Check for EXPIRE alike behavior} {
+        $r del x
+        $r set x foo
+        $r expireat x [expr [clock seconds]+15]
+        $r ttl x
+    } {1[345]}
+
     test {ZSETs skiplist implementation backlink consistency test} {
         set diff 0
         set elements 10000
