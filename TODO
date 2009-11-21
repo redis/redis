@@ -1,31 +1,36 @@
-VERSION 1.1 TODO
+VERSION 1.1 TODO (Zsets, Integer encoding, Append only journal)
 
 * For now only the last argument gets integer encoded, so make sure that: 1) every multi bulk commands implemented will have the last arg that is indeed a value, and not used otherwise. 2) to explicitly call the function to encode the object in MSET and other commands where there are multiple "values".
-* Man pages for MSET MSETNX and SRANDMEMBER, Z-commands, ...
+* Man pages for MSET MSETNX and SRANDMEMBER, missing Z-commands, ...
 * Use strcoll() to compare objects in sorted sets, like it already happens for SORT.
-* Tests for: SRANDMEMBER
 * Write docs for the "STORE" operaiton of SORT, and GET "#" option.
 * Append only mode: testing and a command to rebuild the log from scratch.
 
-VERSION 1.2 TODO
+VERSION 1.2 TODO (Hash type)
 
-* Basic Redis-cluster (at least all the features of the Ruby client distribute implementation + ability to set every key in M nodes).
 * Hashes (HSET, HGET, HEXISTS, HLEN, ...).
 * An utility able to export an .rdb file into a text-only JSON dump, we can't live anymore without such a tool. Probably an extension to redis-cli.
 
-LONG TERM TODO
+VERSION 1.3 TODO (Virtual memory)
 
- * Add a command to inspect the currently selected DB index
- * Consistent hashing implemented in all the client libraries having an user base
+* Redis Virtual Memory for datasets bigger than RAM (http://groups.google.com/group/redis-db/msg/752997c7b38553cd)
+
+VERSION 1.4 TODO (Fault tollerant sharding)
+
+* Redis-cluster, an fast intermediate layer (proxy) that implements consistent hashing and fault tollrant nodes handling.
+
+VERSION 1.5 TODO (Optimizations and latency)
+
+* Lower the CPU usage.
+* Lower the RAM usage everywhere possible.
+* Use epool and alike to rewrite ae.c for Linux and other platforms suppporting fater-than-select() mutiplexing APIs.
+* Implement an UDP interface for low-latency GET/SET operations.
+
+SHORT/LONG TERM RANDOM TODO ITEMS.
+
  * SORT: Don't copy the list into a vector when BY argument is constant.
- * Profiling and optimization in order to limit the CPU usage at minimum
  * Write the hash table size of every db in the dump, so that Redis can resize the hash table just one time when loading a big DB.
- * Elapsed time in logs for SAVE when saving is going to take more than 2 seconds
  * LOCK / TRYLOCK / UNLOCK as described many times in the google group
  * Replication automated tests
- * BITMAP / BYTEARRAY type?
+ * BYTEDARRAY type
  * zmalloc() should avoid to add a private header for archs where there is some other kind of libc-specific way to get the size of a malloced block.
-
-FUTURE HINTS
-
-- In memory compression: if in-memory values compression will be implemented, make sure to implement this so that addReply() is able to handle compressed objects, just creating an uncompressed version on the fly and adding this to the output queue instead of the original one. When insetad we need to look at the object string value (SORT BY for example), call a function that will turn the object into an uncompresed one. (Note, Redis 1.1 beta already has this feature actually, but is for now only used to compress strings representing integers)
