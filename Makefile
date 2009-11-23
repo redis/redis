@@ -25,7 +25,7 @@ all: redis-server redis-benchmark redis-cli
 
 # Deps (use make dep to generate this)
 adlist.o: adlist.c adlist.h zmalloc.h
-ae.o: ae.c ae.h zmalloc.h ae_select.c
+ae.o: ae.c ae.h zmalloc.h ae_select.c ae_epoll.c
 ae_select.o: ae_select.c
 anet.o: anet.c fmacros.h anet.h
 benchmark.o: benchmark.c fmacros.h ae.h anet.h sds.h adlist.h zmalloc.h
