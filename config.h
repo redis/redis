@@ -27,8 +27,10 @@
 #endif
 
 /* test for polling API */
+#if 0
 #ifdef __linux__
 #define HAVE_EPOLL 1
+#endif
 #endif
 
 #endif
