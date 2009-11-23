@@ -6,8 +6,11 @@ Most of the features already implemented for this release. The following is a li
 * For now only the last argument gets integer encoded, so make sure that: 1) every multi bulk commands implemented will have the last arg that is indeed a value, and not used otherwise. 2) to explicitly call the function to encode the object in MSET and other commands where there are multiple "values".
 * Man pages for MSET MSETNX and SRANDMEMBER, missing Z-commands, ...
 * Use strcoll() to compare objects in sorted sets, like it already happens for SORT.
-* Write docs for the "STORE" operaiton of SORT, and GET "#" option.
+* Write docs for the "STORE" operaiton of SORT. Link to the article about SORT by written by defunkt.
 * Append only mode: testing and a command to rebuild the log from scratch.
+* ZRANGEBYSCORE test, ZRANGEBYSCORE LIMIT option.
+* Sorted sets infinity tests.
+* Support for epool in ae.c.
 
 VERSION 1.2 TODO (Hash type)
 ============================
@@ -24,6 +27,10 @@ VERSION 1.4 TODO (Fault tollerant sharding)
 ===========================================
 
 * Redis-cluster, a fast intermediate layer (proxy) that implements consistent hashing and fault tollerant nodes handling.
+
+Interesting readings about this:
+
+    - http://ayende.com/Blog/archive/2009/04/06/designing-rhino-dht-a-fault-tolerant-dynamically-distributed-hash.aspx
 
 VERSION 1.5 TODO (Optimizations and latency)
 ============================================

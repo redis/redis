@@ -167,7 +167,12 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
  * put in sleep without to delay any event.
  * If there are no timers NULL is returned.
  *
- * Note that's O(N) since time events are unsorted. */
+ * Note that's O(N) since time events are unsorted.
+ * Possible optimizations (not needed by Redis so far, but...):
+ * 1) Insert the event in order, so that the nearest is just the head.
+ *    Much better but still insertion or deletion of timers is O(N).
+ * 2) Use a skiplist to have this operation as O(1) and insertion as O(log(N)).
+ */
 static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 {
     aeTimeEvent *te = eventLoop->timeEventHead;
@@ -181,6 +186,57 @@ static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
         te = te->next;
     }
     return nearest;
+}
+
+/* Process time events */
+static int processTimeEvents(aeEventLoop *eventLoop) {
+    int processed = 0;
+    aeTimeEvent *te;
+    long long maxId;
+
+    te = eventLoop->timeEventHead;
+    maxId = eventLoop->timeEventNextId-1;
+    while(te) {
+        long now_sec, now_ms;
+        long long id;
+
+        if (te->id > maxId) {
+            te = te->next;
+            continue;
+        }
+        aeGetTime(&now_sec, &now_ms);
+        if (now_sec > te->when_sec ||
+            (now_sec == te->when_sec && now_ms >= te->when_ms))
+        {
+            int retval;
+
+            id = te->id;
+            retval = te->timeProc(eventLoop, id, te->clientData);
+            processed++;
+            /* After an event is processed our time event list may
+             * no longer be the same, so we restart from head.
+             * Still we make sure to don't process events registered
+             * by event handlers itself in order to don't loop forever.
+             * To do so we saved the max ID we want to handle.
+             *
+             * FUTURE OPTIMIZATIONS:
+             * Note that this is NOT great algorithmically. Redis uses
+             * a single time event so it's not a problem but the right
+             * way to do this is to add the new elements on head, and
+             * to flag deleted elements in a special way for later
+             * deletion (putting references to the nodes to delete into
+             * another linked list). */
+            if (retval != AE_NOMORE) {
+                aeAddMillisecondsToNow(retval,&te->when_sec,&te->when_ms);
+            } else {
+                aeDeleteTimeEvent(eventLoop, id);
+            }
+            te = eventLoop->timeEventHead;
+        } else {
+            te = te->next;
+        }
+    }
+    return processed;
 }
 
 /* Process every pending time event, then every pending file event
@@ -201,9 +257,6 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
     int maxfd = 0, numfd = 0, processed = 0;
     fd_set rfds, wfds, efds;
     aeFileEvent *fe = eventLoop->fileEventHead;
-    aeTimeEvent *te;
-    long long maxId;
-    AE_NOTUSED(flags);
 
     /* Nothing to do? return ASAP */
     if (!(flags & AE_TIME_EVENTS) && !(flags & AE_FILE_EVENTS)) return 0;
@@ -296,41 +349,9 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         }
     }
     /* Check time events */
-    if (flags & AE_TIME_EVENTS) {
-        te = eventLoop->timeEventHead;
-        maxId = eventLoop->timeEventNextId-1;
-        while(te) {
-            long now_sec, now_ms;
-            long long id;
+    if (flags & AE_TIME_EVENTS)
+        processed += processTimeEvents(eventLoop);
 
-            if (te->id > maxId) {
-                te = te->next;
-                continue;
-            }
-            aeGetTime(&now_sec, &now_ms);
-            if (now_sec > te->when_sec ||
-                (now_sec == te->when_sec && now_ms >= te->when_ms))
-            {
-                int retval;
-
-                id = te->id;
-                retval = te->timeProc(eventLoop, id, te->clientData);
-                /* After an event is processed our time event list may
-                 * no longer be the same, so we restart from head.
-                 * Still we make sure to don't process events registered
-                 * by event handlers itself in order to don't loop forever.
-                 * To do so we saved the max ID we want to handle. */
-                if (retval != AE_NOMORE) {
-                    aeAddMillisecondsToNow(retval,&te->when_sec,&te->when_ms);
-                } else {
-                    aeDeleteTimeEvent(eventLoop, id);
-                }
-                te = eventLoop->timeEventHead;
-            } else {
-                te = te->next;
-            }
-        }
-    }
     return processed; /* return the number of processed file/time events */
 }
 
