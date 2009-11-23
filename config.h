@@ -26,4 +26,9 @@
 #define HAVE_BACKTRACE 1
 #endif
 
+/* test for polling API */
+#ifdef __linux__
+#define HAVE_EPOLL 1
+#endif
+
 #endif
