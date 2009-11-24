@@ -5742,6 +5742,18 @@ fmterr:
 static void debugCommand(redisClient *c) {
     if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
         *((char*)-1) = 'x';
+    } else if (!strcasecmp(c->argv[1]->ptr,"reload")) {
+        if (rdbSave(server.dbfilename) != REDIS_OK) {
+            addReply(c,shared.err);
+            return;
+        }
+        emptyDb();
+        if (rdbLoad(server.dbfilename) != REDIS_OK) {
+            addReply(c,shared.err);
+            return;
+        }
+        redisLog(REDIS_WARNING,"DB reloaded by DEBUG RELOAD");
+        addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"object") && c->argc == 3) {
         dictEntry *de = dictFind(c->db->dict,c->argv[2]);
         robj *key, *val;
@@ -5757,7 +5769,7 @@ static void debugCommand(redisClient *c) {
                 key, key->refcount, val, val->refcount, val->encoding));
     } else {
         addReplySds(c,sdsnew(
-            "-ERR Syntax error, try DEBUG [SEGFAULT|OBJECT <key>]\r\n"));
+            "-ERR Syntax error, try DEBUG [SEGFAULT|OBJECT <key>|RELOAD]\r\n"));
     }
 }
 

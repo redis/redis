@@ -235,6 +235,19 @@ proc main {server port} {
         format $ok
     } {2000}
 
+    test {Check if the list is still ok after a DEBUG RELOAD} {
+        $r debug reload
+        set ok 0
+        for {set i 0} {$i < 1000} {incr i} {
+            set rint [expr int(rand()*1000)]
+            if {[$r lindex mylist $rint] eq $rint} {incr ok}
+            if {[$r lindex mylist [expr (-$rint)-1]] eq [expr 999-$rint]} {
+                incr ok
+            }
+        }
+        format $ok
+    } {2000}
+
     test {LLEN against non-list value error} {
         $r del mylist
         $r set mylist foobar
@@ -547,6 +560,12 @@ proc main {server port} {
     } [lsort -uniq "[$r smembers set1] [$r smembers set2]"]
     
     test {SINTERSTORE with two sets} {
+        $r sinterstore setres set1 set2
+        lsort [$r smembers setres]
+    } {995 996 997 998 999}
+
+    test {SINTERSTORE with two sets, after a DEBUG RELOAD} {
+        $r debug reload
         $r sinterstore setres set1 set2
         lsort [$r smembers setres]
     } {995 996 997 998 999}
@@ -897,6 +916,25 @@ proc main {server port} {
             lappend aux $score
             $r zadd zscoretest $score $i
         }
+        for {set i 0} {$i < 1000} {incr i} {
+            if {[$r zscore zscoretest $i] != [lindex $aux $i]} {
+                set err "Expected score was [lindex $aux $i] but got [$r zscore zscoretest $i] for element $i"
+                break
+            }
+        }
+        set _ $err
+    } {}
+
+    test {ZSCORE after a DEBUG RELOAD} {
+        set aux {}
+        set err {}
+        $r del zscoretest
+        for {set i 0} {$i < 1000} {incr i} {
+            set score [expr rand()]
+            lappend aux $score
+            $r zadd zscoretest $score $i
+        }
+        $r debug reload
         for {set i 0} {$i < 1000} {incr i} {
             if {[$r zscore zscoretest $i] != [lindex $aux $i]} {
                 set err "Expected score was [lindex $aux $i] but got [$r zscore zscoretest $i] for element $i"
