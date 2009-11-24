@@ -1,16 +1,17 @@
+Redis TODO and Roadmap
+
 VERSION 1.1 TODO (Zsets, Integer encoding, Append only journal)
 ===============================================================
 
 Most of the features already implemented for this release. The following is a list of the missing things in order to release the first beta tar.gz:
 
-* For now only the last argument gets integer encoded, so make sure that: 1) every multi bulk commands implemented will have the last arg that is indeed a value, and not used otherwise. 2) to explicitly call the function to encode the object in MSET and other commands where there are multiple "values".
-* Man pages for MSET MSETNX and SRANDMEMBER, missing Z-commands, ...
+* For now only the last argument gets integer encoded, so make sure that: 1) every multi bulk command implemented will have the last arg that is indeed a value, and not used otherwise. 2) to explicitly call the function to encode the object in MSET and other commands where there are multiple "values".
+* Man pages for SRANDMEMBER, missing Z-commands, ...
 * Use strcoll() to compare objects in sorted sets, like it already happens for SORT.
 * Write docs for the "STORE" operaiton of SORT. Link to the article about SORT by written by defunkt.
 * Append only mode: testing and a command to rebuild the log from scratch.
 * ZRANGEBYSCORE test, ZRANGEBYSCORE LIMIT option.
 * Sorted sets infinity tests.
-* Support for epool in ae.c.
 
 VERSION 1.2 TODO (Hash type)
 ============================
