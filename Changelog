@@ -1,3 +1,37 @@
+2009-11-24 sorted sets saving fixed
+2009-11-24 minor TODO change
+2009-11-24 minor fix to avoid a false valgrind warning.
+2009-11-23 epoll support enabled by default for Linux builds
+2009-11-23 epoll module for ae.c implemented. Some more testing needed
+2009-11-23 commented the HAVE_EPOLL test in config.h to allow compilation under Linux now that the epoll module is still missing
+2009-11-23 ae_select module added
+2009-11-23 ae.c now supports multiple polling API modules, even if only ae_select.c is implemented currently. Also adding and removing an event is now O(1).
+2009-11-23 ae.c initial refactoring for epoll implementation
+2009-11-21 version incremented up to 1.06
+2009-11-21 TODO aesthetic changes
+2009-11-21 TODO updated with plans up to 1.5
+2009-11-21 SRANDMEMBER test
+2009-11-21 Fixed a SORT memory leak that should never happen in practice
+2009-11-21 SORT GET # implemented, with a test
+2009-11-21 EXPIREAT test
+2009-11-20 EXPIRE tests
+2009-11-20 more RPOPLPUSH tests
+2009-11-20 RPOPLPUSH tests added
+2009-11-20 ZINCRBY return value fixed
+2009-11-20 ZINCRSCOREBY => ZINCRBY
+2009-11-19 ZINCRSCOREBY implemented
+2009-11-19 writev() finally uncommented again
+2009-11-19 redis-benchmark hopefully last bug with multi bulk reply fixed
+2009-11-19 debug mode in redis-bench
+2009-11-19 Use writev(2) if glue output buffers is disabled
+2009-11-19 benchmark.c fixes
+2009-11-18 more experiments with long replies, glue output buffer, and writev.
+2009-11-18 benchmarking with different number of LRANGE elements. Ability to change the glue output buffer limit by #define
+2009-11-18 more writev tests/work
+2009-11-18 redis-benchmark multi bulk reply support hopefully fixed
+2009-11-17 support for writev implemented but currently ifdef-ed in order to understan why I can't see the improvements expected. Btw code provided by Stefano Barbato
+2009-11-17 multi-bulk reply support for redis-bench, and as a result LRANGE is not tested, providing some number for the tuning of multi-bulk requests performances server-side
+2009-11-12 Solaris fix thanks to Alan Harder
 2009-11-12 Merge git://github.com/ianxm/redis
 2009-11-12 ZSCORE fixed, now returns NULL on missing key or missing element
 2009-11-12 Redis test will not fail the SAVE test even if a background save is in progress
