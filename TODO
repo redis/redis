@@ -12,6 +12,9 @@ Most of the features already implemented for this release. The following is a li
 * Append only mode: testing and a command to rebuild the log from scratch.
 * ZRANGEBYSCORE test, ZRANGEBYSCORE LIMIT option.
 * Sorted sets infinity tests.
+* Instead to do the lamest thing of using getDecodedObject only if the encoding
+  of the object != REDIS_ENCODING_RAW, hack getDecodedObject in order to just
+  increment the reference count if the object is already RAW-encoded.
 
 VERSION 1.2 TODO (Hash type)
 ============================
@@ -50,3 +53,4 @@ SHORT/LONG TERM RANDOM TODO ITEMS
  * Replication automated tests
  * BYTEDARRAY type
  * zmalloc() should avoid to add a private header for archs where there is some other kind of libc-specific way to get the size of a malloced block.
+ * Read-only mode.

@@ -115,6 +115,8 @@ static struct redisCommand cmdTable[] = {
     {"echo",2,REDIS_CMD_BULK},
     {"save",1,REDIS_CMD_INLINE},
     {"bgsave",1,REDIS_CMD_INLINE},
+    {"rewriteaof",1,REDIS_CMD_INLINE},
+    {"bgrewriteaof",1,REDIS_CMD_INLINE},
     {"shutdown",1,REDIS_CMD_INLINE},
     {"lastsave",1,REDIS_CMD_INLINE},
     {"type",2,REDIS_CMD_INLINE},
