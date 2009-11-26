@@ -5740,7 +5740,7 @@ int loadAppendOnlyFile(char *filename) {
             if (buf[0] != '$') goto fmterr;
             len = strtol(buf+1,NULL,10);
             argsds = sdsnewlen(NULL,len);
-            if (fread(argsds,len,1,fp) == 0) goto fmterr;
+            if (len && fread(argsds,len,1,fp) == 0) goto fmterr;
             argv[j] = createObject(REDIS_STRING,argsds);
             if (fread(buf,2,1,fp) == 0) goto fmterr; /* discard CRLF */
         }
