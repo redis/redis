@@ -924,6 +924,7 @@ void backgroundRewriteDoneHandler(int statloc) {
             close(server.appendfd);
             server.appendfd = fd;
             fsync(fd);
+            server.appendseldb = -1; /* Make sure it will issue SELECT */
             redisLog(REDIS_NOTICE,"The new append only file was selected for future appends.");
         } else {
             /* If append only is disabled we just generate a dump in this
@@ -5656,6 +5657,14 @@ static void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv
          }
          exit(1);
     }
+    /* If a background append only file rewriting is in progress we want to
+     * accumulate the differences between the child DB and the current one
+     * in a buffer, so that when the child process will do its work we
+     * can append the differences to the new append only file. */
+    if (server.bgrewritechildpid != -1)
+        server.bgrewritebuf = sdscatlen(server.bgrewritebuf,buf,sdslen(buf));
+
+    sdsfree(buf);
     now = time(NULL);
     if (server.appendfsync == APPENDFSYNC_ALWAYS ||
         (server.appendfsync == APPENDFSYNC_EVERYSEC &&
@@ -5845,7 +5854,7 @@ static int rewriteAppendOnlyFile(char *filename) {
 
         /* SELECT the new DB */
         if (fwrite(selectcmd,sizeof(selectcmd)-1,1,fp) == 0) goto werr;
-        if (fwriteBulkLong(fp,j+1) == 0) goto werr;
+        if (fwriteBulkLong(fp,j) == 0) goto werr;
 
         /* Iterate this DB writing every entry */
         while((de = dictNext(di)) != NULL) {
@@ -5854,7 +5863,6 @@ static int rewriteAppendOnlyFile(char *filename) {
             time_t expiretime = getExpire(db,key);
 
             /* Save the key and associated value */
-            if (rdbSaveStringObject(fp,key) == -1) goto werr;
             if (o->type == REDIS_STRING) {
                 /* Emit a SET command */
                 char cmd[]="*3\r\n$3\r\nSET\r\n";
@@ -5985,6 +5993,11 @@ static int rewriteAppendOnlyFileBackground(void) {
         redisLog(REDIS_NOTICE,
             "Background append only file rewriting started by pid %d",childpid);
         server.bgrewritechildpid = childpid;
+        /* We set appendseldb to -1 in order to force the next call to the
+         * feedAppendOnlyFile() to issue a SELECT command, so the differences
+         * accumulated by the parent into server.bgrewritebuf will start
+         * with a SELECT statement and it will be safe to merge. */
+        server.appendseldb = -1;
         return REDIS_OK;
     }
     return REDIS_OK; /* unreached */
