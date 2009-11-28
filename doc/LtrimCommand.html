@@ -1,0 +1,47 @@
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<html>
+    <head>
+        <link type="text/css" rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <div id="page">
+        
+            <div id='header'>
+            <a href="index.html">
+            <img style="border:none" alt="Redis Documentation" src="redis.png">
+            </a>
+            </div>
+        
+            <div id="pagecontent">
+                <div class="index">
+<!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
+<b>LtrimCommand: Contents</b><br>&nbsp;&nbsp;<a href="#LTRIM _key_ _start_ _end_">LTRIM _key_ _start_ _end_</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#See also">See also</a>
+                </div>
+                
+                <h1 class="wikiname">LtrimCommand</h1>
+
+                <div class="summary">
+                    
+                </div>
+
+                <div class="narrow">
+                    <h1><a name="LTRIM _key_ _start_ _end_">LTRIM _key_ _start_ _end_</a></h1>
+<i>Time complexity: O(n) (with n being len of list - len of range)</i><blockquote>Trim an existing list so that it will contain only the specifiedrange of elements specified. Start and end are zero-based indexes.0 is the first element of the list (the list head), 1 the next elementand so on.</blockquote>
+<blockquote>For example LTRIM foobar 0 2 will modify the list stored at foobarkey so that only the first three elements of the list will remain.</blockquote>
+<blockquote>_start_ and <i>end</i> can also be negative numbers indicating offsetsfrom the end of the list. For example -1 is the last element ofthe list, -2 the penultimate element and so on.</blockquote>
+<blockquote>Indexes out of range will not produce an error: if start is overthe end of the list, or start &gt; end, an empty list is left as value.If end over the end of the list Redis will threat it just likethe last element of the list.</blockquote>
+<blockquote>Hint: the obvious use of LTRIM is together with LPUSH/RPUSH. For example:</blockquote>
+<pre class="codeblock python" name="code">
+        LPUSH mylist &lt;someelement&gt;
+        LTRIM mylist 0 99
+</pre><blockquote>The above two commands will push elements in the list taking care thatthe list will not grow without limits. This is very useful when usingRedis to store logs for example. It is important to note that when usedin this way LTRIM is an O(1) operation because in the average casejust one element is removed from the tail of the list.</blockquote>
+<h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Status code reply</a><h2><a name="See also">See also</a></h2>
+<ul><li> <a href="RpushCommand.html">RPUSH</a></li><li> <a href="RpushCommand.html">LPUSH</a></li><li> <a href="LlenCommand.html">LLEN</a></li><li> <a href="LrangeCommand.html">LRANGE</a></li><li> <a href="LtrimCommand.html">LTRIM</a></li><li> <a href="LindexCommand.html">LINDEX</a></li><li> <a href="LsetCommand.html">LSET</a></li><li> <a href="LremCommand.html">LREM</a></li><li> <a href="LpopCommand.html">LPOP</a></li><li> <a href="LpopCommand.html">RPOP</a></li><li> <a href="RpoplpushCommand.html">RPOPLPUSH</a></li></ul>
+                </div>
+        
+            </div>
+        </div>
+    </body>
+</html>
+

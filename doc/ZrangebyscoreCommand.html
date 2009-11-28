@@ -1,0 +1,39 @@
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<html>
+    <head>
+        <link type="text/css" rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <div id="page">
+        
+            <div id='header'>
+            <a href="index.html">
+            <img style="border:none" alt="Redis Documentation" src="redis.png">
+            </a>
+            </div>
+        
+            <div id="pagecontent">
+                <div class="index">
+<!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
+<b>ZrangebyscoreCommand: Contents</b><br>&nbsp;&nbsp;<a href="#ZRANGEBYSCORE _key_ _min_ _max_ (Redis &gt;">ZRANGEBYSCORE _key_ _min_ _max_ (Redis &gt;</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#See also">See also</a>
+                </div>
+                
+                <h1 class="wikiname">ZrangebyscoreCommand</h1>
+
+                <div class="summary">
+                    
+                </div>
+
+                <div class="narrow">
+                    <h1><a name="ZRANGEBYSCORE _key_ _min_ _max_ (Redis &gt;">ZRANGEBYSCORE _key_ _min_ _max_ (Redis &gt;</a></h1> 1.1) =
+<i>Time complexity: O(log(N))+O(M) with N being the number of elements in the sorted set and M the number of elements matching the min and max score</i><blockquote>Return the all the elements in the sorted set at key with a score between_min_ and <i>max</i> (including elements with score equal to min or max).</blockquote>
+<blockquote>The elements having the same score are returned sorted lexicographically asASCII strings (this follows from a property of Redis sorted sets and does notinvolve further computation).</blockquote>
+<h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Multi bulk reply</a>, specifically a list of elements in the specified score range.<h2><a name="See also">See also</a></h2><ul><li> <a href="ZaddCommand.html">ZADD</a></li><li> <a href="ZremCommand.html">ZREM</a></li><li> <a href="ZrangeCommand.html">ZRANGE</a></li><li> <a href="ZrangeCommand.html">ZREVRANGE</a></li><li> <a href="ZcardCommand.html">ZCARD</a></li><li> <a href="ZscoreCommand.html">ZSCORE</a></li></ul>
+                </div>
+        
+            </div>
+        </div>
+    </body>
+</html>
+
