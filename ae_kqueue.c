@@ -87,3 +87,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     }
     return numevents;
 }
+
+static char *aeApiName(void) {
+    return "kqueue";
+}

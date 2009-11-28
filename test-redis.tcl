@@ -1,4 +1,7 @@
-# TODO # test pipelining
+# test-redis.tcl
+# Redis test suite. Copyright (C) 2009 Salvatore Sanfilippo antirez@gmail.com
+# This softare is released under the BSD License. See the COPYING file for
+# more information.
 
 set tcl_precision 17
 source redis.tcl
