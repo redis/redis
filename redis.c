@@ -3059,6 +3059,7 @@ static void msetGenericCommand(redisClient *c, int nx) {
     for (j = 1; j < c->argc; j += 2) {
         int retval;
 
+        tryObjectEncoding(c->argv[j+1]);
         retval = dictAdd(c->db->dict,c->argv[j],c->argv[j+1]);
         if (retval == DICT_ERR) {
             dictReplace(c->db->dict,c->argv[j],c->argv[j+1]);

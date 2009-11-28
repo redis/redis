@@ -1092,6 +1092,14 @@ proc main {server port} {
         $r save
     } {OK}
 
+    catch {
+        if {[string match {*Darwin*} [exec uname -a]]} {
+            test {Check for memory leaks} {
+                exec leaks redis-server
+            } {*0 leaks*}
+        }
+    }
+
     puts "\n[expr $::passed+$::failed] tests, $::passed passed, $::failed failed"
     if {$::failed > 0} {
         puts "\n*** WARNING!!! $::failed FAILED TESTS ***\n"
