@@ -5,7 +5,6 @@ VERSION 1.2 TODO (Zsets, Integer encoding, Append only journal)
 
 Most of the features already implemented for this release. The following is a list of the missing things in order to release the first beta tar.gz:
 
-* For now only the last argument gets integer encoded, so make sure that: 1) every multi bulk command implemented will have the last arg that is indeed a value, and not used otherwise. 2) to explicitly call the function to encode the object in MSET and other commands where there are multiple "values".
 * Man pages for SRANDMEMBER, missing Z-commands, ...
 * Write docs for the "STORE" operaiton of SORT. Link to the article about SORT by written by defunkt.
 * ZRANGEBYSCORE test, ZRANGEBYSCORE LIMIT option.
