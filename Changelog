@@ -1,3 +1,20 @@
+2009-11-28 html doc updated
+2009-11-28 enable kqueue/kevent only for Mac OS X 10.6.x as it seems that 10.5.x has a broken implementation of this syscalls.
+2009-11-28 TODO updated
+2009-11-28 ZRANGEBYSCORE fuzzy test
+2009-11-28 ZRANGEBYSCORE memory leak fixed, ZRANGEBYSCORE initial test added
+2009-11-28 INFO refactored. Stack trace on memory corruption now dumps the same information as the INFO command
+2009-11-28 ifdefs added to use kevent on Free Open and Net BSD as well. INFO and ae.c modified in order to report the multiplexing API in use
+2009-11-28 Enabled object encoding for multiple keys in MSET. Added a test for memory leaks in test-redis.tcl when running on Mac OS X
+2009-11-28 Merge branch 'kqueue' of git://github.com/mallipeddi/redis
+2009-11-28 Changes to TODO list, commented a function in redis.c
+2009-11-28 Added support for kqueue.
+2009-11-27 TODO updated
+2009-11-26 zero length bulk data reading fixed in loadAppendOnlyFile()
+2009-11-26 append only file fixes
+2009-11-26 log rebuilding, random refactoring, work in progress please wait for an OK commit before to use this version
+2009-11-24 DEBUG RELOAD implemented, and test-redis.tcl modified to use it to check for persistence consistency.
+2009-11-24 Redis version set to 1.07
 2009-11-24 sorted sets saving fixed
 2009-11-24 minor TODO change
 2009-11-24 minor fix to avoid a false valgrind warning.
