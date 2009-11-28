@@ -1014,6 +1014,27 @@ proc main {server port} {
         list $v1 $v2 [$r zscore zset foo] [$r zscore zset bar]
     } {{bar foo} {foo bar} -2 6}
 
+    test {ZRANGEBYSCORE basics} {
+        $r del zset
+        $r zadd zset 1 a
+        $r zadd zset 2 b
+        $r zadd zset 3 c
+        $r zadd zset 4 d
+        $r zadd zset 5 e
+        $r zrangebyscore zset 2 4
+    } {b c d}
+
+    test {Sorted sets +inf and -inf handling} {
+        $r del zset
+        $r zadd zset -100 a
+        $r zadd zset 200 b
+        $r zadd zset -300 c
+        $r zadd zset 1000000 d
+        $r zadd zset +inf max
+        $r zadd zset -inf min
+        $r zrange zset 0 -1
+    } {min c a b d max}
+
     test {EXPIRE - don't set timeouts multiple times} {
         $r set x foobar
         set v1 [$r expire x 5]
