@@ -31,4 +31,8 @@
 #define HAVE_EPOLL 1
 #endif
 
+#ifdef __APPLE__
+#define HAVE_KQUEUE 1
+#endif
+
 #endif
