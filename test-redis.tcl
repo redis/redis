@@ -1024,6 +1024,45 @@ proc main {server port} {
         $r zrangebyscore zset 2 4
     } {b c d}
 
+    test {ZRANGEBYSCORE fuzzy test, 100 ranges in 1000 elements sorted set} {
+        set err {}
+        $r del zset
+        for {set i 0} {$i < 1000} {incr i} {
+            $r zadd zset [expr rand()] $i
+        }
+        for {set i 0} {$i < 100} {incr i} {
+            set min [expr rand()]
+            set max [expr rand()]
+            if {$min > $max} {
+                set aux $min
+                set min $max
+                set max $aux
+            }
+            set low [$r zrangebyscore zset -inf $min]
+            set ok [$r zrangebyscore zset $min $max]
+            set high [$r zrangebyscore zset $max +inf]
+            foreach x $low {
+                set score [$r zscore zset $x]
+                if {$score > $min} {
+                    append err "Error, score for $x is $score > $min\n"
+                }
+            }
+            foreach x $ok {
+                set score [$r zscore zset $x]
+                if {$score < $min || $score > $max} {
+                    append err "Error, score for $x is $score outside $min-$max range\n"
+                }
+            }
+            foreach x $high {
+                set score [$r zscore zset $x]
+                if {$score < $max} {
+                    append err "Error, score for $x is $score < $max\n"
+                }
+            }
+        }
+        set _ $err
+    } {}
+
     test {Sorted sets +inf and -inf handling} {
         $r del zset
         $r zadd zset -100 a
