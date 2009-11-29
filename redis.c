@@ -4805,7 +4805,9 @@ static void sortCommand(redisClient *c) {
         addReply(c,shared.nokeyerr);
         return;
     }
-    if (sortval->type != REDIS_SET && sortval->type != REDIS_LIST) {
+    if (sortval->type != REDIS_SET && sortval->type != REDIS_LIST &&
+        sortval->type != REDIS_ZSET)
+    {
         addReply(c,shared.wrongtypeerr);
         return;
     }
@@ -4858,11 +4860,15 @@ static void sortCommand(redisClient *c) {
     }
 
     /* Load the sorting vector with all the objects to sort */
-    vectorlen = (sortval->type == REDIS_LIST) ?
-        listLength((list*)sortval->ptr) :
-        dictSize((dict*)sortval->ptr);
+    switch(sortval->type) {
+    case REDIS_LIST: vectorlen = listLength((list*)sortval->ptr); break;
+    case REDIS_SET: vectorlen =  dictSize((dict*)sortval->ptr); break;
+    case REDIS_ZSET: vectorlen = dictSize(((zset*)sortval->ptr)->dict); break;
+    default: vectorlen = 0; assert(0); /* Avoid GCC warning */
+    }
     vector = zmalloc(sizeof(redisSortObject)*vectorlen);
     j = 0;
+
     if (sortval->type == REDIS_LIST) {
         list *list = sortval->ptr;
         listNode *ln;
@@ -4876,9 +4882,16 @@ static void sortCommand(redisClient *c) {
             j++;
         }
     } else {
-        dict *set = sortval->ptr;
+        dict *set;
         dictIterator *di;
         dictEntry *setele;
+
+        if (sortval->type == REDIS_SET) {
+            set = sortval->ptr;
+        } else {
+            zset *zs = sortval->ptr;
+            set = zs->dict;
+        }
 
         di = dictGetIterator(set);
         while((setele = dictNext(di)) != NULL) {
