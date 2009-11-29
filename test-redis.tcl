@@ -1063,6 +1063,30 @@ proc main {server port} {
         set _ $err
     } {}
 
+    test {ZRANGEBYSCORE with LIMIT} {
+        $r del zset
+        $r zadd zset 1 a
+        $r zadd zset 2 b
+        $r zadd zset 3 c
+        $r zadd zset 4 d
+        $r zadd zset 5 e
+        list \
+            [$r zrangebyscore zset 0 10 LIMIT 0 2] \
+            [$r zrangebyscore zset 0 10 LIMIT 2 3] \
+            [$r zrangebyscore zset 0 10 LIMIT 2 10] \
+            [$r zrangebyscore zset 0 10 LIMIT 20 10]
+    } {{a b} {c d e} {c d e} {}}
+
+    test {SORT against sorted sets} {
+        $r del zset
+        $r zadd zset 1 a
+        $r zadd zset 5 b
+        $r zadd zset 2 c
+        $r zadd zset 10 d
+        $r zadd zset 3 e
+        $r sort zset alpha desc
+    } {e d c b a}
+
     test {Sorted sets +inf and -inf handling} {
         $r del zset
         $r zadd zset -100 a

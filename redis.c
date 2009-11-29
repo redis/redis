@@ -501,7 +501,7 @@ static struct redisCommand cmdTable[] = {
     {"lrange",lrangeCommand,4,REDIS_CMD_INLINE},
     {"ltrim",ltrimCommand,4,REDIS_CMD_INLINE},
     {"lrem",lremCommand,4,REDIS_CMD_BULK},
-    {"rpoplpush",rpoplpushcommand,3,REDIS_CMD_BULK},
+    {"rpoplpush",rpoplpushcommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
     {"sadd",saddCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
     {"srem",sremCommand,3,REDIS_CMD_BULK},
     {"smove",smoveCommand,4,REDIS_CMD_BULK},
@@ -4570,6 +4570,7 @@ static void zrangebyscoreCommand(redisClient *c) {
     } else if (c->argc == 7) {
         offset = atoi(c->argv[5]->ptr);
         limit = atoi(c->argv[6]->ptr);
+        if (offset < 0) offset = 0;
     }
 
     o = lookupKeyRead(c->db,c->argv[1]);

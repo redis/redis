@@ -7,8 +7,6 @@ Most of the features already implemented for this release. The following is a li
 
 * Man pages for SRANDMEMBER, missing Z-commands, ...
 * Write docs for the "STORE" operaiton of SORT. Link to the article about SORT by written by defunkt.
-* ZRANGEBYSCORE LIMIT option and test.
-* check the command table for deny on OOM correctness.
 
 VERSION 1.4 TODO (Hash type)
 ============================
