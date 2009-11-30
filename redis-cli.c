@@ -42,7 +42,7 @@
 
 #define REDIS_CMD_INLINE 1
 #define REDIS_CMD_BULK 2
-#define REDIS_CMD_MULTIBULK 3
+#define REDIS_CMD_MULTIBULK 4
 
 #define REDIS_NOTUSED(V) ((void) V)
 
