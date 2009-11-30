@@ -1,4 +1,5 @@
 static struct redisFunctionSym symsTable[] = {
+{"_redisAssert",(unsigned long)_redisAssert},
 {"acceptHandler",(unsigned long)acceptHandler},
 {"addReply",(unsigned long)addReply},
 {"addReplyBulkLen",(unsigned long)addReplyBulkLen},
@@ -55,6 +56,7 @@ static struct redisFunctionSym symsTable[] = {
 {"fwriteBulk",(unsigned long)fwriteBulk},
 {"fwriteBulkDouble",(unsigned long)fwriteBulkDouble},
 {"fwriteBulkLong",(unsigned long)fwriteBulkLong},
+{"genRedisInfoString",(unsigned long)genRedisInfoString},
 {"getCommand",(unsigned long)getCommand},
 {"getDecodedObject",(unsigned long)getDecodedObject},
 {"getExpire",(unsigned long)getExpire},
