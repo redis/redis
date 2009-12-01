@@ -1,0 +1,11 @@
+- Use N working childs (fork at startup) in order to implement async I/O.
+- The swap file is opened at startup and unlink(2)-ed
+- Swap file free/used block bitmap is taken on memory
+- When a child is saving on background or rewriting the append only log the swap file gets freezed (no writes from the parent).
+- When Redis is low on memory keys not recently used and big enough will be trasnfered on Disk by one of the child processes doing async I/O. Only when the transfer finishes the parent will mark the value as swapped out and will free the associated value.
+- When Redis is going to process a command will first check that all the keys involved are in memory. If not will send a request to an async I/O child in order to load this keys in memory. When the operation finished Redis will "resume" the client opreation (just the client structure will hold the arguments of the suspended command, Redis will execute the command and unmask the read/write events in the client socket).
+- async I/O childs and parent communicate via pipes, so while Redis is blocked in the event loop can be resumed by an async child I/O just writing a message in the pipe.
+- Every Redis type should have a function to guess the max space needed to serialized an object.
+- The swap file is divided into blocks.
+- Even if Redis unblock the command when not all the keys are loaded, or if a key was swapped out in the mean time, this is not a critical condition as anyway the key lookup process will (this time synchronously) load the keys in memory if needed. This should happen very rarely or possibly never, so a bug in the async loading stage will not cause a bug but just a performance hit.
+- The blocks allocation algorithm should try to avoid fragmentation and cache misses.

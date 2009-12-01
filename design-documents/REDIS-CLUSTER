@@ -1,0 +1,115 @@
+Redis Cluster Design Proposal (work in progress)
+
+Network layout
+==============
+
+    - N different Data Nodes. Every node is identified by ip:port.
+    - A single Configuration Node.
+    - M different Proxy Nodes (redis-cluster).
+    - A single Handling Node.
+
+Configuration Node
+==================
+
+    - Contains information about all the Data nodes in the cluster.
+    - Contains information about all the Proxy nodes in the cluster.
+    - Maps the keyspace to different nodes.
+
+The keyspace is divided into 1024 different "hashing slots".
+
+Given a key perform SHA1(key) and use the last 10 bits of the result to get a 10 bit number representing the key slot (from 0 to 1023).
+
+The Configuration node maps every slot of the keyspace to K different Data Nodes.
+
+The Configuration node can be modified by a single client at a time. Locking is performed using SETNX.
+
+The Configuration node should be replicated as there is a single configuration node for the whole network.
+
+The Configuration node is a standard Redis server, like every other Data node.
+
+Data Nodes
+==========
+
+Data nodes just hold data, and are normal Redis processes. There is no configuration stored on nodes, nor the nodes are "active" in the cluster, they just receive normal Redis commands.
+
+Proxy Nodes
+===========
+
+Proxy nodes get requests from clients and route this requests to the right Redis nodes.
+
+When a proxy node is started it needs to know the Configuration node address in order to load the infomration about the Data nodes and the mapping between the key space and the nodes.
+
+On startup a Proxy node will also register itself in the Configuration node, and will make sure to refresh it's configuration every N seconds (via an EXPIREing key) so that it's possible to detect when a Proxy node fails.
+
+The Proxy node also is in charge of signaling failing Data nodes to the Configuration node, so that the Handling node can take appropriate actions.
+
+When a new Data node joins or leaves the cluster, and in general when the cluster configuration changes, all the Proxy nodes will receive a notification and will reload the configuration from the Configuration node.
+
+Handling Node
+=============
+
+The handling node is a special Redis client with the following role:
+
+    - Handles the cluster configuration stored in the Config node.
+    - Is in charge for adding and removing nodes dynamically from the net.
+    - Relocates keys on nodes additions / removal.
+    - Signal a configuration change to Proxy nodes.
+
+More details on hashing slots
+============================
+
+The Configuration node holds 1024 keys in the following form:
+
+    hashingslot:0
+    hashingslot:1
+    ...
+    hashingslot:1023
+
+Every hashing slot is actually a Redis list, containing a single or more ip:port pairs. For instance:
+
+    hashingslot:10 => 192.168.1.19:6379, 192.168.1.200:6379
+
+This mean that keys hashing to slot 10 will be saved in the two Data nodes  192.168.1.19:6379 and 192.168.1.200:6379.
+
+When a client performs a read operation (via a proxy node), the proxy will contact a random Data node among the data nodes in charge for the given slot.
+
+For instance a client can ask for the following operation to a given Proxy node:
+
+    GET mykey
+
+"mykey" hashes to (for instance) slot 10, so the Proxy will forward the request to either Data node 192.168.1.19:6379 or 192.168.1.200:6379, and then forward back the reply to the client.
+
+When a write operation is performed, it is forwarded to both the Data nodes in the example (and in general to all the data nodes).
+
+Adding or removing a node
+=========================
+
+When a Data node is added to the cluster, it is added via an LPUSH operation into a Redis list representing a queue of Data nodes that are ready to enter the cluster. This list is hold by the Configuration node of course, and can be added manually or via a configuration utility.
+
+    LPUSH newnodes 192.168.1.55:6379
+
+The Handling node will check from time to time for this new elements in the "newode" list. If there are new nodes pending to enter the cluster, they are processed one after the other in this way:
+
+For instance let's assume there are already two Data nodes in the cluster:
+
+    192.168.1.1:6379
+    192.168.1.2:6379
+
+We add a new node 192.168.1.3:6379 via the LPUSH operation.
+
+We can imagine that the 1024 hash slots are assigned equally among the two inital nodes. In order to add the new (third) node what we have to do is to move incrementally 341 slots form the two old servers to the new one.
+
+For now we can think that every hash slot is only stored in a single server, to generalize the idea later.
+
+In order to simplify the implementation every slot can be moved from one Data node to another one in a blocking way, that is, read operations will continue to all the 1024 slots, but a single slot at a time will delay write operations until the moving from one Data node to another is completed.
+
+In order to do so the Handler node, before to move a given node, marks it as "write-locked" in the Configuration server, than asks all the Proxy nodes to refresh the configuration.
+
+Then the slot is moved (1/1024 of all the keys). The Configuration server is modified to reflect the new hashing slots configuration, the slot is unlocked, the Proxy nodes notified.
+
+Implementation details
+======================
+
+Every Proxy node should take persistent connections to all the Data nodes.
+
+To run the Handling node and the Configuration node in the same physical computer is probably a good idea.

@@ -1077,6 +1077,26 @@ proc main {server port} {
             [$r zrangebyscore zset 0 10 LIMIT 20 10]
     } {{a b} {c d e} {c d e} {}}
 
+    test {ZREMRANGE basics} {
+        $r del zset
+        $r zadd zset 1 a
+        $r zadd zset 2 b
+        $r zadd zset 3 c
+        $r zadd zset 4 d
+        $r zadd zset 5 e
+        list [$r zremrangebyscore zset 2 4] [$r zrange zset 0 -1]
+    } {3 {a e}}
+
+    test {ZREMRANGE from -inf to +inf} {
+        $r del zset
+        $r zadd zset 1 a
+        $r zadd zset 2 b
+        $r zadd zset 3 c
+        $r zadd zset 4 d
+        $r zadd zset 5 e
+        list [$r zremrangebyscore zset -inf +inf] [$r zrange zset 0 -1]
+    } {5 {}}
+
     test {SORT against sorted sets} {
         $r del zset
         $r zadd zset 1 a
