@@ -806,7 +806,7 @@ static dictType zsetDictType = {
     NULL,                      /* val dup */
     dictEncObjKeyCompare,      /* key compare */
     dictRedisObjectDestructor, /* key destructor */
-    dictVanillaFree            /* val destructor */
+    dictVanillaFree            /* val destructor of malloc(sizeof(double)) */
 };
 
 static dictType hashDictType = {
@@ -6219,7 +6219,11 @@ static void *getMcontextEip(ucontext_t *uc) {
 #elif defined(__dietlibc__)
     return (void*) uc->uc_mcontext.eip;
 #elif defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
+  #if __x86_64__
+    return (void*) uc->uc_mcontext->__ss.__rip;
+  #else
     return (void*) uc->uc_mcontext->__ss.__eip;
+  #endif
 #elif defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
   #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
     return (void*) uc->uc_mcontext->__ss.__rip;
