@@ -1,3 +1,19 @@
+2009-12-05 more HTML doc changes
+2009-12-05 HTML doc update
+2009-12-05 a few redis-cli format specified fixed
+2009-12-05 use __attribute__ format in sdscatprintf() when the compiler is GCC. Fixed format bugs resulting from the new warnings.
+2009-12-01 TODO update
+2009-12-01 compilation problem on 64bit mac os x 10.5 possibly fixed
+2009-12-01 virtual memory design doc typos
+2009-12-01 design documents added to the project
+2009-11-30 Fixed issued #85 (getDecodedObject: Assertion 1 != 1 failed. While sorting a set), added a smarter assert() function to dump the stacktrace, provided a macro to initalize Redis objects on the stack to avoid this kind of bugs.
+2009-11-30 fixed a subtle bug in redis-cli not having visible effects
+2009-11-29 TODO updated
+2009-11-29 Version chagned to 1.100, also known as the first first 2.0 beta version
+2009-11-29 more tests in test-redis.tcl, some minor fix
+2009-11-29 SORT support for sorted sets
+2009-11-28 Implemented LIMIT option in ZRANGEBYSCORE. We now enter feature-freeze
+2009-11-28 Changelog updated
 2009-11-28 html doc updated
 2009-11-28 enable kqueue/kevent only for Mac OS X 10.6.x as it seems that 10.5.x has a broken implementation of this syscalls.
 2009-11-28 TODO updated
