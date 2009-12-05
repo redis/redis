@@ -16,7 +16,7 @@
             <div id="pagecontent">
                 <div class="index">
 <!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
-<b>SetnxCommand: Contents</b><br>&nbsp;&nbsp;<a href="#SETNX _key_ _value_">SETNX _key_ _value_</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a>
+<b>SetnxCommand: Contents</b><br>&nbsp;&nbsp;<a href="#SETNX _key_ _value_">SETNX _key_ _value_</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Design pattern: Implementing locking with SETNX">Design pattern: Implementing locking with SETNX</a><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Handling deadlocks">Handling deadlocks</a>
                 </div>
                 
                 <h1 class="wikiname">SetnxCommand</h1>
@@ -31,8 +31,16 @@
 <h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Integer reply</a>, specifically:<br/><br/><pre class="codeblock python" name="code">
 1 if the key was set
 0 if the key was not set
-</pre>
-
+</pre><h2><a name="Design pattern: Implementing locking with SETNX">Design pattern: Implementing locking with SETNX</a></h2><blockquote>SETNX can also be seen as a locking primitive. For instance to acquirethe lock of the key <b>foo</b>, the client could try the following:</blockquote>
+<pre class="codeblock python python" name="code">
+SETNX lock.foo &lt;current UNIX time + lock timeout + 1&gt;
+</pre><blockquote>If SETNX returns 1 the client acquired the lock, setting the <b>lock.foo</b>key to the UNIX time at witch the lock should no longer be considered valid.The client will later use <b>DEL lock.foo</b> in order to release the lock.</blockquote>
+<blockquote>If SETNX returns 0 the key is already locked by some other client. We caneither return to the caller if it's a non blocking lock, or enter aloop retrying to hold the lock until we succeed or some kind of timeoutexpires.</blockquote>
+<h3><a name="Handling deadlocks">Handling deadlocks</a></h3><blockquote>In the above locking algorithm there is a problem: what happens if a clientfails, crashes, or is otherwise not able to release the lock?It's possible to detect this condition because the lock key contains aUNIX timestamp. If such a timestamp is &lt;= the current Unix time the lockis no longer valid.</blockquote>
+<blockquote>When this happens we can't just call DEL against the key to remove the lockand then try to issue a SETNX, as there is a race condition here, whenmultiple clients detected an expired lock and are trying to release it.</blockquote>
+<ul><li> C1 and C2 read lock.foo to check the timestamp, because SETNX returned 0 to both C1 and C2, as the lock is still hold by C3 that crashed after holding the lock.</li><li> C1 sends DEL lock.foo</li><li> C1 sends SETNX =&gt; success!</li><li> C2 sends DEL lock.foo</li><li> C2 sends SETNX =&gt; success!</li><li> ERROR: both C1 and C2 acquired the lock because of the race condition.</li></ul>
+<blockquote>Fortunately it's possible to avoid this issue using the following algorithm.Let's see how C4, our sane client, uses the good algorithm:</blockquote>
+<ul><li> C4 sends SETNX lock.foo in order to acquire the lock</li><li> The crashed C3 client still holds it, so Redis will reply with 0 to C4.</li><li> C4 GET lock.foo to check if the lock expired. If not it will sleep one second (for instance) and retry from the start.</li><li> If instead the lock is expired because the UNIX time at lock.foo is older than the current UNIX time, C4 tries to perform GETSET lock.foo &lt;current unix timestamp + lock timeout + 1&gt;</li><li> Thanks to the <a href="GetsetCommand.html">GETSET</a> command semantic C4 can check if the old value stored at key is still an expired timestamp. If so we acquired the lock!</li><li> Otherwise if another client, for instance C5, was faster than C4 and acquired the lock with the GETSET operation, C4 GETSET operation will return a non expired timestamp. C4 will simply restart from the first step. Note that even if C4 set the key a bit a few seconds in the future this is not a problem.</li></ul>
                 </div>
         
             </div>
