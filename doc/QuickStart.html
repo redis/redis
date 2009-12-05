@@ -16,7 +16,7 @@
             <div id="pagecontent">
                 <div class="index">
 <!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
-<b>QuickStart: Contents</b><br>&nbsp;&nbsp;<a href="#Quick Start">Quick Start</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Obtain the latest version">Obtain the latest version</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Compile">Compile</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Run the server">Run the server</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Play with the built in client">Play with the built in client</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Further reading">Further reading</a>
+<b>QuickStart: Contents</b><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Obtain the latest version">Obtain the latest version</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Compile">Compile</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Run the server">Run the server</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Play with the built in client">Play with the built in client</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Further reading">Further reading</a>
                 </div>
                 
                 <h1 class="wikiname">QuickStart</h1>
@@ -26,7 +26,7 @@
                 </div>
 
                 <div class="narrow">
-                    <h1><a name="Quick Start">Quick Start</a></h1>This quickstart is a five minutes howto on how to get started with Redis. For more information on Redis check <a href="http://code.google.com/p/redis/wiki/index" target="_blank">Redis Documentation Index</a>.<h2><a name="Obtain the latest version">Obtain the latest version</a></h2>The latest stable source distribution of Redis can be obtained <a href="http://code.google.com/p/redis/downloads/list" target="_blank">at this location as a tarball</a>.<br/><br/><pre class="codeblock python" name="code">
+                    &iuml;&raquo;&iquest;= Quick Start =<br/><br/>This quickstart is a five minutes howto on how to get started with Redis. For more information on Redis check <a href="http://code.google.com/p/redis/wiki/index" target="_blank">Redis Documentation Index</a>.<h2><a name="Obtain the latest version">Obtain the latest version</a></h2>The latest stable source distribution of Redis can be obtained <a href="http://code.google.com/p/redis/downloads/list" target="_blank">at this location as a tarball</a>.<br/><br/><pre class="codeblock python" name="code">
 $ wget http://redis.googlecode.com/files/redis-1.02.tar.gz
 </pre>The unstable source code, with more features but not ready for production, can be downloaded using git:<br/><br/><pre class="codeblock python python" name="code">
 $ git clone git://github.com/antirez/redis.git
@@ -57,18 +57,7 @@ firstvalue
 $ ./redis-cli lrange mylist 0 -1
 1. thirdvalue
 2. secondvalue
-</pre><a href="Lists.html">Lists</a> (and <a href="Sets.html">Sets</a> too) can be sorted:<br/><br/><pre class="codeblock python python python python python python python" name="code">
-./redis-cli sort mylist alpha
-1. secondvalue
-2. thirdvalue
-</pre>And despite Redis doesn't have integers, you can do some math also:<br/><br/><pre class="codeblock python python python python python python python python" name="code">
-$ ./redis-cli get mycounter
-(nil)
-$ ./redis-cli incr mycounter
-1
-./redis-cli incr mycounter
-2
-</pre><h2><a name="Further reading">Further reading</a></h2><ul><li> Check all the <a href="Features.html">Features</a></li><li> Read the full list of available commands in the <a href="CommandReference.html">Command Reference</a>.</li><li> Start using Redis from your <a href="SupportedLanguages.html">favorite language</a>.</li><li> Take a look at some <a href="ProgrammingExamples.html">Programming Examples</a>. </li></ul>
+</pre><h2><a name="Further reading">Further reading</a></h2><ul><li> What to play more with Redis? Read <a href="IntroductionToRedisDataTypes.html">Fifteen minutes introduction to Redis data types</a>.</li><li> Check all the <a href="Features.html">Features</a></li><li> Read the full list of available commands in the <a href="CommandReference.html">Command Reference</a>.</li><li> Start using Redis from your <a href="SupportedLanguages.html">favorite language</a>.</li><li> Take a look at some <a href="ProgrammingExamples.html">Programming Examples</a>. </li></ul>
                 </div>
         
             </div>

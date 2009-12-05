@@ -16,7 +16,7 @@
             <div id="pagecontent">
                 <div class="index">
 <!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
-<b>MsetCommand: Contents</b><br>&nbsp;&nbsp;<a href="#MSETNX _key1_ _value1_ _key2_ _value2_ ... _keyN_ _valueN_ (Redis &gt;">MSETNX _key1_ _value1_ _key2_ _value2_ ... _keyN_ _valueN_ (Redis &gt;</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#MSET Return value">MSET Return value</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#MSETNX Return value">MSETNX Return value</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#See also">See also</a>
+<b>MsetCommand: Contents</b><br>&nbsp;&nbsp;<a href="#MSET _key1_ _value1_ _key2_ _value2_ ... _keyN_ _valueN_ (Redis &gt;">MSET _key1_ _value1_ _key2_ _value2_ ... _keyN_ _valueN_ (Redis &gt;</a><br>&nbsp;&nbsp;<a href="#MSETNX _key1_ _value1_ _key2_ _value2_ ... _keyN_ _valueN_ (Redis &gt;">MSETNX _key1_ _value1_ _key2_ _value2_ ... _keyN_ _valueN_ (Redis &gt;</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#MSET Return value">MSET Return value</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#MSETNX Return value">MSETNX Return value</a>
                 </div>
                 
                 <h1 class="wikiname">MsetCommand</h1>
@@ -26,7 +26,7 @@
                 </div>
 
                 <div class="narrow">
-                    &iuml;&raquo;&iquest;= MSET <i>key1</i> <i>value1</i> <i>key2</i> <i>value2</i> ... <i>keyN</i> <i>valueN</i> (Redis &gt;= 1.1) =
+                    &iuml;&raquo;&iquest;#sidebar <a href="StringCommandsSidebar.html">StringCommandsSidebar</a><h1><a name="MSET _key1_ _value1_ _key2_ _value2_ ... _keyN_ _valueN_ (Redis &gt;">MSET _key1_ _value1_ _key2_ _value2_ ... _keyN_ _valueN_ (Redis &gt;</a></h1> 1.1) =
 <h1><a name="MSETNX _key1_ _value1_ _key2_ _value2_ ... _keyN_ _valueN_ (Redis &gt;">MSETNX _key1_ _value1_ _key2_ _value2_ ... _keyN_ _valueN_ (Redis &gt;</a></h1> 1.1) =
 <i>Time complexity: O(1) to set every key</i><blockquote>Set the the rispective keys to the rispective values. MSET will replace oldvalues with new values, while MSETNX will not perform any operation at alleven if just a single key already exists.</blockquote>
 <blockquote>Because of this semantic MSETNX can be used in order to set different keysrepresenting different fields of an unique logic object in a way thatensures that either all the fields or none at all are set.</blockquote>
@@ -34,7 +34,8 @@
 <h2><a name="MSET Return value">MSET Return value</a></h2><a href="ReplyTypes.html">Status code reply</a> Basically +OK as MSET can't fail<h2><a name="MSETNX Return value">MSETNX Return value</a></h2><a href="ReplyTypes.html">Integer reply</a>, specifically:<br/><br/><pre class="codeblock python" name="code">
 1 if the all the keys were set
 0 if no key was set (at least one key already existed)
-</pre><h2><a name="See also">See also</a></h2><ul><li> <a href="MgetCommand.html">MGET</a></li><li> <a href="DelCommand.html">DEL</a> (DEL supports deleting multiple keys in a single operation)</li></ul>
+</pre>
+
                 </div>
         
             </div>

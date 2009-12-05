@@ -16,7 +16,7 @@
             <div id="pagecontent">
                 <div class="index">
 <!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
-<b>SortCommand: Contents</b><br>&nbsp;&nbsp;<a href="#SORT _key_ BY _pattern_ LIMIT _start_ _end_ GET _pattern_ ASC|DESC ALPHA">SORT _key_ BY _pattern_ LIMIT _start_ _end_ GET _pattern_ ASC|DESC ALPHA</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#See Also">See Also</a>
+<b>SortCommand: Contents</b><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a>
                 </div>
                 
                 <h1 class="wikiname">SortCommand</h1>
@@ -26,7 +26,7 @@
                 </div>
 
                 <div class="narrow">
-                    <h1><a name="SORT _key_ BY _pattern_ LIMIT _start_ _end_ GET _pattern_ ASC|DESC ALPHA">SORT _key_ BY _pattern_ LIMIT _start_ _end_ GET _pattern_ ASC|DESC ALPHA</a></h1>
+                    &iuml;&raquo;&iquest;= SORT <i>key</i> <code name="code" class="python">[</code>BY <i>pattern</i><code name="code" class="python">]</code> <code name="code" class="python">[</code>LIMIT <i>start</i> <i>count</i><code name="code" class="python">]</code> <code name="code" class="python">[</code>GET <i>pattern</i><code name="code" class="python">]</code> <code name="code" class="python">[</code>ASC|DESC<code name="code" class="python">]</code> <code name="code" class="python">[</code>ALPHA<code name="code" class="python">]</code> =
 <blockquote>Sort the elements contained in the List or Set value at <i>key</i>. By defaultsorting is numeric with elements being compared as double precisionfloating point numbers. This is the simplest form of SORT.</blockquote>
 <pre class="codeblock python" name="code">
 SORT mylist
@@ -52,8 +52,8 @@ SORT mylist BY weight_* GET object_*
 <blockquote>Since Redis &gt;= 1.1 it's possible to also GET the list elements itselfusing the special # pattern:</blockquote>
 <pre class="codeblock python python python python python python python" name="code">
 SORT mylist BY weight_* GET object_* GET #
-</pre><h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Multi bulk reply</a>, specifically a list of sorted elements.<h2><a name="See Also">See Also</a></h2>
-<ul><li> <a href="SinterCommand.html">SINTER</a></li><li> <a href="SunionCommand.html">SUNION</a></li></ul>
+</pre><h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Multi bulk reply</a>, specifically a list of sorted elements.
+
                 </div>
         
             </div>

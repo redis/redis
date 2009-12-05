@@ -26,8 +26,8 @@
                 </div>
 
                 <div class="narrow">
-                    <h1><a name="How Fast is Redis?">How Fast is Redis?</a></h1>Redis includes the <code name="code" class="python">redis-benchmark</code> utility that simulates SETs/GETs done by N clients at the same time sending M total queries (it is similar to the Apache's <code name="code" class="python">ab</code> utility). Below you'll find the full output of the benchmark executed against a Linux box.<br/><br/><ul><li> The test was done with 50 simultaneous clients performing 100000 requests.</li><li> The value SET and GET is a 256 bytes string.</li><li> The Linux box is running <b>Linux 2.6</b>, it's <b>Xeon X3320 2.5Ghz</b>.</li><li> Text executed using the loopback interface (127.0.0.1).</li></ul>
-Results: <b>about 110000 SETs per second, about 81000 GETs per second.</b><h1><a name="Latency percentiles">Latency percentiles</a></h1><pre class="codeblock python" name="code">
+                    <h1><a name="How Fast is Redis?">How Fast is Redis?</a></h1>Redis includes the <code name="code" class="python">redis-benchmark</code> utility that simulates <a href="SETs.html">SETs</a>/GETs done by N clients at the same time sending M total queries (it is similar to the Apache's <code name="code" class="python">ab</code> utility). Below you'll find the full output of the benchmark executed against a Linux box.<br/><br/><ul><li> The test was done with 50 simultaneous clients performing 100000 requests.</li><li> The value SET and GET is a 256 bytes string.</li><li> The Linux box is running <b>Linux 2.6</b>, it's <b>Xeon X3320 2.5Ghz</b>.</li><li> Text executed using the loopback interface (127.0.0.1).</li></ul>
+Results: <b>about 110000 <a href="SETs.html">SETs</a> per second, about 81000 GETs per second.</b><h1><a name="Latency percentiles">Latency percentiles</a></h1><pre class="codeblock python" name="code">
 ./redis-benchmark -n 100000
 
 ====== SET ======

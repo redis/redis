@@ -16,7 +16,7 @@
             <div id="pagecontent">
                 <div class="index">
 <!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
-<b>MgetCommand: Contents</b><br>&nbsp;&nbsp;<a href="#MGET _key1_ _key2_ ... _keyN_">MGET _key1_ _key2_ ... _keyN_</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Example">Example</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#See also">See also</a>
+<b>MgetCommand: Contents</b><br>&nbsp;&nbsp;<a href="#MGET _key1_ _key2_ ... _keyN_">MGET _key1_ _key2_ ... _keyN_</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Example">Example</a>
                 </div>
                 
                 <h1 class="wikiname">MgetCommand</h1>
@@ -26,7 +26,7 @@
                 </div>
 
                 <div class="narrow">
-                    <h1><a name="MGET _key1_ _key2_ ... _keyN_">MGET _key1_ _key2_ ... _keyN_</a></h1>
+                    &iuml;&raquo;&iquest;#sidebar <a href="StringCommandsSidebar.html">StringCommandsSidebar</a><h1><a name="MGET _key1_ _key2_ ... _keyN_">MGET _key1_ _key2_ ... _keyN_</a></h1>
 <i>Time complexity: O(1) for every key</i><blockquote>Get the values of all the specified keys. If one or more keys dont existor is not of type String, a 'nil' value is returned instead of the valueof the specified key, but the operation never fails.</blockquote>
 <h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Multi bulk reply</a><h2><a name="Example">Example</a></h2><pre class="codeblock python" name="code">
 $ ./redis-cli set foo 1000
@@ -41,8 +41,8 @@ $ ./redis-cli mget foo bar nokey
 2. 2000
 3. (nil)
 $ 
-</pre><h2><a name="See also">See also</a></h2>
-<ul><li> <a href="GetCommand.html">GET</a></li><li> <a href="SetCommand.html">SET</a></li><li> <a href="SetnxCommand.html">SETNX</a></li><li> <a href="IncrCommand.html">INCR</a></li></ul>
+</pre>
+
                 </div>
         
             </div>

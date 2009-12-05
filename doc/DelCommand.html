@@ -16,7 +16,7 @@
             <div id="pagecontent">
                 <div class="index">
 <!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
-<b>DelCommand: Contents</b><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#See also">See also</a>
+<b>DelCommand: Contents</b><br>&nbsp;&nbsp;<a href="#DEL _key1_ _key2_ ... _keyN_">DEL _key1_ _key2_ ... _keyN_</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a>
                 </div>
                 
                 <h1 class="wikiname">DelCommand</h1>
@@ -26,13 +26,13 @@
                 </div>
 
                 <div class="narrow">
-                    &iuml;&raquo;&iquest;= DEL <i>key1</i> <i>key2</i> ... <i>keyN</i> =
+                    &iuml;&raquo;&iquest;#sidebar <a href="GenericCommandsSidebar.html">GenericCommandsSidebar</a><h1><a name="DEL _key1_ _key2_ ... _keyN_">DEL _key1_ _key2_ ... _keyN_</a></h1>
 <i>Time complexity: O(1)</i><blockquote>Remove the specified keys. If a given key does not existno operation is performed for this key. The commnad returns the number ofkeys removed.</blockquote>
 <h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Integer reply</a>, specifically:<br/><br/><pre class="codeblock python" name="code">
 an integer greater than 0 if one or more keys were removed
 0 if none of the specified key existed
-</pre><h2><a name="See also">See also</a></h2>
-<ul><li> <a href="SetCommand.html">SET</a></li><li> <a href="GetCommand.html">GET</a></li><li> <a href="ExistsCommand.html">EXISTS</a></li><li> <a href="LremCommand.html">LREM</a></li></ul>
+</pre>
+
                 </div>
         
             </div>

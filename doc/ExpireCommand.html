@@ -16,7 +16,7 @@
             <div id="pagecontent">
                 <div class="index">
 <!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
-<b>ExpireCommand: Contents</b><br>&nbsp;&nbsp;<a href="#EXPIRE _key_ _seconds_">EXPIRE _key_ _seconds_</a><br>&nbsp;&nbsp;<a href="#EXPIREAT _key_ _unixtime_ (Redis &gt;">EXPIREAT _key_ _unixtime_ (Redis &gt;</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#How the expire is removed from a key">How the expire is removed from a key</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Restrictions with write operations against volatile keys">Restrictions with write operations against volatile keys</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Setting the timeout again on already volatile keys">Setting the timeout again on already volatile keys</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Enhanced Lazy Expiration algorithm">Enhanced Lazy Expiration algorithm</a><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Version 1.0">Version 1.0</a><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Version 1.1">Version 1.1</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#See also">See also</a>
+<b>ExpireCommand: Contents</b><br>&nbsp;&nbsp;<a href="#EXPIRE _key_ _seconds_">EXPIRE _key_ _seconds_</a><br>&nbsp;&nbsp;<a href="#EXPIREAT _key_ _unixtime_ (Redis &gt;">EXPIREAT _key_ _unixtime_ (Redis &gt;</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#How the expire is removed from a key">How the expire is removed from a key</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Restrictions with write operations against volatile keys">Restrictions with write operations against volatile keys</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Setting the timeout again on already volatile keys">Setting the timeout again on already volatile keys</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Enhanced Lazy Expiration algorithm">Enhanced Lazy Expiration algorithm</a><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Version 1.0">Version 1.0</a><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Version 1.1">Version 1.1</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a>
                 </div>
                 
                 <h1 class="wikiname">ExpireCommand</h1>
@@ -26,7 +26,7 @@
                 </div>
 
                 <div class="narrow">
-                    <h1><a name="EXPIRE _key_ _seconds_">EXPIRE _key_ _seconds_</a></h1>
+                    &iuml;&raquo;&iquest;#sidebar <a href="GenericCommandsSidebar.html">GenericCommandsSidebar</a><h1><a name="EXPIRE _key_ _seconds_">EXPIRE _key_ _seconds_</a></h1>
 <h1><a name="EXPIREAT _key_ _unixtime_ (Redis &gt;">EXPIREAT _key_ _unixtime_ (Redis &gt;</a></h1> 1.1)=
 <i>Time complexity: O(1)</i><blockquote>Set a timeout on the specified key. After the timeout the key will beautomatically delete by the server. A key with an associated timeout issaid to be <i>volatile</i> in Redis terminology.</blockquote>
 <blockquote>Voltile keys are stored on disk like the other keys, the timeout is persistenttoo like all the other aspects of the dataset. Saving a dataset containingthe dataset and stopping the server does not stop the flow of time as Redisregisters on disk when the key will no longer be available as Unix time, andnot the remaining seconds.</blockquote>
@@ -57,8 +57,8 @@ OK
 <h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Integer reply</a>, specifically:<br/><br/><pre class="codeblock python python" name="code">
 1: the timeout was set.
 0: the timeout was not set since the key already has an associated timeout, or the key does not exist.
-</pre><h2><a name="See also">See also</a></h2>
-<ul><li> <a href="InfoCommand.html">INFO</a></li><li> <a href="TypeCommand.html">TYPE</a></li></ul>
+</pre>
+
                 </div>
         
             </div>
