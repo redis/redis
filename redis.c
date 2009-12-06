@@ -2823,6 +2823,7 @@ static int rdbLoadDoubleValue(FILE *fp, double *val) {
     case 253: *val = R_Nan; return 0;
     default:
         if (fread(buf,len,1,fp) == 0) return -1;
+        buf[len] = '\0';
         sscanf(buf, "%lg", val);
         return 0;
     }
