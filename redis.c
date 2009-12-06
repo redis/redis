@@ -2978,6 +2978,7 @@ static void echoCommand(redisClient *c) {
 static void setGenericCommand(redisClient *c, int nx) {
     int retval;
 
+    lookupKeyWrite(c->db,c->argv[1]);
     retval = dictAdd(c->db->dict,c->argv[1],c->argv[2]);
     if (retval == DICT_ERR) {
         if (!nx) {
@@ -3053,7 +3054,7 @@ static void mgetCommand(redisClient *c) {
 }
 
 static void msetGenericCommand(redisClient *c, int nx) {
-    int j;
+    int j, busykeys = 0;
 
     if ((c->argc % 2) == 0) {
         addReplySds(c,sdsnew("-ERR wrong number of arguments\r\n"));
@@ -3063,11 +3064,14 @@ static void msetGenericCommand(redisClient *c, int nx) {
      * set nothing at all if at least one already key exists. */
     if (nx) {
         for (j = 1; j < c->argc; j += 2) {
-            if (dictFind(c->db->dict,c->argv[j]) != NULL) {
-                addReply(c, shared.czero);
-                return;
+            if (lookupKeyWrite(c->db,c->argv[j]) != NULL) {
+                busykeys++;
             }
         }
+    }
+    if (busykeys) {
+        addReply(c, shared.czero);
+        return;
     }
 
     for (j = 1; j < c->argc; j += 2) {
