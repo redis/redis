@@ -24,6 +24,8 @@ def redisSha1(opts={})
             sha1 = Digest::SHA1.hexdigest(sha1+r.list_range(k,0,-1).join("\x01"))
         elsif vtype == "set"
             sha1 = Digest::SHA1.hexdigest(sha1+r.set_members(k).to_a.sort.join("\x02"))
+        elsif vtype == "zset"
+            sha1 = Digest::SHA1.hexdigest(sha1+r.zrange(k,0,-1).join("\x01"))
         end
     }
     sha1
