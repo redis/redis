@@ -2979,7 +2979,7 @@ static void echoCommand(redisClient *c) {
 static void setGenericCommand(redisClient *c, int nx) {
     int retval;
 
-    deleteIfVolatile(c->db,c->argv[1]);
+    if (nx) deleteIfVolatile(c->db,c->argv[1]);
     retval = dictAdd(c->db->dict,c->argv[1],c->argv[2]);
     if (retval == DICT_ERR) {
         if (!nx) {
