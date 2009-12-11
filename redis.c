@@ -923,7 +923,7 @@ void backgroundRewriteDoneHandler(int statloc) {
             close(fd);
             goto cleanup;
         }
-        redisLog(REDIS_WARNING,"Parent diff flushed into the new append log file with success");
+        redisLog(REDIS_NOTICE,"Parent diff flushed into the new append log file with success (%lu bytes)",sdslen(server.bgrewritebuf));
         /* Now our work is to rename the temp file into the stable file. And
          * switch the file descriptor used by the server for append only. */
         if (rename(tmpfile,server.appendfilename) == -1) {

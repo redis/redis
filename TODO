@@ -61,6 +61,8 @@ it's not a guarantee they'll ever get implemented ;)
 * zmalloc() should avoid to add a private header for archs where there is some other kind of libc-specific way to get the size of a malloced block. Already done for Mac OS X.
 * Read-only mode.
 * Pattern-matching replication.
+* Dont' safe empty lists / sets / zsets on disk with snapshotting.
+* Remove keys when a list / set / zset reaches length of 0.
 
 DOCUMENTATION WISHLIST
 ======================
