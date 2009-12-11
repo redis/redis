@@ -48,6 +48,7 @@ SHORT/LONG TERM RANDOM TODO ITEMS
 Most of this can be seen just as proposals, the fact they are in this list
 it's not a guarantee they'll ever get implemented ;)
 
+* Give errors when incrementing a key that does not look like an integer, when providing as a sorted set score something can't be parsed as a double, and so forth.
 * Move dict.c from hash table to skip list, in order to avoid the blocking resize operation needed for the hash table.
 * FORK command (fork()s executing the commands received by the current
   client in the new process). Hint: large SORTs can use more cores,
