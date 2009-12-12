@@ -5084,6 +5084,7 @@ static sds genRedisInfoString(void) {
         "changes_since_last_save:%lld\r\n"
         "bgsave_in_progress:%d\r\n"
         "last_save_time:%ld\r\n"
+        "bgrewriteaof_in_progress:%d\r\n"
         "total_connections_received:%lld\r\n"
         "total_commands_processed:%lld\r\n"
         "role:%s\r\n"
@@ -5098,6 +5099,7 @@ static sds genRedisInfoString(void) {
         server.dirty,
         server.bgsavechildpid != -1,
         server.lastsave,
+        server.bgrewritechildpid != -1,
         server.stat_numconnections,
         server.stat_numcommands,
         server.masterhost == NULL ? "master" : "slave"
