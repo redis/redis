@@ -10,9 +10,8 @@ Most of the features already implemented for this release. The following is a li
 VERSION 1.4 TODO (Hash type)
 ============================
 
+* Blocking LPOP (BLPOP).
 * Hashes (HSET, HGET, HEXISTS, HLEN, ...).
-* Specially encoded memory-saving integer sets.
-* An utility able to export an .rdb file into a text-only JSON dump, we can't live anymore without such a tool. Probably an extension to redis-cli.
 * List ops like L/RPUSH L/RPOP should return the new list length.
 
 VERSION 1.6 TODO (Virtual memory)
@@ -42,13 +41,24 @@ VERSION 2.2 TODO (Optimizations and latency)
 
 * JSON command able to access data serialized in JSON format. For instance if I've a key foobar with a json object I can alter the "name" file using somthing like: "JSON SET foobar name Kevin". We should have GET and INCRBY as well.
 
+OTHER IMPORTANT THINGS THAT WILL BE ADDED BUT I'M NOT SURE WHEN
+===============================================================
+
+BIG ONES:
+
+* Specially encoded memory-saving integer sets.
+* A command to export a JSON dump (there should be mostly working patch needing major reworking).
+
+SMALL ONES:
+
+* Give errors when incrementing a key that does not look like an integer, when providing as a sorted set score something can't be parsed as a double, and so forth.
+
 SHORT/LONG TERM RANDOM TODO ITEMS
 =================================
 
 Most of this can be seen just as proposals, the fact they are in this list
 it's not a guarantee they'll ever get implemented ;)
 
-* Give errors when incrementing a key that does not look like an integer, when providing as a sorted set score something can't be parsed as a double, and so forth.
 * Move dict.c from hash table to skip list, in order to avoid the blocking resize operation needed for the hash table.
 * FORK command (fork()s executing the commands received by the current
   client in the new process). Hint: large SORTs can use more cores,
@@ -62,7 +72,7 @@ it's not a guarantee they'll ever get implemented ;)
 * zmalloc() should avoid to add a private header for archs where there is some other kind of libc-specific way to get the size of a malloced block. Already done for Mac OS X.
 * Read-only mode.
 * Pattern-matching replication.
-* Dont' safe empty lists / sets / zsets on disk with snapshotting.
+* Don't save empty lists / sets / zsets on disk with snapshotting.
 * Remove keys when a list / set / zset reaches length of 0.
 
 DOCUMENTATION WISHLIST
