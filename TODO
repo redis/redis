@@ -5,7 +5,8 @@ VERSION 1.2 TODO (Zsets, Integer encoding, Append only journal)
 
 Most of the features already implemented for this release. The following is a list of the missing things in order to release the first beta tar.gz:
 
-* Document "masterauth" in redis.conf, also merge the other related patch if it seems a safe one.
+* When Redis runs as slave make sure to set the fake client it uses to talk to the master as c->authenticated = 1 to avoid problems with slaves with requirepassword set.
+* Document BGREWRITEAOF.
 
 VERSION 1.4 TODO (Hash type)
 ============================
@@ -52,6 +53,7 @@ BIG ONES:
 SMALL ONES:
 
 * Give errors when incrementing a key that does not look like an integer, when providing as a sorted set score something can't be parsed as a double, and so forth.
+* MSADD (n keys) (n values). See this thread in the Redis google group: http://groups.google.com/group/redis-db/browse_thread/thread/e766d84eb375cd41
 
 SHORT/LONG TERM RANDOM TODO ITEMS
 =================================
