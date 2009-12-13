@@ -5582,6 +5582,7 @@ static int syncWithMaster(void) {
     }
     server.master = createClient(fd);
     server.master->flags |= REDIS_MASTER;
+    server.master->authenticated = 1;
     server.replstate = REDIS_REPL_CONNECTED;
     return REDIS_OK;
 }
