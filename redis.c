@@ -3295,7 +3295,8 @@ static void bgsaveCommand(redisClient *c) {
         return;
     }
     if (rdbSaveBackground(server.dbfilename) == REDIS_OK) {
-        addReply(c,shared.ok);
+        char *status = "+Background saving started\r\n";
+        addReplySds(c,sdsnew(status));
     } else {
         addReply(c,shared.err);
     }
@@ -6082,7 +6083,8 @@ static void bgrewriteaofCommand(redisClient *c) {
         return;
     }
     if (rewriteAppendOnlyFileBackground() == REDIS_OK) {
-        addReply(c,shared.ok);
+        char *status = "+Background append only file rewriting started\r\n";
+        addReplySds(c,sdsnew(status));
     } else {
         addReply(c,shared.err);
     }
