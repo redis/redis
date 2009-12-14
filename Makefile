@@ -57,7 +57,7 @@ redis-cli: $(CLIOBJ)
 	$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
 
 clean:
-	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) *.o
+	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) *.o *.gcda *.gcno *.gcov
 
 dep:
 	$(CC) -MM *.c
@@ -79,6 +79,9 @@ log:
 
 gprof:
 	make PROF="-pg"
+
+gcov:
+	make PROF="-fprofile-arcs -ftest-coverage"
 
 32bitgprof:
 	make PROF="-pg" ARCH="-arch i386"

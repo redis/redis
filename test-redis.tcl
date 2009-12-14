@@ -8,9 +8,12 @@ source redis.tcl
 
 set ::passed 0
 set ::failed 0
+set ::testnum 0
 
 proc test {name code okpattern} {
-    puts -nonewline [format "%-70s " $name]
+    incr ::testnum
+    if {$::testnum < $::first || $::testnum > $::last} return
+    puts -nonewline [format "%-70s " "#$::testnum $name"]
     flush stdout
     set retval [uplevel 1 $code]
     if {$okpattern eq $retval || [string match $okpattern $retval]} {
@@ -53,6 +56,7 @@ proc main {server port} {
     set r [redis $server $port]
     $r select 9
     set err ""
+    set res ""
 
     # The following AUTH test should be enabled only when requirepass
     # <PASSWORD> is set in redis.conf and redis-server was started with
@@ -925,6 +929,14 @@ proc main {server port} {
         list $aux1 $aux2
     } {{x y z} {y x z}}
 
+    test {ZCARD basics} {
+        $r zcard ztmp
+    } {3}
+
+    test {ZCARD non existing key} {
+        $r zcard ztmp-blabla
+    } {0}
+
     test {ZSCORE} {
         set aux {}
         set err {}
@@ -1225,7 +1237,6 @@ proc main {server port} {
     if {$::failed > 0} {
         puts "\n*** WARNING!!! $::failed FAILED TESTS ***\n"
     }
-    close $fd
 }
 
 proc stress {} {
@@ -1262,8 +1273,48 @@ proc stress {} {
     $r close
 }
 
+# Set a few configuration defaults
+set ::host 127.0.0.1
+set ::port 6379
+set ::stress 0
+set ::flush 0
+set ::first 0
+set ::last 1000000
+
+# Parse arguments
+for {set j 0} {$j < [llength $argv]} {incr j} {
+    set opt [lindex $argv $j]
+    set arg [lindex $argv [expr $j+1]]
+    set lastarg [expr {$arg eq {}}]
+    if {$opt eq {-h} && !$lastarg} {
+        set ::host $arg
+        incr j
+    } elseif {$opt eq {-p} && !$lastarg} {
+        set ::port $arg
+        incr j
+    } elseif {$opt eq {-stress}} {
+        set ::stress 1
+    } elseif {$opt eq {--flush}} {
+        set ::flush 1
+    } elseif {$opt eq {--first} && !$lastarg} {
+        set ::first $arg
+        incr j
+    } elseif {$opt eq {--last} && !$lastarg} {
+        set ::last $arg
+        incr j
+    } else {
+        echo "Wrong argument: $opt"
+        exit 1
+    }
+}
+
 # Before to run the test check if DB 9 and DB 10 are empty
 set r [redis]
+
+if {$::flush} {
+    $r flushall
+}
+
 $r select 9
 set db9size [$r dbsize]
 $r select 10
@@ -1277,10 +1328,8 @@ unset r
 unset db9size
 unset db10size
 
-if {[llength $argv] == 0} {
-    main 127.0.0.1 6379
-} elseif {[llength $argv] == 1 && [lindex $argv 0] eq {stress}} {
+if {$::stress} {
     stress
 } else {
-    main [lindex $argv 0] [lindex $argv 1]
+    main $::host $::port
 }
