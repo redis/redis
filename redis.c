@@ -3961,7 +3961,7 @@ static void sinterGenericCommand(redisClient *c, robj **setskeys, unsigned long 
             zfree(dv);
             if (dstkey) {
                 deleteKey(c->db,dstkey);
-                addReply(c,shared.ok);
+                addReply(c,shared.czero);
             } else {
                 addReply(c,shared.nullmultibulk);
             }

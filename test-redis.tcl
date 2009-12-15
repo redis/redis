@@ -52,6 +52,19 @@ proc zlistAlikeSort {a b} {
     string compare [lindex $a 1] [lindex $b 1]
 }
 
+proc waitForBgsave r {
+    while 1 {
+        set i [$r info]
+        if {[string match {*bgsave_in_progress:1*} $i]} {
+            puts -nonewline "\nWaiting for background save to finish... "
+            flush stdout
+            after 1000
+        } else {
+            break
+        }
+    }
+}
+
 proc main {server port} {
     set r [redis $server $port]
     $r select 9
@@ -633,16 +646,7 @@ proc main {server port} {
 
     test {SAVE - make sure there are all the types as values} {
         # Wait for a background saving in progress to terminate
-        while 1 {
-            set i [$r info]
-            if {[string match {*bgsave_in_progress:1*} $i]} {
-                puts -nonewline "\nWaiting for background save to finish... "
-                flush stdout
-                after 100
-            } else {
-                break
-            }
-        }
+        waitForBgsave $r
         $r lpush mysavelist hello
         $r lpush mysavelist world
         $r set myemptykey {}
@@ -1209,6 +1213,16 @@ proc main {server port} {
             set _ $err
         } {0}
     }
+
+    test {BGSAVE} {
+        $r flushdb
+        $r save
+        $r set x 10
+        $r bgsave
+        waitForBgsave $r
+        $r debug reload
+        $r get x
+    } {10}
 
     # Leave the user with a clean DB before to exit
     test {FLUSHDB} {
