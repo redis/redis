@@ -1394,6 +1394,16 @@ proc main {server port} {
         } {1}
     }
 
+    test {EXPIRES after a reload} {
+        $r flushdb
+        $r set x 10
+        $r expire x 1000
+        $r save
+        $r debug reload
+        set ttl [$r ttl x]
+        expr {$ttl > 900 && $ttl <= 1000}
+    } {1}
+
     # Leave the user with a clean DB before to exit
     test {FLUSHDB} {
         set aux {}

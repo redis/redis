@@ -6116,6 +6116,14 @@ static void debugCommand(redisClient *c) {
         }
         redisLog(REDIS_WARNING,"DB reloaded by DEBUG RELOAD");
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
+        emptyDb();
+        if (loadAppendOnlyFile(server.appendfilename) != REDIS_OK) {
+            addReply(c,shared.err);
+            return;
+        }
+        redisLog(REDIS_WARNING,"Append Only File loaded by DEBUG LOADAOF");
+        addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"object") && c->argc == 3) {
         dictEntry *de = dictFind(c->db->dict,c->argv[2]);
         robj *key, *val;
