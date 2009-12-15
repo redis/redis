@@ -602,6 +602,11 @@ proc main {server port} {
         lsort [$r smembers setres]
     } [lsort -uniq "[$r smembers set1] [$r smembers set2]"]
 
+    test {SUNIONSTORE against non existing keys} {
+        $r set setres xxx
+        list [$r sunionstore setres foo111 bar222] [$r exists xxx]
+    } {0 0}
+
     test {SINTER against three sets} {
         $r sadd set3 999
         $r sadd set3 995
