@@ -28,14 +28,13 @@
                 <div class="narrow">
                     &iuml;&raquo;&iquest;#sidebar <a href="StringCommandsSidebar.html">StringCommandsSidebar</a><h1><a name="MSET _key1_ _value1_ _key2_ _value2_ ... _keyN_ _valueN_ (Redis &gt;">MSET _key1_ _value1_ _key2_ _value2_ ... _keyN_ _valueN_ (Redis &gt;</a></h1> 1.1) =
 <h1><a name="MSETNX _key1_ _value1_ _key2_ _value2_ ... _keyN_ _valueN_ (Redis &gt;">MSETNX _key1_ _value1_ _key2_ _value2_ ... _keyN_ _valueN_ (Redis &gt;</a></h1> 1.1) =
-<i>Time complexity: O(1) to set every key</i><blockquote>Set the the rispective keys to the rispective values. MSET will replace oldvalues with new values, while MSETNX will not perform any operation at alleven if just a single key already exists.</blockquote>
+<i>Time complexity: O(1) to set every key</i><blockquote>Set the the respective keys to the respective values. MSET will replace oldvalues with new values, while MSETNX will not perform any operation at alleven if just a single key already exists.</blockquote>
 <blockquote>Because of this semantic MSETNX can be used in order to set different keysrepresenting different fields of an unique logic object in a way thatensures that either all the fields or none at all are set.</blockquote>
 <blockquote>Both MSET and MSETNX are atomic operations. This means that for instanceif the keys A and B are modified, another client talking to Redis can eithersee the changes to both A and B at once, or no modification at all.</blockquote>
 <h2><a name="MSET Return value">MSET Return value</a></h2><a href="ReplyTypes.html">Status code reply</a> Basically +OK as MSET can't fail<h2><a name="MSETNX Return value">MSETNX Return value</a></h2><a href="ReplyTypes.html">Integer reply</a>, specifically:<br/><br/><pre class="codeblock python" name="code">
 1 if the all the keys were set
 0 if no key was set (at least one key already existed)
 </pre>
-
                 </div>
         
             </div>

@@ -5,8 +5,7 @@ VERSION 1.2 TODO (Zsets, Integer encoding, Append only journal)
 
 Most of the features already implemented for this release. The following is a list of the missing things in order to release the first beta tar.gz:
 
-* When Redis runs as slave make sure to set the fake client it uses to talk to the master as c->authenticated = 1 to avoid problems with slaves with requirepassword set.
-* Document BGREWRITEAOF.
+* Continue adding tests accordingly to gcov output.
 
 VERSION 1.4 TODO (Hash type)
 ============================
