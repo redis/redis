@@ -65,6 +65,19 @@ proc waitForBgsave r {
     }
 }
 
+proc waitForBgrewriteaof r {
+    while 1 {
+        set i [$r info]
+        if {[string match {*bgrewriteaof_in_progress:1*} $i]} {
+            puts -nonewline "\nWaiting for background AOF rewrite to finish... "
+            flush stdout
+            after 1000
+        } else {
+            break
+        }
+    }
+}
+
 proc randomInt {max} {
     expr {int(rand()*$max)}
 }
@@ -154,17 +167,36 @@ proc createComplexDataset {r ops} {
 
 proc datasetDigest r {
     set keys [lsort [split [$r keys *] " "]]
-    set digest [::sha1::sha1 -hex $keys]
+    set digest {}
     foreach k $keys {
         set t [$r type $k]
-        switch t {
-            {string} {set aux [::sha1::sha1 -hex [$r get $k]]} \
-            {list} {set aux [::sha1::sha1 -hex [$r lrange $k 0 -1]]} \
-            {set} {set aux [::sha1::sha1 -hex [$r smembers $k]]} \
-            {zset} {set aux [::sha1::sha1 -hex [$r zrange $k 0 -1]]}
+        switch $t {
+            {string} {
+                set aux [::sha1::sha1 -hex [$r get $k]]
+            } {list} {
+                if {[$r llen $k] == 0} {
+                    set aux {}
+                } else {
+                    set aux [::sha1::sha1 -hex [$r lrange $k 0 -1]]
+                }
+            } {set} {
+                if {[$r scard $k] == 0} {
+                    set aux {}
+                } else {
+                    set aux [::sha1::sha1 -hex [lsort [$r smembers $k]]]
+                }
+            } {zset} {
+                if {[$r zcard $k] == 0} {
+                    set aux {}
+                } else {
+                    set aux [::sha1::sha1 -hex [$r zrange $k 0 -1]]
+                }
+            } default {
+                error "Type not supported"
+            }
         }
-        append aux $digest
-        set digest [::sha1::sha1 -hex $aux]
+        if {$aux eq {}} continue
+        set digest [::sha1::sha1 -hex [join [list $aux $digest $k] "\n"]]
     }
     return $digest
 }
@@ -1392,17 +1424,30 @@ proc main {server port} {
             set sha1_after [datasetDigest $r]
             expr {$sha1 eq $sha1_after}
         } {1}
+
+        test {Same dataset digest if saving/reloading as AOF?} {
+            $r bgrewriteaof
+            waitForBgrewriteaof $r
+            $r debug loadaof
+            set sha1_after [datasetDigest $r]
+            expr {$sha1 eq $sha1_after}
+        } {1}
     }
 
-    test {EXPIRES after a reload} {
+    test {EXPIRES after a reload (snapshot + append only file)} {
         $r flushdb
         $r set x 10
         $r expire x 1000
         $r save
         $r debug reload
         set ttl [$r ttl x]
-        expr {$ttl > 900 && $ttl <= 1000}
-    } {1}
+        set e1 [expr {$ttl > 900 && $ttl <= 1000}]
+        $r bgrewriteaof
+        waitForBgrewriteaof $r
+        set ttl [$r ttl x]
+        set e2 [expr {$ttl > 900 && $ttl <= 1000}]
+        list $e1 $e2
+    } {1 1}
 
     # Leave the user with a clean DB before to exit
     test {FLUSHDB} {

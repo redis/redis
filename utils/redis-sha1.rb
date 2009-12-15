@@ -47,5 +47,6 @@ end
 
 host = ARGV[0] || "127.0.0.1"
 port = ARGV[1] || "6379"
-puts "Performing SHA1 of Redis server #{host} #{port}"
-p "Dataset SHA1: #{redisSha1(:host => host, :port => port.to_i)}"
+db = ARGV[2] || "0"
+puts "Performing SHA1 of Redis server #{host} #{port} DB: #{db}"
+p "Dataset SHA1: #{redisSha1(:host => host, :port => port.to_i, :db => db)}"
