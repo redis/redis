@@ -65,6 +65,110 @@ proc waitForBgsave r {
     }
 }
 
+proc randomInt {max} {
+    expr {int(rand()*$max)}
+}
+
+proc randpath args {
+    set path [expr {int(rand()*[llength $args])}]
+    uplevel 1 [lindex $args $path]
+}
+
+proc randomValue {} {
+    randpath {
+        # Small enough to likely collide
+        randomInt 1000
+    } {
+        # 32 bit compressible signed/unsigned
+        randpath {randomInt 2000000000} {randomInt 4000000000}
+    } {
+        # 64 bit
+        randpath {randomInt 1000000000000}
+    } {
+        # Random string
+        randpath {randstring 0 256 alpha} \
+                {randstring 0 256 compr} \
+                {randstring 0 256 binary}
+    }
+}
+
+proc randomKey {} {
+    randpath {
+        # Small enough to likely collide
+        randomInt 1000
+    } {
+        # 32 bit compressible signed/unsigned
+        randpath {randomInt 2000000000} {randomInt 4000000000}
+    } {
+        # 64 bit
+        randpath {randomInt 1000000000000}
+    } {
+        # Random string
+        randpath {randstring 1 256 alpha} \
+                {randstring 1 256 compr}
+    }
+}
+
+proc createComplexDataset {r ops} {
+    for {set j 0} {$j < $ops} {incr j} {
+        set k [randomKey]
+        set v [randomValue]
+        set d [expr {rand()}]
+        set t [$r type $k]
+
+        if {$t eq {none}} {
+            randpath {
+                $r set $k $v
+            } {
+                $r lpush $k $v
+            } {
+                $r sadd $k $v
+            } {
+                $r zadd $k $d $v
+            }
+            set t [$r type $k]
+        }
+
+        switch $t {
+            {string} {
+                # Nothing to do
+            }
+            {list} {
+                randpath {$r lpush $k $v} \
+                        {$r rpush $k $v} \
+                        {$r lrem $k 0 $v} \
+                        {$r rpop $k} \
+                        {$r lpop $k}
+            }
+            {set} {
+                randpath {$r sadd $k $v} \
+                        {$r srem $k $v}
+            }
+            {zset} {
+                randpath {$r zadd $k $d $v} \
+                        {$r zrem $k $v}
+            }
+        }
+    }
+}
+
+proc datasetDigest r {
+    set keys [lsort [split [$r keys *] " "]]
+    set digest [::sha1::sha1 -hex $keys]
+    foreach k $keys {
+        set t [$r type $k]
+        switch t {
+            {string} {set aux [::sha1::sha1 -hex [$r get $k]]} \
+            {list} {set aux [::sha1::sha1 -hex [$r lrange $k 0 -1]]} \
+            {set} {set aux [::sha1::sha1 -hex [$r smembers $k]]} \
+            {zset} {set aux [::sha1::sha1 -hex [$r zrange $k 0 -1]]}
+        }
+        append aux $digest
+        set digest [::sha1::sha1 -hex $aux]
+    }
+    return $digest
+}
+
 proc main {server port} {
     set r [redis $server $port]
     $r select 9
@@ -1278,6 +1382,17 @@ proc main {server port} {
         catch {$r select 1000000} err
         set _ $err
     } {*invalid*}
+
+    if {![catch {package require sha1}]} {
+        test {Check consistency of different data types after a reload} {
+            $r flushdb
+            createComplexDataset $r 10000
+            set sha1 [datasetDigest $r]
+            $r debug reload
+            set sha1_after [datasetDigest $r]
+            expr {$sha1 eq $sha1_after}
+        } {1}
+    }
 
     # Leave the user with a clean DB before to exit
     test {FLUSHDB} {

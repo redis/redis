@@ -2034,6 +2034,7 @@ static void addReplyBulkLen(redisClient *c, robj *obj) {
     } else {
         long n = (long)obj->ptr;
 
+        /* Compute how many bytes will take this integer as a radix 10 string */
         len = 1;
         if (n < 0) {
             len++;
