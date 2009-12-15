@@ -89,6 +89,11 @@ proc main {server port} {
         $r get x
     } {foobar}
 
+    test {SET and GET an empty item} {
+        $r set x {}
+        $r get x
+    } {}
+
     test {DEL against a single item} {
         $r del x
         $r get x
@@ -1229,6 +1234,51 @@ proc main {server port} {
         $r get x
     } {10}
 
+    test {Handle an empty query well} {
+        set fd [$r channel]
+        puts -nonewline $fd "\r\n"
+        flush $fd
+        $r ping
+    } {PONG}
+
+    test {Negative multi bulk command does not create problems} {
+        set fd [$r channel]
+        puts -nonewline $fd "*-10\r\n"
+        flush $fd
+        $r ping
+    } {PONG}
+
+    test {Negative multi bulk payload} {
+        set fd [$r channel]
+        puts -nonewline $fd "SET x -10\r\n"
+        flush $fd
+        gets $fd
+    } {*invalid bulk*}
+
+    test {Too big bulk payload} {
+        set fd [$r channel]
+        puts -nonewline $fd "SET x 2000000000\r\n"
+        flush $fd
+        gets $fd
+    } {*invalid bulk*count*}
+
+    test {Multi bulk request not followed by bulk args} {
+        set fd [$r channel]
+        puts -nonewline $fd "*1\r\nfoo\r\n"
+        flush $fd
+        gets $fd
+    } {*protocol error*}
+
+    test {Generic wrong number of args} {
+        catch {$r ping x y z} err
+        set _ $err
+    } {*wrong*arguments*ping*}
+
+    test {SELECT an out of range DB} {
+        catch {$r select 1000000} err
+        set _ $err
+    } {*invalid*}
+
     # Leave the user with a clean DB before to exit
     test {FLUSHDB} {
         set aux {}
@@ -1322,7 +1372,7 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::last $arg
         incr j
     } else {
-        echo "Wrong argument: $opt"
+        puts "Wrong argument: $opt"
         exit 1
     }
 }

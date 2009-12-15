@@ -1880,6 +1880,7 @@ again:
             if (sdslen(query) == 0) {
                 /* Ignore empty query */
                 sdsfree(query);
+                if (sdslen(c->querybuf)) goto again;
                 return;
             }
             argv = sdssplitlen(query,sdslen(query)," ",1,&argc);
@@ -1897,10 +1898,16 @@ again:
                 }
             }
             zfree(argv);
-            /* Execute the command. If the client is still valid
-             * after processCommand() return and there is something
-             * on the query buffer try to process the next command. */
-            if (c->argc && processCommand(c) && sdslen(c->querybuf)) goto again;
+            if (c->argc) {
+                /* Execute the command. If the client is still valid
+                 * after processCommand() return and there is something
+                 * on the query buffer try to process the next command. */
+                if (processCommand(c) && sdslen(c->querybuf)) goto again;
+            } else {
+                /* Nothing to process, argc == 0. Just process the query
+                 * buffer if it's not empty or return to the caller */
+                if (sdslen(c->querybuf)) goto again;
+            }
             return;
         } else if (sdslen(c->querybuf) >= REDIS_REQUEST_MAX_SIZE) {
             redisLog(REDIS_DEBUG, "Client protocol error");
