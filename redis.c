@@ -1877,12 +1877,6 @@ again:
             sdsupdatelen(query);
 
             /* Now we can split the query in arguments */
-            if (sdslen(query) == 0) {
-                /* Ignore empty query */
-                sdsfree(query);
-                if (sdslen(c->querybuf)) goto again;
-                return;
-            }
             argv = sdssplitlen(query,sdslen(query)," ",1,&argc);
             sdsfree(query);
 
