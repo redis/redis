@@ -301,6 +301,7 @@ struct redisServer {
     char *appendfilename;
     char *requirepass;
     int shareobjects;
+    int rdbcompression;
     /* Replication related */
     int isslave;
     char *masterauth;
@@ -1141,6 +1142,7 @@ static void initServerConfig() {
     server.appendfilename = "appendonly.aof";
     server.requirepass = NULL;
     server.shareobjects = 0;
+    server.rdbcompression = 0;
     server.sharingpoolsize = 1024;
     server.maxclients = 0;
     server.maxmemory = 0;
@@ -1339,6 +1341,10 @@ static void loadServerConfig(char *filename) {
             }
         } else if (!strcasecmp(argv[0],"shareobjects") && argc == 2) {
             if ((server.shareobjects = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"rdbcompression") && argc == 2) {
+            if ((server.rdbcompression = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"shareobjectspoolsize") && argc == 2) {
@@ -2488,7 +2494,7 @@ static int rdbSaveStringObjectRaw(FILE *fp, robj *obj) {
 
     /* Try LZF compression - under 20 bytes it's unable to compress even
      * aaaaaaaaaaaaaaaaaa so skip it */
-    if (len > 20) {
+    if (server.rdbcompression && len > 20) {
         int retval;
 
         retval = rdbSaveLzfStringObject(fp,obj);
