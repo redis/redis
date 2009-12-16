@@ -1,3 +1,29 @@
+2009-12-16 Fixed a lame epoll issue
+2009-12-15 html doc updated
+2009-12-15 version is now 1.1.92
+2009-12-15 Two important fixes to append only file: zero length values and expires. A pretty neat new test to check consistency of randomly build datasets against snapshotting and AOF.
+2009-12-15 debug loadaof implemented in order to add more consistency tests in test-redis.tcl
+2009-12-15 Added a new test able to stress a lot the snapshotting engine
+2009-12-15 Unified handling of empty queries with normal queries.
+2009-12-15 Fixed some subtle bug in the command processing code almost impossible to spot in the real world, thanks to gcov
+2009-12-15 Regression test for SINTERSTORE added
+2009-12-15 Fixed issue #121
+2009-12-14 a few more tests and ability to run a specific test in test-redis.tcl
+2009-12-13 Changed the reply of BGSAVE and BGREWRITEAOF from +OK to a more meaningful message that makes the user aware of an operation that just started and is not yet finished.
+2009-12-13 Set the master->slave logical client as authenticated on creation, so that if the slave requires a password replication works anyway
+2009-12-13 TODO update
+2009-12-12 bgrewriteaof_in_progress added to INFO
+2009-12-12 TODO list modified. What's planned for 1.4 is now written in the stone ;)
+2009-12-12 better handling of non blocking connect on redis-benchmark: EPIPE on read does not print an error message now
+2009-12-11 some change to redis-sha1.rb utility to make it more robust against non-meaningful changes in the dataset
+2009-12-10 redis-sha1.rb utility updated
+2009-12-10 a bit more verbose -ERR wrong number o arguments error, now gives info about the command name causing the error
+2009-12-10 TODO change and minor SETNX optimization
+2009-12-06 in rdbLoadDoubleValue now the buffer is nul terminated correctly. Thanks valgrind.
+2009-12-06 printf format warnings fixed by casting
+2009-12-06 Regression tests for SETNX and MSETNX bugs added
+2009-12-06 SETNX and MSETNX now respect the delete-on-write operation of EXPIREing keys
+2009-12-06 Fixed daemonization when using kqueue/kevent. Now the server initialization is performed *after* the daemonization
 2009-12-05 more HTML doc changes
 2009-12-05 HTML doc update
 2009-12-05 a few redis-cli format specified fixed

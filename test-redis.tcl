@@ -1449,6 +1449,32 @@ proc main {server port} {
         list $e1 $e2
     } {1 1}
 
+    test {PIPELINING stresser (also a regression for the old epoll bug)} {
+        set fd2 [socket 127.0.0.1 6379]
+        fconfigure $fd2 -encoding binary -translation binary
+
+        for {set i 0} {$i < 100000} {incr i} {
+            set q {}
+            set val "0000${i}0000"
+            append q "SET key:$i [string length $val]\r\n$val\r\n"
+            puts -nonewline $fd2 $q
+            set q {}
+            append q "GET key:$i\r\n"
+            puts -nonewline $fd2 $q
+        }
+        flush $fd2
+
+        for {set i 0} {$i < 100000} {incr i} {
+            gets $fd2 line
+            gets $fd2 count
+            set count [string range $count 1 end]
+            set val [read $fd2 $count]
+            read $fd2 2
+        }
+        close $fd2
+        set _ 1
+    } {1}
+
     # Leave the user with a clean DB before to exit
     test {FLUSHDB} {
         set aux {}
