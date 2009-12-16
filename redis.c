@@ -1142,7 +1142,7 @@ static void initServerConfig() {
     server.appendfilename = "appendonly.aof";
     server.requirepass = NULL;
     server.shareobjects = 0;
-    server.rdbcompression = 0;
+    server.rdbcompression = 1;
     server.sharingpoolsize = 1024;
     server.maxclients = 0;
     server.maxmemory = 0;
