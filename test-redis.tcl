@@ -904,6 +904,11 @@ proc main {server port} {
         $r sort tosort {BY weight_*}
     } $res
 
+    test {SORT with BY and STORE against the newly created list} {
+        $r sort tosort {BY weight_*} store sort-res
+        $r lrange sort-res 0 -1
+    } $res
+
     test {SORT direct, numeric, against the newly created list} {
         $r sort tosort
     } [lsort -integer $res]
