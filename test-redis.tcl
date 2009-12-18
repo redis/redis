@@ -1184,7 +1184,11 @@ proc main {server port} {
         set _ $err
     } {}
 
-    test {ZRANGE and ZREVRANGE} {
+    test {ZRANGE and ZREVRANGE basics} {
+        list [$r zrange ztmp 0 -1] [$r zrevrange ztmp 0 -1]
+    } {{y x z} {z x y}}
+
+    test {ZRANGE and ZREVRANGE stress testing} {
         list [$r zrange ztmp 0 -1] [$r zrevrange ztmp 0 -1]
     } {{y x z} {z x y}}
 

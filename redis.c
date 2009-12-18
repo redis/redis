@@ -3320,20 +3320,26 @@ static void shutdownCommand(redisClient *c) {
         kill(server.bgsavechildpid,SIGKILL);
         rdbRemoveTempFile(server.bgsavechildpid);
     }
-    /* SYNC SAVE */
-    if (rdbSave(server.dbfilename) == REDIS_OK) {
-        if (server.daemonize)
-            unlink(server.pidfile);
-        redisLog(REDIS_WARNING,"%zu bytes used at exit",zmalloc_used_memory());
-        redisLog(REDIS_WARNING,"Server exit now, bye bye...");
-        exit(1);
+    if (server.appendonly) {
+        /* Append only file: fsync() the AOF and exit */
+        fsync(server.appendfd);
+        exit(0);
     } else {
-        /* Ooops.. error saving! The best we can do is to continue operating.
-         * Note that if there was a background saving process, in the next
-         * cron() Redis will be notified that the background saving aborted,
-         * handling special stuff like slaves pending for synchronization... */
-        redisLog(REDIS_WARNING,"Error trying to save the DB, can't exit"); 
-        addReplySds(c,sdsnew("-ERR can't quit, problems saving the DB\r\n"));
+        /* Snapshotting. Perform a SYNC SAVE and exit */
+        if (rdbSave(server.dbfilename) == REDIS_OK) {
+            if (server.daemonize)
+                unlink(server.pidfile);
+            redisLog(REDIS_WARNING,"%zu bytes used at exit",zmalloc_used_memory());
+            redisLog(REDIS_WARNING,"Server exit now, bye bye...");
+            exit(0);
+        } else {
+            /* Ooops.. error saving! The best we can do is to continue operating.
+             * Note that if there was a background saving process, in the next
+             * cron() Redis will be notified that the background saving aborted,
+             * handling special stuff like slaves pending for synchronization... */
+            redisLog(REDIS_WARNING,"Error trying to save the DB, can't exit"); 
+            addReplySds(c,sdsnew("-ERR can't quit, problems saving the DB\r\n"));
+        }
     }
 }
 
