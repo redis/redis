@@ -126,7 +126,19 @@ proc createComplexDataset {r ops} {
     for {set j 0} {$j < $ops} {incr j} {
         set k [randomKey]
         set v [randomValue]
-        set d [expr {rand()}]
+        randpath {
+            set d [expr {rand()}]
+        } {
+            set d [expr {rand()}]
+        } {
+            set d [expr {rand()}]
+        } {
+            set d [expr {rand()}]
+        } {
+            set d [expr {rand()}]
+        } {
+            randpath {set d +inf} {set d -inf}
+        }
         set t [$r type $k]
 
         if {$t eq {none}} {
@@ -308,6 +320,11 @@ proc main {server port} {
         $r incrby novar 17179869184
     } {34359738368}
 
+    test {INCR against key with spaces (no integer encoded)} {
+        $r set novar "    11    "
+        $r incr novar
+    } {12}
+
     test {DECRBY over 32bit value with over 32bit increment, negative res} {
         $r set novar 17179869184
         $r decrby novar 17179869185
@@ -370,7 +387,8 @@ proc main {server port} {
         append res [$r lindex mylist 0]
         append res [$r lindex mylist 1]
         append res [$r lindex mylist 2]
-    } {3bac}
+        list $res [$r lindex mylist 100]
+    } {3bac {}}
 
     test {DEL a list} {
         $r del mylist
@@ -423,10 +441,18 @@ proc main {server port} {
         format $err
     } {ERR*}
 
+    test {LLEN against non existing key} {
+        $r llen not-a-key
+    } {0}
+
     test {LINDEX against non-list value error} {
         catch {$r lindex mylist 0} err
         format $err
     } {ERR*}
+
+    test {LINDEX against non existing key} {
+        $r lindex not-a-key 10
+    } {}
 
     test {LPUSH against non-list value error} {
         catch {$r lpush mylist 0} err

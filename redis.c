@@ -3631,7 +3631,7 @@ static void ltrimCommand(redisClient *c) {
     
     o = lookupKeyWrite(c->db,c->argv[1]);
     if (o == NULL) {
-        addReply(c,shared.nokeyerr);
+        addReply(c,shared.ok);
     } else {
         if (o->type != REDIS_LIST) {
             addReply(c,shared.wrongtypeerr);
