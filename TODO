@@ -48,14 +48,17 @@ BIG ONES:
 
 * Specially encoded memory-saving integer sets.
 * A command to export a JSON dump (there should be mostly working patch needing major reworking).
+* Specially encoded sets of integers (this includes a big refactoring providing an higher level layer for Sets manipulation)
 
 SMALL ONES:
 
 * Give errors when incrementing a key that does not look like an integer, when providing as a sorted set score something can't be parsed as a double, and so forth.
 * MSADD (n keys) (n values). See this thread in the Redis google group: http://groups.google.com/group/redis-db/browse_thread/thread/e766d84eb375cd41
+* Don't save empty lists / sets / zsets on disk with snapshotting.
+* Remove keys when a list / set / zset reaches length of 0.
 
-SHORT/LONG TERM RANDOM TODO ITEMS
-=================================
+THE "MAYBE" TODO LIST: things that may or may not get implemented
+=================================================================
 
 Most of this can be seen just as proposals, the fact they are in this list
 it's not a guarantee they'll ever get implemented ;)
@@ -73,13 +76,5 @@ it's not a guarantee they'll ever get implemented ;)
 * zmalloc() should avoid to add a private header for archs where there is some other kind of libc-specific way to get the size of a malloced block. Already done for Mac OS X.
 * Read-only mode.
 * Pattern-matching replication.
-* Don't save empty lists / sets / zsets on disk with snapshotting.
-* Remove keys when a list / set / zset reaches length of 0.
 * Add an option to relax the delete-expiring-keys-on-write semantic *denying* replication and AOF when this is on? Can be handy sometimes, when using Redis for non persistent state, but can create problems. For instance should rename and move also "move" the timeouts? How does this affect other commands?
-
-DOCUMENTATION WISHLIST
-======================
-
-* Page explaining tips to reduce memory usage.
-* A Sorted sets HOWTO
-
+* Multiple BY in SORT.
