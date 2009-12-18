@@ -877,18 +877,23 @@ proc main {server port} {
         lsort [array names myset]
     } {a b c}
     
-    test {Create a random list} {
+    test {Create a random list and a random set} {
         set tosort {}
         array set seenrand {}
         for {set i 0} {$i < 10000} {incr i} {
             while 1 {
                 # Make sure all the weights are different because
                 # Redis does not use a stable sort but Tcl does.
-                set rint [expr int(rand()*1000000)]
+                randpath {
+                    set rint [expr int(rand()*1000000)]
+                } {
+                    set rint [expr rand()]
+                }
                 if {![info exists seenrand($rint)]} break
             }
             set seenrand($rint) x
             $r lpush tosort $i
+            $r sadd tosort-set $i
             $r set weight_$i $rint
             lappend tosort [list $i $rint]
         }
@@ -902,6 +907,10 @@ proc main {server port} {
 
     test {SORT with BY against the newly created list} {
         $r sort tosort {BY weight_*}
+    } $res
+
+    test {the same SORT with BY, but against the newly created set} {
+        $r sort tosort-set {BY weight_*}
     } $res
 
     test {SORT with BY and STORE against the newly created list} {
