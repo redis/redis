@@ -530,6 +530,12 @@ proc main {server port} {
         list [$r lrange mylist 0 -1] [$r type newlist] [string range $err 0 2]
     } {{a b c d} string ERR}
 
+    test {RPOPLPUSH against non existing src key} {
+        $r del mylist
+        $r del newlist
+        $r rpoplpush mylist newlist
+    } {}
+
     test {RENAME basic usage} {
         $r set mykey hello
         $r rename mykey mykey1
