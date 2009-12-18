@@ -1532,6 +1532,9 @@ proc main {server port} {
     test {PIPELINING stresser (also a regression for the old epoll bug)} {
         set fd2 [socket 127.0.0.1 6379]
         fconfigure $fd2 -encoding binary -translation binary
+        puts -nonewline $fd2 "SELECT 9\r\n"
+        flush $fd2
+        gets $fd2
 
         for {set i 0} {$i < 100000} {incr i} {
             set q {}
