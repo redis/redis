@@ -693,7 +693,36 @@ proc main {server port} {
         $r lrange mylist 0 -1
     } {99 98 97 96 95}
 
+    test {LTRIM stress testing} {
+        set mylist {}
+        set err {}
+        for {set i 0} {$i < 20} {incr i} {
+            lappend mylist $i
+        }
+
+        for {set j 0} {$j < 100} {incr j} {
+            # Fill the list
+            $r del mylist
+            for {set i 0} {$i < 20} {incr i} {
+                $r rpush mylist $i
+            }
+            # Trim at random
+            set a [randomInt 20]
+            set b [randomInt 20]
+            $r ltrim mylist $a $b
+            if {[$r lrange mylist 0 -1] ne [lrange $mylist $a $b]} {
+                set err "[$r lrange mylist 0 -1] != [lrange $mylist $a $b]"
+                break
+            }
+        }
+        set _ $err
+    } {}
+
     test {LSET} {
+        $r del mylist
+        foreach x {99 98 97 96 95} {
+            $r rpush mylist $x
+        }
         $r lset mylist 1 foo
         $r lset mylist -1 bar
         $r lrange mylist 0 -1
