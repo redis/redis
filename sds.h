@@ -66,5 +66,6 @@ void sdsupdatelen(sds s);
 int sdscmp(sds s1, sds s2);
 sds *sdssplitlen(char *s, int len, char *sep, int seplen, int *count);
 void sdstolower(sds s);
+void sdstoupper(sds s);
 
 #endif
