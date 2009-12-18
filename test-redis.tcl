@@ -962,6 +962,10 @@ proc main {server port} {
         $r sort mylist BY weight_* GET #
     } {2 1 3}
 
+    test {SORT with constant GET} {
+        $r sort mylist GET foo
+    } {{} {} {}}
+
     test {LREM, remove all the occurrences} {
         $r flushdb
         $r rpush mylist foo

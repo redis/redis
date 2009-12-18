@@ -4839,7 +4839,7 @@ static void sortCommand(redisClient *c) {
     /* Lookup the key to sort. It must be of the right types */
     sortval = lookupKeyRead(c->db,c->argv[1]);
     if (sortval == NULL) {
-        addReply(c,shared.nokeyerr);
+        addReply(c,shared.nullmultibulk);
         return;
     }
     if (sortval->type != REDIS_SET && sortval->type != REDIS_LIST &&
