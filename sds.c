@@ -140,7 +140,7 @@ sds sdscpylen(sds s, char *t, size_t len) {
     size_t totlen = sh->free+sh->len;
 
     if (totlen < len) {
-        s = sdsMakeRoomFor(s,len-totlen);
+        s = sdsMakeRoomFor(s,len-sh->len);
         if (s == NULL) return NULL;
         sh = (void*) (s-(sizeof(struct sdshdr)));
         totlen = sh->free+sh->len;

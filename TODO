@@ -75,6 +75,7 @@ it's not a guarantee they'll ever get implemented ;)
 * Pattern-matching replication.
 * Don't save empty lists / sets / zsets on disk with snapshotting.
 * Remove keys when a list / set / zset reaches length of 0.
+* Add an option to relax the delete-expiring-keys-on-write semantic *denying* replication and AOF when this is on? Can be handy sometimes, when using Redis for non persistent state.
 
 DOCUMENTATION WISHLIST
 ======================
