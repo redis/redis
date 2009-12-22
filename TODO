@@ -1,12 +1,5 @@
 Redis TODO and Roadmap
 
-VERSION 1.2 TODO (Zsets, Integer encoding, Append only journal)
-===============================================================
-
-Most of the features already implemented for this release. The following is a list of the missing things in order to release the first beta tar.gz:
-
-* Continue adding tests accordingly to gcov output.
-
 VERSION 1.4 TODO (Hash type)
 ============================
 
