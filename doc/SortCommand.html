@@ -1,0 +1,68 @@
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<html>
+    <head>
+        <link type="text/css" rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <div id="page">
+        
+            <div id='header'>
+            <a href="index.html">
+            <img style="border:none" alt="Redis Documentation" src="redis.png">
+            </a>
+            </div>
+        
+            <div id="pagecontent">
+                <div class="index">
+<!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
+<b>SortCommand: Contents</b><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Sorting by external keys">Sorting by external keys</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Retrieving external keys">Retrieving external keys</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Storing the result of a SORT operation">Storing the result of a SORT operation</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a>
+                </div>
+                
+                <h1 class="wikiname">SortCommand</h1>
+
+                <div class="summary">
+                    
+                </div>
+
+                <div class="narrow">
+                    &iuml;&raquo;&iquest;= SORT <i>key</i> <code name="code" class="python">[</code>BY <i>pattern</i><code name="code" class="python">]</code> <code name="code" class="python">[</code>LIMIT <i>start</i> <i>count</i><code name="code" class="python">]</code> <code name="code" class="python">[</code>GET <i>pattern</i><code name="code" class="python">]</code> <code name="code" class="python">[</code>ASC|DESC<code name="code" class="python">]</code> <code name="code" class="python">[</code>ALPHA<code name="code" class="python">]</code> <code name="code" class="python">[</code>STORE <i>dstkey</i><code name="code" class="python">]</code> =
+<blockquote>Sort the elements contained in the <a href="Lists.html">List</a>, <a href="Sets.html">Set</a>, or<a href="SortedSets.html">Sorted Set</a> value at <i>key</i>. By defaultsorting is numeric with elements being compared as double precisionfloating point numbers. This is the simplest form of SORT:</blockquote>
+<pre class="codeblock python" name="code">
+SORT mylist
+</pre><blockquote>Assuming mylist contains a list of numbers, the return value will bethe list of numbers ordered from the smallest to the biggest number.In order to get the sorting in reverse order use <b>DESC</b>:</blockquote>
+<pre class="codeblock python python" name="code">
+SORT mylist DESC
+</pre><blockquote>The <b>ASC</b> option is also supported but it's the default so you don'treally need it.If you want to sort lexicographically use <b>ALPHA</b>. Note that Redis isutf-8 aware assuming you set the right value for the LC_COLLATEenvironment variable.</blockquote>
+<blockquote>Sort is able to limit the number of returned elements using the <b>LIMIT</b> option:</blockquote>
+<pre class="codeblock python python python" name="code">
+SORT mylist LIMIT 0 10
+</pre><blockquote>In the above example SORT will return only 10 elements, starting fromthe first one (start is zero-based). Almost all the sort options canbe mixed together. For example the command:</blockquote>
+<pre class="codeblock python python python python" name="code">
+SORT mylist LIMIT 0 10 ALPHA DESC
+</pre><blockquote>Will sort <i>mylist</i> lexicographically, in descending order, returning onlythe first 10 elements.</blockquote>
+<blockquote>Sometimes you want to sort elements using external keys as weights tocompare instead to compare the actual List Sets or Sorted Set elements.For example the list <i>mylist</i> may contain the elements 1, 2, 3, 4, thatare just unique IDs of objects stored at object_1, object_2, object_3and object_4, while the keys weight_1, weight_2, weight_3 and weight_4can contain weights we want to use to sort our list of objectsidentifiers. We can use the following command:</blockquote>
+<h2><a name="Sorting by external keys">Sorting by external keys</a></h2><pre class="codeblock python python python python python" name="code">
+SORT mylist BY weight_*
+</pre><blockquote>the <b>BY</b> option takes a pattern (<code name="code" class="python">weight_*</code> in our example) that is usedin order to generate the key names of the weights used for sorting.Weight key names are obtained substituting the first occurrence of <code name="code" class="python">*</code>with the actual value of the elements on the list (1,2,3,4 in our example).</blockquote>
+<blockquote>Our previous example will return just the sorted IDs. Often it isneeded to get the actual objects sorted (object_1, ..., object_4 in theexample). We can do it with the following command:</blockquote>
+<h2><a name="Retrieving external keys">Retrieving external keys</a></h2><pre class="codeblock python python python python python python" name="code">
+SORT mylist BY weight_* GET object_*
+</pre><blockquote>Note that <b>GET</b> can be used multiple times in order to get more keys forevery element of the original List, Set or Sorted Set sorted.</blockquote>
+<blockquote>Since Redis &gt;= 1.1 it's possible to also GET the list elements itselfusing the special # pattern:</blockquote>
+<pre class="codeblock python python python python python python python" name="code">
+SORT mylist BY weight_* GET object_* GET #
+</pre><h2><a name="Storing the result of a SORT operation">Storing the result of a SORT operation</a></h2><blockquote>By default SORT returns the sorted elements as its return value.Using the <b>STORE</b> option instead to return the elements SORT willstore this elements as a <a href="Lists.html">Redis List</a> in the specified key.An example:</blockquote>
+<pre class="codeblock python python python python python python python python" name="code">
+SORT mylist BY weight_* STORE resultkey
+</pre><blockquote>An interesting pattern using SORT ... STORE consists in associatingan <a href="ExpireCommand.html">EXPIRE</a> timeout to the resulting key so that inapplications where the result of a sort operation can be cached forsome time other clients will use the cached list instead to call SORTfor every request. When the key will timeout an updated version ofthe cache can be created using SORT ... STORE again.</blockquote>
+<blockquote>Note that implementing this pattern it is important to avoid that multipleclients will try to rebuild the cached version of the cacheat the same time, so some form of locking should be implemented(for instance using <a href="SetnxCommand.html">SETNX</a>).</blockquote>
+<h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Multi bulk reply</a>, specifically a list of sorted elements.
+
+                </div>
+        
+            </div>
+        </div>
+    </body>
+</html>
+
