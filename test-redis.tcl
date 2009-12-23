@@ -1207,6 +1207,10 @@ proc main {server port} {
             [$r zrange ztmp 1 -1] [$r zrevrange ztmp 1 -1]
     } {{y x z} {z x y} {x z} {x y}}
 
+    test {ZRANGE WITHSCORES} {
+        $r zrange ztmp 0 -1 withscores
+    } {y 1 x 10 z 30}
+
     test {ZSETs stress tester - sorting is working well?} {
         set delta 0
         for {set test 0} {$test < 2} {incr test} {
