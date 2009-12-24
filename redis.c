@@ -27,7 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define REDIS_VERSION "1.1.94"
+#define REDIS_VERSION "1.1.95"
 
 #include "fmacros.h"
 #include "config.h"
@@ -3018,24 +3018,31 @@ static void setnxCommand(redisClient *c) {
     setGenericCommand(c,1);
 }
 
-static void getCommand(redisClient *c) {
+static int getGenericCommand(redisClient *c) {
     robj *o = lookupKeyRead(c->db,c->argv[1]);
 
     if (o == NULL) {
         addReply(c,shared.nullbulk);
+        return REDIS_OK;
     } else {
         if (o->type != REDIS_STRING) {
             addReply(c,shared.wrongtypeerr);
+            return REDIS_ERR;
         } else {
             addReplyBulkLen(c,o);
             addReply(c,o);
             addReply(c,shared.crlf);
+            return REDIS_OK;
         }
     }
 }
 
+static void getCommand(redisClient *c) {
+    getGenericCommand(c);
+}
+
 static void getsetCommand(redisClient *c) {
-    getCommand(c);
+    if (getGenericCommand(c) == REDIS_ERR) return;
     if (dictAdd(c->db->dict,c->argv[1],c->argv[2]) == DICT_ERR) {
         dictReplace(c->db->dict,c->argv[1],c->argv[2]);
     } else {

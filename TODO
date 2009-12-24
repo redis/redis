@@ -42,6 +42,7 @@ BIG ONES:
 * Specially encoded memory-saving integer sets.
 * A command to export a JSON dump (there should be mostly working patch needing major reworking).
 * Specially encoded sets of integers (this includes a big refactoring providing an higher level layer for Sets manipulation)
+* ZRANK: http://docs.google.com/viewer?a=v&q=cache:tCQaP3ZeN4YJ:courses.csail.mit.edu/6.046/spring04/handouts/ps5-sol.pdf+skip+list+rank+operation+augmented&hl=en&pid=bl&srcid=ADGEEShXuNjTcZyXw_1cq9OaWpSXy3PprjXqVzmM-LE0ETFznLyrDXJKQ_mBPNT10R8ErkoiXD9JbMw_FaoHmOA4yoGVrA7tZWiy393JwfCwuewuP93sjbkzZ_gnEp83jYhPYjThaIzw&sig=AHIEtbRF0GkYCdYRFtTJBE69senXZwFY0w
 
 SMALL ONES:
 
