@@ -5365,6 +5365,7 @@ static void queueMultiCommand(redisClient *c, struct redisCommand *cmd) {
 
 static void multiCommand(redisClient *c) {
     c->flags |= REDIS_MULTI;
+    addReply(c,shared.ok);
 }
 
 static void execCommand(redisClient *c) {
