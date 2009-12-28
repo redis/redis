@@ -513,7 +513,6 @@ static void zscoreCommand(redisClient *c);
 static void zremrangebyscoreCommand(redisClient *c);
 static void multiCommand(redisClient *c);
 static void execCommand(redisClient *c);
-static void aofsyncCommand(redisClient *c);
 
 /*================================= Globals ================================= */
 
@@ -582,7 +581,6 @@ static struct redisCommand cmdTable[] = {
     {"save",saveCommand,1,REDIS_CMD_INLINE},
     {"bgsave",bgsaveCommand,1,REDIS_CMD_INLINE},
     {"bgrewriteaof",bgrewriteaofCommand,1,REDIS_CMD_INLINE},
-    {"aofsync",aofsyncCommand,1,REDIS_CMD_INLINE},
     {"shutdown",shutdownCommand,1,REDIS_CMD_INLINE},
     {"lastsave",lastsaveCommand,1,REDIS_CMD_INLINE},
     {"type",typeCommand,2,REDIS_CMD_INLINE},
@@ -6231,13 +6229,6 @@ static void bgrewriteaofCommand(redisClient *c) {
     } else {
         addReply(c,shared.err);
     }
-}
-
-static void aofsyncCommand(redisClient *c) {
-    if (server.appendonly)
-        fsync(server.appendfd);
-    else
-        addReplySds(c,sdsnew("-ERR Append Only File is not active\r\n"));
 }
 
 static void aofRemoveTempFile(pid_t childpid) {
