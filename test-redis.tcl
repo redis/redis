@@ -1562,6 +1562,18 @@ proc main {server port} {
         set _ 1
     } {1}
 
+    test {MUTLI / EXEC basics} {
+        $r del mylist
+        $r rpush mylist a
+        $r rpush mylist b
+        $r rpush mylist c
+        $r multi
+        set v1 [$r lrange mylist 0 -1]
+        set v2 [$r ping]
+        set v3 [$r exec]
+        list $v1 $v2 $v3
+    } {QUEUED QUEUED {{a b c} PONG}}
+
     # Leave the user with a clean DB before to exit
     test {FLUSHDB} {
         set aux {}

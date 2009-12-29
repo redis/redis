@@ -71,6 +71,8 @@ static struct redisCommand cmdTable[] = {
     {"lpush",3,REDIS_CMD_BULK},
     {"rpop",2,REDIS_CMD_INLINE},
     {"lpop",2,REDIS_CMD_INLINE},
+    {"brpop",3,REDIS_CMD_INLINE},
+    {"blpop",3,REDIS_CMD_INLINE},
     {"llen",2,REDIS_CMD_INLINE},
     {"lindex",3,REDIS_CMD_INLINE},
     {"lset",4,REDIS_CMD_BULK},
