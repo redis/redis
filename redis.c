@@ -6598,8 +6598,8 @@ static void *getMcontextEip(ucontext_t *uc) {
   #else
     return (void*) uc->uc_mcontext->__ss.__eip;
   #endif 
-#elif defined(__i386__) || defined(__X86_64__) /* Linux x86 */
-    return (void*) uc->uc_mcontext.gregs[REG_EIP];
+#elif defined(__i386__) || defined(__X86_64__)  || defined(__x86_64__)
+    return (void*) uc->uc_mcontext.gregs[REG_EIP]; /* Linux 32/64 bit */
 #elif defined(__ia64__) /* Linux IA64 */
     return (void*) uc->uc_mcontext.sc_ip;
 #else
