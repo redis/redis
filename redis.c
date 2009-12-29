@@ -5487,7 +5487,7 @@ static void blockForKey(redisClient *c, robj *key, time_t timeout) {
         int retval;
 
         l = listCreate();
-        retval = dictAdd(c->db->blockingkeys,c,l);
+        retval = dictAdd(c->db->blockingkeys,key,l);
         assert(retval == DICT_OK);
     } else {
         l = dictGetEntryVal(de);
