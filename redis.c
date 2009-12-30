@@ -901,7 +901,7 @@ static void closeTimedoutClients(void) {
             redisLog(REDIS_DEBUG,"Closing idle client");
             freeClient(c);
         } else if (c->flags & REDIS_BLOCKED) {
-            if (c->blockingto < now) {
+            if (c->blockingto != 0 && c->blockingto < now) {
                 addReply(c,shared.nullbulk);
                 unblockClient(c);
             }
@@ -5503,6 +5503,7 @@ static void blockForKey(redisClient *c, robj *key, time_t timeout) {
     if (de == NULL) {
         int retval;
 
+        /* We take a list of clients blocked for a given key */
         l = listCreate();
         retval = dictAdd(c->db->blockingkeys,key,l);
         incrRefCount(key);
@@ -5510,6 +5511,7 @@ static void blockForKey(redisClient *c, robj *key, time_t timeout) {
     } else {
         l = dictGetEntryVal(de);
     }
+    /* Add this client to the list, and mark it as blocked */
     listAddNodeTail(l,c);
     c->flags |= REDIS_BLOCKED;
     aeDeleteFileEvent(server.el,c->fd,AE_READABLE);
