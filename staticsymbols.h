@@ -10,7 +10,7 @@ static struct redisFunctionSym symsTable[] = {
 {"authCommand",(unsigned long)authCommand},
 {"bgrewriteaofCommand",(unsigned long)bgrewriteaofCommand},
 {"bgsaveCommand",(unsigned long)bgsaveCommand},
-{"blockForKey",(unsigned long)blockForKey},
+{"blockForKeys",(unsigned long)blockForKeys},
 {"blockingPopGenericCommand",(unsigned long)blockingPopGenericCommand},
 {"blpopCommand",(unsigned long)blpopCommand},
 {"brpopCommand",(unsigned long)brpopCommand},

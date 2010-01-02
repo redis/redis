@@ -3,14 +3,19 @@ Redis TODO and Roadmap
 VERSION 1.4 TODO (Hash type)
 ============================
 
-* Blocking LPOP (BLPOP).
-* Hashes (HSET, HGET, HEXISTS, HLEN, ...).
+* BRPOPLPUSH
+* RPOPLPUSH should notify blocking POP operations
 * List ops like L/RPUSH L/RPOP should return the new list length.
+* Save dataset / fsync() on SIGTERM
+* MULTI/EXEC should support the "EXEC FSYNC" form
+* Synchronous Virtual Memory
+* BLPOP & C. tests (write a non blocking Tcl client as first step)
 
 VERSION 1.6 TODO (Virtual memory)
 =================================
 
-* Redis Virtual Memory for datasets bigger than RAM (http://groups.google.com/group/redis-db/msg/752997c7b38553cd)
+* Asynchronous Virtual Memory
+* Hashes (HSET, HGET, HEXISTS, HLEN, ...).
 
 VERSION 1.8 TODO (Fault tollerant sharding)
 ===========================================
