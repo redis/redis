@@ -3862,20 +3862,24 @@ static void rpoplpushcommand(redisClient *c) {
                 robj *ele = listNodeValue(ln);
                 list *dstlist;
 
-                if (dobj == NULL) {
-
-                    /* Create the list if the key does not exist */
-                    dobj = createListObject();
-                    dictAdd(c->db->dict,c->argv[2],dobj);
-                    incrRefCount(c->argv[2]);
-                } else if (dobj->type != REDIS_LIST) {
+                if (dobj && dobj->type != REDIS_LIST) {
                     addReply(c,shared.wrongtypeerr);
                     return;
                 }
-                /* Add the element to the target list */
-                dstlist = dobj->ptr;
-                listAddNodeHead(dstlist,ele);
-                incrRefCount(ele);
+
+                /* Add the element to the target list (unless it's directly
+                 * passed to some BLPOP-ing client */
+                if (!handleClientsWaitingListPush(c,c->argv[2],ele)) {
+                    if (dobj == NULL) {
+                        /* Create the list if the key does not exist */
+                        dobj = createListObject();
+                        dictAdd(c->db->dict,c->argv[2],dobj);
+                        incrRefCount(c->argv[2]);
+                    }
+                    dstlist = dobj->ptr;
+                    listAddNodeHead(dstlist,ele);
+                    incrRefCount(ele);
+                }
 
                 /* Send the element to the client as reply as well */
                 addReplyBulkLen(c,ele);
