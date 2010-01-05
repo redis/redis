@@ -158,6 +158,11 @@
 #define REDIS_VM_SWAPPING 2     /* Redis is swapping this object on disk */
 #define REDIS_VM_LOADING 3      /* Redis is loading this object from disk */
 
+/* Virtual memory static configuration stuff.
+ * Check vmFindContiguousPages() to know more about this magic numbers. */
+#define REDIS_VM_MAX_NEAR_PAGES 65536
+#define REDIS_VM_MAX_RANDOM_JUMP 4096
+
 /* Client flags */
 #define REDIS_CLOSE 1       /* This client connection should be closed ASAP */
 #define REDIS_SLAVE 2       /* This client is a slave server */
@@ -369,6 +374,7 @@ struct redisServer {
     int vm_fd;
     off_t vm_next_page; /* Next probably empty page */
     off_t vm_near_pages; /* Number of pages allocated sequentially */
+    unsigned char *vm_bitmap; /* Bitmap of free/used pages */
 };
 
 typedef void redisCommandProc(redisClient *c);
@@ -2751,6 +2757,13 @@ static off_t rdbSavedObjectLen(robj *o) {
     rewind(fp);
     assert(rdbSaveObject(fp,o) != 1);
     return ftello(fp);
+}
+
+/* Return the number of pages required to save this object in the swap file */
+static off_t rdbSavedObjectPages(robj *o) {
+    off_t bytes = rdbSavedObjectLen(o);
+    
+    return (bytes+(server.vm_page_size-1))/server.vm_page_size;
 }
 
 /* Save the DB on disk. Return REDIS_ERR on error, REDIS_OK on success */
@@ -6599,9 +6612,119 @@ static void vmInit(void) {
     } else {
         redisLog(REDIS_NOTICE,"Swap file allocated with success");
     }
+    server.vm_bitmap = zmalloc((server.vm_near_pages+7)/8);
+    memset(server.vm_bitmap,0,(server.vm_near_pages+7)/8);
     /* Try to remove the swap file, so the OS will really delete it from the
      * file system when Redis exists. */
     unlink("/tmp/redisvm");
+}
+
+/* Mark the page as used */
+static void vmMarkPageUsed(off_t page) {
+    off_t byte = page/8;
+    int bit = page&7;
+    server.vm_bitmap[byte] |= 1<<bit;
+}
+
+/* Mark N contiguous pages as used, with 'page' being the first. */
+static void vmMarkPagesUsed(off_t page, off_t count) {
+    off_t j;
+
+    for (j = 0; j < count; j++)
+        vmMarkPageUsed(page+count);
+}
+
+/* Mark the page as free */
+static void vmMarkPageFree(off_t page) {
+    off_t byte = page/8;
+    int bit = page&7;
+    server.vm_bitmap[byte] &= ~(1<<bit);
+}
+
+/* Mark N contiguous pages as free, with 'page' being the first. */
+static void vmMarkPagesFree(off_t page, off_t count) {
+    off_t j;
+
+    for (j = 0; j < count; j++)
+        vmMarkPageFree(page+count);
+}
+
+/* Test if the page is free */
+static int vmFreePage(off_t page) {
+    off_t byte = page/8;
+    int bit = page&7;
+    return server.vm_bitmap[byte] & bit;
+}
+
+/* Find N contiguous free pages storing the first page of the cluster in *first.
+ * Returns 1 if it was able to find N contiguous pages, otherwise 0 is
+ * returned.
+ *
+ * This function uses a simple algorithm: we try to allocate
+ * REDIS_VM_MAX_NEAR_PAGES sequentially, when we reach this limit we start
+ * again from the start of the swap file searching for free spaces.
+ *
+ * If it looks pretty clear that there are no free pages near our offset
+ * we try to find less populated places doing a forward jump of
+ * REDIS_VM_MAX_RANDOM_JUMP, then we start scanning again a few pages
+ * without hurry, and then we jump again and so forth...
+ * 
+ * This function can be improved using a free list to avoid to guess
+ * too much, since we could collect data about freed pages.
+ *
+ * note: I implemented this function just after watching an episode of
+ * Battlestar Galactica, where the hybrid was continuing to say "JUMP!"
+ */
+static int vmFindContiguousPages(off_t *first, int n) {
+    off_t base, offset = 0, since_jump = 0, numfree = 0;
+
+    if (server.vm_near_pages == REDIS_VM_MAX_NEAR_PAGES) {
+        server.vm_near_pages = 0;
+        server.vm_next_page = 0;
+    }
+    server.vm_near_pages++; /* Yet another try for pages near to the old ones */
+    base = server.vm_next_page;
+
+    while(offset < server.vm_pages) {
+        off_t this = base+offset;
+
+        /* If we overflow, restart from page zero */
+        if (this >= server.vm_pages) {
+            this -= server.vm_pages;
+            if (this == 0) {
+                /* Just overflowed, what we found on tail is no longer
+                 * interesting, as it's no longer contiguous. */
+                numfree = 0;
+            }
+        }
+        if (vmFreePage(this)) {
+            /* This is a free page */
+            numfree++;
+            /* Already got N free pages? Return to the caller, with success */
+            if (numfree == n) {
+                *first = this;
+                return 1;
+            }
+        } else {
+            /* The current one is not a free page */
+            numfree = 0;
+        }
+
+        /* Fast-forward if the current page is not free and we already
+         * searched enough near this place. */
+        since_jump++;
+        if (!numfree && since_jump >= REDIS_VM_MAX_RANDOM_JUMP/4) {
+            offset += random() % REDIS_VM_MAX_RANDOM_JUMP;
+            since_jump = 0;
+            /* Note that even if we rewind after the jump, we are don't need
+             * to make sure numfree is set to zero as we only jump *if* it
+             * is set to zero. */
+        } else {
+            /* Otherwise just check the next page */
+            offset++;
+        }
+    }
+    return 0;
 }
 
 /* ================================= Debugging ============================== */
