@@ -488,6 +488,7 @@ static void unblockClient(redisClient *c);
 static int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele);
 static void vmInit(void);
 static void vmMarkPagesFree(off_t page, off_t count);
+static robj *vmLoadObject(robj *key);
 
 static void authCommand(redisClient *c);
 static void pingCommand(redisClient *c);
@@ -2359,11 +2360,21 @@ static void decrRefCount(void *obj) {
 static robj *lookupKey(redisDb *db, robj *key) {
     dictEntry *de = dictFind(db->dict,key);
     if (de) {
-        robj *o = dictGetEntryVal(de);
+        robj *key = dictGetEntryKey(de);
+        robj *val = dictGetEntryVal(de);
 
-        /* Update the access time of the key for the aging algorithm. */
-        if (server.vm_enabled) o->vm.atime = server.unixtime;
-        return o;
+        if (server.vm_enabled) {
+            if (key->storage == REDIS_VM_MEMORY) {
+                /* Update the access time of the key for the aging algorithm. */
+                key->vm.atime = server.unixtime;
+            } else {
+                /* Our value was swapped on disk. Bring it at home. */
+                assert(val == NULL);
+                val = vmLoadObject(key);
+                dictGetEntryVal(de) = val;
+            }
+        }
+        return val;
     } else {
         return NULL;
     }
