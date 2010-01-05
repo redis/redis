@@ -2190,6 +2190,11 @@ static void addReply(redisClient *c, robj *obj) {
          c->replstate == REDIS_REPL_ONLINE) &&
         aeCreateFileEvent(server.el, c->fd, AE_WRITABLE,
         sendReplyToClient, c) == AE_ERR) return;
+
+    if (server.vm_enabled && obj->storage != REDIS_VM_MEMORY) {
+        obj = dupStringObject(obj);
+        obj->refcount = 0; /* getDecodedObject() will increment the refcount */
+    }
     listAddNodeTail(c->reply,getDecodedObject(obj));
 }
 
@@ -6930,16 +6935,21 @@ static int vmSwapOneObject(void) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
+        int maxtries = 1000;
 
         if (dictSize(db->dict) == 0) continue;
         for (i = 0; i < 5; i++) {
             dictEntry *de;
             double swappability;
 
+            if (maxtries) maxtries--;
             de = dictGetRandomKey(db->dict);
             key = dictGetEntryKey(de);
             val = dictGetEntryVal(de);
-            if (key->storage != REDIS_VM_MEMORY) continue;
+            if (key->storage != REDIS_VM_MEMORY) {
+                if (maxtries) i--; /* don't count this try */
+                continue;
+            }
             swappability = computeObjectSwappability(val);
             if (!best || swappability > best_swappability) {
                 best = de;
@@ -6947,11 +6957,14 @@ static int vmSwapOneObject(void) {
             }
         }
     }
-    if (best == NULL) return REDIS_ERR;
+    if (best == NULL) {
+        redisLog(REDIS_DEBUG,"No swappable key found!");
+        return REDIS_ERR;
+    }
     key = dictGetEntryKey(best);
     val = dictGetEntryVal(best);
 
-    redisLog(REDIS_DEBUG,"Key with best swappability: %s, %f\n",
+    redisLog(REDIS_DEBUG,"Key with best swappability: %s, %f",
         key->ptr, best_swappability);
 
     /* Unshare the key if needed */
