@@ -2360,7 +2360,7 @@ static void freeHashObject(robj *o) {
 }
 
 static void incrRefCount(robj *o) {
-    assert(!server.vm_enabled || o->storage == REDIS_VM_MEMORY);
+    redisAssert(!server.vm_enabled || o->storage == REDIS_VM_MEMORY);
     o->refcount++;
 }
 
@@ -2369,8 +2369,8 @@ static void decrRefCount(void *obj) {
 
     /* REDIS_VM_SWAPPED */
     if (server.vm_enabled && o->storage == REDIS_VM_SWAPPED) {
-        assert(o->refcount == 1);
-        assert(o->type == REDIS_STRING);
+        redisAssert(o->refcount == 1);
+        redisAssert(o->type == REDIS_STRING);
         freeStringObject(o);
         vmMarkPagesFree(o->vm.page,o->vm.usedpages);
         if (listLength(server.objfreelist) > REDIS_OBJFREELIST_MAX ||
@@ -2406,7 +2406,7 @@ static robj *lookupKey(redisDb *db, robj *key) {
                 key->vm.atime = server.unixtime;
             } else {
                 /* Our value was swapped on disk. Bring it at home. */
-                assert(val == NULL);
+                redisAssert(val == NULL);
                 val = vmLoadObject(key);
                 dictGetEntryVal(de) = val;
             }
