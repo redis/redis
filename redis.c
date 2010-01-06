@@ -2888,7 +2888,7 @@ static int rdbSave(char *filename) {
             }
             /* Save the key and associated value. This requires special
              * handling if the value is swapped out. */
-            if (key->storage == REDIS_VM_MEMORY) {
+            if (!server.vm_enabled || key->storage == REDIS_VM_MEMORY) {
                 /* Save type, key, value */
                 if (rdbSaveType(fp,o->type) == -1) goto werr;
                 if (rdbSaveStringObject(fp,key) == -1) goto werr;
@@ -6532,7 +6532,7 @@ static int rewriteAppendOnlyFile(char *filename) {
             int swapped;
 
             key = dictGetEntryKey(de);
-            if (key->storage == REDIS_VM_MEMORY) {
+            if (!server.vm_enabled || key->storage == REDIS_VM_MEMORY) {
                 o = dictGetEntryVal(de);
                 swapped = 0;
             } else {
@@ -6889,7 +6889,7 @@ static int vmSwapObject(robj *key, robj *val) {
 static robj *vmGenericLoadObject(robj *key, int preview) {
     robj *val;
 
-    assert(key->storage == REDIS_VM_SWAPPED);
+    redisAssert(key->storage == REDIS_VM_SWAPPED);
     if (fseeko(server.vm_fp,key->vm.page*server.vm_page_size,SEEK_SET) == -1) {
         redisLog(REDIS_WARNING,
             "Unrecoverable VM problem in vmLoadObject(): can't seek: %s",
