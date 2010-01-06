@@ -11,6 +11,13 @@ VERSION 1.4 TODO (Hash type)
 * Synchronous Virtual Memory
 * BLPOP & C. tests (write a non blocking Tcl client as first step)
 
+Virtual Memory sub-TODO:
+* Check if the page selection algorithm is working well.
+* Fix support for large files
+* Divide swappability of objects by refcount
+* While loading DB from snapshot or AOF, swap objects as needed if maxmemory
+  is reached, calling swapOneObject().
+
 VERSION 1.6 TODO (Virtual memory)
 =================================
 
