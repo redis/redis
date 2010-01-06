@@ -6527,9 +6527,20 @@ static int rewriteAppendOnlyFile(char *filename) {
 
         /* Iterate this DB writing every entry */
         while((de = dictNext(di)) != NULL) {
-            robj *key = dictGetEntryKey(de);
-            robj *o = dictGetEntryVal(de);
-            time_t expiretime = getExpire(db,key);
+            robj *key, *o;
+            time_t expiretime;
+            int swapped;
+
+            key = dictGetEntryKey(de);
+            if (key->storage == REDIS_VM_MEMORY) {
+                o = dictGetEntryVal(de);
+                swapped = 0;
+            } else {
+                o = vmPreviewObject(key);
+                key = dupStringObject(key);
+                swapped = 1;
+            }
+            expiretime = getExpire(db,key);
 
             /* Save the key and associated value */
             if (o->type == REDIS_STRING) {
@@ -6596,6 +6607,12 @@ static int rewriteAppendOnlyFile(char *filename) {
                 if (fwrite(cmd,sizeof(cmd)-1,1,fp) == 0) goto werr;
                 if (fwriteBulk(fp,key) == 0) goto werr;
                 if (fwriteBulkLong(fp,expiretime) == 0) goto werr;
+            }
+            /* We created a few temp objects if the key->value pair
+             * was about a swapped out object. Free both. */
+            if (swapped) {
+                decrRefCount(key);
+                decrRefCount(o);
             }
         }
         dictReleaseIterator(di);
