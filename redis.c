@@ -6955,6 +6955,9 @@ static robj *vmGenericLoadObject(robj *key, int preview) {
         redisLog(REDIS_DEBUG, "VM: object %s loaded from disk",
             (unsigned char*) key->ptr);
         server.vm_stats_swapped_objects--;
+    } else {
+        redisLog(REDIS_DEBUG, "VM: object %s previewed from disk",
+            (unsigned char*) key->ptr);
     }
     server.vm_stats_swapins++;
     return val;
