@@ -3178,6 +3178,7 @@ static int rdbLoad(char *filename) {
     redisDb *db = server.db+0;
     char buf[1024];
     time_t expiretime = -1, now = time(NULL);
+    long long loadedkeys = 0;
 
     fp = fopen(filename,"r");
     if (!fp) return REDIS_ERR;
@@ -3235,6 +3236,13 @@ static int rdbLoad(char *filename) {
             expiretime = -1;
         }
         keyobj = o = NULL;
+        /* Handle swapping while loading big datasets when VM is on */
+        loadedkeys++;
+        if (server.vm_enabled && (loadedkeys % 5000) == 0) {
+            while (zmalloc_used_memory() > server.vm_max_memory) {
+                if (vmSwapOneObject() == REDIS_ERR) break;
+            }
+        }
     }
     fclose(fp);
     return REDIS_OK;
@@ -6417,6 +6425,7 @@ int loadAppendOnlyFile(char *filename) {
     struct redisClient *fakeClient;
     FILE *fp = fopen(filename,"r");
     struct redis_stat sb;
+    unsigned long long loadedkeys = 0;
 
     if (redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0)
         return REDIS_ERR;
@@ -6478,6 +6487,13 @@ int loadAppendOnlyFile(char *filename) {
         /* Clean up, ready for the next command */
         for (j = 0; j < argc; j++) decrRefCount(argv[j]);
         zfree(argv);
+        /* Handle swapping while loading big datasets when VM is on */
+        loadedkeys++;
+        if (server.vm_enabled && (loadedkeys % 5000) == 0) {
+            while (zmalloc_used_memory() > server.vm_max_memory) {
+                if (vmSwapOneObject() == REDIS_ERR) break;
+            }
+        }
     }
     fclose(fp);
     freeFakeClient(fakeClient);
