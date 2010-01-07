@@ -5411,6 +5411,7 @@ static sds genRedisInfoString(void) {
         "redis_version:%s\r\n"
         "arch_bits:%s\r\n"
         "multiplexing_api:%s\r\n"
+        "process_id:%ld\r\n"
         "uptime_in_seconds:%ld\r\n"
         "uptime_in_days:%ld\r\n"
         "connected_clients:%d\r\n"
@@ -5428,6 +5429,7 @@ static sds genRedisInfoString(void) {
         ,REDIS_VERSION,
         (sizeof(long) == 8) ? "64" : "32",
         aeGetApiName(),
+        (long) getpid(),
         uptime,
         uptime/(3600*24),
         listLength(server.clients)-listLength(server.slaves),

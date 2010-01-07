@@ -17,6 +17,7 @@ Virtual Memory sub-TODO:
 * Divide swappability of objects by refcount
 * While loading DB from snapshot or AOF, swap objects as needed if maxmemory
   is reached, calling swapOneObject().
+* vm-swap-file <filename>. The swap file should go where the user wants, and if it's already there and of the right size we can avoid to create it again.
 
 VERSION 1.6 TODO (Virtual memory)
 =================================
