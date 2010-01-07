@@ -6943,6 +6943,7 @@ static int vmSwapObject(robj *key, robj *val) {
         (unsigned long long) page, (unsigned long long) pages);
     server.vm_stats_swapped_objects++;
     server.vm_stats_swapouts++;
+    fflush(server.vm_fp);
     return REDIS_OK;
 }
 
