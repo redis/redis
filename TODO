@@ -13,11 +13,9 @@ VERSION 1.4 TODO (Hash type)
 
 Virtual Memory sub-TODO:
 * Check if the page selection algorithm is working well.
-* Fix support for large files
 * Divide swappability of objects by refcount
-* While loading DB from snapshot or AOF, swap objects as needed if maxmemory
-  is reached, calling swapOneObject().
 * vm-swap-file <filename>. The swap file should go where the user wants, and if it's already there and of the right size we can avoid to create it again.
+* it should be possible to give the vm-max-memory option in megabyte, gigabyte, ..., just using 2GB, 100MB, and so forth.
 
 VERSION 1.6 TODO (Virtual memory)
 =================================
