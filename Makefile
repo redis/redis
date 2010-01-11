@@ -5,12 +5,10 @@
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 ifeq ($(uname_S),SunOS)
   CFLAGS?= -std=c99 -pedantic -O2 -Wall -W -D__EXTENSIONS__ -D_XPG6
-  CCLINK?= -ldl -lnsl -lsocket -lm
-  PTLINK?= -lpthread
+  CCLINK?= -ldl -lnsl -lsocket -lm -lpthread
 else
   CFLAGS?= -std=c99 -pedantic -O2 -Wall -W $(ARCH) $(PROF)
-  CCLINK?= -lm
-  PTLINK?= -lpthread
+  CCLINK?= -lm -pthread
 endif
 CCOPT= $(CFLAGS) $(CCLINK) $(ARCH) $(PROF)
 DEBUG?= -g -rdynamic -ggdb 
@@ -42,7 +40,7 @@ sds.o: sds.c sds.h zmalloc.h
 zmalloc.o: zmalloc.c config.h
 
 redis-server: $(OBJ)
-	$(CC) -o $(PRGNAME) $(CCOPT) $(PTLINK) $(DEBUG) $(OBJ)
+	$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ)
 	@echo ""
 	@echo "Hint: To run the test-redis.tcl script is a good idea."
 	@echo "Launch the redis server with ./redis-server, then in another"
