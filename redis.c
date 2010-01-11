@@ -1649,7 +1649,6 @@ static void freeClient(redisClient *c) {
     aeDeleteFileEvent(server.el,c->fd,AE_READABLE);
     aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
     listRelease(c->reply);
-    listRelease(c->io_keys);
     freeClientArgv(c);
     close(c->fd);
     /* Remove from the list of clients */
@@ -1662,6 +1661,7 @@ static void freeClient(redisClient *c) {
         if (ln) listDelNode(server.io_clients,ln);
         listRelease(c->io_keys);
     }
+    listRelease(c->io_keys);
     /* Other cleanup */
     if (c->flags & REDIS_SLAVE) {
         if (c->replstate == REDIS_REPL_SEND_BULK && c->repldbfd != -1)
