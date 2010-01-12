@@ -3,11 +3,12 @@
 # This file is released under the BSD license, see the COPYING file
 
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
+OPTIMIZATION?=-O2
 ifeq ($(uname_S),SunOS)
-  CFLAGS?= -std=c99 -pedantic -O2 -Wall -W -D__EXTENSIONS__ -D_XPG6
+  CFLAGS?= -std=c99 -pedantic $(OPTIMIZATION) -Wall -W -D__EXTENSIONS__ -D_XPG6
   CCLINK?= -ldl -lnsl -lsocket -lm -lpthread
 else
-  CFLAGS?= -std=c99 -pedantic -O2 -Wall -W $(ARCH) $(PROF)
+  CFLAGS?= -std=c99 -pedantic $(OPTIMIZATION) -Wall -W $(ARCH) $(PROF)
   CCLINK?= -lm -pthread
 endif
 CCOPT= $(CFLAGS) $(CCLINK) $(ARCH) $(PROF)
@@ -82,6 +83,9 @@ gprof:
 
 gcov:
 	make PROF="-fprofile-arcs -ftest-coverage"
+
+noopt:
+	make OPTIMIZATION=""
 
 32bitgprof:
 	make PROF="-pg" ARCH="-arch i386"

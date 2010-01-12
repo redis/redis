@@ -281,14 +281,19 @@ proc main {server port} {
     } [string repeat "abcd" 1000000]
 
     test {SET 10000 numeric keys and access all them in reverse order} {
+        set err {}
         for {set x 0} {$x < 10000} {incr x} {
             $r set $x $x
         }
         set sum 0
         for {set x 9999} {$x >= 0} {incr x -1} {
-            incr sum [$r get $x]
+            set val [$r get $x]
+            if {$val ne $x} {
+                set err "Eleemnt at position $x is $val instead of $x"
+                break
+            }
         }
-        format $sum
+        set _ $err
     } {49995000}
 
     test {DBSIZE should be 10001 now} {
