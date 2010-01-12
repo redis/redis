@@ -1262,18 +1262,23 @@ static int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientD
         while (server.vm_enabled && zmalloc_used_memory() >
                 server.vm_max_memory)
         {
+            int retval;
+
             if (tryFreeOneObjectFromFreelist() == REDIS_OK) continue;
-            if (vmSwapOneObjectThreaded() == REDIS_ERR) {
-                if ((loops % 30) == 0 && zmalloc_used_memory() >
-                    (server.vm_max_memory+server.vm_max_memory/10)) {
-                    redisLog(REDIS_WARNING,"WARNING: vm-max-memory limit exceeded by more than 10%% but unable to swap more objects out!");
-                }
+            retval = (server.vm_max_threads == 0) ?
+                        vmSwapOneObjectBlocking() :
+                        vmSwapOneObjectThreaded();
+            if (retval == REDIS_ERR && (loops % 30) == 0 &&
+                zmalloc_used_memory() >
+                (server.vm_max_memory+server.vm_max_memory/10))
+            {
+                redisLog(REDIS_WARNING,"WARNING: vm-max-memory limit exceeded by more than 10%% but unable to swap more objects out!");
             }
-            /* Note that we freed just one object, because anyway when
-             * the I/O thread in charge to swap this object out will
-             * do its work, the handler of completed jobs will try to swap
-             * more objects if we are out of memory. */
-            break;
+            /* Note that when using threade I/O we free just one object,
+             * because anyway when the I/O thread in charge to swap this
+             * object out will finish, the handler of completed jobs
+             * will try to swap more objects if we are still out of memory. */
+            if (retval == REDIS_ERR || server.vm_max_threads > 0) break;
         }
     }
 
