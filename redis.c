@@ -949,6 +949,7 @@ static unsigned int dictEncObjHash(const void *key) {
     return hash;
 }
 
+/* Sets type and expires */
 static dictType setDictType = {
     dictEncObjHash,            /* hash function */
     NULL,                      /* key dup */
@@ -958,6 +959,7 @@ static dictType setDictType = {
     NULL                       /* val destructor */
 };
 
+/* Sorted sets hash (note: a skiplist is used in addition to the hash table) */
 static dictType zsetDictType = {
     dictEncObjHash,            /* hash function */
     NULL,                      /* key dup */
@@ -967,6 +969,7 @@ static dictType zsetDictType = {
     dictVanillaFree            /* val destructor of malloc(sizeof(double)) */
 };
 
+/* Db->dict */
 static dictType hashDictType = {
     dictObjHash,                /* hash function */
     NULL,                       /* key dup */
@@ -974,6 +977,16 @@ static dictType hashDictType = {
     dictObjKeyCompare,          /* key compare */
     dictRedisObjectDestructor,  /* key destructor */
     dictRedisObjectDestructor   /* val destructor */
+};
+
+/* Db->expires */
+static dictType keyptrDictType = {
+    dictObjHash,               /* hash function */
+    NULL,                      /* key dup */
+    NULL,                      /* val dup */
+    dictObjKeyCompare,         /* key compare */
+    dictRedisObjectDestructor, /* key destructor */
+    NULL                       /* val destructor */
 };
 
 /* Keylist hash table type has unencoded redis objects as keys and
@@ -1402,7 +1415,7 @@ static void initServer() {
     }
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].dict = dictCreate(&hashDictType,NULL);
-        server.db[j].expires = dictCreate(&setDictType,NULL);
+        server.db[j].expires = dictCreate(&keyptrDictType,NULL);
         server.db[j].blockingkeys = dictCreate(&keylistDictType,NULL);
         server.db[j].id = j;
     }
@@ -2854,21 +2867,16 @@ static int rdbSaveStringObjectRaw(FILE *fp, robj *obj) {
 static int rdbSaveStringObject(FILE *fp, robj *obj) {
     int retval;
 
-    if (obj->storage == REDIS_VM_MEMORY &&
-       obj->encoding != REDIS_ENCODING_RAW)
-    {
+    /* Avoid incr/decr ref count business when possible.
+     * This plays well with copy-on-write given that we are probably
+     * in a child process (BGSAVE). Also this makes sure key objects
+     * of swapped objects are not incRefCount-ed (an assert does not allow
+     * this in order to avoid bugs) */
+    if (obj->encoding != REDIS_ENCODING_RAW) {
         obj = getDecodedObject(obj);
         retval = rdbSaveStringObjectRaw(fp,obj);
         decrRefCount(obj);
     } else {
-        /* This is a fast path when we are sure the object is not encoded.
-         * Note that's any *faster* actually as we needed to add the conditional
-         * but because this may happen in a background process we don't want
-         * to touch the object fields with incr/decrRefCount in order to
-         * preveny copy on write of pages.
-         *
-         * Also incrRefCount() will have a failing assert() if we try to call
-         * it against an object with storage != REDIS_VM_MEMORY. */
         retval = rdbSaveStringObjectRaw(fp,obj);
     }
     return retval;
@@ -6670,7 +6678,12 @@ static int fwriteBulk(FILE *fp, robj *obj) {
     char buf[128];
     int decrrc = 0;
 
-    if (obj->storage == REDIS_VM_MEMORY && obj->encoding != REDIS_ENCODING_RAW){
+    /* Avoid the incr/decr ref count business if possible to help
+     * copy-on-write (we are often in a child process when this function
+     * is called).
+     * Also makes sure that key objects don't get incrRefCount-ed when VM
+     * is enabled */
+    if (obj->encoding != REDIS_ENCODING_RAW) {
         obj = getDecodedObject(obj);
         decrrc = 1;
     }
