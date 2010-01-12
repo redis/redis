@@ -294,7 +294,7 @@ proc main {server port} {
             }
         }
         set _ $err
-    } {49995000}
+    } {}
 
     test {DBSIZE should be 10001 now} {
         $r dbsize
