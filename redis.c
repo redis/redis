@@ -164,6 +164,12 @@
 #define REDIS_VM_MAX_NEAR_PAGES 65536
 #define REDIS_VM_MAX_RANDOM_JUMP 4096
 #define REDIS_VM_MAX_THREADS 32
+/* The following is the number of completed I/O jobs to process when the
+ * handelr is called. 1 is the minimum, and also the default, as it allows
+ * to block as little as possible other accessing clients. While Virtual
+ * Memory I/O operations are performed by threads, this operations must
+ * be processed by the main thread when completed to take effect. */
+#define REDIS_MAX_COMPLETED_JOBS_PROCESSED 1
 
 /* Client flags */
 #define REDIS_CLOSE 1       /* This client connection should be closed ASAP */
@@ -7390,6 +7396,7 @@ static void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
 {
     char buf[1];
     int retval;
+    int processed = 0;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
@@ -7487,7 +7494,8 @@ static void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
                 }
             }
         }
-        return; /* XXX REMOVE ME */
+        processed++;
+        if (processed == REDIS_MAX_COMPLETED_JOBS_PROCESSED) return;
     }
     if (retval < 0 && errno != EAGAIN) {
         redisLog(REDIS_WARNING,
