@@ -17,6 +17,7 @@ Virtual Memory sub-TODO:
 * vm-swap-file <filename>. The swap file should go where the user wants, and if it's already there and of the right size we can avoid to create it again.
 * it should be possible to give the vm-max-memory option in megabyte, gigabyte, ..., just using 2GB, 100MB, and so forth.
 * Make sure to wait all the IO threads are done before to fork() for BGSAVE and BGREWRITEAOF
+* Enlarge the stack of threads, to problems when calling LZF lib.
 
 VERSION 1.6 TODO (Virtual memory)
 =================================

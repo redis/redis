@@ -7594,7 +7594,7 @@ static void *IOThreadEntryPoint(void *arg) {
         lockThreadedIO();
         if (listLength(server.io_newjobs) == 0) {
             /* No new jobs in queue, exit. */
-            redisLog(REDIS_DEBUG,"Thread %lld exiting, nothing to do\n",
+            redisLog(REDIS_DEBUG,"Thread %lld exiting, nothing to do",
                 (long long) pthread_self());
             server.io_active_threads--;
             unlockThreadedIO();
@@ -7608,7 +7608,7 @@ static void *IOThreadEntryPoint(void *arg) {
         listAddNodeTail(server.io_processing,j);
         ln = listLast(server.io_processing); /* We use ln later to remove it */
         unlockThreadedIO();
-        redisLog(REDIS_DEBUG,"Thread %lld got a new job (type %d): %p about key '%s'\n",
+        redisLog(REDIS_DEBUG,"Thread %lld got a new job (type %d): %p about key '%s'",
             (long long) pthread_self(), j->type, (void*)j, (char*)j->key->ptr);
 
         /* Process the Job */
@@ -7623,7 +7623,7 @@ static void *IOThreadEntryPoint(void *arg) {
         }
 
         /* Done: insert the job into the processed queue */
-        redisLog(REDIS_DEBUG,"Thread %lld completed the job: %p (key %s)\n",
+        redisLog(REDIS_DEBUG,"Thread %lld completed the job: %p (key %s)",
             (long long) pthread_self(), (void*)j, (char*)j->key->ptr);
         lockThreadedIO();
         listDelNode(server.io_processing,ln);
