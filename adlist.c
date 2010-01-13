@@ -165,14 +165,14 @@ void listReleaseIterator(listIter *iter) {
 }
 
 /* Create an iterator in the list private iterator structure */
-void listRewind(list *list) {
-    list->iter.next = list->head;
-    list->iter.direction = AL_START_HEAD;
+void listRewind(list *list, listIter *li) {
+    li->next = list->head;
+    li->direction = AL_START_HEAD;
 }
 
-void listRewindTail(list *list) {
-    list->iter.next = list->tail;
-    list->iter.direction = AL_START_TAIL;
+void listRewindTail(list *list, listIter *li) {
+    li->next = list->tail;
+    li->direction = AL_START_TAIL;
 }
 
 /* Return the next element of an iterator.
@@ -200,11 +200,6 @@ listNode *listNext(listIter *iter)
             iter->next = current->prev;
     }
     return current;
-}
-
-/* List Yield just call listNext() against the list private iterator */
-listNode *listYield(list *list) {
-    return listNext(&list->iter);
 }
 
 /* Duplicate the whole list. On out of memory NULL is returned.

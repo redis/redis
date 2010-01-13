@@ -51,7 +51,6 @@ typedef struct list {
     void (*free)(void *ptr);
     int (*match)(void *ptr, void *key);
     unsigned int len;
-    listIter iter;
 } list;
 
 /* Functions implemented as macros */
@@ -82,9 +81,8 @@ void listReleaseIterator(listIter *iter);
 list *listDup(list *orig);
 listNode *listSearchKey(list *list, void *key);
 listNode *listIndex(list *list, int index);
-void listRewind(list *list);
-void listRewindTail(list *list);
-listNode *listYield(list *list);
+void listRewind(list *list, listIter *li);
+void listRewindTail(list *list, listIter *li);
 
 /* Directions for iterators */
 #define AL_START_HEAD 0
