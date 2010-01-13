@@ -561,6 +561,7 @@ static void freeIOJob(iojob *j);
 static void queueIOJob(iojob *j);
 static int vmWriteObjectOnSwap(robj *o, off_t page);
 static robj *vmReadObjectFromSwap(off_t page, int type);
+static void waitZeroActiveThreads(void);
 
 static void authCommand(redisClient *c);
 static void pingCommand(redisClient *c);
@@ -3085,6 +3086,7 @@ static int rdbSaveBackground(char *filename) {
     pid_t childpid;
 
     if (server.bgsavechildpid != -1) return REDIS_ERR;
+    if (server.vm_enabled) waitZeroActiveThreads();
     if ((childpid = fork()) == 0) {
         /* Child */
         close(server.fd);
@@ -6906,6 +6908,7 @@ static int rewriteAppendOnlyFileBackground(void) {
     pid_t childpid;
 
     if (server.bgrewritechildpid != -1) return REDIS_ERR;
+    if (server.vm_enabled) waitZeroActiveThreads();
     if ((childpid = fork()) == 0) {
         /* Child */
         char tmpfile[256];
@@ -7667,6 +7670,20 @@ static void spawnIOThread(void) {
 
     pthread_create(&thread,NULL,IOThreadEntryPoint,NULL);
     server.io_active_threads++;
+}
+
+/* We need to wait for the last thread to exit before we are able to
+ * fork() in order to BGSAVE or BGREWRITEAOF. */
+static void waitZeroActiveThreads(void) {
+    while(1) {
+        lockThreadedIO();
+        if (server.io_active_threads == 0) {
+            unlockThreadedIO();
+            return;
+        }
+        unlockThreadedIO();
+        usleep(10000); /* 10 milliseconds */
+    }
 }
 
 /* This function must be called while with threaded IO locked */
