@@ -7579,6 +7579,12 @@ static void vmCancelThreadedIOJob(robj *o) {
             if (compareStringObjects(job->key,o) == 0) {
                 redisLog(REDIS_DEBUG,"*** CANCELED %p (%s)\n",
                     (void*)job, (char*)o->ptr);
+                /* Mark the pages as free since the swap didn't happened
+                 * or happened but is now discarded. */
+                if (job->type == REDIS_IOJOB_DO_SWAP)
+                    vmMarkPagesFree(job->page,job->pages);
+                /* Cancel the job. It depends on the list the job is
+                 * living in. */
                 switch(i) {
                 case 0: /* io_newjobs */
                     /* If the job was yet not processed the best thing to do
@@ -7591,10 +7597,6 @@ static void vmCancelThreadedIOJob(robj *o) {
                     job->canceled = 1;
                     break;
                 }
-                /* Mark the pages as free since the swap didn't happened
-                 * or happened but is not discarded. */
-                if (job->type == REDIS_IOJOB_DO_SWAP)
-                    vmMarkPagesFree(job->page,job->pages);
                 /* Finally we have to adjust the storage type of the object
                  * in order to "UNDO" the operaiton. */
                 if (o->storage == REDIS_VM_LOADING)
