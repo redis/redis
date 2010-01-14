@@ -164,6 +164,7 @@
 #define REDIS_VM_MAX_NEAR_PAGES 65536
 #define REDIS_VM_MAX_RANDOM_JUMP 4096
 #define REDIS_VM_MAX_THREADS 32
+#define REDIS_THREAD_STACK_SIZE (1024*1024*4)
 /* The following is the number of completed I/O jobs to process when the
  * handelr is called. 1 is the minimum, and also the default, as it allows
  * to block as little as possible other accessing clients. While Virtual
@@ -403,6 +404,7 @@ struct redisServer {
     pthread_mutex_t io_mutex; /* lock to access io_jobs/io_done/io_thread_job */
     pthread_mutex_t obj_freelist_mutex; /* safe redis objects creation/free */
     pthread_mutex_t io_swapfile_mutex; /* So we can lseek + write */
+    pthread_attr_t io_threads_attr; /* attributes for threads creation */
     int io_active_threads; /* Number of running I/O threads */
     int vm_max_threads; /* Max number of I/O threads running at the same time */
     /* Our main thread is blocked on the event loop, locking for sockets ready
@@ -6984,6 +6986,7 @@ static void aofRemoveTempFile(pid_t childpid) {
 static void vmInit(void) {
     off_t totsize;
     int pipefds[2];
+    size_t stacksize;
 
     server.vm_fp = fopen("/tmp/redisvm","w+b");
     if (server.vm_fp == NULL) {
@@ -7031,6 +7034,11 @@ static void vmInit(void) {
     server.io_ready_pipe_read = pipefds[0];
     server.io_ready_pipe_write = pipefds[1];
     redisAssert(anetNonBlock(NULL,server.io_ready_pipe_read) != ANET_ERR);
+    /* LZF requires a lot of stack */
+    pthread_attr_init(&server.io_threads_attr);
+    pthread_attr_getstacksize(&server.io_threads_attr, &stacksize);
+    while (stacksize < REDIS_THREAD_STACK_SIZE) stacksize *= 2;
+    pthread_attr_setstacksize(&server.io_threads_attr, stacksize);
     /* Listen for events in the threaded I/O pipe */
     if (aeCreateFileEvent(server.el, server.io_ready_pipe_read, AE_READABLE,
         vmThreadedIOCompletedJob, NULL) == AE_ERR)
@@ -7668,7 +7676,7 @@ static void *IOThreadEntryPoint(void *arg) {
 static void spawnIOThread(void) {
     pthread_t thread;
 
-    pthread_create(&thread,NULL,IOThreadEntryPoint,NULL);
+    pthread_create(&thread,&server.io_threads_attr,IOThreadEntryPoint,NULL);
     server.io_active_threads++;
 }
 
