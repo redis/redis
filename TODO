@@ -18,6 +18,7 @@ Virtual Memory sub-TODO:
 * it should be possible to give the vm-max-memory option in megabyte, gigabyte, ..., just using 2GB, 100MB, and so forth.
 * Make sure to wait all the IO threads are done before to fork() for BGSAVE and BGREWRITEAOF
 * Enlarge the stack of threads, to problems when calling LZF lib.
+* redis-cli vmstat, calling INFO every second and printing VM stats ala vmstat.
 
 VERSION 1.6 TODO (Virtual memory)
 =================================

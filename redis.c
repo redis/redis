@@ -7573,6 +7573,7 @@ static void vmCancelThreadedIOJob(robj *o) {
     int i;
 
     assert(o->storage == REDIS_VM_LOADING || o->storage == REDIS_VM_SWAPPING);
+again:
     lockThreadedIO();
     /* Search for a matching key in one of the queues */
     for (i = 0; i < 3; i++) {
@@ -7585,8 +7586,8 @@ static void vmCancelThreadedIOJob(robj *o) {
 
             if (job->canceled) continue; /* Skip this, already canceled. */
             if (compareStringObjects(job->key,o) == 0) {
-                redisLog(REDIS_DEBUG,"*** CANCELED %p (%s)\n",
-                    (void*)job, (char*)o->ptr);
+                redisLog(REDIS_DEBUG,"*** CANCELED %p (%s) (LIST ID %d)\n",
+                    (void*)job, (char*)o->ptr, i);
                 /* Mark the pages as free since the swap didn't happened
                  * or happened but is now discarded. */
                 if (job->type == REDIS_IOJOB_DO_SWAP)
@@ -7601,7 +7602,27 @@ static void vmCancelThreadedIOJob(robj *o) {
                     listDelNode(lists[i],ln);
                     break;
                 case 1: /* io_processing */
+                    /* Oh Shi- the thread is messing with the Job, and
+                     * probably with the object if this is a
+                     * PREPARE_SWAP or DO_SWAP job. Better to wait for the
+                     * job to move into the next queue... */
+                    if (job->type != REDIS_IOJOB_LOAD) {
+                        /* Yes, we try again and again until the job
+                         * is completed. */
+                        unlockThreadedIO();
+                        /* But let's wait some time for the I/O thread
+                         * to finish with this job. After all this condition
+                         * should be very rare. */
+                        usleep(1);
+                        goto again;
+                    } else {
+                        job->canceled = 1;
+                        break;
+                    }
                 case 2: /* io_processed */
+                    /* The job was already processed, that's easy...
+                     * just mark it as canceled so that we'll ignore it
+                     * when processing completed jobs. */
                     job->canceled = 1;
                     break;
                 }
