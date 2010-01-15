@@ -1633,6 +1633,7 @@ static void loadServerConfig(char *filename) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"vm-swap-file") && argc == 2) {
+            zfree(server.vm_swap_file);
             server.vm_swap_file = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"vm-max-memory") && argc == 2) {
             server.vm_max_memory = strtoll(argv[1], NULL, 10);

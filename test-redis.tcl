@@ -317,9 +317,9 @@ proc main {server port} {
         set _ $err
     } {}
 
-    test {DBSIZE should be 10001 now} {
+    test {DBSIZE should be 10101 now} {
         $r dbsize
-    } {10001}
+    } {10101}
 
     test {INCR against non existing key} {
         set res {}
