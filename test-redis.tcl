@@ -280,6 +280,27 @@ proc main {server port} {
         $r get foo
     } [string repeat "abcd" 1000000]
 
+    test {Very big payload random access} {
+        set err {}
+        array set payload {}
+        for {set j 0} {$j < 100} {incr j} {
+            set size [expr 1+[randomInt 100000]]
+            set buf [string repeat "abcd" $size]
+            set payload($j) $buf
+            $r set bigpayload_$j $buf
+        }
+        for {set j 0} {$j < 1000} {incr j} {
+            set index [randomInt 100]
+            set buf [$r get bigpayload_$index]
+            if {$buf != $payload($index)} {
+                set err "Values differ: I set '$buf' but I read back '$buf2'"
+                break
+            }
+        }
+        unset payload
+        set _ $err
+    } {}
+
     test {SET 10000 numeric keys and access all them in reverse order} {
         set err {}
         for {set x 0} {$x < 10000} {incr x} {
