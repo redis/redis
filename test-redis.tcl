@@ -285,7 +285,7 @@ proc main {server port} {
         array set payload {}
         for {set j 0} {$j < 100} {incr j} {
             set size [expr 1+[randomInt 100000]]
-            set buf [string repeat "abcd" $size]
+            set buf [string repeat "pl-$j" $size]
             set payload($j) $buf
             $r set bigpayload_$j $buf
         }
