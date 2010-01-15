@@ -293,7 +293,7 @@ proc main {server port} {
             set index [randomInt 100]
             set buf [$r get bigpayload_$index]
             if {$buf != $payload($index)} {
-                set err "Values differ: I set '$buf' but I read back '$buf2'"
+                set err "Values differ: I set '$payload($index)' but I read back '$buf'"
                 break
             }
         }
