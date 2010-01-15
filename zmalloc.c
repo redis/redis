@@ -40,7 +40,28 @@
 #define PREFIX_SIZE sizeof(size_t)
 #endif
 
+#define increment_used_memory(_n) do { \
+    if (zmalloc_thread_safe) { \
+        pthread_mutex_lock(&used_memory_mutex);  \
+        used_memory += _n; \
+        pthread_mutex_unlock(&used_memory_mutex); \
+    } else { \
+        used_memory += _n; \
+    } \
+} while(0)
+
+#define decrement_used_memory(_n) do { \
+    if (zmalloc_thread_safe) { \
+        pthread_mutex_lock(&used_memory_mutex);  \
+        used_memory -= _n; \
+        pthread_mutex_unlock(&used_memory_mutex); \
+    } else { \
+        used_memory -= _n; \
+    } \
+} while(0)
+
 static size_t used_memory = 0;
+static int zmalloc_thread_safe = 0;
 pthread_mutex_t used_memory_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static void zmalloc_oom(size_t size) {
@@ -55,11 +76,11 @@ void *zmalloc(size_t size) {
 
     if (!ptr) zmalloc_oom(size);
 #ifdef HAVE_MALLOC_SIZE
-    used_memory += redis_malloc_size(ptr);
+    increment_used_memory(redis_malloc_size(ptr));
     return ptr;
 #else
     *((size_t*)ptr) = size;
-    used_memory += size+PREFIX_SIZE;
+    increment_used_memory(size+PREFIX_SIZE);
     return (char*)ptr+PREFIX_SIZE;
 #endif
 }
@@ -77,8 +98,8 @@ void *zrealloc(void *ptr, size_t size) {
     newptr = realloc(ptr,size);
     if (!newptr) zmalloc_oom(size);
 
-    used_memory -= oldsize;
-    used_memory += redis_malloc_size(newptr);
+    decrement_used_memory(oldsize);
+    increment_used_memory(redis_malloc_size(newptr));
     return newptr;
 #else
     realptr = (char*)ptr-PREFIX_SIZE;
@@ -87,8 +108,8 @@ void *zrealloc(void *ptr, size_t size) {
     if (!newptr) zmalloc_oom(size);
 
     *((size_t*)newptr) = size;
-    used_memory -= oldsize;
-    used_memory += size;
+    decrement_used_memory(oldsize);
+    increment_used_memory(size);
     return (char*)newptr+PREFIX_SIZE;
 #endif
 }
@@ -101,12 +122,12 @@ void zfree(void *ptr) {
 
     if (ptr == NULL) return;
 #ifdef HAVE_MALLOC_SIZE
-    used_memory -= redis_malloc_size(ptr);
+    decrement_used_memory(redis_malloc_size(ptr));
     free(ptr);
 #else
     realptr = (char*)ptr-PREFIX_SIZE;
     oldsize = *((size_t*)realptr);
-    used_memory -= oldsize+PREFIX_SIZE;
+    decrement_used_memory(oldsize+PREFIX_SIZE);
     free(realptr);
 #endif
 }
@@ -120,5 +141,14 @@ char *zstrdup(const char *s) {
 }
 
 size_t zmalloc_used_memory(void) {
-    return used_memory;
+    size_t um;
+
+    if (zmalloc_thread_safe) pthread_mutex_lock(&used_memory_mutex);
+    um = used_memory;
+    if (zmalloc_thread_safe) pthread_mutex_unlock(&used_memory_mutex);
+    return um;
+}
+
+void zmalloc_enable_thread_safeness(void) {
+    zmalloc_thread_safe = 1;
 }

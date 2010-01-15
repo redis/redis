@@ -6999,6 +6999,9 @@ static void vmInit(void) {
     int pipefds[2];
     size_t stacksize;
 
+    if (server.vm_max_threads != 0)
+        zmalloc_enable_thread_safeness(); /* we need thread safe zmalloc() */
+
     server.vm_fp = fopen("/tmp/redisvm","w+b");
     if (server.vm_fp == NULL) {
         redisLog(REDIS_WARNING,"Impossible to open the swap file. Exiting.");
