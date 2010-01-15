@@ -75,6 +75,11 @@
 #include "lzf.h"    /* LZF compression library */
 #include "pqsort.h" /* Partial qsort for SORT+LIMIT */
 
+/* #define REDIS_HELGRIND_FRIENDLY */
+#if defined(__GNUC__) && defined(REDIS_HELGRIND_FRIENDLY)
+#warning "Remember to undef REDIS_HELGRIND_FRIENDLY before to commit"
+#endif
+
 /* Error codes */
 #define REDIS_OK                0
 #define REDIS_ERR               -1
@@ -7664,6 +7669,15 @@ static void *IOThreadEntryPoint(void *arg) {
         /* Get a new job to process */
         lockThreadedIO();
         if (listLength(server.io_newjobs) == 0) {
+#ifdef REDIS_HELGRIND_FRIENDLY
+            /* No new jobs? Wait and retry, because to be Helgrind
+             * (valgrind --tool=helgrind) what's needed is to take
+             * the same threads running instead to create/destroy threads
+             * as needed (otherwise valgrind will fail) */
+            unlockThreadedIO();
+            usleep(1); /* Give some time for the I/O thread to work. */
+            continue;
+#endif
             /* No new jobs in queue, exit. */
             redisLog(REDIS_DEBUG,"Thread %lld exiting, nothing to do",
                 (long long) pthread_self());
