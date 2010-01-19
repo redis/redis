@@ -17,15 +17,12 @@ DEBUG?= -g -rdynamic -ggdb
 OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o
 BENCHOBJ = ae.o anet.o redis-benchmark.o sds.o adlist.o zmalloc.o
 CLIOBJ = anet.o sds.o adlist.o redis-cli.o zmalloc.o
-LOADOBJ = ae.o anet.o redis-load.o sds.o adlist.o zmalloc.o
 
 PRGNAME = redis-server
 BENCHPRGNAME = redis-benchmark
 CLIPRGNAME = redis-cli
-LOADPRGNAME = redis-load
 
 all: redis-server redis-benchmark redis-cli
-cotools: redis-load
 
 # Deps (use make dep to generate this)
 adlist.o: adlist.c adlist.h zmalloc.h
@@ -41,7 +38,6 @@ pqsort.o: pqsort.c
 redis-benchmark.o: redis-benchmark.c fmacros.h ae.h anet.h sds.h adlist.h \
   zmalloc.h
 redis-cli.o: redis-cli.c fmacros.h anet.h sds.h adlist.h zmalloc.h
-redis-load.o: redis-load.c fmacros.h ae.h anet.h sds.h adlist.h zmalloc.h
 redis.o: redis.c fmacros.h config.h redis.h ae.h sds.h anet.h dict.h \
   adlist.h zmalloc.h lzf.h pqsort.h staticsymbols.h
 sds.o: sds.c sds.h zmalloc.h
@@ -61,14 +57,11 @@ redis-benchmark: $(BENCHOBJ)
 redis-cli: $(CLIOBJ)
 	$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ)
 
-redis-load: $(LOADOBJ)
-	$(CC) -o $(LOADPRGNAME) $(CCOPT) $(DEBUG) $(LOADOBJ)
-
 .c.o:
 	$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
 
 clean:
-	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(LOADPRGNAME) *.o *.gcda *.gcno *.gcov
+	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) *.o *.gcda *.gcno *.gcov
 
 dep:
 	$(CC) -MM *.c
