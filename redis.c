@@ -566,6 +566,7 @@ static int vmWriteObjectOnSwap(robj *o, off_t page);
 static robj *vmReadObjectFromSwap(off_t page, int type);
 static void waitEmptyIOJobsQueue(void);
 static void vmReopenSwapFile(void);
+static int vmFreePage(off_t page);
 
 static void authCommand(redisClient *c);
 static void pingCommand(redisClient *c);
@@ -2498,7 +2499,8 @@ static void incrRefCount(robj *o) {
 static void decrRefCount(void *obj) {
     robj *o = obj;
 
-    /* Object is swapped out, or in the process of being loaded. */
+    /* Object is a key of a swapped out value, or in the process of being
+     * loaded. */
     if (server.vm_enabled &&
         (o->storage == REDIS_VM_SWAPPED || o->storage == REDIS_VM_LOADING))
     {
@@ -7092,6 +7094,7 @@ static void vmInit(void) {
 static void vmMarkPageUsed(off_t page) {
     off_t byte = page/8;
     int bit = page&7;
+    redisAssert(vmFreePage(page) == 1);
     server.vm_bitmap[byte] |= 1<<bit;
     redisLog(REDIS_DEBUG,"Mark used: %lld (byte:%lld bit:%d)\n",
         (long long)page, (long long)byte, bit);
@@ -7110,7 +7113,10 @@ static void vmMarkPagesUsed(off_t page, off_t count) {
 static void vmMarkPageFree(off_t page) {
     off_t byte = page/8;
     int bit = page&7;
+    redisAssert(vmFreePage(page) == 0);
     server.vm_bitmap[byte] &= ~(1<<bit);
+    redisLog(REDIS_DEBUG,"Mark free: %lld (byte:%lld bit:%d)\n",
+        (long long)page, (long long)byte, bit);
 }
 
 /* Mark N contiguous pages as free, with 'page' being the first. */
@@ -7120,6 +7126,9 @@ static void vmMarkPagesFree(off_t page, off_t count) {
     for (j = 0; j < count; j++)
         vmMarkPageFree(page+j);
     server.vm_stats_used_pages -= count;
+    if (server.vm_stats_used_pages > 100000000) {
+        *((char*)-1) = 'x';
+    }
 }
 
 /* Test if the page is free */
@@ -7640,11 +7649,11 @@ again:
 
             if (job->canceled) continue; /* Skip this, already canceled. */
             if (compareStringObjects(job->key,o) == 0) {
-                redisLog(REDIS_DEBUG,"*** CANCELED %p (%s) (LIST ID %d)\n",
-                    (void*)job, (char*)o->ptr, i);
+                redisLog(REDIS_DEBUG,"*** CANCELED %p (%s) (type %d) (LIST ID %d)\n",
+                    (void*)job, (char*)o->ptr, job->type, i);
                 /* Mark the pages as free since the swap didn't happened
                  * or happened but is now discarded. */
-                if (job->type == REDIS_IOJOB_DO_SWAP)
+                if (i != 1 && job->type == REDIS_IOJOB_DO_SWAP)
                     vmMarkPagesFree(job->page,job->pages);
                 /* Cancel the job. It depends on the list the job is
                  * living in. */
