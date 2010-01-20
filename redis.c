@@ -7768,6 +7768,8 @@ static void spawnIOThread(void) {
  * fork() in order to BGSAVE or BGREWRITEAOF. */
 static void waitEmptyIOJobsQueue(void) {
     while(1) {
+        int io_processed_len;
+
         lockThreadedIO();
         if (listLength(server.io_newjobs) == 0 &&
             listLength(server.io_processing) == 0 &&
@@ -7776,8 +7778,18 @@ static void waitEmptyIOJobsQueue(void) {
             unlockThreadedIO();
             return;
         }
+        /* While waiting for empty jobs queue condition we post-process some
+         * finshed job, as I/O threads may be hanging trying to write against
+         * the io_ready_pipe_write FD but there are so much pending jobs that
+         * it's blocking. */
+        io_processed_len = listLength(server.io_processed);
         unlockThreadedIO();
-        usleep(10000); /* 10 milliseconds */
+        if (io_processed_len) {
+            vmThreadedIOCompletedJob(NULL,server.io_ready_pipe_read,NULL,0);
+            usleep(1000); /* 1 millisecond */
+        } else {
+            usleep(10000); /* 10 milliseconds */
+        }
     }
 }
 
