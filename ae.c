@@ -93,7 +93,6 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
     fe->mask |= mask;
     if (mask & AE_READABLE) fe->rfileProc = proc;
     if (mask & AE_WRITABLE) fe->wfileProc = proc;
-    if (mask & AE_EXCEPTION) fe->efileProc = proc;
     fe->clientData = clientData;
     if (fd > eventLoop->maxfd)
         eventLoop->maxfd = fd;
@@ -325,18 +324,19 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
             int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
+            int rfired = 0;
 
 	    /* note the fe->mask & mask & ... code: maybe an already processed
              * event removed an element that fired and we still didn't
              * processed, so we check if the event is still valid. */
-            if (fe->mask & mask & AE_READABLE)
+            if (fe->mask & mask & AE_READABLE) {
+                rfired = 1;
                 fe->rfileProc(eventLoop,fd,fe->clientData,mask);
-            if (fe->mask & mask & AE_WRITABLE && fe->wfileProc != fe->rfileProc)
-                fe->wfileProc(eventLoop,fd,fe->clientData,mask);
-            if (fe->mask & mask & AE_EXCEPTION &&
-				       fe->efileProc != fe->wfileProc &&
-                                       fe->efileProc != fe->rfileProc)
-                fe->efileProc(eventLoop,fd,fe->clientData,mask);
+            }
+            if (fe->mask & mask & AE_WRITABLE) {
+                if (!rfired || fe->wfileProc != fe->rfileProc)
+                    fe->wfileProc(eventLoop,fd,fe->clientData,mask);
+            }
             processed++;
         }
     }
@@ -362,11 +362,9 @@ int aeWait(int fd, int mask, long long milliseconds) {
 
     if (mask & AE_READABLE) FD_SET(fd,&rfds);
     if (mask & AE_WRITABLE) FD_SET(fd,&wfds);
-    if (mask & AE_EXCEPTION) FD_SET(fd,&efds);
     if ((retval = select(fd+1, &rfds, &wfds, &efds, &tv)) > 0) {
         if (FD_ISSET(fd,&rfds)) retmask |= AE_READABLE;
         if (FD_ISSET(fd,&wfds)) retmask |= AE_WRITABLE;
-        if (FD_ISSET(fd,&efds)) retmask |= AE_EXCEPTION;
         return retmask;
     } else {
         return retval;

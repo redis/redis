@@ -5,10 +5,10 @@
 #include <string.h>
 
 typedef struct aeApiState {
-    fd_set rfds, wfds, efds;
+    fd_set rfds, wfds;
     /* We need to have a copy of the fd sets as it's not safe to reuse
      * FD sets after select(). */
-    fd_set _rfds, _wfds, _efds;
+    fd_set _rfds, _wfds;
 } aeApiState;
 
 static int aeApiCreate(aeEventLoop *eventLoop) {
@@ -17,7 +17,6 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
     if (!state) return -1;
     FD_ZERO(&state->rfds);
     FD_ZERO(&state->wfds);
-    FD_ZERO(&state->efds);
     eventLoop->apidata = state;
     return 0;
 }
@@ -31,7 +30,6 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
 
     if (mask & AE_READABLE) FD_SET(fd,&state->rfds);
     if (mask & AE_WRITABLE) FD_SET(fd,&state->wfds);
-    if (mask & AE_EXCEPTION) FD_SET(fd,&state->efds);
     return 0;
 }
 
@@ -40,7 +38,6 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
 
     if (mask & AE_READABLE) FD_CLR(fd,&state->rfds);
     if (mask & AE_WRITABLE) FD_CLR(fd,&state->wfds);
-    if (mask & AE_EXCEPTION) FD_CLR(fd,&state->efds);
 }
 
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
@@ -49,10 +46,9 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
 
     memcpy(&state->_rfds,&state->rfds,sizeof(fd_set));
     memcpy(&state->_wfds,&state->wfds,sizeof(fd_set));
-    memcpy(&state->_efds,&state->efds,sizeof(fd_set));
 
     retval = select(eventLoop->maxfd+1,
-                &state->_rfds,&state->_wfds,&state->_efds,tvp);
+                &state->_rfds,&state->_wfds,NULL,tvp);
     if (retval > 0) {
         for (j = 0; j <= eventLoop->maxfd; j++) {
             int mask = 0;
@@ -63,8 +59,6 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                 mask |= AE_READABLE;
             if (fe->mask & AE_WRITABLE && FD_ISSET(j,&state->_wfds))
                 mask |= AE_WRITABLE;
-            if (fe->mask & AE_EXCEPTION && FD_ISSET(j,&state->_efds))
-                mask |= AE_EXCEPTION;
             eventLoop->fired[numevents].fd = j;
             eventLoop->fired[numevents].mask = mask;
             numevents++;

@@ -38,7 +38,6 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     mask |= eventLoop->events[fd].mask; /* Merge old events */
     if (mask & AE_READABLE) ee.events |= EPOLLIN;
     if (mask & AE_WRITABLE) ee.events |= EPOLLOUT;
-    if (mask & AE_EXCEPTION) ee.events |= EPOLLPRI;
     ee.data.u64 = 0; /* avoid valgrind warning */
     ee.data.fd = fd;
     if (epoll_ctl(state->epfd,op,fd,&ee) == -1) return -1;
@@ -53,7 +52,6 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int delmask) {
     ee.events = 0;
     if (mask & AE_READABLE) ee.events |= EPOLLIN;
     if (mask & AE_WRITABLE) ee.events |= EPOLLOUT;
-    if (mask & AE_EXCEPTION) ee.events |= EPOLLPRI;
     ee.data.u64 = 0; /* avoid valgrind warning */
     ee.data.fd = fd;
     if (mask != AE_NONE) {
@@ -81,7 +79,6 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
 
             if (e->events & EPOLLIN) mask |= AE_READABLE;
             if (e->events & EPOLLOUT) mask |= AE_WRITABLE;
-            if (e->events & EPOLLPRI) mask |= AE_EXCEPTION;
             eventLoop->fired[j].fd = e->data.fd;
             eventLoop->fired[j].mask = mask;
         }

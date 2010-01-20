@@ -41,7 +41,6 @@
 #define AE_NONE 0
 #define AE_READABLE 1
 #define AE_WRITABLE 2
-#define AE_EXCEPTION 4
 
 #define AE_FILE_EVENTS 1
 #define AE_TIME_EVENTS 2
@@ -62,10 +61,9 @@ typedef void aeEventFinalizerProc(struct aeEventLoop *eventLoop, void *clientDat
 
 /* File event structure */
 typedef struct aeFileEvent {
-    int mask; /* one of AE_(READABLE|WRITABLE|EXCEPTION) */
+    int mask; /* one of AE_(READABLE|WRITABLE) */
     aeFileProc *rfileProc;
     aeFileProc *wfileProc;
-    aeFileProc *efileProc;
     void *clientData;
 } aeFileEvent;
 
