@@ -1,3 +1,107 @@
+2010-01-21 REDIS_MAX_COMPLETED_JOBS_PROCESSED is now in percentage, not number of jobs. Moved a debugging message a few lines forward as it was called where a few logged parameters where invalid, leading to a crash
+2010-01-20 fixed a deadlock caused by too much finished processes in queue so that I/O clients writing to the wirte side of the pipe used to awake the main thread where blocking. Then a BGSAVE started waiting for the last active thread to finish, condition impossible because all the I/O threads where blocking on threads. Takes this as a note to myself...
+2010-01-20 ae.c event loop does no longer support exception notifications, as they are fully pointless. Also a theoretical bug that never happens in practice fixed.
+2010-01-19 commercial tools stuff removed from the Redis makefile. cotools are now migrated into a different repos
+2010-01-19 removed a bug in the function to cancel an I/O job
+2010-01-17 static symbols update
+2010-01-16 removed support for REDIS_HELGRIND_FRIENDLY since Helgrind 3.5.0 is friendly enough even with many threads created and destroyed
+2010-01-15 now redis-cli understands -h
+2010-01-15 Create swap file only if not exists
+2010-01-15 I hate warnings
+2010-01-15 fixed a minor memory leak in configuration file parsing
+2010-01-15 minor fix
+2010-01-15 support for named VM swap file. Fixed a few important interaction issues between the background saving processes and IO threads
+2010-01-15 fix for the just added new test
+2010-01-15 useless debugging messages removed
+2010-01-15 new test added
+2010-01-15 thread safe zmalloc used memory counter
+2010-01-15 A define to make Redis more helgrind friendly
+2010-01-15 removed a few races from threaded VM
+2010-01-14 Fixed a never experienced, theoretical bug that can actually happen in practice. Basically when a thread is working on a I/O Job we need to wait it to finish before to cancel the Job in vmCancelThreadedIOJob(), otherwise the thread may mess with an object that is being manipulated by the main thread as well.
+2010-01-14 Set the new threads stack size to a LZF friendly amount
+2010-01-13 access to already freed job structure fixed by statements reoredering
+2010-01-13 removed a useless debugging message
+2010-01-13 Wait zero active threads condition before to fork() for BGSAVE or BGREWRITEAOF
+2010-01-13 list API is now thread safe
+2010-01-13 minor TODO and debugging info changes
+2010-01-12 support for blocking VM in config file
+2010-01-12 more non blocking VM changes
+2010-01-12 fix for test #11
+2010-01-12 a few more stuff in INFO about VM. Test #11 changed a bit in order to be less lame
+2010-01-12 Added a define to configure how many completed IO jobs the handler should process at every call.
+2010-01-11 Fixed a bug in the IO Job canceling funtion
+2010-01-11 more steps towards a working non blocking VM
+2010-01-11 converted random printfs in debug logs
+2010-01-11 removed a bug introduced with non blocking VM
+2010-01-11 a few non blocking VM bugs fixed
+2010-01-11 More work on non-blocking VM. Should work in a few days
+2010-01-11 More threaded I/O VM work + Redis init script
+2010-01-10 more work on VM threaded I/O. Still nothing of usable
+2010-01-09 non-blocking VM data structures, just a start
+2010-01-08 used_memory_human added to INFO output. Human readable amount of memory used.
+2010-01-07 Now DEBUG OBJECT plays well with swapped out objects
+2010-01-07 fflush VM swap file after object swapping
+2010-01-07 added the fmacros to enable support for fseeko() lseeko() with 64bit off_t
+2010-01-07 VM now swaps objects out while loading datasets not fitting into vm-max-memory bytes of RAM
+2010-01-07 added process id information in INFO
+2010-01-06 vm-enabled set to no by default in redis.conf
+2010-01-06 a new default redis.conf
+2010-01-06 VM stats in INFO command
+2010-01-06 Introduced a new log verbosity level, so now DEBUG is really for debugging. Refactored a bit maxmemory. When virtual memory is short in RAM free the objects freelist as well as swapping things out.
+2010-01-05 fixed a bug in bgsave when VM is off but still it was testing for obj->storage field
+2010-01-05 converted a few calls to assert() => redisAssert() to print stack trace
+2010-01-05 BGREWRITEAOF now works with swapping on
+2010-01-05 A first fix for SET key overwrite
+2010-01-05 SAVE now works with VM
+2010-01-05 swapping algorithm a bit more aggressive under low memory
+2010-01-05 basic VM mostly working!
+2010-01-05 New object field (one of the unused bytes) to hold the type of the swapped out value object in key objects
+2010-01-05 VM internals bugfixes, set 1
+2010-01-05 load key from swap on key lookup
+2010-01-05 more object-level VM primitives
+2010-01-05 Redis objects swapping / loading
+2010-01-05 rdbLoadObject() as a separated function to load objects from disk. Dropped support for RDB version 0, I guess no longer has this legacy DBs around
+2010-01-04 VM low level pages handling
+2010-01-04 vm swap file creation, and some basic configuration
+2010-01-04 version marked 1.3.2
+2010-01-04 saving code refactored a bit, added a function returning the number of bytes an object will use on disk
+2010-01-02 Now the PUSH side of RPOPLPUSH is able to unblock clients blocked on BLPOP
+2010-01-02 Version is now 1.3.1
+2010-01-02 New vararg BLPOP able to block against multiple keys
+2009-12-29 fixed a problem with BLPOP timeout of zero, now it blocks forever
+2009-12-29 BLPOP timeouts implemented
+2009-12-29 first working implementation of BLPOP and BRPOP, still everything is to test well
+2009-12-29 a few more fixes, still broken
+2009-12-29 First fix, still broken
+2009-12-29 minor fix for Linux 64 bit
+2009-12-29 not yet working BLPOP implementation
+2009-12-27 AOFSYNC removed, got a better idea...
+2009-12-27 AOFSYNC command implemented
+2009-12-27 Version changed to 1.3.0, welcome to the new unstable
+2009-12-27 Now MULTI returns +OK as well
+2009-12-27 MULTI/EXEC first implementation
+2009-12-24 Fixed a minor bug in GETSET, now the SET part is not performed if the GET fails because the key does not contain a string value
+2009-12-23 html doc readded
+2009-12-23 ZRANGE WITHSCORES test added
+2009-12-23 version is now 1.1.94
+2009-12-23 Add the command name in the unknown command error message.
+2009-12-22 ZRANGE, ZREVRANGE now support WITHSCORES options
+2009-12-22 html docs update (ZINCRBY added)
+2009-12-18 TODO list update
+2009-12-18 the pipelining test was ran against DB 1 for error, now it runs on DB 9 like all the other tests
+2009-12-18 still more tests
+2009-12-18 SORT STORE test added
+2009-12-18 Now SORT returns an empty bulk reply if the key does not exist
+2009-12-18 modified a bit the ZREVRANGE test to cover a few lines of code more
+2009-12-18 SHUTDOWN now does the right thing when append only is on, that is, fsync instead to save the snapshot.
+2009-12-18 Added a missing server.dirty increment in a non critical place, added more tests
+2009-12-18 LTRIM stress testing test added
+2009-12-18 LTRIM now returns +OK against non existing keys. More tests in test-redis.tcl
+2009-12-18 added sdstoupper() declaration in sds.h
+2009-12-18 Fixed sds.c bug #124
+2009-12-16 LZF compression re-enabled by default, but with INIT_HTAB set to 0 to avoid the very costly memset initialization. Note that with this option set valgrind will output some false positive about lzf_c.c
+2009-12-16 lzf compression switched off by default now, with config file option to enable it in redis.conf
+2009-12-16 Regression for epoll bug in redis-test.tcl, version is now 1.1.93
 2009-12-16 Fixed a lame epoll issue
 2009-12-15 html doc updated
 2009-12-15 version is now 1.1.92
