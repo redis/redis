@@ -165,11 +165,10 @@
 #define REDIS_VM_MAX_RANDOM_JUMP 4096
 #define REDIS_VM_MAX_THREADS 32
 #define REDIS_THREAD_STACK_SIZE (1024*1024*4)
-/* The following is the number of completed I/O jobs to process when the
- * handelr is called. 1 is the minimum, and also the default, as it allows
- * to block as little as possible other accessing clients. While Virtual
- * Memory I/O operations are performed by threads, this operations must
- * be processed by the main thread when completed to take effect. */
+/* The following is the *percentage* of completed I/O jobs to process when the
+ * handelr is called. While Virtual Memory I/O operations are performed by
+ * threads, this operations must be processed by the main thread when completed
+ * in order to take effect. */
 #define REDIS_MAX_COMPLETED_JOBS_PROCESSED 1
 
 /* Client flags */
@@ -7170,7 +7169,6 @@ static int vmFindContiguousPages(off_t *first, off_t n) {
     while(offset < server.vm_pages) {
         off_t this = base+offset;
 
-        redisLog(REDIS_DEBUG, "THIS: %lld (%c)\n", (long long) this, vmFreePage(this) ? 'F' : 'X');
         /* If we overflow, restart from page zero */
         if (this >= server.vm_pages) {
             this -= server.vm_pages;
@@ -7180,6 +7178,7 @@ static int vmFindContiguousPages(off_t *first, off_t n) {
                 numfree = 0;
             }
         }
+        redisLog(REDIS_DEBUG, "THIS: %lld (%c)\n", (long long) this, vmFreePage(this) ? 'F' : 'X');
         if (vmFreePage(this)) {
             /* This is a free page */
             numfree++;
@@ -7503,6 +7502,7 @@ static void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
     char buf[1];
     int retval;
     int processed = 0;
+    int toprocess = -1;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
@@ -7520,6 +7520,10 @@ static void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
         /* Get the processed element (the oldest one) */
         lockThreadedIO();
         assert(listLength(server.io_processed) != 0);
+        if (toprocess == -1) {
+            toprocess = (listLength(server.io_processed)*REDIS_MAX_COMPLETED_JOBS_PROCESSED)/100;
+            if (toprocess <= 0) toprocess = 1;
+        }
         ln = listFirst(server.io_processed);
         j = ln->value;
         listDelNode(server.io_processed,ln);
@@ -7608,7 +7612,7 @@ static void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
             }
         }
         processed++;
-        if (processed == REDIS_MAX_COMPLETED_JOBS_PROCESSED) return;
+        if (processed == toprocess) return;
     }
     if (retval < 0 && errno != EAGAIN) {
         redisLog(REDIS_WARNING,
