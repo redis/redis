@@ -27,7 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define REDIS_VERSION "1.3.2"
+#define REDIS_VERSION "1.3.3"
 
 #include "fmacros.h"
 #include "config.h"
@@ -543,7 +543,7 @@ static void sendReplyToClientWritev(aeEventLoop *el, int fd, void *privdata, int
 static void initClientMultiState(redisClient *c);
 static void freeClientMultiState(redisClient *c);
 static void queueMultiCommand(redisClient *c, struct redisCommand *cmd);
-static void unblockClient(redisClient *c);
+static void unblockClientWaitingData(redisClient *c);
 static int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele);
 static void vmInit(void);
 static void vmMarkPagesFree(off_t page, off_t count);
@@ -670,7 +670,7 @@ static struct redisCommand cmdTable[] = {
     {"lrange",lrangeCommand,4,REDIS_CMD_INLINE},
     {"ltrim",ltrimCommand,4,REDIS_CMD_INLINE},
     {"lrem",lremCommand,4,REDIS_CMD_BULK},
-    {"rpoplpush",rpoplpushcommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
+    {"rpoplpush",rpoplpushcommand,3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
     {"sadd",saddCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
     {"srem",sremCommand,3,REDIS_CMD_BULK},
     {"smove",smoveCommand,4,REDIS_CMD_BULK},
@@ -1038,7 +1038,7 @@ static void closeTimedoutClients(void) {
         } else if (c->flags & REDIS_BLOCKED) {
             if (c->blockingto != 0 && c->blockingto < now) {
                 addReply(c,shared.nullmultibulk);
-                unblockClient(c);
+                unblockClientWaitingData(c);
             }
         }
     }
@@ -1672,14 +1672,14 @@ static void freeClient(redisClient *c) {
     listNode *ln;
 
     /* Note that if the client we are freeing is blocked into a blocking
-     * call, we have to set querybuf to NULL *before* to call unblockClient()
-     * to avoid processInputBuffer() will get called. Also it is important
-     * to remove the file events after this, because this call adds
-     * the READABLE event. */
+     * call, we have to set querybuf to NULL *before* to call
+     * unblockClientWaitingData() to avoid processInputBuffer() will get
+     * called. Also it is important to remove the file events after
+     * this, because this call adds the READABLE event. */
     sdsfree(c->querybuf);
     c->querybuf = NULL;
     if (c->flags & REDIS_BLOCKED)
-        unblockClient(c);
+        unblockClientWaitingData(c);
 
     aeDeleteFileEvent(server.el,c->fd,AE_READABLE);
     aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
@@ -5951,7 +5951,7 @@ static void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeou
 }
 
 /* Unblock a client that's waiting in a blocking operation such as BLPOP */
-static void unblockClient(redisClient *c) {
+static void unblockClientWaitingData(redisClient *c) {
     dictEntry *de;
     list *l;
     int j;
@@ -5975,16 +5975,17 @@ static void unblockClient(redisClient *c) {
     c->flags &= (~REDIS_BLOCKED);
     server.blockedclients--;
     /* Ok now we are ready to get read events from socket, note that we
-     * can't trap errors here as it's possible that unblockClients() is
+     * can't trap errors here as it's possible that unblockClientWaitingDatas() is
      * called from freeClient() itself, and the only thing we can do
      * if we failed to register the READABLE event is to kill the client.
      * Still the following function should never fail in the real world as
      * we are sure the file descriptor is sane, and we exit on out of mem. */
     aeCreateFileEvent(server.el, c->fd, AE_READABLE, readQueryFromClient, c);
     /* As a final step we want to process data if there is some command waiting
-     * in the input buffer. Note that this is safe even if unblockClient()
-     * gets called from freeClient() because freeClient() will be smart
-     * enough to call this function *after* c->querybuf was set to NULL. */
+     * in the input buffer. Note that this is safe even if
+     * unblockClientWaitingData() gets called from freeClient() because
+     * freeClient() will be smart enough to call this function
+     * *after* c->querybuf was set to NULL. */
     if (c->querybuf && sdslen(c->querybuf) > 0) processInputBuffer(c);
 }
 
@@ -6018,7 +6019,7 @@ static int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
     addReplyBulkLen(receiver,ele);
     addReply(receiver,ele);
     addReply(receiver,shared.crlf);
-    unblockClient(receiver);
+    unblockClientWaitingData(receiver);
     return 1;
 }
 
@@ -7395,7 +7396,7 @@ static int vmSwapOneObject(int usethreads) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
-        int maxtries = 1000;
+        int maxtries = 100;
 
         if (dictSize(db->dict) == 0) continue;
         for (i = 0; i < 5; i++) {
@@ -7500,9 +7501,7 @@ static void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
             int mask)
 {
     char buf[1];
-    int retval;
-    int processed = 0;
-    int toprocess = -1;
+    int retval, processed = 0, toprocess = -1, trytoswap = 1;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
@@ -7599,7 +7598,9 @@ static void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
             freeIOJob(j);
             /* Put a few more swap requests in queue if we are still
              * out of memory */
-            if (vmCanSwapOut() && zmalloc_used_memory() > server.vm_max_memory){
+            if (trytoswap && vmCanSwapOut() &&
+                zmalloc_used_memory() > server.vm_max_memory)
+            {
                 int more = 1;
                 while(more) {
                     lockThreadedIO();
@@ -7607,7 +7608,10 @@ static void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
                             (unsigned) server.vm_max_threads;
                     unlockThreadedIO();
                     /* Don't waste CPU time if swappable objects are rare. */
-                    if (vmSwapOneObjectThreaded() == REDIS_ERR) break;
+                    if (vmSwapOneObjectThreaded() == REDIS_ERR) {
+                        trytoswap = 0;
+                        break;
+                    }
                 }
             }
         }
@@ -7838,6 +7842,19 @@ static int vmSwapObjectThreaded(robj *key, robj *val, redisDb *db) {
     unlockThreadedIO();
     return REDIS_OK;
 }
+
+/* ============ Virtual Memory - Blocking clients on missing keys =========== */
+
+/* Is this client attempting to run a command against swapped keys?
+ * If so, block it ASAP, load the keys in background, then resume it.4
+ *
+ * The improtat thing about this function is that it can fail! If keys will
+ * still be swapped when the client is resumed, a few of key lookups will
+ * just block loading keys from disk. */
+#if 0
+static void blockClientOnSwappedKeys(redisClient *c) {
+}
+#endif
 
 /* ================================= Debugging ============================== */
 

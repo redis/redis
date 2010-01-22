@@ -206,7 +206,7 @@ static struct redisFunctionSym symsTable[] = {
 {"tryResizeHashTables",(unsigned long)tryResizeHashTables},
 {"ttlCommand",(unsigned long)ttlCommand},
 {"typeCommand",(unsigned long)typeCommand},
-{"unblockClient",(unsigned long)unblockClient},
+{"unblockClientWaitingData",(unsigned long)unblockClientWaitingData},
 {"unlockThreadedIO",(unsigned long)unlockThreadedIO},
 {"updateSlavesWaitingBgsave",(unsigned long)updateSlavesWaitingBgsave},
 {"vmCanSwapOut",(unsigned long)vmCanSwapOut},

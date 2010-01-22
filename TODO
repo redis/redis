@@ -4,28 +4,20 @@ VERSION 1.4 TODO (Hash type)
 ============================
 
 * BRPOPLPUSH
-* RPOPLPUSH should notify blocking POP operations
 * List ops like L/RPUSH L/RPOP should return the new list length.
 * Save dataset / fsync() on SIGTERM
-* MULTI/EXEC should support the "EXEC FSYNC" form
-* Synchronous Virtual Memory
+* MULTI/EXEC should support the "EXEC FSYNC" form?
 * BLPOP & C. tests (write a non blocking Tcl client as first step)
 
 Virtual Memory sub-TODO:
-* Check if the page selection algorithm is working well.
+* Check if the page selection algorithm is working well
 * Divide swappability of objects by refcount
-* vm-swap-file <filename>. The swap file should go where the user wants, and if it's already there and of the right size we can avoid to create it again.
 * it should be possible to give the vm-max-memory option in megabyte, gigabyte, ..., just using 2GB, 100MB, and so forth.
-* redis-cli vmstat, calling INFO every second and printing VM stats ala vmstat.
-* protect zmalloc memory usage increments with a mutex
+* Try to understand what can be moved into I/O threads that currently is instead handled by the main thread. For instance swapping file table scannig to find contiguous page could be a potential candidate (but I'm not convinced it's a good idea, better to improve the algorithm, for instance double the fast forward at every step?).
 
-VERSION 1.6 TODO (Virtual memory)
-=================================
+* Hashes (HSET, HGET, HDEL, HEXISTS, HLEN, ...).
 
-* Asynchronous Virtual Memory
-* Hashes (HSET, HGET, HEXISTS, HLEN, ...).
-
-VERSION 1.8 TODO (Fault tollerant sharding)
+VERSION 2.2 TODO (Fault tolerant sharding)
 ===========================================
 
 * Redis-cluster, a fast intermediate layer (proxy) that implements consistent hashing and fault tollerant nodes handling.
@@ -34,7 +26,7 @@ Interesting readings about this:
 
     - http://ayende.com/Blog/archive/2009/04/06/designing-rhino-dht-a-fault-tolerant-dynamically-distributed-hash.aspx
 
-VERSION 2.0 TODO (Optimizations and latency)
+VERSION 2.4 TODO (Optimizations and latency)
 ============================================
 
 * Lower the CPU usage.
@@ -42,7 +34,7 @@ VERSION 2.0 TODO (Optimizations and latency)
 * Use epool and alike to rewrite ae.c for Linux and other platforms suppporting fater-than-select() mutiplexing APIs.
 * Implement an UDP interface for low-latency GET/SET operations.
 
-VERSION 2.2 TODO (Optimizations and latency)
+VERSION 2.6 TODO (Optimizations and latency)
 ============================================
 
 * JSON command able to access data serialized in JSON format. For instance if I've a key foobar with a json object I can alter the "name" file using somthing like: "JSON SET foobar name Kevin". We should have GET and INCRBY as well.
