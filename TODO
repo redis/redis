@@ -14,6 +14,8 @@ Virtual Memory sub-TODO:
 * Divide swappability of objects by refcount
 * it should be possible to give the vm-max-memory option in megabyte, gigabyte, ..., just using 2GB, 100MB, and so forth.
 * Try to understand what can be moved into I/O threads that currently is instead handled by the main thread. For instance swapping file table scannig to find contiguous page could be a potential candidate (but I'm not convinced it's a good idea, better to improve the algorithm, for instance double the fast forward at every step?).
+* EXISTS should avoid loading the object if possible without too make the code too specialized.
+* vm-min-age <seconds> option
 
 * Hashes (HSET, HGET, HDEL, HEXISTS, HLEN, ...).
 
