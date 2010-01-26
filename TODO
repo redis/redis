@@ -14,10 +14,11 @@ Virtual Memory sub-TODO:
 * Divide swappability of objects by refcount
 * it should be possible to give the vm-max-memory option in megabyte, gigabyte, ..., just using 2GB, 100MB, and so forth.
 * Try to understand what can be moved into I/O threads that currently is instead handled by the main thread. For instance swapping file table scannig to find contiguous page could be a potential candidate (but I'm not convinced it's a good idea, better to improve the algorithm, for instance double the fast forward at every step?).
+* Possibly decrRefCount() against swapped objects can be moved into I/O threads, as it's a slow operation against million elements list, and in general consumes CPU time that can be consumed by other threads (and cores).
 * EXISTS should avoid loading the object if possible without too make the code too specialized.
 * vm-min-age <seconds> option
 
-* Hashes (HSET, HGET, HDEL, HEXISTS, HLEN, ...).
+* Hashes (GET/SET/DEL/INCRBY/EXISTS/FIELDS/LEN/MSET/MGET). Special encoding for hashes with < N keys.
 
 VERSION 2.2 TODO (Fault tolerant sharding)
 ===========================================
@@ -35,11 +36,6 @@ VERSION 2.4 TODO (Optimizations and latency)
 * Lower the RAM usage everywhere possible.
 * Use epool and alike to rewrite ae.c for Linux and other platforms suppporting fater-than-select() mutiplexing APIs.
 * Implement an UDP interface for low-latency GET/SET operations.
-
-VERSION 2.6 TODO (Optimizations and latency)
-============================================
-
-* JSON command able to access data serialized in JSON format. For instance if I've a key foobar with a json object I can alter the "name" file using somthing like: "JSON SET foobar name Kevin". We should have GET and INCRBY as well.
 
 OTHER IMPORTANT THINGS THAT WILL BE ADDED BUT I'M NOT SURE WHEN
 ===============================================================
