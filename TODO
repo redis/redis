@@ -17,6 +17,7 @@ Virtual Memory sub-TODO:
 * Possibly decrRefCount() against swapped objects can be moved into I/O threads, as it's a slow operation against million elements list, and in general consumes CPU time that can be consumed by other threads (and cores).
 * EXISTS should avoid loading the object if possible without too make the code too specialized.
 * vm-min-age <seconds> option
+* Make sure objects loaded from the VM are specially encoded when possible.
 
 * Hashes (GET/SET/DEL/INCRBY/EXISTS/FIELDS/LEN/MSET/MGET). Special encoding for hashes with < N keys.
 
