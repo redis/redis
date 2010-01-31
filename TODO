@@ -18,6 +18,7 @@ Virtual Memory sub-TODO:
 * EXISTS should avoid loading the object if possible without too make the code too specialized.
 * vm-min-age <seconds> option
 * Make sure objects loaded from the VM are specially encoded when possible.
+* Check what happens performance-wise if instead to create threads again and again the same threads are reused forever. Note: this requires a way to disable this clients in the child, but waiting for empty new jobs queue can be enough.
 
 * Hashes (GET/SET/DEL/INCRBY/EXISTS/FIELDS/LEN/MSET/MGET). Special encoding for hashes with < N keys.
 
