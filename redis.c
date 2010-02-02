@@ -3335,6 +3335,10 @@ static robj *rdbLoadObject(int type, FILE *fp) {
 
         if ((listlen = rdbLoadLen(fp,NULL)) == REDIS_RDB_LENERR) return NULL;
         o = (type == REDIS_LIST) ? createListObject() : createSetObject();
+        /* It's faster to expand the dict to the right size asap in order
+         * to avoid rehashing */
+        if (type == REDIS_SET && listlen > DICT_HT_INITIAL_SIZE)
+            dictExpand(o->ptr,listlen);
         /* Load every single element of the list/set */
         while(listlen--) {
             robj *ele;
