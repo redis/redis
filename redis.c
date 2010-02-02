@@ -8212,6 +8212,8 @@ static void daemonize(void) {
 }
 
 int main(int argc, char **argv) {
+    time_t start;
+
     initServerConfig();
     if (argc == 2) {
         resetServerSaveParams();
@@ -8228,12 +8230,13 @@ int main(int argc, char **argv) {
 #ifdef __linux__
     linuxOvercommitMemoryWarning();
 #endif
+    start = time(NULL);
     if (server.appendonly) {
         if (loadAppendOnlyFile(server.appendfilename) == REDIS_OK)
-            redisLog(REDIS_NOTICE,"DB loaded from append only file");
+            redisLog(REDIS_NOTICE,"DB loaded from append only file: %ld seconds",time(NULL)-start);
     } else {
         if (rdbLoad(server.dbfilename) == REDIS_OK)
-            redisLog(REDIS_NOTICE,"DB loaded from disk");
+            redisLog(REDIS_NOTICE,"DB loaded from disk: %ld seconds",time(NULL)-start);
     }
     redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
     aeSetBeforeSleepProc(server.el,beforeSleep);
