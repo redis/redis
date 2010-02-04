@@ -1600,6 +1600,29 @@ proc main {server port} {
         list $v1 $v2 $v3
     } {QUEUED QUEUED {{a b c} PONG}}
 
+    test {APPEND basics} {
+        list [$r append foo bar] [$r get foo] \
+             [$r append foo 100] [$r get foo]
+    } {3 bar 6 bar100}
+
+    test {APPEND fuzzing} {
+        set err {}
+        foreach type {binary alpha compr} {
+            set buf {}
+            $r del x
+            for {set i 0} {$i < 1000} {incr i} {
+                set bin [randstring 0 10 $type]
+                append buf $bin
+                $r append x $bin
+            }
+            if {$buf != [$r get x]} {
+                set err "Expected '$buf' found '[$r get x]'"
+                break
+            }
+        }
+        set _ $err
+    } {}
+
     # Leave the user with a clean DB before to exit
     test {FLUSHDB} {
         set aux {}
