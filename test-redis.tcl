@@ -1310,6 +1310,16 @@ proc main {server port} {
         $r zrangebyscore zset 2 4
     } {b c d}
 
+    test {ZRANGEBYSCORE withscores} {
+        $r del zset
+        $r zadd zset 1 a
+        $r zadd zset 2 b
+        $r zadd zset 3 c
+        $r zadd zset 4 d
+        $r zadd zset 5 e
+        $r zrangebyscore zset 2 4 withscores
+    } {b 2 c 3 d 4}
+
     test {ZRANGEBYSCORE fuzzy test, 100 ranges in 1000 elements sorted set} {
         set err {}
         $r del zset
@@ -1362,6 +1372,16 @@ proc main {server port} {
             [$r zrangebyscore zset 0 10 LIMIT 2 10] \
             [$r zrangebyscore zset 0 10 LIMIT 20 10]
     } {{a b} {c d e} {c d e} {}}
+
+    test {ZRANGEBYSCORE with LIMIT and withscores} {
+        $r del zset
+        $r zadd zset 10 a
+        $r zadd zset 20 b
+        $r zadd zset 30 c
+        $r zadd zset 40 d
+        $r zadd zset 50 e
+        $r zrangebyscore zset 20 50 LIMIT 2 3 withscores
+    } {d 40 e 50}
 
     test {ZREMRANGE basics} {
         $r del zset
