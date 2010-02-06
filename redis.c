@@ -873,7 +873,7 @@ static void redisLog(int level, const char *fmt, ...) {
 
     va_start(ap, fmt);
     if (level >= server.verbosity) {
-        char *c = ".-*";
+        char *c = ".-*#";
         char buf[64];
         time_t now;
 

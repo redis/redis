@@ -1,7 +1,7 @@
 Redis TODO and Roadmap
 
-VERSION 1.4 TODO (Hash type)
-============================
+VERSION 2.0 TODO
+================
 
 * BRPOPLPUSH
 * List ops like L/RPUSH L/RPOP should return the new list length.
@@ -21,7 +21,9 @@ Virtual Memory sub-TODO:
 * Check what happens performance-wise if instead to create threads again and again the same threads are reused forever. Note: this requires a way to disable this clients in the child, but waiting for empty new jobs queue can be enough.
 * Sets of integers are slow to load, for a number of reasons. Fix it. (use slow_sets.rdb file for debugging).
 
-* Hashes (GET/SET/DEL/INCRBY/EXISTS/FIELDS/LEN/MSET/MGET). Special encoding for hashes with < N keys.
+* Hashes (GET/SET/DEL/INCRBY/EXISTS/FIELDS/LEN/MSET/MGET). Special encoding for hashes with less than N elements.
+* Write documentation for APPEND
+* Implement LEN, SUBSTR, PEEK, POKE, SETBIT, GETBIT
 
 VERSION 2.2 TODO (Fault tolerant sharding)
 ===========================================
