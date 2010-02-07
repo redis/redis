@@ -5201,14 +5201,14 @@ static void zrangebyscoreCommand(redisClient *c) {
     int badsyntax = 0;
 
     if (c->argc == 5 || c->argc == 8) {
-        if (strcasecmp(c->argv[c->argc-1]->ptr,"withscores") == 0) withscores = 1;
-        else badsyntax = 1;
+        if (strcasecmp(c->argv[c->argc-1]->ptr,"withscores") == 0)
+            withscores = 1;
+        else
+            badsyntax = 1;
     }
 
-    if (c->argc != (4 + withscores) && c->argc != (7 + withscores)) {
+    if (c->argc != (4 + withscores) && c->argc != (7 + withscores))
         badsyntax = 1;
-    }
-
 
     if (badsyntax) {
         addReplySds(c,
