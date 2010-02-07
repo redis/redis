@@ -8,6 +8,7 @@ VERSION 2.0 TODO
 * Save dataset / fsync() on SIGTERM
 * MULTI/EXEC should support the "EXEC FSYNC" form?
 * BLPOP & C. tests (write a non blocking Tcl client as first step)
+* ZCOUNT sortedset min max
 
 Virtual Memory sub-TODO:
 * Check if the page selection algorithm is working well
