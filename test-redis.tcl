@@ -1300,15 +1300,16 @@ proc main {server port} {
         list $v1 $v2 [$r zscore zset foo] [$r zscore zset bar]
     } {{bar foo} {foo bar} -2 6}
 
-    test {ZRANGEBYSCORE basics} {
+    test {ZRANGEBYSCORE and ZCOUNT basics} {
         $r del zset
         $r zadd zset 1 a
         $r zadd zset 2 b
         $r zadd zset 3 c
         $r zadd zset 4 d
         $r zadd zset 5 e
-        $r zrangebyscore zset 2 4
-    } {b c d}
+        list [$r zrangebyscore zset 2 4] [$r zrangebyscore zset (2 (4] \
+             [$r zcount zset 2 4] [$r zcount zset (2 (4]
+    } {{b c d} c 3 1}
 
     test {ZRANGEBYSCORE withscores} {
         $r del zset
@@ -1337,10 +1338,39 @@ proc main {server port} {
             set low [$r zrangebyscore zset -inf $min]
             set ok [$r zrangebyscore zset $min $max]
             set high [$r zrangebyscore zset $max +inf]
+            set lowx [$r zrangebyscore zset -inf ($min]
+            set okx [$r zrangebyscore zset ($min ($max]
+            set highx [$r zrangebyscore zset ($max +inf]
+
+            if {[$r zcount zset -inf $min] != [llength $low]} {
+                append err "Error, len does not match zcount\n"
+            }
+            if {[$r zcount zset $min $max] != [llength $ok]} {
+                append err "Error, len does not match zcount\n"
+            }
+            if {[$r zcount zset $max +inf] != [llength $high]} {
+                append err "Error, len does not match zcount\n"
+            }
+            if {[$r zcount zset -inf ($min] != [llength $lowx]} {
+                append err "Error, len does not match zcount\n"
+            }
+            if {[$r zcount zset ($min ($max] != [llength $okx]} {
+                append err "Error, len does not match zcount\n"
+            }
+            if {[$r zcount zset ($max +inf] != [llength $highx]} {
+                append err "Error, len does not match zcount\n"
+            }
+
             foreach x $low {
                 set score [$r zscore zset $x]
                 if {$score > $min} {
                     append err "Error, score for $x is $score > $min\n"
+                }
+            }
+            foreach x $lowx {
+                set score [$r zscore zset $x]
+                if {$score >= $min} {
+                    append err "Error, score for $x is $score >= $min\n"
                 }
             }
             foreach x $ok {
@@ -1349,10 +1379,22 @@ proc main {server port} {
                     append err "Error, score for $x is $score outside $min-$max range\n"
                 }
             }
+            foreach x $okx {
+                set score [$r zscore zset $x]
+                if {$score <= $min || $score >= $max} {
+                    append err "Error, score for $x is $score outside $min-$max open range\n"
+                }
+            }
             foreach x $high {
                 set score [$r zscore zset $x]
                 if {$score < $max} {
                     append err "Error, score for $x is $score < $max\n"
+                }
+            }
+            foreach x $highx {
+                set score [$r zscore zset $x]
+                if {$score <= $max} {
+                    append err "Error, score for $x is $score <= $max\n"
                 }
             }
         }
