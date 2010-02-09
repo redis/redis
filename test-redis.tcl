@@ -1533,6 +1533,7 @@ proc main {server port} {
     }
 
     test {BGSAVE} {
+        waitForBgsave $r
         $r flushdb
         $r save
         $r set x 10

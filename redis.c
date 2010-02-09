@@ -426,6 +426,10 @@ struct redisCommand {
     redisCommandProc *proc;
     int arity;
     int flags;
+    /* What keys should be loaded in background when calling this command? */
+    int vm_firstkey; /* The first argument that's a key (0 = no keys) */
+    int vm_lastkey;  /* THe last argument that's a key */
+    int vm_keystep;  /* The step between first and last key */
 };
 
 struct redisFunctionSym {
@@ -658,87 +662,87 @@ static void appendCommand(redisClient *c);
 /* Global vars */
 static struct redisServer server; /* server global state */
 static struct redisCommand cmdTable[] = {
-    {"get",getCommand,2,REDIS_CMD_INLINE},
-    {"set",setCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
-    {"setnx",setnxCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
-    {"append",appendCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
-    {"del",delCommand,-2,REDIS_CMD_INLINE},
-    {"exists",existsCommand,2,REDIS_CMD_INLINE},
-    {"incr",incrCommand,2,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
-    {"decr",decrCommand,2,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
-    {"mget",mgetCommand,-2,REDIS_CMD_INLINE},
-    {"rpush",rpushCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
-    {"lpush",lpushCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
-    {"rpop",rpopCommand,2,REDIS_CMD_INLINE},
-    {"lpop",lpopCommand,2,REDIS_CMD_INLINE},
-    {"brpop",brpopCommand,-3,REDIS_CMD_INLINE},
-    {"blpop",blpopCommand,-3,REDIS_CMD_INLINE},
-    {"llen",llenCommand,2,REDIS_CMD_INLINE},
-    {"lindex",lindexCommand,3,REDIS_CMD_INLINE},
-    {"lset",lsetCommand,4,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
-    {"lrange",lrangeCommand,4,REDIS_CMD_INLINE},
-    {"ltrim",ltrimCommand,4,REDIS_CMD_INLINE},
-    {"lrem",lremCommand,4,REDIS_CMD_BULK},
-    {"rpoplpush",rpoplpushcommand,3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
-    {"sadd",saddCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
-    {"srem",sremCommand,3,REDIS_CMD_BULK},
-    {"smove",smoveCommand,4,REDIS_CMD_BULK},
-    {"sismember",sismemberCommand,3,REDIS_CMD_BULK},
-    {"scard",scardCommand,2,REDIS_CMD_INLINE},
-    {"spop",spopCommand,2,REDIS_CMD_INLINE},
-    {"srandmember",srandmemberCommand,2,REDIS_CMD_INLINE},
-    {"sinter",sinterCommand,-2,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
-    {"sinterstore",sinterstoreCommand,-3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
-    {"sunion",sunionCommand,-2,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
-    {"sunionstore",sunionstoreCommand,-3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
-    {"sdiff",sdiffCommand,-2,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
-    {"sdiffstore",sdiffstoreCommand,-3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
-    {"smembers",sinterCommand,2,REDIS_CMD_INLINE},
-    {"zadd",zaddCommand,4,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
-    {"zincrby",zincrbyCommand,4,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
-    {"zrem",zremCommand,3,REDIS_CMD_BULK},
-    {"zremrangebyscore",zremrangebyscoreCommand,4,REDIS_CMD_INLINE},
-    {"zrange",zrangeCommand,-4,REDIS_CMD_INLINE},
-    {"zrangebyscore",zrangebyscoreCommand,-4,REDIS_CMD_INLINE},
-    {"zcount",zcountCommand,4,REDIS_CMD_INLINE},
-    {"zrevrange",zrevrangeCommand,-4,REDIS_CMD_INLINE},
-    {"zcard",zcardCommand,2,REDIS_CMD_INLINE},
-    {"zscore",zscoreCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
-    {"incrby",incrbyCommand,3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
-    {"decrby",decrbyCommand,3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
-    {"getset",getsetCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
-    {"mset",msetCommand,-3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
-    {"msetnx",msetnxCommand,-3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM},
-    {"randomkey",randomkeyCommand,1,REDIS_CMD_INLINE},
-    {"select",selectCommand,2,REDIS_CMD_INLINE},
-    {"move",moveCommand,3,REDIS_CMD_INLINE},
-    {"rename",renameCommand,3,REDIS_CMD_INLINE},
-    {"renamenx",renamenxCommand,3,REDIS_CMD_INLINE},
-    {"expire",expireCommand,3,REDIS_CMD_INLINE},
-    {"expireat",expireatCommand,3,REDIS_CMD_INLINE},
-    {"keys",keysCommand,2,REDIS_CMD_INLINE},
-    {"dbsize",dbsizeCommand,1,REDIS_CMD_INLINE},
-    {"auth",authCommand,2,REDIS_CMD_INLINE},
-    {"ping",pingCommand,1,REDIS_CMD_INLINE},
-    {"echo",echoCommand,2,REDIS_CMD_BULK},
-    {"save",saveCommand,1,REDIS_CMD_INLINE},
-    {"bgsave",bgsaveCommand,1,REDIS_CMD_INLINE},
-    {"bgrewriteaof",bgrewriteaofCommand,1,REDIS_CMD_INLINE},
-    {"shutdown",shutdownCommand,1,REDIS_CMD_INLINE},
-    {"lastsave",lastsaveCommand,1,REDIS_CMD_INLINE},
-    {"type",typeCommand,2,REDIS_CMD_INLINE},
-    {"multi",multiCommand,1,REDIS_CMD_INLINE},
-    {"exec",execCommand,1,REDIS_CMD_INLINE},
-    {"sync",syncCommand,1,REDIS_CMD_INLINE},
-    {"flushdb",flushdbCommand,1,REDIS_CMD_INLINE},
-    {"flushall",flushallCommand,1,REDIS_CMD_INLINE},
-    {"sort",sortCommand,-2,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM},
-    {"info",infoCommand,1,REDIS_CMD_INLINE},
-    {"monitor",monitorCommand,1,REDIS_CMD_INLINE},
-    {"ttl",ttlCommand,2,REDIS_CMD_INLINE},
-    {"slaveof",slaveofCommand,3,REDIS_CMD_INLINE},
-    {"debug",debugCommand,-2,REDIS_CMD_INLINE},
-    {NULL,NULL,0,0}
+    {"get",getCommand,2,REDIS_CMD_INLINE,1,1,1},
+    {"set",setCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,0,0,0},
+    {"setnx",setnxCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,0,0,0},
+    {"append",appendCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,1,1,1},
+    {"del",delCommand,-2,REDIS_CMD_INLINE,0,0,0},
+    {"exists",existsCommand,2,REDIS_CMD_INLINE,1,1,1},
+    {"incr",incrCommand,2,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,1,1,1},
+    {"decr",decrCommand,2,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,1,1,1},
+    {"mget",mgetCommand,-2,REDIS_CMD_INLINE,1,-1,1},
+    {"rpush",rpushCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,1,1,1},
+    {"lpush",lpushCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,1,1,1},
+    {"rpop",rpopCommand,2,REDIS_CMD_INLINE,1,1,1},
+    {"lpop",lpopCommand,2,REDIS_CMD_INLINE,1,1,1},
+    {"brpop",brpopCommand,-3,REDIS_CMD_INLINE,1,1,1},
+    {"blpop",blpopCommand,-3,REDIS_CMD_INLINE,1,1,1},
+    {"llen",llenCommand,2,REDIS_CMD_INLINE,1,1,1},
+    {"lindex",lindexCommand,3,REDIS_CMD_INLINE,1,1,1},
+    {"lset",lsetCommand,4,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,1,1,1},
+    {"lrange",lrangeCommand,4,REDIS_CMD_INLINE,1,1,1},
+    {"ltrim",ltrimCommand,4,REDIS_CMD_INLINE,1,1,1},
+    {"lrem",lremCommand,4,REDIS_CMD_BULK,1,1,1},
+    {"rpoplpush",rpoplpushcommand,3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,1,2,1},
+    {"sadd",saddCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,1,1,1},
+    {"srem",sremCommand,3,REDIS_CMD_BULK,1,1,1},
+    {"smove",smoveCommand,4,REDIS_CMD_BULK,1,2,1},
+    {"sismember",sismemberCommand,3,REDIS_CMD_BULK,1,1,1},
+    {"scard",scardCommand,2,REDIS_CMD_INLINE,1,1,1},
+    {"spop",spopCommand,2,REDIS_CMD_INLINE,1,1,1},
+    {"srandmember",srandmemberCommand,2,REDIS_CMD_INLINE,1,1,1},
+    {"sinter",sinterCommand,-2,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,1,-1,1},
+    {"sinterstore",sinterstoreCommand,-3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,2,-1,1},
+    {"sunion",sunionCommand,-2,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,1,-1,1},
+    {"sunionstore",sunionstoreCommand,-3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,2,-1,1},
+    {"sdiff",sdiffCommand,-2,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,1,-1,1},
+    {"sdiffstore",sdiffstoreCommand,-3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,2,-1,1},
+    {"smembers",sinterCommand,2,REDIS_CMD_INLINE,1,1,1},
+    {"zadd",zaddCommand,4,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,1,1,1},
+    {"zincrby",zincrbyCommand,4,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,1,1,1},
+    {"zrem",zremCommand,3,REDIS_CMD_BULK,1,1,1},
+    {"zremrangebyscore",zremrangebyscoreCommand,4,REDIS_CMD_INLINE,1,1,1},
+    {"zrange",zrangeCommand,-4,REDIS_CMD_INLINE,1,1,1},
+    {"zrangebyscore",zrangebyscoreCommand,-4,REDIS_CMD_INLINE,1,1,1},
+    {"zcount",zcountCommand,4,REDIS_CMD_INLINE,1,1,1},
+    {"zrevrange",zrevrangeCommand,-4,REDIS_CMD_INLINE,1,1,1},
+    {"zcard",zcardCommand,2,REDIS_CMD_INLINE,1,1,1},
+    {"zscore",zscoreCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,1,1,1},
+    {"incrby",incrbyCommand,3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,1,1,1},
+    {"decrby",decrbyCommand,3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,1,1,1},
+    {"getset",getsetCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,1,1,1},
+    {"mset",msetCommand,-3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,1,-1,2},
+    {"msetnx",msetnxCommand,-3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,1,-1,2},
+    {"randomkey",randomkeyCommand,1,REDIS_CMD_INLINE,0,0,0},
+    {"select",selectCommand,2,REDIS_CMD_INLINE,0,0,0},
+    {"move",moveCommand,3,REDIS_CMD_INLINE,1,1,1},
+    {"rename",renameCommand,3,REDIS_CMD_INLINE,1,1,1},
+    {"renamenx",renamenxCommand,3,REDIS_CMD_INLINE,1,1,1},
+    {"expire",expireCommand,3,REDIS_CMD_INLINE,0,0,0},
+    {"expireat",expireatCommand,3,REDIS_CMD_INLINE,0,0,0},
+    {"keys",keysCommand,2,REDIS_CMD_INLINE,0,0,0},
+    {"dbsize",dbsizeCommand,1,REDIS_CMD_INLINE,0,0,0},
+    {"auth",authCommand,2,REDIS_CMD_INLINE,0,0,0},
+    {"ping",pingCommand,1,REDIS_CMD_INLINE,0,0,0},
+    {"echo",echoCommand,2,REDIS_CMD_BULK,0,0,0},
+    {"save",saveCommand,1,REDIS_CMD_INLINE,0,0,0},
+    {"bgsave",bgsaveCommand,1,REDIS_CMD_INLINE,0,0,0},
+    {"bgrewriteaof",bgrewriteaofCommand,1,REDIS_CMD_INLINE,0,0,0},
+    {"shutdown",shutdownCommand,1,REDIS_CMD_INLINE,0,0,0},
+    {"lastsave",lastsaveCommand,1,REDIS_CMD_INLINE,0,0,0},
+    {"type",typeCommand,2,REDIS_CMD_INLINE,1,1,1},
+    {"multi",multiCommand,1,REDIS_CMD_INLINE,0,0,0},
+    {"exec",execCommand,1,REDIS_CMD_INLINE,0,0,0},
+    {"sync",syncCommand,1,REDIS_CMD_INLINE,0,0,0},
+    {"flushdb",flushdbCommand,1,REDIS_CMD_INLINE,0,0,0},
+    {"flushall",flushallCommand,1,REDIS_CMD_INLINE,0,0,0},
+    {"sort",sortCommand,-2,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,1,1,1},
+    {"info",infoCommand,1,REDIS_CMD_INLINE,0,0,0},
+    {"monitor",monitorCommand,1,REDIS_CMD_INLINE,0,0,0},
+    {"ttl",ttlCommand,2,REDIS_CMD_INLINE,1,1,1},
+    {"slaveof",slaveofCommand,3,REDIS_CMD_INLINE,0,0,0},
+    {"debug",debugCommand,-2,REDIS_CMD_INLINE,0,0,0},
+    {NULL,NULL,0,0,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
@@ -7284,8 +7288,6 @@ static void vmMarkPageUsed(off_t page) {
     int bit = page&7;
     redisAssert(vmFreePage(page) == 1);
     server.vm_bitmap[byte] |= 1<<bit;
-    redisLog(REDIS_DEBUG,"Mark used: %lld (byte:%lld bit:%d)\n",
-        (long long)page, (long long)byte, bit);
 }
 
 /* Mark N contiguous pages as used, with 'page' being the first. */
@@ -7295,6 +7297,8 @@ static void vmMarkPagesUsed(off_t page, off_t count) {
     for (j = 0; j < count; j++)
         vmMarkPageUsed(page+j);
     server.vm_stats_used_pages += count;
+    redisLog(REDIS_DEBUG,"Mark USED pages: %lld pages at %lld\n",
+        (long long)count, (long long)page);
 }
 
 /* Mark the page as free */
@@ -7303,8 +7307,6 @@ static void vmMarkPageFree(off_t page) {
     int bit = page&7;
     redisAssert(vmFreePage(page) == 0);
     server.vm_bitmap[byte] &= ~(1<<bit);
-    redisLog(REDIS_DEBUG,"Mark free: %lld (byte:%lld bit:%d)\n",
-        (long long)page, (long long)byte, bit);
 }
 
 /* Mark N contiguous pages as free, with 'page' being the first. */
@@ -7314,9 +7316,8 @@ static void vmMarkPagesFree(off_t page, off_t count) {
     for (j = 0; j < count; j++)
         vmMarkPageFree(page+j);
     server.vm_stats_used_pages -= count;
-    if (server.vm_stats_used_pages > 100000000) {
-        *((char*)-1) = 'x';
-    }
+    redisLog(REDIS_DEBUG,"Mark FREE pages: %lld pages at %lld\n",
+        (long long)count, (long long)page);
 }
 
 /* Test if the page is free */
@@ -7367,7 +7368,6 @@ static int vmFindContiguousPages(off_t *first, off_t n) {
                 numfree = 0;
             }
         }
-        redisLog(REDIS_DEBUG, "THIS: %lld (%c)\n", (long long) this, vmFreePage(this) ? 'F' : 'X');
         if (vmFreePage(this)) {
             /* This is a free page */
             numfree++;
@@ -7375,6 +7375,7 @@ static int vmFindContiguousPages(off_t *first, off_t n) {
             if (numfree == n) {
                 *first = this-(n-1);
                 server.vm_next_page = this+1;
+                redisLog(REDIS_DEBUG, "FOUND CONTIGUOUS PAGES: %lld pages at %lld\n", (long long) n, (long long) *first);
                 return REDIS_OK;
             }
         } else {
@@ -7617,10 +7618,7 @@ static int vmSwapOneObject(int usethreads) {
             }
         }
     }
-    if (best == NULL) {
-        redisLog(REDIS_DEBUG,"No swappable key found!");
-        return REDIS_ERR;
-    }
+    if (best == NULL) return REDIS_ERR;
     key = dictGetEntryKey(best);
     val = dictGetEntryVal(best);
 
@@ -8132,9 +8130,13 @@ static int waitForSwappedKey(redisClient *c, robj *key) {
  * Return 1 if the client is marked as blocked, 0 if the client can
  * continue as the keys it is going to access appear to be in memory. */
 static int blockClientOnSwappedKeys(struct redisCommand *cmd, redisClient *c) {
-    if (cmd->proc == getCommand) {
-        waitForSwappedKey(c,c->argv[1]);
-    }
+    int j, last;
+
+    if (cmd->vm_firstkey == 0) return 0;
+    last = cmd->vm_lastkey;
+    if (last < 0) last = c->argc+last;
+    for (j = cmd->vm_firstkey; j <= last; j += cmd->vm_keystep)
+        waitForSwappedKey(c,c->argv[j]);
     /* If the client was blocked for at least one key, mark it as blocked. */
     if (listLength(c->io_keys)) {
         c->flags |= REDIS_IO_WAIT;
