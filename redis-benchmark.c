@@ -1,6 +1,6 @@
 /* Redis benchmark utility.
  *
- * Copyright (c) 2006-2009, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-2010, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
