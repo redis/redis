@@ -79,7 +79,10 @@ log:
 	git log '--pretty=format:%ad %s' --date=short > Changelog
 
 32bit:
-	make ARCH="-arch i386"
+	@echo ""
+	@echo "WARNING: if it fails under Linux you probably need to install libc6-dev-i386"
+	@echo ""
+	make ARCH="-m32"
 
 gprof:
 	make PROF="-pg"
