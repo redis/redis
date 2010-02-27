@@ -1,3 +1,24 @@
+2010-02-22 Fixed 32bit make target to work on Linux out of the box
+2010-02-19 A problem with replication with multiple slaves connectiong to a single master fixed. It was due to a typo, and reported on github by the user micmac. Also the copyright year fixed from many files.
+2010-02-10 Saner VM defaults for redis.conf
+2010-02-09 VM now is able to block clients on swapped keys for all the commands
+2010-02-07 ZCOUNT and ZRANGEBYSCORE new tests
+2010-02-07 ZRANGEBYSCORE now supports open intervals, prefixing double values with a open paren. Added ZCOUNT that can count the elements inside an interval of scores, this supports open intervals too
+2010-02-07 WITHSCORES in ZRANGEBYSCORE thanks to Sam Hendley
+2010-02-06 Added "withscores" option to zrangebyscore command. Based on withscores support in zrange function, ugliest part was the argument parsing to handle using it with the limit option.
+2010-02-06 DEBUG OBJECT provide info about serialized object length even when VM is disabled
+2010-02-06 multi bulk requests in redis-benchmark, default fsync policy changed to everysec, added a prefix character for DEBUG logs
+2010-02-04 APPEND tests
+2010-02-04 APPEND command
+2010-02-02 Faster version of the function hashing possibly encoded objects, leading to a general speed gain when working with Sets of integers
+2010-02-02 faster Set loading time from .rdb file resizing the hash table to the right size before loading elements
+2010-02-02 Log time taken to load the DB at startup, in seconds
+2010-01-31 Fixed VM corruption due to child fclosing the VM file directly or indirectly calling exit(), now replaced with _exit() in all the sensible places. Masked a few signals from IO threads.
+2010-01-28 loading side of the threaded VM
+2010-01-26 TODO cahnges
+2010-01-23 Fixed memory human style memory reporting, removed server.usedmemory, now zmalloc_used_memory() is used always.
+2010-01-22 VM tuning thanks to redis-stat vmstat. Now it performs much better under high load
+2010-01-21 Changelog updated
 2010-01-21 REDIS_MAX_COMPLETED_JOBS_PROCESSED is now in percentage, not number of jobs. Moved a debugging message a few lines forward as it was called where a few logged parameters where invalid, leading to a crash
 2010-01-20 fixed a deadlock caused by too much finished processes in queue so that I/O clients writing to the wirte side of the pipe used to awake the main thread where blocking. Then a BGSAVE started waiting for the last active thread to finish, condition impossible because all the I/O threads where blocking on threads. Takes this as a note to myself...
 2010-01-20 ae.c event loop does no longer support exception notifications, as they are fully pointless. Also a theoretical bug that never happens in practice fixed.

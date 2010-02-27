@@ -62,6 +62,7 @@ SMALL ONES:
 * MSADD (n keys) (n values). See this thread in the Redis google group: http://groups.google.com/group/redis-db/browse_thread/thread/e766d84eb375cd41
 * Don't save empty lists / sets / zsets on disk with snapshotting.
 * Remove keys when a list / set / zset reaches length of 0.
+* An option to exec a command slave-side if the master connection is lost: even cooler: if the script returns "0" the slave elects itself as master, otherwise continue trying to reconnect.
 
 THE "MAYBE" TODO LIST: things that may or may not get implemented
 =================================================================

@@ -2334,7 +2334,8 @@ static void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mas
     } else {
         return;
     }
-    processInputBuffer(c);
+    if (!(c->flags & REDIS_BLOCKED))
+        processInputBuffer(c);
 }
 
 static int selectDb(redisClient *c, int id) {
@@ -6138,7 +6139,6 @@ static void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeou
     }
     /* Mark the client as a blocked client */
     c->flags |= REDIS_BLOCKED;
-    aeDeleteFileEvent(server.el,c->fd,AE_READABLE);
     server.blpop_blocked_clients++;
 }
 
@@ -6166,14 +6166,7 @@ static void unblockClientWaitingData(redisClient *c) {
     c->blockingkeys = NULL;
     c->flags &= (~REDIS_BLOCKED);
     server.blpop_blocked_clients--;
-    /* Ok now we are ready to get read events from socket, note that we
-     * can't trap errors here as it's possible that unblockClientWaitingDatas() is
-     * called from freeClient() itself, and the only thing we can do
-     * if we failed to register the READABLE event is to kill the client.
-     * Still the following function should never fail in the real world as
-     * we are sure the file descriptor is sane, and we exit on out of mem. */
-    aeCreateFileEvent(server.el, c->fd, AE_READABLE, readQueryFromClient, c);
-    /* As a final step we want to process data if there is some command waiting
+    /* We want to process data if there is some command waiting
      * in the input buffer. Note that this is safe even if
      * unblockClientWaitingData() gets called from freeClient() because
      * freeClient() will be smart enough to call this function
