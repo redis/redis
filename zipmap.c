@@ -67,14 +67,14 @@
  *
  * The most compact representation of the above two elements hash is actually:
  *
- * "\x00\x03\x00foo\x03\x00bar\x05\x00hello\x05\x00world\xff"
+ * "\x00\x03foo\x03\x00bar\x05hello\x05\x00world\xff"
  *
  * Empty space is marked using a 254 bytes + a <len> (coded as already
  * specified). The length includes the 254 bytes in the count and the
  * space taken by the <len> field. So for instance removing the "foo" key
  * from the zipmap above will lead to the following representation:
  *
- * "\xfd\x10........\x05\x00hello\x05\x00world\xff"
+ * "\x00\xfd\x10........\x05hello\x05\x00world\xff"
  *
  * Note that because empty space, keys, values, are all prefixed length
  * "objects", the lookup will take O(N) where N is the numeber of elements
@@ -240,9 +240,10 @@ unsigned char *zipmapSet(unsigned char *zm, unsigned char *key, unsigned int kle
         b += freelen;
         freelen += zipmapRawValueLength(b);
         if (freelen < reqlen) {
-            /* Mark this blog as free and recurse */
+            /* Mark this entry as free and recurse */
             p[0] = ZIPMAP_EMPTY;
             zipmapEncodeLength(p+1,freelen);
+            zm[0] |= ZIPMAP_STATUS_FRAGMENTED;
             return zipmapSet(zm,key,klen,val,vlen);
         }
     }
@@ -321,6 +322,10 @@ int main(void) {
     zm = zipmapSet(zm,(unsigned char*) "hello",5, (unsigned char*) "world!",6);
     zm = zipmapSet(zm,(unsigned char*) "foo",3, (unsigned char*) "bar",3);
     zm = zipmapSet(zm,(unsigned char*) "foo",3, (unsigned char*) "!",1);
+    zipmapRepr(zm);
+    zm = zipmapSet(zm,(unsigned char*) "foo",3, (unsigned char*) "12345",5);
+    zipmapRepr(zm);
+    zm = zipmapSet(zm,(unsigned char*) "new",3, (unsigned char*) "xx",2);
     zipmapRepr(zm);
     return 0;
 }
