@@ -1663,6 +1663,18 @@ proc main {server port} {
         list $v1 $v2 $v3
     } {QUEUED QUEUED {{a b c} PONG}}
 
+    test {DISCARD} {
+        $r del mylist
+        $r rpush mylist a
+        $r rpush mylist b
+        $r rpush mylist c
+        $r multi
+        set v1 [$r del mylist]
+        set v2 [$r discard]
+        set v3 [$r lrange mylist 0 -1]
+        list $v1 $v2 $v3
+    } {QUEUED OK {a b c}}
+
     test {APPEND basics} {
         list [$r append foo bar] [$r get foo] \
              [$r append foo 100] [$r get foo]

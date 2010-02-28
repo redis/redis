@@ -653,6 +653,7 @@ static void zscoreCommand(redisClient *c);
 static void zremrangebyscoreCommand(redisClient *c);
 static void multiCommand(redisClient *c);
 static void execCommand(redisClient *c);
+static void discardCommand(redisClient *c);
 static void blpopCommand(redisClient *c);
 static void brpopCommand(redisClient *c);
 static void appendCommand(redisClient *c);
@@ -733,6 +734,7 @@ static struct redisCommand cmdTable[] = {
     {"type",typeCommand,2,REDIS_CMD_INLINE,1,1,1},
     {"multi",multiCommand,1,REDIS_CMD_INLINE,0,0,0},
     {"exec",execCommand,1,REDIS_CMD_INLINE,0,0,0},
+    {"discard",discardCommand,1,REDIS_CMD_INLINE,0,0,0},
     {"sync",syncCommand,1,REDIS_CMD_INLINE,0,0,0},
     {"flushdb",flushdbCommand,1,REDIS_CMD_INLINE,0,0,0},
     {"flushall",flushallCommand,1,REDIS_CMD_INLINE,0,0,0},
@@ -2141,7 +2143,7 @@ static int processCommand(redisClient *c) {
     }
 
     /* Exec the command */
-    if (c->flags & REDIS_MULTI && cmd->proc != execCommand) {
+    if (c->flags & REDIS_MULTI && cmd->proc != execCommand && cmd->proc != discardCommand) {
         queueMultiCommand(c,cmd);
         addReply(c,shared.queued);
     } else {
@@ -6048,6 +6050,18 @@ static void queueMultiCommand(redisClient *c, struct redisCommand *cmd) {
 
 static void multiCommand(redisClient *c) {
     c->flags |= REDIS_MULTI;
+    addReply(c,shared.ok);
+}
+
+static void discardCommand(redisClient *c) {
+    if (!(c->flags & REDIS_MULTI)) {
+        addReplySds(c,sdsnew("-ERR DISCARD without MULTI\r\n"));
+        return;
+    }
+
+    freeClientMultiState(c);
+    initClientMultiState(c);
+    c->flags &= (~REDIS_MULTI);
     addReply(c,shared.ok);
 }
 
