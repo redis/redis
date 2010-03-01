@@ -7416,6 +7416,7 @@ static int vmWriteObjectOnSwap(robj *o, off_t page) {
         return REDIS_ERR;
     }
     rdbSaveObject(server.vm_fp,o);
+    fflush(server.vm_fp);
     if (server.vm_enabled) pthread_mutex_unlock(&server.io_swapfile_mutex);
     return REDIS_OK;
 }
@@ -7443,7 +7444,6 @@ static int vmSwapObjectBlocking(robj *key, robj *val) {
         (unsigned long long) page, (unsigned long long) pages);
     server.vm_stats_swapped_objects++;
     server.vm_stats_swapouts++;
-    fflush(server.vm_fp);
     return REDIS_OK;
 }
 
