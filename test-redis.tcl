@@ -952,7 +952,6 @@ proc main {server port} {
         $r sort tosort {DESC}
     } [lsort -decreasing -integer $res]
 
-while 1 {
     test {SORT speed, sorting 10000 elements list using BY, 100 times} {
         set start [clock clicks -milliseconds]
         for {set i 0} {$i < 100} {incr i} {
@@ -963,7 +962,7 @@ while 1 {
         flush stdout
         format {}
     } {}
-}
+
     test {SORT speed, sorting 10000 elements list directly, 100 times} {
         set start [clock clicks -milliseconds]
         for {set i 0} {$i < 100} {incr i} {

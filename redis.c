@@ -7560,7 +7560,7 @@ static double computeObjectSwappability(robj *o) {
         }
         break;
     }
-    return (double)asize*log(1+asize);
+    return (double)age*log(1+asize);
 }
 
 /* Try to swap an object that's a good candidate for swapping.
