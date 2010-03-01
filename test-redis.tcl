@@ -178,7 +178,7 @@ proc createComplexDataset {r ops} {
 }
 
 proc datasetDigest r {
-    set keys [lsort [split [$r keys *] " "]]
+    set keys [lsort [$r keys *]]
     set digest {}
     foreach k $keys {
         set t [$r type $k]
@@ -204,7 +204,7 @@ proc datasetDigest r {
                     set aux [::sha1::sha1 -hex [$r zrange $k 0 -1]]
                 }
             } default {
-                error "Type not supported"
+                error "Type not supported: $t"
             }
         }
         if {$aux eq {}} continue
