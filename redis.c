@@ -38,6 +38,7 @@
 #include <time.h>
 #include <unistd.h>
 #define __USE_POSIX199309
+#define __USE_UNIX98
 #include <signal.h>
 
 #ifdef HAVE_BACKTRACE
@@ -8408,7 +8409,7 @@ static void *getMcontextEip(ucontext_t *uc) {
   #else
     return (void*) uc->uc_mcontext->__ss.__eip;
   #endif 
-#elif defined(__i386__) || defined(__X86_64__)  || defined(__x86_64__)
+#elif defined(__i386__) || defined(__X86_64__) || defined(__x86_64__)
     return (void*) uc->uc_mcontext.gregs[REG_EIP]; /* Linux 32/64 bit */
 #elif defined(__ia64__) /* Linux IA64 */
     return (void*) uc->uc_mcontext.sc_ip;
