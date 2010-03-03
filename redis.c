@@ -456,7 +456,7 @@ typedef struct _redisSortOperation {
 typedef struct zskiplistNode {
     struct zskiplistNode **forward;
     struct zskiplistNode *backward;
-    unsigned long *span;
+    unsigned int *span;
     double score;
     robj *obj;
 } zskiplistNode;
@@ -4798,7 +4798,7 @@ static zskiplistNode *zslCreateNode(int level, double score, robj *obj) {
     zskiplistNode *zn = zmalloc(sizeof(*zn));
 
     zn->forward = zmalloc(sizeof(zskiplistNode*) * level);
-    zn->span = zmalloc(sizeof(unsigned long) * level);
+    zn->span = zmalloc(sizeof(unsigned int) * level);
     zn->score = score;
     zn->obj = obj;
     return zn;
@@ -4851,7 +4851,7 @@ static int zslRandomLevel(void) {
 
 static void zslInsert(zskiplist *zsl, double score, robj *obj) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
-    unsigned long span[ZSKIPLIST_MAXLEVEL];
+    unsigned int span[ZSKIPLIST_MAXLEVEL];
     int i, level;
 
     x = zsl->header;
@@ -5434,7 +5434,7 @@ static void zrankCommand(redisClient *c) {
 
     double *score = dictGetEntryVal(de);
     zskiplistNode *x;
-    unsigned long rank = 0;
+    unsigned int rank = 0;
     int i;
 
     x = zsl->header;
