@@ -460,6 +460,8 @@ static void repl() {
         for (ap = args; (*ap = strsep(&line, " \t")) != NULL;) {
             if (**ap != '\0') {
                 if (argc >= max) break;
+                if (strcasecmp(*ap,"quit") == 0 || strcasecmp(*ap,"exit") == 0)
+                    exit(0);
                 ap++;
                 argc++;
             }
