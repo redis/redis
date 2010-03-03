@@ -4798,7 +4798,8 @@ static zskiplistNode *zslCreateNode(int level, double score, robj *obj) {
     zskiplistNode *zn = zmalloc(sizeof(*zn));
 
     zn->forward = zmalloc(sizeof(zskiplistNode*) * level);
-    zn->span = zmalloc(sizeof(unsigned int) * level);
+    if (level > 0)
+        zn->span = zmalloc(sizeof(unsigned int) * (level - 1));
     zn->score = score;
     zn->obj = obj;
     return zn;
@@ -4851,19 +4852,23 @@ static int zslRandomLevel(void) {
 
 static void zslInsert(zskiplist *zsl, double score, robj *obj) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
-    unsigned int span[ZSKIPLIST_MAXLEVEL];
+    unsigned int rank[ZSKIPLIST_MAXLEVEL];
     int i, level;
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
-        /* store span that is crossed to reach the insert position */
-        span[i] = i == (zsl->level-1) ? 0 : span[i+1];
+        /* store rank that is crossed to reach the insert position */
+        rank[i] = i == (zsl->level-1) ? 0 : rank[i+1];
 
         while (x->forward[i] &&
             (x->forward[i]->score < score ||
                 (x->forward[i]->score == score &&
                 compareStringObjects(x->forward[i]->obj,obj) < 0))) {
-            span[i] += x->span[i];
+            if (i > 0) {
+                rank[i] += x->span[i-1];
+            } else {
+                rank[i]++;
+            }
             x = x->forward[i];
         }
         update[i] = x;
@@ -4875,9 +4880,9 @@ static void zslInsert(zskiplist *zsl, double score, robj *obj) {
     level = zslRandomLevel();
     if (level > zsl->level) {
         for (i = zsl->level; i < level; i++) {
-            span[i] = 0;
+            rank[i] = 0;
             update[i] = zsl->header;
-            update[i]->span[i] = zsl->length;
+            update[i]->span[i-1] = zsl->length;
         }
         zsl->level = level;
     }
@@ -4887,13 +4892,15 @@ static void zslInsert(zskiplist *zsl, double score, robj *obj) {
         update[i]->forward[i] = x;
 
         /* update span covered by update[i] as x is inserted here */
-        x->span[i] = update[i]->span[i] - (span[0] - span[i]);
-        update[i]->span[i] = (span[0] - span[i]) + 1;
+        if (i > 0) {
+            x->span[i-1] = update[i]->span[i-1] - (rank[0] - rank[i]);
+            update[i]->span[i-1] = (rank[0] - rank[i]) + 1;
+        }
     }
 
     /* increment span for untouched levels */
     for (i = level; i < zsl->level; i++) {
-        update[i]->span[i]++;
+        update[i]->span[i-1]++;
     }
 
     x->backward = (update[0] == zsl->header) ? NULL : update[0];
@@ -4924,10 +4931,14 @@ static int zslDelete(zskiplist *zsl, double score, robj *obj) {
     if (x && score == x->score && compareStringObjects(x->obj,obj) == 0) {
         for (i = 0; i < zsl->level; i++) {
             if (update[i]->forward[i] == x) {
-                update[i]->span[i] += x->span[i] - 1;
+                if (i > 0) {
+                    update[i]->span[i-1] += x->span[i-1] - 1;
+                }
                 update[i]->forward[i] = x->forward[i];
             } else {
-                update[i]->span[i] -= 1;
+                /* invariant: i > 0, because update[0]->forward[0]
+                 * is always equal to x */
+                update[i]->span[i-1] -= 1;
             }
         }
         if (x->forward[0]) {
@@ -4969,10 +4980,14 @@ static unsigned long zslDeleteRange(zskiplist *zsl, double min, double max, dict
 
         for (i = 0; i < zsl->level; i++) {
             if (update[i]->forward[i] == x) {
-                update[i]->span[i] += x->span[i] - 1;
+                if (i > 0) {
+                    update[i]->span[i-1] += x->span[i-1] - 1;
+                }
                 update[i]->forward[i] = x->forward[i];
             } else {
-                update[i]->span[i] -= 1;
+                /* invariant: i > 0, because update[0]->forward[0]
+                 * is always equal to x */
+                update[i]->span[i-1] -= 1;
             }
         }
         if (x->forward[0]) {
@@ -5443,7 +5458,11 @@ static void zrankCommand(redisClient *c) {
             (x->forward[i]->score < *score ||
                 (x->forward[i]->score == *score &&
                 compareStringObjects(x->forward[i]->obj,c->argv[2]) < 0))) {
-            rank += x->span[i];
+            if (i > 0) {
+                rank += x->span[i-1];
+            } else {
+                rank++;
+            }
             x = x->forward[i];
         }
 
