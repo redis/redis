@@ -1528,6 +1528,31 @@ proc main {server port} {
         format $diff
     } {0}
 
+    test {ZSETs ZRANK augmented skip list stress testing} {
+        set err {}
+        $r del myzset
+        for {set k 0} {$k < 10000} {incr k} {
+            set i [expr {$k%1000}]
+            if {[expr rand()] < .2} {
+                $r zrem myzset $i
+            } else {
+                set score [expr rand()]
+                $r zadd myzset $score $i
+            }
+            set card [$r zcard myzset]
+            if {$card > 0} {
+                set index [randomInt $card]
+                set ele [lindex [$r zrange myzset $index $index] 0]
+                set rank [$r zrank myzset $ele]
+                if {$rank != $index} {
+                    set err "$ele RANK is wrong! ($rank != [expr $index+1])"
+                    break
+                }
+            }
+        }
+        set _ $err
+    } {}
+
     foreach fuzztype {binary alpha compr} {
         test "FUZZ stresser with data model $fuzztype" {
             set err 0
