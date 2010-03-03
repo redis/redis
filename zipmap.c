@@ -147,7 +147,7 @@ static unsigned int zipmapEncodeLength(unsigned char *p, unsigned int len) {
 static unsigned char *zipmapLookupRaw(unsigned char *zm, unsigned char *key, unsigned int klen, unsigned int *totlen, unsigned int *freeoff, unsigned int *freelen) {
     unsigned char *p = zm+1;
     unsigned int l;
-    unsigned int reqfreelen;
+    unsigned int reqfreelen = 0; /* initialized just to prevent warning */
 
     if (freelen) {
         reqfreelen = *freelen;
@@ -208,6 +208,15 @@ static unsigned int zipmapRawValueLength(unsigned char *p) {
     used = zipmapEncodeLength(NULL,l);
     used += p[used] + 1 + l;
     return used;
+}
+
+/* If 'p' points to a key, this function returns the total amount of
+ * bytes used to store this entry (entry = key + associated value + trailing
+ * free space if any). */
+static unsigned int zipmapRawEntryLength(unsigned char *p) {
+    unsigned int l = zipmapRawKeyLength(p);
+
+    return l + zipmapRawValueLength(p+l);
 }
 
 /* Set key to value, creating the key if it does not already exist. */
@@ -278,6 +287,23 @@ unsigned char *zipmapSet(unsigned char *zm, unsigned char *key, unsigned int kle
     return zm;
 }
 
+/* Remove the specified key. If 'deleted' is not NULL the pointed integer is
+ * set to 0 if the key was not found, to 1 if it was found and deleted. */
+unsigned char *zipmapDel(unsigned char *zm, unsigned char *key, unsigned int klen, int *deleted) {
+    unsigned char *p = zipmapLookupRaw(zm,key,klen,NULL,NULL,NULL);
+    if (p) {
+        unsigned int freelen = zipmapRawEntryLength(p);
+
+        p[0] = ZIPMAP_EMPTY;
+        zipmapEncodeLength(p+1,freelen);
+        zm[0] |= ZIPMAP_STATUS_FRAGMENTED;
+        if (deleted) *deleted = 1;
+    } else {
+        if (deleted) *deleted = 0;
+    }
+    return zm;
+}
+
 void zipmapRepr(unsigned char *p) {
     unsigned int l;
 
@@ -326,6 +352,8 @@ int main(void) {
     zm = zipmapSet(zm,(unsigned char*) "foo",3, (unsigned char*) "12345",5);
     zipmapRepr(zm);
     zm = zipmapSet(zm,(unsigned char*) "new",3, (unsigned char*) "xx",2);
+    zipmapRepr(zm);
+    zm = zipmapDel(zm,(unsigned char*) "new",3,NULL);
     zipmapRepr(zm);
     return 0;
 }
