@@ -4931,8 +4931,7 @@ static int zslDelete(zskiplist *zsl, double score, robj *obj) {
             }
         }
         if (x->forward[0]) {
-            x->forward[0]->backward = (x->backward == zsl->header) ?
-                                        NULL : x->backward;
+            x->forward[0]->backward = x->backward;
         } else {
             zsl->tail = x->backward;
         }
@@ -4977,8 +4976,7 @@ static unsigned long zslDeleteRange(zskiplist *zsl, double min, double max, dict
             }
         }
         if (x->forward[0]) {
-            x->forward[0]->backward = (x->backward == zsl->header) ?
-                                        NULL : x->backward;
+            x->forward[0]->backward = x->backward;
         } else {
             zsl->tail = x->backward;
         }
