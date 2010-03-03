@@ -1192,6 +1192,18 @@ proc main {server port} {
         $r zcard ztmp-blabla
     } {0}
 
+    test {ZRANK basics} {
+        $r zadd zranktmp 10 x
+        $r zadd zranktmp 20 y
+        $r zadd zranktmp 30 z
+        list [$r zrank zranktmp x] [$r zrank zranktmp y] [$r zrank zranktmp z]
+    } {0 1 2}
+
+    test {ZRANK - after deletion} {
+        $r zrem zranktmp y
+        list [$r zrank zranktmp x] [$r zrank zranktmp z]
+    } {0 1}
+
     test {ZSCORE} {
         set aux {}
         set err {}
