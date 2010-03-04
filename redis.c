@@ -3778,8 +3778,11 @@ static void substrCommand(redisClient *c) {
         if (o->type != REDIS_STRING) {
             addReply(c,shared.wrongtypeerr);
         } else {
-            size_t rangelen, strlen = sdslen(o->ptr);
+            size_t rangelen, strlen;
             sds range;
+
+            o = getDecodedObject(o);
+            strlen = sdslen(o->ptr);
 
             /* convert negative indexes */
             if (start < 0) start = strlen+start;
@@ -3791,6 +3794,7 @@ static void substrCommand(redisClient *c) {
             if (start > end || (size_t)start >= strlen) {
                 /* Out of range start or start > end result in null reply */
                 addReply(c,shared.nullbulk);
+                decrRefCount(o);
                 return;
             }
             if ((size_t)end >= strlen) end = strlen-1;
@@ -3801,6 +3805,7 @@ static void substrCommand(redisClient *c) {
             range = sdsnewlen((char*)o->ptr+start,rangelen);
             addReplySds(c,range);
             addReply(c,shared.crlf);
+            decrRefCount(o);
         }
     }
 }
