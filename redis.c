@@ -5055,15 +5055,11 @@ static unsigned long zslDeleteRange(zskiplist *zsl, double min, double max, dict
 }
 
 /* Delete all the elements with rank between start and end from the skiplist.
- * Start and end are inclusive. */
+ * Start and end are inclusive. Note that start and end need to be 1-based */
 static unsigned long zslDeleteRangeByRank(zskiplist *zsl, unsigned int start, unsigned int end, dict *dict) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     unsigned long traversed = 0, removed = 0;
     int i;
-
-    /* start and end are given 0-based, but zsl uses 1-based
-     * ranks internally */
-    start++; end++;
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
@@ -5360,7 +5356,9 @@ static void zremrangebyrankCommand(redisClient *c) {
         }
         if (end >= llen) end = llen-1;
 
-        deleted = zslDeleteRangeByRank(zs->zsl,start,end,zs->dict);
+        /* increment start and end because zsl*Rank functions
+         * use 1-based rank */
+        deleted = zslDeleteRangeByRank(zs->zsl,start+1,end+1,zs->dict);
         if (htNeedsResize(zs->dict)) dictResize(zs->dict);
         server.dirty += deleted;
         addReplyLong(c, deleted);
@@ -5413,9 +5411,9 @@ static void zrangeGenericCommand(redisClient *c, int reverse) {
             /* check if starting point is trivial, before searching
              * the element in log(N) time */
             if (reverse) {
-                ln = start == 0 ? zsl->tail : zslGetElementByRank(zsl, llen - start);
+                ln = start == 0 ? zsl->tail : zslGetElementByRank(zsl, llen-start);
             } else {
-                ln = start == 0 ? zsl->header->forward[0] : zslGetElementByRank(zsl, start + 1);
+                ln = start == 0 ? zsl->header->forward[0] : zslGetElementByRank(zsl, start+1);
             }
 
             /* Return the result in form of a multi-bulk reply */
