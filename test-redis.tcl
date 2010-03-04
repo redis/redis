@@ -406,15 +406,20 @@ proc main {server port} {
     } {1}
 
     test {Basic LPUSH, RPUSH, LLENGTH, LINDEX} {
-        $r lpush mylist a
-        $r lpush mylist b
-        $r rpush mylist c
-        set res [$r llen mylist]
+        set res [$r lpush mylist a]
+        append res [$r lpush mylist b]
+        append res [$r rpush mylist c]
+        append res [$r llen mylist]
+        append res [$r rpush anotherlist d]
+        append res [$r lpush anotherlist e]
+        append res [$r llen anotherlist]
         append res [$r lindex mylist 0]
         append res [$r lindex mylist 1]
         append res [$r lindex mylist 2]
+        append res [$r lindex anotherlist 0]
+        append res [$r lindex anotherlist 1]
         list $res [$r lindex mylist 100]
-    } {3bac {}}
+    } {1233122baced {}}
 
     test {DEL a list} {
         $r del mylist
