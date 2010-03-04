@@ -4958,6 +4958,31 @@ static void zslInsert(zskiplist *zsl, double score, robj *obj) {
     zsl->length++;
 }
 
+/* Internal function used by zslDelete, zslDeleteByScore and zslDeleteByRank */
+void zslDeleteNode(zskiplist *zsl, zskiplistNode *x, zskiplistNode **update) {
+    int i;
+    for (i = 0; i < zsl->level; i++) {
+        if (update[i]->forward[i] == x) {
+            if (i > 0) {
+                update[i]->span[i-1] += x->span[i-1] - 1;
+            }
+            update[i]->forward[i] = x->forward[i];
+        } else {
+            /* invariant: i > 0, because update[0]->forward[0]
+             * is always equal to x */
+            update[i]->span[i-1] -= 1;
+        }
+    }
+    if (x->forward[0]) {
+        x->forward[0]->backward = x->backward;
+    } else {
+        zsl->tail = x->backward;
+    }
+    while(zsl->level > 1 && zsl->header->forward[zsl->level-1] == NULL)
+        zsl->level--;
+    zsl->length--;
+}
+
 /* Delete an element with matching score/object from the skiplist. */
 static int zslDelete(zskiplist *zsl, double score, robj *obj) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
@@ -4976,27 +5001,8 @@ static int zslDelete(zskiplist *zsl, double score, robj *obj) {
      * is to find the element with both the right score and object. */
     x = x->forward[0];
     if (x && score == x->score && compareStringObjects(x->obj,obj) == 0) {
-        for (i = 0; i < zsl->level; i++) {
-            if (update[i]->forward[i] == x) {
-                if (i > 0) {
-                    update[i]->span[i-1] += x->span[i-1] - 1;
-                }
-                update[i]->forward[i] = x->forward[i];
-            } else {
-                /* invariant: i > 0, because update[0]->forward[0]
-                 * is always equal to x */
-                update[i]->span[i-1] -= 1;
-            }
-        }
-        if (x->forward[0]) {
-            x->forward[0]->backward = x->backward;
-        } else {
-            zsl->tail = x->backward;
-        }
+        zslDeleteNode(zsl, x, update);
         zslFreeNode(x);
-        while(zsl->level > 1 && zsl->header->forward[zsl->level-1] == NULL)
-            zsl->level--;
-        zsl->length--;
         return 1;
     } else {
         return 0; /* not found */
@@ -5023,31 +5029,10 @@ static unsigned long zslDeleteRangeByScore(zskiplist *zsl, double min, double ma
      * is to find the element with both the right score and object. */
     x = x->forward[0];
     while (x && x->score <= max) {
-        zskiplistNode *next;
-
-        for (i = 0; i < zsl->level; i++) {
-            if (update[i]->forward[i] == x) {
-                if (i > 0) {
-                    update[i]->span[i-1] += x->span[i-1] - 1;
-                }
-                update[i]->forward[i] = x->forward[i];
-            } else {
-                /* invariant: i > 0, because update[0]->forward[0]
-                 * is always equal to x */
-                update[i]->span[i-1] -= 1;
-            }
-        }
-        if (x->forward[0]) {
-            x->forward[0]->backward = x->backward;
-        } else {
-            zsl->tail = x->backward;
-        }
-        next = x->forward[0];
+        zskiplistNode *next = x->forward[0];
+        zslDeleteNode(zsl, x, update);
         dictDelete(dict,x->obj);
         zslFreeNode(x);
-        while(zsl->level > 1 && zsl->header->forward[zsl->level-1] == NULL)
-            zsl->level--;
-        zsl->length--;
         removed++;
         x = next;
     }
@@ -5073,31 +5058,10 @@ static unsigned long zslDeleteRangeByRank(zskiplist *zsl, unsigned int start, un
     traversed++;
     x = x->forward[0];
     while (x && traversed <= end) {
-        zskiplistNode *next;
-
-        for (i = 0; i < zsl->level; i++) {
-            if (update[i]->forward[i] == x) {
-                if (i > 0) {
-                    update[i]->span[i-1] += x->span[i-1] - 1;
-                }
-                update[i]->forward[i] = x->forward[i];
-            } else {
-                /* invariant: i > 0, because update[0]->forward[0]
-                 * is always equal to x */
-                update[i]->span[i-1] -= 1;
-            }
-        }
-        if (x->forward[0]) {
-            x->forward[0]->backward = x->backward;
-        } else {
-            zsl->tail = x->backward;
-        }
-        next = x->forward[0];
+        zskiplistNode *next = x->forward[0];
+        zslDeleteNode(zsl, x, update);
         dictDelete(dict,x->obj);
         zslFreeNode(x);
-        while(zsl->level > 1 && zsl->header->forward[zsl->level-1] == NULL)
-            zsl->level--;
-        zsl->length--;
         removed++;
         traversed++;
         x = next;
