@@ -1545,7 +1545,7 @@ proc main {server port} {
                 set ele [lindex [$r zrange myzset $index $index] 0]
                 set rank [$r zrank myzset $ele]
                 if {$rank != $index} {
-                    set err "$ele RANK is wrong! ($rank != [expr $index+1])"
+                    set err "$ele RANK is wrong! ($rank != $index)"
                     break
                 }
             }

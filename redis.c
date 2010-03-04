@@ -5483,13 +5483,16 @@ static void zrankCommand(redisClient *c) {
         while (x->forward[i] &&
             (x->forward[i]->score < *score ||
                 (x->forward[i]->score == *score &&
-                compareStringObjects(x->forward[i]->obj,c->argv[2]) < 0))) {
+                compareStringObjects(x->forward[i]->obj,c->argv[2]) <= 0))) {
             rank += x->span[i];
             x = x->forward[i];
         }
 
-        if (x->forward[i] && compareStringObjects(x->forward[i]->obj,c->argv[2]) == 0) {
-            addReplyLong(c, rank);
+        /* x might be equal to zsl->header, so test if obj is non-NULL */
+        if (x->obj && compareStringObjects(x->obj,c->argv[2]) == 0) {
+            /* the pointer from zsl->header to the first element also spans one,
+             * which makes the rank 1-based */
+            addReplyLong(c, rank-1);
             return;
         }
     }
