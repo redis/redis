@@ -4861,7 +4861,10 @@ static zskiplist *zslCreate(void) {
     zsl->header = zslCreateNode(ZSKIPLIST_MAXLEVEL,0,NULL);
     for (j = 0; j < ZSKIPLIST_MAXLEVEL; j++) {
         zsl->header->forward[j] = NULL;
-        zsl->header->span[j] = 0;
+
+        /* span has space for ZSKIPLIST_MAXLEVEL-1 elements */
+        if (j < ZSKIPLIST_MAXLEVEL-1)
+            zsl->header->span[j] = 0;
     }
     zsl->header->backward = NULL;
     zsl->tail = NULL;
