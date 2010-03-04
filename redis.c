@@ -3536,7 +3536,7 @@ static void setGenericCommand(redisClient *c, int nx) {
              * to overwrite the old. So we delete the old key in the database.
              * This will also make sure that swap pages about the old object
              * will be marked as free. */
-            if (deleteIfSwapped(c->db,c->argv[1]))
+            if (server.vm_enabled && deleteIfSwapped(c->db,c->argv[1]))
                 incrRefCount(c->argv[1]);
             dictReplace(c->db->dict,c->argv[1],c->argv[2]);
             incrRefCount(c->argv[2]);
