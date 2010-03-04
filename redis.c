@@ -5054,6 +5054,33 @@ static zskiplistNode *zslFirstWithScore(zskiplist *zsl, double score) {
     return x->forward[0];
 }
 
+/* Find the rank for an element by both score and key.
+ * Returns 0 when the element cannot be found, rank otherwise.
+ * Note that the rank is 1-based due to the span of zsl->header to the
+ * first element. */
+static unsigned long zslGetRank(zskiplist *zsl, double score, robj *o) {
+    zskiplistNode *x;
+    unsigned long rank = 0;
+    int i;
+
+    x = zsl->header;
+    for (i = zsl->level-1; i >= 0; i--) {
+        while (x->forward[i] &&
+            (x->forward[i]->score < score ||
+                (x->forward[i]->score == score &&
+                compareStringObjects(x->forward[i]->obj,o) <= 0))) {
+            rank += x->span[i];
+            x = x->forward[i];
+        }
+
+        /* x might be equal to zsl->header, so test if obj is non-NULL */
+        if (x->obj && compareStringObjects(x->obj,o) == 0) {
+            return rank;
+        }
+    }
+    return 0;
+}
+
 /* The actual Z-commands implementations */
 
 /* This generic command implements both ZADD and ZINCRBY.
@@ -5467,42 +5494,26 @@ static void zrankCommand(redisClient *c) {
     }
     if (o->type != REDIS_ZSET) {
         addReply(c,shared.wrongtypeerr);
-        return;
-    }
+    } else {
+        zset *zs = o->ptr;
+        zskiplist *zsl = zs->zsl;
+        dictEntry *de;
+        unsigned long rank;
 
-    zset *zs = o->ptr;
-    zskiplist *zsl = zs->zsl;
-    dictEntry *de = dictFind(zs->dict,c->argv[2]);
-    if (!de) {
-        addReply(c,shared.nullbulk);
-        return;
-    }
-
-    double *score = dictGetEntryVal(de);
-    zskiplistNode *x;
-    unsigned int rank = 0;
-    int i;
-
-    x = zsl->header;
-    for (i = zsl->level-1; i >= 0; i--) {
-        while (x->forward[i] &&
-            (x->forward[i]->score < *score ||
-                (x->forward[i]->score == *score &&
-                compareStringObjects(x->forward[i]->obj,c->argv[2]) <= 0))) {
-            rank += x->span[i];
-            x = x->forward[i];
-        }
-
-        /* x might be equal to zsl->header, so test if obj is non-NULL */
-        if (x->obj && compareStringObjects(x->obj,c->argv[2]) == 0) {
-            /* the pointer from zsl->header to the first element also spans one,
-             * which makes the rank 1-based */
-            addReplyLong(c, rank-1);
+        de = dictFind(zs->dict,c->argv[2]);
+        if (!de) {
+            addReply(c,shared.nullbulk);
             return;
         }
-    }
 
-    addReply(c,shared.nullbulk);
+        double *score = dictGetEntryVal(de);
+        rank = zslGetRank(zsl, *score, c->argv[2]);
+        if (rank) {
+            addReplyLong(c, rank-1);
+        } else {
+            addReply(c,shared.nullbulk);
+        }
+    }
 }
 
 /* ========================= Non type-specific commands  ==================== */
