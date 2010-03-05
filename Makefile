@@ -14,7 +14,7 @@ endif
 CCOPT= $(CFLAGS) $(CCLINK) $(ARCH) $(PROF)
 DEBUG?= -g -rdynamic -ggdb 
 
-OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o
+OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o
 BENCHOBJ = ae.o anet.o redis-benchmark.o sds.o adlist.o zmalloc.o
 CLIOBJ = anet.o sds.o adlist.o redis-cli.o zmalloc.o
 
@@ -39,8 +39,9 @@ redis-benchmark.o: redis-benchmark.c fmacros.h ae.h anet.h sds.h adlist.h \
   zmalloc.h
 redis-cli.o: redis-cli.c fmacros.h anet.h sds.h adlist.h zmalloc.h
 redis.o: redis.c fmacros.h config.h redis.h ae.h sds.h anet.h dict.h \
-  adlist.h zmalloc.h lzf.h pqsort.h staticsymbols.h
+  adlist.h zmalloc.h lzf.h pqsort.h zipmap.h staticsymbols.h
 sds.o: sds.c sds.h zmalloc.h
+zipmap.o: zipmap.c zmalloc.h
 zmalloc.o: zmalloc.c config.h
 
 redis-server: $(OBJ)

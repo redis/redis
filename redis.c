@@ -75,6 +75,7 @@
 #include "zmalloc.h" /* total memory usage aware version of malloc/free */
 #include "lzf.h"    /* LZF compression library */
 #include "pqsort.h" /* Partial qsort for SORT+LIMIT */
+#include "zipmap.h"
 
 /* Error codes */
 #define REDIS_OK                0
@@ -118,9 +119,13 @@
 #define REDIS_ZSET 3
 #define REDIS_HASH 4
 
-/* Objects encoding */
+/* Objects encoding. Some kind of objects like Strings and Hashes can be
+ * internally represented in multiple ways. The 'encoding' field of the object
+ * is set to one of this fields for this object. */
 #define REDIS_ENCODING_RAW 0    /* Raw representation */
 #define REDIS_ENCODING_INT 1    /* Encoded as integer */
+#define REDIS_ENCODING_ZIPMAP 2 /* Encoded as zipmap */
+#define REDIS_ENCODING_HT 3     /* Encoded as an hash table */
 
 /* Object types only used for dumping to disk */
 #define REDIS_EXPIRETIME 253
@@ -1011,7 +1016,7 @@ static dictType zsetDictType = {
 };
 
 /* Db->dict */
-static dictType hashDictType = {
+static dictType dbDictType = {
     dictObjHash,                /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
@@ -1028,6 +1033,16 @@ static dictType keyptrDictType = {
     dictObjKeyCompare,         /* key compare */
     dictRedisObjectDestructor, /* key destructor */
     NULL                       /* val destructor */
+};
+
+/* Hash type hash table (note that small hashes are represented with zimpaps) */
+static dictType hashDictType = {
+    dictEncObjHash,             /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictEncObjKeyCompare,       /* key compare */
+    dictRedisObjectDestructor,  /* key destructor */
+    dictRedisObjectDestructor   /* val destructor */
 };
 
 /* Keylist hash table type has unencoded redis objects as keys and
@@ -1493,7 +1508,7 @@ static void initServer() {
         exit(1);
     }
     for (j = 0; j < server.dbnum; j++) {
-        server.db[j].dict = dictCreate(&hashDictType,NULL);
+        server.db[j].dict = dictCreate(&dbDictType,NULL);
         server.db[j].expires = dictCreate(&keyptrDictType,NULL);
         server.db[j].blockingkeys = dictCreate(&keylistDictType,NULL);
         if (server.vm_enabled)
@@ -2541,6 +2556,16 @@ static robj *createListObject(void) {
 static robj *createSetObject(void) {
     dict *d = dictCreate(&setDictType,NULL);
     return createObject(REDIS_SET,d);
+}
+
+static robj *createHashObject(void) {
+    /* All the Hashes start as zipmaps. Will be automatically converted
+     * into hash tables if there are enough elements or big elements
+     * inside. */
+    unsigned char *zm = zipmapNew();
+    robj *o = createObject(REDIS_HASH,zm);
+    o->encoding = REDIS_ENCODING_ZIPMAP;
+    return o;
 }
 
 static robj *createZsetObject(void) {
