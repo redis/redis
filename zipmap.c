@@ -412,6 +412,7 @@ int main(void) {
     zm = zipmapSet(zm,(unsigned char*) "foo",3, (unsigned char*) "12345",5,NULL);
     zipmapRepr(zm);
     zm = zipmapSet(zm,(unsigned char*) "new",3, (unsigned char*) "xx",2,NULL);
+    zm = zipmapSet(zm,(unsigned char*) "noval",5, (unsigned char*) "",0,NULL);
     zipmapRepr(zm);
     zm = zipmapDel(zm,(unsigned char*) "new",3,NULL);
     zipmapRepr(zm);

@@ -59,6 +59,7 @@ BIG ONES:
 
 SMALL ONES:
 
+* Delete on writes against expire policy should only happen after argument parsing for commands doing their own arg parsing stuff.
 * Give errors when incrementing a key that does not look like an integer, when providing as a sorted set score something can't be parsed as a double, and so forth.
 * MSADD (n keys) (n values). See this thread in the Redis google group: http://groups.google.com/group/redis-db/browse_thread/thread/e766d84eb375cd41
 * Don't save empty lists / sets / zsets on disk with snapshotting.

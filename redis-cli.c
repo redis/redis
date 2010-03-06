@@ -141,8 +141,10 @@ static struct redisCommand cmdTable[] = {
     {"msetnx",-3,REDIS_CMD_MULTIBULK},
     {"monitor",1,REDIS_CMD_INLINE},
     {"multi",1,REDIS_CMD_INLINE},
-    {"exec",1,REDIS_CMD_MULTIBULK},
+    {"exec",1,REDIS_CMD_INLINE},
     {"discard",1,REDIS_CMD_INLINE},
+    {"hset",4,REDIS_CMD_MULTIBULK},
+    {"hget",3,REDIS_CMD_BULK},
     {NULL,0,0}
 };
 
