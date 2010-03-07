@@ -226,6 +226,10 @@
 #define APPENDFSYNC_ALWAYS 1
 #define APPENDFSYNC_EVERYSEC 2
 
+/* Hashes related defaults */
+#define REDIS_HASH_MAX_ZIPMAP_ENTRIES 64
+#define REDIS_HASH_MAX_ZIPMAP_VALUE 512
+
 /* We can print the stacktrace, so our assert is defined this way: */
 #define redisAssert(_e) ((_e)?(void)0 : (_redisAssert(#_e,__FILE__,__LINE__),_exit(1)))
 static void _redisAssert(char *estr, char *file, int line);
@@ -391,6 +395,9 @@ struct redisServer {
     off_t vm_page_size;
     off_t vm_pages;
     unsigned long long vm_max_memory;
+    /* Hashes config */
+    size_t hash_max_zipmap_entries;
+    size_t hash_max_zipmap_value;
     /* Virtual memory state */
     FILE *vm_fp;
     int vm_fd;
@@ -1465,6 +1472,8 @@ static void initServerConfig() {
     server.vm_max_memory = 1024LL*1024*1024*1; /* 1 GB of RAM */
     server.vm_max_threads = 4;
     server.vm_blocked_clients = 0;
+    server.hash_max_zipmap_entries = REDIS_HASH_MAX_ZIPMAP_ENTRIES;
+    server.hash_max_zipmap_value = REDIS_HASH_MAX_ZIPMAP_VALUE;
 
     resetServerSaveParams();
 
@@ -1723,6 +1732,12 @@ static void loadServerConfig(char *filename) {
             server.vm_page_size = strtoll(argv[1], NULL, 10);
         } else if (!strcasecmp(argv[0],"vm-pages") && argc == 2) {
             server.vm_pages = strtoll(argv[1], NULL, 10);
+        } else if (!strcasecmp(argv[0],"vm-max-threads") && argc == 2) {
+            server.vm_max_threads = strtoll(argv[1], NULL, 10);
+        } else if (!strcasecmp(argv[0],"hash-max-zipmap-entries") && argc == 2){
+            server.hash_max_zipmap_entries = strtol(argv[1], NULL, 10);
+        } else if (!strcasecmp(argv[0],"hash-max-zipmap-value") && argc == 2){
+            server.hash_max_zipmap_value = strtol(argv[1], NULL, 10);
         } else if (!strcasecmp(argv[0],"vm-max-threads") && argc == 2) {
             server.vm_max_threads = strtoll(argv[1], NULL, 10);
         } else {
@@ -2603,7 +2618,17 @@ static void freeZsetObject(robj *o) {
 }
 
 static void freeHashObject(robj *o) {
-    dictRelease((dict*) o->ptr);
+    switch (o->encoding) {
+    case REDIS_ENCODING_HT:
+        dictRelease((dict*) o->ptr);
+        break;
+    case REDIS_ENCODING_ZIPMAP:
+        zfree(o->ptr);
+        break;
+    default:
+        redisAssert(0);
+        break;
+    }
 }
 
 static void incrRefCount(robj *o) {
@@ -5577,7 +5602,7 @@ static void zrankCommand(redisClient *c) {
     }
 }
 
-/* ==================================== Hash ================================ */
+/* =================================== Hashes =============================== */
 static void hsetCommand(redisClient *c) {
     int update = 0;
     robj *o = lookupKeyWrite(c->db,c->argv[1]);
@@ -5597,6 +5622,7 @@ static void hsetCommand(redisClient *c) {
 
         zm = zipmapSet(zm,c->argv[2]->ptr,sdslen(c->argv[2]->ptr),
             c->argv[3]->ptr,sdslen(c->argv[3]->ptr),&update);
+        o->ptr = zm;
     } else {
         if (dictAdd(o->ptr,c->argv[2],c->argv[3]) == DICT_OK) {
             incrRefCount(c->argv[2]);
