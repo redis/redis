@@ -666,6 +666,7 @@ static void brpopCommand(redisClient *c);
 static void appendCommand(redisClient *c);
 static void substrCommand(redisClient *c);
 static void zrankCommand(redisClient *c);
+static void zrevrankCommand(redisClient *c);
 static void hsetCommand(redisClient *c);
 static void hgetCommand(redisClient *c);
 
@@ -722,6 +723,7 @@ static struct redisCommand cmdTable[] = {
     {"zcard",zcardCommand,2,REDIS_CMD_INLINE,1,1,1},
     {"zscore",zscoreCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,1,1,1},
     {"zrank",zrankCommand,3,REDIS_CMD_INLINE,1,1,1},
+    {"zrevrank",zrevrankCommand,3,REDIS_CMD_INLINE,1,1,1},
     {"hset",hsetCommand,4,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,1,1,1},
     {"hget",hgetCommand,3,REDIS_CMD_BULK,1,1,1},
     {"incrby",incrbyCommand,3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,1,1,1},
@@ -5546,7 +5548,7 @@ static void zscoreCommand(redisClient *c) {
     }
 }
 
-static void zrankCommand(redisClient *c) {
+static void zrankGenericCommand(redisClient *c, int reverse) {
     robj *o;
     o = lookupKeyRead(c->db,c->argv[1]);
     if (o == NULL) {
@@ -5570,11 +5572,23 @@ static void zrankCommand(redisClient *c) {
         double *score = dictGetEntryVal(de);
         rank = zslGetRank(zsl, *score, c->argv[2]);
         if (rank) {
-            addReplyLong(c, rank-1);
+            if (reverse) {
+                addReplyLong(c, zsl->length - rank);
+            } else {
+                addReplyLong(c, rank-1);
+            }
         } else {
             addReply(c,shared.nullbulk);
         }
     }
+}
+
+static void zrankCommand(redisClient *c) {
+    zrankGenericCommand(c, 0);
+}
+
+static void zrevrankCommand(redisClient *c) {
+    zrankGenericCommand(c, 1);
 }
 
 /* ==================================== Hash ================================ */
