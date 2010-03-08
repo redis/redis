@@ -1462,6 +1462,21 @@ proc main {server port} {
         list [$r zremrangebyscore zset -inf +inf] [$r zrange zset 0 -1]
     } {5 {}}
 
+    test {ZMERGE basics} {
+        $r del zseta zsetb zsetc
+        $r zadd zseta 1 a
+        $r zadd zseta 2 b
+        $r zadd zseta 3 c
+        $r zadd zsetb 1 b
+        $r zadd zsetb 2 c
+        $r zadd zsetb 3 d
+        list [$r zmerge zsetc zseta zsetb] [$r zrange zsetc 0 -1 withscores]
+    } {4 {a 1 b 3 d 3 c 5}}
+
+    test {ZMERGEWEIGHED basics} {
+        list [$r zmergeweighed zsetc zseta 2 zsetb 3] [$r zrange zsetc 0 -1 withscores]
+    } {4 {a 2 b 7 d 9 c 12}}
+
     test {SORT against sorted sets} {
         $r del zset
         $r zadd zset 1 a
