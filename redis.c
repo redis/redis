@@ -2933,7 +2933,7 @@ static int rdbSaveLen(FILE *fp, uint32_t len) {
 /* String objects in the form "2391" "-100" without any space and with a
  * range of values that can fit in an 8, 16 or 32 bit signed value can be
  * encoded as integers to save space */
-static int rdbTryIntegerEncoding(sds s, unsigned char *enc) {
+static int rdbTryIntegerEncoding(char *s, size_t len, unsigned char *enc) {
     long long value;
     char *endptr, buf[32];
 
@@ -2944,7 +2944,7 @@ static int rdbTryIntegerEncoding(sds s, unsigned char *enc) {
 
     /* If the number converted back into a string is not identical
      * then it's not possible to encode the string as integer */
-    if (strlen(buf) != sdslen(s) || memcmp(buf,s,sdslen(s))) return 0;
+    if (strlen(buf) != len || memcmp(buf,s,len)) return 0;
 
     /* Finally check if it fits in our ranges */
     if (value >= -(1<<7) && value <= (1<<7)-1) {
@@ -2968,16 +2968,16 @@ static int rdbTryIntegerEncoding(sds s, unsigned char *enc) {
     }
 }
 
-static int rdbSaveLzfStringObject(FILE *fp, robj *obj) {
-    unsigned int comprlen, outlen;
+static int rdbSaveLzfStringObject(FILE *fp, unsigned char *s, size_t len) {
+    size_t comprlen, outlen;
     unsigned char byte;
     void *out;
 
     /* We require at least four bytes compression for this to be worth it */
-    outlen = sdslen(obj->ptr)-4;
-    if (outlen <= 0) return 0;
+    if (len <= 4) return 0;
+    outlen = len-4;
     if ((out = zmalloc(outlen+1)) == NULL) return 0;
-    comprlen = lzf_compress(obj->ptr, sdslen(obj->ptr), out, outlen);
+    comprlen = lzf_compress(s, len, out, outlen);
     if (comprlen == 0) {
         zfree(out);
         return 0;
@@ -2986,7 +2986,7 @@ static int rdbSaveLzfStringObject(FILE *fp, robj *obj) {
     byte = (REDIS_RDB_ENCVAL<<6)|REDIS_RDB_ENC_LZF;
     if (fwrite(&byte,1,1,fp) == 0) goto writeerr;
     if (rdbSaveLen(fp,comprlen) == -1) goto writeerr;
-    if (rdbSaveLen(fp,sdslen(obj->ptr)) == -1) goto writeerr;
+    if (rdbSaveLen(fp,len) == -1) goto writeerr;
     if (fwrite(out,comprlen,1,fp) == 0) goto writeerr;
     zfree(out);
     return comprlen;
@@ -2998,16 +2998,13 @@ writeerr:
 
 /* Save a string objet as [len][data] on disk. If the object is a string
  * representation of an integer value we try to safe it in a special form */
-static int rdbSaveStringObjectRaw(FILE *fp, robj *obj) {
-    size_t len;
+static int rdbSaveRawString(FILE *fp, unsigned char *s, size_t len) {
     int enclen;
-
-    len = sdslen(obj->ptr);
 
     /* Try integer encoding */
     if (len <= 11) {
         unsigned char buf[5];
-        if ((enclen = rdbTryIntegerEncoding(obj->ptr,buf)) > 0) {
+        if ((enclen = rdbTryIntegerEncoding((char*)s,len,buf)) > 0) {
             if (fwrite(buf,enclen,1,fp) == 0) return -1;
             return 0;
         }
@@ -3018,7 +3015,7 @@ static int rdbSaveStringObjectRaw(FILE *fp, robj *obj) {
     if (server.rdbcompression && len > 20) {
         int retval;
 
-        retval = rdbSaveLzfStringObject(fp,obj);
+        retval = rdbSaveLzfStringObject(fp,s,len);
         if (retval == -1) return -1;
         if (retval > 0) return 0;
         /* retval == 0 means data can't be compressed, save the old way */
@@ -3026,7 +3023,7 @@ static int rdbSaveStringObjectRaw(FILE *fp, robj *obj) {
 
     /* Store verbatim */
     if (rdbSaveLen(fp,len) == -1) return -1;
-    if (len && fwrite(obj->ptr,len,1,fp) == 0) return -1;
+    if (len && fwrite(s,len,1,fp) == 0) return -1;
     return 0;
 }
 
@@ -3041,10 +3038,10 @@ static int rdbSaveStringObject(FILE *fp, robj *obj) {
      * this in order to avoid bugs) */
     if (obj->encoding != REDIS_ENCODING_RAW) {
         obj = getDecodedObject(obj);
-        retval = rdbSaveStringObjectRaw(fp,obj);
+        retval = rdbSaveRawString(fp,obj->ptr,sdslen(obj->ptr));
         decrRefCount(obj);
     } else {
-        retval = rdbSaveStringObjectRaw(fp,obj);
+        retval = rdbSaveRawString(fp,obj->ptr,sdslen(obj->ptr));
     }
     return retval;
 }
@@ -3122,6 +3119,33 @@ static int rdbSaveObject(FILE *fp, robj *o) {
             if (rdbSaveDoubleValue(fp,*score) == -1) return -1;
         }
         dictReleaseIterator(di);
+    } else if (o->type == REDIS_HASH) {
+        /* Save a hash value */
+        if (o->encoding == REDIS_ENCODING_ZIPMAP) {
+            unsigned char *p = zipmapRewind(o->ptr);
+            unsigned int count = zipmapLen(o->ptr);
+            unsigned char *key, *val;
+            unsigned int klen, vlen;
+
+            if (rdbSaveLen(fp,count) == -1) return -1;
+            while((p = zipmapNext(p,&key,&klen,&val,&vlen)) != NULL) {
+                if (rdbSaveRawString(fp,key,klen) == -1) return -1;
+                if (rdbSaveRawString(fp,val,vlen) == -1) return -1;
+            }
+        } else {
+            dictIterator *di = dictGetIterator(o->ptr);
+            dictEntry *de;
+
+            if (rdbSaveLen(fp,dictSize((dict*)o->ptr)) == -1) return -1;
+            while((de = dictNext(di)) != NULL) {
+                robj *key = dictGetEntryKey(de);
+                robj *val = dictGetEntryVal(de);
+
+                if (rdbSaveStringObject(fp,key) == -1) return -1;
+                if (rdbSaveStringObject(fp,val) == -1) return -1;
+            }
+            dictReleaseIterator(di);
+        }
     } else {
         redisAssert(0 != 0);
     }
@@ -5619,9 +5643,11 @@ static void hsetCommand(redisClient *c) {
     }
     if (o->encoding == REDIS_ENCODING_ZIPMAP) {
         unsigned char *zm = o->ptr;
+        robj *valobj = getDecodedObject(c->argv[3]);
 
         zm = zipmapSet(zm,c->argv[2]->ptr,sdslen(c->argv[2]->ptr),
-            c->argv[3]->ptr,sdslen(c->argv[3]->ptr),&update);
+            valobj->ptr,sdslen(valobj->ptr),&update);
+        decrRefCount(valobj);
         o->ptr = zm;
     } else {
         if (dictAdd(o->ptr,c->argv[2],c->argv[3]) == DICT_OK) {
