@@ -1204,6 +1204,10 @@ proc main {server port} {
         list [$r zrank zranktmp x] [$r zrank zranktmp y] [$r zrank zranktmp z]
     } {0 1 2}
 
+    test {ZREVRANK basics} {
+        list [$r zrevrank zranktmp x] [$r zrevrank zranktmp y] [$r zrevrank zranktmp z]
+    } {2 1 0}
+
     test {ZRANK - after deletion} {
         $r zrem zranktmp y
         list [$r zrank zranktmp x] [$r zrank zranktmp z]
