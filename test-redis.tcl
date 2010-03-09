@@ -1446,7 +1446,7 @@ proc main {server port} {
         $r zrangebyscore zset 20 50 LIMIT 2 3 withscores
     } {d 40 e 50}
 
-    test {ZREMRANGE basics} {
+    test {ZREMRANGEBYSCORE basics} {
         $r del zset
         $r zadd zset 1 a
         $r zadd zset 2 b
@@ -1456,7 +1456,7 @@ proc main {server port} {
         list [$r zremrangebyscore zset 2 4] [$r zrange zset 0 -1]
     } {3 {a e}}
 
-    test {ZREMRANGE from -inf to +inf} {
+    test {ZREMRANGEBYSCORE from -inf to +inf} {
         $r del zset
         $r zadd zset 1 a
         $r zadd zset 2 b
@@ -1465,6 +1465,16 @@ proc main {server port} {
         $r zadd zset 5 e
         list [$r zremrangebyscore zset -inf +inf] [$r zrange zset 0 -1]
     } {5 {}}
+
+    test {ZREMRANGEBYRANK basics} {
+        $r del zset
+        $r zadd zset 1 a
+        $r zadd zset 2 b
+        $r zadd zset 3 c
+        $r zadd zset 4 d
+        $r zadd zset 5 e
+        list [$r zremrangebyrank zset 1 3] [$r zrange zset 0 -1]
+    } {3 {a e}}
 
     test {SORT against sorted sets} {
         $r del zset
