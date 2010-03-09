@@ -5491,7 +5491,7 @@ static void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
     }
 
     /* read keys to be used for input */
-    src = malloc(sizeof(zsetopsrc) * zsetnum);
+    src = zmalloc(sizeof(zsetopsrc) * zsetnum);
     for (i = 0, j = 3; i < zsetnum; i++, j++) {
         robj *zsetobj = lookupKeyWrite(c->db,c->argv[j]);
         if (!zsetobj) {
