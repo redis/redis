@@ -1476,6 +1476,29 @@ proc main {server port} {
         list [$r zremrangebyrank zset 1 3] [$r zrange zset 0 -1]
     } {3 {a e}}
 
+    test {ZUNION basics} {
+        $r del zseta zsetb zsetc
+        $r zadd zseta 1 a
+        $r zadd zseta 2 b
+        $r zadd zseta 3 c
+        $r zadd zsetb 1 b
+        $r zadd zsetb 2 c
+        $r zadd zsetb 3 d
+        list [$r zunion zsetc 2 zseta zsetb] [$r zrange zsetc 0 -1 withscores]
+    } {4 {a 1 b 3 d 3 c 5}}
+
+    test {ZUNION with weights} {
+        list [$r zunion zsetc 2 zseta zsetb weights 2 3] [$r zrange zsetc 0 -1 withscores]
+    } {4 {a 2 b 7 d 9 c 12}}
+
+    test {ZINTER basics} {
+        list [$r zinter zsetc 2 zseta zsetb] [$r zrange zsetc 0 -1 withscores]
+    } {2 {b 3 c 5}}
+
+    test {ZINTER with weights} {
+        list [$r zinter zsetc 2 zseta zsetb weights 2 3] [$r zrange zsetc 0 -1 withscores]
+    } {2 {b 7 c 12}}
+
     test {SORT against sorted sets} {
         $r del zset
         $r zadd zset 1 a
