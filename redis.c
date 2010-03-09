@@ -590,6 +590,7 @@ static void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mas
 static struct redisCommand *lookupCommand(char *name);
 static void call(redisClient *c, struct redisCommand *cmd);
 static void resetClient(redisClient *c);
+static void convertToRealHash(robj *o);
 
 static void authCommand(redisClient *c);
 static void pingCommand(redisClient *c);
@@ -3470,7 +3471,7 @@ static robj *rdbLoadObject(int type, FILE *fp) {
         }
     } else if (type == REDIS_ZSET) {
         /* Read list/set value */
-        uint32_t zsetlen;
+        size_t zsetlen;
         zset *zs;
 
         if ((zsetlen = rdbLoadLen(fp,NULL)) == REDIS_RDB_LENERR) return NULL;
@@ -3487,6 +3488,46 @@ static robj *rdbLoadObject(int type, FILE *fp) {
             dictAdd(zs->dict,ele,score);
             zslInsert(zs->zsl,*score,ele);
             incrRefCount(ele); /* added to skiplist */
+        }
+    } else if (type == REDIS_HASH) {
+        size_t hashlen;
+
+        if ((hashlen = rdbLoadLen(fp,NULL)) == REDIS_RDB_LENERR) return NULL;
+        o = createHashObject();
+        /* Too many entries? Use an hash table. */
+        if (hashlen > server.hash_max_zipmap_entries)
+            convertToRealHash(o);
+        /* Load every key/value, then set it into the zipmap or hash
+         * table, as needed. */
+        while(hashlen--) {
+            robj *key, *val;
+
+            if ((key = rdbLoadStringObject(fp)) == NULL) return NULL;
+            if ((val = rdbLoadStringObject(fp)) == NULL) return NULL;
+            /* If we are using a zipmap and there are too big values
+             * the object is converted to real hash table encoding. */
+            if (o->encoding != REDIS_ENCODING_HT &&
+               (sdslen(key->ptr) > server.hash_max_zipmap_value ||
+                sdslen(val->ptr) > server.hash_max_zipmap_value))
+            {
+                    convertToRealHash(o);
+            }
+
+            if (o->encoding == REDIS_ENCODING_ZIPMAP) {
+                unsigned char *zm = o->ptr;
+
+                zm = zipmapSet(zm,key->ptr,sdslen(key->ptr),
+                                  val->ptr,sdslen(val->ptr),NULL);
+                o->ptr = zm;
+                decrRefCount(key);
+                decrRefCount(val);
+            } else {
+                tryObjectEncoding(key);
+                tryObjectEncoding(val);
+                dictAdd((dict*)o->ptr,key,val);
+                incrRefCount(key);
+                incrRefCount(val);
+            }
         }
     } else {
         redisAssert(0 != 0);
@@ -3995,7 +4036,8 @@ static void typeCommand(redisClient *c) {
         case REDIS_LIST: type = "+list"; break;
         case REDIS_SET: type = "+set"; break;
         case REDIS_ZSET: type = "+zset"; break;
-        default: type = "unknown"; break;
+        case REDIS_HASH: type = "+hash"; break;
+        default: type = "+unknown"; break;
         }
     }
     addReplySds(c,sdsnew(type));
@@ -5697,6 +5739,27 @@ static void hgetCommand(redisClient *c) {
             }
         }
     }
+}
+
+static void convertToRealHash(robj *o) {
+    unsigned char *key, *val, *p, *zm = o->ptr;
+    unsigned int klen, vlen;
+    dict *dict = dictCreate(&hashDictType,NULL);
+
+    assert(o->type == REDIS_HASH && o->encoding != REDIS_ENCODING_HT);
+    p = zipmapRewind(zm);
+    while((p = zipmapNext(p,&key,&klen,&val,&vlen)) != NULL) {
+        robj *keyobj, *valobj;
+
+        keyobj = createStringObject((char*)key,klen);
+        valobj = createStringObject((char*)val,vlen);
+        tryObjectEncoding(keyobj);
+        tryObjectEncoding(valobj);
+        dictAdd(dict,keyobj,valobj);
+    }
+    o->encoding = REDIS_ENCODING_HT;
+    o->ptr = dict;
+    zfree(zm);
 }
 
 /* ========================= Non type-specific commands  ==================== */
