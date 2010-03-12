@@ -1,3 +1,59 @@
+2010-03-11 Fix for HGET against non Hash type, debug messages used to understand a bit better a corrupted rdb file
+2010-03-09 fix: use zmalloc instead of malloc
+2010-03-09 Merged zsetops branch from Pietern
+2010-03-09 Merged ZREMBYRANK from Pietern
+2010-03-09 Merged ZREVRANK from Pietern
+2010-03-09 use a struct to store both a dict and its weight for ZUNION and ZINTER, so qsort can be applied
+2010-03-09 Hash auto conversion from zipmap to hash table, type fixed for hashes, hash loading from disk
+2010-03-09 replaced ZMERGE by ZUNION and ZINTER. note: key preloading by the VM does not yet work
+2010-03-08 Hashes saving / fixes
+2010-03-08 use ZMERGE as starting point
+2010-03-07 HSET fixes, now the new pointer is stored back in the object pointer field
+2010-03-07 added ZREVRANK
+2010-03-06 Fix for replicaiton with over 2GB dump file initial SYNC stage
+2010-03-06 first implementation of HSET/HSET. More work needed
+2010-03-05 zipmaps functions to get, iterate, test for existence. Initial works for Hash data type
+2010-03-04 redis-benchmark now implements Set commands benchmarks
+2010-03-04 zipmap iteration code
+2010-03-04 moved code to delete a single node from a zset to a separate function
+2010-03-04 rename zslDeleteRange to zslDeleteRangeByScore (to differentiate between deleting using score or rank)
+2010-03-04 use 1-based rank across zsl*Rank functions consistently
+2010-03-04 implemented ZREMBYRANK
+2010-03-04 A fix for initialization of augmented skip lists
+2010-03-04 A fix for an invalid access when VM is disabled
+2010-03-04 Merge branch 'zsl-get-rank' of git://github.com/pietern/redis
+2010-03-04 redis-cli now runs in interactive mode if no command is provided
+2010-03-04 merged memory reduction patch
+2010-03-04 Now list push commands return the length of the new list, thanks to Gustavo Picon
+2010-03-04 first check if starting point is trivial (head or tail) before applying log(N) search
+2010-03-04 use rank to find starting point for ZRANGE and ZREVRANGE
+2010-03-04 lookup rank of a zset entry in a different function
+2010-03-04 SUBSTR fix for integer encoded vals
+2010-03-04 fix ZRANK (realize that rank is 1-based due to the skip list header)
+2010-03-03 initial implementation of SUBSTR
+2010-03-03 TODO updated
+2010-03-03 fpurge call removed from redis-cli
+2010-03-03 ZRANK stress tester
+2010-03-03 use less memory as element->span[0] will always be 1; any level 0 skip list is essentially a linked list
+2010-03-03 rank is very unlikely to overflow integer range
+2010-03-03 x->backward never equals zsl->header
+2010-03-03 initial implementation for augmented zsets and the zrank command
+2010-03-03 zipampDel() implemented
+2010-03-03 added quit and exit commands to redis-cli in order to quit the interactive mode
+2010-03-03 Merge remote branch 'djanowski/interactive'
+2010-03-02 Add support for MULTI/EXEC.
+2010-03-02 Remove trailing newline in interactive mode.
+2010-03-02 minor fix for a Linux warning
+2010-03-02 Add interactive mode to redis-cli.
+2010-03-02 Better to increment the version minor number when a VM bug is fixed... it will be simpler to understand what's going on when users will report problems with the INFO trace.
+2010-03-02 Fixed a subtle VM bug... was not flushing the buffer so the child process read truncated data
+2010-03-01 KEYS now returns a multi bulk reply
+2010-02-27 Add DISCARD command to discard queued MULTI commands.
+2010-03-01 Swappability bug due to a typo fixed thanks to code review by Felix Geisendörfer @felixge
+2010-02-28 minor fixes for zipmap.c
+2010-02-27 first zipmap fix of a long sequence in the days to come ;)
+2010-02-27 initial zipmap.c implementation
+2010-02-27 Bug #169 fixed (BLOP/BRPOP interrupted connections are not cleared from the queue)
 2010-02-22 Fixed 32bit make target to work on Linux out of the box
 2010-02-19 A problem with replication with multiple slaves connectiong to a single master fixed. It was due to a typo, and reported on github by the user micmac. Also the copyright year fixed from many files.
 2010-02-10 Saner VM defaults for redis.conf
