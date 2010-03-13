@@ -17,12 +17,14 @@ DEBUG?= -g -rdynamic -ggdb
 OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o
 BENCHOBJ = ae.o anet.o redis-benchmark.o sds.o adlist.o zmalloc.o
 CLIOBJ = anet.o sds.o adlist.o redis-cli.o zmalloc.o
+CHECKDUMPOBJ = redis-check-dump.o lzf_c.o lzf_d.o
 
 PRGNAME = redis-server
 BENCHPRGNAME = redis-benchmark
 CLIPRGNAME = redis-cli
+CHECKDUMPPRGNAME = redis-check-dump
 
-all: redis-server redis-benchmark redis-cli
+all: redis-server redis-benchmark redis-cli redis-check-dump
 
 # Deps (use make dep to generate this)
 adlist.o: adlist.c adlist.h zmalloc.h
@@ -57,6 +59,9 @@ redis-benchmark: $(BENCHOBJ)
 
 redis-cli: $(CLIOBJ)
 	$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ)
+
+redis-check-dump: $(CHECKDUMPOBJ)
+	$(CC) -o $(CHECKDUMPPRGNAME) $(CCOPT) $(DEBUG) $(CHECKDUMPOBJ)
 
 .c.o:
 	$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<

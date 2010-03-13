@@ -5,6 +5,7 @@
 redis-cli
 redis-server
 redis-benchmark
+redis-check-dump
 doc-tools
 mkrelease.sh
 release
