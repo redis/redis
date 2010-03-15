@@ -1,3 +1,6 @@
+2010-03-15 Fixed the same problem in ZREVRANK
+2010-03-15 Fixed a ZRANK bug
+2010-03-15 zipmap to hash conversion in HSET
 2010-03-14 max zipmap entries and max zipmap value parameters added into INFO output
 2010-03-14 HDEL and some improvement in DEBUG OBJECT command
 2010-03-14 Append only file support for hashes
