@@ -742,7 +742,7 @@ static struct redisCommand cmdTable[] = {
     {"zcard",zcardCommand,2,REDIS_CMD_INLINE,1,1,1},
     {"zscore",zscoreCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,1,1,1},
     {"zrank",zrankCommand,3,REDIS_CMD_BULK,1,1,1},
-    {"zrevrank",zrevrankCommand,3,REDIS_CMD_INLINE,1,1,1},
+    {"zrevrank",zrevrankCommand,3,REDIS_CMD_BULK,1,1,1},
     {"hset",hsetCommand,4,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,1,1,1},
     {"hget",hgetCommand,3,REDIS_CMD_BULK,1,1,1},
     {"hdel",hdelCommand,3,REDIS_CMD_BULK,1,1,1},
