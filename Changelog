@@ -1,3 +1,8 @@
+2010-03-14 max zipmap entries and max zipmap value parameters added into INFO output
+2010-03-14 HDEL and some improvement in DEBUG OBJECT command
+2010-03-14 Append only file support for hashes
+2010-03-13 utility to check rdb files for unprocessable opcodes
+2010-03-12 A minor fix and a few debug messages removed
 2010-03-12 Applied the replication bug patch provided by Jeremy Zawodny, removing temp file collision after the slave got the dump.rdb file in the SYNC stage
 2010-03-11 Fix for HGET against non Hash type, debug messages used to understand a bit better a corrupted rdb file
 2010-03-09 fix: use zmalloc instead of malloc
