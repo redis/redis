@@ -3590,8 +3590,6 @@ static robj *rdbLoadObject(int type, FILE *fp) {
                 tryObjectEncoding(key);
                 tryObjectEncoding(val);
                 dictAdd((dict*)o->ptr,key,val);
-                incrRefCount(key);
-                incrRefCount(val);
             }
         }
     } else {
