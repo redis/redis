@@ -1520,6 +1520,66 @@ proc main {server port} {
         $r zrange zset 0 -1
     } {min c a b d max}
 
+    test {HSET/HLEN - Small hash creation} {
+        array set smallhash {}
+        for {set i 0} {$i < 8} {incr i} {
+            set key [randstring 0 8 alpha]
+            set val [randstring 0 8 alpha]
+            if {[info exists smallhash($key)]} {
+                incr i -1
+                continue
+            }
+            $r hset smallhash $key $val
+            set smallhash($key) $val
+        }
+        list [$r hlen smallhash]
+    } {8}
+
+    test {Is the small hash encoded with a zipmap?} {
+        $r debug object smallhash
+    } {*zipmap*}
+
+    test {HSET/HLEN - Big hash creation} {
+        array set bighash {}
+        for {set i 0} {$i < 1024} {incr i} {
+            set key [randstring 0 8 alpha]
+            set val [randstring 0 8 alpha]
+            if {[info exists bighash($key)]} {
+                incr i -1
+                continue
+            }
+            $r hset bighash $key $val
+            set bighash($key) $val
+        }
+        list [$r hlen bighash]
+    } {1024}
+
+    test {Is the big hash encoded with a zipmap?} {
+        $r debug object bighash
+    } {*hashtable*}
+
+    test {HGET against the small hash} {
+        set err {}
+        foreach k [array names smallhash *] {
+            if {$smallhash($k) ne [$r hget smallhash $k]} {
+                set err "$smallhash($k) != [$r hget smallhash $k]"
+                break
+            }
+        }
+        set _ $err
+    } {}
+
+    test {HGET against the big hash} {
+        set err {}
+        foreach k [array names bighash *] {
+            if {$bighash($k) ne [$r hget bighash $k]} {
+                set err "$bighash($k) != [$r hget bighash $k]"
+                break
+            }
+        }
+        set _ $err
+    } {}
+
     test {EXPIRE - don't set timeouts multiple times} {
         $r set x foobar
         set v1 [$r expire x 5]
