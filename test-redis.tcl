@@ -1644,12 +1644,24 @@ proc main {server port} {
         lappend rv [$r hdel smallhash $k]
         lappend rv [$r hdel smallhash $k]
         lappend rv [$r hget smallhash $k]
+        unset smallhash($k)
         set k [lindex [array names bighash *] 0]
         lappend rv [$r hdel bighash $k]
         lappend rv [$r hdel bighash $k]
         lappend rv [$r hget bighash $k]
+        unset bighash($k)
         set _ $rv
     } {0 0 1 0 {} 1 0 {}}
+
+    test {HEXISTS} {
+        set rv {}
+        set k [lindex [array names smallhash *] 0]
+        lappend rv [$r hexists smallhash $k]
+        lappend rv [$r hexists smallhash nokey]
+        set k [lindex [array names bighash *] 0]
+        lappend rv [$r hexists bighash $k]
+        lappend rv [$r hexists bighash nokey]
+    } {1 0 1 0}
 
     test {Is a zipmap encoded Hash promoted on big payload?} {
         $r hset smallhash foo [string repeat a 1024]

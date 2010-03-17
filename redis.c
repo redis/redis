@@ -689,6 +689,7 @@ static void zinterCommand(redisClient *c);
 static void hkeysCommand(redisClient *c);
 static void hvalsCommand(redisClient *c);
 static void hgetallCommand(redisClient *c);
+static void hexistsCommand(redisClient *c);
 
 /*================================= Globals ================================= */
 
@@ -754,6 +755,7 @@ static struct redisCommand cmdTable[] = {
     {"hkeys",hkeysCommand,2,REDIS_CMD_INLINE,1,1,1},
     {"hvals",hvalsCommand,2,REDIS_CMD_INLINE,1,1,1},
     {"hgetall",hgetallCommand,2,REDIS_CMD_INLINE,1,1,1},
+    {"hexists",hexistsCommand,3,REDIS_CMD_BULK,1,1,1},
     {"incrby",incrbyCommand,3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,1,1,1},
     {"decrby",decrbyCommand,3,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,1,1,1},
     {"getset",getsetCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,1,1,1},
@@ -5993,6 +5995,26 @@ static void hvalsCommand(redisClient *c) {
 
 static void hgetallCommand(redisClient *c) {
     genericHgetallCommand(c,REDIS_GETALL_KEYS|REDIS_GETALL_VALS);
+}
+
+static void hexistsCommand(redisClient *c) {
+    robj *o;
+    int exists = 0;
+
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
+        checkType(c,o,REDIS_HASH)) return;
+
+    if (o->encoding == REDIS_ENCODING_ZIPMAP) {
+        robj *field;
+        unsigned char *zm = o->ptr;
+
+        field = getDecodedObject(c->argv[2]);
+        exists = zipmapExists(zm,field->ptr,sdslen(field->ptr));
+        decrRefCount(field);
+    } else {
+        exists = dictFind(o->ptr,c->argv[2]) != NULL;
+    }
+    addReply(c,exists ? shared.cone : shared.czero);
 }
 
 static void convertToRealHash(robj *o) {

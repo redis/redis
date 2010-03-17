@@ -153,6 +153,7 @@ static struct redisCommand cmdTable[] = {
     {"hkeys",2,REDIS_CMD_INLINE},
     {"hvals",2,REDIS_CMD_INLINE},
     {"hgetall",2,REDIS_CMD_INLINE},
+    {"hexists",3,REDIS_CMD_BULK},
     {NULL,0,0}
 };
 
