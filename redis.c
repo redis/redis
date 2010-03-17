@@ -1005,6 +1005,10 @@ static int dictEncObjKeyCompare(void *privdata, const void *key1,
     robj *o1 = (robj*) key1, *o2 = (robj*) key2;
     int cmp;
 
+    if (o1->encoding == REDIS_ENCODING_INT &&
+        o2->encoding == REDIS_ENCODING_INT &&
+        o1->ptr == o2->ptr) return 0;
+
     o1 = getDecodedObject(o1);
     o2 = getDecodedObject(o2);
     cmp = sdsDictKeyCompare(privdata,o1->ptr,o2->ptr);
@@ -5943,9 +5947,12 @@ static void hdelCommand(redisClient *c) {
         checkType(c,o,REDIS_HASH)) return;
 
     if (o->encoding == REDIS_ENCODING_ZIPMAP) {
+        robj *field = getDecodedObject(c->argv[2]);
+
         o->ptr = zipmapDel((unsigned char*) o->ptr,
-            (unsigned char*) c->argv[2]->ptr,
-            sdslen(c->argv[2]->ptr), &deleted);
+            (unsigned char*) field->ptr,
+            sdslen(field->ptr), &deleted);
+        decrRefCount(field);
     } else {
         deleted = dictDelete((dict*)o->ptr,c->argv[2]) == DICT_OK;
     }

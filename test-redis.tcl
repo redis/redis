@@ -125,6 +125,7 @@ proc randomKey {} {
 proc createComplexDataset {r ops} {
     for {set j 0} {$j < $ops} {incr j} {
         set k [randomKey]
+        set f [randomValue]
         set v [randomValue]
         randpath {
             set d [expr {rand()}]
@@ -150,6 +151,8 @@ proc createComplexDataset {r ops} {
                 $r sadd $k $v
             } {
                 $r zadd $k $d $v
+            } {
+                $r hset $k $f $v
             }
             set t [$r type $k]
         }
@@ -172,6 +175,10 @@ proc createComplexDataset {r ops} {
             {zset} {
                 randpath {$r zadd $k $d $v} \
                         {$r zrem $k $v}
+            }
+            {hash} {
+                randpath {$r hset $k $f $v} \
+                        {$r hdel $k $f}
             }
         }
     }
