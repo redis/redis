@@ -1584,10 +1584,12 @@ proc main {server port} {
         set rv {}
         set k [lindex [array names smallhash *] 0]
         lappend rv [$r hset smallhash $k newval1]
+        set smallhash($k) newval1
         lappend rv [$r hget smallhash $k]
         lappend rv [$r hset smallhash __foobar123__ newval]
         set k [lindex [array names bighash *] 0]
         lappend rv [$r hset bighash $k newval2]
+        set bighash($k) newval2
         lappend rv [$r hget bighash $k]
         lappend rv [$r hset bighash __foobar123__ newval]
         lappend rv [$r hdel smallhash __foobar123__]
@@ -1610,12 +1612,51 @@ proc main {server port} {
         lsort [$r hkeys bighash]
     } [lsort [array names bighash *]]
 
+    test {HVALS - small hash} {
+        set vals {}
+        foreach {k v} [array get smallhash] {
+            lappend vals $v
+        }
+        set _ [lsort $vals]
+    } [lsort [$r hvals smallhash]]
+
+    test {HVALS - big hash} {
+        set vals {}
+        foreach {k v} [array get bighash] {
+            lappend vals $v
+        }
+        set _ [lsort $vals]
+    } [lsort [$r hvals bighash]]
+
+    test {HGETALL - small hash} {
+        lsort [$r hgetall smallhash]
+    } [lsort [array get smallhash]]
+
+    test {HGETALL - big hash} {
+        lsort [$r hgetall bighash]
+    } [lsort [array get bighash]]
+
+    test {HDEL and return value} {
+        set rv {}
+        lappend rv [$r hdel smallhash nokey]
+        lappend rv [$r hdel bighash nokey]
+        set k [lindex [array names smallhash *] 0]
+        lappend rv [$r hdel smallhash $k]
+        lappend rv [$r hdel smallhash $k]
+        lappend rv [$r hget smallhash $k]
+        set k [lindex [array names bighash *] 0]
+        lappend rv [$r hdel bighash $k]
+        lappend rv [$r hdel bighash $k]
+        lappend rv [$r hget bighash $k]
+        set _ $rv
+    } {0 0 1 0 {} 1 0 {}}
+
+    test {Is a zipmap encoded Hash promoted on big payload?} {
+        $r hset smallhash foo [string repeat a 1024]
+        $r debug object smallhash
+    } {*hashtable*}
+
     # TODO:
-    # Propoted to hash table on big payload?
-    # HVALS
-    # HGETALL
-    # HDEL
-    # HDEL return value
     # Randomized test, small and big
     # .rdb / AOF consistency test should include hashes
 
