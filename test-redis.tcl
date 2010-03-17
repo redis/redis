@@ -1580,6 +1580,43 @@ proc main {server port} {
         set _ $err
     } {}
 
+    test {HSET return value. Update or insert?} {
+        set rv {}
+        set k [lindex [array names smallhash *] 0]
+        lappend rv [$r hset smallhash $k newval]
+        lappend rv [$r hset smallhash __foobar123__ newval]
+        set k [lindex [array names bighash *] 0]
+        lappend rv [$r hset bighash $k newval]
+        lappend rv [$r hset bighash __foobar123__ newval]
+        lappend rv [$r hdel smallhash __foobar123__]
+        lappend rv [$r hdel bighash __foobar123__]
+        set _ $rv
+    } {0 1 0 1 1 1}
+
+    test {HGET against non existing key} {
+        set rv {}
+        lappend rv [$r hget smallhash __123123123__]
+        lappend rv [$r hget bighash __123123123__]
+        set _ $rv
+    } {{} {}}
+
+    test {HKEYS - small hash} {
+        lsort [$r hkeys smallhash]
+    } [lsort [array names smallhash *]]
+
+    test {HKEYS - big hash} {
+        lsort [$r hkeys bighash]
+    } [lsort [array names bighash *]]
+
+    # TODO:
+    # Propoted to hash table on big payload?
+    # HVALS
+    # HGETALL
+    # HDEL
+    # HDEL return value
+    # Randomized test, small and big
+    # .rdb / AOF consistency test should include hashes
+
     test {EXPIRE - don't set timeouts multiple times} {
         $r set x foobar
         set v1 [$r expire x 5]
