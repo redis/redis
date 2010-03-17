@@ -1491,6 +1491,14 @@ proc main {server port} {
         list [$r zunion zsetc 2 zseta zsetb weights 2 3] [$r zrange zsetc 0 -1 withscores]
     } {4 {a 2 b 7 d 9 c 12}}
 
+    test {ZUNION with AGGREGATE MIN} {
+        list [$r zunion zsetc 2 zseta zsetb aggregate min] [$r zrange zsetc 0 -1 withscores]
+    } {4 {a 1 b 1 c 2 d 3}}
+
+    test {ZUNION with AGGREGATE MAX} {
+        list [$r zunion zsetc 2 zseta zsetb aggregate max] [$r zrange zsetc 0 -1 withscores]
+    } {4 {a 1 b 2 c 3 d 3}}
+
     test {ZINTER basics} {
         list [$r zinter zsetc 2 zseta zsetb] [$r zrange zsetc 0 -1 withscores]
     } {2 {b 3 c 5}}
@@ -1498,6 +1506,14 @@ proc main {server port} {
     test {ZINTER with weights} {
         list [$r zinter zsetc 2 zseta zsetb weights 2 3] [$r zrange zsetc 0 -1 withscores]
     } {2 {b 7 c 12}}
+
+    test {ZINTER with AGGREGATE MIN} {
+        list [$r zinter zsetc 2 zseta zsetb aggregate min] [$r zrange zsetc 0 -1 withscores]
+    } {2 {b 1 c 2}}
+
+    test {ZINTER with AGGREGATE MAX} {
+        list [$r zinter zsetc 2 zseta zsetb aggregate max] [$r zrange zsetc 0 -1 withscores]
+    } {2 {b 2 c 3}}
 
     test {SORT against sorted sets} {
         $r del zset
