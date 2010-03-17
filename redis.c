@@ -5849,7 +5849,7 @@ static void hsetCommand(redisClient *c) {
         tryObjectEncoding(c->argv[2]);
         /* note that c->argv[3] is already encoded, as the latest arg
          * of a bulk command is always integer encoded if possible. */
-        if (dictAdd(o->ptr,c->argv[2],c->argv[3]) == DICT_OK) {
+        if (dictReplace(o->ptr,c->argv[2],c->argv[3])) {
             incrRefCount(c->argv[2]);
         } else {
             update = 1;
