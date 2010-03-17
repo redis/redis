@@ -1580,18 +1580,20 @@ proc main {server port} {
         set _ $err
     } {}
 
-    test {HSET return value. Update or insert?} {
+    test {HSET in update and insert mode} {
         set rv {}
         set k [lindex [array names smallhash *] 0]
-        lappend rv [$r hset smallhash $k newval]
+        lappend rv [$r hset smallhash $k newval1]
+        lappend rv [$r hget smallhash $k]
         lappend rv [$r hset smallhash __foobar123__ newval]
         set k [lindex [array names bighash *] 0]
-        lappend rv [$r hset bighash $k newval]
+        lappend rv [$r hset bighash $k newval2]
+        lappend rv [$r hget bighash $k]
         lappend rv [$r hset bighash __foobar123__ newval]
         lappend rv [$r hdel smallhash __foobar123__]
         lappend rv [$r hdel bighash __foobar123__]
         set _ $rv
-    } {0 1 0 1 1 1}
+    } {0 newval1 1 0 newval2 1 1 1}
 
     test {HGET against non existing key} {
         set rv {}
