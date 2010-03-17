@@ -67,7 +67,7 @@ redis-check-dump: $(CHECKDUMPOBJ)
 	$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
 
 clean:
-	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) *.o *.gcda *.gcno *.gcov
+	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) *.o *.gcda *.gcno *.gcov
 
 dep:
 	$(CC) -MM *.c
