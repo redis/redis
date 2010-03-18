@@ -152,7 +152,6 @@ proc createComplexDataset {r ops} {
             } {
                 $r zadd $k $d $v
             } {
-                puts "hset $k $f $v"
                 $r hset $k $f $v
             }
             set t [$r type $k]
@@ -179,7 +178,7 @@ proc createComplexDataset {r ops} {
             }
             {hash} {
                 randpath {$r hset $k $f $v} \
-                        {puts "$r hdel $k $f"; $r hdel $k $f}
+                        {$r hdel $k $f}
             }
         }
     }
@@ -210,6 +209,12 @@ proc datasetDigest r {
                     set aux {}
                 } else {
                     set aux [::sha1::sha1 -hex [$r zrange $k 0 -1]]
+                }
+            } {hash} {
+                if {[$r hlen $k] == 0} {
+                    set aux {}
+                } else {
+                    set aux [::sha1::sha1 -hex [lsort [$r hgetall $k]]]
                 }
             } default {
                 error "Type not supported: $t"
