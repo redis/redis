@@ -152,6 +152,7 @@ proc createComplexDataset {r ops} {
             } {
                 $r zadd $k $d $v
             } {
+                puts "hset $k $f $v"
                 $r hset $k $f $v
             }
             set t [$r type $k]
@@ -178,7 +179,7 @@ proc createComplexDataset {r ops} {
             }
             {hash} {
                 randpath {$r hset $k $f $v} \
-                        {$r hdel $k $f}
+                        {puts "$r hdel $k $f"; $r hdel $k $f}
             }
         }
     }
