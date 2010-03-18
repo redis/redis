@@ -1763,7 +1763,6 @@ proc main {server port} {
                 set rank [$r zrank myzset $ele]
                 if {$rank != $index} {
                     set err "$ele RANK is wrong! ($rank != $index)"
-                    exit
                     break
                 }
             }
