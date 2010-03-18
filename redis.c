@@ -5956,6 +5956,7 @@ static void hdelCommand(redisClient *c) {
     } else {
         deleted = dictDelete((dict*)o->ptr,c->argv[2]) == DICT_OK;
     }
+    if (deleted) server.dirty++;
     addReply(c,deleted ? shared.cone : shared.czero);
 }
 
