@@ -1,3 +1,23 @@
+2010-03-18 reverted an optimization that makes Redis not stable
+2010-03-18 Fixed redis-cli auth code
+2010-03-17 HDEL fix, an optimization for comparison of objects in hash table lookups when they are integer encoding
+2010-03-17 Version is now 1.3.5
+2010-03-17 Merged Pietern patch for VM key args helper function. Fixed an obvious bug in the redis-cli passwd auth stuff
+2010-03-17 Merge branch 'aggregates' of git://github.com/pietern/redis
+2010-03-17 Added Authentication to redis-cli.c using -a switch Update usage fixed Makefile to delete redis-check-dump during make clean
+2010-03-17 HEXISTS and tests implemented
+2010-03-17 More hash tests
+2010-03-17 better HSET test
+2010-03-17 Fixed a bug in HSET, a memory leak, and a theoretical bug in dict.c
+2010-03-17 More Hash tests
+2010-03-13 added preloading keys from VM when using ZINTER or ZUNION
+2010-03-13 added explicit AGGREGATE [SUM|MIN|MAX] option to ZUNION/ZINTER
+2010-03-16 HGET fix for integer encoded field against zipmap encoded hash
+2010-03-16 zrevrank support in redis-cli
+2010-03-16 HKEYS / HVALS / HGETALL
+2010-03-16 Solved a memory leak with Hashes
+2010-03-15 pretty big refactoring
+2010-03-15 An interesting refactoring + more expressive internal API
 2010-03-15 Fixed the same problem in ZREVRANK
 2010-03-15 Fixed a ZRANK bug
 2010-03-15 zipmap to hash conversion in HSET
