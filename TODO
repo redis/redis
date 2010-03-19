@@ -8,8 +8,6 @@ VERSION 2.0 TODO
 * Save dataset / fsync() on SIGTERM
 * MULTI/EXEC should support the "EXEC FSYNC" form?
 * BLPOP & C. tests (write a non blocking Tcl client as first step)
-* ZCOUNT sortedset min max
-* ZRANK: http://docs.google.com/viewer?a=v&q=cache:tCQaP3ZeN4YJ:courses.csail.mit.edu/6.046/spring04/handouts/ps5-sol.pdf+skip+list+rank+operation+augmented&hl=en&pid=bl&srcid=ADGEEShXuNjTcZyXw_1cq9OaWpSXy3PprjXqVzmM-LE0ETFznLyrDXJKQ_mBPNT10R8ErkoiXD9JbMw_FaoHmOA4yoGVrA7tZWiy393JwfCwuewuP93sjbkzZ_gnEp83jYhPYjThaIzw&sig=AHIEtbRF0GkYCdYRFtTJBE69senXZwFY0w
 * Once ZRANK is implemented, change the implementation of ZCOUNT to use the augmented skiplist in order to be much faster.
 * Write doc for ZCOUNT, and for open / closed intervals of sorted sets range operations.
 
@@ -29,7 +27,7 @@ Virtual Memory sub-TODO:
 
 * Hashes (GET/SET/DEL/INCRBY/EXISTS/FIELDS/LEN/MSET/MGET). Special encoding for hashes with less than N elements.
 * Write documentation for APPEND
-* Implement LEN, SUBSTR, PEEK, POKE, SETBIT, GETBIT
+* Implement LEN, PEEK, POKE, SETBIT, GETBIT
 
 VERSION 2.2 TODO (Fault tolerant sharding)
 ===========================================
