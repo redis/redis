@@ -1701,6 +1701,8 @@ static void loadServerConfig(char *filename) {
             if (server.dbnum < 1) {
                 err = "Invalid number of databases"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"include") && argc == 2) {
+            loadServerConfig(argv[1]);
         } else if (!strcasecmp(argv[0],"maxclients") && argc == 2) {
             server.maxclients = atoi(argv[1]);
         } else if (!strcasecmp(argv[0],"maxmemory") && argc == 2) {
