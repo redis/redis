@@ -1,3 +1,11 @@
+2010-03-19 support for include directive in config parser
+2010-03-19 Removed a stupid overriding of config values due to a wrong cut&paste
+2010-03-19 VM hash type swappability implemented. Handling of failed pthread_create() call.
+2010-03-18 increment server.dirty on HDEL
+2010-03-18 Redis 1.3.6
+2010-03-18 test-redis.tcl dataset digest function Hash support
+2010-03-18 zipmap fix for large values
+2010-03-18 Optimization fixed and re-activated
 2010-03-18 reverted an optimization that makes Redis not stable
 2010-03-18 Fixed redis-cli auth code
 2010-03-17 HDEL fix, an optimization for comparison of objects in hash table lookups when they are integer encoding
