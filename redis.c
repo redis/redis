@@ -353,6 +353,7 @@ struct redisServer {
     time_t stat_starttime;         /* server start time */
     long long stat_numcommands;    /* number of processed commands */
     long long stat_numconnections; /* number of connections received */
+    long long stat_expiredkeys;   /* number of expired keys */
     /* Configuration */
     int verbosity;
     int glueoutputbuf;
@@ -1355,6 +1356,7 @@ static int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientD
                 if (now > t) {
                     deleteKey(db,dictGetEntryKey(de));
                     expired++;
+                    server.stat_expiredkeys++;
                 }
             }
         } while (expired > REDIS_EXPIRELOOKUPS_PER_CRON/4);
@@ -1574,6 +1576,7 @@ static void initServer() {
     server.dirty = 0;
     server.stat_numcommands = 0;
     server.stat_numconnections = 0;
+    server.stat_expiredkeys = 0;
     server.stat_starttime = time(NULL);
     server.unixtime = time(NULL);
     aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL);
@@ -6533,6 +6536,7 @@ static sds genRedisInfoString(void) {
         "bgrewriteaof_in_progress:%d\r\n"
         "total_connections_received:%lld\r\n"
         "total_commands_processed:%lld\r\n"
+        "expired_keys:%lld\r\n"
         "hash_max_zipmap_entries:%ld\r\n"
         "hash_max_zipmap_value:%ld\r\n"
         "vm_enabled:%d\r\n"
@@ -6554,6 +6558,7 @@ static sds genRedisInfoString(void) {
         server.bgrewritechildpid != -1,
         server.stat_numconnections,
         server.stat_numcommands,
+        server.stat_expiredkeys,
         server.hash_max_zipmap_entries,
         server.hash_max_zipmap_value,
         server.vm_enabled != 0,
@@ -6677,6 +6682,7 @@ static int expireIfNeeded(redisDb *db, robj *key) {
 
     /* Delete the key */
     dictDelete(db->expires,key);
+    server.stat_expiredkeys++;
     return dictDelete(db->dict,key) == DICT_OK;
 }
 
@@ -6689,6 +6695,7 @@ static int deleteIfVolatile(redisDb *db, robj *key) {
 
     /* Delete the key */
     server.dirty++;
+    server.stat_expiredkeys++;
     dictDelete(db->expires,key);
     return dictDelete(db->dict,key) == DICT_OK;
 }
