@@ -64,6 +64,7 @@ SMALL ONES:
 * Don't save empty lists / sets / zsets on disk with snapshotting.
 * Remove keys when a list / set / zset reaches length of 0.
 * An option to exec a command slave-side if the master connection is lost: even cooler: if the script returns "0" the slave elects itself as master, otherwise continue trying to reconnect.
+* PING the master from time to time to check if it's gone.
 
 THE "MAYBE" TODO LIST: things that may or may not get implemented
 =================================================================
