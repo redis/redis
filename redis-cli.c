@@ -307,7 +307,7 @@ static int selectDb(int fd) {
     return 0;
 }
 
-static int cliSendCommand(int argc, char **argv) {
+static int cliSendCommand(int argc, char **argv, int repeat) {
     struct redisCommand *rc = lookupCommand(argv[0]);
     int fd, j, retval = 0;
     int read_forever = 0;
@@ -333,7 +333,7 @@ static int cliSendCommand(int argc, char **argv) {
         return 1;
     }
 
-    while(config.repeat--) {
+    while(repeat--) {
         /* Build the command to send */
         cmd = sdsempty();
         if (rc->flags & REDIS_CMD_MULTIBULK) {
@@ -469,14 +469,6 @@ static void repl() {
     char *line = buffer;
     char **ap, *args[max];
 
-    if (config.auth != NULL) {
-        char *authargv[2];
-
-        authargv[0] = "AUTH";
-        authargv[1] = config.auth;
-        cliSendCommand(2, convertToSds(2, authargv));
-    }
-
     while (prompt(line, size)) {
         argc = 0;
 
@@ -490,8 +482,7 @@ static void repl() {
             }
         }
 
-        config.repeat = 1;
-        cliSendCommand(argc, convertToSds(argc, args));
+        cliSendCommand(argc, convertToSds(argc, args), 1);
         line = buffer;
     }
 
@@ -514,6 +505,14 @@ int main(int argc, char **argv) {
     argc -= firstarg;
     argv += firstarg;
 
+    if (config.auth != NULL) {
+        char *authargv[2];
+
+        authargv[0] = "AUTH";
+        authargv[1] = config.auth;
+        cliSendCommand(2, convertToSds(2, authargv), 1);
+    }
+
     if (argc == 0 || config.interactive == 1) repl();
 
     argvcopy = convertToSds(argc, argv);
@@ -527,5 +526,5 @@ int main(int argc, char **argv) {
       }
     }
 
-    return cliSendCommand(argc, argvcopy);
+    return cliSendCommand(argc, argvcopy, config.repeat);
 }
