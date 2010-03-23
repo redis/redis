@@ -16,7 +16,7 @@ DEBUG?= -g -rdynamic -ggdb
 
 OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o
 BENCHOBJ = ae.o anet.o redis-benchmark.o sds.o adlist.o zmalloc.o
-CLIOBJ = anet.o sds.o adlist.o redis-cli.o zmalloc.o
+CLIOBJ = anet.o sds.o adlist.o redis-cli.o zmalloc.o linenoise.o
 CHECKDUMPOBJ = redis-check-dump.o lzf_c.o lzf_d.o
 
 PRGNAME = redis-server
@@ -34,12 +34,15 @@ ae_kqueue.o: ae_kqueue.c
 ae_select.o: ae_select.c
 anet.o: anet.c fmacros.h anet.h
 dict.o: dict.c fmacros.h dict.h zmalloc.h
+linenoise.o: linenoise.c
 lzf_c.o: lzf_c.c lzfP.h
 lzf_d.o: lzf_d.c lzfP.h
 pqsort.o: pqsort.c
 redis-benchmark.o: redis-benchmark.c fmacros.h ae.h anet.h sds.h adlist.h \
   zmalloc.h
-redis-cli.o: redis-cli.c fmacros.h anet.h sds.h adlist.h zmalloc.h
+redis-check-dump.o: redis-check-dump.c lzf.h
+redis-cli.o: redis-cli.c fmacros.h anet.h sds.h adlist.h zmalloc.h \
+  linenoise.h
 redis.o: redis.c fmacros.h config.h redis.h ae.h sds.h anet.h dict.h \
   adlist.h zmalloc.h lzf.h pqsort.h zipmap.h staticsymbols.h
 sds.o: sds.c sds.h zmalloc.h
