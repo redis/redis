@@ -91,7 +91,7 @@
 #define REDIS_CONFIGLINE_MAX    1024
 #define REDIS_OBJFREELIST_MAX   1000000 /* Max number of objects to cache */
 #define REDIS_MAX_SYNC_TIME     60      /* Slave can't take more to sync */
-#define REDIS_EXPIRELOOKUPS_PER_CRON    100 /* try to expire 100 keys/second */
+#define REDIS_EXPIRELOOKUPS_PER_CRON    10 /* try to expire 10 keys/loop */
 #define REDIS_MAX_WRITE_PER_EVENT (1024*64)
 #define REDIS_REQUEST_MAX_SIZE (1024*1024*256) /* max bytes in inline command */
 
@@ -1273,7 +1273,7 @@ static int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientD
         size = dictSlots(server.db[j].dict);
         used = dictSize(server.db[j].dict);
         vkeys = dictSize(server.db[j].expires);
-        if (!(loops % 5) && (used || vkeys)) {
+        if (!(loops % 50) && (used || vkeys)) {
             redisLog(REDIS_VERBOSE,"DB %d: %lld keys (%lld volatile) in %lld slots HT.",j,used,vkeys,size);
             /* dictPrintStats(server.dict); */
         }
@@ -1285,10 +1285,10 @@ static int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientD
      * if we resize the HT while there is the saving child at work actually
      * a lot of memory movements in the parent will cause a lot of pages
      * copied. */
-    if (server.bgsavechildpid == -1) tryResizeHashTables();
+    if (server.bgsavechildpid == -1 && !(loops % 10)) tryResizeHashTables();
 
     /* Show information about connected clients */
-    if (!(loops % 5)) {
+    if (!(loops % 50)) {
         redisLog(REDIS_VERBOSE,"%d clients connected (%d slaves), %zu bytes in use, %d shared objects",
             listLength(server.clients)-listLength(server.slaves),
             listLength(server.slaves),
@@ -1297,7 +1297,7 @@ static int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientD
     }
 
     /* Close connections of timedout clients */
-    if ((server.maxidletime && !(loops % 10)) || server.blpop_blocked_clients)
+    if ((server.maxidletime && !(loops % 100)) || server.blpop_blocked_clients)
         closeTimedoutClients();
 
     /* Check if a background saving or AOF rewrite in progress terminated */
@@ -1372,7 +1372,7 @@ static int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientD
             retval = (server.vm_max_threads == 0) ?
                         vmSwapOneObjectBlocking() :
                         vmSwapOneObjectThreaded();
-            if (retval == REDIS_ERR && (loops % 30) == 0 &&
+            if (retval == REDIS_ERR && !(loops % 300) &&
                 zmalloc_used_memory() >
                 (server.vm_max_memory+server.vm_max_memory/10))
             {
@@ -1387,13 +1387,13 @@ static int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientD
     }
 
     /* Check if we should connect to a MASTER */
-    if (server.replstate == REDIS_REPL_CONNECT) {
+    if (server.replstate == REDIS_REPL_CONNECT && !(loops % 10)) {
         redisLog(REDIS_NOTICE,"Connecting to MASTER...");
         if (syncWithMaster() == REDIS_OK) {
             redisLog(REDIS_NOTICE,"MASTER <-> SLAVE sync succeeded");
         }
     }
-    return 1000;
+    return 100;
 }
 
 /* This function gets called every time Redis is entering the
