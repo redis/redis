@@ -2187,10 +2187,6 @@ static int processCommand(redisClient *c) {
                 cmd->name));
         resetClient(c);
         return 1;
-    } else if (server.maxmemory && cmd->flags & REDIS_CMD_DENYOOM && zmalloc_used_memory() > server.maxmemory) {
-        addReplySds(c,sdsnew("-ERR command not allowed when used memory > 'maxmemory'\r\n"));
-        resetClient(c);
-        return 1;
     } else if (cmd->flags & REDIS_CMD_BULK && c->bulklen == -1) {
         /* This is a bulk command, we have to read the last argument yet. */
         int bulklen = atoi(c->argv[c->argc-1]->ptr);
@@ -2232,6 +2228,15 @@ static int processCommand(redisClient *c) {
     /* Check if the user is authenticated */
     if (server.requirepass && !c->authenticated && cmd->proc != authCommand) {
         addReplySds(c,sdsnew("-ERR operation not permitted\r\n"));
+        resetClient(c);
+        return 1;
+    }
+
+    /* Handle the maxmemory directive */
+    if (server.maxmemory && (cmd->flags & REDIS_CMD_DENYOOM) &&
+        zmalloc_used_memory() > server.maxmemory)
+    {
+        addReplySds(c,sdsnew("-ERR command not allowed when used memory > 'maxmemory'\r\n"));
         resetClient(c);
         return 1;
     }
