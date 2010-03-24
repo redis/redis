@@ -457,7 +457,7 @@ static void repl() {
     char *line;
     char **ap, *args[max];
 
-    while((line = linenoise(">> ")) != NULL) {
+    while((line = linenoise("redis> ")) != NULL) {
         if (line[0] != '\0') {
           linenoiseHistoryAdd(line);
           argc = 0;
