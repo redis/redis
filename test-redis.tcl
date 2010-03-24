@@ -234,7 +234,7 @@ proc main {server port} {
 
     # The following AUTH test should be enabled only when requirepass
     # <PASSWORD> is set in redis.conf and redis-server was started with
-    # redis.conf as the first argument.  
+    # redis.conf as the first argument.
 
     #test {AUTH with requirepass in redis.conf} {
     #    $r auth foobared
@@ -831,7 +831,7 @@ proc main {server port} {
     test {SUNION with two sets} {
         lsort [$r sunion set1 set2]
     } [lsort -uniq "[$r smembers set1] [$r smembers set2]"]
-    
+
     test {SINTERSTORE with two sets} {
         $r sinterstore setres set1 set2
         lsort [$r smembers setres]
@@ -920,7 +920,7 @@ proc main {server port} {
         }
         lsort [array names myset]
     } {a b c}
-    
+
     test {Create a random list and a random set} {
         set tosort {}
         array set seenrand {}
