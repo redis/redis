@@ -6021,8 +6021,6 @@ static void hincrbyCommand(redisClient *c) {
         value += incr;
         hval = createObject(REDIS_STRING,sdscatprintf(sdsempty(),"%lld",value));
         tryObjectEncoding(hval);
-        incrRefCount(hval);
-
         if (dictReplace(o->ptr,c->argv[2],hval)) {
             incrRefCount(c->argv[2]);
         }
