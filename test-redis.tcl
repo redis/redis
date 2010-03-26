@@ -1697,6 +1697,53 @@ proc main {server port} {
         $r debug object smallhash
     } {*hashtable*}
 
+    test {HINCRBY against non existing database key} {
+        $r del htest
+        list [$r hincrby htest foo 2]
+    } {2}
+
+    test {HINCRBY against non existing hash key} {
+        set rv {}
+        $r hdel smallhash tmp
+        $r hdel bighash tmp
+        lappend rv [$r hincrby smallhash tmp 2]
+        lappend rv [$r hget smallhash tmp]
+        lappend rv [$r hincrby bighash tmp 2]
+        lappend rv [$r hget bighash tmp]
+    } {2 2 2 2}
+
+    test {HINCRBY against hash key created by hincrby itself} {
+        set rv {}
+        lappend rv [$r hincrby smallhash tmp 3]
+        lappend rv [$r hget smallhash tmp]
+        lappend rv [$r hincrby bighash tmp 3]
+        lappend rv [$r hget bighash tmp]
+    } {5 5 5 5}
+
+    test {HINCRBY against hash key originally set with HSET} {
+        $r hset smallhash tmp 100
+        $r hset bighash tmp 100
+        list [$r hincrby smallhash tmp 2] [$r hincrby bighash tmp 2]
+    } {102 102}
+
+    test {HINCRBY over 32bit value} {
+        $r hset smallhash tmp 17179869184
+        $r hset bighash tmp 17179869184
+        list [$r hincrby smallhash tmp 1] [$r hincrby bighash tmp 1]
+    } {17179869185 17179869185}
+
+    test {HINCRBY over 32bit value with over 32bit increment} {
+        $r hset smallhash tmp 17179869184
+        $r hset bighash tmp 17179869184
+        list [$r hincrby smallhash tmp 17179869184] [$r hincrby bighash tmp 17179869184]
+    } {34359738368 34359738368}
+
+    test {HINCRBY against key with spaces (no integer encoded)} {
+        $r hset smallhash tmp "    11    "
+        $r hset bighash tmp "    11    "
+        list [$r hincrby smallhash tmp 1] [$r hincrby bighash tmp 1]
+    } {12 12}
+
     # TODO:
     # Randomized test, small and big
     # .rdb / AOF consistency test should include hashes
