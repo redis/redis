@@ -2437,8 +2437,7 @@ static void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mas
     } else {
         return;
     }
-    if (!(c->flags & REDIS_BLOCKED))
-        processInputBuffer(c);
+    processInputBuffer(c);
 }
 
 static int selectDb(redisClient *c, int id) {
