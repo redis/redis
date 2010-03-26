@@ -150,6 +150,7 @@ static struct redisCommand cmdTable[] = {
     {"exec",1,REDIS_CMD_INLINE},
     {"discard",1,REDIS_CMD_INLINE},
     {"hset",4,REDIS_CMD_MULTIBULK},
+    {"hincrby",4,REDIS_CMD_INLINE},
     {"hget",3,REDIS_CMD_BULK},
     {"hdel",3,REDIS_CMD_BULK},
     {"hlen",2,REDIS_CMD_INLINE},
