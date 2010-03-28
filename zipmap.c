@@ -106,7 +106,7 @@
 unsigned char *zipmapNew(void) {
     unsigned char *zm = zmalloc(2);
 
-    zm[0] = 0; /* Status */
+    zm[0] = 0; /* Length */
     zm[1] = ZIPMAP_END;
     return zm;
 }
@@ -237,6 +237,9 @@ unsigned char *zipmapSet(unsigned char *zm, unsigned char *key, unsigned int kle
         zm = zipmapResize(zm, zmlen+reqlen);
         p = zm+zmlen-1;
         zmlen = zmlen+reqlen;
+
+        /* Increase zipmap length (this is an insert) */
+        if (zm[0] < ZIPMAP_BIGLEN) zm[0]++;
     } else {
         unsigned char *b = p;
 
@@ -288,12 +291,16 @@ unsigned char *zipmapSet(unsigned char *zm, unsigned char *key, unsigned int kle
 /* Remove the specified key. If 'deleted' is not NULL the pointed integer is
  * set to 0 if the key was not found, to 1 if it was found and deleted. */
 unsigned char *zipmapDel(unsigned char *zm, unsigned char *key, unsigned int klen, int *deleted) {
-    unsigned int zmlen;
+    unsigned int zmlen, freelen;
     unsigned char *p = zipmapLookupRaw(zm,key,klen,&zmlen);
     if (p) {
-        unsigned int freelen = zipmapRawEntryLength(p);
+        freelen = zipmapRawEntryLength(p);
         memmove(p, p+freelen, zmlen-((p-zm)+freelen+1));
         zm = zipmapResize(zm, zmlen-freelen);
+
+        /* Decrease zipmap length */
+        if (zm[0] < ZIPMAP_BIGLEN) zm[0]--;
+
         if (deleted) *deleted = 1;
     } else {
         if (deleted) *deleted = 0;
@@ -355,10 +362,16 @@ int zipmapExists(unsigned char *zm, unsigned char *key, unsigned int klen) {
 
 /* Return the number of entries inside a zipmap */
 unsigned int zipmapLen(unsigned char *zm) {
-    unsigned char *p = zipmapRewind(zm);
     unsigned int len = 0;
+    if (zm[0] < ZIPMAP_BIGLEN) {
+        len = zm[0];
+    } else {
+        unsigned char *p = zipmapRewind(zm);
+        while((p = zipmapNext(p,NULL,NULL,NULL,NULL)) != NULL) len++;
 
-    while((p = zipmapNext(p,NULL,NULL,NULL,NULL)) != NULL) len++;
+        /* Re-store length if small enough */
+        if (len < ZIPMAP_BIGLEN) zm[0] = len;
+    }
     return len;
 }
 
