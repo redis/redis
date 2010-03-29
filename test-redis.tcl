@@ -359,10 +359,18 @@ proc main {server port} {
         $r incrby novar 17179869184
     } {34359738368}
 
-    test {INCR against key with spaces (no integer encoded)} {
+    test {INCR fails against key with spaces (no integer encoded)} {
         $r set novar "    11    "
-        $r incr novar
-    } {12}
+        catch {$r incr novar} err
+        format $err
+    } {ERR*}
+
+    test {INCR fails against a key holding a list} {
+        $r rpush mylist 1
+        catch {$r incr novar} err
+        $r rpop mylist
+        format $err
+    } {ERR*}
 
     test {DECRBY over 32bit value with over 32bit increment, negative res} {
         $r set novar 17179869184
@@ -902,9 +910,9 @@ proc main {server port} {
         $r lpush mysavelist world
         $r set myemptykey {}
         $r set mynormalkey {blablablba}
-        $r zadd mytestzset a 10
-        $r zadd mytestzset b 20
-        $r zadd mytestzset c 30
+        $r zadd mytestzset 10 a
+        $r zadd mytestzset 20 b
+        $r zadd mytestzset 30 c
         $r save
     } {OK}
 
