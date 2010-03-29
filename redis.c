@@ -1152,7 +1152,8 @@ static void closeTimedoutClients(void) {
         if (server.maxidletime &&
             !(c->flags & REDIS_SLAVE) &&    /* no timeout for slaves */
             !(c->flags & REDIS_MASTER) &&   /* no timeout for masters */
-             (now - c->lastinteraction > server.maxidletime))
+            dictSize(c->pubsub_classes) == 0 && /* no timeout for pubsub */
+            (now - c->lastinteraction > server.maxidletime))
         {
             redisLog(REDIS_VERBOSE,"Closing idle client");
             freeClient(c);
@@ -2260,6 +2261,14 @@ static int processCommand(redisClient *c) {
         zmalloc_used_memory() > server.maxmemory)
     {
         addReplySds(c,sdsnew("-ERR command not allowed when used memory > 'maxmemory'\r\n"));
+        resetClient(c);
+        return 1;
+    }
+
+    /* Only allow SUBSCRIBE and UNSUBSCRIBE in the context of Pub/Sub */
+    if (dictSize(c->pubsub_classes) > 0 &&
+        cmd->proc != subscribeCommand && cmd->proc != unsubscribeCommand) {
+        addReplySds(c,sdsnew("-ERR only SUBSCRIBE / UNSUBSCRIBE / QUIT allowed in this context\r\n"));
         resetClient(c);
         return 1;
     }
