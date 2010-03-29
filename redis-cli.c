@@ -159,6 +159,9 @@ static struct redisCommand cmdTable[] = {
     {"hgetall",2,REDIS_CMD_INLINE},
     {"hexists",3,REDIS_CMD_BULK},
     {"config",-2,REDIS_CMD_BULK},
+    {"subscribe",-2,REDIS_CMD_INLINE},
+    {"unsubscribe",-1,REDIS_CMD_INLINE},
+    {"publish",3,REDIS_CMD_BULK},
     {NULL,0,0}
 };
 
