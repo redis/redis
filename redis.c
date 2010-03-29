@@ -9312,6 +9312,12 @@ static int pubsubUnsubscribe(redisClient *c, robj *class, int notify) {
         ln = listSearchKey(clients,c);
         assert(ln != NULL);
         listDelNode(clients,ln);
+        if (listLength(clients) == 0) {
+            /* Free the list and associated hash entry at all if this was
+             * the latest client, so that it will be possible to abuse
+             * Redis PUBSUB creating millions of classes. */
+            dictDelete(server.pubsub_classes,class);
+        }
     }
     /* Notify the client */
     if (notify) {
