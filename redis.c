@@ -9301,6 +9301,8 @@ static int pubsubUnsubscribe(redisClient *c, robj *class, int notify) {
     int retval = 0;
 
     /* Remove the class from the client -> classes hash table */
+    incrRefCount(class); /* class may be just a pointer to the same object
+                            we have in the hash tables. Protect it... */
     if (dictDelete(c->pubsub_classes,class) == DICT_OK) {
         retval = 1;
         /* Remove the client from the class -> clients list hash table */
@@ -9318,6 +9320,7 @@ static int pubsubUnsubscribe(redisClient *c, robj *class, int notify) {
         addReplyBulk(c,class);
         addReplyLong(c,dictSize(c->pubsub_classes));
     }
+    decrRefCount(class); /* it is finally safe to release it */
     return retval;
 }
 
