@@ -1486,7 +1486,7 @@ static void createSharedObjects(void) {
     shared.select9 = createStringObject("select 9\r\n",10);
     shared.messagebulk = createStringObject("$7\r\nmessage\r\n",13);
     shared.subscribebulk = createStringObject("$9\r\nsubscribe\r\n",15);
-    shared.unsubscribebulk = createStringObject("$11\r\nunsubscribe\r\n",17);
+    shared.unsubscribebulk = createStringObject("$11\r\nunsubscribe\r\n",18);
     shared.mbulk3 = createStringObject("*3\r\n",4);
 }
 
@@ -6666,6 +6666,7 @@ static sds genRedisInfoString(void) {
         "expired_keys:%lld\r\n"
         "hash_max_zipmap_entries:%ld\r\n"
         "hash_max_zipmap_value:%ld\r\n"
+        "pubsub_classes:%ld\r\n"
         "vm_enabled:%d\r\n"
         "role:%s\r\n"
         ,REDIS_VERSION,
@@ -6688,6 +6689,7 @@ static sds genRedisInfoString(void) {
         server.stat_expiredkeys,
         server.hash_max_zipmap_entries,
         server.hash_max_zipmap_value,
+        dictSize(server.pubsub_classes),
         server.vm_enabled != 0,
         server.masterhost == NULL ? "master" : "slave"
     );
