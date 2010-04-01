@@ -1489,6 +1489,11 @@ proc main {server port} {
         list [$r zremrangebyrank zset 1 3] [$r zrange zset 0 -1]
     } {3 {a e}}
 
+    test {ZUNION against non-existing key doesn't set destination} {
+      $r del zseta
+      list [$r zunion dst_key 1 zseta] [$r exists dst_key]
+    } {0 0}
+
     test {ZUNION basics} {
         $r del zseta zsetb zsetc
         $r zadd zseta 1 a

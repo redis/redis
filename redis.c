@@ -5685,7 +5685,7 @@ static void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
         addReplyLong(c, dstzset->zsl->length);
         server.dirty++;
     } else {
-        decrRefCount(dstzset);
+        decrRefCount(dstobj);
         addReply(c, shared.czero);
     }
     zfree(src);
