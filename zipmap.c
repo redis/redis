@@ -201,7 +201,6 @@ static unsigned int zipmapRawValueLength(unsigned char *p) {
  * free space if any). */
 static unsigned int zipmapRawEntryLength(unsigned char *p) {
     unsigned int l = zipmapRawKeyLength(p);
-
     return l + zipmapRawValueLength(p+l);
 }
 
@@ -232,14 +231,10 @@ unsigned char *zipmapSet(unsigned char *zm, unsigned char *key, unsigned int kle
         /* Increase zipmap length (this is an insert) */
         if (zm[0] < ZIPMAP_BIGLEN) zm[0]++;
     } else {
-        unsigned char *b = p;
-
         /* Key found. Is there enough space for the new value? */
         /* Compute the total length: */
         if (update) *update = 1;
-        freelen = zipmapRawKeyLength(b);
-        b += freelen;
-        freelen += zipmapRawValueLength(b);
+        freelen = zipmapRawEntryLength(p);
         if (freelen < reqlen) {
             /* Move remaining entries to the current position, so this
              * pair can be appended. Note: the +1 in memmove is caused
