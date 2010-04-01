@@ -42,10 +42,11 @@
 
 /* Memory layout of a zipmap, for the map "foo" => "bar", "hello" => "world":
  *
- * <status><len>"foo"<len><free>"bar"<len>"hello"<len><free>"world"
+ * <zmlen><len>"foo"<len><free>"bar"<len>"hello"<len><free>"world"
  *
- * <status> is 1 byte status. Currently only 1 bit is used: if the least
- * significant bit is set, it means the zipmap needs to be defragmented.
+ * <zmlen> is 1 byte length that holds the current size of the zipmap.
+ * When the zipmap length is greater than or equal to 254, this value
+ * is not used and the zipmap needs to be traversed to find out the length.
  *
  * <len> is the length of the following string (key or value).
  * <len> lengths are encoded in a single value or in a 5 bytes value.
@@ -62,22 +63,15 @@
  * or even in order to add a key/value pair if it fits.
  *
  * <free> is always an unsigned 8 bit number, because if after an
- * update operation there are more than a few free bytes, they'll be converted
- * into empty space prefixed by the special value 254.
+ * update operation there are more than a few free bytes, the zipmap will be
+ * reallocated to make sure it is as small as possible.
  *
  * The most compact representation of the above two elements hash is actually:
  *
- * "\x00\x03foo\x03\x00bar\x05hello\x05\x00world\xff"
+ * "\x02\x03foo\x03\x00bar\x05hello\x05\x00world\xff"
  *
- * Empty space is marked using a 254 bytes + a <len> (coded as already
- * specified). The length includes the 254 bytes in the count and the
- * space taken by the <len> field. So for instance removing the "foo" key
- * from the zipmap above will lead to the following representation:
- *
- * "\x00\xfd\x10........\x05hello\x05\x00world\xff"
- *
- * Note that because empty space, keys, values, are all prefixed length
- * "objects", the lookup will take O(N) where N is the numeber of elements
+ * Note that because keys and values are prefixed length "objects",
+ * the lookup will take O(N) where N is the number of elements
  * in the zipmap and *not* the number of bytes needed to represent the zipmap.
  * This lowers the constant times considerably.
  */
