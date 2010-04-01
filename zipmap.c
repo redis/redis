@@ -92,7 +92,7 @@
 
 /* The following defines the max value for the <free> field described in the
  * comments above, that is, the max number of trailing bytes in a value. */
-#define ZIPMAP_VALUE_MAX_FREE 5
+#define ZIPMAP_VALUE_MAX_FREE 4
 
 /* The following macro returns the number of bytes needed to encode the length
  * for the integer value _l, that is, 1 byte for lengths < ZIPMAP_BIGLEN and
