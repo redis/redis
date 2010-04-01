@@ -208,7 +208,7 @@ static inline unsigned char *zipmapResize(unsigned char *zm, unsigned int len) {
  * If 'update' is not NULL, *update is set to 1 if the key was
  * already preset, otherwise to 0. */
 unsigned char *zipmapSet(unsigned char *zm, unsigned char *key, unsigned int klen, unsigned char *val, unsigned int vlen, int *update) {
-    unsigned int zmlen;
+    unsigned int zmlen, offset;
     unsigned int freelen, reqlen = zipmapRequiredLength(klen,vlen);
     unsigned int empty, vempty;
     unsigned char *p;
@@ -230,27 +230,34 @@ unsigned char *zipmapSet(unsigned char *zm, unsigned char *key, unsigned int kle
         if (update) *update = 1;
         freelen = zipmapRawEntryLength(p);
         if (freelen < reqlen) {
-            /* Move remaining entries to the current position, so this
-             * pair can be appended. Note: the +1 in memmove is caused
-             * by the end-of-zipmap byte. */
-            memmove(p, p+freelen, zmlen-((p-zm)+freelen+1));
+            /* Store the offset of this key within the current zipmap, so
+             * it can be resized. Then, move the tail backwards so this
+             * pair fits at the current position. */
+            offset = p-zm;
             zm = zipmapResize(zm, zmlen-freelen+reqlen);
-            p = zm+zmlen-1-freelen;
-            zmlen = zmlen-1-freelen+reqlen;
+            p = zm+offset;
+
+            /* The +1 in the number of bytes to be moved is caused by the
+             * end-of-zipmap byte. Note: the *original* zmlen is used. */
+            memmove(p+reqlen, p+freelen, zmlen-(offset+freelen+1));
+            zmlen = zmlen-freelen+reqlen;
             freelen = reqlen;
         }
     }
 
-    /* Ok we have a suitable block where to write the new key/value
-     * entry. */
+    /* We now have a suitable block where the key/value entry can
+     * be written. If there is too much free space, move the tail
+     * of the zipmap a few bytes to the front and shrink the zipmap,
+     * as we want zipmaps to be very space efficient. */
     empty = freelen-reqlen;
-    /* If there is too much free space mark it as a free block instead
-     * of adding it as trailing empty space for the value, as we want
-     * zipmaps to be very space efficient. */
     if (empty >= ZIPMAP_VALUE_MAX_FREE) {
-        memmove(p+reqlen, p+freelen, zmlen-((p-zm)+freelen+1));
+        /* First, move the tail <empty> bytes to the front, then resize
+         * the zipmap to be <empty> bytes smaller. */
+        offset = p-zm;
+        memmove(p+reqlen, p+freelen, zmlen-(offset+freelen+1));
         zmlen -= empty;
         zm = zipmapResize(zm, zmlen);
+        p = zm+offset;
         vempty = 0;
     } else {
         vempty = empty;
