@@ -111,6 +111,7 @@
    config file and the server is using more than maxmemory bytes of memory.
    In short this commands are denied on low memory conditions. */
 #define REDIS_CMD_DENYOOM       4
+#define REDIS_CMD_FORCE_REPLICATION 8 /* Force replication even if dirty is 0 */
 
 /* Object types */
 #define REDIS_STRING 0
@@ -829,7 +830,7 @@ static struct redisCommand cmdTable[] = {
     {"unsubscribe",unsubscribeCommand,-1,REDIS_CMD_INLINE,NULL,0,0,0},
     {"psubscribe",psubscribeCommand,-2,REDIS_CMD_INLINE,NULL,0,0,0},
     {"punsubscribe",punsubscribeCommand,-1,REDIS_CMD_INLINE,NULL,0,0,0},
-    {"publish",publishCommand,3,REDIS_CMD_BULK,NULL,0,0,0},
+    {"publish",publishCommand,3,REDIS_CMD_BULK|REDIS_CMD_FORCE_REPLICATION,NULL,0,0,0},
     {NULL,NULL,0,0,NULL,0,0,0}
 };
 
@@ -2120,9 +2121,12 @@ static void call(redisClient *c, struct redisCommand *cmd) {
 
     dirty = server.dirty;
     cmd->proc(c);
-    if (server.appendonly && server.dirty-dirty)
+    dirty = server.dirty-dirty;
+
+    if (server.appendonly && dirty)
         feedAppendOnlyFile(cmd,c->db->id,c->argv,c->argc);
-    if (server.dirty-dirty && listLength(server.slaves))
+    if ((dirty || cmd->flags & REDIS_CMD_FORCE_REPLICATION) &&
+        listLength(server.slaves))
         replicationFeedSlaves(server.slaves,c->db->id,c->argv,c->argc);
     if (listLength(server.monitors))
         replicationFeedSlaves(server.monitors,c->db->id,c->argv,c->argc);
