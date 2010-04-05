@@ -6037,10 +6037,7 @@ static void hincrbyCommand(redisClient *c) {
         }
     }
 
-    robj *o_incr = getDecodedObject(c->argv[3]);
-    incr = strtoll(o_incr->ptr, NULL, 10);
-    decrRefCount(o_incr);
-
+    incr = strtoll(c->argv[3]->ptr, NULL, 10);
     if (o->encoding == REDIS_ENCODING_ZIPMAP) {
         unsigned char *zm = o->ptr;
         unsigned char *zval;
