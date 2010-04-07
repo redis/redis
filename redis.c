@@ -1223,7 +1223,7 @@ void backgroundSaveDoneHandler(int statloc) {
         redisLog(REDIS_WARNING, "Background saving error");
     } else {
         redisLog(REDIS_WARNING,
-            "Background saving terminated by signal");
+            "Background saving terminated by signal %d", WTERMSIG(statloc));
         rdbRemoveTempFile(server.bgsavechildpid);
     }
     server.bgsavechildpid = -1;
@@ -1284,7 +1284,8 @@ void backgroundRewriteDoneHandler(int statloc) {
         redisLog(REDIS_WARNING, "Background append only file rewriting error");
     } else {
         redisLog(REDIS_WARNING,
-            "Background append only file rewriting terminated by signal");
+            "Background append only file rewriting terminated by signal %d",
+            WTERMSIG(statloc));
     }
 cleanup:
     sdsfree(server.bgrewritebuf);
