@@ -519,7 +519,7 @@ void dictEnableResize(void) {
 }
 
 void dictDisableResize(void) {
-    dict_can_resize = 0;
+    dict_can_resize = 1;
 }
 
 /* ----------------------- StringCopy Hash Table Type ------------------------*/
