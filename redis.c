@@ -5092,7 +5092,7 @@ static int zslRandomLevel(void) {
     int level = 1;
     while ((random()&0xFFFF) < (ZSKIPLIST_P * 0xFFFF))
         level += 1;
-    return (level<ZSKIPLIST_MAXLEVEL) ? level : (ZSKIPLIST_MAXLEVEL-1);
+    return (level<ZSKIPLIST_MAXLEVEL) ? level : ZSKIPLIST_MAXLEVEL;
 }
 
 static void zslInsert(zskiplist *zsl, double score, robj *obj) {
