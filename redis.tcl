@@ -33,6 +33,7 @@ array set ::redis::fd {}
 array set ::redis::blocking {}
 array set ::redis::callback {}
 array set ::redis::state {} ;# State in non-blocking reply reading
+array set ::redis::statestack {} ;# Stack of states, for nested mbulks
 array set ::redis::bulkarg {}
 array set ::redis::multibulkarg {}
 
@@ -117,6 +118,7 @@ proc ::redis::__method__close {id fd} {
     catch {unset ::redis::fd($id)}
     catch {unset ::redis::blocking($id)}
     catch {unset ::redis::state($id)}
+    catch {unset ::redis::statestack($id)}
     catch {unset ::redis::callback($id)}
     catch {interp alias {} ::redis::redisHandle$id {}}
 }
@@ -176,6 +178,7 @@ proc ::redis::redis_read_reply fd {
 
 proc ::redis::redis_reset_state id {
     set ::redis::state($id) [dict create buf {} mbulk -1 bulk -1 reply {}]
+    set ::redis::statestack($id) {}
 }
 
 proc ::redis::redis_call_callback {id type reply} {
@@ -209,7 +212,13 @@ proc ::redis::redis_readable {fd id} {
                     ::redis::redis_readable $fd $id
                 }
             }
-            * {dict set ::redis::state($id) mbulk [string range $line 1 end-1]}
+            * {
+                dict set ::redis::state($id) mbulk [string range $line 1 end-1]
+                # Handle *-1
+                if {[dict get $::redis::state($id) mbulk] == -1} {
+                    redis_call_callback $id reply {}
+                }
+            }
             default {
                 redis_call_callback $id err \
                     "Bad protocol, $type as reply type byte"
