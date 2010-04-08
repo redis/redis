@@ -1294,6 +1294,19 @@ cleanup:
     server.bgrewritechildpid = -1;
 }
 
+/* This function is called once a background process of some kind terminates,
+ * as we want to avoid resizing the hash tables when there is a child in order
+ * to play well with copy-on-write (otherwise when a resize happens lots of
+ * memory pages are copied). The goal of this function is to update the ability
+ * for dict.c to resize the hash tables accordingly to the fact we have o not
+ * running childs. */
+static void updateDictResizePolicy(void) {
+    if (server.bgsavechildpid == -1 && server.bgrewritechildpid == -1)
+        dictEnableResize();
+    else
+        dictDisableResize();
+}
+
 static int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     int j, loops = server.cronloops++;
     REDIS_NOTUSED(eventLoop);
@@ -1325,7 +1338,11 @@ static int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientD
      * if we resize the HT while there is the saving child at work actually
      * a lot of memory movements in the parent will cause a lot of pages
      * copied. */
-    if (server.bgsavechildpid == -1 && !(loops % 10)) tryResizeHashTables();
+    if (server.bgsavechildpid == -1 && server.bgrewritechildpid == -1 &&
+        !(loops % 10))
+    {
+        tryResizeHashTables();
+    }
 
     /* Show information about connected clients */
     if (!(loops % 50)) {
@@ -1351,6 +1368,7 @@ static int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientD
             } else {
                 backgroundRewriteDoneHandler(statloc);
             }
+            updateDictResizePolicy();
         }
     } else {
         /* If there is not a background saving in progress check if
@@ -3497,6 +3515,7 @@ static int rdbSaveBackground(char *filename) {
         }
         redisLog(REDIS_NOTICE,"Background saving started by pid %d",childpid);
         server.bgsavechildpid = childpid;
+        updateDictResizePolicy();
         return REDIS_OK;
     }
     return REDIS_OK; /* unreached */
@@ -8116,6 +8135,7 @@ static int rewriteAppendOnlyFileBackground(void) {
         redisLog(REDIS_NOTICE,
             "Background append only file rewriting started by pid %d",childpid);
         server.bgrewritechildpid = childpid;
+        updateDictResizePolicy();
         /* We set appendseldb to -1 in order to force the next call to the
          * feedAppendOnlyFile() to issue a SELECT command, so the differences
          * accumulated by the parent into server.bgrewritebuf will start

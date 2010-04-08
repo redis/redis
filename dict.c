@@ -45,6 +45,12 @@
 #include "dict.h"
 #include "zmalloc.h"
 
+/* Using dictEnableResize() / dictDisableResize() we make possible to
+ * enable/disable resizing of the hash table as needed. This is very important
+ * for Redis, as we use copy-on-write and don't want to move too much memory
+ * around when there is a child performing saving operations. */
+static int dict_can_resize = 1;
+
 /* ---------------------------- Utility funcitons --------------------------- */
 
 static void _dictPanic(const char *fmt, ...)
@@ -147,6 +153,7 @@ int dictResize(dict *ht)
 {
     int minimal = ht->used;
 
+    if (!dict_can_resize) return DICT_ERR;
     if (minimal < DICT_HT_INITIAL_SIZE)
         minimal = DICT_HT_INITIAL_SIZE;
     return dictExpand(ht, minimal);
@@ -417,7 +424,7 @@ static int _dictExpandIfNeeded(dict *ht)
      * if the table is "full" dobule its size. */
     if (ht->size == 0)
         return dictExpand(ht, DICT_HT_INITIAL_SIZE);
-    if (ht->used == ht->size)
+    if (ht->used >= ht->size && dict_can_resize)
         return dictExpand(ht, ht->size*2);
     return DICT_OK;
 }
@@ -505,6 +512,14 @@ void dictPrintStats(dict *ht) {
         if (clvector[i] == 0) continue;
         printf("   %s%ld: %ld (%.02f%%)\n",(i == DICT_STATS_VECTLEN-1)?">= ":"", i, clvector[i], ((float)clvector[i]/ht->size)*100);
     }
+}
+
+void dictEnableResize(void) {
+    dict_can_resize = 1;
+}
+
+void dictDisableResize(void) {
+    dict_can_resize = 0;
 }
 
 /* ----------------------- StringCopy Hash Table Type ------------------------*/
