@@ -2834,7 +2834,6 @@ static void freeHashObject(robj *o) {
 }
 
 static void incrRefCount(robj *o) {
-    redisAssert(!server.vm_enabled || o->storage == REDIS_VM_MEMORY);
     o->refcount++;
 }
 
@@ -8703,7 +8702,10 @@ static void freeIOJob(iojob *j) {
         j->type == REDIS_IOJOB_DO_SWAP ||
         j->type == REDIS_IOJOB_LOAD) && j->val != NULL)
         decrRefCount(j->val);
-    decrRefCount(j->key);
+    /* We don't decrRefCount the j->key field as we did't incremented
+     * the count creating IO Jobs. This is because the key field here is
+     * just used as an indentifier and if a key is removed the Job should
+     * never be touched again. */
     zfree(j);
 }
 
@@ -8876,7 +8878,7 @@ again:
             iojob *job = ln->value;
 
             if (job->canceled) continue; /* Skip this, already canceled. */
-            if (compareStringObjects(job->key,o) == 0) {
+            if (job->key == o) {
                 redisLog(REDIS_DEBUG,"*** CANCELED %p (%s) (type %d) (LIST ID %d)\n",
                     (void*)job, (char*)o->ptr, job->type, i);
                 /* Mark the pages as free since the swap didn't happened
@@ -9066,7 +9068,7 @@ static int vmSwapObjectThreaded(robj *key, robj *val, redisDb *db) {
     j = zmalloc(sizeof(*j));
     j->type = REDIS_IOJOB_PREPARE_SWAP;
     j->db = db;
-    j->key = dupStringObject(key);
+    j->key = key;
     j->val = val;
     incrRefCount(val);
     j->canceled = 0;
@@ -9134,7 +9136,7 @@ static int waitForSwappedKey(redisClient *c, robj *key) {
         j = zmalloc(sizeof(*j));
         j->type = REDIS_IOJOB_LOAD;
         j->db = c->db;
-        j->key = dupStringObject(key);
+        j->key = o;
         j->key->vtype = o->vtype;
         j->page = o->vm.page;
         j->val = NULL;
@@ -9653,6 +9655,9 @@ static void debugCommand(redisClient *c) {
                 (void*)key, key->refcount, (unsigned long long) key->vm.page,
                 (unsigned long long) key->vm.usedpages));
         }
+    } else if (!strcasecmp(c->argv[1]->ptr,"swapin") && c->argc == 3) {
+        lookupKeyRead(c->db,c->argv[2]);
+        addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"swapout") && c->argc == 3) {
         dictEntry *de = dictFind(c->db->dict,c->argv[2]);
         robj *key, *val;
@@ -9684,7 +9689,7 @@ static void debugCommand(redisClient *c) {
         }
     } else {
         addReplySds(c,sdsnew(
-            "-ERR Syntax error, try DEBUG [SEGFAULT|OBJECT <key>|SWAPOUT <key>|RELOAD]\r\n"));
+            "-ERR Syntax error, try DEBUG [SEGFAULT|OBJECT <key>|SWAPIN <key<|SWAPOUT <key>|RELOAD]\r\n"));
     }
 }
 
