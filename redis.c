@@ -342,8 +342,6 @@ struct redisServer {
     int port;
     int fd;
     redisDb *db;
-    dict *sharingpool;          /* Poll used for object sharing */
-    unsigned int sharingpoolsize;
     long long dirty;            /* changes to DB from the last save */
     list *clients;
     list *slaves, *monitors;
@@ -558,7 +556,6 @@ static robj *dupStringObject(robj *o);
 static void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
 static void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int argc);
 static int syncWithMaster(void);
-static robj *tryObjectSharing(robj *o);
 static int tryObjectEncoding(robj *o);
 static robj *getDecodedObject(robj *o);
 static int removeExpire(redisDb *db, robj *key);
@@ -1346,11 +1343,10 @@ static int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientD
 
     /* Show information about connected clients */
     if (!(loops % 50)) {
-        redisLog(REDIS_VERBOSE,"%d clients connected (%d slaves), %zu bytes in use, %d shared objects",
+        redisLog(REDIS_VERBOSE,"%d clients connected (%d slaves), %zu bytes in use",
             listLength(server.clients)-listLength(server.slaves),
             listLength(server.slaves),
-            zmalloc_used_memory(),
-            dictSize(server.sharingpool));
+            zmalloc_used_memory());
     }
 
     /* Close connections of timedout clients */
@@ -1564,7 +1560,6 @@ static void initServerConfig() {
     server.requirepass = NULL;
     server.shareobjects = 0;
     server.rdbcompression = 1;
-    server.sharingpoolsize = 1024;
     server.maxclients = 0;
     server.blpop_blocked_clients = 0;
     server.maxmemory = 0;
@@ -1617,7 +1612,6 @@ static void initServer() {
     createSharedObjects();
     server.el = aeCreateEventLoop();
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
-    server.sharingpool = dictCreate(&setDictType,NULL);
     server.fd = anetTcpServer(server.neterr, server.port, server.bindaddr);
     if (server.fd == -1) {
         redisLog(REDIS_WARNING, "Opening TCP port: %s", server.neterr);
@@ -1801,11 +1795,6 @@ static void loadServerConfig(char *filename) {
         } else if (!strcasecmp(argv[0],"rdbcompression") && argc == 2) {
             if ((server.rdbcompression = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"shareobjectspoolsize") && argc == 2) {
-            server.sharingpoolsize = atoi(argv[1]);
-            if (server.sharingpoolsize < 1) {
-                err = "invalid object sharing pool size"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"daemonize") && argc == 2) {
             if ((server.daemonize = yesnotoi(argv[1])) == -1) {
@@ -2285,12 +2274,6 @@ static int processCommand(redisClient *c) {
              * from the socket. */
             return 1;
         }
-    }
-    /* Let's try to share objects on the command arguments vector */
-    if (server.shareobjects) {
-        int j;
-        for(j = 1; j < c->argc; j++)
-            c->argv[j] = tryObjectSharing(c->argv[j]);
     }
     /* Let's try to encode the bulk object to save space. */
     if (cmd->flags & REDIS_CMD_BULK)
@@ -2960,51 +2943,6 @@ static int deleteKey(redisDb *db, robj *key) {
     return retval == DICT_OK;
 }
 
-/* Try to share an object against the shared objects pool */
-static robj *tryObjectSharing(robj *o) {
-    struct dictEntry *de;
-    unsigned long c;
-
-    if (o == NULL || server.shareobjects == 0) return o;
-
-    redisAssert(o->type == REDIS_STRING);
-    de = dictFind(server.sharingpool,o);
-    if (de) {
-        robj *shared = dictGetEntryKey(de);
-
-        c = ((unsigned long) dictGetEntryVal(de))+1;
-        dictGetEntryVal(de) = (void*) c;
-        incrRefCount(shared);
-        decrRefCount(o);
-        return shared;
-    } else {
-        /* Here we are using a stream algorihtm: Every time an object is
-         * shared we increment its count, everytime there is a miss we
-         * recrement the counter of a random object. If this object reaches
-         * zero we remove the object and put the current object instead. */
-        if (dictSize(server.sharingpool) >=
-                server.sharingpoolsize) {
-            de = dictGetRandomKey(server.sharingpool);
-            redisAssert(de != NULL);
-            c = ((unsigned long) dictGetEntryVal(de))-1;
-            dictGetEntryVal(de) = (void*) c;
-            if (c == 0) {
-                dictDelete(server.sharingpool,de->key);
-            }
-        } else {
-            c = 0; /* If the pool is empty we want to add this object */
-        }
-        if (c == 0) {
-            int retval;
-
-            retval = dictAdd(server.sharingpool,o,(void*)1);
-            redisAssert(retval == DICT_OK);
-            incrRefCount(o);
-        }
-        return o;
-    }
-}
-
 /* Check if the nul-terminated string 's' can be represented by a long
  * (that is, is a number that fits into long without any other space or
  * character before or after the digits).
@@ -3624,9 +3562,9 @@ static robj *rdbLoadStringObject(FILE*fp) {
         case REDIS_RDB_ENC_INT8:
         case REDIS_RDB_ENC_INT16:
         case REDIS_RDB_ENC_INT32:
-            return tryObjectSharing(rdbLoadIntegerObject(fp,len));
+            return rdbLoadIntegerObject(fp,len);
         case REDIS_RDB_ENC_LZF:
-            return tryObjectSharing(rdbLoadLzfStringObject(fp));
+            return rdbLoadLzfStringObject(fp);
         default:
             redisAssert(0);
         }
@@ -3638,7 +3576,7 @@ static robj *rdbLoadStringObject(FILE*fp) {
         sdsfree(val);
         return NULL;
     }
-    return tryObjectSharing(createObject(REDIS_STRING,val));
+    return createObject(REDIS_STRING,val);
 }
 
 /* For information about double serialization check rdbSaveDoubleValue() */
@@ -7811,12 +7749,7 @@ int loadAppendOnlyFile(char *filename) {
             redisLog(REDIS_WARNING,"Unknown command '%s' reading the append only file", argv[0]->ptr);
             exit(1);
         }
-        /* Try object sharing and encoding */
-        if (server.shareobjects) {
-            int j;
-            for(j = 1; j < argc; j++)
-                argv[j] = tryObjectSharing(argv[j]);
-        }
+        /* Try object encoding */
         if (cmd->flags & REDIS_CMD_BULK)
             tryObjectEncoding(argv[argc-1]);
         /* Run the command in the context of a fake client */
@@ -9689,7 +9622,7 @@ static void debugCommand(redisClient *c) {
         }
     } else {
         addReplySds(c,sdsnew(
-            "-ERR Syntax error, try DEBUG [SEGFAULT|OBJECT <key>|SWAPIN <key<|SWAPOUT <key>|RELOAD]\r\n"));
+            "-ERR Syntax error, try DEBUG [SEGFAULT|OBJECT <key>|SWAPIN <key>|SWAPOUT <key>|RELOAD]\r\n"));
     }
 }
 

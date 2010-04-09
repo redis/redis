@@ -251,7 +251,6 @@ static struct redisFunctionSym symsTable[] = {
 {"syncWrite",(unsigned long)syncWrite},
 {"tryFreeOneObjectFromFreelist",(unsigned long)tryFreeOneObjectFromFreelist},
 {"tryObjectEncoding",(unsigned long)tryObjectEncoding},
-{"tryObjectSharing",(unsigned long)tryObjectSharing},
 {"tryResizeHashTables",(unsigned long)tryResizeHashTables},
 {"ttlCommand",(unsigned long)ttlCommand},
 {"typeCommand",(unsigned long)typeCommand},
