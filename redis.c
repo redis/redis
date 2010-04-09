@@ -2828,9 +2828,6 @@ static void decrRefCount(void *obj) {
     if (server.vm_enabled &&
         (o->storage == REDIS_VM_SWAPPED || o->storage == REDIS_VM_LOADING))
     {
-        if (o->storage == REDIS_VM_SWAPPED || o->storage == REDIS_VM_LOADING) {
-            redisAssert(o->refcount == 1);
-        }
         if (o->storage == REDIS_VM_LOADING) vmCancelThreadedIOJob(obj);
         redisAssert(o->type == REDIS_STRING);
         freeStringObject(o);
