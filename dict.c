@@ -425,7 +425,7 @@ static int _dictExpandIfNeeded(dict *ht)
     if (ht->size == 0)
         return dictExpand(ht, DICT_HT_INITIAL_SIZE);
     if (ht->used >= ht->size && dict_can_resize)
-        return dictExpand(ht, ht->size*2);
+        return dictExpand(ht, ((ht->size > ht->used) ? ht->size : ht->used)*2);
     return DICT_OK;
 }
 
@@ -519,7 +519,7 @@ void dictEnableResize(void) {
 }
 
 void dictDisableResize(void) {
-    dict_can_resize = 1;
+    dict_can_resize = 0;
 }
 
 /* ----------------------- StringCopy Hash Table Type ------------------------*/
