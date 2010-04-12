@@ -1614,6 +1614,13 @@ proc main {server port} {
         set _ $err
     } {}
 
+    test {HGET against non existing key} {
+        set rv {}
+        lappend rv [$r hget smallhash __123123123__]
+        lappend rv [$r hget bighash __123123123__]
+        set _ $rv
+    } {{} {}}
+
     test {HSET in update and insert mode} {
         set rv {}
         set k [lindex [array names smallhash *] 0]
@@ -1631,12 +1638,30 @@ proc main {server port} {
         set _ $rv
     } {0 newval1 1 0 newval2 1 1 1}
 
-    test {HGET against non existing key} {
-        set rv {}
-        lappend rv [$r hget smallhash __123123123__]
-        lappend rv [$r hget bighash __123123123__]
-        set _ $rv
-    } {{} {}}
+    test {HMSET wrong number of args} {
+        catch {$r hmset smallhash key1 val1 key2} err
+        format $err
+    } {*wrong number*}
+
+    test {HMSET - small hash} {
+        set args {}
+        foreach {k v} [array get smallhash] {
+            set newval [randstring 0 8 alpha]
+            set smallhash($k) $newval
+            lappend args $k $newval
+        }
+        $r hmset smallhash {*}$args
+    } {OK}
+
+    test {HMSET - big hash} {
+        set args {}
+        foreach {k v} [array get bighash] {
+            set newval [randstring 0 8 alpha]
+            set bighash($k) $newval
+            lappend args $k $newval
+        }
+        $r hmset bighash {*}$args
+    } {OK}
 
     test {HKEYS - small hash} {
         lsort [$r hkeys smallhash]
