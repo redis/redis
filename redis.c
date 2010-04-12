@@ -4477,8 +4477,8 @@ static void lrangeCommand(redisClient *c) {
     listNode *ln;
     robj *ele;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullmultibulk)) == NULL ||
-        checkType(c,o,REDIS_LIST)) return;
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL
+         || checkType(c,o,REDIS_LIST)) return;
     list = o->ptr;
     llen = listLength(list);
 
@@ -4811,7 +4811,7 @@ static void sinterGenericCommand(redisClient *c, robj **setskeys, unsigned long 
                     server.dirty++;
                 addReply(c,shared.czero);
             } else {
-                addReply(c,shared.nullmultibulk);
+                addReply(c,shared.emptymultibulk);
             }
             return;
         }
@@ -5706,8 +5706,8 @@ static void zrangeGenericCommand(redisClient *c, int reverse) {
         return;
     }
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullmultibulk)) == NULL ||
-        checkType(c,o,REDIS_ZSET)) return;
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL
+         || checkType(c,o,REDIS_ZSET)) return;
     zsetobj = o->ptr;
     zsl = zsetobj->zsl;
     llen = zsl->length;
@@ -5813,7 +5813,7 @@ static void genericZrangebyscoreCommand(redisClient *c, int justcount) {
     /* Ok, lookup the key and get the range */
     o = lookupKeyRead(c->db,c->argv[1]);
     if (o == NULL) {
-        addReply(c,justcount ? shared.czero : shared.nullmultibulk);
+        addReply(c,justcount ? shared.czero : shared.emptymultibulk);
     } else {
         if (o->type != REDIS_ZSET) {
             addReply(c,shared.wrongtypeerr);
@@ -6220,7 +6220,7 @@ static void genericHgetallCommand(redisClient *c, int flags) {
     robj *o, *lenobj;
     unsigned long count = 0;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullmultibulk)) == NULL
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL
         || checkType(c,o,REDIS_HASH)) return;
 
     lenobj = createObject(REDIS_STRING,NULL);
@@ -6460,7 +6460,7 @@ static void sortCommand(redisClient *c) {
     /* Lookup the key to sort. It must be of the right types */
     sortval = lookupKeyRead(c->db,c->argv[1]);
     if (sortval == NULL) {
-        addReply(c,shared.nullmultibulk);
+        addReply(c,shared.emptymultibulk);
         return;
     }
     if (sortval->type != REDIS_SET && sortval->type != REDIS_LIST &&
