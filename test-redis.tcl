@@ -1663,6 +1663,46 @@ proc main {server port} {
         $r hmset bighash {*}$args
     } {OK}
 
+    test {HMGET against non existing key and fields} {
+        set rv {}
+        lappend rv [$r hmget doesntexist __123123123__ __456456456__]
+        lappend rv [$r hmget smallhash __123123123__ __456456456__]
+        lappend rv [$r hmget bighash __123123123__ __456456456__]
+        set _ $rv
+    } {{{} {}} {{} {}} {{} {}}}
+
+    test {HMGET - small hash} {
+        set keys {}
+        set vals {}
+        foreach {k v} [array get smallhash] {
+            lappend keys $k
+            lappend vals $v
+        }
+        set err {}
+        set result [$r hmget smallhash {*}$keys]
+        if {$vals ne $result} {
+            set err "$vals != $result"
+            break
+        }
+        set _ $err
+    } {}
+
+    test {HMGET - big hash} {
+        set keys {}
+        set vals {}
+        foreach {k v} [array get bighash] {
+            lappend keys $k
+            lappend vals $v
+        }
+        set err {}
+        set result [$r hmget bighash {*}$keys]
+        if {$vals ne $result} {
+            set err "$vals != $result"
+            break
+        }
+        set _ $err
+    } {}
+
     test {HKEYS - small hash} {
         lsort [$r hkeys smallhash]
     } [lsort [array names smallhash *]]
