@@ -46,7 +46,7 @@ foreach redis_bulk_cmd {
 
 # Flag commands requiring last argument as a bulk write operation
 foreach redis_multibulk_cmd {
-    mset msetnx hset hmset
+    mset msetnx hset hmset hmget
 } {
     set ::redis::multibulkarg($redis_multibulk_cmd) {}
 }
