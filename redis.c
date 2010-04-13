@@ -6166,6 +6166,8 @@ static void hincrbyCommand(redisClient *c) {
     long long value = 0, incr = 0;
     robj *o = lookupKeyWrite(c->db,c->argv[1]);
 
+    if (getLongLongFromObject(c, c->argv[3], &incr) != REDIS_OK) return;
+
     if (o == NULL) {
         o = createHashObject();
         dictAdd(c->db->dict,c->argv[1],o);
@@ -6176,8 +6178,6 @@ static void hincrbyCommand(redisClient *c) {
             return;
         }
     }
-
-    if (getLongLongFromObject(c, c->argv[3], &incr) != REDIS_OK) return;
 
     if (o->encoding == REDIS_ENCODING_ZIPMAP) {
         unsigned char *zm = o->ptr;
