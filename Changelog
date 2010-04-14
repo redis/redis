@@ -1,3 +1,29 @@
+2010-04-12 Now all the commands returning a multi bulk reply against non existing keys will return an empty multi bulk, not a nil one
+2010-04-12 implemented HMSET
+2010-04-12 Sharing of small integer objects: may save a lot of memory with datasets having many of this
+2010-04-10 dict.c fixed to play well with enabling/disabling of the hash table
+2010-04-09 removed a no longer true assert in the VM code
+2010-04-09 shareobjects feautres killed - no gains most of the time, but VM complexities
+2010-04-09 use directly the real key object in VM I/O jobs to match by pointer, and to handle different keys with the same name living in different DBs, but being at the same moment in the IO job queues
+2010-04-08 last change reverted as it was unstable... more testing needed
+2010-04-08 Prevent hash table resize while there are active child processes in order to play well with copy on write
+2010-04-08 Merge branch 'issue_218' of git://github.com/pietern/redis
+2010-04-08 -1 not needed...
+2010-04-08 Skiplist theoretical fix
+2010-04-07 Now when a child is terminated by a signal, the signal number is logged as well
+2010-04-07 First version of evented Redis Tcl client, that will be used for BLPOP and Pub/Sub tests
+2010-04-05 use long long reply type for HINCRBY
+2010-04-05 last argument is never encoded for HINCRBY
+2010-04-02 Now PUBLISH commands are replicated to slaves
+2010-04-01 use the right object when cleaning up after zunion/zinter (fixes issue 216)
+2010-04-01 Merge branch 'zipmap' of git://github.com/pietern/redis
+2010-04-01 reduce code complexity because zipmapLen now is O(1)
+2010-04-01 update the zipmap entry in-place instead of appending it
+2010-04-01 updated zipmap documentation to match the implementation
+2010-04-01 allow 4 free trailing bytes for each value
+2010-04-01 Pub/Sub pattern matching capabilities
+2010-04-01 use function to determine length of a single entry
+2010-03-31 Deny EXEC under out of memory
 2010-03-29 No timeouts nor other commands for clients in a Pub/Sub context
 2010-03-29 free hash table entries about no longer active classes, so that PUBSUB can be abused with millions of different classes
 2010-03-29 Fixed a refcount stuff leading to PUBSUB crashes
@@ -5,6 +31,9 @@
 2010-03-29 First pubsub fix
 2010-03-29 PUBSUB implemented
 2010-03-29 Redis version is now 1.3.8
+2010-03-28 removed references in code to ZIPMAP_EMPTY
+2010-03-28 use first byte of zipmap to store length
+2010-03-28 implemented strategy that doesn't use free blocks in zipmaps
 2010-03-26 Merge branch 'hincrby' of git://github.com/pietern/redis
 2010-03-26 removed unnecessary refcount increase that caused the HINCRBY memleak
 2010-03-26 implements HINCRBY and tests (todo: find and fix small memleak)

@@ -2304,7 +2304,8 @@ static int processCommand(redisClient *c) {
     }
 
     /* Only allow SUBSCRIBE and UNSUBSCRIBE in the context of Pub/Sub */
-    if (dictSize(c->pubsub_channels) > 0 &&
+    if ((dictSize(c->pubsub_channels) > 0 || listLength(c->pubsub_patterns) > 0)
+        &&
         cmd->proc != subscribeCommand && cmd->proc != unsubscribeCommand &&
         cmd->proc != psubscribeCommand && cmd->proc != punsubscribeCommand) {
         addReplySds(c,sdsnew("-ERR only (P)SUBSCRIBE / (P)UNSUBSCRIBE / QUIT allowed in this context\r\n"));
