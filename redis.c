@@ -6066,8 +6066,10 @@ static void hashTryConversion(robj *subject, robj **argv, int start, int end) {
 }
 
 /* Get the value from a hash identified by key. Returns either a string
- * object or NULL if the value cannot be found. The refcount of the object
- * is always increased by 1 when the value was found. */
+ * object or NULL if the value cannot be found.
+ * Note: the refcount for objects retrieved from a zipmap is set to 0.
+ * This is done, so addReply will increment and clean up the object.
+ * Make sure to clean up the object when it isn't added to a reply. */
 static robj *hashGet(robj *o, robj *key) {
     robj *value = NULL;
     if (o->encoding == REDIS_ENCODING_ZIPMAP) {
@@ -6076,13 +6078,13 @@ static robj *hashGet(robj *o, robj *key) {
         key = getDecodedObject(key);
         if (zipmapGet(o->ptr,key->ptr,sdslen(key->ptr),&v,&vlen)) {
             value = createStringObject((char*)v,vlen);
+            value->refcount = 0;
         }
         decrRefCount(key);
     } else {
         dictEntry *de = dictFind(o->ptr,key);
         if (de != NULL) {
             value = dictGetEntryVal(de);
-            incrRefCount(value);
         }
     }
     return value;
@@ -6201,8 +6203,9 @@ static inline int hashNext(hashIterator *hi) {
     return REDIS_OK;
 }
 
-/* Get key or value object at current iteration position. This always
- * increases the refcount of the field object by 1. */
+/* Get key or value object at current iteration position.
+ * See comments at hashGet for a discussion on the refcount for
+ * keys and values retrieved from zipmaps. */
 static inline robj *hashCurrent(hashIterator *hi, int what) {
     robj *o;
     if (hi->encoding == REDIS_ENCODING_ZIPMAP) {
@@ -6211,13 +6214,13 @@ static inline robj *hashCurrent(hashIterator *hi, int what) {
         } else {
             o = createStringObject((char*)hi->zv,hi->zvlen);
         }
+        o->refcount = 0;
     } else {
         if (what & REDIS_HASH_KEY) {
             o = dictGetEntryKey(hi->de);
         } else {
             o = dictGetEntryVal(hi->de);
         }
-        incrRefCount(o);
     }
     return o;
 }
@@ -6293,7 +6296,12 @@ static void hincrbyCommand(redisClient *c) {
             value = (long)current->ptr;
         else
             redisAssert(1 != 1);
-        decrRefCount(current);
+
+        /* clean up object when it was retrieved from a zipmap */
+        if (current->refcount == 0) {
+            current->refcount = 1;
+            decrRefCount(current);
+        }
     } else {
         value = 0;
     }
@@ -6313,7 +6321,6 @@ static void hgetCommand(redisClient *c) {
 
     if ((value = hashGet(o,c->argv[2])) != NULL) {
         addReplyBulk(c,value);
-        decrRefCount(value);
     } else {
         addReply(c,shared.nullbulk);
     }
@@ -6334,7 +6341,6 @@ static void hmgetCommand(redisClient *c) {
     for (i = 2; i < c->argc; i++) {
         if (o != NULL && (value = hashGet(o,c->argv[i])) != NULL) {
             addReplyBulk(c,value);
-            decrRefCount(value);
         } else {
             addReply(c,shared.nullbulk);
         }
@@ -6380,13 +6386,11 @@ static void genericHgetallCommand(redisClient *c, int flags) {
         if (flags & REDIS_HASH_KEY) {
             obj = hashCurrent(&hi,REDIS_HASH_KEY);
             addReplyBulk(c,obj);
-            decrRefCount(obj);
             count++;
         }
         if (flags & REDIS_HASH_VALUE) {
             obj = hashCurrent(&hi,REDIS_HASH_VALUE);
             addReplyBulk(c,obj);
-            decrRefCount(obj);
             count++;
         }
     }
