@@ -23,6 +23,12 @@ proc test {name code okpattern} {
         puts "!! ERROR expected\n'$okpattern'\nbut got\n'$retval'"
         incr ::failed
     }
+    if {$::traceleaks} {
+        if {![string match {*0 leaks*} [exec leaks redis-server]]} {
+            puts "--------- Test $::testnum LEAKED! --------"
+            exit 1
+        }
+    }
 }
 
 proc randstring {min max {type binary}} {
@@ -2150,6 +2156,7 @@ proc stress {} {
 set ::host 127.0.0.1
 set ::port 6379
 set ::stress 0
+set ::traceleaks 0
 set ::flush 0
 set ::first 0
 set ::last 1000000
@@ -2165,8 +2172,10 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     } elseif {$opt eq {-p} && !$lastarg} {
         set ::port $arg
         incr j
-    } elseif {$opt eq {-stress}} {
+    } elseif {$opt eq {--stress}} {
         set ::stress 1
+    } elseif {$opt eq {--trace-leaks}} {
+        set ::traceleaks 1
     } elseif {$opt eq {--flush}} {
         set ::flush 1
     } elseif {$opt eq {--first} && !$lastarg} {
