@@ -41,6 +41,7 @@
 #include <stdarg.h>
 #include <assert.h>
 #include <limits.h>
+#include <sys/time.h>
 
 #include "dict.h"
 #include "zmalloc.h"
@@ -235,6 +236,25 @@ int dictRehash(dict *d, int n) {
         d->rehashidx++;
     }
     return 1;
+}
+
+long long timeInMilliseconds(void) {
+    struct timeval tv;
+
+    gettimeofday(&tv,NULL);
+    return (((long long)tv.tv_sec)*1000)+(tv.tv_usec/1000);
+}
+
+/* Rehash for an amount of time between ms milliseconds and ms+1 milliseconds */
+int dictRehashMilliseconds(dict *d, int ms) {
+    long long start = timeInMilliseconds();
+    int rehashes = 0;
+
+    while(dictRehash(d,100)) {
+        rehashes += 100;
+        if (timeInMilliseconds()-start > ms) break;
+    }
+    return rehashes;
 }
 
 /* This function performs just a step of rehashing, and only if there are
@@ -527,7 +547,7 @@ static unsigned long _dictNextPower(unsigned long size)
  * index is always returned in the context of the second (new) hash table. */
 static int _dictKeyIndex(dict *d, const void *key)
 {
-    unsigned int h, h1, h2;
+    unsigned int h, idx, table;
     dictEntry *he;
 
     /* Expand the hashtable if needed */
@@ -535,24 +555,18 @@ static int _dictKeyIndex(dict *d, const void *key)
         return -1;
     /* Compute the key hash value */
     h = dictHashKey(d, key);
-    h1 = h & d->ht[0].sizemask;
-    h2 = h & d->ht[1].sizemask;
-    /* Search if this slot does not already contain the given key */
-    he = d->ht[0].table[h1];
-    while(he) {
-        if (dictCompareHashKeys(d, key, he->key))
-            return -1;
-        he = he->next;
+    for (table = 0; table <= 1; table++) {
+        idx = h & d->ht[table].sizemask;
+        /* Search if this slot does not already contain the given key */
+        he = d->ht[table].table[idx];
+        while(he) {
+            if (dictCompareHashKeys(d, key, he->key))
+                return -1;
+            he = he->next;
+        }
+        if (!dictIsRehashing(d)) break;
     }
-    if (!dictIsRehashing(d)) return h1;
-    /* Check the second hash table */
-    he = d->ht[1].table[h2];
-    while(he) {
-        if (dictCompareHashKeys(d, key, he->key))
-            return -1;
-        he = he->next;
-    }
-    return h2;
+    return idx;
 }
 
 void dictEmpty(dict *d) {

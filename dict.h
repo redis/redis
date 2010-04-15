@@ -122,24 +122,25 @@ typedef struct dictIterator {
 
 /* API */
 dict *dictCreate(dictType *type, void *privDataPtr);
-int dictExpand(dict *ht, unsigned long size);
-int dictAdd(dict *ht, void *key, void *val);
-int dictReplace(dict *ht, void *key, void *val);
-int dictDelete(dict *ht, const void *key);
-int dictDeleteNoFree(dict *ht, const void *key);
-void dictRelease(dict *ht);
-dictEntry * dictFind(dict *ht, const void *key);
-int dictResize(dict *ht);
-dictIterator *dictGetIterator(dict *ht);
+int dictExpand(dict *d, unsigned long size);
+int dictAdd(dict *d, void *key, void *val);
+int dictReplace(dict *d, void *key, void *val);
+int dictDelete(dict *d, const void *key);
+int dictDeleteNoFree(dict *d, const void *key);
+void dictRelease(dict *d);
+dictEntry * dictFind(dict *d, const void *key);
+int dictResize(dict *d);
+dictIterator *dictGetIterator(dict *d);
 dictEntry *dictNext(dictIterator *iter);
 void dictReleaseIterator(dictIterator *iter);
-dictEntry *dictGetRandomKey(dict *ht);
-void dictPrintStats(dict *ht);
+dictEntry *dictGetRandomKey(dict *d);
+void dictPrintStats(dict *d);
 unsigned int dictGenHashFunction(const unsigned char *buf, int len);
-void dictEmpty(dict *ht);
+void dictEmpty(dict *d);
 void dictEnableResize(void);
 void dictDisableResize(void);
 int dictRehash(dict *d, int n);
+int dictRehashMilliseconds(dict *d, int ms);
 
 /* Hash table types */
 extern dictType dictTypeHeapStringCopyKey;

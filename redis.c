@@ -91,7 +91,7 @@
 #define REDIS_CONFIGLINE_MAX    1024
 #define REDIS_OBJFREELIST_MAX   1000000 /* Max number of objects to cache */
 #define REDIS_MAX_SYNC_TIME     60      /* Slave can't take more to sync */
-#define REDIS_EXPIRELOOKUPS_PER_CRON    10 /* try to expire 10 keys/loop */
+#define REDIS_EXPIRELOOKUPS_PER_CRON    10 /* lookup 10 expires per loop */
 #define REDIS_MAX_WRITE_PER_EVENT (1024*64)
 #define REDIS_REQUEST_MAX_SIZE (1024*1024*256) /* max bytes in inline command */
 
@@ -379,6 +379,7 @@ struct redisServer {
     char *requirepass;
     int shareobjects;
     int rdbcompression;
+    int activerehashing;
     /* Replication related */
     int isslave;
     char *masterauth;
@@ -1208,6 +1209,21 @@ static void tryResizeHashTables(void) {
     }
 }
 
+/* Our hash table implementation performs rehashing incrementally while
+ * we write/read from the hash table. Still if the server is idle, the hash
+ * table will use two tables for a long time. So we try to use 1 millisecond
+ * of CPU time at every serverCron() loop in order to rehash some key. */
+static void incrementallyRehash(void) {
+    int j;
+
+    for (j = 0; j < server.dbnum; j++) {
+        if (dictIsRehashing(server.db[j].dict)) {
+            dictRehashMilliseconds(server.db[j].dict,1);
+            break; /* already used our millisecond for this loop... */
+        }
+    }
+}
+
 /* A background saving child (BGSAVE) terminated its work. Handle this. */
 void backgroundSaveDoneHandler(int statloc) {
     int exitcode = WEXITSTATUS(statloc);
@@ -1337,10 +1353,9 @@ static int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientD
      * if we resize the HT while there is the saving child at work actually
      * a lot of memory movements in the parent will cause a lot of pages
      * copied. */
-    if (server.bgsavechildpid == -1 && server.bgrewritechildpid == -1 &&
-        !(loops % 10))
-    {
-        tryResizeHashTables();
+    if (server.bgsavechildpid == -1 && server.bgrewritechildpid == -1) {
+        if (!(loops % 10)) tryResizeHashTables();
+        if (server.activerehashing) incrementallyRehash();
     }
 
     /* Show information about connected clients */
@@ -1568,6 +1583,7 @@ static void initServerConfig() {
     server.requirepass = NULL;
     server.shareobjects = 0;
     server.rdbcompression = 1;
+    server.activerehashing = 1;
     server.maxclients = 0;
     server.blpop_blocked_clients = 0;
     server.maxmemory = 0;
@@ -1799,6 +1815,10 @@ static void loadServerConfig(char *filename) {
             }
         } else if (!strcasecmp(argv[0],"rdbcompression") && argc == 2) {
             if ((server.rdbcompression = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"activerehashing") && argc == 2) {
+            if ((server.activerehashing = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"daemonize") && argc == 2) {
