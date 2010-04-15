@@ -6569,14 +6569,9 @@ static int sortCompare(const void *s1, const void *s2) {
                 cmp = strcoll(so1->u.cmpobj->ptr,so2->u.cmpobj->ptr);
             }
         } else {
-            /* Compare elements directly */
-            robj *dec1, *dec2;
-
-            dec1 = getDecodedObject(so1->obj);
-            dec2 = getDecodedObject(so2->obj);
-            cmp = strcoll(dec1->ptr,dec2->ptr);
-            decrRefCount(dec1);
-            decrRefCount(dec2);
+            /* Compare elements directly. Note that these objects already
+             * need to be non-encoded (see sortCommand). */
+            cmp = strcoll(so1->obj->ptr,so2->obj->ptr);
         }
     }
     return server.sort_desc ? -cmp : cmp;
@@ -6720,14 +6715,13 @@ static void sortCommand(redisClient *c) {
             } else {
                 if (byval->encoding == REDIS_ENCODING_RAW) {
                     vector[j].u.score = strtod(byval->ptr,NULL);
-                } else {
+                } else if (byval->encoding == REDIS_ENCODING_INT) {
                     /* Don't need to decode the object if it's
                      * integer-encoded (the only encoding supported) so
                      * far. We can just cast it */
-                    if (byval->encoding == REDIS_ENCODING_INT) {
-                        vector[j].u.score = (long)byval->ptr;
-                    } else
-                        redisAssert(1 != 1);
+                    vector[j].u.score = (long)byval->ptr;
+                } else {
+                    redisAssert(1 != 1);
                 }
 
                 /* clean up immediately if this value came from a zipmap */
@@ -6832,7 +6826,7 @@ static void sortCommand(redisClient *c) {
     decrRefCount(sortval);
     listRelease(operations);
     for (j = 0; j < vectorlen; j++) {
-        if (sortby && alpha && vector[j].u.cmpobj)
+        if (alpha && vector[j].u.cmpobj)
             decrRefCount(vector[j].u.cmpobj);
     }
     zfree(vector);
