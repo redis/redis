@@ -226,8 +226,8 @@ proc datasetDigest r {
     return $digest
 }
 
-proc main {server port} {
-    set r [redis $server $port]
+proc main {} {
+    set r [redis $::host $::port]
     $r select 9
     set err ""
     set res ""
@@ -2008,7 +2008,7 @@ proc main {server port} {
     } {1 1}
 
     test {PIPELINING stresser (also a regression for the old epoll bug)} {
-        set fd2 [socket 127.0.0.1 6379]
+        set fd2 [socket $::host $::port]
         fconfigure $fd2 -encoding binary -translation binary
         puts -nonewline $fd2 "SELECT 9\r\n"
         flush $fd2
@@ -2113,7 +2113,7 @@ proc main {server port} {
 }
 
 proc stress {} {
-    set r [redis]
+    set r [redis $::host $::port]
     $r select 9
     $r flushdb
     while 1 {
@@ -2182,7 +2182,7 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
 }
 
 # Before to run the test check if DB 9 and DB 10 are empty
-set r [redis]
+set r [redis $::host $::port]
 
 if {$::flush} {
     $r flushall
@@ -2201,8 +2201,9 @@ unset r
 unset db9size
 unset db10size
 
+puts "Testing Redis, host $::host, port $::port"
 if {$::stress} {
     stress
 } else {
-    main $::host $::port
+    main
 }
