@@ -1652,6 +1652,30 @@ proc main {} {
         set _ $rv
     } {0 newval1 1 0 newval2 1 1 1}
 
+    test {HSETNX target key missing - small hash} {
+        $r hsetnx smallhash __123123123__ foo
+        $r hget smallhash __123123123__
+    } {foo}
+
+    test {HSETNX target key exists - small hash} {
+        $r hsetnx smallhash __123123123__ bar
+        set result [$r hget smallhash __123123123__]
+        $r hdel smallhash __123123123__
+        set _ $result
+    } {foo}
+
+    test {HSETNX target key missing - big hash} {
+        $r hsetnx bighash __123123123__ foo
+        $r hget bighash __123123123__
+    } {foo}
+
+    test {HSETNX target key exists - big hash} {
+        $r hsetnx bighash __123123123__ bar
+        set result [$r hget bighash __123123123__]
+        $r hdel bighash __123123123__
+        set _ $result
+    } {foo}
+
     test {HMSET wrong number of args} {
         catch {$r hmset smallhash key1 val1 key2} err
         format $err

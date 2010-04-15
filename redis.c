@@ -705,6 +705,7 @@ static void substrCommand(redisClient *c);
 static void zrankCommand(redisClient *c);
 static void zrevrankCommand(redisClient *c);
 static void hsetCommand(redisClient *c);
+static void hsetnxCommand(redisClient *c);
 static void hgetCommand(redisClient *c);
 static void hmsetCommand(redisClient *c);
 static void hmgetCommand(redisClient *c);
@@ -783,6 +784,7 @@ static struct redisCommand cmdTable[] = {
     {"zrank",zrankCommand,3,REDIS_CMD_BULK,NULL,1,1,1},
     {"zrevrank",zrevrankCommand,3,REDIS_CMD_BULK,NULL,1,1,1},
     {"hset",hsetCommand,4,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,NULL,1,1,1},
+    {"hsetnx",hsetnxCommand,4,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,NULL,1,1,1},
     {"hget",hgetCommand,3,REDIS_CMD_BULK,NULL,1,1,1},
     {"hmset",hmsetCommand,-4,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,NULL,1,1,1},
     {"hmget",hmgetCommand,-3,REDIS_CMD_BULK,NULL,1,1,1},
@@ -6245,6 +6247,20 @@ static void hsetCommand(redisClient *c) {
     update = hashReplace(o,c->argv[2],c->argv[3]);
     addReplySds(c,sdscatprintf(sdsempty(),":%d\r\n",update == 0));
     server.dirty++;
+}
+
+static void hsetnxCommand(redisClient *c) {
+    robj *o;
+    if ((o = hashLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
+    hashTryConversion(o,c->argv,2,3);
+
+    if (hashExists(o, c->argv[2])) {
+        addReply(c, shared.czero);
+    } else {
+        hashReplace(o,c->argv[2],c->argv[3]);
+        addReply(c, shared.cone);
+        server.dirty++;
+    }
 }
 
 static void hmsetCommand(redisClient *c) {
