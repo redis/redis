@@ -85,7 +85,7 @@ bench:
 	./redis-benchmark
 
 log:
-	git log '--pretty=format:%ad %s' --date=short > Changelog
+	git log '--pretty=format:%ad %s (%cn)' --date=short > Changelog
 
 32bit:
 	@echo ""

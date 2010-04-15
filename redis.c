@@ -1201,11 +1201,8 @@ static void tryResizeHashTables(void) {
     int j;
 
     for (j = 0; j < server.dbnum; j++) {
-        if (htNeedsResize(server.db[j].dict)) {
-            redisLog(REDIS_VERBOSE,"The hash table %d is too sparse, resize it...",j);
+        if (htNeedsResize(server.db[j].dict))
             dictResize(server.db[j].dict);
-            redisLog(REDIS_VERBOSE,"Hash table %d resized.",j);
-        }
         if (htNeedsResize(server.db[j].expires))
             dictResize(server.db[j].expires);
     }

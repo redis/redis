@@ -1,677 +1,683 @@
-2010-04-12 Now all the commands returning a multi bulk reply against non existing keys will return an empty multi bulk, not a nil one
-2010-04-12 implemented HMSET
-2010-04-12 Sharing of small integer objects: may save a lot of memory with datasets having many of this
-2010-04-10 dict.c fixed to play well with enabling/disabling of the hash table
-2010-04-09 removed a no longer true assert in the VM code
-2010-04-09 shareobjects feautres killed - no gains most of the time, but VM complexities
-2010-04-09 use directly the real key object in VM I/O jobs to match by pointer, and to handle different keys with the same name living in different DBs, but being at the same moment in the IO job queues
-2010-04-08 last change reverted as it was unstable... more testing needed
-2010-04-08 Prevent hash table resize while there are active child processes in order to play well with copy on write
-2010-04-08 Merge branch 'issue_218' of git://github.com/pietern/redis
-2010-04-08 -1 not needed...
-2010-04-08 Skiplist theoretical fix
-2010-04-07 Now when a child is terminated by a signal, the signal number is logged as well
-2010-04-07 First version of evented Redis Tcl client, that will be used for BLPOP and Pub/Sub tests
-2010-04-05 use long long reply type for HINCRBY
-2010-04-05 last argument is never encoded for HINCRBY
-2010-04-02 Now PUBLISH commands are replicated to slaves
-2010-04-01 use the right object when cleaning up after zunion/zinter (fixes issue 216)
-2010-04-01 Merge branch 'zipmap' of git://github.com/pietern/redis
-2010-04-01 reduce code complexity because zipmapLen now is O(1)
-2010-04-01 update the zipmap entry in-place instead of appending it
-2010-04-01 updated zipmap documentation to match the implementation
-2010-04-01 allow 4 free trailing bytes for each value
-2010-04-01 Pub/Sub pattern matching capabilities
-2010-04-01 use function to determine length of a single entry
-2010-03-31 Deny EXEC under out of memory
-2010-03-29 No timeouts nor other commands for clients in a Pub/Sub context
-2010-03-29 free hash table entries about no longer active classes, so that PUBSUB can be abused with millions of different classes
-2010-03-29 Fixed a refcount stuff leading to PUBSUB crashes
-2010-03-29 fmacros added to linenoise, avoiding all the nice warnings...
-2010-03-29 First pubsub fix
-2010-03-29 PUBSUB implemented
-2010-03-29 Redis version is now 1.3.8
-2010-03-28 removed references in code to ZIPMAP_EMPTY
-2010-03-28 use first byte of zipmap to store length
-2010-03-28 implemented strategy that doesn't use free blocks in zipmaps
-2010-03-26 Merge branch 'hincrby' of git://github.com/pietern/redis
-2010-03-26 removed unnecessary refcount increase that caused the HINCRBY memleak
-2010-03-26 implements HINCRBY and tests (todo: find and fix small memleak)
-2010-03-26 Removed a useless if spotted by Pieter Noordhuis
-2010-03-26 Fixed a critical replication bug: binary values issued with the multi bulk protocol caused a protocol desync with slaves.
-2010-03-24 Fixed the reply about denied  write commands under maxmemory reached condition: now the error will no longer lead to a client-server protocol desync
-2010-03-24 CONFIG command implemened -- just a start but already useful
-2010-03-24 redis-cli prompt is now redis>
-2010-03-23 with --help states that you can use - as config file name to feed config via stdin
-2010-03-23 New INFO field: expired_keys
-2010-03-23 the Cron timer function is now called 10 times per second instead of 1 time per second to make Redis more responsibe to BGSAVE and to delete expired keys more incrementally
-2010-03-23 Use linenoise for line editing on redis-cli.
-2010-03-23 Fix authentication for redis-cli on non-interactive mode.
-2010-03-23 key deletion on empty value fix + some refactoring
-2010-03-23 Empty value trigger key removal in all the operations
-2010-03-22 Merged gnrfan patches fixing issues 191, 193, 194
-2010-03-22 Merge branch 'issue_193' of git://github.com/gnrfan/redis
-2010-03-22 Merge branch 'issue_191' of git://github.com/gnrfan/redis
-2010-03-22 Redis master version is now 1.3.7
-2010-03-19 support for include directive in config parser
-2010-03-19 Removed a stupid overriding of config values due to a wrong cut&paste
-2010-03-19 VM hash type swappability implemented. Handling of failed pthread_create() call.
-2010-03-19 Solving issue #191 on Google Code: -v and --version should print the version of Redis
-2010-03-19 Solves issue #194 on Google Code: --help parameter to redis-srver prints the usage message
-2010-03-19 Fixing issue 193
-2010-03-18 increment server.dirty on HDEL
-2010-03-18 Redis 1.3.6
-2010-03-18 test-redis.tcl dataset digest function Hash support
-2010-03-18 zipmap fix for large values
-2010-03-18 Optimization fixed and re-activated
-2010-03-18 reverted an optimization that makes Redis not stable
-2010-03-18 Fixed redis-cli auth code
-2010-03-17 HDEL fix, an optimization for comparison of objects in hash table lookups when they are integer encoding
-2010-03-17 Version is now 1.3.5
-2010-03-17 Merged Pietern patch for VM key args helper function. Fixed an obvious bug in the redis-cli passwd auth stuff
-2010-03-17 Merge branch 'aggregates' of git://github.com/pietern/redis
-2010-03-17 Added Authentication to redis-cli.c using -a switch Update usage fixed Makefile to delete redis-check-dump during make clean
-2010-03-17 HEXISTS and tests implemented
-2010-03-17 More hash tests
-2010-03-17 better HSET test
-2010-03-17 Fixed a bug in HSET, a memory leak, and a theoretical bug in dict.c
-2010-03-17 More Hash tests
-2010-03-13 added preloading keys from VM when using ZINTER or ZUNION
-2010-03-13 added explicit AGGREGATE [SUM|MIN|MAX] option to ZUNION/ZINTER
-2010-03-16 HGET fix for integer encoded field against zipmap encoded hash
-2010-03-16 zrevrank support in redis-cli
-2010-03-16 HKEYS / HVALS / HGETALL
-2010-03-16 Solved a memory leak with Hashes
-2010-03-15 pretty big refactoring
-2010-03-15 An interesting refactoring + more expressive internal API
-2010-03-15 Fixed the same problem in ZREVRANK
-2010-03-15 Fixed a ZRANK bug
-2010-03-15 zipmap to hash conversion in HSET
-2010-03-14 max zipmap entries and max zipmap value parameters added into INFO output
-2010-03-14 HDEL and some improvement in DEBUG OBJECT command
-2010-03-14 Append only file support for hashes
-2010-03-13 utility to check rdb files for unprocessable opcodes
-2010-03-12 A minor fix and a few debug messages removed
-2010-03-12 Applied the replication bug patch provided by Jeremy Zawodny, removing temp file collision after the slave got the dump.rdb file in the SYNC stage
-2010-03-11 Fix for HGET against non Hash type, debug messages used to understand a bit better a corrupted rdb file
-2010-03-09 fix: use zmalloc instead of malloc
-2010-03-09 Merged zsetops branch from Pietern
-2010-03-09 Merged ZREMBYRANK from Pietern
-2010-03-09 Merged ZREVRANK from Pietern
-2010-03-09 use a struct to store both a dict and its weight for ZUNION and ZINTER, so qsort can be applied
-2010-03-09 Hash auto conversion from zipmap to hash table, type fixed for hashes, hash loading from disk
-2010-03-09 replaced ZMERGE by ZUNION and ZINTER. note: key preloading by the VM does not yet work
-2010-03-08 Hashes saving / fixes
-2010-03-08 use ZMERGE as starting point
-2010-03-07 HSET fixes, now the new pointer is stored back in the object pointer field
-2010-03-07 added ZREVRANK
-2010-03-06 Fix for replicaiton with over 2GB dump file initial SYNC stage
-2010-03-06 first implementation of HSET/HSET. More work needed
-2010-03-05 zipmaps functions to get, iterate, test for existence. Initial works for Hash data type
-2010-03-04 redis-benchmark now implements Set commands benchmarks
-2010-03-04 zipmap iteration code
-2010-03-04 moved code to delete a single node from a zset to a separate function
-2010-03-04 rename zslDeleteRange to zslDeleteRangeByScore (to differentiate between deleting using score or rank)
-2010-03-04 use 1-based rank across zsl*Rank functions consistently
-2010-03-04 implemented ZREMBYRANK
-2010-03-04 A fix for initialization of augmented skip lists
-2010-03-04 A fix for an invalid access when VM is disabled
-2010-03-04 Merge branch 'zsl-get-rank' of git://github.com/pietern/redis
-2010-03-04 redis-cli now runs in interactive mode if no command is provided
-2010-03-04 merged memory reduction patch
-2010-03-04 Now list push commands return the length of the new list, thanks to Gustavo Picon
-2010-03-04 first check if starting point is trivial (head or tail) before applying log(N) search
-2010-03-04 use rank to find starting point for ZRANGE and ZREVRANGE
-2010-03-04 lookup rank of a zset entry in a different function
-2010-03-04 SUBSTR fix for integer encoded vals
-2010-03-04 fix ZRANK (realize that rank is 1-based due to the skip list header)
-2010-03-03 initial implementation of SUBSTR
-2010-03-03 TODO updated
-2010-03-03 fpurge call removed from redis-cli
-2010-03-03 ZRANK stress tester
-2010-03-03 use less memory as element->span[0] will always be 1; any level 0 skip list is essentially a linked list
-2010-03-03 rank is very unlikely to overflow integer range
-2010-03-03 x->backward never equals zsl->header
-2010-03-03 initial implementation for augmented zsets and the zrank command
-2010-03-03 zipampDel() implemented
-2010-03-03 added quit and exit commands to redis-cli in order to quit the interactive mode
-2010-03-03 Merge remote branch 'djanowski/interactive'
-2010-03-02 Add support for MULTI/EXEC.
-2010-03-02 Remove trailing newline in interactive mode.
-2010-03-02 minor fix for a Linux warning
-2010-03-02 Add interactive mode to redis-cli.
-2010-03-02 Better to increment the version minor number when a VM bug is fixed... it will be simpler to understand what's going on when users will report problems with the INFO trace.
-2010-03-02 Fixed a subtle VM bug... was not flushing the buffer so the child process read truncated data
-2010-03-01 KEYS now returns a multi bulk reply
-2010-02-27 Add DISCARD command to discard queued MULTI commands.
-2010-03-01 Swappability bug due to a typo fixed thanks to code review by Felix Geisendörfer @felixge
-2010-02-28 minor fixes for zipmap.c
-2010-02-27 first zipmap fix of a long sequence in the days to come ;)
-2010-02-27 initial zipmap.c implementation
-2010-02-27 Bug #169 fixed (BLOP/BRPOP interrupted connections are not cleared from the queue)
-2010-02-22 Fixed 32bit make target to work on Linux out of the box
-2010-02-19 A problem with replication with multiple slaves connectiong to a single master fixed. It was due to a typo, and reported on github by the user micmac. Also the copyright year fixed from many files.
-2010-02-10 Saner VM defaults for redis.conf
-2010-02-09 VM now is able to block clients on swapped keys for all the commands
-2010-02-07 ZCOUNT and ZRANGEBYSCORE new tests
-2010-02-07 ZRANGEBYSCORE now supports open intervals, prefixing double values with a open paren. Added ZCOUNT that can count the elements inside an interval of scores, this supports open intervals too
-2010-02-07 WITHSCORES in ZRANGEBYSCORE thanks to Sam Hendley
-2010-02-06 Added "withscores" option to zrangebyscore command. Based on withscores support in zrange function, ugliest part was the argument parsing to handle using it with the limit option.
-2010-02-06 DEBUG OBJECT provide info about serialized object length even when VM is disabled
-2010-02-06 multi bulk requests in redis-benchmark, default fsync policy changed to everysec, added a prefix character for DEBUG logs
-2010-02-04 APPEND tests
-2010-02-04 APPEND command
-2010-02-02 Faster version of the function hashing possibly encoded objects, leading to a general speed gain when working with Sets of integers
-2010-02-02 faster Set loading time from .rdb file resizing the hash table to the right size before loading elements
-2010-02-02 Log time taken to load the DB at startup, in seconds
-2010-01-31 Fixed VM corruption due to child fclosing the VM file directly or indirectly calling exit(), now replaced with _exit() in all the sensible places. Masked a few signals from IO threads.
-2010-01-28 loading side of the threaded VM
-2010-01-26 TODO cahnges
-2010-01-23 Fixed memory human style memory reporting, removed server.usedmemory, now zmalloc_used_memory() is used always.
-2010-01-22 VM tuning thanks to redis-stat vmstat. Now it performs much better under high load
-2010-01-21 Changelog updated
-2010-01-21 REDIS_MAX_COMPLETED_JOBS_PROCESSED is now in percentage, not number of jobs. Moved a debugging message a few lines forward as it was called where a few logged parameters where invalid, leading to a crash
-2010-01-20 fixed a deadlock caused by too much finished processes in queue so that I/O clients writing to the wirte side of the pipe used to awake the main thread where blocking. Then a BGSAVE started waiting for the last active thread to finish, condition impossible because all the I/O threads where blocking on threads. Takes this as a note to myself...
-2010-01-20 ae.c event loop does no longer support exception notifications, as they are fully pointless. Also a theoretical bug that never happens in practice fixed.
-2010-01-19 commercial tools stuff removed from the Redis makefile. cotools are now migrated into a different repos
-2010-01-19 removed a bug in the function to cancel an I/O job
-2010-01-17 static symbols update
-2010-01-16 removed support for REDIS_HELGRIND_FRIENDLY since Helgrind 3.5.0 is friendly enough even with many threads created and destroyed
-2010-01-15 now redis-cli understands -h
-2010-01-15 Create swap file only if not exists
-2010-01-15 I hate warnings
-2010-01-15 fixed a minor memory leak in configuration file parsing
-2010-01-15 minor fix
-2010-01-15 support for named VM swap file. Fixed a few important interaction issues between the background saving processes and IO threads
-2010-01-15 fix for the just added new test
-2010-01-15 useless debugging messages removed
-2010-01-15 new test added
-2010-01-15 thread safe zmalloc used memory counter
-2010-01-15 A define to make Redis more helgrind friendly
-2010-01-15 removed a few races from threaded VM
-2010-01-14 Fixed a never experienced, theoretical bug that can actually happen in practice. Basically when a thread is working on a I/O Job we need to wait it to finish before to cancel the Job in vmCancelThreadedIOJob(), otherwise the thread may mess with an object that is being manipulated by the main thread as well.
-2010-01-14 Set the new threads stack size to a LZF friendly amount
-2010-01-13 access to already freed job structure fixed by statements reoredering
-2010-01-13 removed a useless debugging message
-2010-01-13 Wait zero active threads condition before to fork() for BGSAVE or BGREWRITEAOF
-2010-01-13 list API is now thread safe
-2010-01-13 minor TODO and debugging info changes
-2010-01-12 support for blocking VM in config file
-2010-01-12 more non blocking VM changes
-2010-01-12 fix for test #11
-2010-01-12 a few more stuff in INFO about VM. Test #11 changed a bit in order to be less lame
-2010-01-12 Added a define to configure how many completed IO jobs the handler should process at every call.
-2010-01-11 Fixed a bug in the IO Job canceling funtion
-2010-01-11 more steps towards a working non blocking VM
-2010-01-11 converted random printfs in debug logs
-2010-01-11 removed a bug introduced with non blocking VM
-2010-01-11 a few non blocking VM bugs fixed
-2010-01-11 More work on non-blocking VM. Should work in a few days
-2010-01-11 More threaded I/O VM work + Redis init script
-2010-01-10 more work on VM threaded I/O. Still nothing of usable
-2010-01-09 non-blocking VM data structures, just a start
-2010-01-08 used_memory_human added to INFO output. Human readable amount of memory used.
-2010-01-07 Now DEBUG OBJECT plays well with swapped out objects
-2010-01-07 fflush VM swap file after object swapping
-2010-01-07 added the fmacros to enable support for fseeko() lseeko() with 64bit off_t
-2010-01-07 VM now swaps objects out while loading datasets not fitting into vm-max-memory bytes of RAM
-2010-01-07 added process id information in INFO
-2010-01-06 vm-enabled set to no by default in redis.conf
-2010-01-06 a new default redis.conf
-2010-01-06 VM stats in INFO command
-2010-01-06 Introduced a new log verbosity level, so now DEBUG is really for debugging. Refactored a bit maxmemory. When virtual memory is short in RAM free the objects freelist as well as swapping things out.
-2010-01-05 fixed a bug in bgsave when VM is off but still it was testing for obj->storage field
-2010-01-05 converted a few calls to assert() => redisAssert() to print stack trace
-2010-01-05 BGREWRITEAOF now works with swapping on
-2010-01-05 A first fix for SET key overwrite
-2010-01-05 SAVE now works with VM
-2010-01-05 swapping algorithm a bit more aggressive under low memory
-2010-01-05 basic VM mostly working!
-2010-01-05 New object field (one of the unused bytes) to hold the type of the swapped out value object in key objects
-2010-01-05 VM internals bugfixes, set 1
-2010-01-05 load key from swap on key lookup
-2010-01-05 more object-level VM primitives
-2010-01-05 Redis objects swapping / loading
-2010-01-05 rdbLoadObject() as a separated function to load objects from disk. Dropped support for RDB version 0, I guess no longer has this legacy DBs around
-2010-01-04 VM low level pages handling
-2010-01-04 vm swap file creation, and some basic configuration
-2010-01-04 version marked 1.3.2
-2010-01-04 saving code refactored a bit, added a function returning the number of bytes an object will use on disk
-2010-01-02 Now the PUSH side of RPOPLPUSH is able to unblock clients blocked on BLPOP
-2010-01-02 Version is now 1.3.1
-2010-01-02 New vararg BLPOP able to block against multiple keys
-2009-12-29 fixed a problem with BLPOP timeout of zero, now it blocks forever
-2009-12-29 BLPOP timeouts implemented
-2009-12-29 first working implementation of BLPOP and BRPOP, still everything is to test well
-2009-12-29 a few more fixes, still broken
-2009-12-29 First fix, still broken
-2009-12-29 minor fix for Linux 64 bit
-2009-12-29 not yet working BLPOP implementation
-2009-12-27 AOFSYNC removed, got a better idea...
-2009-12-27 AOFSYNC command implemented
-2009-12-27 Version changed to 1.3.0, welcome to the new unstable
-2009-12-27 Now MULTI returns +OK as well
-2009-12-27 MULTI/EXEC first implementation
-2009-12-24 Fixed a minor bug in GETSET, now the SET part is not performed if the GET fails because the key does not contain a string value
-2009-12-23 html doc readded
-2009-12-23 ZRANGE WITHSCORES test added
-2009-12-23 version is now 1.1.94
-2009-12-23 Add the command name in the unknown command error message.
-2009-12-22 ZRANGE, ZREVRANGE now support WITHSCORES options
-2009-12-22 html docs update (ZINCRBY added)
-2009-12-18 TODO list update
-2009-12-18 the pipelining test was ran against DB 1 for error, now it runs on DB 9 like all the other tests
-2009-12-18 still more tests
-2009-12-18 SORT STORE test added
-2009-12-18 Now SORT returns an empty bulk reply if the key does not exist
-2009-12-18 modified a bit the ZREVRANGE test to cover a few lines of code more
-2009-12-18 SHUTDOWN now does the right thing when append only is on, that is, fsync instead to save the snapshot.
-2009-12-18 Added a missing server.dirty increment in a non critical place, added more tests
-2009-12-18 LTRIM stress testing test added
-2009-12-18 LTRIM now returns +OK against non existing keys. More tests in test-redis.tcl
-2009-12-18 added sdstoupper() declaration in sds.h
-2009-12-18 Fixed sds.c bug #124
-2009-12-16 LZF compression re-enabled by default, but with INIT_HTAB set to 0 to avoid the very costly memset initialization. Note that with this option set valgrind will output some false positive about lzf_c.c
-2009-12-16 lzf compression switched off by default now, with config file option to enable it in redis.conf
-2009-12-16 Regression for epoll bug in redis-test.tcl, version is now 1.1.93
-2009-12-16 Fixed a lame epoll issue
-2009-12-15 html doc updated
-2009-12-15 version is now 1.1.92
-2009-12-15 Two important fixes to append only file: zero length values and expires. A pretty neat new test to check consistency of randomly build datasets against snapshotting and AOF.
-2009-12-15 debug loadaof implemented in order to add more consistency tests in test-redis.tcl
-2009-12-15 Added a new test able to stress a lot the snapshotting engine
-2009-12-15 Unified handling of empty queries with normal queries.
-2009-12-15 Fixed some subtle bug in the command processing code almost impossible to spot in the real world, thanks to gcov
-2009-12-15 Regression test for SINTERSTORE added
-2009-12-15 Fixed issue #121
-2009-12-14 a few more tests and ability to run a specific test in test-redis.tcl
-2009-12-13 Changed the reply of BGSAVE and BGREWRITEAOF from +OK to a more meaningful message that makes the user aware of an operation that just started and is not yet finished.
-2009-12-13 Set the master->slave logical client as authenticated on creation, so that if the slave requires a password replication works anyway
-2009-12-13 TODO update
-2009-12-12 bgrewriteaof_in_progress added to INFO
-2009-12-12 TODO list modified. What's planned for 1.4 is now written in the stone ;)
-2009-12-12 better handling of non blocking connect on redis-benchmark: EPIPE on read does not print an error message now
-2009-12-11 some change to redis-sha1.rb utility to make it more robust against non-meaningful changes in the dataset
-2009-12-10 redis-sha1.rb utility updated
-2009-12-10 a bit more verbose -ERR wrong number o arguments error, now gives info about the command name causing the error
-2009-12-10 TODO change and minor SETNX optimization
-2009-12-06 in rdbLoadDoubleValue now the buffer is nul terminated correctly. Thanks valgrind.
-2009-12-06 printf format warnings fixed by casting
-2009-12-06 Regression tests for SETNX and MSETNX bugs added
-2009-12-06 SETNX and MSETNX now respect the delete-on-write operation of EXPIREing keys
-2009-12-06 Fixed daemonization when using kqueue/kevent. Now the server initialization is performed *after* the daemonization
-2009-12-05 more HTML doc changes
-2009-12-05 HTML doc update
-2009-12-05 a few redis-cli format specified fixed
-2009-12-05 use __attribute__ format in sdscatprintf() when the compiler is GCC. Fixed format bugs resulting from the new warnings.
-2009-12-01 TODO update
-2009-12-01 compilation problem on 64bit mac os x 10.5 possibly fixed
-2009-12-01 virtual memory design doc typos
-2009-12-01 design documents added to the project
-2009-11-30 Fixed issued #85 (getDecodedObject: Assertion 1 != 1 failed. While sorting a set), added a smarter assert() function to dump the stacktrace, provided a macro to initalize Redis objects on the stack to avoid this kind of bugs.
-2009-11-30 fixed a subtle bug in redis-cli not having visible effects
-2009-11-29 TODO updated
-2009-11-29 Version chagned to 1.100, also known as the first first 2.0 beta version
-2009-11-29 more tests in test-redis.tcl, some minor fix
-2009-11-29 SORT support for sorted sets
-2009-11-28 Implemented LIMIT option in ZRANGEBYSCORE. We now enter feature-freeze
-2009-11-28 Changelog updated
-2009-11-28 html doc updated
-2009-11-28 enable kqueue/kevent only for Mac OS X 10.6.x as it seems that 10.5.x has a broken implementation of this syscalls.
-2009-11-28 TODO updated
-2009-11-28 ZRANGEBYSCORE fuzzy test
-2009-11-28 ZRANGEBYSCORE memory leak fixed, ZRANGEBYSCORE initial test added
-2009-11-28 INFO refactored. Stack trace on memory corruption now dumps the same information as the INFO command
-2009-11-28 ifdefs added to use kevent on Free Open and Net BSD as well. INFO and ae.c modified in order to report the multiplexing API in use
-2009-11-28 Enabled object encoding for multiple keys in MSET. Added a test for memory leaks in test-redis.tcl when running on Mac OS X
-2009-11-28 Merge branch 'kqueue' of git://github.com/mallipeddi/redis
-2009-11-28 Changes to TODO list, commented a function in redis.c
-2009-11-28 Added support for kqueue.
-2009-11-27 TODO updated
-2009-11-26 zero length bulk data reading fixed in loadAppendOnlyFile()
-2009-11-26 append only file fixes
-2009-11-26 log rebuilding, random refactoring, work in progress please wait for an OK commit before to use this version
-2009-11-24 DEBUG RELOAD implemented, and test-redis.tcl modified to use it to check for persistence consistency.
-2009-11-24 Redis version set to 1.07
-2009-11-24 sorted sets saving fixed
-2009-11-24 minor TODO change
-2009-11-24 minor fix to avoid a false valgrind warning.
-2009-11-23 epoll support enabled by default for Linux builds
-2009-11-23 epoll module for ae.c implemented. Some more testing needed
-2009-11-23 commented the HAVE_EPOLL test in config.h to allow compilation under Linux now that the epoll module is still missing
-2009-11-23 ae_select module added
-2009-11-23 ae.c now supports multiple polling API modules, even if only ae_select.c is implemented currently. Also adding and removing an event is now O(1).
-2009-11-23 ae.c initial refactoring for epoll implementation
-2009-11-21 version incremented up to 1.06
-2009-11-21 TODO aesthetic changes
-2009-11-21 TODO updated with plans up to 1.5
-2009-11-21 SRANDMEMBER test
-2009-11-21 Fixed a SORT memory leak that should never happen in practice
-2009-11-21 SORT GET # implemented, with a test
-2009-11-21 EXPIREAT test
-2009-11-20 EXPIRE tests
-2009-11-20 more RPOPLPUSH tests
-2009-11-20 RPOPLPUSH tests added
-2009-11-20 ZINCRBY return value fixed
-2009-11-20 ZINCRSCOREBY => ZINCRBY
-2009-11-19 ZINCRSCOREBY implemented
-2009-11-19 writev() finally uncommented again
-2009-11-19 redis-benchmark hopefully last bug with multi bulk reply fixed
-2009-11-19 debug mode in redis-bench
-2009-11-19 Use writev(2) if glue output buffers is disabled
-2009-11-19 benchmark.c fixes
-2009-11-18 more experiments with long replies, glue output buffer, and writev.
-2009-11-18 benchmarking with different number of LRANGE elements. Ability to change the glue output buffer limit by #define
-2009-11-18 more writev tests/work
-2009-11-18 redis-benchmark multi bulk reply support hopefully fixed
-2009-11-17 support for writev implemented but currently ifdef-ed in order to understan why I can't see the improvements expected. Btw code provided by Stefano Barbato
-2009-11-17 multi-bulk reply support for redis-bench, and as a result LRANGE is not tested, providing some number for the tuning of multi-bulk requests performances server-side
-2009-11-12 Solaris fix thanks to Alan Harder
-2009-11-12 Merge git://github.com/ianxm/redis
-2009-11-12 ZSCORE fixed, now returns NULL on missing key or missing element
-2009-11-12 Redis test will not fail the SAVE test even if a background save is in progress
-2009-11-12 LPOPPUSH renamed into RPOPLPUSH
-2009-11-11 can select db num
-2009-11-11 Workaround for test-redis.tcl and Tcl 8.4.x about ZSCORE test
-2009-11-11 Removed a long time warning compiling with recent GCC on Linux
-2009-11-11 TODO updated
-2009-11-11 LPUSHPOP first implementation
-2009-11-10 Tcl script, make target, and redis.c changes to build the static symbol table automagically
-2009-11-10 Implemented a much better lazy expiring algorithm for EXPIRE
-2009-11-10 Fixed issue 92 in redis: redis-cli (nil) return value lacks CR/LF
-2009-11-10 Minor TODO change with new expiring algorithm description. New expiring algorithm moved since it'll go in 1.1
-2009-11-04 redis-test is now a better Redis citizen, testing everything against DB 9 and 10 and only if this DBs are empty.
-2009-11-04 fixed a refcounting bug with SORT ... STORE leading to random crashes
-2009-11-04 masterauth option merged, thanks to Anthony Lauzon
-2009-11-03 ZSets double to string serialization fixed
-2009-11-03 client-libraries directory readded
-2009-11-03 redis.tcl put at toplevel since it's uesd for the test-redis.tcl script
-2009-11-03 client libs removed from Redis git
-2009-11-03 redis-cli now accepts a -r (repeat) switch. Still there is a memory leaks to fix
-2009-11-01 TODO updated again
-2009-11-01 TODO updated
-2009-11-01 redis-cli now makes clear when the returned string is an integer
-2009-11-01 SORT STORE option
-2009-11-01 now Redis prints DB stats just after the startup without to wait a second for the first report
-2009-11-01 another fix for append only mode, now read-only operations are not appended
-2009-11-01 appendfsync parsing in config file fixed. If you benchmarked Redis against different appendfsync options is time to try again ;)
-2009-11-01 append only file loading fixed
-2009-11-01 first version of append only file loading -- STILL BROKEN don't use it
-2009-10-31 Fixed Issue 83:Using TYPE on a zset results in a malformed response from the Redis server
-2009-10-31 Fixed compilation on Linux
-2009-10-30 append only mode is now able to translate EXPIRE into EXPIREAT transparently
-2009-10-30 appendfsync is now set to NO by default
-2009-10-30 support for appendonly mode no, always, everysec
-2009-10-30 first fix for append only mode
-2009-10-30 Initial implementation of append-only mode. Loading still not implemented.
-2009-10-30 EXPIRE behaviour changed a bit, a negative TTL or an EXPIREAT with unix time in the past will now delete the key. It seems saner to me than doing nothing.
-2009-10-30 EXPIREAT implemented, will be useful for the append-only mode
-2009-10-29 Fixed Issue 74 (ERR just returned on invalid password), now the error message is -ERR invalid password.
-2009-10-29 Fixed issue 72 (SLAVEOF shutdowns redis-server on malformed reply)
-2009-10-29 Fixed issue 77 (Incorrect time in log files) thanks to youwantalex
-2009-10-29 Fixed  Issue 76 (redis-server crashes when it can't connect to MASTER and client connects to SLAVE)
-2009-10-29 ZREMRANGEBYSCORE implemented. Remove a range of elements with score between min and max
-2009-10-28 TODO changes and mostly theoretical minor skiplist change
-2009-10-28 ZLEN renamed ZCARD for consistency with SCARD
-2009-10-27 TODO reworked to reflect the real roadmap
-2009-10-27 Fix for 'make 32bit'
-2009-10-27 a fix for the solaris fix itself ;)
-2009-10-27 More Solaris fixes
-2009-10-27 A lot of ZSETs tests implemented, and a bug fixed thanks to this new tests
-2009-10-27 zmalloc Solaris fixes thanks to Alan Harder
-2009-10-27 ZSCORE implemented
-2009-10-26 fix for ZRANGEBYSCORE
-2009-10-26 ZRANGEBYSCORE implemented. Redis got range queries!
-2009-10-26 A trivial change makes the new implementation O(log(N)) instead of O(log(N))+O(M) when there are M repeated scores!
-2009-10-26 ZSET now saved on disk like any other type
-2009-10-26 double serialization routines implemented
-2009-10-26 ZSETs random fixes. Now the implementation appears to be pretty stable
-2009-10-26 another leak fixed. Can't find more for now, but still a bug in ZSETs to fix
-2009-10-26 ZSETs memory leak #1 solved, another one missing
-2009-10-26 Fix for skiplists backward link
-2009-10-26 Merged Solaris patches provided by Alan Harder
-2009-10-26 backward support to skiplists for ZREVRANGE, still broken, committing since I've to merge the Solaris patches
-2009-10-26 TODO updated
-2009-10-26 ZREM implemented
-2009-10-24 fix for ZADD in score update mode
-2009-10-24 some work on ZADD against existing element (score update), still broken...
-2009-10-23 zrange now starts to work. zadd still does not support update and will crash or leak or b000mmmmm
-2009-10-23 zrange initial hack (not working for now)
-2009-10-23 first skiplist fix, courtesy of valgrind
-2009-10-23 zset symbols added to stack trace code. ZSets will simply crash at the moment
-2009-10-23 more work on ZSETs and a new make target called 32bit to build i386 binaries on mac os x leopard
-2009-10-23 initial skiplist implementation. Most memory checks removed and zmalloc() modified to fail with an error message and abort. Anyway Redis is not designed to recover from out of memory conditions.
-2009-10-23 Fixed compilation in mac os x snow leopard when compiling a 32 bit binary.
-2009-10-22 version incremented to 1.050 to distinguish from 1.001 stable and next stable versions with minor fixes
-2009-10-21 TODO updated
-2009-10-21 SRANDMEMBER added
-2009-10-20 Imporant bug leading to data corruption fixed (NOT affecting stable distribution), Tcl client lib MSET/MSETNX implementation fixed, Added new tests for MSET and MSETNX in test-redis.tcl
-2009-10-17 added multi-bulk protocol support to redis-cli and support for MSET and MSETNX
-2009-10-17 MSET fixed, was not able to replace keys already set for a stupid bug
-2009-10-16 some dead code removed
-2009-10-16 multi bulk input protocol fixed
-2009-10-16 MSET and MSETNX commands implemented
-2009-10-07 undoed all the sds hacking that lead just to random bugs and no memory saving ;)
-2009-10-07 initial multi-bulk query protocol, this will allow MSET and other interesting features.
-2009-10-03 benchmark now outputs the right command line to shorten the TIME_WAIT interval on Mac OS X when keep alive is set
-2009-10-02 Issue 69 fixed. Object integer encoding now works with replication and MONITORing again.
-2009-09-18 LREM fixed, used to crash since the new object integer encoding is on the stage
-2009-09-17 maxmemory didn't worked in 64 systems for values > 4GB since it used to be an unsigned int. Fixed
-2009-09-10 incremented version number to 1.001, AKA Redis edge is no longer stable...
-2009-09-10 in-memory specialized object encoding (for now 32 signed integers only)
-2009-09-03 Latest doc changes for 1.0
-2009-09-03 Redis 1.0.0 release
-2009-09-02 Redis version pushed to 1.0
-2009-09-02 Ruby client lib updated to the latest git version
-2009-09-02 update-scala-client script added
-2009-09-02 Scala client added thanks to Alejanro Crosa
-2009-09-02 QuickStart added
-2009-09-01 Fixed crash with only space and newline as command (issue 61), thanks to a guy having as nick "fixxxerrr"
-2009-08-11 TODO list modified
-2009-07-24 more snow leopard related fixes (for 32bit systems)
-2009-07-24 fixed compilation with Snow Leopard, thanks to Lon Baker for providing SSH access to Snow Leopard box
-2009-07-22 Fixed NetBSD compile problems
-2009-07-17 now the size of the shared pool can be really modified via config, also the number of objects in the sharing pool is logged when the log level is set to debug. Thanks to Aman Gupta
-2009-07-05 added utils/redis-copy.rb, a script that is able to copy data from one Redis server to another one on the fly.
-2009-07-04 Applied three different patches thanks to Chris Lamb, one to fix compilation and get the IP register value on Linux IA64 and other systems. One in order to log the overcommit problem on the logs instead of the standard output when Redis is demonized. The latest in order to suggest a more consistent way in order to switch to 1 the memory overcommit Linux feature.
-2009-07-03 bugfix: EXPIRE now propagates to the Slave.
-2009-06-16 Redis version modified to 0.900
-2009-06-16 update-ruby-client script already points to ezmobius repo
-2009-06-16 client libraries updated
-2009-06-16 Redis release candidate 1
-2009-06-16 Better handling of background saving process killed or crashed
-2009-06-14 number of keys info in INFO command thanks to Diego Rosario Brogna
-2009-06-14 SPOP documented
-2009-06-14 Clojure library thanks to Ragnar Dahlén
-2009-06-10 It is now possible to specify - as config file name to read it from stdin
-2009-06-10 sync with jodosha redis-rb
-2009-06-10 Redis-rb sync
-2009-06-10 max inline request raised again to 1024*1024*256 bytes
-2009-06-10 max bytes in an inline command raised to 1024*1024 bytes, in order to allow for very large MGETs and still protect from client crashes
-2009-06-08 SPOP implemented. Hash table resizing for Sets and Expires too. Changed the resize policy to play better with RANDOMKEY and SPOP.
-2009-06-07 some minor changes to the backtrace code
-2009-06-07 enable backtrace capabilities only for Linux and MacOSX
-2009-06-07 Dump a backtrace on sigsegv/sigbus, original coded thanks to Diego Rosario Brogna, modified in order to work on different OSes and to enhance reliability
-2009-06-06 Merge git://github.com/dierbro/redis
-2009-06-06 add more output
-2009-06-06 store static function pointer for a useful stack trace
-2009-06-06 TODO updated
-2009-06-06 Makefile dependencies updated
-2009-06-05 Avoid a busy loop while sending very large replies against very fast links, this allows to be more responsive with other clients even under a KEY * against the loopback interface
-2009-06-05 Kill the background saving process before performing SHUTDOWN to avoid races
-2009-06-05 LREM now returns :0 for non existing keys
-2009-06-05 - put some order in code - better output
-2009-06-05 added config.h for #ifdef business isolation, added fstat64 for Mac OS X
-2009-06-04 remove die() :-)
-2009-06-04 add compile options to debug
-2009-06-04 initial commit print stack trace
-2009-06-04 initial commit print stack trace
-2009-06-04 macosx specific zmalloc.c, uses malloc_size function in order to avoid to waste memory and time to put an additional header
-2009-06-04 DEBUG OBJECT implemented
-2009-06-04 backtrace support removed: unreliable stack trace :(
-2009-06-04 initial backtrace dumping on sigsegv/sigbus + debug command
-2009-06-03 Python lib updated
-2009-06-03 shareobjectspoolsize implemented in reds.conf, in order to control the pool size when object sharing is on
-2009-05-30 Erlang client updated
-2009-05-30 Python client library updated
-2009-05-29 Redis-rb minor bool convertion fix
-2009-05-29 ruby library client is not Redis-rb merged with RubyRedis "engine" by Brian McKinney
-2009-05-28 __P completely removed from pqsort.c/h
-2009-05-28 another minor fix for Solaris boxes
-2009-05-28 minor fix for Solaris boxes
-2009-05-28 minor fix for Solaris boxes
-2009-05-27 maxmemory implemented
-2009-05-26 Redis git version modified to 0.101 in order to distinguish that from the latest tar.gz via INFO ;)
-2009-05-26 Redis 0.100 released
-2009-05-26 client libraries synched in git
-2009-05-26 ignore gcc warning about write() return code not checked. It is esplicitily this way since the "max number of clients reached" is a best-effort error
-2009-05-26 max bytes of a received command enlarged from 1k to 16k
-2009-05-26 RubyRedis: set TCP_NODELAY TCP socket option to to disable the neagle algorithm. Makes a huge difference under some OS, notably Linux
-2009-05-25 maxclients implemented, see redis.conf for details
-2009-05-25 INFO command now reports replication info
-2009-05-25 minor fix to RubyRedis about bulk commands sent without arguments
-2009-05-24 Warns if using the default config
-2009-05-24 Issue with redis-client used in scripts solved, now to check if the latest argument must come from standard input we do not check that stdin is or not a tty but the command arity
-2009-05-23 RubyRedis: now sets are returned as arrays again, and not as Set objects
-2009-05-23 SLAVEOF command documented
-2009-05-23 SLAVEOF command implemented for replication remote control
-2009-05-22 Fix: no connection timeout for the master!
-2009-05-22 replication slave timeout when receiving the initial bulk data set to 3600 seconds, now that replication is non-blocking the server must save the db before to start the async replication and this can take a lot of time with huge datasets
-2009-05-22 README tutorial now reflects the new proto
-2009-05-22 critical bug about glueoutputbuffers=yes fixed. Under load and with pipelining and clients disconnecting on the middle of the chat with the server, Redis could block. Now it's ok
-2009-05-22 TTL command doc added
-2009-05-22 TTL command implemented
-2009-05-22 S*STORE now return the cardinality of the resulting set
-2009-05-22 rubyredis more compatible with Redis-rb
-2009-05-21 minor indentation fix
-2009-05-21 timeout support and Redis-rb compatibility aliases implemented in RubyRedis
-2009-05-21 RubyRedis info postprocessor rewritten in a more functional way
-2009-05-21 dead code removed from RubyRedis
-2009-05-21 command postprocessing implemented into RubyRedis
-2009-05-20 Automagically reconnection of RubyRedis
-2009-05-20 RubyRedis: Array alike operators implemented
-2009-05-20 random testing code removed
-2009-05-20 RubyRedis DB selection forced at object creation
-2009-05-20 Initial version of an alternative Ruby client added
-2009-05-20 SDIFF / SDIFFSTORE added to doc
-2009-05-20 Aman Gupta changes merged
-2009-05-20 Merge git://github.com/tmm1/redis
-2009-05-19 Allow timeout=0 config to disable client timeouts
-2009-05-19 Partial qsort implemented in SORT command, only when both BY and LIMIT is used. minor fix for a warning compiling under Linux.
-2009-05-19 psort.c/h added. This is a partial qsort implementation that Redis will use when SORT+LIMIT is requested
-2009-05-17 Fix SINTER/UNIONSTORE to allow for &=/|= style operations (i.e. SINTERSTORE set1 set1 set2)
-2009-05-17 Optimize SDIFF to return as soon as the result set is empty
-2009-05-17 SDIFF/SDIFFSTORE implemnted unifying it with the implementation of SUNION/SUNIONSTORE
-2009-05-11 timestamp in log lines
-2009-05-11 Python client updated pushing from Ludo's repository
-2009-05-11 disconnect when we cannot read from the socket
-2009-05-11 benchmark utility now supports random keys
-2009-05-10 minor doc changes
-2009-05-09 added tests for vararg DEL
-2009-05-09 DEL is now a vararg, IMPORTANT: memory leak fixed in loading DB code
-2009-05-09 doc changes
-2009-05-09 CPP client added thanks to Brian Hammond
-2009-05-06 Infinite number of arguments for MGET and all the other commands
-2009-05-04 Warns if /proc/sys/vm/overcommit_memory is set to 0 on Linux. Also make sure to don't resize the hash tables while the child process is saving in order to avoid copy-on-write of memory pages
-2009-04-30 zmalloc fix, return NULL or real malloc failure
-2009-04-30 more fixes for dict.c and the 150 million keys limit
-2009-04-30 dict.c modified to be able to handle more than 150,000,000 keys
-2009-04-29 fuzz stresser implemented in redis-test
-2009-04-29 fixed for HT resize check 32bits overflow
-2009-04-29 Check for fork() failure in background saving
-2009-04-29 fix for the LZF off-by-one bug added
-2009-04-28 print bytes used at exit on SHUTDOWN
-2009-04-28 SMOVE test added
-2009-04-28 SMOVE command implemented
-2009-04-28 less CPU usage in command parsing, case insensitive config directives
-2009-04-28 GETSET command doc added
-2009-04-28 GETSET tests
-2009-04-28 GETSET implemented
-2009-04-27 ability to specify a different file name for the DB
-2009-04-27 log file parsing code improved a bit
-2009-04-27 bgsave_in_progress field in INFO output
-2009-04-27 INCRBY/DECRBY now support 64bit increments, with tests
-2009-04-23 RANDOMKEY regression test added
-2009-04-23 dictGetRandomKey bug fixed, RANDOMKEY will not block the server anymore
-2009-04-22 FLUSHALL/FLUSHDB no longer sync on disk. Just increment the dirty counter by the number of elements removed, that will probably trigger a background saving operation
-2009-04-21 forgot to comment testing code in PHP lib. Now it is ok
-2009-04-21 PHP client ported to PHP5 and fixed
-2009-04-21 doc update
-2009-04-20 Non blocking replication (finally!). C-side linked lists API improved.
-2009-04-19 SUNION, SUNIONSTORE, Initial work on non blocking replication
-2009-04-10 Redis 0.091 released
-2009-04-10 SINTER/SINTERSTORE/SLEMENTS fix: misisng keys are now not errors, but just like empty sets
-2009-04-09 doc changes
-2009-04-08 TODO changes, minor change to default redis.conf
-2009-04-08 html doc updated
-2009-04-08 library clients update scripts
-2009-04-08 Ruby client updated
-2009-04-08 Lua client updated
-2009-04-08 Changelog updated
-2009-04-08 Merge git://github.com/ludoo/redis
-2009-04-08 add expire command to the php lib
-2009-04-08 fix decode bug, add flush and info commands
-2009-04-07 Rearrange redisObject struct to reduce memory usage in 64bit environments (as recommended http://groups.google.com/group/redis-db/msg/68f5a743f8f4e287)
-2009-04-07 ruby19 compat: use each_line on string
-2009-04-07 64bit fixes for usedmemory
-2009-04-08 RANDOMKEY issue 26 fixed, generic test + regression added
-2009-04-06 Don't accept SAVE if BGSAVE is in progress
-2009-04-06 add expire command to the python lib
-2009-04-03 persistent EXPIRE
-2009-04-03 dirty increment was missing in two points. TODO updated
-2009-04-02 LZF configured to initalize the HT in order to be determinsitic and play well with valgrind
-2009-04-02 fix select test
-2009-04-02 fix trailing cr+nl in values
-2009-04-02 compression/decompression of large values on disk now working
-2009-04-02 disable LZF compression since it's not able to load the DB for now, the load part is missing
-2009-04-02 new LZF files added
-2009-04-02 Fixed issue 23 about AUTH
-2009-04-02 Issue 22 fixed
-2009-04-01 non-lazy expired keys purging implemented
-2009-04-01 fastlz dependence removed
-2009-04-01 Initial implementation of EXPIRE
-2009-03-30 TODO updated
-2009-03-30 changelog added
-2009-03-28 redis-sha1 utility added
-2009-03-28 Integer encoding implemented in dump file. Doc updated
-2009-03-27 feature macros defined to play well with C99
-2009-03-27 feature macros defined to play well with C99
-2009-03-27 now Redis is C99-ok
-2009-03-27 IMPORTANT FIX: new dump format implementation was broken. Now it's ok but tests for the 32-bit case values are needed
-2009-03-27 ANSI-C compatibility changes
-2009-03-27 Ruby client library updated. Important changes in this new version!
-2009-03-26 Lua client added thanks to Daniele Alessandri
-2009-03-26 Lua client added thanks to Daniele Alessandri
-2009-03-26 AUTH merged from Brian Hammond fork, reworked a bit to fix minor problems
-2009-03-25 Adds AUTH command.
-2009-03-25 Nasty bug of the new DB format fixed, objects sharing implemented
-2009-03-25 doc update
-2009-03-25 Erlang client synched with Valentiono's repo
-2009-03-25 New file dump format, perl client library added
-2009-03-25 New protocol fix for LREM
-2009-03-24 two typos fixed
-2009-03-24 Now the Redis test uses the proper Tcl client library
-2009-03-24 Tcl client library
-2009-03-24 redis-benchmark sync with the new protocol
-2009-03-24 git mess :)
-2009-03-24 sync python client to the new protocol
-2009-03-24 protocol fix in SORT reply with null elements
-2009-03-24 protocol doc changed
-2009-03-24 Server replies now in the new format, test-redis.tcl and redis-cli modified accordingly
-2009-03-24 Python client library updated, thanks to Ludo!
-2009-03-24 random tested mode for test-redis.tcl, minor other stuff, version switched to 0.8
-2009-03-23 Now MONITOR/SYNC cannot be issued multiple times
-2009-03-23 MONITOR command implemented.
-2009-03-23 lucsky changes imported. pid file path can now be configured, redis-cli fixes
-2009-03-23 Merge git://github.com/lucsky/redis
-2009-03-23 another missing free->zfree replacement fixed. Thanks to Ludo
-2009-03-23 Fixed redis-cli readLine loop to correctly handle EOF.
-2009-03-23 Display the port on server startup.
-2009-03-23 Allow to specify the pid file from the config file.
-2009-03-23 Added gitignore file.
-2009-03-22 MGET tests added
-2009-03-22 doc changes
-2009-03-22 added doc for MGET
-2009-03-22 redis-cli now checks the arity of vararg commnads
-2009-03-22 INFO fixed, MGET implemented, redis-cli implements INFO/MGET
-2009-03-22 first commit
+2010-04-14 Does not allow commands other than Pub/Sub commands when there is at least one pattern (antirez)
+2010-04-13 Fixed a tiny memory leak when loading the configuration file. (Alex McHale)
+2010-04-13 Merge branch 'hmget' of git://github.com/pietern/redis (antirez)
+2010-03-29 Validate numeric inputs. (Alex McHale)
+2010-03-24 Remove trailing whitespace. (Alex McHale)
+2010-04-12 Now all the commands returning a multi bulk reply against non existing keys will return an empty multi bulk, not a nil one (antirez)
+2010-04-12 implemented HMGET (Pieter Noordhuis)
+2010-04-12 implemented HMSET (Pieter Noordhuis)
+2010-04-12 Sharing of small integer objects: may save a lot of memory with datasets having many of this (antirez)
+2010-04-10 dict.c fixed to play well with enabling/disabling of the hash table (antirez)
+2010-04-09 removed a no longer true assert in the VM code (antirez)
+2010-04-09 shareobjects feautres killed - no gains most of the time, but VM complexities (antirez)
+2010-04-09 use directly the real key object in VM I/O jobs to match by pointer, and to handle different keys with the same name living in different DBs, but being at the same moment in the IO job queues (antirez)
+2010-04-08 last change reverted as it was unstable... more testing needed (antirez)
+2010-04-08 Prevent hash table resize while there are active child processes in order to play well with copy on write (antirez)
+2010-04-08 Merge branch 'issue_218' of git://github.com/pietern/redis (antirez)
+2010-04-08 -1 not needed... (antirez)
+2010-04-08 Skiplist theoretical fix (antirez)
+2010-04-07 Now when a child is terminated by a signal, the signal number is logged as well (antirez)
+2010-04-07 First version of evented Redis Tcl client, that will be used for BLPOP and Pub/Sub tests (antirez)
+2010-04-05 use long long reply type for HINCRBY (Pieter Noordhuis)
+2010-04-05 last argument is never encoded for HINCRBY (Pieter Noordhuis)
+2010-04-02 Now PUBLISH commands are replicated to slaves (antirez)
+2010-04-01 use the right object when cleaning up after zunion/zinter (fixes issue 216) (Pieter Noordhuis)
+2010-04-01 Merge branch 'zipmap' of git://github.com/pietern/redis (antirez)
+2010-04-01 reduce code complexity because zipmapLen now is O(1) (Pieter Noordhuis)
+2010-04-01 update the zipmap entry in-place instead of appending it (Pieter Noordhuis)
+2010-04-01 updated zipmap documentation to match the implementation (Pieter Noordhuis)
+2010-04-01 allow 4 free trailing bytes for each value (Pieter Noordhuis)
+2010-04-01 Pub/Sub pattern matching capabilities (antirez)
+2010-04-01 use function to determine length of a single entry (Pieter Noordhuis)
+2010-03-31 Deny EXEC under out of memory (antirez)
+2010-03-29 No timeouts nor other commands for clients in a Pub/Sub context (antirez)
+2010-03-29 free hash table entries about no longer active classes, so that PUBSUB can be abused with millions of different classes (antirez)
+2010-03-29 Fixed a refcount stuff leading to PUBSUB crashes (antirez)
+2010-03-29 fmacros added to linenoise, avoiding all the nice warnings... (antirez)
+2010-03-29 First pubsub fix (antirez)
+2010-03-29 PUBSUB implemented (antirez)
+2010-03-29 Redis version is now 1.3.8 (antirez)
+2010-03-28 removed references in code to ZIPMAP_EMPTY (Pieter Noordhuis)
+2010-03-28 use first byte of zipmap to store length (Pieter Noordhuis)
+2010-03-28 implemented strategy that doesn't use free blocks in zipmaps (Pieter Noordhuis)
+2010-03-26 Merge branch 'hincrby' of git://github.com/pietern/redis (antirez)
+2010-03-26 removed unnecessary refcount increase that caused the HINCRBY memleak (Pieter Noordhuis)
+2010-03-26 implements HINCRBY and tests (todo: find and fix small memleak) (Pieter Noordhuis)
+2010-03-26 Removed a useless if spotted by Pieter Noordhuis (antirez)
+2010-03-26 Fixed a critical replication bug: binary values issued with the multi bulk protocol caused a protocol desync with slaves. (antirez)
+2010-03-24 Fixed the reply about denied  write commands under maxmemory reached condition: now the error will no longer lead to a client-server protocol desync (antirez)
+2010-03-24 CONFIG command implemened -- just a start but already useful (antirez)
+2010-03-24 redis-cli prompt is now redis> (antirez)
+2010-03-23 with --help states that you can use - as config file name to feed config via stdin (antirez)
+2010-03-23 New INFO field: expired_keys (antirez)
+2010-03-23 the Cron timer function is now called 10 times per second instead of 1 time per second to make Redis more responsibe to BGSAVE and to delete expired keys more incrementally (antirez)
+2010-03-23 Use linenoise for line editing on redis-cli. (Michel Martens)
+2010-03-23 Fix authentication for redis-cli on non-interactive mode. (Michel Martens)
+2010-03-23 key deletion on empty value fix + some refactoring (antirez)
+2010-03-23 Empty value trigger key removal in all the operations (antirez)
+2010-03-22 Merged gnrfan patches fixing issues 191, 193, 194 (antirez)
+2010-03-22 Merge branch 'issue_193' of git://github.com/gnrfan/redis (antirez)
+2010-03-22 Merge branch 'issue_191' of git://github.com/gnrfan/redis (antirez)
+2010-03-22 Redis master version is now 1.3.7 (antirez)
+2010-03-19 support for include directive in config parser (Jeremy Zawodny)
+2010-03-19 Removed a stupid overriding of config values due to a wrong cut&paste (antirez)
+2010-03-19 VM hash type swappability implemented. Handling of failed pthread_create() call. (antirez)
+2010-03-19 Solving issue #191 on Google Code: -v and --version should print the version of Redis (Antonio Ognio)
+2010-03-19 Solves issue #194 on Google Code: --help parameter to redis-srver prints the usage message (Antonio Ognio)
+2010-03-19 Fixing issue 193 (Antonio Ognio)
+2010-03-18 increment server.dirty on HDEL (antirez)
+2010-03-18 Redis 1.3.6 (antirez)
+2010-03-18 test-redis.tcl dataset digest function Hash support (antirez)
+2010-03-18 zipmap fix for large values (antirez)
+2010-03-18 Optimization fixed and re-activated (antirez)
+2010-03-18 reverted an optimization that makes Redis not stable (antirez)
+2010-03-18 Fixed redis-cli auth code (antirez)
+2010-03-17 HDEL fix, an optimization for comparison of objects in hash table lookups when they are integer encoding (antirez)
+2010-03-17 Version is now 1.3.5 (antirez)
+2010-03-17 Merged Pietern patch for VM key args helper function. Fixed an obvious bug in the redis-cli passwd auth stuff (antirez)
+2010-03-17 Merge branch 'aggregates' of git://github.com/pietern/redis (antirez)
+2010-03-17 Added Authentication to redis-cli.c using -a switch Update usage fixed Makefile to delete redis-check-dump during make clean (root)
+2010-03-17 HEXISTS and tests implemented (antirez)
+2010-03-17 More hash tests (antirez)
+2010-03-17 better HSET test (antirez)
+2010-03-17 Fixed a bug in HSET, a memory leak, and a theoretical bug in dict.c (antirez)
+2010-03-17 More Hash tests (antirez)
+2010-03-13 added preloading keys from VM when using ZINTER or ZUNION (Pieter Noordhuis)
+2010-03-13 added explicit AGGREGATE [SUM|MIN|MAX] option to ZUNION/ZINTER (Pieter Noordhuis)
+2010-03-16 HGET fix for integer encoded field against zipmap encoded hash (antirez)
+2010-03-16 zrevrank support in redis-cli (antirez)
+2010-03-16 HKEYS / HVALS / HGETALL (antirez)
+2010-03-16 Solved a memory leak with Hashes (antirez)
+2010-03-15 pretty big refactoring (antirez)
+2010-03-15 An interesting refactoring + more expressive internal API (antirez)
+2010-03-15 Fixed the same problem in ZREVRANK (antirez)
+2010-03-15 Fixed a ZRANK bug (antirez)
+2010-03-15 zipmap to hash conversion in HSET (antirez)
+2010-03-14 max zipmap entries and max zipmap value parameters added into INFO output (antirez)
+2010-03-14 HDEL and some improvement in DEBUG OBJECT command (antirez)
+2010-03-14 Append only file support for hashes (antirez)
+2010-03-13 utility to check rdb files for unprocessable opcodes (Pieter Noordhuis)
+2010-03-12 A minor fix and a few debug messages removed (antirez)
+2010-03-12 Applied the replication bug patch provided by Jeremy Zawodny, removing temp file collision after the slave got the dump.rdb file in the SYNC stage (antirez)
+2010-03-11 Fix for HGET against non Hash type, debug messages used to understand a bit better a corrupted rdb file (antirez)
+2010-03-09 fix: use zmalloc instead of malloc (Pieter Noordhuis)
+2010-03-09 Merged zsetops branch from Pietern (antirez)
+2010-03-09 Merged ZREMBYRANK from Pietern (antirez)
+2010-03-09 Merged ZREVRANK from Pietern (antirez)
+2010-03-09 use a struct to store both a dict and its weight for ZUNION and ZINTER, so qsort can be applied (Pieter Noordhuis)
+2010-03-09 Hash auto conversion from zipmap to hash table, type fixed for hashes, hash loading from disk (antirez)
+2010-03-09 replaced ZMERGE by ZUNION and ZINTER. note: key preloading by the VM does not yet work (Pieter Noordhuis)
+2010-03-08 Hashes saving / fixes (antirez)
+2010-03-08 use ZMERGE as starting point (Pieter Noordhuis)
+2010-03-07 HSET fixes, now the new pointer is stored back in the object pointer field (antirez)
+2010-03-07 added ZREVRANK (Pieter Noordhuis)
+2010-03-06 Fix for replicaiton with over 2GB dump file initial SYNC stage (antirez)
+2010-03-06 first implementation of HSET/HSET. More work needed (antirez)
+2010-03-05 zipmaps functions to get, iterate, test for existence. Initial works for Hash data type (antirez)
+2010-03-04 redis-benchmark now implements Set commands benchmarks (antirez)
+2010-03-04 zipmap iteration code (antirez)
+2010-03-04 moved code to delete a single node from a zset to a separate function (Pieter Noordhuis)
+2010-03-04 rename zslDeleteRange to zslDeleteRangeByScore (to differentiate between deleting using score or rank) (Pieter Noordhuis)
+2010-03-04 use 1-based rank across zsl*Rank functions consistently (Pieter Noordhuis)
+2010-03-04 implemented ZREMBYRANK (Pieter Noordhuis)
+2010-03-04 A fix for initialization of augmented skip lists (antirez)
+2010-03-04 A fix for an invalid access when VM is disabled (antirez)
+2010-03-04 Merge branch 'zsl-get-rank' of git://github.com/pietern/redis (antirez)
+2010-03-04 redis-cli now runs in interactive mode if no command is provided (antirez)
+2010-03-04 merged memory reduction patch (Pieter Noordhuis)
+2010-03-04 Now list push commands return the length of the new list, thanks to Gustavo Picon (antirez)
+2010-03-04 first check if starting point is trivial (head or tail) before applying log(N) search (Pieter Noordhuis)
+2010-03-04 use rank to find starting point for ZRANGE and ZREVRANGE (Pieter Noordhuis)
+2010-03-04 lookup rank of a zset entry in a different function (Pieter Noordhuis)
+2010-03-04 SUBSTR fix for integer encoded vals (antirez)
+2010-03-04 fix ZRANK (realize that rank is 1-based due to the skip list header) (Pieter Noordhuis)
+2010-03-03 initial implementation of SUBSTR (antirez)
+2010-03-03 TODO updated (antirez)
+2010-03-03 fpurge call removed from redis-cli (antirez)
+2010-03-03 ZRANK stress tester (antirez)
+2010-03-03 use less memory as element->span[0] will always be 1; any level 0 skip list is essentially a linked list (Pieter Noordhuis)
+2010-03-03 rank is very unlikely to overflow integer range (Pieter Noordhuis)
+2010-03-03 x->backward never equals zsl->header (Pieter Noordhuis)
+2010-03-03 initial implementation for augmented zsets and the zrank command (Pieter Noordhuis)
+2010-03-03 zipampDel() implemented (antirez)
+2010-03-03 added quit and exit commands to redis-cli in order to quit the interactive mode (antirez)
+2010-03-03 Merge remote branch 'djanowski/interactive' (antirez)
+2010-03-02 Add support for MULTI/EXEC. (Damian Janowski & Michel Martens)
+2010-03-02 Remove trailing newline in interactive mode. (Damian Janowski & Michel Martens)
+2010-03-02 minor fix for a Linux warning (antirez)
+2010-03-02 Add interactive mode to redis-cli. (Michel Martens & Damian Janowski)
+2010-03-02 Better to increment the version minor number when a VM bug is fixed... it will be simpler to understand what's going on when users will report problems with the INFO trace. (antirez)
+2010-03-02 Fixed a subtle VM bug... was not flushing the buffer so the child process read truncated data (antirez)
+2010-03-01 KEYS now returns a multi bulk reply (antirez)
+2010-02-27 Add DISCARD command to discard queued MULTI commands. (antirez)
+2010-03-01 Swappability bug due to a typo fixed thanks to code review by Felix Geisendörfer @felixge (antirez)
+2010-02-28 minor fixes for zipmap.c (antirez)
+2010-02-27 first zipmap fix of a long sequence in the days to come ;) (antirez)
+2010-02-27 initial zipmap.c implementation (antirez)
+2010-02-27 Bug #169 fixed (BLOP/BRPOP interrupted connections are not cleared from the queue) (antirez)
+2010-02-22 Fixed 32bit make target to work on Linux out of the box (antirez)
+2010-02-19 A problem with replication with multiple slaves connectiong to a single master fixed. It was due to a typo, and reported on github by the user micmac. Also the copyright year fixed from many files. (antirez)
+2010-02-10 Saner VM defaults for redis.conf (antirez)
+2010-02-09 VM now is able to block clients on swapped keys for all the commands (antirez)
+2010-02-07 ZCOUNT and ZRANGEBYSCORE new tests (antirez)
+2010-02-07 ZRANGEBYSCORE now supports open intervals, prefixing double values with a open paren. Added ZCOUNT that can count the elements inside an interval of scores, this supports open intervals too (antirez)
+2010-02-07 WITHSCORES in ZRANGEBYSCORE thanks to Sam Hendley (antirez)
+2010-02-06 Added "withscores" option to zrangebyscore command. Based on withscores support in zrange function, ugliest part was the argument parsing to handle using it with the limit option. (Sam Hendley)
+2010-02-06 DEBUG OBJECT provide info about serialized object length even when VM is disabled (antirez)
+2010-02-06 multi bulk requests in redis-benchmark, default fsync policy changed to everysec, added a prefix character for DEBUG logs (antirez)
+2010-02-04 APPEND tests (antirez)
+2010-02-04 APPEND command (antirez)
+2010-02-02 Faster version of the function hashing possibly encoded objects, leading to a general speed gain when working with Sets of integers (antirez)
+2010-02-02 faster Set loading time from .rdb file resizing the hash table to the right size before loading elements (antirez)
+2010-02-02 Log time taken to load the DB at startup, in seconds (antirez)
+2010-01-31 Fixed VM corruption due to child fclosing the VM file directly or indirectly calling exit(), now replaced with _exit() in all the sensible places. Masked a few signals from IO threads. (antirez)
+2010-01-28 loading side of the threaded VM (antirez)
+2010-01-26 TODO cahnges (antirez)
+2010-01-23 Fixed memory human style memory reporting, removed server.usedmemory, now zmalloc_used_memory() is used always. (antirez)
+2010-01-22 VM tuning thanks to redis-stat vmstat. Now it performs much better under high load (antirez)
+2010-01-21 Changelog updated (antirez)
+2010-01-21 REDIS_MAX_COMPLETED_JOBS_PROCESSED is now in percentage, not number of jobs. Moved a debugging message a few lines forward as it was called where a few logged parameters where invalid, leading to a crash (antirez)
+2010-01-20 fixed a deadlock caused by too much finished processes in queue so that I/O clients writing to the wirte side of the pipe used to awake the main thread where blocking. Then a BGSAVE started waiting for the last active thread to finish, condition impossible because all the I/O threads where blocking on threads. Takes this as a note to myself... (antirez)
+2010-01-20 ae.c event loop does no longer support exception notifications, as they are fully pointless. Also a theoretical bug that never happens in practice fixed. (antirez)
+2010-01-19 commercial tools stuff removed from the Redis makefile. cotools are now migrated into a different repos (antirez)
+2010-01-19 removed a bug in the function to cancel an I/O job (antirez)
+2010-01-17 static symbols update (antirez)
+2010-01-16 removed support for REDIS_HELGRIND_FRIENDLY since Helgrind 3.5.0 is friendly enough even with many threads created and destroyed (antirez)
+2010-01-15 now redis-cli understands -h (antirez)
+2010-01-15 Create swap file only if not exists (antirez)
+2010-01-15 I hate warnings (antirez)
+2010-01-15 fixed a minor memory leak in configuration file parsing (antirez)
+2010-01-15 minor fix (antirez)
+2010-01-15 support for named VM swap file. Fixed a few important interaction issues between the background saving processes and IO threads (antirez)
+2010-01-15 fix for the just added new test (antirez)
+2010-01-15 useless debugging messages removed (antirez)
+2010-01-15 new test added (antirez)
+2010-01-15 thread safe zmalloc used memory counter (antirez)
+2010-01-15 A define to make Redis more helgrind friendly (antirez)
+2010-01-15 removed a few races from threaded VM (antirez)
+2010-01-14 Fixed a never experienced, theoretical bug that can actually happen in practice. Basically when a thread is working on a I/O Job we need to wait it to finish before to cancel the Job in vmCancelThreadedIOJob(), otherwise the thread may mess with an object that is being manipulated by the main thread as well. (antirez)
+2010-01-14 Set the new threads stack size to a LZF friendly amount (antirez)
+2010-01-13 access to already freed job structure fixed by statements reoredering (antirez)
+2010-01-13 removed a useless debugging message (antirez)
+2010-01-13 Wait zero active threads condition before to fork() for BGSAVE or BGREWRITEAOF (antirez)
+2010-01-13 list API is now thread safe (antirez)
+2010-01-13 minor TODO and debugging info changes (antirez)
+2010-01-12 support for blocking VM in config file (antirez)
+2010-01-12 more non blocking VM changes (antirez)
+2010-01-12 fix for test #11 (antirez)
+2010-01-12 a few more stuff in INFO about VM. Test #11 changed a bit in order to be less lame (antirez)
+2010-01-12 Added a define to configure how many completed IO jobs the handler should process at every call. (antirez)
+2010-01-11 Fixed a bug in the IO Job canceling funtion (antirez)
+2010-01-11 more steps towards a working non blocking VM (antirez)
+2010-01-11 converted random printfs in debug logs (antirez)
+2010-01-11 removed a bug introduced with non blocking VM (antirez)
+2010-01-11 a few non blocking VM bugs fixed (antirez)
+2010-01-11 More work on non-blocking VM. Should work in a few days (antirez)
+2010-01-11 More threaded I/O VM work + Redis init script (antirez)
+2010-01-10 more work on VM threaded I/O. Still nothing of usable (antirez)
+2010-01-09 non-blocking VM data structures, just a start (antirez)
+2010-01-08 used_memory_human added to INFO output. Human readable amount of memory used. (antirez)
+2010-01-07 Now DEBUG OBJECT plays well with swapped out objects (antirez)
+2010-01-07 fflush VM swap file after object swapping (antirez)
+2010-01-07 added the fmacros to enable support for fseeko() lseeko() with 64bit off_t (antirez)
+2010-01-07 VM now swaps objects out while loading datasets not fitting into vm-max-memory bytes of RAM (antirez)
+2010-01-07 added process id information in INFO (antirez)
+2010-01-06 vm-enabled set to no by default in redis.conf (antirez)
+2010-01-06 a new default redis.conf (antirez)
+2010-01-06 VM stats in INFO command (antirez)
+2010-01-06 Introduced a new log verbosity level, so now DEBUG is really for debugging. Refactored a bit maxmemory. When virtual memory is short in RAM free the objects freelist as well as swapping things out. (antirez)
+2010-01-05 fixed a bug in bgsave when VM is off but still it was testing for obj->storage field (antirez)
+2010-01-05 converted a few calls to assert() => redisAssert() to print stack trace (antirez)
+2010-01-05 BGREWRITEAOF now works with swapping on (antirez)
+2010-01-05 A first fix for SET key overwrite (antirez)
+2010-01-05 SAVE now works with VM (antirez)
+2010-01-05 swapping algorithm a bit more aggressive under low memory (antirez)
+2010-01-05 basic VM mostly working! (antirez)
+2010-01-05 New object field (one of the unused bytes) to hold the type of the swapped out value object in key objects (antirez)
+2010-01-05 VM internals bugfixes, set 1 (antirez)
+2010-01-05 load key from swap on key lookup (antirez)
+2010-01-05 more object-level VM primitives (antirez)
+2010-01-05 Redis objects swapping / loading (antirez)
+2010-01-05 rdbLoadObject() as a separated function to load objects from disk. Dropped support for RDB version 0, I guess no longer has this legacy DBs around (antirez)
+2010-01-04 VM low level pages handling (antirez)
+2010-01-04 vm swap file creation, and some basic configuration (antirez)
+2010-01-04 version marked 1.3.2 (antirez)
+2010-01-04 saving code refactored a bit, added a function returning the number of bytes an object will use on disk (antirez)
+2010-01-02 Now the PUSH side of RPOPLPUSH is able to unblock clients blocked on BLPOP (antirez)
+2010-01-02 Version is now 1.3.1 (antirez)
+2010-01-02 New vararg BLPOP able to block against multiple keys (antirez)
+2009-12-29 fixed a problem with BLPOP timeout of zero, now it blocks forever (antirez)
+2009-12-29 BLPOP timeouts implemented (antirez)
+2009-12-29 first working implementation of BLPOP and BRPOP, still everything is to test well (antirez)
+2009-12-29 a few more fixes, still broken (antirez)
+2009-12-29 First fix, still broken (antirez)
+2009-12-29 minor fix for Linux 64 bit (antirez)
+2009-12-29 not yet working BLPOP implementation (antirez)
+2009-12-27 AOFSYNC removed, got a better idea... (antirez)
+2009-12-27 AOFSYNC command implemented (antirez)
+2009-12-27 Version changed to 1.3.0, welcome to the new unstable (antirez)
+2009-12-27 Now MULTI returns +OK as well (antirez)
+2009-12-27 MULTI/EXEC first implementation (antirez)
+2009-12-24 Fixed a minor bug in GETSET, now the SET part is not performed if the GET fails because the key does not contain a string value (antirez)
+2009-12-23 html doc readded (antirez)
+2009-12-23 ZRANGE WITHSCORES test added (antirez)
+2009-12-23 version is now 1.1.94 (antirez)
+2009-12-23 Add the command name in the unknown command error message. (antirez)
+2009-12-22 ZRANGE, ZREVRANGE now support WITHSCORES options (antirez)
+2009-12-22 html docs update (ZINCRBY added) (antirez)
+2009-12-18 TODO list update (antirez)
+2009-12-18 the pipelining test was ran against DB 1 for error, now it runs on DB 9 like all the other tests (antirez)
+2009-12-18 still more tests (antirez)
+2009-12-18 SORT STORE test added (antirez)
+2009-12-18 Now SORT returns an empty bulk reply if the key does not exist (antirez)
+2009-12-18 modified a bit the ZREVRANGE test to cover a few lines of code more (antirez)
+2009-12-18 SHUTDOWN now does the right thing when append only is on, that is, fsync instead to save the snapshot. (antirez)
+2009-12-18 Added a missing server.dirty increment in a non critical place, added more tests (antirez)
+2009-12-18 LTRIM stress testing test added (antirez)
+2009-12-18 LTRIM now returns +OK against non existing keys. More tests in test-redis.tcl (antirez)
+2009-12-18 added sdstoupper() declaration in sds.h (antirez)
+2009-12-18 Fixed sds.c bug #124 (antirez)
+2009-12-16 LZF compression re-enabled by default, but with INIT_HTAB set to 0 to avoid the very costly memset initialization. Note that with this option set valgrind will output some false positive about lzf_c.c (antirez)
+2009-12-16 lzf compression switched off by default now, with config file option to enable it in redis.conf (antirez)
+2009-12-16 Regression for epoll bug in redis-test.tcl, version is now 1.1.93 (antirez)
+2009-12-16 Fixed a lame epoll issue (antirez)
+2009-12-15 html doc updated (antirez)
+2009-12-15 version is now 1.1.92 (antirez)
+2009-12-15 Two important fixes to append only file: zero length values and expires. A pretty neat new test to check consistency of randomly build datasets against snapshotting and AOF. (antirez)
+2009-12-15 debug loadaof implemented in order to add more consistency tests in test-redis.tcl (antirez)
+2009-12-15 Added a new test able to stress a lot the snapshotting engine (antirez)
+2009-12-15 Unified handling of empty queries with normal queries. (antirez)
+2009-12-15 Fixed some subtle bug in the command processing code almost impossible to spot in the real world, thanks to gcov (antirez)
+2009-12-15 Regression test for SINTERSTORE added (antirez)
+2009-12-15 Fixed issue #121 (antirez)
+2009-12-14 a few more tests and ability to run a specific test in test-redis.tcl (antirez)
+2009-12-13 Changed the reply of BGSAVE and BGREWRITEAOF from +OK to a more meaningful message that makes the user aware of an operation that just started and is not yet finished. (antirez)
+2009-12-13 Set the master->slave logical client as authenticated on creation, so that if the slave requires a password replication works anyway (antirez)
+2009-12-13 TODO update (antirez)
+2009-12-12 bgrewriteaof_in_progress added to INFO (antirez)
+2009-12-12 TODO list modified. What's planned for 1.4 is now written in the stone ;) (antirez)
+2009-12-12 better handling of non blocking connect on redis-benchmark: EPIPE on read does not print an error message now (antirez)
+2009-12-11 some change to redis-sha1.rb utility to make it more robust against non-meaningful changes in the dataset (antirez)
+2009-12-10 redis-sha1.rb utility updated (antirez)
+2009-12-10 a bit more verbose -ERR wrong number o arguments error, now gives info about the command name causing the error (antirez)
+2009-12-10 TODO change and minor SETNX optimization (antirez)
+2009-12-06 in rdbLoadDoubleValue now the buffer is nul terminated correctly. Thanks valgrind. (antirez)
+2009-12-06 printf format warnings fixed by casting (antirez)
+2009-12-06 Regression tests for SETNX and MSETNX bugs added (antirez)
+2009-12-06 SETNX and MSETNX now respect the delete-on-write operation of EXPIREing keys (antirez)
+2009-12-06 Fixed daemonization when using kqueue/kevent. Now the server initialization is performed *after* the daemonization (antirez)
+2009-12-05 more HTML doc changes (antirez)
+2009-12-05 HTML doc update (antirez)
+2009-12-05 a few redis-cli format specified fixed (antirez)
+2009-12-05 use __attribute__ format in sdscatprintf() when the compiler is GCC. Fixed format bugs resulting from the new warnings. (antirez)
+2009-12-01 TODO update (antirez)
+2009-12-01 compilation problem on 64bit mac os x 10.5 possibly fixed (antirez)
+2009-12-01 virtual memory design doc typos (antirez)
+2009-12-01 design documents added to the project (antirez)
+2009-11-30 Fixed issued #85 (getDecodedObject: Assertion 1 != 1 failed. While sorting a set), added a smarter assert() function to dump the stacktrace, provided a macro to initalize Redis objects on the stack to avoid this kind of bugs. (antirez)
+2009-11-30 fixed a subtle bug in redis-cli not having visible effects (antirez)
+2009-11-29 TODO updated (antirez)
+2009-11-29 Version chagned to 1.100, also known as the first first 2.0 beta version (antirez)
+2009-11-29 more tests in test-redis.tcl, some minor fix (antirez)
+2009-11-29 SORT support for sorted sets (antirez)
+2009-11-28 Implemented LIMIT option in ZRANGEBYSCORE. We now enter feature-freeze (antirez)
+2009-11-28 Changelog updated (antirez)
+2009-11-28 html doc updated (antirez)
+2009-11-28 enable kqueue/kevent only for Mac OS X 10.6.x as it seems that 10.5.x has a broken implementation of this syscalls. (antirez)
+2009-11-28 TODO updated (antirez)
+2009-11-28 ZRANGEBYSCORE fuzzy test (antirez)
+2009-11-28 ZRANGEBYSCORE memory leak fixed, ZRANGEBYSCORE initial test added (antirez)
+2009-11-28 INFO refactored. Stack trace on memory corruption now dumps the same information as the INFO command (antirez)
+2009-11-28 ifdefs added to use kevent on Free Open and Net BSD as well. INFO and ae.c modified in order to report the multiplexing API in use (antirez)
+2009-11-28 Enabled object encoding for multiple keys in MSET. Added a test for memory leaks in test-redis.tcl when running on Mac OS X (antirez)
+2009-11-28 Merge branch 'kqueue' of git://github.com/mallipeddi/redis (antirez)
+2009-11-28 Changes to TODO list, commented a function in redis.c (antirez)
+2009-11-28 Added support for kqueue. (Harish Mallipeddi)
+2009-11-27 TODO updated (antirez)
+2009-11-26 zero length bulk data reading fixed in loadAppendOnlyFile() (antirez)
+2009-11-26 append only file fixes (antirez)
+2009-11-26 log rebuilding, random refactoring, work in progress please wait for an OK commit before to use this version (antirez)
+2009-11-24 DEBUG RELOAD implemented, and test-redis.tcl modified to use it to check for persistence consistency. (antirez)
+2009-11-24 Redis version set to 1.07 (antirez)
+2009-11-24 sorted sets saving fixed (antirez)
+2009-11-24 minor TODO change (antirez)
+2009-11-24 minor fix to avoid a false valgrind warning. (antirez)
+2009-11-23 epoll support enabled by default for Linux builds (antirez)
+2009-11-23 epoll module for ae.c implemented. Some more testing needed (antirez)
+2009-11-23 commented the HAVE_EPOLL test in config.h to allow compilation under Linux now that the epoll module is still missing (antirez)
+2009-11-23 ae_select module added (antirez)
+2009-11-23 ae.c now supports multiple polling API modules, even if only ae_select.c is implemented currently. Also adding and removing an event is now O(1). (antirez)
+2009-11-23 ae.c initial refactoring for epoll implementation (antirez)
+2009-11-21 version incremented up to 1.06 (antirez)
+2009-11-21 TODO aesthetic changes (antirez)
+2009-11-21 TODO updated with plans up to 1.5 (antirez)
+2009-11-21 SRANDMEMBER test (antirez)
+2009-11-21 Fixed a SORT memory leak that should never happen in practice (antirez)
+2009-11-21 SORT GET # implemented, with a test (antirez)
+2009-11-21 EXPIREAT test (antirez)
+2009-11-20 EXPIRE tests (antirez)
+2009-11-20 more RPOPLPUSH tests (antirez)
+2009-11-20 RPOPLPUSH tests added (antirez)
+2009-11-20 ZINCRBY return value fixed (antirez)
+2009-11-20 ZINCRSCOREBY => ZINCRBY (antirez)
+2009-11-19 ZINCRSCOREBY implemented (antirez)
+2009-11-19 writev() finally uncommented again (antirez)
+2009-11-19 redis-benchmark hopefully last bug with multi bulk reply fixed (antirez)
+2009-11-19 debug mode in redis-bench (antirez)
+2009-11-19 Use writev(2) if glue output buffers is disabled (antirez)
+2009-11-19 benchmark.c fixes (antirez)
+2009-11-18 more experiments with long replies, glue output buffer, and writev. (antirez)
+2009-11-18 benchmarking with different number of LRANGE elements. Ability to change the glue output buffer limit by #define (antirez)
+2009-11-18 more writev tests/work (antirez)
+2009-11-18 redis-benchmark multi bulk reply support hopefully fixed (antirez)
+2009-11-17 support for writev implemented but currently ifdef-ed in order to understan why I can't see the improvements expected. Btw code provided by Stefano Barbato (antirez)
+2009-11-17 multi-bulk reply support for redis-bench, and as a result LRANGE is not tested, providing some number for the tuning of multi-bulk requests performances server-side (antirez)
+2009-11-12 Solaris fix thanks to Alan Harder (antirez)
+2009-11-12 Merge git://github.com/ianxm/redis (antirez)
+2009-11-12 ZSCORE fixed, now returns NULL on missing key or missing element (antirez)
+2009-11-12 Redis test will not fail the SAVE test even if a background save is in progress (antirez)
+2009-11-12 LPOPPUSH renamed into RPOPLPUSH (antirez)
+2009-11-11 can select db num (ian)
+2009-11-11 Workaround for test-redis.tcl and Tcl 8.4.x about ZSCORE test (antirez)
+2009-11-11 Removed a long time warning compiling with recent GCC on Linux (antirez)
+2009-11-11 TODO updated (antirez)
+2009-11-11 LPUSHPOP first implementation (antirez)
+2009-11-10 Tcl script, make target, and redis.c changes to build the static symbol table automagically (antirez)
+2009-11-10 Implemented a much better lazy expiring algorithm for EXPIRE (antirez)
+2009-11-10 Fixed issue 92 in redis: redis-cli (nil) return value lacks CR/LF (antirez)
+2009-11-10 Minor TODO change with new expiring algorithm description. New expiring algorithm moved since it'll go in 1.1 (antirez)
+2009-11-04 redis-test is now a better Redis citizen, testing everything against DB 9 and 10 and only if this DBs are empty. (antirez)
+2009-11-04 fixed a refcounting bug with SORT ... STORE leading to random crashes (root)
+2009-11-04 masterauth option merged, thanks to Anthony Lauzon (antirez)
+2009-11-03 ZSets double to string serialization fixed (antirez)
+2009-11-03 client-libraries directory readded (antirez)
+2009-11-03 redis.tcl put at toplevel since it's uesd for the test-redis.tcl script (antirez)
+2009-11-03 client libs removed from Redis git (antirez)
+2009-11-03 redis-cli now accepts a -r (repeat) switch. Still there is a memory leaks to fix (antirez)
+2009-11-01 TODO updated again (antirez)
+2009-11-01 TODO updated (antirez)
+2009-11-01 redis-cli now makes clear when the returned string is an integer (antirez)
+2009-11-01 SORT STORE option (antirez)
+2009-11-01 now Redis prints DB stats just after the startup without to wait a second for the first report (antirez)
+2009-11-01 another fix for append only mode, now read-only operations are not appended (antirez)
+2009-11-01 appendfsync parsing in config file fixed. If you benchmarked Redis against different appendfsync options is time to try again ;) (antirez)
+2009-11-01 append only file loading fixed (antirez)
+2009-11-01 first version of append only file loading -- STILL BROKEN don't use it (antirez)
+2009-10-31 Fixed Issue 83:Using TYPE on a zset results in a malformed response from the Redis server (antirez)
+2009-10-31 Fixed compilation on Linux (antirez)
+2009-10-30 append only mode is now able to translate EXPIRE into EXPIREAT transparently (antirez)
+2009-10-30 appendfsync is now set to NO by default (antirez)
+2009-10-30 support for appendonly mode no, always, everysec (antirez)
+2009-10-30 first fix for append only mode (antirez)
+2009-10-30 Initial implementation of append-only mode. Loading still not implemented. (antirez)
+2009-10-30 EXPIRE behaviour changed a bit, a negative TTL or an EXPIREAT with unix time in the past will now delete the key. It seems saner to me than doing nothing. (antirez)
+2009-10-30 EXPIREAT implemented, will be useful for the append-only mode (antirez)
+2009-10-29 Fixed Issue 74 (ERR just returned on invalid password), now the error message is -ERR invalid password. (antirez)
+2009-10-29 Fixed issue 72 (SLAVEOF shutdowns redis-server on malformed reply) (antirez)
+2009-10-29 Fixed issue 77 (Incorrect time in log files) thanks to youwantalex (antirez)
+2009-10-29 Fixed  Issue 76 (redis-server crashes when it can't connect to MASTER and client connects to SLAVE) (antirez)
+2009-10-29 ZREMRANGEBYSCORE implemented. Remove a range of elements with score between min and max (antirez)
+2009-10-28 TODO changes and mostly theoretical minor skiplist change (antirez)
+2009-10-28 ZLEN renamed ZCARD for consistency with SCARD (antirez)
+2009-10-27 TODO reworked to reflect the real roadmap (antirez)
+2009-10-27 Fix for 'make 32bit' (antirez)
+2009-10-27 a fix for the solaris fix itself ;) (antirez)
+2009-10-27 More Solaris fixes (antirez)
+2009-10-27 A lot of ZSETs tests implemented, and a bug fixed thanks to this new tests (antirez)
+2009-10-27 zmalloc Solaris fixes thanks to Alan Harder (antirez)
+2009-10-27 ZSCORE implemented (antirez)
+2009-10-26 fix for ZRANGEBYSCORE (antirez)
+2009-10-26 ZRANGEBYSCORE implemented. Redis got range queries! (antirez)
+2009-10-26 A trivial change makes the new implementation O(log(N)) instead of O(log(N))+O(M) when there are M repeated scores! (antirez)
+2009-10-26 ZSET now saved on disk like any other type (antirez)
+2009-10-26 double serialization routines implemented (antirez)
+2009-10-26 ZSETs random fixes. Now the implementation appears to be pretty stable (antirez)
+2009-10-26 another leak fixed. Can't find more for now, but still a bug in ZSETs to fix (antirez)
+2009-10-26 ZSETs memory leak #1 solved, another one missing (antirez)
+2009-10-26 Fix for skiplists backward link (antirez)
+2009-10-26 Merged Solaris patches provided by Alan Harder (antirez)
+2009-10-26 backward support to skiplists for ZREVRANGE, still broken, committing since I've to merge the Solaris patches (antirez)
+2009-10-26 TODO updated (antirez)
+2009-10-26 ZREM implemented (antirez)
+2009-10-24 fix for ZADD in score update mode (antirez)
+2009-10-24 some work on ZADD against existing element (score update), still broken... (antirez)
+2009-10-23 zrange now starts to work. zadd still does not support update and will crash or leak or b000mmmmm (antirez)
+2009-10-23 zrange initial hack (not working for now) (antirez)
+2009-10-23 first skiplist fix, courtesy of valgrind (antirez)
+2009-10-23 zset symbols added to stack trace code. ZSets will simply crash at the moment (antirez)
+2009-10-23 more work on ZSETs and a new make target called 32bit to build i386 binaries on mac os x leopard (antirez)
+2009-10-23 initial skiplist implementation. Most memory checks removed and zmalloc() modified to fail with an error message and abort. Anyway Redis is not designed to recover from out of memory conditions. (antirez)
+2009-10-23 Fixed compilation in mac os x snow leopard when compiling a 32 bit binary. (antirez)
+2009-10-22 version incremented to 1.050 to distinguish from 1.001 stable and next stable versions with minor fixes (antirez)
+2009-10-21 TODO updated (antirez)
+2009-10-21 SRANDMEMBER added (antirez)
+2009-10-20 Imporant bug leading to data corruption fixed (NOT affecting stable distribution), Tcl client lib MSET/MSETNX implementation fixed, Added new tests for MSET and MSETNX in test-redis.tcl (antirez)
+2009-10-17 added multi-bulk protocol support to redis-cli and support for MSET and MSETNX (antirez)
+2009-10-17 MSET fixed, was not able to replace keys already set for a stupid bug (antirez)
+2009-10-16 some dead code removed (antirez)
+2009-10-16 multi bulk input protocol fixed (antirez)
+2009-10-16 MSET and MSETNX commands implemented (antirez)
+2009-10-07 undoed all the sds hacking that lead just to random bugs and no memory saving ;) (antirez)
+2009-10-07 initial multi-bulk query protocol, this will allow MSET and other interesting features. (antirez)
+2009-10-03 benchmark now outputs the right command line to shorten the TIME_WAIT interval on Mac OS X when keep alive is set (antirez)
+2009-10-02 Issue 69 fixed. Object integer encoding now works with replication and MONITORing again. (antirez)
+2009-09-18 LREM fixed, used to crash since the new object integer encoding is on the stage (antirez)
+2009-09-17 maxmemory didn't worked in 64 systems for values > 4GB since it used to be an unsigned int. Fixed (antirez)
+2009-09-10 incremented version number to 1.001, AKA Redis edge is no longer stable... (antirez)
+2009-09-10 in-memory specialized object encoding (for now 32 signed integers only) (antirez)
+2009-09-03 Latest doc changes for 1.0 (antirez)
+2009-09-03 Redis 1.0.0 release (antirez)
+2009-09-02 Redis version pushed to 1.0 (antirez)
+2009-09-02 Ruby client lib updated to the latest git version (antirez)
+2009-09-02 update-scala-client script added (antirez)
+2009-09-02 Scala client added thanks to Alejanro Crosa (antirez)
+2009-09-02 QuickStart added (antirez)
+2009-09-01 Fixed crash with only space and newline as command (issue 61), thanks to a guy having as nick "fixxxerrr" (antirez)
+2009-08-11 TODO list modified (antirez)
+2009-07-24 more snow leopard related fixes (for 32bit systems) (antirez)
+2009-07-24 fixed compilation with Snow Leopard, thanks to Lon Baker for providing SSH access to Snow Leopard box (antirez)
+2009-07-22 Fixed NetBSD compile problems (antirez)
+2009-07-17 now the size of the shared pool can be really modified via config, also the number of objects in the sharing pool is logged when the log level is set to debug. Thanks to Aman Gupta (antirez)
+2009-07-05 added utils/redis-copy.rb, a script that is able to copy data from one Redis server to another one on the fly. (antirez)
+2009-07-04 Applied three different patches thanks to Chris Lamb, one to fix compilation and get the IP register value on Linux IA64 and other systems. One in order to log the overcommit problem on the logs instead of the standard output when Redis is demonized. The latest in order to suggest a more consistent way in order to switch to 1 the memory overcommit Linux feature. (antirez)
+2009-07-03 bugfix: EXPIRE now propagates to the Slave. (antirez)
+2009-06-16 Redis version modified to 0.900 (antirez)
+2009-06-16 update-ruby-client script already points to ezmobius repo (antirez)
+2009-06-16 client libraries updated (antirez)
+2009-06-16 Redis release candidate 1 (antirez)
+2009-06-16 Better handling of background saving process killed or crashed (antirez)
+2009-06-14 number of keys info in INFO command thanks to Diego Rosario Brogna (antirez)
+2009-06-14 SPOP documented (antirez)
+2009-06-14 Clojure library thanks to Ragnar Dahlén (antirez)
+2009-06-10 It is now possible to specify - as config file name to read it from stdin (antirez)
+2009-06-10 sync with jodosha redis-rb (antirez)
+2009-06-10 Redis-rb sync (antirez)
+2009-06-10 max inline request raised again to 1024*1024*256 bytes (antirez)
+2009-06-10 max bytes in an inline command raised to 1024*1024 bytes, in order to allow for very large MGETs and still protect from client crashes (antirez)
+2009-06-08 SPOP implemented. Hash table resizing for Sets and Expires too. Changed the resize policy to play better with RANDOMKEY and SPOP. (antirez)
+2009-06-07 some minor changes to the backtrace code (antirez)
+2009-06-07 enable backtrace capabilities only for Linux and MacOSX (antirez)
+2009-06-07 Dump a backtrace on sigsegv/sigbus, original coded thanks to Diego Rosario Brogna, modified in order to work on different OSes and to enhance reliability (antirez)
+2009-06-06 Merge git://github.com/dierbro/redis (antirez)
+2009-06-06 add more output (hrothgar)
+2009-06-06 store static function pointer for a useful stack trace (hrothgar)
+2009-06-06 TODO updated (antirez)
+2009-06-06 Makefile dependencies updated (antirez)
+2009-06-05 Avoid a busy loop while sending very large replies against very fast links, this allows to be more responsive with other clients even under a KEY * against the loopback interface (antirez)
+2009-06-05 Kill the background saving process before performing SHUTDOWN to avoid races (antirez)
+2009-06-05 LREM now returns :0 for non existing keys (antirez)
+2009-06-05 - put some order in code - better output (hrothgar)
+2009-06-05 added config.h for #ifdef business isolation, added fstat64 for Mac OS X (antirez)
+2009-06-04 remove die() :-) (hrothgar)
+2009-06-04 add compile options to debug (hrothgar)
+2009-06-04 initial commit print stack trace (hrothgar)
+2009-06-04 initial commit print stack trace (hrothgar)
+2009-06-04 macosx specific zmalloc.c, uses malloc_size function in order to avoid to waste memory and time to put an additional header (antirez)
+2009-06-04 DEBUG OBJECT implemented (antirez)
+2009-06-04 backtrace support removed: unreliable stack trace :( (antirez)
+2009-06-04 initial backtrace dumping on sigsegv/sigbus + debug command (antirez)
+2009-06-03 Python lib updated (antirez)
+2009-06-03 shareobjectspoolsize implemented in reds.conf, in order to control the pool size when object sharing is on (antirez)
+2009-05-30 Erlang client updated (antirez)
+2009-05-30 Python client library updated (antirez)
+2009-05-29 Redis-rb minor bool convertion fix (antirez)
+2009-05-29 ruby library client is not Redis-rb merged with RubyRedis "engine" by Brian McKinney (antirez)
+2009-05-28 __P completely removed from pqsort.c/h (antirez)
+2009-05-28 another minor fix for Solaris boxes (antirez)
+2009-05-28 minor fix for Solaris boxes (antirez)
+2009-05-28 minor fix for Solaris boxes (antirez)
+2009-05-27 maxmemory implemented (antirez)
+2009-05-26 Redis git version modified to 0.101 in order to distinguish that from the latest tar.gz via INFO ;) (antirez)
+2009-05-26 Redis 0.100 released (antirez)
+2009-05-26 client libraries synched in git (antirez)
+2009-05-26 ignore gcc warning about write() return code not checked. It is esplicitily this way since the "max number of clients reached" is a best-effort error (antirez)
+2009-05-26 max bytes of a received command enlarged from 1k to 16k (antirez)
+2009-05-26 RubyRedis: set TCP_NODELAY TCP socket option to to disable the neagle algorithm. Makes a huge difference under some OS, notably Linux (antirez)
+2009-05-25 maxclients implemented, see redis.conf for details (antirez)
+2009-05-25 INFO command now reports replication info (antirez)
+2009-05-25 minor fix to RubyRedis about bulk commands sent without arguments (antirez)
+2009-05-24 Warns if using the default config (antirez)
+2009-05-24 Issue with redis-client used in scripts solved, now to check if the latest argument must come from standard input we do not check that stdin is or not a tty but the command arity (antirez)
+2009-05-23 RubyRedis: now sets are returned as arrays again, and not as Set objects (antirez)
+2009-05-23 SLAVEOF command documented (antirez)
+2009-05-23 SLAVEOF command implemented for replication remote control (antirez)
+2009-05-22 Fix: no connection timeout for the master! (antirez)
+2009-05-22 replication slave timeout when receiving the initial bulk data set to 3600 seconds, now that replication is non-blocking the server must save the db before to start the async replication and this can take a lot of time with huge datasets (antirez)
+2009-05-22 README tutorial now reflects the new proto (antirez)
+2009-05-22 critical bug about glueoutputbuffers=yes fixed. Under load and with pipelining and clients disconnecting on the middle of the chat with the server, Redis could block. Now it's ok (antirez)
+2009-05-22 TTL command doc added (antirez)
+2009-05-22 TTL command implemented (antirez)
+2009-05-22 S*STORE now return the cardinality of the resulting set (antirez)
+2009-05-22 rubyredis more compatible with Redis-rb (antirez)
+2009-05-21 minor indentation fix (antirez)
+2009-05-21 timeout support and Redis-rb compatibility aliases implemented in RubyRedis (antirez)
+2009-05-21 RubyRedis info postprocessor rewritten in a more functional way (antirez)
+2009-05-21 dead code removed from RubyRedis (antirez)
+2009-05-21 command postprocessing implemented into RubyRedis (antirez)
+2009-05-20 Automagically reconnection of RubyRedis (antirez)
+2009-05-20 RubyRedis: Array alike operators implemented (antirez)
+2009-05-20 random testing code removed (antirez)
+2009-05-20 RubyRedis DB selection forced at object creation (antirez)
+2009-05-20 Initial version of an alternative Ruby client added (antirez)
+2009-05-20 SDIFF / SDIFFSTORE added to doc (antirez)
+2009-05-20 Aman Gupta changes merged (antirez)
+2009-05-20 Merge git://github.com/tmm1/redis (antirez)
+2009-05-19 Allow timeout=0 config to disable client timeouts (Aman Gupta)
+2009-05-19 Partial qsort implemented in SORT command, only when both BY and LIMIT is used. minor fix for a warning compiling under Linux. (antirez)
+2009-05-19 psort.c/h added. This is a partial qsort implementation that Redis will use when SORT+LIMIT is requested (antirez)
+2009-05-17 Fix SINTER/UNIONSTORE to allow for &=/|= style operations (i.e. SINTERSTORE set1 set1 set2) (Aman Gupta)
+2009-05-17 Optimize SDIFF to return as soon as the result set is empty (Aman Gupta)
+2009-05-17 SDIFF/SDIFFSTORE implemnted unifying it with the implementation of SUNION/SUNIONSTORE (antirez)
+2009-05-11 timestamp in log lines (antirez)
+2009-05-11 Python client updated pushing from Ludo's repository (antirez)
+2009-05-11 disconnect when we cannot read from the socket (Ludovico Magnocavallo)
+2009-05-11 benchmark utility now supports random keys (antirez)
+2009-05-10 minor doc changes (antirez)
+2009-05-09 added tests for vararg DEL (antirez)
+2009-05-09 DEL is now a vararg, IMPORTANT: memory leak fixed in loading DB code (antirez)
+2009-05-09 doc changes (antirez)
+2009-05-09 CPP client added thanks to Brian Hammond (antirez)
+2009-05-06 Infinite number of arguments for MGET and all the other commands (antirez)
+2009-05-04 Warns if /proc/sys/vm/overcommit_memory is set to 0 on Linux. Also make sure to don't resize the hash tables while the child process is saving in order to avoid copy-on-write of memory pages (antirez)
+2009-04-30 zmalloc fix, return NULL or real malloc failure (antirez)
+2009-04-30 more fixes for dict.c and the 150 million keys limit (antirez)
+2009-04-30 dict.c modified to be able to handle more than 150,000,000 keys (antirez)
+2009-04-29 fuzz stresser implemented in redis-test (antirez)
+2009-04-29 fixed for HT resize check 32bits overflow (antirez)
+2009-04-29 Check for fork() failure in background saving (antirez)
+2009-04-29 fix for the LZF off-by-one bug added (antirez)
+2009-04-28 print bytes used at exit on SHUTDOWN (antirez)
+2009-04-28 SMOVE test added (antirez)
+2009-04-28 SMOVE command implemented (antirez)
+2009-04-28 less CPU usage in command parsing, case insensitive config directives (antirez)
+2009-04-28 GETSET command doc added (antirez)
+2009-04-28 GETSET tests (antirez)
+2009-04-28 GETSET implemented (antirez)
+2009-04-27 ability to specify a different file name for the DB (antirez)
+2009-04-27 log file parsing code improved a bit (antirez)
+2009-04-27 bgsave_in_progress field in INFO output (antirez)
+2009-04-27 INCRBY/DECRBY now support 64bit increments, with tests (antirez)
+2009-04-23 RANDOMKEY regression test added (antirez)
+2009-04-23 dictGetRandomKey bug fixed, RANDOMKEY will not block the server anymore (antirez)
+2009-04-22 FLUSHALL/FLUSHDB no longer sync on disk. Just increment the dirty counter by the number of elements removed, that will probably trigger a background saving operation (antirez)
+2009-04-21 forgot to comment testing code in PHP lib. Now it is ok (antirez)
+2009-04-21 PHP client ported to PHP5 and fixed (antirez)
+2009-04-21 doc update (antirez)
+2009-04-20 Non blocking replication (finally!). C-side linked lists API improved. (antirez)
+2009-04-19 SUNION, SUNIONSTORE, Initial work on non blocking replication (antirez)
+2009-04-10 Redis 0.091 released (antirez)
+2009-04-10 SINTER/SINTERSTORE/SLEMENTS fix: misisng keys are now not errors, but just like empty sets (antirez)
+2009-04-09 doc changes (antirez)
+2009-04-08 TODO changes, minor change to default redis.conf (antirez)
+2009-04-08 html doc updated (antirez)
+2009-04-08 library clients update scripts (antirez)
+2009-04-08 Ruby client updated (antirez)
+2009-04-08 Lua client updated (antirez)
+2009-04-08 Changelog updated (antirez)
+2009-04-08 Merge git://github.com/ludoo/redis (antirez)
+2009-04-08 add expire command to the php lib (Ludovico Magnocavallo)
+2009-04-08 fix decode bug, add flush and info commands (Ludovico Magnocavallo)
+2009-04-07 Rearrange redisObject struct to reduce memory usage in 64bit environments (as recommended http://groups.google.com/group/redis-db/msg/68f5a743f8f4e287) (Bob Potter)
+2009-04-07 ruby19 compat: use each_line on string (Bob Potter)
+2009-04-07 64bit fixes for usedmemory (Bob Potter)
+2009-04-08 RANDOMKEY issue 26 fixed, generic test + regression added (antirez)
+2009-04-06 Don't accept SAVE if BGSAVE is in progress (antirez)
+2009-04-06 add expire command to the python lib (Ludovico Magnocavallo)
+2009-04-03 persistent EXPIRE (antirez)
+2009-04-03 dirty increment was missing in two points. TODO updated (antirez)
+2009-04-02 LZF configured to initalize the HT in order to be determinsitic and play well with valgrind (antirez)
+2009-04-02 fix select test (Ludovico Magnocavallo)
+2009-04-02 fix trailing cr+nl in values (Ludovico Magnocavallo)
+2009-04-02 compression/decompression of large values on disk now working (antirez)
+2009-04-02 disable LZF compression since it's not able to load the DB for now, the load part is missing (antirez)
+2009-04-02 new LZF files added (antirez)
+2009-04-02 Fixed issue 23 about AUTH (antirez)
+2009-04-02 Issue 22 fixed (antirez)
+2009-04-01 non-lazy expired keys purging implemented (antirez)
+2009-04-01 fastlz dependence removed (antirez)
+2009-04-01 Initial implementation of EXPIRE (antirez)
+2009-03-30 TODO updated (antirez)
+2009-03-30 changelog added (antirez)
+2009-03-28 redis-sha1 utility added (antirez)
+2009-03-28 Integer encoding implemented in dump file. Doc updated (antirez)
+2009-03-27 feature macros defined to play well with C99 (antirez)
+2009-03-27 feature macros defined to play well with C99 (antirez)
+2009-03-27 now Redis is C99-ok (antirez)
+2009-03-27 IMPORTANT FIX: new dump format implementation was broken. Now it's ok but tests for the 32-bit case values are needed (antirez)
+2009-03-27 ANSI-C compatibility changes (antirez)
+2009-03-27 Ruby client library updated. Important changes in this new version! (antirez)
+2009-03-26 Lua client added thanks to Daniele Alessandri (antirez)
+2009-03-26 Lua client added thanks to Daniele Alessandri (antirez)
+2009-03-26 AUTH merged from Brian Hammond fork, reworked a bit to fix minor problems (antirez)
+2009-03-25 Adds AUTH command. (Brian Hammond)
+2009-03-25 Nasty bug of the new DB format fixed, objects sharing implemented (antirez)
+2009-03-25 doc update (antirez)
+2009-03-25 Erlang client synched with Valentiono's repo (antirez)
+2009-03-25 New file dump format, perl client library added (antirez)
+2009-03-25 New protocol fix for LREM (antirez)
+2009-03-24 two typos fixed (antirez)
+2009-03-24 Now the Redis test uses the proper Tcl client library (antirez)
+2009-03-24 Tcl client library (antirez)
+2009-03-24 redis-benchmark sync with the new protocol (antirez)
+2009-03-24 git mess :) (Ludovico Magnocavallo)
+2009-03-24 sync python client to the new protocol (Ludovico Magnocavallo)
+2009-03-24 protocol fix in SORT reply with null elements (antirez)
+2009-03-24 protocol doc changed (antirez)
+2009-03-24 Server replies now in the new format, test-redis.tcl and redis-cli modified accordingly (antirez)
+2009-03-24 Python client library updated, thanks to Ludo! (antirez)
+2009-03-24 random tested mode for test-redis.tcl, minor other stuff, version switched to 0.8 (antirez)
+2009-03-23 Now MONITOR/SYNC cannot be issued multiple times (antirez)
+2009-03-23 MONITOR command implemented. (antirez)
+2009-03-23 lucsky changes imported. pid file path can now be configured, redis-cli fixes (antirez)
+2009-03-23 Merge git://github.com/lucsky/redis (antirez)
+2009-03-23 another missing free->zfree replacement fixed. Thanks to Ludo (antirez)
+2009-03-23 Fixed redis-cli readLine loop to correctly handle EOF. (Luc Heinrich)
+2009-03-23 Display the port on server startup. (Luc Heinrich)
+2009-03-23 Allow to specify the pid file from the config file. (Luc Heinrich)
+2009-03-23 Added gitignore file. (Luc Heinrich)
+2009-03-22 MGET tests added (antirez)
+2009-03-22 doc changes (antirez)
+2009-03-22 added doc for MGET (antirez)
+2009-03-22 redis-cli now checks the arity of vararg commnads (antirez)
+2009-03-22 INFO fixed, MGET implemented, redis-cli implements INFO/MGET (antirez)
+2009-03-22 first commit (antirez)

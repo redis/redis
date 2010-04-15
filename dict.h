@@ -57,17 +57,26 @@ typedef struct dictType {
     void (*valDestructor)(void *privdata, void *obj);
 } dictType;
 
-typedef struct dict {
+/* This is our hash table structure. Every dictionary has two of this as we
+ * implement incremental rehashing, for the old to the new table. */
+typedef struct dictht {
     dictEntry **table;
-    dictType *type;
     unsigned long size;
     unsigned long sizemask;
     unsigned long used;
+} dictht;
+
+typedef struct dict {
+    dictType *type;
     void *privdata;
+    dictht ht[2];
+    int rehashidx; /* rehashing not in progress if rehashidx == -1 */
+    int iterators; /* number of iterators currently running */
 } dict;
 
 typedef struct dictIterator {
-    dict *ht;
+    dict *d;
+    int table;
     int index;
     dictEntry *entry, *nextEntry;
 } dictIterator;
@@ -76,39 +85,40 @@ typedef struct dictIterator {
 #define DICT_HT_INITIAL_SIZE     4
 
 /* ------------------------------- Macros ------------------------------------*/
-#define dictFreeEntryVal(ht, entry) \
-    if ((ht)->type->valDestructor) \
-        (ht)->type->valDestructor((ht)->privdata, (entry)->val)
+#define dictFreeEntryVal(d, entry) \
+    if ((d)->type->valDestructor) \
+        (d)->type->valDestructor((d)->privdata, (entry)->val)
 
-#define dictSetHashVal(ht, entry, _val_) do { \
-    if ((ht)->type->valDup) \
-        entry->val = (ht)->type->valDup((ht)->privdata, _val_); \
+#define dictSetHashVal(d, entry, _val_) do { \
+    if ((d)->type->valDup) \
+        entry->val = (d)->type->valDup((d)->privdata, _val_); \
     else \
         entry->val = (_val_); \
 } while(0)
 
-#define dictFreeEntryKey(ht, entry) \
-    if ((ht)->type->keyDestructor) \
-        (ht)->type->keyDestructor((ht)->privdata, (entry)->key)
+#define dictFreeEntryKey(d, entry) \
+    if ((d)->type->keyDestructor) \
+        (d)->type->keyDestructor((d)->privdata, (entry)->key)
 
-#define dictSetHashKey(ht, entry, _key_) do { \
-    if ((ht)->type->keyDup) \
-        entry->key = (ht)->type->keyDup((ht)->privdata, _key_); \
+#define dictSetHashKey(d, entry, _key_) do { \
+    if ((d)->type->keyDup) \
+        entry->key = (d)->type->keyDup((d)->privdata, _key_); \
     else \
         entry->key = (_key_); \
 } while(0)
 
-#define dictCompareHashKeys(ht, key1, key2) \
-    (((ht)->type->keyCompare) ? \
-        (ht)->type->keyCompare((ht)->privdata, key1, key2) : \
+#define dictCompareHashKeys(d, key1, key2) \
+    (((d)->type->keyCompare) ? \
+        (d)->type->keyCompare((d)->privdata, key1, key2) : \
         (key1) == (key2))
 
-#define dictHashKey(ht, key) (ht)->type->hashFunction(key)
+#define dictHashKey(d, key) (d)->type->hashFunction(key)
 
 #define dictGetEntryKey(he) ((he)->key)
 #define dictGetEntryVal(he) ((he)->val)
-#define dictSlots(ht) ((ht)->size)
-#define dictSize(ht) ((ht)->used)
+#define dictSlots(d) ((d)->ht[0].size+(d)->ht[1].size)
+#define dictSize(d) ((d)->ht[0].used+(d)->ht[1].used)
+#define dictIsRehashing(ht) ((ht)->rehashidx != -1)
 
 /* API */
 dict *dictCreate(dictType *type, void *privDataPtr);
@@ -129,6 +139,7 @@ unsigned int dictGenHashFunction(const unsigned char *buf, int len);
 void dictEmpty(dict *ht);
 void dictEnableResize(void);
 void dictDisableResize(void);
+int dictRehash(dict *d, int n);
 
 /* Hash table types */
 extern dictType dictTypeHeapStringCopyKey;
