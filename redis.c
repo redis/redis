@@ -6533,6 +6533,10 @@ static robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
         initStaticStringObject(fieldobj,((char*)&fieldname)+(sizeof(long)*2));
         o = hashGet(o, &fieldobj);
     } else {
+        if (o->type != REDIS_STRING) {
+            return NULL;
+        }
+
         /* Every object that this function returns needs to have its refcount
          * increased. sortCommand decreases it again. */
         incrRefCount(o);
@@ -6707,10 +6711,6 @@ static void sortCommand(redisClient *c) {
                 /* lookup value to sort by */
                 byval = lookupKeyByPattern(c->db,sortby,vector[j].obj);
                 if (!byval) continue;
-                if (byval->type != REDIS_STRING) {
-                    decrRefCount(byval);
-                    continue;
-                }
             } else {
                 /* use object itself to sort by */
                 byval = vector[j].obj;
