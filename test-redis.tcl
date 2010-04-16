@@ -972,6 +972,24 @@ proc main {} {
         $r sort tosort {BY wobj_*->weight}
     } $res
 
+    test {SORT with GET (key+hash) with sanity check of each element (list)} {
+        set err {}
+        set l1 [$r sort tosort GET # GET weight_*]
+        set l2 [$r sort tosort GET # GET wobj_*->weight]
+        foreach {id1 w1} $l1 {id2 w2} $l2 {
+            set realweight [$r get weight_$id1]
+            if {$id1 != $id2} {
+                set err "ID mismatch $id1 != $id2"
+                break
+            }
+            if {$realweight != $w1 || $realweight != $w2} {
+                set err "Weights mismatch! w1: $w1 w2: $w2 real: $realweight"
+                break
+            }
+        }
+        set _ $err
+    } {}
+
     test {SORT with BY, but against the newly created set} {
         $r sort tosort-set {BY weight_*}
     } $res
