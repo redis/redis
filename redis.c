@@ -6467,7 +6467,9 @@ static redisSortOperation *createSortOperation(int type, robj *pattern) {
 }
 
 /* Return the value associated to the key with a name obtained
- * substituting the first occurence of '*' in 'pattern' with 'subst' */
+ * substituting the first occurence of '*' in 'pattern' with 'subst'.
+ * The returned object will always have its refcount increased by 1
+ * when it is non-NULL. */
 static robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     char *p, *f;
     sds spat, ssub;
@@ -6484,6 +6486,7 @@ static robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
      * to implement the "SORT ... GET #" feature. */
     spat = pattern->ptr;
     if (spat[0] == '#' && spat[1] == '\0') {
+        incrRefCount(subst);
         return subst;
     }
 
@@ -6523,19 +6526,17 @@ static robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     /* Lookup substituted key */
     initStaticStringObject(keyobj,((char*)&keyname)+(sizeof(long)*2));
     o = lookupKeyRead(db,&keyobj);
+    if (o == NULL) return NULL;
 
-    if (o != NULL && fieldlen > 0) {
+    if (fieldlen > 0) {
+        if (o->type != REDIS_HASH || fieldname.len < 1) return NULL;
+
         /* Retrieve value from hash by the field name. This operation
          * already increases the refcount of the returned object. */
-        if (o->type != REDIS_HASH || fieldname.len < 1) {
-            return NULL;
-        }
         initStaticStringObject(fieldobj,((char*)&fieldname)+(sizeof(long)*2));
         o = hashGet(o, &fieldobj);
     } else {
-        if (o->type != REDIS_STRING) {
-            return NULL;
-        }
+        if (o->type != REDIS_STRING) return NULL;
 
         /* Every object that this function returns needs to have its refcount
          * increased. sortCommand decreases it again. */
@@ -6777,10 +6778,11 @@ static void sortCommand(redisClient *c) {
                     vector[j].obj);
 
                 if (sop->type == REDIS_SORT_GET) {
-                    if (!val || val->type != REDIS_STRING) {
+                    if (!val) {
                         addReply(c,shared.nullbulk);
                     } else {
                         addReplyBulk(c,val);
+                        decrRefCount(val);
                     }
                 } else {
                     redisAssert(sop->type == REDIS_SORT_GET); /* always fails */
@@ -6807,11 +6809,14 @@ static void sortCommand(redisClient *c) {
                     vector[j].obj);
 
                 if (sop->type == REDIS_SORT_GET) {
-                    if (!val || val->type != REDIS_STRING) {
+                    if (!val) {
                         listAddNodeTail(listPtr,createStringObject("",0));
                     } else {
+                        /* We should do a incrRefCount on val because it is
+                         * added to the list, but also a decrRefCount because
+                         * it is returned by lookupKeyByPattern. This results
+                         * in doing nothing at all. */
                         listAddNodeTail(listPtr,val);
-                        incrRefCount(val);
                     }
                 } else {
                     redisAssert(sop->type == REDIS_SORT_GET); /* always fails */
