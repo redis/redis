@@ -953,6 +953,7 @@ proc main {} {
             $r lpush tosort $i
             $r sadd tosort-set $i
             $r set weight_$i $rint
+            $r hset wobj_$i weight $rint
             lappend tosort [list $i $rint]
         }
         set sorted [lsort -index 1 -real $tosort]
@@ -967,12 +968,25 @@ proc main {} {
         $r sort tosort {BY weight_*}
     } $res
 
-    test {the same SORT with BY, but against the newly created set} {
+    test {SORT with BY (hash field) against the newly created list} {
+        $r sort tosort {BY wobj_*->weight}
+    } $res
+
+    test {SORT with BY, but against the newly created set} {
         $r sort tosort-set {BY weight_*}
+    } $res
+
+    test {SORT with BY (hash field), but against the newly created set} {
+        $r sort tosort-set {BY wobj_*->weight}
     } $res
 
     test {SORT with BY and STORE against the newly created list} {
         $r sort tosort {BY weight_*} store sort-res
+        $r lrange sort-res 0 -1
+    } $res
+
+    test {SORT with BY (hash field) and STORE against the newly created list} {
+        $r sort tosort {BY wobj_*->weight} store sort-res
         $r lrange sort-res 0 -1
     } $res
 
@@ -988,6 +1002,17 @@ proc main {} {
         set start [clock clicks -milliseconds]
         for {set i 0} {$i < 100} {incr i} {
             set sorted [$r sort tosort {BY weight_* LIMIT 0 10}]
+        }
+        set elapsed [expr [clock clicks -milliseconds]-$start]
+        puts -nonewline "\n  Average time to sort: [expr double($elapsed)/100] milliseconds "
+        flush stdout
+        format {}
+    } {}
+
+    test {SORT speed, as above but against hash field} {
+        set start [clock clicks -milliseconds]
+        for {set i 0} {$i < 100} {incr i} {
+            set sorted [$r sort tosort {BY wobj_*->weight LIMIT 0 10}]
         }
         set elapsed [expr [clock clicks -milliseconds]-$start]
         puts -nonewline "\n  Average time to sort: [expr double($elapsed)/100] milliseconds "
