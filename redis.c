@@ -3106,7 +3106,7 @@ static size_t stringObjectLen(robj *o) {
 
 static int getDoubleFromObject(robj *o, double *target) {
     double value;
-    char *eptr = NULL;
+    char *eptr;
 
     if (o == NULL) {
         value = 0;
@@ -3114,15 +3114,12 @@ static int getDoubleFromObject(robj *o, double *target) {
         redisAssert(o->type == REDIS_STRING);
         if (o->encoding == REDIS_ENCODING_RAW) {
             value = strtod(o->ptr, &eptr);
+            if (eptr[0] != '\0') return REDIS_ERR;
         } else if (o->encoding == REDIS_ENCODING_INT) {
             value = (long)o->ptr;
         } else {
             redisAssert(1 != 1);
         }
-    }
-
-    if (eptr != NULL && eptr[0] != '\0') {
-        return REDIS_ERR;
     }
 
     *target = value;
@@ -3146,7 +3143,7 @@ static int getDoubleFromObjectOrReply(redisClient *c, robj *o, double *target, c
 
 static int getLongLongFromObject(robj *o, long long *target) {
     long long value;
-    char *eptr = NULL;
+    char *eptr;
 
     if (o == NULL) {
         value = 0;
@@ -3154,15 +3151,12 @@ static int getLongLongFromObject(robj *o, long long *target) {
         redisAssert(o->type == REDIS_STRING);
         if (o->encoding == REDIS_ENCODING_RAW) {
             value = strtoll(o->ptr, &eptr, 10);
+            if (eptr[0] != '\0') return REDIS_ERR;
         } else if (o->encoding == REDIS_ENCODING_INT) {
             value = (long)o->ptr;
         } else {
             redisAssert(1 != 1);
         }
-    }
-
-    if (eptr != NULL && eptr[0] != '\0') {
-        return REDIS_ERR;
     }
 
     *target = value;
