@@ -6524,13 +6524,18 @@ static robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     initStaticStringObject(keyobj,((char*)&keyname)+(sizeof(long)*2));
     o = lookupKeyRead(db,&keyobj);
 
-    /* Retrieve value from hash by the field name */
     if (o != NULL && fieldlen > 0) {
+        /* Retrieve value from hash by the field name. This operation
+         * already increases the refcount of the returned object. */
         if (o->type != REDIS_HASH || fieldname.len < 1) {
             return NULL;
         }
         initStaticStringObject(fieldobj,((char*)&fieldname)+(sizeof(long)*2));
         o = hashGet(o, &fieldobj);
+    } else {
+        /* Every object that this function returns needs to have its refcount
+         * increased. sortCommand decreases it again. */
+        incrRefCount(o);
     }
 
     return o;
@@ -6701,15 +6706,17 @@ static void sortCommand(redisClient *c) {
             if (sortby) {
                 /* lookup value to sort by */
                 byval = lookupKeyByPattern(c->db,sortby,vector[j].obj);
-                if (!byval || byval->type != REDIS_STRING) continue;
+                if (!byval) continue;
+                if (byval->type != REDIS_STRING) {
+                    decrRefCount(byval);
+                    continue;
+                }
             } else {
                 /* use object itself to sort by */
                 byval = vector[j].obj;
             }
 
             if (alpha) {
-                /* getDecodedObject increments refcount, so the corresponding
-                 * decrRefCount will clean up values coming from a zipmap. */
                 vector[j].u.cmpobj = getDecodedObject(byval);
             } else {
                 if (byval->encoding == REDIS_ENCODING_RAW) {
@@ -6722,12 +6729,12 @@ static void sortCommand(redisClient *c) {
                 } else {
                     redisAssert(1 != 1);
                 }
+            }
 
-                /* clean up immediately if this value came from a zipmap */
-                if (byval->refcount == 0) {
-                    byval->refcount = 1;
-                    decrRefCount(byval);
-                }
+            /* when the object was retrieved using lookupKeyByPattern,
+             * its refcount needs to be decreased. */
+            if (sortby) {
+                decrRefCount(byval);
             }
         }
     }
