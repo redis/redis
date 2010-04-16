@@ -423,6 +423,13 @@ dictEntry *dictFind(dict *d, const void *key)
     return NULL;
 }
 
+void *dictFetchValue(dict *d, const void *key) {
+    dictEntry *he;
+
+    he = dictFind(d,key);
+    return he ? dictGetEntryVal(he) : NULL;
+}
+
 dictIterator *dictGetIterator(dict *d)
 {
     dictIterator *iter = _dictAlloc(sizeof(*iter));
