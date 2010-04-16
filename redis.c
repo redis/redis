@@ -6155,7 +6155,7 @@ static int hashDelete(robj *o, robj *key) {
 }
 
 /* Return the number of elements in a hash. */
-static inline unsigned long hashLength(robj *o) {
+static unsigned long hashLength(robj *o) {
     return (o->encoding == REDIS_ENCODING_ZIPMAP) ?
         zipmapLen((unsigned char*)o->ptr) : dictSize((dict*)o->ptr);
 }
@@ -6193,7 +6193,7 @@ static void hashReleaseIterator(hashIterator *hi) {
 
 /* Move to the next entry in the hash. Return REDIS_OK when the next entry
  * could be found and REDIS_ERR when the iterator reaches the end. */
-static inline int hashNext(hashIterator *hi) {
+static int hashNext(hashIterator *hi) {
     if (hi->encoding == REDIS_ENCODING_ZIPMAP) {
         if ((hi->zi = zipmapNext(hi->zi, &hi->zk, &hi->zklen,
             &hi->zv, &hi->zvlen)) == NULL) return REDIS_ERR;
@@ -6206,7 +6206,7 @@ static inline int hashNext(hashIterator *hi) {
 /* Get key or value object at current iteration position.
  * See comments at hashGet for a discussion on the refcount for
  * keys and values retrieved from zipmaps. */
-static inline robj *hashCurrent(hashIterator *hi, int what) {
+static robj *hashCurrent(hashIterator *hi, int what) {
     robj *o;
     if (hi->encoding == REDIS_ENCODING_ZIPMAP) {
         if (what & REDIS_HASH_KEY) {
