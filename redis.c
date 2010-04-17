@@ -237,7 +237,9 @@ static char* strencoding[] = {
 
 /* We can print the stacktrace, so our assert is defined this way: */
 #define redisAssert(_e) ((_e)?(void)0 : (_redisAssert(#_e,__FILE__,__LINE__),_exit(1)))
+#define redisPanic(_e) _redisPanic(#_e,__FILE__,__LINE__),_exit(1)
 static void _redisAssert(char *estr, char *file, int line);
+static void _redisPanic(char *msg, char *file, int line);
 
 /*================================= Data types ============================== */
 
@@ -2851,6 +2853,7 @@ static void incrRefCount(robj *o) {
 static void decrRefCount(void *obj) {
     robj *o = obj;
 
+    if (o->refcount <= 0) redisPanic("decrRefCount against refcount <= 0");
     /* Object is a key of a swapped out value, or in the process of being
      * loaded. */
     if (server.vm_enabled &&
@@ -9853,6 +9856,15 @@ static void debugCommand(redisClient *c) {
 static void _redisAssert(char *estr, char *file, int line) {
     redisLog(REDIS_WARNING,"=== ASSERTION FAILED ===");
     redisLog(REDIS_WARNING,"==> %s:%d '%s' is not true\n",file,line,estr);
+#ifdef HAVE_BACKTRACE
+    redisLog(REDIS_WARNING,"(forcing SIGSEGV in order to print the stack trace)");
+    *((char*)-1) = 'x';
+#endif
+}
+
+static void _redisPanic(char *msg, char *file, int line) {
+    redisLog(REDIS_WARNING,"!!! Software Failure. Press left mouse button to continue");
+    redisLog(REDIS_WARNING,"Guru Mediation: %s #%s:%d",msg,file,line);
 #ifdef HAVE_BACKTRACE
     redisLog(REDIS_WARNING,"(forcing SIGSEGV in order to print the stack trace)");
     *((char*)-1) = 'x';
