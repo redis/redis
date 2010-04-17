@@ -6294,6 +6294,7 @@ static void hmsetCommand(redisClient *c) {
         hashSet(o,c->argv[i],c->argv[i+1]);
     }
     addReply(c, shared.ok);
+    server.dirty++;
 }
 
 static void hincrbyCommand(redisClient *c) {
