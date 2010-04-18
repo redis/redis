@@ -3058,7 +3058,7 @@ static robj *getDecodedObject(robj *o) {
         dec = createStringObject(buf,strlen(buf));
         return dec;
     } else {
-        redisAssert(1 != 1);
+        redisPanic("Unknown encoding type");
     }
 }
 
@@ -6626,9 +6626,8 @@ static int sortCompare(const void *s1, const void *s2) {
                 cmp = strcoll(so1->u.cmpobj->ptr,so2->u.cmpobj->ptr);
             }
         } else {
-            /* Compare elements directly. Note that these objects already
-             * need to be non-encoded (see sortCommand). */
-            cmp = strcoll(so1->obj->ptr,so2->obj->ptr);
+            /* Compare elements directly. */
+            cmp = compareStringObjects(so1->obj,so2->obj);
         }
     }
     return server.sort_desc ? -cmp : cmp;
@@ -6766,7 +6765,7 @@ static void sortCommand(redisClient *c) {
             }
 
             if (alpha) {
-                vector[j].u.cmpobj = getDecodedObject(byval);
+                if (sortby) vector[j].u.cmpobj = getDecodedObject(byval);
             } else {
                 if (byval->encoding == REDIS_ENCODING_RAW) {
                     vector[j].u.score = strtod(byval->ptr,NULL);

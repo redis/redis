@@ -935,6 +935,15 @@ proc main {} {
         lsort [array names myset]
     } {a b c}
 
+    test {SORT ALPHA against integer encoded strings} {
+        $r del mylist
+        $r lpush mylist 2
+        $r lpush mylist 1
+        $r lpush mylist 3
+        $r lpush mylist 10
+        $r sort mylist alpha
+    } {1 10 2 3}
+
     test {Create a random list and a random set} {
         set tosort {}
         array set seenrand {}
