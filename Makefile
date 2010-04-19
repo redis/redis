@@ -81,7 +81,7 @@ staticsymbols:
 	tclsh utils/build-static-symbols.tcl > staticsymbols.h
 
 test:
-	tclsh test-redis.tcl -p $(PORT) -h $(HOST)
+	tclsh8.5 test-redis.tcl -p $(PORT) -h $(HOST)
 
 bench:
 	./redis-benchmark
