@@ -25,6 +25,7 @@
 #
 # vwait forever
 
+package require Tcl 8.5
 package provide redis 0.1
 
 namespace eval redis {}
