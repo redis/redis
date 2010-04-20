@@ -35,4 +35,9 @@
 #define HAVE_KQUEUE 1
 #endif
 
+/* test for O_DIRECT */
+#ifdef __linux__
+#define HAVE_O_DIRECT 1
+#endif
+
 #endif
