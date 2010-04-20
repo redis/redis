@@ -40,7 +40,9 @@
 #define PREFIX_SIZE sizeof(size_t)
 #endif
 
-#define increment_used_memory(_n) do { \
+#define increment_used_memory(__n) do { \
+    size_t _n = (__n); \
+    if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
     if (zmalloc_thread_safe) { \
         pthread_mutex_lock(&used_memory_mutex);  \
         used_memory += _n; \
@@ -50,7 +52,9 @@
     } \
 } while(0)
 
-#define decrement_used_memory(_n) do { \
+#define decrement_used_memory(__n) do { \
+    size_t _n = (__n); \
+    if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
     if (zmalloc_thread_safe) { \
         pthread_mutex_lock(&used_memory_mutex);  \
         used_memory -= _n; \
