@@ -4234,18 +4234,25 @@ static void selectCommand(redisClient *c) {
 
 static void randomkeyCommand(redisClient *c) {
     dictEntry *de;
+    robj *key;
 
     while(1) {
         de = dictGetRandomKey(c->db->dict);
         if (!de || expireIfNeeded(c->db,dictGetEntryKey(de)) == 0) break;
     }
+    
     if (de == NULL) {
-        addReply(c,shared.plus);
-        addReply(c,shared.crlf);
+        addReply(c,shared.nullbulk);
+        return;
+    }
+
+    key = dictGetEntryKey(de);
+    if (server.vm_enabled) {
+        key = dupStringObject(key);
+        addReplyBulk(c,key);
+        decrRefCount(key);
     } else {
-        addReply(c,shared.plus);
-        addReply(c,dictGetEntryKey(de));
-        addReply(c,shared.crlf);
+        addReplyBulk(c,key);
     }
 }
 
