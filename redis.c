@@ -54,7 +54,6 @@
 #include <inttypes.h>
 #include <arpa/inet.h>
 #include <sys/stat.h>
-#define __USE_GNU
 #include <fcntl.h>
 #include <sys/time.h>
 #include <sys/resource.h>
