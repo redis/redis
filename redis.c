@@ -27,7 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define REDIS_VERSION "1.3.10"
+#define REDIS_VERSION "1.3.8"
 
 #include "fmacros.h"
 #include "config.h"
