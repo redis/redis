@@ -7,8 +7,8 @@ Overview
 ========
 
 Redis is a fast key-value store supporting complex aggregate data types as
-values. Values can be complex aggregate data types. For instance keys can be
-bound to lists with many elements, sets, sub-dictionaries (hashes) and so forth.
+values. For instance keys can be bound to lists with many elements, sets,
+sub-dictionaries (hashes) and so forth.
 
 While Redis is very fast, currently it lacks scalability in the form of ability
 to transparently run across different nodes. This is desirable mainly for the
