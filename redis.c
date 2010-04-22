@@ -379,7 +379,6 @@ struct redisServer {
     char *dbfilename;
     char *appendfilename;
     char *requirepass;
-    int shareobjects;
     int rdbcompression;
     int activerehashing;
     /* Replication related */
@@ -968,6 +967,53 @@ static int stringmatchlen(const char *pattern, int patternLen,
 
 static int stringmatch(const char *pattern, const char *string, int nocase) {
     return stringmatchlen(pattern,strlen(pattern),string,strlen(string),nocase);
+}
+
+/* Convert a string representing an amount of memory into the number of
+ * bytes, so for instance memtoll("1Gi") will return 1073741824 that is
+ * (1024*1024*1024).
+ *
+ * On parsing error, if *err is not NULL, it's set to 1, otherwise it's
+ * set to 0 */
+static long long memtoll(const char *p, int *err) {
+    const char *u;
+    char buf[128];
+    long mul; /* unit multiplier */
+    long long val;
+    unsigned int digits;
+
+    if (err) *err = 0;
+    /* Search the first non digit character. */
+    u = p;
+    if (*u == '-') u++;
+    while(*u && isdigit(*u)) u++;
+    if (*u == '\0' || !strcasecmp(u,"b")) {
+        mul = 1;
+    } else if (!strcasecmp(u,"k") || !strcasecmp(u,"kb")) {
+        mul = 1000;
+    } else if (!strcasecmp(u,"ki") || !strcasecmp(u,"kib")) {
+        mul = 1024;
+    } else if (!strcasecmp(u,"m") || !strcasecmp(u,"mb")) {
+        mul = 1000*1000;
+    } else if (!strcasecmp(u,"mi") || !strcasecmp(u,"mib")) {
+        mul = 1024*1024;
+    } else if (!strcasecmp(u,"g") || !strcasecmp(u,"hb")) {
+        mul = 1000L*1000*1000;
+    } else if (!strcasecmp(u,"gi") || !strcasecmp(u,"gib")) {
+        mul = 1024L*1024*1024;
+    } else {
+        if (err) *err = 1;
+        mul = 1;
+    }
+    digits = u-p;
+    if (digits >= sizeof(buf)) {
+        if (err) *err = 1;
+        return LLONG_MAX;
+    }
+    memcpy(buf,p,digits);
+    buf[digits] = '\0';
+    val = strtoll(buf,NULL,10);
+    return val*mul;
 }
 
 static void redisLog(int level, const char *fmt, ...) {
@@ -1585,7 +1631,6 @@ static void initServerConfig() {
     server.dbfilename = zstrdup("dump.rdb");
     server.appendfilename = zstrdup("appendonly.aof");
     server.requirepass = NULL;
-    server.shareobjects = 0;
     server.rdbcompression = 1;
     server.activerehashing = 1;
     server.maxclients = 0;
@@ -1802,7 +1847,7 @@ static void loadServerConfig(char *filename) {
         } else if (!strcasecmp(argv[0],"maxclients") && argc == 2) {
             server.maxclients = atoi(argv[1]);
         } else if (!strcasecmp(argv[0],"maxmemory") && argc == 2) {
-            server.maxmemory = strtoll(argv[1], NULL, 10);
+            server.maxmemory = memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"slaveof") && argc == 3) {
             server.masterhost = sdsnew(argv[1]);
             server.masterport = atoi(argv[2]);
@@ -1811,10 +1856,6 @@ static void loadServerConfig(char *filename) {
         	server.masterauth = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"glueoutputbuf") && argc == 2) {
             if ((server.glueoutputbuf = yesnotoi(argv[1])) == -1) {
-                err = "argument must be 'yes' or 'no'"; goto loaderr;
-            }
-        } else if (!strcasecmp(argv[0],"shareobjects") && argc == 2) {
-            if ((server.shareobjects = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"rdbcompression") && argc == 2) {
@@ -1860,19 +1901,17 @@ static void loadServerConfig(char *filename) {
             zfree(server.vm_swap_file);
             server.vm_swap_file = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"vm-max-memory") && argc == 2) {
-            server.vm_max_memory = strtoll(argv[1], NULL, 10);
+            server.vm_max_memory = memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"vm-page-size") && argc == 2) {
-            server.vm_page_size = strtoll(argv[1], NULL, 10);
+            server.vm_page_size = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"vm-pages") && argc == 2) {
-            server.vm_pages = strtoll(argv[1], NULL, 10);
+            server.vm_pages = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"vm-max-threads") && argc == 2) {
             server.vm_max_threads = strtoll(argv[1], NULL, 10);
         } else if (!strcasecmp(argv[0],"hash-max-zipmap-entries") && argc == 2){
-            server.hash_max_zipmap_entries = strtol(argv[1], NULL, 10);
+            server.hash_max_zipmap_entries = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"hash-max-zipmap-value") && argc == 2){
-            server.hash_max_zipmap_value = strtol(argv[1], NULL, 10);
-        } else if (!strcasecmp(argv[0],"vm-max-threads") && argc == 2) {
-            server.vm_max_threads = strtoll(argv[1], NULL, 10);
+            server.hash_max_zipmap_value = memtoll(argv[1], NULL);
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
@@ -4240,7 +4279,7 @@ static void randomkeyCommand(redisClient *c) {
         de = dictGetRandomKey(c->db->dict);
         if (!de || expireIfNeeded(c->db,dictGetEntryKey(de)) == 0) break;
     }
-    
+
     if (de == NULL) {
         addReply(c,shared.nullbulk);
         return;
