@@ -55,10 +55,10 @@ and refusing any further query. The system administrator should check why
 M-1 nodes are offline and bring them back again if possible.
 
 Once resisting to big net splits is no longer a requirement as there is no
-conflict resolution stage, since at least an original node responsible to hold
-every possible key must be online for the cluster to work, there is also no need
-a design where every node can act as an independent entity receiving queries
-and forwarding this queries to other nodes as needed.
+conflict resolution stage, since at least an original node responsible of
+holding every possible key must be online for the cluster to work, there is
+also no need for a design where every node can act as an independent entity
+receiving queries and forwarding this queries to other nodes as needed.
 
 Instead a more decoupled approach can be used, in the form of a Redis Proxy
 node (or multiple Proxy nodes) that is contacted by clients, and
