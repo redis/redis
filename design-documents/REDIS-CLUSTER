@@ -1,29 +1,101 @@
 Redis Cluster Design Proposal (work in progress)
 
+28 Nov 2010: Ver 1.0 - initial version
+22 APr 2010: Ver 1.1 - more details and rationales
+
+Overview
+========
+
+Redis is a fast key-value store supporting complex aggregate data types as
+values. Values can be complex aggregate data types. For instance keys can be
+bound to lists with many elements, sets, sub-dictionaries (hashes) and so forth.
+
+While Redis is very fast, currently it lacks scalability in the form of ability
+to transparently run across different nodes. This is desirable mainly for the
+following three rasons:
+
+A) Fault tolerance. Some node may go off line without affecting the operations.
+B) Holding bigger datasets without using a single box with a lot of RAM.
+C) Scaling writes.
+
+Since a single Redis instance supports 140,000 operations per second in a good
+Linux box costing less than $1000, the need for Redis Cluster arises more
+from "A" and "B". Scaling writes can also be useful in very high load
+environments. Scaling reads is already easily accomplished using Redis built-in
+replication.
+
+Design goals
+============
+
+Designing a DHT in 2010 is hard as there is too much bias towards good designs
+that are already well tested in practice, like the Amazon Dynamo design.
+Still a Dynamo alike DHT may not be the best fit for Redis.
+
+Redis is very simple and fast at its core, so Redis cluster should try to
+follow the same guidelines. The first problem with a Dynamo-alike DHT is that
+Redis supports complex data types. Merging complex values like lsits, where
+in the case of a netsplit may diverge in very complex ways, is not going to
+be easy. The "most recent data" wins is not applicable and all the resolution
+business should be in the application.
+
+Even a simple application can end up with complex schema of keys and complex
+values. Writing code in order to resolve conflicts is not going to be
+programmer friendly.
+
+So the author of this document claims that Redis does not need to resist to
+netsplits, but it is enough to resist to M-1 nodes going offline, where
+M is the number of nodes storing every key-value pair.
+
+For instance in a three nodes cluster I may configure the cluster in order to
+store every key into two instances (M=2). Such a cluster can resist to a single
+node going offline without interruption of the service.
+
+When more than M-1 nodes are off line the cluster should detect such a condition
+and refusing any further query. The system administrator should check why
+M-1 nodes are offline and bring them back again if possible.
+
+Once resisting to big net splits is no longer a requirement as there is no
+conflict resolution stage, since at least an original node responsible to hold
+every possible key must be online for the cluster to work, there is also no need
+a design where every node can act as an independent entity receiving queries
+and forwarding this queries to other nodes as needed.
+
+Instead a more decoupled approach can be used, in the form of a Redis Proxy
+node (or multiple Proxy nodes) that is contacted by clients, and
+is responsible of forwarding queries and replies back and forth from data nodes.
+
+Data nodes can be just vanilla redis-server instances.
+
 Network layout
 ==============
 
-    - N different Data Nodes. Every node is identified by ip:port.
-    - A single Configuration Node.
-    - M different Proxy Nodes (redis-cluster).
-    - A single Handling Node.
+ - One ore more Data Nodes. Every node is identified by ip:port.
+ - A single Configuration Node.
+ - One more more Proxy Nodes (redis-cluster nodes).
+ - A single Handling Node.
+
+Data Nodes and the Configuration Node are just vanilla redis-server instances.
 
 Configuration Node
 ==================
 
-    - Contains information about all the Data nodes in the cluster.
-    - Contains information about all the Proxy nodes in the cluster.
-    - Maps the keyspace to different nodes.
+ - Contains information about all the Data nodes in the cluster.
+ - Contains information about all the Proxy nodes in the cluster.
+ - Contains information about what Data Node holds a given sub-space of keys.
 
 The keyspace is divided into 1024 different "hashing slots".
+(1024 is just an example, this value should be configurable)
 
-Given a key perform SHA1(key) and use the last 10 bits of the result to get a 10 bit number representing the key slot (from 0 to 1023).
+Given a key perform SHA1(key) and use the last 10 bits of the result to get a 10 bit number representing the "key slot" (from 0 to 1023).
 
-The Configuration node maps every slot of the keyspace to K different Data Nodes.
+The Configuration node maps every slot of the keyspace to M different Data Nodes (every key is stored into M nodes, configurable).
 
 The Configuration node can be modified by a single client at a time. Locking is performed using SETNX.
 
-The Configuration node should be replicated as there is a single configuration node for the whole network.
+The Configuration node should be replicated as there is a single configuration node for the whole network. It is the only single point of failure of the system.
+When a Configuration node fails the cluster does not stop operating, but is not
+able to recover if there is some exceptional condition to handle, like a Data
+Node going off line or the addition of a new Data Node to the cluster.
 
 The Configuration node is a standard Redis server, like every other Data node.
 
@@ -37,23 +109,52 @@ Proxy Nodes
 
 Proxy nodes get requests from clients and route this requests to the right Redis nodes.
 
-When a proxy node is started it needs to know the Configuration node address in order to load the infomration about the Data nodes and the mapping between the key space and the nodes.
+Proxy nodes take persistent connections to all the Data Nodes and the
+Configuration Node. This connections are keep alive with PING requests from time
+to time if there is no traffic. This way Proxy Nodes can understand asap if
+there is a problem in some Data Node or in the Configuration Node.
 
-On startup a Proxy node will also register itself in the Configuration node, and will make sure to refresh it's configuration every N seconds (via an EXPIREing key) so that it's possible to detect when a Proxy node fails.
+When a Proxy Node is started it needs to know the Configuration node address in order to load the infomration about the Data nodes and the mapping between the key space and the nodes.
 
-The Proxy node also is in charge of signaling failing Data nodes to the Configuration node, so that the Handling node can take appropriate actions.
+On startup a Proxy Node will also register itself in the Configuration node, and will make sure to refresh it's configuration every N seconds (via an EXPIREing key) so that it's possible to detect when a Proxy node fails.
+
+Clients can submit queries to any Proxy Node, so well designed clients may ask
+at startup the list of Proxy Nodes querying the Configuration Node. Then if
+a query fails against a given Proxy Node it can be retried against the next.
+
+The Proxy Node is also in charge of signaling failing Data nodes to the Configuration node, so that the Handling Node can take appropriate actions.
 
 When a new Data node joins or leaves the cluster, and in general when the cluster configuration changes, all the Proxy nodes will receive a notification and will reload the configuration from the Configuration node.
+
+Proxy Nodes - how queries are submited
+======================================
+
+This is how a query is processed:
+
+1) A client sends a query to a Proxy Node, using the Redis protocol like if it was a plain Redis Node.
+2) The Proxy Node inspects the command arguments to detect the key. The key is hashed. The Proxy Node has the table mapping a given key to M nodes, and persistent connections to all the nodes.
+
+At this point the process is different in case of read or write queries:
+
+WRITE QUERY:
+
+3a) The Proxy Node forwards the query to M Data Nodes at the same time, waiting for replies.
+3b) Once all the replies are received the Proxy Node checks that the replies are consistent. For instance all the M nodes need to reply with OK and so forth. If the query fails in a subset of nodes but succeeds in other nodes, the failing nodes are considered unreliable and are put off line notifying the configuration node.
+3c) The reply is transfered back to the client.
+
+READ QUERY:
+
+3d) The Proxy Node forwards the query to a single random client, passing the reply back to the client.
 
 Handling Node
 =============
 
 The handling node is a special Redis client with the following role:
 
-    - Handles the cluster configuration stored in the Config node.
-    - Is in charge for adding and removing nodes dynamically from the net.
-    - Relocates keys on nodes additions / removal.
-    - Signal a configuration change to Proxy nodes.
+ - Handles the cluster configuration stored in the Config node.
+ - Is in charge for adding and removing nodes dynamically from the net.
+ - Relocates keys on nodes additions / removal.
+ - Signal a configuration change to Proxy nodes.
 
 More details on hashing slots
 ============================
@@ -109,7 +210,5 @@ Then the slot is moved (1/1024 of all the keys). The Configuration server is mod
 
 Implementation details
 ======================
-
-Every Proxy node should take persistent connections to all the Data nodes.
 
 To run the Handling node and the Configuration node in the same physical computer is probably a good idea.
