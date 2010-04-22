@@ -989,17 +989,17 @@ static long long memtoll(const char *p, int *err) {
     while(*u && isdigit(*u)) u++;
     if (*u == '\0' || !strcasecmp(u,"b")) {
         mul = 1;
-    } else if (!strcasecmp(u,"k") || !strcasecmp(u,"kb")) {
+    } else if (!strcasecmp(u,"k")) {
         mul = 1000;
-    } else if (!strcasecmp(u,"ki") || !strcasecmp(u,"kib")) {
+    } else if (!strcasecmp(u,"kb")) {
         mul = 1024;
-    } else if (!strcasecmp(u,"m") || !strcasecmp(u,"mb")) {
+    } else if (!strcasecmp(u,"m")) {
         mul = 1000*1000;
-    } else if (!strcasecmp(u,"mi") || !strcasecmp(u,"mib")) {
+    } else if (!strcasecmp(u,"mb")) {
         mul = 1024*1024;
-    } else if (!strcasecmp(u,"g") || !strcasecmp(u,"hb")) {
+    } else if (!strcasecmp(u,"g")) {
         mul = 1000L*1000*1000;
-    } else if (!strcasecmp(u,"gi") || !strcasecmp(u,"gib")) {
+    } else if (!strcasecmp(u,"gb")) {
         mul = 1024L*1024*1024;
     } else {
         if (err) *err = 1;
