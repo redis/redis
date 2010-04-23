@@ -1941,6 +1941,30 @@ proc main {} {
         $r ttl x
     } {1[345]}
 
+    test {SETEX - Set + Expire combo operation. Check for TTL} {
+        $r setex x 12 test
+        $r ttl x
+    } {1[012]}
+
+    test {SETEX - Check value} {
+        $r get x
+    } {test}
+
+    test {SETEX - Overwrite old key} {
+        $r setex y 1 foo
+        $r get y
+    } {foo}
+
+    test {SETEX - Wait for the key to expire} {
+        after 3000
+        $r get y
+    } {}
+
+    test {SETEX - Wrong time parameter} {
+        catch {$r setex z -10 foo} e
+        set _ $e
+    } {*invalid expire*}
+
     test {ZSETs skiplist implementation backlink consistency test} {
         set diff 0
         set elements 10000

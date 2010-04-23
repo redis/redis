@@ -628,6 +628,7 @@ static void pingCommand(redisClient *c);
 static void echoCommand(redisClient *c);
 static void setCommand(redisClient *c);
 static void setnxCommand(redisClient *c);
+static void setexCommand(redisClient *c);
 static void getCommand(redisClient *c);
 static void delCommand(redisClient *c);
 static void existsCommand(redisClient *c);
@@ -736,6 +737,7 @@ static struct redisCommand cmdTable[] = {
     {"get",getCommand,2,REDIS_CMD_INLINE,NULL,1,1,1},
     {"set",setCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,NULL,0,0,0},
     {"setnx",setnxCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,NULL,0,0,0},
+    {"setex",setexCommand,4,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,NULL,0,0,0},
     {"append",appendCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,NULL,1,1,1},
     {"substr",substrCommand,4,REDIS_CMD_INLINE,NULL,1,1,1},
     {"del",delCommand,-2,REDIS_CMD_INLINE,NULL,0,0,0},
@@ -3984,40 +3986,55 @@ static void echoCommand(redisClient *c) {
 
 /*=================================== Strings =============================== */
 
-static void setGenericCommand(redisClient *c, int nx) {
+static void setGenericCommand(redisClient *c, int nx, robj *key, robj *val, robj *expire) {
     int retval;
+    long seconds;
 
-    if (nx) deleteIfVolatile(c->db,c->argv[1]);
-    retval = dictAdd(c->db->dict,c->argv[1],c->argv[2]);
+    if (expire) {
+        if (getLongFromObjectOrReply(c, expire, &seconds, NULL) != REDIS_OK)
+            return;
+        if (seconds <= 0) {
+            addReplySds(c,sdsnew("-ERR invalid expire time in SETEX\r\n"));
+            return;
+        }
+    }
+
+    if (nx) deleteIfVolatile(c->db,key);
+    retval = dictAdd(c->db->dict,key,val);
     if (retval == DICT_ERR) {
         if (!nx) {
             /* If the key is about a swapped value, we want a new key object
              * to overwrite the old. So we delete the old key in the database.
              * This will also make sure that swap pages about the old object
              * will be marked as free. */
-            if (server.vm_enabled && deleteIfSwapped(c->db,c->argv[1]))
-                incrRefCount(c->argv[1]);
-            dictReplace(c->db->dict,c->argv[1],c->argv[2]);
-            incrRefCount(c->argv[2]);
+            if (server.vm_enabled && deleteIfSwapped(c->db,key))
+                incrRefCount(key);
+            dictReplace(c->db->dict,key,val);
+            incrRefCount(val);
         } else {
             addReply(c,shared.czero);
             return;
         }
     } else {
-        incrRefCount(c->argv[1]);
-        incrRefCount(c->argv[2]);
+        incrRefCount(key);
+        incrRefCount(val);
     }
     server.dirty++;
-    removeExpire(c->db,c->argv[1]);
+    removeExpire(c->db,key);
+    if (expire) setExpire(c->db,key,time(NULL)+seconds);
     addReply(c, nx ? shared.cone : shared.ok);
 }
 
 static void setCommand(redisClient *c) {
-    setGenericCommand(c,0);
+    setGenericCommand(c,0,c->argv[1],c->argv[2],NULL);
 }
 
 static void setnxCommand(redisClient *c) {
-    setGenericCommand(c,1);
+    setGenericCommand(c,1,c->argv[1],c->argv[2],NULL);
+}
+
+static void setexCommand(redisClient *c) {
+    setGenericCommand(c,0,c->argv[1],c->argv[3],c->argv[2]);
 }
 
 static int getGenericCommand(redisClient *c) {
