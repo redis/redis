@@ -515,8 +515,9 @@ struct sharedObjectsStruct {
     *outofrangeerr, *plus,
     *select0, *select1, *select2, *select3, *select4,
     *select5, *select6, *select7, *select8, *select9,
-    *messagebulk, *subscribebulk, *unsubscribebulk, *mbulk3,
-    *psubscribebulk, *punsubscribebulk, *integers[REDIS_SHARED_INTEGERS];
+    *messagebulk, *pmessagebulk, *subscribebulk, *unsubscribebulk, *mbulk3,
+    *mbulk4, *psubscribebulk, *punsubscribebulk,
+    *integers[REDIS_SHARED_INTEGERS];
 } shared;
 
 /* Global vars that are actally used as constants. The following double
@@ -1588,11 +1589,13 @@ static void createSharedObjects(void) {
     shared.select8 = createStringObject("select 8\r\n",10);
     shared.select9 = createStringObject("select 9\r\n",10);
     shared.messagebulk = createStringObject("$7\r\nmessage\r\n",13);
+    shared.pmessagebulk = createStringObject("$8\r\npmessage\r\n",14);
     shared.subscribebulk = createStringObject("$9\r\nsubscribe\r\n",15);
     shared.unsubscribebulk = createStringObject("$11\r\nunsubscribe\r\n",18);
     shared.psubscribebulk = createStringObject("$10\r\npsubscribe\r\n",17);
     shared.punsubscribebulk = createStringObject("$12\r\npunsubscribe\r\n",19);
     shared.mbulk3 = createStringObject("*3\r\n",4);
+    shared.mbulk4 = createStringObject("*4\r\n",4);
     for (j = 0; j < REDIS_SHARED_INTEGERS; j++) {
         shared.integers[j] = createObject(REDIS_STRING,(void*)(long)j);
         shared.integers[j]->encoding = REDIS_ENCODING_INT;
@@ -9817,8 +9820,9 @@ static int pubsubPublishMessage(robj *channel, robj *message) {
                                 sdslen(pat->pattern->ptr),
                                 (char*)channel->ptr,
                                 sdslen(channel->ptr),0)) {
-                addReply(pat->client,shared.mbulk3);
-                addReply(pat->client,shared.messagebulk);
+                addReply(pat->client,shared.mbulk4);
+                addReply(pat->client,shared.pmessagebulk);
+                addReplyBulk(pat->client,pat->pattern);
                 addReplyBulk(pat->client,channel);
                 addReplyBulk(pat->client,message);
                 receivers++;
