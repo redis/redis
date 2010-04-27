@@ -568,7 +568,7 @@ static void repl() {
             /* Free the argument vector */
             for (j = 0; j < argc; j++)
                 sdsfree(argv[j]);
-            free(argv);
+            zfree(argv);
         }
         /* linenoise() returns malloc-ed lines like readline() */
         free(line);
