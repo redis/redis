@@ -622,6 +622,7 @@ static void freePubsubPattern(void *p);
 static int listMatchPubsubPattern(void *a, void *b);
 static int compareStringObjects(robj *a, robj *b);
 static void usage();
+static int rewriteAppendOnlyFileBackground(void);
 
 static void authCommand(redisClient *c);
 static void pingCommand(redisClient *c);
@@ -1516,6 +1517,7 @@ static int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientD
         redisLog(REDIS_NOTICE,"Connecting to MASTER...");
         if (syncWithMaster() == REDIS_OK) {
             redisLog(REDIS_NOTICE,"MASTER <-> SLAVE sync succeeded");
+            if (server.appendonly) rewriteAppendOnlyFileBackground();
         }
     }
     return 100;
