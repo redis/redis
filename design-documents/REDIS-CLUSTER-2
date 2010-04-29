@@ -278,4 +278,66 @@ to the same hash slot. In order to guarantee this, key tags can be used,
 where when a specific pattern is present in the key name, only that part is
 hashed in order to obtain the hash index.
 
+Random remarks
+==============
+
+- It's still not clear how to perform an atomic election of a slave to master.
+- In normal conditions (all the nodes working) this new design is just
+  K clients talking to N nodes without intermediate layers, no routes:
+  this means it is horizontally scalable with O(1) lookups.
+- The cluster should optionally be able to work with manual fail over
+  for environments where it's desirable to do so. For instance it's possible
+  to setup periodic checks on all the nodes, and switch IPs when needed
+  or other advanced configurations that can not be the default as they
+  are too environment dependent.
+
+A few ideas about client-side slave election
+============================================
+
+Detecting failures in a collaborative way
+-----------------------------------------
+
+In order to take the node failure detection and slave election a distributed
+effort, without any "control program" that is in some way a single point
+of failure (the cluster will not stop when it stops, but errors are not
+corrected without it running), it's possible to use a few consensus-alike
+algorithms.
+
+For instance all the nodes may take a list of errors detected by clients.
+
+If Client-1 detects some failure accessing Node-3, for instance a connection
+refused error or a timeout, it logs what happened with LPUSH commands against
+all the other nodes. This "error messages" will have a timestamp and the Node
+id. Something like:
+
+    LPUSH __cluster__:errors 3:1272545939
+
+So if the error is reported many times in a small amount of time, at some
+point a client can have enough hints about the need of performing a
+slave election.
+
+Atomic slave election
+---------------------
+
+In order to avoid races when electing a slave to master (that is in order to
+avoid that some client can still contact the old master for that node in
+the 10 seconds timeframe), the client performing the election may write
+some hint in the configuration, change the configuration SHA1 accordingly and
+wait for more than 10 seconds, in order to be sure all the clients will
+refresh the configuration before a new access.
+
+The config hint may be something like:
+
+"we are switching to a new master, that is x.y.z.k:port, in a few seconds"
+
+When a client updates the config and finds such a flag set, it starts to
+continuously refresh the config until a change is noticed (this will take
+at max 10-15 seconds).
+
+The client performing the election will wait that famous 10 seconds time frame
+and finally will update the config in a definitive way setting the new
+slave as mater. All the clients at this point are guaranteed to have the new
+config either because they refreshed or because in the next query their config
+is already expired and they'll update the configuration.
+
 EOF
