@@ -2171,6 +2171,17 @@ proc main {} {
              [$r append foo 100] [$r get foo]
     } {3 bar 6 bar100}
 
+    test {APPEND basics, integer encoded values} {
+        set res {}
+        $r del foo
+        $r append foo 1
+        $r append foo 2
+        lappend res [$r get foo]
+        $r set foo 1
+        $r append foo 2
+        lappend res [$r get foo]
+    } {12 12}
+
     test {APPEND fuzzing} {
         set err {}
         foreach type {binary alpha compr} {
@@ -2183,6 +2194,42 @@ proc main {} {
             }
             if {$buf != [$r get x]} {
                 set err "Expected '$buf' found '[$r get x]'"
+                break
+            }
+        }
+        set _ $err
+    } {}
+
+    test {SUBSTR basics} {
+        set res {}
+        $r set foo "Hello World"
+        lappend res [$r substr foo 0 3]
+        lappend res [$r substr foo 0 -1]
+        lappend res [$r substr foo -4 -1]
+        lappend res [$r substr foo 5 3]
+        lappend res [$r substr foo 5 5000]
+        lappend res [$r substr foo -5000 10000]
+        set _ $res
+    } {Hell {Hello World} orld {} { World} {Hello World}}
+
+    test {SUBSTR against integer encoded values} {
+        $r set foo 123
+        $r substr foo 0 -2
+    } {12}
+
+    test {SUBSTR fuzzing} {
+        set err {}
+        for {set i 0} {$i < 1000} {incr i} {
+            set bin [randstring 0 1024 binary]
+            set _start [set start [randomInt 1500]]
+            set _end [set end [randomInt 1500]]
+            if {$_start < 0} {set _start "end-[abs($_start)-1]"}
+            if {$_end < 0} {set _end "end-[abs($_end)-1]"}
+            set s1 [string range $bin $_start $_end]
+            $r set bin $bin
+            set s2 [$r substr bin $start $end]
+            if {$s1 != $s2} {
+                set err "String mismatch"
                 break
             }
         }
