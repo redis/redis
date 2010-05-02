@@ -35,4 +35,11 @@
 #define HAVE_KQUEUE 1
 #endif
 
+/* define aof_fsync to fdatasync() in Linux and fsync() for all the rest */
+#ifdef __linux__
+#define aof_fsync fdatasync
+#else
+#define aof_fsync fsync
+#endif
+
 #endif
