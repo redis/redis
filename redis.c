@@ -3221,7 +3221,7 @@ static int getDoubleFromObject(robj *o, double *target) {
         } else if (o->encoding == REDIS_ENCODING_INT) {
             value = (long)o->ptr;
         } else {
-            redisAssert(1 != 1);
+            redisPanic("Unknown string encoding");
         }
     }
 
@@ -3258,7 +3258,7 @@ static int getLongLongFromObject(robj *o, long long *target) {
         } else if (o->encoding == REDIS_ENCODING_INT) {
             value = (long)o->ptr;
         } else {
-            redisAssert(1 != 1);
+            redisPanic("Unknown string encoding");
         }
     }
 
@@ -6462,12 +6462,11 @@ static void hincrbyCommand(redisClient *c) {
     if (getLongLongFromObjectOrReply(c,c->argv[3],&incr,NULL) != REDIS_OK) return;
     if ((o = hashLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     if ((current = hashGet(o,c->argv[2])) != NULL) {
-        if (current->encoding == REDIS_ENCODING_RAW)
-            value = strtoll(current->ptr,NULL,10);
-        else if (current->encoding == REDIS_ENCODING_INT)
-            value = (long)current->ptr;
-        else
-            redisAssert(1 != 1);
+        if (getLongLongFromObjectOrReply(c,current,&value,
+            "hash value is not an integer") != REDIS_OK) {
+            decrRefCount(current);
+            return;
+        }
         decrRefCount(current);
     } else {
         value = 0;
