@@ -1898,11 +1898,15 @@ proc main {} {
         list [$r hincrby smallhash tmp 17179869184] [$r hincrby bighash tmp 17179869184]
     } {34359738368 34359738368}
 
-    test {HINCRBY against key with spaces (no integer encoded)} {
-        $r hset smallhash tmp "    11    "
-        $r hset bighash tmp "    11    "
-        list [$r hincrby smallhash tmp 1] [$r hincrby bighash tmp 1]
-    } {12 12}
+    test {HINCRBY fails against hash value with spaces} {
+        $r hset smallhash str "    11    "
+        $r hset bighash str "    11    "
+        catch {$r hincrby smallhash str 1} smallerr
+        catch {$r hincrby smallhash str 1} bigerr
+        set rv {}
+        lappend rv [string match "ERR*not an integer*" $smallerr]
+        lappend rv [string match "ERR*not an integer*" $bigerr]
+    } {1 1}
 
     # TODO:
     # Randomized test, small and big
