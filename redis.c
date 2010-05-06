@@ -8111,12 +8111,14 @@ static struct redisClient *createFakeClient(void) {
     c->reply = listCreate();
     listSetFreeMethod(c->reply,decrRefCount);
     listSetDupMethod(c->reply,dupClientReplyValue);
+    initClientMultiState(c);
     return c;
 }
 
 static void freeFakeClient(struct redisClient *c) {
     sdsfree(c->querybuf);
     listRelease(c->reply);
+    freeClientMultiState(c);
     zfree(c);
 }
 
@@ -8128,6 +8130,7 @@ int loadAppendOnlyFile(char *filename) {
     FILE *fp = fopen(filename,"r");
     struct redis_stat sb;
     unsigned long long loadedkeys = 0;
+    int appendonly = server.appendonly;
 
     if (redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0)
         return REDIS_ERR;
@@ -8136,6 +8139,10 @@ int loadAppendOnlyFile(char *filename) {
         redisLog(REDIS_WARNING,"Fatal error: can't open the append log file for reading: %s",strerror(errno));
         exit(1);
     }
+
+    /* Temporarily disable AOF, to prevent EXEC from feeding a MULTI
+     * to the same file we're about to read. */
+    server.appendonly = 0;
 
     fakeClient = createFakeClient();
     while(1) {
@@ -8192,8 +8199,14 @@ int loadAppendOnlyFile(char *filename) {
             }
         }
     }
+
+    /* This point can only be reached when EOF is reached without errors.
+     * If the client is in the middle of a MULTI/EXEC, log error and quit. */
+    if (fakeClient->flags & REDIS_MULTI) goto readerr;
+
     fclose(fp);
     freeFakeClient(fakeClient);
+    server.appendonly = appendonly;
     return REDIS_OK;
 
 readerr:
