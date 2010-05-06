@@ -3227,7 +3227,7 @@ static int getDoubleFromObject(robj *o, double *target) {
         } else if (o->encoding == REDIS_ENCODING_INT) {
             value = (long)o->ptr;
         } else {
-            redisAssert(1 != 1);
+            redisPanic("Unknown string encoding");
         }
     }
 
@@ -3264,7 +3264,7 @@ static int getLongLongFromObject(robj *o, long long *target) {
         } else if (o->encoding == REDIS_ENCODING_INT) {
             value = (long)o->ptr;
         } else {
-            redisAssert(1 != 1);
+            redisPanic("Unknown string encoding");
         }
     }
 
@@ -6468,12 +6468,11 @@ static void hincrbyCommand(redisClient *c) {
     if (getLongLongFromObjectOrReply(c,c->argv[3],&incr,NULL) != REDIS_OK) return;
     if ((o = hashLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     if ((current = hashGet(o,c->argv[2])) != NULL) {
-        if (current->encoding == REDIS_ENCODING_RAW)
-            value = strtoll(current->ptr,NULL,10);
-        else if (current->encoding == REDIS_ENCODING_INT)
-            value = (long)current->ptr;
-        else
-            redisAssert(1 != 1);
+        if (getLongLongFromObjectOrReply(c,current,&value,
+            "hash value is not an integer") != REDIS_OK) {
+            decrRefCount(current);
+            return;
+        }
         decrRefCount(current);
     } else {
         value = 0;
@@ -8140,12 +8139,14 @@ static struct redisClient *createFakeClient(void) {
     c->reply = listCreate();
     listSetFreeMethod(c->reply,decrRefCount);
     listSetDupMethod(c->reply,dupClientReplyValue);
+    initClientMultiState(c);
     return c;
 }
 
 static void freeFakeClient(struct redisClient *c) {
     sdsfree(c->querybuf);
     listRelease(c->reply);
+    freeClientMultiState(c);
     zfree(c);
 }
 
@@ -8157,6 +8158,7 @@ int loadAppendOnlyFile(char *filename) {
     FILE *fp = fopen(filename,"r");
     struct redis_stat sb;
     unsigned long long loadedkeys = 0;
+    int appendonly = server.appendonly;
 
     if (redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0)
         return REDIS_ERR;
@@ -8165,6 +8167,10 @@ int loadAppendOnlyFile(char *filename) {
         redisLog(REDIS_WARNING,"Fatal error: can't open the append log file for reading: %s",strerror(errno));
         exit(1);
     }
+
+    /* Temporarily disable AOF, to prevent EXEC from feeding a MULTI
+     * to the same file we're about to read. */
+    server.appendonly = 0;
 
     fakeClient = createFakeClient();
     while(1) {
@@ -8221,8 +8227,14 @@ int loadAppendOnlyFile(char *filename) {
             }
         }
     }
+
+    /* This point can only be reached when EOF is reached without errors.
+     * If the client is in the middle of a MULTI/EXEC, log error and quit. */
+    if (fakeClient->flags & REDIS_MULTI) goto readerr;
+
     fclose(fp);
     freeFakeClient(fakeClient);
+    server.appendonly = appendonly;
     return REDIS_OK;
 
 readerr:
