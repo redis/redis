@@ -15,7 +15,6 @@ Virtual Memory sub-TODO:
 * Check if the page selection algorithm is working well
 * Divide swappability of objects by refcount
 * Use multiple open FDs against the VM file, one for thread.
-* EXISTS should avoid loading the object if possible without making the code too specialized.
 * vm-min-age <seconds> option
 * Make sure objects loaded from the VM are specially encoded when possible.
 * Check what happens performance-wise if instead to create threads again and again the same threads are reused forever. Note: this requires a way to disable this clients in the child, but waiting for empty new jobs queue can be enough.

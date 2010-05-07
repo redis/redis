@@ -4343,7 +4343,12 @@ static void delCommand(redisClient *c) {
 }
 
 static void existsCommand(redisClient *c) {
-    addReply(c,lookupKeyRead(c->db,c->argv[1]) ? shared.cone : shared.czero);
+    expireIfNeeded(c->db,c->argv[1]);
+    if (dictFind(c->db->dict,c->argv[1])) {
+        addReply(c, shared.cone);
+    } else {
+        addReply(c, shared.czero);
+    }
 }
 
 static void selectCommand(redisClient *c) {
