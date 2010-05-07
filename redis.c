@@ -9562,13 +9562,15 @@ static void waitForMultipleSwappedKeys(redisClient *c, struct redisCommand *cmd,
     }
 }
 
-/* Preload keys needed for the ZUNION and ZINTER commands. */
+/* Preload keys needed for the ZUNION and ZINTER commands.
+ * Note that the number of keys to preload is user-defined, so we need to
+ * apply a sanity check against argc. */
 static void zunionInterBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv) {
     int i, num;
     REDIS_NOTUSED(cmd);
-    REDIS_NOTUSED(argc);
 
     num = atoi(argv[2]->ptr);
+    if (num > (argc-3)) return;
     for (i = 0; i < num; i++) {
         waitForSwappedKey(c,argv[3+i]);
     }
