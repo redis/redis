@@ -19,7 +19,6 @@ Virtual Memory sub-TODO:
 * Make sure objects loaded from the VM are specially encoded when possible.
 * Check what happens performance-wise if instead to create threads again and again the same threads are reused forever. Note: this requires a way to disable this clients in the child, but waiting for empty new jobs queue can be enough.
 * Sets of integers are slow to load, for a number of reasons. Fix it. (use slow_sets.rdb file for debugging). (p.s. this was now partially fixed).
-* On EXEC try to block the client until relevant keys are loaded.
 
 * Hashes (GET/SET/DEL/INCRBY/EXISTS/FIELDS/LEN/MSET/MGET). Special encoding for hashes with less than N elements.
 * Write documentation for APPEND
