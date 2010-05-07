@@ -611,7 +611,7 @@ static void vmReopenSwapFile(void);
 static int vmFreePage(off_t page);
 static void zunionInterBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv);
 static void execBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv);
-static int blockClientOnSwappedKeys(struct redisCommand *cmd, redisClient *c);
+static int blockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd);
 static int dontWaitForSwappedKey(redisClient *c, robj *key);
 static void handleClientsBlockedOnSwappedKey(redisDb *db, robj *key);
 static void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask);
@@ -2396,7 +2396,7 @@ static int processCommand(redisClient *c) {
         addReply(c,shared.queued);
     } else {
         if (server.vm_enabled && server.vm_max_threads > 0 &&
-            blockClientOnSwappedKeys(cmd,c)) return 1;
+            blockClientOnSwappedKeys(c,cmd)) return 1;
         call(c,cmd);
     }
 
@@ -9613,7 +9613,7 @@ static void execBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cm
  *
  * Return 1 if the client is marked as blocked, 0 if the client can
  * continue as the keys it is going to access appear to be in memory. */
-static int blockClientOnSwappedKeys(struct redisCommand *cmd, redisClient *c) {
+static int blockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd) {
     if (cmd->vm_preload_proc != NULL) {
         cmd->vm_preload_proc(c,cmd,c->argc,c->argv);
     } else {
