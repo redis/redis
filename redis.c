@@ -450,6 +450,7 @@ typedef struct pubsubPattern {
 } pubsubPattern;
 
 typedef void redisCommandProc(redisClient *c);
+typedef void redisVmPreloadProc(redisClient *c, struct redisCommand *cmd, int argc, robj **argv);
 struct redisCommand {
     char *name;
     redisCommandProc *proc;
@@ -458,7 +459,7 @@ struct redisCommand {
     /* Use a function to determine which keys need to be loaded
      * in the background prior to executing this command. Takes precedence
      * over vm_firstkey and others, ignored when NULL */
-    redisCommandProc *vm_preload_proc;
+    redisVmPreloadProc *vm_preload_proc;
     /* What keys should be loaded in background when calling this command? */
     int vm_firstkey; /* The first argument that's a key (0 = no keys) */
     int vm_lastkey;  /* THe last argument that's a key */
@@ -608,7 +609,7 @@ static robj *vmReadObjectFromSwap(off_t page, int type);
 static void waitEmptyIOJobsQueue(void);
 static void vmReopenSwapFile(void);
 static int vmFreePage(off_t page);
-static void zunionInterBlockClientOnSwappedKeys(redisClient *c);
+static void zunionInterBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv);
 static int blockClientOnSwappedKeys(struct redisCommand *cmd, redisClient *c);
 static int dontWaitForSwappedKey(redisClient *c, robj *key);
 static void handleClientsBlockedOnSwappedKey(redisDb *db, robj *key);
@@ -9562,11 +9563,14 @@ static void waitForMultipleSwappedKeys(redisClient *c, struct redisCommand *cmd,
 }
 
 /* Preload keys needed for the ZUNION and ZINTER commands. */
-static void zunionInterBlockClientOnSwappedKeys(redisClient *c) {
+static void zunionInterBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv) {
     int i, num;
-    num = atoi(c->argv[2]->ptr);
+    REDIS_NOTUSED(cmd);
+    REDIS_NOTUSED(argc);
+
+    num = atoi(argv[2]->ptr);
     for (i = 0; i < num; i++) {
-        waitForSwappedKey(c,c->argv[3+i]);
+        waitForSwappedKey(c,argv[3+i]);
     }
 }
 
@@ -9582,7 +9586,7 @@ static void zunionInterBlockClientOnSwappedKeys(redisClient *c) {
  * continue as the keys it is going to access appear to be in memory. */
 static int blockClientOnSwappedKeys(struct redisCommand *cmd, redisClient *c) {
     if (cmd->vm_preload_proc != NULL) {
-        cmd->vm_preload_proc(c);
+        cmd->vm_preload_proc(c,cmd,c->argc,c->argv);
     } else {
         waitForMultipleSwappedKeys(c,cmd,c->argc,c->argv);
     }
