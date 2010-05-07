@@ -1886,6 +1886,9 @@ static void loadServerConfig(char *filename) {
             if ((server.appendonly = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"appendfilename") && argc == 2) {
+            zfree(server.appendfilename);
+            server.appendfilename = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"appendfsync") && argc == 2) {
             if (!strcasecmp(argv[1],"no")) {
                 server.appendfsync = APPENDFSYNC_NO;
