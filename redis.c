@@ -610,6 +610,7 @@ static void waitEmptyIOJobsQueue(void);
 static void vmReopenSwapFile(void);
 static int vmFreePage(off_t page);
 static void zunionInterBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv);
+static void execBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv);
 static int blockClientOnSwappedKeys(struct redisCommand *cmd, redisClient *c);
 static int dontWaitForSwappedKey(redisClient *c, robj *key);
 static void handleClientsBlockedOnSwappedKey(redisDb *db, robj *key);
@@ -826,7 +827,7 @@ static struct redisCommand cmdTable[] = {
     {"lastsave",lastsaveCommand,1,REDIS_CMD_INLINE,NULL,0,0,0},
     {"type",typeCommand,2,REDIS_CMD_INLINE,NULL,1,1,1},
     {"multi",multiCommand,1,REDIS_CMD_INLINE,NULL,0,0,0},
-    {"exec",execCommand,1,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,NULL,0,0,0},
+    {"exec",execCommand,1,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,execBlockClientOnSwappedKeys,0,0,0},
     {"discard",discardCommand,1,REDIS_CMD_INLINE,NULL,0,0,0},
     {"sync",syncCommand,1,REDIS_CMD_INLINE,NULL,0,0,0},
     {"flushdb",flushdbCommand,1,REDIS_CMD_INLINE,NULL,0,0,0},
@@ -9573,6 +9574,32 @@ static void zunionInterBlockClientOnSwappedKeys(redisClient *c, struct redisComm
     if (num > (argc-3)) return;
     for (i = 0; i < num; i++) {
         waitForSwappedKey(c,argv[3+i]);
+    }
+}
+
+/* Preload keys needed to execute the entire MULTI/EXEC block.
+ *
+ * This function is called by blockClientOnSwappedKeys when EXEC is issued,
+ * and will block the client when any command requires a swapped out value. */
+static void execBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv) {
+    int i, margc;
+    struct redisCommand *mcmd;
+    robj **margv;
+    REDIS_NOTUSED(cmd);
+    REDIS_NOTUSED(argc);
+    REDIS_NOTUSED(argv);
+
+    if (!(c->flags & REDIS_MULTI)) return;
+    for (i = 0; i < c->mstate.count; i++) {
+        mcmd = c->mstate.commands[i].cmd;
+        margc = c->mstate.commands[i].argc;
+        margv = c->mstate.commands[i].argv;
+
+        if (mcmd->vm_preload_proc != NULL) {
+            mcmd->vm_preload_proc(c,mcmd,margc,margv);
+        } else {
+            waitForMultipleSwappedKeys(c,mcmd,margc,margv);
+        }
     }
 }
 
