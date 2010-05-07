@@ -9548,6 +9548,19 @@ static int waitForSwappedKey(redisClient *c, robj *key) {
     return 1;
 }
 
+/* Preload keys for any command with first, last and step values for
+ * the command keys prototype, as defined in the command table. */
+static void waitForMultipleSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv) {
+    int j, last;
+    if (cmd->vm_firstkey == 0) return;
+    last = cmd->vm_lastkey;
+    if (last < 0) last = argc+last;
+    for (j = cmd->vm_firstkey; j <= last; j += cmd->vm_keystep) {
+        redisAssert(j < argc);
+        waitForSwappedKey(c,argv[j]);
+    }
+}
+
 /* Preload keys needed for the ZUNION and ZINTER commands. */
 static void zunionInterBlockClientOnSwappedKeys(redisClient *c) {
     int i, num;
@@ -9568,16 +9581,10 @@ static void zunionInterBlockClientOnSwappedKeys(redisClient *c) {
  * Return 1 if the client is marked as blocked, 0 if the client can
  * continue as the keys it is going to access appear to be in memory. */
 static int blockClientOnSwappedKeys(struct redisCommand *cmd, redisClient *c) {
-    int j, last;
-
     if (cmd->vm_preload_proc != NULL) {
         cmd->vm_preload_proc(c);
     } else {
-        if (cmd->vm_firstkey == 0) return 0;
-        last = cmd->vm_lastkey;
-        if (last < 0) last = c->argc+last;
-        for (j = cmd->vm_firstkey; j <= last; j += cmd->vm_keystep)
-            waitForSwappedKey(c,c->argv[j]);
+        waitForMultipleSwappedKeys(c,cmd,c->argc,c->argv);
     }
 
     /* If the client was blocked for at least one key, mark it as blocked. */
