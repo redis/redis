@@ -3947,10 +3947,9 @@ static robj *rdbLoadObject(int type, FILE *fp) {
 
 static int rdbLoad(char *filename) {
     FILE *fp;
-    robj *keyobj = NULL;
     uint32_t dbid;
     int type, retval, rdbver;
-    int dataset_too_big = 0;
+    int swap_all_values = 0;
     dict *d = server.db[0].dict;
     redisDb *db = server.db+0;
     char buf[1024];
@@ -3973,9 +3972,9 @@ static int rdbLoad(char *filename) {
         return REDIS_ERR;
     }
     while(1) {
-        robj *o;
-        expiretime = -1;
+        robj *key, *val;
 
+        expiretime = -1;
         /* Read type. */
         if ((type = rdbLoadType(fp)) == -1) goto eoferr;
         if (type == REDIS_EXPIRETIME) {
@@ -3997,22 +3996,22 @@ static int rdbLoad(char *filename) {
             continue;
         }
         /* Read key */
-        if ((keyobj = rdbLoadStringObject(fp)) == NULL) goto eoferr;
+        if ((key = rdbLoadStringObject(fp)) == NULL) goto eoferr;
         /* Read value */
-        if ((o = rdbLoadObject(type,fp)) == NULL) goto eoferr;
+        if ((val = rdbLoadObject(type,fp)) == NULL) goto eoferr;
         /* Add the new object in the hash table */
-        retval = dictAdd(d,keyobj,o);
+        retval = dictAdd(d,key,val);
         if (retval == DICT_ERR) {
-            redisLog(REDIS_WARNING,"Loading DB, duplicated key (%s) found! Unrecoverable error, exiting now.", keyobj->ptr);
+            redisLog(REDIS_WARNING,"Loading DB, duplicated key (%s) found! Unrecoverable error, exiting now.", key->ptr);
             exit(1);
         }
         loadedkeys++;
         /* Set the expire time if needed */
         if (expiretime != -1) {
-            setExpire(db,keyobj,expiretime);
+            setExpire(db,key,expiretime);
             /* Delete this key if already expired */
             if (expiretime < now) {
-                deleteKey(db,keyobj);
+                deleteKey(db,key);
                 continue; /* don't try to swap this out */
             }
         }
@@ -4024,15 +4023,15 @@ static int rdbLoad(char *filename) {
          * Note that's important to check for this condition before resorting
          * to random sampling, otherwise we may try to swap already
          * swapped keys. */
-        if (dataset_too_big) {
-            dictEntry *de = dictFind(d,keyobj);
+        if (swap_all_values) {
+            dictEntry *de = dictFind(d,key);
 
             /* de may be NULL since the key already expired */
             if (de) {
-                keyobj = dictGetEntryKey(de);
-                o = dictGetEntryVal(de);
+                key = dictGetEntryKey(de);
+                val = dictGetEntryVal(de);
 
-                if (vmSwapObjectBlocking(keyobj,o) == REDIS_OK) {
+                if (vmSwapObjectBlocking(key,val) == REDIS_OK) {
                     dictGetEntryVal(de) = NULL;
                 }
             }
@@ -4041,19 +4040,18 @@ static int rdbLoad(char *filename) {
 
         /* If we have still some hope of having some value fitting memory
          * then we try random sampling. */
-        if (!dataset_too_big && server.vm_enabled && (loadedkeys % 5000) == 0) {
+        if (!swap_all_values && server.vm_enabled && (loadedkeys % 5000) == 0) {
             while (zmalloc_used_memory() > server.vm_max_memory) {
                 if (vmSwapOneObjectBlocking() == REDIS_ERR) break;
             }
             if (zmalloc_used_memory() > server.vm_max_memory)
-                dataset_too_big = 1;
+                swap_all_values = 1; /* We are already using too much mem */
         }
     }
     fclose(fp);
     return REDIS_OK;
 
 eoferr: /* unexpected end of file is handled here with a fatal exit */
-    if (keyobj) decrRefCount(keyobj);
     redisLog(REDIS_WARNING,"Short read or OOM loading DB. Unrecoverable error, aborting now.");
     exit(1);
     return REDIS_ERR; /* Just to avoid warning */
