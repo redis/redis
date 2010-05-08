@@ -624,6 +624,7 @@ static int listMatchPubsubPattern(void *a, void *b);
 static int compareStringObjects(robj *a, robj *b);
 static void usage();
 static int rewriteAppendOnlyFileBackground(void);
+static int vmSwapObjectBlocking(robj *key, robj *val);
 
 static void authCommand(redisClient *c);
 static void pingCommand(redisClient *c);
@@ -3949,10 +3950,11 @@ static int rdbLoad(char *filename) {
     robj *keyobj = NULL;
     uint32_t dbid;
     int type, retval, rdbver;
+    int dataset_too_big = 0;
     dict *d = server.db[0].dict;
     redisDb *db = server.db+0;
     char buf[1024];
-    time_t expiretime = -1, now = time(NULL);
+    time_t expiretime, now = time(NULL);
     long long loadedkeys = 0;
 
     fp = fopen(filename,"r");
@@ -3972,6 +3974,7 @@ static int rdbLoad(char *filename) {
     }
     while(1) {
         robj *o;
+        expiretime = -1;
 
         /* Read type. */
         if ((type = rdbLoadType(fp)) == -1) goto eoferr;
@@ -4003,20 +4006,47 @@ static int rdbLoad(char *filename) {
             redisLog(REDIS_WARNING,"Loading DB, duplicated key (%s) found! Unrecoverable error, exiting now.", keyobj->ptr);
             exit(1);
         }
+        loadedkeys++;
         /* Set the expire time if needed */
         if (expiretime != -1) {
             setExpire(db,keyobj,expiretime);
             /* Delete this key if already expired */
-            if (expiretime < now) deleteKey(db,keyobj);
-            expiretime = -1;
+            if (expiretime < now) {
+                deleteKey(db,keyobj);
+                continue; /* don't try to swap this out */
+            }
         }
-        keyobj = o = NULL;
+
         /* Handle swapping while loading big datasets when VM is on */
-        loadedkeys++;
-        if (server.vm_enabled && (loadedkeys % 5000) == 0) {
+
+        /* If we detecter we are hopeless about fitting something in memory
+         * we just swap every new key on disk. Directly...
+         * Note that's important to check for this condition before resorting
+         * to random sampling, otherwise we may try to swap already
+         * swapped keys. */
+        if (dataset_too_big) {
+            dictEntry *de = dictFind(d,keyobj);
+
+            /* de may be NULL since the key already expired */
+            if (de) {
+                keyobj = dictGetEntryKey(de);
+                o = dictGetEntryVal(de);
+
+                if (vmSwapObjectBlocking(keyobj,o) == REDIS_OK) {
+                    dictGetEntryVal(de) = NULL;
+                }
+            }
+            continue;
+        }
+
+        /* If we have still some hope of having some value fitting memory
+         * then we try random sampling. */
+        if (!dataset_too_big && server.vm_enabled && (loadedkeys % 5000) == 0) {
             while (zmalloc_used_memory() > server.vm_max_memory) {
                 if (vmSwapOneObjectBlocking() == REDIS_ERR) break;
             }
+            if (zmalloc_used_memory() > server.vm_max_memory)
+                dataset_too_big = 1;
         }
     }
     fclose(fp);
