@@ -1635,7 +1635,7 @@ static void initServerConfig() {
     server.glueoutputbuf = 1;
     server.daemonize = 0;
     server.appendonly = 0;
-    server.appendfsync = APPENDFSYNC_ALWAYS;
+    server.appendfsync = APPENDFSYNC_EVERYSEC;
     server.lastfsync = time(NULL);
     server.appendfd = -1;
     server.appendseldb = -1; /* Make sure the first time will not match */
@@ -9683,6 +9683,16 @@ static void configSetCommand(redisClient *c) {
         server.masterauth = zstrdup(o->ptr);
     } else if (!strcasecmp(c->argv[2]->ptr,"maxmemory")) {
         server.maxmemory = strtoll(o->ptr, NULL, 10);
+    } else if (!strcasecmp(c->argv[2]->ptr,"appendfsync")) {
+        if (!strcasecmp(o->ptr,"no")) {
+            server.appendfsync = APPENDFSYNC_NO;
+        } else if (!strcasecmp(o->ptr,"everysec")) {
+            server.appendfsync = APPENDFSYNC_EVERYSEC;
+        } else if (!strcasecmp(o->ptr,"always")) {
+            server.appendfsync = APPENDFSYNC_ALWAYS;
+        } else {
+            goto badfmt;
+        }
     } else if (!strcasecmp(c->argv[2]->ptr,"save")) {
         int vlen, j;
         sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
@@ -9766,6 +9776,19 @@ static void configGetCommand(redisClient *c) {
         snprintf(buf,128,"%llu\n",server.maxmemory);
         addReplyBulkCString(c,"maxmemory");
         addReplyBulkCString(c,buf);
+        matches++;
+    }
+    if (stringmatch(pattern,"appendfsync",0)) {
+        char *policy;
+
+        switch(server.appendfsync) {
+        case APPENDFSYNC_NO: policy = "no"; break;
+        case APPENDFSYNC_EVERYSEC: policy = "everysec"; break;
+        case APPENDFSYNC_ALWAYS: policy = "always"; break;
+        default: policy = "unknown"; break; /* too harmless to panic */
+        }
+        addReplyBulkCString(c,"appendfsync");
+        addReplyBulkCString(c,policy);
         matches++;
     }
     if (stringmatch(pattern,"save",0)) {
