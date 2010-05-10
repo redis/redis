@@ -3999,6 +3999,12 @@ static int rdbLoad(char *filename) {
         if ((key = rdbLoadStringObject(fp)) == NULL) goto eoferr;
         /* Read value */
         if ((val = rdbLoadObject(type,fp)) == NULL) goto eoferr;
+        /* Check if the key already expired */
+        if (expiretime != -1 && expiretime < now) {
+            decrRefCount(key);
+            decrRefCount(val);
+            continue;
+        }
         /* Add the new object in the hash table */
         retval = dictAdd(d,key,val);
         if (retval == DICT_ERR) {
@@ -4007,14 +4013,7 @@ static int rdbLoad(char *filename) {
         }
         loadedkeys++;
         /* Set the expire time if needed */
-        if (expiretime != -1) {
-            setExpire(db,key,expiretime);
-            /* Delete this key if already expired */
-            if (expiretime < now) {
-                deleteKey(db,key);
-                continue; /* don't try to swap this out */
-            }
-        }
+        if (expiretime != -1) setExpire(db,key,expiretime);
 
         /* Handle swapping while loading big datasets when VM is on */
 
