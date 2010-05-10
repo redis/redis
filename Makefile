@@ -20,13 +20,15 @@ OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort
 BENCHOBJ = ae.o anet.o redis-benchmark.o sds.o adlist.o zmalloc.o
 CLIOBJ = anet.o sds.o adlist.o redis-cli.o zmalloc.o linenoise.o
 CHECKDUMPOBJ = redis-check-dump.o lzf_c.o lzf_d.o
+CHECKAOFOBJ = redis-check-aof.o
 
 PRGNAME = redis-server
 BENCHPRGNAME = redis-benchmark
 CLIPRGNAME = redis-cli
 CHECKDUMPPRGNAME = redis-check-dump
+CHECKAOFPRGNAME = redis-check-aof
 
-all: redis-server redis-benchmark redis-cli redis-check-dump
+all: redis-server redis-benchmark redis-cli redis-check-dump redis-check-aof
 
 # Deps (use make dep to generate this)
 adlist.o: adlist.c adlist.h zmalloc.h
@@ -68,11 +70,14 @@ redis-cli: $(CLIOBJ)
 redis-check-dump: $(CHECKDUMPOBJ)
 	$(CC) -o $(CHECKDUMPPRGNAME) $(CCOPT) $(DEBUG) $(CHECKDUMPOBJ)
 
+redis-check-aof: $(CHECKAOFOBJ)
+	$(CC) -o $(CHECKAOFPRGNAME) $(CCOPT) $(DEBUG) $(CHECKAOFOBJ)
+
 .c.o:
 	$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
 
 clean:
-	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) *.o *.gcda *.gcno *.gcov
+	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
 
 dep:
 	$(CC) -MM *.c
