@@ -622,6 +622,7 @@ static int pubsubUnsubscribeAllPatterns(redisClient *c, int notify);
 static void freePubsubPattern(void *p);
 static int listMatchPubsubPattern(void *a, void *b);
 static int compareStringObjects(robj *a, robj *b);
+static int equalStringObjects(robj *a, robj *b);
 static void usage();
 static int rewriteAppendOnlyFileBackground(void);
 static int vmSwapObjectBlocking(robj *key, robj *val);
@@ -2656,7 +2657,7 @@ static void *dupClientReplyValue(void *o) {
 }
 
 static int listMatchObjects(void *a, void *b) {
-    return compareStringObjects(a,b) == 0;
+    return equalStringObjects(a,b);
 }
 
 static redisClient *createClient(int fd) {
@@ -3201,6 +3202,18 @@ static int compareStringObjects(robj *a, robj *b) {
         bstr = b->ptr;
     }
     return bothsds ? sdscmp(astr,bstr) : strcmp(astr,bstr);
+}
+
+/* Equal string objects return 1 if the two objects are the same from the
+ * point of view of a string comparison, otherwise 0 is returned. Note that
+ * this function is faster then checking for (compareStringObject(a,b) == 0)
+ * because it can perform some more optimization. */
+static int equalStringObjects(robj *a, robj *b) {
+    if (a->encoding != REDIS_ENCODING_RAW && b->encoding != REDIS_ENCODING_RAW){
+        return a->ptr == b->ptr;
+    } else {
+        return compareStringObjects(a,b) == 0;
+    }
 }
 
 static size_t stringObjectLen(robj *o) {
@@ -4850,7 +4863,7 @@ static void lremCommand(redisClient *c) {
         robj *ele = listNodeValue(ln);
 
         next = fromtail ? ln->prev : ln->next;
-        if (compareStringObjects(ele,c->argv[3]) == 0) {
+        if (equalStringObjects(ele,c->argv[3])) {
             listDelNode(list,ln);
             server.dirty++;
             removed++;
@@ -5454,7 +5467,7 @@ static int zslDelete(zskiplist *zsl, double score, robj *obj) {
     /* We may have multiple elements with the same score, what we need
      * is to find the element with both the right score and object. */
     x = x->forward[0];
-    if (x && score == x->score && compareStringObjects(x->obj,obj) == 0) {
+    if (x && score == x->score && equalStringObjects(x->obj,obj)) {
         zslDeleteNode(zsl, x, update);
         zslFreeNode(x);
         return 1;
@@ -5559,7 +5572,7 @@ static unsigned long zslGetRank(zskiplist *zsl, double score, robj *o) {
         }
 
         /* x might be equal to zsl->header, so test if obj is non-NULL */
-        if (x->obj && compareStringObjects(x->obj,o) == 0) {
+        if (x->obj && equalStringObjects(x->obj,o)) {
             return rank;
         }
     }
@@ -9623,7 +9636,7 @@ static int dontWaitForSwappedKey(redisClient *c, robj *key) {
     /* Remove the key from the list of keys this client is waiting for. */
     listRewind(c->io_keys,&li);
     while ((ln = listNext(&li)) != NULL) {
-        if (compareStringObjects(ln->value,key) == 0) {
+        if (equalStringObjects(ln->value,key)) {
             listDelNode(c->io_keys,ln);
             break;
         }
@@ -9850,7 +9863,7 @@ static int listMatchPubsubPattern(void *a, void *b) {
     pubsubPattern *pa = a, *pb = b;
 
     return (pa->client == pb->client) &&
-           (compareStringObjects(pa->pattern,pb->pattern) == 0);
+           (equalStringObjects(pa->pattern,pb->pattern));
 }
 
 /* Subscribe a client to a channel. Returns 1 if the operation succeeded, or
