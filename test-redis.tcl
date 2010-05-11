@@ -373,7 +373,7 @@ proc main {} {
 
     test {INCR fails against a key holding a list} {
         $r rpush mylist 1
-        catch {$r incr novar} err
+        catch {$r incr mylist} err
         $r rpop mylist
         format $err
     } {ERR*}
