@@ -3797,7 +3797,11 @@ static uint32_t rdbLoadLen(FILE *fp, int *isencoded) {
     }
 }
 
-static robj *rdbLoadIntegerObject(FILE *fp, int enctype) {
+/* Load an integer-encoded object from file 'fp', with the specified
+ * encoding type 'enctype'. If encode is true the function may return
+ * an integer-encoded object as reply, otherwise the returned object
+ * will always be encoded as a raw string. */
+static robj *rdbLoadIntegerObject(FILE *fp, int enctype, int encode) {
     unsigned char enc[4];
     long long val;
 
@@ -3818,7 +3822,10 @@ static robj *rdbLoadIntegerObject(FILE *fp, int enctype) {
         val = 0; /* anti-warning */
         redisPanic("Unknown RDB integer encoding type");
     }
-    return createObject(REDIS_STRING,sdsfromlonglong(val));
+    if (encode)
+        return createStringObjectFromLongLong(val);
+    else
+        return createObject(REDIS_STRING,sdsfromlonglong(val));
 }
 
 static robj *rdbLoadLzfStringObject(FILE*fp) {
@@ -3840,7 +3847,7 @@ err:
     return NULL;
 }
 
-static robj *rdbLoadStringObject(FILE*fp) {
+static robj *rdbGenericLoadStringObject(FILE*fp, int encode) {
     int isencoded;
     uint32_t len;
     sds val;
@@ -3851,7 +3858,7 @@ static robj *rdbLoadStringObject(FILE*fp) {
         case REDIS_RDB_ENC_INT8:
         case REDIS_RDB_ENC_INT16:
         case REDIS_RDB_ENC_INT32:
-            return rdbLoadIntegerObject(fp,len);
+            return rdbLoadIntegerObject(fp,len,encode);
         case REDIS_RDB_ENC_LZF:
             return rdbLoadLzfStringObject(fp);
         default:
@@ -3866,6 +3873,14 @@ static robj *rdbLoadStringObject(FILE*fp) {
         return NULL;
     }
     return createObject(REDIS_STRING,val);
+}
+
+static robj *rdbLoadStringObject(FILE *fp) {
+    return rdbGenericLoadStringObject(fp,0);
+}
+
+static robj *rdbLoadEncodedStringObject(FILE *fp) {
+    return rdbGenericLoadStringObject(fp,1);
 }
 
 /* For information about double serialization check rdbSaveDoubleValue() */
@@ -3894,7 +3909,7 @@ static robj *rdbLoadObject(int type, FILE *fp) {
     redisLog(REDIS_DEBUG,"LOADING OBJECT %d (at %d)\n",type,ftell(fp));
     if (type == REDIS_STRING) {
         /* Read string value */
-        if ((o = rdbLoadStringObject(fp)) == NULL) return NULL;
+        if ((o = rdbLoadEncodedStringObject(fp)) == NULL) return NULL;
         o = tryObjectEncoding(o);
     } else if (type == REDIS_LIST || type == REDIS_SET) {
         /* Read list/set value */
@@ -3910,7 +3925,7 @@ static robj *rdbLoadObject(int type, FILE *fp) {
         while(listlen--) {
             robj *ele;
 
-            if ((ele = rdbLoadStringObject(fp)) == NULL) return NULL;
+            if ((ele = rdbLoadEncodedStringObject(fp)) == NULL) return NULL;
             ele = tryObjectEncoding(ele);
             if (type == REDIS_LIST) {
                 listAddNodeTail((list*)o->ptr,ele);
@@ -3931,7 +3946,7 @@ static robj *rdbLoadObject(int type, FILE *fp) {
             robj *ele;
             double *score = zmalloc(sizeof(double));
 
-            if ((ele = rdbLoadStringObject(fp)) == NULL) return NULL;
+            if ((ele = rdbLoadEncodedStringObject(fp)) == NULL) return NULL;
             ele = tryObjectEncoding(ele);
             if (rdbLoadDoubleValue(fp,score) == -1) return NULL;
             dictAdd(zs->dict,ele,score);
