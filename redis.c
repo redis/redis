@@ -3818,7 +3818,7 @@ static robj *rdbLoadIntegerObject(FILE *fp, int enctype) {
         val = 0; /* anti-warning */
         redisPanic("Unknown RDB integer encoding type");
     }
-    return createStringObjectFromLongLong(val);
+    return createObject(REDIS_STRING,sdsfromlonglong(val));
 }
 
 static robj *rdbLoadLzfStringObject(FILE*fp) {
