@@ -1104,8 +1104,8 @@ static int dictEncObjKeyCompare(void *privdata, const void *key1,
     int cmp;
 
     if (o1->encoding == REDIS_ENCODING_INT &&
-        o2->encoding == REDIS_ENCODING_INT &&
-        o1->ptr == o2->ptr) return 1;
+        o2->encoding == REDIS_ENCODING_INT)
+            return o1->ptr == o2->ptr;
 
     o1 = getDecodedObject(o1);
     o2 = getDecodedObject(o2);
