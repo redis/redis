@@ -214,7 +214,7 @@ proc datasetDigest r {
                 if {[$r zcard $k] == 0} {
                     set aux {}
                 } else {
-                    set aux [::sha1::sha1 -hex [$r zrange $k 0 -1]]
+                    set aux [::sha1::sha1 -hex [$r zrange $k 0 -1 withscores]]
                 }
             } {hash} {
                 if {[$r hlen $k] == 0} {
