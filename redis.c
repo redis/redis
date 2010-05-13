@@ -57,6 +57,7 @@
 #include <sys/resource.h>
 #include <sys/uio.h>
 #include <limits.h>
+#include <float.h>
 #include <math.h>
 #include <pthread.h>
 
@@ -3523,8 +3524,8 @@ static int rdbSaveDoubleValue(FILE *fp, double val) {
          * where casting to long long is safe. Then using two castings we
          * make sure the decimal part is zero. If all this is true we use
          * integer printing function that is much faster. */
-        double min = -4503599627370495;
-        double max = 4503599627370496;
+        double min = -4503599627370495; /* (2^52)-1 */
+        double max = 4503599627370496; /* -(2^52) */
         if (val > min && val < max && val == ((double)((long long)val)))
             ll2string((char*)buf+1,sizeof(buf),(long long)val);
         else
