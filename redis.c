@@ -3379,22 +3379,12 @@ static int rdbSaveLen(FILE *fp, uint32_t len) {
     return 0;
 }
 
-/* String objects in the form "2391" "-100" without any space and with a
- * range of values that can fit in an 8, 16 or 32 bit signed value can be
- * encoded as integers to save space */
-static int rdbTryIntegerEncoding(char *s, size_t len, unsigned char *enc) {
-    long long value;
-    char *endptr, buf[32];
-
-    /* Check if it's possible to encode this value as a number */
-    value = strtoll(s, &endptr, 10);
-    if (endptr[0] != '\0') return 0;
-    ll2string(buf,32,value);
-
-    /* If the number converted back into a string is not identical
-     * then it's not possible to encode the string as integer */
-    if (strlen(buf) != len || memcmp(buf,s,len)) return 0;
-
+/* Encode 'value' as an integer if possible (if integer will fit the
+ * supported range). If the function sucessful encoded the integer
+ * then the (up to 5 bytes) encoded representation is written in the
+ * string pointed by 'enc' and the length is returned. Otherwise
+ * 0 is returned. */
+static int rdbEncodeInteger(long long value, unsigned char *enc) {
     /* Finally check if it fits in our ranges */
     if (value >= -(1<<7) && value <= (1<<7)-1) {
         enc[0] = (REDIS_RDB_ENCVAL<<6)|REDIS_RDB_ENC_INT8;
@@ -3415,6 +3405,25 @@ static int rdbTryIntegerEncoding(char *s, size_t len, unsigned char *enc) {
     } else {
         return 0;
     }
+}
+
+/* String objects in the form "2391" "-100" without any space and with a
+ * range of values that can fit in an 8, 16 or 32 bit signed value can be
+ * encoded as integers to save space */
+static int rdbTryIntegerEncoding(char *s, size_t len, unsigned char *enc) {
+    long long value;
+    char *endptr, buf[32];
+
+    /* Check if it's possible to encode this value as a number */
+    value = strtoll(s, &endptr, 10);
+    if (endptr[0] != '\0') return 0;
+    ll2string(buf,32,value);
+
+    /* If the number converted back into a string is not identical
+     * then it's not possible to encode the string as integer */
+    if (strlen(buf) != len || memcmp(buf,s,len)) return 0;
+
+    return rdbEncodeInteger(value,enc);
 }
 
 static int rdbSaveLzfStringObject(FILE *fp, unsigned char *s, size_t len) {
@@ -3479,6 +3488,21 @@ static int rdbSaveRawString(FILE *fp, unsigned char *s, size_t len) {
 /* Like rdbSaveStringObjectRaw() but handle encoded objects */
 static int rdbSaveStringObject(FILE *fp, robj *obj) {
     int retval;
+
+    /* Avoid to decode the object, then encode it again, if the
+     * object is alrady integer encoded. */
+    if (obj->encoding == REDIS_ENCODING_INT) {
+        long val = (long) obj->ptr;
+        unsigned char buf[5];
+        int enclen;
+
+        if ((enclen = rdbEncodeInteger(val,buf)) > 0) {
+            if (fwrite(buf,enclen,1,fp) == 0) return -1;
+            return 0;
+        }
+        /* otherwise... fall throught and continue with the usual
+         * code path. */
+    }
 
     /* Avoid incr/decr ref count business when possible.
      * This plays well with copy-on-write given that we are probably
