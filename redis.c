@@ -4154,6 +4154,41 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
     return REDIS_ERR; /* Just to avoid warning */
 }
 
+/*================================== Shutdown =============================== */
+static void redisShutdown() {
+    redisLog(REDIS_WARNING,"User requested shutdown, saving DB...");
+    /* Kill the saving child if there is a background saving in progress.
+       We want to avoid race conditions, for instance our saving child may
+       overwrite the synchronous saving did by SHUTDOWN. */
+    if (server.bgsavechildpid != -1) {
+        redisLog(REDIS_WARNING,"There is a live saving child. Killing it!");
+        kill(server.bgsavechildpid,SIGKILL);
+        rdbRemoveTempFile(server.bgsavechildpid);
+    }
+    if (server.appendonly) {
+        /* Append only file: fsync() the AOF and exit */
+        fsync(server.appendfd);
+        if (server.vm_enabled) unlink(server.vm_swap_file);
+        exit(0);
+    } else {
+        /* Snapshotting. Perform a SYNC SAVE and exit */
+        if (rdbSave(server.dbfilename) == REDIS_OK) {
+            if (server.daemonize)
+                unlink(server.pidfile);
+            redisLog(REDIS_WARNING,"%zu bytes used at exit",zmalloc_used_memory());
+            redisLog(REDIS_WARNING,"Server exit now, bye bye...");
+            exit(0);
+        } else {
+            /* Ooops.. error saving! The best we can do is to continue
+             * operating. Note that if there was a background saving process,
+             * in the next cron() Redis will be notified that the background
+             * saving aborted, handling special stuff like slaves pending for
+             * synchronization... */
+            redisLog(REDIS_WARNING,"Error trying to save the DB, can't exit");
+        }
+    }
+}
+
 /*================================== Commands =============================== */
 
 static void authCommand(redisClient *c) {
@@ -4594,39 +4629,10 @@ static void bgsaveCommand(redisClient *c) {
 }
 
 static void shutdownCommand(redisClient *c) {
-    redisLog(REDIS_WARNING,"User requested shutdown, saving DB...");
-    /* Kill the saving child if there is a background saving in progress.
-       We want to avoid race conditions, for instance our saving child may
-       overwrite the synchronous saving did by SHUTDOWN. */
-    if (server.bgsavechildpid != -1) {
-        redisLog(REDIS_WARNING,"There is a live saving child. Killing it!");
-        kill(server.bgsavechildpid,SIGKILL);
-        rdbRemoveTempFile(server.bgsavechildpid);
-    }
-    if (server.appendonly) {
-        /* Append only file: fsync() the AOF and exit */
-        fsync(server.appendfd);
-        if (server.vm_enabled) unlink(server.vm_swap_file);
-        exit(0);
-    } else {
-        /* Snapshotting. Perform a SYNC SAVE and exit */
-        if (rdbSave(server.dbfilename) == REDIS_OK) {
-            if (server.daemonize)
-                unlink(server.pidfile);
-            redisLog(REDIS_WARNING,"%zu bytes used at exit",zmalloc_used_memory());
-            redisLog(REDIS_WARNING,"Server exit now, bye bye...");
-            exit(0);
-        } else {
-            /* Ooops.. error saving! The best we can do is to continue
-             * operating. Note that if there was a background saving process,
-             * in the next cron() Redis will be notified that the background
-             * saving aborted, handling special stuff like slaves pending for
-             * synchronization... */
-            redisLog(REDIS_WARNING,"Error trying to save the DB, can't exit");
-            addReplySds(c,
-                sdsnew("-ERR can't quit, problems saving the DB\r\n"));
-        }
-    }
+    redisShutdown();
+    /* If we got here exit was not called so there was an error */
+    addReplySds(c,
+        sdsnew("-ERR can't quit, problems saving the DB\r\n"));
 }
 
 static void renameGenericCommand(redisClient *c, int nx) {
@@ -10549,6 +10555,15 @@ static void segvHandler(int sig, siginfo_t *info, void *secret) {
     _exit(0);
 }
 
+static void sigHandler(int sig) {
+    redisLog(REDIS_WARNING,
+        "======= Redis %s got signal: -%d- =======", REDIS_VERSION, sig);
+
+    if (sig == SIGTERM) {
+        redisShutdown();
+    }
+}
+
 static void setupSigSegvAction(void) {
     struct sigaction act;
 
@@ -10562,6 +10577,10 @@ static void setupSigSegvAction(void) {
     sigaction (SIGFPE, &act, NULL);
     sigaction (SIGILL, &act, NULL);
     sigaction (SIGBUS, &act, NULL);
+
+    act.sa_flags = SA_NODEFER | SA_ONSTACK | SA_RESETHAND;
+    act.sa_handler = sigHandler;
+    sigaction (SIGTERM, &act, NULL);
     return;
 }
 
