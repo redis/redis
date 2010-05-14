@@ -56,6 +56,16 @@ proc waitForBgrewriteaof r {
     }
 }
 
+proc wait_for_sync r {
+    while 1 {
+        if {[status r master_link_status] eq "down"} {
+            after 10
+        } else {
+            break
+        }
+    }
+}
+
 proc randomInt {max} {
     expr {int(rand()*$max)}
 }
