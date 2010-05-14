@@ -22,9 +22,9 @@ proc kill_server config {
     # kill server and wait for the process to be totally exited
     exec kill $pid
     while 1 {
+        # with a non-zero exit status, the process is gone
         if {[catch {exec ps -p $pid | grep redis-server} result]} {
-            # non-zero exis status, process is gone
-            break;
+            break
         }
         after 10
     }
@@ -77,6 +77,14 @@ proc start_server {filename overrides {code undefined}} {
     set line [exec head -n1 $stdout]
     if {[string match {*already in use*} $line]} {
         error_and_quit $config_file $line
+    }
+
+    while 1 {
+        # check that the server actually started and is ready for connections
+        if {[exec cat $stdout | grep "ready to accept" | wc -l] > 0} {
+            break
+        }
+        after 10
     }
 
     # find out the pid
