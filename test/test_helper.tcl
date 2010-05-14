@@ -44,7 +44,8 @@ proc main {} {
     }
     
     # clean up tmp
-    exec rm -rf test/tmp/*
+    exec rm -rf {*}[glob test/tmp/redis.conf.*]
+    exec rm -rf {*}[glob test/tmp/server.*]
 }
 
 main
