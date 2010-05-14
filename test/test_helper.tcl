@@ -10,7 +10,7 @@ source test/support/test.tcl
 source test/support/util.tcl
 
 set ::host 127.0.0.1
-set ::port 6379
+set ::port 16379
 set ::traceleaks 0
 
 proc execute_tests name {

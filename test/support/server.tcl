@@ -22,6 +22,9 @@ proc start_server {filename overrides {code undefined}} {
     # use a different directory every time a server is started
     dict set config dir [tmpdir server]
     
+    # start every server on a different port
+    dict set config port [incr ::port]
+
     # apply overrides from arguments
     foreach override $overrides {
         set directive [lrange $override 0 0]
