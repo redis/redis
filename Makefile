@@ -16,7 +16,7 @@ DEBUG?= -g -rdynamic -ggdb
 HOST?= 127.0.0.1
 PORT?= 6379
 
-OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o
+OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o
 BENCHOBJ = ae.o anet.o redis-benchmark.o sds.o adlist.o zmalloc.o
 CLIOBJ = anet.o sds.o adlist.o redis-cli.o zmalloc.o linenoise.o
 CHECKDUMPOBJ = redis-check-dump.o lzf_c.o lzf_d.o
@@ -51,7 +51,7 @@ redis-check-dump.o: redis-check-dump.c lzf.h
 redis-cli.o: redis-cli.c fmacros.h anet.h sds.h adlist.h zmalloc.h \
   linenoise.h
 redis.o: redis.c fmacros.h config.h redis.h ae.h sds.h anet.h dict.h \
-  adlist.h zmalloc.h lzf.h pqsort.h zipmap.h staticsymbols.h
+  adlist.h zmalloc.h lzf.h pqsort.h zipmap.h staticsymbols.h sha1.h
 sds.o: sds.c sds.h zmalloc.h
 test.o: test.c dict2.h
 zipmap.o: zipmap.c zmalloc.h
