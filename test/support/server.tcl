@@ -7,6 +7,20 @@ proc error_and_quit {config_file error} {
     exit 1
 }
 
+proc kill_server config {
+    set pid [dict get $config pid]
+
+    # kill server and wait for the process to be totally exited
+    exec kill $pid
+    while 1 {
+        if {[catch {exec ps -p $pid | grep redis-server} result]} {
+            # non-zero exis status, process is gone
+            break;
+        }
+        after 10
+    }
+}
+
 proc start_server {filename overrides {code undefined}} {
     set data [split [exec cat "test/assets/$filename"] "\n"]
     set config {}
@@ -71,6 +85,13 @@ proc start_server {filename overrides {code undefined}} {
         $client select 9
     }
 
+    # setup config dict
+    dict set ret "config" $config_file
+    dict set ret "pid" $pid
+    dict set ret "stdout" $stdout
+    dict set ret "stderr" $stderr
+    dict set ret "client" $client
+
     if {$code ne "undefined"} {
         # append the client to the client stack
         lappend ::clients $client
@@ -81,32 +102,14 @@ proc start_server {filename overrides {code undefined}} {
         # pop the client object
         set ::clients [lrange $::clients 0 end-1]
         
-        # kill server and wait for the process to be totally exited
-        exec kill $pid
-        while 1 {
-            if {[catch {exec ps -p $pid | grep redis-server} result]} {
-                # non-zero exis status, process is gone
-                break;
-            }
-            after 10
-        }
-        
+        kill_server $ret
+
         if {[string length $err] > 0} {
             puts "Error executing the suite, aborting..."
             puts $err
             exit 1
         }
     } else {
-        dict set ret "config" $config_file
-        dict set ret "pid" $pid
-        dict set ret "stdout" $stdout
-        dict set ret "stderr" $stderr
-        dict set ret "client" $client
         set _ $ret
     }
-}
-
-proc kill_server config {
-    set pid [dict get $config pid]
-    exec kill $pid
 }
