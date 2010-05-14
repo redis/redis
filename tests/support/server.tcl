@@ -103,23 +103,25 @@ proc start_server {filename overrides {code undefined}} {
     }
 
     # setup config dict
-    dict set ret "config" $config_file
-    dict set ret "pid" $pid
-    dict set ret "stdout" $stdout
-    dict set ret "stderr" $stderr
-    dict set ret "client" $client
+    dict set srv "config" $config_file
+    dict set srv "pid" $pid
+    dict set srv "host" $host
+    dict set srv "port" $port
+    dict set srv "stdout" $stdout
+    dict set srv "stderr" $stderr
+    dict set srv "client" $client
 
     if {$code ne "undefined"} {
-        # append the client to the client stack
-        lappend ::clients $client
+        # append the server to the stack
+        lappend ::servers $srv
         
         # execute provided block
         catch { uplevel 1 $code } err
 
-        # pop the client object
-        set ::clients [lrange $::clients 0 end-1]
+        # pop the server object
+        set ::servers [lrange $::servers 0 end-1]
         
-        kill_server $ret
+        kill_server $srv
 
         if {[string length $err] > 0} {
             puts "Error executing the suite, aborting..."
@@ -127,6 +129,6 @@ proc start_server {filename overrides {code undefined}} {
             exit 1
         }
     } else {
-        set _ $ret
+        set _ $srv
     }
 }
