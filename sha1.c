@@ -30,7 +30,7 @@ A million repetitions of "a"
 #if (BSD >= 199103)
 # include <machine/endian.h>
 #else
-#ifdef linux
+#if defined(linux) || defined(__linux__)
 # include <endian.h>
 #else
 #define	LITTLE_ENDIAN	1234	/* least-significant byte first (vax, pc) */
