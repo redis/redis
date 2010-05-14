@@ -16,7 +16,7 @@
             <div id="pagecontent">
                 <div class="index">
 <!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
-<b>ZrangebyscoreCommand: Contents</b><br>&nbsp;&nbsp;<a href="#ZRANGEBYSCORE _key_ _min_ _max_ `[`LIMIT _offset_ _count_`]` (Redis &gt;">ZRANGEBYSCORE _key_ _min_ _max_ `[`LIMIT _offset_ _count_`]` (Redis &gt;</a><br>&nbsp;&nbsp;<a href="#ZRANGEBYSCORE _key_ _min_ _max_ `[`LIMIT _offset_ _count_`]` `[`WITHSCORES`]` (Redis &gt;">ZRANGEBYSCORE _key_ _min_ _max_ `[`LIMIT _offset_ _count_`]` `[`WITHSCORES`]` (Redis &gt;</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a>
+<b>ZrangebyscoreCommand: Contents</b><br>&nbsp;&nbsp;<a href="#ZRANGEBYSCORE _key_ _min_ _max_ `[`LIMIT _offset_ _count_`]` (Redis &gt;">ZRANGEBYSCORE _key_ _min_ _max_ `[`LIMIT _offset_ _count_`]` (Redis &gt;</a><br>&nbsp;&nbsp;<a href="#ZRANGEBYSCORE _key_ _min_ _max_ `[`LIMIT _offset_ _count_`]` `[`WITHSCORES`]` (Redis &gt;">ZRANGEBYSCORE _key_ _min_ _max_ `[`LIMIT _offset_ _count_`]` `[`WITHSCORES`]` (Redis &gt;</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Exclusive intervals and infinity">Exclusive intervals and infinity</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Examples">Examples</a>
                 </div>
                 
                 <h1 class="wikiname">ZrangebyscoreCommand</h1>
@@ -30,8 +30,40 @@
 <h1><a name="ZRANGEBYSCORE _key_ _min_ _max_ `[`LIMIT _offset_ _count_`]` `[`WITHSCORES`]` (Redis &gt;">ZRANGEBYSCORE _key_ _min_ _max_ `[`LIMIT _offset_ _count_`]` `[`WITHSCORES`]` (Redis &gt;</a></h1> 1.3.4) =
 <i>Time complexity: O(log(N))+O(M) with N being the number of elements in the sorted set and M the number of elements returned by the command, so if M is constant (for instance you always ask for the first ten elements with LIMIT) you can consider it O(log(N))</i><blockquote>Return the all the elements in the sorted set at key with a score between_min_ and <i>max</i> (including elements with score equal to min or max).</blockquote>
 <blockquote>The elements having the same score are returned sorted lexicographically asASCII strings (this follows from a property of Redis sorted sets and does notinvolve further computation).</blockquote>
-<blockquote>Using the optional LIMIT it's possible to get only a range of the matchingelements in an SQL-alike way. Note that if <i>offset</i> is large the commandsneeds to traverse the list for <i>offset</i> elements and this adds up to theO(M) figure.</blockquote>
+<blockquote>Using the optional LIMIT it's possible to get only a range of the matchingelements in an SQL-alike way. Note that if <i>offset</i> is large the commandsneeds to traverse the list for <i>offset</i> elements and this adds up to theO(M) figure.</blockquote><h2><a name="Exclusive intervals and infinity">Exclusive intervals and infinity</a></h2>
+<i>min</i> and <i>max</i> can be -inf and +inf, so that you are not required to know what's the greatest or smallest element in order to take, for instance, elements &quot;up to a given value&quot;.<br/><br/>Also while the interval is for default closed (inclusive) it's possible to specify open intervals prefixing the score with a &quot;(&quot; character, so for instance:
+<pre class="codeblock python" name="code">
+ZRANGEBYSCORE zset (1.3 5
+</pre>
+Will return all the values with score <b>&gt; 1.3 and &lt;= 5</b>, while for instance:
+<pre class="codeblock python python" name="code">
+ZRANGEBYSCORE zset (5 (10
+</pre>
+Will return all the values with score <b>&gt; 5 and &lt; 10</b> (5 and 10 excluded).
 <h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Multi bulk reply</a>, specifically a list of elements in the specified score range.
+<h2><a name="Examples">Examples</a></h2>
+<pre class="codeblock python python python" name="code">
+redis&gt; zadd zset 1 foo
+(integer) 1
+redis&gt; zadd zset 2 bar
+(integer) 1
+redis&gt; zadd zset 3 biz
+(integer) 1
+redis&gt; zadd zset 4 foz
+(integer) 1
+redis&gt; zrangebyscore zset -inf +inf
+1. &quot;foo&quot;
+2. &quot;bar&quot;
+3. &quot;biz&quot;
+4. &quot;foz&quot;
+redis&gt; zrangebyscore zset 1 2
+1. &quot;foo&quot;
+2. &quot;bar&quot;
+redis&gt; zrangebyscore zset (1 2
+1. &quot;bar&quot;
+redis&gt; zrangebyscore zset (1 (2
+(empty list or set)
+</pre>
                 </div>
         
             </div>

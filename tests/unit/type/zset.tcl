@@ -296,12 +296,12 @@ start_server default.conf {} {
         list [r zremrangebyrank zset 1 3] [r zrange zset 0 -1]
     } {3 {a e}}
 
-    test {ZUNION against non-existing key doesn't set destination} {
+    test {ZUNIONSTORE against non-existing key doesn't set destination} {
       r del zseta
-      list [r zunion dst_key 1 zseta] [r exists dst_key]
+      list [r zunionstore dst_key 1 zseta] [r exists dst_key]
     } {0 0}
 
-    test {ZUNION basics} {
+    test {ZUNIONSTORE basics} {
         r del zseta zsetb zsetc
         r zadd zseta 1 a
         r zadd zseta 2 b
@@ -309,35 +309,35 @@ start_server default.conf {} {
         r zadd zsetb 1 b
         r zadd zsetb 2 c
         r zadd zsetb 3 d
-        list [r zunion zsetc 2 zseta zsetb] [r zrange zsetc 0 -1 withscores]
+        list [r zunionstore zsetc 2 zseta zsetb] [r zrange zsetc 0 -1 withscores]
     } {4 {a 1 b 3 d 3 c 5}}
 
-    test {ZUNION with weights} {
-        list [r zunion zsetc 2 zseta zsetb weights 2 3] [r zrange zsetc 0 -1 withscores]
+    test {ZUNIONSTORE with weights} {
+        list [r zunionstore zsetc 2 zseta zsetb weights 2 3] [r zrange zsetc 0 -1 withscores]
     } {4 {a 2 b 7 d 9 c 12}}
 
-    test {ZUNION with AGGREGATE MIN} {
-        list [r zunion zsetc 2 zseta zsetb aggregate min] [r zrange zsetc 0 -1 withscores]
+    test {ZUNIONSTORE with AGGREGATE MIN} {
+        list [r zunionstore zsetc 2 zseta zsetb aggregate min] [r zrange zsetc 0 -1 withscores]
     } {4 {a 1 b 1 c 2 d 3}}
 
-    test {ZUNION with AGGREGATE MAX} {
-        list [r zunion zsetc 2 zseta zsetb aggregate max] [r zrange zsetc 0 -1 withscores]
+    test {ZUNIONSTORE with AGGREGATE MAX} {
+        list [r zunionstore zsetc 2 zseta zsetb aggregate max] [r zrange zsetc 0 -1 withscores]
     } {4 {a 1 b 2 c 3 d 3}}
 
-    test {ZINTER basics} {
-        list [r zinter zsetc 2 zseta zsetb] [r zrange zsetc 0 -1 withscores]
+    test {ZINTERSTORE basics} {
+        list [r zinterstore zsetc 2 zseta zsetb] [r zrange zsetc 0 -1 withscores]
     } {2 {b 3 c 5}}
 
-    test {ZINTER with weights} {
-        list [r zinter zsetc 2 zseta zsetb weights 2 3] [r zrange zsetc 0 -1 withscores]
+    test {ZINTERSTORE with weights} {
+        list [r zinterstore zsetc 2 zseta zsetb weights 2 3] [r zrange zsetc 0 -1 withscores]
     } {2 {b 7 c 12}}
 
-    test {ZINTER with AGGREGATE MIN} {
-        list [r zinter zsetc 2 zseta zsetb aggregate min] [r zrange zsetc 0 -1 withscores]
+    test {ZINTERSTORE with AGGREGATE MIN} {
+        list [r zinterstore zsetc 2 zseta zsetb aggregate min] [r zrange zsetc 0 -1 withscores]
     } {2 {b 1 c 2}}
 
-    test {ZINTER with AGGREGATE MAX} {
-        list [r zinter zsetc 2 zseta zsetb aggregate max] [r zrange zsetc 0 -1 withscores]
+    test {ZINTERSTORE with AGGREGATE MAX} {
+        list [r zinterstore zsetc 2 zseta zsetb aggregate max] [r zrange zsetc 0 -1 withscores]
     } {2 {b 2 c 3}}
     
     test {ZSETs skiplist implementation backlink consistency test} {

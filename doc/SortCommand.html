@@ -16,7 +16,7 @@
             <div id="pagecontent">
                 <div class="index">
 <!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
-<b>SortCommand: Contents</b><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Sorting by external keys">Sorting by external keys</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Retrieving external keys">Retrieving external keys</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Storing the result of a SORT operation">Storing the result of a SORT operation</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#SORT and Hashes: BY and GET by hash field">SORT and Hashes: BY and GET by hash field</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a>
+<b>SortCommand: Contents</b><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Sorting by external keys">Sorting by external keys</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Not Sorting at all">Not Sorting at all</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Retrieving external keys">Retrieving external keys</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Storing the result of a SORT operation">Storing the result of a SORT operation</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#SORT and Hashes: BY and GET by hash field">SORT and Hashes: BY and GET by hash field</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a>
                 </div>
                 
                 <h1 class="wikiname">SortCommand</h1>
@@ -46,19 +46,22 @@ SORT mylist LIMIT 0 10 ALPHA DESC
 SORT mylist BY weight_*
 </pre><blockquote>the <b>BY</b> option takes a pattern (<code name="code" class="python">weight_*</code> in our example) that is usedin order to generate the key names of the weights used for sorting.Weight key names are obtained substituting the first occurrence of <code name="code" class="python">*</code>with the actual value of the elements on the list (1,2,3,4 in our example).</blockquote>
 <blockquote>Our previous example will return just the sorted IDs. Often it isneeded to get the actual objects sorted (object_1, ..., object_4 in theexample). We can do it with the following command:</blockquote>
-<h2><a name="Retrieving external keys">Retrieving external keys</a></h2><pre class="codeblock python python python python python python" name="code">
+<h2><a name="Not Sorting at all">Not Sorting at all</a></h2><pre class="codeblock python python python python python python" name="code">
+SORT mylist BY nosort
+</pre><blockquote>also the <b>BY</b> option can take a &quot;nosort&quot; specifier. This is useful if you want to retrieve a external key (using GET, read below) but you don't want the sorting overhead.</blockquote>
+<h2><a name="Retrieving external keys">Retrieving external keys</a></h2><pre class="codeblock python python python python python python python" name="code">
 SORT mylist BY weight_* GET object_*
 </pre><blockquote>Note that <b>GET</b> can be used multiple times in order to get more keys forevery element of the original List, Set or Sorted Set sorted.</blockquote>
 <blockquote>Since Redis &gt;= 1.1 it's possible to also GET the list elements itselfusing the special # pattern:</blockquote>
-<pre class="codeblock python python python python python python python" name="code">
+<pre class="codeblock python python python python python python python python" name="code">
 SORT mylist BY weight_* GET object_* GET #
 </pre><h2><a name="Storing the result of a SORT operation">Storing the result of a SORT operation</a></h2><blockquote>By default SORT returns the sorted elements as its return value.Using the <b>STORE</b> option instead to return the elements SORT willstore this elements as a <a href="Lists.html">Redis List</a> in the specified key.An example:</blockquote>
-<pre class="codeblock python python python python python python python python" name="code">
+<pre class="codeblock python python python python python python python python python" name="code">
 SORT mylist BY weight_* STORE resultkey
 </pre><blockquote>An interesting pattern using SORT ... STORE consists in associatingan <a href="ExpireCommand.html">EXPIRE</a> timeout to the resulting key so that inapplications where the result of a sort operation can be cached forsome time other clients will use the cached list instead to call SORTfor every request. When the key will timeout an updated version ofthe cache can be created using SORT ... STORE again.</blockquote>
 <blockquote>Note that implementing this pattern it is important to avoid that multipleclients will try to rebuild the cached version of the cacheat the same time, so some form of locking should be implemented(for instance using <a href="SetnxCommand.html">SETNX</a>).</blockquote>
 <h2><a name="SORT and Hashes: BY and GET by hash field">SORT and Hashes: BY and GET by hash field</a></h2>
-<blockquote>It's possible to use BY and GET options against Hash fields using the following syntax:</blockquote><pre class="codeblock python python python python python python python python python" name="code">
+<blockquote>It's possible to use BY and GET options against Hash fields using the following syntax:</blockquote><pre class="codeblock python python python python python python python python python python" name="code">
 SORT mylist BY weight_*-&gt;fieldname
 SORT mylist GET object_*-&gt;fieldname
 </pre>

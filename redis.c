@@ -723,8 +723,8 @@ static void hmgetCommand(redisClient *c);
 static void hdelCommand(redisClient *c);
 static void hlenCommand(redisClient *c);
 static void zremrangebyrankCommand(redisClient *c);
-static void zunionCommand(redisClient *c);
-static void zinterCommand(redisClient *c);
+static void zunionstoreCommand(redisClient *c);
+static void zinterstoreCommand(redisClient *c);
 static void hkeysCommand(redisClient *c);
 static void hvalsCommand(redisClient *c);
 static void hgetallCommand(redisClient *c);
@@ -785,8 +785,8 @@ static struct redisCommand cmdTable[] = {
     {"zrem",zremCommand,3,REDIS_CMD_BULK,NULL,1,1,1},
     {"zremrangebyscore",zremrangebyscoreCommand,4,REDIS_CMD_INLINE,NULL,1,1,1},
     {"zremrangebyrank",zremrangebyrankCommand,4,REDIS_CMD_INLINE,NULL,1,1,1},
-    {"zunion",zunionCommand,-4,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,zunionInterBlockClientOnSwappedKeys,0,0,0},
-    {"zinter",zinterCommand,-4,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,zunionInterBlockClientOnSwappedKeys,0,0,0},
+    {"zunionstore",zunionstoreCommand,-4,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,zunionInterBlockClientOnSwappedKeys,0,0,0},
+    {"zinterstore",zinterstoreCommand,-4,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,zunionInterBlockClientOnSwappedKeys,0,0,0},
     {"zrange",zrangeCommand,-4,REDIS_CMD_INLINE,NULL,1,1,1},
     {"zrangebyscore",zrangebyscoreCommand,-4,REDIS_CMD_INLINE,NULL,1,1,1},
     {"zcount",zcountCommand,4,REDIS_CMD_INLINE,NULL,1,1,1},
@@ -5917,7 +5917,7 @@ static void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
     /* expect zsetnum input keys to be given */
     zsetnum = atoi(c->argv[2]->ptr);
     if (zsetnum < 1) {
-        addReplySds(c,sdsnew("-ERR at least 1 input key is needed for ZUNION/ZINTER\r\n"));
+        addReplySds(c,sdsnew("-ERR at least 1 input key is needed for ZUNIONSTORE/ZINTERSTORE\r\n"));
         return;
     }
 
@@ -6067,11 +6067,11 @@ static void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
     zfree(src);
 }
 
-static void zunionCommand(redisClient *c) {
+static void zunionstoreCommand(redisClient *c) {
     zunionInterGenericCommand(c,c->argv[1], REDIS_OP_UNION);
 }
 
-static void zinterCommand(redisClient *c) {
+static void zinterstoreCommand(redisClient *c) {
     zunionInterGenericCommand(c,c->argv[1], REDIS_OP_INTER);
 }
 
@@ -9699,7 +9699,7 @@ static void waitForMultipleSwappedKeys(redisClient *c, struct redisCommand *cmd,
     }
 }
 
-/* Preload keys needed for the ZUNION and ZINTER commands.
+/* Preload keys needed for the ZUNIONSTORE and ZINTERSTORE commands.
  * Note that the number of keys to preload is user-defined, so we need to
  * apply a sanity check against argc. */
 static void zunionInterBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv) {
