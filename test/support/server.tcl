@@ -10,6 +10,15 @@ proc error_and_quit {config_file error} {
 proc kill_server config {
     set pid [dict get $config pid]
 
+    # check for leaks
+    catch {
+        if {[string match {*Darwin*} [exec uname -a]]} {
+            test {Check for memory leaks} {
+                exec leaks $pid
+            } {*0 leaks*}
+        }
+    }
+
     # kill server and wait for the process to be totally exited
     exec kill $pid
     while 1 {
