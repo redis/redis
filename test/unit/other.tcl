@@ -48,9 +48,9 @@ start_server default.conf {} {
         test {Check consistency of different data types after a reload} {
             r flushdb
             createComplexDataset r 10000
-            set sha1 [datasetDigest r]
+            set sha1 [r debug digest]
             r debug reload
-            set sha1_after [datasetDigest r]
+            set sha1_after [r debug digest]
             expr {$sha1 eq $sha1_after}
         } {1}
 
@@ -58,7 +58,7 @@ start_server default.conf {} {
             r bgrewriteaof
             waitForBgrewriteaof r
             r debug loadaof
-            set sha1_after [datasetDigest r]
+            set sha1_after [r debug digest]
             expr {$sha1 eq $sha1_after}
         } {1}
     }
