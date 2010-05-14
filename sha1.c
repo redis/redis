@@ -21,8 +21,6 @@ A million repetitions of "a"
 
 #define SHA1HANDSOFF
 
-#include <endian.h>
-
 #include <stdio.h>
 #include <string.h>
 #include <sys/types.h>	/* for u_int*_t */
