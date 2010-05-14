@@ -13,8 +13,6 @@ else
 endif
 CCOPT= $(CFLAGS) $(CCLINK) $(ARCH) $(PROF)
 DEBUG?= -g -rdynamic -ggdb 
-HOST?= 127.0.0.1
-PORT?= 6379
 
 OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o
 BENCHOBJ = ae.o anet.o redis-benchmark.o sds.o adlist.o zmalloc.o
@@ -89,8 +87,8 @@ dep:
 staticsymbols:
 	tclsh utils/build-static-symbols.tcl > staticsymbols.h
 
-test:
-	tclsh8.5 test-redis.tcl -p $(PORT) -h $(HOST)
+test: redis-server
+	tclsh8.5 test/test_helper.tcl
 
 bench:
 	./redis-benchmark
