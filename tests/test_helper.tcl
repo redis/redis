@@ -18,12 +18,35 @@ proc execute_tests name {
     source "tests/$name.tcl"
 }
 
-# setup a list to hold a stack of clients. the proc "r" provides easy
-# access to the client at the top of the stack
-set ::clients {}
+# Setup a list to hold a stack of server configs. When calls to start_server
+# are nested, use "srv 0 pid" to get the pid of the inner server. To access
+# outer servers, use "srv -1 pid" etcetera.
+set ::servers {}
+proc srv {level property} {
+    set srv [lindex $::servers end+$level]
+    dict get $srv $property
+}
+
+# Provide easy access to the client for the inner server. It's possible to
+# prepend the argument list with a negative level to access clients for
+# servers running in outer blocks.
 proc r {args} {
-    set client [lindex $::clients end]
-    $client {*}$args
+    set level 0
+    if {[string is integer [lindex $args 0]]} {
+        set level [lindex $args 0]
+        set args [lrange $args 1 end]
+    }
+    [srv $level "client"] {*}$args
+}
+
+# Provide easy access to INFO properties. Same semantic as "proc r".
+proc s {args} {
+    set level 0
+    if {[string is integer [lindex $args 0]]} {
+        set level [lindex $args 0]
+        set args [lrange $args 1 end]
+    }
+    status [srv $level "client"] [lindex $args 0]
 }
 
 proc main {} {
@@ -37,6 +60,7 @@ proc main {} {
     execute_tests "unit/sort"
     execute_tests "unit/expire"
     execute_tests "unit/other"
+    execute_tests "integration/replication"
     
     puts "\n[expr $::passed+$::failed] tests, $::passed passed, $::failed failed"
     if {$::failed > 0} {

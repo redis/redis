@@ -25,10 +25,16 @@ proc zlistAlikeSort {a b} {
     string compare [lindex $a 1] [lindex $b 1]
 }
 
+# Return value for INFO property
+proc status {r property} {
+    if {[regexp "\r\n$property:(.*?)\r\n" [$r info] _ value]} {
+        set _ $value
+    }
+}
+
 proc waitForBgsave r {
     while 1 {
-        set i [$r info]
-        if {[string match {*bgsave_in_progress:1*} $i]} {
+        if {[status r bgsave_in_progress] eq 1} {
             puts -nonewline "\nWaiting for background save to finish... "
             flush stdout
             after 1000
@@ -40,11 +46,20 @@ proc waitForBgsave r {
 
 proc waitForBgrewriteaof r {
     while 1 {
-        set i [$r info]
-        if {[string match {*bgrewriteaof_in_progress:1*} $i]} {
+        if {[status r bgrewriteaof_in_progress] eq 1} {
             puts -nonewline "\nWaiting for background AOF rewrite to finish... "
             flush stdout
             after 1000
+        } else {
+            break
+        }
+    }
+}
+
+proc wait_for_sync r {
+    while 1 {
+        if {[status r master_link_status] eq "down"} {
+            after 10
         } else {
             break
         }
