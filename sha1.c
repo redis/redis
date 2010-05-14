@@ -21,6 +21,8 @@ A million repetitions of "a"
 
 #define SHA1HANDSOFF
 
+#include <endian.h>
+
 #include <stdio.h>
 #include <string.h>
 #include <sys/types.h>	/* for u_int*_t */
@@ -56,6 +58,14 @@ A million repetitions of "a"
 #endif /* BSD */
 #endif /* BYTE_ORDER */
 
+#if defined(__BYTE_ORDER) && !defined(BYTE_ORDER)
+#if (__BYTE_ORDER == __LITTLE_ENDIAN)
+#define BYTE_ORDER LITTLE_ENDIAN
+#else
+#define BYTE_ORDER BIG_ENDIAN
+#endif
+#endif
+
 #if !defined(BYTE_ORDER) || \
     (BYTE_ORDER != BIG_ENDIAN && BYTE_ORDER != LITTLE_ENDIAN && \
     BYTE_ORDER != PDP_ENDIAN)
@@ -64,7 +74,7 @@ A million repetitions of "a"
 	 * which will force your compiles to bomb until you fix
 	 * the above macros.
 	 */
-  error "Undefined or invalid BYTE_ORDER";
+#error "Undefined or invalid BYTE_ORDER"
 #endif
 
 #define rol(value, bits) (((value) << (bits)) | ((value) >> (32 - (bits))))
