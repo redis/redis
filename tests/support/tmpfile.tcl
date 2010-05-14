@@ -1,5 +1,5 @@
 set ::tmpcounter 0
-set ::tmproot "./test/tmp"
+set ::tmproot "./tests/tmp"
 file mkdir $::tmproot
 
 # returns a dirname unique to this process to write to

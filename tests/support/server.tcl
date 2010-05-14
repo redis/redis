@@ -31,7 +31,7 @@ proc kill_server config {
 }
 
 proc start_server {filename overrides {code undefined}} {
-    set data [split [exec cat "test/assets/$filename"] "\n"]
+    set data [split [exec cat "tests/assets/$filename"] "\n"]
     set config {}
     foreach line $data {
         if {[string length $line] > 0 && [string index $line 0] ne "#"} {
@@ -67,7 +67,7 @@ proc start_server {filename overrides {code undefined}} {
     set stdout [format "%s/%s" [dict get $config "dir"] "stdout"]
     set stderr [format "%s/%s" [dict get $config "dir"] "stderr"]
     exec ./redis-server $config_file > $stdout 2> $stderr &
-    after 10
+    after 500
     
     # check that the server actually started
     if {[file size $stderr] > 0} {

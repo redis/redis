@@ -16,7 +16,7 @@
             <div id="pagecontent">
                 <div class="index">
 <!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
-<b>ExpireCommand: Contents</b><br>&nbsp;&nbsp;<a href="#EXPIRE _key_ _seconds_">EXPIRE _key_ _seconds_</a><br>&nbsp;&nbsp;<a href="#EXPIREAT _key_ _unixtime_ (Redis &gt;">EXPIREAT _key_ _unixtime_ (Redis &gt;</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#How the expire is removed from a key">How the expire is removed from a key</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Restrictions with write operations against volatile keys">Restrictions with write operations against volatile keys</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Setting the timeout again on already volatile keys">Setting the timeout again on already volatile keys</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Enhanced Lazy Expiration algorithm">Enhanced Lazy Expiration algorithm</a><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Version 1.0">Version 1.0</a><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Version 1.1">Version 1.1</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a>
+<b>ExpireCommand: Contents</b><br>&nbsp;&nbsp;<a href="#EXPIRE _key_ _seconds_">EXPIRE _key_ _seconds_</a><br>&nbsp;&nbsp;<a href="#EXPIREAT _key_ _unixtime_ (Redis &gt;">EXPIREAT _key_ _unixtime_ (Redis &gt;</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#How the expire is removed from a key">How the expire is removed from a key</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Restrictions with write operations against volatile keys">Restrictions with write operations against volatile keys</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Setting the timeout again on already volatile keys">Setting the timeout again on already volatile keys</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Enhanced Lazy Expiration algorithm">Enhanced Lazy Expiration algorithm</a><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Version 1.0">Version 1.0</a><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Version 1.1">Version 1.1</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#FAQ: Can you explain better why Redis deletes keys with an EXPIRE on write operations?">FAQ: Can you explain better why Redis deletes keys with an EXPIRE on write operations?</a>
                 </div>
                 
                 <h1 class="wikiname">ExpireCommand</h1>
@@ -57,8 +57,26 @@ OK
 <h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Integer reply</a>, specifically:<br/><br/><pre class="codeblock python python" name="code">
 1: the timeout was set.
 0: the timeout was not set since the key already has an associated timeout, or the key does not exist.
+</pre><h2><a name="FAQ: Can you explain better why Redis deletes keys with an EXPIRE on write operations?">FAQ: Can you explain better why Redis deletes keys with an EXPIRE on write operations?</a></h2>
+Ok let's start with the problem:
+<pre class="codeblock python python python" name="code">
+redis&gt; set a 100
+OK
+redis&gt; expire a 360
+(integer) 1
+redis&gt; incr a
+(integer) 1
 </pre>
-
+I set a key to the value of 100, then set an expire of 360 seconds, and then incremented the key (before the 360 timeout expired of course). The obvious result would be: 101, instead the key is set to the value of 1. Why?
+There is a very important reason involving the Append Only File and Replication. Let's rework a bit hour example adding the notion of time to the mix:
+<pre class="codeblock python python python python" name="code">
+SET a 100
+EXPIRE a 5
+... wait 10 seconds ...
+INCR a
+</pre>
+Imagine a Redis version that does not implement the &quot;Delete keys with an expire set on write operation&quot; semantic.
+Running the above example with the 10 seconds pause will lead to 'a' being set to the value of 1, as it no longer exists when INCR is called 10 seconds later.<br/><br/>Instead if we drop the 10 seconds pause, the result is that 'a' is set to 101.<br/><br/>And in the practice timing changes! For instance the client may wait 10 seconds before INCR, but the sequence written in the Append Only File (and later replayed-back as fast as possible when Redis is restarted) will not have the pause. Even if we add a timestamp in the AOF, when the time difference is smaller than our timer resolution, we have a race condition.<br/><br/>The same happens with master-slave replication. Again, consider the example above: the client will use the same sequence of commands without the 10 seconds pause, but the replication link will slow down for a few seconds due to a network problem. Result? The master will contain 'a' set to 101, the slave 'a' set to 1.<br/><br/>The only way to avoid this but at the same time have reliable non time dependent timeouts on keys is to destroy volatile keys when a write operation is attempted against it.<br/><br/>After all Redis is one of the rare fully persistent databases that will give you EXPIRE. This comes to a cost :)
                 </div>
         
             </div>

@@ -51,7 +51,6 @@ redis-cli.o: redis-cli.c fmacros.h anet.h sds.h adlist.h zmalloc.h \
 redis.o: redis.c fmacros.h config.h redis.h ae.h sds.h anet.h dict.h \
   adlist.h zmalloc.h lzf.h pqsort.h zipmap.h staticsymbols.h sha1.h
 sds.o: sds.c sds.h zmalloc.h
-test.o: test.c dict2.h
 zipmap.o: zipmap.c zmalloc.h
 zmalloc.o: zmalloc.c config.h
 
@@ -87,8 +86,8 @@ dep:
 staticsymbols:
 	tclsh utils/build-static-symbols.tcl > staticsymbols.h
 
-test: redis-server
-	tclsh8.5 test/test_helper.tcl
+test:
+	tclsh8.5 tests/test_helper.tcl
 
 bench:
 	./redis-benchmark

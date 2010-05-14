@@ -5,7 +5,7 @@ set ::testnum 0
 proc test {name code okpattern} {
     incr ::testnum
     # if {$::testnum < $::first || $::testnum > $::last} return
-    puts -nonewline [format "#%03d %-70s " $::testnum $name]
+    puts -nonewline [format "#%03d %-68s " $::testnum $name]
     flush stdout
     set retval [uplevel 1 $code]
     if {$okpattern eq $retval || [string match $okpattern $retval]} {

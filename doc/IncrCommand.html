@@ -33,8 +33,7 @@
 <i>Time complexity: O(1)</i><blockquote>Increment or decrement the number stored at <i>key</i> by one. If the key doesnot exist or contains a value of a wrong type, set the key to thevalue of &quot;0&quot; before to perform the increment or decrement operation.</blockquote>
 <blockquote>INCRBY and DECRBY work just like INCR and DECR but instead toincrement/decrement by 1 the increment/decrement is <i>integer</i>.</blockquote>
 <blockquote>INCR commands are limited to 64 bit signed integers.</blockquote>
-<h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Integer reply</a>, this commands will reply with the new value of <i>key</i> after the increment or decrement.
-
+Note: this is actually a string operation, that is, in Redis there are not &quot;integer&quot; types. Simply the string stored at the key is parsed as a base 10 64 bit signed integer, incremented, and then converted back as a string.<h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Integer reply</a>, this commands will reply with the new value of <i>key</i> after the increment or decrement.
                 </div>
         
             </div>

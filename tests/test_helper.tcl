@@ -3,11 +3,11 @@
 # more information.
 
 set tcl_precision 17
-source test/support/redis.tcl
-source test/support/server.tcl
-source test/support/tmpfile.tcl
-source test/support/test.tcl
-source test/support/util.tcl
+source tests/support/redis.tcl
+source tests/support/server.tcl
+source tests/support/tmpfile.tcl
+source tests/support/test.tcl
+source tests/support/util.tcl
 
 set ::host 127.0.0.1
 set ::port 16379
@@ -15,7 +15,7 @@ set ::traceleaks 0
 
 proc execute_tests name {
     set cur $::testnum
-    source "test/$name.tcl"
+    source "tests/$name.tcl"
 }
 
 # setup a list to hold a stack of clients. the proc "r" provides easy
@@ -44,8 +44,8 @@ proc main {} {
     }
     
     # clean up tmp
-    exec rm -rf {*}[glob test/tmp/redis.conf.*]
-    exec rm -rf {*}[glob test/tmp/server.*]
+    exec rm -rf {*}[glob tests/tmp/redis.conf.*]
+    exec rm -rf {*}[glob tests/tmp/server.*]
 }
 
 main
