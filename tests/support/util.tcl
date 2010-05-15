@@ -25,6 +25,23 @@ proc zlistAlikeSort {a b} {
     string compare [lindex $a 1] [lindex $b 1]
 }
 
+# Return all log lines starting with the first line that contains a warning.
+# Generally, this will be an assertion error with a stack trace.
+proc warnings_from_file {filename} {
+    set lines [split [exec cat $filename] "\n"]
+    set matched 0
+    set result {}
+    foreach line $lines {
+        if {[regexp {^\[\d+\]\s+\d+\s+\w+\s+\d{2}:\d{2}:\d{2} \#} $line]} {
+            set matched 1
+        }
+        if {$matched} {
+            lappend result $line
+        }
+    }
+    join $result "\n"
+}
+
 # Return value for INFO property
 proc status {r property} {
     if {[regexp "\r\n$property:(.*?)\r\n" [$r info] _ value]} {

@@ -10556,7 +10556,7 @@ static void debugCommand(redisClient *c) {
 
 static void _redisAssert(char *estr, char *file, int line) {
     redisLog(REDIS_WARNING,"=== ASSERTION FAILED ===");
-    redisLog(REDIS_WARNING,"==> %s:%d '%s' is not true\n",file,line,estr);
+    redisLog(REDIS_WARNING,"==> %s:%d '%s' is not true",file,line,estr);
 #ifdef HAVE_BACKTRACE
     redisLog(REDIS_WARNING,"(forcing SIGSEGV in order to print the stack trace)");
     *((char*)-1) = 'x';
