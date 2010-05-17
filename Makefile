@@ -14,6 +14,8 @@ endif
 CCOPT= $(CFLAGS) $(CCLINK) $(ARCH) $(PROF)
 DEBUG?= -g -rdynamic -ggdb 
 
+GIT_SHA1:=$(shell sh -c '(git show-ref --head --hash=8 2> /dev/null || echo 00000000) | head -n1')
+GIT_DIRTY:=$(shell sh -c 'git status -s 2> /dev/null | wc -l')
 OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o
 BENCHOBJ = ae.o anet.o redis-benchmark.o sds.o adlist.o zmalloc.o
 CLIOBJ = anet.o sds.o adlist.o redis-cli.o zmalloc.o linenoise.o
@@ -54,7 +56,7 @@ sds.o: sds.c sds.h zmalloc.h
 zipmap.o: zipmap.c zmalloc.h
 zmalloc.o: zmalloc.c config.h
 
-redis-server: $(OBJ)
+redis-server: releaseheader $(OBJ)
 	$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ)
 	@echo ""
 	@echo "Hint: To run the test-redis.tcl script is a good idea."
@@ -73,6 +75,11 @@ redis-check-dump: $(CHECKDUMPOBJ)
 
 redis-check-aof: $(CHECKAOFOBJ)
 	$(CC) -o $(CHECKAOFPRGNAME) $(CCOPT) $(DEBUG) $(CHECKAOFOBJ)
+
+releaseheader:
+	@echo "#define REDIS_GIT_SHA1 \"$(GIT_SHA1)\"" > release.h
+	@echo "#define REDIS_GIT_DIRTY $(GIT_DIRTY)" >> release.h
+	@touch redis.c # force recompile of redis.c
 
 .c.o:
 	$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
