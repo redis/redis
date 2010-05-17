@@ -1,0 +1,42 @@
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<html>
+    <head>
+        <link type="text/css" rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <div id="page">
+        
+            <div id='header'>
+            <a href="index.html">
+            <img style="border:none" alt="Redis Documentation" src="redis.png">
+            </a>
+            </div>
+        
+            <div id="pagecontent">
+                <div class="index">
+<!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
+<b>MoveCommand: Contents</b><br>&nbsp;&nbsp;<a href="#MOVE _key_ _dbindex_">MOVE _key_ _dbindex_</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a>
+                </div>
+                
+                <h1 class="wikiname">MoveCommand</h1>
+
+                <div class="summary">
+                    
+                </div>
+
+                <div class="narrow">
+                    &iuml;&raquo;&iquest;#sidebar <a href="GenericCommandsSidebar.html">GenericCommandsSidebar</a><h1><a name="MOVE _key_ _dbindex_">MOVE _key_ _dbindex_</a></h1>
+<blockquote>Move the specified key from the currently selected DB to the specifieddestination DB. Note that this command returns 1 only if the key wassuccessfully moved, and 0 if the target key was already there or if thesource key was not found at all, so it is possible to use MOVE as a lockingprimitive.</blockquote>
+<h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Integer reply</a>, specifically:<br/><br/><pre class="codeblock python" name="code">
+1 if the key was moved
+0 if the key was not moved because already present on the target DB or was not found in the current DB.
+</pre>
+
+                </div>
+        
+            </div>
+        </div>
+    </body>
+</html>
+

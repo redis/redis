@@ -1,0 +1,44 @@
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<html>
+    <head>
+        <link type="text/css" rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <div id="page">
+        
+            <div id='header'>
+            <a href="index.html">
+            <img style="border:none" alt="Redis Documentation" src="redis.png">
+            </a>
+            </div>
+        
+            <div id="pagecontent">
+                <div class="index">
+<!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
+<b>RpoplpushCommand: Contents</b><br>&nbsp;&nbsp;<a href="#RPOPLPUSH _srckey_ _dstkey_ (Redis &gt;">RPOPLPUSH _srckey_ _dstkey_ (Redis &gt;</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Programming patterns: safe queues">Programming patterns: safe queues</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Programming patterns: server-side O(N) list traversal">Programming patterns: server-side O(N) list traversal</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a>
+                </div>
+                
+                <h1 class="wikiname">RpoplpushCommand</h1>
+
+                <div class="summary">
+                    
+                </div>
+
+                <div class="narrow">
+                    &iuml;&raquo;&iquest;#sidebar <a href="ListCommandsSidebar.html">ListCommandsSidebar</a><h1><a name="RPOPLPUSH _srckey_ _dstkey_ (Redis &gt;">RPOPLPUSH _srckey_ _dstkey_ (Redis &gt;</a></h1> 1.1) =
+<i>Time complexity: O(1)</i><blockquote>Atomically return and remove the last (tail) element of the <i>srckey</i> list,and push the element as the first (head) element of the <i>dstkey</i> list. Forexample if the source list contains the elements &quot;a&quot;,&quot;b&quot;,&quot;c&quot; and thedestination list contains the elements &quot;foo&quot;,&quot;bar&quot; after an RPOPLPUSH commandthe content of the two lists will be &quot;a&quot;,&quot;b&quot; and &quot;c&quot;,&quot;foo&quot;,&quot;bar&quot;.</blockquote>
+<blockquote>If the <i>key</i> does not exist or the list is already empty the specialvalue 'nil' is returned. If the <i>srckey</i> and <i>dstkey</i> are the same theoperation is equivalent to removing the last element from the list and pusingit as first element of the list, so it's a &quot;list rotation&quot; command.</blockquote>
+<h2><a name="Programming patterns: safe queues">Programming patterns: safe queues</a></h2><blockquote>Redis lists are often used as queues in order to exchange messages betweendifferent programs. A program can add a message performing an <a href="RpushCommand.html">LPUSH</a> operationagainst a Redis list (we call this program a Producer), while another program(that we call Consumer) can process the messages performing an <a href="LpopCommand.html">RPOP</a> commandin order to start reading the messages from the oldest.</blockquote>
+<blockquote>Unfortunately if a Consumer crashes just after an <a href="LpopCommand.html">RPOP</a> operation the messagegets lost. RPOPLPUSH solves this problem since the returned message isadded to another &quot;backup&quot; list. The Consumer can later remove the messagefrom the backup list using the <a href="LremCommand.html">LREM</a> command when the message was correctlyprocessed.</blockquote>
+<blockquote>Another process, called Helper, can monitor the &quot;backup&quot; list to check fortimed out entries to repush against the main queue.</blockquote>
+<h2><a name="Programming patterns: server-side O(N) list traversal">Programming patterns: server-side O(N) list traversal</a></h2><blockquote>Using RPOPPUSH with the same source and destination key a process canvisit all the elements of an N-elements List in O(N) without to transferthe full list from the server to the client in a single <a href="LrangeCommand.html">LRANGE</a> operation.Note that a process can traverse the list even while other processesare actively RPUSHing against the list, and still no element will be skipped.</blockquote>
+<h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Bulk reply</a>
+
+                </div>
+        
+            </div>
+        </div>
+    </body>
+</html>
+

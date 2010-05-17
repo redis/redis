@@ -1,0 +1,47 @@
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<html>
+    <head>
+        <link type="text/css" rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <div id="page">
+        
+            <div id='header'>
+            <a href="index.html">
+            <img style="border:none" alt="Redis Documentation" src="redis.png">
+            </a>
+            </div>
+        
+            <div id="pagecontent">
+                <div class="index">
+<!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
+<b>LrangeCommand: Contents</b><br>&nbsp;&nbsp;<a href="#LRANGE _key_ _start_ _end_">LRANGE _key_ _start_ _end_</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Consistency with range functions in various programming languages">Consistency with range functions in various programming languages</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Out-of-range indexes">Out-of-range indexes</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a>
+                </div>
+                
+                <h1 class="wikiname">LrangeCommand</h1>
+
+                <div class="summary">
+                    
+                </div>
+
+                <div class="narrow">
+                    &iuml;&raquo;&iquest;#sidebar <a href="ListCommandsSidebar.html">ListCommandsSidebar</a><h1><a name="LRANGE _key_ _start_ _end_">LRANGE _key_ _start_ _end_</a></h1>
+<i>Time complexity: O(start+n) (with n being the length of the range and start being the start offset)</i>Return the specified elements of the list stored at the specified
+key. Start and end are zero-based indexes. 0 is the first element
+of the list (the list head), 1 the next element and so on.<br/><br/>For example LRANGE foobar 0 2 will return the first three elements
+of the list.<br/><br/><i>start</i> and <i>end</i> can also be negative numbers indicating offsets
+from the end of the list. For example -1 is the last element of
+the list, -2 the penultimate element and so on.<h2><a name="Consistency with range functions in various programming languages">Consistency with range functions in various programming languages</a></h2>Note that if you have a list of numbers from 0 to 100, LRANGE 0 10 will return
+11 elements, that is, rightmost item is included. This <b>may or may not</b> be consistent with
+behavior of range-related functions in your programming language of choice (think Ruby's Range.new, Array#slice or Python's range() function).<br/><br/>LRANGE behavior is consistent with one of Tcl.<h2><a name="Out-of-range indexes">Out-of-range indexes</a></h2>Indexes out of range will not produce an error: if start is over
+the end of the list, or start <code name="code" class="python">&gt;</code> end, an empty list is returned.
+If end is over the end of the list Redis will threat it just like
+the last element of the list.<h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Multi bulk reply</a>, specifically a list of elements in the specified range.
+                </div>
+        
+            </div>
+        </div>
+    </body>
+</html>
+
