@@ -7203,7 +7203,7 @@ static sds genRedisInfoString(void) {
         "role:%s\r\n"
         ,REDIS_VERSION,
         REDIS_GIT_SHA1,
-        REDIS_GIT_DIRTY > 0,
+        strtol(REDIS_GIT_DIRTY,NULL,10) > 0,
         (sizeof(long) == 8) ? "64" : "32",
         aeGetApiName(),
         (long) getpid(),
