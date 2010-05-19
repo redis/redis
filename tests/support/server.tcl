@@ -13,7 +13,7 @@ proc kill_server config {
     # check for leaks
     catch {
         if {[string match {*Darwin*} [exec uname -a]]} {
-            test {Check for memory leaks} {
+            test "Check for memory leaks (pid $pid)" {
                 exec leaks $pid
             } {*0 leaks*}
         }

@@ -15,4 +15,6 @@
 #define isinf(x) \
      __extension__ ({ __typeof (x) __x_i = (x); \
      __builtin_expect(!isnan(__x_i) && !isfinite(__x_i), 0); })
+
+#define u_int uint
 #endif /* __GNUC__ */

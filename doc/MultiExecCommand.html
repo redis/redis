@@ -1,0 +1,96 @@
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<html>
+    <head>
+        <link type="text/css" rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <div id="page">
+        
+            <div id='header'>
+            <a href="index.html">
+            <img style="border:none" alt="Redis Documentation" src="redis.png">
+            </a>
+            </div>
+        
+            <div id="pagecontent">
+                <div class="index">
+<!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
+<b>MultiExecCommand: Contents</b><br>&nbsp;&nbsp;<a href="#MULTI">MULTI</a><br>&nbsp;&nbsp;<a href="#COMMAND_1 ...">COMMAND_1 ...</a><br>&nbsp;&nbsp;<a href="#COMMAND_2 ...">COMMAND_2 ...</a><br>&nbsp;&nbsp;<a href="#COMMAND_N ...">COMMAND_N ...</a><br>&nbsp;&nbsp;<a href="#EXEC or DISCARD">EXEC or DISCARD</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Usage">Usage</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#The DISCARD command">The DISCARD command</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a>
+                </div>
+                
+                <h1 class="wikiname">MultiExecCommand</h1>
+
+                <div class="summary">
+                    
+                </div>
+
+                <div class="narrow">
+                    &iuml;&raquo;&iquest;#sidebar <a href="GenericCommandsSidebar.html">GenericCommandsSidebar</a><h1><a name="MULTI">MULTI</a></h1>
+<h1><a name="COMMAND_1 ...">COMMAND_1 ...</a></h1>
+<h1><a name="COMMAND_2 ...">COMMAND_2 ...</a></h1>
+<h1><a name="COMMAND_N ...">COMMAND_N ...</a></h1>
+<h1><a name="EXEC or DISCARD">EXEC or DISCARD</a></h1><blockquote>MULTI, EXEC and DISCARD commands are the fundation of Redis Transactions.A Redis Transaction allows to execute a group of Redis commands in a singlestep, with two important guarantees:</blockquote>
+<ul><li> All the commands in a transaction are serialized and executed sequentially. It can never happen that a request issued by another client is served <b>in the middle</b> of the execution of a Redis transaction. This guarantees that the commands are executed as a single atomic operation.</li><li> Either all of the commands or none are processed. The EXEC command triggers the execution of all the commands in the transaction, so if a client loses the connection to the server in the context of a transaction before calling the MULTI command none of the operations are performed, instead if the EXEC command is called, all the operations are performed. An exception to this rule is when the Append Only File is enabled: every command that is part of a Redis transaction will log in the AOF as long as the operation is completed, so if the Redis server crashes or is killed by the system administrator in some hard way it is possible that only a partial number of operations are registered.</li></ul>
+<h2><a name="Usage">Usage</a></h2><blockquote>A Redis transaction is entered using the MULTI command. The command alwaysreplies with OK. At this point the user can issue multiple commands. Insteadto execute this commands Redis will &quot;queue&quot; them. All the commands areexecuted once EXEC is called.</blockquote>
+<blockquote>Calling DISCARD instead will flush the transaction queue and will exitthe transaction.</blockquote>
+<blockquote>The following is an example using the Ruby client:</blockquote><pre class="codeblock python" name="code">
+?&gt; r.multi
+=&gt; &quot;OK&quot;
+&gt;&gt; r.incr &quot;foo&quot;
+=&gt; &quot;QUEUED&quot;
+&gt;&gt; r.incr &quot;bar&quot;
+=&gt; &quot;QUEUED&quot;
+&gt;&gt; r.incr &quot;bar&quot;
+=&gt; &quot;QUEUED&quot;
+&gt;&gt; r.exec
+=&gt; [1, 1, 2]
+</pre>
+<blockquote>As it is possible to see from the session above, MULTI returns an &quot;array&quot; ofreplies, where every element is the reply of a single command in thetransaction, in the same order the commands were queued.</blockquote>
+<blockquote>When a Redis connection is in the context of a MULTI request, all the commandswill reply with a simple string &quot;QUEUED&quot; if they are correct from thepoint of view of the syntax and arity (number of arguments) of the commaand.Some command is still allowed to fail during execution time.</blockquote>
+<blockquote>This is more clear if at protocol level: in the following example one commandwill fail when executed even if the syntax is right:</blockquote><pre class="codeblock python python" name="code">
+Trying 127.0.0.1...
+Connected to localhost.
+Escape character is '^]'.
+MULTI
++OK
+SET a 3 
+abc
++QUEUED
+LPOP a
++QUEUED
+EXEC
+*2
++OK
+-ERR Operation against a key holding the wrong kind of value
+</pre>
+<blockquote>MULTI returned a two elements bulk reply in witch one of this is a +OKcode and one is a -ERR reply. It's up to the client lib to find a sensibleway to provide the error to the user.</blockquote>
+<blockquote>IMPORTANT: even when a command will raise an error, all the other commandsin the queue will be processed. Redis will NOT stop the processing ofcommands once an error is found.</blockquote>
+<blockquote>Another example, again using the write protocol with telnet, shows howsyntax errors are reported ASAP instead:</blockquote><pre class="codeblock python python python" name="code">
+MULTI
++OK
+INCR a b c
+-ERR wrong number of arguments for 'incr' command
+</pre>
+<blockquote>This time due to the syntax error the &quot;bad&quot; INCR command is not queuedat all.</blockquote>
+<h2><a name="The DISCARD command">The DISCARD command</a></h2><blockquote>DISCARD can be used in order to abort a transaction. No command will beexecuted, and the state of the client is again the normal one, outsideof a transaction. Example using the Ruby client:</blockquote><pre class="codeblock python python python python" name="code">
+?&gt; r.set(&quot;foo&quot;,1)
+=&gt; true
+&gt;&gt; r.multi
+=&gt; &quot;OK&quot;
+&gt;&gt; r.incr(&quot;foo&quot;)
+=&gt; &quot;QUEUED&quot;
+&gt;&gt; r.discard
+=&gt; &quot;OK&quot;
+&gt;&gt; r.get(&quot;foo&quot;)
+=&gt; &quot;1&quot;
+</pre><h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Multi bulk reply</a>, specifically:<br/><br/><pre class="codeblock python python python python python" name="code">
+The result of a MULTI/EXEC command is a multi bulk reply where every element is the return value of every command in the atomic transaction.
+</pre>
+                </div>
+        
+            </div>
+        </div>
+    </body>
+</html>
+

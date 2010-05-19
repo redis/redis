@@ -8,7 +8,6 @@ static struct redisFunctionSym symsTable[] = {
 {"addReplyBulkCString",(unsigned long)addReplyBulkCString},
 {"addReplyBulkLen",(unsigned long)addReplyBulkLen},
 {"addReplyDouble",(unsigned long)addReplyDouble},
-{"addReplyLong",(unsigned long)addReplyLong},
 {"addReplyLongLong",(unsigned long)addReplyLongLong},
 {"addReplySds",(unsigned long)addReplySds},
 {"addReplyUlong",(unsigned long)addReplyUlong},

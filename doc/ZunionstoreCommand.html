@@ -1,0 +1,41 @@
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<html>
+    <head>
+        <link type="text/css" rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <div id="page">
+        
+            <div id='header'>
+            <a href="index.html">
+            <img style="border:none" alt="Redis Documentation" src="redis.png">
+            </a>
+            </div>
+        
+            <div id="pagecontent">
+                <div class="index">
+<!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
+<b>ZunionstoreCommand: Contents</b><br>&nbsp;&nbsp;<a href="#ZUNION / ZINTER _dstkey_ _N_ _k1_ ... _kN_ `[`WEIGHTS _w1_ ... _wN_`]` `[`AGGREGATE SUM|MIN|MAX`]`  (Redis &gt;">ZUNION / ZINTER _dstkey_ _N_ _k1_ ... _kN_ `[`WEIGHTS _w1_ ... _wN_`]` `[`AGGREGATE SUM|MIN|MAX`]`  (Redis &gt;</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a>
+                </div>
+                
+                <h1 class="wikiname">ZunionstoreCommand</h1>
+
+                <div class="summary">
+                    
+                </div>
+
+                <div class="narrow">
+                    
+<h1><a name="ZUNION / ZINTER _dstkey_ _N_ _k1_ ... _kN_ `[`WEIGHTS _w1_ ... _wN_`]` `[`AGGREGATE SUM|MIN|MAX`]`  (Redis &gt;">ZUNION / ZINTER _dstkey_ _N_ _k1_ ... _kN_ `[`WEIGHTS _w1_ ... _wN_`]` `[`AGGREGATE SUM|MIN|MAX`]`  (Redis &gt;</a></h1> 1.3.5) =<br/><br/><i>Time complexity: O(N) + O(M log(M)) with N being the sum of the sizes of the input sorted sets, and M being the number of elements in the resulting sorted set</i><blockquote>Creates a union or intersection of <i>N</i> sorted sets given by keys <i>k1</i> through <i>kN</i>, and stores it at <i>dstkey</i>. It is mandatory to provide the number of input keys <i>N</i>, before passing the input keys and the other (optional) arguments.</blockquote>
+<blockquote>As the terms imply, the ZINTER command requires an element to be present in each of the given inputs to be inserted in the result. The ZUNION command inserts all elements across all inputs.</blockquote>
+<blockquote>Using the WEIGHTS option, it is possible to add weight to each input sorted set. This means that the score of each element in the sorted set is first multiplied by this weight before being passed to the aggregation. When this option is not given, all weights default to 1.</blockquote>
+<blockquote>With the AGGREGATE option, it's possible to specify how the results of the union or intersection are aggregated. This option defaults to SUM, where the score of an element is summed across the inputs where it exists. When this option is set to be either MIN or MAX, the resulting set will contain the minimum or maximum score of an element across the inputs where it exists.</blockquote>
+<h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Integer reply</a>, specifically the number of elements in the sorted set at <i>dstkey</i>.
+                </div>
+        
+            </div>
+        </div>
+    </body>
+</html>
+

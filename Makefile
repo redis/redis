@@ -2,6 +2,7 @@
 # Copyright (C) 2009 Salvatore Sanfilippo <antirez at gmail dot com>
 # This file is released under the BSD license, see the COPYING file
 
+release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 OPTIMIZATION?=-O2
 ifeq ($(uname_S),SunOS)

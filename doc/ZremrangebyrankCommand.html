@@ -1,0 +1,39 @@
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<html>
+    <head>
+        <link type="text/css" rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <div id="page">
+        
+            <div id='header'>
+            <a href="index.html">
+            <img style="border:none" alt="Redis Documentation" src="redis.png">
+            </a>
+            </div>
+        
+            <div id="pagecontent">
+                <div class="index">
+<!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
+<b>ZremrangebyrankCommand: Contents</b><br>&nbsp;&nbsp;<a href="#ZREMRANGEBYRANK _key_ _start_ _end_ (Redis &gt;">ZREMRANGEBYRANK _key_ _start_ _end_ (Redis &gt;</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a>
+                </div>
+                
+                <h1 class="wikiname">ZremrangebyrankCommand</h1>
+
+                <div class="summary">
+                    
+                </div>
+
+                <div class="narrow">
+                    
+<h1><a name="ZREMRANGEBYRANK _key_ _start_ _end_ (Redis &gt;">ZREMRANGEBYRANK _key_ _start_ _end_ (Redis &gt;</a></h1> 1.3.4) =
+<i>Time complexity: O(log(N))+O(M) with N being the number of elements in the sorted set and M the number of elements removed by the operation</i><blockquote>Remove all elements in the sorted set at <i>key</i> with rank between <i>start</i> and <i>end</i>. Start and end are 0-based with rank 0 being the element with the lowest score. Both start and end can be negative numbers, where they indicate offsets starting at the element with the highest rank. For example: -1 is the element with the highest score, -2 the element with the second highest score and so forth.</blockquote>
+<h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Integer reply</a>, specifically the number of elements removed.
+                </div>
+        
+            </div>
+        </div>
+    </body>
+</html>
+

@@ -12,3 +12,4 @@ mkrelease.sh
 release
 myredis.conf
 misc/*
+release.h
