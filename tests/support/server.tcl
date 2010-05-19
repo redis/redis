@@ -8,6 +8,8 @@ proc error_and_quit {config_file error} {
 }
 
 proc kill_server config {
+    # nevermind if its already dead
+    if {![is_alive $config]} { return }
     set pid [dict get $config pid]
 
     # check for leaks
@@ -20,13 +22,21 @@ proc kill_server config {
     }
 
     # kill server and wait for the process to be totally exited
-    exec kill $pid
-    while 1 {
-        # with a non-zero exit status, the process is gone
-        if {[catch {exec ps -p $pid | grep redis-server} result]} {
-            break
+    while {[is_alive $config]} {
+        if {[incr wait 10] % 1000 == 0} {
+            puts "Waiting for process $pid to exit..."
         }
+        exec kill $pid
         after 10
+    }
+}
+
+proc is_alive config {
+    set pid [dict get $config pid]
+    if {[catch {exec ps -p $pid} err]} {
+        return 0
+    } else {
+        return 1
     }
 }
 
@@ -74,33 +84,14 @@ proc start_server {filename overrides {code undefined}} {
         error_and_quit $config_file [exec cat $stderr]
     }
     
-    set line [exec head -n1 $stdout]
-    if {[string match {*already in use*} $line]} {
-        error_and_quit $config_file $line
-    }
-
-    while 1 {
-        # check that the server actually started and is ready for connections
-        if {[exec cat $stdout | grep "ready to accept" | wc -l] > 0} {
-            break
-        }
-        after 10
-    }
-
     # find out the pid
     regexp {^\[(\d+)\]} [exec head -n1 $stdout] _ pid
 
-    # create the client object
+    # setup properties to be able to initialize a client object
     set host $::host
     set port $::port
     if {[dict exists $config bind]} { set host [dict get $config bind] }
     if {[dict exists $config port]} { set port [dict get $config port] }
-    set client [redis $host $port]
-
-    # select the right db when we don't have to authenticate
-    if {![dict exists $config requirepass]} {
-        $client select 9
-    }
 
     # setup config dict
     dict set srv "config" $config_file
@@ -109,9 +100,31 @@ proc start_server {filename overrides {code undefined}} {
     dict set srv "port" $port
     dict set srv "stdout" $stdout
     dict set srv "stderr" $stderr
-    dict set srv "client" $client
 
+    # if a block of code is supplied, we wait for the server to become
+    # available, create a client object and kill the server afterwards
     if {$code ne "undefined"} {
+        set line [exec head -n1 $stdout]
+        if {[string match {*already in use*} $line]} {
+            error_and_quit $config_file $line
+        }
+
+        while 1 {
+            # check that the server actually started and is ready for connections
+            if {[exec cat $stdout | grep "ready to accept" | wc -l] > 0} {
+                break
+            }
+            after 10
+        }
+
+        set client [redis $host $port]
+        dict set srv "client" $client
+
+        # select the right db when we don't have to authenticate
+        if {![dict exists $config requirepass]} {
+            $client select 9
+        }
+
         # append the server to the stack
         lappend ::servers $srv
         

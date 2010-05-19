@@ -61,6 +61,7 @@ proc main {} {
     execute_tests "unit/expire"
     execute_tests "unit/other"
     execute_tests "integration/replication"
+    execute_tests "integration/aof"
     
     puts "\n[expr $::passed+$::failed] tests, $::passed passed, $::failed failed"
     if {$::failed > 0} {
