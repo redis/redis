@@ -1,36 +1,26 @@
 Redis TODO and Roadmap
+----------------------
 
-VERSION 2.2 TODO
+VERSION 2.2 TODO (Optimizations and latency)
+============================================
+
+* Lower the CPU usage.
+* Lower the RAM usage everywhere possible.
+* Specially encoded Sets (like Hashes).
+* Implement an UDP interface for low-latency operations.
+* What about a special coding that is about storing the "rdb" serialized format instead of the actual value? This can be used when we have LRU in order to super-compress data into memory, for data not accessed frequetly. It's a VM-alike strategy but fully in memory, may reduce the space to hold some dataset in an impressive way. Trivial to implement.
+
+VERSION 2.x TODO
 ================
 
 * BRPOPLPUSH
 * Save dataset / fsync() on SIGTERM
 * Change the implementation of ZCOUNT to use the augmented skiplist in order to be much faster.
-* Write doc for ZCOUNT, and for open / closed intervals of sorted sets range operations.
 
-Virtual Memory sub-TODO:
+Virtual Memory optimizations:
 * Use multiple open FDs against the VM file, one for thread.
-* vm-min-age <seconds> option
-* Check what happens performance-wise if instead to create threads again and again the same threads are reused forever. Note: this requires a way to disable this clients in the child, but waiting for empty new jobs queue can be enough.
-
+* Check what happens performance-wise if instead of creating threads again and again the same threads are reused forever. Note: this requires a way to disable this clients in the child, but waiting for empty new jobs queue can be enough.
 * Implement LEN, PEEK, POKE, SETBIT, GETBIT
-
-VERSION 2.2 TODO (Fault tolerant sharding)
-===========================================
-
-* Redis-cluster, a fast intermediate layer (proxy) that implements consistent hashing and fault tollerant nodes handling.
-
-Interesting readings about this:
-
-    - http://ayende.com/Blog/archive/2009/04/06/designing-rhino-dht-a-fault-tolerant-dynamically-distributed-hash.aspx
-
-VERSION 2.4 TODO (Optimizations and latency)
-============================================
-
-* Lower the CPU usage.
-* Lower the RAM usage everywhere possible.
-* Use epool and alike to rewrite ae.c for Linux and other platforms suppporting fater-than-select() mutiplexing APIs.
-* Implement an UDP interface for low-latency GET/SET operations.
 
 OTHER IMPORTANT THINGS THAT WILL BE ADDED BUT I'M NOT SURE WHEN
 ===============================================================
