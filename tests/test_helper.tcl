@@ -50,8 +50,8 @@ proc s {args} {
 }
 
 proc cleanup {} {
-    exec rm -rf {*}[glob tests/tmp/redis.conf.*]
-    exec rm -rf {*}[glob tests/tmp/server.*]
+    catch {exec rm -rf {*}[glob tests/tmp/redis.conf.*]}
+    catch {exec rm -rf {*}[glob tests/tmp/server.*]}
 }
 
 proc main {} {
