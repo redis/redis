@@ -17,4 +17,5 @@
      __builtin_expect(!isnan(__x_i) && !isfinite(__x_i), 0); })
 
 #define u_int uint
+#define u_int32_t uint32_t
 #endif /* __GNUC__ */
