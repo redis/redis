@@ -27,7 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define REDIS_VERSION "1.3.12"
+#define REDIS_VERSION "1.3.13"
 
 #include "fmacros.h"
 #include "config.h"
@@ -10432,18 +10432,23 @@ static void computeDatasetDigest(unsigned char *final) {
 
         /* Iterate this DB writing every entry */
         while((de = dictNext(di)) != NULL) {
-            robj *key, *o;
+            robj *key, *o, *kcopy;
             time_t expiretime;
 
             memset(digest,0,20); /* This key-val digest */
             key = dictGetEntryKey(de);
-            mixObjectDigest(digest,key);
-            if (!server.vm_enabled || key->storage == REDIS_VM_MEMORY ||
-                key->storage == REDIS_VM_SWAPPING) {
+
+            if (!server.vm_enabled) {
+                mixObjectDigest(digest,key);
                 o = dictGetEntryVal(de);
-                incrRefCount(o);
             } else {
-                o = vmPreviewObject(key);
+                /* Don't work with the key directly as when VM is active
+                 * this is unsafe: TODO: fix decrRefCount to check if the
+                 * count really reached 0 to avoid this mess */
+                kcopy = dupStringObject(key);
+                mixObjectDigest(digest,kcopy);
+                o = lookupKeyRead(db,kcopy);
+                decrRefCount(kcopy);
             }
             aux = htonl(o->type);
             mixDigest(digest,&aux,sizeof(aux));
@@ -10512,7 +10517,6 @@ static void computeDatasetDigest(unsigned char *final) {
             } else {
                 redisPanic("Unknown object type");
             }
-            decrRefCount(o);
             /* If the key has an expire, add it to the mix */
             if (expiretime != -1) xorDigest(digest,"!!expire!!",10);
             /* We can finally xor the key-val digest to the final digest */
