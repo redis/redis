@@ -366,6 +366,7 @@ struct redisServer {
     int daemonize;
     int appendonly;
     int appendfsync;
+    int shutdown_asap;
     time_t lastfsync;
     int appendfd;
     int appendseldb;
@@ -631,6 +632,7 @@ static int equalStringObjects(robj *a, robj *b);
 static void usage();
 static int rewriteAppendOnlyFileBackground(void);
 static int vmSwapObjectBlocking(robj *key, robj *val);
+static int prepareForShutdown();
 
 static void authCommand(redisClient *c);
 static void pingCommand(redisClient *c);
@@ -1420,6 +1422,13 @@ static int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientD
      * To access a global var is faster than calling time(NULL) */
     server.unixtime = time(NULL);
 
+    /* We received a SIGTERM, shutting down here in a safe way, as it is
+     * not ok doing so inside the signal handler. */
+    if (server.shutdown_asap) {
+        if (prepareForShutdown() == REDIS_OK) exit(0);
+        redisLog(REDIS_WARNING,"SIGTERM received but errors trying to shut down the server, check the logs for more information");
+    }
+
     /* Show some info about non-empty databases */
     for (j = 0; j < server.dbnum; j++) {
         long long size, used, vkeys;
@@ -1687,6 +1696,7 @@ static void initServerConfig() {
     server.vm_blocked_clients = 0;
     server.hash_max_zipmap_entries = REDIS_HASH_MAX_ZIPMAP_ENTRIES;
     server.hash_max_zipmap_value = REDIS_HASH_MAX_ZIPMAP_VALUE;
+    server.shutdown_asap = 0;
 
     resetServerSaveParams();
 
@@ -4150,7 +4160,7 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
 }
 
 /*================================== Shutdown =============================== */
-static void redisShutdown() {
+static int prepareForShutdown() {
     redisLog(REDIS_WARNING,"User requested shutdown, saving DB...");
     /* Kill the saving child if there is a background saving in progress.
        We want to avoid race conditions, for instance our saving child may
@@ -4164,7 +4174,6 @@ static void redisShutdown() {
         /* Append only file: fsync() the AOF and exit */
         fsync(server.appendfd);
         if (server.vm_enabled) unlink(server.vm_swap_file);
-        exit(0);
     } else {
         /* Snapshotting. Perform a SYNC SAVE and exit */
         if (rdbSave(server.dbfilename) == REDIS_OK) {
@@ -4172,7 +4181,6 @@ static void redisShutdown() {
                 unlink(server.pidfile);
             redisLog(REDIS_WARNING,"%zu bytes used at exit",zmalloc_used_memory());
             redisLog(REDIS_WARNING,"Server exit now, bye bye...");
-            exit(0);
         } else {
             /* Ooops.. error saving! The best we can do is to continue
              * operating. Note that if there was a background saving process,
@@ -4180,8 +4188,10 @@ static void redisShutdown() {
              * saving aborted, handling special stuff like slaves pending for
              * synchronization... */
             redisLog(REDIS_WARNING,"Error trying to save the DB, can't exit");
+            return REDIS_ERR;
         }
     }
+    return REDIS_OK;
 }
 
 /*================================== Commands =============================== */
@@ -4623,10 +4633,9 @@ static void bgsaveCommand(redisClient *c) {
 }
 
 static void shutdownCommand(redisClient *c) {
-    redisShutdown();
-    /* If we got here exit was not called so there was an error */
-    addReplySds(c,
-        sdsnew("-ERR can't quit, problems saving the DB\r\n"));
+    if (prepareForShutdown() == REDIS_OK)
+        exit(0);
+    addReplySds(c, sdsnew("-ERR Errors trying to SHUTDOWN. Check logs.\r\n"));
 }
 
 static void renameGenericCommand(redisClient *c, int nx) {
@@ -10818,13 +10827,11 @@ static void segvHandler(int sig, siginfo_t *info, void *secret) {
     _exit(0);
 }
 
-static void sigHandler(int sig) {
-    redisLog(REDIS_WARNING,
-        "======= Redis %s got signal: -%d- =======", REDIS_VERSION, sig);
+static void sigtermHandler(int sig) {
+    REDIS_NOTUSED(sig);
 
-    if (sig == SIGTERM) {
-        redisShutdown();
-    }
+    redisLog(REDIS_WARNING,"SIGTERM received, scheduling shutting down...");
+    server.shutdown_asap = 1;
 }
 
 static void setupSigSegvAction(void) {
@@ -10842,7 +10849,7 @@ static void setupSigSegvAction(void) {
     sigaction (SIGBUS, &act, NULL);
 
     act.sa_flags = SA_NODEFER | SA_ONSTACK | SA_RESETHAND;
-    act.sa_handler = sigHandler;
+    act.sa_handler = sigtermHandler;
     sigaction (SIGTERM, &act, NULL);
     return;
 }
