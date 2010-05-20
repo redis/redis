@@ -26,7 +26,7 @@ proc kill_server config {
         if {[incr wait 10] % 1000 == 0} {
             puts "Waiting for process $pid to exit..."
         }
-        exec kill $pid
+        catch {exec kill $pid}
         after 10
     }
 }
@@ -40,6 +40,7 @@ proc is_alive config {
     }
 }
 
+set ::global_overrides {}
 proc start_server {filename overrides {code undefined}} {
     set data [split [exec cat "tests/assets/$filename"] "\n"]
     set config {}
@@ -58,8 +59,8 @@ proc start_server {filename overrides {code undefined}} {
     # start every server on a different port
     dict set config port [incr ::port]
 
-    # apply overrides from arguments
-    foreach override $overrides {
+    # apply overrides from global space and arguments
+    foreach override [concat $::global_overrides $overrides] {
         set directive [lrange $override 0 0]
         set arguments [lrange $override 1 end]
         dict set config $directive $arguments

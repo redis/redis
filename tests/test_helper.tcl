@@ -49,7 +49,13 @@ proc s {args} {
     status [srv $level "client"] [lindex $args 0]
 }
 
+proc cleanup {} {
+    exec rm -rf {*}[glob tests/tmp/redis.conf.*]
+    exec rm -rf {*}[glob tests/tmp/server.*]
+}
+
 proc main {} {
+    cleanup
     execute_tests "unit/auth"
     execute_tests "unit/protocol"
     execute_tests "unit/basic"
@@ -62,15 +68,25 @@ proc main {} {
     execute_tests "unit/other"
     execute_tests "integration/replication"
     execute_tests "integration/aof"
+
+    # run tests with VM enabled
+    set ::global_overrides [list [list vm-enabled yes]]
+    execute_tests "unit/protocol"
+    execute_tests "unit/basic"
+    execute_tests "unit/type/list"
+    execute_tests "unit/type/set"
+    execute_tests "unit/type/zset"
+    execute_tests "unit/type/hash"
+    execute_tests "unit/sort"
+    execute_tests "unit/expire"
+    execute_tests "unit/other"
     
     puts "\n[expr $::passed+$::failed] tests, $::passed passed, $::failed failed"
     if {$::failed > 0} {
         puts "\n*** WARNING!!! $::failed FAILED TESTS ***\n"
     }
-    
-    # clean up tmp
-    exec rm -rf {*}[glob tests/tmp/redis.conf.*]
-    exec rm -rf {*}[glob tests/tmp/server.*]
+
+    cleanup
 }
 
 main
