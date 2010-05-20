@@ -9,6 +9,7 @@ VERSION 2.2 TODO (Optimizations and latency)
 * Specially encoded Sets (like Hashes).
 * Implement an UDP interface for low-latency operations.
 * What about a special coding that is about storing the "rdb" serialized format instead of the actual value? This can be used when we have LRU in order to super-compress data into memory, for data not accessed frequetly. It's a VM-alike strategy but fully in memory, may reduce the space to hold some dataset in an impressive way. Trivial to implement.
+* Another idea: LRU does not need to be super precise right? Maybe it's a good idea to just put into the skiplist implementing the LRU just the pointer to the key without evne incr/decr business, nor the need to remove the pointer when the key is deleted. There is to think more about that.
 
 VERSION 2.x TODO
 ================
