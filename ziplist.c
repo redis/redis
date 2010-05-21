@@ -87,13 +87,13 @@ unsigned char *ziplistPush(unsigned char *zl, unsigned char *entry, unsigned int
 unsigned char *ziplistPop(unsigned char *zl, sds *value, int where) {
     unsigned int curlen = ZIPLIST_BYTES(zl), len, rlen;
     unsigned char *p;
-    *value = NULL;
+    if (value) *value = NULL;
 
     /* Get pointer to element to remove */
     p = (where == ZIPLIST_HEAD) ? ziplistHead(zl) : ziplistTail(zl);
     if (*p == ZIP_END) return zl;
     len = zipDecodeLength(p);
-    *value = sdsnewlen(p+zipEncodeLength(NULL,len),len);
+    if (value) *value = sdsnewlen(p+zipEncodeLength(NULL,len),len);
 
     /* Move list to front when popping from the head */
     rlen = zipRawEntryLength(p);
