@@ -7,6 +7,20 @@ proc error_and_quit {config_file error} {
     exit 1
 }
 
+proc check_valgrind_errors stderr {
+    set fd [open $stderr]
+    set buf [read $fd]
+    close $fd
+
+    if {![regexp -- {ERROR SUMMARY: 0 errors} $buf] ||
+        ![regexp -- {definitely lost: 0 bytes} $buf]} {
+        puts "*** VALGRIND ERRORS ***"
+        puts $buf
+        puts "--- press enter to continue ---"
+        gets stdin
+    }
+}
+
 proc kill_server config {
     # nevermind if its already dead
     if {![is_alive $config]} { return }
@@ -29,6 +43,11 @@ proc kill_server config {
         catch {exec kill $pid}
         after 10
     }
+
+    # Check valgrind errors if needed
+    if {$::valgrind} {
+        check_valgrind_errors [dict get $config stderr]
+    }
 }
 
 proc is_alive config {
@@ -38,6 +57,25 @@ proc is_alive config {
     } else {
         return 1
     }
+}
+
+proc ping_server {host port} {
+    set retval 0
+    if {[catch {
+        set fd [socket $::host $::port]
+        fconfigure $fd -translation binary
+        puts $fd "PING\r\n"
+        flush $fd
+        set reply [gets $fd]
+        if {[string range $reply 0 4] eq {+PONG} ||
+            [string range $reply 0 3] eq {-ERR}} {
+            set retval 1
+        }
+        close $fd
+    } e]} {
+        puts "Can't PING server at $host:$port... $e"
+    }
+    return $retval
 }
 
 set ::global_overrides {}
@@ -77,16 +115,25 @@ proc start_server {filename overrides {code undefined}} {
 
     set stdout [format "%s/%s" [dict get $config "dir"] "stdout"]
     set stderr [format "%s/%s" [dict get $config "dir"] "stderr"]
-    exec ./redis-server $config_file > $stdout 2> $stderr &
-    after 500
+
+    if {$::valgrind} {
+        exec valgrind --leak-check=full ./redis-server $config_file > $stdout 2> $stderr &
+        after 2000
+    } else {
+        exec ./redis-server $config_file > $stdout 2> $stderr &
+        after 500
+    }
     
     # check that the server actually started
-    if {[file size $stderr] > 0} {
+    if {$code ne "undefined" && ![ping_server $::host $::port]} {
         error_and_quit $config_file [exec cat $stderr]
     }
     
     # find out the pid
-    regexp {^\[(\d+)\]} [exec head -n1 $stdout] _ pid
+    while {![info exists pid]} {
+        regexp {^\[(\d+)\]} [exec head -n1 $stdout] _ pid
+        after 100
+    }
 
     # setup properties to be able to initialize a client object
     set host $::host

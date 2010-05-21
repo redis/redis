@@ -12,6 +12,7 @@ source tests/support/util.tcl
 set ::host 127.0.0.1
 set ::port 16379
 set ::traceleaks 0
+set ::valgrind 0
 
 proc execute_tests name {
     set cur $::testnum
@@ -50,8 +51,8 @@ proc s {args} {
 }
 
 proc cleanup {} {
-    exec rm -rf {*}[glob tests/tmp/redis.conf.*]
-    exec rm -rf {*}[glob tests/tmp/server.*]
+    catch {exec rm -rf {*}[glob tests/tmp/redis.conf.*]}
+    catch {exec rm -rf {*}[glob tests/tmp/server.*]}
 }
 
 proc main {} {

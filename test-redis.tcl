@@ -4,7 +4,7 @@
 # more information.
 
 set tcl_precision 17
-source redis.tcl
+source tests/support/redis.tcl
 
 set ::passed 0
 set ::failed 0
