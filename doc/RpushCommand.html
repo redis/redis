@@ -28,8 +28,8 @@
                 <div class="narrow">
                     &iuml;&raquo;&iquest;#sidebar <a href="ListCommandsSidebar.html">ListCommandsSidebar</a><h3><a name="RPUSH _key_ _string_">RPUSH _key_ _string_</a></h3>
 <h3><a name="LPUSH _key_ _string_">LPUSH _key_ _string_</a></h3>
-<i>Time complexity: O(1)</i><blockquote>Add the <i>string</i> value to the head (RPUSH) or tail (LPUSH) of the liststored at <i>key</i>. If the key does not exist an empty list is created just beforethe append operation. If the key exists but is not a List an erroris returned.</blockquote>
-<h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Status code reply</a>
+<i>Time complexity: O(1)</i><blockquote>Add the <i>string</i> value to the head (LPUSH) or tail (RPUSH) of the liststored at <i>key</i>. If the key does not exist an empty list is created just beforethe append operation. If the key exists but is not a List an erroris returned.</blockquote>
+<h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Integer reply</a>, specifically, the number of elements inside the list after the push operation.
 
                 </div>
         
