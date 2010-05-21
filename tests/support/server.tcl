@@ -117,7 +117,7 @@ proc start_server {filename overrides {code undefined}} {
     set stderr [format "%s/%s" [dict get $config "dir"] "stderr"]
 
     if {$::valgrind} {
-        exec valgrind --leak-check=full ./redis-server $config_file > $stdout 2> $stderr &
+        exec valgrind ./redis-server $config_file > $stdout 2> $stderr &
         after 2000
     } else {
         exec ./redis-server $config_file > $stdout 2> $stderr &
