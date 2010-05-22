@@ -25,6 +25,8 @@
 #define ZIPLIST_BYTES(zl) (*((unsigned int*)(zl)))
 #define ZIPLIST_LENGTH(zl) (*((zl)+sizeof(unsigned int)))
 #define ZIPLIST_HEADER_SIZE (sizeof(unsigned int)+1)
+#define ZIPLIST_INCR_LENGTH(zl,incr) { \
+    if (ZIPLIST_LENGTH(zl) < (ZIP_END-1)) ZIPLIST_LENGTH(zl)+=incr; }
 
 /* Create a new empty ziplist. */
 unsigned char *ziplistNew(void) {
@@ -75,12 +77,10 @@ unsigned char *ziplistPush(unsigned char *zl, unsigned char *entry, unsigned int
         p = zl+curlen-1;
     }
 
-    /* Increase length */
-    if (ZIPLIST_LENGTH(zl) < ZIP_BIGLEN) ZIPLIST_LENGTH(zl)++;
-
     /* Write the entry */
     p += zipEncodeLength(p,elen);
     memcpy(p,entry,elen);
+    ZIPLIST_INCR_LENGTH(zl,1);
     return zl;
 }
 
@@ -103,7 +103,7 @@ unsigned char *ziplistPop(unsigned char *zl, sds *value, int where) {
 
     /* Resize and update length */
     zl = ziplistResize(zl,curlen-rlen);
-    if (ZIPLIST_LENGTH(zl) < ZIP_BIGLEN) ZIPLIST_LENGTH(zl)--;
+    ZIPLIST_INCR_LENGTH(zl,-1);
     return zl;
 }
 
@@ -147,7 +147,7 @@ unsigned char *ziplistDeleteRange(unsigned char *zl, unsigned int index, unsigne
 
         /* Resize and update length */
         zl = ziplistResize(zl, ZIPLIST_BYTES(zl)-totlen);
-        if (ZIPLIST_LENGTH(zl) < ZIP_BIGLEN) ZIPLIST_LENGTH(zl) -= deleted;
+        ZIPLIST_INCR_LENGTH(zl,-deleted);
     }
     return zl;
 }
@@ -165,7 +165,7 @@ unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p) {
 
     /* Resize and update length */
     zl = ziplistResize(zl, ZIPLIST_BYTES(zl)-len);
-    if (ZIPLIST_LENGTH(zl) < ZIP_BIGLEN) ZIPLIST_LENGTH(zl)--;
+    ZIPLIST_INCR_LENGTH(zl,-1);
 
     /* Store new pointer to current element in p.
      * This needs to be done because zl can change on realloc. */
