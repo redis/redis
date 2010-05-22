@@ -374,18 +374,23 @@ unsigned int ziplistCompare(unsigned char *p, unsigned char *entry, unsigned int
     if (*p == ZIP_END) return 0;
 
     zlen = zipDecodeLength(p,&lensize);
-    if (zipTryEncoding(entry,&eval,&encoding)) {
-        /* Do integer compare */
-        zval = zipLoadInteger(p+lensize,ZIP_ENCODING(p));
-        return zval == eval;
-    } else {
+    if (ZIP_ENCODING(p) == ZIP_ENC_RAW) {
         /* Raw compare */
         if (zlen == elen) {
             return memcmp(p+lensize,entry,elen) == 0;
         } else {
             return 0;
         }
+    } else {
+        if (zipTryEncoding(entry,&eval,&encoding)) {
+            /* Do integer compare */
+            zval = zipLoadInteger(p+lensize,ZIP_ENCODING(p));
+            return zval == eval;
+        } else {
+            /* Ziplist entry is integer encoded, but given entry is not. */
+        }
     }
+    return 0;
 }
 
 /* Return length of ziplist. */
