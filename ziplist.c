@@ -388,6 +388,24 @@ unsigned int ziplistCompare(unsigned char *p, unsigned char *entry, unsigned int
     }
 }
 
+/* Return length of ziplist. */
+unsigned int ziplistLen(unsigned char *zl) {
+    unsigned int len = 0;
+    if (ZIPLIST_LENGTH(zl) < ZIP_BIGLEN) {
+        len = ZIPLIST_LENGTH(zl);
+    } else {
+        unsigned char *p = zl+ZIPLIST_HEADER_SIZE;
+        while (*p != ZIP_END) {
+            p += zipRawEntryLength(p);
+            len++;
+        }
+
+        /* Re-store length if small enough */
+        if (len < ZIP_BIGLEN) ZIPLIST_LENGTH(zl) = len;
+    }
+    return len;
+}
+
 void ziplistRepr(unsigned char *zl) {
     unsigned char *p, encoding;
     unsigned int l, lsize;
