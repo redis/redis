@@ -24,6 +24,7 @@
 #include "ziplist.h"
 
 #define ZIP_END 255
+#define ZIP_BIGLEN 254
 
 /* Entry encoding */
 #define ZIP_ENC_RAW     0
@@ -42,7 +43,7 @@
 #define ZIPLIST_LENGTH(zl) (*((zl)+sizeof(unsigned int)))
 #define ZIPLIST_HEADER_SIZE (sizeof(unsigned int)+1)
 #define ZIPLIST_INCR_LENGTH(zl,incr) { \
-    if (ZIPLIST_LENGTH(zl) < (ZIP_END-1)) ZIPLIST_LENGTH(zl)+=incr; }
+    if (ZIPLIST_LENGTH(zl) < ZIP_BIGLEN) ZIPLIST_LENGTH(zl)+=incr; }
 
 /* Return bytes needed to store integer encoded by 'encoding' */
 static unsigned int zipEncodingSize(char encoding) {
