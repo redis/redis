@@ -67,6 +67,7 @@ proc main {} {
     execute_tests "unit/sort"
     execute_tests "unit/expire"
     execute_tests "unit/other"
+    execute_tests "unit/cas"
     execute_tests "integration/replication"
     execute_tests "integration/aof"
 
@@ -81,6 +82,7 @@ proc main {} {
     execute_tests "unit/sort"
     execute_tests "unit/expire"
     execute_tests "unit/other"
+    execute_tests "unit/cas"
     
     puts "\n[expr $::passed+$::failed] tests, $::passed passed, $::failed failed"
     if {$::failed > 0} {
