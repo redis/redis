@@ -64,3 +64,8 @@ it's not a guarantee they'll ever get implemented ;)
 * Pattern-matching replication.
 * Add an option to relax the delete-expiring-keys-on-write semantic *denying* replication and AOF when this is on? Can be handy sometimes, when using Redis for non persistent state, but can create problems. For instance should rename and move also "move" the timeouts? How does this affect other commands?
 * Multiple BY in SORT.
+
+KNOWN BUGS
+==========
+
+* LRANGE and other commands are using 32 bit integers for ranges, and overflows are not detected. So LRANGE mylist 0 23498204823094823904823904 will have random effects.
