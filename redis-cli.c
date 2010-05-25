@@ -175,6 +175,8 @@ static struct redisCommand cmdTable[] = {
     {"psubscribe",-2,CMDFLAG_NONE},
     {"punsubscribe",-1,CMDFLAG_NONE},
     {"publish",3,CMDFLAG_NONE},
+    {"watch",-2,CMDFLAG_NONE},
+    {"unwatch",1,CMDFLAG_NONE},
     {NULL,0,CMDFLAG_NONE}
 };
 

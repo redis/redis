@@ -2743,6 +2743,7 @@ static redisClient *createClient(int fd) {
     c->blocking_keys = NULL;
     c->blocking_keys_num = 0;
     c->io_keys = listCreate();
+    c->watched_keys = listCreate();
     listSetFreeMethod(c->io_keys,decrRefCount);
     c->pubsub_channels = dictCreate(&setDictType,NULL);
     c->pubsub_patterns = listCreate();
