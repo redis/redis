@@ -63,4 +63,52 @@ start_server default.conf {} {
     test {UNWATCH when there is nothing watched works as expected} {
         r unwatch
     } {OK}
+
+    test {FLUSHALL is able to touch the watched keys} {
+        r set x 30
+        r watch x
+        r flushall
+        r multi
+        r ping
+        r exec
+    } {}
+
+    test {FLUSHALL does not touch non affected keys} {
+        r del x
+        r watch x
+        r flushall
+        r multi
+        r ping
+        r exec
+    } {PONG}
+
+    test {FLUSHDB is able to touch the watched keys} {
+        r set x 30
+        r watch x
+        r flushdb
+        r multi
+        r ping
+        r exec
+    } {}
+
+    test {FLUSHDB does not touch non affected keys} {
+        r del x
+        r watch x
+        r flushdb
+        r multi
+        r ping
+        r exec
+    } {PONG}
+
+    test {WATCH is able to remember the DB a key belongs to} {
+        r select 5
+        r set x 30
+        r watch x
+        r select 1
+        r set x 10
+        r select 5
+        r multi
+        r ping
+        r exec
+    } {PONG}
 }

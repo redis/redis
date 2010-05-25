@@ -637,6 +637,7 @@ static int rewriteAppendOnlyFileBackground(void);
 static int vmSwapObjectBlocking(robj *key, robj *val);
 static int prepareForShutdown();
 static void touchWatchedKey(redisDb *db, robj *key);
+static void touchWatchedKeysOnFlush(int dbid);
 static void unwatchAllKeys(redisClient *c);
 
 static void authCommand(redisClient *c);
@@ -6780,12 +6781,14 @@ static void convertToRealHash(robj *o) {
 
 static void flushdbCommand(redisClient *c) {
     server.dirty += dictSize(c->db->dict);
+    touchWatchedKeysOnFlush(c->db->id);
     dictEmpty(c->db->dict);
     dictEmpty(c->db->expires);
     addReply(c,shared.ok);
 }
 
 static void flushallCommand(redisClient *c) {
+    touchWatchedKeysOnFlush(-1);
     server.dirty += emptyDb();
     addReply(c,shared.ok);
     if (server.bgsavechildpid != -1) {
@@ -10472,6 +10475,33 @@ static void touchWatchedKey(redisDb *db, robj *key) {
         redisClient *c = listNodeValue(ln);
 
         c->flags |= REDIS_DIRTY_CAS;
+    }
+}
+
+/* On FLUSHDB or FLUSHALL all the watched keys that are present before the
+ * flush but will be deleted as effect of the flushing operation should
+ * be touched. "dbid" is the DB that's getting the flush. -1 if it is
+ * a FLUSHALL operation (all the DBs flushed). */
+static void touchWatchedKeysOnFlush(int dbid) {
+    listIter li1, li2;
+    listNode *ln;
+
+    /* For every client, check all the waited keys */
+    listRewind(server.clients,&li1);
+    while((ln = listNext(&li1))) {
+        redisClient *c = listNodeValue(ln);
+        listRewind(c->watched_keys,&li2);
+        while((ln = listNext(&li2))) {
+            watchedKey *wk = listNodeValue(ln);
+
+            /* For every watched key matching the specified DB, if the
+             * key exists, mark the client as dirty, as the key will be
+             * removed. */
+            if (dbid == -1 || wk->db->id == dbid) {
+                if (dictFind(wk->db->dict, wk->key) != NULL)
+                    c->flags |= REDIS_DIRTY_CAS;
+            }
+        }
     }
 }
 

@@ -15,6 +15,7 @@ proc test {name code okpattern} {
                 puts $warnings
             }
         }
+        puts "Script died with $error"
         exit 1
     }
     if {$okpattern eq $retval || [string match $okpattern $retval]} {
