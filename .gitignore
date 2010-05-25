@@ -13,3 +13,6 @@ release
 myredis.conf
 misc/*
 release.h
+appendonly.aof
+SHORT_TERM_TODO
+redis.conf.*
