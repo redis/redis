@@ -4683,6 +4683,7 @@ static void renameGenericCommand(redisClient *c, int nx) {
         incrRefCount(c->argv[2]);
     }
     deleteKey(c->db,c->argv[1]);
+    touchWatchedKey(c->db,c->argv[2]);
     server.dirty++;
     addReply(c,nx ? shared.cone : shared.ok);
 }
