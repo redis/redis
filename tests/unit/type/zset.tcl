@@ -316,6 +316,14 @@ start_server default.conf {} {
         list [r zunionstore zsetc 2 zseta zsetb weights 2 3] [r zrange zsetc 0 -1 withscores]
     } {4 {a 2 b 7 d 9 c 12}}
 
+	test {ZUNIONSTORE with a regular set and weights} {
+		r del seta
+		r sadd seta a
+		r sadd seta b
+		r sadd seta c
+        list [r zunionstore zsetc 2 seta zsetb weights 2 3] [r zrange zsetc 0 -1 withscores]
+	} {4 {a 2 b 5 c 8 d 9}}
+
     test {ZUNIONSTORE with AGGREGATE MIN} {
         list [r zunionstore zsetc 2 zseta zsetb aggregate min] [r zrange zsetc 0 -1 withscores]
     } {4 {a 1 b 1 c 2 d 3}}
@@ -331,6 +339,14 @@ start_server default.conf {} {
     test {ZINTERSTORE with weights} {
         list [r zinterstore zsetc 2 zseta zsetb weights 2 3] [r zrange zsetc 0 -1 withscores]
     } {2 {b 7 c 12}}
+
+	test {ZINTERSTORE with a regular set and weights} {
+		r del seta
+		r sadd seta a
+		r sadd seta b
+		r sadd seta c
+        list [r zinterstore zsetc 2 seta zsetb weights 2 3] [r zrange zsetc 0 -1 withscores]
+	} {2 {b 5 c 8}}
 
     test {ZINTERSTORE with AGGREGATE MIN} {
         list [r zinterstore zsetc 2 zseta zsetb aggregate min] [r zrange zsetc 0 -1 withscores]
