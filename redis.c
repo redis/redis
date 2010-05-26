@@ -2446,7 +2446,10 @@ static int processCommand(redisClient *c) {
     }
 
     /* Exec the command */
-    if (c->flags & REDIS_MULTI && cmd->proc != execCommand && cmd->proc != discardCommand) {
+    if (c->flags & REDIS_MULTI &&
+        cmd->proc != execCommand && cmd->proc != discardCommand &&
+        cmd->proc != multiCommand && cmd->proc != watchCommand)
+    {
         queueMultiCommand(c,cmd);
         addReply(c,shared.queued);
     } else {
@@ -7498,6 +7501,10 @@ static void queueMultiCommand(redisClient *c, struct redisCommand *cmd) {
 }
 
 static void multiCommand(redisClient *c) {
+    if (c->flags & REDIS_MULTI) {
+        addReplySds(c,sdsnew("-ERR MULTI calls can not be nested\r\n"));
+        return;
+    }
     c->flags |= REDIS_MULTI;
     addReply(c,shared.ok);
 }
@@ -10513,6 +10520,10 @@ static void touchWatchedKeysOnFlush(int dbid) {
 static void watchCommand(redisClient *c) {
     int j;
 
+    if (c->flags & REDIS_MULTI) {
+        addReplySds(c,sdsnew("-ERR WATCH inside MULTI is not allowed\r\n"));
+        return;
+    }
     for (j = 1; j < c->argc; j++)
         watchForKey(c,c->argv[j]);
     addReply(c,shared.ok);
