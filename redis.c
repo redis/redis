@@ -10469,7 +10469,7 @@ static void unwatchAllKeys(redisClient *c) {
     }
 }
 
-/* "Touch" a key, so that if this key is being WATCHed by soem client the
+/* "Touch" a key, so that if this key is being WATCHed by some client the
  * next EXEC will fail. */
 static void touchWatchedKey(redisDb *db, robj *key) {
     list *clients;
