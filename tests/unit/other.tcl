@@ -131,6 +131,22 @@ start_server default.conf {} {
         list $v1 $v2 $v3
     } {QUEUED OK {a b c}}
 
+    test {Nested MULTI are not allowed} {
+        set err {}
+        r multi
+        catch {[r multi]} err
+        r exec
+        set _ $err
+    } {*ERR MULTI*}
+
+    test {WATCH inside MULTI is not allowed} {
+        set err {}
+        r multi
+        catch {[r watch x]} err
+        r exec
+        set _ $err
+    } {*ERR WATCH*}
+
     test {APPEND basics} {
         list [r append foo bar] [r get foo] \
              [r append foo 100] [r get foo]
