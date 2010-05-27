@@ -58,9 +58,7 @@ zmalloc.o: zmalloc.c config.h
 redis-server: $(OBJ)
 	$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ)
 	@echo ""
-	@echo "Hint: To run the test-redis.tcl script is a good idea."
-	@echo "Launch the redis server with ./redis-server, then in another"
-	@echo "terminal window enter this directory and run 'make test'."
+	@echo "Hint: To run 'make test' is a good idea ;)"
 	@echo ""
 
 redis-benchmark: $(BENCHOBJ)
