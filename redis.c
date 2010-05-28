@@ -1386,7 +1386,7 @@ void backgroundRewriteDoneHandler(int statloc) {
             /* If append only is actually enabled... */
             close(server.appendfd);
             server.appendfd = fd;
-            fsync(fd);
+            if (appendfsync != APPENDFSYNC_NO) aof_fsync(fd);
             server.appendseldb = -1; /* Make sure it will issue SELECT */
             redisLog(REDIS_NOTICE,"The new append only file was selected for future appends.");
         } else {
@@ -4200,7 +4200,7 @@ static int prepareForShutdown() {
     }
     if (server.appendonly) {
         /* Append only file: fsync() the AOF and exit */
-        fsync(server.appendfd);
+        aof_fsync(server.appendfd);
         if (server.vm_enabled) unlink(server.vm_swap_file);
     } else {
         /* Snapshotting. Perform a SYNC SAVE and exit */
@@ -8686,7 +8686,7 @@ static int rewriteAppendOnlyFile(char *filename) {
 
     /* Make sure data will not remain on the OS's output buffers */
     fflush(fp);
-    fsync(fileno(fp));
+    aof_fsync(fileno(fp));
     fclose(fp);
 
     /* Use RENAME to make sure the DB file is changed atomically only
@@ -8803,7 +8803,7 @@ static void aofRemoveTempFile(pid_t childpid) {
  * at runtime using the CONFIG command. */
 static void stopAppendOnly(void) {
     flushAppendOnlyFile();
-    fsync(server.appendfd);
+    aof_fsync(server.appendfd);
     close(server.appendfd);
 
     server.appendfd = -1;
