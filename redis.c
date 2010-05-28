@@ -752,7 +752,9 @@ static void unwatchCommand(redisClient *c);
 
 /* Global vars */
 static struct redisServer server; /* server global state */
-static struct redisCommand cmdTable[] = {
+static struct redisCommand *commandTable;
+static unsigned int commandTableSize;
+static struct redisCommand readonlyCommandTable[] = {
     {"get",getCommand,2,REDIS_CMD_INLINE,NULL,1,1,1},
     {"set",setCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,NULL,0,0,0},
     {"setnx",setnxCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,NULL,0,0,0},
@@ -2247,13 +2249,33 @@ static void sendReplyToClientWritev(aeEventLoop *el, int fd, void *privdata, int
     }
 }
 
+static int qsortRedisCommands(const void *r1, const void *r2) {
+    return strcasecmp(
+        ((struct redisCommand*)r1)->name,
+        ((struct redisCommand*)r2)->name);
+}
+
+static void sortCommandTable() {
+    int i = 0, size = 0;
+
+    /* Determine and store the size of the command table */
+    while(readonlyCommandTable[i++].name != NULL) size++;
+    commandTableSize = size;
+
+    /* Copy and sort the read-only version of the command table */
+    commandTable = (struct redisCommand*)malloc(sizeof(readonlyCommandTable));
+    memcpy(commandTable,readonlyCommandTable,sizeof(readonlyCommandTable));
+    qsort(commandTable,size,sizeof(struct redisCommand),qsortRedisCommands);
+}
+
 static struct redisCommand *lookupCommand(char *name) {
-    int j = 0;
-    while(cmdTable[j].name != NULL) {
-        if (!strcasecmp(name,cmdTable[j].name)) return &cmdTable[j];
-        j++;
-    }
-    return NULL;
+    struct redisCommand tmp = {name,NULL,0,0,NULL,0,0,0};
+    return bsearch(
+        &tmp,
+        commandTable,
+        commandTableSize,
+        sizeof(struct redisCommand),
+        qsortRedisCommands);
 }
 
 /* resetClient prepare the client to process the next command */
@@ -10935,6 +10957,7 @@ int main(int argc, char **argv) {
     time_t start;
 
     initServerConfig();
+    sortCommandTable();
     if (argc == 2) {
         if (strcmp(argv[1], "-v") == 0 ||
             strcmp(argv[1], "--version") == 0) version();
