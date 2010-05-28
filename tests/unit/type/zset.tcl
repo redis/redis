@@ -397,4 +397,23 @@ start_server default.conf {} {
         }
         set _ $err
     } {}
+
+    test {ZSET element can't be set to nan with ZADD} {
+        set e {}
+        catch {r zadd myzset nan abc} e
+        set _ $e
+    } {*Not A Number*}
+
+    test {ZSET element can't be set to nan with ZINCRBY} {
+        set e {}
+        catch {r zincrby myzset nan abc} e
+        set _ $e
+    } {*Not A Number*}
+
+    test {ZINCRBY calls leading to Nan are refused} {
+        set e {}
+        r zincrby myzset +inf abc
+        catch {r zincrby myzset -inf abc} e
+        set _ $e
+    } {*Not A Number*}
 }
