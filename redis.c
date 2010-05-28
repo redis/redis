@@ -1386,7 +1386,7 @@ void backgroundRewriteDoneHandler(int statloc) {
             /* If append only is actually enabled... */
             close(server.appendfd);
             server.appendfd = fd;
-            if (appendfsync != APPENDFSYNC_NO) aof_fsync(fd);
+            if (server.appendfsync != APPENDFSYNC_NO) aof_fsync(fd);
             server.appendseldb = -1; /* Make sure it will issue SELECT */
             redisLog(REDIS_NOTICE,"The new append only file was selected for future appends.");
         } else {
