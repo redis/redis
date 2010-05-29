@@ -340,7 +340,7 @@ static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, char 
     /* When the insert position is not equal to the tail, we need to
      * make sure that the next entry can hold this entry's length in
      * its prevlen field. */
-    nextdiff = p[0] != ZIP_END ? zipPrevLenByteDiff(p,reqlen) : 0;
+    nextdiff = (p[0] != ZIP_END) ? zipPrevLenByteDiff(p,reqlen) : 0;
 
     /* Store offset because a realloc may change the address of zl. */
     offset = p-zl;
@@ -424,12 +424,12 @@ unsigned char *ziplistIndex(unsigned char *zl, int index) {
             p += zipRawEntryLength(p);
         }
     }
-    return p[0] == ZIP_END || index > 0 ? NULL : p;
+    return (p[0] == ZIP_END || index > 0) ? NULL : p;
 }
 
 /* Return pointer to next entry in ziplist. */
 unsigned char *ziplistNext(unsigned char *p) {
-    return *p == ZIP_END ? p : p+zipRawEntryLength(p);
+    return (p[0] == ZIP_END) ? NULL : p+zipRawEntryLength(p);
 }
 
 /* Get entry pointer to by 'p' and store in either 'e' or 'v' depending
@@ -479,7 +479,7 @@ unsigned int ziplistCompare(unsigned char *p, char *sstr, unsigned int slen) {
     zlentry entry;
     char sencoding;
     long long val, sval;
-    if (*p == ZIP_END) return 0;
+    if (p[0] == ZIP_END) return 0;
 
     entry = zipEntry(p);
     if (entry.encoding == ZIP_ENC_RAW) {
