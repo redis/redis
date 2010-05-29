@@ -286,64 +286,77 @@ static unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, int n
     return zl;
 }
 
-unsigned char *ziplistPush(unsigned char *zl, unsigned char *entry, unsigned int elen, int where) {
-    unsigned int curlen = ZIPLIST_BYTES(zl), reqlen, prevlen;
-    unsigned char *p, *curtail;
+/* Insert item at "p". */
+static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen) {
+    unsigned int curlen = ZIPLIST_BYTES(zl), reqlen, prevlen = 0;
+    unsigned int offset, nextdiff = 0;
+    unsigned char *tail;
     char encoding = ZIP_ENC_RAW;
     long long value;
+    zlentry entry;
 
-    /* We need to store the length of the current tail when the list
-     * is non-empty and we push at the tail. */
-    curtail = zl+ZIPLIST_TAIL_OFFSET(zl);
-    if (where == ZIPLIST_TAIL && curtail[0] != ZIP_END) {
-        prevlen = zipRawEntryLength(curtail);
+    /* Find out prevlen for the entry that is inserted. */
+    if (p[0] != ZIP_END) {
+        entry = zipEntry(p);
+        prevlen = entry.prevrawlen;
     } else {
-        prevlen = 0;
+        tail = ziplistTail(zl);
+        if (tail[0] != ZIP_END) {
+            prevlen = zipRawEntryLength(tail);
+        }
     }
 
     /* See if the entry can be encoded */
-    if (zipTryEncoding(entry,&value,&encoding)) {
+    if (zipTryEncoding(s,&value,&encoding)) {
         reqlen = zipEncodingSize(encoding);
     } else {
-        reqlen = elen;
+        reqlen = slen;
     }
 
     /* We need space for both the length of the previous entry and
      * the length of the payload. */
     reqlen += zipEncodeLength(NULL,ZIP_ENC_RAW,prevlen);
-    reqlen += zipEncodeLength(NULL,encoding,elen);
+    reqlen += zipEncodeLength(NULL,encoding,slen);
 
-    /* Resize the ziplist and move if needed */
-    zl = ziplistResize(zl,curlen+reqlen);
-    if (where == ZIPLIST_HEAD) {
-        p = zl+ZIPLIST_HEADER_SIZE;
-        if (*p != ZIP_END) {
-            /* Subtract one because of the ZIP_END bytes */
-            memmove(p+reqlen,p,curlen-ZIPLIST_HEADER_SIZE-1);
-        }
+    /* When the insert position is not equal to the tail, we need to
+     * make sure that the next entry can hold this entry's length in
+     * its prevlen field. */
+    nextdiff = p[0] != ZIP_END ? zipPrevLenByteDiff(p,reqlen) : 0;
+
+    /* Store offset because a realloc may change the address of zl. */
+    offset = p-zl;
+    zl = ziplistResize(zl,curlen+reqlen+nextdiff);
+    p = zl+offset;
+
+    /* Apply memory move when necessary and update tail offset. */
+    if (p[0] != ZIP_END) {
+        /* Subtract one because of the ZIP_END bytes */
+        memmove(p+reqlen,p-nextdiff,curlen-offset-1+nextdiff);
+        /* Encode this entry's raw length in the next entry. */
+        zipEncodeLength(p+reqlen,ZIP_ENC_RAW,reqlen);
+        /* Update offset for tail */
+        ZIPLIST_TAIL_OFFSET(zl) += reqlen+nextdiff;
     } else {
-        p = zl+curlen-1;
-    }
-
-    /* Update tail offset if this is not the first element */
-    if (curtail[0] != ZIP_END) {
-        if (where == ZIPLIST_HEAD) {
-            ZIPLIST_TAIL_OFFSET(zl) += reqlen;
-        } else {
-            ZIPLIST_TAIL_OFFSET(zl) += prevlen;
-        }
+        /* This element will be the new tail. */
+        ZIPLIST_TAIL_OFFSET(zl) = p-zl;
     }
 
     /* Write the entry */
     p += zipEncodeLength(p,ZIP_ENC_RAW,prevlen);
-    p += zipEncodeLength(p,encoding,elen);
+    p += zipEncodeLength(p,encoding,slen);
     if (encoding != ZIP_ENC_RAW) {
         zipSaveInteger(p,value,encoding);
     } else {
-        memcpy(p,entry,elen);
+        memcpy(p,s,slen);
     }
     ZIPLIST_INCR_LENGTH(zl,1);
     return zl;
+}
+
+unsigned char *ziplistPush(unsigned char *zl, unsigned char *s, unsigned int slen, int where) {
+    unsigned char *p;
+    p = (where == ZIPLIST_HEAD) ? ziplistHead(zl) : (zl+ZIPLIST_BYTES(zl)-1);
+    return __ziplistInsert(zl,p,s,slen);
 }
 
 unsigned char *ziplistPop(unsigned char *zl, sds *target, int where) {
