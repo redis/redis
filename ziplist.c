@@ -411,6 +411,11 @@ unsigned int ziplistLen(unsigned char *zl) {
     return len;
 }
 
+/* Return size in bytes of ziplist. */
+unsigned int ziplistSize(unsigned char *zl) {
+    return ZIPLIST_BYTES(zl);
+}
+
 void ziplistRepr(unsigned char *zl) {
     unsigned char *p, encoding;
     unsigned int l, lsize;
