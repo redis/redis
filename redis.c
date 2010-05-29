@@ -75,6 +75,7 @@
 #include "lzf.h"    /* LZF compression library */
 #include "pqsort.h" /* Partial qsort for SORT+LIMIT */
 #include "zipmap.h" /* Compact dictionary-alike data structure */
+#include "ziplist.h" /* Compact list data structure */
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
 #include "release.h" /* Release and/or git repository information */
 
@@ -124,10 +125,12 @@
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
  * is set to one of this fields for this object. */
-#define REDIS_ENCODING_RAW 0    /* Raw representation */
-#define REDIS_ENCODING_INT 1    /* Encoded as integer */
-#define REDIS_ENCODING_ZIPMAP 2 /* Encoded as zipmap */
-#define REDIS_ENCODING_HT 3     /* Encoded as an hash table */
+#define REDIS_ENCODING_RAW 0     /* Raw representation */
+#define REDIS_ENCODING_INT 1     /* Encoded as integer */
+#define REDIS_ENCODING_HT 2      /* Encoded as hash table */
+#define REDIS_ENCODING_ZIPMAP 3  /* Encoded as zipmap */
+#define REDIS_ENCODING_LIST 4    /* Encoded as zipmap */
+#define REDIS_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
 
 static char* strencoding[] = {
     "raw", "int", "zipmap", "hashtable"
@@ -3016,7 +3019,16 @@ static void freeStringObject(robj *o) {
 }
 
 static void freeListObject(robj *o) {
-    listRelease((list*) o->ptr);
+    switch (o->encoding) {
+    case REDIS_ENCODING_LIST:
+        listRelease((list*) o->ptr);
+        break;
+    case REDIS_ENCODING_ZIPLIST:
+        zfree(o->ptr);
+        break;
+    default:
+        redisPanic("Unknown list encoding type");
+    }
 }
 
 static void freeSetObject(robj *o) {
@@ -4760,26 +4772,36 @@ static void moveCommand(redisClient *c) {
 }
 
 /* =================================== Lists ================================ */
-static void pushGenericCommand(redisClient *c, int where) {
-    robj *lobj;
-    list *list;
+static void lPush(robj *subject, robj *value, int where) {
+    if (subject->encoding == REDIS_ENCODING_ZIPLIST) {
+        int pos = (where == REDIS_HEAD) ? ZIPLIST_HEAD : ZIPLIST_TAIL;
+        value = getDecodedObject(value);
+        subject->ptr = ziplistPush(subject->ptr,value->ptr,sdslen(value->ptr),pos);
+        decrRefCount(value);
+    } else if (subject->encoding == REDIS_ENCODING_LIST) {
+        if (where == REDIS_HEAD) {
+            listAddNodeHead(subject->ptr,value);
+        } else {
+            listAddNodeTail(subject->ptr,value);
+        }
+        incrRefCount(value);
+    } else {
+        redisPanic("Unknown list encoding");
+    }
+}
 
-    lobj = lookupKeyWrite(c->db,c->argv[1]);
+
+static void pushGenericCommand(redisClient *c, int where) {
+    robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
     if (lobj == NULL) {
         if (handleClientsWaitingListPush(c,c->argv[1],c->argv[2])) {
             addReply(c,shared.cone);
             return;
         }
-        lobj = createListObject();
-        list = lobj->ptr;
-        if (where == REDIS_HEAD) {
-            listAddNodeHead(list,c->argv[2]);
-        } else {
-            listAddNodeTail(list,c->argv[2]);
-        }
+        lobj = createObject(REDIS_LIST,ziplistNew());
+        lobj->encoding = REDIS_ENCODING_ZIPLIST;
         dictAdd(c->db->dict,c->argv[1],lobj);
         incrRefCount(c->argv[1]);
-        incrRefCount(c->argv[2]);
     } else {
         if (lobj->type != REDIS_LIST) {
             addReply(c,shared.wrongtypeerr);
@@ -4789,16 +4811,10 @@ static void pushGenericCommand(redisClient *c, int where) {
             addReply(c,shared.cone);
             return;
         }
-        list = lobj->ptr;
-        if (where == REDIS_HEAD) {
-            listAddNodeHead(list,c->argv[2]);
-        } else {
-            listAddNodeTail(list,c->argv[2]);
-        }
-        incrRefCount(c->argv[2]);
     }
+    lPush(lobj,c->argv[2],where);
+    addReplyLongLong(c,lLength(lobj));
     server.dirty++;
-    addReplyLongLong(c,listLength(list));
 }
 
 static void lpushCommand(redisClient *c) {
