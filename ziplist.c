@@ -461,12 +461,12 @@ unsigned int ziplistCompare(unsigned char *p, unsigned char *s, unsigned int sle
             return 0;
         }
     } else {
+        /* Try to compare encoded values */
         if (zipTryEncoding(s,&sval,&sencoding)) {
-            /* Do integer compare */
-            val = zipLoadInteger(p+entry.headersize,entry.encoding);
-            return val == sval;
-        } else {
-            /* Ziplist entry is integer encoded, but given entry is not. */
+            if (entry.encoding == sencoding) {
+                val = zipLoadInteger(p+entry.headersize,entry.encoding);
+                return val == sval;
+            }
         }
     }
     return 0;
