@@ -4,7 +4,7 @@
 unsigned char *ziplistNew(void);
 unsigned char *ziplistPush(unsigned char *zl, char *s, unsigned int slen, int where);
 unsigned char *ziplistPop(unsigned char *zl, sds *target, int where);
-unsigned char *ziplistIndex(unsigned char *zl, unsigned int index);
+unsigned char *ziplistIndex(unsigned char *zl, int index);
 unsigned char *ziplistNext(unsigned char *p);
 unsigned int ziplistGet(unsigned char *p, char **sstr, unsigned int *slen, long long *sval);
 unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p);
