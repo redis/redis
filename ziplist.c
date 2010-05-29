@@ -384,20 +384,20 @@ unsigned char *ziplistNext(unsigned char *p) {
  * on the encoding of the entry. 'e' is always set to NULL to be able
  * to find out whether the string pointer or the integer value was set.
  * Return 0 if 'p' points to the end of the zipmap, 1 otherwise. */
-unsigned int ziplistGet(unsigned char *p, unsigned char **e, unsigned int *elen, long long *v) {
+unsigned int ziplistGet(unsigned char *p, unsigned char **sstr, unsigned int *slen, long long *sval) {
     zlentry entry;
     if (*p == ZIP_END) return 0;
-    if (e) *e = NULL;
+    if (sstr) *sstr = NULL;
 
     entry = zipEntry(p);
     if (entry.encoding == ZIP_ENC_RAW) {
-        if (e) {
-            *elen = entry.len;
-            *e = p+entry.headersize;
+        if (sstr) {
+            *slen = entry.len;
+            *sstr = p+entry.headersize;
         }
     } else {
-        if (v) {
-            *v = zipLoadInteger(p+entry.headersize,entry.encoding);
+        if (sval) {
+            *sval = zipLoadInteger(p+entry.headersize,entry.encoding);
         }
     }
     return 1;
@@ -446,7 +446,7 @@ unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p) {
 }
 
 /* Compare entry pointer to by 'p' with 'entry'. Return 1 if equal. */
-unsigned int ziplistCompare(unsigned char *p, unsigned char *s, unsigned int slen) {
+unsigned int ziplistCompare(unsigned char *p, unsigned char *sstr, unsigned int slen) {
     zlentry entry;
     unsigned char sencoding;
     long long val, sval;
@@ -456,13 +456,13 @@ unsigned int ziplistCompare(unsigned char *p, unsigned char *s, unsigned int sle
     if (entry.encoding == ZIP_ENC_RAW) {
         /* Raw compare */
         if (entry.len == slen) {
-            return memcmp(p+entry.headersize,s,slen) == 0;
+            return memcmp(p+entry.headersize,sstr,slen) == 0;
         } else {
             return 0;
         }
     } else {
         /* Try to compare encoded values */
-        if (zipTryEncoding(s,&sval,&sencoding)) {
+        if (zipTryEncoding(sstr,&sval,&sencoding)) {
             if (entry.encoding == sencoding) {
                 val = zipLoadInteger(p+entry.headersize,entry.encoding);
                 return val == sval;
