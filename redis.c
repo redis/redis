@@ -4790,6 +4790,52 @@ static void lPush(robj *subject, robj *value, int where) {
     }
 }
 
+static robj *lPop(robj *subject, int where) {
+    robj *value = NULL;
+    if (subject->encoding == REDIS_ENCODING_ZIPLIST) {
+        unsigned char *p;
+        char *v;
+        unsigned int vlen;
+        long long vval;
+        int pos = (where == REDIS_HEAD) ? 0 : -1;
+        p = ziplistIndex(subject->ptr,pos);
+        if (ziplistGet(p,&v,&vlen,&vval)) {
+            if (v) {
+                value = createStringObject(v,vlen);
+            } else {
+                value = createStringObjectFromLongLong(vval);
+            }
+        }
+        subject->ptr = ziplistDelete(subject->ptr,&p,ZIPLIST_TAIL);
+    } else if (subject->encoding == REDIS_ENCODING_LIST) {
+        list *list = subject->ptr;
+        listNode *ln;
+        if (where == REDIS_HEAD) {
+            ln = listFirst(list);
+        } else {
+            ln = listLast(list);
+        }
+        if (ln != NULL) {
+            value = listNodeValue(ln);
+            incrRefCount(value);
+            listDelNode(list,ln);
+        }
+    } else {
+        redisPanic("Unknown list encoding");
+    }
+    return value;
+}
+
+static unsigned long lLength(robj *subject) {
+    if (subject->encoding == REDIS_ENCODING_ZIPLIST) {
+        return ziplistLen(subject->ptr);
+    } else if (subject->encoding == REDIS_ENCODING_LIST) {
+        return listLength((list*)subject->ptr);
+    } else {
+        redisPanic("Unknown list encoding");
+    }
+}
+
 
 static void pushGenericCommand(redisClient *c, int where) {
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
@@ -4826,14 +4872,9 @@ static void rpushCommand(redisClient *c) {
 }
 
 static void llenCommand(redisClient *c) {
-    robj *o;
-    list *l;
-
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,o,REDIS_LIST)) return;
-
-    l = o->ptr;
-    addReplyUlong(c,listLength(l));
+    robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.czero);
+    if (o == NULL || checkType(c,o,REDIS_LIST)) return;
+    addReplyUlong(c,lLength(o));
 }
 
 static void lindexCommand(redisClient *c) {
@@ -4880,26 +4921,16 @@ static void lsetCommand(redisClient *c) {
 }
 
 static void popGenericCommand(redisClient *c, int where) {
-    robj *o;
-    list *list;
-    listNode *ln;
+    robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk);
+    if (o == NULL || checkType(c,o,REDIS_LIST)) return;
 
-    if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
-        checkType(c,o,REDIS_LIST)) return;
-    list = o->ptr;
-
-    if (where == REDIS_HEAD)
-        ln = listFirst(list);
-    else
-        ln = listLast(list);
-
-    if (ln == NULL) {
+    robj *value = lPop(o,where);
+    if (value == NULL) {
         addReply(c,shared.nullbulk);
     } else {
-        robj *ele = listNodeValue(ln);
-        addReplyBulk(c,ele);
-        listDelNode(list,ln);
-        if (listLength(list) == 0) deleteKey(c->db,c->argv[1]);
+        addReplyBulk(c,value);
+        decrRefCount(value);
+        if (lLength(o) == 0) deleteKey(c->db,c->argv[1]);
         server.dirty++;
     }
 }
