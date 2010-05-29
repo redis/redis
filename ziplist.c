@@ -209,14 +209,10 @@ static zlentry zipEntry(unsigned char *p) {
     return e;
 }
 
-/* Return the total amount used by an entry (encoded length + payload). */
+/* Return the total number of bytes used by the entry at "p". */
 static unsigned int zipRawEntryLength(unsigned char *p) {
-    unsigned int prevlensize, lensize, len;
-    /* Byte-size of encoded length of previous entry */
-    zipDecodeLength(p,&prevlensize);
-    /* Encoded length of this entry's payload */
-    len = zipDecodeLength(p+prevlensize, &lensize);
-    return prevlensize+lensize+len;
+    zlentry e = zipEntry(p);
+    return e.headersize + e.len;
 }
 
 /* Create a new empty ziplist. */
