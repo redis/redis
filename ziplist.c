@@ -432,6 +432,12 @@ unsigned char *ziplistNext(unsigned char *p) {
     return (p[0] == ZIP_END) ? NULL : p+zipRawEntryLength(p);
 }
 
+/* Return pointer to previous entry in ziplist. */
+unsigned char *ziplistPrev(unsigned char *p) {
+    zlentry entry = zipEntry(p);
+    return (entry.prevrawlen == 0) ? NULL : p-entry.prevrawlen;
+}
+
 /* Get entry pointer to by 'p' and store in either 'e' or 'v' depending
  * on the encoding of the entry. 'e' is always set to NULL to be able
  * to find out whether the string pointer or the integer value was set.
@@ -455,10 +461,9 @@ unsigned int ziplistGet(unsigned char *p, char **sstr, unsigned int *slen, long 
     return 1;
 }
 
-/* Delete a range of entries from the ziplist. */
-unsigned char *ziplistDeleteRange(unsigned char *zl, unsigned int index, unsigned int num) {
-    unsigned char *p = ziplistIndex(zl,index);
-    return p == NULL ? zl : __ziplistDelete(zl,p,num);
+/* Insert an entry at "p". */
+unsigned char *ziplistInsert(unsigned char *zl, unsigned char *p, char *s, unsigned int slen) {
+    return __ziplistInsert(zl,p,s,slen);
 }
 
 /* Delete a single entry from the ziplist, pointed to by *p.
@@ -472,6 +477,12 @@ unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p) {
      * do a realloc which might result in a different "zl"-pointer. */
     *p = zl+offset;
     return zl;
+}
+
+/* Delete a range of entries from the ziplist. */
+unsigned char *ziplistDeleteRange(unsigned char *zl, unsigned int index, unsigned int num) {
+    unsigned char *p = ziplistIndex(zl,index);
+    return (p == NULL) ? zl : __ziplistDelete(zl,p,num);
 }
 
 /* Compare entry pointer to by 'p' with 'entry'. Return 1 if equal. */
