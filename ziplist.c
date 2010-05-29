@@ -56,6 +56,7 @@ typedef struct zlentry {
     unsigned int lensize, len;
     unsigned int headersize;
     unsigned char encoding;
+    unsigned char *p;
 } zlentry;
 
 /* Return bytes needed to store integer encoded by 'encoding' */
@@ -206,6 +207,7 @@ static zlentry zipEntry(unsigned char *p) {
     e.len = zipDecodeLength(p+e.prevrawlensize,&e.lensize);
     e.headersize = e.prevrawlensize+e.lensize;
     e.encoding = ZIP_ENCODING(p+e.prevrawlensize);
+    e.p = p;
     return e;
 }
 
@@ -246,6 +248,42 @@ static unsigned char *ziplistTail(unsigned char *zl) {
         p += zipRawEntryLength(p);
     }
     return q;
+
+/* Delete "num" entries, starting at "p". Returns pointer to the ziplist. */
+static unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, int num) {
+    unsigned int i, totlen, deleted = 0;
+    int nextdiff = 0;
+    zlentry first = zipEntry(p);
+    for (i = 0; p[0] != ZIP_END && i < num; i++) {
+        p += zipRawEntryLength(p);
+        deleted++;
+    }
+
+    totlen = p-first.p;
+    if (totlen > 0) {
+        if (p[0] != ZIP_END) {
+            /* Tricky: storing the prevlen in this entry might reduce or
+             * increase the number of bytes needed, compared to the current
+             * prevlen. Note that we can always store this length because
+             * it was previously stored by an entry that is being deleted. */
+            nextdiff = zipPrevLenByteDiff(p,first.prevrawlen);
+            zipEncodeLength(p-nextdiff,ZIP_ENC_RAW,first.prevrawlen);
+
+            /* Update offset for tail */
+            ZIPLIST_TAIL_OFFSET(zl) -= totlen+nextdiff;
+
+            /* Move tail to the front of the ziplist */
+            memmove(first.p,p-nextdiff,ZIPLIST_BYTES(zl)-(p-zl)-1+nextdiff);
+        } else {
+            /* The entire tail was deleted. No need to move memory. */
+            ZIPLIST_TAIL_OFFSET(zl) = (first.p-zl)-first.prevrawlen;
+        }
+
+        /* Resize and update length */
+        zl = ziplistResize(zl, ZIPLIST_BYTES(zl)-totlen+nextdiff);
+        ZIPLIST_INCR_LENGTH(zl,-deleted);
+    }
+    return zl;
 }
 
 unsigned char *ziplistPush(unsigned char *zl, unsigned char *entry, unsigned int elen, int where) {
@@ -309,9 +347,7 @@ unsigned char *ziplistPush(unsigned char *zl, unsigned char *entry, unsigned int
 }
 
 unsigned char *ziplistPop(unsigned char *zl, sds *target, int where) {
-    unsigned int curlen = ZIPLIST_BYTES(zl), rawlen;
     zlentry entry;
-    int nextdiff = 0;
     unsigned char *p;
     long long value;
     if (target) *target = NULL;
@@ -321,7 +357,6 @@ unsigned char *ziplistPop(unsigned char *zl, sds *target, int where) {
     if (*p == ZIP_END) return zl;
 
     entry = zipEntry(p);
-    rawlen = entry.headersize+entry.len;
     if (target) {
         if (entry.encoding == ZIP_ENC_RAW) {
             *target = sdsnewlen(p+entry.headersize,entry.len);
@@ -331,32 +366,7 @@ unsigned char *ziplistPop(unsigned char *zl, sds *target, int where) {
         }
     }
 
-    if (where == ZIPLIST_HEAD) {
-        /* The next entry will now be the head of the list */
-        if (p[rawlen] != ZIP_END) {
-            /* Tricky: storing the length of the previous entry in the next
-             * entry (this previous length is always 0 when popping from the
-             * head), might reduce the number of bytes needed.
-             *
-             * In this special case (new length is 0), we know that the
-             * byte difference to store is always <= 0, which means that
-             * we always have space to store it. */
-            nextdiff = zipPrevLenByteDiff(p+rawlen,0);
-            zipEncodeLength(p+rawlen-nextdiff,ZIP_ENC_RAW,0);
-        }
-        /* Move list to the front */
-        memmove(p,p+rawlen-nextdiff,curlen-ZIPLIST_HEADER_SIZE-rawlen+nextdiff);
-
-        /* Subtract the gained space from the tail offset */
-        ZIPLIST_TAIL_OFFSET(zl) -= rawlen+nextdiff;
-    } else {
-        /* Subtract the length of the previous element from the tail offset. */
-        ZIPLIST_TAIL_OFFSET(zl) -= entry.prevrawlen;
-    }
-
-    /* Resize and update length */
-    zl = ziplistResize(zl,curlen-rawlen+nextdiff);
-    ZIPLIST_INCR_LENGTH(zl,-1);
+    zl = __ziplistDelete(zl,p,1);
     return zl;
 }
 
@@ -401,42 +411,19 @@ unsigned int ziplistGet(unsigned char *p, unsigned char **sstr, unsigned int *sl
 
 /* Delete a range of entries from the ziplist. */
 unsigned char *ziplistDeleteRange(unsigned char *zl, unsigned int index, unsigned int num) {
-    unsigned char *p, *first = ziplistIndex(zl, index);
-    unsigned int i, totlen, deleted = 0;
-    for (p = first, i = 0; *p != ZIP_END && i < num; i++) {
-        p += zipRawEntryLength(p);
-        deleted++;
-    }
-
-    totlen = p-first;
-    if (totlen > 0) {
-        /* Move current tail to the new tail when there *is* a tail */
-        if (*p != ZIP_END) memmove(first,p,ZIPLIST_BYTES(zl)-(p-zl)-1);
-
-        /* Resize and update length */
-        zl = ziplistResize(zl, ZIPLIST_BYTES(zl)-totlen);
-        ZIPLIST_INCR_LENGTH(zl,-deleted);
-    }
-    return zl;
+    unsigned char *p = ziplistIndex(zl,index);
+    return __ziplistDelete(zl,p,num);
 }
 
 /* Delete a single entry from the ziplist, pointed to by *p.
  * Also update *p in place, to be able to iterate over the
  * ziplist, while deleting entries. */
 unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p) {
-    unsigned int offset = *p-zl, tail, len;
-    len = zipRawEntryLength(*p);
-    tail = ZIPLIST_BYTES(zl)-offset-len-1;
+    unsigned int offset = *p-zl;
+    zl = __ziplistDelete(zl,*p,1);
 
-    /* Move current tail to the new tail when there *is* a tail */
-    if (tail > 0) memmove(*p,*p+len,tail);
-
-    /* Resize and update length */
-    zl = ziplistResize(zl, ZIPLIST_BYTES(zl)-len);
-    ZIPLIST_INCR_LENGTH(zl,-1);
-
-    /* Store new pointer to current element in p.
-     * This needs to be done because zl can change on realloc. */
+    /* Store pointer to current element in p, because ziplistDelete will
+     * do a realloc which might result in a different "zl"-pointer. */
     *p = zl+offset;
     return zl;
 }
