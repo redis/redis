@@ -133,12 +133,41 @@ static unsigned int zipEncodeLength(unsigned char *p, char encoding, unsigned in
     return len;
 }
 
+/* Decode the length of the previous element stored at "p". */
+static unsigned int zipPrevDecodeLength(unsigned char *p, unsigned int *lensize) {
+    unsigned int len = *p;
+    if (len < ZIP_BIGLEN) {
+        if (lensize) *lensize = 1;
+    } else {
+        if (lensize) *lensize = 1+sizeof(len);
+        memcpy(&len,p+1,sizeof(len));
+    }
+    return len;
+}
+
+/* Encode the length of the previous entry and write it to "p". Return the
+ * number of bytes needed to encode this length if "p" is NULL. */
+static unsigned int zipPrevEncodeLength(unsigned char *p, unsigned int len) {
+    if (p == NULL) {
+        return (len < ZIP_BIGLEN) ? 1 : sizeof(len)+1;
+    } else {
+        if (len < ZIP_BIGLEN) {
+            p[0] = len;
+            return 1;
+        } else {
+            p[0] = ZIP_BIGLEN;
+            memcpy(p+1,&len,sizeof(len));
+            return 1+sizeof(len);
+        }
+    }
+}
+
 /* Return the difference in number of bytes needed to store the new length
  * "len" on the entry pointed to by "p". */
 static int zipPrevLenByteDiff(unsigned char *p, unsigned int len) {
     unsigned int prevlensize;
-    zipDecodeLength(p,&prevlensize);
-    return zipEncodeLength(NULL,ZIP_ENC_RAW,len)-prevlensize;
+    zipPrevDecodeLength(p,&prevlensize);
+    return zipPrevEncodeLength(NULL,len)-prevlensize;
 }
 
 /* Check if string pointed to by 'entry' can be encoded as an integer.
@@ -206,7 +235,7 @@ static long long zipLoadInteger(unsigned char *p, char encoding) {
 /* Return a struct with all information about an entry. */
 static zlentry zipEntry(unsigned char *p) {
     zlentry e;
-    e.prevrawlen = zipDecodeLength(p,&e.prevrawlensize);
+    e.prevrawlen = zipPrevDecodeLength(p,&e.prevrawlensize);
     e.len = zipDecodeLength(p+e.prevrawlensize,&e.lensize);
     e.headersize = e.prevrawlensize+e.lensize;
     e.encoding = ZIP_ENCODING(p+e.prevrawlensize);
@@ -257,7 +286,7 @@ static unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, int n
              * prevlen. Note that we can always store this length because
              * it was previously stored by an entry that is being deleted. */
             nextdiff = zipPrevLenByteDiff(p,first.prevrawlen);
-            zipEncodeLength(p-nextdiff,ZIP_ENC_RAW,first.prevrawlen);
+            zipPrevEncodeLength(p-nextdiff,first.prevrawlen);
 
             /* Update offset for tail */
             ZIPLIST_TAIL_OFFSET(zl) -= totlen+nextdiff;
@@ -305,7 +334,7 @@ static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsig
 
     /* We need space for both the length of the previous entry and
      * the length of the payload. */
-    reqlen += zipEncodeLength(NULL,ZIP_ENC_RAW,prevlen);
+    reqlen += zipPrevEncodeLength(NULL,prevlen);
     reqlen += zipEncodeLength(NULL,encoding,slen);
 
     /* When the insert position is not equal to the tail, we need to
@@ -323,7 +352,7 @@ static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsig
         /* Subtract one because of the ZIP_END bytes */
         memmove(p+reqlen,p-nextdiff,curlen-offset-1+nextdiff);
         /* Encode this entry's raw length in the next entry. */
-        zipEncodeLength(p+reqlen,ZIP_ENC_RAW,reqlen);
+        zipPrevEncodeLength(p+reqlen,reqlen);
         /* Update offset for tail */
         ZIPLIST_TAIL_OFFSET(zl) += reqlen+nextdiff;
     } else {
@@ -332,7 +361,7 @@ static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsig
     }
 
     /* Write the entry */
-    p += zipEncodeLength(p,ZIP_ENC_RAW,prevlen);
+    p += zipPrevEncodeLength(p,prevlen);
     p += zipEncodeLength(p,encoding,slen);
     if (encoding != ZIP_ENC_RAW) {
         zipSaveInteger(p,value,encoding);
