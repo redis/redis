@@ -5196,12 +5196,12 @@ static void lremCommand(redisClient *c) {
         li = lInitIterator(subject,0);
     }
 
-    while (toremove && lIsEntry(li)) {
+    while (lIsEntry(li)) {
         if (lEqualTo(li,obj)) {
             lDelete(li,direction);
             server.dirty++;
-            toremove--;
             removed++;
+            if (toremove && removed == toremove) break;
         } else {
             lMove(li,direction);
         }
