@@ -4878,45 +4878,69 @@ static void llenCommand(redisClient *c) {
 }
 
 static void lindexCommand(redisClient *c) {
-    robj *o;
+    robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk);
+    if (o == NULL || checkType(c,o,REDIS_LIST)) return;
     int index = atoi(c->argv[2]->ptr);
-    list *list;
-    listNode *ln;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
-        checkType(c,o,REDIS_LIST)) return;
-    list = o->ptr;
-
-    ln = listIndex(list, index);
-    if (ln == NULL) {
-        addReply(c,shared.nullbulk);
+    if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+        unsigned char *p;
+        char *v;
+        unsigned int vlen;
+        long long vval;
+        p = ziplistIndex(o->ptr,index);
+        if (ziplistGet(p,&v,&vlen,&vval)) {
+            if (v) {
+                addReplySds(c,sdsnewlen(v,vlen));
+            } else {
+                addReplyLongLong(c,vval);
+            }
+        } else {
+            addReply(c,shared.nullbulk);
+        }
+    } else if (o->encoding == REDIS_ENCODING_LIST) {
+        listNode *ln = listIndex(o->ptr,index);
+        if (ln != NULL) {
+            addReply(c,(robj*)listNodeValue(ln));
+        } else {
+            addReply(c,shared.nullbulk);
+        }
     } else {
-        robj *ele = listNodeValue(ln);
-        addReplyBulk(c,ele);
+        redisPanic("Unknown list encoding");
     }
 }
 
 static void lsetCommand(redisClient *c) {
-    robj *o;
+    robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr);
+    if (o == NULL || checkType(c,o,REDIS_LIST)) return;
     int index = atoi(c->argv[2]->ptr);
-    list *list;
-    listNode *ln;
+    robj *value = c->argv[3];
 
-    if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr)) == NULL ||
-        checkType(c,o,REDIS_LIST)) return;
-    list = o->ptr;
-
-    ln = listIndex(list, index);
-    if (ln == NULL) {
-        addReply(c,shared.outofrangeerr);
+    if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+        unsigned char *p, *zl = o->ptr;
+        p = ziplistIndex(zl,index);
+        if (p == NULL) {
+            addReply(c,shared.outofrangeerr);
+        } else {
+            o->ptr = ziplistDelete(o->ptr,&p,ZIPLIST_TAIL);
+            value = getDecodedObject(value);
+            o->ptr = ziplistInsert(o->ptr,p,value->ptr,sdslen(value->ptr));
+            decrRefCount(value);
+            addReply(c,shared.ok);
+            server.dirty++;
+        }
+    } else if (o->encoding == REDIS_ENCODING_LIST) {
+        listNode *ln = listIndex(o->ptr,index);
+        if (ln == NULL) {
+            addReply(c,shared.outofrangeerr);
+        } else {
+            decrRefCount((robj*)listNodeValue(ln));
+            listNodeValue(ln) = value;
+            incrRefCount(value);
+            addReply(c,shared.ok);
+            server.dirty++;
+        }
     } else {
-        robj *ele = listNodeValue(ln);
-
-        decrRefCount(ele);
-        listNodeValue(ln) = c->argv[3];
-        incrRefCount(c->argv[3]);
-        addReply(c,shared.ok);
-        server.dirty++;
+        redisPanic("Unknown list encoding");
     }
 }
 
