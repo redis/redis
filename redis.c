@@ -4993,6 +4993,7 @@ static void lindexCommand(redisClient *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk);
     if (o == NULL || checkType(c,o,REDIS_LIST)) return;
     int index = atoi(c->argv[2]->ptr);
+    robj *value = NULL;
 
     if (o->encoding == REDIS_ENCODING_ZIPLIST) {
         unsigned char *p;
@@ -5002,17 +5003,20 @@ static void lindexCommand(redisClient *c) {
         p = ziplistIndex(o->ptr,index);
         if (ziplistGet(p,&v,&vlen,&vval)) {
             if (v) {
-                addReplySds(c,sdsnewlen(v,vlen));
+                value = createStringObject(v,vlen);
             } else {
-                addReplyLongLong(c,vval);
+                value = createStringObjectFromLongLong(vval);
             }
+            addReplyBulk(c,value);
+            decrRefCount(value);
         } else {
             addReply(c,shared.nullbulk);
         }
     } else if (o->encoding == REDIS_ENCODING_LIST) {
         listNode *ln = listIndex(o->ptr,index);
         if (ln != NULL) {
-            addReply(c,(robj*)listNodeValue(ln));
+            value = listNodeValue(ln);
+            addReplyBulk(c,value);
         } else {
             addReply(c,shared.nullbulk);
         }
