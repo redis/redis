@@ -5087,8 +5087,7 @@ static void ltrimCommand(redisClient *c) {
 
     if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.ok)) == NULL ||
         checkType(c,o,REDIS_LIST)) return;
-    list = o->ptr;
-    llen = listLength(list);
+    llen = lLength(o);
 
     /* convert negative indexes */
     if (start < 0) start = llen+start;
@@ -5108,15 +5107,23 @@ static void ltrimCommand(redisClient *c) {
     }
 
     /* Remove list elements to perform the trim */
-    for (j = 0; j < ltrim; j++) {
-        ln = listFirst(list);
-        listDelNode(list,ln);
+    if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+        o->ptr = ziplistDeleteRange(o->ptr,0,ltrim);
+        o->ptr = ziplistDeleteRange(o->ptr,-rtrim,rtrim);
+    } else if (o->encoding == REDIS_ENCODING_LIST) {
+        list = o->ptr;
+        for (j = 0; j < ltrim; j++) {
+            ln = listFirst(list);
+            listDelNode(list,ln);
+        }
+        for (j = 0; j < rtrim; j++) {
+            ln = listLast(list);
+            listDelNode(list,ln);
+        }
+    } else {
+        redisPanic("Unknown list encoding");
     }
-    for (j = 0; j < rtrim; j++) {
-        ln = listLast(list);
-        listDelNode(list,ln);
-    }
-    if (listLength(list) == 0) deleteKey(c->db,c->argv[1]);
+    if (lLength(o) == 0) deleteKey(c->db,c->argv[1]);
     server.dirty++;
     addReply(c,shared.ok);
 }
