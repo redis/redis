@@ -482,7 +482,7 @@ unsigned char *ziplistInsert(unsigned char *zl, unsigned char *p, char *s, unsig
 /* Delete a single entry from the ziplist, pointed to by *p.
  * Also update *p in place, to be able to iterate over the
  * ziplist, while deleting entries. */
-unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p, int direction) {
+unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p) {
     unsigned int offset = *p-zl;
     zl = __ziplistDelete(zl,*p,1);
 
@@ -490,11 +490,7 @@ unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p, int direction
      * do a realloc which might result in a different "zl"-pointer.
      * When the delete direction is back to front, we might delete the last
      * entry and end up with "p" pointing to ZIP_END, so check this. */
-    if (*(zl+offset) == ZIP_END && direction == ZIPLIST_HEAD) {
-        *p = ZIPLIST_ENTRY_TAIL(zl);
-    } else {
-        *p = zl+offset;
-    }
+    *p = zl+offset;
     return zl;
 }
 
