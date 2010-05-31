@@ -7210,7 +7210,7 @@ static int sortCompare(const void *s1, const void *s2) {
  * is optimized for speed and a bit less for readability */
 static void sortCommand(redisClient *c) {
     list *operations;
-    int outputlen = 0;
+    unsigned int outputlen = 0;
     int desc = 0, alpha = 0;
     int limit_start = 0, limit_count = -1, start, end;
     int j, dontsort = 0, vectorlen;
@@ -7280,7 +7280,7 @@ static void sortCommand(redisClient *c) {
 
     /* Load the sorting vector with all the objects to sort */
     switch(sortval->type) {
-    case REDIS_LIST: vectorlen = listLength((list*)sortval->ptr); break;
+    case REDIS_LIST: vectorlen = lLength(sortval); break;
     case REDIS_SET: vectorlen =  dictSize((dict*)sortval->ptr); break;
     case REDIS_ZSET: vectorlen = dictSize(((zset*)sortval->ptr)->dict); break;
     default: vectorlen = 0; redisPanic("Bad SORT type"); /* Avoid GCC warning */
@@ -7289,18 +7289,15 @@ static void sortCommand(redisClient *c) {
     j = 0;
 
     if (sortval->type == REDIS_LIST) {
-        list *list = sortval->ptr;
-        listNode *ln;
-        listIter li;
-
-        listRewind(list,&li);
-        while((ln = listNext(&li))) {
-            robj *ele = ln->value;
-            vector[j].obj = ele;
+        lIterator *li = lInitIterator(sortval,0,REDIS_TAIL);
+        lEntry entry;
+        while(lNext(li,&entry)) {
+            vector[j].obj = lGet(&entry);
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
         }
+        lReleaseIterator(li);
     } else {
         dict *set;
         dictIterator *di;
@@ -7410,8 +7407,12 @@ static void sortCommand(redisClient *c) {
             }
         }
     } else {
-        robj *listObject = createListObject();
-        list *listPtr = (list*) listObject->ptr;
+        robj *sobj;
+        if (outputlen > server.list_max_ziplist_entries) {
+            sobj = createListObject();
+        } else {
+            sobj = createZiplistObject();
+        }
 
         /* STORE option specified, set the sorting result as a List object */
         for (j = start; j <= end; j++) {
@@ -7419,31 +7420,30 @@ static void sortCommand(redisClient *c) {
             listIter li;
 
             if (!getop) {
-                listAddNodeTail(listPtr,vector[j].obj);
-                incrRefCount(vector[j].obj);
-            }
-            listRewind(operations,&li);
-            while((ln = listNext(&li))) {
-                redisSortOperation *sop = ln->value;
-                robj *val = lookupKeyByPattern(c->db,sop->pattern,
-                    vector[j].obj);
+                lPush(sobj,vector[j].obj,REDIS_TAIL);
+            } else {
+                listRewind(operations,&li);
+                while((ln = listNext(&li))) {
+                    redisSortOperation *sop = ln->value;
+                    robj *val = lookupKeyByPattern(c->db,sop->pattern,
+                        vector[j].obj);
 
-                if (sop->type == REDIS_SORT_GET) {
-                    if (!val) {
-                        listAddNodeTail(listPtr,createStringObject("",0));
+                    if (sop->type == REDIS_SORT_GET) {
+                        if (!val) val = createStringObject("",0);
+
+                        /* lPush does an incrRefCount, so we should take care
+                         * care of the incremented refcount caused by either
+                         * lookupKeyByPattern or createStringObject("",0) */
+                        lPush(sobj,val,REDIS_TAIL);
+                        decrRefCount(val);
                     } else {
-                        /* We should do a incrRefCount on val because it is
-                         * added to the list, but also a decrRefCount because
-                         * it is returned by lookupKeyByPattern. This results
-                         * in doing nothing at all. */
-                        listAddNodeTail(listPtr,val);
+                        /* always fails */
+                        redisAssert(sop->type == REDIS_SORT_GET);
                     }
-                } else {
-                    redisAssert(sop->type == REDIS_SORT_GET); /* always fails */
                 }
             }
         }
-        if (dictReplace(c->db->dict,storekey,listObject)) {
+        if (dictReplace(c->db->dict,storekey,sobj)) {
             incrRefCount(storekey);
         }
         /* Note: we add 1 because the DB is dirty anyway since even if the
@@ -7454,6 +7454,9 @@ static void sortCommand(redisClient *c) {
     }
 
     /* Cleanup */
+    if (sortval->type == REDIS_LIST)
+        for (j = 0; j < vectorlen; j++)
+            decrRefCount(vector[j].obj);
     decrRefCount(sortval);
     listRelease(operations);
     for (j = 0; j < vectorlen; j++) {
