@@ -2984,9 +2984,17 @@ static robj *dupStringObject(robj *o) {
 
 static robj *createListObject(void) {
     list *l = listCreate();
-
+    robj *o = createObject(REDIS_LIST,l);
     listSetFreeMethod(l,decrRefCount);
-    return createObject(REDIS_LIST,l);
+    o->encoding = REDIS_ENCODING_LIST;
+    return o;
+}
+
+static robj *createZiplistObject(void) {
+    unsigned char *zl = ziplistNew();
+    robj *o = createObject(REDIS_LIST,zl);
+    o->encoding = REDIS_ENCODING_ZIPLIST;
+    return o;
 }
 
 static robj *createSetObject(void) {
@@ -4031,8 +4039,7 @@ static robj *rdbLoadObject(int type, FILE *fp) {
         /* Read list value */
         if ((len = rdbLoadLen(fp,NULL)) == REDIS_RDB_LENERR) return NULL;
 
-        o = createObject(REDIS_LIST,ziplistNew());
-        o->encoding = REDIS_ENCODING_ZIPLIST;
+        o = createZiplistObject();
 
         /* Load every single element of the list */
         while(len--) {
@@ -5004,8 +5011,7 @@ static void pushGenericCommand(redisClient *c, int where) {
             addReply(c,shared.cone);
             return;
         }
-        lobj = createObject(REDIS_LIST,ziplistNew());
-        lobj->encoding = REDIS_ENCODING_ZIPLIST;
+        lobj = createZiplistObject();
         dictAdd(c->db->dict,c->argv[1],lobj);
         incrRefCount(c->argv[1]);
     } else {
@@ -5293,8 +5299,7 @@ static void rpoplpushcommand(redisClient *c) {
         if (!handleClientsWaitingListPush(c,c->argv[2],value)) {
             /* Create the list if the key does not exist */
             if (!dobj) {
-                dobj = createObject(REDIS_LIST,ziplistNew());
-                dobj->encoding = REDIS_ENCODING_ZIPLIST;
+                dobj = createZiplistObject();
                 dictAdd(c->db->dict,c->argv[2],dobj);
                 incrRefCount(c->argv[2]);
             }
