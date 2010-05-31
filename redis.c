@@ -8843,18 +8843,41 @@ static int rewriteAppendOnlyFile(char *filename) {
                 if (fwriteBulkObject(fp,o) == 0) goto werr;
             } else if (o->type == REDIS_LIST) {
                 /* Emit the RPUSHes needed to rebuild the list */
-                list *list = o->ptr;
-                listNode *ln;
-                listIter li;
+                char cmd[]="*3\r\n$5\r\nRPUSH\r\n";
+                if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+                    unsigned char *zl = o->ptr;
+                    unsigned char *p = ziplistIndex(zl,0);
+                    unsigned char *vstr;
+                    unsigned int vlen;
+                    long long vlong;
 
-                listRewind(list,&li);
-                while((ln = listNext(&li))) {
-                    char cmd[]="*3\r\n$5\r\nRPUSH\r\n";
-                    robj *eleobj = listNodeValue(ln);
+                    while(ziplistGet(p,&vstr,&vlen,&vlong)) {
+                        if (fwrite(cmd,sizeof(cmd)-1,1,fp) == 0) goto werr;
+                        if (fwriteBulkObject(fp,key) == 0) goto werr;
+                        if (vstr) {
+                            if (fwriteBulkString(fp,(char*)vstr,vlen) == 0)
+                                goto werr;
+                        } else {
+                            if (fwriteBulkLongLong(fp,vlong) == 0)
+                                goto werr;
+                        }
+                        p = ziplistNext(zl,p);
+                    }
+                } else if (o->encoding == REDIS_ENCODING_LIST) {
+                    list *list = o->ptr;
+                    listNode *ln;
+                    listIter li;
 
-                    if (fwrite(cmd,sizeof(cmd)-1,1,fp) == 0) goto werr;
-                    if (fwriteBulkObject(fp,key) == 0) goto werr;
-                    if (fwriteBulkObject(fp,eleobj) == 0) goto werr;
+                    listRewind(list,&li);
+                    while((ln = listNext(&li))) {
+                        robj *eleobj = listNodeValue(ln);
+
+                        if (fwrite(cmd,sizeof(cmd)-1,1,fp) == 0) goto werr;
+                        if (fwriteBulkObject(fp,key) == 0) goto werr;
+                        if (fwriteBulkObject(fp,eleobj) == 0) goto werr;
+                    }
+                } else {
+                    redisPanic("Unknown list encoding");
                 }
             } else if (o->type == REDIS_SET) {
                 /* Emit the SADDs needed to rebuild the set */
