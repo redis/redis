@@ -10923,16 +10923,14 @@ static void computeDatasetDigest(unsigned char *final) {
             if (o->type == REDIS_STRING) {
                 mixObjectDigest(digest,o);
             } else if (o->type == REDIS_LIST) {
-                list *list = o->ptr;
-                listNode *ln;
-                listIter li;
-
-                listRewind(list,&li);
-                while((ln = listNext(&li))) {
-                    robj *eleobj = listNodeValue(ln);
-
+                lIterator *li = lInitIterator(o,0,REDIS_TAIL);
+                lEntry entry;
+                while(lNext(li,&entry)) {
+                    robj *eleobj = lGet(&entry);
                     mixObjectDigest(digest,eleobj);
+                    decrRefCount(eleobj);
                 }
+                lReleaseIterator(li);
             } else if (o->type == REDIS_SET) {
                 dict *set = o->ptr;
                 dictIterator *di = dictGetIterator(set);
