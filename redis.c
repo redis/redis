@@ -369,6 +369,7 @@ struct redisServer {
     int daemonize;
     int appendonly;
     int appendfsync;
+    int no_appendfsync_on_rewrite;
     int shutdown_asap;
     time_t lastfsync;
     int appendfd;
@@ -1385,7 +1386,7 @@ void backgroundRewriteDoneHandler(int statloc) {
             /* If append only is actually enabled... */
             close(server.appendfd);
             server.appendfd = fd;
-            fsync(fd);
+            if (server.appendfsync != APPENDFSYNC_NO) aof_fsync(fd);
             server.appendseldb = -1; /* Make sure it will issue SELECT */
             redisLog(REDIS_NOTICE,"The new append only file was selected for future appends.");
         } else {
@@ -1685,6 +1686,7 @@ static void initServerConfig() {
     server.daemonize = 0;
     server.appendonly = 0;
     server.appendfsync = APPENDFSYNC_EVERYSEC;
+    server.no_appendfsync_on_rewrite = 0;
     server.lastfsync = time(NULL);
     server.appendfd = -1;
     server.appendseldb = -1; /* Make sure the first time will not match */
@@ -1941,6 +1943,11 @@ static void loadServerConfig(char *filename) {
         } else if (!strcasecmp(argv[0],"appendfilename") && argc == 2) {
             zfree(server.appendfilename);
             server.appendfilename = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"no-appendfsync-on-rewrite")
+                   && argc == 2) {
+            if ((server.no_appendfsync_on_rewrite= yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"appendfsync") && argc == 2) {
             if (!strcasecmp(argv[1],"no")) {
                 server.appendfsync = APPENDFSYNC_NO;
@@ -4209,7 +4216,7 @@ static int prepareForShutdown() {
     }
     if (server.appendonly) {
         /* Append only file: fsync() the AOF and exit */
-        fsync(server.appendfd);
+        aof_fsync(server.appendfd);
         if (server.vm_enabled) unlink(server.vm_swap_file);
     } else {
         /* Snapshotting. Perform a SYNC SAVE and exit */
@@ -8266,6 +8273,11 @@ static void flushAppendOnlyFile(void) {
     sdsfree(server.aofbuf);
     server.aofbuf = sdsempty();
 
+    /* Don't Fsync if no-appendfsync-on-rewrite is set to yes and we have
+     * childs performing heavy I/O on disk. */
+    if (server.no_appendfsync_on_rewrite &&
+        (server.bgrewritechildpid != -1 || server.bgsavechildpid != -1))
+            return;
     /* Fsync if needed */
     now = time(NULL);
     if (server.appendfsync == APPENDFSYNC_ALWAYS ||
@@ -8704,7 +8716,7 @@ static int rewriteAppendOnlyFile(char *filename) {
 
     /* Make sure data will not remain on the OS's output buffers */
     fflush(fp);
-    fsync(fileno(fp));
+    aof_fsync(fileno(fp));
     fclose(fp);
 
     /* Use RENAME to make sure the DB file is changed atomically only
@@ -8821,7 +8833,7 @@ static void aofRemoveTempFile(pid_t childpid) {
  * at runtime using the CONFIG command. */
 static void stopAppendOnly(void) {
     flushAppendOnlyFile();
-    fsync(server.appendfd);
+    aof_fsync(server.appendfd);
     close(server.appendfd);
 
     server.appendfd = -1;
@@ -9990,6 +10002,11 @@ static void configSetCommand(redisClient *c) {
         } else {
             goto badfmt;
         }
+    } else if (!strcasecmp(c->argv[2]->ptr,"no-appendfsync-on-rewrite")) {
+        int yn = yesnotoi(o->ptr);
+
+        if (yn == -1) goto badfmt;
+        server.no_appendfsync_on_rewrite = yn;
     } else if (!strcasecmp(c->argv[2]->ptr,"appendonly")) {
         int old = server.appendonly;
         int new = yesnotoi(o->ptr);
@@ -10103,6 +10120,11 @@ static void configGetCommand(redisClient *c) {
     if (stringmatch(pattern,"appendonly",0)) {
         addReplyBulkCString(c,"appendonly");
         addReplyBulkCString(c,server.appendonly ? "yes" : "no");
+        matches++;
+    }
+    if (stringmatch(pattern,"no-appendfsync-on-rewrite",0)) {
+        addReplyBulkCString(c,"no-appendfsync-on-rewrite");
+        addReplyBulkCString(c,server.no_appendfsync_on_rewrite ? "yes" : "no");
         matches++;
     }
     if (stringmatch(pattern,"appendfsync",0)) {
