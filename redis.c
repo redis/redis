@@ -3544,38 +3544,32 @@ static int rdbSaveRawString(FILE *fp, unsigned char *s, size_t len) {
     return 0;
 }
 
+/* Save a long long value as either an encoded string or a string. */
+static int rdbSaveLongLongAsStringObject(FILE *fp, long long value) {
+    unsigned char buf[32];
+    int enclen = rdbEncodeInteger(value,buf);
+    if (enclen > 0) {
+        if (fwrite(buf,enclen,1,fp) == 0) return -1;
+    } else {
+        /* Encode as string */
+        enclen = ll2string((char*)buf,32,value);
+        redisAssert(enclen < 32);
+        if (rdbSaveLen(fp,enclen) == -1) return -1;
+        if (fwrite(buf,enclen,1,fp) == 0) return -1;
+    }
+    return 0;
+}
+
 /* Like rdbSaveStringObjectRaw() but handle encoded objects */
 static int rdbSaveStringObject(FILE *fp, robj *obj) {
-    int retval;
-
     /* Avoid to decode the object, then encode it again, if the
      * object is alrady integer encoded. */
     if (obj->encoding == REDIS_ENCODING_INT) {
-        long val = (long) obj->ptr;
-        unsigned char buf[5];
-        int enclen;
-
-        if ((enclen = rdbEncodeInteger(val,buf)) > 0) {
-            if (fwrite(buf,enclen,1,fp) == 0) return -1;
-            return 0;
-        }
-        /* otherwise... fall throught and continue with the usual
-         * code path. */
-    }
-
-    /* Avoid incr/decr ref count business when possible.
-     * This plays well with copy-on-write given that we are probably
-     * in a child process (BGSAVE). Also this makes sure key objects
-     * of swapped objects are not incRefCount-ed (an assert does not allow
-     * this in order to avoid bugs) */
-    if (obj->encoding != REDIS_ENCODING_RAW) {
-        obj = getDecodedObject(obj);
-        retval = rdbSaveRawString(fp,obj->ptr,sdslen(obj->ptr));
-        decrRefCount(obj);
+        return rdbSaveLongLongAsStringObject(fp,(long)obj->ptr);
     } else {
-        retval = rdbSaveRawString(fp,obj->ptr,sdslen(obj->ptr));
+        redisAssert(obj->encoding == REDIS_ENCODING_RAW);
+        return rdbSaveRawString(fp,obj->ptr,sdslen(obj->ptr));
     }
-    return retval;
 }
 
 /* Save a double value. Doubles are saved as strings prefixed by an unsigned
