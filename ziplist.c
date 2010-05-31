@@ -430,7 +430,16 @@ unsigned char *ziplistIndex(unsigned char *zl, int index) {
 /* Return pointer to next entry in ziplist. */
 unsigned char *ziplistNext(unsigned char *zl, unsigned char *p) {
     ((void) zl);
-    return (p[0] == ZIP_END) ? NULL : p+zipRawEntryLength(p);
+
+    /* "p" could be equal to ZIP_END, caused by ziplistDelete,
+     * and we should return NULL. Otherwise, we should return NULL
+     * when the *next* element is ZIP_END (there is no next entry). */
+    if (p[0] == ZIP_END) {
+        return NULL;
+    } else {
+        p = p+zipRawEntryLength(p);
+        return (p[0] == ZIP_END) ? NULL : p;
+    }
 }
 
 /* Return pointer to previous entry in ziplist. */
