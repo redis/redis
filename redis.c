@@ -9778,6 +9778,7 @@ static int vmSwapObjectThreaded(robj *key, robj *val, redisDb *db) {
     j->type = REDIS_IOJOB_PREPARE_SWAP;
     j->db = db;
     j->key = key;
+    incrRefCount(key);
     j->id = j->val = val;
     incrRefCount(val);
     j->canceled = 0;
