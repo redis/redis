@@ -3622,16 +3622,37 @@ static int rdbSaveObject(FILE *fp, robj *o) {
         if (rdbSaveStringObject(fp,o) == -1) return -1;
     } else if (o->type == REDIS_LIST) {
         /* Save a list value */
-        list *list = o->ptr;
-        listIter li;
-        listNode *ln;
+        if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+            unsigned char *p;
+            unsigned char *vstr;
+            unsigned int vlen;
+            long long vlong;
 
-        if (rdbSaveLen(fp,listLength(list)) == -1) return -1;
-        listRewind(list,&li);
-        while((ln = listNext(&li))) {
-            robj *eleobj = listNodeValue(ln);
+            if (rdbSaveLen(fp,ziplistLen(o->ptr)) == -1) return -1;
+            p = ziplistIndex(o->ptr,0);
+            while(ziplistGet(p,&vstr,&vlen,&vlong)) {
+                if (vstr) {
+                    if (rdbSaveRawString(fp,vstr,vlen) == -1)
+                        return -1;
+                } else {
+                    if (rdbSaveLongLongAsStringObject(fp,vlong) == -1)
+                        return -1;
+                }
+                p = ziplistNext(o->ptr,p);
+            }
+        } else if (o->encoding == REDIS_ENCODING_LIST) {
+            list *list = o->ptr;
+            listIter li;
+            listNode *ln;
 
-            if (rdbSaveStringObject(fp,eleobj) == -1) return -1;
+            if (rdbSaveLen(fp,listLength(list)) == -1) return -1;
+            listRewind(list,&li);
+            while((ln = listNext(&li))) {
+                robj *eleobj = listNodeValue(ln);
+                if (rdbSaveStringObject(fp,eleobj) == -1) return -1;
+            }
+        } else {
+            redisPanic("Unknown list encoding");
         }
     } else if (o->type == REDIS_SET) {
         /* Save a set value */
@@ -3998,34 +4019,49 @@ static int rdbLoadDoubleValue(FILE *fp, double *val) {
 /* Load a Redis object of the specified type from the specified file.
  * On success a newly allocated object is returned, otherwise NULL. */
 static robj *rdbLoadObject(int type, FILE *fp) {
-    robj *o;
+    robj *o, *ele, *dec;
+    size_t len;
 
     redisLog(REDIS_DEBUG,"LOADING OBJECT %d (at %d)\n",type,ftell(fp));
     if (type == REDIS_STRING) {
         /* Read string value */
         if ((o = rdbLoadEncodedStringObject(fp)) == NULL) return NULL;
         o = tryObjectEncoding(o);
-    } else if (type == REDIS_LIST || type == REDIS_SET) {
-        /* Read list/set value */
-        uint32_t listlen;
+    } else if (type == REDIS_LIST) {
+        /* Read list value */
+        if ((len = rdbLoadLen(fp,NULL)) == REDIS_RDB_LENERR) return NULL;
 
-        if ((listlen = rdbLoadLen(fp,NULL)) == REDIS_RDB_LENERR) return NULL;
-        o = (type == REDIS_LIST) ? createListObject() : createSetObject();
+        o = createObject(REDIS_LIST,ziplistNew());
+        o->encoding = REDIS_ENCODING_ZIPLIST;
+
+        /* Load every single element of the list */
+        while(len--) {
+            if ((ele = rdbLoadEncodedStringObject(fp)) == NULL) return NULL;
+
+            if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+                dec = getDecodedObject(ele);
+                o->ptr = ziplistPush(o->ptr,dec->ptr,sdslen(dec->ptr),REDIS_TAIL);
+                decrRefCount(dec);
+                decrRefCount(ele);
+            } else {
+                ele = tryObjectEncoding(ele);
+                listAddNodeTail(o->ptr,ele);
+                incrRefCount(ele);
+            }
+        }
+    } else if (type == REDIS_SET) {
+        /* Read list/set value */
+        if ((len = rdbLoadLen(fp,NULL)) == REDIS_RDB_LENERR) return NULL;
+        o = createSetObject();
         /* It's faster to expand the dict to the right size asap in order
          * to avoid rehashing */
-        if (type == REDIS_SET && listlen > DICT_HT_INITIAL_SIZE)
-            dictExpand(o->ptr,listlen);
+        if (len > DICT_HT_INITIAL_SIZE)
+            dictExpand(o->ptr,len);
         /* Load every single element of the list/set */
-        while(listlen--) {
-            robj *ele;
-
+        while(len--) {
             if ((ele = rdbLoadEncodedStringObject(fp)) == NULL) return NULL;
             ele = tryObjectEncoding(ele);
-            if (type == REDIS_LIST) {
-                listAddNodeTail((list*)o->ptr,ele);
-            } else {
-                dictAdd((dict*)o->ptr,ele,NULL);
-            }
+            dictAdd((dict*)o->ptr,ele,NULL);
         }
     } else if (type == REDIS_ZSET) {
         /* Read list/set value */
