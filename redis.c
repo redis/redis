@@ -4788,16 +4788,16 @@ static robj *lPop(robj *subject, int where) {
     robj *value = NULL;
     if (subject->encoding == REDIS_ENCODING_ZIPLIST) {
         unsigned char *p;
-        char *v;
+        unsigned char *vstr;
         unsigned int vlen;
-        long long vval;
+        long long vlong;
         int pos = (where == REDIS_HEAD) ? 0 : -1;
         p = ziplistIndex(subject->ptr,pos);
-        if (ziplistGet(p,&v,&vlen,&vval)) {
-            if (v) {
-                value = createStringObject(v,vlen);
+        if (ziplistGet(p,&vstr,&vlen,&vlong)) {
+            if (vstr) {
+                value = createStringObject((char*)vstr,vlen);
             } else {
-                value = createStringObjectFromLongLong(vval);
+                value = createStringObjectFromLongLong(vlong);
             }
             /* We only need to delete an element when it exists */
             subject->ptr = ziplistDelete(subject->ptr,&p);
@@ -4902,15 +4902,15 @@ static robj *lGet(lEntry *entry) {
     lIterator *li = entry->li;
     robj *value = NULL;
     if (li->encoding == REDIS_ENCODING_ZIPLIST) {
-        char *v;
+        unsigned char *vstr;
         unsigned int vlen;
-        long long vval;
+        long long vlong;
         redisAssert(entry->zi != NULL);
-        if (ziplistGet(entry->zi,&v,&vlen,&vval)) {
-            if (v) {
-                value = createStringObject(v,vlen);
+        if (ziplistGet(entry->zi,&vstr,&vlen,&vlong)) {
+            if (vstr) {
+                value = createStringObject((char*)vstr,vlen);
             } else {
-                value = createStringObjectFromLongLong(vval);
+                value = createStringObjectFromLongLong(vlong);
             }
         }
     } else if (li->encoding == REDIS_ENCODING_LIST) {
@@ -5009,15 +5009,15 @@ static void lindexCommand(redisClient *c) {
 
     if (o->encoding == REDIS_ENCODING_ZIPLIST) {
         unsigned char *p;
-        char *v;
+        unsigned char *vstr;
         unsigned int vlen;
-        long long vval;
+        long long vlong;
         p = ziplistIndex(o->ptr,index);
-        if (ziplistGet(p,&v,&vlen,&vval)) {
-            if (v) {
-                value = createStringObject(v,vlen);
+        if (ziplistGet(p,&vstr,&vlen,&vlong)) {
+            if (vstr) {
+                value = createStringObject((char*)vstr,vlen);
             } else {
-                value = createStringObjectFromLongLong(vval);
+                value = createStringObjectFromLongLong(vlong);
             }
             addReplyBulk(c,value);
             decrRefCount(value);

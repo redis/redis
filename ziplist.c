@@ -63,7 +63,7 @@ typedef struct zlentry {
 } zlentry;
 
 /* Return bytes needed to store integer encoded by 'encoding' */
-static unsigned int zipEncodingSize(char encoding) {
+static unsigned int zipEncodingSize(unsigned char encoding) {
     if (encoding == ZIP_ENC_SHORT) {
         return sizeof(short int);
     } else if (encoding == ZIP_ENC_INT) {
@@ -173,12 +173,12 @@ static int zipPrevLenByteDiff(unsigned char *p, unsigned int len) {
 /* Check if string pointed to by 'entry' can be encoded as an integer.
  * Stores the integer value in 'v' and its encoding in 'encoding'.
  * Warning: this function requires a NULL-terminated string! */
-static int zipTryEncoding(char *entry, long long *v, char *encoding) {
+static int zipTryEncoding(unsigned char *entry, long long *v, unsigned char *encoding) {
     long long value;
     char *eptr;
 
     if (entry[0] == '-' || (entry[0] >= '0' && entry[0] <= '9')) {
-        value = strtoll(entry,&eptr,10);
+        value = strtoll((char*)entry,&eptr,10);
         if (eptr[0] != '\0') return 0;
         if (value >= SHRT_MIN && value <= SHRT_MAX) {
             *encoding = ZIP_ENC_SHORT;
@@ -194,7 +194,7 @@ static int zipTryEncoding(char *entry, long long *v, char *encoding) {
 }
 
 /* Store integer 'value' at 'p', encoded as 'encoding' */
-static void zipSaveInteger(unsigned char *p, long long value, char encoding) {
+static void zipSaveInteger(unsigned char *p, long long value, unsigned char encoding) {
     short int s;
     int i;
     long long l;
@@ -213,7 +213,7 @@ static void zipSaveInteger(unsigned char *p, long long value, char encoding) {
 }
 
 /* Read integer encoded as 'encoding' from 'p' */
-static long long zipLoadInteger(unsigned char *p, char encoding) {
+static long long zipLoadInteger(unsigned char *p, unsigned char encoding) {
     short int s;
     int i;
     long long l, ret;
@@ -269,7 +269,7 @@ static unsigned char *ziplistResize(unsigned char *zl, unsigned int len) {
 }
 
 /* Delete "num" entries, starting at "p". Returns pointer to the ziplist. */
-static unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, int num) {
+static unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsigned int num) {
     unsigned int i, totlen, deleted = 0;
     int nextdiff = 0;
     zlentry first = zipEntry(p);
@@ -306,11 +306,11 @@ static unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, int n
 }
 
 /* Insert item at "p". */
-static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, char *s, unsigned int slen) {
+static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen) {
     unsigned int curlen = ZIPLIST_BYTES(zl), reqlen, prevlen = 0;
     unsigned int offset, nextdiff = 0;
     unsigned char *tail;
-    char encoding = ZIP_ENC_RAW;
+    unsigned char encoding = ZIP_ENC_RAW;
     long long value;
     zlentry entry;
 
@@ -372,7 +372,7 @@ static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, char 
     return zl;
 }
 
-unsigned char *ziplistPush(unsigned char *zl, char *s, unsigned int slen, int where) {
+unsigned char *ziplistPush(unsigned char *zl, unsigned char *s, unsigned int slen, int where) {
     unsigned char *p;
     p = (where == ZIPLIST_HEAD) ? ZIPLIST_ENTRY_HEAD(zl) : ZIPLIST_ENTRY_END(zl);
     return __ziplistInsert(zl,p,s,slen);
@@ -455,7 +455,7 @@ unsigned char *ziplistPrev(unsigned char *zl, unsigned char *p) {
  * on the encoding of the entry. 'e' is always set to NULL to be able
  * to find out whether the string pointer or the integer value was set.
  * Return 0 if 'p' points to the end of the zipmap, 1 otherwise. */
-unsigned int ziplistGet(unsigned char *p, char **sstr, unsigned int *slen, long long *sval) {
+unsigned int ziplistGet(unsigned char *p, unsigned char **sstr, unsigned int *slen, long long *sval) {
     zlentry entry;
     if (p == NULL || p[0] == ZIP_END) return 0;
     if (sstr) *sstr = NULL;
@@ -464,7 +464,7 @@ unsigned int ziplistGet(unsigned char *p, char **sstr, unsigned int *slen, long 
     if (entry.encoding == ZIP_ENC_RAW) {
         if (sstr) {
             *slen = entry.len;
-            *sstr = (char*)p+entry.headersize;
+            *sstr = p+entry.headersize;
         }
     } else {
         if (sval) {
@@ -475,7 +475,7 @@ unsigned int ziplistGet(unsigned char *p, char **sstr, unsigned int *slen, long 
 }
 
 /* Insert an entry at "p". */
-unsigned char *ziplistInsert(unsigned char *zl, unsigned char *p, char *s, unsigned int slen) {
+unsigned char *ziplistInsert(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen) {
     return __ziplistInsert(zl,p,s,slen);
 }
 
@@ -501,10 +501,10 @@ unsigned char *ziplistDeleteRange(unsigned char *zl, unsigned int index, unsigne
 }
 
 /* Compare entry pointer to by 'p' with 'entry'. Return 1 if equal. */
-unsigned int ziplistCompare(unsigned char *p, char *sstr, unsigned int slen) {
+unsigned int ziplistCompare(unsigned char *p, unsigned char *sstr, unsigned int slen) {
     zlentry entry;
-    char sencoding;
-    long long val, sval;
+    unsigned char sencoding;
+    long long zval, sval;
     if (p[0] == ZIP_END) return 0;
 
     entry = zipEntry(p);
@@ -519,8 +519,8 @@ unsigned int ziplistCompare(unsigned char *p, char *sstr, unsigned int slen) {
         /* Try to compare encoded values */
         if (zipTryEncoding(sstr,&sval,&sencoding)) {
             if (entry.encoding == sencoding) {
-                val = zipLoadInteger(p+entry.headersize,entry.encoding);
-                return val == sval;
+                zval = zipLoadInteger(p+entry.headersize,entry.encoding);
+                return zval == sval;
             }
         }
     }
