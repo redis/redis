@@ -9120,10 +9120,12 @@ static int vmWriteObjectOnSwap(robj *o, off_t page) {
     return REDIS_OK;
 }
 
-/* Swap the 'val' object relative to 'key' into disk. Store all the information
- * needed to later retrieve the object into the key object.
+/* Transfers the 'val' object to disk. Store all the information
+ * a 'vmpointer' object containing all the information needed to load the
+ * object back later is returned.
+ *
  * If we can't find enough contiguous empty pages to swap the object on disk
- * REDIS_ERR is returned. */
+ * NULL is returned. */
 static vmpointer *vmSwapObjectBlocking(robj *val) {
     off_t pages = rdbSavedObjectPages(val,NULL);
     off_t page;
