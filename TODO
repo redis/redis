@@ -4,6 +4,7 @@ Redis TODO and Roadmap
 VERSION 2.2 TODO (Optimizations and latency)
 ============================================
 
+* Support for syslog(3).
 * Lower the CPU usage.
 * Lower the RAM usage everywhere possible.
 * Specially encoded Sets (like Hashes).
