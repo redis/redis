@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <assert.h>
 #include <limits.h>
 #include "zmalloc.h"
@@ -33,9 +34,9 @@
 
 /* Entry encoding */
 #define ZIP_ENC_RAW     0
-#define ZIP_ENC_SHORT   1
-#define ZIP_ENC_INT     2
-#define ZIP_ENC_LLONG   3
+#define ZIP_ENC_INT16   1
+#define ZIP_ENC_INT32   2
+#define ZIP_ENC_INT64   3
 #define ZIP_ENCODING(p) ((p)[0] >> 6)
 
 /* Length encoding for raw entries */
@@ -44,15 +45,18 @@
 #define ZIP_LEN_UINT32  2
 
 /* Utility macros */
-#define ZIPLIST_BYTES(zl) (*((unsigned int*)(zl)))
-#define ZIPLIST_TAIL_OFFSET(zl) (*((unsigned int*)((zl)+sizeof(unsigned int))))
-#define ZIPLIST_LENGTH(zl) (*((zl)+2*sizeof(unsigned int)))
-#define ZIPLIST_HEADER_SIZE (2*sizeof(unsigned int)+1)
-#define ZIPLIST_ENTRY_HEAD(zl) ((zl)+ZIPLIST_HEADER_SIZE)
-#define ZIPLIST_ENTRY_TAIL(zl) ((zl)+ZIPLIST_TAIL_OFFSET(zl))
-#define ZIPLIST_ENTRY_END(zl) ((zl)+ZIPLIST_BYTES(zl)-1)
+#define ZIPLIST_BYTES(zl)       (*((uint32_t*)(zl)))
+#define ZIPLIST_TAIL_OFFSET(zl) (*((uint32_t*)((zl)+sizeof(uint32_t))))
+#define ZIPLIST_LENGTH(zl)      (*((uint16_t*)((zl)+sizeof(uint32_t)*2)))
+#define ZIPLIST_HEADER_SIZE     (sizeof(uint32_t)*2+sizeof(uint16_t))
+#define ZIPLIST_ENTRY_HEAD(zl)  ((zl)+ZIPLIST_HEADER_SIZE)
+#define ZIPLIST_ENTRY_TAIL(zl)  ((zl)+ZIPLIST_TAIL_OFFSET(zl))
+#define ZIPLIST_ENTRY_END(zl)   ((zl)+ZIPLIST_BYTES(zl)-1)
+
+/* We know a positive increment can only be 1 because entries can only be
+ * pushed one at a time. */
 #define ZIPLIST_INCR_LENGTH(zl,incr) { \
-    if (ZIPLIST_LENGTH(zl) < ZIP_BIGLEN) ZIPLIST_LENGTH(zl)+=incr; }
+    if (ZIPLIST_LENGTH(zl) < UINT16_MAX) ZIPLIST_LENGTH(zl)+=incr; }
 
 typedef struct zlentry {
     unsigned int prevrawlensize, prevrawlen;
@@ -64,12 +68,12 @@ typedef struct zlentry {
 
 /* Return bytes needed to store integer encoded by 'encoding' */
 static unsigned int zipEncodingSize(unsigned char encoding) {
-    if (encoding == ZIP_ENC_SHORT) {
-        return sizeof(short int);
-    } else if (encoding == ZIP_ENC_INT) {
-        return sizeof(int);
-    } else if (encoding == ZIP_ENC_LLONG) {
-        return sizeof(long long);
+    if (encoding == ZIP_ENC_INT16) {
+        return sizeof(int16_t);
+    } else if (encoding == ZIP_ENC_INT32) {
+        return sizeof(int32_t);
+    } else if (encoding == ZIP_ENC_INT64) {
+        return sizeof(int64_t);
     }
     assert(NULL);
 }
@@ -180,12 +184,12 @@ static int zipTryEncoding(unsigned char *entry, long long *v, unsigned char *enc
     if (entry[0] == '-' || (entry[0] >= '0' && entry[0] <= '9')) {
         value = strtoll((char*)entry,&eptr,10);
         if (eptr[0] != '\0') return 0;
-        if (value >= SHRT_MIN && value <= SHRT_MAX) {
-            *encoding = ZIP_ENC_SHORT;
-        } else if (value >= INT_MIN && value <= INT_MAX) {
-            *encoding = ZIP_ENC_INT;
+        if (value >= INT16_MIN && value <= INT16_MAX) {
+            *encoding = ZIP_ENC_INT16;
+        } else if (value >= INT32_MIN && value <= INT32_MAX) {
+            *encoding = ZIP_ENC_INT32;
         } else {
-            *encoding = ZIP_ENC_LLONG;
+            *encoding = ZIP_ENC_INT64;
         }
         *v = value;
         return 1;
@@ -194,38 +198,38 @@ static int zipTryEncoding(unsigned char *entry, long long *v, unsigned char *enc
 }
 
 /* Store integer 'value' at 'p', encoded as 'encoding' */
-static void zipSaveInteger(unsigned char *p, long long value, unsigned char encoding) {
-    short int s;
-    int i;
-    long long l;
-    if (encoding == ZIP_ENC_SHORT) {
-        s = value;
-        memcpy(p,&s,sizeof(s));
-    } else if (encoding == ZIP_ENC_INT) {
-        i = value;
-        memcpy(p,&i,sizeof(i));
-    } else if (encoding == ZIP_ENC_LLONG) {
-        l = value;
-        memcpy(p,&l,sizeof(l));
+static void zipSaveInteger(unsigned char *p, int64_t value, unsigned char encoding) {
+    int16_t i16;
+    int32_t i32;
+    int64_t i64;
+    if (encoding == ZIP_ENC_INT16) {
+        i16 = value;
+        memcpy(p,&i16,sizeof(i16));
+    } else if (encoding == ZIP_ENC_INT32) {
+        i32 = value;
+        memcpy(p,&i32,sizeof(i32));
+    } else if (encoding == ZIP_ENC_INT64) {
+        i64 = value;
+        memcpy(p,&i64,sizeof(i64));
     } else {
         assert(NULL);
     }
 }
 
 /* Read integer encoded as 'encoding' from 'p' */
-static long long zipLoadInteger(unsigned char *p, unsigned char encoding) {
-    short int s;
-    int i;
-    long long l, ret;
-    if (encoding == ZIP_ENC_SHORT) {
-        memcpy(&s,p,sizeof(s));
-        ret = s;
-    } else if (encoding == ZIP_ENC_INT) {
-        memcpy(&i,p,sizeof(i));
-        ret = i;
-    } else if (encoding == ZIP_ENC_LLONG) {
-        memcpy(&l,p,sizeof(l));
-        ret = l;
+static int64_t zipLoadInteger(unsigned char *p, unsigned char encoding) {
+    int16_t i16;
+    int32_t i32;
+    int64_t i64, ret;
+    if (encoding == ZIP_ENC_INT16) {
+        memcpy(&i16,p,sizeof(i16));
+        ret = i16;
+    } else if (encoding == ZIP_ENC_INT32) {
+        memcpy(&i32,p,sizeof(i32));
+        ret = i32;
+    } else if (encoding == ZIP_ENC_INT64) {
+        memcpy(&i64,p,sizeof(i64));
+        ret = i64;
     } else {
         assert(NULL);
     }
@@ -539,7 +543,7 @@ unsigned int ziplistCompare(unsigned char *p, unsigned char *sstr, unsigned int 
 /* Return length of ziplist. */
 unsigned int ziplistLen(unsigned char *zl) {
     unsigned int len = 0;
-    if (ZIPLIST_LENGTH(zl) < ZIP_BIGLEN) {
+    if (ZIPLIST_LENGTH(zl) < UINT16_MAX) {
         len = ZIPLIST_LENGTH(zl);
     } else {
         unsigned char *p = zl+ZIPLIST_HEADER_SIZE;
@@ -549,7 +553,7 @@ unsigned int ziplistLen(unsigned char *zl) {
         }
 
         /* Re-store length if small enough */
-        if (len < ZIP_BIGLEN) ZIPLIST_LENGTH(zl) = len;
+        if (len < UINT16_MAX) ZIPLIST_LENGTH(zl) = len;
     }
     return len;
 }
