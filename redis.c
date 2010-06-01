@@ -90,7 +90,7 @@
 #define REDIS_STATIC_ARGS       8
 #define REDIS_DEFAULT_DBNUM     16
 #define REDIS_CONFIGLINE_MAX    1024
-#define REDIS_OBJFREELIST_MAX   1000000 /* Max number of objects to cache */
+#define REDIS_OBJFREELIST_MAX   0 /* Max number of objects to cache */
 #define REDIS_MAX_SYNC_TIME     60      /* Slave can't take more to sync */
 #define REDIS_EXPIRELOOKUPS_PER_CRON    10 /* lookup 10 expires per loop */
 #define REDIS_MAX_WRITE_PER_EVENT (1024*64)
@@ -3099,10 +3099,18 @@ static void decrRefCount(void *obj) {
     }
 
     if (o->refcount <= 0) redisPanic("decrRefCount against refcount <= 0");
-    /* Object is in memory, or in the process of being swapped out. */
+    /* Object is in memory, or in the process of being swapped out.
+     *
+     * If the object is being swapped out, abort the operation on
+     * decrRefCount even if the refcount does not drop to 0: the object
+     * is referenced at least two times, as value of the key AND as
+     * job->val in the iojob. So if we don't invalidate the iojob, when it is
+     * done but the relevant key was removed in the meantime, the
+     * complete jobs handler will not find the key about the job and the
+     * assert will fail. */
+    if (server.vm_enabled && o->storage == REDIS_VM_SWAPPING)
+        vmCancelThreadedIOJob(o);
     if (--(o->refcount) == 0) {
-        if (server.vm_enabled && o->storage == REDIS_VM_SWAPPING)
-            vmCancelThreadedIOJob(obj);
         switch(o->type) {
         case REDIS_STRING: freeStringObject(o); break;
         case REDIS_LIST: freeListObject(o); break;
@@ -9409,11 +9417,9 @@ static void freeIOJob(iojob *j) {
         j->type == REDIS_IOJOB_DO_SWAP ||
         j->type == REDIS_IOJOB_LOAD) && j->val != NULL)
     {
-        /* Our value object was successfully swapped if
-         * refcount == 1 and storage == REDIS_VM_SWAPPING,
-         * we fix the storage type, otherwise decrRefCount() will try to
-         * kill the I/O thread Job (that does no longer exists). */
-        if (j->val->refcount == 1 && j->val->storage == REDIS_VM_SWAPPING)
+         /* we fix the storage type, otherwise decrRefCount() will try to
+          * kill the I/O thread Job (that does no longer exists). */
+        if (j->val->storage == REDIS_VM_SWAPPING)
             j->val->storage = REDIS_VM_MEMORY;
         decrRefCount(j->val);
     }
@@ -9462,7 +9468,7 @@ static void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
          * can do just here to avoid race conditions and/or invasive locks */
         redisLog(REDIS_DEBUG,"COMPLETED Job type: %d, ID %p, key: %s", j->type, (void*)j->id, (unsigned char*)j->key->ptr);
         de = dictFind(j->db->dict,j->key);
-        assert(de != NULL);
+        redisAssert(de != NULL);
         if (j->type == REDIS_IOJOB_LOAD) {
             redisDb *db;
             vmpointer *vp = dictGetEntryVal(de);
@@ -9518,6 +9524,9 @@ static void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
             vp->page = j->page;
             vp->usedpages = j->pages;
             dictGetEntryVal(de) = vp;
+            /* Fix the storage otherwise decrRefCount will attempt to
+             * remove the associated I/O job */
+            j->val->storage = REDIS_VM_MEMORY;
             decrRefCount(j->val);
             redisLog(REDIS_DEBUG,
                 "VM: object %s swapped out at %lld (%lld pages) (threaded)",
@@ -9636,6 +9645,7 @@ again:
                 else if (o->storage == REDIS_VM_SWAPPING)
                     o->storage = REDIS_VM_MEMORY;
                 unlockThreadedIO();
+                redisLog(REDIS_DEBUG,"*** DONE");
                 return;
             }
         }
