@@ -90,7 +90,7 @@
 #define REDIS_STATIC_ARGS       8
 #define REDIS_DEFAULT_DBNUM     16
 #define REDIS_CONFIGLINE_MAX    1024
-#define REDIS_OBJFREELIST_MAX   0 /* Max number of objects to cache */
+#define REDIS_OBJFREELIST_MAX   1000000 /* Max number of objects to cache */
 #define REDIS_MAX_SYNC_TIME     60      /* Slave can't take more to sync */
 #define REDIS_EXPIRELOOKUPS_PER_CRON    10 /* lookup 10 expires per loop */
 #define REDIS_MAX_WRITE_PER_EVENT (1024*64)
@@ -3127,84 +3127,12 @@ static void decrRefCount(void *obj) {
     }
 }
 
-static robj *lookupKey(redisDb *db, robj *key) {
-    dictEntry *de = dictFind(db->dict,key);
-    if (de) {
-        robj *key = dictGetEntryKey(de);
-        robj *val = dictGetEntryVal(de);
-
-        if (server.vm_enabled) {
-            if (val->storage == REDIS_VM_MEMORY ||
-                val->storage == REDIS_VM_SWAPPING)
-            {
-                /* If we were swapping the object out, cancel the operation */
-                if (val->storage == REDIS_VM_SWAPPING)
-                    vmCancelThreadedIOJob(val);
-                /* Update the access time of the key for the aging algorithm. */
-                val->lru = server.lruclock;
-            } else {
-                int notify = (val->storage == REDIS_VM_LOADING);
-
-                /* Our value was swapped on disk. Bring it at home. */
-                redisAssert(val->type == REDIS_VMPOINTER);
-                val = vmLoadObject(val);
-                dictGetEntryVal(de) = val;
-
-                /* Clients blocked by the VM subsystem may be waiting for
-                 * this key... */
-                if (notify) handleClientsBlockedOnSwappedKey(db,key);
-            }
-        }
-        return val;
-    } else {
-        return NULL;
-    }
-}
-
-static robj *lookupKeyRead(redisDb *db, robj *key) {
-    expireIfNeeded(db,key);
-    return lookupKey(db,key);
-}
-
-static robj *lookupKeyWrite(redisDb *db, robj *key) {
-    deleteIfVolatile(db,key);
-    touchWatchedKey(db,key);
-    return lookupKey(db,key);
-}
-
-static robj *lookupKeyReadOrReply(redisClient *c, robj *key, robj *reply) {
-    robj *o = lookupKeyRead(c->db, key);
-    if (!o) addReply(c,reply);
-    return o;
-}
-
-static robj *lookupKeyWriteOrReply(redisClient *c, robj *key, robj *reply) {
-    robj *o = lookupKeyWrite(c->db, key);
-    if (!o) addReply(c,reply);
-    return o;
-}
-
 static int checkType(redisClient *c, robj *o, int type) {
     if (o->type != type) {
         addReply(c,shared.wrongtypeerr);
         return 1;
     }
     return 0;
-}
-
-static int deleteKey(redisDb *db, robj *key) {
-    int retval;
-
-    /* We need to protect key from destruction: after the first dictDelete()
-     * it may happen that 'key' is no longer valid if we don't increment
-     * it's count. This may happen when we get the object reference directly
-     * from the hash table with dictRandomKey() or dict iterators */
-    incrRefCount(key);
-    if (dictSize(db->expires)) dictDelete(db->expires,key);
-    retval = dictDelete(db->dict,key);
-    decrRefCount(key);
-
-    return retval == DICT_OK;
 }
 
 /* Check if the nul-terminated string 's' can be represented by a long
@@ -3424,6 +3352,80 @@ static int getLongFromObjectOrReply(redisClient *c, robj *o, long *target, const
 
     *target = value;
     return REDIS_OK;
+}
+
+/* =========================== Keyspace access API ========================== */
+
+static robj *lookupKey(redisDb *db, robj *key) {
+    dictEntry *de = dictFind(db->dict,key);
+    if (de) {
+        robj *key = dictGetEntryKey(de);
+        robj *val = dictGetEntryVal(de);
+
+        if (server.vm_enabled) {
+            if (val->storage == REDIS_VM_MEMORY ||
+                val->storage == REDIS_VM_SWAPPING)
+            {
+                /* If we were swapping the object out, cancel the operation */
+                if (val->storage == REDIS_VM_SWAPPING)
+                    vmCancelThreadedIOJob(val);
+                /* Update the access time of the key for the aging algorithm. */
+                val->lru = server.lruclock;
+            } else {
+                int notify = (val->storage == REDIS_VM_LOADING);
+
+                /* Our value was swapped on disk. Bring it at home. */
+                redisAssert(val->type == REDIS_VMPOINTER);
+                val = vmLoadObject(val);
+                dictGetEntryVal(de) = val;
+
+                /* Clients blocked by the VM subsystem may be waiting for
+                 * this key... */
+                if (notify) handleClientsBlockedOnSwappedKey(db,key);
+            }
+        }
+        return val;
+    } else {
+        return NULL;
+    }
+}
+
+static robj *lookupKeyRead(redisDb *db, robj *key) {
+    expireIfNeeded(db,key);
+    return lookupKey(db,key);
+}
+
+static robj *lookupKeyWrite(redisDb *db, robj *key) {
+    deleteIfVolatile(db,key);
+    touchWatchedKey(db,key);
+    return lookupKey(db,key);
+}
+
+static robj *lookupKeyReadOrReply(redisClient *c, robj *key, robj *reply) {
+    robj *o = lookupKeyRead(c->db, key);
+    if (!o) addReply(c,reply);
+    return o;
+}
+
+static robj *lookupKeyWriteOrReply(redisClient *c, robj *key, robj *reply) {
+    robj *o = lookupKeyWrite(c->db, key);
+    if (!o) addReply(c,reply);
+    return o;
+}
+
+static int deleteKey(redisDb *db, robj *key) {
+    int retval;
+
+    /* We need to protect key from destruction: after the first dictDelete()
+     * it may happen that 'key' is no longer valid if we don't increment
+     * it's count. This may happen when we get the object reference directly
+     * from the hash table with dictRandomKey() or dict iterators */
+    incrRefCount(key);
+    if (dictSize(db->expires)) dictDelete(db->expires,key);
+    retval = dictDelete(db->dict,key);
+    decrRefCount(key);
+
+    return retval == DICT_OK;
 }
 
 /*============================ RDB saving/loading =========================== */
