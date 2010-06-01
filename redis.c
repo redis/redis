@@ -9598,8 +9598,8 @@ again:
 
             if (job->canceled) continue; /* Skip this, already canceled. */
             if (job->id == o) {
-                redisLog(REDIS_DEBUG,"*** CANCELED %p (%s) (type %d) (LIST ID %d)\n",
-                    (void*)job, (char*)o->ptr, job->type, i);
+                redisLog(REDIS_DEBUG,"*** CANCELED %p (key %s) (type %d) (LIST ID %d)\n",
+                    (void*)job, (char*)job->key->ptr, job->type, i);
                 /* Mark the pages as free since the swap didn't happened
                  * or happened but is now discarded. */
                 if (i != 1 && job->type == REDIS_IOJOB_DO_SWAP)
