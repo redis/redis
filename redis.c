@@ -4132,7 +4132,6 @@ static int rdbLoad(char *filename) {
     redisDb *db = server.db+0;
     char buf[1024];
     time_t expiretime, now = time(NULL);
-    long long loadedkeys = 0;
 
     fp = fopen(filename,"r");
     if (!fp) return REDIS_ERR;
@@ -4151,6 +4150,7 @@ static int rdbLoad(char *filename) {
     }
     while(1) {
         robj *key, *val;
+        int force_swapout;
 
         expiretime = -1;
         /* Read type. */
@@ -4189,7 +4189,6 @@ static int rdbLoad(char *filename) {
             redisLog(REDIS_WARNING,"Loading DB, duplicated key (%s) found! Unrecoverable error, exiting now.", key->ptr);
             exit(1);
         }
-        loadedkeys++;
         /* Set the expire time if needed */
         if (expiretime != -1) setExpire(db,key,expiretime);
 
@@ -4216,9 +4215,14 @@ static int rdbLoad(char *filename) {
             continue;
         }
 
+        /* Flush data on disk once 32 MB of additional RAM are used... */
+        force_swapout = 0;
+        if ((zmalloc_used_memory() - server.vm_max_memory) > 1024*1024*32)
+            force_swapout = 1;
+
         /* If we have still some hope of having some value fitting memory
          * then we try random sampling. */
-        if (!swap_all_values && server.vm_enabled && (loadedkeys % 5000) == 0) {
+        if (!swap_all_values && server.vm_enabled && force_swapout) {
             while (zmalloc_used_memory() > server.vm_max_memory) {
                 if (vmSwapOneObjectBlocking() == REDIS_ERR) break;
             }
@@ -8478,7 +8482,6 @@ int loadAppendOnlyFile(char *filename) {
     struct redisClient *fakeClient;
     FILE *fp = fopen(filename,"r");
     struct redis_stat sb;
-    unsigned long long loadedkeys = 0;
     int appendonly = server.appendonly;
 
     if (redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0)
@@ -8501,6 +8504,7 @@ int loadAppendOnlyFile(char *filename) {
         char buf[128];
         sds argsds;
         struct redisCommand *cmd;
+        int force_swapout;
 
         if (fgets(buf,sizeof(buf),fp) == NULL) {
             if (feof(fp))
@@ -8541,8 +8545,11 @@ int loadAppendOnlyFile(char *filename) {
         for (j = 0; j < argc; j++) decrRefCount(argv[j]);
         zfree(argv);
         /* Handle swapping while loading big datasets when VM is on */
-        loadedkeys++;
-        if (server.vm_enabled && (loadedkeys % 5000) == 0) {
+        force_swapout = 0;
+        if ((zmalloc_used_memory() - server.vm_max_memory) > 1024*1024*32)
+            force_swapout = 1;
+
+        if (server.vm_enabled && force_swapout) {
             while (zmalloc_used_memory() > server.vm_max_memory) {
                 if (vmSwapOneObjectBlocking() == REDIS_ERR) break;
             }
