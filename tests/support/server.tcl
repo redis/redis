@@ -236,11 +236,10 @@ proc start_server {options {code undefined}} {
             exit 1
         }
 
+        set ::tags [lrange $::tags 0 end-[llength $tags]]
         kill_server $srv
     } else {
+        set ::tags [lrange $::tags 0 end-[llength $tags]]
         set _ $srv
     }
-
-    # remove tags
-    set ::tags [lrange $::tags 0 end-[llength $tags]]
 }
