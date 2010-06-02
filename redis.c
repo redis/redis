@@ -271,7 +271,7 @@ typedef struct redisObject {
  * as redisObject structures.
  *
  * This is useful as we don't know if a value object is or not on disk, but we
- * are always free of accessing obj->storage to check this. For vmPointer
+ * are always able to read obj->storage to check this. For vmPointer
  * structures "type" is set to REDIS_VMPOINTER (even if without this field
  * is still possible to check the kind of object from the value of 'storage').*/
 typedef struct vmPointer {
