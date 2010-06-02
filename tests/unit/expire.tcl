@@ -48,10 +48,12 @@ start_server {tags {"expire"}} {
         r get y
     } {foo}
 
-    test {SETEX - Wait for the key to expire} {
-        after 3000
-        r get y
-    } {}
+    tags {"slow"} {
+        test {SETEX - Wait for the key to expire} {
+            after 3000
+            r get y
+        } {}
+    }
 
     test {SETEX - Wrong time parameter} {
         catch {r setex z -10 foo} e
