@@ -15,7 +15,7 @@ proc test {name code okpattern} {
     if {[llength $::allowtags] > 0} {
         set matched 0
         foreach tag $::allowtags {
-            if {[lsearch $::tags $tag]} {
+            if {[lsearch $::tags $tag] >= 0} {
                 incr matched
             }
         }
