@@ -1,4 +1,4 @@
-start_server default.conf {} {
+start_server {} {
     test {SADD, SCARD, SISMEMBER, SMEMBERS basics} {
         r sadd myset foo
         r sadd myset bar

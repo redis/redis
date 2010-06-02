@@ -1,4 +1,4 @@
-start_server default.conf {} {
+start_server {} {
     test {EXPIRE - don't set timeouts multiple times} {
         r set x foobar
         set v1 [r expire x 5]

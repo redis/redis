@@ -81,8 +81,21 @@ proc ping_server {host port} {
 }
 
 set ::global_overrides {}
-proc start_server {filename overrides {code undefined}} {
-    set data [split [exec cat "tests/assets/$filename"] "\n"]
+proc start_server {options {code undefined}} {
+    # setup defaults
+    set baseconfig "default.conf"
+    set overrides {}
+
+    # parse options
+    foreach {option value} $options {
+        switch $option {
+            "config" { set baseconfig $value }
+            "overrides" { set overrides $value }
+            default { error "Unknown option $option" }
+        }
+    }
+
+    set data [split [exec cat "tests/assets/$baseconfig"] "\n"]
     set config {}
     foreach line $data {
         if {[string length $line] > 0 && [string index $line 0] ne "#"} {
@@ -100,9 +113,7 @@ proc start_server {filename overrides {code undefined}} {
     dict set config port [incr ::port]
 
     # apply overrides from global space and arguments
-    foreach override [concat $::global_overrides $overrides] {
-        set directive [lrange $override 0 0]
-        set arguments [lrange $override 1 end]
+    foreach {directive arguments} [concat $::global_overrides $overrides] {
         dict set config $directive $arguments
     }
     

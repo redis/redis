@@ -17,7 +17,7 @@ proc create_aof {code} {
 proc start_server_aof {overrides code} {
     upvar defaults defaults srv srv server_path server_path
     set _defaults $defaults
-    set srv [start_server default.conf [lappend _defaults $overrides]]
+    set srv [start_server {overrides [lappend _defaults $overrides]}]
     uplevel 1 $code
     kill_server $srv
 }

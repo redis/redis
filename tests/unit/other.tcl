@@ -1,4 +1,4 @@
-start_server default.conf {} {
+start_server {} {
     test {SAVE - make sure there are all the types as values} {
         # Wait for a background saving in progress to terminate
         waitForBgsave r

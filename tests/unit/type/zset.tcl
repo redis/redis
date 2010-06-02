@@ -1,4 +1,4 @@
-start_server default.conf {} {
+start_server {} {
     test {ZSET basic ZADD and score update} {
         r zadd ztmp 10 x
         r zadd ztmp 20 y

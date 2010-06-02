@@ -1,4 +1,4 @@
-start_server default.conf {} {
+start_server {} {
     test {SORT ALPHA against integer encoded strings} {
         r del mylist
         r lpush mylist 2

@@ -1,4 +1,4 @@
-start_server default.conf {} {
+start_server {} {
     test {DEL all keys to start with a clean DB} {
         foreach key [r keys *] {r del $key}
         r dbsize
