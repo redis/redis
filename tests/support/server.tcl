@@ -33,9 +33,11 @@ proc kill_server config {
     if {![dict exists $config "skipleaks"]} {
         catch {
             if {[string match {*Darwin*} [exec uname -a]]} {
-                test "Check for memory leaks (pid $pid)" {
-                    exec leaks $pid
-                } {*0 leaks*}
+                tags {"leaks"} {
+                    test "Check for memory leaks (pid $pid)" {
+                        exec leaks $pid
+                    } {*0 leaks*}
+                }
             }
         }
     }
