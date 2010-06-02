@@ -12,10 +12,12 @@ start_server {tags {"expire"}} {
         r get x
     } {foobar}
 
-    test {EXPIRE - After 6 seconds the key should no longer be here} {
-        after 6000
-        list [r get x] [r exists x]
-    } {{} 0}
+    tags {"slow"} {
+        test {EXPIRE - After 6 seconds the key should no longer be here} {
+            after 6000
+            list [r get x] [r exists x]
+        } {{} 0}
+    }
 
     test {EXPIRE - Delete on write policy} {
         r del x
