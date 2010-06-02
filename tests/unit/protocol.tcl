@@ -1,4 +1,4 @@
-start_server default.conf {} {
+start_server {} {
     test {Handle an empty query well} {
         set fd [r channel]
         puts -nonewline $fd "\r\n"

@@ -1,3 +1,6 @@
+set ::global_overrides {}
+set ::tags {}
+
 proc error_and_quit {config_file error} {
     puts "!!COULD NOT START REDIS-SERVER\n"
     puts "CONFIGURATION:"
@@ -27,11 +30,15 @@ proc kill_server config {
     set pid [dict get $config pid]
 
     # check for leaks
-    catch {
-        if {[string match {*Darwin*} [exec uname -a]]} {
-            test "Check for memory leaks (pid $pid)" {
-                exec leaks $pid
-            } {*0 leaks*}
+    if {![dict exists $config "skipleaks"]} {
+        catch {
+            if {[string match {*Darwin*} [exec uname -a]]} {
+                tags {"leaks"} {
+                    test "Check for memory leaks (pid $pid)" {
+                        exec leaks $pid
+                    } {*0 leaks*}
+                }
+            }
         }
     }
 
@@ -78,9 +85,35 @@ proc ping_server {host port} {
     return $retval
 }
 
-set ::global_overrides {}
-proc start_server {filename overrides {code undefined}} {
-    set data [split [exec cat "tests/assets/$filename"] "\n"]
+# doesn't really belong here, but highly coupled to code in start_server
+proc tags {tags code} {
+    set ::tags [concat $::tags $tags]
+    uplevel 1 $code
+    set ::tags [lrange $::tags 0 end-[llength $tags]]
+}
+
+proc start_server {options {code undefined}} {
+    # setup defaults
+    set baseconfig "default.conf"
+    set overrides {}
+    set tags {}
+
+    # parse options
+    foreach {option value} $options {
+        switch $option {
+            "config" {
+                set baseconfig $value }
+            "overrides" {
+                set overrides $value }
+            "tags" {
+                set tags $value
+                set ::tags [concat $::tags $value] }
+            default {
+                error "Unknown option $option" }
+        }
+    }
+
+    set data [split [exec cat "tests/assets/$baseconfig"] "\n"]
     set config {}
     foreach line $data {
         if {[string length $line] > 0 && [string index $line 0] ne "#"} {
@@ -98,9 +131,7 @@ proc start_server {filename overrides {code undefined}} {
     dict set config port [incr ::port]
 
     # apply overrides from global space and arguments
-    foreach override [concat $::global_overrides $overrides] {
-        set directive [lrange $override 0 0]
-        set arguments [lrange $override 1 end]
+    foreach {directive arguments} [concat $::global_overrides $overrides] {
         dict set config $directive $arguments
     }
     
@@ -177,19 +208,40 @@ proc start_server {filename overrides {code undefined}} {
         lappend ::servers $srv
         
         # execute provided block
+        set curnum $::testnum
         catch { uplevel 1 $code } err
+        if {$curnum == $::testnum} {
+            # don't check for leaks when no tests were executed
+            dict set srv "skipleaks" 1
+        }
 
         # pop the server object
         set ::servers [lrange $::servers 0 end-1]
         
-        kill_server $srv
-
-        if {[string length $err] > 0} {
+        # allow an exception to bubble up the call chain but still kill this
+        # server, because we want to reuse the ports when the tests are re-run
+        if {$err eq "exception"} {
+            puts [format "Logged warnings (pid %d):" [dict get $srv "pid"]]
+            set warnings [warnings_from_file [dict get $srv "stdout"]]
+            if {[string length $warnings] > 0} {
+                puts "$warnings"
+            } else {
+                puts "(none)"
+            }
+            # kill this server without checking for leaks
+            dict set srv "skipleaks" 1
+            kill_server $srv
+            error "exception"
+        } elseif {[string length $err] > 0} {
             puts "Error executing the suite, aborting..."
             puts $err
             exit 1
         }
+
+        set ::tags [lrange $::tags 0 end-[llength $tags]]
+        kill_server $srv
     } else {
+        set ::tags [lrange $::tags 0 end-[llength $tags]]
         set _ $srv
     }
 }

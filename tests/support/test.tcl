@@ -3,20 +3,34 @@ set ::failed 0
 set ::testnum 0
 
 proc test {name code okpattern} {
+    # abort if tagged with a tag to deny
+    foreach tag $::denytags {
+        if {[lsearch $::tags $tag] >= 0} {
+            return
+        }
+    }
+
+    # check if tagged with at least 1 tag to allow when there *is* a list
+    # of tags to allow, because default policy is to run everything
+    if {[llength $::allowtags] > 0} {
+        set matched 0
+        foreach tag $::allowtags {
+            if {[lsearch $::tags $tag] >= 0} {
+                incr matched
+            }
+        }
+        if {$matched < 1} {
+            return
+        }
+    }
+
     incr ::testnum
-    # if {$::testnum < $::first || $::testnum > $::last} return
     puts -nonewline [format "#%03d %-68s " $::testnum $name]
     flush stdout
     if {[catch {set retval [uplevel 1 $code]} error]} {
-        puts "ERROR\n\nLogged warnings:"
-        foreach file [glob tests/tmp/server.[pid].*/stdout] {
-            set warnings [warnings_from_file $file]
-            if {[string length $warnings] > 0} {
-                puts $warnings
-            }
-        }
-        puts "Script died with $error"
-        exit 1
+        puts "EXCEPTION"
+        puts "\nCaught error: $error"
+        error "exception"
     }
     if {$okpattern eq $retval || [string match $okpattern $retval]} {
         puts "PASSED"

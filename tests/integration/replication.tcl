@@ -1,7 +1,7 @@
-start_server default.conf {} {
+start_server {tags {"repl"}} {
     r set mykey foo
     
-    start_server default.conf {} {
+    start_server {} {
         test {Second server should have role master at first} {
             s role
         } {master}
