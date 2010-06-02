@@ -9,6 +9,7 @@ start_server {tags {"sort"}} {
     } {1 10 2 3}
 
     tags {"slow"} {
+        set res {}
         test {Create a random list and a random set} {
             set tosort {}
             array set seenrand {}
@@ -31,7 +32,6 @@ start_server {tags {"sort"}} {
                 lappend tosort [list $i $rint]
             }
             set sorted [lsort -index 1 -real $tosort]
-            set res {}
             for {set i 0} {$i < 10000} {incr i} {
                 lappend res [lindex $sorted $i 0]
             }
