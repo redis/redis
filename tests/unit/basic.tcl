@@ -1,4 +1,4 @@
-start_server {} {
+start_server {tags {basic}} {
     test {DEL all keys to start with a clean DB} {
         foreach key [r keys *] {r del $key}
         r dbsize
@@ -52,6 +52,7 @@ start_server {} {
         r get foo
     } [string repeat "abcd" 1000000]
 
+    tags {slow} {
     test {Very big payload random access} {
         set err {}
         array set payload {}
@@ -92,6 +93,7 @@ start_server {} {
     test {DBSIZE should be 10101 now} {
         r dbsize
     } {10101}
+    }
 
     test {INCR against non existing key} {
         set res {}

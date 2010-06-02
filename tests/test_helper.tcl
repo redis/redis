@@ -13,6 +13,8 @@ set ::host 127.0.0.1
 set ::port 16379
 set ::traceleaks 0
 set ::valgrind 0
+set ::denytags {}
+set ::allowtags {}
 
 proc execute_tests name {
     source "tests/$name.tcl"
