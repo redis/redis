@@ -1,4 +1,4 @@
-start_server {} {
+start_server {tags {"repl"}} {
     r set mykey foo
     
     start_server {} {

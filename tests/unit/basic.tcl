@@ -1,4 +1,4 @@
-start_server {tags {basic}} {
+start_server {tags {"basic"}} {
     test {DEL all keys to start with a clean DB} {
         foreach key [r keys *] {r del $key}
         r dbsize
@@ -52,47 +52,47 @@ start_server {tags {basic}} {
         r get foo
     } [string repeat "abcd" 1000000]
 
-    tags {slow} {
-    test {Very big payload random access} {
-        set err {}
-        array set payload {}
-        for {set j 0} {$j < 100} {incr j} {
-            set size [expr 1+[randomInt 100000]]
-            set buf [string repeat "pl-$j" $size]
-            set payload($j) $buf
-            r set bigpayload_$j $buf
-        }
-        for {set j 0} {$j < 1000} {incr j} {
-            set index [randomInt 100]
-            set buf [r get bigpayload_$index]
-            if {$buf != $payload($index)} {
-                set err "Values differ: I set '$payload($index)' but I read back '$buf'"
-                break
+    tags {"slow"} {
+        test {Very big payload random access} {
+            set err {}
+            array set payload {}
+            for {set j 0} {$j < 100} {incr j} {
+                set size [expr 1+[randomInt 100000]]
+                set buf [string repeat "pl-$j" $size]
+                set payload($j) $buf
+                r set bigpayload_$j $buf
             }
-        }
-        unset payload
-        set _ $err
-    } {}
-
-    test {SET 10000 numeric keys and access all them in reverse order} {
-        set err {}
-        for {set x 0} {$x < 10000} {incr x} {
-            r set $x $x
-        }
-        set sum 0
-        for {set x 9999} {$x >= 0} {incr x -1} {
-            set val [r get $x]
-            if {$val ne $x} {
-                set err "Eleemnt at position $x is $val instead of $x"
-                break
+            for {set j 0} {$j < 1000} {incr j} {
+                set index [randomInt 100]
+                set buf [r get bigpayload_$index]
+                if {$buf != $payload($index)} {
+                    set err "Values differ: I set '$payload($index)' but I read back '$buf'"
+                    break
+                }
             }
-        }
-        set _ $err
-    } {}
+            unset payload
+            set _ $err
+        } {}
 
-    test {DBSIZE should be 10101 now} {
-        r dbsize
-    } {10101}
+        test {SET 10000 numeric keys and access all them in reverse order} {
+            set err {}
+            for {set x 0} {$x < 10000} {incr x} {
+                r set $x $x
+            }
+            set sum 0
+            for {set x 9999} {$x >= 0} {incr x -1} {
+                set val [r get $x]
+                if {$val ne $x} {
+                    set err "Eleemnt at position $x is $val instead of $x"
+                    break
+                }
+            }
+            set _ $err
+        } {}
+
+        test {DBSIZE should be 10101 now} {
+            r dbsize
+        } {10101}
     }
 
     test {INCR against non existing key} {
