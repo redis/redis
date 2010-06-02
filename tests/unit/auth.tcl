@@ -1,4 +1,4 @@
-start_server {overrides {requirepass foobar}} {
+start_server {tags {"auth"} overrides {requirepass foobar}} {
     test {AUTH fails when a wrong password is given} {
         catch {r auth wrong!} err
         format $err

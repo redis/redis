@@ -1,4 +1,4 @@
-start_server {} {
+start_server {tags {"hash"}} {
     test {HSET/HLEN - Small hash creation} {
         array set smallhash {}
         for {set i 0} {$i < 8} {incr i} {

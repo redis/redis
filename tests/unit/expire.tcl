@@ -1,4 +1,4 @@
-start_server {} {
+start_server {tags {"expire"}} {
     test {EXPIRE - don't set timeouts multiple times} {
         r set x foobar
         set v1 [r expire x 5]
