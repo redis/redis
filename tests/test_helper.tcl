@@ -15,7 +15,6 @@ set ::traceleaks 0
 set ::valgrind 0
 
 proc execute_tests name {
-    set cur $::testnum
     source "tests/$name.tcl"
 }
 
