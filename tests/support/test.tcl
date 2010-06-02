@@ -8,14 +8,9 @@ proc test {name code okpattern} {
     puts -nonewline [format "#%03d %-68s " $::testnum $name]
     flush stdout
     if {[catch {set retval [uplevel 1 $code]} error]} {
-        puts "ERROR\n\nLogged warnings:"
-        foreach file [glob tests/tmp/server.[pid].*/stdout] {
-            set warnings [warnings_from_file $file]
-            if {[string length $warnings] > 0} {
-                puts $warnings
-            }
-        }
-        exit 1
+        puts "EXCEPTION"
+        puts "\nCaught error: $error"
+        error "exception"
     }
     if {$okpattern eq $retval || [string match $okpattern $retval]} {
         puts "PASSED"
