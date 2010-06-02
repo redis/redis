@@ -1,3 +1,6 @@
+set ::global_overrides {}
+set ::tags {}
+
 proc error_and_quit {config_file error} {
     puts "!!COULD NOT START REDIS-SERVER\n"
     puts "CONFIGURATION:"
@@ -80,18 +83,31 @@ proc ping_server {host port} {
     return $retval
 }
 
-set ::global_overrides {}
+# doesn't really belong here, but highly coupled to code in start_server
+proc tags {tags code} {
+    set ::tags [concat $::tags $tags]
+    uplevel 1 $code
+    set ::tags [lrange $::tags 0 end-[llength $tags]]
+}
+
 proc start_server {options {code undefined}} {
     # setup defaults
     set baseconfig "default.conf"
     set overrides {}
+    set tags {}
 
     # parse options
     foreach {option value} $options {
         switch $option {
-            "config" { set baseconfig $value }
-            "overrides" { set overrides $value }
-            default { error "Unknown option $option" }
+            "config" {
+                set baseconfig $value }
+            "overrides" {
+                set overrides $value }
+            "tags" {
+                set tags $value
+                set ::tags [concat $::tags $value] }
+            default {
+                error "Unknown option $option" }
         }
     }
 
@@ -190,7 +206,12 @@ proc start_server {options {code undefined}} {
         lappend ::servers $srv
         
         # execute provided block
+        set curnum $::testnum
         catch { uplevel 1 $code } err
+        if {$curnum == $::testnum} {
+            # don't check for leaks when no tests were executed
+            dict set srv "skipleaks" 1
+        }
 
         # pop the server object
         set ::servers [lrange $::servers 0 end-1]
@@ -219,4 +240,7 @@ proc start_server {options {code undefined}} {
     } else {
         set _ $srv
     }
+
+    # remove tags
+    set ::tags [lrange $::tags 0 end-[llength $tags]]
 }
