@@ -1,4 +1,4 @@
-set defaults [list [list appendonly yes] [list appendfilename appendonly.aof]]
+set defaults { appendonly {yes} appendfilename {appendonly.aof} }
 set server_path [tmpdir server.aof]
 set aof_path "$server_path/appendonly.aof"
 
@@ -16,8 +16,8 @@ proc create_aof {code} {
 
 proc start_server_aof {overrides code} {
     upvar defaults defaults srv srv server_path server_path
-    set _defaults $defaults
-    set srv [start_server {overrides [lappend _defaults $overrides]}]
+    set config [concat $defaults $overrides]
+    set srv [start_server [list overrides $config]]
     uplevel 1 $code
     kill_server $srv
 }
