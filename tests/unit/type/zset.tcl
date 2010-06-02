@@ -1,4 +1,4 @@
-start_server default.conf {} {
+start_server {tags {"zset"}} {
     test {ZSET basic ZADD and score update} {
         r zadd ztmp 10 x
         r zadd ztmp 20 y
@@ -162,85 +162,87 @@ start_server default.conf {} {
         r zrangebyscore zset 2 4 withscores
     } {b 2 c 3 d 4}
 
-    test {ZRANGEBYSCORE fuzzy test, 100 ranges in 1000 elements sorted set} {
-        set err {}
-        r del zset
-        for {set i 0} {$i < 1000} {incr i} {
-            r zadd zset [expr rand()] $i
-        }
-        for {set i 0} {$i < 100} {incr i} {
-            set min [expr rand()]
-            set max [expr rand()]
-            if {$min > $max} {
-                set aux $min
-                set min $max
-                set max $aux
+    tags {"slow"} {
+        test {ZRANGEBYSCORE fuzzy test, 100 ranges in 1000 elements sorted set} {
+            set err {}
+            r del zset
+            for {set i 0} {$i < 1000} {incr i} {
+                r zadd zset [expr rand()] $i
             }
-            set low [r zrangebyscore zset -inf $min]
-            set ok [r zrangebyscore zset $min $max]
-            set high [r zrangebyscore zset $max +inf]
-            set lowx [r zrangebyscore zset -inf ($min]
-            set okx [r zrangebyscore zset ($min ($max]
-            set highx [r zrangebyscore zset ($max +inf]
+            for {set i 0} {$i < 100} {incr i} {
+                set min [expr rand()]
+                set max [expr rand()]
+                if {$min > $max} {
+                    set aux $min
+                    set min $max
+                    set max $aux
+                }
+                set low [r zrangebyscore zset -inf $min]
+                set ok [r zrangebyscore zset $min $max]
+                set high [r zrangebyscore zset $max +inf]
+                set lowx [r zrangebyscore zset -inf ($min]
+                set okx [r zrangebyscore zset ($min ($max]
+                set highx [r zrangebyscore zset ($max +inf]
 
-            if {[r zcount zset -inf $min] != [llength $low]} {
-                append err "Error, len does not match zcount\n"
-            }
-            if {[r zcount zset $min $max] != [llength $ok]} {
-                append err "Error, len does not match zcount\n"
-            }
-            if {[r zcount zset $max +inf] != [llength $high]} {
-                append err "Error, len does not match zcount\n"
-            }
-            if {[r zcount zset -inf ($min] != [llength $lowx]} {
-                append err "Error, len does not match zcount\n"
-            }
-            if {[r zcount zset ($min ($max] != [llength $okx]} {
-                append err "Error, len does not match zcount\n"
-            }
-            if {[r zcount zset ($max +inf] != [llength $highx]} {
-                append err "Error, len does not match zcount\n"
-            }
+                if {[r zcount zset -inf $min] != [llength $low]} {
+                    append err "Error, len does not match zcount\n"
+                }
+                if {[r zcount zset $min $max] != [llength $ok]} {
+                    append err "Error, len does not match zcount\n"
+                }
+                if {[r zcount zset $max +inf] != [llength $high]} {
+                    append err "Error, len does not match zcount\n"
+                }
+                if {[r zcount zset -inf ($min] != [llength $lowx]} {
+                    append err "Error, len does not match zcount\n"
+                }
+                if {[r zcount zset ($min ($max] != [llength $okx]} {
+                    append err "Error, len does not match zcount\n"
+                }
+                if {[r zcount zset ($max +inf] != [llength $highx]} {
+                    append err "Error, len does not match zcount\n"
+                }
 
-            foreach x $low {
-                set score [r zscore zset $x]
-                if {$score > $min} {
-                    append err "Error, score for $x is $score > $min\n"
+                foreach x $low {
+                    set score [r zscore zset $x]
+                    if {$score > $min} {
+                        append err "Error, score for $x is $score > $min\n"
+                    }
+                }
+                foreach x $lowx {
+                    set score [r zscore zset $x]
+                    if {$score >= $min} {
+                        append err "Error, score for $x is $score >= $min\n"
+                    }
+                }
+                foreach x $ok {
+                    set score [r zscore zset $x]
+                    if {$score < $min || $score > $max} {
+                        append err "Error, score for $x is $score outside $min-$max range\n"
+                    }
+                }
+                foreach x $okx {
+                    set score [r zscore zset $x]
+                    if {$score <= $min || $score >= $max} {
+                        append err "Error, score for $x is $score outside $min-$max open range\n"
+                    }
+                }
+                foreach x $high {
+                    set score [r zscore zset $x]
+                    if {$score < $max} {
+                        append err "Error, score for $x is $score < $max\n"
+                    }
+                }
+                foreach x $highx {
+                    set score [r zscore zset $x]
+                    if {$score <= $max} {
+                        append err "Error, score for $x is $score <= $max\n"
+                    }
                 }
             }
-            foreach x $lowx {
-                set score [r zscore zset $x]
-                if {$score >= $min} {
-                    append err "Error, score for $x is $score >= $min\n"
-                }
-            }
-            foreach x $ok {
-                set score [r zscore zset $x]
-                if {$score < $min || $score > $max} {
-                    append err "Error, score for $x is $score outside $min-$max range\n"
-                }
-            }
-            foreach x $okx {
-                set score [r zscore zset $x]
-                if {$score <= $min || $score >= $max} {
-                    append err "Error, score for $x is $score outside $min-$max open range\n"
-                }
-            }
-            foreach x $high {
-                set score [r zscore zset $x]
-                if {$score < $max} {
-                    append err "Error, score for $x is $score < $max\n"
-                }
-            }
-            foreach x $highx {
-                set score [r zscore zset $x]
-                if {$score <= $max} {
-                    append err "Error, score for $x is $score <= $max\n"
-                }
-            }
-        }
-        set _ $err
-    } {}
+            set _ $err
+        } {}
+    }
 
     test {ZRANGEBYSCORE with LIMIT} {
         r del zset
@@ -356,47 +358,49 @@ start_server default.conf {} {
         list [r zinterstore zsetc 2 zseta zsetb aggregate max] [r zrange zsetc 0 -1 withscores]
     } {2 {b 2 c 3}}
     
-    test {ZSETs skiplist implementation backlink consistency test} {
-        set diff 0
-        set elements 10000
-        for {set j 0} {$j < $elements} {incr j} {
-            r zadd myzset [expr rand()] "Element-$j"
-            r zrem myzset "Element-[expr int(rand()*$elements)]"
-        }
-        set l1 [r zrange myzset 0 -1]
-        set l2 [r zrevrange myzset 0 -1]
-        for {set j 0} {$j < [llength $l1]} {incr j} {
-            if {[lindex $l1 $j] ne [lindex $l2 end-$j]} {
-                incr diff
+    tags {"slow"} {
+        test {ZSETs skiplist implementation backlink consistency test} {
+            set diff 0
+            set elements 10000
+            for {set j 0} {$j < $elements} {incr j} {
+                r zadd myzset [expr rand()] "Element-$j"
+                r zrem myzset "Element-[expr int(rand()*$elements)]"
             }
-        }
-        format $diff
-    } {0}
-
-    test {ZSETs ZRANK augmented skip list stress testing} {
-        set err {}
-        r del myzset
-        for {set k 0} {$k < 10000} {incr k} {
-            set i [expr {$k%1000}]
-            if {[expr rand()] < .2} {
-                r zrem myzset $i
-            } else {
-                set score [expr rand()]
-                r zadd myzset $score $i
-            }
-            set card [r zcard myzset]
-            if {$card > 0} {
-                set index [randomInt $card]
-                set ele [lindex [r zrange myzset $index $index] 0]
-                set rank [r zrank myzset $ele]
-                if {$rank != $index} {
-                    set err "$ele RANK is wrong! ($rank != $index)"
-                    break
+            set l1 [r zrange myzset 0 -1]
+            set l2 [r zrevrange myzset 0 -1]
+            for {set j 0} {$j < [llength $l1]} {incr j} {
+                if {[lindex $l1 $j] ne [lindex $l2 end-$j]} {
+                    incr diff
                 }
             }
-        }
-        set _ $err
-    } {}
+            format $diff
+        } {0}
+
+        test {ZSETs ZRANK augmented skip list stress testing} {
+            set err {}
+            r del myzset
+            for {set k 0} {$k < 10000} {incr k} {
+                set i [expr {$k%1000}]
+                if {[expr rand()] < .2} {
+                    r zrem myzset $i
+                } else {
+                    set score [expr rand()]
+                    r zadd myzset $score $i
+                }
+                set card [r zcard myzset]
+                if {$card > 0} {
+                    set index [randomInt $card]
+                    set ele [lindex [r zrange myzset $index $index] 0]
+                    set rank [r zrank myzset $ele]
+                    if {$rank != $index} {
+                        set err "$ele RANK is wrong! ($rank != $index)"
+                        break
+                    }
+                }
+            }
+            set _ $err
+        } {}
+    }
 
     test {ZSET element can't be set to nan with ZADD} {
         set e {}

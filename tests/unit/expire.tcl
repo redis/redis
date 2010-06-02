@@ -1,4 +1,4 @@
-start_server default.conf {} {
+start_server {tags {"expire"}} {
     test {EXPIRE - don't set timeouts multiple times} {
         r set x foobar
         set v1 [r expire x 5]
@@ -12,10 +12,12 @@ start_server default.conf {} {
         r get x
     } {foobar}
 
-    test {EXPIRE - After 6 seconds the key should no longer be here} {
-        after 6000
-        list [r get x] [r exists x]
-    } {{} 0}
+    tags {"slow"} {
+        test {EXPIRE - After 6 seconds the key should no longer be here} {
+            after 6000
+            list [r get x] [r exists x]
+        } {{} 0}
+    }
 
     test {EXPIRE - Delete on write policy} {
         r del x
@@ -46,10 +48,12 @@ start_server default.conf {} {
         r get y
     } {foo}
 
-    test {SETEX - Wait for the key to expire} {
-        after 3000
-        r get y
-    } {}
+    tags {"slow"} {
+        test {SETEX - Wait for the key to expire} {
+            after 3000
+            r get y
+        } {}
+    }
 
     test {SETEX - Wrong time parameter} {
         catch {r setex z -10 foo} e

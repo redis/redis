@@ -1,4 +1,4 @@
-start_server default.conf {} {
+start_server {tags {"list"}} {
     test {Basic LPUSH, RPUSH, LLENGTH, LINDEX} {
         set res [r lpush mylist a]
         append res [r lpush mylist b]
