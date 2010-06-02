@@ -27,11 +27,13 @@ proc kill_server config {
     set pid [dict get $config pid]
 
     # check for leaks
-    catch {
-        if {[string match {*Darwin*} [exec uname -a]]} {
-            test "Check for memory leaks (pid $pid)" {
-                exec leaks $pid
-            } {*0 leaks*}
+    if {![dict exists $config "skipleaks"]} {
+        catch {
+            if {[string match {*Darwin*} [exec uname -a]]} {
+                test "Check for memory leaks (pid $pid)" {
+                    exec leaks $pid
+                } {*0 leaks*}
+            }
         }
     }
 
@@ -182,13 +184,27 @@ proc start_server {filename overrides {code undefined}} {
         # pop the server object
         set ::servers [lrange $::servers 0 end-1]
         
-        kill_server $srv
-
-        if {[string length $err] > 0} {
+        # allow an exception to bubble up the call chain but still kill this
+        # server, because we want to reuse the ports when the tests are re-run
+        if {$err eq "exception"} {
+            puts [format "Logged warnings (pid %d):" [dict get $srv "pid"]]
+            set warnings [warnings_from_file [dict get $srv "stdout"]]
+            if {[string length $warnings] > 0} {
+                puts "$warnings"
+            } else {
+                puts "(none)"
+            }
+            # kill this server without checking for leaks
+            dict set srv "skipleaks" 1
+            kill_server $srv
+            error "exception"
+        } elseif {[string length $err] > 0} {
             puts "Error executing the suite, aborting..."
             puts $err
             exit 1
         }
+
+        kill_server $srv
     } else {
         set _ $srv
     }
