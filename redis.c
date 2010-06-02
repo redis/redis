@@ -4076,6 +4076,7 @@ static int rdbLoad(char *filename) {
     }
     while(1) {
         robj *key, *val;
+        int force_swapout;
 
         expiretime = -1;
         /* Read type. */
@@ -4140,9 +4141,13 @@ static int rdbLoad(char *filename) {
             continue;
         }
 
+        force_swapout = 0;
+        if ((zmalloc_used_memory() - server.vm_max_memory) > 1024*1024*32)
+            force_swapout = 1;
+
         /* If we have still some hope of having some value fitting memory
          * then we try random sampling. */
-        if (!swap_all_values && server.vm_enabled && (loadedkeys % 5000) == 0) {
+        if (!swap_all_values && server.vm_enabled && force_swapout) {
             while (zmalloc_used_memory() > server.vm_max_memory) {
                 if (vmSwapOneObjectBlocking() == REDIS_ERR) break;
             }
