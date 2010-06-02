@@ -9246,6 +9246,7 @@ static int vmSwapOneObject(int usethreads) {
                 if (maxtries) i--; /* don't count this try */
                 continue;
             }
+            val->vm.atime = key->vm.atime; /* atime is updated on key object */
             swappability = computeObjectSwappability(val);
             if (!best || swappability > best_swappability) {
                 best = de;
