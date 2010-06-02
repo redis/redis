@@ -7407,12 +7407,7 @@ static void sortCommand(redisClient *c) {
             }
         }
     } else {
-        robj *sobj;
-        if (outputlen > server.list_max_ziplist_entries) {
-            sobj = createListObject();
-        } else {
-            sobj = createZiplistObject();
-        }
+        robj *sobj = createZiplistObject();
 
         /* STORE option specified, set the sorting result as a List object */
         for (j = start; j <= end; j++) {
