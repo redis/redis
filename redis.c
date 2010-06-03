@@ -9403,7 +9403,9 @@ static int vmSwapOneObject(int usethreads) {
 
     /* Swap it */
     if (usethreads) {
-        vmSwapObjectThreaded(createStringObject(key,sdslen(key)),val,best_db);
+        robj *keyobj = createStringObject(key,sdslen(key));
+        vmSwapObjectThreaded(keyobj,val,best_db);
+        decrRefCount(keyobj);
         return REDIS_OK;
     } else {
         vmpointer *vp;
