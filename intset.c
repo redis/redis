@@ -68,6 +68,16 @@ static uint8_t intsetSearch(intset *is, int64_t value, uint32_t *pos) {
     if (is->length == 0) {
         if (pos) *pos = 0;
         return 0;
+    } else {
+        /* Check for the case where we know we cannot find the value,
+         * but do know the insert position. */
+        if (value > INTSET_GET(is,is->length-1)) {
+            if (pos) *pos = is->length;
+            return 0;
+        } else if (value < INTSET_GET(is,0)) {
+            if (pos) *pos = 0;
+            return 0;
+        }
     }
 
     while(max >= min) {
@@ -124,21 +134,12 @@ intset *intsetAdd(intset *is, int64_t value, uint8_t *success) {
         is = intsetUpgrade(is,valenc,1,offset);
         pos = (value < 0) ? 0 : is->length;
     } else {
-        if (is->length == 0) {
-            pos = 0;
-        } else {
-            /* Check for the case where we know the insert position */
-            if (value > INTSET_GET(is,is->length-1)) {
-                pos = is->length;
-            } else if (value < INTSET_GET(is,0)) {
-                pos = 0;
-            } else {
-                /* Abort if the value is already present in the set */
-                if (intsetSearch(is,value,&pos)) {
-                    if (success) *success = 0;
-                    return is;
-                }
-            }
+        /* Abort if the value is already present in the set.
+         * This call will populate "pos" with the right position to insert
+         * the value when it cannot be found. */
+        if (intsetSearch(is,value,&pos)) {
+            if (success) *success = 0;
+            return is;
         }
 
         is = intsetResize(is,is->length+1);
