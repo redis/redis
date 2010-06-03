@@ -9358,7 +9358,8 @@ static int vmSwapOneObject(int usethreads) {
     struct dictEntry *best = NULL;
     double best_swappability = 0;
     redisDb *best_db = NULL;
-    robj *key, *val;
+    robj *val;
+    sds key;
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
@@ -9374,7 +9375,6 @@ static int vmSwapOneObject(int usethreads) {
 
             if (maxtries) maxtries--;
             de = dictGetRandomKey(db->dict);
-            key = dictGetEntryKey(de);
             val = dictGetEntryVal(de);
             /* Only swap objects that are currently in memory.
              *
@@ -9399,11 +9399,11 @@ static int vmSwapOneObject(int usethreads) {
     val = dictGetEntryVal(best);
 
     redisLog(REDIS_DEBUG,"Key with best swappability: %s, %f",
-        key->ptr, best_swappability);
+        key, best_swappability);
 
     /* Swap it */
     if (usethreads) {
-        vmSwapObjectThreaded(key,val,best_db);
+        vmSwapObjectThreaded(createStringObject(key,sdslen(key)),val,best_db);
         return REDIS_OK;
     } else {
         vmpointer *vp;
@@ -9489,7 +9489,7 @@ static void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
         /* Post process it in the main thread, as there are things we
          * can do just here to avoid race conditions and/or invasive locks */
         redisLog(REDIS_DEBUG,"COMPLETED Job type: %d, ID %p, key: %s", j->type, (void*)j->id, (unsigned char*)j->key->ptr);
-        de = dictFind(j->db->dict,j->key);
+        de = dictFind(j->db->dict,j->key->ptr);
         redisAssert(de != NULL);
         if (j->type == REDIS_IOJOB_LOAD) {
             redisDb *db;
@@ -9803,8 +9803,6 @@ static void queueIOJob(iojob *j) {
 
 static int vmSwapObjectThreaded(robj *key, robj *val, redisDb *db) {
     iojob *j;
-
-    assert(key->storage == REDIS_VM_MEMORY);
 
     j = zmalloc(sizeof(*j));
     j->type = REDIS_IOJOB_PREPARE_SWAP;
