@@ -58,6 +58,7 @@ proc cleanup {} {
 
 proc main {} {
     cleanup
+    if 0 {
     execute_tests "unit/auth"
     execute_tests "unit/protocol"
     execute_tests "unit/basic"
@@ -66,6 +67,7 @@ proc main {} {
     execute_tests "unit/type/zset"
     execute_tests "unit/type/hash"
     execute_tests "unit/sort"
+    }
     execute_tests "unit/expire"
     execute_tests "unit/other"
     execute_tests "unit/cas"
