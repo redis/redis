@@ -87,7 +87,7 @@ staticsymbols:
 	tclsh utils/build-static-symbols.tcl > staticsymbols.h
 
 test:
-	tclsh8.5 tests/test_helper.tcl
+	tclsh8.5 tests/test_helper.tcl --tags "${TAGS}"
 
 bench:
 	./redis-benchmark

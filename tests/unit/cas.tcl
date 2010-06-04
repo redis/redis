@@ -1,4 +1,4 @@
-start_server default.conf {} {
+start_server {tags {"cas"}} {
     test {EXEC works on WATCHed key not modified} {
         r watch x y z
         r watch k

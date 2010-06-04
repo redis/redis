@@ -1,4 +1,4 @@
-start_server default.conf {} {
+start_server {} {
     test {SAVE - make sure there are all the types as values} {
         # Wait for a background saving in progress to terminate
         waitForBgsave r
@@ -12,20 +12,22 @@ start_server default.conf {} {
         r save
     } {OK}
 
-    foreach fuzztype {binary alpha compr} {
-        test "FUZZ stresser with data model $fuzztype" {
-            set err 0
-            for {set i 0} {$i < 10000} {incr i} {
-                set fuzz [randstring 0 512 $fuzztype]
-                r set foo $fuzz
-                set got [r get foo]
-                if {$got ne $fuzz} {
-                    set err [list $fuzz $got]
-                    break
+    tags {"slow"} {
+        foreach fuzztype {binary alpha compr} {
+            test "FUZZ stresser with data model $fuzztype" {
+                set err 0
+                for {set i 0} {$i < 10000} {incr i} {
+                    set fuzz [randstring 0 512 $fuzztype]
+                    r set foo $fuzz
+                    set got [r get foo]
+                    if {$got ne $fuzz} {
+                        set err [list $fuzz $got]
+                        break
+                    }
                 }
-            }
-            set _ $err
-        } {0}
+                set _ $err
+            } {0}
+        }
     }
 
     test {BGSAVE} {
