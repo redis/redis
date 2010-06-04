@@ -237,9 +237,11 @@ static char* strencoding[] = {
 #define APPENDFSYNC_ALWAYS 1
 #define APPENDFSYNC_EVERYSEC 2
 
-/* Hashes related defaults */
+/* Zip structure related defaults */
 #define REDIS_HASH_MAX_ZIPMAP_ENTRIES 64
 #define REDIS_HASH_MAX_ZIPMAP_VALUE 512
+#define REDIS_LIST_MAX_ZIPLIST_ENTRIES 1024
+#define REDIS_LIST_MAX_ZIPLIST_VALUE 32
 
 /* We can print the stacktrace, so our assert is defined this way: */
 #define redisAssert(_e) ((_e)?(void)0 : (_redisAssert(#_e,__FILE__,__LINE__),_exit(1)))
@@ -425,9 +427,11 @@ struct redisServer {
     off_t vm_page_size;
     off_t vm_pages;
     unsigned long long vm_max_memory;
-    /* Hashes config */
+    /* Zip structure config */
     size_t hash_max_zipmap_entries;
     size_t hash_max_zipmap_value;
+    size_t list_max_ziplist_entries;
+    size_t list_max_ziplist_value;
     /* Virtual memory state */
     FILE *vm_fp;
     int vm_fd;
@@ -646,6 +650,7 @@ static struct redisCommand *lookupCommand(char *name);
 static void call(redisClient *c, struct redisCommand *cmd);
 static void resetClient(redisClient *c);
 static void convertToRealHash(robj *o);
+static void convertList(robj *o, int enc);
 static int pubsubUnsubscribeAllChannels(redisClient *c, int notify);
 static int pubsubUnsubscribeAllPatterns(redisClient *c, int notify);
 static void freePubsubPattern(void *p);
@@ -1755,6 +1760,8 @@ static void initServerConfig() {
     server.vm_blocked_clients = 0;
     server.hash_max_zipmap_entries = REDIS_HASH_MAX_ZIPMAP_ENTRIES;
     server.hash_max_zipmap_value = REDIS_HASH_MAX_ZIPMAP_VALUE;
+    server.list_max_ziplist_entries = REDIS_LIST_MAX_ZIPLIST_ENTRIES;
+    server.list_max_ziplist_value = REDIS_LIST_MAX_ZIPLIST_VALUE;
     server.shutdown_asap = 0;
 
     resetServerSaveParams();
@@ -2033,6 +2040,10 @@ static void loadServerConfig(char *filename) {
             server.hash_max_zipmap_entries = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"hash-max-zipmap-value") && argc == 2){
             server.hash_max_zipmap_value = memtoll(argv[1], NULL);
+        } else if (!strcasecmp(argv[0],"list-max-ziplist-entries") && argc == 2){
+            server.list_max_ziplist_entries = memtoll(argv[1], NULL);
+        } else if (!strcasecmp(argv[0],"list-max-ziplist-value") && argc == 2){
+            server.list_max_ziplist_value = memtoll(argv[1], NULL);
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
@@ -4154,11 +4165,23 @@ static robj *rdbLoadObject(int type, FILE *fp) {
         /* Read list value */
         if ((len = rdbLoadLen(fp,NULL)) == REDIS_RDB_LENERR) return NULL;
 
-        o = createZiplistObject();
+        /* Use a real list when there are too many entries */
+        if (len > server.list_max_ziplist_entries) {
+            o = createListObject();
+        } else {
+            o = createZiplistObject();
+        }
 
         /* Load every single element of the list */
         while(len--) {
             if ((ele = rdbLoadEncodedStringObject(fp)) == NULL) return NULL;
+
+            /* If we are using a ziplist and the value is too big, convert
+             * the object to a real list. */
+            if (o->encoding == REDIS_ENCODING_ZIPLIST &&
+                ele->encoding == REDIS_ENCODING_RAW &&
+                sdslen(ele->ptr) > server.list_max_ziplist_value)
+                    convertList(o,REDIS_ENCODING_LIST);
 
             if (o->encoding == REDIS_ENCODING_ZIPLIST) {
                 dec = getDecodedObject(ele);
@@ -4882,7 +4905,25 @@ static void moveCommand(redisClient *c) {
 }
 
 /* =================================== Lists ================================ */
+
+
+/* Check the argument length to see if it requires us to convert the ziplist
+ * to a real list. Only check raw-encoded objects because integer encoded
+ * objects are never too long. */
+static void listTryConversion(robj *subject, robj *value) {
+    if (subject->encoding != REDIS_ENCODING_ZIPLIST) return;
+    if (value->encoding == REDIS_ENCODING_RAW &&
+        sdslen(value->ptr) > server.list_max_ziplist_value)
+            convertList(subject,REDIS_ENCODING_LIST);
+}
+
 static void lPush(robj *subject, robj *value, int where) {
+    /* Check if we need to convert the ziplist */
+    listTryConversion(subject,value);
+    if (subject->encoding == REDIS_ENCODING_ZIPLIST &&
+        ziplistLen(subject->ptr) > server.list_max_ziplist_entries)
+            convertList(subject,REDIS_ENCODING_LIST);
+
     if (subject->encoding == REDIS_ENCODING_ZIPLIST) {
         int pos = (where == REDIS_HEAD) ? ZIPLIST_HEAD : ZIPLIST_TAIL;
         value = getDecodedObject(value);
@@ -5077,6 +5118,27 @@ static void lDelete(lEntry *entry) {
     }
 }
 
+static void convertList(robj *subject, int enc) {
+    lIterator *li;
+    lEntry entry;
+    redisAssert(subject->type == REDIS_LIST);
+
+    if (enc == REDIS_ENCODING_LIST) {
+        list *l = listCreate();
+
+        /* lGet returns a robj with incremented refcount */
+        li = lInitIterator(subject,0,REDIS_TAIL);
+        while (lNext(li,&entry)) listAddNodeTail(l,lGet(&entry));
+        lReleaseIterator(li);
+
+        subject->encoding = REDIS_ENCODING_LIST;
+        zfree(subject->ptr);
+        subject->ptr = l;
+    } else {
+        redisPanic("Unsupported list conversion");
+    }
+}
+
 static void pushGenericCommand(redisClient *c, int where) {
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
     if (lobj == NULL) {
@@ -5157,6 +5219,7 @@ static void lsetCommand(redisClient *c) {
     int index = atoi(c->argv[2]->ptr);
     robj *value = c->argv[3];
 
+    listTryConversion(o,value);
     if (o->encoding == REDIS_ENCODING_ZIPLIST) {
         unsigned char *p, *zl = o->ptr;
         p = ziplistIndex(zl,index);
