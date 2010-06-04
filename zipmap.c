@@ -176,7 +176,6 @@ static unsigned long zipmapRequiredLength(unsigned int klen, unsigned int vlen) 
 /* Return the total amount used by a key (encoded length + payload) */
 static unsigned int zipmapRawKeyLength(unsigned char *p) {
     unsigned int l = zipmapDecodeLength(p);
-    
     return zipmapEncodeLength(NULL,l) + l;
 }
 

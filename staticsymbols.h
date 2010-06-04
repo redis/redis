@@ -100,7 +100,7 @@ static struct redisFunctionSym symsTable[] = {
 {"freeStringObject",(unsigned long)freeStringObject},
 {"freeZsetObject",(unsigned long)freeZsetObject},
 {"fwriteBulkDouble",(unsigned long)fwriteBulkDouble},
-{"fwriteBulkLong",(unsigned long)fwriteBulkLong},
+{"fwriteBulkLongLong",(unsigned long)fwriteBulkLongLong},
 {"fwriteBulkObject",(unsigned long)fwriteBulkObject},
 {"fwriteBulkString",(unsigned long)fwriteBulkString},
 {"genRedisInfoString",(unsigned long)genRedisInfoString},
