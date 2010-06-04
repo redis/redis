@@ -5029,6 +5029,9 @@ static void listTypeReleaseIterator(listTypeIterator *li) {
  * and advances the position of the iterator. Returns 1 when the current
  * entry is in fact an entry, 0 otherwise. */
 static int listTypeNext(listTypeIterator *li, listTypeEntry *entry) {
+    /* Protect from converting when iterating */
+    redisAssert(li->subject->encoding == li->encoding);
+
     entry->li = li;
     if (li->encoding == REDIS_ENCODING_ZIPLIST) {
         entry->zi = li->zi;
