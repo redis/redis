@@ -4191,7 +4191,6 @@ static robj *rdbLoadObject(int type, FILE *fp) {
             } else {
                 ele = tryObjectEncoding(ele);
                 listAddNodeTail(o->ptr,ele);
-                incrRefCount(ele);
             }
         }
     } else if (type == REDIS_SET) {
@@ -5128,6 +5127,7 @@ static void listTypeConvert(robj *subject, int enc) {
 
     if (enc == REDIS_ENCODING_LIST) {
         list *l = listCreate();
+        listSetFreeMethod(l,decrRefCount);
 
         /* listTypeGet returns a robj with incremented refcount */
         li = listTypeInitIterator(subject,0,REDIS_TAIL);
