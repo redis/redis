@@ -4131,10 +4131,18 @@ static int rdbLoad(char *filename) {
             if (de) {
                 key = dictGetEntryKey(de);
                 val = dictGetEntryVal(de);
+                
+                if (val->refcount != 1) continue;
 
-                if (vmSwapObjectBlocking(key,val) == REDIS_OK) {
-                    dictGetEntryVal(de) = NULL;
+                /* Unshare the key if needed */
+                if (key->refcount != 1) {
+                    robj *newkey = dupStringObject(key);
+                    decrRefCount(key);
+                    key = dictGetEntryKey(de) = newkey;
                 }
+
+                if (vmSwapObjectBlocking(key,val) == REDIS_OK)
+                    dictGetEntryVal(de) = NULL;
             }
             continue;
         }
