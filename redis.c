@@ -4240,8 +4240,8 @@ static robj *rdbLoadObject(int type, FILE *fp) {
         while(hashlen--) {
             robj *key, *val;
 
-            if ((key = rdbLoadStringObject(fp)) == NULL) return NULL;
-            if ((val = rdbLoadStringObject(fp)) == NULL) return NULL;
+            if ((key = rdbLoadEncodedStringObject(fp)) == NULL) return NULL;
+            if ((val = rdbLoadEncodedStringObject(fp)) == NULL) return NULL;
             /* If we are using a zipmap and there are too big values
              * the object is converted to real hash table encoding. */
             if (o->encoding != REDIS_ENCODING_HT &&
