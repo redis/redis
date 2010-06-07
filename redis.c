@@ -9584,8 +9584,10 @@ static double computeObjectSwappability(robj *o) {
     /* actual age can be >= minage, but not < minage. As we use wrapping
      * 21 bit clocks with minutes resolution for the LRU. */
     time_t minage = abs(server.lruclock - o->lru);
-    long asize = 0;
+    long asize = 0, elesize;
+    robj *ele;
     list *l;
+    listNode *ln;
     dict *d;
     struct dictEntry *de;
     int z;
@@ -9600,17 +9602,18 @@ static double computeObjectSwappability(robj *o) {
         }
         break;
     case REDIS_LIST:
-        l = o->ptr;
-        listNode *ln = listFirst(l);
-
-        asize = sizeof(list);
-        if (ln) {
-            robj *ele = ln->value;
-            long elesize;
-
-            elesize = (ele->encoding == REDIS_ENCODING_RAW) ?
-                            (sizeof(*o)+sdslen(ele->ptr)) : sizeof(*o);
-            asize += (sizeof(listNode)+elesize)*listLength(l);
+        if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+            asize = sizeof(*o)+ziplistSize(o->ptr);
+        } else {
+            l = o->ptr;
+            ln = listFirst(l);
+            asize = sizeof(list);
+            if (ln) {
+                ele = ln->value;
+                elesize = (ele->encoding == REDIS_ENCODING_RAW) ?
+                                (sizeof(*o)+sdslen(ele->ptr)) : sizeof(*o);
+                asize += (sizeof(listNode)+elesize)*listLength(l);
+            }
         }
         break;
     case REDIS_SET:
@@ -9621,9 +9624,6 @@ static double computeObjectSwappability(robj *o) {
         asize = sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
         if (z) asize += sizeof(zset)-sizeof(dict);
         if (dictSize(d)) {
-            long elesize;
-            robj *ele;
-
             de = dictGetRandomKey(d);
             ele = dictGetEntryKey(de);
             elesize = (ele->encoding == REDIS_ENCODING_RAW) ?
@@ -9648,9 +9648,6 @@ static double computeObjectSwappability(robj *o) {
             d = o->ptr;
             asize = sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
             if (dictSize(d)) {
-                long elesize;
-                robj *ele;
-
                 de = dictGetRandomKey(d);
                 ele = dictGetEntryKey(de);
                 elesize = (ele->encoding == REDIS_ENCODING_RAW) ?
