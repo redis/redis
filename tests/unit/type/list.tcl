@@ -101,10 +101,10 @@ start_server {
             assert_equal 6 [r linsert xlist after c yy]
             assert_equal {a b zz c yy d} [r lrange xlist 0 10]
             assert_equal 7 [r linsert xlist after d dd]
-            assert_equal 7 [r linsert xlist after bad ddd]
+            assert_equal -1 [r linsert xlist after bad ddd]
             assert_equal {a b zz c yy d dd} [r lrange xlist 0 10]
             assert_equal 8 [r linsert xlist before a aa]
-            assert_equal 8 [r linsert xlist before bad aaa]
+            assert_equal -1 [r linsert xlist before bad aaa]
             assert_equal {aa a b zz c yy d dd} [r lrange xlist 0 10]
 
             # check inserting integer encoded value
@@ -154,10 +154,10 @@ start_server {
 
         # don't convert when the value could not be inserted
         create_ziplist xlist [lrepeat 256 a]
-        assert_equal 256 [r linsert xlist before foo a]
+        assert_equal -1 [r linsert xlist before foo a]
         assert_encoding ziplist xlist
         create_ziplist xlist [lrepeat 256 a]
-        assert_equal 256 [r linsert xlist after foo a]
+        assert_equal -1 [r linsert xlist after foo a]
         assert_encoding ziplist xlist
     }
 

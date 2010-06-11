@@ -538,7 +538,7 @@ typedef struct zset {
 
 #define REDIS_SHARED_INTEGERS 10000
 struct sharedObjectsStruct {
-    robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *pong, *space,
+    robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *cnegone, *pong, *space,
     *colon, *nullbulk, *nullmultibulk, *queued,
     *emptymultibulk, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
     *outofrangeerr, *plus,
@@ -1677,6 +1677,7 @@ static void createSharedObjects(void) {
     shared.emptybulk = createObject(REDIS_STRING,sdsnew("$0\r\n\r\n"));
     shared.czero = createObject(REDIS_STRING,sdsnew(":0\r\n"));
     shared.cone = createObject(REDIS_STRING,sdsnew(":1\r\n"));
+    shared.cnegone = createObject(REDIS_STRING,sdsnew(":-1\r\n"));
     shared.nullbulk = createObject(REDIS_STRING,sdsnew("$-1\r\n"));
     shared.nullmultibulk = createObject(REDIS_STRING,sdsnew("*-1\r\n"));
     shared.emptymultibulk = createObject(REDIS_STRING,sdsnew("*0\r\n"));
@@ -5252,6 +5253,10 @@ static void pushxGenericCommand(redisClient *c, robj *refval, robj *val, int whe
                 ziplistLen(subject->ptr) > server.list_max_ziplist_entries)
                     listTypeConvert(subject,REDIS_ENCODING_LIST);
             server.dirty++;
+        } else {
+            /* Notify client of a failed insert */
+            addReply(c,shared.cnegone);
+            return;
         }
     } else {
         listTypePush(subject,val,where);
