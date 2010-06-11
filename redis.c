@@ -5088,26 +5088,29 @@ static robj *listTypeGet(listTypeEntry *entry) {
     return value;
 }
 
-static void listTypeInsert(robj *subject, listTypeEntry *old_entry, robj *new_obj, int where) {
-    listTypeTryConversion(subject,new_obj);
-    if (subject->encoding == REDIS_ENCODING_ZIPLIST) {
+static void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
+    robj *subject = entry->li->subject;
+    if (entry->li->encoding == REDIS_ENCODING_ZIPLIST) {
         if (where == REDIS_TAIL) {
-            unsigned char *next = ziplistNext(subject->ptr,old_entry->zi);
+            unsigned char *next = ziplistNext(subject->ptr,entry->zi);
+
+            /* When we insert after the current element, but the current element
+             * is the tail of the list, we need to do a push. */
             if (next == NULL) {
-                listTypePush(subject,new_obj,REDIS_TAIL);
+                subject->ptr = ziplistPush(subject->ptr,value->ptr,sdslen(value->ptr),REDIS_TAIL);
             } else {
-                subject->ptr = ziplistInsert(subject->ptr,next,new_obj->ptr,sdslen(new_obj->ptr));
+                subject->ptr = ziplistInsert(subject->ptr,next,value->ptr,sdslen(value->ptr));
             }
         } else {
-            subject->ptr = ziplistInsert(subject->ptr,old_entry->zi,new_obj->ptr,sdslen(new_obj->ptr));
+            subject->ptr = ziplistInsert(subject->ptr,entry->zi,value->ptr,sdslen(value->ptr));
         }
-    } else if (subject->encoding == REDIS_ENCODING_LIST) {
+    } else if (entry->li->encoding == REDIS_ENCODING_LIST) {
         if (where == REDIS_TAIL) {
-            listInsertNode(subject->ptr,old_entry->ln,new_obj,AL_START_TAIL);
+            listInsertNode(subject->ptr,entry->ln,value,AL_START_TAIL);
         } else {
-            listInsertNode(subject->ptr,old_entry->ln,new_obj,AL_START_HEAD);
+            listInsertNode(subject->ptr,entry->ln,value,AL_START_HEAD);
         }
-        incrRefCount(new_obj);
+        incrRefCount(value);
     } else {
         redisPanic("Unknown list encoding");
     }
@@ -5205,29 +5208,34 @@ static void rpushCommand(redisClient *c) {
     pushGenericCommand(c,REDIS_TAIL);
 }
 
-static void pushxGenericCommand(redisClient *c, int where, robj *old_obj, robj *new_obj) {
+static void pushxGenericCommand(redisClient *c, robj *refval, robj *val, int where) {
     robj *subject;
     listTypeIterator *iter;
     listTypeEntry entry;
 
     if ((subject = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,subject,REDIS_LIST)) return;
-    if (handleClientsWaitingListPush(c,c->argv[1],new_obj)) {
+    if (handleClientsWaitingListPush(c,c->argv[1],val)) {
         addReply(c,shared.cone);
         return;
     }
 
-    if (old_obj != NULL) {
+    if (refval != NULL) {
+        /* Note: we expect refval to be string-encoded because it is *not* the
+         * last argument of the multi-bulk LINSERT. */
+        redisAssert(refval->encoding == REDIS_ENCODING_RAW);
+
+        /* Seek refval from head to tail */
         iter = listTypeInitIterator(subject,0,REDIS_TAIL);
         while (listTypeNext(iter,&entry)) {
-            if (listTypeEqual(&entry,old_obj)) {
-                listTypeInsert(subject,&entry,new_obj,where);
+            if (listTypeEqual(&entry,refval)) {
+                listTypeInsert(&entry,val,where);
                 break;
             }
         }
         listTypeReleaseIterator(iter);
     } else {
-        listTypePush(subject,new_obj,where);
+        listTypePush(subject,val,where);
     }
 
     server.dirty++;
@@ -5235,18 +5243,18 @@ static void pushxGenericCommand(redisClient *c, int where, robj *old_obj, robj *
 }
 
 static void lpushxCommand(redisClient *c) {
-    pushxGenericCommand(c,REDIS_HEAD,NULL,c->argv[2]);
+    pushxGenericCommand(c,NULL,c->argv[2],REDIS_HEAD);
 }
 
 static void rpushxCommand(redisClient *c) {
-    pushxGenericCommand(c,REDIS_TAIL,NULL,c->argv[2]);
+    pushxGenericCommand(c,NULL,c->argv[2],REDIS_TAIL);
 }
 
 static void linsertCommand(redisClient *c) {
     if (strcasecmp(c->argv[2]->ptr,"after") == 0) {
-        pushxGenericCommand(c,REDIS_TAIL,c->argv[3],c->argv[4]);
+        pushxGenericCommand(c,c->argv[3],c->argv[4],REDIS_TAIL);
     } else if (strcasecmp(c->argv[2]->ptr,"before") == 0) {
-        pushxGenericCommand(c,REDIS_HEAD,c->argv[3],c->argv[4]);
+        pushxGenericCommand(c,c->argv[3],c->argv[4],REDIS_HEAD);
     } else {
         addReply(c,shared.syntaxerr);
     }
