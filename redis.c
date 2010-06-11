@@ -5091,7 +5091,7 @@ static robj *listTypeGet(listTypeEntry *entry) {
 static void listTypeInsert(robj *subject, listTypeEntry *old_entry, robj *new_obj, int where) {
     listTypeTryConversion(subject,new_obj);
     if (subject->encoding == REDIS_ENCODING_ZIPLIST) {
-        if (where == REDIS_HEAD) {
+        if (where == REDIS_TAIL) {
             unsigned char *next = ziplistNext(subject->ptr,old_entry->zi);
             if (next == NULL) {
                 listTypePush(subject,new_obj,REDIS_TAIL);
@@ -5102,10 +5102,10 @@ static void listTypeInsert(robj *subject, listTypeEntry *old_entry, robj *new_ob
             subject->ptr = ziplistInsert(subject->ptr,old_entry->zi,new_obj->ptr,sdslen(new_obj->ptr));
         }
     } else if (subject->encoding == REDIS_ENCODING_LIST) {
-        if (where == REDIS_HEAD) {
-            listInsertNode(subject->ptr,old_entry->ln,new_obj,1);
+        if (where == REDIS_TAIL) {
+            listInsertNode(subject->ptr,old_entry->ln,new_obj,AL_START_TAIL);
         } else {
-            listInsertNode(subject->ptr,old_entry->ln,new_obj,0);
+            listInsertNode(subject->ptr,old_entry->ln,new_obj,AL_START_HEAD);
         }
         incrRefCount(new_obj);
     } else {
@@ -5218,7 +5218,7 @@ static void pushxGenericCommand(redisClient *c, int where, robj *old_obj, robj *
     }
 
     if (old_obj != NULL) {
-        if (where == REDIS_HEAD) {
+        if (where == REDIS_TAIL) {
             iter = listTypeInitIterator(subject,0,REDIS_TAIL);
         } else {
             iter = listTypeInitIterator(subject,-1,REDIS_HEAD);
@@ -5248,9 +5248,9 @@ static void rpushxCommand(redisClient *c) {
 
 static void linsertCommand(redisClient *c) {
     if (strcasecmp(c->argv[2]->ptr,"after") == 0) {
-        pushxGenericCommand(c,REDIS_HEAD,c->argv[3],c->argv[4]);
-    } else if (strcasecmp(c->argv[2]->ptr,"before") == 0) {
         pushxGenericCommand(c,REDIS_TAIL,c->argv[3],c->argv[4]);
+    } else if (strcasecmp(c->argv[2]->ptr,"before") == 0) {
+        pushxGenericCommand(c,REDIS_HEAD,c->argv[3],c->argv[4]);
     } else {
         addReply(c,shared.syntaxerr);
     }
