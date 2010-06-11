@@ -261,7 +261,7 @@ typedef struct redisObject {
     unsigned lru:22;        /* lru time (relative to server.lruclock) */
     int refcount;
     void *ptr;
-    /* VM fields, this are only allocated if VM is active, otherwise the
+    /* VM fields are only allocated if VM is active, otherwise the
      * object allocation function will just allocate
      * sizeof(redisObjct) minus sizeof(redisObjectVM), so using
      * Redis without VM active will not have any overhead. */
@@ -692,6 +692,9 @@ static void renameCommand(redisClient *c);
 static void renamenxCommand(redisClient *c);
 static void lpushCommand(redisClient *c);
 static void rpushCommand(redisClient *c);
+static void lpushxCommand(redisClient *c);
+static void rpushxCommand(redisClient *c);
+static void linsertCommand(redisClient *c);
 static void lpopCommand(redisClient *c);
 static void rpopCommand(redisClient *c);
 static void llenCommand(redisClient *c);
@@ -792,6 +795,9 @@ static struct redisCommand readonlyCommandTable[] = {
     {"mget",mgetCommand,-2,REDIS_CMD_INLINE,NULL,1,-1,1},
     {"rpush",rpushCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,NULL,1,1,1},
     {"lpush",lpushCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,NULL,1,1,1},
+    {"rpushx",rpushxCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,NULL,1,1,1},
+    {"lpushx",lpushxCommand,3,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,NULL,1,1,1},
+    {"linsert",linsertCommand,5,REDIS_CMD_BULK|REDIS_CMD_DENYOOM,NULL,1,1,1},
     {"rpop",rpopCommand,2,REDIS_CMD_INLINE,NULL,1,1,1},
     {"lpop",lpopCommand,2,REDIS_CMD_INLINE,NULL,1,1,1},
     {"brpop",brpopCommand,-3,REDIS_CMD_INLINE,NULL,1,1,1},
@@ -5172,6 +5178,82 @@ static void lpushCommand(redisClient *c) {
 
 static void rpushCommand(redisClient *c) {
     pushGenericCommand(c,REDIS_TAIL);
+}
+
+static void listTypeInsert(robj *subject, listTypeEntry *old_entry, robj *new_obj, int where) {
+    listTypeTryConversion(subject,new_obj);
+    if (subject->encoding == REDIS_ENCODING_ZIPLIST) {
+        if (where == REDIS_HEAD) {
+            unsigned char *next = ziplistNext(subject->ptr,old_entry->zi);
+            if (next == NULL) {
+                listTypePush(subject,new_obj,REDIS_TAIL);
+            } else {
+                subject->ptr = ziplistInsert(subject->ptr,next,new_obj->ptr,sdslen(new_obj->ptr));
+            }
+        } else {
+            subject->ptr = ziplistInsert(subject->ptr,old_entry->zi,new_obj->ptr,sdslen(new_obj->ptr));
+        }
+    } else if (subject->encoding == REDIS_ENCODING_LIST) {
+        if (where == REDIS_HEAD) {
+            listInsertNode(subject->ptr,old_entry->ln,new_obj,1);
+        } else {
+            listInsertNode(subject->ptr,old_entry->ln,new_obj,0);
+        }
+        incrRefCount(new_obj);
+    } else {
+        redisPanic("Unknown list encoding");
+    }
+}
+
+static void pushxGenericCommand(redisClient *c, int where, robj *old_obj, robj *new_obj) {
+    robj *subject;
+    listTypeIterator *iter;
+    listTypeEntry entry;
+
+    if ((subject = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
+        checkType(c,subject,REDIS_LIST)) return;
+    if (handleClientsWaitingListPush(c,c->argv[1],new_obj)) {
+        addReply(c,shared.cone);
+        return;
+    }
+
+    if (old_obj != NULL) {
+        if (where == REDIS_HEAD) {
+            iter = listTypeInitIterator(subject,0,REDIS_TAIL);
+        } else {
+            iter = listTypeInitIterator(subject,-1,REDIS_HEAD);
+        }
+        while (listTypeNext(iter,&entry)) {
+            if (listTypeEqual(&entry,old_obj)) {
+                listTypeInsert(subject,&entry,new_obj,where);
+                break;
+            }
+        }
+        listTypeReleaseIterator(iter);
+    } else {
+        listTypePush(subject,new_obj,where);
+    }
+
+    server.dirty++;
+    addReplyUlong(c,listTypeLength(subject));
+}
+
+static void lpushxCommand(redisClient *c) {
+    pushxGenericCommand(c,REDIS_HEAD,NULL,c->argv[2]);
+}
+
+static void rpushxCommand(redisClient *c) {
+    pushxGenericCommand(c,REDIS_TAIL,NULL,c->argv[2]);
+}
+
+static void linsertCommand(redisClient *c) {
+    if (strcasecmp(c->argv[2]->ptr,"after") == 0) {
+        pushxGenericCommand(c,REDIS_HEAD,c->argv[3],c->argv[4]);
+    } else if (strcasecmp(c->argv[2]->ptr,"before") == 0) {
+        pushxGenericCommand(c,REDIS_TAIL,c->argv[3],c->argv[4]);
+    } else {
+        addReply(c,shared.syntaxerr);
+    }
 }
 
 static void llenCommand(redisClient *c) {

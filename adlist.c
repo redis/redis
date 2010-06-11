@@ -123,6 +123,35 @@ list *listAddNodeTail(list *list, void *value)
     return list;
 }
 
+list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
+    listNode *node;
+
+    if ((node = zmalloc(sizeof(*node))) == NULL)
+        return NULL;
+    node->value = value;
+    if (after) {
+        node->prev = old_node;
+        node->next = old_node->next;
+        if (list->tail == old_node) {
+            list->tail = node;
+        }
+    } else {
+        node->next = old_node;
+        node->prev = old_node->prev;
+        if (list->head == old_node) {
+            list->head = node;
+        }
+    }
+    if (node->prev != NULL) {
+        node->prev->next = node;
+    }
+    if (node->next != NULL) {
+        node->next->prev = node;
+    }
+    list->len++;
+    return list;
+}
+
 /* Remove the specified node from the specified list.
  * It's up to the caller to free the private value of the node.
  *
@@ -183,9 +212,9 @@ void listRewindTail(list *list, listIter *li) {
  * or NULL if there are no more elements, so the classical usage patter
  * is:
  *
- * iter = listGetItarotr(list,<direction>);
- * while ((node = listNextIterator(iter)) != NULL) {
- *     DoSomethingWith(listNodeValue(node));
+ * iter = listGetIterator(list,<direction>);
+ * while ((node = listNext(iter)) != NULL) {
+ *     doSomethingWith(listNodeValue(node));
  * }
  *
  * */
