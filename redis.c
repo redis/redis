@@ -5091,6 +5091,7 @@ static robj *listTypeGet(listTypeEntry *entry) {
 static void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
     robj *subject = entry->li->subject;
     if (entry->li->encoding == REDIS_ENCODING_ZIPLIST) {
+        value = getDecodedObject(value);
         if (where == REDIS_TAIL) {
             unsigned char *next = ziplistNext(subject->ptr,entry->zi);
 
@@ -5104,6 +5105,7 @@ static void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
         } else {
             subject->ptr = ziplistInsert(subject->ptr,entry->zi,value->ptr,sdslen(value->ptr));
         }
+        decrRefCount(value);
     } else if (entry->li->encoding == REDIS_ENCODING_LIST) {
         if (where == REDIS_TAIL) {
             listInsertNode(subject->ptr,entry->ln,value,AL_START_TAIL);

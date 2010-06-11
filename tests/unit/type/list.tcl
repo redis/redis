@@ -73,6 +73,8 @@ start_server {
         assert_equal 8 [r linsert xlist before a aa]
         assert_equal 8 [r linsert xlist before bad aaa]
         assert_equal {aa a b zz c yy d dd} [r lrange xlist 0 10]
+        assert_equal 9 [r linsert xlist before aa 42]
+        assert_equal 42 [r lrange xlist 0 0]
     }
 
     test {LPUSHX, RPUSHX, LPUSHXAFTER, RPUSHXAFTER - regular list} {
@@ -98,6 +100,8 @@ start_server {
         assert_equal 8 [r linsert xlist before a aa]
         assert_equal 8 [r linsert xlist before bad aaa]
         assert_equal {aa a aaaaaaaaaaaaaaaaa zz c yy d dd} [r lrange xlist 0 10]
+        assert_equal 9 [r linsert xlist before aa 42]
+        assert_equal 42 [r lrange xlist 0 0]
     }
 
     test {DEL a list - ziplist} {
