@@ -5219,10 +5219,6 @@ static void pushxGenericCommand(redisClient *c, robj *refval, robj *val, int whe
 
     if ((subject = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,subject,REDIS_LIST)) return;
-    if (handleClientsWaitingListPush(c,c->argv[1],val)) {
-        addReply(c,shared.cone);
-        return;
-    }
 
     if (refval != NULL) {
         /* Note: we expect refval to be string-encoded because it is *not* the
