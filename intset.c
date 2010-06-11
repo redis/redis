@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
 #include "intset.h"
 #include "zmalloc.h"
 
@@ -152,7 +151,7 @@ intset *intsetAdd(intset *is, int64_t value, uint8_t *success) {
 }
 
 /* Delete integer from intset */
-intset *intsetDelete(intset *is, int64_t value, uint8_t *success) {
+intset *intsetRemove(intset *is, int64_t value, uint8_t *success) {
     uint8_t valenc = INTSET_VALUE_ENCODING(value);
     uint32_t pos;
     if (success) *success = 0;
@@ -370,7 +369,7 @@ int main(int argc, char **argv) {
             assert(intsetFind(is,v1));
 
             v2 = rand() % 0xfff;
-            is = intsetDelete(is,v2,NULL);
+            is = intsetRemove(is,v2,NULL);
             assert(!intsetFind(is,v2));
         }
         checkConsistency(is);
