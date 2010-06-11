@@ -5088,6 +5088,31 @@ static robj *listTypeGet(listTypeEntry *entry) {
     return value;
 }
 
+static void listTypeInsert(robj *subject, listTypeEntry *old_entry, robj *new_obj, int where) {
+    listTypeTryConversion(subject,new_obj);
+    if (subject->encoding == REDIS_ENCODING_ZIPLIST) {
+        if (where == REDIS_HEAD) {
+            unsigned char *next = ziplistNext(subject->ptr,old_entry->zi);
+            if (next == NULL) {
+                listTypePush(subject,new_obj,REDIS_TAIL);
+            } else {
+                subject->ptr = ziplistInsert(subject->ptr,next,new_obj->ptr,sdslen(new_obj->ptr));
+            }
+        } else {
+            subject->ptr = ziplistInsert(subject->ptr,old_entry->zi,new_obj->ptr,sdslen(new_obj->ptr));
+        }
+    } else if (subject->encoding == REDIS_ENCODING_LIST) {
+        if (where == REDIS_HEAD) {
+            listInsertNode(subject->ptr,old_entry->ln,new_obj,1);
+        } else {
+            listInsertNode(subject->ptr,old_entry->ln,new_obj,0);
+        }
+        incrRefCount(new_obj);
+    } else {
+        redisPanic("Unknown list encoding");
+    }
+}
+
 /* Compare the given object with the entry at the current position. */
 static int listTypeEqual(listTypeEntry *entry, robj *o) {
     listTypeIterator *li = entry->li;
@@ -5178,31 +5203,6 @@ static void lpushCommand(redisClient *c) {
 
 static void rpushCommand(redisClient *c) {
     pushGenericCommand(c,REDIS_TAIL);
-}
-
-static void listTypeInsert(robj *subject, listTypeEntry *old_entry, robj *new_obj, int where) {
-    listTypeTryConversion(subject,new_obj);
-    if (subject->encoding == REDIS_ENCODING_ZIPLIST) {
-        if (where == REDIS_HEAD) {
-            unsigned char *next = ziplistNext(subject->ptr,old_entry->zi);
-            if (next == NULL) {
-                listTypePush(subject,new_obj,REDIS_TAIL);
-            } else {
-                subject->ptr = ziplistInsert(subject->ptr,next,new_obj->ptr,sdslen(new_obj->ptr));
-            }
-        } else {
-            subject->ptr = ziplistInsert(subject->ptr,old_entry->zi,new_obj->ptr,sdslen(new_obj->ptr));
-        }
-    } else if (subject->encoding == REDIS_ENCODING_LIST) {
-        if (where == REDIS_HEAD) {
-            listInsertNode(subject->ptr,old_entry->ln,new_obj,1);
-        } else {
-            listInsertNode(subject->ptr,old_entry->ln,new_obj,0);
-        }
-        incrRefCount(new_obj);
-    } else {
-        redisPanic("Unknown list encoding");
-    }
 }
 
 static void pushxGenericCommand(redisClient *c, int where, robj *old_obj, robj *new_obj) {
