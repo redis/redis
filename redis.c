@@ -5218,11 +5218,7 @@ static void pushxGenericCommand(redisClient *c, int where, robj *old_obj, robj *
     }
 
     if (old_obj != NULL) {
-        if (where == REDIS_TAIL) {
-            iter = listTypeInitIterator(subject,0,REDIS_TAIL);
-        } else {
-            iter = listTypeInitIterator(subject,-1,REDIS_HEAD);
-        }
+        iter = listTypeInitIterator(subject,0,REDIS_TAIL);
         while (listTypeNext(iter,&entry)) {
             if (listTypeEqual(&entry,old_obj)) {
                 listTypeInsert(subject,&entry,new_obj,where);
