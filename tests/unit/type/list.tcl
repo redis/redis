@@ -52,58 +52,6 @@ start_server {
         assert_equal $large_value [r lindex mylist2 2]
     }
 
-    test {LPUSHX, RPUSHX, LPUSHXAFTER, RPUSHXAFTER - ziplist} {
-        r del xlist
-        assert_equal 0 [r lpushx xlist a]
-        assert_equal 0 [r rpushx xlist a]
-        assert_equal 1 [r rpush xlist b]
-        assert_equal 2 [r rpush xlist c]
-        assert_equal 3 [r rpushx xlist d]
-        assert_equal 4 [r lpushx xlist a]
-        assert_encoding ziplist xlist
-        assert_equal {a b c d} [r lrange xlist 0 10]
-
-        assert_equal 5 [r linsert xlist before c zz]
-        assert_equal {a b zz c d} [r lrange xlist 0 10]
-        assert_equal 6 [r linsert xlist after c yy]
-        assert_equal {a b zz c yy d} [r lrange xlist 0 10]
-        assert_equal 7 [r linsert xlist after d dd]
-        assert_equal 7 [r linsert xlist after bad ddd]
-        assert_equal {a b zz c yy d dd} [r lrange xlist 0 10]
-        assert_equal 8 [r linsert xlist before a aa]
-        assert_equal 8 [r linsert xlist before bad aaa]
-        assert_equal {aa a b zz c yy d dd} [r lrange xlist 0 10]
-        assert_equal 9 [r linsert xlist before aa 42]
-        assert_equal 42 [r lrange xlist 0 0]
-    }
-
-    test {LPUSHX, RPUSHX, LPUSHXAFTER, RPUSHXAFTER - regular list} {
-        set large_value "aaaaaaaaaaaaaaaaa"
-
-        r del xlist
-        assert_equal 0 [r lpushx xlist a]
-        assert_equal 0 [r rpushx xlist a]
-        assert_equal 1 [r rpush xlist $large_value]
-        assert_equal 2 [r rpush xlist c]
-        assert_equal 3 [r rpushx xlist d]
-        assert_equal 4 [r lpushx xlist a]
-        assert_encoding list xlist
-        assert_equal {a aaaaaaaaaaaaaaaaa c d} [r lrange xlist 0 10]
-
-        assert_equal 5 [r linsert xlist before c zz]
-        assert_equal {a aaaaaaaaaaaaaaaaa zz c d} [r lrange xlist 0 10]
-        assert_equal 6 [r linsert xlist after c yy]
-        assert_equal {a aaaaaaaaaaaaaaaaa zz c yy d} [r lrange xlist 0 10]
-        assert_equal 7 [r linsert xlist after d dd]
-        assert_equal 7 [r linsert xlist after bad ddd]
-        assert_equal {a aaaaaaaaaaaaaaaaa zz c yy d dd} [r lrange xlist 0 10]
-        assert_equal 8 [r linsert xlist before a aa]
-        assert_equal 8 [r linsert xlist before bad aaa]
-        assert_equal {aa a aaaaaaaaaaaaaaaaa zz c yy d dd} [r lrange xlist 0 10]
-        assert_equal 9 [r linsert xlist before aa 42]
-        assert_equal 42 [r lrange xlist 0 0]
-    }
-
     test {DEL a list - ziplist} {
         assert_equal 1 [r del myziplist2]
         assert_equal 0 [r exists myziplist2]
@@ -128,6 +76,89 @@ start_server {
         foreach entry $entries { r rpush $key $entry }
         assert_equal "aaaaaaaaaaaaaaaaa" [r lpop $key]
         assert_encoding list $key
+    }
+
+    test {LPUSHX, RPUSHX - generic} {
+        r del xlist
+        assert_equal 0 [r lpushx xlist a]
+        assert_equal 0 [r llen xlist]
+        assert_equal 0 [r rpushx xlist a]
+        assert_equal 0 [r llen xlist]
+    }
+
+    foreach type {ziplist list} {
+        test "LPUSHX, RPUSHX - $type" {
+            create_$type xlist {b c}
+            assert_equal 3 [r rpushx xlist d]
+            assert_equal 4 [r lpushx xlist a]
+            assert_equal {a b c d} [r lrange xlist 0 -1]
+        }
+
+        test "LINSERT - $type" {
+            create_$type xlist {a b c d}
+            assert_equal 5 [r linsert xlist before c zz]
+            assert_equal {a b zz c d} [r lrange xlist 0 10]
+            assert_equal 6 [r linsert xlist after c yy]
+            assert_equal {a b zz c yy d} [r lrange xlist 0 10]
+            assert_equal 7 [r linsert xlist after d dd]
+            assert_equal 7 [r linsert xlist after bad ddd]
+            assert_equal {a b zz c yy d dd} [r lrange xlist 0 10]
+            assert_equal 8 [r linsert xlist before a aa]
+            assert_equal 8 [r linsert xlist before bad aaa]
+            assert_equal {aa a b zz c yy d dd} [r lrange xlist 0 10]
+
+            # check inserting integer encoded value
+            assert_equal 9 [r linsert xlist before aa 42]
+            assert_equal 42 [r lrange xlist 0 0]
+        }
+    }
+
+    test {LPUSHX, RPUSHX convert from ziplist to list} {
+        set large_value "aaaaaaaaaaaaaaaaa"
+
+        # convert when a large value is pushed
+        create_ziplist xlist a
+        assert_equal 2 [r rpushx xlist $large_value]
+        assert_encoding list xlist
+        create_ziplist xlist a
+        assert_equal 2 [r lpushx xlist $large_value]
+        assert_encoding list xlist
+
+        # convert when the length threshold is exceeded
+        create_ziplist xlist [lrepeat 256 a]
+        assert_equal 257 [r rpushx xlist b]
+        assert_encoding list xlist
+        create_ziplist xlist [lrepeat 256 a]
+        assert_equal 257 [r lpushx xlist b]
+        assert_encoding list xlist
+    }
+
+    test {LINSERT convert from ziplist to list} {
+        set large_value "aaaaaaaaaaaaaaaaa"
+
+        # convert when a large value is inserted
+        create_ziplist xlist a
+        assert_equal 2 [r linsert xlist before a $large_value]
+        assert_encoding list xlist
+        create_ziplist xlist a
+        assert_equal 2 [r linsert xlist after a $large_value]
+        assert_encoding list xlist
+
+        # convert when the length threshold is exceeded
+        create_ziplist xlist [lrepeat 256 a]
+        assert_equal 257 [r linsert xlist before a a]
+        assert_encoding list xlist
+        create_ziplist xlist [lrepeat 256 a]
+        assert_equal 257 [r linsert xlist after a a]
+        assert_encoding list xlist
+
+        # don't convert when the value could not be inserted
+        create_ziplist xlist [lrepeat 256 a]
+        assert_equal 256 [r linsert xlist before foo a]
+        assert_encoding ziplist xlist
+        create_ziplist xlist [lrepeat 256 a]
+        assert_equal 256 [r linsert xlist after foo a]
+        assert_encoding ziplist xlist
     }
 
     foreach {type num} {ziplist 250 list 500} {
