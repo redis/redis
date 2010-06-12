@@ -60,8 +60,8 @@ static intset *intsetUpgrade(intset *is, uint8_t newenc, uint8_t extra, uint8_t 
  * the value is not present in the intset and sets "pos" to the position
  * where "value" can be inserted. */
 static uint8_t intsetSearch(intset *is, int64_t value, uint32_t *pos) {
-    int min = 0, max = is->length-1, mid;
-    int64_t cur;
+    int min = 0, max = is->length-1, mid = -1;
+    int64_t cur = -1;
 
     /* The value can never be found when the set is empty */
     if (is->length == 0) {
@@ -177,6 +177,21 @@ uint8_t intsetFind(intset *is, int64_t value) {
 /* Return random member */
 int64_t intsetRandom(intset *is) {
     return INTSET_GET(is,rand()%is->length);
+}
+
+/* Sets the value to the value at the given position. When this position is
+ * out of range the function returns 0, when in range it returns 1. */
+uint8_t intsetGet(intset *is, uint32_t pos, int64_t *value) {
+    if (pos < is->length) {
+        *value = INTSET_GET(is,pos);
+        return 1;
+    }
+    return 0;
+}
+
+/* Return intset length */
+uint32_t intsetLen(intset *is) {
+    return is->length;
 }
 
 #ifdef INTSET_TEST_MAIN

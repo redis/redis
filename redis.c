@@ -76,6 +76,7 @@
 #include "pqsort.h" /* Partial qsort for SORT+LIMIT */
 #include "zipmap.h" /* Compact dictionary-alike data structure */
 #include "ziplist.h" /* Compact list data structure */
+#include "intset.h" /* Compact integer set structure */
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
 #include "release.h" /* Release and/or git repository information */
 
@@ -132,9 +133,10 @@
 #define REDIS_ENCODING_ZIPMAP 3  /* Encoded as zipmap */
 #define REDIS_ENCODING_LIST 4    /* Encoded as zipmap */
 #define REDIS_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
+#define REDIS_ENCODING_INTSET 6  /* Encoded as intset */
 
 static char* strencoding[] = {
-    "raw", "int", "hashtable", "zipmap", "list", "ziplist"
+    "raw", "int", "hashtable", "zipmap", "list", "ziplist", "intset"
 };
 
 /* Object types only used for dumping to disk */
@@ -651,6 +653,7 @@ static void call(redisClient *c, struct redisCommand *cmd);
 static void resetClient(redisClient *c);
 static void convertToRealHash(robj *o);
 static void listTypeConvert(robj *o, int enc);
+static void setTypeConvert(robj *o, int enc);
 static int pubsubUnsubscribeAllChannels(redisClient *c, int notify);
 static int pubsubUnsubscribeAllPatterns(redisClient *c, int notify);
 static void freePubsubPattern(void *p);
@@ -3069,6 +3072,13 @@ static robj *createSetObject(void) {
     return o;
 }
 
+static robj *createIntsetObject(void) {
+    intset *is = intsetNew();
+    robj *o = createObject(REDIS_SET,is);
+    o->encoding = REDIS_ENCODING_INTSET;
+    return o;
+}
+
 static robj *createHashObject(void) {
     /* All the Hashes start as zipmaps. Will be automatically converted
      * into hash tables if there are enough elements or big elements
@@ -3107,7 +3117,16 @@ static void freeListObject(robj *o) {
 }
 
 static void freeSetObject(robj *o) {
-    dictRelease((dict*) o->ptr);
+    switch (o->encoding) {
+    case REDIS_ENCODING_HT:
+        dictRelease((dict*) o->ptr);
+        break;
+    case REDIS_ENCODING_INTSET:
+        zfree(o->ptr);
+        break;
+    default:
+        redisPanic("Unknown set encoding type");
+    }
 }
 
 static void freeZsetObject(robj *o) {
@@ -3371,7 +3390,7 @@ static int getLongLongFromObject(robj *o, long long *target) {
         }
     }
 
-    *target = value;
+    if (target) *target = value;
     return REDIS_OK;
 }
 
@@ -3789,17 +3808,29 @@ static int rdbSaveObject(FILE *fp, robj *o) {
         }
     } else if (o->type == REDIS_SET) {
         /* Save a set value */
-        dict *set = o->ptr;
-        dictIterator *di = dictGetIterator(set);
-        dictEntry *de;
+        if (o->encoding == REDIS_ENCODING_HT) {
+            dict *set = o->ptr;
+            dictIterator *di = dictGetIterator(set);
+            dictEntry *de;
 
-        if (rdbSaveLen(fp,dictSize(set)) == -1) return -1;
-        while((de = dictNext(di)) != NULL) {
-            robj *eleobj = dictGetEntryKey(de);
+            if (rdbSaveLen(fp,dictSize(set)) == -1) return -1;
+            while((de = dictNext(di)) != NULL) {
+                robj *eleobj = dictGetEntryKey(de);
+                if (rdbSaveStringObject(fp,eleobj) == -1) return -1;
+            }
+            dictReleaseIterator(di);
+        } else if (o->encoding == REDIS_ENCODING_INTSET) {
+            intset *is = o->ptr;
+            long long llval;
+            int i = 0;
 
-            if (rdbSaveStringObject(fp,eleobj) == -1) return -1;
+            if (rdbSaveLen(fp,intsetLen(is)) == -1) return -1;
+            while(intsetGet(is,i++,&llval)) {
+                if (rdbSaveLongLongAsStringObject(fp,llval) == -1) return -1;
+            }
+        } else {
+            redisPanic("Unknown set encoding");
         }
-        dictReleaseIterator(di);
     } else if (o->type == REDIS_ZSET) {
         /* Save a set value */
         zset *zs = o->ptr;
@@ -5459,9 +5490,34 @@ static void rpoplpushcommand(redisClient *c) {
 
 /* ==================================== Sets ================================ */
 
+/* Factory method to return a set that *can* hold "value". When the object has
+ * an integer-encodable value, an intset will be returned. Otherwise a regular
+ * hash table. */
+static robj *setTypeCreate(robj *value) {
+    if (getLongLongFromObject(value,NULL) == REDIS_OK)
+        return createIntsetObject();
+    return createSetObject();
+}
+
 static int setTypeAdd(robj *subject, robj *value) {
+    long long llval;
     if (subject->encoding == REDIS_ENCODING_HT) {
         if (dictAdd(subject->ptr,value,NULL) == DICT_OK) {
+            incrRefCount(value);
+            return 1;
+        }
+    } else if (subject->encoding == REDIS_ENCODING_INTSET) {
+        if (getLongLongFromObject(value,&llval) == REDIS_OK) {
+            uint8_t success;
+            subject->ptr = intsetAdd(subject->ptr,llval,&success);
+            if (success) return 1;
+        } else {
+            /* Failed to get integer from object, convert to regular set. */
+            setTypeConvert(subject,REDIS_ENCODING_HT);
+
+            /* The set *was* an intset and this value is not integer
+             * encodable, so dictAdd should always work. */
+            redisAssert(dictAdd(subject->ptr,value,NULL) == DICT_OK);
             incrRefCount(value);
             return 1;
         }
@@ -5472,10 +5528,17 @@ static int setTypeAdd(robj *subject, robj *value) {
 }
 
 static int setTypeRemove(robj *subject, robj *value) {
+    long long llval;
     if (subject->encoding == REDIS_ENCODING_HT) {
         if (dictDelete(subject->ptr,value) == DICT_OK) {
             if (htNeedsResize(subject->ptr)) dictResize(subject->ptr);
             return 1;
+        }
+    } else if (subject->encoding == REDIS_ENCODING_INTSET) {
+        if (getLongLongFromObject(value,&llval) == REDIS_OK) {
+            uint8_t success;
+            subject->ptr = intsetRemove(subject->ptr,llval,&success);
+            if (success) return 1;
         }
     } else {
         redisPanic("Unknown set encoding");
@@ -5484,24 +5547,35 @@ static int setTypeRemove(robj *subject, robj *value) {
 }
 
 static int setTypeIsMember(robj *subject, robj *value) {
+    long long llval;
     if (subject->encoding == REDIS_ENCODING_HT) {
         return dictFind((dict*)subject->ptr,value) != NULL;
+    } else if (subject->encoding == REDIS_ENCODING_INTSET) {
+        if (getLongLongFromObject(value,&llval) == REDIS_OK) {
+            return intsetFind((intset*)subject->ptr,llval);
+        }
     } else {
         redisPanic("Unknown set encoding");
     }
+    return 0;
 }
 
 /* Structure to hold set iteration abstraction. */
 typedef struct {
+    robj *subject;
     int encoding;
+    int ii; /* intset iterator */
     dictIterator *di;
 } setIterator;
 
 static setIterator *setTypeInitIterator(robj *subject) {
     setIterator *si = zmalloc(sizeof(setIterator));
+    si->subject = subject;
     si->encoding = subject->encoding;
     if (si->encoding == REDIS_ENCODING_HT) {
         si->di = dictGetIterator(subject->ptr);
+    } else if (si->encoding == REDIS_ENCODING_INTSET) {
+        si->ii = 0;
     } else {
         redisPanic("Unknown set encoding");
     }
@@ -5525,6 +5599,10 @@ static robj *setTypeNext(setIterator *si) {
             ret = dictGetEntryKey(de);
             incrRefCount(ret);
         }
+    } else if (si->encoding == REDIS_ENCODING_INTSET) {
+        long long llval;
+        if (intsetGet(si->subject->ptr,si->ii++,&llval))
+            ret = createStringObjectFromLongLong(llval);
     }
     return ret;
 }
@@ -5538,6 +5616,9 @@ robj *setTypeRandomElement(robj *subject) {
         dictEntry *de = dictGetRandomKey(subject->ptr);
         ret = dictGetEntryKey(de);
         incrRefCount(ret);
+    } else if (subject->encoding == REDIS_ENCODING_INTSET) {
+        long long llval = intsetRandom(subject->ptr);
+        ret = createStringObjectFromLongLong(llval);
     } else {
         redisPanic("Unknown set encoding");
     }
@@ -5547,8 +5628,32 @@ robj *setTypeRandomElement(robj *subject) {
 static unsigned long setTypeSize(robj *subject) {
     if (subject->encoding == REDIS_ENCODING_HT) {
         return dictSize((dict*)subject->ptr);
+    } else if (subject->encoding == REDIS_ENCODING_INTSET) {
+        return intsetLen((intset*)subject->ptr);
     } else {
         redisPanic("Unknown set encoding");
+    }
+}
+
+static void setTypeConvert(robj *subject, int enc) {
+    setIterator *si;
+    robj *element;
+    redisAssert(subject->type == REDIS_SET);
+
+    if (enc == REDIS_ENCODING_HT) {
+        dict *d = dictCreate(&setDictType,NULL);
+
+        /* setTypeGet returns a robj with incremented refcount */
+        si = setTypeInitIterator(subject);
+        while ((element = setTypeNext(si)) != NULL)
+            redisAssert(dictAdd(d,element,NULL) == DICT_OK);
+        setTypeReleaseIterator(si);
+
+        subject->encoding = REDIS_ENCODING_HT;
+        zfree(subject->ptr);
+        subject->ptr = d;
+    } else {
+        redisPanic("Unsupported set conversion");
     }
 }
 
@@ -5557,7 +5662,7 @@ static void saddCommand(redisClient *c) {
 
     set = lookupKeyWrite(c->db,c->argv[1]);
     if (set == NULL) {
-        set = createSetObject();
+        set = setTypeCreate(c->argv[2]);
         dbAdd(c->db,c->argv[1],set);
     } else {
         if (set->type != REDIS_SET) {
@@ -5616,7 +5721,7 @@ static void smoveCommand(redisClient *c) {
     server.dirty++;
     /* Add the element to the destination set */
     if (!dstset) {
-        dstset = createSetObject();
+        dstset = setTypeCreate(c->argv[3]);
         dbAdd(c->db,c->argv[2],dstset);
     }
     setTypeAdd(dstset,c->argv[3]);
@@ -5724,7 +5829,7 @@ static void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long s
     } else {
         /* If we have a target key where to store the resulting set
          * create this key with an empty set inside */
-        dstset = createSetObject();
+        dstset = createIntsetObject();
     }
 
     /* Iterate all the elements of the first (smallest) set, and test
@@ -5802,7 +5907,7 @@ static void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum,
     /* We need a temp set object to store our union. If the dstkey
      * is not NULL (that is, we are inside an SUNIONSTORE operation) then
      * this set object will be the resulting object to set into the target key*/
-    dstset = createSetObject();
+    dstset = createIntsetObject();
 
     /* Iterate all the elements of all the sets, add every element a single
      * time to the result set */
