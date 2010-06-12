@@ -1258,7 +1258,7 @@ static dictType keyptrDictType = {
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
-    dictSdsDestructor,         /* key destructor */
+    NULL,                      /* key destructor */
     NULL                       /* val destructor */
 };
 
@@ -3532,12 +3532,10 @@ static robj *dbRandomKey(redisDb *db) {
 
 /* Delete a key, value, and associated expiration entry if any, from the DB */
 static int dbDelete(redisDb *db, robj *key) {
-    int retval;
-
-    if (dictSize(db->expires)) dictDelete(db->expires,key->ptr);
-    retval = dictDelete(db->dict,key->ptr);
-
-    return retval == DICT_OK;
+    /* Deleting an entry from the expires dict will not free the sds of
+     * the key, because it is shared with the main dictionary. */
+    if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
+    return dictDelete(db->dict,key->ptr) == DICT_OK;
 }
 
 /*============================ RDB saving/loading =========================== */
@@ -7856,6 +7854,9 @@ static void monitorCommand(redisClient *c) {
 
 /* ================================= Expire ================================= */
 static int removeExpire(redisDb *db, robj *key) {
+    /* An expire may only be removed if there is a corresponding entry in the
+     * main dict. Otherwise, the key will never be freed. */
+    redisAssert(dictFind(db->dict,key->ptr) != NULL);
     if (dictDelete(db->expires,key->ptr) == DICT_OK) {
         return 1;
     } else {
@@ -7864,9 +7865,11 @@ static int removeExpire(redisDb *db, robj *key) {
 }
 
 static int setExpire(redisDb *db, robj *key, time_t when) {
-    sds copy = sdsdup(key->ptr);
-    if (dictAdd(db->expires,copy,(void*)when) == DICT_ERR) {
-        sdsfree(copy);
+    dictEntry *de;
+
+    /* Reuse the sds from the main dict in the expire dict */
+    redisAssert((de = dictFind(db->dict,key->ptr)) != NULL);
+    if (dictAdd(db->expires,dictGetEntryKey(de),(void*)when) == DICT_ERR) {
         return 0;
     } else {
         return 1;
@@ -7882,39 +7885,32 @@ static time_t getExpire(redisDb *db, robj *key) {
     if (dictSize(db->expires) == 0 ||
        (de = dictFind(db->expires,key->ptr)) == NULL) return -1;
 
+    /* The entry was found in the expire dict, this means it should also
+     * be present in the main dict (safety check). */
+    redisAssert(dictFind(db->dict,key->ptr) != NULL);
     return (time_t) dictGetEntryVal(de);
 }
 
 static int expireIfNeeded(redisDb *db, robj *key) {
-    time_t when;
-    dictEntry *de;
+    time_t when = getExpire(db,key);
+    if (when < 0) return 0;
 
-    /* No expire? return ASAP */
-    if (dictSize(db->expires) == 0 ||
-       (de = dictFind(db->expires,key->ptr)) == NULL) return 0;
-
-    /* Lookup the expire */
-    when = (time_t) dictGetEntryVal(de);
+    /* Return when this key has not expired */
     if (time(NULL) <= when) return 0;
 
     /* Delete the key */
-    dbDelete(db,key);
     server.stat_expiredkeys++;
-    return 1;
+    server.dirty++;
+    return dbDelete(db,key);
 }
 
 static int deleteIfVolatile(redisDb *db, robj *key) {
-    dictEntry *de;
-
-    /* No expire? return ASAP */
-    if (dictSize(db->expires) == 0 ||
-       (de = dictFind(db->expires,key->ptr)) == NULL) return 0;
+    if (getExpire(db,key) < 0) return 0;
 
     /* Delete the key */
-    server.dirty++;
     server.stat_expiredkeys++;
-    dictDelete(db->expires,key->ptr);
-    return dictDelete(db->dict,key->ptr) == DICT_OK;
+    server.dirty++;
+    return dbDelete(db,key);
 }
 
 static void expireGenericCommand(redisClient *c, robj *key, robj *param, long offset) {
