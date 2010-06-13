@@ -4250,8 +4250,10 @@ static robj *rdbLoadObject(int type, FILE *fp) {
             /* If we are using a zipmap and there are too big values
              * the object is converted to real hash table encoding. */
             if (o->encoding != REDIS_ENCODING_HT &&
-               (sdslen(key->ptr) > server.hash_max_zipmap_value ||
-                sdslen(val->ptr) > server.hash_max_zipmap_value))
+               ((key->encoding == REDIS_ENCODING_RAW &&
+                sdslen(key->ptr) > server.hash_max_zipmap_value) ||
+                (val->encoding == REDIS_ENCODING_RAW &&
+                sdslen(val->ptr) > server.hash_max_zipmap_value)))
             {
                     convertToRealHash(o);
             }
