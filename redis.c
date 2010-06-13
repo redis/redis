@@ -4258,10 +4258,16 @@ static robj *rdbLoadObject(int type, FILE *fp) {
 
             if (o->encoding == REDIS_ENCODING_ZIPMAP) {
                 unsigned char *zm = o->ptr;
+                robj *deckey, *decval;
 
-                zm = zipmapSet(zm,key->ptr,sdslen(key->ptr),
-                                  val->ptr,sdslen(val->ptr),NULL);
+                /* We need raw string objects to add them to the zipmap */
+                deckey = getDecodedObject(key);
+                decval = getDecodedObject(val);
+                zm = zipmapSet(zm,deckey->ptr,sdslen(deckey->ptr),
+                                  decval->ptr,sdslen(decval->ptr),NULL);
                 o->ptr = zm;
+                decrRefCount(deckey);
+                decrRefCount(decval);
                 decrRefCount(key);
                 decrRefCount(val);
             } else {
