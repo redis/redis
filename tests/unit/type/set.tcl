@@ -180,38 +180,73 @@ start_server {tags {"set"}} {
         }
     }
 
-    test {SMOVE basics} {
-        r sadd myset1 a
-        r sadd myset1 b
-        r sadd myset1 c
-        r sadd myset2 x
-        r sadd myset2 y
-        r sadd myset2 z
-        r smove myset1 myset2 a
-        list [lsort [r smembers myset2]] [lsort [r smembers myset1]]
-    } {{a x y z} {b c}}
+    proc setup_move {} {
+        r del myset3 myset4
+        create_set myset1 {1 a b}
+        create_set myset2 {2 3 4}
+        assert_encoding hashtable myset1
+        assert_encoding intset myset2
+    }
 
-    test {SMOVE non existing key} {
-        list [r smove myset1 myset2 foo] [lsort [r smembers myset2]] [lsort [r smembers myset1]]
-    } {0 {a x y z} {b c}}
+    test "SMOVE basics - from regular set to intset" {
+        # move a non-integer element to an intset should convert encoding
+        setup_move
+        assert_equal 1 [r smove myset1 myset2 a]
+        assert_equal {1 b} [lsort [r smembers myset1]]
+        assert_equal {2 3 4 a} [lsort [r smembers myset2]]
+        assert_encoding hashtable myset2
 
-    test {SMOVE non existing src set} {
-        list [r smove noset myset2 foo] [lsort [r smembers myset2]]
-    } {0 {a x y z}}
+        # move an integer element should not convert the encoding
+        setup_move
+        assert_equal 1 [r smove myset1 myset2 1]
+        assert_equal {a b} [lsort [r smembers myset1]]
+        assert_equal {1 2 3 4} [lsort [r smembers myset2]]
+        assert_encoding intset myset2
+    }
 
-    test {SMOVE non existing dst set} {
-        list [r smove myset2 myset3 y] [lsort [r smembers myset2]] [lsort [r smembers myset3]]
-    } {1 {a x z} y}
+    test "SMOVE basics - from intset to regular set" {
+        setup_move
+        assert_equal 1 [r smove myset2 myset1 2]
+        assert_equal {1 2 a b} [lsort [r smembers myset1]]
+        assert_equal {3 4} [lsort [r smembers myset2]]
+    }
 
-    test {SMOVE wrong src key type} {
+    test "SMOVE non existing key" {
+        setup_move
+        assert_equal 0 [r smove myset1 myset2 foo]
+        assert_equal {1 a b} [lsort [r smembers myset1]]
+        assert_equal {2 3 4} [lsort [r smembers myset2]]
+    }
+
+    test "SMOVE non existing src set" {
+        setup_move
+        assert_equal 0 [r smove noset myset2 foo]
+        assert_equal {2 3 4} [lsort [r smembers myset2]]
+    }
+
+    test "SMOVE from regular set to non existing destination set" {
+        setup_move
+        assert_equal 1 [r smove myset1 myset3 a]
+        assert_equal {1 b} [lsort [r smembers myset1]]
+        assert_equal {a} [lsort [r smembers myset3]]
+        assert_encoding hashtable myset3
+    }
+
+    test "SMOVE from intset to non existing destination set" {
+        setup_move
+        assert_equal 1 [r smove myset2 myset3 2]
+        assert_equal {3 4} [lsort [r smembers myset2]]
+        assert_equal {2} [lsort [r smembers myset3]]
+        assert_encoding intset myset3
+    }
+
+    test "SMOVE wrong src key type" {
         r set x 10
-        catch {r smove x myset2 foo} err
-        format $err
-    } {ERR*}
+        assert_error "ERR*wrong kind*" {r smove x myset2 foo}
+    }
 
-    test {SMOVE wrong dst key type} {
+    test "SMOVE wrong dst key type" {
         r set x 10
-        catch {r smove myset2 x foo} err
-        format $err
-    } {ERR*}
+        assert_error "ERR*wrong kind*" {r smove myset2 x foo}
+    }
 }

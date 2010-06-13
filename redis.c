@@ -5694,37 +5694,46 @@ static void sremCommand(redisClient *c) {
 }
 
 static void smoveCommand(redisClient *c) {
-    robj *srcset, *dstset;
-
+    robj *srcset, *dstset, *ele;
     srcset = lookupKeyWrite(c->db,c->argv[1]);
     dstset = lookupKeyWrite(c->db,c->argv[2]);
+    ele = c->argv[3];
 
-    /* If the source key does not exist return 0, if it's of the wrong type
-     * raise an error */
-    if (srcset == NULL || srcset->type != REDIS_SET) {
-        addReply(c, srcset ? shared.wrongtypeerr : shared.czero);
-        return;
-    }
-    /* Error if the destination key is not a set as well */
-    if (dstset && dstset->type != REDIS_SET) {
-        addReply(c,shared.wrongtypeerr);
-        return;
-    }
-    /* Remove the element from the source set */
-    if (!setTypeRemove(srcset,c->argv[3])) {
-        /* Key not found in the src set! return zero */
+    /* If the source key does not exist return 0 */
+    if (srcset == NULL) {
         addReply(c,shared.czero);
         return;
     }
-    if (setTypeSize(srcset) == 0 && srcset != dstset)
-        dbDelete(c->db,c->argv[1]);
+
+    /* If the source key has the wrong type, or the destination key
+     * is set and has the wrong type, return with an error. */
+    if (checkType(c,srcset,REDIS_SET) ||
+        (dstset && checkType(c,dstset,REDIS_SET))) return;
+
+    /* If srcset and dstset are equal, SMOVE is a no-op */
+    if (srcset == dstset) {
+        addReply(c,shared.cone);
+        return;
+    }
+
+    /* If the element cannot be removed from the src set, return 0. */
+    if (!setTypeRemove(srcset,ele)) {
+        addReply(c,shared.czero);
+        return;
+    }
+
+    /* Remove the src set from the database when empty */
+    if (setTypeSize(srcset) == 0) dbDelete(c->db,c->argv[1]);
     server.dirty++;
-    /* Add the element to the destination set */
+
+    /* Create the destination set when it doesn't exist */
     if (!dstset) {
-        dstset = setTypeCreate(c->argv[3]);
+        dstset = setTypeCreate(ele);
         dbAdd(c->db,c->argv[2],dstset);
     }
-    setTypeAdd(dstset,c->argv[3]);
+
+    /* An extra key has changed when ele was successfully added to dstset */
+    if (setTypeAdd(dstset,ele)) server.dirty++;
     addReply(c,shared.cone);
 }
 
