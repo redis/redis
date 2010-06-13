@@ -77,7 +77,6 @@
 #include "zipmap.h" /* Compact dictionary-alike data structure */
 #include "ziplist.h" /* Compact list data structure */
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
-#include "release.h" /* Release and/or git repository information */
 
 /* Error codes */
 #define REDIS_OK                0

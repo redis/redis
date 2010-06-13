@@ -48,8 +48,7 @@ redis-check-dump.o: redis-check-dump.c lzf.h
 redis-cli.o: redis-cli.c fmacros.h anet.h sds.h adlist.h zmalloc.h \
   linenoise.h
 redis.o: redis.c fmacros.h config.h redis.h ae.h sds.h anet.h dict.h \
-  adlist.h zmalloc.h lzf.h pqsort.h zipmap.h ziplist.h sha1.h release.h \
-  staticsymbols.h
+  adlist.h zmalloc.h lzf.h pqsort.h zipmap.h ziplist.h sha1.h staticsymbols.h
 release.o: release.c release.h
 sds.o: sds.c sds.h zmalloc.h
 sha1.o: sha1.c sha1.h

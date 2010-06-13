@@ -6,4 +6,4 @@ test -f release.h || touch release.h
 (cat release.h | grep DIRTY | grep $GIT_DIRTY) && exit 0 # Already uptodate
 echo "#define REDIS_GIT_SHA1 \"$GIT_SHA1\"" > release.h
 echo "#define REDIS_GIT_DIRTY \"$GIT_DIRTY\"" >> release.h
-touch redis.c # Force recompile of redis.c
+touch release.c # Force recompile of release.c
