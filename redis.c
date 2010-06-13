@@ -4234,16 +4234,38 @@ static robj *rdbLoadObject(int type, FILE *fp) {
     } else if (type == REDIS_SET) {
         /* Read list/set value */
         if ((len = rdbLoadLen(fp,NULL)) == REDIS_RDB_LENERR) return NULL;
-        o = createSetObject();
-        /* It's faster to expand the dict to the right size asap in order
-         * to avoid rehashing */
-        if (len > DICT_HT_INITIAL_SIZE)
-            dictExpand(o->ptr,len);
+
+        /* Use a regular set when there are too many entries. */
+        if (len > server.set_max_intset_entries) {
+            o = createSetObject();
+            /* It's faster to expand the dict to the right size asap in order
+             * to avoid rehashing */
+            if (len > DICT_HT_INITIAL_SIZE)
+                dictExpand(o->ptr,len);
+        } else {
+            o = createIntsetObject();
+        }
+
         /* Load every single element of the list/set */
         while(len--) {
+            long long llval;
             if ((ele = rdbLoadEncodedStringObject(fp)) == NULL) return NULL;
             ele = tryObjectEncoding(ele);
-            dictAdd((dict*)o->ptr,ele,NULL);
+
+            if (o->encoding == REDIS_ENCODING_INTSET) {
+                /* Fetch integer value from element */
+                if (getLongLongFromObject(ele,&llval) == REDIS_OK) {
+                    o->ptr = intsetAdd(o->ptr,llval,NULL);
+                } else {
+                    setTypeConvert(o,REDIS_ENCODING_HT);
+                }
+            }
+
+            /* This will also be called when the set was just converted
+             * to regular hashtable encoded set */
+            if (o->encoding == REDIS_ENCODING_HT) {
+                dictAdd((dict*)o->ptr,ele,NULL);
+            }
         }
     } else if (type == REDIS_ZSET) {
         /* Read list/set value */

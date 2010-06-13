@@ -53,6 +53,21 @@ start_server {
         assert_encoding hashtable myset
     }
 
+    test "Set encoding after DEBUG RELOAD" {
+        r del myintset myhashset mylargeintset
+        for {set i 0} {$i <  100} {incr i} { r sadd myintset $i }
+        for {set i 0} {$i < 1280} {incr i} { r sadd mylargeintset $i }
+        for {set i 0} {$i <  256} {incr i} { r sadd myhashset [format "i%03d" $i] }
+        assert_encoding intset myintset
+        assert_encoding hashtable mylargeintset
+        assert_encoding hashtable myhashset
+
+        r debug reload
+        assert_encoding intset myintset
+        assert_encoding hashtable mylargeintset
+        assert_encoding hashtable myhashset
+    }
+
     test {SREM basics - regular set} {
         create_set myset {foo bar ciao}
         assert_encoding hashtable myset
