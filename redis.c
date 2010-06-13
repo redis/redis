@@ -244,6 +244,7 @@ static char* strencoding[] = {
 #define REDIS_HASH_MAX_ZIPMAP_VALUE 512
 #define REDIS_LIST_MAX_ZIPLIST_ENTRIES 1024
 #define REDIS_LIST_MAX_ZIPLIST_VALUE 32
+#define REDIS_SET_MAX_INTSET_ENTRIES 4096
 
 /* We can print the stacktrace, so our assert is defined this way: */
 #define redisAssert(_e) ((_e)?(void)0 : (_redisAssert(#_e,__FILE__,__LINE__),_exit(1)))
@@ -434,6 +435,7 @@ struct redisServer {
     size_t hash_max_zipmap_value;
     size_t list_max_ziplist_entries;
     size_t list_max_ziplist_value;
+    size_t set_max_intset_entries;
     /* Virtual memory state */
     FILE *vm_fp;
     int vm_fd;
@@ -1765,6 +1767,7 @@ static void initServerConfig() {
     server.hash_max_zipmap_value = REDIS_HASH_MAX_ZIPMAP_VALUE;
     server.list_max_ziplist_entries = REDIS_LIST_MAX_ZIPLIST_ENTRIES;
     server.list_max_ziplist_value = REDIS_LIST_MAX_ZIPLIST_VALUE;
+    server.set_max_intset_entries = REDIS_SET_MAX_INTSET_ENTRIES;
     server.shutdown_asap = 0;
 
     resetServerSaveParams();
@@ -2047,6 +2050,8 @@ static void loadServerConfig(char *filename) {
             server.list_max_ziplist_entries = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"list-max-ziplist-value") && argc == 2){
             server.list_max_ziplist_value = memtoll(argv[1], NULL);
+        } else if (!strcasecmp(argv[0],"set-max-intset-entries") && argc == 2){
+            server.set_max_intset_entries = memtoll(argv[1], NULL);
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
@@ -5508,9 +5513,15 @@ static int setTypeAdd(robj *subject, robj *value) {
         }
     } else if (subject->encoding == REDIS_ENCODING_INTSET) {
         if (getLongLongFromObject(value,&llval) == REDIS_OK) {
-            uint8_t success;
+            uint8_t success = 0;
             subject->ptr = intsetAdd(subject->ptr,llval,&success);
-            if (success) return 1;
+            if (success) {
+                /* Convert to regular set when the intset contains
+                 * too many entries. */
+                if (intsetLen(subject->ptr) > server.set_max_intset_entries)
+                    setTypeConvert(subject,REDIS_ENCODING_HT);
+                return 1;
+            }
         } else {
             /* Failed to get integer from object, convert to regular set. */
             setTypeConvert(subject,REDIS_ENCODING_HT);
