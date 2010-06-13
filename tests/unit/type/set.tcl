@@ -1,4 +1,9 @@
-start_server {tags {"set"}} {
+start_server {
+    tags {"set"}
+    overrides {
+        "set-max-intset-entries" 512
+    }
+} {
     proc create_set {key entries} {
         r del $key
         foreach entry $entries { r sadd $key $entry }
@@ -33,6 +38,21 @@ start_server {tags {"set"}} {
         assert_error ERR*kind* {r sadd mylist bar}
     }
 
+    test "SADD a non-integer against an intset" {
+        create_set myset {1 2 3}
+        assert_encoding intset myset
+        assert_equal 1 [r sadd myset a]
+        assert_encoding hashtable myset
+    }
+
+    test "SADD overflows the maximum allowed integers in an intset" {
+        r del myset
+        for {set i 0} {$i < 512} {incr i} { r sadd myset $i }
+        assert_encoding intset myset
+        assert_equal 1 [r sadd myset 512]
+        assert_encoding hashtable myset
+    }
+
     test {SREM basics - regular set} {
         create_set myset {foo bar ciao}
         assert_encoding hashtable myset
@@ -53,14 +73,14 @@ start_server {tags {"set"}} {
         for {set i 1} {$i <= 5} {incr i} {
             r del [format "set%d" $i]
         }
-        for {set i 0} {$i < 1000} {incr i} {
+        for {set i 0} {$i < 200} {incr i} {
             r sadd set1 $i
-            r sadd set2 [expr $i+995]
+            r sadd set2 [expr $i+195]
         }
-        foreach i {999 995 1000 2000} {
+        foreach i {199 195 1000 2000} {
             r sadd set3 $i
         }
-        for {set i 5} {$i < 1000} {incr i} {
+        for {set i 5} {$i < 200} {incr i} {
             r sadd set4 $i
         }
         r sadd set5 0
@@ -82,20 +102,20 @@ start_server {tags {"set"}} {
         }
 
         test "SINTER with two sets - $type" {
-            assert_equal {995 996 997 998 999} [lsort [r sinter set1 set2]]
+            assert_equal {195 196 197 198 199} [lsort [r sinter set1 set2]]
         }
 
         test "SINTERSTORE with two sets - $type" {
             r sinterstore setres set1 set2
             assert_encoding intset setres
-            assert_equal {995 996 997 998 999} [lsort [r smembers setres]]
+            assert_equal {195 196 197 198 199} [lsort [r smembers setres]]
         }
 
         test "SINTERSTORE with two sets, after a DEBUG RELOAD - $type" {
             r debug reload
             r sinterstore setres set1 set2
             assert_encoding intset setres
-            assert_equal {995 996 997 998 999} [lsort [r smembers setres]]
+            assert_equal {195 196 197 198 199} [lsort [r smembers setres]]
         }
 
         test "SUNION with two sets - $type" {
@@ -111,12 +131,12 @@ start_server {tags {"set"}} {
         }
 
         test "SINTER against three sets - $type" {
-            assert_equal {995 999} [lsort [r sinter set1 set2 set3]]
+            assert_equal {195 199} [lsort [r sinter set1 set2 set3]]
         }
 
         test "SINTERSTORE with three sets - $type" {
             r sinterstore setres set1 set2 set3
-            assert_equal {995 999} [r smembers setres]
+            assert_equal {195 199} [r smembers setres]
         }
 
         test "SUNION with non existing keys - $type" {
