@@ -4193,6 +4193,7 @@ static int rdbLoadDoubleValue(FILE *fp, double *val) {
 static robj *rdbLoadObject(int type, FILE *fp) {
     robj *o, *ele, *dec;
     size_t len;
+    unsigned int i;
 
     redisLog(REDIS_DEBUG,"LOADING OBJECT %d (at %d)\n",type,ftell(fp));
     if (type == REDIS_STRING) {
@@ -4247,7 +4248,7 @@ static robj *rdbLoadObject(int type, FILE *fp) {
         }
 
         /* Load every single element of the list/set */
-        while(len--) {
+        for (i = 0; i < len; i++) {
             long long llval;
             if ((ele = rdbLoadEncodedStringObject(fp)) == NULL) return NULL;
             ele = tryObjectEncoding(ele);
@@ -4258,6 +4259,7 @@ static robj *rdbLoadObject(int type, FILE *fp) {
                     o->ptr = intsetAdd(o->ptr,llval,NULL);
                 } else {
                     setTypeConvert(o,REDIS_ENCODING_HT);
+                    dictExpand(o->ptr,len);
                 }
             }
 
@@ -5668,6 +5670,9 @@ static unsigned long setTypeSize(robj *subject) {
     }
 }
 
+/* Convert the set to specified encoding. The resulting dict (when converting
+ * to a hashtable) is presized to hold the number of elements in the original
+ * set. */
 static void setTypeConvert(robj *subject, int enc) {
     setIterator *si;
     robj *element;
@@ -5675,6 +5680,8 @@ static void setTypeConvert(robj *subject, int enc) {
 
     if (enc == REDIS_ENCODING_HT) {
         dict *d = dictCreate(&setDictType,NULL);
+        /* Presize the dict to avoid rehashing */
+        dictExpand(d,intsetLen(subject->ptr));
 
         /* setTypeGet returns a robj with incremented refcount */
         si = setTypeInitIterator(subject);
