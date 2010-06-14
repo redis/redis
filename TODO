@@ -6,13 +6,6 @@ VERSION 2.2 TODO (Optimizations and latency)
 
 * Support for syslog(3).
 * Implement an UDP interface for low-latency operations.
-* Use the same pointer of db->dict in db->expire hash table for keys.
-  1) Set the keyptr hash table type key destructor to NULL.
-  2) Don't copy the key in setExpire(), but instead lookup the same key
-     in the dict hash table, and use it.
-  3) Make sure (and add comments about this) that when a key is deleted or
-     an expire is touched, the order is: delete the expire, delete the key.
-  4) Make sure the SETEX command works well in all the cases. Add tests.
 
 VERSION 2.x TODO
 ================
