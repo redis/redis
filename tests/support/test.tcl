@@ -26,6 +26,8 @@ proc assert_error {pattern code} {
 }
 
 proc assert_encoding {enc key} {
+    # swapped out value doesn't have encoding, so swap in first
+    r debug swapin $key
     assert_match "* encoding:$enc *" [r debug object $key]
 }
 
