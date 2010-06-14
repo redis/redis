@@ -15,6 +15,7 @@ set ::traceleaks 0
 set ::valgrind 0
 set ::denytags {}
 set ::allowtags {}
+set ::external 0; # If "1" this means, we are running against external instance
 
 proc execute_tests name {
     source "tests/$name.tcl"
@@ -105,6 +106,13 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
                 lappend ::allowtags $tag
             }
         }
+        incr j
+    } elseif {$opt eq {--host}} {
+        set ::external 1
+        set ::host $arg
+        incr j
+    } elseif {$opt eq {--port}} {
+        set ::port $arg
         incr j
     } else {
         puts "Wrong argument: $opt"

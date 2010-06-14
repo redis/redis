@@ -25,6 +25,9 @@ proc check_valgrind_errors stderr {
 }
 
 proc kill_server config {
+    # nothing to kill when running against external server
+    if {$::external} return
+
     # nevermind if its already dead
     if {![is_alive $config]} { return }
     set pid [dict get $config pid]
@@ -93,6 +96,24 @@ proc tags {tags code} {
 }
 
 proc start_server {options {code undefined}} {
+    # If we are runnign against an external server, we just push the
+    # host/port pair in the stack the first time
+    if {$::external} {
+        if {[llength $::servers] == 0} {
+            set srv {}
+            dict set srv "host" $::host
+            dict set srv "port" $::port
+            set client [redis $::host $::port]
+            dict set srv "client" $client
+            $client select 9
+
+            # append the server to the stack
+            lappend ::servers $srv
+        }
+        uplevel 1 $code
+        return
+    }
+
     # setup defaults
     set baseconfig "default.conf"
     set overrides {}
