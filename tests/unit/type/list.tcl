@@ -347,32 +347,61 @@ start_server {
     }
 
     foreach type {ziplist list} {
-        test "LTRIM basics - $type" {
-            create_$type mylist "foo"
-            for {set i 0} {$i < 100} {incr i} {
-                r lpush mylist $i
-                r ltrim mylist 0 4
-            }
+        proc trim_list {type min max} {
+            r del mylist
+            create_$type mylist {1 2 3 4 5}
+            r ltrim mylist $min $max
             r lrange mylist 0 -1
-        } {99 98 97 96 95}
-
-        test "LTRIM stress testing - $type" {
-            set mylist {}
-            for {set i 0} {$i < 20} {incr i} {
-                lappend mylist $i
-            }
-
-            for {set j 0} {$j < 100} {incr j} {
-                create_$type mylist $mylist
-
-                # Trim at random
-                set a [randomInt 20]
-                set b [randomInt 20]
-                r ltrim mylist $a $b
-                assert_equal [lrange $mylist $a $b] [r lrange mylist 0 -1]
-            }
         }
 
+        test "LTRIM basics - $type" {
+            assert_equal {1} [trim_list $type 0 0]
+            assert_equal {1 2} [trim_list $type 0 1]
+            assert_equal {1 2 3} [trim_list $type 0 2]
+            assert_equal {2 3} [trim_list $type 1 2]
+            assert_equal {2 3 4 5} [trim_list $type 1 -1]
+            assert_equal {2 3 4} [trim_list $type 1 -2]
+            assert_equal {4 5} [trim_list $type -2 -1]
+            assert_equal {5} [trim_list $type -1 -1]
+            assert_equal {1 2 3 4 5} [trim_list $type -5 -1]
+            assert_equal {1 2 3 4 5} [trim_list $type -10 10]
+            assert_equal {1 2 3 4 5} [trim_list $type 0 5]
+            assert_equal {1 2 3 4 5} [trim_list $type 0 10]
+        }
+
+        tags {"slow"} {
+            test "LTRIM stress testing - $type" {
+                set mylist {}
+                set startlen 32
+                r del mylist
+                for {set i 0} {$i < $startlen} {incr i} {
+                    set str [randomInt 9223372036854775807]
+                    r rpush mylist $str
+                    lappend mylist $str
+                }
+
+                # do a push/pop of a large value to convert to a real list
+                if {$type eq "list"} {
+                    r rpush mylist "aaaaaaaaaaaaaaaaa"
+                    r rpop mylist
+                    assert_encoding list mylist
+                }
+
+                for {set i 0} {$i < 1000} {incr i} {
+                    set min [expr {int(rand()*$startlen)}]
+                    set max [expr {$min+int(rand()*$startlen)}]
+                    set mylist [lrange $mylist $min $max]
+                    r ltrim mylist $min $max
+                    assert_equal $mylist [r lrange mylist 0 -1]
+
+                    for {set j [r llen mylist]} {$j < $startlen} {incr j} {
+                        set str [randomInt 9223372036854775807]
+                        r rpush mylist $str
+                        lappend mylist $str
+                    }
+                }
+            }
+        }
     }
 
     foreach type {ziplist list} {
