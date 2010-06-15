@@ -41,7 +41,7 @@ array set ::redis::multibulkarg {}
 
 # Flag commands requiring last argument as a bulk write operation
 foreach redis_bulk_cmd {
-    set setnx rpush lpush rpushx lpushx linsert lset lrem sadd srem sismember echo getset smove zadd zrem zscore zincrby append zrank zrevrank hget hdel hexists setex
+    set setnx rpush lpush rpushx lpushx linsert lset lrem sadd srem sismember echo getset smove zadd zrem zscore zincrby append zrank zrevrank hget hdel hexists setex publish
 } {
     set ::redis::bulkarg($redis_bulk_cmd) {}
 }

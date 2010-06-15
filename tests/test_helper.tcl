@@ -88,6 +88,7 @@ proc main {} {
     execute_tests "unit/cas"
     execute_tests "integration/replication"
     execute_tests "integration/aof"
+    execute_tests "unit/pubsub"
 
     # run tests with VM enabled
     set ::global_overrides {vm-enabled yes}
