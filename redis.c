@@ -6409,9 +6409,9 @@ static void zremrangebyrankCommand(redisClient *c) {
     if (start < 0) start = llen+start;
     if (end < 0) end = llen+end;
     if (start < 0) start = 0;
-    if (end < 0) end = 0;
 
-    /* indexes sanity checks */
+    /* Invariant: start >= 0, so this test will be true when end < 0.
+     * The range is empty when start > end or start >= length. */
     if (start > end || start >= llen) {
         addReply(c,shared.czero);
         return;

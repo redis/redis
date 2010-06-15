@@ -1,4 +1,11 @@
 start_server {tags {"zset"}} {
+    proc create_zset {key items} {
+        r del $key
+        foreach {score entry} $items {
+            r zadd $key $score $entry
+        }
+    }
+
     test {ZSET basic ZADD and score update} {
         r zadd ztmp 10 x
         r zadd ztmp 20 y
@@ -339,15 +346,32 @@ start_server {tags {"zset"}} {
         list [r zremrangebyscore zset -inf +inf] [r zrange zset 0 -1]
     } {5 {}}
 
-    test {ZREMRANGEBYRANK basics} {
-        r del zset
-        r zadd zset 1 a
-        r zadd zset 2 b
-        r zadd zset 3 c
-        r zadd zset 4 d
-        r zadd zset 5 e
-        list [r zremrangebyrank zset 1 3] [r zrange zset 0 -1]
-    } {3 {a e}}
+    test "ZREMRANGEBYRANK basics" {
+        proc remrangebyrank {min max} {
+            create_zset zset {1 a 2 b 3 c 4 d 5 e}
+            r zremrangebyrank zset $min $max
+        }
+
+        # inner range
+        assert_equal 3 [remrangebyrank 1 3]
+        assert_equal {a e} [r zrange zset 0 -1]
+
+        # start underflow
+        assert_equal 1 [remrangebyrank -10 0]
+        assert_equal {b c d e} [r zrange zset 0 -1]
+
+        # start overflow
+        assert_equal 0 [remrangebyrank 10 -1]
+        assert_equal {a b c d e} [r zrange zset 0 -1]
+
+        # end underflow
+        assert_equal 0 [remrangebyrank 0 -10]
+        assert_equal {a b c d e} [r zrange zset 0 -1]
+
+        # end overflow
+        assert_equal 5 [remrangebyrank 0 10]
+        assert_equal {} [r zrange zset 0 -1]
+    }
 
     test {ZUNIONSTORE against non-existing key doesn't set destination} {
       r del zseta
