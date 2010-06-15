@@ -8236,8 +8236,7 @@ static void blockingPopGenericCommand(redisClient *c, int where) {
                 addReply(c,shared.wrongtypeerr);
                 return;
             } else {
-                list *list = o->ptr;
-                if (listLength(list) != 0) {
+                if (listTypeLength(o) != 0) {
                     /* If the list contains elements fall back to the usual
                      * non-blocking POP operation */
                     robj *argv[2], **orig_argv;
