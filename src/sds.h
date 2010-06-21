@@ -1,5 +1,6 @@
-/*
- * Copyright (c) 2009-2010, Salvatore Sanfilippo <antirez at gmail dot com>
+/* SDSLib, A C dynamic strings library
+ *
+ * Copyright (c) 2006-2010, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,49 +28,47 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __REDIS_H__
-#define __REDIS_H__
+#ifndef __SDS_H
+#define __SDS_H
 
-enum
-{
-  REG_GS = 0,
-# define REG_GS		REG_GS
-  REG_FS,
-# define REG_FS		REG_FS
-  REG_ES,
-# define REG_ES		REG_ES
-  REG_DS,
-# define REG_DS		REG_DS
-  REG_EDI,
-# define REG_EDI	REG_EDI
-  REG_ESI,
-# define REG_ESI	REG_ESI
-  REG_EBP,
-# define REG_EBP	REG_EBP
-  REG_ESP,
-# define REG_ESP	REG_ESP
-  REG_EBX,
-# define REG_EBX	REG_EBX
-  REG_EDX,
-# define REG_EDX	REG_EDX
-  REG_ECX,
-# define REG_ECX	REG_ECX
-  REG_EAX,
-# define REG_EAX	REG_EAX
-  REG_TRAPNO,
-# define REG_TRAPNO	REG_TRAPNO
-  REG_ERR,
-# define REG_ERR	REG_ERR
-  REG_EIP,
-# define REG_EIP	REG_EIP
-  REG_CS,
-# define REG_CS		REG_CS
-  REG_EFL,
-# define REG_EFL	REG_EFL
-  REG_UESP,
-# define REG_UESP	REG_UESP
-  REG_SS
-# define REG_SS	REG_SS
+#include <sys/types.h>
+
+typedef char *sds;
+
+struct sdshdr {
+    int len;
+    int free;
+    char buf[];
 };
+
+sds sdsnewlen(const void *init, size_t initlen);
+sds sdsnew(const char *init);
+sds sdsempty();
+size_t sdslen(const sds s);
+sds sdsdup(const sds s);
+void sdsfree(sds s);
+size_t sdsavail(sds s);
+sds sdscatlen(sds s, void *t, size_t len);
+sds sdscat(sds s, char *t);
+sds sdscpylen(sds s, char *t, size_t len);
+sds sdscpy(sds s, char *t);
+
+#ifdef __GNUC__
+sds sdscatprintf(sds s, const char *fmt, ...)
+    __attribute__((format(printf, 2, 3)));
+#else
+sds sdscatprintf(sds s, const char *fmt, ...);
+#endif
+
+sds sdstrim(sds s, const char *cset);
+sds sdsrange(sds s, int start, int end);
+void sdsupdatelen(sds s);
+int sdscmp(sds s1, sds s2);
+sds *sdssplitlen(char *s, int len, char *sep, int seplen, int *count);
+void sdsfreesplitres(sds *tokens, int count);
+void sdstolower(sds s);
+void sdstoupper(sds s);
+sds sdsfromlonglong(long long value);
+sds sdscatrepr(sds s, char *p, size_t len);
 
 #endif
