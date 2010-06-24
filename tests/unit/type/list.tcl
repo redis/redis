@@ -433,6 +433,12 @@ start_server {
             create_$type mylist {1 2 3}
             assert_equal {1 2 3} [r lrange mylist -1000 1000]
         }
+
+        test "LRANGE out of range negative end index - $type" {
+            create_$type mylist {1 2 3}
+            assert_equal {1} [r lrange mylist 0 -3]
+            assert_equal {} [r lrange mylist 0 -4]
+        }
     }
 
     test {LRANGE against non existing key} {
@@ -460,6 +466,11 @@ start_server {
             assert_equal {1 2 3 4 5} [trim_list $type -10 10]
             assert_equal {1 2 3 4 5} [trim_list $type 0 5]
             assert_equal {1 2 3 4 5} [trim_list $type 0 10]
+        }
+
+        test "LTRIM out of range negative end index - $type" {
+            assert_equal {1} [trim_list $type 0 -5]
+            assert_equal {} [trim_list $type 0 -6]
         }
 
         tags {"slow"} {
