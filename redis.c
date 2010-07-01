@@ -8618,10 +8618,10 @@ static int rewriteAppendOnlyFile(char *filename) {
                     while((p = zipmapNext(p,&field,&flen,&val,&vlen)) != NULL) {
                         if (fwrite(cmd,sizeof(cmd)-1,1,fp) == 0) goto werr;
                         if (fwriteBulkObject(fp,key) == 0) goto werr;
-                        if (fwriteBulkString(fp,(char*)field,flen) == -1)
-                            return -1;
-                        if (fwriteBulkString(fp,(char*)val,vlen) == -1)
-                            return -1;
+                        if (fwriteBulkString(fp,(char*)field,flen) == 0)
+                            goto werr;
+                        if (fwriteBulkString(fp,(char*)val,vlen) == 0)
+                            goto werr;
                     }
                 } else {
                     dictIterator *di = dictGetIterator(o->ptr);
@@ -8633,8 +8633,8 @@ static int rewriteAppendOnlyFile(char *filename) {
 
                         if (fwrite(cmd,sizeof(cmd)-1,1,fp) == 0) goto werr;
                         if (fwriteBulkObject(fp,key) == 0) goto werr;
-                        if (fwriteBulkObject(fp,field) == -1) return -1;
-                        if (fwriteBulkObject(fp,val) == -1) return -1;
+                        if (fwriteBulkObject(fp,field) == 0) goto werr;
+                        if (fwriteBulkObject(fp,val) == 0) goto werr;
                     }
                     dictReleaseIterator(di);
                 }
