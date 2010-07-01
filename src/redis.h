@@ -15,6 +15,7 @@
 #include <limits.h>
 #include <unistd.h>
 #include <errno.h>
+#include <inttypes.h>
 
 #include "ae.h"     /* Event driven programming library */
 #include "sds.h"    /* Dynamic safe strings */

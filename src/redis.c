@@ -41,7 +41,6 @@
 #include <assert.h>
 #include <ctype.h>
 #include <stdarg.h>
-#include <inttypes.h>
 #include <arpa/inet.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -1443,8 +1442,10 @@ void *getMcontextEip(ucontext_t *uc) {
   #else
     return (void*) uc->uc_mcontext->__ss.__eip;
   #endif
-#elif defined(__i386__) || defined(__X86_64__) || defined(__x86_64__)
-    return (void*) uc->uc_mcontext.gregs[REG_EIP]; /* Linux 32/64 bit */
+#elif defined(__i386__)
+    return (void*) uc->uc_mcontext.gregs[14]; /* Linux 32 */
+#elif defined(__X86_64__) || defined(__x86_64__)
+    return (void*) uc->uc_mcontext.gregs[16]; /* Linux 64 */
 #elif defined(__ia64__) /* Linux IA64 */
     return (void*) uc->uc_mcontext.sc_ip;
 #else

@@ -2,6 +2,11 @@
 #include "lzf.h"    /* LZF compression library */
 
 #include <math.h>
+#include <sys/types.h>
+#include <sys/time.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
+#include <arpa/inet.h>
 
 int rdbSaveType(FILE *fp, unsigned char type) {
     if (fwrite(&type,1,1,fp) == 0) return -1;
