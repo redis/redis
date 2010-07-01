@@ -1,5 +1,9 @@
 #include "redis.h"
 
+/*-----------------------------------------------------------------------------
+ * Pubsub low level API
+ *----------------------------------------------------------------------------*/
+
 void freePubsubPattern(void *p) {
     pubsubPattern *pat = p;
 
@@ -214,6 +218,10 @@ int pubsubPublishMessage(robj *channel, robj *message) {
     }
     return receivers;
 }
+
+/*-----------------------------------------------------------------------------
+ * Pubsub commands implementation
+ *----------------------------------------------------------------------------*/
 
 void subscribeCommand(redisClient *c) {
     int j;
