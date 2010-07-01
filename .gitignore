@@ -12,7 +12,7 @@ mkrelease.sh
 release
 myredis.conf
 misc/*
-release.h
+src/release.h
 appendonly.aof
 SHORT_TERM_TODO
 redis.conf.*

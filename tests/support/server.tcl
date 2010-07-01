@@ -169,10 +169,10 @@ proc start_server {options {code undefined}} {
     set stderr [format "%s/%s" [dict get $config "dir"] "stderr"]
 
     if {$::valgrind} {
-        exec valgrind ./redis-server $config_file > $stdout 2> $stderr &
+        exec valgrind src/redis-server $config_file > $stdout 2> $stderr &
         after 2000
     } else {
-        exec ./redis-server $config_file > $stdout 2> $stderr &
+        exec src/redis-server $config_file > $stdout 2> $stderr &
         after 500
     }
     

@@ -59,13 +59,13 @@ tags {"aof"} {
     ## Test that redis-check-aof indeed sees this AOF is not valid
     test {Short read: Utility should confirm the AOF is not valid} {
         catch {
-            exec ./redis-check-aof $aof_path
+            exec src/redis-check-aof $aof_path
         } str
         set _ $str
     } {*not valid*}
 
     test {Short read: Utility should be able to fix the AOF} {
-        exec echo y | ./redis-check-aof --fix $aof_path
+        exec echo y | src/redis-check-aof --fix $aof_path
     } {*Successfully truncated AOF*}
 
     ## Test that the server can be started using the truncated AOF
