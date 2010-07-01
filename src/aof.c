@@ -501,9 +501,9 @@ int rewriteAppendOnlyFile(char *filename) {
                         if (fwrite(cmd,sizeof(cmd)-1,1,fp) == 0) goto werr;
                         if (fwriteBulkObject(fp,&key) == 0) goto werr;
                         if (fwriteBulkString(fp,(char*)field,flen) == 0)
-                            return -1;
+                            goto werr;
                         if (fwriteBulkString(fp,(char*)val,vlen) == 0)
-                            return -1;
+                            goto werr;
                     }
                 } else {
                     dictIterator *di = dictGetIterator(o->ptr);
@@ -515,8 +515,8 @@ int rewriteAppendOnlyFile(char *filename) {
 
                         if (fwrite(cmd,sizeof(cmd)-1,1,fp) == 0) goto werr;
                         if (fwriteBulkObject(fp,&key) == 0) goto werr;
-                        if (fwriteBulkObject(fp,field) == -1) return REDIS_ERR;
-                        if (fwriteBulkObject(fp,val) == -1) return REDIS_ERR;
+                        if (fwriteBulkObject(fp,field) == 0) goto werr;
+                        if (fwriteBulkObject(fp,val) == 0) goto werr;
                     }
                     dictReleaseIterator(di);
                 }
