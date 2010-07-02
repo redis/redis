@@ -731,6 +731,7 @@ void initServerConfig() {
     server.hash_max_zipmap_value = REDIS_HASH_MAX_ZIPMAP_VALUE;
     server.list_max_ziplist_entries = REDIS_LIST_MAX_ZIPLIST_ENTRIES;
     server.list_max_ziplist_value = REDIS_LIST_MAX_ZIPLIST_VALUE;
+    server.set_max_intset_entries = REDIS_SET_MAX_INTSET_ENTRIES;
     server.shutdown_asap = 0;
 
     resetServerSaveParams();

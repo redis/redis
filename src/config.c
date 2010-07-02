@@ -199,6 +199,8 @@ void loadServerConfig(char *filename) {
             server.list_max_ziplist_entries = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"list-max-ziplist-value") && argc == 2){
             server.list_max_ziplist_value = memtoll(argv[1], NULL);
+        } else if (!strcasecmp(argv[0],"set-max-intset-entries") && argc == 2){
+            server.set_max_intset_entries = memtoll(argv[1], NULL);
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }

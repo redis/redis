@@ -73,7 +73,16 @@ robj *createZiplistObject(void) {
 
 robj *createSetObject(void) {
     dict *d = dictCreate(&setDictType,NULL);
-    return createObject(REDIS_SET,d);
+    robj *o = createObject(REDIS_SET,d);
+    o->encoding = REDIS_ENCODING_HT;
+    return o;
+}
+
+robj *createIntsetObject(void) {
+    intset *is = intsetNew();
+    robj *o = createObject(REDIS_SET,is);
+    o->encoding = REDIS_ENCODING_INTSET;
+    return o;
 }
 
 robj *createHashObject(void) {
@@ -114,7 +123,16 @@ void freeListObject(robj *o) {
 }
 
 void freeSetObject(robj *o) {
-    dictRelease((dict*) o->ptr);
+    switch (o->encoding) {
+    case REDIS_ENCODING_HT:
+        dictRelease((dict*) o->ptr);
+        break;
+    case REDIS_ENCODING_INTSET:
+        zfree(o->ptr);
+        break;
+    default:
+        redisPanic("Unknown set encoding type");
+    }
 }
 
 void freeZsetObject(robj *o) {
@@ -356,7 +374,7 @@ int getLongLongFromObject(robj *o, long long *target) {
         }
     }
 
-    *target = value;
+    if (target) *target = value;
     return REDIS_OK;
 }
 
@@ -400,6 +418,7 @@ char *strEncoding(int encoding) {
     case REDIS_ENCODING_ZIPMAP: return "zipmap";
     case REDIS_ENCODING_LINKEDLIST: return "linkedlist";
     case REDIS_ENCODING_ZIPLIST: return "ziplist";
+    case REDIS_ENCODING_INTSET: return "intset";
     default: return "unknown";
     }
 }
