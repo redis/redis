@@ -1,9 +1,0 @@
-This is a stable release, for beta testing make sure to download the latest source code from Git:
-
-    git clone git://github.com/antirez/redis.git
-
-It's also possibe to download the latest source code as a tarball:
-
-    http://github.com/antirez/redis/tree/master
-
-(use the download button)
