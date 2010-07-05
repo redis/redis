@@ -472,11 +472,13 @@ void expireGenericCommand(redisClient *c, robj *key, robj *param, long offset) {
     if (seconds <= 0) {
         if (dbDelete(c->db,key)) server.dirty++;
         addReply(c, shared.cone);
+        touchWatchedKey(c->db,key);
         return;
     } else {
         time_t when = time(NULL)+seconds;
         if (setExpire(c->db,key,when)) {
             addReply(c,shared.cone);
+            touchWatchedKey(c->db,key);
             server.dirty++;
         } else {
             addReply(c,shared.czero);
