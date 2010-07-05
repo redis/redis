@@ -6,6 +6,7 @@ VERSION 2.2 TODO (Optimizations and latency)
 
 * Support for syslog(3).
 * Change the implementation of ZCOUNT to use the augmented skiplist in order to be much faster.
+* Add an explicit test for MULTI/EXEC reloaded in the AOF.
 
 VM TODO
 =======
