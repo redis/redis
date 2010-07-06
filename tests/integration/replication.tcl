@@ -1,4 +1,19 @@
 start_server {tags {"repl"}} {
+    start_server {} {
+        test {First server should have role slave after SLAVEOF} {
+            r -1 slaveof [srv 0 host] [srv 0 port]
+            after 1000
+            s -1 role
+        } {slave}
+
+        test {MASTER and SLAVE dataset should be identical after complex ops} {
+            createComplexDataset r 10000
+            assert_equal [r debug digest] [r -1 debug digest]
+        }
+    }
+}
+
+start_server {tags {"repl"}} {
     r set mykey foo
     
     start_server {} {
