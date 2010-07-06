@@ -127,9 +127,23 @@ proc randomKey {} {
     }
 }
 
+proc findKeyWithType {r type} {
+    for {set j 0} {$j < 20} {incr j} {
+        set k [$r randomkey]
+        if {$k eq {}} {
+            return {}
+        }
+        if {[$r type $k] eq $type} {
+            return $k
+        }
+    }
+    return {}
+}
+
 proc createComplexDataset {r ops} {
     for {set j 0} {$j < $ops} {incr j} {
         set k [randomKey]
+        set k2 [randomKey]
         set f [randomValue]
         set v [randomValue]
         randpath {
@@ -158,6 +172,8 @@ proc createComplexDataset {r ops} {
                 $r zadd $k $d $v
             } {
                 $r hset $k $f $v
+            } {
+                $r del $k
             }
             set t [$r type $k]
         }
@@ -175,11 +191,23 @@ proc createComplexDataset {r ops} {
             }
             {set} {
                 randpath {$r sadd $k $v} \
-                        {$r srem $k $v}
+                        {$r srem $k $v} \
+                        {
+                            set otherset [findKeyWithType r set]
+                            if {$otherset ne {}} {
+                                $r sunionstore $k2 $k $otherset
+                            }
+                        }
             }
             {zset} {
                 randpath {$r zadd $k $d $v} \
-                        {$r zrem $k $v}
+                        {$r zrem $k $v} \
+                        {
+                            set otherzset [findKeyWithType r zset]
+                            if {$otherzset ne {}} {
+                                $r zunionstore $k2 2 $k $otherzset
+                            }
+                        }
             }
             {hash} {
                 randpath {$r hset $k $f $v} \
