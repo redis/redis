@@ -69,6 +69,8 @@
  * 
  */
 
+#include "fmacros.h"
+
 #include <termios.h>
 #include <unistd.h>
 #include <stdlib.h>
