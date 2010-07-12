@@ -1,4 +1,11 @@
 start_server {tags {"zset"}} {
+    proc create_zset {key items} {
+        r del $key
+        foreach {score entry} $items {
+            r zadd $key $score $entry
+        }
+    }
+
     test {ZSET basic ZADD and score update} {
         r zadd ztmp 10 x
         r zadd ztmp 20 y
@@ -16,6 +23,66 @@ start_server {tags {"zset"}} {
     test {ZCARD non existing key} {
         r zcard ztmp-blabla
     } {0}
+
+    test "ZRANGE basics" {
+        r del ztmp
+        r zadd ztmp 1 a
+        r zadd ztmp 2 b
+        r zadd ztmp 3 c
+        r zadd ztmp 4 d
+
+        assert_equal {a b c d} [r zrange ztmp 0 -1]
+        assert_equal {a b c} [r zrange ztmp 0 -2]
+        assert_equal {b c d} [r zrange ztmp 1 -1]
+        assert_equal {b c} [r zrange ztmp 1 -2]
+        assert_equal {c d} [r zrange ztmp -2 -1]
+        assert_equal {c} [r zrange ztmp -2 -2]
+
+        # out of range start index
+        assert_equal {a b c} [r zrange ztmp -5 2]
+        assert_equal {a b} [r zrange ztmp -5 1]
+        assert_equal {} [r zrange ztmp 5 -1]
+        assert_equal {} [r zrange ztmp 5 -2]
+
+        # out of range end index
+        assert_equal {a b c d} [r zrange ztmp 0 5]
+        assert_equal {b c d} [r zrange ztmp 1 5]
+        assert_equal {} [r zrange ztmp 0 -5]
+        assert_equal {} [r zrange ztmp 1 -5]
+
+        # withscores
+        assert_equal {a 1 b 2 c 3 d 4} [r zrange ztmp 0 -1 withscores]
+    }
+
+    test "ZREVRANGE basics" {
+        r del ztmp
+        r zadd ztmp 1 a
+        r zadd ztmp 2 b
+        r zadd ztmp 3 c
+        r zadd ztmp 4 d
+
+        assert_equal {d c b a} [r zrevrange ztmp 0 -1]
+        assert_equal {d c b} [r zrevrange ztmp 0 -2]
+        assert_equal {c b a} [r zrevrange ztmp 1 -1]
+        assert_equal {c b} [r zrevrange ztmp 1 -2]
+        assert_equal {b a} [r zrevrange ztmp -2 -1]
+        assert_equal {b} [r zrevrange ztmp -2 -2]
+
+        # out of range start index
+        assert_equal {d c b} [r zrevrange ztmp -5 2]
+        assert_equal {d c} [r zrevrange ztmp -5 1]
+        assert_equal {} [r zrevrange ztmp 5 -1]
+        assert_equal {} [r zrevrange ztmp 5 -2]
+
+        # out of range end index
+        assert_equal {d c b a} [r zrevrange ztmp 0 5]
+        assert_equal {c b a} [r zrevrange ztmp 1 5]
+        assert_equal {} [r zrevrange ztmp 0 -5]
+        assert_equal {} [r zrevrange ztmp 1 -5]
+
+        # withscores
+        assert_equal {d 4 c 3 b 2 a 1} [r zrevrange ztmp 0 -1 withscores]
+    }
 
     test {ZRANK basics} {
         r zadd zranktmp 10 x
@@ -68,15 +135,6 @@ start_server {tags {"zset"}} {
         }
         set _ $err
     } {}
-
-    test {ZRANGE and ZREVRANGE basics} {
-        list [r zrange ztmp 0 -1] [r zrevrange ztmp 0 -1] \
-            [r zrange ztmp 1 -1] [r zrevrange ztmp 1 -1]
-    } {{y x z} {z x y} {x z} {x y}}
-
-    test {ZRANGE WITHSCORES} {
-        r zrange ztmp 0 -1 withscores
-    } {y 1 x 10 z 30}
 
     test {ZSETs stress tester - sorting is working well?} {
         set delta 0
@@ -288,15 +346,32 @@ start_server {tags {"zset"}} {
         list [r zremrangebyscore zset -inf +inf] [r zrange zset 0 -1]
     } {5 {}}
 
-    test {ZREMRANGEBYRANK basics} {
-        r del zset
-        r zadd zset 1 a
-        r zadd zset 2 b
-        r zadd zset 3 c
-        r zadd zset 4 d
-        r zadd zset 5 e
-        list [r zremrangebyrank zset 1 3] [r zrange zset 0 -1]
-    } {3 {a e}}
+    test "ZREMRANGEBYRANK basics" {
+        proc remrangebyrank {min max} {
+            create_zset zset {1 a 2 b 3 c 4 d 5 e}
+            r zremrangebyrank zset $min $max
+        }
+
+        # inner range
+        assert_equal 3 [remrangebyrank 1 3]
+        assert_equal {a e} [r zrange zset 0 -1]
+
+        # start underflow
+        assert_equal 1 [remrangebyrank -10 0]
+        assert_equal {b c d e} [r zrange zset 0 -1]
+
+        # start overflow
+        assert_equal 0 [remrangebyrank 10 -1]
+        assert_equal {a b c d e} [r zrange zset 0 -1]
+
+        # end underflow
+        assert_equal 0 [remrangebyrank 0 -10]
+        assert_equal {a b c d e} [r zrange zset 0 -1]
+
+        # end overflow
+        assert_equal 5 [remrangebyrank 0 10]
+        assert_equal {} [r zrange zset 0 -1]
+    }
 
     test {ZUNIONSTORE against non-existing key doesn't set destination} {
       r del zseta
