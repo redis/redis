@@ -4,7 +4,9 @@ Redis TODO and Roadmap
 VERSION 2.2 TODO (Optimizations and latency)
 ============================================
 
+* SETNX when failing should not affect WATCH
 * Support for syslog(3).
+* Document ZCOUNT.
 * Change the implementation of ZCOUNT to use the augmented skiplist in order to be much faster.
 * Add an explicit test for MULTI/EXEC reloaded in the AOF.
 
