@@ -11,8 +11,7 @@ robj *createObject(int type, void *ptr) {
         listDelNode(server.objfreelist,head);
         if (server.vm_enabled) pthread_mutex_unlock(&server.obj_freelist_mutex);
     } else {
-        if (server.vm_enabled)
-            pthread_mutex_unlock(&server.obj_freelist_mutex);
+        if (server.vm_enabled) pthread_mutex_unlock(&server.obj_freelist_mutex);
         o = zmalloc(sizeof(*o));
     }
     o->type = type;

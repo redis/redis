@@ -4,11 +4,10 @@ Redis TODO and Roadmap
 VERSION 2.2 TODO (Optimizations and latency)
 ============================================
 
-* SETNX when failing should not affect WATCH
 * Support for syslog(3).
-* Document ZCOUNT.
 * Change the implementation of ZCOUNT to use the augmented skiplist in order to be much faster.
 * Add an explicit test for MULTI/EXEC reloaded in the AOF.
+* Command table -> hash table, with support for command renaming
 
 VM TODO
 =======
@@ -59,3 +58,9 @@ KNOWN BUGS
 ==========
 
 * LRANGE and other commands are using 32 bit integers for ranges, and overflows are not detected. So LRANGE mylist 0 23498204823094823904823904 will have random effects.
+
+REDIS CLI TODO
+==============
+
+* Computer parsable output generation
+* Memoize return values so that they can be used later as arguments, like $1
