@@ -235,19 +235,24 @@ void freeClient(redisClient *c) {
     ln = listSearchKey(server.clients,c);
     redisAssert(ln != NULL);
     listDelNode(server.clients,ln);
-    /* Remove from the list of clients that are now ready to be restarted
-     * after waiting for swapped keys */
-    if (c->flags & REDIS_IO_WAIT && listLength(c->io_keys) == 0) {
-        ln = listSearchKey(server.io_ready_clients,c);
-        if (ln) {
+    /* Remove from the list of clients waiting for swapped keys, or ready
+     * to be restarted, but not yet woken up again. */
+    if (c->flags & REDIS_IO_WAIT) {
+        redisAssert(server.vm_enabled);
+        if (listLength(c->io_keys) == 0) {
+            ln = listSearchKey(server.io_ready_clients,c);
+
+            /* When this client is waiting to be woken up (REDIS_IO_WAIT),
+             * it should be present in the list io_ready_clients */
+            redisAssert(ln != NULL);
             listDelNode(server.io_ready_clients,ln);
-            server.vm_blocked_clients--;
+        } else {
+            while (listLength(c->io_keys)) {
+                ln = listFirst(c->io_keys);
+                dontWaitForSwappedKey(c,ln->value);
+            }
         }
-    }
-    /* Remove from the list of clients waiting for swapped keys */
-    while (server.vm_enabled && listLength(c->io_keys)) {
-        ln = listFirst(c->io_keys);
-        dontWaitForSwappedKey(c,ln->value);
+        server.vm_blocked_clients--;
     }
     listRelease(c->io_keys);
     /* Master/slave cleanup */
