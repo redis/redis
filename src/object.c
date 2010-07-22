@@ -216,7 +216,7 @@ robj *tryObjectEncoding(robj *o) {
     /* Ok, this object can be encoded...
      *
      * Can I use a shared object? Only if the object is inside a given
-     * range and if this is the main thread, sinc when VM is enabled we
+     * range and if this is the main thread, since when VM is enabled we
      * have the constraint that I/O thread should only handle non-shared
      * objects, in order to avoid race conditions (we don't have per-object
      * locking). */
