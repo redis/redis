@@ -179,6 +179,7 @@ void decrRefCount(void *obj) {
         case REDIS_HASH: freeHashObject(o); break;
         default: redisPanic("Unknown object type"); break;
         }
+        o->ptr = NULL; /* defensive programming. We'll see NULL in traces. */
         if (server.vm_enabled) pthread_mutex_lock(&server.obj_freelist_mutex);
         if (listLength(server.objfreelist) > REDIS_OBJFREELIST_MAX ||
             !listAddNodeHead(server.objfreelist,o))
