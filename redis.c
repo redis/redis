@@ -9870,6 +9870,11 @@ static int dontWaitForSwappedKey(redisClient *c, robj *key) {
     listIter li;
     struct dictEntry *de;
 
+    /* The key object might be destroyed when deleted from the c->io_keys
+     * list (and the "key" argument is physically the same object as the
+     * object inside the list), so we need to protect it. */
+    incrRefCount(key);
+
     /* Remove the key from the list of keys this client is waiting for. */
     listRewind(c->io_keys,&li);
     while ((ln = listNext(&li)) != NULL) {
@@ -9878,18 +9883,19 @@ static int dontWaitForSwappedKey(redisClient *c, robj *key) {
             break;
         }
     }
-    assert(ln != NULL);
+    redisAssert(ln != NULL);
 
     /* Remove the client form the key => waiting clients map. */
     de = dictFind(c->db->io_keys,key);
-    assert(de != NULL);
+    redisAssert(de != NULL);
     l = dictGetEntryVal(de);
     ln = listSearchKey(l,c);
-    assert(ln != NULL);
+    redisAssert(ln != NULL);
     listDelNode(l,ln);
     if (listLength(l) == 0)
         dictDelete(c->db->io_keys,key);
 
+    decrRefCount(key);
     return listLength(c->io_keys) == 0;
 }
 
