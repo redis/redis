@@ -327,6 +327,7 @@ struct sharedObjectsStruct {
 
 /* Global server state structure */
 struct redisServer {
+    pthread_t mainthread;
     int port;
     int fd;
     redisDb *db;
