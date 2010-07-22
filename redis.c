@@ -342,6 +342,7 @@ struct saveparam {
 
 /* Global server state structure */
 struct redisServer {
+    pthread_t mainthread;
     int port;
     int fd;
     redisDb *db;
@@ -1725,6 +1726,7 @@ static void initServer() {
     signal(SIGPIPE, SIG_IGN);
     setupSigSegvAction();
 
+    server.mainthread = pthread_self();
     server.devnull = fopen("/dev/null","w");
     if (server.devnull == NULL) {
         redisLog(REDIS_WARNING, "Can't open /dev/null: %s", server.neterr);
@@ -2930,7 +2932,8 @@ static robj *createStringObject(char *ptr, size_t len) {
 
 static robj *createStringObjectFromLongLong(long long value) {
     robj *o;
-    if (value >= 0 && value < REDIS_SHARED_INTEGERS) {
+    if (value >= 0 && value < REDIS_SHARED_INTEGERS
+        pthread_equal(pthread_self(),server.mainthread)) {
         incrRefCount(shared.integers[value]);
         o = shared.integers[value];
     } else {
@@ -3182,8 +3185,15 @@ static robj *tryObjectEncoding(robj *o) {
     /* Check if we can represent this string as a long integer */
     if (isStringRepresentableAsLong(s,&value) == REDIS_ERR) return o;
 
-    /* Ok, this object can be encoded */
-    if (value >= 0 && value < REDIS_SHARED_INTEGERS) {
+    /* Ok, this object can be encoded...
+     *
+     * Can I use a shared object? Only if the object is inside a given
+     * range and if this is the main thread, since when VM is enabled we
+     * have the constraint that I/O thread should only handle non-shared
+     * objects, in order to avoid race conditions (we don't have per-object
+     * locking). */
+    if (value >= 0 && value < REDIS_SHARED_INTEGERS &&
+        pthread_equal(pthread_self(),server.mainthread)) {
         decrRefCount(o);
         incrRefCount(shared.integers[value]);
         return shared.integers[value];
