@@ -102,13 +102,13 @@ proc main {} {
     execute_tests "unit/expire"
     execute_tests "unit/other"
     execute_tests "unit/cas"
-    
+
+    cleanup
     puts "\n[expr $::passed+$::failed] tests, $::passed passed, $::failed failed"
     if {$::failed > 0} {
         puts "\n*** WARNING!!! $::failed FAILED TESTS ***\n"
+        exit 1
     }
-
-    cleanup
 }
 
 # parse arguments
