@@ -210,6 +210,10 @@ start_server {tags {"list"}} {
         r lrange mylist -1000 1000
     } {0 1 2 3 4 5 6 7 8 9}
 
+    test {LRANGE out of range negative end index} {
+        list [r lrange mylist 0 -10] [r lrange mylist 0 -11]
+    } {0 {}}
+
     test {LRANGE against non existing key} {
         r lrange nosuchkey 0 1
     } {}
@@ -222,6 +226,11 @@ start_server {tags {"list"}} {
         }
         r lrange mylist 0 -1
     } {99 98 97 96 95}
+
+    test {LTRIM with out of range negative end index} {
+        r ltrim mylist 0 -6
+        r llen mylist
+    } {0}
 
     test {LTRIM stress testing} {
         set mylist {}
