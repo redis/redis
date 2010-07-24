@@ -651,24 +651,13 @@ static unsigned int _dictStringCopyHTHashFunction(const void *key)
     return dictGenHashFunction(key, strlen(key));
 }
 
-static void *_dictStringCopyHTKeyDup(void *privdata, const void *key)
+static void *_dictStringDup(void *privdata, const void *key)
 {
     int len = strlen(key);
     char *copy = _dictAlloc(len+1);
     DICT_NOTUSED(privdata);
 
     memcpy(copy, key, len);
-    copy[len] = '\0';
-    return copy;
-}
-
-static void *_dictStringKeyValCopyHTValDup(void *privdata, const void *val)
-{
-    int len = strlen(val);
-    char *copy = _dictAlloc(len+1);
-    DICT_NOTUSED(privdata);
-
-    memcpy(copy, val, len);
     copy[len] = '\0';
     return copy;
 }
@@ -681,47 +670,40 @@ static int _dictStringCopyHTKeyCompare(void *privdata, const void *key1,
     return strcmp(key1, key2) == 0;
 }
 
-static void _dictStringCopyHTKeyDestructor(void *privdata, void *key)
+static void _dictStringDestructor(void *privdata, void *key)
 {
     DICT_NOTUSED(privdata);
 
-    _dictFree((void*)key); /* ATTENTION: const cast */
-}
-
-static void _dictStringKeyValCopyHTValDestructor(void *privdata, void *val)
-{
-    DICT_NOTUSED(privdata);
-
-    _dictFree((void*)val); /* ATTENTION: const cast */
+    _dictFree(key);
 }
 
 dictType dictTypeHeapStringCopyKey = {
-    _dictStringCopyHTHashFunction,        /* hash function */
-    _dictStringCopyHTKeyDup,              /* key dup */
-    NULL,                               /* val dup */
-    _dictStringCopyHTKeyCompare,          /* key compare */
-    _dictStringCopyHTKeyDestructor,       /* key destructor */
-    NULL                                /* val destructor */
+    _dictStringCopyHTHashFunction, /* hash function */
+    _dictStringDup,                /* key dup */
+    NULL,                          /* val dup */
+    _dictStringCopyHTKeyCompare,   /* key compare */
+    _dictStringDestructor,         /* key destructor */
+    NULL                           /* val destructor */
 };
 
 /* This is like StringCopy but does not auto-duplicate the key.
  * It's used for intepreter's shared strings. */
 dictType dictTypeHeapStrings = {
-    _dictStringCopyHTHashFunction,        /* hash function */
-    NULL,                               /* key dup */
-    NULL,                               /* val dup */
-    _dictStringCopyHTKeyCompare,          /* key compare */
-    _dictStringCopyHTKeyDestructor,       /* key destructor */
-    NULL                                /* val destructor */
+    _dictStringCopyHTHashFunction, /* hash function */
+    NULL,                          /* key dup */
+    NULL,                          /* val dup */
+    _dictStringCopyHTKeyCompare,   /* key compare */
+    _dictStringDestructor,         /* key destructor */
+    NULL                           /* val destructor */
 };
 
 /* This is like StringCopy but also automatically handle dynamic
  * allocated C strings as values. */
 dictType dictTypeHeapStringCopyKeyValue = {
-    _dictStringCopyHTHashFunction,        /* hash function */
-    _dictStringCopyHTKeyDup,              /* key dup */
-    _dictStringKeyValCopyHTValDup,        /* val dup */
-    _dictStringCopyHTKeyCompare,          /* key compare */
-    _dictStringCopyHTKeyDestructor,       /* key destructor */
-    _dictStringKeyValCopyHTValDestructor, /* val destructor */
+    _dictStringCopyHTHashFunction, /* hash function */
+    _dictStringDup,                /* key dup */
+    _dictStringDup,                /* val dup */
+    _dictStringCopyHTKeyCompare,   /* key compare */
+    _dictStringDestructor,         /* key destructor */
+    _dictStringDestructor,         /* val destructor */
 };
