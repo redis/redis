@@ -89,6 +89,20 @@ void *zmalloc(size_t size) {
 #endif
 }
 
+void *zcalloc(size_t size) {
+    void *ptr = calloc(1, size+PREFIX_SIZE);
+
+    if (!ptr) zmalloc_oom(size);
+#ifdef HAVE_MALLOC_SIZE
+    increment_used_memory(redis_malloc_size(ptr));
+    return ptr;
+#else
+    *((size_t*)ptr) = size;
+    increment_used_memory(size+PREFIX_SIZE);
+    return (char*)ptr+PREFIX_SIZE;
+#endif
+}
+
 void *zrealloc(void *ptr, size_t size) {
 #ifndef HAVE_MALLOC_SIZE
     void *realptr;
