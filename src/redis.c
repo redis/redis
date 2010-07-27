@@ -826,7 +826,7 @@ int qsortRedisCommands(const void *r1, const void *r2) {
 
 void sortCommandTable() {
     /* Copy and sort the read-only version of the command table */
-    commandTable = (struct redisCommand*)malloc(sizeof(readonlyCommandTable));
+    commandTable = (struct redisCommand*)zmalloc(sizeof(readonlyCommandTable));
     memcpy(commandTable,readonlyCommandTable,sizeof(readonlyCommandTable));
     qsort(commandTable,
         sizeof(readonlyCommandTable)/sizeof(struct redisCommand),
