@@ -615,6 +615,12 @@ void dictDisableResize(void) {
     dict_can_resize = 0;
 }
 
+#if 0
+
+/* The following are just example hash table types implementations.
+ * Not useful for Redis so they are commented out.
+ */
+
 /* ----------------------- StringCopy Hash Table Type ------------------------*/
 
 static unsigned int _dictStringCopyHTHashFunction(const void *key)
@@ -678,3 +684,4 @@ dictType dictTypeHeapStringCopyKeyValue = {
     _dictStringDestructor,         /* key destructor */
     _dictStringDestructor,         /* val destructor */
 };
+#endif
