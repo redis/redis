@@ -368,4 +368,18 @@ start_server {tags {"basic"}} {
         r expire z 10000
         list [r msetnx x A y B z C] [r mget x y z]
     } {0 {1 {} {}}}
+
+    test {STRLEN against non existing key} {
+        r strlen notakey
+    } {0}
+
+    test {STRLEN against integer} {
+        r set myinteger -555
+        r strlen myinteger
+    } {4}
+
+    test {STRLEN against plain string} {
+        r set mystring "foozzz0123456789 baz"
+        r strlen mystring
+    }
 }
