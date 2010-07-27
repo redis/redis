@@ -54,7 +54,6 @@ start_server {} {
                 set dump [csvdump r]
                 set sha1 [r debug digest]
                 r debug reload
-                r set baubau x
                 set sha1_after [r debug digest]
                 if {$sha1 eq $sha1_after} {
                     set _ 1
