@@ -887,7 +887,6 @@ void watchCommand(redisClient *c);
 void unwatchCommand(redisClient *c);
 
 #if defined(__GNUC__)
-void *malloc(size_t size) __attribute__ ((deprecated));
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
 void free(void *ptr) __attribute__ ((deprecated));
 void *malloc(size_t size) __attribute__ ((deprecated));
