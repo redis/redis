@@ -713,6 +713,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
         dbAdd(c->db,dstkey,dstobj);
         addReplyLongLong(c, dstzset->zsl->length);
         if (!touched) touchWatchedKey(c->db,dstkey);
+        server.dirty++;
     } else {
         decrRefCount(dstobj);
         addReply(c, shared.czero);
