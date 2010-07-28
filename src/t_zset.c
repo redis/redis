@@ -559,6 +559,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
     zset *dstzset;
     dictIterator *di;
     dictEntry *de;
+    int touched = 0;
 
     /* expect setnum input keys to be given */
     setnum = atoi(c->argv[2]->ptr);
@@ -703,12 +704,15 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
         redisAssert(op == REDIS_OP_INTER || op == REDIS_OP_UNION);
     }
 
-    dbDelete(c->db,dstkey);
+    if (dbDelete(c->db,dstkey)) {
+        touchWatchedKey(c->db,dstkey);
+        touched = 1;
+        server.dirty++;
+    }
     if (dstzset->zsl->length) {
         dbAdd(c->db,dstkey,dstobj);
         addReplyLongLong(c, dstzset->zsl->length);
-        touchWatchedKey(c->db,dstkey);
-        server.dirty++;
+        if (!touched) touchWatchedKey(c->db,dstkey);
     } else {
         decrRefCount(dstobj);
         addReply(c, shared.czero);
