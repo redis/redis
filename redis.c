@@ -6106,7 +6106,7 @@ static void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
         redisAssert(op == REDIS_OP_INTER || op == REDIS_OP_UNION);
     }
 
-    deleteKey(c->db,dstkey);
+    if (deleteKey(c->db,dstkey)) server.dirty++;
     if (dstzset->zsl->length) {
         dictAdd(c->db->dict,dstkey,dstobj);
         incrRefCount(dstkey);
