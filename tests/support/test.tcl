@@ -33,9 +33,14 @@ proc assert_error {pattern code} {
 }
 
 proc assert_encoding {enc key} {
-    # swapped out value doesn't have encoding, so swap in first
-    r debug swapin $key
-    assert_match "* encoding:$enc *" [r debug object $key]
+    # Swapped out values don't have an encoding, so make sure that
+    # the value is swapped in before checking the encoding.
+    set dbg [r debug object $key]
+    while {[string match "* swapped:*" $dbg]} {
+        [r debug swapin $key]
+        set dbg [r debug object $key]
+    }
+    assert_match "* encoding:$enc *" $dbg
 }
 
 proc assert_type {type key} {
