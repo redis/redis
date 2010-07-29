@@ -5947,6 +5947,10 @@ static int qsortCompareZsetopsrcByCardinality(const void *s1, const void *s2) {
 inline static void zunionInterAggregate(double *target, double val, int aggregate) {
     if (aggregate == REDIS_AGGR_SUM) {
         *target = *target + val;
+        /* The result of adding two doubles is NaN when one variable
+         * is +inf and the other is -inf. When these numbers are added,
+         * we maintain the convention of the result being 0.0. */
+        if (isnan(*target)) *target = 0.0;
     } else if (aggregate == REDIS_AGGR_MIN) {
         *target = val < *target ? val : *target;
     } else if (aggregate == REDIS_AGGR_MAX) {

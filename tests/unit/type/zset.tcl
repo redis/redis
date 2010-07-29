@@ -417,6 +417,30 @@ start_server {tags {"zset"}} {
         list [r zinterstore zsetc 2 zseta zsetb aggregate max] [r zrange zsetc 0 -1 withscores]
     } {2 {b 2 c 3}}
     
+    foreach cmd {ZUNIONSTORE ZINTERSTORE} {
+        test "$cmd with +inf/-inf scores" {
+            r zadd zsetinf1 +inf key
+            r zadd zsetinf2 +inf key
+            r $cmd zsetinf3 2 zsetinf1 zsetinf2
+            assert_equal inf [r zscore zsetinf3 key]
+
+            r zadd zsetinf1 -inf key
+            r zadd zsetinf2 +inf key
+            r $cmd zsetinf3 2 zsetinf1 zsetinf2
+            assert_equal 0 [r zscore zsetinf3 key]
+
+            r zadd zsetinf1 +inf key
+            r zadd zsetinf2 -inf key
+            r $cmd zsetinf3 2 zsetinf1 zsetinf2
+            assert_equal 0 [r zscore zsetinf3 key]
+
+            r zadd zsetinf1 -inf key
+            r zadd zsetinf2 -inf key
+            r $cmd zsetinf3 2 zsetinf1 zsetinf2
+            assert_equal -inf [r zscore zsetinf3 key]
+        }
+    }
+
     tags {"slow"} {
         test {ZSETs skiplist implementation backlink consistency test} {
             set diff 0
