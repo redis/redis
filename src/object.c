@@ -1,5 +1,6 @@
 #include "redis.h"
 #include <pthread.h>
+#include <math.h>
 
 robj *createObject(int type, void *ptr) {
     robj *o;
@@ -319,7 +320,7 @@ int getDoubleFromObject(robj *o, double *target) {
         redisAssert(o->type == REDIS_STRING);
         if (o->encoding == REDIS_ENCODING_RAW) {
             value = strtod(o->ptr, &eptr);
-            if (eptr[0] != '\0') return REDIS_ERR;
+            if (eptr[0] != '\0' || isnan(value)) return REDIS_ERR;
         } else if (o->encoding == REDIS_ENCODING_INT) {
             value = (long)o->ptr;
         } else {

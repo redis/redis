@@ -327,11 +327,6 @@ void zaddGenericCommand(redisClient *c, robj *key, robj *ele, double scoreval, i
     zset *zs;
     double *score;
 
-    if (isnan(scoreval)) {
-        addReplySds(c,sdsnew("-ERR provide score is Not A Number (nan)\r\n"));
-        return;
-    }
-
     zsetobj = lookupKeyWrite(c->db,key);
     if (zsetobj == NULL) {
         zsetobj = createZsetObject();
@@ -361,7 +356,7 @@ void zaddGenericCommand(redisClient *c, robj *key, robj *ele, double scoreval, i
         }
         if (isnan(*score)) {
             addReplySds(c,
-                sdsnew("-ERR resulting score is Not A Number (nan)\r\n"));
+                sdsnew("-ERR resulting score is not a number (NaN)\r\n"));
             zfree(score);
             /* Note that we don't need to check if the zset may be empty and
              * should be removed here, as we can only obtain Nan as score if
@@ -417,15 +412,13 @@ void zaddGenericCommand(redisClient *c, robj *key, robj *ele, double scoreval, i
 
 void zaddCommand(redisClient *c) {
     double scoreval;
-
-    if (getDoubleFromObjectOrReply(c, c->argv[2], &scoreval, NULL) != REDIS_OK) return;
+    if (getDoubleFromObjectOrReply(c,c->argv[2],&scoreval,NULL) != REDIS_OK) return;
     zaddGenericCommand(c,c->argv[1],c->argv[3],scoreval,0);
 }
 
 void zincrbyCommand(redisClient *c) {
     double scoreval;
-
-    if (getDoubleFromObjectOrReply(c, c->argv[2], &scoreval, NULL) != REDIS_OK) return;
+    if (getDoubleFromObjectOrReply(c,c->argv[2],&scoreval,NULL) != REDIS_OK) return;
     zaddGenericCommand(c,c->argv[1],c->argv[3],scoreval,1);
 }
 
@@ -608,8 +601,12 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
             if (remaining >= (setnum + 1) && !strcasecmp(c->argv[j]->ptr,"weights")) {
                 j++; remaining--;
                 for (i = 0; i < setnum; i++, j++, remaining--) {
-                    if (getDoubleFromObjectOrReply(c, c->argv[j], &src[i].weight, NULL) != REDIS_OK)
+                    if (getDoubleFromObjectOrReply(c,c->argv[j],&src[i].weight,
+                            "weight value is not a double") != REDIS_OK)
+                    {
+                        zfree(src);
                         return;
+                    }
                 }
             } else if (remaining >= 2 && !strcasecmp(c->argv[j]->ptr,"aggregate")) {
                 j++; remaining--;
