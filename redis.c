@@ -3288,7 +3288,7 @@ static int getDoubleFromObject(robj *o, double *target) {
         redisAssert(o->type == REDIS_STRING);
         if (o->encoding == REDIS_ENCODING_RAW) {
             value = strtod(o->ptr, &eptr);
-            if (eptr[0] != '\0') return REDIS_ERR;
+            if (eptr[0] != '\0' || isnan(value)) return REDIS_ERR;
         } else if (o->encoding == REDIS_ENCODING_INT) {
             value = (long)o->ptr;
         } else {
@@ -5738,11 +5738,6 @@ static void zaddGenericCommand(redisClient *c, robj *key, robj *ele, double scor
     zset *zs;
     double *score;
 
-    if (isnan(scoreval)) {
-        addReplySds(c,sdsnew("-ERR provide score is Not A Number (nan)\r\n"));
-        return;
-    }
-
     zsetobj = lookupKeyWrite(c->db,key);
     if (zsetobj == NULL) {
         zsetobj = createZsetObject();
@@ -5773,7 +5768,7 @@ static void zaddGenericCommand(redisClient *c, robj *key, robj *ele, double scor
         }
         if (isnan(*score)) {
             addReplySds(c,
-                sdsnew("-ERR resulting score is Not A Number (nan)\r\n"));
+                sdsnew("-ERR resulting score is not a number (NaN)\r\n"));
             zfree(score);
             /* Note that we don't need to check if the zset may be empty and
              * should be removed here, as we can only obtain Nan as score if
@@ -5827,15 +5822,13 @@ static void zaddGenericCommand(redisClient *c, robj *key, robj *ele, double scor
 
 static void zaddCommand(redisClient *c) {
     double scoreval;
-
-    if (getDoubleFromObjectOrReply(c, c->argv[2], &scoreval, NULL) != REDIS_OK) return;
+    if (getDoubleFromObjectOrReply(c,c->argv[2],&scoreval,NULL) != REDIS_OK) return;
     zaddGenericCommand(c,c->argv[1],c->argv[3],scoreval,0);
 }
 
 static void zincrbyCommand(redisClient *c) {
     double scoreval;
-
-    if (getDoubleFromObjectOrReply(c, c->argv[2], &scoreval, NULL) != REDIS_OK) return;
+    if (getDoubleFromObjectOrReply(c,c->argv[2],&scoreval,NULL) != REDIS_OK) return;
     zaddGenericCommand(c,c->argv[1],c->argv[3],scoreval,1);
 }
 
@@ -6010,8 +6003,12 @@ static void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
             if (remaining >= (zsetnum + 1) && !strcasecmp(c->argv[j]->ptr,"weights")) {
                 j++; remaining--;
                 for (i = 0; i < zsetnum; i++, j++, remaining--) {
-                    if (getDoubleFromObjectOrReply(c, c->argv[j], &src[i].weight, NULL) != REDIS_OK)
+                    if (getDoubleFromObjectOrReply(c,c->argv[j],&src[i].weight,
+                            "weight value is not a double") != REDIS_OK)
+                    {
+                        zfree(src);
                         return;
+                    }
                 }
             } else if (remaining >= 2 && !strcasecmp(c->argv[j]->ptr,"aggregate")) {
                 j++; remaining--;
