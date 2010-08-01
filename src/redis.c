@@ -773,9 +773,16 @@ void initServer() {
     createSharedObjects();
     server.el = aeCreateEventLoop();
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
-    server.fd = anetTcpServer(server.neterr, server.port, server.bindaddr);
+    if (server.bindaddr == NULL || inet_aton(server.bindaddr,NULL)) {
+        /* Either no address given, or it can be correctly parsed. */
+        server.fd = anetTcpServer(server.neterr, server.port, server.bindaddr);
+    } else {
+        /* Bind to a socket */
+        unlink(server.bindaddr); /* don't care if this fails */
+        server.fd = anetUnixServer(server.neterr,server.bindaddr);
+    }
     if (server.fd == -1) {
-        redisLog(REDIS_WARNING, "Opening TCP port: %s", server.neterr);
+        redisLog(REDIS_WARNING, "Opening port/socket: %s", server.neterr);
         exit(1);
     }
     for (j = 0; j < server.dbnum; j++) {
