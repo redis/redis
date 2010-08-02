@@ -752,8 +752,8 @@ void resetServerSaveParams();
 
 /* db.c -- Keyspace access API */
 int removeExpire(redisDb *db, robj *key);
+void propagateExpire(redisDb *db, robj *key);
 int expireIfNeeded(redisDb *db, robj *key);
-int deleteIfVolatile(redisDb *db, robj *key);
 time_t getExpire(redisDb *db, robj *key);
 int setExpire(redisDb *db, robj *key, time_t when);
 robj *lookupKey(redisDb *db, robj *key);

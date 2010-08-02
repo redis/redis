@@ -17,7 +17,6 @@ void setGenericCommand(redisClient *c, int nx, robj *key, robj *val, robj *expir
         }
     }
 
-    if (nx) deleteIfVolatile(c->db,key);
     retval = dbAdd(c->db,key,val);
     if (retval == REDIS_ERR) {
         if (!nx) {

@@ -435,6 +435,48 @@ void updateDictResizePolicy(void) {
 
 /* ======================= Cron: called every 100 ms ======================== */
 
+/* Try to expire a few timed out keys. The algorithm used is adaptive and
+ * will use few CPU cycles if there are few expiring keys, otherwise
+ * it will get more aggressive to avoid that too much memory is used by
+ * keys that can be removed from the keyspace. */
+void activeExpireCycle(void) {
+    int j;
+
+    for (j = 0; j < server.dbnum; j++) {
+        int expired;
+        redisDb *db = server.db+j;
+
+        /* Continue to expire if at the end of the cycle more than 25%
+         * of the keys were expired. */
+        do {
+            long num = dictSize(db->expires);
+            time_t now = time(NULL);
+
+            expired = 0;
+            if (num > REDIS_EXPIRELOOKUPS_PER_CRON)
+                num = REDIS_EXPIRELOOKUPS_PER_CRON;
+            while (num--) {
+                dictEntry *de;
+                time_t t;
+
+                if ((de = dictGetRandomKey(db->expires)) == NULL) break;
+                t = (time_t) dictGetEntryVal(de);
+                if (now > t) {
+                    sds key = dictGetEntryKey(de);
+                    robj *keyobj = createStringObject(key,sdslen(key));
+
+                    propagateExpire(db,keyobj);
+                    dbDelete(db,keyobj);
+                    decrRefCount(keyobj);
+                    expired++;
+                    server.stat_expiredkeys++;
+                }
+            }
+        } while (expired > REDIS_EXPIRELOOKUPS_PER_CRON/4);
+    }
+}
+
+
 int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     int j, loops = server.cronloops++;
     REDIS_NOTUSED(eventLoop);
@@ -533,41 +575,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
          }
     }
 
-    /* Try to expire a few timed out keys. The algorithm used is adaptive and
-     * will use few CPU cycles if there are few expiring keys, otherwise
-     * it will get more aggressive to avoid that too much memory is used by
-     * keys that can be removed from the keyspace. */
-    for (j = 0; j < server.dbnum; j++) {
-        int expired;
-        redisDb *db = server.db+j;
-
-        /* Continue to expire if at the end of the cycle more than 25%
-         * of the keys were expired. */
-        do {
-            long num = dictSize(db->expires);
-            time_t now = time(NULL);
-
-            expired = 0;
-            if (num > REDIS_EXPIRELOOKUPS_PER_CRON)
-                num = REDIS_EXPIRELOOKUPS_PER_CRON;
-            while (num--) {
-                dictEntry *de;
-                time_t t;
-
-                if ((de = dictGetRandomKey(db->expires)) == NULL) break;
-                t = (time_t) dictGetEntryVal(de);
-                if (now > t) {
-                    sds key = dictGetEntryKey(de);
-                    robj *keyobj = createStringObject(key,sdslen(key));
-
-                    dbDelete(db,keyobj);
-                    decrRefCount(keyobj);
-                    expired++;
-                    server.stat_expiredkeys++;
-                }
-            }
-        } while (expired > REDIS_EXPIRELOOKUPS_PER_CRON/4);
-    }
+    /* Expire a few keys per cycle, only if this is a master.
+     * On slaves we wait for DEL operations synthesized by the master
+     * in order to guarantee a strict consistency. */
+    if (server.masterhost == NULL) activeExpireCycle();
 
     /* Swap a few keys on disk if we are over the memory limit and VM
      * is enbled. Try to free objects from the free list first. */
