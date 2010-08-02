@@ -450,7 +450,8 @@ void propagateExpire(redisDb *db, robj *key) {
     if (listLength(server.slaves))
         replicationFeedSlaves(server.slaves,db->id,argv,2);
 
-    decrRefCount(key);
+    decrRefCount(argv[0]);
+    decrRefCount(argv[1]);
 }
 
 int expireIfNeeded(redisDb *db, robj *key) {
