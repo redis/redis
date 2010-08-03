@@ -696,13 +696,16 @@ void createSharedObjects(void) {
 }
 
 void initServerConfig() {
-    server.dbnum = REDIS_DEFAULT_DBNUM;
     server.port = REDIS_SERVERPORT;
+    server.bindaddr = NULL;
+    server.sockpath = NULL;
+    server.ipfd = -1;
+    server.sofd = -1;
+    server.dbnum = REDIS_DEFAULT_DBNUM;
     server.verbosity = REDIS_VERBOSE;
     server.maxidletime = REDIS_MAXIDLETIME;
     server.saveparams = NULL;
     server.logfile = NULL; /* NULL = log on standard output */
-    server.bindaddr = NULL;
     server.glueoutputbuf = 1;
     server.daemonize = 0;
     server.appendonly = 0;
@@ -773,16 +776,23 @@ void initServer() {
     createSharedObjects();
     server.el = aeCreateEventLoop();
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
-    if (server.bindaddr == NULL || inet_aton(server.bindaddr,NULL)) {
-        /* Either no address given, or it can be correctly parsed. */
-        server.fd = anetTcpServer(server.neterr, server.port, server.bindaddr);
-    } else {
-        /* Bind to a socket */
-        unlink(server.bindaddr); /* don't care if this fails */
-        server.fd = anetUnixServer(server.neterr,server.bindaddr);
+    if (server.port > 0) {
+        server.ipfd = anetTcpServer(server.neterr,server.port,server.bindaddr);
+        if (server.ipfd == ANET_ERR) {
+            redisLog(REDIS_WARNING, "Opening port: %s", server.neterr);
+            exit(1);
+        }
     }
-    if (server.fd == -1) {
-        redisLog(REDIS_WARNING, "Opening port/socket: %s", server.neterr);
+    if (server.sockpath != NULL) {
+        unlink(server.sockpath); /* don't care if this fails */
+        server.sofd = anetUnixServer(server.neterr,server.sockpath);
+        if (server.sofd == ANET_ERR) {
+            redisLog(REDIS_WARNING, "Opening socket: %s", server.neterr);
+            exit(1);
+        }
+    }
+    if (server.ipfd < 0 && server.sofd < 0) {
+        redisLog(REDIS_WARNING, "Configured to not listen anywhere, exiting.");
         exit(1);
     }
     for (j = 0; j < server.dbnum; j++) {
@@ -811,8 +821,10 @@ void initServer() {
     server.stat_starttime = time(NULL);
     server.unixtime = time(NULL);
     aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL);
-    if (aeCreateFileEvent(server.el, server.fd, AE_READABLE,
-        acceptHandler, NULL) == AE_ERR) oom("creating file event");
+    if (server.ipfd > 0 && aeCreateFileEvent(server.el,server.ipfd,AE_READABLE,
+        acceptHandler,NULL) == AE_ERR) oom("creating file event");
+    if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
+        acceptHandler,NULL) == AE_ERR) oom("creating file event");
 
     if (server.appendonly) {
         server.appendfd = open(server.appendfilename,O_WRONLY|O_APPEND|O_CREAT,0644);
@@ -1423,7 +1435,10 @@ int main(int argc, char **argv) {
         if (rdbLoad(server.dbfilename) == REDIS_OK)
             redisLog(REDIS_NOTICE,"DB loaded from disk: %ld seconds",time(NULL)-start);
     }
-    redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
+    if (server.ipfd > 0)
+        redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
+    if (server.sofd > 0)
+        redisLog(REDIS_NOTICE,"The server is now ready to accept connections at %s", server.sockpath);
     aeSetBeforeSleepProc(server.el,beforeSleep);
     aeMain(server.el);
     aeDeleteEventLoop(server.el);

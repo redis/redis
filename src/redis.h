@@ -329,7 +329,10 @@ struct sharedObjectsStruct {
 struct redisServer {
     pthread_t mainthread;
     int port;
-    int fd;
+    char *bindaddr;
+    char *sockpath;
+    int ipfd;
+    int sofd;
     redisDb *db;
     long long dirty;            /* changes to DB from the last save */
     list *clients;
@@ -365,7 +368,6 @@ struct redisServer {
     struct saveparam *saveparams;
     int saveparamslen;
     char *logfile;
-    char *bindaddr;
     char *dbfilename;
     char *appendfilename;
     char *requirepass;

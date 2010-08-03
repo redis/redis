@@ -448,7 +448,8 @@ int rdbSaveBackground(char *filename) {
     if ((childpid = fork()) == 0) {
         /* Child */
         if (server.vm_enabled) vmReopenSwapFile();
-        close(server.fd);
+        if (server.ipfd > 0) close(server.ipfd);
+        if (server.sofd > 0) close(server.sofd);
         if (rdbSave(filename) == REDIS_OK) {
             _exit(0);
         } else {
