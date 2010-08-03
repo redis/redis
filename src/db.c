@@ -532,9 +532,11 @@ void persistCommand(redisClient *c) {
     if (de == NULL) {
         addReply(c,shared.czero);
     } else {
-        if (removeExpire(c->db,c->argv[1]))
+        if (removeExpire(c->db,c->argv[1])) {
             addReply(c,shared.cone);
-        else
+            server.dirty++;
+        } else {
             addReply(c,shared.czero);
+        }
     }
 }
