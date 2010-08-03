@@ -170,6 +170,7 @@ struct redisCommand readonlyCommandTable[] = {
     {"info",infoCommand,1,REDIS_CMD_INLINE,NULL,0,0,0},
     {"monitor",monitorCommand,1,REDIS_CMD_INLINE,NULL,0,0,0},
     {"ttl",ttlCommand,2,REDIS_CMD_INLINE,NULL,1,1,1},
+    {"persist",persistCommand,2,REDIS_CMD_INLINE,NULL,1,1,1},
     {"slaveof",slaveofCommand,3,REDIS_CMD_INLINE,NULL,0,0,0},
     {"debug",debugCommand,-2,REDIS_CMD_INLINE,NULL,0,0,0},
     {"config",configCommand,-2,REDIS_CMD_BULK,NULL,0,0,0},

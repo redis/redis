@@ -838,6 +838,7 @@ void expireCommand(redisClient *c);
 void expireatCommand(redisClient *c);
 void getsetCommand(redisClient *c);
 void ttlCommand(redisClient *c);
+void persistCommand(redisClient *c);
 void slaveofCommand(redisClient *c);
 void debugCommand(redisClient *c);
 void msetCommand(redisClient *c);
