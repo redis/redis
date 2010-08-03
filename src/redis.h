@@ -480,13 +480,14 @@ typedef struct _redisSortOperation {
 } redisSortOperation;
 
 /* ZSETs use a specialized version of Skiplists */
-
 typedef struct zskiplistNode {
-    struct zskiplistNode **forward;
-    struct zskiplistNode *backward;
-    unsigned int *span;
-    double score;
     robj *obj;
+    double score;
+    struct zskiplistNode *backward;
+    struct zskiplistLevel {
+        struct zskiplistNode *forward;
+        unsigned int span;
+    } level[];
 } zskiplistNode;
 
 typedef struct zskiplist {

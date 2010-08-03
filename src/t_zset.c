@@ -24,13 +24,7 @@
  * from tail to head, useful for ZREVRANGE. */
 
 zskiplistNode *zslCreateNode(int level, double score, robj *obj) {
-    zskiplistNode *zn = zmalloc(sizeof(*zn));
-
-    zn->forward = zmalloc(sizeof(zskiplistNode*) * level);
-    if (level > 1)
-        zn->span = zmalloc(sizeof(unsigned int) * (level - 1));
-    else
-        zn->span = NULL;
+    zskiplistNode *zn = zmalloc(sizeof(*zn)+level*sizeof(struct zskiplistLevel));
     zn->score = score;
     zn->obj = obj;
     return zn;
@@ -45,11 +39,8 @@ zskiplist *zslCreate(void) {
     zsl->length = 0;
     zsl->header = zslCreateNode(ZSKIPLIST_MAXLEVEL,0,NULL);
     for (j = 0; j < ZSKIPLIST_MAXLEVEL; j++) {
-        zsl->header->forward[j] = NULL;
-
-        /* span has space for ZSKIPLIST_MAXLEVEL-1 elements */
-        if (j < ZSKIPLIST_MAXLEVEL-1)
-            zsl->header->span[j] = 0;
+        zsl->header->level[j].forward = NULL;
+        zsl->header->level[j].span = 0;
     }
     zsl->header->backward = NULL;
     zsl->tail = NULL;
@@ -58,19 +49,15 @@ zskiplist *zslCreate(void) {
 
 void zslFreeNode(zskiplistNode *node) {
     decrRefCount(node->obj);
-    zfree(node->forward);
-    zfree(node->span);
     zfree(node);
 }
 
 void zslFree(zskiplist *zsl) {
-    zskiplistNode *node = zsl->header->forward[0], *next;
+    zskiplistNode *node = zsl->header->level[0].forward, *next;
 
-    zfree(zsl->header->forward);
-    zfree(zsl->header->span);
     zfree(zsl->header);
     while(node) {
-        next = node->forward[0];
+        next = node->level[0].forward;
         zslFreeNode(node);
         node = next;
     }
@@ -93,13 +80,12 @@ void zslInsert(zskiplist *zsl, double score, robj *obj) {
     for (i = zsl->level-1; i >= 0; i--) {
         /* store rank that is crossed to reach the insert position */
         rank[i] = i == (zsl->level-1) ? 0 : rank[i+1];
-
-        while (x->forward[i] &&
-            (x->forward[i]->score < score ||
-                (x->forward[i]->score == score &&
-                compareStringObjects(x->forward[i]->obj,obj) < 0))) {
-            rank[i] += i > 0 ? x->span[i-1] : 1;
-            x = x->forward[i];
+        while (x->level[i].forward &&
+            (x->level[i].forward->score < score ||
+                (x->level[i].forward->score == score &&
+                compareStringObjects(x->level[i].forward->obj,obj) < 0))) {
+            rank[i] += x->level[i].span;
+            x = x->level[i].forward;
         }
         update[i] = x;
     }
@@ -112,30 +98,28 @@ void zslInsert(zskiplist *zsl, double score, robj *obj) {
         for (i = zsl->level; i < level; i++) {
             rank[i] = 0;
             update[i] = zsl->header;
-            update[i]->span[i-1] = zsl->length;
+            update[i]->level[i].span = zsl->length;
         }
         zsl->level = level;
     }
     x = zslCreateNode(level,score,obj);
     for (i = 0; i < level; i++) {
-        x->forward[i] = update[i]->forward[i];
-        update[i]->forward[i] = x;
+        x->level[i].forward = update[i]->level[i].forward;
+        update[i]->level[i].forward = x;
 
         /* update span covered by update[i] as x is inserted here */
-        if (i > 0) {
-            x->span[i-1] = update[i]->span[i-1] - (rank[0] - rank[i]);
-            update[i]->span[i-1] = (rank[0] - rank[i]) + 1;
-        }
+        x->level[i].span = update[i]->level[i].span - (rank[0] - rank[i]);
+        update[i]->level[i].span = (rank[0] - rank[i]) + 1;
     }
 
     /* increment span for untouched levels */
     for (i = level; i < zsl->level; i++) {
-        update[i]->span[i-1]++;
+        update[i]->level[i].span++;
     }
 
     x->backward = (update[0] == zsl->header) ? NULL : update[0];
-    if (x->forward[0])
-        x->forward[0]->backward = x;
+    if (x->level[0].forward)
+        x->level[0].forward->backward = x;
     else
         zsl->tail = x;
     zsl->length++;
@@ -145,23 +129,19 @@ void zslInsert(zskiplist *zsl, double score, robj *obj) {
 void zslDeleteNode(zskiplist *zsl, zskiplistNode *x, zskiplistNode **update) {
     int i;
     for (i = 0; i < zsl->level; i++) {
-        if (update[i]->forward[i] == x) {
-            if (i > 0) {
-                update[i]->span[i-1] += x->span[i-1] - 1;
-            }
-            update[i]->forward[i] = x->forward[i];
+        if (update[i]->level[i].forward == x) {
+            update[i]->level[i].span += x->level[i].span - 1;
+            update[i]->level[i].forward = x->level[i].forward;
         } else {
-            /* invariant: i > 0, because update[0]->forward[0]
-             * is always equal to x */
-            update[i]->span[i-1] -= 1;
+            update[i]->level[i].span -= 1;
         }
     }
-    if (x->forward[0]) {
-        x->forward[0]->backward = x->backward;
+    if (x->level[0].forward) {
+        x->level[0].forward->backward = x->backward;
     } else {
         zsl->tail = x->backward;
     }
-    while(zsl->level > 1 && zsl->header->forward[zsl->level-1] == NULL)
+    while(zsl->level > 1 && zsl->header->level[zsl->level-1].forward == NULL)
         zsl->level--;
     zsl->length--;
 }
@@ -173,16 +153,16 @@ int zslDelete(zskiplist *zsl, double score, robj *obj) {
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
-        while (x->forward[i] &&
-            (x->forward[i]->score < score ||
-                (x->forward[i]->score == score &&
-                compareStringObjects(x->forward[i]->obj,obj) < 0)))
-            x = x->forward[i];
+        while (x->level[i].forward &&
+            (x->level[i].forward->score < score ||
+                (x->level[i].forward->score == score &&
+                compareStringObjects(x->level[i].forward->obj,obj) < 0)))
+            x = x->level[i].forward;
         update[i] = x;
     }
     /* We may have multiple elements with the same score, what we need
      * is to find the element with both the right score and object. */
-    x = x->forward[0];
+    x = x->level[0].forward;
     if (x && score == x->score && equalStringObjects(x->obj,obj)) {
         zslDeleteNode(zsl, x, update);
         zslFreeNode(x);
@@ -204,15 +184,15 @@ unsigned long zslDeleteRangeByScore(zskiplist *zsl, double min, double max, dict
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
-        while (x->forward[i] && x->forward[i]->score < min)
-            x = x->forward[i];
+        while (x->level[i].forward && x->level[i].forward->score < min)
+            x = x->level[i].forward;
         update[i] = x;
     }
     /* We may have multiple elements with the same score, what we need
      * is to find the element with both the right score and object. */
-    x = x->forward[0];
+    x = x->level[0].forward;
     while (x && x->score <= max) {
-        zskiplistNode *next = x->forward[0];
+        zskiplistNode *next = x->level[0].forward;
         zslDeleteNode(zsl, x, update);
         dictDelete(dict,x->obj);
         zslFreeNode(x);
@@ -231,17 +211,17 @@ unsigned long zslDeleteRangeByRank(zskiplist *zsl, unsigned int start, unsigned 
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
-        while (x->forward[i] && (traversed + (i > 0 ? x->span[i-1] : 1)) < start) {
-            traversed += i > 0 ? x->span[i-1] : 1;
-            x = x->forward[i];
+        while (x->level[i].forward && (traversed + x->level[i].span) < start) {
+            traversed += x->level[i].span;
+            x = x->level[i].forward;
         }
         update[i] = x;
     }
 
     traversed++;
-    x = x->forward[0];
+    x = x->level[0].forward;
     while (x && traversed <= end) {
-        zskiplistNode *next = x->forward[0];
+        zskiplistNode *next = x->level[0].forward;
         zslDeleteNode(zsl, x, update);
         dictDelete(dict,x->obj);
         zslFreeNode(x);
@@ -260,12 +240,12 @@ zskiplistNode *zslFirstWithScore(zskiplist *zsl, double score) {
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
-        while (x->forward[i] && x->forward[i]->score < score)
-            x = x->forward[i];
+        while (x->level[i].forward && x->level[i].forward->score < score)
+            x = x->level[i].forward;
     }
     /* We may have multiple elements with the same score, what we need
      * is to find the element with both the right score and object. */
-    return x->forward[0];
+    return x->level[0].forward;
 }
 
 /* Find the rank for an element by both score and key.
@@ -279,12 +259,12 @@ unsigned long zslistTypeGetRank(zskiplist *zsl, double score, robj *o) {
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
-        while (x->forward[i] &&
-            (x->forward[i]->score < score ||
-                (x->forward[i]->score == score &&
-                compareStringObjects(x->forward[i]->obj,o) <= 0))) {
-            rank += i > 0 ? x->span[i-1] : 1;
-            x = x->forward[i];
+        while (x->level[i].forward &&
+            (x->level[i].forward->score < score ||
+                (x->level[i].forward->score == score &&
+                compareStringObjects(x->level[i].forward->obj,o) <= 0))) {
+            rank += x->level[i].span;
+            x = x->level[i].forward;
         }
 
         /* x might be equal to zsl->header, so test if obj is non-NULL */
@@ -303,10 +283,10 @@ zskiplistNode* zslistTypeGetElementByRank(zskiplist *zsl, unsigned long rank) {
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
-        while (x->forward[i] && (traversed + (i>0 ? x->span[i-1] : 1)) <= rank)
+        while (x->level[i].forward && (traversed + x->level[i].span) <= rank)
         {
-            traversed += i > 0 ? x->span[i-1] : 1;
-            x = x->forward[i];
+            traversed += x->level[i].span;
+            x = x->level[i].forward;
         }
         if (traversed == rank) {
             return x;
@@ -778,7 +758,7 @@ void zrangeGenericCommand(redisClient *c, int reverse) {
         ln = start == 0 ? zsl->tail : zslistTypeGetElementByRank(zsl, llen-start);
     } else {
         ln = start == 0 ?
-            zsl->header->forward[0] : zslistTypeGetElementByRank(zsl, start+1);
+            zsl->header->level[0].forward : zslistTypeGetElementByRank(zsl, start+1);
     }
 
     /* Return the result in form of a multi-bulk reply */
@@ -789,7 +769,7 @@ void zrangeGenericCommand(redisClient *c, int reverse) {
         addReplyBulk(c,ele);
         if (withscores)
             addReplyDouble(c,ln->score);
-        ln = reverse ? ln->backward : ln->forward[0];
+        ln = reverse ? ln->backward : ln->level[0].forward;
     }
 }
 
@@ -872,7 +852,7 @@ void genericZrangebyscoreCommand(redisClient *c, int justcount) {
             /* Get the first node with the score >= min, or with
              * score > min if 'minex' is true. */
             ln = zslFirstWithScore(zsl,min);
-            while (minex && ln && ln->score == min) ln = ln->forward[0];
+            while (minex && ln && ln->score == min) ln = ln->level[0].forward;
 
             if (ln == NULL) {
                 /* No element matching the speciifed interval */
@@ -893,7 +873,7 @@ void genericZrangebyscoreCommand(redisClient *c, int justcount) {
             while(ln && (maxex ? (ln->score < max) : (ln->score <= max))) {
                 if (offset) {
                     offset--;
-                    ln = ln->forward[0];
+                    ln = ln->level[0].forward;
                     continue;
                 }
                 if (limit == 0) break;
@@ -903,7 +883,7 @@ void genericZrangebyscoreCommand(redisClient *c, int justcount) {
                     if (withscores)
                         addReplyDouble(c,ln->score);
                 }
-                ln = ln->forward[0];
+                ln = ln->level[0].forward;
                 rangelen++;
                 if (limit > 0) limit--;
             }
