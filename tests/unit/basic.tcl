@@ -148,12 +148,11 @@ start_server {tags {"basic"}} {
         r get novar2
     } {foobared}
 
-    test {SETNX will overwrite EXPIREing key} {
+    test {SETNX against volatile key} {
         r set x 10
         r expire x 10000
-        r setnx x 20
-        r get x
-    } {20}
+        list [r setnx x 20] [r get x]
+    } {0 10}
 
     test {EXISTS} {
         set res {}
@@ -361,13 +360,6 @@ start_server {tags {"basic"}} {
     test {MSETNX with not existing keys} {
         list [r msetnx x1 xxx y2 yyy] [r get x1] [r get y2]
     } {1 xxx yyy}
-
-    test {MSETNX should remove all the volatile keys even on failure} {
-        r mset x 1 y 2 z 3
-        r expire y 10000
-        r expire z 10000
-        list [r msetnx x A y B z C] [r mget x y z]
-    } {0 {1 {} {}}}
 
     test {STRLEN against non existing key} {
         r strlen notakey
