@@ -55,6 +55,26 @@ start_server {
         assert_equal $largevalue(linkedlist) [r lindex mylist2 2]
     }
 
+    test {LISMEMBER - ziplist} {
+        r del mylist1
+        assert_equal 1 [r rpush mylist1 house]
+        assert_equal 2 [r rpush mylist1 boat]
+        assert_encoding ziplist mylist1
+        assert_equal 1 [r lismember mylist1 house]
+        assert_equal 1 [r lismember mylist1 boat]
+        assert_equal 0 [r lismember mylist1 airplane]
+    }
+
+    test {LISMEMBER - regular list} {
+        r del mylist1
+        assert_equal 1 [r rpush mylist1 $largevalue(linkedlist)]
+        assert_equal 2 [r rpush mylist1 boat]
+        assert_encoding linkedlist mylist1
+        assert_equal 1 [r lismember mylist1 $largevalue(linkedlist)]
+        assert_equal 1 [r lismember mylist1 boat]
+        assert_equal 0 [r lismember mylist1 airplane]
+    }
+
     test {DEL a list - ziplist} {
         assert_equal 1 [r del myziplist2]
         assert_equal 0 [r exists myziplist2]

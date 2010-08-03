@@ -808,6 +808,7 @@ void lpopCommand(redisClient *c);
 void rpopCommand(redisClient *c);
 void llenCommand(redisClient *c);
 void lindexCommand(redisClient *c);
+void lismemberCommand(redisClient *c);
 void lrangeCommand(redisClient *c);
 void ltrimCommand(redisClient *c);
 void typeCommand(redisClient *c);

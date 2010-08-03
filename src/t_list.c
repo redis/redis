@@ -405,6 +405,35 @@ void lindexCommand(redisClient *c) {
     }
 }
 
+void lismemberCommand(redisClient *c) {
+    robj *subject;
+    robj *refval = c->argv[2];
+    listTypeIterator *iter;
+    listTypeEntry entry;
+    int found = 0;
+
+    if ((subject = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
+        checkType(c,subject,REDIS_LIST)) return;
+
+    redisAssert(refval->encoding == REDIS_ENCODING_RAW);
+
+    /* Seek refval from head to tail */
+    iter = listTypeInitIterator(subject,0,REDIS_TAIL);
+    while (listTypeNext(iter,&entry)) {
+        if (listTypeEqual(&entry,refval)) {
+            found = 1;
+            break;
+        }
+    }
+    listTypeReleaseIterator(iter);
+
+    if (found) {
+        addReply(c,shared.cone);
+    } else {
+        addReply(c,shared.czero);
+    }
+}
+
 void lsetCommand(redisClient *c) {
     robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr);
     if (o == NULL || checkType(c,o,REDIS_LIST)) return;
