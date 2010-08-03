@@ -401,16 +401,13 @@ int removeExpire(redisDb *db, robj *key) {
     }
 }
 
-int setExpire(redisDb *db, robj *key, time_t when) {
+void setExpire(redisDb *db, robj *key, time_t when) {
     dictEntry *de;
 
     /* Reuse the sds from the main dict in the expire dict */
-    redisAssert((de = dictFind(db->dict,key->ptr)) != NULL);
-    if (dictAdd(db->expires,dictGetEntryKey(de),(void*)when) == DICT_ERR) {
-        return 0;
-    } else {
-        return 1;
-    }
+    de = dictFind(db->dict,key->ptr);
+    redisAssert(de != NULL);
+    dictReplace(db->expires,dictGetEntryKey(de),(void*)when);
 }
 
 /* Return the expire time of the specified key, or -1 if no expire
@@ -504,13 +501,10 @@ void expireGenericCommand(redisClient *c, robj *key, robj *param, long offset) {
         return;
     } else {
         time_t when = time(NULL)+seconds;
-        if (setExpire(c->db,key,when)) {
-            addReply(c,shared.cone);
-            touchWatchedKey(c->db,key);
-            server.dirty++;
-        } else {
-            addReply(c,shared.czero);
-        }
+        setExpire(c->db,key,when);
+        addReply(c,shared.cone);
+        touchWatchedKey(c->db,key);
+        server.dirty++;
         return;
     }
 }

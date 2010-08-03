@@ -755,7 +755,7 @@ int removeExpire(redisDb *db, robj *key);
 void propagateExpire(redisDb *db, robj *key);
 int expireIfNeeded(redisDb *db, robj *key);
 time_t getExpire(redisDb *db, robj *key);
-int setExpire(redisDb *db, robj *key, time_t when);
+void setExpire(redisDb *db, robj *key, time_t when);
 robj *lookupKey(redisDb *db, robj *key);
 robj *lookupKeyRead(redisDb *db, robj *key);
 robj *lookupKeyWrite(redisDb *db, robj *key);
