@@ -71,7 +71,7 @@ int zslRandomLevel(void) {
     return (level<ZSKIPLIST_MAXLEVEL) ? level : ZSKIPLIST_MAXLEVEL;
 }
 
-void zslInsert(zskiplist *zsl, double score, robj *obj) {
+zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     unsigned int rank[ZSKIPLIST_MAXLEVEL];
     int i, level;
@@ -123,6 +123,7 @@ void zslInsert(zskiplist *zsl, double score, robj *obj) {
     else
         zsl->tail = x;
     zsl->length++;
+    return x;
 }
 
 /* Internal function used by zslDelete, zslDeleteByScore and zslDeleteByRank */
@@ -193,7 +194,7 @@ unsigned long zslDeleteRangeByScore(zskiplist *zsl, double min, double max, dict
     x = x->level[0].forward;
     while (x && x->score <= max) {
         zskiplistNode *next = x->level[0].forward;
-        zslDeleteNode(zsl, x, update);
+        zslDeleteNode(zsl,x,update);
         dictDelete(dict,x->obj);
         zslFreeNode(x);
         removed++;
@@ -222,7 +223,7 @@ unsigned long zslDeleteRangeByRank(zskiplist *zsl, unsigned int start, unsigned 
     x = x->level[0].forward;
     while (x && traversed <= end) {
         zskiplistNode *next = x->level[0].forward;
-        zslDeleteNode(zsl, x, update);
+        zslDeleteNode(zsl,x,update);
         dictDelete(dict,x->obj);
         zslFreeNode(x);
         removed++;
@@ -299,13 +300,11 @@ zskiplistNode* zslistTypeGetElementByRank(zskiplist *zsl, unsigned long rank) {
  * Sorted set commands 
  *----------------------------------------------------------------------------*/
 
-/* This generic command implements both ZADD and ZINCRBY.
- * scoreval is the score if the operation is a ZADD (doincrement == 0) or
- * the increment if the operation is a ZINCRBY (doincrement == 1). */
-void zaddGenericCommand(redisClient *c, robj *key, robj *ele, double scoreval, int doincrement) {
+/* This generic command implements both ZADD and ZINCRBY. */
+void zaddGenericCommand(redisClient *c, robj *key, robj *ele, double score, int incr) {
     robj *zsetobj;
     zset *zs;
-    double *score;
+    zskiplistNode *znode;
 
     zsetobj = lookupKeyWrite(c->db,key);
     if (zsetobj == NULL) {
@@ -319,72 +318,73 @@ void zaddGenericCommand(redisClient *c, robj *key, robj *ele, double scoreval, i
     }
     zs = zsetobj->ptr;
 
-    /* Ok now since we implement both ZADD and ZINCRBY here the code
-     * needs to handle the two different conditions. It's all about setting
-     * '*score', that is, the new score to set, to the right value. */
-    score = zmalloc(sizeof(double));
-    if (doincrement) {
-        dictEntry *de;
-
+    /* Since both ZADD and ZINCRBY are implemented here, we need to increment
+     * the score first by the current score if ZINCRBY is called. */
+    if (incr) {
         /* Read the old score. If the element was not present starts from 0 */
-        de = dictFind(zs->dict,ele);
-        if (de) {
-            double *oldscore = dictGetEntryVal(de);
-            *score = *oldscore + scoreval;
-        } else {
-            *score = scoreval;
-        }
-        if (isnan(*score)) {
+        dictEntry *de = dictFind(zs->dict,ele);
+        if (de != NULL)
+            score += *(double*)dictGetEntryVal(de);
+
+        if (isnan(score)) {
             addReplySds(c,
                 sdsnew("-ERR resulting score is not a number (NaN)\r\n"));
-            zfree(score);
             /* Note that we don't need to check if the zset may be empty and
              * should be removed here, as we can only obtain Nan as score if
              * there was already an element in the sorted set. */
             return;
         }
-    } else {
-        *score = scoreval;
     }
 
-    /* What follows is a simple remove and re-insert operation that is common
-     * to both ZADD and ZINCRBY... */
-    if (dictAdd(zs->dict,ele,score) == DICT_OK) {
-        /* case 1: New element */
+    /* We need to remove and re-insert the element when it was already present
+     * in the dictionary, to update the skiplist. Note that we delay adding a
+     * pointer to the score because we want to reference the score in the
+     * skiplist node. */
+    if (dictAdd(zs->dict,ele,NULL) == DICT_OK) {
+        dictEntry *de;
+
+        /* New element */
         incrRefCount(ele); /* added to hash */
-        zslInsert(zs->zsl,*score,ele);
+        znode = zslInsert(zs->zsl,score,ele);
         incrRefCount(ele); /* added to skiplist */
+
+        /* Update the score in the dict entry */
+        de = dictFind(zs->dict,ele);
+        redisAssert(de != NULL);
+        dictGetEntryVal(de) = &znode->score;
         touchWatchedKey(c->db,c->argv[1]);
         server.dirty++;
-        if (doincrement)
-            addReplyDouble(c,*score);
+        if (incr)
+            addReplyDouble(c,score);
         else
             addReply(c,shared.cone);
     } else {
         dictEntry *de;
-        double *oldscore;
+        robj *curobj;
+        double *curscore;
+        int deleted;
 
-        /* case 2: Score update operation */
+        /* Update score */
         de = dictFind(zs->dict,ele);
         redisAssert(de != NULL);
-        oldscore = dictGetEntryVal(de);
-        if (*score != *oldscore) {
-            int deleted;
+        curobj = dictGetEntryKey(de);
+        curscore = dictGetEntryVal(de);
 
-            /* Remove and insert the element in the skip list with new score */
-            deleted = zslDelete(zs->zsl,*oldscore,ele);
+        /* When the score is updated, reuse the existing string object to
+         * prevent extra alloc/dealloc of strings on ZINCRBY. */
+        if (score != *curscore) {
+            deleted = zslDelete(zs->zsl,*curscore,curobj);
             redisAssert(deleted != 0);
-            zslInsert(zs->zsl,*score,ele);
-            incrRefCount(ele);
-            /* Update the score in the hash table */
-            dictReplace(zs->dict,ele,score);
+            znode = zslInsert(zs->zsl,score,curobj);
+            incrRefCount(curobj);
+
+            /* Update the score in the current dict entry */
+            dictGetEntryVal(de) = &znode->score;
             touchWatchedKey(c->db,c->argv[1]);
             server.dirty++;
-        } else {
-            zfree(score);
         }
-        if (doincrement)
-            addReplyDouble(c,*score);
+        if (incr)
+            addReplyDouble(c,score);
         else
             addReply(c,shared.czero);
     }
@@ -406,7 +406,7 @@ void zremCommand(redisClient *c) {
     robj *zsetobj;
     zset *zs;
     dictEntry *de;
-    double *oldscore;
+    double curscore;
     int deleted;
 
     if ((zsetobj = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
@@ -419,8 +419,8 @@ void zremCommand(redisClient *c) {
         return;
     }
     /* Delete from the skiplist */
-    oldscore = dictGetEntryVal(de);
-    deleted = zslDelete(zs->zsl,*oldscore,c->argv[2]);
+    curscore = *(double*)dictGetEntryVal(de);
+    deleted = zslDelete(zs->zsl,curscore,c->argv[2]);
     redisAssert(deleted != 0);
 
     /* Delete from the hash table */
@@ -534,6 +534,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
     zsetopsrc *src;
     robj *dstobj;
     zset *dstzset;
+    zskiplistNode *znode;
     dictIterator *di;
     dictEntry *de;
     int touched = 0;
@@ -642,10 +643,10 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                     zfree(score);
                 } else {
                     robj *o = dictGetEntryKey(de);
-                    dictAdd(dstzset->dict,o,score);
-                    incrRefCount(o); /* added to dictionary */
-                    zslInsert(dstzset->zsl,*score,o);
+                    znode = zslInsert(dstzset->zsl,*score,o);
                     incrRefCount(o); /* added to skiplist */
+                    dictAdd(dstzset->dict,o,&znode->score);
+                    incrRefCount(o); /* added to dictionary */
                 }
             }
             dictReleaseIterator(di);
@@ -673,10 +674,10 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                 }
 
                 robj *o = dictGetEntryKey(de);
-                dictAdd(dstzset->dict,o,score);
-                incrRefCount(o); /* added to dictionary */
-                zslInsert(dstzset->zsl,*score,o);
+                znode = zslInsert(dstzset->zsl,*score,o);
                 incrRefCount(o); /* added to skiplist */
+                dictAdd(dstzset->dict,o,&znode->score);
+                incrRefCount(o); /* added to dictionary */
             }
             dictReleaseIterator(di);
         }

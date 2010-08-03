@@ -338,7 +338,7 @@ dictType zsetDictType = {
     NULL,                      /* val dup */
     dictEncObjKeyCompare,      /* key compare */
     dictRedisObjectDestructor, /* key destructor */
-    dictVanillaFree            /* val destructor of malloc(sizeof(double)) */
+    NULL                       /* val destructor */
 };
 
 /* Db->dict, keys are sds strings, vals are Redis objects. */

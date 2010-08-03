@@ -675,7 +675,7 @@ void backgroundRewriteDoneHandler(int statloc);
 /* Sorted sets data type */
 zskiplist *zslCreate(void);
 void zslFree(zskiplist *zsl);
-void zslInsert(zskiplist *zsl, double score, robj *obj);
+zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj);
 
 /* Core functions */
 void freeMemoryIfNeeded(void);
