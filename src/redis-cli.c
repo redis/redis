@@ -496,7 +496,7 @@ int main(int argc, char **argv) {
     config.raw_output = 0;
     config.auth = NULL;
     config.historyfile = NULL;
-    config.tty = 1;
+    config.tty = isatty(fileno(stdout)) || (getenv("FAKETTY") != NULL);
     config.mb_sep = '\n';
 
     if (getenv("HOME") != NULL) {
@@ -522,7 +522,6 @@ int main(int argc, char **argv) {
         repl();
     }
 
-    config.tty = isatty(fileno(stdout)) || (getenv("FAKETTY") != NULL);
     argvcopy = convertToSds(argc+1, argv);
     if (config.argn_from_stdin) {
         sds lastarg = readArgFromStdin();
