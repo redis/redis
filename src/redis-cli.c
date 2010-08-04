@@ -59,7 +59,7 @@ static struct config {
     int shutdown;
     int monitor_mode;
     int pubsub_mode;
-    int raw_output;
+    int raw_output; /* output mode per command */
     char *auth;
     char *historyfile;
 } config;
@@ -152,7 +152,7 @@ static int cliReadBulkReply(int fd) {
     reply = zmalloc(bulklen);
     anetRead(fd,reply,bulklen);
     anetRead(fd,crlf,2);
-    if (config.raw_output || !isatty(fileno(stdout))) {
+    if (config.raw_output || !config.interactive) {
         if (bulklen && fwrite(reply,bulklen,1,stdout) == 0) {
             zfree(reply);
             return 1;
@@ -494,7 +494,10 @@ int main(int argc, char **argv) {
         cliSendCommand(2, convertToSds(2, authargv), 1);
     }
 
-    if (argc == 0 || config.interactive == 1) repl();
+    if (argc == 0 || config.interactive == 1) {
+        config.interactive = 1;
+        repl();
+    }
 
     argvcopy = convertToSds(argc+1, argv);
     if (config.argn_from_stdin) {
