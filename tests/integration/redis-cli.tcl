@@ -131,4 +131,26 @@ start_server {tags {"cli"}} {
         r rpush list bar
         assert_equal "1. \"foo\"\n2. \"bar\"\n" [run_tty_cli lrange list 0 -1]
     }
+
+    test_nontty_cli "Status reply" {
+        assert_equal "OK" [run_nontty_cli set key bar]
+        assert_equal "bar" [r get key]
+    }
+
+    test_nontty_cli "Integer reply" {
+        r del counter
+        assert_equal "1" [run_nontty_cli incr counter]
+    }
+
+    test_nontty_cli "Bulk reply" {
+        r set key "tab\tnewline\n"
+        assert_equal "tab\tnewline\n" [run_nontty_cli get key]
+    }
+
+    test_nontty_cli "Multi-bulk reply" {
+        r del list
+        r rpush list foo
+        r rpush list bar
+        assert_equal "foo\nbar" [run_nontty_cli lrange list 0 -1]
+    }
 }
