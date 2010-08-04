@@ -41,7 +41,7 @@ start_server {tags {"cli"}} {
         close_cli $fd
     }
 
-    proc run_cli {args} {
+    proc run_nontty_cli {args} {
         set fd [open [format "|src/redis-cli -p %d -n 9 $args" [srv port]] "r"]
         fconfigure $fd -buffering none
         fconfigure $fd -translation binary
@@ -50,8 +50,19 @@ start_server {tags {"cli"}} {
         set _ $resp
     }
 
-    proc test_noninteractive_cli {name code} {
-        test "Non-interactive CLI: $name" $code
+    proc test_nontty_cli {name code} {
+        test "Non-interactive non-TTY CLI: $name" $code
+    }
+
+    proc run_tty_cli {args} {
+        set ::env(FAKETTY) 1
+        set resp [run_nontty_cli {*}$args]
+        unset ::env(FAKETTY)
+        set _ $resp
+    }
+
+    proc test_tty_cli {name code} {
+        test "Non-interactive TTY CLI: $name" $code
     }
 
     test_interactive_cli "INFO response should be printed raw" {
@@ -99,25 +110,25 @@ start_server {tags {"cli"}} {
         assert_equal "bar" [r get key]
     }
 
-    test_noninteractive_cli "Status reply" {
-        assert_equal "OK\n" [run_cli set key bar]
+    test_tty_cli "Status reply" {
+        assert_equal "OK\n" [run_tty_cli set key bar]
         assert_equal "bar" [r get key]
     }
 
-    test_noninteractive_cli "Integer reply" {
+    test_tty_cli "Integer reply" {
         r del counter
-        assert_equal "(integer) 1\n" [run_cli incr counter]
+        assert_equal "(integer) 1\n" [run_tty_cli incr counter]
     }
 
-    test_noninteractive_cli "Bulk reply" {
+    test_tty_cli "Bulk reply" {
         r set key "tab\tnewline\n"
-        assert_equal "\"tab\\tnewline\\n\"\n" [run_cli get key]
+        assert_equal "\"tab\\tnewline\\n\"\n" [run_tty_cli get key]
     }
 
-    test_noninteractive_cli "Multi-bulk reply" {
+    test_tty_cli "Multi-bulk reply" {
         r del list
         r rpush list foo
         r rpush list bar
-        assert_equal "1. \"foo\"\n2. \"bar\"\n" [run_cli lrange list 0 -1]
+        assert_equal "1. \"foo\"\n2. \"bar\"\n" [run_tty_cli lrange list 0 -1]
     }
 }

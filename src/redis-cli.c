@@ -60,6 +60,7 @@ static struct config {
     int monitor_mode;
     int pubsub_mode;
     int raw_output; /* output mode per command */
+    int tty; /* flag for default output format */
     char *auth;
     char *historyfile;
 } config;
@@ -152,7 +153,7 @@ static int cliReadBulkReply(int fd) {
     reply = zmalloc(bulklen);
     anetRead(fd,reply,bulklen);
     anetRead(fd,crlf,2);
-    if (config.raw_output) {
+    if (config.raw_output || !config.tty) {
         if (bulklen && fwrite(reply,bulklen,1,stdout) == 0) {
             zfree(reply);
             return 1;
@@ -491,6 +492,7 @@ int main(int argc, char **argv) {
     config.raw_output = 0;
     config.auth = NULL;
     config.historyfile = NULL;
+    config.tty = 1;
 
     if (getenv("HOME") != NULL) {
         config.historyfile = malloc(256);
@@ -515,6 +517,7 @@ int main(int argc, char **argv) {
         repl();
     }
 
+    config.tty = isatty(stdout) || (getenv("FAKETTY") != NULL);
     argvcopy = convertToSds(argc+1, argv);
     if (config.argn_from_stdin) {
         sds lastarg = readArgFromStdin();
