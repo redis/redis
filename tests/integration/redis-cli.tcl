@@ -41,6 +41,19 @@ start_server {tags {"cli"}} {
         close_cli $fd
     }
 
+    proc run_cli {args} {
+        set fd [open [format "|src/redis-cli -p %d -n 9 $args" [srv port]] "r"]
+        fconfigure $fd -buffering none
+        fconfigure $fd -translation binary
+        set resp [read $fd 1048576]
+        close $fd
+        set _ $resp
+    }
+
+    proc test_noninteractive_cli {name code} {
+        test "Non-interactive CLI: $name" $code
+    }
+
     test_interactive_cli "INFO response should be printed raw" {
         set lines [split [run_command $fd info] "\n"]
         foreach line $lines {
@@ -84,5 +97,27 @@ start_server {tags {"cli"}} {
         # quotes after the argument are weird, but should be allowed
         assert_equal "OK" [run_command $fd "set key\"\" bar"]
         assert_equal "bar" [r get key]
+    }
+
+    test_noninteractive_cli "Status reply" {
+        assert_equal "OK\n" [run_cli set key bar]
+        assert_equal "bar" [r get key]
+    }
+
+    test_noninteractive_cli "Integer reply" {
+        r del counter
+        assert_equal "(integer) 1\n" [run_cli incr counter]
+    }
+
+    test_noninteractive_cli "Bulk reply" {
+        r set key "tab\tnewline\n"
+        assert_equal "\"tab\\tnewline\\n\"\n" [run_cli get key]
+    }
+
+    test_noninteractive_cli "Multi-bulk reply" {
+        r del list
+        r rpush list foo
+        r rpush list bar
+        assert_equal "1. \"foo\"\n2. \"bar\"\n" [run_cli lrange list 0 -1]
     }
 }
