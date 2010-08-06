@@ -1076,18 +1076,22 @@ int prepareForShutdown() {
         if (server.vm_enabled) unlink(server.vm_swap_file);
     } else {
         /* Snapshotting. Perform a SYNC SAVE and exit */
-        if (rdbSave(server.dbfilename) == REDIS_OK) {
-            if (server.daemonize)
-                unlink(server.pidfile);
-            redisLog(REDIS_WARNING,"%zu bytes used at exit",zmalloc_used_memory());
+        if (server.saveparamslen == 0) {
+            redisLog(REDIS_WARNING,"Not saving DB.");
         } else {
-            /* Ooops.. error saving! The best we can do is to continue
-             * operating. Note that if there was a background saving process,
-             * in the next cron() Redis will be notified that the background
-             * saving aborted, handling special stuff like slaves pending for
-             * synchronization... */
-            redisLog(REDIS_WARNING,"Error trying to save the DB, can't exit");
-            return REDIS_ERR;
+            if (rdbSave(server.dbfilename) == REDIS_OK) {
+                if (server.daemonize)
+                    unlink(server.pidfile);
+                redisLog(REDIS_WARNING,"%zu bytes used at exit",zmalloc_used_memory());
+            } else {
+                /* Ooops.. error saving! The best we can do is to continue
+                 * operating. Note that if there was a background saving process,
+                 * in the next cron() Redis will be notified that the background
+                 * saving aborted, handling special stuff like slaves pending for
+                 * synchronization... */
+                redisLog(REDIS_WARNING,"Error trying to save the DB, can't exit");
+                return REDIS_ERR;
+            }
         }
     }
     redisLog(REDIS_WARNING,"Server exit now, bye bye...");
