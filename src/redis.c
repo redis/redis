@@ -501,7 +501,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * This is not precise but we don't need at all precision, but just
      * something statistically reasonable.
      */
-    server.lruclock = (time(NULL)/60)&((1<<21)-1);
+    server.lruclock = (server.unixtime/60)&((1<<21)-1);
 
     /* We received a SIGTERM, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
@@ -729,6 +729,7 @@ void initServerConfig() {
     server.requirepass = NULL;
     server.rdbcompression = 1;
     server.activerehashing = 1;
+    server.dumpcore = 0;
     server.maxclients = 0;
     server.blpop_blocked_clients = 0;
     server.maxmemory = 0;
@@ -770,7 +771,9 @@ void initServer() {
 
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
-    setupSigSegvAction();
+    if (!server.dumpcore) {
+        setupSigSegvAction();
+    }
 
     server.mainthread = pthread_self();
     server.devnull = fopen("/dev/null","w");

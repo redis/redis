@@ -371,6 +371,7 @@ struct redisServer {
     char *requirepass;
     int rdbcompression;
     int activerehashing;
+    int dumpcore;
     /* Replication related */
     int isslave;
     char *masterauth;
