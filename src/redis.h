@@ -381,6 +381,7 @@ struct redisServer {
     int replstate;
     unsigned int maxclients;
     unsigned long long maxmemory;
+    int memory_pressure_selection; /* # of candidates to choose from in freeMemoryIfNeeded(). */
     unsigned int blpop_blocked_clients;
     unsigned int vm_blocked_clients;
     /* Sort parameters - qsort_r() is only available under BSD so we

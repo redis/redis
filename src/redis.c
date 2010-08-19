@@ -733,6 +733,7 @@ void initServerConfig() {
     server.maxclients = 0;
     server.blpop_blocked_clients = 0;
     server.maxmemory = 0;
+    server.memory_pressure_selection = 3;
     server.vm_enabled = 0;
     server.vm_swap_file = zstrdup("/tmp/redis-%p.vm");
     server.vm_page_size = 256;          /* 256 bytes per page */
@@ -1328,7 +1329,7 @@ void freeMemoryIfNeeded(void) {
                 freed = 1;
                 /* From a sample of three keys drop the one nearest to
                  * the natural expire */
-                for (k = 0; k < 3; k++) {
+                for (k = 0; k < server.memory_pressure_selection; k++) {
                     time_t t;
 
                     de = dictGetRandomKey(server.db[j].expires);
