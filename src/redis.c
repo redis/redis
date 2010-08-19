@@ -1335,7 +1335,9 @@ void freeMemoryIfNeeded(void) {
                         minttl = t;
                     }
                 }
-                dbDelete(server.db+j,minkey);
+
+                dictDelete(server.db[j].expires,minkey);
+                dictDelete(server.db[j].dict,minkey);
             }
         }
         if (!freed) return; /* nothing to free... */
