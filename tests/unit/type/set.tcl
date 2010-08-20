@@ -45,6 +45,12 @@ start_server {
         assert_encoding hashtable myset
     }
 
+    test "SADD an integer larger than 64 bits" {
+        create_set myset {213244124402402314402033402}
+        assert_encoding hashtable myset
+        assert_equal 1 [r sismember myset 213244124402402314402033402]
+    }
+
     test "SADD overflows the maximum allowed integers in an intset" {
         r del myset
         for {set i 0} {$i < 512} {incr i} { r sadd myset $i }
