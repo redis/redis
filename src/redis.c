@@ -778,6 +778,7 @@ void initServer() {
     if (!server.dumpcore) {
         setupSigSegvAction();
     }
+    setupSigTermAction();
 
     server.mainthread = pthread_self();
     server.devnull = fopen("/dev/null","w");
@@ -1532,11 +1533,15 @@ void setupSigSegvAction(void) {
     sigaction (SIGFPE, &act, NULL);
     sigaction (SIGILL, &act, NULL);
     sigaction (SIGBUS, &act, NULL);
+}
 
+void setupSigTermAction(void) {
+    struct sigaction act;
+
+    sigemptyset (&act.sa_mask);
     act.sa_flags = SA_NODEFER | SA_ONSTACK | SA_RESETHAND;
     act.sa_handler = sigtermHandler;
     sigaction (SIGTERM, &act, NULL);
-    return;
 }
 
 #else /* HAVE_BACKTRACE */
