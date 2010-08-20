@@ -23,6 +23,8 @@
 #include "zmalloc.h"
 #include "ziplist.h"
 
+int ll2string(char *s, size_t len, long long value);
+
 /* Important note: the ZIP_END value is used to depict the end of the
  * ziplist structure. When a pointer contains an entry, the first couple
  * of bytes contain the encoded length of the previous entry. This length
@@ -174,15 +176,27 @@ static int zipPrevLenByteDiff(unsigned char *p, unsigned int len) {
 }
 
 /* Check if string pointed to by 'entry' can be encoded as an integer.
- * Stores the integer value in 'v' and its encoding in 'encoding'.
- * Warning: this function requires a NULL-terminated string! */
-static int zipTryEncoding(unsigned char *entry, long long *v, unsigned char *encoding) {
+ * Stores the integer value in 'v' and its encoding in 'encoding'. */
+static int zipTryEncoding(unsigned char *entry, unsigned int entrylen, long long *v, unsigned char *encoding) {
     long long value;
     char *eptr;
+    char buf[32];
 
+    if (entrylen >= 32 || entrylen == 0) return 0;
     if (entry[0] == '-' || (entry[0] >= '0' && entry[0] <= '9')) {
-        value = strtoll((char*)entry,&eptr,10);
+        int slen;
+
+        /* Perform a back-and-forth conversion to make sure that
+         * the string turned into an integer is not losing any info. */
+        memcpy(buf,entry,entrylen);
+        buf[entrylen] = '\0';
+        value = strtoll(buf,&eptr,10);
         if (eptr[0] != '\0') return 0;
+        slen = ll2string(buf,32,value);
+        if (entrylen != (unsigned)slen || memcmp(buf,entry,slen)) return 0;
+
+        /* Great, the string can be encoded. Check what's the smallest
+         * of our encoding types that can hold this value. */
         if (value >= INT16_MIN && value <= INT16_MAX) {
             *encoding = ZIP_ENC_INT16;
         } else if (value >= INT32_MIN && value <= INT32_MAX) {
@@ -329,7 +343,7 @@ static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsig
     }
 
     /* See if the entry can be encoded */
-    if (zipTryEncoding(s,&value,&encoding)) {
+    if (zipTryEncoding(s,slen,&value,&encoding)) {
         reqlen = zipEncodingSize(encoding);
     } else {
         reqlen = slen;
@@ -505,7 +519,7 @@ unsigned int ziplistCompare(unsigned char *p, unsigned char *sstr, unsigned int 
         }
     } else {
         /* Try to compare encoded values */
-        if (zipTryEncoding(sstr,&sval,&sencoding)) {
+        if (zipTryEncoding(sstr,slen,&sval,&sencoding)) {
             if (entry.encoding == sencoding) {
                 zval = zipLoadInteger(p+entry.headersize,entry.encoding);
                 return zval == sval;

@@ -433,6 +433,42 @@ start_server {tags {"zset"}} {
         list [r zinterstore zsetc 2 zseta zsetb aggregate max] [r zrange zsetc 0 -1 withscores]
     } {2 {b 2 c 3}}
     
+    foreach cmd {ZUNIONSTORE ZINTERSTORE} {
+        test "$cmd with +inf/-inf scores" {
+            r del zsetinf1 zsetinf2
+
+            r zadd zsetinf1 +inf key
+            r zadd zsetinf2 +inf key
+            r $cmd zsetinf3 2 zsetinf1 zsetinf2
+            assert_equal inf [r zscore zsetinf3 key]
+
+            r zadd zsetinf1 -inf key
+            r zadd zsetinf2 +inf key
+            r $cmd zsetinf3 2 zsetinf1 zsetinf2
+            assert_equal 0 [r zscore zsetinf3 key]
+
+            r zadd zsetinf1 +inf key
+            r zadd zsetinf2 -inf key
+            r $cmd zsetinf3 2 zsetinf1 zsetinf2
+            assert_equal 0 [r zscore zsetinf3 key]
+
+            r zadd zsetinf1 -inf key
+            r zadd zsetinf2 -inf key
+            r $cmd zsetinf3 2 zsetinf1 zsetinf2
+            assert_equal -inf [r zscore zsetinf3 key]
+        }
+
+        test "$cmd with NaN weights" {
+            r del zsetinf1 zsetinf2
+
+            r zadd zsetinf1 1.0 key
+            r zadd zsetinf2 1.0 key
+            assert_error "*weight value is not a double*" {
+                r $cmd zsetinf3 2 zsetinf1 zsetinf2 weights nan nan
+            }
+        }
+    }
+
     tags {"slow"} {
         test {ZSETs skiplist implementation backlink consistency test} {
             set diff 0
@@ -477,22 +513,16 @@ start_server {tags {"zset"}} {
         } {}
     }
 
-    test {ZSET element can't be set to nan with ZADD} {
-        set e {}
-        catch {r zadd myzset nan abc} e
-        set _ $e
-    } {*Not A Number*}
+    test {ZSET element can't be set to NaN with ZADD} {
+        assert_error "*not a double*" {r zadd myzset nan abc}
+    }
 
-    test {ZSET element can't be set to nan with ZINCRBY} {
-        set e {}
-        catch {r zincrby myzset nan abc} e
-        set _ $e
-    } {*Not A Number*}
+    test {ZSET element can't be set to NaN with ZINCRBY} {
+        assert_error "*not a double*" {r zadd myzset nan abc}
+    }
 
-    test {ZINCRBY calls leading to Nan are refused} {
-        set e {}
+    test {ZINCRBY calls leading to NaN result in error} {
         r zincrby myzset +inf abc
-        catch {r zincrby myzset -inf abc} e
-        set _ $e
-    } {*Not A Number*}
+        assert_error "*NaN*" {r zincrby myzset -inf abc}
+    }
 }

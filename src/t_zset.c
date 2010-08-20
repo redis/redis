@@ -327,11 +327,6 @@ void zaddGenericCommand(redisClient *c, robj *key, robj *ele, double scoreval, i
     zset *zs;
     double *score;
 
-    if (isnan(scoreval)) {
-        addReplySds(c,sdsnew("-ERR provide score is Not A Number (nan)\r\n"));
-        return;
-    }
-
     zsetobj = lookupKeyWrite(c->db,key);
     if (zsetobj == NULL) {
         zsetobj = createZsetObject();
@@ -361,7 +356,7 @@ void zaddGenericCommand(redisClient *c, robj *key, robj *ele, double scoreval, i
         }
         if (isnan(*score)) {
             addReplySds(c,
-                sdsnew("-ERR resulting score is Not A Number (nan)\r\n"));
+                sdsnew("-ERR resulting score is not a number (NaN)\r\n"));
             zfree(score);
             /* Note that we don't need to check if the zset may be empty and
              * should be removed here, as we can only obtain Nan as score if
@@ -379,6 +374,7 @@ void zaddGenericCommand(redisClient *c, robj *key, robj *ele, double scoreval, i
         incrRefCount(ele); /* added to hash */
         zslInsert(zs->zsl,*score,ele);
         incrRefCount(ele); /* added to skiplist */
+        touchWatchedKey(c->db,c->argv[1]);
         server.dirty++;
         if (doincrement)
             addReplyDouble(c,*score);
@@ -402,6 +398,7 @@ void zaddGenericCommand(redisClient *c, robj *key, robj *ele, double scoreval, i
             incrRefCount(ele);
             /* Update the score in the hash table */
             dictReplace(zs->dict,ele,score);
+            touchWatchedKey(c->db,c->argv[1]);
             server.dirty++;
         } else {
             zfree(score);
@@ -415,15 +412,13 @@ void zaddGenericCommand(redisClient *c, robj *key, robj *ele, double scoreval, i
 
 void zaddCommand(redisClient *c) {
     double scoreval;
-
-    if (getDoubleFromObjectOrReply(c, c->argv[2], &scoreval, NULL) != REDIS_OK) return;
+    if (getDoubleFromObjectOrReply(c,c->argv[2],&scoreval,NULL) != REDIS_OK) return;
     zaddGenericCommand(c,c->argv[1],c->argv[3],scoreval,0);
 }
 
 void zincrbyCommand(redisClient *c) {
     double scoreval;
-
-    if (getDoubleFromObjectOrReply(c, c->argv[2], &scoreval, NULL) != REDIS_OK) return;
+    if (getDoubleFromObjectOrReply(c,c->argv[2],&scoreval,NULL) != REDIS_OK) return;
     zaddGenericCommand(c,c->argv[1],c->argv[3],scoreval,1);
 }
 
@@ -452,6 +447,7 @@ void zremCommand(redisClient *c) {
     dictDelete(zs->dict,c->argv[2]);
     if (htNeedsResize(zs->dict)) dictResize(zs->dict);
     if (dictSize(zs->dict) == 0) dbDelete(c->db,c->argv[1]);
+    touchWatchedKey(c->db,c->argv[1]);
     server.dirty++;
     addReply(c,shared.cone);
 }
@@ -473,6 +469,7 @@ void zremrangebyscoreCommand(redisClient *c) {
     deleted = zslDeleteRangeByScore(zs->zsl,min,max,zs->dict);
     if (htNeedsResize(zs->dict)) dictResize(zs->dict);
     if (dictSize(zs->dict) == 0) dbDelete(c->db,c->argv[1]);
+    if (deleted) touchWatchedKey(c->db,c->argv[1]);
     server.dirty += deleted;
     addReplyLongLong(c,deleted);
 }
@@ -497,9 +494,9 @@ void zremrangebyrankCommand(redisClient *c) {
     if (start < 0) start = llen+start;
     if (end < 0) end = llen+end;
     if (start < 0) start = 0;
-    if (end < 0) end = 0;
 
-    /* indexes sanity checks */
+    /* Invariant: start >= 0, so this test will be true when end < 0.
+     * The range is empty when start > end or start >= length. */
     if (start > end || start >= llen) {
         addReply(c,shared.czero);
         return;
@@ -511,6 +508,7 @@ void zremrangebyrankCommand(redisClient *c) {
     deleted = zslDeleteRangeByRank(zs->zsl,start+1,end+1,zs->dict);
     if (htNeedsResize(zs->dict)) dictResize(zs->dict);
     if (dictSize(zs->dict) == 0) dbDelete(c->db,c->argv[1]);
+    if (deleted) touchWatchedKey(c->db,c->argv[1]);
     server.dirty += deleted;
     addReplyLongLong(c, deleted);
 }
@@ -536,6 +534,10 @@ int qsortCompareZsetopsrcByCardinality(const void *s1, const void *s2) {
 inline static void zunionInterAggregate(double *target, double val, int aggregate) {
     if (aggregate == REDIS_AGGR_SUM) {
         *target = *target + val;
+        /* The result of adding two doubles is NaN when one variable
+         * is +inf and the other is -inf. When these numbers are added,
+         * we maintain the convention of the result being 0.0. */
+        if (isnan(*target)) *target = 0.0;
     } else if (aggregate == REDIS_AGGR_MIN) {
         *target = val < *target ? val : *target;
     } else if (aggregate == REDIS_AGGR_MAX) {
@@ -554,6 +556,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
     zset *dstzset;
     dictIterator *di;
     dictEntry *de;
+    int touched = 0;
 
     /* expect setnum input keys to be given */
     setnum = atoi(c->argv[2]->ptr);
@@ -598,8 +601,12 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
             if (remaining >= (setnum + 1) && !strcasecmp(c->argv[j]->ptr,"weights")) {
                 j++; remaining--;
                 for (i = 0; i < setnum; i++, j++, remaining--) {
-                    if (getDoubleFromObjectOrReply(c, c->argv[j], &src[i].weight, NULL) != REDIS_OK)
+                    if (getDoubleFromObjectOrReply(c,c->argv[j],&src[i].weight,
+                            "weight value is not a double") != REDIS_OK)
+                    {
+                        zfree(src);
                         return;
+                    }
                 }
             } else if (remaining >= 2 && !strcasecmp(c->argv[j]->ptr,"aggregate")) {
                 j++; remaining--;
@@ -698,10 +705,15 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
         redisAssert(op == REDIS_OP_INTER || op == REDIS_OP_UNION);
     }
 
-    dbDelete(c->db,dstkey);
+    if (dbDelete(c->db,dstkey)) {
+        touchWatchedKey(c->db,dstkey);
+        touched = 1;
+        server.dirty++;
+    }
     if (dstzset->zsl->length) {
         dbAdd(c->db,dstkey,dstobj);
         addReplyLongLong(c, dstzset->zsl->length);
+        if (!touched) touchWatchedKey(c->db,dstkey);
         server.dirty++;
     } else {
         decrRefCount(dstobj);
@@ -750,11 +762,10 @@ void zrangeGenericCommand(redisClient *c, int reverse) {
     if (start < 0) start = llen+start;
     if (end < 0) end = llen+end;
     if (start < 0) start = 0;
-    if (end < 0) end = 0;
 
-    /* indexes sanity checks */
+    /* Invariant: start >= 0, so this test will be true when end < 0.
+     * The range is empty when start > end or start >= length. */
     if (start > end || start >= llen) {
-        /* Out of range start or start > end result in empty list */
         addReply(c,shared.emptymultibulk);
         return;
     }

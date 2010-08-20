@@ -44,7 +44,7 @@ proc warnings_from_file {filename} {
 
 # Return value for INFO property
 proc status {r property} {
-    if {[regexp "\r\n$property:(.*?)\r\n" [$r info] _ value]} {
+    if {[regexp "\r\n$property:(.*?)\r\n" [{*}$r info] _ value]} {
         set _ $value
     }
 }
@@ -127,11 +127,32 @@ proc randomKey {} {
     }
 }
 
-proc createComplexDataset {r ops} {
+proc findKeyWithType {r type} {
+    for {set j 0} {$j < 20} {incr j} {
+        set k [{*}$r randomkey]
+        if {$k eq {}} {
+            return {}
+        }
+        if {[{*}$r type $k] eq $type} {
+            return $k
+        }
+    }
+    return {}
+}
+
+proc createComplexDataset {r ops {opt {}}} {
     for {set j 0} {$j < $ops} {incr j} {
         set k [randomKey]
+        set k2 [randomKey]
         set f [randomValue]
         set v [randomValue]
+
+        if {[lsearch -exact $opt useexpire] != -1} {
+            if {rand() < 0.1} {
+                {*}$r expire [randomKey] [randomInt 2]
+            }
+        }
+
         randpath {
             set d [expr {rand()}]
         } {
@@ -145,21 +166,23 @@ proc createComplexDataset {r ops} {
         } {
             randpath {set d +inf} {set d -inf}
         }
-        set t [$r type $k]
+        set t [{*}$r type $k]
 
         if {$t eq {none}} {
             randpath {
-                $r set $k $v
+                {*}$r set $k $v
             } {
-                $r lpush $k $v
+                {*}$r lpush $k $v
             } {
-                $r sadd $k $v
+                {*}$r sadd $k $v
             } {
-                $r zadd $k $d $v
+                {*}$r zadd $k $d $v
             } {
-                $r hset $k $f $v
+                {*}$r hset $k $f $v
+            } {
+                {*}$r del $k
             }
-            set t [$r type $k]
+            set t [{*}$r type $k]
         }
 
         switch $t {
@@ -167,23 +190,45 @@ proc createComplexDataset {r ops} {
                 # Nothing to do
             }
             {list} {
-                randpath {$r lpush $k $v} \
-                        {$r rpush $k $v} \
-                        {$r lrem $k 0 $v} \
-                        {$r rpop $k} \
-                        {$r lpop $k}
+                randpath {{*}$r lpush $k $v} \
+                        {{*}$r rpush $k $v} \
+                        {{*}$r lrem $k 0 $v} \
+                        {{*}$r rpop $k} \
+                        {{*}$r lpop $k}
             }
             {set} {
-                randpath {$r sadd $k $v} \
-                        {$r srem $k $v}
+                randpath {{*}$r sadd $k $v} \
+                        {{*}$r srem $k $v} \
+                        {
+                            set otherset [findKeyWithType r set]
+                            if {$otherset ne {}} {
+                                randpath {
+                                    {*}$r sunionstore $k2 $k $otherset
+                                } {
+                                    {*}$r sinterstore $k2 $k $otherset
+                                } {
+                                    {*}$r sdiffstore $k2 $k $otherset
+                                }
+                            }
+                        }
             }
             {zset} {
-                randpath {$r zadd $k $d $v} \
-                        {$r zrem $k $v}
+                randpath {{*}$r zadd $k $d $v} \
+                        {{*}$r zrem $k $v} \
+                        {
+                            set otherzset [findKeyWithType r zset]
+                            if {$otherzset ne {}} {
+                                randpath {
+                                    {*}$r zunionstore $k2 2 $k $otherzset
+                                } {
+                                    {*}$r zinterstore $k2 2 $k $otherzset
+                                }
+                            }
+                        }
             }
             {hash} {
-                randpath {$r hset $k $f $v} \
-                        {$r hdel $k $f}
+                randpath {{*}$r hset $k $f $v} \
+                        {{*}$r hdel $k $f}
             }
         }
     }
@@ -195,4 +240,53 @@ proc formatCommand {args} {
         append cmd "$[string length $a]\r\n$a\r\n"
     }
     set _ $cmd
+}
+
+proc csvdump r {
+    set o {}
+    foreach k [lsort [{*}$r keys *]] {
+        set type [{*}$r type $k]
+        append o [csvstring $k] , [csvstring $type] ,
+        switch $type {
+            string {
+                append o [csvstring [{*}$r get $k]] "\n"
+            }
+            list {
+                foreach e [{*}$r lrange $k 0 -1] {
+                    append o [csvstring $e] ,
+                }
+                append o "\n"
+            }
+            set {
+                foreach e [lsort [{*}$r smembers $k]] {
+                    append o [csvstring $e] ,
+                }
+                append o "\n"
+            }
+            zset {
+                foreach e [{*}$r zrange $k 0 -1 withscores] {
+                    append o [csvstring $e] ,
+                }
+                append o "\n"
+            }
+            hash {
+                set fields [{*}$r hgetall $k]
+                set newfields {}
+                foreach {k v} $fields {
+                    lappend newfields [list $k $v]
+                }
+                set fields [lsort -index 0 $newfields]
+                foreach kv $fields {
+                    append o [csvstring [lindex $kv 0]] ,
+                    append o [csvstring [lindex $kv 1]] ,
+                }
+                append o "\n"
+            }
+        }
+    }
+    return $o
+}
+
+proc csvstring s {
+    return "\"$s\""
 }

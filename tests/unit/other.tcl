@@ -46,23 +46,56 @@ start_server {} {
         set _ $err
     } {*invalid*}
 
-    if {![catch {package require sha1}]} {
-        test {Check consistency of different data types after a reload} {
-            r flushdb
-            createComplexDataset r 10000
-            set sha1 [r debug digest]
-            r debug reload
-            set sha1_after [r debug digest]
-            expr {$sha1 eq $sha1_after}
-        } {1}
+    tags {consistency} {
+        if {![catch {package require sha1}]} {
+            test {Check consistency of different data types after a reload} {
+                r flushdb
+                createComplexDataset r 10000
+                set dump [csvdump r]
+                set sha1 [r debug digest]
+                r debug reload
+                set sha1_after [r debug digest]
+                if {$sha1 eq $sha1_after} {
+                    set _ 1
+                } else {
+                    set newdump [csvdump r]
+                    puts "Consistency test failed!"
+                    puts "You can inspect the two dumps in /tmp/repldump*.txt"
 
-        test {Same dataset digest if saving/reloading as AOF?} {
-            r bgrewriteaof
-            waitForBgrewriteaof r
-            r debug loadaof
-            set sha1_after [r debug digest]
-            expr {$sha1 eq $sha1_after}
-        } {1}
+                    set fd [open /tmp/repldump1.txt w]
+                    puts $fd $dump
+                    close $fd
+                    set fd [open /tmp/repldump2.txt w]
+                    puts $fd $newdump
+                    close $fd
+
+                    set _ 0
+                }
+            } {1}
+
+            test {Same dataset digest if saving/reloading as AOF?} {
+                r bgrewriteaof
+                waitForBgrewriteaof r
+                r debug loadaof
+                set sha1_after [r debug digest]
+                if {$sha1 eq $sha1_after} {
+                    set _ 1
+                } else {
+                    set newdump [csvdump r]
+                    puts "Consistency test failed!"
+                    puts "You can inspect the two dumps in /tmp/aofdump*.txt"
+
+                    set fd [open /tmp/aofdump1.txt w]
+                    puts $fd $dump
+                    close $fd
+                    set fd [open /tmp/aofdump2.txt w]
+                    puts $fd $newdump
+                    close $fd
+
+                    set _ 0
+                }
+            } {1}
+        }
     }
 
     test {EXPIRES after a reload (snapshot + append only file)} {

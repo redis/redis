@@ -224,6 +224,7 @@ void hsetCommand(redisClient *c) {
     hashTypeTryObjectEncoding(o,&c->argv[2], &c->argv[3]);
     update = hashTypeSet(o,c->argv[2],c->argv[3]);
     addReply(c, update ? shared.czero : shared.cone);
+    touchWatchedKey(c->db,c->argv[1]);
     server.dirty++;
 }
 
@@ -238,6 +239,7 @@ void hsetnxCommand(redisClient *c) {
         hashTypeTryObjectEncoding(o,&c->argv[2], &c->argv[3]);
         hashTypeSet(o,c->argv[2],c->argv[3]);
         addReply(c, shared.cone);
+        touchWatchedKey(c->db,c->argv[1]);
         server.dirty++;
     }
 }
@@ -258,6 +260,7 @@ void hmsetCommand(redisClient *c) {
         hashTypeSet(o,c->argv[i],c->argv[i+1]);
     }
     addReply(c, shared.ok);
+    touchWatchedKey(c->db,c->argv[1]);
     server.dirty++;
 }
 
@@ -284,6 +287,7 @@ void hincrbyCommand(redisClient *c) {
     hashTypeSet(o,c->argv[2],new);
     decrRefCount(new);
     addReplyLongLong(c,value);
+    touchWatchedKey(c->db,c->argv[1]);
     server.dirty++;
 }
 
@@ -330,6 +334,7 @@ void hdelCommand(redisClient *c) {
     if (hashTypeDelete(o,c->argv[2])) {
         if (hashTypeLength(o) == 0) dbDelete(c->db,c->argv[1]);
         addReply(c,shared.cone);
+        touchWatchedKey(c->db,c->argv[1]);
         server.dirty++;
     } else {
         addReply(c,shared.czero);

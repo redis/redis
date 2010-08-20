@@ -1,12 +1,13 @@
 start_server {tags {"expire"}} {
-    test {EXPIRE - don't set timeouts multiple times} {
+    test {EXPIRE - set timeouts multiple times} {
         r set x foobar
         set v1 [r expire x 5]
         set v2 [r ttl x]
         set v3 [r expire x 10]
         set v4 [r ttl x]
+        r expire x 4
         list $v1 $v2 $v3 $v4
-    } {1 5 0 5}
+    } {1 5 1 10}
 
     test {EXPIRE - It should be still possible to read 'x'} {
         r get x
@@ -19,13 +20,13 @@ start_server {tags {"expire"}} {
         } {{} 0}
     }
 
-    test {EXPIRE - Delete on write policy} {
+    test {EXPIRE - write on expire should work} {
         r del x
         r lpush x foo
         r expire x 1000
         r lpush x bar
         r lrange x 0 -1
-    } {bar}
+    } {bar foo}
 
     test {EXPIREAT - Check for EXPIRE alike behavior} {
         r del x
@@ -59,4 +60,15 @@ start_server {tags {"expire"}} {
         catch {r setex z -10 foo} e
         set _ $e
     } {*invalid expire*}
+
+    test {PERSIST can undo an EXPIRE} {
+        r set x foo
+        r expire x 50
+        list [r ttl x] [r persist x] [r ttl x] [r get x]
+    } {50 1 -1 foo}
+
+    test {PERSIST returns 0 against non existing or non volatile keys} {
+        r set x foo
+        list [r persist foo] [r persist nokeyatall]
+    } {0 0}
 }

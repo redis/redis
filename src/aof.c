@@ -194,6 +194,7 @@ struct redisClient *createFakeClient(void) {
      * so that Redis will not try to send replies to this client. */
     c->replstate = REDIS_REPL_WAIT_BGSAVE_START;
     c->reply = listCreate();
+    c->watched_keys = listCreate();
     listSetFreeMethod(c->reply,decrRefCount);
     listSetDupMethod(c->reply,dupClientReplyValue);
     initClientMultiState(c);
@@ -203,6 +204,7 @@ struct redisClient *createFakeClient(void) {
 void freeFakeClient(struct redisClient *c) {
     sdsfree(c->querybuf);
     listRelease(c->reply);
+    listRelease(c->watched_keys);
     freeClientMultiState(c);
     zfree(c);
 }

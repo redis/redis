@@ -1,5 +1,6 @@
 #include "redis.h"
 #include <pthread.h>
+#include <math.h>
 
 robj *createObject(int type, void *ptr) {
     robj *o;
@@ -11,8 +12,7 @@ robj *createObject(int type, void *ptr) {
         listDelNode(server.objfreelist,head);
         if (server.vm_enabled) pthread_mutex_unlock(&server.obj_freelist_mutex);
     } else {
-        if (server.vm_enabled)
-            pthread_mutex_unlock(&server.obj_freelist_mutex);
+        if (server.vm_enabled) pthread_mutex_unlock(&server.obj_freelist_mutex);
         o = zmalloc(sizeof(*o));
     }
     o->type = type;
@@ -36,7 +36,8 @@ robj *createStringObject(char *ptr, size_t len) {
 
 robj *createStringObjectFromLongLong(long long value) {
     robj *o;
-    if (value >= 0 && value < REDIS_SHARED_INTEGERS) {
+    if (value >= 0 && value < REDIS_SHARED_INTEGERS &&
+        pthread_equal(pthread_self(),server.mainthread)) {
         incrRefCount(shared.integers[value]);
         o = shared.integers[value];
     } else {
@@ -197,6 +198,7 @@ void decrRefCount(void *obj) {
         case REDIS_HASH: freeHashObject(o); break;
         default: redisPanic("Unknown object type"); break;
         }
+        o->ptr = NULL; /* defensive programming. We'll see NULL in traces. */
         if (server.vm_enabled) pthread_mutex_lock(&server.obj_freelist_mutex);
         if (listLength(server.objfreelist) > REDIS_OBJFREELIST_MAX ||
             !listAddNodeHead(server.objfreelist,o))
@@ -232,8 +234,15 @@ robj *tryObjectEncoding(robj *o) {
     /* Check if we can represent this string as a long integer */
     if (isStringRepresentableAsLong(s,&value) == REDIS_ERR) return o;
 
-    /* Ok, this object can be encoded */
-    if (value >= 0 && value < REDIS_SHARED_INTEGERS) {
+    /* Ok, this object can be encoded...
+     *
+     * Can I use a shared object? Only if the object is inside a given
+     * range and if this is the main thread, since when VM is enabled we
+     * have the constraint that I/O thread should only handle non-shared
+     * objects, in order to avoid race conditions (we don't have per-object
+     * locking). */
+    if (value >= 0 && value < REDIS_SHARED_INTEGERS &&
+        pthread_equal(pthread_self(),server.mainthread)) {
         decrRefCount(o);
         incrRefCount(shared.integers[value]);
         return shared.integers[value];
@@ -329,7 +338,7 @@ int getDoubleFromObject(robj *o, double *target) {
         redisAssert(o->type == REDIS_STRING);
         if (o->encoding == REDIS_ENCODING_RAW) {
             value = strtod(o->ptr, &eptr);
-            if (eptr[0] != '\0') return REDIS_ERR;
+            if (eptr[0] != '\0' || isnan(value)) return REDIS_ERR;
         } else if (o->encoding == REDIS_ENCODING_INT) {
             value = (long)o->ptr;
         } else {

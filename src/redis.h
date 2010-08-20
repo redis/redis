@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <inttypes.h>
+#include <pthread.h>
 
 #include "ae.h"     /* Event driven programming library */
 #include "sds.h"    /* Dynamic safe strings */
@@ -329,6 +330,7 @@ struct sharedObjectsStruct {
 
 /* Global server state structure */
 struct redisServer {
+    pthread_t mainthread;
     int port;
     int fd;
     redisDb *db;
@@ -775,10 +777,10 @@ void resetServerSaveParams();
 
 /* db.c -- Keyspace access API */
 int removeExpire(redisDb *db, robj *key);
+void propagateExpire(redisDb *db, robj *key);
 int expireIfNeeded(redisDb *db, robj *key);
-int deleteIfVolatile(redisDb *db, robj *key);
 time_t getExpire(redisDb *db, robj *key);
-int setExpire(redisDb *db, robj *key, time_t when);
+void setExpire(redisDb *db, robj *key, time_t when);
 robj *lookupKey(redisDb *db, robj *key);
 robj *lookupKeyRead(redisDb *db, robj *key);
 robj *lookupKeyWrite(redisDb *db, robj *key);
@@ -861,6 +863,7 @@ void expireCommand(redisClient *c);
 void expireatCommand(redisClient *c);
 void getsetCommand(redisClient *c);
 void ttlCommand(redisClient *c);
+void persistCommand(redisClient *c);
 void slaveofCommand(redisClient *c);
 void debugCommand(redisClient *c);
 void msetCommand(redisClient *c);
@@ -882,6 +885,7 @@ void blpopCommand(redisClient *c);
 void brpopCommand(redisClient *c);
 void appendCommand(redisClient *c);
 void substrCommand(redisClient *c);
+void strlenCommand(redisClient *c);
 void zrankCommand(redisClient *c);
 void zrevrankCommand(redisClient *c);
 void hsetCommand(redisClient *c);
@@ -907,5 +911,12 @@ void punsubscribeCommand(redisClient *c);
 void publishCommand(redisClient *c);
 void watchCommand(redisClient *c);
 void unwatchCommand(redisClient *c);
+
+#if defined(__GNUC__)
+void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
+void free(void *ptr) __attribute__ ((deprecated));
+void *malloc(size_t size) __attribute__ ((deprecated));
+void *realloc(void *ptr, size_t size) __attribute__ ((deprecated));
+#endif
 
 #endif

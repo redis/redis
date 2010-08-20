@@ -111,4 +111,25 @@ start_server {tags {"cas"}} {
         r ping
         r exec
     } {PONG}
+
+    test {WATCH will consider touched keys target of EXPIRE} {
+        r del x
+        r set x foo
+        r watch x
+        r expire x 10
+        r multi
+        r ping
+        r exec
+    } {}
+
+    test {WATCH will not consider touched expired keys} {
+        r del x
+        r set x foo
+        r expire x 2
+        r watch x
+        after 3000
+        r multi
+        r ping
+        r exec
+    } {PONG}
 }

@@ -1,0 +1,19 @@
+To compile Redis, do the following:
+
+    cd src; make
+
+The compilation will produce a redis-server binary.
+Copy this file where you want.
+
+Run the server using the following command line:
+
+    /path/to/redis-server
+
+This will start a Redis server with the default configuration.
+
+Otherwise if you want to provide your configuration use:
+
+    /path/to/redis-server /path/to/redis.conf
+
+You can find an example redis.conf file in the root directory
+of this source distribution.

@@ -86,10 +86,9 @@ void vmInit(void) {
     } else {
         redisLog(REDIS_NOTICE,"Swap file allocated with success");
     }
-    server.vm_bitmap = zmalloc((server.vm_pages+7)/8);
+    server.vm_bitmap = zcalloc((server.vm_pages+7)/8);
     redisLog(REDIS_VERBOSE,"Allocated %lld bytes page table for %lld pages",
         (long long) (server.vm_pages+7)/8, server.vm_pages);
-    memset(server.vm_bitmap,0,(server.vm_pages+7)/8);
 
     /* Initialize threaded I/O (used by Virtual Memory) */
     server.io_newjobs = listCreate();
@@ -1075,6 +1074,11 @@ int dontWaitForSwappedKey(redisClient *c, robj *key) {
     listIter li;
     struct dictEntry *de;
 
+    /* The key object might be destroyed when deleted from the c->io_keys
+     * list (and the "key" argument is physically the same object as the
+     * object inside the list), so we need to protect it. */
+    incrRefCount(key);
+
     /* Remove the key from the list of keys this client is waiting for. */
     listRewind(c->io_keys,&li);
     while ((ln = listNext(&li)) != NULL) {
@@ -1095,6 +1099,7 @@ int dontWaitForSwappedKey(redisClient *c, robj *key) {
     if (listLength(l) == 0)
         dictDelete(c->db->io_keys,key);
 
+    decrRefCount(key);
     return listLength(c->io_keys) == 0;
 }
 
