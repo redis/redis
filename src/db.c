@@ -217,17 +217,25 @@ void randomkeyCommand(redisClient *c) {
     decrRefCount(key);
 }
 
-void keysCommand(redisClient *c) {
+static void addToReply(void *context, robj *keyobj) {
+    redisClient *c = (redisClient *)context;
+    if (expireIfNeeded(c->db,keyobj) == 0) {
+        addReplyBulk(c,keyobj);
+    }
+}
+
+static void addToList(void *context, robj *keyobj) {
+    robj *lobj = (robj *)context;
+    listTypePush(lobj,keyobj,REDIS_TAIL);
+}
+
+static unsigned long scanKeys(redisDb *db, sds pattern, void (*callback)(void *, robj *), void *context) {
     dictIterator *di;
     dictEntry *de;
-    sds pattern = c->argv[1]->ptr;
     int plen = sdslen(pattern);
     unsigned long numkeys = 0;
-    robj *lenobj = createObject(REDIS_STRING,NULL);
 
-    di = dictGetIterator(c->db->dict);
-    addReply(c,lenobj);
-    decrRefCount(lenobj);
+    di = dictGetIterator(db->dict);
     while((de = dictNext(di)) != NULL) {
         sds key = dictGetEntryKey(de);
         robj *keyobj;
@@ -235,15 +243,47 @@ void keysCommand(redisClient *c) {
         if ((pattern[0] == '*' && pattern[1] == '\0') ||
             stringmatchlen(pattern,plen,key,sdslen(key),0)) {
             keyobj = createStringObject(key,sdslen(key));
-            if (expireIfNeeded(c->db,keyobj) == 0) {
-                addReplyBulk(c,keyobj);
+            if (expireIfNeeded(db,keyobj) == 0) {
+                callback(context,keyobj);
                 numkeys++;
             }
             decrRefCount(keyobj);
         }
     }
     dictReleaseIterator(di);
+    return numkeys;
+}
+
+void keysCommand(redisClient *c) {
+    sds pattern = c->argv[1]->ptr;
+    robj *lenobj = createObject(REDIS_STRING,NULL);
+    unsigned long numkeys;
+
+    addReply(c,lenobj);
+    decrRefCount(lenobj);
+    numkeys = scanKeys(c->db,pattern,addToReply,c);
     lenobj->ptr = sdscatprintf(sdsempty(),"*%lu\r\n",numkeys);
+}
+
+void keystolistCommand(redisClient *c) {
+    sds pattern = c->argv[1]->ptr;
+    robj *lobj = lookupKeyWrite(c->db,c->argv[2]);
+    unsigned long numkeys;
+
+    if (lobj != NULL) {
+        if (lobj->type != REDIS_LIST) {
+            addReply(c,shared.wrongtypeerr);
+            return;
+        }
+        dbDelete(c->db,c->argv[2]);
+    }
+    lobj = createZiplistObject();
+    dbAdd(c->db,c->argv[2],lobj);
+
+    numkeys = scanKeys(c->db,pattern,addToList,lobj);
+    addReplyLongLong(c,numkeys);
+    touchWatchedKey(c->db,c->argv[2]);
+    server.dirty++;
 }
 
 void dbsizeCommand(redisClient *c) {

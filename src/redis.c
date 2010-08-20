@@ -150,6 +150,7 @@ struct redisCommand readonlyCommandTable[] = {
     {"expire",expireCommand,3,REDIS_CMD_INLINE,NULL,0,0,0},
     {"expireat",expireatCommand,3,REDIS_CMD_INLINE,NULL,0,0,0},
     {"keys",keysCommand,2,REDIS_CMD_INLINE,NULL,0,0,0},
+    {"keystolist",keystolistCommand,3,REDIS_CMD_INLINE,NULL,0,0,0},
     {"dbsize",dbsizeCommand,1,REDIS_CMD_INLINE,NULL,0,0,0},
     {"auth",authCommand,2,REDIS_CMD_INLINE,NULL,0,0,0},
     {"ping",pingCommand,1,REDIS_CMD_INLINE,NULL,0,0,0},
