@@ -471,6 +471,7 @@ void activeExpireCycle(void) {
                     dbDelete(db,keyobj);
                     decrRefCount(keyobj);
                     expired++;
+                    db->expired_count++;
                     server.stat_expiredkeys++;
                 }
             }
@@ -734,6 +735,7 @@ void initServerConfig() {
     server.maxclients = 0;
     server.blpop_blocked_clients = 0;
     server.maxmemory = 0;
+    server.maxmemory_margin = 0;
     server.memory_pressure_selection = 3;
     server.vm_enabled = 0;
     server.vm_swap_file = zstrdup("/tmp/redis-%p.vm");
@@ -803,6 +805,8 @@ void initServer() {
         if (server.vm_enabled)
             server.db[j].io_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].id = j;
+        server.db[j].expired_count = 0;
+        server.db[j].prematurely_expired_count = 0;
     }
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
     server.pubsub_patterns = listCreate();
@@ -1257,8 +1261,8 @@ sds genRedisInfoString(void) {
         keys = dictSize(server.db[j].dict);
         vkeys = dictSize(server.db[j].expires);
         if (keys || vkeys) {
-            info = sdscatprintf(info, "db%d:keys=%lld,expires=%lld\r\n",
-                j, keys, vkeys);
+            info = sdscatprintf(info, "db%d:keys=%lld,expires=%lld,expired=%lu,premature=%lu\r\n",
+                j, keys, vkeys, server.db[j].expired_count, server.db[j].prematurely_expired_count);
         }
     }
     return info;
@@ -1317,7 +1321,7 @@ int tryFreeOneObjectFromFreelist(void) {
  * memory usage.
  */
 void freeMemoryIfNeeded(void) {
-    while (server.maxmemory && zmalloc_used_memory() > server.maxmemory) {
+    while (server.maxmemory && zmalloc_used_memory() + server.maxmemory_margin > server.maxmemory) {
         int j, k, freed = 0;
 
         if (tryFreeOneObjectFromFreelist() == REDIS_OK) continue;
@@ -1343,6 +1347,8 @@ void freeMemoryIfNeeded(void) {
 
                 dictDelete(server.db[j].expires,minkey);
                 dictDelete(server.db[j].dict,minkey);
+                server.db[j].expired_count++;
+                server.db[j].prematurely_expired_count++;
             }
         }
         if (!freed) return; /* nothing to free... */

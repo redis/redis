@@ -123,6 +123,8 @@ void loadServerConfig(char *filename) {
             server.maxclients = atoi(argv[1]);
         } else if (!strcasecmp(argv[0],"maxmemory") && argc == 2) {
             server.maxmemory = memtoll(argv[1],NULL);
+        } else if (!strcasecmp(argv[0],"maxmemory_margin") && argc == 2) {
+            server.maxmemory_margin = memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"memory_pressure_selection") && argc == 2) {
             server.memory_pressure_selection = atoi(argv[1]);
         } else if (!strcasecmp(argv[0],"slaveof") && argc == 3) {
