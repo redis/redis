@@ -220,7 +220,7 @@ void sortCommand(redisClient *c) {
         }
         listTypeReleaseIterator(li);
     } else if (sortval->type == REDIS_SET) {
-        setIterator *si = setTypeInitIterator(sortval);
+        setTypeIterator *si = setTypeInitIterator(sortval);
         robj *ele;
         while((ele = setTypeNext(si)) != NULL) {
             vector[j].obj = ele;

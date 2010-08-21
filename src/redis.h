@@ -545,7 +545,7 @@ typedef struct {
     int encoding;
     int ii; /* intset iterator */
     dictIterator *di;
-} setIterator;
+} setTypeIterator;
 
 /* Structure to hold hash iteration abstration. Note that iteration over
  * hashes involves both fields and values. Because it is possible that
@@ -734,9 +734,9 @@ robj *setTypeCreate(robj *value);
 int setTypeAdd(robj *subject, robj *value);
 int setTypeRemove(robj *subject, robj *value);
 int setTypeIsMember(robj *subject, robj *value);
-setIterator *setTypeInitIterator(robj *subject);
-void setTypeReleaseIterator(setIterator *si);
-robj *setTypeNext(setIterator *si);
+setTypeIterator *setTypeInitIterator(robj *subject);
+void setTypeReleaseIterator(setTypeIterator *si);
+robj *setTypeNext(setTypeIterator *si);
 robj *setTypeRandomElement(robj *subject);
 unsigned long setTypeSize(robj *subject);
 void setTypeConvert(robj *subject, int enc);

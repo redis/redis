@@ -80,8 +80,8 @@ int setTypeIsMember(robj *subject, robj *value) {
     return 0;
 }
 
-setIterator *setTypeInitIterator(robj *subject) {
-    setIterator *si = zmalloc(sizeof(setIterator));
+setTypeIterator *setTypeInitIterator(robj *subject) {
+    setTypeIterator *si = zmalloc(sizeof(setIterator));
     si->subject = subject;
     si->encoding = subject->encoding;
     if (si->encoding == REDIS_ENCODING_HT) {
@@ -94,7 +94,7 @@ setIterator *setTypeInitIterator(robj *subject) {
     return si;
 }
 
-void setTypeReleaseIterator(setIterator *si) {
+void setTypeReleaseIterator(setTypeIterator *si) {
     if (si->encoding == REDIS_ENCODING_HT)
         dictReleaseIterator(si->di);
     zfree(si);
@@ -103,7 +103,7 @@ void setTypeReleaseIterator(setIterator *si) {
 /* Move to the next entry in the set. Returns the object at the current
  * position, or NULL when the end is reached. This object will have its
  * refcount incremented, so the caller needs to take care of this. */
-robj *setTypeNext(setIterator *si) {
+robj *setTypeNext(setTypeIterator *si) {
     robj *ret = NULL;
     if (si->encoding == REDIS_ENCODING_HT) {
         dictEntry *de = dictNext(si->di);
@@ -151,7 +151,7 @@ unsigned long setTypeSize(robj *subject) {
  * to a hashtable) is presized to hold the number of elements in the original
  * set. */
 void setTypeConvert(robj *subject, int enc) {
-    setIterator *si;
+    setTypeIterator *si;
     robj *element;
     redisAssert(subject->type == REDIS_SET);
 
@@ -319,7 +319,7 @@ int qsortCompareSetsByCardinality(const void *s1, const void *s2) {
 
 void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, robj *dstkey) {
     robj **sets = zmalloc(sizeof(robj*)*setnum);
-    setIterator *si;
+    setTypeIterator *si;
     robj *ele, *lenobj = NULL, *dstset = NULL;
     unsigned long j, cardinality = 0;
 
@@ -419,7 +419,7 @@ void sinterstoreCommand(redisClient *c) {
 
 void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *dstkey, int op) {
     robj **sets = zmalloc(sizeof(robj*)*setnum);
-    setIterator *si;
+    setTypeIterator *si;
     robj *ele, *dstset = NULL;
     int j, cardinality = 0;
 

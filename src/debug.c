@@ -119,7 +119,7 @@ void computeDatasetDigest(unsigned char *final) {
                 }
                 listTypeReleaseIterator(li);
             } else if (o->type == REDIS_SET) {
-                setIterator *si = setTypeInitIterator(o);
+                setTypeIterator *si = setTypeInitIterator(o);
                 robj *ele;
                 while((ele = setTypeNext(si)) != NULL) {
                     xorObjectDigest(digest,ele);
