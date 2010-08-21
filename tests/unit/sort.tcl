@@ -34,15 +34,23 @@ start_server {
         set _ $result
     }
 
+    foreach {num cmd enc title} {
+        16 lpush ziplist "Ziplist"
+        64 lpush linkedlist "Linked list"
+    } {
+        set result [create_random_dataset $num $cmd]
+        assert_encoding $enc tosort
+
+        test "$title: SORT BY key" {
+            assert_equal $result [r sort tosort {BY weight_*}]
+        }
+
+        test "$title: SORT BY hash field" {
+            assert_equal $result [r sort tosort {BY wobj_*->weight}]
+        }
+    }
+
     set result [create_random_dataset 16 lpush]
-    test "SORT BY key" {
-        assert_equal $result [r sort tosort {BY weight_*}]
-    }
-
-    test "SORT BY hash field" {
-        assert_equal $result [r sort tosort {BY wobj_*->weight}]
-    }
-
     test "SORT GET #" {
         assert_equal [lsort -integer $result] [r sort tosort GET #]
     }
