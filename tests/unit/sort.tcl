@@ -3,6 +3,7 @@ start_server {
     overrides {
         "list-max-ziplist-value" 16
         "list-max-ziplist-entries" 32
+        "set-max-intset-entries" 32
     }
 } {
     proc create_random_dataset {num cmd} {
@@ -37,6 +38,7 @@ start_server {
     foreach {num cmd enc title} {
         16 lpush ziplist "Ziplist"
         64 lpush linkedlist "Linked list"
+        64 sadd hashtable "Hash table"
     } {
         set result [create_random_dataset $num $cmd]
         assert_encoding $enc tosort
