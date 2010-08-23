@@ -1328,7 +1328,7 @@ void freeMemoryIfNeeded(void) {
         if (tryFreeOneObjectFromFreelist() == REDIS_OK) continue;
         for (j = 0; j < server.dbnum; j++) {
             int minttl = -1;
-            robj *minkey = NULL;
+            sds minkey = NULL;
             struct dictEntry *de;
 
             if (dictSize(server.db[j].expires)) {
@@ -1346,10 +1346,11 @@ void freeMemoryIfNeeded(void) {
                     }
                 }
 
-                dictDelete(server.db[j].expires,minkey);
-                dictDelete(server.db[j].dict,minkey);
-                server.db[j].expired_count++;
-                server.db[j].prematurely_expired_count++;
+                if (dictDelete(server.db[j].expires,minkey) == DICT_OK &&
+                    dictDelete(server.db[j].dict,minkey) == DICT_OK) {
+                    server.db[j].expired_count++;
+                    server.db[j].prematurely_expired_count++;
+                }
             }
         }
         if (!freed) return; /* nothing to free... */
@@ -1546,6 +1547,8 @@ void setupSigTermAction(void) {
 
 #else /* HAVE_BACKTRACE */
 void setupSigSegvAction(void) {
+}
+void setupSigTermAction(void) {
 }
 #endif /* HAVE_BACKTRACE */
 

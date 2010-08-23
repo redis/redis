@@ -219,9 +219,7 @@ void randomkeyCommand(redisClient *c) {
 
 static void addToReply(void *context, robj *keyobj) {
     redisClient *c = (redisClient *)context;
-    if (expireIfNeeded(c->db,keyobj) == 0) {
-        addReplyBulk(c,keyobj);
-    }
+    addReplyBulk(c,keyobj);
 }
 
 static void addToList(void *context, robj *keyobj) {
@@ -267,7 +265,8 @@ void keysCommand(redisClient *c) {
 
 void keystolistCommand(redisClient *c) {
     sds pattern = c->argv[1]->ptr;
-    robj *lobj = lookupKeyWrite(c->db,c->argv[2]);
+    robj *key = c->argv[2];
+    robj *lobj = lookupKeyWrite(c->db,key);
     unsigned long numkeys;
 
     if (lobj != NULL) {
@@ -275,14 +274,14 @@ void keystolistCommand(redisClient *c) {
             addReply(c,shared.wrongtypeerr);
             return;
         }
-        dbDelete(c->db,c->argv[2]);
+        dbDelete(c->db,key);
     }
     lobj = createZiplistObject();
-    dbAdd(c->db,c->argv[2],lobj);
+    dbAdd(c->db,key,lobj);
 
     numkeys = scanKeys(c->db,pattern,addToList,lobj);
     addReplyLongLong(c,numkeys);
-    touchWatchedKey(c->db,c->argv[2]);
+    touchWatchedKey(c->db,key);
     server.dirty++;
 }
 
