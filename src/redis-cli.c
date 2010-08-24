@@ -36,6 +36,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <errno.h>
 
 #include "anet.h"
 #include "sds.h"
@@ -67,11 +68,14 @@ static struct config {
 static int cliReadReply(int fd);
 static void usage();
 
-static int cliConnect(void) {
+/* Connect to the client. If force is not zero the connection is performed
+ * even if there is already a connected socket. */
+static int cliConnect(int force) {
     char err[ANET_ERR_LEN];
     static int fd = ANET_ERR;
 
-    if (fd == ANET_ERR) {
+    if (fd == ANET_ERR || force) {
+        if (force) close(fd);
         fd = anetTcpConnect(err,config.hostip,config.hostport);
         if (fd == ANET_ERR) {
             fprintf(stderr, "Could not connect to Redis at %s:%d: %s", config.hostip, config.hostport, err);
@@ -191,10 +195,18 @@ static int cliReadMultiBulkReply(int fd) {
 
 static int cliReadReply(int fd) {
     char type;
+    int nread;
 
-    if (anetRead(fd,&type,1) <= 0) {
+    if ((nread = anetRead(fd,&type,1)) <= 0) {
         if (config.shutdown) return 0;
-        exit(1);
+        if (config.interactive &&
+            (nread == 0 || (nread == -1 && errno == ECONNRESET)))
+        {
+            return ECONNRESET;
+        } else {
+            printf("I/O error while reading from socket: %s",strerror(errno));
+            exit(1);
+        }
     }
     switch(type) {
     case '-':
@@ -246,7 +258,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
     if (!strcasecmp(command,"monitor")) config.monitor_mode = 1;
     if (!strcasecmp(command,"subscribe") ||
         !strcasecmp(command,"psubscribe")) config.pubsub_mode = 1;
-    if ((fd = cliConnect()) == -1) return 1;
+    if ((fd = cliConnect(0)) == -1) return 1;
 
     /* Select db number */
     retval = selectDb(fd);
@@ -381,9 +393,21 @@ static void repl() {
             if (argc > 0) {
                 if (strcasecmp(argv[0],"quit") == 0 ||
                     strcasecmp(argv[0],"exit") == 0)
-                        exit(0);
-                else
-                    cliSendCommand(argc, argv, 1);
+                {
+                    exit(0);
+                } else {
+                    int err;
+
+                    if ((err = cliSendCommand(argc, argv, 1)) != 0) {
+                        if (err == ECONNRESET) {
+                            printf("Reconnecting... ");
+                            fflush(stdout);
+                            if (cliConnect(1) == -1) exit(1);
+                            printf("OK\n");
+                            cliSendCommand(argc,argv,1);
+                        }
+                    }
+                }
             }
             /* Free the argument vector */
             for (j = 0; j < argc; j++)
@@ -431,7 +455,8 @@ int main(int argc, char **argv) {
         cliSendCommand(2, convertToSds(2, authargv), 1);
     }
 
-    if (argc == 0 || config.interactive == 1) repl();
+    if (argc == 0) config.interactive = 1;
+    if (config.interactive) repl();
 
     argvcopy = convertToSds(argc+1, argv);
     if (config.argn_from_stdin) {
