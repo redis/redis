@@ -466,6 +466,7 @@ void closeTimedoutClients(void) {
         if (server.maxidletime &&
             !(c->flags & REDIS_SLAVE) &&    /* no timeout for slaves */
             !(c->flags & REDIS_MASTER) &&   /* no timeout for masters */
+            !(c->flags & REDIS_BLOCKED) &&  /* no timeout for BLPOP */
             dictSize(c->pubsub_channels) == 0 && /* no timeout for pubsub */
             listLength(c->pubsub_patterns) == 0 &&
             (now - c->lastinteraction > server.maxidletime))
