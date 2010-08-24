@@ -912,9 +912,14 @@ int processCommand(redisClient *c) {
                 resetClient(c);
                 return 1;
             } else {
-                int bulklen = atoi(((char*)c->argv[0]->ptr)+1);
+                char *eptr;
+                long bulklen = strtol(((char*)c->argv[0]->ptr)+1,&eptr,10);
+                int perr = eptr[0] != '\0';
+
                 decrRefCount(c->argv[0]);
-                if (bulklen < 0 || bulklen > 1024*1024*1024) {
+                if (perr || bulklen == LONG_MIN || bulklen == LONG_MAX ||
+                    bulklen < 0 || bulklen > 1024*1024*1024)
+                {
                     c->argc--;
                     addReplySds(c,sdsnew("-ERR invalid bulk write count\r\n"));
                     resetClient(c);
@@ -984,10 +989,14 @@ int processCommand(redisClient *c) {
         return 1;
     } else if (cmd->flags & REDIS_CMD_BULK && c->bulklen == -1) {
         /* This is a bulk command, we have to read the last argument yet. */
-        int bulklen = atoi(c->argv[c->argc-1]->ptr);
+        char *eptr;
+        long bulklen = strtol(c->argv[c->argc-1]->ptr,&eptr,10);
+        int perr = eptr[0] != '\0';
 
         decrRefCount(c->argv[c->argc-1]);
-        if (bulklen < 0 || bulklen > 1024*1024*1024) {
+        if (perr || bulklen == LONG_MAX || bulklen == LONG_MIN ||
+            bulklen < 0 || bulklen > 1024*1024*1024)
+        {
             c->argc--;
             addReplySds(c,sdsnew("-ERR invalid bulk write count\r\n"));
             resetClient(c);
