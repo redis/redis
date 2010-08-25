@@ -36,9 +36,11 @@ start_server {tags {"cli"}} {
     }
 
     proc test_interactive_cli {name code} {
+        set ::env(FAKETTY) 1
         set fd [open_cli]
         test "Interactive CLI: $name" $code
         close_cli $fd
+        unset ::env(FAKETTY)
     }
 
     proc run_nontty_cli {args} {
