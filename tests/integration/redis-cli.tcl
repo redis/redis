@@ -28,6 +28,7 @@ start_server {tags {"cli"}} {
         flush $fd
     }
 
+    # Helpers to run tests in interactive mode
     proc run_command {fd cmd} {
         write_cli $fd $cmd
         set lines [split [read_cli $fd] "\n"]
@@ -43,6 +44,7 @@ start_server {tags {"cli"}} {
         unset ::env(FAKETTY)
     }
 
+    # Helpers to run tests where stdout is not a tty
     proc run_nontty_cli {args} {
         set fd [open [format "|src/redis-cli -p %d -n 9 $args" [srv port]] "r"]
         fconfigure $fd -buffering none
@@ -56,6 +58,7 @@ start_server {tags {"cli"}} {
         test "Non-interactive non-TTY CLI: $name" $code
     }
 
+    # Helpers to run tests where stdout is a tty
     proc run_tty_cli {args} {
         set ::env(FAKETTY) 1
         set resp [run_nontty_cli {*}$args]
