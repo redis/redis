@@ -56,6 +56,7 @@ static struct config {
     long repeat;
     int dbnum;
     int argn_from_stdin;
+    int interactive;
     int shutdown;
     int monitor_mode;
     int pubsub_mode;
@@ -393,6 +394,7 @@ static void repl() {
     char *line;
     sds *argv;
 
+    config.interactive = 1;
     while((line = linenoise("redis> ")) != NULL) {
         if (line[0] != '\0') {
             argv = sdssplitargs(line,&argc);
@@ -440,6 +442,7 @@ int main(int argc, char **argv) {
     config.repeat = 1;
     config.dbnum = 0;
     config.argn_from_stdin = 0;
+    config.interactive = 0;
     config.shutdown = 0;
     config.monitor_mode = 0;
     config.pubsub_mode = 0;
