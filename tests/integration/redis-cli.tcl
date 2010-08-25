@@ -45,7 +45,7 @@ start_server {tags {"cli"}} {
     }
 
     # Helpers to run tests where stdout is not a tty
-    proc run_nontty_cli {args} {
+    proc run_cli {args} {
         set fd [open [format "|src/redis-cli -p %d -n 9 $args" [srv port]] "r"]
         fconfigure $fd -buffering none
         fconfigure $fd -translation binary
@@ -58,16 +58,11 @@ start_server {tags {"cli"}} {
         test "Non-interactive non-TTY CLI: $name" $code
     }
 
-    # Helpers to run tests where stdout is a tty
-    proc run_tty_cli {args} {
-        set ::env(FAKETTY) 1
-        set resp [run_nontty_cli {*}$args]
-        unset ::env(FAKETTY)
-        set _ $resp
-    }
-
+    # Helpers to run tests where stdout is a tty (fake it)
     proc test_tty_cli {name code} {
+        set ::env(FAKETTY) 1
         test "Non-interactive TTY CLI: $name" $code
+        unset ::env(FAKETTY)
     }
 
     test_interactive_cli "INFO response should be printed raw" {
@@ -116,46 +111,46 @@ start_server {tags {"cli"}} {
     }
 
     test_tty_cli "Status reply" {
-        assert_equal "OK\n" [run_tty_cli set key bar]
+        assert_equal "OK\n" [run_cli set key bar]
         assert_equal "bar" [r get key]
     }
 
     test_tty_cli "Integer reply" {
         r del counter
-        assert_equal "(integer) 1\n" [run_tty_cli incr counter]
+        assert_equal "(integer) 1\n" [run_cli incr counter]
     }
 
     test_tty_cli "Bulk reply" {
         r set key "tab\tnewline\n"
-        assert_equal "\"tab\\tnewline\\n\"\n" [run_tty_cli get key]
+        assert_equal "\"tab\\tnewline\\n\"\n" [run_cli get key]
     }
 
     test_tty_cli "Multi-bulk reply" {
         r del list
         r rpush list foo
         r rpush list bar
-        assert_equal "1. \"foo\"\n2. \"bar\"\n" [run_tty_cli lrange list 0 -1]
+        assert_equal "1. \"foo\"\n2. \"bar\"\n" [run_cli lrange list 0 -1]
     }
 
     test_nontty_cli "Status reply" {
-        assert_equal "OK" [run_nontty_cli set key bar]
+        assert_equal "OK" [run_cli set key bar]
         assert_equal "bar" [r get key]
     }
 
     test_nontty_cli "Integer reply" {
         r del counter
-        assert_equal "1" [run_nontty_cli incr counter]
+        assert_equal "1" [run_cli incr counter]
     }
 
     test_nontty_cli "Bulk reply" {
         r set key "tab\tnewline\n"
-        assert_equal "tab\tnewline\n" [run_nontty_cli get key]
+        assert_equal "tab\tnewline\n" [run_cli get key]
     }
 
     test_nontty_cli "Multi-bulk reply" {
         r del list
         r rpush list foo
         r rpush list bar
-        assert_equal "foo\nbar" [run_nontty_cli lrange list 0 -1]
+        assert_equal "foo\nbar" [run_cli lrange list 0 -1]
     }
 }
