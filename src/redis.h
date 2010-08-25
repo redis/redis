@@ -283,7 +283,7 @@ typedef struct redisClient {
     sds querybuf;
     robj **argv, **mbargv;
     int argc, mbargc;
-    int bulklen;            /* bulk read len. -1 if not in bulk read mode */
+    long bulklen;            /* bulk read len. -1 if not in bulk read mode */
     int multibulk;          /* multi bulk command format active */
     list *reply;
     int sentlen;
@@ -752,10 +752,10 @@ void resetServerSaveParams();
 
 /* db.c -- Keyspace access API */
 int removeExpire(redisDb *db, robj *key);
+void propagateExpire(redisDb *db, robj *key);
 int expireIfNeeded(redisDb *db, robj *key);
-int deleteIfVolatile(redisDb *db, robj *key);
 time_t getExpire(redisDb *db, robj *key);
-int setExpire(redisDb *db, robj *key, time_t when);
+void setExpire(redisDb *db, robj *key, time_t when);
 robj *lookupKey(redisDb *db, robj *key);
 robj *lookupKeyRead(redisDb *db, robj *key);
 robj *lookupKeyWrite(redisDb *db, robj *key);
@@ -838,6 +838,7 @@ void expireCommand(redisClient *c);
 void expireatCommand(redisClient *c);
 void getsetCommand(redisClient *c);
 void ttlCommand(redisClient *c);
+void persistCommand(redisClient *c);
 void slaveofCommand(redisClient *c);
 void debugCommand(redisClient *c);
 void msetCommand(redisClient *c);

@@ -27,6 +27,13 @@ start_server {} {
         gets $fd
     } {*invalid bulk*count*}
 
+    test {bulk payload is not a number} {
+        set fd [r channel]
+        puts -nonewline $fd "SET x blabla\r\n"
+        flush $fd
+        gets $fd
+    } {*invalid bulk*count*}
+
     test {Multi bulk request not followed by bulk args} {
         set fd [r channel]
         puts -nonewline $fd "*1\r\nfoo\r\n"

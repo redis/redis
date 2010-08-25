@@ -140,12 +140,19 @@ proc findKeyWithType {r type} {
     return {}
 }
 
-proc createComplexDataset {r ops} {
+proc createComplexDataset {r ops {opt {}}} {
     for {set j 0} {$j < $ops} {incr j} {
         set k [randomKey]
         set k2 [randomKey]
         set f [randomValue]
         set v [randomValue]
+
+        if {[lsearch -exact $opt useexpire] != -1} {
+            if {rand() < 0.1} {
+                {*}$r expire [randomKey] [randomInt 2]
+            }
+        }
+
         randpath {
             set d [expr {rand()}]
         } {
