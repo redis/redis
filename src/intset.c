@@ -58,20 +58,6 @@ static intset *intsetResize(intset *is, uint32_t len) {
     return is;
 }
 
-static intset *intsetUpgrade(intset *is, uint8_t newenc, uint8_t extra, uint8_t offset) {
-    uint8_t curenc = is->encoding;
-    int length = is->length;
-
-    /* First set new encoding and resize */
-    is->encoding = newenc;
-    is = intsetResize(is,is->length+extra);
-
-    /* Upgrade back-to-front so we don't overwrite values */
-    while(length--)
-        _intsetSet(is,length+offset,_intsetGetEncoded(is,length,curenc));
-    return is;
-}
-
 /* Search for the position of "value". Return 1 when the value was found and
  * sets "pos" to the position of the value within the intset. Return 0 when
  * the value is not present in the intset and sets "pos" to the position
@@ -117,6 +103,32 @@ static uint8_t intsetSearch(intset *is, int64_t value, uint32_t *pos) {
     }
 }
 
+/* Upgrades the intset to a larger encoding and inserts the given integer. */
+static intset *intsetUpgradeAndAdd(intset *is, int64_t value) {
+    uint8_t curenc = is->encoding;
+    uint8_t newenc = _intsetValueEncoding(value);
+    int length = is->length;
+    int prepend = value < 0 ? 1 : 0;
+
+    /* First set new encoding and resize */
+    is->encoding = newenc;
+    is = intsetResize(is,is->length+1);
+
+    /* Upgrade back-to-front so we don't overwrite values.
+     * Note that the "prepend" variable is used to make sure we have an empty
+     * space at either the beginning or the end of the intset. */
+    while(length--)
+        _intsetSet(is,length+prepend,_intsetGetEncoded(is,length,curenc));
+
+    /* Set the value at the beginning or the end. */
+    if (prepend)
+        _intsetSet(is,0,value);
+    else
+        _intsetSet(is,is->length,value);
+    is->length++;
+    return is;
+}
+
 static void intsetMoveTail(intset *is, uint32_t from, uint32_t to) {
     void *src, *dst;
     uint32_t bytes = is->length-from;
@@ -146,9 +158,8 @@ intset *intsetAdd(intset *is, int64_t value, uint8_t *success) {
      * this value should be either appended (if > 0) or prepended (if < 0),
      * because it lies outside the range of existing values. */
     if (valenc > is->encoding) {
-        offset = value < 0 ? 1 : 0;
-        is = intsetUpgrade(is,valenc,1,offset);
-        pos = (value < 0) ? 0 : is->length;
+        /* This always succeeds, so we don't need to curry *success. */
+        return intsetUpgradeAndAdd(is,value);
     } else {
         /* Abort if the value is already present in the set.
          * This call will populate "pos" with the right position to insert
