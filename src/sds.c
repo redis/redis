@@ -465,7 +465,7 @@ sds *sdssplitargs(char *line, int *argc) {
     }
 
 err:
-    while(*argc--)
+    while((*argc)--)
         sdsfree(vector[*argc]);
     zfree(vector);
     if (current) sdsfree(current);
