@@ -230,7 +230,11 @@ proc start_server {options {code undefined}} {
         
         # execute provided block
         set curnum $::testnum
-        catch { uplevel 1 $code } err
+        if {![catch { uplevel 1 $code } err]} {
+            # zero exit status is good
+            unset err
+        }
+
         if {$curnum == $::testnum} {
             # don't check for leaks when no tests were executed
             dict set srv "skipleaks" 1
@@ -241,22 +245,24 @@ proc start_server {options {code undefined}} {
         
         # allow an exception to bubble up the call chain but still kill this
         # server, because we want to reuse the ports when the tests are re-run
-        if {$err eq "exception"} {
-            puts [format "Logged warnings (pid %d):" [dict get $srv "pid"]]
-            set warnings [warnings_from_file [dict get $srv "stdout"]]
-            if {[string length $warnings] > 0} {
-                puts "$warnings"
-            } else {
-                puts "(none)"
+        if {[info exists err]} {
+            if {$err eq "exception"} {
+                puts [format "Logged warnings (pid %d):" [dict get $srv "pid"]]
+                set warnings [warnings_from_file [dict get $srv "stdout"]]
+                if {[string length $warnings] > 0} {
+                    puts "$warnings"
+                } else {
+                    puts "(none)"
+                }
+                # kill this server without checking for leaks
+                dict set srv "skipleaks" 1
+                kill_server $srv
+                error "exception"
+            } elseif {[string length $err] > 0} {
+                puts "Error executing the suite, aborting..."
+                puts $err
+                exit 1
             }
-            # kill this server without checking for leaks
-            dict set srv "skipleaks" 1
-            kill_server $srv
-            error "exception"
-        } elseif {[string length $err] > 0} {
-            puts "Error executing the suite, aborting..."
-            puts $err
-            exit 1
         }
 
         set ::tags [lrange $::tags 0 end-[llength $tags]]

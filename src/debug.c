@@ -119,16 +119,13 @@ void computeDatasetDigest(unsigned char *final) {
                 }
                 listTypeReleaseIterator(li);
             } else if (o->type == REDIS_SET) {
-                dict *set = o->ptr;
-                dictIterator *di = dictGetIterator(set);
-                dictEntry *de;
-
-                while((de = dictNext(di)) != NULL) {
-                    robj *eleobj = dictGetEntryKey(de);
-
-                    xorObjectDigest(digest,eleobj);
+                setTypeIterator *si = setTypeInitIterator(o);
+                robj *ele;
+                while((ele = setTypeNext(si)) != NULL) {
+                    xorObjectDigest(digest,ele);
+                    decrRefCount(ele);
                 }
-                dictReleaseIterator(di);
+                setTypeReleaseIterator(si);
             } else if (o->type == REDIS_ZSET) {
                 zset *zs = o->ptr;
                 dictIterator *di = dictGetIterator(zs->dict);
