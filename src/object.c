@@ -375,7 +375,6 @@ int getLongLongFromObject(robj *o, long long *target) {
         redisAssert(o->type == REDIS_STRING);
         if (o->encoding == REDIS_ENCODING_RAW) {
             value = strtoll(o->ptr, &eptr, 10);
-            if (errno == ERANGE) return REDIS_ERR;
             if (eptr[0] != '\0') return REDIS_ERR;
             if (errno == ERANGE && (value == LLONG_MIN || value == LLONG_MAX))
                 return REDIS_ERR;
