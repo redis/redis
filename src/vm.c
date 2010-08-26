@@ -395,15 +395,20 @@ double computeObjectSwappability(robj *o) {
         z = (o->type == REDIS_ZSET);
         d = z ? ((zset*)o->ptr)->dict : o->ptr;
 
-        asize = sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
-        if (z) asize += sizeof(zset)-sizeof(dict);
-        if (dictSize(d)) {
-            de = dictGetRandomKey(d);
-            ele = dictGetEntryKey(de);
-            elesize = (ele->encoding == REDIS_ENCODING_RAW) ?
-                            (sizeof(*o)+sdslen(ele->ptr)) : sizeof(*o);
-            asize += (sizeof(struct dictEntry)+elesize)*dictSize(d);
-            if (z) asize += sizeof(zskiplistNode)*dictSize(d);
+        if (!z && o->encoding == REDIS_ENCODING_INTSET) {
+            intset *is = o->ptr;
+            asize = sizeof(*is)+is->encoding*is->length;
+        } else {
+            asize = sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
+            if (z) asize += sizeof(zset)-sizeof(dict);
+            if (dictSize(d)) {
+                de = dictGetRandomKey(d);
+                ele = dictGetEntryKey(de);
+                elesize = (ele->encoding == REDIS_ENCODING_RAW) ?
+                                (sizeof(*o)+sdslen(ele->ptr)) : sizeof(*o);
+                asize += (sizeof(struct dictEntry)+elesize)*dictSize(d);
+                if (z) asize += sizeof(zskiplistNode)*dictSize(d);
+            }
         }
         break;
     case REDIS_HASH:
