@@ -112,7 +112,7 @@ robj *setTypeNext(setTypeIterator *si) {
             incrRefCount(ret);
         }
     } else if (si->encoding == REDIS_ENCODING_INTSET) {
-        long long llval;
+        int64_t llval;
         if (intsetGet(si->subject->ptr,si->ii++,&llval))
             ret = createStringObjectFromLongLong(llval);
     }

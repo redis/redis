@@ -468,7 +468,7 @@ int rewriteAppendOnlyFile(char *filename) {
                 /* Emit the SADDs needed to rebuild the set */
                 if (o->encoding == REDIS_ENCODING_INTSET) {
                     int ii = 0;
-                    long long llval;
+                    int64_t llval;
                     while(intsetGet(o->ptr,ii++,&llval)) {
                         if (fwrite(cmd,sizeof(cmd)-1,1,fp) == 0) goto werr;
                         if (fwriteBulkObject(fp,&key) == 0) goto werr;

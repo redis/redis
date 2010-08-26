@@ -273,7 +273,7 @@ int rdbSaveObject(FILE *fp, robj *o) {
             dictReleaseIterator(di);
         } else if (o->encoding == REDIS_ENCODING_INTSET) {
             intset *is = o->ptr;
-            long long llval;
+            int64_t llval;
             int i = 0;
 
             if (rdbSaveLen(fp,intsetLen(is)) == -1) return -1;
