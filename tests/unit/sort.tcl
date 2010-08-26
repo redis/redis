@@ -37,9 +37,11 @@ start_server {
 
     foreach {num cmd enc title} {
         16 lpush ziplist "Ziplist"
-        64 lpush linkedlist "Linked list"
+        1000 lpush linkedlist "Linked list"
+        10000 lpush linkedlist "Big Linked list"
         16 sadd intset "Intset"
-        64 sadd hashtable "Hash table"
+        1000 sadd hashtable "Hash table"
+        10000 sadd hashtable "Big Hash table"
     } {
         set result [create_random_dataset $num $cmd]
         assert_encoding $enc tosort
