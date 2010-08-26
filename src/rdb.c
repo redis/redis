@@ -702,7 +702,7 @@ robj *rdbLoadObject(int type, FILE *fp) {
 
             if (o->encoding == REDIS_ENCODING_INTSET) {
                 /* Fetch integer value from element */
-                if (getLongLongFromObject(ele,&llval) == REDIS_OK) {
+                if (isObjectRepresentableAsLongLong(ele,&llval) == REDIS_OK) {
                     o->ptr = intsetAdd(o->ptr,llval,NULL);
                 } else {
                     setTypeConvert(o,REDIS_ENCODING_HT);
