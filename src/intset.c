@@ -151,7 +151,7 @@ static void intsetMoveTail(intset *is, uint32_t from, uint32_t to) {
 /* Insert an integer in the intset */
 intset *intsetAdd(intset *is, int64_t value, uint8_t *success) {
     uint8_t valenc = _intsetValueEncoding(value);
-    uint32_t pos, offset;
+    uint32_t pos;
     if (success) *success = 1;
 
     /* Upgrade encoding if necessary. If we need to upgrade, we know that

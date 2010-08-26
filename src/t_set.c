@@ -81,7 +81,7 @@ int setTypeIsMember(robj *subject, robj *value) {
 }
 
 setTypeIterator *setTypeInitIterator(robj *subject) {
-    setTypeIterator *si = zmalloc(sizeof(setIterator));
+    setTypeIterator *si = zmalloc(sizeof(setTypeIterator));
     si->subject = subject;
     si->encoding = subject->encoding;
     if (si->encoding == REDIS_ENCODING_HT) {
