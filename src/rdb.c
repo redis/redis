@@ -714,6 +714,8 @@ robj *rdbLoadObject(int type, FILE *fp) {
              * to regular hashtable encoded set */
             if (o->encoding == REDIS_ENCODING_HT) {
                 dictAdd((dict*)o->ptr,ele,NULL);
+            } else {
+                decrRefCount(ele);
             }
         }
     } else if (type == REDIS_ZSET) {
