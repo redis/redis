@@ -769,6 +769,8 @@ int stringmatch(const char *pattern, const char *string, int nocase);
 long long memtoll(const char *p, int *err);
 int ll2string(char *s, size_t len, long long value);
 int isStringRepresentableAsLong(sds s, long *longval);
+int isStringRepresentableAsLongLong(sds s, long long *longval);
+int isObjectRepresentableAsLongLong(robj *o, long long *llongval);
 
 /* Configuration */
 void loadServerConfig(char *filename);

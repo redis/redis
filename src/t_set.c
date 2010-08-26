@@ -8,7 +8,7 @@
  * an integer-encodable value, an intset will be returned. Otherwise a regular
  * hash table. */
 robj *setTypeCreate(robj *value) {
-    if (getLongLongFromObject(value,NULL) == REDIS_OK)
+    if (isObjectRepresentableAsLongLong(value,NULL) == REDIS_OK)
         return createIntsetObject();
     return createSetObject();
 }
@@ -21,7 +21,7 @@ int setTypeAdd(robj *subject, robj *value) {
             return 1;
         }
     } else if (subject->encoding == REDIS_ENCODING_INTSET) {
-        if (getLongLongFromObject(value,&llval) == REDIS_OK) {
+        if (isObjectRepresentableAsLongLong(value,&llval) == REDIS_OK) {
             uint8_t success = 0;
             subject->ptr = intsetAdd(subject->ptr,llval,&success);
             if (success) {
@@ -55,7 +55,7 @@ int setTypeRemove(robj *subject, robj *value) {
             return 1;
         }
     } else if (subject->encoding == REDIS_ENCODING_INTSET) {
-        if (getLongLongFromObject(value,&llval) == REDIS_OK) {
+        if (isObjectRepresentableAsLongLong(value,&llval) == REDIS_OK) {
             uint8_t success;
             subject->ptr = intsetRemove(subject->ptr,llval,&success);
             if (success) return 1;
@@ -71,7 +71,7 @@ int setTypeIsMember(robj *subject, robj *value) {
     if (subject->encoding == REDIS_ENCODING_HT) {
         return dictFind((dict*)subject->ptr,value) != NULL;
     } else if (subject->encoding == REDIS_ENCODING_INTSET) {
-        if (getLongLongFromObject(value,&llval) == REDIS_OK) {
+        if (isObjectRepresentableAsLongLong(value,&llval) == REDIS_OK) {
             return intsetFind((intset*)subject->ptr,llval);
         }
     } else {
