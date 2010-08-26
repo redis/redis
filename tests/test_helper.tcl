@@ -11,7 +11,7 @@ source tests/support/util.tcl
 
 set ::host 127.0.0.1
 set ::port 16379
-set ::traceleaks 1
+set ::traceleaks 0
 set ::valgrind 0
 set ::denytags {}
 set ::allowtags {}
