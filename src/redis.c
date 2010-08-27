@@ -1321,7 +1321,8 @@ void freeMemoryIfNeeded(void) {
         if (tryFreeOneObjectFromFreelist() == REDIS_OK) continue;
         for (j = 0; j < server.dbnum; j++) {
             int minttl = -1;
-            robj *minkey = NULL;
+            sds minkey = NULL;
+            robj *keyobj = NULL;
             struct dictEntry *de;
 
             if (dictSize(server.db[j].expires)) {
@@ -1338,7 +1339,9 @@ void freeMemoryIfNeeded(void) {
                         minttl = t;
                     }
                 }
-                dbDelete(server.db+j,minkey);
+                keyobj = createStringObject(minkey,sdslen(minkey));
+                dbDelete(server.db+j,keyobj);
+                decrRefCount(keyobj);
             }
         }
         if (!freed) return; /* nothing to free... */
