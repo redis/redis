@@ -138,7 +138,7 @@ int syncRead(int fd, char *ptr, ssize_t size, int timeout) {
     while(size) {
         if (aeWait(fd,AE_READABLE,1000) & AE_READABLE) {
             nread = read(fd,ptr,size);
-            if (nread == -1) return -1;
+            if (nread <= 0) return -1;
             ptr += nread;
             size -= nread;
             totread += nread;
