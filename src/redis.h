@@ -48,6 +48,15 @@
 #define REDIS_REQUEST_MAX_SIZE (1024*1024*256) /* max bytes in inline command */
 #define REDIS_SHARED_INTEGERS 10000
 
+/* Size of a reply chunk, configured to exactly allocate 4k bytes */
+#define REDIS_REPLY_CHUNK_BYTES (4*1024)
+#define REDIS_REPLY_CHUNK_SIZE (REDIS_REPLY_CHUNK_BYTES-sizeof(struct sdshdr)-1-sizeof(size_t))
+/* It doesn't make sense to memcpy objects to a chunk when the net result is
+ * not being able to glue other objects. We want to make sure it can be glued
+ * to at least a bulk length or \r\n, so set the threshold to be a couple
+ * of bytes less than the size of the buffer. */
+#define REDIS_REPLY_CHUNK_THRESHOLD (REDIS_REPLY_CHUNK_SIZE-16)
+
 /* If more then REDIS_WRITEV_THRESHOLD write packets are pending use writev */
 #define REDIS_WRITEV_THRESHOLD      3
 /* Max number of iovecs used for each writev call */
@@ -72,6 +81,7 @@
 #define REDIS_SET 2
 #define REDIS_ZSET 3
 #define REDIS_HASH 4
+#define REDIS_REPLY_NODE 5
 #define REDIS_VMPOINTER 8
 
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
@@ -309,6 +319,11 @@ typedef struct redisClient {
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
+
+    /* Response buffer */
+    int bufpos;
+    int buflen;
+    char buf[];
 } redisClient;
 
 struct saveparam {
