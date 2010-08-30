@@ -172,6 +172,17 @@ start_server {
         }
     }
 
+    test {BLPOP inside a transaction} {
+        r del xlist
+        r lpush xlist foo
+        r lpush xlist bar
+        r multi
+        r blpop xlist 0
+        r blpop xlist 0
+        r blpop xlist 0
+        r exec
+    } {{xlist bar} {xlist foo} {}}
+
     test {LPUSHX, RPUSHX - generic} {
         r del xlist
         assert_equal 0 [r lpushx xlist a]
