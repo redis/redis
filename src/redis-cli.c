@@ -478,10 +478,16 @@ int main(int argc, char **argv) {
 
     if (config.auth != NULL) {
         char *authargv[2];
+        int dbnum = config.dbnum;
 
+        /* We need to save the real configured database number and set it to
+         * zero here, otherwise cliSendCommand() will try to perform the
+         * SELECT command before the authentication, and it will fail. */
+        config.dbnum = 0;
         authargv[0] = "AUTH";
         authargv[1] = config.auth;
         cliSendCommand(2, convertToSds(2, authargv), 1);
+        config.dbnum = dbnum; /* restore the right DB number */
     }
 
     /* Start interactive mode when no command is provided */
