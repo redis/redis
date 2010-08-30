@@ -62,6 +62,7 @@ redisClient *createClient(int fd) {
 }
 
 int _ensureFileEvent(redisClient *c) {
+    if (c->fd <= 0) return REDIS_ERR;
     if (c->bufpos == 0 && listLength(c->reply) == 0 &&
         (c->replstate == REDIS_REPL_NONE ||
          c->replstate == REDIS_REPL_ONLINE) &&
