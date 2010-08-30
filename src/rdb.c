@@ -457,6 +457,7 @@ int rdbSaveBackground(char *filename) {
 
     if (server.bgsavechildpid != -1) return REDIS_ERR;
     if (server.vm_enabled) waitEmptyIOJobsQueue();
+    server.dirty_before_bgsave = server.dirty;
     if ((childpid = fork()) == 0) {
         /* Child */
         if (server.vm_enabled) vmReopenSwapFile();
@@ -913,7 +914,7 @@ void backgroundSaveDoneHandler(int statloc) {
     if (!bysignal && exitcode == 0) {
         redisLog(REDIS_NOTICE,
             "Background saving terminated with success");
-        server.dirty = 0;
+        server.dirty = server.dirty - server.dirty_before_bgsave;
         server.lastsave = time(NULL);
     } else if (!bysignal && exitcode != 0) {
         redisLog(REDIS_WARNING, "Background saving error");

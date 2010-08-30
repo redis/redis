@@ -335,6 +335,7 @@ struct redisServer {
     int fd;
     redisDb *db;
     long long dirty;            /* changes to DB from the last save */
+    long long dirty_before_bgsave; /* used to restore dirty on failed BGSAVE */
     list *clients;
     list *slaves, *monitors;
     char neterr[ANET_ERR_LEN];
