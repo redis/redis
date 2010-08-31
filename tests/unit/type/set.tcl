@@ -106,14 +106,17 @@ start_server {
         }
         r sadd set5 0
 
-        # it is possible that a hashtable encoded only contains integers,
-        # because it is converted from an intset to a hashtable when a
-        # non-integer element is added and then removed.
+        # To make sure the sets are encoded as the type we are testing -- also
+        # when the VM is enabled and the values may be swapped in and out
+        # while the tests are running -- an extra element is added to every
+        # set that determines its encoding.
+        set large 200
         if {$type eq "hashtable"} {
-            for {set i 1} {$i <= 5} {incr i} {
-                r sadd [format "set%d" $i] foo
-                r srem [format "set%d" $i] foo
-            }
+            set large foo
+        }
+
+        for {set i 1} {$i <= 5} {incr i} {
+            r sadd [format "set%d" $i] $large
         }
 
         test "Generated sets must be encoded as $type" {
@@ -123,20 +126,20 @@ start_server {
         }
 
         test "SINTER with two sets - $type" {
-            assert_equal {195 196 197 198 199} [lsort [r sinter set1 set2]]
+            assert_equal [list 195 196 197 198 199 $large] [lsort [r sinter set1 set2]]
         }
 
         test "SINTERSTORE with two sets - $type" {
             r sinterstore setres set1 set2
-            assert_encoding intset setres
-            assert_equal {195 196 197 198 199} [lsort [r smembers setres]]
+            assert_encoding $type setres
+            assert_equal [list 195 196 197 198 199 $large] [lsort [r smembers setres]]
         }
 
         test "SINTERSTORE with two sets, after a DEBUG RELOAD - $type" {
             r debug reload
             r sinterstore setres set1 set2
-            assert_encoding intset setres
-            assert_equal {195 196 197 198 199} [lsort [r smembers setres]]
+            assert_encoding $type setres
+            assert_equal [list 195 196 197 198 199 $large] [lsort [r smembers setres]]
         }
 
         test "SUNION with two sets - $type" {
@@ -146,18 +149,18 @@ start_server {
 
         test "SUNIONSTORE with two sets - $type" {
             r sunionstore setres set1 set2
-            assert_encoding intset setres
+            assert_encoding $type setres
             set expected [lsort -uniq "[r smembers set1] [r smembers set2]"]
             assert_equal $expected [lsort [r smembers setres]]
         }
 
         test "SINTER against three sets - $type" {
-            assert_equal {195 199} [lsort [r sinter set1 set2 set3]]
+            assert_equal [list 195 199 $large] [lsort [r sinter set1 set2 set3]]
         }
 
         test "SINTERSTORE with three sets - $type" {
             r sinterstore setres set1 set2 set3
-            assert_equal {195 199} [r smembers setres]
+            assert_equal [list 195 199 $large] [lsort [r smembers setres]]
         }
 
         test "SUNION with non existing keys - $type" {
@@ -175,7 +178,9 @@ start_server {
 
         test "SDIFFSTORE with three sets - $type" {
             r sdiffstore setres set1 set4 set5
-            assert_encoding intset setres
+            # The type is determined by type of the first key to diff against.
+            # See the implementation for more information.
+            assert_encoding $type setres
             assert_equal {1 2 3 4} [lsort [r smembers setres]]
         }
     }
