@@ -1166,6 +1166,7 @@ sds genRedisInfoString(void) {
         "blocked_clients:%d\r\n"
         "used_memory:%zu\r\n"
         "used_memory_human:%s\r\n"
+        "mem_fragmentation_ratio:%.2f\r\n"
         "changes_since_last_save:%lld\r\n"
         "bgsave_in_progress:%d\r\n"
         "last_save_time:%ld\r\n"
@@ -1192,6 +1193,7 @@ sds genRedisInfoString(void) {
         server.blpop_blocked_clients,
         zmalloc_used_memory(),
         hmem,
+        zmalloc_get_fragmentation_ratio(),
         server.dirty,
         server.bgsavechildpid != -1,
         server.lastsave,

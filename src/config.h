@@ -21,6 +21,11 @@
 #define redis_stat stat
 #endif
 
+/* test for proc filesystem */
+#ifdef __linux__
+#define HAVE_PROCFS 1
+#endif
+
 /* test for backtrace() */
 #if defined(__APPLE__) || defined(__linux__)
 #define HAVE_BACKTRACE 1
