@@ -276,7 +276,7 @@ void scardCommand(redisClient *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,REDIS_SET)) return;
 
-    addReplyUlong(c,setTypeSize(o));
+    addReplyLongLong(c,setTypeSize(o));
 }
 
 void spopCommand(redisClient *c) {

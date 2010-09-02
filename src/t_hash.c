@@ -346,7 +346,7 @@ void hlenCommand(redisClient *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,REDIS_HASH)) return;
 
-    addReplyUlong(c,hashTypeLength(o));
+    addReplyLongLong(c,hashTypeLength(o));
 }
 
 void genericHgetallCommand(redisClient *c, int flags) {

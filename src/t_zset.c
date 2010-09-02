@@ -930,7 +930,7 @@ void zcardCommand(redisClient *c) {
         checkType(c,o,REDIS_ZSET)) return;
 
     zs = o->ptr;
-    addReplyUlong(c,zs->zsl->length);
+    addReplyLongLong(c,zs->zsl->length);
 }
 
 void zscoreCommand(redisClient *c) {
