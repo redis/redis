@@ -128,7 +128,11 @@ void addReply(redisClient *c, robj *obj) {
 }
 
 void addReplySds(redisClient *c, sds s) {
-    if (_ensureFileEvent(c) != REDIS_OK) return;
+    if (_ensureFileEvent(c) != REDIS_OK) {
+        /* The caller expects the sds to be free'd. */
+        sdsfree(s);
+        return;
+    }
     if (sdslen(s) < REDIS_REPLY_CHUNK_THRESHOLD) {
         _addReplyStringToBuffer(c,s,sdslen(s));
         sdsfree(s);
