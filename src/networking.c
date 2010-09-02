@@ -253,9 +253,9 @@ void setDeferredMultiBulkLength(redisClient *c, void *node, long length) {
     if (ln->next != NULL) {
         next = listNodeValue(ln->next);
 
-        /* Only glue when the next node is an sds */
+        /* Only glue when the next node is non-NULL (an sds in this case) */
         if (next->ptr != NULL) {
-            len->ptr = sdscat(len->ptr,next->ptr);
+            len->ptr = sdscatlen(len->ptr,next->ptr,sdslen(next->ptr));
             listDelNode(c->reply,ln->next);
         }
     }
