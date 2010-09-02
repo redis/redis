@@ -26,6 +26,11 @@
 #define HAVE_PROCFS 1
 #endif
 
+/* test for task_info() */
+#if defined(__APPLE__)
+#define HAVE_TASKINFO 1
+#endif
+
 /* test for backtrace() */
 #if defined(__APPLE__) || defined(__linux__)
 #define HAVE_BACKTRACE 1
