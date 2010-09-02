@@ -200,10 +200,6 @@ void addReplyLongLong(redisClient *c, long long ll) {
     _addReplyLongLong(c,ll,':');
 }
 
-void addReplyUlong(redisClient *c, unsigned long ul) {
-    _addReplyLongLong(c,(long long)ul,':');
-}
-
 void addReplyMultiBulkLen(redisClient *c, long length) {
     _addReplyLongLong(c,length,'*');
 }
