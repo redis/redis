@@ -200,6 +200,10 @@ void addReplyUlong(redisClient *c, unsigned long ul) {
     _addReplyLongLong(c,(long long)ul,':');
 }
 
+void addReplyMultiBulkLen(redisClient *c, long length) {
+    _addReplyLongLong(c,length,'*');
+}
+
 void addReplyBulkLen(redisClient *c, robj *obj) {
     size_t len;
 
