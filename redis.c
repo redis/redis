@@ -347,6 +347,7 @@ struct redisServer {
     int fd;
     redisDb *db;
     long long dirty;            /* changes to DB from the last save */
+    long long dirty_before_bgsave; /* used to restore dirty on failed BGSAVE */
     list *clients;
     list *slaves, *monitors;
     char neterr[ANET_ERR_LEN];
@@ -1320,7 +1321,7 @@ void backgroundSaveDoneHandler(int statloc) {
     if (!bysignal && exitcode == 0) {
         redisLog(REDIS_NOTICE,
             "Background saving terminated with success");
-        server.dirty = 0;
+        server.dirty = server.dirty - server.dirty_before_bgsave;
         server.lastsave = time(NULL);
     } else if (!bysignal && exitcode != 0) {
         redisLog(REDIS_WARNING, "Background saving error");
@@ -3790,6 +3791,7 @@ static int rdbSaveBackground(char *filename) {
 
     if (server.bgsavechildpid != -1) return REDIS_ERR;
     if (server.vm_enabled) waitEmptyIOJobsQueue();
+    server.dirty_before_bgsave = server.dirty;
     if ((childpid = fork()) == 0) {
         /* Child */
         if (server.vm_enabled) vmReopenSwapFile();
