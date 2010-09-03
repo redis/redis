@@ -9383,7 +9383,7 @@ static void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
 
-    if (privdata == NULL) trytoswap = 0; /* check the comments above... */
+    if (privdata != NULL) trytoswap = 0; /* check the comments above... */
 
     /* For every byte we read in the read side of the pipe, there is one
      * I/O job completed to process. */
