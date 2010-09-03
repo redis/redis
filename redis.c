@@ -7712,8 +7712,19 @@ static int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
 /* Blocking RPOP/LPOP */
 static void blockingPopGenericCommand(redisClient *c, int where) {
     robj *o;
+    long long lltimeout;
     time_t timeout;
     int j;
+
+    /* Make sure timeout is an integer value */
+    if (getLongLongFromObjectOrReply(c,c->argv[c->argc-1],&lltimeout,
+            "timeout is not an integer") != REDIS_OK) return;
+
+    /* Make sure the timeout is not negative */
+    if (lltimeout < 0) {
+        addReplySds(c,sdsnew("-ERR timeout is negative\r\n"));
+        return;
+    }
 
     for (j = 1; j < c->argc-1; j++) {
         o = lookupKeyWrite(c->db,c->argv[j]);
@@ -7763,7 +7774,7 @@ static void blockingPopGenericCommand(redisClient *c, int where) {
     }
 
     /* If the list is empty or the key does not exists we must block */
-    timeout = strtol(c->argv[c->argc-1]->ptr,NULL,10);
+    timeout = lltimeout;
     if (timeout > 0) timeout += time(NULL);
     blockForKeys(c,c->argv+1,c->argc-2,timeout);
 }

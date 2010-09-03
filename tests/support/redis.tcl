@@ -32,6 +32,7 @@ namespace eval redis {}
 set ::redis::id 0
 array set ::redis::fd {}
 array set ::redis::blocking {}
+array set ::redis::deferred {}
 array set ::redis::callback {}
 array set ::redis::state {} ;# State in non-blocking reply reading
 array set ::redis::statestack {} ;# Stack of states, for nested mbulks
@@ -55,12 +56,13 @@ foreach redis_multibulk_cmd {
 unset redis_bulk_cmd
 unset redis_multibulk_cmd
 
-proc redis {{server 127.0.0.1} {port 6379}} {
+proc redis {{server 127.0.0.1} {port 6379} {defer 0}} {
     set fd [socket $server $port]
     fconfigure $fd -translation binary
     set id [incr ::redis::id]
     set ::redis::fd($id) $fd
     set ::redis::blocking($id) 1
+    set ::redis::deferred($id) $defer
     ::redis::redis_reset_state $id
     interp alias {} ::redis::redisHandle$id {} ::redis::__dispatch__ $id
 }
@@ -68,6 +70,7 @@ proc redis {{server 127.0.0.1} {port 6379}} {
 proc ::redis::__dispatch__ {id method args} {
     set fd $::redis::fd($id)
     set blocking $::redis::blocking($id)
+    set deferred $::redis::deferred($id)
     if {$blocking == 0} {
         if {[llength $args] == 0} {
             error "Please provide a callback in non-blocking mode"
@@ -95,14 +98,16 @@ proc ::redis::__dispatch__ {id method args} {
             append cmd [join $args]
             ::redis::redis_writenl $fd $cmd
         }
-        if {$blocking} {
-            ::redis::redis_read_reply $fd
-        } else {
-            # Every well formed reply read will pop an element from this
-            # list and use it as a callback. So pipelining is supported
-            # in non blocking mode.
-            lappend ::redis::callback($id) $callback
-            fileevent $fd readable [list ::redis::redis_readable $fd $id]
+        if {!$deferred} {
+            if {$blocking} {
+                ::redis::redis_read_reply $fd
+            } else {
+                # Every well formed reply read will pop an element from this
+                # list and use it as a callback. So pipelining is supported
+                # in non blocking mode.
+                lappend ::redis::callback($id) $callback
+                fileevent $fd readable [list ::redis::redis_readable $fd $id]
+            }
         }
     } else {
         uplevel 1 [list ::redis::__method__$method $id $fd] $args
@@ -112,6 +117,10 @@ proc ::redis::__dispatch__ {id method args} {
 proc ::redis::__method__blocking {id fd val} {
     set ::redis::blocking($id) $val
     fconfigure $fd -blocking $val
+}
+
+proc ::redis::__method__read {id fd} {
+    ::redis::redis_read_reply $fd
 }
 
 proc ::redis::__method__close {id fd} {
