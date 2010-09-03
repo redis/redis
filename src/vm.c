@@ -110,9 +110,11 @@ void vmInit(void) {
     /* LZF requires a lot of stack */
     pthread_attr_init(&server.io_threads_attr);
     pthread_attr_getstacksize(&server.io_threads_attr, &stacksize);
-    if(!stacksize) {
-        stacksize = 1;
-    }
+
+    /* Solaris may report a stacksize of 0, let's set it to 1 otherwise
+     * multiplying it by 2 in the while loop later will not really help ;) */
+    if (!stacksize) stacksize = 1;
+
     while (stacksize < REDIS_THREAD_STACK_SIZE) stacksize *= 2;
     pthread_attr_setstacksize(&server.io_threads_attr, stacksize);
     /* Listen for events in the threaded I/O pipe */
