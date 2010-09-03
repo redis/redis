@@ -7752,6 +7752,14 @@ static void blockingPopGenericCommand(redisClient *c, int where) {
             }
         }
     }
+
+    /* If we are inside a MULTI/EXEC and the list is empty the only thing
+     * we can do is treating it as a timeout (even with timeout 0). */
+    if (c->flags & REDIS_MULTI) {
+        addReply(c,shared.nullmultibulk);
+        return;
+    }
+
     /* If the list is empty or the key does not exists we must block */
     timeout = strtol(c->argv[c->argc-1]->ptr,NULL,10);
     if (timeout > 0) timeout += time(NULL);
