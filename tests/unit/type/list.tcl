@@ -20,6 +20,102 @@ start_server {tags {"list"}} {
         r exists mylist
     } {0}
 
+    proc create_list {key entries} {
+        r del $key
+        foreach entry $entries { r rpush $key $entry }
+    }
+
+    test "BLPOP, BRPOP: single existing list" {
+        set rd [redis_deferring_client]
+        create_list blist {a b c d}
+
+        $rd blpop blist 1
+        assert_equal {blist a} [$rd read]
+        $rd brpop blist 1
+        assert_equal {blist d} [$rd read]
+
+        $rd blpop blist 1
+        assert_equal {blist b} [$rd read]
+        $rd brpop blist 1
+        assert_equal {blist c} [$rd read]
+    }
+
+    test "BLPOP, BRPOP: multiple existing lists" {
+        set rd [redis_deferring_client]
+        create_list blist1 {a b c}
+        create_list blist2 {d e f}
+
+        $rd blpop blist1 blist2 1
+        assert_equal {blist1 a} [$rd read]
+        $rd brpop blist1 blist2 1
+        assert_equal {blist1 c} [$rd read]
+        assert_equal 1 [r llen blist1]
+        assert_equal 3 [r llen blist2]
+
+        $rd blpop blist2 blist1 1
+        assert_equal {blist2 d} [$rd read]
+        $rd brpop blist2 blist1 1
+        assert_equal {blist2 f} [$rd read]
+        assert_equal 1 [r llen blist1]
+        assert_equal 1 [r llen blist2]
+    }
+
+    test "BLPOP, BRPOP: second list has an entry" {
+        set rd [redis_deferring_client]
+        r del blist1
+        create_list blist2 {d e f}
+
+        $rd blpop blist1 blist2 1
+        assert_equal {blist2 d} [$rd read]
+        $rd brpop blist1 blist2 1
+        assert_equal {blist2 f} [$rd read]
+        assert_equal 0 [r llen blist1]
+        assert_equal 1 [r llen blist2]
+    }
+
+    foreach {pop} {BLPOP BRPOP} {
+        test "$pop: with single empty list argument" {
+            set rd [redis_deferring_client]
+            r del blist1
+            $rd $pop blist1 1
+            r rpush blist1 foo
+            assert_equal {blist1 foo} [$rd read]
+            assert_equal 0 [r exists blist1]
+        }
+
+        test "$pop: second argument is not a list" {
+            set rd [redis_deferring_client]
+            r del blist1 blist2
+            r set blist2 nolist
+            $rd $pop blist1 blist2 1
+            assert_error "ERR*wrong kind*" {$rd read}
+        }
+
+        test "$pop: timeout" {
+            set rd [redis_deferring_client]
+            r del blist1 blist2
+            $rd $pop blist1 blist2 1
+            assert_equal {} [$rd read]
+        }
+
+        test "$pop: arguments are empty" {
+            set rd [redis_deferring_client]
+            r del blist1 blist2
+
+            $rd $pop blist1 blist2 1
+            r rpush blist1 foo
+            assert_equal {blist1 foo} [$rd read]
+            assert_equal 0 [r exists blist1]
+            assert_equal 0 [r exists blist2]
+
+            $rd $pop blist1 blist2 1
+            r rpush blist2 foo
+            assert_equal {blist2 foo} [$rd read]
+            assert_equal 0 [r exists blist1]
+            assert_equal 0 [r exists blist2]
+        }
+    }
+
     test {Create a long list and check every single element with LINDEX} {
         set ok 0
         for {set i 0} {$i < 1000} {incr i} {
