@@ -1,1 +1,65 @@
-Check the 'doc' directory. doc/README.html is a good starting point :)
+Where to find complete Redis documentation?
+-------------------------------------------
+
+This README is just a fast "quick start" document. You can find more detailed
+documentation here:
+
+1) http://code.google.com/p/redis
+2) Check the 'doc' directory. doc/README.html is a good starting point :)
+
+Building Redis
+--------------
+
+It is as simple as:
+
+    % make
+
+Redis is just a single binary, but if you want to install it you can use
+the "make install" target that will copy the binary in /usr/local/bin
+for default.
+
+You can run a 32 bit Redis binary using:
+
+    % make 32bit
+
+After you build Redis is a good idea to test it, using:
+
+    % make test
+
+Running Redis
+-------------
+
+To run Redis with the default configuration just type:
+
+    % ./redis-server
+    
+If you want to provide your redis.conf, you have to run it using an additional
+parameter (the path of the configuration file):
+
+    % ./redis-server /path/to/redis.conf
+
+Playing with Redis
+------------------
+
+You can use redis-cli to play with Redis. Start a redis-server instance,
+then in another terminal try the following:
+
+    % ./redis-cli
+    redis> ping
+    PONG
+    redis> set foo bar
+    OK
+    redis> get foo
+    "bar"
+    redis> incr mycounter
+    (integer) 1
+    redis> incr mycounter
+    (integer) 2
+    redis> 
+
+You can find the list of all the available commands here:
+
+    http://code.google.com/p/redis/wiki/CommandReference
+
+Enjoy!
+
