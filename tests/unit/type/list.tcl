@@ -139,6 +139,28 @@ start_server {
             assert_equal 0 [r exists blist1]
         }
 
+        test "$pop: with negative timeout" {
+            set rd [redis_deferring_client]
+            $rd $pop blist1 -1
+            assert_error "ERR*is negative*" {$rd read}
+        }
+
+        test "$pop: with non-integer timeout" {
+            set rd [redis_deferring_client]
+            $rd $pop blist1 1.1
+            assert_error "ERR*not an integer*" {$rd read}
+        }
+
+        test "$pop: with zero timeout should block indefinitely" {
+            # To test this, use a timeout of 0 and wait a second.
+            # The blocking pop should still be waiting for a push.
+            set rd [redis_deferring_client]
+            $rd $pop blist1 0
+            after 1000
+            r rpush blist1 foo
+            assert_equal {blist1 foo} [$rd read]
+        }
+
         test "$pop: second argument is not a list" {
             set rd [redis_deferring_client]
             r del blist1 blist2
@@ -171,6 +193,17 @@ start_server {
             assert_equal 0 [r exists blist2]
         }
     }
+
+    test {BLPOP inside a transaction} {
+        r del xlist
+        r lpush xlist foo
+        r lpush xlist bar
+        r multi
+        r blpop xlist 0
+        r blpop xlist 0
+        r blpop xlist 0
+        r exec
+    } {{xlist bar} {xlist foo} {}}
 
     test {LPUSHX, RPUSHX - generic} {
         r del xlist

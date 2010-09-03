@@ -1,4 +1,4 @@
-start_server {} {
+start_server {tags {"protocol"}} {
     test {Handle an empty query well} {
         set fd [r channel]
         puts -nonewline $fd "\r\n"
