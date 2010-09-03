@@ -9365,7 +9365,15 @@ static void freeIOJob(iojob *j) {
 
 /* Every time a thread finished a Job, it writes a byte into the write side
  * of an unix pipe in order to "awake" the main thread, and this function
- * is called. */
+ * is called.
+ *
+ * Note that this is called both by the event loop, when a I/O thread
+ * sends a byte in the notification pipe, and is also directly called from
+ * waitEmptyIOJobsQueue().
+ *
+ * In the latter case we don't want to swap more, so we use the
+ * "privdata" argument setting it to a not NULL value to signal this
+ * condition. */
 static void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
             int mask)
 {
@@ -9374,6 +9382,8 @@ static void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
+
+    if (privdata == NULL) trytoswap = 0; /* check the comments above... */
 
     /* For every byte we read in the read side of the pipe, there is one
      * I/O job completed to process. */
@@ -9684,7 +9694,8 @@ static void waitEmptyIOJobsQueue(void) {
         io_processed_len = listLength(server.io_processed);
         unlockThreadedIO();
         if (io_processed_len) {
-            vmThreadedIOCompletedJob(NULL,server.io_ready_pipe_read,NULL,0);
+            vmThreadedIOCompletedJob(NULL,server.io_ready_pipe_read,
+                                                        (void*)0xdeadbeef,0);
             usleep(1000); /* 1 millisecond */
         } else {
             usleep(10000); /* 10 milliseconds */
