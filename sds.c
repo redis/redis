@@ -357,3 +357,92 @@ sds sdsfromlonglong(long long value) {
     p++;
     return sdsnewlen(p,32-(p-buf));
 }
+
+/* Split a line into arguments, where every argument can be in the
+ * following programming-language REPL-alike form:
+ *
+ * foo bar "newline are supported\n" and "\xff\x00otherstuff"
+ *
+ * The number of arguments is stored into *argc, and an array
+ * of sds is returned. The caller should sdsfree() all the returned
+ * strings and finally zfree() the array itself.
+ *
+ * Note that sdscatrepr() is able to convert back a string into
+ * a quoted string in the same format sdssplitargs() is able to parse.
+ */
+sds *sdssplitargs(char *line, int *argc) {
+    char *p = line;
+    char *current = NULL;
+    char **vector = NULL;
+
+    *argc = 0;
+    while(1) {
+        /* skip blanks */
+        while(*p && isspace(*p)) p++;
+        if (*p) {
+            /* get a token */
+            int inq=0; /* set to 1 if we are in "quotes" */
+            int done=0;
+
+            if (current == NULL) current = sdsempty();
+            while(!done) {
+                if (inq) {
+                    if (*p == '\\' && *(p+1)) {
+                        char c;
+
+                        p++;
+                        switch(*p) {
+                        case 'n': c = '\n'; break;
+                        case 'r': c = '\r'; break;
+                        case 't': c = '\t'; break;
+                        case 'b': c = '\b'; break;
+                        case 'a': c = '\a'; break;
+                        default: c = *p; break;
+                        }
+                        current = sdscatlen(current,&c,1);
+                    } else if (*p == '"') {
+                        /* closing quote must be followed by a space */
+                        if (*(p+1) && !isspace(*(p+1))) goto err;
+                        done=1;
+                    } else if (!*p) {
+                        /* unterminated quotes */
+                        goto err;
+                    } else {
+                        current = sdscatlen(current,p,1);
+                    }
+                } else {
+                    switch(*p) {
+                    case ' ':
+                    case '\n':
+                    case '\r':
+                    case '\t':
+                    case '\0':
+                        done=1;
+                        break;
+                    case '"':
+                        inq=1;
+                        break;
+                    default:
+                        current = sdscatlen(current,p,1);
+                        break;
+                    }
+                }
+                if (*p) p++;
+            }
+            /* add the token to the vector */
+            vector = zrealloc(vector,((*argc)+1)*sizeof(char*));
+            vector[*argc] = current;
+            (*argc)++;
+            current = NULL;
+        } else {
+            return vector;
+        }
+    }
+
+err:
+    while((*argc)--)
+        sdsfree(vector[*argc]);
+    zfree(vector);
+    if (current) sdsfree(current);
+    return NULL;
+}

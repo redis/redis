@@ -69,5 +69,6 @@ void sdsfreesplitres(sds *tokens, int count);
 void sdstolower(sds s);
 void sdstoupper(sds s);
 sds sdsfromlonglong(long long value);
+sds *sdssplitargs(char *line, int *argc);
 
 #endif

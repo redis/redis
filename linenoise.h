@@ -35,7 +35,9 @@
 #define __LINENOISE_H
 
 char *linenoise(const char *prompt);
-int linenoiseHistoryAdd(char *line);
+int linenoiseHistoryAdd(const char *line);
 int linenoiseHistorySetMaxLen(int len);
+int linenoiseHistorySave(char *filename);
+int linenoiseHistoryLoad(char *filename);
 
 #endif /* __LINENOISE_H */
