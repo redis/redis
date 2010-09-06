@@ -1,6 +1,7 @@
 /* Solaris specific fixes */
 
 #if defined(__GNUC__)
+#include <math.h>
 #undef isnan
 #define isnan(x) \
      __extension__({ __typeof (x) __x_a = (x); \

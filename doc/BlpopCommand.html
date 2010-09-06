@@ -16,7 +16,7 @@
             <div id="pagecontent">
                 <div class="index">
 <!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
-<b>BlpopCommand: Contents</b><br>&nbsp;&nbsp;<a href="#BLPOP _key1_ _key2_ ... _keyN_ _timeout_ (Redis &gt;">BLPOP _key1_ _key2_ ... _keyN_ _timeout_ (Redis &gt;</a><br>&nbsp;&nbsp;<a href="#BRPOP _key1_ _key2_ ... _keyN_ _timeout_ (Redis &gt;">BRPOP _key1_ _key2_ ... _keyN_ _timeout_ (Redis &gt;</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Non blocking behavior">Non blocking behavior</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Blocking behavior">Blocking behavior</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Multiple clients blocking for the same keys">Multiple clients blocking for the same keys</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a>
+<b>BlpopCommand: Contents</b><br>&nbsp;&nbsp;<a href="#BLPOP _key1_ _key2_ ... _keyN_ _timeout_ (Redis &gt;">BLPOP _key1_ _key2_ ... _keyN_ _timeout_ (Redis &gt;</a><br>&nbsp;&nbsp;<a href="#BRPOP _key1_ _key2_ ... _keyN_ _timeout_ (Redis &gt;">BRPOP _key1_ _key2_ ... _keyN_ _timeout_ (Redis &gt;</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Non blocking behavior">Non blocking behavior</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Blocking behavior">Blocking behavior</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Multiple clients blocking for the same keys">Multiple clients blocking for the same keys</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#blocking POP inside a MULTI/EXEC transaction">blocking POP inside a MULTI/EXEC transaction</a><br>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Return value">Return value</a>
                 </div>
                 
                 <h1 class="wikiname">BlpopCommand</h1>
@@ -35,8 +35,10 @@
 <h2><a name="Blocking behavior">Blocking behavior</a></h2><blockquote>If none of the specified keys exist or contain non empty lists, BLPOPblocks until some other client performs a <a href="RpushCommand.html">LPUSH</a> oran <a href="RpushCommand.html">RPUSH</a> operation against one of the lists.</blockquote>
 <blockquote>Once new data is present on one of the lists, the client finally returnswith the name of the key unblocking it and the popped value.</blockquote>
 <blockquote>When blocking, if a non-zero timeout is specified, the client will unblockreturning a nil special value if the specified amount of seconds passedwithout a push operation against at least one of the specified keys.</blockquote>
-<blockquote>A timeout of zero means instead to block forever.</blockquote>
+<blockquote>The timeout argument is interpreted as an integer value. A timeout of zero means instead to block forever.</blockquote>
 <h2><a name="Multiple clients blocking for the same keys">Multiple clients blocking for the same keys</a></h2><blockquote>Multiple clients can block for the same key. They are put intoa queue, so the first to be served will be the one that started to waitearlier, in a first-blpopping first-served fashion.</blockquote>
+<h2><a name="blocking POP inside a MULTI/EXEC transaction">blocking POP inside a MULTI/EXEC transaction</a></h2><blockquote>BLPOP and BRPOP can be used with pipelining (sending multiple commands and reading the replies in batch), but it does not make sense to use BLPOP or BRPOP inside a MULTI/EXEC block (a Redis transaction).</blockquote>
+<blockquote>The behavior of BLPOP inside MULTI/EXEC when the list is empty is to return a multi-bulk nil reply, exactly what  happens when the timeout is reached. If you like science fiction, think at it like if inside MULTI/EXEC the time will  flow at infinite speed :) </blockquote>
 <h2><a name="Return value">Return value</a></h2><blockquote>BLPOP returns a two-elements array via a multi bulk reply in order to returnboth the unblocking key and the popped value.</blockquote>
 <blockquote>When a non-zero timeout is specified, and the BLPOP operation timed out,the return value is a nil multi bulk reply. Most client values will returnfalse or nil accordingly to the programming language used.</blockquote>
 <a href="ReplyTypes.html">Multi bulk reply</a>
