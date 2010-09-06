@@ -17,6 +17,14 @@ redisClient *createClient(int fd) {
     anetNonBlock(NULL,fd);
     anetTcpNoDelay(NULL,fd);
     if (!c) return NULL;
+    if (aeCreateFileEvent(server.el,fd,AE_READABLE,
+        readQueryFromClient, c) == AE_ERR)
+    {
+        close(fd);
+        zfree(c);
+        return NULL;
+    }
+
     selectDb(c,0);
     c->fd = fd;
     c->querybuf = sdsempty();
@@ -43,11 +51,6 @@ redisClient *createClient(int fd) {
     c->pubsub_patterns = listCreate();
     listSetFreeMethod(c->pubsub_patterns,decrRefCount);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
-    if (aeCreateFileEvent(server.el, c->fd, AE_READABLE,
-        readQueryFromClient, c) == AE_ERR) {
-        freeClient(c);
-        return NULL;
-    }
     listAddNodeTail(server.clients,c);
     initClientMultiState(c);
     return c;
