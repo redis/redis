@@ -870,6 +870,10 @@ int main(int argc, char **argv) {
     unsigned int elen;
     long long value;
 
+    /* If an argument is given, use it as the random seed. */
+    if (argc == 2)
+        srand(atoi(argv[1]));
+
     zl = createIntList();
     ziplistRepr(zl);
 
