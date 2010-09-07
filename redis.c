@@ -1515,10 +1515,21 @@ static int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientD
                 num = REDIS_EXPIRELOOKUPS_PER_CRON;
             while (num--) {
                 dictEntry *de;
+                robj *key;
                 time_t t;
 
                 if ((de = dictGetRandomKey(db->expires)) == NULL) break;
                 t = (time_t) dictGetEntryVal(de);
+                key = dictGetEntryKey(de);
+                /* Don't expire keys that are in the contest of I/O jobs.
+                 * Otherwise decrRefCount will kill the I/O thread and
+                 * clients waiting for this keys will wait forever.
+                 *
+                 * In general this change will not have any impact on the
+                 * performance of the expiring algorithm but it's much safer. */
+                if (server.vm_enabled &&
+                    (key->storage == REDIS_VM_SWAPPING ||
+                     key->storage == REDIS_VM_LOADING)) continue;
                 if (now > t) {
                     deleteKey(db,dictGetEntryKey(de));
                     expired++;
