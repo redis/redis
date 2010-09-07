@@ -3151,6 +3151,7 @@ static int deleteKey(redisDb *db, robj *key) {
      * it's count. This may happen when we get the object reference directly
      * from the hash table with dictRandomKey() or dict iterators */
     incrRefCount(key);
+    if (server.vm_enabled) handleClientsBlockedOnSwappedKey(db,key);
     if (dictSize(db->expires)) dictDelete(db->expires,key);
     retval = dictDelete(db->dict,key);
     decrRefCount(key);
