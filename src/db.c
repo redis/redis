@@ -127,7 +127,7 @@ int dbDelete(redisDb *db, robj *key) {
      * deleting the key will kill the I/O thread bringing the key from swap
      * to memory, so the client will never be notified and unblocked if we
      * don't do it now. */
-    /* handleClientsBlockedOnSwappedKey(db,key); */
+    if (server.vm_enabled) handleClientsBlockedOnSwappedKey(db,key);
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
