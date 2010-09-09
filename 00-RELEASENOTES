@@ -1,3 +1,22 @@
+Welcome to Redis 2.0.1
+
+This is a bugfix release, with the following changes:
+
+    - Fixed a not critical but important VM bug: from time to time a race
+      condition may happen and a client may never get the reply from a given
+      request.
+    - Now we have a make install target as stated in the README
+    - redis-cli no longer tries to understand if it's part of a pipe
+      so there is to use the -x option to read the last arg from stdin.
+      This prevents it from creating problem when running inside cron scripts.
+    - Fixed the init script provided in the tar.gz. It was totally broken.
+    - Fixed a bug related to connecting more than 10k clients to Redis.
+
+Good hacking,
+Salvatore
+
+--------------------------------------------------------------------------------
+
 Welcome to Redis 2.0.0
 
 Finally we reached 2.0.0 stable!
