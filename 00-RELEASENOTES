@@ -1,0 +1,112 @@
+Welcome to Redis 2.0.0
+
+Finally we reached 2.0.0 stable!
+
+This is just RC4 with (many) bug fixes applied.
+Also this release features an updated redis-cli, backported from master.
+
+Many thanks to VMware, Pieter Noordhuis and the Redis community for making
+this possible.
+
+For a list of new / improved things in 2.0.0 please check this web page:
+
+    http://code.google.com/p/redis/wiki/Redis_2_0_0_Changelog
+
+Enjoy!
+Salvatore
+
+--------------------------------------------------------------------------------
+
+Welcome to Redis 1.3.17 (2.0.0 RC4)
+
+Compared to RC3 this one contains only an important replication related bugfix
+about calls to ZINTERSTORE. Replication users are strongly encouraged to
+upgrade ASAP!
+
+If no new bugs will be found in a few weeks this is likely to become
+2.0.0 stable in short time (one or two weeks).
+
+Regards,
+Salvatore
+
+--------------------------------------------------------------------------------
+
+Welcome to Redis 1.3.16 (2.0.0 RC3)
+
+This is the third Release Candidate of Redis 2.0.0, fixing a few important
+Virtual Memory bugs. If you use VM it is a very good idea to upgrade ASAP.
+
+List of chages:
+
+2010-07-22 don't open/close log file if log level is not matched (antirez)
+2010-07-22 recent VM fixes backported to 2.0.0 branch (antirez)
+2010-07-22 fix rare condition where 'key' would already be destroyed while is was needed later on (Pieter Noordhuis)
+2010-07-21 vm_blocked_clients count fixed in INFO, thanks to Pietern Noordhuis (antirez)
+
+--------------------------------------------------------------------------------
+
+Welcome to Redis 1.3.15 (2.0.0 RC2)
+
+This is the second Release Candidate of Redis 2.0.0.
+
+List of changes:
+
+* Faster DB and AOF loading
+* Fixed swappability score computation
+* New version of the test suite
+* Fixed ZINCR Nan bugs leading to server crash and added tests
+* Require the flag "-c" to be used for redis-cli to read the last argument
+
+--------------------------------------------------------------------------------
+
+Welcome to Redis 1.3.14 (2.0.0 RC1)
+
+This is the first Release Candidate of Redis 2.0.0
+2.0.0 is a big release with many interesting news, the following is the
+list of the major improvements.
+
+WHAT'S NEW IN REDIS 2.0.x
+
+* Redis transactions: MULTI/EXEC (antirez)
+* Blocking POP: BLPOP and BRPOP (antirez)
+* Virtual Memory (antirez with contributions from Pieter Noordhuis)
+* APPEND command (antirez)
+* WITHSCORES in ZRANGEBYSCORE thanks to Sam Hendley (antirez)
+* Much faster .rdb loading/saving times (antirez)
+* Add DISCARD command to discard queued MULTI commands. (djanowski, antirez)
+* Interactive mode to redis-cli. (Michel Martens & Damian Janowski)
+* Countless improvements to skip list implementation (Pieter Noordhuis)
+* ZINTERSTORE, ZUNIONSTORE commands (Pieter Noordhuis)
+* ZRANK command (Pieter Noordhuis)
+* SUBSTR command (antirez)
+* Now list push commands return the length of the new list (Gustavo Picon, antirez)
+* ZREMBYRANK command (Pieter Noordhuis)
+* Hash data type with all the associated commands (antirez & Pieter Noordhuis)
+* Added ZREVRANK (Pieter Noordhuis)
+* Fixed hard to track replication bug (Jeremy Zawodny)
+* Tool to check rdb files for unprocessable opcodes (Pieter Noordhuis)
+* Random internals refactoring / cleanups (antirez & Pieter Noordhuis)
+* Fixed issues 193, 194, 191 (Antonio Ognio)
+* Support for include directive in config parser (Jeremy Zawodny)
+* Fix authentication for redis-cli on non-interactive mode. (Michel Martens)
+* Added linenoise.c for zero deps line editing support. (antirez)
+* Use linenoise for line editing on redis-cli. (Michel Martens)
+* More incremental expiration of keys. (antirez)
+* CONFIG command (antirez)
+* Publis/Subscribe and associated commands (antirez)
+* New form of shared object, sharing all the small integers (antirez)
+* Validate numeric inputs. (Alex McHale)
+* Non blocking hash table resize, thanks to Derek Collison and Pieter Noordhuis for design ideas and help. (antirez)
+* Enable hash dereference in SORT on BY and GET (Pieter Noordhuis)
+* Now all commands support binary safe keys (antirez)
+* SETEX (Set + EXPIRE) implemented (antirez & Pieter Noordhuis)
+* redis-cli now accepts and outputs quoted strings in interactive mode (antirez)
+* New MONITOR output format with timestamp, 1 command per line. (antirez)
+* Tool to check if AOF is valid, and fix it if needed (Pieter Noordhuis)
+* Major speedup to AOF with fsync always, thanks to Derek Collison for the algorithm (antirez)
+* Append only filename configurable (Pieter Noordhuis)
+* Add SIGTERM shutdown handling. (Ashley Martens)
+* Many improvements in Redis test suite (Pieter Noordhuis)
+* Add git commit information to INFO listing (Pieter Noordhuis & antirez)
+* Many more minor things mainly from me and Pieter Noordhuis, but this changelog is already too big ;)
+
