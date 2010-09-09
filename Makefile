@@ -15,6 +15,10 @@ endif
 CCOPT= $(CFLAGS) $(CCLINK) $(ARCH) $(PROF)
 DEBUG?= -g -rdynamic -ggdb 
 
+INSTALL_TOP= /usr/local
+INSTALL_BIN= $(INSTALL_TOP)/bin
+INSTALL= cp -p
+
 OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o
 BENCHOBJ = ae.o anet.o redis-benchmark.o sds.o adlist.o zmalloc.o
 CLIOBJ = anet.o sds.o adlist.o redis-cli.o zmalloc.o linenoise.o
@@ -113,3 +117,10 @@ noopt:
 
 32bitgprof:
 	make PROF="-pg" ARCH="-arch i386"
+
+install: all
+	$(INSTALL) $(PRGNAME) $(INSTALL_BIN)
+	$(INSTALL) $(BENCHPRGNAME) $(INSTALL_BIN)
+	$(INSTALL) $(CLIPRGNAME) $(INSTALL_BIN)
+	$(INSTALL) $(CHECKDUMPPRGNAME) $(INSTALL_BIN)
+	$(INSTALL) $(CHECKAOFPRGNAME) $(INSTALL_BIN)
