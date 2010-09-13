@@ -16,7 +16,8 @@ It is as simple as:
 
 Redis is just a single binary, but if you want to install it you can use
 the "make install" target that will copy the binary in /usr/local/bin
-for default.
+for default. You can also use "make PREFIX=/some/other/directory install"
+if you wish to use a different destination.
 
 You can run a 32 bit Redis binary using:
 

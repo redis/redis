@@ -3,7 +3,18 @@ To compile Redis, do the following:
     cd src; make
 
 The compilation will produce a redis-server binary.
-Copy this file where you want.
+
+To install Redis, use
+
+    make install
+
+and all the binaries will be installed on /usr/local/bin.
+
+Alternatively:
+
+    make PREFIX=/some/other/directory
+
+to have the binaries in /some/other/directory/bin.
 
 Run the server using the following command line:
 
