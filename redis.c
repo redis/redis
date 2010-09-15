@@ -8227,6 +8227,7 @@ static void freeMemoryIfNeeded(void) {
                     }
                 }
                 deleteKey(server.db+j,minkey);
+                server.stat_expiredkeys++;
             }
         }
         if (!freed) return; /* nothing to free... */
