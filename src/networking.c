@@ -56,7 +56,7 @@ redisClient *createClient(int fd) {
     return c;
 }
 
-int _ensureFileEvent(redisClient *c) {
+int _installWriteEvent(redisClient *c) {
     if (c->fd <= 0) return REDIS_ERR;
     if (c->bufpos == 0 && listLength(c->reply) == 0 &&
         (c->replstate == REDIS_REPL_NONE ||
@@ -160,21 +160,29 @@ void _addReplyStringToList(redisClient *c, char *s, size_t len) {
 }
 
 void addReply(redisClient *c, robj *obj) {
-    if (_ensureFileEvent(c) != REDIS_OK) return;
-    if (server.vm_enabled && obj->storage != REDIS_VM_MEMORY) {
-        /* Returns a new object with refcount 1 */
-        obj = dupStringObject(obj);
+    if (_installWriteEvent(c) != REDIS_OK) return;
+    redisAssert(!server.vm_enabled || obj->storage == REDIS_VM_MEMORY);
+
+    /* This is an important place where we can avoid copy-on-write
+     * when there is a saving child running, avoiding touching the
+     * refcount field of the object if it's not needed.
+     *
+     * If the encoding is RAW and there is room in the static buffer
+     * we'll be able to send the object to the client without
+     * messing with its page. */
+    if (obj->encoding == REDIS_ENCODING_RAW) {
+        if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != REDIS_OK)
+            _addReplyObjectToList(c,obj);
     } else {
-        /* This increments the refcount. */
         obj = getDecodedObject(obj);
+        if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != REDIS_OK)
+            _addReplyObjectToList(c,obj);
+        decrRefCount(obj);
     }
-    if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != REDIS_OK)
-        _addReplyObjectToList(c,obj);
-    decrRefCount(obj);
 }
 
 void addReplySds(redisClient *c, sds s) {
-    if (_ensureFileEvent(c) != REDIS_OK) {
+    if (_installWriteEvent(c) != REDIS_OK) {
         /* The caller expects the sds to be free'd. */
         sdsfree(s);
         return;
@@ -188,7 +196,7 @@ void addReplySds(redisClient *c, sds s) {
 }
 
 void addReplyString(redisClient *c, char *s, size_t len) {
-    if (_ensureFileEvent(c) != REDIS_OK) return;
+    if (_installWriteEvent(c) != REDIS_OK) return;
     if (_addReplyToBuffer(c,s,len) != REDIS_OK)
         _addReplyStringToList(c,s,len);
 }
@@ -234,7 +242,10 @@ void addReplyStatusFormat(redisClient *c, const char *fmt, ...) {
 /* Adds an empty object to the reply list that will contain the multi bulk
  * length, which is not known when this function is called. */
 void *addDeferredMultiBulkLength(redisClient *c) {
-    if (_ensureFileEvent(c) != REDIS_OK) return NULL;
+    /* Note that we install the write event here even if the object is not
+     * ready to be sent, since we are sure that before returning to the
+     * event loop setDeferredMultiBulkLength() will be called. */
+    if (_installWriteEvent(c) != REDIS_OK) return NULL;
     listAddNodeTail(c->reply,createObject(REDIS_STRING,NULL));
     return listLast(c->reply);
 }
