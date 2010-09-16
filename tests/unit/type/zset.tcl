@@ -199,26 +199,59 @@ start_server {tags {"zset"}} {
         list $v1 $v2 [r zscore zset foo] [r zscore zset bar]
     } {{bar foo} {foo bar} -2 6}
 
-    test {ZRANGEBYSCORE and ZCOUNT basics} {
-        r del zset
-        r zadd zset 1 a
-        r zadd zset 2 b
-        r zadd zset 3 c
-        r zadd zset 4 d
-        r zadd zset 5 e
-        list [r zrangebyscore zset 2 4] [r zrangebyscore zset (2 (4] \
-             [r zcount zset 2 4] [r zcount zset (2 (4]
-    } {{b c d} c 3 1}
+    proc create_default_zset {} {
+        create_zset zset {-inf a 1 b 2 c 3 d 4 e 5 f +inf g}
+    }
 
-    test {ZRANGEBYSCORE withscores} {
-        r del zset
-        r zadd zset 1 a
-        r zadd zset 2 b
-        r zadd zset 3 c
-        r zadd zset 4 d
-        r zadd zset 5 e
-        r zrangebyscore zset 2 4 withscores
-    } {b 2 c 3 d 4}
+    test "ZRANGEBYSCORE/ZREVRANGEBYSCORE/ZCOUNT basics" {
+        create_default_zset
+
+        # inclusive range
+        assert_equal {a b c} [r zrangebyscore zset -inf 2]
+        assert_equal {b c d} [r zrangebyscore zset 0 3]
+        assert_equal {d e f} [r zrangebyscore zset 3 6]
+        assert_equal {e f g} [r zrangebyscore zset 4 +inf]
+        assert_equal {c b a} [r zrevrangebyscore zset 2 -inf]
+        assert_equal {d c b} [r zrevrangebyscore zset 3 0]
+        assert_equal {f e d} [r zrevrangebyscore zset 6 3]
+        assert_equal {g f e} [r zrevrangebyscore zset +inf 4]
+        assert_equal 3 [r zcount zset 0 3]
+
+        # exclusive range
+        assert_equal {b}   [r zrangebyscore zset (-inf (2]
+        assert_equal {b c} [r zrangebyscore zset (0 (3]
+        assert_equal {e f} [r zrangebyscore zset (3 (6]
+        assert_equal {f}   [r zrangebyscore zset (4 (+inf]
+        assert_equal {b}   [r zrevrangebyscore zset (2 (-inf]
+        assert_equal {c b} [r zrevrangebyscore zset (3 (0]
+        assert_equal {f e} [r zrevrangebyscore zset (6 (3]
+        assert_equal {f}   [r zrevrangebyscore zset (+inf (4]
+        assert_equal 2 [r zcount zset (0 (3]
+    }
+
+    test "ZRANGEBYSCORE with WITHSCORES" {
+        create_default_zset
+        assert_equal {b 1 c 2 d 3} [r zrangebyscore zset 0 3 withscores]
+        assert_equal {d 3 c 2 b 1} [r zrevrangebyscore zset 3 0 withscores]
+    }
+
+    test "ZRANGEBYSCORE with LIMIT" {
+        create_default_zset
+        assert_equal {b c}   [r zrangebyscore zset 0 10 LIMIT 0 2]
+        assert_equal {d e f} [r zrangebyscore zset 0 10 LIMIT 2 3]
+        assert_equal {d e f} [r zrangebyscore zset 0 10 LIMIT 2 10]
+        assert_equal {}      [r zrangebyscore zset 0 10 LIMIT 20 10]
+        assert_equal {f e}   [r zrevrangebyscore zset 10 0 LIMIT 0 2]
+        assert_equal {d c b} [r zrevrangebyscore zset 10 0 LIMIT 2 3]
+        assert_equal {d c b} [r zrevrangebyscore zset 10 0 LIMIT 2 10]
+        assert_equal {}      [r zrevrangebyscore zset 10 0 LIMIT 20 10]
+    }
+
+    test "ZRANGEBYSCORE with LIMIT and WITHSCORES" {
+        create_default_zset
+        assert_equal {e 4 f 5} [r zrangebyscore zset 2 5 LIMIT 2 3 WITHSCORES]
+        assert_equal {d 3 c 2} [r zrevrangebyscore zset 5 2 LIMIT 2 3 WITHSCORES]
+    }
 
     tags {"slow"} {
         test {ZRANGEBYSCORE fuzzy test, 100 ranges in 1000 elements sorted set} {
@@ -301,30 +334,6 @@ start_server {tags {"zset"}} {
             set _ $err
         } {}
     }
-
-    test {ZRANGEBYSCORE with LIMIT} {
-        r del zset
-        r zadd zset 1 a
-        r zadd zset 2 b
-        r zadd zset 3 c
-        r zadd zset 4 d
-        r zadd zset 5 e
-        list \
-            [r zrangebyscore zset 0 10 LIMIT 0 2] \
-            [r zrangebyscore zset 0 10 LIMIT 2 3] \
-            [r zrangebyscore zset 0 10 LIMIT 2 10] \
-            [r zrangebyscore zset 0 10 LIMIT 20 10]
-    } {{a b} {c d e} {c d e} {}}
-
-    test {ZRANGEBYSCORE with LIMIT and withscores} {
-        r del zset
-        r zadd zset 10 a
-        r zadd zset 20 b
-        r zadd zset 30 c
-        r zadd zset 40 d
-        r zadd zset 50 e
-        r zrangebyscore zset 20 50 LIMIT 2 3 withscores
-    } {d 40 e 50}
 
     test {ZREMRANGEBYSCORE basics} {
         r del zset

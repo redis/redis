@@ -895,6 +895,7 @@ void zaddCommand(redisClient *c);
 void zincrbyCommand(redisClient *c);
 void zrangeCommand(redisClient *c);
 void zrangebyscoreCommand(redisClient *c);
+void zrevrangebyscoreCommand(redisClient *c);
 void zcountCommand(redisClient *c);
 void zrevrangeCommand(redisClient *c);
 void zcardCommand(redisClient *c);
