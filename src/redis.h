@@ -313,8 +313,7 @@ typedef struct redisClient {
 
     /* Response buffer */
     int bufpos;
-    int buflen;
-    char buf[];
+    char buf[REDIS_REPLY_CHUNK_BYTES];
 } redisClient;
 
 struct saveparam {
