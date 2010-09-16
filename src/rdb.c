@@ -730,13 +730,14 @@ robj *rdbLoadObject(int type, FILE *fp) {
         /* Load every single element of the list/set */
         while(zsetlen--) {
             robj *ele;
-            double *score = zmalloc(sizeof(double));
+            double score;
+            zskiplistNode *znode;
 
             if ((ele = rdbLoadEncodedStringObject(fp)) == NULL) return NULL;
             ele = tryObjectEncoding(ele);
-            if (rdbLoadDoubleValue(fp,score) == -1) return NULL;
-            dictAdd(zs->dict,ele,score);
-            zslInsert(zs->zsl,*score,ele);
+            if (rdbLoadDoubleValue(fp,&score) == -1) return NULL;
+            znode = zslInsert(zs->zsl,score,ele);
+            dictAdd(zs->dict,ele,&znode->score);
             incrRefCount(ele); /* added to skiplist */
         }
     } else if (type == REDIS_HASH) {

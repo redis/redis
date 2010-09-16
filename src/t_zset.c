@@ -663,25 +663,23 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
              * from small to large, all src[i > 0].dict are non-empty too */
             di = dictGetIterator(src[0].dict);
             while((de = dictNext(di)) != NULL) {
-                double *score = zmalloc(sizeof(double)), value;
-                *score = src[0].weight * zunionInterDictValue(de);
+                double score, value;
+                score = src[0].weight * zunionInterDictValue(de);
 
                 for (j = 1; j < setnum; j++) {
                     dictEntry *other = dictFind(src[j].dict,dictGetEntryKey(de));
                     if (other) {
                         value = src[j].weight * zunionInterDictValue(other);
-                        zunionInterAggregate(score, value, aggregate);
+                        zunionInterAggregate(&score,value,aggregate);
                     } else {
                         break;
                     }
                 }
 
-                /* skip entry when not present in every source dict */
-                if (j != setnum) {
-                    zfree(score);
-                } else {
+                /* Only continue when present in every source dict. */
+                if (j == setnum) {
                     robj *o = dictGetEntryKey(de);
-                    znode = zslInsert(dstzset->zsl,*score,o);
+                    znode = zslInsert(dstzset->zsl,score,o);
                     incrRefCount(o); /* added to skiplist */
                     dictAdd(dstzset->dict,o,&znode->score);
                     incrRefCount(o); /* added to dictionary */
@@ -695,11 +693,14 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
 
             di = dictGetIterator(src[i].dict);
             while((de = dictNext(di)) != NULL) {
-                /* skip key when already processed */
-                if (dictFind(dstzset->dict,dictGetEntryKey(de)) != NULL) continue;
+                double score, value;
 
-                double *score = zmalloc(sizeof(double)), value;
-                *score = src[i].weight * zunionInterDictValue(de);
+                /* skip key when already processed */
+                if (dictFind(dstzset->dict,dictGetEntryKey(de)) != NULL)
+                    continue;
+
+                /* initialize score */
+                score = src[i].weight * zunionInterDictValue(de);
 
                 /* because the zsets are sorted by size, its only possible
                  * for sets at larger indices to hold this entry */
@@ -707,12 +708,12 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                     dictEntry *other = dictFind(src[j].dict,dictGetEntryKey(de));
                     if (other) {
                         value = src[j].weight * zunionInterDictValue(other);
-                        zunionInterAggregate(score, value, aggregate);
+                        zunionInterAggregate(&score,value,aggregate);
                     }
                 }
 
                 robj *o = dictGetEntryKey(de);
-                znode = zslInsert(dstzset->zsl,*score,o);
+                znode = zslInsert(dstzset->zsl,score,o);
                 incrRefCount(o); /* added to skiplist */
                 dictAdd(dstzset->dict,o,&znode->score);
                 incrRefCount(o); /* added to dictionary */
