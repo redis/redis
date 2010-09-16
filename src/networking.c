@@ -11,11 +11,7 @@ int listMatchObjects(void *a, void *b) {
 }
 
 redisClient *createClient(int fd) {
-    redisClient *c;
-
-    /* Allocate more space to hold a static write buffer. */
-    c = zmalloc(sizeof(redisClient)+REDIS_REPLY_CHUNK_BYTES);
-    c->buflen = REDIS_REPLY_CHUNK_BYTES;
+    redisClient *c = zmalloc(sizeof(redisClient));
     c->bufpos = 0;
 
     anetNonBlock(NULL,fd);
@@ -87,7 +83,7 @@ robj *dupLastObjectIfNeeded(list *reply) {
 }
 
 int _addReplyToBuffer(redisClient *c, char *s, size_t len) {
-    size_t available = c->buflen-c->bufpos;
+    size_t available = sizeof(c->buf)-c->bufpos;
 
     /* If there already are entries in the reply list, we cannot
      * add anything more to the static buffer. */
