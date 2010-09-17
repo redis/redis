@@ -664,6 +664,8 @@ void closeTimedoutClients(void) {
 }
 
 void processInputBuffer(redisClient *c) {
+    int seeknewline = 0;
+
 again:
     /* Before to process the input buffer, make sure the client is not
      * waitig for a blocking operation such as BLPOP. Note that the first
@@ -672,6 +674,9 @@ again:
      * in the input buffer the client may be blocked, and the "goto again"
      * will try to reiterate. The following line will make it return asap. */
     if (c->flags & REDIS_BLOCKED || c->flags & REDIS_IO_WAIT) return;
+
+    if (seeknewline && c->bulklen == -1) c->newline = strchr(c->querybuf,'\n');
+    seeknewline = 1;
     if (c->bulklen == -1) {
         /* Read the first line of the query */
         size_t querylen;
