@@ -1,3 +1,20 @@
+Welcome to Redis 2.0.2
+
+This is a bugfix release, with the followign changes:
+
+    - Fixed a bug that may slow down significantly (from a few milliseconds
+      to many seconds) server side intersections when a background write is
+      in progress. This was due to the hash table resize policy, prevented when
+      there was a saving child. Now it's prevented only up to 5 times
+      overbooking, so we try hard to prevent a lot of copy on write, but
+      avoiding to trigger pathological hash table performances of O(N) instead
+      of O(1).
+
+Ciao,
+Salvatore
+
+--------------------------------------------------------------------------------
+
 Welcome to Redis 2.0.1
 
 This is a bugfix release, with the following changes:
