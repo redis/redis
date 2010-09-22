@@ -9,6 +9,8 @@ This is a bugfix release, with the followign changes:
       overbooking, so we try hard to prevent a lot of copy on write, but
       avoiding to trigger pathological hash table performances of O(N) instead
       of O(1).
+    - Fixed expired keys counter in INFO output. It was not counting keys
+      force-expired due to max-memory limit reached.
 
 Ciao,
 Salvatore
