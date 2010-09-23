@@ -223,13 +223,16 @@ sds sdsrange(sds s, int start, int end) {
     }
     newlen = (start > end) ? 0 : (end-start)+1;
     if (newlen != 0) {
-        if (start >= (signed)len) start = len-1;
-        if (end >= (signed)len) end = len-1;
-        newlen = (start > end) ? 0 : (end-start)+1;
+        if (start >= (signed)len) {
+            newlen = 0;
+        } else if (end >= (signed)len) {
+            end = len-1;
+            newlen = (start > end) ? 0 : (end-start)+1;
+        }
     } else {
         start = 0;
     }
-    if (start != 0) memmove(sh->buf, sh->buf+start, newlen);
+    if (start && newlen) memmove(sh->buf, sh->buf+start, newlen);
     sh->buf[newlen] = 0;
     sh->free = sh->free+(sh->len-newlen);
     sh->len = newlen;
@@ -478,3 +481,22 @@ err:
     if (current) sdsfree(current);
     return NULL;
 }
+
+#ifdef SDS_TEST_MAIN
+#include <stdio.h>
+#include "testhelp.h"
+
+int main(void) {
+    {
+        sds x = sdsnew("foo");
+
+        /* SDS creation and length */
+        test_cond("Can create a string and obtain the length",
+            sdslen(x) == 3 && memcmp(x,"foo",3) == 0)
+
+        /* Nul term checking */
+        test_cond("The string contains the nul term", x[3] == '\0')
+    }
+    test_report()
+}
+#endif
