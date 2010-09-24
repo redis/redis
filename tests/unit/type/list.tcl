@@ -603,5 +603,58 @@ start_server {
             assert_equal 1 [r lrem myotherlist 1 2]
             assert_equal 3 [r llen myotherlist]
         }
+
+        tags {slow} {
+            test {ziplist implementation: value encoding and backlink} {
+                for {set j 0} {$j < 100} {incr j} {
+                    r del l
+                    set l {}
+                    for {set i 0} {$i < 200} {incr i} {
+                        randpath {
+                            set data [string repeat x [randomInt 100000]]
+                        } {
+                            set data [randomInt 65536]
+                        } {
+                            set data [randomInt 4294967296]
+                        } {
+                            set data [randomInt 18446744073709551616]
+                        }
+                        lappend l $data
+                        r rpush l $data
+                    }
+                    assert_equal [llength $l] [r llen l]
+                    # Traverse backward
+                    for {set i 199} {$i >= 0} {incr i -1} {
+                        if {[lindex $l $i] ne [r lindex l $i]} {
+                            assert_equal [lindex $l $i] [r lindex l $i]
+                        }
+                    }
+                }
+            }
+
+            test {ziplist implementation: encoding stress testing} {
+                for {set j 0} {$j < 200} {incr j} {
+                    r del l
+                    set l {}
+                    set len [randomInt 400]
+                    for {set i 0} {$i < $len} {incr i} {
+                        set rv [randomValue]
+                        randpath {
+                            lappend l $rv
+                            r rpush l $rv
+                        } {
+                            set l [concat [list $rv] $l]
+                            r lpush l $rv
+                        }
+                    }
+                    assert_equal [llength $l] [r llen l]
+                    for {set i 0} {$i < 200} {incr i} {
+                        if {[lindex $l $i] ne [r lindex l $i]} {
+                            assert_equal [lindex $l $i] [r lindex l $i]
+                        }
+                    }
+                }
+            }
+        }
     }
 }
