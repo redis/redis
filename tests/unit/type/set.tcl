@@ -295,4 +295,40 @@ start_server {
         r set x 10
         assert_error "ERR*wrong kind*" {r smove myset2 x foo}
     }
+
+    tags {slow} {
+        test {intsets implementation stress testing} {
+            for {set j 0} {$j < 20} {incr j} {
+                unset -nocomplain s
+                array set s {}
+                r del s
+                set len [randomInt 1024]
+                for {set i 0} {$i < $len} {incr i} {
+                    randpath {
+                        set data [randomInt 65536]
+                    } {
+                        set data [randomInt 4294967296]
+                    } {
+                        set data [randomInt 18446744073709551616]
+                    }
+                    set s($data) {}
+                    r sadd s $data
+                }
+                assert_equal [lsort [r smembers s]] [lsort [array names s]]
+                set len [array size s]
+                for {set i 0} {$i < $len} {incr i} {
+                    set e [r spop s]
+                    if {![info exists s($e)]} {
+                        puts "Can't find '$e' on local array"
+                        puts "Local array: [lsort [r smembers s]]"
+                        puts "Remote array: [lsort [array names s]]"
+                        error "exception"
+                    }
+                    array unset s $e
+                }
+                assert_equal [r scard s] 0
+                assert_equal [array size s] 0
+            }
+        }
+    }
 }
