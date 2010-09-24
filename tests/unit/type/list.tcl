@@ -604,6 +604,15 @@ start_server {
             assert_equal 3 [r llen myotherlist]
         }
 
+        test {Explicit regression for a list bug} {
+            set mylist {49376042582 {BkG2o\pIC]4YYJa9cJ4GWZalG[4tin;1D2whSkCOW`mX;SFXGyS8sedcff3fQI^tgPCC@^Nu1J6o]meM@Lko]t_jRyo<xSJ1oObDYd`ppZuW6P@fS278YaOx=s6lvdFlMbP0[SbkI^Kr\HBXtuFaA^mDx:yzS4a[skiiPWhT<nNfAf=aQVfclcuwDrfe;iVuKdNvB9kbfq>tK?tH[\EvWqS]b`o2OCtjg:?nUTwdjpcUm]y:pg5q24q7LlCOwQE^}}
+            r del l
+            r rpush l [lindex $mylist 0]
+            r rpush l [lindex $mylist 1]
+            assert_equal [r lindex l 0] [lindex $mylist 0]
+            assert_equal [r lindex l 1] [lindex $mylist 1]
+        }
+
         tags {slow} {
             test {ziplist implementation: value encoding and backlink} {
                 for {set j 0} {$j < 100} {incr j} {
