@@ -7634,6 +7634,22 @@ static void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeou
     list *l;
     int j;
 
+    /* Never block for keys when the AOF is being replayed.
+     *
+     * When a BPOP is issued against an expiring list, the list is expired
+     * by means of the delete-on-write semantic, which causes the BPOP
+     * command to be written to the AOF. Then, the BPOP ends up in a blocking
+     * state and waits for a PUSH on any given key from another client.
+     *
+     * On replay, the expiring list will also be expired (if it isn't already),
+     * and the fake AOF client will block for a push. When multiple BPOPs
+     * (issued by multiple clients) are written to the AOF, this can cause the
+     * same blocking code to be executed against the single fake AOF client,
+     * which in turn can place the client in the list(s) of blocking clients
+     * *multiple times*. This state should be prevented, so simply skip
+     * blocking for the fake AOF client. */
+    if (c->fd < 0) return;
+
     c->blockingkeys = zmalloc(sizeof(robj*)*numkeys);
     c->blockingkeysnum = numkeys;
     c->blockingto = timeout;
