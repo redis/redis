@@ -307,15 +307,10 @@ int anetUnixServer(char *err, char *path)
     return s;
 }
 
-int anetAccept(char *err, int serversock, char *ip, int *port)
-{
+static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *len) {
     int fd;
-    struct sockaddr_in sa;
-    unsigned int saLen;
-
     while(1) {
-        saLen = sizeof(sa);
-        fd = accept(serversock, (struct sockaddr*)&sa, &saLen);
+        fd = accept(s,sa,len);
         if (fd == -1) {
             if (errno == EINTR)
                 continue;
@@ -326,7 +321,31 @@ int anetAccept(char *err, int serversock, char *ip, int *port)
         }
         break;
     }
+    return fd;
+}
+
+int anetTcpAccept(char *err, int s, char *ip, int *port) {
+    int fd;
+    struct sockaddr_in sa;
+    socklen_t salen = sizeof(sa);
+    if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == ANET_ERR)
+        return ANET_ERR;
+
     if (ip) strcpy(ip,inet_ntoa(sa.sin_addr));
     if (port) *port = ntohs(sa.sin_port);
+    return fd;
+}
+
+int anetUnixAccept(char *err, int s, char *path, int len) {
+    int fd;
+    struct sockaddr_un sa;
+    socklen_t salen = sizeof(sa);
+    if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == ANET_ERR)
+        return ANET_ERR;
+
+    if (path) {
+        strncpy(path,sa.sun_path,len-1);
+        path[len-1] = 0;
+    }
     return fd;
 }

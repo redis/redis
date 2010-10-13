@@ -157,23 +157,11 @@ void addReplyBulkCString(redisClient *c, char *s) {
     }
 }
 
-void acceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cport, cfd;
-    char cip[128];
+static void acceptCommonHandler(int fd) {
     redisClient *c;
-    REDIS_NOTUSED(el);
-    REDIS_NOTUSED(mask);
-    REDIS_NOTUSED(privdata);
-
-    cfd = anetAccept(server.neterr, fd, cip, &cport);
-    if (cfd == AE_ERR) {
-        redisLog(REDIS_VERBOSE,"Accepting client connection: %s", server.neterr);
-        return;
-    }
-    redisLog(REDIS_VERBOSE,"Accepted %s:%d", cip, cport);
-    if ((c = createClient(cfd)) == NULL) {
+    if ((c = createClient(fd)) == NULL) {
         redisLog(REDIS_WARNING,"Error allocating resoures for the client");
-        close(cfd); /* May be already closed, just ingore errors */
+        close(fd); /* May be already closed, just ingore errors */
         return;
     }
     /* If maxclient directive is set and this is one client more... close the
@@ -192,6 +180,39 @@ void acceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
     server.stat_numconnections++;
 }
+
+void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
+    int cport, cfd;
+    char cip[128];
+    REDIS_NOTUSED(el);
+    REDIS_NOTUSED(mask);
+    REDIS_NOTUSED(privdata);
+
+    cfd = anetTcpAccept(server.neterr, fd, cip, &cport);
+    if (cfd == AE_ERR) {
+        redisLog(REDIS_VERBOSE,"Accepting client connection: %s", server.neterr);
+        return;
+    }
+    redisLog(REDIS_VERBOSE,"Accepted %s:%d", cip, cport);
+    acceptCommonHandler(cfd);
+}
+
+void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
+    int cfd;
+    char cpath[128];
+    REDIS_NOTUSED(el);
+    REDIS_NOTUSED(mask);
+    REDIS_NOTUSED(privdata);
+
+    cfd = anetUnixAccept(server.neterr, fd, cpath, sizeof(cpath));
+    if (cfd == AE_ERR) {
+        redisLog(REDIS_VERBOSE,"Accepting client connection: %s", server.neterr);
+        return;
+    }
+    redisLog(REDIS_VERBOSE,"Accepted connection to %s", server.unixsocket);
+    acceptCommonHandler(cfd);
+}
+
 
 static void freeClientArgv(redisClient *c) {
     int j;
