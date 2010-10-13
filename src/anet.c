@@ -336,16 +336,12 @@ int anetTcpAccept(char *err, int s, char *ip, int *port) {
     return fd;
 }
 
-int anetUnixAccept(char *err, int s, char *path, int len) {
+int anetUnixAccept(char *err, int s) {
     int fd;
     struct sockaddr_un sa;
     socklen_t salen = sizeof(sa);
     if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == ANET_ERR)
         return ANET_ERR;
 
-    if (path) {
-        strncpy(path,sa.sun_path,len-1);
-        path[len-1] = 0;
-    }
     return fd;
 }

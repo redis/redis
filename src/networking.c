@@ -199,12 +199,11 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
 void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cfd;
-    char cpath[128];
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
 
-    cfd = anetUnixAccept(server.neterr, fd, cpath, sizeof(cpath));
+    cfd = anetUnixAccept(server.neterr, fd);
     if (cfd == AE_ERR) {
         redisLog(REDIS_VERBOSE,"Accepting client connection: %s", server.neterr);
         return;
