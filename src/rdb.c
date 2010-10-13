@@ -260,17 +260,29 @@ int rdbSaveObject(FILE *fp, robj *o) {
         }
     } else if (o->type == REDIS_SET) {
         /* Save a set value */
-        dict *set = o->ptr;
-        dictIterator *di = dictGetIterator(set);
-        dictEntry *de;
+        if (o->encoding == REDIS_ENCODING_HT) {
+            dict *set = o->ptr;
+            dictIterator *di = dictGetIterator(set);
+            dictEntry *de;
 
-        if (rdbSaveLen(fp,dictSize(set)) == -1) return -1;
-        while((de = dictNext(di)) != NULL) {
-            robj *eleobj = dictGetEntryKey(de);
+            if (rdbSaveLen(fp,dictSize(set)) == -1) return -1;
+            while((de = dictNext(di)) != NULL) {
+                robj *eleobj = dictGetEntryKey(de);
+                if (rdbSaveStringObject(fp,eleobj) == -1) return -1;
+            }
+            dictReleaseIterator(di);
+        } else if (o->encoding == REDIS_ENCODING_INTSET) {
+            intset *is = o->ptr;
+            int64_t llval;
+            int i = 0;
 
-            if (rdbSaveStringObject(fp,eleobj) == -1) return -1;
+            if (rdbSaveLen(fp,intsetLen(is)) == -1) return -1;
+            while(intsetGet(is,i++,&llval)) {
+                if (rdbSaveLongLongAsStringObject(fp,llval) == -1) return -1;
+            }
+        } else {
+            redisPanic("Unknown set encoding");
         }
-        dictReleaseIterator(di);
     } else if (o->type == REDIS_ZSET) {
         /* Save a set value */
         zset *zs = o->ptr;
@@ -445,6 +457,7 @@ int rdbSaveBackground(char *filename) {
 
     if (server.bgsavechildpid != -1) return REDIS_ERR;
     if (server.vm_enabled) waitEmptyIOJobsQueue();
+    server.dirty_before_bgsave = server.dirty;
     if ((childpid = fork()) == 0) {
         /* Child */
         if (server.vm_enabled) vmReopenSwapFile();
@@ -629,6 +642,7 @@ int rdbLoadDoubleValue(FILE *fp, double *val) {
 robj *rdbLoadObject(int type, FILE *fp) {
     robj *o, *ele, *dec;
     size_t len;
+    unsigned int i;
 
     redisLog(REDIS_DEBUG,"LOADING OBJECT %d (at %d)\n",type,ftell(fp));
     if (type == REDIS_STRING) {
@@ -670,16 +684,41 @@ robj *rdbLoadObject(int type, FILE *fp) {
     } else if (type == REDIS_SET) {
         /* Read list/set value */
         if ((len = rdbLoadLen(fp,NULL)) == REDIS_RDB_LENERR) return NULL;
-        o = createSetObject();
-        /* It's faster to expand the dict to the right size asap in order
-         * to avoid rehashing */
-        if (len > DICT_HT_INITIAL_SIZE)
-            dictExpand(o->ptr,len);
+
+        /* Use a regular set when there are too many entries. */
+        if (len > server.set_max_intset_entries) {
+            o = createSetObject();
+            /* It's faster to expand the dict to the right size asap in order
+             * to avoid rehashing */
+            if (len > DICT_HT_INITIAL_SIZE)
+                dictExpand(o->ptr,len);
+        } else {
+            o = createIntsetObject();
+        }
+
         /* Load every single element of the list/set */
-        while(len--) {
+        for (i = 0; i < len; i++) {
+            long long llval;
             if ((ele = rdbLoadEncodedStringObject(fp)) == NULL) return NULL;
             ele = tryObjectEncoding(ele);
-            dictAdd((dict*)o->ptr,ele,NULL);
+
+            if (o->encoding == REDIS_ENCODING_INTSET) {
+                /* Fetch integer value from element */
+                if (isObjectRepresentableAsLongLong(ele,&llval) == REDIS_OK) {
+                    o->ptr = intsetAdd(o->ptr,llval,NULL);
+                } else {
+                    setTypeConvert(o,REDIS_ENCODING_HT);
+                    dictExpand(o->ptr,len);
+                }
+            }
+
+            /* This will also be called when the set was just converted
+             * to regular hashtable encoded set */
+            if (o->encoding == REDIS_ENCODING_HT) {
+                dictAdd((dict*)o->ptr,ele,NULL);
+            } else {
+                decrRefCount(ele);
+            }
         }
     } else if (type == REDIS_ZSET) {
         /* Read list/set value */
@@ -692,13 +731,14 @@ robj *rdbLoadObject(int type, FILE *fp) {
         /* Load every single element of the list/set */
         while(zsetlen--) {
             robj *ele;
-            double *score = zmalloc(sizeof(double));
+            double score;
+            zskiplistNode *znode;
 
             if ((ele = rdbLoadEncodedStringObject(fp)) == NULL) return NULL;
             ele = tryObjectEncoding(ele);
-            if (rdbLoadDoubleValue(fp,score) == -1) return NULL;
-            dictAdd(zs->dict,ele,score);
-            zslInsert(zs->zsl,*score,ele);
+            if (rdbLoadDoubleValue(fp,&score) == -1) return NULL;
+            znode = zslInsert(zs->zsl,score,ele);
+            dictAdd(zs->dict,ele,&znode->score);
             incrRefCount(ele); /* added to skiplist */
         }
     } else if (type == REDIS_HASH) {
@@ -876,7 +916,7 @@ void backgroundSaveDoneHandler(int statloc) {
     if (!bysignal && exitcode == 0) {
         redisLog(REDIS_NOTICE,
             "Background saving terminated with success");
-        server.dirty = 0;
+        server.dirty = server.dirty - server.dirty_before_bgsave;
         server.lastsave = time(NULL);
     } else if (!bysignal && exitcode != 0) {
         redisLog(REDIS_WARNING, "Background saving error");

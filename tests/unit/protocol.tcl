@@ -1,4 +1,4 @@
-start_server {} {
+start_server {tags {"protocol"}} {
     test {Handle an empty query well} {
         set fd [r channel]
         puts -nonewline $fd "\r\n"
@@ -23,6 +23,13 @@ start_server {} {
     test {Too big bulk payload} {
         set fd [r channel]
         puts -nonewline $fd "SET x 2000000000\r\n"
+        flush $fd
+        gets $fd
+    } {*invalid bulk*count*}
+
+    test {bulk payload is not a number} {
+        set fd [r channel]
+        puts -nonewline $fd "SET x blabla\r\n"
         flush $fd
         gets $fd
     } {*invalid bulk*count*}

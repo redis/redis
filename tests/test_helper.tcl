@@ -25,7 +25,14 @@ proc execute_tests name {
 # are nested, use "srv 0 pid" to get the pid of the inner server. To access
 # outer servers, use "srv -1 pid" etcetera.
 set ::servers {}
-proc srv {level property} {
+proc srv {args} {
+    set level 0
+    if {[string is integer [lindex $args 0]]} {
+        set level [lindex $args 0]
+        set property [lindex $args 1]
+    } else {
+        set property [lindex $args 0]
+    }
     set srv [lindex $::servers end+$level]
     dict get $srv $property
 }
@@ -88,6 +95,7 @@ proc main {} {
     execute_tests "unit/cas"
     execute_tests "integration/replication"
     execute_tests "integration/aof"
+#    execute_tests "integration/redis-cli"
     execute_tests "unit/pubsub"
 
     # run tests with VM enabled

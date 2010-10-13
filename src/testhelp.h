@@ -1,6 +1,12 @@
-/* zmalloc - total amount of allocated memory aware version of malloc()
+/* This is a really minimal testing framework for C.
  *
- * Copyright (c) 2009-2010, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Example:
+ *
+ * test_cond("Check if 1 == 1", 1==1)
+ * test_cond("Check if 5 > 10", 5 > 10)
+ * test_report()
+ *
+ * Copyright (c) 2010, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,16 +34,21 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _ZMALLOC_H
-#define _ZMALLOC_H
+#ifndef __TESTHELP_H
+#define __TESTHELP_H
 
-void *zmalloc(size_t size);
-void *zcalloc(size_t size);
-void *zrealloc(void *ptr, size_t size);
-void zfree(void *ptr);
-char *zstrdup(const char *s);
-size_t zmalloc_used_memory(void);
-void zmalloc_enable_thread_safeness(void);
-float zmalloc_get_fragmentation_ratio(void);
+int __failed_tests = 0;
+int __test_num = 0;
+#define test_cond(descr,_c) do { \
+    __test_num++; printf("%d - %s: ", __test_num, descr); \
+    if(_c) printf("PASSED\n"); else {printf("FAILED\n"); __failed_tests++;} \
+} while(0);
+#define test_report() do { \
+    printf("%d tests, %d passed, %d failed\n", __test_num, \
+                    __test_num-__failed_tests, __failed_tests); \
+    if (__failed_tests) { \
+        printf("=== WARNING === We have failed tests here...\n"); \
+    } \
+} while(0);
 
-#endif /* _ZMALLOC_H */
+#endif

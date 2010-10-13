@@ -23,6 +23,24 @@ start_server {tags {"repl"}} {
             }
             assert_equal [r debug digest] [r -1 debug digest]
         }
+
+        test {MASTER and SLAVE consistency with expire} {
+            createComplexDataset r 50000 useexpire
+            after 4000 ;# Make sure everything expired before taking the digest
+            if {[r debug digest] ne [r -1 debug digest]} {
+                set csv1 [csvdump r]
+                set csv2 [csvdump {r -1}]
+                set fd [open /tmp/repldump1.txt w]
+                puts -nonewline $fd $csv1
+                close $fd
+                set fd [open /tmp/repldump2.txt w]
+                puts -nonewline $fd $csv2
+                close $fd
+                puts "Master - Slave inconsistency"
+                puts "Run diff -u against /tmp/repldump*.txt for more info"
+            }
+            assert_equal [r debug digest] [r -1 debug digest]
+        }
     }
 }
 

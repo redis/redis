@@ -83,7 +83,9 @@ proc ping_server {host port} {
         }
         close $fd
     } e]} {
-        puts "Can't PING server at $host:$port... $e"
+        puts -nonewline "."
+    } else {
+        puts -nonewline "ok"
     }
     return $retval
 }
@@ -170,14 +172,33 @@ proc start_server {options {code undefined}} {
 
     if {$::valgrind} {
         exec valgrind src/redis-server $config_file > $stdout 2> $stderr &
-        after 2000
     } else {
         exec src/redis-server $config_file > $stdout 2> $stderr &
-        after 500
     }
     
     # check that the server actually started
-    if {$code ne "undefined" && ![ping_server $::host $::port]} {
+    # ugly but tries to be as fast as possible...
+    set retrynum 20
+    set serverisup 0
+
+    puts -nonewline "=== ($tags) Starting server ${::host}:${::port} "
+    after 10
+    if {$code ne "undefined"} {
+        while {[incr retrynum -1]} {
+            catch {
+                if {[ping_server $::host $::port]} {
+                    set serverisup 1
+                }
+            }
+            if {$serverisup} break
+            after 50
+        }
+    } else {
+        set serverisup 1
+    }
+    puts {}
+
+    if {!$serverisup} {
         error_and_quit $config_file [exec cat $stderr]
     }
     
@@ -230,7 +251,11 @@ proc start_server {options {code undefined}} {
         
         # execute provided block
         set curnum $::testnum
-        catch { uplevel 1 $code } err
+        if {![catch { uplevel 1 $code } err]} {
+            # zero exit status is good
+            unset err
+        }
+
         if {$curnum == $::testnum} {
             # don't check for leaks when no tests were executed
             dict set srv "skipleaks" 1
@@ -241,22 +266,24 @@ proc start_server {options {code undefined}} {
         
         # allow an exception to bubble up the call chain but still kill this
         # server, because we want to reuse the ports when the tests are re-run
-        if {$err eq "exception"} {
-            puts [format "Logged warnings (pid %d):" [dict get $srv "pid"]]
-            set warnings [warnings_from_file [dict get $srv "stdout"]]
-            if {[string length $warnings] > 0} {
-                puts "$warnings"
-            } else {
-                puts "(none)"
+        if {[info exists err]} {
+            if {$err eq "exception"} {
+                puts [format "Logged warnings (pid %d):" [dict get $srv "pid"]]
+                set warnings [warnings_from_file [dict get $srv "stdout"]]
+                if {[string length $warnings] > 0} {
+                    puts "$warnings"
+                } else {
+                    puts "(none)"
+                }
+                # kill this server without checking for leaks
+                dict set srv "skipleaks" 1
+                kill_server $srv
+                error "exception"
+            } elseif {[string length $err] > 0} {
+                puts "Error executing the suite, aborting..."
+                puts $err
+                exit 1
             }
-            # kill this server without checking for leaks
-            dict set srv "skipleaks" 1
-            kill_server $srv
-            error "exception"
-        } elseif {[string length $err] > 0} {
-            puts "Error executing the suite, aborting..."
-            puts $err
-            exit 1
         }
 
         set ::tags [lrange $::tags 0 end-[llength $tags]]

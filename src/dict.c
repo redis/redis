@@ -49,8 +49,13 @@
 /* Using dictEnableResize() / dictDisableResize() we make possible to
  * enable/disable resizing of the hash table as needed. This is very important
  * for Redis, as we use copy-on-write and don't want to move too much memory
- * around when there is a child performing saving operations. */
+ * around when there is a child performing saving operations.
+ *
+ * Note that even when dict_can_resize is set to 0, not all resizes are
+ * prevented: an hash table is still allowed to grow if the ratio between
+ * the number of elements and the buckets > dict_force_resize_ratio. */
 static int dict_can_resize = 1;
+static unsigned int dict_force_resize_ratio = 5;
 
 /* -------------------------- private prototypes ---------------------------- */
 
@@ -125,7 +130,7 @@ int _dictInit(dict *d, dictType *type,
 }
 
 /* Resize the table to the minimal size that contains all the elements,
- * but with the invariant of a USER/BUCKETS ration near to <= 1 */
+ * but with the invariant of a USER/BUCKETS ratio near to <= 1 */
 int dictResize(dict *d)
 {
     int minimal;
@@ -493,14 +498,23 @@ dictEntry *dictGetRandomKey(dict *d)
 /* Expand the hash table if needed */
 static int _dictExpandIfNeeded(dict *d)
 {
-    /* If the hash table is empty expand it to the intial size,
-     * if the table is "full" dobule its size. */
+    /* Incremental rehashing already in progress. Return. */
     if (dictIsRehashing(d)) return DICT_OK;
-    if (d->ht[0].size == 0)
-        return dictExpand(d, DICT_HT_INITIAL_SIZE);
-    if (d->ht[0].used >= d->ht[0].size && dict_can_resize)
+
+    /* If the hash table is empty expand it to the intial size. */
+    if (d->ht[0].size == 0) return dictExpand(d, DICT_HT_INITIAL_SIZE);
+
+    /* If we reached the 1:1 ratio, and we are allowed to resize the hash
+     * table (global setting) or we should avoid it but the ratio between
+     * elements/buckets is over the "safe" threshold, we resize doubling
+     * the number of buckets. */
+    if (d->ht[0].used >= d->ht[0].size &&
+        (dict_can_resize ||
+         d->ht[0].used/d->ht[0].size > dict_force_resize_ratio))
+    {
         return dictExpand(d, ((d->ht[0].size > d->ht[0].used) ?
                                     d->ht[0].size : d->ht[0].used)*2);
+    }
     return DICT_OK;
 }
 

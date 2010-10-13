@@ -30,8 +30,8 @@
 <i>Time complexity O(log(N)) with N being the number of elements in the sorted set</i><blockquote>If <i>member</i> already exists in the sorted set adds the <i>increment</i> to its scoreand updates the position of the element in the sorted set accordingly.If <i>member</i> does not already exist in the sorted set it is added with_increment_ as score (that is, like if the previous score was virtually zero).If <i>key</i> does not exist a new sorted set with the specified_member_ as sole member is crated. If the key exists but does not hold asorted set value an error is returned.</blockquote>
 <blockquote>The score value can be the string representation of a double precision floatingpoint number. It's possible to provide a negative value to perform a decrement.</blockquote>
 <blockquote>For an introduction to sorted sets check the <a href="IntroductionToRedisDataTypes.html">Introduction to Redis data types</a> page.</blockquote>
-<h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Integer reply</a>, specifically:<br/><br/><pre class="codeblock python" name="code">
-The score of the member after the increment is performed.
+<h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Bulk reply</a><pre class="codeblock python" name="code">
+The new score (a double precision floating point number) represented as string.
 </pre>
                 </div>
         
