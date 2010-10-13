@@ -698,7 +698,7 @@ void createSharedObjects(void) {
 void initServerConfig() {
     server.port = REDIS_SERVERPORT;
     server.bindaddr = NULL;
-    server.sockpath = NULL;
+    server.unixsocket = NULL;
     server.ipfd = -1;
     server.sofd = -1;
     server.dbnum = REDIS_DEFAULT_DBNUM;
@@ -783,9 +783,9 @@ void initServer() {
             exit(1);
         }
     }
-    if (server.sockpath != NULL) {
-        unlink(server.sockpath); /* don't care if this fails */
-        server.sofd = anetUnixServer(server.neterr,server.sockpath);
+    if (server.unixsocket != NULL) {
+        unlink(server.unixsocket); /* don't care if this fails */
+        server.sofd = anetUnixServer(server.neterr,server.unixsocket);
         if (server.sofd == ANET_ERR) {
             redisLog(REDIS_WARNING, "Opening socket: %s", server.neterr);
             exit(1);
@@ -1438,7 +1438,7 @@ int main(int argc, char **argv) {
     if (server.ipfd > 0)
         redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
     if (server.sofd > 0)
-        redisLog(REDIS_NOTICE,"The server is now ready to accept connections at %s", server.sockpath);
+        redisLog(REDIS_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
     aeSetBeforeSleepProc(server.el,beforeSleep);
     aeMain(server.el);
     aeDeleteEventLoop(server.el);

@@ -330,7 +330,7 @@ struct redisServer {
     pthread_t mainthread;
     int port;
     char *bindaddr;
-    char *sockpath;
+    char *unixsocket;
     int ipfd;
     int sofd;
     redisDb *db;
