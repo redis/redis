@@ -286,6 +286,7 @@ typedef struct redisClient {
     int dictid;
     sds querybuf;
     robj **argv, **mbargv;
+    char *newline;          /* pointing to the detected newline in querybuf */
     int argc, mbargc;
     long bulklen;            /* bulk read len. -1 if not in bulk read mode */
     int multibulk;          /* multi bulk command format active */

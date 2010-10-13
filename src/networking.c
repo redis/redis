@@ -28,6 +28,7 @@ redisClient *createClient(int fd) {
     selectDb(c,0);
     c->fd = fd;
     c->querybuf = sdsempty();
+    c->newline = NULL;
     c->argc = 0;
     c->argv = NULL;
     c->bulklen = -1;
@@ -631,6 +632,7 @@ void resetClient(redisClient *c) {
     freeClientArgv(c);
     c->bulklen = -1;
     c->multibulk = 0;
+    c->newline = NULL;
 }
 
 void closeTimedoutClients(void) {
@@ -662,6 +664,8 @@ void closeTimedoutClients(void) {
 }
 
 void processInputBuffer(redisClient *c) {
+    int seeknewline = 0;
+
 again:
     /* Before to process the input buffer, make sure the client is not
      * waitig for a blocking operation such as BLPOP. Note that the first
@@ -670,15 +674,19 @@ again:
      * in the input buffer the client may be blocked, and the "goto again"
      * will try to reiterate. The following line will make it return asap. */
     if (c->flags & REDIS_BLOCKED || c->flags & REDIS_IO_WAIT) return;
+
+    if (seeknewline && c->bulklen == -1) c->newline = strchr(c->querybuf,'\n');
+    seeknewline = 1;
     if (c->bulklen == -1) {
         /* Read the first line of the query */
-        char *p = strchr(c->querybuf,'\n');
         size_t querylen;
 
-        if (p) {
+        if (c->newline) {
+            char *p = c->newline;
             sds query, *argv;
             int argc, j;
 
+            c->newline = NULL;
             query = c->querybuf;
             c->querybuf = sdsempty();
             querylen = 1+(p-(query));
@@ -765,8 +773,14 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         return;
     }
     if (nread) {
+        size_t oldlen = sdslen(c->querybuf);
         c->querybuf = sdscatlen(c->querybuf, buf, nread);
         c->lastinteraction = time(NULL);
+        /* Scan this new piece of the query for the newline. We do this
+         * here in order to make sure we perform this scan just one time
+         * per piece of buffer, leading to an O(N) scan instead of O(N*N) */
+        if (c->bulklen == -1 && c->newline == NULL)
+            c->newline = strchr(c->querybuf+oldlen,'\n');
     } else {
         return;
     }

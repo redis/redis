@@ -890,9 +890,6 @@ void call(redisClient *c, struct redisCommand *cmd) {
 int processCommand(redisClient *c) {
     struct redisCommand *cmd;
 
-    /* Free some memory if needed (maxmemory setting) */
-    if (server.maxmemory) freeMemoryIfNeeded();
-
     /* Handle the multi bulk command type. This is an alternative protocol
      * supported by Redis in order to receive commands that are composed of
      * multiple binary-safe "bulk" arguments. The latency of processing is
@@ -1030,7 +1027,12 @@ int processCommand(redisClient *c) {
         return 1;
     }
 
-    /* Handle the maxmemory directive */
+    /* Handle the maxmemory directive.
+     *
+     * First we try to free some memory if possible (if there are volatile
+     * keys in the dataset). If there are not the only thing we can do
+     * is returning an error. */
+    if (server.maxmemory) freeMemoryIfNeeded();
     if (server.maxmemory && (cmd->flags & REDIS_CMD_DENYOOM) &&
         zmalloc_used_memory() > server.maxmemory)
     {

@@ -664,8 +664,8 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
             di = dictGetIterator(src[0].dict);
             while((de = dictNext(di)) != NULL) {
                 double score, value;
-                score = src[0].weight * zunionInterDictValue(de);
 
+                score = src[0].weight * zunionInterDictValue(de);
                 for (j = 1; j < setnum; j++) {
                     dictEntry *other = dictFind(src[j].dict,dictGetEntryKey(de));
                     if (other) {
