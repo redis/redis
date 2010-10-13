@@ -16,6 +16,7 @@ set ::valgrind 0
 set ::denytags {}
 set ::allowtags {}
 set ::external 0; # If "1" this means, we are running against external instance
+set ::file ""; # If set, runs only the tests in this comma separated list
 
 proc execute_tests name {
     source "tests/$name.tcl"
@@ -80,8 +81,7 @@ proc cleanup {} {
     catch {exec rm -rf {*}[glob tests/tmp/server.*]}
 }
 
-proc main {} {
-    cleanup
+proc execute_everything {} {
     execute_tests "unit/auth"
     execute_tests "unit/protocol"
     execute_tests "unit/basic"
@@ -110,6 +110,18 @@ proc main {} {
     execute_tests "unit/expire"
     execute_tests "unit/other"
     execute_tests "unit/cas"
+}
+
+proc main {} {
+    cleanup
+
+    if {[string length $::file] > 0} {
+        foreach {file} [split $::file ,] {
+            execute_tests $file
+        }
+    } else {
+        execute_everything
+    }
 
     cleanup
     puts "\n[expr $::passed+$::failed] tests, $::passed passed, $::failed failed"
@@ -131,6 +143,9 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
                 lappend ::allowtags $tag
             }
         }
+        incr j
+    } elseif {$opt eq {--file}} {
+        set ::file $arg
         incr j
     } elseif {$opt eq {--host}} {
         set ::external 1

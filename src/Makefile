@@ -126,7 +126,7 @@ dep:
 	$(CC) -MM *.c
 
 test:
-	(cd ..; tclsh8.5 tests/test_helper.tcl --tags "${TAGS}")
+	(cd ..; tclsh8.5 tests/test_helper.tcl --tags "${TAGS}" --file "${FILE}")
 
 bench:
 	./redis-benchmark
