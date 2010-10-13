@@ -253,6 +253,12 @@ start_server {tags {"zset"}} {
         assert_equal {d 3 c 2} [r zrevrangebyscore zset 5 2 LIMIT 2 3 WITHSCORES]
     }
 
+    test "ZRANGEBYSCORE with non-value min or max" {
+        assert_error "*not a double*" {r zrangebyscore fooz str 1}
+        assert_error "*not a double*" {r zrangebyscore fooz 1 str}
+        assert_error "*not a double*" {r zrangebyscore fooz 1 NaN}
+    }
+
     tags {"slow"} {
         test {ZRANGEBYSCORE fuzzy test, 100 ranges in 1000 elements sorted set} {
             set err {}
@@ -384,6 +390,12 @@ start_server {tags {"zset"}} {
         # exclusive min and max
         assert_equal 3 [remrangebyscore (1 (5]
         assert_equal {a e} [r zrange zset 0 -1]
+    }
+
+    test "ZREMRANGEBYSCORE with non-value min or max" {
+        assert_error "*not a double*" {r zremrangebyscore fooz str 1}
+        assert_error "*not a double*" {r zremrangebyscore fooz 1 str}
+        assert_error "*not a double*" {r zremrangebyscore fooz 1 NaN}
     }
 
     test "ZREMRANGEBYRANK basics" {
