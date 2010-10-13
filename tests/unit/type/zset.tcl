@@ -335,25 +335,56 @@ start_server {tags {"zset"}} {
         } {}
     }
 
-    test {ZREMRANGEBYSCORE basics} {
-        r del zset
-        r zadd zset 1 a
-        r zadd zset 2 b
-        r zadd zset 3 c
-        r zadd zset 4 d
-        r zadd zset 5 e
-        list [r zremrangebyscore zset 2 4] [r zrange zset 0 -1]
-    } {3 {a e}}
+    test "ZREMRANGEBYSCORE basics" {
+        proc remrangebyscore {min max} {
+            create_zset zset {1 a 2 b 3 c 4 d 5 e}
+            r zremrangebyscore zset $min $max
+        }
 
-    test {ZREMRANGEBYSCORE from -inf to +inf} {
-        r del zset
-        r zadd zset 1 a
-        r zadd zset 2 b
-        r zadd zset 3 c
-        r zadd zset 4 d
-        r zadd zset 5 e
-        list [r zremrangebyscore zset -inf +inf] [r zrange zset 0 -1]
-    } {5 {}}
+        # inner range
+        assert_equal 3 [remrangebyscore 2 4]
+        assert_equal {a e} [r zrange zset 0 -1]
+
+        # start underflow
+        assert_equal 1 [remrangebyscore -10 1]
+        assert_equal {b c d e} [r zrange zset 0 -1]
+
+        # end overflow
+        assert_equal 1 [remrangebyscore 5 10]
+        assert_equal {a b c d} [r zrange zset 0 -1]
+
+        # switch min and max
+        assert_equal 0 [remrangebyscore 4 2]
+        assert_equal {a b c d e} [r zrange zset 0 -1]
+
+        # -inf to mid
+        assert_equal 3 [remrangebyscore -inf 3]
+        assert_equal {d e} [r zrange zset 0 -1]
+
+        # mid to +inf
+        assert_equal 3 [remrangebyscore 3 +inf]
+        assert_equal {a b} [r zrange zset 0 -1]
+
+        # -inf to +inf
+        assert_equal 5 [remrangebyscore -inf +inf]
+        assert_equal {} [r zrange zset 0 -1]
+
+        # exclusive min
+        assert_equal 4 [remrangebyscore (1 5]
+        assert_equal {a} [r zrange zset 0 -1]
+        assert_equal 3 [remrangebyscore (2 5]
+        assert_equal {a b} [r zrange zset 0 -1]
+
+        # exclusive max
+        assert_equal 4 [remrangebyscore 1 (5]
+        assert_equal {e} [r zrange zset 0 -1]
+        assert_equal 3 [remrangebyscore 1 (4]
+        assert_equal {d e} [r zrange zset 0 -1]
+
+        # exclusive min and max
+        assert_equal 3 [remrangebyscore (1 (5]
+        assert_equal {a e} [r zrange zset 0 -1]
+    }
 
     test "ZREMRANGEBYRANK basics" {
         proc remrangebyrank {min max} {

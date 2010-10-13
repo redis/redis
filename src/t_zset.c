@@ -174,25 +174,35 @@ int zslDelete(zskiplist *zsl, double score, robj *obj) {
     return 0; /* not found */
 }
 
+/* Struct to hold a inclusive/exclusive range spec. */
+typedef struct {
+    double min, max;
+    int minex, maxex; /* are min or max exclusive? */
+} zrangespec;
+
 /* Delete all the elements with score between min and max from the skiplist.
  * Min and mx are inclusive, so a score >= min || score <= max is deleted.
  * Note that this function takes the reference to the hash table view of the
  * sorted set, in order to remove the elements from the hash table too. */
-unsigned long zslDeleteRangeByScore(zskiplist *zsl, double min, double max, dict *dict) {
+unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec range, dict *dict) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     unsigned long removed = 0;
     int i;
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
-        while (x->level[i].forward && x->level[i].forward->score < min)
-            x = x->level[i].forward;
+        while (x->level[i].forward && (range.minex ?
+            x->level[i].forward->score <= range.min :
+            x->level[i].forward->score < range.min))
+                x = x->level[i].forward;
         update[i] = x;
     }
-    /* We may have multiple elements with the same score, what we need
-     * is to find the element with both the right score and object. */
+
+    /* Current node is the last with score < or <= min. */
     x = x->level[0].forward;
-    while (x && x->score <= max) {
+
+    /* Delete nodes while in range. */
+    while (x && (range.maxex ? x->score < range.max : x->score <= range.max)) {
         zskiplistNode *next = x->level[0].forward;
         zslDeleteNode(zsl,x,update);
         dictDelete(dict,x->obj);
@@ -200,7 +210,7 @@ unsigned long zslDeleteRangeByScore(zskiplist *zsl, double min, double max, dict
         removed++;
         x = next;
     }
-    return removed; /* not found */
+    return removed;
 }
 
 /* Delete all the elements with rank between start and end from the skiplist.
@@ -295,11 +305,6 @@ zskiplistNode* zslistTypeGetElementByRank(zskiplist *zsl, unsigned long rank) {
     }
     return NULL;
 }
-
-typedef struct {
-    double min, max;
-    int minex, maxex; /* are min or max exclusive? */
-} zrangespec;
 
 /* Populate the rangespec according to the objects min and max. */
 int zslParseRange(robj *min, robj *max, zrangespec *spec) {
@@ -470,20 +475,19 @@ void zremCommand(redisClient *c) {
 }
 
 void zremrangebyscoreCommand(redisClient *c) {
-    double min;
-    double max;
+    zrangespec range;
     long deleted;
-    robj *zsetobj;
+    robj *o;
     zset *zs;
 
-    if ((getDoubleFromObjectOrReply(c, c->argv[2], &min, NULL) != REDIS_OK) ||
-        (getDoubleFromObjectOrReply(c, c->argv[3], &max, NULL) != REDIS_OK)) return;
+    /* Parse the range arguments. */
+    zslParseRange(c->argv[2],c->argv[3],&range);
 
-    if ((zsetobj = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,zsetobj,REDIS_ZSET)) return;
+    if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
+        checkType(c,o,REDIS_ZSET)) return;
 
-    zs = zsetobj->ptr;
-    deleted = zslDeleteRangeByScore(zs->zsl,min,max,zs->dict);
+    zs = o->ptr;
+    deleted = zslDeleteRangeByScore(zs->zsl,range,zs->dict);
     if (htNeedsResize(zs->dict)) dictResize(zs->dict);
     if (dictSize(zs->dict) == 0) dbDelete(c->db,c->argv[1]);
     if (deleted) touchWatchedKey(c->db,c->argv[1]);
