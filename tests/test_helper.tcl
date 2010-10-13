@@ -50,6 +50,28 @@ proc r {args} {
     [srv $level "client"] {*}$args
 }
 
+proc reconnect {args} {
+    set level [lindex $args 0]
+    if {[string length $level] == 0 || ![string is integer $level]} {
+        set level 0
+    }
+
+    set srv [lindex $::servers end+$level]
+    set host [dict get $srv "host"]
+    set port [dict get $srv "port"]
+    set config [dict get $srv "config"]
+    set client [redis $host $port]
+    dict set srv "client" $client
+
+    # select the right db when we don't have to authenticate
+    if {![dict exists $config "requirepass"]} {
+        $client select 9
+    }
+
+    # re-set $srv in the servers list
+    set ::servers [lreplace $::servers end+$level 1 $srv]
+}
+
 proc redis_deferring_client {args} {
     set level 0
     if {[llength $args] > 0 && [string is integer [lindex $args 0]]} {

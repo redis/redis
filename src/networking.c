@@ -546,6 +546,9 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (listLength(c->reply) == 0) {
         c->sentlen = 0;
         aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
+
+        /* Close connection after entire reply has been sent. */
+        if (c->flags & REDIS_QUIT) freeClient(c);
     }
 }
 
@@ -674,6 +677,10 @@ again:
      * in the input buffer the client may be blocked, and the "goto again"
      * will try to reiterate. The following line will make it return asap. */
     if (c->flags & REDIS_BLOCKED || c->flags & REDIS_IO_WAIT) return;
+
+    /* Never continue to process the input buffer after QUIT. After the output
+     * buffer is flushed (with the OK), the connection will be dropped. */
+    if (c->flags & REDIS_QUIT) return;
 
     if (seeknewline && c->bulklen == -1) c->newline = strchr(c->querybuf,'\n');
     seeknewline = 1;

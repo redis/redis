@@ -962,10 +962,14 @@ int processCommand(redisClient *c) {
     }
     /* -- end of multi bulk commands processing -- */
 
-    /* The QUIT command is handled as a special case. Normal command
-     * procs are unable to close the client connection safely */
+    /* The QUIT command is handled separately. Normal command procs will
+     * go through checking for replication and QUIT will cause trouble
+     * when FORCE_REPLICATION is enabled and would be implemented in
+     * a regular command proc. */
+    redisAssert(!(c->flags & REDIS_QUIT));
     if (!strcasecmp(c->argv[0]->ptr,"quit")) {
-        freeClient(c);
+        c->flags |= REDIS_QUIT;
+        addReply(c,shared.ok);
         return 0;
     }
 

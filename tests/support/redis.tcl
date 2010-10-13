@@ -123,6 +123,14 @@ proc ::redis::__method__read {id fd} {
     ::redis::redis_read_reply $fd
 }
 
+proc ::redis::__method__write {id fd buf} {
+    ::redis::redis_write $fd $buf
+}
+
+proc ::redis::__method__flush {id fd} {
+    flush $fd
+}
+
 proc ::redis::__method__close {id fd} {
     catch {close $fd}
     catch {unset ::redis::fd($id)}
