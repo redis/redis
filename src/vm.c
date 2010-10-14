@@ -362,7 +362,7 @@ robj *vmPreviewObject(robj *o) {
 double computeObjectSwappability(robj *o) {
     /* actual age can be >= minage, but not < minage. As we use wrapping
      * 21 bit clocks with minutes resolution for the LRU. */
-    time_t minage = abs(server.lruclock - o->lru);
+    time_t minage = estimateObjectIdleTime(o);
     long asize = 0, elesize;
     robj *ele;
     list *l;

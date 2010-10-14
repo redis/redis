@@ -490,19 +490,15 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * in objects at every object access, and accuracy is not needed.
      * To access a global var is faster than calling time(NULL) */
     server.unixtime = time(NULL);
-    /* We have just 21 bits per object for LRU information.
+    /* We have just 22 bits per object for LRU information.
      * So we use an (eventually wrapping) LRU clock with minutes resolution.
+     * 2^22 minutes are more than 7 years.
      *
-     * When we need to select what object to swap, we compute the minimum
-     * time distance between the current lruclock and the object last access
-     * lruclock info. Even if clocks will wrap on overflow, there is
-     * the interesting property that we are sure that at least
-     * ABS(A-B) minutes passed between current time and timestamp B.
-     *
-     * This is not precise but we don't need at all precision, but just
-     * something statistically reasonable.
+     * Note that even if this will wrap after 7 years it's not a problem,
+     * everything will still work but just some object will appear younger
+     * to Redis :)
      */
-    server.lruclock = (time(NULL)/60)&((1<<21)-1);
+    server.lruclock = (time(NULL)/60) & REDIS_LRU_CLOCK_MAX;
 
     /* We received a SIGTERM, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
@@ -1165,6 +1161,7 @@ sds genRedisInfoString(void) {
         "process_id:%ld\r\n"
         "uptime_in_seconds:%ld\r\n"
         "uptime_in_days:%ld\r\n"
+        "lru_clock:%ld\r\n"
         "used_cpu_sys:%.2f\r\n"
         "used_cpu_user:%.2f\r\n"
         "used_cpu_sys_childrens:%.2f\r\n"
@@ -1196,6 +1193,7 @@ sds genRedisInfoString(void) {
         (long) getpid(),
         uptime,
         uptime/(3600*24),
+        (unsigned long) server.lruclock,
         (float)self_ru.ru_utime.tv_sec+(float)self_ru.ru_utime.tv_usec/1000000,
         (float)self_ru.ru_stime.tv_sec+(float)self_ru.ru_stime.tv_usec/1000000,
         (float)c_ru.ru_utime.tv_sec+(float)c_ru.ru_utime.tv_usec/1000000,

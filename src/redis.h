@@ -211,6 +211,7 @@ void _redisPanic(char *msg, char *file, int line);
 /* A redis object, that is a type able to hold a string / list / set */
 
 /* The actual Redis Object */
+#define REDIS_LRU_CLOCK_MAX ((1<<21)-1) /* Max value of obj->lru */
 typedef struct redisObject {
     unsigned type:4;
     unsigned storage:2;     /* REDIS_VM_MEMORY or REDIS_VM_SWAPPING */
@@ -678,6 +679,7 @@ int getLongLongFromObject(robj *o, long long *target);
 char *strEncoding(int encoding);
 int compareStringObjects(robj *a, robj *b);
 int equalStringObjects(robj *a, robj *b);
+unsigned long estimateObjectIdleTime(robj *o);
 
 /* Replication */
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);

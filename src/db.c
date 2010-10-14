@@ -11,6 +11,9 @@ robj *lookupKey(redisDb *db, robj *key) {
     if (de) {
         robj *val = dictGetEntryVal(de);
 
+        /* Update the access time for the aging algorithm. */
+        val->lru = server.lruclock;
+
         if (server.vm_enabled) {
             if (val->storage == REDIS_VM_MEMORY ||
                 val->storage == REDIS_VM_SWAPPING)
@@ -18,8 +21,6 @@ robj *lookupKey(redisDb *db, robj *key) {
                 /* If we were swapping the object out, cancel the operation */
                 if (val->storage == REDIS_VM_SWAPPING)
                     vmCancelThreadedIOJob(val);
-                /* Update the access time for the aging algorithm. */
-                val->lru = server.lruclock;
             } else {
                 int notify = (val->storage == REDIS_VM_LOADING);
 
