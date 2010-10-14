@@ -198,6 +198,13 @@
 #define REDIS_OP_DIFF 1
 #define REDIS_OP_INTER 2
 
+/* Redis maxmemory strategies */
+#define REDIS_MAXMEMORY_VOLATILE_LRU 0
+#define REDIS_MAXMEMORY_VOLATILE_TTL 1
+#define REDIS_MAXMEMORY_VOLATILE_RANDOM 2
+#define REDIS_MAXMEMORY_ALLKEYS_LRU 3
+#define REDIS_MAXMEMORY_ALLKEYS_RANDOM 4
+
 /* We can print the stacktrace, so our assert is defined this way: */
 #define redisAssert(_e) ((_e)?(void)0 : (_redisAssert(#_e,__FILE__,__LINE__),_exit(1)))
 #define redisPanic(_e) _redisPanic(#_e,__FILE__,__LINE__),_exit(1)
@@ -212,6 +219,7 @@ void _redisPanic(char *msg, char *file, int line);
 
 /* The actual Redis Object */
 #define REDIS_LRU_CLOCK_MAX ((1<<21)-1) /* Max value of obj->lru */
+#define REDIS_LRU_CLOCK_RESOLUTION 10 /* LRU clock resolution in seconds */
 typedef struct redisObject {
     unsigned type:4;
     unsigned storage:2;     /* REDIS_VM_MEMORY or REDIS_VM_SWAPPING */
@@ -391,6 +399,8 @@ struct redisServer {
     int replstate;
     unsigned int maxclients;
     unsigned long long maxmemory;
+    int maxmemory_policy;
+    int maxmemory_samples;
     unsigned int blpop_blocked_clients;
     unsigned int vm_blocked_clients;
     /* Sort parameters - qsort_r() is only available under BSD so we

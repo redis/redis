@@ -123,6 +123,21 @@ void loadServerConfig(char *filename) {
             server.maxclients = atoi(argv[1]);
         } else if (!strcasecmp(argv[0],"maxmemory") && argc == 2) {
             server.maxmemory = memtoll(argv[1],NULL);
+        } else if (!strcasecmp(argv[0],"maxmemory-policy") && argc == 2) {
+            if (!strcasecmp(argv[1],"volatile-lru")) {
+                server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_LRU;
+            } else if (!strcasecmp(argv[1],"volatile-random")) {
+                server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_RANDOM;
+            } else if (!strcasecmp(argv[1],"volatile-ttl")) {
+                server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_TTL;
+            } else if (!strcasecmp(argv[1],"allkeys-lru")) {
+                server.maxmemory_policy = REDIS_MAXMEMORY_ALLKEYS_LRU;
+            } else if (!strcasecmp(argv[1],"allkeys-random")) {
+                server.maxmemory_policy = REDIS_MAXMEMORY_ALLKEYS_RANDOM;
+            } else {
+                err = "Invalid maxmemory policy";
+                goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"slaveof") && argc == 3) {
             server.masterhost = sdsnew(argv[1]);
             server.masterport = atoi(argv[2]);
@@ -242,6 +257,20 @@ void configSetCommand(redisClient *c) {
             ll < 0) goto badfmt;
         server.maxmemory = ll;
         if (server.maxmemory) freeMemoryIfNeeded();
+    } else if (!strcasecmp(c->argv[2]->ptr,"maxmemory-policy")) {
+        if (!strcasecmp(o->ptr,"volatile-lru")) {
+            server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_LRU;
+        } else if (!strcasecmp(o->ptr,"volatile-random")) {
+            server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_RANDOM;
+        } else if (!strcasecmp(o->ptr,"volatile-ttl")) {
+            server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_TTL;
+        } else if (!strcasecmp(o->ptr,"allkeys-lru")) {
+            server.maxmemory_policy = REDIS_MAXMEMORY_ALLKEYS_LRU;
+        } else if (!strcasecmp(o->ptr,"allkeys-random")) {
+            server.maxmemory_policy = REDIS_MAXMEMORY_ALLKEYS_RANDOM;
+        } else {
+            goto badfmt;
+        }
     } else if (!strcasecmp(c->argv[2]->ptr,"timeout")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0 || ll > LONG_MAX) goto badfmt;
@@ -356,6 +385,21 @@ void configGetCommand(redisClient *c) {
         ll2string(buf,128,server.maxmemory);
         addReplyBulkCString(c,"maxmemory");
         addReplyBulkCString(c,buf);
+        matches++;
+    }
+    if (stringmatch(pattern,"maxmemory-policy",0)) {
+        char *s;
+
+        switch(server.maxmemory_policy) {
+        case REDIS_MAXMEMORY_VOLATILE_LRU: s = "volatile-lru"; break;
+        case REDIS_MAXMEMORY_VOLATILE_TTL: s = "volatile-ttl"; break;
+        case REDIS_MAXMEMORY_VOLATILE_RANDOM: s = "volatile-random"; break;
+        case REDIS_MAXMEMORY_ALLKEYS_LRU: s = "allkeys-lru"; break;
+        case REDIS_MAXMEMORY_ALLKEYS_RANDOM: s = "allkeys-random"; break;
+        default: s = "unknown"; break; /* too harmless to panic */
+        }
+        addReplyBulkCString(c,"maxmemory-policy");
+        addReplyBulkCString(c,s);
         matches++;
     }
     if (stringmatch(pattern,"timeout",0)) {
