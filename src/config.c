@@ -138,6 +138,12 @@ void loadServerConfig(char *filename) {
                 err = "Invalid maxmemory policy";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"maxmemory-samples") && argc == 2) {
+            server.maxmemory_samples = atoi(argv[1]);
+            if (server.maxmemory_samples <= 0) {
+                err = "maxmemory-samples must be 1 or greater";
+                goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"slaveof") && argc == 3) {
             server.masterhost = sdsnew(argv[1]);
             server.masterport = atoi(argv[2]);
@@ -271,6 +277,10 @@ void configSetCommand(redisClient *c) {
         } else {
             goto badfmt;
         }
+    } else if (!strcasecmp(c->argv[2]->ptr,"maxmemory-samples")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
+            ll <= 0) goto badfmt;
+        server.maxmemory_samples = ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"timeout")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0 || ll > LONG_MAX) goto badfmt;
@@ -362,6 +372,7 @@ void configGetCommand(redisClient *c) {
     robj *o = getDecodedObject(c->argv[2]);
     void *replylen = addDeferredMultiBulkLength(c);
     char *pattern = o->ptr;
+    char buf[128];
     int matches = 0;
 
     if (stringmatch(pattern,"dbfilename",0)) {
@@ -380,9 +391,7 @@ void configGetCommand(redisClient *c) {
         matches++;
     }
     if (stringmatch(pattern,"maxmemory",0)) {
-        char buf[128];
-
-        ll2string(buf,128,server.maxmemory);
+        ll2string(buf,sizeof(buf),server.maxmemory);
         addReplyBulkCString(c,"maxmemory");
         addReplyBulkCString(c,buf);
         matches++;
@@ -402,10 +411,14 @@ void configGetCommand(redisClient *c) {
         addReplyBulkCString(c,s);
         matches++;
     }
+    if (stringmatch(pattern,"maxmemory-samples",0)) {
+        ll2string(buf,sizeof(buf),server.maxmemory_samples);
+        addReplyBulkCString(c,"maxmemory-samples");
+        addReplyBulkCString(c,buf);
+        matches++;
+    }
     if (stringmatch(pattern,"timeout",0)) {
-        char buf[128];
-
-        ll2string(buf,128,server.maxidletime);
+        ll2string(buf,sizeof(buf),server.maxidletime);
         addReplyBulkCString(c,"timeout");
         addReplyBulkCString(c,buf);
         matches++;
