@@ -357,12 +357,14 @@ struct redisServer {
     aeEventLoop *el;
     int cronloops;              /* number of times the cron function run */
     list *objfreelist;          /* A list of freed objects to avoid malloc() */
-    time_t lastsave;            /* Unix time of last save succeeede */
+    time_t lastsave;                /* Unix time of last save succeeede */
     /* Fields used only for stats */
-    time_t stat_starttime;         /* server start time */
-    long long stat_numcommands;    /* number of processed commands */
-    long long stat_numconnections; /* number of connections received */
-    long long stat_expiredkeys;   /* number of expired keys */
+    time_t stat_starttime;          /* server start time */
+    long long stat_numcommands;     /* number of processed commands */
+    long long stat_numconnections;  /* number of connections received */
+    long long stat_expiredkeys;     /* number of expired keys */
+    long long stat_keyspace_hits;   /* number of successful lookups of keys */
+    long long stat_keyspace_misses; /* number of failed lookups of keys */
     /* Configuration */
     int verbosity;
     int glueoutputbuf;

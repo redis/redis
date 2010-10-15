@@ -823,6 +823,8 @@ void initServer() {
     server.stat_numconnections = 0;
     server.stat_expiredkeys = 0;
     server.stat_starttime = time(NULL);
+    server.stat_keyspace_misses = 0;
+    server.stat_keyspace_hits = 0;
     server.unixtime = time(NULL);
     aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL);
     if (aeCreateFileEvent(server.el, server.fd, AE_READABLE,
@@ -1190,6 +1192,8 @@ sds genRedisInfoString(void) {
         "total_connections_received:%lld\r\n"
         "total_commands_processed:%lld\r\n"
         "expired_keys:%lld\r\n"
+        "keyspace_hits:%lld\r\n"
+        "keyspace_misses:%lld\r\n"
         "hash_max_zipmap_entries:%zu\r\n"
         "hash_max_zipmap_value:%zu\r\n"
         "pubsub_channels:%ld\r\n"
@@ -1222,6 +1226,8 @@ sds genRedisInfoString(void) {
         server.stat_numconnections,
         server.stat_numcommands,
         server.stat_expiredkeys,
+        server.stat_keyspace_hits,
+        server.stat_keyspace_misses,
         server.hash_max_zipmap_entries,
         server.hash_max_zipmap_value,
         dictSize(server.pubsub_channels),
