@@ -820,9 +820,13 @@ void processInputBuffer(redisClient *c) {
         }
 
         /* Multibulk processing could see a <= 0 length. */
-        if (c->argc > 0)
-            processCommand(c);
-        resetClient(c);
+        if (c->argc == 0) {
+            resetClient(c);
+        } else {
+            /* Only reset the client when the command was executed. */
+            if (processCommand(c) == REDIS_OK)
+                resetClient(c);
+        }
     }
 }
 

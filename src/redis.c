@@ -955,7 +955,7 @@ int processCommand(redisClient *c) {
         addReply(c,shared.queued);
     } else {
         if (server.vm_enabled && server.vm_max_threads > 0 &&
-            blockClientOnSwappedKeys(c,cmd)) return 1;
+            blockClientOnSwappedKeys(c,cmd)) return REDIS_ERR;
         call(c,cmd);
     }
     return REDIS_OK;
