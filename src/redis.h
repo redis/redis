@@ -145,6 +145,12 @@
 #define REDIS_IO_WAIT 32    /* The client is waiting for Virtual Memory I/O */
 #define REDIS_DIRTY_CAS 64  /* Watched keys modified. EXEC will fail. */
 #define REDIS_QUIT 128      /* Client will be disconnected after reply is sent */
+#define REDIS_CLOSE_AFTER_REPLY 256 /* Close connection immediately once the
+                                     * reply has been sent. */
+
+/* Client request types */
+#define REDIS_REQ_INLINE 1
+#define REDIS_REQ_MULTIBULK 2
 
 /* Slave replication state - slave side */
 #define REDIS_REPL_NONE 0   /* No active replication */
@@ -286,11 +292,11 @@ typedef struct redisClient {
     redisDb *db;
     int dictid;
     sds querybuf;
-    robj **argv, **mbargv;
-    char *newline;          /* pointing to the detected newline in querybuf */
-    int argc, mbargc;
-    long bulklen;            /* bulk read len. -1 if not in bulk read mode */
-    int multibulk;          /* multi bulk command format active */
+    int argc;
+    robj **argv;
+    int reqtype;
+    int multibulklen;       /* number of multi bulk arguments left to read */
+    long bulklen;           /* length of bulk argument in multi bulk request */
     list *reply;
     int sentlen;
     time_t lastinteraction; /* time of the last interaction, used for timeout */
