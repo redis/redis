@@ -1,3 +1,23 @@
+Welcome to Redis 2.0.3
+
+This release fixes two important bugs:
+
+    - The maxmemory directive was broken in Redis <= 2.0.2, since from time to
+      time it replayed with an error about memory limit reached even when
+      it was possible to expire some volatile key to make room for new data.
+
+      The new behaviour is the correct one of always allowing write operations
+      to succeed as long as there are other volatile keys to remove.
+
+    - An AOF bug related to blocking POP could crash Redis on AOF reload.
+      This is now fixed thanks to Pieter Noordhuis and a kind user that
+      helped us on IRC.
+
+Enjoy!
+Salvatore
+
+--------------------------------------------------------------------------------
+
 Welcome to Redis 2.0.2
 
 This is a bugfix release, with the followign changes:
