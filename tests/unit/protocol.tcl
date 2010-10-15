@@ -13,6 +13,13 @@ start_server {tags {"protocol"}} {
         assert_equal PONG [r ping]
     }
 
+    test "Out of range multibulk length" {
+        reconnect
+        r write "*20000000\r\n"
+        r flush
+        assert_error "*invalid multibulk length*" {r read}
+    }
+
     test "Wrong multibulk payload header" {
         reconnect
         r write "*3\r\n\$3\r\nSET\r\n\$1\r\nx\r\nfooz\r\n"
