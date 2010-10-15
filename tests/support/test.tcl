@@ -90,8 +90,10 @@ proc test {name code {okpattern notspecified}} {
         }
     }
     if {$::traceleaks} {
-        if {![string match {*0 leaks*} [exec leaks redis-server]]} {
+        set output [exec leaks redis-server]
+        if {![string match {*0 leaks*} $output]} {
             puts "--------- Test $::testnum LEAKED! --------"
+            puts $output
             exit 1
         }
     }
