@@ -245,8 +245,12 @@ robj *tryObjectEncoding(robj *o) {
      * range and if this is the main thread, since when VM is enabled we
      * have the constraint that I/O thread should only handle non-shared
      * objects, in order to avoid race conditions (we don't have per-object
-     * locking). */
-    if (value >= 0 && value < REDIS_SHARED_INTEGERS &&
+     * locking).
+     *
+     * Note that we also avoid using shared integers when maxmemory is used
+     * because very object needs to have a private LRU field for the LRU
+     * algorithm to work well. */
+    if (server.maxmemory == 0 && value >= 0 && value < REDIS_SHARED_INTEGERS &&
         pthread_equal(pthread_self(),server.mainthread)) {
         decrRefCount(o);
         incrRefCount(shared.integers[value]);
