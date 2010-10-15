@@ -468,7 +468,6 @@ int expireIfNeeded(redisDb *db, robj *key) {
 
     /* Delete the key */
     server.stat_expiredkeys++;
-    server.dirty++;
     propagateExpire(db,key);
     return dbDelete(db,key);
 }
