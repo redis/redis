@@ -262,6 +262,7 @@ void punsubscribeCommand(redisClient *c) {
 }
 
 void publishCommand(redisClient *c) {
+    c->argv[2] = tryObjectEncoding(c->argv[2]);
     int receivers = pubsubPublishMessage(c->argv[1],c->argv[2]);
     addReplyLongLong(c,receivers);
 }

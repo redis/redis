@@ -37,14 +37,17 @@ void setGenericCommand(redisClient *c, int nx, robj *key, robj *val, robj *expir
 }
 
 void setCommand(redisClient *c) {
+    c->argv[2] = tryObjectEncoding(c->argv[2]);
     setGenericCommand(c,0,c->argv[1],c->argv[2],NULL);
 }
 
 void setnxCommand(redisClient *c) {
+    c->argv[2] = tryObjectEncoding(c->argv[2]);
     setGenericCommand(c,1,c->argv[1],c->argv[2],NULL);
 }
 
 void setexCommand(redisClient *c) {
+    c->argv[3] = tryObjectEncoding(c->argv[3]);
     setGenericCommand(c,0,c->argv[1],c->argv[3],c->argv[2]);
 }
 
@@ -69,6 +72,7 @@ void getCommand(redisClient *c) {
 
 void getsetCommand(redisClient *c) {
     if (getGenericCommand(c) == REDIS_ERR) return;
+    c->argv[2] = tryObjectEncoding(c->argv[2]);
     dbReplace(c->db,c->argv[1],c->argv[2]);
     incrRefCount(c->argv[2]);
     touchWatchedKey(c->db,c->argv[1]);
@@ -180,6 +184,7 @@ void appendCommand(redisClient *c) {
     robj *o;
 
     o = lookupKeyWrite(c->db,c->argv[1]);
+    c->argv[2] = tryObjectEncoding(c->argv[2]);
     if (o == NULL) {
         /* Create the key */
         retval = dbAdd(c->db,c->argv[1],c->argv[2]);
