@@ -57,15 +57,15 @@
 /* Hash table parameters */
 #define REDIS_HT_MINFILL        10      /* Minimal hash table fill 10% */
 
-/* Command flags */
-#define REDIS_CMD_BULK          1       /* Bulk write command */
-#define REDIS_CMD_INLINE        2       /* Inline command */
-/* REDIS_CMD_DENYOOM reserves a longer comment: all the commands marked with
-   this flags will return an error when the 'maxmemory' option is set in the
-   config file and the server is using more than maxmemory bytes of memory.
-   In short this commands are denied on low memory conditions. */
-#define REDIS_CMD_DENYOOM       4
-#define REDIS_CMD_FORCE_REPLICATION 8 /* Force replication even if dirty is 0 */
+/* Command flags:
+ *   REDIS_CMD_DENYOOM:
+ *     Commands marked with this flag will return an error when 'maxmemory' is
+ *     set and the server is using more than 'maxmemory' bytes of memory.
+ *     In short: commands with this flag are denied on low memory conditions.
+ *   REDIS_CMD_FORCE_REPLICATION:
+ *     Force replication even if dirty is 0. */
+#define REDIS_CMD_DENYOOM 4
+#define REDIS_CMD_FORCE_REPLICATION 8
 
 /* Object types */
 #define REDIS_STRING 0
