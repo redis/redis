@@ -1007,7 +1007,6 @@ void pingCommand(redisClient *c) {
 }
 
 void echoCommand(redisClient *c) {
-    c->argv[1] = tryObjectEncoding(c->argv[1]);
     addReplyBulk(c,c->argv[1]);
 }
 
