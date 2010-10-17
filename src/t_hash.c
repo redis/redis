@@ -220,7 +220,6 @@ void hsetCommand(redisClient *c) {
     robj *o;
 
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
-    c->argv[3] = tryObjectEncoding(c->argv[3]);
     hashTypeTryConversion(o,c->argv,2,3);
     hashTypeTryObjectEncoding(o,&c->argv[2], &c->argv[3]);
     update = hashTypeSet(o,c->argv[2],c->argv[3]);
@@ -232,7 +231,6 @@ void hsetCommand(redisClient *c) {
 void hsetnxCommand(redisClient *c) {
     robj *o;
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
-    c->argv[3] = tryObjectEncoding(c->argv[3]);
     hashTypeTryConversion(o,c->argv,2,3);
 
     if (hashTypeExists(o, c->argv[2])) {
@@ -256,7 +254,6 @@ void hmsetCommand(redisClient *c) {
     }
 
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
-    c->argv[c->argc-1] = tryObjectEncoding(c->argv[c->argc-1]);
     hashTypeTryConversion(o,c->argv,2,c->argc-1);
     for (i = 2; i < c->argc; i += 2) {
         hashTypeTryObjectEncoding(o,&c->argv[i], &c->argv[i+1]);
@@ -299,7 +296,6 @@ void hgetCommand(redisClient *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
         checkType(c,o,REDIS_HASH)) return;
 
-    c->argv[2] = tryObjectEncoding(c->argv[2]);
     if ((value = hashTypeGet(o,c->argv[2])) != NULL) {
         addReplyBulk(c,value);
         decrRefCount(value);
@@ -320,7 +316,6 @@ void hmgetCommand(redisClient *c) {
      * done because objects that cannot be found are considered to be
      * an empty hash. The reply should then be a series of NULLs. */
     addReplyMultiBulkLen(c,c->argc-2);
-    c->argv[c->argc-1] = tryObjectEncoding(c->argv[c->argc-1]);
     for (i = 2; i < c->argc; i++) {
         if (o != NULL && (value = hashTypeGet(o,c->argv[i])) != NULL) {
             addReplyBulk(c,value);
@@ -336,7 +331,6 @@ void hdelCommand(redisClient *c) {
     if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,REDIS_HASH)) return;
 
-    c->argv[2] = tryObjectEncoding(c->argv[2]);
     if (hashTypeDelete(o,c->argv[2])) {
         if (hashTypeLength(o) == 0) dbDelete(c->db,c->argv[1]);
         addReply(c,shared.cone);
@@ -401,6 +395,5 @@ void hexistsCommand(redisClient *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,REDIS_HASH)) return;
 
-    c->argv[2] = tryObjectEncoding(c->argv[2]);
     addReply(c, hashTypeExists(o,c->argv[2]) ? shared.cone : shared.czero);
 }
