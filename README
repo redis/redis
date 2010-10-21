@@ -30,9 +30,11 @@ After you build Redis is a good idea to test it, using:
 Buliding using tcmalloc
 -----------------------
 
-tcmalloc is a fast and space efficient implementation of malloc(). Compiling
-Redis with it can improve performances and memeory usage. You can read
-more about it here: http://goog-perftools.sourceforge.net/doc/tcmalloc.html
+tcmalloc is a fast and space efficient implementation (for little objects)
+of malloc(). Compiling Redis with it can improve performances and memeory
+usage. You can read more about it here:
+
+http://goog-perftools.sourceforge.net/doc/tcmalloc.html
 
 In order to compile Redis with tcmalloc support install tcmalloc on your system
 and then use:
