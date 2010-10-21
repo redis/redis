@@ -15,6 +15,7 @@ endif
 
 ifeq ($(USE_TCMALLOC),yes)
   CCLINK+= -ltcmalloc
+  CCFLAGS+= -DUSE_TCMALLOC
 endif
 CCOPT= $(CFLAGS) $(CCLINK) $(ARCH) $(PROF)
 DEBUG?= -g -rdynamic -ggdb 
