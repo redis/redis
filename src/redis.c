@@ -1606,6 +1606,7 @@ void segvHandler(int sig, siginfo_t *info, void *secret) {
     int i, trace_size = 0;
     ucontext_t *uc = (ucontext_t*) secret;
     sds infostring;
+    struct sigaction act;
     REDIS_NOTUSED(info);
 
     redisLog(REDIS_WARNING,
@@ -1627,7 +1628,16 @@ void segvHandler(int sig, siginfo_t *info, void *secret) {
 
     /* free(messages); Don't call free() with possibly corrupted memory. */
     if (server.daemonize) unlink(server.pidfile);
-    _exit(0);
+
+    /* Make sure we exit with the right signal at the end. So for instance
+     * the core will be dumped if enabled. */
+    sigemptyset (&act.sa_mask);
+    /* When the SA_SIGINFO flag is set in sa_flags then sa_sigaction
+     * is used. Otherwise, sa_handler is used */
+    act.sa_flags = SA_NODEFER | SA_ONSTACK | SA_RESETHAND;
+    act.sa_handler = SIG_DFL;
+    sigaction (sig, &act, NULL);
+    kill(getpid(),sig);
 }
 
 void sigtermHandler(int sig) {
