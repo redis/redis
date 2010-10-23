@@ -5,8 +5,17 @@
 #include <AvailabilityMacros.h>
 #endif
 
-/* test for malloc_size() */
-#ifdef __APPLE__
+/* use tcmalloc's malloc_size() when available */
+#if defined(USE_TCMALLOC)
+#include <google/tcmalloc.h>
+#if TC_VERSION_MAJOR >= 1 && TC_VERSION_MINOR >= 6
+#define HAVE_MALLOC_SIZE 1
+#define redis_malloc_size(p) tc_malloc_size(p)
+#endif
+#endif
+
+/* fallback to native malloc_size() for osx */
+#if defined(__APPLE__) && !defined(HAVE_MALLOC_SIZE)
 #include <malloc/malloc.h>
 #define HAVE_MALLOC_SIZE 1
 #define redis_malloc_size(p) malloc_size(p)

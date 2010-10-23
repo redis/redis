@@ -32,13 +32,24 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
-
 #include "config.h"
 
-#if defined(__sun)
-#define PREFIX_SIZE sizeof(long long)
+#ifdef HAVE_MALLOC_SIZE
+#define PREFIX_SIZE (0)
 #else
-#define PREFIX_SIZE sizeof(size_t)
+#if defined(__sun)
+#define PREFIX_SIZE (sizeof(long long))
+#else
+#define PREFIX_SIZE (sizeof(size_t))
+#endif
+#endif
+
+/* Explicitly override malloc/free etc when using tcmalloc. */
+#if defined(USE_TCMALLOC)
+#define malloc(size) tc_malloc(size)
+#define calloc(count,size) tc_calloc(count,size)
+#define realloc(ptr,size) tc_realloc(ptr,size)
+#define free(ptr) tc_free(ptr)
 #endif
 
 #define increment_used_memory(__n) do { \
