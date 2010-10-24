@@ -1,3 +1,9 @@
+TODO for Redis 2.0.4:
+
+- Merge nosave from @robey
+
+--------------------------------------------------------------------------------
+
 Welcome to Redis 2.0.3
 
 This release fixes two important bugs:
