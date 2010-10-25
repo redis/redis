@@ -700,6 +700,7 @@ int syncReadLine(int fd, char *ptr, ssize_t size, int timeout);
 int fwriteBulkString(FILE *fp, char *s, unsigned long len);
 int fwriteBulkDouble(FILE *fp, double d);
 int fwriteBulkLongLong(FILE *fp, long long l);
+int fwriteBulkObject(FILE *fp, robj *obj);
 
 /* Replication */
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
