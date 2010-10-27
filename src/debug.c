@@ -214,7 +214,7 @@ void debugCommand(redisClient *c) {
             addReplyStatusFormat(c,
                 "Value at:%p refcount:%d "
                 "encoding:%s serializedlength:%lld "
-                "lru     :%d lru_seconds_idle:%lu",
+                "lru:%d lru_seconds_idle:%lu",
                 (void*)val, val->refcount,
                 strenc, (long long) rdbSavedObjectLen(val,NULL),
                 val->lru, estimateObjectIdleTime(val));
