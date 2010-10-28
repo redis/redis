@@ -798,12 +798,7 @@ int processMultibulkBuffer(redisClient *c) {
 void processInputBuffer(redisClient *c) {
     /* Keep processing while there is something in the input buffer */
     while(sdslen(c->querybuf)) {
-        /* Before to process the input buffer, make sure the client is not
-         * waitig for a blocking operation such as BLPOP. Note that the first
-         * iteration the client is never blocked, otherwise the processInputBuffer
-         * would not be called at all, but after the execution of the first commands
-         * in the input buffer the client may be blocked, and the "goto again"
-         * will try to reiterate. The following line will make it return asap. */
+        /* Immediately abort if the client is in the middle of something. */
         if (c->flags & REDIS_BLOCKED || c->flags & REDIS_IO_WAIT) return;
 
         /* REDIS_CLOSE_AFTER_REPLY closes the connection once the reply is
