@@ -1,48 +1,62 @@
 start_server {tags {"protocol"}} {
-    test {Handle an empty query well} {
-        set fd [r channel]
-        puts -nonewline $fd "\r\n"
-        flush $fd
-        r ping
-    } {PONG}
+    test "Handle an empty query" {
+        reconnect
+        r write "\r\n"
+        r flush
+        assert_equal "PONG" [r ping]
+    }
 
-    test {Negative multi bulk command does not create problems} {
-        set fd [r channel]
-        puts -nonewline $fd "*-10\r\n"
-        flush $fd
-        r ping
-    } {PONG}
+    test "Negative multibulk length" {
+        reconnect
+        r write "*-10\r\n"
+        r flush
+        assert_equal PONG [r ping]
+    }
 
-    test {Negative multi bulk payload} {
-        set fd [r channel]
-        puts -nonewline $fd "SET x -10\r\n"
-        flush $fd
-        gets $fd
-    } {*invalid bulk*}
+    test "Out of range multibulk length" {
+        reconnect
+        r write "*20000000\r\n"
+        r flush
+        assert_error "*invalid multibulk length*" {r read}
+    }
 
-    test {Too big bulk payload} {
-        set fd [r channel]
-        puts -nonewline $fd "SET x 2000000000\r\n"
-        flush $fd
-        gets $fd
-    } {*invalid bulk*count*}
+    test "Wrong multibulk payload header" {
+        reconnect
+        r write "*3\r\n\$3\r\nSET\r\n\$1\r\nx\r\nfooz\r\n"
+        r flush
+        assert_error "*expected '$', got 'f'*" {r read}
+    }
 
-    test {bulk payload is not a number} {
-        set fd [r channel]
-        puts -nonewline $fd "SET x blabla\r\n"
-        flush $fd
-        gets $fd
-    } {*invalid bulk*count*}
+    test "Negative multibulk payload length" {
+        reconnect
+        r write "*3\r\n\$3\r\nSET\r\n\$1\r\nx\r\n\$-10\r\n"
+        r flush
+        assert_error "*invalid bulk length*" {r read}
+    }
 
-    test {Multi bulk request not followed by bulk args} {
-        set fd [r channel]
-        puts -nonewline $fd "*1\r\nfoo\r\n"
-        flush $fd
-        gets $fd
-    } {*protocol error*}
+    test "Out of range multibulk payload length" {
+        reconnect
+        r write "*3\r\n\$3\r\nSET\r\n\$1\r\nx\r\n\$2000000000\r\n"
+        r flush
+        assert_error "*invalid bulk length*" {r read}
+    }
 
-    test {Generic wrong number of args} {
-        catch {r ping x y z} err
-        set _ $err
-    } {*wrong*arguments*ping*}
+    test "Non-number multibulk payload length" {
+        reconnect
+        r write "*3\r\n\$3\r\nSET\r\n\$1\r\nx\r\n\$blabla\r\n"
+        r flush
+        assert_error "*invalid bulk length*" {r read}
+    }
+
+    test "Multi bulk request not followed by bulk arguments" {
+        reconnect
+        r write "*1\r\nfoo\r\n"
+        r flush
+        assert_error "*expected '$', got 'f'*" {r read}
+    }
+
+    test "Generic wrong number of args" {
+        reconnect
+        assert_error "*wrong*arguments*ping*" {r ping x y z}
+    }
 }

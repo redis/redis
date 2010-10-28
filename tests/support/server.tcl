@@ -215,7 +215,8 @@ proc start_server {options {code undefined}} {
     if {[dict exists $config port]} { set port [dict get $config port] }
 
     # setup config dict
-    dict set srv "config" $config_file
+    dict set srv "config_file" $config_file
+    dict set srv "config" $config
     dict set srv "pid" $pid
     dict set srv "host" $host
     dict set srv "port" $port
@@ -238,17 +239,12 @@ proc start_server {options {code undefined}} {
             after 10
         }
 
-        set client [redis $host $port]
-        dict set srv "client" $client
-
-        # select the right db when we don't have to authenticate
-        if {![dict exists $config requirepass]} {
-            $client select 9
-        }
-
         # append the server to the stack
         lappend ::servers $srv
-        
+
+        # connect client (after server dict is put on the stack)
+        reconnect
+
         # execute provided block
         set curnum $::testnum
         if {![catch { uplevel 1 $code } err]} {

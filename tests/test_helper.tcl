@@ -16,6 +16,7 @@ set ::valgrind 0
 set ::denytags {}
 set ::allowtags {}
 set ::external 0; # If "1" this means, we are running against external instance
+set ::file ""; # If set, runs only the tests in this comma separated list
 
 proc execute_tests name {
     source "tests/$name.tcl"
@@ -49,6 +50,28 @@ proc r {args} {
     [srv $level "client"] {*}$args
 }
 
+proc reconnect {args} {
+    set level [lindex $args 0]
+    if {[string length $level] == 0 || ![string is integer $level]} {
+        set level 0
+    }
+
+    set srv [lindex $::servers end+$level]
+    set host [dict get $srv "host"]
+    set port [dict get $srv "port"]
+    set config [dict get $srv "config"]
+    set client [redis $host $port]
+    dict set srv "client" $client
+
+    # select the right db when we don't have to authenticate
+    if {![dict exists $config "requirepass"]} {
+        $client select 9
+    }
+
+    # re-set $srv in the servers list
+    set ::servers [lreplace $::servers end+$level 1 $srv]
+}
+
 proc redis_deferring_client {args} {
     set level 0
     if {[llength $args] > 0 && [string is integer [lindex $args 0]]} {
@@ -80,8 +103,7 @@ proc cleanup {} {
     catch {exec rm -rf {*}[glob tests/tmp/server.*]}
 }
 
-proc main {} {
-    cleanup
+proc execute_everything {} {
     execute_tests "unit/auth"
     execute_tests "unit/protocol"
     execute_tests "unit/basic"
@@ -93,6 +115,7 @@ proc main {} {
     execute_tests "unit/expire"
     execute_tests "unit/other"
     execute_tests "unit/cas"
+    execute_tests "unit/quit"
     execute_tests "integration/replication"
     execute_tests "integration/aof"
 #    execute_tests "integration/redis-cli"
@@ -110,6 +133,18 @@ proc main {} {
     execute_tests "unit/expire"
     execute_tests "unit/other"
     execute_tests "unit/cas"
+}
+
+proc main {} {
+    cleanup
+
+    if {[string length $::file] > 0} {
+        foreach {file} [split $::file ,] {
+            execute_tests $file
+        }
+    } else {
+        execute_everything
+    }
 
     cleanup
     puts "\n[expr $::passed+$::failed] tests, $::passed passed, $::failed failed"
@@ -131,6 +166,9 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
                 lappend ::allowtags $tag
             }
         }
+        incr j
+    } elseif {$opt eq {--file}} {
+        set ::file $arg
         incr j
     } elseif {$opt eq {--host}} {
         set ::external 1

@@ -57,15 +57,15 @@
 /* Hash table parameters */
 #define REDIS_HT_MINFILL        10      /* Minimal hash table fill 10% */
 
-/* Command flags */
-#define REDIS_CMD_BULK          1       /* Bulk write command */
-#define REDIS_CMD_INLINE        2       /* Inline command */
-/* REDIS_CMD_DENYOOM reserves a longer comment: all the commands marked with
-   this flags will return an error when the 'maxmemory' option is set in the
-   config file and the server is using more than maxmemory bytes of memory.
-   In short this commands are denied on low memory conditions. */
-#define REDIS_CMD_DENYOOM       4
-#define REDIS_CMD_FORCE_REPLICATION 8 /* Force replication even if dirty is 0 */
+/* Command flags:
+ *   REDIS_CMD_DENYOOM:
+ *     Commands marked with this flag will return an error when 'maxmemory' is
+ *     set and the server is using more than 'maxmemory' bytes of memory.
+ *     In short: commands with this flag are denied on low memory conditions.
+ *   REDIS_CMD_FORCE_REPLICATION:
+ *     Force replication even if dirty is 0. */
+#define REDIS_CMD_DENYOOM 4
+#define REDIS_CMD_FORCE_REPLICATION 8
 
 /* Object types */
 #define REDIS_STRING 0
@@ -144,6 +144,11 @@
 #define REDIS_BLOCKED 16    /* The client is waiting in a blocking operation */
 #define REDIS_IO_WAIT 32    /* The client is waiting for Virtual Memory I/O */
 #define REDIS_DIRTY_CAS 64  /* Watched keys modified. EXEC will fail. */
+#define REDIS_CLOSE_AFTER_REPLY 128 /* Close after writing entire reply. */
+
+/* Client request types */
+#define REDIS_REQ_INLINE 1
+#define REDIS_REQ_MULTIBULK 2
 
 /* Slave replication state - slave side */
 #define REDIS_REPL_NONE 0   /* No active replication */
@@ -294,11 +299,11 @@ typedef struct redisClient {
     redisDb *db;
     int dictid;
     sds querybuf;
-    robj **argv, **mbargv;
-    char *newline;          /* pointing to the detected newline in querybuf */
-    int argc, mbargc;
-    long bulklen;            /* bulk read len. -1 if not in bulk read mode */
-    int multibulk;          /* multi bulk command format active */
+    int argc;
+    robj **argv;
+    int reqtype;
+    int multibulklen;       /* number of multi bulk arguments left to read */
+    long bulklen;           /* length of bulk argument in multi bulk request */
     list *reply;
     int sentlen;
     time_t lastinteraction; /* time of the last interaction, used for timeout */

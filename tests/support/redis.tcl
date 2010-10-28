@@ -36,25 +36,6 @@ array set ::redis::deferred {}
 array set ::redis::callback {}
 array set ::redis::state {} ;# State in non-blocking reply reading
 array set ::redis::statestack {} ;# Stack of states, for nested mbulks
-array set ::redis::bulkarg {}
-array set ::redis::multibulkarg {}
-
-# Flag commands requiring last argument as a bulk write operation
-foreach redis_bulk_cmd {
-    set setnx rpush lpush rpushx lpushx linsert lset lrem sadd srem sismember echo getset smove zadd zrem zscore zincrby append zrank zrevrank hget hdel hexists setex publish
-} {
-    set ::redis::bulkarg($redis_bulk_cmd) {}
-}
-
-# Flag commands requiring last argument as a bulk write operation
-foreach redis_multibulk_cmd {
-    mset msetnx hset hsetnx hmset hmget
-} {
-    set ::redis::multibulkarg($redis_multibulk_cmd) {}
-}
-
-unset redis_bulk_cmd
-unset redis_multibulk_cmd
 
 proc redis {{server 127.0.0.1} {port 6379} {defer 0}} {
     set fd [socket $server $port]
@@ -79,25 +60,14 @@ proc ::redis::__dispatch__ {id method args} {
         set args [lrange $args 0 end-1]
     }
     if {[info command ::redis::__method__$method] eq {}} {
-        if {[info exists ::redis::bulkarg($method)]} {
-            set cmd "$method "
-            append cmd [join [lrange $args 0 end-1]]
-            append cmd " [string length [lindex $args end]]\r\n"
-            append cmd [lindex $args end]
-            ::redis::redis_writenl $fd $cmd
-        } elseif {[info exists ::redis::multibulkarg($method)]} {
-            set cmd "*[expr {[llength $args]+1}]\r\n"
-            append cmd "$[string length $method]\r\n$method\r\n"
-            foreach a $args {
-                append cmd "$[string length $a]\r\n$a\r\n"
-            }
-            ::redis::redis_write $fd $cmd
-            flush $fd
-        } else {
-            set cmd "$method "
-            append cmd [join $args]
-            ::redis::redis_writenl $fd $cmd
+        set cmd "*[expr {[llength $args]+1}]\r\n"
+        append cmd "$[string length $method]\r\n$method\r\n"
+        foreach a $args {
+            append cmd "$[string length $a]\r\n$a\r\n"
         }
+        ::redis::redis_write $fd $cmd
+        flush $fd
+
         if {!$deferred} {
             if {$blocking} {
                 ::redis::redis_read_reply $fd
@@ -121,6 +91,14 @@ proc ::redis::__method__blocking {id fd val} {
 
 proc ::redis::__method__read {id fd} {
     ::redis::redis_read_reply $fd
+}
+
+proc ::redis::__method__write {id fd buf} {
+    ::redis::redis_write $fd $buf
+}
+
+proc ::redis::__method__flush {id fd} {
+    flush $fd
 }
 
 proc ::redis::__method__close {id fd} {

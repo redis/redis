@@ -260,6 +260,7 @@ void listTypeConvert(robj *subject, int enc) {
 
 void pushGenericCommand(redisClient *c, int where) {
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
+    c->argv[2] = tryObjectEncoding(c->argv[2]);
     if (lobj == NULL) {
         if (handleClientsWaitingListPush(c,c->argv[1],c->argv[2])) {
             addReply(c,shared.cone);
@@ -346,14 +347,17 @@ void pushxGenericCommand(redisClient *c, robj *refval, robj *val, int where) {
 }
 
 void lpushxCommand(redisClient *c) {
+    c->argv[2] = tryObjectEncoding(c->argv[2]);
     pushxGenericCommand(c,NULL,c->argv[2],REDIS_HEAD);
 }
 
 void rpushxCommand(redisClient *c) {
+    c->argv[2] = tryObjectEncoding(c->argv[2]);
     pushxGenericCommand(c,NULL,c->argv[2],REDIS_TAIL);
 }
 
 void linsertCommand(redisClient *c) {
+    c->argv[4] = tryObjectEncoding(c->argv[4]);
     if (strcasecmp(c->argv[2]->ptr,"after") == 0) {
         pushxGenericCommand(c,c->argv[3],c->argv[4],REDIS_TAIL);
     } else if (strcasecmp(c->argv[2]->ptr,"before") == 0) {
@@ -409,7 +413,7 @@ void lsetCommand(redisClient *c) {
     robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr);
     if (o == NULL || checkType(c,o,REDIS_LIST)) return;
     int index = atoi(c->argv[2]->ptr);
-    robj *value = c->argv[3];
+    robj *value = (c->argv[3] = tryObjectEncoding(c->argv[3]));
 
     listTypeTryConversion(o,value);
     if (o->encoding == REDIS_ENCODING_ZIPLIST) {
@@ -559,7 +563,8 @@ void ltrimCommand(redisClient *c) {
 }
 
 void lremCommand(redisClient *c) {
-    robj *subject, *obj = c->argv[3];
+    robj *subject, *obj;
+    obj = c->argv[3] = tryObjectEncoding(c->argv[3]);
     int toremove = atoi(c->argv[2]->ptr);
     int removed = 0;
     listTypeEntry entry;

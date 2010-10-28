@@ -47,11 +47,11 @@ start_server {
         assert_encoding $enc tosort
 
         test "$title: SORT BY key" {
-            assert_equal $result [r sort tosort {BY weight_*}]
+            assert_equal $result [r sort tosort BY weight_*]
         }
 
         test "$title: SORT BY hash field" {
-            assert_equal $result [r sort tosort {BY wobj_*->weight}]
+            assert_equal $result [r sort tosort BY wobj_*->weight]
         }
     }
 
@@ -78,21 +78,21 @@ start_server {
     }
 
     test "SORT BY key STORE" {
-        r sort tosort {BY weight_*} store sort-res
+        r sort tosort BY weight_* store sort-res
         assert_equal $result [r lrange sort-res 0 -1]
         assert_equal 16 [r llen sort-res]
         assert_encoding ziplist sort-res
     }
 
     test "SORT BY hash field STORE" {
-        r sort tosort {BY wobj_*->weight} store sort-res
+        r sort tosort BY wobj_*->weight store sort-res
         assert_equal $result [r lrange sort-res 0 -1]
         assert_equal 16 [r llen sort-res]
         assert_encoding ziplist sort-res
     }
 
     test "SORT DESC" {
-        assert_equal [lsort -decreasing -integer $result] [r sort tosort {DESC}]
+        assert_equal [lsort -decreasing -integer $result] [r sort tosort DESC]
     }
 
     test "SORT ALPHA against integer encoded strings" {
@@ -141,7 +141,7 @@ start_server {
         test "SORT speed, $num element list BY key, 100 times" {
             set start [clock clicks -milliseconds]
             for {set i 0} {$i < 100} {incr i} {
-                set sorted [r sort tosort {BY weight_* LIMIT 0 10}]
+                set sorted [r sort tosort BY weight_* LIMIT 0 10]
             }
             set elapsed [expr [clock clicks -milliseconds]-$start]
             puts -nonewline "\n  Average time to sort: [expr double($elapsed)/100] milliseconds "
@@ -151,7 +151,7 @@ start_server {
         test "SORT speed, $num element list BY hash field, 100 times" {
             set start [clock clicks -milliseconds]
             for {set i 0} {$i < 100} {incr i} {
-                set sorted [r sort tosort {BY wobj_*->weight LIMIT 0 10}]
+                set sorted [r sort tosort BY wobj_*->weight LIMIT 0 10]
             }
             set elapsed [expr [clock clicks -milliseconds]-$start]
             puts -nonewline "\n  Average time to sort: [expr double($elapsed)/100] milliseconds "
@@ -161,7 +161,7 @@ start_server {
         test "SORT speed, $num element list directly, 100 times" {
             set start [clock clicks -milliseconds]
             for {set i 0} {$i < 100} {incr i} {
-                set sorted [r sort tosort {LIMIT 0 10}]
+                set sorted [r sort tosort LIMIT 0 10]
             }
             set elapsed [expr [clock clicks -milliseconds]-$start]
             puts -nonewline "\n  Average time to sort: [expr double($elapsed)/100] milliseconds "
@@ -171,7 +171,7 @@ start_server {
         test "SORT speed, $num element list BY <const>, 100 times" {
             set start [clock clicks -milliseconds]
             for {set i 0} {$i < 100} {incr i} {
-                set sorted [r sort tosort {BY nokey LIMIT 0 10}]
+                set sorted [r sort tosort BY nokey LIMIT 0 10]
             }
             set elapsed [expr [clock clicks -milliseconds]-$start]
             puts -nonewline "\n  Average time to sort: [expr double($elapsed)/100] milliseconds "

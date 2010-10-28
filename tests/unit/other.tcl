@@ -123,7 +123,7 @@ start_server {tags {"other"}} {
         for {set i 0} {$i < 100000} {incr i} {
             set q {}
             set val "0000${i}0000"
-            append q "SET key:$i [string length $val]\r\n$val\r\n"
+            append q "SET key:$i $val\r\n"
             puts -nonewline $fd2 $q
             set q {}
             append q "GET key:$i\r\n"

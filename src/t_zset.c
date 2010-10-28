@@ -440,12 +440,14 @@ void zaddGenericCommand(redisClient *c, robj *key, robj *ele, double score, int 
 void zaddCommand(redisClient *c) {
     double scoreval;
     if (getDoubleFromObjectOrReply(c,c->argv[2],&scoreval,NULL) != REDIS_OK) return;
+    c->argv[3] = tryObjectEncoding(c->argv[3]);
     zaddGenericCommand(c,c->argv[1],c->argv[3],scoreval,0);
 }
 
 void zincrbyCommand(redisClient *c) {
     double scoreval;
     if (getDoubleFromObjectOrReply(c,c->argv[2],&scoreval,NULL) != REDIS_OK) return;
+    c->argv[3] = tryObjectEncoding(c->argv[3]);
     zaddGenericCommand(c,c->argv[1],c->argv[3],scoreval,1);
 }
 
@@ -460,6 +462,7 @@ void zremCommand(redisClient *c) {
         checkType(c,zsetobj,REDIS_ZSET)) return;
 
     zs = zsetobj->ptr;
+    c->argv[2] = tryObjectEncoding(c->argv[2]);
     de = dictFind(zs->dict,c->argv[2]);
     if (de == NULL) {
         addReply(c,shared.czero);
@@ -1004,6 +1007,7 @@ void zscoreCommand(redisClient *c) {
         checkType(c,o,REDIS_ZSET)) return;
 
     zs = o->ptr;
+    c->argv[2] = tryObjectEncoding(c->argv[2]);
     de = dictFind(zs->dict,c->argv[2]);
     if (!de) {
         addReply(c,shared.nullbulk);
@@ -1027,6 +1031,7 @@ void zrankGenericCommand(redisClient *c, int reverse) {
 
     zs = o->ptr;
     zsl = zs->zsl;
+    c->argv[2] = tryObjectEncoding(c->argv[2]);
     de = dictFind(zs->dict,c->argv[2]);
     if (!de) {
         addReply(c,shared.nullbulk);

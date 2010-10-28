@@ -172,7 +172,7 @@ start_server {tags {"basic"}} {
 
     test {Commands pipelining} {
         set fd [r channel]
-        puts -nonewline $fd "SET k1 4\r\nxyzk\r\nGET k1\r\nPING\r\n"
+        puts -nonewline $fd "SET k1 xyzk\r\nGET k1\r\nPING\r\n"
         flush $fd
         set res {}
         append res [string match OK* [::redis::redis_read_reply $fd]]
