@@ -144,9 +144,7 @@
 #define REDIS_BLOCKED 16    /* The client is waiting in a blocking operation */
 #define REDIS_IO_WAIT 32    /* The client is waiting for Virtual Memory I/O */
 #define REDIS_DIRTY_CAS 64  /* Watched keys modified. EXEC will fail. */
-#define REDIS_QUIT 128      /* Client will be disconnected after reply is sent */
-#define REDIS_CLOSE_AFTER_REPLY 256 /* Close connection immediately once the
-                                     * reply has been sent. */
+#define REDIS_CLOSE_AFTER_REPLY 128 /* Close after writing entire reply. */
 
 /* Client request types */
 #define REDIS_REQ_INLINE 1

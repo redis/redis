@@ -541,7 +541,6 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
 
         /* Close connection after entire reply has been sent. */
-        if (c->flags & REDIS_QUIT) freeClient(c);
         if (c->flags & REDIS_CLOSE_AFTER_REPLY) freeClient(c);
     }
 }
@@ -802,9 +801,10 @@ void processInputBuffer(redisClient *c) {
          * will try to reiterate. The following line will make it return asap. */
         if (c->flags & REDIS_BLOCKED || c->flags & REDIS_IO_WAIT) return;
 
-        /* Never continue to process the input buffer after QUIT. After the output
-         * buffer is flushed (with the OK), the connection will be dropped. */
-        if (c->flags & REDIS_QUIT) return;
+        /* REDIS_CLOSE_AFTER_REPLY closes the connection once the reply is
+         * written to the client. Make sure to not let the reply grow after
+         * this flag has been set (i.e. don't process more commands). */
+        if (c->flags & REDIS_CLOSE_AFTER_REPLY) return;
 
         /* Determine request type when unknown. */
         if (!c->reqtype) {

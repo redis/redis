@@ -893,10 +893,10 @@ int processCommand(redisClient *c) {
      * go through checking for replication and QUIT will cause trouble
      * when FORCE_REPLICATION is enabled and would be implemented in
      * a regular command proc. */
-    redisAssert(!(c->flags & REDIS_QUIT));
+    redisAssert(!(c->flags & REDIS_CLOSE_AFTER_REPLY));
     if (!strcasecmp(c->argv[0]->ptr,"quit")) {
-        c->flags |= REDIS_QUIT;
         addReply(c,shared.ok);
+        c->flags |= REDIS_CLOSE_AFTER_REPLY;
         return REDIS_ERR;
     }
 
