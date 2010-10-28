@@ -55,7 +55,12 @@ redisClient *createClient(int fd) {
     return c;
 }
 
+/* Set the event loop to listen for write events on the client's socket.
+ * Typically gets called every time a reply is built. */
 int _installWriteEvent(redisClient *c) {
+    /* When CLOSE_AFTER_REPLY is set, no more replies may be added! */
+    redisAssert(!(c->flags & REDIS_CLOSE_AFTER_REPLY));
+
     if (c->fd <= 0) return REDIS_ERR;
     if (c->bufpos == 0 && listLength(c->reply) == 0 &&
         (c->replstate == REDIS_REPL_NONE ||
