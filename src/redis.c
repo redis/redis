@@ -120,6 +120,7 @@ struct redisCommand readonlyCommandTable[] = {
     {"zinterstore",zinterstoreCommand,-4,REDIS_CMD_INLINE|REDIS_CMD_DENYOOM,zunionInterBlockClientOnSwappedKeys,0,0,0},
     {"zrange",zrangeCommand,-4,REDIS_CMD_INLINE,NULL,1,1,1},
     {"zrangebyscore",zrangebyscoreCommand,-4,REDIS_CMD_INLINE,NULL,1,1,1},
+    {"zrevrangebyscore",zrevrangebyscoreCommand,-4,REDIS_CMD_INLINE,NULL,1,1,1},
     {"zcount",zcountCommand,4,REDIS_CMD_INLINE,NULL,1,1,1},
     {"zrevrange",zrevrangeCommand,-4,REDIS_CMD_INLINE,NULL,1,1,1},
     {"zcard",zcardCommand,2,REDIS_CMD_INLINE,NULL,1,1,1},
