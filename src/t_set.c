@@ -197,6 +197,82 @@ void saddCommand(redisClient *c) {
     }
 }
 
+void msaddCommand(redisClient *c) {
+    int setnum, valnum;
+    int i, j;
+    robj **sets;
+
+    setnum = atoi(c->argv[1]->ptr);
+    valnum = atoi(c->argv[2]->ptr);
+
+    if (setnum < 1) {
+        addReplyError(c,
+            "at least 1 input key is needed for MSADD");
+        return;
+    }
+
+    if (valnum < 1) {
+        addReplyError(c,
+            "at least 1 input value is needed for MSADD");
+        return;
+    }
+ 
+    /* test if the expected number of keys would overflow */
+    if (3+setnum+valnum > c->argc) {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+
+    int useintset = 0;
+    for (j = 0; j < valnum; j++) {
+        robj *value = c->argv[3 + setnum + j];
+        if (isObjectRepresentableAsLongLong(value,NULL) != REDIS_OK) {
+            useintset = 1;
+            break;
+        }
+    }
+
+    sets = zmalloc(sizeof(robj*)*setnum);
+    int notset = 0;
+    for (i = 0; i < setnum; i++) {
+        robj *key = c->argv[3 + i];
+        robj *set = lookupKeyWrite(c->db, key);
+        if (set == NULL) {
+            if (useintset == 1)
+                set = createIntsetObject();
+            else
+                set = createSetObject();
+            dbAdd(c->db,key,set);
+        } else {
+            if (set->type != REDIS_SET) {
+                notset = 1;
+                break;
+            }
+        }
+        sets[i] = set;
+    }
+
+    if (notset == 1) {
+        addReply(c,shared.wrongtypeerr);
+    } else {
+        long long inserted = 0;
+        for (i = 0; i < setnum; i++) {
+            for (j = 0; j < valnum; j++) {
+                robj *key = c->argv[3 + i];
+                robj *value = c->argv[3 + setnum + j];
+                robj *set = sets[i];
+                if (setTypeAdd(set,value)) {
+                    touchWatchedKey(c->db,key);
+                    server.dirty++;
+                    inserted++;
+                }
+            }
+        }
+        addReplyLongLong(c,inserted);
+    }
+    zfree(sets); 
+}
+
 void sremCommand(redisClient *c) {
     robj *set;
 

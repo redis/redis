@@ -890,6 +890,7 @@ void ltrimCommand(redisClient *c);
 void typeCommand(redisClient *c);
 void lsetCommand(redisClient *c);
 void saddCommand(redisClient *c);
+void msaddCommand(redisClient *c);
 void sremCommand(redisClient *c);
 void smoveCommand(redisClient *c);
 void sismemberCommand(redisClient *c);
