@@ -103,6 +103,7 @@ start_server {
         assert_encoding hashtable myset
     }
 
+#    TODO: do this test. It works manually, but I can't make it work with tcl
 #    test "MSADD creates an intset with more than the maximum allowed" {
 #        r del myset
 #        set var ""
