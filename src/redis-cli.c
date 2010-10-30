@@ -464,15 +464,31 @@ static void repl() {
                             if (sdsisdigit(number)) {
                                 int n = atoi(number);
                                 if (n < memorizedpos) {
-                                    sds prev = argv[j];
-                                    argv[j] = sdscat(sdsempty(), memorized[n]); // copying the sds, argvs will get released
-                                    sdsfree(prev);
+                                    int newargcs;
+                                    sds *newargvs = sdssplitargs(memorized[n],&newargcs);
+                                    int newargc = argc+newargcs-1;
+                                    sds *newargv = zrealloc(argv, sizeof(sds) * (newargc) + 1);
+                                    if (newargv == NULL) {
+                                        printf("Not enough memory to replace parameters.\n"); // TODO: what now?
+                                    } else {
+                                        int i;
+                                        for (i = argc-1; i > j; i--) {
+                                            newargv[i+newargcs-1] = argv[i];
+                                        }
+
+                                        for (i = 0; i < newargcs; i++) {
+                                            newargv[i+j] = newargvs[i];
+                                        }
+                                        argv = newargv;
+                                        argc = newargc;
+                                        j += newargcs-1;
+                                    }
                                 } else {
                                     printf("Warning: $%d was not set (yet). To escape use \\$%d.\n", n, n);
                                 }
                             }
                         }
-                        if (argv[j][0] == '\\' && argv[j][1] == '$') {
+                        else if (argv[j][0] == '\\' && argv[j][1] == '$') {
                             sds prev = argv[j];
                             argv[j] = sdsrange(prev, 1, -1);
                         }
