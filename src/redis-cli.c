@@ -428,7 +428,7 @@ static char **convertToSds(int count, char** args) {
 }
 
 #define LINE_BUFLEN 4096
-#define MEMORIZED_BUFLEN 1
+#define MEMORIZED_BUFLEN 1024
 static void repl() {
     int argc, j;
     char *line;
