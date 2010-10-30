@@ -251,6 +251,19 @@ void sdstoupper(sds s) {
     for (j = 0; j < len; j++) s[j] = toupper(s[j]);
 }
 
+int sdsisdigit(sds s) {
+    int len, j;
+
+    len = sdslen(s);
+    if (len == 0) return 0;
+    for (j = 0; j < len; j++) {
+        if (isdigit(s[j]) == 0) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 int sdscmp(sds s1, sds s2) {
     size_t l1, l2, minlen;
     int cmp;

@@ -64,7 +64,7 @@ static struct config {
     char *historyfile;
 } config;
 
-static int cliReadReply(int fd);
+static int cliReadReply(int fd, sds *response);
 static void usage();
 
 /* Connect to the client. If force is not zero the connection is performed
@@ -105,8 +105,9 @@ static sds cliReadLine(int fd) {
     return sdstrim(line,"\r\n");
 }
 
-static int cliReadSingleLineReply(int fd, int quiet) {
+static int cliReadSingleLineReply(int fd, int quiet, sds *response) {
     sds reply = cliReadLine(fd);
+    *response = sdscat(*response, reply);
 
     if (reply == NULL) return 1;
     if (!quiet)
@@ -140,8 +141,9 @@ static void printStringRepr(char *s, int len) {
     printf("\"");
 }
 
-static int cliReadBulkReply(int fd) {
+static int cliReadBulkReply(int fd, sds *response) {
     sds replylen = cliReadLine(fd);
+
     char *reply, crlf[2];
     int bulklen;
 
@@ -164,12 +166,13 @@ static int cliReadBulkReply(int fd) {
         /* If you are producing output for the standard output we want
          * a more interesting output with quoted characters and so forth */
         printStringRepr(reply,bulklen);
+        *response = sdscat(*response, reply);
     }
     zfree(reply);
     return 0;
 }
 
-static int cliReadMultiBulkReply(int fd) {
+static int cliReadMultiBulkReply(int fd, sds *response) {
     sds replylen = cliReadLine(fd);
     int elements, c = 1;
     int retval = 0;
@@ -186,16 +189,21 @@ static int cliReadMultiBulkReply(int fd) {
     }
     while(elements--) {
         if (config.tty) printf("%d. ", c);
-        if (cliReadReply(fd)) retval = 1;
-        if (elements) printf("%c",config.mb_sep);
+        if (cliReadReply(fd, response)) retval = 1;
+        if (elements) {
+            printf("%c",config.mb_sep);
+            *response = sdscat(*response, " ");
+        }
         c++;
     }
     return retval;
 }
 
-static int cliReadReply(int fd) {
+static int cliReadReply(int fd, sds *response) {
     char type;
     int nread;
+    sds status;
+    int retval;
 
     if ((nread = anetRead(fd,&type,1)) <= 0) {
         if (config.shutdown) return 0;
@@ -208,24 +216,34 @@ static int cliReadReply(int fd) {
             exit(1);
         }
     }
+
+    status = sdsempty();
     switch(type) {
     case '-':
         if (config.tty) printf("(error) ");
-        cliReadSingleLineReply(fd,0);
-        return 1;
+        cliReadSingleLineReply(fd,0,&status);
+        retval = 1;
+        break;
     case '+':
-        return cliReadSingleLineReply(fd,0);
+        retval = cliReadSingleLineReply(fd,0,&status);
+        break;
     case ':':
         if (config.tty) printf("(integer) ");
-        return cliReadSingleLineReply(fd,0);
+        retval = cliReadSingleLineReply(fd,0,response);
+        break;
     case '$':
-        return cliReadBulkReply(fd);
+        retval = cliReadBulkReply(fd, response);
+        break;
     case '*':
-        return cliReadMultiBulkReply(fd);
+        retval = cliReadMultiBulkReply(fd, response);
+        break;
     default:
         printf("protocol error, got '%c' as reply type byte", type);
-        return 1;
+        retval = 1;
+        break;
     }
+    sdsfree(status);
+    return retval;
 }
 
 static int selectDb(int fd) {
@@ -241,7 +259,9 @@ static int selectDb(int fd) {
     anetWrite(fd,cmd,sdslen(cmd));
     anetRead(fd,&type,1);
     if (type <= 0 || type != '+') return 1;
-    retval = cliReadSingleLineReply(fd,1);
+    sds response = sdsempty();
+    retval = cliReadSingleLineReply(fd,1,&response);
+    sdsfree(response);
     if (retval) {
         return retval;
     }
@@ -264,7 +284,7 @@ static void showInteractiveHelp(void) {
     "\n\n");
 }
 
-static int cliSendCommand(int argc, char **argv, int repeat) {
+static int cliSendCommand(int argc, char **argv, int repeat, sds *response) {
     char *command = argv[0];
     int fd, j, retval = 0;
     sds cmd;
@@ -299,19 +319,19 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
     while(repeat--) {
         anetWrite(fd,cmd,sdslen(cmd));
         while (config.monitor_mode) {
-            if (cliReadSingleLineReply(fd,0)) exit(1);
+            if (cliReadSingleLineReply(fd,0,response)) exit(1);
             printf("\n");
         }
 
         if (config.pubsub_mode) {
             printf("Reading messages... (press Ctrl-c to quit)\n");
             while (1) {
-                cliReadReply(fd);
+                cliReadReply(fd, response);
                 printf("\n\n");
             }
         }
 
-        retval = cliReadReply(fd);
+        retval = cliReadReply(fd, response);
         if (!config.raw_output && config.tty) printf("\n");
         if (retval) return retval;
     }
@@ -408,11 +428,18 @@ static char **convertToSds(int count, char** args) {
 }
 
 #define LINE_BUFLEN 4096
+#define MEMORIZED_BUFLEN 1
 static void repl() {
     int argc, j;
     char *line;
     sds *argv;
+    sds *memorized;
+    int memorizedpos;
+    int memorizing;
 
+    memorizing = 1;
+    memorizedpos = 0;
+    memorized = zmalloc(sizeof(sds) * MEMORIZED_BUFLEN);
     config.interactive = 1;
     while((line = linenoise("redis> ")) != NULL) {
         if (line[0] != '\0') {
@@ -429,14 +456,53 @@ static void repl() {
                     exit(0);
                 } else {
                     int err;
+                    sds response = sdsempty();
 
-                    if ((err = cliSendCommand(argc, argv, 1)) != 0) {
+                    for (j = 0; j < argc; ++j) {
+                        if (argv[j][0] == '$') {
+                            sds number = sdsrange(argv[j], 1, sdslen(argv[j]) - 1);
+                            if (sdsisdigit(number)) {
+                                int n = atoi(number);
+                                if (n < memorizedpos) {
+                                    sds prev = argv[j];
+                                    argv[j] = sdscat(sdsempty(), memorized[n]); // copying the sds, argvs will get released
+                                    sdsfree(prev);
+                                } else {
+                                    printf("Warning: $%d was not set (yet). To escape use \\$%d.\n", n, n);
+                                }
+                            }
+                        }
+                        if (argv[j][0] == '\\' && argv[j][1] == '$') {
+                            sds prev = argv[j];
+                            argv[j] = sdsrange(prev, 1, -1);
+                        }
+                    }
+
+                    if ((err = cliSendCommand(argc, argv, 1, &response)) != 0) {
                         if (err == ECONNRESET) {
                             printf("Reconnecting... ");
                             fflush(stdout);
                             if (cliConnect(1) == -1) exit(1);
                             printf("OK\n");
-                            cliSendCommand(argc,argv,1);
+                            cliSendCommand(argc,argv,1, &response);
+                        }
+                    }
+
+                    if (memorizing == 0) {
+                        sdsfree(response);
+                    } else if (sdslen(response) > 0) {
+                        memorized[memorizedpos] = response;
+                        printf("$%d = '%s'\n", memorizedpos, memorized[memorizedpos]);
+                        fflush(stdout);
+                        memorizedpos++;
+                        if (memorizedpos % MEMORIZED_BUFLEN == 0) {
+                            sds* newmemorized = zrealloc(memorized, sizeof(sds) * (memorizedpos + MEMORIZED_BUFLEN) + 1);
+                            if (newmemorized == NULL) {
+                                printf("Warning: insufficient memory to continue memorizing response");
+                                memorizing = 0;
+                            } else {
+                                memorized = newmemorized;
+                            }
                         }
                     }
                 }
@@ -449,6 +515,9 @@ static void repl() {
         /* linenoise() returns malloc-ed lines like readline() */
         free(line);
     }
+    for (j = 0; j < memorizedpos-1; j++)
+        sdsfree(memorized[j]);
+    zfree(memorized);
     exit(0);
 }
 
@@ -457,10 +526,12 @@ static int noninteractive(int argc, char **argv) {
     if (config.stdinarg) {
         argv = zrealloc(argv, (argc+1)*sizeof(char*));
         argv[argc] = readArgFromStdin();
-        retval = cliSendCommand(argc+1, argv, config.repeat);
+        sds response = sdsempty();
+        retval = cliSendCommand(argc+1, argv, config.repeat, &response);
     } else {
         /* stdin is probably a tty, can be tested with S_ISCHR(s.st_mode) */
-        retval = cliSendCommand(argc, argv, config.repeat);
+        sds response = sdsempty();
+        retval = cliSendCommand(argc, argv, config.repeat, &response);
     }
     return retval;
 }
@@ -503,7 +574,8 @@ int main(int argc, char **argv) {
         config.dbnum = 0;
         authargv[0] = "AUTH";
         authargv[1] = config.auth;
-        cliSendCommand(2, convertToSds(2, authargv), 1);
+        sds response = sdsempty();
+        cliSendCommand(2, convertToSds(2, authargv), 1, &response);
         config.dbnum = dbnum; /* restore the right DB number */
     }
 

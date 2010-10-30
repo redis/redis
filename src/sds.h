@@ -65,6 +65,7 @@ sds sdscatprintf(sds s, const char *fmt, ...);
 sds sdstrim(sds s, const char *cset);
 sds sdsrange(sds s, int start, int end);
 void sdsupdatelen(sds s);
+int sdsisdigit(sds s);
 int sdscmp(sds s1, sds s2);
 sds *sdssplitlen(char *s, int len, char *sep, int seplen, int *count);
 void sdsfreesplitres(sds *tokens, int count);
