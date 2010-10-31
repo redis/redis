@@ -707,7 +707,7 @@ void createSharedObjects(void) {
     shared.punsubscribebulk = createStringObject("$12\r\npunsubscribe\r\n",19);
     shared.mbulk3 = createStringObject("*3\r\n",4);
     shared.mbulk4 = createStringObject("*4\r\n",4);
-    for (j = 0; j < REDIS_SHARED_INTEGERS; j++) {
+    for (j = 0; j < server.shared_integers; j++) {
         shared.integers[j] = createObject(REDIS_STRING,(void*)(long)j);
         shared.integers[j]->encoding = REDIS_ENCODING_INT;
     }
@@ -752,6 +752,7 @@ void initServerConfig() {
     server.list_max_ziplist_entries = REDIS_LIST_MAX_ZIPLIST_ENTRIES;
     server.list_max_ziplist_value = REDIS_LIST_MAX_ZIPLIST_VALUE;
     server.set_max_intset_entries = REDIS_SET_MAX_INTSET_ENTRIES;
+    server.shared_integers = REDIS_SHARED_INTEGERS;
     server.shutdown_asap = 0;
 
     updateLRUClock();

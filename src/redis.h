@@ -466,6 +466,7 @@ struct redisServer {
     FILE *devnull;
     unsigned lruclock:22;        /* clock incrementing every minute, for LRU */
     unsigned lruclock_padding:10;
+    int shared_integers;
 };
 
 typedef struct pubsubPattern {
