@@ -352,7 +352,10 @@ struct sharedObjectsStruct {
 struct redisServer {
     pthread_t mainthread;
     int port;
-    int fd;
+    char *bindaddr;
+    char *unixsocket;
+    int ipfd;
+    int sofd;
     redisDb *db;
     long long dirty;            /* changes to DB from the last save */
     long long dirty_before_bgsave; /* used to restore dirty on failed BGSAVE */
@@ -391,7 +394,6 @@ struct redisServer {
     struct saveparam *saveparams;
     int saveparamslen;
     char *logfile;
-    char *bindaddr;
     char *dbfilename;
     char *appendfilename;
     char *requirepass;
@@ -617,7 +619,8 @@ void *addDeferredMultiBulkLength(redisClient *c);
 void setDeferredMultiBulkLength(redisClient *c, void *node, long length);
 void addReplySds(redisClient *c, sds s);
 void processInputBuffer(redisClient *c);
-void acceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
+void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask);
+void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask);
 void addReplyBulk(redisClient *c, robj *obj);
 void addReplyBulkCString(redisClient *c, char *s);
