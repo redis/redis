@@ -1250,7 +1250,7 @@ void freeMemoryIfNeeded(void) {
         if (tryFreeOneObjectFromFreelist() == REDIS_OK) continue;
 
         for (j = 0; j < server.dbnum; j++) {
-            long bestval;
+            long bestval = 0; /* just to prevent warning */
             sds bestkey = NULL;
             struct dictEntry *de;
             redisDb *db = server.db+j;
