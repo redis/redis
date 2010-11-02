@@ -280,11 +280,11 @@ int loadAppendOnlyFile(char *filename) {
 
         /* Handle swapping while loading big datasets when VM is on */
         force_swapout = 0;
-        if ((zmalloc_used_memory() - server.vm_max_memory) > 1024*1024*32)
+        if ((redisEstimateRSS() - server.vm_max_memory) > 1024*1024*32)
             force_swapout = 1;
 
         if (server.vm_enabled && force_swapout) {
-            while (zmalloc_used_memory() > server.vm_max_memory) {
+            while (redisEstimateRSS() > server.vm_max_memory) {
                 if (vmSwapOneObjectBlocking() == REDIS_ERR) break;
             }
         }
