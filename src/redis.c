@@ -621,9 +621,6 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             if (server.appendonly) rewriteAppendOnlyFileBackground();
         }
     }
-
-    /* Update fragmentation info, used for fast RSS estimation */
-    if (!(loops % 10)) server.fragmentation = zmalloc_get_fragmentation_ratio();
     return 100;
 }
 
@@ -738,7 +735,6 @@ void initServerConfig() {
     server.requirepass = NULL;
     server.rdbcompression = 1;
     server.activerehashing = 1;
-    server.fragmentation = 1;
     server.maxclients = 0;
     server.blpop_blocked_clients = 0;
     server.maxmemory = 0;
@@ -1079,8 +1075,6 @@ sds genRedisInfoString(void) {
         "blocked_clients:%d\r\n"
         "used_memory:%zu\r\n"
         "used_memory_human:%s\r\n"
-        "used_memory_rss:%zu\r\n"
-        "used_memory_estimated_rss:%zu\r\n"
         "mem_fragmentation_ratio:%.2f\r\n"
         "use_tcmalloc:%d\r\n"
         "changes_since_last_save:%lld\r\n"
@@ -1116,8 +1110,6 @@ sds genRedisInfoString(void) {
         server.blpop_blocked_clients,
         zmalloc_used_memory(),
         hmem,
-        zmalloc_get_rss(),
-        redisEstimateRSS(),
         zmalloc_get_fragmentation_ratio(),
 #ifdef USE_TCMALLOC
         1,
@@ -1235,40 +1227,6 @@ int tryFreeOneObjectFromFreelist(void) {
         if (server.vm_enabled) pthread_mutex_unlock(&server.obj_freelist_mutex);
         return REDIS_ERR;
     }
-}
-
-/* A fast RSS sampling function.
- *
- * The function is reasonably accurate while fast, since it uses the trick of
- * using the server.fragmentation ratio that is computed every second and
- * is the ratio between the RSS and our zmalloc() count of allocated bytes.
- *
- * So in order to compute the current RSS used we just need to multiply
- * the zmalloc() memory reporting, that is as fast as reading a counter,
- * for the latest estimation of fragmentation.
- *
- * The behavior of this function is also very desirable because it is
- * very responsive to memory changes: while the real RSS is actually measured
- * in pages, the RSS estimation will actually change even if just a few bytes
- * are freed, and this is a good property when the function is used in order
- * to evict keys for Virtual Memory of for 'maxmemory' directive.
- *
- * Note that when the memory reported by zmalloc is smaller than the RSS
- * (that is, fragmentation < 1) this means that something is odd (many pages
- * swapped since the Redis instance is idle) and we consider the fragmentation
- * ratio 1. */
-size_t redisEstimateRSS(void) {
-    size_t used = zmalloc_used_memory();
-    float maxfrag;
-
-    if (server.fragmentation < 1) return used;
-    maxfrag = (float)SIZE_MAX / used;
-    
-    /* If multiplying memory usage reported by zmalloc per fragmentation
-     * ratio will lead to an overflow we just return SIZE_MAX. */
-    if (maxfrag < server.fragmentation) return SIZE_MAX;
-
-    return (size_t)((used * server.fragmentation));
 }
 
 /* This function gets called when 'maxmemory' is set on the config file to limit

@@ -397,8 +397,6 @@ struct redisServer {
     char *requirepass;
     int rdbcompression;
     int activerehashing;
-    /* Memory related */
-    float fragmentation;
     /* Replication related */
     int isslave;
     char *masterauth;
@@ -753,7 +751,6 @@ void usage();
 void updateDictResizePolicy(void);
 int htNeedsResize(dict *dict);
 void oom(const char *msg);
-size_t redisEstimateRSS(void);
 
 /* Virtual Memory */
 void vmInit(void);
