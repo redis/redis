@@ -885,16 +885,16 @@ int rdbLoad(char *filename) {
 
         /* Flush data on disk once 32 MB of additional RAM are used... */
         force_swapout = 0;
-        if ((redisEstimateRSS() - server.vm_max_memory) > 1024*1024*32)
+        if ((zmalloc_used_memory() - server.vm_max_memory) > 1024*1024*32)
             force_swapout = 1;
 
         /* If we have still some hope of having some value fitting memory
          * then we try random sampling. */
         if (!swap_all_values && server.vm_enabled && force_swapout) {
-            while (redisEstimateRSS() > server.vm_max_memory) {
+            while (zmalloc_used_memory() > server.vm_max_memory) {
                 if (vmSwapOneObjectBlocking() == REDIS_ERR) break;
             }
-            if (redisEstimateRSS() > server.vm_max_memory)
+            if (zmalloc_used_memory() > server.vm_max_memory)
                 swap_all_values = 1; /* We are already using too much mem */
         }
     }
