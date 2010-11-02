@@ -1075,6 +1075,7 @@ sds genRedisInfoString(void) {
         "blocked_clients:%d\r\n"
         "used_memory:%zu\r\n"
         "used_memory_human:%s\r\n"
+        "used_memory_rss:%zu\r\n"
         "mem_fragmentation_ratio:%.2f\r\n"
         "use_tcmalloc:%d\r\n"
         "changes_since_last_save:%lld\r\n"
@@ -1110,6 +1111,7 @@ sds genRedisInfoString(void) {
         server.blpop_blocked_clients,
         zmalloc_used_memory(),
         hmem,
+        zmalloc_get_rss(),
         zmalloc_get_fragmentation_ratio(),
 #ifdef USE_TCMALLOC
         1,
