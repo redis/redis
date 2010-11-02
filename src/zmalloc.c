@@ -183,7 +183,15 @@ void zmalloc_enable_thread_safeness(void) {
     zmalloc_thread_safe = 1;
 }
 
-/* Fragmentation = RSS / allocated-bytes */
+/* Get the RSS information in an OS-specific way.
+ *
+ * WARNING: the function zmalloc_get_rss() is not designed to be fast
+ * and may not be called in the busy loops where Redis tries to release
+ * memory expiring or swapping out objects.
+ *
+ * For this kind of "fast RSS reporting" usages use instead the
+ * function RedisEstimateRSS() that is a much faster (and less precise)
+ * version of the funciton. */
 
 #if defined(HAVE_PROCFS)
 #include <unistd.h>
@@ -191,8 +199,7 @@ void zmalloc_enable_thread_safeness(void) {
 #include <sys/stat.h>
 #include <fcntl.h>
 
-float zmalloc_get_fragmentation_ratio(void) {
-    size_t allocated = zmalloc_used_memory();
+size_t zmalloc_get_rss(void) {
     int page = sysconf(_SC_PAGESIZE);
     size_t rss;
     char buf[4096];
@@ -221,7 +228,7 @@ float zmalloc_get_fragmentation_ratio(void) {
 
     rss = strtoll(p,NULL,10);
     rss *= page;
-    return (float)rss/allocated;
+    return rss;
 }
 #elif defined(HAVE_TASKINFO)
 #include <unistd.h>
@@ -232,7 +239,7 @@ float zmalloc_get_fragmentation_ratio(void) {
 #include <mach/task.h>
 #include <mach/mach_init.h>
 
-float zmalloc_get_fragmentation_ratio(void) {
+size_t zmalloc_get_rss(void) {
     task_t task = MACH_PORT_NULL;
     struct task_basic_info t_info;
     mach_msg_type_number_t t_info_count = TASK_BASIC_INFO_COUNT;
@@ -241,10 +248,20 @@ float zmalloc_get_fragmentation_ratio(void) {
         return 0;
     task_info(task, TASK_BASIC_INFO, (task_info_t)&t_info, &t_info_count);
 
-    return (float)t_info.resident_size/zmalloc_used_memory();
+    return t_info.resident_size;
 }
 #else
-float zmalloc_get_fragmentation_ratio(void) {
-    return 0;
+float zmalloc_get_rss(void) {
+    /* If we can't get the RSS in an OS-specific way for this system just
+     * return the memory usage we estimated in zmalloc()..
+     *
+     * Fragmentation will appear to be always 1 (no fragmentation)
+     * of course... */
+    return zmalloc_used_memory();
 }
 #endif
+
+/* Fragmentation = RSS / allocated-bytes */
+float zmalloc_get_fragmentation_ratio(void) {
+    return (float)zmalloc_get_rss()/zmalloc_used_memory();
+}
