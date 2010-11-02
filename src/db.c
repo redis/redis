@@ -11,8 +11,11 @@ robj *lookupKey(redisDb *db, robj *key) {
     if (de) {
         robj *val = dictGetEntryVal(de);
 
-        /* Update the access time for the aging algorithm. */
-        val->lru = server.lruclock;
+        /* Update the access time for the aging algorithm.
+         * Don't do it if we have a saving child, as this will trigger
+         * a copy on write madness. */
+        if (server.bgsavechildpid == -1 && server.bgrewritechildpid == -1)
+            val->lru = server.lruclock;
 
         if (server.vm_enabled) {
             if (val->storage == REDIS_VM_MEMORY ||
