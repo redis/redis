@@ -1,0 +1,6 @@
+/hiredis-test
+/hiredis-example*
+/*.o
+/*.so
+/*.dylib
+/*.a

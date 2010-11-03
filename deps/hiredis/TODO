@@ -1,0 +1,2 @@
+- add redisCommandVector()
+- add support for pipelining
