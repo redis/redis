@@ -55,7 +55,7 @@ void loadServerConfig(char *filename) {
         }
 
         /* Split into arguments */
-        argv = sdssplitlen(line,sdslen(line)," ",1,&argc);
+        argv = sdssplitargs(line,&argc);
         sdstolower(argv[0]);
 
         /* Execute config directives */
