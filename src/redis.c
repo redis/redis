@@ -799,6 +799,14 @@ void initServerConfig() {
     R_PosInf = 1.0/R_Zero;
     R_NegInf = -1.0/R_Zero;
     R_Nan = R_Zero/R_Zero;
+
+    /* Command table -- we intiialize it here as it is part of the
+     * initial configuration, since command names may be changed via
+     * redis.conf using the rename-command directive. */
+    server.commands = dictCreate(&commandTableDictType,NULL);
+    populateCommandTable();
+    server.delCommand = lookupCommandByCString("del");
+    server.multiCommand = lookupCommandByCString("multi");
 }
 
 void initServer() {
@@ -814,12 +822,6 @@ void initServer() {
         redisLog(REDIS_WARNING, "Can't open /dev/null: %s", server.neterr);
         exit(1);
     }
-
-    server.commands = dictCreate(&commandTableDictType,NULL);
-    populateCommandTable();
-    server.delCommand = lookupCommandByCString("del");
-    server.multiCommand = lookupCommandByCString("multi");
-
     server.clients = listCreate();
     server.slaves = listCreate();
     server.monitors = listCreate();
