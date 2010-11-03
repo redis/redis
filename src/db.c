@@ -435,16 +435,14 @@ time_t getExpire(redisDb *db, robj *key) {
  * will be consistent even if we allow write operations against expiring
  * keys. */
 void propagateExpire(redisDb *db, robj *key) {
-    struct redisCommand *cmd;
     robj *argv[2];
 
-    cmd = lookupCommand("del");
     argv[0] = createStringObject("DEL",3);
     argv[1] = key;
     incrRefCount(key);
 
     if (server.appendonly)
-        feedAppendOnlyFile(cmd,db->id,argv,2);
+        feedAppendOnlyFile(server.delCommand,db->id,argv,2);
     if (listLength(server.slaves))
         replicationFeedSlaves(server.slaves,db->id,argv,2);
 

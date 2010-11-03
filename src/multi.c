@@ -65,12 +65,10 @@ void discardCommand(redisClient *c) {
 /* Send a MULTI command to all the slaves and AOF file. Check the execCommand
  * implememntation for more information. */
 void execCommandReplicateMulti(redisClient *c) {
-    struct redisCommand *cmd;
     robj *multistring = createStringObject("MULTI",5);
 
-    cmd = lookupCommand("multi");
     if (server.appendonly)
-        feedAppendOnlyFile(cmd,c->db->id,&multistring,1);
+        feedAppendOnlyFile(server.multiCommand,c->db->id,&multistring,1);
     if (listLength(server.slaves))
         replicationFeedSlaves(server.slaves,c->db->id,&multistring,1);
     decrRefCount(multistring);

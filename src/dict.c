@@ -42,6 +42,7 @@
 #include <assert.h>
 #include <limits.h>
 #include <sys/time.h>
+#include <ctype.h>
 
 #include "dict.h"
 #include "zmalloc.h"
@@ -91,6 +92,15 @@ unsigned int dictGenHashFunction(const unsigned char *buf, int len) {
 
     while (len--)
         hash = ((hash << 5) + hash) + (*buf++); /* hash * 33 + c */
+    return hash;
+}
+
+/* And a case insensitive version */
+unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len) {
+    unsigned int hash = 5381;
+
+    while (len--)
+        hash = ((hash << 5) + hash) + (tolower(*buf++)); /* hash * 33 + c */
     return hash;
 }
 

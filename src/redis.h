@@ -360,6 +360,8 @@ struct redisServer {
     long long dirty;            /* changes to DB from the last save */
     long long dirty_before_bgsave; /* used to restore dirty on failed BGSAVE */
     list *clients;
+    dict *commands;             /* Command table hahs table */
+    struct redisCommand *delCommand, *multiCommand; /* often lookedup cmds */
     list *slaves, *monitors;
     char neterr[ANET_ERR_LEN];
     aeEventLoop *el;
@@ -746,7 +748,8 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj);
 void freeMemoryIfNeeded(void);
 int processCommand(redisClient *c);
 void setupSigSegvAction(void);
-struct redisCommand *lookupCommand(char *name);
+struct redisCommand *lookupCommand(sds name);
+struct redisCommand *lookupCommandByCString(char *s);
 void call(redisClient *c, struct redisCommand *cmd);
 int prepareForShutdown();
 void redisLog(int level, const char *fmt, ...);
@@ -754,6 +757,7 @@ void usage();
 void updateDictResizePolicy(void);
 int htNeedsResize(dict *dict);
 void oom(const char *msg);
+void populateCommandTable(void);
 
 /* Virtual Memory */
 void vmInit(void);

@@ -252,6 +252,15 @@ int dictSdsKeyCompare(void *privdata, const void *key1,
     return memcmp(key1, key2, l1) == 0;
 }
 
+/* A case insensitive version used for the command lookup table. */
+int dictSdsKeyCaseCompare(void *privdata, const void *key1,
+        const void *key2)
+{
+    DICT_NOTUSED(privdata);
+
+    return strcasecmp(key1, key2) == 0;
+}
+
 void dictRedisObjectDestructor(void *privdata, void *val)
 {
     DICT_NOTUSED(privdata);
@@ -281,6 +290,10 @@ unsigned int dictObjHash(const void *key) {
 
 unsigned int dictSdsHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
+}
+
+unsigned int dictSdsCaseHash(const void *key) {
+    return dictGenCaseHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
 int dictEncObjKeyCompare(void *privdata, const void *key1,
@@ -361,6 +374,16 @@ dictType keyptrDictType = {
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
     NULL,                      /* key destructor */
+    NULL                       /* val destructor */
+};
+
+/* Command table. sds string -> command struct pointer. */
+dictType commandTableDictType = {
+    dictSdsCaseHash,           /* hash function */
+    NULL,                      /* key dup */
+    NULL,                      /* val dup */
+    dictSdsKeyCaseCompare,     /* key compare */
+    dictSdsDestructor,         /* key destructor */
     NULL                       /* val destructor */
 };
 
@@ -791,6 +814,12 @@ void initServer() {
         redisLog(REDIS_WARNING, "Can't open /dev/null: %s", server.neterr);
         exit(1);
     }
+
+    server.commands = dictCreate(&commandTableDictType,NULL);
+    populateCommandTable();
+    server.delCommand = lookupCommandByCString("del");
+    server.multiCommand = lookupCommandByCString("multi");
+
     server.clients = listCreate();
     server.slaves = listCreate();
     server.monitors = listCreate();
@@ -860,31 +889,34 @@ void initServer() {
     if (server.vm_enabled) vmInit();
 }
 
-int qsortRedisCommands(const void *r1, const void *r2) {
-    return strcasecmp(
-        ((struct redisCommand*)r1)->name,
-        ((struct redisCommand*)r2)->name);
-}
+/* Populates the Redis Command Table starting from the hard coded list
+ * we have on top of redis.c file. */
+void populateCommandTable(void) {
+    int j;
+    int numcommands = sizeof(readonlyCommandTable)/sizeof(struct redisCommand);
 
-void sortCommandTable() {
-    /* Copy and sort the read-only version of the command table */
-    commandTable = (struct redisCommand*)zmalloc(sizeof(readonlyCommandTable));
-    memcpy(commandTable,readonlyCommandTable,sizeof(readonlyCommandTable));
-    qsort(commandTable,
-        sizeof(readonlyCommandTable)/sizeof(struct redisCommand),
-        sizeof(struct redisCommand),qsortRedisCommands);
+    for (j = 0; j < numcommands; j++) {
+        struct redisCommand *c = readonlyCommandTable+j;
+        int retval;
+
+        retval = dictAdd(server.commands, sdsnew(c->name), c);
+        assert(retval == DICT_OK);
+    }
 }
 
 /* ====================== Commands lookup and execution ===================== */
 
-struct redisCommand *lookupCommand(char *name) {
-    struct redisCommand tmp = {name,NULL,0,0,NULL,0,0,0};
-    return bsearch(
-        &tmp,
-        commandTable,
-        sizeof(readonlyCommandTable)/sizeof(struct redisCommand),
-        sizeof(struct redisCommand),
-        qsortRedisCommands);
+struct redisCommand *lookupCommand(sds name) {
+    return dictFetchValue(server.commands, name);
+}
+
+struct redisCommand *lookupCommandByCString(char *s) {
+    struct redisCommand *cmd;
+    sds name = sdsnew(s);
+
+    cmd = dictFetchValue(server.commands, name);
+    sdsfree(name);
+    return cmd;
 }
 
 /* Call() is the core of Redis execution of a command */
@@ -1443,7 +1475,6 @@ int main(int argc, char **argv) {
     time_t start;
 
     initServerConfig();
-    sortCommandTable();
     if (argc == 2) {
         if (strcmp(argv[1], "-v") == 0 ||
             strcmp(argv[1], "--version") == 0) version();

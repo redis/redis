@@ -137,6 +137,7 @@ void dictReleaseIterator(dictIterator *iter);
 dictEntry *dictGetRandomKey(dict *d);
 void dictPrintStats(dict *d);
 unsigned int dictGenHashFunction(const unsigned char *buf, int len);
+unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len);
 void dictEmpty(dict *d);
 void dictEnableResize(void);
 void dictDisableResize(void);
