@@ -114,7 +114,11 @@ redis-benchmark: $(BENCHOBJ)
 	$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ)
 
 redis-cli: $(CLIOBJ)
-	$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ)
+	cd ../deps/hiredis && make static
+	$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a
+
+redis-cli.o:
+	$(CC) -c $(CFLAGS) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
 
 redis-check-dump: $(CHECKDUMPOBJ)
 	$(CC) -o $(CHECKDUMPPRGNAME) $(CCOPT) $(DEBUG) $(CHECKDUMPOBJ)
