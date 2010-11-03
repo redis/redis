@@ -10,5 +10,7 @@ install: dummy
 
 $(TARGETS) clean:
 	cd src && $(MAKE) $@
+	cd deps/hiredis && $(MAKE) $@
+	cd deps/linenoise && $(MAKE) $@
 
 dummy:
