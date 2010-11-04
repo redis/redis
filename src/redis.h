@@ -361,7 +361,8 @@ struct redisServer {
     long long dirty_before_bgsave; /* used to restore dirty on failed BGSAVE */
     list *clients;
     dict *commands;             /* Command table hahs table */
-    struct redisCommand *delCommand, *multiCommand; /* often lookedup cmds */
+    /* Fast pointers to often looked up command */
+    struct redisCommand *delCommand, *multiCommand;
     list *slaves, *monitors;
     char neterr[ANET_ERR_LEN];
     aeEventLoop *el;
@@ -413,6 +414,7 @@ struct redisServer {
     int repl_transfer_fd;   /* slave -> master SYNC temp file descriptor */
     char *repl_transfer_tmpfile; /* slave-> master SYNC temp file name */
     time_t repl_transfer_lastio; /* unix time of the latest read, for timeout */
+    int repl_serve_stale_data; /* Serve stale data when link is down? */
     /* Limits */
     unsigned int maxclients;
     unsigned long long maxmemory;
