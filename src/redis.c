@@ -616,10 +616,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         while (server.vm_enabled && zmalloc_used_memory() >
                 server.vm_max_memory)
         {
-            int retval;
-
-            if (tryFreeOneObjectFromFreelist() == REDIS_OK) continue;
-            retval = (server.vm_max_threads == 0) ?
+            int retval = (server.vm_max_threads == 0) ?
                         vmSwapOneObjectBlocking() :
                         vmSwapOneObjectThreaded();
             if (retval == REDIS_ERR && !(loops % 300) &&
@@ -825,7 +822,6 @@ void initServer() {
     server.clients = listCreate();
     server.slaves = listCreate();
     server.monitors = listCreate();
-    server.objfreelist = listCreate();
     createSharedObjects();
     server.el = aeCreateEventLoop();
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
@@ -1261,27 +1257,6 @@ void monitorCommand(redisClient *c) {
 
 /* ============================ Maxmemory directive  ======================== */
 
-/* Try to free one object form the pre-allocated objects free list.
- * This is useful under low mem conditions as by default we take 1 million
- * free objects allocated. On success REDIS_OK is returned, otherwise
- * REDIS_ERR. */
-int tryFreeOneObjectFromFreelist(void) {
-    robj *o;
-
-    if (server.vm_enabled) pthread_mutex_lock(&server.obj_freelist_mutex);
-    if (listLength(server.objfreelist)) {
-        listNode *head = listFirst(server.objfreelist);
-        o = listNodeValue(head);
-        listDelNode(server.objfreelist,head);
-        if (server.vm_enabled) pthread_mutex_unlock(&server.obj_freelist_mutex);
-        zfree(o);
-        return REDIS_OK;
-    } else {
-        if (server.vm_enabled) pthread_mutex_unlock(&server.obj_freelist_mutex);
-        return REDIS_ERR;
-    }
-}
-
 /* This function gets called when 'maxmemory' is set on the config file to limit
  * the max memory used by the server, and we are out of memory.
  * This function will try to, in order:
@@ -1298,9 +1273,6 @@ void freeMemoryIfNeeded(void) {
      * over the memory limit. */
     while (server.maxmemory && zmalloc_used_memory() > server.maxmemory) {
         int j, k, freed = 0;
-
-        /* Basic strategy -- remove objects from the free list. */
-        if (tryFreeOneObjectFromFreelist() == REDIS_OK) continue;
 
         for (j = 0; j < server.dbnum; j++) {
             long bestval = 0; /* just to prevent warning */

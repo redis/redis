@@ -41,7 +41,6 @@
 #define REDIS_STATIC_ARGS       8
 #define REDIS_DEFAULT_DBNUM     16
 #define REDIS_CONFIGLINE_MAX    1024
-#define REDIS_OBJFREELIST_MAX   1000000 /* Max number of objects to cache */
 #define REDIS_MAX_SYNC_TIME     60      /* Slave can't take more to sync */
 #define REDIS_EXPIRELOOKUPS_PER_CRON    10 /* lookup 10 expires per loop */
 #define REDIS_MAX_WRITE_PER_EVENT (1024*64)
@@ -366,7 +365,6 @@ struct redisServer {
     char neterr[ANET_ERR_LEN];
     aeEventLoop *el;
     int cronloops;              /* number of times the cron function run */
-    list *objfreelist;          /* A list of freed objects to avoid malloc() */
     time_t lastsave;                /* Unix time of last save succeeede */
     /* Fields used only for stats */
     time_t stat_starttime;          /* server start time */
@@ -447,7 +445,6 @@ struct redisServer {
     list *io_processed; /* List of VM I/O jobs already processed */
     list *io_ready_clients; /* Clients ready to be unblocked. All keys loaded */
     pthread_mutex_t io_mutex; /* lock to access io_jobs/io_done/io_thread_job */
-    pthread_mutex_t obj_freelist_mutex; /* safe redis objects creation/free */
     pthread_mutex_t io_swapfile_mutex; /* So we can lseek + write */
     pthread_attr_t io_threads_attr; /* attributes for threads creation */
     int io_active_threads; /* Number of running I/O threads */
@@ -685,7 +682,6 @@ robj *dupStringObject(robj *o);
 robj *tryObjectEncoding(robj *o);
 robj *getDecodedObject(robj *o);
 size_t stringObjectLen(robj *o);
-int tryFreeOneObjectFromFreelist(void);
 robj *createStringObjectFromLongLong(long long value);
 robj *createListObject(void);
 robj *createZiplistObject(void);

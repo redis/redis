@@ -96,7 +96,6 @@ void vmInit(void) {
     server.io_processed = listCreate();
     server.io_ready_clients = listCreate();
     pthread_mutex_init(&server.io_mutex,NULL);
-    pthread_mutex_init(&server.obj_freelist_mutex,NULL);
     pthread_mutex_init(&server.io_swapfile_mutex,NULL);
     server.io_active_threads = 0;
     if (pipe(pipefds) == -1) {

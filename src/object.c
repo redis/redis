@@ -3,22 +3,12 @@
 #include <math.h>
 
 robj *createObject(int type, void *ptr) {
-    robj *o;
-
-    if (server.vm_enabled) pthread_mutex_lock(&server.obj_freelist_mutex);
-    if (listLength(server.objfreelist)) {
-        listNode *head = listFirst(server.objfreelist);
-        o = listNodeValue(head);
-        listDelNode(server.objfreelist,head);
-        if (server.vm_enabled) pthread_mutex_unlock(&server.obj_freelist_mutex);
-    } else {
-        if (server.vm_enabled) pthread_mutex_unlock(&server.obj_freelist_mutex);
-        o = zmalloc(sizeof(*o));
-    }
+    robj *o = zmalloc(sizeof(*o));
     o->type = type;
     o->encoding = REDIS_ENCODING_RAW;
     o->ptr = ptr;
     o->refcount = 1;
+
     /* Set the LRU to the current lruclock (minutes resolution).
      * We do this regardless of the fact VM is active as LRU is also
      * used for the maxmemory directive when Redis is used as cache.
@@ -204,11 +194,7 @@ void decrRefCount(void *obj) {
         default: redisPanic("Unknown object type"); break;
         }
         o->ptr = NULL; /* defensive programming. We'll see NULL in traces. */
-        if (server.vm_enabled) pthread_mutex_lock(&server.obj_freelist_mutex);
-        if (listLength(server.objfreelist) > REDIS_OBJFREELIST_MAX ||
-            !listAddNodeHead(server.objfreelist,o))
-            zfree(o);
-        if (server.vm_enabled) pthread_mutex_unlock(&server.obj_freelist_mutex);
+        zfree(o);
     }
 }
 
