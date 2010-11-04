@@ -152,7 +152,8 @@
 /* Slave replication state - slave side */
 #define REDIS_REPL_NONE 0   /* No active replication */
 #define REDIS_REPL_CONNECT 1    /* Must connect to master */
-#define REDIS_REPL_CONNECTED 2  /* Connected to master */
+#define REDIS_REPL_TRANFER 2    /* Receiving .rdb from master */
+#define REDIS_REPL_CONNECTED 3  /* Connected to master */
 
 /* Slave replication state - from the point of view of master
  * Note that in SEND_BULK and ONLINE state the slave receives new updates
@@ -401,15 +402,23 @@ struct redisServer {
     int activerehashing;
     /* Replication related */
     int isslave;
+    /* Slave specific fields */
     char *masterauth;
     char *masterhost;
     int masterport;
     redisClient *master;    /* client that is master for this slave */
-    int replstate;
+    int replstate;          /* replication status if the instance is a slave */
+    off_t repl_transfer_left;  /* bytes left reading .rdb if this is a slave */
+    int repl_transfer_s;    /* slave -> master SYNC socket */
+    int repl_transfer_fd;   /* slave -> master SYNC temp file descriptor */
+    char *repl_transfer_tmpfile; /* slave-> master SYNC temp file name */
+    time_t repl_transfer_lastio; /* unix time of the latest read, for timeout */
+    /* Limits */
     unsigned int maxclients;
     unsigned long long maxmemory;
     int maxmemory_policy;
     int maxmemory_samples;
+    /* Blocked clients */
     unsigned int blpop_blocked_clients;
     unsigned int vm_blocked_clients;
     /* Sort parameters - qsort_r() is only available under BSD so we
@@ -713,6 +722,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
 void replicationFeedMonitors(list *monitors, int dictid, robj **argv, int argc);
 int syncWithMaster(void);
 void updateSlavesWaitingBgsave(int bgsaveerr);
+void replicationCron(void);
 
 /* RDB persistence */
 int rdbLoad(char *filename);

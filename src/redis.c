@@ -633,14 +633,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         }
     }
 
-    /* Check if we should connect to a MASTER */
-    if (server.replstate == REDIS_REPL_CONNECT && !(loops % 10)) {
-        redisLog(REDIS_NOTICE,"Connecting to MASTER...");
-        if (syncWithMaster() == REDIS_OK) {
-            redisLog(REDIS_NOTICE,"MASTER <-> SLAVE sync succeeded");
-            if (server.appendonly) rewriteAppendOnlyFileBackground();
-        }
-    }
+    /* Replication cron function -- used to reconnect to master and
+     * to detect transfer failures. */
+    if (!(loops % 10)) replicationCron(void);
+
     return 100;
 }
 
