@@ -162,11 +162,20 @@ static char *readBytes(redisReader *r, unsigned int bytes) {
     return NULL;
 }
 
+static char *seekNewline(char *s) {
+    /* Find pointer to \r\n without strstr */
+    while(s != NULL && s[0] != '\r' && s[1] != '\n')
+        s = strchr(s,'\r');
+    return s;
+}
+
 static char *readLine(redisReader *r, int *_len) {
-    char *p, *s = strstr(r->buf+r->pos,"\r\n");
+    char *p, *s;
     int len;
+
+    p = r->buf+r->pos;
+    s = seekNewline(p);
     if (s != NULL) {
-        p = r->buf+r->pos;
         len = s-(r->buf+r->pos);
         r->pos += len+2; /* skip \r\n */
         if (_len) *_len = len;
@@ -177,26 +186,26 @@ static char *readLine(redisReader *r, int *_len) {
 
 static void moveToNextTask(redisReader *r) {
     redisReadTask *cur, *prv;
-    assert(r->ridx >= 0);
+    while (r->ridx >= 0) {
+        /* Return a.s.a.p. when the stack is now empty. */
+        if (r->ridx == 0) {
+            r->ridx--;
+            return;
+        }
 
-    /* Return a.s.a.p. when the stack is now empty. */
-    if (r->ridx == 0) {
-        r->ridx--;
-        return;
-    }
-
-    cur = &(r->rstack[r->ridx]);
-    prv = &(r->rstack[r->ridx-1]);
-    assert(prv->type == REDIS_REPLY_ARRAY);
-    if (cur->idx == prv->elements-1) {
-        r->ridx--;
-        moveToNextTask(r);
-    } else {
-        /* Reset the type because the next item can be anything */
-        assert(cur->idx < prv->elements);
-        cur->type = -1;
-        cur->elements = -1;
-        cur->idx++;
+        cur = &(r->rstack[r->ridx]);
+        prv = &(r->rstack[r->ridx-1]);
+        assert(prv->type == REDIS_REPLY_ARRAY);
+        if (cur->idx == prv->elements-1) {
+            r->ridx--;
+        } else {
+            /* Reset the type because the next item can be anything */
+            assert(cur->idx < prv->elements);
+            cur->type = -1;
+            cur->elements = -1;
+            cur->idx++;
+            return;
+        }
     }
 }
 
@@ -207,10 +216,14 @@ static int processLineItem(redisReader *r) {
     int len;
 
     if ((p = readLine(r,&len)) != NULL) {
-        if (cur->type == REDIS_REPLY_INTEGER) {
-            obj = r->fn->createInteger(cur,strtoll(p,NULL,10));
+        if (r->fn) {
+            if (cur->type == REDIS_REPLY_INTEGER) {
+                obj = r->fn->createInteger(cur,strtoll(p,NULL,10));
+            } else {
+                obj = r->fn->createString(cur,p,len);
+            }
         } else {
-            obj = r->fn->createString(cur,p,len);
+            obj = (void*)(size_t)(cur->type);
         }
 
         /* If there is no root yet, register this object as root. */
@@ -230,7 +243,7 @@ static int processBulkItem(redisReader *r) {
     unsigned long bytelen;
 
     p = r->buf+r->pos;
-    s = strstr(p,"\r\n");
+    s = seekNewline(p);
     if (s != NULL) {
         p = r->buf+r->pos;
         bytelen = s-(r->buf+r->pos)+2; /* include \r\n */
@@ -238,12 +251,14 @@ static int processBulkItem(redisReader *r) {
 
         if (len < 0) {
             /* The nil object can always be created. */
-            obj = r->fn->createNil(cur);
+            obj = r->fn ? r->fn->createNil(cur) :
+                (void*)REDIS_REPLY_NIL;
         } else {
             /* Only continue when the buffer contains the entire bulk item. */
             bytelen += len+2; /* include \r\n */
             if (r->pos+bytelen <= sdslen(r->buf)) {
-                obj = r->fn->createString(cur,s+2,len);
+                obj = r->fn ? r->fn->createString(cur,s+2,len) :
+                    (void*)REDIS_REPLY_STRING;
             }
         }
 
@@ -268,10 +283,12 @@ static int processMultiBulkItem(redisReader *r) {
     if ((p = readLine(r,NULL)) != NULL) {
         elements = strtol(p,NULL,10);
         if (elements == -1) {
-            obj = r->fn->createNil(cur);
+            obj = r->fn ? r->fn->createNil(cur) :
+                (void*)REDIS_REPLY_NIL;
             moveToNextTask(r);
         } else {
-            obj = r->fn->createArray(cur,elements);
+            obj = r->fn ? r->fn->createArray(cur,elements) :
+                (void*)REDIS_REPLY_ARRAY;
 
             /* Modify task stack when there are more than 0 elements. */
             if (elements > 0) {
@@ -348,13 +365,24 @@ static int processItem(redisReader *r) {
     }
 }
 
-void *redisReplyReaderCreate(redisReplyObjectFunctions *fn) {
+void *redisReplyReaderCreate() {
     redisReader *r = calloc(sizeof(redisReader),1);
     r->error = NULL;
-    r->fn = fn == NULL ? &defaultFunctions : fn;
+    r->fn = &defaultFunctions;
     r->buf = sdsempty();
     r->ridx = -1;
     return r;
+}
+
+/* Set the function set to build the reply. Returns REDIS_OK when there
+ * is no temporary object and it can be set, REDIS_ERR otherwise. */
+int redisReplyReaderSetReplyObjectFunctions(void *reader, redisReplyObjectFunctions *fn) {
+    redisReader *r = reader;
+    if (r->reply == NULL) {
+        r->fn = fn;
+        return REDIS_OK;
+    }
+    return REDIS_ERR;
 }
 
 /* External libraries wrapping hiredis might need access to the temporary
@@ -370,7 +398,7 @@ void redisReplyReaderFree(void *reader) {
     redisReader *r = reader;
     if (r->error != NULL)
         sdsfree(r->error);
-    if (r->reply != NULL)
+    if (r->reply != NULL && r->fn)
         r->fn->freeObject(r->reply);
     if (r->buf != NULL)
         sdsfree(r->buf);
@@ -695,8 +723,10 @@ int redisSetReplyObjectFunctions(redisContext *c, redisReplyObjectFunctions *fn)
 
 /* Helper function to lazily create a reply reader. */
 static void __redisCreateReplyReader(redisContext *c) {
-    if (c->reader == NULL)
-        c->reader = redisReplyReaderCreate(c->fn);
+    if (c->reader == NULL) {
+        c->reader = redisReplyReaderCreate();
+        assert(redisReplyReaderSetReplyObjectFunctions(c->reader,c->fn) == REDIS_OK);
+    }
 }
 
 /* Use this function to handle a read event on the descriptor. It will try
