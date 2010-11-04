@@ -200,7 +200,7 @@ proc createComplexDataset {r ops {opt {}}} {
                 randpath {{*}$r sadd $k $v} \
                         {{*}$r srem $k $v} \
                         {
-                            set otherset [findKeyWithType r set]
+                            set otherset [findKeyWithType {*}$r set]
                             if {$otherset ne {}} {
                                 randpath {
                                     {*}$r sunionstore $k2 $k $otherset
@@ -216,7 +216,7 @@ proc createComplexDataset {r ops {opt {}}} {
                 randpath {{*}$r zadd $k $d $v} \
                         {{*}$r zrem $k $v} \
                         {
-                            set otherzset [findKeyWithType r zset]
+                            set otherzset [findKeyWithType {*}$r zset]
                             if {$otherzset ne {}} {
                                 randpath {
                                     {*}$r zunionstore $k2 2 $k $otherzset
