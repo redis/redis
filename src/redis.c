@@ -635,7 +635,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Replication cron function -- used to reconnect to master and
      * to detect transfer failures. */
-    if (!(loops % 10)) replicationCron(void);
+    if (!(loops % 10)) replicationCron();
 
     return 100;
 }

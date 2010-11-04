@@ -306,11 +306,14 @@ void replicationAbortSyncTransfer(void) {
 
 /* Asynchronously read the SYNC payload we receive from a master */
 void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
-    unsigned char buf[4096]
-    size_t nread, readlen;
+    unsigned char buf[4096];
+    ssize_t nread, readlen;
+    REDIS_NOTUSED(el);
+    REDIS_NOTUSED(privdata);
+    REDIS_NOTUSED(mask);
 
-    readlen = (server.repl_transfer_left < sizeof(buf)) ?
-        server.repl_transfer_left : sizeof(buf);
+    readlen = (server.repl_transfer_left < (signed)sizeof(buf)) ?
+        server.repl_transfer_left : (signed)sizeof(buf);
     nread = read(fd,buf,readlen);
     if (nread <= 0) {
         redisLog(REDIS_WARNING,"I/O error trying to sync with MASTER: %s",
@@ -425,8 +428,8 @@ int syncWithMaster(void) {
     }
 
     /* Setup the non blocking download of the bulk file. */
-    if (aeCreateFileEvent(server.el, fd, AE_READABLE,readSyncBulkPayload) ==
-        AE_ERR)
+    if (aeCreateFileEvent(server.el, fd, AE_READABLE, readSyncBulkPayload, NULL)
+            == AE_ERR)
     {
         close(fd);
         redisLog(REDIS_WARNING,"Can't create readable event for SYNC");
@@ -481,7 +484,7 @@ void replicationCron(void) {
     }
 
     /* Check if we should connect to a MASTER */
-    if (server.replstate == REDIS_REPL_CONNECT && !(loops % 10)) {
+    if (server.replstate == REDIS_REPL_CONNECT) {
         redisLog(REDIS_NOTICE,"Connecting to MASTER...");
         if (syncWithMaster() == REDIS_OK) {
             redisLog(REDIS_NOTICE,"MASTER <-> SLAVE sync succeeded");

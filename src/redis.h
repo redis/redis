@@ -152,7 +152,7 @@
 /* Slave replication state - slave side */
 #define REDIS_REPL_NONE 0   /* No active replication */
 #define REDIS_REPL_CONNECT 1    /* Must connect to master */
-#define REDIS_REPL_TRANFER 2    /* Receiving .rdb from master */
+#define REDIS_REPL_TRANSFER 2    /* Receiving .rdb from master */
 #define REDIS_REPL_CONNECTED 3  /* Connected to master */
 
 /* Slave replication state - from the point of view of master
@@ -408,7 +408,7 @@ struct redisServer {
     int masterport;
     redisClient *master;    /* client that is master for this slave */
     int replstate;          /* replication status if the instance is a slave */
-    off_t repl_transfer_left;  /* bytes left reading .rdb if this is a slave */
+    off_t repl_transfer_left;  /* bytes left reading .rdb  */
     int repl_transfer_s;    /* slave -> master SYNC socket */
     int repl_transfer_fd;   /* slave -> master SYNC temp file descriptor */
     char *repl_transfer_tmpfile; /* slave-> master SYNC temp file name */
