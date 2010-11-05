@@ -8,9 +8,12 @@ all:
 install: dummy
 	cd src && $(MAKE) $@
 
-$(TARGETS) clean:
+clean:
 	cd src && $(MAKE) $@
 	cd deps/hiredis && $(MAKE) $@
 	cd deps/linenoise && $(MAKE) $@
+
+$(TARGETS):
+	cd src && $(MAKE) $@
 
 dummy:
