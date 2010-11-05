@@ -5,6 +5,7 @@
 #include <sys/time.h>
 #include <assert.h>
 #include <unistd.h>
+#include <signal.h>
 
 #include "hiredis.h"
 
@@ -216,6 +217,17 @@ static void test_reply_reader() {
     reader = redisReplyReaderCreate();
     redisReplyReaderSetReplyObjectFunctions(reader,NULL);
     redisReplyReaderFeed(reader,(char*)"+OK\r\n",5);
+    ret = redisReplyReaderGetReply(reader,&reply);
+    test_cond(ret == REDIS_OK && reply == (void*)REDIS_REPLY_STATUS);
+    redisReplyReaderFree(reader);
+
+    test("Works when a single newline (\\r\\n) covers two calls to feed: ");
+    reader = redisReplyReaderCreate();
+    redisReplyReaderSetReplyObjectFunctions(reader,NULL);
+    redisReplyReaderFeed(reader,(char*)"+OK\r",4);
+    ret = redisReplyReaderGetReply(reader,&reply);
+    assert(ret == REDIS_OK && reply == NULL);
+    redisReplyReaderFeed(reader,(char*)"\n",1);
     ret = redisReplyReaderGetReply(reader,&reply);
     test_cond(ret == REDIS_OK && reply == (void*)REDIS_REPLY_STATUS);
     redisReplyReaderFree(reader);
