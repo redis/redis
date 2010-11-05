@@ -109,7 +109,11 @@ redis-server: $(OBJ)
 	@echo ""
 
 redis-benchmark: $(BENCHOBJ)
-	$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ)
+	cd ../deps/hiredis && make static
+	$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a
+
+redis-benchmark.o:
+	$(CC) -c $(CFLAGS) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
 
 redis-cli: $(CLIOBJ)
 	cd ../deps/hiredis && make static
