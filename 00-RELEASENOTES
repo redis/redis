@@ -1,6 +1,16 @@
-TODO for Redis 2.0.4:
+Welcome to Redis 2.0.4
 
-- Merge nosave from @robey
+This release fixes two non critical bugs:
+
+    - HMGET used to crash when called against a key that was not holding
+      an hash. Fixed by Pieter Noordhuis.
+    
+    - Redis will now not try to save the DB if no save points for RDB are
+      configured, when used as a non persistent cache. Thanks to Robey
+      Pointer from Twitter for providing this patch.
+
+Waiting 2.2 ...
+Salvatore
 
 --------------------------------------------------------------------------------
 
