@@ -182,7 +182,9 @@ struct redisCommand readonlyCommandTable[] = {
     {"punsubscribe",punsubscribeCommand,-1,0,NULL,0,0,0},
     {"publish",publishCommand,3,REDIS_CMD_FORCE_REPLICATION,NULL,0,0,0},
     {"watch",watchCommand,-2,0,NULL,0,0,0},
-    {"unwatch",unwatchCommand,1,0,NULL,0,0,0}
+    {"unwatch",unwatchCommand,1,0,NULL,0,0,0},
+    {"listcommands",listCommands,1,0,NULL,0,0,0}
+
 };
 
 /*============================ Utility functions ============================ */
@@ -1097,6 +1099,9 @@ void bytesToHuman(char *s, unsigned long long n) {
     }
 }
 
+
+
+
 /* Create the string returned by the INFO command. This is decoupled
  * by the INFO command itself as we need to report the same information
  * on memory corruption problems. */
@@ -1256,13 +1261,55 @@ sds genRedisInfoString(void) {
     return info;
 }
 
+
+
 void infoCommand(redisClient *c) {
-    sds info = genRedisInfoString();
+  sds info = NULL ; /*genRedisInfoString();*/
     addReplySds(c,sdscatprintf(sdsempty(),"$%lu\r\n",
         (unsigned long)sdslen(info)));
     addReplySds(c,info);
     addReply(c,shared.crlf);
 }
+
+
+
+/* Create the string returned by the LISTCOMMANDS command. */
+sds gentRedisListCommandsString(void){
+    sds cmdlist=NULL;
+    int j;
+    int numcommands = sizeof(readonlyCommandTable)/sizeof(struct redisCommand);
+
+    for (j = 0; j < numcommands; j++) {
+        struct redisCommand *c = readonlyCommandTable+j;
+        cmdlist= sdscatprintf( (cmdlist==NULL) ? sdsempty():cmdlist,
+			      "name:%s\r\n"
+			      "arity:%d\r\n"
+			      "flags:%d\r\n"
+			      "vm_firstkey:%d\r\n"
+			      "vm_lastkey:%d\r\n"
+			      "keystep:%d\r\n",
+			      c->name,
+			      c->arity,
+			      c->flags,
+			      c->vm_firstkey,
+			      c->vm_lastkey,
+			      c->vm_keystep);
+    }
+    
+
+    return cmdlist;
+
+
+}
+
+void listCommands(redisClient *c) {
+    sds cmdlist = gentRedisListCommandsString();
+    addReplySds(c,sdscatprintf(sdsempty(),"$%lu\r\n",
+        (unsigned long)sdslen(cmdlist)));
+    addReplySds(c,cmdlist);
+    addReply(c,shared.crlf);
+}
+
 
 void monitorCommand(redisClient *c) {
     /* ignore MONITOR if aleady slave or in monitor mode */

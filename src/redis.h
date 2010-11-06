@@ -923,6 +923,7 @@ void flushallCommand(redisClient *c);
 void sortCommand(redisClient *c);
 void lremCommand(redisClient *c);
 void rpoplpushcommand(redisClient *c);
+void listCommands(redisClient *c);
 void infoCommand(redisClient *c);
 void mgetCommand(redisClient *c);
 void monitorCommand(redisClient *c);
