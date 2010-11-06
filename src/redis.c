@@ -1287,7 +1287,7 @@ sds gentRedisListCommandsString(void){
 			      "flags:%d\r\n"
 			      "vm_firstkey:%d\r\n"
 			      "vm_lastkey:%d\r\n"
-			      "keystep:%d\r\n",
+			      "vm_keystep:%d\r\n",
 			      c->name,
 			      c->arity,
 			      c->flags,
