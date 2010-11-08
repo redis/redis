@@ -124,7 +124,7 @@ struct redisCommand readonlyCommandTable[] = {
     {"zcount",zcountCommand,4,0,NULL,1,1,1},
     {"zrevrange",zrevrangeCommand,-4,0,NULL,1,1,1},
     {"zcard",zcardCommand,2,0,NULL,1,1,1},
-    {"zscore",zscoreCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1},
+    {"zscore",zscoreCommand,3,0,NULL,1,1,1},
     {"zrank",zrankCommand,3,0,NULL,1,1,1},
     {"zrevrank",zrevrankCommand,3,0,NULL,1,1,1},
     {"hset",hsetCommand,4,REDIS_CMD_DENYOOM,NULL,1,1,1},
@@ -1332,6 +1332,8 @@ void monitorCommand(redisClient *c) {
 void freeMemoryIfNeeded(void) {
     /* Remove keys accordingly to the active policy as long as we are
      * over the memory limit. */
+    if (server.maxmemory_policy == REDIS_MAXMEMORY_NO_EVICTION) return;
+
     while (server.maxmemory && zmalloc_used_memory() > server.maxmemory) {
         int j, k, freed = 0;
 

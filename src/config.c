@@ -136,6 +136,8 @@ void loadServerConfig(char *filename) {
                 server.maxmemory_policy = REDIS_MAXMEMORY_ALLKEYS_LRU;
             } else if (!strcasecmp(argv[1],"allkeys-random")) {
                 server.maxmemory_policy = REDIS_MAXMEMORY_ALLKEYS_RANDOM;
+            } else if (!strcasecmp(argv[1],"noeviction")) {
+                server.maxmemory_policy = REDIS_MAXMEMORY_NO_EVICTION;
             } else {
                 err = "Invalid maxmemory policy";
                 goto loaderr;
@@ -307,6 +309,8 @@ void configSetCommand(redisClient *c) {
             server.maxmemory_policy = REDIS_MAXMEMORY_ALLKEYS_LRU;
         } else if (!strcasecmp(o->ptr,"allkeys-random")) {
             server.maxmemory_policy = REDIS_MAXMEMORY_ALLKEYS_RANDOM;
+        } else if (!strcasecmp(o->ptr,"noeviction")) {
+            server.maxmemory_policy = REDIS_MAXMEMORY_NO_EVICTION;
         } else {
             goto badfmt;
         }
@@ -440,6 +444,7 @@ void configGetCommand(redisClient *c) {
         case REDIS_MAXMEMORY_VOLATILE_RANDOM: s = "volatile-random"; break;
         case REDIS_MAXMEMORY_ALLKEYS_LRU: s = "allkeys-lru"; break;
         case REDIS_MAXMEMORY_ALLKEYS_RANDOM: s = "allkeys-random"; break;
+        case REDIS_MAXMEMORY_NO_EVICTION: s = "noeviction"; break;
         default: s = "unknown"; break; /* too harmless to panic */
         }
         addReplyBulkCString(c,"maxmemory-policy");

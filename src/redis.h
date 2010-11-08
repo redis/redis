@@ -209,6 +209,7 @@
 #define REDIS_MAXMEMORY_VOLATILE_RANDOM 2
 #define REDIS_MAXMEMORY_ALLKEYS_LRU 3
 #define REDIS_MAXMEMORY_ALLKEYS_RANDOM 4
+#define REDIS_MAXMEMORY_NO_EVICTION 5
 
 /* We can print the stacktrace, so our assert is defined this way: */
 #define redisAssert(_e) ((_e)?(void)0 : (_redisAssert(#_e,__FILE__,__LINE__),_exit(1)))
