@@ -178,6 +178,20 @@ start_server {
         assert_equal {foo} [r lrange blist 0 -1]
     }
 
+    test {BRPOPLPUSH inside a transaction} {
+        r del xlist target
+        r lpush xlist foo
+        r lpush xlist bar
+
+        r multi
+        r brpoplpush xlist target 0
+        r brpoplpush xlist target 0
+        r brpoplpush xlist target 0
+        r lrange xlist 0 -1
+        r lrange target 0 -1
+        r exec
+    } {foo bar {} {} {bar foo}}
+
     foreach {pop} {BLPOP BRPOP} {
         test "$pop: with single empty list argument" {
             set rd [redis_deferring_client]
