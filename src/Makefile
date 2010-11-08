@@ -36,7 +36,7 @@ CLIPRGNAME = redis-cli
 CHECKDUMPPRGNAME = redis-check-dump
 CHECKAOFPRGNAME = redis-check-aof
 
-all: redis-server redis-benchmark redis-cli redis-check-dump redis-check-aof
+all: redis-benchmark redis-cli redis-check-dump redis-check-aof redis-server
 
 # Deps (use make dep to generate this)
 adlist.o: adlist.c adlist.h zmalloc.h
