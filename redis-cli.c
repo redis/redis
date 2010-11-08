@@ -304,6 +304,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
         while (config.monitor_mode) {
             if (cliReadSingleLineReply(fd,0)) exit(1);
             printf("\n");
+            fflush(stdout);
         }
 
         if (config.pubsub_mode) {
