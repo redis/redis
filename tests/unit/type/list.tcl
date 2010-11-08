@@ -127,6 +127,55 @@ start_server {
             assert_equal 0 [r llen blist1]
             assert_equal 1 [r llen blist2]
         }
+
+        test "BRPOPLPUSH - $type" {
+            r del target
+
+            set rd [redis_deferring_client]
+            create_$type blist "a b $large c d"
+
+            $rd brpoplpush blist target 1
+            assert_equal d [$rd read]
+
+            assert_equal d [r rpop target]
+            assert_equal "a b $large c" [r lrange blist 0 -1]
+        }
+    }
+
+    test "BRPOPLPUSH with zero timeout should block indefinitely" {
+        set rd [redis_deferring_client]
+        r del blist target
+        $rd brpoplpush blist target 0
+        after 1000
+        r rpush blist foo
+        assert_equal foo [$rd read]
+        assert_equal {foo} [r lrange target 0 -1]
+    }
+
+    test "BRPOPLPUSH with wrong source type" {
+        set rd [redis_deferring_client]
+        r del blist target
+        r set blist nolist
+        $rd brpoplpush blist target 1
+        assert_error "ERR*wrong kind*" {$rd read}
+    }
+
+    test "BRPOPLPUSH with wrong destination type" {
+        set rd [redis_deferring_client]
+        r del blist target
+        r set target nolist
+        r lpush blist foo
+        $rd brpoplpush blist target 1
+        assert_error "ERR*wrong kind*" {$rd read}
+
+        set rd [redis_deferring_client]
+        r del blist target
+        r set target nolist
+        $rd brpoplpush blist target 0
+        after 1000
+        r rpush blist foo
+        assert_error "ERR*wrong kind*" {$rd read}
+        assert_equal {foo} [r lrange blist 0 -1]
     }
 
     foreach {pop} {BLPOP BRPOP} {

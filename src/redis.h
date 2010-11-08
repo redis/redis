@@ -321,6 +321,7 @@ typedef struct redisClient {
     int blocking_keys_num;  /* Number of blocking keys */
     time_t blockingto;      /* Blocking operation timeout. If UNIX current time
                              * is >= blockingto then the operation timed out. */
+    robj *blocking_target;
     list *io_keys;          /* Keys this client is waiting to be loaded from the
                              * swap file in order to continue. */
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
@@ -961,6 +962,7 @@ void execCommand(redisClient *c);
 void discardCommand(redisClient *c);
 void blpopCommand(redisClient *c);
 void brpopCommand(redisClient *c);
+void brpoplpushCommand(redisClient *c);
 void appendCommand(redisClient *c);
 void substrCommand(redisClient *c);
 void strlenCommand(redisClient *c);

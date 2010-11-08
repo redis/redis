@@ -777,9 +777,28 @@ int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
     redisAssert(ln != NULL);
     receiver = ln->value;
 
-    addReplyMultiBulkLen(receiver,2);
-    addReplyBulk(receiver,key);
-    addReplyBulk(receiver,ele);
+    if (receiver->blocking_target == NULL) {
+      addReplyMultiBulkLen(receiver,2);
+      addReplyBulk(receiver,key);
+      addReplyBulk(receiver,ele);
+    }
+    else {
+      receiver->argc++;
+
+      robj *dobj = lookupKeyWrite(receiver->db,receiver->blocking_target);
+      if (dobj && checkType(receiver,dobj,REDIS_LIST)) return 0;
+
+      addReplyBulk(receiver,ele);
+
+      /* Create the list if the key does not exist */
+      if (!dobj) {
+          dobj = createZiplistObject();
+          dbAdd(receiver->db,receiver->blocking_target,dobj);
+      }
+
+      listTypePush(dobj,ele,REDIS_HEAD);
+    }
+
     unblockClientWaitingData(receiver);
     return 1;
 }
@@ -814,26 +833,36 @@ void blockingPopGenericCommand(redisClient *c, int where) {
                     robj *argv[2], **orig_argv;
                     int orig_argc;
 
-                    /* We need to alter the command arguments before to call
-                     * popGenericCommand() as the command takes a single key. */
-                    orig_argv = c->argv;
-                    orig_argc = c->argc;
-                    argv[1] = c->argv[j];
-                    c->argv = argv;
-                    c->argc = 2;
+                    if (c->blocking_target == NULL) {
+                      /* We need to alter the command arguments before to call
+                       * popGenericCommand() as the command takes a single key. */
+                      orig_argv = c->argv;
+                      orig_argc = c->argc;
+                      argv[1] = c->argv[j];
+                      c->argv = argv;
+                      c->argc = 2;
 
-                    /* Also the return value is different, we need to output
-                     * the multi bulk reply header and the key name. The
-                     * "real" command will add the last element (the value)
-                     * for us. If this souds like an hack to you it's just
-                     * because it is... */
-                    addReplyMultiBulkLen(c,2);
-                    addReplyBulk(c,argv[1]);
-                    popGenericCommand(c,where);
+                      /* Also the return value is different, we need to output
+                       * the multi bulk reply header and the key name. The
+                       * "real" command will add the last element (the value)
+                       * for us. If this souds like an hack to you it's just
+                       * because it is... */
+                      addReplyMultiBulkLen(c,2);
+                      addReplyBulk(c,argv[1]);
 
-                    /* Fix the client structure with the original stuff */
-                    c->argv = orig_argv;
-                    c->argc = orig_argc;
+                      popGenericCommand(c,where);
+
+                      /* Fix the client structure with the original stuff */
+                      c->argv = orig_argv;
+                      c->argc = orig_argc;
+                    }
+                    else {
+                      c->argv[2] = c->blocking_target;
+                      c->blocking_target = NULL;
+
+                      rpoplpushCommand(c);
+                    }
+
                     return;
                 }
             }
@@ -858,5 +887,13 @@ void blpopCommand(redisClient *c) {
 }
 
 void brpopCommand(redisClient *c) {
+    blockingPopGenericCommand(c,REDIS_TAIL);
+}
+
+void brpoplpushCommand(redisClient *c) {
+    c->blocking_target = c->argv[2];
+    c->argv[2] = c->argv[3];
+    c->argc--;
+
     blockingPopGenericCommand(c,REDIS_TAIL);
 }
