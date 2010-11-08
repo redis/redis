@@ -218,6 +218,7 @@ int loadAppendOnlyFile(char *filename) {
     FILE *fp = fopen(filename,"r");
     struct redis_stat sb;
     int appendonly = server.appendonly;
+    long loops = 0;
 
     if (redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0)
         return REDIS_ERR;
@@ -232,6 +233,8 @@ int loadAppendOnlyFile(char *filename) {
     server.appendonly = 0;
 
     fakeClient = createFakeClient();
+    startLoading(fp);
+
     while(1) {
         int argc, j;
         unsigned long len;
@@ -240,6 +243,12 @@ int loadAppendOnlyFile(char *filename) {
         sds argsds;
         struct redisCommand *cmd;
         int force_swapout;
+
+        /* Serve the clients from time to time */
+        if (!(loops++ % 1000)) {
+            loadingProgress(ftello(fp));
+            aeProcessEvents(server.el, AE_FILE_EVENTS|AE_DONT_WAIT);
+        }
 
         if (fgets(buf,sizeof(buf),fp) == NULL) {
             if (feof(fp))
@@ -297,6 +306,7 @@ int loadAppendOnlyFile(char *filename) {
     fclose(fp);
     freeFakeClient(fakeClient);
     server.appendonly = appendonly;
+    stopLoading();
     return REDIS_OK;
 
 readerr:

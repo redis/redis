@@ -7,6 +7,7 @@
 #include <sys/resource.h>
 #include <sys/wait.h>
 #include <arpa/inet.h>
+#include <sys/stat.h>
 
 int rdbSaveType(FILE *fp, unsigned char type) {
     if (fwrite(&type,1,1,fp) == 0) return -1;
@@ -793,6 +794,31 @@ robj *rdbLoadObject(int type, FILE *fp) {
     return o;
 }
 
+/* Mark that we are loading in the global state and setup the fields
+ * needed to provide loading stats. */
+void startLoading(FILE *fp) {
+    struct stat sb;
+
+    /* Load the DB */
+    server.loading = 1;
+    server.loading_start_time = time(NULL);
+    if (fstat(fileno(fp), &sb) == -1) {
+        server.loading_total_bytes = 1; /* just to avoid division by zero */
+    } else {
+        server.loading_total_bytes = sb.st_size;
+    }
+}
+
+/* Refresh the loading progress info */
+void loadingProgress(off_t pos) {
+    server.loading_loaded_bytes = pos;
+}
+
+/* Loading finished */
+void stopLoading(void) {
+    server.loading = 0;
+}
+
 int rdbLoad(char *filename) {
     FILE *fp;
     uint32_t dbid;
@@ -801,6 +827,7 @@ int rdbLoad(char *filename) {
     redisDb *db = server.db+0;
     char buf[1024];
     time_t expiretime, now = time(NULL);
+    long loops = 0;
 
     fp = fopen(filename,"r");
     if (!fp) return REDIS_ERR;
@@ -817,11 +844,20 @@ int rdbLoad(char *filename) {
         redisLog(REDIS_WARNING,"Can't handle RDB format version %d",rdbver);
         return REDIS_ERR;
     }
+
+    startLoading(fp);
     while(1) {
         robj *key, *val;
         int force_swapout;
 
         expiretime = -1;
+
+        /* Serve the clients from time to time */
+        if (!(loops++ % 1000)) {
+            loadingProgress(ftello(fp));
+            aeProcessEvents(server.el, AE_FILE_EVENTS|AE_DONT_WAIT);
+        }
+
         /* Read type. */
         if ((type = rdbLoadType(fp)) == -1) goto eoferr;
         if (type == REDIS_EXPIRETIME) {
@@ -900,6 +936,7 @@ int rdbLoad(char *filename) {
         }
     }
     fclose(fp);
+    stopLoading();
     return REDIS_OK;
 
 eoferr: /* unexpected end of file is handled here with a fatal exit */

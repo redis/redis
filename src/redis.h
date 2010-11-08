@@ -340,7 +340,7 @@ struct sharedObjectsStruct {
     robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *cnegone, *pong, *space,
     *colon, *nullbulk, *nullmultibulk, *queued,
     *emptymultibulk, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
-    *outofrangeerr, *plus,
+    *outofrangeerr, *loadingerr, *plus,
     *select0, *select1, *select2, *select3, *select4,
     *select5, *select6, *select7, *select8, *select9,
     *messagebulk, *pmessagebulk, *subscribebulk, *unsubscribebulk, *mbulk3,
@@ -361,6 +361,11 @@ struct redisServer {
     long long dirty_before_bgsave; /* used to restore dirty on failed BGSAVE */
     list *clients;
     dict *commands;             /* Command table hahs table */
+    /* RDB / AOF loading information */
+    int loading;
+    off_t loading_total_bytes;
+    off_t loading_loaded_bytes;
+    time_t loading_start_time;
     /* Fast pointers to often looked up command */
     struct redisCommand *delCommand, *multiCommand;
     list *slaves, *monitors;
@@ -725,6 +730,11 @@ void replicationFeedMonitors(list *monitors, int dictid, robj **argv, int argc);
 int syncWithMaster(void);
 void updateSlavesWaitingBgsave(int bgsaveerr);
 void replicationCron(void);
+
+/* Generic persistence functions */
+void startLoading(FILE *fp);
+void loadingProgress(off_t pos);
+void stopLoading(void);
 
 /* RDB persistence */
 int rdbLoad(char *filename);
