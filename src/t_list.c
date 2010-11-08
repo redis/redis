@@ -694,12 +694,12 @@ void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeout) {
     list *l;
     int j;
 
-    c->blocking_keys = zmalloc(sizeof(robj*)*numkeys);
-    c->blocking_keys_num = numkeys;
-    c->blockingto = timeout;
+    c->bstate.keys = zmalloc(sizeof(robj*)*numkeys);
+    c->bstate.count = numkeys;
+    c->bstate.timeout = timeout;
     for (j = 0; j < numkeys; j++) {
         /* Add the key in the client structure, to map clients -> keys */
-        c->blocking_keys[j] = keys[j];
+        c->bstate.keys[j] = keys[j];
         incrRefCount(keys[j]);
 
         /* And in the other "side", to map keys -> clients */
@@ -728,22 +728,22 @@ void unblockClientWaitingData(redisClient *c) {
     list *l;
     int j;
 
-    redisAssert(c->blocking_keys != NULL);
+    redisAssert(c->bstate.keys != NULL);
     /* The client may wait for multiple keys, so unblock it for every key. */
-    for (j = 0; j < c->blocking_keys_num; j++) {
+    for (j = 0; j < c->bstate.count; j++) {
         /* Remove this client from the list of clients waiting for this key. */
-        de = dictFind(c->db->blocking_keys,c->blocking_keys[j]);
+        de = dictFind(c->db->blocking_keys,c->bstate.keys[j]);
         redisAssert(de != NULL);
         l = dictGetEntryVal(de);
         listDelNode(l,listSearchKey(l,c));
         /* If the list is empty we need to remove it to avoid wasting memory */
         if (listLength(l) == 0)
-            dictDelete(c->db->blocking_keys,c->blocking_keys[j]);
-        decrRefCount(c->blocking_keys[j]);
+            dictDelete(c->db->blocking_keys,c->bstate.keys[j]);
+        decrRefCount(c->bstate.keys[j]);
     }
     /* Cleanup the client structure */
-    zfree(c->blocking_keys);
-    c->blocking_keys = NULL;
+    zfree(c->bstate.keys);
+    c->bstate.keys = NULL;
     c->flags &= (~REDIS_BLOCKED);
     server.blpop_blocked_clients--;
     /* We want to process data if there is some command waiting
@@ -777,7 +777,7 @@ int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
     redisAssert(ln != NULL);
     receiver = ln->value;
 
-    if (receiver->blocking_target == NULL) {
+    if (receiver->bstate.target == NULL) {
       addReplyMultiBulkLen(receiver,2);
       addReplyBulk(receiver,key);
       addReplyBulk(receiver,ele);
@@ -785,7 +785,7 @@ int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
     else {
       receiver->argc++;
 
-      robj *dobj = lookupKeyWrite(receiver->db,receiver->blocking_target);
+      robj *dobj = lookupKeyWrite(receiver->db,receiver->bstate.target);
       if (dobj && checkType(receiver,dobj,REDIS_LIST)) return 0;
 
       addReplyBulk(receiver,ele);
@@ -793,7 +793,7 @@ int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
       /* Create the list if the key does not exist */
       if (!dobj) {
           dobj = createZiplistObject();
-          dbAdd(receiver->db,receiver->blocking_target,dobj);
+          dbAdd(receiver->db,receiver->bstate.target,dobj);
       }
 
       listTypePush(dobj,ele,REDIS_HEAD);
@@ -833,7 +833,7 @@ void blockingPopGenericCommand(redisClient *c, int where) {
                     robj *argv[2], **orig_argv;
                     int orig_argc;
 
-                    if (c->blocking_target == NULL) {
+                    if (c->bstate.target == NULL) {
                       /* We need to alter the command arguments before to call
                        * popGenericCommand() as the command takes a single key. */
                       orig_argv = c->argv;
@@ -857,8 +857,8 @@ void blockingPopGenericCommand(redisClient *c, int where) {
                       c->argc = orig_argc;
                     }
                     else {
-                      c->argv[2] = c->blocking_target;
-                      c->blocking_target = NULL;
+                      c->argv[2] = c->bstate.target;
+                      c->bstate.target = NULL;
 
                       rpoplpushCommand(c);
                     }
@@ -891,7 +891,7 @@ void brpopCommand(redisClient *c) {
 }
 
 void brpoplpushCommand(redisClient *c) {
-    c->blocking_target = c->argv[2];
+    c->bstate.target = c->argv[2];
     c->argv[2] = c->argv[3];
     c->argc--;
 

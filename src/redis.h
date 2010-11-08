@@ -293,6 +293,16 @@ typedef struct multiState {
     int count;              /* Total number of MULTI commands */
 } multiState;
 
+typedef struct blockingState {
+    robj **keys;            /* The key we are waiting to terminate a blocking
+                             * operation such as BLPOP. Otherwise NULL. */
+    int count;              /* Number of blocking keys */
+    time_t timeout;         /* Blocking operation timeout. If UNIX current time
+                             * is >= timeout then the operation timed out. */
+    robj *target;           /* The key that should receive the element,
+                             * for BRPOPLPUSH. */
+} blockingState;
+
 /* With multiplexing we need to take per-clinet state.
  * Clients are taken in a liked list. */
 typedef struct redisClient {
@@ -316,12 +326,7 @@ typedef struct redisClient {
     long repldboff;         /* replication DB file offset */
     off_t repldbsize;       /* replication DB file size */
     multiState mstate;      /* MULTI/EXEC state */
-    robj **blocking_keys;   /* The key we are waiting to terminate a blocking
-                             * operation such as BLPOP. Otherwise NULL. */
-    int blocking_keys_num;  /* Number of blocking keys */
-    time_t blockingto;      /* Blocking operation timeout. If UNIX current time
-                             * is >= blockingto then the operation timed out. */
-    robj *blocking_target;
+    blockingState bstate;   /* blocking state */
     list *io_keys;          /* Keys this client is waiting to be loaded from the
                              * swap file in order to continue. */
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
