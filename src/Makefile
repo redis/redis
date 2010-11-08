@@ -116,8 +116,8 @@ redis-benchmark.o:
 	$(CC) -c $(CFLAGS) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
 
 redis-cli: $(CLIOBJ)
-	cd ../deps/hiredis && make static
-	cd ../deps/linenoise && make
+	cd ../deps/hiredis && make static ARCH="$(ARCH)"
+	cd ../deps/linenoise && make ARCH="$(ARCH)"
 	$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o
 
 redis-cli.o:
@@ -134,6 +134,8 @@ redis-check-aof: $(CHECKAOFOBJ)
 
 clean:
 	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
+	cd ../deps/hiredis && make clean
+	cd ../deps/linenoise && make clean
 
 dep:
 	$(CC) -MM *.c
