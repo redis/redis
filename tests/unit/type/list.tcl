@@ -152,6 +152,19 @@ start_server {
         assert_equal {foo} [r lrange target 0 -1]
     }
 
+    test "BRPOPLPUSH with a client BLPOPing the target list" {
+        set rd [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        r del blist target
+        $rd2 blpop target 0
+        $rd brpoplpush blist target 0
+        after 1000
+        r rpush blist foo
+        assert_equal foo [$rd read]
+        assert_equal {target foo} [$rd2 read]
+        assert_equal 0 [r exists target]
+    }
+
     test "BRPOPLPUSH with wrong source type" {
         set rd [redis_deferring_client]
         r del blist target
@@ -178,7 +191,7 @@ start_server {
         assert_equal {foo} [r lrange blist 0 -1]
     }
 
-    test {BRPOPLPUSH inside a transaction} {
+    test "BRPOPLPUSH inside a transaction" {
         r del xlist target
         r lpush xlist foo
         r lpush xlist bar
