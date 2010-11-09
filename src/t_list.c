@@ -795,8 +795,7 @@ int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
         addReplyMultiBulkLen(receiver,2);
         addReplyBulk(receiver,key);
         addReplyBulk(receiver,ele);
-    }
-    else {
+    } else {
         /* BRPOPLPUSH */
         robj *dobj = lookupKeyWrite(receiver->db,receiver->bpop.target);
         if (dobj && checkType(receiver,dobj,REDIS_LIST)) return 0;
