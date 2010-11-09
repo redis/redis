@@ -49,6 +49,8 @@
 #define CLIENT_SENDQUERY 1
 #define CLIENT_READREPLY 2
 
+#define MAX_HOSTS 50
+
 #define REDIS_NOTUSED(V) ((void) V)
 
 static struct config {
@@ -62,7 +64,8 @@ static struct config {
     int randomkeys;
     int randomkeys_keyspacelen;
     aeEventLoop *el;
-    char *hostip;
+    char *hostip[MAX_HOSTS];
+    int numhosts;
     int hostport;
     char *hostsocket;
     int keepalive;
@@ -233,15 +236,22 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
 static client createClient(int replytype) {
     client c = zmalloc(sizeof(struct _client));
+    static int nexthost = 0; /* Get the host via a round robin method */
+    char *hostip = config.hostip[nexthost++];
+
+    if (nexthost == config.numhosts) {
+      nexthost = 0;
+    }
+
     if (config.hostsocket == NULL) {
-        c->context = redisConnectNonBlock(config.hostip,config.hostport);
+        c->context = redisConnectNonBlock(hostip,config.hostport);
     } else {
         c->context = redisConnectUnixNonBlock(config.hostsocket);
     }
     if (c->context->err) {
         fprintf(stderr,"Could not connect to Redis at ");
         if (config.hostsocket == NULL)
-            fprintf(stderr,"%s:%d: %s\n",config.hostip,config.hostport,c->context->errstr);
+            fprintf(stderr,"%s:%d: %s\n",hostip,config.hostport,c->context->errstr);
         else
             fprintf(stderr,"%s: %s\n",config.hostsocket,c->context->errstr);
         exit(1);
@@ -312,6 +322,7 @@ static void endBenchmark(void) {
 
 void parseOptions(int argc, char **argv) {
     int i;
+    int numhosts = 0;
 
     for (i = 1; i < argc; i++) {
         int lastarg = i==argc-1;
@@ -326,7 +337,11 @@ void parseOptions(int argc, char **argv) {
             config.keepalive = atoi(argv[i+1]);
             i++;
         } else if (!strcmp(argv[i],"-h") && !lastarg) {
-            config.hostip = argv[i+1];
+            if (numhosts >= MAX_HOSTS) {
+                printf("Too many hosts, max is %d\n", MAX_HOSTS);
+                exit(1);
+            }
+            config.hostip[numhosts++] = argv[i+1];
             i++;
         } else if (!strcmp(argv[i],"-p") && !lastarg) {
             config.hostport = atoi(argv[i+1]);
@@ -377,6 +392,7 @@ void parseOptions(int argc, char **argv) {
             exit(1);
         }
     }
+    config.numhosts = numhosts;
 }
 
 int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData) {
@@ -413,7 +429,8 @@ int main(int argc, char **argv) {
     config.idlemode = 0;
     config.latency = NULL;
     config.clients = listCreate();
-    config.hostip = "127.0.0.1";
+    config.hostip[0] = "127.0.0.1";
+    config.numhosts = 1;
     config.hostport = 6379;
     config.hostsocket = NULL;
 
