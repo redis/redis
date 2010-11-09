@@ -694,10 +694,10 @@ void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeout, robj
     list *l;
     int j;
 
-    c->bstate.keys = zmalloc(sizeof(robj*)*numkeys);
-    c->bstate.count = numkeys;
-    c->bstate.timeout = timeout;
-    c->bstate.target = target;
+    c->bpop.keys = zmalloc(sizeof(robj*)*numkeys);
+    c->bpop.count = numkeys;
+    c->bpop.timeout = timeout;
+    c->bpop.target = target;
 
     if (target != NULL) {
       incrRefCount(target);
@@ -705,7 +705,7 @@ void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeout, robj
 
     for (j = 0; j < numkeys; j++) {
         /* Add the key in the client structure, to map clients -> keys */
-        c->bstate.keys[j] = keys[j];
+        c->bpop.keys[j] = keys[j];
         incrRefCount(keys[j]);
 
         /* And in the other "side", to map keys -> clients */
@@ -734,28 +734,28 @@ void unblockClientWaitingData(redisClient *c) {
     list *l;
     int j;
 
-    redisAssert(c->bstate.keys != NULL);
+    redisAssert(c->bpop.keys != NULL);
     /* The client may wait for multiple keys, so unblock it for every key. */
-    for (j = 0; j < c->bstate.count; j++) {
+    for (j = 0; j < c->bpop.count; j++) {
         /* Remove this client from the list of clients waiting for this key. */
-        de = dictFind(c->db->blocking_keys,c->bstate.keys[j]);
+        de = dictFind(c->db->blocking_keys,c->bpop.keys[j]);
         redisAssert(de != NULL);
         l = dictGetEntryVal(de);
         listDelNode(l,listSearchKey(l,c));
         /* If the list is empty we need to remove it to avoid wasting memory */
         if (listLength(l) == 0)
-            dictDelete(c->db->blocking_keys,c->bstate.keys[j]);
-        decrRefCount(c->bstate.keys[j]);
+            dictDelete(c->db->blocking_keys,c->bpop.keys[j]);
+        decrRefCount(c->bpop.keys[j]);
     }
 
-    if (c->bstate.target != NULL) {
-        decrRefCount(c->bstate.target);
+    if (c->bpop.target != NULL) {
+        decrRefCount(c->bpop.target);
     }
 
     /* Cleanup the client structure */
-    zfree(c->bstate.keys);
-    c->bstate.keys = NULL;
-    c->bstate.target = NULL;
+    zfree(c->bpop.keys);
+    c->bpop.keys = NULL;
+    c->bpop.target = NULL;
     c->flags &= (~REDIS_BLOCKED);
     server.blpop_blocked_clients--;
     /* We want to process data if there is some command waiting
@@ -789,7 +789,7 @@ int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
     redisAssert(ln != NULL);
     receiver = ln->value;
 
-    if (receiver->bstate.target == NULL) {
+    if (receiver->bpop.target == NULL) {
         /* BRPOP/BLPOP return a multi-bulk with the name
          * of the popped list */
         addReplyMultiBulkLen(receiver,2);
@@ -798,16 +798,16 @@ int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
     }
     else {
         /* BRPOPLPUSH */
-        robj *dobj = lookupKeyWrite(receiver->db,receiver->bstate.target);
+        robj *dobj = lookupKeyWrite(receiver->db,receiver->bpop.target);
         if (dobj && checkType(receiver,dobj,REDIS_LIST)) return 0;
 
         addReplyBulk(receiver,ele);
 
-        if (!handleClientsWaitingListPush(receiver, receiver->bstate.target, ele)) {
+        if (!handleClientsWaitingListPush(receiver, receiver->bpop.target, ele)) {
             /* Create the list if the key does not exist */
             if (!dobj) {
                 dobj = createZiplistObject();
-                dbAdd(receiver->db, receiver->bstate.target, dobj);
+                dbAdd(receiver->db, receiver->bpop.target, dobj);
             }
 
             listTypePush(dobj, ele, REDIS_HEAD);
