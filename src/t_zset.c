@@ -838,14 +838,15 @@ void zrevrangeCommand(redisClient *c) {
 /* This command implements ZRANGEBYSCORE, ZREVRANGEBYSCORE and ZCOUNT.
  * If "justcount", only the number of elements in the range is returned. */
 void genericZrangebyscoreCommand(redisClient *c, int reverse, int justcount) {
+    list *operations;
     zrangespec range;
     robj *o, *emptyreply;
     zset *zsetobj;
     zskiplist *zsl;
     zskiplistNode *ln;
     int offset = 0, limit = -1;
-    int withscores = 0;
-    unsigned long rangelen = 0;
+    int getop = 0, withscores = 0;
+    unsigned long rangelen = 0, outputlen = 0;
     void *replylen = NULL;
 
     /* Parse the range arguments. */
@@ -853,6 +854,9 @@ void genericZrangebyscoreCommand(redisClient *c, int reverse, int justcount) {
         addReplyError(c,"min or max is not a double");
         return;
     }
+
+    operations = listCreate();
+    listSetFreeMethod(operations,zfree);
 
     /* Parse optional extra arguments. Note that ZCOUNT will exactly have
      * 4 arguments, so we'll never enter the following code path. */
@@ -868,7 +872,13 @@ void genericZrangebyscoreCommand(redisClient *c, int reverse, int justcount) {
                 offset = atoi(c->argv[pos+1]->ptr);
                 limit = atoi(c->argv[pos+2]->ptr);
                 pos += 3; remaining -= 3;
+            } else if (remaining >= 2 && !strcasecmp(c->argv[pos]->ptr,"get")) {
+                listAddNodeTail(operations,createSortOperation(
+                    REDIS_SORT_GET,c->argv[pos+1]));
+                getop++;
+                pos += 2; remaining -= 2;
             } else {
+                listRelease(operations);
                 addReply(c,shared.syntaxerr);
                 return;
             }
@@ -878,7 +888,10 @@ void genericZrangebyscoreCommand(redisClient *c, int reverse, int justcount) {
     /* Ok, lookup the key and get the range */
     emptyreply = justcount ? shared.czero : shared.emptymultibulk;
     if ((o = lookupKeyReadOrReply(c,c->argv[1],emptyreply)) == NULL ||
-        checkType(c,o,REDIS_ZSET)) return;
+        checkType(c,o,REDIS_ZSET)) {
+        listRelease(operations);
+        return;
+    }
     zsetobj = o->ptr;
     zsl = zsetobj->zsl;
 
@@ -913,6 +926,7 @@ void genericZrangebyscoreCommand(redisClient *c, int reverse, int justcount) {
 
     /* No "first" element in the specified interval. */
     if (ln == NULL) {
+        listRelease(operations);
         addReply(c,emptyreply);
         return;
     }
@@ -934,6 +948,8 @@ void genericZrangebyscoreCommand(redisClient *c, int reverse, int justcount) {
     }
 
     while (ln && limit--) {
+        listNode *oln; // operations list node
+        listIter oli; // operations list iter
         /* Check if this this element is in range. */
         if (reverse) {
             if (range.maxex) {
@@ -956,7 +972,26 @@ void genericZrangebyscoreCommand(redisClient *c, int reverse, int justcount) {
         /* Do our magic */
         rangelen++;
         if (!justcount) {
-            addReplyBulk(c,ln->obj);
+            if (!getop) addReplyBulk(c,ln->obj);
+            else {
+                listRewind(operations,&oli);
+                while((oln = listNext(&oli))) {
+                    redisSortOperation *sop = oln->value;
+                    robj *val = lookupKeyByPattern(c->db,sop->pattern,
+                        ln->obj);
+
+                    if (sop->type == REDIS_SORT_GET) {
+                        if (!val) {
+                            addReply(c,shared.nullbulk);
+                        } else {
+                            addReplyBulk(c,val);
+                            decrRefCount(val);
+                        }
+                    } else {
+                        redisAssert(sop->type == REDIS_SORT_GET); /* always fails */
+                    }
+                }
+            }
             if (withscores)
                 addReplyDouble(c,ln->score);
         }
@@ -970,9 +1005,11 @@ void genericZrangebyscoreCommand(redisClient *c, int reverse, int justcount) {
     if (justcount) {
         addReplyLongLong(c,(long)rangelen);
     } else {
-        setDeferredMultiBulkLength(c,replylen,
-             withscores ? (rangelen*2) : rangelen);
+        outputlen = getop ? rangelen*getop : rangelen;
+        outputlen += withscores ? rangelen : 0;
+        setDeferredMultiBulkLength(c,replylen, outputlen);
     }
+    listRelease(operations);
 }
 
 void zrangebyscoreCommand(redisClient *c) {

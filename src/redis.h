@@ -872,6 +872,10 @@ int dbDelete(redisDb *db, robj *key);
 long long emptyDb();
 int selectDb(redisClient *c, int id);
 
+/* sort.c -- Sort utility functions */
+robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst);
+redisSortOperation *createSortOperation(int type, robj *pattern);
+
 /* Git SHA1 */
 char *redisGitSHA1(void);
 char *redisGitDirty(void);

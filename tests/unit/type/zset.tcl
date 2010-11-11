@@ -258,6 +258,29 @@ start_server {tags {"zset"}} {
         assert_error "*not a double*" {r zrangebyscore fooz 1 str}
         assert_error "*not a double*" {r zrangebyscore fooz 1 NaN}
     }
+   
+    test "ZRANGEBYSCORE with GET <const>" {
+        create_default_zset
+        r del foo
+        set res [r zrangebyscore zset -inf +inf GET foo]
+        assert_equal 7 [llength $res]
+        foreach item $res { assert_equal {} $item }
+    } 
+
+    test "ZRANGEBYSCORE with GET #" {
+        create_default_zset
+        assert_equal {a b c d e f g} [r zrangebyscore zset -inf +inf GET #]
+    }
+    
+    test "ZRANGEBYSCORE with GET (key and hash)" {
+        create_default_zset
+        r set foo_a Foo_A
+        r set foo_b Foo_B
+        r set foo_c Foo_C
+        r set foo_d Foo_D
+       
+        assert_equal {Foo_A Foo_B Foo_C Foo_D} [r zrangebyscore zset -inf +inf LIMIT 0 4 GET foo_*]
+    }
 
     tags {"slow"} {
         test {ZRANGEBYSCORE fuzzy test, 100 ranges in 1000 elements sorted set} {
