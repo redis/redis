@@ -1372,6 +1372,10 @@ void freeMemoryIfNeeded(void) {
 
                     de = dictGetRandomKey(dict);
                     thiskey = dictGetEntryKey(de);
+                    /* When policy is volatile-lru we need an additonal lookup
+                     * to locate the real key, as dict is set to db->expires. */
+                    if (server.maxmemory_policy == REDIS_MAXMEMORY_VOLATILE_LRU)
+                        de = dictFind(db->dict, thiskey);
                     o = dictGetEntryVal(de);
                     thisval = estimateObjectIdleTime(o);
 
