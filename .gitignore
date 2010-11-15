@@ -16,3 +16,5 @@ src/release.h
 appendonly.aof
 SHORT_TERM_TODO
 redis.conf.*
+release.h
+src/transfer.sh
