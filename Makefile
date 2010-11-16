@@ -11,4 +11,7 @@ install: dummy
 $(TARGETS) clean:
 	cd src && $(MAKE) $@
 
+src/help.h:
+	@./utils/generate-command-help.rb > $@
+
 dummy:
