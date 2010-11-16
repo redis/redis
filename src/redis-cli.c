@@ -159,7 +159,7 @@ static sds cliFormatReply(redisReply *r, char *prefix) {
     sds out = sdsempty();
     switch (r->type) {
     case REDIS_REPLY_ERROR:
-        if (config.tty && !config.bare_output ) out = sdscat(out,"(error) ");
+        if (config.tty && !config.bare_output) out = sdscat(out,"(error) ");
         out = sdscatprintf(out,"%s\n", r->str);
     break;
     case REDIS_REPLY_STATUS:
@@ -173,6 +173,7 @@ static sds cliFormatReply(redisReply *r, char *prefix) {
     case REDIS_REPLY_STRING:
         if (config.raw_output || !config.tty || config.bare_output) {
             out = sdscatlen(out,r->str,r->len);
+			out = sdscat(out, "\n");
         } else {
             /* If you are producing output for the standard output we want
              * a more interesting output with quoted characters and so forth */
@@ -224,9 +225,8 @@ static sds cliFormatReply(redisReply *r, char *prefix) {
     	} else {
 			sds tmp;
     		for (unsigned int i = 0; i < r->elements; i++) {
-				tmp = cliFormatReply(r->element[i],'A');
+				tmp = cliFormatReply(r->element[i],NULL);
 				out = sdscatlen(out,tmp,sdslen(tmp));
-				out = sdscat(out, "\n");
 				sdsfree(tmp);
     		}
     	}
