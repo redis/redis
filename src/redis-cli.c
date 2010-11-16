@@ -59,6 +59,7 @@ static struct config {
     int monitor_mode;
     int pubsub_mode;
     int raw_output; /* output mode per command */
+    int bare_output; /* bare, computer parsable output */
     int tty; /* flag for default output format */
     int stdinarg; /* get last arg from stdin. (-x option) */
     char mb_sep;
@@ -158,7 +159,7 @@ static sds cliFormatReply(redisReply *r, char *prefix) {
     sds out = sdsempty();
     switch (r->type) {
     case REDIS_REPLY_ERROR:
-        if (config.tty) out = sdscat(out,"(error) ");
+        if (config.tty && !config.bare_output ) out = sdscat(out,"(error) ");
         out = sdscatprintf(out,"%s\n", r->str);
     break;
     case REDIS_REPLY_STATUS:
@@ -166,11 +167,11 @@ static sds cliFormatReply(redisReply *r, char *prefix) {
         out = sdscat(out,"\n");
     break;
     case REDIS_REPLY_INTEGER:
-        if (config.tty) out = sdscat(out,"(integer) ");
+        if (config.tty && !config.bare_output) out = sdscat(out,"(integer) ");
         out = sdscatprintf(out,"%lld\n",r->integer);
     break;
     case REDIS_REPLY_STRING:
-        if (config.raw_output || !config.tty) {
+        if (config.raw_output || !config.tty || config.bare_output) {
             out = sdscatlen(out,r->str,r->len);
         } else {
             /* If you are producing output for the standard output we want
@@ -180,45 +181,55 @@ static sds cliFormatReply(redisReply *r, char *prefix) {
         }
     break;
     case REDIS_REPLY_NIL:
-        out = sdscat(out,"(nil)\n");
+        if (!config.bare_output) out = sdscat(out,"(nil)\n");
     break;
     case REDIS_REPLY_ARRAY:
-        if (r->elements == 0) {
-            out = sdscat(out,"(empty list or set)\n");
-        } else {
-            unsigned int i, idxlen = 0;
-            char _prefixlen[16];
-            char _prefixfmt[16];
-            sds _prefix;
-            sds tmp;
+    	if (!config.bare_output) {
+			if (r->elements == 0) {
+				out = sdscat(out,"(empty list or set)\n");
+			} else {
+				unsigned int i, idxlen = 0;
+				char _prefixlen[16];
+				char _prefixfmt[16];
+				sds _prefix;
+				sds tmp;
 
-            /* Calculate chars needed to represent the largest index */
-            i = r->elements;
-            do {
-                idxlen++;
-                i /= 10;
-            } while(i);
+				/* Calculate chars needed to represent the largest index */
+				i = r->elements;
+				do {
+					idxlen++;
+					i /= 10;
+				} while(i);
 
-            /* Prefix for nested multi bulks should grow with idxlen+2 spaces */
-            memset(_prefixlen,' ',idxlen+2);
-            _prefixlen[idxlen+2] = '\0';
-            _prefix = sdscat(sdsnew(prefix),_prefixlen);
+				/* Prefix for nested multi bulks should grow with idxlen+2 spaces */
+				memset(_prefixlen,' ',idxlen+2);
+				_prefixlen[idxlen+2] = '\0';
+				_prefix = sdscat(sdsnew(prefix),_prefixlen);
 
-            /* Setup prefix format for every entry */
-            snprintf(_prefixfmt,sizeof(_prefixfmt),"%%s%%%dd) ",idxlen);
+				/* Setup prefix format for every entry */
+				snprintf(_prefixfmt,sizeof(_prefixfmt),"%%s%%%dd) ",idxlen);
 
-            for (i = 0; i < r->elements; i++) {
-                /* Don't use the prefix for the first element, as the parent
-                 * caller already prepended the index number. */
-                out = sdscatprintf(out,_prefixfmt,i == 0 ? "" : prefix,i+1);
+				for (i = 0; i < r->elements; i++) {
+					/* Don't use the prefix for the first element, as the parent
+					 * caller already prepended the index number. */
+					out = sdscatprintf(out,_prefixfmt,i == 0 ? "" : prefix,i+1);
 
-                /* Format the multi bulk entry */
-                tmp = cliFormatReply(r->element[i],_prefix);
-                out = sdscatlen(out,tmp,sdslen(tmp));
-                sdsfree(tmp);
-            }
-            sdsfree(_prefix);
-        }
+					/* Format the multi bulk entry */
+					tmp = cliFormatReply(r->element[i],_prefix);
+					out = sdscatlen(out,tmp,sdslen(tmp));
+					sdsfree(tmp);
+				}
+				sdsfree(_prefix);
+			}
+    	} else {
+			sds tmp;
+    		for (unsigned int i = 0; i < r->elements; i++) {
+				tmp = cliFormatReply(r->element[i],'A');
+				out = sdscatlen(out,tmp,sdslen(tmp));
+				out = sdscat(out, "\n");
+				sdsfree(tmp);
+    		}
+    	}
     break;
     default:
         fprintf(stderr,"Unknown reply type: %d\n", r->type);
@@ -296,9 +307,10 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
         }
 
         if (config.pubsub_mode) {
-            printf("Reading messages... (press Ctrl-C to quit)\n");
+            if (!config.bare_output) printf("Reading messages... (press Ctrl-C to quit)\n");
             while (1) {
                 if (cliReadReply() != REDIS_OK) exit(1);
+                fflush(stdout);
             }
         }
 
@@ -323,8 +335,12 @@ static int parseOptions(int argc, char **argv) {
             i++;
         } else if (!strcmp(argv[i],"-h") && lastarg) {
             usage();
+        } else if (!strcmp(argv[i],"help") && lastarg) {
+            usage();
         } else if (!strcmp(argv[i],"-x")) {
             config.stdinarg = 1;
+        } else if (!strcmp(argv[i],"-b")) {
+        	config.bare_output = 1;
         } else if (!strcmp(argv[i],"-p") && !lastarg) {
             config.hostport = atoi(argv[i+1]);
             i++;
@@ -379,7 +395,7 @@ static sds readArgFromStdin(void) {
 }
 
 static void usage() {
-    fprintf(stderr, "usage: redis-cli [-iv] [-h host] [-p port] [-s /path/to/socket] [-a authpw] [-r repeat_times] [-n db_num] cmd arg1 arg2 arg3 ... argN\n");
+    fprintf(stderr, "usage: redis-cli [-vb] [-h host] [-p port] [-s /path/to/socket] [-a authpw] [-r repeat_times] [-n db_num] cmd arg1 arg2 arg3 ... argN\n");
     fprintf(stderr, "usage: echo \"argN\" | redis-cli -x [options] cmd arg1 arg2 ... arg(N-1)\n\n");
     fprintf(stderr, "example: cat /etc/passwd | redis-cli -x set my_passwd\n");
     fprintf(stderr, "example: redis-cli get my_passwd\n");
@@ -476,6 +492,7 @@ int main(int argc, char **argv) {
     config.monitor_mode = 0;
     config.pubsub_mode = 0;
     config.raw_output = 0;
+    config.bare_output = 0;
     config.stdinarg = 0;
     config.auth = NULL;
     config.historyfile = NULL;
