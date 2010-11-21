@@ -21,9 +21,10 @@ ifeq ($(USE_TCMALLOC),yes)
 endif
 CCOPT= $(CFLAGS) $(CCLINK) $(ARCH) $(PROF)
 
-PREFIX= /usr/local
-INSTALL_BIN= $(PREFIX)/bin
-INSTALL= cp -p
+INSTALL = install
+
+PREFIX = /usr/local
+bindir = $(PREFIX)/bin
 
 OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o vm.o pubsub.o multi.o debug.o sort.o intset.o syncio.o
 BENCHOBJ = ae.o anet.o redis-benchmark.o sds.o adlist.o zmalloc.o
@@ -31,13 +32,9 @@ CLIOBJ = anet.o sds.o adlist.o redis-cli.o zmalloc.o release.o
 CHECKDUMPOBJ = redis-check-dump.o lzf_c.o lzf_d.o
 CHECKAOFOBJ = redis-check-aof.o
 
-PRGNAME = redis-server
-BENCHPRGNAME = redis-benchmark
-CLIPRGNAME = redis-cli
-CHECKDUMPPRGNAME = redis-check-dump
-CHECKAOFPRGNAME = redis-check-aof
+PROGRAMS = redis-benchmark redis-cli redis-check-dump redis-check-aof redis-server
 
-all: redis-benchmark redis-cli redis-check-dump redis-check-aof redis-server
+all: $(PROGRAMS)
 	@echo ""
 	@echo "Hint: To run 'make test' is a good idea ;)"
 	@echo ""
@@ -113,32 +110,32 @@ dependencies:
 	cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
 
 redis-server: $(OBJ)
-	$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ)
+	$(CC) -o $@ $(CCOPT) $(DEBUG) $(OBJ)
 
 redis-benchmark: dependencies $(BENCHOBJ)
 	cd ../deps/hiredis && $(MAKE) static
-	$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a
+	$(CC) -o $@ $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a
 
 redis-benchmark.o:
 	$(CC) -c $(CFLAGS) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
 
 redis-cli: dependencies $(CLIOBJ)
-	$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o
+	$(CC) -o $@ $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o
 
 redis-cli.o:
 	$(CC) -c $(CFLAGS) -I../deps/hiredis -I../deps/linenoise $(DEBUG) $(COMPILE_TIME) $<
 
 redis-check-dump: $(CHECKDUMPOBJ)
-	$(CC) -o $(CHECKDUMPPRGNAME) $(CCOPT) $(DEBUG) $(CHECKDUMPOBJ)
+	$(CC) -o $@ $(CCOPT) $(DEBUG) $(CHECKDUMPOBJ)
 
 redis-check-aof: $(CHECKAOFOBJ)
-	$(CC) -o $(CHECKAOFPRGNAME) $(CCOPT) $(DEBUG) $(CHECKAOFOBJ)
+	$(CC) -o $@ $(CCOPT) $(DEBUG) $(CHECKAOFOBJ)
 
 .c.o:
 	$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
 
 clean:
-	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
+	rm -rf $(PROGRAMS) *.o *.gcda *.gcno *.gcov
 
 dep:
 	$(CC) -I../deps/hiredis -I../deps/linenoise -MM *.c
@@ -171,9 +168,5 @@ noopt:
 	$(MAKE) PROF="-pg" ARCH="-arch i386"
 
 install: all
-	mkdir -p $(INSTALL_BIN)
-	$(INSTALL) $(PRGNAME) $(INSTALL_BIN)
-	$(INSTALL) $(BENCHPRGNAME) $(INSTALL_BIN)
-	$(INSTALL) $(CLIPRGNAME) $(INSTALL_BIN)
-	$(INSTALL) $(CHECKDUMPPRGNAME) $(INSTALL_BIN)
-	$(INSTALL) $(CHECKAOFPRGNAME) $(INSTALL_BIN)
+	$(INSTALL) -d -m 775 $(DESTDIR)$(bindir)
+	$(INSTALL) $(PROGRAMS) $(DESTDIR)$(bindir)
