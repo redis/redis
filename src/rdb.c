@@ -9,15 +9,22 @@
 #include <arpa/inet.h>
 #include <sys/stat.h>
 
+/* Convenience wrapper around fwrite, that returns the number of bytes written
+ * to the file instead of the number of objects (see fwrite(3)) and -1 in the
+ * case of an error. It also supports a NULL *fp to skip writing altogether
+ * instead of writing to /dev/null. */
+static int rdbWriteRaw(FILE *fp, void *p, size_t len) {
+    if (fp != NULL && fwrite(p,len,1,fp) == 0) return -1;
+    return len;
+}
+
 int rdbSaveType(FILE *fp, unsigned char type) {
-    if (fwrite(&type,1,1,fp) == 0) return -1;
-    return 1; /* bytes written */
+    return rdbWriteRaw(fp,&type,1);
 }
 
 int rdbSaveTime(FILE *fp, time_t t) {
     int32_t t32 = (int32_t) t;
-    if (fwrite(&t32,4,1,fp) == 0) return -1;
-    return 4; /* bytes written */
+    return rdbWriteRaw(fp,&t32,4);
 }
 
 /* check rdbLoadLen() comments for more info */
@@ -28,20 +35,20 @@ int rdbSaveLen(FILE *fp, uint32_t len) {
     if (len < (1<<6)) {
         /* Save a 6 bit len */
         buf[0] = (len&0xFF)|(REDIS_RDB_6BITLEN<<6);
-        if (fwrite(buf,1,1,fp) == 0) return -1;
+        if (rdbWriteRaw(fp,buf,1) == -1) return -1;
         nwritten = 1;
     } else if (len < (1<<14)) {
         /* Save a 14 bit len */
         buf[0] = ((len>>8)&0xFF)|(REDIS_RDB_14BITLEN<<6);
         buf[1] = len&0xFF;
-        if (fwrite(buf,2,1,fp) == 0) return -1;
+        if (rdbWriteRaw(fp,buf,2) == -1) return -1;
         nwritten = 2;
     } else {
         /* Save a 32 bit len */
         buf[0] = (REDIS_RDB_32BITLEN<<6);
-        if (fwrite(buf,1,1,fp) == 0) return -1;
+        if (rdbWriteRaw(fp,buf,1) == -1) return -1;
         len = htonl(len);
-        if (fwrite(&len,4,1,fp) == 0) return -1;
+        if (rdbWriteRaw(fp,&len,4) == -1) return -1;
         nwritten = 1+4;
     }
     return nwritten;
@@ -111,8 +118,8 @@ int rdbSaveLzfStringObject(FILE *fp, unsigned char *s, size_t len) {
     }
     /* Data compressed! Let's save it on disk */
     byte = (REDIS_RDB_ENCVAL<<6)|REDIS_RDB_ENC_LZF;
-    if (fwrite(&byte,1,1,fp) == 0) goto writeerr;
-    nwritten += 1;
+    if ((n = rdbWriteRaw(fp,&byte,1)) == -1) goto writeerr;
+    nwritten += n;
 
     if ((n = rdbSaveLen(fp,comprlen)) == -1) goto writeerr;
     nwritten += n;
@@ -120,8 +127,8 @@ int rdbSaveLzfStringObject(FILE *fp, unsigned char *s, size_t len) {
     if ((n = rdbSaveLen(fp,len)) == -1) goto writeerr;
     nwritten += n;
 
-    if (fwrite(out,comprlen,1,fp) == 0) goto writeerr;
-    nwritten += comprlen;
+    if ((n = rdbWriteRaw(fp,out,comprlen)) == -1) goto writeerr;
+    nwritten += n;
 
     zfree(out);
     return nwritten;
@@ -141,7 +148,7 @@ int rdbSaveRawString(FILE *fp, unsigned char *s, size_t len) {
     if (len <= 11) {
         unsigned char buf[5];
         if ((enclen = rdbTryIntegerEncoding((char*)s,len,buf)) > 0) {
-            if (fwrite(buf,enclen,1,fp) == 0) return -1;
+            if (rdbWriteRaw(fp,buf,enclen) == -1) return -1;
             return enclen;
         }
     }
@@ -159,7 +166,7 @@ int rdbSaveRawString(FILE *fp, unsigned char *s, size_t len) {
     if ((n = rdbSaveLen(fp,len)) == -1) return -1;
     nwritten += n;
     if (len > 0) {
-        if (fwrite(s,len,1,fp) == 0) return -1;
+        if (rdbWriteRaw(fp,s,len) == -1) return -1;
         nwritten += len;
     }
     return nwritten;
@@ -171,16 +178,15 @@ int rdbSaveLongLongAsStringObject(FILE *fp, long long value) {
     int n, nwritten = 0;
     int enclen = rdbEncodeInteger(value,buf);
     if (enclen > 0) {
-        if (fwrite(buf,enclen,1,fp) == 0) return -1;
-        nwritten = enclen;
+        return rdbWriteRaw(fp,buf,enclen);
     } else {
         /* Encode as string */
         enclen = ll2string((char*)buf,32,value);
         redisAssert(enclen < 32);
         if ((n = rdbSaveLen(fp,enclen)) == -1) return -1;
         nwritten += n;
-        if (fwrite(buf,enclen,1,fp) == 0) return -1;
-        nwritten += enclen;
+        if ((n = rdbWriteRaw(fp,buf,enclen)) == -1) return -1;
+        nwritten += n;
     }
     return nwritten;
 }
@@ -236,8 +242,7 @@ int rdbSaveDoubleValue(FILE *fp, double val) {
         buf[0] = strlen((char*)buf+1);
         len = buf[0]+1;
     }
-    if (fwrite(buf,len,1,fp) == 0) return -1;
-    return len;
+    return rdbWriteRaw(fp,buf,len);
 }
 
 /* Save a Redis object. */
