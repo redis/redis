@@ -263,7 +263,7 @@ int vmWriteObjectOnSwap(robj *o, off_t page) {
  * If we can't find enough contiguous empty pages to swap the object on disk
  * NULL is returned. */
 vmpointer *vmSwapObjectBlocking(robj *val) {
-    off_t pages = rdbSavedObjectPages(val,NULL);
+    off_t pages = rdbSavedObjectPages(val);
     off_t page;
     vmpointer *vp;
 
@@ -821,9 +821,7 @@ void *IOThreadEntryPoint(void *arg) {
             vmpointer *vp = (vmpointer*)j->id;
             j->val = vmReadObjectFromSwap(j->page,vp->vtype);
         } else if (j->type == REDIS_IOJOB_PREPARE_SWAP) {
-            FILE *fp = fopen("/dev/null","w+");
-            j->pages = rdbSavedObjectPages(j->val,fp);
-            fclose(fp);
+            j->pages = rdbSavedObjectPages(j->val);
         } else if (j->type == REDIS_IOJOB_DO_SWAP) {
             if (vmWriteObjectOnSwap(j->val,j->page) == REDIS_ERR)
                 j->canceled = 1;

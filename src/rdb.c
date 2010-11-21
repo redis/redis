@@ -389,20 +389,15 @@ int rdbSaveObject(FILE *fp, robj *o) {
  * the rdbSaveObject() function. Currently we use a trick to get
  * this length with very little changes to the code. In the future
  * we could switch to a faster solution. */
-off_t rdbSavedObjectLen(robj *o, FILE *fp) {
-    int nwritten;
-    if (fp == NULL) fp = server.devnull;
-    rewind(fp);
-
-    /* Determining the saved length of an object should never return -1 */
-    redisAssert((nwritten = rdbSaveObject(fp,o)) != -1);
-    return nwritten;
+off_t rdbSavedObjectLen(robj *o) {
+    int len = rdbSaveObject(NULL,o);
+    redisAssert(len != -1);
+    return len;
 }
 
 /* Return the number of pages required to save this object in the swap file */
-off_t rdbSavedObjectPages(robj *o, FILE *fp) {
-    off_t bytes = rdbSavedObjectLen(o,fp);
-
+off_t rdbSavedObjectPages(robj *o) {
+    off_t bytes = rdbSavedObjectLen(o);
     return (bytes+(server.vm_page_size-1))/server.vm_page_size;
 }
 

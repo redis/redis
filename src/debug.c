@@ -216,7 +216,7 @@ void debugCommand(redisClient *c) {
                 "encoding:%s serializedlength:%lld "
                 "lru:%d lru_seconds_idle:%lu",
                 (void*)val, val->refcount,
-                strenc, (long long) rdbSavedObjectLen(val,NULL),
+                strenc, (long long) rdbSavedObjectLen(val),
                 val->lru, estimateObjectIdleTime(val));
         } else {
             vmpointer *vp = (vmpointer*) val;

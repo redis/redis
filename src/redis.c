@@ -814,11 +814,6 @@ void initServer() {
     setupSigSegvAction();
 
     server.mainthread = pthread_self();
-    server.devnull = fopen("/dev/null","w");
-    if (server.devnull == NULL) {
-        redisLog(REDIS_WARNING, "Can't open /dev/null: %s", server.neterr);
-        exit(1);
-    }
     server.clients = listCreate();
     server.slaves = listCreate();
     server.monitors = listCreate();
