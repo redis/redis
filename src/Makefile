@@ -109,15 +109,15 @@ redis-server: $(OBJ)
 	@echo ""
 
 redis-benchmark: $(BENCHOBJ)
-	cd ../deps/hiredis && make static
+	cd ../deps/hiredis && $(MAKE) static
 	$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a
 
 redis-benchmark.o:
 	$(CC) -c $(CFLAGS) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
 
 redis-cli: $(CLIOBJ)
-	cd ../deps/hiredis && make static ARCH="$(ARCH)"
-	cd ../deps/linenoise && make ARCH="$(ARCH)"
+	cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
+	cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
 	$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o
 
 redis-cli.o:
@@ -134,8 +134,8 @@ redis-check-aof: $(CHECKAOFOBJ)
 
 clean:
 	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
-	cd ../deps/hiredis && make clean
-	cd ../deps/linenoise && make clean
+	cd ../deps/hiredis && $(MAKE) clean
+	cd ../deps/linenoise && $(MAKE) clean
 
 dep:
 	$(CC) -MM *.c
@@ -153,19 +153,19 @@ log:
 	@echo ""
 	@echo "WARNING: if it fails under Linux you probably need to install libc6-dev-i386"
 	@echo ""
-	make ARCH="-m32"
+	$(MAKE) ARCH="-m32"
 
 gprof:
-	make PROF="-pg"
+	$(MAKE) PROF="-pg"
 
 gcov:
-	make PROF="-fprofile-arcs -ftest-coverage"
+	$(MAKE) PROF="-fprofile-arcs -ftest-coverage"
 
 noopt:
-	make OPTIMIZATION=""
+	$(MAKE) OPTIMIZATION=""
 
 32bitgprof:
-	make PROF="-pg" ARCH="-arch i386"
+	$(MAKE) PROF="-pg" ARCH="-arch i386"
 
 install: all
 	mkdir -p $(INSTALL_BIN)
