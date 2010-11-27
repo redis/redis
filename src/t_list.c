@@ -617,6 +617,19 @@ void lremCommand(redisClient *c) {
  * The idea is to be able to get an element from a list in a reliable way
  * since the element is not just returned but pushed against another list
  * as well. This command was originally proposed by Ezra Zygmuntowicz.
+ *
+ * Proposed modification by Abdelkader Allam:
+ * allow as an option a third argument which would be pushed as new element 
+ * on the destination list  instead of pushing the popped element.
+ *  RPOPLPUSH srclist dstlist element2:
+ *   IF LLEN(srclist) > 0
+ *     element = RPOP srclist
+ *     LPUSH dstlist element2
+ *     RETURN element
+ *   ELSE
+ *     RETURN nil
+ *   END
+ *  END
  */
 void rpoplpushcommand(redisClient *c) {
     robj *sobj, *value;
@@ -632,13 +645,13 @@ void rpoplpushcommand(redisClient *c) {
 
         /* Add the element to the target list (unless it's directly
          * passed to some BLPOP-ing client */
-        if (!handleClientsWaitingListPush(c,c->argv[2],value)) {
+        if (!handleClientsWaitingListPush(c,c->argv[2],(c->argc==4)?c->argv[3]:value)) {
             /* Create the list if the key does not exist */
             if (!dobj) {
                 dobj = createZiplistObject();
                 dbAdd(c->db,c->argv[2],dobj);
             }
-            listTypePush(dobj,value,REDIS_HEAD);
+            listTypePush(dobj,(c->argc==4)?c->argv[3]:value,REDIS_HEAD);
         }
 
         /* Send the element to the client as reply as well */

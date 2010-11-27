@@ -96,7 +96,7 @@ struct redisCommand readonlyCommandTable[] = {
     {"lrange",lrangeCommand,4,0,NULL,1,1,1},
     {"ltrim",ltrimCommand,4,0,NULL,1,1,1},
     {"lrem",lremCommand,4,0,NULL,1,1,1},
-    {"rpoplpush",rpoplpushcommand,3,REDIS_CMD_DENYOOM,NULL,1,2,1},
+    {"rpoplpush",rpoplpushcommand,-3,REDIS_CMD_DENYOOM,NULL,1,2,1},
     {"sadd",saddCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1},
     {"srem",sremCommand,3,0,NULL,1,1,1},
     {"smove",smoveCommand,4,0,NULL,1,2,1},
