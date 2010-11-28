@@ -1,56 +1,59 @@
 #!/usr/bin/env ruby
 
-require 'net/http'
-require 'net/https'
-require 'json'
-require 'uri'
-
-dest = ARGV[0]
-tmpl = File.read './utils/help.h'
-
-url = URI.parse 'https://github.com/antirez/redis-doc/raw/master/commands.json'
-client = Net::HTTP.new url.host, url.port
-client.use_ssl = true
-res = client.get url.path
-
 def argument arg
-  name = arg['name'].is_a?(Array) ? arg['name'].join(' ') : arg['name']
-  name = arg['enum'].join '|' if 'enum' == arg['type']
-  name = arg['command'] + ' ' + name if arg['command']
-  if arg['multiple']
-    name = "(#{name})"
-    name += arg['optional'] ? '*' : '+'
-  elsif arg['optional']
-    name = "(#{name})?"
+  name = arg["name"].is_a?(Array) ? arg["name"].join(" ") : arg["name"]
+  name = arg["enum"].join "|" if "enum" == arg["type"]
+  name = arg["command"] + " " + name if arg["command"]
+  if arg["multiple"]
+    name = "#{name} [#{name} ...]"
+  end
+  if arg["optional"]
+    name = "[#{name}]"
   end
   name
 end
 
 def arguments command
-  return '-' unless command['arguments']
-  command['arguments'].map do |arg|
+  return "-" unless command["arguments"]
+  command["arguments"].map do |arg|
     argument arg
-  end.join ' '
+  end.join " "
 end
 
-case res
-when Net::HTTPSuccess
-  first = true
-  commands = JSON.parse(res.body)
-  c = commands.map do |key, command|
-    buf = if first
-      first = false
-      ' '
-    else
-      "\n  ,"
-    end
-    buf += " { \"#{key}\"\n" +
-    "  , \"#{arguments(command)}\"\n" +
-    "  , \"#{command['summary']}\"\n" +
-    "  , COMMAND_GROUP_#{command['group'].upcase}\n" +
-    "  , \"#{command['since']}\" }"
-  end.join("\n")
-  puts "\n// Auto-generated, do not edit.\n" + tmpl.sub('__COMMANDS__', c)
-else
-  res.error!
+def commands
+  return @commands if @commands
+
+  require "net/http"
+  require "net/https"
+  require "json"
+  require "uri"
+
+  url = URI.parse "https://github.com/antirez/redis-doc/raw/master/commands.json"
+  client = Net::HTTP.new url.host, url.port
+  client.use_ssl = true
+  response = client.get url.path
+  if response.is_a?(Net::HTTPSuccess)
+    @commands = JSON.parse(response.body)
+  else
+    response.error!
+  end
 end
+
+def generate_commands
+  commands.to_a.sort do |x,y|
+    x[0] <=> y[0]
+  end.map do |key, command|
+    <<-SPEC
+{ "#{key}",
+    "#{arguments(command)}",
+    "#{command["summary"]}",
+    COMMAND_GROUP_#{command["group"].upcase},
+    "#{command["since"]}" }
+    SPEC
+  end.join(",  ")
+end
+
+# Write to stdout
+tmpl = File.read "./utils/help.h"
+puts "\n// Auto-generated, do not edit.\n" + tmpl.sub("__COMMANDS__", generate_commands)
+
