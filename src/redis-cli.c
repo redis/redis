@@ -412,7 +412,7 @@ static void repl() {
     sds *argv;
 
     config.interactive = 1;
-    while((line = linenoise("redis> ")) != NULL) {
+    while((line = linenoise(context ? "redis> " : "not connected> ")) != NULL) {
         if (line[0] != '\0') {
             argv = sdssplitargs(line,&argc);
             linenoiseHistoryAdd(line);

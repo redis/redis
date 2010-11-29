@@ -664,6 +664,7 @@ void __redisSetError(redisContext *c, int type, const sds errstr) {
 
 static redisContext *redisContextInit() {
     redisContext *c = calloc(sizeof(redisContext),1);
+    c->fd = -1; /* quick fix for a bug that should be addressed differently */
     c->err = 0;
     c->errstr = NULL;
     c->obuf = sdsempty();
