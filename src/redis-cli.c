@@ -273,6 +273,11 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
     size_t *argvlen;
     int j;
 
+    if (context == NULL) {
+        printf("Not connected, please use: connect <host> <port>\n");
+        return REDIS_OK;
+    }
+
     config.raw_output = !strcasecmp(command,"info");
     if (!strcasecmp(command,"help")) {
         showInteractiveHelp();
@@ -319,7 +324,8 @@ static int parseOptions(int argc, char **argv) {
         int lastarg = i==argc-1;
 
         if (!strcmp(argv[i],"-h") && !lastarg) {
-            config.hostip = argv[i+1];
+            sdsfree(config.hostip);
+            config.hostip = sdsnew(argv[i+1]);
             i++;
         } else if (!strcmp(argv[i],"-h") && lastarg) {
             usage();
@@ -419,14 +425,16 @@ static void repl() {
                     strcasecmp(argv[0],"exit") == 0)
                 {
                     exit(0);
+                } else if (argc == 3 && !strcasecmp(argv[0],"connect")) {
+                    sdsfree(config.hostip);
+                    config.hostip = sdsnew(argv[1]);
+                    config.hostport = atoi(argv[2]);
+                    cliConnect(1);
                 } else {
                     long long start_time = mstime(), elapsed;
 
                     if (cliSendCommand(argc,argv,1) != REDIS_OK) {
-                        printf("Reconnecting... ");
-                        fflush(stdout);
-                        if (cliConnect(1) != REDIS_OK) exit(1);
-                        printf("OK\n");
+                        cliConnect(1);
 
                         /* If we still cannot send the command,
                          * print error and abort. */
@@ -466,7 +474,7 @@ static int noninteractive(int argc, char **argv) {
 int main(int argc, char **argv) {
     int firstarg;
 
-    config.hostip = "127.0.0.1";
+    config.hostip = sdsnew("127.0.0.1");
     config.hostport = 6379;
     config.hostsocket = NULL;
     config.repeat = 1;
