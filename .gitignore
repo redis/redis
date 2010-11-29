@@ -18,3 +18,5 @@ SHORT_TERM_TODO
 redis.conf.*
 release.h
 src/transfer.sh
+src/configs
+src/redis-server.dSYM
