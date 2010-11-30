@@ -2,9 +2,18 @@
 #include <stdlib.h>
 #include "linenoise.h"
 
+
+void completion(const char *buf, linenoiseCompletions *lc) {
+    if (buf[0] == 'h') {
+        linenoiseAddCompletion(lc,"hello");
+        linenoiseAddCompletion(lc,"hello there");
+    }
+}
+
 int main(void) {
     char *line;
 
+    linenoiseSetCompletionCallback(completion);
     linenoiseHistoryLoad("history.txt"); /* Load the history at startup */
     while((line = linenoise("hello> ")) != NULL) {
         if (line[0] != '\0') {
