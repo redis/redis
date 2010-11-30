@@ -748,10 +748,6 @@ void unblockClientWaitingData(redisClient *c) {
         decrRefCount(c->bpop.keys[j]);
     }
 
-    if (c->bpop.target != NULL) {
-        decrRefCount(c->bpop.target);
-    }
-
     /* Cleanup the client structure */
     zfree(c->bpop.keys);
     c->bpop.keys = NULL;
@@ -789,7 +785,11 @@ int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
     redisAssert(ln != NULL);
     receiver = ln->value;
 
-    if (receiver->bpop.target == NULL) {
+    robj *target = receiver->bpop.target;
+
+    unblockClientWaitingData(receiver);
+
+    if (target == NULL) {
         /* BRPOP/BLPOP return a multi-bulk with the name
          * of the popped list */
         addReplyMultiBulkLen(receiver,2);
@@ -797,23 +797,23 @@ int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
         addReplyBulk(receiver,ele);
     } else {
         /* BRPOPLPUSH */
-        robj *dobj = lookupKeyWrite(receiver->db,receiver->bpop.target);
+        robj *dobj = lookupKeyWrite(receiver->db,target);
         if (dobj && checkType(receiver,dobj,REDIS_LIST)) return 0;
 
         addReplyBulk(receiver,ele);
 
-        if (!handleClientsWaitingListPush(receiver, receiver->bpop.target, ele)) {
+        if (!handleClientsWaitingListPush(receiver, target, ele)) {
             /* Create the list if the key does not exist */
             if (!dobj) {
                 dobj = createZiplistObject();
-                dbAdd(receiver->db, receiver->bpop.target, dobj);
+                dbAdd(receiver->db, target, dobj);
             }
-
             listTypePush(dobj, ele, REDIS_HEAD);
         }
+
+        decrRefCount(target);
     }
 
-    unblockClientWaitingData(receiver);
     return 1;
 }
 
