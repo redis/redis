@@ -561,6 +561,8 @@ static void repl() {
                     config.hostip = sdsnew(argv[1]);
                     config.hostport = atoi(argv[2]);
                     cliConnect(1);
+                } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
+                    linenoiseClearScreen();
                 } else {
                     long long start_time = mstime(), elapsed;
 

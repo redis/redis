@@ -4,6 +4,8 @@
  * See linenoise.c for more information.
  *
  * Copyright (c) 2010, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2010, Pieter Noordhuis <pcnoordhuis at gmail dot com>
+ *
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -48,5 +50,6 @@ int linenoiseHistoryAdd(const char *line);
 int linenoiseHistorySetMaxLen(int len);
 int linenoiseHistorySave(char *filename);
 int linenoiseHistoryLoad(char *filename);
+void linenoiseClearScreen(void);
 
 #endif /* __LINENOISE_H */
