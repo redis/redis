@@ -433,7 +433,7 @@ struct redisServer {
     int maxmemory_policy;
     int maxmemory_samples;
     /* Blocked clients */
-    unsigned int blpop_blocked_clients;
+    unsigned int bpop_blocked_clients;
     unsigned int vm_blocked_clients;
     /* Sort parameters - qsort_r() is only available under BSD so we
      * have to take this state global, in order to pass it to sortCompare() */

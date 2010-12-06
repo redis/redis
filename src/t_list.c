@@ -725,7 +725,7 @@ void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeout, robj
     }
     /* Mark the client as a blocked client */
     c->flags |= REDIS_BLOCKED;
-    server.blpop_blocked_clients++;
+    server.bpop_blocked_clients++;
 }
 
 /* Unblock a client that's waiting in a blocking operation such as BLPOP */
@@ -753,7 +753,7 @@ void unblockClientWaitingData(redisClient *c) {
     c->bpop.keys = NULL;
     c->bpop.target = NULL;
     c->flags &= (~REDIS_BLOCKED);
-    server.blpop_blocked_clients--;
+    server.bpop_blocked_clients--;
     /* We want to process data if there is some command waiting
      * in the input buffer. Note that this is safe even if
      * unblockClientWaitingData() gets called from freeClient() because

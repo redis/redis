@@ -573,7 +573,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Close connections of timedout clients */
-    if ((server.maxidletime && !(loops % 100)) || server.blpop_blocked_clients)
+    if ((server.maxidletime && !(loops % 100)) || server.bpop_blocked_clients)
         closeTimedoutClients();
 
     /* Check if a background saving or AOF rewrite in progress terminated */
@@ -759,7 +759,7 @@ void initServerConfig() {
     server.rdbcompression = 1;
     server.activerehashing = 1;
     server.maxclients = 0;
-    server.blpop_blocked_clients = 0;
+    server.bpop_blocked_clients = 0;
     server.maxmemory = 0;
     server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_LRU;
     server.maxmemory_samples = 3;
@@ -1170,7 +1170,7 @@ sds genRedisInfoString(void) {
         (float)c_ru.ru_stime.tv_sec+(float)c_ru.ru_stime.tv_usec/1000000,
         listLength(server.clients)-listLength(server.slaves),
         listLength(server.slaves),
-        server.blpop_blocked_clients,
+        server.bpop_blocked_clients,
         zmalloc_used_memory(),
         hmem,
         zmalloc_get_rss(),
