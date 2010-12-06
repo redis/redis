@@ -759,12 +759,7 @@ void unblockClientWaitingData(redisClient *c) {
     c->bpop.target = NULL;
     c->flags &= (~REDIS_BLOCKED);
     server.bpop_blocked_clients--;
-    /* We want to process data if there is some command waiting
-     * in the input buffer. Note that this is safe even if
-     * unblockClientWaitingData() gets called from freeClient() because
-     * freeClient() will be smart enough to call this function
-     * *after* c->querybuf was set to NULL. */
-    if (c->querybuf && sdslen(c->querybuf) > 0) processInputBuffer(c);
+    listAddNodeTail(server.unblocked_clients,c);
 }
 
 /* This should be called from any function PUSHing into lists.

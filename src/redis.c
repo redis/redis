@@ -646,15 +646,16 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
  * for ready file descriptors. */
 void beforeSleep(struct aeEventLoop *eventLoop) {
     REDIS_NOTUSED(eventLoop);
+    listNode *ln;
+    redisClient *c;
 
     /* Awake clients that got all the swapped keys they requested */
     if (server.vm_enabled && listLength(server.io_ready_clients)) {
         listIter li;
-        listNode *ln;
 
         listRewind(server.io_ready_clients,&li);
         while((ln = listNext(&li))) {
-            redisClient *c = ln->value;
+            c = ln->value;
             struct redisCommand *cmd;
 
             /* Resume the client. */
@@ -672,6 +673,19 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
                 processInputBuffer(c);
         }
     }
+
+    /* Try to process pending commands for clients that were just unblocked. */
+    while (listLength(server.unblocked_clients)) {
+        ln = listFirst(server.unblocked_clients);
+        redisAssert(ln != NULL);
+        c = ln->value;
+        listDelNode(server.unblocked_clients,ln);
+
+        /* Process remaining data in the input buffer. */
+        if (c->querybuf && sdslen(c->querybuf) > 0)
+            processInputBuffer(c);
+    }
+
     /* Write the AOF buffer on disk */
     flushAppendOnlyFile();
 }
@@ -818,6 +832,7 @@ void initServer() {
     server.clients = listCreate();
     server.slaves = listCreate();
     server.monitors = listCreate();
+    server.unblocked_clients = listCreate();
     createSharedObjects();
     server.el = aeCreateEventLoop();
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);

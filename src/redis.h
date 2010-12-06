@@ -435,6 +435,7 @@ struct redisServer {
     /* Blocked clients */
     unsigned int bpop_blocked_clients;
     unsigned int vm_blocked_clients;
+    list *unblocked_clients;
     /* Sort parameters - qsort_r() is only available under BSD so we
      * have to take this state global, in order to pass it to sortCompare() */
     int sort_desc;
