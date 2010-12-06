@@ -205,7 +205,7 @@ start_server {
         assert_equal {foo} [r lrange target2 0 -1]
     }
 
-    test "linked BRPOPLPUSH" {
+    test "Linked BRPOPLPUSH" {
       set rd1 [redis_deferring_client]
       set rd2 [redis_deferring_client]
 
@@ -221,7 +221,7 @@ start_server {
       assert_equal {foo} [r lrange list3 0 -1]
     }
 
-    test "circular BRPOPLPUSH" {
+    test "Circular BRPOPLPUSH" {
       set rd1 [redis_deferring_client]
       set rd2 [redis_deferring_client]
 
@@ -236,7 +236,7 @@ start_server {
       assert_equal {} [r lrange list2 0 -1]
     }
 
-    test "self-referential BRPOPLPUSH" {
+    test "Self-referential BRPOPLPUSH" {
       set rd [redis_deferring_client]
 
       r del blist

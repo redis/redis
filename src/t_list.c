@@ -705,7 +705,7 @@ void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeout, robj
     c->bpop.target = target;
 
     if (target != NULL) {
-      incrRefCount(target);
+        incrRefCount(target);
     }
 
     for (j = 0; j < numkeys; j++) {
