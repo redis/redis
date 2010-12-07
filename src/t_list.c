@@ -472,12 +472,11 @@ void rpopCommand(redisClient *c) {
 }
 
 void lrangeCommand(redisClient *c) {
-    robj *o, *value;
+    robj *o;
     int start = atoi(c->argv[2]->ptr);
     int end = atoi(c->argv[3]->ptr);
     int llen;
-    int rangelen, j;
-    listTypeEntry entry;
+    int rangelen;
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL
          || checkType(c,o,REDIS_LIST)) return;
@@ -499,14 +498,31 @@ void lrangeCommand(redisClient *c) {
 
     /* Return the result in form of a multi-bulk reply */
     addReplyMultiBulkLen(c,rangelen);
-    listTypeIterator *li = listTypeInitIterator(o,start,REDIS_TAIL);
-    for (j = 0; j < rangelen; j++) {
-        redisAssert(listTypeNext(li,&entry));
-        value = listTypeGet(&entry);
-        addReplyBulk(c,value);
-        decrRefCount(value);
+    if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+        unsigned char *p = ziplistIndex(o->ptr,start);
+        unsigned char *vstr;
+        unsigned int vlen;
+        long long vlong;
+
+        while(rangelen--) {
+            ziplistGet(p,&vstr,&vlen,&vlong);
+            if (vstr) {
+                addReplyBulkCBuffer(c,vstr,vlen);
+            } else {
+                addReplyBulkLongLong(c,vlong);
+            }
+            p = ziplistNext(o->ptr,p);
+        }
+    } else if (o->encoding == REDIS_ENCODING_LINKEDLIST) {
+        listNode *ln = listIndex(o->ptr,start);
+
+        while(rangelen--) {
+            addReplyBulk(c,ln->value);
+            ln = ln->next;
+        }
+    } else {
+        redisPanic("List encoding is not LINKEDLIST nor ZIPLIST!");
     }
-    listTypeReleaseIterator(li);
 }
 
 void ltrimCommand(redisClient *c) {
