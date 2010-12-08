@@ -17,6 +17,7 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <pthread.h>
+#include <syslog.h>
 
 #include "ae.h"     /* Event driven programming library */
 #include "sds.h"    /* Dynamic safe strings */
@@ -173,6 +174,12 @@
 #define REDIS_SORT_ASC 1
 #define REDIS_SORT_DESC 2
 #define REDIS_SORTKEY_MAX 1024
+
+/* Log flags */
+#define REDIS_LOG_STDOUT    0x01
+#define REDIS_LOG_STDERR    0x02
+#define REDIS_LOG_FILE      0x04
+#define REDIS_LOG_SYSLOG    0x08
 
 /* Log levels */
 #define REDIS_DEBUG 0
@@ -402,6 +409,9 @@ struct redisServer {
     struct saveparam *saveparams;
     int saveparamslen;
     char *logfile;
+    int logdest;
+    char *logident;
+    int logfacility;
     char *dbfilename;
     char *appendfilename;
     char *requirepass;

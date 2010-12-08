@@ -95,25 +95,98 @@ void loadServerConfig(char *filename) {
                 err = "Invalid log level. Must be one of debug, notice, warning";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"logdest") && argc >= 2) {
+            struct
+            {
+                const char     *name;
+                const int       value;
+            } validLogDestinations[] =
+            {
+                {"stdout",  REDIS_LOG_STDOUT},
+                {"stderr",  REDIS_LOG_STDERR},
+                {"file",    REDIS_LOG_FILE},
+                {"syslog",  REDIS_LOG_SYSLOG},
+                {NULL, 0}
+            };
+            int i;
+
+            /* We set a default, so clear it first. */
+            server.logdest = 0;
+
+            for (i = 1 ; i < argc ; i++)
+            {
+                int j, value = 0;
+
+                for (j = 0; validLogDestinations[j].name; j++)
+                {
+                    if (!strcasecmp(validLogDestinations[j].name, argv[i]))
+                    {
+                        value = validLogDestinations[j].value;
+                        break;
+                    }
+                }
+
+                if (value)
+                    server.logdest |= value;
+                else
+                {
+                    err = "Invalid log destination. Must be one of stdout, file, syslog";
+                    goto loaderr;
+                }
+            }
+        } else if (!strcasecmp(argv[0],"logfacility") && argc == 2) {
+            struct
+            {
+                const char     *name;
+                const int       value;
+            } validSyslogFacilities[] =
+            {
+                {"local0",  LOG_LOCAL0},
+                {"local1",  LOG_LOCAL1},
+                {"local2",  LOG_LOCAL2},
+                {"local3",  LOG_LOCAL3},
+                {"local4",  LOG_LOCAL4},
+                {"local5",  LOG_LOCAL5},
+                {"local6",  LOG_LOCAL6},
+                {"local7",  LOG_LOCAL7},
+                {NULL, 0}
+            };
+            int i;
+
+            for (i = 0; validSyslogFacilities[i].name; i++)
+            {
+                if (!strcasecmp(validSyslogFacilities[i].name, argv[1]))
+                {
+                    server.logfacility = validSyslogFacilities[i].value;
+                    break;
+                }
+            }
+
+            if (!validSyslogFacilities[i].name)
+            {
+                err = "Invalid log facility. Must be one of LOCAL0-LOCAL7";
+                goto loaderr;
+            }
+
         } else if (!strcasecmp(argv[0],"logfile") && argc == 2) {
             FILE *logfp;
 
-            server.logfile = zstrdup(argv[1]);
-            if (!strcasecmp(server.logfile,"stdout")) {
+            /*
+             * Test if we are able to open the file. The server will not
+             * be able to abort just for this problem later...
+             */
+            if (server.logfile)
                 zfree(server.logfile);
-                server.logfile = NULL;
+            server.logfile = zstrdup(argv[1]);
+            logfp = fopen(server.logfile,"a");
+            if (logfp == NULL) {
+                err = sdscatprintf(sdsempty(),
+                    "Can't open the log file: %s", strerror(errno));
+                goto loaderr;
             }
-            if (server.logfile) {
-                /* Test if we are able to open the file. The server will not
-                 * be able to abort just for this problem later... */
-                logfp = fopen(server.logfile,"a");
-                if (logfp == NULL) {
-                    err = sdscatprintf(sdsempty(),
-                        "Can't open the log file: %s", strerror(errno));
-                    goto loaderr;
-                }
-                fclose(logfp);
-            }
+            fclose(logfp);
+        } else if (!strcasecmp(argv[0],"logident") && argc == 2) {
+            server.logident = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"databases") && argc == 2) {
             server.dbnum = atoi(argv[1]);
             if (server.dbnum < 1) {
@@ -153,7 +226,7 @@ void loadServerConfig(char *filename) {
             server.masterport = atoi(argv[2]);
             server.replstate = REDIS_REPL_CONNECT;
         } else if (!strcasecmp(argv[0],"masterauth") && argc == 2) {
-        	server.masterauth = zstrdup(argv[1]);
+            server.masterauth = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"slave-serve-stale-data") && argc == 2) {
             if ((server.repl_serve_stale_data = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
@@ -263,6 +336,44 @@ void loadServerConfig(char *filename) {
         sdsfree(line);
     }
     if (fp != stdin) fclose(fp);
+
+    /*
+     * Logging configurations require several parameters which may not always
+     * be provided in order.
+     */
+    if (server.logdest & REDIS_LOG_SYSLOG)
+    {
+        openlog(server.logident, LOG_PID | LOG_NDELAY | LOG_NOWAIT,
+            server.logfacility);
+    }
+
+    /*
+     * This check is kinda redundant, but because we have a default value
+     * for the server logfile, we have to evaluate that the default is
+     * valid as well as whether they specified a log file destination,
+     * but somehow unset the logfile.
+     */
+    if (server.logdest & REDIS_LOG_FILE)
+    {
+        linenum = 0;
+
+        if (server.logfile)
+        {
+            FILE *logfp = fopen(server.logfile, "a");
+            if (logfp == NULL) {
+                err = sdscatprintf(sdsempty(),
+                    "Can't open the log file: %s", strerror(errno));
+                goto loaderr;
+            }
+            fclose(logfp);
+        }
+        else
+        {
+            err = "FILE found in logdest, but logfile is undefined";
+            goto loaderr;
+        }
+    }
+
     return;
 
 loaderr:

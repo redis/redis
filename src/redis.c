@@ -190,25 +190,66 @@ struct redisCommand readonlyCommandTable[] = {
 void redisLog(int level, const char *fmt, ...) {
     va_list ap;
     FILE *fp;
+    int logdest = server.logdest;
+    int logmask = 1;
     char *c = ".-*#";
     char buf[64];
     time_t now;
 
     if (level < server.verbosity) return;
 
-    fp = (server.logfile == NULL) ? stdout : fopen(server.logfile,"a");
-    if (!fp) return;
-
-    va_start(ap, fmt);
     now = time(NULL);
     strftime(buf,64,"%d %b %H:%M:%S",localtime(&now));
-    fprintf(fp,"[%d] %s %c ",(int)getpid(),buf,c[level]);
-    vfprintf(fp, fmt, ap);
-    fprintf(fp,"\n");
-    fflush(fp);
-    va_end(ap);
+    va_start(ap, fmt);
 
-    if (server.logfile) fclose(fp);
+    /*
+     * Handle writing to standard out and/or a custom log file.  For a flag to
+     * be set, it would have to pass validation during config, so members such
+     * as server.logfile are guaranteed to be set if REDIS_LOG_FILE is.
+     */
+    while (logdest & (REDIS_LOG_STDOUT | REDIS_LOG_STDERR | REDIS_LOG_FILE))
+    {
+        if (logmask & logdest)
+        {
+            logdest &= ~logmask;
+
+            if (logmask & REDIS_LOG_STDOUT)
+                fp = stdout;
+            else if (logmask & REDIS_LOG_STDERR)
+                fp = stderr;
+            else
+                fp = fopen(server.logfile, "a");
+
+            fprintf(fp,"[%d] %s %c ",(int)getpid(),buf,c[level]);
+            vfprintf(fp, fmt, ap);
+            fprintf(fp,"\n");
+            fflush(fp);
+            va_end(ap);
+            va_start(ap, fmt);
+
+            if (fp && (logmask & REDIS_LOG_FILE))
+                fclose(fp);
+
+        }
+
+        logmask <<= 1;
+    }
+
+    if (server.logdest & REDIS_LOG_SYSLOG)
+    {
+        static const int redisToSyslogLevelMapping[] =
+        {
+            [REDIS_DEBUG]   = LOG_DEBUG,
+            [REDIS_VERBOSE] = LOG_DEBUG,
+            [REDIS_NOTICE]  = LOG_NOTICE,
+            [REDIS_WARNING] = LOG_WARNING,
+        };
+
+        /* NOTE this table requires that */
+        vsyslog(redisToSyslogLevelMapping[level], fmt, ap);
+    }
+
+    va_end(ap);
 }
 
 /* Redis generally does not try to recover from out of memory conditions
@@ -742,7 +783,10 @@ void initServerConfig() {
     server.maxidletime = REDIS_MAXIDLETIME;
     server.saveparams = NULL;
     server.loading = 0;
-    server.logfile = NULL; /* NULL = log on standard output */
+    server.logfile = zstrdup("/var/log/redis.log");
+    server.logdest = REDIS_LOG_STDOUT;
+    server.logident = zstrdup("redis");
+    server.logfacility = LOG_LOCAL0;
     server.glueoutputbuf = 1;
     server.daemonize = 0;
     server.appendonly = 0;
