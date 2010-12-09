@@ -150,10 +150,6 @@ void loadServerConfig(char *filename) {
                 err = "Invalid log facility. Must be one of USER or between LOCAL0-LOCAL7";
                 goto loaderr;
             }
-        } else if (!strcasecmp(argv[0],"syslog-ident") && argc == 2) {
-            
-
-            server.syslog_ident = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"databases") && argc == 2) {
             server.dbnum = atoi(argv[1]);
             if (server.dbnum < 1) {
