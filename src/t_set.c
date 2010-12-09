@@ -47,17 +47,17 @@ int setTypeAdd(robj *subject, robj *value) {
     return 0;
 }
 
-int setTypeRemove(robj *subject, robj *value) {
+int setTypeRemove(robj *setobj, robj *value) {
     long long llval;
-    if (subject->encoding == REDIS_ENCODING_HT) {
-        if (dictDelete(subject->ptr,value) == DICT_OK) {
-            if (htNeedsResize(subject->ptr)) dictResize(subject->ptr);
+    if (setobj->encoding == REDIS_ENCODING_HT) {
+        if (dictDelete(setobj->ptr,value) == DICT_OK) {
+            if (htNeedsResize(setobj->ptr)) dictResize(setobj->ptr);
             return 1;
         }
-    } else if (subject->encoding == REDIS_ENCODING_INTSET) {
+    } else if (setobj->encoding == REDIS_ENCODING_INTSET) {
         if (isObjectRepresentableAsLongLong(value,&llval) == REDIS_OK) {
-            uint8_t success;
-            subject->ptr = intsetRemove(subject->ptr,llval,&success);
+            int success;
+            setobj->ptr = intsetRemove(setobj->ptr,llval,&success);
             if (success) return 1;
         }
     } else {
@@ -120,21 +120,29 @@ robj *setTypeNext(setTypeIterator *si) {
 }
 
 
-/* Return random element from set. The returned object will always have
- * an incremented refcount. */
-robj *setTypeRandomElement(robj *subject) {
-    robj *ret = NULL;
-    if (subject->encoding == REDIS_ENCODING_HT) {
-        dictEntry *de = dictGetRandomKey(subject->ptr);
-        ret = dictGetEntryKey(de);
-        incrRefCount(ret);
-    } else if (subject->encoding == REDIS_ENCODING_INTSET) {
-        long long llval = intsetRandom(subject->ptr);
-        ret = createStringObjectFromLongLong(llval);
+/* Return random element from a non empty set.
+ * The returned element can be a long long value if the set is encoded
+ * as an "intset" blob of integers, or a redis object if the set
+ * is a regular set.
+ *
+ * The caller provides both pointers to be populated with the right
+ * object. The return value of the function is the object->encoding
+ * field of the object and is used by the caller to check if the
+ * long long pointer or the redis object pointere was populated.
+ *
+ * When an object is returned (the set was a real set) the ref count
+ * of the object is not incremented so this function can be considered
+ * copy-on-write friendly. */
+int setTypeRandomElement(robj *setobj, robj **objele, long long *llele) {
+    if (setobj->encoding == REDIS_ENCODING_HT) {
+        dictEntry *de = dictGetRandomKey(setobj->ptr);
+        *objele = dictGetEntryKey(de);
+    } else if (setobj->encoding == REDIS_ENCODING_INTSET) {
+        *llele = intsetRandom(setobj->ptr);
     } else {
         redisPanic("Unknown set encoding");
     }
-    return ret;
+    return setobj->encoding;
 }
 
 unsigned long setTypeSize(robj *subject) {
@@ -284,35 +292,38 @@ void scardCommand(redisClient *c) {
 
 void spopCommand(redisClient *c) {
     robj *set, *ele;
+    long long llele;
+    int encoding;
 
     if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
         checkType(c,set,REDIS_SET)) return;
 
-    ele = setTypeRandomElement(set);
-    if (ele == NULL) {
-        addReply(c,shared.nullbulk);
+    encoding = setTypeRandomElement(set,&ele,&llele);
+    if (encoding == REDIS_ENCODING_INTSET) {
+        addReplyBulkLongLong(c,llele);
+        set->ptr = intsetRemove(set->ptr,llele,NULL);
     } else {
-        setTypeRemove(set,ele);
         addReplyBulk(c,ele);
-        decrRefCount(ele);
-        if (setTypeSize(set) == 0) dbDelete(c->db,c->argv[1]);
-        touchWatchedKey(c->db,c->argv[1]);
-        server.dirty++;
+        setTypeRemove(set,ele);
     }
+    if (setTypeSize(set) == 0) dbDelete(c->db,c->argv[1]);
+    touchWatchedKey(c->db,c->argv[1]);
+    server.dirty++;
 }
 
 void srandmemberCommand(redisClient *c) {
     robj *set, *ele;
+    long long llele;
+    int encoding;
 
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
         checkType(c,set,REDIS_SET)) return;
 
-    ele = setTypeRandomElement(set);
-    if (ele == NULL) {
-        addReply(c,shared.nullbulk);
+    encoding = setTypeRandomElement(set,&ele,&llele);
+    if (encoding == REDIS_ENCODING_INTSET) {
+        addReplyBulkLongLong(c,llele);
     } else {
         addReplyBulk(c,ele);
-        decrRefCount(ele);
     }
 }
 

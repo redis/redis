@@ -814,7 +814,7 @@ int setTypeIsMember(robj *subject, robj *value);
 setTypeIterator *setTypeInitIterator(robj *subject);
 void setTypeReleaseIterator(setTypeIterator *si);
 robj *setTypeNext(setTypeIterator *si);
-robj *setTypeRandomElement(robj *subject);
+int setTypeRandomElement(robj *setobj, robj **objele, long long *llele);
 unsigned long setTypeSize(robj *subject);
 void setTypeConvert(robj *subject, int enc);
 
