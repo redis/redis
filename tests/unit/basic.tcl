@@ -410,7 +410,7 @@ start_server {tags {"basic"}} {
 
     test "SETBIT with out of range bit offset" {
         r del mykey
-        assert_error "*out of range*" {r setbit mykey [expr 8*1024*1024*1024] 1}
+        assert_error "*out of range*" {r setbit mykey [expr 4*1024*1024*1024] 1}
         assert_error "*out of range*" {r setbit mykey -1 1}
     }
 
