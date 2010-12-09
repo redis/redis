@@ -114,6 +114,46 @@ void loadServerConfig(char *filename) {
                 }
                 fclose(logfp);
             }
+        } else if (!strcasecmp(argv[0],"syslog-enabled") && argc == 2) {
+            if ((server.syslog_enabled = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"syslog-ident") && argc == 2) {
+            if (server.syslog_ident) zfree(server.syslog_ident);
+            server.syslog_ident = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"syslog-facility") && argc == 2) {
+            struct {
+                const char     *name;
+                const int       value;
+            } validSyslogFacilities[] = {
+                {"user",    LOG_USER},
+                {"local0",  LOG_LOCAL0},
+                {"local1",  LOG_LOCAL1},
+                {"local2",  LOG_LOCAL2},
+                {"local3",  LOG_LOCAL3},
+                {"local4",  LOG_LOCAL4},
+                {"local5",  LOG_LOCAL5},
+                {"local6",  LOG_LOCAL6},
+                {"local7",  LOG_LOCAL7},
+                {NULL, 0}
+            };
+            int i;
+
+            for (i = 0; validSyslogFacilities[i].name; i++) {
+                if (!strcasecmp(validSyslogFacilities[i].name, argv[1])) {
+                    server.syslog_facility = validSyslogFacilities[i].value;
+                    break;
+                }
+            }
+
+            if (!validSyslogFacilities[i].name) {
+                err = "Invalid log facility. Must be one of USER or between LOCAL0-LOCAL7";
+                goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"syslog-ident") && argc == 2) {
+            
+
+            server.syslog_ident = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"databases") && argc == 2) {
             server.dbnum = atoi(argv[1]);
             if (server.dbnum < 1) {
