@@ -263,7 +263,7 @@ zskiplistNode *zslFirstWithScore(zskiplist *zsl, double score) {
  * Returns 0 when the element cannot be found, rank otherwise.
  * Note that the rank is 1-based due to the span of zsl->header to the
  * first element. */
-unsigned long zslistTypeGetRank(zskiplist *zsl, double score, robj *o) {
+unsigned long zslGetRank(zskiplist *zsl, double score, robj *o) {
     zskiplistNode *x;
     unsigned long rank = 0;
     int i;
@@ -287,7 +287,7 @@ unsigned long zslistTypeGetRank(zskiplist *zsl, double score, robj *o) {
 }
 
 /* Finds an element by its rank. The rank argument needs to be 1-based. */
-zskiplistNode* zslistTypeGetElementByRank(zskiplist *zsl, unsigned long rank) {
+zskiplistNode* zslGetElementByRank(zskiplist *zsl, unsigned long rank) {
     zskiplistNode *x;
     unsigned long traversed = 0;
     int i;
@@ -810,10 +810,10 @@ void zrangeGenericCommand(redisClient *c, int reverse) {
     /* check if starting point is trivial, before searching
      * the element in log(N) time */
     if (reverse) {
-        ln = start == 0 ? zsl->tail : zslistTypeGetElementByRank(zsl, llen-start);
+        ln = start == 0 ? zsl->tail : zslGetElementByRank(zsl, llen-start);
     } else {
         ln = start == 0 ?
-            zsl->header->level[0].forward : zslistTypeGetElementByRank(zsl, start+1);
+            zsl->header->level[0].forward : zslGetElementByRank(zsl, start+1);
     }
 
     /* Return the result in form of a multi-bulk reply */
@@ -1039,7 +1039,7 @@ void zrankGenericCommand(redisClient *c, int reverse) {
     }
 
     score = dictGetEntryVal(de);
-    rank = zslistTypeGetRank(zsl, *score, c->argv[2]);
+    rank = zslGetRank(zsl, *score, c->argv[2]);
     if (rank) {
         if (reverse) {
             addReplyLongLong(c, zsl->length - rank);
