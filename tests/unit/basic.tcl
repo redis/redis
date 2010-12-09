@@ -374,4 +374,88 @@ start_server {tags {"basic"}} {
         r set mystring "foozzz0123456789 baz"
         r strlen mystring
     }
+
+    test "SETBIT against non-existing key" {
+        r del mykey
+
+        # Setting 2nd bit to on is integer 64, ascii "@"
+        assert_equal 1 [r setbit mykey 1 1]
+        assert_equal "@" [r get mykey]
+    }
+
+    test "SETBIT against string-encoded key" {
+        # Single byte with 2nd bit set
+        r set mykey "@"
+
+        # 64 + 32 = 96 => ascii "`" (backtick)
+        assert_equal 1 [r setbit mykey 2 1]
+        assert_equal "`" [r get mykey]
+    }
+
+    test "SETBIT against integer-encoded key" {
+        r set mykey 1
+        assert_encoding int mykey
+
+        # Ascii "1" is integer 49 = 00 11 00 01
+        # Setting 7th bit = 51 => ascii "3"
+        assert_equal 1 [r setbit mykey 6 1]
+        assert_equal "3" [r get mykey]
+    }
+
+    test "SETBIT against key with wrong type" {
+        r del mykey
+        r lpush mykey "foo"
+        assert_error "*wrong kind*" {r setbit mykey 0 1}
+    }
+
+    test "SETBIT with out of range bit offset" {
+        r del mykey
+        assert_error "*out of range*" {r setbit mykey [expr 8*1024*1024*1024] 1}
+        assert_error "*out of range*" {r setbit mykey -1 1}
+    }
+
+    test "SETBIT with non-bit argument" {
+        r del mykey
+        assert_error "*0 or 1*" {r setbit mykey 0 -1}
+        assert_error "*0 or 1*" {r setbit mykey 0  2}
+        assert_error "*0 or 1*" {r setbit mykey 0 10}
+        assert_error "*0 or 1*" {r setbit mykey 0 01}
+    }
+
+    test "GETBIT against non-existing key" {
+        r del mykey
+        assert_equal 0 [r getbit mykey 0]
+    }
+
+    test "GETBIT against string-encoded key" {
+        # Single byte with 2nd and 3rd bit set
+        r set mykey "`"
+
+        # In-range
+        assert_equal 0 [r getbit mykey 0]
+        assert_equal 1 [r getbit mykey 1]
+        assert_equal 1 [r getbit mykey 2]
+        assert_equal 0 [r getbit mykey 3]
+
+        # Out-range
+        assert_equal 0 [r getbit mykey 8]
+        assert_equal 0 [r getbit mykey 100]
+        assert_equal 0 [r getbit mykey 10000]
+    }
+
+    test "GETBIT against integer-encoded key" {
+        r set mykey 1
+        assert_encoding int mykey
+
+        # Ascii "1" is integer 49 = 00 11 00 01
+        assert_equal 0 [r getbit mykey 0]
+        assert_equal 0 [r getbit mykey 1]
+        assert_equal 1 [r getbit mykey 2]
+        assert_equal 1 [r getbit mykey 3]
+
+        # Out-range
+        assert_equal 0 [r getbit mykey 8]
+        assert_equal 0 [r getbit mykey 100]
+        assert_equal 0 [r getbit mykey 10000]
+    }
 }
