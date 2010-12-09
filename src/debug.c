@@ -121,7 +121,7 @@ void computeDatasetDigest(unsigned char *final) {
             } else if (o->type == REDIS_SET) {
                 setTypeIterator *si = setTypeInitIterator(o);
                 robj *ele;
-                while((ele = setTypeNext(si)) != NULL) {
+                while((ele = setTypeNextObject(si)) != NULL) {
                     xorObjectDigest(digest,ele);
                     decrRefCount(ele);
                 }
