@@ -31,27 +31,56 @@ void hashTypeTryObjectEncoding(robj *subject, robj **o1, robj **o2) {
     }
 }
 
-/* Get the value from a hash identified by key. Returns either a string
- * object or NULL if the value cannot be found. The refcount of the object
- * is always increased by 1 when the value was found. */
-robj *hashTypeGet(robj *o, robj *key) {
-    robj *value = NULL;
+/* Get the value from a hash identified by key.
+ *
+ * If the string is found either REDIS_ENCODING_HT or REDIS_ENCODING_ZIPMAP
+ * is returned, and either **objval or **v and *vlen are set accordingly,
+ * so that objects in hash tables are returend as objects and pointers
+ * inside a zipmap are returned as such.
+ *
+ * If the object was not found -1 is returned.
+ *
+ * This function is copy on write friendly as there is no incr/decr
+ * of refcount needed if objects are accessed just for reading operations. */
+int hashTypeGet(robj *o, robj *key, robj **objval, unsigned char **v,
+                unsigned int *vlen)
+{
     if (o->encoding == REDIS_ENCODING_ZIPMAP) {
-        unsigned char *v;
-        unsigned int vlen;
+        int found;
+
         key = getDecodedObject(key);
-        if (zipmapGet(o->ptr,key->ptr,sdslen(key->ptr),&v,&vlen)) {
-            value = createStringObject((char*)v,vlen);
-        }
+        found = zipmapGet(o->ptr,key->ptr,sdslen(key->ptr),v,vlen);
         decrRefCount(key);
+        if (!found) return -1;
     } else {
         dictEntry *de = dictFind(o->ptr,key);
-        if (de != NULL) {
-            value = dictGetEntryVal(de);
-            incrRefCount(value);
-        }
+        if (de == NULL) return -1;
+        *objval = dictGetEntryVal(de);
     }
-    return value;
+    return o->encoding;
+}
+
+/* Higher level function of hashTypeGet() that always returns a Redis
+ * object (either new or with refcount incremented), so that the caller
+ * can retain a reference or call decrRefCount after the usage.
+ *
+ * The lower level function can prevent copy on write so it is
+ * the preferred way of doing read operations. */
+robj *hashTypeGetObject(robj *o, robj *key) {
+    robj *objval;
+    unsigned char *v;
+    unsigned int vlen;
+
+    int encoding = hashTypeGet(o,key,&objval,&v,&vlen);
+    switch(encoding) {
+        case REDIS_ENCODING_HT:
+            incrRefCount(objval);
+            return objval;
+        case REDIS_ENCODING_ZIPMAP:
+            objval = createStringObject((char*)v,vlen);
+            return objval;
+        default: return NULL;
+    }
 }
 
 /* Test if the key exists in the given hash. Returns 1 if the key
@@ -270,7 +299,7 @@ void hincrbyCommand(redisClient *c) {
 
     if (getLongLongFromObjectOrReply(c,c->argv[3],&incr,NULL) != REDIS_OK) return;
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
-    if ((current = hashTypeGet(o,c->argv[2])) != NULL) {
+    if ((current = hashTypeGetObject(o,c->argv[2])) != NULL) {
         if (getLongLongFromObjectOrReply(c,current,&value,
             "hash value is not an integer") != REDIS_OK) {
             decrRefCount(current);
@@ -293,20 +322,29 @@ void hincrbyCommand(redisClient *c) {
 
 void hgetCommand(redisClient *c) {
     robj *o, *value;
+    unsigned char *v;
+    unsigned int vlen;
+    int encoding;
+
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
         checkType(c,o,REDIS_HASH)) return;
 
-    if ((value = hashTypeGet(o,c->argv[2])) != NULL) {
-        addReplyBulk(c,value);
-        decrRefCount(value);
+    if ((encoding = hashTypeGet(o,c->argv[2],&value,&v,&vlen)) != -1) {
+        if (encoding == REDIS_ENCODING_HT)
+            addReplyBulk(c,value);
+        else
+            addReplyBulkCBuffer(c,v,vlen);
     } else {
         addReply(c,shared.nullbulk);
     }
 }
 
 void hmgetCommand(redisClient *c) {
-    int i;
+    int i, encoding;
     robj *o, *value;
+    unsigned char *v;
+    unsigned int vlen;
+
     o = lookupKeyRead(c->db,c->argv[1]);
     if (o != NULL && o->type != REDIS_HASH) {
         addReply(c,shared.wrongtypeerr);
@@ -318,9 +356,12 @@ void hmgetCommand(redisClient *c) {
      * an empty hash. The reply should then be a series of NULLs. */
     addReplyMultiBulkLen(c,c->argc-2);
     for (i = 2; i < c->argc; i++) {
-        if (o != NULL && (value = hashTypeGet(o,c->argv[i])) != NULL) {
-            addReplyBulk(c,value);
-            decrRefCount(value);
+        if (o != NULL &&
+            (encoding = hashTypeGet(o,c->argv[i],&value,&v,&vlen)) != -1) {
+            if (encoding == REDIS_ENCODING_HT)
+                addReplyBulk(c,value);
+            else
+                addReplyBulkCBuffer(c,v,vlen);
         } else {
             addReply(c,shared.nullbulk);
         }
