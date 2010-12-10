@@ -279,7 +279,9 @@ static int completeLine(int fd, const char *prompt, char *buf, size_t buflen, si
 }
 
 void linenoiseClearScreen(void) {
-    write(STDIN_FILENO,"\x1b[H\x1b[2J",7);
+    if (write(STDIN_FILENO,"\x1b[H\x1b[2J",7) <= 0) {
+        /* nothing to do, just to avoid warning. */
+    }
 }
 
 static int linenoisePrompt(int fd, char *buf, size_t buflen, const char *prompt) {
