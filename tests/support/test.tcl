@@ -1,25 +1,23 @@
-set ::passed 0
-set ::failed 0
-set ::testnum 0
+set ::num_tests 0
+set ::num_passed 0
+set ::num_failed 0
+set ::tests_failed {}
 
 proc assert {condition} {
     if {![uplevel 1 expr $condition]} {
-        puts "!! ERROR\nExpected '$value' to evaluate to true"
-        error "assertion"
+        error "assertion:Expected '$value' to be true"
     }
 }
 
 proc assert_match {pattern value} {
     if {![string match $pattern $value]} {
-        puts "!! ERROR\nExpected '$value' to match '$pattern'"
-        error "assertion"
+        error "assertion:Expected '$value' to match '$pattern'"
     }
 }
 
 proc assert_equal {expected value} {
     if {$expected ne $value} {
-        puts "!! ERROR\nExpected '$value' to be equal to '$expected'"
-        error "assertion"
+        error "assertion:Expected '$value' to be equal to '$expected'"
     }
 }
 
@@ -27,8 +25,7 @@ proc assert_error {pattern code} {
     if {[catch {uplevel 1 $code} error]} {
         assert_match $pattern $error
     } else {
-        puts "!! ERROR\nExpected an error but nothing was catched"
-        error "assertion"
+        error "assertion:Expected an error but nothing was catched"
     }
 }
 
@@ -47,7 +44,7 @@ proc assert_type {type key} {
     assert_equal $type [r type $key]
 }
 
-proc test {name code {okpattern notspecified}} {
+proc test {name code {okpattern undefined}} {
     # abort if tagged with a tag to deny
     foreach tag $::denytags {
         if {[lsearch $::tags $tag] >= 0} {
@@ -69,30 +66,62 @@ proc test {name code {okpattern notspecified}} {
         }
     }
 
-    incr ::testnum
-    puts -nonewline [format "#%03d %-68s " $::testnum $name]
-    flush stdout
+    incr ::num_tests
+    set details {}
+    lappend details $::curfile
+    lappend details $::tags
+    lappend details $name
+
+    if {$::verbose} {
+        puts -nonewline [format "#%03d %-68s " $::num_tests $name]
+        flush stdout
+    }
+
     if {[catch {set retval [uplevel 1 $code]} error]} {
-        if {$error eq "assertion"} {
-            incr ::failed
+        if {[string match "assertion:*" $error]} {
+            set msg [string range $error 10 end]
+            lappend details $msg
+            lappend ::tests_failed $details
+
+            incr ::num_failed
+            if {$::verbose} {
+                puts "FAILED"
+                puts "$msg\n"
+            } else {
+                puts -nonewline "F"
+            }
         } else {
-            puts "EXCEPTION"
-            puts "\nCaught error: $error"
-            error "exception"
+            # Re-raise, let handler up the stack take care of this.
+            error $error $::errorInfo
         }
     } else {
-        if {$okpattern eq "notspecified" || $okpattern eq $retval || [string match $okpattern $retval]} {
-            puts "PASSED"
-            incr ::passed
+        if {$okpattern eq "undefined" || $okpattern eq $retval || [string match $okpattern $retval]} {
+            incr ::num_passed
+            if {$::verbose} {
+                puts "PASSED"
+            } else {
+                puts -nonewline "."
+            }
         } else {
-            puts "!! ERROR expected\n'$okpattern'\nbut got\n'$retval'"
-            incr ::failed
+            set msg "Expected '$okpattern' to equal or match '$retval'"
+            lappend details $msg
+            lappend ::tests_failed $details
+
+            incr ::num_failed
+            if {$::verbose} {
+                puts "FAILED"
+                puts "$msg\n"
+            } else {
+                puts -nonewline "F"
+            }
         }
     }
+    flush stdout
+
     if {$::traceleaks} {
         set output [exec leaks redis-server]
         if {![string match {*0 leaks*} $output]} {
-            puts "--------- Test $::testnum LEAKED! --------"
+            puts "--- Test \"$name\" leaked! ---"
             puts $output
             exit 1
         }

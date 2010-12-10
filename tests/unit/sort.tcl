@@ -144,8 +144,10 @@ start_server {
                 set sorted [r sort tosort BY weight_* LIMIT 0 10]
             }
             set elapsed [expr [clock clicks -milliseconds]-$start]
-            puts -nonewline "\n  Average time to sort: [expr double($elapsed)/100] milliseconds "
-            flush stdout
+            if {$::verbose} {
+                puts -nonewline "\n  Average time to sort: [expr double($elapsed)/100] milliseconds "
+                flush stdout
+            }
         }
 
         test "SORT speed, $num element list BY hash field, 100 times" {
@@ -154,8 +156,10 @@ start_server {
                 set sorted [r sort tosort BY wobj_*->weight LIMIT 0 10]
             }
             set elapsed [expr [clock clicks -milliseconds]-$start]
-            puts -nonewline "\n  Average time to sort: [expr double($elapsed)/100] milliseconds "
-            flush stdout
+            if {$::verbose} {
+                puts -nonewline "\n  Average time to sort: [expr double($elapsed)/100] milliseconds "
+                flush stdout
+            }
         }
 
         test "SORT speed, $num element list directly, 100 times" {
@@ -164,8 +168,10 @@ start_server {
                 set sorted [r sort tosort LIMIT 0 10]
             }
             set elapsed [expr [clock clicks -milliseconds]-$start]
-            puts -nonewline "\n  Average time to sort: [expr double($elapsed)/100] milliseconds "
-            flush stdout
+            if {$::verbose} {
+                puts -nonewline "\n  Average time to sort: [expr double($elapsed)/100] milliseconds "
+                flush stdout
+            }
         }
 
         test "SORT speed, $num element list BY <const>, 100 times" {
@@ -174,8 +180,10 @@ start_server {
                 set sorted [r sort tosort BY nokey LIMIT 0 10]
             }
             set elapsed [expr [clock clicks -milliseconds]-$start]
-            puts -nonewline "\n  Average time to sort: [expr double($elapsed)/100] milliseconds "
-            flush stdout
+            if {$::verbose} {
+                puts -nonewline "\n  Average time to sort: [expr double($elapsed)/100] milliseconds "
+                flush stdout
+            }
         }
     }
 }

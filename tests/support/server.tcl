@@ -83,9 +83,13 @@ proc ping_server {host port} {
         }
         close $fd
     } e]} {
-        puts -nonewline "."
+        if {$::verbose} {
+            puts -nonewline "."
+        }
     } else {
-        puts -nonewline "ok"
+        if {$::verbose} {
+            puts -nonewline "ok"
+        }
     }
     return $retval
 }
@@ -181,7 +185,10 @@ proc start_server {options {code undefined}} {
     set retrynum 20
     set serverisup 0
 
-    puts -nonewline "=== ($tags) Starting server ${::host}:${::port} "
+    if {$::verbose} {
+        puts -nonewline "=== ($tags) Starting server ${::host}:${::port} "
+    }
+
     after 10
     if {$code ne "undefined"} {
         while {[incr retrynum -1]} {
@@ -196,7 +203,10 @@ proc start_server {options {code undefined}} {
     } else {
         set serverisup 1
     }
-    puts {}
+
+    if {$::verbose} {
+        puts ""
+    }
 
     if {!$serverisup} {
         error_and_quit $config_file [exec cat $stderr]
@@ -246,41 +256,34 @@ proc start_server {options {code undefined}} {
         reconnect
 
         # execute provided block
-        set curnum $::testnum
-        if {![catch { uplevel 1 $code } err]} {
-            # zero exit status is good
-            unset err
+        set num_tests $::num_tests
+        if {[catch { uplevel 1 $code } error]} {
+            set backtrace $::errorInfo
+
+            # Kill the server without checking for leaks
+            dict set srv "skipleaks" 1
+            kill_server $srv
+
+            # Print warnings from log
+            puts [format "\nLogged warnings (pid %d):" [dict get $srv "pid"]]
+            set warnings [warnings_from_file [dict get $srv "stdout"]]
+            if {[string length $warnings] > 0} {
+                puts "$warnings"
+            } else {
+                puts "(none)"
+            }
+            puts ""
+
+            error $error $backtrace
         }
 
-        if {$curnum == $::testnum} {
-            # don't check for leaks when no tests were executed
+        # Don't do the leak check when no tests were run
+        if {$num_tests == $::num_tests} {
             dict set srv "skipleaks" 1
         }
 
         # pop the server object
         set ::servers [lrange $::servers 0 end-1]
-        
-        # allow an exception to bubble up the call chain but still kill this
-        # server, because we want to reuse the ports when the tests are re-run
-        if {[info exists err]} {
-            if {$err eq "exception"} {
-                puts [format "Logged warnings (pid %d):" [dict get $srv "pid"]]
-                set warnings [warnings_from_file [dict get $srv "stdout"]]
-                if {[string length $warnings] > 0} {
-                    puts "$warnings"
-                } else {
-                    puts "(none)"
-                }
-                # kill this server without checking for leaks
-                dict set srv "skipleaks" 1
-                kill_server $srv
-                error "exception"
-            } elseif {[string length $err] > 0} {
-                puts "Error executing the suite, aborting..."
-                puts $err
-                exit 1
-            }
-        }
 
         set ::tags [lrange $::tags 0 end-[llength $tags]]
         kill_server $srv

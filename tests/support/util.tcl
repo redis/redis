@@ -52,8 +52,10 @@ proc status {r property} {
 proc waitForBgsave r {
     while 1 {
         if {[status r bgsave_in_progress] eq 1} {
-            puts -nonewline "\nWaiting for background save to finish... "
-            flush stdout
+            if {$::verbose} {
+                puts -nonewline "\nWaiting for background save to finish... "
+                flush stdout
+            }
             after 1000
         } else {
             break
@@ -64,8 +66,10 @@ proc waitForBgsave r {
 proc waitForBgrewriteaof r {
     while 1 {
         if {[status r bgrewriteaof_in_progress] eq 1} {
-            puts -nonewline "\nWaiting for background AOF rewrite to finish... "
-            flush stdout
+            if {$::verbose} {
+                puts -nonewline "\nWaiting for background AOF rewrite to finish... "
+                flush stdout
+            }
             after 1000
         } else {
             break
