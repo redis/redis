@@ -139,7 +139,7 @@ void setbitCommand(redisClient *c) {
     byte = bitoffset >> 3;
     bit = 7 - (bitoffset & 0x7);
     on = bitvalue & 0x1;
-    o->ptr = sdsgrowsafe(o->ptr,byte+1);
+    o->ptr = sdsgrowzero(o->ptr,byte+1);
     ((char*)o->ptr)[byte] |= on << bit;
     ((char*)o->ptr)[byte] &= ~((!on) << bit);
 
