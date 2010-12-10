@@ -167,6 +167,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
             }
         }
         incr j
+    } elseif {$opt eq {--valgrind}} {
+        set ::valgrind 1
     } elseif {$opt eq {--file}} {
         set ::file $arg
         incr j

@@ -171,7 +171,7 @@ proc start_server {options {code undefined}} {
     set stderr [format "%s/%s" [dict get $config "dir"] "stderr"]
 
     if {$::valgrind} {
-        exec valgrind src/redis-server $config_file > $stdout 2> $stderr &
+        exec valgrind --suppressions=src/valgrind.sup src/redis-server $config_file > $stdout 2> $stderr &
     } else {
         exec src/redis-server $config_file > $stdout 2> $stderr &
     }
