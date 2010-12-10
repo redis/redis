@@ -149,7 +149,8 @@ void incrDecrCommand(redisClient *c, long long incr) {
     if (o && o->refcount == 1 && o->encoding == REDIS_ENCODING_INT) {
         long long newval = ((long)o->ptr) + incr;
 
-        if (newval >= LONG_MIN && newval <= LONG_MAX) {
+        if (newval < 0 && newval >= REDIS_SHARED_INTEGERS &&
+            newval >= LONG_MIN && newval <= LONG_MAX) {
             o->ptr = (void*) (long) newval;
             touchWatchedKey(c->db,c->argv[1]);
             server.dirty++;
