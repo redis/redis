@@ -416,10 +416,10 @@ start_server {tags {"basic"}} {
 
     test "SETBIT with non-bit argument" {
         r del mykey
-        assert_error "*0 or 1*" {r setbit mykey 0 -1}
-        assert_error "*0 or 1*" {r setbit mykey 0  2}
-        assert_error "*0 or 1*" {r setbit mykey 0 10}
-        assert_error "*0 or 1*" {r setbit mykey 0 01}
+        assert_error "*out of range*" {r setbit mykey 0 -1}
+        assert_error "*out of range*" {r setbit mykey 0  2}
+        assert_error "*out of range*" {r setbit mykey 0 10}
+        assert_error "*out of range*" {r setbit mykey 0 20}
     }
 
     test "GETBIT against non-existing key" {
