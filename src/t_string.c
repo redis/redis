@@ -358,7 +358,14 @@ void strlenCommand(redisClient *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,REDIS_STRING)) return;
 
-    o = getDecodedObject(o);
-    addReplyLongLong(c,sdslen(o->ptr));
-    decrRefCount(o);
+    if (o->encoding == REDIS_ENCODING_RAW) {
+        addReplyLongLong(c,sdslen(o->ptr));
+    } else if (o->encoding == REDIS_ENCODING_INT) {
+        char llbuf[32];
+        int len = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
+        addReplyLongLong(c,len);
+    } else {
+        redisPanic("Unknown string encoding");
+    }
 }
+
