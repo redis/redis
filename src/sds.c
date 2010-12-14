@@ -116,6 +116,25 @@ static sds sdsMakeRoomFor(sds s, size_t addlen) {
     return newsh->buf;
 }
 
+/* Grow the sds to have the specified length. Bytes that were not part of
+ * the original length of the sds will be set to zero. */
+sds sdsgrowzero(sds s, size_t len) {
+    struct sdshdr *sh = (void*)(s-(sizeof(struct sdshdr)));
+    size_t totlen, curlen = sh->len;
+
+    if (len <= curlen) return s;
+    s = sdsMakeRoomFor(s,len-curlen);
+    if (s == NULL) return NULL;
+
+    /* Make sure added region doesn't contain garbage */
+    sh = (void*)(s-(sizeof(struct sdshdr)));
+    memset(s+curlen,0,(len-curlen+1)); /* also set trailing \0 byte */
+    totlen = sh->len+sh->free;
+    sh->len = len;
+    sh->free = totlen-sh->len;
+    return s;
+}
+
 sds sdscatlen(sds s, void *t, size_t len) {
     struct sdshdr *sh;
     size_t curlen = sdslen(s);
