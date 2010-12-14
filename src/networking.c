@@ -41,8 +41,10 @@ redisClient *createClient(int fd) {
     c->reply = listCreate();
     listSetFreeMethod(c->reply,decrRefCount);
     listSetDupMethod(c->reply,dupClientReplyValue);
-    c->blocking_keys = NULL;
-    c->blocking_keys_num = 0;
+    c->bpop.keys = NULL;
+    c->bpop.count = 0;
+    c->bpop.timeout = 0;
+    c->bpop.target = NULL;
     c->io_keys = listCreate();
     c->watched_keys = listCreate();
     listSetFreeMethod(c->io_keys,decrRefCount);
@@ -699,7 +701,7 @@ void closeTimedoutClients(void) {
             redisLog(REDIS_VERBOSE,"Closing idle client");
             freeClient(c);
         } else if (c->flags & REDIS_BLOCKED) {
-            if (c->blockingto != 0 && c->blockingto < now) {
+            if (c->bpop.timeout != 0 && c->bpop.timeout < now) {
                 addReply(c,shared.nullmultibulk);
                 unblockClientWaitingData(c);
             }

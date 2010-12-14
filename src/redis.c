@@ -93,6 +93,7 @@ struct redisCommand readonlyCommandTable[] = {
     {"rpop",rpopCommand,2,0,NULL,1,1,1},
     {"lpop",lpopCommand,2,0,NULL,1,1,1},
     {"brpop",brpopCommand,-3,0,NULL,1,1,1},
+    {"brpoplpush",brpoplpushCommand,4,REDIS_CMD_DENYOOM,NULL,1,2,1},
     {"blpop",blpopCommand,-3,0,NULL,1,1,1},
     {"llen",llenCommand,2,0,NULL,1,1,1},
     {"lindex",lindexCommand,3,0,NULL,1,1,1},
@@ -100,7 +101,7 @@ struct redisCommand readonlyCommandTable[] = {
     {"lrange",lrangeCommand,4,0,NULL,1,1,1},
     {"ltrim",ltrimCommand,4,0,NULL,1,1,1},
     {"lrem",lremCommand,4,0,NULL,1,1,1},
-    {"rpoplpush",rpoplpushcommand,3,REDIS_CMD_DENYOOM,NULL,1,2,1},
+    {"rpoplpush",rpoplpushCommand,3,REDIS_CMD_DENYOOM,NULL,1,2,1},
     {"sadd",saddCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1},
     {"srem",sremCommand,3,0,NULL,1,1,1},
     {"smove",smoveCommand,4,0,NULL,1,2,1},
@@ -576,7 +577,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Close connections of timedout clients */
-    if ((server.maxidletime && !(loops % 100)) || server.blpop_blocked_clients)
+    if ((server.maxidletime && !(loops % 100)) || server.bpop_blocked_clients)
         closeTimedoutClients();
 
     /* Check if a background saving or AOF rewrite in progress terminated */
@@ -649,15 +650,16 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
  * for ready file descriptors. */
 void beforeSleep(struct aeEventLoop *eventLoop) {
     REDIS_NOTUSED(eventLoop);
+    listNode *ln;
+    redisClient *c;
 
     /* Awake clients that got all the swapped keys they requested */
     if (server.vm_enabled && listLength(server.io_ready_clients)) {
         listIter li;
-        listNode *ln;
 
         listRewind(server.io_ready_clients,&li);
         while((ln = listNext(&li))) {
-            redisClient *c = ln->value;
+            c = ln->value;
             struct redisCommand *cmd;
 
             /* Resume the client. */
@@ -675,6 +677,19 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
                 processInputBuffer(c);
         }
     }
+
+    /* Try to process pending commands for clients that were just unblocked. */
+    while (listLength(server.unblocked_clients)) {
+        ln = listFirst(server.unblocked_clients);
+        redisAssert(ln != NULL);
+        c = ln->value;
+        listDelNode(server.unblocked_clients,ln);
+
+        /* Process remaining data in the input buffer. */
+        if (c->querybuf && sdslen(c->querybuf) > 0)
+            processInputBuffer(c);
+    }
+
     /* Write the AOF buffer on disk */
     flushAppendOnlyFile();
 }
@@ -762,7 +777,7 @@ void initServerConfig() {
     server.rdbcompression = 1;
     server.activerehashing = 1;
     server.maxclients = 0;
-    server.blpop_blocked_clients = 0;
+    server.bpop_blocked_clients = 0;
     server.maxmemory = 0;
     server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_LRU;
     server.maxmemory_samples = 3;
@@ -821,6 +836,7 @@ void initServer() {
     server.clients = listCreate();
     server.slaves = listCreate();
     server.monitors = listCreate();
+    server.unblocked_clients = listCreate();
     createSharedObjects();
     server.el = aeCreateEventLoop();
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
@@ -1173,7 +1189,7 @@ sds genRedisInfoString(void) {
         (float)c_ru.ru_stime.tv_sec+(float)c_ru.ru_stime.tv_usec/1000000,
         listLength(server.clients)-listLength(server.slaves),
         listLength(server.slaves),
-        server.blpop_blocked_clients,
+        server.bpop_blocked_clients,
         zmalloc_used_memory(),
         hmem,
         zmalloc_get_rss(),
