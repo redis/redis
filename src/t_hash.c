@@ -219,8 +219,8 @@ int hashTypeCurrent(hashTypeIterator *hi, int what, robj **objval, unsigned char
  * reference is retained. */
 robj *hashTypeCurrentObject(hashTypeIterator *hi, int what) {
     robj *obj;
-    unsigned char *v;
-    unsigned int vlen;
+    unsigned char *v = NULL;
+    unsigned int vlen = 0;
     int encoding = hashTypeCurrent(hi,what,&obj,&v,&vlen);
 
     if (encoding == REDIS_ENCODING_HT) {
@@ -430,8 +430,8 @@ void genericHgetallCommand(redisClient *c, int flags) {
     hi = hashTypeInitIterator(o);
     while (hashTypeNext(hi) != REDIS_ERR) {
         robj *obj;
-        unsigned char *v;
-        unsigned int vlen;
+        unsigned char *v = NULL;
+        unsigned int vlen = 0;
         int encoding;
 
         if (flags & REDIS_HASH_KEY) {
