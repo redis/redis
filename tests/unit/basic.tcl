@@ -377,29 +377,29 @@ start_server {tags {"basic"}} {
 
     test "SETBIT against non-existing key" {
         r del mykey
-
-        # Setting 2nd bit to on is integer 64, ascii "@"
-        assert_equal 1 [r setbit mykey 1 1]
-        assert_equal "@" [r get mykey]
+        assert_equal 0 [r setbit mykey 1 1]
+        assert_equal [binary format B* 01000000] [r get mykey]
     }
 
     test "SETBIT against string-encoded key" {
-        # Single byte with 2nd bit set
+        # Ascii "@" is integer 64 = 01 00 00 00
         r set mykey "@"
 
-        # 64 + 32 = 96 => ascii "`" (backtick)
-        assert_equal 1 [r setbit mykey 2 1]
-        assert_equal "`" [r get mykey]
+        assert_equal 0 [r setbit mykey 2 1]
+        assert_equal [binary format B* 01100000] [r get mykey]
+        assert_equal 1 [r setbit mykey 1 0]
+        assert_equal [binary format B* 00100000] [r get mykey]
     }
 
     test "SETBIT against integer-encoded key" {
+        # Ascii "1" is integer 49 = 00 11 00 01
         r set mykey 1
         assert_encoding int mykey
 
-        # Ascii "1" is integer 49 = 00 11 00 01
-        # Setting 7th bit = 51 => ascii "3"
-        assert_equal 1 [r setbit mykey 6 1]
-        assert_equal "3" [r get mykey]
+        assert_equal 0 [r setbit mykey 6 1]
+        assert_equal [binary format B* 00110011] [r get mykey]
+        assert_equal 1 [r setbit mykey 2 0]
+        assert_equal [binary format B* 00010011] [r get mykey]
     }
 
     test "SETBIT against key with wrong type" {
