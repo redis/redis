@@ -889,6 +889,7 @@ void delCommand(redisClient *c);
 void existsCommand(redisClient *c);
 void setbitCommand(redisClient *c);
 void getbitCommand(redisClient *c);
+void setrangeCommand(redisClient *c);
 void incrCommand(redisClient *c);
 void decrCommand(redisClient *c);
 void incrbyCommand(redisClient *c);

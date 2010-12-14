@@ -458,4 +458,108 @@ start_server {tags {"basic"}} {
         assert_equal 0 [r getbit mykey 100]
         assert_equal 0 [r getbit mykey 10000]
     }
+
+    test "SETRANGE against non-existing key" {
+        r del mykey
+        assert_equal 3 [r setrange mykey 0 foo]
+        assert_equal "foo" [r get mykey]
+
+        r del mykey
+        assert_equal 0 [r setrange mykey 0 ""]
+        assert_equal 0 [r exists mykey]
+
+        r del mykey
+        assert_equal 4 [r setrange mykey 1 foo]
+        assert_equal "\000foo" [r get mykey]
+
+        r del mykey
+        assert_equal 3 [r setrange mykey -1 foo]
+        assert_equal "foo" [r get mykey]
+
+        r del mykey
+        assert_equal 3 [r setrange mykey -100 foo]
+        assert_equal "foo" [r get mykey]
+    }
+
+    test "SETRANGE against string-encoded key" {
+        r set mykey "foo"
+        assert_equal 3 [r setrange mykey 0 b]
+        assert_equal "boo" [r get mykey]
+
+        r set mykey "foo"
+        assert_equal 3 [r setrange mykey 0 ""]
+        assert_equal "foo" [r get mykey]
+
+        r set mykey "foo"
+        assert_equal 3 [r setrange mykey 1 b]
+        assert_equal "fbo" [r get mykey]
+
+        r set mykey "foo"
+        assert_equal 6 [r setrange mykey -1 bar]
+        assert_equal "foobar" [r get mykey]
+
+        r set mykey "foo"
+        assert_equal 5 [r setrange mykey -2 bar]
+        assert_equal "fobar" [r get mykey]
+
+        r set mykey "foo"
+        assert_equal 3 [r setrange mykey -20 bar]
+        assert_equal "bar" [r get mykey]
+
+        r set mykey "foo"
+        assert_equal 7 [r setrange mykey 4 bar]
+        assert_equal "foo\000bar" [r get mykey]
+    }
+
+    test "SETRANGE against integer-encoded key" {
+        r set mykey 1234
+        assert_encoding int mykey
+        assert_equal 4 [r setrange mykey 0 2]
+        assert_encoding raw mykey
+        assert_equal 2234 [r get mykey]
+
+        # Shouldn't change encoding when nothing is set
+        r set mykey 1234
+        assert_encoding int mykey
+        assert_equal 4 [r setrange mykey 0 ""]
+        assert_encoding int mykey
+        assert_equal 1234 [r get mykey]
+
+        r set mykey 1234
+        assert_encoding int mykey
+        assert_equal 4 [r setrange mykey 1 3]
+        assert_encoding raw mykey
+        assert_equal 1334 [r get mykey]
+
+        r set mykey 1234
+        assert_encoding int mykey
+        assert_equal 5 [r setrange mykey -1 5]
+        assert_encoding raw mykey
+        assert_equal 12345 [r get mykey]
+
+        r set mykey 1234
+        assert_encoding int mykey
+        assert_equal 4 [r setrange mykey -2 5]
+        assert_encoding raw mykey
+        assert_equal 1235 [r get mykey]
+
+        r set mykey 1234
+        assert_encoding int mykey
+        assert_equal 6 [r setrange mykey 5 2]
+        assert_encoding raw mykey
+        assert_equal "1234\0002" [r get mykey]
+    }
+
+    test "SETRANGE against key with wrong type" {
+        r del mykey
+        r lpush mykey "foo"
+        assert_error "*wrong kind*" {r setrange mykey 0 bar}
+    }
+
+    test "SETRANGE with out of range offset" {
+        r del mykey
+        assert_error "*maximum allowed size*" {r setrange mykey [expr 512*1024*1024-4] world}
+        r set mykey "hello"
+        assert_error "*maximum allowed size*" {r setrange mykey [expr 512*1024*1024-4] world}
+    }
 }
