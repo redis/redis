@@ -293,6 +293,16 @@ typedef struct multiState {
     int count;              /* Total number of MULTI commands */
 } multiState;
 
+typedef struct blockingState {
+    robj **keys;            /* The key we are waiting to terminate a blocking
+                             * operation such as BLPOP. Otherwise NULL. */
+    int count;              /* Number of blocking keys */
+    time_t timeout;         /* Blocking operation timeout. If UNIX current time
+                             * is >= timeout then the operation timed out. */
+    robj *target;           /* The key that should receive the element,
+                             * for BRPOPLPUSH. */
+} blockingState;
+
 /* With multiplexing we need to take per-clinet state.
  * Clients are taken in a liked list. */
 typedef struct redisClient {
@@ -316,11 +326,7 @@ typedef struct redisClient {
     long repldboff;         /* replication DB file offset */
     off_t repldbsize;       /* replication DB file size */
     multiState mstate;      /* MULTI/EXEC state */
-    robj **blocking_keys;   /* The key we are waiting to terminate a blocking
-                             * operation such as BLPOP. Otherwise NULL. */
-    int blocking_keys_num;  /* Number of blocking keys */
-    time_t blockingto;      /* Blocking operation timeout. If UNIX current time
-                             * is >= blockingto then the operation timed out. */
+    blockingState bpop;   /* blocking state */
     list *io_keys;          /* Keys this client is waiting to be loaded from the
                              * swap file in order to continue. */
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
@@ -427,8 +433,9 @@ struct redisServer {
     int maxmemory_policy;
     int maxmemory_samples;
     /* Blocked clients */
-    unsigned int blpop_blocked_clients;
+    unsigned int bpop_blocked_clients;
     unsigned int vm_blocked_clients;
+    list *unblocked_clients;
     /* Sort parameters - qsort_r() is only available under BSD so we
      * have to take this state global, in order to pass it to sortCompare() */
     int sort_desc;
@@ -937,7 +944,7 @@ void flushdbCommand(redisClient *c);
 void flushallCommand(redisClient *c);
 void sortCommand(redisClient *c);
 void lremCommand(redisClient *c);
-void rpoplpushcommand(redisClient *c);
+void rpoplpushCommand(redisClient *c);
 void infoCommand(redisClient *c);
 void mgetCommand(redisClient *c);
 void monitorCommand(redisClient *c);
@@ -966,6 +973,7 @@ void execCommand(redisClient *c);
 void discardCommand(redisClient *c);
 void blpopCommand(redisClient *c);
 void brpopCommand(redisClient *c);
+void brpoplpushCommand(redisClient *c);
 void appendCommand(redisClient *c);
 void substrCommand(redisClient *c);
 void strlenCommand(redisClient *c);
