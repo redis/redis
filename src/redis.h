@@ -17,6 +17,7 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <pthread.h>
+#include <syslog.h>
 
 #include "ae.h"     /* Event driven programming library */
 #include "sds.h"    /* Dynamic safe strings */
@@ -47,6 +48,7 @@
 #define REDIS_REQUEST_MAX_SIZE (1024*1024*256) /* max bytes in inline command */
 #define REDIS_SHARED_INTEGERS 10000
 #define REDIS_REPLY_CHUNK_BYTES (5*1500) /* 5 TCP packets with default MTU */
+#define REDIS_MAX_LOGMSG_LEN    1024 /* Default maximum length of syslog messages */
 
 /* If more then REDIS_WRITEV_THRESHOLD write packets are pending use writev */
 #define REDIS_WRITEV_THRESHOLD      3
@@ -408,6 +410,9 @@ struct redisServer {
     struct saveparam *saveparams;
     int saveparamslen;
     char *logfile;
+    int syslog_enabled;
+    char *syslog_ident;
+    int syslog_facility;
     char *dbfilename;
     char *appendfilename;
     char *requirepass;
