@@ -216,42 +216,6 @@ start_server {tags {"other"}} {
         set _ $err
     } {}
 
-    test {SUBSTR basics} {
-        set res {}
-        r set foo "Hello World"
-        lappend res [r substr foo 0 3]
-        lappend res [r substr foo 0 -1]
-        lappend res [r substr foo -4 -1]
-        lappend res [r substr foo 5 3]
-        lappend res [r substr foo 5 5000]
-        lappend res [r substr foo -5000 10000]
-        set _ $res
-    } {Hell {Hello World} orld {} { World} {Hello World}}
-
-    test {SUBSTR against integer encoded values} {
-        r set foo 123
-        r substr foo 0 -2
-    } {12}
-
-    test {SUBSTR fuzzing} {
-        set err {}
-        for {set i 0} {$i < 1000} {incr i} {
-            set bin [randstring 0 1024 binary]
-            set _start [set start [randomInt 1500]]
-            set _end [set end [randomInt 1500]]
-            if {$_start < 0} {set _start "end-[abs($_start)-1]"}
-            if {$_end < 0} {set _end "end-[abs($_end)-1]"}
-            set s1 [string range $bin $_start $_end]
-            r set bin $bin
-            set s2 [r substr bin $start $end]
-            if {$s1 != $s2} {
-                set err "String mismatch"
-                break
-            }
-        }
-        set _ $err
-    } {}
-
     # Leave the user with a clean DB before to exit
     test {FLUSHDB} {
         set aux {}
