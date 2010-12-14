@@ -185,24 +185,50 @@ int hashTypeNext(hashTypeIterator *hi) {
 }
 
 /* Get key or value object at current iteration position.
- * This increases the refcount of the field object by 1. */
-robj *hashTypeCurrent(hashTypeIterator *hi, int what) {
-    robj *o;
+ * The returned item differs with the hash object encoding:
+ * - When encoding is REDIS_ENCODING_HT, the objval pointer is populated
+ *   with the original object.
+ * - When encoding is REDIS_ENCODING_ZIPMAP, a pointer to the string and
+ *   its length is retunred populating the v and vlen pointers.
+ * This function is copy on write friendly as accessing objects in read only
+ * does not require writing to any memory page.
+ *
+ * The function returns the encoding of the object, so that the caller
+ * can underestand if the key or value was returned as object or C string. */
+int hashTypeCurrent(hashTypeIterator *hi, int what, robj **objval, unsigned char **v, unsigned int *vlen) {
     if (hi->encoding == REDIS_ENCODING_ZIPMAP) {
         if (what & REDIS_HASH_KEY) {
-            o = createStringObject((char*)hi->zk,hi->zklen);
+            *v = hi->zk;
+            *vlen = hi->zklen;
         } else {
-            o = createStringObject((char*)hi->zv,hi->zvlen);
+            *v = hi->zv;
+            *vlen = hi->zvlen;
         }
     } else {
-        if (what & REDIS_HASH_KEY) {
-            o = dictGetEntryKey(hi->de);
-        } else {
-            o = dictGetEntryVal(hi->de);
-        }
-        incrRefCount(o);
+        if (what & REDIS_HASH_KEY)
+            *objval = dictGetEntryKey(hi->de);
+        else
+            *objval = dictGetEntryVal(hi->de);
     }
-    return o;
+    return hi->encoding;
+}
+
+/* A non copy-on-write friendly but higher level version of hashTypeCurrent()
+ * that always returns an object with refcount incremented by one (or a new
+ * object), so it's up to the caller to decrRefCount() the object if no
+ * reference is retained. */
+robj *hashTypeCurrentObject(hashTypeIterator *hi, int what) {
+    robj *obj;
+    unsigned char *v;
+    unsigned int vlen;
+    int encoding = hashTypeCurrent(hi,what,&obj,&v,&vlen);
+
+    if (encoding == REDIS_ENCODING_HT) {
+        incrRefCount(obj);
+        return obj;
+    } else {
+        return createStringObject((char*)v,vlen);
+    }
 }
 
 robj *hashTypeLookupWriteOrCreate(redisClient *c, robj *key) {
@@ -392,7 +418,7 @@ void hlenCommand(redisClient *c) {
 }
 
 void genericHgetallCommand(redisClient *c, int flags) {
-    robj *o, *obj;
+    robj *o;
     unsigned long count = 0;
     hashTypeIterator *hi;
     void *replylen = NULL;
@@ -403,16 +429,25 @@ void genericHgetallCommand(redisClient *c, int flags) {
     replylen = addDeferredMultiBulkLength(c);
     hi = hashTypeInitIterator(o);
     while (hashTypeNext(hi) != REDIS_ERR) {
+        robj *obj;
+        unsigned char *v;
+        unsigned int vlen;
+        int encoding;
+
         if (flags & REDIS_HASH_KEY) {
-            obj = hashTypeCurrent(hi,REDIS_HASH_KEY);
-            addReplyBulk(c,obj);
-            decrRefCount(obj);
+            encoding = hashTypeCurrent(hi,REDIS_HASH_KEY,&obj,&v,&vlen);
+            if (encoding == REDIS_ENCODING_HT)
+                addReplyBulk(c,obj);
+            else
+                addReplyBulkCBuffer(c,v,vlen);
             count++;
         }
         if (flags & REDIS_HASH_VALUE) {
-            obj = hashTypeCurrent(hi,REDIS_HASH_VALUE);
-            addReplyBulk(c,obj);
-            decrRefCount(obj);
+            encoding = hashTypeCurrent(hi,REDIS_HASH_VALUE,&obj,&v,&vlen);
+            if (encoding == REDIS_ENCODING_HT)
+                addReplyBulk(c,obj);
+            else
+                addReplyBulkCBuffer(c,v,vlen);
             count++;
         }
     }

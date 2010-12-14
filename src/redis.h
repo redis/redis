@@ -832,7 +832,8 @@ unsigned long hashTypeLength(robj *o);
 hashTypeIterator *hashTypeInitIterator(robj *subject);
 void hashTypeReleaseIterator(hashTypeIterator *hi);
 int hashTypeNext(hashTypeIterator *hi);
-robj *hashTypeCurrent(hashTypeIterator *hi, int what);
+int hashTypeCurrent(hashTypeIterator *hi, int what, robj **objval, unsigned char **v, unsigned int *vlen);
+robj *hashTypeCurrentObject(hashTypeIterator *hi, int what);
 robj *hashTypeLookupWriteOrCreate(redisClient *c, robj *key);
 
 /* Pub / Sub */
