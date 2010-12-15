@@ -361,45 +361,45 @@ start_server {tags {"basic"}} {
         list [r msetnx x1 xxx y2 yyy] [r get x1] [r get y2]
     } {1 xxx yyy}
 
-    test {STRLEN against non existing key} {
-        r strlen notakey
-    } {0}
+    test "STRLEN against non-existing key" {
+        assert_equal 0 [r strlen notakey]
+    }
 
-    test {STRLEN against integer} {
+    test "STRLEN against integer-encoded value" {
         r set myinteger -555
-        r strlen myinteger
-    } {4}
+        assert_equal 4 [r strlen myinteger]
+    }
 
-    test {STRLEN against plain string} {
+    test "STRLEN against plain string" {
         r set mystring "foozzz0123456789 baz"
-        r strlen mystring
+        assert_equal 20 [r strlen mystring]
     }
 
     test "SETBIT against non-existing key" {
         r del mykey
-
-        # Setting 2nd bit to on is integer 64, ascii "@"
-        assert_equal 1 [r setbit mykey 1 1]
-        assert_equal "@" [r get mykey]
+        assert_equal 0 [r setbit mykey 1 1]
+        assert_equal [binary format B* 01000000] [r get mykey]
     }
 
     test "SETBIT against string-encoded key" {
-        # Single byte with 2nd bit set
+        # Ascii "@" is integer 64 = 01 00 00 00
         r set mykey "@"
 
-        # 64 + 32 = 96 => ascii "`" (backtick)
-        assert_equal 1 [r setbit mykey 2 1]
-        assert_equal "`" [r get mykey]
+        assert_equal 0 [r setbit mykey 2 1]
+        assert_equal [binary format B* 01100000] [r get mykey]
+        assert_equal 1 [r setbit mykey 1 0]
+        assert_equal [binary format B* 00100000] [r get mykey]
     }
 
     test "SETBIT against integer-encoded key" {
+        # Ascii "1" is integer 49 = 00 11 00 01
         r set mykey 1
         assert_encoding int mykey
 
-        # Ascii "1" is integer 49 = 00 11 00 01
-        # Setting 7th bit = 51 => ascii "3"
-        assert_equal 1 [r setbit mykey 6 1]
-        assert_equal "3" [r get mykey]
+        assert_equal 0 [r setbit mykey 6 1]
+        assert_equal [binary format B* 00110011] [r get mykey]
+        assert_equal 1 [r setbit mykey 2 0]
+        assert_equal [binary format B* 00010011] [r get mykey]
     }
 
     test "SETBIT against key with wrong type" {
@@ -420,6 +420,24 @@ start_server {tags {"basic"}} {
         assert_error "*out of range*" {r setbit mykey 0  2}
         assert_error "*out of range*" {r setbit mykey 0 10}
         assert_error "*out of range*" {r setbit mykey 0 20}
+    }
+
+    test "SETBIT fuzzing" {
+        set str ""
+        set len [expr 256*8]
+        r del mykey
+
+        for {set i 0} {$i < 2000} {incr i} {
+            set bitnum [randomInt $len]
+            set bitval [randomInt 2]
+            set fmt [format "%%-%ds%%d%%-s" $bitnum]
+            set head [string range $str 0 $bitnum-1]
+            set tail [string range $str $bitnum+1 end]
+            set str [string map {" " 0} [format $fmt $head $bitval $tail]]
+
+            r setbit mykey $bitnum $bitval
+            assert_equal [binary format B* $str] [r get mykey]
+        }
     }
 
     test "GETBIT against non-existing key" {
@@ -471,14 +489,6 @@ start_server {tags {"basic"}} {
         r del mykey
         assert_equal 4 [r setrange mykey 1 foo]
         assert_equal "\000foo" [r get mykey]
-
-        r del mykey
-        assert_equal 3 [r setrange mykey -1 foo]
-        assert_equal "foo" [r get mykey]
-
-        r del mykey
-        assert_equal 3 [r setrange mykey -100 foo]
-        assert_equal "foo" [r get mykey]
     }
 
     test "SETRANGE against string-encoded key" {
@@ -493,18 +503,6 @@ start_server {tags {"basic"}} {
         r set mykey "foo"
         assert_equal 3 [r setrange mykey 1 b]
         assert_equal "fbo" [r get mykey]
-
-        r set mykey "foo"
-        assert_equal 6 [r setrange mykey -1 bar]
-        assert_equal "foobar" [r get mykey]
-
-        r set mykey "foo"
-        assert_equal 5 [r setrange mykey -2 bar]
-        assert_equal "fobar" [r get mykey]
-
-        r set mykey "foo"
-        assert_equal 3 [r setrange mykey -20 bar]
-        assert_equal "bar" [r get mykey]
 
         r set mykey "foo"
         assert_equal 7 [r setrange mykey 4 bar]
@@ -533,18 +531,6 @@ start_server {tags {"basic"}} {
 
         r set mykey 1234
         assert_encoding int mykey
-        assert_equal 5 [r setrange mykey -1 5]
-        assert_encoding raw mykey
-        assert_equal 12345 [r get mykey]
-
-        r set mykey 1234
-        assert_encoding int mykey
-        assert_equal 4 [r setrange mykey -2 5]
-        assert_encoding raw mykey
-        assert_equal 1235 [r get mykey]
-
-        r set mykey 1234
-        assert_encoding int mykey
         assert_equal 6 [r setrange mykey 5 2]
         assert_encoding raw mykey
         assert_equal "1234\0002" [r get mykey]
@@ -559,7 +545,9 @@ start_server {tags {"basic"}} {
     test "SETRANGE with out of range offset" {
         r del mykey
         assert_error "*maximum allowed size*" {r setrange mykey [expr 512*1024*1024-4] world}
+
         r set mykey "hello"
+        assert_error "*out of range*" {r setrange mykey -1 world}
         assert_error "*maximum allowed size*" {r setrange mykey [expr 512*1024*1024-4] world}
     }
 
