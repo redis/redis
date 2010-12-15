@@ -37,6 +37,9 @@ CHECKDUMPPRGNAME = redis-check-dump
 CHECKAOFPRGNAME = redis-check-aof
 
 all: redis-benchmark redis-cli redis-check-dump redis-check-aof redis-server
+	@echo ""
+	@echo "Hint: To run 'make test' is a good idea ;)"
+	@echo ""
 
 # Deps (use make dep to generate this)
 adlist.o: adlist.c adlist.h zmalloc.h
@@ -102,22 +105,21 @@ ziplist.o: ziplist.c zmalloc.h ziplist.h
 zipmap.o: zipmap.c zmalloc.h
 zmalloc.o: zmalloc.c config.h
 
+dependencies:
+	cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
+	cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
+
 redis-server: $(OBJ)
 	$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ)
-	@echo ""
-	@echo "Hint: To run 'make test' is a good idea ;)"
-	@echo ""
 
-redis-benchmark: $(BENCHOBJ)
+redis-benchmark: dependencies $(BENCHOBJ)
 	cd ../deps/hiredis && $(MAKE) static
 	$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a
 
 redis-benchmark.o:
 	$(CC) -c $(CFLAGS) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
 
-redis-cli: $(CLIOBJ)
-	cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
-	cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
+redis-cli: dependencies $(CLIOBJ)
 	$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o
 
 redis-cli.o:
@@ -134,13 +136,11 @@ redis-check-aof: $(CHECKAOFOBJ)
 
 clean:
 	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
-	cd ../deps/hiredis && $(MAKE) clean
-	cd ../deps/linenoise && $(MAKE) clean
 
 dep:
 	$(CC) -MM *.c
 
-test:
+test: redis-server
 	(cd ..; tclsh8.5 tests/test_helper.tcl --tags "${TAGS}" --file "${FILE}")
 
 bench:
