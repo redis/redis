@@ -5,6 +5,8 @@ server is very stable, but in the latest weeks we rewrote part of the internals
 in order to use a lot less memory while the saving child process is performing
 a BGREWRITEAOF or a BGSAVE, so handle with care for a couple of weeks.
 
+Oh, and I've some very good news: the majority of apps can work if you simply replace 2.2 in your old 2.0 environment. I can't think of any breakage.
+
 WHAT'S NEW IN REDIS 2.2.x
 
 * Specially encoded data types, small lists and sets can now use up to an order of magnitude less memory.
