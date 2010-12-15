@@ -215,21 +215,14 @@ void setrangeCommand(redisClient *c) {
         o = createObject(REDIS_STRING,sdsempty());
         dbAdd(c->db,c->argv[1],o);
     } else {
-        int olen;
+        size_t olen;
 
         /* Key exists, check type */
         if (checkType(c,o,REDIS_STRING))
             return;
 
-        /* Find out existing value length */
-        if (o->encoding == REDIS_ENCODING_INT) {
-            char llbuf[32];
-            olen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
-        } else {
-            olen = sdslen(o->ptr);
-        }
-
         /* Return existing string length when setting nothing */
+        olen = stringObjectLen(o);
         if (sdslen(value) == 0) {
             addReplyLongLong(c,olen);
             return;
@@ -433,18 +426,8 @@ void appendCommand(redisClient *c) {
 
 void strlenCommand(redisClient *c) {
     robj *o;
-
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,REDIS_STRING)) return;
-
-    if (o->encoding == REDIS_ENCODING_RAW) {
-        addReplyLongLong(c,sdslen(o->ptr));
-    } else if (o->encoding == REDIS_ENCODING_INT) {
-        char llbuf[32];
-        int len = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
-        addReplyLongLong(c,len);
-    } else {
-        redisPanic("Unknown string encoding");
-    }
+    addReplyLongLong(c,stringObjectLen(o));
 }
 
