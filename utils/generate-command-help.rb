@@ -42,6 +42,7 @@ end
 def commands
   return @commands if @commands
 
+  require "rubygems"
   require "net/http"
   require "net/https"
   require "json"
