@@ -361,18 +361,18 @@ start_server {tags {"basic"}} {
         list [r msetnx x1 xxx y2 yyy] [r get x1] [r get y2]
     } {1 xxx yyy}
 
-    test {STRLEN against non existing key} {
-        r strlen notakey
-    } {0}
+    test "STRLEN against non-existing key" {
+        assert_equal 0 [r strlen notakey]
+    }
 
-    test {STRLEN against integer} {
+    test "STRLEN against integer-encoded value" {
         r set myinteger -555
-        r strlen myinteger
-    } {4}
+        assert_equal 4 [r strlen myinteger]
+    }
 
-    test {STRLEN against plain string} {
+    test "STRLEN against plain string" {
         r set mystring "foozzz0123456789 baz"
-        r strlen mystring
+        assert_equal 20 [r strlen mystring]
     }
 
     test "SETBIT against non-existing key" {
