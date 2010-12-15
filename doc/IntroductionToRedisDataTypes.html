@@ -79,7 +79,7 @@ $ ./redis-cli sismember myset 3
 (integer) 1
 $ ./redis-cli sismember myset 30
 (integer) 0
-</pre>&quot;3&quot; is a member of the set, while &quot;30&quot; is not. Sets are very good in order to express relations between objects. For instance we can easily Redis Sets in order to implement tags.<br/><br/>A simple way to model this is to have, for every object you want to tag, a Set with all the IDs of the tags associated with the object, and for every tag that exists, a Set of of all the objects tagged with this tag.<br/><br/>For instance if our news ID 1000 is tagged with tag 1,2,5 and 77, we can specify the following two Sets:<br/><br/><pre class="codeblock python python python python python python python" name="code">
+</pre>&quot;3&quot; is a member of the set, while &quot;30&quot; is not. Sets are very good in order to express relations between objects. For instance we can easily use Redis Sets in order to implement tags.<br/><br/>A simple way to model this is to have, for every object you want to tag, a Set with all the IDs of the tags associated with the object, and for every tag that exists, a Set of of all the objects tagged with this tag.<br/><br/>For instance if our news ID 1000 is tagged with tag 1,2,5 and 77, we can specify the following two Sets:<br/><br/><pre class="codeblock python python python python python python python" name="code">
 $ ./redis-cli sadd news:1000:tags 1
 (integer) 1
 $ ./redis-cli sadd news:1000:tags 2
@@ -143,7 +143,6 @@ $ ./redis-cli zrangebyscore hackers -inf 1950
 $ ./redis-cli zremrangebyscore hackers 1940 1960
 (integer) 2
 </pre><a href="ZremrangebyscoreCommand.html">ZREMRANGEBYSCORE</a> is not the best command name, but it can be very useful, and returns the number of removed elements.<h3><a name="Back to the reddit example">Back to the reddit example</a></h3>For the last time, back to the Reddit example. Now we have a decent plan to populate a sorted set in order to generate the home page. A sorted set can contain all the news that are not older than a few days (we remove old entries from time to time using ZREMRANGEBYSCORE). A background job gets all the elements from this sorted set, get the user votes and the time of the news, and compute the score to populate the <b>reddit.home.page</b> sorted set with the news IDs and associated scores. To show the home page we have just to perform a blazingly fast call to ZRANGE.<br/><br/>From time to time we'll remove too old news from the <b>reddit.home.page</b> sorted set as well in order for our system to work always against a limited set of news.<h3><a name="Updating the scores of a sorted set">Updating the scores of a sorted set</a></h3>Just a final note before to finish this tutorial. Sorted sets scores can be updated at any time. Just calling again ZADD against an element already included in the sorted set will update its score (and position) in O(log(N)), so sorted sets are suitable even when there are tons of updates.<br/><br/>This tutorial is in no way complete, this is just the basics to get started with Redis, read the <a href="CommandReference.html">Command Reference</a> to discover a lot more.<br/><br/>Thanks for reading. Salvatore.
-
                 </div>
         
             </div>

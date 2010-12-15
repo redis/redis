@@ -30,8 +30,9 @@
 <h1><a name="ZRANK _key_ _member_ (Redis &gt;">ZRANK _key_ _member_ (Redis &gt;</a></h1> 1.3.4) =
 <h1><a name="ZREVRANK _key_ _member_ (Redis &gt;">ZREVRANK _key_ _member_ (Redis &gt;</a></h1> 1.3.4) =
 <i>Time complexity: O(log(N))</i><blockquote>ZRANK returns the rank of the member in the sorted set, with scores ordered from low to high. ZREVRANK returns the rank with scores ordered from high to low. When the given member does not exist in the sorted set, the special value 'nil' is returned. The returned rank (or index) of the member is 0-based for both commands.</blockquote>
-<h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Bulk reply</a>, specifically:<br/><br/><pre class="codeblock python" name="code">
-the rank (an integer number) represented as an string.
+<h2><a name="Return value">Return value</a></h2><a href="ReplyTypes.html">Integer reply</a> or a nil <a href="ReplyTypes.html">bulk reply</a>, specifically:<br/><br/><pre class="codeblock python" name="code">
+the rank of the element as an integer reply if the element exists.
+A nil bulk reply if there is no such element.
 </pre>
                 </div>
         

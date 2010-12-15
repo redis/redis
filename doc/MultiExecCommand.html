@@ -32,12 +32,12 @@
 <h1><a name="COMMAND_1 ...">COMMAND_1 ...</a></h1>
 <h1><a name="COMMAND_2 ...">COMMAND_2 ...</a></h1>
 <h1><a name="COMMAND_N ...">COMMAND_N ...</a></h1>
-<h1><a name="EXEC or DISCARD">EXEC or DISCARD</a></h1>MULTI, EXEC, DISCARD and WATCH commands are the fundation of Redis Transactions.
+<h1><a name="EXEC or DISCARD">EXEC or DISCARD</a></h1>MULTI, EXEC, DISCARD and WATCH commands are the foundation of Redis Transactions.
 A Redis Transaction allows the execution of a group of Redis commands in a single
 step, with two important guarantees:<br/><br/><ul><li> All the commands in a transaction are serialized and executed sequentially. It can never happen that a request issued by another client is served <b>in the middle</b> of the execution of a Redis transaction. This guarantees that the commands are executed as a single atomic operation.</li><li> Either all of the commands or none are processed. The EXEC command triggers the execution of all the commands in the transaction, so if a client loses the connection to the server in the context of a transaction before calling the MULTI command none of the operations are performed, instead if the EXEC command is called, all the operations are performed. An exception to this rule is when the Append Only File is enabled: every command that is part of a Redis transaction will log in the AOF as long as the operation is completed, so if the Redis server crashes or is killed by the system administrator in some hard way it is possible that only a partial number of operations are registered.</li></ul>
 Since Redis 2.1.0, it's also possible to add a further guarantee to the above two, in the form of optimistic locking of a set of keys in a way very similar to a CAS (check and set) operation. This is documented later in this manual page.<h2><a name="Usage">Usage</a></h2>A Redis transaction is entered using the MULTI command. The command always
 replies with OK. At this point the user can issue multiple commands. Instead
-to execute this commands Redis will &quot;queue&quot; them. All the commands are
+of executing these commands, Redis will &quot;queue&quot; them. All the commands are
 executed once EXEC is called.<br/><br/>Calling DISCARD instead will flush the transaction queue and will exit
 the transaction.<br/><br/>The following is an example using the Ruby client:
 <pre class="codeblock python" name="code">
@@ -57,7 +57,7 @@ replies, where every element is the reply of a single command in the
 transaction, in the same order the commands were queued.<br/><br/>When a Redis connection is in the context of a MULTI request, all the commands
 will reply with a simple string &quot;QUEUED&quot; if they are correct from the
 point of view of the syntax and arity (number of arguments) of the commaand.
-Some command is still allowed to fail during execution time.<br/><br/>This is more clear if at protocol level: in the following example one command
+Some commands are still allowed to fail during execution time.<br/><br/>This is more clear on the protocol level; In the following example one command
 will fail when executed even if the syntax is right:
 <pre class="codeblock python python" name="code">
 Trying 127.0.0.1...
@@ -75,7 +75,7 @@ EXEC
 +OK
 -ERR Operation against a key holding the wrong kind of value
 </pre>
-MULTI returned a two elements bulk reply in witch one of this is a +OK
+MULTI returned a two elements bulk reply where one is an +OK
 code and one is a -ERR reply. It's up to the client lib to find a sensible
 way to provide the error to the user.<br/><br/><blockquote>IMPORTANT: even when a command will raise an error, all the other commandsin the queue will be processed. Redis will NOT stop the processing ofcommands once an error is found.</blockquote>
 Another example, again using the write protocol with telnet, shows how
@@ -87,9 +87,8 @@ INCR a b c
 -ERR wrong number of arguments for 'incr' command
 </pre>
 This time due to the syntax error the &quot;bad&quot; INCR command is not queued
-at all.<h2><a name="The DISCARD command">The DISCARD command</a></h2>DISCARD can be used in order to abort a transaction. No command will be
-executed, and the state of the client is again the normal one, outside
-<blockquote>of a transaction. Example using the Ruby client:</blockquote><pre class="codeblock python python python python" name="code">
+at all.<h2><a name="The DISCARD command">The DISCARD command</a></h2>DISCARD can be used in order to abort a transaction. No command will be executed, and the state of the client is again the normal one, outside of a transaction. Example using the Ruby client:
+<pre class="codeblock python python python python" name="code">
 ?&gt; r.set(&quot;foo&quot;,1)
 =&gt; true
 &gt;&gt; r.multi
