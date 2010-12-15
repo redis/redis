@@ -83,7 +83,7 @@ proc colored_dot {tags passed} {
             if {$passed} {
                 puts -nonewline "\033\[0;${colorcode};40m"
             } else {
-                puts -nonewline "\033\[0;40;${colorcode}m"
+                puts -nonewline "\033\[7;${colorcode};40m"
             }
             puts -nonewline $ch
             puts -nonewline "\033\[0m"
