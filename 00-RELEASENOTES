@@ -33,3 +33,6 @@ WHAT'S NEW IN REDIS 2.2.x
 * Endless other CPU optimizations and bugs fixed.
 
 Credits: Where not specified the implementation and design are done by Salvatore Sanfilippo and Pieter Noordhuis. Thanks to VMware for making all this possible. Also many thanks to all the other contributors and the amazing community we have.
+
+Cheers,
+Salvatore
