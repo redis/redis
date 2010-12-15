@@ -44,6 +44,46 @@ proc assert_type {type key} {
     assert_equal $type [r type $key]
 }
 
+proc colored_dot {tags passed} {
+    if {[info exists ::env(TERM)] && [string match $::env(TERM) xterm]} {
+        if {[lsearch $tags list] != -1} {
+            set colorcode {31}
+            set ch L
+        } elseif {[lsearch $tags hash] != -1} {
+            set colorcode {32}
+            set ch H
+        } elseif {[lsearch $tags set] != -1} {
+            set colorcode {33}
+            set ch S
+        } elseif {[lsearch $tags zset] != -1} {
+            set colorcode {34}
+            set ch Z
+        } elseif {[lsearch $tags basic] != -1} {
+            set colorcode {35}
+            set ch B
+        } else {
+            set colorcode {37}
+            set ch .
+        }
+        if {$colorcode ne {}} {
+            if {$passed} {
+                puts -nonewline "\033\[0;${colorcode};40m"
+            } else {
+                puts -nonewline "\033\[0;40;${colorcode}m"
+            }
+            puts -nonewline $ch
+            puts -nonewline "\033\[0m"
+            flush stdout
+        }
+    } else {
+        if {$passed} {
+            puts -nonewline .
+        } else {
+            puts -nonewline F
+        }
+    }
+}
+
 proc test {name code {okpattern undefined}} {
     # abort if tagged with a tag to deny
     foreach tag $::denytags {
@@ -88,7 +128,7 @@ proc test {name code {okpattern undefined}} {
                 puts "FAILED"
                 puts "$msg\n"
             } else {
-                puts -nonewline "F"
+                colored_dot $::tags 0
             }
         } else {
             # Re-raise, let handler up the stack take care of this.
@@ -100,7 +140,7 @@ proc test {name code {okpattern undefined}} {
             if {$::verbose} {
                 puts "PASSED"
             } else {
-                puts -nonewline "."
+                colored_dot $::tags 1
             }
         } else {
             set msg "Expected '$okpattern' to equal or match '$retval'"
@@ -112,7 +152,7 @@ proc test {name code {okpattern undefined}} {
                 puts "FAILED"
                 puts "$msg\n"
             } else {
-                puts -nonewline "F"
+                colored_dot $::tags 0
             }
         }
     }
