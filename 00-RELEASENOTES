@@ -17,6 +17,7 @@ WHAT'S NEW IN REDIS 2.2.x
 * Check-and-set (CAS) transactions with the new WATCH command.
 * Now write operations work against keys with an EXPIRE set! Imagine the possibilities.
 * New maxmemory eviction policies. It is possible to select among LRU, farest TTL expire, and other algorithms, and if when the memory limit is reached only keys with an expire set or all the keys should be expired.
+* SETBIT / GETBIT / SETRANGE / GETRANGE / STRLEN. Now your strings are your arrays!
 * Syslog support (Thanks to Jonah H. Harris)
 * Unix domain socket support.
 * New List related functions LINSERT, LPUSHX, RPUSHX (Thanks to Robey Pointer)
