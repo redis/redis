@@ -25,9 +25,9 @@ WHAT'S NEW IN REDIS 2.2.x
 * Sorted sets are now less memory hungry.
 * Non blocking loading of .rdb / AOF file on startup, with process information in the INFO output.
 * Now Redis has a clean, powerful, supported C library: hiredis.
-* Code layout completely new, the 2.0.x huge redis.c file is not splitted in many parts.
+* Code layout completely new, the 2.0.x huge redis.c file is now splitted in many parts.
 * Better MONITOR output.
 * Redis-benchmark rewritten to be faster and in order to use hiredis as well.
 * Endless other CPU optimizations and bugs fixed.
 
-Credis: Where not specified the implementation and design are done by Salvatore Sanfilippo and Pieter Noordhuis. Thanks to VMware for making all this possible. Also many thanks to all the other contributors and the amazing community we have.
+Credits: Where not specified the implementation and design are done by Salvatore Sanfilippo and Pieter Noordhuis. Thanks to VMware for making all this possible. Also many thanks to all the other contributors and the amazing community we have.
