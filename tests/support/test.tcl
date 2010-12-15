@@ -44,8 +44,22 @@ proc assert_type {type key} {
     assert_equal $type [r type $key]
 }
 
+# This is called before starting the test
+proc announce_test {s} {
+    if {[info exists ::env(TERM)] && [string match $::env(TERM) xterm]} {
+        puts -nonewline "$s\033\[0K"
+        flush stdout
+        set ::backward_count [string length $s]
+    }
+}
+
+# This is called after the test finished
 proc colored_dot {tags passed} {
     if {[info exists ::env(TERM)] && [string match $::env(TERM) xterm]} {
+        # Go backward and delete what announc_test function printed.
+        puts -nonewline "\033\[${::backward_count}D\033\[0K\033\[J"
+
+        # Print a coloured char, accordingly to test outcome and tags.
         if {[lsearch $tags list] != -1} {
             set colorcode {31}
             set ch L
@@ -115,6 +129,8 @@ proc test {name code {okpattern undefined}} {
     if {$::verbose} {
         puts -nonewline [format "#%03d %-68s " $::num_tests $name]
         flush stdout
+    } else {
+        announce_test $name
     }
 
     if {[catch {set retval [uplevel 1 $code]} error]} {
