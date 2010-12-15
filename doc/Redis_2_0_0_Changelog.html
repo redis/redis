@@ -1,0 +1,62 @@
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<html>
+    <head>
+        <link type="text/css" rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <div id="page">
+        
+            <div id='header'>
+            <a href="index.html">
+            <img style="border:none" alt="Redis Documentation" src="redis.png">
+            </a>
+            </div>
+        
+            <div id="pagecontent">
+                <div class="index">
+<!-- This is a (PRE) block.  Make sure it's left aligned or your toc title will be off. -->
+<b>Redis_2_0_0_Changelog: Contents</b><br>&nbsp;&nbsp;<a href="#Redis 2.0: What's new?">Redis 2.0: What's new?</a><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#MULTI/EXEC">MULTI/EXEC</a><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Blocking pop">Blocking pop</a><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Publish/subscribe">Publish/subscribe</a><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Hashes">Hashes</a><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Virtual Memory">Virtual Memory</a><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Contributors">Contributors</a><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Special Thanks">Special Thanks</a><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="#DOWNLOAD">DOWNLOAD</a>
+                </div>
+                
+                <h1 class="wikiname">Redis_2_0_0_Changelog</h1>
+
+                <div class="summary">
+                    
+                </div>
+
+                <div class="narrow">
+                    <h1><a name="Redis 2.0: What's new?">Redis 2.0: What's new?</a></h1>The release of Redis 2.0 marks a major milestone in Redis development. Apart from an endless list of new features, there are some major ones that deserve to be highlighted.<br/><br/>It's worth to mention that while Redis 2.0.0 just reached its first stable release, Redis 2.2.0 is near to reach feature freeze, so ... be prepared for new exiting things in very short time!<h3><a name="MULTI/EXEC">MULTI/EXEC</a></h3>
+The MULTI/EXEC family of commands were added to fulfill the need to execute multiple commands as a single atomic block.
+Because all commands inside a MULTI/EXEC block are serialized and executed sequentially, it is not possible that another
+client request is served in the middle of executing this block. All commands are executed one after the other when
+EXEC is called, which makes sure either <b>all</b> or <b>no</b> commands are executed, independent of the state of the client connection.<br/><br/>More on MULTI/EXEC:
+<ul><li> <a href="http://code.google.com/p/redis/wiki/MultiExecCommand" target="_blank">http://code.google.com/p/redis/wiki/MultiExecCommand</a></li></ul>
+Note that WATCH, a CAS (check and set) variant of MULTI/EXEC will be available on 2.2.0 and is not part of 2.0.0.<h3><a name="Blocking pop">Blocking pop</a></h3>
+The commands BLPOP and BRPOP were added to support popping from a list in a blocking fashion. This means the client
+connection will be blocked for a certain amount of time until another client pushes an item on a list. These commands
+are frequently used in producer/consumer scenarios.<br/><br/>More on blocking pop:
+<ul><li> <a href="http://code.google.com/p/redis/wiki/BlpopCommand" target="_blank">http://code.google.com/p/redis/wiki/BlpopCommand</a></li></ul>
+<h3><a name="Publish/subscribe">Publish/subscribe</a></h3>
+The family of publish/subscribe commands let clients publish messages onto channels and subscribe to receive all messages
+that are published on channels. Also included are commands to receive all messages for which the channel matches a given pattern.<br/><br/>More on publish/subscribe:
+<ul><li> <a href="http://code.google.com/p/redis/wiki/PublishSubscribe" target="_blank">http://code.google.com/p/redis/wiki/PublishSubscribe</a></li><li> <a href="http://antirez.com/post/redis-weekly-update-3-publish-submit.html" target="_blank">http://antirez.com/post/redis-weekly-update-3-publish-submit.html</a></li><li> <a href="http://rediscookbook.org/pubsub_for_asynchronous_communication.html" target="_blank">http://rediscookbook.org/pubsub_for_asynchronous_communication.html</a></li></ul>
+<h3><a name="Hashes">Hashes</a></h3>
+This new datatype allows to store multiple key/value pairs on a single key. Together with the list of regular commands you
+would expect for such a datatype (HSET, HGET, HDEL, HLEN, HKEYS, ...), it is also possible to use the values <i>inside</i> a hash
+for any SORT operation.<br/><br/>More on hashes:
+<ul><li> <a href="http://code.google.com/p/redis/wiki/HsetCommand" target="_blank">http://code.google.com/p/redis/wiki/HsetCommand</a></li><li> <a href="http://antirez.com/post/redis-weekly-update-1.html" target="_blank">http://antirez.com/post/redis-weekly-update-1.html</a></li></ul>
+<h3><a name="Virtual Memory">Virtual Memory</a></h3>
+Redis Virtual Memory allows users to grow their dataset beyond the limits of their RAM.<br/><br/>More on virtual memory:
+<ul><li> <a href="http://code.google.com/p/redis/wiki/VirtualMemoryUserGuide" target="_blank">http://code.google.com/p/redis/wiki/VirtualMemoryUserGuide</a></li><li> <a href="http://antirez.com/post/redis-virtual-memory-story.html" target="_blank">http://antirez.com/post/redis-virtual-memory-story.html</a></li></ul>
+<h3><a name="Contributors">Contributors</a></h3><ul><li> Salvatore Sanfilippo</li><li> Pieter Noordhuis</li><li> Antonio Ognio</li><li> Alex McHale</li><li> Michel Martens</li><li> Damian Janowski</li><li> Bruno Deferrari</li><li> Ashley Martens</li><li> Derek Collison</li><li> Damian Janowski</li><li> Jeremy Zawodny</li><li> Konstantin Merenkov</li><li> Michel Martens</li><li> Sam Hendley</li></ul>
+<h3><a name="Special Thanks">Special Thanks</a></h3>
+Thanks to VMware sponsoring the work of Salvatore and Pieter, and the Redis community of users and client library developers. Redis 2.0.0 was possible only thanks to your support.<h3><a name="DOWNLOAD">DOWNLOAD</a></h3>
+You can grab Redis 2.0.0 from <a href="http://code.google.com/p/redis/downloads/list" target="_blank">Google Code</a>.<br/><br/>It is also tagged on Git.
+                </div>
+        
+            </div>
+        </div>
+    </body>
+</html>
+
