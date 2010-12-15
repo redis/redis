@@ -489,14 +489,6 @@ start_server {tags {"basic"}} {
         r del mykey
         assert_equal 4 [r setrange mykey 1 foo]
         assert_equal "\000foo" [r get mykey]
-
-        r del mykey
-        assert_equal 3 [r setrange mykey -1 foo]
-        assert_equal "foo" [r get mykey]
-
-        r del mykey
-        assert_equal 3 [r setrange mykey -100 foo]
-        assert_equal "foo" [r get mykey]
     }
 
     test "SETRANGE against string-encoded key" {
@@ -511,18 +503,6 @@ start_server {tags {"basic"}} {
         r set mykey "foo"
         assert_equal 3 [r setrange mykey 1 b]
         assert_equal "fbo" [r get mykey]
-
-        r set mykey "foo"
-        assert_equal 6 [r setrange mykey -1 bar]
-        assert_equal "foobar" [r get mykey]
-
-        r set mykey "foo"
-        assert_equal 5 [r setrange mykey -2 bar]
-        assert_equal "fobar" [r get mykey]
-
-        r set mykey "foo"
-        assert_equal 3 [r setrange mykey -20 bar]
-        assert_equal "bar" [r get mykey]
 
         r set mykey "foo"
         assert_equal 7 [r setrange mykey 4 bar]
@@ -551,18 +531,6 @@ start_server {tags {"basic"}} {
 
         r set mykey 1234
         assert_encoding int mykey
-        assert_equal 5 [r setrange mykey -1 5]
-        assert_encoding raw mykey
-        assert_equal 12345 [r get mykey]
-
-        r set mykey 1234
-        assert_encoding int mykey
-        assert_equal 4 [r setrange mykey -2 5]
-        assert_encoding raw mykey
-        assert_equal 1235 [r get mykey]
-
-        r set mykey 1234
-        assert_encoding int mykey
         assert_equal 6 [r setrange mykey 5 2]
         assert_encoding raw mykey
         assert_equal "1234\0002" [r get mykey]
@@ -577,7 +545,9 @@ start_server {tags {"basic"}} {
     test "SETRANGE with out of range offset" {
         r del mykey
         assert_error "*maximum allowed size*" {r setrange mykey [expr 512*1024*1024-4] world}
+
         r set mykey "hello"
+        assert_error "*out of range*" {r setrange mykey -1 world}
         assert_error "*maximum allowed size*" {r setrange mykey [expr 512*1024*1024-4] world}
     }
 
