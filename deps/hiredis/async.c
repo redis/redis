@@ -1,5 +1,7 @@
 /*
  * Copyright (c) 2009-2010, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2010, Pieter Noordhuis <pcnoordhuis at gmail dot com>
+ *
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -38,8 +40,29 @@ void __redisAppendCommand(redisContext *c, char *cmd, size_t len);
 
 static redisAsyncContext *redisAsyncInitialize(redisContext *c) {
     redisAsyncContext *ac = realloc(c,sizeof(redisAsyncContext));
-    /* Set all bytes in the async part of the context to 0 */
-    memset(ac+sizeof(redisContext),0,sizeof(redisAsyncContext)-sizeof(redisContext));
+    c = &(ac->c);
+
+    /* The regular connect functions will always set the flag REDIS_CONNECTED.
+     * For the async API, we want to wait until the first write event is
+     * received up before setting this flag, so reset it here. */
+    c->flags &= ~REDIS_CONNECTED;
+
+    ac->err = 0;
+    ac->errstr = NULL;
+    ac->data = NULL;
+    ac->_adapter_data = NULL;
+
+    ac->evAddRead = NULL;
+    ac->evDelRead = NULL;
+    ac->evAddWrite = NULL;
+    ac->evDelWrite = NULL;
+    ac->evCleanup = NULL;
+
+    ac->onConnect = NULL;
+    ac->onDisconnect = NULL;
+
+    ac->replies.head = NULL;
+    ac->replies.tail = NULL;
     return ac;
 }
 
@@ -68,6 +91,14 @@ redisAsyncContext *redisAsyncConnectUnix(const char *path) {
 int redisAsyncSetReplyObjectFunctions(redisAsyncContext *ac, redisReplyObjectFunctions *fn) {
     redisContext *c = &(ac->c);
     return redisSetReplyObjectFunctions(c,fn);
+}
+
+int redisAsyncSetConnectCallback(redisAsyncContext *ac, redisConnectCallback *fn) {
+    if (ac->onConnect == NULL) {
+        ac->onConnect = fn;
+        return REDIS_OK;
+    }
+    return REDIS_ERR;
 }
 
 int redisAsyncSetDisconnectCallback(redisAsyncContext *ac, redisDisconnectCallback *fn) {
@@ -153,7 +184,7 @@ static void __redisAsyncDisconnect(redisAsyncContext *ac) {
     }
 
     /* Signal event lib to clean up */
-    if (ac->evCleanup) ac->evCleanup(ac->data);
+    if (ac->evCleanup) ac->evCleanup(ac->_adapter_data);
 
     /* Execute callback with proper status */
     if (ac->onDisconnect) ac->onDisconnect(ac,status);
@@ -206,7 +237,7 @@ void redisAsyncHandleRead(redisAsyncContext *ac) {
         __redisAsyncDisconnect(ac);
     } else {
         /* Always re-schedule reads */
-        if (ac->evAddRead) ac->evAddRead(ac->data);
+        if (ac->evAddRead) ac->evAddRead(ac->_adapter_data);
         redisProcessCallbacks(ac);
     }
 }
@@ -220,13 +251,19 @@ void redisAsyncHandleWrite(redisAsyncContext *ac) {
     } else {
         /* Continue writing when not done, stop writing otherwise */
         if (!done) {
-            if (ac->evAddWrite) ac->evAddWrite(ac->data);
+            if (ac->evAddWrite) ac->evAddWrite(ac->_adapter_data);
         } else {
-            if (ac->evDelWrite) ac->evDelWrite(ac->data);
+            if (ac->evDelWrite) ac->evDelWrite(ac->_adapter_data);
         }
 
-        /* Always schedule reads when something was written */
-        if (ac->evAddRead) ac->evAddRead(ac->data);
+        /* Always schedule reads after writes */
+        if (ac->evAddRead) ac->evAddRead(ac->_adapter_data);
+
+        /* Fire onConnect when this is the first write event. */
+        if (!(c->flags & REDIS_CONNECTED)) {
+            c->flags |= REDIS_CONNECTED;
+            if (ac->onConnect) ac->onConnect(ac);
+        }
     }
 }
 
@@ -249,7 +286,7 @@ static int __redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void 
     __redisPushCallback(&ac->replies,&cb);
 
     /* Always schedule a write when the write buffer is non-empty */
-    if (ac->evAddWrite) ac->evAddWrite(ac->data);
+    if (ac->evAddWrite) ac->evAddWrite(ac->_adapter_data);
 
     return REDIS_OK;
 }

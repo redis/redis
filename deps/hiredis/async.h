@@ -31,6 +31,10 @@
 #define __HIREDIS_ASYNC_H
 #include "hiredis.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct redisAsyncContext; /* need forward declaration of redisAsyncContext */
 
 /* Reply callback prototype and container */
@@ -46,8 +50,9 @@ typedef struct redisCallbackList {
     redisCallback *head, *tail;
 } redisCallbackList;
 
-/* Disconnect callback prototype */
+/* Connection callback prototypes */
 typedef void (redisDisconnectCallback)(const struct redisAsyncContext*, int status);
+typedef void (redisConnectCallback)(const struct redisAsyncContext*);
 
 /* Context for an async connection to Redis */
 typedef struct redisAsyncContext {
@@ -58,6 +63,12 @@ typedef struct redisAsyncContext {
     int err;
     char *errstr;
 
+    /* Not used by hiredis */
+    void *data;
+
+    /* Used by the different event lib adapters to store their private data */
+    void *_adapter_data;
+
     /* Called when the library expects to start reading/writing.
      * The supplied functions should be idempotent. */
     void (*evAddRead)(void *privdata);
@@ -65,11 +76,13 @@ typedef struct redisAsyncContext {
     void (*evAddWrite)(void *privdata);
     void (*evDelWrite)(void *privdata);
     void (*evCleanup)(void *privdata);
-    void *data;
 
     /* Called when either the connection is terminated due to an error or per
      * user request. The status is set accordingly (REDIS_OK, REDIS_ERR). */
     redisDisconnectCallback *onDisconnect;
+
+    /* Called when the first write event was received. */
+    redisConnectCallback *onConnect;
 
     /* Reply callbacks */
     redisCallbackList replies;
@@ -78,6 +91,7 @@ typedef struct redisAsyncContext {
 /* Functions that proxy to hiredis */
 redisAsyncContext *redisAsyncConnect(const char *ip, int port);
 int redisAsyncSetReplyObjectFunctions(redisAsyncContext *ac, redisReplyObjectFunctions *fn);
+int redisAsyncSetConnectCallback(redisAsyncContext *ac, redisConnectCallback *fn);
 int redisAsyncSetDisconnectCallback(redisAsyncContext *ac, redisDisconnectCallback *fn);
 void redisAsyncDisconnect(redisAsyncContext *ac);
 
@@ -90,5 +104,9 @@ void redisAsyncHandleWrite(redisAsyncContext *ac);
 int redisvAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata, const char *format, va_list ap);
 int redisAsyncCommand(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata, const char *format, ...);
 int redisAsyncCommandArgv(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata, int argc, const char **argv, const size_t *argvlen);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
