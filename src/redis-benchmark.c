@@ -278,11 +278,22 @@ static client createClient(int replytype) {
 }
 
 static void createMissingClients(client c) {
+    int n = 0;
+
     while(config.liveclients < config.numclients) {
         client new = createClient(c->replytype);
         new->obuf = sdsdup(c->obuf);
         if (config.randomkeys) randomizeClientKey(c);
+
+        /* Listen backlog is quite limited on most systems */
+        if (++n > 64) {
+            usleep(50000);
+            n = 0;
+        }
     }
+
+    /* Start the timer once the connection are established */
+    config.start = mstime();
 }
 
 static int compareLatency(const void *a, const void *b) {
