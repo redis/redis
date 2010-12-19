@@ -387,6 +387,7 @@ struct redisServer {
     long long stat_numcommands;     /* number of processed commands */
     long long stat_numconnections;  /* number of connections received */
     long long stat_expiredkeys;     /* number of expired keys */
+    long long stat_evictedkeys;     /* number of evicted keys (maxmemory) */
     long long stat_keyspace_hits;   /* number of successful lookups of keys */
     long long stat_keyspace_misses; /* number of failed lookups of keys */
     /* Configuration */
