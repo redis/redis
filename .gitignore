@@ -7,7 +7,6 @@ redis-benchmark
 redis-check-dump
 redis-check-aof
 doc-tools
-mkrelease.sh
 release
 myredis.conf
 misc/*
