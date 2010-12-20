@@ -49,7 +49,7 @@ WHAT'S NEW IN REDIS 2.2 compared to the 2.0 version?
 * BRPOPLPUSH (Thanks to Michel Martens and Damian Janowski)
 * Much more interesting informations in the INFO output.
 * Sorted sets are now less memory hungry.
-* Non blocking loading of .rdb / AOF file on startup, with process information in the INFO output.
+* Non blocking loading of .rdb / AOF file on startup, with progress information in the INFO output.
 * Now Redis has a clean, powerful, supported C library: hiredis.
 * Code layout completely new, the 2.0.x huge redis.c file is now splitted in many parts.
 * Redis-benchmark rewritten to be faster and in order to use hiredis as well.
