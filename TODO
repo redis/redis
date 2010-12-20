@@ -1,66 +1,44 @@
-Redis TODO and Roadmap
-----------------------
+Redis TODO
+----------
 
-VERSION 2.2 TODO (Optimizations and latency)
-============================================
-
-* Support for syslog(3).
-* Change the implementation of ZCOUNT to use the augmented skiplist in order to be much faster.
-* Add an explicit test for MULTI/EXEC reloaded in the AOF.
-* Command table -> hash table, with support for command renaming
+WARNING: are you a possible Redis contributor?
+         Before implementing what is listed what is listed in this file
+         please drop a message in the Redis google group or chat with
+         antirez or pietern on irc.freenode.org #redis to check if the work
+         is already in progress and if the feature is still interesting for
+         us, and *how* exactly this can be implemented to have good changes
+         of a merge. Otherwise it is probably wasted work! Thank you
 
 VM TODO
 =======
 
 * Use multiple open FDs against the VM file, one for thread.
 * Check what happens performance-wise if instead of creating threads again and again the same threads are reused forever. Note: this requires a way to disable this clients in the child, but waiting for empty new jobs queue can be enough.
+* mmap the swap file.
+* Use just a single IO Job to swap out a key, and add a mutex so that pages in the page table can be marked as used and scanned from the thread itself.
 
-STRING COMMANDS
-===============
+REPLICATION
+===========
 
-* Implement STRLEN, PEEK, POKE, SETBIT, GETBIT
+* PING between master and slave from time to time, so we can subject the
+master-slave link to timeout, and detect when the connection is gone even
+if the socket is still up.
 
-OTHER IMPORTANT THINGS THAT WILL BE ADDED BUT I'M NOT SURE WHEN
-===============================================================
-
-BIG ONES:
-
-* BRPOPLPUSH
-* Specially encoded memory-saving integer sets.
-* A command to export a JSON dump (there should be mostly working patch needing major reworking).
-* Specially encoded sets of integers (this includes a big refactoring providing an higher level layer for Sets manipulation)
-
-SMALL ONES:
-
-* If sizeof(double) == sizeof(void*) we could store the double value of sorted sets directly in place of the pointer instead of allocating it in the heap.
-* Delete on writes against expire policy should only happen after argument parsing for commands doing their own arg parsing stuff.
-* Give errors when incrementing a key that does not look like an integer, when providing as a sorted set score something can't be parsed as a double, and so forth.
-* MSADD (n keys) (n values). See this thread in the Redis google group: http://groups.google.com/group/redis-db/browse_thread/thread/e766d84eb375cd41
-* Don't save empty lists / sets / zsets on disk with snapshotting.
-* Remove keys when a list / set / zset reaches length of 0.
-* An option to exec a command slave-side if the master connection is lost: even cooler: if the script returns "0" the slave elects itself as master, otherwise continue trying to reconnect.
-* PING the master from time to time to check if it's gone.
-
-THE "MAYBE" TODO LIST: things that may or may not get implemented
-=================================================================
-
-Most of this can be seen just as proposals, the fact they are in this list
-it's not a guarantee they'll ever get implemented ;)
+OPTIMIZATIONS
+=============
 
 * SORT: Don't copy the list into a vector when BY argument is constant.
 * Write the hash table size of every db in the dump, so that Redis can resize the hash table just one time when loading a big DB.
-* Byte Array type (BA prefixed commands): BASETBIT BAGETBIT BASETU8 U16 U32 U64 S8 S16 S32 S64, ability to atomically INCRBY all the base types. BARANGE to get a range of bytes as a bulk value, BASETRANGE to set a range of bytes.
-* Read-only mode.
-* Kill the delete-on-write behavior of expires, replicating DELs
-* Multiple BY in SORT.
+* Read-only mode for slaves.
 
 KNOWN BUGS
 ==========
 
-* LRANGE and other commands are using 32 bit integers for ranges, and overflows are not detected. So LRANGE mylist 0 23498204823094823904823904 will have random effects.
+* What happens in the following scenario:
+    1) We are reading an AOF file.
+    2) SETEX FOO 5 BAR
+    3) APPEND FOO ZAP
+    What happens if between 1 and 2 for some reason (system under huge load
+    or alike) too many time passes? We should prevent expires while the
+    AOF is loading.
 
-REDIS CLI TODO
-==============
-
-* Computer parsable output generation
-* Memoize return values so that they can be used later as arguments, like $1
