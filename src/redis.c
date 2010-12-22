@@ -157,6 +157,7 @@ struct redisCommand readonlyCommandTable[] = {
     {"expire",expireCommand,3,0,NULL,0,0,0},
     {"expireat",expireatCommand,3,0,NULL,0,0,0},
     {"keys",keysCommand,2,0,NULL,0,0,0},
+    {"count",countCommand,2,0,NULL,0,0,0},
     {"dbsize",dbsizeCommand,1,0,NULL,0,0,0},
     {"auth",authCommand,2,0,NULL,0,0,0},
     {"ping",pingCommand,1,0,NULL,0,0,0},
