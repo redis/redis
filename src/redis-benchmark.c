@@ -479,11 +479,13 @@ int main(int argc, char **argv) {
         benchmark("PING",cmd,len);
         free(cmd);
 
-        const char *argv[11];
+        const char *argv[21];
         argv[0] = "MSET";
-        for (i = 1; i < 11; i++)
-            argv[i] = data;
-        len = redisFormatCommandArgv(&cmd,11,argv,NULL);
+        for (i = 1; i < 21; i += 2) {
+            argv[i] = "foo:rand:000000000000";
+            argv[i+1] = data;
+        }
+        len = redisFormatCommandArgv(&cmd,21,argv,NULL);
         benchmark("MSET (10 keys)",cmd,len);
         free(cmd);
 
