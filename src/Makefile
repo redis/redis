@@ -8,9 +8,11 @@ OPTIMIZATION?=-O2
 ifeq ($(uname_S),SunOS)
   CFLAGS?= -std=c99 -pedantic $(OPTIMIZATION) -Wall -W -D__EXTENSIONS__ -D_XPG6
   CCLINK?= -ldl -lnsl -lsocket -lm -lpthread
+  DEBUG?= -g -ggdb 
 else
   CFLAGS?= -std=c99 -pedantic $(OPTIMIZATION) -Wall -W $(ARCH) $(PROF)
   CCLINK?= -lm -pthread
+  DEBUG?= -g -rdynamic -ggdb 
 endif
 
 ifeq ($(USE_TCMALLOC),yes)
@@ -18,7 +20,6 @@ ifeq ($(USE_TCMALLOC),yes)
   CFLAGS+= -DUSE_TCMALLOC
 endif
 CCOPT= $(CFLAGS) $(CCLINK) $(ARCH) $(PROF)
-DEBUG?= -g -rdynamic -ggdb 
 
 PREFIX= /usr/local
 INSTALL_BIN= $(PREFIX)/bin
