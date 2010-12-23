@@ -414,10 +414,11 @@ static sds cliFormatReplyRaw(redisReply *r) {
 }
 
 static int cliReadReply(int output_raw_strings) {
+    void *_reply;
     redisReply *reply;
     sds out;
 
-    if (redisGetReply(context,(void**)&reply) != REDIS_OK) {
+    if (redisGetReply(context,&_reply) != REDIS_OK) {
         if (config.shutdown)
             return REDIS_OK;
         if (config.interactive) {
@@ -431,6 +432,7 @@ static int cliReadReply(int output_raw_strings) {
         return REDIS_ERR; /* avoid compiler warning */
     }
 
+    reply = (redisReply*)_reply;
     if (output_raw_strings) {
         out = cliFormatReplyRaw(reply);
     } else {
