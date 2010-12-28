@@ -792,7 +792,14 @@ int htNeedsResize(dict *dict);
 void oom(const char *msg);
 void populateCommandTable(void);
 
-/* Virtual Memory */
+/* Disk store */
+int dsOpen(void);
+int dsClose(void);
+int dsSet(redisDb *db, robj *key, robj *val);
+robj *dsGet(redisDb *db, robj *key);
+int dsExists(redisDb *db, robj *key);
+
+/* Disk Store Cache */
 void vmInit(void);
 void vmMarkPagesFree(off_t page, off_t count);
 robj *vmLoadObject(robj *o);

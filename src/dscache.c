@@ -5,6 +5,73 @@
 #include <math.h>
 #include <signal.h>
 
+/* dscache.c - Disk store cache for disk store backend.
+ *
+ * When Redis is configured for using disk as backend instead of memory, the
+ * memory is used as a cache, so that recently accessed keys are taken in
+ * memory for fast read and write operations.
+ *
+ * Modified keys are marked to be flushed on disk, and will be flushed
+ * as long as the maxium configured flush time elapsed.
+ *
+ * This file implements the whole caching subsystem and contains further
+ * documentation. */
+
+/* TODO:
+ *
+ * - The WATCH helper will be used to signal the cache system
+ *   we need to flush a given key/dbid into disk, adding this key/dbid
+ *   pair into a server.ds_cache_dirty linked list AND hash table (so that we
+ *   don't add the same thing multiple times).
+ *
+ * - cron() checks if there are elements on this list. When there are things
+ *   to flush, we create an IO Job for the I/O thread.
+ *   FIXME: how to mark this key as "busy"? With VM we used to change the
+ *   object->storage field, but this time we need this to work with every
+ *   kind of object, including shared ones. One possibility is just killing
+ *   object sharing at all. So let's assume this will be our solution.
+ *
+ *   So we set keys that are in the process of being saved as
+ *   object->storage = REDIS_STORAGE_SAVING;
+ *
+ * - This is what we do on key lookup:
+ *   1) The key already exists in memory. object->storage == REDIS_DS_MEMORY.
+ *      We don't do nothing special, lookup, return value object pointer.
+ *   2) The key is in memory but object->storage == REDIS_DS_SAVING.
+ *      This is an explicit lookup so we have to abort the saving operation.
+ *      We kill the IO Job, set the storage to == REDIS_DB_MEMORY but
+ *      re-queue the object in the server.ds_cache_dirty list.
+ *
+ *      Btw here we need some protection against the problem of continuously
+ *      writing against a value having the effect of this value to be never
+ *      saved on disk. That is, at some point we need to block and write it
+ *      if there is too much delay.
+ *   3) The key is not in memory. We block to load the key from disk.
+ *      Of course the key may not be present at all on the disk store as well,
+ *      in such case we just detect this condition and continue, returning
+ *      NULL from lookup.
+ *
+ * - Preloading of needed keys:
+ *   1) As it was done with VM, also with this new system we try preloading
+ *      keys a client is going to use. We block the client, load keys
+ *      using the I/O thread, unblock the client. Same code as VM more or less.
+ *
+ * - Transfering keys from memory to disk.
+ *   Again while in cron() we detect our memory limit was reached. What we
+ *   do is transfering random keys that are not set as dirty on disk, using
+ *   LRU to select the key.
+ *   If this is not enough to return again under the memory limits we also
+ *   start to flush keys that need to be synched on disk synchronously,
+ *   removing it from the memory.
+ *
+ * - IO thread operations are no longer stopped for sync loading/saving of
+ *   things. When a key is found to be in the process of being saved or
+ *   loaded we simply wait for the IO thread to end its work.
+ *
+ *   Otherwise if there is to load a key without any IO thread operation
+ *   just started it is blocking-loaded in the lookup function.
+ */
+
 /* Virtual Memory is composed mainly of two subsystems:
  * - Blocking Virutal Memory
  * - Threaded Virtual Memory I/O
