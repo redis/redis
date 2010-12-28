@@ -440,7 +440,7 @@ struct redisServer {
     int maxmemory_samples;
     /* Blocked clients */
     unsigned int bpop_blocked_clients;
-    unsigned int vm_blocked_clients;
+    unsigned int cache_blocked_clients;
     list *unblocked_clients;
     /* Sort parameters - qsort_r() is only available under BSD so we
      * have to take this state global, in order to pass it to sortCompare() */
@@ -448,11 +448,9 @@ struct redisServer {
     int sort_alpha;
     int sort_bypattern;
     /* Virtual memory configuration */
-    int vm_enabled;
-    char *vm_swap_file;
-    off_t vm_page_size;
-    off_t vm_pages;
-    unsigned long long vm_max_memory;
+    int ds_enabled; /* backend disk in redis.conf */
+    char *ds_path;  /* location of the disk store on disk */
+    unsigned long long cache_max_memory;
     /* Zip structure config */
     size_t hash_max_zipmap_entries;
     size_t hash_max_zipmap_value;

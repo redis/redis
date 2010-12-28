@@ -167,7 +167,7 @@ void _addReplyStringToList(redisClient *c, char *s, size_t len) {
 
 void addReply(redisClient *c, robj *obj) {
     if (_installWriteEvent(c) != REDIS_OK) return;
-    redisAssert(!server.vm_enabled || obj->storage == REDIS_VM_MEMORY);
+    redisAssert(!server.ds_enabled || obj->storage == REDIS_VM_MEMORY);
 
     /* This is an important place where we can avoid copy-on-write
      * when there is a saving child running, avoiding touching the
@@ -460,7 +460,7 @@ void freeClient(redisClient *c) {
     /* Remove from the list of clients waiting for swapped keys, or ready
      * to be restarted, but not yet woken up again. */
     if (c->flags & REDIS_IO_WAIT) {
-        redisAssert(server.vm_enabled);
+        redisAssert(server.ds_enabled);
         if (listLength(c->io_keys) == 0) {
             ln = listSearchKey(server.io_ready_clients,c);
 
@@ -474,7 +474,7 @@ void freeClient(redisClient *c) {
                 dontWaitForSwappedKey(c,ln->value);
             }
         }
-        server.vm_blocked_clients--;
+        server.cache_blocked_clients--;
     }
     listRelease(c->io_keys);
     /* Master/slave cleanup.

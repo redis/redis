@@ -16,8 +16,17 @@
  * directory will contain in the average 15258 entires, that is ok with
  * most filesystems implementation.
  *
- * The actaul implementation of this disk store is highly related to the
- * filesystem implementation. This implementation may be replaced by
+ * Note that since Redis supports multiple databases, the actual key name
+ * is:
+ *
+ *  /0b/ee/<dbid>_0beec7b5ea3f0fdbc95d0dd47f3c5bc275da8a33
+ *
+ *  so for instance if the key is inside DB 0:
+ *
+ *  /0b/ee/0_0beec7b5ea3f0fdbc95d0dd47f3c5bc275da8a33
+ *
+ * The actaul implementation of this disk store is highly dependant to the
+ * filesystem implementation itself. This implementation may be replaced by
  * a B+TREE implementation in future implementations.
  *
  * Data ok every key is serialized using the same format used for .rdb
@@ -68,7 +77,7 @@
 int dsOpen(void) {
     struct stat sb;
     int retval;
-    char *path = server.diskstore_path;
+    char *path = server.ds_path;
 
     if ((retval = stat(path,&sb) == -1) && errno != ENOENT) {
         redisLog(REDIS_WARNING, "Error opening disk store at %s: %s",
