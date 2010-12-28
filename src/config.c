@@ -241,21 +241,15 @@ void loadServerConfig(char *filename) {
         } else if (!strcasecmp(argv[0],"dbfilename") && argc == 2) {
             zfree(server.dbfilename);
             server.dbfilename = zstrdup(argv[1]);
-        } else if (!strcasecmp(argv[0],"vm-enabled") && argc == 2) {
-            if ((server.vm_enabled = yesnotoi(argv[1])) == -1) {
+        } else if (!strcasecmp(argv[0],"diskstore-enabled") && argc == 2) {
+            if ((server.ds_enabled = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
-        } else if (!strcasecmp(argv[0],"vm-swap-file") && argc == 2) {
-            zfree(server.vm_swap_file);
-            server.vm_swap_file = zstrdup(argv[1]);
-        } else if (!strcasecmp(argv[0],"vm-max-memory") && argc == 2) {
-            server.vm_max_memory = memtoll(argv[1],NULL);
-        } else if (!strcasecmp(argv[0],"vm-page-size") && argc == 2) {
-            server.vm_page_size = memtoll(argv[1], NULL);
-        } else if (!strcasecmp(argv[0],"vm-pages") && argc == 2) {
-            server.vm_pages = memtoll(argv[1], NULL);
-        } else if (!strcasecmp(argv[0],"vm-max-threads") && argc == 2) {
-            server.vm_max_threads = strtoll(argv[1], NULL, 10);
+        } else if (!strcasecmp(argv[0],"diskstore-path") && argc == 2) {
+            zfree(server.ds_path);
+            server.ds_path = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"cache-max-memory") && argc == 2) {
+            server.cache_max_memory = memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"hash-max-zipmap-entries") && argc == 2) {
             server.hash_max_zipmap_entries = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"hash-max-zipmap-value") && argc == 2) {

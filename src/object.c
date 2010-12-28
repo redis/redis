@@ -21,7 +21,7 @@ robj *createObject(int type, void *ptr) {
     /* The following is only needed if VM is active, but since the conditional
      * is probably more costly than initializing the field it's better to
      * have every field properly initialized anyway. */
-    o->storage = REDIS_VM_MEMORY;
+    o->storage = REDIS_DS_MEMORY;
     return o;
 }
 
@@ -160,31 +160,11 @@ void incrRefCount(robj *o) {
 void decrRefCount(void *obj) {
     robj *o = obj;
 
-    /* Object is a swapped out value, or in the process of being loaded. */
-    if (server.vm_enabled &&
-        (o->storage == REDIS_VM_SWAPPED || o->storage == REDIS_VM_LOADING))
-    {
-        vmpointer *vp = obj;
-        if (o->storage == REDIS_VM_LOADING) vmCancelThreadedIOJob(o);
-        vmMarkPagesFree(vp->page,vp->usedpages);
-        server.vm_stats_swapped_objects--;
-        zfree(vp);
-        return;
-    }
-
     if (o->refcount <= 0) redisPanic("decrRefCount against refcount <= 0");
-    /* Object is in memory, or in the process of being swapped out.
-     *
-     * If the object is being swapped out, abort the operation on
-     * decrRefCount even if the refcount does not drop to 0: the object
-     * is referenced at least two times, as value of the key AND as
-     * job->val in the iojob. So if we don't invalidate the iojob, when it is
-     * done but the relevant key was removed in the meantime, the
-     * complete jobs handler will not find the key about the job and the
-     * assert will fail. */
-    if (server.vm_enabled && o->storage == REDIS_VM_SWAPPING)
-        vmCancelThreadedIOJob(o);
     if (--(o->refcount) == 0) {
+        /* DS_SAVING objects should always have a reference in the
+         * IO Job structure. So we should never reach this state. */
+        redisAssert(o->storage != REDIS_DS_SAVING);
         switch(o->type) {
         case REDIS_STRING: freeStringObject(o); break;
         case REDIS_LIST: freeListObject(o); break;

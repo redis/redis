@@ -167,7 +167,7 @@ void _addReplyStringToList(redisClient *c, char *s, size_t len) {
 
 void addReply(redisClient *c, robj *obj) {
     if (_installWriteEvent(c) != REDIS_OK) return;
-    redisAssert(!server.ds_enabled || obj->storage == REDIS_VM_MEMORY);
+    redisAssert(!server.ds_enabled || obj->storage == REDIS_DS_MEMORY);
 
     /* This is an important place where we can avoid copy-on-write
      * when there is a saving child running, avoiding touching the

@@ -119,22 +119,11 @@
 #define REDIS_RDB_ENC_INT32 2       /* 32 bit signed integer */
 #define REDIS_RDB_ENC_LZF 3         /* string compressed with FASTLZ */
 
-/* Virtual memory object->where field. */
-#define REDIS_VM_MEMORY 0       /* The object is on memory */
-#define REDIS_VM_SWAPPED 1      /* The object is on disk */
-#define REDIS_VM_SWAPPING 2     /* Redis is swapping this object on disk */
-#define REDIS_VM_LOADING 3      /* Redis is loading this object from disk */
+/* Disk store cache object->storage values */
+#define REDIS_DS_MEMORY 0       /* The object is on memory */
+#define REDIS_DS_DIRTY 1        /* The object was modified */
+#define REDIS_DS_SAVING 2       /* There is an IO Job created for this obj. */
 
-/* Virtual memory static configuration stuff.
- * Check vmFindContiguousPages() to know more about this magic numbers. */
-#define REDIS_VM_MAX_NEAR_PAGES 65536
-#define REDIS_VM_MAX_RANDOM_JUMP 4096
-#define REDIS_VM_MAX_THREADS 32
-#define REDIS_THREAD_STACK_SIZE (1024*1024*4)
-/* The following is the *percentage* of completed I/O jobs to process when the
- * handelr is called. While Virtual Memory I/O operations are performed by
- * threads, this operations must be processed by the main thread when completed
- * in order to take effect. */
 #define REDIS_MAX_COMPLETED_JOBS_PROCESSED 1
 
 /* Client flags */
@@ -271,7 +260,7 @@ typedef struct vmPointer {
     _var.type = REDIS_STRING; \
     _var.encoding = REDIS_ENCODING_RAW; \
     _var.ptr = _ptr; \
-    _var.storage = REDIS_VM_MEMORY; \
+    _var.storage = REDIS_DS_MEMORY; \
 } while(0);
 
 typedef struct redisDb {

@@ -17,29 +17,17 @@ robj *lookupKey(redisDb *db, robj *key) {
         if (server.bgsavechildpid == -1 && server.bgrewritechildpid == -1)
             val->lru = server.lruclock;
 
-        if (server.vm_enabled) {
-            if (val->storage == REDIS_VM_MEMORY ||
-                val->storage == REDIS_VM_SWAPPING)
-            {
-                /* If we were swapping the object out, cancel the operation */
-                if (val->storage == REDIS_VM_SWAPPING)
-                    vmCancelThreadedIOJob(val);
-            } else {
-                int notify = (val->storage == REDIS_VM_LOADING);
-
-                /* Our value was swapped on disk. Bring it at home. */
-                redisAssert(val->type == REDIS_VMPOINTER);
-                val = vmLoadObject(val);
-                dictGetEntryVal(de) = val;
-
-                /* Clients blocked by the VM subsystem may be waiting for
-                 * this key... */
-                if (notify) handleClientsBlockedOnSwappedKey(db,key);
-            }
+        if (server.ds_enabled && val->storage == REDIS_DS_SAVING) {
+            /* FIXME: change this code to just wait for our object to
+             * get out of the IO Job. */
+            waitEmptyIOJobsQueue();
+            redisAssert(val->storage != REDIS_DS_SAVING);
         }
         server.stat_keyspace_hits++;
         return val;
     } else {
+        /* FIXME: Check if the object is on disk, if it is, load it
+         * in a blocking way now. */
         server.stat_keyspace_misses++;
         return NULL;
     }
@@ -133,7 +121,11 @@ int dbDelete(redisDb *db, robj *key) {
      * deleting the key will kill the I/O thread bringing the key from swap
      * to memory, so the client will never be notified and unblocked if we
      * don't do it now. */
-    if (server.vm_enabled) handleClientsBlockedOnSwappedKey(db,key);
+    if (server.ds_enabled) handleClientsBlockedOnSwappedKey(db,key);
+
+    /* FIXME: we need to delete the IO Job loading the key, or simply we can
+     * wait for it to finish. */
+
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);

@@ -26,26 +26,17 @@
  *
  * - cron() checks if there are elements on this list. When there are things
  *   to flush, we create an IO Job for the I/O thread.
- *   FIXME: how to mark this key as "busy"? With VM we used to change the
- *   object->storage field, but this time we need this to work with every
- *   kind of object, including shared ones. One possibility is just killing
- *   object sharing at all. So let's assume this will be our solution.
- *
- *   So we set keys that are in the process of being saved as
- *   object->storage = REDIS_STORAGE_SAVING;
+ *   NOTE: We disalbe object sharing when server.ds_enabled == 1 so objects
+ *   that are referenced an IO job for flushing on disk are marked as
+ *   o->storage == REDIS_DS_SAVING.
  *
  * - This is what we do on key lookup:
- *   1) The key already exists in memory. object->storage == REDIS_DS_MEMORY.
+ *   1) The key already exists in memory. object->storage == REDIS_DS_MEMORY
+ *      or it is object->storage == REDIS_DS_DIRTY:
  *      We don't do nothing special, lookup, return value object pointer.
  *   2) The key is in memory but object->storage == REDIS_DS_SAVING.
- *      This is an explicit lookup so we have to abort the saving operation.
- *      We kill the IO Job, set the storage to == REDIS_DB_MEMORY but
- *      re-queue the object in the server.ds_cache_dirty list.
- *
- *      Btw here we need some protection against the problem of continuously
- *      writing against a value having the effect of this value to be never
- *      saved on disk. That is, at some point we need to block and write it
- *      if there is too much delay.
+ *      When this happens we block waiting for the I/O thread to process
+ *      this object. Then continue.
  *   3) The key is not in memory. We block to load the key from disk.
  *      Of course the key may not be present at all on the disk store as well,
  *      in such case we just detect this condition and continue, returning
@@ -56,20 +47,43 @@
  *      keys a client is going to use. We block the client, load keys
  *      using the I/O thread, unblock the client. Same code as VM more or less.
  *
- * - Transfering keys from memory to disk.
- *   Again while in cron() we detect our memory limit was reached. What we
- *   do is transfering random keys that are not set as dirty on disk, using
- *   LRU to select the key.
+ * - Reclaiming memory.
+ *   In cron() we detect our memory limit was reached. What we
+ *   do is deleting keys that are REDIS_DS_MEMORY, using LRU.
+ *
  *   If this is not enough to return again under the memory limits we also
  *   start to flush keys that need to be synched on disk synchronously,
- *   removing it from the memory.
+ *   removing it from the memory. We do this blocking as memory limit is a
+ *   much "harder" barrirer in the new design.
  *
  * - IO thread operations are no longer stopped for sync loading/saving of
- *   things. When a key is found to be in the process of being saved or
- *   loaded we simply wait for the IO thread to end its work.
+ *   things. When a key is found to be in the process of being saved
+ *   we simply wait for the IO thread to end its work.
  *
  *   Otherwise if there is to load a key without any IO thread operation
  *   just started it is blocking-loaded in the lookup function.
+ *
+ * - What happens when an object is destroyed?
+ *
+ *   If o->storage == REDIS_DS_MEMORY then we simply destory the object.
+ *   If o->storage == REDIS_DS_DIRTY we can still remove the object. It had
+ *                    changes not flushed on disk, but is being removed so
+ *                    who cares.
+ *   if o->storage == REDIS_DS_SAVING then the object is being saved so
+ *                    it is impossible that its refcount == 1, must be at
+ *                    least two. When the object is saved the storage will
+ *                    be set back to DS_MEMORY.
+ *
+ * - What happens when keys are deleted?
+ *
+ *   We simply schedule a key flush operation as usually, but when the
+ *   IO thread will be created the object pointer will be set to NULL
+ *   so the IO thread will know that the work to do is to delete the key
+ *   from the disk store.
+ *
+ * - What happens with MULTI/EXEC?
+ *
+ *   Good question.
  */
 
 /* Virtual Memory is composed mainly of two subsystems:
