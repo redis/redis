@@ -446,12 +446,6 @@ struct redisServer {
     size_t list_max_ziplist_entries;
     size_t list_max_ziplist_value;
     size_t set_max_intset_entries;
-    /* Virtual memory state */
-    FILE *vm_fp;
-    int vm_fd;
-    off_t vm_next_page; /* Next probably empty page */
-    off_t vm_near_pages; /* Number of pages allocated sequentially */
-    unsigned char *vm_bitmap; /* Bitmap of free/used pages */
     time_t unixtime;    /* Unix time sampled every second. */
     /* Virtual memory I/O threads stuff */
     /* An I/O thread process an element taken from the io_jobs queue and

@@ -623,7 +623,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     while (server.ds_enabled && zmalloc_used_memory() >
             server.cache_max_memory)
     {
-        cacheFreeOneEntry();
+        if (cacheFreeOneEntry() == REDIS_ERR) break;
     }
 
     /* Replication cron function -- used to reconnect to master and
