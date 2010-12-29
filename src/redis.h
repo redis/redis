@@ -431,7 +431,9 @@ struct redisServer {
     /* Blocked clients */
     unsigned int bpop_blocked_clients;
     unsigned int cache_blocked_clients;
-    list *unblocked_clients;
+    list *unblocked_clients; /* list of clients to unblock before next loop */
+    list *cache_flush_queue; /* keys to flush on disk */
+    int cache_flush_delay;   /* seconds to wait before flushing keys */
     /* Sort parameters - qsort_r() is only available under BSD so we
      * have to take this state global, in order to pass it to sortCompare() */
     int sort_desc;
@@ -553,6 +555,14 @@ typedef struct iojob {
     robj *val;  /* the value to swap for REDIS_IOJOB_SAVE, otherwise this
                  * field is populated by the I/O thread for REDIS_IOJOB_LOAD. */
 } iojob;
+
+/* When diskstore is enabled and a flush operation is requested we push
+ * one of this structures into server.cache_flush_queue. */
+typedef struct dirtykey {
+    redisDb *db;
+    robj *key;
+    time_t ctime; /* This is the creation time of the entry. */
+} dirtykey;
 
 /* Structure to hold list iteration abstraction. */
 typedef struct {
@@ -774,33 +784,22 @@ int dsSet(redisDb *db, robj *key, robj *val);
 robj *dsGet(redisDb *db, robj *key);
 int dsDel(redisDb *db, robj *key);
 int dsExists(redisDb *db, robj *key);
+int dsFlushDb(int dbid);
 
 /* Disk Store Cache */
-void vmInit(void);
-void vmMarkPagesFree(off_t page, off_t count);
-robj *vmLoadObject(robj *o);
-robj *vmPreviewObject(robj *o);
-int vmSwapOneObjectBlocking(void);
-int vmSwapOneObjectThreaded(void);
-int vmCanSwapOut(void);
+void dsInit(void);
 void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata, int mask);
-void vmCancelThreadedIOJob(robj *o);
 void lockThreadedIO(void);
 void unlockThreadedIO(void);
-int vmSwapObjectThreaded(robj *key, robj *val, redisDb *db);
 void freeIOJob(iojob *j);
 void queueIOJob(iojob *j);
-int vmWriteObjectOnSwap(robj *o, off_t page);
-robj *vmReadObjectFromSwap(off_t page, int type);
 void waitEmptyIOJobsQueue(void);
-void vmReopenSwapFile(void);
-int vmFreePage(off_t page);
 void zunionInterBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv);
 void execBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv);
 int blockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd);
 int dontWaitForSwappedKey(redisClient *c, robj *key);
 void handleClientsBlockedOnSwappedKey(redisDb *db, robj *key);
-vmpointer *vmSwapObjectBlocking(robj *val);
+int cacheFreeOneEntry(void);
 
 /* Set data type */
 robj *setTypeCreate(robj *value);
@@ -871,6 +870,8 @@ robj *dbRandomKey(redisDb *db);
 int dbDelete(redisDb *db, robj *key);
 long long emptyDb();
 int selectDb(redisClient *c, int id);
+void signalModifiedKey(redisDb *db, robj *key);
+void signalFlushedDb(int dbid);
 
 /* Git SHA1 */
 char *redisGitSHA1(void);

@@ -848,7 +848,6 @@ int rdbLoad(char *filename) {
     FILE *fp;
     uint32_t dbid;
     int type, retval, rdbver;
-    int swap_all_values = 0;
     redisDb *db = server.db+0;
     char buf[1024];
     time_t expiretime, now = time(NULL);
@@ -919,28 +918,6 @@ int rdbLoad(char *filename) {
         /* Set the expire time if needed */
         if (expiretime != -1) setExpire(db,key,expiretime);
 
-        /* Handle swapping while loading big datasets when VM is on */
-
-        /* If we detecter we are hopeless about fitting something in memory
-         * we just swap every new key on disk. Directly...
-         * Note that's important to check for this condition before resorting
-         * to random sampling, otherwise we may try to swap already
-         * swapped keys. */
-        if (swap_all_values) {
-            dictEntry *de = dictFind(db->dict,key->ptr);
-
-            /* de may be NULL since the key already expired */
-            if (de) {
-                vmpointer *vp;
-                val = dictGetEntryVal(de);
-
-                if (val->refcount == 1 &&
-                    (vp = vmSwapObjectBlocking(val)) != NULL)
-                    dictGetEntryVal(de) = vp;
-            }
-            decrRefCount(key);
-            continue;
-        }
         decrRefCount(key);
     }
     fclose(fp);

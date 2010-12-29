@@ -120,3 +120,6 @@ int dsDel(redisDb *db, robj *key) {
 
 int dsExists(redisDb *db, robj *key) {
 }
+
+int dsFlushDb(int dbid) {
+}

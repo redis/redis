@@ -153,19 +153,40 @@ int selectDb(redisClient *c, int id) {
 }
 
 /*-----------------------------------------------------------------------------
+ * Hooks for key space changes.
+ *
+ * Every time a key in the database is modified the function
+ * signalModifiedKey() is called.
+ *
+ * Every time a DB is flushed the function signalFlushDb() is called.
+ *----------------------------------------------------------------------------*/
+
+void signalModifiedKey(redisDb *db, robj *key) {
+    touchWatchedKey(db,key);
+    if (server.ds_enabled)
+        cacheScheduleForFlush(db,key);
+}
+
+void signalFlushedDb(int dbid) {
+    touchWatchedKeysOnFlush(dbid);
+    if (server.ds_enabled)
+        dsFlushDb(dbid);
+}
+
+/*-----------------------------------------------------------------------------
  * Type agnostic commands operating on the key space
  *----------------------------------------------------------------------------*/
 
 void flushdbCommand(redisClient *c) {
     server.dirty += dictSize(c->db->dict);
-    touchWatchedKeysOnFlush(c->db->id);
+    signalFlushedDb(c->db->id);
     dictEmpty(c->db->dict);
     dictEmpty(c->db->expires);
     addReply(c,shared.ok);
 }
 
 void flushallCommand(redisClient *c) {
-    touchWatchedKeysOnFlush(-1);
+    signalFlushedDb(-1);
     server.dirty += emptyDb();
     addReply(c,shared.ok);
     if (server.bgsavechildpid != -1) {
@@ -181,7 +202,7 @@ void delCommand(redisClient *c) {
 
     for (j = 1; j < c->argc; j++) {
         if (dbDelete(c->db,c->argv[j])) {
-            touchWatchedKey(c->db,c->argv[j]);
+            signalModifiedKey(c->db,c->argv[j]);
             server.dirty++;
             deleted++;
         }
@@ -327,8 +348,8 @@ void renameGenericCommand(redisClient *c, int nx) {
         dbReplace(c->db,c->argv[2],o);
     }
     dbDelete(c->db,c->argv[1]);
-    touchWatchedKey(c->db,c->argv[1]);
-    touchWatchedKey(c->db,c->argv[2]);
+    signalModifiedKey(c->db,c->argv[1]);
+    signalModifiedKey(c->db,c->argv[2]);
     server.dirty++;
     addReply(c,nx ? shared.cone : shared.ok);
 }
@@ -487,13 +508,13 @@ void expireGenericCommand(redisClient *c, robj *key, robj *param, long offset) {
     if (seconds <= 0) {
         if (dbDelete(c->db,key)) server.dirty++;
         addReply(c, shared.cone);
-        touchWatchedKey(c->db,key);
+        signalModifiedKey(c->db,key);
         return;
     } else {
         time_t when = time(NULL)+seconds;
         setExpire(c->db,key,when);
         addReply(c,shared.cone);
-        touchWatchedKey(c->db,key);
+        signalModifiedKey(c->db,key);
         server.dirty++;
         return;
     }
