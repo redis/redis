@@ -800,6 +800,8 @@ int blockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd);
 int dontWaitForSwappedKey(redisClient *c, robj *key);
 void handleClientsBlockedOnSwappedKey(redisDb *db, robj *key);
 int cacheFreeOneEntry(void);
+void cacheScheduleForFlush(redisDb *db, robj *key);
+void cacheCron(void);
 
 /* Set data type */
 robj *setTypeCreate(robj *value);
