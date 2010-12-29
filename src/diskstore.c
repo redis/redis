@@ -115,5 +115,8 @@ int dsSet(redisDb *db, robj *key, robj *val) {
 robj *dsGet(redisDb *db, robj *key) {
 }
 
+int dsDel(redisDb *db, robj *key) {
+}
+
 int dsExists(redisDb *db, robj *key) {
 }
