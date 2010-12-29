@@ -125,6 +125,7 @@
 #define REDIS_DS_SAVING 2       /* There is an IO Job created for this obj. */
 
 #define REDIS_MAX_COMPLETED_JOBS_PROCESSED 1
+#define REDIS_THREAD_STACK_SIZE (1024*1024*4)
 
 /* Client flags */
 #define REDIS_SLAVE 1       /* This client is a slave server */
@@ -542,22 +543,15 @@ typedef struct zset {
 } zset;
 
 /* VM threaded I/O request message */
-#define REDIS_IOJOB_LOAD 0          /* Load from disk to memory */
-#define REDIS_IOJOB_PREPARE_SWAP 1  /* Compute needed pages */
-#define REDIS_IOJOB_DO_SWAP 2       /* Swap from memory to disk */
+#define REDIS_IOJOB_LOAD 0
+#define REDIS_IOJOB_SAVE 1
+
 typedef struct iojob {
     int type;   /* Request type, REDIS_IOJOB_* */
     redisDb *db;/* Redis database */
-    robj *key;  /* This I/O request is about swapping this key */
-    robj *id;   /* Unique identifier of this job:
-                   this is the object to swap for REDIS_IOREQ_*_SWAP, or the
-                   vmpointer objct for REDIS_IOREQ_LOAD. */
-    robj *val;  /* the value to swap for REDIS_IOREQ_*_SWAP, otherwise this
-                 * field is populated by the I/O thread for REDIS_IOREQ_LOAD. */
-    off_t page; /* Swap page where to read/write the object */
-    off_t pages; /* Swap pages needed to save object. PREPARE_SWAP return val */
-    int canceled; /* True if this command was canceled by blocking side of VM */
-    pthread_t thread; /* ID of the thread processing this entry */
+    robj *key;  /* This I/O request is about this key */
+    robj *val;  /* the value to swap for REDIS_IOJOB_SAVE, otherwise this
+                 * field is populated by the I/O thread for REDIS_IOJOB_LOAD. */
 } iojob;
 
 /* Structure to hold list iteration abstraction. */
