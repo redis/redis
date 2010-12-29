@@ -1494,7 +1494,7 @@ int main(int argc, char **argv) {
 #endif
     start = time(NULL);
     if (server.ds_enabled) {
-        redisLog(REDIS_NOTICE,"Running with disk back end");
+        redisLog(REDIS_NOTICE,"DB not loaded (running with disk back end)");
     } else if (server.appendonly) {
         if (loadAppendOnlyFile(server.appendfilename) == REDIS_OK)
             redisLog(REDIS_NOTICE,"DB loaded from append only file: %ld seconds",time(NULL)-start);

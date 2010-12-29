@@ -117,7 +117,7 @@ void dsInit(void) {
 
     zmalloc_enable_thread_safeness(); /* we need thread safe zmalloc() */
 
-    redisLog(REDIS_NOTICE,"Initializing Disk Store at %s", server.ds_path);
+    redisLog(REDIS_NOTICE,"Opening Disk Store: %s", server.ds_path);
     /* Open Disk Store */
     if (dsOpen() != REDIS_OK) {
         redisLog(REDIS_WARNING,"Fatal error opening disk store. Exiting.");
