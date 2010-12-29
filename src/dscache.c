@@ -457,6 +457,7 @@ void cacheScheduleForFlush(redisDb *db, robj *key) {
             val->storage = REDIS_DS_DIRTY;
     }
 
+    redisLog(REDIS_DEBUG,"Scheduling key %s for saving",key->ptr);
     dk = zmalloc(sizeof(*dk));
     dk->db = db;
     dk->key = key;
@@ -476,6 +477,8 @@ void cacheCron(void) {
         if ((now - dk->ctime) >= server.cache_flush_delay) {
             struct dictEntry *de;
             robj *val;
+
+            redisLog(REDIS_DEBUG,"Creating IO Job to save key %s",dk->key->ptr);
 
             /* Lookup the key. We need to check if it's still here and
              * possibly access to the value. */

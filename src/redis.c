@@ -1493,7 +1493,9 @@ int main(int argc, char **argv) {
     linuxOvercommitMemoryWarning();
 #endif
     start = time(NULL);
-    if (server.appendonly) {
+    if (server.ds_enabled) {
+        redisLog(REDIS_NOTICE,"Running with disk back end");
+    } else if (server.appendonly) {
         if (loadAppendOnlyFile(server.appendfilename) == REDIS_OK)
             redisLog(REDIS_NOTICE,"DB loaded from append only file: %ld seconds",time(NULL)-start);
     } else {
