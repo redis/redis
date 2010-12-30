@@ -590,7 +590,7 @@ start_server {tags {"zset"}} {
         assert_equal {} [r zrevpop myzset]
     }
 
-    test {ZPOP with min/max score} {
+    test {ZPOP/ZREVPOP with min/max score} {
         create_zset myzset {1 a 2 b 3 c 4 d 5 e 6 f}
         assert_equal f [r zpop myzset 5]
         assert_equal e [r zpop myzset 5]
@@ -599,6 +599,15 @@ start_server {tags {"zset"}} {
         assert_equal a [r zrevpop myzset 2]
         assert_equal b [r zrevpop myzset 2]
         assert_equal {} [r zrevpop myzset 2]
+    }
+
+    test {ZPOP/ZREVPOP with infinite scores} {
+        create_zset myzset {-inf a 0 b +inf c}
+        assert_equal a [r zrevpop myzset -inf]
+        assert_equal {} [r zrevpop myzset -inf]
+        
+        assert_equal c [r zpop myzset +inf]
+        assert_equal {} [r zpop myzset +inf]
     }
 
     test {ZPOP/ZREVPOP against non zset value} {
@@ -619,5 +628,4 @@ start_server {tags {"zset"}} {
         catch {r zrevpop zset 30 whatever} err
         format $err
     } {*syntax error*}
-
 }
