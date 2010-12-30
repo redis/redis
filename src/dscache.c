@@ -471,7 +471,7 @@ void cacheScheduleForFlush(redisDb *db, robj *key) {
     dk->key = key;
     incrRefCount(key);
     dk->ctime = time(NULL);
-    listAddNodeTail(server.cache_flush_queue, key);
+    listAddNodeTail(server.cache_flush_queue, dk);
 }
 
 void cacheCron(void) {
@@ -488,8 +488,10 @@ void cacheCron(void) {
 
             redisLog(REDIS_DEBUG,"Creating IO Job to save key %s",dk->key->ptr);
 
-            /* Lookup the key. We need to check if it's still here and
-             * possibly access to the value. */
+            /* Lookup the key, in order to put the current value in the IO
+             * Job and mark ti as DS_SAVING.
+             * Otherwise if the key does not exists we schedule a disk store
+             * delete operation, setting the value to NULL. */
             de = dictFind(dk->db->dict,dk->key->ptr);
             if (de) {
                 val = dictGetEntryVal(de);
@@ -502,6 +504,8 @@ void cacheCron(void) {
             }
             dsCreateIOJob(REDIS_IOJOB_SAVE,dk->db,dk->key,val);
             listDelNode(server.cache_flush_queue,ln);
+            decrRefCount(dk->key);
+            zfree(dk);
         } else {
             break; /* too early */
         }
