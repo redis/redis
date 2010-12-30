@@ -28,7 +28,9 @@ robj *lookupKey(redisDb *db, robj *key) {
         return val;
     } else {
         /* FIXME: Check if the object is on disk, if it is, load it
-         * in a blocking way now. */
+         * in a blocking way now. If we are sure there are no collisions
+         * it would be cool to load this directly here without IO thread
+         * help. */
         server.stat_keyspace_misses++;
         return NULL;
     }
