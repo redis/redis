@@ -1050,7 +1050,9 @@ int prepareForShutdown() {
         kill(server.bgsavechildpid,SIGKILL);
         rdbRemoveTempFile(server.bgsavechildpid);
     }
-    if (server.appendonly) {
+    if (server.ds_enabled) {
+        /* FIXME: flush all objects on disk */
+    } else if (server.appendonly) {
         /* Append only file: fsync() the AOF and exit */
         aof_fsync(server.appendfd);
     } else if (server.saveparamslen > 0) {

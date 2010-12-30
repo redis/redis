@@ -142,6 +142,7 @@ int dsSet(redisDb *db, robj *key, robj *val) {
 }
 
 robj *dsGet(redisDb *db, robj *key) {
+    return createStringObject("foo",3);
 }
 
 int dsDel(redisDb *db, robj *key) {
