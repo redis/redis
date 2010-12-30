@@ -291,7 +291,7 @@ void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
             if (j->val != NULL) {
                 dbAdd(j->db,j->key,j->val);
                 incrRefCount(j->val);
-                setExpire(j->db,j->key,j->expire);
+                if (j->expire != -1) setExpire(j->db,j->key,j->expire);
             } else {
                 /* The key does not exist. Create a negative cache entry
                  * for this key. */

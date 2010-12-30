@@ -404,7 +404,7 @@ int rdbSaveKeyValuePair(FILE *fp, redisDb *db, robj *key, robj *val,
 {
     time_t expiretime;
     
-    expiretime = getExpire(db,&key);
+    expiretime = getExpire(db,key);
 
     /* Save the expire time */
     if (expiretime != -1) {
@@ -415,7 +415,7 @@ int rdbSaveKeyValuePair(FILE *fp, redisDb *db, robj *key, robj *val,
     }
     /* Save type, key, value */
     if (rdbSaveType(fp,val->type) == -1) return -1;
-    if (rdbSaveStringObject(fp,&key) == -1) return -1;
+    if (rdbSaveStringObject(fp,key) == -1) return -1;
     if (rdbSaveObject(fp,val) == -1) return -1;
     return 1;
 }
@@ -459,7 +459,7 @@ int rdbSave(char *filename) {
             robj key, *o = dictGetEntryVal(de);
             
             initStaticStringObject(key,keystr);
-            if (rdbSaveKeyValuePair(fp,db,key,o,now) == -1) goto werr;
+            if (rdbSaveKeyValuePair(fp,db,&key,o,now) == -1) goto werr;
         }
         dictReleaseIterator(di);
     }

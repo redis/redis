@@ -748,6 +748,9 @@ off_t rdbSavedObjectPages(robj *o);
 robj *rdbLoadObject(int type, FILE *fp);
 void backgroundSaveDoneHandler(int statloc);
 int rdbSaveKeyValuePair(FILE *fp, redisDb *db, robj *key, robj *val, time_t now);
+int rdbLoadType(FILE *fp);
+time_t rdbLoadTime(FILE *fp);
+robj *rdbLoadStringObject(FILE *fp);
 
 /* AOF persistence */
 void flushAppendOnlyFile(void);
@@ -783,7 +786,7 @@ void populateCommandTable(void);
 int dsOpen(void);
 int dsClose(void);
 int dsSet(redisDb *db, robj *key, robj *val);
-robj *dsGet(redisDb *db, robj *key);
+robj *dsGet(redisDb *db, robj *key, time_t *expire);
 int dsDel(redisDb *db, robj *key);
 int dsExists(redisDb *db, robj *key);
 int dsFlushDb(int dbid);
