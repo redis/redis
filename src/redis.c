@@ -132,6 +132,8 @@ struct redisCommand readonlyCommandTable[] = {
     {"zscore",zscoreCommand,3,0,NULL,1,1,1},
     {"zrank",zrankCommand,3,0,NULL,1,1,1},
     {"zrevrank",zrevrankCommand,3,0,NULL,1,1,1},
+    {"zpop",zpopCommand,-2,0,NULL,1,1,1},
+    {"zrevpop",zrevpopCommand,-2,0,NULL,1,1,1},
     {"hset",hsetCommand,4,REDIS_CMD_DENYOOM,NULL,1,1,1},
     {"hsetnx",hsetnxCommand,4,REDIS_CMD_DENYOOM,NULL,1,1,1},
     {"hget",hgetCommand,3,0,NULL,1,1,1},

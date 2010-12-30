@@ -577,4 +577,47 @@ start_server {tags {"zset"}} {
         r zincrby myzset +inf abc
         assert_error "*NaN*" {r zincrby myzset -inf abc}
     }
+
+    test {ZPOP/ZREVPOP basics} {
+        create_zset myzset {1 a 2 b 3 c}
+        assert_equal c [r zpop myzset]
+        assert_equal a [r zrevpop myzset]
+        assert_equal b [r zpop myzset]
+        assert_equal 0 [r zcard myzset]
+
+        # pop on empty
+        assert_equal {} [r zpop myzset]
+        assert_equal {} [r zrevpop myzset]
+    }
+
+    test {ZPOP with min/max score} {
+        create_zset myzset {1 a 2 b 3 c 4 d 5 e 6 f}
+        assert_equal f [r zpop myzset 5]
+        assert_equal e [r zpop myzset 5]
+        assert_equal {} [r zpop myzset 5]
+
+        assert_equal a [r zrevpop myzset 2]
+        assert_equal b [r zrevpop myzset 2]
+        assert_equal {} [r zrevpop myzset 2]
+    }
+
+    test {ZPOP/ZREVPOP against non zset value} {
+        r set notazset foo
+        assert_error ERR*kind* {r zpop notazset}
+        assert_error ERR*kind* {r zrevpop notazset}
+    }
+
+    test {ZPOP/REVPOP with non-double min/max score} {
+        create_default_zset
+        assert_error "*not a double*" {r zpop zset nan}
+        assert_error "*not a double*" {r zrevpop zset nan}
+    }
+
+    test {ZPOP/ZREVPOP with wrong number of args} {
+        create_default_zset
+        catch {r zpop zset 30 whatever} err
+        catch {r zrevpop zset 30 whatever} err
+        format $err
+    } {*syntax error*}
+
 }

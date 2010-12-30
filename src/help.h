@@ -632,7 +632,17 @@ struct commandHelp {
     "destination numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX]",
     "Add multiple sorted sets and store the resulting sorted set in a new key",
     4,
-    "1.3.10" }
+    "1.3.10" },
+    { "ZPOP",
+    "key [minscore]",
+    "Remove and get the highest ranked member of a sorted set",
+    4,
+    "2.1.11" },
+    { "ZREVPOP",
+    "key [maxscore]",
+    "Remove and get the lowest ranked member of a sorted set",
+    4,
+    "2.1.11" }
 };
 
 #endif

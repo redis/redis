@@ -1058,3 +1058,59 @@ void zrankCommand(redisClient *c) {
 void zrevrankCommand(redisClient *c) {
     zrankGenericCommand(c, 1);
 }
+
+void zpopGenericCommand(redisClient *c, int reverse) {
+    robj *o;
+    zset *zs;
+    zskiplist *zsl;
+    zskiplistNode *ln;
+    int withminscore = 0;
+    double minscore;
+
+    o = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk);
+    if (o == NULL || checkType(c,o,REDIS_ZSET)) return;
+
+    if(c->argc == 3) {
+        withminscore = 1;
+        if (getDoubleFromObjectOrReply(c, c->argv[2], &minscore, NULL) != REDIS_OK) return;
+    } else if (c->argc > 3) {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+
+    zs = o->ptr;
+    zsl = zs->zsl;
+    if (reverse) {
+        ln = zsl->header->level[0].forward;
+    } else {
+        ln = zsl->tail;
+    };
+
+    if (ln == NULL) {
+        addReply(c,shared.nullbulk);
+    } else if (withminscore && (reverse ? ln->score > minscore : ln->score < minscore)) {
+        addReply(c,shared.nullbulk);
+    } else {
+        addReplyBulk(c,ln->obj);
+
+        long deleted;
+        deleted = zslDelete(zsl,ln->score,ln->obj);
+        redisAssert(deleted != 0);
+
+        /* Delete from the hash table */
+        dictDelete(zs->dict,ln->obj);
+        if (htNeedsResize(zs->dict)) dictResize(zs->dict);
+        if (dictSize(zs->dict) == 0) dbDelete(c->db,c->argv[1]);
+
+        touchWatchedKey(c->db,c->argv[1]);
+        server.dirty++;
+    }
+}
+
+void zpopCommand(redisClient *c) {
+    zpopGenericCommand(c, 0);
+}
+
+void zrevpopCommand(redisClient *c) {
+    zpopGenericCommand(c, 1);
+}
