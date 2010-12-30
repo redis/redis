@@ -459,7 +459,7 @@ struct redisServer {
     list *io_processed; /* List of VM I/O jobs already processed */
     list *io_ready_clients; /* Clients ready to be unblocked. All keys loaded */
     pthread_mutex_t io_mutex; /* lock to access io_jobs/io_done/io_thread_job */
-    pthread_mutex_t io_swapfile_mutex; /* So we can lseek + write */
+    pthread_cond_t io_condvar; /* I/O threads conditional variable */
     pthread_attr_t io_threads_attr; /* attributes for threads creation */
     int io_active_threads; /* Number of running I/O threads */
     int vm_max_threads; /* Max number of I/O threads running at the same time */
