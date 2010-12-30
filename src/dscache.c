@@ -404,16 +404,14 @@ void spawnIOThread(void) {
     server.io_active_threads++;
 }
 
-/* We need to wait for the last thread to exit before we are able to
- * fork() in order to BGSAVE or BGREWRITEAOF. */
+/* Wait that all the pending IO Jobs are processed */
 void waitEmptyIOJobsQueue(void) {
     while(1) {
         int io_processed_len;
 
         lockThreadedIO();
         if (listLength(server.io_newjobs) == 0 &&
-            listLength(server.io_processing) == 0 &&
-            server.io_active_threads == 0)
+            listLength(server.io_processing) == 0)
         {
             unlockThreadedIO();
             return;
@@ -431,6 +429,21 @@ void waitEmptyIOJobsQueue(void) {
         } else {
             usleep(10000); /* 10 milliseconds */
         }
+    }
+}
+
+/* Process all the IO Jobs already completed by threads but still waiting
+ * processing from the main thread. */
+void processAllPendingIOJobs(void) {
+    while(1) {
+        int io_processed_len;
+
+        lockThreadedIO();
+        io_processed_len = listLength(server.io_processed);
+        unlockThreadedIO();
+        if (io_processed_len == 0) return;
+        vmThreadedIOCompletedJob(NULL,server.io_ready_pipe_read,
+                                                    (void*)0xdeadbeef,0);
     }
 }
 

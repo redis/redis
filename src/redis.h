@@ -799,6 +799,7 @@ void unlockThreadedIO(void);
 void freeIOJob(iojob *j);
 void queueIOJob(iojob *j);
 void waitEmptyIOJobsQueue(void);
+void processAllPendingIOJobs(void);
 void zunionInterBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv);
 void execBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv);
 int blockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd);

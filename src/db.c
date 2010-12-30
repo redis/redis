@@ -21,6 +21,7 @@ robj *lookupKey(redisDb *db, robj *key) {
             /* FIXME: change this code to just wait for our object to
              * get out of the IO Job. */
             waitEmptyIOJobsQueue();
+            processAllPendingIOJobs();
             redisAssert(val->storage != REDIS_DS_SAVING);
         }
         server.stat_keyspace_hits++;
