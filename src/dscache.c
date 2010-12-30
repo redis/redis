@@ -304,8 +304,10 @@ void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
             handleClientsBlockedOnSwappedKey(j->db,j->key);
             freeIOJob(j);
         } else if (j->type == REDIS_IOJOB_SAVE) {
-            redisAssert(j->val->storage == REDIS_DS_SAVING);
-            j->val->storage = REDIS_DS_MEMORY;
+            if (j->val) {
+                redisAssert(j->val->storage == REDIS_DS_SAVING);
+                j->val->storage = REDIS_DS_MEMORY;
+            }
             freeIOJob(j);
         }
         processed++;
@@ -362,11 +364,12 @@ void *IOThreadEntryPoint(void *arg) {
             j->val = dsGet(j->db,j->key,&expire);
             if (j->val) j->expire = expire;
         } else if (j->type == REDIS_IOJOB_SAVE) {
-            redisAssert(j->val->storage == REDIS_DS_SAVING);
-            if (j->val)
+            if (j->val) {
+                redisAssert(j->val->storage == REDIS_DS_SAVING);
                 dsSet(j->db,j->key,j->val);
-            else
+            } else {
                 dsDel(j->db,j->key);
+            }
         }
 
         /* Done: insert the job into the processed queue */
@@ -538,6 +541,15 @@ void cacheCron(void) {
     {
         if (cacheFreeOneEntry() == REDIS_ERR) break;
     }
+}
+
+/* ============ Negative caching for diskstore objects ====================== */
+/* Since accesses to keys that don't exist with disk store cost us a disk
+ * access, we need to cache names of keys that do not exist but are frequently
+ * accessed. */
+int cacheKeyMayExist(redisDb *db, robj *key) {
+    /* FIXME: for now we just always return true. */
+    return 1;
 }
 
 /* ============ Virtual Memory - Blocking clients on missing keys =========== */

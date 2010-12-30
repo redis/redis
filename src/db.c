@@ -205,10 +205,22 @@ void delCommand(redisClient *c) {
     int deleted = 0, j;
 
     for (j = 1; j < c->argc; j++) {
+        if (server.ds_enabled) {
+            lookupKeyRead(c->db,c->argv[j]);
+            /* FIXME: this can be optimized a lot, no real need to load
+             * a possibly huge value. */
+        }
         if (dbDelete(c->db,c->argv[j])) {
             signalModifiedKey(c->db,c->argv[j]);
             server.dirty++;
             deleted++;
+        } else if (server.ds_enabled) {
+            if (cacheKeyMayExist(c->db,c->argv[j]) &&
+                dsExists(c->db,c->argv[j]))
+            {
+                cacheScheduleForFlush(c->db,c->argv[j]);
+                deleted = 1;
+            }
         }
     }
     addReplyLongLong(c,deleted);

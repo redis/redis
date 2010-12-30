@@ -262,6 +262,10 @@ int dsDel(redisDb *db, robj *key) {
 }
 
 int dsExists(redisDb *db, robj *key) {
+    char buf[1024];
+
+    dsKeyToPath(db,buf,key);
+    return access(buf,R_OK) == 0;
 }
 
 int dsFlushDb(int dbid) {

@@ -808,6 +808,7 @@ void handleClientsBlockedOnSwappedKey(redisDb *db, robj *key);
 int cacheFreeOneEntry(void);
 void cacheScheduleForFlush(redisDb *db, robj *key);
 void cacheCron(void);
+int cacheKeyMayExist(redisDb *db, robj *key);
 
 /* Set data type */
 robj *setTypeCreate(robj *value);
