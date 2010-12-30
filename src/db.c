@@ -27,10 +27,26 @@ robj *lookupKey(redisDb *db, robj *key) {
         server.stat_keyspace_hits++;
         return val;
     } else {
-        /* FIXME: Check if the object is on disk, if it is, load it
-         * in a blocking way now. If we are sure there are no collisions
-         * it would be cool to load this directly here without IO thread
-         * help. */
+        time_t expire;
+        robj *val;
+
+        /* Key not found in the in memory hash table, but if disk store is
+         * enabled we may have this key on disk. If so load it in memory
+         * in a blocking way.
+         * 
+         * FIXME: race condition here. If there was an already scheduled
+         * async loading of this key, what may happen is that the old
+         * key is loaded in memory if this gets deleted in the meantime. */
+        if (server.ds_enabled && cacheKeyMayExist(db,key)) {
+            val = dsGet(db,key,&expire);
+            if (val) {
+                int retval = dbAdd(db,key,val);
+                redisAssert(retval == REDIS_OK);
+                if (expire != -1) setExpire(db,key,expire);
+                server.stat_keyspace_hits++;
+                return val;
+            }
+        }
         server.stat_keyspace_misses++;
         return NULL;
     }

@@ -292,9 +292,13 @@ void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
         if (j->type == REDIS_IOJOB_LOAD) {
             /* Create the key-value pair in the in-memory database */
             if (j->val != NULL) {
-                dbAdd(j->db,j->key,j->val);
-                incrRefCount(j->val);
-                if (j->expire != -1) setExpire(j->db,j->key,j->expire);
+                /* Note: the key may already be here if between the time
+                 * this key loading was scheduled and now there was the
+                 * need to blocking load the key for a key lookup. */
+                if (dbAdd(j->db,j->key,j->val) == REDIS_OK) {
+                    incrRefCount(j->val);
+                    if (j->expire != -1) setExpire(j->db,j->key,j->expire);
+                }
             } else {
                 /* The key does not exist. Create a negative cache entry
                  * for this key. */
