@@ -250,6 +250,9 @@ void loadServerConfig(char *filename) {
             server.ds_path = sdsnew(argv[1]);
         } else if (!strcasecmp(argv[0],"cache-max-memory") && argc == 2) {
             server.cache_max_memory = memtoll(argv[1],NULL);
+        } else if (!strcasecmp(argv[0],"cache-flush-delay") && argc == 2) {
+            server.cache_flush_delay = atoi(argv[1]);
+            if (server.cache_flush_delay < 0) server.cache_flush_delay = 0;
         } else if (!strcasecmp(argv[0],"hash-max-zipmap-entries") && argc == 2) {
             server.hash_max_zipmap_entries = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"hash-max-zipmap-value") && argc == 2) {

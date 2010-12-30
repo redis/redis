@@ -596,7 +596,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             }
             updateDictResizePolicy();
         }
-    } else {
+    } else if (!server.ds_enabled) {
         /* If there is not a background saving in progress check if
          * we have to save now */
          time_t now = time(NULL);
