@@ -70,6 +70,7 @@
  */
 
 #include "redis.h"
+#include "sha1.h"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -138,10 +139,62 @@ int dsClose(void) {
     return REDIS_OK;
 }
 
-int dsSet(redisDb *db, robj *key, robj *val) {
+/* Convert key into full path for this object. Dirty but hopefully
+ * is fast enough. */
+void dsKeyToPath(redisDb *db, unsigned char *buf, robj *key) {
+    SHA1_CTX ctx;
+    unsigned char hash[20];
+    char *hex, digits[] = "0123456789abcdef";
+    int j, l;
+
+    SHA1Init(&ctx);
+    SHA1Update(&ctx,key->ptr,sdslen(key->ptr));
+    SHA1Final(hash,&ctx);
+
+    /* Convert the hash into hex format */
+    for (j = 0; j < 20; j++) {
+        hex[j*2] = digits[(hash[j]&0xF0)>>4];
+        hex[(j*2)+1] = digits[hash[j]&0x0F];
+    }
+
+    /* Create the object path. Start with server.ds_path that's the root dir */
+    l = sdslen(server.ds_path);
+    memcpy(buf,server.ds_path,l);
+    buf += l;
+    *buf++ = '/';
+
+    /* Then add xx/yy/ that is the two level directories */
+    buf[0] = hex[0];
+    buf[1] = hex[1];
+    buf[2] = '/';
+    buf[3] = hex[2];
+    buf[4] = hex[3];
+    buf[5] = '/';
+    buf += 6;
+
+    /* Add the database number followed by _ and finall the SHA1 hex */
+    l = ll2string(buf,64,db->id);
+    buf += l;
+    buf[0] = '_';
+    memcpy(buf+1,hex,40);
+    buf[41] = '\0';
 }
 
-robj *dsGet(redisDb *db, robj *key) {
+int dsSet(redisDb *db, robj *key, robj *val) {
+    char buf[1024];
+    FILE *fp;
+    int retval;
+
+    dsKeyToPath(buf,key);
+    fp = fopen(buf,"w");
+    if ((retval = rdbSaveKeyValuePair(fp,db,key,val,time(NULL))) == -1)
+        return REDIS_ERR;
+    fclose(fp);
+    if (retval == 0) unlink(buf); /* Expired key */
+    return REDIS_OK;
+}
+
+robj *dsGet(redisDb *db, robj *key, time_t *expire) {
     return createStringObject("foo",3);
 }
 

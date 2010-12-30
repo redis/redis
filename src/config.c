@@ -246,8 +246,8 @@ void loadServerConfig(char *filename) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"diskstore-path") && argc == 2) {
-            zfree(server.ds_path);
-            server.ds_path = zstrdup(argv[1]);
+            sdsfree(server.ds_path);
+            server.ds_path = sdsnew(argv[1]);
         } else if (!strcasecmp(argv[0],"cache-max-memory") && argc == 2) {
             server.cache_max_memory = memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"hash-max-zipmap-entries") && argc == 2) {

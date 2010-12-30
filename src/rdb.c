@@ -395,6 +395,31 @@ off_t rdbSavedObjectLen(robj *o) {
     return len;
 }
 
+/* Save a key-value pair, with expire time, type, key, value.
+ * On error -1 is returned.
+ * On success if the key was actaully saved 1 is returned, otherwise 0
+ * is returned (the key was already expired). */
+int rdbSaveKeyValuePair(FILE *fp, redisDb *db, robj *key, robj *val,
+                        time_t now)
+{
+    time_t expiretime;
+    
+    expiretime = getExpire(db,&key);
+
+    /* Save the expire time */
+    if (expiretime != -1) {
+        /* If this key is already expired skip it */
+        if (expiretime < now) return 0;
+        if (rdbSaveType(fp,REDIS_EXPIRETIME) == -1) return -1;
+        if (rdbSaveTime(fp,expiretime) == -1) return -1;
+    }
+    /* Save type, key, value */
+    if (rdbSaveType(fp,val->type) == -1) return -1;
+    if (rdbSaveStringObject(fp,&key) == -1) return -1;
+    if (rdbSaveObject(fp,val) == -1) return -1;
+    return 1;
+}
+
 /* Save the DB on disk. Return REDIS_ERR on error, REDIS_OK on success */
 int rdbSave(char *filename) {
     dictIterator *di = NULL;
@@ -432,22 +457,9 @@ int rdbSave(char *filename) {
         while((de = dictNext(di)) != NULL) {
             sds keystr = dictGetEntryKey(de);
             robj key, *o = dictGetEntryVal(de);
-            time_t expiretime;
             
             initStaticStringObject(key,keystr);
-            expiretime = getExpire(db,&key);
-
-            /* Save the expire time */
-            if (expiretime != -1) {
-                /* If this key is already expired skip it */
-                if (expiretime < now) continue;
-                if (rdbSaveType(fp,REDIS_EXPIRETIME) == -1) goto werr;
-                if (rdbSaveTime(fp,expiretime) == -1) goto werr;
-            }
-            /* Save type, key, value */
-            if (rdbSaveType(fp,o->type) == -1) goto werr;
-            if (rdbSaveStringObject(fp,&key) == -1) goto werr;
-            if (rdbSaveObject(fp,o) == -1) goto werr;
+            if (rdbSaveKeyValuePair(fp,db,key,o,now) == -1) goto werr;
         }
         dictReleaseIterator(di);
     }

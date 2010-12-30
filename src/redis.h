@@ -554,6 +554,7 @@ typedef struct iojob {
     robj *key;  /* This I/O request is about this key */
     robj *val;  /* the value to swap for REDIS_IOJOB_SAVE, otherwise this
                  * field is populated by the I/O thread for REDIS_IOJOB_LOAD. */
+    time_t expire; /* Expire time for this key on REDIS_IOJOB_LOAD */
 } iojob;
 
 /* When diskstore is enabled and a flush operation is requested we push
@@ -746,6 +747,7 @@ off_t rdbSavedObjectLen(robj *o);
 off_t rdbSavedObjectPages(robj *o);
 robj *rdbLoadObject(int type, FILE *fp);
 void backgroundSaveDoneHandler(int statloc);
+int rdbSaveKeyValuePair(FILE *fp, redisDb *db, robj *key, robj *val, time_t now);
 
 /* AOF persistence */
 void flushAppendOnlyFile(void);

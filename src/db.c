@@ -66,6 +66,9 @@ int dbAdd(redisDb *db, robj *key, robj *val) {
     } else {
         sds copy = sdsdup(key->ptr);
         dictAdd(db->dict, copy, val);
+        if (server.ds_enabled) {
+            /* FIXME: remove entry from negative cache */
+        }
         return REDIS_OK;
     }
 }

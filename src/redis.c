@@ -769,7 +769,7 @@ void initServerConfig() {
     server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_LRU;
     server.maxmemory_samples = 3;
     server.ds_enabled = 0;
-    server.ds_path = zstrdup("/tmp/redis.ds");
+    server.ds_path = sdsnew("/tmp/redis.ds");
     server.cache_max_memory = 64LL*1024*1024; /* 64 MB of RAM */
     server.cache_blocked_clients = 0;
     server.hash_max_zipmap_entries = REDIS_HASH_MAX_ZIPMAP_ENTRIES;

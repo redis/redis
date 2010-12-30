@@ -84,6 +84,9 @@
  * - What happens with MULTI/EXEC?
  *
  *   Good question.
+ *
+ * - If dsSet() fails on the write thread log the error and reschedule the
+ *   key for flush.
  */
 
 /* Virtual Memory is composed mainly of two subsystems:
@@ -285,8 +288,15 @@ void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
             (unsigned char*)j->key->ptr);
         if (j->type == REDIS_IOJOB_LOAD) {
             /* Create the key-value pair in the in-memory database */
-            dbAdd(j->db,j->key,j->val);
-            incrRefCount(j->val);
+            if (j->val != NULL) {
+                dbAdd(j->db,j->key,j->val);
+                incrRefCount(j->val);
+                setExpire(j->db,j->key,j->expire);
+            } else {
+                /* The key does not exist. Create a negative cache entry
+                 * for this key. */
+                /* FIXME: add this entry into the negative cache */
+            }
             /* Handle clients waiting for this key to be loaded. */
             handleClientsBlockedOnSwappedKey(j->db,j->key);
             freeIOJob(j);
@@ -342,8 +352,10 @@ void *IOThreadEntryPoint(void *arg) {
 
         /* Process the Job */
         if (j->type == REDIS_IOJOB_LOAD) {
-            j->val = dsGet(j->db,j->key);
-            redisAssert(j->val != NULL);
+            time_t expire;
+
+            j->val = dsGet(j->db,j->key,&expire);
+            if (j->val) j->expire = expire;
         } else if (j->type == REDIS_IOJOB_SAVE) {
             redisAssert(j->val->storage == REDIS_DS_SAVING);
             if (j->val)
