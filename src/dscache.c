@@ -89,6 +89,22 @@
  *   key for flush.
  *
  * - Check why INCR will not update the LRU info for the object.
+ *
+ * - Fix/Check the following race condition: a key gets a DEL so there is
+ *   a write operation scheduled against this key. Later the same key will
+ *   be the argument of a GET, but the write operation was still not
+ *   completed (to delete the file). If the GET will be for some reason
+ *   a blocking loading (via lookup) we can load the old value on memory.
+ *
+ *   This problems can be fixed with negative caching. We can use it
+ *   to optimize the system, but also when a key is deleted we mark
+ *   it as non existing on disk as well (in a way that this cache
+ *   entry can't be evicted, setting time to 0), then we avoid looking at
+ *   the disk at all if the key can't be there. When an IO Job complete
+ *   a deletion, we set the time of the negative caching to a non zero
+ *   value so it will be evicted later.
+ *
+ *   Are there other patterns like this where we load stale data?
  */
 
 /* Virtual Memory is composed mainly of two subsystems:
@@ -607,6 +623,13 @@ int waitForSwappedKey(redisClient *c, robj *key) {
     listAddNodeTail(l,c);
 
     /* Are we already loading the key from disk? If not create a job */
+    /* FIXME: if a given client was blocked for this key (so job already
+     * created) but the client was freed, there may be a job loading this
+     * key even if de == NULL. Does this creates some race condition?
+     *
+     * Example: after the first load the key gets a DEL that will schedule
+     * a write. But the write will happen later, the duplicated load will
+     * fire and we'll get again the key in memory. */
     if (de == NULL)
         dsCreateIOJob(REDIS_IOJOB_LOAD,c->db,key,NULL);
     return 1;
