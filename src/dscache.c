@@ -356,12 +356,10 @@ void *IOThreadEntryPoint(void *arg) {
     pthread_detach(pthread_self());
     lockThreadedIO();
     while(1) {
-        /* Wait for more work to do */
-        pthread_cond_wait(&server.io_condvar,&server.io_mutex);
         /* Get a new job to process */
         if (listLength(server.io_newjobs) == 0) {
-            /* No new jobs in queue, reiterate. */
-            unlockThreadedIO();
+            /* Wait for more work to do */
+            pthread_cond_wait(&server.io_condvar,&server.io_mutex);
             continue;
         }
         ln = listFirst(server.io_newjobs);
@@ -439,6 +437,16 @@ void waitEmptyIOJobsQueue(void) {
             unlockThreadedIO();
             return;
         }
+        /* If there are new jobs we need to signal the thread to
+         * process the next one. */
+        redisLog(REDIS_DEBUG,"waitEmptyIOJobsQueue: new %d, processing %d",
+            listLength(server.io_newjobs),
+            listLength(server.io_processing));
+            /*
+        if (listLength(server.io_newjobs)) {
+            pthread_cond_signal(&server.io_condvar);
+        }
+        */
         /* While waiting for empty jobs queue condition we post-process some
          * finshed job, as I/O threads may be hanging trying to write against
          * the io_ready_pipe_write FD but there are so much pending jobs that
@@ -509,7 +517,8 @@ void cacheScheduleForFlush(redisDb *db, robj *key) {
             val->storage = REDIS_DS_DIRTY;
     }
 
-    redisLog(REDIS_DEBUG,"Scheduling key %s for saving",key->ptr);
+    redisLog(REDIS_DEBUG,"Scheduling key %s for saving (%s)",key->ptr,
+        de ? "key exists" : "key does not exist");
     dk = zmalloc(sizeof(*dk));
     dk->db = db;
     dk->key = key;
@@ -533,7 +542,7 @@ void cacheCron(void) {
             redisLog(REDIS_DEBUG,"Creating IO Job to save key %s",dk->key->ptr);
 
             /* Lookup the key, in order to put the current value in the IO
-             * Job and mark ti as DS_SAVING.
+             * Job and mark it as DS_SAVING.
              * Otherwise if the key does not exists we schedule a disk store
              * delete operation, setting the value to NULL. */
             de = dictFind(dk->db->dict,dk->key->ptr);

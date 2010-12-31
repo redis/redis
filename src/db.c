@@ -97,11 +97,14 @@ int dbAdd(redisDb *db, robj *key, robj *val) {
  *
  * On update (key already existed) 0 is returned. Otherwise 1. */
 int dbReplace(redisDb *db, robj *key, robj *val) {
-    if (dictFind(db->dict,key->ptr) == NULL) {
+    robj *oldval;
+
+    if ((oldval = dictFetchValue(db->dict,key->ptr)) == NULL) {
         sds copy = sdsdup(key->ptr);
         dictAdd(db->dict, copy, val);
         return 1;
     } else {
+        val->storage = oldval->storage;
         dictReplace(db->dict, key->ptr, val);
         return 0;
     }
