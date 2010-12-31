@@ -38,6 +38,8 @@ robj *lookupKey(redisDb *db, robj *key) {
          * async loading of this key, what may happen is that the old
          * key is loaded in memory if this gets deleted in the meantime. */
         if (server.ds_enabled && cacheKeyMayExist(db,key)) {
+            redisLog(REDIS_DEBUG,"Force loading key %s via lookup",
+                key->ptr);
             val = dsGet(db,key,&expire);
             if (val) {
                 int retval = dbAdd(db,key,val);
@@ -142,14 +144,13 @@ robj *dbRandomKey(redisDb *db) {
 
 /* Delete a key, value, and associated expiration entry if any, from the DB */
 int dbDelete(redisDb *db, robj *key) {
-    /* If VM is enabled make sure to awake waiting clients for this key:
-     * deleting the key will kill the I/O thread bringing the key from swap
-     * to memory, so the client will never be notified and unblocked if we
-     * don't do it now. */
+    /* If diskstore is enabled make sure to awake waiting clients for this key
+     * as it is not really useful to wait for a key already deleted to be
+     * loaded from disk. */
     if (server.ds_enabled) handleClientsBlockedOnSwappedKey(db,key);
 
-    /* FIXME: we need to delete the IO Job loading the key, or simply we can
-     * wait for it to finish. */
+    /* Mark this key as non existing on disk as well */
+    cacheSetKeyDoesNotExistRemember(db,key);
 
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */

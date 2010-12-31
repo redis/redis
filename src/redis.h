@@ -269,6 +269,7 @@ typedef struct redisDb {
     dict *expires;              /* Timeout of keys with a timeout set */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP) */
     dict *io_keys;              /* Keys with clients waiting for VM I/O */
+    dict *io_negcache;          /* Negative caching for disk store */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
     int id;
 } redisDb;
@@ -809,6 +810,9 @@ int cacheFreeOneEntry(void);
 void cacheScheduleForFlush(redisDb *db, robj *key);
 void cacheCron(void);
 int cacheKeyMayExist(redisDb *db, robj *key);
+void cacheSetKeyExists(redisDb *db, robj *key);
+void cacheSetKeyDoesNotExist(redisDb *db, robj *key);
+void cacheSetKeyDoesNotExistRemember(redisDb *db, robj *key);
 
 /* Set data type */
 robj *setTypeCreate(robj *value);

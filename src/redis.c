@@ -345,7 +345,7 @@ unsigned int dictEncObjHash(const void *key) {
     }
 }
 
-/* Sets type */
+/* Sets type and diskstore negative caching hash table */
 dictType setDictType = {
     dictEncObjHash,            /* hash function */
     NULL,                      /* key dup */
@@ -854,8 +854,10 @@ void initServer() {
         server.db[j].expires = dictCreate(&keyptrDictType,NULL);
         server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
-        if (server.ds_enabled)
+        if (server.ds_enabled) {
             server.db[j].io_keys = dictCreate(&keylistDictType,NULL);
+            server.db[j].io_negcache = dictCreate(&setDictType,NULL);
+        }
         server.db[j].id = j;
     }
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
