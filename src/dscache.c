@@ -362,6 +362,8 @@ void *IOThreadEntryPoint(void *arg) {
             pthread_cond_wait(&server.io_condvar,&server.io_mutex);
             continue;
         }
+        redisLog(REDIS_DEBUG,"%ld IO jobs to process",
+            listLength(server.io_newjobs));
         ln = listFirst(server.io_newjobs);
         j = ln->value;
         listDelNode(server.io_newjobs,ln);
@@ -530,10 +532,21 @@ void cacheScheduleForFlush(redisDb *db, robj *key) {
 void cacheCron(void) {
     time_t now = time(NULL);
     listNode *ln;
+    int jobs, topush = 0;
 
-    /* Sync stuff on disk */
+    /* Sync stuff on disk, but only if we have less than 100 IO jobs */
+    lockThreadedIO();
+    jobs = listLength(server.io_newjobs);
+    unlockThreadedIO();
+
+    topush = 100-jobs;
+    if (topush < 0) topush = 0;
+
     while((ln = listFirst(server.cache_flush_queue)) != NULL) {
         dirtykey *dk = ln->value;
+
+        if (!topush) break;
+        topush--;
 
         if ((now - dk->ctime) >= server.cache_flush_delay) {
             struct dictEntry *de;

@@ -239,6 +239,8 @@ robj *dsGet(redisDb *db, robj *key, time_t *expire) {
     return val;
 
 readerr:
+    redisLog(REDIS_WARNING,"Read error reading reading %s. Corrupted key?",
+        buf);
     redisPanic("Unrecoverable error reading from disk store");
     return NULL; /* unreached */
 }
