@@ -19,7 +19,7 @@ robj *lookupKey(redisDb *db, robj *key) {
 
         if (server.ds_enabled && val->storage == REDIS_DS_SAVING) {
             /* FIXME: change this code to just wait for our object to
-             * get out of the IO Job. */
+             * get out of the IO Job. As it is now it is correct but slow. */
             waitEmptyIOJobsQueue();
             processAllPendingIOJobs();
             redisAssert(val->storage != REDIS_DS_SAVING);

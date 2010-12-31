@@ -109,6 +109,8 @@
  *   Also, make sure that key preloading is ONLY done for keys that are
  *   not marked as cacheKeyDoesNotExist(), otherwise, again, we can load
  *   data from disk that should instead be deleted.
+ *
+ * - dsSet() use rename(2) in order to avoid corruptions.
  */
 
 /* Virtual Memory is composed mainly of two subsystems:
