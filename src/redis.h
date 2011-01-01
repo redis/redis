@@ -119,10 +119,11 @@
 #define REDIS_RDB_ENC_INT32 2       /* 32 bit signed integer */
 #define REDIS_RDB_ENC_LZF 3         /* string compressed with FASTLZ */
 
-/* Disk store cache object->storage values */
-#define REDIS_DS_MEMORY 0       /* The object is on memory */
-#define REDIS_DS_DIRTY 1        /* The object was modified */
-#define REDIS_DS_SAVING 2       /* There is an IO Job created for this obj. */
+/* Scheduled IO opeations flags. */
+#define REDIS_IO_LOAD 1
+#define REDIS_IO_SAVE 2
+#define REDIS_IO_LOADINPROG 4
+#define REDIS_IO_SAVEINPROG 8
 
 #define REDIS_MAX_COMPLETED_JOBS_PROCESSED 1
 #define REDIS_THREAD_STACK_SIZE (1024*1024*4)
@@ -220,7 +221,7 @@ void _redisPanic(char *msg, char *file, int line);
 #define REDIS_LRU_CLOCK_RESOLUTION 10 /* LRU clock resolution in seconds */
 typedef struct redisObject {
     unsigned type:4;
-    unsigned storage:2;     /* REDIS_VM_MEMORY or REDIS_VM_SWAPPING */
+    unsigned notused:2;     /* Not used */
     unsigned encoding:4;
     unsigned lru:22;        /* lru time (relative to server.lruclock) */
     int refcount;
@@ -261,15 +262,15 @@ typedef struct vmPointer {
     _var.type = REDIS_STRING; \
     _var.encoding = REDIS_ENCODING_RAW; \
     _var.ptr = _ptr; \
-    _var.storage = REDIS_DS_MEMORY; \
 } while(0);
 
 typedef struct redisDb {
     dict *dict;                 /* The keyspace for this DB */
     dict *expires;              /* Timeout of keys with a timeout set */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP) */
-    dict *io_keys;              /* Keys with clients waiting for VM I/O */
+    dict *io_keys;              /* Keys with clients waiting for DS I/O */
     dict *io_negcache;          /* Negative caching for disk store */
+    dict *io_queued;            /* Queued IO operations hash table */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
     int id;
 } redisDb;
@@ -433,7 +434,7 @@ struct redisServer {
     unsigned int bpop_blocked_clients;
     unsigned int cache_blocked_clients;
     list *unblocked_clients; /* list of clients to unblock before next loop */
-    list *cache_flush_queue; /* keys to flush on disk */
+    list *cache_io_queue;    /* IO operations queue */
     int cache_flush_delay;   /* seconds to wait before flushing keys */
     /* Sort parameters - qsort_r() is only available under BSD so we
      * have to take this state global, in order to pass it to sortCompare() */
@@ -545,7 +546,7 @@ typedef struct zset {
     zskiplist *zsl;
 } zset;
 
-/* VM threaded I/O request message */
+/* DIsk store threaded I/O request message */
 #define REDIS_IOJOB_LOAD 0
 #define REDIS_IOJOB_SAVE 1
 
@@ -558,13 +559,13 @@ typedef struct iojob {
     time_t expire; /* Expire time for this key on REDIS_IOJOB_LOAD */
 } iojob;
 
-/* When diskstore is enabled and a flush operation is requested we push
- * one of this structures into server.cache_flush_queue. */
-typedef struct dirtykey {
+/* IO operations scheduled -- check dscache.c for more info */
+typedef struct ioop {
+    int type;
     redisDb *db;
     robj *key;
     time_t ctime; /* This is the creation time of the entry. */
-} dirtykey;
+} ioop;
 
 /* Structure to hold list iteration abstraction. */
 typedef struct {
@@ -807,12 +808,14 @@ int blockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd);
 int dontWaitForSwappedKey(redisClient *c, robj *key);
 void handleClientsBlockedOnSwappedKey(redisDb *db, robj *key);
 int cacheFreeOneEntry(void);
-void cacheScheduleForFlush(redisDb *db, robj *key);
+void cacheScheduleIOAddFlag(redisDb *db, robj *key, long flag);
+void cacheScheduleIODelFlag(redisDb *db, robj *key, long flag);
+int cacheScheduleIOGetFlags(redisDb *db, robj *key);
+void cacheScheduleIO(redisDb *db, robj *key, int type);
 void cacheCron(void);
 int cacheKeyMayExist(redisDb *db, robj *key);
 void cacheSetKeyExists(redisDb *db, robj *key);
 void cacheSetKeyDoesNotExist(redisDb *db, robj *key);
-void cacheSetKeyDoesNotExistRemember(redisDb *db, robj *key);
 
 /* Set data type */
 robj *setTypeCreate(robj *value);

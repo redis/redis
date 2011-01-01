@@ -826,7 +826,7 @@ void initServer() {
     server.slaves = listCreate();
     server.monitors = listCreate();
     server.unblocked_clients = listCreate();
-    server.cache_flush_queue = listCreate();
+    server.cache_io_queue = listCreate();
     server.cache_flush_delay = 0;
 
     createSharedObjects();
@@ -857,6 +857,7 @@ void initServer() {
         if (server.ds_enabled) {
             server.db[j].io_keys = dictCreate(&keylistDictType,NULL);
             server.db[j].io_negcache = dictCreate(&setDictType,NULL);
+            server.db[j].io_queued = dictCreate(&setDictType,NULL);
         }
         server.db[j].id = j;
     }

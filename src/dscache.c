@@ -214,17 +214,18 @@ int cacheFreeOneEntry(void) {
         for (i = 0; i < 5; i++) {
             dictEntry *de;
             double swappability;
+            robj keyobj;
+            sds keystr;
 
             if (maxtries) maxtries--;
             de = dictGetRandomKey(db->dict);
+            keystr = dictGetEntryKey(de);
             val = dictGetEntryVal(de);
-            /* Only swap objects that are currently in memory.
-             *
-             * Also don't swap shared objects: not a good idea in general and
-             * we need to ensure that the main thread does not touch the
-             * object while the I/O thread is using it, but we can't
-             * control other keys without adding additional mutex. */
-            if (val->storage != REDIS_DS_MEMORY) {
+            initStaticStringObject(keyobj,keystr);
+
+            /* Don't remove objects that are currently target of a
+             * read or write operation. */
+            if (cacheScheduleIOGetFlags(db,&keyobj) != 0) {
                 if (maxtries) i--; /* don't count this try */
                 continue;
             }
@@ -270,62 +271,30 @@ int dsCanTouchDiskStore(void) {
  * When disk store is enabled, we need negative caching, that is, to remember
  * keys that are for sure *not* on the disk key-value store.
  *
- * This is useful for two reasons:
+ * This is usefuls because without negative caching cache misses will cost us
+ * a disk lookup, even if the same non existing key is accessed again and again.
  *
- * 1) Without negative caching cache misses will cost us a disk lookup, even
- *    if the same non existing key is accessed again and again. We negative
- *    caching we remember that the key is not on disk, so if it's not in memory
- *    and we have a negative cache entry, we don't try a disk access at all.
- *
- * 2) Negative caching is the way to fix a specific race condition. For instance
- *    think at the following sequence of commands:
- *
- *    SET foo bar
- *    DEL foo
- *    GET foo
- *    
- *    After the SET, we'll mark the value as dirty, so it will be flushed
- *    on disk at some time. Later the key is deleted, so will be removed
- *    from memory. Another job will be created to remove the key from the disk
- *    store, but the removal is not synchronous, so may happen later in time.
- *
- *    Finally we have a GET foo operation. This operation may result in
- *    reading back a value from disk that is not updated data, as the deletion
- *    operaiton against the disk KV store was still not completed, so we
- *    read old data.
- *
- * Remembering that the given key is deleted is important. We can discard this
- * information once the key was really removed from the disk.
- *
- * So actually there are two kind of negative caching entries: entries that
- * can be evicted when we need to reclaim memory, and entries that will
- * not be evicted, for all the time we need this information to be available.
- *
- * The API allows to create both kind of negative caching. */
+ * With negative caching we remember that the key is not on disk, so if it's
+ * not in memory and we have a negative cache entry, we don't try a disk
+ * access at all.
+ */
 
+/* Returns true if the specified key may exists on disk, that is, we don't
+ * have an entry in our negative cache for this key */
 int cacheKeyMayExist(redisDb *db, robj *key) {
     return dictFind(db->io_negcache,key) == NULL;
 }
 
+/* Set the specified key as an entry that may possibily exist on disk, that is,
+ * remove the negative cache entry for this key if any. */
 void cacheSetKeyMayExist(redisDb *db, robj *key) {
     dictDelete(db->io_negcache,key);
 }
 
+/* Set the specified key as non existing on disk, that is, create a negative
+ * cache entry for this key. */
 void cacheSetKeyDoesNotExist(redisDb *db, robj *key) {
-    struct dictEntry *de;
-
-    /* Don't overwrite negative cached entries with val set to 0, as this
-     * entries were created with cacheSetKeyDoesNotExistRemember(). */
-    de = dictFind(db->io_negcache,key);
-    if (de != NULL && dictGetEntryVal(de) == NULL) return;
-
     if (dictReplace(db->io_negcache,key,(void*)time(NULL))) {
-        incrRefCount(key);
-    }
-}
-
-void cacheSetKeyDoesNotExistRemember(redisDb *db, robj *key) {
-    if (dictReplace(db->io_negcache,key,NULL)) {
         incrRefCount(key);
     }
 }
@@ -379,15 +348,9 @@ void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
         if (j->type == REDIS_IOJOB_LOAD) {
             /* Create the key-value pair in the in-memory database */
             if (j->val != NULL) {
-                /* Note: the key may already be here if between the time
-                 * this key loading was scheduled and now there was the
-                 * need to blocking load the key for a key lookup.
-                 *
-                 * Also we don't add a key that was deleted in the
-                 * meantime and should not be on disk either. */
-                if (cacheKeyMayExist(j->db,j->key) &&
-                    dbAdd(j->db,j->key,j->val) == REDIS_OK)
-                {
+                /* Note: it's possible that the key is already in memory
+                 * due to a blocking load operation. */
+                if (dbAdd(j->db,j->key,j->val) == REDIS_OK) {
                     incrRefCount(j->val);
                     if (j->expire != -1) setExpire(j->db,j->key,j->expire);
                 }
@@ -396,20 +359,16 @@ void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
                  * for this key. */
                 cacheSetKeyDoesNotExist(j->db,j->key);
             }
-            /* Handle clients waiting for this key to be loaded. */
+            cacheScheduleIODelFlag(j->db,j->key,REDIS_IO_LOADINPROG);
             handleClientsBlockedOnSwappedKey(j->db,j->key);
             freeIOJob(j);
         } else if (j->type == REDIS_IOJOB_SAVE) {
             if (j->val) {
-                redisAssert(j->val->storage == REDIS_DS_SAVING);
-                j->val->storage = REDIS_DS_MEMORY;
                 cacheSetKeyMayExist(j->db,j->key);
             } else {
-                /* Key deleted. Probably we have this key marked as
-                 * non existing, and impossible to evict, in our negative
-                 * cache entry. Add it as a normal negative cache entry. */
-                cacheSetKeyMayExist(j->db,j->key);
+                cacheSetKeyDoesNotExist(j->db,j->key);
             }
+            cacheScheduleIODelFlag(j->db,j->key,REDIS_IO_SAVEINPROG);
             freeIOJob(j);
         }
         processed++;
@@ -467,7 +426,6 @@ void *IOThreadEntryPoint(void *arg) {
             if (j->val) j->expire = expire;
         } else if (j->type == REDIS_IOJOB_SAVE) {
             if (j->val) {
-                redisAssert(j->val->storage == REDIS_DS_SAVING);
                 dsSet(j->db,j->key,j->val);
             } else {
                 dsDel(j->db,j->key);
@@ -588,27 +546,104 @@ void dsCreateIOJob(int type, redisDb *db, robj *key, robj *val) {
     unlockThreadedIO();
 }
 
-void cacheScheduleForFlush(redisDb *db, robj *key) {
-    dirtykey *dk;
-    dictEntry *de;
-    
-    de = dictFind(db->dict,key->ptr);
-    if (de) {
-        robj *val = dictGetEntryVal(de);
-        if (val->storage == REDIS_DS_DIRTY)
-            return;
-        else
-            val->storage = REDIS_DS_DIRTY;
-    }
+/* ============= Disk store cache - Scheduling of IO operations ============= 
+ *
+ * We use a queue and an hash table to hold the state of IO operations
+ * so that's fast to lookup if there is already an IO operation in queue
+ * for a given key.
+ *
+ * There are two types of IO operations for a given key:
+ * REDIS_IO_LOAD and REDIS_IO_SAVE.
+ *
+ * The function cacheScheduleIO() function pushes the specified IO operation
+ * in the queue, but avoid adding the same key for the same operation
+ * multiple times, thanks to the associated hash table.
+ *
+ * We take a set of flags per every key, so when the scheduled IO operation
+ * gets moved from the scheduled queue to the actual IO Jobs queue that
+ * is processed by the IO thread, we flag it as IO_LOADINPROG or
+ * IO_SAVEINPROG.
+ *
+ * So for every given key we always know if there is some IO operation
+ * scheduled, or in progress, for this key.
+ *
+ * NOTE: all this is very important in order to guarantee correctness of
+ * the Disk Store Cache. Jobs are always queued here. Load jobs are
+ * queued at the head for faster execution only in the case there is not
+ * already a write operation of some kind for this job.
+ *
+ * So we have ordering, but can do exceptions when there are no already
+ * operations for a given key. Also when we need to block load a given
+ * key, for an immediate lookup operation, we can check if the key can
+ * be accessed synchronously without race conditions (no IN PROGRESS
+ * operations for this key), otherwise we blocking wait for completion. */
 
-    redisLog(REDIS_DEBUG,"Scheduling key %s for saving (%s)",key->ptr,
-        de ? "key exists" : "key does not exist");
-    dk = zmalloc(sizeof(*dk));
-    dk->db = db;
-    dk->key = key;
+#define REDIS_IO_LOAD 1
+#define REDIS_IO_SAVE 2
+#define REDIS_IO_LOADINPROG 4
+#define REDIS_IO_SAVEINPROG 8
+
+void cacheScheduleIOAddFlag(redisDb *db, robj *key, long flag) {
+    struct dictEntry *de = dictFind(db->io_queued,key);
+
+    if (!de) {
+        dictAdd(db->io_queued,key,(void*)flag);
+        incrRefCount(key);
+        return;
+    } else {
+        long flags = (long) dictGetEntryVal(de);
+        flags |= flag;
+        dictGetEntryVal(de) = (void*) flags;
+    }
+}
+
+void cacheScheduleIODelFlag(redisDb *db, robj *key, long flag) {
+    struct dictEntry *de = dictFind(db->io_queued,key);
+    long flags;
+
+    redisAssert(de != NULL);
+    flags = (long) dictGetEntryVal(de);
+    redisAssert(flags & flag);
+    flags &= ~flag;
+    if (flags == 0) {
+        dictDelete(db->io_queued,key);
+    } else {
+        dictGetEntryVal(de) = (void*) flags;
+    }
+}
+
+int cacheScheduleIOGetFlags(redisDb *db, robj *key) {
+    struct dictEntry *de = dictFind(db->io_queued,key);
+
+    return (de == NULL) ? 0 : ((long) dictGetEntryVal(de));
+}
+
+void cacheScheduleIO(redisDb *db, robj *key, int type) {
+    ioop *op;
+    long flags;
+
+    if ((flags = cacheScheduleIOGetFlags(db,key)) & type) return;
+    
+    redisLog(REDIS_DEBUG,"Scheduling key %s for %s",
+        key->ptr, type == REDIS_IO_LOAD ? "loading" : "saving");
+    cacheScheduleIOAddFlag(db,key,type);
+    op = zmalloc(sizeof(*op));
+    op->type = type;
+    op->db = db;
+    op->key = key;
     incrRefCount(key);
-    dk->ctime = time(NULL);
-    listAddNodeTail(server.cache_flush_queue, dk);
+    op->ctime = time(NULL);
+
+    /* Give priority to load operations if there are no save already
+     * in queue for the same key. */
+    if (type == REDIS_IO_LOAD && !(flags & REDIS_IO_SAVE)) {
+        listAddNodeHead(server.cache_io_queue, op);
+    } else {
+        /* FIXME: probably when this happens we want to at least move
+         * the write job about this queue on top, and set the creation time
+         * to a value that will force processing ASAP. */
+        listAddNodeTail(server.cache_io_queue, op);
+    }
 }
 
 void cacheCron(void) {
@@ -624,36 +659,47 @@ void cacheCron(void) {
     topush = 100-jobs;
     if (topush < 0) topush = 0;
 
-    while((ln = listFirst(server.cache_flush_queue)) != NULL) {
-        dirtykey *dk = ln->value;
+    while((ln = listFirst(server.cache_io_queue)) != NULL) {
+        ioop *op = ln->value;
 
         if (!topush) break;
         topush--;
 
-        if ((now - dk->ctime) >= server.cache_flush_delay) {
+        if (op->type == REDIS_IO_LOAD ||
+            (now - op->ctime) >= server.cache_flush_delay)
+        {
             struct dictEntry *de;
             robj *val;
 
-            redisLog(REDIS_DEBUG,"Creating IO Job to save key %s",dk->key->ptr);
+            redisLog(REDIS_DEBUG,"Creating IO %s Job for key %s",
+                op->type == REDIS_IO_LOAD ? "load" : "save", op->key->ptr);
 
-            /* Lookup the key, in order to put the current value in the IO
-             * Job and mark it as DS_SAVING.
-             * Otherwise if the key does not exists we schedule a disk store
-             * delete operation, setting the value to NULL. */
-            de = dictFind(dk->db->dict,dk->key->ptr);
-            if (de) {
-                val = dictGetEntryVal(de);
-                redisAssert(val->storage == REDIS_DS_DIRTY);
-                val->storage = REDIS_DS_SAVING;
+            if (op->type == REDIS_IO_LOAD) {
+                dsCreateIOJob(REDIS_IOJOB_LOAD,op->db,op->key,NULL);
             } else {
-                /* Setting the value to NULL tells the IO thread to delete
-                 * the key on disk. */
-                val = NULL;
+                /* Lookup the key, in order to put the current value in the IO
+                 * Job. Otherwise if the key does not exists we schedule a disk
+                 * store delete operation, setting the value to NULL. */
+                de = dictFind(op->db->dict,op->key->ptr);
+                if (de) {
+                    val = dictGetEntryVal(de);
+                } else {
+                    /* Setting the value to NULL tells the IO thread to delete
+                     * the key on disk. */
+                    val = NULL;
+                }
+                dsCreateIOJob(REDIS_IOJOB_SAVE,op->db,op->key,val);
             }
-            dsCreateIOJob(REDIS_IOJOB_SAVE,dk->db,dk->key,val);
-            listDelNode(server.cache_flush_queue,ln);
-            decrRefCount(dk->key);
-            zfree(dk);
+            /* Mark the operation as in progress. */
+            cacheScheduleIODelFlag(op->db,op->key,op->type);
+            cacheScheduleIOAddFlag(op->db,op->key,
+                (op->type == REDIS_IO_LOAD) ? REDIS_IO_LOADINPROG :
+                                              REDIS_IO_SAVEINPROG);
+            /* Finally remove the operation from the queue.
+             * But we'll have trace of it in the hash table. */
+            listDelNode(server.cache_io_queue,ln);
+            decrRefCount(op->key);
+            zfree(op);
         } else {
             break; /* too early */
         }
@@ -664,20 +710,14 @@ void cacheCron(void) {
             server.cache_max_memory)
     {
         if (cacheFreeOneEntry() == REDIS_ERR) break;
+        /* FIXME: also free negative cache entries here. */
     }
 }
 
-/* ============ Virtual Memory - Blocking clients on missing keys =========== */
+/* ========== Disk store cache - Blocking clients on missing keys =========== */
 
 /* This function makes the clinet 'c' waiting for the key 'key' to be loaded.
- * If the key is already in memory we don't need to block, regardless
- * of the storage of the value object for this key:
- *
- * - If it's REDIS_DS_MEMORY we have the key in memory.
- * - If it's REDIS_DS_DIRTY they key was modified, but still in memory.
- * - if it's REDIS_DS_SAVING the key is being saved by an IO Job. When
- *   the client will lookup the key it will block if the key is still
- *   in this stage but it's more or less the best we can do.
+ * If the key is already in memory we don't need to block.
  *
  *   FIXME: we should try if it's actually better to suspend the client
  *   accessing an object that is being saved, and awake it only when
@@ -722,7 +762,7 @@ int waitForSwappedKey(redisClient *c, robj *key) {
 
     /* Are we already loading the key from disk? If not create a job */
     if (de == NULL)
-        dsCreateIOJob(REDIS_IOJOB_LOAD,c->db,key,NULL);
+        cacheScheduleIO(c->db,key,REDIS_IO_LOAD);
     return 1;
 }
 

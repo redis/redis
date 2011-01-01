@@ -21,7 +21,6 @@ robj *createObject(int type, void *ptr) {
     /* The following is only needed if VM is active, but since the conditional
      * is probably more costly than initializing the field it's better to
      * have every field properly initialized anyway. */
-    o->storage = REDIS_DS_MEMORY;
     return o;
 }
 
@@ -163,9 +162,6 @@ void decrRefCount(void *obj) {
 
     if (o->refcount <= 0) redisPanic("decrRefCount against refcount <= 0");
     if (--(o->refcount) == 0) {
-        /* DS_SAVING objects should always have a reference in the
-         * IO Job structure. So we should never reach this state. */
-        redisAssert(o->storage != REDIS_DS_SAVING);
         switch(o->type) {
         case REDIS_STRING: freeStringObject(o); break;
         case REDIS_LIST: freeListObject(o); break;

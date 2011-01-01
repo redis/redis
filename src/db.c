@@ -17,12 +17,14 @@ robj *lookupKey(redisDb *db, robj *key) {
         if (server.bgsavechildpid == -1 && server.bgrewritechildpid == -1)
             val->lru = server.lruclock;
 
-        if (server.ds_enabled && val->storage == REDIS_DS_SAVING) {
-            /* FIXME: change this code to just wait for our object to
-             * get out of the IO Job. As it is now it is correct but slow. */
+        if (server.ds_enabled &&
+            cacheScheduleIOGetFlags(db,key) & REDIS_IO_SAVEINPROG)
+        {
+            /* There is a save in progress for this object!
+             * Wait for it to get out. */
             waitEmptyIOJobsQueue();
             processAllPendingIOJobs();
-            redisAssert(val->storage != REDIS_DS_SAVING);
+            redisAssert(!(cacheScheduleIOGetFlags(db,key) & REDIS_IO_SAVEINPROG));
         }
         server.stat_keyspace_hits++;
         return val;
@@ -106,7 +108,6 @@ int dbReplace(redisDb *db, robj *key, robj *val) {
         dictAdd(db->dict, copy, val);
         return 1;
     } else {
-        val->storage = oldval->storage;
         dictReplace(db->dict, key->ptr, val);
         return 0;
     }
@@ -149,8 +150,8 @@ int dbDelete(redisDb *db, robj *key) {
      * loaded from disk. */
     if (server.ds_enabled) handleClientsBlockedOnSwappedKey(db,key);
 
-    /* Mark this key as non existing on disk as well */
-    cacheSetKeyDoesNotExistRemember(db,key);
+    /* FIXME: we should mark this key as non existing on disk in the negative
+     * cache. */
 
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
@@ -190,7 +191,7 @@ int selectDb(redisClient *c, int id) {
 void signalModifiedKey(redisDb *db, robj *key) {
     touchWatchedKey(db,key);
     if (server.ds_enabled)
-        cacheScheduleForFlush(db,key);
+        cacheScheduleIO(db,key,REDIS_IO_SAVE);
 }
 
 void signalFlushedDb(int dbid) {
@@ -240,7 +241,7 @@ void delCommand(redisClient *c) {
             if (cacheKeyMayExist(c->db,c->argv[j]) &&
                 dsExists(c->db,c->argv[j]))
             {
-                cacheScheduleForFlush(c->db,c->argv[j]);
+                cacheScheduleIO(c->db,c->argv[j],REDIS_IO_SAVE);
                 deleted = 1;
             }
         }
