@@ -34,12 +34,18 @@ robj *lookupKey(redisDb *db, robj *key) {
 
         /* Key not found in the in memory hash table, but if disk store is
          * enabled we may have this key on disk. If so load it in memory
-         * in a blocking way.
-         * 
-         * FIXME: race condition here. If there was an already scheduled
-         * async loading of this key, what may happen is that the old
-         * key is loaded in memory if this gets deleted in the meantime. */
+         * in a blocking way. */
         if (server.ds_enabled && cacheKeyMayExist(db,key)) {
+            if (cacheScheduleIOGetFlags(db,key) &
+                 (REDIS_IO_SAVE|REDIS_IO_SAVEINPROG))
+            {
+                /* There is a save in progress for this object!
+                 * Wait for it to get out. */
+                waitEmptyIOJobsQueue();
+                processAllPendingIOJobs();
+                redisAssert((cacheScheduleIOGetFlags(db,key) & (REDIS_IO_SAVE|REDIS_IO_SAVEINPROG)) == 0);
+            }
+
             redisLog(REDIS_DEBUG,"Force loading key %s via lookup",
                 key->ptr);
             val = dsGet(db,key,&expire);
