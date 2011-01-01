@@ -19,6 +19,10 @@
 
 /* TODO:
  *
+ * WARNING: most of the following todo items and design issues are no
+ * longer relevant with the new design. Here as a checklist to see if
+ * some old ideas still apply.
+ *
  * - The WATCH helper will be used to signal the cache system
  *   we need to flush a given key/dbid into disk, adding this key/dbid
  *   pair into a server.ds_cache_dirty linked list AND hash table (so that we
