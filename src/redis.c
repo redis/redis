@@ -778,6 +778,7 @@ void initServerConfig() {
     server.list_max_ziplist_value = REDIS_LIST_MAX_ZIPLIST_VALUE;
     server.set_max_intset_entries = REDIS_SET_MAX_INTSET_ENTRIES;
     server.shutdown_asap = 0;
+    server.cache_flush_delay = 0;
 
     updateLRUClock();
     resetServerSaveParams();
@@ -827,7 +828,6 @@ void initServer() {
     server.monitors = listCreate();
     server.unblocked_clients = listCreate();
     server.cache_io_queue = listCreate();
-    server.cache_flush_delay = 0;
 
     createSharedObjects();
     server.el = aeCreateEventLoop();
