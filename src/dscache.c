@@ -596,6 +596,11 @@ void cacheScheduleIOAddFlag(redisDb *db, robj *key, long flag) {
         return;
     } else {
         long flags = (long) dictGetEntryVal(de);
+
+        if (flags & flag) {
+            redisLog(REDIS_WARNING,"Adding the same flag again: was: %ld, addede: %ld",flags,flag);
+            redisAssert(!(flags & flag));
+        }
         flags |= flag;
         dictGetEntryVal(de) = (void*) flags;
     }
@@ -662,6 +667,8 @@ void cacheCron(void) {
 
     topush = 100-jobs;
     if (topush < 0) topush = 0;
+    if (topush > (signed)listLength(server.cache_io_queue))
+        topush = listLength(server.cache_io_queue);
 
     while((ln = listFirst(server.cache_io_queue)) != NULL) {
         ioop *op = ln->value;
@@ -674,6 +681,23 @@ void cacheCron(void) {
         {
             struct dictEntry *de;
             robj *val;
+
+            /* Don't add a SAVE job in queue if there is already
+             * a save in progress for the same key. */
+            if (op->type == REDIS_IO_SAVE && 
+                cacheScheduleIOGetFlags(op->db,op->key) & REDIS_IO_SAVEINPROG)
+            {
+                /* Move the operation at the end of the list of there
+                 * are other operations. Otherwise break, nothing to do
+                 * here. */
+                if (listLength(server.cache_io_queue) > 1) {
+                    listDelNode(server.cache_io_queue,ln);
+                    listAddNodeTail(server.cache_io_queue,op);
+                    continue;
+                } else {
+                    break;
+                }
+            }
 
             redisLog(REDIS_DEBUG,"Creating IO %s Job for key %s",
                 op->type == REDIS_IO_LOAD ? "load" : "save", op->key->ptr);
