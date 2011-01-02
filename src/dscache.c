@@ -115,6 +115,9 @@
  *   data from disk that should instead be deleted.
  *
  * - dsSet() use rename(2) in order to avoid corruptions.
+ *
+ * - Don't add a LOAD if there is already a LOADINPROGRESS, or is this
+ *   impossible since anyway the io_keys stuff will work as lock?
  */
 
 /* Virtual Memory is composed mainly of two subsystems:

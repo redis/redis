@@ -36,14 +36,12 @@ robj *lookupKey(redisDb *db, robj *key) {
          * enabled we may have this key on disk. If so load it in memory
          * in a blocking way. */
         if (server.ds_enabled && cacheKeyMayExist(db,key)) {
-            if (cacheScheduleIOGetFlags(db,key) &
-                 (REDIS_IO_SAVE|REDIS_IO_SAVEINPROG))
-            {
+            if (cacheScheduleIOGetFlags(db,key) & REDIS_IO_SAVEINPROG) {
                 /* There is a save in progress for this object!
                  * Wait for it to get out. */
                 waitEmptyIOJobsQueue();
                 processAllPendingIOJobs();
-                redisAssert((cacheScheduleIOGetFlags(db,key) & (REDIS_IO_SAVE|REDIS_IO_SAVEINPROG)) == 0);
+                redisAssert((cacheScheduleIOGetFlags(db,key) & REDIS_IO_SAVEINPROG) == 0);
             }
 
             redisLog(REDIS_DEBUG,"Force loading key %s via lookup",
