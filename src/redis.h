@@ -516,8 +516,10 @@ struct redisCommand {
     redisVmPreloadProc *vm_preload_proc;
     /* What keys should be loaded in background when calling this command? */
     int vm_firstkey; /* The first argument that's a key (0 = no keys) */
-    int vm_lastkey;  /* THe last argument that's a key */
+    int vm_lastkey;  /* The last argument that's a key */
     int vm_keystep;  /* The step between first and last key */
+    
+    long long executed; /* The number run since server start. */
 };
 
 struct redisFunctionSym {
