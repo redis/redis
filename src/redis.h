@@ -814,7 +814,7 @@ int cacheScheduleIOGetFlags(redisDb *db, robj *key);
 void cacheScheduleIO(redisDb *db, robj *key, int type);
 void cacheCron(void);
 int cacheKeyMayExist(redisDb *db, robj *key);
-void cacheSetKeyExists(redisDb *db, robj *key);
+void cacheSetKeyMayExist(redisDb *db, robj *key);
 void cacheSetKeyDoesNotExist(redisDb *db, robj *key);
 
 /* Set data type */

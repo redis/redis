@@ -245,10 +245,10 @@ int cacheFreeOneEntry(void) {
         }
     }
     if (best == NULL) {
-        /* FIXME: If there are objects marked as DS_DIRTY or DS_SAVING
-         * let's wait for this objects to be clear and retry...
-         *
-         * Object cache vm limit is considered an hard limit. */
+        /* FIXME: If there are objects that are in the write queue
+         * so we can't delete them we should block here, at the cost of
+         * slowness as the object cache memory limit is considered 
+         * n hard limit. */
         return REDIS_ERR;
     }
     key = dictGetEntryKey(best);
@@ -303,6 +303,38 @@ void cacheSetKeyMayExist(redisDb *db, robj *key) {
 void cacheSetKeyDoesNotExist(redisDb *db, robj *key) {
     if (dictReplace(db->io_negcache,key,(void*)time(NULL))) {
         incrRefCount(key);
+    }
+}
+
+/* Remove one entry from negative cache using approximated LRU. */
+int negativeCacheEvictOneEntry(void) {
+    struct dictEntry *de;
+    robj *best = NULL;
+    redisDb *best_db = NULL;
+    time_t time, best_time = 0;
+    int j;
+
+    for (j = 0; j < server.dbnum; j++) {
+        redisDb *db = server.db+j;
+        int i;
+
+        if (dictSize(db->io_negcache) == 0) continue;
+        for (i = 0; i < 3; i++) {
+            de = dictGetRandomKey(db->io_negcache);
+            time = (time_t) dictGetEntryVal(de);
+
+            if (best == NULL || time < best_time) {
+                best = dictGetEntryKey(de);
+                best_db = db;
+                best_time = time;
+            }
+        }
+    }
+    if (best) {
+        dictDelete(best_db->io_negcache,best);
+        return REDIS_OK;
+    } else {
+        return REDIS_ERR;
     }
 }
 
@@ -361,20 +393,11 @@ void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
                     incrRefCount(j->val);
                     if (j->expire != -1) setExpire(j->db,j->key,j->expire);
                 }
-            } else {
-                /* The key does not exist. Create a negative cache entry
-                 * for this key. */
-                cacheSetKeyDoesNotExist(j->db,j->key);
             }
             cacheScheduleIODelFlag(j->db,j->key,REDIS_IO_LOADINPROG);
             handleClientsBlockedOnSwappedKey(j->db,j->key);
             freeIOJob(j);
         } else if (j->type == REDIS_IOJOB_SAVE) {
-            if (j->val) {
-                cacheSetKeyMayExist(j->db,j->key);
-            } else {
-                cacheSetKeyDoesNotExist(j->db,j->key);
-            }
             cacheScheduleIODelFlag(j->db,j->key,REDIS_IO_SAVEINPROG);
             freeIOJob(j);
         }
@@ -740,8 +763,11 @@ void cacheCron(void) {
     while (server.ds_enabled && zmalloc_used_memory() >
             server.cache_max_memory)
     {
-        if (cacheFreeOneEntry() == REDIS_ERR) break;
-        /* FIXME: also free negative cache entries here. */
+        int done = 0;
+
+        if (cacheFreeOneEntry() == REDIS_OK) done++;
+        if (negativeCacheEvictOneEntry() == REDIS_OK) done++;
+        if (done == 0) break; /* nothing more to free */
     }
 }
 

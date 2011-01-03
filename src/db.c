@@ -93,9 +93,7 @@ int dbAdd(redisDb *db, robj *key, robj *val) {
     } else {
         sds copy = sdsdup(key->ptr);
         dictAdd(db->dict, copy, val);
-        if (server.ds_enabled) {
-            /* FIXME: remove entry from negative cache */
-        }
+        if (server.ds_enabled) cacheSetKeyMayExist(db,key);
         return REDIS_OK;
     }
 }
@@ -106,15 +104,18 @@ int dbAdd(redisDb *db, robj *key, robj *val) {
  * On update (key already existed) 0 is returned. Otherwise 1. */
 int dbReplace(redisDb *db, robj *key, robj *val) {
     robj *oldval;
+    int retval;
 
     if ((oldval = dictFetchValue(db->dict,key->ptr)) == NULL) {
         sds copy = sdsdup(key->ptr);
         dictAdd(db->dict, copy, val);
-        return 1;
+        retval = 1;
     } else {
         dictReplace(db->dict, key->ptr, val);
-        return 0;
+        retval = 0;
     }
+    if (server.ds_enabled) cacheSetKeyMayExist(db,key);
+    return retval;
 }
 
 int dbExists(redisDb *db, robj *key) {
@@ -152,10 +153,10 @@ int dbDelete(redisDb *db, robj *key) {
     /* If diskstore is enabled make sure to awake waiting clients for this key
      * as it is not really useful to wait for a key already deleted to be
      * loaded from disk. */
-    if (server.ds_enabled) handleClientsBlockedOnSwappedKey(db,key);
-
-    /* FIXME: we should mark this key as non existing on disk in the negative
-     * cache. */
+    if (server.ds_enabled) {
+        handleClientsBlockedOnSwappedKey(db,key);
+        cacheSetKeyDoesNotExist(db,key);
+    }
 
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
