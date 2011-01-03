@@ -1335,6 +1335,16 @@ sds genRedisInfoString(void) {
     return info;
 }
 
+void clearCommandCountStats()
+{
+    size_t numCommands = sizeof(readonlyCommandTable)/sizeof(struct redisCommand), j;
+    
+    for (j = 0; j < numCommands; j++) {
+        struct redisCommand *c = readonlyCommandTable+j;
+        c->executed = 0;
+    }
+}
+
 void infoCommand(redisClient *c) {
     sds info = genRedisInfoString();
     addReplySds(c,sdscatprintf(sdsempty(),"$%lu\r\n",
