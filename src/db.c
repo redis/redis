@@ -50,7 +50,7 @@ robj *lookupKey(redisDb *db, robj *key) {
             cacheScheduleIOGetFlags(db,key) & REDIS_IO_SAVEINPROG)
         {
             /* Need to wait for the key to get unbusy */
-            redisLog(REDIS_WARNING,"Lookup found a key in SAVEINPROG state. Waiting. (Key was in the cache)");
+            redisLog(REDIS_DEBUG,"Lookup found a key in SAVEINPROG state. Waiting. (Key was in the cache)");
             lookupWaitBusyKey(db,key);
         }
         server.stat_keyspace_hits++;
@@ -76,7 +76,7 @@ robj *lookupKey(redisDb *db, robj *key) {
             /* At this point we need to blocking load the key in memory.
              * The first thing we do is waiting here if the key is busy. */
             if (flags & REDIS_IO_SAVEINPROG) {
-                redisLog(REDIS_WARNING,"Lookup found a key in SAVEINPROG state. Waiting (while force loading).");
+                redisLog(REDIS_DEBUG,"Lookup found a key in SAVEINPROG state. Waiting (while force loading).");
                 lookupWaitBusyKey(db,key);
             }
 
