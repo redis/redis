@@ -200,8 +200,6 @@ void signalModifiedKey(redisDb *db, robj *key) {
 
 void signalFlushedDb(int dbid) {
     touchWatchedKeysOnFlush(dbid);
-    if (server.ds_enabled)
-        dsFlushDb(dbid);
 }
 
 /*-----------------------------------------------------------------------------
@@ -213,6 +211,7 @@ void flushdbCommand(redisClient *c) {
     signalFlushedDb(c->db->id);
     dictEmpty(c->db->dict);
     dictEmpty(c->db->expires);
+    if (server.ds_enabled) dsFlushDb(c->db->id);
     addReply(c,shared.ok);
 }
 
@@ -224,7 +223,10 @@ void flushallCommand(redisClient *c) {
         kill(server.bgsavechildpid,SIGKILL);
         rdbRemoveTempFile(server.bgsavechildpid);
     }
-    rdbSave(server.dbfilename);
+    if (server.ds_enabled)
+        dsFlushDb(-1);
+    else
+        rdbSave(server.dbfilename);
     server.dirty++;
 }
 

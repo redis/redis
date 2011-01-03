@@ -791,7 +791,7 @@ int dsSet(redisDb *db, robj *key, robj *val);
 robj *dsGet(redisDb *db, robj *key, time_t *expire);
 int dsDel(redisDb *db, robj *key);
 int dsExists(redisDb *db, robj *key);
-int dsFlushDb(int dbid);
+void dsFlushDb(int dbid);
 
 /* Disk Store Cache */
 void dsInit(void);
