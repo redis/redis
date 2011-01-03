@@ -348,6 +348,20 @@ void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
                     incrRefCount(j->val);
                     if (j->expire != -1) setExpire(j->db,j->key,j->expire);
                 }
+            } else {
+                /* Key not found on disk. If it is also not in memory
+                 * as a cached object, nor there is a job writing it
+                 * in background, we are sure the key does not exist
+                 * currently.
+                 *
+                 * So we set a negative cache entry avoiding that the
+                 * resumed client will block load what does not exist... */
+                if (dictFind(j->db->dict,j->key) == NULL &&
+                    (cacheScheduleIOGetFlags(j->db,j->key) &
+                      (REDIS_IO_SAVE|REDIS_IO_SAVEINPROG)) == 0)
+                {
+                    cacheSetKeyDoesNotExist(j->db,j->key);
+                }
             }
             cacheScheduleIODelFlag(j->db,j->key,REDIS_IO_LOADINPROG);
             handleClientsBlockedOnSwappedKey(j->db,j->key);
@@ -469,7 +483,8 @@ void waitEmptyIOJobsQueue(void) {
         redisLog(REDIS_DEBUG,"waitEmptyIOJobsQueue: new %d, processing %d",
             listLength(server.io_newjobs),
             listLength(server.io_processing));
-            /*
+
+        /* FIXME: signal or not?
         if (listLength(server.io_newjobs)) {
             pthread_cond_signal(&server.io_condvar);
         }
@@ -483,8 +498,12 @@ void waitEmptyIOJobsQueue(void) {
         if (io_processed_len) {
             vmThreadedIOCompletedJob(NULL,server.io_ready_pipe_read,
                                                         (void*)0xdeadbeef,0);
+            /* FIXME: probably wiser to drop this sleeps. Anyway 
+             * the contention on the IO thread will avoid we to loop
+             * too fast here. */
             usleep(1000); /* 1 millisecond */
         } else {
+            /* FIXME: same as fixme above. */
             usleep(10000); /* 10 milliseconds */
         }
     }

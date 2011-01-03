@@ -13,7 +13,7 @@ set ::host 127.0.0.1
 set ::port 16379
 set ::traceleaks 0
 set ::valgrind 0
-set ::verbose 0
+set ::verbose 1
 set ::denytags {}
 set ::allowtags {}
 set ::external 0; # If "1" this means, we are running against external instance

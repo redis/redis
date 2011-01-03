@@ -6,6 +6,35 @@
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
+/* Important notes on lookup and disk store.
+ *
+ * When disk store is enabled on lookup we can have different cases.
+ *
+ * a) The key is in memory:
+ *    - If the key is not in IO_SAVEINPROG state we can access it.
+ *      As if it's just IO_SAVE this means we have the key in the IO queue
+ *      but can't be accessed by the IO thread (it requires to be
+ *      translated into an IO Job by the cache cron function.)
+ *    - If the key is in IO_SAVEINPROG we can't touch the key and have
+ *      to blocking wait completion of operations.
+ * b) The key is not in memory:
+ *    - If it's marked as non existing on disk as well (negative cache)
+ *      we don't need to perform the disk access.
+ *    - if the key MAY EXIST, but is not in memory, and it is marked as IO_SAVE
+ *      then the key can only be a deleted one. As IO_SAVE keys are never
+ *      evicted (dirty state), so the only possibility is that key was deleted.
+ *    - if the key MAY EXIST we need to blocking load it.
+ *      We check that the key is not in IO_SAVEINPROG state before accessing
+ *      the disk object. If it is in this state, we wait.
+ */
+
+void lookupWaitBusyKey(redisDb *db, robj *key) {
+    /* FIXME: wait just for this key, not everything */
+    waitEmptyIOJobsQueue();
+    processAllPendingIOJobs();
+    redisAssert((cacheScheduleIOGetFlags(db,key) & REDIS_IO_SAVEINPROG) == 0);
+}
+
 robj *lookupKey(redisDb *db, robj *key) {
     dictEntry *de = dictFind(db->dict,key->ptr);
     if (de) {
@@ -20,11 +49,9 @@ robj *lookupKey(redisDb *db, robj *key) {
         if (server.ds_enabled &&
             cacheScheduleIOGetFlags(db,key) & REDIS_IO_SAVEINPROG)
         {
-            /* There is a save in progress for this object!
-             * Wait for it to get out. */
-            waitEmptyIOJobsQueue();
-            processAllPendingIOJobs();
-            redisAssert(!(cacheScheduleIOGetFlags(db,key) & REDIS_IO_SAVEINPROG));
+            /* Need to wait for the key to get unbusy */
+            redisLog(REDIS_WARNING,"Lookup found a key in SAVEINPROG state. Waiting. (Key was in the cache)");
+            lookupWaitBusyKey(db,key);
         }
         server.stat_keyspace_hits++;
         return val;
@@ -36,16 +63,24 @@ robj *lookupKey(redisDb *db, robj *key) {
          * enabled we may have this key on disk. If so load it in memory
          * in a blocking way. */
         if (server.ds_enabled && cacheKeyMayExist(db,key)) {
-            if (cacheScheduleIOGetFlags(db,key) & REDIS_IO_SAVEINPROG) {
-                /* There is a save in progress for this object!
-                 * Wait for it to get out. */
-                waitEmptyIOJobsQueue();
-                processAllPendingIOJobs();
-                redisAssert((cacheScheduleIOGetFlags(db,key) & REDIS_IO_SAVEINPROG) == 0);
+            long flags = cacheScheduleIOGetFlags(db,key);
+
+            /* They key is not in cache, but it has a SAVE op in queue?
+             * The only possibility is that the key was deleted, since
+             * dirty keys are not evicted. */
+            if (flags & REDIS_IO_SAVE) {
+                server.stat_keyspace_misses++;
+                return NULL;
             }
 
-            redisLog(REDIS_DEBUG,"Force loading key %s via lookup",
-                key->ptr);
+            /* At this point we need to blocking load the key in memory.
+             * The first thing we do is waiting here if the key is busy. */
+            if (flags & REDIS_IO_SAVEINPROG) {
+                redisLog(REDIS_WARNING,"Lookup found a key in SAVEINPROG state. Waiting (while force loading).");
+                lookupWaitBusyKey(db,key);
+            }
+
+            redisLog(REDIS_DEBUG,"Force loading key %s via lookup", key->ptr);
             val = dsGet(db,key,&expire);
             if (val) {
                 int retval = dbAdd(db,key,val);
@@ -53,6 +88,8 @@ robj *lookupKey(redisDb *db, robj *key) {
                 if (expire != -1) setExpire(db,key,expire);
                 server.stat_keyspace_hits++;
                 return val;
+            } else {
+                cacheSetKeyDoesNotExist(db,key);
             }
         }
         server.stat_keyspace_misses++;
