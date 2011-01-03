@@ -356,7 +356,7 @@ void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
                  *
                  * So we set a negative cache entry avoiding that the
                  * resumed client will block load what does not exist... */
-                if (dictFind(j->db->dict,j->key) == NULL &&
+                if (dictFind(j->db->dict,j->key->ptr) == NULL &&
                     (cacheScheduleIOGetFlags(j->db,j->key) &
                       (REDIS_IO_SAVE|REDIS_IO_SAVEINPROG)) == 0)
                 {
