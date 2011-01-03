@@ -23,76 +23,29 @@
  * longer relevant with the new design. Here as a checklist to see if
  * some old ideas still apply.
  *
- * - The WATCH helper will be used to signal the cache system
- *   we need to flush a given key/dbid into disk, adding this key/dbid
- *   pair into a server.ds_cache_dirty linked list AND hash table (so that we
- *   don't add the same thing multiple times).
- *
- * - cron() checks if there are elements on this list. When there are things
- *   to flush, we create an IO Job for the I/O thread.
- *   NOTE: We disalbe object sharing when server.ds_enabled == 1 so objects
- *   that are referenced an IO job for flushing on disk are marked as
- *   o->storage == REDIS_DS_SAVING.
- *
- * - This is what we do on key lookup:
- *   1) The key already exists in memory. object->storage == REDIS_DS_MEMORY
- *      or it is object->storage == REDIS_DS_DIRTY:
- *      We don't do nothing special, lookup, return value object pointer.
- *   2) The key is in memory but object->storage == REDIS_DS_SAVING.
- *      When this happens we block waiting for the I/O thread to process
- *      this object. Then continue.
- *   3) The key is not in memory. We block to load the key from disk.
- *      Of course the key may not be present at all on the disk store as well,
- *      in such case we just detect this condition and continue, returning
- *      NULL from lookup.
- *
- * - Preloading of needed keys:
- *   1) As it was done with VM, also with this new system we try preloading
- *      keys a client is going to use. We block the client, load keys
- *      using the I/O thread, unblock the client. Same code as VM more or less.
- *
- * - Reclaiming memory.
- *   In cron() we detect our memory limit was reached. What we
- *   do is deleting keys that are REDIS_DS_MEMORY, using LRU.
- *
- *   If this is not enough to return again under the memory limits we also
- *   start to flush keys that need to be synched on disk synchronously,
- *   removing it from the memory. We do this blocking as memory limit is a
- *   much "harder" barrirer in the new design.
- *
- * - IO thread operations are no longer stopped for sync loading/saving of
- *   things. When a key is found to be in the process of being saved
- *   we simply wait for the IO thread to end its work.
- *
- *   Otherwise if there is to load a key without any IO thread operation
- *   just started it is blocking-loaded in the lookup function.
- *
  * - What happens when an object is destroyed?
  *
- *   If o->storage == REDIS_DS_MEMORY then we simply destory the object.
- *   If o->storage == REDIS_DS_DIRTY we can still remove the object. It had
- *                    changes not flushed on disk, but is being removed so
- *                    who cares.
- *   if o->storage == REDIS_DS_SAVING then the object is being saved so
- *                    it is impossible that its refcount == 1, must be at
- *                    least two. When the object is saved the storage will
- *                    be set back to DS_MEMORY.
+ *   If the object is destroyed since semantically it was deleted or
+ *   replaced with something new, we don't care if there was a SAVE
+ *   job pending for it. Anyway when the IO JOb will be created we'll get
+ *   the pointer of the current value.
  *
- * - What happens when keys are deleted?
- *
- *   We simply schedule a key flush operation as usually, but when the
- *   IO thread will be created the object pointer will be set to NULL
- *   so the IO thread will know that the work to do is to delete the key
- *   from the disk store.
+ *   If the object is already a REDIS_IO_SAVEINPROG object, then it is
+ *   impossible that we get a decrRefCount() that will reach refcount of zero
+ *   since the object is both in the dataset and in the io job entry.
  *
  * - What happens with MULTI/EXEC?
  *
- *   Good question.
+ *   Good question. Without some kind of versioning with a global counter
+ *   it is not possible to have trasactions on disk, but they are still
+ *   useful since from the point of view of memory and client bugs it is
+ *   a protection anyway. Also it's useful for WATCH.
  *
- * - If dsSet() fails on the write thread log the error and reschedule the
- *   key for flush.
+ *   Btw there is to check what happens when WATCH gets combined to keys
+ *   that gets removed from the object cache. Should be save but better
+ *   to check.
  *
- * - Check why INCR will not update the LRU info for the object.
+ * - Check if/why INCR will not update the LRU info for the object.
  *
  * - Fix/Check the following race condition: a key gets a DEL so there is
  *   a write operation scheduled against this key. Later the same key will
@@ -114,10 +67,12 @@
  *   not marked as cacheKeyDoesNotExist(), otherwise, again, we can load
  *   data from disk that should instead be deleted.
  *
- * - dsSet() use rename(2) in order to avoid corruptions.
+ * - dsSet() should use rename(2) in order to avoid corruptions.
  *
  * - Don't add a LOAD if there is already a LOADINPROGRESS, or is this
  *   impossible since anyway the io_keys stuff will work as lock?
+ *
+ * - Serialize special encoded things in a raw form.
  */
 
 /* Virtual Memory is composed mainly of two subsystems:
