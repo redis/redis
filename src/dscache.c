@@ -73,6 +73,16 @@
  *   impossible since anyway the io_keys stuff will work as lock?
  *
  * - Serialize special encoded things in a raw form.
+ *
+ * - When putting IO read operations on top of the queue, do this only if
+ *   the already-on-top operation is not a save or if it is a save that
+ *   is scheduled for later execution. If there is a save that is ready to
+ *   fire, let's insert the load operation just before the first save that
+ *   is scheduled for later exection for instance.
+ *
+ * - Support MULTI/EXEC transactions via a journal file, that is played on
+ *   startup to check if there is cleanup to do. This way we can implement
+ *   transactions with our simple file based KV store.
  */
 
 /* Virtual Memory is composed mainly of two subsystems:
