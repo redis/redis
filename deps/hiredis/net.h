@@ -31,6 +31,12 @@
 #ifndef __NET_H
 #define __NET_H
 
+#include "hiredis.h"
+
+#if defined(__sun)
+#define AF_LOCAL AF_UNIX
+#endif
+
 int redisContextConnectTcp(redisContext *c, const char *addr, int port);
 int redisContextConnectUnix(redisContext *c, const char *path);
 

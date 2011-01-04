@@ -35,16 +35,18 @@ To consume the synchronous API, there are only a few function calls that need to
 
 ### Connecting
 
-The function `redisConnect` is used to create a so-called `redisContext`. The context is where
-Hiredis holds state for a connection. The `redisContext` struct has an `error` field that is
-non-NULL when the connection is in an error state. It contains a string with a textual
-representation of the error. After trying to connect to Redis using `redisConnect` you should
-check the `error` field to see if establishing the connection was successful:
+The function `redisConnect` is used to create a so-called `redisContext`. The
+context is where Hiredis holds state for a connection. The `redisContext`
+struct has an integer `err` field that is non-zero when an the connection is in
+an error state. The field `errstr` will contain a string with a description of
+the error. More information on errors can be found in the **Errors** section.
+After trying to connect to Redis using `redisConnect` you should
+check the `err` field to see if establishing the connection was successful:
 
     redisContext *c = redisConnect("127.0.0.1", 6379);
-    if (c->error != NULL) {
-      printf("Error: %s\n", c->error);
-      // handle error
+    if (c->err) {
+        printf("Error: %s\n", c->errstr);
+        // handle error
     }
 
 ### Sending commands
@@ -76,8 +78,8 @@ anywhere in an argument:
 ### Using replies
 
 The return value of `redisCommand` holds a reply when the command was
-successfully executed. When the return value is `NULL`, the `error` field
-in the context can be used to find out what was the cause of failure.
+successfully executed. When an error occurs, the return value is `NULL` and
+the `err` field in the context will be set (see section on **Errors**).
 Once an error is returned the context cannot be reused and you should set up
 a new connection.
 
@@ -166,7 +168,7 @@ to the `redisCommand` family, apart from not returning a reply:
 After calling either function one or more times, `redisGetReply` can be used to receive the
 subsequent replies. The return value for this function is either `REDIS_OK` or `REDIS_ERR`, where
 the latter means an error occurred while reading a reply. Just as with the other commands,
-the `error` field in the context can be used to find out what the cause of this error is.
+the `err` field in the context can be used to find out what the cause of this error is.
 
 The following examples shows a simple pipeline (resulting in only a single call to `write(2)` and
 a single call to `write(2)`):
@@ -184,9 +186,34 @@ This API can also be used to implement a blocking subscriber:
     reply = redisCommand(context,"SUBSCRIBE foo");
     freeReplyObject(reply);
     while(redisGetReply(context,&reply) == REDIS_OK) {
-      // consume message
-      freeReplyObject(reply);
+        // consume message
+        freeReplyObject(reply);
     }
+
+### Errors
+
+When a function call is not successful, depending on the function either `NULL` or `REDIS_ERR` is
+returned. The `err` field inside the context will be non-zero and set to one of the
+following constants:
+
+* **`REDIS_ERR_IO`**:
+    There was an I/O error while creating the connection, trying to write
+    to the socket or read from the socket. If you included `errno.h` in your
+    application, you can use the global `errno` variable to find out what is
+    wrong.
+
+* **`REDIS_ERR_EOF`**:
+    The server closed the connection which resulted in an empty read.
+
+* **`REDIS_ERR_PROTOCOL`**:
+    There was an error while parsing the protocol.
+
+* **`REDIS_ERR_OTHER`**:
+    Any other error. Currently, it is only used when a specified hostname to connect
+    to cannot be resolved.
+
+In every case, the `errstr` field in the context will be set to hold a string representation
+of the error.
 
 ## Asynchronous API
 
@@ -197,15 +224,15 @@ and [libevent](http://monkey.org/~provos/libevent/).
 ### Connecting
 
 The function `redisAsyncConnect` can be used to establish a non-blocking connection to
-Redis. It returns a pointer to the newly created `redisAsyncContext` struct. The `error` field
+Redis. It returns a pointer to the newly created `redisAsyncContext` struct. The `err` field
 should be checked after creation to see if there were errors creating the connection.
 Because the connection that will be created is non-blocking, the kernel is not able to
 instantly return if the specified host and port is able to accept a connection.
 
     redisAsyncContext *c = redisAsyncConnect("127.0.0.1", 6379);
-    if (c->error != NULL) {
-      printf("Error: %s\n", c->error);
-      // handle error
+    if (c->err) {
+        printf("Error: %s\n", c->errstr);
+        // handle error
     }
 
 The asynchronous context can hold a disconnect callback function that is called when the
@@ -215,7 +242,7 @@ have the following prototype:
     void(const redisAsyncContext *c, int status);
 
 On a disconnect, the `status` argument is set to `REDIS_OK` when disconnection was initiated by the
-user, or `REDIS_ERR` when the disconnection was caused by an error. When it is `REDIS_ERR`, the `error`
+user, or `REDIS_ERR` when the disconnection was caused by an error. When it is `REDIS_ERR`, the `err`
 field in the context can be accessed to find out the cause of the error.
 
 The context object is always free'd after the disconnect callback fired. When a reconnect is needed,
