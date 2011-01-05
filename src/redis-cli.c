@@ -492,6 +492,9 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
         if (cliReadReply(output_raw) != REDIS_OK)
             return REDIS_ERR;
     }
+
+    if (!strcasecmp(command,"select")) config.dbnum = atoi(argv[1]);
+
     return REDIS_OK;
 }
 
