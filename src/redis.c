@@ -1264,7 +1264,7 @@ sds genRedisInfoString(void) {
 
 
 void infoCommand(redisClient *c) {
-  sds info = NULL ; /*genRedisInfoString();*/
+  sds info = genRedisInfoString();
     addReplySds(c,sdscatprintf(sdsempty(),"$%lu\r\n",
         (unsigned long)sdslen(info)));
     addReplySds(c,info);
