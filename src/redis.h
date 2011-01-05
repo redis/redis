@@ -813,6 +813,7 @@ void cacheCron(void);
 int cacheKeyMayExist(redisDb *db, robj *key);
 void cacheSetKeyMayExist(redisDb *db, robj *key);
 void cacheSetKeyDoesNotExist(redisDb *db, robj *key);
+void cacheForcePointInTime(void);
 
 /* Set data type */
 robj *setTypeCreate(robj *value);

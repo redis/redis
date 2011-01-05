@@ -512,7 +512,7 @@ int processActiveIOJobs(int max) {
 
 #if 0
         /* If there are new jobs we need to signal the thread to
-         * process the next one. */
+         * process the next one. FIXME: drop this if useless. */
         redisLog(REDIS_DEBUG,"waitEmptyIOJobsQueue: new %d, processing %d",
             listLength(server.io_newjobs),
             listLength(server.io_processing));
@@ -576,7 +576,21 @@ void queueIOJob(iojob *j) {
         spawnIOThread();
 }
 
-void dsCreateIOJob(int type, redisDb *db, robj *key, robj *val) {
+/* Consume all the IO scheduled operations, and all the thread IO jobs
+ * so that eventually the state of diskstore is a point-in-time snapshot.
+ *
+ * This is useful when we need to BGSAVE with diskstore enabled. */
+void cacheForcePointInTime(void) {
+    redisLog(REDIS_NOTICE,"Diskstore: synching on disk to reach point-in-time state.");
+    while (listLength(server.cache_io_queue) != 0) {
+        cacheScheduleIOPushJobs(REDIS_IO_ASAP);
+        processActiveIOJobs(1);
+    }
+    waitEmptyIOJobsQueue();
+    processAllPendingIOJobs();
+}
+
+void cacheCreateIOJob(int type, redisDb *db, robj *key, robj *val) {
     iojob *j;
 
     j = zmalloc(sizeof(*j));
@@ -762,7 +776,7 @@ int cacheScheduleIOPushJobs(int flags) {
             op->type == REDIS_IO_LOAD ? "load" : "save", op->key->ptr);
 
         if (op->type == REDIS_IO_LOAD) {
-            dsCreateIOJob(REDIS_IOJOB_LOAD,op->db,op->key,NULL);
+            cacheCreateIOJob(REDIS_IOJOB_LOAD,op->db,op->key,NULL);
         } else {
             /* Lookup the key, in order to put the current value in the IO
              * Job. Otherwise if the key does not exists we schedule a disk
@@ -775,7 +789,7 @@ int cacheScheduleIOPushJobs(int flags) {
                  * the key on disk. */
                 val = NULL;
             }
-            dsCreateIOJob(REDIS_IOJOB_SAVE,op->db,op->key,val);
+            cacheCreateIOJob(REDIS_IOJOB_SAVE,op->db,op->key,val);
         }
         /* Mark the operation as in progress. */
         cacheScheduleIODelFlag(op->db,op->key,op->type);
