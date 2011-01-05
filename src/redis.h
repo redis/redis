@@ -50,11 +50,6 @@
 #define REDIS_REPLY_CHUNK_BYTES (5*1500) /* 5 TCP packets with default MTU */
 #define REDIS_MAX_LOGMSG_LEN    1024 /* Default maximum length of syslog messages */
 
-/* If more then REDIS_WRITEV_THRESHOLD write packets are pending use writev */
-#define REDIS_WRITEV_THRESHOLD      3
-/* Max number of iovecs used for each writev call */
-#define REDIS_WRITEV_IOVEC_COUNT    256
-
 /* Hash table parameters */
 #define REDIS_HT_MINFILL        10      /* Minimal hash table fill 10% */
 
@@ -392,7 +387,6 @@ struct redisServer {
     long long stat_keyspace_misses; /* number of failed lookups of keys */
     /* Configuration */
     int verbosity;
-    int glueoutputbuf;
     int maxidletime;
     int dbnum;
     int daemonize;
@@ -641,7 +635,6 @@ void closeTimedoutClients(void);
 void freeClient(redisClient *c);
 void resetClient(redisClient *c);
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask);
-void sendReplyToClientWritev(aeEventLoop *el, int fd, void *privdata, int mask);
 void addReply(redisClient *c, robj *obj);
 void *addDeferredMultiBulkLength(redisClient *c);
 void setDeferredMultiBulkLength(redisClient *c, void *node, long length);

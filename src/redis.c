@@ -768,7 +768,6 @@ void initServerConfig() {
     server.syslog_enabled = 0;
     server.syslog_ident = zstrdup("redis");
     server.syslog_facility = LOG_LOCAL0;
-    server.glueoutputbuf = 1;
     server.daemonize = 0;
     server.appendonly = 0;
     server.appendfsync = APPENDFSYNC_EVERYSEC;
