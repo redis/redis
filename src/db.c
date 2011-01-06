@@ -255,6 +255,31 @@ void keysCommand(redisClient *c) {
     setDeferredMultiBulkLength(c,replylen,numkeys);
 }
 
+void countCommand(redisClient *c) {
+    dictIterator *di;
+    dictEntry *de;
+    sds pattern = c->argv[1]->ptr;
+    int plen = sdslen(pattern), allkeys;
+    unsigned long numkeys = 0;
+
+    di = dictGetIterator(c->db->dict);
+    allkeys = (pattern[0] == '*' && pattern[1] == '\0');
+    while((de = dictNext(di)) != NULL) {
+        sds key = dictGetEntryKey(de);
+        robj *keyobj;
+
+        if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
+            keyobj = createStringObject(key,sdslen(key));
+            if (expireIfNeeded(c->db,keyobj) == 0) {
+                numkeys++;
+            }
+            decrRefCount(keyobj);
+        }
+    }
+    dictReleaseIterator(di);
+    addReplyLongLong(c,numkeys);
+}
+
 void dbsizeCommand(redisClient *c) {
     addReplyLongLong(c,dictSize(c->db->dict));
 }

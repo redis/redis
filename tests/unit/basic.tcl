@@ -37,6 +37,17 @@ start_server {tags {"basic"}} {
         lsort [r keys *]
     } {foo_a foo_b foo_c key_x key_y key_z}
 
+    test {COUNT with pattern} {
+        foreach key {key_x key_y key_z foo_a foo_b foo_c} {
+            r set $key hello
+        }
+        r count foo*
+    } {3}
+
+    test {COUNT to get all keys} {
+        r count *
+    } {6}
+
     test {DBSIZE} {
         r dbsize
     } {6}
