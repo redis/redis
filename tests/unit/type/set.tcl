@@ -59,6 +59,59 @@ start_server {
         assert_encoding hashtable myset
     }
 
+    test {MSADD, SISMEMBER, SMEMBERS basics - regular sets} {
+        create_set myset {foo}
+        create_set anotherset {bar}
+        assert_encoding hashtable myset
+        assert_equal 1 [r msadd 2 1 anotherset myset bar]
+        assert_equal 0 [r msadd 2 1 anotherset myset bar]
+        assert_equal 0 [r msadd 1 1 myset bar]
+        assert_equal 1 [r msadd 1 2 anotherset bar baz]
+        assert_equal 2 [r scard myset]
+        assert_equal 1 [r sismember myset foo]
+        assert_equal 1 [r sismember myset bar]
+        assert_equal 0 [r sismember myset baz]
+        assert_equal 0 [r sismember myset bla]
+        assert_equal 0 [r sismember anotherset foo]
+        assert_equal 1 [r sismember anotherset bar]
+        assert_equal 1 [r sismember anotherset baz]
+        assert_equal 0 [r sismember anotherset bla]
+        assert_equal {bar foo} [lsort [r smembers myset]]
+    }
+
+    test {MSADD against non set} {
+        r lpush mylist foo
+        create_set myset {foo}
+        assert_error ERR*kind* {r msadd 1 1 mylist bar}
+        assert_error ERR*kind* {r msadd 2 1 mylist myset bar}
+    }
+
+    test "MSADD a non-integer against an intset" {
+        create_set myset {1 2 3}
+        create_set anotherset {foo}
+        assert_encoding intset myset
+        assert_equal 1 [r msadd 1 1 myset a]
+        assert_equal 2 [r msadd 2 1 myset anotherset b]
+        assert_encoding hashtable myset
+    }
+
+    test "MSADD overflows the maximum allowed integers in an intset" {
+        r del myset
+        for {set i 0} {$i < 512} {incr i} { r sadd myset $i }
+        assert_encoding intset myset
+        assert_equal 1 [r msadd 1 1 myset 512]
+        assert_encoding hashtable myset
+    }
+
+#    TODO: do this test. It works manually, but I can't make it work with tcl
+#    test "MSADD creates an intset with more than the maximum allowed" {
+#        r del myset
+#        set var ""
+#        for {set i 0} {$i < 513} {incr i} { append var " " $i }
+#        assert_equal 513 [r msadd 1 513 myset $var]
+#        assert_encoding hashtable myset
+#    }
+
     test "Set encoding after DEBUG RELOAD" {
         r del myintset myhashset mylargeintset
         for {set i 0} {$i <  100} {incr i} { r sadd myintset $i }
