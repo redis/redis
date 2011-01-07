@@ -132,6 +132,7 @@ void dsInit(void) {
     server.io_ready_clients = listCreate();
     pthread_mutex_init(&server.io_mutex,NULL);
     pthread_cond_init(&server.io_condvar,NULL);
+    pthread_mutex_init(&server.bgsavethread_mutex,NULL);
     server.io_active_threads = 0;
     if (pipe(pipefds) == -1) {
         redisLog(REDIS_WARNING,"Unable to intialized DS: pipe(2): %s. Exiting."

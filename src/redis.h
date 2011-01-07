@@ -203,6 +203,12 @@
 #define REDIS_MAXMEMORY_ALLKEYS_RANDOM 4
 #define REDIS_MAXMEMORY_NO_EVICTION 5
 
+/* Diskstore background saving thread states */
+#define REDIS_BGSAVE_THREAD_UNACTIVE 0
+#define REDIS_BGSAVE_THREAD_ACTIVE 1
+#define REDIS_BGSAVE_THREAD_DONE_OK 2
+#define REDIS_BGSAVE_THREAD_DONE_ERR 3
+
 /* We can print the stacktrace, so our assert is defined this way: */
 #define redisAssert(_e) ((_e)?(void)0 : (_redisAssert(#_e,__FILE__,__LINE__),_exit(1)))
 #define redisPanic(_e) _redisPanic(#_e,__FILE__,__LINE__),_exit(1)
@@ -390,25 +396,30 @@ struct redisServer {
     int appendfsync;
     int no_appendfsync_on_rewrite;
     int shutdown_asap;
+    int activerehashing;
+    char *requirepass;
+    /* Persistence */
     time_t lastfsync;
     int appendfd;
     int appendseldb;
     char *pidfile;
     pid_t bgsavechildpid;
     pid_t bgrewritechildpid;
+    int bgsavethread_state;
+    pthread_mutex_t bgsavethread_mutex;
+    pthread_t bgsavethread;
     sds bgrewritebuf; /* buffer taken by parent during oppend only rewrite */
     sds aofbuf;       /* AOF buffer, written before entering the event loop */
     struct saveparam *saveparams;
     int saveparamslen;
+    char *dbfilename;
+    int rdbcompression;
+    char *appendfilename;
+    /* Logging */
     char *logfile;
     int syslog_enabled;
     char *syslog_ident;
     int syslog_facility;
-    char *dbfilename;
-    char *appendfilename;
-    char *requirepass;
-    int rdbcompression;
-    int activerehashing;
     /* Replication related */
     int isslave;
     /* Slave specific fields */
@@ -745,7 +756,7 @@ int rdbSaveObject(FILE *fp, robj *o);
 off_t rdbSavedObjectLen(robj *o);
 off_t rdbSavedObjectPages(robj *o);
 robj *rdbLoadObject(int type, FILE *fp);
-void backgroundSaveDoneHandler(int statloc);
+void backgroundSaveDoneHandler(int exitcode, int bysignal) {
 int rdbSaveKeyValuePair(FILE *fp, redisDb *db, robj *key, robj *val, time_t now);
 int rdbLoadType(FILE *fp);
 time_t rdbLoadTime(FILE *fp);
@@ -759,7 +770,7 @@ int rewriteAppendOnlyFileBackground(void);
 int loadAppendOnlyFile(char *filename);
 void stopAppendOnly(void);
 int startAppendOnly(void);
-void backgroundRewriteDoneHandler(int statloc);
+void backgroundRewriteDoneHandler(int exitcode, int bysignal);
 
 /* Sorted sets data type */
 zskiplist *zslCreate(void);

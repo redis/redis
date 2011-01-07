@@ -585,10 +585,7 @@ void aofRemoveTempFile(pid_t childpid) {
 
 /* A background append only file rewriting (BGREWRITEAOF) terminated its work.
  * Handle this. */
-void backgroundRewriteDoneHandler(int statloc) {
-    int exitcode = WEXITSTATUS(statloc);
-    int bysignal = WIFSIGNALED(statloc);
-
+void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
     if (!bysignal && exitcode == 0) {
         int fd;
         char tmpfile[256];
@@ -636,7 +633,7 @@ void backgroundRewriteDoneHandler(int statloc) {
     } else {
         redisLog(REDIS_WARNING,
             "Background append only file rewriting terminated by signal %d",
-            WTERMSIG(statloc));
+            bysitnal);
     }
 cleanup:
     sdsfree(server.bgrewritebuf);

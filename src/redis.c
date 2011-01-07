@@ -589,12 +589,30 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         pid_t pid;
 
         if ((pid = wait3(&statloc,WNOHANG,NULL)) != 0) {
+            int exitcode = WEXITSTATUS(statloc);
+            int bysignal = 0;
+            
+            if (WIFSIGNALED(statloc)) bysignal = WTERMSIG(statloc);
+
             if (pid == server.bgsavechildpid) {
-                backgroundSaveDoneHandler(statloc);
+                backgroundSaveDoneHandler(exitcode,bysignal);
             } else {
-                backgroundRewriteDoneHandler(statloc);
+                backgroundRewriteDoneHandler(exitcode,bysignal);
             }
             updateDictResizePolicy();
+        }
+        if (server.bgsavethread != (pthread_t) -1) {
+            int state;
+
+            pthread_mutex_lock(&server.bgsavethread_mutex);
+            state = server.bgsavethread_state;
+            pthread_mutex_unlock(&server.bgsavethread_mutex);
+
+            if (state == REDIS_BGSAVE_DONE_OK || state == REDIS_BGSAVE_DONE_ERR)
+            {
+                backgroundSaveDoneHandler(
+                    (state == REDIS_BGSAVE_DONE_OK) ? 0 : 1, 0);
+            }
         }
     } else if (!server.ds_enabled) {
         /* If there is not a background saving in progress check if
@@ -867,6 +885,8 @@ void initServer() {
     server.cronloops = 0;
     server.bgsavechildpid = -1;
     server.bgrewritechildpid = -1;
+    server.bgsavethread_state = REDIS_BGSAVE_THREAD_UNACTIVE;
+    server.bgsavethread = (pthread_t) -1;
     server.bgrewritebuf = sdsempty();
     server.aofbuf = sdsempty();
     server.lastsave = time(NULL);

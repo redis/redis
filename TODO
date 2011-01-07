@@ -15,6 +15,8 @@ DISKSTORE TODO
 * Check that 00/00 and ff/ff exist at startup, otherwise exit with error.
 * Implement sync flush option, where data is written synchronously on disk when a command is executed.
 * Implement MULTI/EXEC as transaction abstract API to diskstore.c, with transaction_start, transaction_end, and a journal to recover.
+* Stop BGSAVE thread on shutdown and any other condition where the child is killed during normal bgsave.
+* Use a mutex to log on the file, so that we don't get overlapping messages, or even better make sure to use a single write against it.
 
 REPLICATION
 ===========
