@@ -9,13 +9,12 @@ WARNING: are you a possible Redis contributor?
          us, and *how* exactly this can be implemented to have good changes
          of a merge. Otherwise it is probably wasted work! Thank you
 
-VM TODO
-=======
+DISKSTORE TODO
+==============
 
-* Use multiple open FDs against the VM file, one for thread.
-* Check what happens performance-wise if instead of creating threads again and again the same threads are reused forever. Note: this requires a way to disable this clients in the child, but waiting for empty new jobs queue can be enough.
-* mmap the swap file.
-* Use just a single IO Job to swap out a key, and add a mutex so that pages in the page table can be marked as used and scanned from the thread itself.
+* Check that 00/00 and ff/ff exist at startup, otherwise exit with error.
+* Implement sync flush option, where data is written synchronously on disk when a command is executed.
+* Implement MULTI/EXEC as transaction abstract API to diskstore.c, with transaction_start, transaction_end, and a journal to recover.
 
 REPLICATION
 ===========
