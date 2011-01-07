@@ -504,7 +504,7 @@ int rdbSaveBackground(char *filename) {
 
     if (server.ds_enabled) {
         cacheForcePointInTime();
-        return dsRdbSave(filename);
+        return dsRdbSaveBackground(filename);
     }
 
     if ((childpid = fork()) == 0) {

@@ -474,7 +474,7 @@ werr:
     return NULL;
 }
 
-int dsRdbSave(char *filename) {
+int dsRdbSaveBackground(char *filename) {
     pthread_t thread;
 
     if (pthread_create(&thread,NULL,dsRdbSave_thread,zstrdup(filename)) != 0) {
@@ -485,4 +485,25 @@ int dsRdbSave(char *filename) {
         server.bgsavethread = thread;
         return REDIS_OK;
     }
+}
+
+int dsRdbSave(char *filename) {
+    /* A blocking save is actually a non blocking save... just we wait
+     * for it to terminate in a non-busy loop. */
+
+    redisLog(REDIS_NOTICE,"Starting a blocking SAVE (BGSAVE + blocking wait)");
+    server.dirty_before_bgsave = server.dirty;
+    if (dsRdbSaveBackground(filename) == REDIS_ERR) return REDIS_ERR;
+    while(1) {
+        usleep(1000);
+        int state;
+
+        pthread_mutex_lock(&server.bgsavethread_mutex);
+        state = server.bgsavethread_state;
+        pthread_mutex_unlock(&server.bgsavethread_mutex);
+
+        if (state == REDIS_BGSAVE_THREAD_DONE_OK ||
+            state == REDIS_BGSAVE_THREAD_DONE_ERR) break;
+    }
+    return REDIS_OK;
 }

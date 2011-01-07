@@ -802,6 +802,7 @@ robj *dsGet(redisDb *db, robj *key, time_t *expire);
 int dsDel(redisDb *db, robj *key);
 int dsExists(redisDb *db, robj *key);
 void dsFlushDb(int dbid);
+int dsRdbSaveBackground(char *filename);
 int dsRdbSave(char *filename);
 
 /* Disk Store Cache */
