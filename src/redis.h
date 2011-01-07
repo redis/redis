@@ -761,6 +761,8 @@ int rdbSaveKeyValuePair(FILE *fp, redisDb *db, robj *key, robj *val, time_t now)
 int rdbLoadType(FILE *fp);
 time_t rdbLoadTime(FILE *fp);
 robj *rdbLoadStringObject(FILE *fp);
+int rdbSaveType(FILE *fp, unsigned char type);
+int rdbSaveLen(FILE *fp, uint32_t len);
 
 /* AOF persistence */
 void flushAppendOnlyFile(void);

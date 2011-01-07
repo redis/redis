@@ -583,7 +583,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     if ((server.maxidletime && !(loops % 100)) || server.bpop_blocked_clients)
         closeTimedoutClients();
 
-    /* Check if a background saving or AOF rewrite in progress terminated */
+    /* Check if a background saving or AOF rewrite in progress terminated. */
     if (server.bgsavechildpid != -1 || server.bgrewritechildpid != -1) {
         int statloc;
         pid_t pid;
@@ -601,6 +601,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             }
             updateDictResizePolicy();
         }
+    } else if (server.bgsavethread != (pthread_t) -1) {
         if (server.bgsavethread != (pthread_t) -1) {
             int state;
 

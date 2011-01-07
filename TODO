@@ -20,6 +20,7 @@ DISKSTORE TODO
 * Fix RANDOMKEY to really do something interesting
 * Fix DBSIZE to really do something interesting
 * Add a DEBUG command to check if an entry is or not in memory currently
+* Prevent io jobs from running while there is a BGSAVE thread.
 
 REPLICATION
 ===========

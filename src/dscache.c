@@ -732,6 +732,9 @@ int cacheScheduleIOPushJobs(int flags) {
     listNode *ln;
     int jobs, topush = 0, pushed = 0;
 
+    /* Don't push new jobs if there is a threaded BGSAVE in progress. */
+    if (server.bgsavethread != (pthread_t) -1) return 0;
+
     /* Sync stuff on disk, but only if we have less
      * than MAX_IO_JOBS_QUEUE IO jobs. */
     lockThreadedIO();
