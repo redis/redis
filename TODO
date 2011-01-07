@@ -17,6 +17,9 @@ DISKSTORE TODO
 * Implement MULTI/EXEC as transaction abstract API to diskstore.c, with transaction_start, transaction_end, and a journal to recover.
 * Stop BGSAVE thread on shutdown and any other condition where the child is killed during normal bgsave.
 * Use a mutex to log on the file, so that we don't get overlapping messages, or even better make sure to use a single write against it.
+* Fix RANDOMKEY to really do something interesting
+* Fix DBSIZE to really do something interesting
+* Add a DEBUG command to check if an entry is or not in memory currently
 
 REPLICATION
 ===========

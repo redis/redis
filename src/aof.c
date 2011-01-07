@@ -633,7 +633,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
     } else {
         redisLog(REDIS_WARNING,
             "Background append only file rewriting terminated by signal %d",
-            bysitnal);
+            bysignal);
     }
 cleanup:
     sdsfree(server.bgrewritebuf);

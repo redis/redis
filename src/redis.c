@@ -608,10 +608,11 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             state = server.bgsavethread_state;
             pthread_mutex_unlock(&server.bgsavethread_mutex);
 
-            if (state == REDIS_BGSAVE_DONE_OK || state == REDIS_BGSAVE_DONE_ERR)
+            if (state == REDIS_BGSAVE_THREAD_DONE_OK ||
+                state == REDIS_BGSAVE_THREAD_DONE_ERR)
             {
                 backgroundSaveDoneHandler(
-                    (state == REDIS_BGSAVE_DONE_OK) ? 0 : 1, 0);
+                    (state == REDIS_BGSAVE_THREAD_DONE_OK) ? 0 : 1, 0);
             }
         }
     } else if (!server.ds_enabled) {

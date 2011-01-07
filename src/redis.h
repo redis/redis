@@ -756,7 +756,7 @@ int rdbSaveObject(FILE *fp, robj *o);
 off_t rdbSavedObjectLen(robj *o);
 off_t rdbSavedObjectPages(robj *o);
 robj *rdbLoadObject(int type, FILE *fp);
-void backgroundSaveDoneHandler(int exitcode, int bysignal) {
+void backgroundSaveDoneHandler(int exitcode, int bysignal);
 int rdbSaveKeyValuePair(FILE *fp, redisDb *db, robj *key, robj *val, time_t now);
 int rdbLoadType(FILE *fp);
 time_t rdbLoadTime(FILE *fp);
@@ -800,6 +800,7 @@ robj *dsGet(redisDb *db, robj *key, time_t *expire);
 int dsDel(redisDb *db, robj *key);
 int dsExists(redisDb *db, robj *key);
 void dsFlushDb(int dbid);
+int dsRdbSave(char *filename);
 
 /* Disk Store Cache */
 void dsInit(void);
