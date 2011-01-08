@@ -198,11 +198,12 @@ void debugCommand(redisClient *c) {
         redisLog(REDIS_WARNING,"Append Only File loaded by DEBUG LOADAOF");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"object") && c->argc == 3) {
-        dictEntry *de = dictFind(c->db->dict,c->argv[2]->ptr);
+        dictEntry *de;
         robj *val;
         char *strenc;
 
-        if (!de) {
+        if (server.ds_enabled) lookupKeyRead(c->db,c->argv[2]);
+        if ((de = dictFind(c->db->dict,c->argv[2]->ptr)) == NULL) {
             addReply(c,shared.nokeyerr);
             return;
         }
