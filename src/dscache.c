@@ -756,7 +756,8 @@ int cacheScheduleIOPushJobs(int flags) {
 
         if (op->type != REDIS_IO_LOAD && flags & REDIS_IO_ONLYLOADS) break;
 
-        if (!(flags & REDIS_IO_ASAP) &&
+        /* Don't execute SAVE before the scheduled time for completion */
+        if (op->type == REDIS_IO_SAVE && !(flags & REDIS_IO_ASAP) &&
               (now - op->ctime) < server.cache_flush_delay) break;
 
         /* Don't add a SAVE job in the IO thread queue if there is already
