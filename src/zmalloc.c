@@ -186,7 +186,7 @@ size_t zmalloc_used_memory(void) {
 }
 
 size_t zmalloc_allocations_for_size(size_t size) {
-    if (size > ZMALLOC_MAX_ALLOC_STAT || size < 0) return 0;
+    if (size > ZMALLOC_MAX_ALLOC_STAT) return 0;
     return zmalloc_allocations[size];
 }
 

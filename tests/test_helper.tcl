@@ -13,12 +13,13 @@ set ::host 127.0.0.1
 set ::port 16379
 set ::traceleaks 0
 set ::valgrind 0
-set ::verbose 1
+set ::verbose 0
 set ::denytags {}
 set ::allowtags {}
 set ::external 0; # If "1" this means, we are running against external instance
 set ::file ""; # If set, runs only the tests in this comma separated list
 set ::curfile ""; # Hold the filename of the current suite
+set ::diskstore 0; # Don't touch this by hand. The test itself will toggle it.
 
 proc execute_tests name {
     set path "tests/$name.tcl"
@@ -103,6 +104,9 @@ proc s {args} {
 }
 
 proc cleanup {} {
+    if {$::diskstore} {
+        puts "Cleanup: warning may take some minute (diskstore enabled)"
+    }
     catch {exec rm -rf {*}[glob tests/tmp/redis.conf.*]}
     catch {exec rm -rf {*}[glob tests/tmp/server.*]}
 }
@@ -125,8 +129,9 @@ proc execute_everything {} {
 #    execute_tests "integration/redis-cli"
     execute_tests "unit/pubsub"
 
-    # run tests with VM enabled
-    set ::global_overrides {vm-enabled yes}
+    # run tests with diskstore enabled
+    set ::diskstore 1
+    set ::global_overrides {diskstore-enabled yes}
     execute_tests "unit/protocol"
     execute_tests "unit/basic"
     execute_tests "unit/type/list"

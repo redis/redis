@@ -177,9 +177,6 @@ proc start_server {options {code undefined}} {
     if {$::valgrind} {
         exec valgrind --suppressions=src/valgrind.sup src/redis-server $config_file > $stdout 2> $stderr &
     } else {
-        if {$::verbose} {
-            puts "Logging on $stdout / $stderr"
-        }
         exec src/redis-server $config_file > $stdout 2> $stderr &
     }
     
