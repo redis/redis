@@ -128,7 +128,7 @@ proc execute_everything {} {
     execute_tests "unit/pubsub"
 
     # run tests with diskstore enabled
-    puts "Running diskstore tests... this is slow, press Ctrl+C if not interested.."
+    puts "\nRunning diskstore tests... this is slow, press Ctrl+C if not interested.."
     set ::diskstore 1
     lappend ::denytags nodiskstore
     set ::global_overrides {diskstore-enabled yes}
