@@ -13,7 +13,7 @@ set ::host 127.0.0.1
 set ::port 16379
 set ::traceleaks 0
 set ::valgrind 0
-set ::verbose 1
+set ::verbose 0
 set ::denytags {}
 set ::allowtags {}
 set ::external 0; # If "1" this means, we are running against external instance
@@ -110,7 +110,6 @@ proc cleanup {} {
 }
 
 proc execute_everything {} {
-    if 0 {
     execute_tests "unit/auth"
     execute_tests "unit/protocol"
     execute_tests "unit/basic"
@@ -127,20 +126,20 @@ proc execute_everything {} {
     execute_tests "integration/aof"
 #    execute_tests "integration/redis-cli"
     execute_tests "unit/pubsub"
-    }
 
     # run tests with diskstore enabled
+    puts "Running diskstore tests... this is slow, press Ctrl+C if not interested.."
     set ::diskstore 1
     lappend ::denytags nodiskstore
     set ::global_overrides {diskstore-enabled yes}
-#    execute_tests "unit/protocol"
-#    execute_tests "unit/basic"
-#    execute_tests "unit/type/list"
-#    execute_tests "unit/type/set"
-#    execute_tests "unit/type/zset"
-#    execute_tests "unit/type/hash"
-#    execute_tests "unit/sort"
-#    execute_tests "unit/expire"
+    execute_tests "unit/protocol"
+    execute_tests "unit/basic"
+    execute_tests "unit/type/list"
+    execute_tests "unit/type/set"
+    execute_tests "unit/type/zset"
+    execute_tests "unit/type/hash"
+    execute_tests "unit/sort"
+    execute_tests "unit/expire"
     execute_tests "unit/other"
     execute_tests "unit/cas"
 }

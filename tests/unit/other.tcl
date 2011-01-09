@@ -120,34 +120,36 @@ start_server {tags {"other"}} {
         list $e1 $e2
     } {1 1}
 
-    test {PIPELINING stresser (also a regression for the old epoll bug)} {
-        set fd2 [socket $::host $::port]
-        fconfigure $fd2 -encoding binary -translation binary
-        puts -nonewline $fd2 "SELECT 9\r\n"
-        flush $fd2
-        gets $fd2
+    tags {protocol nodiskstore} {
+        test {PIPELINING stresser (also a regression for the old epoll bug)} {
+            set fd2 [socket $::host $::port]
+            fconfigure $fd2 -encoding binary -translation binary
+            puts -nonewline $fd2 "SELECT 9\r\n"
+            flush $fd2
+            gets $fd2
 
-        for {set i 0} {$i < 100000} {incr i} {
-            set q {}
-            set val "0000${i}0000"
-            append q "SET key:$i $val\r\n"
-            puts -nonewline $fd2 $q
-            set q {}
-            append q "GET key:$i\r\n"
-            puts -nonewline $fd2 $q
-        }
-        flush $fd2
+            for {set i 0} {$i < 100000} {incr i} {
+                set q {}
+                set val "0000${i}0000"
+                append q "SET key:$i $val\r\n"
+                puts -nonewline $fd2 $q
+                set q {}
+                append q "GET key:$i\r\n"
+                puts -nonewline $fd2 $q
+            }
+            flush $fd2
 
-        for {set i 0} {$i < 100000} {incr i} {
-            gets $fd2 line
-            gets $fd2 count
-            set count [string range $count 1 end]
-            set val [read $fd2 $count]
-            read $fd2 2
-        }
-        close $fd2
-        set _ 1
-    } {1}
+            for {set i 0} {$i < 100000} {incr i} {
+                gets $fd2 line
+                gets $fd2 count
+                set count [string range $count 1 end]
+                set val [read $fd2 $count]
+                read $fd2 2
+            }
+            close $fd2
+            set _ 1
+        } {1}
+    }
 
     test {MUTLI / EXEC basics} {
         r del mylist
