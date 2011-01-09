@@ -133,14 +133,14 @@ proc execute_everything {} {
     set ::diskstore 1
     lappend ::denytags nodiskstore
     set ::global_overrides {diskstore-enabled yes}
-    execute_tests "unit/protocol"
-    execute_tests "unit/basic"
-    execute_tests "unit/type/list"
-    execute_tests "unit/type/set"
-    execute_tests "unit/type/zset"
-    execute_tests "unit/type/hash"
-    execute_tests "unit/sort"
-    execute_tests "unit/expire"
+#    execute_tests "unit/protocol"
+#    execute_tests "unit/basic"
+#    execute_tests "unit/type/list"
+#    execute_tests "unit/type/set"
+#    execute_tests "unit/type/zset"
+#    execute_tests "unit/type/hash"
+#    execute_tests "unit/sort"
+#    execute_tests "unit/expire"
     execute_tests "unit/other"
     execute_tests "unit/cas"
 }

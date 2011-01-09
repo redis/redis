@@ -12,7 +12,7 @@ start_server {tags {"other"}} {
         r save
     } {OK}
 
-    tags {"slow"} {
+    tags {slow nodiskstore} {
         foreach fuzztype {binary alpha compr} {
             test "FUZZ stresser with data model $fuzztype" {
                 set err 0

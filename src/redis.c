@@ -1221,7 +1221,7 @@ sds genRedisInfoString(void) {
         server.loading,
         server.appendonly,
         server.dirty,
-        server.bgsavechildpid != -1,
+        server.bgsavechildpid != -1 || server.bgsavethread != (pthread_t) -1,
         server.lastsave,
         server.bgrewritechildpid != -1,
         server.stat_numconnections,
