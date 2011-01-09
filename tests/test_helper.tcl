@@ -13,7 +13,7 @@ set ::host 127.0.0.1
 set ::port 16379
 set ::traceleaks 0
 set ::valgrind 0
-set ::verbose 0
+set ::verbose 1
 set ::denytags {}
 set ::allowtags {}
 set ::external 0; # If "1" this means, we are running against external instance
@@ -104,14 +104,13 @@ proc s {args} {
 }
 
 proc cleanup {} {
-    if {$::diskstore} {
-        puts "Cleanup: warning may take some minute (diskstore enabled)"
-    }
+    puts "Cleanup: warning may take some time..."
     catch {exec rm -rf {*}[glob tests/tmp/redis.conf.*]}
     catch {exec rm -rf {*}[glob tests/tmp/server.*]}
 }
 
 proc execute_everything {} {
+    if 0 {
     execute_tests "unit/auth"
     execute_tests "unit/protocol"
     execute_tests "unit/basic"
@@ -128,9 +127,11 @@ proc execute_everything {} {
     execute_tests "integration/aof"
 #    execute_tests "integration/redis-cli"
     execute_tests "unit/pubsub"
+    }
 
     # run tests with diskstore enabled
     set ::diskstore 1
+    lappend ::denytags nodiskstore
     set ::global_overrides {diskstore-enabled yes}
     execute_tests "unit/protocol"
     execute_tests "unit/basic"

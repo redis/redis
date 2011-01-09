@@ -201,7 +201,8 @@ int dbDelete(redisDb *db, robj *key) {
     return dictDelete(db->dict,key->ptr) == DICT_OK;
 }
 
-/* Empty the whole database */
+/* Empty the whole database.
+ * If diskstore is enabled this function will just flush the in-memory cache. */
 long long emptyDb() {
     int j;
     long long removed = 0;
@@ -210,6 +211,7 @@ long long emptyDb() {
         removed += dictSize(server.db[j].dict);
         dictEmpty(server.db[j].dict);
         dictEmpty(server.db[j].expires);
+        if (server.ds_enabled) dictEmpty(server.db[j].io_negcache);
     }
     return removed;
 }

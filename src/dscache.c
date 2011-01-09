@@ -185,8 +185,7 @@ int cacheFreeOneEntry(void) {
          * are swappable objects */
         int maxtries = 100;
 
-        if (dictSize(db->dict) == 0) continue;
-        for (i = 0; i < 5; i++) {
+        for (i = 0; i < 5 && dictSize(db->dict); i++) {
             dictEntry *de;
             double swappability;
             robj keyobj;

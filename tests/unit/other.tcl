@@ -46,7 +46,7 @@ start_server {tags {"other"}} {
         set _ $err
     } {*invalid*}
 
-    tags {consistency} {
+    tags {consistency nodiskstore} {
         if {![catch {package require sha1}]} {
             test {Check consistency of different data types after a reload} {
                 r flushdb
@@ -102,12 +102,19 @@ start_server {tags {"other"}} {
         r flushdb
         r set x 10
         r expire x 1000
-        r save
-        r debug reload
+        if {$::diskstore} {
+            r debug flushcache
+        } else {
+            r save
+            r debug reload
+        }
         set ttl [r ttl x]
         set e1 [expr {$ttl > 900 && $ttl <= 1000}]
-        r bgrewriteaof
-        waitForBgrewriteaof r
+        if {!$::diskstore} {
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            r debug loadaof
+        }
         set ttl [r ttl x]
         set e2 [expr {$ttl > 900 && $ttl <= 1000}]
         list $e1 $e2
