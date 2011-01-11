@@ -320,43 +320,24 @@ void hmsetCommand(redisClient *c) {
 }
 
 void mhsetCommand(redisClient *c) {
-    int i;
-    int failed = 0;
-    int n = c->argc/2-1;
-
     if ((c->argc % 2) == 1) {
         addReplyError(c,"wrong number of arguments for MHSET");
         return;
     }
 
-    robj **o = (robj**)zmalloc(n*sizeof(robj*));
-    robj *e_field = tryObjectEncoding(c->argv[1]);
+    int i;
+    robj *o;
 
-    for (i = 0; i < n; ++i) {
-        if ((o[i] = hashTypeLookupWriteOrCreate(c,c->argv[2*i+2])) == NULL) failed++;
-    }
-    if (failed > 0) {
-        zfree(o);
-        return;
-    }
-
-    for (i = 0; i < n; i++) {
-        hashTypeTryConversion(o[i],c->argv,2*i+2,2*i+3);
-        if ((o[i])->encoding == REDIS_ENCODING_HT) {
-            c->argv[2*i+3] = tryObjectEncoding(c->argv[2*i+3]);
-					  hashTypeSet(o[i],e_field,c->argv[2*i+3]);
-        }
-        else {
-            hashTypeSet(o[i],c->argv[1],c->argv[2*i+3]);
-        }
+    for (i = 2; i < c->argc; i += 2) {
+        if ((o = hashTypeLookupWriteOrCreate(c,c->argv[i])) == NULL) return;
+        hashTypeTryConversion(o,c->argv,i,i+1);
+				hashTypeTryObjectEncoding(o,&c->argv[1],&c->argv[i+1]);
+				hashTypeSet(o,c->argv[1],c->argv[i+1]);
+        touchWatchedKey(c->db,c->argv[i]);
+        server.dirty++;
     }
 
     addReply(c, shared.ok);
-    for (i = 0; i < n; i++) {
-        touchWatchedKey(c->db,c->argv[2*i+2]);
-    }
-    zfree(o);
-    server.dirty++;
 }
 
 void hincrbyCommand(redisClient *c) {
