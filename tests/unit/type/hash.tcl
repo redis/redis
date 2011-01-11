@@ -132,6 +132,17 @@ start_server {tags {"hash"}} {
         r hmset bighash {*}$args
     } {OK}
 
+    test {MHSET wrong number of args} {
+        catch {r mhset key hash1 value1 hash2} err
+        format $err
+    } {*wrong number*}
+
+    test {MHSET basics} {
+        r mhset kfoo myset1 myval1 myset2 myval2
+        assert_equal myval1 [r hget myset1 kfoo]
+        assert_equal myval2 [r hget myset2 kfoo]
+    }
+
     test {HMGET against non existing key and fields} {
         set rv {}
         lappend rv [r hmget doesntexist __123123123__ __456456456__]
