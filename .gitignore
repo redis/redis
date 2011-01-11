@@ -18,3 +18,4 @@ release.h
 src/transfer.sh
 src/configs
 src/redis-server.dSYM
+run.sh
