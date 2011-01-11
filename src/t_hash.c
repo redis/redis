@@ -319,6 +319,46 @@ void hmsetCommand(redisClient *c) {
     server.dirty++;
 }
 
+void mhsetCommand(redisClient *c) {
+    int i;
+    int failed = 0;
+    int n = c->argc/2-1;
+
+    if ((c->argc % 2) == 1) {
+        addReplyError(c,"wrong number of arguments for MHSET");
+        return;
+    }
+
+    robj **o = (robj**)zmalloc(n*sizeof(robj*));
+    robj *e_field = tryObjectEncoding(c->argv[1]);
+
+    for (i = 0; i < n; ++i) {
+        if ((o[i] = hashTypeLookupWriteOrCreate(c,c->argv[2*i+2])) == NULL) failed++;
+    }
+    if (failed > 0) {
+        zfree(o);
+        return;
+    }
+
+    for (i = 0; i < n; i++) {
+        hashTypeTryConversion(o[i],c->argv,2*i+2,2*i+3);
+        if ((o[i])->encoding == REDIS_ENCODING_HT) {
+            c->argv[2*i+3] = tryObjectEncoding(c->argv[2*i+3]);
+					  hashTypeSet(o[i],e_field,c->argv[2*i+3]);
+        }
+        else {
+            hashTypeSet(o[i],c->argv[1],c->argv[2*i+3]);
+        }
+    }
+
+    addReply(c, shared.ok);
+    for (i = 0; i < n; i++) {
+        touchWatchedKey(c->db,c->argv[2*i+2]);
+    }
+    zfree(o);
+    server.dirty++;
+}
+
 void hincrbyCommand(redisClient *c) {
     long long value, incr;
     robj *o, *current, *new;
