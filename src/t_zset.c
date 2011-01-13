@@ -180,15 +180,15 @@ typedef struct {
     int minex, maxex; /* are min or max exclusive? */
 } zrangespec;
 
-static inline int zslValueInMinRange(double value, zrangespec *spec) {
+static int zslValueInMinRange(double value, zrangespec *spec) {
     return spec->minex ? (value > spec->min) : (value >= spec->min);
 }
 
-static inline int zslValueInMaxRange(double value, zrangespec *spec) {
+static int zslValueInMaxRange(double value, zrangespec *spec) {
     return spec->maxex ? (value < spec->max) : (value <= spec->max);
 }
 
-static inline int zslValueInRange(double value, zrangespec *spec) {
+static int zslValueInRange(double value, zrangespec *spec) {
     return zslValueInMinRange(value,spec) && zslValueInMaxRange(value,spec);
 }
 
