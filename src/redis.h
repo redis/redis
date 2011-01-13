@@ -356,17 +356,20 @@ struct sharedObjectsStruct {
 
 /* Global server state structure */
 struct redisServer {
+    /* General */
     pthread_t mainthread;
+    redisDb *db;
+    dict *commands;             /* Command table hahs table */
+    aeEventLoop *el;
+    /* Networking */
     int port;
     char *bindaddr;
     char *unixsocket;
     int ipfd;
     int sofd;
-    redisDb *db;
-    long long dirty;            /* changes to DB from the last save */
-    long long dirty_before_bgsave; /* used to restore dirty on failed BGSAVE */
     list *clients;
-    dict *commands;             /* Command table hahs table */
+    list *slaves, *monitors;
+    char neterr[ANET_ERR_LEN];
     /* RDB / AOF loading information */
     int loading;
     off_t loading_total_bytes;
@@ -374,9 +377,6 @@ struct redisServer {
     time_t loading_start_time;
     /* Fast pointers to often looked up command */
     struct redisCommand *delCommand, *multiCommand;
-    list *slaves, *monitors;
-    char neterr[ANET_ERR_LEN];
-    aeEventLoop *el;
     int cronloops;              /* number of times the cron function run */
     time_t lastsave;                /* Unix time of last save succeeede */
     /* Fields used only for stats */
@@ -399,6 +399,8 @@ struct redisServer {
     int activerehashing;
     char *requirepass;
     /* Persistence */
+    long long dirty;            /* changes to DB from the last save */
+    long long dirty_before_bgsave; /* used to restore dirty on failed BGSAVE */
     time_t lastfsync;
     int appendfd;
     int appendseldb;
