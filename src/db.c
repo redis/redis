@@ -527,6 +527,8 @@ void propagateExpire(redisDb *db, robj *key) {
 int expireIfNeeded(redisDb *db, robj *key) {
     time_t when = getExpire(db,key);
 
+    if (when < 0) return 0; /* No expire for this key */
+
     /* If we are running in the context of a slave, return ASAP:
      * the slave key expiration is controlled by the master that will
      * send us synthesized DEL operations for expired keys.
@@ -537,8 +539,6 @@ int expireIfNeeded(redisDb *db, robj *key) {
     if (server.masterhost != NULL) {
         return time(NULL) > when;
     }
-
-    if (when < 0) return 0;
 
     /* Return when this key has not expired */
     if (time(NULL) <= when) return 0;
