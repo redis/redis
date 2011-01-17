@@ -233,12 +233,16 @@ start_server {tags {"zset"}} {
         r zrem zset g
 
         # inclusive
+        assert_equal {} [r zrangebyscore zset 4 2]
         assert_equal {} [r zrangebyscore zset 6 +inf]
         assert_equal {} [r zrangebyscore zset -inf -6]
         assert_equal {} [r zrevrangebyscore zset +inf 6]
         assert_equal {} [r zrevrangebyscore zset -6 -inf]
 
         # exclusive
+        assert_equal {} [r zrangebyscore zset (4 (2]
+        assert_equal {} [r zrangebyscore zset 2 (2]
+        assert_equal {} [r zrangebyscore zset (2 2]
         assert_equal {} [r zrangebyscore zset (6 (+inf]
         assert_equal {} [r zrangebyscore zset (-inf (-6]
         assert_equal {} [r zrevrangebyscore zset (+inf (6]

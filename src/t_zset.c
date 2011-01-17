@@ -196,6 +196,10 @@ static int zslValueInRange(double value, zrangespec *spec) {
 int zslIsInRange(zskiplist *zsl, zrangespec *range) {
     zskiplistNode *x;
 
+    /* Test for ranges that will always be empty. */
+    if (range->min > range->max ||
+            (range->min == range->max && (range->minex || range->maxex)))
+        return 0;
     x = zsl->tail;
     if (x == NULL || !zslValueInMinRange(x->score,range))
         return 0;
