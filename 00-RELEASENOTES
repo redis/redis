@@ -8,6 +8,18 @@ cases, basicaly it is very unlikely that you will experience any problem
 upgrading your 2.0 instances to 2.2, as 2.2 can work as a drop in replacement
 for 2.0.
 
+What's new in Redis 2.1.10 (2.2 Release Candidate 3)
+====================================================
+
+Redis 2.2 RC3 is a bug fix and minor enhancements feature:
+
+* Solaris fixes
+* Fixes and improvements for redis-benchmark
+* New INFO field with memory allocation details
+* New INFO fields with info about clients max input/output buffer
+* Replication: KEYS fixed in slaves
+* Different default thresholds for Hash type memory saving encodings
+
 What's new in Redis 2.1.10 (2.2 Release Candidate 2)
 ====================================================
 
