@@ -456,6 +456,13 @@ void freeClient(redisClient *c) {
     ln = listSearchKey(server.clients,c);
     redisAssert(ln != NULL);
     listDelNode(server.clients,ln);
+    /* When client was just unblocked because of a blocking operation,
+     * remove it from the list with unblocked clients. */
+    if (c->flags & REDIS_UNBLOCKED) {
+        ln = listSearchKey(server.unblocked_clients,c);
+        redisAssert(ln != NULL);
+        listDelNode(server.unblocked_clients,ln);
+    }
     /* Remove from the list of clients waiting for swapped keys, or ready
      * to be restarted, but not yet woken up again. */
     if (c->flags & REDIS_IO_WAIT) {

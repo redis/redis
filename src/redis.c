@@ -688,6 +688,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         redisAssert(ln != NULL);
         c = ln->value;
         listDelNode(server.unblocked_clients,ln);
+        c->flags &= ~REDIS_UNBLOCKED;
 
         /* Process remaining data in the input buffer. */
         if (c->querybuf && sdslen(c->querybuf) > 0)

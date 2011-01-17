@@ -773,7 +773,8 @@ void unblockClientWaitingData(redisClient *c) {
     zfree(c->bpop.keys);
     c->bpop.keys = NULL;
     c->bpop.target = NULL;
-    c->flags &= (~REDIS_BLOCKED);
+    c->flags &= ~REDIS_BLOCKED;
+    c->flags |= REDIS_UNBLOCKED;
     server.bpop_blocked_clients--;
     listAddNodeTail(server.unblocked_clients,c);
 }
