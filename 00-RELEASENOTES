@@ -1,38 +1,15 @@
-Welcome to Redis 2.1.9 (2.2 Release Candidate 1)
+This is Redis 2.3.x.
 
-This is the first Release Candidate of Redis 2.2, in our experience the
-server is very stable, but in the latest weeks we rewrote part of the internals
-in order to use a lot less memory while the saving child process is performing
-a BGREWRITEAOF or a BGSAVE, so handle with care for a couple of weeks.
+It was forked from 2.2 branch a few weeks ago, and is going to be the playground
+for many new developments, especially related to replacing the VM with something
+better.
 
-Oh, and I've some very good news: the majority of apps can work if you simply replace 2.2 in your old 2.0 environment. I can't think of any breakage.
+VM is already completely removed from this release, and instead diskstore was
+implemented. You can read more about it here:
 
-WHAT'S NEW IN REDIS 2.2.x
+http://groups.google.com/group/redis-db/browse_thread/thread/d444bc786689bde9
 
-* Specially encoded data types, small lists and sets can now use up to an order of magnitude less memory.
-* VM partial rewrite for code cleaness and memory usage.
-* Change to the implementation of the top level dictionary for better memory efficienty.
-* redis-cli is hugely improved: tab completion, inline help (Thanks to TJ Holowaychuk), raw output, rewritten using the new hiredis C library.
-* Networking internals rewritten for efficiency. You can expect LRANGE and similar commands to be at least 10 times faster.
-* Most read only commands are now copy-on-write friendly, this means that Redis will use little memory when a saving child is active and the parent process is mostly stressed by read queries.
-* Non blocking replication even from the point of view of the slave, with configurable behavior about what to do when the link is disconnected. You can select if serving old data or replying with an error.
-* Check-and-set (CAS) transactions with the new WATCH command.
-* Now write operations work against keys with an EXPIRE set! Imagine the possibilities.
-* New maxmemory eviction policies. It is possible to select among LRU, farest TTL expire, and other algorithms, and if when the memory limit is reached only keys with an expire set or all the keys should be expired.
-* SETBIT / GETBIT / SETRANGE / GETRANGE / STRLEN. Now your strings are your arrays!
-* Syslog support (Thanks to Jonah H. Harris)
-* Unix domain socket support.
-* New List related functions LINSERT, LPUSHX, RPUSHX (Thanks to Robey Pointer)
-* BRPOPLPUSH (Thanks to Michel Martens and Damian Janowski)
-* Much more interesting informations in the INFO output.
-* Sorted sets are now less memory hungry.
-* Non blocking loading of .rdb / AOF file on startup, with process information in the INFO output.
-* Now Redis has a clean, powerful, supported C library: hiredis.
-* Code layout completely new, the 2.0.x huge redis.c file is now splitted in many parts.
-* Redis-benchmark rewritten to be faster and in order to use hiredis as well.
-* Endless other CPU optimizations and bugs fixed.
-
-Credits: Where not specified the implementation and design are done by Salvatore Sanfilippo and Pieter Noordhuis. Thanks to VMware for making all this possible. Also many thanks to all the other contributors and the amazing community we have.
+This Redis version is not intented for production environments.
 
 Cheers,
 Salvatore
