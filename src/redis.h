@@ -189,8 +189,8 @@
 #define APPENDFSYNC_EVERYSEC 2
 
 /* Zip structure related defaults */
-#define REDIS_HASH_MAX_ZIPMAP_ENTRIES 64
-#define REDIS_HASH_MAX_ZIPMAP_VALUE 512
+#define REDIS_HASH_MAX_ZIPMAP_ENTRIES 512
+#define REDIS_HASH_MAX_ZIPMAP_VALUE 64
 #define REDIS_LIST_MAX_ZIPLIST_ENTRIES 512
 #define REDIS_LIST_MAX_ZIPLIST_VALUE 64
 #define REDIS_SET_MAX_INTSET_ENTRIES 512
@@ -656,6 +656,8 @@ void addReplyDouble(redisClient *c, double d);
 void addReplyLongLong(redisClient *c, long long ll);
 void addReplyMultiBulkLen(redisClient *c, long length);
 void *dupClientReplyValue(void *o);
+void getClientsMaxBuffers(unsigned long *longest_output_list,
+                          unsigned long *biggest_input_buffer);
 
 #ifdef __GNUC__
 void addReplyErrorFormat(redisClient *c, const char *fmt, ...)
