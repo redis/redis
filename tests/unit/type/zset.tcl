@@ -227,22 +227,6 @@ start_server {tags {"zset"}} {
         assert_equal {f e} [r zrevrangebyscore zset (6 (3]
         assert_equal {f}   [r zrevrangebyscore zset (+inf (4]
         assert_equal 2 [r zcount zset (0 (3]
-
-        # test empty ranges
-        r zrem zset a
-        r zrem zset g
-
-        # inclusive
-        assert_equal {} [r zrangebyscore zset 6 +inf]
-        assert_equal {} [r zrangebyscore zset -inf -6]
-        assert_equal {} [r zrevrangebyscore zset +inf 6]
-        assert_equal {} [r zrevrangebyscore zset -6 -inf]
-
-        # exclusive
-        assert_equal {} [r zrangebyscore zset (6 (+inf]
-        assert_equal {} [r zrangebyscore zset (-inf (-6]
-        assert_equal {} [r zrevrangebyscore zset (+inf (6]
-        assert_equal {} [r zrevrangebyscore zset (-6 (-inf]
     }
 
     test "ZRANGEBYSCORE with WITHSCORES" {
