@@ -141,6 +141,8 @@
 #define REDIS_IO_WAIT 32    /* The client is waiting for Virtual Memory I/O */
 #define REDIS_DIRTY_CAS 64  /* Watched keys modified. EXEC will fail. */
 #define REDIS_CLOSE_AFTER_REPLY 128 /* Close after writing entire reply. */
+#define REDIS_UNBLOCKED 256 /* This client was unblocked and is stored in
+                               server.unblocked_clients */
 
 /* Client request types */
 #define REDIS_REQ_INLINE 1
