@@ -11,7 +11,7 @@ for 2.0.
 What's new in Redis 2.1.10 (2.2 Release Candidate 3)
 ====================================================
 
-Redis 2.2 RC3 is a bug fix and minor enhancements feature:
+Redis 2.2 RC3 is a bug fix and minor enhancements release:
 
 * Solaris fixes
 * Fixes and improvements for redis-benchmark
