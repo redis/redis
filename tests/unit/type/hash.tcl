@@ -137,10 +137,17 @@ start_server {tags {"hash"}} {
         format $err
     } {*wrong number*}
 
-    test {MHSET basics} {
-        r mhset kfoo myhash1 myval1 myhash2 myval2
-        assert_equal myval1 [r hget myhash1 kfoo]
-        assert_equal myval2 [r hget myhash2 kfoo]
+    test {MH-commands basics} {
+        r mhset kfoo myhash1 myval1 myhash2 myval2 myhash3 myval3 myhash4 myval4
+        assert_equal {myval1 myval2 myval3 myval4} [r mhget kfoo myhash1 myhash2 myhash3 myhash4]
+        assert_equal {myval2 {} myval3} [r mhget kfoo myhash2 nohash myhash3]
+        assert_equal 2 [r mhdel kfoo myhash2 myhash4]
+        assert_equal {myval1 {} myval3 {}} [r mhget kfoo myhash1 myhash2 myhash3 myhash4]
+        assert_equal 1 [r mhdel kfoo myhash3 myhash4]
+        assert_equal 0 [r mhdel kfoo myhash3 myhash4]
+        assert_equal 1 [r mhdel kfoo myhash1]
+        assert_equal {{} {} {} {}} [r mhget kfoo myhash1 myhash2 myhash3 myhash4]
+        assert_equal {} [r hget myhash2 kfoo]
     }
 
     test {HMGET against non existing key and fields} {
@@ -246,7 +253,7 @@ start_server {tags {"hash"}} {
         set k2 [lindex [array names smallhash *] 2]
         lappend rv [r hmdel smallhash $k0 $k1]
         lappend rv [r hmdel smallhash $k0 $k1 $k2]
-				lappend rv [r hmdel smallhash $k0 $k1 $k2]
+        lappend rv [r hmdel smallhash $k0 $k1 $k2]
         lappend rv [r hmget smallhash $k0 $k1 $k2]
         unset smallhash($k0)
         unset smallhash($k1)
@@ -256,7 +263,7 @@ start_server {tags {"hash"}} {
         set k2 [lindex [array names bighash *] 2]
         lappend rv [r hmdel bighash $k0 $k1]
         lappend rv [r hmdel bighash $k0 $k1 $k2]
-				lappend rv [r hmdel bighash $k0 $k1 $k2]
+        lappend rv [r hmdel bighash $k0 $k1 $k2]
         lappend rv [r hmget bighash $k0 $k1 $k2]
         unset bighash($k0)
         unset bighash($k1)
