@@ -46,7 +46,7 @@
 #define REDIS_EXPIRELOOKUPS_PER_CRON    10 /* lookup 10 expires per loop */
 #define REDIS_MAX_WRITE_PER_EVENT (1024*64)
 #define REDIS_REQUEST_MAX_SIZE (1024*1024*256) /* max bytes in inline command */
-#define REDIS_SHARED_INTEGERS 10000
+#define REDIS_SHARED_INTEGERS 1000000
 #define REDIS_REPLY_CHUNK_BYTES (5*1500) /* 5 TCP packets with default MTU */
 #define REDIS_MAX_LOGMSG_LEN    1024 /* Default maximum length of syslog messages */
 
