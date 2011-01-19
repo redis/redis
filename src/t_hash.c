@@ -470,6 +470,24 @@ void mhsetCommand(redisClient *c) {
     addReply(c, shared.ok);
 }
 
+void mhdelCommand(redisClient *c) {
+    robj *o;
+    int deleted = 0, i;
+
+    for (i = 2; i < c->argc; i++) {
+        if ( (o = lookupKeyWrite(c->db,c->argv[i])) &&
+             (o->type == REDIS_HASH) &&
+             (hashTypeDelete(o,c->argv[1])) ) {
+            if (hashTypeLength(o) == 0) dbDelete(c->db,c->argv[i]);
+            deleted++;
+            signalModifiedKey(c->db,c->argv[i]);
+            server.dirty++;
+        }
+    }
+
+    addReplyLongLong(c,deleted);
+}
+
 void hlenCommand(redisClient *c) {
     robj *o;
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
