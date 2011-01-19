@@ -138,9 +138,9 @@ start_server {tags {"hash"}} {
     } {*wrong number*}
 
     test {MHSET basics} {
-        r mhset kfoo myset1 myval1 myset2 myval2
-        assert_equal myval1 [r hget myset1 kfoo]
-        assert_equal myval2 [r hget myset2 kfoo]
+        r mhset kfoo myhash1 myval1 myhash2 myval2
+        assert_equal myval1 [r hget myhash1 kfoo]
+        assert_equal myval2 [r hget myhash2 kfoo]
     }
 
     test {HMGET against non existing key and fields} {
