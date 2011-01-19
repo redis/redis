@@ -330,7 +330,7 @@ void mhsetCommand(redisClient *c) {
 
     for (i = 2; i < c->argc; i += 2) {
         if ((o = hashTypeLookupWriteOrCreate(c,c->argv[i])) == NULL) return;
-        hashTypeTryConversion(o,c->argv,i,i+1);
+        hashTypeTryConversion(o,c->argv,1,i+1);
         hashTypeTryObjectEncoding(o,&c->argv[1],&c->argv[i+1]);
         hashTypeSet(o,c->argv[1],c->argv[i+1]);
         signalModifiedKey(c->db,c->argv[i]);
