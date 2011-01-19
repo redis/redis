@@ -333,7 +333,7 @@ void mhsetCommand(redisClient *c) {
         hashTypeTryConversion(o,c->argv,i,i+1);
         hashTypeTryObjectEncoding(o,&c->argv[1],&c->argv[i+1]);
         hashTypeSet(o,c->argv[1],c->argv[i+1]);
-        touchWatchedKey(c->db,c->argv[i]);
+        signalModifiedKey(c->db,c->argv[i]);
         server.dirty++;
     }
 
@@ -443,7 +443,7 @@ void hmdelCommand(redisClient *c) {
 
   if (deleted > 0) {
     if (hashTypeLength(o) == 0) dbDelete(c->db,c->argv[1]);
-    touchWatchedKey(c->db,c->argv[1]);
+    signalModifiedKey(c->db,c->argv[1]);
     server.dirty++;
   }
 
