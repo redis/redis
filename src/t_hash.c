@@ -430,6 +430,26 @@ void hdelCommand(redisClient *c) {
     }
 }
 
+void hmdelCommand(redisClient *c) {
+  robj *o;
+  int deleted = 0, i;
+
+  if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
+      checkType(c,o,REDIS_HASH)) return;
+
+  for (i = 2; i < c->argc; i++) {
+    if (hashTypeDelete(o,c->argv[i])) deleted++;
+  }
+
+  if (deleted > 0) {
+    if (hashTypeLength(o) == 0) dbDelete(c->db,c->argv[1]);
+    touchWatchedKey(c->db,c->argv[1]);
+    server.dirty++;
+  }
+
+  addReplyLongLong(c,deleted);
+}
+
 void hlenCommand(redisClient *c) {
     robj *o;
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||

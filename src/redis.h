@@ -997,6 +997,7 @@ void hmsetCommand(redisClient *c);
 void hmgetCommand(redisClient *c);
 void mhsetCommand(redisClient *c);
 void hdelCommand(redisClient *c);
+void hmdelCommand(redisClient *c);
 void hlenCommand(redisClient *c);
 void zremrangebyrankCommand(redisClient *c);
 void zunionstoreCommand(redisClient *c);

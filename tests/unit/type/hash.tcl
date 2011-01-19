@@ -237,6 +237,33 @@ start_server {tags {"hash"}} {
         set _ $rv
     } {0 0 1 0 {} 1 0 {}}
 
+    test {HMDEL and return values} {
+        set rv {}
+        lappend rv [r hmdel smallhash nokey1 nokey2]
+        lappend rv [r hmdel bighash nokey1 nokey2]
+        set k0 [lindex [array names smallhash *] 0]
+        set k1 [lindex [array names smallhash *] 1]
+        set k2 [lindex [array names smallhash *] 2]
+        lappend rv [r hmdel smallhash $k0 $k1]
+        lappend rv [r hmdel smallhash $k0 $k1 $k2]
+				lappend rv [r hmdel smallhash $k0 $k1 $k2]
+        lappend rv [r hmget smallhash $k0 $k1 $k2]
+        unset smallhash($k0)
+        unset smallhash($k1)
+        unset smallhash($k2)
+        set k0 [lindex [array names bighash *] 0]
+        set k1 [lindex [array names bighash *] 1]
+        set k2 [lindex [array names bighash *] 2]
+        lappend rv [r hmdel bighash $k0 $k1]
+        lappend rv [r hmdel bighash $k0 $k1 $k2]
+				lappend rv [r hmdel bighash $k0 $k1 $k2]
+        lappend rv [r hmget bighash $k0 $k1 $k2]
+        unset bighash($k0)
+        unset bighash($k1)
+        unset bighash($k2)
+        set _ $rv
+    } {0 0 2 1 0 {{} {} {}} 2 1 0 {{} {} {}}}
+
     test {HEXISTS} {
         set rv {}
         set k [lindex [array names smallhash *] 0]
