@@ -37,7 +37,7 @@ void setGenericCommand(redisClient *c, int nx, robj *key, robj *val, robj *expir
     } else {
         incrRefCount(val);
     }
-    touchWatchedKey(c->db,key);
+    signalModifiedKey(c->db,key);
     server.dirty++;
     removeExpire(c->db,key);
     if (expire) setExpire(c->db,key,time(NULL)+seconds);
@@ -83,7 +83,7 @@ void getsetCommand(redisClient *c) {
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     dbReplace(c->db,c->argv[1],c->argv[2]);
     incrRefCount(c->argv[2]);
-    touchWatchedKey(c->db,c->argv[1]);
+    signalModifiedKey(c->db,c->argv[1]);
     server.dirty++;
     removeExpire(c->db,c->argv[1]);
 }
@@ -155,7 +155,7 @@ void setbitCommand(redisClient *c) {
     byteval &= ~(1 << bit);
     byteval |= ((on & 0x1) << bit);
     ((char*)o->ptr)[byte] = byteval;
-    touchWatchedKey(c->db,c->argv[1]);
+    signalModifiedKey(c->db,c->argv[1]);
     server.dirty++;
     addReply(c, bitval ? shared.cone : shared.czero);
 }
@@ -243,7 +243,7 @@ void setrangeCommand(redisClient *c) {
     if (sdslen(value) > 0) {
         o->ptr = sdsgrowzero(o->ptr,offset+sdslen(value));
         memcpy((char*)o->ptr+offset,value,sdslen(value));
-        touchWatchedKey(c->db,c->argv[1]);
+        signalModifiedKey(c->db,c->argv[1]);
         server.dirty++;
     }
     addReplyLongLong(c,sdslen(o->ptr));
@@ -330,7 +330,7 @@ void msetGenericCommand(redisClient *c, int nx) {
         dbReplace(c->db,c->argv[j],c->argv[j+1]);
         incrRefCount(c->argv[j+1]);
         removeExpire(c->db,c->argv[j]);
-        touchWatchedKey(c->db,c->argv[j]);
+        signalModifiedKey(c->db,c->argv[j]);
     }
     server.dirty += (c->argc-1)/2;
     addReply(c, nx ? shared.cone : shared.ok);
@@ -360,7 +360,7 @@ void incrDecrCommand(redisClient *c, long long incr) {
     }
     o = createStringObjectFromLongLong(value);
     dbReplace(c->db,c->argv[1],o);
-    touchWatchedKey(c->db,c->argv[1]);
+    signalModifiedKey(c->db,c->argv[1]);
     server.dirty++;
     addReply(c,shared.colon);
     addReply(c,o);
@@ -423,7 +423,7 @@ void appendCommand(redisClient *c) {
         o->ptr = sdscatlen(o->ptr,append->ptr,sdslen(append->ptr));
         totlen = sdslen(o->ptr);
     }
-    touchWatchedKey(c->db,c->argv[1]);
+    signalModifiedKey(c->db,c->argv[1]);
     server.dirty++;
     addReplyLongLong(c,totlen);
 }

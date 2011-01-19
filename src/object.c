@@ -21,7 +21,6 @@ robj *createObject(int type, void *ptr) {
     /* The following is only needed if VM is active, but since the conditional
      * is probably more costly than initializing the field it's better to
      * have every field properly initialized anyway. */
-    o->storage = REDIS_VM_MEMORY;
     return o;
 }
 
@@ -32,6 +31,7 @@ robj *createStringObject(char *ptr, size_t len) {
 robj *createStringObjectFromLongLong(long long value) {
     robj *o;
     if (value >= 0 && value < REDIS_SHARED_INTEGERS &&
+        !server.ds_enabled &&
         pthread_equal(pthread_self(),server.mainthread)) {
         incrRefCount(shared.integers[value]);
         o = shared.integers[value];
@@ -160,30 +160,7 @@ void incrRefCount(robj *o) {
 void decrRefCount(void *obj) {
     robj *o = obj;
 
-    /* Object is a swapped out value, or in the process of being loaded. */
-    if (server.vm_enabled &&
-        (o->storage == REDIS_VM_SWAPPED || o->storage == REDIS_VM_LOADING))
-    {
-        vmpointer *vp = obj;
-        if (o->storage == REDIS_VM_LOADING) vmCancelThreadedIOJob(o);
-        vmMarkPagesFree(vp->page,vp->usedpages);
-        server.vm_stats_swapped_objects--;
-        zfree(vp);
-        return;
-    }
-
     if (o->refcount <= 0) redisPanic("decrRefCount against refcount <= 0");
-    /* Object is in memory, or in the process of being swapped out.
-     *
-     * If the object is being swapped out, abort the operation on
-     * decrRefCount even if the refcount does not drop to 0: the object
-     * is referenced at least two times, as value of the key AND as
-     * job->val in the iojob. So if we don't invalidate the iojob, when it is
-     * done but the relevant key was removed in the meantime, the
-     * complete jobs handler will not find the key about the job and the
-     * assert will fail. */
-    if (server.vm_enabled && o->storage == REDIS_VM_SWAPPING)
-        vmCancelThreadedIOJob(o);
     if (--(o->refcount) == 0) {
         switch(o->type) {
         case REDIS_STRING: freeStringObject(o); break;
@@ -228,16 +205,16 @@ robj *tryObjectEncoding(robj *o) {
     /* Ok, this object can be encoded...
      *
      * Can I use a shared object? Only if the object is inside a given
-     * range and if this is the main thread, since when VM is enabled we
-     * have the constraint that I/O thread should only handle non-shared
-     * objects, in order to avoid race conditions (we don't have per-object
-     * locking).
+     * range and if the back end in use is in-memory. For disk store every
+     * object in memory used as value should be independent.
      *
      * Note that we also avoid using shared integers when maxmemory is used
-     * because very object needs to have a private LRU field for the LRU
+     * because every object needs to have a private LRU field for the LRU
      * algorithm to work well. */
-    if (server.maxmemory == 0 && value >= 0 && value < REDIS_SHARED_INTEGERS &&
-        pthread_equal(pthread_self(),server.mainthread)) {
+    if (!server.ds_enabled &&
+        server.maxmemory == 0 && value >= 0 && value < REDIS_SHARED_INTEGERS &&
+        pthread_equal(pthread_self(),server.mainthread))
+    {
         decrRefCount(o);
         incrRefCount(shared.integers[value]);
         return shared.integers[value];

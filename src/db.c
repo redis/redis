@@ -6,6 +6,35 @@
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
+/* Important notes on lookup and disk store.
+ *
+ * When disk store is enabled on lookup we can have different cases.
+ *
+ * a) The key is in memory:
+ *    - If the key is not in IO_SAVEINPROG state we can access it.
+ *      As if it's just IO_SAVE this means we have the key in the IO queue
+ *      but can't be accessed by the IO thread (it requires to be
+ *      translated into an IO Job by the cache cron function.)
+ *    - If the key is in IO_SAVEINPROG we can't touch the key and have
+ *      to blocking wait completion of operations.
+ * b) The key is not in memory:
+ *    - If it's marked as non existing on disk as well (negative cache)
+ *      we don't need to perform the disk access.
+ *    - if the key MAY EXIST, but is not in memory, and it is marked as IO_SAVE
+ *      then the key can only be a deleted one. As IO_SAVE keys are never
+ *      evicted (dirty state), so the only possibility is that key was deleted.
+ *    - if the key MAY EXIST we need to blocking load it.
+ *      We check that the key is not in IO_SAVEINPROG state before accessing
+ *      the disk object. If it is in this state, we wait.
+ */
+
+void lookupWaitBusyKey(redisDb *db, robj *key) {
+    /* FIXME: wait just for this key, not everything */
+    waitEmptyIOJobsQueue();
+    processAllPendingIOJobs();
+    redisAssert((cacheScheduleIOGetFlags(db,key) & REDIS_IO_SAVEINPROG) == 0);
+}
+
 robj *lookupKey(redisDb *db, robj *key) {
     dictEntry *de = dictFind(db->dict,key->ptr);
     if (de) {
@@ -17,29 +46,52 @@ robj *lookupKey(redisDb *db, robj *key) {
         if (server.bgsavechildpid == -1 && server.bgrewritechildpid == -1)
             val->lru = server.lruclock;
 
-        if (server.vm_enabled) {
-            if (val->storage == REDIS_VM_MEMORY ||
-                val->storage == REDIS_VM_SWAPPING)
-            {
-                /* If we were swapping the object out, cancel the operation */
-                if (val->storage == REDIS_VM_SWAPPING)
-                    vmCancelThreadedIOJob(val);
-            } else {
-                int notify = (val->storage == REDIS_VM_LOADING);
-
-                /* Our value was swapped on disk. Bring it at home. */
-                redisAssert(val->type == REDIS_VMPOINTER);
-                val = vmLoadObject(val);
-                dictGetEntryVal(de) = val;
-
-                /* Clients blocked by the VM subsystem may be waiting for
-                 * this key... */
-                if (notify) handleClientsBlockedOnSwappedKey(db,key);
-            }
+        if (server.ds_enabled &&
+            cacheScheduleIOGetFlags(db,key) & REDIS_IO_SAVEINPROG)
+        {
+            /* Need to wait for the key to get unbusy */
+            redisLog(REDIS_DEBUG,"Lookup found a key in SAVEINPROG state. Waiting. (Key was in the cache)");
+            lookupWaitBusyKey(db,key);
         }
         server.stat_keyspace_hits++;
         return val;
     } else {
+        time_t expire;
+        robj *val;
+
+        /* Key not found in the in memory hash table, but if disk store is
+         * enabled we may have this key on disk. If so load it in memory
+         * in a blocking way. */
+        if (server.ds_enabled && cacheKeyMayExist(db,key)) {
+            long flags = cacheScheduleIOGetFlags(db,key);
+
+            /* They key is not in cache, but it has a SAVE op in queue?
+             * The only possibility is that the key was deleted, since
+             * dirty keys are not evicted. */
+            if (flags & REDIS_IO_SAVE) {
+                server.stat_keyspace_misses++;
+                return NULL;
+            }
+
+            /* At this point we need to blocking load the key in memory.
+             * The first thing we do is waiting here if the key is busy. */
+            if (flags & REDIS_IO_SAVEINPROG) {
+                redisLog(REDIS_DEBUG,"Lookup found a key in SAVEINPROG state. Waiting (while force loading).");
+                lookupWaitBusyKey(db,key);
+            }
+
+            redisLog(REDIS_DEBUG,"Force loading key %s via lookup", key->ptr);
+            val = dsGet(db,key,&expire);
+            if (val) {
+                int retval = dbAdd(db,key,val);
+                redisAssert(retval == REDIS_OK);
+                if (expire != -1) setExpire(db,key,expire);
+                server.stat_keyspace_hits++;
+                return val;
+            } else {
+                cacheSetKeyDoesNotExist(db,key);
+            }
+        }
         server.stat_keyspace_misses++;
         return NULL;
     }
@@ -78,6 +130,7 @@ int dbAdd(redisDb *db, robj *key, robj *val) {
     } else {
         sds copy = sdsdup(key->ptr);
         dictAdd(db->dict, copy, val);
+        if (server.ds_enabled) cacheSetKeyMayExist(db,key);
         return REDIS_OK;
     }
 }
@@ -87,14 +140,19 @@ int dbAdd(redisDb *db, robj *key, robj *val) {
  *
  * On update (key already existed) 0 is returned. Otherwise 1. */
 int dbReplace(redisDb *db, robj *key, robj *val) {
-    if (dictFind(db->dict,key->ptr) == NULL) {
+    robj *oldval;
+    int retval;
+
+    if ((oldval = dictFetchValue(db->dict,key->ptr)) == NULL) {
         sds copy = sdsdup(key->ptr);
         dictAdd(db->dict, copy, val);
-        return 1;
+        retval = 1;
     } else {
         dictReplace(db->dict, key->ptr, val);
-        return 0;
+        retval = 0;
     }
+    if (server.ds_enabled) cacheSetKeyMayExist(db,key);
+    return retval;
 }
 
 int dbExists(redisDb *db, robj *key) {
@@ -129,18 +187,22 @@ robj *dbRandomKey(redisDb *db) {
 
 /* Delete a key, value, and associated expiration entry if any, from the DB */
 int dbDelete(redisDb *db, robj *key) {
-    /* If VM is enabled make sure to awake waiting clients for this key:
-     * deleting the key will kill the I/O thread bringing the key from swap
-     * to memory, so the client will never be notified and unblocked if we
-     * don't do it now. */
-    if (server.vm_enabled) handleClientsBlockedOnSwappedKey(db,key);
+    /* If diskstore is enabled make sure to awake waiting clients for this key
+     * as it is not really useful to wait for a key already deleted to be
+     * loaded from disk. */
+    if (server.ds_enabled) {
+        handleClientsBlockedOnSwappedKey(db,key);
+        cacheSetKeyDoesNotExist(db,key);
+    }
+
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
     return dictDelete(db->dict,key->ptr) == DICT_OK;
 }
 
-/* Empty the whole database */
+/* Empty the whole database.
+ * If diskstore is enabled this function will just flush the in-memory cache. */
 long long emptyDb() {
     int j;
     long long removed = 0;
@@ -149,6 +211,7 @@ long long emptyDb() {
         removed += dictSize(server.db[j].dict);
         dictEmpty(server.db[j].dict);
         dictEmpty(server.db[j].expires);
+        if (server.ds_enabled) dictEmpty(server.db[j].io_negcache);
     }
     return removed;
 }
@@ -161,26 +224,49 @@ int selectDb(redisClient *c, int id) {
 }
 
 /*-----------------------------------------------------------------------------
+ * Hooks for key space changes.
+ *
+ * Every time a key in the database is modified the function
+ * signalModifiedKey() is called.
+ *
+ * Every time a DB is flushed the function signalFlushDb() is called.
+ *----------------------------------------------------------------------------*/
+
+void signalModifiedKey(redisDb *db, robj *key) {
+    touchWatchedKey(db,key);
+    if (server.ds_enabled)
+        cacheScheduleIO(db,key,REDIS_IO_SAVE);
+}
+
+void signalFlushedDb(int dbid) {
+    touchWatchedKeysOnFlush(dbid);
+}
+
+/*-----------------------------------------------------------------------------
  * Type agnostic commands operating on the key space
  *----------------------------------------------------------------------------*/
 
 void flushdbCommand(redisClient *c) {
     server.dirty += dictSize(c->db->dict);
-    touchWatchedKeysOnFlush(c->db->id);
+    signalFlushedDb(c->db->id);
     dictEmpty(c->db->dict);
     dictEmpty(c->db->expires);
+    if (server.ds_enabled) dsFlushDb(c->db->id);
     addReply(c,shared.ok);
 }
 
 void flushallCommand(redisClient *c) {
-    touchWatchedKeysOnFlush(-1);
+    signalFlushedDb(-1);
     server.dirty += emptyDb();
     addReply(c,shared.ok);
     if (server.bgsavechildpid != -1) {
         kill(server.bgsavechildpid,SIGKILL);
         rdbRemoveTempFile(server.bgsavechildpid);
     }
-    rdbSave(server.dbfilename);
+    if (server.ds_enabled)
+        dsFlushDb(-1);
+    else
+        rdbSave(server.dbfilename);
     server.dirty++;
 }
 
@@ -188,10 +274,22 @@ void delCommand(redisClient *c) {
     int deleted = 0, j;
 
     for (j = 1; j < c->argc; j++) {
+        if (server.ds_enabled) {
+            lookupKeyRead(c->db,c->argv[j]);
+            /* FIXME: this can be optimized a lot, no real need to load
+             * a possibly huge value. */
+        }
         if (dbDelete(c->db,c->argv[j])) {
-            touchWatchedKey(c->db,c->argv[j]);
+            signalModifiedKey(c->db,c->argv[j]);
             server.dirty++;
             deleted++;
+        } else if (server.ds_enabled) {
+            if (cacheKeyMayExist(c->db,c->argv[j]) &&
+                dsExists(c->db,c->argv[j]))
+            {
+                cacheScheduleIO(c->db,c->argv[j],REDIS_IO_SAVE);
+                deleted = 1;
+            }
         }
     }
     addReplyLongLong(c,deleted);
@@ -308,30 +406,6 @@ void typeCommand(redisClient *c) {
     addReplyStatus(c,type);
 }
 
-void saveCommand(redisClient *c) {
-    if (server.bgsavechildpid != -1) {
-        addReplyError(c,"Background save already in progress");
-        return;
-    }
-    if (rdbSave(server.dbfilename) == REDIS_OK) {
-        addReply(c,shared.ok);
-    } else {
-        addReply(c,shared.err);
-    }
-}
-
-void bgsaveCommand(redisClient *c) {
-    if (server.bgsavechildpid != -1) {
-        addReplyError(c,"Background save already in progress");
-        return;
-    }
-    if (rdbSaveBackground(server.dbfilename) == REDIS_OK) {
-        addReplyStatus(c,"Background saving started");
-    } else {
-        addReply(c,shared.err);
-    }
-}
-
 void shutdownCommand(redisClient *c) {
     if (prepareForShutdown() == REDIS_OK)
         exit(0);
@@ -360,8 +434,8 @@ void renameGenericCommand(redisClient *c, int nx) {
         dbReplace(c->db,c->argv[2],o);
     }
     dbDelete(c->db,c->argv[1]);
-    touchWatchedKey(c->db,c->argv[1]);
-    touchWatchedKey(c->db,c->argv[2]);
+    signalModifiedKey(c->db,c->argv[1]);
+    signalModifiedKey(c->db,c->argv[2]);
     server.dirty++;
     addReply(c,nx ? shared.cone : shared.ok);
 }
@@ -478,6 +552,8 @@ void propagateExpire(redisDb *db, robj *key) {
 int expireIfNeeded(redisDb *db, robj *key) {
     time_t when = getExpire(db,key);
 
+    if (when < 0) return 0; /* No expire for this key */
+
     /* If we are running in the context of a slave, return ASAP:
      * the slave key expiration is controlled by the master that will
      * send us synthesized DEL operations for expired keys.
@@ -488,8 +564,6 @@ int expireIfNeeded(redisDb *db, robj *key) {
     if (server.masterhost != NULL) {
         return time(NULL) > when;
     }
-
-    if (when < 0) return 0;
 
     /* Return when this key has not expired */
     if (time(NULL) <= when) return 0;
@@ -520,13 +594,13 @@ void expireGenericCommand(redisClient *c, robj *key, robj *param, long offset) {
     if (seconds <= 0) {
         if (dbDelete(c->db,key)) server.dirty++;
         addReply(c, shared.cone);
-        touchWatchedKey(c->db,key);
+        signalModifiedKey(c->db,key);
         return;
     } else {
         time_t when = time(NULL)+seconds;
         setExpire(c->db,key,when);
         addReply(c,shared.cone);
-        touchWatchedKey(c->db,key);
+        signalModifiedKey(c->db,key);
         server.dirty++;
         return;
     }

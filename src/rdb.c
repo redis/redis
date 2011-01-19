@@ -395,10 +395,29 @@ off_t rdbSavedObjectLen(robj *o) {
     return len;
 }
 
-/* Return the number of pages required to save this object in the swap file */
-off_t rdbSavedObjectPages(robj *o) {
-    off_t bytes = rdbSavedObjectLen(o);
-    return (bytes+(server.vm_page_size-1))/server.vm_page_size;
+/* Save a key-value pair, with expire time, type, key, value.
+ * On error -1 is returned.
+ * On success if the key was actaully saved 1 is returned, otherwise 0
+ * is returned (the key was already expired). */
+int rdbSaveKeyValuePair(FILE *fp, redisDb *db, robj *key, robj *val,
+                        time_t now)
+{
+    time_t expiretime;
+    
+    expiretime = getExpire(db,key);
+
+    /* Save the expire time */
+    if (expiretime != -1) {
+        /* If this key is already expired skip it */
+        if (expiretime < now) return 0;
+        if (rdbSaveType(fp,REDIS_EXPIRETIME) == -1) return -1;
+        if (rdbSaveTime(fp,expiretime) == -1) return -1;
+    }
+    /* Save type, key, value */
+    if (rdbSaveType(fp,val->type) == -1) return -1;
+    if (rdbSaveStringObject(fp,key) == -1) return -1;
+    if (rdbSaveObject(fp,val) == -1) return -1;
+    return 1;
 }
 
 /* Save the DB on disk. Return REDIS_ERR on error, REDIS_OK on success */
@@ -410,16 +429,16 @@ int rdbSave(char *filename) {
     int j;
     time_t now = time(NULL);
 
-    /* Wait for I/O therads to terminate, just in case this is a
-     * foreground-saving, to avoid seeking the swap file descriptor at the
-     * same time. */
-    if (server.vm_enabled)
-        waitEmptyIOJobsQueue();
+    if (server.ds_enabled) {
+        cacheForcePointInTime();
+        return dsRdbSave(filename);
+    }
 
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
     fp = fopen(tmpfile,"w");
     if (!fp) {
-        redisLog(REDIS_WARNING, "Failed saving the DB: %s", strerror(errno));
+        redisLog(REDIS_WARNING, "Failed opening .rdb for saving: %s",
+            strerror(errno));
         return REDIS_ERR;
     }
     if (fwrite("REDIS0001",9,1,fp) == 0) goto werr;
@@ -441,38 +460,9 @@ int rdbSave(char *filename) {
         while((de = dictNext(di)) != NULL) {
             sds keystr = dictGetEntryKey(de);
             robj key, *o = dictGetEntryVal(de);
-            time_t expiretime;
             
             initStaticStringObject(key,keystr);
-            expiretime = getExpire(db,&key);
-
-            /* Save the expire time */
-            if (expiretime != -1) {
-                /* If this key is already expired skip it */
-                if (expiretime < now) continue;
-                if (rdbSaveType(fp,REDIS_EXPIRETIME) == -1) goto werr;
-                if (rdbSaveTime(fp,expiretime) == -1) goto werr;
-            }
-            /* Save the key and associated value. This requires special
-             * handling if the value is swapped out. */
-            if (!server.vm_enabled || o->storage == REDIS_VM_MEMORY ||
-                                      o->storage == REDIS_VM_SWAPPING) {
-                /* Save type, key, value */
-                if (rdbSaveType(fp,o->type) == -1) goto werr;
-                if (rdbSaveStringObject(fp,&key) == -1) goto werr;
-                if (rdbSaveObject(fp,o) == -1) goto werr;
-            } else {
-                /* REDIS_VM_SWAPPED or REDIS_VM_LOADING */
-                robj *po;
-                /* Get a preview of the object in memory */
-                po = vmPreviewObject(o);
-                /* Save type, key, value */
-                if (rdbSaveType(fp,po->type) == -1) goto werr;
-                if (rdbSaveStringObject(fp,&key) == -1) goto werr;
-                if (rdbSaveObject(fp,po) == -1) goto werr;
-                /* Remove the loaded object from memory */
-                decrRefCount(po);
-            }
+            if (rdbSaveKeyValuePair(fp,db,&key,o,now) == -1) goto werr;
         }
         dictReleaseIterator(di);
     }
@@ -507,19 +497,24 @@ werr:
 int rdbSaveBackground(char *filename) {
     pid_t childpid;
 
-    if (server.bgsavechildpid != -1) return REDIS_ERR;
-    if (server.vm_enabled) waitEmptyIOJobsQueue();
+    if (server.bgsavechildpid != -1 ||
+        server.bgsavethread != (pthread_t) -1) return REDIS_ERR;
+
     server.dirty_before_bgsave = server.dirty;
+
+    if (server.ds_enabled) {
+        cacheForcePointInTime();
+        return dsRdbSaveBackground(filename);
+    }
+
     if ((childpid = fork()) == 0) {
+        int retval;
+
         /* Child */
-        if (server.vm_enabled) vmReopenSwapFile();
         if (server.ipfd > 0) close(server.ipfd);
         if (server.sofd > 0) close(server.sofd);
-        if (rdbSave(filename) == REDIS_OK) {
-            _exit(0);
-        } else {
-            _exit(1);
-        }
+        retval = rdbSave(filename);
+        _exit((retval == REDIS_OK) ? 0 : 1);
     } else {
         /* Parent */
         if (childpid == -1) {
@@ -874,7 +869,6 @@ int rdbLoad(char *filename) {
     FILE *fp;
     uint32_t dbid;
     int type, retval, rdbver;
-    int swap_all_values = 0;
     redisDb *db = server.db+0;
     char buf[1024];
     time_t expiretime, now = time(NULL);
@@ -899,8 +893,6 @@ int rdbLoad(char *filename) {
     startLoading(fp);
     while(1) {
         robj *key, *val;
-        int force_swapout;
-
         expiretime = -1;
 
         /* Serve the clients from time to time */
@@ -947,44 +939,7 @@ int rdbLoad(char *filename) {
         /* Set the expire time if needed */
         if (expiretime != -1) setExpire(db,key,expiretime);
 
-        /* Handle swapping while loading big datasets when VM is on */
-
-        /* If we detecter we are hopeless about fitting something in memory
-         * we just swap every new key on disk. Directly...
-         * Note that's important to check for this condition before resorting
-         * to random sampling, otherwise we may try to swap already
-         * swapped keys. */
-        if (swap_all_values) {
-            dictEntry *de = dictFind(db->dict,key->ptr);
-
-            /* de may be NULL since the key already expired */
-            if (de) {
-                vmpointer *vp;
-                val = dictGetEntryVal(de);
-
-                if (val->refcount == 1 &&
-                    (vp = vmSwapObjectBlocking(val)) != NULL)
-                    dictGetEntryVal(de) = vp;
-            }
-            decrRefCount(key);
-            continue;
-        }
         decrRefCount(key);
-
-        /* Flush data on disk once 32 MB of additional RAM are used... */
-        force_swapout = 0;
-        if ((zmalloc_used_memory() - server.vm_max_memory) > 1024*1024*32)
-            force_swapout = 1;
-
-        /* If we have still some hope of having some value fitting memory
-         * then we try random sampling. */
-        if (!swap_all_values && server.vm_enabled && force_swapout) {
-            while (zmalloc_used_memory() > server.vm_max_memory) {
-                if (vmSwapOneObjectBlocking() == REDIS_ERR) break;
-            }
-            if (zmalloc_used_memory() > server.vm_max_memory)
-                swap_all_values = 1; /* We are already using too much mem */
-        }
     }
     fclose(fp);
     stopLoading();
@@ -997,10 +952,7 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
 }
 
 /* A background saving child (BGSAVE) terminated its work. Handle this. */
-void backgroundSaveDoneHandler(int statloc) {
-    int exitcode = WEXITSTATUS(statloc);
-    int bysignal = WIFSIGNALED(statloc);
-
+void backgroundSaveDoneHandler(int exitcode, int bysignal) {
     if (!bysignal && exitcode == 0) {
         redisLog(REDIS_NOTICE,
             "Background saving terminated with success");
@@ -1010,11 +962,37 @@ void backgroundSaveDoneHandler(int statloc) {
         redisLog(REDIS_WARNING, "Background saving error");
     } else {
         redisLog(REDIS_WARNING,
-            "Background saving terminated by signal %d", WTERMSIG(statloc));
+            "Background saving terminated by signal %d", bysignal);
         rdbRemoveTempFile(server.bgsavechildpid);
     }
     server.bgsavechildpid = -1;
+    server.bgsavethread = (pthread_t) -1;
+    server.bgsavethread_state = REDIS_BGSAVE_THREAD_UNACTIVE;
     /* Possibly there are slaves waiting for a BGSAVE in order to be served
      * (the first stage of SYNC is a bulk transfer of dump.rdb) */
     updateSlavesWaitingBgsave(exitcode == 0 ? REDIS_OK : REDIS_ERR);
+}
+
+void saveCommand(redisClient *c) {
+    if (server.bgsavechildpid != -1 || server.bgsavethread != (pthread_t)-1) {
+        addReplyError(c,"Background save already in progress");
+        return;
+    }
+    if (rdbSave(server.dbfilename) == REDIS_OK) {
+        addReply(c,shared.ok);
+    } else {
+        addReply(c,shared.err);
+    }
+}
+
+void bgsaveCommand(redisClient *c) {
+    if (server.bgsavechildpid != -1 || server.bgsavethread != (pthread_t)-1) {
+        addReplyError(c,"Background save already in progress");
+        return;
+    }
+    if (rdbSaveBackground(server.dbfilename) == REDIS_OK) {
+        addReplyStatus(c,"Background saving started");
+    } else {
+        addReply(c,shared.err);
+    }
 }

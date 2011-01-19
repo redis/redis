@@ -274,14 +274,14 @@ void pushGenericCommand(redisClient *c, int where) {
             return;
         }
         if (handleClientsWaitingListPush(c,c->argv[1],c->argv[2])) {
-            touchWatchedKey(c->db,c->argv[1]);
+            signalModifiedKey(c->db,c->argv[1]);
             addReply(c,shared.cone);
             return;
         }
     }
     listTypePush(lobj,c->argv[2],where);
     addReplyLongLong(c,listTypeLength(lobj));
-    touchWatchedKey(c->db,c->argv[1]);
+    signalModifiedKey(c->db,c->argv[1]);
     server.dirty++;
 }
 
@@ -330,7 +330,7 @@ void pushxGenericCommand(redisClient *c, robj *refval, robj *val, int where) {
             if (subject->encoding == REDIS_ENCODING_ZIPLIST &&
                 ziplistLen(subject->ptr) > server.list_max_ziplist_entries)
                     listTypeConvert(subject,REDIS_ENCODING_LINKEDLIST);
-            touchWatchedKey(c->db,c->argv[1]);
+            signalModifiedKey(c->db,c->argv[1]);
             server.dirty++;
         } else {
             /* Notify client of a failed insert */
@@ -339,7 +339,7 @@ void pushxGenericCommand(redisClient *c, robj *refval, robj *val, int where) {
         }
     } else {
         listTypePush(subject,val,where);
-        touchWatchedKey(c->db,c->argv[1]);
+        signalModifiedKey(c->db,c->argv[1]);
         server.dirty++;
     }
 
@@ -427,7 +427,7 @@ void lsetCommand(redisClient *c) {
             o->ptr = ziplistInsert(o->ptr,p,value->ptr,sdslen(value->ptr));
             decrRefCount(value);
             addReply(c,shared.ok);
-            touchWatchedKey(c->db,c->argv[1]);
+            signalModifiedKey(c->db,c->argv[1]);
             server.dirty++;
         }
     } else if (o->encoding == REDIS_ENCODING_LINKEDLIST) {
@@ -439,7 +439,7 @@ void lsetCommand(redisClient *c) {
             listNodeValue(ln) = value;
             incrRefCount(value);
             addReply(c,shared.ok);
-            touchWatchedKey(c->db,c->argv[1]);
+            signalModifiedKey(c->db,c->argv[1]);
             server.dirty++;
         }
     } else {
@@ -458,7 +458,7 @@ void popGenericCommand(redisClient *c, int where) {
         addReplyBulk(c,value);
         decrRefCount(value);
         if (listTypeLength(o) == 0) dbDelete(c->db,c->argv[1]);
-        touchWatchedKey(c->db,c->argv[1]);
+        signalModifiedKey(c->db,c->argv[1]);
         server.dirty++;
     }
 }
@@ -573,7 +573,7 @@ void ltrimCommand(redisClient *c) {
         redisPanic("Unknown list encoding");
     }
     if (listTypeLength(o) == 0) dbDelete(c->db,c->argv[1]);
-    touchWatchedKey(c->db,c->argv[1]);
+    signalModifiedKey(c->db,c->argv[1]);
     server.dirty++;
     addReply(c,shared.ok);
 }
@@ -616,7 +616,7 @@ void lremCommand(redisClient *c) {
 
     if (listTypeLength(subject) == 0) dbDelete(c->db,c->argv[1]);
     addReplyLongLong(c,removed);
-    if (removed) touchWatchedKey(c->db,c->argv[1]);
+    if (removed) signalModifiedKey(c->db,c->argv[1]);
 }
 
 /* This is the semantic of this command:
@@ -642,7 +642,7 @@ void rpoplpushHandlePush(redisClient *c, robj *dstkey, robj *dstobj, robj *value
             dstobj = createZiplistObject();
             dbAdd(c->db,dstkey,dstobj);
         } else {
-            touchWatchedKey(c->db,dstkey);
+            signalModifiedKey(c->db,dstkey);
             server.dirty++;
         }
         listTypePush(dstobj,value,REDIS_HEAD);
@@ -670,7 +670,7 @@ void rpoplpushCommand(redisClient *c) {
 
         /* Delete the source list when it is empty */
         if (listTypeLength(sobj) == 0) dbDelete(c->db,c->argv[1]);
-        touchWatchedKey(c->db,c->argv[1]);
+        signalModifiedKey(c->db,c->argv[1]);
         server.dirty++;
     }
 }
@@ -773,7 +773,8 @@ void unblockClientWaitingData(redisClient *c) {
     zfree(c->bpop.keys);
     c->bpop.keys = NULL;
     c->bpop.target = NULL;
-    c->flags &= (~REDIS_BLOCKED);
+    c->flags &= ~REDIS_BLOCKED;
+    c->flags |= REDIS_UNBLOCKED;
     server.bpop_blocked_clients--;
     listAddNodeTail(server.unblocked_clients,c);
 }
