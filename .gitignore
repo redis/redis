@@ -21,4 +21,3 @@ src/redis-server.dSYM
 redis.ds
 src/redis.conf
 run.sh
-tests/tmp/
