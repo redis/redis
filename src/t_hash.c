@@ -319,27 +319,6 @@ void hmsetCommand(redisClient *c) {
     server.dirty++;
 }
 
-void mhsetCommand(redisClient *c) {
-    if ((c->argc % 2) == 1) {
-        addReplyError(c,"wrong number of arguments for MHSET");
-        return;
-    }
-
-    int i;
-    robj *o;
-
-    for (i = 2; i < c->argc; i += 2) {
-        if ((o = hashTypeLookupWriteOrCreate(c,c->argv[i])) == NULL) return;
-        hashTypeTryConversion(o,c->argv,1,i+1);
-        hashTypeTryObjectEncoding(o,&c->argv[1],&c->argv[i+1]);
-        hashTypeSet(o,c->argv[1],c->argv[i+1]);
-        signalModifiedKey(c->db,c->argv[i]);
-        server.dirty++;
-    }
-
-    addReply(c, shared.ok);
-}
-
 void hincrbyCommand(redisClient *c) {
     long long value, incr;
     robj *o, *current, *new;
@@ -448,6 +427,27 @@ void hmdelCommand(redisClient *c) {
   }
 
   addReplyLongLong(c,deleted);
+}
+
+void mhsetCommand(redisClient *c) {
+    if ((c->argc % 2) == 1) {
+        addReplyError(c,"wrong number of arguments for MHSET");
+        return;
+    }
+
+    int i;
+    robj *o;
+
+    for (i = 2; i < c->argc; i += 2) {
+        if ((o = hashTypeLookupWriteOrCreate(c,c->argv[i])) == NULL) return;
+        hashTypeTryConversion(o,c->argv,1,i+1);
+        hashTypeTryObjectEncoding(o,&c->argv[1],&c->argv[i+1]);
+        hashTypeSet(o,c->argv[1],c->argv[i+1]);
+        signalModifiedKey(c->db,c->argv[i]);
+        server.dirty++;
+    }
+
+    addReply(c, shared.ok);
 }
 
 void hlenCommand(redisClient *c) {
