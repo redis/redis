@@ -429,6 +429,26 @@ void hmdelCommand(redisClient *c) {
   addReplyLongLong(c,deleted);
 }
 
+void mhgetCommand(redisClient *c) {
+    robj *o, *value;
+    unsigned char *v;
+    unsigned int vlen;
+    int i, encoding;
+
+    addReplyMultiBulkLen(c,c->argc-2);
+    for (i = 2; i < c->argc; i++) {
+        if ( ((o = lookupKeyRead(c->db,c->argv[i])) == NULL ) ||
+             (o->type != REDIS_HASH) ||
+             ((encoding = hashTypeGet(o,c->argv[1],&value,&v,&vlen)) == -1) ) {
+            addReply(c,shared.nullbulk);
+        } else if (encoding == REDIS_ENCODING_HT) {
+            addReplyBulk(c,value);
+        } else {
+            addReplyBulkCBuffer(c,v,vlen);
+        }
+    }
+}
+
 void mhsetCommand(redisClient *c) {
     if ((c->argc % 2) == 1) {
         addReplyError(c,"wrong number of arguments for MHSET");
