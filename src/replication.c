@@ -328,6 +328,12 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
                 buf+1);
             replicationAbortSyncTransfer();
             return;
+        } else if (buf[0] == '\0') {
+            /* At this stage just a newline works as a PING in order to take
+             * the connection live. So we refresh our last interaction
+             * timestamp. */
+            server.repl_transfer_lastio = time(NULL);
+            return;
         } else if (buf[0] != '$') {
             redisLog(REDIS_WARNING,"Bad protocol from MASTER, the first byte is not '$', are you sure the host and port are right?");
             replicationAbortSyncTransfer();
@@ -488,15 +494,24 @@ void slaveofCommand(redisClient *c) {
 
 /* --------------------------- REPLICATION CRON  ---------------------------- */
 
-#define REDIS_REPL_TRANSFER_TIMEOUT 60
+#define REDIS_REPL_TIMEOUT 60
+#define REDIS_REPL_PING_SLAVE_PERIOD 10
 
 void replicationCron(void) {
     /* Bulk transfer I/O timeout? */
     if (server.masterhost && server.replstate == REDIS_REPL_TRANSFER &&
-        (time(NULL)-server.repl_transfer_lastio) > REDIS_REPL_TRANSFER_TIMEOUT)
+        (time(NULL)-server.repl_transfer_lastio) > REDIS_REPL_TIMEOUT)
     {
         redisLog(REDIS_WARNING,"Timeout receiving bulk data from MASTER...");
         replicationAbortSyncTransfer();
+    }
+
+    /* Timed out master when we are an already connected slave? */
+    if (server.masterhost && server.replstate == REDIS_REPL_CONNECTED &&
+        (time(NULL)-server.master->lastinteraction) > REDIS_REPL_TIMEOUT)
+    {
+        redisLog(REDIS_WARNING,"MASTER time out: no data nor PING received...");
+        freeClient(server.master);
     }
 
     /* Check if we should connect to a MASTER */
@@ -505,6 +520,35 @@ void replicationCron(void) {
         if (syncWithMaster() == REDIS_OK) {
             redisLog(REDIS_NOTICE,"MASTER <-> SLAVE sync started: SYNC sent");
             if (server.appendonly) rewriteAppendOnlyFileBackground();
+        }
+    }
+    
+    /* If we have attached slaves, PING them from time to time.
+     * So slaves can implement an explicit timeout to masters, and will
+     * be able to detect a link disconnection even if the TCP connection
+     * will not actually go down. */
+    if (!(server.cronloops % (REDIS_REPL_PING_SLAVE_PERIOD*10))) {
+        listIter li;
+        listNode *ln;
+
+        listRewind(server.slaves,&li);
+        while((ln = listNext(&li))) {
+            redisClient *slave = ln->value;
+
+            /* Don't ping slaves that are in the middle of a bulk transfer
+             * with the master for first synchronization. */
+            if (slave->replstate == REDIS_REPL_SEND_BULK) continue;
+            if (slave->replstate == REDIS_REPL_ONLINE) {
+                /* If the slave is online send a normal ping */
+                addReplySds(slave,sdsnew("PING\r\n"));
+            } else {
+                /* Otherwise we are in the pre-synchronization stage.
+                 * Just a newline will do the work of refreshing the
+                 * connection last interaction time, and at the same time
+                 * we'll be sure that being a single char there are no
+                 * short-write problems. */
+                write(slave->fd, "\n", 1);
+            }
         }
     }
 }
