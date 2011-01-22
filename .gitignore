@@ -1,11 +1,11 @@
 *.o
 *.rdb
 *.log
-redis-cli
-redis-server
-redis-benchmark
-redis-check-dump
-redis-check-aof
+src/redis-cli
+src/redis-server
+src/redis-benchmark
+src/redis-check-dump
+src/redis-check-aof
 doc-tools
 mkrelease.sh
 release
