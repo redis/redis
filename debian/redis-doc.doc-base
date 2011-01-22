@@ -1,0 +1,7 @@
+Document: redis-doc
+Title: Redis Documentnation
+Section: Programming
+
+Format: HTML
+Index: /usr/share/doc/redis-doc/doc/index.html
+Files: /usr/share/doc/redis-doc/doc/*.html

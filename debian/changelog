@@ -1,0 +1,251 @@
+redis (2:2.2.0+rc3-chip1) unstable; urgency=low
+
+  * Crudely package 2.2.0rc3 for Debian use.
+
+ -- Chip Salzenberg <chip@pobox.com>  Sat, 22 Jan 2011 09:05:21 -0800
+
+redis (2:2.0.1-2) unstable; urgency=low
+
+  * Upload to unstable.
+
+ -- Chris Lamb <lamby@debian.org>  Fri, 10 Sep 2010 14:49:30 +0100
+
+redis (2:2.0.1-1) experimental; urgency=low
+
+  * New upstream release.
+  * Update debian/watch to not match old tarballs.
+  * Upstream now ships an install target; let's just ignore it for now.
+
+ -- Chris Lamb <lamby@debian.org>  Fri, 10 Sep 2010 14:40:01 +0100
+
+redis (2:2.0.0~rc4-1) experimental; urgency=low
+
+  * New upstream RC release.
+  * Bump Standards-Version to 3.9.1.
+  * Remove mkreleasehdr.sh when building to avoid debian diff - it will
+    regenerate release.h with different contents.
+
+ -- Chris Lamb <lamby@debian.org>  Thu, 29 Jul 2010 09:13:31 -0400
+
+redis (2:2.0.0~rc3-1) experimental; urgency=low
+
+  * New upstream RC release.
+  * Bump Standards-Version to 3.9.0.
+
+ -- Chris Lamb <lamby@debian.org>  Fri, 23 Jul 2010 11:59:16 +0100
+
+redis (2:2.0.0~rc2-1) experimental; urgency=low
+
+  * New upstream RC release.
+
+ -- Chris Lamb <lamby@debian.org>  Thu, 01 Jul 2010 23:15:02 +0100
+
+redis (2:2.0.0~rc1-2) experimental; urgency=low
+
+  * Add 'status' command to initscript.
+  * Add redis-benchmark (and manpage) to package. (Closes: #587395)
+
+ -- Chris Lamb <lamby@debian.org>  Mon, 28 Jun 2010 11:02:31 +0100
+
+redis (2:2.0.0~rc1-1) experimental; urgency=low
+
+  * New upstream release candidate.
+  * Remove '01-dont-print-pid-on-startup.diff' patch.
+  * Update local copy of redis.conf.
+
+ -- Chris Lamb <lamby@debian.org>  Tue, 01 Jun 2010 10:51:05 +0100
+
+redis (2:1.2.6-1) unstable; urgency=low
+
+  * New upstream release.
+
+ -- Chris Lamb <lamby@debian.org>  Tue, 30 Mar 2010 14:13:52 +0100
+
+redis (2:1.2.5-1) unstable; urgency=low
+
+  * New upstream release.
+  * Drop 02-fix-segfault-indupClientReplyValue.diff; applied upstream via
+    <http://code.google.com/p/redis/issues/detail?id=177>.
+
+ -- Chris Lamb <lamby@debian.org>  Thu, 11 Mar 2010 21:34:37 +0000
+
+redis (2:1.2.4-1) unstable; urgency=low
+
+  * New upstream release.
+
+ -- Chris Lamb <lamby@debian.org>  Tue, 09 Mar 2010 16:18:19 +0000
+
+redis (2:1.2.3-1) unstable; urgency=low
+
+  * New upstream release.
+
+ -- Chris Lamb <lamby@debian.org>  Tue, 02 Mar 2010 16:45:07 +0000
+
+redis (2:1.2.2-2) unstable; urgency=low
+
+  * Really fix segfault in dupClientReplyValue. (Closes: #570371)
+
+ -- Chris Lamb <lamby@debian.org>  Fri, 19 Feb 2010 09:16:48 +0000
+
+redis (2:1.2.2-1) unstable; urgency=low
+
+  * New upstream release.
+    - Fixes segfault in dupClientReplyValue. Thanks to Hirling Endre
+      <endre@dawn.royalcomp.hu> (Closes: #570371)
+
+ -- Chris Lamb <lamby@debian.org>  Thu, 18 Feb 2010 22:02:10 +0000
+
+redis (2:1.2.1-1) unstable; urgency=low
+
+  * New upstream release.
+  * Add Bash completion script for redis-cli by Steve Kemp <skx@debian.org>.
+    (Closes: #565358)
+  * Bump Standards-Version to 3.8.4.
+  * Add $remote_fs to LSB "Required-{Start,Stop}" initscript headers.
+
+ -- Chris Lamb <lamby@debian.org>  Tue, 09 Feb 2010 14:37:32 +0000
+
+redis (2:1.2.0-1) unstable; urgency=low
+
+  * New upstream stable release.
+  * Switch to dpkg-source 3.0 (quilt) format.
+  * Patch out printing of pid on startup.
+
+ -- Chris Lamb <lamby@debian.org>  Thu, 14 Jan 2010 15:50:36 +0000
+
+redis (2:1.1.95~beta-2) unstable; urgency=low
+
+  * Set source section to "database" from "misc".
+  * Add redis-cli binary to "redis-server" package.
+
+ -- Chris Lamb <lamby@debian.org>  Wed, 13 Jan 2010 23:36:30 +0000
+
+redis (2:1.1.95~beta-1) unstable; urgency=low
+
+  * New upstream release.
+  * Sync debian/redis.conf with upstream version (new "rdbcompression" and
+    "masterauth" commands).
+
+ -- Chris Lamb <lamby@debian.org>  Sun, 10 Jan 2010 22:59:06 +0000
+
+redis (2:1.1.90~beta-1) unstable; urgency=low
+
+  * New upstream release:
+    - Bump the epoch as dpkg considers 1.1.90 to be less than 1.02.
+    - Sync redis.conf
+  * Don't build client libraries anymore; not part of the upstream tarball
+    anymore.
+  * Don't export CFLAGS from debian/rules to prevent FTBFS when dpkg-provided
+    CFLAGS does not include --std=c99.
+  * Modify debian/watch to consider "-beta" the same as "~beta" for correct
+    dpkg ordering.
+
+ -- Chris Lamb <lamby@debian.org>  Sat, 05 Dec 2009 22:10:32 +0000
+
+redis (1:1.02-1) unstable; urgency=low
+
+  * New upstream release.
+
+ -- Chris Lamb <lamby@debian.org>  Fri, 23 Oct 2009 16:26:45 +0100
+
+redis (1:1.01-1) unstable; urgency=low
+
+  * New upstream release.
+    - "maxmemory now works well on 64bit systems with > 4GB of RAM"
+
+ -- Chris Lamb <lamby@debian.org>  Tue, 22 Sep 2009 21:53:48 +0100
+
+redis (1:1.0-1) unstable; urgency=low
+
+  * New upstream release.
+  * Bump Standards-Version to 3.8.3.
+  * Drop patch system:
+    - 01-recommend-sysctl-conf.diff; applied upstream.
+    - 02-warn-after-daemonising.diff; applied upstream.
+    - 03-only-mangle-trace-on-ia64-and-x86.diff; applied upstream.
+    - Drop quilt Build-Depends and remove patches/series.
+  * Use "override_dh_auto_clean" instead of "clean" target.
+
+ -- Chris Lamb <lamby@debian.org>  Tue, 08 Sep 2009 22:09:19 +0100
+
+redis (1:0.900-3) unstable; urgency=low
+
+  * Actually add architecture patch introducted in 1:0.900-2 to quilt 'series'
+    (Closes: #533763)
+  * Correct "/proc/sys/vm/overcommit_memory" message to print the correct
+    string to add to sysctl.conf.
+
+ -- Chris Lamb <lamby@debian.org>  Thu, 25 Jun 2009 12:13:02 +0100
+
+redis (1:0.900-2) unstable; urgency=low
+
+  * Add patch to avoid mangling the stacktrace on SIGSEGV using X86-specific
+    ucontext struct, etc. (Closes: #533763)
+  * Bump Standards-Version to 3.8.2.
+
+ -- Chris Lamb <lamby@debian.org>  Wed, 24 Jun 2009 23:54:42 +0100
+
+redis (1:0.900-1) unstable; urgency=low
+
+  * New upstream release.
+    - Update debian/redis.conf
+  * Update versionmangle in debian/watch.
+  * "/proc/sys/vm/overcommit_memory" message:
+    - Recommend modifying /etc/sysctl.conf instead of using "boot scripts"
+    - Warn after daemonising to avoid message being spammed on every boot.
+
+ -- Chris Lamb <lamby@debian.org>  Wed, 17 Jun 2009 10:39:57 +0100
+
+redis (1:0.100-1) unstable; urgency=low
+
+  * New upstream release.
+    - Update debian/redis.conf
+
+ -- Chris Lamb <lamby@debian.org>  Thu, 28 May 2009 00:31:37 +0100
+
+redis (1:0.096-1) unstable; urgency=low
+
+  * New upstream version.
+
+ -- Chris Lamb <lamby@debian.org>  Sat, 09 May 2009 22:16:13 +0100
+
+redis (1:0.095-1) unstable; urgency=low
+
+  * New upstream version.
+
+ -- Chris Lamb <lamby@debian.org>  Sat, 09 May 2009 12:50:26 +0100
+
+redis (1:0.094-3) unstable; urgency=low
+
+  * Really upload to unstable - I give "debchange -r" less credit than it
+    deserves.
+
+ -- Chris Lamb <lamby@debian.org>  Thu, 07 May 2009 22:02:24 +0100
+
+redis (1:0.094-2) experimental; urgency=low
+
+  * Upload to unstable.
+  * Add libredis-perl package.
+
+ -- Chris Lamb <lamby@debian.org>  Wed, 06 May 2009 00:19:35 +0100
+
+redis (1:0.094-1) experimental; urgency=low
+
+  * New upstream release.
+  * Place libphp-redis package into 'php' section.
+  * Update debian/copyright with new libraries.
+  * Correct Vcs-Browser location.
+
+ -- Chris Lamb <lamby@debian.org>  Wed, 06 May 2009 00:08:26 +0100
+
+redis (1.0~beta8-1) experimental; urgency=low
+
+  * New upstream release.
+
+ -- Chris Lamb <lamby@debian.org>  Tue, 24 Mar 2009 22:30:02 +0000
+
+redis (1.0~beta7-1) experimental; urgency=low
+
+  * Initial release. (Closes: #518700)
+
+ -- Chris Lamb <lamby@debian.org>  Fri, 20 Mar 2009 00:37:15 +0000

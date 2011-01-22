@@ -1,0 +1,5 @@
+redis-server		/usr/bin
+redis-benchmark		/usr/bin
+debian/redis.conf	/etc/redis
+redis-cli		/usr/bin
+debian/bash_completion.d	/etc

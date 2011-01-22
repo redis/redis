@@ -1,0 +1,3 @@
+debian/redis-server.1
+debian/redis-cli.1
+debian/redis-benchmark.1

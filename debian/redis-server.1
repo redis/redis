@@ -1,0 +1,23 @@
+.TH REDIS-SERVER 1 "March 20, 2009"
+.SH NAME
+redis-server \- Persistent key-value database
+.SH SYNOPSIS
+.B redis-server
+.RI configfile
+.SH DESCRIPTION
+Redis is a key-value database. It is similar to memcached but the dataset is
+not volatile and other datatypes (such as lists and sets) are natively
+supported.
+.PP
+.SH OPTIONS
+.IP "configfile"
+Read options from specified configuration file.
+.SH NOTES
+On Debian GNU/Linux systems, \fBredis-server\fP is typically started via the
+\fB/etc/init.d/redis-server\fP initscript, not manually. This defaults to using
+\fB/etc/redis/redis.conf\fP as a configuration file.
+.SH AUTHOR
+\fBredis-server\fP was written by Salvatore Sanfilippo.
+.PP
+This manual page was written by Chris Lamb <lamby@debian.org> for the Debian
+project (but may be used by others).

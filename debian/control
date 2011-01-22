@@ -1,0 +1,30 @@
+Source: redis
+Section: database
+Priority: optional
+Maintainer: Chip Salzenberg <chip@pobox.com>
+Build-Depends: debhelper (>= 7.0.50)
+Standards-Version: 3.9.1
+Homepage: http://redis.io/
+Vcs-Git: git@github.com:chipdude/redis.git
+Vcs-Browser: http://github.com/chipdude/redis
+
+Package: redis-server
+Architecture: any
+Depends: ${misc:Depends}, ${shlibs:Depends}, adduser
+Description: Persistent key-value database with network interface
+ Redis is a key-value database in a similar vein to memcache but the dataset
+ is non-volatile. Redis additionally provides native support for atomically
+ manipulating and querying data structures such as lists and sets.
+ .
+ The dataset is stored entirely in memory and periodically flushed to disk.
+
+Package: redis-doc
+Section: doc
+Architecture: all
+Depends: ${misc:Depends}
+Description: Persistent key-value database with network interface (Documentation)
+ Redis is a key-value database in a similar vein to memcache but the dataset
+ is non-volatile. Redis additionally provides native support for atomically
+ manipulating and querying data structures such as lists and sets.
+ .
+ This package contains the documentation for Redis.

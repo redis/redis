@@ -1,0 +1,11 @@
+#!/bin/sh
+
+set -eu
+
+USER="redis"
+GROUP="$USER"
+
+chown $USER:$GROUP /var/lib/redis
+chown $USER:$GROUP /var/log/redis
+
+#DEBHELPER#

@@ -1,0 +1,54 @@
+--- ../redis.conf	2011-01-22 08:50:55.000000000 -0800
++++ redis.conf	2011-01-22 09:11:51.000000000 -0800
+@@ -14,7 +14,7 @@
+ 
+ # By default Redis does not run as a daemon. Use 'yes' if you need it.
+ # Note that Redis will write a pid file in /var/run/redis.pid when daemonized.
+-daemonize no
++daemonize yes
+ 
+ # When running daemonized, Redis writes a pid file in /var/run/redis.pid by
+ # default. You can specify a custom pid file location here.
+@@ -26,13 +26,13 @@
+ # If you want you can bind a single interface, if the bind option is not
+ # specified all the interfaces will listen for incoming connections.
+ #
+-# bind 127.0.0.1
++bind 127.0.0.1
+ 
+ # Specify the path for the unix socket that will be used to listen for
+ # incoming connections. There is no default, so Redis will not listen
+ # on a unix socket when not specified.
+ #
+-# unixsocket /tmp/redis.sock
++# unixsocket /var/run/redis.sock
+ 
+ # Close the connection after a client is idle for N seconds (0 to disable)
+ timeout 300
+@@ -48,7 +48,7 @@
+ # Specify the log file name. Also 'stdout' can be used to force
+ # Redis to log on the standard output. Note that if you use standard
+ # output for logging but daemonize, logs will be sent to /dev/null
+-logfile stdout
++logfile /var/log/redis/redis-server.log
+ 
+ # To enable logging to the system logger, just set 'syslog-enabled' to yes,
+ # and optionally update the other syslog parameters to suit your needs.
+@@ -102,7 +102,7 @@
+ # Also the Append Only File will be created inside this directory.
+ # 
+ # Note that you must specify a directory here, not a file name.
+-dir ./
++dir /var/lib/redis
+ 
+ ################################# REPLICATION #################################
+ 
+@@ -316,7 +316,7 @@
+ # *** WARNING *** if you are using a shared hosting the default of putting
+ # the swap file under /tmp is not secure. Create a dir with access granted
+ # only to Redis user and configure Redis to create the swap file there.
+-vm-swap-file /tmp/redis.swap
++vm-swap-file /var/lib/redis/redis.swap
+ 
+ # vm-max-memory configures the VM to use at max the specified amount of
+ # RAM. Everything that deos not fit will be swapped on disk *if* possible, that

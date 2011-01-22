@@ -1,0 +1,11 @@
+#!/bin/sh
+
+set -e
+
+if [ "$1" = "purge" ]
+then
+	rm -rf /var/lib/redis
+	deluser redis
+fi
+
+#DEBHELPER#

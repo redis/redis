@@ -1,0 +1,2 @@
+version=3
+opts="uversionmangle=s/-rc/~rc/;s/^beta/0+beta/" http://googlecode.debian.net/p/redis /p/redis/redis-(.*).tar.gz
