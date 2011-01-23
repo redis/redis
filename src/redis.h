@@ -517,6 +517,7 @@ struct redisCommand {
     int vm_firstkey; /* The first argument that's a key (0 = no keys) */
     int vm_lastkey;  /* THe last argument that's a key */
     int vm_keystep;  /* The step between first and last key */
+    long long microseconds;
 };
 
 struct redisFunctionSym {
