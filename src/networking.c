@@ -498,7 +498,6 @@ void freeClient(redisClient *c) {
     /* Case 2: we lost the connection with the master. */
     if (c->flags & REDIS_MASTER) {
         server.master = NULL;
-        /* FIXME */
         server.replstate = REDIS_REPL_CONNECT;
         /* Since we lost the connection with the master, we should also
          * close the connection with all our slaves if we have any, so

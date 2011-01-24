@@ -516,7 +516,7 @@ void updateLRUClock(void) {
 }
 
 int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
-    int j, loops = server.cronloops++;
+    int j, loops = server.cronloops;
     REDIS_NOTUSED(eventLoop);
     REDIS_NOTUSED(id);
     REDIS_NOTUSED(clientData);
@@ -645,6 +645,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * to detect transfer failures. */
     if (!(loops % 10)) replicationCron();
 
+    server.cronloops++;
     return 100;
 }
 
