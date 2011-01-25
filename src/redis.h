@@ -178,7 +178,7 @@
 #define REDIS_NOTUSED(V) ((void) V)
 
 #define ZSKIPLIST_MAXLEVEL 32 /* Should be enough for 2^32 elements */
-#define ZSKIPLIST_P 0.25      /* Skiplist P = 1/4 */
+#define ZSKIPLIST_F 2      /* Skiplist P = 1/2^F */
 
 /* Append only defines */
 #define APPENDFSYNC_NO 0
