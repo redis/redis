@@ -2,10 +2,7 @@ Where to find complete Redis documentation?
 -------------------------------------------
 
 This README is just a fast "quick start" document. You can find more detailed
-documentation here:
-
-1) http://code.google.com/p/redis
-2) Check the 'doc' directory. doc/README.html is a good starting point :)
+documentation at http://redis.io
 
 Building Redis
 --------------
