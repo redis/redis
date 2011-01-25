@@ -8,6 +8,21 @@ cases, basicaly it is very unlikely that you will experience any problem
 upgrading your 2.0 instances to 2.2, as 2.2 can work as a drop in replacement
 for 2.0.
 
+---------
+CHANGELOG
+---------
+
+What's new in Redis 2.1.10 (2.2 Release Candidate 4)
+====================================================
+
+Redis 2.2 RC4 is a bug fix and minor enhancement release:
+
+* Fixed timeout error in replication where master took a big time to BGSAVE.
+* Introduced explicit PING between master and slave, to reliably detect when
+  the link is down, even if the socket remains apparently connected.
+* Fixed compilation on FreeBSD.
+* Removed a small portability issue in redis-benchmark.
+
 What's new in Redis 2.1.10 (2.2 Release Candidate 3)
 ====================================================
 
