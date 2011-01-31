@@ -826,7 +826,7 @@ int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
             addReplyBulk(receiver,ele);
             return 1;
         } else {
-            /* BRPOPLPUSH */
+            /* BRPOPLPUSH, note that receiver->db is always equal to c->db. */
             dstobj = lookupKeyWrite(receiver->db,dstkey);
             if (dstobj && checkType(receiver,dstobj,REDIS_LIST)) {
                 decrRefCount(dstkey);
