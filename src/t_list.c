@@ -941,7 +941,7 @@ void brpoplpushCommand(redisClient *c) {
 
             /* Blocking against an empty list in a multi state
              * returns immediately. */
-            addReply(c, shared.nullmultibulk);
+            addReply(c, shared.nullbulk);
         } else {
             /* The list is empty and the client blocks. */
             blockForKeys(c, c->argv + 1, 1, timeout, c->argv[2]);
