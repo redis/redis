@@ -1,5 +1,17 @@
 #include "redis.h"
 
+
+#include <assert.h>
+
+dictType lockDictType = {
+    dictIdentityHashFunction,   /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    NULL,						/* key compare */
+    NULL,						/* key destructor */
+    dictListDestructor			/* val destructor */
+};
+
 /*-----------------------------------------------------------------------------
  * Generic locking (grab and release) commands
  *----------------------------------------------------------------------------*/
@@ -12,6 +24,7 @@ int grabLockForKey(redisClient *c, robj *key)
 	if (de == NULL) {
 		int retval;
 		robj *kt;
+		list *l;
 
 		kt = dupStringObject(key);
 		/* Add the client structure to the locked_keys dict */
@@ -20,10 +33,18 @@ int grabLockForKey(redisClient *c, robj *key)
 		redisAssert(retval == DICT_OK);
 
 		if (c->lock.keys == NULL) {
-			c->lock.keys = listCreate();
-			listSetMatchMethod(c->lock.keys,listMatchObjects);
+			c->lock.keys = dictCreate(&lockDictType,NULL);
 		}
-		listAddNodeTail(c->lock.keys, kt);
+		de = dictFind(c->lock.keys,(void *)(long)c->db->id);
+		if (de == NULL) {
+			l = listCreate();
+			listSetMatchMethod(l,listMatchObjects);
+			retval = dictAdd(c->lock.keys,(void *)(long)c->db->id,l);
+			redisAssert(retval == DICT_OK);
+		} else {
+			l = dictGetEntryVal(de);
+		}
+		listAddNodeTail(l,kt);
 		return 1;
 	} else {
 		redisClient *locker = dictGetEntryVal(de);
@@ -38,21 +59,37 @@ int grabLockForKey(redisClient *c, robj *key)
 int releaseLockForKey(redisClient* c, robj* key) {
 	dictEntry *de;
 	listNode *ln;
+	list *l;
 
 	if (c->lock.keys == NULL) {
 		/* If no keys are locked, return */
 		return 0;
 	} else {
 		de = dictFind(c->db->locked_keys,key);
-		redisAssert(de != NULL);
+		if (de == NULL)
+			return 0;
+
 		redisClient *locker = dictGetEntryVal(de);
 		if (locker == c) {
+			de = dictFind(c->lock.keys,(void *)(long)c->db->id);
+			if (de == NULL) {
+				/* we don't have a lock in this DB */
+				return 0;
+			}
+			l = dictGetEntryVal(de);
+			redisAssert(l != NULL);
 			/* We are the locker, so release the lock */
 			dictDelete(c->db->locked_keys,key);
-			ln = listSearchKey(c->lock.keys,key);
+			ln = listSearchKey(l,key);
 			redisAssert(ln != NULL);
 			decrRefCount(listNodeValue(ln));
-			listDelNode(c->lock.keys,ln);
+			listDelNode(l,ln);
+			if (listLength(l) == 0)
+				dictDelete(c->lock.keys,(void *)(long)c->db->id);
+			if (dictSize(c->lock.keys) == 0) {
+				dictRelease(c->lock.keys);
+				c->lock.keys = NULL;
+			}
 			return 1;
 		} else {
 			/* This is not our lock */
@@ -95,16 +132,34 @@ void handOffLock(redisClient *c, robj *key) {
 }
 void releaseClientLocks(redisClient *c) {
 	if (c->lock.keys) {
-		listNode *ln;
-		listIter *iter = listGetIterator(c->lock.keys, AL_START_HEAD);
-		while ((ln = listNext(iter)) != NULL) {
-			robj *key = dupStringObject(listNodeValue(ln));
-			releaseLockForKey(c, key);
-			handOffLock(c, key);
-			decrRefCount(key);
+		dictEntry *de;
+		dictIterator *iter;
+		int origid = c->db->id;
+
+		/* Iterate all DBs that have locks */
+		iter = dictGetIterator(c->lock.keys);
+		while ((de = dictNext(iter)) != NULL) {
+			listNode *ln;
+			list *l = dictGetEntryVal(de);
+			int dbnum = (long)dictGetEntryKey(de);
+
+			/* Switch the current DB */
+			selectDb(c,dbnum);
+			/* Iterate through all locks in THIS db and release them */
+			listIter *liter = listGetIterator(l, AL_START_HEAD);
+			while ((ln = listNext(liter)) != NULL) {
+				robj *key = listNodeValue(ln);
+				incrRefCount(key);
+				releaseLockForKey(c, key);
+				handOffLock(c, key);
+				decrRefCount(key);
+			}
+			listReleaseIterator(liter);
 		}
-		listReleaseIterator(iter);
-		listRelease(c->lock.keys);
+		dictReleaseIterator(iter);
+		selectDb(c,origid);
+		/* The last lock release should clean this up */
+		redisAssert(c->lock.keys == NULL);
 	}
 }
 

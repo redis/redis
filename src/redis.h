@@ -309,7 +309,7 @@ typedef struct blockingState {
 } blockingState;
 
 typedef struct lockState {
-    list *keys;             /* The list of keys we have locked. Otherwise NULL*/
+    dict *keys;             /* The list of keys we have locked for each DB. Otherwise NULL*/
 } lockState;
 
 /* With multiplexing we need to take per-clinet state.
@@ -706,6 +706,7 @@ int grabLockForKey(redisClient *c, robj *key);
 int releaseLockForKey(redisClient *c, robj *key);
 void releaseClientLocks(redisClient *c);
 int getTimeoutFromObjectOrReply(redisClient *c, robj *object, time_t *timeout);
+void dictListDestructor(void *privdata, void *val);
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(redisClient *c);

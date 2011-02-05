@@ -144,6 +144,9 @@ void dictDisableResize(void);
 int dictRehash(dict *d, int n);
 int dictRehashMilliseconds(dict *d, int ms);
 
+/* Hash Functions */
+unsigned int dictIdentityHashFunction(unsigned int key);
+
 /* Hash table types */
 extern dictType dictTypeHeapStringCopyKey;
 extern dictType dictTypeHeapStrings;
