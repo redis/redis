@@ -439,6 +439,8 @@ void freeClient(redisClient *c) {
     if (c->flags & REDIS_BLOCKED)
         unblockClientWaitingData(c, NULL);
 
+	/* Release Client Locks */
+	releaseClientLocks(c);
     /* UNWATCH all the keys */
     unwatchAllKeys(c);
     listRelease(c->watched_keys);

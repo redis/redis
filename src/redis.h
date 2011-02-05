@@ -279,6 +279,7 @@ typedef struct redisDb {
     dict *dict;                 /* The keyspace for this DB */
     dict *expires;              /* Timeout of keys with a timeout set */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP) */
+    dict *locked_keys;          /* Keys that clients have a lock on (GRAB/RELEASE) */
     dict *io_keys;              /* Keys with clients waiting for VM I/O */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
     int id;
@@ -307,6 +308,10 @@ typedef struct blockingState {
                              * for BRPOPLPUSH. */
 } blockingState;
 
+typedef struct lockState {
+    list *keys;             /* The list of keys we have locked. Otherwise NULL*/
+} lockState;
+
 /* With multiplexing we need to take per-clinet state.
  * Clients are taken in a liked list. */
 typedef struct redisClient {
@@ -331,6 +336,7 @@ typedef struct redisClient {
     off_t repldbsize;       /* replication DB file size */
     multiState mstate;      /* MULTI/EXEC state */
     blockingState block;    /* blocking state */
+    lockState lock;         /* lock state */
     list *io_keys;          /* Keys this client is waiting to be loaded from the
                              * swap file in order to continue. */
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
@@ -665,6 +671,7 @@ void addReplyMultiBulkLen(redisClient *c, long length);
 void *dupClientReplyValue(void *o);
 void getClientsMaxBuffers(unsigned long *longest_output_list,
                           unsigned long *biggest_input_buffer);
+int listMatchObjects(void *a, void *b);
 
 #ifdef __GNUC__
 void addReplyErrorFormat(redisClient *c, const char *fmt, ...)
@@ -692,6 +699,13 @@ void listTypeConvert(robj *subject, int enc);
 void unblockClientWaitingData(redisClient *c, listNode *ln);
 int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele);
 void popGenericCommand(redisClient *c, int where);
+
+/* locking.c - Locking API */
+void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeout, robj *target, int type);
+int grabLockForKey(redisClient *c, robj *key);
+int releaseLockForKey(redisClient *c, robj *key);
+void releaseClientLocks(redisClient *c);
+int getTimeoutFromObjectOrReply(redisClient *c, robj *object, time_t *timeout);
 
 /* MULTI/EXEC/WATCH... */
 void unwatchAllKeys(redisClient *c);
@@ -1013,6 +1027,8 @@ void punsubscribeCommand(redisClient *c);
 void publishCommand(redisClient *c);
 void watchCommand(redisClient *c);
 void unwatchCommand(redisClient *c);
+void grabCommand(redisClient *c);
+void releaseCommand(redisClient *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
