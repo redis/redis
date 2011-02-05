@@ -187,7 +187,9 @@ struct redisCommand readonlyCommandTable[] = {
     {"punsubscribe",punsubscribeCommand,-1,0,NULL,0,0,0},
     {"publish",publishCommand,3,REDIS_CMD_FORCE_REPLICATION,NULL,0,0,0},
     {"watch",watchCommand,-2,0,NULL,0,0,0},
-    {"unwatch",unwatchCommand,1,0,NULL,0,0,0}
+    {"unwatch",unwatchCommand,1,0,NULL,0,0,0},
+	{"grab",grabCommand,3,0,NULL,1,1,1},
+	{"release",releaseCommand,2,0,NULL,1,1,1},
 };
 
 /*============================ Utility functions ============================ */
@@ -415,6 +417,17 @@ dictType keylistDictType = {
     dictObjKeyCompare,          /* key compare */
     dictRedisObjectDestructor,  /* key destructor */
     dictListDestructor          /* val destructor */
+};
+
+/* key has table type has unencoded redis objects as keys and
+ * generic pointers as values.  It's used for locking keys on a client */
+dictType keyDictType = {
+    dictObjHash,                /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictObjKeyCompare,          /* key compare */
+    dictRedisObjectDestructor,  /* key destructor */
+    NULL						/* val destructor */
 };
 
 int htNeedsResize(dict *dict) {
@@ -873,6 +886,7 @@ void initServer() {
         server.db[j].dict = dictCreate(&dbDictType,NULL);
         server.db[j].expires = dictCreate(&keyptrDictType,NULL);
         server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
+		server.db[j].locked_keys = dictCreate(&keyDictType,NULL);
         server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
         if (server.vm_enabled)
             server.db[j].io_keys = dictCreate(&keylistDictType,NULL);

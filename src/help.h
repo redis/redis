@@ -13,7 +13,8 @@ static char *commandGroups[] = {
     "pubsub",
     "transactions",
     "connection",
-    "server"
+    "server",
+    "lock"
 };
 
 struct commandHelp {
@@ -632,7 +633,17 @@ struct commandHelp {
     "destination numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX]",
     "Add multiple sorted sets and store the resulting sorted set in a new key",
     4,
-    "1.3.10" }
+    "1.3.10" },
+    { "GRAB",
+    "key timeout",
+    "Grabs a lock on key and blocks until all other clients have released the lock or disconnected.",
+    10,
+    "2.2.X" },
+    { "RELEASE",
+    "key",
+    "Releases a lock on key allowing other clients to continue",
+    10,
+    "2.2.X" },
 };
 
 #endif
