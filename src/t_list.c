@@ -715,10 +715,10 @@ void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeout, robj
     list *l;
     int j;
 
-    c->bpop.keys = zmalloc(sizeof(robj*)*numkeys);
-    c->bpop.count = numkeys;
-    c->bpop.timeout = timeout;
-    c->bpop.target = target;
+    c->block.keys = zmalloc(sizeof(robj*)*numkeys);
+    c->block.count = numkeys;
+    c->block.timeout = timeout;
+    c->block.target = target;
 
     if (target != NULL) {
         incrRefCount(target);
@@ -726,7 +726,7 @@ void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeout, robj
 
     for (j = 0; j < numkeys; j++) {
         /* Add the key in the client structure, to map clients -> keys */
-        c->bpop.keys[j] = keys[j];
+        c->block.keys[j] = keys[j];
         incrRefCount(keys[j]);
 
         /* And in the other "side", to map keys -> clients */
@@ -755,24 +755,24 @@ void unblockClientWaitingData(redisClient *c) {
     list *l;
     int j;
 
-    redisAssert(c->bpop.keys != NULL);
+    redisAssert(c->block.keys != NULL);
     /* The client may wait for multiple keys, so unblock it for every key. */
-    for (j = 0; j < c->bpop.count; j++) {
+    for (j = 0; j < c->block.count; j++) {
         /* Remove this client from the list of clients waiting for this key. */
-        de = dictFind(c->db->blocking_keys,c->bpop.keys[j]);
+        de = dictFind(c->db->blocking_keys,c->block.keys[j]);
         redisAssert(de != NULL);
         l = dictGetEntryVal(de);
         listDelNode(l,listSearchKey(l,c));
         /* If the list is empty we need to remove it to avoid wasting memory */
         if (listLength(l) == 0)
-            dictDelete(c->db->blocking_keys,c->bpop.keys[j]);
-        decrRefCount(c->bpop.keys[j]);
+            dictDelete(c->db->blocking_keys,c->block.keys[j]);
+        decrRefCount(c->block.keys[j]);
     }
 
     /* Cleanup the client structure */
-    zfree(c->bpop.keys);
-    c->bpop.keys = NULL;
-    c->bpop.target = NULL;
+    zfree(c->block.keys);
+    c->block.keys = NULL;
+    c->block.target = NULL;
     c->flags &= ~REDIS_BLOCKED;
     c->flags |= REDIS_UNBLOCKED;
     server.bpop_blocked_clients--;
@@ -813,7 +813,7 @@ int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
         ln = listFirst(clients);
         redisAssert(ln != NULL);
         receiver = ln->value;
-        dstkey = receiver->bpop.target;
+        dstkey = receiver->block.target;
 
         /* This should remove the first element of the "clients" list. */
         unblockClientWaitingData(receiver);
