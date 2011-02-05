@@ -710,7 +710,7 @@ void rpoplpushCommand(redisClient *c) {
 
 /* Set a client in blocking mode for the specified key, with the specified
  * timeout */
-void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeout, robj *target) {
+void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeout, robj *target, int type) {
     dictEntry *de;
     list *l;
     int j;
@@ -719,6 +719,7 @@ void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeout, robj
     c->block.count = numkeys;
     c->block.timeout = timeout;
     c->block.target = target;
+	c->block.type = type;
 
     if (target != NULL) {
         incrRefCount(target);
@@ -750,7 +751,7 @@ void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeout, robj
 }
 
 /* Unblock a client that's waiting in a blocking operation such as BLPOP */
-void unblockClientWaitingData(redisClient *c) {
+void unblockClientWaitingData(redisClient *c, listNode *ln) {
     dictEntry *de;
     list *l;
     int j;
@@ -762,7 +763,11 @@ void unblockClientWaitingData(redisClient *c) {
         de = dictFind(c->db->blocking_keys,c->block.keys[j]);
         redisAssert(de != NULL);
         l = dictGetEntryVal(de);
-        listDelNode(l,listSearchKey(l,c));
+		if (ln) {
+			listDelNode(l,ln);
+		} else {
+			listDelNode(l,listSearchKey(l,c));
+		}
         /* If the list is empty we need to remove it to avoid wasting memory */
         if (listLength(l) == 0)
             dictDelete(c->db->blocking_keys,c->block.keys[j]);
@@ -792,15 +797,15 @@ void unblockClientWaitingData(redisClient *c) {
 int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
     struct dictEntry *de;
     redisClient *receiver;
-    int numclients;
     list *clients;
+	listIter *iter;
     listNode *ln;
+	int retval = 0;
     robj *dstkey, *dstobj;
 
     de = dictFind(c->db->blocking_keys,key);
     if (de == NULL) return 0;
     clients = dictGetEntryVal(de);
-    numclients = listLength(clients);
 
     /* Try to handle the push as long as there are clients waiting for a push.
      * Note that "numclients" is used because the list of clients waiting for a
@@ -809,22 +814,22 @@ int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
      * This loop will have more than 1 iteration when there is a BRPOPLPUSH
      * that cannot push the target list because it does not contain a list. If
      * this happens, it simply tries the next client waiting for a push. */
-    while (numclients--) {
-        ln = listFirst(clients);
-        redisAssert(ln != NULL);
-        receiver = ln->value;
+	iter = listGetIterator(clients, AL_START_HEAD);
+    while ((ln = listNext(iter)) != NULL) {
+        receiver = listNodeValue(ln);
+		if (receiver->block.type != REDIS_BLOCK_BPOP)
+			continue;
         dstkey = receiver->block.target;
 
-        /* This should remove the first element of the "clients" list. */
-        unblockClientWaitingData(receiver);
-        redisAssert(ln != listFirst(clients));
+        unblockClientWaitingData(receiver, ln);
 
         if (dstkey == NULL) {
             /* BRPOP/BLPOP */
             addReplyMultiBulkLen(receiver,2);
             addReplyBulk(receiver,key);
             addReplyBulk(receiver,ele);
-            return 1;
+			retval = 1;
+			break;
         } else {
             /* BRPOPLPUSH */
             dstobj = lookupKeyWrite(receiver->db,dstkey);
@@ -833,12 +838,14 @@ int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
             } else {
                 rpoplpushHandlePush(receiver,dstkey,dstobj,ele);
                 decrRefCount(dstkey);
-                return 1;
+				retval = 1;
+				break;
             }
         }
     }
+	listReleaseIterator(iter);
 
-    return 0;
+    return retval;
 }
 
 int getTimeoutFromObjectOrReply(redisClient *c, robj *object, time_t *timeout) {
@@ -917,7 +924,7 @@ void blockingPopGenericCommand(redisClient *c, int where) {
     }
 
     /* If the list is empty or the key does not exists we must block */
-    blockForKeys(c, c->argv + 1, c->argc - 2, timeout, NULL);
+    blockForKeys(c, c->argv + 1, c->argc - 2, timeout, NULL, REDIS_BLOCK_BPOP);
 }
 
 void blpopCommand(redisClient *c) {
@@ -944,7 +951,7 @@ void brpoplpushCommand(redisClient *c) {
             addReply(c, shared.nullmultibulk);
         } else {
             /* The list is empty and the client blocks. */
-            blockForKeys(c, c->argv + 1, 1, timeout, c->argv[2]);
+            blockForKeys(c, c->argv + 1, 1, timeout, c->argv[2], REDIS_BLOCK_BPOP);
         }
     } else {
         if (key->type != REDIS_LIST) {

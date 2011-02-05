@@ -144,6 +144,10 @@
 #define REDIS_UNBLOCKED 256 /* This client was unblocked and is stored in
                                server.unblocked_clients */
 
+/* Client Blocking state type */
+#define REDIS_BLOCK_BPOP 0  /* a BPOP Block */
+#define REDIS_BLOCK_LOCK 1  /* a LOCK Block */
+
 /* Client request types */
 #define REDIS_REQ_INLINE 1
 #define REDIS_REQ_MULTIBULK 2
@@ -296,6 +300,7 @@ typedef struct blockingState {
     robj **keys;            /* The key we are waiting to terminate a blocking
                              * operation such as BLPOP. Otherwise NULL. */
     int count;              /* Number of blocking keys */
+    int type;               /* Type of block */
     time_t timeout;         /* Blocking operation timeout. If UNIX current time
                              * is >= timeout then the operation timed out. */
     robj *target;           /* The key that should receive the element,
@@ -684,7 +689,7 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where);
 int listTypeEqual(listTypeEntry *entry, robj *o);
 void listTypeDelete(listTypeEntry *entry);
 void listTypeConvert(robj *subject, int enc);
-void unblockClientWaitingData(redisClient *c);
+void unblockClientWaitingData(redisClient *c, listNode *ln);
 int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele);
 void popGenericCommand(redisClient *c, int where);
 

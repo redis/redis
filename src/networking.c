@@ -437,7 +437,7 @@ void freeClient(redisClient *c) {
     sdsfree(c->querybuf);
     c->querybuf = NULL;
     if (c->flags & REDIS_BLOCKED)
-        unblockClientWaitingData(c);
+        unblockClientWaitingData(c, NULL);
 
     /* UNWATCH all the keys */
     unwatchAllKeys(c);
@@ -622,7 +622,7 @@ void closeTimedoutClients(void) {
         } else if (c->flags & REDIS_BLOCKED) {
             if (c->block.timeout != 0 && c->block.timeout < now) {
                 addReply(c,shared.nullmultibulk);
-                unblockClientWaitingData(c);
+                unblockClientWaitingData(c, NULL);
             }
         }
     }
