@@ -864,7 +864,10 @@ void initServer() {
     createSharedObjects();
     server.el = aeCreateEventLoop();
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
-    server.ipfd = anetTcpServer(server.neterr,server.port,server.bindaddr);
+
+    if (server.port != 0)
+        server.ipfd = anetTcpServer(server.neterr,server.port,server.bindaddr);
+
     if (server.ipfd == ANET_ERR) {
         redisLog(REDIS_WARNING, "Opening port: %s", server.neterr);
         exit(1);
