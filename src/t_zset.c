@@ -180,16 +180,16 @@ typedef struct {
     int minex, maxex; /* are min or max exclusive? */
 } zrangespec;
 
-static int zslValueInMinRange(double value, zrangespec *spec) {
+static int zslValueGteMin(double value, zrangespec *spec) {
     return spec->minex ? (value > spec->min) : (value >= spec->min);
 }
 
-static int zslValueInMaxRange(double value, zrangespec *spec) {
+static int zslValueLteMax(double value, zrangespec *spec) {
     return spec->maxex ? (value < spec->max) : (value <= spec->max);
 }
 
 static int zslValueInRange(double value, zrangespec *spec) {
-    return zslValueInMinRange(value,spec) && zslValueInMaxRange(value,spec);
+    return zslValueGteMin(value,spec) && zslValueLteMax(value,spec);
 }
 
 /* Returns if there is a part of the zset is in range. */
@@ -201,10 +201,10 @@ int zslIsInRange(zskiplist *zsl, zrangespec *range) {
             (range->min == range->max && (range->minex || range->maxex)))
         return 0;
     x = zsl->tail;
-    if (x == NULL || !zslValueInMinRange(x->score,range))
+    if (x == NULL || !zslValueGteMin(x->score,range))
         return 0;
     x = zsl->header->level[0].forward;
-    if (x == NULL || !zslValueInMaxRange(x->score,range))
+    if (x == NULL || !zslValueLteMax(x->score,range))
         return 0;
     return 1;
 }
@@ -222,7 +222,7 @@ zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec range) {
     for (i = zsl->level-1; i >= 0; i--) {
         /* Go forward while *OUT* of range. */
         while (x->level[i].forward &&
-            !zslValueInMinRange(x->level[i].forward->score,&range))
+            !zslValueGteMin(x->level[i].forward->score,&range))
                 x = x->level[i].forward;
     }
 
@@ -246,7 +246,7 @@ zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec range) {
     for (i = zsl->level-1; i >= 0; i--) {
         /* Go forward while *IN* range. */
         while (x->level[i].forward &&
-            zslValueInMaxRange(x->level[i].forward->score,&range))
+            zslValueLteMax(x->level[i].forward->score,&range))
                 x = x->level[i].forward;
     }
 
@@ -979,9 +979,9 @@ void genericZrangebyscoreCommand(redisClient *c, int reverse, int justcount) {
     while (ln && limit--) {
         /* Abort when the node is no longer in range. */
         if (reverse) {
-            if (!zslValueInMinRange(ln->score,&range)) break;
+            if (!zslValueGteMin(ln->score,&range)) break;
         } else {
-            if (!zslValueInMaxRange(ln->score,&range)) break;
+            if (!zslValueLteMax(ln->score,&range)) break;
         }
 
         /* Do our magic */
