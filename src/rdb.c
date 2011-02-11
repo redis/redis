@@ -399,13 +399,9 @@ off_t rdbSavedObjectLen(robj *o) {
  * On error -1 is returned.
  * On success if the key was actaully saved 1 is returned, otherwise 0
  * is returned (the key was already expired). */
-int rdbSaveKeyValuePair(FILE *fp, redisDb *db, robj *key, robj *val,
-                        time_t now)
+int rdbSaveKeyValuePair(FILE *fp, robj *key, robj *val,
+                        time_t expiretime, time_t now)
 {
-    time_t expiretime;
-    
-    expiretime = getExpire(db,key);
-
     /* Save the expire time */
     if (expiretime != -1) {
         /* If this key is already expired skip it */
@@ -460,9 +456,11 @@ int rdbSave(char *filename) {
         while((de = dictNext(di)) != NULL) {
             sds keystr = dictGetEntryKey(de);
             robj key, *o = dictGetEntryVal(de);
+            time_t expire;
             
             initStaticStringObject(key,keystr);
-            if (rdbSaveKeyValuePair(fp,db,&key,o,now) == -1) goto werr;
+            expire = getExpire(db,&key);
+            if (rdbSaveKeyValuePair(fp,&key,o,expire,now) == -1) goto werr;
         }
         dictReleaseIterator(di);
     }

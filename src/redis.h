@@ -764,7 +764,7 @@ off_t rdbSavedObjectLen(robj *o);
 off_t rdbSavedObjectPages(robj *o);
 robj *rdbLoadObject(int type, FILE *fp);
 void backgroundSaveDoneHandler(int exitcode, int bysignal);
-int rdbSaveKeyValuePair(FILE *fp, redisDb *db, robj *key, robj *val, time_t now);
+int rdbSaveKeyValuePair(FILE *fp, robj *key, robj *val, time_t expireitme, time_t now);
 int rdbLoadType(FILE *fp);
 time_t rdbLoadTime(FILE *fp);
 robj *rdbLoadStringObject(FILE *fp);
@@ -805,7 +805,7 @@ void resetCommandTableStats(void);
 /* Disk store */
 int dsOpen(void);
 int dsClose(void);
-int dsSet(redisDb *db, robj *key, robj *val);
+int dsSet(redisDb *db, robj *key, robj *val, time_t expire);
 robj *dsGet(redisDb *db, robj *key, time_t *expire);
 int dsDel(redisDb *db, robj *key);
 int dsExists(redisDb *db, robj *key);

@@ -183,7 +183,7 @@ int dsKeyToPath(redisDb *db, char *buf, robj *key) {
     return (buf-origbuf)+41;
 }
 
-int dsSet(redisDb *db, robj *key, robj *val) {
+int dsSet(redisDb *db, robj *key, robj *val, time_t expire) {
     char buf[1024], buf2[1024];
     FILE *fp;
     int retval, len;
@@ -201,7 +201,7 @@ int dsSet(redisDb *db, robj *key, robj *val) {
             redisPanic("Unrecoverable diskstore error. Exiting.");
         }
     }
-    if ((retval = rdbSaveKeyValuePair(fp,db,key,val,time(NULL))) == -1)
+    if ((retval = rdbSaveKeyValuePair(fp,key,val,expire,time(NULL))) == -1)
         return REDIS_ERR;
     fclose(fp);
     if (retval == 0) {

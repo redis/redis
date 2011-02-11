@@ -203,6 +203,7 @@ int dictRehash(dict *d, int n) {
 
         /* Note that rehashidx can't overflow as we are sure there are more
          * elements because ht[0].used != 0 */
+        assert(d->ht[0].size > (unsigned)d->rehashidx);
         while(d->ht[0].table[d->rehashidx] == NULL) d->rehashidx++;
         de = d->ht[0].table[d->rehashidx];
         /* Move all the keys in this bucket from the old to the new hash HT */
