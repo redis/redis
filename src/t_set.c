@@ -334,12 +334,25 @@ void spopCommand(redisClient *c) {
 
     encoding = setTypeRandomElement(set,&ele,&llele);
     if (encoding == REDIS_ENCODING_INTSET) {
-        addReplyBulkLongLong(c,llele);
+        ele = createStringObjectFromLongLong(llele);
         set->ptr = intsetRemove(set->ptr,llele,NULL);
     } else {
-        addReplyBulk(c,ele);
+        incrRefCount(ele);
         setTypeRemove(set,ele);
     }
+
+    /* Change argv to replicate as SREM */
+    c->argc = 3;
+    c->argv = zrealloc(c->argv,sizeof(robj*)*(c->argc));
+
+    /* Overwrite SREM with SPOP (same length) */
+    redisAssert(sdslen(c->argv[0]->ptr) == 4);
+    memcpy(c->argv[0]->ptr, "SREM", 4);
+
+    /* Popped element already has incremented refcount */
+    c->argv[2] = ele;
+
+    addReplyBulk(c,ele);
     if (setTypeSize(set) == 0) dbDelete(c->db,c->argv[1]);
     touchWatchedKey(c->db,c->argv[1]);
     server.dirty++;
