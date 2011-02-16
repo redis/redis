@@ -927,6 +927,8 @@ void setrangeCommand(redisClient *c);
 void getrangeCommand(redisClient *c);
 void incrCommand(redisClient *c);
 void decrCommand(redisClient *c);
+void incrtoCommand(redisClient *c);
+void decrtoCommand(redisClient *c);
 void incrbyCommand(redisClient *c);
 void decrbyCommand(redisClient *c);
 void selectCommand(redisClient *c);

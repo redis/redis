@@ -84,6 +84,8 @@ struct redisCommand readonlyCommandTable[] = {
     {"substr",getrangeCommand,4,0,NULL,1,1,1},
     {"incr",incrCommand,2,REDIS_CMD_DENYOOM,NULL,1,1,1},
     {"decr",decrCommand,2,REDIS_CMD_DENYOOM,NULL,1,1,1},
+    {"incrto",incrtoCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1},
+    {"decrto",decrtoCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1},
     {"mget",mgetCommand,-2,0,NULL,1,-1,1},
     {"rpush",rpushCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1},
     {"lpush",lpushCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1},

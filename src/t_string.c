@@ -389,6 +389,52 @@ void decrbyCommand(redisClient *c) {
     incrDecrCommand(c,-incr);
 }
 
+void incrtoCommand(redisClient *c) {
+    long long lim, value;
+    robj *o;
+
+    if (getLongLongFromObjectOrReply(c, c->argv[2], &lim, NULL) != REDIS_OK) return;
+
+    o = lookupKeyWrite(c->db,c->argv[1]);
+    if (o != NULL && checkType(c,o,REDIS_STRING)) return;
+    if (getLongLongFromObjectOrReply(c,o,&value,NULL) != REDIS_OK) return;
+
+    if (lim > value) {
+        o = createStringObjectFromLongLong(lim);
+        dbReplace(c->db,c->argv[1],o);
+        signalModifiedKey(c->db,c->argv[1]);
+        server.dirty++;
+    }
+
+    addReply(c,shared.colon);
+    addReply(c,o);
+    addReply(c,shared.crlf);
+
+}
+
+void decrtoCommand(redisClient *c) {
+    long long lim, value;
+    robj *o;
+
+    if (getLongLongFromObjectOrReply(c, c->argv[2], &lim, NULL) != REDIS_OK) return;
+
+    o = lookupKeyWrite(c->db,c->argv[1]);
+    if (o != NULL && checkType(c,o,REDIS_STRING)) return;
+    if (getLongLongFromObjectOrReply(c,o,&value,NULL) != REDIS_OK) return;
+
+    if (lim < value) {
+        o = createStringObjectFromLongLong(lim);
+        dbReplace(c->db,c->argv[1],o);
+        signalModifiedKey(c->db,c->argv[1]);
+        server.dirty++;
+    }
+
+    addReply(c,shared.colon);
+    addReply(c,o);
+    addReply(c,shared.crlf);
+
+}
+
 void appendCommand(redisClient *c) {
     size_t totlen;
     robj *o, *append;
