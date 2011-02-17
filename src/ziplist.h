@@ -12,4 +12,4 @@ unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p);
 unsigned char *ziplistDeleteRange(unsigned char *zl, unsigned int index, unsigned int num);
 unsigned int ziplistCompare(unsigned char *p, unsigned char *s, unsigned int slen);
 unsigned int ziplistLen(unsigned char *zl);
-unsigned int ziplistSize(unsigned char *zl);
+size_t ziplistSize(unsigned char *zl);

@@ -144,7 +144,7 @@ static unsigned char *zipmapLookupRaw(unsigned char *zm, unsigned char *key, uns
         /* Match or skip the key */
         l = zipmapDecodeLength(p);
         llen = zipmapEncodeLength(NULL,l);
-        if (k == NULL && l == klen && !memcmp(p+llen,key,l)) {
+        if (key != NULL && k == NULL && l == klen && !memcmp(p+llen,key,l)) {
             /* Only return when the user doesn't care
              * for the total length of the zipmap. */
             if (totlen != NULL) {
@@ -358,6 +358,13 @@ unsigned int zipmapLen(unsigned char *zm) {
         if (len < ZIPMAP_BIGLEN) zm[0] = len;
     }
     return len;
+}
+
+/* Return zipmap size in bytes. */
+size_t zipmapSize(unsigned char *zm) {
+    unsigned int totlen;
+    zipmapLookupRaw(zm,NULL,0,&totlen);
+    return totlen;
 }
 
 #ifdef ZIPMAP_TEST_MAIN

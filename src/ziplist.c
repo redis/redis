@@ -732,8 +732,8 @@ unsigned int ziplistLen(unsigned char *zl) {
     return len;
 }
 
-/* Return size in bytes of ziplist. */
-unsigned int ziplistSize(unsigned char *zl) {
+/* Return ziplist size in bytes. */
+size_t ziplistSize(unsigned char *zl) {
     return ZIPLIST_BYTES(zl);
 }
 

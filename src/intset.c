@@ -222,6 +222,11 @@ uint32_t intsetLen(intset *is) {
     return is->length;
 }
 
+/* Return intset size in bytes. */
+size_t intsetSize(intset *is) {
+    return sizeof(intset)+is->length*is->encoding;
+}
+
 #ifdef INTSET_TEST_MAIN
 #include <sys/time.h>
 
