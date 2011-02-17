@@ -360,6 +360,8 @@ unsigned int zipmapLen(unsigned char *zm) {
     return len;
 }
 
+#ifdef ZIPMAP_TEST_MAIN
+
 void zipmapRepr(unsigned char *p) {
     unsigned int l;
 
@@ -393,7 +395,6 @@ void zipmapRepr(unsigned char *p) {
     printf("\n");
 }
 
-#ifdef ZIPMAP_TEST_MAIN
 int main(void) {
     unsigned char *zm;
 
