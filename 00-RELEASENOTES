@@ -12,6 +12,17 @@ for 2.0.
 CHANGELOG
 ---------
 
+What's new in Redis 2.2.0 final
+===============================
+
+Redis 2.2.0 final is both a bug fix and minor enhancement release:
+
+* SPOP is now replicated correctly in AOF and across slaves.
+* CONFIG SET/GET for all the special encoding parameters of sets, lists, hashes.
+* Now BRPOPLPUSH will reply with single null bulk on timeout.
+* Specifying port 0 in redis.conf will tell Redis to don't listen on TCP socket.
+* Propagate key eviction to slaves and AOF, similarly to expires.
+
 What's new in Redis 2.1.10 (2.2 Release Candidate 4)
 ====================================================
 
