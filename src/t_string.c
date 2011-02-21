@@ -287,11 +287,12 @@ void getrangeCommand(redisClient *c) {
 }
 
 void mgetCommand(redisClient *c) {
+    robj *o;
     int j;
 
     addReplyMultiBulkLen(c,c->argc-1);
     for (j = 1; j < c->argc; j++) {
-        robj *o = lookupKeyRead(c->db,c->argv[j]);
+        o = lookupKeyRead(c->db,c->argv[j]);
         if (o == NULL) {
             addReply(c,shared.nullbulk);
         } else {
