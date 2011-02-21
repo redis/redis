@@ -547,7 +547,9 @@ void replicationCron(void) {
                  * connection last interaction time, and at the same time
                  * we'll be sure that being a single char there are no
                  * short-write problems. */
-                write(slave->fd, "\n", 1);
+                if (write(slave->fd, "\n", 1) == -1) {
+                    /* Don't worry, it's just a ping. */
+                }
             }
         }
     }
