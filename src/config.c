@@ -468,10 +468,12 @@ void configGetCommand(redisClient *c) {
     if (stringmatch(pattern,"dir",0)) {
         char buf[1024];
 
-        buf[0] = '\0';
-        getcwd(buf,sizeof(buf));
         addReplyBulkCString(c,"dir");
-        addReplyBulkCString(c,buf);
+        if (getcwd(buf,sizeof(buf)) == NULL) {
+            buf[0] = '\0';
+        } else {
+            addReplyBulkCString(c,buf);
+        }
         matches++;
     }
     if (stringmatch(pattern,"dbfilename",0)) {
