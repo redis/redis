@@ -496,6 +496,25 @@ void hlenCommand(redisClient *c) {
     addReplyLongLong(c,hashTypeLength(o));
 }
 
+void mhlenCommand(redisClient *c) {
+    robj *o;
+    int j;
+
+    addReplyMultiBulkLen(c,c->argc-1);
+    for (j = 1; j < c->argc; j++) {
+        o = lookupKeyRead(c->db,c->argv[j]);
+        if (o == NULL) {
+            addReply(c,shared.nullbulk);
+        } else {
+            if (o->type != REDIS_HASH) {
+                addReply(c,shared.nullbulk);
+            } else {
+                addReplyLongLong(c,hashTypeLength(o));
+            }
+        }
+    }
+}
+
 void genericHgetallCommand(redisClient *c, int flags) {
     robj *o;
     unsigned long count = 0;

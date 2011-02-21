@@ -1021,6 +1021,7 @@ void mhgetCommand(redisClient *c);
 void mhsetCommand(redisClient *c);
 void mhdelCommand(redisClient *c);
 void hlenCommand(redisClient *c);
+void mhlenCommand(redisClient *c);
 void zremrangebyrankCommand(redisClient *c);
 void zunionstoreCommand(redisClient *c);
 void zinterstoreCommand(redisClient *c);
