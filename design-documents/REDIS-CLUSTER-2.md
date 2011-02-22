@@ -54,11 +54,11 @@ Data nodes
 Data nodes are normal Redis instances, but a few additional commands are
 provided.
 
-HASHRING ADD ... list of hash slots ...
-HASHRING DEL ... list of hash slots ...
-HASHRING REHASHING slot
-HASHRING SLOTS => returns the list of configured slots
-HSAHRING KEYS ... list of hash slots ...
+    HASHRING ADD ... list of hash slots ...
+    HASHRING DEL ... list of hash slots ...
+    HASHRING REHASHING slot
+    HASHRING SLOTS => returns the list of configured slots
+    HSAHRING KEYS ... list of hash slots ...
 
 By default Redis instances are configured to accept operations about all
 the hash slots. With this commands it's possible to configure a Redis instance
@@ -67,24 +67,24 @@ to accept only a subset of the key space.
 If an operation is performed against a key hashing to a slot that is not
 configured to be accepted, the Redis instance will reply with:
 
-  "-ERR wrong hash slot"
+    -ERR wrong hash slot
 
-More details on the HASHRING command and sub commands will be showed later
+More details on the `HASHRING` command and sub commands will be showed later
 in this document.
 
 Additionally three other commands are added:
 
-DUMP key
-RESTORE key <dump data>
-MIGRATE key host port
+    DUMP key
+    RESTORE key <dump data>
+    MIGRATE key host port
 
-DUMP is used to output a very compact binary representation of the data stored at key.
+`DUMP` is used to output a very compact binary representation of the data stored at key.
 
-RESTORE re-creates a value (storing it at key) starting from the output produced by DUMP.
+`RESTORE` re-creates a value (storing it at key) starting from the output produced by DUMP.
 
-MIGRATE is like a server-side DUMP+RESTORE command. This atomic command moves one key from the connected instance to another instance, returning the status code of the operation (+OK or an error).
+`MIGRATE` is like a server-side DUMP+RESTORE command. This atomic command moves one key from the connected instance to another instance, returning the status code of the operation (+OK or an error).
 
-The protocol described in this draft only uses the MIGRATE command, but this in turn will use RESTORE internally when connecting to another server, and DUMP is provided for symmetry.
+The protocol described in this draft only uses the `MIGRATE` command, but this in turn will use `RESTORE` internally when connecting to another server, and DUMP is provided for symmetry.
 
 Querying the cluster
 ====================
@@ -102,8 +102,8 @@ into memory. The cluster configuration is the sum of the following info:
   hash slot 3 -> node 3
   ... and so forth ...
 - Physical address of nodes, and their replicas.
-  node 0 addr -> 192.168.1.100
-  node 0 replicas -> 192.168.1.101, 192.168.1.105
+  `node 0 addr -> 192.168.1.100`
+  `node 0 replicas -> 192.168.1.101, 192.168.1.105`
 - Configuration version: the SHA1 of the whole configuration
 
 The configuration is stored in every single data node of the cluster.
@@ -127,7 +127,7 @@ configuration version matches the one loaded in memory.
 Also a client is required to refresh the configuration every time a node
 replies with:
 
-  "-ERR wrong hash slot"
+    -ERR wrong hash slot
 
 As this means that hash slots were reassigned in some way.
 
@@ -140,12 +140,12 @@ to time is going to have no impact in the overall performance.
 -------------
 
 To perform a read query the client hashes the key argument from the command
-(in the intiial version of Redis Cluster only single-key commands are
+(in the initial version of Redis Cluster only single-key commands are
 allowed). Using the in memory configuration it maps the hash key to the
 node ID.
 
 If the client is configured to support read-after-write consistency, then
-the "master" node for this hash slot is queried.
+the `master` node for this hash slot is queried.
 
 Otherwise the client picks a random node from the master and the replicas
 available.
@@ -159,7 +159,7 @@ write always targets the master node, instead of the replicas.
 Creating a cluster
 ==================
 
-In order to create a new cluster, the redis-cluster command line utility is
+In order to create a new cluster, the `redis-cluster` command line utility is
 used. It gets a list of available nodes and replicas, in order to write the
 initial configuration in all the nodes.
 
@@ -168,22 +168,21 @@ At this point the cluster is usable by clients.
 Adding nodes to the cluster
 ===========================
 
-The command line utility redis-cluster is used in order to add a node to the
+The command line utility `redis-cluster` is used in order to add a node to the
 cluster:
 
-1) The cluster configuration is loaded.
-2) A fair number of hash slots are assigned to the new data node.
-3) Hash slots moved to the new node are marked as "REHASHING" in the old
-   nodes, using the HASHRING command:
+1. The cluster configuration is loaded.
+2. A fair number of hash slots are assigned to the new data node.
+3. Hash slots moved to the new node are marked as "REHASHING" in the old nodes, using the HASHRING command:
 
-    HASHRING SETREHASHING 1 192.168.1.103 6380
+    `HASHRING SETREHASHING 1 192.168.1.103 6380`
 
 The above command set the hash slot "1" in rehashing state, with the
 "forwarding address" to 192.168.1.103:6380. As a result if this node receives
 a query about a key hashing to hash slot 1, that *is not present* in the
 current data set, it replies with:
 
-    "-MIGRATED 192.168.1.103:6380"
+    -MIGRATED 192.168.1.103:6380
 
 The client can then reissue the query against the new node.
 
@@ -194,14 +193,12 @@ rehashing.
 Note that no additional memory is used by Redis in order to provide such a
 feature.
 
-4) While the Hash slot is marked as "REHASHING", redis-cluster asks this node
-the list of all the keys matching the specified hash slot. Then all the keys
-are moved to the new node using the MIGRATE command.
-5) Once all the keys are migrated, the hash slot is deleted from the old
-node configuration with "HASHRING DEL 1". And the configuration is update.
+4. While the Hash slot is marked as `REHASHING`, `redis-cluster` asks this node the list of all the keys matching the specified hash slot. Then all the keys are moved to the new node using the `MIGRATE` command.
+5. Once all the keys are migrated, the hash slot is deleted from the old node configuration with `HASHRING DEL 1`. And the configuration is update.
 
-Using this algorithm all the hash slots are migrated one after the other to the new node. In practical implementation before to start the migration the
-redis-cluster utility should write a log into the configuration so that
+Using this algorithm all the hash slots are migrated one after the other to the new node.
+In practical implementation before to start the migration the
+`redis-cluster` utility should write a log into the configuration so that
 in case of crash or any other problem the utility is able to recover from
 were it left.
 
@@ -217,9 +214,9 @@ signaling it to all the other clients.
 
 When a master node is failing in a permanent way, promoting the first slave
 is easy:
-1) At some point a client will notice there are problems accessing a given node. It will try to refresh the config, but will notice that the config is already up to date.
-2) In order to make sure the problem is not about the client connectivity itself, it will try to reach other nodes as well. If more than M-1 nodes appear to be down, it's either a client networking problem or alternatively the cluster can't be fixed as too many nodes are down anyway. So no action is taken, but an error is reported.
-3) If instead only 1 or at max M-1 nodes appear to be down, the client promotes a slave as master and writes the new configuration to all the data nodes.
+1. At some point a client will notice there are problems accessing a given node. It will try to refresh the config, but will notice that the config is already up to date.
+2. In order to make sure the problem is not about the client connectivity itself, it will try to reach other nodes as well. If more than M-1 nodes appear to be down, it's either a client networking problem or alternatively the cluster can't be fixed as too many nodes are down anyway. So no action is taken, but an error is reported.
+3. If instead only 1 or at max M-1 nodes appear to be down, the client promotes a slave as master and writes the new configuration to all the data nodes.
 
 All the other clients will see the data node not working, and as a first step will try to refresh the configuration. They will successful refresh the configuration and the cluster will work again.
 
@@ -241,12 +238,12 @@ cluster and update if needed).
 
 One way to fix this problem is to delegate the fail over mechanism to a
 failover agent. When clients notice problems will not take any active action
-but will just log the problem into a redis list in all the reachable nodes,
+but will just log the problem into a `redis` list in all the reachable nodes,
 wait, check for configuration change, and retry.
 
 The failover agent constantly monitor this logs: if some client is reporting
 a failing node, it can take appropriate actions, checking if the failure is
-permanent or not. If it's not he can send a SHUTDOWN command to the failing
+permanent or not. If it's not he can send a `SHUTDOWN` command to the failing
 master if possible. The failover agent can also consider better the problem
 checking if the failing mode is advertised by all the clients or just a single
 one, and can check itself if there is a real problem before to proceed with
@@ -261,7 +258,7 @@ usual Redis client lib protocol (where a minimal lib can be as small as
 100 lines of code), a proxy will be provided to implement the cluster protocol
 as a proxy.
 
-Every client will talk to a redis-proxy node that is responsible of using
+Every client will talk to a `redis-proxy` node that is responsible of using
 the new protocol and forwarding back the replies.
 
 In the long run the aim is to switch all the major client libraries to the
@@ -307,7 +304,7 @@ For instance all the nodes may take a list of errors detected by clients.
 
 If Client-1 detects some failure accessing Node-3, for instance a connection
 refused error or a timeout, it logs what happened with LPUSH commands against
-all the other nodes. This "error messages" will have a timestamp and the Node
+all the other nodes. This "error message" will have a timestamp and the Node
 id. Something like:
 
     LPUSH __cluster__:errors 3:1272545939
@@ -328,7 +325,7 @@ refresh the configuration before a new access.
 
 The config hint may be something like:
 
-"we are switching to a new master, that is x.y.z.k:port, in a few seconds"
+    we are switching to a new master, that is x.y.z.k:port, in a few seconds
 
 When a client updates the config and finds such a flag set, it starts to
 continuously refresh the config until a change is noticed (this will take

@@ -12,11 +12,11 @@ sub-dictionaries (hashes) and so forth.
 
 While Redis is very fast, currently it lacks scalability in the form of ability
 to transparently run across different nodes. This is desirable mainly for the
-following three rasons:
+following three reasons:
 
-A) Fault tolerance. Some node may go off line without affecting the operations.
-B) Holding bigger datasets without using a single box with a lot of RAM.
-C) Scaling writes.
+1. Fault tolerance. Some node may go off line without affecting the operations.
+2. Holding bigger datasets without using a single box with a lot of RAM.
+3. Scaling writes.
 
 Since a single Redis instance supports 140,000 operations per second in a good
 Linux box costing less than $1000, the need for Redis Cluster arises more
@@ -33,8 +33,8 @@ Still a Dynamo alike DHT may not be the best fit for Redis.
 
 Redis is very simple and fast at its core, so Redis cluster should try to
 follow the same guidelines. The first problem with a Dynamo-alike DHT is that
-Redis supports complex data types. Merging complex values like lsits, where
-in the case of a netsplit may diverge in very complex ways, is not going to
+Redis supports complex data types. Merging complex values like lists, where
+in the case of a `netsplit` may diverge in very complex ways, is not going to
 be easy. The "most recent data" wins is not applicable and all the resolution
 business should be in the application.
 
@@ -43,7 +43,7 @@ values. Writing code in order to resolve conflicts is not going to be
 programmer friendly.
 
 So the author of this document claims that Redis does not need to resist to
-netsplits, but it is enough to resist to M-1 nodes going offline, where
+`netsplits`, but it is enough to resist to M-1 nodes going offline, where
 M is the number of nodes storing every key-value pair.
 
 For instance in a three nodes cluster I may configure the cluster in order to
@@ -64,24 +64,24 @@ Instead a more decoupled approach can be used, in the form of a Redis Proxy
 node (or multiple Proxy nodes) that is contacted by clients, and
 is responsible of forwarding queries and replies back and forth from data nodes.
 
-Data nodes can be just vanilla redis-server instances.
+Data nodes can be just vanilla `redis-server` instances.
 
 Network layout
 ==============
 
- - One ore more Data Nodes. Every node is identified by ip:port.
- - A single Configuration Node.
- - One more more Proxy Nodes (redis-cluster nodes).
- - A single Handling Node.
+- One ore more Data Nodes. Every node is identified by ip:port.
+- A single Configuration Node.
+- One more more Proxy Nodes (redis-cluster nodes).
+- A single Handling Node.
 
-Data Nodes and the Configuration Node are just vanilla redis-server instances.
+Data Nodes and the Configuration Node are just vanilla `redis-server` instances.
 
 Configuration Node
 ==================
 
- - Contains information about all the Data nodes in the cluster.
- - Contains information about all the Proxy nodes in the cluster.
- - Contains information about what Data Node holds a given sub-space of keys.
+- Contains information about all the Data nodes in the cluster.
+- Contains information about all the Proxy nodes in the cluster.
+- Contains information about what Data Node holds a given sub-space of keys.
 
 The keyspace is divided into 1024 different "hashing slots".
 (1024 is just an example, this value should be configurable)
@@ -90,7 +90,7 @@ Given a key perform SHA1(key) and use the last 10 bits of the result to get a 10
 
 The Configuration node maps every slot of the keyspace to M different Data Nodes (every key is stored into M nodes, configurable).
 
-The Configuration node can be modified by a single client at a time. Locking is performed using SETNX.
+The Configuration node can be modified by a single client at a time. Locking is performed using `SETNX`.
 
 The Configuration node should be replicated as there is a single configuration node for the whole network. It is the only single point of failure of the system.
 When a Configuration node fails the cluster does not stop operating, but is not
@@ -114,7 +114,7 @@ Configuration Node. This connections are keep alive with PING requests from time
 to time if there is no traffic. This way Proxy Nodes can understand asap if
 there is a problem in some Data Node or in the Configuration Node.
 
-When a Proxy Node is started it needs to know the Configuration node address in order to load the infomration about the Data nodes and the mapping between the key space and the nodes.
+When a Proxy Node is started it needs to know the Configuration node address in order to load the information about the Data nodes and the mapping between the key space and the nodes.
 
 On startup a Proxy Node will also register itself in the Configuration node, and will make sure to refresh it's configuration every N seconds (via an EXPIREing key) so that it's possible to detect when a Proxy node fails.
 
@@ -126,35 +126,35 @@ The Proxy Node is also in charge of signaling failing Data nodes to the Configur
 
 When a new Data node joins or leaves the cluster, and in general when the cluster configuration changes, all the Proxy nodes will receive a notification and will reload the configuration from the Configuration node.
 
-Proxy Nodes - how queries are submited
-======================================
+Proxy Nodes - how queries are submitted
+=======================================
 
 This is how a query is processed:
 
-1) A client sends a query to a Proxy Node, using the Redis protocol like if it was a plain Redis Node.
-2) The Proxy Node inspects the command arguments to detect the key. The key is hashed. The Proxy Node has the table mapping a given key to M nodes, and persistent connections to all the nodes.
+1. A client sends a query to a Proxy Node, using the Redis protocol like if it was a plain Redis Node.
+2. The Proxy Node inspects the command arguments to detect the key. The key is hashed. The Proxy Node has the table mapping a given key to M nodes, and persistent connections to all the nodes.
 
 At this point the process is different in case of read or write queries:
 
-WRITE QUERY:
+### WRITE QUERY
 
-3a) The Proxy Node forwards the query to M Data Nodes at the same time, waiting for replies.
-3b) Once all the replies are received the Proxy Node checks that the replies are consistent. For instance all the M nodes need to reply with OK and so forth. If the query fails in a subset of nodes but succeeds in other nodes, the failing nodes are considered unreliable and are put off line notifying the configuration node.
-3c) The reply is transfered back to the client.
+3a. The Proxy Node forwards the query to M Data Nodes at the same time, waiting for replies.
+3b. Once all the replies are received the Proxy Node checks that the replies are consistent. For instance all the M nodes need to reply with OK and so forth. If the query fails in a subset of nodes but succeeds in other nodes, the failing nodes are considered unreliable and are put off line notifying the configuration node.
+3c. The reply is transfered back to the client.
 
-READ QUERY:
+### READ QUERY
 
-3d) The Proxy Node forwards the query to a single random client, passing the reply back to the client.
+3d. The Proxy Node forwards the query to a single random client, passing the reply back to the client.
 
 Handling Node
 =============
 
 The handling node is a special Redis client with the following role:
 
- - Handles the cluster configuration stored in the Config node.
- - Is in charge for adding and removing nodes dynamically from the net.
- - Relocates keys on nodes additions / removal.
- - Signal a configuration change to Proxy nodes.
+- Handles the cluster configuration stored in the Config node.
+- Is in charge for adding and removing nodes dynamically from the net.
+- Relocates keys on nodes additions / removal.
+- Signal a configuration change to Proxy nodes.
 
 More details on hashing slots
 ============================
@@ -170,7 +170,7 @@ Every hashing slot is actually a Redis list, containing a single or more ip:port
 
     hashingslot:10 => 192.168.1.19:6379, 192.168.1.200:6379
 
-This mean that keys hashing to slot 10 will be saved in the two Data nodes  192.168.1.19:6379 and 192.168.1.200:6379.
+This mean that keys hashing to slot 10 will be saved in the two Data nodes `192.168.1.19:6379` and `192.168.1.200:6379`.
 
 When a client performs a read operation (via a proxy node), the proxy will contact a random Data node among the data nodes in charge for the given slot.
 
@@ -178,7 +178,7 @@ For instance a client can ask for the following operation to a given Proxy node:
 
     GET mykey
 
-"mykey" hashes to (for instance) slot 10, so the Proxy will forward the request to either Data node 192.168.1.19:6379 or 192.168.1.200:6379, and then forward back the reply to the client.
+`mykey` hashes to (for instance) slot 10, so the Proxy will forward the request to either Data node `192.168.1.19:6379` or `192.168.1.200:6379`, and then forward back the reply to the client.
 
 When a write operation is performed, it is forwarded to both the Data nodes in the example (and in general to all the data nodes).
 
@@ -196,9 +196,9 @@ For instance let's assume there are already two Data nodes in the cluster:
     192.168.1.1:6379
     192.168.1.2:6379
 
-We add a new node 192.168.1.3:6379 via the LPUSH operation.
+We add a new node `192.168.1.3:6379` via the `LPUSH` operation.
 
-We can imagine that the 1024 hash slots are assigned equally among the two inital nodes. In order to add the new (third) node what we have to do is to move incrementally 341 slots form the two old servers to the new one.
+We can imagine that the 1024 hash slots are assigned equally among the two initial nodes. In order to add the new (third) node what we have to do is to move incrementally 341 slots form the two old servers to the new one.
 
 For now we can think that every hash slot is only stored in a single server, to generalize the idea later.
 
