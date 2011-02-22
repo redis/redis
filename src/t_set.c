@@ -258,7 +258,7 @@ void msaddCommand(redisClient *c) {
             "at least 1 input value is needed for MSADD");
         return;
     }
- 
+
     /* test if the expected number of keys would overflow */
     if (3+setnum+valnum > c->argc) {
         addReply(c,shared.syntaxerr);
@@ -312,7 +312,7 @@ void msaddCommand(redisClient *c) {
         }
         addReplyLongLong(c,inserted);
     }
-    zfree(sets); 
+    zfree(sets);
 }
 
 void sremCommand(redisClient *c) {
@@ -330,6 +330,62 @@ void sremCommand(redisClient *c) {
     } else {
         addReply(c,shared.czero);
     }
+}
+
+void msremCommand(redisClient *c) {
+    int setnum, valnum, setstart, valstart, valend, i, j, removed;
+    robj *o;
+
+    setnum = atoi(c->argv[1]->ptr);
+    valnum = atoi(c->argv[2]->ptr);
+
+    if (setnum < 1) {
+        addReplyError(c,
+            "at least 1 input key is needed for MSREM");
+        return;
+    }
+
+    if (valnum < 1) {
+        addReplyError(c,
+            "at least 1 input value is needed for MSREM");
+        return;
+    }
+
+    setstart = 3;
+    valstart = setstart + setnum;
+    valend = valstart + valnum;
+
+    /* test if the expected number of keys would overflow */
+    if (valend > c->argc) {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+
+    for (j = valstart; j < valend; j++) {
+        c->argv[j] = tryObjectEncoding(c->argv[j]);
+    }
+
+    removed = 0;
+    for (i = setstart; i < valstart; i++) {
+        o = lookupKeyRead(c->db,c->argv[i]);
+        if (o != NULL) {
+	          if (o->type != REDIS_SET) {
+		            addReply(c,shared.wrongtypeerr);
+		            return;
+	          } else {
+                for (j = valstart; j < valend; j++) {
+                    if (setTypeRemove(o,c->argv[j])) {
+                        if (setTypeSize(o) == 0) dbDelete(c->db,c->argv[i]);
+                        signalModifiedKey(c->db,c->argv[i]);
+                        server.dirty++;
+                        removed++;
+                    }
+	              }
+	          }
+        }
+    }
+
+    addReplyLongLong(c,removed);
 }
 
 void smoveCommand(redisClient *c) {
