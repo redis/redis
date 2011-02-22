@@ -44,9 +44,14 @@ proc assert_type {type key} {
     assert_equal $type [r type $key]
 }
 
+# Test if TERM looks like to support colors
+proc color_term {} {
+    expr {[info exists ::env(TERM)] && [string match *xterm* $::env(TERM)]}
+}
+
 # This is called before starting the test
 proc announce_test {s} {
-    if {[info exists ::env(TERM)] && [string match $::env(TERM) xterm]} {
+    if {[color_term]} {
         puts -nonewline "$s\033\[0K"
         flush stdout
         set ::backward_count [string length $s]
@@ -55,7 +60,7 @@ proc announce_test {s} {
 
 # This is called after the test finished
 proc colored_dot {tags passed} {
-    if {[info exists ::env(TERM)] && [string match $::env(TERM) xterm]} {
+    if {[color_term]} {
         # Go backward and delete what announc_test function printed.
         puts -nonewline "\033\[${::backward_count}D\033\[0K\033\[J"
 
