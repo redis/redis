@@ -504,7 +504,7 @@ void mhlenCommand(redisClient *c) {
     for (j = 1; j < c->argc; j++) {
         o = lookupKeyRead(c->db,c->argv[j]);
         if (o == NULL) {
-            addReply(c,shared.nullbulk);
+            addReply(c,shared.czero);
         } else {
             if (o->type != REDIS_HASH) {
                 addReply(c,shared.nullbulk);
