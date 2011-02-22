@@ -320,10 +320,9 @@ static int linenoisePrompt(int fd, char *buf, size_t buflen, const char *prompt)
 
         switch(c) {
         case 13:    /* enter */
-        case 4:     /* ctrl-d */
             history_len--;
             free(history[history_len]);
-            return (len == 0 && c == 4) ? -1 : (int)len;
+            return (int)len;
         case 3:     /* ctrl-c */
             errno = EAGAIN;
             return -1;
@@ -335,6 +334,18 @@ static int linenoisePrompt(int fd, char *buf, size_t buflen, const char *prompt)
                 len--;
                 buf[len] = '\0';
                 refreshLine(fd,prompt,buf,len,pos,cols);
+            }
+            break;
+        case 4:     /* ctrl-d, remove char at right of cursor */
+            if (len > 1 && pos < (len-1)) {
+                memmove(buf+pos,buf+pos+1,len-pos);
+                len--;
+                buf[len] = '\0';
+                refreshLine(fd,prompt,buf,len,pos,cols);
+            } else if (len == 0) {
+                history_len--;
+                free(history[history_len]);
+                return -1;
             }
             break;
         case 20:    /* ctrl-t */
