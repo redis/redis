@@ -258,6 +258,53 @@ void listTypeConvert(robj *subject, int enc) {
  * List Commands
  *----------------------------------------------------------------------------*/
 
+void lsetallCommand(redisClient *c) {
+  int i, deleted;
+  robj *o, *dec;
+
+  deleted = dbDelete(c->db,c->argv[1]);
+
+  /* Use a real list when there are too many entries */
+  if ((size_t)(c->argc - 2) > server.list_max_ziplist_entries) {
+      o = createListObject();
+  } else {
+      o = createZiplistObject();
+  }
+
+  for (i = 2; i < c->argc; i++) {
+      c->argv[i] = tryObjectEncoding(c->argv[i]);
+
+      /* If we are using a ziplist and the value is too big, convert
+       * the object to a real list. */
+      if (o->encoding == REDIS_ENCODING_ZIPLIST &&
+          c->argv[i]->encoding == REDIS_ENCODING_RAW &&
+          sdslen(c->argv[i]->ptr) > server.list_max_ziplist_value)
+              listTypeConvert(o,REDIS_ENCODING_LINKEDLIST);
+
+      if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+          dec = getDecodedObject(c->argv[i]);
+          o->ptr = ziplistPush(o->ptr,dec->ptr,sdslen(dec->ptr),REDIS_TAIL);
+      } else {
+          listAddNodeTail(o->ptr,c->argv[i]);
+      }
+  }
+
+  if (dbAdd(c->db,c->argv[1],o) == REDIS_ERR) {
+      redisLog(REDIS_WARNING,"Fatal error (LSETALL), oops...", c->argv[1]->ptr);
+      if (deleted) {
+          signalModifiedKey(c->db,c->argv[1]);
+          server.dirty++;
+      }
+      addReply(c,shared.czero);
+      return;
+  }
+
+  addReply(c, shared.cone);
+  signalModifiedKey(c->db,c->argv[1]);
+  server.dirty++;
+
+}
+
 void pushGenericCommand(redisClient *c, int where) {
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
     c->argv[2] = tryObjectEncoding(c->argv[2]);
