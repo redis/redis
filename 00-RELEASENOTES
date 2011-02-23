@@ -12,6 +12,15 @@ for 2.0.
 CHANGELOG
 ---------
 
+What's new in Redis 2.2.1
+=========================
+
+Redis 2.2.1 is a bugfix release. Changelog:
+
+* Fixed an SPOP crash. When using SPOP in a MULTI/EXEC block there was a problem
+  introduced in the latest release when fixing an SPOP replication/AOF related
+  bug.
+
 What's new in Redis 2.2.0 final
 ===============================
 
