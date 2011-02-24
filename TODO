@@ -20,12 +20,11 @@ DISKSTORE TODO
 * Fix DBSIZE to really do something interesting
 * Add a DEBUG command to check if an entry is or not in memory currently
 
-REPLICATION
-===========
+APPEND ONLY FILE
+================
 
-* PING between master and slave from time to time, so we can subject the
-master-slave link to timeout, and detect when the connection is gone even
-if the socket is still up.
+* in AOF rewirte use HMSET to rewrite small hashes instead of multiple calls
+  to HSET.
 
 OPTIMIZATIONS
 =============

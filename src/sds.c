@@ -305,7 +305,10 @@ sds *sdssplitlen(char *s, int len, char *sep, int seplen, int *count) {
 #ifdef SDS_ABORT_ON_OOM
     if (tokens == NULL) sdsOomAbort();
 #endif
-    if (seplen < 1 || len < 0 || tokens == NULL) return NULL;
+    if (seplen < 1 || len < 0 || tokens == NULL) {
+        *count = 0;
+        return NULL;
+    }
     if (len == 0) {
         *count = 0;
         return tokens;
@@ -360,6 +363,7 @@ cleanup:
         int i;
         for (i = 0; i < elements; i++) sdsfree(tokens[i]);
         zfree(tokens);
+        *count = 0;
         return NULL;
     }
 #endif

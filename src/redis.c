@@ -68,158 +68,153 @@ double R_Zero, R_PosInf, R_NegInf, R_Nan;
 /* Global vars */
 struct redisServer server; /* server global state */
 struct redisCommand *commandTable;
-struct redisCommand readonlyCommandTable[] = {
-    {"get",getCommand,2,0,NULL,1,1,1},
-    {"set",setCommand,3,REDIS_CMD_DENYOOM,NULL,0,0,0},
-    {"setnx",setnxCommand,3,REDIS_CMD_DENYOOM,NULL,0,0,0},
-    {"setex",setexCommand,4,REDIS_CMD_DENYOOM,NULL,0,0,0},
-    {"append",appendCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"strlen",strlenCommand,2,0,NULL,1,1,1},
-    {"del",delCommand,-2,0,NULL,0,0,0},
-    {"exists",existsCommand,2,0,NULL,1,1,1},
-    {"setbit",setbitCommand,4,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"getbit",getbitCommand,3,0,NULL,1,1,1},
-    {"setrange",setrangeCommand,4,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"getrange",getrangeCommand,4,0,NULL,1,1,1},
-    {"substr",getrangeCommand,4,0,NULL,1,1,1},
-    {"incr",incrCommand,2,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"decr",decrCommand,2,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"incrto",incrtoCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"decrto",decrtoCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"mget",mgetCommand,-2,0,NULL,1,-1,1},
-    {"rpush",rpushCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"lpush",lpushCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"rpushx",rpushxCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"lpushx",lpushxCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"linsert",linsertCommand,5,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"rpop",rpopCommand,2,0,NULL,1,1,1},
-    {"lpop",lpopCommand,2,0,NULL,1,1,1},
-    {"brpop",brpopCommand,-3,0,NULL,1,1,1},
-    {"brpoplpush",brpoplpushCommand,4,REDIS_CMD_DENYOOM,NULL,1,2,1},
-    {"blpop",blpopCommand,-3,0,NULL,1,1,1},
-    {"llen",llenCommand,2,0,NULL,1,1,1},
-    {"lindex",lindexCommand,3,0,NULL,1,1,1},
-    {"lset",lsetCommand,4,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"lrange",lrangeCommand,4,0,NULL,1,1,1},
-    {"ltrim",ltrimCommand,4,0,NULL,1,1,1},
-    {"lrem",lremCommand,4,0,NULL,1,1,1},
-    {"lsetall",lsetallCommand,-2,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"rpoplpush",rpoplpushCommand,3,REDIS_CMD_DENYOOM,NULL,1,2,1},
-    {"sadd",saddCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"msadd",msaddCommand,-5,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"srem",sremCommand,3,0,NULL,1,1,1},
-    {"msrem",msremCommand,-5,0,NULL,1,1,1},
-    {"smove",smoveCommand,4,0,NULL,1,2,1},
-    {"sismember",sismemberCommand,3,0,NULL,1,1,1},
-    {"scard",scardCommand,2,0,NULL,1,1,1},
-    {"spop",spopCommand,2,0,NULL,1,1,1},
-    {"srandmember",srandmemberCommand,2,0,NULL,1,1,1},
-    {"sinter",sinterCommand,-2,REDIS_CMD_DENYOOM,NULL,1,-1,1},
-    {"sinterstore",sinterstoreCommand,-3,REDIS_CMD_DENYOOM,NULL,2,-1,1},
-    {"sunion",sunionCommand,-2,REDIS_CMD_DENYOOM,NULL,1,-1,1},
-    {"sunionstore",sunionstoreCommand,-3,REDIS_CMD_DENYOOM,NULL,2,-1,1},
-    {"sdiff",sdiffCommand,-2,REDIS_CMD_DENYOOM,NULL,1,-1,1},
-    {"sdiffstore",sdiffstoreCommand,-3,REDIS_CMD_DENYOOM,NULL,2,-1,1},
-    {"smembers",sinterCommand,2,0,NULL,1,1,1},
-    {"zadd",zaddCommand,4,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"zincrby",zincrbyCommand,4,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"zrem",zremCommand,3,0,NULL,1,1,1},
-    {"zremrangebyscore",zremrangebyscoreCommand,4,0,NULL,1,1,1},
-    {"zremrangebyrank",zremrangebyrankCommand,4,0,NULL,1,1,1},
-    {"zunionstore",zunionstoreCommand,-4,REDIS_CMD_DENYOOM,zunionInterBlockClientOnSwappedKeys,0,0,0},
-    {"zinterstore",zinterstoreCommand,-4,REDIS_CMD_DENYOOM,zunionInterBlockClientOnSwappedKeys,0,0,0},
-    {"zrange",zrangeCommand,-4,0,NULL,1,1,1},
-    {"zrangebyscore",zrangebyscoreCommand,-4,0,NULL,1,1,1},
-    {"zrevrangebyscore",zrevrangebyscoreCommand,-4,0,NULL,1,1,1},
-    {"zcount",zcountCommand,4,0,NULL,1,1,1},
-    {"zrevrange",zrevrangeCommand,-4,0,NULL,1,1,1},
-    {"zcard",zcardCommand,2,0,NULL,1,1,1},
-    {"zscore",zscoreCommand,3,0,NULL,1,1,1},
-    {"zrank",zrankCommand,3,0,NULL,1,1,1},
-    {"zrevrank",zrevrankCommand,3,0,NULL,1,1,1},
-    {"hset",hsetCommand,4,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"hsetnx",hsetnxCommand,4,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"hget",hgetCommand,3,0,NULL,1,1,1},
-    {"hmset",hmsetCommand,-4,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"hmget",hmgetCommand,-3,0,NULL,1,1,1},
-    {"hincrby",hincrbyCommand,4,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"hdel",hdelCommand,3,0,NULL,1,1,1},
-    {"hmdel",hmdelCommand,-3,0,NULL,1,1,1},
-    {"mhget",mhgetCommand,-3,0,NULL,2,-1,1},
-    {"mhset",mhsetCommand,-4,REDIS_CMD_DENYOOM,NULL,2,-1,2},
-    {"mhdel",mhdelCommand,-3,0,NULL,2,-1,1},
-    {"hlen",hlenCommand,2,0,NULL,1,1,1},
-    {"mhlen",mhlenCommand,-2,0,NULL,1,-1,1},
-    {"hkeys",hkeysCommand,2,0,NULL,1,1,1},
-    {"hvals",hvalsCommand,2,0,NULL,1,1,1},
-    {"hgetall",hgetallCommand,2,0,NULL,1,1,1},
-    {"hexists",hexistsCommand,3,0,NULL,1,1,1},
-    {"incrby",incrbyCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"decrby",decrbyCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"getset",getsetCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"mset",msetCommand,-3,REDIS_CMD_DENYOOM,NULL,1,-1,2},
-    {"msetnx",msetnxCommand,-3,REDIS_CMD_DENYOOM,NULL,1,-1,2},
-    {"randomkey",randomkeyCommand,1,0,NULL,0,0,0},
-    {"select",selectCommand,2,0,NULL,0,0,0},
-    {"move",moveCommand,3,0,NULL,1,1,1},
-    {"rename",renameCommand,3,0,NULL,1,1,1},
-    {"renamenx",renamenxCommand,3,0,NULL,1,1,1},
-    {"expire",expireCommand,3,0,NULL,0,0,0},
-    {"expireat",expireatCommand,3,0,NULL,0,0,0},
-    {"keys",keysCommand,2,0,NULL,0,0,0},
-    {"count",countCommand,2,0,NULL,0,0,0},
-    {"dbsize",dbsizeCommand,1,0,NULL,0,0,0},
-    {"auth",authCommand,2,0,NULL,0,0,0},
-    {"ping",pingCommand,1,0,NULL,0,0,0},
-    {"echo",echoCommand,2,0,NULL,0,0,0},
-    {"save",saveCommand,1,0,NULL,0,0,0},
-    {"bgsave",bgsaveCommand,1,0,NULL,0,0,0},
-    {"bgrewriteaof",bgrewriteaofCommand,1,0,NULL,0,0,0},
-    {"shutdown",shutdownCommand,1,0,NULL,0,0,0},
-    {"lastsave",lastsaveCommand,1,0,NULL,0,0,0},
-    {"type",typeCommand,2,0,NULL,1,1,1},
-    {"multi",multiCommand,1,0,NULL,0,0,0},
-    {"exec",execCommand,1,REDIS_CMD_DENYOOM,execBlockClientOnSwappedKeys,0,0,0},
-    {"discard",discardCommand,1,0,NULL,0,0,0},
-    {"sync",syncCommand,1,0,NULL,0,0,0},
-    {"flushdb",flushdbCommand,1,0,NULL,0,0,0},
-    {"flushall",flushallCommand,1,0,NULL,0,0,0},
-    {"sort",sortCommand,-2,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"info",infoCommand,1,0,NULL,0,0,0},
-    {"monitor",monitorCommand,1,0,NULL,0,0,0},
-    {"ttl",ttlCommand,2,0,NULL,1,1,1},
-    {"persist",persistCommand,2,0,NULL,1,1,1},
-    {"slaveof",slaveofCommand,3,0,NULL,0,0,0},
-    {"debug",debugCommand,-2,0,NULL,0,0,0},
-    {"config",configCommand,-2,0,NULL,0,0,0},
-    {"subscribe",subscribeCommand,-2,0,NULL,0,0,0},
-    {"unsubscribe",unsubscribeCommand,-1,0,NULL,0,0,0},
-    {"psubscribe",psubscribeCommand,-2,0,NULL,0,0,0},
-    {"punsubscribe",punsubscribeCommand,-1,0,NULL,0,0,0},
-    {"publish",publishCommand,3,REDIS_CMD_FORCE_REPLICATION,NULL,0,0,0},
-    {"watch",watchCommand,-2,0,NULL,0,0,0},
-    {"unwatch",unwatchCommand,1,0,NULL,0,0,0}
+struct redisCommand redisCommandTable[] = {
+    {"get",getCommand,2,0,NULL,1,1,1,0,0},
+    {"set",setCommand,3,REDIS_CMD_DENYOOM,NULL,0,0,0,0,0},
+    {"setnx",setnxCommand,3,REDIS_CMD_DENYOOM,NULL,0,0,0,0,0},
+    {"setex",setexCommand,4,REDIS_CMD_DENYOOM,NULL,0,0,0,0,0},
+    {"append",appendCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"strlen",strlenCommand,2,0,NULL,1,1,1,0,0},
+    {"del",delCommand,-2,0,NULL,0,0,0,0,0},
+    {"exists",existsCommand,2,0,NULL,1,1,1,0,0},
+    {"setbit",setbitCommand,4,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"getbit",getbitCommand,3,0,NULL,1,1,1,0,0},
+    {"setrange",setrangeCommand,4,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"getrange",getrangeCommand,4,0,NULL,1,1,1,0,0},
+    {"substr",getrangeCommand,4,0,NULL,1,1,1,0,0},
+    {"incr",incrCommand,2,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"decr",decrCommand,2,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"mget",mgetCommand,-2,0,NULL,1,-1,1,0,0},
+    {"rpush",rpushCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"lpush",lpushCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"rpushx",rpushxCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"lpushx",lpushxCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"linsert",linsertCommand,5,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"rpop",rpopCommand,2,0,NULL,1,1,1,0,0},
+    {"lpop",lpopCommand,2,0,NULL,1,1,1,0,0},
+    {"brpop",brpopCommand,-3,0,NULL,1,1,1,0,0},
+    {"brpoplpush",brpoplpushCommand,4,REDIS_CMD_DENYOOM,NULL,1,2,1,0,0},
+    {"blpop",blpopCommand,-3,0,NULL,1,1,1,0,0},
+    {"llen",llenCommand,2,0,NULL,1,1,1,0,0},
+    {"lindex",lindexCommand,3,0,NULL,1,1,1,0,0},
+    {"lset",lsetCommand,4,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"lrange",lrangeCommand,4,0,NULL,1,1,1,0,0},
+    {"ltrim",ltrimCommand,4,0,NULL,1,1,1,0,0},
+    {"lrem",lremCommand,4,0,NULL,1,1,1,0,0},
+    {"rpoplpush",rpoplpushCommand,3,REDIS_CMD_DENYOOM,NULL,1,2,1,0,0},
+    {"sadd",saddCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"srem",sremCommand,3,0,NULL,1,1,1,0,0},
+    {"smove",smoveCommand,4,0,NULL,1,2,1,0,0},
+    {"sismember",sismemberCommand,3,0,NULL,1,1,1,0,0},
+    {"scard",scardCommand,2,0,NULL,1,1,1,0,0},
+    {"spop",spopCommand,2,0,NULL,1,1,1,0,0},
+    {"srandmember",srandmemberCommand,2,0,NULL,1,1,1,0,0},
+    {"sinter",sinterCommand,-2,REDIS_CMD_DENYOOM,NULL,1,-1,1,0,0},
+    {"sinterstore",sinterstoreCommand,-3,REDIS_CMD_DENYOOM,NULL,2,-1,1,0,0},
+    {"sunion",sunionCommand,-2,REDIS_CMD_DENYOOM,NULL,1,-1,1,0,0},
+    {"sunionstore",sunionstoreCommand,-3,REDIS_CMD_DENYOOM,NULL,2,-1,1,0,0},
+    {"sdiff",sdiffCommand,-2,REDIS_CMD_DENYOOM,NULL,1,-1,1,0,0},
+    {"sdiffstore",sdiffstoreCommand,-3,REDIS_CMD_DENYOOM,NULL,2,-1,1,0,0},
+    {"smembers",sinterCommand,2,0,NULL,1,1,1,0,0},
+    {"zadd",zaddCommand,4,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"zincrby",zincrbyCommand,4,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"zrem",zremCommand,3,0,NULL,1,1,1,0,0},
+    {"zremrangebyscore",zremrangebyscoreCommand,4,0,NULL,1,1,1,0,0},
+    {"zremrangebyrank",zremrangebyrankCommand,4,0,NULL,1,1,1,0,0},
+    {"zunionstore",zunionstoreCommand,-4,REDIS_CMD_DENYOOM,zunionInterBlockClientOnSwappedKeys,0,0,0,0,0},
+    {"zinterstore",zinterstoreCommand,-4,REDIS_CMD_DENYOOM,zunionInterBlockClientOnSwappedKeys,0,0,0,0,0},
+    {"zrange",zrangeCommand,-4,0,NULL,1,1,1,0,0},
+    {"zrangebyscore",zrangebyscoreCommand,-4,0,NULL,1,1,1,0,0},
+    {"zrevrangebyscore",zrevrangebyscoreCommand,-4,0,NULL,1,1,1,0,0},
+    {"zcount",zcountCommand,4,0,NULL,1,1,1,0,0},
+    {"zrevrange",zrevrangeCommand,-4,0,NULL,1,1,1,0,0},
+    {"zcard",zcardCommand,2,0,NULL,1,1,1,0,0},
+    {"zscore",zscoreCommand,3,0,NULL,1,1,1,0,0},
+    {"zrank",zrankCommand,3,0,NULL,1,1,1,0,0},
+    {"zrevrank",zrevrankCommand,3,0,NULL,1,1,1,0,0},
+    {"hset",hsetCommand,4,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"hsetnx",hsetnxCommand,4,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"hget",hgetCommand,3,0,NULL,1,1,1,0,0},
+    {"hmset",hmsetCommand,-4,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"hmget",hmgetCommand,-3,0,NULL,1,1,1,0,0},
+    {"hincrby",hincrbyCommand,4,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"hdel",hdelCommand,3,0,NULL,1,1,1,0,0},
+    {"hlen",hlenCommand,2,0,NULL,1,1,1,0,0},
+    {"hkeys",hkeysCommand,2,0,NULL,1,1,1,0,0},
+    {"hvals",hvalsCommand,2,0,NULL,1,1,1,0,0},
+    {"hgetall",hgetallCommand,2,0,NULL,1,1,1,0,0},
+    {"hexists",hexistsCommand,3,0,NULL,1,1,1,0,0},
+    {"incrby",incrbyCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"decrby",decrbyCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"getset",getsetCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"mset",msetCommand,-3,REDIS_CMD_DENYOOM,NULL,1,-1,2,0,0},
+    {"msetnx",msetnxCommand,-3,REDIS_CMD_DENYOOM,NULL,1,-1,2,0,0},
+    {"randomkey",randomkeyCommand,1,0,NULL,0,0,0,0,0},
+    {"select",selectCommand,2,0,NULL,0,0,0,0,0},
+    {"move",moveCommand,3,0,NULL,1,1,1,0,0},
+    {"rename",renameCommand,3,0,NULL,1,1,1,0,0},
+    {"renamenx",renamenxCommand,3,0,NULL,1,1,1,0,0},
+    {"expire",expireCommand,3,0,NULL,0,0,0,0,0},
+    {"expireat",expireatCommand,3,0,NULL,0,0,0,0,0},
+    {"keys",keysCommand,2,0,NULL,0,0,0,0,0},
+    {"dbsize",dbsizeCommand,1,0,NULL,0,0,0,0,0},
+    {"auth",authCommand,2,0,NULL,0,0,0,0,0},
+    {"ping",pingCommand,1,0,NULL,0,0,0,0,0},
+    {"echo",echoCommand,2,0,NULL,0,0,0,0,0},
+    {"save",saveCommand,1,0,NULL,0,0,0,0,0},
+    {"bgsave",bgsaveCommand,1,0,NULL,0,0,0,0,0},
+    {"bgrewriteaof",bgrewriteaofCommand,1,0,NULL,0,0,0,0,0},
+    {"shutdown",shutdownCommand,1,0,NULL,0,0,0,0,0},
+    {"lastsave",lastsaveCommand,1,0,NULL,0,0,0,0,0},
+    {"type",typeCommand,2,0,NULL,1,1,1,0,0},
+    {"multi",multiCommand,1,0,NULL,0,0,0,0,0},
+    {"exec",execCommand,1,REDIS_CMD_DENYOOM,execBlockClientOnSwappedKeys,0,0,0,0,0},
+    {"discard",discardCommand,1,0,NULL,0,0,0,0,0},
+    {"sync",syncCommand,1,0,NULL,0,0,0,0,0},
+    {"flushdb",flushdbCommand,1,0,NULL,0,0,0,0,0},
+    {"flushall",flushallCommand,1,0,NULL,0,0,0,0,0},
+    {"sort",sortCommand,-2,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"info",infoCommand,-1,0,NULL,0,0,0,0,0},
+    {"monitor",monitorCommand,1,0,NULL,0,0,0,0,0},
+    {"ttl",ttlCommand,2,0,NULL,1,1,1,0,0},
+    {"persist",persistCommand,2,0,NULL,1,1,1,0,0},
+    {"slaveof",slaveofCommand,3,0,NULL,0,0,0,0,0},
+    {"debug",debugCommand,-2,0,NULL,0,0,0,0,0},
+    {"config",configCommand,-2,0,NULL,0,0,0,0,0},
+    {"subscribe",subscribeCommand,-2,0,NULL,0,0,0,0,0},
+    {"unsubscribe",unsubscribeCommand,-1,0,NULL,0,0,0,0,0},
+    {"psubscribe",psubscribeCommand,-2,0,NULL,0,0,0,0,0},
+    {"punsubscribe",punsubscribeCommand,-1,0,NULL,0,0,0,0,0},
+    {"publish",publishCommand,3,REDIS_CMD_FORCE_REPLICATION,NULL,0,0,0,0,0},
+    {"watch",watchCommand,-2,0,NULL,0,0,0,0,0},
+    {"unwatch",unwatchCommand,1,0,NULL,0,0,0,0,0},
+    /* Unofficial commands below */
+    {"count",countCommand,2,0,NULL,0,0,0,0,0},
+    {"decrto",decrtoCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"hmdel",hmdelCommand,-3,0,NULL,1,1,1,0,0},
+    {"incrto",incrtoCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"mhdel",mhdelCommand,-3,0,NULL,2,-1,1,0,0},
+    {"mhget",mhgetCommand,-3,0,NULL,2,-1,1,0,0},
+    {"mhset",mhsetCommand,-4,REDIS_CMD_DENYOOM,NULL,2,-1,2,0,0},
+    {"msadd",msaddCommand,-5,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"msrem",msremCommand,-5,0,NULL,1,1,1,0,0}
 };
 
 /*============================ Utility functions ============================ */
 
-void redisLog(int level, const char *fmt, ...) {
+/* Low level logging. To use only for very big messages, otherwise
+ * redisLog() is to prefer. */
+void redisLogRaw(int level, const char *msg) {
     const int syslogLevelMap[] = { LOG_DEBUG, LOG_INFO, LOG_NOTICE, LOG_WARNING };
     const char *c = ".-*#";
     time_t now = time(NULL);
-    va_list ap;
     FILE *fp;
     char buf[64];
-    char msg[REDIS_MAX_LOGMSG_LEN];
 
     if (level < server.verbosity) return;
 
     fp = (server.logfile == NULL) ? stdout : fopen(server.logfile,"a");
     if (!fp) return;
-
-    va_start(ap, fmt);
-    vsnprintf(msg, sizeof(msg), fmt, ap);
-    va_end(ap);
 
     strftime(buf,sizeof(buf),"%d %b %H:%M:%S",localtime(&now));
     fprintf(fp,"[%d] %s %c %s\n",(int)getpid(),buf,c[level],msg);
@@ -228,6 +223,22 @@ void redisLog(int level, const char *fmt, ...) {
     if (server.logfile) fclose(fp);
 
     if (server.syslog_enabled) syslog(syslogLevelMap[level], "%s", msg);
+}
+
+/* Like redisLogRaw() but with printf-alike support. This is the funciton that
+ * is used across the code. The raw version is only used in order to dump
+ * the INFO output on crash. */
+void redisLog(int level, const char *fmt, ...) {
+    va_list ap;
+    char msg[REDIS_MAX_LOGMSG_LEN];
+
+    if (level < server.verbosity) return;
+
+    va_start(ap, fmt);
+    vsnprintf(msg, sizeof(msg), fmt, ap);
+    va_end(ap);
+
+    redisLogRaw(level,msg);
 }
 
 /* Redis generally does not try to recover from out of memory conditions
@@ -239,6 +250,17 @@ void oom(const char *msg) {
     redisLog(REDIS_WARNING, "%s: Out of memory\n",msg);
     sleep(1);
     abort();
+}
+
+/* Return the UNIX time in microseconds */
+long long ustime(void) {
+    struct timeval tv;
+    long long ust;
+
+    gettimeofday(&tv, NULL);
+    ust = ((long long)tv.tv_sec)*1000000;
+    ust += tv.tv_usec;
+    return ust;
 }
 
 /*====================== Hash table type implementation  ==================== */
@@ -527,7 +549,7 @@ void updateLRUClock(void) {
 }
 
 int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
-    int j, loops = server.cronloops++;
+    int j, loops = server.cronloops;
     REDIS_NOTUSED(eventLoop);
     REDIS_NOTUSED(id);
     REDIS_NOTUSED(clientData);
@@ -657,6 +679,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * to detect transfer failures. */
     if (!(loops % 10)) replicationCron();
 
+    server.cronloops++;
     return 100;
 }
 
@@ -863,10 +886,13 @@ void initServer() {
     createSharedObjects();
     server.el = aeCreateEventLoop();
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
-    server.ipfd = anetTcpServer(server.neterr,server.port,server.bindaddr);
-    if (server.ipfd == ANET_ERR) {
-        redisLog(REDIS_WARNING, "Opening port: %s", server.neterr);
-        exit(1);
+
+    if (server.port != 0) {
+        server.ipfd = anetTcpServer(server.neterr,server.port,server.bindaddr);
+        if (server.ipfd == ANET_ERR) {
+            redisLog(REDIS_WARNING, "Opening port: %s", server.neterr);
+            exit(1);
+        }
     }
     if (server.unixsocket != NULL) {
         unlink(server.unixsocket); /* don't care if this fails */
@@ -929,20 +955,33 @@ void initServer() {
     }
 
     if (server.ds_enabled) dsInit();
+    srand(time(NULL)^getpid());
 }
 
 /* Populates the Redis Command Table starting from the hard coded list
  * we have on top of redis.c file. */
 void populateCommandTable(void) {
     int j;
-    int numcommands = sizeof(readonlyCommandTable)/sizeof(struct redisCommand);
+    int numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
 
     for (j = 0; j < numcommands; j++) {
-        struct redisCommand *c = readonlyCommandTable+j;
+        struct redisCommand *c = redisCommandTable+j;
         int retval;
 
         retval = dictAdd(server.commands, sdsnew(c->name), c);
         assert(retval == DICT_OK);
+    }
+}
+
+void resetCommandTableStats(void) {
+    int numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
+    int j;
+
+    for (j = 0; j < numcommands; j++) {
+        struct redisCommand *c = redisCommandTable+j;
+
+        c->microseconds = 0;
+        c->calls = 0;
     }
 }
 
@@ -963,11 +1002,13 @@ struct redisCommand *lookupCommandByCString(char *s) {
 
 /* Call() is the core of Redis execution of a command */
 void call(redisClient *c, struct redisCommand *cmd) {
-    long long dirty;
+    long long dirty, start = ustime();
 
     dirty = server.dirty;
     cmd->proc(c);
     dirty = server.dirty-dirty;
+    cmd->microseconds += ustime()-start;
+    cmd->calls++;
 
     if (server.appendonly && dirty)
         feedAppendOnlyFile(cmd,c->db->id,c->argv,c->argc);
@@ -1154,197 +1195,292 @@ void bytesToHuman(char *s, unsigned long long n) {
 /* Create the string returned by the INFO command. This is decoupled
  * by the INFO command itself as we need to report the same information
  * on memory corruption problems. */
-sds genRedisInfoString(void) {
-    sds info;
+sds genRedisInfoString(char *section) {
+    sds info = sdsempty();
     time_t uptime = time(NULL)-server.stat_starttime;
-    int j;
+    int j, numcommands;
     char hmem[64];
     struct rusage self_ru, c_ru;
     unsigned long lol, bib;
+    int allsections = 0, defsections = 0;
+    int sections = 0;
+    
+    if (section) {
+        allsections = strcasecmp(section,"all") == 0;
+        defsections = strcasecmp(section,"default") == 0;
+    }
 
     getrusage(RUSAGE_SELF, &self_ru);
     getrusage(RUSAGE_CHILDREN, &c_ru);
     getClientsMaxBuffers(&lol,&bib);
-
     bytesToHuman(hmem,zmalloc_used_memory());
-    info = sdscatprintf(sdsempty(),
-        "redis_version:%s\r\n"
-        "redis_git_sha1:%s\r\n"
-        "redis_git_dirty:%d\r\n"
-        "arch_bits:%s\r\n"
-        "multiplexing_api:%s\r\n"
-        "process_id:%ld\r\n"
-        "uptime_in_seconds:%ld\r\n"
-        "uptime_in_days:%ld\r\n"
-        "lru_clock:%ld\r\n"
-        "used_cpu_sys:%.2f\r\n"
-        "used_cpu_user:%.2f\r\n"
-        "used_cpu_sys_childrens:%.2f\r\n"
-        "used_cpu_user_childrens:%.2f\r\n"
-        "connected_clients:%d\r\n"
-        "connected_slaves:%d\r\n"
-        "client_longest_output_list:%lu\r\n"
-        "client_biggest_input_buf:%lu\r\n"
-        "blocked_clients:%d\r\n"
-        "used_memory:%zu\r\n"
-        "used_memory_human:%s\r\n"
-        "used_memory_rss:%zu\r\n"
-        "mem_fragmentation_ratio:%.2f\r\n"
-        "use_tcmalloc:%d\r\n"
-        "loading:%d\r\n"
-        "aof_enabled:%d\r\n"
-        "changes_since_last_save:%lld\r\n"
-        "bgsave_in_progress:%d\r\n"
-        "last_save_time:%ld\r\n"
-        "bgrewriteaof_in_progress:%d\r\n"
-        "total_connections_received:%lld\r\n"
-        "total_commands_processed:%lld\r\n"
-        "expired_keys:%lld\r\n"
-        "evicted_keys:%lld\r\n"
-        "keyspace_hits:%lld\r\n"
-        "keyspace_misses:%lld\r\n"
-        "hash_max_zipmap_entries:%zu\r\n"
-        "hash_max_zipmap_value:%zu\r\n"
-        "pubsub_channels:%ld\r\n"
-        "pubsub_patterns:%u\r\n"
-        "ds_enabled:%d\r\n"
-        "role:%s\r\n"
-        ,REDIS_VERSION,
-        redisGitSHA1(),
-        strtol(redisGitDirty(),NULL,10) > 0,
-        (sizeof(long) == 8) ? "64" : "32",
-        aeGetApiName(),
-        (long) getpid(),
-        uptime,
-        uptime/(3600*24),
-        (unsigned long) server.lruclock,
-        (float)self_ru.ru_utime.tv_sec+(float)self_ru.ru_utime.tv_usec/1000000,
-        (float)self_ru.ru_stime.tv_sec+(float)self_ru.ru_stime.tv_usec/1000000,
-        (float)c_ru.ru_utime.tv_sec+(float)c_ru.ru_utime.tv_usec/1000000,
-        (float)c_ru.ru_stime.tv_sec+(float)c_ru.ru_stime.tv_usec/1000000,
-        listLength(server.clients)-listLength(server.slaves),
-        listLength(server.slaves),
-        lol, bib,
-        server.bpop_blocked_clients,
-        zmalloc_used_memory(),
-        hmem,
-        zmalloc_get_rss(),
-        zmalloc_get_fragmentation_ratio(),
-#ifdef USE_TCMALLOC
-        1,
-#else
-        0,
-#endif
-        server.loading,
-        server.appendonly,
-        server.dirty,
-        server.bgsavechildpid != -1 || server.bgsavethread != (pthread_t) -1,
-        server.lastsave,
-        server.bgrewritechildpid != -1,
-        server.stat_numconnections,
-        server.stat_numcommands,
-        server.stat_expiredkeys,
-        server.stat_evictedkeys,
-        server.stat_keyspace_hits,
-        server.stat_keyspace_misses,
-        server.hash_max_zipmap_entries,
-        server.hash_max_zipmap_value,
-        dictSize(server.pubsub_channels),
-        listLength(server.pubsub_patterns),
-        server.ds_enabled != 0,
-        server.masterhost == NULL ? "master" : "slave"
-    );
-    if (server.masterhost) {
-        info = sdscatprintf(info,
-            "master_host:%s\r\n"
-            "master_port:%d\r\n"
-            "master_link_status:%s\r\n"
-            "master_last_io_seconds_ago:%d\r\n"
-            "master_sync_in_progress:%d\r\n"
-            ,server.masterhost,
-            server.masterport,
-            (server.replstate == REDIS_REPL_CONNECTED) ?
-                "up" : "down",
-            server.master ? ((int)(time(NULL)-server.master->lastinteraction)) : -1,
-            server.replstate == REDIS_REPL_TRANSFER
-        );
 
-        if (server.replstate == REDIS_REPL_TRANSFER) {
+    /* Server */
+    if (allsections || defsections || !strcasecmp(section,"server")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info,
+            "# Server\r\n"
+            "redis_version:%s\r\n"
+            "redis_git_sha1:%s\r\n"
+            "redis_git_dirty:%d\r\n"
+            "arch_bits:%s\r\n"
+            "multiplexing_api:%s\r\n"
+            "process_id:%ld\r\n"
+            "tcp_port:%d\r\n"
+            "uptime_in_seconds:%ld\r\n"
+            "uptime_in_days:%ld\r\n"
+            "lru_clock:%ld\r\n",
+            REDIS_VERSION,
+            redisGitSHA1(),
+            strtol(redisGitDirty(),NULL,10) > 0,
+            (sizeof(long) == 8) ? "64" : "32",
+            aeGetApiName(),
+            (long) getpid(),
+            server.port,
+            uptime,
+            uptime/(3600*24),
+            (unsigned long) server.lruclock);
+    }
+
+    /* Clients */
+    if (allsections || defsections || !strcasecmp(section,"clients")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info,
+            "# Clients\r\n"
+            "connected_clients:%d\r\n"
+            "client_longest_output_list:%lu\r\n"
+            "client_biggest_input_buf:%lu\r\n"
+            "blocked_clients:%d\r\n",
+            listLength(server.clients)-listLength(server.slaves),
+            lol, bib,
+            server.bpop_blocked_clients);
+    }
+
+    /* Memory */
+    if (allsections || defsections || !strcasecmp(section,"memory")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info,
+            "# Memory\r\n"
+            "used_memory:%zu\r\n"
+            "used_memory_human:%s\r\n"
+            "used_memory_rss:%zu\r\n"
+            "mem_fragmentation_ratio:%.2f\r\n"
+            "use_tcmalloc:%d\r\n",
+            zmalloc_used_memory(),
+            hmem,
+            zmalloc_get_rss(),
+            zmalloc_get_fragmentation_ratio(),
+    #ifdef USE_TCMALLOC
+            1
+    #else
+            0
+    #endif
+            );
+    }
+
+    /* Allocation statistics */
+    if (allsections || !strcasecmp(section,"allocstats")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscat(info, "# Allocstats\r\nallocation_stats:");
+        for (j = 0; j <= ZMALLOC_MAX_ALLOC_STAT; j++) {
+            size_t count = zmalloc_allocations_for_size(j);
+            if (count) {
+                if (info[sdslen(info)-1] != ':') info = sdscatlen(info,",",1);
+                info = sdscatprintf(info,"%s%d=%zu",
+                    (j == ZMALLOC_MAX_ALLOC_STAT) ? ">=" : "",
+                    j,count);
+            }
+        }
+        info = sdscat(info,"\r\n");
+    }
+
+    /* Persistence */
+    if (allsections || defsections || !strcasecmp(section,"persistence")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info,
+            "# Persistence\r\n"
+            "loading:%d\r\n"
+            "aof_enabled:%d\r\n"
+            "changes_since_last_save:%lld\r\n"
+            "bgsave_in_progress:%d\r\n"
+            "last_save_time:%ld\r\n"
+            "bgrewriteaof_in_progress:%d\r\n",
+            server.loading,
+            server.appendonly,
+            server.dirty,
+                server.bgsavechildpid != -1 ||
+                server.bgsavethread != (pthread_t) -1,
+            server.lastsave,
+            server.bgrewritechildpid != -1);
+
+        if (server.loading) {
+            double perc;
+            time_t eta, elapsed;
+            off_t remaining_bytes = server.loading_total_bytes-
+                                    server.loading_loaded_bytes;
+
+            perc = ((double)server.loading_loaded_bytes /
+                   server.loading_total_bytes) * 100;
+
+            elapsed = time(NULL)-server.loading_start_time;
+            if (elapsed == 0) {
+                eta = 1; /* A fake 1 second figure if we don't have
+                            enough info */
+            } else {
+                eta = (elapsed*remaining_bytes)/server.loading_loaded_bytes;
+            }
+
             info = sdscatprintf(info,
-                "master_sync_left_bytes:%ld\r\n"
-                "master_sync_last_io_seconds_ago:%d\r\n"
-                ,(long)server.repl_transfer_left,
-                (int)(time(NULL)-server.repl_transfer_lastio)
+                "loading_start_time:%ld\r\n"
+                "loading_total_bytes:%llu\r\n"
+                "loading_loaded_bytes:%llu\r\n"
+                "loading_loaded_perc:%.2f\r\n"
+                "loading_eta_seconds:%ld\r\n"
+                ,(unsigned long) server.loading_start_time,
+                (unsigned long long) server.loading_total_bytes,
+                (unsigned long long) server.loading_loaded_bytes,
+                perc,
+                eta
             );
         }
     }
-    if (server.ds_enabled) {
-        lockThreadedIO();
+
+    /* Diskstore */
+    if (allsections || defsections || !strcasecmp(section,"diskstore")) {
+        if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
-            "cache_max_memory:%llu\r\n"
-            "cache_blocked_clients:%lu\r\n"
-            ,(unsigned long long) server.cache_max_memory,
-            (unsigned long) server.cache_blocked_clients
-        );
-        unlockThreadedIO();
-    }
-    if (server.loading) {
-        double perc;
-        time_t eta, elapsed;
-        off_t remaining_bytes = server.loading_total_bytes-
-                                server.loading_loaded_bytes;
-
-        perc = ((double)server.loading_loaded_bytes /
-               server.loading_total_bytes) * 100;
-
-        elapsed = time(NULL)-server.loading_start_time;
-        if (elapsed == 0) {
-            eta = 1; /* A fake 1 second figure if we don't have enough info */
-        } else {
-            eta = (elapsed*remaining_bytes)/server.loading_loaded_bytes;
-        }
-
-        info = sdscatprintf(info,
-            "loading_start_time:%ld\r\n"
-            "loading_total_bytes:%llu\r\n"
-            "loading_loaded_bytes:%llu\r\n"
-            "loading_loaded_perc:%.2f\r\n"
-            "loading_eta_seconds:%ld\r\n"
-            ,(unsigned long) server.loading_start_time,
-            (unsigned long long) server.loading_total_bytes,
-            (unsigned long long) server.loading_loaded_bytes,
-            perc,
-            eta
-        );
-    }
-
-    info = sdscat(info,"allocation_stats:");
-    for (j = 0; j <= ZMALLOC_MAX_ALLOC_STAT; j++) {
-        size_t count = zmalloc_allocations_for_size(j);
-        if (count) {
-            if (info[sdslen(info)-1] != ':') info = sdscatlen(info,",",1);
-            info = sdscatprintf(info,"%s%d=%zu",
-                (j == ZMALLOC_MAX_ALLOC_STAT) ? ">=" : "",
-                j,count);
+            "# Diskstore\r\n"
+            "ds_enabled:%d\r\n",
+            server.ds_enabled != 0);
+        if (server.ds_enabled) {
+            lockThreadedIO();
+            info = sdscatprintf(info,
+                "cache_max_memory:%llu\r\n"
+                "cache_blocked_clients:%lu\r\n"
+                ,(unsigned long long) server.cache_max_memory,
+                (unsigned long) server.cache_blocked_clients
+            );
+            unlockThreadedIO();
         }
     }
-    info = sdscat(info,"\r\n");
 
-    for (j = 0; j < server.dbnum; j++) {
-        long long keys, vkeys;
+    /* Stats */
+    if (allsections || defsections || !strcasecmp(section,"stats")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info,
+            "# Stats\r\n"
+            "total_connections_received:%lld\r\n"
+            "total_commands_processed:%lld\r\n"
+            "expired_keys:%lld\r\n"
+            "evicted_keys:%lld\r\n"
+            "keyspace_hits:%lld\r\n"
+            "keyspace_misses:%lld\r\n"
+            "pubsub_channels:%ld\r\n"
+            "pubsub_patterns:%u\r\n",
+            server.stat_numconnections,
+            server.stat_numcommands,
+            server.stat_expiredkeys,
+            server.stat_evictedkeys,
+            server.stat_keyspace_hits,
+            server.stat_keyspace_misses,
+            dictSize(server.pubsub_channels),
+            listLength(server.pubsub_patterns));
+    }
 
-        keys = dictSize(server.db[j].dict);
-        vkeys = dictSize(server.db[j].expires);
-        if (keys || vkeys) {
-            info = sdscatprintf(info, "db%d:keys=%lld,expires=%lld\r\n",
-                j, keys, vkeys);
+    /* Replication */
+    if (allsections || defsections || !strcasecmp(section,"replication")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info,
+            "# Replication\r\n"
+            "role:%s\r\n",
+            server.masterhost == NULL ? "master" : "slave");
+        if (server.masterhost) {
+            info = sdscatprintf(info,
+                "master_host:%s\r\n"
+                "master_port:%d\r\n"
+                "master_link_status:%s\r\n"
+                "master_last_io_seconds_ago:%d\r\n"
+                "master_sync_in_progress:%d\r\n"
+                ,server.masterhost,
+                server.masterport,
+                (server.replstate == REDIS_REPL_CONNECTED) ?
+                    "up" : "down",
+                server.master ?
+                ((int)(time(NULL)-server.master->lastinteraction)) : -1,
+                server.replstate == REDIS_REPL_TRANSFER
+            );
+
+            if (server.replstate == REDIS_REPL_TRANSFER) {
+                info = sdscatprintf(info,
+                    "master_sync_left_bytes:%ld\r\n"
+                    "master_sync_last_io_seconds_ago:%d\r\n"
+                    ,(long)server.repl_transfer_left,
+                    (int)(time(NULL)-server.repl_transfer_lastio)
+                );
+            }
+        }
+        info = sdscatprintf(info,
+            "connected_slaves:%d\r\n",
+            listLength(server.slaves));
+    }
+
+    /* CPU */
+    if (allsections || defsections || !strcasecmp(section,"cpu")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info,
+        "# CPU\r\n"
+        "used_cpu_sys:%.2f\r\n"
+        "used_cpu_user:%.2f\r\n"
+        "used_cpu_sys_childrens:%.2f\r\n"
+        "used_cpu_user_childrens:%.2f\r\n",
+        (float)self_ru.ru_utime.tv_sec+(float)self_ru.ru_utime.tv_usec/1000000,
+        (float)self_ru.ru_stime.tv_sec+(float)self_ru.ru_stime.tv_usec/1000000,
+        (float)c_ru.ru_utime.tv_sec+(float)c_ru.ru_utime.tv_usec/1000000,
+        (float)c_ru.ru_stime.tv_sec+(float)c_ru.ru_stime.tv_usec/1000000);
+    }
+
+    /* cmdtime */
+    if (allsections || !strcasecmp(section,"commandstats")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info, "# Commandstats\r\n");
+        numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
+        for (j = 0; j < numcommands; j++) {
+            struct redisCommand *c = redisCommandTable+j;
+
+            if (!c->calls) continue;
+            info = sdscatprintf(info,
+                "cmdstat_%s:calls=%lld,usec=%lld,usec_per_call=%.2f\r\n",
+                c->name, c->calls, c->microseconds,
+                (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls));
+        }
+    }
+
+    /* Key space */
+    if (allsections || defsections || !strcasecmp(section,"keyspace")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info, "# Keyspace\r\n");
+        for (j = 0; j < server.dbnum; j++) {
+            long long keys, vkeys;
+
+            keys = dictSize(server.db[j].dict);
+            vkeys = dictSize(server.db[j].expires);
+            if (keys || vkeys) {
+                info = sdscatprintf(info, "db%d:keys=%lld,expires=%lld\r\n",
+                    j, keys, vkeys);
+            }
         }
     }
     return info;
 }
 
 void infoCommand(redisClient *c) {
-    sds info = genRedisInfoString();
+    char *section = c->argc == 2 ? c->argv[1]->ptr : "default";
+
+    if (c->argc > 2) {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+    sds info = genRedisInfoString(section);
     addReplySds(c,sdscatprintf(sdsempty(),"$%lu\r\n",
         (unsigned long)sdslen(info)));
     addReplySds(c,info);
@@ -1454,6 +1590,7 @@ void freeMemoryIfNeeded(void) {
             /* Finally remove the selected key. */
             if (bestkey) {
                 robj *keyobj = createStringObject(bestkey,sdslen(bestkey));
+                propagateExpire(db,keyobj);
                 dbDelete(db,keyobj);
                 server.stat_evictedkeys++;
                 decrRefCount(keyobj);
@@ -1610,8 +1747,8 @@ void segvHandler(int sig, siginfo_t *info, void *secret) {
 
     redisLog(REDIS_WARNING,
         "======= Ooops! Redis %s got signal: -%d- =======", REDIS_VERSION, sig);
-    infostring = genRedisInfoString();
-    redisLog(REDIS_WARNING, "%s",infostring);
+    infostring = genRedisInfoString("all");
+    redisLogRaw(REDIS_WARNING, infostring);
     /* It's not safe to sdsfree() the returned string under memory
      * corruption conditions. Let it leak as we are going to abort */
 

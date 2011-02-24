@@ -262,7 +262,7 @@ size_t zmalloc_get_rss(void) {
     return t_info.resident_size;
 }
 #else
-float zmalloc_get_rss(void) {
+size_t zmalloc_get_rss(void) {
     /* If we can't get the RSS in an OS-specific way for this system just
      * return the memory usage we estimated in zmalloc()..
      *

@@ -418,10 +418,12 @@ void *IOThreadEntryPoint(void *arg) {
         /* Get a new job to process */
         if (listLength(server.io_newjobs) == 0) {
             /* Wait for more work to do */
+            redisLog(REDIS_DEBUG,"[T] wait for signal");
             pthread_cond_wait(&server.io_condvar,&server.io_mutex);
+            redisLog(REDIS_DEBUG,"[T] signal received");
             continue;
         }
-        redisLog(REDIS_DEBUG,"%ld IO jobs to process",
+        redisLog(REDIS_DEBUG,"[T] %ld IO jobs to process",
             listLength(server.io_newjobs));
         ln = listFirst(server.io_newjobs);
         j = ln->value;
@@ -431,7 +433,7 @@ void *IOThreadEntryPoint(void *arg) {
         ln = listLast(server.io_processing); /* We use ln later to remove it */
         unlockThreadedIO();
 
-        redisLog(REDIS_DEBUG,"Thread %ld: new job type %s: %p about key '%s'",
+        redisLog(REDIS_DEBUG,"[T] %ld: new job type %s: %p about key '%s'",
             (long) pthread_self(),
             (j->type == REDIS_IOJOB_LOAD) ? "load" : "save",
             (void*)j, (char*)j->key->ptr);
@@ -444,17 +446,19 @@ void *IOThreadEntryPoint(void *arg) {
             if (j->val) j->expire = expire;
         } else if (j->type == REDIS_IOJOB_SAVE) {
             if (j->val) {
-                dsSet(j->db,j->key,j->val);
+                dsSet(j->db,j->key,j->val,j->expire);
             } else {
                 dsDel(j->db,j->key);
             }
         }
 
         /* Done: insert the job into the processed queue */
-        redisLog(REDIS_DEBUG,"Thread %ld completed the job: %p (key %s)",
+        redisLog(REDIS_DEBUG,"[T] %ld completed the job: %p (key %s)",
             (long) pthread_self(), (void*)j, (char*)j->key->ptr);
 
+        redisLog(REDIS_DEBUG,"[T] lock IO");
         lockThreadedIO();
+        redisLog(REDIS_DEBUG,"[T] IO locked");
         listDelNode(server.io_processing,ln);
         listAddNodeTail(server.io_processed,j);
 
@@ -501,30 +505,39 @@ int processActiveIOJobs(int max) {
     while(max == -1 || max > 0) {
         int io_processed_len;
 
+        redisLog(REDIS_DEBUG,"[P] lock IO");
         lockThreadedIO();
+        redisLog(REDIS_DEBUG,"Waiting IO jobs processing: new:%d proessing:%d processed:%d",listLength(server.io_newjobs),listLength(server.io_processing),listLength(server.io_processed));
+
         if (listLength(server.io_newjobs) == 0 &&
             listLength(server.io_processing) == 0)
         {
             /* There is nothing more to process */
+            redisLog(REDIS_DEBUG,"[P] Nothing to process, unlock IO, return");
             unlockThreadedIO();
             break;
         }
 
-#if 0
+#if 1
         /* If there are new jobs we need to signal the thread to
          * process the next one. FIXME: drop this if useless. */
-        redisLog(REDIS_DEBUG,"waitEmptyIOJobsQueue: new %d, processing %d",
+        redisLog(REDIS_DEBUG,"[P] waitEmptyIOJobsQueue: new %d, processing %d, processed %d",
             listLength(server.io_newjobs),
-            listLength(server.io_processing));
+            listLength(server.io_processing),
+            listLength(server.io_processed));
 
         if (listLength(server.io_newjobs)) {
+            redisLog(REDIS_DEBUG,"[P] There are new jobs, signal");
             pthread_cond_signal(&server.io_condvar);
         }
 #endif
 
         /* Check if we can process some finished job */
         io_processed_len = listLength(server.io_processed);
+        redisLog(REDIS_DEBUG,"[P] Unblock IO");
         unlockThreadedIO();
+        redisLog(REDIS_DEBUG,"[P] Wait");
+        usleep(10000);
         if (io_processed_len) {
             vmThreadedIOCompletedJob(NULL,server.io_ready_pipe_read,
                                                         (void*)0xdeadbeef,0);
@@ -590,7 +603,7 @@ void cacheForcePointInTime(void) {
     processAllPendingIOJobs();
 }
 
-void cacheCreateIOJob(int type, redisDb *db, robj *key, robj *val) {
+void cacheCreateIOJob(int type, redisDb *db, robj *key, robj *val, time_t expire) {
     iojob *j;
 
     j = zmalloc(sizeof(*j));
@@ -600,6 +613,7 @@ void cacheCreateIOJob(int type, redisDb *db, robj *key, robj *val) {
     incrRefCount(key);
     j->val = val;
     if (val) incrRefCount(val);
+    j->expire = expire;
 
     lockThreadedIO();
     queueIOJob(j);
@@ -780,20 +794,23 @@ int cacheScheduleIOPushJobs(int flags) {
             op->type == REDIS_IO_LOAD ? "load" : "save", op->key->ptr);
 
         if (op->type == REDIS_IO_LOAD) {
-            cacheCreateIOJob(REDIS_IOJOB_LOAD,op->db,op->key,NULL);
+            cacheCreateIOJob(REDIS_IOJOB_LOAD,op->db,op->key,NULL,0);
         } else {
+            time_t expire = -1;
+
             /* Lookup the key, in order to put the current value in the IO
              * Job. Otherwise if the key does not exists we schedule a disk
              * store delete operation, setting the value to NULL. */
             de = dictFind(op->db->dict,op->key->ptr);
             if (de) {
                 val = dictGetEntryVal(de);
+                expire = getExpire(op->db,op->key);
             } else {
                 /* Setting the value to NULL tells the IO thread to delete
                  * the key on disk. */
                 val = NULL;
             }
-            cacheCreateIOJob(REDIS_IOJOB_SAVE,op->db,op->key,val);
+            cacheCreateIOJob(REDIS_IOJOB_SAVE,op->db,op->key,val,expire);
         }
         /* Mark the operation as in progress. */
         cacheScheduleIODelFlag(op->db,op->key,op->type);
