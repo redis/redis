@@ -193,12 +193,14 @@ struct redisCommand redisCommandTable[] = {
     {"decrto",decrtoCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
     {"hmdel",hmdelCommand,-3,0,NULL,1,1,1,0,0},
     {"incrto",incrtoCommand,3,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
+    {"mlpush",mlpushCommand,-3,REDIS_CMD_DENYOOM,NULL,2,-1,1,0,0},
     {"mhdel",mhdelCommand,-3,0,NULL,2,-1,1,0,0},
     {"mhget",mhgetCommand,-3,0,NULL,2,-1,1,0,0},
     {"mhlen",mhlenCommand,-2,0,NULL,1,-1,1,0,0},
     {"mhset",mhsetCommand,-4,REDIS_CMD_DENYOOM,NULL,2,-1,2,0,0},
-    {"msadd",msaddCommand,-5,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
-    {"msrem",msremCommand,-5,0,NULL,1,1,1,0,0}
+    {"mrpush",mrpushCommand,-3,REDIS_CMD_DENYOOM,NULL,2,-1,1,0,0},
+    {"msadd",msaddCommand,-5,REDIS_CMD_DENYOOM,NULL,0,0,0,0,0},
+    {"msrem",msremCommand,-5,0,NULL,0,0,0,0,0}
 };
 
 /*============================ Utility functions ============================ */

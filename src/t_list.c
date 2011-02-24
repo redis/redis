@@ -332,12 +332,53 @@ void pushGenericCommand(redisClient *c, int where) {
     server.dirty++;
 }
 
+void mpushGenericCommand(redisClient *c, int where) {
+    robj *lobj;
+    int i;
+
+    c->argv[1] = tryObjectEncoding(c->argv[1]);
+    addReplyMultiBulkLen(c,c->argc-2);
+    for (i = 2; i < c->argc; i++) {
+        lobj = lookupKeyWrite(c->db,c->argv[i]);
+        if (lobj == NULL) {
+            if (handleClientsWaitingListPush(c,c->argv[i],c->argv[1])) {
+                addReplyBulk(c,shared.cone);
+                break;
+            }
+            lobj = createZiplistObject();
+            dbAdd(c->db,c->argv[i],lobj);
+        } else {
+            if (lobj->type != REDIS_LIST) {
+                addReplyBulk(c,shared.nullbulk);
+                break;
+            }
+            if (handleClientsWaitingListPush(c,c->argv[i],c->argv[1])) {
+                signalModifiedKey(c->db,c->argv[i]);
+                addReplyBulk(c,shared.cone);
+                break;
+            }
+        }
+        listTypePush(lobj,c->argv[1],where);
+        addReplyBulkLongLong(c,listTypeLength(lobj));
+        signalModifiedKey(c->db,c->argv[i]);
+        server.dirty++;
+    }
+}
+
 void lpushCommand(redisClient *c) {
     pushGenericCommand(c,REDIS_HEAD);
 }
 
 void rpushCommand(redisClient *c) {
     pushGenericCommand(c,REDIS_TAIL);
+}
+
+void mlpushCommand(redisClient *c) {
+    mpushGenericCommand(c,REDIS_HEAD);
+}
+
+void mrpushCommand(redisClient *c) {
+    mpushGenericCommand(c,REDIS_TAIL);
 }
 
 void pushxGenericCommand(redisClient *c, robj *refval, robj *val, int where) {
