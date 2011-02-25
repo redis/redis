@@ -369,10 +369,10 @@ void msremCommand(redisClient *c) {
     for (i = setstart; i < valstart; i++) {
         o = lookupKeyRead(c->db,c->argv[i]);
         if (o != NULL) {
-	          if (o->type != REDIS_SET) {
-		            addReply(c,shared.wrongtypeerr);
-		            return;
-	          } else {
+            if (o->type != REDIS_SET) {
+                addReply(c,shared.wrongtypeerr);
+                return;
+            } else {
                 for (j = valstart; j < valend; j++) {
                     if (setTypeRemove(o,c->argv[j])) {
                         if (setTypeSize(o) == 0) dbDelete(c->db,c->argv[i]);
@@ -380,8 +380,8 @@ void msremCommand(redisClient *c) {
                         server.dirty++;
                         removed++;
                     }
-	              }
-	          }
+                }
+            }
         }
     }
 
@@ -445,6 +445,22 @@ void sismemberCommand(redisClient *c) {
         addReply(c,shared.cone);
     else
         addReply(c,shared.czero);
+}
+
+void msismemberCommand(redisClient *c) {
+    robj *o;
+    int i;
+
+    c->argv[1] = tryObjectEncoding(c->argv[1]);
+    addReplyMultiBulkLen(c,c->argc-2);
+    for (i = 2; i < c->argc; i++) {
+        if ((o = lookupKeyRead(c->db,c->argv[i])) != NULL &&
+            (o->type == REDIS_SET) &&
+            (setTypeIsMember(o,c->argv[1])))
+              addReply(c,shared.cone);
+          else
+              addReply(c,shared.czero);
+    }
 }
 
 void scardCommand(redisClient *c) {

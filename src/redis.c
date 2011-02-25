@@ -200,6 +200,7 @@ struct redisCommand redisCommandTable[] = {
     {"mhset",mhsetCommand,-4,REDIS_CMD_DENYOOM,NULL,2,-1,2,0,0},
     {"mrpush",mrpushCommand,-3,REDIS_CMD_DENYOOM,NULL,2,-1,1,0,0},
     {"msadd",msaddCommand,-5,REDIS_CMD_DENYOOM,NULL,0,0,0,0,0},
+    {"msismember",msismemberCommand,-3,0,NULL,2,-1,1,0,0},
     {"msrem",msremCommand,-5,0,NULL,0,0,0,0,0}
 };
 

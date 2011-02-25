@@ -968,6 +968,7 @@ void sremCommand(redisClient *c);
 void msremCommand(redisClient *c);
 void smoveCommand(redisClient *c);
 void sismemberCommand(redisClient *c);
+void msismemberCommand(redisClient *c);
 void scardCommand(redisClient *c);
 void spopCommand(redisClient *c);
 void srandmemberCommand(redisClient *c);
