@@ -323,7 +323,10 @@ void freeIOJob(iojob *j) {
 
 /* Every time a thread finished a Job, it writes a byte into the write side
  * of an unix pipe in order to "awake" the main thread, and this function
- * is called. */
+ * is called.
+ *
+ * If privdata != NULL the function will try to put more jobs in the queue
+ * of IO jobs to process as more room is made. */
 void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
             int mask)
 {
@@ -331,7 +334,6 @@ void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
     int retval, processed = 0, toprocess = -1;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
-    REDIS_NOTUSED(privdata);
 
     /* For every byte we read in the read side of the pipe, there is one
      * I/O job completed to process. */
@@ -390,6 +392,7 @@ void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
             freeIOJob(j);
         }
         processed++;
+        if (privdata != NULL) cacheScheduleIOPushJobs(0);
         if (processed == toprocess) return;
     }
     if (retval < 0 && errno != EAGAIN) {
@@ -411,6 +414,7 @@ void *IOThreadEntryPoint(void *arg) {
     iojob *j;
     listNode *ln;
     REDIS_NOTUSED(arg);
+    long long start;
 
     pthread_detach(pthread_self());
     lockThreadedIO();
@@ -423,6 +427,7 @@ void *IOThreadEntryPoint(void *arg) {
             redisLog(REDIS_DEBUG,"[T] signal received");
             continue;
         }
+        start = ustime();
         redisLog(REDIS_DEBUG,"[T] %ld IO jobs to process",
             listLength(server.io_newjobs));
         ln = listFirst(server.io_newjobs);
@@ -464,6 +469,7 @@ void *IOThreadEntryPoint(void *arg) {
 
         /* Signal the main thread there is new stuff to process */
         redisAssert(write(server.io_ready_pipe_write,"x",1) == 1);
+        redisLog(REDIS_WARNING,"TIME (%c): %lld\n", j->type == REDIS_IOJOB_LOAD ? 'L' : 'S', ustime()-start);
     }
     /* never reached, but that's the full pattern... */
     unlockThreadedIO();
@@ -739,7 +745,7 @@ void cacheScheduleIO(redisDb *db, robj *key, int type) {
  * scheduled completion time, but just do the operation ASAP. This is useful
  * when we need to reclaim memory from the IO queue.
  */
-#define MAX_IO_JOBS_QUEUE 100
+#define MAX_IO_JOBS_QUEUE 10
 int cacheScheduleIOPushJobs(int flags) {
     time_t now = time(NULL);
     listNode *ln;

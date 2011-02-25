@@ -637,6 +637,9 @@ dictType hashDictType;
  * Functions prototypes
  *----------------------------------------------------------------------------*/
 
+/* Utils */
+long long ustime(void);
+
 /* networking.c -- Networking and Client related operations */
 redisClient *createClient(int fd);
 void closeTimedoutClients(void);
