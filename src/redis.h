@@ -70,6 +70,8 @@
 #define REDIS_ZSET 3
 #define REDIS_HASH 4
 #define REDIS_VMPOINTER 8
+/* Object types only used for persistence in .rdb files */
+#define REDIS_HASH_ZIPMAP 9
 
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
