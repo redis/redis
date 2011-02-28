@@ -463,8 +463,15 @@ int rdbSave(char *filename) {
                                       o->storage == REDIS_VM_SWAPPING) {
                 int otype = o->type;
 
+                /* Fix the type id for specially encoded data types */
                 if (otype == REDIS_HASH && o->encoding == REDIS_ENCODING_ZIPMAP)
                     otype = REDIS_HASH_ZIPMAP;
+                else if (otype == REDIS_LIST &&
+                         o->encoding == REDIS_ENCODING_ZIPLIST)
+                    otype = REDIS_LIST_ZIPLIST;
+                else if (otype == REDIS_SET &&
+                         o->encoding == REDIS_ENCODING_INTSET)
+                    otype = REDIS_SET_INTSET;
                 /* Save type, key, value */
                 if (rdbSaveType(fp,otype) == -1) goto werr;
                 if (rdbSaveStringObject(fp,&key) == -1) goto werr;
