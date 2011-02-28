@@ -380,7 +380,7 @@ double computeObjectSwappability(robj *o) {
         break;
     case REDIS_LIST:
         if (o->encoding == REDIS_ENCODING_ZIPLIST) {
-            asize = sizeof(*o)+ziplistSize(o->ptr);
+            asize = sizeof(*o)+ziplistBlobLen(o->ptr);
         } else {
             l = o->ptr;
             ln = listFirst(l);
