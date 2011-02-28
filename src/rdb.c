@@ -139,7 +139,7 @@ writeerr:
 }
 
 /* Save a string objet as [len][data] on disk. If the object is a string
- * representation of an integer value we try to safe it in a special form */
+ * representation of an integer value we try to save it in a special form */
 int rdbSaveRawString(FILE *fp, unsigned char *s, size_t len) {
     int enclen;
     int n, nwritten = 0;
@@ -347,20 +347,10 @@ int rdbSaveObject(FILE *fp, robj *o) {
     } else if (o->type == REDIS_HASH) {
         /* Save a hash value */
         if (o->encoding == REDIS_ENCODING_ZIPMAP) {
-            unsigned char *p = zipmapRewind(o->ptr);
-            unsigned int count = zipmapLen(o->ptr);
-            unsigned char *key, *val;
-            unsigned int klen, vlen;
+            size_t l = zipmapBlobLen((unsigned char*)o->ptr);
 
-            if ((n = rdbSaveLen(fp,count)) == -1) return -1;
+            if ((n = rdbSaveRawString(fp,o->ptr,l)) == -1) return -1;
             nwritten += n;
-
-            while((p = zipmapNext(p,&key,&klen,&val,&vlen)) != NULL) {
-                if ((n = rdbSaveRawString(fp,key,klen)) == -1) return -1;
-                nwritten += n;
-                if ((n = rdbSaveRawString(fp,val,vlen)) == -1) return -1;
-                nwritten += n;
-            }
         } else {
             dictIterator *di = dictGetIterator(o->ptr);
             dictEntry *de;
@@ -402,6 +392,8 @@ off_t rdbSavedObjectLen(robj *o) {
 int rdbSaveKeyValuePair(FILE *fp, robj *key, robj *val,
                         time_t expiretime, time_t now)
 {
+    int vtype;
+
     /* Save the expire time */
     if (expiretime != -1) {
         /* If this key is already expired skip it */
@@ -409,6 +401,11 @@ int rdbSaveKeyValuePair(FILE *fp, robj *key, robj *val,
         if (rdbSaveType(fp,REDIS_EXPIRETIME) == -1) return -1;
         if (rdbSaveTime(fp,expiretime) == -1) return -1;
     }
+    /* Fix the object type if needed, to support saving zipmaps, ziplists,
+     * and intsets, directly as blobs of bytes: they are already serialized. */
+    vtype = val->type;
+    if (vtype == REDIS_HASH && val->encoding == REDIS_ENCODING_ZIPMAP)
+        vtype = REDIS_HASH_ZIPMAP;
     /* Save type, key, value */
     if (rdbSaveType(fp,val->type) == -1) return -1;
     if (rdbSaveStringObject(fp,key) == -1) return -1;
@@ -832,6 +829,16 @@ robj *rdbLoadObject(int type, FILE *fp) {
                 dictAdd((dict*)o->ptr,key,val);
             }
         }
+    } else if (type == REDIS_HASH_ZIPMAP) {
+        robj *aux = rdbLoadStringObject(fp);
+
+        if (aux == NULL) return NULL;
+        o = createHashObject();
+        o->encoding = REDIS_ENCODING_ZIPMAP;
+        o->ptr = zmalloc(sdslen(aux->ptr));
+        memcpy(o->ptr,aux->ptr,sdslen(aux->ptr));
+        decrRefCount(aux);
+        /* FIXME: conver the object if needed */
     } else {
         redisPanic("Unknown object type");
     }

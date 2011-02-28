@@ -360,6 +360,18 @@ unsigned int zipmapLen(unsigned char *zm) {
     return len;
 }
 
+/* Return the raw size in bytes of a zipmap, so that we can serialize
+ * the zipmap on disk (or everywhere is needed) just writing the returned
+ * amount of bytes of the C array starting at the zipmap pointer. */
+size_t zipmapBlobLen(unsigned char *zm) {
+    unsigned char *p = zipmapRewind(zm);
+    unsigned char *old = p;
+    while((p = zipmapNext(p,NULL,NULL,NULL,NULL)) != NULL) {
+        old = p;
+    }
+    return (old-zm)+1;
+}
+
 void zipmapRepr(unsigned char *p) {
     unsigned int l;
 

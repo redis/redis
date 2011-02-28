@@ -43,6 +43,7 @@ unsigned char *zipmapNext(unsigned char *zm, unsigned char **key, unsigned int *
 int zipmapGet(unsigned char *zm, unsigned char *key, unsigned int klen, unsigned char **value, unsigned int *vlen);
 int zipmapExists(unsigned char *zm, unsigned char *key, unsigned int klen);
 unsigned int zipmapLen(unsigned char *zm);
+size_t zipmapBlobLen(unsigned char *zm);
 void zipmapRepr(unsigned char *p);
 
 #endif
