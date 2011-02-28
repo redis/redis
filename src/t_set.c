@@ -522,32 +522,56 @@ void sinterstoreCommand(redisClient *c) {
 #define REDIS_OP_DIFF 1
 #define REDIS_OP_INTER 2
 
+#define OPTIMIZE_SUNION 
+
 void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *dstkey, int op) {
     robj **sets = zmalloc(sizeof(robj*)*setnum);
     setTypeIterator *si;
     robj *ele, *dstset = NULL;
     int j, cardinality = 0;
 
+#ifdef OPTIMIZE_SUNION
+    int isAppend = 0;
+#endif
     for (j = 0; j < setnum; j++) {
-        robj *setobj = dstkey ?
-            lookupKeyWrite(c->db,setkeys[j]) :
-            lookupKeyRead(c->db,setkeys[j]);
+#ifdef OPTIMIZE_SUNION
+      if ((op == REDIS_OP_UNION) && dstkey && dstkey == setkeys[j]) {
+	  isAppend = 1;
+          sets[j] = NULL;
+      }
+      else {
+#endif 
+	robj *setobj = dstkey ?
+	  lookupKeyWrite(c->db,setkeys[j]) :
+          lookupKeyRead(c->db,setkeys[j]);
         if (!setobj) {
-            sets[j] = NULL;
-            continue;
+	  sets[j] = NULL;
+          continue;
         }
         if (checkType(c,setobj,REDIS_SET)) {
-            zfree(sets);
-            return;
+          zfree(sets);
+          return;
         }
-        sets[j] = setobj;
+          sets[j] = setobj;
+#ifdef OPTIMIZE_SUNION
+      }
+#endif
     }
 
     /* We need a temp set object to store our union. If the dstkey
      * is not NULL (that is, we are inside an SUNIONSTORE operation) then
      * this set object will be the resulting object to set into the target key*/
-    dstset = createIntsetObject();
+#ifdef OPTIMIZE_SUNION
+    if (isAppend) {
+      dstset = lookupKeyWrite(c->db,dstkey);
+    }
+    else {
+#endif 
+      dstset = createIntsetObject();
 
+#ifdef OPTIMIZE_SUNION
+    }
+#endif
     /* Iterate all the elements of all the sets, add every element a single
      * time to the result set */
     for (j = 0; j < setnum; j++) {
