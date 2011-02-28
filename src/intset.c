@@ -222,8 +222,8 @@ uint32_t intsetLen(intset *is) {
     return is->length;
 }
 
-/* Return intset size in bytes. */
-size_t intsetSize(intset *is) {
+/* Return intset blob size in bytes. */
+size_t intsetBlobLen(intset *is) {
     return sizeof(intset)+is->length*is->encoding;
 }
 
