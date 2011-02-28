@@ -384,6 +384,8 @@ int rdbSaveKeyValuePair(FILE *fp, robj *key, robj *val,
         vtype = REDIS_HASH_ZIPMAP;
     else if (vtype == REDIS_LIST && val->encoding == REDIS_ENCODING_ZIPLIST)
         vtype = REDIS_LIST_ZIPLIST;
+    else if (vtype == REDIS_SET && val->encoding == REDIS_ENCODING_INTSET)
+        vtype = REDIS_SET_INTSET;
     /* Save type, key, value */
     if (rdbSaveType(fp,vtype) == -1) return -1;
     if (rdbSaveStringObject(fp,key) == -1) return -1;
