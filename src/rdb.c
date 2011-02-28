@@ -893,7 +893,12 @@ robj *rdbLoadObject(int type, FILE *fp) {
         o->ptr = zmalloc(sdslen(aux->ptr));
         memcpy(o->ptr,aux->ptr,sdslen(aux->ptr));
         decrRefCount(aux);
-        /* FIXME: conver the object if needed */
+        /* Convert to real hash if the number of items is too large.
+         * We don't check the max item size as this requires an O(N)
+         * scan usually. */
+        if (zipmapLen(o->ptr) > server.hash_max_zipmap_entries) {
+            convertToRealHash(o);
+        }
     } else {
         redisPanic("Unknown object type");
     }
