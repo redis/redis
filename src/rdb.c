@@ -256,27 +256,10 @@ int rdbSaveObject(FILE *fp, robj *o) {
     } else if (o->type == REDIS_LIST) {
         /* Save a list value */
         if (o->encoding == REDIS_ENCODING_ZIPLIST) {
-            unsigned char *p;
-            unsigned char *vstr;
-            unsigned int vlen;
-            long long vlong;
+            size_t l = ziplistBlobLen((unsigned char*)o->ptr);
 
-            if ((n = rdbSaveLen(fp,ziplistLen(o->ptr))) == -1) return -1;
+            if ((n = rdbSaveRawString(fp,o->ptr,l)) == -1) return -1;
             nwritten += n;
-
-            p = ziplistIndex(o->ptr,0);
-            while(ziplistGet(p,&vstr,&vlen,&vlong)) {
-                if (vstr) {
-                    if ((n = rdbSaveRawString(fp,vstr,vlen)) == -1)
-                        return -1;
-                    nwritten += n;
-                } else {
-                    if ((n = rdbSaveLongLongAsStringObject(fp,vlong)) == -1)
-                        return -1;
-                    nwritten += n;
-                }
-                p = ziplistNext(o->ptr,p);
-            }
         } else if (o->encoding == REDIS_ENCODING_LINKEDLIST) {
             list *list = o->ptr;
             listIter li;
@@ -311,17 +294,10 @@ int rdbSaveObject(FILE *fp, robj *o) {
             }
             dictReleaseIterator(di);
         } else if (o->encoding == REDIS_ENCODING_INTSET) {
-            intset *is = o->ptr;
-            int64_t llval;
-            int i = 0;
+            size_t l = intsetBlobLen((intset*)o->ptr);
 
-            if ((n = rdbSaveLen(fp,intsetLen(is))) == -1) return -1;
+            if ((n = rdbSaveRawString(fp,o->ptr,l)) == -1) return -1;
             nwritten += n;
-
-            while(intsetGet(is,i++,&llval)) {
-                if ((n = rdbSaveLongLongAsStringObject(fp,llval)) == -1) return -1;
-                nwritten += n;
-            }
         } else {
             redisPanic("Unknown set encoding");
         }
@@ -831,20 +807,46 @@ robj *rdbLoadObject(int type, FILE *fp) {
                 dictAdd((dict*)o->ptr,key,val);
             }
         }
-    } else if (type == REDIS_HASH_ZIPMAP) {
+    } else if (type == REDIS_HASH_ZIPMAP ||
+               type == REDIS_LIST_ZIPLIST ||
+               type == REDIS_SET_INTSET)
+    {
         robj *aux = rdbLoadStringObject(fp);
 
         if (aux == NULL) return NULL;
-        o = createHashObject();
-        o->encoding = REDIS_ENCODING_ZIPMAP;
+        o = createObject(REDIS_STRING,NULL); /* string is just placeholder */
         o->ptr = zmalloc(sdslen(aux->ptr));
         memcpy(o->ptr,aux->ptr,sdslen(aux->ptr));
         decrRefCount(aux);
-        /* Convert to real hash if the number of items is too large.
-         * We don't check the max item size as this requires an O(N)
-         * scan usually. */
-        if (zipmapLen(o->ptr) > server.hash_max_zipmap_entries) {
-            convertToRealHash(o);
+
+        /* Fix the object encoding, and make sure to convert the encoded
+         * data type into the base type if accordingly to the current
+         * configuration there are too many elements in the encoded data
+         * type. Note that we only check the length and not max element
+         * size as this is an O(N) scan. Eventually everything will get
+         * converted. */
+        switch(type) {
+            case REDIS_HASH_ZIPMAP:
+                o->type = REDIS_HASH;
+                o->encoding = REDIS_ENCODING_ZIPMAP;
+                if (zipmapLen(o->ptr) > server.hash_max_zipmap_entries)
+                    convertToRealHash(o);
+                break;
+            case REDIS_LIST_ZIPLIST:
+                o->type = REDIS_LIST;
+                o->encoding = REDIS_ENCODING_ZIPLIST;
+                if (ziplistLen(o->ptr) > server.list_max_ziplist_entries)
+                    listTypeConvert(o,REDIS_ENCODING_LINKEDLIST);
+                break;
+            case REDIS_SET_INTSET:
+                o->type = REDIS_SET;
+                o->encoding = REDIS_ENCODING_INTSET;
+                if (intsetLen(o->ptr) > server.set_max_intset_entries)
+                    setTypeConvert(o,REDIS_ENCODING_HT);
+                break;
+            default:
+                redisPanic("Unknown enoding");
+                break;
         }
     } else {
         redisPanic("Unknown object type");
