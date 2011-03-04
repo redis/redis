@@ -325,8 +325,12 @@ void freeIOJob(iojob *j) {
  * of an unix pipe in order to "awake" the main thread, and this function
  * is called.
  *
- * If privdata != NULL the function will try to put more jobs in the queue
- * of IO jobs to process as more room is made. */
+ * If privdata == NULL the function will try to put more jobs in the queue
+ * of IO jobs to process as more room is made. privdata is equal to NULL
+ * when the function is called from the event loop, so we want to push
+ * more IO jobs in the queue. Instead when the function is called by
+ * other functions that want to create a write-barrier to avoid race 
+ * conditions we don't push new jobs in the queue. */
 void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
             int mask)
 {
@@ -392,7 +396,7 @@ void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
             freeIOJob(j);
         }
         processed++;
-        if (privdata != NULL) cacheScheduleIOPushJobs(0);
+        if (privdata == NULL) cacheScheduleIOPushJobs(0);
         if (processed == toprocess) return;
     }
     if (retval < 0 && errno != EAGAIN) {
