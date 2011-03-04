@@ -1,3 +1,15 @@
+Welcome to Redis 2.0.5
+
+This release fixes an important bug related to a file descriptor leak with
+AOF enabled.
+
+We strongly suggest upgrading to Redis 2.2.x ASAP to all the 2.0.x users!
+
+Cheers,
+Salvatore
+
+--------------------------------------------------------------------------------
+
 Welcome to Redis 2.0.4
 
 This release fixes two non critical bugs:
