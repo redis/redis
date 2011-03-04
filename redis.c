@@ -7601,6 +7601,10 @@ static void execCommand(redisClient *c) {
         c->argc = c->mstate.commands[j].argc;
         c->argv = c->mstate.commands[j].argv;
         call(c,c->mstate.commands[j].cmd);
+
+        /* Commands may alter argc/argv, restore mstate. */
+        c->mstate.commands[j].argc = c->argc;
+        c->mstate.commands[j].argv = c->argv;
     }
     c->argv = orig_argv;
     c->argc = orig_argc;
