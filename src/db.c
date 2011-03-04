@@ -592,6 +592,7 @@ void expireatCommand(redisClient *c) {
 void ttlCommand(redisClient *c) {
     time_t expire, ttl = -1;
 
+    if (server.ds_enabled) lookupKeyRead(c->db,c->argv[1]);
     expire = getExpire(c->db,c->argv[1]);
     if (expire != -1) {
         ttl = (expire-time(NULL));
