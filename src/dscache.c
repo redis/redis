@@ -469,7 +469,7 @@ void *IOThreadEntryPoint(void *arg) {
 
         /* Signal the main thread there is new stuff to process */
         redisAssert(write(server.io_ready_pipe_write,"x",1) == 1);
-        redisLog(REDIS_WARNING,"TIME (%c): %lld\n", j->type == REDIS_IOJOB_LOAD ? 'L' : 'S', ustime()-start);
+        redisLog(REDIS_DEBUG,"TIME (%c): %lld\n", j->type == REDIS_IOJOB_LOAD ? 'L' : 'S', ustime()-start);
     }
     /* never reached, but that's the full pattern... */
     unlockThreadedIO();
