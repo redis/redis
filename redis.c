@@ -5197,6 +5197,18 @@ static void spopCommand(redisClient *c) {
         addReply(c,shared.nullbulk);
     } else {
         robj *ele = dictGetEntryKey(de);
+        incrRefCount(ele);
+
+        /* Change argv to replicate as SREM */
+        c->argc = 3;
+        c->argv = zrealloc(c->argv,sizeof(robj*)*(c->argc));
+
+        /* Overwrite SREM with SPOP (same length) */
+        redisAssert(sdslen(c->argv[0]->ptr) == 4);
+        memcpy(c->argv[0]->ptr, "SREM", 4);
+
+        /* Popped element already has incremented refcount */
+        c->argv[2] = ele;
 
         addReplyBulk(c,ele);
         dictDelete(set->ptr,ele);
