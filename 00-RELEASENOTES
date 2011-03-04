@@ -12,6 +12,16 @@ for 2.0.
 CHANGELOG
 ---------
 
+What's new in Redis 2.2.2
+=========================
+
+Redis 2.2.2 is a bugfix release. Changelog:
+
+* AOF file descriptor leak after the first rewrite fixed.
+* Return value of GETRANGE / SUBSTR is now an empty string if the interval
+  specified is not valid, or the key does not exist. Was a null bulk reply
+  before, but this is against the Redis way.
+
 What's new in Redis 2.2.1
 =========================
 
