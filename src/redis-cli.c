@@ -65,6 +65,7 @@ static struct config {
     char *historyfile;
     int raw_output; /* output mode per command */
     sds mb_delim;
+    char prompt[32];
 } config;
 
 static void usage();
@@ -83,6 +84,13 @@ static long long mstime(void) {
     mst = ((long)tv.tv_sec)*1000;
     mst += tv.tv_usec/1000;
     return mst;
+}
+
+static void cliRefreshPrompt(void) {
+    if (config.dbnum == 0)
+        snprintf(config.prompt,sizeof(config.prompt),"redis> ");
+    else
+        snprintf(config.prompt,sizeof(config.prompt),"redis:%d> ",config.dbnum);
 }
 
 /*------------------------------------------------------------------------------
@@ -492,8 +500,10 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
             return REDIS_ERR;
         } else {
             /* Store database number when SELECT was successfully executed. */
-            if (!strcasecmp(command,"select") && argc == 2)
+            if (!strcasecmp(command,"select") && argc == 2) {
                 config.dbnum = atoi(argv[1]);
+                cliRefreshPrompt();
+            }
         }
     }
 
@@ -622,7 +632,8 @@ static void repl() {
     config.interactive = 1;
     linenoiseSetCompletionCallback(completionCallback);
 
-    while((line = linenoise(context ? "redis> " : "not connected> ")) != NULL) {
+    cliRefreshPrompt();
+    while((line = linenoise(context ? config.prompt : "not connected> ")) != NULL) {
         if (line[0] != '\0') {
             argv = sdssplitargs(line,&argc);
             linenoiseHistoryAdd(line);
