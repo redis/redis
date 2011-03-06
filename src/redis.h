@@ -777,7 +777,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj);
 /* Core functions */
 void freeMemoryIfNeeded(void);
 int processCommand(redisClient *c);
-void setupSigSegvAction(void);
+void setupSignalHandlers(void);
 struct redisCommand *lookupCommand(sds name);
 struct redisCommand *lookupCommandByCString(char *s);
 void call(redisClient *c, struct redisCommand *cmd);
