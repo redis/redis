@@ -489,9 +489,13 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
             }
         }
 
-        if (cliReadReply(output_raw) != REDIS_OK)
+        if (cliReadReply(output_raw) != REDIS_OK) {
+            free(argvlen);
             return REDIS_ERR;
+        }
     }
+
+    free(argvlen);
     return REDIS_OK;
 }
 
