@@ -859,7 +859,7 @@ void initServer() {
 
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
-    setupSigSegvAction();
+    setupSignalHandlers();
 
     if (server.syslog_enabled) {
         openlog(server.syslog_ident, LOG_PID | LOG_NDELAY | LOG_NOWAIT,
@@ -1705,10 +1705,8 @@ int main(int argc, char **argv) {
     return 0;
 }
 
-/* ============================= Backtrace support ========================= */
-
 #ifdef HAVE_BACKTRACE
-void *getMcontextEip(ucontext_t *uc) {
+static void *getMcontextEip(ucontext_t *uc) {
 #if defined(__FreeBSD__)
     return (void*) uc->uc_mcontext.mc_eip;
 #elif defined(__dietlibc__)
@@ -1736,7 +1734,7 @@ void *getMcontextEip(ucontext_t *uc) {
 #endif
 }
 
-void segvHandler(int sig, siginfo_t *info, void *secret) {
+static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     void *trace[100];
     char **messages = NULL;
     int i, trace_size = 0;
@@ -1775,37 +1773,35 @@ void segvHandler(int sig, siginfo_t *info, void *secret) {
     sigaction (sig, &act, NULL);
     kill(getpid(),sig);
 }
+#endif /* HAVE_BACKTRACE */
 
-void sigtermHandler(int sig) {
+static void sigtermHandler(int sig) {
     REDIS_NOTUSED(sig);
 
-    redisLog(REDIS_WARNING,"SIGTERM received, scheduling shutting down...");
+    redisLog(REDIS_WARNING,"Received SIGTERM, scheduling shutdown...");
     server.shutdown_asap = 1;
 }
 
-void setupSigSegvAction(void) {
+void setupSignalHandlers(void) {
     struct sigaction act;
 
-    sigemptyset (&act.sa_mask);
-    /* When the SA_SIGINFO flag is set in sa_flags then sa_sigaction
-     * is used. Otherwise, sa_handler is used */
-    act.sa_flags = SA_NODEFER | SA_ONSTACK | SA_RESETHAND | SA_SIGINFO;
-    act.sa_sigaction = segvHandler;
-    sigaction (SIGSEGV, &act, NULL);
-    sigaction (SIGBUS, &act, NULL);
-    sigaction (SIGFPE, &act, NULL);
-    sigaction (SIGILL, &act, NULL);
-    sigaction (SIGBUS, &act, NULL);
-
+    /* When the SA_SIGINFO flag is set in sa_flags then sa_sigaction is used.
+     * Otherwise, sa_handler is used. */
+    sigemptyset(&act.sa_mask);
     act.sa_flags = SA_NODEFER | SA_ONSTACK | SA_RESETHAND;
     act.sa_handler = sigtermHandler;
-    sigaction (SIGTERM, &act, NULL);
+    sigaction(SIGTERM, &act, NULL);
+
+#ifdef HAVE_BACKTRACE
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = SA_NODEFER | SA_ONSTACK | SA_RESETHAND | SA_SIGINFO;
+    act.sa_sigaction = sigsegvHandler;
+    sigaction(SIGSEGV, &act, NULL);
+    sigaction(SIGBUS, &act, NULL);
+    sigaction(SIGFPE, &act, NULL);
+    sigaction(SIGILL, &act, NULL);
+#endif
     return;
 }
-
-#else /* HAVE_BACKTRACE */
-void setupSigSegvAction(void) {
-}
-#endif /* HAVE_BACKTRACE */
 
 /* The End */
