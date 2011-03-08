@@ -449,6 +449,11 @@ int zzlCompareElements(unsigned char *eptr, unsigned char *cstr, unsigned int cl
     return cmp;
 }
 
+unsigned int *zzlLength(robj *zobj) {
+    unsigned char *zl = zobj->ptr;
+    return ziplistLen(zl)/2;
+}
+
 unsigned char *zzlFind(robj *zobj, robj *ele, double *score) {
     unsigned char *zl = zobj->ptr;
     unsigned char *eptr = ziplistIndex(zl,0), *sptr;
@@ -460,7 +465,7 @@ unsigned char *zzlFind(robj *zobj, robj *ele, double *score) {
 
         if (ziplistCompare(eptr,ele->ptr,sdslen(ele->ptr))) {
             /* Matching element, pull out score. */
-            *score = zzlGetScore(sptr);
+            if (score != NULL) *score = zzlGetScore(sptr);
             decrRefCount(ele);
             return eptr;
         }
@@ -688,32 +693,47 @@ void zincrbyCommand(redisClient *c) {
 }
 
 void zremCommand(redisClient *c) {
-    robj *zsetobj;
-    zset *zs;
-    dictEntry *de;
-    double curscore;
-    int deleted;
+    robj *key = c->argv[1];
+    robj *ele = c->argv[2];
+    robj *zobj;
 
-    if ((zsetobj = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,zsetobj,REDIS_ZSET)) return;
+    if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero)) == NULL ||
+        checkType(c,zobj,REDIS_ZSET)) return;
 
-    zs = zsetobj->ptr;
-    c->argv[2] = tryObjectEncoding(c->argv[2]);
-    de = dictFind(zs->dict,c->argv[2]);
-    if (de == NULL) {
-        addReply(c,shared.czero);
-        return;
+    if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
+        unsigned char *eptr;
+
+        if ((eptr = zzlFind(zobj,ele,NULL)) != NULL) {
+            redisAssert(zzlDelete(zobj,eptr) == REDIS_OK);
+            if (zzlLength(zobj) == 0) dbDelete(c->db,key);
+        } else {
+            addReply(c,shared.czero);
+            return;
+        }
+    } else if (zobj->encoding == REDIS_ENCODING_RAW) {
+        zset *zs = zobj->ptr;
+        dictEntry *de;
+        double score;
+
+        de = dictFind(zs->dict,ele);
+        if (de != NULL) {
+            /* Delete from the skiplist */
+            score = *(double*)dictGetEntryVal(de);
+            redisAssert(zslDelete(zs->zsl,score,ele));
+
+            /* Delete from the hash table */
+            dictDelete(zs->dict,ele);
+            if (htNeedsResize(zs->dict)) dictResize(zs->dict);
+            if (dictSize(zs->dict) == 0) dbDelete(c->db,key);
+        } else {
+            addReply(c,shared.czero);
+            return;
+        }
+    } else {
+        redisPanic("Unknown sorted set encoding");
     }
-    /* Delete from the skiplist */
-    curscore = *(double*)dictGetEntryVal(de);
-    deleted = zslDelete(zs->zsl,curscore,c->argv[2]);
-    redisAssert(deleted != 0);
 
-    /* Delete from the hash table */
-    dictDelete(zs->dict,c->argv[2]);
-    if (htNeedsResize(zs->dict)) dictResize(zs->dict);
-    if (dictSize(zs->dict) == 0) dbDelete(c->db,c->argv[1]);
-    touchWatchedKey(c->db,c->argv[1]);
+    signalModifiedKey(c->db,key);
     server.dirty++;
     addReply(c,shared.cone);
 }
