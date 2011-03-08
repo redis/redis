@@ -212,7 +212,7 @@ int cacheFreeOneEntry(void) {
         }
     }
     if (best == NULL) {
-        /* Was not able to fix a single object... we should check if our
+        /* Not able to free a single object? we should check if our
          * IO queues have stuff in queue, and try to consume the queue
          * otherwise we'll use an infinite amount of memory if changes to
          * the dataset are faster than I/O */
