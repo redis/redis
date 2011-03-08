@@ -449,7 +449,7 @@ int zzlCompareElements(unsigned char *eptr, unsigned char *cstr, unsigned int cl
     return cmp;
 }
 
-unsigned int *zzlLength(robj *zobj) {
+unsigned int zzlLength(robj *zobj) {
     unsigned char *zl = zobj->ptr;
     return ziplistLen(zl)/2;
 }
