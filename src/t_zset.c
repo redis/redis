@@ -524,7 +524,6 @@ int zzlInsert(robj *zobj, robj *ele, double score) {
     unsigned char *zl = zobj->ptr;
     unsigned char *eptr = ziplistIndex(zl,0), *sptr;
     double s;
-    int insert = 0;
 
     ele = getDecodedObject(ele);
     while (eptr != NULL) {
@@ -536,16 +535,14 @@ int zzlInsert(robj *zobj, robj *ele, double score) {
             /* First element with score larger than score for element to be
              * inserted. This means we should take its spot in the list to
              * maintain ordering. */
-            insert = 1;
-        } else if (s == score) {
-            /* Ensure lexicographical ordering for elements. */
-            if (zzlCompareElements(eptr,ele->ptr,sdslen(ele->ptr)) < 0)
-                insert = 1;
-        }
-
-        if (insert) {
             zzlInsertAt(zobj,ele,score,eptr);
             break;
+        } else if (s == score) {
+            /* Ensure lexicographical ordering for elements. */
+            if (zzlCompareElements(eptr,ele->ptr,sdslen(ele->ptr)) < 0) {
+                zzlInsertAt(zobj,ele,score,eptr);
+                break;
+            }
         }
 
         /* Move to next element. */
@@ -553,8 +550,8 @@ int zzlInsert(robj *zobj, robj *ele, double score) {
     }
 
     /* Push on tail of list when it was not yet inserted. */
-    if (!insert)
-        zzlInsertAt(zobj,ele,score,eptr);
+    if (eptr == NULL)
+        zzlInsertAt(zobj,ele,score,NULL);
 
     decrRefCount(ele);
     return REDIS_OK;
