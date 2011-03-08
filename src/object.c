@@ -93,10 +93,16 @@ robj *createHashObject(void) {
 
 robj *createZsetObject(void) {
     zset *zs = zmalloc(sizeof(*zs));
-
     zs->dict = dictCreate(&zsetDictType,NULL);
     zs->zsl = zslCreate();
     return createObject(REDIS_ZSET,zs);
+}
+
+robj *createZsetZiplistObject(void) {
+    unsigned char *zl = ziplistNew();
+    robj *o = createObject(REDIS_ZSET,zl);
+    o->encoding = REDIS_ENCODING_ZIPLIST;
+    return o;
 }
 
 void freeStringObject(robj *o) {
