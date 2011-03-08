@@ -383,11 +383,10 @@ void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
             }
             cacheScheduleIODelFlag(j->db,j->key,REDIS_IO_LOADINPROG);
             handleClientsBlockedOnSwappedKey(j->db,j->key);
-            freeIOJob(j);
         } else if (j->type == REDIS_IOJOB_SAVE) {
             cacheScheduleIODelFlag(j->db,j->key,REDIS_IO_SAVEINPROG);
-            freeIOJob(j);
         }
+        freeIOJob(j);
         processed++;
         if (privdata == NULL) cacheScheduleIOPushJobs(0);
         if (processed == toprocess) return;
