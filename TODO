@@ -20,6 +20,8 @@ DISKSTORE TODO
 * Fix DBSIZE to really do something interesting
 * Add a DEBUG command to check if an entry is or not in memory currently
 
+* dscache.c near 236, kobj = createStringObject... we could use static obj.
+
 APPEND ONLY FILE
 ================
 

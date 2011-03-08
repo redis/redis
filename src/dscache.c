@@ -240,13 +240,6 @@ int cacheFreeOneEntry(void) {
     return REDIS_OK;
 }
 
-/* Return true if it's safe to swap out objects in a given moment.
- * Basically we don't want to swap objects out while there is a BGSAVE
- * or a BGAEOREWRITE running in backgroud. */
-int dsCanTouchDiskStore(void) {
-    return (server.bgsavechildpid == -1 && server.bgrewritechildpid == -1);
-}
-
 /* ==================== Disk store negative caching  ========================
  *
  * When disk store is enabled, we need negative caching, that is, to remember
