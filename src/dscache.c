@@ -587,8 +587,6 @@ void queueIOJob(iojob *j) {
     redisLog(REDIS_DEBUG,"Queued IO Job %p type %d about key '%s'\n",
         (void*)j, j->type, (char*)j->key->ptr);
     listAddNodeTail(server.io_newjobs,j);
-    if (server.io_active_threads < server.vm_max_threads)
-        spawnIOThread();
 }
 
 /* Consume all the IO scheduled operations, and all the thread IO jobs
