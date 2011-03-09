@@ -666,6 +666,14 @@ unsigned long zzlDeleteRangeByScore(robj *zobj, zrangespec range) {
     return deleted;
 }
 
+/* Delete all the elements with rank between start and end from the skiplist.
+ * Start and end are inclusive. Note that start and end need to be 1-based */
+unsigned long zzlDeleteRangeByRank(robj *zobj, unsigned int start, unsigned int end) {
+    unsigned int num = (end-start)+1;
+    zobj->ptr = ziplistDeleteRange(zobj->ptr,2*(start-1),2*num);
+    return num;
+}
+
 /*-----------------------------------------------------------------------------
  * Common sorted set API
  *----------------------------------------------------------------------------*/
@@ -892,22 +900,21 @@ void zremrangebyscoreCommand(redisClient *c) {
 }
 
 void zremrangebyrankCommand(redisClient *c) {
+    robj *key = c->argv[1];
+    robj *zobj;
     long start;
     long end;
     int llen;
-    long deleted;
-    robj *zsetobj;
-    zset *zs;
+    unsigned long deleted;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != REDIS_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != REDIS_OK)) return;
 
-    if ((zsetobj = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,zsetobj,REDIS_ZSET)) return;
-    zs = zsetobj->ptr;
-    llen = zs->zsl->length;
+    if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero)) == NULL ||
+        checkType(c,zobj,REDIS_ZSET)) return;
 
-    /* convert negative indexes */
+    /* Sanitize indexes. */
+    llen = zsLength(zobj);
     if (start < 0) start = llen+start;
     if (end < 0) end = llen+end;
     if (start < 0) start = 0;
@@ -920,14 +927,23 @@ void zremrangebyrankCommand(redisClient *c) {
     }
     if (end >= llen) end = llen-1;
 
-    /* increment start and end because zsl*Rank functions
-     * use 1-based rank */
-    deleted = zslDeleteRangeByRank(zs->zsl,start+1,end+1,zs->dict);
-    if (htNeedsResize(zs->dict)) dictResize(zs->dict);
-    if (dictSize(zs->dict) == 0) dbDelete(c->db,c->argv[1]);
-    if (deleted) touchWatchedKey(c->db,c->argv[1]);
+    if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
+        /* Correct for 1-based rank. */
+        deleted = zzlDeleteRangeByRank(zobj,start+1,end+1);
+    } else if (zobj->encoding == REDIS_ENCODING_RAW) {
+        zset *zs = zobj->ptr;
+
+        /* Correct for 1-based rank. */
+        deleted = zslDeleteRangeByRank(zs->zsl,start+1,end+1,zs->dict);
+        if (htNeedsResize(zs->dict)) dictResize(zs->dict);
+        if (dictSize(zs->dict) == 0) dbDelete(c->db,key);
+    } else {
+        redisPanic("Unknown sorted set encoding");
+    }
+
+    if (deleted) signalModifiedKey(c->db,key);
     server.dirty += deleted;
-    addReplyLongLong(c, deleted);
+    addReplyLongLong(c,deleted);
 }
 
 typedef struct {
