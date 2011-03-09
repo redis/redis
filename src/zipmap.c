@@ -80,6 +80,7 @@
 #include <string.h>
 #include <assert.h>
 #include "zmalloc.h"
+#include "endian.h"
 
 #define ZIPMAP_BIGLEN 254
 #define ZIPMAP_END 255
@@ -108,6 +109,7 @@ static unsigned int zipmapDecodeLength(unsigned char *p) {
 
     if (len < ZIPMAP_BIGLEN) return len;
     memcpy(&len,p+1,sizeof(unsigned int));
+    memrev32ifbe(&len);
     return len;
 }
 
@@ -123,6 +125,7 @@ static unsigned int zipmapEncodeLength(unsigned char *p, unsigned int len) {
         } else {
             p[0] = ZIPMAP_BIGLEN;
             memcpy(p+1,&len,sizeof(len));
+            memrev32ifbe(p+1);
             return 1+sizeof(len);
         }
     }

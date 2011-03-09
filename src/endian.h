@@ -16,3 +16,5 @@ void memrev64(void *p);
 #define memrev32ifbe(p) memrev32(p)
 #define memrev64ifbe(p) memrev64(p)
 #endif
+
+#endif
