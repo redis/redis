@@ -451,6 +451,7 @@ int zzlCompareElements(unsigned char *eptr, unsigned char *cstr, unsigned int cl
 
 unsigned int zzlLength(robj *zobj) {
     unsigned char *zl = zobj->ptr;
+    redisAssert(zobj->encoding == REDIS_ENCODING_ZIPLIST);
     return ziplistLen(zl)/2;
 }
 
@@ -1602,7 +1603,7 @@ void zcardCommand(redisClient *c) {
     if ((zobj = lookupKeyReadOrReply(c,key,shared.czero)) == NULL ||
         checkType(c,zobj,REDIS_ZSET)) return;
 
-    addReplyLongLong(c,zzlLength(zobj));
+    addReplyLongLong(c,zsLength(zobj));
 }
 
 void zscoreCommand(redisClient *c) {
