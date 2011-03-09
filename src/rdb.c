@@ -302,24 +302,33 @@ int rdbSaveObject(FILE *fp, robj *o) {
             redisPanic("Unknown set encoding");
         }
     } else if (o->type == REDIS_ZSET) {
-        /* Save a set value */
-        zset *zs = o->ptr;
-        dictIterator *di = dictGetIterator(zs->dict);
-        dictEntry *de;
+        /* Save a sorted set value */
+        if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+            size_t l = ziplistBlobLen((unsigned char*)o->ptr);
 
-        if ((n = rdbSaveLen(fp,dictSize(zs->dict))) == -1) return -1;
-        nwritten += n;
-
-        while((de = dictNext(di)) != NULL) {
-            robj *eleobj = dictGetEntryKey(de);
-            double *score = dictGetEntryVal(de);
-
-            if ((n = rdbSaveStringObject(fp,eleobj)) == -1) return -1;
+            if ((n = rdbSaveRawString(fp,o->ptr,l)) == -1) return -1;
             nwritten += n;
-            if ((n = rdbSaveDoubleValue(fp,*score)) == -1) return -1;
+        } else if (o->encoding == REDIS_ENCODING_RAW) {
+            zset *zs = o->ptr;
+            dictIterator *di = dictGetIterator(zs->dict);
+            dictEntry *de;
+
+            if ((n = rdbSaveLen(fp,dictSize(zs->dict))) == -1) return -1;
             nwritten += n;
+
+            while((de = dictNext(di)) != NULL) {
+                robj *eleobj = dictGetEntryKey(de);
+                double *score = dictGetEntryVal(de);
+
+                if ((n = rdbSaveStringObject(fp,eleobj)) == -1) return -1;
+                nwritten += n;
+                if ((n = rdbSaveDoubleValue(fp,*score)) == -1) return -1;
+                nwritten += n;
+            }
+            dictReleaseIterator(di);
+        } else {
+            redisPanic("Unknown sorted set enoding");
         }
-        dictReleaseIterator(di);
     } else if (o->type == REDIS_HASH) {
         /* Save a hash value */
         if (o->encoding == REDIS_ENCODING_ZIPMAP) {
@@ -386,6 +395,8 @@ int rdbSaveKeyValuePair(FILE *fp, robj *key, robj *val,
         vtype = REDIS_LIST_ZIPLIST;
     else if (vtype == REDIS_SET && val->encoding == REDIS_ENCODING_INTSET)
         vtype = REDIS_SET_INTSET;
+    else if (vtype == REDIS_ZSET && val->encoding == REDIS_ENCODING_ZIPLIST)
+        vtype = REDIS_ZSET_ZIPLIST;
     /* Save type, key, value */
     if (rdbSaveType(fp,vtype) == -1) return -1;
     if (rdbSaveStringObject(fp,key) == -1) return -1;
@@ -811,7 +822,8 @@ robj *rdbLoadObject(int type, FILE *fp) {
         }
     } else if (type == REDIS_HASH_ZIPMAP ||
                type == REDIS_LIST_ZIPLIST ||
-               type == REDIS_SET_INTSET)
+               type == REDIS_SET_INTSET ||
+               type == REDIS_ZSET_ZIPLIST)
     {
         robj *aux = rdbLoadStringObject(fp);
 
@@ -845,6 +857,10 @@ robj *rdbLoadObject(int type, FILE *fp) {
                 o->encoding = REDIS_ENCODING_INTSET;
                 if (intsetLen(o->ptr) > server.set_max_intset_entries)
                     setTypeConvert(o,REDIS_ENCODING_HT);
+                break;
+            case REDIS_ZSET_ZIPLIST:
+                o->type = REDIS_ZSET;
+                o->encoding = REDIS_ENCODING_ZIPLIST;
                 break;
             default:
                 redisPanic("Unknown enoding");
