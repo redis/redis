@@ -197,6 +197,8 @@
 #define REDIS_LIST_MAX_ZIPLIST_ENTRIES 512
 #define REDIS_LIST_MAX_ZIPLIST_VALUE 64
 #define REDIS_SET_MAX_INTSET_ENTRIES 512
+#define REDIS_ZSET_MAX_ZIPLIST_ENTRIES 128
+#define REDIS_ZSET_MAX_ZIPLIST_VALUE 64
 
 /* Sets operations codes */
 #define REDIS_OP_UNION 0
@@ -470,6 +472,8 @@ struct redisServer {
     size_t list_max_ziplist_entries;
     size_t list_max_ziplist_value;
     size_t set_max_intset_entries;
+    size_t zset_max_ziplist_entries;
+    size_t zset_max_ziplist_value;
     time_t unixtime;    /* Unix time sampled every second. */
     /* Virtual memory I/O threads stuff */
     /* An I/O thread process an element taken from the io_jobs queue and
