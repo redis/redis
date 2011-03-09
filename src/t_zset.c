@@ -454,6 +454,44 @@ unsigned int zzlLength(robj *zobj) {
     return ziplistLen(zl)/2;
 }
 
+/* Move to next entry based on the values in eptr and sptr. Both are set to
+ * NULL when there is no next entry. */
+void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr) {
+    unsigned char *_eptr, *_sptr;
+    redisAssert(*eptr != NULL && *sptr != NULL);
+
+    _eptr = ziplistNext(zl,*sptr);
+    if (_eptr != NULL) {
+        _sptr = ziplistNext(zl,_eptr);
+        redisAssert(_sptr != NULL);
+    } else {
+        /* No next entry. */
+        _sptr = NULL;
+    }
+
+    *eptr = _eptr;
+    *sptr = _sptr;
+}
+
+/* Move to the previous entry based on the values in eptr and sptr. Both are
+ * set to NULL when there is no next entry. */
+void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr) {
+    unsigned char *_eptr, *_sptr;
+    redisAssert(*eptr != NULL && *sptr != NULL);
+
+    _sptr = ziplistPrev(zl,*eptr);
+    if (_sptr != NULL) {
+        _eptr = ziplistPrev(zl,_sptr);
+        redisAssert(_eptr != NULL);
+    } else {
+        /* No previous entry. */
+        _eptr = NULL;
+    }
+
+    *eptr = _eptr;
+    *sptr = _sptr;
+}
+
 /* Returns if there is a part of the zset is in range. Should only be used
  * internally by zzlFirstInRange and zzlLastInRange. */
 int zzlIsInRange(unsigned char *zl, zrangespec *range) {
@@ -1218,35 +1256,24 @@ void zrangeGenericCommand(redisClient *c, int reverse) {
         else
             eptr = ziplistIndex(zl,2*start);
 
+        redisAssert(eptr != NULL);
+        sptr = ziplistNext(zl,eptr);
+
         while (rangelen--) {
-            redisAssert(eptr != NULL);
+            redisAssert(eptr != NULL && sptr != NULL);
             redisAssert(ziplistGet(eptr,&vstr,&vlen,&vlong));
             if (vstr == NULL)
                 addReplyBulkLongLong(c,vlong);
             else
                 addReplyBulkCBuffer(c,vstr,vlen);
 
-            if (withscores) {
-                sptr = ziplistNext(zl,eptr);
-                redisAssert(sptr != NULL);
+            if (withscores)
                 addReplyDouble(c,zzlGetScore(sptr));
-            }
 
-            if (reverse) {
-                /* Move to previous element by moving to the score of previous
-                 * element. When NULL, we know there also is no element. */
-                sptr = ziplistPrev(zl,eptr);
-                if (sptr != NULL) {
-                    eptr = ziplistPrev(zl,sptr);
-                    redisAssert(eptr != NULL);
-                } else {
-                    eptr = NULL;
-                }
-            } else {
-                sptr = ziplistNext(zl,eptr);
-                redisAssert(sptr != NULL);
-                eptr = ziplistNext(zl,sptr);
-            }
+            if (reverse)
+                zzlPrev(zl,&eptr,&sptr);
+            else
+                zzlNext(zl,&eptr,&sptr);
         }
 
     } else if (zobj->encoding == REDIS_ENCODING_RAW) {
