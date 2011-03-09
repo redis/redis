@@ -1318,10 +1318,8 @@ void zrevrangeCommand(redisClient *c) {
  * If "justcount", only the number of elements in the range is returned. */
 void genericZrangebyscoreCommand(redisClient *c, int reverse, int justcount) {
     zrangespec range;
-    robj *o, *emptyreply;
-    zset *zsetobj;
-    zskiplist *zsl;
-    zskiplistNode *ln;
+    robj *key = c->argv[1];
+    robj *emptyreply, *zobj;
     int offset = 0, limit = -1;
     int withscores = 0;
     unsigned long rangelen = 0;
@@ -1365,61 +1363,132 @@ void genericZrangebyscoreCommand(redisClient *c, int reverse, int justcount) {
 
     /* Ok, lookup the key and get the range */
     emptyreply = justcount ? shared.czero : shared.emptymultibulk;
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],emptyreply)) == NULL ||
-        checkType(c,o,REDIS_ZSET)) return;
-    zsetobj = o->ptr;
-    zsl = zsetobj->zsl;
+    if ((zobj = lookupKeyReadOrReply(c,key,emptyreply)) == NULL ||
+        checkType(c,zobj,REDIS_ZSET)) return;
 
-    /* If reversed, get the last node in range as starting point. */
-    if (reverse) {
-        ln = zslLastInRange(zsl,range);
+    if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
+        unsigned char *zl = zobj->ptr;
+        unsigned char *eptr, *sptr;
+        unsigned char *vstr;
+        unsigned int vlen;
+        long long vlong;
+        double score;
+
+        /* If reversed, get the last node in range as starting point. */
+        if (reverse)
+            eptr = zzlLastInRange(zobj,range);
+        else
+            eptr = zzlFirstInRange(zobj,range);
+
+        /* No "first" element in the specified interval. */
+        if (eptr == NULL) {
+            addReply(c,emptyreply);
+            return;
+        }
+
+        /* Get score pointer for the first element. */
+        redisAssert(eptr != NULL);
+        sptr = ziplistNext(zl,eptr);
+
+        /* We don't know in advance how many matching elements there are in the
+         * list, so we push this object that will represent the multi-bulk
+         * length in the output buffer, and will "fix" it later */
+        if (!justcount)
+            replylen = addDeferredMultiBulkLength(c);
+
+        /* If there is an offset, just traverse the number of elements without
+         * checking the score because that is done in the next loop. */
+        while (eptr && offset--)
+            if (reverse)
+                zzlPrev(zl,&eptr,&sptr);
+            else
+                zzlNext(zl,&eptr,&sptr);
+
+        while (eptr && limit--) {
+            score = zzlGetScore(sptr);
+
+            /* Abort when the node is no longer in range. */
+            if (reverse) {
+                if (!zslValueGteMin(score,&range)) break;
+            } else {
+                if (!zslValueLteMax(score,&range)) break;
+            }
+
+            /* Do our magic */
+            rangelen++;
+            if (!justcount) {
+                redisAssert(ziplistGet(eptr,&vstr,&vlen,&vlong));
+                if (vstr == NULL)
+                    addReplyBulkLongLong(c,vlong);
+                else
+                    addReplyBulkCBuffer(c,vstr,vlen);
+
+                if (withscores)
+                    addReplyDouble(c,score);
+            }
+
+            /* Move to next node */
+            if (reverse)
+                zzlPrev(zl,&eptr,&sptr);
+            else
+                zzlNext(zl,&eptr,&sptr);
+        }
+    } else if (zobj->encoding == REDIS_ENCODING_RAW) {
+        zset *zs = zobj->ptr;
+        zskiplist *zsl = zs->zsl;
+        zskiplistNode *ln;
+
+        /* If reversed, get the last node in range as starting point. */
+        if (reverse)
+            ln = zslLastInRange(zsl,range);
+        else
+            ln = zslFirstInRange(zsl,range);
+
+        /* No "first" element in the specified interval. */
+        if (ln == NULL) {
+            addReply(c,emptyreply);
+            return;
+        }
+
+        /* We don't know in advance how many matching elements there are in the
+         * list, so we push this object that will represent the multi-bulk
+         * length in the output buffer, and will "fix" it later */
+        if (!justcount)
+            replylen = addDeferredMultiBulkLength(c);
+
+        /* If there is an offset, just traverse the number of elements without
+         * checking the score because that is done in the next loop. */
+        while (ln && offset--)
+            ln = reverse ? ln->backward : ln->level[0].forward;
+
+        while (ln && limit--) {
+            /* Abort when the node is no longer in range. */
+            if (reverse) {
+                if (!zslValueGteMin(ln->score,&range)) break;
+            } else {
+                if (!zslValueLteMax(ln->score,&range)) break;
+            }
+
+            /* Do our magic */
+            rangelen++;
+            if (!justcount) {
+                addReplyBulk(c,ln->obj);
+                if (withscores)
+                    addReplyDouble(c,ln->score);
+            }
+
+            /* Move to next node */
+            ln = reverse ? ln->backward : ln->level[0].forward;
+        }
     } else {
-        ln = zslFirstInRange(zsl,range);
-    }
-
-    /* No "first" element in the specified interval. */
-    if (ln == NULL) {
-        addReply(c,emptyreply);
-        return;
-    }
-
-    /* We don't know in advance how many matching elements there are in the
-     * list, so we push this object that will represent the multi-bulk length
-     * in the output buffer, and will "fix" it later */
-    if (!justcount)
-        replylen = addDeferredMultiBulkLength(c);
-
-    /* If there is an offset, just traverse the number of elements without
-     * checking the score because that is done in the next loop. */
-    while(ln && offset--) {
-        ln = reverse ? ln->backward : ln->level[0].forward;
-    }
-
-    while (ln && limit--) {
-        /* Abort when the node is no longer in range. */
-        if (reverse) {
-            if (!zslValueGteMin(ln->score,&range)) break;
-        } else {
-            if (!zslValueLteMax(ln->score,&range)) break;
-        }
-
-        /* Do our magic */
-        rangelen++;
-        if (!justcount) {
-            addReplyBulk(c,ln->obj);
-            if (withscores)
-                addReplyDouble(c,ln->score);
-        }
-
-        /* Move to next node */
-        ln = reverse ? ln->backward : ln->level[0].forward;
+        redisPanic("Unknown sorted set encoding");
     }
 
     if (justcount) {
         addReplyLongLong(c,(long)rangelen);
     } else {
-        setDeferredMultiBulkLength(c,replylen,
-             withscores ? (rangelen*2) : rangelen);
+        if (withscores) rangelen *= 2;
+        setDeferredMultiBulkLength(c,replylen,rangelen);
     }
 }
 
