@@ -3,6 +3,7 @@
 #include <string.h>
 #include "intset.h"
 #include "zmalloc.h"
+#include "endian.h"
 
 /* Note that these encodings are ordered, so:
  * INTSET_ENC_INT16 < INTSET_ENC_INT32 < INTSET_ENC_INT64. */
@@ -16,16 +17,29 @@ static uint8_t _intsetValueEncoding(int64_t v) {
         return INTSET_ENC_INT64;
     else if (v < INT16_MIN || v > INT16_MAX)
         return INTSET_ENC_INT32;
-    return INTSET_ENC_INT16;
+    else
+        return INTSET_ENC_INT16;
 }
 
 /* Return the value at pos, given an encoding. */
 static int64_t _intsetGetEncoded(intset *is, int pos, uint8_t enc) {
-    if (enc == INTSET_ENC_INT64)
-        return ((int64_t*)is->contents)[pos];
-    else if (enc == INTSET_ENC_INT32)
-        return ((int32_t*)is->contents)[pos];
-    return ((int16_t*)is->contents)[pos];
+    int64_t v64;
+    int32_t v32;
+    int16_t v16;
+
+    if (enc == INTSET_ENC_INT64) {
+        memcpy(&v64,((int64_t*)is->contents)+pos,sizeof(v64));
+        memrev64ifbe(&v64);
+        return v64;
+    } else if (enc == INTSET_ENC_INT32) {
+        memcpy(&v32,((int32_t*)is->contents)+pos,sizeof(v32));
+        memrev32ifbe(&v32);
+        return v32;
+    } else {
+        memcpy(&v16,((int16_t*)is->contents)+pos,sizeof(v16));
+        memrev16ifbe(&v16);
+        return v16;
+    }
 }
 
 /* Return the value at pos, using the configured encoding. */
@@ -35,12 +49,16 @@ static int64_t _intsetGet(intset *is, int pos) {
 
 /* Set the value at pos, using the configured encoding. */
 static void _intsetSet(intset *is, int pos, int64_t value) {
-    if (is->encoding == INTSET_ENC_INT64)
+    if (is->encoding == INTSET_ENC_INT64) {
         ((int64_t*)is->contents)[pos] = value;
-    else if (is->encoding == INTSET_ENC_INT32)
+        memrev64ifbe(((int64_t*)is->contents)+pos);
+    } else if (is->encoding == INTSET_ENC_INT32) {
         ((int32_t*)is->contents)[pos] = value;
-    else
+        memrev32ifbe(((int32_t*)is->contents)+pos);
+    } else {
         ((int16_t*)is->contents)[pos] = value;
+        memrev16ifbe(((int16_t*)is->contents)+pos);
+    }
 }
 
 /* Create an empty intset. */
