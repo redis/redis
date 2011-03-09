@@ -658,7 +658,7 @@ int zzlInsert(robj *zobj, robj *ele, double score) {
             break;
         } else if (s == score) {
             /* Ensure lexicographical ordering for elements. */
-            if (zzlCompareElements(eptr,ele->ptr,sdslen(ele->ptr)) < 0) {
+            if (zzlCompareElements(eptr,ele->ptr,sdslen(ele->ptr)) > 0) {
                 zzlInsertAt(zobj,ele,score,eptr);
                 break;
             }
@@ -1505,66 +1505,103 @@ void zcountCommand(redisClient *c) {
 }
 
 void zcardCommand(redisClient *c) {
-    robj *o;
-    zset *zs;
+    robj *key = c->argv[1];
+    robj *zobj;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,o,REDIS_ZSET)) return;
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.czero)) == NULL ||
+        checkType(c,zobj,REDIS_ZSET)) return;
 
-    zs = o->ptr;
-    addReplyLongLong(c,zs->zsl->length);
+    addReplyLongLong(c,zzlLength(zobj));
 }
 
 void zscoreCommand(redisClient *c) {
-    robj *o;
-    zset *zs;
-    dictEntry *de;
+    robj *key = c->argv[1];
+    robj *zobj;
+    double score;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
-        checkType(c,o,REDIS_ZSET)) return;
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.nullbulk)) == NULL ||
+        checkType(c,zobj,REDIS_ZSET)) return;
 
-    zs = o->ptr;
-    c->argv[2] = tryObjectEncoding(c->argv[2]);
-    de = dictFind(zs->dict,c->argv[2]);
-    if (!de) {
-        addReply(c,shared.nullbulk);
+    if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
+        if (zzlFind(zobj,c->argv[2],&score) != NULL)
+            addReplyDouble(c,score);
+        else
+            addReply(c,shared.nullbulk);
+    } else if (zobj->encoding == REDIS_ENCODING_RAW) {
+        zset *zs = zobj->ptr;
+        dictEntry *de;
+
+        c->argv[2] = tryObjectEncoding(c->argv[2]);
+        de = dictFind(zs->dict,c->argv[2]);
+        if (de != NULL) {
+            score = *(double*)dictGetEntryVal(de);
+            addReplyDouble(c,score);
+        } else {
+            addReply(c,shared.nullbulk);
+        }
     } else {
-        double *score = dictGetEntryVal(de);
-
-        addReplyDouble(c,*score);
+        redisPanic("Unknown sorted set encoding");
     }
 }
 
 void zrankGenericCommand(redisClient *c, int reverse) {
-    robj *o;
-    zset *zs;
-    zskiplist *zsl;
-    dictEntry *de;
+    robj *key = c->argv[1];
+    robj *ele = c->argv[2];
+    robj *zobj;
+    unsigned long llen;
     unsigned long rank;
-    double *score;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
-        checkType(c,o,REDIS_ZSET)) return;
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.nullbulk)) == NULL ||
+        checkType(c,zobj,REDIS_ZSET)) return;
+    llen = zsLength(zobj);
 
-    zs = o->ptr;
-    zsl = zs->zsl;
-    c->argv[2] = tryObjectEncoding(c->argv[2]);
-    de = dictFind(zs->dict,c->argv[2]);
-    if (!de) {
-        addReply(c,shared.nullbulk);
-        return;
-    }
+    redisAssert(ele->encoding == REDIS_ENCODING_RAW);
+    if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
+        unsigned char *zl = zobj->ptr;
+        unsigned char *eptr, *sptr;
 
-    score = dictGetEntryVal(de);
-    rank = zslGetRank(zsl, *score, c->argv[2]);
-    if (rank) {
-        if (reverse) {
-            addReplyLongLong(c, zsl->length - rank);
+        eptr = ziplistIndex(zl,0);
+        redisAssert(eptr != NULL);
+        sptr = ziplistNext(zl,eptr);
+        redisAssert(sptr != NULL);
+
+        rank = 1;
+        while(eptr != NULL) {
+            if (ziplistCompare(eptr,ele->ptr,sdslen(ele->ptr)))
+                break;
+            rank++;
+            zzlNext(zl,&eptr,&sptr);
+        }
+
+        if (eptr != NULL) {
+            if (reverse)
+                addReplyLongLong(c,llen-rank);
+            else
+                addReplyLongLong(c,rank-1);
         } else {
-            addReplyLongLong(c, rank-1);
+            addReply(c,shared.nullbulk);
+        }
+    } else if (zobj->encoding == REDIS_ENCODING_RAW) {
+        zset *zs = zobj->ptr;
+        zskiplist *zsl = zs->zsl;
+        dictEntry *de;
+        double score;
+
+        ele = c->argv[2] = tryObjectEncoding(c->argv[2]);
+        de = dictFind(zs->dict,ele);
+        if (de != NULL) {
+            score = *(double*)dictGetEntryVal(de);
+            rank = zslGetRank(zsl,score,ele);
+            redisAssert(rank); /* Existing elements always have a rank. */
+            if (reverse)
+                addReplyLongLong(c,llen-rank);
+            else
+                addReplyLongLong(c,rank-1);
+        } else {
+            addReply(c,shared.nullbulk);
         }
     } else {
-        addReply(c,shared.nullbulk);
+        redisPanic("Unknown sorted set encoding");
     }
 }
 
