@@ -890,8 +890,16 @@ int waitForSwappedKey(redisClient *c, robj *key) {
     listAddNodeTail(l,c);
 
     /* Are we already loading the key from disk? If not create a job */
-    if (de == NULL)
-        cacheScheduleIO(c->db,key,REDIS_IO_LOAD);
+    if (de == NULL) {
+        int flags = cacheScheduleIOGetFlags(c->db,key);
+
+        /* It is possible that even if there are no clients waiting for
+         * a load operation, still we have a load operation in progress.
+         * For instance think to a client performing a GET and then
+         * closing the connection */
+        if ((flags & (REDIS_IO_LOAD|REDIS_IO_LOADINPROG)) == 0)
+            cacheScheduleIO(c->db,key,REDIS_IO_LOAD);
+    }
     return 1;
 }
 
