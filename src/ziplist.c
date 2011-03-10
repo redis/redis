@@ -68,6 +68,7 @@
 #include <limits.h>
 #include "zmalloc.h"
 #include "ziplist.h"
+#include "endian.h"
 
 int ll2string(char *s, size_t len, long long value);
 
@@ -207,6 +208,7 @@ static unsigned int zipPrevDecodeLength(unsigned char *p, unsigned int *lensize)
     } else {
         if (lensize) *lensize = 1+sizeof(len);
         memcpy(&len,p+1,sizeof(len));
+        memrev32ifbe(&len);
     }
     return len;
 }
@@ -223,6 +225,7 @@ static unsigned int zipPrevEncodeLength(unsigned char *p, unsigned int len) {
         } else {
             p[0] = ZIP_BIGLEN;
             memcpy(p+1,&len,sizeof(len));
+            memrev32ifbe(p+1);
             return 1+sizeof(len);
         }
     }
@@ -234,6 +237,7 @@ static void zipPrevEncodeLengthForceLarge(unsigned char *p, unsigned int len) {
     if (p == NULL) return;
     p[0] = ZIP_BIGLEN;
     memcpy(p+1,&len,sizeof(len));
+    memrev32ifbe(p+1);
 }
 
 /* Return the difference in number of bytes needed to store the new length
@@ -287,12 +291,15 @@ static void zipSaveInteger(unsigned char *p, int64_t value, unsigned char encodi
     if (encoding == ZIP_INT_16B) {
         i16 = value;
         memcpy(p,&i16,sizeof(i16));
+        memrev16ifbe(p);
     } else if (encoding == ZIP_INT_32B) {
         i32 = value;
         memcpy(p,&i32,sizeof(i32));
+        memrev32ifbe(p);
     } else if (encoding == ZIP_INT_64B) {
         i64 = value;
         memcpy(p,&i64,sizeof(i64));
+        memrev64ifbe(p);
     } else {
         assert(NULL);
     }
@@ -305,12 +312,15 @@ static int64_t zipLoadInteger(unsigned char *p, unsigned char encoding) {
     int64_t i64, ret = 0;
     if (encoding == ZIP_INT_16B) {
         memcpy(&i16,p,sizeof(i16));
+        memrev16ifbe(&i16);
         ret = i16;
     } else if (encoding == ZIP_INT_32B) {
         memcpy(&i32,p,sizeof(i32));
+        memrev16ifbe(&i32);
         ret = i32;
     } else if (encoding == ZIP_INT_64B) {
         memcpy(&i64,p,sizeof(i64));
+        memrev16ifbe(&i64);
         ret = i64;
     } else {
         assert(NULL);
