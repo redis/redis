@@ -449,9 +449,7 @@ int zzlCompareElements(unsigned char *eptr, unsigned char *cstr, unsigned int cl
     return cmp;
 }
 
-unsigned int zzlLength(robj *zobj) {
-    unsigned char *zl = zobj->ptr;
-    redisAssert(zobj->encoding == REDIS_ENCODING_ZIPLIST);
+unsigned int zzlLength(unsigned char *zl) {
     return ziplistLen(zl)/2;
 }
 
@@ -720,7 +718,7 @@ unsigned long zzlDeleteRangeByRank(robj *zobj, unsigned int start, unsigned int 
 int zsLength(robj *zobj) {
     int length = -1;
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
-        length = zzlLength(zobj);
+        length = zzlLength(zobj->ptr);
     } else if (zobj->encoding == REDIS_ENCODING_RAW) {
         length = ((zset*)zobj->ptr)->zsl->length;
     } else {
@@ -874,7 +872,7 @@ void zaddGenericCommand(redisClient *c, int incr) {
             /* Optimize: check if the element is too large or the list becomes
              * too long *before* executing zzlInsert. */
             redisAssert(zzlInsert(zobj,ele,score) == REDIS_OK);
-            if (zzlLength(zobj) > server.zset_max_ziplist_entries)
+            if (zzlLength(zobj->ptr) > server.zset_max_ziplist_entries)
                 zsConvert(zobj,REDIS_ENCODING_RAW);
             if (sdslen(ele->ptr) > server.zset_max_ziplist_value)
                 zsConvert(zobj,REDIS_ENCODING_RAW);
@@ -965,7 +963,7 @@ void zremCommand(redisClient *c) {
 
         if ((eptr = zzlFind(zobj,ele,NULL)) != NULL) {
             redisAssert(zzlDelete(zobj,eptr) == REDIS_OK);
-            if (zzlLength(zobj) == 0) dbDelete(c->db,key);
+            if (zzlLength(zobj->ptr) == 0) dbDelete(c->db,key);
         } else {
             addReply(c,shared.czero);
             return;
