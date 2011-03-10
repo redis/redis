@@ -1426,6 +1426,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
     zsetopsrc *src;
     zsetopval zval;
     robj *tmp;
+    unsigned int maxelelen = 0;
     robj *dstobj;
     zset *dstzset;
     zskiplistNode *znode;
@@ -1539,6 +1540,10 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                     incrRefCount(tmp); /* added to skiplist */
                     dictAdd(dstzset->dict,tmp,&znode->score);
                     incrRefCount(tmp); /* added to dictionary */
+
+                    if (tmp->encoding == REDIS_ENCODING_RAW)
+                        if (sdslen(tmp->ptr) > maxelelen)
+                            maxelelen = sdslen(tmp->ptr);
                 }
             }
         }
@@ -1571,6 +1576,10 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                 incrRefCount(zval.ele); /* added to skiplist */
                 dictAdd(dstzset->dict,tmp,&znode->score);
                 incrRefCount(zval.ele); /* added to dictionary */
+
+                if (tmp->encoding == REDIS_ENCODING_RAW)
+                    if (sdslen(tmp->ptr) > maxelelen)
+                        maxelelen = sdslen(tmp->ptr);
             }
         }
     } else {
@@ -1586,13 +1595,18 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
         server.dirty++;
     }
     if (dstzset->zsl->length) {
+        /* Convert to ziplist when in limits. */
+        if (dstzset->zsl->length <= server.zset_max_ziplist_entries &&
+            maxelelen <= server.zset_max_ziplist_value)
+                zsConvert(dstobj,REDIS_ENCODING_ZIPLIST);
+
         dbAdd(c->db,dstkey,dstobj);
-        addReplyLongLong(c, dstzset->zsl->length);
+        addReplyLongLong(c,zsLength(dstobj));
         if (!touched) signalModifiedKey(c->db,dstkey);
         server.dirty++;
     } else {
         decrRefCount(dstobj);
-        addReply(c, shared.czero);
+        addReply(c,shared.czero);
     }
     zfree(src);
 }
