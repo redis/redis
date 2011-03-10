@@ -810,12 +810,6 @@ void zsConvert(robj *zobj, int encoding) {
  * Sorted set commands 
  *----------------------------------------------------------------------------*/
 
-//  if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
-//  } else if (zobj->encoding == REDIS_ENCODING_RAW) {
-//  } else {
-//      redisPanic("Unknown sorted set encoding");
-//  }
-
 /* This generic command implements both ZADD and ZINCRBY. */
 void zaddGenericCommand(redisClient *c, int incr) {
     static char *nanerr = "resulting score is not a number (NaN)";
