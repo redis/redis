@@ -784,11 +784,13 @@ robj *rdbLoadObject(int type, FILE *fp) {
     } else if (type == REDIS_ZSET) {
         /* Read list/set value */
         size_t zsetlen;
+        size_t maxelelen = 0;
         zset *zs;
 
         if ((zsetlen = rdbLoadLen(fp,NULL)) == REDIS_RDB_LENERR) return NULL;
         o = createZsetObject();
         zs = o->ptr;
+
         /* Load every single element of the list/set */
         while(zsetlen--) {
             robj *ele;
@@ -798,10 +800,21 @@ robj *rdbLoadObject(int type, FILE *fp) {
             if ((ele = rdbLoadEncodedStringObject(fp)) == NULL) return NULL;
             ele = tryObjectEncoding(ele);
             if (rdbLoadDoubleValue(fp,&score) == -1) return NULL;
+
+            /* Don't care about integer-encoded strings. */
+            if (ele->encoding == REDIS_ENCODING_RAW &&
+                sdslen(ele->ptr) > maxelelen)
+                    maxelelen = sdslen(ele->ptr);
+
             znode = zslInsert(zs->zsl,score,ele);
             dictAdd(zs->dict,ele,&znode->score);
             incrRefCount(ele); /* added to skiplist */
         }
+
+        /* Convert *after* loading, since sorted sets are not stored ordered. */
+        if (zsetLength(o) <= server.zset_max_ziplist_entries &&
+            maxelelen <= server.zset_max_ziplist_value)
+                zsetConvert(o,REDIS_ENCODING_ZIPLIST);
     } else if (type == REDIS_HASH) {
         size_t hashlen;
 
