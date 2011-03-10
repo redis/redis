@@ -863,6 +863,7 @@ int stringmatchlen(const char *pattern, int patternLen,
 int stringmatch(const char *pattern, const char *string, int nocase);
 long long memtoll(const char *p, int *err);
 int ll2string(char *s, size_t len, long long value);
+int string2ll(char *s, size_t len, long long *value);
 int d2string(char *s, size_t len, double value);
 int isStringRepresentableAsLong(sds s, long *longval);
 int isStringRepresentableAsLongLong(sds s, long long *longval);
