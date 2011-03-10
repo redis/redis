@@ -715,7 +715,7 @@ unsigned long zzlDeleteRangeByRank(robj *zobj, unsigned int start, unsigned int 
  * Common sorted set API
  *----------------------------------------------------------------------------*/
 
-int zsLength(robj *zobj) {
+unsigned int zsetLength(robj *zobj) {
     int length = -1;
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
         length = zzlLength(zobj->ptr);
@@ -727,7 +727,7 @@ int zsLength(robj *zobj) {
     return length;
 }
 
-void zsConvert(robj *zobj, int encoding) {
+void zsetConvert(robj *zobj, int encoding) {
     zset *zs;
     zskiplistNode *node, *next;
     robj *ele;
@@ -873,9 +873,9 @@ void zaddGenericCommand(redisClient *c, int incr) {
              * too long *before* executing zzlInsert. */
             redisAssert(zzlInsert(zobj,ele,score) == REDIS_OK);
             if (zzlLength(zobj->ptr) > server.zset_max_ziplist_entries)
-                zsConvert(zobj,REDIS_ENCODING_RAW);
+                zsetConvert(zobj,REDIS_ENCODING_RAW);
             if (sdslen(ele->ptr) > server.zset_max_ziplist_value)
-                zsConvert(zobj,REDIS_ENCODING_RAW);
+                zsetConvert(zobj,REDIS_ENCODING_RAW);
 
             signalModifiedKey(c->db,key);
             server.dirty++;
@@ -1042,7 +1042,7 @@ void zremrangebyrankCommand(redisClient *c) {
         checkType(c,zobj,REDIS_ZSET)) return;
 
     /* Sanitize indexes. */
-    llen = zsLength(zobj);
+    llen = zsetLength(zobj);
     if (start < 0) start = llen+start;
     if (end < 0) end = llen+end;
     if (start < 0) start = 0;
@@ -1598,10 +1598,10 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
         /* Convert to ziplist when in limits. */
         if (dstzset->zsl->length <= server.zset_max_ziplist_entries &&
             maxelelen <= server.zset_max_ziplist_value)
-                zsConvert(dstobj,REDIS_ENCODING_ZIPLIST);
+                zsetConvert(dstobj,REDIS_ENCODING_ZIPLIST);
 
         dbAdd(c->db,dstkey,dstobj);
-        addReplyLongLong(c,zsLength(dstobj));
+        addReplyLongLong(c,zsetLength(dstobj));
         if (!touched) signalModifiedKey(c->db,dstkey);
         server.dirty++;
     } else {
@@ -1642,7 +1642,7 @@ void zrangeGenericCommand(redisClient *c, int reverse) {
          || checkType(c,zobj,REDIS_ZSET)) return;
 
     /* Sanitize indexes. */
-    llen = zsLength(zobj);
+    llen = zsetLength(zobj);
     if (start < 0) start = llen+start;
     if (end < 0) end = llen+end;
     if (start < 0) start = 0;
@@ -1926,7 +1926,7 @@ void zcardCommand(redisClient *c) {
     if ((zobj = lookupKeyReadOrReply(c,key,shared.czero)) == NULL ||
         checkType(c,zobj,REDIS_ZSET)) return;
 
-    addReplyLongLong(c,zsLength(zobj));
+    addReplyLongLong(c,zsetLength(zobj));
 }
 
 void zscoreCommand(redisClient *c) {
@@ -1968,7 +1968,7 @@ void zrankGenericCommand(redisClient *c, int reverse) {
 
     if ((zobj = lookupKeyReadOrReply(c,key,shared.nullbulk)) == NULL ||
         checkType(c,zobj,REDIS_ZSET)) return;
-    llen = zsLength(zobj);
+    llen = zsetLength(zobj);
 
     redisAssert(ele->encoding == REDIS_ENCODING_RAW);
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {

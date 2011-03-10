@@ -799,6 +799,9 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal);
 zskiplist *zslCreate(void);
 void zslFree(zskiplist *zsl);
 zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj);
+int zzlInsert(robj *zobj, robj *ele, double score);
+unsigned int zsetLength(robj *zobj);
+void zsetConvert(robj *zobj, int encoding);
 
 /* Core functions */
 void freeMemoryIfNeeded(void);
