@@ -247,6 +247,12 @@ start_server {tags {"zset"}} {
         assert_equal {} [r zrangebyscore zset (-inf (-6]
         assert_equal {} [r zrevrangebyscore zset (+inf (6]
         assert_equal {} [r zrevrangebyscore zset (-6 (-inf]
+
+        # empty inner range
+        assert_equal {} [r zrangebyscore zset 2.4 2.6]
+        assert_equal {} [r zrangebyscore zset (2.4 2.6]
+        assert_equal {} [r zrangebyscore zset 2.4 (2.6]
+        assert_equal {} [r zrangebyscore zset (2.4 (2.6]
     }
 
     test "ZRANGEBYSCORE with WITHSCORES" {

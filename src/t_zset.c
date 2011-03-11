@@ -226,10 +226,12 @@ zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec range) {
                 x = x->level[i].forward;
     }
 
-    /* The tail is in range, so the previous block should always return a
-     * node that is non-NULL and the last one to be out of range. */
+    /* This is an inner range, so the next node cannot be NULL. */
     x = x->level[0].forward;
-    redisAssert(x != NULL && zslValueInRange(x->score,&range));
+    redisAssert(x != NULL);
+
+    /* Check if score <= max. */
+    if (!zslValueLteMax(x->score,&range)) return NULL;
     return x;
 }
 
@@ -250,9 +252,11 @@ zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec range) {
                 x = x->level[i].forward;
     }
 
-    /* The header is in range, so the previous block should always return a
-     * node that is non-NULL and in range. */
-    redisAssert(x != NULL && zslValueInRange(x->score,&range));
+    /* This is an inner range, so this node cannot be NULL. */
+    redisAssert(x != NULL);
+
+    /* Check if score >= min. */
+    if (!zslValueGteMin(x->score,&range)) return NULL;
     return x;
 }
 
@@ -531,8 +535,12 @@ unsigned char *zzlFirstInRange(unsigned char *zl, zrangespec range) {
         redisAssert(sptr != NULL);
 
         score = zzlGetScore(sptr);
-        if (zslValueGteMin(score,&range))
-            return eptr;
+        if (zslValueGteMin(score,&range)) {
+            /* Check if score <= max. */
+            if (zslValueLteMax(score,&range))
+                return eptr;
+            return NULL;
+        }
 
         /* Move to next element. */
         eptr = ziplistNext(zl,sptr);
@@ -555,8 +563,12 @@ unsigned char *zzlLastInRange(unsigned char *zl, zrangespec range) {
         redisAssert(sptr != NULL);
 
         score = zzlGetScore(sptr);
-        if (zslValueLteMax(score,&range))
-            return eptr;
+        if (zslValueLteMax(score,&range)) {
+            /* Check if score >= min. */
+            if (zslValueGteMin(score,&range))
+                return eptr;
+            return NULL;
+        }
 
         /* Move to previous element by moving to the score of previous element.
          * When this returns NULL, we know there also is no element. */
