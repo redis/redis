@@ -778,7 +778,7 @@ void backgroundRewriteDoneHandler(int statloc);
 zskiplist *zslCreate(void);
 void zslFree(zskiplist *zsl);
 zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj);
-int zzlInsert(robj *zobj, robj *ele, double score);
+unsigned char *zzlInsert(unsigned char *zl, robj *ele, double score);
 unsigned int zsetLength(robj *zobj);
 void zsetConvert(robj *zobj, int encoding);
 
