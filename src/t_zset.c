@@ -519,8 +519,7 @@ int zzlIsInRange(unsigned char *zl, zrangespec *range) {
 
 /* Find pointer to the first element contained in the specified range.
  * Returns NULL when no element is contained in the range. */
-unsigned char *zzlFirstInRange(robj *zobj, zrangespec range) {
-    unsigned char *zl = zobj->ptr;
+unsigned char *zzlFirstInRange(unsigned char *zl, zrangespec range) {
     unsigned char *eptr = ziplistIndex(zl,0), *sptr;
     double score;
 
@@ -544,8 +543,7 @@ unsigned char *zzlFirstInRange(robj *zobj, zrangespec range) {
 
 /* Find pointer to the last element contained in the specified range.
  * Returns NULL when no element is contained in the range. */
-unsigned char *zzlLastInRange(robj *zobj, zrangespec range) {
-    unsigned char *zl = zobj->ptr;
+unsigned char *zzlLastInRange(unsigned char *zl, zrangespec range) {
     unsigned char *eptr = ziplistIndex(zl,-2), *sptr;
     double score;
 
@@ -572,8 +570,7 @@ unsigned char *zzlLastInRange(robj *zobj, zrangespec range) {
     return NULL;
 }
 
-unsigned char *zzlFind(robj *zobj, robj *ele, double *score) {
-    unsigned char *zl = zobj->ptr;
+unsigned char *zzlFind(unsigned char *zl, robj *ele, double *score) {
     unsigned char *eptr = ziplistIndex(zl,0), *sptr;
 
     ele = getDecodedObject(ele);
@@ -598,19 +595,16 @@ unsigned char *zzlFind(robj *zobj, robj *ele, double *score) {
 
 /* Delete (element,score) pair from ziplist. Use local copy of eptr because we
  * don't want to modify the one given as argument. */
-int zzlDelete(robj *zobj, unsigned char *eptr) {
-    unsigned char *zl = zobj->ptr;
+unsigned char *zzlDelete(unsigned char *zl, unsigned char *eptr) {
     unsigned char *p = eptr;
 
     /* TODO: add function to ziplist API to delete N elements from offset. */
     zl = ziplistDelete(zl,&p);
     zl = ziplistDelete(zl,&p);
-    zobj->ptr = zl;
-    return REDIS_OK;
+    return zl;
 }
 
-int zzlInsertAt(robj *zobj, robj *ele, double score, unsigned char *eptr) {
-    unsigned char *zl = zobj->ptr;
+unsigned char *zzlInsertAt(unsigned char *zl, unsigned char *eptr, robj *ele, double score) {
     unsigned char *sptr;
     char scorebuf[128];
     int scorelen;
@@ -632,14 +626,12 @@ int zzlInsertAt(robj *zobj, robj *ele, double score, unsigned char *eptr) {
         zl = ziplistInsert(zl,sptr,(unsigned char*)scorebuf,scorelen);
     }
 
-    zobj->ptr = zl;
-    return REDIS_OK;
+    return zl;
 }
 
 /* Insert (element,score) pair in ziplist. This function assumes the element is
  * not yet present in the list. */
-int zzlInsert(robj *zobj, robj *ele, double score) {
-    unsigned char *zl = zobj->ptr;
+unsigned char *zzlInsert(unsigned char *zl, robj *ele, double score) {
     unsigned char *eptr = ziplistIndex(zl,0), *sptr;
     double s;
 
@@ -653,12 +645,12 @@ int zzlInsert(robj *zobj, robj *ele, double score) {
             /* First element with score larger than score for element to be
              * inserted. This means we should take its spot in the list to
              * maintain ordering. */
-            zzlInsertAt(zobj,ele,score,eptr);
+            zl = zzlInsertAt(zl,eptr,ele,score);
             break;
         } else if (s == score) {
             /* Ensure lexicographical ordering for elements. */
             if (zzlCompareElements(eptr,ele->ptr,sdslen(ele->ptr)) > 0) {
-                zzlInsertAt(zobj,ele,score,eptr);
+                zl = zzlInsertAt(zl,eptr,ele,score);
                 break;
             }
         }
@@ -669,21 +661,21 @@ int zzlInsert(robj *zobj, robj *ele, double score) {
 
     /* Push on tail of list when it was not yet inserted. */
     if (eptr == NULL)
-        zzlInsertAt(zobj,ele,score,NULL);
+        zl = zzlInsertAt(zl,NULL,ele,score);
 
     decrRefCount(ele);
-    return REDIS_OK;
+    return zl;
 }
 
-unsigned long zzlDeleteRangeByScore(robj *zobj, zrangespec range) {
-    unsigned char *zl = zobj->ptr;
+unsigned char *zzlDeleteRangeByScore(unsigned char *zl, zrangespec range, unsigned long *deleted) {
     unsigned char *eptr, *sptr;
     double score;
-    unsigned long deleted = 0;
+    unsigned long num = 0;
 
-    eptr = zzlFirstInRange(zobj,range);
-    if (eptr == NULL) return deleted;
+    if (deleted != NULL) *deleted = 0;
 
+    eptr = zzlFirstInRange(zl,range);
+    if (eptr == NULL) return zl;
 
     /* When the tail of the ziplist is deleted, eptr will point to the sentinel
      * byte and ziplistNext will return NULL. */
@@ -693,22 +685,24 @@ unsigned long zzlDeleteRangeByScore(robj *zobj, zrangespec range) {
             /* Delete both the element and the score. */
             zl = ziplistDelete(zl,&eptr);
             zl = ziplistDelete(zl,&eptr);
-            deleted++;
+            num++;
         } else {
             /* No longer in range. */
             break;
         }
     }
 
-    return deleted;
+    if (deleted != NULL) *deleted = num;
+    return zl;
 }
 
 /* Delete all the elements with rank between start and end from the skiplist.
  * Start and end are inclusive. Note that start and end need to be 1-based */
-unsigned long zzlDeleteRangeByRank(robj *zobj, unsigned int start, unsigned int end) {
+unsigned char *zzlDeleteRangeByRank(unsigned char *zl, unsigned int start, unsigned int end, unsigned long *deleted) {
     unsigned int num = (end-start)+1;
-    zobj->ptr = ziplistDeleteRange(zobj->ptr,2*(start-1),2*num);
-    return num;
+    if (deleted) *deleted = num;
+    zl = ziplistDeleteRange(zl,2*(start-1),2*num);
+    return zl;
 }
 
 /*-----------------------------------------------------------------------------
@@ -785,13 +779,9 @@ void zsetConvert(robj *zobj, int encoding) {
         zfree(zs->zsl->header);
         zfree(zs->zsl);
 
-        /* Immediately store pointer to ziplist in object because it will
-         * change because of reallocations when pushing to the ziplist. */
-        zobj->ptr = zl;
-
         while (node) {
             ele = getDecodedObject(node->obj);
-            redisAssert(zzlInsertAt(zobj,ele,node->score,NULL) == REDIS_OK);
+            zl = zzlInsertAt(zl,NULL,ele,node->score);
             decrRefCount(ele);
 
             next = node->level[0].forward;
@@ -800,6 +790,7 @@ void zsetConvert(robj *zobj, int encoding) {
         }
 
         zfree(zs);
+        zobj->ptr = zl;
         zobj->encoding = REDIS_ENCODING_ZIPLIST;
     } else {
         redisPanic("Unknown sorted set encoding");
@@ -844,7 +835,7 @@ void zaddGenericCommand(redisClient *c, int incr) {
 
         /* Prefer non-encoded element when dealing with ziplists. */
         ele = c->argv[3];
-        if ((eptr = zzlFind(zobj,ele,&curscore)) != NULL) {
+        if ((eptr = zzlFind(zobj->ptr,ele,&curscore)) != NULL) {
             if (incr) {
                 score += curscore;
                 if (isnan(score)) {
@@ -857,8 +848,8 @@ void zaddGenericCommand(redisClient *c, int incr) {
 
             /* Remove and re-insert when score changed. */
             if (score != curscore) {
-                redisAssert(zzlDelete(zobj,eptr) == REDIS_OK);
-                redisAssert(zzlInsert(zobj,ele,score) == REDIS_OK);
+                zobj->ptr = zzlDelete(zobj->ptr,eptr);
+                zobj->ptr = zzlInsert(zobj->ptr,ele,score);
 
                 signalModifiedKey(c->db,key);
                 server.dirty++;
@@ -871,7 +862,7 @@ void zaddGenericCommand(redisClient *c, int incr) {
         } else {
             /* Optimize: check if the element is too large or the list becomes
              * too long *before* executing zzlInsert. */
-            redisAssert(zzlInsert(zobj,ele,score) == REDIS_OK);
+            zobj->ptr = zzlInsert(zobj->ptr,ele,score);
             if (zzlLength(zobj->ptr) > server.zset_max_ziplist_entries)
                 zsetConvert(zobj,REDIS_ENCODING_RAW);
             if (sdslen(ele->ptr) > server.zset_max_ziplist_value)
@@ -961,8 +952,8 @@ void zremCommand(redisClient *c) {
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
         unsigned char *eptr;
 
-        if ((eptr = zzlFind(zobj,ele,NULL)) != NULL) {
-            redisAssert(zzlDelete(zobj,eptr) == REDIS_OK);
+        if ((eptr = zzlFind(zobj->ptr,ele,NULL)) != NULL) {
+            zobj->ptr = zzlDelete(zobj->ptr,eptr);
             if (zzlLength(zobj->ptr) == 0) dbDelete(c->db,key);
         } else {
             addReply(c,shared.czero);
@@ -1012,7 +1003,7 @@ void zremrangebyscoreCommand(redisClient *c) {
         checkType(c,zobj,REDIS_ZSET)) return;
 
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
-        deleted = zzlDeleteRangeByScore(zobj,range);
+        zobj->ptr = zzlDeleteRangeByScore(zobj->ptr,range,&deleted);
     } else if (zobj->encoding == REDIS_ENCODING_RAW) {
         zset *zs = zobj->ptr;
         deleted = zslDeleteRangeByScore(zs->zsl,range,zs->dict);
@@ -1057,7 +1048,7 @@ void zremrangebyrankCommand(redisClient *c) {
 
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
         /* Correct for 1-based rank. */
-        deleted = zzlDeleteRangeByRank(zobj,start+1,end+1);
+        zobj->ptr = zzlDeleteRangeByRank(zobj->ptr,start+1,end+1,&deleted);
     } else if (zobj->encoding == REDIS_ENCODING_RAW) {
         zset *zs = zobj->ptr;
 
@@ -1372,7 +1363,7 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
         zuiObjectFromValue(val);
 
         if (op->encoding == REDIS_ENCODING_ZIPLIST) {
-            if (zzlFind(op->subject,val->ele,score) != NULL) {
+            if (zzlFind(it->zl.zl,val->ele,score) != NULL) {
                 /* Score is already set by zzlFind. */
                 return 1;
             } else {
@@ -1791,9 +1782,9 @@ void genericZrangebyscoreCommand(redisClient *c, int reverse, int justcount) {
 
         /* If reversed, get the last node in range as starting point. */
         if (reverse)
-            eptr = zzlLastInRange(zobj,range);
+            eptr = zzlLastInRange(zl,range);
         else
-            eptr = zzlFirstInRange(zobj,range);
+            eptr = zzlFirstInRange(zl,range);
 
         /* No "first" element in the specified interval. */
         if (eptr == NULL) {
@@ -1938,7 +1929,7 @@ void zscoreCommand(redisClient *c) {
         checkType(c,zobj,REDIS_ZSET)) return;
 
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
-        if (zzlFind(zobj,c->argv[2],&score) != NULL)
+        if (zzlFind(zobj->ptr,c->argv[2],&score) != NULL)
             addReplyDouble(c,score);
         else
             addReply(c,shared.nullbulk);
