@@ -188,10 +188,6 @@ static int zslValueLteMax(double value, zrangespec *spec) {
     return spec->maxex ? (value < spec->max) : (value <= spec->max);
 }
 
-static int zslValueInRange(double value, zrangespec *spec) {
-    return zslValueGteMin(value,spec) && zslValueLteMax(value,spec);
-}
-
 /* Returns if there is a part of the zset is in range. */
 int zslIsInRange(zskiplist *zsl, zrangespec *range) {
     zskiplistNode *x;
