@@ -616,7 +616,7 @@ unsigned char *zzlInsertAt(unsigned char *zl, unsigned char *eptr, robj *ele, do
     unsigned char *sptr;
     char scorebuf[128];
     int scorelen;
-    int offset;
+    size_t offset;
 
     redisAssert(ele->encoding == REDIS_ENCODING_RAW);
     scorelen = d2string(scorebuf,sizeof(scorebuf),score);
