@@ -199,6 +199,9 @@ void sortCommand(redisClient *c) {
         j++;
     }
 
+    /* Destructively convert encoded sorted sets for SORT. */
+    if (sortval->type == REDIS_ZSET) zsetConvert(sortval, REDIS_ENCODING_RAW);
+
     /* Load the sorting vector with all the objects to sort */
     switch(sortval->type) {
     case REDIS_LIST: vectorlen = listTypeLength(sortval); break;
