@@ -452,21 +452,55 @@ int rewriteAppendOnlyFile(char *filename) {
                 }
             } else if (o->type == REDIS_ZSET) {
                 /* Emit the ZADDs needed to rebuild the sorted set */
-                zset *zs = o->ptr;
-                dictIterator *di = dictGetIterator(zs->dict);
-                dictEntry *de;
+                char cmd[]="*4\r\n$4\r\nZADD\r\n";
 
-                while((de = dictNext(di)) != NULL) {
-                    char cmd[]="*4\r\n$4\r\nZADD\r\n";
-                    robj *eleobj = dictGetEntryKey(de);
-                    double *score = dictGetEntryVal(de);
+                if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+                    unsigned char *zl = o->ptr;
+                    unsigned char *eptr, *sptr;
+                    unsigned char *vstr;
+                    unsigned int vlen;
+                    long long vll;
+                    double score;
 
-                    if (fwrite(cmd,sizeof(cmd)-1,1,fp) == 0) goto werr;
-                    if (fwriteBulkObject(fp,&key) == 0) goto werr;
-                    if (fwriteBulkDouble(fp,*score) == 0) goto werr;
-                    if (fwriteBulkObject(fp,eleobj) == 0) goto werr;
+                    eptr = ziplistIndex(zl,0);
+                    redisAssert(eptr != NULL);
+                    sptr = ziplistNext(zl,eptr);
+                    redisAssert(sptr != NULL);
+
+                    while (eptr != NULL) {
+                        redisAssert(ziplistGet(eptr,&vstr,&vlen,&vll));
+                        score = zzlGetScore(sptr);
+
+                        if (fwrite(cmd,sizeof(cmd)-1,1,fp) == 0) goto werr;
+                        if (fwriteBulkObject(fp,&key) == 0) goto werr;
+                        if (fwriteBulkDouble(fp,score) == 0) goto werr;
+                        if (vstr != NULL) {
+                            if (fwriteBulkString(fp,(char*)vstr,vlen) == 0)
+                                goto werr;
+                        } else {
+                            if (fwriteBulkLongLong(fp,vll) == 0)
+                                goto werr;
+                        }
+                        zzlNext(zl,&eptr,&sptr);
+                    }
+                } else if (o->encoding == REDIS_ENCODING_RAW) {
+                    zset *zs = o->ptr;
+                    dictIterator *di = dictGetIterator(zs->dict);
+                    dictEntry *de;
+
+                    while((de = dictNext(di)) != NULL) {
+                        robj *eleobj = dictGetEntryKey(de);
+                        double *score = dictGetEntryVal(de);
+
+                        if (fwrite(cmd,sizeof(cmd)-1,1,fp) == 0) goto werr;
+                        if (fwriteBulkObject(fp,&key) == 0) goto werr;
+                        if (fwriteBulkDouble(fp,*score) == 0) goto werr;
+                        if (fwriteBulkObject(fp,eleobj) == 0) goto werr;
+                    }
+                    dictReleaseIterator(di);
+                } else {
+                    redisPanic("Unknown sorted set encoding");
                 }
-                dictReleaseIterator(di);
             } else if (o->type == REDIS_HASH) {
                 char cmd[]="*4\r\n$4\r\nHSET\r\n";
 
