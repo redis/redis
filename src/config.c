@@ -66,7 +66,7 @@ void loadServerConfig(char *filename) {
             }
         } else if (!strcasecmp(argv[0],"port") && argc == 2) {
             server.port = atoi(argv[1]);
-            if (server.port < 1 || server.port > 65535) {
+            if (server.port < 0 || server.port > 65535) {
                 err = "Invalid port"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"bind") && argc == 2) {
@@ -426,6 +426,26 @@ void configSetCommand(redisClient *c) {
 
         if (yn == -1) goto badfmt;
         server.repl_serve_stale_data = yn;
+    } else if (!strcasecmp(c->argv[2]->ptr,"dir")) {
+        if (chdir((char*)o->ptr) == -1) {
+            addReplyErrorFormat(c,"Changing directory: %s", strerror(errno));
+            return;
+        }
+    } else if (!strcasecmp(c->argv[2]->ptr,"hash-max-zipmap-entries")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
+        server.hash_max_zipmap_entries = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"hash-max-zipmap-value")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
+        server.hash_max_zipmap_value = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"list-max-ziplist-entries")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
+        server.list_max_ziplist_entries = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"list-max-ziplist-value")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
+        server.list_max_ziplist_value = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"set-max-intset-entries")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
+        server.set_max_intset_entries = ll;
     } else {
         addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
             (char*)c->argv[2]->ptr);
@@ -448,6 +468,17 @@ void configGetCommand(redisClient *c) {
     int matches = 0;
     redisAssert(o->encoding == REDIS_ENCODING_RAW);
 
+    if (stringmatch(pattern,"dir",0)) {
+        char buf[1024];
+
+        addReplyBulkCString(c,"dir");
+        if (getcwd(buf,sizeof(buf)) == NULL) {
+            buf[0] = '\0';
+        } else {
+            addReplyBulkCString(c,buf);
+        }
+        matches++;
+    }
     if (stringmatch(pattern,"dbfilename",0)) {
         addReplyBulkCString(c,"dbfilename");
         addReplyBulkCString(c,server.dbfilename);
@@ -539,6 +570,31 @@ void configGetCommand(redisClient *c) {
     if (stringmatch(pattern,"slave-serve-stale-data",0)) {
         addReplyBulkCString(c,"slave-serve-stale-data");
         addReplyBulkCString(c,server.repl_serve_stale_data ? "yes" : "no");
+        matches++;
+    }
+    if (stringmatch(pattern,"hash-max-zipmap-entries",0)) {
+        addReplyBulkCString(c,"hash-max-zipmap-entries");
+        addReplyBulkLongLong(c,server.hash_max_zipmap_entries);
+        matches++;
+    }
+    if (stringmatch(pattern,"hash-max-zipmap-value",0)) {
+        addReplyBulkCString(c,"hash-max-zipmap-value");
+        addReplyBulkLongLong(c,server.hash_max_zipmap_value);
+        matches++;
+    }
+    if (stringmatch(pattern,"list-max-ziplist-entries",0)) {
+        addReplyBulkCString(c,"list-max-ziplist-entries");
+        addReplyBulkLongLong(c,server.list_max_ziplist_entries);
+        matches++;
+    }
+    if (stringmatch(pattern,"list-max-ziplist-value",0)) {
+        addReplyBulkCString(c,"list-max-ziplist-value");
+        addReplyBulkLongLong(c,server.list_max_ziplist_value);
+        matches++;
+    }
+    if (stringmatch(pattern,"set-max-intset-entries",0)) {
+        addReplyBulkCString(c,"set-max-intset-entries");
+        addReplyBulkLongLong(c,server.set_max_intset_entries);
         matches++;
     }
     setDeferredMultiBulkLength(c,replylen,matches*2);

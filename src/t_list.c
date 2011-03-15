@@ -831,7 +831,7 @@ int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
 			retval = 1;
 			break;
         } else {
-            /* BRPOPLPUSH */
+            /* BRPOPLPUSH, note that receiver->db is always equal to c->db. */
             dstobj = lookupKeyWrite(receiver->db,dstkey);
             if (dstobj && checkType(receiver,dstobj,REDIS_LIST)) {
                 decrRefCount(dstkey);
@@ -948,7 +948,7 @@ void brpoplpushCommand(redisClient *c) {
 
             /* Blocking against an empty list in a multi state
              * returns immediately. */
-            addReply(c, shared.nullmultibulk);
+            addReply(c, shared.nullbulk);
         } else {
             /* The list is empty and the client blocks. */
             blockForKeys(c, c->argv + 1, 1, timeout, c->argv[2], REDIS_BLOCK_BPOP);

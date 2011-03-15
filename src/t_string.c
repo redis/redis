@@ -259,7 +259,7 @@ void getrangeCommand(redisClient *c) {
         return;
     if (getLongFromObjectOrReply(c,c->argv[3],&end,NULL) != REDIS_OK)
         return;
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptybulk)) == NULL ||
         checkType(c,o,REDIS_STRING)) return;
 
     if (o->encoding == REDIS_ENCODING_INT) {
@@ -280,7 +280,7 @@ void getrangeCommand(redisClient *c) {
     /* Precondition: end >= 0 && end < strlen, so the only condition where
      * nothing can be returned is: start > end. */
     if (start > end) {
-        addReply(c,shared.nullbulk);
+        addReply(c,shared.emptybulk);
     } else {
         addReplyBulkCBuffer(c,(char*)str+start,end-start+1);
     }

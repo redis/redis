@@ -174,6 +174,13 @@ start_server {tags {"other"}} {
         set _ $err
     } {*ERR MULTI*}
 
+    test {MULTI where commands alter argc/argv} {
+        r sadd myset a
+        r multi
+        r spop myset
+        list [r exec] [r exists myset]
+    } {a 0}
+
     test {WATCH inside MULTI is not allowed} {
         set err {}
         r multi
