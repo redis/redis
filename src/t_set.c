@@ -535,7 +535,7 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
 #endif
     for (j = 0; j < setnum; j++) {
 #ifdef OPTIMIZE_SUNION
-      if ((op == REDIS_OP_UNION) && dstkey && dstkey == setkeys[j]) {
+      if ((op == REDIS_OP_UNION) && dstkey && (strcmp(dstkey->ptr, setkeys[j]->ptr) == 0)) {
 	  isAppend = 1;
           sets[j] = NULL;
       }
@@ -564,6 +564,9 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
 #ifdef OPTIMIZE_SUNION
     if (isAppend) {
       dstset = lookupKeyWrite(c->db,dstkey);
+      if (!dstset) {
+	dstset = createIntsetObject();
+      }
     }
     else {
 #endif 
@@ -610,16 +613,23 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
     } else {
         /* If we have a target key where to store the resulting set
          * create this key with the result set inside */
-        dbDelete(c->db,dstkey);
-        if (setTypeSize(dstset) > 0) {
-            dbAdd(c->db,dstkey,dstset);
-            addReplyLongLong(c,setTypeSize(dstset));
-        } else {
-            decrRefCount(dstset);
-            addReply(c,shared.czero);
-        }
-        signalModifiedKey(c->db,dstkey);
-        server.dirty++;
+#ifdef OPTIMIZE_SUNION
+      if (!isAppend) {
+#endif
+	dbDelete(c->db,dstkey);
+#ifdef OPTIMIZE_SUNION
+      }
+#endif
+      if (setTypeSize(dstset) > 0) {
+	dbAdd(c->db,dstkey,dstset);	
+	addReplyLongLong(c,setTypeSize(dstset));
+      } else {
+	decrRefCount(dstset);
+	addReply(c,shared.czero);
+      }
+      touchWatchedKey(c->db,dstkey);
+      signalModifiedKey(c->db,dstkey);    
+      server.dirty++;
     }
     zfree(sets);
 }
