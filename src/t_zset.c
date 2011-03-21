@@ -1012,6 +1012,7 @@ void zremrangebyscoreCommand(redisClient *c) {
 
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
         zobj->ptr = zzlDeleteRangeByScore(zobj->ptr,range,&deleted);
+        if (zzlLength(zobj->ptr) == 0) dbDelete(c->db,key);
     } else if (zobj->encoding == REDIS_ENCODING_RAW) {
         zset *zs = zobj->ptr;
         deleted = zslDeleteRangeByScore(zs->zsl,range,zs->dict);
@@ -1057,6 +1058,7 @@ void zremrangebyrankCommand(redisClient *c) {
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
         /* Correct for 1-based rank. */
         zobj->ptr = zzlDeleteRangeByRank(zobj->ptr,start+1,end+1,&deleted);
+        if (zzlLength(zobj->ptr) == 0) dbDelete(c->db,key);
     } else if (zobj->encoding == REDIS_ENCODING_RAW) {
         zset *zs = zobj->ptr;
 
