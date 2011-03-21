@@ -62,6 +62,7 @@
  *     Force replication even if dirty is 0. */
 #define REDIS_CMD_DENYOOM 4
 #define REDIS_CMD_FORCE_REPLICATION 8
+#define REDIS_CMD_IS_MUTABLE 16
 
 /* Object types */
 #define REDIS_STRING 0
