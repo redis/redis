@@ -404,6 +404,7 @@ struct redisServer {
     int no_appendfsync_on_rewrite;
     int shutdown_asap;
     int activerehashing;
+    int slave_readonly;
     char *requirepass;
     /* Persistence */
     long long dirty;            /* changes to DB from the last save */

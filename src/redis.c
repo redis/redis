@@ -795,6 +795,7 @@ void initServerConfig() {
     server.syslog_ident = zstrdup("redis");
     server.syslog_facility = LOG_LOCAL0;
     server.daemonize = 0;
+    server.slave_readonly = 0;
     server.appendonly = 0;
     server.appendfsync = APPENDFSYNC_EVERYSEC;
     server.no_appendfsync_on_rewrite = 0;
@@ -1048,6 +1049,12 @@ int processCommand(redisClient *c) {
     /* Check if the user is authenticated */
     if (server.requirepass && !c->authenticated && cmd->proc != authCommand) {
         addReplyError(c,"operation not permitted");
+        return REDIS_OK;
+    }
+
+    /* Check readonly flag */
+    if (server.slave_readonly && (c->flags & REDIS_MASTER || c->flags & REDIS_SLAVE) && (cmd->flags & REDIS_CMD_IS_MUTABLE)) {
+        addReplyError(c,"operation is mutable, not permitted");
         return REDIS_OK;
     }
 
