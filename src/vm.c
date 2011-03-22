@@ -368,7 +368,6 @@ double computeObjectSwappability(robj *o) {
     listNode *ln;
     dict *d;
     struct dictEntry *de;
-    int z;
 
     if (minage <= 0) return 0;
     switch(o->type) {
@@ -395,23 +394,34 @@ double computeObjectSwappability(robj *o) {
         }
         break;
     case REDIS_SET:
-    case REDIS_ZSET:
-        z = (o->type == REDIS_ZSET);
-        d = z ? ((zset*)o->ptr)->dict : o->ptr;
-
-        if (!z && o->encoding == REDIS_ENCODING_INTSET) {
+        if (o->encoding == REDIS_ENCODING_INTSET) {
             intset *is = o->ptr;
             asize = sizeof(*is)+is->encoding*is->length;
         } else {
+            d = o->ptr;
             asize = sizeof(dict)+(sizeof(struct dictEntry*)*dictSlots(d));
-            if (z) asize += sizeof(zset)-sizeof(dict);
             if (dictSize(d)) {
                 de = dictGetRandomKey(d);
                 ele = dictGetEntryKey(de);
                 elesize = (ele->encoding == REDIS_ENCODING_RAW) ?
                                 (sizeof(*o)+sdslen(ele->ptr)) : sizeof(*o);
                 asize += (sizeof(struct dictEntry)+elesize)*dictSize(d);
-                if (z) asize += sizeof(zskiplistNode)*dictSize(d);
+            }
+        }
+        break;
+    case REDIS_ZSET:
+        if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+            asize = sizeof(*o)+(ziplistSize(o->ptr) / 2);
+        } else {
+            d = ((zset*)o->ptr)->dict;
+            asize = sizeof(zset)+(sizeof(struct dictEntry*)*dictSlots(d));
+            if (dictSize(d)) {
+                de = dictGetRandomKey(d);
+                ele = dictGetEntryKey(de);
+                elesize = (ele->encoding == REDIS_ENCODING_RAW) ?
+                                (sizeof(*o)+sdslen(ele->ptr)) : sizeof(*o);
+                asize += (sizeof(struct dictEntry)+elesize)*dictSize(d);
+                asize += sizeof(zskiplistNode)*dictSize(d);
             }
         }
         break;
