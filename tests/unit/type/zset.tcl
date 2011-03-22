@@ -53,6 +53,18 @@ start_server {tags {"zset"}} {
             assert_equal 0 [r zcard zdoesntexist]
         }
 
+        test "ZREM removes key after last element is removed" {
+            r del ztmp
+            r zadd ztmp 10 x
+            r zadd ztmp 20 y
+
+            assert_equal 1 [r exists ztmp]
+            assert_equal 0 [r zrem ztmp z]
+            assert_equal 1 [r zrem ztmp y]
+            assert_equal 1 [r zrem ztmp x]
+            assert_equal 0 [r exists ztmp]
+        }
+
         test "ZRANGE basics - $encoding" {
             r del ztmp
             r zadd ztmp 1 a
@@ -244,6 +256,7 @@ start_server {tags {"zset"}} {
         test "ZREMRANGEBYSCORE basics" {
             proc remrangebyscore {min max} {
                 create_zset zset {1 a 2 b 3 c 4 d 5 e}
+                assert_equal 1 [r exists zset]
                 r zremrangebyscore zset $min $max
             }
 
@@ -290,6 +303,10 @@ start_server {tags {"zset"}} {
             # exclusive min and max
             assert_equal 3 [remrangebyscore (1 (5]
             assert_equal {a e} [r zrange zset 0 -1]
+
+            # destroy when empty
+            assert_equal 5 [remrangebyscore 1 5]
+            assert_equal 0 [r exists zset]
         }
 
         test "ZREMRANGEBYSCORE with non-value min or max" {
@@ -301,6 +318,7 @@ start_server {tags {"zset"}} {
         test "ZREMRANGEBYRANK basics" {
             proc remrangebyrank {min max} {
                 create_zset zset {1 a 2 b 3 c 4 d 5 e}
+                assert_equal 1 [r exists zset]
                 r zremrangebyrank zset $min $max
             }
 
@@ -323,6 +341,10 @@ start_server {tags {"zset"}} {
             # end overflow
             assert_equal 5 [remrangebyrank 0 10]
             assert_equal {} [r zrange zset 0 -1]
+
+            # destroy when empty
+            assert_equal 5 [remrangebyrank 0 4]
+            assert_equal 0 [r exists zset]
         }
 
         test "ZUNIONSTORE against non-existing key doesn't set destination - $encoding" {
