@@ -328,10 +328,39 @@ int rdbSaveObject(FILE *fp, robj *o) {
     } else if (o->type == REDIS_ZSET) {
         /* Save a sorted set value */
         if (o->encoding == REDIS_ENCODING_ZIPLIST) {
-            size_t l = ziplistBlobLen((unsigned char*)o->ptr);
+            unsigned char *zl = o->ptr;
+            unsigned char *eptr, *sptr;
+            unsigned char *vstr;
+            unsigned int vlen;
+            long long vlong;
+            double score;
 
-            if ((n = rdbSaveRawString(fp,o->ptr,l)) == -1) return -1;
+            if ((n = rdbSaveLen(fp,zsetLength(o))) == -1) return -1;
             nwritten += n;
+
+            eptr = ziplistIndex(zl,0);
+            redisAssert(eptr != NULL);
+            sptr = ziplistNext(zl,eptr);
+            redisAssert(sptr != NULL);
+
+            while (eptr != NULL) {
+                redisAssert(ziplistGet(eptr,&vstr,&vlen,&vlong));
+                if (vstr) {
+                    if ((n = rdbSaveRawString(fp,vstr,vlen)) == -1)
+                        return -1;
+                    nwritten += n;
+                } else {
+                    if ((n = rdbSaveLongLongAsStringObject(fp,vlong)) == -1)
+                        return -1;
+                    nwritten += n;
+                }
+
+                score = zzlGetScore(sptr);
+                if ((n = rdbSaveDoubleValue(fp,score)) == -1) return -1;
+                nwritten += n;
+
+                zzlNext(zl,&eptr,&sptr);
+            }
         } else if (o->encoding == REDIS_ENCODING_RAW) {
             zset *zs = o->ptr;
             dictIterator *di = dictGetIterator(zs->dict);
