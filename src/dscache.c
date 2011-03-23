@@ -971,7 +971,8 @@ void execBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int 
 int blockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd) {
     int *keyindex, numkeys, j;
 
-    keyindex = getKeysFromCommand(cmd,c->argv,c->argc,&numkeys,REDIS_GETKEYS_PRELOAD);
+    keyindex = getKeysFromCommand(cmd,c->argv,c->argc,&numkeys,
+                                  REDIS_GETKEYS_PRELOAD);
     for (j = 0; j < numkeys; j++) waitForSwappedKey(c,c->argv[keyindex[j]]);
     getKeysFreeResult(keyindex);
 
