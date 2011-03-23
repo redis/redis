@@ -903,6 +903,7 @@ int waitForSwappedKey(redisClient *c, robj *key) {
     return 1;
 }
 
+#if 0
 /* Preload keys for any command with first, last and step values for
  * the command keys prototype, as defined in the command table. */
 void waitForMultipleSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv) {
@@ -955,6 +956,7 @@ void execBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int 
         }
     }
 }
+#endif
 
 /* Is this client attempting to run a command against swapped keys?
  * If so, block it ASAP, load the keys in background, then resume it.
@@ -967,11 +969,13 @@ void execBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int 
  * Return 1 if the client is marked as blocked, 0 if the client can
  * continue as the keys it is going to access appear to be in memory. */
 int blockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd) {
-    if (cmd->vm_preload_proc != NULL) {
-        cmd->vm_preload_proc(c,cmd,c->argc,c->argv);
-    } else {
-        waitForMultipleSwappedKeys(c,cmd,c->argc,c->argv);
-    }
+    int *keyindex, numkeys, j;
+
+    keyindex = getKeysFromCommand(cmd,c->argv,c->argc,&numkeys,REDIS_GETKEYS_PRELOAD);
+    for (j = 0; j < numkeys; j++) waitForSwappedKey(c,c->argv[keyindex[j]]);
+    getKeysFreeResult(keyindex);
+
+#warning "Handle EXEC here"
 
     /* If the client was blocked for at least one key, mark it as blocked. */
     if (listLength(c->io_keys)) {

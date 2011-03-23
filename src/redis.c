@@ -168,7 +168,7 @@ struct redisCommand redisCommandTable[] = {
     {"lastsave",lastsaveCommand,1,0,NULL,0,0,0,0,0},
     {"type",typeCommand,2,0,NULL,1,1,1,0,0},
     {"multi",multiCommand,1,0,NULL,0,0,0,0,0},
-    {"exec",execCommand,1,REDIS_CMD_DENYOOM,execGetKeys,0,0,0,0,0},
+    {"exec",execCommand,1,REDIS_CMD_DENYOOM,NULL,0,0,0,0,0},
     {"discard",discardCommand,1,0,NULL,0,0,0,0,0},
     {"sync",syncCommand,1,0,NULL,0,0,0,0,0},
     {"flushdb",flushdbCommand,1,0,NULL,0,0,0,0,0},

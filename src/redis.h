@@ -507,20 +507,19 @@ typedef struct pubsubPattern {
 } pubsubPattern;
 
 typedef void redisCommandProc(redisClient *c);
-typedef void redisVmPreloadProc(redisClient *c, struct redisCommand *cmd, int argc, robj **argv);
+typedef int *redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, int *numkeys, int flags);
 struct redisCommand {
     char *name;
     redisCommandProc *proc;
     int arity;
     int flags;
-    /* Use a function to determine which keys need to be loaded
-     * in the background prior to executing this command. Takes precedence
-     * over vm_firstkey and others, ignored when NULL */
-    redisVmPreloadProc *vm_preload_proc;
+    /* Use a function to determine keys arguments in a command line.
+     * Used both for diskstore preloading and Redis Cluster. */
+    redisGetKeysProc *getkeys_proc;
     /* What keys should be loaded in background when calling this command? */
-    int vm_firstkey; /* The first argument that's a key (0 = no keys) */
-    int vm_lastkey;  /* THe last argument that's a key */
-    int vm_keystep;  /* The step between first and last key */
+    int firstkey; /* The first argument that's a key (0 = no keys) */
+    int lastkey;  /* THe last argument that's a key */
+    int keystep;  /* The step between first and last key */
     long long microseconds, calls;
 };
 
@@ -829,8 +828,6 @@ void freeIOJob(iojob *j);
 void queueIOJob(iojob *j);
 void waitEmptyIOJobsQueue(void);
 void processAllPendingIOJobs(void);
-void zunionInterBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv);
-void execBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv);
 int blockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd);
 int dontWaitForSwappedKey(redisClient *c, robj *key);
 void handleClientsBlockedOnSwappedKey(redisDb *db, robj *key);
@@ -916,6 +913,15 @@ long long emptyDb();
 int selectDb(redisClient *c, int id);
 void signalModifiedKey(redisDb *db, robj *key);
 void signalFlushedDb(int dbid);
+
+/* API to get key arguments from commands */
+#define REDIS_GETKEYS_ALL 0
+#define REDIS_GETKEYS_PRELOAD 1
+int *getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, int *numkeys, int flags);
+void getKeysFreeResult(int *result);
+int *noPreloadGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *numkeys, int flags);
+int *renameGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *numkeys, int flags);
+int *zunionInterGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *numkeys, int flags);
 
 /* Git SHA1 */
 char *redisGitSHA1(void);
