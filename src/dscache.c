@@ -969,14 +969,33 @@ void execBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int 
  * Return 1 if the client is marked as blocked, 0 if the client can
  * continue as the keys it is going to access appear to be in memory. */
 int blockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd) {
-    int *keyindex, numkeys, j;
+    int *keyindex, numkeys, j, i;
 
-    keyindex = getKeysFromCommand(cmd,c->argv,c->argc,&numkeys,
-                                  REDIS_GETKEYS_PRELOAD);
-    for (j = 0; j < numkeys; j++) waitForSwappedKey(c,c->argv[keyindex[j]]);
-    getKeysFreeResult(keyindex);
+    /* EXEC is a special case, we need to preload all the commands
+     * queued into the transaction */
+    if (cmd->proc == execCommand) {
+        struct redisCommand *mcmd;
+        robj **margv;
+        int margc;
 
-#warning "Handle EXEC here"
+        if (!(c->flags & REDIS_MULTI)) return 0;
+        for (i = 0; i < c->mstate.count; i++) {
+            mcmd = c->mstate.commands[i].cmd;
+            margc = c->mstate.commands[i].argc;
+            margv = c->mstate.commands[i].argv;
+
+            keyindex = getKeysFromCommand(mcmd,margv,margc,&numkeys,
+                                          REDIS_GETKEYS_PRELOAD);
+            for (j = 0; j < numkeys; j++)
+                waitForSwappedKey(c,margv[keyindex[j]]);
+            getKeysFreeResult(keyindex);
+        }
+    } else {
+        keyindex = getKeysFromCommand(cmd,c->argv,c->argc,&numkeys,
+                                      REDIS_GETKEYS_PRELOAD);
+        for (j = 0; j < numkeys; j++) waitForSwappedKey(c,c->argv[keyindex[j]]);
+        getKeysFreeResult(keyindex);
+    }
 
     /* If the client was blocked for at least one key, mark it as blocked. */
     if (listLength(c->io_keys)) {
