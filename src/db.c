@@ -634,8 +634,9 @@ int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, in
     keys = zmalloc(sizeof(int)*((last - cmd->firstkey)+1));
     for (j = cmd->firstkey; j <= last; j += cmd->keystep) {
         redisAssert(j < argc);
-        keys[i] = j;
+        keys[i++] = j;
     }
+    *numkeys = i;
     return keys;
 }
 

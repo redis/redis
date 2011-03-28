@@ -903,61 +903,6 @@ int waitForSwappedKey(redisClient *c, robj *key) {
     return 1;
 }
 
-#if 0
-/* Preload keys for any command with first, last and step values for
- * the command keys prototype, as defined in the command table. */
-void waitForMultipleSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv) {
-    int j, last;
-    if (cmd->vm_firstkey == 0) return;
-    last = cmd->vm_lastkey;
-    if (last < 0) last = argc+last;
-    for (j = cmd->vm_firstkey; j <= last; j += cmd->vm_keystep) {
-        redisAssert(j < argc);
-        waitForSwappedKey(c,argv[j]);
-    }
-}
-
-/* Preload keys needed for the ZUNIONSTORE and ZINTERSTORE commands.
- * Note that the number of keys to preload is user-defined, so we need to
- * apply a sanity check against argc. */
-void zunionInterBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv) {
-    int i, num;
-    REDIS_NOTUSED(cmd);
-
-    num = atoi(argv[2]->ptr);
-    if (num > (argc-3)) return;
-    for (i = 0; i < num; i++) {
-        waitForSwappedKey(c,argv[3+i]);
-    }
-}
-
-/* Preload keys needed to execute the entire MULTI/EXEC block.
- *
- * This function is called by blockClientOnSwappedKeys when EXEC is issued,
- * and will block the client when any command requires a swapped out value. */
-void execBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv) {
-    int i, margc;
-    struct redisCommand *mcmd;
-    robj **margv;
-    REDIS_NOTUSED(cmd);
-    REDIS_NOTUSED(argc);
-    REDIS_NOTUSED(argv);
-
-    if (!(c->flags & REDIS_MULTI)) return;
-    for (i = 0; i < c->mstate.count; i++) {
-        mcmd = c->mstate.commands[i].cmd;
-        margc = c->mstate.commands[i].argc;
-        margv = c->mstate.commands[i].argv;
-
-        if (mcmd->vm_preload_proc != NULL) {
-            mcmd->vm_preload_proc(c,mcmd,margc,margv);
-        } else {
-            waitForMultipleSwappedKeys(c,mcmd,margc,margv);
-        }
-    }
-}
-#endif
-
 /* Is this client attempting to run a command against swapped keys?
  * If so, block it ASAP, load the keys in background, then resume it.
  *
@@ -986,14 +931,21 @@ int blockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd) {
 
             keyindex = getKeysFromCommand(mcmd,margv,margc,&numkeys,
                                           REDIS_GETKEYS_PRELOAD);
-            for (j = 0; j < numkeys; j++)
+            for (j = 0; j < numkeys; j++) {
+                redisLog(REDIS_WARNING,"Preloading %s",
+                    (char*)margv[keyindex[j]]->ptr);
                 waitForSwappedKey(c,margv[keyindex[j]]);
+            }
             getKeysFreeResult(keyindex);
         }
     } else {
         keyindex = getKeysFromCommand(cmd,c->argv,c->argc,&numkeys,
                                       REDIS_GETKEYS_PRELOAD);
-        for (j = 0; j < numkeys; j++) waitForSwappedKey(c,c->argv[keyindex[j]]);
+        for (j = 0; j < numkeys; j++) {
+            redisLog(REDIS_WARNING,"Preloading %s",
+                (char*)c->argv[keyindex[j]]->ptr);
+            waitForSwappedKey(c,c->argv[keyindex[j]]);
+        }
         getKeysFreeResult(keyindex);
     }
 
