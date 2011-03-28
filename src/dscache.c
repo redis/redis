@@ -932,7 +932,7 @@ int blockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd) {
             keyindex = getKeysFromCommand(mcmd,margv,margc,&numkeys,
                                           REDIS_GETKEYS_PRELOAD);
             for (j = 0; j < numkeys; j++) {
-                redisLog(REDIS_WARNING,"Preloading %s",
+                redisLog(REDIS_DEBUG,"Preloading %s",
                     (char*)margv[keyindex[j]]->ptr);
                 waitForSwappedKey(c,margv[keyindex[j]]);
             }
@@ -942,7 +942,7 @@ int blockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd) {
         keyindex = getKeysFromCommand(cmd,c->argv,c->argc,&numkeys,
                                       REDIS_GETKEYS_PRELOAD);
         for (j = 0; j < numkeys; j++) {
-            redisLog(REDIS_WARNING,"Preloading %s",
+            redisLog(REDIS_DEBUG,"Preloading %s",
                 (char*)c->argv[keyindex[j]]->ptr);
             waitForSwappedKey(c,c->argv[keyindex[j]]);
         }
