@@ -666,7 +666,7 @@ int *renameGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *numkeys,
         int *keys = zmalloc(sizeof(int));
         *numkeys = 1;
         keys[0] = 1;
-        return NULL;
+        return keys;
     } else {
         return getKeysUsingCommandTable(cmd,argv,argc,numkeys);
     }
