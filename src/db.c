@@ -684,7 +684,7 @@ int *zunionInterGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *num
         *numkeys = 0;
         return NULL;
     }
-    keys = zmalloc(num);
+    keys = zmalloc(sizeof(int)*num);
     for (i = 0; i < num; i++) keys[i] = 3+i;
     *numkeys = num;
     return keys;
