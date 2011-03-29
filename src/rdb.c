@@ -245,7 +245,7 @@ int rdbSaveDoubleValue(FILE *fp, double val) {
     return rdbWriteRaw(fp,buf,len);
 }
 
-/* Save a Redis object. */
+/* Save a Redis object. Returns -1 on error, 0 on success. */
 int rdbSaveObject(FILE *fp, robj *o) {
     int n, nwritten = 0;
 

@@ -18,6 +18,7 @@
 #include <inttypes.h>
 #include <pthread.h>
 #include <syslog.h>
+#include <netinet/in.h>
 
 #include "ae.h"     /* Event driven programming library */
 #include "sds.h"    /* Dynamic safe strings */
@@ -360,7 +361,123 @@ struct sharedObjectsStruct {
     *integers[REDIS_SHARED_INTEGERS];
 };
 
-/* Global server state structure */
+/*-----------------------------------------------------------------------------
+ * Redis cluster data structures
+ *----------------------------------------------------------------------------*/
+
+#define REDIS_CLUSTER_SLOTS 4096
+#define REDIS_CLUSTER_OK 0          /* Everything looks ok */
+#define REDIS_CLUSTER_FAIL 1        /* The cluster can't work */
+#define REDIS_CLUSTER_NEEDHELP 2    /* The cluster works, but needs some help */
+#define REDIS_CLUSTER_NAMELEN 40    /* sha1 hex length */
+#define REDIS_CLUSTER_PORT_INCR 10000 /* Cluster port = baseport + PORT_INCR */
+
+struct clusterNode;
+
+/* clusterLink encapsulates everything needed to talk with a remote node. */
+typedef struct clusterLink {
+    int fd;                     /* TCP socket file descriptor */
+    sds sndbuf;                 /* Packet send buffer */
+    sds rcvbuf;                 /* Packet reception buffer */
+    struct clusterNode *node;   /* Node related to this link if any, or NULL */
+} clusterLink;
+
+/* Node flags */
+#define REDIS_NODE_MASTER 1     /* The node is a master */
+#define REDIS_NODE_SLAVE 2      /* The node is a slave */
+#define REDIS_NODE_PFAIL 4      /* Failure? Need acknowledge */
+#define REDIS_NODE_FAIL 8       /* The node is believed to be malfunctioning */
+#define REDIS_NODE_MYSELF 16    /* This node is myself */
+#define REDIS_NODE_HANDSHAKE 32 /* We have still to exchange the first ping */
+#define REDIS_NODE_NOADDR   64  /* We don't know the address of this node */
+#define REDIS_NODE_MEET 128     /* Send a MEET message to this node */
+#define REDIS_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
+
+struct clusterNode {
+    char name[REDIS_CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
+    int flags;      /* REDIS_NODE_... */
+    unsigned char slots[REDIS_CLUSTER_SLOTS/8]; /* slots handled by this node */
+    int numslaves;  /* Number of slave nodes, if this is a master */
+    struct clusterNode **slaves; /* pointers to slave nodes */
+    struct clusterNode *slaveof; /* pointer to the master node */
+    time_t ping_sent;       /* Unix time we sent latest ping */
+    time_t pong_received;   /* Unix time we received the pong */
+    char *configdigest;         /* Configuration digest of this node */
+    time_t configdigest_ts;     /* Configuration digest timestamp */
+    char ip[16];                /* Latest known IP address of this node */
+    int port;                   /* Latest known port of this node */
+    clusterLink *link;          /* TCP/IP link with this node */
+};
+typedef struct clusterNode clusterNode;
+
+typedef struct {
+    clusterNode *myself;  /* This node */
+    int state;            /* REDIS_CLUSTER_OK, REDIS_CLUSTER_FAIL, ... */
+    int node_timeout;
+    dict *nodes;          /* Hash table of name -> clusterNode structures */
+    clusterNode *migrating_slots_to[REDIS_CLUSTER_SLOTS];
+    clusterNode *importing_slots_from[REDIS_CLUSTER_SLOTS];
+    clusterNode *slots[REDIS_CLUSTER_SLOTS];
+} clusterState;
+
+/* Redis cluster messages header */
+
+/* Note that the PING, PONG and MEET messages are actually the same exact
+ * kind of packet. PONG is the reply to ping, in the extact format as a PING,
+ * while MEET is a special PING that forces the receiver to add the sender
+ * as a node (if it is not already in the list). */
+#define CLUSTERMSG_TYPE_PING 0          /* Ping */
+#define CLUSTERMSG_TYPE_PONG 1          /* Pong (reply to Ping) */
+#define CLUSTERMSG_TYPE_MEET 2          /* Meet "let's join" message */
+#define CLUSTERMSG_TYPE_FAIL 3          /* Mark node xxx as failing */
+
+/* Initially we don't know our "name", but we'll find it once we connect
+ * to the first node, using the getsockname() function. Then we'll use this
+ * address for all the next messages. */
+typedef struct {
+    char nodename[REDIS_CLUSTER_NAMELEN];
+    uint32_t ping_sent;
+    uint32_t pong_received;
+    char ip[16];    /* IP address last time it was seen */
+    uint16_t port;  /* port last time it was seen */
+    uint16_t flags;
+    uint32_t notused; /* for 64 bit alignment */
+} clusterMsgDataGossip;
+
+typedef struct {
+    char nodename[REDIS_CLUSTER_NAMELEN];
+} clusterMsgDataFail;
+
+union clusterMsgData {
+    /* PING, MEET and PONG */
+    struct {
+        /* Array of N clusterMsgDataGossip structures */
+        clusterMsgDataGossip gossip[1];
+    } ping;
+    /* FAIL */
+    struct {
+        clusterMsgDataFail about;
+    } fail;
+};
+
+typedef struct {
+    uint32_t totlen;    /* Total length of this message */
+    uint16_t type;      /* Message type */
+    uint16_t count;     /* Only used for some kind of messages. */
+    char sender[REDIS_CLUSTER_NAMELEN]; /* Name of the sender node */
+    unsigned char myslots[REDIS_CLUSTER_SLOTS/8];
+    char slaveof[REDIS_CLUSTER_NAMELEN];
+    char configdigest[32];
+    uint16_t port;      /* Sender TCP base port */
+    unsigned char state; /* Cluster state from the POV of the sender */
+    unsigned char notused[5]; /* Reserved for future use. For alignment. */
+    union clusterMsgData data;
+} clusterMsg;
+
+/*-----------------------------------------------------------------------------
+ * Global server state
+ *----------------------------------------------------------------------------*/
+
 struct redisServer {
     /* General */
     pthread_t mainthread;
@@ -373,6 +490,7 @@ struct redisServer {
     char *unixsocket;
     int ipfd;
     int sofd;
+    int cfd;
     list *clients;
     list *slaves, *monitors;
     char neterr[ANET_ERR_LEN];
@@ -499,6 +617,8 @@ struct redisServer {
     /* Misc */
     unsigned lruclock:22;        /* clock incrementing every minute, for LRU */
     unsigned lruclock_padding:10;
+    int cluster_enabled;
+    clusterState cluster;
 };
 
 typedef struct pubsubPattern {
@@ -633,6 +753,7 @@ extern struct redisServer server;
 extern struct sharedObjectsStruct shared;
 extern dictType setDictType;
 extern dictType zsetDictType;
+extern dictType clusterNodesDictType;
 extern double R_Zero, R_PosInf, R_NegInf, R_Nan;
 dictType hashDictType;
 
@@ -747,6 +868,7 @@ int fwriteBulkString(FILE *fp, char *s, unsigned long len);
 int fwriteBulkDouble(FILE *fp, double d);
 int fwriteBulkLongLong(FILE *fp, long long l);
 int fwriteBulkObject(FILE *fp, robj *obj);
+int fwriteBulkCount(FILE *fp, char prefix, int count);
 
 /* Replication */
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
@@ -923,6 +1045,15 @@ int *noPreloadGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *numke
 int *renameGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *numkeys, int flags);
 int *zunionInterGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *numkeys, int flags);
 
+/* Cluster */
+void clusterInit(void);
+unsigned short crc16(const char *buf, int len);
+unsigned int keyHashSlot(char *key, int keylen);
+clusterNode *createClusterNode(char *nodename, int flags);
+int clusterAddNode(clusterNode *node);
+void clusterCron(void);
+clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot);
+
 /* Git SHA1 */
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
@@ -1045,6 +1176,9 @@ void punsubscribeCommand(redisClient *c);
 void publishCommand(redisClient *c);
 void watchCommand(redisClient *c);
 void unwatchCommand(redisClient *c);
+void clusterCommand(redisClient *c);
+void restoreCommand(redisClient *c);
+void migrateCommand(redisClient *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
