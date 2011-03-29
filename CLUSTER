@@ -1,5 +1,9 @@
 TODO
 
+*** WARNING: all the following problably has some meaning only for
+*** me (antirez), most info are not updated, so please consider this file
+*** as a private TODO list / brainstorming.
+
 - disconnect FAIL clients after some pong idle time.
 
 ---------------------------------
