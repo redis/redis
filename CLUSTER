@@ -1,4 +1,25 @@
+CLUSTER README
+==============
+
+Redis Cluster is currenty a work in progress, however there are a few things
+that you can do already with it to see how it works.
+
+The following guide show you how to setup a three nodes cluster and issue some
+basic command against it.
+
+... WORK IN PROGRESS ...
+
+1) Show MIGRATE
+2) Show CLUSTER MEET
+3) Show link status detection with CLUSTER NODES
+4) Show how to add slots with CLUSTER ADDSLOTS
+5) Show redirection
+6) Show cluster down
+
+... WORK IN PROGRESS ...
+
 TODO
+====
 
 *** WARNING: all the following problably has some meaning only for
 *** me (antirez), most info are not updated, so please consider this file
