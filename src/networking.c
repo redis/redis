@@ -135,7 +135,10 @@ void _addReplyObjectToList(redisClient *c, robj *o) {
 void _addReplySdsToList(redisClient *c, sds s) {
     robj *tail;
 
-    if (c->flags & REDIS_CLOSE_AFTER_REPLY) return;
+    if (c->flags & REDIS_CLOSE_AFTER_REPLY) {
+        sdsfree(s);
+        return;
+    }
 
     if (listLength(c->reply) == 0) {
         listAddNodeTail(c->reply,createObject(REDIS_STRING,s));
