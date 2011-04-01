@@ -51,7 +51,11 @@ static void sdsOomAbort(void) {
 sds sdsnewlen(const void *init, size_t initlen) {
     struct sdshdr *sh;
 
-    sh = zmalloc(sizeof(struct sdshdr)+initlen+1);
+    if (init) {
+        sh = zmalloc(sizeof(struct sdshdr)+initlen+1);
+    } else {
+        sh = zcalloc(sizeof(struct sdshdr)+initlen+1);
+    }
 #ifdef SDS_ABORT_ON_OOM
     if (sh == NULL) sdsOomAbort();
 #else
@@ -59,10 +63,8 @@ sds sdsnewlen(const void *init, size_t initlen) {
 #endif
     sh->len = initlen;
     sh->free = 0;
-    if (initlen) {
-        if (init) memcpy(sh->buf, init, initlen);
-        else memset(sh->buf,0,initlen);
-    }
+    if (initlen && init)
+        memcpy(sh->buf, init, initlen);
     sh->buf[initlen] = '\0';
     return (char*)sh->buf;
 }

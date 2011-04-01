@@ -189,8 +189,9 @@ struct redisCommand redisCommandTable[] = {
     {"watch",watchCommand,-2,0,noPreloadGetKeys,1,-1,1,0,0},
     {"unwatch",unwatchCommand,1,0,NULL,0,0,0,0,0},
     {"cluster",clusterCommand,-2,0,NULL,0,0,0,0,0},
-    {"restore",restoreCommand,3,0,NULL,0,0,0,0,0},
-    {"migrate",migrateCommand,6,0,NULL,0,0,0,0,0}
+    {"restore",restoreCommand,4,0,NULL,0,0,0,0,0},
+    {"migrate",migrateCommand,6,0,NULL,0,0,0,0,0},
+    {"dump",dumpCommand,2,0,NULL,0,0,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
