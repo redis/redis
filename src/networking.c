@@ -60,9 +60,6 @@ redisClient *createClient(int fd) {
 /* Set the event loop to listen for write events on the client's socket.
  * Typically gets called every time a reply is built. */
 int _installWriteEvent(redisClient *c) {
-    /* When CLOSE_AFTER_REPLY is set, no more replies may be added! */
-    redisAssert(!(c->flags & REDIS_CLOSE_AFTER_REPLY));
-
     if (c->fd <= 0) return REDIS_ERR;
     if (c->bufpos == 0 && listLength(c->reply) == 0 &&
         (c->replstate == REDIS_REPL_NONE ||
@@ -88,8 +85,14 @@ robj *dupLastObjectIfNeeded(list *reply) {
     return listNodeValue(ln);
 }
 
+/* -----------------------------------------------------------------------------
+ * Low level functions to add more data to output buffers.
+ * -------------------------------------------------------------------------- */
+
 int _addReplyToBuffer(redisClient *c, char *s, size_t len) {
     size_t available = sizeof(c->buf)-c->bufpos;
+
+    if (c->flags & REDIS_CLOSE_AFTER_REPLY) return REDIS_OK;
 
     /* If there already are entries in the reply list, we cannot
      * add anything more to the static buffer. */
@@ -105,6 +108,9 @@ int _addReplyToBuffer(redisClient *c, char *s, size_t len) {
 
 void _addReplyObjectToList(redisClient *c, robj *o) {
     robj *tail;
+
+    if (c->flags & REDIS_CLOSE_AFTER_REPLY) return;
+
     if (listLength(c->reply) == 0) {
         incrRefCount(o);
         listAddNodeTail(c->reply,o);
@@ -128,6 +134,12 @@ void _addReplyObjectToList(redisClient *c, robj *o) {
  * needed it will be free'd, otherwise it ends up in a robj. */
 void _addReplySdsToList(redisClient *c, sds s) {
     robj *tail;
+
+    if (c->flags & REDIS_CLOSE_AFTER_REPLY) {
+        sdsfree(s);
+        return;
+    }
+
     if (listLength(c->reply) == 0) {
         listAddNodeTail(c->reply,createObject(REDIS_STRING,s));
     } else {
@@ -148,6 +160,9 @@ void _addReplySdsToList(redisClient *c, sds s) {
 
 void _addReplyStringToList(redisClient *c, char *s, size_t len) {
     robj *tail;
+
+    if (c->flags & REDIS_CLOSE_AFTER_REPLY) return;
+
     if (listLength(c->reply) == 0) {
         listAddNodeTail(c->reply,createStringObject(s,len));
     } else {
@@ -164,6 +179,11 @@ void _addReplyStringToList(redisClient *c, char *s, size_t len) {
         }
     }
 }
+
+/* -----------------------------------------------------------------------------
+ * Higher level functions to queue data on the client output buffer.
+ * The following functions are the ones that commands implementations will call.
+ * -------------------------------------------------------------------------- */
 
 void addReply(redisClient *c, robj *obj) {
     if (_installWriteEvent(c) != REDIS_OK) return;
