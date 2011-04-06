@@ -93,10 +93,13 @@ robj *createHashObject(void) {
 
 robj *createZsetObject(void) {
     zset *zs = zmalloc(sizeof(*zs));
+    robj *o;
 
     zs->dict = dictCreate(&zsetDictType,NULL);
     zs->zsl = zslCreate();
-    return createObject(REDIS_ZSET,zs);
+    o = createObject(REDIS_ZSET,zs);
+    o->encoding = REDIS_ENCODING_SKIPLIST;
+    return o;
 }
 
 void freeStringObject(robj *o) {
@@ -402,6 +405,7 @@ char *strEncoding(int encoding) {
     case REDIS_ENCODING_LINKEDLIST: return "linkedlist";
     case REDIS_ENCODING_ZIPLIST: return "ziplist";
     case REDIS_ENCODING_INTSET: return "intset";
+    case REDIS_ENCODING_SKIPLIST: return "skiplist";
     default: return "unknown";
     }
 }
