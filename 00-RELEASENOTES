@@ -12,6 +12,11 @@ for 2.0.
 CHANGELOG
 ---------
 
+What's new in Redis 2.2.4
+=========================
+
+* Return value of OBJECT DEBUG against sorted sets fixed, now is "skiplist".
+
 What's new in Redis 2.2.3
 =========================
 
