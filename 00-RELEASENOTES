@@ -12,6 +12,21 @@ for 2.0.
 CHANGELOG
 ---------
 
+What's new in Redis 2.2.4
+=========================
+
+* Return value of OBJECT DEBUG against sorted sets fixed, now is "skiplist".
+
+What's new in Redis 2.2.3
+=========================
+
+* Fixed issue #503. MONITOR + QUIT (and other combinations) could crash
+  the server.
+* OBJECT command implemented. See http://redis.io/commands/object
+* Fixed a problem in redis-cli related to escapes in the form "\x..".
+* Fixed a minor memory leak in redis-cli
+* Saved RDB on SIGTERM on archs where it was not working properly.
+
 What's new in Redis 2.2.2
 =========================
 
