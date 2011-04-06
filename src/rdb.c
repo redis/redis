@@ -327,7 +327,7 @@ int rdbSaveObject(FILE *fp, robj *o) {
             }
             dictReleaseIterator(di);
         } else {
-            redisPanic("Unknown sorted set enoding");
+            redisPanic("Unknown sorted set encoding");
         }
     } else if (o->type == REDIS_HASH) {
         /* Save a hash value */
