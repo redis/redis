@@ -1515,6 +1515,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
 
     dstobj = createZsetObject();
     dstzset = dstobj->ptr;
+    memset(&zval,0,sizeof(zval));
 
     if (op == REDIS_OP_INTER) {
         /* Skip everything if the smallest input is empty. */
