@@ -875,10 +875,10 @@ robj *rdbLoadObject(int type, FILE *fp) {
                 o->type = REDIS_ZSET;
                 o->encoding = REDIS_ENCODING_ZIPLIST;
                 if (zsetLength(o) > server.zset_max_ziplist_entries)
-                    zsetConvert(o,REDIS_ENCODING_RAW);
+                    zsetConvert(o,REDIS_ENCODING_SKIPLIST);
                 break;
             default:
-                redisPanic("Unknown enoding");
+                redisPanic("Unknown encoding");
                 break;
         }
     } else {
