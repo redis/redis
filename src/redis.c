@@ -191,7 +191,8 @@ struct redisCommand redisCommandTable[] = {
     {"cluster",clusterCommand,-2,0,NULL,0,0,0,0,0},
     {"restore",restoreCommand,4,0,NULL,0,0,0,0,0},
     {"migrate",migrateCommand,6,0,NULL,0,0,0,0,0},
-    {"dump",dumpCommand,2,0,NULL,0,0,0,0,0}
+    {"dump",dumpCommand,2,0,NULL,0,0,0,0,0},
+    {"object",objectCommand,-2,0,NULL,0,0,0,0,0}
 };
 
 /*============================ Utility functions ============================ */

@@ -1181,6 +1181,7 @@ void clusterCommand(redisClient *c);
 void restoreCommand(redisClient *c);
 void migrateCommand(redisClient *c);
 void dumpCommand(redisClient *c);
+void objectCommand(redisClient *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
