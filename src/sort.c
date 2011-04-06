@@ -200,7 +200,7 @@ void sortCommand(redisClient *c) {
     }
 
     /* Destructively convert encoded sorted sets for SORT. */
-    if (sortval->type == REDIS_ZSET) zsetConvert(sortval, REDIS_ENCODING_RAW);
+    if (sortval->type == REDIS_ZSET) zsetConvert(sortval, REDIS_ENCODING_SKIPLIST);
 
     /* Load the sorting vector with all the objects to sort */
     switch(sortval->type) {

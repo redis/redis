@@ -308,7 +308,7 @@ int rdbSaveObject(FILE *fp, robj *o) {
 
             if ((n = rdbSaveRawString(fp,o->ptr,l)) == -1) return -1;
             nwritten += n;
-        } else if (o->encoding == REDIS_ENCODING_RAW) {
+        } else if (o->encoding == REDIS_ENCODING_SKIPLIST) {
             zset *zs = o->ptr;
             dictIterator *di = dictGetIterator(zs->dict);
             dictEntry *de;

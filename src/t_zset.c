@@ -721,7 +721,7 @@ unsigned int zsetLength(robj *zobj) {
     int length = -1;
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
         length = zzlLength(zobj->ptr);
-    } else if (zobj->encoding == REDIS_ENCODING_RAW) {
+    } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
         length = ((zset*)zobj->ptr)->zsl->length;
     } else {
         redisPanic("Unknown sorted set encoding");
@@ -743,7 +743,7 @@ void zsetConvert(robj *zobj, int encoding) {
         unsigned int vlen;
         long long vlong;
 
-        if (encoding != REDIS_ENCODING_RAW)
+        if (encoding != REDIS_ENCODING_SKIPLIST)
             redisPanic("Unknown target encoding");
 
         zs = zmalloc(sizeof(*zs));
@@ -772,8 +772,8 @@ void zsetConvert(robj *zobj, int encoding) {
 
         zfree(zobj->ptr);
         zobj->ptr = zs;
-        zobj->encoding = REDIS_ENCODING_RAW;
-    } else if (zobj->encoding == REDIS_ENCODING_RAW) {
+        zobj->encoding = REDIS_ENCODING_SKIPLIST;
+    } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
         unsigned char *zl = ziplistNew();
 
         if (encoding != REDIS_ENCODING_ZIPLIST)
@@ -872,9 +872,9 @@ void zaddGenericCommand(redisClient *c, int incr) {
              * too long *before* executing zzlInsert. */
             zobj->ptr = zzlInsert(zobj->ptr,ele,score);
             if (zzlLength(zobj->ptr) > server.zset_max_ziplist_entries)
-                zsetConvert(zobj,REDIS_ENCODING_RAW);
+                zsetConvert(zobj,REDIS_ENCODING_SKIPLIST);
             if (sdslen(ele->ptr) > server.zset_max_ziplist_value)
-                zsetConvert(zobj,REDIS_ENCODING_RAW);
+                zsetConvert(zobj,REDIS_ENCODING_SKIPLIST);
 
             signalModifiedKey(c->db,key);
             server.dirty++;
@@ -884,7 +884,7 @@ void zaddGenericCommand(redisClient *c, int incr) {
             else /* ZADD */
                 addReply(c,shared.cone);
         }
-    } else if (zobj->encoding == REDIS_ENCODING_RAW) {
+    } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
         zskiplistNode *znode;
         dictEntry *de;
@@ -967,7 +967,7 @@ void zremCommand(redisClient *c) {
             addReply(c,shared.czero);
             return;
         }
-    } else if (zobj->encoding == REDIS_ENCODING_RAW) {
+    } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
         dictEntry *de;
         double score;
@@ -1013,7 +1013,7 @@ void zremrangebyscoreCommand(redisClient *c) {
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
         zobj->ptr = zzlDeleteRangeByScore(zobj->ptr,range,&deleted);
         if (zzlLength(zobj->ptr) == 0) dbDelete(c->db,key);
-    } else if (zobj->encoding == REDIS_ENCODING_RAW) {
+    } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
         deleted = zslDeleteRangeByScore(zs->zsl,range,zs->dict);
         if (htNeedsResize(zs->dict)) dictResize(zs->dict);
@@ -1059,7 +1059,7 @@ void zremrangebyrankCommand(redisClient *c) {
         /* Correct for 1-based rank. */
         zobj->ptr = zzlDeleteRangeByRank(zobj->ptr,start+1,end+1,&deleted);
         if (zzlLength(zobj->ptr) == 0) dbDelete(c->db,key);
-    } else if (zobj->encoding == REDIS_ENCODING_RAW) {
+    } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
 
         /* Correct for 1-based rank. */
@@ -1159,7 +1159,7 @@ void zuiInitIterator(zsetopsrc *op) {
                 it->zl.sptr = ziplistNext(it->zl.zl,it->zl.eptr);
                 redisAssert(it->zl.sptr != NULL);
             }
-        } else if (op->encoding == REDIS_ENCODING_RAW) {
+        } else if (op->encoding == REDIS_ENCODING_SKIPLIST) {
             it->sl.zs = op->subject->ptr;
             it->sl.node = it->sl.zs->zsl->header->level[0].forward;
         } else {
@@ -1187,7 +1187,7 @@ void zuiClearIterator(zsetopsrc *op) {
         iterzset *it = &op->iter.zset;
         if (op->encoding == REDIS_ENCODING_ZIPLIST) {
             REDIS_NOTUSED(it); /* skip */
-        } else if (op->encoding == REDIS_ENCODING_RAW) {
+        } else if (op->encoding == REDIS_ENCODING_SKIPLIST) {
             REDIS_NOTUSED(it); /* skip */
         } else {
             redisPanic("Unknown sorted set encoding");
@@ -1214,7 +1214,7 @@ int zuiLength(zsetopsrc *op) {
         iterzset *it = &op->iter.zset;
         if (op->encoding == REDIS_ENCODING_ZIPLIST) {
             return zzlLength(it->zl.zl);
-        } else if (op->encoding == REDIS_ENCODING_RAW) {
+        } else if (op->encoding == REDIS_ENCODING_SKIPLIST) {
             return it->sl.zs->zsl->length;
         } else {
             redisPanic("Unknown sorted set encoding");
@@ -1267,7 +1267,7 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
 
             /* Move to next element. */
             zzlNext(it->zl.zl,&it->zl.eptr,&it->zl.sptr);
-        } else if (op->encoding == REDIS_ENCODING_RAW) {
+        } else if (op->encoding == REDIS_ENCODING_SKIPLIST) {
             if (it->sl.node == NULL)
                 return 0;
             val->ele = it->sl.node->obj;
@@ -1379,7 +1379,7 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
             } else {
                 return 0;
             }
-        } else if (op->encoding == REDIS_ENCODING_RAW) {
+        } else if (op->encoding == REDIS_ENCODING_SKIPLIST) {
             dictEntry *de;
             if ((de = dictFind(it->sl.zs->dict,val->ele)) != NULL) {
                 *score = *(double*)dictGetEntryVal(de);
@@ -1692,7 +1692,7 @@ void zrangeGenericCommand(redisClient *c, int reverse) {
                 zzlNext(zl,&eptr,&sptr);
         }
 
-    } else if (zobj->encoding == REDIS_ENCODING_RAW) {
+    } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
         zskiplist *zsl = zs->zsl;
         zskiplistNode *ln;
@@ -1849,7 +1849,7 @@ void genericZrangebyscoreCommand(redisClient *c, int reverse, int justcount) {
             else
                 zzlNext(zl,&eptr,&sptr);
         }
-    } else if (zobj->encoding == REDIS_ENCODING_RAW) {
+    } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
         zskiplist *zsl = zs->zsl;
         zskiplistNode *ln;
@@ -1943,7 +1943,7 @@ void zscoreCommand(redisClient *c) {
             addReplyDouble(c,score);
         else
             addReply(c,shared.nullbulk);
-    } else if (zobj->encoding == REDIS_ENCODING_RAW) {
+    } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
         dictEntry *de;
 
@@ -1997,7 +1997,7 @@ void zrankGenericCommand(redisClient *c, int reverse) {
         } else {
             addReply(c,shared.nullbulk);
         }
-    } else if (zobj->encoding == REDIS_ENCODING_RAW) {
+    } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
         zskiplist *zsl = zs->zsl;
         dictEntry *de;
