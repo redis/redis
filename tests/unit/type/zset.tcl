@@ -10,7 +10,7 @@ start_server {tags {"zset"}} {
         if {$encoding == "ziplist"} {
             r config set zset-max-ziplist-entries 128
             r config set zset-max-ziplist-value 64
-        } elseif {$encoding == "raw"} {
+        } elseif {$encoding == "skiplist"} {
             r config set zset-max-ziplist-entries 0
             r config set zset-max-ziplist-value 0
         } else {
@@ -458,7 +458,7 @@ start_server {tags {"zset"}} {
     }
 
     basics ziplist
-    basics raw
+    basics skiplist
 
     proc stressers {encoding} {
         if {$encoding == "ziplist"} {
@@ -466,7 +466,7 @@ start_server {tags {"zset"}} {
             r config set zset-max-ziplist-entries 256
             r config set zset-max-ziplist-value 64
             set elements 128
-        } elseif {$encoding == "raw"} {
+        } elseif {$encoding == "skiplist"} {
             r config set zset-max-ziplist-entries 0
             r config set zset-max-ziplist-value 0
             set elements 1000
@@ -684,6 +684,6 @@ start_server {tags {"zset"}} {
 
     tags {"slow"} {
         stressers ziplist
-        stressers raw
+        stressers skiplist
     }
 }

@@ -144,7 +144,7 @@ void freeSetObject(robj *o) {
 void freeZsetObject(robj *o) {
     zset *zs;
     switch (o->encoding) {
-    case REDIS_ENCODING_RAW:
+    case REDIS_ENCODING_SKIPLIST:
         zs = o->ptr;
         dictRelease(zs->dict);
         zslFree(zs->zsl);
