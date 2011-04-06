@@ -12,6 +12,7 @@ WARNING: are you a possible Redis contributor?
 DISKSTORE TODO
 ==============
 
+* Fix FLUSHALL/FLUSHDB: the queue of pending reads/writes should be handled.
 * Check that 00/00 and ff/ff exist at startup, otherwise exit with error.
 * Implement sync flush option, where data is written synchronously on disk when a command is executed.
 * Implement MULTI/EXEC as transaction abstract API to diskstore.c, with transaction_start, transaction_end, and a journal to recover.
@@ -19,6 +20,8 @@ DISKSTORE TODO
 * Fix RANDOMKEY to really do something interesting
 * Fix DBSIZE to really do something interesting
 * Add a DEBUG command to check if an entry is or not in memory currently
+
+* dscache.c near 236, kobj = createStringObject... we could use static obj.
 
 APPEND ONLY FILE
 ================
@@ -29,6 +32,7 @@ APPEND ONLY FILE
 OPTIMIZATIONS
 =============
 
+* Avoid COW due to incrementing the dict iterators counter.
 * SORT: Don't copy the list into a vector when BY argument is constant.
 * Write the hash table size of every db in the dump, so that Redis can resize the hash table just one time when loading a big DB.
 * Read-only mode for slaves.

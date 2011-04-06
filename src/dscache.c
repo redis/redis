@@ -212,7 +212,7 @@ int cacheFreeOneEntry(void) {
         }
     }
     if (best == NULL) {
-        /* Was not able to fix a single object... we should check if our
+        /* Not able to free a single object? we should check if our
          * IO queues have stuff in queue, and try to consume the queue
          * otherwise we'll use an infinite amount of memory if changes to
          * the dataset are faster than I/O */
@@ -238,13 +238,6 @@ int cacheFreeOneEntry(void) {
         decrRefCount(kobj);
     }
     return REDIS_OK;
-}
-
-/* Return true if it's safe to swap out objects in a given moment.
- * Basically we don't want to swap objects out while there is a BGSAVE
- * or a BGAEOREWRITE running in backgroud. */
-int dsCanTouchDiskStore(void) {
-    return (server.bgsavechildpid == -1 && server.bgrewritechildpid == -1);
 }
 
 /* ==================== Disk store negative caching  ========================
@@ -390,11 +383,10 @@ void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
             }
             cacheScheduleIODelFlag(j->db,j->key,REDIS_IO_LOADINPROG);
             handleClientsBlockedOnSwappedKey(j->db,j->key);
-            freeIOJob(j);
         } else if (j->type == REDIS_IOJOB_SAVE) {
             cacheScheduleIODelFlag(j->db,j->key,REDIS_IO_SAVEINPROG);
-            freeIOJob(j);
         }
+        freeIOJob(j);
         processed++;
         if (privdata == NULL) cacheScheduleIOPushJobs(0);
         if (processed == toprocess) return;
@@ -595,8 +587,6 @@ void queueIOJob(iojob *j) {
     redisLog(REDIS_DEBUG,"Queued IO Job %p type %d about key '%s'\n",
         (void*)j, j->type, (char*)j->key->ptr);
     listAddNodeTail(server.io_newjobs,j);
-    if (server.io_active_threads < server.vm_max_threads)
-        spawnIOThread();
 }
 
 /* Consume all the IO scheduled operations, and all the thread IO jobs
@@ -900,62 +890,17 @@ int waitForSwappedKey(redisClient *c, robj *key) {
     listAddNodeTail(l,c);
 
     /* Are we already loading the key from disk? If not create a job */
-    if (de == NULL)
-        cacheScheduleIO(c->db,key,REDIS_IO_LOAD);
+    if (de == NULL) {
+        int flags = cacheScheduleIOGetFlags(c->db,key);
+
+        /* It is possible that even if there are no clients waiting for
+         * a load operation, still we have a load operation in progress.
+         * For instance think to a client performing a GET and then
+         * closing the connection */
+        if ((flags & (REDIS_IO_LOAD|REDIS_IO_LOADINPROG)) == 0)
+            cacheScheduleIO(c->db,key,REDIS_IO_LOAD);
+    }
     return 1;
-}
-
-/* Preload keys for any command with first, last and step values for
- * the command keys prototype, as defined in the command table. */
-void waitForMultipleSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv) {
-    int j, last;
-    if (cmd->vm_firstkey == 0) return;
-    last = cmd->vm_lastkey;
-    if (last < 0) last = argc+last;
-    for (j = cmd->vm_firstkey; j <= last; j += cmd->vm_keystep) {
-        redisAssert(j < argc);
-        waitForSwappedKey(c,argv[j]);
-    }
-}
-
-/* Preload keys needed for the ZUNIONSTORE and ZINTERSTORE commands.
- * Note that the number of keys to preload is user-defined, so we need to
- * apply a sanity check against argc. */
-void zunionInterBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv) {
-    int i, num;
-    REDIS_NOTUSED(cmd);
-
-    num = atoi(argv[2]->ptr);
-    if (num > (argc-3)) return;
-    for (i = 0; i < num; i++) {
-        waitForSwappedKey(c,argv[3+i]);
-    }
-}
-
-/* Preload keys needed to execute the entire MULTI/EXEC block.
- *
- * This function is called by blockClientOnSwappedKeys when EXEC is issued,
- * and will block the client when any command requires a swapped out value. */
-void execBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv) {
-    int i, margc;
-    struct redisCommand *mcmd;
-    robj **margv;
-    REDIS_NOTUSED(cmd);
-    REDIS_NOTUSED(argc);
-    REDIS_NOTUSED(argv);
-
-    if (!(c->flags & REDIS_MULTI)) return;
-    for (i = 0; i < c->mstate.count; i++) {
-        mcmd = c->mstate.commands[i].cmd;
-        margc = c->mstate.commands[i].argc;
-        margv = c->mstate.commands[i].argv;
-
-        if (mcmd->vm_preload_proc != NULL) {
-            mcmd->vm_preload_proc(c,mcmd,margc,margv);
-        } else {
-            waitForMultipleSwappedKeys(c,mcmd,margc,margv);
-        }
-    }
 }
 
 /* Is this client attempting to run a command against swapped keys?
@@ -969,10 +914,39 @@ void execBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int 
  * Return 1 if the client is marked as blocked, 0 if the client can
  * continue as the keys it is going to access appear to be in memory. */
 int blockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd) {
-    if (cmd->vm_preload_proc != NULL) {
-        cmd->vm_preload_proc(c,cmd,c->argc,c->argv);
+    int *keyindex, numkeys, j, i;
+
+    /* EXEC is a special case, we need to preload all the commands
+     * queued into the transaction */
+    if (cmd->proc == execCommand) {
+        struct redisCommand *mcmd;
+        robj **margv;
+        int margc;
+
+        if (!(c->flags & REDIS_MULTI)) return 0;
+        for (i = 0; i < c->mstate.count; i++) {
+            mcmd = c->mstate.commands[i].cmd;
+            margc = c->mstate.commands[i].argc;
+            margv = c->mstate.commands[i].argv;
+
+            keyindex = getKeysFromCommand(mcmd,margv,margc,&numkeys,
+                                          REDIS_GETKEYS_PRELOAD);
+            for (j = 0; j < numkeys; j++) {
+                redisLog(REDIS_DEBUG,"Preloading %s",
+                    (char*)margv[keyindex[j]]->ptr);
+                waitForSwappedKey(c,margv[keyindex[j]]);
+            }
+            getKeysFreeResult(keyindex);
+        }
     } else {
-        waitForMultipleSwappedKeys(c,cmd,c->argc,c->argv);
+        keyindex = getKeysFromCommand(cmd,c->argv,c->argc,&numkeys,
+                                      REDIS_GETKEYS_PRELOAD);
+        for (j = 0; j < numkeys; j++) {
+            redisLog(REDIS_DEBUG,"Preloading %s",
+                (char*)c->argv[keyindex[j]]->ptr);
+            waitForSwappedKey(c,c->argv[keyindex[j]]);
+        }
+        getKeysFreeResult(keyindex);
     }
 
     /* If the client was blocked for at least one key, mark it as blocked. */
