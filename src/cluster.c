@@ -107,6 +107,10 @@ int clusterLoadConfig(char *filename) {
             clusterNodeAddSlave(master,n);
         }
 
+        /* Set ping sent / pong received timestamps */
+        if (atoi(argv[4])) n->ping_sent = time(NULL);
+        if (atoi(argv[5])) n->pong_received = time(NULL);
+
         /* Populate hash slots served by this instance. */
         for (j = 7; j < argc; j++) {
             int start, stop;
@@ -923,14 +927,25 @@ void clusterCron(void) {
             node->ping_sent <= node->pong_received) continue;
 
         delay = time(NULL) - node->pong_received;
-        if (node->flags & REDIS_NODE_PFAIL) {
+        if (delay < server.cluster.node_timeout) {
             /* The PFAIL condition can be reversed without external
              * help if it is not transitive (that is, if it does not
-             * turn into a FAIL state). */
-            if (delay < server.cluster.node_timeout)
+             * turn into a FAIL state).
+             *
+             * The FAIL condition is also reversible if there are no slaves
+             * for this host, so no slave election should be in progress.
+             *
+             * TODO: consider all the implications of resurrecting a
+             * FAIL node. */
+            if (node->flags & REDIS_NODE_PFAIL) {
                 node->flags &= ~REDIS_NODE_PFAIL;
+            } else if (node->flags & REDIS_NODE_FAIL && !node->numslaves) {
+                node->flags &= ~REDIS_NODE_FAIL;
+            }
         } else {
-            if (delay >= server.cluster.node_timeout) {
+            /* Timeout reached. Set the noad se possibly failing if it is
+             * not already in this state. */
+            if (!(node->flags & REDIS_NODE_PFAIL)) {
                 redisLog(REDIS_DEBUG,"*** NODE %.40s possibly failing",
                     node->name);
                 node->flags |= REDIS_NODE_PFAIL;
