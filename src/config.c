@@ -289,6 +289,9 @@ void loadServerConfig(char *filename) {
             if ((server.cluster_enabled = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"cluster-config-file") && argc == 2) {
+            zfree(server.cluster.configfile);
+            server.cluster.configfile = zstrdup(argv[1]);
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }

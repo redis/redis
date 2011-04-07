@@ -13,6 +13,7 @@ int clusterNodeGetSlotBit(clusterNode *n, int slot);
 sds clusterGenNodesDescription(void);
 clusterNode *clusterLookupNode(char *name);
 int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
+int clusterAddSlot(clusterNode *n, int slot);
 
 /* -----------------------------------------------------------------------------
  * Initialization
