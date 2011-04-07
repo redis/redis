@@ -554,6 +554,13 @@ err:
     return NULL;
 }
 
+void sdssplitargs_free(sds *argv, int argc) {
+    int j;
+
+    for (j = 0 ;j < argc; j++) sdsfree(argv[j]);
+    zfree(argv);
+}
+
 #ifdef SDS_TEST_MAIN
 #include <stdio.h>
 #include "testhelp.h"
