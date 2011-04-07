@@ -919,8 +919,8 @@ void clusterCron(void) {
         int delay;
 
         if (node->flags &
-            (REDIS_NODE_MYSELF|REDIS_NODE_NOADDR|REDIS_NODE_HANDSHAKE|
-             REDIS_NODE_FAIL)) continue;
+            (REDIS_NODE_MYSELF|REDIS_NODE_NOADDR|REDIS_NODE_HANDSHAKE))
+                continue;
         /* Check only if we already sent a ping and did not received
          * a reply yet. */
         if (node->ping_sent == 0 ||
@@ -945,7 +945,7 @@ void clusterCron(void) {
         } else {
             /* Timeout reached. Set the noad se possibly failing if it is
              * not already in this state. */
-            if (!(node->flags & REDIS_NODE_PFAIL)) {
+            if (!(node->flags & (REDIS_NODE_PFAIL|REDIS_NODE_FAIL))) {
                 redisLog(REDIS_DEBUG,"*** NODE %.40s possibly failing",
                     node->name);
                 node->flags |= REDIS_NODE_PFAIL;
