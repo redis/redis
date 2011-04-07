@@ -134,6 +134,7 @@ int clusterLoadConfig(char *filename) {
     redisAssert(server.cluster.myself != NULL);
     redisLog(REDIS_NOTICE,"Node configuration loaded, I'm %.40s",
         server.cluster.myself->name);
+    clusterUpdateState();
     return REDIS_OK;
 
 fmterr:
