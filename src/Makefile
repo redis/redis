@@ -18,6 +18,9 @@ endif
 ifeq ($(USE_TCMALLOC),yes)
   CCLINK+= -ltcmalloc
   CFLAGS+= -DUSE_TCMALLOC
+else ifeq ($(USE_TCMALLOC_MINIMAL),yes)
+  CCLINK+= -ltcmalloc_minimal
+  CFLAGS+= -DUSE_TCMALLOC
 endif
 CCOPT= $(CFLAGS) $(CCLINK) $(ARCH) $(PROF)
 
