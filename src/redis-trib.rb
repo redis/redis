@@ -43,6 +43,14 @@ class ClusterNode
         end
     end
 
+    def assert_empty
+        if !(@r.cluster("info").split("\r\n").index("cluster_known_nodes:1")) ||
+            (@r.info['db0'])
+            puts "Error: Node #{self} is not empty. Either the node already knows other nodes (check with nodes-info) or contains some key in database 0."
+            exit 1
+        end
+    end
+
     def r
         @r
     end
@@ -63,7 +71,7 @@ class RedisTrib
             node = ClusterNode.new(n)
             node.connect
             node.assert_cluster
-            # node.assert_empty
+            node.assert_empty
         }
     end
 end
