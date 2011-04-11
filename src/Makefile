@@ -121,7 +121,7 @@ redis-benchmark: dependencies $(BENCHOBJ)
 	$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a
 
 redis-benchmark.o:
-	$(CC) -c $(CFLAGS) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
+	$(CC) -c $(CFLAGS) $(CCLINK) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
 
 redis-cli: dependencies $(CLIOBJ)
 	$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o
