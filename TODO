@@ -54,6 +54,11 @@ KNOWN BUGS
     What happens if between 1 and 2 for some reason (system under huge load
     or alike) too many time passes? We should prevent expires while the
     AOF is loading.
+* #519: Slave may have expired keys that were never read in the master (so a DEL
+  is not sent in the replication channel) but are already expired since
+  a lot of time. Maybe after a given delay that is undoubltly greater than
+  the replication link latency we should expire this key on the slave on
+  access?
 
 DISKSTORE TODO
 ==============
