@@ -17,6 +17,7 @@ class ClusterNode
             puts "Invalid node name #{node}"
             exit 1
         end
+        @r = nil
         @host = s[0]
         @port = s[1]
         @slots = {}
@@ -27,7 +28,7 @@ class ClusterNode
         "#{@host}:#{@port}"
     end
 
-    def connect
+    def connect(o={})
         xputs "Connecting to node #{self}: "
         begin
             @r = Redis.new(:host => @ost, :port => @port)
@@ -35,6 +36,8 @@ class ClusterNode
         rescue
             puts "ERROR"
             puts "Sorry, can't connect to node #{self}"
+            exit 1 if o[:abort]
+            @r = nil
         end
         puts "OK"
     end
@@ -76,17 +79,37 @@ class ClusterNode
     end
 
     def info_string
-        slots = @slots.map{|k,v| k}.reduce{|a,b|
-            a = [(a..a)] if !a.is_a?(Array)
-            if b == (a[-1].last)+1
-                a[-1] = (a[-1].first)..b
-                a
+        # We want to display the hash slots assigned to this node
+        # as ranges, like in: "1-5,8,9,20-35,30"
+        #
+        # Note: this could be easily written without side effects,
+        # we use 'slots' just to split the computation into steps.
+        
+        # First step: we want an increasing array of integers
+        # for instance: [1,2,3,4,5,8,9,20,21,22,23,24,25,30]
+        slots = @slots.keys.sort
+
+        # As we want to aggregate adiacent slots we convert all the
+        # slot integers into ranges (with just one element)
+        # So we have something like [1..1,2..2, ... and so forth.
+        slots = slots.map{|x| x..x}
+
+        # Finally we group ranges with adiacent elements.
+        slots = slots.reduce([]) {|a,b|
+            if !a.empty? && b.first == (a[-1].last)+1
+                a[0..-2] + [(a[-1].first)..(b.last)]
             else
-                a << (b..b)
+                a + [b]
             end
-        }.map{|x|
-            (x.first == x.last) ? x.first.to_s : "#{x.first}-#{x.last}"
+        }
+
+        # Now our task is easy, we just convert ranges with just one
+        # element into a number, and a real range into a start-end format.
+        # Finally we join the array using the comma as separator.
+        slots = slots.map{|x|
+            x.count == 1 ? x.first.to_s : "#{x.first}-#{x.last}"
         }.join(",")
+
         "#{self.to_s.ljust(25)} slots:#{slots}"
     end
 
@@ -121,14 +144,18 @@ class RedisTrib
         end
     end
 
+    def add_node(node)
+        @nodes << node
+    end
+
     def create_cluster
         puts "Creating cluster"
         ARGV[1..-1].each{|n|
             node = ClusterNode.new(n)
-            node.connect
+            node.connect(:abort => true)
             node.assert_cluster
             node.assert_empty
-            @nodes << node
+            add_node(node)
         }
         puts "Performing hash slots allocation on #{@nodes.length} nodes..."
         alloc_slots
@@ -142,7 +169,15 @@ class RedisTrib
     end
 
     def check_cluster
-        puts "Check if the cluster looks sane"
+        puts "Performing Cluster Check (node #{ARGV[1]})"
+        node = ClusterNode.new(ARGV[1])
+        node.connect(:abort => true)
+        node.assert_cluster
+        node.add_slots(10..15)
+        node.add_slots(30..30)
+        node.add_slots(5..5)
+        add_node(node)
+        show_nodes
     end
 
     def alloc_slots
@@ -194,7 +229,7 @@ end
 
 COMMANDS={
     "create" => ["create_cluster", -2, "host1:port host2:port ... hostN:port"],
-    "check" =>  ["check_cluster", 1, "host:port"]
+    "check" =>  ["check_cluster", 2, "host:port"]
 }
 
 # Sanity check
