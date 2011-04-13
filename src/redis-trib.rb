@@ -75,7 +75,7 @@ class ClusterNode
         @dirty = false
     end
 
-    def info
+    def info_string
         slots = @slots.map{|k,v| k}.reduce{|a,b|
             a = [(a..a)] if !a.is_a?(Array)
             if b == (a[-1].last)+1
@@ -88,6 +88,15 @@ class ClusterNode
             (x.first == x.last) ? x.first.to_s : "#{x.first}-#{x.last}"
         }.join(",")
         "#{self.to_s.ljust(25)} slots:#{slots}"
+    end
+
+    def info
+        {
+            :host => @host,
+            :port => @port,
+            :slots => @slots,
+            :dirty => @dirty
+        }
     end
     
     def is_dirty?
@@ -127,8 +136,13 @@ class RedisTrib
         yes_or_die "Can I set the above configuration?"
         flush_nodes_config
         puts "** Nodes configuration updated"
-        puts "Sending CLUSTER MEET messages to join the cluster"
+        puts "** Sending CLUSTER MEET messages to join the cluster"
         join_cluster
+        check_cluster
+    end
+
+    def check_cluster
+        puts "Check if the cluster looks sane"
     end
 
     def alloc_slots
@@ -151,11 +165,21 @@ class RedisTrib
 
     def show_nodes
         @nodes.each{|n|
-            puts n.info
+            puts n.info_string
         }
     end
 
     def join_cluster
+        # We use a brute force approach to make sure the node will meet
+        # each other, that is, sending CLUSTER MEET messages to all the nodes
+        # about the very same node.
+        # Thanks to gossip this information should propagate across all the
+        # cluster in a matter of seconds.
+        first = false
+        @nodes.each{|n|
+            if !first then first = n.info; next; end # Skip the first node
+            n.r.cluster("meet",first[:host],first[:port])
+        }
     end
 
     def yes_or_die(msg)
@@ -169,7 +193,8 @@ class RedisTrib
 end
 
 COMMANDS={
-    "create-cluster" => ["create_cluster", -2, "node1_addr node2_addr ..."]
+    "create" => ["create_cluster", -2, "host1:port host2:port ... hostN:port"],
+    "check" =>  ["check_cluster", 1, "host:port"]
 }
 
 # Sanity check
