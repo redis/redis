@@ -77,12 +77,17 @@ class RedisTrib
 end
 
 COMMANDS={
-    "create-cluster" => ["create_cluster", -2]
+    "create-cluster" => ["create_cluster", -2, "node1_addr node2_addr ..."]
 }
 
 # Sanity check
 if ARGV.length == 0
     puts "Usage: redis-trib <command> <arguments ...>"
+    puts
+    COMMANDS.each{|k,v|
+        puts "  #{k.ljust(20)} #{v[2]}"
+    }
+    puts
     exit 1
 end
 
