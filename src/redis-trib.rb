@@ -3,6 +3,8 @@
 require 'rubygems'
 require 'redis'
 
+ClusterHashSlots = 4096
+
 def xputs(s)
     printf s
     STDOUT.flush
@@ -17,6 +19,8 @@ class ClusterNode
         end
         @host = s[0]
         @port = s[1]
+        @slots = {}
+        @dirty = false
     end
 
     def to_s
@@ -51,12 +55,55 @@ class ClusterNode
         end
     end
 
+    def add_slots(slots)
+        slots.each{|s|
+            @slots[s] = :new
+        }
+        @dirty = true
+    end
+
+    def flush_node_config
+        return if !@dirty
+        new = []
+        @slots.each{|s,val|
+            if val == :new
+                new << s
+                @slots[s] = true
+            end
+        }
+        @r.cluster("addslots",*new)
+        @dirty = false
+    end
+
+    def info
+        slots = @slots.map{|k,v| k}.reduce{|a,b|
+            a = [(a..a)] if !a.is_a?(Array)
+            if b == (a[-1].last)+1
+                a[-1] = (a[-1].first)..b
+                a
+            else
+                a << (b..b)
+            end
+        }.map{|x|
+            (x.first == x.last) ? x.first.to_s : "#{x.first}-#{x.last}"
+        }.join(",")
+        "#{self.to_s.ljust(25)} slots:#{slots}"
+    end
+    
+    def is_dirty?
+        @dirty
+    end
+
     def r
         @r
     end
 end
 
 class RedisTrib
+    def initialize
+        @nodes = []
+    end
+
     def check_arity(req_args, num_args)
         if ((req_args > 0 and num_args != req_args) ||
            (req_args < 0 and num_args < req_args.abs))
@@ -72,7 +119,52 @@ class RedisTrib
             node.connect
             node.assert_cluster
             node.assert_empty
+            @nodes << node
         }
+        puts "Performing hash slots allocation on #{@nodes.length} nodes..."
+        alloc_slots
+        show_nodes
+        yes_or_die "Can I set the above configuration?"
+        flush_nodes_config
+        puts "** Nodes configuration updated"
+        puts "Sending CLUSTER MEET messages to join the cluster"
+        join_cluster
+    end
+
+    def alloc_slots
+        slots_per_node = ClusterHashSlots/@nodes.length
+        i = 0
+        @nodes.each{|n|
+            first = i*slots_per_node
+            last = first+slots_per_node-1
+            last = ClusterHashSlots-1 if i == @nodes.length-1
+            n.add_slots first..last
+            i += 1
+        }
+    end
+
+    def flush_nodes_config
+        @nodes.each{|n|
+            n.flush_node_config
+        }
+    end
+
+    def show_nodes
+        @nodes.each{|n|
+            puts n.info
+        }
+    end
+
+    def join_cluster
+    end
+
+    def yes_or_die(msg)
+        print "#{msg} (type 'yes' to accept): "
+        STDOUT.flush
+        if !(STDIN.gets.chomp.downcase == "yes")
+            puts "Aborting..."
+            exit 1
+        end
     end
 end
 

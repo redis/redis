@@ -943,6 +943,7 @@ void clusterCron(void) {
                 node->flags &= ~REDIS_NODE_PFAIL;
             } else if (node->flags & REDIS_NODE_FAIL && !node->numslaves) {
                 node->flags &= ~REDIS_NODE_FAIL;
+                clusterUpdateState();
             }
         } else {
             /* Timeout reached. Set the noad se possibly failing if it is
