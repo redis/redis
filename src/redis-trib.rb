@@ -31,7 +31,7 @@ class ClusterNode
     def connect(o={})
         xputs "Connecting to node #{self}: "
         begin
-            @r = Redis.new(:host => @ost, :port => @port)
+            @r = Redis.new(:host => @host, :port => @port)
             @r.ping
         rescue
             puts "ERROR"
