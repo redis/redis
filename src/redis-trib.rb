@@ -92,7 +92,7 @@ class ClusterNode
         # As we want to aggregate adiacent slots we convert all the
         # slot integers into ranges (with just one element)
         # So we have something like [1..1,2..2, ... and so forth.
-        slots = slots.map{|x| x..x}
+        slots.map!{|x| x..x}
 
         # Finally we group ranges with adiacent elements.
         slots = slots.reduce([]) {|a,b|
