@@ -14,7 +14,7 @@ class ClusterNode
     def initialize(addr)
         s = addr.split(":")
         if s.length != 2
-            puts "Invalid node name #{node}"
+            puts "Invalid node name #{addr}"
             exit 1
         end
         @r = nil
