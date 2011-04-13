@@ -80,7 +80,7 @@ class ClusterNode
 
     def info_string
         # We want to display the hash slots assigned to this node
-        # as ranges, like in: "1-5,8,9,20-35,30"
+        # as ranges, like in: "1-5,8-9,20-25,30"
         #
         # Note: this could be easily written without side effects,
         # we use 'slots' just to split the computation into steps.
