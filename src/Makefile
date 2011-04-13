@@ -83,7 +83,7 @@ redis-check-dump.o: redis-check-dump.c lzf.h
 redis-cli.o: redis-cli.c fmacros.h version.h ../deps/hiredis/hiredis.h \
   sds.h zmalloc.h ../deps/linenoise/linenoise.h help.h
 redis.o: redis.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
+  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h asciilogo.h
 release.o: release.c release.h
 replication.o: replication.c redis.h fmacros.h config.h ae.h sds.h dict.h \
   adlist.h zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
