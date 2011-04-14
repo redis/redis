@@ -148,35 +148,8 @@ class RedisTrib
         @nodes << node
     end
 
-    def create_cluster
-        puts "Creating cluster"
-        ARGV[1..-1].each{|n|
-            node = ClusterNode.new(n)
-            node.connect(:abort => true)
-            node.assert_cluster
-            node.assert_empty
-            add_node(node)
-        }
-        puts "Performing hash slots allocation on #{@nodes.length} nodes..."
-        alloc_slots
-        show_nodes
-        yes_or_die "Can I set the above configuration?"
-        flush_nodes_config
-        puts "** Nodes configuration updated"
-        puts "** Sending CLUSTER MEET messages to join the cluster"
-        join_cluster
-        check_cluster
-    end
-
     def check_cluster
-        puts "Performing Cluster Check (node #{ARGV[1]})"
-        node = ClusterNode.new(ARGV[1])
-        node.connect(:abort => true)
-        node.assert_cluster
-        node.add_slots(10..15)
-        node.add_slots(30..30)
-        node.add_slots(5..5)
-        add_node(node)
+        puts "Performing Cluster Check (using node #{@nodes[0]})"
         show_nodes
     end
 
@@ -225,11 +198,41 @@ class RedisTrib
             exit 1
         end
     end
+
+    # redis-trib subcommands implementations
+
+    def check_cluster_cmd
+        node = ClusterNode.new(ARGV[1])
+        node.connect(:abort => true)
+        node.assert_cluster
+        add_node(node)
+        check_cluster
+    end
+
+    def create_cluster_cmd
+        puts "Creating cluster"
+        ARGV[1..-1].each{|n|
+            node = ClusterNode.new(n)
+            node.connect(:abort => true)
+            node.assert_cluster
+            node.assert_empty
+            add_node(node)
+        }
+        puts "Performing hash slots allocation on #{@nodes.length} nodes..."
+        alloc_slots
+        show_nodes
+        yes_or_die "Can I set the above configuration?"
+        flush_nodes_config
+        puts "** Nodes configuration updated"
+        puts "** Sending CLUSTER MEET messages to join the cluster"
+        join_cluster
+        check_cluster
+    end
 end
 
 COMMANDS={
-    "create" => ["create_cluster", -2, "host1:port host2:port ... hostN:port"],
-    "check" =>  ["check_cluster", 2, "host:port"]
+    "create" => ["create_cluster_cmd", -2, "host1:port host2:port ... hostN:port"],
+    "check" =>  ["check_cluster_cmd", 2, "host:port"]
 }
 
 # Sanity check
