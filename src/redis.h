@@ -71,10 +71,12 @@
 #define REDIS_ZSET 3
 #define REDIS_HASH 4
 #define REDIS_VMPOINTER 8
+
 /* Object types only used for persistence in .rdb files */
 #define REDIS_HASH_ZIPMAP 9
 #define REDIS_LIST_ZIPLIST 10
 #define REDIS_SET_INTSET 11
+#define REDIS_ZSET_ZIPLIST 12
 
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
@@ -198,6 +200,8 @@
 #define REDIS_LIST_MAX_ZIPLIST_ENTRIES 512
 #define REDIS_LIST_MAX_ZIPLIST_VALUE 64
 #define REDIS_SET_MAX_INTSET_ENTRIES 512
+#define REDIS_ZSET_MAX_ZIPLIST_ENTRIES 128
+#define REDIS_ZSET_MAX_ZIPLIST_VALUE 64
 
 /* Sets operations codes */
 #define REDIS_OP_UNION 0
@@ -589,6 +593,8 @@ struct redisServer {
     size_t list_max_ziplist_entries;
     size_t list_max_ziplist_value;
     size_t set_max_intset_entries;
+    size_t zset_max_ziplist_entries;
+    size_t zset_max_ziplist_value;
     time_t unixtime;    /* Unix time sampled every second. */
     /* Virtual memory I/O threads stuff */
     /* An I/O thread process an element taken from the io_jobs queue and
@@ -853,6 +859,7 @@ robj *createSetObject(void);
 robj *createIntsetObject(void);
 robj *createHashObject(void);
 robj *createZsetObject(void);
+robj *createZsetZiplistObject(void);
 int getLongFromObjectOrReply(redisClient *c, robj *o, long *target, const char *msg);
 int checkType(redisClient *c, robj *o, int type);
 int getLongLongFromObjectOrReply(redisClient *c, robj *o, long long *target, const char *msg);
@@ -916,6 +923,12 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal);
 zskiplist *zslCreate(void);
 void zslFree(zskiplist *zsl);
 zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj);
+unsigned char *zzlInsert(unsigned char *zl, robj *ele, double score);
+double zzlGetScore(unsigned char *sptr);
+void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
+void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
+unsigned int zsetLength(robj *zobj);
+void zsetConvert(robj *zobj, int encoding);
 
 /* Core functions */
 void freeMemoryIfNeeded(void);
@@ -1009,6 +1022,8 @@ int stringmatchlen(const char *pattern, int patternLen,
 int stringmatch(const char *pattern, const char *string, int nocase);
 long long memtoll(const char *p, int *err);
 int ll2string(char *s, size_t len, long long value);
+int string2ll(char *s, size_t len, long long *value);
+int d2string(char *s, size_t len, double value);
 int isStringRepresentableAsLong(sds s, long *longval);
 int isStringRepresentableAsLongLong(sds s, long long *longval);
 int isObjectRepresentableAsLongLong(robj *o, long long *llongval);

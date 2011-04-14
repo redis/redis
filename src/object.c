@@ -102,6 +102,13 @@ robj *createZsetObject(void) {
     return o;
 }
 
+robj *createZsetZiplistObject(void) {
+    unsigned char *zl = ziplistNew();
+    robj *o = createObject(REDIS_ZSET,zl);
+    o->encoding = REDIS_ENCODING_ZIPLIST;
+    return o;
+}
+
 void freeStringObject(robj *o) {
     if (o->encoding == REDIS_ENCODING_RAW) {
         sdsfree(o->ptr);
@@ -135,11 +142,20 @@ void freeSetObject(robj *o) {
 }
 
 void freeZsetObject(robj *o) {
-    zset *zs = o->ptr;
-
-    dictRelease(zs->dict);
-    zslFree(zs->zsl);
-    zfree(zs);
+    zset *zs;
+    switch (o->encoding) {
+    case REDIS_ENCODING_SKIPLIST:
+        zs = o->ptr;
+        dictRelease(zs->dict);
+        zslFree(zs->zsl);
+        zfree(zs);
+        break;
+    case REDIS_ENCODING_ZIPLIST:
+        zfree(o->ptr);
+        break;
+    default:
+        redisPanic("Unknown sorted set encoding");
+    }
 }
 
 void freeHashObject(robj *o) {

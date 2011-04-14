@@ -385,8 +385,8 @@ static unsigned char *ziplistResize(unsigned char *zl, unsigned int len) {
  * The pointer "p" points to the first entry that does NOT need to be
  * updated, i.e. consecutive fields MAY need an update. */
 static unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p) {
-    unsigned int curlen = ZIPLIST_BYTES(zl), rawlen, rawlensize;
-    unsigned int offset, noffset, extra;
+    size_t curlen = ZIPLIST_BYTES(zl), rawlen, rawlensize;
+    size_t offset, noffset, extra;
     unsigned char *np;
     zlentry cur, next;
 
@@ -441,7 +441,8 @@ static unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p
 /* Delete "num" entries, starting at "p". Returns pointer to the ziplist. */
 static unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsigned int num) {
     unsigned int i, totlen, deleted = 0;
-    int offset, nextdiff = 0;
+    size_t offset;
+    int nextdiff = 0;
     zlentry first, tail;
 
     first = zipEntry(p);
@@ -493,8 +494,9 @@ static unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsig
 
 /* Insert item at "p". */
 static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen) {
-    unsigned int curlen = ZIPLIST_BYTES(zl), reqlen, prevlen = 0;
-    unsigned int offset, nextdiff = 0;
+    size_t curlen = ZIPLIST_BYTES(zl), reqlen, prevlen = 0;
+    size_t offset;
+    int nextdiff = 0;
     unsigned char encoding = 0;
     long long value;
     zlentry entry, tail;
@@ -678,7 +680,7 @@ unsigned char *ziplistInsert(unsigned char *zl, unsigned char *p, unsigned char 
  * Also update *p in place, to be able to iterate over the
  * ziplist, while deleting entries. */
 unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p) {
-    unsigned int offset = *p-zl;
+    size_t offset = *p-zl;
     zl = __ziplistDelete(zl,*p,1);
 
     /* Store pointer to current element in p, because ziplistDelete will
