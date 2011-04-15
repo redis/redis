@@ -259,35 +259,30 @@ void listTypeConvert(robj *subject, int enc) {
  *----------------------------------------------------------------------------*/
 
 void pushGenericCommand(redisClient *c, int where) {
-    int j, addlen = 0, pushed = 0;
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
-    int may_have_waiting_clients = (lobj == NULL);
-
-    if (lobj && lobj->type != REDIS_LIST) {
-        addReply(c,shared.wrongtypeerr);
-        return;
-    }
-
-    for (j = 2; j < c->argc; j++) {
-        c->argv[j] = tryObjectEncoding(c->argv[j]);
-        if (may_have_waiting_clients) {
-            if (handleClientsWaitingListPush(c,c->argv[1],c->argv[j])) {
-                addlen++;
-                continue;
-            } else {
-                may_have_waiting_clients = 0;
-            }
+    c->argv[2] = tryObjectEncoding(c->argv[2]);
+    if (lobj == NULL) {
+        if (handleClientsWaitingListPush(c,c->argv[1],c->argv[2])) {
+            addReply(c,shared.cone);
+            return;
         }
-        if (!lobj) {
-            lobj = createZiplistObject();
-            dbAdd(c->db,c->argv[1],lobj);
+        lobj = createZiplistObject();
+        dbAdd(c->db,c->argv[1],lobj);
+    } else {
+        if (lobj->type != REDIS_LIST) {
+            addReply(c,shared.wrongtypeerr);
+            return;
         }
-        listTypePush(lobj,c->argv[j],where);
-        pushed++;
+        if (handleClientsWaitingListPush(c,c->argv[1],c->argv[2])) {
+            touchWatchedKey(c->db,c->argv[1]);
+            addReply(c,shared.cone);
+            return;
+        }
     }
-    addReplyLongLong(c,addlen + (lobj ? listTypeLength(lobj) : 0));
-    if (pushed) touchWatchedKey(c->db,c->argv[1]);
-    server.dirty += pushed;
+    listTypePush(lobj,c->argv[2],where);
+    addReplyLongLong(c,listTypeLength(lobj));
+    touchWatchedKey(c->db,c->argv[1]);
+    server.dirty++;
 }
 
 void lpushCommand(redisClient *c) {
