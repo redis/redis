@@ -218,9 +218,9 @@ void setTypeConvert(robj *setobj, int enc) {
 
 void saddCommand(redisClient *c) {
     robj *set;
+    int j, added = 0;
 
     set = lookupKeyWrite(c->db,c->argv[1]);
-    c->argv[2] = tryObjectEncoding(c->argv[2]);
     if (set == NULL) {
         set = setTypeCreate(c->argv[2]);
         dbAdd(c->db,c->argv[1],set);
@@ -230,13 +230,14 @@ void saddCommand(redisClient *c) {
             return;
         }
     }
-    if (setTypeAdd(set,c->argv[2])) {
-        signalModifiedKey(c->db,c->argv[1]);
-        server.dirty++;
-        addReply(c,shared.cone);
-    } else {
-        addReply(c,shared.czero);
+
+    for (j = 2; j < c->argc; j++) {
+        c->argv[j] = tryObjectEncoding(c->argv[j]);
+        if (setTypeAdd(set,c->argv[j])) added++;
     }
+    if (added) signalModifiedKey(c->db,c->argv[1]);
+    server.dirty += added;
+    addReplyLongLong(c,added);
 }
 
 void sremCommand(redisClient *c) {
