@@ -321,7 +321,12 @@ void _addReplyLongLong(redisClient *c, long long ll, char prefix) {
 }
 
 void addReplyLongLong(redisClient *c, long long ll) {
-    _addReplyLongLong(c,ll,':');
+    if (ll == 0)
+        addReply(c,shared.czero);
+    else if (ll == 1)
+        addReply(c,shared.cone);
+    else
+        _addReplyLongLong(c,ll,':');
 }
 
 void addReplyMultiBulkLen(redisClient *c, long length) {
