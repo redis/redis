@@ -59,6 +59,13 @@ start_server {
         assert_encoding hashtable myset
     }
 
+    test {Variadic SADD} {
+        r del myset
+        assert_equal 3 [r sadd myset a b c]
+        assert_equal 2 [r sadd myset A a b c B]
+        assert_equal [lsort {A a b c B}] [lsort [r smembers myset]]
+    }
+
     test "Set encoding after DEBUG RELOAD" {
         r del myintset myhashset mylargeintset
         for {set i 0} {$i <  100} {incr i} { r sadd myintset $i }
