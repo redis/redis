@@ -55,13 +55,6 @@ start_server {
         assert_equal $largevalue(linkedlist) [r lindex mylist2 2]
     }
 
-    test {Variadic RPUSH/LPUSH} {
-        r del mylist
-        assert_equal 4 [r lpush mylist a b c d]
-        assert_equal 8 [r rpush mylist 0 1 2 3]
-        assert_equal {d c b a 0 1 2 3} [r lrange mylist 0 -1]
-    }
-
     test {DEL a list - ziplist} {
         assert_equal 1 [r del myziplist2]
         assert_equal 0 [r exists myziplist2]
@@ -147,15 +140,6 @@ start_server {
             assert_equal d [r rpop target]
             assert_equal "a b $large c" [r lrange blist 0 -1]
         }
-    }
-
-    test "BLPOP with variadic LPUSH" {
-        set rd [redis_deferring_client]
-        r del blist target
-        $rd blpop blist 0
-        assert_equal 2 [r lpush blist foo bar]
-        assert_equal {blist foo} [$rd read]
-        assert_equal bar [lindex [r lrange blist 0 -1] 0]
     }
 
     test "BRPOPLPUSH with zero timeout should block indefinitely" {
