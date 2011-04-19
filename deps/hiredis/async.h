@@ -1,5 +1,7 @@
 /*
  * Copyright (c) 2009-2010, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2010, Pieter Noordhuis <pcnoordhuis at gmail dot com>
+ *
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -36,6 +38,7 @@ extern "C" {
 #endif
 
 struct redisAsyncContext; /* need forward declaration of redisAsyncContext */
+struct dict; /* dictionary header is included in async.c */
 
 /* Reply callback prototype and container */
 typedef void (redisCallbackFn)(struct redisAsyncContext*, void*, void*);
@@ -66,16 +69,18 @@ typedef struct redisAsyncContext {
     /* Not used by hiredis */
     void *data;
 
-    /* Used by the different event lib adapters to store their private data */
-    void *_adapter_data;
+    /* Event library data and hooks */
+    struct {
+        void *data;
 
-    /* Called when the library expects to start reading/writing.
-     * The supplied functions should be idempotent. */
-    void (*evAddRead)(void *privdata);
-    void (*evDelRead)(void *privdata);
-    void (*evAddWrite)(void *privdata);
-    void (*evDelWrite)(void *privdata);
-    void (*evCleanup)(void *privdata);
+        /* Hooks that are called when the library expects to start
+         * reading/writing. These functions should be idempotent. */
+        void (*addRead)(void *privdata);
+        void (*delRead)(void *privdata);
+        void (*addWrite)(void *privdata);
+        void (*delWrite)(void *privdata);
+        void (*cleanup)(void *privdata);
+    } ev;
 
     /* Called when either the connection is terminated due to an error or per
      * user request. The status is set accordingly (REDIS_OK, REDIS_ERR). */
@@ -84,16 +89,25 @@ typedef struct redisAsyncContext {
     /* Called when the first write event was received. */
     redisConnectCallback *onConnect;
 
-    /* Reply callbacks */
+    /* Regular command callbacks */
     redisCallbackList replies;
+
+    /* Subscription callbacks */
+    struct {
+        redisCallbackList invalid;
+        struct dict *channels;
+        struct dict *patterns;
+    } sub;
 } redisAsyncContext;
 
 /* Functions that proxy to hiredis */
 redisAsyncContext *redisAsyncConnect(const char *ip, int port);
+redisAsyncContext *redisAsyncConnectUnix(const char *path);
 int redisAsyncSetReplyObjectFunctions(redisAsyncContext *ac, redisReplyObjectFunctions *fn);
 int redisAsyncSetConnectCallback(redisAsyncContext *ac, redisConnectCallback *fn);
 int redisAsyncSetDisconnectCallback(redisAsyncContext *ac, redisDisconnectCallback *fn);
 void redisAsyncDisconnect(redisAsyncContext *ac);
+void redisAsyncFree(redisAsyncContext *ac);
 
 /* Handle read/write events */
 void redisAsyncHandleRead(redisAsyncContext *ac);

@@ -15,8 +15,9 @@ ifeq ($(uname_S),SunOS)
   DYLIB_MAKE_CMD?=$(CC) -G -o ${DYLIBNAME} ${OBJ}
   STLIBNAME?=libhiredis.a
   STLIB_MAKE_CMD?=ar rcs ${STLIBNAME} ${OBJ}
-else ifeq ($(uname_S),Darwin)
-  CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -fPIC -Wall -W -Wwrite-strings $(ARCH) $(PROF)
+else
+ifeq ($(uname_S),Darwin)
+  CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -fPIC -Wall -W -Wstrict-prototypes -Wwrite-strings $(ARCH) $(PROF)
   CCLINK?=-lm -pthread
   LDFLAGS?=-L. -Wl,-rpath,.
   OBJARCH?=-arch i386 -arch x86_64
@@ -25,7 +26,7 @@ else ifeq ($(uname_S),Darwin)
   STLIBNAME?=libhiredis.a
   STLIB_MAKE_CMD?=libtool -static -o ${STLIBNAME} - ${OBJ}
 else
-  CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -fPIC -Wall -W -Wwrite-strings $(ARCH) $(PROF)
+  CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -fPIC -Wall -W -Wstrict-prototypes -Wwrite-strings $(ARCH) $(PROF)
   CCLINK?=-lm -pthread
   LDFLAGS?=-L. -Wl,-rpath,.
   DYLIBNAME?=libhiredis.so
@@ -33,6 +34,8 @@ else
   STLIBNAME?=libhiredis.a
   STLIB_MAKE_CMD?=ar rcs ${STLIBNAME} ${OBJ}
 endif
+endif
+
 CCOPT= $(CFLAGS) $(CCLINK)
 DEBUG?= -g -ggdb
 
@@ -45,7 +48,7 @@ all: ${DYLIBNAME} ${BINS}
 
 # Deps (use make dep to generate this)
 net.o: net.c fmacros.h net.h
-async.o: async.c async.h hiredis.h sds.h util.h
+async.o: async.c async.h hiredis.h sds.h util.h dict.c dict.h
 example.o: example.c hiredis.h
 hiredis.o: hiredis.c hiredis.h net.h sds.h util.h
 sds.o: sds.c sds.h
