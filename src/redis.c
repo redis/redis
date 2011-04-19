@@ -881,6 +881,7 @@ void initServer() {
         if (server.vm_enabled)
             server.db[j].io_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].id = j;
+        server.db[j].stat_evictedkeys = 0;
     }
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
     server.pubsub_patterns = listCreate();
@@ -1339,13 +1340,14 @@ sds genRedisInfoString(void) {
     info = sdscat(info,"\r\n");
 
     for (j = 0; j < server.dbnum; j++) {
-        long long keys, vkeys;
+        long long keys, vkeys, evicted_keys;
 
         keys = dictSize(server.db[j].dict);
         vkeys = dictSize(server.db[j].expires);
+        evicted_keys = server.db[j].stat_evictedkeys;
         if (keys || vkeys) {
-            info = sdscatprintf(info, "db%d:keys=%lld,expires=%lld\r\n",
-                j, keys, vkeys);
+            info = sdscatprintf(info, "db%d:keys=%lld,expires=%lld,evicted_keys=%lld\r\n",
+                j, keys, vkeys, evicted_keys);
         }
     }
     return info;
@@ -1465,6 +1467,7 @@ void freeMemoryIfNeeded(void) {
                 propagateExpire(db,keyobj);
                 dbDelete(db,keyobj);
                 server.stat_evictedkeys++;
+                server.db[j].stat_evictedkeys++;
                 decrRefCount(keyobj);
                 freed++;
             }

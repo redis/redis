@@ -278,6 +278,7 @@ typedef struct redisDb {
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP) */
     dict *io_keys;              /* Keys with clients waiting for VM I/O */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
+    long long stat_evictedkeys; /* number of evicted keys for DB */
     int id;
 } redisDb;
 
@@ -367,7 +368,7 @@ struct redisServer {
     long long dirty;            /* changes to DB from the last save */
     long long dirty_before_bgsave; /* used to restore dirty on failed BGSAVE */
     list *clients;
-    dict *commands;             /* Command table hahs table */
+    dict *commands;             /* Command table hash table */
     /* RDB / AOF loading information */
     int loading;
     off_t loading_total_bytes;
