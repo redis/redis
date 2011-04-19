@@ -15,6 +15,13 @@
 #define HAVE_MALLOC_SIZE 1
 #define redis_malloc_size(p) tc_malloc_size(p)
 #endif
+#elif defined(USE_JEMALLOC)
+#define JEMALLOC_MANGLE
+#include <jemalloc/jemalloc.h>
+#if JEMALLOC_VERSION_MAJOR >= 2 && JEMALLOC_VERSION_MINOR >= 1
+#define HAVE_MALLOC_SIZE 1
+#define redis_malloc_size(p) JEMALLOC_P(malloc_usable_size)(p)
+#endif
 #elif defined(__APPLE__)
 #include <malloc/malloc.h>
 #define HAVE_MALLOC_SIZE 1
