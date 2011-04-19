@@ -231,7 +231,7 @@ void saddCommand(redisClient *c) {
         }
     }
     if (setTypeAdd(set,c->argv[2])) {
-        touchWatchedKey(c->db,c->argv[1]);
+        signalModifiedKey(c->db,c->argv[1]);
         server.dirty++;
         addReply(c,shared.cone);
     } else {
