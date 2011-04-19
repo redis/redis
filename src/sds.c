@@ -36,11 +36,11 @@
 
 #define SDS_ABORT_ON_OOM
 
-#include "sds.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include "sds.h"
 #include "zmalloc.h"
 
 static void sdsOomAbort(void) {
@@ -78,11 +78,6 @@ sds sdsnew(const char *init) {
     return sdsnewlen(init, initlen);
 }
 
-size_t sdslen(const sds s) {
-    struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
-    return sh->len;
-}
-
 sds sdsdup(const sds s) {
     return sdsnewlen(s, sdslen(s));
 }
@@ -90,11 +85,6 @@ sds sdsdup(const sds s) {
 void sdsfree(sds s) {
     if (s == NULL) return;
     zfree(s-sizeof(struct sdshdr));
-}
-
-size_t sdsavail(sds s) {
-    struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
-    return sh->free;
 }
 
 void sdsupdatelen(sds s) {
