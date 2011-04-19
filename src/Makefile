@@ -16,9 +16,23 @@ else
 endif
 
 ifeq ($(USE_TCMALLOC),yes)
-  CCLINK+= -ltcmalloc
-  CFLAGS+= -DUSE_TCMALLOC
+  ALLOC_LINK=-ltcmalloc
+  ALLOC_FLAGS=-DUSE_TCMALLOC
 endif
+
+ifeq ($(USE_TCMALLOC_MINIMAL),yes)
+  ALLOC_LINK=-ltcmalloc_minimal
+  ALLOC_FLAGS=-DUSE_TCMALLOC
+endif
+
+ifeq ($(USE_JEMALLOC),yes)
+  ALLOC_LINK=-ljemalloc
+  ALLOC_FLAGS=-DUSE_JEMALLOC
+endif
+
+CCLINK+= $(ALLOC_LINK)
+CFLAGS+= $(ALLOC_FLAGS)
+
 CCOPT= $(CFLAGS) $(CCLINK) $(ARCH) $(PROF)
 
 PREFIX= /usr/local
