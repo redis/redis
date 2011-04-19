@@ -138,7 +138,7 @@ struct redisCommand readonlyCommandTable[] = {
     {"hmset",hmsetCommand,-4,REDIS_CMD_DENYOOM,NULL,1,1,1},
     {"hmget",hmgetCommand,-3,0,NULL,1,1,1},
     {"hincrby",hincrbyCommand,4,REDIS_CMD_DENYOOM,NULL,1,1,1},
-    {"hdel",hdelCommand,3,0,NULL,1,1,1},
+    {"hdel",hdelCommand,-3,0,NULL,1,1,1},
     {"hlen",hlenCommand,2,0,NULL,1,1,1},
     {"hkeys",hkeysCommand,2,0,NULL,1,1,1},
     {"hvals",hvalsCommand,2,0,NULL,1,1,1},
