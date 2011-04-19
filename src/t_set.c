@@ -242,19 +242,22 @@ void saddCommand(redisClient *c) {
 
 void sremCommand(redisClient *c) {
     robj *set;
+    int j, deleted = 0;
 
     if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,set,REDIS_SET)) return;
 
-    c->argv[2] = tryObjectEncoding(c->argv[2]);
-    if (setTypeRemove(set,c->argv[2])) {
-        if (setTypeSize(set) == 0) dbDelete(c->db,c->argv[1]);
-        signalModifiedKey(c->db,c->argv[1]);
-        server.dirty++;
-        addReply(c,shared.cone);
-    } else {
-        addReply(c,shared.czero);
+    for (j = 2; j < c->argc; j++) {
+        if (setTypeRemove(set,c->argv[j])) {
+            if (setTypeSize(set) == 0) dbDelete(c->db,c->argv[1]);
+            deleted++;
+        }
     }
+    if (deleted) {
+        signalModifiedKey(c->db,c->argv[1]);
+        server.dirty += deleted;
+    }
+    addReplyLongLong(c,deleted);
 }
 
 void smoveCommand(redisClient *c) {

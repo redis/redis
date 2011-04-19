@@ -97,6 +97,14 @@ start_server {
         assert_equal {3 5} [lsort [r smembers myset]]
     }
 
+    test {SREM with multiple arguments} {
+        r del myset
+        r sadd myset a b c d
+        assert_equal 0 [r srem myset k k k]
+        assert_equal 2 [r srem myset b d x y]
+        lsort [r smembers myset]
+    } {a c}
+
     foreach {type} {hashtable intset} {
         for {set i 1} {$i <= 5} {incr i} {
             r del [format "set%d" $i]

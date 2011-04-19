@@ -103,7 +103,7 @@ struct redisCommand redisCommandTable[] = {
     {"lrem",lremCommand,4,0,NULL,1,1,1,0,0},
     {"rpoplpush",rpoplpushCommand,3,REDIS_CMD_DENYOOM,NULL,1,2,1,0,0},
     {"sadd",saddCommand,-3,REDIS_CMD_DENYOOM,NULL,1,1,1,0,0},
-    {"srem",sremCommand,3,0,NULL,1,1,1,0,0},
+    {"srem",sremCommand,-3,0,NULL,1,1,1,0,0},
     {"smove",smoveCommand,4,0,NULL,1,2,1,0,0},
     {"sismember",sismemberCommand,3,0,NULL,1,1,1,0,0},
     {"scard",scardCommand,2,0,NULL,1,1,1,0,0},
