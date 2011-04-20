@@ -304,39 +304,10 @@ int rdbSaveObject(FILE *fp, robj *o) {
     } else if (o->type == REDIS_ZSET) {
         /* Save a sorted set value */
         if (o->encoding == REDIS_ENCODING_ZIPLIST) {
-            unsigned char *zl = o->ptr;
-            unsigned char *eptr, *sptr;
-            unsigned char *vstr;
-            unsigned int vlen;
-            long long vlong;
-            double score;
+            size_t l = ziplistBlobLen((unsigned char*)o->ptr);
 
-            if ((n = rdbSaveLen(fp,zsetLength(o))) == -1) return -1;
+            if ((n = rdbSaveRawString(fp,o->ptr,l)) == -1) return -1;
             nwritten += n;
-
-            eptr = ziplistIndex(zl,0);
-            redisAssert(eptr != NULL);
-            sptr = ziplistNext(zl,eptr);
-            redisAssert(sptr != NULL);
-
-            while (eptr != NULL) {
-                redisAssert(ziplistGet(eptr,&vstr,&vlen,&vlong));
-                if (vstr) {
-                    if ((n = rdbSaveRawString(fp,vstr,vlen)) == -1)
-                        return -1;
-                    nwritten += n;
-                } else {
-                    if ((n = rdbSaveLongLongAsStringObject(fp,vlong)) == -1)
-                        return -1;
-                    nwritten += n;
-                }
-
-                score = zzlGetScore(sptr);
-                if ((n = rdbSaveDoubleValue(fp,score)) == -1) return -1;
-                nwritten += n;
-
-                zzlNext(zl,&eptr,&sptr);
-            }
         } else if (o->encoding == REDIS_ENCODING_SKIPLIST) {
             zset *zs = o->ptr;
             dictIterator *di = dictGetIterator(zs->dict);
@@ -869,7 +840,8 @@ robj *rdbLoadObject(int type, FILE *fp) {
         }
     } else if (type == REDIS_HASH_ZIPMAP ||
                type == REDIS_LIST_ZIPLIST ||
-               type == REDIS_SET_INTSET)
+               type == REDIS_SET_INTSET ||
+               type == REDIS_ZSET_ZIPLIST)
     {
         robj *aux = rdbLoadStringObject(fp);
 
@@ -904,8 +876,14 @@ robj *rdbLoadObject(int type, FILE *fp) {
                 if (intsetLen(o->ptr) > server.set_max_intset_entries)
                     setTypeConvert(o,REDIS_ENCODING_HT);
                 break;
+            case REDIS_ZSET_ZIPLIST:
+                o->type = REDIS_ZSET;
+                o->encoding = REDIS_ENCODING_ZIPLIST;
+                if (zsetLength(o) > server.zset_max_ziplist_entries)
+                    zsetConvert(o,REDIS_ENCODING_SKIPLIST);
+                break;
             default:
-                redisPanic("Unknown enoding");
+                redisPanic("Unknown encoding");
                 break;
         }
     } else {
