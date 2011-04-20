@@ -411,7 +411,7 @@ double computeObjectSwappability(robj *o) {
         break;
     case REDIS_ZSET:
         if (o->encoding == REDIS_ENCODING_ZIPLIST) {
-            asize = sizeof(*o)+(ziplistSize(o->ptr) / 2);
+            asize = sizeof(*o)+(ziplistBlobLen(o->ptr) / 2);
         } else {
             d = ((zset*)o->ptr)->dict;
             asize = sizeof(zset)+(sizeof(struct dictEntry*)*dictSlots(d));

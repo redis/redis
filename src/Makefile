@@ -51,7 +51,6 @@ ae_select.o: ae_select.c
 anet.o: anet.c fmacros.h anet.h
 aof.o: aof.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
-chprgname.o: chprgname.c
 config.o: config.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
 db.o: db.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
@@ -59,6 +58,7 @@ db.o: db.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
 debug.o: debug.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h sha1.h
 dict.o: dict.c fmacros.h dict.h zmalloc.h
+endian.o: endian.c
 intset.o: intset.c intset.h zmalloc.h
 lzf_c.o: lzf_c.c lzfP.h
 lzf_d.o: lzf_d.c lzfP.h
@@ -73,11 +73,12 @@ pubsub.o: pubsub.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
 rdb.o: rdb.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h lzf.h
-redis-benchmark.o: redis-benchmark.c fmacros.h ae.h anet.h sds.h adlist.h \
-  zmalloc.h
+redis-benchmark.o: redis-benchmark.c fmacros.h ae.h \
+  ../deps/hiredis/hiredis.h sds.h adlist.h zmalloc.h
 redis-check-aof.o: redis-check-aof.c fmacros.h config.h
 redis-check-dump.o: redis-check-dump.c lzf.h
-redis-cli.o: redis-cli.c fmacros.h version.h sds.h adlist.h zmalloc.h
+redis-cli.o: redis-cli.c fmacros.h version.h ../deps/hiredis/hiredis.h \
+  sds.h zmalloc.h ../deps/linenoise/linenoise.h help.h
 redis.o: redis.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
 release.o: release.c release.h
@@ -87,7 +88,8 @@ sds.o: sds.c sds.h zmalloc.h
 sha1.o: sha1.c sha1.h
 sort.o: sort.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h pqsort.h
-syncio.o: syncio.c
+syncio.o: syncio.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
+  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
 t_hash.o: t_hash.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
 t_list.o: t_list.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
@@ -103,8 +105,8 @@ util.o: util.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
 vm.o: vm.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
 ziplist.o: ziplist.c zmalloc.h ziplist.h
-zipmap.o: zipmap.c zmalloc.h
-zmalloc.o: zmalloc.c config.h
+zipmap.o: zipmap.c zmalloc.h endian.h
+zmalloc.o: zmalloc.c config.h zmalloc.h
 
 dependencies:
 	cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
@@ -139,7 +141,7 @@ clean:
 	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
 
 dep:
-	$(CC) -MM *.c
+	$(CC) -I../deps/hiredis -I../deps/linenoise -MM *.c
 
 test: redis-server
 	(cd ..; tclsh8.5 tests/test_helper.tcl --tags "${TAGS}" --file "${FILE}")
