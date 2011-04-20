@@ -16,7 +16,6 @@ redisClient *createClient(int fd) {
 
     anetNonBlock(NULL,fd);
     anetTcpNoDelay(NULL,fd);
-    if (!c) return NULL;
     if (aeCreateFileEvent(server.el,fd,AE_READABLE,
         readQueryFromClient, c) == AE_ERR)
     {
