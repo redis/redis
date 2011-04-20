@@ -30,12 +30,12 @@
 
 /* Create a VM pointer object. This kind of objects are used in place of
  * values in the key -> value hash table, for swapped out objects. */
-vmpointer *createVmPointer(int vtype) {
+vmpointer *createVmPointer(robj *o) {
     vmpointer *vp = zmalloc(sizeof(vmpointer));
 
     vp->type = REDIS_VMPOINTER;
     vp->storage = REDIS_VM_SWAPPED;
-    vp->vtype = vtype;
+    vp->vtype = getObjectSaveType(o);
     return vp;
 }
 
@@ -272,7 +272,7 @@ vmpointer *vmSwapObjectBlocking(robj *val) {
     if (vmFindContiguousPages(&page,pages) == REDIS_ERR) return NULL;
     if (vmWriteObjectOnSwap(val,page) == REDIS_ERR) return NULL;
 
-    vp = createVmPointer(val->type);
+    vp = createVmPointer(val);
     vp->page = page;
     vp->usedpages = pages;
     decrRefCount(val); /* Deallocate the object from memory. */
@@ -663,7 +663,7 @@ void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
                 printf("val->ptr: %s\n",(char*)j->val->ptr);
             }
             redisAssert(j->val->storage == REDIS_VM_SWAPPING);
-            vp = createVmPointer(j->val->type);
+            vp = createVmPointer(j->val);
             vp->page = j->page;
             vp->usedpages = j->pages;
             dictGetEntryVal(de) = vp;

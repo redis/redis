@@ -465,6 +465,7 @@ unsigned long estimateObjectIdleTime(robj *o) {
 robj *objectCommandLookup(redisClient *c, robj *key) {
     dictEntry *de;
 
+    if (server.vm_enabled) lookupKeyRead(c->db,key);
     if ((de = dictFind(c->db->dict,key->ptr)) == NULL) return NULL;
     return (robj*) dictGetEntryVal(de);
 }

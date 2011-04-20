@@ -770,6 +770,7 @@ off_t rdbSavedObjectLen(robj *o);
 off_t rdbSavedObjectPages(robj *o);
 robj *rdbLoadObject(int type, FILE *fp);
 void backgroundSaveDoneHandler(int statloc);
+int getObjectSaveType(robj *o);
 
 /* AOF persistence */
 void flushAppendOnlyFile(void);

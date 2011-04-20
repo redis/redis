@@ -376,6 +376,20 @@ off_t rdbSavedObjectPages(robj *o) {
     return (bytes+(server.vm_page_size-1))/server.vm_page_size;
 }
 
+int getObjectSaveType(robj *o) {
+    /* Fix the type id for specially encoded data types */
+    if (o->type == REDIS_HASH && o->encoding == REDIS_ENCODING_ZIPMAP)
+        return REDIS_HASH_ZIPMAP;
+    else if (o->type == REDIS_LIST && o->encoding == REDIS_ENCODING_ZIPLIST)
+        return REDIS_LIST_ZIPLIST;
+    else if (o->type == REDIS_SET && o->encoding == REDIS_ENCODING_INTSET)
+        return REDIS_SET_INTSET;
+    else if (o->type == REDIS_ZSET && o->encoding == REDIS_ENCODING_ZIPLIST)
+        return REDIS_ZSET_ZIPLIST;
+    else
+        return o->type;
+}
+
 /* Save the DB on disk. Return REDIS_ERR on error, REDIS_OK on success */
 int rdbSave(char *filename) {
     dictIterator *di = NULL;
@@ -432,17 +446,8 @@ int rdbSave(char *filename) {
              * handling if the value is swapped out. */
             if (!server.vm_enabled || o->storage == REDIS_VM_MEMORY ||
                                       o->storage == REDIS_VM_SWAPPING) {
-                int otype = o->type;
+                int otype = getObjectSaveType(o);
 
-                /* Fix the type id for specially encoded data types */
-                if (otype == REDIS_HASH && o->encoding == REDIS_ENCODING_ZIPMAP)
-                    otype = REDIS_HASH_ZIPMAP;
-                else if (otype == REDIS_LIST &&
-                         o->encoding == REDIS_ENCODING_ZIPLIST)
-                    otype = REDIS_LIST_ZIPLIST;
-                else if (otype == REDIS_SET &&
-                         o->encoding == REDIS_ENCODING_INTSET)
-                    otype = REDIS_SET_INTSET;
                 /* Save type, key, value */
                 if (rdbSaveType(fp,otype) == -1) goto werr;
                 if (rdbSaveStringObject(fp,&key) == -1) goto werr;
@@ -453,7 +458,8 @@ int rdbSave(char *filename) {
                 /* Get a preview of the object in memory */
                 po = vmPreviewObject(o);
                 /* Save type, key, value */
-                if (rdbSaveType(fp,po->type) == -1) goto werr;
+                if (rdbSaveType(fp,getObjectSaveType(po)) == -1)
+                    goto werr;
                 if (rdbSaveStringObject(fp,&key) == -1) goto werr;
                 if (rdbSaveObject(fp,po) == -1) goto werr;
                 /* Remove the loaded object from memory */
