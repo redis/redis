@@ -396,6 +396,7 @@ struct redisServer {
     long long stat_evictedkeys;     /* number of evicted keys (maxmemory) */
     long long stat_keyspace_hits;   /* number of successful lookups of keys */
     long long stat_keyspace_misses; /* number of failed lookups of keys */
+    size_t stat_peak_memory;        /* max used memory record */
     /* Configuration */
     int verbosity;
     int maxidletime;
