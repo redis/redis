@@ -53,5 +53,6 @@ int anetWrite(int fd, char *buf, int count);
 int anetNonBlock(char *err, int fd);
 int anetTcpNoDelay(char *err, int fd);
 int anetTcpKeepAlive(char *err, int fd);
+int anetPeerToString(int fd, char *ip, int *port);
 
 #endif

@@ -465,7 +465,15 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
         return REDIS_OK;
     }
 
-    output_raw = !strcasecmp(command,"info");
+    output_raw = 0;
+    if (!strcasecmp(command,"info") ||
+        (argc == 2 && !strcasecmp(command,"client") &&
+                       !strcasecmp(argv[1],"list")))
+
+    {
+        output_raw = 1;
+    }
+
     if (!strcasecmp(command,"help") || !strcasecmp(command,"?")) {
         cliOutputHelp(--argc, ++argv);
         return REDIS_OK;
