@@ -471,7 +471,10 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
     if (!strcasecmp(command,"info") ||
         (argc == 2 && !strcasecmp(command,"cluster") &&
                       (!strcasecmp(argv[1],"nodes") ||
-                       !strcasecmp(argv[1],"info"))))
+                       !strcasecmp(argv[1],"info"))) ||
+        (argc == 2 && !strcasecmp(command,"client") &&
+                       !strcasecmp(argv[1],"list")))
+
     {
         output_raw = 1;
     }
