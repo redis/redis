@@ -83,4 +83,22 @@ tags {"aof"} {
             assert_equal "" [$client get bar]
         }
     }
+
+    ## Test that SPOP (that modifies the client its argc/argv) is correctly free'd
+    create_aof {
+        append_to_aof [formatCommand sadd set foo]
+        append_to_aof [formatCommand sadd set bar]
+        append_to_aof [formatCommand spop set]
+    }
+
+    start_server_aof [list dir $server_path] {
+        test "AOF+SPOP: Server should have been started" {
+            assert_equal 1 [is_alive $srv]
+        }
+
+        test "AOF+SPOP: Set should have 1 member" {
+            set client [redis [dict get $srv host] [dict get $srv port]]
+            assert_equal 1 [$client scard set]
+        }
+    }
 }
