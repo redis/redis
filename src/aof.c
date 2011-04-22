@@ -285,9 +285,11 @@ int loadAppendOnlyFile(char *filename) {
         /* The fake client should not have a reply */
         redisAssert(fakeClient->bufpos == 0 && listLength(fakeClient->reply) == 0);
 
-        /* Clean up, ready for the next command */
-        for (j = 0; j < argc; j++) decrRefCount(argv[j]);
-        zfree(argv);
+        /* Clean up. Command code may have changed argv/argc so we use the
+         * argv/argc of the client instead of the local variables. */
+        for (j = 0; j < fakeClient->argc; j++)
+            decrRefCount(fakeClient->argv[j]);
+        zfree(fakeClient->argv);
 
         /* Handle swapping while loading big datasets when VM is on */
         force_swapout = 0;
