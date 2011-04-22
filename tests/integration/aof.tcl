@@ -31,13 +31,14 @@ tags {"aof"} {
     }
 
     start_server_aof [list dir $server_path] {
-        test {Unfinished MULTI: Server should not have been started} {
-            is_alive $srv
-        } {0}
+        test "Unfinished MULTI: Server should not have been started" {
+            assert_equal 0 [is_alive $srv]
+        }
 
-        test {Unfinished MULTI: Server should have logged an error} {
-            exec cat [dict get $srv stdout] | tail -n1
-        } {*Unexpected end of file reading the append only file*}
+        test "Unfinished MULTI: Server should have logged an error" {
+            set result [exec cat [dict get $srv stdout] | tail -n1]
+            assert_match "*Unexpected end of file reading the append only file*" $result
+        }
     }
 
     ## Test that the server exits when the AOF contains a short read
@@ -47,36 +48,39 @@ tags {"aof"} {
     }
 
     start_server_aof [list dir $server_path] {
-        test {Short read: Server should not have been started} {
-            is_alive $srv
-        } {0}
+        test "Short read: Server should not have been started" {
+            assert_equal 0 [is_alive $srv]
+        }
 
-        test {Short read: Server should have logged an error} {
-            exec cat [dict get $srv stdout] | tail -n1
-        } {*Bad file format reading the append only file*}
+        test "Short read: Server should have logged an error" {
+            set result [exec cat [dict get $srv stdout] | tail -n1]
+            assert_match "*Bad file format reading the append only file*" $result
+        }
     }
 
     ## Test that redis-check-aof indeed sees this AOF is not valid
-    test {Short read: Utility should confirm the AOF is not valid} {
+    test "Short read: Utility should confirm the AOF is not valid" {
         catch {
             exec src/redis-check-aof $aof_path
-        } str
-        set _ $str
-    } {*not valid*}
+        } result
+        assert_match "*not valid*" $result
+    }
 
-    test {Short read: Utility should be able to fix the AOF} {
-        exec echo y | src/redis-check-aof --fix $aof_path
-    } {*Successfully truncated AOF*}
+    test "Short read: Utility should be able to fix the AOF" {
+        set result [exec echo y | src/redis-check-aof --fix $aof_path]
+        assert_match "*Successfully truncated AOF*" $result
+    }
 
     ## Test that the server can be started using the truncated AOF
     start_server_aof [list dir $server_path] {
-        test {Fixed AOF: Server should have been started} {
-            is_alive $srv
-        } {1}
+        test "Fixed AOF: Server should have been started" {
+            assert_equal 1 [is_alive $srv]
+        }
 
-        test {Fixed AOF: Keyspace should contain values that were parsable} {
+        test "Fixed AOF: Keyspace should contain values that were parsable" {
             set client [redis [dict get $srv host] [dict get $srv port]]
-            list [$client get foo] [$client get bar]
-        } {hello {}}
+            assert_equal "hello" [$client get foo]
+            assert_equal "" [$client get bar]
+        }
     }
 }
