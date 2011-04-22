@@ -12,6 +12,11 @@ for 2.0.
 CHANGELOG
 ---------
 
+What's new in Redis 2.2.5
+=========================
+
+* Fixed a crash occurring when loading an AOF containing the SPOP command.
+
 What's new in Redis 2.2.4
 =========================
 
