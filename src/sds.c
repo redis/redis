@@ -296,12 +296,17 @@ int sdscmp(sds s1, sds s2) {
  */
 sds *sdssplitlen(char *s, int len, char *sep, int seplen, int *count) {
     int elements = 0, slots = 5, start = 0, j;
+    sds *tokens;
 
-    sds *tokens = zmalloc(sizeof(sds)*slots);
+    if (seplen < 1 || len < 0) return NULL;
+
+    tokens = zmalloc(sizeof(sds)*slots);
 #ifdef SDS_ABORT_ON_OOM
     if (tokens == NULL) sdsOomAbort();
+#else
+    if (tokens == NULL) return NULL;
 #endif
-    if (seplen < 1 || len < 0 || tokens == NULL) return NULL;
+
     if (len == 0) {
         *count = 0;
         return tokens;
