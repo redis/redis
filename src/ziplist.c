@@ -67,9 +67,8 @@
 #include <assert.h>
 #include <limits.h>
 #include "zmalloc.h"
+#include "util.h"
 #include "ziplist.h"
-
-int ll2string(char *s, size_t len, long long value);
 
 #define ZIP_END 255
 #define ZIP_BIGLEN 254
@@ -248,22 +247,9 @@ static int zipPrevLenByteDiff(unsigned char *p, unsigned int len) {
  * Stores the integer value in 'v' and its encoding in 'encoding'. */
 static int zipTryEncoding(unsigned char *entry, unsigned int entrylen, long long *v, unsigned char *encoding) {
     long long value;
-    char *eptr;
-    char buf[32];
 
     if (entrylen >= 32 || entrylen == 0) return 0;
-    if (entry[0] == '-' || (entry[0] >= '0' && entry[0] <= '9')) {
-        int slen;
-
-        /* Perform a back-and-forth conversion to make sure that
-         * the string turned into an integer is not losing any info. */
-        memcpy(buf,entry,entrylen);
-        buf[entrylen] = '\0';
-        value = strtoll(buf,&eptr,10);
-        if (eptr[0] != '\0') return 0;
-        slen = ll2string(buf,32,value);
-        if (entrylen != (unsigned)slen || memcmp(buf,entry,slen)) return 0;
-
+    if (string2ll((char*)entry,entrylen,&value)) {
         /* Great, the string can be encoded. Check what's the smallest
          * of our encoding types that can hold this value. */
         if (value >= INT16_MIN && value <= INT16_MAX) {
