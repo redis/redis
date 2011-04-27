@@ -202,6 +202,16 @@ int checkType(redisClient *c, robj *o, int type) {
     return 0;
 }
 
+int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
+    redisAssert(o->type == REDIS_STRING);
+    if (o->encoding == REDIS_ENCODING_INT) {
+        if (llval) *llval = (long) o->ptr;
+        return REDIS_OK;
+    } else {
+        return string2ll(o->ptr,sdslen(o->ptr),llval) ? REDIS_OK : REDIS_ERR;
+    }
+}
+
 /* Try to encode a string object in order to save space */
 robj *tryObjectEncoding(robj *o) {
     long value;
@@ -219,7 +229,7 @@ robj *tryObjectEncoding(robj *o) {
     redisAssert(o->type == REDIS_STRING);
 
     /* Check if we can represent this string as a long integer */
-    if (isStringRepresentableAsLong(s,&value) == REDIS_ERR) return o;
+    if (!string2l(s,sdslen(s),&value)) return o;
 
     /* Ok, this object can be encoded...
      *
