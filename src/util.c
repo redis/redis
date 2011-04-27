@@ -1,7 +1,10 @@
-#include "redis.h"
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 #include <ctype.h>
 #include <limits.h>
 #include <math.h>
+#include "util.h"
 
 /* Glob-style pattern matching. */
 int stringmatchlen(const char *pattern, int patternLen,
@@ -213,6 +216,12 @@ int string2ll(char *s, size_t slen, long long *value) {
     if (plen == slen)
         return 0;
 
+    /* Special case: first and only digit is 0. */
+    if (slen == 1 && p[0] == '0') {
+        if (value != NULL) *value = 0;
+        return 1;
+    }
+
     if (p[0] == '-') {
         negative = 1;
         p++; plen++;
@@ -247,7 +256,7 @@ int string2ll(char *s, size_t slen, long long *value) {
         return 0;
 
     if (negative) {
-        if (v > (-(unsigned long long)LLONG_MIN)) /* Overflow. */
+        if (v > ((unsigned long long)(-(LLONG_MIN+1))+1)) /* Overflow. */
             return 0;
         if (value != NULL) *value = -v;
     } else {
@@ -255,6 +264,22 @@ int string2ll(char *s, size_t slen, long long *value) {
             return 0;
         if (value != NULL) *value = v;
     }
+    return 1;
+}
+
+/* Convert a string into a long. Returns 1 if the string could be parsed into a
+ * (non-overflowing) long, 0 otherwise. The value will be set to the parsed
+ * value when appropriate. */
+int string2l(char *s, size_t slen, long *lval) {
+    long long llval;
+
+    if (!string2ll(s,slen,&llval))
+        return 0;
+
+    if (llval < LONG_MIN || llval > LONG_MAX)
+        return 0;
+
+    *lval = (long)llval;
     return 1;
 }
 
@@ -297,44 +322,108 @@ int d2string(char *buf, size_t len, double value) {
     return len;
 }
 
-/* Check if the sds string 's' can be represented by a long long
- * (that is, is a number that fits into long without any other space or
- * character before or after the digits, so that converting this number
- * back to a string will result in the same bytes as the original string).
- *
- * If so, the function returns REDIS_OK and *llongval is set to the value
- * of the number. Otherwise REDIS_ERR is returned */
-int isStringRepresentableAsLongLong(sds s, long long *llongval) {
-    char buf[32], *endptr;
-    long long value;
-    int slen;
+#ifdef UTIL_TEST_MAIN
+#include <assert.h>
 
-    value = strtoll(s, &endptr, 10);
-    if (endptr[0] != '\0') return REDIS_ERR;
-    slen = ll2string(buf,32,value);
+void test_string2ll(void) {
+    char buf[32];
+    long long v;
 
-    /* If the number converted back into a string is not identical
-     * then it's not possible to encode the string as integer */
-    if (sdslen(s) != (unsigned)slen || memcmp(buf,s,slen)) return REDIS_ERR;
-    if (llongval) *llongval = value;
-    return REDIS_OK;
+    /* May not start with +. */
+    strcpy(buf,"+1");
+    assert(string2ll(buf,strlen(buf),&v) == 0);
+
+    /* May not start with 0. */
+    strcpy(buf,"01");
+    assert(string2ll(buf,strlen(buf),&v) == 0);
+
+    strcpy(buf,"-1");
+    assert(string2ll(buf,strlen(buf),&v) == 1);
+    assert(v == -1);
+
+    strcpy(buf,"0");
+    assert(string2ll(buf,strlen(buf),&v) == 1);
+    assert(v == 0);
+
+    strcpy(buf,"1");
+    assert(string2ll(buf,strlen(buf),&v) == 1);
+    assert(v == 1);
+
+    strcpy(buf,"99");
+    assert(string2ll(buf,strlen(buf),&v) == 1);
+    assert(v == 99);
+
+    strcpy(buf,"-99");
+    assert(string2ll(buf,strlen(buf),&v) == 1);
+    assert(v == -99);
+
+    strcpy(buf,"-9223372036854775808");
+    assert(string2ll(buf,strlen(buf),&v) == 1);
+    assert(v == LLONG_MIN);
+
+    strcpy(buf,"-9223372036854775809"); /* overflow */
+    assert(string2ll(buf,strlen(buf),&v) == 0);
+
+    strcpy(buf,"9223372036854775807");
+    assert(string2ll(buf,strlen(buf),&v) == 1);
+    assert(v == LLONG_MAX);
+
+    strcpy(buf,"9223372036854775808"); /* overflow */
+    assert(string2ll(buf,strlen(buf),&v) == 0);
 }
 
-int isStringRepresentableAsLong(sds s, long *longval) {
-    long long ll;
+void test_string2l(void) {
+    char buf[32];
+    long v;
 
-    if (isStringRepresentableAsLongLong(s,&ll) == REDIS_ERR) return REDIS_ERR;
-    if (ll < LONG_MIN || ll > LONG_MAX) return REDIS_ERR;
-    *longval = (long)ll;
-    return REDIS_OK;
+    /* May not start with +. */
+    strcpy(buf,"+1");
+    assert(string2l(buf,strlen(buf),&v) == 0);
+
+    /* May not start with 0. */
+    strcpy(buf,"01");
+    assert(string2l(buf,strlen(buf),&v) == 0);
+
+    strcpy(buf,"-1");
+    assert(string2l(buf,strlen(buf),&v) == 1);
+    assert(v == -1);
+
+    strcpy(buf,"0");
+    assert(string2l(buf,strlen(buf),&v) == 1);
+    assert(v == 0);
+
+    strcpy(buf,"1");
+    assert(string2l(buf,strlen(buf),&v) == 1);
+    assert(v == 1);
+
+    strcpy(buf,"99");
+    assert(string2l(buf,strlen(buf),&v) == 1);
+    assert(v == 99);
+
+    strcpy(buf,"-99");
+    assert(string2l(buf,strlen(buf),&v) == 1);
+    assert(v == -99);
+
+#if LONG_MAX != LLONG_MAX
+    strcpy(buf,"-2147483648");
+    assert(string2l(buf,strlen(buf),&v) == 1);
+    assert(v == LONG_MIN);
+
+    strcpy(buf,"-2147483649"); /* overflow */
+    assert(string2l(buf,strlen(buf),&v) == 0);
+
+    strcpy(buf,"2147483647");
+    assert(string2l(buf,strlen(buf),&v) == 1);
+    assert(v == LONG_MAX);
+
+    strcpy(buf,"2147483648"); /* overflow */
+    assert(string2l(buf,strlen(buf),&v) == 0);
+#endif
 }
 
-int isObjectRepresentableAsLongLong(robj *o, long long *llongval) {
-    redisAssert(o->type == REDIS_STRING);
-    if (o->encoding == REDIS_ENCODING_INT) {
-        if (llongval) *llongval = (long) o->ptr;
-        return REDIS_OK;
-    } else {
-        return isStringRepresentableAsLongLong(o->ptr,llongval);
-    }
+int main(int argc, char **argv) {
+    test_string2ll();
+    test_string2l();
+    return 0;
 }
+#endif
