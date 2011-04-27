@@ -336,6 +336,14 @@ void test_string2ll(void) {
     strcpy(buf,"+1");
     assert(string2ll(buf,strlen(buf),&v) == 0);
 
+    /* Leading space. */
+    strcpy(buf," 1");
+    assert(string2ll(buf,strlen(buf),&v) == 0);
+
+    /* Trailing space. */
+    strcpy(buf,"1 ");
+    assert(string2ll(buf,strlen(buf),&v) == 0);
+
     /* May not start with 0. */
     strcpy(buf,"01");
     assert(string2ll(buf,strlen(buf),&v) == 0);
