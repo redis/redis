@@ -202,6 +202,7 @@ void clusterInit(void) {
     }
     if (aeCreateFileEvent(server.el, server.cfd, AE_READABLE,
         clusterAcceptHandler, NULL) == AE_ERR) oom("creating file event");
+    server.cluster.slots_to_keys = zslCreate();
 }
 
 /* -----------------------------------------------------------------------------

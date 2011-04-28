@@ -367,6 +367,28 @@ struct sharedObjectsStruct {
     *integers[REDIS_SHARED_INTEGERS];
 };
 
+/* ZSETs use a specialized version of Skiplists */
+typedef struct zskiplistNode {
+    robj *obj;
+    double score;
+    struct zskiplistNode *backward;
+    struct zskiplistLevel {
+        struct zskiplistNode *forward;
+        unsigned int span;
+    } level[];
+} zskiplistNode;
+
+typedef struct zskiplist {
+    struct zskiplistNode *header, *tail;
+    unsigned long length;
+    int level;
+} zskiplist;
+
+typedef struct zset {
+    dict *dict;
+    zskiplist *zsl;
+} zset;
+
 /*-----------------------------------------------------------------------------
  * Redis cluster data structures
  *----------------------------------------------------------------------------*/
@@ -425,6 +447,7 @@ typedef struct {
     clusterNode *migrating_slots_to[REDIS_CLUSTER_SLOTS];
     clusterNode *importing_slots_from[REDIS_CLUSTER_SLOTS];
     clusterNode *slots[REDIS_CLUSTER_SLOTS];
+    zskiplist *slots_to_keys;
 } clusterState;
 
 /* Redis cluster messages header */
@@ -627,6 +650,7 @@ struct redisServer {
     /* Misc */
     unsigned lruclock:22;        /* clock incrementing every minute, for LRU */
     unsigned lruclock_padding:10;
+    /* Cluster */
     int cluster_enabled;
     clusterState cluster;
 };
@@ -670,28 +694,6 @@ typedef struct _redisSortOperation {
     int type;
     robj *pattern;
 } redisSortOperation;
-
-/* ZSETs use a specialized version of Skiplists */
-typedef struct zskiplistNode {
-    robj *obj;
-    double score;
-    struct zskiplistNode *backward;
-    struct zskiplistLevel {
-        struct zskiplistNode *forward;
-        unsigned int span;
-    } level[];
-} zskiplistNode;
-
-typedef struct zskiplist {
-    struct zskiplistNode *header, *tail;
-    unsigned long length;
-    int level;
-} zskiplist;
-
-typedef struct zset {
-    dict *dict;
-    zskiplist *zsl;
-} zset;
 
 /* DIsk store threaded I/O request message */
 #define REDIS_IOJOB_LOAD 0
@@ -921,10 +923,19 @@ int startAppendOnly(void);
 void backgroundRewriteDoneHandler(int exitcode, int bysignal);
 
 /* Sorted sets data type */
+
+/* Struct to hold a inclusive/exclusive range spec. */
+typedef struct {
+    double min, max;
+    int minex, maxex; /* are min or max exclusive? */
+} zrangespec;
+
 zskiplist *zslCreate(void);
 void zslFree(zskiplist *zsl);
 zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj);
 unsigned char *zzlInsert(unsigned char *zl, robj *ele, double score);
+int zslDelete(zskiplist *zsl, double score, robj *obj);
+zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec range);
 double zzlGetScore(unsigned char *sptr);
 void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
 void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);

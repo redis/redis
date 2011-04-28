@@ -2,6 +2,9 @@
 
 #include <signal.h>
 
+void SlotToKeyAdd(robj *key);
+void SlotToKeyDel(robj *key);
+
 /*-----------------------------------------------------------------------------
  * C-level DB API
  *----------------------------------------------------------------------------*/
@@ -131,6 +134,7 @@ int dbAdd(redisDb *db, robj *key, robj *val) {
         sds copy = sdsdup(key->ptr);
         dictAdd(db->dict, copy, val);
         if (server.ds_enabled) cacheSetKeyMayExist(db,key);
+        if (server.cluster_enabled) SlotToKeyAdd(key);
         return REDIS_OK;
     }
 }
@@ -146,6 +150,7 @@ int dbReplace(redisDb *db, robj *key, robj *val) {
     if ((oldval = dictFetchValue(db->dict,key->ptr)) == NULL) {
         sds copy = sdsdup(key->ptr);
         dictAdd(db->dict, copy, val);
+        if (server.cluster_enabled) SlotToKeyAdd(key);
         retval = 1;
     } else {
         dictReplace(db->dict, key->ptr, val);
@@ -198,7 +203,12 @@ int dbDelete(redisDb *db, robj *key) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
-    return dictDelete(db->dict,key->ptr) == DICT_OK;
+    if (dictDelete(db->dict,key->ptr) == DICT_OK) {
+        if (server.cluster_enabled) SlotToKeyDel(key);
+        return 1;
+    } else {
+        return 0;
+    }
 }
 
 /* Empty the whole database.
@@ -697,4 +707,32 @@ int *zunionInterGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *num
     for (i = 0; i < num; i++) keys[i] = 3+i;
     *numkeys = num;
     return keys;
+}
+
+/* Slot to Key API. This is used by Redis Cluster in order to obtain in
+ * a fast way a key that belongs to a specified hash slot. This is useful
+ * while rehashing the cluster. */
+void SlotToKeyAdd(robj *key) {
+    unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
+
+    zslInsert(server.cluster.slots_to_keys,hashslot,key);
+    incrRefCount(key);
+}
+
+void SlotToKeyDel(robj *key) {
+    unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
+
+    zslDelete(server.cluster.slots_to_keys,hashslot,key);
+}
+
+robj *GetKeyInSlot(unsigned int hashslot) {
+    zskiplistNode *n;
+    zrangespec range;
+
+    range.min = range.max = hashslot;
+    range.minex = range.maxex = 0;
+    
+    n = zslFirstInRange(server.cluster.slots_to_keys, range);
+    if (!n) return NULL;
+    return n->obj;
 }
