@@ -24,7 +24,7 @@ case "$1" in
 		PID=$(cat $PIDFILE)
                 echo -n "Stopping ...\n"
                 echo -n "SHUTDOWN\r\n" | nc localhost $REDISPORT &
-                while [ -x /proc/${PIDFILE} ]
+                while [ -x /proc/${PID} ]
                 do
                     echo "Waiting for Redis to shutdown ..."
                     sleep 1
