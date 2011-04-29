@@ -725,14 +725,18 @@ void SlotToKeyDel(robj *key) {
     zslDelete(server.cluster.slots_to_keys,hashslot,key);
 }
 
-robj *GetKeyInSlot(unsigned int hashslot) {
+unsigned int GetKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count) {
     zskiplistNode *n;
     zrangespec range;
+    int j = 0;
 
     range.min = range.max = hashslot;
     range.minex = range.maxex = 0;
     
     n = zslFirstInRange(server.cluster.slots_to_keys, range);
-    if (!n) return NULL;
-    return n->obj;
+    while(n && n->score == hashslot && count--) {
+        keys[j++] = n->obj;
+        n = n->level[0].forward;
+    }
+    return j;
 }
