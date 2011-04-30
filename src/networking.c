@@ -14,14 +14,20 @@ redisClient *createClient(int fd) {
     redisClient *c = zmalloc(sizeof(redisClient));
     c->bufpos = 0;
 
-    anetNonBlock(NULL,fd);
-    anetTcpNoDelay(NULL,fd);
-    if (aeCreateFileEvent(server.el,fd,AE_READABLE,
-        readQueryFromClient, c) == AE_ERR)
-    {
-        close(fd);
-        zfree(c);
-        return NULL;
+    /* passing -1 as fd it is possible to create a non connected client.
+     * This is useful since all the Redis commands needs to be executed
+     * in the context of a client. When commands are executed in other
+     * contexts (for instance a Lua script) we need a non connected client. */
+    if (fd != -1) {
+        anetNonBlock(NULL,fd);
+        anetTcpNoDelay(NULL,fd);
+        if (aeCreateFileEvent(server.el,fd,AE_READABLE,
+            readQueryFromClient, c) == AE_ERR)
+        {
+            close(fd);
+            zfree(c);
+            return NULL;
+        }
     }
 
     selectDb(c,0);

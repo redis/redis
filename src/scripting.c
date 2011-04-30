@@ -5,9 +5,67 @@
 #include <lauxlib.h>
 #include <lualib.h>
 
+int luaRedisCommand(lua_State *lua) {
+    int j, argc = lua_gettop(lua);
+    struct redisCommand *cmd;
+    robj **argv;
+    redisClient *c = server.lua_client;
+    sds reply;
+
+    argv = zmalloc(sizeof(robj*)*argc);
+    for (j = 0; j < argc; j++)
+        argv[j] = createStringObject(lua_tostring(lua,j+1),lua_strlen(lua,j+1));
+
+    /* Command lookup */
+    cmd = lookupCommand(argv[0]->ptr);
+    if (!cmd) {
+        zfree(argv);
+        lua_pushnil(lua);
+        lua_pushstring(lua,"Unknown Redis command called from Lua script");
+        return 2;
+    }
+    /* Run the command in the context of a fake client */
+    c->argv = argv;
+    c->argc = argc;
+    cmd->proc(c);
+
+    /* Convert the result of the Redis command into a suitable Lua type.
+     * The first thing we need is to create a single string from the client
+     * output buffers. */
+    reply = sdsempty();
+    if (c->bufpos) {
+        reply = sdscatlen(reply,c->bufpos,c->buf);
+        c->bufpos = 0;
+    }
+    while(listLength(c->reply)) {
+        robj *o = listNodeValue(listFirst(c->reply));
+
+        sdscatlen(reply,o->ptr,sdslen(o->ptr));
+        listDelNode(c->reply,listFirst(c->reply));
+    }
+    lua_pushnumber(lua,1);
+
+    /* Clean up. Command code may have changed argv/argc so we use the
+     * argv/argc of the client instead of the local variables. */
+    for (j = 0; j < c->argc; j++)
+        decrRefCount(c->argv[j]);
+    zfree(c->argv);
+
+    return 1;
+}
+
 void scriptingInit(void) {
     lua_State *lua = lua_open();
     luaL_openlibs(lua);
+
+    /* Register the 'r' command */
+    lua_pushcfunction(lua,luaRedisCommand);
+    lua_setglobal(lua,"r");
+
+    /* Create the (non connected) client that we use to execute Redis commands
+     * inside the Lua interpreter */
+    server.lua_client = createClient(-1);
+
     server.lua = lua;
 }
 

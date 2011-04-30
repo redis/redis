@@ -657,6 +657,7 @@ struct redisServer {
     clusterState cluster;
     /* Scripting */
     lua_State *lua;
+    redisClient *lua_client;
 };
 
 typedef struct pubsubPattern {
