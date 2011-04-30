@@ -137,9 +137,11 @@ dependencies:
 	@cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
 	@echo $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)linenoise$(ENDCOLOR)
 	@cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
+	@echo $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)Lua ansi$(ENDCOLOR)
+	@cd ../deps/lua && $(MAKE) ARCH="$(ARCH)" ansi
 
 redis-server: $(OBJ)
-	@$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ)
+	@$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) ../deps/lua/src/liblua.a
 	@echo $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$(@)$(ENDCOLOR)
 
 redis-benchmark: dependencies $(BENCHOBJ)
@@ -168,7 +170,7 @@ redis-check-aof: $(CHECKAOFOBJ)
 	@echo $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$(@)$(ENDCOLOR)
 
 .c.o:
-	@$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
+	@$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) -I../deps/lua/src $<
 	@echo $(CCCOLOR)CC$(ENDCOLOR) $(SRCCOLOR)$(<)$(ENDCOLOR)
 
 clean:

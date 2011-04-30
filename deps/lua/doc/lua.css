@@ -1,0 +1,41 @@
+body {
+	color: #000000 ;
+	background-color: #FFFFFF ;
+	font-family: sans-serif ;
+	text-align: justify ;
+	margin-right: 20px ;
+	margin-left: 20px ;
+}
+
+h1, h2, h3, h4 {
+	font-weight: normal ;
+	font-style: italic ;
+}
+
+a:link {
+	color: #000080 ;
+	background-color: inherit ;
+	text-decoration: none ;
+}
+
+a:visited {
+	background-color: inherit ;
+	text-decoration: none ;
+}
+
+a:link:hover, a:visited:hover {
+	color: #000080 ;
+	background-color: #E0E0FF ;
+}
+
+a:link:active, a:visited:active {
+	color: #FF0000 ;
+}
+
+hr {
+	border: 0 ;
+	height: 1px ;
+	color: #a0a0a0 ;
+	background-color: #a0a0a0 ;
+}
+
