@@ -1,4 +1,5 @@
 TODO:
 
     redis('get',1) => crash
-    Fix multi bulk replies, redis('lrange', ...)
+    Check what happens abotu MULTI/EXEC
+    Prevent Lua from calling itself with redis("eval",...)
