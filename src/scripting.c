@@ -61,7 +61,7 @@ void scriptingInit(void) {
 
     /* Register the 'r' command */
     lua_pushcfunction(lua,luaRedisCommand);
-    lua_setglobal(lua,"r");
+    lua_setglobal(lua,"redis");
 
     /* Create the (non connected) client that we use to execute Redis commands
      * inside the Lua interpreter */
