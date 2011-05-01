@@ -1065,6 +1065,7 @@ long long emptyDb();
 int selectDb(redisClient *c, int id);
 void signalModifiedKey(redisDb *db, robj *key);
 void signalFlushedDb(int dbid);
+unsigned int GetKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count);
 
 /* API to get key arguments from commands */
 #define REDIS_GETKEYS_ALL 0
