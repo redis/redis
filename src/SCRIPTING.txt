@@ -3,3 +3,4 @@ TODO:
     redis('get',1) => crash
     Check what happens abotu MULTI/EXEC
     Prevent Lua from calling itself with redis("eval",...)
+    Implement log() function, and define REDIS_WARNING, REDIS_NOTICE, ...
