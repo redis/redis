@@ -1,3 +1,7 @@
+Documentation:
+
+    http://antirez.com/post/scripting-branch-released.html
+
 TODO:
 
     MULTI/EXEC/...: should we do more than simply ignoring it?
