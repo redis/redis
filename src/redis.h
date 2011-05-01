@@ -148,6 +148,7 @@
 #define REDIS_CLOSE_AFTER_REPLY 128 /* Close after writing entire reply. */
 #define REDIS_UNBLOCKED 256 /* This client was unblocked and is stored in
                                server.unblocked_clients */
+#define REDIS_LUA_CLIENT 512 /* This is a non connected client used by Lua */
 
 /* Client request types */
 #define REDIS_REQ_INLINE 1

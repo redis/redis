@@ -65,6 +65,7 @@ redisClient *createClient(int fd) {
 /* Set the event loop to listen for write events on the client's socket.
  * Typically gets called every time a reply is built. */
 int _installWriteEvent(redisClient *c) {
+    if (c->flags & REDIS_LUA_CLIENT) return REDIS_OK;
     if (c->fd <= 0) return REDIS_ERR;
     if (c->bufpos == 0 && listLength(c->reply) == 0 &&
         (c->replstate == REDIS_REPL_NONE ||
