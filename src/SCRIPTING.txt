@@ -1,0 +1,4 @@
+TODO:
+
+    redis('get',1) => crash
+    Fix multi bulk replies, redis('lrange', ...)
