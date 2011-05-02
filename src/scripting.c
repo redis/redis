@@ -184,7 +184,7 @@ int luaRedisCommand(lua_State *lua) {
     while(listLength(c->reply)) {
         robj *o = listNodeValue(listFirst(c->reply));
 
-        sdscatlen(reply,o->ptr,sdslen(o->ptr));
+        reply = sdscatlen(reply,o->ptr,sdslen(o->ptr));
         listDelNode(c->reply,listFirst(c->reply));
     }
     redisProtocolToLuaType(lua,reply);
