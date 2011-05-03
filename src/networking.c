@@ -14,15 +14,21 @@ redisClient *createClient(int fd) {
     redisClient *c = zmalloc(sizeof(redisClient));
     c->bufpos = 0;
 
-    anetNonBlock(NULL,fd);
-    anetTcpNoDelay(NULL,fd);
-    if (!c) return NULL;
-    if (aeCreateFileEvent(server.el,fd,AE_READABLE,
-        readQueryFromClient, c) == AE_ERR)
-    {
-        close(fd);
-        zfree(c);
-        return NULL;
+    /* passing -1 as fd it is possible to create a non connected client.
+     * This is useful since all the Redis commands needs to be executed
+     * in the context of a client. When commands are executed in other
+     * contexts (for instance a Lua script) we need a non connected client. */
+    if (fd != -1) {
+        anetNonBlock(NULL,fd);
+        anetTcpNoDelay(NULL,fd);
+        if (!c) return NULL;
+        if (aeCreateFileEvent(server.el,fd,AE_READABLE,
+            readQueryFromClient, c) == AE_ERR)
+        {
+            close(fd);
+            zfree(c);
+            return NULL;
+        }
     }
 
     selectDb(c,0);
@@ -52,7 +58,7 @@ redisClient *createClient(int fd) {
     c->pubsub_patterns = listCreate();
     listSetFreeMethod(c->pubsub_patterns,decrRefCount);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
-    listAddNodeTail(server.clients,c);
+    if (fd != -1) listAddNodeTail(server.clients,c);
     initClientMultiState(c);
     return c;
 }
@@ -60,6 +66,7 @@ redisClient *createClient(int fd) {
 /* Set the event loop to listen for write events on the client's socket.
  * Typically gets called every time a reply is built. */
 int _installWriteEvent(redisClient *c) {
+    if (c->flags & REDIS_LUA_CLIENT) return REDIS_OK;
     if (c->fd <= 0) return REDIS_ERR;
     if (c->bufpos == 0 && listLength(c->reply) == 0 &&
         (c->replstate == REDIS_REPL_NONE ||

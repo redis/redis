@@ -18,6 +18,7 @@
 #include <inttypes.h>
 #include <pthread.h>
 #include <syslog.h>
+#include <lua.h>
 
 #include "ae.h"     /* Event driven programming library */
 #include "sds.h"    /* Dynamic safe strings */
@@ -144,6 +145,7 @@
 #define REDIS_CLOSE_AFTER_REPLY 128 /* Close after writing entire reply. */
 #define REDIS_UNBLOCKED 256 /* This client was unblocked and is stored in
                                server.unblocked_clients */
+#define REDIS_LUA_CLIENT 512 /* This is a non connected client used by Lua */
 
 /* Client request types */
 #define REDIS_REQ_INLINE 1
@@ -493,6 +495,9 @@ struct redisServer {
     /* Misc */
     unsigned lruclock:22;        /* clock incrementing every minute, for LRU */
     unsigned lruclock_padding:10;
+    /* Scripting */
+    lua_State *lua;
+    redisClient *lua_client;
 };
 
 typedef struct pubsubPattern {
@@ -862,6 +867,7 @@ int ll2string(char *s, size_t len, long long value);
 int isStringRepresentableAsLong(sds s, long *longval);
 int isStringRepresentableAsLongLong(sds s, long long *longval);
 int isObjectRepresentableAsLongLong(robj *o, long long *llongval);
+int string2ll(char *s, size_t slen, long long *value);
 
 /* Configuration */
 void loadServerConfig(char *filename);
@@ -886,6 +892,9 @@ robj *dbRandomKey(redisDb *db);
 int dbDelete(redisDb *db, robj *key);
 long long emptyDb();
 int selectDb(redisClient *c, int id);
+
+/* Scripting */
+void scriptingInit(void);
 
 /* Git SHA1 */
 char *redisGitSHA1(void);
@@ -1010,6 +1019,7 @@ void publishCommand(redisClient *c);
 void watchCommand(redisClient *c);
 void unwatchCommand(redisClient *c);
 void objectCommand(redisClient *c);
+void evalCommand(redisClient *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
