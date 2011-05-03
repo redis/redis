@@ -138,7 +138,8 @@ redis-check-aof: $(CHECKAOFOBJ)
 	$(CC) -o $(CHECKAOFPRGNAME) $(CCOPT) $(DEBUG) $(CHECKAOFOBJ)
 
 .c.o:
-	$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
+	@$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
+	@echo "\033[34mCC\033[0m \033[33m$<\033[0m"
 
 clean:
 	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
