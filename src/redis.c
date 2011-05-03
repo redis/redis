@@ -188,7 +188,8 @@ struct redisCommand readonlyCommandTable[] = {
     {"publish",publishCommand,3,REDIS_CMD_FORCE_REPLICATION,NULL,0,0,0},
     {"watch",watchCommand,-2,0,NULL,0,0,0},
     {"unwatch",unwatchCommand,1,0,NULL,0,0,0},
-    {"object",objectCommand,-2,0,NULL,0,0,0}
+    {"object",objectCommand,-2,0,NULL,0,0,0},
+    {"eval",evalCommand,-3,REDIS_CMD_DENYOOM,zunionInterBlockClientOnSwappedKeys,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
@@ -917,6 +918,7 @@ void initServer() {
     }
 
     if (server.vm_enabled) vmInit();
+    scriptingInit();
     srand(time(NULL)^getpid());
 }
 

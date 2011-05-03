@@ -25,7 +25,7 @@ PREFIX= /usr/local
 INSTALL_BIN= $(PREFIX)/bin
 INSTALL= cp -p
 
-OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o vm.o pubsub.o multi.o debug.o sort.o intset.o syncio.o
+OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o vm.o pubsub.o multi.o debug.o sort.o intset.o syncio.o scripting.o
 BENCHOBJ = ae.o anet.o redis-benchmark.o sds.o adlist.o zmalloc.o
 CLIOBJ = anet.o sds.o adlist.o redis-cli.o zmalloc.o release.o
 CHECKDUMPOBJ = redis-check-dump.o lzf_c.o lzf_d.o
@@ -109,9 +109,10 @@ zmalloc.o: zmalloc.c config.h
 dependencies:
 	cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
 	cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
+	cd ../deps/lua && $(MAKE) ARCH="$(ARCH)" ansi
 
 redis-server: $(OBJ)
-	$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ)
+	$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) ../deps/lua/src/liblua.a
 
 redis-benchmark: dependencies $(BENCHOBJ)
 	cd ../deps/hiredis && $(MAKE) static
@@ -133,7 +134,7 @@ redis-check-aof: $(CHECKAOFOBJ)
 	$(CC) -o $(CHECKAOFPRGNAME) $(CCOPT) $(DEBUG) $(CHECKAOFOBJ)
 
 .c.o:
-	$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
+	$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) -I../deps/lua/src $<
 
 clean:
 	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
