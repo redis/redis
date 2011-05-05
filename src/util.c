@@ -222,10 +222,13 @@ int string2ll(char *s, size_t slen, long long *value) {
             return 0;
     }
 
-    /* First digit should be 1-9. */
+    /* First digit should be 1-9, otherwise the string should just be 0. */
     if (p[0] >= '1' && p[0] <= '9') {
         v = p[0]-'0';
         p++; plen++;
+    } else if (p[0] == '0' && slen == 1) {
+        *value = 0;
+        return 1;
     } else {
         return 0;
     }
