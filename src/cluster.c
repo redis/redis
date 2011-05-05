@@ -1650,7 +1650,7 @@ clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **arg
         margv = ms->commands[i].argv;
 
         keyindex = getKeysFromCommand(mcmd,margv,margc,&numkeys,
-                                      REDIS_GETKEYS_PRELOAD);
+                                      REDIS_GETKEYS_ALL);
         for (j = 0; j < numkeys; j++) {
             if (firstkey == NULL) {
                 /* This is the first key we see. Check what is the slot
