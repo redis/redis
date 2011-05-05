@@ -36,11 +36,11 @@
 
 #define SDS_ABORT_ON_OOM
 
-#include "sds.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include "sds.h"
 #include "zmalloc.h"
 
 static void sdsOomAbort(void) {
@@ -76,11 +76,6 @@ sds sdsnew(const char *init) {
     return sdsnewlen(init, initlen);
 }
 
-size_t sdslen(const sds s) {
-    struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
-    return sh->len;
-}
-
 sds sdsdup(const sds s) {
     return sdsnewlen(s, sdslen(s));
 }
@@ -88,11 +83,6 @@ sds sdsdup(const sds s) {
 void sdsfree(sds s) {
     if (s == NULL) return;
     zfree(s-sizeof(struct sdshdr));
-}
-
-size_t sdsavail(sds s) {
-    struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
-    return sh->free;
 }
 
 void sdsupdatelen(sds s) {
@@ -306,12 +296,17 @@ int sdscmp(sds s1, sds s2) {
  */
 sds *sdssplitlen(char *s, int len, char *sep, int seplen, int *count) {
     int elements = 0, slots = 5, start = 0, j;
+    sds *tokens;
 
-    sds *tokens = zmalloc(sizeof(sds)*slots);
+    if (seplen < 1 || len < 0) return NULL;
+
+    tokens = zmalloc(sizeof(sds)*slots);
 #ifdef SDS_ABORT_ON_OOM
     if (tokens == NULL) sdsOomAbort();
+#else
+    if (tokens == NULL) return NULL;
 #endif
-    if (seplen < 1 || len < 0 || tokens == NULL) return NULL;
+
     if (len == 0) {
         *count = 0;
         return tokens;
@@ -401,11 +396,11 @@ sds sdscatrepr(sds s, char *p, size_t len) {
         case '"':
             s = sdscatprintf(s,"\\%c",*p);
             break;
-        case '\n': s = sdscatlen(s,"\\n",1); break;
-        case '\r': s = sdscatlen(s,"\\r",1); break;
-        case '\t': s = sdscatlen(s,"\\t",1); break;
-        case '\a': s = sdscatlen(s,"\\a",1); break;
-        case '\b': s = sdscatlen(s,"\\b",1); break;
+        case '\n': s = sdscatlen(s,"\\n",2); break;
+        case '\r': s = sdscatlen(s,"\\r",2); break;
+        case '\t': s = sdscatlen(s,"\\t",2); break;
+        case '\a': s = sdscatlen(s,"\\a",2); break;
+        case '\b': s = sdscatlen(s,"\\b",2); break;
         default:
             if (isprint(*p))
                 s = sdscatprintf(s,"%c",*p);
