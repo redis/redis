@@ -1083,7 +1083,7 @@ unsigned int keyHashSlot(char *key, int keylen);
 clusterNode *createClusterNode(char *nodename, int flags);
 int clusterAddNode(clusterNode *node);
 void clusterCron(void);
-clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot);
+clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
 
 /* Git SHA1 */
 char *redisGitSHA1(void);
