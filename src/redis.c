@@ -803,6 +803,7 @@ void initServerConfig() {
     server.list_max_ziplist_value = REDIS_LIST_MAX_ZIPLIST_VALUE;
     server.set_max_intset_entries = REDIS_SET_MAX_INTSET_ENTRIES;
     server.shutdown_asap = 0;
+    server.lua_time_limit = REDIS_LUA_TIME_LIMIT;
 
     updateLRUClock();
     resetServerSaveParams();

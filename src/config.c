@@ -288,6 +288,8 @@ void loadServerConfig(char *filename) {
                     err = "Target command name already exists"; goto loaderr;
                 }
             }
+        } else if (!strcasecmp(argv[0],"lua-time-limit") && argc == 2) {
+            server.lua_time_limit = strtoll(argv[1],NULL,10);
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
@@ -446,6 +448,9 @@ void configSetCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[2]->ptr,"set-max-intset-entries")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.set_max_intset_entries = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"lua-time-limit")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
+        server.lua_time_limit = ll;
     } else {
         addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
             (char*)c->argv[2]->ptr);
@@ -595,6 +600,11 @@ void configGetCommand(redisClient *c) {
     if (stringmatch(pattern,"set-max-intset-entries",0)) {
         addReplyBulkCString(c,"set-max-intset-entries");
         addReplyBulkLongLong(c,server.set_max_intset_entries);
+        matches++;
+    }
+    if (stringmatch(pattern,"lua-time-limit",0)) {
+        addReplyBulkCString(c,"lua-time-limit");
+        addReplyBulkLongLong(c,server.lua_time_limit);
         matches++;
     }
     setDeferredMultiBulkLength(c,replylen,matches*2);
