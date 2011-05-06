@@ -1222,9 +1222,15 @@ void clusterCommand(redisClient *c) {
         }
         for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
             if (slots[j]) {
-                int retval = del ?  clusterDelSlot(j) :
-                                    clusterAddSlot(server.cluster.myself,j);
-                
+                int retval;
+
+                /* If this slot was set as importing we can clear this 
+                 * state as now we are the real owner of the slot. */
+                if (server.cluster.importing_slots_from[j])
+                    server.cluster.importing_slots_from[j] = NULL;
+
+                retval = del ? clusterDelSlot(j) :
+                               clusterAddSlot(server.cluster.myself,j);
                 redisAssert(retval == REDIS_OK);
             }
         }
@@ -1290,6 +1296,13 @@ void clusterCommand(redisClient *c) {
                     return;
                 }
             }
+            /* If this node was the slot owner and the slot was marked as
+             * migrating, assigning the slot to another node will clear
+             * the migratig status. */
+            if (server.cluster.slots[slot] == server.cluster.myself &&
+                server.cluster.migrating_slots_to[slot])
+                server.cluster.migrating_slots_to[slot] = NULL;
+
             clusterDelSlot(slot);
             clusterAddSlot(n,slot);
         } else {
