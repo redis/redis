@@ -873,6 +873,7 @@ int isStringRepresentableAsLong(sds s, long *longval);
 int isStringRepresentableAsLongLong(sds s, long long *longval);
 int isObjectRepresentableAsLongLong(robj *o, long long *llongval);
 int string2ll(char *s, size_t slen, long long *value);
+long long ustime(void);
 
 /* Configuration */
 void loadServerConfig(char *filename);
