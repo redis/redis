@@ -227,7 +227,7 @@ void scriptingInit(void) {
 
     /* Set an hook in order to be able to stop the script execution if it
      * is running for too much time. */
-    lua_sethook(lua,luaMaskCountHook,LUA_MASKCOUNT,10000);
+    lua_sethook(lua,luaMaskCountHook,LUA_MASKCOUNT,100000);
 
     server.lua = lua;
 }
