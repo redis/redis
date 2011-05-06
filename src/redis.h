@@ -225,6 +225,9 @@
 #define REDIS_BGSAVE_THREAD_DONE_OK 2
 #define REDIS_BGSAVE_THREAD_DONE_ERR 3
 
+/* Scripting */
+#define REDIS_LUA_TIME_LIMIT 60000 /* milliseconds */
+
 /* We can print the stacktrace, so our assert is defined this way: */
 #define redisAssert(_e) ((_e)?(void)0 : (_redisAssert(#_e,__FILE__,__LINE__),_exit(1)))
 #define redisPanic(_e) _redisPanic(#_e,__FILE__,__LINE__),_exit(1)
@@ -659,6 +662,8 @@ struct redisServer {
     /* Scripting */
     lua_State *lua;
     redisClient *lua_client;
+    long long lua_time_limit;
+    long long lua_time_start;
 };
 
 typedef struct pubsubPattern {
