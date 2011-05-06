@@ -17,6 +17,17 @@ API CHANGES
   the variable number of arguments represent values, and there is no conflict
   with the return value of the command.
 
+CLUSTER
+=======
+
+* Implement rehashing and cluster check in redis-trib.
+* Reimplement MIGRATE / RESTORE to use just in memory buffers (no disk at
+  all). This will require touching a lot of the RDB stuff around, but we may
+  hand with faster persistence for RDB.
+* Implement the slave nodes semantics and election.
+* Allow redis-trib to create a cluster-wide snapshot (using SYNC).
+* Allow redis-trib to restore a cluster-wide snapshot (implement UPLOAD?).
+
 APPEND ONLY FILE
 ================
 
