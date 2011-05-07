@@ -419,7 +419,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     cfd = anetTcpAccept(server.neterr, fd, cip, &cport);
     if (cfd == AE_ERR) {
-        redisLog(REDIS_VERBOSE,"Accepting client connection: %s", server.neterr);
+        redisLog(REDIS_WARNING,"Accepting client connection: %s", server.neterr);
         return;
     }
     redisLog(REDIS_VERBOSE,"Accepted %s:%d", cip, cport);
@@ -434,7 +434,7 @@ void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     cfd = anetUnixAccept(server.neterr, fd);
     if (cfd == AE_ERR) {
-        redisLog(REDIS_VERBOSE,"Accepting client connection: %s", server.neterr);
+        redisLog(REDIS_WARNING,"Accepting client connection: %s", server.neterr);
         return;
     }
     redisLog(REDIS_VERBOSE,"Accepted connection to %s", server.unixsocket);
