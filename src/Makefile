@@ -16,9 +16,23 @@ else
 endif
 
 ifeq ($(USE_TCMALLOC),yes)
-  CCLINK+= -ltcmalloc
-  CFLAGS+= -DUSE_TCMALLOC
+  ALLOC_LINK=-ltcmalloc
+  ALLOC_FLAGS=-DUSE_TCMALLOC
 endif
+
+ifeq ($(USE_TCMALLOC_MINIMAL),yes)
+  ALLOC_LINK=-ltcmalloc_minimal
+  ALLOC_FLAGS=-DUSE_TCMALLOC
+endif
+
+ifeq ($(USE_JEMALLOC),yes)
+  ALLOC_LINK=-ljemalloc
+  ALLOC_FLAGS=-DUSE_JEMALLOC
+endif
+
+CCLINK+= $(ALLOC_LINK)
+CFLAGS+= $(ALLOC_FLAGS)
+
 CCOPT= $(CFLAGS) $(CCLINK) $(ARCH) $(PROF)
 
 PREFIX= /usr/local
@@ -100,8 +114,7 @@ t_string.o: t_string.c redis.h fmacros.h config.h ae.h sds.h dict.h \
   adlist.h zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
 t_zset.o: t_zset.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
-util.o: util.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
+util.o: util.c util.h
 vm.o: vm.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
 ziplist.o: ziplist.c zmalloc.h ziplist.h

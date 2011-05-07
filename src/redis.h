@@ -29,6 +29,7 @@
 #include "ziplist.h" /* Compact list data structure */
 #include "intset.h" /* Compact integer set structure */
 #include "version.h"
+#include "util.h"
 
 /* Error codes */
 #define REDIS_OK                0
@@ -719,6 +720,7 @@ void freeHashObject(robj *o);
 robj *createObject(int type, void *ptr);
 robj *createStringObject(char *ptr, size_t len);
 robj *dupStringObject(robj *o);
+int isObjectRepresentableAsLongLong(robj *o, long long *llongval);
 robj *tryObjectEncoding(robj *o);
 robj *getDecodedObject(robj *o);
 size_t stringObjectLen(robj *o);
@@ -871,18 +873,6 @@ int pubsubUnsubscribeAllChannels(redisClient *c, int notify);
 int pubsubUnsubscribeAllPatterns(redisClient *c, int notify);
 void freePubsubPattern(void *p);
 int listMatchPubsubPattern(void *a, void *b);
-
-/* Utility functions */
-int stringmatchlen(const char *pattern, int patternLen,
-        const char *string, int stringLen, int nocase);
-int stringmatch(const char *pattern, const char *string, int nocase);
-long long memtoll(const char *p, int *err);
-int ll2string(char *s, size_t len, long long value);
-int string2ll(char *s, size_t len, long long *value);
-int d2string(char *s, size_t len, double value);
-int isStringRepresentableAsLong(sds s, long *longval);
-int isStringRepresentableAsLongLong(sds s, long long *longval);
-int isObjectRepresentableAsLongLong(robj *o, long long *llongval);
 
 /* Configuration */
 void loadServerConfig(char *filename);

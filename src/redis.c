@@ -1189,7 +1189,7 @@ sds genRedisInfoString(void) {
         "used_memory_peak:%zu\r\n"
         "used_memory_peak_human:%s\r\n"
         "mem_fragmentation_ratio:%.2f\r\n"
-        "use_tcmalloc:%d\r\n"
+        "mem_allocator:%s\r\n"
         "loading:%d\r\n"
         "aof_enabled:%d\r\n"
         "changes_since_last_save:%lld\r\n"
@@ -1231,11 +1231,7 @@ sds genRedisInfoString(void) {
         server.stat_peak_memory,
         peak_hmem,
         zmalloc_get_fragmentation_ratio(),
-#ifdef USE_TCMALLOC
-        1,
-#else
-        0,
-#endif
+        REDIS_MALLOC,
         server.loading,
         server.appendonly,
         server.dirty,
