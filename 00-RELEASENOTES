@@ -12,6 +12,15 @@ for 2.0.
 CHANGELOG
 ---------
 
+What's new in Redis 2.2.6
+=========================
+
+* Fixed bug #543. If you saw Redis instances crashing on List operations
+  (only happening with a non-default max entry size ziplist setting in
+  redis.conf) it was almost certainly this problem.
+* Fixed a bug with replication where SLAVEOF NO ONE caused a slave to close the
+  connection with all its slaves.
+
 What's new in Redis 2.2.5
 =========================
 
