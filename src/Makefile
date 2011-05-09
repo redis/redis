@@ -127,7 +127,7 @@ dependencies: ../deps/jemalloc/lib/libjemalloc.a
 	cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
 
 ../deps/jemalloc/lib/libjemalloc.a:
-	cd ../deps/jemalloc && ./configure && $(MAKE) lib/libjemalloc.a
+	cd ../deps/jemalloc && ./configure --enable-cc-silence && $(MAKE) lib/libjemalloc.a
 
 redis-server: $(OBJ) $(JEMALLOCDEP)
 	$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ)
