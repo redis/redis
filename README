@@ -41,6 +41,19 @@ and then use:
 Note that you can pass any other target to make, as long as you append
 USE_TCMALLOC=yes at the end.
 
+Buliding using jemalloc
+-----------------------
+
+An alternative to tcmalloc is jemalloc. In order to build with jemalloc
+support you don't need to install jemalloc as it is shipped embedded in
+Redis source code. Just use:
+
+    % make USE_JEMALLOC=yes
+
+Note that you can pass any other target to make, as long as you append
+USE_TCMALLOC=yes at the end. However 32 bit builds using jemalloc are currently
+not supported.
+
 Running Redis
 -------------
 
