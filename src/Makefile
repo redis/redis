@@ -25,9 +25,11 @@ ifeq ($(USE_TCMALLOC_MINIMAL),yes)
   ALLOC_FLAGS=-DUSE_TCMALLOC
 endif
 
+JEMALLOCDEP=
 ifeq ($(USE_JEMALLOC),yes)
-  ALLOC_LINK=-ljemalloc
-  ALLOC_FLAGS=-DUSE_JEMALLOC
+  ALLOC_LINK=../deps/jemalloc/lib/libjemalloc.a
+  ALLOC_FLAGS=-DUSE_JEMALLOC -I../deps/jemalloc/include
+  JEMALLOCDEP=../deps/jemalloc/lib/libjemalloc.a
 endif
 
 CCLINK+= $(ALLOC_LINK)
@@ -120,11 +122,14 @@ ziplist.o: ziplist.c zmalloc.h ziplist.h
 zipmap.o: zipmap.c zmalloc.h
 zmalloc.o: zmalloc.c config.h
 
-dependencies:
+dependencies: ../deps/jemalloc/lib/libjemalloc.a
 	cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
 	cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
 
-redis-server: $(OBJ)
+../deps/jemalloc/lib/libjemalloc.a:
+	cd ../deps/jemalloc && ./configure && $(MAKE) lib/libjemalloc.a
+
+redis-server: $(OBJ) $(JEMALLOCDEP)
 	$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ)
 
 redis-benchmark: dependencies $(BENCHOBJ)
