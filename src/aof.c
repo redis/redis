@@ -348,7 +348,7 @@ int rewriteAppendOnlyFile(char *filename) {
 
         /* Iterate this DB writing every entry */
         while((de = dictNext(di)) != NULL) {
-            sds keystr = dictGetEntryKey(de);
+            sds keystr;
             robj key, *o;
             time_t expiretime;
 
