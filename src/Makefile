@@ -16,16 +16,38 @@ else
 endif
 
 ifeq ($(USE_TCMALLOC),yes)
-  CCLINK+= -ltcmalloc
-  CFLAGS+= -DUSE_TCMALLOC
+  ALLOC_LINK=-ltcmalloc
+  ALLOC_FLAGS=-DUSE_TCMALLOC
 endif
+
+ifeq ($(USE_TCMALLOC_MINIMAL),yes)
+  ALLOC_LINK=-ltcmalloc_minimal
+  ALLOC_FLAGS=-DUSE_TCMALLOC
+endif
+
+ifeq ($(USE_JEMALLOC),yes)
+  ALLOC_LINK=-ljemalloc
+  ALLOC_FLAGS=-DUSE_JEMALLOC
+endif
+
+CCLINK+= $(ALLOC_LINK)
+CFLAGS+= $(ALLOC_FLAGS)
+
 CCOPT= $(CFLAGS) $(CCLINK) $(ARCH) $(PROF)
 
 PREFIX= /usr/local
 INSTALL_BIN= $(PREFIX)/bin
 INSTALL= cp -p
 
-OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o dscache.o pubsub.o multi.o debug.o sort.o intset.o syncio.o diskstore.o endian.o
+
+CCCOLOR="\033[34m"
+LINKCOLOR="\033[34;1m"
+SRCCOLOR="\033[33m"
+BINCOLOR="\033[37;1m"
+MAKECOLOR="\033[32;1m"
+ENDCOLOR="\033[0m"
+
+OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o dscache.o pubsub.o multi.o debug.o sort.o intset.o syncio.o diskstore.o cluster.o crc16.o endian.o
 BENCHOBJ = ae.o anet.o redis-benchmark.o sds.o adlist.o zmalloc.o
 CLIOBJ = anet.o sds.o adlist.o redis-cli.o zmalloc.o release.o
 CHECKDUMPOBJ = redis-check-dump.o lzf_c.o lzf_d.o
@@ -83,7 +105,7 @@ redis-check-dump.o: redis-check-dump.c lzf.h
 redis-cli.o: redis-cli.c fmacros.h version.h ../deps/hiredis/hiredis.h \
   sds.h zmalloc.h ../deps/linenoise/linenoise.h help.h
 redis.o: redis.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
+  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h asciilogo.h
 release.o: release.c release.h
 replication.o: replication.c redis.h fmacros.h config.h ae.h sds.h dict.h \
   adlist.h zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
@@ -103,40 +125,51 @@ t_string.o: t_string.c redis.h fmacros.h config.h ae.h sds.h dict.h \
   adlist.h zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
 t_zset.o: t_zset.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
-util.o: util.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
+util.o: util.c util.h
+cluster.o: redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
 ziplist.o: ziplist.c zmalloc.h ziplist.h
 zipmap.o: zipmap.c zmalloc.h
 zmalloc.o: zmalloc.c config.h
 
 dependencies:
-	cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
-	cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
+	@echo $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)hiredis$(ENDCOLOR)
+	@cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
+	@echo $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)linenoise$(ENDCOLOR)
+	@cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
 
 redis-server: $(OBJ)
-	$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ)
+	@$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ)
+	@echo $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$(@)$(ENDCOLOR)
 
 redis-benchmark: dependencies $(BENCHOBJ)
-	cd ../deps/hiredis && $(MAKE) static
-	$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a
+	@cd ../deps/hiredis && $(MAKE) static
+	@$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a
+	@echo $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$(@)$(ENDCOLOR)
 
 redis-benchmark.o:
-	$(CC) -c $(CFLAGS) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
+	@$(CC) -c $(CFLAGS) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
+	@echo $(CCCOLOR)CC$(ENDCOLOR) $(SRCCOLOR)$(<)$(ENDCOLOR)
 
 redis-cli: dependencies $(CLIOBJ)
-	$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o
+	@$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o
+	@echo $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$(@)$(ENDCOLOR)
 
 redis-cli.o:
-	$(CC) -c $(CFLAGS) -I../deps/hiredis -I../deps/linenoise $(DEBUG) $(COMPILE_TIME) $<
+	@$(CC) -c $(CFLAGS) -I../deps/hiredis -I../deps/linenoise $(DEBUG) $(COMPILE_TIME) $<
+	@echo $(CCCOLOR)CC$(ENDCOLOR) $(SRCCOLOR)$(<)$(ENDCOLOR)
 
 redis-check-dump: $(CHECKDUMPOBJ)
-	$(CC) -o $(CHECKDUMPPRGNAME) $(CCOPT) $(DEBUG) $(CHECKDUMPOBJ)
+	@$(CC) -o $(CHECKDUMPPRGNAME) $(CCOPT) $(DEBUG) $(CHECKDUMPOBJ)
+	@echo $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$(@)$(ENDCOLOR)
 
 redis-check-aof: $(CHECKAOFOBJ)
-	$(CC) -o $(CHECKAOFPRGNAME) $(CCOPT) $(DEBUG) $(CHECKAOFOBJ)
+	@$(CC) -o $(CHECKAOFPRGNAME) $(CCOPT) $(DEBUG) $(CHECKAOFOBJ)
+	@echo $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$(@)$(ENDCOLOR)
 
 .c.o:
-	$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
+	@$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
+	@echo $(CCCOLOR)CC$(ENDCOLOR) $(SRCCOLOR)$(<)$(ENDCOLOR)
 
 clean:
 	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov

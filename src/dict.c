@@ -245,9 +245,9 @@ int dictRehashMilliseconds(dict *d, int ms) {
 }
 
 /* This function performs just a step of rehashing, and only if there are
- * not iterators bound to our hash table. When we have iterators in the middle
- * of a rehashing we can't mess with the two hash tables otherwise some element
- * can be missed or duplicated.
+ * no safe iterators bound to our hash table. When we have iterators in the
+ * middle of a rehashing we can't mess with the two hash tables otherwise
+ * some element can be missed or duplicated.
  *
  * This function is called by common lookup or update operations in the
  * dictionary so that the hash table automatically migrates from H1 to H2
@@ -424,9 +424,17 @@ dictIterator *dictGetIterator(dict *d)
     iter->d = d;
     iter->table = 0;
     iter->index = -1;
+    iter->safe = 0;
     iter->entry = NULL;
     iter->nextEntry = NULL;
     return iter;
+}
+
+dictIterator *dictGetSafeIterator(dict *d) {
+    dictIterator *i = dictGetIterator(d);
+
+    i->safe = 1;
+    return i;
 }
 
 dictEntry *dictNext(dictIterator *iter)
@@ -434,7 +442,8 @@ dictEntry *dictNext(dictIterator *iter)
     while (1) {
         if (iter->entry == NULL) {
             dictht *ht = &iter->d->ht[iter->table];
-            if (iter->index == -1 && iter->table == 0) iter->d->iterators++;
+            if (iter->safe && iter->index == -1 && iter->table == 0)
+                iter->d->iterators++;
             iter->index++;
             if (iter->index >= (signed) ht->size) {
                 if (dictIsRehashing(iter->d) && iter->table == 0) {
@@ -461,7 +470,8 @@ dictEntry *dictNext(dictIterator *iter)
 
 void dictReleaseIterator(dictIterator *iter)
 {
-    if (!(iter->index == -1 && iter->table == 0)) iter->d->iterators--;
+    if (iter->safe && !(iter->index == -1 && iter->table == 0))
+        iter->d->iterators--;
     zfree(iter);
 }
 

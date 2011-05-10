@@ -18,6 +18,7 @@
 #include <inttypes.h>
 #include <pthread.h>
 #include <syslog.h>
+#include <netinet/in.h>
 
 #include "ae.h"     /* Event driven programming library */
 #include "sds.h"    /* Dynamic safe strings */
@@ -29,6 +30,7 @@
 #include "ziplist.h" /* Compact list data structure */
 #include "intset.h" /* Compact integer set structure */
 #include "version.h"
+#include "util.h"
 
 /* Error codes */
 #define REDIS_OK                0
@@ -70,10 +72,12 @@
 #define REDIS_ZSET 3
 #define REDIS_HASH 4
 #define REDIS_VMPOINTER 8
+
 /* Object types only used for persistence in .rdb files */
 #define REDIS_HASH_ZIPMAP 9
 #define REDIS_LIST_ZIPLIST 10
 #define REDIS_SET_INTSET 11
+#define REDIS_ZSET_ZIPLIST 12
 
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
@@ -85,6 +89,7 @@
 #define REDIS_ENCODING_LINKEDLIST 4 /* Encoded as regular linked list */
 #define REDIS_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
 #define REDIS_ENCODING_INTSET 6  /* Encoded as intset */
+#define REDIS_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
 
 /* Object types only used for dumping to disk */
 #define REDIS_EXPIRETIME 253
@@ -177,6 +182,7 @@
 #define REDIS_VERBOSE 1
 #define REDIS_NOTICE 2
 #define REDIS_WARNING 3
+#define REDIS_LOG_RAW (1<<10) /* Modifier to log without timestamp */
 
 /* Anti-warning macro... */
 #define REDIS_NOTUSED(V) ((void) V)
@@ -195,6 +201,8 @@
 #define REDIS_LIST_MAX_ZIPLIST_ENTRIES 512
 #define REDIS_LIST_MAX_ZIPLIST_VALUE 64
 #define REDIS_SET_MAX_INTSET_ENTRIES 512
+#define REDIS_ZSET_MAX_ZIPLIST_ENTRIES 128
+#define REDIS_ZSET_MAX_ZIPLIST_VALUE 64
 
 /* Sets operations codes */
 #define REDIS_OP_UNION 0
@@ -360,7 +368,147 @@ struct sharedObjectsStruct {
     *integers[REDIS_SHARED_INTEGERS];
 };
 
-/* Global server state structure */
+/* ZSETs use a specialized version of Skiplists */
+typedef struct zskiplistNode {
+    robj *obj;
+    double score;
+    struct zskiplistNode *backward;
+    struct zskiplistLevel {
+        struct zskiplistNode *forward;
+        unsigned int span;
+    } level[];
+} zskiplistNode;
+
+typedef struct zskiplist {
+    struct zskiplistNode *header, *tail;
+    unsigned long length;
+    int level;
+} zskiplist;
+
+typedef struct zset {
+    dict *dict;
+    zskiplist *zsl;
+} zset;
+
+/*-----------------------------------------------------------------------------
+ * Redis cluster data structures
+ *----------------------------------------------------------------------------*/
+
+#define REDIS_CLUSTER_SLOTS 4096
+#define REDIS_CLUSTER_OK 0          /* Everything looks ok */
+#define REDIS_CLUSTER_FAIL 1        /* The cluster can't work */
+#define REDIS_CLUSTER_NEEDHELP 2    /* The cluster works, but needs some help */
+#define REDIS_CLUSTER_NAMELEN 40    /* sha1 hex length */
+#define REDIS_CLUSTER_PORT_INCR 10000 /* Cluster port = baseport + PORT_INCR */
+
+struct clusterNode;
+
+/* clusterLink encapsulates everything needed to talk with a remote node. */
+typedef struct clusterLink {
+    int fd;                     /* TCP socket file descriptor */
+    sds sndbuf;                 /* Packet send buffer */
+    sds rcvbuf;                 /* Packet reception buffer */
+    struct clusterNode *node;   /* Node related to this link if any, or NULL */
+} clusterLink;
+
+/* Node flags */
+#define REDIS_NODE_MASTER 1     /* The node is a master */
+#define REDIS_NODE_SLAVE 2      /* The node is a slave */
+#define REDIS_NODE_PFAIL 4      /* Failure? Need acknowledge */
+#define REDIS_NODE_FAIL 8       /* The node is believed to be malfunctioning */
+#define REDIS_NODE_MYSELF 16    /* This node is myself */
+#define REDIS_NODE_HANDSHAKE 32 /* We have still to exchange the first ping */
+#define REDIS_NODE_NOADDR   64  /* We don't know the address of this node */
+#define REDIS_NODE_MEET 128     /* Send a MEET message to this node */
+#define REDIS_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
+
+struct clusterNode {
+    char name[REDIS_CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
+    int flags;      /* REDIS_NODE_... */
+    unsigned char slots[REDIS_CLUSTER_SLOTS/8]; /* slots handled by this node */
+    int numslaves;  /* Number of slave nodes, if this is a master */
+    struct clusterNode **slaves; /* pointers to slave nodes */
+    struct clusterNode *slaveof; /* pointer to the master node */
+    time_t ping_sent;       /* Unix time we sent latest ping */
+    time_t pong_received;   /* Unix time we received the pong */
+    char *configdigest;         /* Configuration digest of this node */
+    time_t configdigest_ts;     /* Configuration digest timestamp */
+    char ip[16];                /* Latest known IP address of this node */
+    int port;                   /* Latest known port of this node */
+    clusterLink *link;          /* TCP/IP link with this node */
+};
+typedef struct clusterNode clusterNode;
+
+typedef struct {
+    char *configfile;
+    clusterNode *myself;  /* This node */
+    int state;            /* REDIS_CLUSTER_OK, REDIS_CLUSTER_FAIL, ... */
+    int node_timeout;
+    dict *nodes;          /* Hash table of name -> clusterNode structures */
+    clusterNode *migrating_slots_to[REDIS_CLUSTER_SLOTS];
+    clusterNode *importing_slots_from[REDIS_CLUSTER_SLOTS];
+    clusterNode *slots[REDIS_CLUSTER_SLOTS];
+    zskiplist *slots_to_keys;
+} clusterState;
+
+/* Redis cluster messages header */
+
+/* Note that the PING, PONG and MEET messages are actually the same exact
+ * kind of packet. PONG is the reply to ping, in the extact format as a PING,
+ * while MEET is a special PING that forces the receiver to add the sender
+ * as a node (if it is not already in the list). */
+#define CLUSTERMSG_TYPE_PING 0          /* Ping */
+#define CLUSTERMSG_TYPE_PONG 1          /* Pong (reply to Ping) */
+#define CLUSTERMSG_TYPE_MEET 2          /* Meet "let's join" message */
+#define CLUSTERMSG_TYPE_FAIL 3          /* Mark node xxx as failing */
+
+/* Initially we don't know our "name", but we'll find it once we connect
+ * to the first node, using the getsockname() function. Then we'll use this
+ * address for all the next messages. */
+typedef struct {
+    char nodename[REDIS_CLUSTER_NAMELEN];
+    uint32_t ping_sent;
+    uint32_t pong_received;
+    char ip[16];    /* IP address last time it was seen */
+    uint16_t port;  /* port last time it was seen */
+    uint16_t flags;
+    uint32_t notused; /* for 64 bit alignment */
+} clusterMsgDataGossip;
+
+typedef struct {
+    char nodename[REDIS_CLUSTER_NAMELEN];
+} clusterMsgDataFail;
+
+union clusterMsgData {
+    /* PING, MEET and PONG */
+    struct {
+        /* Array of N clusterMsgDataGossip structures */
+        clusterMsgDataGossip gossip[1];
+    } ping;
+    /* FAIL */
+    struct {
+        clusterMsgDataFail about;
+    } fail;
+};
+
+typedef struct {
+    uint32_t totlen;    /* Total length of this message */
+    uint16_t type;      /* Message type */
+    uint16_t count;     /* Only used for some kind of messages. */
+    char sender[REDIS_CLUSTER_NAMELEN]; /* Name of the sender node */
+    unsigned char myslots[REDIS_CLUSTER_SLOTS/8];
+    char slaveof[REDIS_CLUSTER_NAMELEN];
+    char configdigest[32];
+    uint16_t port;      /* Sender TCP base port */
+    unsigned char state; /* Cluster state from the POV of the sender */
+    unsigned char notused[5]; /* Reserved for future use. For alignment. */
+    union clusterMsgData data;
+} clusterMsg;
+
+/*-----------------------------------------------------------------------------
+ * Global server state
+ *----------------------------------------------------------------------------*/
+
 struct redisServer {
     /* General */
     pthread_t mainthread;
@@ -373,6 +521,7 @@ struct redisServer {
     char *unixsocket;
     int ipfd;
     int sofd;
+    int cfd;
     list *clients;
     list *slaves, *monitors;
     char neterr[ANET_ERR_LEN];
@@ -393,6 +542,7 @@ struct redisServer {
     long long stat_evictedkeys;     /* number of evicted keys (maxmemory) */
     long long stat_keyspace_hits;   /* number of successful lookups of keys */
     long long stat_keyspace_misses; /* number of failed lookups of keys */
+    size_t stat_peak_memory;        /* max used memory record */
     /* Configuration */
     int verbosity;
     int maxidletime;
@@ -468,6 +618,8 @@ struct redisServer {
     size_t list_max_ziplist_entries;
     size_t list_max_ziplist_value;
     size_t set_max_intset_entries;
+    size_t zset_max_ziplist_entries;
+    size_t zset_max_ziplist_value;
     time_t unixtime;    /* Unix time sampled every second. */
     /* Virtual memory I/O threads stuff */
     /* An I/O thread process an element taken from the io_jobs queue and
@@ -499,6 +651,9 @@ struct redisServer {
     /* Misc */
     unsigned lruclock:22;        /* clock incrementing every minute, for LRU */
     unsigned lruclock_padding:10;
+    /* Cluster */
+    int cluster_enabled;
+    clusterState cluster;
 };
 
 typedef struct pubsubPattern {
@@ -507,20 +662,19 @@ typedef struct pubsubPattern {
 } pubsubPattern;
 
 typedef void redisCommandProc(redisClient *c);
-typedef void redisVmPreloadProc(redisClient *c, struct redisCommand *cmd, int argc, robj **argv);
+typedef int *redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, int *numkeys, int flags);
 struct redisCommand {
     char *name;
     redisCommandProc *proc;
     int arity;
     int flags;
-    /* Use a function to determine which keys need to be loaded
-     * in the background prior to executing this command. Takes precedence
-     * over vm_firstkey and others, ignored when NULL */
-    redisVmPreloadProc *vm_preload_proc;
+    /* Use a function to determine keys arguments in a command line.
+     * Used both for diskstore preloading and Redis Cluster. */
+    redisGetKeysProc *getkeys_proc;
     /* What keys should be loaded in background when calling this command? */
-    int vm_firstkey; /* The first argument that's a key (0 = no keys) */
-    int vm_lastkey;  /* THe last argument that's a key */
-    int vm_keystep;  /* The step between first and last key */
+    int firstkey; /* The first argument that's a key (0 = no keys) */
+    int lastkey;  /* THe last argument that's a key */
+    int keystep;  /* The step between first and last key */
     long long microseconds, calls;
 };
 
@@ -541,28 +695,6 @@ typedef struct _redisSortOperation {
     int type;
     robj *pattern;
 } redisSortOperation;
-
-/* ZSETs use a specialized version of Skiplists */
-typedef struct zskiplistNode {
-    robj *obj;
-    double score;
-    struct zskiplistNode *backward;
-    struct zskiplistLevel {
-        struct zskiplistNode *forward;
-        unsigned int span;
-    } level[];
-} zskiplistNode;
-
-typedef struct zskiplist {
-    struct zskiplistNode *header, *tail;
-    unsigned long length;
-    int level;
-} zskiplist;
-
-typedef struct zset {
-    dict *dict;
-    zskiplist *zsl;
-} zset;
 
 /* DIsk store threaded I/O request message */
 #define REDIS_IOJOB_LOAD 0
@@ -634,6 +766,7 @@ extern struct redisServer server;
 extern struct sharedObjectsStruct shared;
 extern dictType setDictType;
 extern dictType zsetDictType;
+extern dictType clusterNodesDictType;
 extern double R_Zero, R_PosInf, R_NegInf, R_Nan;
 dictType hashDictType;
 
@@ -720,6 +853,7 @@ void freeHashObject(robj *o);
 robj *createObject(int type, void *ptr);
 robj *createStringObject(char *ptr, size_t len);
 robj *dupStringObject(robj *o);
+int isObjectRepresentableAsLongLong(robj *o, long long *llongval);
 robj *tryObjectEncoding(robj *o);
 robj *getDecodedObject(robj *o);
 size_t stringObjectLen(robj *o);
@@ -730,6 +864,7 @@ robj *createSetObject(void);
 robj *createIntsetObject(void);
 robj *createHashObject(void);
 robj *createZsetObject(void);
+robj *createZsetZiplistObject(void);
 int getLongFromObjectOrReply(redisClient *c, robj *o, long *target, const char *msg);
 int checkType(redisClient *c, robj *o, int type);
 int getLongLongFromObjectOrReply(redisClient *c, robj *o, long long *target, const char *msg);
@@ -748,6 +883,7 @@ int fwriteBulkString(FILE *fp, char *s, unsigned long len);
 int fwriteBulkDouble(FILE *fp, double d);
 int fwriteBulkLongLong(FILE *fp, long long l);
 int fwriteBulkObject(FILE *fp, robj *obj);
+int fwriteBulkCount(FILE *fp, char prefix, int count);
 
 /* Replication */
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
@@ -789,9 +925,24 @@ int startAppendOnly(void);
 void backgroundRewriteDoneHandler(int exitcode, int bysignal);
 
 /* Sorted sets data type */
+
+/* Struct to hold a inclusive/exclusive range spec. */
+typedef struct {
+    double min, max;
+    int minex, maxex; /* are min or max exclusive? */
+} zrangespec;
+
 zskiplist *zslCreate(void);
 void zslFree(zskiplist *zsl);
 zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj);
+unsigned char *zzlInsert(unsigned char *zl, robj *ele, double score);
+int zslDelete(zskiplist *zsl, double score, robj *obj);
+zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec range);
+double zzlGetScore(unsigned char *sptr);
+void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
+void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
+unsigned int zsetLength(robj *zobj);
+void zsetConvert(robj *zobj, int encoding);
 
 /* Core functions */
 void freeMemoryIfNeeded(void);
@@ -829,8 +980,6 @@ void freeIOJob(iojob *j);
 void queueIOJob(iojob *j);
 void waitEmptyIOJobsQueue(void);
 void processAllPendingIOJobs(void);
-void zunionInterBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv);
-void execBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv);
 int blockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd);
 int dontWaitForSwappedKey(redisClient *c, robj *key);
 void handleClientsBlockedOnSwappedKey(redisDb *db, robj *key);
@@ -881,16 +1030,6 @@ int pubsubUnsubscribeAllPatterns(redisClient *c, int notify);
 void freePubsubPattern(void *p);
 int listMatchPubsubPattern(void *a, void *b);
 
-/* Utility functions */
-int stringmatchlen(const char *pattern, int patternLen,
-        const char *string, int stringLen, int nocase);
-int stringmatch(const char *pattern, const char *string, int nocase);
-long long memtoll(const char *p, int *err);
-int ll2string(char *s, size_t len, long long value);
-int isStringRepresentableAsLong(sds s, long *longval);
-int isStringRepresentableAsLongLong(sds s, long long *longval);
-int isObjectRepresentableAsLongLong(robj *o, long long *llongval);
-
 /* Configuration */
 void loadServerConfig(char *filename);
 void appendServerSaveParams(time_t seconds, int changes);
@@ -916,6 +1055,25 @@ long long emptyDb();
 int selectDb(redisClient *c, int id);
 void signalModifiedKey(redisDb *db, robj *key);
 void signalFlushedDb(int dbid);
+unsigned int GetKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count);
+
+/* API to get key arguments from commands */
+#define REDIS_GETKEYS_ALL 0
+#define REDIS_GETKEYS_PRELOAD 1
+int *getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, int *numkeys, int flags);
+void getKeysFreeResult(int *result);
+int *noPreloadGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *numkeys, int flags);
+int *renameGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *numkeys, int flags);
+int *zunionInterGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *numkeys, int flags);
+
+/* Cluster */
+void clusterInit(void);
+unsigned short crc16(const char *buf, int len);
+unsigned int keyHashSlot(char *key, int keylen);
+clusterNode *createClusterNode(char *nodename, int flags);
+int clusterAddNode(clusterNode *node);
+void clusterCron(void);
+clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
 
 /* Git SHA1 */
 char *redisGitSHA1(void);
@@ -1039,6 +1197,12 @@ void punsubscribeCommand(redisClient *c);
 void publishCommand(redisClient *c);
 void watchCommand(redisClient *c);
 void unwatchCommand(redisClient *c);
+void clusterCommand(redisClient *c);
+void restoreCommand(redisClient *c);
+void migrateCommand(redisClient *c);
+void dumpCommand(redisClient *c);
+void objectCommand(redisClient *c);
+void clientCommand(redisClient *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));

@@ -59,6 +59,13 @@ start_server {
         assert_encoding hashtable myset
     }
 
+    test {Variadic SADD} {
+        r del myset
+        assert_equal 3 [r sadd myset a b c]
+        assert_equal 2 [r sadd myset A a b c B]
+        assert_equal [lsort {A a b c B}] [lsort [r smembers myset]]
+    }
+
     test "Set encoding after DEBUG RELOAD" {
         r del myintset myhashset mylargeintset
         for {set i 0} {$i <  100} {incr i} { r sadd myintset $i }
@@ -89,6 +96,14 @@ start_server {
         assert_equal 1 [r srem myset 4]
         assert_equal {3 5} [lsort [r smembers myset]]
     }
+
+    test {SREM with multiple arguments} {
+        r del myset
+        r sadd myset a b c d
+        assert_equal 0 [r srem myset k k k]
+        assert_equal 2 [r srem myset b d x y]
+        lsort [r smembers myset]
+    } {a c}
 
     foreach {type} {hashtable intset} {
         for {set i 1} {$i <= 5} {incr i} {

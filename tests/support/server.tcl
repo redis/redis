@@ -214,7 +214,7 @@ proc start_server {options {code undefined}} {
     
     # find out the pid
     while {![info exists pid]} {
-        regexp {^\[(\d+)\]} [exec head -n1 $stdout] _ pid
+        regexp {\[(\d+)\]} [exec cat $stdout] _ pid
         after 100
     }
 

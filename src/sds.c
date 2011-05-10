@@ -36,11 +36,11 @@
 
 #define SDS_ABORT_ON_OOM
 
-#include "sds.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include "sds.h"
 #include "zmalloc.h"
 
 static void sdsOomAbort(void) {
@@ -51,7 +51,11 @@ static void sdsOomAbort(void) {
 sds sdsnewlen(const void *init, size_t initlen) {
     struct sdshdr *sh;
 
-    sh = zmalloc(sizeof(struct sdshdr)+initlen+1);
+    if (init) {
+        sh = zmalloc(sizeof(struct sdshdr)+initlen+1);
+    } else {
+        sh = zcalloc(sizeof(struct sdshdr)+initlen+1);
+    }
 #ifdef SDS_ABORT_ON_OOM
     if (sh == NULL) sdsOomAbort();
 #else
@@ -59,10 +63,8 @@ sds sdsnewlen(const void *init, size_t initlen) {
 #endif
     sh->len = initlen;
     sh->free = 0;
-    if (initlen) {
-        if (init) memcpy(sh->buf, init, initlen);
-        else memset(sh->buf,0,initlen);
-    }
+    if (initlen && init)
+        memcpy(sh->buf, init, initlen);
     sh->buf[initlen] = '\0';
     return (char*)sh->buf;
 }
@@ -76,11 +78,6 @@ sds sdsnew(const char *init) {
     return sdsnewlen(init, initlen);
 }
 
-size_t sdslen(const sds s) {
-    struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
-    return sh->len;
-}
-
 sds sdsdup(const sds s) {
     return sdsnewlen(s, sdslen(s));
 }
@@ -88,11 +85,6 @@ sds sdsdup(const sds s) {
 void sdsfree(sds s) {
     if (s == NULL) return;
     zfree(s-sizeof(struct sdshdr));
-}
-
-size_t sdsavail(sds s) {
-    struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
-    return sh->free;
 }
 
 void sdsupdatelen(sds s) {
@@ -306,15 +298,17 @@ int sdscmp(sds s1, sds s2) {
  */
 sds *sdssplitlen(char *s, int len, char *sep, int seplen, int *count) {
     int elements = 0, slots = 5, start = 0, j;
+    sds *tokens;
 
-    sds *tokens = zmalloc(sizeof(sds)*slots);
+    if (seplen < 1 || len < 0) return NULL;
+
+    tokens = zmalloc(sizeof(sds)*slots);
 #ifdef SDS_ABORT_ON_OOM
     if (tokens == NULL) sdsOomAbort();
+#else
+    if (tokens == NULL) return NULL;
 #endif
-    if (seplen < 1 || len < 0 || tokens == NULL) {
-        *count = 0;
-        return NULL;
-    }
+
     if (len == 0) {
         *count = 0;
         return tokens;
@@ -550,6 +544,13 @@ err:
     zfree(vector);
     if (current) sdsfree(current);
     return NULL;
+}
+
+void sdssplitargs_free(sds *argv, int argc) {
+    int j;
+
+    for (j = 0 ;j < argc; j++) sdsfree(argv[j]);
+    zfree(argv);
 }
 
 #ifdef SDS_TEST_MAIN

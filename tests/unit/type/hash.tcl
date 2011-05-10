@@ -226,6 +226,15 @@ start_server {tags {"hash"}} {
         set _ $rv
     } {0 0 1 0 {} 1 0 {}}
 
+    test {HDEL - more than a single value} {
+        set rv {}
+        r del myhash
+        r hmset myhash a 1 b 2 c 3
+        assert_equal 0 [r hdel myhash x y]
+        assert_equal 2 [r hdel myhash a c f]
+        r hgetall myhash
+    } {b 2}
+
     test {HEXISTS} {
         set rv {}
         set k [lindex [array names smallhash *] 0]

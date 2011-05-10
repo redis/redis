@@ -127,6 +127,7 @@ proc execute_everything {} {
 #    execute_tests "integration/redis-cli"
     execute_tests "unit/pubsub"
 
+    return; # No diskstore tests for now...
     # run tests with diskstore enabled
     puts "\nRunning diskstore tests... this is slow, press Ctrl+C if not interested.."
     set ::diskstore 1
