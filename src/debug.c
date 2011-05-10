@@ -100,7 +100,7 @@ void computeDatasetDigest(unsigned char *final) {
             mixDigest(digest,key,sdslen(key));
 
             /* Make sure the key is loaded if VM is active */
-            o = lookupKeyRead(db,keyobj);
+            o = dictGetEntryVal(de);
 
             aux = htonl(o->type);
             mixDigest(digest,&aux,sizeof(aux));
