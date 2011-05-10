@@ -80,7 +80,7 @@ void computeDatasetDigest(unsigned char *final) {
         redisDb *db = server.db+j;
 
         if (dictSize(db->dict) == 0) continue;
-        di = dictGetIterator(db->dict);
+        di = dictGetSafeIterator(db->dict);
 
         /* hash the DB id, so the same dataset moved in a different
          * DB will lead to a different digest */
