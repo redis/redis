@@ -74,10 +74,13 @@ typedef struct dict {
     int iterators; /* number of iterators currently running */
 } dict;
 
+/* If safe is set to 1 this is a safe iteartor, that means, you can call
+ * dictAdd, dictFind, and other functions against the dictionary even while
+ * iterating. Otherwise it is a non safe iterator, and only dictNext()
+ * should be called while iterating. */
 typedef struct dictIterator {
     dict *d;
-    int table;
-    int index;
+    int table, index, safe;
     dictEntry *entry, *nextEntry;
 } dictIterator;
 
@@ -132,6 +135,7 @@ dictEntry * dictFind(dict *d, const void *key);
 void *dictFetchValue(dict *d, const void *key);
 int dictResize(dict *d);
 dictIterator *dictGetIterator(dict *d);
+dictIterator *dictGetSafeIterator(dict *d);
 dictEntry *dictNext(dictIterator *iter);
 void dictReleaseIterator(dictIterator *iter);
 dictEntry *dictGetRandomKey(dict *d);
