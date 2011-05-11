@@ -213,7 +213,7 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
 
 void scriptingInit(void) {
     lua_State *lua = lua_open();
-    luaL_openlibs(lua);
+    luaSandbox(lua);
 
     /* Register the 'r' command */
     lua_pushcfunction(lua,luaRedisCommand);
@@ -225,6 +225,60 @@ void scriptingInit(void) {
     server.lua_client->flags |= REDIS_LUA_CLIENT;
 
     server.lua = lua;
+}
+
+/* lua external libs symbol declarations */ 
+#define LUA_BITOP	"bit"
+LUALIB_API int (luaopen_bit) (lua_State *L);
+
+/* lua sandboxing helpers declarations*/
+void luaSandbox(lua_State *lua);
+void luaLoadLib(lua_State *lua, const char *libname, lua_CFunction luafunc);
+void luaDisableBuiltIn(lua_State *lua, const char *libname, const char *funcname);
+
+/*  creates a secure lua environment for execution from within redis.
+ *  Loads libraries individually with luaLoadLib() instead of calling
+ *  luaL_openlibs().  Loaded libs can then have specific methods removed
+ *  by calling luaDisableBuiltIn() */
+void luaSandbox(lua_State *lua) {
+    /* Loads the base lib */
+    luaLoadLib(lua, "", luaopen_base);
+    
+    /* Loads the packge lib */
+    luaLoadLib(lua, LUA_LOADLIBNAME, luaopen_package);
+    
+    /* Loads the table lib */
+    luaLoadLib(lua, LUA_TABLIBNAME, luaopen_table);
+    
+    /* Loads the os lib */
+    luaLoadLib(lua, LUA_OSLIBNAME, luaopen_os);
+    luaDisableBuiltIn(lua, LUA_OSLIBNAME, "exit");
+    
+    /* Loads the string lib */
+    luaLoadLib(lua, LUA_STRLIBNAME, luaopen_string);
+    
+    /* Loads the math lib */
+    luaLoadLib(lua, LUA_MATHLIBNAME, luaopen_math);
+    
+    /* Loads the debug lib */
+    luaLoadLib(lua, LUA_DBLIBNAME, luaopen_debug);
+    
+    /* Loads the bitop lib */
+    luaLoadLib(lua,  LUA_BITOP, luaopen_bit);
+}
+
+void luaLoadLib(lua_State *lua, const char *libname, lua_CFunction luafunc) {
+  lua_pushcfunction(lua, luafunc);
+  lua_pushstring(lua, libname);
+  lua_call(lua, 1, 0);
+}
+
+void luaDisableBuiltIn(lua_State *lua, const char *libname, const char *funcname) {
+  lua_getglobal(lua, libname);
+  lua_pushstring(lua, funcname);
+  lua_pushnil(lua);
+  lua_settable(lua, -3);
+  lua_setglobal(lua, libname);
 }
 
 /* Hash the scripit into a SHA1 digest. We use this as Lua function name.
