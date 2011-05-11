@@ -253,6 +253,9 @@ void luaSandbox(lua_State *lua) {
     /* Loads the os lib */
     luaLoadLib(lua, LUA_OSLIBNAME, luaopen_os);
     luaDisableBuiltIn(lua, LUA_OSLIBNAME, "exit");
+    luaDisableBuiltIn(lua, LUA_OSLIBNAME, "execute");
+    luaDisableBuiltIn(lua, LUA_OSLIBNAME, "remove");
+    luaDisableBuiltIn(lua, LUA_OSLIBNAME, "rename");
     
     /* Loads the string lib */
     luaLoadLib(lua, LUA_STRLIBNAME, luaopen_string);
