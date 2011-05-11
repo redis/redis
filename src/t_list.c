@@ -817,7 +817,6 @@ int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
 
         /* This should remove the first element of the "clients" list. */
         unblockClientWaitingData(receiver);
-        redisAssert(ln != listFirst(clients));
 
         if (dstkey == NULL) {
             /* BRPOP/BLPOP */
