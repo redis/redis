@@ -211,6 +211,15 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     }
 }
 
+/* lua external libs symbol declarations */ 
+#define LUA_BITOP	"bit"
+LUALIB_API int (luaopen_bit) (lua_State *L);
+
+/* lua sandboxing helpers declarations*/
+void luaSandbox(lua_State *lua);
+void luaLoadLib(lua_State *lua, const char *libname, lua_CFunction luafunc);
+void luaDisableBuiltIn(lua_State *lua, const char *libname, const char *funcname);
+
 void scriptingInit(void) {
     lua_State *lua = lua_open();
     luaSandbox(lua);
@@ -226,15 +235,6 @@ void scriptingInit(void) {
 
     server.lua = lua;
 }
-
-/* lua external libs symbol declarations */ 
-#define LUA_BITOP	"bit"
-LUALIB_API int (luaopen_bit) (lua_State *L);
-
-/* lua sandboxing helpers declarations*/
-void luaSandbox(lua_State *lua);
-void luaLoadLib(lua_State *lua, const char *libname, lua_CFunction luafunc);
-void luaDisableBuiltIn(lua_State *lua, const char *libname, const char *funcname);
 
 /*  creates a secure lua environment for execution from within redis.
  *  Loads libraries individually with luaLoadLib() instead of calling
