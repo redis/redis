@@ -110,7 +110,7 @@ dependencies:
 	cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
 	cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
 	cd ../deps/lua && $(MAKE) ARCH="$(ARCH)" ansi
-	cd ../deps/LuaBitOp && $(CC) -O2 -Wall -DLUA_ANSI -c -o bit.o bit.c
+	cd ../deps/LuaBitOp && $(CC) -O2 -Wall -DLUA_ANSI $(ARCH) -c -o bit.o bit.c
 
 redis-server: $(OBJ)
 	$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) ../deps/LuaBitOp/bit.o ../deps/lua/src/liblua.a
