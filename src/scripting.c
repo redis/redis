@@ -280,11 +280,17 @@ void luaLoadLib(lua_State *lua, const char *libname, lua_CFunction luafunc) {
 }
 
 void luaDisableBuiltIn(lua_State *lua, const char *libname, const char *funcname) {
-  lua_getglobal(lua, libname);
-  lua_pushstring(lua, funcname);
-  lua_pushnil(lua);
-  lua_settable(lua, -3);
-  lua_setglobal(lua, libname);
+  const char * topnamespace = "";
+  if (libname == topnamespace) {
+    lua_pushnil(lua);
+    lua_setglobal(lua, funcname);
+  } else {
+    lua_getglobal(lua, libname);
+    lua_pushstring(lua, funcname);
+    lua_pushnil(lua);
+    lua_settable(lua, -3);
+    lua_setglobal(lua, libname);
+  }
 }
 
 /* Hash the scripit into a SHA1 digest. We use this as Lua function name.
