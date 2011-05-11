@@ -19,6 +19,20 @@ ifeq ($(USE_TCMALLOC),yes)
   CCLINK+= -ltcmalloc
   CFLAGS+= -DUSE_TCMALLOC
 endif
+
+# Lua compile options
+lua_platform= ansi
+ifeq ($(uname_S),SunOS)
+  lua_platform= solaris
+endif
+ifeq ($(uname_S),Darwin)
+  lua_platform= macosx
+endif
+ifeq ($(uname_S),Linux)
+  lua_platform= linux
+endif
+
+
 CCOPT= $(CFLAGS) $(CCLINK) $(ARCH) $(PROF)
 
 PREFIX= /usr/local
@@ -109,7 +123,7 @@ zmalloc.o: zmalloc.c config.h
 dependencies:
 	cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
 	cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
-	cd ../deps/lua && $(MAKE) ARCH="$(ARCH)" ansi
+	cd ../deps/lua && $(MAKE) ARCH="$(ARCH)" $(lua_platform)
 	cd ../deps/LuaBitOp && $(CC) -O2 -Wall -DLUA_ANSI $(ARCH) -c -o bit.o bit.c
 
 redis-server: $(OBJ)
