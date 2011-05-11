@@ -1,0 +1,238 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+<title>Installation</title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<meta name="Author" content="Mike Pall">
+<meta name="Copyright" content="Copyright (C) 2005-2009, Mike Pall">
+<meta name="Language" content="en">
+<link rel="stylesheet" type="text/css" href="bluequad.css" media="screen">
+<link rel="stylesheet" type="text/css" href="bluequad-print.css" media="print">
+</head>
+<body>
+<div id="site">
+<a href="http://bitop.luajit.org"><span>Bit<span id="logo">Op</span></span></a>
+</div>
+<div id="head">
+<h1>Installation</h1>
+</div>
+<div id="nav">
+<ul><li>
+<a href="index.html">Lua BitOp</a>
+</li><li>
+<a class="current" href="install.html">Installation</a>
+</li><li>
+<a href="api.html">API Functions</a>
+</li><li>
+<a href="semantics.html">Semantics</a>
+</li><li>
+<a href="changes.html">Changes</a>
+</li><li>
+<a href="http://bitop.luajit.org/download.html">Download <span class="ext">&raquo;</span></a>
+</li></ul>
+</div>
+<div id="main">
+<p>
+This page explains how to build Lua BitOp from source, against an
+existing Lua installation. If you've installed Lua using a package manager
+(e.g. as part of a Linux distribution), you're advised to check for
+a pre-built package of Lua BitOp and install this instead.
+</p>
+<h2 id="prereq">Prerequisites</h2>
+<p>
+To compile Lua BitOp, your Lua 5.1 installation must include all development
+files (e.g. include files). If you've installed Lua from source, you
+already have them (e.g. in <tt>/usr/local/include</tt> on POSIX systems).
+</p>
+<p>
+If you've installed Lua using a package manager, you may need to install
+an extra Lua development package (e.g. <tt>liblua5.1-dev</tt> on
+Debian/Ubuntu).
+</p>
+<p>
+Probably any current C compiler which can compile Lua also works for
+Lua BitOp. The C99 <tt>&lt;stdint.h&gt;</tt> include file is mandatory,
+but the source contains a workaround for MSVC.
+</p>
+<p>
+Lua is by default configured to use <tt>double</tt> as its number type.
+Lua BitOp supports IEEE 754 doubles or alternative configurations
+with int32_t or int64_t (suitable for embedded systems without
+floating-point hardware). The <tt>float</tt> number type is not supported.
+</p>
+<h2 id="config">Configuration</h2>
+<p>
+You may need to modify the build scripts and change the paths to
+the Lua development files or some compiler flags. Check the start of
+<tt>Makefile</tt> (POSIX), <tt>Makefile.mingw</tt> (MinGW on Windows)
+or <tt>msvcbuild.bat</tt> (MSVC on Windows) and follow the instructions
+in the comments.
+</p>
+<p>
+E.g. the Lua 5.1 include files are located in <tt>/usr/include/lua5.1</tt>,
+if you've installed the Debian/Ubuntu Lua development package.
+</p>
+<h2 id="build">Build &amp; Install</h2>
+<p>
+After <a href="http://bitop.luajit.org/download.html"><span class="ext">&raquo;</span>&nbsp;downloading</a> Lua BitOp,
+unpack the distribution file, open a terminal/command window,
+change into the newly created directory and follow the instructions below.
+</p>
+<h3 id="posix">Linux, *BSD, Mac&nbsp;OS&nbsp;X</h3>
+<p>
+For Linux, *BSD and most other POSIX systems just run:
+</p>
+<pre class="code">
+make
+</pre>
+<p>
+For Mac&nbsp;OS&nbsp;X you need to run this instead:
+</p>
+<pre class="code">
+make macosx
+</pre>
+<p>
+You probably need to be the root user to install the resulting <tt>bit.so</tt>
+into the C module directory for your current Lua installation.
+Most systems provide <tt>sudo</tt>, so you can run:
+</p>
+<pre class="code">
+sudo make install
+</pre>
+<h3 id="mingw">MinGW on Windows</h3>
+<p>
+Start a command prompt and make sure the MinGW tools are in your PATH.
+Then run:
+</p>
+<pre class="code">
+mingw32-make -f Makefile.mingw
+</pre>
+<p>
+If you've adjusted the path where C modules for Lua should be installed,
+you can run:
+</p>
+<pre class="code">
+mingw32-make -f Makefile.mingw install
+</pre>
+<p>
+Otherwise just copy the file <tt>bit.dll</tt> to the appropriate directory.
+By default this is the same directory where <tt>lua.exe</tt> resides.
+</p>
+<h3 id="msvc">MSVC on Windows</h3>
+<p>
+Open a "Visual Studio .NET Command Prompt", change to the directory
+where <tt>msvcbuild.bat</tt> resides and run it:
+</p>
+<pre class="code">
+msvcbuild
+</pre>
+<p>
+If the file <tt>bit.dll</tt> has been successfully built, copy it
+to the directory where C modules for your Lua installation are installed.
+By default this is the same directory where <tt>lua.exe</tt> resides.
+</p>
+<h3 id="embed">Embedding Lua BitOp</h3>
+<p>
+If you're embedding Lua into your application, it's quite simple to
+add Lua BitOp as a static module:
+</p>
+<p>
+1. Copy the file <tt>bit.c</tt> from the Lua BitOp distribution
+to your Lua source code directory.
+</p>
+<p>
+2. Add this file to your build script (e.g. modify the Makefile) or
+import it as a build dependency in your IDE.
+</p>
+<p>
+3. Edit <tt>lualib.h</tt> and add the following two lines:
+</p>
+<pre class="code">
+#define LUA_BITLIBNAME "bit"
+LUALIB_API int luaopen_bit(lua_State *L);
+</pre>
+<p>
+4. Edit <tt>linit.c</tt> and add this immediately before the line
+with <tt>{NULL, NULL}</tt>:
+</p>
+<pre class="code">
+  {LUA_BITLIBNAME, luaopen_bit},
+</pre>
+<p>
+5. Now recompile and you're done!
+</p>
+<h2 id="test">Testing</h2>
+<p>
+You can optionally test whether the installation of Lua BitOp was successful.
+Keep the terminal/command window open and run one of the following commands:
+</p>
+<p>
+For Linux, *BSD and Mac&nbsp;OS&nbsp;X:
+</p>
+<pre class="code">
+make test
+</pre>
+<p>
+For MinGW on Windows:
+</p>
+<pre class="code">
+mingw32-make -f Makefile.mingw test
+</pre>
+<p>
+For MSVC on Windows:
+</p>
+<pre class="code">
+msvctest
+</pre>
+<p>
+If any of the tests fail, please check that you've properly set the
+paths in the build scripts, compiled with the same headers you've
+compiled your Lua installation (in particular if you've changed the
+number type in <tt>luaconf.h</tt>) and installed the C module into
+the directory which matches your Lua installation. Double check everything
+if you've installed multiple Lua interpreters (e.g. both in <tt>/usr/bin</tt>
+and in <tt>/usr/local/bin</tt>).
+</p>
+<p>
+If you get a warning or a failure about a broken <tt>tostring()</tt> function
+or about broken hex literals, then your Lua installation is defective.
+Check with your distributor, replace/upgrade a broken compiler or C library
+or re-install Lua yourself with the right configuration settings
+(in particular see <tt>LUA_NUMBER_*</tt> and <tt>luai_num*</tt>
+in <tt>luaconf.h</tt>).
+</p>
+<h2 id="bench">Benchmarks</h2>
+<p>
+The distribution contains several benchmarks:
+</p>
+<ul>
+<li><tt>bitbench.lua</tt> tests the speed of basic bit operations.
+The benchmark is auto-scaling with a minimum runtime of 1&nbsp;second
+for each part.
+The loop overhead is computed first and subtracted from the following
+measurements. The time to run a bit operation includes the overhead
+of setting up its parameters and calling the corresponding C function.</li>
+<li><tt>nsievebits.lua</tt> is a simple benchmark adapted from the
+<a href="http://shootout.alioth.debian.org/"><span class="ext">&raquo;</span>&nbsp;Computer Language Benchmarks Game</a>
+(formerly known as Great Computer Language Shootout). The scale factor
+is exponential, so run it with a small number between 2 and 10 and time it
+(e.g. <tt>time&nbsp;lua&nbsp;nsievebits.lua&nbsp;6</tt>).</li>
+<li><tt>md5test.lua</tt> when given the argument "bench" runs
+an auto-scaling benchmark and prints the time per character
+needed to compute the MD5 hash of a (medium-length) string.
+Please note that this implementation is mainly intended as a
+regression test. It's not suitable for cross-language comparisons
+against fully optimized MD5 implementations.</li>
+</ul>
+<br class="flush">
+</div>
+<div id="foot">
+<hr class="hide">
+Copyright &copy; 2009 Mike Pall
+<span class="noprint">
+&middot;
+<a href="contact.html">Contact</a>
+</span>
+</div>
+</body>
+</html>

@@ -1,0 +1,337 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+<title>API Functions</title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<meta name="Author" content="Mike Pall">
+<meta name="Copyright" content="Copyright (C) 2005-2009, Mike Pall">
+<meta name="Language" content="en">
+<link rel="stylesheet" type="text/css" href="bluequad.css" media="screen">
+<link rel="stylesheet" type="text/css" href="bluequad-print.css" media="print">
+</head>
+<body>
+<div id="site">
+<a href="http://bitop.luajit.org"><span>Bit<span id="logo">Op</span></span></a>
+</div>
+<div id="head">
+<h1>API Functions</h1>
+</div>
+<div id="nav">
+<ul><li>
+<a href="index.html">Lua BitOp</a>
+</li><li>
+<a href="install.html">Installation</a>
+</li><li>
+<a class="current" href="api.html">API Functions</a>
+</li><li>
+<a href="semantics.html">Semantics</a>
+</li><li>
+<a href="changes.html">Changes</a>
+</li><li>
+<a href="http://bitop.luajit.org/download.html">Download <span class="ext">&raquo;</span></a>
+</li></ul>
+</div>
+<div id="main">
+<p>
+This list of API functions is not intended to replace a tutorial.
+If you are not familiar with the terms used, you may want to study the
+<a href="http://en.wikipedia.org/wiki/Bitwise_operation"><span class="ext">&raquo;</span>&nbsp;Wikipedia
+article on bitwise operations</a> first.
+</p>
+<h2 id="loading">Loading the BitOp Module</h2>
+<p>
+The suggested way to use the BitOp module is to add the following
+to the start of <em>every</em> Lua file that needs one of its functions:
+</p>
+<pre class="code">
+local bit = require("bit")
+</pre>
+<p>
+This makes the dependency explicit, limits the scope to the current file
+and provides faster access to the <tt>bit.*</tt> functions, too.
+It's good programming practice <em>not</em> to rely on the global variable
+<tt>bit</tt> being set (assuming some other part of your application
+has already loaded the module). The <tt>require</tt> function ensures
+the module is only loaded once, in any case.
+</p>
+<h2 id="shortcuts">Defining Shortcuts</h2>
+<p>
+It's a common (but not a required) practice to cache often used module
+functions in locals. This serves as a shortcut to save some typing
+and also speeds up resolving them (only relevant if called hundreds of
+thousands of times).
+</p>
+<pre class="code">
+local bnot = bit.bnot
+local band, bor, bxor = bit.band, bit.bor, bit.bxor
+local lshift, rshift, rol = bit.lshift, bit.rshift, bit.rol
+-- etc...
+
+-- Example use of the shortcuts:
+local function tr_i(a, b, c, d, x, s)
+  return rol(bxor(c, bor(b, bnot(d))) + a + x, s) + b
+end
+</pre>
+<p>
+Remember that <b><tt>and</tt></b>, <b><tt>or</tt></b> and <b><tt>not</tt></b>
+are reserved keywords in Lua. They cannot be used for variable names or
+literal field names. That's why the corresponding bitwise functions have
+been named <tt>band</tt>, <tt>bor</tt>, and <tt>bnot</tt>
+(and <tt>bxor</tt> for consistency).
+<p>
+While we are at it: a common pitfall is to use <tt>bit</tt> as the
+name of a local temporary variable &mdash; well, don't! :-)
+</p>
+<h2 id="examples">About the Examples</h2>
+<p>
+The examples below show small Lua one-liners. Their expected output
+is shown after <tt>--&gt;</tt>. This is interpreted as a comment marker
+by Lua so you can cut &amp; paste the whole line to a Lua prompt
+and experiment with it.
+</p>
+<p>
+Note that all bit operations return <em>signed</em> 32&nbsp;bit numbers
+(<a href="semantics.html#range">rationale</a>). And these print
+as signed decimal numbers by default.
+</p>
+<p>
+For clarity the examples assume the definition of a helper function
+<tt>printx()</tt>. This prints its argument as an <em>unsigned</em>
+32&nbsp;bit hexadecimal number on all platforms:
+</p>
+<pre class="code">
+function printx(x)
+  print("0x"..bit.tohex(x))
+end
+</pre>
+
+<h2 id="operations">Bit Operations</h2>
+<h3 id="tobit"><tt>y = bit.tobit(x)</tt></h3>
+<p>
+Normalizes a number to the numeric range for bit operations and returns it.
+This function is usually not needed since all bit operations already
+normalize all of their input arguments. Check the
+<a href="semantics.html">operational semantics</a> for details.
+</p>
+<pre class="code">
+print(0xffffffff)                --> 4294967295 (*)
+print(bit.tobit(0xffffffff))     --> -1
+printx(bit.tobit(0xffffffff))    --> 0xffffffff
+print(bit.tobit(0xffffffff + 1)) --> 0
+print(bit.tobit(2^40 + 1234))    --> 1234
+</pre>
+<p style="font-size: 80%;">
+(*) See the treatment of <a href="semantics.html#hexlit">hex literals</a>
+for an explanation why the printed numbers in the first two lines
+differ (if your Lua installation uses a <tt>double</tt> number type).
+</p>
+
+<h3 id="tohex"><tt>y = bit.tohex(x [,n])</tt></h3>
+<p>
+Converts its first argument to a hex string. The number of hex digits is
+given by the absolute value of the optional second argument. Positive
+numbers between 1 and 8 generate lowercase hex digits. Negative numbers
+generate uppercase hex digits. Only the least-significant 4*|n| bits are
+used. The default is to generate 8 lowercase hex digits.
+</p>
+<pre class="code">
+print(bit.tohex(1))              --> 00000001
+print(bit.tohex(-1))             --> ffffffff
+print(bit.tohex(0xffffffff))     --> ffffffff
+print(bit.tohex(-1, -8))         --> FFFFFFFF
+print(bit.tohex(0x21, 4))        --> 0021
+print(bit.tohex(0x87654321, 4))  --> 4321
+</pre>
+
+<h3 id="bnot"><tt>y = bit.bnot(x)</tt></h3>
+<p>
+Returns the bitwise <b>not</b> of its argument.
+</p>
+<pre class="code">
+print(bit.bnot(0))            --> -1
+printx(bit.bnot(0))           --> 0xffffffff
+print(bit.bnot(-1))           --> 0
+print(bit.bnot(0xffffffff))   --> 0
+printx(bit.bnot(0x12345678))  --> 0xedcba987
+</pre>
+
+<h3 id="bor"><tt>y = bit.bor(x1 [,x2...])<br>
+y = bit.band(x1 [,x2...])<br>
+y = bit.bxor(x1 [,x2...])</tt></h3>
+<p>
+Returns either the bitwise <b>or</b>, bitwise <b>and</b>,
+or bitwise <b>xor</b> of all of its arguments.
+Note that more than two arguments are allowed.
+</p>
+<pre class="code">
+print(bit.bor(1, 2, 4, 8))                --> 15
+printx(bit.band(0x12345678, 0xff))        --> 0x00000078
+printx(bit.bxor(0xa5a5f0f0, 0xaa55ff00))  --> 0x0ff00ff0
+</pre>
+
+<h3 id="lshift"><tt>y = bit.lshift(x, n)<br>
+y = bit.rshift(x, n)<br>
+y = bit.arshift(x, n)</tt></h3>
+<p>
+Returns either the bitwise <b>logical left-shift</b>,
+bitwise <b>logical right-shift</b>, or bitwise <b>arithmetic right-shift</b>
+of its first argument by the number of bits given by the second argument.
+</p>
+<p>
+Logical shifts treat the first argument as an unsigned number and shift in
+0-bits. Arithmetic right-shift treats the most-significant bit
+as a sign bit and replicates it.<br>
+Only the lower 5&nbsp;bits of the shift count are used
+(reduces to the range [0..31]).
+</p>
+<pre class="code">
+print(bit.lshift(1, 0))              --> 1
+print(bit.lshift(1, 8))              --> 256
+print(bit.lshift(1, 40))             --> 256
+print(bit.rshift(256, 8))            --> 1
+print(bit.rshift(-256, 8))           --> 16777215
+print(bit.arshift(256, 8))           --> 1
+print(bit.arshift(-256, 8))          --> -1
+printx(bit.lshift(0x87654321, 12))   --> 0x54321000
+printx(bit.rshift(0x87654321, 12))   --> 0x00087654
+printx(bit.arshift(0x87654321, 12))  --> 0xfff87654
+</pre>
+
+<h3 id="rol"><tt>y = bit.rol(x, n)<br>
+y = bit.ror(x, n)</tt></h3>
+<p>
+Returns either the bitwise <b>left rotation</b>,
+or bitwise <b>right rotation</b> of its first argument by the
+number of bits given by the second argument.
+Bits shifted out on one side are shifted back in on the other side.<br>
+Only the lower 5&nbsp;bits of the rotate count are used
+(reduces to the range [0..31]).
+</p>
+<pre class="code">
+printx(bit.rol(0x12345678, 12))   --> 0x45678123
+printx(bit.ror(0x12345678, 12))   --> 0x67812345
+</pre>
+
+<h3 id="bswap"><tt>y = bit.bswap(x)</tt></h3>
+<p>
+Swaps the bytes of its argument and returns it. This can be used
+to convert little-endian 32&nbsp;bit numbers to big-endian 32&nbsp;bit
+numbers or vice versa.
+</p>
+<pre class="code">
+printx(bit.bswap(0x12345678)) --> 0x78563412
+printx(bit.bswap(0x78563412)) --> 0x12345678
+</pre>
+
+<h2 id="nsievebits">Example Program</h2>
+<p>
+This is an implementation of the (na&iuml;ve) <em>Sieve of Eratosthenes</em>
+algorithm. It counts the number of primes up to some maximum number.
+</p>
+<p>
+A Lua table is used to hold a bit-vector. Every array index has
+32&nbsp;bits of the vector. Bitwise operations are used to access and
+modify them. Note that the shift counts don't need to be masked
+since this is already done by the BitOp shift and rotate functions.
+</p>
+<pre class="code">
+local bit = require("bit")
+local band, bxor = bit.band, bit.bxor
+local rshift, rol = bit.rshift, bit.rol
+
+local m = tonumber(arg and arg[1]) or 100000
+if m < 2 then m = 2 end
+local count = 0
+local p = {}
+
+for i=0,(m+31)/32 do p[i] = -1 end
+
+for i=2,m do
+  if band(rshift(p[rshift(i, 5)], i), 1) ~= 0 then
+    count = count + 1
+    for j=i+i,m,i do
+      local jx = rshift(j, 5)
+      p[jx] = band(p[jx], rol(-2, j))
+    end
+  end
+end
+
+io.write(string.format("Found %d primes up to %d\n", count, m))
+</pre>
+<p>
+Lua BitOp is quite fast. This program runs in less than
+90&nbsp;milliseconds on a 3&nbsp;GHz CPU with a standard Lua installation,
+but performs more than a million calls to bitwise functions.
+If you're looking for even more speed,
+check out <a href="http://luajit.org/"><span class="ext">&raquo;</span>&nbsp;LuaJIT</a>.
+</p>
+
+<h2 id="caveats">Caveats</h2>
+<h3>Signed Results</h3>
+<p>
+Returning signed numbers from bitwise operations may be surprising to
+programmers coming from other programming languages which have both
+signed and unsigned types. But as long as you treat the results of
+bitwise operations uniformly everywhere, this shouldn't cause any problems.
+</p>
+<p>
+Preferrably format results with <tt>bit.tohex</tt> if you want a
+reliable unsigned string representation. Avoid the <tt>"%x"</tt> or
+<tt>"%u"</tt> formats for <tt>string.format</tt>. They fail on some
+architectures for negative numbers and can return more than 8 hex digits
+on others.
+</p>
+<p>
+You may also want to avoid the default number to string coercion,
+since this is a signed conversion.
+The coercion is used for string concatenation and all standard library
+functions which accept string arguments (such as <tt>print()</tt> or
+<tt>io.write()</tt>).
+</p>
+<h3>Conditionals</h3>
+<p>
+If you're transcribing some code from C/C++, watch out for
+bit operations in conditionals. In C/C++ any non-zero value
+is implicitly considered as "true". E.g. this C code:<br>
+<tt>&nbsp;&nbsp;if (x & 3) ...</tt><br>
+must not be turned into this Lua code:<br>
+<tt>&nbsp;&nbsp;if band(x, 3) then ... -- <em>wrong!</em></tt>
+</p>
+<p>
+In Lua all objects except <tt>nil</tt> and <tt>false</tt> are
+considered "true". This includes all numbers. An explicit comparison
+against zero is required in this case:<br>
+<tt>&nbsp;&nbsp;if band(x, 3) ~= 0 then ... -- <em>correct!</em></tt>
+</p>
+<h3>Comparing Against Hex Literals</h3>
+<p>
+Comparing the results of bitwise operations (<em>signed</em> numbers)
+against hex literals (<em>unsigned</em> numbers) needs some additional care.
+The following conditional expression may or may not work right,
+depending on the platform you run it on:<br>
+<tt>&nbsp;&nbsp;bit.bor(x, 1) == 0xffffffff</tt><br>
+E.g. it's never true on a Lua installation with the default number type.
+Some simple solutions:
+</p>
+<ul>
+<li>Either never use hex literals larger than 0x7fffffff in comparisons:<br>
+<tt>&nbsp;&nbsp;bit.bor(x, 1) == -1</tt></li>
+<li>Or convert them with <tt>bit.tobit()</tt> before comparing:<br>
+<tt>&nbsp;&nbsp;bit.bor(x, 1) == bit.tobit(0xffffffff)</tt></li>
+<li>Or use a generic workaround with <tt>bit.bxor()</tt>:<br>
+<tt>&nbsp;&nbsp;bit.bxor(bit.bor(x, 1), 0xffffffff) == 0</tt></li>
+<li>Or use a case-specific workaround:<br>
+<tt>&nbsp;&nbsp;bit.rshift(x, 1) == 0x7fffffff</tt></li>
+</ul>
+<br class="flush">
+</div>
+<div id="foot">
+<hr class="hide">
+Copyright &copy; 2009 Mike Pall
+<span class="noprint">
+&middot;
+<a href="contact.html">Contact</a>
+</span>
+</div>
+</body>
+</html>
