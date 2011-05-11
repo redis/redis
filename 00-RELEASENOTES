@@ -12,6 +12,13 @@ for 2.0.
 CHANGELOG
 ---------
 
+What's new in Redis 2.2.7
+=========================
+
+* Fixed bug #543-2 (the issue was reopened with a completely different report)
+  that caused Redis to randomly crash on list push performed against lists
+  with other clients blocked with BLPOP (or variants).
+
 What's new in Redis 2.2.6
 =========================
 
