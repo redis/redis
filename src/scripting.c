@@ -216,13 +216,12 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
 LUALIB_API int (luaopen_bit) (lua_State *L);
 
 /* lua sandboxing helpers declarations*/
-void luaSandbox(lua_State *lua);
+lua_State * luaSandbox(void);
 void luaLoadLib(lua_State *lua, const char *libname, lua_CFunction luafunc);
 void luaDisableBuiltIn(lua_State *lua, const char *libname, const char *funcname);
 
 void scriptingInit(void) {
-    lua_State *lua = lua_open();
-    luaSandbox(lua);
+    lua_State *lua = luaSandbox();
 
     /* Register the 'r' command */
     lua_pushcfunction(lua,luaRedisCommand);
@@ -240,7 +239,9 @@ void scriptingInit(void) {
  *  Loads libraries individually with luaLoadLib() instead of calling
  *  luaL_openlibs().  Loaded libs can then have specific methods removed
  *  by calling luaDisableBuiltIn() */
-void luaSandbox(lua_State *lua) {
+lua_State * luaSandbox(void) {
+    lua_State *lua = lua_open();
+    
     /* Loads the base lib */
     luaLoadLib(lua, "", luaopen_base);
     
@@ -268,6 +269,8 @@ void luaSandbox(lua_State *lua) {
     
     /* Loads the bitop lib */
     luaLoadLib(lua,  LUA_BITOP, luaopen_bit);
+    
+    return lua;
 }
 
 void luaLoadLib(lua_State *lua, const char *libname, lua_CFunction luafunc) {
