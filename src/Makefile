@@ -125,9 +125,12 @@ dependencies:
 	cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
 	cd ../deps/lua && $(MAKE) ARCH="$(ARCH)" $(lua_platform)
 	cd ../deps/LuaBitOp && $(CC) -O2 -Wall -DLUA_ANSI $(ARCH) -c -o bit.o bit.c
+	cd ../deps/lua-cjson && $(CC) -O2 -Wall -DLUA_ANSI $(ARCH) -c -o strbuf.o strbuf.c
+	cd ../deps/lua-cjson && $(CC) -O2 -Wall -DLUA_ANSI $(ARCH) -DVERSION=\"1.0.1\" -c -o lua_cjson.o lua_cjson.c 
 
 redis-server: $(OBJ)
-	$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) ../deps/LuaBitOp/bit.o ../deps/lua/src/liblua.a
+	$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) \
+	../deps/LuaBitOp/bit.o ../deps/lua-cjson/strbuf.o ../deps/lua-cjson/lua_cjson.o ../deps/lua/src/liblua.a
 
 redis-benchmark: dependencies $(BENCHOBJ)
 	cd ../deps/hiredis && $(MAKE) static
