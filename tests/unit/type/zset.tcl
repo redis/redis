@@ -460,6 +460,13 @@ start_server {tags {"zset"}} {
     basics ziplist
     basics skiplist
 
+    test {ZINTERSTORE regression with two sets, intset+hashtable} {
+        r del seta setb setc
+        r sadd set1 a
+        r sadd set2 10
+        r zinterstore set3 2 set1 set2
+    } {0}
+
     proc stressers {encoding} {
         if {$encoding == "ziplist"} {
             # Little extra to allow proper fuzzing in the sorting stresser
