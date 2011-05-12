@@ -244,31 +244,33 @@ lua_State * luaSandbox(void) {
     
     /* Loads the base lib */
     luaLoadLib(lua, "", luaopen_base);
-    
     /* Loads the packge lib */
     luaLoadLib(lua, LUA_LOADLIBNAME, luaopen_package);
-    
     /* Loads the table lib */
     luaLoadLib(lua, LUA_TABLIBNAME, luaopen_table);
-    
     /* Loads the os lib */
     luaLoadLib(lua, LUA_OSLIBNAME, luaopen_os);
+    /* Loads the string lib */
+    luaLoadLib(lua, LUA_STRLIBNAME, luaopen_string);
+    /* Loads the math lib */
+    luaLoadLib(lua, LUA_MATHLIBNAME, luaopen_math);
+    /* Loads the debug lib */
+    luaLoadLib(lua, LUA_DBLIBNAME, luaopen_debug);
+    /* Loads the bitop lib */
+    luaLoadLib(lua,  LUA_BITOP, luaopen_bit);
+    
+    /* Disable some base lib functions */
+    luaDisableBuiltIn(lua, "", "collectgarbage");
+    luaDisableBuiltIn(lua, "", "dofile");
+    luaDisableBuiltIn(lua, "", "load");
+    luaDisableBuiltIn(lua, "", "loadfile");
+    luaDisableBuiltIn(lua, "", "loadstring");
+    luaDisableBuiltIn(lua, "", "require");
+    /* Disable some os lib functions */
     luaDisableBuiltIn(lua, LUA_OSLIBNAME, "exit");
     luaDisableBuiltIn(lua, LUA_OSLIBNAME, "execute");
     luaDisableBuiltIn(lua, LUA_OSLIBNAME, "remove");
     luaDisableBuiltIn(lua, LUA_OSLIBNAME, "rename");
-    
-    /* Loads the string lib */
-    luaLoadLib(lua, LUA_STRLIBNAME, luaopen_string);
-    
-    /* Loads the math lib */
-    luaLoadLib(lua, LUA_MATHLIBNAME, luaopen_math);
-    
-    /* Loads the debug lib */
-    luaLoadLib(lua, LUA_DBLIBNAME, luaopen_debug);
-    
-    /* Loads the bitop lib */
-    luaLoadLib(lua,  LUA_BITOP, luaopen_bit);
     
     return lua;
 }
