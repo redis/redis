@@ -615,6 +615,10 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
             if (obj->type == REDIS_ZSET) {
                 src[i].dict = ((zset*)obj->ptr)->dict;
             } else if (obj->type == REDIS_SET) {
+                if (obj->encoding == REDIS_ENCODING_INTSET)
+                    setTypeConvert(obj, REDIS_ENCODING_HT);
+
+                redisAssert(obj->encoding == REDIS_ENCODING_HT);
                 src[i].dict = (obj->ptr);
             } else {
                 zfree(src);
