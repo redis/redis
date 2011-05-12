@@ -484,6 +484,13 @@ start_server {tags {"zset"}} {
     test {ZINTERSTORE with AGGREGATE MAX} {
         list [r zinterstore zsetc 2 zseta zsetb aggregate max] [r zrange zsetc 0 -1 withscores]
     } {2 {b 2 c 3}}
+
+    test {ZINTERSTORE regression with two sets, intset+hashtable} {
+        r del seta setb setc
+        r sadd set1 a
+        r sadd set2 10
+        r zinterstore set3 2 set1 set2
+    } {0}
     
     foreach cmd {ZUNIONSTORE ZINTERSTORE} {
         test "$cmd with +inf/-inf scores" {
