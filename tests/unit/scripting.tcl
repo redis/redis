@@ -24,6 +24,7 @@ start_server {
         assert_match "table:*" [r eval "return tostring(math)" 0]
         assert_match "table:*" [r eval "return tostring(debug)" 0]
         assert_match "table:*" [r eval "return tostring(bit)" 0]
+        assert_match "table:*" [r eval "return tostring(cjson)" 0]
     }
     
     test "EVAL - sandbox disallowed libraries" {
