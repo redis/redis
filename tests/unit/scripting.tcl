@@ -70,4 +70,12 @@ start_server {
         assert_equal "1736516421" [r eval "return bit.ror(0x12345678, 12)" 0]
         assert_equal "2018915346" [r eval "return bit.bswap(0x12345678)" 0]
     }
+    
+    test "EVAL - basic cjson functionalities" {
+        reconnect
+        assert_equal {[1,2,3,4,5]} [r eval "return cjson.encode({1,2,3,4,5})" 0]
+        assert_equal {[[1,2,3],[4,5,6]]} [r eval "return cjson.encode({{1,2,3},{4,5,6}})" 0]
+        assert_equal {[{"a":1,"c":3,"b":2},{"e":5,"d":4,"f":6}]} [r eval "return cjson.encode({{a=1,b=2,c=3},{d=4,e=5,f=6}})" 0]
+        assert_equal "1 2 3 4 5" [r eval {return cjson.decode('[1,2,3,4,5]')} 0]
+    }
 }
