@@ -27,6 +27,8 @@ start_server {tags {"repl"}} {
         test {MASTER and SLAVE consistency with expire} {
             createComplexDataset r 50000 useexpire
             after 4000 ;# Make sure everything expired before taking the digest
+            r keys *   ;# Force DEL syntesizing to slave
+            after 1000 ;# Wait another second. Now everything should be file.
             if {[r debug digest] ne [r -1 debug digest]} {
                 set csv1 [csvdump r]
                 set csv2 [csvdump {r -1}]
