@@ -54,4 +54,20 @@ start_server {
         reconnect
         assert_error "*attempt to call field 'rename' (a nil value)*" {r eval "return os.rename()"  0}
     }
+    
+    test "EVAL - basic bitop functionalities" {
+        reconnect
+        assert_equal "-1" [r eval "return bit.tobit(0xffffffff)" 0]
+        assert_equal "0xffffffff" [r eval "return '0x'..bit.tohex(-1)" 0]
+        assert_equal "-1" [r eval "return bit.bnot(0)" 0]
+        assert_equal "15" [r eval "return bit.bor(1, 2, 4, 8)" 0]
+        assert_equal "120" [r eval "return bit.band(0x12345678, 0xff)" 0]
+        assert_equal "267390960" [r eval "return bit.bxor(0xa5a5f0f0, 0xaa55ff00)" 0]
+        assert_equal "256" [r eval "return bit.lshift(1, 8)" 0]
+        assert_equal "16777215" [r eval "return bit.rshift(-256, 8)" 0]
+        assert_equal "-1" [r eval "return bit.arshift(-256, 8)" 0]
+        assert_equal "1164411171" [r eval "return bit.rol(0x12345678, 12)" 0]
+        assert_equal "1736516421" [r eval "return bit.ror(0x12345678, 12)" 0]
+        assert_equal "2018915346" [r eval "return bit.bswap(0x12345678)" 0]
+    }
 }
