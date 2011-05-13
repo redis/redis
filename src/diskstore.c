@@ -185,8 +185,9 @@ int dsKeyToPath(redisDb *db, char *buf, robj *key) {
 
 int dsSet(redisDb *db, robj *key, robj *val, time_t expire) {
     char buf[1024], buf2[1024];
-    FILE *fp;
     int retval, len;
+    FILE *fp;
+    rio rdb;
 
     len = dsKeyToPath(db,buf,key);
     memcpy(buf2,buf,len);
@@ -201,7 +202,9 @@ int dsSet(redisDb *db, robj *key, robj *val, time_t expire) {
             redisPanic("Unrecoverable diskstore error. Exiting.");
         }
     }
-    if ((retval = rdbSaveKeyValuePair(fp,key,val,expire,time(NULL))) == -1)
+
+    rdb = rioInitWithFile(fp);
+    if ((retval = rdbSaveKeyValuePair(&rdb,key,val,expire,time(NULL))) == -1)
         return REDIS_ERR;
     fclose(fp);
     if (retval == 0) {
@@ -226,6 +229,7 @@ robj *dsGet(redisDb *db, robj *key, time_t *expire) {
     robj *dskey; /* Key as loaded from disk. */
     robj *val;
     FILE *fp;
+    rio rdb;
 
     dsKeyToPath(db,buf,key);
     fp = fopen(buf,"r");
@@ -236,16 +240,17 @@ robj *dsGet(redisDb *db, robj *key, time_t *expire) {
         goto readerr;
     }
 
-    if ((type = rdbLoadType(fp)) == -1) goto readerr;
+    rdb = rioInitWithFile(fp);
+    if ((type = rdbLoadType(&rdb)) == -1) goto readerr;
     if (type == REDIS_EXPIRETIME) {
-        if ((expiretime = rdbLoadTime(fp)) == -1) goto readerr;
+        if ((expiretime = rdbLoadTime(&rdb)) == -1) goto readerr;
         /* We read the time so we need to read the object type again */
-        if ((type = rdbLoadType(fp)) == -1) goto readerr;
+        if ((type = rdbLoadType(&rdb)) == -1) goto readerr;
     }
     /* Read key */
-    if ((dskey = rdbLoadStringObject(fp)) == NULL) goto readerr;
+    if ((dskey = rdbLoadStringObject(&rdb)) == NULL) goto readerr;
     /* Read value */
-    if ((val = rdbLoadObject(type,fp)) == NULL) goto readerr;
+    if ((val = rdbLoadObject(type,&rdb)) == NULL) goto readerr;
     fclose(fp);
 
     /* The key we asked, and the key returned, must be the same */
@@ -362,6 +367,7 @@ void *dsRdbSave_thread(void *arg) {
     struct dirent *dp, de;
     int j, i, last_dbid = -1;
     FILE *fp;
+    rio rdb;
 
     /* Change state to ACTIVE, to signal there is a saving thead working. */
     redisLog(REDIS_NOTICE,"Diskstore BGSAVE thread started");
@@ -375,7 +381,9 @@ void *dsRdbSave_thread(void *arg) {
         dsRdbSaveSetState(REDIS_BGSAVE_THREAD_DONE_ERR);
         return NULL;
     }
-    if (fwrite("REDIS0001",9,1,fp) == 0) goto werr;
+
+    rdb = rioInitWithFile(fp);
+    if (rioWrite(&rdb,"REDIS0001",9) == 0) goto werr;
 
     sleep(5);
 
@@ -408,8 +416,8 @@ void *dsRdbSave_thread(void *arg) {
                 dbid = dsGetDbidFromFilename(dp->d_name);
                 if (dbid != last_dbid) {
                     last_dbid = dbid;
-                    if (rdbSaveType(fp,REDIS_SELECTDB) == -1) goto werr;
-                    if (rdbSaveLen(fp,dbid) == -1) goto werr;
+                    if (rdbSaveType(&rdb,REDIS_SELECTDB) == -1) goto werr;
+                    if (rdbSaveLen(&rdb,dbid) == -1) goto werr;
                 }
 
                 /* Let's copy this file into the target .rdb */
@@ -422,7 +430,7 @@ void *dsRdbSave_thread(void *arg) {
                     goto werr;
                 }
                 while(1) {
-                    int nread = fread(buf,1,sizeof(buf),entryfp);
+                    size_t nread = fread(buf,1,sizeof(buf),entryfp);
 
                     if (nread == 0) {
                         if (ferror(entryfp)) {
@@ -433,7 +441,7 @@ void *dsRdbSave_thread(void *arg) {
                             break;
                         }
                     }
-                    if (fwrite(buf,1,nread,fp) != (unsigned)nread) {
+                    if (rioWrite(&rdb,buf,nread) == 0) {
                         closedir(dir);
                         goto werr;
                     }
@@ -445,7 +453,7 @@ void *dsRdbSave_thread(void *arg) {
     }
     
     /* Output the end of file opcode */
-    if (rdbSaveType(fp,REDIS_EOF) == -1) goto werr;
+    if (rdbSaveType(&rdb,REDIS_EOF) == -1) goto werr;
 
     /* Make sure data will not remain on the OS's output buffers */
     fflush(fp);
