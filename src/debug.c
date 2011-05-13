@@ -101,6 +101,11 @@ void computeDatasetDigest(unsigned char *final) {
 
             /* Make sure the key is loaded if VM is active */
             o = lookupKeyRead(db,keyobj);
+            if (o == NULL) {
+                /* Key expired on lookup? Try the next one. */
+                decrRefCount(keyobj);
+                continue;
+            }
 
             aux = htonl(o->type);
             mixDigest(digest,&aux,sizeof(aux));
