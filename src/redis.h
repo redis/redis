@@ -365,7 +365,7 @@ struct sharedObjectsStruct {
     robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *cnegone, *pong, *space,
     *colon, *nullbulk, *nullmultibulk, *queued,
     *emptymultibulk, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
-    *outofrangeerr, *loadingerr, *plus,
+    *outofrangeerr, *noscripterr, *loadingerr, *plus,
     *select0, *select1, *select2, *select3, *select4,
     *select5, *select6, *select7, *select8, *select9,
     *messagebulk, *pmessagebulk, *subscribebulk, *unsubscribebulk, *mbulk3,
@@ -1217,6 +1217,7 @@ void dumpCommand(redisClient *c);
 void objectCommand(redisClient *c);
 void clientCommand(redisClient *c);
 void evalCommand(redisClient *c);
+void evalShaCommand(redisClient *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
