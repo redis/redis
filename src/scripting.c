@@ -68,7 +68,7 @@ char *redisProtocolToLuaType_Bulk(lua_State *lua, char *reply) {
 
     string2ll(reply+1,p-reply-1,&bulklen);
     if (bulklen == -1) {
-        lua_pushnil(lua);
+        lua_pushboolean(lua,0);
         return p+2;
     } else {
         lua_pushlstring(lua,p+2,bulklen);
@@ -104,7 +104,7 @@ char *redisProtocolToLuaType_MultiBulk(lua_State *lua, char *reply) {
     string2ll(reply+1,p-reply-1,&mbulklen);
     p += 2;
     if (mbulklen == -1) {
-        lua_pushnil(lua);
+        lua_pushboolean(lua,0);
         return p;
     }
     lua_newtable(lua);
@@ -248,17 +248,17 @@ void hashScript(char *digest, char *script, size_t len) {
 }
 
 void luaReplyToRedisReply(redisClient *c, lua_State *lua) {
-    int t = lua_type(lua,1);
+    int t = lua_type(lua,-1);
 
     switch(t) {
     case LUA_TSTRING:
-        addReplyBulkCBuffer(c,(char*)lua_tostring(lua,1),lua_strlen(lua,1));
+        addReplyBulkCBuffer(c,(char*)lua_tostring(lua,-1),lua_strlen(lua,-1));
         break;
     case LUA_TBOOLEAN:
-        addReply(c,lua_toboolean(lua,1) ? shared.cone : shared.czero);
+        addReply(c,lua_toboolean(lua,-1) ? shared.cone : shared.nullbulk);
         break;
     case LUA_TNUMBER:
-        addReplyLongLong(c,(long long)lua_tonumber(lua,1));
+        addReplyLongLong(c,(long long)lua_tonumber(lua,-1));
         break;
     case LUA_TTABLE:
         /* We need to check if it is an array, an error, or a status reply.
@@ -294,17 +294,9 @@ void luaReplyToRedisReply(redisClient *c, lua_State *lua) {
                 if (t == LUA_TNIL) {
                     lua_pop(lua,1);
                     break;
-                } else if (t == LUA_TSTRING) {
-                    size_t len;
-                    char *s = (char*) lua_tolstring(lua,-1,&len);
-
-                    addReplyBulkCBuffer(c,s,len);
-                    mbulklen++;
-                } else if (t == LUA_TNUMBER) {
-                    addReplyLongLong(c,(long long)lua_tonumber(lua,-1));
-                    mbulklen++;
                 }
-                lua_pop(lua,1);
+                luaReplyToRedisReply(c, lua);
+                mbulklen++;
             }
             setDeferredMultiBulkLength(c,replylen,mbulklen);
         }
