@@ -194,7 +194,8 @@ struct redisCommand redisCommandTable[] = {
     {"dump",dumpCommand,2,0,NULL,0,0,0,0,0},
     {"object",objectCommand,-2,0,NULL,0,0,0,0,0},
     {"client",clientCommand,-2,0,NULL,0,0,0,0,0},
-    {"eval",evalCommand,-3,REDIS_CMD_DENYOOM,zunionInterGetKeys,0,0,0,0,0}
+    {"eval",evalCommand,-3,REDIS_CMD_DENYOOM,zunionInterGetKeys,0,0,0,0,0},
+    {"evalsha",evalShaCommand,-3,REDIS_CMD_DENYOOM,zunionInterGetKeys,0,0,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
@@ -781,6 +782,8 @@ void createSharedObjects(void) {
         "-ERR source and destination objects are the same\r\n"));
     shared.outofrangeerr = createObject(REDIS_STRING,sdsnew(
         "-ERR index out of range\r\n"));
+    shared.noscripterr = createObject(REDIS_STRING,sdsnew(
+        "-NOSCRIPT No matching script. Please use EVAL.\r\n"));
     shared.loadingerr = createObject(REDIS_STRING,sdsnew(
         "-LOADING Redis is loading the dataset in memory\r\n"));
     shared.space = createObject(REDIS_STRING,sdsnew(" "));

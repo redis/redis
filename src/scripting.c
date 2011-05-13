@@ -4,6 +4,7 @@
 #include <lua.h>
 #include <lauxlib.h>
 #include <lualib.h>
+#include <ctype.h>
 
 char *redisProtocolToLuaType_Int(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Bulk(lua_State *lua, char *reply);
@@ -320,7 +321,7 @@ void luaSetGlobalArray(lua_State *lua, char *var, robj **elev, int elec) {
     lua_setglobal(lua,var);
 }
 
-void evalCommand(redisClient *c) {
+void evalGenericCommand(redisClient *c, int evalsha) {
     lua_State *lua = server.lua;
     char funcname[43];
     long long numkeys;
@@ -337,11 +338,32 @@ void evalCommand(redisClient *c) {
      * defined into the Lua state */
     funcname[0] = 'f';
     funcname[1] = '_';
-    hashScript(funcname+2,c->argv[1]->ptr,sdslen(c->argv[1]->ptr));
+    if (!evalsha) {
+        /* Hash the code if this is an EVAL call */
+        hashScript(funcname+2,c->argv[1]->ptr,sdslen(c->argv[1]->ptr));
+    } else {
+        /* We already have the SHA if it is a EVALSHA */
+        int j;
+        char *sha = c->argv[1]->ptr;
+
+        for (j = 0; j < 40; j++)
+            funcname[j+2] = tolower(sha[j]);
+        funcname[42] = '\0';
+    }
+
     lua_getglobal(lua, funcname);
     if (lua_isnil(lua,1)) {
-        /* Function not defined... let's define it. */
-        sds funcdef = sdsempty();
+        sds funcdef;
+      
+        /* Function not defined... let's define it if we have the
+         * body of the funciton. If this is an EVALSHA call we can just
+         * return an error. */
+        if (evalsha) {
+            addReply(c, shared.noscripterr);
+            lua_pop(lua,1); /* remove the nil from the stack */
+            return;
+        }
+        funcdef = sdsempty();
 
         lua_pop(lua,1); /* remove the nil from the stack */
         funcdef = sdscat(funcdef,"function ");
@@ -401,4 +423,20 @@ void evalCommand(redisClient *c) {
     selectDb(c,server.lua_client->db->id); /* set DB ID from Lua client */
     luaReplyToRedisReply(c,lua);
     lua_gc(lua,LUA_GCSTEP,1);
+}
+
+void evalCommand(redisClient *c) {
+    evalGenericCommand(c,0);
+}
+
+void evalShaCommand(redisClient *c) {
+    if (sdslen(c->argv[1]->ptr) != 40) {
+        /* We know that a match is not possible if the provided SHA is
+         * not the right length. So we return an error ASAP, this way
+         * evalGenericCommand() can be implemented without string length
+         * sanity check */
+        addReply(c, shared.noscripterr);
+        return;
+    }
+    evalGenericCommand(c,1);
 }
