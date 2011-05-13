@@ -366,6 +366,53 @@ off_t rdbSavedObjectLen(robj *o) {
     return len;
 }
 
+/* Save the object type of object "o". */
+int rdbSaveObjectType(rio *rdb, robj *o) {
+    switch (o->type) {
+    case REDIS_STRING:
+        return rdbSaveType(rdb,REDIS_RDB_TYPE_STRING);
+    case REDIS_LIST:
+        if (o->encoding == REDIS_ENCODING_ZIPLIST)
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_LIST_ZIPLIST);
+        else if (o->encoding == REDIS_ENCODING_LINKEDLIST)
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_LIST);
+        else
+            redisPanic("Unknown list encoding");
+    case REDIS_SET:
+        if (o->encoding == REDIS_ENCODING_INTSET)
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_SET_INTSET);
+        else if (o->encoding == REDIS_ENCODING_HT)
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_SET);
+        else
+            redisPanic("Unknown set encoding");
+    case REDIS_ZSET:
+        if (o->encoding == REDIS_ENCODING_ZIPLIST)
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_ZSET_ZIPLIST);
+        else if (o->encoding == REDIS_ENCODING_SKIPLIST)
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_ZSET);
+        else
+            redisPanic("Unknown sorted set encoding");
+    case REDIS_HASH:
+        if (o->encoding == REDIS_ENCODING_ZIPMAP)
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_HASH_ZIPMAP);
+        else if (o->encoding == REDIS_ENCODING_HT)
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_HASH);
+        else
+            redisPanic("Unknown hash encoding");
+    default:
+        redisPanic("Unknown object type");
+    }
+    return -1; /* avoid warning */
+}
+
+/* Load object type. Return -1 when the byte doesn't contain an object type. */
+int rdbLoadObjectType(rio *rdb) {
+    int type;
+    if ((type = rdbLoadType(rdb)) == -1) return -1;
+    if (!rdbIsObjectType(type)) return -1;
+    return type;
+}
+
 /* Save a key-value pair, with expire time, type, key, value.
  * On error -1 is returned.
  * On success if the key was actaully saved 1 is returned, otherwise 0
@@ -373,28 +420,16 @@ off_t rdbSavedObjectLen(robj *o) {
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val,
                         time_t expiretime, time_t now)
 {
-    int vtype;
-
     /* Save the expire time */
     if (expiretime != -1) {
         /* If this key is already expired skip it */
         if (expiretime < now) return 0;
-        if (rdbSaveType(rdb,REDIS_EXPIRETIME) == -1) return -1;
+        if (rdbSaveType(rdb,REDIS_RDB_OPCODE_EXPIRETIME) == -1) return -1;
         if (rdbSaveTime(rdb,expiretime) == -1) return -1;
     }
-    /* Fix the object type if needed, to support saving zipmaps, ziplists,
-     * and intsets, directly as blobs of bytes: they are already serialized. */
-    vtype = val->type;
-    if (vtype == REDIS_HASH && val->encoding == REDIS_ENCODING_ZIPMAP)
-        vtype = REDIS_HASH_ZIPMAP;
-    else if (vtype == REDIS_LIST && val->encoding == REDIS_ENCODING_ZIPLIST)
-        vtype = REDIS_LIST_ZIPLIST;
-    else if (vtype == REDIS_SET && val->encoding == REDIS_ENCODING_INTSET)
-        vtype = REDIS_SET_INTSET;
-    else if (vtype == REDIS_ZSET && val->encoding == REDIS_ENCODING_ZIPLIST)
-        vtype = REDIS_ZSET_ZIPLIST;
+
     /* Save type, key, value */
-    if (rdbSaveType(rdb,vtype) == -1) return -1;
+    if (rdbSaveObjectType(rdb,val) == -1) return -1;
     if (rdbSaveStringObject(rdb,key) == -1) return -1;
     if (rdbSaveObject(rdb,val) == -1) return -1;
     return 1;
@@ -437,7 +472,7 @@ int rdbSave(char *filename) {
         }
 
         /* Write the SELECT DB opcode */
-        if (rdbSaveType(&rdb,REDIS_SELECTDB) == -1) goto werr;
+        if (rdbSaveType(&rdb,REDIS_RDB_OPCODE_SELECTDB) == -1) goto werr;
         if (rdbSaveLen(&rdb,j) == -1) goto werr;
 
         /* Iterate this DB writing every entry */
@@ -453,7 +488,7 @@ int rdbSave(char *filename) {
         dictReleaseIterator(di);
     }
     /* EOF opcode */
-    if (rdbSaveType(&rdb,REDIS_EOF) == -1) goto werr;
+    if (rdbSaveType(&rdb,REDIS_RDB_OPCODE_EOF) == -1) goto werr;
 
     /* Make sure data will not remain on the OS's output buffers */
     fflush(fp);
@@ -672,17 +707,17 @@ int rdbLoadDoubleValue(rio *rdb, double *val) {
 
 /* Load a Redis object of the specified type from the specified file.
  * On success a newly allocated object is returned, otherwise NULL. */
-robj *rdbLoadObject(int type, rio *rdb) {
+robj *rdbLoadObject(int rdbtype, rio *rdb) {
     robj *o, *ele, *dec;
     size_t len;
     unsigned int i;
 
-    redisLog(REDIS_DEBUG,"LOADING OBJECT %d (at %d)\n",type,rdb->tell(rdb));
-    if (type == REDIS_STRING) {
+    redisLog(REDIS_DEBUG,"LOADING OBJECT %d (at %d)\n",rdbtype,rdb->tell(rdb));
+    if (rdbtype == REDIS_RDB_TYPE_STRING) {
         /* Read string value */
         if ((o = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
         o = tryObjectEncoding(o);
-    } else if (type == REDIS_LIST) {
+    } else if (rdbtype == REDIS_RDB_TYPE_LIST) {
         /* Read list value */
         if ((len = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
 
@@ -714,7 +749,7 @@ robj *rdbLoadObject(int type, rio *rdb) {
                 listAddNodeTail(o->ptr,ele);
             }
         }
-    } else if (type == REDIS_SET) {
+    } else if (rdbtype == REDIS_RDB_TYPE_SET) {
         /* Read list/set value */
         if ((len = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
 
@@ -753,7 +788,7 @@ robj *rdbLoadObject(int type, rio *rdb) {
                 decrRefCount(ele);
             }
         }
-    } else if (type == REDIS_ZSET) {
+    } else if (rdbtype == REDIS_RDB_TYPE_ZSET) {
         /* Read list/set value */
         size_t zsetlen;
         size_t maxelelen = 0;
@@ -787,7 +822,7 @@ robj *rdbLoadObject(int type, rio *rdb) {
         if (zsetLength(o) <= server.zset_max_ziplist_entries &&
             maxelelen <= server.zset_max_ziplist_value)
                 zsetConvert(o,REDIS_ENCODING_ZIPLIST);
-    } else if (type == REDIS_HASH) {
+    } else if (rdbtype == REDIS_RDB_TYPE_HASH) {
         size_t hashlen;
 
         if ((hashlen = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
@@ -833,10 +868,10 @@ robj *rdbLoadObject(int type, rio *rdb) {
                 dictAdd((dict*)o->ptr,key,val);
             }
         }
-    } else if (type == REDIS_HASH_ZIPMAP ||
-               type == REDIS_LIST_ZIPLIST ||
-               type == REDIS_SET_INTSET ||
-               type == REDIS_ZSET_ZIPLIST)
+    } else if (rdbtype == REDIS_RDB_TYPE_HASH_ZIPMAP  ||
+               rdbtype == REDIS_RDB_TYPE_LIST_ZIPLIST ||
+               rdbtype == REDIS_RDB_TYPE_SET_INTSET   ||
+               rdbtype == REDIS_RDB_TYPE_ZSET_ZIPLIST)
     {
         robj *aux = rdbLoadStringObject(rdb);
 
@@ -852,26 +887,26 @@ robj *rdbLoadObject(int type, rio *rdb) {
          * type. Note that we only check the length and not max element
          * size as this is an O(N) scan. Eventually everything will get
          * converted. */
-        switch(type) {
-            case REDIS_HASH_ZIPMAP:
+        switch(rdbtype) {
+            case REDIS_RDB_TYPE_HASH_ZIPMAP:
                 o->type = REDIS_HASH;
                 o->encoding = REDIS_ENCODING_ZIPMAP;
                 if (zipmapLen(o->ptr) > server.hash_max_zipmap_entries)
                     convertToRealHash(o);
                 break;
-            case REDIS_LIST_ZIPLIST:
+            case REDIS_RDB_TYPE_LIST_ZIPLIST:
                 o->type = REDIS_LIST;
                 o->encoding = REDIS_ENCODING_ZIPLIST;
                 if (ziplistLen(o->ptr) > server.list_max_ziplist_entries)
                     listTypeConvert(o,REDIS_ENCODING_LINKEDLIST);
                 break;
-            case REDIS_SET_INTSET:
+            case REDIS_RDB_TYPE_SET_INTSET:
                 o->type = REDIS_SET;
                 o->encoding = REDIS_ENCODING_INTSET;
                 if (intsetLen(o->ptr) > server.set_max_intset_entries)
                     setTypeConvert(o,REDIS_ENCODING_HT);
                 break;
-            case REDIS_ZSET_ZIPLIST:
+            case REDIS_RDB_TYPE_ZSET_ZIPLIST:
                 o->type = REDIS_ZSET;
                 o->encoding = REDIS_ENCODING_ZIPLIST;
                 if (zsetLength(o) > server.zset_max_ziplist_entries)
@@ -952,14 +987,17 @@ int rdbLoad(char *filename) {
 
         /* Read type. */
         if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
-        if (type == REDIS_EXPIRETIME) {
+        if (type == REDIS_RDB_OPCODE_EXPIRETIME) {
             if ((expiretime = rdbLoadTime(&rdb)) == -1) goto eoferr;
-            /* We read the time so we need to read the object type again */
+            /* We read the time so we need to read the object type again. */
             if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
         }
-        if (type == REDIS_EOF) break;
+
+        if (type == REDIS_RDB_OPCODE_EOF)
+            break;
+
         /* Handle SELECT DB opcode as a special case */
-        if (type == REDIS_SELECTDB) {
+        if (type == REDIS_RDB_OPCODE_SELECTDB) {
             if ((dbid = rdbLoadLen(&rdb,NULL)) == REDIS_RDB_LENERR)
                 goto eoferr;
             if (dbid >= (unsigned)server.dbnum) {

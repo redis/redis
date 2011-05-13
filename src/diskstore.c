@@ -242,7 +242,7 @@ robj *dsGet(redisDb *db, robj *key, time_t *expire) {
 
     rdb = rioInitWithFile(fp);
     if ((type = rdbLoadType(&rdb)) == -1) goto readerr;
-    if (type == REDIS_EXPIRETIME) {
+    if (type == REDIS_RDB_OPCODE_EXPIRETIME) {
         if ((expiretime = rdbLoadTime(&rdb)) == -1) goto readerr;
         /* We read the time so we need to read the object type again */
         if ((type = rdbLoadType(&rdb)) == -1) goto readerr;
@@ -416,7 +416,7 @@ void *dsRdbSave_thread(void *arg) {
                 dbid = dsGetDbidFromFilename(dp->d_name);
                 if (dbid != last_dbid) {
                     last_dbid = dbid;
-                    if (rdbSaveType(&rdb,REDIS_SELECTDB) == -1) goto werr;
+                    if (rdbSaveType(&rdb,REDIS_RDB_OPCODE_SELECTDB) == -1) goto werr;
                     if (rdbSaveLen(&rdb,dbid) == -1) goto werr;
                 }
 
@@ -453,7 +453,7 @@ void *dsRdbSave_thread(void *arg) {
     }
     
     /* Output the end of file opcode */
-    if (rdbSaveType(&rdb,REDIS_EOF) == -1) goto werr;
+    if (rdbSaveType(&rdb,REDIS_RDB_OPCODE_EOF) == -1) goto werr;
 
     /* Make sure data will not remain on the OS's output buffers */
     fflush(fp);

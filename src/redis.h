@@ -73,12 +73,6 @@
 #define REDIS_HASH 4
 #define REDIS_VMPOINTER 8
 
-/* Object types only used for persistence in .rdb files */
-#define REDIS_HASH_ZIPMAP 9
-#define REDIS_LIST_ZIPLIST 10
-#define REDIS_SET_INTSET 11
-#define REDIS_ZSET_ZIPLIST 12
-
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
  * is set to one of this fields for this object. */
@@ -90,11 +84,6 @@
 #define REDIS_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
 #define REDIS_ENCODING_INTSET 6  /* Encoded as intset */
 #define REDIS_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
-
-/* Object types only used for dumping to disk */
-#define REDIS_EXPIRETIME 253
-#define REDIS_SELECTDB 254
-#define REDIS_EOF 255
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of

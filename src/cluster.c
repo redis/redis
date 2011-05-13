@@ -1383,10 +1383,10 @@ void clusterCommand(redisClient *c) {
 
 /* RESTORE key ttl serialized-value */
 void restoreCommand(redisClient *c) {
-    robj *o;
     long ttl;
     rio payload;
-    unsigned char *data;
+    int type;
+    robj *obj;
 
     /* Make sure this key does not already exist here... */
     if (dbExists(c->db,c->argv[1])) {
@@ -1402,23 +1402,16 @@ void restoreCommand(redisClient *c) {
         return;
     }
 
-    /* Temporary hack to get RDB-aligned payload. */
-    payload = rioInitWithBuffer(sdsnewlen(c->argv[3]->ptr+1, sdslen(c->argv[3]->ptr)-1));
-    data = c->argv[3]->ptr;
-
-    /* Create the object from the serialized dump. */
-    if ((data[0] > 4 && data[0] < 9) ||
-         data[0] > 11 ||
-        (o = rdbLoadObject(data[0],&payload)) == NULL)
+    payload = rioInitWithBuffer(c->argv[3]->ptr);
+    if (((type = rdbLoadObjectType(&payload)) == -1) ||
+        ((obj = rdbLoadObject(type,&payload)) == NULL))
     {
-        addReplyError(c,"Bad data format.");
-        sdsfree(payload.io.buffer.ptr);
+        addReplyError(c,"Bad data format");
         return;
     }
-    sdsfree(payload.io.buffer.ptr);
 
     /* Create the key and set the TTL if any */
-    dbAdd(c->db,c->argv[1],o);
+    dbAdd(c->db,c->argv[1],obj);
     if (ttl) setExpire(c->db,c->argv[1],time(NULL)+ttl);
     addReply(c,shared.ok);
 }
@@ -1430,7 +1423,6 @@ void migrateCommand(redisClient *c) {
     long dbid;
     time_t ttl;
     robj *o;
-    unsigned char type;
     rio cmd, payload;
 
     /* Sanity check */
@@ -1467,16 +1459,6 @@ void migrateCommand(redisClient *c) {
     redisAssert(rioWriteBulkLongLong(&cmd,dbid));
 
     ttl = getExpire(c->db,c->argv[3]);
-    type = o->type;
-    if (type == REDIS_LIST && o->encoding == REDIS_ENCODING_ZIPLIST)
-        type = REDIS_LIST_ZIPLIST;
-    else if (type == REDIS_HASH && o->encoding == REDIS_ENCODING_ZIPMAP)
-        type = REDIS_HASH_ZIPMAP;
-    else if (type == REDIS_SET && o->encoding == REDIS_ENCODING_INTSET)
-        type = REDIS_SET_INTSET;
-    else
-        type = o->type;
-
     redisAssert(rioWriteBulkCount(&cmd,'*',4));
     redisAssert(rioWriteBulkString(&cmd,"RESTORE",7));
     redisAssert(c->argv[3]->encoding == REDIS_ENCODING_RAW);
@@ -1486,7 +1468,7 @@ void migrateCommand(redisClient *c) {
     /* Finally the last argument that is the serailized object payload
      * in the form: <type><rdb-serialized-object>. */
     payload = rioInitWithBuffer(sdsempty());
-    redisAssert(rioWrite(&payload,&type,1));
+    redisAssert(rdbSaveObjectType(&payload,o));
     redisAssert(rdbSaveObject(&payload,o) != -1);
     redisAssert(rioWriteBulkString(&cmd,payload.io.buffer.ptr,sdslen(payload.io.buffer.ptr)));
     sdsfree(payload.io.buffer.ptr);
@@ -1552,38 +1534,22 @@ socket_rd_err:
  * complement of RESTORE and can be useful for different applications. */
 void dumpCommand(redisClient *c) {
     robj *o, *dumpobj;
-    sds dump = NULL;
     rio payload;
-    unsigned int type;
 
     /* Check if the key is here. */
     if ((o = lookupKeyRead(c->db,c->argv[1])) == NULL) {
         addReply(c,shared.nullbulk);
         return;
     }
-    
-    /* Dump the serailized object and read it back in memory. We prefix it
-     * with a one byte containing the type ID.  This is the serialization
-     * format understood by RESTORE. */
-    payload = rioInitWithBuffer(sdsempty());
-    redisAssert(rdbSaveObject(&payload,o)); /* always write >= 1 bytes. */
-    dump = sdsnewlen(NULL,sdslen(payload.io.buffer.ptr)+1);
-    memcpy(dump+1,payload.io.buffer.ptr,sdslen(payload.io.buffer.ptr));
-    sdsfree(payload.io.buffer.ptr);
 
-    type = o->type;
-    if (type == REDIS_LIST && o->encoding == REDIS_ENCODING_ZIPLIST)
-        type = REDIS_LIST_ZIPLIST;
-    else if (type == REDIS_HASH && o->encoding == REDIS_ENCODING_ZIPMAP)
-        type = REDIS_HASH_ZIPMAP;
-    else if (type == REDIS_SET && o->encoding == REDIS_ENCODING_INTSET)
-        type = REDIS_SET_INTSET;
-    else
-        type = o->type;
-    dump[0] = type;
+    /* Serialize the object in a RDB-like format. It consist of an object type
+     * byte followed by the serialized object. This is understood by RESTORE. */
+    payload = rioInitWithBuffer(sdsempty());
+    redisAssert(rdbSaveObjectType(&payload,o));
+    redisAssert(rdbSaveObject(&payload,o));
 
     /* Transfer to the client */
-    dumpobj = createObject(REDIS_STRING,dump);
+    dumpobj = createObject(REDIS_STRING,payload.io.buffer.ptr);
     addReplyBulk(c,dumpobj);
     decrRefCount(dumpobj);
     return;
