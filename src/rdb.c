@@ -18,12 +18,26 @@ int rdbSaveType(rio *rdb, unsigned char type) {
     return rdbWriteRaw(rdb,&type,1);
 }
 
+int rdbLoadType(rio *rdb) {
+    unsigned char type;
+    if (rioRead(rdb,&type,1) == 0) return -1;
+    return type;
+}
+
 int rdbSaveTime(rio *rdb, time_t t) {
     int32_t t32 = (int32_t) t;
     return rdbWriteRaw(rdb,&t32,4);
 }
 
-/* check rdbLoadLen() comments for more info */
+time_t rdbLoadTime(rio *rdb) {
+    int32_t t32;
+    if (rioRead(rdb,&t32,4) == 0) return -1;
+    return (time_t)t32;
+}
+
+/* Saves an encoded length. The first two bits in the first byte are used to
+ * hold the encoding type. See the REDIS_RDB_* definitions for more information
+ * on the types of encoding. */
 int rdbSaveLen(rio *rdb, uint32_t len) {
     unsigned char buf[2];
     size_t nwritten;
@@ -50,13 +64,40 @@ int rdbSaveLen(rio *rdb, uint32_t len) {
     return nwritten;
 }
 
-/* Encode 'value' as an integer if possible (if integer will fit the
- * supported range). If the function sucessful encoded the integer
- * then the (up to 5 bytes) encoded representation is written in the
- * string pointed by 'enc' and the length is returned. Otherwise
- * 0 is returned. */
+/* Load an encoded length. The "isencoded" argument is set to 1 if the length
+ * is not actually a length but an "encoding type". See the REDIS_RDB_ENC_*
+ * definitions in rdb.h for more information. */
+uint32_t rdbLoadLen(rio *rdb, int *isencoded) {
+    unsigned char buf[2];
+    uint32_t len;
+    int type;
+
+    if (isencoded) *isencoded = 0;
+    if (rioRead(rdb,buf,1) == 0) return REDIS_RDB_LENERR;
+    type = (buf[0]&0xC0)>>6;
+    if (type == REDIS_RDB_ENCVAL) {
+        /* Read a 6 bit encoding type. */
+        if (isencoded) *isencoded = 1;
+        return buf[0]&0x3F;
+    } else if (type == REDIS_RDB_6BITLEN) {
+        /* Read a 6 bit len. */
+        return buf[0]&0x3F;
+    } else if (type == REDIS_RDB_14BITLEN) {
+        /* Read a 14 bit len. */
+        if (rioRead(rdb,buf+1,1) == 0) return REDIS_RDB_LENERR;
+        return ((buf[0]&0x3F)<<8)|buf[1];
+    } else {
+        /* Read a 32 bit len. */
+        if (rioRead(rdb,&len,4) == 0) return REDIS_RDB_LENERR;
+        return ntohl(len);
+    }
+}
+
+/* Encodes the "value" argument as integer when it fits in the supported ranges
+ * for encoded types. If the function successfully encodes the integer, the
+ * representation is stored in the buffer pointer to by "enc" and the string
+ * length is returned. Otherwise 0 is returned. */
 int rdbEncodeInteger(long long value, unsigned char *enc) {
-    /* Finally check if it fits in our ranges */
     if (value >= -(1<<7) && value <= (1<<7)-1) {
         enc[0] = (REDIS_RDB_ENCVAL<<6)|REDIS_RDB_ENC_INT8;
         enc[1] = value&0xFF;
@@ -76,6 +117,36 @@ int rdbEncodeInteger(long long value, unsigned char *enc) {
     } else {
         return 0;
     }
+}
+
+/* Loads an integer-encoded object with the specified encoding type "enctype".
+ * If the "encode" argument is set the function may return an integer-encoded
+ * string object, otherwise it always returns a raw string object. */
+robj *rdbLoadIntegerObject(rio *rdb, int enctype, int encode) {
+    unsigned char enc[4];
+    long long val;
+
+    if (enctype == REDIS_RDB_ENC_INT8) {
+        if (rioRead(rdb,enc,1) == 0) return NULL;
+        val = (signed char)enc[0];
+    } else if (enctype == REDIS_RDB_ENC_INT16) {
+        uint16_t v;
+        if (rioRead(rdb,enc,2) == 0) return NULL;
+        v = enc[0]|(enc[1]<<8);
+        val = (int16_t)v;
+    } else if (enctype == REDIS_RDB_ENC_INT32) {
+        uint32_t v;
+        if (rioRead(rdb,enc,4) == 0) return NULL;
+        v = enc[0]|(enc[1]<<8)|(enc[2]<<16)|(enc[3]<<24);
+        val = (int32_t)v;
+    } else {
+        val = 0; /* anti-warning */
+        redisPanic("Unknown RDB integer encoding type");
+    }
+    if (encode)
+        return createStringObjectFromLongLong(val);
+    else
+        return createObject(REDIS_STRING,sdsfromlonglong(val));
 }
 
 /* String objects in the form "2391" "-100" without any space and with a
@@ -132,6 +203,25 @@ int rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
 writeerr:
     zfree(out);
     return -1;
+}
+
+robj *rdbLoadLzfStringObject(rio *rdb) {
+    unsigned int len, clen;
+    unsigned char *c = NULL;
+    sds val = NULL;
+
+    if ((clen = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
+    if ((len = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
+    if ((c = zmalloc(clen)) == NULL) goto err;
+    if ((val = sdsnewlen(NULL,len)) == NULL) goto err;
+    if (rioRead(rdb,c,clen) == 0) goto err;
+    if (lzf_decompress(c,clen,val,len) == 0) goto err;
+    zfree(c);
+    return createObject(REDIS_STRING,val);
+err:
+    zfree(c);
+    sdsfree(val);
+    return NULL;
 }
 
 /* Save a string objet as [len][data] on disk. If the object is a string
@@ -199,6 +289,42 @@ int rdbSaveStringObject(rio *rdb, robj *obj) {
     }
 }
 
+robj *rdbGenericLoadStringObject(rio *rdb, int encode) {
+    int isencoded;
+    uint32_t len;
+    sds val;
+
+    len = rdbLoadLen(rdb,&isencoded);
+    if (isencoded) {
+        switch(len) {
+        case REDIS_RDB_ENC_INT8:
+        case REDIS_RDB_ENC_INT16:
+        case REDIS_RDB_ENC_INT32:
+            return rdbLoadIntegerObject(rdb,len,encode);
+        case REDIS_RDB_ENC_LZF:
+            return rdbLoadLzfStringObject(rdb);
+        default:
+            redisPanic("Unknown RDB encoding type");
+        }
+    }
+
+    if (len == REDIS_RDB_LENERR) return NULL;
+    val = sdsnewlen(NULL,len);
+    if (len && rioRead(rdb,val,len) == 0) {
+        sdsfree(val);
+        return NULL;
+    }
+    return createObject(REDIS_STRING,val);
+}
+
+robj *rdbLoadStringObject(rio *rdb) {
+    return rdbGenericLoadStringObject(rdb,0);
+}
+
+robj *rdbLoadEncodedStringObject(rio *rdb) {
+    return rdbGenericLoadStringObject(rdb,1);
+}
+
 /* Save a double value. Doubles are saved as strings prefixed by an unsigned
  * 8 bit integer specifing the length of the representation.
  * This 8 bit integer has special values in order to specify the following
@@ -239,6 +365,71 @@ int rdbSaveDoubleValue(rio *rdb, double val) {
         len = buf[0]+1;
     }
     return rdbWriteRaw(rdb,buf,len);
+}
+
+/* For information about double serialization check rdbSaveDoubleValue() */
+int rdbLoadDoubleValue(rio *rdb, double *val) {
+    char buf[128];
+    unsigned char len;
+
+    if (rioRead(rdb,&len,1) == 0) return -1;
+    switch(len) {
+    case 255: *val = R_NegInf; return 0;
+    case 254: *val = R_PosInf; return 0;
+    case 253: *val = R_Nan; return 0;
+    default:
+        if (rioRead(rdb,buf,len) == 0) return -1;
+        buf[len] = '\0';
+        sscanf(buf, "%lg", val);
+        return 0;
+    }
+}
+
+/* Save the object type of object "o". */
+int rdbSaveObjectType(rio *rdb, robj *o) {
+    switch (o->type) {
+    case REDIS_STRING:
+        return rdbSaveType(rdb,REDIS_RDB_TYPE_STRING);
+    case REDIS_LIST:
+        if (o->encoding == REDIS_ENCODING_ZIPLIST)
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_LIST_ZIPLIST);
+        else if (o->encoding == REDIS_ENCODING_LINKEDLIST)
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_LIST);
+        else
+            redisPanic("Unknown list encoding");
+    case REDIS_SET:
+        if (o->encoding == REDIS_ENCODING_INTSET)
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_SET_INTSET);
+        else if (o->encoding == REDIS_ENCODING_HT)
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_SET);
+        else
+            redisPanic("Unknown set encoding");
+    case REDIS_ZSET:
+        if (o->encoding == REDIS_ENCODING_ZIPLIST)
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_ZSET_ZIPLIST);
+        else if (o->encoding == REDIS_ENCODING_SKIPLIST)
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_ZSET);
+        else
+            redisPanic("Unknown sorted set encoding");
+    case REDIS_HASH:
+        if (o->encoding == REDIS_ENCODING_ZIPMAP)
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_HASH_ZIPMAP);
+        else if (o->encoding == REDIS_ENCODING_HT)
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_HASH);
+        else
+            redisPanic("Unknown hash encoding");
+    default:
+        redisPanic("Unknown object type");
+    }
+    return -1; /* avoid warning */
+}
+
+/* Load object type. Return -1 when the byte doesn't contain an object type. */
+int rdbLoadObjectType(rio *rdb) {
+    int type;
+    if ((type = rdbLoadType(rdb)) == -1) return -1;
+    if (!rdbIsObjectType(type)) return -1;
+    return type;
 }
 
 /* Save a Redis object. Returns -1 on error, 0 on success. */
@@ -364,53 +555,6 @@ off_t rdbSavedObjectLen(robj *o) {
     int len = rdbSaveObject(NULL,o);
     redisAssert(len != -1);
     return len;
-}
-
-/* Save the object type of object "o". */
-int rdbSaveObjectType(rio *rdb, robj *o) {
-    switch (o->type) {
-    case REDIS_STRING:
-        return rdbSaveType(rdb,REDIS_RDB_TYPE_STRING);
-    case REDIS_LIST:
-        if (o->encoding == REDIS_ENCODING_ZIPLIST)
-            return rdbSaveType(rdb,REDIS_RDB_TYPE_LIST_ZIPLIST);
-        else if (o->encoding == REDIS_ENCODING_LINKEDLIST)
-            return rdbSaveType(rdb,REDIS_RDB_TYPE_LIST);
-        else
-            redisPanic("Unknown list encoding");
-    case REDIS_SET:
-        if (o->encoding == REDIS_ENCODING_INTSET)
-            return rdbSaveType(rdb,REDIS_RDB_TYPE_SET_INTSET);
-        else if (o->encoding == REDIS_ENCODING_HT)
-            return rdbSaveType(rdb,REDIS_RDB_TYPE_SET);
-        else
-            redisPanic("Unknown set encoding");
-    case REDIS_ZSET:
-        if (o->encoding == REDIS_ENCODING_ZIPLIST)
-            return rdbSaveType(rdb,REDIS_RDB_TYPE_ZSET_ZIPLIST);
-        else if (o->encoding == REDIS_ENCODING_SKIPLIST)
-            return rdbSaveType(rdb,REDIS_RDB_TYPE_ZSET);
-        else
-            redisPanic("Unknown sorted set encoding");
-    case REDIS_HASH:
-        if (o->encoding == REDIS_ENCODING_ZIPMAP)
-            return rdbSaveType(rdb,REDIS_RDB_TYPE_HASH_ZIPMAP);
-        else if (o->encoding == REDIS_ENCODING_HT)
-            return rdbSaveType(rdb,REDIS_RDB_TYPE_HASH);
-        else
-            redisPanic("Unknown hash encoding");
-    default:
-        redisPanic("Unknown object type");
-    }
-    return -1; /* avoid warning */
-}
-
-/* Load object type. Return -1 when the byte doesn't contain an object type. */
-int rdbLoadObjectType(rio *rdb) {
-    int type;
-    if ((type = rdbLoadType(rdb)) == -1) return -1;
-    if (!rdbIsObjectType(type)) return -1;
-    return type;
 }
 
 /* Save a key-value pair, with expire time, type, key, value.
@@ -556,153 +700,6 @@ void rdbRemoveTempFile(pid_t childpid) {
 
     snprintf(tmpfile,256,"temp-%d.rdb", (int) childpid);
     unlink(tmpfile);
-}
-
-int rdbLoadType(rio *rdb) {
-    unsigned char type;
-    if (rioRead(rdb,&type,1) == 0) return -1;
-    return type;
-}
-
-time_t rdbLoadTime(rio *rdb) {
-    int32_t t32;
-    if (rioRead(rdb,&t32,4) == 0) return -1;
-    return (time_t) t32;
-}
-
-/* Load an encoded length from the DB, see the REDIS_RDB_* defines on the top
- * of this file for a description of how this are stored on disk.
- *
- * isencoded is set to 1 if the readed length is not actually a length but
- * an "encoding type", check the above comments for more info */
-uint32_t rdbLoadLen(rio *rdb, int *isencoded) {
-    unsigned char buf[2];
-    uint32_t len;
-    int type;
-
-    if (isencoded) *isencoded = 0;
-    if (rioRead(rdb,buf,1) == 0) return REDIS_RDB_LENERR;
-    type = (buf[0]&0xC0)>>6;
-    if (type == REDIS_RDB_6BITLEN) {
-        /* Read a 6 bit len */
-        return buf[0]&0x3F;
-    } else if (type == REDIS_RDB_ENCVAL) {
-        /* Read a 6 bit len encoding type */
-        if (isencoded) *isencoded = 1;
-        return buf[0]&0x3F;
-    } else if (type == REDIS_RDB_14BITLEN) {
-        /* Read a 14 bit len */
-        if (rioRead(rdb,buf+1,1) == 0) return REDIS_RDB_LENERR;
-        return ((buf[0]&0x3F)<<8)|buf[1];
-    } else {
-        /* Read a 32 bit len */
-        if (rioRead(rdb,&len,4) == 0) return REDIS_RDB_LENERR;
-        return ntohl(len);
-    }
-}
-
-/* Load an integer-encoded object from file 'fp', with the specified
- * encoding type 'enctype'. If encode is true the function may return
- * an integer-encoded object as reply, otherwise the returned object
- * will always be encoded as a raw string. */
-robj *rdbLoadIntegerObject(rio *rdb, int enctype, int encode) {
-    unsigned char enc[4];
-    long long val;
-
-    if (enctype == REDIS_RDB_ENC_INT8) {
-        if (rioRead(rdb,enc,1) == 0) return NULL;
-        val = (signed char)enc[0];
-    } else if (enctype == REDIS_RDB_ENC_INT16) {
-        uint16_t v;
-        if (rioRead(rdb,enc,2) == 0) return NULL;
-        v = enc[0]|(enc[1]<<8);
-        val = (int16_t)v;
-    } else if (enctype == REDIS_RDB_ENC_INT32) {
-        uint32_t v;
-        if (rioRead(rdb,enc,4) == 0) return NULL;
-        v = enc[0]|(enc[1]<<8)|(enc[2]<<16)|(enc[3]<<24);
-        val = (int32_t)v;
-    } else {
-        val = 0; /* anti-warning */
-        redisPanic("Unknown RDB integer encoding type");
-    }
-    if (encode)
-        return createStringObjectFromLongLong(val);
-    else
-        return createObject(REDIS_STRING,sdsfromlonglong(val));
-}
-
-robj *rdbLoadLzfStringObject(rio *rdb) {
-    unsigned int len, clen;
-    unsigned char *c = NULL;
-    sds val = NULL;
-
-    if ((clen = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
-    if ((len = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
-    if ((c = zmalloc(clen)) == NULL) goto err;
-    if ((val = sdsnewlen(NULL,len)) == NULL) goto err;
-    if (rioRead(rdb,c,clen) == 0) goto err;
-    if (lzf_decompress(c,clen,val,len) == 0) goto err;
-    zfree(c);
-    return createObject(REDIS_STRING,val);
-err:
-    zfree(c);
-    sdsfree(val);
-    return NULL;
-}
-
-robj *rdbGenericLoadStringObject(rio *rdb, int encode) {
-    int isencoded;
-    uint32_t len;
-    sds val;
-
-    len = rdbLoadLen(rdb,&isencoded);
-    if (isencoded) {
-        switch(len) {
-        case REDIS_RDB_ENC_INT8:
-        case REDIS_RDB_ENC_INT16:
-        case REDIS_RDB_ENC_INT32:
-            return rdbLoadIntegerObject(rdb,len,encode);
-        case REDIS_RDB_ENC_LZF:
-            return rdbLoadLzfStringObject(rdb);
-        default:
-            redisPanic("Unknown RDB encoding type");
-        }
-    }
-
-    if (len == REDIS_RDB_LENERR) return NULL;
-    val = sdsnewlen(NULL,len);
-    if (len && rioRead(rdb,val,len) == 0) {
-        sdsfree(val);
-        return NULL;
-    }
-    return createObject(REDIS_STRING,val);
-}
-
-robj *rdbLoadStringObject(rio *rdb) {
-    return rdbGenericLoadStringObject(rdb,0);
-}
-
-robj *rdbLoadEncodedStringObject(rio *rdb) {
-    return rdbGenericLoadStringObject(rdb,1);
-}
-
-/* For information about double serialization check rdbSaveDoubleValue() */
-int rdbLoadDoubleValue(rio *rdb, double *val) {
-    char buf[128];
-    unsigned char len;
-
-    if (rioRead(rdb,&len,1) == 0) return -1;
-    switch(len) {
-    case 255: *val = R_NegInf; return 0;
-    case 254: *val = R_PosInf; return 0;
-    case 253: *val = R_Nan; return 0;
-    default:
-        if (rioRead(rdb,buf,len) == 0) return -1;
-        buf[len] = '\0';
-        sscanf(buf, "%lg", val);
-        return 0;
-    }
 }
 
 /* Load a Redis object of the specified type from the specified file.
