@@ -686,7 +686,18 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
 
                 score = src[0].weight * zunionInterDictValue(de);
                 for (j = 1; j < setnum; j++) {
-                    dictEntry *other = dictFind(src[j].dict,dictGetEntryKey(de));
+                    dictEntry *other;
+
+                    /* If it's the same dictionary don't lookup as we are not
+                     * in the context of a safe iterator. It's the same
+                     * dictionary so we are sure the element is inside.
+                     * This happens on SINTERSTORE dest 2 mykey mykey. */
+                    if (src[j].dict == src[0].dict) {
+                        other = de;
+                    } else {
+                        other = dictFind(src[j].dict,dictGetEntryKey(de));
+                    }
+
                     if (other) {
                         value = src[j].weight * zunionInterDictValue(other);
                         zunionInterAggregate(&score,value,aggregate);
