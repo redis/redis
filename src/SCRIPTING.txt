@@ -1,0 +1,31 @@
+Documentation:
+
+    http://antirez.com/post/scripting-branch-released.html
+
+TODO:
+
+    MULTI/EXEC/...: should we do more than simply ignoring it?
+
+    Prevent Lua from calling itself with redis("eval",...)
+
+    Implement log() function, and define REDIS_WARNING, REDIS_NOTICE, ...
+
+    SCRIPT FLUSH or alike to start a fresh interpreter.
+
+    Max exection time for scripts, even pretty high, but in order to
+    prevent that an instance gets completely freezed by error.
+    Hint: Use a debug hook for this (lua_sethook() with LUA_MASKCOUNT).
+
+Blog post TODO:
+
+    Explain that for now this is just an experiemnt and there is no way to
+    tell if this will ever enter Redis stable, but that since it is pretty
+    self contained it is trivial to rebase with the unstable branch.
+
+    Explain how replication / AOF mix with scripting and why it is this way,
+    and that scripts should be written to don't depend from timing or other
+    external events if you want to use AOF / replication.
+
+    Show how fast it is!
+
+    Mention that dynamically generated scripts are not a good idea.

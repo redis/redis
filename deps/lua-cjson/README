@@ -1,0 +1,224 @@
+Lua CJSON v1.0.1
+================
+
+Lua CJSON is covered by the MIT license. See the file "LICENSE" for
+details.
+
+Lua CJSON provides fast JSON parsing and encoding support for Lua.
+
+Features:
+- 10x to 20x quicker (or more) than the fastest pure Lua JSON modules.
+- Full support for JSON with UTF-8, including decoding surrogate
+  pairs.
+- Optionally supports common JSON extensions (NaN, Inf,..).
+
+Caveats:
+- UTF-16 and UTF-32 are not supported.
+- Multiple OS threads within a single Lua state are not currently
+  supported.
+
+To obtain the latest version of Lua CJSON visit:
+
+  http://www.kyne.com.au/~mark/software/lua-cjson.php
+
+Feel free to email me if you have any patches, suggestions, or comments.
+
+- Mark Pulford <mark@kyne.com.au>
+
+
+Installing
+==========
+
+Build requirements:
+- Lua (http://www.lua.org/)
+Or:
+- LuaJIT (http://www.luajit.org/)
+
+Review and update the included Makefile to suit your platform. Then:
+
+  # make
+  # make install
+  OR
+  # cp cjson.so [your_module_directory]
+
+Linux distributions using RPM should be able to build a package with
+the following command:
+
+  # rpmbuild -tb lua-cjson-1.0.1.tar.gz
+
+
+Lua CJSON API
+=============
+
+Synopsis
+--------
+
+  require "cjson"
+  -- Or:
+  local cjson = require "cjson"
+
+  -- Translate Lua value to/from JSON
+  text = cjson.encode(value)
+  value = cjson.decode(text)
+
+  -- Get and/or Set CJSON configuration
+  setting = cjson.refuse_invalid_numbers([setting])
+  depth = cjson.encode_max_depth([depth])
+  convert, ratio, safe = cjson.encode_sparse_array([convert[, ratio[, safe]]])
+  keep = cjson.encode_keep_buffer([keep])
+
+
+Encoding
+--------
+
+  json_text = cjson.encode(value)
+
+cjson.encode() will serialise the following types:
+  * number, string, table, boolean, lightuserdata (NULL) or nil
+
+The remaining Lua types cannot be serialised:
+  * thread, userdata, lightuserdata (non-NULL), function
+
+Numbers are encoded using the standard Lua number format.
+
+ASCII 0 - 31, double-quote, forward-slash, black-slash and ASCII 127
+are escaped when encoding strings. Other octets are passed
+transparently. It is expected the application will perform UTF-8 error
+checking if required.
+
+If a Lua table only contains positive integer keys (>0) it is encoded
+as an array, otherwise it will be encoded as an object.
+
+A Lua table will only recognised as an array if all keys are type
+"number", and are positive integers (>0). Otherwise CJSON will encode
+the table as a JSON object.
+
+CJSON will also recognise and handle sparse arrays. Missing entries
+will be encoded as "null". Eg:
+  { [3] = "data" }
+becomes:
+  [ null, null, "data" ]
+
+Note: standards compliant JSON must be encapsulated in either an
+object ({}) or an array ([]). Hence you must pass a table to
+cjson.encode() if you want to generate standards compliant JSON
+output.
+
+By default, errors will be raised for:
+- Excessively sparse arrays (see below)
+- More than 20 nested tables
+- Invalid numbers (NaN, Infinity)
+
+These defaults can be changed with:
+- cjson.encode_sparse_array()
+- cjson.encode_max_depth()
+- cjson.refuse_invalid_numbers()
+
+Example:
+  data_obj = { true, { foo = "bar" } }
+  data_json = cjson.encode(data_obj)
+
+
+Decoding
+--------
+
+  value = cjson.decode(json_text)
+
+cjson.decode() will deserialise any UTF-8 JSON string into a Lua data
+structure. It can return any of the types that cjson.encode()
+supports.
+
+UTF-16 and UTF-32 JSON strings are not supported.
+
+CJSON only requires that NULL (\0) and double quote (\") are escaped
+within strings. All other octets will be passed transparently. UTF-8
+characters are not validated and should be checked elsewhere if
+desired.
+
+JSON "null" will be converted to a NULL lightuserdata value. This can
+be compared with cjson.null for convenience.
+
+By default, invalid numbers (NaN, Infinity, Hex) will be decoded
+correctly.
+
+Example:
+  data_json = '[ true, { "foo": "bar" } ]'
+  data_obj = cjson.decode(data_json)
+
+
+Invalid numbers
+---------------
+
+  setting = cjson.refuse_invalid_numbers([setting])
+  -- "setting" must be on of:
+  --       false, "encode", "decode", "both", true
+
+CJSON considers numbers which are outside the JSON specification to be
+"invalid". Eg:
+- Infinity
+- NaN
+- Hexadecimal numbers
+
+This setting can be configured separately for encoding and/or
+decoding:
+- Enabled: an error will be generated if an invalid number is found.
+- Disabled (encoding): NaN and Infinity can be encoded. 
+- Disabled (decoding): All numbers supported by strtod(3) will be
+                       parsed.
+
+
+Sparse arrays
+-------------
+
+  convert, ratio, safe = cjson.encode_sparse_array([convert[, ratio[, safe]]])
+  -- "convert" must be a boolean. Default: false.
+  -- "ratio" must be a positive integer (>0). Default: 2
+  -- "safe" must be a positive integer (>0). Default: 10
+
+CJSON detects excessively sparse arrays by comparing the number of
+items in an array with the maximum index. An excessively sparse array
+is defined as:
+
+  max_index > safe AND max_index > items * ratio
+
+Eg:
+  { [1000] = "excessively sparse array" }
+
+Setting "ratio" to 0 disables checking for excessively sparse arrays.
+
+When "convert" is enabled, CJSON will encode excessively sparse arrays
+as JSON objects.
+
+
+Nested tables
+-------------
+
+  depth = cjson.encode_max_depth([depth])
+  -- "depth" must be a positive integer (>0).
+
+By default, CJSON will reject data structure with more than 20 nested
+tables.
+
+This check is used to prevent a nested data structure from crashing
+the application. Eg:
+  a = {}; b = { a }; a[1] = b
+
+
+Persistent encoding buffer
+-------------------------
+
+  keep = cjson.keep_encode_buffer([keep])
+  -- "keep" must be a boolean
+
+By default, CJSON will reuse the JSON encoding buffer to improve
+performance. The buffer will grow to the largest size required and is
+not freed until CJSON is garbage collected. Setting this option to
+"false" will cause the buffer to be freed after each call to
+cjson.encode().
+
+
+References
+==========
+
+- http://tools.ietf.org/html/rfc4627
+- http://www.json.org/

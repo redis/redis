@@ -1,0 +1,42 @@
+Performance comparison
+----------------------
+
+Here is a rough performance comparision of several JSON packages
+available for Lua:
+
+- DKJSON 1.0: One of the fastest pure Lua JSON implementations.
+- LuaJSON 1.0: A mixed Lua/C JSON implementation using LPeg.
+- CSJON 1.0: Pure C.
+
+The example JSON files used were taken from http://json.org/ and
+RFC 4627.
+
+                        === DKJSON ===  == LuaJSON ===  === CJSON ====
+== Decoding ==          Lua     LuaJIT  Lua     LuaJIT  Lua     LuaJIT
+example1.json           1.0x    1.9x    3.4x    3.9x    12.3x   13.7x
+example2.json           1.0x    2.0x    3.6x    4.6x    12.2x   20.0x
+example3.json           1.0x    2.0x    3.9x    4.7x    13.1x   18.8x
+example4.json           1.0x    1.8x    3.7x    4.4x    11.9x   17.0x
+example5.json           1.0x    1.5x    4.0x    4.8x    14.6x   22.2x
+rfc-example1.json       1.0x    1.5x    3.2x    4.3x    11.7x   16.9x
+rfc-example2.json       1.0x    1.5x    3.7x    4.5x    10.3x   19.4x
+== Average ==>          1.0x    1.7x    3.5x    4.2x    11.3x   16.5x
+
+== Encoding ==                                           
+example1.json           1.0x    1.8x    0.6x    1.4x    23.5x   23.4x
+example2.json           1.0x    2.0x    0.5x    1.2x    22.4x   22.4x
+example3.json           1.0x    1.8x    0.6x    1.3x    10.8x   13.4x
+example4.json           1.0x    1.2x    0.7x    1.5x    15.7x   17.2x
+example5.json           1.0x    1.5x    0.6x    1.4x    22.1x   20.4x
+rfc-example1.json       1.0x    1.4x    0.5x    1.1x    8.9x    9.2x
+rfc-example2.json       1.0x    1.4x    0.6x    1.3x    10.4x   10.9x
+== Average ==>          1.0x    1.6x    0.6x    1.3x    17.0x   17.2x
+
+
+CJSON spends a significant amount of time calling sprintf() to convert
+doubles to strings while encoding "rfc-example1.json". Hence it only
+shows a 9x improvement in this case.
+
+The performance gains available can vary widely. If performance is
+critical, I would recommend testing in a relevant environment with
+your intended data.

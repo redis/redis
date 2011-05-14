@@ -19,6 +19,7 @@
 #include <pthread.h>
 #include <syslog.h>
 #include <netinet/in.h>
+#include <lua.h>
 
 #include "ae.h"     /* Event driven programming library */
 #include "sds.h"    /* Dynamic safe strings */
@@ -147,6 +148,7 @@
 #define REDIS_CLOSE_AFTER_REPLY 128 /* Close after writing entire reply. */
 #define REDIS_UNBLOCKED 256 /* This client was unblocked and is stored in
                                server.unblocked_clients */
+#define REDIS_LUA_CLIENT 512 /* This is a non connected client used by Lua */
 
 /* Client request types */
 #define REDIS_REQ_INLINE 1
@@ -222,6 +224,9 @@
 #define REDIS_BGSAVE_THREAD_ACTIVE 1
 #define REDIS_BGSAVE_THREAD_DONE_OK 2
 #define REDIS_BGSAVE_THREAD_DONE_ERR 3
+
+/* Scripting */
+#define REDIS_LUA_TIME_LIMIT 60000 /* milliseconds */
 
 /* We can print the stacktrace, so our assert is defined this way: */
 #define redisAssert(_e) ((_e)?(void)0 : (_redisAssert(#_e,__FILE__,__LINE__),_exit(1)))
@@ -360,7 +365,7 @@ struct sharedObjectsStruct {
     robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *cnegone, *pong, *space,
     *colon, *nullbulk, *nullmultibulk, *queued,
     *emptymultibulk, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
-    *outofrangeerr, *loadingerr, *plus,
+    *outofrangeerr, *noscripterr, *loadingerr, *plus,
     *select0, *select1, *select2, *select3, *select4,
     *select5, *select6, *select7, *select8, *select9,
     *messagebulk, *pmessagebulk, *subscribebulk, *unsubscribebulk, *mbulk3,
@@ -654,6 +659,11 @@ struct redisServer {
     /* Cluster */
     int cluster_enabled;
     clusterState cluster;
+    /* Scripting */
+    lua_State *lua;
+    redisClient *lua_client;
+    long long lua_time_limit;
+    long long lua_time_start;
 };
 
 typedef struct pubsubPattern {
@@ -1075,6 +1085,9 @@ int clusterAddNode(clusterNode *node);
 void clusterCron(void);
 clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
 
+/* Scripting */
+void scriptingInit(void);
+
 /* Git SHA1 */
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
@@ -1203,6 +1216,8 @@ void migrateCommand(redisClient *c);
 void dumpCommand(redisClient *c);
 void objectCommand(redisClient *c);
 void clientCommand(redisClient *c);
+void evalCommand(redisClient *c);
+void evalShaCommand(redisClient *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));

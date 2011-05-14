@@ -1,0 +1,22 @@
+README for Lua BitOp 1.0.1
+--------------------------
+
+Lua BitOp is a C extension module for Lua 5.1 which adds
+bitwise operations on numbers.
+
+Homepage: http://bitop.luajit.org/
+
+Lua BitOp is Copyright (C) 2008-2009 Mike Pall.
+Lua BitOp is free software, released under the MIT/X license.
+
+--------------------------
+
+Full documentation for Lua BitOp is available in HTML format.
+Please point your favourite browser to:
+
+ doc/index.html
+
+Detailed installation instructions are here:
+
+ doc/install.html
+

@@ -193,7 +193,9 @@ struct redisCommand redisCommandTable[] = {
     {"migrate",migrateCommand,6,0,NULL,0,0,0,0,0},
     {"dump",dumpCommand,2,0,NULL,0,0,0,0,0},
     {"object",objectCommand,-2,0,NULL,0,0,0,0,0},
-    {"client",clientCommand,-2,0,NULL,0,0,0,0,0}
+    {"client",clientCommand,-2,0,NULL,0,0,0,0,0},
+    {"eval",evalCommand,-3,REDIS_CMD_DENYOOM,zunionInterGetKeys,0,0,0,0,0},
+    {"evalsha",evalShaCommand,-3,REDIS_CMD_DENYOOM,zunionInterGetKeys,0,0,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
@@ -780,6 +782,8 @@ void createSharedObjects(void) {
         "-ERR source and destination objects are the same\r\n"));
     shared.outofrangeerr = createObject(REDIS_STRING,sdsnew(
         "-ERR index out of range\r\n"));
+    shared.noscripterr = createObject(REDIS_STRING,sdsnew(
+        "-NOSCRIPT No matching script. Please use EVAL.\r\n"));
     shared.loadingerr = createObject(REDIS_STRING,sdsnew(
         "-LOADING Redis is loading the dataset in memory\r\n"));
     shared.space = createObject(REDIS_STRING,sdsnew(" "));
@@ -857,6 +861,7 @@ void initServerConfig() {
     server.cache_flush_delay = 0;
     server.cluster_enabled = 0;
     server.cluster.configfile = zstrdup("nodes.conf");
+    server.lua_time_limit = REDIS_LUA_TIME_LIMIT;
 
     updateLRUClock();
     resetServerSaveParams();
@@ -981,6 +986,7 @@ void initServer() {
 
     if (server.ds_enabled) dsInit();
     if (server.cluster_enabled) clusterInit();
+    scriptingInit();
     srand(time(NULL)^getpid());
 }
 
@@ -1318,6 +1324,7 @@ sds genRedisInfoString(char *section) {
             "used_memory_rss:%zu\r\n"
             "used_memory_peak:%zu\r\n"
             "used_memory_peak_human:%s\r\n"
+            "used_memory_lua:%lld\r\n"
             "mem_fragmentation_ratio:%.2f\r\n"
             "mem_allocator:%s\r\n",
             zmalloc_used_memory(),
@@ -1325,6 +1332,7 @@ sds genRedisInfoString(char *section) {
             zmalloc_get_rss(),
             server.stat_peak_memory,
             peak_hmem,
+            ((long long)lua_gc(server.lua,LUA_GCCOUNT,0))*1024LL,
             zmalloc_get_fragmentation_ratio(),
             REDIS_MALLOC
             );
