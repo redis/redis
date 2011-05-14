@@ -841,11 +841,6 @@ unsigned long estimateObjectIdleTime(robj *o);
 int syncWrite(int fd, char *ptr, ssize_t size, int timeout);
 int syncRead(int fd, char *ptr, ssize_t size, int timeout);
 int syncReadLine(int fd, char *ptr, ssize_t size, int timeout);
-int fwriteBulkString(FILE *fp, char *s, unsigned long len);
-int fwriteBulkDouble(FILE *fp, double d);
-int fwriteBulkLongLong(FILE *fp, long long l);
-int fwriteBulkObject(FILE *fp, robj *obj);
-int fwriteBulkCount(FILE *fp, char prefix, int count);
 
 /* Replication */
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
