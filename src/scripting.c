@@ -215,6 +215,7 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
 /* lua external libs symbol declarations */ 
 #define LUA_BITOP	"bit"
 LUALIB_API int (luaopen_bit) (lua_State *L);
+int luaSHA1(lua_State *lua);
 
 /* lua sandboxing helpers declarations*/
 lua_State * luaSandbox(void);
@@ -250,6 +251,10 @@ lua_State * luaSandbox(void) {
     
     /* Loads the bitop lib */
     luaLoadLib(lua,  LUA_BITOP, luaopen_bit);
+    
+    /* Register the sha1 command */
+    lua_pushcfunction(lua,luaSHA1);
+    lua_setglobal(lua,"sha1");
     
     /* Disable some base lib functions */
     luaDisableBuiltIn(lua, "", "collectgarbage");
@@ -319,6 +324,36 @@ void hashScript(char *digest, char *script, size_t len) {
         digest[j*2+1] = cset[(hash[j]&0xF)];
     }
     digest[40] = '\0';
+}
+
+/* sha1 function exported to the Lua API */
+int luaSHA1(lua_State *lua) {
+    int i = lua_gettop(lua);
+    if (lua_isstring(lua, i)) {
+        SHA1_CTX ctx;
+        char digest[40];
+        unsigned char hash[20];
+        char *cset = "0123456789abcdef";
+        int j;
+        
+        const char * tempstring = lua_tostring(lua,i);
+        
+        SHA1Init(&ctx);
+        SHA1Update(&ctx,(unsigned char*)tempstring, strlen(tempstring));
+        SHA1Final(hash,&ctx);
+        
+        for (j = 0; j < 20; j++) {
+            digest[j*2] = cset[((hash[j]&0xF0)>>4)];
+            digest[j*2+1] = cset[(hash[j]&0xF)];
+        }
+        digest[40] = '\0';
+        
+        lua_pushstring(lua,(const char *)digest);
+    } else {
+        lua_pushstring(lua,"SHA1 argument must be a string");
+        lua_error(lua);
+    }
+    return 1;
 }
 
 void luaReplyToRedisReply(redisClient *c, lua_State *lua) {
