@@ -138,6 +138,8 @@ dependencies:
 	@cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
 	@echo $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)Lua ansi$(ENDCOLOR)
 	@cd ../deps/lua && $(MAKE) ARCH="$(ARCH)" ansi
+	@echo $(MAKECOLOR)CC$(ENDCOLOR) $(BINCOLOR)Lua bitop module$(ENDCOLOR)
+	@cd ../deps/LuaBitOp && $(CC) -O2 -Wall -DLUA_ANSI $(ARCH) -c -o bit.o bit.c
 
 redis-server: $(OBJ)
 	@$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) ../deps/lua/src/liblua.a
