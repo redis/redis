@@ -142,7 +142,7 @@ dependencies:
 	@cd ../deps/LuaBitOp && $(CC) -O2 -Wall -DLUA_ANSI $(ARCH) -c -o bit.o bit.c
 
 redis-server: $(OBJ)
-	@$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) ../deps/lua/src/liblua.a
+	@$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) ../deps/LuaBitOp/bit.o ../deps/lua/src/liblua.a
 	@echo $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$(@)$(ENDCOLOR)
 
 redis-benchmark: dependencies $(BENCHOBJ)
