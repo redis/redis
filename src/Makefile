@@ -138,7 +138,7 @@ dependencies:
 	@cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
 	@echo $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)Lua ansi$(ENDCOLOR)
 	@cd ../deps/lua && $(MAKE) ARCH="$(ARCH)" ansi
-	@echo $(MAKECOLOR)CC$(ENDCOLOR) $(BINCOLOR)Lua bitop module$(ENDCOLOR)
+	@echo $(CCCOLOR)CC$(ENDCOLOR) $(SRCCOLOR)../deps/LuaBitOp/bit.c$(ENDCOLOR)
 	@cd ../deps/LuaBitOp && $(CC) -O2 -Wall -DLUA_ANSI $(ARCH) -c -o bit.o bit.c
 
 redis-server: $(OBJ)
