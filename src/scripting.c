@@ -243,6 +243,18 @@ lua_State * luaSandbox(void) {
     /* Loads the debug lib */
     luaLoadLib(lua, LUA_DBLIBNAME, luaopen_debug);
     
+    /* Disable some base lib functions */
+    luaDisableBuiltIn(lua, "", "collectgarbage");
+    luaDisableBuiltIn(lua, "", "dofile");
+    luaDisableBuiltIn(lua, "", "load");
+    luaDisableBuiltIn(lua, "", "loadfile");
+    luaDisableBuiltIn(lua, "", "require");
+    /* Disable some os lib functions */
+    luaDisableBuiltIn(lua, LUA_OSLIBNAME, "exit");
+    luaDisableBuiltIn(lua, LUA_OSLIBNAME, "execute");
+    luaDisableBuiltIn(lua, LUA_OSLIBNAME, "remove");
+    luaDisableBuiltIn(lua, LUA_OSLIBNAME, "rename");
+    
     return lua;
 }
 
