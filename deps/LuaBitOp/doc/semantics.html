@@ -1,0 +1,167 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+<title>Operational Semantics and Rationale</title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<meta name="Author" content="Mike Pall">
+<meta name="Copyright" content="Copyright (C) 2005-2009, Mike Pall">
+<meta name="Language" content="en">
+<link rel="stylesheet" type="text/css" href="bluequad.css" media="screen">
+<link rel="stylesheet" type="text/css" href="bluequad-print.css" media="print">
+</head>
+<body>
+<div id="site">
+<a href="http://bitop.luajit.org"><span>Bit<span id="logo">Op</span></span></a>
+</div>
+<div id="head">
+<h1>Operational Semantics and Rationale</h1>
+</div>
+<div id="nav">
+<ul><li>
+<a href="index.html">Lua BitOp</a>
+</li><li>
+<a href="install.html">Installation</a>
+</li><li>
+<a href="api.html">API Functions</a>
+</li><li>
+<a class="current" href="semantics.html">Semantics</a>
+</li><li>
+<a href="changes.html">Changes</a>
+</li><li>
+<a href="http://bitop.luajit.org/download.html">Download <span class="ext">&raquo;</span></a>
+</li></ul>
+</div>
+<div id="main">
+<p>
+Lua uses only a single number type which can be redefined at compile-time.
+By default this is a <tt>double</tt>, i.e. a floating-point number with
+53&nbsp;bits of precision. Operations in the range of 32&nbsp;bit numbers
+(and beyond) are exact. There is no loss of precision,
+so there is no need to add an extra integer number type.
+Modern desktop and server CPUs have fast floating-point hardware &mdash;
+FP arithmetic is nearly the same speed as integer arithmetic. Any
+differences vanish under the overhead of the Lua interpreter itself.
+</p>
+<p>
+Even today, many embedded systems lack support for fast FP operations.
+These systems benefit from compiling Lua with an integer number type
+(with 32&nbsp;bits or more).
+</p>
+<p>
+The different possible number types and the use of FP numbers cause
+some problems when defining bitwise operations on Lua numbers. The
+following sections define the operational semantics and try to explain
+the rationale behind them.
+</p>
+<h2 id="range">Input and Output Ranges</h2>
+<ul>
+<li>Bitwise operations cannot sensibly be applied to FP numbers
+(or their underlying bit patterns). They must be converted to integers
+before operating on them and then back to FP numbers.</li>
+<li>It's desirable to define semantics that work the same across
+all platforms. This dictates that <b>all operations are based on</b>
+the common denominator of <b>32&nbsp;bit integers</b>.</li>
+<li>The <tt>float</tt> type provides only 24&nbsp;bits of precision.
+This makes it unsuitable for use in bitwise operations.
+Lua BitOp refuses to compile against a Lua installation with this
+number type.</li>
+<li>Bit operations only deal with the underlying bit patterns and
+generally ignore signedness (except for arithmetic right-shift).
+They are commonly displayed and treated like unsigned numbers, though.</li>
+<li>But the Lua number type must be signed and may be limited
+to 32&nbsp;bits. Defining the result type as an unsigned number
+would not be cross-platform safe. All bit operations are thus defined to
+<b>return results in the range of <em>signed</em> 32&nbsp;bit numbers</b>
+(converted to the Lua number type).</li>
+<li id="hexlit"><b>Hexadecimal literals are</b> treated as
+<b>unsigned numbers</b> by the Lua parser before converting them
+to the Lua number type. This means they can be out of the range of
+signed 32&nbsp;bit integers if the Lua number type has a greater range.
+E.g. 0xffffffff has a value of 4294967295 in the default installation,
+but may be -1 on embedded systems.</li>
+<li>It's highly desirable that hex literals are treated uniformly across
+systems when used in bitwise operations.
+<b>All bit operations accept arguments in the signed <em>or</em>
+the unsigned 32&nbsp;bit range</b> (and more, see below).
+Numbers with the same underlying bit pattern are treated the same by
+all operations.</li>
+</ul>
+<h2 id="modarith">Modular Arithmetic</h2>
+<p>Arithmetic operations on n-bit integers are usually based on the rules of
+<a href="http://en.wikipedia.org/wiki/Modular_arithmetic"><span class="ext">&raquo;</span>&nbsp;modular arithmetic</a>
+modulo 2<sup>n</sup>. Numbers wrap around when the mathematical result
+of operations is outside their defined range. This simplifies hardware
+implementations and some algorithms actually require this behavior
+(like many cryptographic functions).
+</p>
+<p>
+E.g. for 32&nbsp;bit integers the following holds: <tt>0xffffffff + 1 = 0</tt>
+</p>
+<p>
+<b>Arithmetic modulo 2<sup>32</sup></b> is trivially available
+if the Lua number type is a 32&nbsp;bit integer. Otherwise normalization
+steps must be inserted. Modular arithmetic should work the same
+across all platforms as far as possible:
+</p>
+<ul>
+<li>For the default number type of <tt>double</tt>,
+<b>arguments can be in the range of &plusmn;2<sup>51</sup></b>
+and still be safely normalized across all platforms by taking their
+least-significant 32&nbsp;bits. The limit is derived from the way
+doubles are converted to integers.</li>
+<li>The function <tt>bit.tobit</tt> <b>can be used to explicitly
+normalize numbers</b> to implement <b>modular addition or subtraction</b>.
+E.g. <tt>bit.tobit(0xffffffff + 1)</tt> returns 0 on all platforms.</li>
+<li>The limit on the argument range implies that modular multiplication
+is usually restricted to multiplying already normalized numbers with
+small constants. FP numbers are limited to 53&nbsp;bits of precision,
+anyway. E.g. (2<sup>30</sup>+1)<sup>2</sup> does not return an odd number
+when computed with doubles.</li>
+</ul>
+<p>
+BTW: The <tt>tr_i</tt> function shown <a href="api.html#shortcuts">here</a>
+is one of the non-linear functions of the (flawed) MD5 cryptographic hash and
+relies on modular arithmetic for correct operation. The result is
+fed back to other bitwise operations (not shown) and does not need
+to be normalized until the last step.
+</p>
+<h2 id="undefined">Restricted and Undefined Behavior</h2>
+<p>
+The following rules are intended to give a precise and useful definition
+(for the programmer), yet give the implementation (interpreter and
+compiler) the maximum flexibility and the freedom to apply advanced
+optimizations. It's strongly advised <em>not</em> to rely on undefined or
+implementation-defined behavior.
+</p>
+<ul>
+<li>All kinds of floating-point numbers are acceptable to the bitwise
+operations. None of them cause an error, but some may invoke undefined
+behavior:
+<ul>
+<li>-0 is treated the same as +0 on input and
+is never returned as a result.</li>
+<li>Passing <b>&plusmn;Inf, NaN or numbers outside the range of
+&plusmn;2<sup>51</sup></b> as input yields an <b>undefined</b> result.</li>
+<li><b>Non-integral numbers</b> may be rounded or truncated in an
+<b>implementation-defined</b> way. This means the result could differ between
+different BitOp versions, different Lua VMs, on different platforms or even
+between interpreted vs. compiled code
+(as in <a href="http://luajit.org"><span class="ext">&raquo;</span>&nbsp;LuaJIT</a>).<br>
+Avoid passing fractional numbers to bitwise functions. Use
+<tt>math.floor()</tt> or <tt>math.ceil()</tt> to get defined behavior.</li>
+</ul></li>
+<li>Lua provides <b>auto-coercion of string arguments</b> to numbers
+by default. This behavior is <b>deprecated</b> for bitwise operations.</li>
+</ul>
+<br class="flush">
+</div>
+<div id="foot">
+<hr class="hide">
+Copyright &copy; 2009 Mike Pall
+<span class="noprint">
+&middot;
+<a href="contact.html">Contact</a>
+</span>
+</div>
+</body>
+</html>

@@ -1,0 +1,46 @@
+# Makefile for Lua BitOp -- a bit operations library for Lua 5.1.
+# This is a modified Makefile for MinGW. C:\MinGW\bin must be in your PATH.
+# Compile: mingw32-make -f Makefile.mingw
+# Install: mingw32-make -f Makefile.mingw install
+
+# Lua executable name. Used for testing.
+LUA= lua
+
+# Include path where lua.h, luaconf.h and lauxlib.h reside:
+INCLUDES= "-I.."
+
+# Path of lua51.dll:
+LUADLLPATH= "..\lua51.dll"
+
+# Path where C modules for Lua should be installed:
+LUACMODPATH= ".."
+
+CC= gcc
+SOCC= $(CC) -shared $(LUADLLPATH)
+CFLAGS= -Wall -O2 -fomit-frame-pointer $(INCLUDES)
+RM= del
+STRIP= strip --strip-unneeded
+INSTALL= copy
+
+MODNAME= bit
+MODSO= $(MODNAME).dll
+
+all: $(MODSO)
+
+$(MODSO): $(MODNAME).o
+	$(SOCC) -o $@ $<
+	$(STRIP) $@
+
+install: $(MODSO)
+	$(INSTALL) $< $(LUACMODPATH)
+
+test: $(MODSO)
+	@$(LUA) bittest.lua && echo "basic test OK"
+	@$(LUA) nsievebits.lua && echo "nsievebits test OK"
+	@$(LUA) md5test.lua && echo "MD5 test OK"
+
+clean:
+	$(RM) *.o *.so *.obj *.lib *.exp *.dll *.manifest
+
+.PHONY: all install test clean
+
