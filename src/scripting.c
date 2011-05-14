@@ -216,9 +216,58 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
 #define LUA_BITOP	"bit"
 LUALIB_API int (luaopen_bit) (lua_State *L);
 
-void scriptingInit(void) {
+/* lua sandboxing helpers declarations*/
+lua_State * luaSandbox(void);
+void luaLoadLib(lua_State *lua, const char *libname, lua_CFunction luafunc);
+void luaDisableBuiltIn(lua_State *lua, const char *libname, const char *funcname);
+
+/*  creates a secure lua environment for execution from within redis.
+ *  Loads libraries individually with luaLoadLib() instead of calling
+ *  luaL_openlibs().  Loaded libs can then have specific methods removed
+ *  by calling luaDisableBuiltIn() */
+lua_State * luaSandbox(void) {
     lua_State *lua = lua_open();
-    luaL_openlibs(lua);
+    
+    /* Loads the base lib */
+    luaLoadLib(lua, "", luaopen_base);
+    /* Loads the packge lib */
+    luaLoadLib(lua, LUA_LOADLIBNAME, luaopen_package);
+    /* Loads the table lib */
+    luaLoadLib(lua, LUA_TABLIBNAME, luaopen_table);
+    /* Loads the os lib */
+    luaLoadLib(lua, LUA_OSLIBNAME, luaopen_os);
+    /* Loads the string lib */
+    luaLoadLib(lua, LUA_STRLIBNAME, luaopen_string);
+    /* Loads the math lib */
+    luaLoadLib(lua, LUA_MATHLIBNAME, luaopen_math);
+    /* Loads the debug lib */
+    luaLoadLib(lua, LUA_DBLIBNAME, luaopen_debug);
+    
+    return lua;
+}
+
+void luaLoadLib(lua_State *lua, const char *libname, lua_CFunction luafunc) {
+  lua_pushcfunction(lua, luafunc);
+  lua_pushstring(lua, libname);
+  lua_call(lua, 1, 0);
+}
+
+void luaDisableBuiltIn(lua_State *lua, const char *libname, const char *funcname) {
+  const char * topnamespace = "";
+  if (libname == topnamespace) {
+    lua_pushnil(lua);
+    lua_setglobal(lua, funcname);
+  } else {
+    lua_getglobal(lua, libname);
+    lua_pushstring(lua, funcname);
+    lua_pushnil(lua);
+    lua_settable(lua, -3);
+    lua_setglobal(lua, libname);
+  }
+}
+
+void scriptingInit(void) {
+    lua_State *lua = luaSandbox();
 
     /* Register the 'r' command */
     lua_pushcfunction(lua,luaRedisCommand);
