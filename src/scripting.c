@@ -228,6 +228,9 @@ void luaDisableBuiltIn(lua_State *lua, const char *libname, const char *funcname
 lua_State * luaSandbox(void) {
     lua_State *lua = lua_open();
     
+    
+    /* loading the lua internal libs */
+    
     /* Loads the base lib */
     luaLoadLib(lua, "", luaopen_base);
     /* Loads the packge lib */
@@ -242,6 +245,11 @@ lua_State * luaSandbox(void) {
     luaLoadLib(lua, LUA_MATHLIBNAME, luaopen_math);
     /* Loads the debug lib */
     luaLoadLib(lua, LUA_DBLIBNAME, luaopen_debug);
+    
+    /* loading the external libs */
+    
+    /* Loads the bitop lib */
+    luaLoadLib(lua,  LUA_BITOP, luaopen_bit);
     
     /* Disable some base lib functions */
     luaDisableBuiltIn(lua, "", "collectgarbage");
