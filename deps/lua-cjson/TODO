@@ -1,0 +1,4 @@
+- Option to configure encoding escapes.
+
+- Make encode/decode routines OS thread safe (within the same lua_State)
+  - Optionally create an object for settings. Clone function.
