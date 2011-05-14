@@ -212,6 +212,10 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     }
 }
 
+/* lua external libs symbol declarations */ 
+#define LUA_BITOP	"bit"
+LUALIB_API int (luaopen_bit) (lua_State *L);
+
 void scriptingInit(void) {
     lua_State *lua = lua_open();
     luaL_openlibs(lua);
