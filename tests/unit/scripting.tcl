@@ -113,5 +113,9 @@ start_server {
         assert_equal "1736516421" [r eval "return bit.ror(0x12345678, 12)" 0]
         assert_equal "2018915346" [r eval "return bit.bswap(0x12345678)" 0]
     }
-
+    
+    test "EVAL - sha1 functionalities" {
+        reconnect
+        assert_equal {2fd4e1c67a2d28fced849ee1bb76e7391b93eb12} [r eval "return sha1('The quick brown fox jumps over the lazy dog')" 0]
+    }
 }
