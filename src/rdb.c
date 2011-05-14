@@ -956,7 +956,8 @@ int rdbLoad(char *filename) {
 
     fp = fopen(filename,"r");
     if (!fp) return REDIS_ERR;
-    if (fread(buf,9,1,fp) == 0) goto eoferr;
+    rdb = rioInitWithFile(fp);
+    if (rioRead(&rdb,buf,9) == 0) goto eoferr;
     buf[9] = '\0';
     if (memcmp(buf,"REDIS",5) != 0) {
         fclose(fp);
@@ -971,7 +972,6 @@ int rdbLoad(char *filename) {
     }
 
     startLoading(fp);
-    rdb = rioInitWithFile(fp);
     while(1) {
         robj *key, *val;
         expiretime = -1;
