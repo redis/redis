@@ -53,5 +53,49 @@ start_server {
         reconnect
         assert_error "*attempt to index global 'io' (a nil value)*" {r eval "return io.flush()"  0}
     }
+    
+    test "EVAL - sandbox killed functions - global 'collectgarbage'" {
+        reconnect
+        assert_error "*attempt to call global 'collectgarbage' (a nil value)*" {r eval "return collectgarbage()"  0}
+    }
+    
+    test "EVAL - sandbox killed functions - global 'dofile'" {
+        reconnect
+        assert_error "*attempt to call global 'dofile' (a nil value)*" {r eval "return dofile('anyfile')"  0}
+    }
+    test "EVAL - sandbox killed functions - global 'load'" {
+        reconnect
+        assert_error "*attempt to call global 'load' (a nil value)*" {r eval "return load('anyfile')"  0}
+    }
+    
+    test "EVAL - sandbox killed functions - global 'loadfile'" {
+        reconnect
+        assert_error "*attempt to call global 'loadfile' (a nil value)*" {r eval "return loadfile('anyfile')"  0}
+    }
+    
+    test "EVAL - sandbox killed functions - global 'require'" {
+        reconnect
+        assert_error "*attempt to call global 'require' (a nil value)*" {r eval "return require('anyfile')"  0}
+    }
+    
+    test "EVAL - sandbox killed functions - os 'exit'" {
+        reconnect
+        assert_error "*attempt to call field 'exit' (a nil value)*" {r eval "return os.exit()"  0}
+    }
+    
+    test "EVAL - sandbox killed functions - os 'execute'" {
+        reconnect
+        assert_error "*attempt to call field 'execute' (a nil value)*" {r eval "return os.execute()"  0}
+    }
+    
+    test "EVAL - sandbox killed functions - os 'remove'" {
+        reconnect
+        assert_error "*attempt to call field 'remove' (a nil value)*" {r eval "return os.remove()"  0}
+    }
+    
+    test "EVAL - sandbox killed functions os 'rename'" {
+        reconnect
+        assert_error "*attempt to call field 'rename' (a nil value)*" {r eval "return os.rename()"  0}
+    }
 
 }
