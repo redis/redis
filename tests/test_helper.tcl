@@ -143,6 +143,7 @@ proc execute_everything {} {
     execute_tests "unit/expire"
     execute_tests "unit/other"
     execute_tests "unit/cas"
+    execute_tests "unit/scripting"
 }
 
 proc main {} {
