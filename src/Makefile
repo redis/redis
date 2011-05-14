@@ -140,9 +140,14 @@ dependencies:
 	@cd ../deps/lua && $(MAKE) ARCH="$(ARCH)" ansi
 	@echo $(CCCOLOR)CC$(ENDCOLOR) $(SRCCOLOR)../deps/LuaBitOp/bit.c$(ENDCOLOR)
 	@cd ../deps/LuaBitOp && $(CC) -O2 -Wall -DLUA_ANSI $(ARCH) -c -o bit.o bit.c
+	@echo $(CCCOLOR)CC$(ENDCOLOR) $(SRCCOLOR)../deps/lua-cjson/strbuf.c$(ENDCOLOR)
+	@cd ../deps/lua-cjson && $(CC) -O2 -Wall -DLUA_ANSI $(ARCH) -c -o strbuf.o strbuf.c
+	@echo $(CCCOLOR)CC$(ENDCOLOR) $(SRCCOLOR)../deps/lua-cjson/lua_cjson.c$(ENDCOLOR)
+	@cd ../deps/lua-cjson && $(CC) -O2 -Wall -DLUA_ANSI $(ARCH) -DVERSION=\"1.0.1\" -c -o lua_cjson.o lua_cjson.c
 
 redis-server: $(OBJ)
-	@$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) ../deps/LuaBitOp/bit.o ../deps/lua/src/liblua.a
+	@$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) \
+	../deps/LuaBitOp/bit.o ../deps/lua-cjson/strbuf.o ../deps/lua-cjson/lua_cjson.o ../deps/lua/src/liblua.a
 	@echo $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$(@)$(ENDCOLOR)
 
 redis-benchmark: dependencies $(BENCHOBJ)
