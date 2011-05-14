@@ -9,9 +9,9 @@
 #include "lzf.h" /* LZF compression library */
 
 static int rdbWriteRaw(rio *rdb, void *p, size_t len) {
-    if (rioWrite(rdb,p,len) == 0)
+    if (rdb && rioWrite(rdb,p,len) == 0)
         return -1;
-    return 1;
+    return len;
 }
 
 int rdbSaveType(rio *rdb, unsigned char type) {
