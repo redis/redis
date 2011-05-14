@@ -215,6 +215,8 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
 /* lua external libs symbol declarations */ 
 #define LUA_BITOP	"bit"
 LUALIB_API int (luaopen_bit) (lua_State *L);
+#define LUA_CJSON	"cjson"
+LUALIB_API int (luaopen_cjson) (lua_State *L);
 int luaSHA1(lua_State *lua);
 
 /* lua sandboxing helpers declarations*/
@@ -251,6 +253,9 @@ lua_State * luaSandbox(void) {
     
     /* Loads the bitop lib */
     luaLoadLib(lua,  LUA_BITOP, luaopen_bit);
+    
+    /* Loads the cjson lib */
+    luaLoadLib(lua,  LUA_CJSON, luaopen_cjson);
     
     /* Register the sha1 command */
     lua_pushcfunction(lua,luaSHA1);
