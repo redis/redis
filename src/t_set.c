@@ -433,6 +433,7 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
     si = setTypeInitIterator(sets[0]);
     while((encoding = setTypeNext(si,&eleobj,&intobj)) != -1) {
         for (j = 1; j < setnum; j++) {
+            if (sets[j] == sets[0]) continue;
             if (encoding == REDIS_ENCODING_INTSET) {
                 /* intset with intset is simple... and fast */
                 if (sets[j]->encoding == REDIS_ENCODING_INTSET &&
