@@ -126,4 +126,12 @@ start_server {
         reconnect
         assert_equal {2fd4e1c67a2d28fced849ee1bb76e7391b93eb12} [r eval "return sha1('The quick brown fox jumps over the lazy dog')" 0]
     }
+    
+    test "EVALSHA - basic functionalities" {
+        reconnect
+        assert_error "*NOSCRIPT*" {r evalsha "4203eeeee8951cb88c794f26efcff2afc90445a7" 0}
+        reconnect
+        r eval {return redis('SET', 'FOO', 'BAR')} 0
+        assert_equal "OK" [r evalsha {4203eeeee8951cb88c794f26efcff2afc90445a7} 0]
+    }
 }
