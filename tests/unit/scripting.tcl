@@ -6,6 +6,30 @@ start_server {
         assert_match "# Server*" [r eval "return redis('INFO')" 0]
     }
     
+    test "EVAL - redis return values" {
+        reconnect
+        r rpush "TLIST" "1"
+        r rpush "TLIST" "2"
+        assert_equal "number" [r eval {return type(redis('LLEN', KEYS[1]))} 1 "TLIST"]
+        assert_equal 1 [r eval {return 2 == redis('LLEN', KEYS[1])} 1 "TLIST"]
+        
+        r set "FOO" "BAR"
+        assert_equal "table" [r eval {return type(redis('SET', KEYS[1], 'BAR'))} 1 "FOO"]
+        assert_equal "OK" [r eval {return redis('SET', KEYS[1], 'BAR')} 1 "FOO"]
+        
+        assert_equal "string" [r eval {return type(redis('GET', KEYS[1]))} 1 "FOO"]
+        assert_equal 1 [r eval {return 'BAR' == redis('GET', KEYS[1])} 1 "FOO"]
+
+        assert_equal "table" [r eval {return type(redis('LRANGE', KEYS[1], 0, 2))} 1 "TLIST"]
+        assert_equal "1 2" [r eval {return redis('LRANGE', KEYS[1], 0, 2)} 1 "TLIST"]
+        
+        assert_equal "boolean" [r eval {return type(redis('GET', KEYS[1]))} 1 "DUMMY"]
+        assert_equal "" [r eval {return redis('GET', KEYS[1])} 1 "DUMMY"]
+        
+        assert_equal "table" [r eval {return type(redis('GET'))} 0]
+        assert_error "Wrong*" {r eval {return redis('GET')} 0}
+    }
+    
     test "EVAL - lua return types" {
         reconnect
         assert_equal 23 [r eval "return 23" 0]
