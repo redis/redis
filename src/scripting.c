@@ -223,6 +223,7 @@ int luaSHA1(lua_State *lua);
 lua_State * luaSandbox(void);
 void luaLoadLib(lua_State *lua, const char *libname, lua_CFunction luafunc);
 void luaDisableBuiltIn(lua_State *lua, const char *libname, const char *funcname);
+void luaRegisterFunction(lua_State *lua, const char *namespace, const char *funcname, lua_CFunction luafunc);
 
 /*  creates a secure lua environment for execution from within redis.
  *  Loads libraries individually with luaLoadLib() instead of calling
@@ -230,7 +231,6 @@ void luaDisableBuiltIn(lua_State *lua, const char *libname, const char *funcname
  *  by calling luaDisableBuiltIn() */
 lua_State * luaSandbox(void) {
     lua_State *lua = lua_open();
-    
     
     /* loading the lua internal libs */
     
@@ -257,14 +257,6 @@ lua_State * luaSandbox(void) {
     /* Loads the cjson lib */
     luaLoadLib(lua,  LUA_CJSON, luaopen_cjson);
     
-    /* Register the sha1 command */
-    lua_pushcfunction(lua,luaSHA1);
-    lua_setglobal(lua,"sha1");
-    
-    /* Register the 'r' command */
-    lua_pushcfunction(lua,luaRedisCommand);
-    lua_setglobal(lua,"redis");
-    
     /* Disable some base lib functions */
     luaDisableBuiltIn(lua, "", "collectgarbage");
     luaDisableBuiltIn(lua, "", "dofile");
@@ -276,6 +268,13 @@ lua_State * luaSandbox(void) {
     luaDisableBuiltIn(lua, LUA_OSLIBNAME, "execute");
     luaDisableBuiltIn(lua, LUA_OSLIBNAME, "remove");
     luaDisableBuiltIn(lua, LUA_OSLIBNAME, "rename");
+    
+    /* create the Redis namespace */
+    
+    /* Register the Redis.sha1 command */
+    luaRegisterFunction(lua, "Redis", "sha1", luaSHA1);
+    /* Register the Redis.call command */
+    luaRegisterFunction(lua, "Redis", "call", luaRedisCommand);
     
     return lua;
 }
@@ -298,6 +297,22 @@ void luaDisableBuiltIn(lua_State *lua, const char *libname, const char *funcname
     lua_settable(lua, -3);
     lua_setglobal(lua, libname);
   }
+}
+
+/* Registers lua_CFunction in specific namespaces*/
+void luaRegisterFunction(lua_State *lua, const char *namespace, const char *funcname, lua_CFunction luafunc) {
+    lua_getglobal(lua,namespace);
+    if (!lua_istable(lua, -1)) {
+        lua_pop(lua,1);
+        lua_newtable(lua);
+        lua_setglobal(lua,namespace);
+        lua_getglobal(lua,namespace);
+    }
+    
+    lua_pushstring(lua, funcname);
+    lua_pushcfunction(lua, luafunc);
+    lua_settable(lua, -3);
+    lua_setglobal(lua, namespace);
 }
 
 void scriptingInit(void) {
