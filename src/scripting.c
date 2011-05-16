@@ -261,6 +261,10 @@ lua_State * luaSandbox(void) {
     lua_pushcfunction(lua,luaSHA1);
     lua_setglobal(lua,"sha1");
     
+    /* Register the 'r' command */
+    lua_pushcfunction(lua,luaRedisCommand);
+    lua_setglobal(lua,"redis");
+    
     /* Disable some base lib functions */
     luaDisableBuiltIn(lua, "", "collectgarbage");
     luaDisableBuiltIn(lua, "", "dofile");
@@ -297,11 +301,8 @@ void luaDisableBuiltIn(lua_State *lua, const char *libname, const char *funcname
 }
 
 void scriptingInit(void) {
+    /* create the lua sandbox */
     lua_State *lua = luaSandbox();
-
-    /* Register the 'r' command */
-    lua_pushcfunction(lua,luaRedisCommand);
-    lua_setglobal(lua,"redis");
 
     /* Create the (non connected) client that we use to execute Redis commands
      * inside the Lua interpreter */
