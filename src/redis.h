@@ -963,6 +963,7 @@ struct redisCommand *lookupCommandByCString(char *s);
 void call(redisClient *c, struct redisCommand *cmd);
 int prepareForShutdown();
 void redisLog(int level, const char *fmt, ...);
+void redisLogRaw(int level, const char *msg);
 void usage();
 void updateDictResizePolicy(void);
 int htNeedsResize(dict *dict);
