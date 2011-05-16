@@ -1521,7 +1521,12 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
 
                 score = src[0].weight * zval.score;
                 for (j = 1; j < setnum; j++) {
-                    if (zuiFind(&src[j],&zval,&value)) {
+                    /* It is not safe to access the hash we zset we are
+                     * iterating, so explicitly check for equal object. */
+                    if (src[j].subject == src[0].subject) {
+                        value = zval.score*src[j].weight;
+                        zunionInterAggregate(&score,value,aggregate);
+                    } else if (zuiFind(&src[j],&zval,&value)) {
                         value *= src[j].weight;
                         zunionInterAggregate(&score,value,aggregate);
                     } else {
@@ -1561,7 +1566,12 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                 /* Because the inputs are sorted by size, it's only possible
                  * for sets at larger indices to hold this element. */
                 for (j = (i+1); j < setnum; j++) {
-                    if (zuiFind(&src[j],&zval,&value)) {
+                    /* It is not safe to access the hash we zset we are
+                     * iterating, so explicitly check for equal object. */
+                    if(src[j].subject == src[i].subject) {
+                        value = zval.score*src[j].weight;
+                        zunionInterAggregate(&score,value,aggregate);
+                    } else if (zuiFind(&src[j],&zval,&value)) {
                         value *= src[j].weight;
                         zunionInterAggregate(&score,value,aggregate);
                     }
