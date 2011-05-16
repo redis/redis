@@ -3,31 +3,31 @@ start_server {
 } {
     test "EVAL - basic scripting environment" {
         reconnect
-        assert_match "# Server*" [r eval "return redis('INFO')" 0]
+        assert_match "# Server*" [r eval "return Redis.call('INFO')" 0]
     }
     
     test "EVAL - redis return values" {
         reconnect
         r rpush "TLIST" "1"
         r rpush "TLIST" "2"
-        assert_equal "number" [r eval {return type(redis('LLEN', KEYS[1]))} 1 "TLIST"]
-        assert_equal 1 [r eval {return 2 == redis('LLEN', KEYS[1])} 1 "TLIST"]
+        assert_equal "number" [r eval {return type(Redis.call('LLEN', KEYS[1]))} 1 "TLIST"]
+        assert_equal 1 [r eval {return 2 == Redis.call('LLEN', KEYS[1])} 1 "TLIST"]
         
         r set "FOO" "BAR"
-        assert_equal "table" [r eval {return type(redis('SET', KEYS[1], 'BAR'))} 1 "FOO"]
-        assert_equal "OK" [r eval {return redis('SET', KEYS[1], 'BAR')} 1 "FOO"]
+        assert_equal "table" [r eval {return type(Redis.call('SET', KEYS[1], 'BAR'))} 1 "FOO"]
+        assert_equal "OK" [r eval {return Redis.call('SET', KEYS[1], 'BAR')} 1 "FOO"]
         
-        assert_equal "string" [r eval {return type(redis('GET', KEYS[1]))} 1 "FOO"]
-        assert_equal 1 [r eval {return 'BAR' == redis('GET', KEYS[1])} 1 "FOO"]
+        assert_equal "string" [r eval {return type(Redis.call('GET', KEYS[1]))} 1 "FOO"]
+        assert_equal 1 [r eval {return 'BAR' == Redis.call('GET', KEYS[1])} 1 "FOO"]
 
-        assert_equal "table" [r eval {return type(redis('LRANGE', KEYS[1], 0, 2))} 1 "TLIST"]
-        assert_equal "1 2" [r eval {return redis('LRANGE', KEYS[1], 0, 2)} 1 "TLIST"]
+        assert_equal "table" [r eval {return type(Redis.call('LRANGE', KEYS[1], 0, 2))} 1 "TLIST"]
+        assert_equal "1 2" [r eval {return Redis.call('LRANGE', KEYS[1], 0, 2)} 1 "TLIST"]
         
-        assert_equal "boolean" [r eval {return type(redis('GET', KEYS[1]))} 1 "DUMMY"]
-        assert_equal "" [r eval {return redis('GET', KEYS[1])} 1 "DUMMY"]
+        assert_equal "boolean" [r eval {return type(Redis.call('GET', KEYS[1]))} 1 "DUMMY"]
+        assert_equal "" [r eval {return Redis.call('GET', KEYS[1])} 1 "DUMMY"]
         
-        assert_equal "table" [r eval {return type(redis('GET'))} 0]
-        assert_error "Wrong*" {r eval {return redis('GET')} 0}
+        assert_equal "table" [r eval {return type(Redis.call('GET'))} 0]
+        assert_error "Wrong*" {r eval {return Redis.call('GET')} 0}
     }
     
     test "EVAL - lua return types" {
@@ -154,14 +154,6 @@ start_server {
     
     test "EVAL - sha1 functionalities" {
         reconnect
-        assert_equal {2fd4e1c67a2d28fced849ee1bb76e7391b93eb12} [r eval "return sha1('The quick brown fox jumps over the lazy dog')" 0]
-    }
-    
-    test "EVALSHA - basic functionalities" {
-        reconnect
-        assert_error "*NOSCRIPT*" {r evalsha "4203eeeee8951cb88c794f26efcff2afc90445a7" 0}
-        reconnect
-        r eval {return redis('SET', 'FOO', 'BAR')} 0
-        assert_equal "OK" [r evalsha {4203eeeee8951cb88c794f26efcff2afc90445a7} 0]
+        assert_equal {2fd4e1c67a2d28fced849ee1bb76e7391b93eb12} [r eval "return Redis.sha1('The quick brown fox jumps over the lazy dog')" 0]
     }
 }
