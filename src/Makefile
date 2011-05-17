@@ -6,12 +6,12 @@ release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 OPTIMIZATION?=-O2
 ifeq ($(uname_S),SunOS)
-  CFLAGS?= -std=c99 -pedantic $(OPTIMIZATION) -Wall -W -D__EXTENSIONS__ -D_XPG6
-  CCLINK?= -ldl -lnsl -lsocket -lm -lpthread
+  CFLAGS?= $(ALLOC_FLAGS) -std=c99 -pedantic $(OPTIMIZATION) -Wall -W -D__EXTENSIONS__ -D_XPG6
+  CCLINK?= $(ALLOC_LINK) -ldl -lnsl -lsocket -lm -lpthread
   DEBUG?= -g -ggdb 
 else
-  CFLAGS?= -std=c99 -pedantic $(OPTIMIZATION) -Wall -W $(ARCH) $(PROF)
-  CCLINK?= -lm -pthread
+  CFLAGS?= $(ALLOC_FLAGS) -std=c99 -pedantic $(OPTIMIZATION) -Wall -W $(ARCH) $(PROF)
+  CCLINK?= $(ALLOC_LINK) -lm -pthread
   DEBUG?= -g -rdynamic -ggdb 
 endif
 
@@ -27,15 +27,12 @@ endif
 
 JEMALLOCDEP=
 ifeq ($(USE_JEMALLOC),yes)
-  ALLOC_LINK=../deps/jemalloc/lib/libjemalloc.a
+  ALLOC_LINK=-L../deps/jemalloc/lib -ljemalloc -ldl
   ALLOC_FLAGS=-DUSE_JEMALLOC -I../deps/jemalloc/include
   JEMALLOCDEP=../deps/jemalloc/lib/libjemalloc.a
 endif
 
-CCLINK+= $(ALLOC_LINK)
-CFLAGS+= $(ALLOC_FLAGS)
-
-CCOPT= $(CFLAGS) $(CCLINK) $(ARCH) $(PROF)
+CCOPT= $(CFLAGS) $(ARCH) $(PROF)
 
 PREFIX= /usr/local
 INSTALL_BIN= $(PREFIX)/bin
@@ -130,26 +127,26 @@ dependencies: ../deps/jemalloc/lib/libjemalloc.a
 	cd ../deps/jemalloc && ./configure --enable-cc-silence && $(MAKE) lib/libjemalloc.a
 
 redis-server: $(OBJ) $(JEMALLOCDEP)
-	$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ)
+	$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) $(CCLINK)
 
 redis-benchmark: dependencies $(BENCHOBJ)
 	cd ../deps/hiredis && $(MAKE) static
-	$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a
+	$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a $(CCLINK)
 
 redis-benchmark.o:
 	$(CC) -c $(CFLAGS) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
 
 redis-cli: dependencies $(CLIOBJ)
-	$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o
+	$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o $(CCLINK)
 
 redis-cli.o:
 	$(CC) -c $(CFLAGS) -I../deps/hiredis -I../deps/linenoise $(DEBUG) $(COMPILE_TIME) $<
 
 redis-check-dump: $(CHECKDUMPOBJ)
-	$(CC) -o $(CHECKDUMPPRGNAME) $(CCOPT) $(DEBUG) $(CHECKDUMPOBJ)
+	$(CC) -o $(CHECKDUMPPRGNAME) $(CCOPT) $(DEBUG) $(CHECKDUMPOBJ) $(CCLINK)
 
 redis-check-aof: $(CHECKAOFOBJ)
-	$(CC) -o $(CHECKAOFPRGNAME) $(CCOPT) $(DEBUG) $(CHECKAOFOBJ)
+	$(CC) -o $(CHECKAOFPRGNAME) $(CCOPT) $(DEBUG) $(CHECKAOFOBJ) $(CCLINK)
 
 .c.o:
 	$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
