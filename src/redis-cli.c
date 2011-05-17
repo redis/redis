@@ -40,11 +40,11 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <assert.h>
+#include <hiredis.h>
+#include <linenoise.h>
 
-#include "hiredis.h"
 #include "sds.h"
 #include "zmalloc.h"
-#include "linenoise.h"
 #include "help.h"
 
 #define REDIS_NOTUSED(V) ((void) V)

@@ -38,9 +38,9 @@
 #include <sys/time.h>
 #include <signal.h>
 #include <assert.h>
+#include <hiredis.h>
 
 #include "ae.h"
-#include "hiredis.h"
 #include "sds.h"
 #include "adlist.h"
 #include "zmalloc.h"
