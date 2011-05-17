@@ -189,7 +189,8 @@ struct redisCommand readonlyCommandTable[] = {
     {"watch",watchCommand,-2,0,NULL,0,0,0},
     {"unwatch",unwatchCommand,1,0,NULL,0,0,0},
     {"object",objectCommand,-2,0,NULL,0,0,0},
-    {"eval",evalCommand,-3,REDIS_CMD_DENYOOM,zunionInterBlockClientOnSwappedKeys,0,0,0}
+    {"eval",evalCommand,-3,REDIS_CMD_DENYOOM,zunionInterBlockClientOnSwappedKeys,0,0,0},
+    {"evalsha",evalCommand,-3,REDIS_CMD_DENYOOM,zunionInterBlockClientOnSwappedKeys,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
@@ -730,6 +731,8 @@ void createSharedObjects(void) {
         "-ERR index out of range\r\n"));
     shared.loadingerr = createObject(REDIS_STRING,sdsnew(
         "-LOADING Redis is loading the dataset in memory\r\n"));
+    shared.noscripterr = createObject(REDIS_STRING,sdsnew(
+        "-NOSCRIPT No matching script. Please use EVAL.\r\n"));
     shared.space = createObject(REDIS_STRING,sdsnew(" "));
     shared.colon = createObject(REDIS_STRING,sdsnew(":"));
     shared.plus = createObject(REDIS_STRING,sdsnew("+"));
