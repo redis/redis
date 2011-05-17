@@ -57,14 +57,13 @@ all: redis-benchmark redis-cli redis-check-dump redis-check-aof redis-server
 
 # Deps (use make dep to generate this)
 adlist.o: adlist.c adlist.h zmalloc.h
-ae.o: ae.c ae.h zmalloc.h config.h ae_kqueue.c
+ae.o: ae.c ae.h config.h zmalloc.h ae_epoll.c ae_kqueue.c ae_select.c
 ae_epoll.o: ae_epoll.c
 ae_kqueue.o: ae_kqueue.c
 ae_select.o: ae_select.c
 anet.o: anet.c fmacros.h anet.h
 aof.o: aof.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
-chprgname.o: chprgname.c
 config.o: config.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
 db.o: db.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
@@ -86,11 +85,12 @@ pubsub.o: pubsub.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
 rdb.o: rdb.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h lzf.h
-redis-benchmark.o: redis-benchmark.c fmacros.h ae.h anet.h sds.h adlist.h \
-  zmalloc.h
+redis-benchmark.o: redis-benchmark.c fmacros.h ae.c ae.h ae_epoll.c \
+  ae_kqueue.c ae_select.c config.h zmalloc.h ae_kqueue.c adlist.c adlist.h \
+  sds.c sds.h
 redis-check-aof.o: redis-check-aof.c fmacros.h config.h
 redis-check-dump.o: redis-check-dump.c lzf.h
-redis-cli.o: redis-cli.c fmacros.h version.h sds.h adlist.h zmalloc.h
+redis-cli.o: redis-cli.c fmacros.h version.h help.h sds.c sds.h
 redis.o: redis.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
 release.o: release.c release.h
@@ -100,7 +100,8 @@ sds.o: sds.c sds.h zmalloc.h
 sha1.o: sha1.c sha1.h
 sort.o: sort.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h pqsort.h
-syncio.o: syncio.c
+syncio.o: syncio.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
+  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
 t_hash.o: t_hash.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
 t_list.o: t_list.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
@@ -117,7 +118,7 @@ vm.o: vm.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
 ziplist.o: ziplist.c zmalloc.h ziplist.h
 zipmap.o: zipmap.c zmalloc.h
-zmalloc.o: zmalloc.c config.h
+zmalloc.o: zmalloc.c config.h zmalloc.h
 
 dependencies: ../deps/jemalloc/lib/libjemalloc.a
 	cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
