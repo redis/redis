@@ -31,33 +31,35 @@
 #ifndef __ZMALLOC_H
 #define __ZMALLOC_H
 
-/* Use tcmalloc's malloc_size() when available.
- * When tcmalloc is used, native OSX malloc_size() may never be used because
- * this expects a different allocation scheme. Therefore, *exclusively* use
- * either tcmalloc or OSX's malloc_size()! */
 #if defined(USE_TCMALLOC)
-#define REDIS_MALLOC "tcmalloc"
+#define ZMALLOC_LIB "tcmalloc"
 #include <google/tcmalloc.h>
 #if TC_VERSION_MAJOR >= 1 && TC_VERSION_MINOR >= 6
 #define HAVE_MALLOC_SIZE 1
-#define redis_malloc_size(p) tc_malloc_size(p)
+#define zmalloc_size(p) tc_malloc_size(p)
+#else
+#error "Newer version of tcmalloc required"
 #endif
+
 #elif defined(USE_JEMALLOC)
-#define REDIS_MALLOC "jemalloc"
+#define ZMALLOC_LIB "jemalloc"
 #define JEMALLOC_MANGLE
 #include <jemalloc/jemalloc.h>
 #if JEMALLOC_VERSION_MAJOR >= 2 && JEMALLOC_VERSION_MINOR >= 1
 #define HAVE_MALLOC_SIZE 1
-#define redis_malloc_size(p) JEMALLOC_P(malloc_usable_size)(p)
+#define zmalloc_size(p) JEMALLOC_P(malloc_usable_size)(p)
+#else
+#error "Newer version of jemalloc required"
 #endif
+
 #elif defined(__APPLE__)
 #include <malloc/malloc.h>
 #define HAVE_MALLOC_SIZE 1
-#define redis_malloc_size(p) malloc_size(p)
+#define zmalloc_size(p) malloc_size(p)
 #endif
 
-#ifndef REDIS_MALLOC
-#define REDIS_MALLOC "libc"
+#ifndef ZMALLOC_LIB
+#define ZMALLOC_LIB "libc"
 #endif
 
 void *zmalloc(size_t size);

@@ -1218,7 +1218,7 @@ sds genRedisInfoString(void) {
         hmem,
         zmalloc_get_rss(),
         zmalloc_get_fragmentation_ratio(),
-        REDIS_MALLOC,
+        ZMALLOC_LIB,
         server.loading,
         server.appendonly,
         server.dirty,

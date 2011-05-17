@@ -98,7 +98,7 @@ void *zmalloc(size_t size) {
 
     if (!ptr) zmalloc_oom(size);
 #ifdef HAVE_MALLOC_SIZE
-    update_zmalloc_stat_alloc(redis_malloc_size(ptr),size);
+    update_zmalloc_stat_alloc(zmalloc_size(ptr),size);
     return ptr;
 #else
     *((size_t*)ptr) = size;
@@ -112,7 +112,7 @@ void *zcalloc(size_t size) {
 
     if (!ptr) zmalloc_oom(size);
 #ifdef HAVE_MALLOC_SIZE
-    update_zmalloc_stat_alloc(redis_malloc_size(ptr),size);
+    update_zmalloc_stat_alloc(zmalloc_size(ptr),size);
     return ptr;
 #else
     *((size_t*)ptr) = size;
@@ -130,12 +130,12 @@ void *zrealloc(void *ptr, size_t size) {
 
     if (ptr == NULL) return zmalloc(size);
 #ifdef HAVE_MALLOC_SIZE
-    oldsize = redis_malloc_size(ptr);
+    oldsize = zmalloc_size(ptr);
     newptr = realloc(ptr,size);
     if (!newptr) zmalloc_oom(size);
 
     update_zmalloc_stat_free(oldsize);
-    update_zmalloc_stat_alloc(redis_malloc_size(newptr),size);
+    update_zmalloc_stat_alloc(zmalloc_size(newptr),size);
     return newptr;
 #else
     realptr = (char*)ptr-PREFIX_SIZE;
@@ -158,7 +158,7 @@ void zfree(void *ptr) {
 
     if (ptr == NULL) return;
 #ifdef HAVE_MALLOC_SIZE
-    update_zmalloc_stat_free(redis_malloc_size(ptr));
+    update_zmalloc_stat_free(zmalloc_size(ptr));
     free(ptr);
 #else
     realptr = (char*)ptr-PREFIX_SIZE;
