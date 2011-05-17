@@ -6,30 +6,31 @@ release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 OPTIMIZATION?=-O2
 ifeq ($(uname_S),SunOS)
-  CFLAGS?= $(ALLOC_FLAGS) -std=c99 -pedantic $(OPTIMIZATION) -Wall -W -D__EXTENSIONS__ -D_XPG6
-  CCLINK?= $(ALLOC_LINK) -ldl -lnsl -lsocket -lm -lpthread
-  DEBUG?= -g -ggdb 
+  CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -Wall -W -D__EXTENSIONS__ -D_XPG6
+  CCLINK?=-ldl -lnsl -lsocket -lm -lpthread
+  DEBUG?=-g -ggdb
 else
-  CFLAGS?= $(ALLOC_FLAGS) -std=c99 -pedantic $(OPTIMIZATION) -Wall -W $(ARCH) $(PROF)
-  CCLINK?= $(ALLOC_LINK) -lm -pthread
-  DEBUG?= -g -rdynamic -ggdb 
+  CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -Wall -W $(ARCH) $(PROF)
+  CCLINK?=-lm -pthread
+  DEBUG?=-g -rdynamic -ggdb
 endif
 
 ifeq ($(USE_TCMALLOC),yes)
+  ALLOC_DEP=
   ALLOC_LINK=-ltcmalloc
   ALLOC_FLAGS=-DUSE_TCMALLOC
 endif
 
 ifeq ($(USE_TCMALLOC_MINIMAL),yes)
+  ALLOC_DEP=
   ALLOC_LINK=-ltcmalloc_minimal
   ALLOC_FLAGS=-DUSE_TCMALLOC
 endif
 
-JEMALLOCDEP=
 ifeq ($(USE_JEMALLOC),yes)
-  ALLOC_LINK=-L../deps/jemalloc/lib -ljemalloc -ldl
+  ALLOC_DEP=../deps/jemalloc/lib/libjemalloc.a
+  ALLOC_LINK=$(ALLOC_DEP)
   ALLOC_FLAGS=-DUSE_JEMALLOC -I../deps/jemalloc/include
-  JEMALLOCDEP=../deps/jemalloc/lib/libjemalloc.a
 endif
 
 CCOPT= $(CFLAGS) $(ARCH) $(PROF)
@@ -120,37 +121,47 @@ ziplist.o: ziplist.c zmalloc.h ziplist.h
 zipmap.o: zipmap.c zmalloc.h
 zmalloc.o: zmalloc.c config.h zmalloc.h
 
-dependencies: ../deps/jemalloc/lib/libjemalloc.a
+.PHONY: dependencies
+
+dependencies:
 	cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
 	cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
 
 ../deps/jemalloc/lib/libjemalloc.a:
-	cd ../deps/jemalloc && ./configure --enable-cc-silence && $(MAKE) lib/libjemalloc.a
+	cd ../deps/jemalloc && ./configure --with-jemalloc-prefix=je_ --enable-cc-silence && $(MAKE) lib/libjemalloc.a
 
-redis-server: $(OBJ) $(JEMALLOCDEP)
-	$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) $(CCLINK)
+redis-benchmark.o:
+	$(CC) -c $(CFLAGS) -DWITHOUT_ZMALLOC -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
 
 redis-benchmark: dependencies $(BENCHOBJ)
 	cd ../deps/hiredis && $(MAKE) static
 	$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a $(CCLINK)
 
-redis-benchmark.o:
-	$(CC) -c $(CFLAGS) -DWITHOUT_ZMALLOC -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
+redis-cli.o:
+	$(CC) -c $(CFLAGS) -DWITHOUT_ZMALLOC -I../deps/hiredis -I../deps/linenoise $(DEBUG) $(COMPILE_TIME) $<
 
 redis-cli: dependencies $(CLIOBJ)
 	$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o $(CCLINK)
 
-redis-cli.o:
-	$(CC) -c $(CFLAGS) -DWITHOUT_ZMALLOC -I../deps/hiredis -I../deps/linenoise $(DEBUG) $(COMPILE_TIME) $<
+redis-check-dump.o:
+	$(CC) -c $(CFLAGS) -DWITHOUT_ZMALLOC $(DEBUG) $(COMPILE_TIME) $<
 
 redis-check-dump: $(CHECKDUMPOBJ)
 	$(CC) -o $(CHECKDUMPPRGNAME) $(CCOPT) $(DEBUG) $(CHECKDUMPOBJ) $(CCLINK)
 
+redis-check-aof.o:
+	$(CC) -c $(CFLAGS) -DWITHOUT_ZMALLOC $(DEBUG) $(COMPILE_TIME) $<
+
 redis-check-aof: $(CHECKAOFOBJ)
 	$(CC) -o $(CHECKAOFPRGNAME) $(CCOPT) $(DEBUG) $(CHECKAOFOBJ) $(CCLINK)
 
-.c.o:
-	$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
+redis-server: $(OBJ)
+	$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) $(CCLINK) $(ALLOC_LINK)
+
+# Because the jemalloc.h header is generated as a part of the jemalloc build
+# process, building it should complete before building any other object.
+%.o: %.c $(ALLOC_DEP)
+	$(CC) -c $(CFLAGS) $(ALLOC_FLAGS) $(DEBUG) $(COMPILE_TIME) $<
 
 clean:
 	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
