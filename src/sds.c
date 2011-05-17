@@ -34,14 +34,22 @@
  *                  function sdssplitargs().
  */
 
-#define SDS_ABORT_ON_OOM
+#ifndef SDS_ABORT_ON_OOM
+#define SDS_ABORT_ON_OOM 1
+#endif
 
-#include "sds.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include "sds.h"
+
+#ifndef WITHOUT_ZMALLOC
 #include "zmalloc.h"
+#define malloc(sz) zmalloc(sz)
+#define realloc(ptr,sz) zrealloc(ptr,sz)
+#define free(ptr) zfree(ptr)
+#endif
 
 static void sdsOomAbort(void) {
     fprintf(stderr,"SDS: Out Of Memory (SDS_ABORT_ON_OOM defined)\n");
@@ -51,7 +59,7 @@ static void sdsOomAbort(void) {
 sds sdsnewlen(const void *init, size_t initlen) {
     struct sdshdr *sh;
 
-    sh = zmalloc(sizeof(struct sdshdr)+initlen+1);
+    sh = malloc(sizeof(struct sdshdr)+initlen+1);
 #ifdef SDS_ABORT_ON_OOM
     if (sh == NULL) sdsOomAbort();
 #else
@@ -87,7 +95,7 @@ sds sdsdup(const sds s) {
 
 void sdsfree(sds s) {
     if (s == NULL) return;
-    zfree(s-sizeof(struct sdshdr));
+    free(s-sizeof(struct sdshdr));
 }
 
 size_t sdsavail(sds s) {
@@ -111,7 +119,7 @@ static sds sdsMakeRoomFor(sds s, size_t addlen) {
     len = sdslen(s);
     sh = (void*) (s-(sizeof(struct sdshdr)));
     newlen = (len+addlen)*2;
-    newsh = zrealloc(sh, sizeof(struct sdshdr)+newlen+1);
+    newsh = realloc(sh, sizeof(struct sdshdr)+newlen+1);
 #ifdef SDS_ABORT_ON_OOM
     if (newsh == NULL) sdsOomAbort();
 #else
@@ -186,7 +194,7 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
     size_t buflen = 16;
 
     while(1) {
-        buf = zmalloc(buflen);
+        buf = malloc(buflen);
 #ifdef SDS_ABORT_ON_OOM
         if (buf == NULL) sdsOomAbort();
 #else
@@ -196,14 +204,14 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
         va_copy(cpy,ap);
         vsnprintf(buf, buflen, fmt, cpy);
         if (buf[buflen-2] != '\0') {
-            zfree(buf);
+            free(buf);
             buflen *= 2;
             continue;
         }
         break;
     }
     t = sdscat(s, buf);
-    zfree(buf);
+    free(buf);
     return t;
 }
 
@@ -307,7 +315,7 @@ int sdscmp(sds s1, sds s2) {
 sds *sdssplitlen(char *s, int len, char *sep, int seplen, int *count) {
     int elements = 0, slots = 5, start = 0, j;
 
-    sds *tokens = zmalloc(sizeof(sds)*slots);
+    sds *tokens = malloc(sizeof(sds)*slots);
 #ifdef SDS_ABORT_ON_OOM
     if (tokens == NULL) sdsOomAbort();
 #endif
@@ -322,7 +330,7 @@ sds *sdssplitlen(char *s, int len, char *sep, int seplen, int *count) {
             sds *newtokens;
 
             slots *= 2;
-            newtokens = zrealloc(tokens,sizeof(sds)*slots);
+            newtokens = realloc(tokens,sizeof(sds)*slots);
             if (newtokens == NULL) {
 #ifdef SDS_ABORT_ON_OOM
                 sdsOomAbort();
@@ -365,7 +373,7 @@ cleanup:
     {
         int i;
         for (i = 0; i < elements; i++) sdsfree(tokens[i]);
-        zfree(tokens);
+        free(tokens);
         return NULL;
     }
 #endif
@@ -375,7 +383,7 @@ void sdsfreesplitres(sds *tokens, int count) {
     if (!tokens) return;
     while(count--)
         sdsfree(tokens[count]);
-    zfree(tokens);
+    free(tokens);
 }
 
 sds sdsfromlonglong(long long value) {
@@ -456,7 +464,7 @@ int hex_digit_to_int(char c) {
  *
  * The number of arguments is stored into *argc, and an array
  * of sds is returned. The caller should sdsfree() all the returned
- * strings and finally zfree() the array itself.
+ * strings and finally free() the array itself.
  *
  * Note that sdscatrepr() is able to convert back a string into
  * a quoted string in the same format sdssplitargs() is able to parse.
@@ -531,7 +539,7 @@ sds *sdssplitargs(char *line, int *argc) {
                 if (*p) p++;
             }
             /* add the token to the vector */
-            vector = zrealloc(vector,((*argc)+1)*sizeof(char*));
+            vector = realloc(vector,((*argc)+1)*sizeof(char*));
             vector[*argc] = current;
             (*argc)++;
             current = NULL;
@@ -543,7 +551,7 @@ sds *sdssplitargs(char *line, int *argc) {
 err:
     while((*argc)--)
         sdsfree(vector[*argc]);
-    zfree(vector);
+    free(vector);
     if (current) sdsfree(current);
     return NULL;
 }

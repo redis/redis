@@ -40,10 +40,9 @@
 #include <assert.h>
 #include <hiredis.h>
 
-#include "ae.h"
-#include "sds.h"
-#include "adlist.h"
-#include "zmalloc.h"
+#include "ae.c"
+#include "adlist.c"
+#include "sds.c"
 
 #define REDIS_NOTUSED(V) ((void) V)
 
@@ -113,7 +112,7 @@ static void freeClient(client c) {
     aeDeleteFileEvent(config.el,c->context->fd,AE_READABLE);
     redisFree(c->context);
     sdsfree(c->obuf);
-    zfree(c);
+    free(c);
     config.liveclients--;
     ln = listSearchKey(config.clients,c);
     assert(ln != NULL);
@@ -228,7 +227,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 }
 
 static client createClient(char *cmd, int len) {
-    client c = zmalloc(sizeof(struct _client));
+    client c = malloc(sizeof(struct _client));
     if (config.hostsocket == NULL) {
         c->context = redisConnectNonBlock(config.hostip,config.hostport);
     } else {
@@ -437,7 +436,7 @@ int main(int argc, char **argv) {
     config.hostsocket = NULL;
 
     parseOptions(argc,argv);
-    config.latency = zmalloc(sizeof(long long)*config.requests);
+    config.latency = malloc(sizeof(long long)*config.requests);
 
     if (config.keepalive == 0) {
         printf("WARNING: keepalive disabled, you probably need 'echo 1 > /proc/sys/net/ipv4/tcp_tw_reuse' for Linux and 'sudo sysctl -w net.inet.tcp.msl=1000' for Mac OS X in order to use a lot of clients/requests\n");
@@ -455,7 +454,7 @@ int main(int argc, char **argv) {
         char *data, *cmd;
         int len;
 
-        data = zmalloc(config.datasize+1);
+        data = malloc(config.datasize+1);
         memset(data,'x',config.datasize);
         data[config.datasize] = '\0';
 

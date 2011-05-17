@@ -47,9 +47,9 @@ typedef struct listIter {
 typedef struct list {
     listNode *head;
     listNode *tail;
-    void *(*dup)(void *ptr);
-    void (*free)(void *ptr);
-    int (*match)(void *ptr, void *key);
+    void *(*_dup)(void *ptr);
+    void (*_free)(void *ptr);
+    int (*_match)(void *ptr, void *key);
     unsigned int len;
 } list;
 
@@ -61,13 +61,13 @@ typedef struct list {
 #define listNextNode(n) ((n)->next)
 #define listNodeValue(n) ((n)->value)
 
-#define listSetDupMethod(l,m) ((l)->dup = (m))
-#define listSetFreeMethod(l,m) ((l)->free = (m))
-#define listSetMatchMethod(l,m) ((l)->match = (m))
+#define listSetDupMethod(l,m) ((l)->_dup = (m))
+#define listSetFreeMethod(l,m) ((l)->_free = (m))
+#define listSetMatchMethod(l,m) ((l)->_match = (m))
 
-#define listGetDupMethod(l) ((l)->dup)
-#define listGetFree(l) ((l)->free)
-#define listGetMatchMethod(l) ((l)->match)
+#define listGetDupMethod(l) ((l)->_dup)
+#define listGetFree(l) ((l)->_free)
+#define listGetMatchMethod(l) ((l)->_match)
 
 /* Prototypes */
 list *listCreate(void);

@@ -31,7 +31,13 @@
 
 #include <stdlib.h>
 #include "adlist.h"
+
+#ifndef WITHOUT_ZMALLOC
 #include "zmalloc.h"
+#define malloc(sz) zmalloc(sz)
+#define realloc(ptr,sz) zrealloc(ptr,sz)
+#define free(ptr) zfree(ptr)
+#endif
 
 /* Create a new list. The created list can be freed with
  * AlFreeList(), but private value of every node need to be freed
@@ -42,13 +48,13 @@ list *listCreate(void)
 {
     struct list *list;
 
-    if ((list = zmalloc(sizeof(*list))) == NULL)
+    if ((list = malloc(sizeof(*list))) == NULL)
         return NULL;
     list->head = list->tail = NULL;
     list->len = 0;
-    list->dup = NULL;
-    list->free = NULL;
-    list->match = NULL;
+    list->_dup = NULL;
+    list->_free = NULL;
+    list->_match = NULL;
     return list;
 }
 
@@ -64,11 +70,11 @@ void listRelease(list *list)
     len = list->len;
     while(len--) {
         next = current->next;
-        if (list->free) list->free(current->value);
-        zfree(current);
+        if (list->_free) list->_free(current->value);
+        free(current);
         current = next;
     }
-    zfree(list);
+    free(list);
 }
 
 /* Add a new node to the list, to head, contaning the specified 'value'
@@ -81,7 +87,7 @@ list *listAddNodeHead(list *list, void *value)
 {
     listNode *node;
 
-    if ((node = zmalloc(sizeof(*node))) == NULL)
+    if ((node = malloc(sizeof(*node))) == NULL)
         return NULL;
     node->value = value;
     if (list->len == 0) {
@@ -107,7 +113,7 @@ list *listAddNodeTail(list *list, void *value)
 {
     listNode *node;
 
-    if ((node = zmalloc(sizeof(*node))) == NULL)
+    if ((node = malloc(sizeof(*node))) == NULL)
         return NULL;
     node->value = value;
     if (list->len == 0) {
@@ -126,7 +132,7 @@ list *listAddNodeTail(list *list, void *value)
 list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
     listNode *node;
 
-    if ((node = zmalloc(sizeof(*node))) == NULL)
+    if ((node = malloc(sizeof(*node))) == NULL)
         return NULL;
     node->value = value;
     if (after) {
@@ -166,8 +172,8 @@ void listDelNode(list *list, listNode *node)
         node->next->prev = node->prev;
     else
         list->tail = node->prev;
-    if (list->free) list->free(node->value);
-    zfree(node);
+    if (list->_free) list->_free(node->value);
+    free(node);
     list->len--;
 }
 
@@ -179,7 +185,7 @@ listIter *listGetIterator(list *list, int direction)
 {
     listIter *iter;
     
-    if ((iter = zmalloc(sizeof(*iter))) == NULL) return NULL;
+    if ((iter = malloc(sizeof(*iter))) == NULL) return NULL;
     if (direction == AL_START_HEAD)
         iter->next = list->head;
     else
@@ -190,7 +196,7 @@ listIter *listGetIterator(list *list, int direction)
 
 /* Release the iterator memory */
 void listReleaseIterator(listIter *iter) {
-    zfree(iter);
+    free(iter);
 }
 
 /* Create an iterator in the list private iterator structure */
@@ -247,15 +253,15 @@ list *listDup(list *orig)
 
     if ((copy = listCreate()) == NULL)
         return NULL;
-    copy->dup = orig->dup;
-    copy->free = orig->free;
-    copy->match = orig->match;
+    copy->_dup = orig->_dup;
+    copy->_free = orig->_free;
+    copy->_match = orig->_match;
     iter = listGetIterator(orig, AL_START_HEAD);
     while((node = listNext(iter)) != NULL) {
         void *value;
 
-        if (copy->dup) {
-            value = copy->dup(node->value);
+        if (copy->_dup) {
+            value = copy->_dup(node->value);
             if (value == NULL) {
                 listRelease(copy);
                 listReleaseIterator(iter);
@@ -289,8 +295,8 @@ listNode *listSearchKey(list *list, void *key)
 
     iter = listGetIterator(list, AL_START_HEAD);
     while((node = listNext(iter)) != NULL) {
-        if (list->match) {
-            if (list->match(node->value, key)) {
+        if (list->_match) {
+            if (list->_match(node->value, key)) {
                 listReleaseIterator(iter);
                 return node;
             }
