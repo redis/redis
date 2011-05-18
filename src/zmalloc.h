@@ -46,7 +46,7 @@
 #endif
 
 #elif defined(USE_JEMALLOC)
-#define ZMALLOC_LIB ("jemalloc-" JEMALLOC_VERSION)
+#define ZMALLOC_LIB ("jemalloc-" __xstr(JEMALLOC_VERSION_MAJOR) "." __xstr(JEMALLOC_VERSION_MINOR) "." __xstr(JEMALLOC_VERSION_BUGFIX))
 #define JEMALLOC_MANGLE
 #include <jemalloc/jemalloc.h>
 #if JEMALLOC_VERSION_MAJOR >= 2 && JEMALLOC_VERSION_MINOR >= 1
