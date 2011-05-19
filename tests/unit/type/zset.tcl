@@ -353,6 +353,14 @@ start_server {tags {"zset"}} {
             assert_equal 0 [r exists dst_key]
         }
 
+        test "ZUNIONSTORE with empty set - $encoding" {
+            r del zseta zsetb
+            r zadd zseta 1 a
+            r zadd zseta 2 b
+            r zunionstore zsetc 2 zseta zsetb
+            r zrange zsetc 0 -1 withscores
+        } {a 1 b 2}
+
         test "ZUNIONSTORE basics - $encoding" {
             r del zseta zsetb zsetc
             r zadd zseta 1 a
