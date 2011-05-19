@@ -1550,7 +1550,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
         }
     } else if (op == REDIS_OP_UNION) {
         for (i = 0; i < setnum; i++) {
-            if (zuiLength(&src[0]) == 0)
+            if (zuiLength(&src[i]) == 0)
                 continue;
 
             while (zuiNext(&src[i],&zval)) {
