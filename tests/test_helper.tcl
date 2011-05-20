@@ -108,6 +108,7 @@ proc cleanup {} {
 }
 
 proc execute_everything {} {
+    execute_tests "unit/printver"
     execute_tests "unit/auth"
     execute_tests "unit/protocol"
     execute_tests "unit/basic"
