@@ -735,10 +735,19 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                 /* because the zsets are sorted by size, its only possible
                  * for sets at larger indices to hold this entry */
                 for (j = (i+1); j < setnum; j++) {
-                    dictEntry *other = dictFind(src[j].dict,dictGetEntryKey(de));
-                    if (other) {
-                        value = src[j].weight * zunionInterDictValue(other);
+                    /* It is not safe to access the zset we are
+                     * iterating, so explicitly check for equal object. */
+                    if (src[j].dict == src[i].dict) {
+                        value = src[i].weight * zunionInterDictValue(de);
                         zunionInterAggregate(&score,value,aggregate);
+                    } else {
+                        dictEntry *other;
+
+                        other = dictFind(src[j].dict,dictGetEntryKey(de));
+                        if (other) {
+                            value = src[j].weight * zunionInterDictValue(other);
+                            zunionInterAggregate(&score,value,aggregate);
+                        }
                     }
                 }
 
