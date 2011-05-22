@@ -163,6 +163,9 @@
 #define REDIS_REPL_TRANSFER 3 /* Receiving .rdb from master */
 #define REDIS_REPL_CONNECTED 4 /* Connected to master */
 
+/* Synchronous read timeout - slave side */
+#define REDIS_REPL_SYNCIO_TIMEOUT 5
+
 /* Slave replication state - from the point of view of master
  * Note that in SEND_BULK and ONLINE state the slave receives new updates
  * in its output queue. In the WAIT_BGSAVE state instead the server is waiting
@@ -434,6 +437,7 @@ struct redisServer {
     char *masterhost;
     int masterport;
     redisClient *master;    /* client that is master for this slave */
+    int repl_syncio_timeout; /* timeout for synchronous I/O calls */
     int replstate;          /* replication status if the instance is a slave */
     off_t repl_transfer_left;  /* bytes left reading .rdb  */
     int repl_transfer_s;    /* slave -> master SYNC socket */
