@@ -127,6 +127,7 @@ proc execute_everything {} {
     execute_tests "integration/aof"
 #    execute_tests "integration/redis-cli"
     execute_tests "unit/pubsub"
+    execute_tests "unit/scripting"
 
     return; # No diskstore tests for now...
     # run tests with diskstore enabled
