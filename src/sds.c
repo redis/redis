@@ -548,6 +548,36 @@ err:
     return NULL;
 }
 
+void sdssplitargs_free(sds *argv, int argc) {
+    int j;
+
+    for (j = 0 ;j < argc; j++) sdsfree(argv[j]);
+    zfree(argv);
+}
+
+/* Modify the string substituting all the occurrences of the set of
+ * characters specifed in the 'from' string to the corresponding character
+ * in the 'to' array.
+ *
+ * For instance: sdsmapchars(mystring, "ho", "01", 2)
+ * will have the effect of turning the string "hello" into "0ell1".
+ *
+ * The function returns the sds string pointer, that is always the same
+ * as the input pointer since no resize is needed. */
+sds sdsmapchars(sds s, char *from, char *to, size_t setlen) {
+    size_t j, i, l = sdslen(s);
+
+    for (j = 0; j < l; j++) {
+        for (i = 0; i < setlen; i++) {
+            if (s[j] == from[i]) {
+                s[j] = to[i];
+                break;
+            }
+        }
+    }
+    return s;
+}
+
 #ifdef SDS_TEST_MAIN
 #include <stdio.h>
 #include "testhelp.h"
