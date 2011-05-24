@@ -12,6 +12,19 @@ for 2.0.
 CHANGELOG
 ---------
 
+What's new in Redis 2.2.8
+=========================
+
+* A new form of dict.c (hash table implementation) iterator that performs less
+  copy-on-write of pages, introduced in Redis 2.2.7, caused ZINTERSTORE,
+  ZUNIONSTORE, SINTER, SINTERSTORE commands to behave in the wrong way.
+  This bug is now fixed.
+* Print version info before running the test with 'make test'. This is mainly
+  useful for the Continuous Integration system we run.
+* Fix for DEBUG DIGEST, key may expire on lookup, producing the wrong result.
+* Replication with expire test modified to produce no or less false failures.
+* Fixed Z*STORE when dealing with intsets, regression test added.
+
 What's new in Redis 2.2.7
 =========================
 
