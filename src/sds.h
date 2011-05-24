@@ -85,5 +85,6 @@ sds sdsfromlonglong(long long value);
 sds sdscatrepr(sds s, char *p, size_t len);
 sds *sdssplitargs(char *line, int *argc);
 void sdssplitargs_free(sds *argv, int argc);
+sds sdsmapchars(sds s, char *from, char *to, size_t setlen);
 
 #endif
