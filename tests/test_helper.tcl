@@ -125,6 +125,7 @@ proc execute_everything {} {
     execute_tests "integration/aof"
 #    execute_tests "integration/redis-cli"
     execute_tests "unit/pubsub"
+    execute_tests "unit/scripting"
 
     # run tests with VM enabled
     set ::global_overrides {vm-enabled yes}
