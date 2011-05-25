@@ -141,7 +141,7 @@ int pubsubUnsubscribePattern(redisClient *c, robj *pattern, int notify) {
 /* Unsubscribe from all the channels. Return the number of channels the
  * client was subscribed from. */
 int pubsubUnsubscribeAllChannels(redisClient *c, int notify) {
-    dictIterator *di = dictGetIterator(c->pubsub_channels);
+    dictIterator *di = dictGetSafeIterator(c->pubsub_channels);
     dictEntry *de;
     int count = 0;
 
