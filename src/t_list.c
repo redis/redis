@@ -870,6 +870,9 @@ int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
         receiver = ln->value;
         dstkey = receiver->bpop.target;
 
+        /* Protect receiver->bpop.target, that will be freed by
+         * the next unblockClientWaitingData() call. */
+        if (dstkey) incrRefCount(dstkey);
         /* This should remove the first element of the "clients" list. */
         unblockClientWaitingData(receiver);
 
@@ -882,13 +885,12 @@ int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
         } else {
             /* BRPOPLPUSH, note that receiver->db is always equal to c->db. */
             dstobj = lookupKeyWrite(receiver->db,dstkey);
-            if (dstobj && checkType(receiver,dstobj,REDIS_LIST)) {
-                decrRefCount(dstkey);
-            } else {
+            if (!(dstobj && checkType(receiver,dstobj,REDIS_LIST))) {
                 rpoplpushHandlePush(c,receiver,dstkey,dstobj,ele);
                 decrRefCount(dstkey);
                 return 1;
             }
+            decrRefCount(dstkey);
         }
     }
 
