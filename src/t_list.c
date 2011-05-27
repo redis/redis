@@ -821,6 +821,7 @@ void unblockClientWaitingData(redisClient *c) {
     /* Cleanup the client structure */
     zfree(c->bpop.keys);
     c->bpop.keys = NULL;
+    if (c->bpop.target) decrRefCount(c->bpop.target);
     c->bpop.target = NULL;
     c->flags &= ~REDIS_BLOCKED;
     c->flags |= REDIS_UNBLOCKED;
