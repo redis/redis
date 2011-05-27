@@ -21,3 +21,5 @@ src/configs
 src/redis-server.dSYM
 redis.ds
 src/redis.conf
+deps/lua/src/lua
+deps/lua/src/luac
