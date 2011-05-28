@@ -55,6 +55,7 @@ static struct config {
     int hostport;
     char *hostsocket;
     long repeat;
+    long interval;
     int dbnum;
     int interactive;
     int shutdown;
@@ -517,6 +518,8 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
                 cliRefreshPrompt();
             }
         }
+        if (config.interval) usleep(config.interval);
+        fflush(stdout); /* Make it grep friendly */
     }
 
     free(argvlen);
@@ -551,6 +554,10 @@ static int parseOptions(int argc, char **argv) {
             i++;
         } else if (!strcmp(argv[i],"-r") && !lastarg) {
             config.repeat = strtoll(argv[i+1],NULL,10);
+            i++;
+        } else if (!strcmp(argv[i],"-i") && !lastarg) {
+            double seconds = atof(argv[i+1]);
+            config.interval = seconds*1000000;
             i++;
         } else if (!strcmp(argv[i],"-n") && !lastarg) {
             config.dbnum = atoi(argv[i+1]);
@@ -604,6 +611,8 @@ static void usage() {
 "  -s <socket>      Server socket (overrides hostname and port)\n"
 "  -a <password>    Password to use when connecting to the server\n"
 "  -r <repeat>      Execute specified command N times\n"
+"  -i <interval>    When -r is used, waits <interval> seconds per command.\n"
+"                   It is possible to specify sub-second times like -i 0.1.\n"
 "  -n <db>          Database number\n"
 "  -x               Read last argument from STDIN\n"
 "  -d <delimiter>   Multi-bulk delimiter in for raw formatting (default: \\n)\n"
@@ -615,6 +624,7 @@ static void usage() {
 "  cat /etc/passwd | redis-cli -x set mypasswd\n"
 "  redis-cli get mypasswd\n"
 "  redis-cli -r 100 lpush mylist x\n"
+"  redis-cli -r 100 -i 1 info | grep used_memory_human:\n"
 "\n"
 "When no command is given, redis-cli starts in interactive mode.\n"
 "Type \"help\" in interactive mode for information on available commands.\n"
@@ -736,6 +746,7 @@ int main(int argc, char **argv) {
     config.hostport = 6379;
     config.hostsocket = NULL;
     config.repeat = 1;
+    config.interval = 0;
     config.dbnum = 0;
     config.interactive = 0;
     config.shutdown = 0;
