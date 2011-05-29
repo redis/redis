@@ -909,6 +909,7 @@ void initServer() {
     server.stat_keyspace_misses = 0;
     server.stat_keyspace_hits = 0;
     server.stat_peak_memory = 0;
+    server.stat_fork_time = 0;
     server.unixtime = time(NULL);
     aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL);
     if (server.ipfd > 0 && aeCreateFileEvent(server.el,server.ipfd,AE_READABLE,
@@ -1207,6 +1208,7 @@ sds genRedisInfoString(void) {
         "hash_max_zipmap_value:%zu\r\n"
         "pubsub_channels:%ld\r\n"
         "pubsub_patterns:%u\r\n"
+        "latest_fork_usec:%lld\r\n"
         "vm_enabled:%d\r\n"
         "role:%s\r\n"
         ,REDIS_VERSION,
@@ -1249,6 +1251,7 @@ sds genRedisInfoString(void) {
         server.hash_max_zipmap_value,
         dictSize(server.pubsub_channels),
         listLength(server.pubsub_patterns),
+        server.stat_fork_time,
         server.vm_enabled != 0,
         server.masterhost == NULL ? "master" : "slave"
     );

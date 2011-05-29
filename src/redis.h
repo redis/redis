@@ -401,6 +401,7 @@ struct redisServer {
     long long stat_keyspace_hits;   /* number of successful lookups of keys */
     long long stat_keyspace_misses; /* number of failed lookups of keys */
     size_t stat_peak_memory;        /* max used memory record */
+    long long stat_fork_time;       /* time needed to perform latets fork() */
     /* Configuration */
     int verbosity;
     int maxidletime;

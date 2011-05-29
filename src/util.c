@@ -5,6 +5,7 @@
 #include <ctype.h>
 #include <limits.h>
 #include <math.h>
+#include <sys/time.h>
 
 #include "util.h"
 

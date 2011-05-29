@@ -498,10 +498,12 @@ werr:
 
 int rdbSaveBackground(char *filename) {
     pid_t childpid;
+    long long start;
 
     if (server.bgsavechildpid != -1) return REDIS_ERR;
     if (server.vm_enabled) waitEmptyIOJobsQueue();
     server.dirty_before_bgsave = server.dirty;
+    start = ustime();
     if ((childpid = fork()) == 0) {
         /* Child */
         if (server.vm_enabled) vmReopenSwapFile();
@@ -514,6 +516,7 @@ int rdbSaveBackground(char *filename) {
         }
     } else {
         /* Parent */
+        server.stat_fork_time = ustime()-start;
         if (childpid == -1) {
             redisLog(REDIS_WARNING,"Can't save in background: fork: %s",
                 strerror(errno));
