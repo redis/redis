@@ -110,7 +110,7 @@ proc cleanup {} {
 }
 
 proc execute_everything {} {
-    if 1 {
+    if 0 {
         # Use this when hacking on new tests.
         set ::verbose 1
         execute_tests "unit/first"
