@@ -249,8 +249,11 @@ void sremCommand(redisClient *c) {
 
     for (j = 2; j < c->argc; j++) {
         if (setTypeRemove(set,c->argv[j])) {
-            if (setTypeSize(set) == 0) dbDelete(c->db,c->argv[1]);
             deleted++;
+            if (setTypeSize(set) == 0) {
+                dbDelete(c->db,c->argv[1]);
+                break;
+            }
         }
     }
     if (deleted) {
