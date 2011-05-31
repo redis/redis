@@ -108,6 +108,13 @@ proc cleanup {} {
 }
 
 proc execute_everything {} {
+    if 1 {
+        # Use this when hacking on new tests.
+        set ::verbose 1
+        execute_tests "unit/first"
+        return
+    }
+
     execute_tests "unit/printver"
     execute_tests "unit/auth"
     execute_tests "unit/protocol"
