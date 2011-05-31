@@ -859,7 +859,7 @@ void zaddGenericCommand(redisClient *c, int incr) {
                 zobj->ptr = zzlDelete(zobj->ptr,eptr);
                 zobj->ptr = zzlInsert(zobj->ptr,ele,score);
 
-                touchWatchedKey(c->db,key);
+                signalModifiedKey(c->db,key);
                 server.dirty++;
             }
 
@@ -876,7 +876,7 @@ void zaddGenericCommand(redisClient *c, int incr) {
             if (sdslen(ele->ptr) > server.zset_max_ziplist_value)
                 zsetConvert(zobj,REDIS_ENCODING_SKIPLIST);
 
-            touchWatchedKey(c->db,key);
+            signalModifiedKey(c->db,key);
             server.dirty++;
 
             if (incr) /* ZINCRBY */
@@ -914,7 +914,7 @@ void zaddGenericCommand(redisClient *c, int incr) {
                 incrRefCount(curobj); /* Re-inserted in skiplist. */
                 dictGetEntryVal(de) = &znode->score; /* Update score ptr. */
 
-                touchWatchedKey(c->db,key);
+                signalModifiedKey(c->db,key);
                 server.dirty++;
             }
 
@@ -928,7 +928,7 @@ void zaddGenericCommand(redisClient *c, int incr) {
             redisAssert(dictAdd(zs->dict,ele,&znode->score) == DICT_OK);
             incrRefCount(ele); /* Added to dictionary. */
 
-            touchWatchedKey(c->db,key);
+            signalModifiedKey(c->db,key);
             server.dirty++;
 
             if (incr) /* ZINCRBY */
