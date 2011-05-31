@@ -951,8 +951,8 @@ void zincrbyCommand(redisClient *c) {
 
 void zremCommand(redisClient *c) {
     robj *key = c->argv[1];
-    robj *ele = c->argv[2];
     robj *zobj;
+    int deleted = 0, j;
 
     if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero)) == NULL ||
         checkType(c,zobj,REDIS_ZSET)) return;
@@ -960,39 +960,48 @@ void zremCommand(redisClient *c) {
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
         unsigned char *eptr;
 
-        if ((eptr = zzlFind(zobj->ptr,ele,NULL)) != NULL) {
-            zobj->ptr = zzlDelete(zobj->ptr,eptr);
-            if (zzlLength(zobj->ptr) == 0) dbDelete(c->db,key);
-        } else {
-            addReply(c,shared.czero);
-            return;
+        for (j = 2; j < c->argc; j++) {
+            if ((eptr = zzlFind(zobj->ptr,c->argv[j],NULL)) != NULL) {
+                deleted++;
+                zobj->ptr = zzlDelete(zobj->ptr,eptr);
+                if (zzlLength(zobj->ptr) == 0) {
+                    dbDelete(c->db,key);
+                    break;
+                }
+            }
         }
     } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
         dictEntry *de;
         double score;
 
-        de = dictFind(zs->dict,ele);
-        if (de != NULL) {
-            /* Delete from the skiplist */
-            score = *(double*)dictGetEntryVal(de);
-            redisAssert(zslDelete(zs->zsl,score,ele));
+        for (j = 2; j < c->argc; j++) {
+            de = dictFind(zs->dict,c->argv[j]);
+            if (de != NULL) {
+                deleted++;
 
-            /* Delete from the hash table */
-            dictDelete(zs->dict,ele);
-            if (htNeedsResize(zs->dict)) dictResize(zs->dict);
-            if (dictSize(zs->dict) == 0) dbDelete(c->db,key);
-        } else {
-            addReply(c,shared.czero);
-            return;
+                /* Delete from the skiplist */
+                score = *(double*)dictGetEntryVal(de);
+                redisAssert(zslDelete(zs->zsl,score,c->argv[j]));
+
+                /* Delete from the hash table */
+                dictDelete(zs->dict,c->argv[j]);
+                if (htNeedsResize(zs->dict)) dictResize(zs->dict);
+                if (dictSize(zs->dict) == 0) {
+                    dbDelete(c->db,key);
+                    break;
+                }
+            }
         }
     } else {
         redisPanic("Unknown sorted set encoding");
     }
 
-    touchWatchedKey(c->db,key);
-    server.dirty++;
-    addReply(c,shared.cone);
+    if (deleted) {
+        touchWatchedKey(c->db,key);
+        server.dirty += deleted;
+    }
+    addReplyLongLong(c,deleted);
 }
 
 void zremrangebyscoreCommand(redisClient *c) {
