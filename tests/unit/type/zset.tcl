@@ -65,6 +65,21 @@ start_server {tags {"zset"}} {
             assert_equal 0 [r exists ztmp]
         }
 
+        test "ZREM variadic version" {
+            r del ztmp
+            r zadd ztmp 10 a 20 b 30 c
+            assert_equal 2 [r zrem ztmp x y a b k]
+            assert_equal 0 [r zrem ztmp foo bar]
+            assert_equal 1 [r zrem ztmp c]
+            r exists ztmp
+        } {0}
+
+        test "ZREM variadic version -- remove elements after key deletion" {
+            r del ztmp
+            r zadd ztmp 10 a 20 b 30 c
+            r zrem ztmp a b c d e f g
+        } {3}
+
         test "ZRANGE basics - $encoding" {
             r del ztmp
             r zadd ztmp 1 a
