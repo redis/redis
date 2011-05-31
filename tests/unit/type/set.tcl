@@ -98,6 +98,12 @@ start_server {
         lsort [r smembers myset]
     } {a c}
 
+    test {SREM variadic version with more args needed to destroy the key} {
+        r del myset
+        r sadd myset 1 2 3
+        r srem myset 1 2 3 4 5 6 7 8
+    } {3}
+
     foreach {type} {hashtable intset} {
         for {set i 1} {$i <= 5} {incr i} {
             r del [format "set%d" $i]
