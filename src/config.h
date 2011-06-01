@@ -5,35 +5,6 @@
 #include <AvailabilityMacros.h>
 #endif
 
-/* Use tcmalloc's malloc_size() when available.
- * When tcmalloc is used, native OSX malloc_size() may never be used because
- * this expects a different allocation scheme. Therefore, *exclusively* use
- * either tcmalloc or OSX's malloc_size()! */
-#if defined(USE_TCMALLOC)
-#define REDIS_MALLOC "tcmalloc"
-#include <google/tcmalloc.h>
-#if TC_VERSION_MAJOR >= 1 && TC_VERSION_MINOR >= 6
-#define HAVE_MALLOC_SIZE 1
-#define redis_malloc_size(p) tc_malloc_size(p)
-#endif
-#elif defined(USE_JEMALLOC)
-#define REDIS_MALLOC "jemalloc"
-#define JEMALLOC_MANGLE
-#include <jemalloc/jemalloc.h>
-#if JEMALLOC_VERSION_MAJOR >= 2 && JEMALLOC_VERSION_MINOR >= 1
-#define HAVE_MALLOC_SIZE 1
-#define redis_malloc_size(p) JEMALLOC_P(malloc_usable_size)(p)
-#endif
-#elif defined(__APPLE__)
-#include <malloc/malloc.h>
-#define HAVE_MALLOC_SIZE 1
-#define redis_malloc_size(p) malloc_size(p)
-#endif
-
-#ifndef REDIS_MALLOC
-#define REDIS_MALLOC "libc"
-#endif
-
 /* define redis_fstat to fstat or fstat64() */
 #if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
 #define redis_fstat fstat64
