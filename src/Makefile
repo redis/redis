@@ -36,7 +36,7 @@ endif
 
 ifeq ($(USE_JEMALLOC),yes)
   ALLOC_DEP=../deps/jemalloc/lib/libjemalloc.a
-  ALLOC_LINK=$(ALLOC_DEP)
+  ALLOC_LINK=$(ALLOC_DEP) -ldl
   ALLOC_FLAGS=-DUSE_JEMALLOC -I../deps/jemalloc/include
 endif
 
