@@ -5,35 +5,42 @@
 release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 OPTIMIZATION?=-O2
+
+ifeq ($(uname_S),Linux)
+  ifneq ($(FORCE_LIBC_MALLOC),yes)
+    USE_JEMALLOC=yes
+  endif
+endif
+
 ifeq ($(uname_S),SunOS)
-  CFLAGS?= -std=c99 -pedantic $(OPTIMIZATION) -Wall -W -D__EXTENSIONS__ -D_XPG6
-  CCLINK?= -ldl -lnsl -lsocket -lm -lpthread
-  DEBUG?= -g -ggdb 
+  CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -Wall -W -D__EXTENSIONS__ -D_XPG6
+  CCLINK?=-ldl -lnsl -lsocket -lm -lpthread
+  DEBUG?=-g -ggdb
 else
-  CFLAGS?= -std=c99 -pedantic $(OPTIMIZATION) -Wall -W $(ARCH) $(PROF)
-  CCLINK?= -lm -pthread
-  DEBUG?= -g -rdynamic -ggdb 
+  CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -Wall -W $(ARCH) $(PROF)
+  CCLINK?=-lm -pthread
+  DEBUG?=-g -rdynamic -ggdb
 endif
 
 ifeq ($(USE_TCMALLOC),yes)
+  ALLOC_DEP=
   ALLOC_LINK=-ltcmalloc
   ALLOC_FLAGS=-DUSE_TCMALLOC
 endif
 
 ifeq ($(USE_TCMALLOC_MINIMAL),yes)
+  ALLOC_DEP=
   ALLOC_LINK=-ltcmalloc_minimal
   ALLOC_FLAGS=-DUSE_TCMALLOC
 endif
 
 ifeq ($(USE_JEMALLOC),yes)
-  ALLOC_LINK=-ljemalloc
-  ALLOC_FLAGS=-DUSE_JEMALLOC
+  ALLOC_DEP=../deps/jemalloc/lib/libjemalloc.a
+  ALLOC_LINK=$(ALLOC_DEP)
+  ALLOC_FLAGS=-DUSE_JEMALLOC -I../deps/jemalloc/include
 endif
 
-CCLINK+= $(ALLOC_LINK)
-CFLAGS+= $(ALLOC_FLAGS)
-
-CCOPT= $(CFLAGS) $(CCLINK) $(ARCH) $(PROF)
+CCOPT= $(CFLAGS) $(ARCH) $(PROF)
 
 PREFIX= /usr/local
 INSTALL_BIN= $(PREFIX)/bin
@@ -58,7 +65,7 @@ all: redis-benchmark redis-cli redis-check-dump redis-check-aof redis-server
 
 # Deps (use make dep to generate this)
 adlist.o: adlist.c adlist.h zmalloc.h
-ae.o: ae.c ae.h zmalloc.h config.h ae_kqueue.c
+ae.o: ae.c ae.h config.h zmalloc.h ae_epoll.c ae_kqueue.c ae_select.c
 ae_epoll.o: ae_epoll.c
 ae_kqueue.o: ae_kqueue.c
 ae_select.o: ae_select.c
@@ -72,8 +79,8 @@ db.o: db.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
 debug.o: debug.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h sha1.h
 dict.o: dict.c fmacros.h dict.h zmalloc.h
-endian.o: endian.c
 intset.o: intset.c intset.h zmalloc.h
+endian.o: endian.c
 lzf_c.o: lzf_c.c lzfP.h
 lzf_d.o: lzf_d.c lzfP.h
 multi.o: multi.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
@@ -87,12 +94,12 @@ pubsub.o: pubsub.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
 rdb.o: rdb.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h lzf.h
-redis-benchmark.o: redis-benchmark.c fmacros.h ae.h \
-  ../deps/hiredis/hiredis.h sds.h adlist.h zmalloc.h
+redis-benchmark.o: redis-benchmark.c fmacros.h ae.c ae.h ae_epoll.c \
+  ae_kqueue.c ae_select.c config.h zmalloc.h ae_kqueue.c adlist.c adlist.h \
+  sds.c sds.h
 redis-check-aof.o: redis-check-aof.c fmacros.h config.h
 redis-check-dump.o: redis-check-dump.c lzf.h
-redis-cli.o: redis-cli.c fmacros.h version.h ../deps/hiredis/hiredis.h \
-  sds.h zmalloc.h ../deps/linenoise/linenoise.h help.h
+redis-cli.o: redis-cli.c fmacros.h version.h help.h sds.c sds.h
 redis.o: redis.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
 release.o: release.c release.h
@@ -114,47 +121,61 @@ t_string.o: t_string.c redis.h fmacros.h config.h ae.h sds.h dict.h \
   adlist.h zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
 t_zset.o: t_zset.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
-util.o: util.c util.h
+util.o: util.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
+  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
 vm.o: vm.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h
 ziplist.o: ziplist.c zmalloc.h ziplist.h
-zipmap.o: zipmap.c zmalloc.h endian.h
+zipmap.o: zipmap.c zmalloc.h
 zmalloc.o: zmalloc.c config.h zmalloc.h
+
+.PHONY: dependencies
 
 dependencies:
 	cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
 	cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
 
-redis-server: $(OBJ)
-	$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ)
-
-redis-benchmark: dependencies $(BENCHOBJ)
-	cd ../deps/hiredis && $(MAKE) static
-	$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a
+../deps/jemalloc/lib/libjemalloc.a:
+	cd ../deps/jemalloc && ./configure --with-jemalloc-prefix=je_ --enable-cc-silence && $(MAKE) lib/libjemalloc.a
 
 redis-benchmark.o:
 	$(CC) -c $(CFLAGS) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
 
-redis-cli: dependencies $(CLIOBJ)
-	$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o
+redis-benchmark: dependencies $(BENCHOBJ)
+	cd ../deps/hiredis && $(MAKE) static
+	$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a $(CCLINK) $(ALLOC_LINK)
 
 redis-cli.o:
 	$(CC) -c $(CFLAGS) -I../deps/hiredis -I../deps/linenoise $(DEBUG) $(COMPILE_TIME) $<
 
+redis-cli: dependencies $(CLIOBJ)
+	$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o $(CCLINK) $(ALLOC_LINK)
+
+redis-check-dump.o:
+	$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
+
 redis-check-dump: $(CHECKDUMPOBJ)
-	$(CC) -o $(CHECKDUMPPRGNAME) $(CCOPT) $(DEBUG) $(CHECKDUMPOBJ)
+	$(CC) -o $(CHECKDUMPPRGNAME) $(CCOPT) $(DEBUG) $(CHECKDUMPOBJ) $(CCLINK)
+
+redis-check-aof.o:
+	$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
 
 redis-check-aof: $(CHECKAOFOBJ)
-	$(CC) -o $(CHECKAOFPRGNAME) $(CCOPT) $(DEBUG) $(CHECKAOFOBJ)
+	$(CC) -o $(CHECKAOFPRGNAME) $(CCOPT) $(DEBUG) $(CHECKAOFOBJ) $(CCLINK)
 
-.c.o:
-	$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
+redis-server: $(OBJ)
+	$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) $(CCLINK) $(ALLOC_LINK)
+
+# Because the jemalloc.h header is generated as a part of the jemalloc build
+# process, building it should complete before building any other object.
+%.o: %.c $(ALLOC_DEP)
+	$(CC) -c $(CFLAGS) $(ALLOC_FLAGS) $(DEBUG) $(COMPILE_TIME) $<
 
 clean:
 	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
 
 dep:
-	$(CC) -I../deps/hiredis -I../deps/linenoise -MM *.c
+	$(CC) -MM *.c
 
 test: redis-server
 	(cd ..; tclsh8.5 tests/test_helper.tcl --tags "${TAGS}" --file "${FILE}")
