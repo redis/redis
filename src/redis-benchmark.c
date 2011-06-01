@@ -48,6 +48,10 @@
 #define REDIS_NOTUSED(V) ((void) V)
 
 static struct config {
+    aeEventLoop *el;
+    const char *hostip;
+    int hostport;
+    const char *hostsocket;
     int debug;
     int numclients;
     int requests;
@@ -57,15 +61,11 @@ static struct config {
     int datasize;
     int randomkeys;
     int randomkeys_keyspacelen;
-    aeEventLoop *el;
-    char *hostip;
-    int hostport;
-    char *hostsocket;
     int keepalive;
     long long start;
     long long totlatency;
     long long *latency;
-    char *title;
+    const char *title;
     list *clients;
     int quiet;
     int loop;
@@ -227,7 +227,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 }
 
-static client createClient(char *cmd, int len) {
+static client createClient(const char *cmd, size_t len) {
     client c = zmalloc(sizeof(struct _client));
     if (config.hostsocket == NULL) {
         c->context = redisConnectNonBlock(config.hostip,config.hostport);
@@ -311,7 +311,7 @@ static void showLatencyReport(void) {
     }
 }
 
-static void benchmark(char *title, char *cmd, int len) {
+static void benchmark(const char *title, const char *cmd, int len) {
     client c;
 
     config.title = title;
@@ -328,7 +328,7 @@ static void benchmark(char *title, char *cmd, int len) {
     freeAllClients();
 }
 
-void parseOptions(int argc, char **argv) {
+void parseOptions(int argc, const char **argv) {
     int i;
 
     for (i = 1; i < argc; i++) {
@@ -344,13 +344,13 @@ void parseOptions(int argc, char **argv) {
             config.keepalive = atoi(argv[i+1]);
             i++;
         } else if (!strcmp(argv[i],"-h") && !lastarg) {
-            config.hostip = argv[i+1];
+            config.hostip = strdup(argv[i+1]);
             i++;
         } else if (!strcmp(argv[i],"-p") && !lastarg) {
             config.hostport = atoi(argv[i+1]);
             i++;
         } else if (!strcmp(argv[i],"-s") && !lastarg) {
-            config.hostsocket = argv[i+1];
+            config.hostsocket = strdup(argv[i+1]);
             i++;
         } else if (!strcmp(argv[i],"-d") && !lastarg) {
             config.datasize = atoi(argv[i+1]);
@@ -409,7 +409,7 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
     return 250; /* every 250ms */
 }
 
-int main(int argc, char **argv) {
+int main(int argc, const char **argv) {
     int i;
     client c;
 
