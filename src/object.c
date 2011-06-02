@@ -203,7 +203,7 @@ void decrRefCount(void *obj) {
      * assert will fail. */
     if (server.vm_enabled && o->storage == REDIS_VM_SWAPPING)
         vmCancelThreadedIOJob(o);
-    if (--(o->refcount) == 0) {
+    if (o->refcount == 1) {
         switch(o->type) {
         case REDIS_STRING: freeStringObject(o); break;
         case REDIS_LIST: freeListObject(o); break;
@@ -212,8 +212,9 @@ void decrRefCount(void *obj) {
         case REDIS_HASH: freeHashObject(o); break;
         default: redisPanic("Unknown object type"); break;
         }
-        o->ptr = NULL; /* defensive programming. We'll see NULL in traces. */
         zfree(o);
+    } else {
+        o->refcount--;
     }
 }
 
