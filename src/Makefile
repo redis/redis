@@ -6,6 +6,18 @@ release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 OPTIMIZATION?=-O2
 
+CCCOLOR="\033[34m"
+LINKCOLOR="\033[34;1m"
+SRCCOLOR="\033[33m"
+BINCOLOR="\033[37;1m"
+MAKECOLOR="\033[32;1m"
+ENDCOLOR="\033[0m"
+
+ifndef V
+QUIET_CC = @echo '    ' $(CCCOLOR)CC$(ENDCOLOR) $(SRCCOLOR)$@$(ENDCOLOR);
+QUIET_LINK = @echo '    ' $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR);
+endif
+
 ifeq ($(uname_S),Linux)
   ifneq ($(FORCE_LIBC_MALLOC),yes)
     USE_JEMALLOC=yes
@@ -132,44 +144,48 @@ zmalloc.o: zmalloc.c config.h zmalloc.h
 .PHONY: dependencies
 
 dependencies:
-	cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
-	cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
+	@echo $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)hiredis$(ENDCOLOR)
+	@cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
+	@echo $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)linenoise$(ENDCOLOR)
+	@cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
 
 ../deps/jemalloc/lib/libjemalloc.a:
-	cd ../deps/jemalloc && ./configure $(JEMALLOC_CFLAGS) --with-jemalloc-prefix=je_ --enable-cc-silence && $(MAKE) lib/libjemalloc.a
+	@echo $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)jemalloc$(ENDCOLOR)
+	@cd ../deps/jemalloc && ./configure $(JEMALLOC_CFLAGS) --with-jemalloc-prefix=je_ --enable-cc-silence && $(MAKE) lib/libjemalloc.a
 
 redis-benchmark.o:
-	$(CC) -c $(CFLAGS) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
+	$(QUIET_CC)$(CC) -c $(CFLAGS) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
 
 redis-benchmark: dependencies $(BENCHOBJ)
-	cd ../deps/hiredis && $(MAKE) static
-	$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a $(CCLINK) $(ALLOC_LINK)
+	@echo $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)hiredis$(ENDCOLOR)
+	@cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
+	$(QUIET_LINK)$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a $(CCLINK) $(ALLOC_LINK)
 
 redis-cli.o:
-	$(CC) -c $(CFLAGS) -I../deps/hiredis -I../deps/linenoise $(DEBUG) $(COMPILE_TIME) $<
+	$(QUIET_CC)$(CC) -c $(CFLAGS) -I../deps/hiredis -I../deps/linenoise $(DEBUG) $(COMPILE_TIME) $<
 
 redis-cli: dependencies $(CLIOBJ)
-	$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o $(CCLINK) $(ALLOC_LINK)
+	$(QUIET_LINK)$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o $(CCLINK) $(ALLOC_LINK)
 
 redis-check-dump.o:
-	$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
+	$(QUIET_CC)$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
 
 redis-check-dump: $(CHECKDUMPOBJ)
-	$(CC) -o $(CHECKDUMPPRGNAME) $(CCOPT) $(DEBUG) $(CHECKDUMPOBJ) $(CCLINK)
+	$(QUIET_LINK)$(CC) -o $(CHECKDUMPPRGNAME) $(CCOPT) $(DEBUG) $(CHECKDUMPOBJ) $(CCLINK)
 
 redis-check-aof.o:
-	$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
+	$(QUIET_CC)$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
 
 redis-check-aof: $(CHECKAOFOBJ)
-	$(CC) -o $(CHECKAOFPRGNAME) $(CCOPT) $(DEBUG) $(CHECKAOFOBJ) $(CCLINK)
+	$(QUIET_LINK)$(CC) -o $(CHECKAOFPRGNAME) $(CCOPT) $(DEBUG) $(CHECKAOFOBJ) $(CCLINK)
 
 redis-server: $(OBJ)
-	$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) $(CCLINK) $(ALLOC_LINK)
+	$(QUIET_LINK)$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) $(CCLINK) $(ALLOC_LINK)
 
 # Because the jemalloc.h header is generated as a part of the jemalloc build
 # process, building it should complete before building any other object.
 %.o: %.c $(ALLOC_DEP)
-	$(CC) -c $(CFLAGS) $(ALLOC_FLAGS) $(DEBUG) $(COMPILE_TIME) $<
+	$(QUIET_CC)$(CC) -c $(CFLAGS) $(ALLOC_FLAGS) $(DEBUG) $(COMPILE_TIME) $<
 
 clean:
 	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
