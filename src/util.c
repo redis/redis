@@ -327,6 +327,17 @@ int d2string(char *buf, size_t len, double value) {
     return len;
 }
 
+/* Return the UNIX time in microseconds */
+long long ustime(void) {
+    struct timeval tv;
+    long long ust;
+
+    gettimeofday(&tv, NULL);
+    ust = ((long long)tv.tv_sec)*1000000;
+    ust += tv.tv_usec;
+    return ust;
+}
+
 #ifdef UTIL_TEST_MAIN
 #include <assert.h>
 
