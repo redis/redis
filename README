@@ -24,6 +24,34 @@ After building Redis is a good idea to test it, using:
 
     % make test
 
+NOTE: if after building Redis with a 32 bit target you need to rebuild it
+      with a 64 bit target you need to perform a "make clean" in the root
+      directory of the Redis distribution.
+
+Allocator
+---------
+
+By default Redis compiles and links against jemalloc under Linux, since
+glibc malloc() has memory fragmentation problems.
+
+To force a libc malloc() build use:
+
+    make FORCE_LIBC_MALLOC=yes
+
+In all the other non Linux systems the libc malloc() is used by default.
+
+On Mac OS X you can force a jemalloc based build using the following:
+
+    make USE_JEMALLOC=yes
+
+Verbose build
+-------------
+
+Redis will build with a user friendly colorized output by default.
+If you want to see a more verbose output use the following:
+
+    make V=1
+
 Running Redis
 -------------
 
