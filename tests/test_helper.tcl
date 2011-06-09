@@ -134,6 +134,7 @@ proc execute_everything {} {
     execute_tests "unit/pubsub"
 
     # run tests with VM enabled
+    if 0 {
     set ::global_overrides {vm-enabled yes}
     execute_tests "unit/protocol"
     execute_tests "unit/basic"
@@ -145,6 +146,7 @@ proc execute_everything {} {
     execute_tests "unit/expire"
     execute_tests "unit/other"
     execute_tests "unit/cas"
+    }
 }
 
 proc main {} {
