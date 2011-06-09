@@ -1,134 +1,55 @@
-Redis 2.2 release notes
+Redis 2.4 release notes
 
-Migrating from 2.0 to 2.2
+Migrating from 2.2 to 2.4
 =========================
 
-Redis 2.0 is mostly a strict subset of 2.2. Some return value changed in edge
-cases, basicaly it is very unlikely that you will experience any problem
-upgrading your 2.0 instances to 2.2, as 2.2 can work as a drop in replacement
-for 2.0.
+Redis 2.2 is mostly a strict subset of 2.4.
+The only thing you should be aware is that you can't use .rdb and AOF files
+generated with 2.4 into a 2.2 instance.
+
+2.4 slaves can be attached to 2.2 masters, but not the contrary.
+
+From the point of view of the API Redis 2.4 only adds new commands
+(other commands now accepts a variable number of arguments) so you don't need
+to modify your program in order to use Redis 2.4.
 
 ---------
 CHANGELOG
 ---------
 
-What's new in Redis 2.2.4
-=========================
-
-* Return value of OBJECT DEBUG against sorted sets fixed, now is "skiplist".
-
-What's new in Redis 2.2.3
-=========================
-
-* Fixed issue #503. MONITOR + QUIT (and other combinations) could crash
-  the server.
-* OBJECT command implemented. See http://redis.io/commands/object
-* Fixed a problem in redis-cli related to escapes in the form "\x..".
-* Fixed a minor memory leak in redis-cli
-* Saved RDB on SIGTERM on archs where it was not working properly.
-
-What's new in Redis 2.2.2
-=========================
-
-Redis 2.2.2 is a bugfix release. Changelog:
-
-* AOF file descriptor leak after the first rewrite fixed.
-* Return value of GETRANGE / SUBSTR is now an empty string if the interval
-  specified is not valid, or the key does not exist. Was a null bulk reply
-  before, but this is against the Redis way.
-
-What's new in Redis 2.2.1
-=========================
-
-Redis 2.2.1 is a bugfix release. Changelog:
-
-* Fixed an SPOP crash. When using SPOP in a MULTI/EXEC block there was a problem
-  introduced in the latest release when fixing an SPOP replication/AOF related
-  bug.
-
-What's new in Redis 2.2.0 final
-===============================
-
-Redis 2.2.0 final is both a bug fix and minor enhancement release:
-
-* SPOP is now replicated correctly in AOF and across slaves.
-* CONFIG SET/GET for all the special encoding parameters of sets, lists, hashes.
-* Now BRPOPLPUSH will reply with single null bulk on timeout.
-* Specifying port 0 in redis.conf will tell Redis to don't listen on TCP socket.
-* Propagate key eviction to slaves and AOF, similarly to expires.
-
-What's new in Redis 2.1.10 (2.2 Release Candidate 4)
-====================================================
-
-Redis 2.2 RC4 is a bug fix and minor enhancement release:
-
-* Fixed timeout error in replication where master took a big time to BGSAVE.
-* Introduced explicit PING between master and slave, to reliably detect when
-  the link is down, even if the socket remains apparently connected.
-* Fixed compilation on FreeBSD.
-* Removed a small portability issue in redis-benchmark.
-
-What's new in Redis 2.1.10 (2.2 Release Candidate 3)
-====================================================
-
-Redis 2.2 RC3 is a bug fix and minor enhancements release:
-
-* Solaris fixes
-* Fixes and improvements for redis-benchmark
-* New INFO field with memory allocation details
-* New INFO fields with info about clients max input/output buffer
-* Replication: KEYS fixed in slaves
-* Different default thresholds for Hash type memory saving encodings
-
-What's new in Redis 2.1.10 (2.2 Release Candidate 2)
-====================================================
-
-Redis 2.2 RC2 is exactly like RC1 with the following minor changes:
-
-* Added evicted keys counter separated from expired keys.
-* Overflow detection in INCR family functions.
-
-Enjoy,
-Salvatore
-
-What's new in Redis 2.1.9 (2.2 Release Candidate 1)
+What's new in Redis 2.3.5 (2.4 Release Candidate 1)
 ===================================================
 
-This is the first Release Candidate of Redis 2.2, in our experience the
-server is very stable, but in the latest weeks we rewrote part of the internals
-in order to use a lot less memory while the saving child process is performing
-a BGREWRITEAOF or a BGSAVE, so handle with care for a couple of weeks.
+This is the first Release Candidate of Redis 2.4, in our experience the
+server is very stable, however it is always better to closely monitor your
+server if you switch to 2.4 RC1. Also make sure to perform a backup of your
+old data set before switching from 2.2 to 2.4.
 
-Oh, and I've some very good news: the majority of apps can work if you simply replace 2.2 in your old 2.0 environment. I can't think of any breakage.
-
-WHAT'S NEW IN REDIS 2.2 compared to the 2.0 version?
+WHAT'S NEW IN REDIS 2.4 compared to the 2.2 version?
 ====================================================
 
-* Specially encoded data types, small lists and sets can now use up to an order of magnitude less memory.
-* VM partial rewrite for code cleaness and memory usage.
-* Change to the implementation of the top level dictionary for better memory efficienty.
-* redis-cli is hugely improved: tab completion, inline help (Thanks to TJ Holowaychuk), raw output, rewritten using the new hiredis C library.
-* Networking internals rewritten for efficiency. You can expect LRANGE and similar commands to be at least 10 times faster.
-* Most read only commands are now copy-on-write friendly, this means that Redis will use little memory when a saving child is active and the parent process is mostly stressed by read queries.
-* Non blocking replication even from the point of view of the slave, with configurable behavior about what to do when the link is disconnected. You can select if serving old data or replying with an error.
-* Check-and-set (CAS) transactions with the new WATCH command.
-* Now write operations work against keys with an EXPIRE set! Imagine the possibilities.
-* New maxmemory eviction policies. It is possible to select among LRU, farest TTL expire, and other algorithms, and if when the memory limit is reached only keys with an expire set or all the keys should be expired.
-* SETBIT / GETBIT / SETRANGE / GETRANGE / STRLEN. Now your strings are your arrays!
-* Syslog support (Thanks to Jonah H. Harris)
-* Unix domain socket support.
-* New List related functions LINSERT, LPUSHX, RPUSHX (Thanks to Robey Pointer)
-* BRPOPLPUSH (Thanks to Michel Martens and Damian Janowski)
-* Much more interesting informations in the INFO output.
-* Sorted sets are now less memory hungry.
-* Non blocking loading of .rdb / AOF file on startup, with progress information in the INFO output.
-* Now Redis has a clean, powerful, supported C library: hiredis.
-* Code layout completely new, the 2.0.x huge redis.c file is now splitted in many parts.
-* Redis-benchmark rewritten to be faster and in order to use hiredis as well.
-* Ability to rename or disable commands from the config file.
-* Endless other CPU optimizations and bugs fixed.
+* Specially encoded sorted sets, now small sorted sets will use little memory.
+* Native persistence of specially encoded data types (ziplists, zipmaps,
+  intsets). Many data sets will be saved and loaded an order of magnitude
+  faster.
+* Variadic versions of commands: SADD, HDEL, SREM, ZREM, ZADD, L/RPUSH.
+* Jemalloc support (enabled by default for Linux build) in order to
+  avoid fragmentation issues.
+* Reduced memory usage while saving.
+* More info fields (peak memory, fork time, ...)
+* OBJECT command for objects introspection.
+* CLIENT command for clients introspection.
+* Non blocking slave -> master connection.
+* Better redis-cli connection handling. New redis-cli features.
+* Better redis-benchmark, now able to benchmark user provided commands.
+* Colorized Make.
+* VM deprecated. Still supported but with a big warning... don't use it.
+* Many speed optimizations and bug fixes.
 
-Credits: Where not specified the implementation and design are done by Salvatore Sanfilippo and Pieter Noordhuis. Thanks to VMware for making all this possible. Also many thanks to all the other contributors and the amazing community we have.
+Credits: Where not specified the implementation and design are done by
+Salvatore Sanfilippo and Pieter Noordhuis. Thanks to VMware for making all
+this possible. Also many thanks to all the other contributors and the amazing
+community we have.
 
 Cheers,
 Salvatore
