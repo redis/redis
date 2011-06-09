@@ -15,6 +15,18 @@ CHANGELOG
 What's new in Redis 2.2.8
 =========================
 
+Redis 2.2.9 is an important bugfix release:
+
+* A Slave used to rewrite the AOF log after a sync with the master, but the
+  rewrite was performed at the wrong time, causing inconsistencies in the
+  AOF file generated.
+* [LR]LPUSH replication in presence of BRPOPLPUSH was broken. Fixed.
+* Memory leak in BRPOPLPUSH fixed.
+* Pub/Sub bug resulting in random crashes fixed.
+
+What's new in Redis 2.2.8
+=========================
+
 * A new form of dict.c (hash table implementation) iterator that performs less
   copy-on-write of pages, introduced in Redis 2.2.7, caused ZINTERSTORE,
   ZUNIONSTORE, SINTER, SINTERSTORE commands to behave in the wrong way.
