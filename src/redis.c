@@ -589,6 +589,14 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     if ((server.maxidletime && !(loops % 100)) || server.bpop_blocked_clients)
         closeTimedoutClients();
 
+    /* Start a scheduled AOF rewrite if this was requested by the user while
+     * a BGSAVE was in progress. */
+    if (server.bgsavechildpid == -1 && server.bgrewritechildpid == -1 &&
+        server.aofrewrite_scheduled)
+    {
+        rewriteAppendOnlyFileBackground();
+    }
+
     /* Check if a background saving or AOF rewrite in progress terminated */
     if (server.bgsavechildpid != -1 || server.bgrewritechildpid != -1) {
         int statloc;
@@ -603,9 +611,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             updateDictResizePolicy();
         }
     } else {
+         time_t now = time(NULL);
+
         /* If there is not a background saving in progress check if
          * we have to save now */
-         time_t now = time(NULL);
          for (j = 0; j < server.saveparamslen; j++) {
             struct saveparam *sp = server.saveparams+j;
 
@@ -617,6 +626,21 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                 break;
             }
          }
+
+         /* Trigger an AOF rewrite if needed */
+         if (server.bgsavechildpid == -1 &&
+             server.bgrewritechildpid == -1 &&
+             server.auto_aofrewrite_perc &&
+             server.appendonly_current_size > server.auto_aofrewrite_min_size)
+         {
+            int base = server.auto_aofrewrite_base_size ?
+                            server.auto_aofrewrite_base_size : 1;
+            long long growth = (server.appendonly_current_size*100/base);
+            if (growth >= server.auto_aofrewrite_perc) {
+                redisLog(REDIS_NOTICE,"Starting automatic rewriting of AOF on %lld%% growth",growth);
+                rewriteAppendOnlyFileBackground();
+            }
+        }
     }
 
     /* Expire a few keys per cycle, only if this is a master.
@@ -780,6 +804,10 @@ void initServerConfig() {
     server.appendonly = 0;
     server.appendfsync = APPENDFSYNC_EVERYSEC;
     server.no_appendfsync_on_rewrite = 0;
+    server.auto_aofrewrite_perc = REDIS_AUTO_AOFREWRITE_PERC;
+    server.auto_aofrewrite_min_size = REDIS_AUTO_AOFREWRITE_MIN_SIZE;
+    server.auto_aofrewrite_base_size = 0;
+    server.aofrewrite_scheduled = 0;
     server.lastfsync = time(NULL);
     server.appendfd = -1;
     server.appendseldb = -1; /* Make sure the first time will not match */
@@ -1255,6 +1283,17 @@ sds genRedisInfoString(void) {
         server.vm_enabled != 0,
         server.masterhost == NULL ? "master" : "slave"
     );
+
+    if (server.appendonly) {
+        info = sdscatprintf(info,
+            "aof_current_size:%lld\r\n"
+            "aof_base_size:%lld\r\n"
+            "aof_pending_rewrite:%d\r\n",
+            (long long) server.appendonly_current_size,
+            (long long) server.auto_aofrewrite_base_size,
+            server.aofrewrite_scheduled);
+    }
+
     if (server.masterhost) {
         info = sdscatprintf(info,
             "master_host:%s\r\n"
