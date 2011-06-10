@@ -358,6 +358,8 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         server.master->authenticated = 1;
         server.replstate = REDIS_REPL_CONNECTED;
         redisLog(REDIS_NOTICE, "MASTER <-> SLAVE sync: Finished with success");
+        /* Rewrite the AOF file now that the dataset changed. */
+        if (server.appendonly) rewriteAppendOnlyFileBackground();
     }
 
     return;
@@ -374,10 +376,11 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     REDIS_NOTUSED(privdata);
     REDIS_NOTUSED(mask);
 
+    redisLog(REDIS_NOTICE,"Non blocking connect for SYNC fired the event.");
     /* This event should only be triggered once since it is used to have a
      * non-blocking connect(2) to the master. It has been triggered when this
      * function is called, so we can delete it. */
-    aeDeleteFileEvent(server.el,fd,AE_WRITABLE);
+    aeDeleteFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE);
 
     /* AUTH with the master if required. */
     if(server.masterauth) {
@@ -453,7 +456,7 @@ int connectWithMaster(void) {
         return REDIS_ERR;
     }
 
-    if (aeCreateFileEvent(server.el,fd,AE_WRITABLE,syncWithMaster,NULL) ==
+    if (aeCreateFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE,syncWithMaster,NULL) ==
             AE_ERR)
     {
         close(fd);
@@ -519,7 +522,6 @@ void replicationCron(void) {
         redisLog(REDIS_NOTICE,"Connecting to MASTER...");
         if (connectWithMaster() == REDIS_OK) {
             redisLog(REDIS_NOTICE,"MASTER <-> SLAVE sync started");
-            if (server.appendonly) rewriteAppendOnlyFileBackground();
         }
     }
     

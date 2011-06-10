@@ -12,7 +12,7 @@ and all the binaries will be installed on /usr/local/bin.
 
 Alternatively:
 
-    make PREFIX=/some/other/directory
+    make PREFIX=/some/other/directory install
 
 to have the binaries in /some/other/directory/bin.
 
