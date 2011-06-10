@@ -697,9 +697,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
          {
             int base = server.auto_aofrewrite_base_size ?
                             server.auto_aofrewrite_base_size : 1;
-            int growth = (server.appendonly_current_size*100/base);
+            long long growth = (server.appendonly_current_size*100/base);
             if (growth >= server.auto_aofrewrite_perc) {
-                redisLog(REDIS_NOTICE,"Starting automatic rewriting of AOF on %d growth",growth);
+                redisLog(REDIS_NOTICE,"Starting automatic rewriting of AOF on %lld growth",growth);
                 rewriteAppendOnlyFileBackground();
             }
          }
