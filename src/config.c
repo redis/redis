@@ -407,6 +407,12 @@ void configSetCommand(redisClient *c) {
                 }
             }
         }
+    } else if (!strcasecmp(c->argv[2]->ptr,"auto-aof-rewrite-percentage")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
+        server.auto_aofrewrite_perc = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"auto-aof-rewrite-min-size")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
+        server.auto_aofrewrite_min_size = ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"save")) {
         int vlen, j;
         sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
@@ -591,6 +597,16 @@ void configGetCommand(redisClient *c) {
         addReplyBulkCString(c,"save");
         addReplyBulkCString(c,buf);
         sdsfree(buf);
+        matches++;
+    }
+    if (stringmatch(pattern,"auto-aof-rewrite-percentage",0)) {
+        addReplyBulkCString(c,"auto-aof-rewrite-percentage");
+        addReplyBulkLongLong(c,server.auto_aofrewrite_perc);
+        matches++;
+    }
+    if (stringmatch(pattern,"auto-aof-rewrite-min-size",0)) {
+        addReplyBulkCString(c,"auto-aof-rewrite-min-size");
+        addReplyBulkLongLong(c,server.auto_aofrewrite_min_size);
         matches++;
     }
     if (stringmatch(pattern,"slave-serve-stale-data",0)) {
