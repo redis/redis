@@ -234,7 +234,7 @@ void loadServerConfig(char *filename) {
         } else if (!strcasecmp(argv[0],"auto-aof-rewrite-percentage") &&
                    argc == 2)
         {
-            server.auto_aofrewrite_perc = atoi(argv[2]);
+            server.auto_aofrewrite_perc = atoi(argv[1]);
             if (server.auto_aofrewrite_perc < 0) {
                 err = "Invalid negative percentage for AOF auto rewrite";
                 goto loaderr;
