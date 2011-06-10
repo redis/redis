@@ -304,6 +304,7 @@ int loadAppendOnlyFile(char *filename) {
     server.appendonly = appendonly;
     stopLoading();
     aofUpdateCurrentSize();
+    server.auto_aofrewrite_base_size = server.appendonly_current_size;
     return REDIS_OK;
 
 readerr:
@@ -689,6 +690,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             server.appendseldb = -1; /* Make sure it will issue SELECT */
             redisLog(REDIS_NOTICE,"The new append only file was selected for future appends.");
             aofUpdateCurrentSize();
+            server.auto_aofrewrite_base_size = server.appendonly_current_size;
         } else {
             /* If append only is disabled we just generate a dump in this
              * format. Why not? */
