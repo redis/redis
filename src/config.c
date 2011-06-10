@@ -231,6 +231,18 @@ void loadServerConfig(char *filename) {
                 err = "argument must be 'no', 'always' or 'everysec'";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"auto-aof-rewrite-percentage") &&
+                   argc == 2)
+        {
+            server.auto_aofrewrite_perc = atoi(argv[2]);
+            if (server.auto_aofrewrite_perc < 0) {
+                err = "Invalid negative percentage for AOF auto rewrite";
+                goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"auto-aof-rewrite-min-size") &&
+                   argc == 2)
+        {
+            server.auto_aofrewrite_min_size = memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
             server.requirepass = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"pidfile") && argc == 2) {

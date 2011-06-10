@@ -50,6 +50,8 @@
 #define REDIS_SHARED_INTEGERS 10000
 #define REDIS_REPLY_CHUNK_BYTES (5*1500) /* 5 TCP packets with default MTU */
 #define REDIS_MAX_LOGMSG_LEN    1024 /* Default maximum length of syslog messages */
+#define REDIS_AUTO_AOFREWRITE_PERC  100
+#define REDIS_AUTO_AOFREWRITE_MIN_SIZE (1024*1024)
 
 /* Hash table parameters */
 #define REDIS_HT_MINFILL        10      /* Minimal hash table fill 10% */
@@ -555,6 +557,11 @@ struct redisServer {
     int appendonly;
     int appendfsync;
     int no_appendfsync_on_rewrite;
+    int auto_aofrewrite_perc;       /* Rewrite AOF if % growth is > M and... */
+    off_t auto_aofrewrite_min_size; /* the AOF file is at least N bytes. */
+    off_t auto_aofrewrite_base_size;/* AOF size on latest startup or rewrite. */
+    off_t appendonly_current_size;  /* AOF current size. */
+    int aofrewrite_scheduled;       /* Rewrite once BGSAVE terminates. */
     int shutdown_asap;
     int activerehashing;
     char *requirepass;
