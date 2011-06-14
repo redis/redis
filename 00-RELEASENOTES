@@ -12,6 +12,17 @@ for 2.0.
 CHANGELOG
 ---------
 
+What's new in Redis 2.2.10
+==========================
+
+* Fix for issue 566. It was possible for SETNX to behave in abnormal ways.
+* Work with make v3.80
+* redis-cli updated to the same version as the 2.4 branch. Now the
+  reconnection handling is better. You can prefix commands with a number
+  to execute the command the specified number of times. When using -r
+  in non interactive mode it is possible to set a delay between commands.
+* Better init script.
+
 What's new in Redis 2.2.9
 =========================
 
