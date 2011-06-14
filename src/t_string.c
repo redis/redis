@@ -73,7 +73,6 @@ void getsetCommand(redisClient *c) {
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     setKey(c->db,c->argv[1],c->argv[2]);
     server.dirty++;
-    removeExpire(c->db,c->argv[1]);
 }
 
 static int getBitOffsetFromArgument(redisClient *c, robj *o, size_t *offset) {
