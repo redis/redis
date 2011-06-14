@@ -42,7 +42,6 @@
 #define REDIS_MAXIDLETIME       (60*5)  /* default client timeout */
 #define REDIS_IOBUF_LEN         1024
 #define REDIS_LOADBUF_LEN       1024
-#define REDIS_STATIC_ARGS       8
 #define REDIS_DEFAULT_DBNUM     16
 #define REDIS_CONFIGLINE_MAX    1024
 #define REDIS_MAX_SYNC_TIME     60      /* Slave can't take more to sync */
@@ -52,6 +51,8 @@
 #define REDIS_SHARED_INTEGERS 10000
 #define REDIS_REPLY_CHUNK_BYTES (5*1500) /* 5 TCP packets with default MTU */
 #define REDIS_MAX_LOGMSG_LEN    1024 /* Default maximum length of syslog messages */
+#define REDIS_AUTO_AOFREWRITE_PERC  100
+#define REDIS_AUTO_AOFREWRITE_MIN_SIZE (1024*1024)
 
 /* Hash table parameters */
 #define REDIS_HT_MINFILL        10      /* Minimal hash table fill 10% */
@@ -155,10 +156,14 @@
 #define REDIS_REQ_MULTIBULK 2
 
 /* Slave replication state - slave side */
-#define REDIS_REPL_NONE 0   /* No active replication */
-#define REDIS_REPL_CONNECT 1    /* Must connect to master */
-#define REDIS_REPL_TRANSFER 2    /* Receiving .rdb from master */
-#define REDIS_REPL_CONNECTED 3  /* Connected to master */
+#define REDIS_REPL_NONE 0 /* No active replication */
+#define REDIS_REPL_CONNECT 1 /* Must connect to master */
+#define REDIS_REPL_CONNECTING 2 /* Connecting to master */
+#define REDIS_REPL_TRANSFER 3 /* Receiving .rdb from master */
+#define REDIS_REPL_CONNECTED 4 /* Connected to master */
+
+/* Synchronous read timeout - slave side */
+#define REDIS_REPL_SYNCIO_TIMEOUT 5
 
 /* Slave replication state - from the point of view of master
  * Note that in SEND_BULK and ONLINE state the slave receives new updates
@@ -548,6 +553,7 @@ struct redisServer {
     long long stat_keyspace_hits;   /* number of successful lookups of keys */
     long long stat_keyspace_misses; /* number of failed lookups of keys */
     size_t stat_peak_memory;        /* max used memory record */
+    long long stat_fork_time;       /* time needed to perform latets fork() */
     /* Configuration */
     int verbosity;
     int maxidletime;
@@ -556,6 +562,11 @@ struct redisServer {
     int appendonly;
     int appendfsync;
     int no_appendfsync_on_rewrite;
+    int auto_aofrewrite_perc;       /* Rewrite AOF if % growth is > M and... */
+    off_t auto_aofrewrite_min_size; /* the AOF file is at least N bytes. */
+    off_t auto_aofrewrite_base_size;/* AOF size on latest startup or rewrite. */
+    off_t appendonly_current_size;  /* AOF current size. */
+    int aofrewrite_scheduled;       /* Rewrite once BGSAVE terminates. */
     int shutdown_asap;
     int activerehashing;
     char *requirepass;
@@ -590,6 +601,7 @@ struct redisServer {
     char *masterhost;
     int masterport;
     redisClient *master;    /* client that is master for this slave */
+    int repl_syncio_timeout; /* timeout for synchronous I/O calls */
     int replstate;          /* replication status if the instance is a slave */
     off_t repl_transfer_left;  /* bytes left reading .rdb  */
     int repl_transfer_s;    /* slave -> master SYNC socket */
@@ -898,7 +910,6 @@ int fwriteBulkCount(FILE *fp, char prefix, int count);
 /* Replication */
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
 void replicationFeedMonitors(list *monitors, int dictid, robj **argv, int argc);
-int syncWithMaster(void);
 void updateSlavesWaitingBgsave(int bgsaveerr);
 void replicationCron(void);
 

@@ -180,7 +180,7 @@ void decrRefCount(void *obj) {
     robj *o = obj;
 
     if (o->refcount <= 0) redisPanic("decrRefCount against refcount <= 0");
-    if (--(o->refcount) == 0) {
+    if (o->refcount == 1) {
         switch(o->type) {
         case REDIS_STRING: freeStringObject(o); break;
         case REDIS_LIST: freeListObject(o); break;
@@ -189,8 +189,9 @@ void decrRefCount(void *obj) {
         case REDIS_HASH: freeHashObject(o); break;
         default: redisPanic("Unknown object type"); break;
         }
-        o->ptr = NULL; /* defensive programming. We'll see NULL in traces. */
         zfree(o);
+    } else {
+        o->refcount--;
     }
 }
 

@@ -48,6 +48,34 @@ start_server {tags {"zset"}} {
             assert_error "*NaN*" {r zincrby myzset -inf abc}
         }
 
+        test {ZADD - Variadic version base case} {
+            r del myzset
+            list [r zadd myzset 10 a 20 b 30 c] [r zrange myzset 0 -1 withscores]
+        } {3 {a 10 b 20 c 30}}
+
+        test {ZADD - Return value is the number of actually added items} {
+            list [r zadd myzset 5 x 20 b 30 c] [r zrange myzset 0 -1 withscores]
+        } {1 {x 5 a 10 b 20 c 30}}
+
+        test {ZADD - Variadic version does not add nothing on single parsing err} {
+            r del myzset
+            catch {r zadd myzset 10 a 20 b 30.badscore c} e
+            assert_match {*ERR*not*double*} $e
+            r exists myzset
+        } {0}
+
+        test {ZADD - Variadic version will raise error on missing arg} {
+            r del myzset
+            catch {r zadd myzset 10 a 20 b 30 c 40} e
+            assert_match {*ERR*syntax*} $e
+        }
+
+        test {ZINCRBY does not work variadic even if shares ZADD implementation} {
+            r del myzset
+            catch {r zincrby myzset 10 a 20 b 30 c} e
+            assert_match {*ERR*wrong*number*arg*} $e
+        }
+
         test "ZCARD basics - $encoding" {
             assert_equal 3 [r zcard ztmp]
             assert_equal 0 [r zcard zdoesntexist]
@@ -64,6 +92,21 @@ start_server {tags {"zset"}} {
             assert_equal 1 [r zrem ztmp x]
             assert_equal 0 [r exists ztmp]
         }
+
+        test "ZREM variadic version" {
+            r del ztmp
+            r zadd ztmp 10 a 20 b 30 c
+            assert_equal 2 [r zrem ztmp x y a b k]
+            assert_equal 0 [r zrem ztmp foo bar]
+            assert_equal 1 [r zrem ztmp c]
+            r exists ztmp
+        } {0}
+
+        test "ZREM variadic version -- remove elements after key deletion" {
+            r del ztmp
+            r zadd ztmp 10 a 20 b 30 c
+            r zrem ztmp a b c d e f g
+        } {3}
 
         test "ZRANGE basics - $encoding" {
             r del ztmp
