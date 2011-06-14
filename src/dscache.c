@@ -362,7 +362,8 @@ void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
             if (j->val != NULL) {
                 /* Note: it's possible that the key is already in memory
                  * due to a blocking load operation. */
-                if (dbAdd(j->db,j->key,j->val) == REDIS_OK) {
+                if (dictFind(j->db->dict,j->key->ptr) == NULL) {
+                    dbAdd(j->db,j->key,j->val);
                     incrRefCount(j->val);
                     if (j->expire != -1) setExpire(j->db,j->key,j->expire);
                 }

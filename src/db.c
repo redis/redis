@@ -86,8 +86,7 @@ robj *lookupKey(redisDb *db, robj *key) {
             redisLog(REDIS_DEBUG,"Force loading key %s via lookup", key->ptr);
             val = dsGet(db,key,&expire);
             if (val) {
-                int retval = dbAdd(db,key,val);
-                redisAssert(retval == REDIS_OK);
+                dbAdd(db,key,val);
                 if (expire != -1) setExpire(db,key,expire);
                 server.stat_keyspace_hits++;
                 return val;
@@ -122,42 +121,47 @@ robj *lookupKeyWriteOrReply(redisClient *c, robj *key, robj *reply) {
     return o;
 }
 
-/* Add the key to the DB. If the key already exists REDIS_ERR is returned,
- * otherwise REDIS_OK is returned, and the caller should increment the
- * refcount of 'val'. */
-int dbAdd(redisDb *db, robj *key, robj *val) {
-    /* Perform a lookup before adding the key, as we need to copy the
-     * key value. */
-    if (dictFind(db->dict, key->ptr) != NULL) {
-        return REDIS_ERR;
-    } else {
-        sds copy = sdsdup(key->ptr);
-        dictAdd(db->dict, copy, val);
-        if (server.ds_enabled) cacheSetKeyMayExist(db,key);
-        if (server.cluster_enabled) SlotToKeyAdd(key);
-        return REDIS_OK;
-    }
+/* Add the key to the DB. It's up to the caller to increment the reference
+ * counte of the value if needed.
+ *
+ * The program is aborted if the key already exists. */
+void dbAdd(redisDb *db, robj *key, robj *val) {
+    sds copy = sdsdup(key->ptr);
+    int retval = dictAdd(db->dict, copy, val);
+
+    redisAssert(retval == REDIS_OK);
+    if (server.ds_enabled) cacheSetKeyMayExist(db,key);
+    if (server.cluster_enabled) SlotToKeyAdd(key);
+ }
+
+/* Overwrite an existing key with a new value. Incrementing the reference
+ * count of the new value is up to the caller.
+ * This function does not modify the expire time of the existing key.
+ *
+ * The program is aborted if the key was not already present. */
+void dbOverwrite(redisDb *db, robj *key, robj *val) {
+    struct dictEntry *de = dictFind(db->dict,key->ptr);
+    
+    redisAssert(de != NULL);
+    dictReplace(db->dict, key->ptr, val);
+    if (server.ds_enabled) cacheSetKeyMayExist(db,key);
 }
 
-/* If the key does not exist, this is just like dbAdd(). Otherwise
- * the value associated to the key is replaced with the new one.
+/* High level Set operation. This function can be used in order to set
+ * a key, whatever it was existing or not, to a new object.
  *
- * On update (key already existed) 0 is returned. Otherwise 1. */
-int dbReplace(redisDb *db, robj *key, robj *val) {
-    robj *oldval;
-    int retval;
-
-    if ((oldval = dictFetchValue(db->dict,key->ptr)) == NULL) {
-        sds copy = sdsdup(key->ptr);
-        dictAdd(db->dict, copy, val);
-        if (server.cluster_enabled) SlotToKeyAdd(key);
-        retval = 1;
+ * 1) The ref count of the value object is incremented.
+ * 2) clients WATCHing for the destination key notified.
+ * 3) The expire time of the key is reset (the key is made persistent). */
+void setKey(redisDb *db, robj *key, robj *val) {
+    if (lookupKeyWrite(db,key) == NULL) {
+        dbAdd(db,key,val);
     } else {
-        dictReplace(db->dict, key->ptr, val);
-        retval = 0;
+        dbOverwrite(db,key,val);
     }
-    if (server.ds_enabled) cacheSetKeyMayExist(db,key);
-    return retval;
+    incrRefCount(val);
+    removeExpire(db,key);
+    touchWatchedKey(db,key);
 }
 
 int dbExists(redisDb *db, robj *key) {
@@ -414,13 +418,15 @@ void renameGenericCommand(redisClient *c, int nx) {
         return;
 
     incrRefCount(o);
-    if (dbAdd(c->db,c->argv[2],o) == REDIS_ERR) {
+    if (lookupKeyWrite(c->db,c->argv[2]) != NULL) {
         if (nx) {
             decrRefCount(o);
             addReply(c,shared.czero);
             return;
         }
-        dbReplace(c->db,c->argv[2],o);
+        dbOverwrite(c->db,c->argv[2],o);
+    } else {
+        dbAdd(c->db,c->argv[2],o);
     }
     dbDelete(c->db,c->argv[1]);
     signalModifiedKey(c->db,c->argv[1]);
@@ -471,11 +477,12 @@ void moveCommand(redisClient *c) {
         return;
     }
 
-    /* Try to add the element to the target DB */
-    if (dbAdd(dst,c->argv[1],o) == REDIS_ERR) {
+    /* Return zero if the key already exists in the target DB */
+    if (lookupKeyWrite(dst,c->argv[1]) != NULL) {
         addReply(c,shared.czero);
         return;
     }
+    dbAdd(dst,c->argv[1],o);
     incrRefCount(o);
 
     /* OK! key moved, free the entry in the source DB */
