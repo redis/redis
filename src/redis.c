@@ -190,7 +190,7 @@ struct redisCommand readonlyCommandTable[] = {
     {"unwatch",unwatchCommand,1,0,NULL,0,0,0},
     {"object",objectCommand,-2,0,NULL,0,0,0},
     {"eval",evalCommand,-3,REDIS_CMD_DENYOOM,zunionInterBlockClientOnSwappedKeys,0,0,0},
-    {"evalsha",evalCommand,-3,REDIS_CMD_DENYOOM,zunionInterBlockClientOnSwappedKeys,0,0,0}
+    {"evalsha",evalShaCommand,-3,REDIS_CMD_DENYOOM,zunionInterBlockClientOnSwappedKeys,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
