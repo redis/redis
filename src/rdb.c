@@ -929,7 +929,7 @@ void stopLoading(void) {
 int rdbLoad(char *filename) {
     FILE *fp;
     uint32_t dbid;
-    int type, retval, rdbver;
+    int type, rdbver;
     int swap_all_values = 0;
     redisDb *db = server.db+0;
     char buf[1024];
@@ -995,11 +995,8 @@ int rdbLoad(char *filename) {
             continue;
         }
         /* Add the new object in the hash table */
-        retval = dbAdd(db,key,val);
-        if (retval == REDIS_ERR) {
-            redisLog(REDIS_WARNING,"Loading DB, duplicated key (%s) found! Unrecoverable error, exiting now.", key->ptr);
-            exit(1);
-        }
+        dbAdd(db,key,val);
+
         /* Set the expire time if needed */
         if (expiretime != -1) setExpire(db,key,expiretime);
 

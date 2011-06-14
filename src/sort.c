@@ -366,12 +366,12 @@ void sortCommand(redisClient *c) {
                 }
             }
         }
-        dbReplace(c->db,storekey,sobj);
+        setKey(c->db,storekey,sobj);
+        decrRefCount(sobj);
         /* Note: we add 1 because the DB is dirty anyway since even if the
          * SORT result is empty a new key is set and maybe the old content
          * replaced. */
         server.dirty += 1+outputlen;
-        touchWatchedKey(c->db,storekey);
         addReplyLongLong(c,outputlen);
     }
 
