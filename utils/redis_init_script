@@ -1,7 +1,11 @@
 #!/bin/sh
+#
+# Simple Redis init.d script conceived to work on Linux systems
+# as it does use of the /proc filesystem.
 
 REDISPORT=6379
 EXEC=/usr/local/bin/redis-server
+CLIEXEC=/usr/local/bin/redis-cli
 
 PIDFILE=/var/run/redis_${REDISPORT}.pid
 CONF="/etc/redis/${REDISPORT}.conf"
@@ -10,20 +14,20 @@ case "$1" in
     start)
         if [ -f $PIDFILE ]
         then
-                echo -n "$PIDFILE exists, process is already running or crashed\n"
+                echo "$PIDFILE exists, process is already running or crashed"
         else
-                echo -n "Starting Redis server...\n"
+                echo "Starting Redis server..."
                 $EXEC $CONF
         fi
         ;;
     stop)
         if [ ! -f $PIDFILE ]
         then
-                echo -n "$PIDFILE does not exist, process is not running\n"
+                echo "$PIDFILE does not exist, process is not running"
         else
-		PID=$(cat $PIDFILE)
-                echo -n "Stopping ...\n"
-                echo -n "SHUTDOWN\r\n" | nc localhost $REDISPORT &
+                PID=$(cat $PIDFILE)
+                echo "Stopping ..."
+                $CLIEXEC -p $REDISPORT shutdown
                 while [ -x /proc/${PIDFILE} ]
                 do
                     echo "Waiting for Redis to shutdown ..."
@@ -31,5 +35,8 @@ case "$1" in
                 done
                 echo "Redis stopped"
         fi
+        ;;
+    *)
+        echo "Please use start or stop as first argument"
         ;;
 esac
