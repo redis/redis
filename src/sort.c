@@ -363,6 +363,7 @@ void sortCommand(redisClient *c) {
                 }
             }
         }
+        lookupKeyWrite(c->db,storekey); /* Force expire of old key if needed. */
         dbReplace(c->db,storekey,sobj);
         /* Note: we add 1 because the DB is dirty anyway since even if the
          * SORT result is empty a new key is set and maybe the old content
