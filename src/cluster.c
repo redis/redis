@@ -474,7 +474,7 @@ void nodeIp2String(char *buf, clusterLink *link) {
 
     if (getpeername(link->fd, (struct sockaddr*) &sa, &salen) == -1)
         redisPanic("getpeername() failed.");
-    strncpy(buf,inet_ntoa(sa.sin_addr),sizeof(link->node->ip));
+    inet_ntop(sa.sin_family,(void*)&(sa.sin_addr),buf,sizeof(link->node->ip));
 }
 
 
@@ -1251,7 +1251,7 @@ void clusterCommand(redisClient *c) {
         /* Finally add the node to the cluster with a random name, this 
          * will get fixed in the first handshake (ping/pong). */
         n = createClusterNode(NULL,REDIS_NODE_HANDSHAKE|REDIS_NODE_MEET);
-        strncpy(n->ip,inet_ntoa(sa.sin_addr),sizeof(n->ip));
+        inet_ntop(sa.sin_family,(void*)&(sa.sin_addr),n->ip,sizeof(n->ip));
         n->port = port;
         clusterAddNode(n);
         addReply(c,shared.ok);
