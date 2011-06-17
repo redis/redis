@@ -604,6 +604,7 @@ struct redisServer {
     char *repl_transfer_tmpfile; /* slave-> master SYNC temp file name */
     time_t repl_transfer_lastio; /* unix time of the latest read, for timeout */
     int repl_serve_stale_data; /* Serve stale data when link is down? */
+    time_t repl_down_since; /* unix time at which link with master went down */
     /* Limits */
     unsigned int maxclients;
     unsigned long long maxmemory;
