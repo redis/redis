@@ -156,38 +156,52 @@ static int anetCreateSocket(char *err, int domain) {
 #define ANET_CONNECT_NONBLOCK 1
 static int anetTcpGenericConnect(char *err, char *addr, int port, int flags)
 {
-    int s;
-    struct sockaddr_in sa;
+    int s, rv;
+    char _port[6];  /* strlen("65535"); */
+    struct addrinfo hints, *servinfo, *p;
 
-    if ((s = anetCreateSocket(err,AF_INET)) == ANET_ERR)
+    snprintf(_port,6,"%d",port);
+    memset(&hints,0,sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    if ((rv = getaddrinfo(addr,_port,&hints,&servinfo)) != 0) {
+        anetSetError(err, "%s", gai_strerror(rv));
         return ANET_ERR;
+    }
+    for (p = servinfo; p != NULL; p = p->ai_next) {
+        if ((s = socket(p->ai_family,p->ai_socktype,p->ai_protocol)) == -1)
+            continue;
 
-    sa.sin_family = AF_INET;
-    sa.sin_port = htons(port);
-    if (inet_aton(addr, &sa.sin_addr) == 0) {
-        struct hostent *he;
-
-        he = gethostbyname(addr);
-        if (he == NULL) {
-            anetSetError(err, "can't resolve: %s", addr);
-            close(s);
-            return ANET_ERR;
+        /* if we set err then goto cleanup, otherwise next */
+        if (anetSetReuseAddr(err,s) == ANET_ERR) {
+            goto error;
         }
-        memcpy(&sa.sin_addr, he->h_addr, sizeof(struct in_addr));
-    }
-    if (flags & ANET_CONNECT_NONBLOCK) {
-        if (anetNonBlock(err,s) != ANET_OK)
-            return ANET_ERR;
-    }
-    if (connect(s, (struct sockaddr*)&sa, sizeof(sa)) == -1) {
-        if (errno == EINPROGRESS &&
-            flags & ANET_CONNECT_NONBLOCK)
-            return s;
+        if (flags & ANET_CONNECT_NONBLOCK) {
+            if (anetNonBlock(err,s) != ANET_OK)
+                goto error;
+        }
+        if (connect(s,p->ai_addr,p->ai_addrlen) == -1) {
+            if (errno == EINPROGRESS &&
+                flags & ANET_CONNECT_NONBLOCK)
+                goto end;
 
-        anetSetError(err, "connect: %s", strerror(errno));
-        close(s);
-        return ANET_ERR;
+            close(s);
+            continue;
+        }
+
+        /* break with the socket */
+        goto end;
     }
+    if (p == NULL) {
+        anetSetError(err, "creating socket: %s", strerror(errno));
+        goto error;
+    }
+
+error:
+    s = ANET_ERR;
+end:
+    freeaddrinfo(servinfo);
     return s;
 }
 
