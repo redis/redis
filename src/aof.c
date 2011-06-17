@@ -342,7 +342,7 @@ int rewriteAppendOnlyFile(char *filename) {
         redisDb *db = server.db+j;
         dict *d = db->dict;
         if (dictSize(d) == 0) continue;
-        di = dictGetIterator(d);
+        di = dictGetSafeIterator(d);
         if (!di) {
             fclose(fp);
             return REDIS_ERR;
