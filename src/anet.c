@@ -370,14 +370,14 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
     return fd;
 }
 
-int anetTcpAccept(char *err, int s, char *ip, int *port) {
+int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
     int fd;
     struct sockaddr_in sa;
     socklen_t salen = sizeof(sa);
     if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == ANET_ERR)
         return ANET_ERR;
 
-    if (ip) strcpy(ip,inet_ntoa(sa.sin_addr));
+    if (ip) inet_ntop(sa.sin_family,(void*)&(sa.sin_addr),ip,ip_len);
     if (port) *port = ntohs(sa.sin_port);
     return fd;
 }
@@ -392,7 +392,7 @@ int anetUnixAccept(char *err, int s) {
     return fd;
 }
 
-int anetPeerToString(int fd, char *ip, int *port) {
+int anetPeerToString(int fd, char *ip, size_t ip_len, int *port) {
     struct sockaddr_in sa;
     socklen_t salen = sizeof(sa);
 
@@ -402,12 +402,12 @@ int anetPeerToString(int fd, char *ip, int *port) {
         ip[1] = '\0';
         return -1;
     }
-    if (ip) strcpy(ip,inet_ntoa(sa.sin_addr));
+    if (ip) inet_ntop(sa.sin_family,(void*)&(sa.sin_addr),ip,ip_len);
     if (port) *port = ntohs(sa.sin_port);
     return 0;
 }
 
-int anetSockName(int fd, char *ip, int *port) {
+int anetSockName(int fd, char *ip, size_t ip_len, int *port) {
     struct sockaddr_in sa;
     socklen_t salen = sizeof(sa);
 
@@ -417,7 +417,7 @@ int anetSockName(int fd, char *ip, int *port) {
         ip[1] = '\0';
         return -1;
     }
-    if (ip) strcpy(ip,inet_ntoa(sa.sin_addr));
+    if (ip) inet_ntop(sa.sin_family,(void*)&(sa.sin_addr),ip,ip_len);
     if (port) *port = ntohs(sa.sin_port);
     return 0;
 }

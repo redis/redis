@@ -47,12 +47,12 @@ int anetRead(int fd, char *buf, int count);
 int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len);
 int anetTcpServer(char *err, int port, char *bindaddr);
 int anetUnixServer(char *err, char *path, mode_t perm);
-int anetTcpAccept(char *err, int serversock, char *ip, int *port);
+int anetTcpAccept(char *err, int serversock, char *ip, size_t ip_len, int *port);
 int anetUnixAccept(char *err, int serversock);
 int anetWrite(int fd, char *buf, int count);
 int anetNonBlock(char *err, int fd);
 int anetTcpNoDelay(char *err, int fd);
 int anetTcpKeepAlive(char *err, int fd);
-int anetPeerToString(int fd, char *ip, int *port);
+int anetPeerToString(int fd, char *ip, size_t ip_len, int *port);
 
 #endif
