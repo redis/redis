@@ -258,6 +258,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         redisLog(REDIS_VERBOSE,"Accepting cluster node: %s", server.neterr);
         return;
     }
+    /* IPV6: might want to wrap a v6 address in [] */
     redisLog(REDIS_VERBOSE,"Accepted cluster node %s:%d", cip, cport);
     /* We need to create a temporary node in order to read the incoming
      * packet in a valid contest. This node will be released once we
