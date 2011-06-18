@@ -469,14 +469,21 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
     }
 }
 
-/* IP -> string conversion. 'buf' is supposed to at least be 16 bytes. */
+/* IP -> string conversion. 'buf' is supposed to at least be 46 bytes. */
 void nodeIp2String(char *buf, clusterLink *link) {
-    struct sockaddr_in sa;
+    struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
 
     if (getpeername(link->fd, (struct sockaddr*) &sa, &salen) == -1)
         redisPanic("getpeername() failed.");
-    inet_ntop(sa.sin_family,(void*)&(sa.sin_addr),buf,REDIS_CLUSTER_IPLEN);
+
+    if (sa.ss_family == AF_INET) {
+        struct sockaddr_in *s = (struct sockaddr_in *)&sa;
+        inet_ntop(AF_INET,(void*)&(s->sin_addr),buf,REDIS_CLUSTER_IPLEN);
+    } else {
+        struct sockaddr_in6 *s = (struct sockaddr_in6 *)&sa;
+        inet_ntop(AF_INET6,(void*)&(s->sin6_addr),buf,REDIS_CLUSTER_IPLEN);
+    }
 }
 
 
