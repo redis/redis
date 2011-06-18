@@ -109,11 +109,11 @@ int anetTcpKeepAlive(char *err, int fd)
 int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len)
 {
     struct addrinfo hints, *info;
-    void *addr;
     int rv;
 
     memset(&hints,0,sizeof(hints));
-    hints.ai_family = AF_INET;
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;  /* specify socktype to avoid dups */
 
     if ((rv = getaddrinfo(host, NULL, &hints, &info)) != 0) {
         anetSetError(err, "%s", gai_strerror(rv));
@@ -121,10 +121,12 @@ int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len)
     }
     if (info->ai_family == AF_INET) {
         struct sockaddr_in *sa = (struct sockaddr_in *)info->ai_addr;
-        addr = &(sa->sin_addr);
+        inet_ntop(AF_INET, &(sa->sin_addr), ipbuf, ipbuf_len);
+    } else {
+        struct sockaddr_in6 *sa = (struct sockaddr_in6 *)info->ai_addr;
+        inet_ntop(AF_INET6, &(sa->sin6_addr), ipbuf, ipbuf_len);
     }
 
-    inet_ntop(info->ai_family, addr, ipbuf, ipbuf_len);
     freeaddrinfo(info);
     return ANET_OK;
 }
