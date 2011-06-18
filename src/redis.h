@@ -467,7 +467,7 @@ typedef struct redisOpArray {
 #define REDIS_CLUSTER_NEEDHELP 2    /* The cluster works, but needs some help */
 #define REDIS_CLUSTER_NAMELEN 40    /* sha1 hex length */
 #define REDIS_CLUSTER_PORT_INCR 10000 /* Cluster port = baseport + PORT_INCR */
-#define REDIS_CLUSTER_IPLEN INET_ADDRSTRLEN /* IPv4 address string length */
+#define REDIS_CLUSTER_IPLEN INET6_ADDRSTRLEN /* IPv6 address string length */
 
 struct clusterNode;
 
