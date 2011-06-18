@@ -513,7 +513,7 @@ static void acceptCommonHandler(int fd) {
 
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
-    char cip[128];
+    char cip[128];      /* Could use INET6_ADDRSTRLEN here, but its smaller */
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
