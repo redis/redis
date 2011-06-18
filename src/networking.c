@@ -1124,7 +1124,7 @@ void getClientsMaxBuffers(unsigned long *longest_output_list,
 
 /* Turn a Redis client into an sds string representing its state. */
 sds getClientInfoString(redisClient *client) {
-    char ip[32], flags[16], events[3], *p;
+    char ip[REDIS_IP_STR_LEN], flags[16], events[3], *p;
     int port = 0; /* initialized to zero for the unix socket case. */
     int emask;
 
@@ -1206,7 +1206,8 @@ void clientCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"kill") && c->argc == 3) {
         listRewind(server.clients,&li);
         while ((ln = listNext(&li)) != NULL) {
-            char ip[32], addr[64];
+            /* addr size 64 > INET6_ADDRSTRLEN + : + strlen("65535") */
+            char ip[INET6_ADDRSTRLEN], addr[64];
             int port;
 
             client = listNodeValue(ln);
