@@ -564,7 +564,7 @@ typedef struct redisOpArray {
 #define REDIS_CLUSTER_FAIL 1        /* The cluster can't work */
 #define REDIS_CLUSTER_NAMELEN 40    /* sha1 hex length */
 #define REDIS_CLUSTER_PORT_INCR 10000 /* Cluster port = baseport + PORT_INCR */
-#define REDIS_CLUSTER_IPLEN INET_ADDRSTRLEN /* IPv4 address string length */
+#define REDIS_CLUSTER_IPLEN INET6_ADDRSTRLEN /* IPv6 address string length */
 
 /* The following defines are amunt of time, sometimes expressed as
  * multiplicators of the node timeout value (when ending with MULT). */
