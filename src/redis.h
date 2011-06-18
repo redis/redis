@@ -120,7 +120,7 @@
 #define REDIS_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC 1
 #define REDIS_DEFAULT_MIN_SLAVES_TO_WRITE 0
 #define REDIS_DEFAULT_MIN_SLAVES_MAX_LAG 10
-#define REDIS_IP_STR_LEN 16
+#define REDIS_IP_STR_LEN INET6_ADDRSTRLEN
 #define REDIS_BINDADDR_MAX 16
 
 /* Protocol and I/O related defines */
@@ -564,6 +564,7 @@ typedef struct redisOpArray {
 #define REDIS_CLUSTER_FAIL 1        /* The cluster can't work */
 #define REDIS_CLUSTER_NAMELEN 40    /* sha1 hex length */
 #define REDIS_CLUSTER_PORT_INCR 10000 /* Cluster port = baseport + PORT_INCR */
+#define REDIS_CLUSTER_IPLEN INET_ADDRSTRLEN /* IPv4 address string length */
 
 /* The following defines are amunt of time, sometimes expressed as
  * multiplicators of the node timeout value (when ending with MULT). */
