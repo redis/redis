@@ -73,7 +73,7 @@ convert it to the protocol used to communicate with Redis.
 One or more spaces separates arguments, so you can use the specifiers
 anywhere in an argument:
 
-    reply = redisCommand("SET key:%s %s", myid, value);
+    reply = redisCommand(context, "SET key:%s %s", myid, value);
 
 ### Using replies
 
