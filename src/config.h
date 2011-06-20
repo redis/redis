@@ -5,7 +5,7 @@
 #include <AvailabilityMacros.h>
 #endif
 
-/* define redis_fstat to fstat or fstat64() */
+/* Define redis_fstat to fstat or fstat64() */
 #if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
 #define redis_fstat fstat64
 #define redis_stat stat64
@@ -14,22 +14,22 @@
 #define redis_stat stat
 #endif
 
-/* test for proc filesystem */
+/* Test for proc filesystem */
 #ifdef __linux__
 #define HAVE_PROCFS 1
 #endif
 
-/* test for task_info() */
+/* Test for task_info() */
 #if defined(__APPLE__)
 #define HAVE_TASKINFO 1
 #endif
 
-/* test for backtrace() */
+/* Test for backtrace() */
 #if defined(__APPLE__) || defined(__linux__)
 #define HAVE_BACKTRACE 1
 #endif
 
-/* test for polling API */
+/* Test for polling API */
 #ifdef __linux__
 #define HAVE_EPOLL 1
 #endif
@@ -38,7 +38,7 @@
 #define HAVE_KQUEUE 1
 #endif
 
-/* define aof_fsync to fdatasync() in Linux and fsync() for all the rest */
+/* Define aof_fsync to fdatasync() in Linux and fsync() for all the rest */
 #ifdef __linux__
 #define aof_fsync fdatasync
 #else
