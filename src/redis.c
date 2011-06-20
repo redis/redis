@@ -1357,7 +1357,7 @@ sds genRedisInfoString(char *section) {
             server.stat_peak_memory,
             peak_hmem,
             zmalloc_get_fragmentation_ratio(),
-            REDIS_MALLOC
+            ZMALLOC_LIB
             );
     }
 
