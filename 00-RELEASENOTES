@@ -12,6 +12,14 @@ for 2.0.
 CHANGELOG
 ---------
 
+What's new in Redis 2.2.11
+==========================
+
+* Solved a never reported but possibly critical bug in the AOF and RDB
+persistence, introduced with the new version of the iterator: In very rare
+circumstances the AOF (after rerwite) or the rdb file may contain the same
+key more than one time.
+
 What's new in Redis 2.2.10
 ==========================
 
