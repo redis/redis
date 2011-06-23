@@ -44,6 +44,7 @@ else
   STLIB_MAKE_CMD?=ar rcs ${STLIBNAME} ${OBJ}
 endif
 endif
+endif
 
 CCOPT= $(CFLAGS) $(CCLINK)
 DEBUG?= -g -ggdb

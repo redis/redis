@@ -26,6 +26,7 @@ else
   CCLINK?=-lm -pthread
   DEBUG?=-g -rdynamic -ggdb 
 endif
+endif
 
 ifeq ($(USE_TCMALLOC),yes)
   ALLOD_DEPS=
