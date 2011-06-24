@@ -178,7 +178,7 @@ dep:
 	$(CC) -MM *.c -I ../deps/hiredis -I ../deps/linenoise
 
 test: redis-server
-	(cd ..; tclsh8.5 tests/test_helper.tcl --tags "${TAGS}" --file "${FILE}")
+	@(cd ..; (which tclsh >/dev/null && tclsh tests/test_helper.tcl --tags "${TAGS}" --file "${FILE}") || echo "You need to install Tcl in order to run tests.")
 
 bench:
 	./redis-benchmark
