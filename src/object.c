@@ -1,5 +1,4 @@
 #include "redis.h"
-#include <pthread.h>
 #include <math.h>
 
 robj *createObject(int type, void *ptr) {
@@ -30,9 +29,7 @@ robj *createStringObject(char *ptr, size_t len) {
 
 robj *createStringObjectFromLongLong(long long value) {
     robj *o;
-    if (value >= 0 && value < REDIS_SHARED_INTEGERS &&
-        !server.ds_enabled &&
-        pthread_equal(pthread_self(),server.mainthread)) {
+    if (value >= 0 && value < REDIS_SHARED_INTEGERS) {
         incrRefCount(shared.integers[value]);
         o = shared.integers[value];
     } else {
@@ -241,10 +238,7 @@ robj *tryObjectEncoding(robj *o) {
      * Note that we also avoid using shared integers when maxmemory is used
      * because every object needs to have a private LRU field for the LRU
      * algorithm to work well. */
-    if (!server.ds_enabled &&
-        server.maxmemory == 0 && value >= 0 && value < REDIS_SHARED_INTEGERS &&
-        pthread_equal(pthread_self(),server.mainthread))
-    {
+    if (server.maxmemory == 0 && value >= 0 && value < REDIS_SHARED_INTEGERS) {
         decrRefCount(o);
         incrRefCount(shared.integers[value]);
         return shared.integers[value];
