@@ -80,6 +80,9 @@ proc colored_dot {tags passed} {
         } elseif {[lsearch $tags basic] != -1} {
             set colorcode {35}
             set ch B
+        } elseif {[lsearch $tags scripting] != -1} {
+            set colorcode {36}
+            set ch X
         } else {
             set colorcode {37}
             set ch .
