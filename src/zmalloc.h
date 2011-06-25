@@ -28,8 +28,43 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _ZMALLOC_H
-#define _ZMALLOC_H
+#ifndef __ZMALLOC_H
+#define __ZMALLOC_H
+
+/* Double expansion needed for stringification of macro values. */
+#define __xstr(s) __str(s)
+#define __str(s) #s
+
+#if defined(USE_TCMALLOC)
+#define ZMALLOC_LIB ("tcmalloc-" __xstr(TC_VERSION_MAJOR) "." __xstr(TC_VERSION_MINOR))
+#include <google/tcmalloc.h>
+#if TC_VERSION_MAJOR >= 1 && TC_VERSION_MINOR >= 6
+#define HAVE_MALLOC_SIZE 1
+#define zmalloc_size(p) tc_malloc_size(p)
+#else
+#error "Newer version of tcmalloc required"
+#endif
+
+#elif defined(USE_JEMALLOC)
+#define ZMALLOC_LIB ("jemalloc-" __xstr(JEMALLOC_VERSION_MAJOR) "." __xstr(JEMALLOC_VERSION_MINOR) "." __xstr(JEMALLOC_VERSION_BUGFIX))
+#define JEMALLOC_MANGLE
+#include <jemalloc/jemalloc.h>
+#if JEMALLOC_VERSION_MAJOR >= 2 && JEMALLOC_VERSION_MINOR >= 1
+#define HAVE_MALLOC_SIZE 1
+#define zmalloc_size(p) JEMALLOC_P(malloc_usable_size)(p)
+#else
+#error "Newer version of jemalloc required"
+#endif
+
+#elif defined(__APPLE__)
+#include <malloc/malloc.h>
+#define HAVE_MALLOC_SIZE 1
+#define zmalloc_size(p) malloc_size(p)
+#endif
+
+#ifndef ZMALLOC_LIB
+#define ZMALLOC_LIB "libc"
+#endif
 
 void *zmalloc(size_t size);
 void *zcalloc(size_t size);
@@ -44,4 +79,4 @@ size_t zmalloc_allocations_for_size(size_t size);
 
 #define ZMALLOC_MAX_ALLOC_STAT 256
 
-#endif /* _ZMALLOC_H */
+#endif /* __ZMALLOC_H */

@@ -278,6 +278,14 @@ start_server {
         r exec
     } {foo bar {} {} {bar foo}}
 
+    test {BRPOPLPUSH timeout} {
+      set rd [redis_deferring_client]
+
+      $rd brpoplpush foo_list bar_list 1
+      after 2000
+      $rd read
+    } {}
+
     foreach {pop} {BLPOP BRPOP} {
         test "$pop: with single empty list argument" {
             set rd [redis_deferring_client]

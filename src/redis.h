@@ -125,26 +125,12 @@
 #define REDIS_RDB_ENC_INT32 2       /* 32 bit signed integer */
 #define REDIS_RDB_ENC_LZF 3         /* string compressed with FASTLZ */
 
-/* Scheduled IO opeations flags. */
-#define REDIS_IO_LOAD 1
-#define REDIS_IO_SAVE 2
-#define REDIS_IO_LOADINPROG 4
-#define REDIS_IO_SAVEINPROG 8
-
-/* Generic IO flags */
-#define REDIS_IO_ONLYLOADS 1
-#define REDIS_IO_ASAP 2
-
-#define REDIS_MAX_COMPLETED_JOBS_PROCESSED 1
-#define REDIS_THREAD_STACK_SIZE (1024*1024*4)
-
 /* Client flags */
 #define REDIS_SLAVE 1       /* This client is a slave server */
 #define REDIS_MASTER 2      /* This client is a master server */
 #define REDIS_MONITOR 4     /* This client is a slave monitor, see MONITOR */
 #define REDIS_MULTI 8       /* This client is in a MULTI context */
 #define REDIS_BLOCKED 16    /* The client is waiting in a blocking operation */
-#define REDIS_IO_WAIT 32    /* The client is waiting for Virtual Memory I/O */
 #define REDIS_DIRTY_CAS 64  /* Watched keys modified. EXEC will fail. */
 #define REDIS_CLOSE_AFTER_REPLY 128 /* Close after writing entire reply. */
 #define REDIS_UNBLOCKED 256 /* This client was unblocked and is stored in
@@ -224,12 +210,6 @@
 #define REDIS_MAXMEMORY_ALLKEYS_RANDOM 4
 #define REDIS_MAXMEMORY_NO_EVICTION 5
 
-/* Diskstore background saving thread states */
-#define REDIS_BGSAVE_THREAD_UNACTIVE 0
-#define REDIS_BGSAVE_THREAD_ACTIVE 1
-#define REDIS_BGSAVE_THREAD_DONE_OK 2
-#define REDIS_BGSAVE_THREAD_DONE_ERR 3
-
 /* Scripting */
 #define REDIS_LUA_TIME_LIMIT 60000 /* milliseconds */
 
@@ -297,9 +277,6 @@ typedef struct redisDb {
     dict *dict;                 /* The keyspace for this DB */
     dict *expires;              /* Timeout of keys with a timeout set */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP) */
-    dict *io_keys;              /* Keys with clients waiting for DS I/O */
-    dict *io_negcache;          /* Negative caching for disk store */
-    dict *io_queued;            /* Queued IO operations hash table */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
     int id;
 } redisDb;
@@ -521,7 +498,6 @@ typedef struct {
 
 struct redisServer {
     /* General */
-    pthread_t mainthread;
     redisDb *db;
     dict *commands;             /* Command table hahs table */
     aeEventLoop *el;
@@ -579,9 +555,6 @@ struct redisServer {
     char *pidfile;
     pid_t bgsavechildpid;
     pid_t bgrewritechildpid;
-    int bgsavethread_state;
-    pthread_mutex_t bgsavethread_mutex;
-    pthread_t bgsavethread;
     sds bgrewritebuf; /* buffer taken by parent during oppend only rewrite */
     sds aofbuf;       /* AOF buffer, written before entering the event loop */
     struct saveparam *saveparams;
@@ -609,6 +582,7 @@ struct redisServer {
     char *repl_transfer_tmpfile; /* slave-> master SYNC temp file name */
     time_t repl_transfer_lastio; /* unix time of the latest read, for timeout */
     int repl_serve_stale_data; /* Serve stale data when link is down? */
+    time_t repl_down_since; /* unix time at which link with master went down */
     /* Limits */
     unsigned int maxclients;
     unsigned long long maxmemory;
@@ -616,19 +590,12 @@ struct redisServer {
     int maxmemory_samples;
     /* Blocked clients */
     unsigned int bpop_blocked_clients;
-    unsigned int cache_blocked_clients;
     list *unblocked_clients; /* list of clients to unblock before next loop */
-    list *cache_io_queue;    /* IO operations queue */
-    int cache_flush_delay;   /* seconds to wait before flushing keys */
     /* Sort parameters - qsort_r() is only available under BSD so we
      * have to take this state global, in order to pass it to sortCompare() */
     int sort_desc;
     int sort_alpha;
     int sort_bypattern;
-    /* Virtual memory configuration */
-    int ds_enabled; /* backend disk in redis.conf */
-    char *ds_path;  /* location of the disk store on disk */
-    unsigned long long cache_max_memory;
     /* Zip structure config */
     size_t hash_max_zipmap_entries;
     size_t hash_max_zipmap_value;
@@ -691,7 +658,7 @@ struct redisCommand {
     int arity;
     int flags;
     /* Use a function to determine keys arguments in a command line.
-     * Used both for diskstore preloading and Redis Cluster. */
+     * Used for Redis Cluster redirect. */
     redisGetKeysProc *getkeys_proc;
     /* What keys should be loaded in background when calling this command? */
     int firstkey; /* The first argument that's a key (0 = no keys) */
@@ -717,27 +684,6 @@ typedef struct _redisSortOperation {
     int type;
     robj *pattern;
 } redisSortOperation;
-
-/* DIsk store threaded I/O request message */
-#define REDIS_IOJOB_LOAD 0
-#define REDIS_IOJOB_SAVE 1
-
-typedef struct iojob {
-    int type;   /* Request type, REDIS_IOJOB_* */
-    redisDb *db;/* Redis database */
-    robj *key;  /* This I/O request is about this key */
-    robj *val;  /* the value to swap for REDIS_IOJOB_SAVE, otherwise this
-                 * field is populated by the I/O thread for REDIS_IOJOB_LOAD. */
-    time_t expire; /* Expire time for this key on REDIS_IOJOB_LOAD */
-} iojob;
-
-/* IO operations scheduled -- check dscache.c for more info */
-typedef struct ioop {
-    int type;
-    redisDb *db;
-    robj *key;
-    time_t ctime; /* This is the creation time of the entry. */
-} ioop;
 
 /* Structure to hold list iteration abstraction. */
 typedef struct {
@@ -828,6 +774,7 @@ void addReplyMultiBulkLen(redisClient *c, long length);
 void *dupClientReplyValue(void *o);
 void getClientsMaxBuffers(unsigned long *longest_output_list,
                           unsigned long *biggest_input_buffer);
+void rewriteClientCommandVector(redisClient *c, int argc, ...);
 
 #ifdef __GNUC__
 void addReplyErrorFormat(redisClient *c, const char *fmt, ...)
@@ -982,40 +929,6 @@ void oom(const char *msg);
 void populateCommandTable(void);
 void resetCommandTableStats(void);
 
-/* Disk store */
-int dsOpen(void);
-int dsClose(void);
-int dsSet(redisDb *db, robj *key, robj *val, time_t expire);
-robj *dsGet(redisDb *db, robj *key, time_t *expire);
-int dsDel(redisDb *db, robj *key);
-int dsExists(redisDb *db, robj *key);
-void dsFlushDb(int dbid);
-int dsRdbSaveBackground(char *filename);
-int dsRdbSave(char *filename);
-
-/* Disk Store Cache */
-void dsInit(void);
-void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata, int mask);
-void lockThreadedIO(void);
-void unlockThreadedIO(void);
-void freeIOJob(iojob *j);
-void queueIOJob(iojob *j);
-void waitEmptyIOJobsQueue(void);
-void processAllPendingIOJobs(void);
-int blockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd);
-int dontWaitForSwappedKey(redisClient *c, robj *key);
-void handleClientsBlockedOnSwappedKey(redisDb *db, robj *key);
-int cacheFreeOneEntry(void);
-void cacheScheduleIOAddFlag(redisDb *db, robj *key, long flag);
-void cacheScheduleIODelFlag(redisDb *db, robj *key, long flag);
-int cacheScheduleIOGetFlags(redisDb *db, robj *key);
-void cacheScheduleIO(redisDb *db, robj *key, int type);
-void cacheCron(void);
-int cacheKeyMayExist(redisDb *db, robj *key);
-void cacheSetKeyMayExist(redisDb *db, robj *key);
-void cacheSetKeyDoesNotExist(redisDb *db, robj *key);
-void cacheForcePointInTime(void);
-
 /* Set data type */
 robj *setTypeCreate(robj *value);
 int setTypeAdd(robj *subject, robj *value);
@@ -1068,8 +981,9 @@ robj *lookupKeyRead(redisDb *db, robj *key);
 robj *lookupKeyWrite(redisDb *db, robj *key);
 robj *lookupKeyReadOrReply(redisClient *c, robj *key, robj *reply);
 robj *lookupKeyWriteOrReply(redisClient *c, robj *key, robj *reply);
-int dbAdd(redisDb *db, robj *key, robj *val);
-int dbReplace(redisDb *db, robj *key, robj *val);
+void dbAdd(redisDb *db, robj *key, robj *val);
+void dbOverwrite(redisDb *db, robj *key, robj *val);
+void setKey(redisDb *db, robj *key, robj *val);
 int dbExists(redisDb *db, robj *key);
 robj *dbRandomKey(redisDb *db);
 int dbDelete(redisDb *db, robj *key);

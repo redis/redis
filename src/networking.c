@@ -501,25 +501,6 @@ void freeClient(redisClient *c) {
         redisAssert(ln != NULL);
         listDelNode(server.unblocked_clients,ln);
     }
-    /* Remove from the list of clients waiting for swapped keys, or ready
-     * to be restarted, but not yet woken up again. */
-    if (c->flags & REDIS_IO_WAIT) {
-        redisAssert(server.ds_enabled);
-        if (listLength(c->io_keys) == 0) {
-            ln = listSearchKey(server.io_ready_clients,c);
-
-            /* When this client is waiting to be woken up (REDIS_IO_WAIT),
-             * it should be present in the list io_ready_clients */
-            redisAssert(ln != NULL);
-            listDelNode(server.io_ready_clients,ln);
-        } else {
-            while (listLength(c->io_keys)) {
-                ln = listFirst(c->io_keys);
-                dontWaitForSwappedKey(c,ln->value);
-            }
-        }
-        server.cache_blocked_clients--;
-    }
     listRelease(c->io_keys);
     /* Master/slave cleanup.
      * Case 1: we lost the connection with a slave. */
@@ -536,6 +517,7 @@ void freeClient(redisClient *c) {
     if (c->flags & REDIS_MASTER) {
         server.master = NULL;
         server.replstate = REDIS_REPL_CONNECT;
+        server.repl_down_since = time(NULL);
         /* Since we lost the connection with the master, we should also
          * close the connection with all our slaves if we have any, so
          * when we'll resync with the master the other slaves will sync again
@@ -809,9 +791,6 @@ int processMultibulkBuffer(redisClient *c) {
 void processInputBuffer(redisClient *c) {
     /* Keep processing while there is something in the input buffer */
     while(sdslen(c->querybuf)) {
-        /* Immediately abort if the client is in the middle of something. */
-        if (c->flags & REDIS_BLOCKED || c->flags & REDIS_IO_WAIT) return;
-
         /* REDIS_CLOSE_AFTER_REPLY closes the connection once the reply is
          * written to the client. Make sure to not let the reply grow after
          * this flag has been set (i.e. don't process more commands). */
@@ -920,7 +899,6 @@ void clientCommand(redisClient *c) {
             if (p == flags) *p++ = 'N';
             if (client->flags & REDIS_MULTI) *p++ = 'x';
             if (client->flags & REDIS_BLOCKED) *p++ = 'b';
-            if (client->flags & REDIS_IO_WAIT) *p++ = 'i';
             if (client->flags & REDIS_DIRTY_CAS) *p++ = 'd';
             if (client->flags & REDIS_CLOSE_AFTER_REPLY) *p++ = 'c';
             if (client->flags & REDIS_UNBLOCKED) *p++ = 'u';
@@ -959,4 +937,29 @@ void clientCommand(redisClient *c) {
     } else {
         addReplyError(c, "Syntax error, try CLIENT (LIST | KILL ip:port)");
     }
+}
+
+void rewriteClientCommandVector(redisClient *c, int argc, ...) {
+    va_list ap;
+    int j;
+    robj **argv; /* The new argument vector */
+
+    argv = zmalloc(sizeof(robj*)*argc);
+    va_start(ap,argc);
+    for (j = 0; j < argc; j++) {
+        robj *a;
+        
+        a = va_arg(ap, robj*);
+        argv[j] = a;
+        incrRefCount(a);
+    }
+    /* We free the objects in the original vector at the end, so we are
+     * sure that if the same objects are reused in the new vector the
+     * refcount gets incremented before it gets decremented. */
+    for (j = 0; j < c->argc; j++) decrRefCount(c->argv[j]);
+    zfree(c->argv);
+    /* Replace argv and argc with our new versions. */
+    c->argv = argv;
+    c->argc = argc;
+    va_end(ap);
 }

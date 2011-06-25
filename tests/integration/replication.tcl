@@ -6,6 +6,24 @@ start_server {tags {"repl"}} {
             s -1 role
         } {slave}
 
+        test {BRPOPLPUSH replication, when blocking against empty list} {
+            set rd [redis_deferring_client]
+            $rd brpoplpush a b 5
+            r lpush a foo
+            after 1000
+            assert_equal [r debug digest] [r -1 debug digest]
+        }
+
+        test {BRPOPLPUSH replication, list exists} {
+            set rd [redis_deferring_client]
+            r lpush c 1
+            r lpush c 2
+            r lpush c 3
+            $rd brpoplpush c d 5
+            after 1000
+            assert_equal [r debug digest] [r -1 debug digest]
+        }
+
         test {MASTER and SLAVE dataset should be identical after complex ops} {
             createComplexDataset r 10000
             after 500

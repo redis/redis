@@ -1,0 +1,15 @@
+/Makefile
+/config.stamp
+/config.status
+
+/doc/html.xsl
+/doc/jemalloc.xml
+/doc/manpages.xsl
+
+/src/*.d
+/lib
+
+# The following headers are generated
+/include/jemalloc/*.h
+/include/jemalloc/internal/jemalloc_internal.h
+/test/jemalloc_test.h

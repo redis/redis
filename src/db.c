@@ -31,13 +31,6 @@ void SlotToKeyDel(robj *key);
  *      the disk object. If it is in this state, we wait.
  */
 
-void lookupWaitBusyKey(redisDb *db, robj *key) {
-    /* FIXME: wait just for this key, not everything */
-    waitEmptyIOJobsQueue();
-    processAllPendingIOJobs();
-    redisAssert((cacheScheduleIOGetFlags(db,key) & REDIS_IO_SAVEINPROG) == 0);
-}
-
 robj *lookupKey(redisDb *db, robj *key) {
     dictEntry *de = dictFind(db->dict,key->ptr);
     if (de) {
@@ -48,53 +41,9 @@ robj *lookupKey(redisDb *db, robj *key) {
          * a copy on write madness. */
         if (server.bgsavechildpid == -1 && server.bgrewritechildpid == -1)
             val->lru = server.lruclock;
-
-        if (server.ds_enabled &&
-            cacheScheduleIOGetFlags(db,key) & REDIS_IO_SAVEINPROG)
-        {
-            /* Need to wait for the key to get unbusy */
-            redisLog(REDIS_DEBUG,"Lookup found a key in SAVEINPROG state. Waiting. (Key was in the cache)");
-            lookupWaitBusyKey(db,key);
-        }
         server.stat_keyspace_hits++;
         return val;
     } else {
-        time_t expire;
-        robj *val;
-
-        /* Key not found in the in memory hash table, but if disk store is
-         * enabled we may have this key on disk. If so load it in memory
-         * in a blocking way. */
-        if (server.ds_enabled && cacheKeyMayExist(db,key)) {
-            long flags = cacheScheduleIOGetFlags(db,key);
-
-            /* They key is not in cache, but it has a SAVE op in queue?
-             * The only possibility is that the key was deleted, since
-             * dirty keys are not evicted. */
-            if (flags & REDIS_IO_SAVE) {
-                server.stat_keyspace_misses++;
-                return NULL;
-            }
-
-            /* At this point we need to blocking load the key in memory.
-             * The first thing we do is waiting here if the key is busy. */
-            if (flags & REDIS_IO_SAVEINPROG) {
-                redisLog(REDIS_DEBUG,"Lookup found a key in SAVEINPROG state. Waiting (while force loading).");
-                lookupWaitBusyKey(db,key);
-            }
-
-            redisLog(REDIS_DEBUG,"Force loading key %s via lookup", key->ptr);
-            val = dsGet(db,key,&expire);
-            if (val) {
-                int retval = dbAdd(db,key,val);
-                redisAssert(retval == REDIS_OK);
-                if (expire != -1) setExpire(db,key,expire);
-                server.stat_keyspace_hits++;
-                return val;
-            } else {
-                cacheSetKeyDoesNotExist(db,key);
-            }
-        }
         server.stat_keyspace_misses++;
         return NULL;
     }
@@ -122,42 +71,45 @@ robj *lookupKeyWriteOrReply(redisClient *c, robj *key, robj *reply) {
     return o;
 }
 
-/* Add the key to the DB. If the key already exists REDIS_ERR is returned,
- * otherwise REDIS_OK is returned, and the caller should increment the
- * refcount of 'val'. */
-int dbAdd(redisDb *db, robj *key, robj *val) {
-    /* Perform a lookup before adding the key, as we need to copy the
-     * key value. */
-    if (dictFind(db->dict, key->ptr) != NULL) {
-        return REDIS_ERR;
-    } else {
-        sds copy = sdsdup(key->ptr);
-        dictAdd(db->dict, copy, val);
-        if (server.ds_enabled) cacheSetKeyMayExist(db,key);
-        if (server.cluster_enabled) SlotToKeyAdd(key);
-        return REDIS_OK;
-    }
+/* Add the key to the DB. It's up to the caller to increment the reference
+ * counte of the value if needed.
+ *
+ * The program is aborted if the key already exists. */
+void dbAdd(redisDb *db, robj *key, robj *val) {
+    sds copy = sdsdup(key->ptr);
+    int retval = dictAdd(db->dict, copy, val);
+
+    redisAssert(retval == REDIS_OK);
+    if (server.cluster_enabled) SlotToKeyAdd(key);
+ }
+
+/* Overwrite an existing key with a new value. Incrementing the reference
+ * count of the new value is up to the caller.
+ * This function does not modify the expire time of the existing key.
+ *
+ * The program is aborted if the key was not already present. */
+void dbOverwrite(redisDb *db, robj *key, robj *val) {
+    struct dictEntry *de = dictFind(db->dict,key->ptr);
+    
+    redisAssert(de != NULL);
+    dictReplace(db->dict, key->ptr, val);
 }
 
-/* If the key does not exist, this is just like dbAdd(). Otherwise
- * the value associated to the key is replaced with the new one.
+/* High level Set operation. This function can be used in order to set
+ * a key, whatever it was existing or not, to a new object.
  *
- * On update (key already existed) 0 is returned. Otherwise 1. */
-int dbReplace(redisDb *db, robj *key, robj *val) {
-    robj *oldval;
-    int retval;
-
-    if ((oldval = dictFetchValue(db->dict,key->ptr)) == NULL) {
-        sds copy = sdsdup(key->ptr);
-        dictAdd(db->dict, copy, val);
-        if (server.cluster_enabled) SlotToKeyAdd(key);
-        retval = 1;
+ * 1) The ref count of the value object is incremented.
+ * 2) clients WATCHing for the destination key notified.
+ * 3) The expire time of the key is reset (the key is made persistent). */
+void setKey(redisDb *db, robj *key, robj *val) {
+    if (lookupKeyWrite(db,key) == NULL) {
+        dbAdd(db,key,val);
     } else {
-        dictReplace(db->dict, key->ptr, val);
-        retval = 0;
+        dbOverwrite(db,key,val);
     }
-    if (server.ds_enabled) cacheSetKeyMayExist(db,key);
-    return retval;
+    incrRefCount(val);
+    removeExpire(db,key);
+    touchWatchedKey(db,key);
 }
 
 int dbExists(redisDb *db, robj *key) {
@@ -192,14 +144,6 @@ robj *dbRandomKey(redisDb *db) {
 
 /* Delete a key, value, and associated expiration entry if any, from the DB */
 int dbDelete(redisDb *db, robj *key) {
-    /* If diskstore is enabled make sure to awake waiting clients for this key
-     * as it is not really useful to wait for a key already deleted to be
-     * loaded from disk. */
-    if (server.ds_enabled) {
-        handleClientsBlockedOnSwappedKey(db,key);
-        cacheSetKeyDoesNotExist(db,key);
-    }
-
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
@@ -221,7 +165,6 @@ long long emptyDb() {
         removed += dictSize(server.db[j].dict);
         dictEmpty(server.db[j].dict);
         dictEmpty(server.db[j].expires);
-        if (server.ds_enabled) dictEmpty(server.db[j].io_negcache);
     }
     return removed;
 }
@@ -244,8 +187,6 @@ int selectDb(redisClient *c, int id) {
 
 void signalModifiedKey(redisDb *db, robj *key) {
     touchWatchedKey(db,key);
-    if (server.ds_enabled)
-        cacheScheduleIO(db,key,REDIS_IO_SAVE);
 }
 
 void signalFlushedDb(int dbid) {
@@ -261,7 +202,6 @@ void flushdbCommand(redisClient *c) {
     signalFlushedDb(c->db->id);
     dictEmpty(c->db->dict);
     dictEmpty(c->db->expires);
-    if (server.ds_enabled) dsFlushDb(c->db->id);
     addReply(c,shared.ok);
 }
 
@@ -273,10 +213,7 @@ void flushallCommand(redisClient *c) {
         kill(server.bgsavechildpid,SIGKILL);
         rdbRemoveTempFile(server.bgsavechildpid);
     }
-    if (server.ds_enabled)
-        dsFlushDb(-1);
-    else
-        rdbSave(server.dbfilename);
+    rdbSave(server.dbfilename);
     server.dirty++;
 }
 
@@ -284,22 +221,10 @@ void delCommand(redisClient *c) {
     int deleted = 0, j;
 
     for (j = 1; j < c->argc; j++) {
-        if (server.ds_enabled) {
-            lookupKeyRead(c->db,c->argv[j]);
-            /* FIXME: this can be optimized a lot, no real need to load
-             * a possibly huge value. */
-        }
         if (dbDelete(c->db,c->argv[j])) {
             signalModifiedKey(c->db,c->argv[j]);
             server.dirty++;
             deleted++;
-        } else if (server.ds_enabled) {
-            if (cacheKeyMayExist(c->db,c->argv[j]) &&
-                dsExists(c->db,c->argv[j]))
-            {
-                cacheScheduleIO(c->db,c->argv[j],REDIS_IO_SAVE);
-                deleted = 1;
-            }
         }
     }
     addReplyLongLong(c,deleted);
@@ -414,13 +339,15 @@ void renameGenericCommand(redisClient *c, int nx) {
         return;
 
     incrRefCount(o);
-    if (dbAdd(c->db,c->argv[2],o) == REDIS_ERR) {
+    if (lookupKeyWrite(c->db,c->argv[2]) != NULL) {
         if (nx) {
             decrRefCount(o);
             addReply(c,shared.czero);
             return;
         }
-        dbReplace(c->db,c->argv[2],o);
+        dbOverwrite(c->db,c->argv[2],o);
+    } else {
+        dbAdd(c->db,c->argv[2],o);
     }
     dbDelete(c->db,c->argv[1]);
     signalModifiedKey(c->db,c->argv[1]);
@@ -471,11 +398,12 @@ void moveCommand(redisClient *c) {
         return;
     }
 
-    /* Try to add the element to the target DB */
-    if (dbAdd(dst,c->argv[1],o) == REDIS_ERR) {
+    /* Return zero if the key already exists in the target DB */
+    if (lookupKeyWrite(dst,c->argv[1]) != NULL) {
         addReply(c,shared.czero);
         return;
     }
+    dbAdd(dst,c->argv[1],o);
     incrRefCount(o);
 
     /* OK! key moved, free the entry in the source DB */
@@ -611,7 +539,6 @@ void expireatCommand(redisClient *c) {
 void ttlCommand(redisClient *c) {
     time_t expire, ttl = -1;
 
-    if (server.ds_enabled) lookupKeyRead(c->db,c->argv[1]);
     expire = getExpire(c->db,c->argv[1]);
     if (expire != -1) {
         ttl = (expire-time(NULL));
