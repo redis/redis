@@ -159,7 +159,7 @@ int clusterLoadConfig(char *filename) {
     return REDIS_OK;
 
 fmterr:
-    redisLog(REDIS_WARNING,"Unrecovarable error: corrupted cluster config file.");
+    redisLog(REDIS_WARNING,"Unrecoverable error: corrupted cluster config file.");
     fclose(fp);
     exit(1);
 }
@@ -968,7 +968,7 @@ void clusterCron(void) {
                 clusterUpdateState();
             }
         } else {
-            /* Timeout reached. Set the noad se possibly failing if it is
+            /* Timeout reached. Set the node as possibly failing if it is
              * not already in this state. */
             if (!(node->flags & (REDIS_NODE_PFAIL|REDIS_NODE_FAIL))) {
                 redisLog(REDIS_DEBUG,"*** NODE %.40s possibly failing",
@@ -1509,8 +1509,8 @@ void migrateCommand(redisClient *c) {
     if (fwriteBulkObject(fp,c->argv[3]) == 0) goto file_wr_err;
     if (fwriteBulkLongLong(fp, (ttl == -1) ? 0 : ttl) == 0) goto file_wr_err;
 
-    /* Finally the last argument that is the serailized object payload
-     * in the form: <type><rdb-serailized-object>. */
+    /* Finally the last argument that is the serialized object payload
+     * in the form: <type><rdb-serialized-object>. */
     payload_len = rdbSavedObjectLen(o);
     if (fwriteBulkCount(fp,'$',payload_len+1) == 0) goto file_wr_err;
     if (fwrite(&type,1,1,fp) == 0) goto file_wr_err;
@@ -1620,7 +1620,7 @@ void dumpCommand(redisClient *c) {
     }
     unlink(buf);
 
-    /* Dump the serailized object and read it back in memory.
+    /* Dump the serialized object and read it back in memory.
      * We prefix it with a one byte containing the type ID.
      * This is the serialization format understood by RESTORE. */
     if (rdbSaveObject(fp,o) == -1) goto file_wr_err;

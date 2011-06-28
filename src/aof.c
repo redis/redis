@@ -141,8 +141,8 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
     sds buf = sdsempty();
     robj *tmpargv[3];
 
-    /* The DB this command was targetting is not the same as the last command
-     * we appendend. To issue a SELECT command is needed. */
+    /* The DB this command was targeting is not the same as the last command
+     * we appended. To issue a SELECT command is needed. */
     if (dictid != server.appendseldb) {
         char seldb[64];
 
@@ -633,7 +633,7 @@ void aofRemoveTempFile(pid_t childpid) {
 /* Update the server.appendonly_current_size filed explicitly using stat(2)
  * to check the size of the file. This is useful after a rewrite or after
  * a restart, normally the size is updated just adding the write length
- * to the current lenght, that is much faster. */
+ * to the current length, that is much faster. */
 void aofUpdateCurrentSize(void) {
     struct redis_stat sb;
 
