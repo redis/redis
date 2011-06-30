@@ -28,6 +28,7 @@
  */
 
 #include "redis.h"
+#include "slowlog.h"
 
 #ifdef HAVE_BACKTRACE
 #include <execinfo.h>
@@ -192,7 +193,8 @@ struct redisCommand redisCommandTable[] = {
     {"migrate",migrateCommand,6,0,NULL,0,0,0,0,0},
     {"dump",dumpCommand,2,0,NULL,0,0,0,0,0},
     {"object",objectCommand,-2,0,NULL,0,0,0,0,0},
-    {"client",clientCommand,-2,0,NULL,0,0,0,0,0}
+    {"client",clientCommand,-2,0,NULL,0,0,0,0,0},
+    {"slowlog",slowlogCommand,-2,0,NULL,0,0,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
@@ -866,6 +868,10 @@ void initServerConfig() {
     populateCommandTable();
     server.delCommand = lookupCommandByCString("del");
     server.multiCommand = lookupCommandByCString("multi");
+    
+    /* Slow log */
+    server.slowlog_log_slower_than = REDIS_SLOWLOG_LOG_SLOWER_THAN;
+    server.slowlog_max_len = REDIS_SLOWLOG_MAX_LEN;
 }
 
 void initServer() {
@@ -952,6 +958,7 @@ void initServer() {
     }
 
     if (server.cluster_enabled) clusterInit();
+    slowlogInit();
     srand(time(NULL)^getpid());
 }
 
@@ -999,12 +1006,14 @@ struct redisCommand *lookupCommandByCString(char *s) {
 
 /* Call() is the core of Redis execution of a command */
 void call(redisClient *c, struct redisCommand *cmd) {
-    long long dirty, start = ustime();
+    long long dirty, start = ustime(), duration;
 
     dirty = server.dirty;
     cmd->proc(c);
     dirty = server.dirty-dirty;
-    cmd->microseconds += ustime()-start;
+    duration = ustime()-start;
+    cmd->microseconds += duration;
+    slowlogPushEntryIfNeeded(c->argv,c->argc,duration);
     cmd->calls++;
 
     if (server.appendonly && dirty)
