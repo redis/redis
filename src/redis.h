@@ -529,7 +529,7 @@ struct redisServer {
     long long stat_fork_time;       /* time needed to perform latets fork() */
     list *slowlog;
     long long slowlog_log_slower_than;
-    unsigned int slowlog_max_len;
+    unsigned long slowlog_max_len;
     /* Configuration */
     int verbosity;
     int maxidletime;
