@@ -26,6 +26,7 @@ slowlogEntry *slowlogCreateEntry(robj **argv, int argc, long long duration) {
     }
     se->time = time(NULL);
     se->duration = duration;
+    se->id = server.slowlog_entry_id++;
     return se;
 }
 
@@ -47,6 +48,7 @@ void slowlogFreeEntry(void *septr) {
  * at server startup. */
 void slowlogInit(void) {
     server.slowlog = listCreate();
+    server.slowlog_entry_id = 0;
     listSetFreeMethod(server.slowlog,slowlogFreeEntry);
 }
 
@@ -96,7 +98,8 @@ void slowlogCommand(redisClient *c) {
             int j;
 
             se = ln->value;
-            addReplyMultiBulkLen(c,3);
+            addReplyMultiBulkLen(c,4);
+            addReplyLongLong(c,se->id);
             addReplyLongLong(c,se->time);
             addReplyLongLong(c,se->duration);
             addReplyMultiBulkLen(c,se->argc);

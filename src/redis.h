@@ -528,6 +528,7 @@ struct redisServer {
     size_t stat_peak_memory;        /* max used memory record */
     long long stat_fork_time;       /* time needed to perform latets fork() */
     list *slowlog;
+    long long slowlog_entry_id;
     long long slowlog_log_slower_than;
     unsigned long slowlog_max_len;
     /* Configuration */
