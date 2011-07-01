@@ -49,6 +49,8 @@
 #define REDIS_SHARED_INTEGERS 10000
 #define REDIS_REPLY_CHUNK_BYTES (5*1500) /* 5 TCP packets with default MTU */
 #define REDIS_MAX_LOGMSG_LEN    1024 /* Default maximum length of syslog messages */
+#define REDIS_SLOWLOG_LOG_SLOWER_THAN 10000
+#define REDIS_SLOWLOG_MAX_LEN 64
 
 /* Hash table parameters */
 #define REDIS_HT_MINFILL        10      /* Minimal hash table fill 10% */
@@ -388,6 +390,10 @@ struct redisServer {
     long long stat_evictedkeys;     /* number of evicted keys (maxmemory) */
     long long stat_keyspace_hits;   /* number of successful lookups of keys */
     long long stat_keyspace_misses; /* number of failed lookups of keys */
+    list *slowlog;
+    long long slowlog_entry_id;
+    long long slowlog_log_slower_than;
+    unsigned long slowlog_max_len;
     /* Configuration */
     int verbosity;
     int maxidletime;

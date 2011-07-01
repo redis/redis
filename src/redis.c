@@ -28,6 +28,7 @@
  */
 
 #include "redis.h"
+#include "slowlog.h"
 
 #ifdef HAVE_BACKTRACE
 #include <execinfo.h>
@@ -188,7 +189,8 @@ struct redisCommand readonlyCommandTable[] = {
     {"publish",publishCommand,3,REDIS_CMD_FORCE_REPLICATION,NULL,0,0,0},
     {"watch",watchCommand,-2,0,NULL,0,0,0},
     {"unwatch",unwatchCommand,1,0,NULL,0,0,0},
-    {"object",objectCommand,-2,0,NULL,0,0,0}
+    {"object",objectCommand,-2,0,NULL,0,0,0},
+    {"slowlog",slowlogCommand,-2,0,NULL,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
@@ -831,6 +833,10 @@ void initServerConfig() {
     populateCommandTable();
     server.delCommand = lookupCommandByCString("del");
     server.multiCommand = lookupCommandByCString("multi");
+
+    /* Slow log */
+    server.slowlog_log_slower_than = REDIS_SLOWLOG_LOG_SLOWER_THAN;
+    server.slowlog_max_len = REDIS_SLOWLOG_MAX_LEN;
 }
 
 void initServer() {
@@ -917,6 +923,7 @@ void initServer() {
     }
 
     if (server.vm_enabled) vmInit();
+    slowlogInit();
     srand(time(NULL)^getpid());
 }
 
@@ -952,11 +959,13 @@ struct redisCommand *lookupCommandByCString(char *s) {
 
 /* Call() is the core of Redis execution of a command */
 void call(redisClient *c, struct redisCommand *cmd) {
-    long long dirty;
+    long long dirty, start = ustime(), duration;
 
     dirty = server.dirty;
     cmd->proc(c);
     dirty = server.dirty-dirty;
+    duration = ustime()-start;
+    slowlogPushEntryIfNeeded(c->argv,c->argc,duration);
 
     if (server.appendonly && dirty)
         feedAppendOnlyFile(cmd,c->db->id,c->argv,c->argc);
