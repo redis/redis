@@ -467,6 +467,9 @@ int expireIfNeeded(redisDb *db, robj *key) {
 
     if (when < 0) return 0; /* No expire for this key */
 
+    /* Don't expire anything while loading. It will be done later. */
+    if (server.loading) return 0;
+
     /* If we are running in the context of a slave, return ASAP:
      * the slave key expiration is controlled by the master that will
      * send us synthesized DEL operations for expired keys.
@@ -504,7 +507,7 @@ void expireGenericCommand(redisClient *c, robj *key, robj *param, long offset) {
         addReply(c,shared.czero);
         return;
     }
-    if (seconds <= 0) {
+    if (seconds <= 0 && !server.loading) {
         if (dbDelete(c->db,key)) server.dirty++;
         addReply(c, shared.cone);
         touchWatchedKey(c->db,key);
