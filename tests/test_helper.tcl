@@ -138,6 +138,7 @@ proc execute_everything {} {
 
 proc main {} {
     cleanup
+    set exit_with_error 0
 
     if {[string length $::file] > 0} {
         foreach {file} [split $::file ,] {
@@ -169,8 +170,14 @@ proc main {} {
         }
 
         puts ""
-        exit 1
+        incr exit_with_error
     }
+
+    if {[string length $::valgrind_errors]} {
+        puts "Valgrind errors:\n$::valgrind_errors"
+        incr exit_with_error
+    }
+    if {$exit_with_error} {exit 1}
 }
 
 # parse arguments

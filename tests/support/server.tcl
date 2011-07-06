@@ -1,5 +1,6 @@
 set ::global_overrides {}
 set ::tags {}
+set ::valgrind_errors {}
 
 proc error_and_quit {config_file error} {
     puts "!!COULD NOT START REDIS-SERVER\n"
@@ -16,11 +17,12 @@ proc check_valgrind_errors stderr {
     close $fd
 
     if {![regexp -- {ERROR SUMMARY: 0 errors} $buf] ||
-        ![regexp -- {definitely lost: 0 bytes} $buf]} {
+        (![regexp -- {definitely lost: 0 bytes} $buf] &&
+         ![regexp -- {no leaks are possible} $buf])} {
         puts "*** VALGRIND ERRORS ***"
         puts $buf
-        puts "--- press enter to continue ---"
-        gets stdin
+        puts "-----------------------"
+        append ::valgrind_errors "$buf\n\n"
     }
 }
 

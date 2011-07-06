@@ -3,3 +3,15 @@
    Memcheck:Cond
    fun:lzf_compress
 }
+
+{
+   <lzf_unitialized_hash_table>
+   Memcheck:Value4
+   fun:lzf_compress
+}
+
+{
+   <lzf_unitialized_hash_table>
+   Memcheck:Value8
+   fun:lzf_compress
+}
