@@ -516,8 +516,9 @@ void expireGenericCommand(redisClient *c, robj *key, robj *param, long offset) {
         addReply(c,shared.czero);
         return;
     }
-    if (seconds <= 0 && !server.loading) {
-        if (dbDelete(c->db,key)) server.dirty++;
+    /* Never delete key immediately when loading AOF or if this is a slave */
+    if (seconds <= 0 && !server.loading && !server.masterhost) {
+        if (dbDelete(c->db,key)) propagateExpire(c->db,key);
         addReply(c, shared.cone);
         signalModifiedKey(c->db,key);
         return;
