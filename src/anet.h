@@ -39,6 +39,8 @@
 #define AF_LOCAL AF_UNIX
 #endif
 
+int anetClose(int fd);
+
 int anetTcpConnect(char *err, char *addr, int port);
 int anetTcpNonBlockConnect(char *err, char *addr, int port);
 int anetUnixConnect(char *err, char *path);

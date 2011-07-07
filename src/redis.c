@@ -1162,6 +1162,9 @@ int prepareForShutdown() {
     } else {
         redisLog(REDIS_WARNING,"Not saving DB.");
     }
+    /* Close listening TCP or Unix sockets */
+    anetClose(server.ipfd);
+    anetClose(server.sofd);
     if (server.daemonize) unlink(server.pidfile);
     redisLog(REDIS_WARNING,"Server exit now, bye bye...");
     return REDIS_OK;
