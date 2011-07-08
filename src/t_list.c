@@ -910,6 +910,7 @@ void blockingPopGenericCommand(redisClient *c, int where) {
                 if (listTypeLength(o) != 0) {
                     /* If the list contains elements fall back to the usual
                      * non-blocking POP operation */
+                    struct redisCommand *orig_cmd;
                     robj *argv[2], **orig_argv;
                     int orig_argc;
 
@@ -917,6 +918,7 @@ void blockingPopGenericCommand(redisClient *c, int where) {
                      * popGenericCommand() as the command takes a single key. */
                     orig_argv = c->argv;
                     orig_argc = c->argc;
+                    orig_cmd = c->cmd;
                     argv[1] = c->argv[j];
                     c->argv = argv;
                     c->argc = 2;
@@ -934,6 +936,7 @@ void blockingPopGenericCommand(redisClient *c, int where) {
                     /* Fix the client structure with the original stuff */
                     c->argv = orig_argv;
                     c->argc = orig_argc;
+                    c->cmd = orig_cmd;
 
                     return;
                 }
