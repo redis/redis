@@ -119,4 +119,11 @@ tags {"aof"} {
             assert_equal 0 [$client llen list]
         }
     }
+
+    start_server {overrides {appendonly {yes} appendfilename {appendonly.aof}}} {
+        test {Redis should not try to convert DEL into EXPIREAT for EXPIRE -1} {
+            r set x 10
+            r expire x -1
+        }
+    }
 }
