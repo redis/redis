@@ -328,6 +328,7 @@ typedef struct redisClient {
     sds querybuf;
     int argc;
     robj **argv;
+    struct redisCommand *cmd;
     int reqtype;
     int multibulklen;       /* number of multi bulk arguments left to read */
     long bulklen;           /* length of bulk argument in multi bulk request */
@@ -725,7 +726,7 @@ void popGenericCommand(redisClient *c, int where);
 void unwatchAllKeys(redisClient *c);
 void initClientMultiState(redisClient *c);
 void freeClientMultiState(redisClient *c);
-void queueMultiCommand(redisClient *c, struct redisCommand *cmd);
+void queueMultiCommand(redisClient *c);
 void touchWatchedKey(redisDb *db, robj *key);
 void touchWatchedKeysOnFlush(int dbid);
 
@@ -821,7 +822,7 @@ int processCommand(redisClient *c);
 void setupSignalHandlers(void);
 struct redisCommand *lookupCommand(sds name);
 struct redisCommand *lookupCommandByCString(char *s);
-void call(redisClient *c, struct redisCommand *cmd);
+void call(redisClient *c);
 int prepareForShutdown();
 void redisLog(int level, const char *fmt, ...);
 void usage();
