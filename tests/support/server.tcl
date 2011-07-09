@@ -184,7 +184,7 @@ proc start_server {options {code undefined}} {
     
     # check that the server actually started
     # ugly but tries to be as fast as possible...
-    set retrynum 20
+    set retrynum 100
     set serverisup 0
 
     if {$::verbose} {
