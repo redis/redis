@@ -232,6 +232,8 @@ proc read_from_test_client fd {
             catch {exec kill -9 $p}
         }
         exit 1
+    } elseif {$status eq {testing}} {
+        # No op
     } else {
         puts "\[$status\]: $data"
     }
