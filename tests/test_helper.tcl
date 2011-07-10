@@ -54,7 +54,7 @@ proc execute_tests name {
     set path "tests/$name.tcl"
     set ::curfile $path
     source $path
-    send_data_packet $::test_server_fd done "$name finished"
+    send_data_packet $::test_server_fd done "$name"
 }
 
 # Setup a list to hold a stack of server configs. When calls to start_server
@@ -174,6 +174,8 @@ proc test_server_main {} {
     # Setup global state for the test server
     set ::idle_clients {}
     set ::active_clients {}
+    array set ::clients_start_time {}
+    set ::clients_time_history {}
 
     # Enter the event loop to handle clients I/O
     after 100 test_server_cron
@@ -211,8 +213,10 @@ proc read_from_test_client fd {
     if {$status eq {ready}} {
         signal_idle_client $fd
     } elseif {$status eq {done}} {
+        set elapsed [expr {[clock seconds]-$::clients_start_time($fd)}]
+        puts "+++ [llength $::active_clients] units still in execution ($elapsed seconds)."
+        lappend ::clients_time_history $elapsed $data
         signal_idle_client $fd
-        puts "+++ [llength $::active_clients] units still in execution."
     }
 }
 
@@ -225,6 +229,7 @@ proc signal_idle_client fd {
     # New unit to process?
     if {$::next_test != [llength $::all_tests]} {
         puts "Spawing new test process for: [lindex $::all_tests $::next_test]"
+        set ::clients_start_time($fd) [clock seconds]
         send_data_packet $fd run [lindex $::all_tests $::next_test]
         lappend ::active_clients $fd
         incr ::next_test
@@ -240,7 +245,11 @@ proc signal_idle_client fd {
 # executed, so the test finished.
 proc the_end {} {
     # TODO: print the status, exit with the rigth exit code.
-    puts "The End"
+    puts "The End\n"
+    puts "Execution time of different units:"
+    foreach {time name} $::clients_time_history {
+        puts "  $time seconds - $name"
+    }
     exit 1
 }
 
