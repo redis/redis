@@ -24,6 +24,8 @@ set ::all_tests {
     unit/cas
     unit/quit
     integration/replication
+    integration/replication-2
+    integration/replication-3
     integration/aof
     unit/pubsub
     unit/slowlog
@@ -166,9 +168,11 @@ proc test_server_main {} {
     }
 
     # Start the client instances
+    set ::clients_pids {}
     for {set j 0} {$j < $::numclients} {incr j} {
-        exec tclsh8.5 [info script] {*}$::argv \
-            --client $port --port [expr {$::port+($j*10)}] &
+        set p [exec tclsh8.5 [info script] {*}$::argv \
+            --client $port --port [expr {$::port+($j*10)}] &]
+        lappend ::clients_pids $p
     }
 
     # Setup global state for the test server
@@ -215,13 +219,19 @@ proc read_from_test_client fd {
     } elseif {$status eq {done}} {
         set elapsed [expr {[clock seconds]-$::clients_start_time($fd)}]
         puts "\[[colorstr yellow $status]\]: $data ($elapsed seconds)"
-        puts "+++ [llength $::active_clients] units still in execution."
+        puts "+++ [expr {[llength $::active_clients]-1}] units still in execution."
         lappend ::clients_time_history $elapsed $data
         signal_idle_client $fd
     } elseif {$status eq {ok}} {
         puts "\[[colorstr green $status]\]: $data"
     } elseif {$status eq {err}} {
         puts "\[[colorstr red $status]\]: $data"
+    } elseif {$status eq {exception}} {
+        puts "\[[colorstr red $status]\]: $data"
+        foreach p $::clients_pids {
+            catch {exec kill -9 $p}
+        }
+        exit 1
     } else {
         puts "\[$status\]: $data"
     }
