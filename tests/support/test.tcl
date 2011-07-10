@@ -49,48 +49,22 @@ proc color_term {} {
     expr {[info exists ::env(TERM)] && [string match *xterm* $::env(TERM)]}
 }
 
-# This is called after the test finished
-proc colored_dot {tags passed} {
+proc colorstr {color str} {
     if {[color_term]} {
-        # Go backward and delete what announc_test function printed.
-        puts -nonewline "\033\[${::backward_count}D\033\[0K\033\[J"
-
-        # Print a coloured char, accordingly to test outcome and tags.
-        if {[lsearch $tags list] != -1} {
-            set colorcode {31}
-            set ch L
-        } elseif {[lsearch $tags hash] != -1} {
-            set colorcode {32}
-            set ch H
-        } elseif {[lsearch $tags set] != -1} {
-            set colorcode {33}
-            set ch S
-        } elseif {[lsearch $tags zset] != -1} {
-            set colorcode {34}
-            set ch Z
-        } elseif {[lsearch $tags basic] != -1} {
-            set colorcode {35}
-            set ch B
-        } else {
-            set colorcode {37}
-            set ch .
+        switch $color {
+            red {set colorcode {31}}
+            green {set colorcode {32}}
+            yellow {set colorcode {33}}
+            blue {set colorcode {34}}
+            magenta {set colorcode {35}}
+            cyan {set colorcode {36}}
+            else {set colorcode {37}}
         }
         if {$colorcode ne {}} {
-            if {$passed} {
-                puts -nonewline "\033\[0;${colorcode};40m"
-            } else {
-                puts -nonewline "\033\[7;${colorcode};40m"
-            }
-            puts -nonewline $ch
-            puts -nonewline "\033\[0m"
-            flush stdout
+            return "\033\[0;${colorcode};40m$str\033\[0m"
         }
     } else {
-        if {$passed} {
-            puts -nonewline .
-        } else {
-            puts -nonewline F
-        }
+        return $str
     }
 }
 

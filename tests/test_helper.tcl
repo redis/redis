@@ -209,14 +209,21 @@ proc read_from_test_client fd {
     set bytes [gets $fd]
     set payload [read $fd $bytes]
     foreach {status data} $payload break
-    puts "($fd) \[$status\]: $data"
     if {$status eq {ready}} {
+        puts "($fd) \[$status\]: $data"
         signal_idle_client $fd
     } elseif {$status eq {done}} {
         set elapsed [expr {[clock seconds]-$::clients_start_time($fd)}]
-        puts "+++ [llength $::active_clients] units still in execution ($elapsed seconds)."
+        puts "($fd) \[[colorstr yellow $status]\]: $data ($elapsed seconds)"
+        puts "+++ [llength $::active_clients] units still in execution."
         lappend ::clients_time_history $elapsed $data
         signal_idle_client $fd
+    } elseif {$status eq {ok}} {
+        puts "($fd) \[[colorstr green $status]\]: $data"
+    } elseif {$status eq {err}} {
+        puts "($fd) \[[colorstr red $status]\]: $data"
+    } else {
+        puts "($fd) \[$status\]: $data"
     }
 }
 
