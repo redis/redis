@@ -49,15 +49,6 @@ proc color_term {} {
     expr {[info exists ::env(TERM)] && [string match *xterm* $::env(TERM)]}
 }
 
-# This is called before starting the test
-proc announce_test {s} {
-    if {[color_term]} {
-        puts -nonewline "$s\033\[0K"
-        flush stdout
-        set ::backward_count [string length $s]
-    }
-}
-
 # This is called after the test finished
 proc colored_dot {tags passed} {
     if {[color_term]} {
@@ -131,12 +122,7 @@ proc test {name code {okpattern undefined}} {
     lappend details $::tags
     lappend details $name
 
-    if {$::verbose} {
-        puts -nonewline [format "#%03d %-68s " $::num_tests $name]
-        flush stdout
-    } else {
-        announce_test $name
-    }
+    send_data_packet $::test_server_fd testing $name
 
     if {[catch {set retval [uplevel 1 $code]} error]} {
         if {[string match "assertion:*" $error]} {
@@ -145,12 +131,7 @@ proc test {name code {okpattern undefined}} {
             lappend ::tests_failed $details
 
             incr ::num_failed
-            if {$::verbose} {
-                puts "FAILED"
-                puts "$msg\n"
-            } else {
-                colored_dot $::tags 0
-            }
+            send_data_packet $::test_server_fd err $name
         } else {
             # Re-raise, let handler up the stack take care of this.
             error $error $::errorInfo
@@ -158,33 +139,21 @@ proc test {name code {okpattern undefined}} {
     } else {
         if {$okpattern eq "undefined" || $okpattern eq $retval || [string match $okpattern $retval]} {
             incr ::num_passed
-            if {$::verbose} {
-                puts "PASSED"
-            } else {
-                colored_dot $::tags 1
-            }
+            send_data_packet $::test_server_fd ok $name
         } else {
             set msg "Expected '$okpattern' to equal or match '$retval'"
             lappend details $msg
             lappend ::tests_failed $details
 
             incr ::num_failed
-            if {$::verbose} {
-                puts "FAILED"
-                puts "$msg\n"
-            } else {
-                colored_dot $::tags 0
-            }
+            send_data_packet $::test_server_fd err $name
         }
     }
-    flush stdout
 
     if {$::traceleaks} {
         set output [exec leaks redis-server]
         if {![string match {*0 leaks*} $output]} {
-            puts "--- Test \"$name\" leaked! ---"
-            puts $output
-            exit 1
+            send_data_packet $::test_server_fd err "Detected a memory leak in test '$name': $output"
         }
     }
 }

@@ -12,7 +12,7 @@ start_server {tags {"other"}} {
         r save
     } {OK}
 
-    tags {slow nodiskstore} {
+    tags {slow} {
         foreach fuzztype {binary alpha compr} {
             test "FUZZ stresser with data model $fuzztype" {
                 set err 0
@@ -46,7 +46,7 @@ start_server {tags {"other"}} {
         set _ $err
     } {*invalid*}
 
-    tags {consistency nodiskstore} {
+    tags {consistency} {
         if {![catch {package require sha1}]} {
             test {Check consistency of different data types after a reload} {
                 r flushdb
@@ -102,25 +102,19 @@ start_server {tags {"other"}} {
         r flushdb
         r set x 10
         r expire x 1000
-        if {$::diskstore} {
-            r debug flushcache
-        } else {
-            r save
-            r debug reload
-        }
+        r save
+        r debug reload
         set ttl [r ttl x]
         set e1 [expr {$ttl > 900 && $ttl <= 1000}]
-        if {!$::diskstore} {
-            r bgrewriteaof
-            waitForBgrewriteaof r
-            r debug loadaof
-        }
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
         set ttl [r ttl x]
         set e2 [expr {$ttl > 900 && $ttl <= 1000}]
         list $e1 $e2
     } {1 1}
 
-    tags {protocol nodiskstore} {
+    tags {protocol} {
         test {PIPELINING stresser (also a regression for the old epoll bug)} {
             set fd2 [socket $::host $::port]
             fconfigure $fd2 -encoding binary -translation binary
