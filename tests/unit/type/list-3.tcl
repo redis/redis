@@ -16,7 +16,8 @@ start_server {
 
     tags {slow} {
         test {ziplist implementation: value encoding and backlink} {
-            for {set j 0} {$j < 100} {incr j} {
+            if {$::accurate} {set iterations 100} else {set iterations 10}
+            for {set j 0} {$j < $iterations} {incr j} {
                 r del l
                 set l {}
                 for {set i 0} {$i < 200} {incr i} {
@@ -58,7 +59,7 @@ start_server {
                     }
                 }
                 assert_equal [llength $l] [r llen l]
-                for {set i 0} {$i < 200} {incr i} {
+                for {set i 0} {$i < $len} {incr i} {
                     if {[lindex $l $i] ne [r lindex l $i]} {
                         assert_equal [lindex $l $i] [r lindex l $i]
                     }

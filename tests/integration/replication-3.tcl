@@ -6,8 +6,10 @@ start_server {tags {"repl"}} {
             s -1 role
         } {slave}
 
+        if {$::accurate} {set numops 50000} else {set numops 5000}
+
         test {MASTER and SLAVE consistency with expire} {
-            createComplexDataset r 50000 useexpire
+            createComplexDataset r $numops useexpire
             after 4000 ;# Make sure everything expired before taking the digest
             r keys *   ;# Force DEL syntesizing to slave
             after 1000 ;# Wait another second. Now everything should be fine.

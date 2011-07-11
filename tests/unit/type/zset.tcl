@@ -527,7 +527,7 @@ start_server {tags {"zset"}} {
         } elseif {$encoding == "skiplist"} {
             r config set zset-max-ziplist-entries 0
             r config set zset-max-ziplist-value 0
-            set elements 1000
+            if {$::accurate} {set elements 1000} else {set elements 100}
         } else {
             puts "Unknown sorted set encoding"
             exit

@@ -13,10 +13,11 @@ start_server {tags {"other"}} {
     } {OK}
 
     tags {slow} {
+        if {$::accurate} {set iterations 10000} else {set iterations 1000}
         foreach fuzztype {binary alpha compr} {
             test "FUZZ stresser with data model $fuzztype" {
                 set err 0
-                for {set i 0} {$i < 10000} {incr i} {
+                for {set i 0} {$i < $iterations} {incr i} {
                     set fuzz [randstring 0 512 $fuzztype]
                     r set foo $fuzz
                     set got [r get foo]
@@ -48,9 +49,10 @@ start_server {tags {"other"}} {
 
     tags {consistency} {
         if {![catch {package require sha1}]} {
+            if {$::accurate} {set numops 10000} else {set numops 1000}
             test {Check consistency of different data types after a reload} {
                 r flushdb
-                createComplexDataset r 10000
+                createComplexDataset r $numops
                 set dump [csvdump r]
                 set sha1 [r debug digest]
                 r debug reload
