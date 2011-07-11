@@ -54,6 +54,7 @@ start_server {tags {"repl"}} {
         
         test {SET on the master should immediately propagate} {
             r -1 set mykey bar
+            if {$::valgrind} {after 2000}
             r  0 get mykey
         } {bar}
     }

@@ -32,6 +32,7 @@ tags {"aof"} {
 
     start_server_aof [list dir $server_path] {
         test "Unfinished MULTI: Server should not have been started" {
+            if {$::valgrind} {after 2000}
             assert_equal 0 [is_alive $srv]
         }
 
@@ -49,6 +50,7 @@ tags {"aof"} {
 
     start_server_aof [list dir $server_path] {
         test "Short read: Server should not have been started" {
+            if {$::valgrind} {after 2000}
             assert_equal 0 [is_alive $srv]
         }
 

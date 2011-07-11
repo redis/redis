@@ -19,10 +19,7 @@ proc check_valgrind_errors stderr {
     if {![regexp -- {ERROR SUMMARY: 0 errors} $buf] ||
         (![regexp -- {definitely lost: 0 bytes} $buf] &&
          ![regexp -- {no leaks are possible} $buf])} {
-        puts "*** VALGRIND ERRORS ***"
-        puts $buf
-        puts "-----------------------"
-        append ::valgrind_errors "$buf\n\n"
+        send_data_packet $::test_server_fd err "Valgrind error: $buf\n"
     }
 }
 
