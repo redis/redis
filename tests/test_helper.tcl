@@ -140,7 +140,7 @@ proc s {args} {
 }
 
 proc cleanup {} {
-    puts -nonewline "Cleanup: warning may take some time... "
+    puts -nonewline "Cleanup: may take some time... "
     flush stdout
     catch {exec rm -rf {*}[glob tests/tmp/redis.conf.*]}
     catch {exec rm -rf {*}[glob tests/tmp/server.*]}
@@ -281,9 +281,11 @@ proc the_end {} {
         foreach failed $::failed_tests {
             puts "*** $failed"
         }
+        cleanup
         exit 1
     } else {
         puts "\n[colorstr bold-white {\o/}] [colorstr bold-green {All tests passed without errors!}]\n"
+        cleanup
         exit 0
     }
 }
