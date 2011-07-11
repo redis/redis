@@ -312,6 +312,17 @@ proc send_data_packet {fd status data} {
     flush $fd
 }
 
+proc print_help_screen {} {
+    puts [join {
+        "--valgrind         Run the test over valgrind."
+        "--accurate         Run slow randomized tests for more iterations."
+        "--single <unit>    Just execute the specified unit (see next option)."
+        "--list-tests       List all the available test units."
+        "--force-failure    Force the execution of a test that always fails."
+        "--help             Print this help screen."
+    } "\n"]
+}
+
 # parse arguments
 for {set j 0} {$j < [llength $argv]} {incr j} {
     set opt [lindex $argv $j]
@@ -327,9 +338,6 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         incr j
     } elseif {$opt eq {--valgrind}} {
         set ::valgrind 1
-    } elseif {$opt eq {--file}} {
-        set ::file $arg
-        incr j
     } elseif {$opt eq {--host}} {
         set ::external 1
         set ::host $arg
@@ -337,8 +345,6 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     } elseif {$opt eq {--port}} {
         set ::port $arg
         incr j
-    } elseif {$opt eq {--verbose}} {
-        set ::verbose 1
     } elseif {$opt eq {--accurate}} {
         set ::accurate 1
     } elseif {$opt eq {--force-failure}} {
@@ -356,7 +362,7 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::test_server_port $arg
         incr j
     } elseif {$opt eq {--help}} {
-        puts "TODO print an help screen"
+        print_help_screen
         exit 0
     } else {
         puts "Wrong argument: $opt"
