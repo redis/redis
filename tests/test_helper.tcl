@@ -277,7 +277,7 @@ proc the_end {} {
         puts "  $time seconds - $name"
     }
     if {[llength $::failed_tests]} {
-        puts "!!! WARNING: The following tests failed\n"
+        puts "\n[colorstr bold-red {!!! WARNING}] The following tests failed:\n"
         foreach failed $::failed_tests {
             puts "*** $failed"
         }

@@ -98,9 +98,7 @@ proc test {name code {okpattern undefined}} {
 
     incr ::num_tests
     set details {}
-    lappend details $::curfile
-    lappend details $::tags
-    lappend details $name
+    lappend details "$name in $::curfile"
 
     send_data_packet $::test_server_fd testing $name
 
@@ -111,7 +109,7 @@ proc test {name code {okpattern undefined}} {
             lappend ::tests_failed $details
 
             incr ::num_failed
-            send_data_packet $::test_server_fd err $name
+            send_data_packet $::test_server_fd err [join $details "\n"]
         } else {
             # Re-raise, let handler up the stack take care of this.
             error $error $::errorInfo
@@ -126,7 +124,7 @@ proc test {name code {okpattern undefined}} {
             lappend ::tests_failed $details
 
             incr ::num_failed
-            send_data_packet $::test_server_fd err $name
+            send_data_packet $::test_server_fd err [join $details "\n"]
         }
     }
 

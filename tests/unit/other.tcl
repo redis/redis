@@ -1,4 +1,11 @@
 start_server {tags {"other"}} {
+    if {$::force_failure} {
+        # This is used just for test suite development purposes.
+        test {Failing test} {
+            format err
+        } {ok}
+    }
+
     test {SAVE - make sure there are all the types as values} {
         # Wait for a background saving in progress to terminate
         waitForBgsave r
@@ -242,11 +249,4 @@ start_server {tags {"other"}} {
     test {Perform a final SAVE to leave a clean DB on disk} {
         r save
     } {OK}
-
-    if {$::force_failure} {
-        # This is used just for test suite development purposes.
-        test {Failing test} {
-            format err
-        } {ok}
-    }
 }
