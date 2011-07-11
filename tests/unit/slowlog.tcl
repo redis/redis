@@ -1,4 +1,4 @@
-start_server {tags {"slowlog"}} {
+start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
     test {SLOWLOG - check that it starts with an empty log} {
         r slowlog len
     } {0}
