@@ -247,6 +247,7 @@ start_server {tags {"other"}} {
     } {0 0}
 
     test {Perform a final SAVE to leave a clean DB on disk} {
+        waitForBgsave r
         r save
     } {OK}
 }

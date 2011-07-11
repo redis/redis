@@ -148,8 +148,11 @@ start_server {
     test "BLPOP with variadic LPUSH" {
         set rd [redis_deferring_client]
         r del blist target
+        if {$::valgrind} {after 100}
         $rd blpop blist 0
+        if {$::valgrind} {after 100}
         assert_equal 2 [r lpush blist foo bar]
+        if {$::valgrind} {after 100}
         assert_equal {blist foo} [$rd read]
         assert_equal bar [lindex [r lrange blist 0 -1] 0]
     }
