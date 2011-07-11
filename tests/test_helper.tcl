@@ -46,6 +46,7 @@ set ::external 0; # If "1" this means, we are running against external instance
 set ::file ""; # If set, runs only the tests in this comma separated list
 set ::curfile ""; # Hold the filename of the current suite
 set ::accurate 0; # If true runs fuzz tests with more iterations
+set ::force_failure 0
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -183,6 +184,7 @@ proc test_server_main {} {
     set ::active_clients {}
     array set ::clients_start_time {}
     set ::clients_time_history {}
+    set ::failed_tests {}
 
     # Enter the event loop to handle clients I/O
     after 100 test_server_cron
@@ -228,7 +230,9 @@ proc read_from_test_client fd {
     } elseif {$status eq {ok}} {
         puts "\[[colorstr green $status]\]: $data"
     } elseif {$status eq {err}} {
-        puts "\[[colorstr red $status]\]: $data"
+        set err "\[[colorstr red $status]\]: $data"
+        puts $err
+        lappend ::failed_tests $err
     } elseif {$status eq {exception}} {
         puts "\[[colorstr red $status]\]: $data"
         foreach p $::clients_pids {
@@ -267,12 +271,21 @@ proc signal_idle_client fd {
 # executed, so the test finished.
 proc the_end {} {
     # TODO: print the status, exit with the rigth exit code.
-    puts "The End\n"
+    puts "\n                   The End\n"
     puts "Execution time of different units:"
     foreach {time name} $::clients_time_history {
         puts "  $time seconds - $name"
     }
-    exit 1
+    if {[llength $::failed_tests]} {
+        puts "!!! WARNING: The following tests failed\n"
+        foreach failed $::failed_tests {
+            puts "*** $failed"
+        }
+        exit 1
+    } else {
+        puts "\n[colorstr bold-white {\o/}] [colorstr bold-green {All tests passed without errors!}]\n"
+        exit 0
+    }
 }
 
 # The client is not even driven (the test server is instead) as we just need
@@ -328,6 +341,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::verbose 1
     } elseif {$opt eq {--accurate}} {
         set ::accurate 1
+    } elseif {$opt eq {--force-failure}} {
+        set ::force_failure 1
     } elseif {$opt eq {--single}} {
         set ::all_tests $arg
         incr j
