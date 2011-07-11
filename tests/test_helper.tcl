@@ -15,6 +15,7 @@ set ::all_tests {
     unit/protocol
     unit/basic
     unit/type/list
+    unit/type/list-2
     unit/type/set
     unit/type/zset
     unit/type/hash
