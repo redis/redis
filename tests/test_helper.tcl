@@ -45,6 +45,7 @@ set ::allowtags {}
 set ::external 0; # If "1" this means, we are running against external instance
 set ::file ""; # If set, runs only the tests in this comma separated list
 set ::curfile ""; # Hold the filename of the current suite
+set ::accurate 0; # If true runs fuzz tests with more iterations
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -325,10 +326,23 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         incr j
     } elseif {$opt eq {--verbose}} {
         set ::verbose 1
+    } elseif {$opt eq {--accurate}} {
+        set ::accurate 1
+    } elseif {$opt eq {--single}} {
+        set ::all_tests $arg
+        incr j
+    } elseif {$opt eq {--list-tests}} {
+        foreach t $::all_tests {
+            puts $t
+        }
+        exit 0
     } elseif {$opt eq {--client}} {
         set ::client 1
         set ::test_server_port $arg
         incr j
+    } elseif {$opt eq {--help}} {
+        puts "TODO print an help screen"
+        exit 0
     } else {
         puts "Wrong argument: $opt"
         exit 1
