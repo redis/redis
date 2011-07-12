@@ -21,17 +21,17 @@
 #include <netinet/in.h>
 #include <lua.h>
 
-#include "ae.h"     /* Event driven programming library */
-#include "sds.h"    /* Dynamic safe strings */
-#include "dict.h"   /* Hash tables */
-#include "adlist.h" /* Linked lists */
+#include "ae.h"      /* Event driven programming library */
+#include "sds.h"     /* Dynamic safe strings */
+#include "dict.h"    /* Hash tables */
+#include "adlist.h"  /* Linked lists */
 #include "zmalloc.h" /* total memory usage aware version of malloc/free */
-#include "anet.h"   /* Networking the easy way */
-#include "zipmap.h" /* Compact string -> string data structure */
+#include "anet.h"    /* Networking the easy way */
+#include "zipmap.h"  /* Compact string -> string data structure */
 #include "ziplist.h" /* Compact list data structure */
-#include "intset.h" /* Compact integer set structure */
-#include "version.h"
-#include "util.h"
+#include "intset.h"  /* Compact integer set structure */
+#include "version.h" /* Version macro */
+#include "util.h"    /* Misc functions useful in many places */
 
 /* Error codes */
 #define REDIS_OK                0
@@ -53,6 +53,8 @@
 #define REDIS_MAX_LOGMSG_LEN    1024 /* Default maximum length of syslog messages */
 #define REDIS_AUTO_AOFREWRITE_PERC  100
 #define REDIS_AUTO_AOFREWRITE_MIN_SIZE (1024*1024)
+#define REDIS_SLOWLOG_LOG_SLOWER_THAN 10000
+#define REDIS_SLOWLOG_MAX_LEN 64
 
 /* Hash table parameters */
 #define REDIS_HT_MINFILL        10      /* Minimal hash table fill 10% */
@@ -312,6 +314,7 @@ typedef struct redisClient {
     sds querybuf;
     int argc;
     robj **argv;
+    struct redisCommand *cmd;
     int reqtype;
     int multibulklen;       /* number of multi bulk arguments left to read */
     long bulklen;           /* length of bulk argument in multi bulk request */
@@ -530,6 +533,10 @@ struct redisServer {
     long long stat_keyspace_misses; /* number of failed lookups of keys */
     size_t stat_peak_memory;        /* max used memory record */
     long long stat_fork_time;       /* time needed to perform latets fork() */
+    list *slowlog;
+    long long slowlog_entry_id;
+    long long slowlog_log_slower_than;
+    unsigned long slowlog_max_len;
     /* Configuration */
     int verbosity;
     int maxidletime;
@@ -807,7 +814,7 @@ void popGenericCommand(redisClient *c, int where);
 void unwatchAllKeys(redisClient *c);
 void initClientMultiState(redisClient *c);
 void freeClientMultiState(redisClient *c);
-void queueMultiCommand(redisClient *c, struct redisCommand *cmd);
+void queueMultiCommand(redisClient *c);
 void touchWatchedKey(redisDb *db, robj *key);
 void touchWatchedKeysOnFlush(int dbid);
 
@@ -918,7 +925,7 @@ int processCommand(redisClient *c);
 void setupSignalHandlers(void);
 struct redisCommand *lookupCommand(sds name);
 struct redisCommand *lookupCommandByCString(char *s);
-void call(redisClient *c, struct redisCommand *cmd);
+void call(redisClient *c);
 int prepareForShutdown();
 void redisLog(int level, const char *fmt, ...);
 void redisLogRaw(int level, const char *msg);

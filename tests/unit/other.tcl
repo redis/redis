@@ -1,4 +1,11 @@
 start_server {tags {"other"}} {
+    if {$::force_failure} {
+        # This is used just for test suite development purposes.
+        test {Failing test} {
+            format err
+        } {ok}
+    }
+
     test {SAVE - make sure there are all the types as values} {
         # Wait for a background saving in progress to terminate
         waitForBgsave r
@@ -12,11 +19,12 @@ start_server {tags {"other"}} {
         r save
     } {OK}
 
-    tags {slow nodiskstore} {
+    tags {slow} {
+        if {$::accurate} {set iterations 10000} else {set iterations 1000}
         foreach fuzztype {binary alpha compr} {
             test "FUZZ stresser with data model $fuzztype" {
                 set err 0
-                for {set i 0} {$i < 10000} {incr i} {
+                for {set i 0} {$i < $iterations} {incr i} {
                     set fuzz [randstring 0 512 $fuzztype]
                     r set foo $fuzz
                     set got [r get foo]
@@ -46,11 +54,12 @@ start_server {tags {"other"}} {
         set _ $err
     } {*invalid*}
 
-    tags {consistency nodiskstore} {
+    tags {consistency} {
         if {![catch {package require sha1}]} {
+            if {$::accurate} {set numops 10000} else {set numops 1000}
             test {Check consistency of different data types after a reload} {
                 r flushdb
-                createComplexDataset r 10000
+                createComplexDataset r $numops
                 set dump [csvdump r]
                 set sha1 [r debug digest]
                 r debug reload
@@ -102,25 +111,19 @@ start_server {tags {"other"}} {
         r flushdb
         r set x 10
         r expire x 1000
-        if {$::diskstore} {
-            r debug flushcache
-        } else {
-            r save
-            r debug reload
-        }
+        r save
+        r debug reload
         set ttl [r ttl x]
         set e1 [expr {$ttl > 900 && $ttl <= 1000}]
-        if {!$::diskstore} {
-            r bgrewriteaof
-            waitForBgrewriteaof r
-            r debug loadaof
-        }
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
         set ttl [r ttl x]
         set e2 [expr {$ttl > 900 && $ttl <= 1000}]
         list $e1 $e2
     } {1 1}
 
-    tags {protocol nodiskstore} {
+    tags {protocol} {
         test {PIPELINING stresser (also a regression for the old epoll bug)} {
             set fd2 [socket $::host $::port]
             fconfigure $fd2 -encoding binary -translation binary
@@ -244,6 +247,7 @@ start_server {tags {"other"}} {
     } {0 0}
 
     test {Perform a final SAVE to leave a clean DB on disk} {
+        waitForBgsave r
         r save
     } {OK}
 }

@@ -14,6 +14,7 @@ clean:
 	cd deps/linenoise && $(MAKE) $@
 	cd deps/jemalloc && $(MAKE) distclean
 	cd deps/lua && $(MAKE) $@
+	-(cd deps/jemalloc && $(MAKE) distclean)
 
 $(TARGETS):
 	cd src && $(MAKE) $@
