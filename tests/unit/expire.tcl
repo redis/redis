@@ -7,7 +7,7 @@ start_server {tags {"expire"}} {
         set v4 [r ttl x]
         r expire x 4
         list $v1 $v2 $v3 $v4
-    } {1 5 1 10}
+    } {1 [45] 1 10}
 
     test {EXPIRE - It should be still possible to read 'x'} {
         r get x
