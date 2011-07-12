@@ -1074,11 +1074,11 @@ void execBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int 
  *
  * Return 1 if the client is marked as blocked, 0 if the client can
  * continue as the keys it is going to access appear to be in memory. */
-int blockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd) {
-    if (cmd->vm_preload_proc != NULL) {
-        cmd->vm_preload_proc(c,cmd,c->argc,c->argv);
+int blockClientOnSwappedKeys(redisClient *c) {
+    if (c->cmd->vm_preload_proc != NULL) {
+        c->cmd->vm_preload_proc(c,c->cmd,c->argc,c->argv);
     } else {
-        waitForMultipleSwappedKeys(c,cmd,c->argc,c->argv);
+        waitForMultipleSwappedKeys(c,c->cmd,c->argc,c->argv);
     }
 
     /* If the client was blocked for at least one key, mark it as blocked. */

@@ -853,7 +853,7 @@ void vmReopenSwapFile(void);
 int vmFreePage(off_t page);
 void zunionInterBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv);
 void execBlockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd, int argc, robj **argv);
-int blockClientOnSwappedKeys(redisClient *c, struct redisCommand *cmd);
+int blockClientOnSwappedKeys(redisClient *c);
 int dontWaitForSwappedKey(redisClient *c, robj *key);
 void handleClientsBlockedOnSwappedKey(redisDb *db, robj *key);
 vmpointer *vmSwapObjectBlocking(robj *val);

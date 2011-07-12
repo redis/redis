@@ -706,7 +706,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
                 readQueryFromClient, c);
             cmd = lookupCommand(c->argv[0]->ptr);
             redisAssert(cmd != NULL);
-            call(c,cmd);
+            call(c);
             resetClient(c);
             /* There may be more data to process in the input buffer. */
             if (c->querybuf && sdslen(c->querybuf) > 0)
@@ -1106,7 +1106,7 @@ int processCommand(redisClient *c) {
         addReply(c,shared.queued);
     } else {
         if (server.vm_enabled && server.vm_max_threads > 0 &&
-            blockClientOnSwappedKeys(c,cmd)) return REDIS_ERR;
+            blockClientOnSwappedKeys(c)) return REDIS_ERR;
         call(c);
     }
     return REDIS_OK;
