@@ -657,6 +657,8 @@ void configGetCommand(redisClient *c) {
     if (stringmatch(pattern,"lua-time-limit",0)) {
         addReplyBulkCString(c,"lua-time-limit");
         addReplyBulkLongLong(c,server.lua_time_limit);
+        matches++;
+    }
     if (stringmatch(pattern,"slowlog-log-slower-than",0)) {
         addReplyBulkCString(c,"slowlog-log-slower-than");
         addReplyBulkLongLong(c,server.slowlog_log_slower_than);
