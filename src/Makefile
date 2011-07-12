@@ -196,7 +196,7 @@ dep:
 	$(CC) -MM *.c -I ../deps/hiredis -I ../deps/linenoise
 
 test: redis-server
-	(cd ..; tclsh8.5 tests/test_helper.tcl --tags "${TAGS}" --file "${FILE}")
+	(cd ..; tclsh8.5 tests/test_helper.tcl --tags "${TAGS}")
 
 bench:
 	./redis-benchmark
