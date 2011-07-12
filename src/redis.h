@@ -917,6 +917,8 @@ robj *dbRandomKey(redisDb *db);
 int dbDelete(redisDb *db, robj *key);
 long long emptyDb();
 int selectDb(redisClient *c, int id);
+void signalModifiedKey(redisDb *db, robj *key);
+void signalFlushedDb(int dbid);
 
 /* Git SHA1 */
 char *redisGitSHA1(void);

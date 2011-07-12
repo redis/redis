@@ -235,7 +235,7 @@ void saddCommand(redisClient *c) {
         c->argv[j] = tryObjectEncoding(c->argv[j]);
         if (setTypeAdd(set,c->argv[j])) added++;
     }
-    if (added) touchWatchedKey(c->db,c->argv[1]);
+    if (added) signalModifiedKey(c->db,c->argv[1]);
     server.dirty += added;
     addReplyLongLong(c,added);
 }
@@ -257,7 +257,7 @@ void sremCommand(redisClient *c) {
         }
     }
     if (deleted) {
-        touchWatchedKey(c->db,c->argv[1]);
+        signalModifiedKey(c->db,c->argv[1]);
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
@@ -294,8 +294,8 @@ void smoveCommand(redisClient *c) {
 
     /* Remove the src set from the database when empty */
     if (setTypeSize(srcset) == 0) dbDelete(c->db,c->argv[1]);
-    touchWatchedKey(c->db,c->argv[1]);
-    touchWatchedKey(c->db,c->argv[2]);
+    signalModifiedKey(c->db,c->argv[1]);
+    signalModifiedKey(c->db,c->argv[2]);
     server.dirty++;
 
     /* Create the destination set when it doesn't exist */
@@ -356,7 +356,7 @@ void spopCommand(redisClient *c) {
 
     addReplyBulk(c,ele);
     if (setTypeSize(set) == 0) dbDelete(c->db,c->argv[1]);
-    touchWatchedKey(c->db,c->argv[1]);
+    signalModifiedKey(c->db,c->argv[1]);
     server.dirty++;
 }
 
@@ -397,7 +397,7 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
             zfree(sets);
             if (dstkey) {
                 if (dbDelete(c->db,dstkey)) {
-                    touchWatchedKey(c->db,dstkey);
+                    signalModifiedKey(c->db,dstkey);
                     server.dirty++;
                 }
                 addReply(c,shared.czero);
@@ -502,7 +502,7 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
             decrRefCount(dstset);
             addReply(c,shared.czero);
         }
-        touchWatchedKey(c->db,dstkey);
+        signalModifiedKey(c->db,dstkey);
         server.dirty++;
     } else {
         setDeferredMultiBulkLength(c,replylen,cardinality);
@@ -594,7 +594,7 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
             decrRefCount(dstset);
             addReply(c,shared.czero);
         }
-        touchWatchedKey(c->db,dstkey);
+        signalModifiedKey(c->db,dstkey);
         server.dirty++;
     }
     zfree(sets);

@@ -142,7 +142,7 @@ void setbitCommand(redisClient *c) {
     byteval &= ~(1 << bit);
     byteval |= ((on & 0x1) << bit);
     ((char*)o->ptr)[byte] = byteval;
-    touchWatchedKey(c->db,c->argv[1]);
+    signalModifiedKey(c->db,c->argv[1]);
     server.dirty++;
     addReply(c, bitval ? shared.cone : shared.czero);
 }
@@ -230,7 +230,7 @@ void setrangeCommand(redisClient *c) {
     if (sdslen(value) > 0) {
         o->ptr = sdsgrowzero(o->ptr,offset+sdslen(value));
         memcpy((char*)o->ptr+offset,value,sdslen(value));
-        touchWatchedKey(c->db,c->argv[1]);
+        signalModifiedKey(c->db,c->argv[1]);
         server.dirty++;
     }
     addReplyLongLong(c,sdslen(o->ptr));
@@ -347,7 +347,7 @@ void incrDecrCommand(redisClient *c, long long incr) {
         dbOverwrite(c->db,c->argv[1],new);
     else
         dbAdd(c->db,c->argv[1],new);
-    touchWatchedKey(c->db,c->argv[1]);
+    signalModifiedKey(c->db,c->argv[1]);
     server.dirty++;
     addReply(c,shared.colon);
     addReply(c,new);
@@ -410,7 +410,7 @@ void appendCommand(redisClient *c) {
         o->ptr = sdscatlen(o->ptr,append->ptr,sdslen(append->ptr));
         totlen = sdslen(o->ptr);
     }
-    touchWatchedKey(c->db,c->argv[1]);
+    signalModifiedKey(c->db,c->argv[1]);
     server.dirty++;
     addReplyLongLong(c,totlen);
 }
