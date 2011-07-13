@@ -195,8 +195,8 @@ clean:
 dep:
 	$(CC) -MM *.c -I ../deps/hiredis -I ../deps/linenoise
 
-test: redis-server
-	(cd ..; tclsh8.5 tests/test_helper.tcl --tags "${TAGS}")
+test: redis-server redis-check-aof
+	@(cd ..; ./runtest)
 
 bench:
 	./redis-benchmark
