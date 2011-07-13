@@ -198,6 +198,10 @@ redis-check-aof: $(CHECKAOFOBJ)
 
 clean:
 	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
+	cd ../deps/hiredis && $(MAKE) $@
+	cd ../deps/linenoise && $(MAKE) $@
+	cd ../deps/lua && $(MAKE) $@
+	-(cd ../deps/jemalloc && $(MAKE) distclean)
 
 dep:
 	$(CC) -MM *.c -I ../deps/hiredis -I ../deps/linenoise
@@ -228,6 +232,9 @@ noopt:
 
 32bitgprof:
 	$(MAKE) PROF="-pg" ARCH="-arch i386"
+
+src/help.h:
+	@../utils/generate-command-help.rb > help.h
 
 install: all
 	mkdir -p $(INSTALL_BIN)
