@@ -15,8 +15,8 @@ It is as simple as:
     % make
 
 Redis is just a single binary, but if you want to install it you can use
-the "make install" target that will copy the binary in /usr/local/bin
-for default. You can also use "make PREFIX=/some/other/directory install"
+the "make install" target that will copy the binary to /usr/local/bin
+by default. You can also use "make PREFIX=/some/other/directory install"
 if you wish to use a different destination.
 
 You can run a 32 bit Redis binary using:
@@ -31,12 +31,12 @@ Buliding using tcmalloc
 -----------------------
 
 tcmalloc is a fast and space efficient implementation (for little objects)
-of malloc(). Compiling Redis with it can improve performances and memeory
+of malloc(). Compiling Redis with it can improve performance and memory
 usage. You can read more about it here:
 
 http://goog-perftools.sourceforge.net/doc/tcmalloc.html
 
-In order to compile Redis with tcmalloc support install tcmalloc on your system
+In order to compile Redis with tcmalloc support, install tcmalloc on your system
 and then use:
 
     % make USE_TCMALLOC=yes
