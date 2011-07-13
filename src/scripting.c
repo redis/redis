@@ -251,6 +251,11 @@ void scriptingInit(void) {
     lua_State *lua = lua_open();
     luaL_openlibs(lua);
 
+    /* Initialize a dictionary we use to map SHAs to scripts.
+     * This is useful for replication, as we need to replicate EVALSHA
+     * as EVAL, so we need to remember the associated script. */
+    server.lua_scripts = dictCreate(&dbDictType,NULL);
+
     /* Register the redis commands table and fields */
     lua_newtable(lua);
 
@@ -455,6 +460,16 @@ void evalGenericCommand(redisClient *c, int evalsha) {
             return;
         }
         lua_getglobal(lua, funcname);
+
+        /* We also save a SHA1 -> Original script map in a dictionary
+         * so that we can replicate / write in the AOF all the
+         * EVALSHA commands as EVAL using the original script. */
+        {
+            int retval = dictAdd(server.lua_scripts,
+                                 sdsnewlen(funcname+2,40),c->argv[1]);
+            redisAssert(retval == DICT_OK);
+            incrRefCount(c->argv[1]);
+        }
     }
 
     /* Populate the argv and keys table accordingly to the arguments that
@@ -490,6 +505,25 @@ void evalGenericCommand(redisClient *c, int evalsha) {
     selectDb(c,server.lua_client->db->id); /* set DB ID from Lua client */
     luaReplyToRedisReply(c,lua);
     lua_gc(lua,LUA_GCSTEP,1);
+
+    /* If we have slaves attached we want to replicate this command as
+     * EVAL instead of EVALSHA. We do this also in the AOF as currently there
+     * is no easy way to propagate a command in a different way in the AOF
+     * and in the replication link.
+     *
+     * IMPROVEMENT POSSIBLE:
+     * 1) Replicate this command as EVALSHA in the AOF.
+     * 2) Remember what slave already received a given script, and replicate
+     *    the EVALSHA against this slaves when possible.
+     */
+    if (evalsha) {
+        robj *script = dictFetchValue(server.lua_scripts,c->argv[1]->ptr);
+
+        redisAssert(script != NULL);
+        rewriteClientCommandArgument(c,0,
+            resetRefCount(createStringObject("EVAL",4)));
+        rewriteClientCommandArgument(c,1,script);
+    }
 }
 
 void evalCommand(redisClient *c) {

@@ -941,6 +941,9 @@ void clientCommand(redisClient *c) {
     }
 }
 
+/* Rewrite the command vector of the client. All the new objects ref count
+ * is incremented. The old command vector is freed, and the old objects
+ * ref count is decremented. */
 void rewriteClientCommandVector(redisClient *c, int argc, ...) {
     va_list ap;
     int j;
@@ -966,4 +969,22 @@ void rewriteClientCommandVector(redisClient *c, int argc, ...) {
     c->cmd = lookupCommand(c->argv[0]->ptr);
     redisAssert(c->cmd != NULL);
     va_end(ap);
+}
+
+/* Rewrite a single item in the command vector.
+ * The new val ref count is incremented, and the old decremented. */
+void rewriteClientCommandArgument(redisClient *c, int i, robj *newval) {
+    robj *oldval;
+   
+    redisAssert(i < c->argc);
+    oldval = c->argv[i];
+    c->argv[i] = newval;
+    incrRefCount(newval);
+    decrRefCount(oldval);
+
+    /* If this is the command name make sure to fix c->cmd. */
+    if (i == 0) {
+        c->cmd = lookupCommand(c->argv[0]->ptr);
+        redisAssert(c->cmd != NULL);
+    }
 }

@@ -383,7 +383,7 @@ unsigned int dictEncObjHash(const void *key) {
     }
 }
 
-/* Sets type and diskstore negative caching hash table */
+/* Sets type hash table */
 dictType setDictType = {
     dictEncObjHash,            /* hash function */
     NULL,                      /* key dup */
