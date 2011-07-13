@@ -28,6 +28,14 @@ CLUSTER
 * Allow redis-trib to create a cluster-wide snapshot (using SYNC).
 * Allow redis-trib to restore a cluster-wide snapshot (implement UPLOAD?).
 
+SCRIPTING
+=========
+
+* MULTI/EXEC/...: should we do more than simply ignoring it?
+* Prevent Lua from calling itself with redis("eval",...)
+* SCRIPT FLUSH or alike to start a fresh interpreter?
+* http://redis.io/topics/sponsors
+
 APPEND ONLY FILE
 ================
 
