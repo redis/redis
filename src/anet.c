@@ -56,6 +56,14 @@ static void anetSetError(char *err, const char *fmt, ...)
     va_end(ap);
 }
 
+int anetClose(int fd)
+{
+    if (fd > 0) {
+        if (close(fd) != 0) return ANET_ERR;
+    }
+    return ANET_OK;
+}
+
 int anetNonBlock(char *err, int fd)
 {
     int flags;
