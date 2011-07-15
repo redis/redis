@@ -1,0 +1,9 @@
+#!/bin/bash
+TCL=tclsh8.5
+which $TCL
+if [ "$?" != "0" ]
+then
+    echo "You need '$TCL' in order to run the Redis test"
+    exit 1
+fi
+$TCL tests/test_helper.tcl $*

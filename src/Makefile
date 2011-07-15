@@ -207,7 +207,7 @@ dep:
 	$(CC) -MM *.c -I ../deps/hiredis -I ../deps/linenoise
 
 test: redis-server redis-check-aof
-	@(cd ..; (which tclsh8.5 >/dev/null && tclsh8.5 tests/test_helper.tcl --tags "${TAGS}") || echo "You need to install Tcl (tclsh8.5) in order to run tests.")
+	@(cd ..; ./runtest)
 
 bench:
 	./redis-benchmark
