@@ -390,6 +390,8 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         server.master->authenticated = 1;
         server.replstate = REDIS_REPL_CONNECTED;
         redisLog(REDIS_NOTICE, "MASTER <-> SLAVE sync: Finished with success");
+        /* Rewrite the AOF file now that the dataset changed. */
+        if (server.appendonly) rewriteAppendOnlyFileBackground();
     }
 }
 
@@ -519,7 +521,6 @@ void replicationCron(void) {
         redisLog(REDIS_NOTICE,"Connecting to MASTER...");
         if (syncWithMaster() == REDIS_OK) {
             redisLog(REDIS_NOTICE,"MASTER <-> SLAVE sync started: SYNC sent");
-            if (server.appendonly) rewriteAppendOnlyFileBackground();
         }
     }
     

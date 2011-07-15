@@ -15,7 +15,8 @@ ifeq ($(uname_S),SunOS)
   DYLIB_MAKE_CMD?=$(CC) -G -o ${DYLIBNAME} ${OBJ}
   STLIBNAME?=libhiredis.a
   STLIB_MAKE_CMD?=ar rcs ${STLIBNAME} ${OBJ}
-else ifeq ($(uname_S),Darwin)
+else
+ifeq ($(uname_S),Darwin)
   CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -fPIC -Wall -W -Wwrite-strings $(ARCH) $(PROF)
   CCLINK?=-lm -pthread
   LDFLAGS?=-L. -Wl,-rpath,.
@@ -33,6 +34,8 @@ else
   STLIBNAME?=libhiredis.a
   STLIB_MAKE_CMD?=ar rcs ${STLIBNAME} ${OBJ}
 endif
+endif
+
 CCOPT= $(CFLAGS) $(CCLINK)
 DEBUG?= -g -ggdb
 
