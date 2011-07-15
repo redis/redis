@@ -141,7 +141,7 @@ start_server {tags {"scripting repl"}} {
             r evalsha ae3477e27be955de7e1bc9adfdca626b478d3cb2 0
         } {2}
 
-        after 100
+        if {$::valgrind} {after 2000} else {after 100}
 
         test {If EVALSHA was replicated as EVAL the slave should be ok} {
             r -1 get x
