@@ -124,3 +124,27 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {*execution time*}
 }
+
+start_server {tags {"scripting repl"}} {
+    start_server {} {
+        test {Before the slave connects we issue an EVAL command} {
+            r eval {return redis.call('incr','x')} 0
+        } {1}
+
+        test {Connect a slave to the main instance} {
+            r -1 slaveof [srv 0 host] [srv 0 port]
+            after 1000
+            s -1 role
+        } {slave}
+
+        test {Now use EVALSHA against the master} {
+            r evalsha ae3477e27be955de7e1bc9adfdca626b478d3cb2 0
+        } {2}
+
+        after 100
+
+        test {If EVALSHA was replicated as EVAL the slave should be ok} {
+            r -1 get x
+        } {2}
+    }
+}
