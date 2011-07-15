@@ -495,7 +495,6 @@ void expireGenericCommand(redisClient *c, robj *key, robj *param, long offset) {
         addReply(c,shared.czero);
         return;
     }
-    if (seconds <= 0 && !server.loading) {
     /* EXPIRE with negative TTL, or EXPIREAT with a timestamp into the past
      * should never be executed as a DEL when load the AOF or in the context
      * of a slave instance.
