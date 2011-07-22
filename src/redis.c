@@ -1115,20 +1115,29 @@ int processCommand(redisClient *c) {
 /*================================== Shutdown =============================== */
 
 int prepareForShutdown() {
-    redisLog(REDIS_WARNING,"User requested shutdown, saving DB...");
+    redisLog(REDIS_WARNING,"User requested shutdown...");
     /* Kill the saving child if there is a background saving in progress.
        We want to avoid race conditions, for instance our saving child may
        overwrite the synchronous saving did by SHUTDOWN. */
     if (server.bgsavechildpid != -1) {
-        redisLog(REDIS_WARNING,"There is a live saving child. Killing it!");
+        redisLog(REDIS_WARNING,"There is a child saving an .rdb. Killing it!");
         kill(server.bgsavechildpid,SIGKILL);
         rdbRemoveTempFile(server.bgsavechildpid);
     }
     if (server.appendonly) {
+        /* Kill the AOF saving child as the AOF we already have may be longer
+         * but contains the full dataset anyway. */
+        if (server.bgrewritechildpid != -1) {
+            redisLog(REDIS_WARNING,
+                "There is a child rewriting the AOF. Killing it!");
+            kill(server.bgrewritechildpid,SIGKILL);
+        }
         /* Append only file: fsync() the AOF and exit */
+        redisLog(REDIS_NOTICE,"Calling fsync() on the AOF file.");
         aof_fsync(server.appendfd);
-        if (server.vm_enabled) unlink(server.vm_swap_file);
-    } else if (server.saveparamslen > 0) {
+    }
+    if (server.saveparamslen > 0) {
+        redisLog(REDIS_NOTICE,"Saving the final RDB snapshot before exiting.");
         /* Snapshotting. Perform a SYNC SAVE and exit */
         if (rdbSave(server.dbfilename) != REDIS_OK) {
             /* Ooops.. error saving! The best we can do is to continue
@@ -1136,14 +1145,19 @@ int prepareForShutdown() {
              * in the next cron() Redis will be notified that the background
              * saving aborted, handling special stuff like slaves pending for
              * synchronization... */
-            redisLog(REDIS_WARNING,"Error trying to save the DB, can't exit");
+            redisLog(REDIS_WARNING,"Error trying to save the DB, can't exit.");
             return REDIS_ERR;
         }
-    } else {
-        redisLog(REDIS_WARNING,"Not saving DB.");
     }
-    if (server.daemonize) unlink(server.pidfile);
-    redisLog(REDIS_WARNING,"Server exit now, bye bye...");
+    if (server.vm_enabled) {
+        redisLog(REDIS_NOTICE,"Removing the swap file.");
+        unlink(server.vm_swap_file);
+    }
+    if (server.daemonize) {
+        redisLog(REDIS_NOTICE,"Removing the pid file.");
+        unlink(server.pidfile);
+    }
+    redisLog(REDIS_WARNING,"Redis is now ready to exit, bye bye...");
     return REDIS_OK;
 }
 
