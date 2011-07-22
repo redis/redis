@@ -1118,6 +1118,10 @@ int prepareForShutdown() {
         redisLog(REDIS_NOTICE,"Removing the pid file.");
         unlink(server.pidfile);
     }
+    /* Close the listening sockets. Apparently this allows faster restarts. */
+    if (server.ipfd != -1) close(server.ipfd);
+    if (server.sofd != -1) close(server.sofd);
+
     redisLog(REDIS_WARNING,"Redis is now ready to exit, bye bye...");
     return REDIS_OK;
 }
