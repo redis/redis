@@ -19,15 +19,15 @@ void stopAppendOnly(void) {
     server.appendseldb = -1;
     server.appendonly = 0;
     /* rewrite operation in progress? kill it, wait child exit */
-    if (server.bgsavechildpid != -1) {
+    if (server.bgrewritechildpid != -1) {
         int statloc;
 
-        if (kill(server.bgsavechildpid,SIGKILL) != -1)
+        if (kill(server.bgrewritechildpid,SIGKILL) != -1)
             wait3(&statloc,0,NULL);
         /* reset the buffer accumulating changes while the child saves */
         sdsfree(server.bgrewritebuf);
         server.bgrewritebuf = sdsempty();
-        server.bgsavechildpid = -1;
+        server.bgrewritechildpid = -1;
     }
 }
 

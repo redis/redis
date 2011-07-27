@@ -455,6 +455,9 @@ int expireIfNeeded(redisDb *db, robj *key) {
 
     if (when < 0) return 0; /* No expire for this key */
 
+    /* Don't expire anything while loading. It will be done later. */
+    if (server.loading) return 0;
+
     /* If we are running in the context of a slave, return ASAP:
      * the slave key expiration is controlled by the master that will
      * send us synthesized DEL operations for expired keys.
@@ -492,10 +495,24 @@ void expireGenericCommand(redisClient *c, robj *key, robj *param, long offset) {
         addReply(c,shared.czero);
         return;
     }
-    if (seconds <= 0) {
-        if (dbDelete(c->db,key)) server.dirty++;
-        addReply(c, shared.cone);
+    /* EXPIRE with negative TTL, or EXPIREAT with a timestamp into the past
+     * should never be executed as a DEL when load the AOF or in the context
+     * of a slave instance.
+     *
+     * Instead we take the other branch of the IF statement setting an expire
+     * (possibly in the past) and wait for an explicit DEL from the master. */
+    if (seconds <= 0 && !server.loading && !server.masterhost) {
+        robj *aux;
+
+        redisAssert(dbDelete(c->db,key));
+        server.dirty++;
+
+        /* Replicate/AOF this as an explicit DEL. */
+        aux = createStringObject("DEL",3);
+        rewriteClientCommandVector(c,2,aux,key);
+        decrRefCount(aux);
         touchWatchedKey(c->db,key);
+        addReply(c, shared.cone);
         return;
     } else {
         time_t when = time(NULL)+seconds;

@@ -12,6 +12,22 @@ for 2.0.
 CHANGELOG
 ---------
 
+What's new in Redis 2.2.12
+==========================
+
+* The Slowlog feature was backported to Redis 2.2.
+* A number of fixes related blocking operations on lists when mixed with
+  AOF and Replication.
+* Fixed bad interactions between EXPIRE, EXPIREAT, and in general volatile
+  keys when AOF is enabled. More details in the Redis Google Group here:
+  http://groups.google.com/group/redis-db/browse_frm/thread/5a931fefb88b16d5?tvc=1
+* no more allocation stats info in INFO.
+* colorized make for 2.2 as well.
+* Fixed a problem with AOF when it is stopped via CONFIG SET appendonly no.
+* Warn the user enabling VM that VM is deprecated and discouraged.
+* prepareForShutdown() fixed for correctness.
+* Close the listening sockets on exit for faster restarts.
+
 What's new in Redis 2.2.11
 ==========================
 

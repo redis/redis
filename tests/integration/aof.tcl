@@ -101,4 +101,22 @@ tags {"aof"} {
             assert_equal 1 [$client scard set]
         }
     }
+
+    ## Test that EXPIREAT is loaded correctly
+    create_aof {
+        append_to_aof [formatCommand rpush list foo]
+        append_to_aof [formatCommand expireat list 1000]
+        append_to_aof [formatCommand rpush list bar]
+    }
+
+    start_server_aof [list dir $server_path] {
+        test "AOF+EXPIRE: Server should have been started" {
+            assert_equal 1 [is_alive $srv]
+        }
+
+        test "AOF+EXPIRE: List should be empty" {
+            set client [redis [dict get $srv host] [dict get $srv port]]
+            assert_equal 0 [$client llen list]
+        }
+    }
 }
