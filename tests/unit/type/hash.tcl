@@ -235,6 +235,13 @@ start_server {tags {"hash"}} {
         r hgetall myhash
     } {b 2}
 
+    test {HDEL - hash becomes empty before deleting all specified fields} {
+        r del myhash
+        r hmset myhash a 1 b 2 c 3
+        assert_equal 3 [r hdel myhash a b c d e]
+        assert_equal 0 [r exists myhash]
+    }
+
     test {HEXISTS} {
         set rv {}
         set k [lindex [array names smallhash *] 0]

@@ -403,8 +403,11 @@ void hdelCommand(redisClient *c) {
 
     for (j = 2; j < c->argc; j++) {
         if (hashTypeDelete(o,c->argv[j])) {
-            if (hashTypeLength(o) == 0) dbDelete(c->db,c->argv[1]);
             deleted++;
+            if (hashTypeLength(o) == 0) {
+                dbDelete(c->db,c->argv[1]);
+                break;
+            }
         }
     }
     if (deleted) {
