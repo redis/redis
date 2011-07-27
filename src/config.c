@@ -510,7 +510,7 @@ void configGetCommand(redisClient *c) {
 
         addReplyBulkCString(c,"dir");
         if (getcwd(buf,sizeof(buf)) == NULL) {
-            buf[0] = '\0';
+            addReplyErrorFormat(c,"Getting directory: %s", strerror(errno));
         } else {
             addReplyBulkCString(c,buf);
         }
