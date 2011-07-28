@@ -5,7 +5,7 @@ set ::tests_failed {}
 
 proc assert {condition} {
     if {![uplevel 1 expr $condition]} {
-        error "assertion:Expected '$value' to be true"
+        error "assertion:Expected condition '$condition' to be true"
     }
 }
 
