@@ -52,42 +52,18 @@ OPTIMIZATIONS
 * Redis big lists as linked lists of small ziplists?
   Possibly a simple heuristic that join near nodes when some node gets smaller than the low_level, and split it into two if gets bigger than high_level.
 
-REPORTING
-=========
-
-* Better INFO output with sections.
-
 RANDOM
 ======
 
+* Server should abort when getcwd() fails if there is some kind of persistence configured. Check this in the cron loop.
 * Clients should be closed as far as the output buffer list is bigger than a given number of elements (configurable in redis.conf)
 * Should the redis default configuration, and the default redis.conf, just bind 127.0.0.1?
 
 KNOWN BUGS
 ==========
 
-* What happens in the following scenario:
-    1) We are reading an AOF file.
-    2) SETEX FOO 5 BAR
-    3) APPEND FOO ZAP
-    What happens if between 1 and 2 for some reason (system under huge load
-    or alike) too many time passes? We should prevent expires while the
-    AOF is loading.
 * #519: Slave may have expired keys that were never read in the master (so a DEL
   is not sent in the replication channel) but are already expired since
   a lot of time. Maybe after a given delay that is undoubltly greater than
   the replication link latency we should expire this key on the slave on
   access?
-
-DISKSTORE TODO
-==============
-
-* Fix FLUSHALL/FLUSHDB: the queue of pending reads/writes should be handled.
-* Check that 00/00 and ff/ff exist at startup, otherwise exit with error.
-* Implement sync flush option, where data is written synchronously on disk when a command is executed.
-* Implement MULTI/EXEC as transaction abstract API to diskstore.c, with transaction_start, transaction_end, and a journal to recover.
-* Stop BGSAVE thread on shutdown and any other condition where the child is killed during normal bgsave.
-* Fix RANDOMKEY to really do something interesting
-* Fix DBSIZE to really do something interesting
-* Add a DEBUG command to check if an entry is or not in memory currently
-* dscache.c near 236, kobj = createStringObject... we could use static obj.
