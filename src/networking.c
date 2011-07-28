@@ -793,6 +793,9 @@ int processMultibulkBuffer(redisClient *c) {
 void processInputBuffer(redisClient *c) {
     /* Keep processing while there is something in the input buffer */
     while(sdslen(c->querybuf)) {
+        /* Immediately abort if the client is in the middle of something. */
+        if (c->flags & REDIS_BLOCKED) return;
+
         /* REDIS_CLOSE_AFTER_REPLY closes the connection once the reply is
          * written to the client. Make sure to not let the reply grow after
          * this flag has been set (i.e. don't process more commands). */
