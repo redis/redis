@@ -7,7 +7,8 @@ Redis 2.2 is mostly a strict subset of 2.4.
 The only thing you should be aware is that you can't use .rdb and AOF files
 generated with 2.4 into a 2.2 instance.
 
-2.4 slaves can be attached to 2.2 masters, but not the contrary.
+2.4 slaves can be attached to 2.2 masters, but not the contrary, and only for
+the time needed to perform the version upgrade.
 
 From the point of view of the API Redis 2.4 only adds new commands
 (other commands now accepts a variable number of arguments) so you don't need
@@ -17,13 +18,13 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
-What's new in Redis 2.3.5 (2.4 Release Candidate 1)
+What's new in Redis 2.3.8 (2.4 Release Candidate 5)
 ===================================================
 
-This is the first Release Candidate of Redis 2.4, in our experience the
-server is very stable, however it is always better to closely monitor your
-server if you switch to 2.4 RC1. Also make sure to perform a backup of your
-old data set before switching from 2.2 to 2.4.
+Compared to Redis 2.3.7 (RC4) there are the following changes:
+
+* [BUGFIX] HDEL: Abort deleting fields when hash is removed.
+* [BUGFIX] Fix adding bulk reply when getcwd fails.
 
 WHAT'S NEW IN REDIS 2.4 compared to the 2.2 version?
 ====================================================
