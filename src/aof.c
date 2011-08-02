@@ -263,6 +263,8 @@ int loadAppendOnlyFile(char *filename) {
         }
         if (buf[0] != '*') goto fmterr;
         argc = atoi(buf+1);
+        if (argc < 1) goto fmterr;
+
         argv = zmalloc(sizeof(robj*)*argc);
         for (j = 0; j < argc; j++) {
             if (fgets(buf,sizeof(buf),fp) == NULL) goto readerr;
