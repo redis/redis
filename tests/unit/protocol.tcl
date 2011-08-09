@@ -60,3 +60,19 @@ start_server {tags {"protocol"}} {
         assert_error "*wrong*arguments*ping*" {r ping x y z}
     }
 }
+
+start_server {tags {"regression"}} {
+    test "Regression for a crash with blocking ops and pipelining" {
+        set rd [redis_deferring_client]
+        set fd [r channel]
+        set proto "*3\r\n\$5\r\nBLPOP\r\n\$6\r\nnolist\r\n\$1\r\n0\r\n"
+        puts -nonewline $fd $proto$proto
+        flush $fd
+        set res {}
+
+        $rd rpush nolist a
+        $rd read
+        $rd rpush nolist a
+        $rd read
+    }
+}
