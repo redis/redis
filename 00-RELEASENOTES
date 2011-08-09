@@ -18,6 +18,13 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
+What's new in Redis 2.3.9 (2.4 Release Candidate 6)
+===================================================
+
+* [BUGFIX] Fixed a bug with the automatic AOF rewrite causing continuous
+  rewrites for AOF files bigger than 4 GB.
+* New maxmemory tests.
+
 What's new in Redis 2.3.8 (2.4 Release Candidate 5)
 ===================================================
 
