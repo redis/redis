@@ -635,7 +635,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
              server.auto_aofrewrite_perc &&
              server.appendonly_current_size > server.auto_aofrewrite_min_size)
          {
-            int base = server.auto_aofrewrite_base_size ?
+            long long base = server.auto_aofrewrite_base_size ?
                             server.auto_aofrewrite_base_size : 1;
             long long growth = (server.appendonly_current_size*100/base) - 100;
             if (growth >= server.auto_aofrewrite_perc) {
