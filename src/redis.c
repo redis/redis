@@ -1263,6 +1263,11 @@ sds genRedisInfoString(void) {
         "keyspace_misses:%lld\r\n"
         "hash_max_zipmap_entries:%zu\r\n"
         "hash_max_zipmap_value:%zu\r\n"
+        "list-max-ziplist-entries:%zu\r\n"
+        "list-max-ziplist-value:%zu\r\n"
+        "set-max-intset-entries:%zu\r\n"
+        "zset-max-ziplist-entries:%zu\r\n"
+        "zset-max-ziplist-value:%zu\r\n"
         "pubsub_channels:%ld\r\n"
         "pubsub_patterns:%u\r\n"
         "latest_fork_usec:%lld\r\n"
@@ -1306,6 +1311,11 @@ sds genRedisInfoString(void) {
         server.stat_keyspace_misses,
         server.hash_max_zipmap_entries,
         server.hash_max_zipmap_value,
+        server.list_max_ziplist_entries,
+        server.list_max_ziplist_value,
+        server.set_max_intset_entries,
+        server.zset_max_ziplist_entries,
+        server.zset_max_ziplist_value,
         dictSize(server.pubsub_channels),
         listLength(server.pubsub_patterns),
         server.stat_fork_time,
