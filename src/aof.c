@@ -766,6 +766,11 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             server.appendseldb = -1; /* Make sure SELECT is re-issued */
             aofUpdateCurrentSize();
             server.auto_aofrewrite_base_size = server.appendonly_current_size;
+
+            /* Clear regular AOF buffer since its contents was just written to
+             * the new AOF from the background rewrite buffer. */
+            sdsfree(server.aofbuf);
+            server.aofbuf = sdsempty();
         }
 
         redisLog(REDIS_NOTICE, "Background AOF rewrite successful");
