@@ -29,6 +29,7 @@ set ::all_tests {
     integration/replication-2
     integration/replication-3
     integration/aof
+    integration/aof-race
     unit/pubsub
     unit/slowlog
     unit/maxmemory
