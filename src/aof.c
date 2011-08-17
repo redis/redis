@@ -657,6 +657,11 @@ void backgroundRewriteDoneHandler(int statloc) {
             if (server.appendfsync != APPENDFSYNC_NO) aof_fsync(fd);
             server.appendseldb = -1; /* Make sure it will issue SELECT */
             redisLog(REDIS_NOTICE,"The new append only file was selected for future appends.");
+
+            /* Clear regular AOF buffer since its contents was just written to
+             * the new AOF from the background rewrite buffer. */
+            sdsfree(server.aofbuf);
+            server.aofbuf = sdsempty();
         } else {
             /* If append only is disabled we just generate a dump in this
              * format. Why not? */
