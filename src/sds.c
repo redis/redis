@@ -92,6 +92,13 @@ void sdsupdatelen(sds s) {
     sh->len = reallen;
 }
 
+void sdsclear(sds s) {
+    struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
+    sh->free += sh->len;
+    sh->len = 0;
+    sh->buf[0] = '\0';
+}
+
 static sds sdsMakeRoomFor(sds s, size_t addlen) {
     struct sdshdr *sh, *newsh;
     size_t free = sdsavail(s);
