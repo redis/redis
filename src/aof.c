@@ -81,9 +81,16 @@ void flushAppendOnlyFile(void) {
         }
         exit(1);
     }
-    sdsfree(server.aofbuf);
-    server.aofbuf = sdsempty();
     server.appendonly_current_size += nwritten;
+
+    /* Re-use AOF buffer when it is small enough. The maximum comes from the
+     * arena size of 4k minus some overhead (but is otherwise arbitrary). */
+    if ((sdslen(server.aofbuf)+sdsavail(server.aofbuf)) < 4000) {
+        sdsclear(server.aofbuf);
+    } else {
+        sdsfree(server.aofbuf);
+        server.aofbuf = sdsempty();
+    }
 
     /* Don't fsync if no-appendfsync-on-rewrite is set to yes and there are
      * children doing I/O in the background. */
