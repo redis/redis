@@ -60,7 +60,6 @@ int startAppendOnly(void) {
  * buffer and write it on disk using this function just before entering
  * the event loop again. */
 void flushAppendOnlyFile(void) {
-    time_t now;
     ssize_t nwritten;
 
     if (sdslen(server.aofbuf) == 0) return;
@@ -86,21 +85,21 @@ void flushAppendOnlyFile(void) {
     server.aofbuf = sdsempty();
     server.appendonly_current_size += nwritten;
 
-    /* Don't Fsync if no-appendfsync-on-rewrite is set to yes and we have
-     * childs performing heavy I/O on disk. */
+    /* Don't fsync if no-appendfsync-on-rewrite is set to yes and there are
+     * children doing I/O in the background. */
     if (server.no_appendfsync_on_rewrite &&
         (server.bgrewritechildpid != -1 || server.bgsavechildpid != -1))
             return;
-    /* Fsync if needed */
-    now = time(NULL);
+
+    /* Perform the fsync if needed. */
     if (server.appendfsync == APPENDFSYNC_ALWAYS ||
         (server.appendfsync == APPENDFSYNC_EVERYSEC &&
-         now-server.lastfsync > 1))
+         server.unixtime > server.lastfsync))
     {
         /* aof_fsync is defined as fdatasync() for Linux in order to avoid
          * flushing metadata. */
         aof_fsync(server.appendfd); /* Let's try to get this data on the disk */
-        server.lastfsync = now;
+        server.lastfsync = server.unixtime;
     }
 }
 
