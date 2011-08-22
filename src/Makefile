@@ -15,11 +15,11 @@ endif
 ifeq ($(uname_S),SunOS)
   CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -Wall -W -D__EXTENSIONS__ -D_XPG6
   CCLINK?=-ldl -lnsl -lsocket -lm -lpthread
-  DEBUG?=-g -ggdb 
+  DEBUG?=-g -ggdb
 else
   CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -Wall -W $(ARCH) $(PROF)
   CCLINK?=-lm -pthread
-  DEBUG?=-g -rdynamic -ggdb 
+  DEBUG?=-g -rdynamic -ggdb
 endif
 
 ifeq ($(USE_TCMALLOC),yes)
@@ -48,6 +48,7 @@ CCOPT= $(CFLAGS) $(ARCH) $(PROF)
 PREFIX= /usr/local
 INSTALL_BIN= $(PREFIX)/bin
 INSTALL= cp -p
+UNINSTALL= rm
 
 CCCOLOR="\033[34m"
 LINKCOLOR="\033[34;1m"
@@ -243,3 +244,10 @@ install: all
 	$(INSTALL) $(CLIPRGNAME) $(INSTALL_BIN)
 	$(INSTALL) $(CHECKDUMPPRGNAME) $(INSTALL_BIN)
 	$(INSTALL) $(CHECKAOFPRGNAME) $(INSTALL_BIN)
+
+uninstall:
+	$(UNINSTALL) $(INSTALL_BIN)/$(PRGNAME)
+	$(UNINSTALL) $(INSTALL_BIN)/$(BENCHPRGNAME)
+	$(UNINSTALL) $(INSTALL_BIN)/$(CLIPRGNAME)
+	$(UNINSTALL) $(INSTALL_BIN)/$(CHECKDUMPPRGNAME)
+	$(UNINSTALL) $(INSTALL_BIN)/$(CHECKAOFPRGNAME)
