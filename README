@@ -23,7 +23,7 @@ You can run a 32 bit Redis binary using:
 
     % make 32bit
 
-After you build Redis is a good idea to test it, using:
+After you build Redis is a good idea to test it (which require Tcl), using:
 
     % make test
 
