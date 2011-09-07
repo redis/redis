@@ -643,7 +643,7 @@ void lremCommand(redisClient *c) {
 void rpoplpushHandlePush(redisClient *origclient, redisClient *c, robj *dstkey, robj *dstobj, robj *value) {
     robj *aux;
 
-    if (!handleClientsWaitingListPush(c,dstkey,value)) {
+    if (!handleClientsWaitingListPush(origclient,dstkey,value)) {
         /* Create the list if the key does not exist */
         if (!dstobj) {
             dstobj = createZiplistObject();
