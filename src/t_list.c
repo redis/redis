@@ -648,10 +648,12 @@ void rpoplpushHandlePush(redisClient *origclient, redisClient *c, robj *dstkey, 
         }
         listTypePush(dstobj,value,REDIS_HEAD);
         /* If we are pushing as a result of LPUSH against a key
-         * watched by BLPOPLPUSH, we need to rewrite the command vector.
-         * But if this is called directly by RPOPLPUSH (either directly
+         * watched by BRPOPLPUSH, we need to rewrite the command vector
+         * as an LPUSH.
+         *
+         * If this is called directly by RPOPLPUSH (either directly
          * or via a BRPOPLPUSH where the popped list exists)
-         * we should replicate the BRPOPLPUSH command itself. */
+         * we should replicate the RPOPLPUSH command itself. */
         if (c != origclient) {
             aux = createStringObject("LPUSH",5);
             rewriteClientCommandVector(origclient,3,aux,dstkey,value);
