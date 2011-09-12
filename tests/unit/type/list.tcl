@@ -728,4 +728,18 @@ start_server {
             assert_equal 3 [r llen myotherlist]
         }
     }
+
+    test "Regression for bug 593 - chaining BRPOPLPUSH with other blocking cmds" {
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+
+        $rd1 brpoplpush a b 0
+        $rd1 brpoplpush a b 0
+        $rd2 brpoplpush b c 0
+        after 1000
+        r lpush a data
+        $rd1 close
+        $rd2 close
+        r ping
+    } {PONG}
 }
