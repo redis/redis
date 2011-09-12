@@ -12,6 +12,12 @@ for 2.0.
 CHANGELOG
 ---------
 
+What's new in Redis 2.2.13
+==========================
+
+* [BUGFIX] Fixed issue 593 (BRPOPLPUSH related crash).
+* [BUGFIX] Fixed an issue with the networking layer that may prevent Redis from sending the whole reply back to client under extreme conditions.
+
 What's new in Redis 2.2.12
 ==========================
 
