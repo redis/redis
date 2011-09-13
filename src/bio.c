@@ -33,9 +33,13 @@ list *bio_jobs;
 struct bio_job {
     int type;       /* Job type, for instance BIO_JOB_CLOSE */
     void *data;     /* Job specific arguments pointer. */
-}
+};
 
 void *bioProcessBackgroundJobs(void *arg);
+
+/* Make sure we have enough stack to perform all the things we do in the
+ * main thread. */
+#define REDIS_THREAD_STACK_SIZE (1024*1024*4)
 
 /* Initialize the background system, spawning the thread. */
 void bioInit(void) {
@@ -43,13 +47,13 @@ void bioInit(void) {
     pthread_t thread;
     size_t stacksize;
 
-    pthread_mutex_init(bio_mutex,NULL);
-    pthread_cond_init(bio_condvar,NULL);
+    pthread_mutex_init(&bio_mutex,NULL);
+    pthread_cond_init(&bio_condvar,NULL);
     bio_jobs = listCreate();
 
     /* Set the stack size as by default it may be small in some system */
     pthread_attr_init(&attr);
-    pthread_attr_getstacksize(&attr);
+    pthread_attr_getstacksize(&attr,&stacksize);
     if (!stacksize) stacksize = 1; /* The world is full of Solaris Fixes */
     while (stacksize < REDIS_THREAD_STACK_SIZE) stacksize *= 2;
     pthread_attr_setstacksize(&attr, stacksize);
@@ -73,6 +77,7 @@ void bioCreateBackgroundJob(int type, void *data) {
 
 void *bioProcessBackgroundJobs(void *arg) {
     struct bio_job *job;
+    REDIS_NOTUSED(arg);
 
     pthread_detach(pthread_self());
     pthread_mutex_lock(&bio_mutex);
