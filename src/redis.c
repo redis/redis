@@ -709,6 +709,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Run other sub-systems specific cron jobs */
     if (server.cluster_enabled && !(loops % 10)) clusterCron();
 
+if (!(loops % 10)) bioCreateBackgroundJob(REDIS_BIO_CLOSE_FILE,(void*)1000);
     server.cronloops++;
     return 100;
 }
