@@ -29,6 +29,7 @@
 
 #include "redis.h"
 #include "slowlog.h"
+#include "bio.h"
 
 #ifdef HAVE_BACKTRACE
 #include <execinfo.h>
@@ -966,6 +967,7 @@ void initServer() {
     if (server.cluster_enabled) clusterInit();
     scriptingInit();
     slowlogInit();
+    bioInit();
     srand(time(NULL)^getpid());
 }
 
