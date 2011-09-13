@@ -26,7 +26,7 @@
 
 static pthread_mutex_t bio_mutex;
 static pthread_cond_t bio_condvar;
-list *bio_jobs;
+static list *bio_jobs;
 
 /* This structure represents a background Job. It is only used locally to this
  * file as the API deos not expose the internals at all. */
