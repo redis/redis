@@ -29,6 +29,7 @@
 
 #include "redis.h"
 #include "slowlog.h"
+#include "bio.h"
 
 #ifdef HAVE_BACKTRACE
 #include <execinfo.h>
@@ -964,6 +965,7 @@ void initServer() {
 
     if (server.vm_enabled) vmInit();
     slowlogInit();
+    bioInit();
     srand(time(NULL)^getpid());
 }
 
