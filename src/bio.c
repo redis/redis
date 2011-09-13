@@ -72,6 +72,7 @@ void bioCreateBackgroundJob(int type, void *data) {
     job->data = data;
     pthread_mutex_lock(&bio_mutex);
     listAddNodeTail(bio_jobs,job);
+    pthread_cond_signal(&bio_condvar);
     pthread_mutex_unlock(&bio_mutex);
 }
 
