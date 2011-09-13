@@ -84,6 +84,8 @@ ae_select.o: ae_select.c
 anet.o: anet.c fmacros.h anet.h
 aof.o: aof.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h
+bio.o: bio.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
+  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h bio.h
 config.o: config.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h
 db.o: db.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
@@ -113,7 +115,8 @@ redis-check-dump.o: redis-check-dump.c lzf.h
 redis-cli.o: redis-cli.c fmacros.h version.h ../deps/hiredis/hiredis.h \
   sds.h zmalloc.h ../deps/linenoise/linenoise.h help.h
 redis.o: redis.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h slowlog.h
+  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h slowlog.h \
+  bio.h
 release.o: release.c release.h
 replication.o: replication.c redis.h fmacros.h config.h ae.h sds.h dict.h \
   adlist.h zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h
