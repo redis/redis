@@ -519,7 +519,12 @@ void lrangeCommand(redisClient *c) {
             p = ziplistNext(o->ptr,p);
         }
     } else if (o->encoding == REDIS_ENCODING_LINKEDLIST) {
-        listNode *ln = listIndex(o->ptr,start);
+        listNode *ln;
+
+        /* If we are nearest to the end of the list, reach the element
+         * starting from tail and going backward, as it is faster. */
+        if (start > llen/2) start -= llen;
+        ln = listIndex(o->ptr,start);
 
         while(rangelen--) {
             addReplyBulk(c,ln->value);
