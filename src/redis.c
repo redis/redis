@@ -1729,6 +1729,7 @@ void redisAsciiArt(void) {
 int main(int argc, char **argv) {
     long long start;
 
+    zmalloc_enable_thread_safeness();
     initServerConfig();
     if (argc == 2) {
         if (strcmp(argv[1], "-v") == 0 ||
