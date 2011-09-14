@@ -140,7 +140,15 @@ unsigned long long bioPendingJobsOfType(int type) {
  * less or equal to the specified number.
  *
  * This function may block for long time, it should only be used to perform
- * special tasks like AOF rewriting or alike. */
+ * the following tasks:
+ *
+ * 1) To avoid that the main thread is pushing jobs of a given time so fast
+ *    that the background thread can't process them at the same speed.
+ *    So before creating a new job of a given type the main thread should
+ *    call something like: bioWaitPendingJobsLE(job_type,10000);
+ * 2) In order to perform special operations that make it necessary to be sure
+ *    no one is touching shared resourced in the background.
+ */
 void bioWaitPendingJobsLE(int type, unsigned long long num) {
     unsigned long long iteration = 0;
 
