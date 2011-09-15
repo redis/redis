@@ -118,7 +118,6 @@ void *bioProcessBackgroundJobs(void *arg) {
         /* Pop the job from the queue. */
         ln = listFirst(bio_jobs[type]);
         job = ln->value;
-        listDelNode(bio_jobs[type],ln);
         /* It is now possible to unlock the background system as we know have
          * a stand alone job structure to process.*/
         pthread_mutex_unlock(&bio_mutex[type]);
@@ -134,6 +133,7 @@ void *bioProcessBackgroundJobs(void *arg) {
         /* Lock again before reiterating the loop, if there are no longer
          * jobs to process we'll block again in pthread_cond_wait(). */
         pthread_mutex_lock(&bio_mutex[type]);
+        listDelNode(bio_jobs[type],ln);
         bio_pending[type]--;
     }
 }
