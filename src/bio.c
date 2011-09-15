@@ -20,6 +20,10 @@
  * Every thread wait for new jobs in its queue, and process every job
  * sequentially.
  *
+ * Jobs of the same type are guaranteed to be processed from the least
+ * recently inserted to the most recently inserted (older jobs processed
+ * first).
+ *
  * Currently there is no way for the creator of the job to be notified about
  * the completion of the operation, this will only be added when/if needed.
  */
