@@ -188,6 +188,10 @@ time_t bioOlderJobOfType(int type) {
 
     pthread_mutex_lock(&bio_mutex[type]);
     ln = listFirst(bio_jobs[type]);
+    if (ln == NULL) {
+        pthread_mutex_unlock(&bio_mutex[type]);
+        return 0;
+    }
     job = ln->value;
     time = job->time;
     pthread_mutex_unlock(&bio_mutex[type]);
