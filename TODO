@@ -17,6 +17,14 @@ API CHANGES
   the variable number of arguments represent values, and there is no conflict
   with the return value of the command.
 
+2.6
+===
+
+* Everything under the "SCRIPTING" section.
+* Float increments (INCRBYFLOAT).
+* Fix BRPOPLPUSH + vararg LPUSH semantics.
+* AOF everysec fsync in background (either the aof-bg branch or something else).
+
 CLUSTER
 =======
 
@@ -34,7 +42,8 @@ SCRIPTING
 * MULTI/EXEC/...: should we do more than simply ignoring it?
 * Prevent Lua from calling itself with redis("eval",...)
 * SCRIPT FLUSH or alike to start a fresh interpreter?
-* http://redis.io/topics/sponsors
+* Check better the replication handling.
+* Prevent execution of writes if random commands are used.
 
 APPEND ONLY FILE
 ================
