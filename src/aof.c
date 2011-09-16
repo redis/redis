@@ -12,7 +12,7 @@
 void aofUpdateCurrentSize(void);
 
 void aof_background_fsync(int fd) {
-    bioCreateBackgroundJob(REDIS_BIO_AOF_FSYNC,(void*)(long)fd,NULL);
+    bioCreateBackgroundJob(REDIS_BIO_AOF_FSYNC,(void*)(long)fd,NULL,NULL);
 }
 
 /* Called when the user switches from "appendonly yes" to "appendonly no"
