@@ -4,6 +4,13 @@ Where to find complete Redis documentation?
 This README is just a fast "quick start" document. You can find more detailed
 documentation at http://redis.io
 
+What is different in this fork and branch?
+------------------------------------------
+
+This fork provides some additional features in redis which I felt were important and really practical, They include:
+ - Do a PUBLISH (on channel !KEYS right now; will be configurable down the road) on expiration of key; this allows you to set timers, update your backend etc.
+ - [More to add]
+
 Building Redis
 --------------
 
