@@ -18,7 +18,7 @@ void aof_background_fsync(int fd) {
 /* Called when the user switches from "appendonly yes" to "appendonly no"
  * at runtime using the CONFIG command. */
 void stopAppendOnly(void) {
-    flushAppendOnlyFile();
+    flushAppendOnlyFile(1);
     aof_fsync(server.appendfd);
     close(server.appendfd);
 
@@ -63,11 +63,49 @@ int startAppendOnly(void) {
  * and the only way the client socket can get a write is entering when the
  * the event loop, we accumulate all the AOF writes in a memory
  * buffer and write it on disk using this function just before entering
- * the event loop again. */
-void flushAppendOnlyFile(void) {
+ * the event loop again.
+ *
+ * About the 'force' argument:
+ *
+ * When the fsync policy is set to 'everysec' we may delay the flush if there
+ * is still an fsync() going on in the background thread, since for instance
+ * on Linux write(2) will be blocked by the background fsync anyway.
+ * When this happens we remember that there is some aof buffer to be
+ * flushed ASAP, and will try to do that in the serverCron() function.
+ *
+ * However if force is set to 1 we'll write regardless of the background
+ * fsync. */
+void flushAppendOnlyFile(int force) {
     ssize_t nwritten;
+    int sync_in_progress = 0;
 
     if (sdslen(server.aofbuf) == 0) return;
+
+    if (server.appendfsync == APPENDFSYNC_EVERYSEC)
+        sync_in_progress = bioPendingJobsOfType(REDIS_BIO_AOF_FSYNC) != 0;
+
+    if (server.appendfsync == APPENDFSYNC_EVERYSEC && !force) {
+        /* With this append fsync policy we do background fsyncing.
+         * If the fsync is still in progress we can try to delay
+         * the write for a couple of seconds. */
+        if (sync_in_progress) {
+            if (server.aof_flush_postponed_start == 0) {
+                /* No previous write postponinig, remember that we are
+                 * postponing the flush and return. */
+                server.aof_flush_postponed_start = server.unixtime;
+                return;
+            } else if (server.unixtime - server.aof_flush_postponed_start < 2) {
+                /* We were already writing for fsync to finish, but for less
+                 * than two seconds this is still ok. Postpone again. */
+                return;
+            }
+            /* Otherwise fall trough, and go write since we can't wait
+             * over two seconds. */
+        }
+    }
+    /* If you are following this code path, then we are going to write so
+     * set reset the postponed flush sentinel to zero. */
+    server.aof_flush_postponed_start = 0;
 
     /* We want to perform a single write. This should be guaranteed atomic
      * at least if the filesystem we are writing is a real physical one.
@@ -104,13 +142,14 @@ void flushAppendOnlyFile(void) {
             return;
 
     /* Perform the fsync if needed. */
-    if (server.appendfsync == APPENDFSYNC_ALWAYS ||
-        (server.appendfsync == APPENDFSYNC_EVERYSEC &&
-         server.unixtime > server.lastfsync))
-    {
+    if (server.appendfsync == APPENDFSYNC_ALWAYS) {
         /* aof_fsync is defined as fdatasync() for Linux in order to avoid
          * flushing metadata. */
         aof_fsync(server.appendfd); /* Let's try to get this data on the disk */
+        server.lastfsync = server.unixtime;
+    } else if ((server.appendfsync == APPENDFSYNC_EVERYSEC &&
+                server.unixtime > server.lastfsync)) {
+        if (!sync_in_progress) aof_background_fsync(server.appendfd);
         server.lastfsync = server.unixtime;
     }
 }
