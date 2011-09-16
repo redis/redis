@@ -497,6 +497,8 @@ struct redisServer {
     /* Pubsub */
     dict *pubsub_channels; /* Map channels to list of subscribed clients */
     list *pubsub_patterns; /* A list of pubsub_patterns */
+    /*Keys expire notification*/
+    char *keys_expire_notify;
     /* Misc */
     unsigned lruclock:22;        /* clock incrementing every minute, for LRU */
     unsigned lruclock_padding:10;

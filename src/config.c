@@ -299,6 +299,9 @@ void loadServerConfig(char *filename) {
             server.slowlog_log_slower_than = strtoll(argv[1],NULL,10);
         } else if (!strcasecmp(argv[0],"slowlog-max-len") && argc == 2) {
             server.slowlog_max_len = strtoll(argv[1],NULL,10);
+        } else if (!strcasecmp(argv[0], "keys-expire-notify") && argc == 2){
+            server.keys_expire_notify = zstrdup(argv[1]);
+            fprintf(stderr, "Using keys expiry notification on %s\n", server.keys_expire_notify);
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
