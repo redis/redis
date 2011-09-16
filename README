@@ -8,7 +8,8 @@ What is different in this fork and branch?
 ------------------------------------------
 
 This fork provides some additional features in redis which I felt were important and really practical, They include:
- - Do a PUBLISH (on channel !KEYS right now; will be configurable down the road) on expiration of key; this allows you to set timers, update your backend etc.
+ - Do a PUBLISH (on channel !KEYS right now; will be configurable down the road) on expiration of a key. 
+    This allows you to set timer events, update your backend on expired key events etc.
  - [More to add]
 
 Building Redis
