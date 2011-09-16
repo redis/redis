@@ -434,12 +434,21 @@ time_t getExpire(redisDb *db, robj *key) {
  * AOF and the master->slave link guarantee operation ordering, everything
  * will be consistent even if we allow write operations against expiring
  * keys. */
+extern int pubsubPublishMessage(robj *channel, robj *message);
+static robj *expiry_channel_name = NULL;
 void propagateExpire(redisDb *db, robj *key) {
     robj *argv[2];
 
     argv[0] = createStringObject("DEL",3);
     argv[1] = key;
     incrRefCount(key);
+
+    if( expiry_channel_name == NULL ){
+        //TODO: Make key and channel name loadable and put it in server structure
+        expiry_channel_name = createStringObject("!KEYS", 5); 
+    }   
+    pubsubPublishMessage(expiry_channel_name, key);
+
 
     if (server.appendonly)
         feedAppendOnlyFile(server.delCommand,db->id,argv,2);
