@@ -871,7 +871,7 @@ int rdbSaveType(FILE *fp, unsigned char type);
 int rdbSaveLen(FILE *fp, uint32_t len);
 
 /* AOF persistence */
-void flushAppendOnlyFile(void);
+void flushAppendOnlyFile(int force);
 void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int argc);
 void aofRemoveTempFile(pid_t childpid);
 int rewriteAppendOnlyFileBackground(void);
