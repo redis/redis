@@ -11,6 +11,10 @@
 
 void aofUpdateCurrentSize(void);
 
+void aof_background_fsync(int fd) {
+    bioCreateBackgroundJob(REDIS_BIO_AOF_FSYNC,(void*)(long)fd,NULL);
+}
+
 /* Called when the user switches from "appendonly yes" to "appendonly no"
  * at runtime using the CONFIG command. */
 void stopAppendOnly(void) {
@@ -762,7 +766,10 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             /* AOF enabled, replace the old fd with the new one. */
             oldfd = server.appendfd;
             server.appendfd = newfd;
-            if (server.appendfsync != APPENDFSYNC_NO) aof_fsync(newfd);
+            if (server.appendfsync == APPENDFSYNC_ALWAYS)
+                aof_fsync(newfd);
+            else if (server.appendfsync == APPENDFSYNC_EVERYSEC)
+                aof_background_fsync(newfd);
             server.appendseldb = -1; /* Make sure SELECT is re-issued */
             aofUpdateCurrentSize();
             server.auto_aofrewrite_base_size = server.appendonly_current_size;
