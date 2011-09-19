@@ -607,10 +607,13 @@ struct redisServer {
     int sentinel_mode;          /* True if this instance is a Sentinel. */
     /* Networking */
     int port;                   /* TCP listening port */
+    int port6;                  /* TCP v6 listening port */
     char *bindaddr;             /* Bind address or NULL */
+    char *bindaddr6;            /* Bind v6 address or NULL */
     char *unixsocket;           /* UNIX socket path */
     mode_t unixsocketperm;      /* UNIX socket permission */
     int ipfd;                   /* TCP socket file descriptor */
+    int ip6fd;                  /* TCP v6 socket file descriptor */
     int sofd;                   /* Unix socket file descriptor */
     int cfd;                    /* Cluster bus lisetning socket */
     list *clients;              /* List of active clients */
