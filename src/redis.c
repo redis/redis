@@ -1284,6 +1284,13 @@ void initServer() {
             exit(1);
         }
     }
+    if (server.port6 != 0) {
+        server.ip6fd = anetTcp6Server(server.neterr,server.port6,server.bindaddr6);
+        if (server.ip6fd == ANET_ERR) {
+            redisLog(REDIS_WARNING, "Opening port: %s", server.neterr);
+            exit(1);
+        }
+    }
     if (server.unixsocket != NULL) {
         unlink(server.unixsocket); /* don't care if this fails */
         server.sofd = anetUnixServer(server.neterr,server.unixsocket,server.unixsocketperm);
@@ -1292,7 +1299,7 @@ void initServer() {
             exit(1);
         }
     }
-    if (server.ipfd < 0 && server.sofd < 0) {
+    if (server.ipfd < 0 && server.ip6fd < 0 && server.sofd < 0) {
         redisLog(REDIS_WARNING, "Configured to not listen anywhere, exiting.");
         exit(1);
     }
@@ -1337,6 +1344,8 @@ void initServer() {
     aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL);
     if (server.ipfd > 0 && aeCreateFileEvent(server.el,server.ipfd,AE_READABLE,
         acceptTcpHandler,NULL) == AE_ERR) redisPanic("Unrecoverable error creating server.ipfd file event.");
+    if (server.ip6fd > 0 && aeCreateFileEvent(server.el,server.ip6fd,AE_READABLE,
+        acceptTcpHandler,NULL) == AE_ERR) redisPanic("Unrecoverable error creating server.ip6fd file event.");
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
         acceptUnixHandler,NULL) == AE_ERR) redisPanic("Unrecoverable error creating server.sofd file event.");
 
@@ -2492,6 +2501,119 @@ void redisAsciiArt(void) {
     redisLogRaw(REDIS_NOTICE|REDIS_LOG_RAW,buf);
     zfree(buf);
 }
+
+int main(int argc, char **argv) {
+    long long start;
+
+    initServerConfig();
+    if (argc == 2) {
+        if (strcmp(argv[1], "-v") == 0 ||
+            strcmp(argv[1], "--version") == 0) version();
+        if (strcmp(argv[1], "--help") == 0) usage();
+        resetServerSaveParams();
+        loadServerConfig(argv[1]);
+    } else if ((argc > 2)) {
+        usage();
+    } else {
+        redisLog(REDIS_WARNING,"Warning: no config file specified, using the default config. In order to specify a config file use 'redis-server /path/to/redis.conf'");
+    }
+    if (server.daemonize) daemonize();
+    initServer();
+    if (server.daemonize) createPidFile();
+    redisAsciiArt();
+    redisLog(REDIS_NOTICE,"Server started, Redis version " REDIS_VERSION);
+#ifdef __linux__
+    linuxOvercommitMemoryWarning();
+#endif
+    start = ustime();
+    if (server.appendonly) {
+        if (loadAppendOnlyFile(server.appendfilename) == REDIS_OK)
+            redisLog(REDIS_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
+    } else {
+        if (rdbLoad(server.dbfilename) == REDIS_OK)
+            redisLog(REDIS_NOTICE,"DB loaded from disk: %.3f seconds",(float)(ustime()-start)/1000000);
+    }
+    if (server.ipfd > 0)
+        redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
+    if (server.ip6fd > 0)
+        redisLog(REDIS_NOTICE,"The server is now ready to accept IPv6 connections on port %d", server.port6);
+    if (server.sofd > 0)
+        redisLog(REDIS_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
+    aeSetBeforeSleepProc(server.el,beforeSleep);
+    aeMain(server.el);
+    aeDeleteEventLoop(server.el);
+    return 0;
+}
+
+#ifdef HAVE_BACKTRACE
+static void *getMcontextEip(ucontext_t *uc) {
+#if defined(__FreeBSD__)
+    return (void*) uc->uc_mcontext.mc_eip;
+#elif defined(__dietlibc__)
+    return (void*) uc->uc_mcontext.eip;
+#elif defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
+  #if __x86_64__
+    return (void*) uc->uc_mcontext->__ss.__rip;
+  #else
+    return (void*) uc->uc_mcontext->__ss.__eip;
+  #endif
+#elif defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
+  #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
+    return (void*) uc->uc_mcontext->__ss.__rip;
+  #else
+    return (void*) uc->uc_mcontext->__ss.__eip;
+  #endif
+#elif defined(__i386__)
+    return (void*) uc->uc_mcontext.gregs[14]; /* Linux 32 */
+#elif defined(__X86_64__) || defined(__x86_64__)
+    return (void*) uc->uc_mcontext.gregs[16]; /* Linux 64 */
+#elif defined(__ia64__) /* Linux IA64 */
+    return (void*) uc->uc_mcontext.sc_ip;
+#else
+    return NULL;
+#endif
+}
+
+static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
+    void *trace[100];
+    char **messages = NULL;
+    int i, trace_size = 0;
+    ucontext_t *uc = (ucontext_t*) secret;
+    sds infostring;
+    struct sigaction act;
+    REDIS_NOTUSED(info);
+
+    redisLog(REDIS_WARNING,
+        "======= Ooops! Redis %s got signal: -%d- =======", REDIS_VERSION, sig);
+    infostring = genRedisInfoString("all");
+    redisLogRaw(REDIS_WARNING, infostring);
+    /* It's not safe to sdsfree() the returned string under memory
+     * corruption conditions. Let it leak as we are going to abort */
+
+    trace_size = backtrace(trace, 100);
+    /* overwrite sigaction with caller's address */
+    if (getMcontextEip(uc) != NULL) {
+        trace[1] = getMcontextEip(uc);
+    }
+    messages = backtrace_symbols(trace, trace_size);
+
+    for (i=1; i<trace_size; ++i)
+        redisLog(REDIS_WARNING,"%s", messages[i]);
+
+    /* free(messages); Don't call free() with possibly corrupted memory. */
+    if (server.daemonize) unlink(server.pidfile);
+
+    /* Make sure we exit with the right signal at the end. So for instance
+     * the core will be dumped if enabled. */
+    sigemptyset (&act.sa_mask);
+    /* When the SA_SIGINFO flag is set in sa_flags then sa_sigaction
+     * is used. Otherwise, sa_handler is used */
+    act.sa_flags = SA_NODEFER | SA_ONSTACK | SA_RESETHAND;
+    act.sa_handler = SIG_DFL;
+    sigaction (sig, &act, NULL);
+    kill(getpid(),sig);
+}
+#endif /* HAVE_BACKTRACE */
 
 static void sigtermHandler(int sig) {
     REDIS_NOTUSED(sig);
