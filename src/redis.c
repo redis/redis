@@ -1086,10 +1086,13 @@ void initServerConfig() {
     server.runid[REDIS_RUN_ID_SIZE] = '\0';
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.port = REDIS_SERVERPORT;
+    server.port6 = 0;                   /* Disable IPv6 by default */
     server.bindaddr = NULL;
+    server.bindaddr6 = NULL;
     server.unixsocket = NULL;
     server.unixsocketperm = 0;
     server.ipfd = -1;
+    server.ip6fd = -1;
     server.sofd = -1;
     server.dbnum = REDIS_DEFAULT_DBNUM;
     server.verbosity = REDIS_NOTICE;
