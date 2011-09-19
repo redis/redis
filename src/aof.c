@@ -95,7 +95,7 @@ void flushAppendOnlyFile(int force) {
                 server.aof_flush_postponed_start = server.unixtime;
                 return;
             } else if (server.unixtime - server.aof_flush_postponed_start < 2) {
-                /* We were already writing for fsync to finish, but for less
+                /* We were already waiting for fsync to finish, but for less
                  * than two seconds this is still ok. Postpone again. */
                 return;
             }
