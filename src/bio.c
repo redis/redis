@@ -153,6 +153,11 @@ unsigned long long bioPendingJobsOfType(int type) {
     return val;
 }
 
+#if 0 /* We don't use the following code for now, and bioWaitPendingJobsLE
+         probably needs a rewrite using conditional variables instead of the
+         current implementation. */
+         
+
 /* Wait until the number of pending jobs of the specified type are
  * less or equal to the specified number.
  *
@@ -200,3 +205,4 @@ time_t bioOlderJobOfType(int type) {
     return time;
 }
 
+#endif
