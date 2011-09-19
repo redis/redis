@@ -57,6 +57,13 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"bind") && argc == 2) {
             server.bindaddr = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"port6") && argc == 2) {
+            server.port6 = atoi(argv[1]);
+            if (server.port6 < 0 || server.port6 > 65535) {
+                err = "Invalid port"; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"bind6") && argc == 2) {
+            server.bindaddr6 = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocket") && argc == 2) {
             server.unixsocket = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocketperm") && argc == 2) {
