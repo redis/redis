@@ -48,7 +48,7 @@ SCRIPTING
 APPEND ONLY FILE
 ================
 
-* in AOF rewirte use HMSET to rewrite small hashes instead of multiple calls
+* in AOF rewrite use HMSET to rewrite small hashes instead of multiple calls
   to HSET.
 
 OPTIMIZATIONS
@@ -73,6 +73,6 @@ KNOWN BUGS
 
 * #519: Slave may have expired keys that were never read in the master (so a DEL
   is not sent in the replication channel) but are already expired since
-  a lot of time. Maybe after a given delay that is undoubltly greater than
+  a lot of time. Maybe after a given delay that is undoubtably greater than
   the replication link latency we should expire this key on the slave on
   access?

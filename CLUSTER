@@ -1,7 +1,7 @@
 CLUSTER README
 ==============
 
-Redis Cluster is currenty a work in progress, however there are a few things
+Redis Cluster is currently a work in progress, however there are a few things
 that you can do already with it to see how it works.
 
 The following guide show you how to setup a three nodes cluster and issue some
@@ -21,7 +21,7 @@ basic command against it.
 TODO
 ====
 
-*** WARNING: all the following problably has some meaning only for
+*** WARNING: all the following probably has some meaning only for
 *** me (antirez), most info are not updated, so please consider this file
 *** as a private TODO list / brainstorming.
 
@@ -72,7 +72,7 @@ With -MOVED the client should update its hash slots table to reflect the fact th
        alive table if the received alive timestamp is more recent the
        one present in the node local table.
 
-       In the ping packet every node "gossip" information is somethig like
+       In the ping packet every node "gossip" information is something like
        this:
 
        <ip>:<port>:<status>:<pingsent_timestamp>:<pongreceived_timestamp>
