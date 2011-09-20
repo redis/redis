@@ -12,7 +12,7 @@ sub-dictionaries (hashes) and so forth.
 
 While Redis is very fast, currently it lacks scalability in the form of ability
 to transparently run across different nodes. This is desirable mainly for the
-following three rasons:
+following three reasons:
 
 A) Fault tolerance. Some node may go off line without affecting the operations.
 B) Holding bigger datasets without using a single box with a lot of RAM.
@@ -33,7 +33,7 @@ Still a Dynamo alike DHT may not be the best fit for Redis.
 
 Redis is very simple and fast at its core, so Redis cluster should try to
 follow the same guidelines. The first problem with a Dynamo-alike DHT is that
-Redis supports complex data types. Merging complex values like lsits, where
+Redis supports complex data types. Merging complex values like lists, where
 in the case of a netsplit may diverge in very complex ways, is not going to
 be easy. The "most recent data" wins is not applicable and all the resolution
 business should be in the application.
@@ -114,7 +114,7 @@ Configuration Node. This connections are keep alive with PING requests from time
 to time if there is no traffic. This way Proxy Nodes can understand asap if
 there is a problem in some Data Node or in the Configuration Node.
 
-When a Proxy Node is started it needs to know the Configuration node address in order to load the infomration about the Data nodes and the mapping between the key space and the nodes.
+When a Proxy Node is started it needs to know the Configuration node address in order to load the information about the Data nodes and the mapping between the key space and the nodes.
 
 On startup a Proxy Node will also register itself in the Configuration node, and will make sure to refresh it's configuration every N seconds (via an EXPIREing key) so that it's possible to detect when a Proxy node fails.
 
@@ -126,8 +126,8 @@ The Proxy Node is also in charge of signaling failing Data nodes to the Configur
 
 When a new Data node joins or leaves the cluster, and in general when the cluster configuration changes, all the Proxy nodes will receive a notification and will reload the configuration from the Configuration node.
 
-Proxy Nodes - how queries are submited
-======================================
+Proxy Nodes - how queries are submitted
+=======================================
 
 This is how a query is processed:
 
@@ -140,7 +140,7 @@ WRITE QUERY:
 
 3a) The Proxy Node forwards the query to M Data Nodes at the same time, waiting for replies.
 3b) Once all the replies are received the Proxy Node checks that the replies are consistent. For instance all the M nodes need to reply with OK and so forth. If the query fails in a subset of nodes but succeeds in other nodes, the failing nodes are considered unreliable and are put off line notifying the configuration node.
-3c) The reply is transfered back to the client.
+3c) The reply is transferred back to the client.
 
 READ QUERY:
 
@@ -189,7 +189,7 @@ When a Data node is added to the cluster, it is added via an LPUSH operation int
 
     LPUSH newnodes 192.168.1.55:6379
 
-The Handling node will check from time to time for this new elements in the "newode" list. If there are new nodes pending to enter the cluster, they are processed one after the other in this way:
+The Handling node will check from time to time for this new elements in the "newnode" list. If there are new nodes pending to enter the cluster, they are processed one after the other in this way:
 
 For instance let's assume there are already two Data nodes in the cluster:
 
@@ -198,7 +198,7 @@ For instance let's assume there are already two Data nodes in the cluster:
 
 We add a new node 192.168.1.3:6379 via the LPUSH operation.
 
-We can imagine that the 1024 hash slots are assigned equally among the two inital nodes. In order to add the new (third) node what we have to do is to move incrementally 341 slots form the two old servers to the new one.
+We can imagine that the 1024 hash slots are assigned equally among the two initial nodes. In order to add the new (third) node what we have to do is to move incrementally 341 slots form the two old servers to the new one.
 
 For now we can think that every hash slot is only stored in a single server, to generalize the idea later.
 

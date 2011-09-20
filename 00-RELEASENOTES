@@ -9,7 +9,7 @@ implemented. You can read more about it here:
 
 http://groups.google.com/group/redis-db/browse_thread/thread/d444bc786689bde9
 
-This Redis version is not intented for production environments.
+This Redis version is not intended for production environments.
 
 Cheers,
 Salvatore

@@ -96,7 +96,7 @@ Clients of the cluster are required to have the cluster configuration loaded
 into memory. The cluster configuration is the sum of the following info:
 
 - Number of data nodes in the cluster, for instance, 10
-- A map between hash slots and nodes, so for instnace:
+- A map between hash slots and nodes, so for instance:
   hash slot 1 -> node 0
   hash slot 2 -> node 5
   hash slot 3 -> node 3
@@ -140,7 +140,7 @@ to time is going to have no impact in the overall performance.
 -------------
 
 To perform a read query the client hashes the key argument from the command
-(in the intiial version of Redis Cluster only single-key commands are
+(in the initial version of Redis Cluster only single-key commands are
 allowed). Using the in memory configuration it maps the hash key to the
 node ID.
 
