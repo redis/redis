@@ -58,7 +58,7 @@
 
 struct sharedObjectsStruct shared;
 
-/* Global vars that are actally used as constants. The following double
+/* Global vars that are actually used as constants. The following double
  * values are used for double on-disk serialization, and are initialized
  * at runtime to avoid strange compiler optimizations. */
 
