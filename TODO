@@ -10,19 +10,10 @@ WARNING: are you a possible Redis contributor?
          of a merge. Otherwise it is probably wasted work! Thank you
 
 
-API CHANGES
-===========
-
-* Turn commands into variadic versions when it makes sense, that is, when
-  the variable number of arguments represent values, and there is no conflict
-  with the return value of the command.
-
 2.6
 ===
 
 * Everything under the "SCRIPTING" section.
-* Float increments (INCRBYFLOAT).
-* Fix BRPOPLPUSH + vararg LPUSH semantics.
 
 CLUSTER
 =======
@@ -44,28 +35,14 @@ SCRIPTING
 * Check better the replication handling.
 * Prevent execution of writes if random commands are used.
 
-APPEND ONLY FILE
-================
-
-* in AOF rewrite use HMSET to rewrite small hashes instead of multiple calls
-  to HSET.
-
 OPTIMIZATIONS
 =============
 
-* Avoid COW due to incrementing the dict iterators counter.
 * SORT: Don't copy the list into a vector when BY argument is constant.
 * Write the hash table size of every db in the dump, so that Redis can resize the hash table just one time when loading a big DB.
 * Read-only mode for slaves.
 * Redis big lists as linked lists of small ziplists?
   Possibly a simple heuristic that join near nodes when some node gets smaller than the low_level, and split it into two if gets bigger than high_level.
-
-RANDOM
-======
-
-* Server should abort when getcwd() fails if there is some kind of persistence configured. Check this in the cron loop.
-* Clients should be closed as far as the output buffer list is bigger than a given number of elements (configurable in redis.conf)
-* Should the redis default configuration, and the default redis.conf, just bind 127.0.0.1?
 
 KNOWN BUGS
 ==========
