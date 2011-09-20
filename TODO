@@ -23,7 +23,6 @@ API CHANGES
 * Everything under the "SCRIPTING" section.
 * Float increments (INCRBYFLOAT).
 * Fix BRPOPLPUSH + vararg LPUSH semantics.
-* AOF everysec fsync in background (either the aof-bg branch or something else).
 
 CLUSTER
 =======
