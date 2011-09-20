@@ -1271,8 +1271,6 @@ sds genRedisInfoString(void) {
         "evicted_keys:%lld\r\n"
         "keyspace_hits:%lld\r\n"
         "keyspace_misses:%lld\r\n"
-        "hash_max_zipmap_entries:%zu\r\n"
-        "hash_max_zipmap_value:%zu\r\n"
         "pubsub_channels:%ld\r\n"
         "pubsub_patterns:%u\r\n"
         "latest_fork_usec:%lld\r\n"
@@ -1314,8 +1312,6 @@ sds genRedisInfoString(void) {
         server.stat_evictedkeys,
         server.stat_keyspace_hits,
         server.stat_keyspace_misses,
-        server.hash_max_zipmap_entries,
-        server.hash_max_zipmap_value,
         dictSize(server.pubsub_channels),
         listLength(server.pubsub_patterns),
         server.stat_fork_time,
