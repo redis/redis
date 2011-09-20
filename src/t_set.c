@@ -325,7 +325,7 @@ void scardCommand(redisClient *c) {
 }
 
 void spopCommand(redisClient *c) {
-    robj *set, *ele;
+    robj *set, *ele, *aux;
     int64_t llele;
     int encoding;
 
@@ -341,16 +341,11 @@ void spopCommand(redisClient *c) {
         setTypeRemove(set,ele);
     }
 
-    /* Change argv to replicate as SREM */
-    c->argc = 3;
-    c->argv = zrealloc(c->argv,sizeof(robj*)*(c->argc));
-
-    /* Overwrite SREM with SPOP (same length) */
-    redisAssert(sdslen(c->argv[0]->ptr) == 4);
-    memcpy(c->argv[0]->ptr, "SREM", 4);
-
-    /* Popped element already has incremented refcount */
-    c->argv[2] = ele;
+    /* Replicate/AOF this command as an SREM operation */
+    aux = createStringObject("SREM",4);
+    rewriteClientCommandVector(c,3,aux,c->argv[1],ele);
+    decrRefCount(ele);
+    decrRefCount(aux);
 
     addReplyBulk(c,ele);
     if (setTypeSize(set) == 0) dbDelete(c->db,c->argv[1]);

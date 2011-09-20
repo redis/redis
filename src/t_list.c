@@ -635,7 +635,9 @@ void lremCommand(redisClient *c) {
  * as well. This command was originally proposed by Ezra Zygmuntowicz.
  */
 
-void rpoplpushHandlePush(redisClient *c, robj *dstkey, robj *dstobj, robj *value) {
+void rpoplpushHandlePush(redisClient *origclient, redisClient *c, robj *dstkey, robj *dstobj, robj *value) {
+    robj *aux;
+
     if (!handleClientsWaitingListPush(c,dstkey,value)) {
         /* Create the list if the key does not exist */
         if (!dstobj) {
@@ -643,9 +645,25 @@ void rpoplpushHandlePush(redisClient *c, robj *dstkey, robj *dstobj, robj *value
             dbAdd(c->db,dstkey,dstobj);
         } else {
             touchWatchedKey(c->db,dstkey);
-            server.dirty++;
         }
         listTypePush(dstobj,value,REDIS_HEAD);
+        /* If we are pushing as a result of LPUSH against a key
+         * watched by BLPOPLPUSH, we need to rewrite the command vector.
+         * But if this is called directly by RPOPLPUSH (either directly
+         * or via a BRPOPLPUSH where the popped list exists)
+         * we should replicate the BRPOPLPUSH command itself. */
+        if (c != origclient) {
+            aux = createStringObject("LPUSH",5);
+            rewriteClientCommandVector(origclient,3,aux,dstkey,value);
+            decrRefCount(aux);
+        } else {
+            /* Make sure to always use RPOPLPUSH in the replication / AOF,
+             * even if the original command was BRPOPLPUSH. */
+            aux = createStringObject("RPOPLPUSH",9);
+            rewriteClientCommandVector(origclient,3,aux,c->argv[1],c->argv[2]);
+            decrRefCount(aux);
+        }
+        server.dirty++;
     }
 
     /* Always send the pushed value to the client. */
@@ -661,16 +679,22 @@ void rpoplpushCommand(redisClient *c) {
         addReply(c,shared.nullbulk);
     } else {
         robj *dobj = lookupKeyWrite(c->db,c->argv[2]);
+        robj *touchedkey = c->argv[1];
+
         if (dobj && checkType(c,dobj,REDIS_LIST)) return;
         value = listTypePop(sobj,REDIS_TAIL);
-        rpoplpushHandlePush(c,c->argv[2],dobj,value);
+        /* We saved touched key, and protect it, since rpoplpushHandlePush
+         * may change the client command argument vector. */
+        incrRefCount(touchedkey);
+        rpoplpushHandlePush(c,c,c->argv[2],dobj,value);
 
         /* listTypePop returns an object with its refcount incremented */
         decrRefCount(value);
 
         /* Delete the source list when it is empty */
-        if (listTypeLength(sobj) == 0) dbDelete(c->db,c->argv[1]);
-        touchWatchedKey(c->db,c->argv[1]);
+        if (listTypeLength(sobj) == 0) dbDelete(c->db,touchedkey);
+        touchWatchedKey(c->db,touchedkey);
+        decrRefCount(touchedkey);
         server.dirty++;
     }
 }
@@ -772,6 +796,7 @@ void unblockClientWaitingData(redisClient *c) {
     /* Cleanup the client structure */
     zfree(c->bpop.keys);
     c->bpop.keys = NULL;
+    if (c->bpop.target) decrRefCount(c->bpop.target);
     c->bpop.target = NULL;
     c->flags &= ~REDIS_BLOCKED;
     c->flags |= REDIS_UNBLOCKED;
@@ -815,6 +840,9 @@ int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
         receiver = ln->value;
         dstkey = receiver->bpop.target;
 
+        /* Protect receiver->bpop.target, that will be freed by
+         * the next unblockClientWaitingData() call. */
+        if (dstkey) incrRefCount(dstkey);
         /* This should remove the first element of the "clients" list. */
         unblockClientWaitingData(receiver);
 
@@ -823,17 +851,16 @@ int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
             addReplyMultiBulkLen(receiver,2);
             addReplyBulk(receiver,key);
             addReplyBulk(receiver,ele);
-            return 1;
+            return 1; /* Serve just the first client as in B[RL]POP semantics */
         } else {
             /* BRPOPLPUSH, note that receiver->db is always equal to c->db. */
             dstobj = lookupKeyWrite(receiver->db,dstkey);
-            if (dstobj && checkType(receiver,dstobj,REDIS_LIST)) {
-                decrRefCount(dstkey);
-            } else {
-                rpoplpushHandlePush(receiver,dstkey,dstobj,ele);
+            if (!(dstobj && checkType(receiver,dstobj,REDIS_LIST))) {
+                rpoplpushHandlePush(c,receiver,dstkey,dstobj,ele);
                 decrRefCount(dstkey);
                 return 1;
             }
+            decrRefCount(dstkey);
         }
     }
 

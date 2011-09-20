@@ -1,6 +1,7 @@
 #include "redis.h"
 #include <ctype.h>
 #include <limits.h>
+#include <sys/time.h>
 
 /* Glob-style pattern matching. */
 int stringmatchlen(const char *pattern, int patternLen,
@@ -240,4 +241,15 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llongval) {
     } else {
         return isStringRepresentableAsLongLong(o->ptr,llongval);
     }
+}
+
+/* Return the UNIX time in microseconds */
+long long ustime(void) {
+    struct timeval tv;
+    long long ust;
+
+    gettimeofday(&tv, NULL);
+    ust = ((long long)tv.tv_sec)*1000000;
+    ust += tv.tv_usec;
+    return ust;
 }

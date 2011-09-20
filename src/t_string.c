@@ -25,6 +25,7 @@ void setGenericCommand(redisClient *c, int nx, robj *key, robj *val, robj *expir
         }
     }
 
+    lookupKeyWrite(c->db,key); /* Force expire of old key if needed */
     retval = dbAdd(c->db,key,val);
     if (retval == REDIS_ERR) {
         if (!nx) {
