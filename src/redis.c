@@ -911,7 +911,8 @@ void initServer() {
     if (server.port != 0) {
         server.ipfd = anetTcpServer(server.neterr,server.port,server.bindaddr);
         if (server.ipfd == ANET_ERR) {
-            redisLog(REDIS_WARNING, "Opening port: %s", server.neterr);
+            redisLog(REDIS_WARNING, "Opening port %d: %s",
+                server.port, server.neterr);
             exit(1);
         }
     }
