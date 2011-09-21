@@ -18,6 +18,23 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
+What's new in Redis 2.3.11 (2.4 Release Candidate 8)
+====================================================
+
+* [BUGFIX] Fixed a rare but possible AOF race condition that could result into
+           duplicated commands inside the AOF.
+* [BUGFIX] Fixed issue 620, don't segfault on corrupted (by hand) AOF.
+* [BUGFIX] Fixed compilation on Mac/PPC.
+* [BUGFIX] Don't replicate SAVE.
+* LRANGE optimization may drastically improve performances when querying the
+  final part of a long list.
+* redis-cli now implements a --latency mode to monitory Redis delay.
+* Hash type settings removed from INFO (same info is available via config GET)
+* Include port number on error when can't bind.
+* AOF fsync is now performed in background when fsync policy is 'everysec'.
+* AOF performances improved moving in background a possibly slow close(2) call.
+* AOF protocol synthesis speedup.
+
 What's new in Redis 2.3.10 (2.4 Release Candidate 7)
 ====================================================
 
