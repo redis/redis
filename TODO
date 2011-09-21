@@ -2,7 +2,7 @@ Redis TODO
 ----------
 
 WARNING: are you a possible Redis contributor?
-         Before implementing what is listed what is listed in this file
+         Before implementing what is listed in this file
          please drop a message in the Redis google group or chat with
          antirez or pietern on irc.freenode.org #redis to check if the work
          is already in progress and if the feature is still interesting for
@@ -32,8 +32,6 @@ SCRIPTING
 * MULTI/EXEC/...: should we do more than simply ignoring it?
 * Prevent Lua from calling itself with redis("eval",...)
 * SCRIPT FLUSH or alike to start a fresh interpreter?
-* Check better the replication handling.
-* Prevent execution of writes if random commands are used.
 
 OPTIMIZATIONS
 =============
