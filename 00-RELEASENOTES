@@ -12,6 +12,16 @@ for 2.0.
 CHANGELOG
 ---------
 
+What's new in Redis 2.2.14
+==========================
+
+* [BUGFIX] Fixed a rare but possible AOF race condition that could result into
+           duplicated commands inside the AOF.
+* [BUGFIX] Don't replicate SAVE.
+* LRANGE optimization may drastically improve performances when querying the
+  final part of a long list.
+* redis-cli now implements a --latency mode to monitory Redis delay.
+
 What's new in Redis 2.2.13
 ==========================
 
