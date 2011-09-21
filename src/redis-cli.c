@@ -694,7 +694,7 @@ static void repl() {
                     int repeat, skipargs = 0;
 
                     repeat = atoi(argv[0]);
-                    if (repeat) {
+                    if (argc > 1 && repeat) {
                         skipargs = 1;
                     } else {
                         repeat = 1;
