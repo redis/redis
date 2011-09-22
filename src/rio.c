@@ -6,13 +6,13 @@
 static size_t rioBufferWrite(rio *r, const void *buf, size_t len) {
     r->io.buffer.ptr = sdscatlen(r->io.buffer.ptr,(char*)buf,len);
     r->io.buffer.pos += len;
-    return len;
+    return 1;
 }
 
 /* Returns 1 or 0 for success/failure. */
 static size_t rioBufferRead(rio *r, void *buf, size_t len) {
     if (sdslen(r->io.buffer.ptr)-r->io.buffer.pos < len)
-        return 0;
+        return 0; /* not enough buffer to return len bytes. */
     memcpy(buf,r->io.buffer.ptr+r->io.buffer.pos,len);
     r->io.buffer.pos += len;
     return 1;
