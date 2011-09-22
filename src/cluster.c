@@ -1402,7 +1402,7 @@ void restoreCommand(redisClient *c) {
         return;
     }
 
-    payload = rioInitWithBuffer(c->argv[3]->ptr);
+    rioInitWithBuffer(&payload,c->argv[3]->ptr);
     if (((type = rdbLoadObjectType(&payload)) == -1) ||
         ((obj = rdbLoadObject(type,&payload)) == NULL))
     {
@@ -1453,7 +1453,7 @@ void migrateCommand(redisClient *c) {
         return;
     }
 
-    cmd = rioInitWithBuffer(sdsempty());
+    rioInitWithBuffer(&cmd,sdsempty());
     redisAssert(rioWriteBulkCount(&cmd,'*',2));
     redisAssert(rioWriteBulkString(&cmd,"SELECT",6));
     redisAssert(rioWriteBulkLongLong(&cmd,dbid));
@@ -1467,7 +1467,7 @@ void migrateCommand(redisClient *c) {
 
     /* Finally the last argument that is the serailized object payload
      * in the form: <type><rdb-serialized-object>. */
-    payload = rioInitWithBuffer(sdsempty());
+    rioInitWithBuffer(&payload,sdsempty());
     redisAssert(rdbSaveObjectType(&payload,o));
     redisAssert(rdbSaveObject(&payload,o) != -1);
     redisAssert(rioWriteBulkString(&cmd,payload.io.buffer.ptr,sdslen(payload.io.buffer.ptr)));
@@ -1544,7 +1544,7 @@ void dumpCommand(redisClient *c) {
 
     /* Serialize the object in a RDB-like format. It consist of an object type
      * byte followed by the serialized object. This is understood by RESTORE. */
-    payload = rioInitWithBuffer(sdsempty());
+    rioInitWithBuffer(&payload,sdsempty());
     redisAssert(rdbSaveObjectType(&payload,o));
     redisAssert(rdbSaveObject(&payload,o));
 

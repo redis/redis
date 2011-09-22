@@ -597,7 +597,7 @@ int rdbSave(char *filename) {
         return REDIS_ERR;
     }
 
-    rdb = rioInitWithFile(fp);
+    rioInitWithFile(&rdb,fp);
     if (rdbWriteRaw(&rdb,"REDIS0002",9) == -1) goto werr;
 
     for (j = 0; j < server.dbnum; j++) {
@@ -948,7 +948,7 @@ int rdbLoad(char *filename) {
 
     fp = fopen(filename,"r");
     if (!fp) return REDIS_ERR;
-    rdb = rioInitWithFile(fp);
+    rioInitWithFile(&rdb,fp);
     if (rioRead(&rdb,buf,9) == 0) goto eoferr;
     buf[9] = '\0';
     if (memcmp(buf,"REDIS",5) != 0) {

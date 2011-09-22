@@ -29,8 +29,8 @@ typedef struct _rio rio;
 #define rioWrite(rio,buf,len) ((rio)->write((rio),(buf),(len)))
 #define rioRead(rio,buf,len) ((rio)->read((rio),(buf),(len)))
 
-rio rioInitWithFile(FILE *fp);
-rio rioInitWithBuffer(sds s);
+void rioInitWithFile(rio *r, FILE *fp);
+void rioInitWithBuffer(rio *r, sds s);
 
 size_t rioWriteBulkCount(rio *r, char prefix, int count);
 size_t rioWriteBulkString(rio *r, const char *buf, size_t len);

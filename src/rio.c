@@ -52,16 +52,15 @@ static const rio rioFileIO = {
     { { NULL, 0 } } /* union for io-specific vars */
 };
 
-rio rioInitWithFile(FILE *fp) {
-    rio r = rioFileIO;
-    r.io.file.fp = fp;
-    return r;
+void rioInitWithFile(rio *r, FILE *fp) {
+    *r = rioFileIO;
+    r->io.file.fp = fp;
 }
-rio rioInitWithBuffer(sds s) {
-    rio r = rioBufferIO;
-    r.io.buffer.ptr = s;
-    r.io.buffer.pos = 0;
-    return r;
+
+void rioInitWithBuffer(rio *r, sds s) {
+    *r = rioBufferIO;
+    r->io.buffer.ptr = s;
+    r->io.buffer.pos = 0;
 }
 
 /* Write multi bulk count in the format: "*<count>\r\n". */
