@@ -5,8 +5,9 @@
 #include "sds.h"
 
 struct _rio {
-    /* Backend functions. Both read and write should return 0 for short reads
-     * or writes, identical to the return values of fread/fwrite. */
+    /* Backend functions.
+     * Since this functions do not tolerate short writes or reads the return
+     * value is simplified to: zero on error, non zero on complete success. */
     size_t (*read)(struct _rio *, void *buf, size_t len);
     size_t (*write)(struct _rio *, const void *buf, size_t len);
     off_t (*tell)(struct _rio *);
