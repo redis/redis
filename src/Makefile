@@ -129,7 +129,7 @@ replication.o: replication.c redis.h fmacros.h config.h ae.h sds.h dict.h \
   adlist.h zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h
 scripting.o: scripting.c redis.h fmacros.h config.h ae.h sds.h dict.h \
   adlist.h zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h \
-  sha1.h
+  sha1.h rand.h
 rio.o: rio.c sds.h
 sds.o: sds.c sds.h zmalloc.h
 sha1.o: sha1.c sha1.h config.h
