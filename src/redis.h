@@ -59,15 +59,14 @@
 /* Hash table parameters */
 #define REDIS_HT_MINFILL        10      /* Minimal hash table fill 10% */
 
-/* Command flags:
- *   REDIS_CMD_DENYOOM:
- *     Commands marked with this flag will return an error when 'maxmemory' is
- *     set and the server is using more than 'maxmemory' bytes of memory.
- *     In short: commands with this flag are denied on low memory conditions.
- *   REDIS_CMD_FORCE_REPLICATION:
- *     Force replication even if dirty is 0. */
-#define REDIS_CMD_DENYOOM 4
-#define REDIS_CMD_FORCE_REPLICATION 8
+/* Command flags. Please check the command table defined in the redis.c file
+ * for more information about the meaning of every flag. */
+#define REDIS_CMD_WRITE 1                   /* "w" flag */
+#define REDIS_CMD_READONLY 2                /* "r" flag */
+#define REDIS_CMD_DENYOOM 4                 /* "m" flag */
+#define REDIS_CMD_FORCE_REPLICATION 8       /* "f" flag */
+#define REDIS_CMD_ADMIN 16                  /* "a" flag */
+#define REDIS_CMD_PUBSUB 32                 /* "p" flag */
 
 /* Object types */
 #define REDIS_STRING 0
@@ -635,7 +634,8 @@ struct redisCommand {
     char *name;
     redisCommandProc *proc;
     int arity;
-    int flags;
+    char *sflags; /* Flags as string represenation, one char per flag. */
+    int flags;    /* The actual flags, obtained from the 'sflags' field. */
     /* Use a function to determine keys arguments in a command line.
      * Used for Redis Cluster redirect. */
     redisGetKeysProc *getkeys_proc;
