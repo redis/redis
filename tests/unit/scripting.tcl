@@ -123,6 +123,21 @@ start_server {tags {"scripting"}} {
         } e
         set _ $e
     } {*execution time*}
+
+    test {EVAL - Scripts can't run certain commands} {
+        set e {}
+        catch {r eval {return redis.call('spop','x')} 0} e
+        set e
+    } {*not allowed*}
+
+    test {EVAL - Scripts can't run certain commands} {
+        set e {}
+        catch {
+            r eval "redis.call('randomkey'); return redis.call('set','x','ciao')" 0
+        } e
+        set e
+    } {*not allowed after*}
+
 }
 
 start_server {tags {"scripting repl"}} {
