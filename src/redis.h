@@ -67,6 +67,8 @@
 #define REDIS_CMD_FORCE_REPLICATION 8       /* "f" flag */
 #define REDIS_CMD_ADMIN 16                  /* "a" flag */
 #define REDIS_CMD_PUBSUB 32                 /* "p" flag */
+#define REDIS_CMD_NOSCRIPT  64              /* "s" flag */
+#define REDIS_CMD_RANDOM 128                /* "R" flag */
 
 /* Object types */
 #define REDIS_STRING 0

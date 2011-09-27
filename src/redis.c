@@ -81,7 +81,11 @@ struct redisCommand *commandTable;
  * m: may increase memory usage once called. Don't allow if out of memory.
  * a: admin command, like SAVE or SHUTDOWN.
  * p: Pub/Sub related command.
- * f: force replication of this command, regarless of server.dirty. */
+ * f: force replication of this command, regarless of server.dirty.
+ * s: command not allowed in scripts.
+ * r: random command. Command is not deterministic, that is, the same command
+ *    with the same arguments, with the same key space, may have different
+ *    results. For instance SPOP and RANDOMKEY are two random commands. */
 struct redisCommand redisCommandTable[] = {
     {"get",getCommand,2,"r",0,NULL,1,1,1,0,0},
     {"set",setCommand,3,"wm",0,noPreloadGetKeys,1,1,1,0,0},
@@ -121,8 +125,8 @@ struct redisCommand redisCommandTable[] = {
     {"smove",smoveCommand,4,"w",0,NULL,1,2,1,0,0},
     {"sismember",sismemberCommand,3,"r",0,NULL,1,1,1,0,0},
     {"scard",scardCommand,2,"r",0,NULL,1,1,1,0,0},
-    {"spop",spopCommand,2,"w",0,NULL,1,1,1,0,0},
-    {"srandmember",srandmemberCommand,2,"r",0,NULL,1,1,1,0,0},
+    {"spop",spopCommand,2,"wR",0,NULL,1,1,1,0,0},
+    {"srandmember",srandmemberCommand,2,"rR",0,NULL,1,1,1,0,0},
     {"sinter",sinterCommand,-2,"r",0,NULL,1,-1,1,0,0},
     {"sinterstore",sinterstoreCommand,-3,"wm",0,NULL,2,-1,1,0,0},
     {"sunion",sunionCommand,-2,"r",0,NULL,1,-1,1,0,0},
@@ -163,7 +167,7 @@ struct redisCommand redisCommandTable[] = {
     {"getset",getsetCommand,3,"wm",0,NULL,1,1,1,0,0},
     {"mset",msetCommand,-3,"wm",0,NULL,1,-1,2,0,0},
     {"msetnx",msetnxCommand,-3,"wm",0,NULL,1,-1,2,0,0},
-    {"randomkey",randomkeyCommand,1,"r",0,NULL,0,0,0,0,0},
+    {"randomkey",randomkeyCommand,1,"rR",0,NULL,0,0,0,0,0},
     {"select",selectCommand,2,"r",0,NULL,0,0,0,0,0},
     {"move",moveCommand,3,"w",0,NULL,1,1,1,0,0},
     {"rename",renameCommand,3,"w",0,renameGetKeys,1,2,1,0,0},
@@ -181,35 +185,35 @@ struct redisCommand redisCommandTable[] = {
     {"shutdown",shutdownCommand,1,"ar",0,NULL,0,0,0,0,0},
     {"lastsave",lastsaveCommand,1,"r",0,NULL,0,0,0,0,0},
     {"type",typeCommand,2,"r",0,NULL,1,1,1,0,0},
-    {"multi",multiCommand,1,"r",0,NULL,0,0,0,0,0},
-    {"exec",execCommand,1,"wm",0,NULL,0,0,0,0,0},
-    {"discard",discardCommand,1,"r",0,NULL,0,0,0,0,0},
-    {"sync",syncCommand,1,"ar",0,NULL,0,0,0,0,0},
+    {"multi",multiCommand,1,"rs",0,NULL,0,0,0,0,0},
+    {"exec",execCommand,1,"wms",0,NULL,0,0,0,0,0},
+    {"discard",discardCommand,1,"rs",0,NULL,0,0,0,0,0},
+    {"sync",syncCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"flushdb",flushdbCommand,1,"w",0,NULL,0,0,0,0,0},
     {"flushall",flushallCommand,1,"w",0,NULL,0,0,0,0,0},
     {"sort",sortCommand,-2,"wm",0,NULL,1,1,1,0,0},
     {"info",infoCommand,-1,"r",0,NULL,0,0,0,0,0},
-    {"monitor",monitorCommand,1,"ar",0,NULL,0,0,0,0,0},
+    {"monitor",monitorCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"ttl",ttlCommand,2,"r",0,NULL,1,1,1,0,0},
     {"persist",persistCommand,2,"w",0,NULL,1,1,1,0,0},
-    {"slaveof",slaveofCommand,3,"aw",0,NULL,0,0,0,0,0},
+    {"slaveof",slaveofCommand,3,"aws",0,NULL,0,0,0,0,0},
     {"debug",debugCommand,-2,"aw",0,NULL,0,0,0,0,0},
     {"config",configCommand,-2,"ar",0,NULL,0,0,0,0,0},
-    {"subscribe",subscribeCommand,-2,"rp",0,NULL,0,0,0,0,0},
-    {"unsubscribe",unsubscribeCommand,-1,"rp",0,NULL,0,0,0,0,0},
-    {"psubscribe",psubscribeCommand,-2,"rp",0,NULL,0,0,0,0,0},
-    {"punsubscribe",punsubscribeCommand,-1,"rp",0,NULL,0,0,0,0,0},
+    {"subscribe",subscribeCommand,-2,"rps",0,NULL,0,0,0,0,0},
+    {"unsubscribe",unsubscribeCommand,-1,"rps",0,NULL,0,0,0,0,0},
+    {"psubscribe",psubscribeCommand,-2,"rps",0,NULL,0,0,0,0,0},
+    {"punsubscribe",punsubscribeCommand,-1,"rps",0,NULL,0,0,0,0,0},
     {"publish",publishCommand,3,"rpf",0,NULL,0,0,0,0,0},
-    {"watch",watchCommand,-2,"r",0,noPreloadGetKeys,1,-1,1,0,0},
-    {"unwatch",unwatchCommand,1,"r",0,NULL,0,0,0,0,0},
+    {"watch",watchCommand,-2,"rs",0,noPreloadGetKeys,1,-1,1,0,0},
+    {"unwatch",unwatchCommand,1,"rs",0,NULL,0,0,0,0,0},
     {"cluster",clusterCommand,-2,"ar",0,NULL,0,0,0,0,0},
     {"restore",restoreCommand,4,"awm",0,NULL,0,0,0,0,0},
     {"migrate",migrateCommand,6,"aw",0,NULL,0,0,0,0,0},
     {"dump",dumpCommand,2,"ar",0,NULL,0,0,0,0,0},
     {"object",objectCommand,-2,"r",0,NULL,0,0,0,0,0},
     {"client",clientCommand,-2,"ar",0,NULL,0,0,0,0,0},
-    {"eval",evalCommand,-3,"wm",0,zunionInterGetKeys,0,0,0,0,0},
-    {"evalsha",evalShaCommand,-3,"wm",0,zunionInterGetKeys,0,0,0,0,0},
+    {"eval",evalCommand,-3,"wms",0,zunionInterGetKeys,0,0,0,0,0},
+    {"evalsha",evalShaCommand,-3,"wms",0,zunionInterGetKeys,0,0,0,0,0},
     {"slowlog",slowlogCommand,-2,"r",0,NULL,0,0,0,0,0}
 };
 
@@ -1010,6 +1014,8 @@ void populateCommandTable(void) {
             case 'a': c->flags |= REDIS_CMD_ADMIN; break;
             case 'p': c->flags |= REDIS_CMD_PUBSUB; break;
             case 'f': c->flags |= REDIS_CMD_FORCE_REPLICATION; break;
+            case 's': c->flags |= REDIS_CMD_NOSCRIPT; break;
+            case 'R': c->flags |= REDIS_CMD_RANDOM; break;
             default: redisPanic("Unsupported command flag"); break;
             }
             f++;
