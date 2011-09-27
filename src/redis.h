@@ -623,6 +623,8 @@ struct redisServer {
     dict *lua_scripts; /* A dictionary of SHA1 -> Lua scripts */
     long long lua_time_limit;
     long long lua_time_start;
+    int lua_random_dirty; /* True if a random command was called during the
+                             exection of the current script. */
 };
 
 typedef struct pubsubPattern {
