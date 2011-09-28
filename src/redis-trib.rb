@@ -22,6 +22,8 @@ class ClusterNode
         @port = s[1]
         @slots = {}
         @dirty = false
+        @info = nil
+        @friends = []
     end
 
     def to_s
@@ -29,6 +31,7 @@ class ClusterNode
     end
 
     def connect(o={})
+        return if @r
         xputs "Connecting to node #{self}: "
         begin
             @r = Redis.new(:host => @host, :port => @port)
@@ -56,6 +59,39 @@ class ClusterNode
             puts "Error: Node #{self} is not empty. Either the node already knows other nodes (check with nodes-info) or contains some key in database 0."
             exit 1
         end
+    end
+
+    def load_info(o={})
+        self.connect
+        nodes = @r.cluster("nodes").split("\n")
+        nodes.each{|n|
+            # name addr flags role ping_sent ping_recv link_status slots
+            name,addr,flags,role,ping_sent,ping_recv,link_status,slots = n.split(" ")
+            info = {
+                :name => name,
+                :addr => addr,
+                :flags => flags.split(","),
+                :role => role,
+                :ping_sent => ping_sent.to_i,
+                :ping_recv => ping_recv.to_i,
+                :link_status => link_status
+            }
+            if info[:flags].index("myself")
+                @info = info
+                @slots = {}
+                slots.split(",").each{|s|
+                    if s.index("-")
+                        start,stop = s.split("-")
+                        self.add_slots((start.to_i)..(stop.to_i))
+                    else
+                        self.add_slots((s.to_i)..(s.to_i))
+                    end
+                }
+                @dirty = false
+            elsif o[:getfriends]
+                @friends << info
+            end
+        }
     end
 
     def add_slots(slots)
@@ -205,6 +241,7 @@ class RedisTrib
         node = ClusterNode.new(ARGV[1])
         node.connect(:abort => true)
         node.assert_cluster
+        node.load_info
         add_node(node)
         check_cluster
     end
