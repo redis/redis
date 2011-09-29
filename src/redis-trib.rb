@@ -96,6 +96,15 @@ class ClusterNode
                     end
                 }
                 @dirty = false
+                @r.cluster("info").split("\n").each{|e|    
+                    k,v=e.split(":")
+                    k = k.to_sym
+                    if k != :cluster_state
+                        @info[k] = v.to_i
+                    else
+                        @info[k] = v
+                    end
+                }
             elsif o[:getfriends]
                 @friends << info
             end
