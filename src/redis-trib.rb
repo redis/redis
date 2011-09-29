@@ -164,7 +164,7 @@ class ClusterNode
             x.count == 1 ? x.first.to_s : "#{x.first}-#{x.last}"
         }.join(",")
 
-        "[#{@info[:cluster_state].upcase}] #{self.to_s.ljust(25)} slots:#{slots}"
+        "[#{@info[:cluster_state].upcase}] #{self.info[:name]} #{self.to_s.ljust(25)} slots:#{slots}"
     end
 
     def info
@@ -197,8 +197,16 @@ class RedisTrib
         @nodes << node
     end
 
+    def get_node_by_name(name)
+        @nodes.each{|n|
+            return n if n.info[:name] == name.downcase
+        }
+        return nil
+    end
+
     def check_cluster
         puts "Performing Cluster Check (using node #{@nodes[0]})"
+        errors = []
         show_nodes
         # Check if all the slots are covered
         slots = {}
@@ -208,8 +216,10 @@ class RedisTrib
         if slots.length == 4096
             puts "[OK] All 4096 slots covered."
         else
-            puts "[ERR] Not all 4096 slots are covered by nodes."
+            errors << "[ERR] Not all 4096 slots are covered by nodes."
+            puts errors[-1]
         end
+        return errors
     end
 
     def alloc_slots
@@ -279,6 +289,20 @@ class RedisTrib
         check_cluster
     end
 
+    def reshard_cluster_cmd
+        load_cluster_info_from_node(ARGV[1])
+        errors = check_cluster
+        if errors.length != 0
+            puts "Please fix your cluster problems before resharding."
+            exit 1
+        end
+        many = 0
+        while many <= 0 or many > 4096
+            print "How many slots do you want to move? "
+            many = STDIN.gets.to_i
+        end
+    end
+
     def create_cluster_cmd
         puts "Creating cluster"
         ARGV[1..-1].each{|n|
@@ -302,7 +326,8 @@ end
 
 COMMANDS={
     "create" => ["create_cluster_cmd", -2, "host1:port host2:port ... hostN:port"],
-    "check" =>  ["check_cluster_cmd", 2, "host:port"]
+    "check" =>  ["check_cluster_cmd", 2, "host:port"],
+    "reshard" =>  ["reshard_cluster_cmd", 2, "host:port"]
 }
 
 # Sanity check
