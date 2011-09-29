@@ -99,6 +99,7 @@ class ClusterNode
                 @r.cluster("info").split("\n").each{|e|    
                     k,v=e.split(":")
                     k = k.to_sym
+                    v.chop!
                     if k != :cluster_state
                         @info[k] = v.to_i
                     else
@@ -163,7 +164,7 @@ class ClusterNode
             x.count == 1 ? x.first.to_s : "#{x.first}-#{x.last}"
         }.join(",")
 
-        "#{self.to_s.ljust(25)} slots:#{slots}"
+        "[#{@info[:cluster_state].upcase}] #{self.to_s.ljust(25)} slots:#{slots}"
     end
 
     def info
