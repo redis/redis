@@ -26,6 +26,14 @@ class ClusterNode
         @friends = []
     end
 
+    def friends
+        @friends
+    end
+
+    def slots 
+        @slots
+    end
+
     def to_s
         "#{@host}:#{@port}"
     end
@@ -187,6 +195,16 @@ class RedisTrib
     def check_cluster
         puts "Performing Cluster Check (using node #{@nodes[0]})"
         show_nodes
+        # Check if all the slots are covered
+        slots = {}
+        @nodes.each{|n|
+            slots = slots.merge(n.slots)
+        }
+        if slots.length == 4096
+            puts "[OK] All 4096 slots covered."
+        else
+            puts "[ERR] Not all 4096 slots are covered by nodes."
+        end
     end
 
     def alloc_slots
@@ -241,8 +259,14 @@ class RedisTrib
         node = ClusterNode.new(ARGV[1])
         node.connect(:abort => true)
         node.assert_cluster
-        node.load_info
+        node.load_info(:getfriends => true)
         add_node(node)
+        node.friends.each{|f|
+            fnode = ClusterNode.new(f[:addr])
+            fnode.connect()
+            fnode.load_info()
+            add_node(fnode)
+        }
         check_cluster
     end
 
