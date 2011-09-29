@@ -18,11 +18,11 @@ class ClusterNode
             exit 1
         end
         @r = nil
-        @host = s[0]
-        @port = s[1]
-        @slots = {}
-        @dirty = false
-        @info = nil
+        @info = {}
+        @info[:host] = s[0]
+        @info[:port] = s[1]
+        @info[:slots] = {}
+        @dirty = false # True if we need to flush slots info into node.
         @friends = []
     end
 
@@ -31,18 +31,18 @@ class ClusterNode
     end
 
     def slots 
-        @slots
+        @info[:slots]
     end
 
     def to_s
-        "#{@host}:#{@port}"
+        "#{@info[:host]}:#{@info[:port]}"
     end
 
     def connect(o={})
         return if @r
         xputs "Connecting to node #{self}: "
         begin
-            @r = Redis.new(:host => @host, :port => @port)
+            @r = Redis.new(:host => @info[:host], :port => @info[:port])
             @r.ping
         rescue
             puts "ERROR"
@@ -85,8 +85,8 @@ class ClusterNode
                 :link_status => link_status
             }
             if info[:flags].index("myself")
-                @info = info
-                @slots = {}
+                @info = @info.merge(info)
+                @info[:slots] = {}
                 slots.split(",").each{|s|
                     if s.index("-")
                         start,stop = s.split("-")
@@ -113,7 +113,7 @@ class ClusterNode
 
     def add_slots(slots)
         slots.each{|s|
-            @slots[s] = :new
+            @info[:slots][s] = :new
         }
         @dirty = true
     end
@@ -121,10 +121,10 @@ class ClusterNode
     def flush_node_config
         return if !@dirty
         new = []
-        @slots.each{|s,val|
+        @info[:slots].each{|s,val|
             if val == :new
                 new << s
-                @slots[s] = true
+                @info[:slots][s] = true
             end
         }
         @r.cluster("addslots",*new)
@@ -140,7 +140,7 @@ class ClusterNode
         
         # First step: we want an increasing array of integers
         # for instance: [1,2,3,4,5,8,9,20,21,22,23,24,25,30]
-        slots = @slots.keys.sort
+        slots = @info[:slots].keys.sort
 
         # As we want to aggregate adiacent slots we convert all the
         # slot integers into ranges (with just one element)
@@ -167,12 +167,7 @@ class ClusterNode
     end
 
     def info
-        {
-            :host => @host,
-            :port => @port,
-            :slots => @slots,
-            :dirty => @dirty
-        }
+        @info
     end
     
     def is_dirty?
