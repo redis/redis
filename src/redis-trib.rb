@@ -94,7 +94,7 @@ class ClusterNode
                     else
                         self.add_slots((s.to_i)..(s.to_i))
                     end
-                }
+                } if slots
                 @dirty = false
                 @r.cluster("info").split("\n").each{|e|    
                     k,v=e.split(":")
