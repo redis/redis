@@ -258,9 +258,7 @@ class RedisTrib
         end
     end
 
-    # redis-trib subcommands implementations
-
-    def check_cluster_cmd
+    def load_cluster_info_from_node(nodeaddr)
         node = ClusterNode.new(ARGV[1])
         node.connect(:abort => true)
         node.assert_cluster
@@ -272,6 +270,12 @@ class RedisTrib
             fnode.load_info()
             add_node(fnode)
         }
+    end
+
+    # redis-trib subcommands implementations
+
+    def check_cluster_cmd   
+        load_cluster_info_from_node(ARGV[1])
         check_cluster
     end
 
