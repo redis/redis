@@ -1305,6 +1305,11 @@ void clusterCommand(redisClient *c) {
                 server.cluster.migrating_slots_to[slot])
                 server.cluster.migrating_slots_to[slot] = NULL;
 
+            /* If this node was importing this slot, assigning the slot to
+             * itself also clears the importing status. */
+            if (n == server.cluster.myself && server.cluster.importing_slots_from[slot])
+                server.cluster.importing_slots_from[slot] = NULL;
+
             clusterDelSlot(slot);
             clusterAddSlot(n,slot);
         } else {
