@@ -314,8 +314,18 @@ class RedisTrib
 
     def show_reshard_table(table)
         table.each{|e|
-            puts "Moving slot #{e[:slot]} from #{e[:source].info[:name]}"
+            puts "    Moving slot #{e[:slot]} from #{e[:source].info[:name]}"
         }
+    end
+
+    def move_slot(source,target,slot)
+        # We start marking the slot as importing in the destination node,
+        # and the slot as migrating in the target host. Note that the order of
+        # the operations is important, as otherwise a client may be redirected to
+        # the target node that does not yet know it is importing this slot.
+        target.r("cluster","setslot",slot,"importing",source.info[:name])
+        source.r("cluster","setslot",slot,"migrating",source.info[:name])
+        # Migrate all the keys from source to target using the MIGRATE command
     end
 
     # redis-trib subcommands implementations
@@ -334,7 +344,7 @@ class RedisTrib
         end
         numslots = 0
         while numslots <= 0 or numslots > 4096
-            print "How many slots do you want to move (from 1 to 4096)?"
+            print "How many slots do you want to move (from 1 to 4096)? "
             numslots = STDIN.gets.to_i
         end
         target = nil
@@ -380,7 +390,14 @@ class RedisTrib
         puts "  Destination node:"
         puts "    #{target.info_string}"
         reshard_table = compute_reshard_table(sources,numslots)
+        puts "  Resharding plan:"
         show_reshard_table(reshard_table)
+        print "Do you want to proceed with the proposed reshard plan (yes/no)? "
+        yesno = STDIN.gets.chop
+        exit(1) if (yesno != "yes")
+        reshard_table.each{|e|
+            move_slot(e[:source],target,e[:slot])
+        }
     end
 
     def create_cluster_cmd
