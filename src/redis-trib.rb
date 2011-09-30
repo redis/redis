@@ -282,6 +282,30 @@ class RedisTrib
         }
     end
 
+    # Given a list of source nodes return a "resharding plan"
+    # with what slots to move in order to move "numslots" slots to another
+    # instance.
+    def compute_reshard_table(sources,numslots)
+        moved = []
+        sources.each{|s|
+            # Every node will provide a number of slots proportional to the
+            # slots it has assigned.
+            n = (numslots.to_f/4096*s.slots.length).ceil
+            s.slots.keys.sort[(0...n)].each{|slot|
+                if moved.length < numslots
+                    moved << {:source => s, :slot => slot}
+                end
+            }
+        }
+        return moved
+    end
+
+    def show_reshard_table(table)
+        table.each{|e|
+            puts "Moving slot #{e[:slot]} from #{e[:source].info[:name]}"
+        }
+    end
+
     # redis-trib subcommands implementations
 
     def check_cluster_cmd   
@@ -296,11 +320,55 @@ class RedisTrib
             puts "Please fix your cluster problems before resharding."
             exit 1
         end
-        many = 0
-        while many <= 0 or many > 4096
-            print "How many slots do you want to move? "
-            many = STDIN.gets.to_i
+        numslots = 0
+        while numslots <= 0 or numslots > 4096
+            print "How many slots do you want to move (from 1 to 4096)?"
+            numslots = STDIN.gets.to_i
         end
+        target = nil
+        while not target
+            print "What is the receiving node ID? "
+            target = get_node_by_name(STDIN.gets.chop)
+            if not target
+                puts "The specified node is not known, please retry."
+            end
+        end
+        sources = []
+        puts "Please enter all the source node IDs."
+        puts "  Type 'all' to use all the nodes as source nodes for the hash slots."
+        puts "  Type 'done' once you entered all the source nodes IDs."
+        while true
+            print "Source node ##{sources.length+1}:"
+            line = STDIN.gets.chop
+            src = get_node_by_name(line)
+            if line == "done"
+                if sources.length == 0
+                    puts "No source nodes given, operation aborted"
+                    exit 1
+                else
+                    break
+                end
+            elsif line == "all"
+                @nodes.each{|n|
+                    next if n.info[:name] == target.info[:name]
+                    sources << n
+                }
+                break
+            elsif not src
+                puts "The specified node is not known, please retry."
+            elsif src.info[:name] == target.info[:name]
+                puts "It is not possible to use the target node as source node."
+            else
+                sources << src
+            end
+        end
+        puts "\nReady to move #{numslots} slots."
+        puts "  Source nodes:"
+        sources.each{|s| puts "    "+s.info_string}
+        puts "  Destination node:"
+        puts "    #{target.info_string}"
+        reshard_table = compute_reshard_table(sources,numslots)
+        show_reshard_table(reshard_table)
     end
 
     def create_cluster_cmd
