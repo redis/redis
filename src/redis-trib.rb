@@ -287,10 +287,22 @@ class RedisTrib
     # instance.
     def compute_reshard_table(sources,numslots)
         moved = []
-        sources.each{|s|
+        # Sort from bigger to smaller instance, for two reasons:
+        # 1) If we take less slots than instanes it is better to start getting from
+        #    the biggest instances.
+        # 2) We take one slot more from the first instance in the case of not perfect
+        #    divisibility. Like we have 3 nodes and need to get 10 slots, we take
+        #    4 from the first, and 3 from the rest. So the biggest is always the first.
+        sources = sources.sort{|a,b| b.slots.length <=> a.slots.length}
+        sources.each_with_index{|s,i|
             # Every node will provide a number of slots proportional to the
             # slots it has assigned.
-            n = (numslots.to_f/4096*s.slots.length).ceil
+            n = (numslots.to_f/4096*s.slots.length)
+            if i == 0
+                n = n.ceil
+            else
+                n = n.floor
+            end
             s.slots.keys.sort[(0...n)].each{|slot|
                 if moved.length < numslots
                     moved << {:source => s, :slot => slot}
