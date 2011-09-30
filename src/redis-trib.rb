@@ -1,11 +1,25 @@
 #!/usr/bin/env ruby
 
-# TODO (temporary here, we'll move this into the Github issues once redis-trib initial
-#       implementation is complted).
+# TODO (temporary here, we'll move this into the Github issues once
+#       redis-trib initial implementation is complted).
 #
-# - Make sure that if the rehashing fails in the middle redis-trib will try to recover.
-# - When redis-trib performs a cluster check, if it detects a slot move in progress it
-#   should prompt the user to continue the move from where it stopped.
+# - Make sure that if the rehashing fails in the middle redis-trib will try
+#   to recover.
+# - When redis-trib performs a cluster check, if it detects a slot move in
+#   progress it should prompt the user to continue the move from where it
+#   stopped.
+# - Gracefully handle Ctrl+C in move_slot to prompt the user if really stop
+#   while rehashing, and performing the best cleanup possible if the user
+#   forces the quit.
+# - When doing "fix" set a global Fix to true, and prompt the user to
+#   fix the problem if automatically fixable every time there is something
+#   to fix. For instance:
+#   1) If there is a node that pretend to receive a slot, or to migrate a
+#      slot, but has no entries in that slot, fix it.
+#   2) If there is a node having keys in slots that are not owned by it
+#      fix this condiiton moving the entries in the same node.
+#   3) Perform more possibly slow tests about the state of the cluster.
+#   4) When aborted slot migration is detected, fix it.
 
 require 'rubygems'
 require 'redis'
@@ -81,7 +95,9 @@ class ClusterNode
         nodes = @r.cluster("nodes").split("\n")
         nodes.each{|n|
             # name addr flags role ping_sent ping_recv link_status slots
-            name,addr,flags,role,ping_sent,ping_recv,link_status,slots = n.split(" ")
+            split = n.split
+            name,addr,flags,role,ping_sent,ping_recv,link_status = split[0..6]
+            slots = split[7..-1]
             info = {
                 :name => name,
                 :addr => addr,
@@ -94,8 +110,10 @@ class ClusterNode
             if info[:flags].index("myself")
                 @info = @info.merge(info)
                 @info[:slots] = {}
-                slots.split(",").each{|s|
-                    if s.index("-")
+                slots.each{|s|
+                    if s[0..0] == '['
+                        # Fixme: for now skipping migration entries
+                    elsif s.index("-")
                         start,stop = s.split("-")
                         self.add_slots((start.to_i)..(stop.to_i))
                     else
@@ -171,7 +189,7 @@ class ClusterNode
             x.count == 1 ? x.first.to_s : "#{x.first}-#{x.last}"
         }.join(",")
 
-        "[#{@info[:cluster_state].upcase}] #{self.info[:name]} #{self.to_s.ljust(25)} slots:#{slots}"
+        "[#{@info[:cluster_state].upcase}] #{self.info[:name]} #{self.to_s} slots:#{slots} (#{self.slots.length} slots)"
     end
 
     def info
@@ -330,7 +348,7 @@ class RedisTrib
         # and the slot as migrating in the target host. Note that the order of
         # the operations is important, as otherwise a client may be redirected to
         # the target node that does not yet know it is importing this slot.
-        print "Moving slot #{slot}: "; STDOUT.flush
+        print "Moving slot #{slot} from #{source.info_string}: "; STDOUT.flush
         target.r.cluster("setslot",slot,"importing",source.info[:name])
         source.r.cluster("setslot",slot,"migrating",source.info[:name])
         # Migrate all the keys from source to target using the MIGRATE command
