@@ -1,5 +1,12 @@
 #!/usr/bin/env ruby
 
+# TODO (temporary here, we'll move this into the Github issues once redis-trib initial
+#       implementation is complted).
+#
+# - Make sure that if the rehashing fails in the middle redis-trib will try to recover.
+# - When redis-trib performs a cluster check, if it detects a slot move in progress it
+#   should prompt the user to continue the move from where it stopped.
+
 require 'rubygems'
 require 'redis'
 
@@ -318,14 +325,29 @@ class RedisTrib
         }
     end
 
-    def move_slot(source,target,slot)
+    def move_slot(source,target,slot,o={})
         # We start marking the slot as importing in the destination node,
         # and the slot as migrating in the target host. Note that the order of
         # the operations is important, as otherwise a client may be redirected to
         # the target node that does not yet know it is importing this slot.
-        target.r("cluster","setslot",slot,"importing",source.info[:name])
-        source.r("cluster","setslot",slot,"migrating",source.info[:name])
+        print "Moving slot #{slot}: "; STDOUT.flush
+        target.r.cluster("setslot",slot,"importing",source.info[:name])
+        source.r.cluster("setslot",slot,"migrating",source.info[:name])
         # Migrate all the keys from source to target using the MIGRATE command
+        while true
+            keys = source.r.cluster("getkeysinslot",slot,10)
+            break if keys.length == 0
+            keys.each{|key|
+                source.r.migrate(target.info[:host],target.info[:port],key,0,1)
+                print "." if o[:verbose]
+                STDOUT.flush
+            }
+        end
+        puts
+        # Set the new node as the owner of the slot in all the known nodes.
+        @nodes.each{|n|
+            n.r.cluster("setslot",slot,"node",target.info[:name])
+        }
     end
 
     # redis-trib subcommands implementations
@@ -396,7 +418,7 @@ class RedisTrib
         yesno = STDIN.gets.chop
         exit(1) if (yesno != "yes")
         reshard_table.each{|e|
-            move_slot(e[:source],target,e[:slot])
+            move_slot(e[:source],target,e[:slot],:verbose=>true)
         }
     end
 
