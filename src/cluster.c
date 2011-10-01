@@ -636,7 +636,7 @@ int clusterProcessPacket(clusterLink *link) {
                         if (server.cluster.slots[j] == NULL ||
                             server.cluster.slots[j]->flags & REDIS_NODE_FAIL)
                         {
-                            server.cluster.slots[j] = sender;
+                            clusterAddSlot(sender,j);
                             update_state = update_config = 1;
                         }
                     }
