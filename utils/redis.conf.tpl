@@ -14,7 +14,7 @@
 
 # By default Redis does not run as a daemon. Use 'yes' if you need it.
 # Note that Redis will write a pid file in /var/run/redis.pid when daemonized.
-daemonize no
+daemonize yes
 
 # When running daemonized, Redis writes a pid file in /var/run/redis.pid by
 # default. You can specify a custom pid file location here.
@@ -317,7 +317,7 @@ auto-aof-rewrite-min-size 64mb
 # Max execution time of a Lua script in milliseconds.
 # This prevents that a programming error generating an infinite loop will block
 # your server forever. Set it to 0 or a negative value for unlimited execution.
-lua-time-limit 60000
+#lua-time-limit 60000
 
 ################################## SLOW LOG ###################################
 

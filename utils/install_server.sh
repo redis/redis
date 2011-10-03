@@ -41,9 +41,17 @@ if [ !"$REDIS_CONFIG_FILE" ] ; then
 	REDIS_CONFIG_FILE=$_REDIS_CONFIG_FILE
 	echo "Selected default - $REDIS_CONFIG_FILE"
 fi
-
-#try and create 
+#try and create it
 mkdir -p `dirname "$REDIS_CONFIG_FILE"` || die "Could not create redis config directory"
+
+#read the redis log file path
+_REDIS_LOG_FILE="/var/log/redis_$REDIS_PORT.log"
+read -p "Please select the redis log file name [$_REDIS_LOG_FILE] " REDIS_LOG_FILE
+if [ !"$REDIS_LOG_FILE" ] ; then
+	REDIS_LOG_FILE=$_REDIS_LOG_FILE
+	echo "Selected default - $REDIS_LOG_FILE"
+fi
+
 
 #get the redis data directory
 _REDIS_DATA_DIR="/var/lib/redis/$REDIS_PORT"
@@ -52,9 +60,7 @@ if [ !"$REDIS_DATA_DIR" ] ; then
 	REDIS_DATA_DIR=$_REDIS_DATA_DIR
 	echo "Selected default - $REDIS_DATA_DIR"
 fi
-#try the data directory setting
-mkdir -p `dirname "$REDIS_DATA_DIR"` || die "Could not create redis data directory"
-
+mkdir -p $REDIS_DATA_DIR || die "Could not create redis data directory"
 
 #get the redis executable path
 _REDIS_EXECUTABLE=`which redis-server`
@@ -104,7 +110,7 @@ CONF=\"$REDIS_CONFIG_FILE\"\n\n
 echo $REDIS_INIT_HEADER > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
 
 #copy to /etc/init.d
-cp -f $TMP_FILE $INIT_SCRIPT_DEST || die "Could not copy redis init script to  $INIT_SCRIPT_DEST"
+cp -f $TMP_FILE $INIT_SCRIPT_DEST && chmod +x $INIT_SCRIPT_DEST || die "Could not copy redis init script to  $INIT_SCRIPT_DEST"
 echo "Copied $TMP_FILE => $INIT_SCRIPT_DEST"
 
 #Install the service
