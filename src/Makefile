@@ -236,4 +236,9 @@ src/help.h:
 	@../utils/generate-command-help.rb > help.h
 
 install: all
-	@../utils/install_server.sh
+	mkdir -p $(INSTALL_BIN)
+	$(INSTALL) $(PRGNAME) $(INSTALL_BIN)
+	$(INSTALL) $(BENCHPRGNAME) $(INSTALL_BIN)
+	$(INSTALL) $(CLIPRGNAME) $(INSTALL_BIN)
+	$(INSTALL) $(CHECKDUMPPRGNAME) $(INSTALL_BIN)
+	$(INSTALL) $(CHECKAOFPRGNAME) $(INSTALL_BIN)
