@@ -1421,6 +1421,7 @@ void restoreCommand(redisClient *c) {
     dbAdd(c->db,c->argv[1],obj);
     if (ttl) setExpire(c->db,c->argv[1],time(NULL)+ttl);
     addReply(c,shared.ok);
+    server.dirty++;
 }
 
 /* MIGRATE host port key dbid timeout */
