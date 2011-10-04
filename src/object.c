@@ -45,7 +45,7 @@ robj *createStringObjectFromLongLong(long long value) {
 }
 
 robj *dupStringObject(robj *o) {
-    redisAssert(o->encoding == REDIS_ENCODING_RAW);
+    redisAssertWithInfo(NULL,o,o->encoding == REDIS_ENCODING_RAW);
     return createStringObject(o->ptr,sdslen(o->ptr));
 }
 
@@ -218,7 +218,7 @@ int checkType(redisClient *c, robj *o, int type) {
 }
 
 int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
-    redisAssert(o->type == REDIS_STRING);
+    redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
     if (o->encoding == REDIS_ENCODING_INT) {
         if (llval) *llval = (long) o->ptr;
         return REDIS_OK;
@@ -241,7 +241,7 @@ robj *tryObjectEncoding(robj *o) {
      if (o->refcount > 1) return o;
 
     /* Currently we try to encode only strings */
-    redisAssert(o->type == REDIS_STRING);
+    redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
 
     /* Check if we can represent this string as a long integer */
     if (!string2l(s,sdslen(s),&value)) return o;
@@ -296,7 +296,7 @@ robj *getDecodedObject(robj *o) {
  * sdscmp() from sds.c will apply memcmp() so this function ca be considered
  * binary safe. */
 int compareStringObjects(robj *a, robj *b) {
-    redisAssert(a->type == REDIS_STRING && b->type == REDIS_STRING);
+    redisAssertWithInfo(NULL,a,a->type == REDIS_STRING && b->type == REDIS_STRING);
     char bufa[128], bufb[128], *astr, *bstr;
     int bothsds = 1;
 
@@ -331,7 +331,7 @@ int equalStringObjects(robj *a, robj *b) {
 }
 
 size_t stringObjectLen(robj *o) {
-    redisAssert(o->type == REDIS_STRING);
+    redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
     if (o->encoding == REDIS_ENCODING_RAW) {
         return sdslen(o->ptr);
     } else {
@@ -348,7 +348,7 @@ int getDoubleFromObject(robj *o, double *target) {
     if (o == NULL) {
         value = 0;
     } else {
-        redisAssert(o->type == REDIS_STRING);
+        redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
         if (o->encoding == REDIS_ENCODING_RAW) {
             value = strtod(o->ptr, &eptr);
             if (eptr[0] != '\0' || isnan(value)) return REDIS_ERR;
@@ -385,7 +385,7 @@ int getLongLongFromObject(robj *o, long long *target) {
     if (o == NULL) {
         value = 0;
     } else {
-        redisAssert(o->type == REDIS_STRING);
+        redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
         if (o->encoding == REDIS_ENCODING_RAW) {
             value = strtoll(o->ptr, &eptr, 10);
             if (eptr[0] != '\0') return REDIS_ERR;

@@ -63,10 +63,10 @@ int pubsubUnsubscribeChannel(redisClient *c, robj *channel, int notify) {
         retval = 1;
         /* Remove the client from the channel -> clients list hash table */
         de = dictFind(server.pubsub_channels,channel);
-        redisAssert(de != NULL);
+        redisAssertWithInfo(c,NULL,de != NULL);
         clients = dictGetEntryVal(de);
         ln = listSearchKey(clients,c);
-        redisAssert(ln != NULL);
+        redisAssertWithInfo(c,NULL,ln != NULL);
         listDelNode(clients,ln);
         if (listLength(clients) == 0) {
             /* Free the list and associated hash entry at all if this was

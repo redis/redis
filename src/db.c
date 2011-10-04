@@ -79,7 +79,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     sds copy = sdsdup(key->ptr);
     int retval = dictAdd(db->dict, copy, val);
 
-    redisAssert(retval == REDIS_OK);
+    redisAssertWithInfo(NULL,key,retval == REDIS_OK);
     if (server.cluster_enabled) SlotToKeyAdd(key);
  }
 
@@ -91,7 +91,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
 void dbOverwrite(redisDb *db, robj *key, robj *val) {
     struct dictEntry *de = dictFind(db->dict,key->ptr);
     
-    redisAssert(de != NULL);
+    redisAssertWithInfo(NULL,key,de != NULL);
     dictReplace(db->dict, key->ptr, val);
 }
 
@@ -419,7 +419,7 @@ void moveCommand(redisClient *c) {
 int removeExpire(redisDb *db, robj *key) {
     /* An expire may only be removed if there is a corresponding entry in the
      * main dict. Otherwise, the key will never be freed. */
-    redisAssert(dictFind(db->dict,key->ptr) != NULL);
+    redisAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
     return dictDelete(db->expires,key->ptr) == DICT_OK;
 }
 
@@ -428,7 +428,7 @@ void setExpire(redisDb *db, robj *key, time_t when) {
 
     /* Reuse the sds from the main dict in the expire dict */
     de = dictFind(db->dict,key->ptr);
-    redisAssert(de != NULL);
+    redisAssertWithInfo(NULL,key,de != NULL);
     dictReplace(db->expires,dictGetEntryKey(de),(void*)when);
 }
 
@@ -443,7 +443,7 @@ time_t getExpire(redisDb *db, robj *key) {
 
     /* The entry was found in the expire dict, this means it should also
      * be present in the main dict (safety check). */
-    redisAssert(dictFind(db->dict,key->ptr) != NULL);
+    redisAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
     return (time_t) dictGetEntryVal(de);
 }
 
@@ -525,7 +525,7 @@ void expireGenericCommand(redisClient *c, robj *key, robj *param, long offset) {
     if (seconds <= 0 && !server.loading && !server.masterhost) {
         robj *aux;
 
-        redisAssert(dbDelete(c->db,key));
+        redisAssertWithInfo(c,key,dbDelete(c->db,key));
         server.dirty++;
 
         /* Replicate/AOF this as an explicit DEL. */

@@ -284,7 +284,7 @@ int rdbSaveStringObject(rio *rdb, robj *obj) {
     if (obj->encoding == REDIS_ENCODING_INT) {
         return rdbSaveLongLongAsStringObject(rdb,(long)obj->ptr);
     } else {
-        redisAssert(obj->encoding == REDIS_ENCODING_RAW);
+        redisAssertWithInfo(NULL,obj,obj->encoding == REDIS_ENCODING_RAW);
         return rdbSaveRawString(rdb,obj->ptr,sdslen(obj->ptr));
     }
 }
@@ -553,7 +553,7 @@ int rdbSaveObject(rio *rdb, robj *o) {
  * we could switch to a faster solution. */
 off_t rdbSavedObjectLen(robj *o) {
     int len = rdbSaveObject(NULL,o);
-    redisAssert(len != -1);
+    redisAssertWithInfo(NULL,o,len != -1);
     return len;
 }
 

@@ -330,8 +330,8 @@ loaderr:
 void configSetCommand(redisClient *c) {
     robj *o;
     long long ll;
-    redisAssert(c->argv[2]->encoding == REDIS_ENCODING_RAW);
-    redisAssert(c->argv[3]->encoding == REDIS_ENCODING_RAW);
+    redisAssertWithInfo(c,c->argv[2],c->argv[2]->encoding == REDIS_ENCODING_RAW);
+    redisAssertWithInfo(c,c->argv[2],c->argv[3]->encoding == REDIS_ENCODING_RAW);
     o = c->argv[3];
 
     if (!strcasecmp(c->argv[2]->ptr,"dbfilename")) {
@@ -503,7 +503,7 @@ void configGetCommand(redisClient *c) {
     char *pattern = o->ptr;
     char buf[128];
     int matches = 0;
-    redisAssert(o->encoding == REDIS_ENCODING_RAW);
+    redisAssertWithInfo(c,o,o->encoding == REDIS_ENCODING_RAW);
 
     if (stringmatch(pattern,"dir",0)) {
         char buf[1024];

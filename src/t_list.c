@@ -198,7 +198,7 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
 int listTypeEqual(listTypeEntry *entry, robj *o) {
     listTypeIterator *li = entry->li;
     if (li->encoding == REDIS_ENCODING_ZIPLIST) {
-        redisAssert(o->encoding == REDIS_ENCODING_RAW);
+        redisAssertWithInfo(NULL,o,o->encoding == REDIS_ENCODING_RAW);
         return ziplistCompare(entry->zi,o->ptr,sdslen(o->ptr));
     } else if (li->encoding == REDIS_ENCODING_LINKEDLIST) {
         return equalStringObjects(o,listNodeValue(entry->ln));
@@ -235,7 +235,7 @@ void listTypeDelete(listTypeEntry *entry) {
 void listTypeConvert(robj *subject, int enc) {
     listTypeIterator *li;
     listTypeEntry entry;
-    redisAssert(subject->type == REDIS_LIST);
+    redisAssertWithInfo(NULL,subject,subject->type == REDIS_LIST);
 
     if (enc == REDIS_ENCODING_LINKEDLIST) {
         list *l = listCreate();
@@ -310,7 +310,7 @@ void pushxGenericCommand(redisClient *c, robj *refval, robj *val, int where) {
     if (refval != NULL) {
         /* Note: we expect refval to be string-encoded because it is *not* the
          * last argument of the multi-bulk LINSERT. */
-        redisAssert(refval->encoding == REDIS_ENCODING_RAW);
+        redisAssertWithInfo(c,refval,refval->encoding == REDIS_ENCODING_RAW);
 
         /* We're not sure if this value can be inserted yet, but we cannot
          * convert the list inside the iterator. We don't want to loop over
@@ -774,7 +774,7 @@ void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeout, robj
             l = listCreate();
             retval = dictAdd(c->db->blocking_keys,keys[j],l);
             incrRefCount(keys[j]);
-            redisAssert(retval == DICT_OK);
+            redisAssertWithInfo(c,keys[j],retval == DICT_OK);
         } else {
             l = dictGetEntryVal(de);
         }
@@ -791,12 +791,12 @@ void unblockClientWaitingData(redisClient *c) {
     list *l;
     int j;
 
-    redisAssert(c->bpop.keys != NULL);
+    redisAssertWithInfo(c,NULL,c->bpop.keys != NULL);
     /* The client may wait for multiple keys, so unblock it for every key. */
     for (j = 0; j < c->bpop.count; j++) {
         /* Remove this client from the list of clients waiting for this key. */
         de = dictFind(c->db->blocking_keys,c->bpop.keys[j]);
-        redisAssert(de != NULL);
+        redisAssertWithInfo(c,c->bpop.keys[j],de != NULL);
         l = dictGetEntryVal(de);
         listDelNode(l,listSearchKey(l,c));
         /* If the list is empty we need to remove it to avoid wasting memory */
@@ -848,7 +848,7 @@ int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
      * this happens, it simply tries the next client waiting for a push. */
     while (numclients--) {
         ln = listFirst(clients);
-        redisAssert(ln != NULL);
+        redisAssertWithInfo(c,key,ln != NULL);
         receiver = ln->value;
         dstkey = receiver->bpop.target;
 
@@ -995,7 +995,7 @@ void brpoplpushCommand(redisClient *c) {
 
             /* The list exists and has elements, so
              * the regular rpoplpushCommand is executed. */
-            redisAssert(listTypeLength(key) > 0);
+            redisAssertWithInfo(c,key,listTypeLength(key) > 0);
             rpoplpushCommand(c);
         }
     }

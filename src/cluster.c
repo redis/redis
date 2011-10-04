@@ -1232,7 +1232,7 @@ void clusterCommand(redisClient *c) {
 
                 retval = del ? clusterDelSlot(j) :
                                clusterAddSlot(server.cluster.myself,j);
-                redisAssert(retval == REDIS_OK);
+                redisAssertWithInfo(c,NULL,retval == REDIS_OK);
             }
         }
         zfree(slots);
@@ -1462,23 +1462,23 @@ void migrateCommand(redisClient *c) {
     }
 
     rioInitWithBuffer(&cmd,sdsempty());
-    redisAssert(rioWriteBulkCount(&cmd,'*',2));
-    redisAssert(rioWriteBulkString(&cmd,"SELECT",6));
-    redisAssert(rioWriteBulkLongLong(&cmd,dbid));
+    redisAssertWithInfo(c,NULL,rioWriteBulkCount(&cmd,'*',2));
+    redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"SELECT",6));
+    redisAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,dbid));
 
     ttl = getExpire(c->db,c->argv[3]);
-    redisAssert(rioWriteBulkCount(&cmd,'*',4));
-    redisAssert(rioWriteBulkString(&cmd,"RESTORE",7));
-    redisAssert(c->argv[3]->encoding == REDIS_ENCODING_RAW);
-    redisAssert(rioWriteBulkString(&cmd,c->argv[3]->ptr,sdslen(c->argv[3]->ptr)));
-    redisAssert(rioWriteBulkLongLong(&cmd,(ttl == -1) ? 0 : ttl));
+    redisAssertWithInfo(c,NULL,rioWriteBulkCount(&cmd,'*',4));
+    redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"RESTORE",7));
+    redisAssertWithInfo(c,NULL,c->argv[3]->encoding == REDIS_ENCODING_RAW);
+    redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,c->argv[3]->ptr,sdslen(c->argv[3]->ptr)));
+    redisAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,(ttl == -1) ? 0 : ttl));
 
     /* Finally the last argument that is the serailized object payload
      * in the form: <type><rdb-serialized-object>. */
     rioInitWithBuffer(&payload,sdsempty());
-    redisAssert(rdbSaveObjectType(&payload,o));
-    redisAssert(rdbSaveObject(&payload,o) != -1);
-    redisAssert(rioWriteBulkString(&cmd,payload.io.buffer.ptr,sdslen(payload.io.buffer.ptr)));
+    redisAssertWithInfo(c,NULL,rdbSaveObjectType(&payload,o));
+    redisAssertWithInfo(c,NULL,rdbSaveObject(&payload,o) != -1);
+    redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,payload.io.buffer.ptr,sdslen(payload.io.buffer.ptr)));
     sdsfree(payload.io.buffer.ptr);
 
     /* Tranfer the query to the other node in 64K chunks. */
@@ -1561,8 +1561,8 @@ void dumpCommand(redisClient *c) {
     /* Serialize the object in a RDB-like format. It consist of an object type
      * byte followed by the serialized object. This is understood by RESTORE. */
     rioInitWithBuffer(&payload,sdsempty());
-    redisAssert(rdbSaveObjectType(&payload,o));
-    redisAssert(rdbSaveObject(&payload,o));
+    redisAssertWithInfo(c,NULL,rdbSaveObjectType(&payload,o));
+    redisAssertWithInfo(c,NULL,rdbSaveObject(&payload,o));
 
     /* Transfer to the client */
     dumpobj = createObject(REDIS_STRING,payload.io.buffer.ptr);
@@ -1632,7 +1632,7 @@ clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **arg
 
                 slot = keyHashSlot((char*)firstkey->ptr, sdslen(firstkey->ptr));
                 n = server.cluster.slots[slot];
-                redisAssert(n != NULL);
+                redisAssertWithInfo(c,firstkey,n != NULL);
             } else {
                 /* If it is not the first key, make sure it is exactly
                  * the same key as the first we saw. */

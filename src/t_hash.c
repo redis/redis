@@ -160,7 +160,7 @@ hashTypeIterator *hashTypeInitIterator(robj *subject) {
     } else if (hi->encoding == REDIS_ENCODING_HT) {
         hi->di = dictGetIterator(subject->ptr);
     } else {
-        redisAssert(NULL);
+        redisAssertWithInfo(NULL,subject,0);
     }
     return hi;
 }
@@ -250,7 +250,7 @@ void convertToRealHash(robj *o) {
     unsigned int klen, vlen;
     dict *dict = dictCreate(&hashDictType,NULL);
 
-    redisAssert(o->type == REDIS_HASH && o->encoding != REDIS_ENCODING_HT);
+    redisAssertWithInfo(NULL,o,o->type == REDIS_HASH && o->encoding != REDIS_ENCODING_HT);
     p = zipmapRewind(zm);
     while((p = zipmapNext(p,&key,&klen,&val,&vlen)) != NULL) {
         robj *keyobj, *valobj;

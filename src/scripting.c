@@ -531,7 +531,7 @@ void evalGenericCommand(redisClient *c, int evalsha) {
         {
             int retval = dictAdd(server.lua_scripts,
                                  sdsnewlen(funcname+2,40),c->argv[1]);
-            redisAssert(retval == DICT_OK);
+            redisAssertWithInfo(c,NULL,retval == DICT_OK);
             incrRefCount(c->argv[1]);
         }
     }
@@ -583,7 +583,7 @@ void evalGenericCommand(redisClient *c, int evalsha) {
     if (evalsha) {
         robj *script = dictFetchValue(server.lua_scripts,c->argv[1]->ptr);
 
-        redisAssert(script != NULL);
+        redisAssertWithInfo(c,NULL,script != NULL);
         rewriteClientCommandArgument(c,0,
             resetRefCount(createStringObject("EVAL",4)));
         rewriteClientCommandArgument(c,1,script);

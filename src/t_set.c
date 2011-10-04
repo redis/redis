@@ -37,7 +37,7 @@ int setTypeAdd(robj *subject, robj *value) {
 
             /* The set *was* an intset and this value is not integer
              * encodable, so dictAdd should always work. */
-            redisAssert(dictAdd(subject->ptr,value,NULL) == DICT_OK);
+            redisAssertWithInfo(NULL,value,dictAdd(subject->ptr,value,NULL) == DICT_OK);
             incrRefCount(value);
             return 1;
         }
@@ -189,8 +189,8 @@ unsigned long setTypeSize(robj *subject) {
  * set. */
 void setTypeConvert(robj *setobj, int enc) {
     setTypeIterator *si;
-    redisAssert(setobj->type == REDIS_SET &&
-                setobj->encoding == REDIS_ENCODING_INTSET);
+    redisAssertWithInfo(NULL,setobj,setobj->type == REDIS_SET &&
+                             setobj->encoding == REDIS_ENCODING_INTSET);
 
     if (enc == REDIS_ENCODING_HT) {
         int64_t intele;
@@ -204,7 +204,7 @@ void setTypeConvert(robj *setobj, int enc) {
         si = setTypeInitIterator(setobj);
         while (setTypeNext(si,NULL,&intele) != -1) {
             element = createStringObjectFromLongLong(intele);
-            redisAssert(dictAdd(d,element,NULL) == DICT_OK);
+            redisAssertWithInfo(NULL,element,dictAdd(d,element,NULL) == DICT_OK);
         }
         setTypeReleaseIterator(si);
 
