@@ -154,7 +154,8 @@ proc start_server {options {code undefined}} {
     dict set config dir [tmpdir server]
     
     # start every server on a different port
-    dict set config port [incr ::port]
+    set ::port [find_available_port [expr {$::port+1}]]
+    dict set config port $::port
 
     # apply overrides from global space and arguments
     foreach {directive arguments} [concat $::global_overrides $overrides] {

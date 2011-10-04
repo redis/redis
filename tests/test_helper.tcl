@@ -38,7 +38,7 @@ set ::all_tests {
 set ::next_test 0
 
 set ::host 127.0.0.1
-set ::port 16379
+set ::port 21111
 set ::traceleaks 0
 set ::valgrind 0
 set ::verbose 0
@@ -149,36 +149,38 @@ proc cleanup {} {
     puts "OK"
 }
 
+proc find_available_port start {
+    for {set j $start} {$j < $start+1024} {incr j} {
+        if {[catch {
+            set fd [socket 127.0.0.1 $start]
+        }]} {
+            return $start
+        } else {
+            close $fd
+        }
+    }
+    if {$j == $start+1024} {
+        error "Can't find a non busy port in the $start-[expr {$start+1023}] range."
+    }
+}
+
 proc test_server_main {} {
     cleanup
     # Open a listening socket, trying different ports in order to find a
     # non busy one.
-    set port 11111
-    while 1 {
-        puts "Starting test server at port $port"
-        if {[catch {socket -server accept_test_clients $port} e]} {
-            if {[string match {*address already in use*} $e]} {
-                if {$port == 20000} {
-                    puts "Can't find an available TCP port for test server."
-                    exit 1
-                } else {
-                    incr port
-                }
-            } else {
-                puts "Fatal error starting test server: $e"
-                exit 1
-            }
-        } else {
-            break
-        }
-    }
+    set port [find_available_port 11111]
+    puts "Starting test server at port $port"
+    socket -server accept_test_clients $port
 
     # Start the client instances
     set ::clients_pids {}
+    set start_port [expr {$::port+100}]
     for {set j 0} {$j < $::numclients} {incr j} {
+        set start_port [find_available_port $start_port]
         set p [exec tclsh8.5 [info script] {*}$::argv \
-            --client $port --port [expr {$::port+($j*10)}] &]
+            --client $port --port $start_port &]
         lappend ::clients_pids $p
+        incr start_port 10
     }
 
     # Setup global state for the test server
