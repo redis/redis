@@ -446,6 +446,7 @@ class RedisTrib
             node = ClusterNode.new(n)
             node.connect(:abort => true)
             node.assert_cluster
+            node.load_info
             node.assert_empty
             add_node(node)
         }
