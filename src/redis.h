@@ -211,7 +211,7 @@
 #define REDIS_LUA_TIME_LIMIT 60000 /* milliseconds */
 
 /* We can print the stacktrace, so our assert is defined this way: */
-#define redisAssertWithClientInfo(_c,_e) ((_e)?(void)0 : (_redisAssertWithClientInfo(_c,#_e,__FILE__,__LINE__),_exit(1)))
+#define redisAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_redisAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),_exit(1)))
 #define redisAssert(_e) ((_e)?(void)0 : (_redisAssert(#_e,__FILE__,__LINE__),_exit(1)))
 #define redisPanic(_e) _redisPanic(#_e,__FILE__,__LINE__),_exit(1)
 
@@ -1119,7 +1119,7 @@ void *realloc(void *ptr, size_t size) __attribute__ ((deprecated));
 #endif
 
 /* Debugging stuff */
-void _redisAssertWithClientInfo(redisClient *c, char *estr, char *file, int line);
+void _redisAssertWithInfo(redisClient *c, robj *o, char *estr, char *file, int line);
 void _redisAssert(char *estr, char *file, int line);
 void _redisPanic(char *msg, char *file, int line);
 
