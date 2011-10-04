@@ -99,11 +99,15 @@ if [ ! -f "$REDIS_EXECUTABLE" ] ; then
 	
 fi
 
+
 #render the tmplates
 TMP_FILE="/tmp/$REDIS_PORT.conf"
 TPL_FILE="./redis.conf.tpl"
 INIT_TPL_FILE="./redis_init_script.tpl"
 INIT_SCRIPT_DEST="/etc/init.d/redis_$REDIS_PORT"
+PIDFILE="/var/run/redis_$REDIS_PORT.pid"
+
+
 
 #check the default for redis cli
 CLI_EXEC=`which redis-cli`
@@ -126,8 +130,9 @@ REDIS_INIT_HEADER=\
 #Configurations injected by install_server below....\n\n
 EXEC=$REDIS_EXECUTABLE\n
 CLIEXEC=$CLI_EXEC\n
-PIDFILE=/var/run/redis_${REDIS_PORT}.pid\n
+PIDFILE=$PIDFILE\n
 CONF=\"$REDIS_CONFIG_FILE\"\n\n
+REDISPORT=\"$REDIS_PORT\"\n\n
 ###############\n\n"
 
 #combine the header and the template (which is actually a static footer)
