@@ -493,6 +493,7 @@ void nodeIp2String(char *buf, clusterLink *link) {
 /* Update the node address to the IP address that can be extracted
  * from link->fd, and at the specified port. */
 void nodeUpdateAddress(clusterNode *node, clusterLink *link, int port) {
+    /* TODO */
 }
 
 /* When this function is called, there is a packet to process starting
@@ -510,8 +511,8 @@ int clusterProcessPacket(clusterLink *link) {
     uint16_t type = ntohs(hdr->type);
     clusterNode *sender;
 
-    redisLog(REDIS_DEBUG,"--- packet to process %lu bytes (%lu) ---",
-        (unsigned long) totlen, sdslen(link->rcvbuf));
+    redisLog(REDIS_DEBUG,"--- Processing packet of type %d, %lu bytes",
+        type, (unsigned long) totlen);
     if (totlen < 8) return 1;
     if (totlen > sdslen(link->rcvbuf)) return 1;
     if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_PONG ||
