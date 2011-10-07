@@ -445,6 +445,7 @@ typedef struct {
 #define CLUSTERMSG_TYPE_PONG 1          /* Pong (reply to Ping) */
 #define CLUSTERMSG_TYPE_MEET 2          /* Meet "let's join" message */
 #define CLUSTERMSG_TYPE_FAIL 3          /* Mark node xxx as failing */
+#define CLUSTERMSG_TYPE_PUBLISH 4       /* Pub/Sub Publish propatagion */
 
 /* Initially we don't know our "name", but we'll find it once we connect
  * to the first node, using the getsockname() function. Then we'll use this
@@ -463,16 +464,28 @@ typedef struct {
     char nodename[REDIS_CLUSTER_NAMELEN];
 } clusterMsgDataFail;
 
+typedef struct {
+    uint32_t channel_len;
+    uint32_t message_len;
+    unsigned char bulk_data[8]; /* defined as 8 just for alignment concerns. */
+} clusterMsgDataPublish;
+
 union clusterMsgData {
     /* PING, MEET and PONG */
     struct {
         /* Array of N clusterMsgDataGossip structures */
         clusterMsgDataGossip gossip[1];
     } ping;
+
     /* FAIL */
     struct {
         clusterMsgDataFail about;
     } fail;
+
+    /* PUBLISH */
+    struct {
+        clusterMsgDataPublish msg;
+    } publish;
 };
 
 typedef struct {
@@ -976,6 +989,7 @@ clusterNode *createClusterNode(char *nodename, int flags);
 int clusterAddNode(clusterNode *node);
 void clusterCron(void);
 clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
+void clusterPropagatePublish(robj *channel, robj *message);
 
 /* Scripting */
 void scriptingInit(void);
