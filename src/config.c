@@ -76,6 +76,9 @@ void loadServerConfig(char *filename) {
             server.unixsocket = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocketperm") && argc == 2) {
             server.unixsocketperm = (mode_t)strtol(argv[1], NULL, 8);
+            if (errno || server.unixsocketperm > 511) { // 511 == 0777
+                err = "Invalid socket file permissions"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"save") && argc == 3) {
             int seconds = atoi(argv[1]);
             int changes = atoi(argv[2]);
