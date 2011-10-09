@@ -74,6 +74,8 @@ void loadServerConfig(char *filename) {
             server.bindaddr = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocket") && argc == 2) {
             server.unixsocket = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"unixsocketperm") && argc == 2) {
+            server.unixsocketperm = (mode_t)strtol(argv[1], NULL, 8);
         } else if (!strcasecmp(argv[0],"save") && argc == 3) {
             int seconds = atoi(argv[1]);
             int changes = atoi(argv[2]);
