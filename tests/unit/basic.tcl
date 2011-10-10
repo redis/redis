@@ -262,6 +262,25 @@ start_server {tags {"basic"}} {
         format $err
     } {ERR*}
 
+    test {RENAME with volatile key, should move the TTL as well} {
+        r del mykey mykey2
+        r set mykey foo
+        r expire mykey 100
+        assert {[r ttl mykey] > 95 && [r ttl mykey] <= 100}
+        r rename mykey mykey2
+        assert {[r ttl mykey2] > 95 && [r ttl mykey2] <= 100}
+    }
+
+    test {RENAME with volatile key, should not inherit TTL of target key} {
+        r del mykey mykey2
+        r set mykey foo
+        r set mykey2 bar
+        r expire mykey2 100
+        assert {[r ttl mykey] == -1 && [r ttl mykey2] > 0}
+        r rename mykey mykey2
+        r ttl mykey2
+    } {-1}
+
     test {DEL all keys again (DB 0)} {
         foreach key [r keys *] {
             r del $key
