@@ -822,6 +822,7 @@ void initServerConfig() {
     server.port = REDIS_SERVERPORT;
     server.bindaddr = NULL;
     server.unixsocket = NULL;
+    server.unixsocketperm = 0;
     server.ipfd = -1;
     server.sofd = -1;
     server.dbnum = REDIS_DEFAULT_DBNUM;
@@ -935,7 +936,7 @@ void initServer() {
     }
     if (server.unixsocket != NULL) {
         unlink(server.unixsocket); /* don't care if this fails */
-        server.sofd = anetUnixServer(server.neterr,server.unixsocket);
+        server.sofd = anetUnixServer(server.neterr,server.unixsocket,server.unixsocketperm);
         if (server.sofd == ANET_ERR) {
             redisLog(REDIS_WARNING, "Opening socket: %s", server.neterr);
             exit(1);
@@ -1236,6 +1237,10 @@ int prepareForShutdown() {
     /* Close the listening sockets. Apparently this allows faster restarts. */
     if (server.ipfd != -1) close(server.ipfd);
     if (server.sofd != -1) close(server.sofd);
+    if (server.unixsocket) {
+        redisLog(REDIS_NOTICE,"Removing the unix socket file.");
+        unlink(server.unixsocket); /* don't care if this fails */
+    }
 
     redisLog(REDIS_WARNING,"Redis is now ready to exit, bye bye...");
     return REDIS_OK;
