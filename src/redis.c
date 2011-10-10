@@ -798,6 +798,7 @@ void initServerConfig() {
     server.port = REDIS_SERVERPORT;
     server.bindaddr = NULL;
     server.unixsocket = NULL;
+    server.unixsocketperm = 0;
     server.ipfd = -1;
     server.sofd = -1;
     server.dbnum = REDIS_DEFAULT_DBNUM;
@@ -915,7 +916,7 @@ void initServer() {
     }
     if (server.unixsocket != NULL) {
         unlink(server.unixsocket); /* don't care if this fails */
-        server.sofd = anetUnixServer(server.neterr,server.unixsocket);
+        server.sofd = anetUnixServer(server.neterr,server.unixsocket,server.unixsocketperm);
         if (server.sofd == ANET_ERR) {
             redisLog(REDIS_WARNING, "Opening socket: %s", server.neterr);
             exit(1);

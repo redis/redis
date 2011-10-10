@@ -378,6 +378,7 @@ struct redisServer {
     int port;
     char *bindaddr;
     char *unixsocket;
+    mode_t unixsocketperm;
     int ipfd;
     int sofd;
     redisDb *db;
