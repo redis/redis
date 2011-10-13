@@ -35,9 +35,22 @@ ifeq ($(USE_TCMALLOC_MINIMAL),yes)
 endif
 
 ifeq ($(USE_JEMALLOC),yes)
-  ALLOC_DEP=../deps/jemalloc/lib/libjemalloc.a
-  ALLOC_LINK=$(ALLOC_DEP) -ldl
-  ALLOC_FLAGS=-DUSE_JEMALLOC -I../deps/jemalloc/include
+	ifdef JEMALLOC_SHARED
+		ALLOC_DEP=
+		ALLOC_LINK=-ljemalloc
+		ALLOC_FLAGS=-DUSE_JEMALLOC -I/usr/include
+	else
+		ALLOC_DEP=../deps/jemalloc/lib/libjemalloc.a
+		ALLOC_LINK=$(ALLOC_DEP) -ldl
+		ALLOC_FLAGS=-DUSE_JEMALLOC -I../deps/jemalloc/include
+	endif
+endif
+
+LUA_LINK=../deps/lua/src/liblua.a
+LUA_FLAGS=-I../deps/lua/src
+ifdef LUA_SHARED
+	LUA_LINK=-llua
+	LUA_FLAGS=
 endif
 
 CCLINK+= $(ALLOC_LINK)
@@ -162,14 +175,16 @@ dependencies:
 	@cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)linenoise$(ENDCOLOR)
 	@cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
+ifndef LUA_SHARED
 	@echo $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)Lua ansi$(ENDCOLOR)
 	@cd ../deps/lua && $(MAKE) ARCH="$(ARCH)" ansi
+endif
 
 ../deps/jemalloc/lib/libjemalloc.a:
 	cd ../deps/jemalloc && ./configure $(JEMALLOC_CFLAGS) --with-jemalloc-prefix=je_ --enable-cc-silence && $(MAKE) lib/libjemalloc.a
 
 redis-server: dependencies $(OBJ)
-	$(QUIET_LINK)$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) $(CCLINK) ../deps/lua/src/liblua.a
+	$(QUIET_LINK)$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) $(CCLINK) $(LUA_LINK)
 
 redis-benchmark: dependencies $(BENCHOBJ)
 	@cd ../deps/hiredis && $(MAKE) static
@@ -193,7 +208,7 @@ redis-check-aof: $(CHECKAOFOBJ)
 # Because the jemalloc.h header is generated as a part of the jemalloc build
 # process, building it should complete before building any other object.
 %.o: %.c $(ALLOC_DEP)
-	$(QUIET_CC)$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) -I../deps/lua/src $<
+	$(QUIET_CC)$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $(LUA_FLAGS) $<
 
 clean:
 	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
