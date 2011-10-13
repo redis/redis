@@ -38,7 +38,7 @@ ifeq ($(USE_JEMALLOC),yes)
 	ifdef JEMALLOC_SHARED
 		ALLOC_DEP=
 		ALLOC_LINK=-ljemalloc
-		ALLOC_FLAGS=-DUSE_JEMALLOC -I/usr/include
+		ALLOC_FLAGS=-DUSE_JEMALLOC
 	else
 		ALLOC_DEP=../deps/jemalloc/lib/libjemalloc.a
 		ALLOC_LINK=$(ALLOC_DEP) -ldl
