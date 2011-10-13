@@ -1275,7 +1275,10 @@ void clusterCommand(redisClient *c) {
         addReplyBulk(c,o);
         decrRefCount(o);
     } else if ((!strcasecmp(c->argv[1]->ptr,"addslots") ||
-               !strcasecmp(c->argv[1]->ptr,"delslots")) && c->argc >= 3) {
+               !strcasecmp(c->argv[1]->ptr,"delslots")) && c->argc >= 3)
+    {
+        /* CLUSTER ADDSLOTS <slot> [slot] ... */
+        /* CLUSTER DELSLOTS <slot> [slot] ... */
         int j, slot;
         unsigned char *slots = zmalloc(REDIS_CLUSTER_SLOTS);
         int del = !strcasecmp(c->argv[1]->ptr,"delslots");
