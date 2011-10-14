@@ -937,18 +937,23 @@ int rdbLoad(char *filename) {
     long loops = 0;
 
     fp = fopen(filename,"r");
-    if (!fp) return REDIS_ERR;
+    if (!fp) {
+        errno = ENOENT;
+        return REDIS_ERR;
+    }
     if (fread(buf,9,1,fp) == 0) goto eoferr;
     buf[9] = '\0';
     if (memcmp(buf,"REDIS",5) != 0) {
         fclose(fp);
         redisLog(REDIS_WARNING,"Wrong signature trying to load DB from file");
+        errno = EINVAL;
         return REDIS_ERR;
     }
     rdbver = atoi(buf+5);
     if (rdbver < 1 || rdbver > 2) {
         fclose(fp);
         redisLog(REDIS_WARNING,"Can't handle RDB format version %d",rdbver);
+        errno = EINVAL;
         return REDIS_ERR;
     }
 

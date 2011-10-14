@@ -1651,8 +1651,13 @@ int main(int argc, char **argv) {
         if (loadAppendOnlyFile(server.appendfilename) == REDIS_OK)
             redisLog(REDIS_NOTICE,"DB loaded from append only file: %ld seconds",time(NULL)-start);
     } else {
-        if (rdbLoad(server.dbfilename) == REDIS_OK)
-            redisLog(REDIS_NOTICE,"DB loaded from disk: %ld seconds",time(NULL)-start);
+        if (rdbLoad(server.dbfilename) == REDIS_OK) {
+            redisLog(REDIS_NOTICE,"DB loaded from disk: %ld seconds",
+                time(NULL)-start);
+        } else if (errno != ENOENT) {
+            redisLog(REDIS_WARNING,"Fatal error loading the DB. Exiting.");
+            exit(1);
+        }
     }
     if (server.ipfd > 0)
         redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
