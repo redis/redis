@@ -18,6 +18,22 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
+What's new in Redis 2.4.0
+=========================
+
+* [BUGFIX] redis-cli segfault with single numerical argument fixed.
+* [BUGFIX] OpenBSD compilation problem fixed.
+* [BUGFIX] More robust Redis test, with better random port selection.
+* [BUGFIX] Fix for bug #128 about the RENAME command.
+* [BUGFIX] Fixed Issue #131. stime/utime reported in INFO was inverted.
+* [BUGFIX] Unlink Unix socket file on shutdown.
+* [BUGFIX] AUTH now returns error if no password is set on the server.
+* [BUGFIX] Exit with Fatal error at startup on RDB loading errors.
+* redis-check-dump: RDB version 2 now supported.
+* More informative error when DEBUG RELOAD fails.
+* Added a config directive for a Unix socket mask.
+* CONFIG SET/GET for loglevel.
+
 What's new in Redis 2.3.11 (2.4 Release Candidate 8)
 ====================================================
 
