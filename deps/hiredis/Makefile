@@ -22,9 +22,9 @@ ifeq ($(uname_S),Darwin)
   LDFLAGS?=-L. -Wl,-rpath,.
   OBJARCH?=-arch i386 -arch x86_64
   DYLIBNAME?=libhiredis.dylib
-  DYLIB_MAKE_CMD?=libtool -dynamic -o ${DYLIBNAME} -lm ${DEBUG} - ${OBJ}
+  DYLIB_MAKE_CMD?=/usr/bin/libtool -dynamic -o ${DYLIBNAME} -lm ${DEBUG} - ${OBJ}
   STLIBNAME?=libhiredis.a
-  STLIB_MAKE_CMD?=libtool -static -o ${STLIBNAME} - ${OBJ}
+  STLIB_MAKE_CMD?=/usr/bin/libtool -static -o ${STLIBNAME} - ${OBJ}
 else
   CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -fPIC -Wall -W -Wstrict-prototypes -Wwrite-strings $(ARCH) $(PROF)
   CCLINK?=-lm -pthread
