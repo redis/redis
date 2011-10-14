@@ -233,6 +233,8 @@ void sortCommand(redisClient *c) {
         }
         setTypeReleaseIterator(si);
     } else if (sortval->type == REDIS_ZSET) {
+    	// lets do this using the skiplist of a sorted set
+    	/*
         dict *set = ((zset*)sortval->ptr)->dict;
         dictIterator *di;
         dictEntry *setele;
@@ -243,7 +245,20 @@ void sortCommand(redisClient *c) {
             vector[j].u.cmpobj = NULL;
             j++;
         }
-        dictReleaseIterator(di);
+        dictReleaseIterator(di);*/
+    	zset *zsetobj = (zset*)sortval->ptr;
+    	zskiplist *zsl = zsetobj->zsl;
+    	zskiplistNode *ln = zsl->header->forward[0];
+    	int llen = (int) zsl->length;
+		for (j = 0; j < llen; j++) {
+			if(!ln){ redisPanic("NULL in ZSET skiplist while doing SORT"); break;}
+			vector[j].obj = ln->obj;
+			vector[j].u.score = 0;
+			vector[j].u.cmpobj = 0;
+			ln = ln->forward[0];
+		}
+
+
     } else {
         redisPanic("Unknown type");
     }
