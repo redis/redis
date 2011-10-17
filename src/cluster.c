@@ -1602,7 +1602,7 @@ void migrateCommand(redisClient *c) {
             server.dirty++;
 
             /* Translate MIGRATE as DEL for replication/AOF. */
-            aux = createStringObject("DEL",2);
+            aux = createStringObject("DEL",3);
             rewriteClientCommandVector(c,2,aux,c->argv[3]);
             decrRefCount(aux);
         }
