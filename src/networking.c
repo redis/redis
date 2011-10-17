@@ -625,6 +625,8 @@ void resetClient(redisClient *c) {
     c->reqtype = 0;
     c->multibulklen = 0;
     c->bulklen = -1;
+    /* We clear the ASKING flag as well if we are not inside a MULTI. */
+    if (!(c->flags & REDIS_MULTI)) c->flags &= (~REDIS_ASKING);
 }
 
 void closeTimedoutClients(void) {

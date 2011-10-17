@@ -133,6 +133,7 @@
 #define REDIS_UNBLOCKED 256 /* This client was unblocked and is stored in
                                server.unblocked_clients */
 #define REDIS_LUA_CLIENT 512 /* This is a non connected client used by Lua */
+#define REDIS_ASKING 1024   /* Client issued the ASKING command */
 
 /* Client request types */
 #define REDIS_REQ_INLINE 1
@@ -1121,6 +1122,7 @@ void unwatchCommand(redisClient *c);
 void clusterCommand(redisClient *c);
 void restoreCommand(redisClient *c);
 void migrateCommand(redisClient *c);
+void askingCommand(redisClient *c);
 void dumpCommand(redisClient *c);
 void objectCommand(redisClient *c);
 void clientCommand(redisClient *c);

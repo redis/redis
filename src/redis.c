@@ -209,6 +209,7 @@ struct redisCommand redisCommandTable[] = {
     {"cluster",clusterCommand,-2,"ar",0,NULL,0,0,0,0,0},
     {"restore",restoreCommand,4,"awm",0,NULL,1,1,1,0,0},
     {"migrate",migrateCommand,6,"aw",0,NULL,0,0,0,0,0},
+    {"asking",askingCommand,1,"r",0,NULL,0,0,0,0,0},
     {"dump",dumpCommand,2,"ar",0,NULL,0,0,0,0,0},
     {"object",objectCommand,-2,"r",0,NULL,0,0,0,0,0},
     {"client",clientCommand,-2,"ar",0,NULL,0,0,0,0,0},
