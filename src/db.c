@@ -206,7 +206,7 @@ void flushallCommand(redisClient *c) {
         kill(server.bgsavechildpid,SIGKILL);
         rdbRemoveTempFile(server.bgsavechildpid);
     }
-    rdbSave(server.dbfilename);
+    if (server.saveparamslen > 0) rdbSave(server.dbfilename);
     server.dirty++;
 }
 
