@@ -18,6 +18,13 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
+What's new in Redis 2.4.1
+=========================
+
+* [BUGFIX] FLUSHALL was not replicated nor written into the Append Only File.
+* [BUGFIX] FLUSHALL now only performs a sync SAVE if there is at least
+           one save point configured.
+
 What's new in Redis 2.4.0
 =========================
 
