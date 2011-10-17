@@ -12,6 +12,13 @@ for 2.0.
 CHANGELOG
 ---------
 
+What's new in Redis 2.2.15
+==========================
+
+* [BUGFIX] FLUSHALL was not replicated nor written into the Append Only File.
+* [BUGFIX] FLUSHALL now only performs a sync SAVE if there is at least
+           one save point configured.
+
 What's new in Redis 2.2.14
 ==========================
 
