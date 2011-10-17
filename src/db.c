@@ -180,7 +180,13 @@ void flushallCommand(redisClient *c) {
         kill(server.bgsavechildpid,SIGKILL);
         rdbRemoveTempFile(server.bgsavechildpid);
     }
-    if (server.saveparamslen > 0) rdbSave(server.dbfilename);
+    if (server.saveparamslen > 0) {
+        /* Normally rdbSave() will reset dirty, but we don't want this here
+         * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
+        int saved_dirty = server.dirty;
+        rdbSave(server.dbfilename);
+        server.dirty = saved_dirty;
+    }
     server.dirty++;
 }
 
