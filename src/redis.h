@@ -54,6 +54,9 @@
 #define REDIS_SLOWLOG_LOG_SLOWER_THAN 10000
 #define REDIS_SLOWLOG_MAX_LEN 64
 
+#define REDIS_REPL_TIMEOUT 60
+#define REDIS_REPL_PING_SLAVE_PERIOD 10
+
 /* Hash table parameters */
 #define REDIS_HT_MINFILL        10      /* Minimal hash table fill 10% */
 
@@ -452,6 +455,8 @@ struct redisServer {
     char *masterauth;
     char *masterhost;
     int masterport;
+	int repl_ping_slave_period;
+	int repl_timeout;
     redisClient *master;    /* client that is master for this slave */
     int repl_syncio_timeout; /* timeout for synchronous I/O calls */
     int replstate;          /* replication status if the instance is a slave */
