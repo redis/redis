@@ -2,10 +2,8 @@ Where to find complete Redis documentation?
 -------------------------------------------
 
 This README is just a fast "quick start" document. You can find more detailed
-documentation here:
+documentation here: http://redis.io/documentation
 
-1) http://code.google.com/p/redis
-2) Check the 'doc' directory. doc/README.html is a good starting point :)
 
 Building Redis
 --------------
@@ -27,22 +25,6 @@ After you build Redis is a good idea to test it (which require Tcl), using:
 
     % make test
 
-Buliding using tcmalloc
------------------------
-
-tcmalloc is a fast and space efficient implementation (for little objects)
-of malloc(). Compiling Redis with it can improve performance and memory
-usage. You can read more about it here:
-
-http://goog-perftools.sourceforge.net/doc/tcmalloc.html
-
-In order to compile Redis with tcmalloc support, install tcmalloc on your system
-and then use:
-
-    % make USE_TCMALLOC=yes
-
-Note that you can pass any other target to make, as long as you append
-USE_TCMALLOC=yes at the end.
 
 Running Redis
 -------------
@@ -57,6 +39,7 @@ parameter (the path of the configuration file):
 
     % cd src
     % ./redis-server /path/to/redis.conf
+
 
 Playing with Redis
 ------------------
@@ -80,7 +63,6 @@ then in another terminal try the following:
 
 You can find the list of all the available commands here:
 
-    http://code.google.com/p/redis/wiki/CommandReference
+    http://redis.io/commands
 
 Enjoy!
-

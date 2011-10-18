@@ -4,10 +4,10 @@
 
 3. If steps 1 and 2 are ok, use the following procedure to submit a patch:
 
-    a. Fork Redis on github
+    a. Fork Redis on github ( http://help.github.com/fork-a-repo/ )
     b. Create a topic branch (git checkout -b my_branch)
     c. Push to your branch (git push origin my_branch)
-    d. Create an issue in the Redis google code site with a link to your patch
+    d. Initiate a pull request on github ( http://help.github.com/send-pull-requests/ )
     e. Done :)
 
 Thanks!
