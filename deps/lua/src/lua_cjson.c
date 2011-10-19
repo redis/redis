@@ -41,8 +41,8 @@
 #include <assert.h>
 #include <string.h>
 #include <math.h>
-#include <lua.h>
-#include <lauxlib.h>
+#include "lua.h"
+#include "lauxlib.h"
 
 #include "strbuf.h"
 
