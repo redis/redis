@@ -2,10 +2,7 @@ Where to find complete Redis documentation?
 -------------------------------------------
 
 This README is just a fast "quick start" document. You can find more detailed
-documentation here:
-
-1) http://code.google.com/p/redis
-2) Check the 'doc' directory. doc/README.html is a good starting point :)
+documentation at http://redis.io
 
 Building Redis
 --------------
@@ -15,34 +12,45 @@ It is as simple as:
     % make
 
 Redis is just a single binary, but if you want to install it you can use
-the "make install" target that will copy the binary to /usr/local/bin
-by default. You can also use "make PREFIX=/some/other/directory install"
+the "make install" target that will copy the binary in /usr/local/bin
+for default. You can also use "make PREFIX=/some/other/directory install"
 if you wish to use a different destination.
 
 You can run a 32 bit Redis binary using:
 
     % make 32bit
 
-After you build Redis is a good idea to test it (which require Tcl), using:
+After building Redis is a good idea to test it, using:
 
     % make test
 
-Buliding using tcmalloc
------------------------
+NOTE: if after building Redis with a 32 bit target you need to rebuild it
+      with a 64 bit target you need to perform a "make clean" in the root
+      directory of the Redis distribution.
 
-tcmalloc is a fast and space efficient implementation (for little objects)
-of malloc(). Compiling Redis with it can improve performance and memory
-usage. You can read more about it here:
+Allocator
+---------
 
-http://goog-perftools.sourceforge.net/doc/tcmalloc.html
+By default Redis compiles and links against jemalloc under Linux, since
+glibc malloc() has memory fragmentation problems.
 
-In order to compile Redis with tcmalloc support, install tcmalloc on your system
-and then use:
+To force a libc malloc() build use:
 
-    % make USE_TCMALLOC=yes
+    make FORCE_LIBC_MALLOC=yes
 
-Note that you can pass any other target to make, as long as you append
-USE_TCMALLOC=yes at the end.
+In all the other non Linux systems the libc malloc() is used by default.
+
+On Mac OS X you can force a jemalloc based build using the following:
+
+    make USE_JEMALLOC=yes
+
+Verbose build
+-------------
+
+Redis will build with a user friendly colorized output by default.
+If you want to see a more verbose output use the following:
+
+    make V=1
 
 Running Redis
 -------------
@@ -80,7 +88,6 @@ then in another terminal try the following:
 
 You can find the list of all the available commands here:
 
-    http://code.google.com/p/redis/wiki/CommandReference
+    http://redis.io/commands
 
 Enjoy!
-
