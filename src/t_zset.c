@@ -929,7 +929,7 @@ void zaddGenericCommand(redisClient *c, int incr) {
             } else {
                 znode = zslInsert(zs->zsl,score,ele);
                 incrRefCount(ele); /* Inserted in skiplist. */
-                redisAssertWithInfo(c,curobj,dictAdd(zs->dict,ele,&znode->score) == DICT_OK);
+                redisAssertWithInfo(c,NULL,dictAdd(zs->dict,ele,&znode->score) == DICT_OK);
                 incrRefCount(ele); /* Added to dictionary. */
 
                 signalModifiedKey(c->db,key);

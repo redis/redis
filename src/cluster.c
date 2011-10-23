@@ -439,7 +439,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
              * time PONG figure if it is newer than our figure.
              * Note that it's not a problem if we have a PING already 
              * in progress against this node. */
-            if (node->pong_received < ntohl(g->pong_received)) {
+            if (node->pong_received < (signed) ntohl(g->pong_received)) {
                  redisLog(REDIS_DEBUG,"Node pong_received updated by gossip");
                 node->pong_received = ntohl(g->pong_received);
             }
