@@ -1,3 +1,6 @@
+#include "redis.h"
+#include "lzf.h"    /* LZF compression library */
+
 #include <math.h>
 #include <sys/types.h>
 #include <sys/time.h>
@@ -5,8 +8,6 @@
 #include <sys/wait.h>
 #include <arpa/inet.h>
 #include <sys/stat.h>
-#include "rdb.h"
-#include "lzf.h" /* LZF compression library */
 
 static int rdbWriteRaw(rio *rdb, void *p, size_t len) {
     if (rdb && rioWrite(rdb,p,len) == 0)
