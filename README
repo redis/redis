@@ -11,11 +11,6 @@ It is as simple as:
 
     % make
 
-Redis is just a single binary, but if you want to install it you can use
-the "make install" target that will copy the binary in /usr/local/bin
-for default. You can also use "make PREFIX=/some/other/directory install"
-if you wish to use a different destination.
-
 You can run a 32 bit Redis binary using:
 
     % make 32bit
@@ -36,13 +31,13 @@ glibc malloc() has memory fragmentation problems.
 
 To force a libc malloc() build use:
 
-    make FORCE_LIBC_MALLOC=yes
+    % make FORCE_LIBC_MALLOC=yes
 
 In all the other non Linux systems the libc malloc() is used by default.
 
 On Mac OS X you can force a jemalloc based build using the following:
 
-    make USE_JEMALLOC=yes
+    % make USE_JEMALLOC=yes
 
 Verbose build
 -------------
@@ -50,7 +45,7 @@ Verbose build
 Redis will build with a user friendly colorized output by default.
 If you want to see a more verbose output use the following:
 
-    make V=1
+    % make V=1
 
 Running Redis
 -------------
@@ -90,5 +85,30 @@ You can find the list of all the available commands here:
 
     http://redis.io/commands
 
-Enjoy!
+Installing Redis
+-----------------
 
+In order to install Redis binaries into /usr/local/bin just use:
+
+    % make install
+
+You can use "make PREFIX=/some/other/directory install" if you wish to use a
+different destination.
+
+Make install will just install binaries in your system, but will not configure
+init scripts and configuration files in the appropriate place. This is not
+needed if you want just to play a bit with Redis, but if you are installing
+it the proper way for a production system, we have a script doing this
+for Ubuntu and Debian systems:
+
+    % cd utils
+    % ./install_server
+
+The script will ask you a few questions and will setup everything you need
+to run Redis properly as a background daemon that will start again on
+system reboots.
+
+You'll be able to stop and start Redis using the script named
+/etc/init.d/redis_<portnumber>, for instance /etc/init.d/redis_6379.
+
+Enjoy!
