@@ -9,12 +9,10 @@ redis-check-dump
 redis-check-aof
 doc-tools
 release
-myredis.conf
 misc/*
 src/release.h
 appendonly.aof
 SHORT_TERM_TODO
-redis.conf.*
 release.h
 src/transfer.sh
 src/configs
