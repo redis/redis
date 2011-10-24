@@ -215,7 +215,8 @@ struct redisCommand redisCommandTable[] = {
     {"client",clientCommand,-2,"ar",0,NULL,0,0,0,0,0},
     {"eval",evalCommand,-3,"wms",0,zunionInterGetKeys,0,0,0,0,0},
     {"evalsha",evalShaCommand,-3,"wms",0,zunionInterGetKeys,0,0,0,0,0},
-    {"slowlog",slowlogCommand,-2,"r",0,NULL,0,0,0,0,0}
+    {"slowlog",slowlogCommand,-2,"r",0,NULL,0,0,0,0,0},
+    {"script",scriptCommand,-2,"ras",0,NULL,0,0,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
@@ -869,6 +870,7 @@ void initServerConfig() {
     server.cluster_enabled = 0;
     server.cluster.configfile = zstrdup("nodes.conf");
     server.lua_time_limit = REDIS_LUA_TIME_LIMIT;
+    server.lua_client = NULL;
 
     updateLRUClock();
     resetServerSaveParams();

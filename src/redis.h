@@ -1128,6 +1128,7 @@ void objectCommand(redisClient *c);
 void clientCommand(redisClient *c);
 void evalCommand(redisClient *c);
 void evalShaCommand(redisClient *c);
+void scriptCommand(redisClient *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
