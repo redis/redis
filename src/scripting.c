@@ -606,7 +606,7 @@ void evalGenericCommand(redisClient *c, int evalsha) {
      * is running for too much time.
      * We set the hook only if the time limit is enabled as the hook will
      * make the Lua script execution slower. */
-    if (server.lua_time_limit > 0) {
+    if (server.lua_time_limit > 0 && server.masterhost != NULL) {
         lua_sethook(lua,luaMaskCountHook,LUA_MASKCOUNT,100000);
         server.lua_time_start = ustime()/1000;
     } else {
