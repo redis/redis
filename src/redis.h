@@ -209,7 +209,7 @@
 #define REDIS_MAXMEMORY_NO_EVICTION 5
 
 /* Scripting */
-#define REDIS_LUA_TIME_LIMIT 60000 /* milliseconds */
+#define REDIS_LUA_TIME_LIMIT 5000 /* milliseconds */
 
 /* We can print the stacktrace, so our assert is defined this way: */
 #define redisAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_redisAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),_exit(1)))
