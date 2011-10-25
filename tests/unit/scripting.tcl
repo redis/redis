@@ -47,8 +47,13 @@ start_server {tags {"scripting"}} {
         r evalsha 9bd632c7d33e571e9f24556ebed26c3479a87129 0
     } {myval}
 
+    test {EVALSHA - Do we get an error on invalid SHA1?} {
+        catch {r evalsha NotValidShaSUM 0} e
+        set _ $e
+    } {NOSCRIPT*}
+
     test {EVALSHA - Do we get an error on non defined SHA1?} {
-        catch {r evalsha ffffffffffffffffffffffffffffffffffffffff 0} e
+        catch {r evalsha ffd632c7d33e571e9f24556ebed26c3479a87130 0} e
         set _ $e
     } {NOSCRIPT*}
 
@@ -162,6 +167,27 @@ start_server {tags {"scripting"}} {
         } e
         set e
     } {*against a key*}
+
+    test {SCRIPTING FLUSH - is able to clear the scripts cache?} {
+        r set mykey myval
+        set v [r evalsha 9bd632c7d33e571e9f24556ebed26c3479a87129 0]
+        assert_equal $v myval
+        set e ""
+        r script flush
+        catch {r evalsha 9bd632c7d33e571e9f24556ebed26c3479a87129 0} e
+        set e
+    } {NOSCRIPT*}
+
+    test {SCRIPT EXISTS - can detect already defined scripts?} {
+        r eval "return 1+1" 0
+        r script exists a27e7e8a43702b7046d4f6a7ccf5b60cef6b9bd9 a27e7e8a43702b7046d4f6a7ccf5b60cef6b9bda
+    } {1 0}
+
+    test {SCRIPT LOAD - is able to register scripts in the scripting cache} {
+        list \
+            [r script load "return 'loaded'"] \
+            [r evalsha b534286061d4b9e4026607613b95c06c06015ae8 0]
+    } {OK loaded}
 }
 
 start_server {tags {"scripting repl"}} {
