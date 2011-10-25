@@ -187,7 +187,7 @@ start_server {tags {"scripting"}} {
         list \
             [r script load "return 'loaded'"] \
             [r evalsha b534286061d4b9e4026607613b95c06c06015ae8 0]
-    } {OK loaded}
+    } {b534286061d4b9e4026607613b95c06c06015ae8 loaded}
 }
 
 start_server {tags {"scripting repl"}} {
