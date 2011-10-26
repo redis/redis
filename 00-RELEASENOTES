@@ -18,6 +18,17 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
+What's new in Redis 2.4.2
+=========================
+
+* [BUGFIX] Unix socket creation mask config directive fixed.
+* [BUGFIX] Fixed a bug that forced Redis to continously rewrite the AOF file
+           when a manual BGREWRITEAOF was issued during a BGSAVE was
+           still in progress.
+* [BUGFIX] Fixed a server crash resulting from bad handling of SLAVEOF NO ONE.
+* [BUGFIX] Fixed a memory leak in redis-cli.
+* Debian/Ubuntu Redis system-wide installation script added under /utils.
+
 What's new in Redis 2.4.1
 =========================
 
