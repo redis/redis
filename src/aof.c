@@ -683,6 +683,7 @@ int rewriteAppendOnlyFileBackground(void) {
         }
         redisLog(REDIS_NOTICE,
             "Background append only file rewriting started by pid %d",childpid);
+        server.aofrewrite_scheduled = 0;
         server.bgrewritechildpid = childpid;
         updateDictResizePolicy();
         /* We set appendseldb to -1 in order to force the next call to the
