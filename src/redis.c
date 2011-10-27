@@ -794,7 +794,7 @@ void createSharedObjects(void) {
     shared.loadingerr = createObject(REDIS_STRING,sdsnew(
         "-LOADING Redis is loading the dataset in memory\r\n"));
     shared.slowscripterr = createObject(REDIS_STRING,sdsnew(
-        "-SLOWSCRIPT Redis is busy running a script. Please wait or stop the server with SHUTDOWN.\r\n"));
+        "-BUSY Redis is busy running a script. Please wait or stop the server with SHUTDOWN.\r\n"));
     shared.space = createObject(REDIS_STRING,sdsnew(" "));
     shared.colon = createObject(REDIS_STRING,sdsnew(":"));
     shared.plus = createObject(REDIS_STRING,sdsnew("+"));
