@@ -793,6 +793,8 @@ void createSharedObjects(void) {
         "-NOSCRIPT No matching script. Please use EVAL.\r\n"));
     shared.loadingerr = createObject(REDIS_STRING,sdsnew(
         "-LOADING Redis is loading the dataset in memory\r\n"));
+    shared.slowscripterr = createObject(REDIS_STRING,sdsnew(
+        "-SLOWSCRIPT Redis is busy running a script. Please wait or stop the server with SHUTDOWN.\r\n"));
     shared.space = createObject(REDIS_STRING,sdsnew(" "));
     shared.colon = createObject(REDIS_STRING,sdsnew(":"));
     shared.plus = createObject(REDIS_STRING,sdsnew("+"));
@@ -871,6 +873,7 @@ void initServerConfig() {
     server.cluster.configfile = zstrdup("nodes.conf");
     server.lua_time_limit = REDIS_LUA_TIME_LIMIT;
     server.lua_client = NULL;
+    server.lua_timedout = 0;
 
     updateLRUClock();
     resetServerSaveParams();
@@ -1180,6 +1183,12 @@ int processCommand(redisClient *c) {
     /* Loading DB? Return an error if the command is not INFO */
     if (server.loading && c->cmd->proc != infoCommand) {
         addReply(c, shared.loadingerr);
+        return REDIS_OK;
+    }
+
+    /* Lua script too slow? */
+    if (server.lua_timedout && c->cmd->proc != shutdownCommand) {
+        addReply(c, shared.slowscripterr);
         return REDIS_OK;
     }
 

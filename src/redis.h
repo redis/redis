@@ -345,7 +345,7 @@ struct sharedObjectsStruct {
     robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *cnegone, *pong, *space,
     *colon, *nullbulk, *nullmultibulk, *queued,
     *emptymultibulk, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
-    *outofrangeerr, *noscripterr, *loadingerr, *plus,
+    *outofrangeerr, *noscripterr, *loadingerr, *slowscripterr, *plus,
     *select0, *select1, *select2, *select3, *select4,
     *select5, *select6, *select7, *select8, *select9,
     *messagebulk, *pmessagebulk, *subscribebulk, *unsubscribebulk, *mbulk3,
@@ -639,6 +639,8 @@ struct redisServer {
     long long lua_time_start;
     int lua_random_dirty; /* True if a random command was called during the
                              exection of the current script. */
+    int lua_timedout;     /* True if we reached the time limit for script
+                             execution. */
 };
 
 typedef struct pubsubPattern {
