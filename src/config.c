@@ -250,7 +250,11 @@ void loadServerConfig(char *filename) {
         {
             server.auto_aofrewrite_min_size = memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
-            server.requirepass = zstrdup(argv[1]);
+            if (!strcasecmp(argv[1],"''") || !strcasecmp(argv[1],'""')) {
+                server.requirepass = NULL;
+            } else {
+                server.requirepass = zstrdup(argv[1]);
+            }
         } else if (!strcasecmp(argv[0],"pidfile") && argc == 2) {
             zfree(server.pidfile);
             server.pidfile = zstrdup(argv[1]);
