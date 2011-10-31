@@ -504,13 +504,10 @@ void slaveofCommand(redisClient *c) {
 
 /* --------------------------- REPLICATION CRON  ---------------------------- */
 
-#define REDIS_REPL_TIMEOUT 60
-#define REDIS_REPL_PING_SLAVE_PERIOD 10
-
 void replicationCron(void) {
     /* Bulk transfer I/O timeout? */
     if (server.masterhost && server.replstate == REDIS_REPL_TRANSFER &&
-        (time(NULL)-server.repl_transfer_lastio) > REDIS_REPL_TIMEOUT)
+        (time(NULL)-server.repl_transfer_lastio) > server.repl_timeout)
     {
         redisLog(REDIS_WARNING,"Timeout receiving bulk data from MASTER...");
         replicationAbortSyncTransfer();
@@ -518,7 +515,7 @@ void replicationCron(void) {
 
     /* Timed out master when we are an already connected slave? */
     if (server.masterhost && server.replstate == REDIS_REPL_CONNECTED &&
-        (time(NULL)-server.master->lastinteraction) > REDIS_REPL_TIMEOUT)
+        (time(NULL)-server.master->lastinteraction) > server.repl_timeout)
     {
         redisLog(REDIS_WARNING,"MASTER time out: no data nor PING received...");
         freeClient(server.master);
@@ -536,7 +533,7 @@ void replicationCron(void) {
      * So slaves can implement an explicit timeout to masters, and will
      * be able to detect a link disconnection even if the TCP connection
      * will not actually go down. */
-    if (!(server.cronloops % (REDIS_REPL_PING_SLAVE_PERIOD*10))) {
+    if (!(server.cronloops % (server.repl_ping_slave_period*10))) {
         listIter li;
         listNode *ln;
 

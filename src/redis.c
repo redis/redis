@@ -869,6 +869,8 @@ void initServerConfig() {
     server.zset_max_ziplist_entries = REDIS_ZSET_MAX_ZIPLIST_ENTRIES;
     server.zset_max_ziplist_value = REDIS_ZSET_MAX_ZIPLIST_VALUE;
     server.shutdown_asap = 0;
+	server.repl_ping_slave_period = REDIS_REPL_PING_SLAVE_PERIOD;
+	server.repl_timeout = REDIS_REPL_TIMEOUT;
     server.cluster_enabled = 0;
     server.cluster.configfile = zstrdup("nodes.conf");
     server.lua_time_limit = REDIS_LUA_TIME_LIMIT;
