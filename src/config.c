@@ -345,7 +345,7 @@ void configSetCommand(redisClient *c) {
         server.dbfilename = zstrdup(o->ptr);
     } else if (!strcasecmp(c->argv[2]->ptr,"requirepass")) {
         zfree(server.requirepass);
-        server.requirepass = zstrdup(o->ptr);
+        server.requirepass = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
     } else if (!strcasecmp(c->argv[2]->ptr,"masterauth")) {
         zfree(server.masterauth);
         server.masterauth = zstrdup(o->ptr);
