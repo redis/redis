@@ -195,6 +195,18 @@ void loadServerConfig(char *filename) {
             server.masterhost = sdsnew(argv[1]);
             server.masterport = atoi(argv[2]);
             server.replstate = REDIS_REPL_CONNECT;
+        } else if (!strcasecmp(argv[0],"repl-ping-slave-period") && argc == 2) {
+            server.repl_ping_slave_period = atoi(argv[1]);
+            if (server.repl_ping_slave_period <= 0) {
+                err = "repl-ping-slave-period must be 1 or greater";
+                goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"repl-timeout") && argc == 2) {
+            server.repl_timeout = atoi(argv[1]);
+            if (server.repl_timeout <= 0) {
+                err = "repl-timeout must be 1 or greater";
+                goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"masterauth") && argc == 2) {
         	server.masterauth = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"slave-serve-stale-data") && argc == 2) {
