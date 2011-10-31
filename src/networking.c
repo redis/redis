@@ -412,7 +412,7 @@ static void acceptCommonHandler(int fd) {
      * connection. Note that we create the client instead to check before
      * for this condition, since now the socket is already set in nonblocking
      * mode and we can send an error for free using the Kernel I/O */
-    if (server.maxclients && listLength(server.clients) > server.maxclients) {
+    if (listLength(server.clients) > server.maxclients) {
         char *err = "-ERR max number of clients reached\r\n";
 
         /* That's a best effort error message, don't check write errors */

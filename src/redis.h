@@ -55,6 +55,7 @@
 #define REDIS_AUTO_AOFREWRITE_MIN_SIZE (1024*1024)
 #define REDIS_SLOWLOG_LOG_SLOWER_THAN 10000
 #define REDIS_SLOWLOG_MAX_LEN 64
+#define REDIS_MAX_CLIENTS 10000
 
 /* Hash table parameters */
 #define REDIS_HT_MINFILL        10      /* Minimal hash table fill 10% */
