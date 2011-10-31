@@ -236,32 +236,7 @@ typedef struct redisObject {
     unsigned lru:22;        /* lru time (relative to server.lruclock) */
     int refcount;
     void *ptr;
-    /* VM fields are only allocated if VM is active, otherwise the
-     * object allocation function will just allocate
-     * sizeof(redisObjct) minus sizeof(redisObjectVM), so using
-     * Redis without VM active will not have any overhead. */
 } robj;
-
-/* The VM pointer structure - identifies an object in the swap file.
- *
- * This object is stored in place of the value
- * object in the main key->value hash table representing a database.
- * Note that the first fields (type, storage) are the same as the redisObject
- * structure so that vmPointer strucuters can be accessed even when casted
- * as redisObject structures.
- *
- * This is useful as we don't know if a value object is or not on disk, but we
- * are always able to read obj->storage to check this. For vmPointer
- * structures "type" is set to REDIS_VMPOINTER (even if without this field
- * is still possible to check the kind of object from the value of 'storage').*/
-typedef struct vmPointer {
-    unsigned type:4;
-    unsigned storage:2; /* REDIS_VM_SWAPPED or REDIS_VM_LOADING */
-    unsigned notused:26;
-    unsigned int vtype; /* type of the object stored in the swap file */
-    off_t page;         /* the page at witch the object is stored on disk */
-    off_t usedpages;    /* number of pages used on disk */
-} vmpointer;
 
 /* Macro used to initalize a Redis object allocated on the stack.
  * Note that this macro is taken near the structure definition to make sure
