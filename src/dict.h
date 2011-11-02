@@ -33,6 +33,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <stdint.h>
+
 #ifndef __DICT_H
 #define __DICT_H
 
@@ -44,7 +46,11 @@
 
 typedef struct dictEntry {
     void *key;
-    void *val;
+    union {
+        void *val;
+        uint64_t u64;
+        int64_t i64;
+    } v;
     struct dictEntry *next;
 } dictEntry;
 
@@ -90,13 +96,13 @@ typedef struct dictIterator {
 /* ------------------------------- Macros ------------------------------------*/
 #define dictFreeEntryVal(d, entry) \
     if ((d)->type->valDestructor) \
-        (d)->type->valDestructor((d)->privdata, (entry)->val)
+        (d)->type->valDestructor((d)->privdata, (entry)->v.val)
 
 #define dictSetHashVal(d, entry, _val_) do { \
     if ((d)->type->valDup) \
-        entry->val = (d)->type->valDup((d)->privdata, _val_); \
+        entry->v.val = (d)->type->valDup((d)->privdata, _val_); \
     else \
-        entry->val = (_val_); \
+        entry->v.val = (_val_); \
 } while(0)
 
 #define dictFreeEntryKey(d, entry) \
@@ -118,7 +124,7 @@ typedef struct dictIterator {
 #define dictHashKey(d, key) (d)->type->hashFunction(key)
 
 #define dictGetEntryKey(he) ((he)->key)
-#define dictGetEntryVal(he) ((he)->val)
+#define dictGetEntryVal(he) ((he)->v.val)
 #define dictSlots(d) ((d)->ht[0].size+(d)->ht[1].size)
 #define dictSize(d) ((d)->ht[0].used+(d)->ht[1].used)
 #define dictIsRehashing(ht) ((ht)->rehashidx != -1)
