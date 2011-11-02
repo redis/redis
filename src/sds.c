@@ -101,6 +101,12 @@ void sdsclear(sds s) {
     sh->buf[0] = '\0';
 }
 
+/* Enlarge the free space at the end of the sds string so that the caller
+ * is sure that after calling this function can overwrite up to addlen
+ * bytes after the end of the string, plus one more byte for nul term.
+ * 
+ * Note: this does not change the *size* of the sds string as returned
+ * by sdslen(), but only the free buffer space we have. */
 static sds sdsMakeRoomFor(sds s, size_t addlen) {
     struct sdshdr *sh, *newsh;
     size_t free = sdsavail(s);
