@@ -833,12 +833,14 @@ void processInputBuffer(redisClient *c) {
 
 void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     redisClient *c = (redisClient*) privdata;
-    char buf[REDIS_IOBUF_LEN];
     int nread;
+    size_t qblen;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
 
-    nread = read(fd, buf, REDIS_IOBUF_LEN);
+    qblen = sdslen(c->querybuf);
+    c->querybuf = sdsMakeRoomFor(c->querybuf, REDIS_IOBUF_LEN);
+    nread = read(fd, c->querybuf+qblen, REDIS_IOBUF_LEN);
     if (nread == -1) {
         if (errno == EAGAIN) {
             nread = 0;
@@ -853,7 +855,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         return;
     }
     if (nread) {
-        c->querybuf = sdscatlen(c->querybuf,buf,nread);
+        sdsIncrLen(c->querybuf,nread);
         c->lastinteraction = time(NULL);
     } else {
         return;
