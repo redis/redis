@@ -775,15 +775,32 @@ int processMultibulkBuffer(redisClient *c) {
             /* Not enough data (+2 == trailing \r\n) */
             break;
         } else {
-            c->argv[c->argc++] = createStringObject(c->querybuf+pos,c->bulklen);
-            pos += c->bulklen+2;
+            /* Optimization: if the buffer contanins JUST our bulk element
+             * instead of creating a new object by *copying* the sds we
+             * just use the current sds string. */
+            if (pos == 0 &&
+                sdslen(c->querybuf) > 4096 &&
+                (signed) sdslen(c->querybuf) == c->bulklen+2)
+            {
+                c->argv[c->argc++] = createObject(REDIS_STRING,c->querybuf);
+                sdsIncrLen(c->querybuf,-2); /* remove CRLF */
+                c->querybuf = sdsempty();
+                /* Assume that if we saw a fat argument we'll see another one
+                 * likely... */
+                c->querybuf = sdsMakeRoomFor(c->querybuf,c->bulklen+2);
+                pos = 0;
+            } else {
+                c->argv[c->argc++] =
+                    createStringObject(c->querybuf+pos,c->bulklen);
+                pos += c->bulklen+2;
+            }
             c->bulklen = -1;
             c->multibulklen--;
         }
     }
 
     /* Trim to pos */
-    c->querybuf = sdsrange(c->querybuf,pos,-1);
+    if (pos) c->querybuf = sdsrange(c->querybuf,pos,-1);
 
     /* We're done when c->multibulk == 0 */
     if (c->multibulklen == 0) {
