@@ -367,7 +367,7 @@ int parseOptions(int argc, const char **argv) {
             if (lastarg) goto invalid;
             config.datasize = atoi(argv[++i]);
             if (config.datasize < 1) config.datasize=1;
-            if (config.datasize > 1024*1024) config.datasize = 1024*1024;
+            if (config.datasize > 1024*1024*1024) config.datasize = 1024*1024*1024;
         } else if (!strcmp(argv[i],"-r")) {
             if (lastarg) goto invalid;
             config.randomkeys = 1;
@@ -500,6 +500,7 @@ int main(int argc, const char **argv) {
         memset(data,'x',config.datasize);
         data[config.datasize] = '\0';
 
+#if 0
         benchmark("PING (inline)","PING\r\n",6);
 
         len = redisFormatCommand(&cmd,"PING");
@@ -515,6 +516,7 @@ int main(int argc, const char **argv) {
         len = redisFormatCommandArgv(&cmd,21,argv,NULL);
         benchmark("MSET (10 keys)",cmd,len);
         free(cmd);
+#endif
 
         len = redisFormatCommand(&cmd,"SET foo:rand:000000000000 %s",data);
         benchmark("SET",cmd,len);
