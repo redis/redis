@@ -59,6 +59,7 @@
 
 #define REDIS_REPL_TIMEOUT 60
 #define REDIS_REPL_PING_SLAVE_PERIOD 10
+#define REDIS_MBULK_BIG_ARG (1024*32)
 
 /* Hash table parameters */
 #define REDIS_HT_MINFILL        10      /* Minimal hash table fill 10% */
