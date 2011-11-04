@@ -500,7 +500,6 @@ int main(int argc, const char **argv) {
         memset(data,'x',config.datasize);
         data[config.datasize] = '\0';
 
-#if 0
         benchmark("PING (inline)","PING\r\n",6);
 
         len = redisFormatCommand(&cmd,"PING");
@@ -516,7 +515,6 @@ int main(int argc, const char **argv) {
         len = redisFormatCommandArgv(&cmd,21,argv,NULL);
         benchmark("MSET (10 keys)",cmd,len);
         free(cmd);
-#endif
 
         len = redisFormatCommand(&cmd,"SET foo:rand:000000000000 %s",data);
         benchmark("SET",cmd,len);
