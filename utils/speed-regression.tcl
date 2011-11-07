@@ -4,6 +4,9 @@
 
 source ../tests/support/redis.tcl
 set ::port 12123
+set ::tests {PING,SET,GET,INCR,LPUSH,LPOP,SADD,SPOP,LRANGE_100,LRANGE_600,MSET}
+set ::datasize 16
+set ::requests 100000
 
 proc run-tests branches {
     set runs {}
@@ -35,7 +38,7 @@ proc run-tests branches {
         puts "  redis INFO shows version: [lindex [split $i] 0]"
         $r close
 
-        set output [exec /tmp/redis-benchmark -n 100000 --csv -p $::port]
+        set output [exec /tmp/redis-benchmark -n $::requests -t $::tests -d $::datasize --csv -p $::port]
         lappend runs $b $output
         puts "  killing server..."
         catch {exec kill -9 [lindex $pids 0]}
@@ -86,6 +89,8 @@ proc main {} {
         slowset 2.2.0 2.4.0 unstable slowset
     }
     set results [run-tests $branches]
+    puts "\n"
+    puts "# Test results: datasize=$::datasize requests=$::requests"
     puts [combine-results $results]
 }
 
