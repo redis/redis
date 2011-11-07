@@ -49,13 +49,18 @@ proc get-result-with-name {output name} {
     return "n/a"
 }
 
-proc combine-results {results} {
-    set tests {
-        ping set get incr lpush lpop sadd spop
-        "lrange (first 100 elements)"
-        "lrange (first 600 elements)"
-        "mset (10 keys)"
+proc get-test-names output {
+    set names {}
+    foreach line [split $output "\n"] {
+        lassign [split $line ","] key value
+        set key [string tolower [string range $key 1 end-1]]
+        lappend names $key
     }
+    return $names
+}
+
+proc combine-results {results} {
+    set tests [get-test-names [lindex $results 1]]
     foreach test $tests {
         puts $test
         foreach {branch output} $results {
