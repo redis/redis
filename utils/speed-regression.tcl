@@ -108,4 +108,23 @@ if {!$is_not_running} {
     exit 1
 }
 
+# parse arguments
+for {set j 0} {$j < [llength $argv]} {incr j} {
+    set opt [lindex $argv $j]
+    set arg [lindex $argv [expr $j+1]]
+    if {$opt eq {--tests}} {
+        set ::tests $arg
+        incr j
+    } elseif {$opt eq {--datasize}} {
+        set ::datasize $arg
+        incr j
+    } elseif {$opt eq {--requests}} {
+        set ::requests $arg
+        incr j
+    } else {
+        puts "Wrong argument: $opt"
+        exit 1
+    }
+}
+
 main
