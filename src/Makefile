@@ -175,6 +175,12 @@ dependencies:
 redis-server: dependencies $(OBJ)
 	$(QUIET_LINK)$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) $(CCLINK) $(ALLOC_LINK) ../deps/lua/src/liblua.a
 
+redis_jni_Redis.o: redis_jni_Redis.c
+	$(CC) -c $(CFLAGS) -I../deps/lua/src -I/System/Library/Frameworks/JavaVM.framework/Headers $(DEBUG) $(COMPILE_TIME) $<
+
+libredis.dylib: dependencies $(OBJ) redis_jni_Redis.o
+	$(QUIET_LINK)$(CC) -dynamiclib -o libredis.dylib $(CCOPT) $(DEBUG) $(OBJ) redis_jni_Redis.o $(CCLINK) $(ALLOC_LINK) ../deps/lua/src/liblua.a
+
 redis-benchmark: dependencies $(BENCHOBJ)
 	@cd ../deps/hiredis && $(MAKE) static
 	$(QUIET_LINK)$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a $(CCLINK) $(ALLOC_LINK)
