@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include "sds.h"
 #include "redis.h"
 #include "redis_jni_Redis.h"
 
@@ -57,7 +58,7 @@ JNIEXPORT void JNICALL Java_redis_jni_Redis_eventloop(JNIEnv *env, jclass class)
     aeDeleteEventLoop(server.el);
 }
 
-JNIEXPORT void JNICALL Java_redis_jni_Redis_command(JNIEnv *env, jclass class, jobjectArray paramArray) {
+JNIEXPORT jbyteArray JNICALL Java_redis_jni_Redis_command(JNIEnv *env, jclass class, jobjectArray paramArray) {
     int j, argc;
     struct redisCommand *cmd;
     robj **argv;
@@ -65,7 +66,10 @@ JNIEXPORT void JNICALL Java_redis_jni_Redis_command(JNIEnv *env, jclass class, j
     jbyte **bytes;
     redisClient *c = jniClient;
     jboolean isCopy;
-    int len;
+    sds reply;
+    int len = 0;
+    int replylen = 0;
+    jbyteArray result;
 
     argc = (*env)->GetArrayLength(env, paramArray);
 
@@ -111,18 +115,21 @@ JNIEXPORT void JNICALL Java_redis_jni_Redis_command(JNIEnv *env, jclass class, j
     /* Run the command */
     cmd->proc(c);
 
+    reply = sdsempty();
     if (c->bufpos) {
-      printf("%d chars in reply\n", c->bufpos);
-      c->bufpos = 0;
+        reply = sdscatlen(reply,c->buf,c->bufpos);
+        len += c->bufpos;
+        c->bufpos = 0;
     }
     while(listLength(c->reply)) {
         robj *o = listNodeValue(listFirst(c->reply));
-        printf("found: %s\n", o->ptr);
+        replylen = sdslen(o->ptr);
+        reply = sdscatlen(reply, o->ptr, replylen);
+        len += replylen;
         listDelNode(c->reply,listFirst(c->reply));
     }
 
 cleanup:
-    fflush(0);
     /* Clean up. Command code may have changed argv/argc so we use the
      * argv/argc of the client instead of the local variables. */
     for (j = 0; j < c->argc; j++) {
@@ -132,4 +139,12 @@ cleanup:
     zfree(c->argv);
     zfree(params);
     zfree(bytes);
+
+    if (reply) {
+      result = (*env)->NewByteArray(env, len);
+      (*env)->SetByteArrayRegion(env, result, 0, len, reply);
+      return result;
+    } else {
+      return (*env)->NewByteArray(env, 0);
+    }
 }

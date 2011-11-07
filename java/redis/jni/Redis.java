@@ -45,10 +45,18 @@ public class Redis {
 
   public native static void start(String configFile);
   public native static void eventloop();
-  public native static synchronized void command(byte[]... parameters);
+  public native static synchronized byte[] command(byte[]... parameters);
 
   public static void main(String[] args) throws InterruptedException {
-    command("set".getBytes(), "test".getBytes(), "jni".getBytes());
+    command($("set"), $("test"), $("jni"));
+    command($("get"), $("test"));
+    command($("sadd"), $("set"), $("a"));
+    command($("sadd"), $("set"), $("b"));
+    command($("sadd"), $("set"), $("c"));
+  }
+
+  public static byte[] $(String s) {
+    return s.getBytes();
   }
 
   public static int findFreePort()

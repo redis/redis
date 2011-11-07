@@ -26,9 +26,9 @@ JNIEXPORT void JNICALL Java_redis_jni_Redis_eventloop
 /*
  * Class:     redis_jni_Redis
  * Method:    command
- * Signature: ([[B)V
+ * Signature: ([[B)[B
  */
-JNIEXPORT void JNICALL Java_redis_jni_Redis_command
+JNIEXPORT jbyteArray JNICALL Java_redis_jni_Redis_command
   (JNIEnv *, jclass, jobjectArray);
 
 #ifdef __cplusplus
