@@ -2,6 +2,9 @@
 # Copyright (C) 2011 Salvatore Sanfilippo
 # Released under the BSD license like Redis itself
 
+source ../tests/support/redis.tcl
+set ::port 12123
+
 proc run-tests branches {
     set runs {}
     set branch_id 0
@@ -22,16 +25,21 @@ proc run-tests branches {
 
         # Start the Redis server
         puts "  starting the server... [exec ./redis-server -v]"
-        set pids [exec echo "port 12123\nloglevel warning\n" | ./redis-server - > /dev/null 2> /dev/null &]
+        set pids [exec echo "port $::port\nloglevel warning\n" | ./redis-server - > /dev/null 2> /dev/null &]
+        puts "  pids: $pids"
         after 1000
         puts "  running the benchmark"
-        set output [exec /tmp/redis-benchmark -n 100000 --csv -p 12123]
+
+        set r [redis 127.0.0.1 $::port]
+        set i [$r info]
+        puts "  redis INFO shows version: [lindex [split $i] 0]"
+        $r close
+
+        set output [exec /tmp/redis-benchmark -n 100000 --csv -p $::port]
         lappend runs $b $output
         puts "  killing server..."
-        catch {
-            exec kill -9 [lindex $pids 0]
-            exec kill -9 [lindex $pids 1]
-        }
+        catch {exec kill -9 [lindex $pids 0]}
+        catch {exec kill -9 [lindex $pids 1]}
         incr branch_id
     }
     return $runs
@@ -87,4 +95,12 @@ if {![file exists speed-regression.tcl]} {
     puts "Example: cd utils; ./speed-regression.tcl"
     exit 1
 }
+
+# Make sure there is not already a server runnign on port 12123
+set is_not_running [catch {set r [redis 127.0.0.1 $::port]}]
+if {!$is_not_running} {
+    puts "Sorry, you have a running server on port $::port"
+    exit 1
+}
+
 main
