@@ -49,11 +49,12 @@ JNIEXPORT void JNICALL Java_redis_jni_Redis_start(JNIEnv *env, jclass class, jst
     jniClient = createClient(-1);
     jniClient->flags |= REDIS_LUA_CLIENT;
     selectDb(jniClient, 0);
-    printf("Redis client initialized\n");
+    redisLog(REDIS_NOTICE, "Redis client initialized\n");
   }
 }
 
 JNIEXPORT void JNICALL Java_redis_jni_Redis_eventloop(JNIEnv *env, jclass class) {
+    redisLog(REDIS_NOTICE, "Starting Redis eventloop\n");
     aeMain(server.el);
     aeDeleteEventLoop(server.el);
 }
@@ -94,19 +95,19 @@ JNIEXPORT jbyteArray JNICALL Java_redis_jni_Redis_command(JNIEnv *env, jclass cl
                    (argc < -cmd->arity)))
     {
         if (cmd)
-            printf("Wrong number of args calling Redis command\n");
+            redisLog(REDIS_ERR, "Wrong number of args calling Redis command\n");
         else
-            printf("Unknown Redis command called\n");
+            redisLog(REDIS_ERR, "Unknown Redis command called\n");
         goto cleanup;
     }
 
     if (cmd->flags & REDIS_CMD_NOSCRIPT) {
-        printf("This Redis command is not allowed from scripts\n");
+        redisLog(REDIS_ERR, "This Redis command is not allowed from scripts");
         goto cleanup;
     }
 
     if (cmd->flags & REDIS_CMD_WRITE && server.lua_random_dirty) {
-        printf("Write commands not allowed after non deterministic commands\n");
+        redisLog(REDIS_ERR, "Write commands not allowed after non deterministic commands\n");
         goto cleanup;
     }
 
@@ -126,7 +127,7 @@ JNIEXPORT jbyteArray JNICALL Java_redis_jni_Redis_command(JNIEnv *env, jclass cl
         replylen = sdslen(o->ptr);
         reply = sdscatlen(reply, o->ptr, replylen);
         len += replylen;
-        listDelNode(c->reply,listFirst(c->reply));
+        listDelNode(c->reply, listFirst(c->reply));
     }
 
 cleanup:
