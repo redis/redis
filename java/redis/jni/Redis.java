@@ -8,7 +8,7 @@ import java.io.OutputStream;
 import java.net.ServerSocket;
 
 /**
- * TODO: Edit this
+ * Native redis bridge.
  * <p/>
  * User: sam
  * Date: 11/6/11
@@ -30,27 +30,25 @@ public class Redis {
       }
       os.flush();
       os.close();
+      Redis.start(tempFile.getAbsolutePath());
       new Thread() {
         @Override
         public void run() {
-          Redis.start(tempFile.getAbsolutePath());
+          eventloop();
         }
       }.start();
     } catch (Exception e) {
       e.printStackTrace();
+      throw new AssertionError("Failed to start Redis");
     }
   }
 
   public native static void start(String configFile);
-  public native static void init();
-
-  public native void command(byte[]... parameters);
+  public native static void eventloop();
+  public native static synchronized void command(byte[]... parameters);
 
   public static void main(String[] args) throws InterruptedException {
-    Thread.sleep(1000);
-    init();
-    Redis redis = new Redis();
-    redis.command("set".getBytes(), "test".getBytes(), "jni".getBytes());
+    command("set".getBytes(), "test".getBytes(), "jni".getBytes());
   }
 
   public static int findFreePort()

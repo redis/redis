@@ -17,10 +17,10 @@ JNIEXPORT void JNICALL Java_redis_jni_Redis_start
 
 /*
  * Class:     redis_jni_Redis
- * Method:    init
+ * Method:    eventloop
  * Signature: ()V
  */
-JNIEXPORT void JNICALL Java_redis_jni_Redis_init
+JNIEXPORT void JNICALL Java_redis_jni_Redis_eventloop
   (JNIEnv *, jclass);
 
 /*
@@ -29,7 +29,7 @@ JNIEXPORT void JNICALL Java_redis_jni_Redis_init
  * Signature: ([[B)V
  */
 JNIEXPORT void JNICALL Java_redis_jni_Redis_command
-  (JNIEnv *, jobject, jobjectArray);
+  (JNIEnv *, jclass, jobjectArray);
 
 #ifdef __cplusplus
 }
