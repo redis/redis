@@ -262,7 +262,7 @@ int dictAdd(dict *d, void *key, void *val)
     dictEntry *entry = dictAddRaw(d,key);
 
     if (!entry) return DICT_ERR;
-    dictSetHashVal(d, entry, val);
+    dictSetVal(d, entry, val);
     return DICT_OK;
 }
 
@@ -302,7 +302,7 @@ dictEntry *dictAddRaw(dict *d, void *key)
     ht->used++;
 
     /* Set the hash entry fields. */
-    dictSetHashKey(d, entry, key);
+    dictSetKey(d, entry, key);
     return entry;
 }
 
@@ -326,8 +326,8 @@ int dictReplace(dict *d, void *key, void *val)
      * you want to increment (set), and then decrement (free), and not the
      * reverse. */
     auxentry = *entry;
-    dictSetHashVal(d, entry, val);
-    dictFreeEntryVal(d, &auxentry);
+    dictSetVal(d, entry, val);
+    dictFreeVal(d, &auxentry);
     return 0;
 }
 
@@ -359,15 +359,15 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
         he = d->ht[table].table[idx];
         prevHe = NULL;
         while(he) {
-            if (dictCompareHashKeys(d, key, he->key)) {
+            if (dictCompareKeys(d, key, he->key)) {
                 /* Unlink the element from the list */
                 if (prevHe)
                     prevHe->next = he->next;
                 else
                     d->ht[table].table[idx] = he->next;
                 if (!nofree) {
-                    dictFreeEntryKey(d, he);
-                    dictFreeEntryVal(d, he);
+                    dictFreeKey(d, he);
+                    dictFreeVal(d, he);
                 }
                 zfree(he);
                 d->ht[table].used--;
@@ -401,8 +401,8 @@ int _dictClear(dict *d, dictht *ht)
         if ((he = ht->table[i]) == NULL) continue;
         while(he) {
             nextHe = he->next;
-            dictFreeEntryKey(d, he);
-            dictFreeEntryVal(d, he);
+            dictFreeKey(d, he);
+            dictFreeVal(d, he);
             zfree(he);
             ht->used--;
             he = nextHe;
@@ -435,7 +435,7 @@ dictEntry *dictFind(dict *d, const void *key)
         idx = h & d->ht[table].sizemask;
         he = d->ht[table].table[idx];
         while(he) {
-            if (dictCompareHashKeys(d, key, he->key))
+            if (dictCompareKeys(d, key, he->key))
                 return he;
             he = he->next;
         }
@@ -448,7 +448,7 @@ void *dictFetchValue(dict *d, const void *key) {
     dictEntry *he;
 
     he = dictFind(d,key);
-    return he ? dictGetEntryVal(he) : NULL;
+    return he ? dictGetVal(he) : NULL;
 }
 
 dictIterator *dictGetIterator(dict *d)
@@ -607,7 +607,7 @@ static int _dictKeyIndex(dict *d, const void *key)
         /* Search if this slot does not already contain the given key */
         he = d->ht[table].table[idx];
         while(he) {
-            if (dictCompareHashKeys(d, key, he->key))
+            if (dictCompareKeys(d, key, he->key))
                 return -1;
             he = he->next;
         }

@@ -238,7 +238,7 @@ void sortCommand(redisClient *c) {
         dictEntry *setele;
         di = dictGetIterator(set);
         while((setele = dictNext(di)) != NULL) {
-            vector[j].obj = dictGetEntryKey(setele);
+            vector[j].obj = dictGetKey(setele);
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;

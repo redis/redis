@@ -465,7 +465,7 @@ robj *objectCommandLookup(redisClient *c, robj *key) {
     dictEntry *de;
 
     if ((de = dictFind(c->db->dict,key->ptr)) == NULL) return NULL;
-    return (robj*) dictGetEntryVal(de);
+    return (robj*) dictGetVal(de);
 }
 
 robj *objectCommandLookupOrReply(redisClient *c, robj *key, robj *reply) {

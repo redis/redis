@@ -776,7 +776,7 @@ void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeout, robj
             incrRefCount(keys[j]);
             redisAssertWithInfo(c,keys[j],retval == DICT_OK);
         } else {
-            l = dictGetEntryVal(de);
+            l = dictGetVal(de);
         }
         listAddNodeTail(l,c);
     }
@@ -797,7 +797,7 @@ void unblockClientWaitingData(redisClient *c) {
         /* Remove this client from the list of clients waiting for this key. */
         de = dictFind(c->db->blocking_keys,c->bpop.keys[j]);
         redisAssertWithInfo(c,c->bpop.keys[j],de != NULL);
-        l = dictGetEntryVal(de);
+        l = dictGetVal(de);
         listDelNode(l,listSearchKey(l,c));
         /* If the list is empty we need to remove it to avoid wasting memory */
         if (listLength(l) == 0)
@@ -836,7 +836,7 @@ int handleClientsWaitingListPush(redisClient *c, robj *key, robj *ele) {
 
     de = dictFind(c->db->blocking_keys,key);
     if (de == NULL) return 0;
-    clients = dictGetEntryVal(de);
+    clients = dictGetVal(de);
     numclients = listLength(clients);
 
     /* Try to handle the push as long as there are clients waiting for a push.

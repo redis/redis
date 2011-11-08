@@ -443,8 +443,8 @@ int rewriteAppendOnlyFile(char *filename) {
             robj key, *o;
             time_t expiretime;
 
-            keystr = dictGetEntryKey(de);
-            o = dictGetEntryVal(de);
+            keystr = dictGetKey(de);
+            o = dictGetVal(de);
             initStaticStringObject(key,keystr);
 
             expiretime = getExpire(db,&key);
@@ -511,7 +511,7 @@ int rewriteAppendOnlyFile(char *filename) {
                     dictIterator *di = dictGetIterator(o->ptr);
                     dictEntry *de;
                     while((de = dictNext(di)) != NULL) {
-                        robj *eleobj = dictGetEntryKey(de);
+                        robj *eleobj = dictGetKey(de);
                         if (rioWrite(&aof,cmd,sizeof(cmd)-1) == 0) goto werr;
                         if (rioWriteBulkObject(&aof,&key) == 0) goto werr;
                         if (rioWriteBulkObject(&aof,eleobj) == 0) goto werr;
@@ -559,8 +559,8 @@ int rewriteAppendOnlyFile(char *filename) {
                     dictEntry *de;
 
                     while((de = dictNext(di)) != NULL) {
-                        robj *eleobj = dictGetEntryKey(de);
-                        double *score = dictGetEntryVal(de);
+                        robj *eleobj = dictGetKey(de);
+                        double *score = dictGetVal(de);
 
                         if (rioWrite(&aof,cmd,sizeof(cmd)-1) == 0) goto werr;
                         if (rioWriteBulkObject(&aof,&key) == 0) goto werr;
@@ -593,8 +593,8 @@ int rewriteAppendOnlyFile(char *filename) {
                     dictEntry *de;
 
                     while((de = dictNext(di)) != NULL) {
-                        robj *field = dictGetEntryKey(de);
-                        robj *val = dictGetEntryVal(de);
+                        robj *field = dictGetKey(de);
+                        robj *val = dictGetVal(de);
 
                         if (rioWrite(&aof,cmd,sizeof(cmd)-1) == 0) goto werr;
                         if (rioWriteBulkObject(&aof,&key) == 0) goto werr;

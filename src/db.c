@@ -34,7 +34,7 @@ void SlotToKeyDel(robj *key);
 robj *lookupKey(redisDb *db, robj *key) {
     dictEntry *de = dictFind(db->dict,key->ptr);
     if (de) {
-        robj *val = dictGetEntryVal(de);
+        robj *val = dictGetVal(de);
 
         /* Update the access time for the aging algorithm.
          * Don't do it if we have a saving child, as this will trigger
@@ -130,7 +130,7 @@ robj *dbRandomKey(redisDb *db) {
         de = dictGetRandomKey(db->dict);
         if (de == NULL) return NULL;
 
-        key = dictGetEntryKey(de);
+        key = dictGetKey(de);
         keyobj = createStringObject(key,sdslen(key));
         if (dictFind(db->expires,key)) {
             if (expireIfNeeded(db,keyobj)) {
@@ -282,7 +282,7 @@ void keysCommand(redisClient *c) {
     di = dictGetIterator(c->db->dict);
     allkeys = (pattern[0] == '*' && pattern[1] == '\0');
     while((de = dictNext(di)) != NULL) {
-        sds key = dictGetEntryKey(de);
+        sds key = dictGetKey(de);
         robj *keyobj;
 
         if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
@@ -438,7 +438,7 @@ void setExpire(redisDb *db, robj *key, time_t when) {
     /* Reuse the sds from the main dict in the expire dict */
     de = dictFind(db->dict,key->ptr);
     redisAssertWithInfo(NULL,key,de != NULL);
-    dictReplace(db->expires,dictGetEntryKey(de),(void*)when);
+    dictReplace(db->expires,dictGetKey(de),(void*)when);
 }
 
 /* Return the expire time of the specified key, or -1 if no expire
@@ -453,7 +453,7 @@ time_t getExpire(redisDb *db, robj *key) {
     /* The entry was found in the expire dict, this means it should also
      * be present in the main dict (safety check). */
     redisAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
-    return (time_t) dictGetEntryVal(de);
+    return (time_t) dictGetVal(de);
 }
 
 /* Propagate expires into slaves and the AOF file.

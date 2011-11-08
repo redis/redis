@@ -900,8 +900,8 @@ void zaddGenericCommand(redisClient *c, int incr) {
             ele = c->argv[3+j*2] = tryObjectEncoding(c->argv[3+j*2]);
             de = dictFind(zs->dict,ele);
             if (de != NULL) {
-                curobj = dictGetEntryKey(de);
-                curscore = *(double*)dictGetEntryVal(de);
+                curobj = dictGetKey(de);
+                curscore = *(double*)dictGetVal(de);
 
                 if (incr) {
                     score += curscore;
@@ -921,7 +921,7 @@ void zaddGenericCommand(redisClient *c, int incr) {
                     redisAssertWithInfo(c,curobj,zslDelete(zs->zsl,curscore,curobj));
                     znode = zslInsert(zs->zsl,score,curobj);
                     incrRefCount(curobj); /* Re-inserted in skiplist. */
-                    dictGetEntryVal(de) = &znode->score; /* Update score ptr. */
+                    dictGetVal(de) = &znode->score; /* Update score ptr. */
 
                     signalModifiedKey(c->db,key);
                     server.dirty++;
@@ -987,7 +987,7 @@ void zremCommand(redisClient *c) {
                 deleted++;
 
                 /* Delete from the skiplist */
-                score = *(double*)dictGetEntryVal(de);
+                score = *(double*)dictGetVal(de);
                 redisAssertWithInfo(c,c->argv[j],zslDelete(zs->zsl,score,c->argv[j]));
 
                 /* Delete from the hash table */
@@ -1263,7 +1263,7 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
         } else if (op->encoding == REDIS_ENCODING_HT) {
             if (it->ht.de == NULL)
                 return 0;
-            val->ele = dictGetEntryKey(it->ht.de);
+            val->ele = dictGetKey(it->ht.de);
             val->score = 1.0;
 
             /* Move to next element. */
@@ -1397,7 +1397,7 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
         } else if (op->encoding == REDIS_ENCODING_SKIPLIST) {
             dictEntry *de;
             if ((de = dictFind(it->sl.zs->dict,val->ele)) != NULL) {
-                *score = *(double*)dictGetEntryVal(de);
+                *score = *(double*)dictGetVal(de);
                 return 1;
             } else {
                 return 0;
@@ -1417,7 +1417,7 @@ int zuiCompareByCardinality(const void *s1, const void *s2) {
 #define REDIS_AGGR_SUM 1
 #define REDIS_AGGR_MIN 2
 #define REDIS_AGGR_MAX 3
-#define zunionInterDictValue(_e) (dictGetEntryVal(_e) == NULL ? 1.0 : *(double*)dictGetEntryVal(_e))
+#define zunionInterDictValue(_e) (dictGetVal(_e) == NULL ? 1.0 : *(double*)dictGetVal(_e))
 
 inline static void zunionInterAggregate(double *target, double val, int aggregate) {
     if (aggregate == REDIS_AGGR_SUM) {
@@ -2058,7 +2058,7 @@ void zscoreCommand(redisClient *c) {
         c->argv[2] = tryObjectEncoding(c->argv[2]);
         de = dictFind(zs->dict,c->argv[2]);
         if (de != NULL) {
-            score = *(double*)dictGetEntryVal(de);
+            score = *(double*)dictGetVal(de);
             addReplyDouble(c,score);
         } else {
             addReply(c,shared.nullbulk);
@@ -2114,7 +2114,7 @@ void zrankGenericCommand(redisClient *c, int reverse) {
         ele = c->argv[2] = tryObjectEncoding(c->argv[2]);
         de = dictFind(zs->dict,ele);
         if (de != NULL) {
-            score = *(double*)dictGetEntryVal(de);
+            score = *(double*)dictGetVal(de);
             rank = zslGetRank(zsl,score,ele);
             redisAssertWithInfo(c,ele,rank); /* Existing elements always have a rank. */
             if (reverse)

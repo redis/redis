@@ -476,7 +476,7 @@ int rdbSaveObject(rio *rdb, robj *o) {
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
-                robj *eleobj = dictGetEntryKey(de);
+                robj *eleobj = dictGetKey(de);
                 if ((n = rdbSaveStringObject(rdb,eleobj)) == -1) return -1;
                 nwritten += n;
             }
@@ -505,8 +505,8 @@ int rdbSaveObject(rio *rdb, robj *o) {
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
-                robj *eleobj = dictGetEntryKey(de);
-                double *score = dictGetEntryVal(de);
+                robj *eleobj = dictGetKey(de);
+                double *score = dictGetVal(de);
 
                 if ((n = rdbSaveStringObject(rdb,eleobj)) == -1) return -1;
                 nwritten += n;
@@ -532,8 +532,8 @@ int rdbSaveObject(rio *rdb, robj *o) {
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
-                robj *key = dictGetEntryKey(de);
-                robj *val = dictGetEntryVal(de);
+                robj *key = dictGetKey(de);
+                robj *val = dictGetVal(de);
 
                 if ((n = rdbSaveStringObject(rdb,key)) == -1) return -1;
                 nwritten += n;
@@ -617,8 +617,8 @@ int rdbSave(char *filename) {
 
         /* Iterate this DB writing every entry */
         while((de = dictNext(di)) != NULL) {
-            sds keystr = dictGetEntryKey(de);
-            robj key, *o = dictGetEntryVal(de);
+            sds keystr = dictGetKey(de);
+            robj key, *o = dictGetVal(de);
             time_t expire;
             
             initStaticStringObject(key,keystr);

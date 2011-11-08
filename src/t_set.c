@@ -115,7 +115,7 @@ int setTypeNext(setTypeIterator *si, robj **objele, int64_t *llele) {
     if (si->encoding == REDIS_ENCODING_HT) {
         dictEntry *de = dictNext(si->di);
         if (de == NULL) return -1;
-        *objele = dictGetEntryKey(de);
+        *objele = dictGetKey(de);
     } else if (si->encoding == REDIS_ENCODING_INTSET) {
         if (!intsetGet(si->subject->ptr,si->ii++,llele))
             return -1;
@@ -165,7 +165,7 @@ robj *setTypeNextObject(setTypeIterator *si) {
 int setTypeRandomElement(robj *setobj, robj **objele, int64_t *llele) {
     if (setobj->encoding == REDIS_ENCODING_HT) {
         dictEntry *de = dictGetRandomKey(setobj->ptr);
-        *objele = dictGetEntryKey(de);
+        *objele = dictGetKey(de);
     } else if (setobj->encoding == REDIS_ENCODING_INTSET) {
         *llele = intsetRandom(setobj->ptr);
     } else {

@@ -563,9 +563,9 @@ void activeExpireCycle(void) {
                 time_t t;
 
                 if ((de = dictGetRandomKey(db->expires)) == NULL) break;
-                t = (time_t) dictGetEntryVal(de);
+                t = (time_t) dictGetVal(de);
                 if (now > t) {
-                    sds key = dictGetEntryKey(de);
+                    sds key = dictGetKey(de);
                     robj *keyobj = createStringObject(key,sdslen(key));
 
                     propagateExpire(db,keyobj);
@@ -1679,7 +1679,7 @@ void freeMemoryIfNeeded(void) {
                 server.maxmemory_policy == REDIS_MAXMEMORY_VOLATILE_RANDOM)
             {
                 de = dictGetRandomKey(dict);
-                bestkey = dictGetEntryKey(de);
+                bestkey = dictGetKey(de);
             }
 
             /* volatile-lru and allkeys-lru policy */
@@ -1692,12 +1692,12 @@ void freeMemoryIfNeeded(void) {
                     robj *o;
 
                     de = dictGetRandomKey(dict);
-                    thiskey = dictGetEntryKey(de);
+                    thiskey = dictGetKey(de);
                     /* When policy is volatile-lru we need an additonal lookup
                      * to locate the real key, as dict is set to db->expires. */
                     if (server.maxmemory_policy == REDIS_MAXMEMORY_VOLATILE_LRU)
                         de = dictFind(db->dict, thiskey);
-                    o = dictGetEntryVal(de);
+                    o = dictGetVal(de);
                     thisval = estimateObjectIdleTime(o);
 
                     /* Higher idle time is better candidate for deletion */
@@ -1715,8 +1715,8 @@ void freeMemoryIfNeeded(void) {
                     long thisval;
 
                     de = dictGetRandomKey(dict);
-                    thiskey = dictGetEntryKey(de);
-                    thisval = (long) dictGetEntryVal(de);
+                    thiskey = dictGetKey(de);
+                    thisval = (long) dictGetVal(de);
 
                     /* Expire sooner (minor expire unix timestamp) is better
                      * candidate for deletion */

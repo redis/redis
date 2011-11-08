@@ -94,37 +94,36 @@ typedef struct dictIterator {
 #define DICT_HT_INITIAL_SIZE     4
 
 /* ------------------------------- Macros ------------------------------------*/
-#define dictFreeEntryVal(d, entry) \
+#define dictFreeVal(d, entry) \
     if ((d)->type->valDestructor) \
         (d)->type->valDestructor((d)->privdata, (entry)->v.val)
 
-#define dictSetHashVal(d, entry, _val_) do { \
+#define dictSetVal(d, entry, _val_) do { \
     if ((d)->type->valDup) \
         entry->v.val = (d)->type->valDup((d)->privdata, _val_); \
     else \
         entry->v.val = (_val_); \
 } while(0)
 
-#define dictFreeEntryKey(d, entry) \
+#define dictFreeKey(d, entry) \
     if ((d)->type->keyDestructor) \
         (d)->type->keyDestructor((d)->privdata, (entry)->key)
 
-#define dictSetHashKey(d, entry, _key_) do { \
+#define dictSetKey(d, entry, _key_) do { \
     if ((d)->type->keyDup) \
         entry->key = (d)->type->keyDup((d)->privdata, _key_); \
     else \
         entry->key = (_key_); \
 } while(0)
 
-#define dictCompareHashKeys(d, key1, key2) \
+#define dictCompareKeys(d, key1, key2) \
     (((d)->type->keyCompare) ? \
         (d)->type->keyCompare((d)->privdata, key1, key2) : \
         (key1) == (key2))
 
 #define dictHashKey(d, key) (d)->type->hashFunction(key)
-
-#define dictGetEntryKey(he) ((he)->key)
-#define dictGetEntryVal(he) ((he)->v.val)
+#define dictGetKey(he) ((he)->key)
+#define dictGetVal(he) ((he)->v.val)
 #define dictSlots(d) ((d)->ht[0].size+(d)->ht[1].size)
 #define dictSize(d) ((d)->ht[0].used+(d)->ht[1].used)
 #define dictIsRehashing(ht) ((ht)->rehashidx != -1)

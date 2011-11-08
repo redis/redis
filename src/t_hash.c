@@ -55,7 +55,7 @@ int hashTypeGet(robj *o, robj *key, robj **objval, unsigned char **v,
     } else {
         dictEntry *de = dictFind(o->ptr,key);
         if (de == NULL) return -1;
-        *objval = dictGetEntryVal(de);
+        *objval = dictGetVal(de);
     }
     return o->encoding;
 }
@@ -206,9 +206,9 @@ int hashTypeCurrent(hashTypeIterator *hi, int what, robj **objval, unsigned char
         }
     } else {
         if (what & REDIS_HASH_KEY)
-            *objval = dictGetEntryKey(hi->de);
+            *objval = dictGetKey(hi->de);
         else
-            *objval = dictGetEntryVal(hi->de);
+            *objval = dictGetVal(hi->de);
     }
     return hi->encoding;
 }
