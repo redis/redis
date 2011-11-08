@@ -40,6 +40,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <assert.h>
 #include "sds.h"
 #include "zmalloc.h"
 
@@ -101,7 +102,13 @@ void sdsclear(sds s) {
     sh->buf[0] = '\0';
 }
 
-static sds sdsMakeRoomFor(sds s, size_t addlen) {
+/* Enlarge the free space at the end of the sds string so that the caller
+ * is sure that after calling this function can overwrite up to addlen
+ * bytes after the end of the string, plus one more byte for nul term.
+ * 
+ * Note: this does not change the *size* of the sds string as returned
+ * by sdslen(), but only the free buffer space we have. */
+sds sdsMakeRoomFor(sds s, size_t addlen) {
     struct sdshdr *sh, *newsh;
     size_t free = sdsavail(s);
     size_t len, newlen;
@@ -119,6 +126,37 @@ static sds sdsMakeRoomFor(sds s, size_t addlen) {
 
     newsh->free = newlen - len;
     return newsh->buf;
+}
+
+/* Increment the sds length and decrements the left free space at the
+ * end of the string accordingly to 'incr'. Also set the null term
+ * in the new end of the string.
+ *
+ * This function is used in order to fix the string length after the
+ * user calls sdsMakeRoomFor(), writes something after the end of
+ * the current string, and finally needs to set the new length.
+ *
+ * Note: it is possible to use a negative increment in order to
+ * right-trim the string.
+ *
+ * Using sdsIncrLen() and sdsMakeRoomFor() it is possible to mount the
+ * following schema to cat bytes coming from the kerenl to the end of an
+ * sds string new things without copying into an intermediate buffer:
+ *
+ * oldlen = sdslen(s);
+ * s = sdsMakeRoomFor(s, BUFFER_SIZE);
+ * nread = read(fd, s+oldlen, BUFFER_SIZE);
+ * ... check for nread <= 0 and handle it ...
+ * sdsIncrLen(s, nhread);
+ */
+void sdsIncrLen(sds s, int incr) {
+    struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
+
+    assert(sh->free >= incr);
+    sh->len += incr;
+    sh->free -= incr;
+    assert(sh->free >= 0);
+    s[sh->len] = '\0';
 }
 
 /* Grow the sds to have the specified length. Bytes that were not part of
@@ -609,6 +647,7 @@ sds sdsmapchars(sds s, char *from, char *to, size_t setlen) {
 
 int main(void) {
     {
+        struct sdshdr *sh;
         sds x = sdsnew("foo"), y;
 
         test_cond("Create a string and obtain the length",
@@ -688,7 +727,26 @@ int main(void) {
         x = sdsnew("aar");
         y = sdsnew("bar");
         test_cond("sdscmp(bar,bar)", sdscmp(x,y) < 0)
+
+        {
+            int oldfree;
+
+            sdsfree(x);
+            x = sdsnew("0");
+            sh = (void*) (x-(sizeof(struct sdshdr)));
+            test_cond("sdsnew() free/len buffers", sh->len == 1 && sh->free == 0);
+            x = sdsMakeRoomFor(x,1);
+            sh = (void*) (x-(sizeof(struct sdshdr)));
+            test_cond("sdsMakeRoomFor()", sh->len == 1 && sh->free > 0);
+            oldfree = sh->free;
+            x[1] = '1';
+            sdsIncrLen(x,1);
+            test_cond("sdsIncrLen() -- content", x[0] == '0' && x[1] == '1');
+            test_cond("sdsIncrLen() -- len", sh->len == 2);
+            test_cond("sdsIncrLen() -- free", sh->free == oldfree-1);
+        }
     }
     test_report()
+    return 0;
 }
 #endif

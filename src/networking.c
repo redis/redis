@@ -767,6 +767,17 @@ int processMultibulkBuffer(redisClient *c) {
             }
 
             pos += newline-(c->querybuf+pos)+2;
+            if (ll >= REDIS_MBULK_BIG_ARG) {
+                /* If we are going to read a large object from network
+                 * try to make it likely that it will start at c->querybuf
+                 * boundary so that we can optimized object creation
+                 * avoiding a large copy of data. */
+                c->querybuf = sdsrange(c->querybuf,pos,-1);
+                pos = 0;
+                /* Hint the sds library about the amount of bytes this string is
+                 * going to contain. */
+                c->querybuf = sdsMakeRoomFor(c->querybuf,ll+2);
+            }
             c->bulklen = ll;
         }
 
@@ -775,15 +786,32 @@ int processMultibulkBuffer(redisClient *c) {
             /* Not enough data (+2 == trailing \r\n) */
             break;
         } else {
-            c->argv[c->argc++] = createStringObject(c->querybuf+pos,c->bulklen);
-            pos += c->bulklen+2;
+            /* Optimization: if the buffer contanins JUST our bulk element
+             * instead of creating a new object by *copying* the sds we
+             * just use the current sds string. */
+            if (pos == 0 &&
+                c->bulklen >= REDIS_MBULK_BIG_ARG &&
+                (signed) sdslen(c->querybuf) == c->bulklen+2)
+            {
+                c->argv[c->argc++] = createObject(REDIS_STRING,c->querybuf);
+                sdsIncrLen(c->querybuf,-2); /* remove CRLF */
+                c->querybuf = sdsempty();
+                /* Assume that if we saw a fat argument we'll see another one
+                 * likely... */
+                c->querybuf = sdsMakeRoomFor(c->querybuf,c->bulklen+2);
+                pos = 0;
+            } else {
+                c->argv[c->argc++] =
+                    createStringObject(c->querybuf+pos,c->bulklen);
+                pos += c->bulklen+2;
+            }
             c->bulklen = -1;
             c->multibulklen--;
         }
     }
 
     /* Trim to pos */
-    c->querybuf = sdsrange(c->querybuf,pos,-1);
+    if (pos) c->querybuf = sdsrange(c->querybuf,pos,-1);
 
     /* We're done when c->multibulk == 0 */
     if (c->multibulklen == 0) {
@@ -833,12 +861,29 @@ void processInputBuffer(redisClient *c) {
 
 void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     redisClient *c = (redisClient*) privdata;
-    char buf[REDIS_IOBUF_LEN];
-    int nread;
+    int nread, readlen;
+    size_t qblen;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
 
-    nread = read(fd, buf, REDIS_IOBUF_LEN);
+    readlen = REDIS_IOBUF_LEN;
+    /* If this is a multi bulk request, and we are processing a bulk reply
+     * that is large enough, try to maximize the probabilty that the query
+     * buffer contains excatly the SDS string representing the object, even
+     * at the risk of requring more read(2) calls. This way the function
+     * processMultiBulkBuffer() can avoid copying buffers to create the
+     * Redis Object representing the argument. */
+    if (c->reqtype == REDIS_REQ_MULTIBULK && c->multibulklen && c->bulklen != -1
+        && c->bulklen >= REDIS_MBULK_BIG_ARG)
+    {
+        int remaining = (unsigned)(c->bulklen+2)-sdslen(c->querybuf);
+
+        if (remaining < readlen) readlen = remaining;
+    }
+
+    qblen = sdslen(c->querybuf);
+    c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
+    nread = read(fd, c->querybuf+qblen, readlen);
     if (nread == -1) {
         if (errno == EAGAIN) {
             nread = 0;
@@ -853,7 +898,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         return;
     }
     if (nread) {
-        c->querybuf = sdscatlen(c->querybuf,buf,nread);
+        sdsIncrLen(c->querybuf,nread);
         c->lastinteraction = time(NULL);
     } else {
         return;
