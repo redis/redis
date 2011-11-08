@@ -46,6 +46,7 @@ endif
 
 CCLINK+= $(ALLOC_LINK)
 CFLAGS+= $(ALLOC_FLAGS)
+LUA_CFLAGS+= $(ARCH)
 
 CCOPT= $(CFLAGS) $(ARCH) $(PROF)
 
@@ -167,7 +168,7 @@ dependencies:
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)linenoise$(ENDCOLOR)
 	@cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
 	@echo $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)Lua ansi$(ENDCOLOR)
-	@cd ../deps/lua && $(MAKE) ARCH="$(ARCH)" CFLAGS="$(LUA_CFLAGS)" ansi
+	@cd ../deps/lua && $(MAKE) CFLAGS="$(LUA_CFLAGS)" MYLDFLAGS="$(ARCH)" ansi
 
 ../deps/jemalloc/lib/libjemalloc.a:
 	cd ../deps/jemalloc && ./configure $(JEMALLOC_CFLAGS) --with-jemalloc-prefix=je_ --enable-cc-silence && $(MAKE) lib/libjemalloc.a
