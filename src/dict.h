@@ -49,7 +49,7 @@ typedef struct dictEntry {
     union {
         void *val;
         uint64_t u64;
-        int64_t i64;
+        int64_t s64;
     } v;
     struct dictEntry *next;
 } dictEntry;
@@ -106,7 +106,7 @@ typedef struct dictIterator {
 } while(0)
 
 #define dictSetSignedIntegerVal(d, entry, _val_) \
-    do { entry->v.i64 = _val_; } while(0)
+    do { entry->v.s64 = _val_; } while(0)
 
 #define dictSetUnsignedIntegerVal(d, entry, _val_) \
     do { entry->v.u64 = _val_; } while(0)
@@ -130,6 +130,8 @@ typedef struct dictIterator {
 #define dictHashKey(d, key) (d)->type->hashFunction(key)
 #define dictGetKey(he) ((he)->key)
 #define dictGetVal(he) ((he)->v.val)
+#define dictGetSignedIntegerVal ((he)->v.s64)
+#define dictGetUnsignedIntegerVal ((he)->v.u64)
 #define dictSlots(d) ((d)->ht[0].size+(d)->ht[1].size)
 #define dictSize(d) ((d)->ht[0].used+(d)->ht[1].used)
 #define dictIsRehashing(ht) ((ht)->rehashidx != -1)
