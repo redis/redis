@@ -274,7 +274,7 @@ int dictAdd(dict *d, void *key, void *val)
  * mainly in order to store non-pointers inside the hash value, example:
  *
  * entry = dictAddRaw(dict,mykey);
- * if (entry != NULL) dictSetValSignedInteger(entry,1000);
+ * if (entry != NULL) dictSetSignedIntegerVal(entry,1000);
  *
  * Return values:
  *

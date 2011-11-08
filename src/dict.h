@@ -105,6 +105,12 @@ typedef struct dictIterator {
         entry->v.val = (_val_); \
 } while(0)
 
+#define dictSetSignedIntegerVal(d, entry, _val_) \
+    do { entry->v.i64 = _val_; } while(0)
+
+#define dictSetUnsignedIntegerVal(d, entry, _val_) \
+    do { entry->v.u64 = _val_; } while(0)
+
 #define dictFreeKey(d, entry) \
     if ((d)->type->keyDestructor) \
         (d)->type->keyDestructor((d)->privdata, (entry)->key)
