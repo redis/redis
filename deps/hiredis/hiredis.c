@@ -520,13 +520,14 @@ void redisReplyReaderFeed(void *reader, const char *buf, size_t len) {
 
     /* Copy the provided buffer. */
     if (buf != NULL && len >= 1) {
+#if 0
         /* Destroy internal buffer when it is empty and is quite large. */
         if (r->len == 0 && sdsavail(r->buf) > 16*1024) {
             sdsfree(r->buf);
             r->buf = sdsempty();
             r->pos = 0;
         }
-
+#endif
         r->buf = sdscatlen(r->buf,buf,len);
         r->len = sdslen(r->buf);
     }
@@ -901,7 +902,7 @@ static void __redisCreateReplyReader(redisContext *c) {
  * After this function is called, you may use redisContextReadReply to
  * see if there is a reply available. */
 int redisBufferRead(redisContext *c) {
-    char buf[2048];
+    char buf[1024*16];
     int nread = read(c->fd,buf,sizeof(buf));
     if (nread == -1) {
         if (errno == EAGAIN && !(c->flags & REDIS_BLOCK)) {
