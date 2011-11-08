@@ -868,7 +868,6 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     REDIS_NOTUSED(mask);
 
     readlen = REDIS_IOBUF_LEN;
-#if REDIS_MBULK_BIG_ARG
     /* If this is a multi bulk request, and we are processing a bulk reply
      * that is large enough, try to maximize the probabilty that the query
      * buffer contains excatly the SDS string representing the object, even
@@ -882,7 +881,6 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 
         if (remaining < readlen) readlen = remaining;
     }
-#endif
 
     qblen = sdslen(c->querybuf);
     c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
