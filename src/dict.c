@@ -259,6 +259,30 @@ static void _dictRehashStep(dict *d) {
 /* Add an element to the target hash table */
 int dictAdd(dict *d, void *key, void *val)
 {
+    dictEntry *entry = dictAddRaw(d,key);
+
+    if (!entry) return DICT_ERR;
+    dictSetHashVal(d, entry, val);
+    return DICT_OK;
+}
+
+/* Low level add. This function adds the entry but instead of setting
+ * a value returns the dictEntry structure to the user, that will make
+ * sure to fill the value field as he wishes.
+ *
+ * This function is also directly expoed to user API to be called
+ * mainly in order to store non-pointers inside the hash value, example:
+ *
+ * entry = dictAddRaw(dict,mykey);
+ * if (entry != NULL) dictSetValSignedInteger(entry,1000);
+ *
+ * Return values:
+ *
+ * If key already exists NULL is returned.
+ * If key was added, the hash entry is returned to be manipulated by the caller.
+ */
+dictEntry *dictAddRaw(dict *d, void *key)
+{
     int index;
     dictEntry *entry;
     dictht *ht;
@@ -268,7 +292,7 @@ int dictAdd(dict *d, void *key, void *val)
     /* Get the index of the new element, or -1 if
      * the element already exists. */
     if ((index = _dictKeyIndex(d, key)) == -1)
-        return DICT_ERR;
+        return NULL;
 
     /* Allocate the memory and store the new entry */
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
@@ -279,8 +303,7 @@ int dictAdd(dict *d, void *key, void *val)
 
     /* Set the hash entry fields. */
     dictSetHashKey(d, entry, key);
-    dictSetHashVal(d, entry, val);
-    return DICT_OK;
+    return entry;
 }
 
 /* Add an element, discarding the old if the key already exists.
@@ -306,6 +329,18 @@ int dictReplace(dict *d, void *key, void *val)
     dictSetHashVal(d, entry, val);
     dictFreeEntryVal(d, &auxentry);
     return 0;
+}
+
+/* dictReplaceRaw() is simply a version of dictAddRaw() that always
+ * returns the hash entry of the specified key, even if the key already
+ * exists and can't be added (in that case the entry of the already
+ * existing key is returned.)
+ *
+ * See dictAddRaw() for more information. */
+dictEntry *dictReplaceRaw(dict *d, void *key) {
+    dictEntry *entry = dictFind(d,key);
+
+    return entry ? entry : dictAddRaw(d,key);
 }
 
 /* Search and remove an element */
