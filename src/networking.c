@@ -774,11 +774,10 @@ int processMultibulkBuffer(redisClient *c) {
                  * avoiding a large copy of data. */
                 c->querybuf = sdsrange(c->querybuf,pos,-1);
                 pos = 0;
-            }
-            /* Hint the sds library about the amount of bytes this string is
-             * going to contain. */
-            if (ll >= REDIS_MBULK_BIG_ARG)
+                /* Hint the sds library about the amount of bytes this string is
+                 * going to contain. */
                 c->querybuf = sdsMakeRoomFor(c->querybuf,ll+2);
+            }
             c->bulklen = ll;
         }
 
