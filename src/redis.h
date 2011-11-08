@@ -726,6 +726,7 @@ dictType hashDictType;
 
 /* Utils */
 long long ustime(void);
+long long mstime(void);
 
 /* networking.c -- Networking and Client related operations */
 redisClient *createClient(int fd);

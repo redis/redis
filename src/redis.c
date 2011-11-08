@@ -288,6 +288,11 @@ long long ustime(void) {
     return ust;
 }
 
+/* Return the UNIX time in milliseconds */
+long long mstime(void) {
+    return ustime()/1000;
+}
+
 /*====================== Hash table type implementation  ==================== */
 
 /* This is an hash table type that uses the SDS dynamic strings libary as
