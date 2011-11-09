@@ -608,12 +608,13 @@ int rewriteAppendOnlyFile(char *filename) {
             }
             /* Save the expire time */
             if (expiretime != -1) {
-                char cmd[]="*3\r\n$8\r\nEXPIREAT\r\n";
+                char cmd[]="*4\r\n$8\r\nEXPIREAT\r\n";
                 /* If this key is already expired skip it */
                 if (expiretime < now) continue;
                 if (rioWrite(&aof,cmd,sizeof(cmd)-1) == 0) goto werr;
                 if (rioWriteBulkObject(&aof,&key) == 0) goto werr;
-                if (rioWriteBulkLongLong(&aof,expiretime/1000) == 0) goto werr;
+                if (rioWriteBulkLongLong(&aof,expiretime) == 0) goto werr;
+                if (rioWriteBulkString(&aof,"ms",2) == 0) goto werr;
             }
         }
         dictReleaseIterator(di);
