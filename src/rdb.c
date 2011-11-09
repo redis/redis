@@ -997,7 +997,7 @@ int rdbLoad(char *filename) {
             if ((expiretime = rdbLoadTime(&rdb)) == -1) goto eoferr;
             /* We read the time so we need to read the object type again. */
             if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
-            /* the EXPIREITME opcode specifies time in seconds, so convert
+            /* the EXPIRETIME opcode specifies time in seconds, so convert
              * into milliesconds. */
             expiretime *= 1000;
         } else if (type == REDIS_RDB_OPCODE_EXPIRETIME_MS) {
