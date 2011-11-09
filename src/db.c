@@ -514,6 +514,14 @@ int expireIfNeeded(redisDb *db, robj *key) {
  * Expires Commands
  *----------------------------------------------------------------------------*/
 
+/* Given an string object return true if it contains exactly the "ms"
+ * or "MS" string. This is used in order to check if the last argument
+ * of EXPIRE, EXPIREAT or TTL is "ms" to switch into millisecond input/output */
+int stringObjectEqualsMs(robj *a) {
+    char *arg = a->ptr;
+    return tolower(arg[0]) == 'm' && tolower(arg[1]) == 's' && arg[2] == '\0';
+}
+
 void expireGenericCommand(redisClient *c, long long offset) {
     dictEntry *de;
     robj *key = c->argv[1], *param = c->argv[2];
@@ -526,9 +534,7 @@ void expireGenericCommand(redisClient *c, long long offset) {
     /* If no "ms" argument was passed the time is in second, so we need
      * to multilpy it by 1000 */
     if (c->argc == 4) {
-        char *arg = c->argv[3]->ptr;
-
-        if (tolower(arg[0]) != 'm' || tolower(arg[1]) != 's' || arg[2]) {
+        if (!stringObjectEqualsMs(c->argv[3])) {
             addReply(c,shared.syntaxerr);
             return;
         }
@@ -572,15 +578,33 @@ void expireGenericCommand(redisClient *c, long long offset) {
 }
 
 void expireCommand(redisClient *c) {
+    if (c->argc > 4) {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
     expireGenericCommand(c,0);
 }
 
 void expireatCommand(redisClient *c) {
+    if (c->argc > 4) {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
     expireGenericCommand(c,mstime());
 }
 
 void ttlCommand(redisClient *c) {
     long long expire, ttl = -1;
+    int output_ms = 0;
+
+    if (c->argc == 3) {
+        if (stringObjectEqualsMs(c->argv[2])) {
+            output_ms = 1;
+        } else {
+            addReply(c,shared.syntaxerr);
+            return;
+        }
+    }
 
     expire = getExpire(c->db,c->argv[1]);
     if (expire != -1) {
@@ -590,7 +614,7 @@ void ttlCommand(redisClient *c) {
     if (ttl == -1) {
         addReplyLongLong(c,-1);
     } else {
-        addReplyLongLong(c,(ttl+500)/1000);
+        addReplyLongLong(c,output_ms ? ttl : ((ttl+500)/1000));
     }
 }
 
