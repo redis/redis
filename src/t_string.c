@@ -30,7 +30,7 @@ void setGenericCommand(redisClient *c, int nx, robj *key, robj *val, robj *expir
     }
     setKey(c->db,key,val);
     server.dirty++;
-    if (expire) setExpire(c->db,key,time(NULL)+seconds);
+    if (expire) setExpire(c->db,key,(time(NULL)+seconds)*1000);
     addReply(c, nx ? shared.cone : shared.ok);
 }
 

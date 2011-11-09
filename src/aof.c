@@ -613,7 +613,7 @@ int rewriteAppendOnlyFile(char *filename) {
                 if (expiretime < now) continue;
                 if (rioWrite(&aof,cmd,sizeof(cmd)-1) == 0) goto werr;
                 if (rioWriteBulkObject(&aof,&key) == 0) goto werr;
-                if (rioWriteBulkLongLong(&aof,expiretime) == 0) goto werr;
+                if (rioWriteBulkLongLong(&aof,expiretime/1000) == 0) goto werr;
             }
         }
         dictReleaseIterator(di);
