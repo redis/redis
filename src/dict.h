@@ -105,10 +105,10 @@ typedef struct dictIterator {
         entry->v.val = (_val_); \
 } while(0)
 
-#define dictSetSignedIntegerVal(d, entry, _val_) \
+#define dictSetSignedIntegerVal(entry, _val_) \
     do { entry->v.s64 = _val_; } while(0)
 
-#define dictSetUnsignedIntegerVal(d, entry, _val_) \
+#define dictSetUnsignedIntegerVal(entry, _val_) \
     do { entry->v.u64 = _val_; } while(0)
 
 #define dictFreeKey(d, entry) \
@@ -130,8 +130,8 @@ typedef struct dictIterator {
 #define dictHashKey(d, key) (d)->type->hashFunction(key)
 #define dictGetKey(he) ((he)->key)
 #define dictGetVal(he) ((he)->v.val)
-#define dictGetSignedIntegerVal ((he)->v.s64)
-#define dictGetUnsignedIntegerVal ((he)->v.u64)
+#define dictGetSignedIntegerVal(he) ((he)->v.s64)
+#define dictGetUnsignedIntegerVal(he) ((he)->v.u64)
 #define dictSlots(d) ((d)->ht[0].size+(d)->ht[1].size)
 #define dictSize(d) ((d)->ht[0].used+(d)->ht[1].used)
 #define dictIsRehashing(ht) ((ht)->rehashidx != -1)
