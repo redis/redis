@@ -522,25 +522,15 @@ int stringObjectEqualsMs(robj *a) {
     return tolower(arg[0]) == 'm' && tolower(arg[1]) == 's' && arg[2] == '\0';
 }
 
-void expireGenericCommand(redisClient *c, long long offset) {
+void expireGenericCommand(redisClient *c, long long offset, int unit) {
     dictEntry *de;
     robj *key = c->argv[1], *param = c->argv[2];
     long long milliseconds;
-    int time_in_seconds = 1;
 
     if (getLongLongFromObjectOrReply(c, param, &milliseconds, NULL) != REDIS_OK)
         return;
 
-    /* If no "ms" argument was passed the time is in second, so we need
-     * to multilpy it by 1000 */
-    if (c->argc == 4) {
-        if (!stringObjectEqualsMs(c->argv[3])) {
-            addReply(c,shared.syntaxerr);
-            return;
-        }
-        time_in_seconds = 0; /* "ms" argument passed. */
-    }
-    if (time_in_seconds) milliseconds *= 1000;
+    if (unit == UNIT_SECONDS) milliseconds *= 1000;
     milliseconds -= offset;
 
     de = dictFind(c->db->dict,key->ptr);
@@ -578,33 +568,23 @@ void expireGenericCommand(redisClient *c, long long offset) {
 }
 
 void expireCommand(redisClient *c) {
-    if (c->argc > 4) {
-        addReply(c,shared.syntaxerr);
-        return;
-    }
-    expireGenericCommand(c,0);
+    expireGenericCommand(c,0,UNIT_SECONDS);
 }
 
 void expireatCommand(redisClient *c) {
-    if (c->argc > 4) {
-        addReply(c,shared.syntaxerr);
-        return;
-    }
-    expireGenericCommand(c,mstime());
+    expireGenericCommand(c,mstime(),UNIT_SECONDS);
 }
 
-void ttlCommand(redisClient *c) {
-    long long expire, ttl = -1;
-    int output_ms = 0;
+void pexpireCommand(redisClient *c) {
+    expireGenericCommand(c,0,UNIT_MILLISECONDS);
+}
 
-    if (c->argc == 3) {
-        if (stringObjectEqualsMs(c->argv[2])) {
-            output_ms = 1;
-        } else {
-            addReply(c,shared.syntaxerr);
-            return;
-        }
-    }
+void pexpireatCommand(redisClient *c) {
+    expireGenericCommand(c,mstime(),UNIT_MILLISECONDS);
+}
+
+void ttlGenericCommand(redisClient *c, int output_ms) {
+    long long expire, ttl = -1;
 
     expire = getExpire(c->db,c->argv[1]);
     if (expire != -1) {
@@ -616,6 +596,14 @@ void ttlCommand(redisClient *c) {
     } else {
         addReplyLongLong(c,output_ms ? ttl : ((ttl+500)/1000));
     }
+}
+
+void ttlCommand(redisClient *c) {
+    ttlGenericCommand(c, 0);
+}
+
+void pttlCommand(redisClient *c) {
+    ttlGenericCommand(c, 1);
 }
 
 void persistCommand(redisClient *c) {
