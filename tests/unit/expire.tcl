@@ -5,7 +5,7 @@ start_server {tags {"expire"}} {
         set v2 [r ttl x]
         set v3 [r expire x 10]
         set v4 [r ttl x]
-        r expire x 4
+        r expire x 2
         list $v1 $v2 $v3 $v4
     } {1 [45] 1 10}
 
@@ -14,8 +14,8 @@ start_server {tags {"expire"}} {
     } {foobar}
 
     tags {"slow"} {
-        test {EXPIRE - After 6 seconds the key should no longer be here} {
-            after 6000
+        test {EXPIRE - After 2.1 seconds the key should no longer be here} {
+            after 2100
             list [r get x] [r exists x]
         } {{} 0}
     }
@@ -51,7 +51,7 @@ start_server {tags {"expire"}} {
 
     tags {"slow"} {
         test {SETEX - Wait for the key to expire} {
-            after 3000
+            after 1100
             r get y
         } {}
     }
@@ -71,4 +71,60 @@ start_server {tags {"expire"}} {
         r set x foo
         list [r persist foo] [r persist nokeyatall]
     } {0 0}
+
+    test {EXPIRE pricision is now the millisecond} {
+        # This test is very likely to do a false positive if the
+        # server is under pressure, so if it does not work give it a few more
+        # chances.
+        for {set j 0} {$j < 3} {incr j} {
+            r del x
+            r setex x 1 somevalue
+            after 997
+            set a [r get x]
+            after 1002
+            set b [r get x]
+            if {$a eq {somevalue} && $b eq {}} break
+        }
+        list $a $b
+    } {somevalue {}}
+
+    test {PEXPIRE/PSETEX/PEXPIREAT can set sub-second expires} {
+        # This test is very likely to do a false positive if the
+        # server is under pressure, so if it does not work give it a few more
+        # chances.
+        for {set j 0} {$j < 3} {incr j} {
+            r del x y z
+            r psetex x 100 somevalue
+            after 97
+            set a [r get x]
+            after 102
+            set b [r get x]
+
+            r set x somevalue
+            r pexpire x 100
+            after 97
+            set c [r get x]
+            after 102
+            set d [r get x]
+
+            r set x somevalue
+            r pexpireat x [expr ([clock seconds]*1000)+100]
+            after 97
+            set e [r get x]
+            after 102
+            set f [r get x]
+
+            if {$a eq {somevalue} && $b eq {} &&
+                $c eq {somevalue} && $d eq {} &&
+                $e eq {somevalue} && $f eq {}} break
+        }
+        list $a $b
+    } {somevalue {}}
+
+    test {PTTL returns millisecond time to live} {
+        r del x
+        r setex x 1 somevalue
+        set ttl [r pttl x]
+        assert {$ttl > 900 && $ttl <= 1000}
+    }
 }
