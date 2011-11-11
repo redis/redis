@@ -37,7 +37,7 @@
 
 /* Static server configuration */
 #define REDIS_SERVERPORT        6379    /* TCP port */
-#define REDIS_MAXIDLETIME       (60*5)  /* default client timeout */
+#define REDIS_MAXIDLETIME       0       /* default client timeout: infinite */
 #define REDIS_IOBUF_LEN         1024
 #define REDIS_LOADBUF_LEN       1024
 #define REDIS_DEFAULT_DBNUM     16
