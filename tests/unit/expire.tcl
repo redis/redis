@@ -127,4 +127,18 @@ start_server {tags {"expire"}} {
         set ttl [r pttl x]
         assert {$ttl > 900 && $ttl <= 1000}
     }
+
+    test {Redis should actively expire keys incrementally} {
+        r flushdb
+        r psetex key1 500 a
+        r psetex key2 500 a
+        r psetex key3 500 a
+        set size1 [r dbsize]
+        # Redis expires random keys ten times every second so we are
+        # fairly sure that all the three keys should be evicted after
+        # one second.
+        after 1000
+        set size2 [r dbsize]
+        list $size1 $size2
+    } {3 0}
 }
