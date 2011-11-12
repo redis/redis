@@ -597,7 +597,7 @@ int rdbSave(char *filename) {
     dictEntry *de;
     char tmpfile[256];
     int j;
-    time_t now = mstime();
+    long long now = mstime();
     FILE *fp;
     rio rdb;
 

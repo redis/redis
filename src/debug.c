@@ -91,7 +91,7 @@ void computeDatasetDigest(unsigned char *final) {
         while((de = dictNext(di)) != NULL) {
             sds key;
             robj *keyobj, *o;
-            time_t expiretime;
+            long long expiretime;
 
             memset(digest,0,20); /* This key-val digest */
             key = dictGetKey(de);
