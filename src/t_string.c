@@ -385,7 +385,7 @@ void decrbyCommand(redisClient *c) {
 
 void incrbyfloatCommand(redisClient *c) {
     long double incr, value;
-    robj *o, *new;
+    robj *o, *new, *aux;
 
     o = lookupKeyWrite(c->db,c->argv[1]);
     if (o != NULL && checkType(c,o,REDIS_STRING)) return;
@@ -406,6 +406,14 @@ void incrbyfloatCommand(redisClient *c) {
     signalModifiedKey(c->db,c->argv[1]);
     server.dirty++;
     addReplyBulk(c,new);
+
+    /* Always replicate INCRBYFLOAT as a SET command with the final value
+     * in order to make sure that differences in float pricision or formatting
+     * will not create differences in replicas or after an AOF restart. */
+    aux = createStringObject("SET",3);
+    rewriteClientCommandArgument(c,0,aux);
+    decrRefCount(aux);
+    rewriteClientCommandArgument(c,2,new);
 }
 
 void appendCommand(redisClient *c) {
