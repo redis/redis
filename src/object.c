@@ -1,5 +1,6 @@
 #include "redis.h"
 #include <math.h>
+#include <ctype.h>
 
 robj *createObject(int type, void *ptr) {
     robj *o = zmalloc(sizeof(*o));
@@ -367,7 +368,8 @@ int getDoubleFromObject(robj *o, double *target) {
         if (o->encoding == REDIS_ENCODING_RAW) {
             errno = 0;
             value = strtod(o->ptr, &eptr);
-            if (eptr[0] != '\0' || errno == ERANGE || isnan(value))
+            if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
+                errno == ERANGE || isnan(value))
                 return REDIS_ERR;
         } else if (o->encoding == REDIS_ENCODING_INT) {
             value = (long)o->ptr;
@@ -375,7 +377,6 @@ int getDoubleFromObject(robj *o, double *target) {
             redisPanic("Unknown string encoding");
         }
     }
-
     *target = value;
     return REDIS_OK;
 }
@@ -390,7 +391,6 @@ int getDoubleFromObjectOrReply(redisClient *c, robj *o, double *target, const ch
         }
         return REDIS_ERR;
     }
-
     *target = value;
     return REDIS_OK;
 }
@@ -406,7 +406,8 @@ int getLongDoubleFromObject(robj *o, long double *target) {
         if (o->encoding == REDIS_ENCODING_RAW) {
             errno = 0;
             value = strtold(o->ptr, &eptr);
-            if (eptr[0] != '\0' || errno == ERANGE || isnan(value))
+            if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
+                errno == ERANGE || isnan(value))
                 return REDIS_ERR;
         } else if (o->encoding == REDIS_ENCODING_INT) {
             value = (long)o->ptr;
@@ -428,7 +429,6 @@ int getLongDoubleFromObjectOrReply(redisClient *c, robj *o, long double *target,
         }
         return REDIS_ERR;
     }
-
     *target = value;
     return REDIS_OK;
 }
@@ -442,9 +442,10 @@ int getLongLongFromObject(robj *o, long long *target) {
     } else {
         redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
         if (o->encoding == REDIS_ENCODING_RAW) {
+            errno = 0;
             value = strtoll(o->ptr, &eptr, 10);
-            if (eptr[0] != '\0') return REDIS_ERR;
-            if (errno == ERANGE && (value == LLONG_MIN || value == LLONG_MAX))
+            if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
+                errno == ERANGE)
                 return REDIS_ERR;
         } else if (o->encoding == REDIS_ENCODING_INT) {
             value = (long)o->ptr;
@@ -452,7 +453,6 @@ int getLongLongFromObject(robj *o, long long *target) {
             redisPanic("Unknown string encoding");
         }
     }
-
     if (target) *target = value;
     return REDIS_OK;
 }
@@ -467,7 +467,6 @@ int getLongLongFromObjectOrReply(redisClient *c, robj *o, long long *target, con
         }
         return REDIS_ERR;
     }
-
     *target = value;
     return REDIS_OK;
 }
@@ -484,7 +483,6 @@ int getLongFromObjectOrReply(redisClient *c, robj *o, long *target, const char *
         }
         return REDIS_ERR;
     }
-
     *target = value;
     return REDIS_OK;
 }

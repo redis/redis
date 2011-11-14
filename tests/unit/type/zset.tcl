@@ -36,11 +36,11 @@ start_server {tags {"zset"}} {
         }
 
         test "ZSET element can't be set to NaN with ZADD - $encoding" {
-            assert_error "*not a double*" {r zadd myzset nan abc}
+            assert_error "*not*float*" {r zadd myzset nan abc}
         }
 
         test "ZSET element can't be set to NaN with ZINCRBY" {
-            assert_error "*not a double*" {r zadd myzset nan abc}
+            assert_error "*not*float*" {r zadd myzset nan abc}
         }
 
         test "ZINCRBY calls leading to NaN result in error" {
@@ -60,7 +60,7 @@ start_server {tags {"zset"}} {
         test {ZADD - Variadic version does not add nothing on single parsing err} {
             r del myzset
             catch {r zadd myzset 10 a 20 b 30.badscore c} e
-            assert_match {*ERR*not*double*} $e
+            assert_match {*ERR*not*float*} $e
             r exists myzset
         } {0}
 
@@ -291,9 +291,9 @@ start_server {tags {"zset"}} {
         }
 
         test "ZRANGEBYSCORE with non-value min or max" {
-            assert_error "*not a double*" {r zrangebyscore fooz str 1}
-            assert_error "*not a double*" {r zrangebyscore fooz 1 str}
-            assert_error "*not a double*" {r zrangebyscore fooz 1 NaN}
+            assert_error "*not*float*" {r zrangebyscore fooz str 1}
+            assert_error "*not*float*" {r zrangebyscore fooz 1 str}
+            assert_error "*not*float*" {r zrangebyscore fooz 1 NaN}
         }
 
         test "ZREMRANGEBYSCORE basics" {
@@ -353,9 +353,9 @@ start_server {tags {"zset"}} {
         }
 
         test "ZREMRANGEBYSCORE with non-value min or max" {
-            assert_error "*not a double*" {r zremrangebyscore fooz str 1}
-            assert_error "*not a double*" {r zremrangebyscore fooz 1 str}
-            assert_error "*not a double*" {r zremrangebyscore fooz 1 NaN}
+            assert_error "*not*float*" {r zremrangebyscore fooz str 1}
+            assert_error "*not*float*" {r zremrangebyscore fooz 1 str}
+            assert_error "*not*float*" {r zremrangebyscore fooz 1 NaN}
         }
 
         test "ZREMRANGEBYRANK basics" {
@@ -501,7 +501,7 @@ start_server {tags {"zset"}} {
 
                 r zadd zsetinf1 1.0 key
                 r zadd zsetinf2 1.0 key
-                assert_error "*weight value is not a double*" {
+                assert_error "*weight*not*float*" {
                     r $cmd zsetinf3 2 zsetinf1 zsetinf2 weights nan nan
                 }
             }
