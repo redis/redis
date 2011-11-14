@@ -563,17 +563,17 @@ void activeExpireCycle(void) {
          * of the keys were expired. */
         do {
             long num = dictSize(db->expires);
-            time_t now = time(NULL);
+            long long now = mstime();
 
             expired = 0;
             if (num > REDIS_EXPIRELOOKUPS_PER_CRON)
                 num = REDIS_EXPIRELOOKUPS_PER_CRON;
             while (num--) {
                 dictEntry *de;
-                time_t t;
+                long long t;
 
                 if ((de = dictGetRandomKey(db->expires)) == NULL) break;
-                t = (time_t) dictGetVal(de);
+                t = dictGetSignedIntegerVal(de);
                 if (now > t) {
                     sds key = dictGetKey(de);
                     robj *keyobj = createStringObject(key,sdslen(key));

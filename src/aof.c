@@ -431,7 +431,7 @@ int rewriteAppendOnlyFile(char *filename) {
     FILE *fp;
     char tmpfile[256];
     int j;
-    time_t now = time(NULL);
+    long long now = mstime();
 
     /* Note that we have to use a different temp name here compared to the
      * one used by rewriteAppendOnlyFileBackground() function. */
@@ -462,7 +462,7 @@ int rewriteAppendOnlyFile(char *filename) {
         while((de = dictNext(di)) != NULL) {
             sds keystr;
             robj key, *o;
-            time_t expiretime;
+            long long expiretime;
 
             keystr = dictGetKey(de);
             o = dictGetVal(de);
