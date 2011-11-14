@@ -120,7 +120,19 @@ start_server {tags {"basic"}} {
         r incrby novar 17179869184
     } {34359738368}
 
-    test {INCR fails against key with spaces (no integer encoded)} {
+    test {INCR fails against key with spaces (left)} {
+        r set novar "    11"
+        catch {r incr novar} err
+        format $err
+    } {ERR*}
+
+    test {INCR fails against key with spaces (right)} {
+        r set novar "11    "
+        catch {r incr novar} err
+        format $err
+    } {ERR*}
+
+    test {INCR fails against key with spaces (both)} {
         r set novar "    11    "
         catch {r incr novar} err
         format $err
