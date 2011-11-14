@@ -138,6 +138,72 @@ start_server {tags {"basic"}} {
         r decrby novar 17179869185
     } {-1}
 
+    test {INCRBYFLOAT against non existing key} {
+        r del novar
+        list [r incrbyfloat novar 1] [r get novar] [r incrbyfloat novar 0.25] \
+             [r get novar]
+    } {1 1 1.25 1.25}
+
+    test {INCRBYFLOAT against key originally set with SET} {
+        r set novar 1.5
+        r incrbyfloat novar 1.5
+    } {3}
+
+    test {INCRBYFLOAT over 32bit value} {
+        r set novar 17179869184
+        r incrbyfloat novar 1.5
+    } {17179869185.5}
+
+    test {INCRBYFLOAT over 32bit value with over 32bit increment} {
+        r set novar 17179869184
+        r incrbyfloat novar 17179869184
+    } {34359738368}
+
+    test {INCRBYFLOAT fails against key with spaces (left)} {
+        set err {}
+        r set novar "    11"
+        catch {r incrbyfloat novar 1.0} err
+        format $err
+    } {ERR*valid*}
+
+    test {INCRBYFLOAT fails against key with spaces (right)} {
+        set err {}
+        r set novar "11    "
+        catch {r incrbyfloat novar 1.0} err
+        format $err
+    } {ERR*valid*}
+
+    test {INCRBYFLOAT fails against key with spaces (both)} {
+        set err {}
+        r set novar " 11 "
+        catch {r incrbyfloat novar 1.0} err
+        format $err
+    } {ERR*valid*}
+
+    test {INCRBYFLOAT fails against a key holding a list} {
+        r del mylist
+        set err {}
+        r rpush mylist 1
+        catch {r incrbyfloat mylist 1.0} err
+        r del mylist
+        format $err
+    } {ERR*kind*}
+
+    test {INCRBYFLOAT does not allow NaN or Infinity} {
+        r set foo 0
+        set err {}
+        catch {r incrbyfloat foo +inf} err
+        set err
+        # p.s. no way I can force NaN to test it from the API because
+        # there is no way to increment / decrement by infinity nor to
+        # perform divisions.
+    } {ERR*would produce*}
+
+    test {INCRBYFLOAT decrement} {
+        r set foo 1
+        r incrbyfloat foo -1.256
+    } {-0.256}
+
     test "SETNX target key missing" {
         r del novar
         assert_equal 1 [r setnx novar foobared]
