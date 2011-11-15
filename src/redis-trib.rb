@@ -319,7 +319,7 @@ class RedisTrib
         #    divisibility. Like we have 3 nodes and need to get 10 slots, we take
         #    4 from the first, and 3 from the rest. So the biggest is always the first.
         sources = sources.sort{|a,b| b.slots.length <=> a.slots.length}
-        source_tot_slots = sources.inject {|a,b| a.slots.length+b.slots.length}
+        source_tot_slots = sources.inject(0) {|sum,source| sum+source.slots.length}
         sources.each_with_index{|s,i|
             # Every node will provide a number of slots proportional to the
             # slots it has assigned.
