@@ -7,12 +7,6 @@ uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 OPTIMIZATION?=-O2
 DEPENDENCY_TARGETS=hiredis linenoise lua
 
-ifeq ($(uname_S),Linux)
-  ifneq ($(FORCE_LIBC_MALLOC),yes)
-    USE_JEMALLOC=yes
-  endif
-endif
-
 ifeq ($(uname_S),SunOS)
   CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -Wall -W -D__EXTENSIONS__ -D_XPG6
   CCLINK?=-ldl -lnsl -lsocket -lm -lpthread
@@ -23,17 +17,37 @@ else
   DEBUG?=-g -rdynamic -ggdb 
 endif
 
+# Default allocator
+ifeq ($(uname_S),Linux)
+  MALLOC?=jemalloc
+else
+  MALLOC?=libc
+endif
+
+# Backwards compatibility for selecting an allocator
 ifeq ($(USE_TCMALLOC),yes)
+  MALLOC=tcmalloc
+endif
+
+ifeq ($(USE_TCMALLOC_MINIMAL),yes)
+  MALLOC=tcmalloc_minimal
+endif
+
+ifeq ($(USE_JEMALLOC),yes)
+  MALLOC=jemalloc
+endif
+
+ifeq ($(MALLOC),tcmalloc)
   ALLOC_LINK=-ltcmalloc
   ALLOC_FLAGS=-DUSE_TCMALLOC
 endif
 
-ifeq ($(USE_TCMALLOC_MINIMAL),yes)
+ifeq ($(MALLOC),tcmalloc_minimal)
   ALLOC_LINK=-ltcmalloc_minimal
   ALLOC_FLAGS=-DUSE_TCMALLOC
 endif
 
-ifeq ($(USE_JEMALLOC),yes)
+ifeq ($(MALLOC),jemalloc)
   ALLOC_LINK=../deps/jemalloc/lib/libjemalloc.a -ldl
   ALLOC_FLAGS=-DUSE_JEMALLOC -I../deps/jemalloc/include
   DEPENDENCY_TARGETS+= jemalloc
@@ -164,31 +178,44 @@ endif
 	-(cd ../deps && make $(DEPENDENCY_TARGETS) ARCH="$(ARCH)")
 	-(echo $(ARCH) > .make-arch)
 
-redis-server: .make-arch $(OBJ)
+# Clean local objects when allocator changes
+ifneq ($(shell sh -c '[ -f .make-malloc ] && cat .make-malloc'), $(MALLOC))
+.make-malloc: clean
+else
+.make-malloc:
+endif
+
+.make-malloc:
+	-(echo $(MALLOC) > .make-malloc)
+
+# Union of prerequisites
+.prerequisites: .make-arch .make-malloc
+
+redis-server: .prerequisites $(OBJ)
 	$(QUIET_LINK)$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) ../deps/lua/src/liblua.a $(CCLINK)
 
-redis-benchmark: .make-arch $(BENCHOBJ)
+redis-benchmark: .prerequisites $(BENCHOBJ)
 	$(QUIET_LINK)$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a $(CCLINK)
 
-redis-benchmark.o: redis-benchmark.c .make-arch
+redis-benchmark.o: redis-benchmark.c .prerequisites
 	$(QUIET_CC)$(CC) -c $(CFLAGS) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
 
-redis-cli: .make-arch $(CLIOBJ)
+redis-cli: .prerequisites $(CLIOBJ)
 	$(QUIET_LINK)$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o $(CCLINK)
 
-redis-cli.o: redis-cli.c .make-arch
+redis-cli.o: redis-cli.c .prerequisites
 	$(QUIET_CC)$(CC) -c $(CFLAGS) -I../deps/hiredis -I../deps/linenoise $(DEBUG) $(COMPILE_TIME) $<
 
-redis-check-dump: .make-arch $(CHECKDUMPOBJ)
+redis-check-dump: .prerequisites $(CHECKDUMPOBJ)
 	$(QUIET_LINK)$(CC) -o $(CHECKDUMPPRGNAME) $(CCOPT) $(DEBUG) $(CHECKDUMPOBJ) $(CCLINK)
 
-redis-check-aof: .make-arch $(CHECKAOFOBJ)
+redis-check-aof: .prerequisites $(CHECKAOFOBJ)
 	$(QUIET_LINK)$(CC) -o $(CHECKAOFPRGNAME) $(CCOPT) $(DEBUG) $(CHECKAOFOBJ) $(CCLINK)
 
 # Because the jemalloc.h header is generated as a part of the jemalloc build
 # process, building it should complete before building any other object. Instead of
 # depending on a single artifact, simply build all dependencies first.
-%.o: %.c .make-arch
+%.o: %.c .prerequisites
 	$(QUIET_CC)$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) -I../deps/lua/src $<
 
 .PHONY: all clean distclean
@@ -198,7 +225,7 @@ clean:
 
 distclean: clean
 	-(cd ../deps && $(MAKE) distclean)
-	-(rm -f .make-arch)
+	-(rm -f .make-arch .make-malloc)
 
 dep:
 	$(CC) -MM *.c -I ../deps/hiredis -I ../deps/linenoise
