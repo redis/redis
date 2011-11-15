@@ -5,8 +5,7 @@
 release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 OPTIMIZATION?=-O2
-
-LUA_CFLAGS=-O2 -Wall
+DEPENDENCY_TARGETS=hiredis linenoise lua
 
 ifeq ($(uname_S),Linux)
   ifneq ($(FORCE_LIBC_MALLOC),yes)
@@ -15,8 +14,6 @@ ifeq ($(uname_S),Linux)
 endif
 
 ifeq ($(uname_S),SunOS)
-  # make isinf() available
-  LUA_CFLAGS+=-D__C99FEATURES__=1
   CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -Wall -W -D__EXTENSIONS__ -D_XPG6
   CCLINK?=-ldl -lnsl -lsocket -lm -lpthread
   DEBUG?=-g -ggdb 
@@ -27,27 +24,23 @@ else
 endif
 
 ifeq ($(USE_TCMALLOC),yes)
-  ALLOD_DEPS=
   ALLOC_LINK=-ltcmalloc
   ALLOC_FLAGS=-DUSE_TCMALLOC
 endif
 
 ifeq ($(USE_TCMALLOC_MINIMAL),yes)
-  ALLOD_DEPS=
   ALLOC_LINK=-ltcmalloc_minimal
   ALLOC_FLAGS=-DUSE_TCMALLOC
 endif
 
 ifeq ($(USE_JEMALLOC),yes)
-  ALLOC_DEP=../deps/jemalloc/lib/libjemalloc.a
-  ALLOC_LINK=$(ALLOC_DEP) -ldl
+  ALLOC_LINK=../deps/jemalloc/lib/libjemalloc.a -ldl
   ALLOC_FLAGS=-DUSE_JEMALLOC -I../deps/jemalloc/include
+  DEPENDENCY_TARGETS+= jemalloc
 endif
 
 CCLINK+= $(ALLOC_LINK)
 CFLAGS+= $(ALLOC_FLAGS)
-LUA_CFLAGS+= $(ARCH)
-
 CCOPT= $(CFLAGS) $(ARCH) $(PROF)
 
 PREFIX= /usr/local
@@ -160,52 +153,52 @@ ziplist.o: ziplist.c zmalloc.h util.h ziplist.h endian.h
 zipmap.o: zipmap.c zmalloc.h endian.h
 zmalloc.o: zmalloc.c config.h zmalloc.h
 
-.PHONY: dependencies
+# Clean local objects when ARCH is different
+ifneq ($(shell sh -c '[ -f .make-arch ] && cat .make-arch'), $(ARCH))
+.make-arch: clean
+else
+.make-arch:
+endif
 
-dependencies:
-	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)hiredis$(ENDCOLOR)
-	@cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
-	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)linenoise$(ENDCOLOR)
-	@cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
-	@echo $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)Lua ansi$(ENDCOLOR)
-	@cd ../deps/lua && $(MAKE) CFLAGS="$(LUA_CFLAGS)" MYLDFLAGS="$(ARCH)" ansi
+.make-arch:
+	-(cd ../deps && make $(DEPENDENCY_TARGETS) ARCH="$(ARCH)")
+	-(echo $(ARCH) > .make-arch)
 
-../deps/jemalloc/lib/libjemalloc.a:
-	cd ../deps/jemalloc && ./configure $(JEMALLOC_CFLAGS) --with-jemalloc-prefix=je_ --enable-cc-silence && $(MAKE) lib/libjemalloc.a
-
-redis-server: dependencies $(OBJ)
+redis-server: .make-arch $(OBJ)
 	$(QUIET_LINK)$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) ../deps/lua/src/liblua.a $(CCLINK)
 
-redis-benchmark: dependencies $(BENCHOBJ)
-	@cd ../deps/hiredis && $(MAKE) static
+redis-benchmark: .make-arch $(BENCHOBJ)
 	$(QUIET_LINK)$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a $(CCLINK)
 
-redis-benchmark.o:
+redis-benchmark.o: redis-benchmark.c .make-arch
 	$(QUIET_CC)$(CC) -c $(CFLAGS) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
 
-redis-cli: dependencies $(CLIOBJ)
+redis-cli: .make-arch $(CLIOBJ)
 	$(QUIET_LINK)$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o $(CCLINK)
 
-redis-cli.o:
+redis-cli.o: redis-cli.c .make-arch
 	$(QUIET_CC)$(CC) -c $(CFLAGS) -I../deps/hiredis -I../deps/linenoise $(DEBUG) $(COMPILE_TIME) $<
 
-redis-check-dump: $(CHECKDUMPOBJ)
+redis-check-dump: .make-arch $(CHECKDUMPOBJ)
 	$(QUIET_LINK)$(CC) -o $(CHECKDUMPPRGNAME) $(CCOPT) $(DEBUG) $(CHECKDUMPOBJ) $(CCLINK)
 
-redis-check-aof: $(CHECKAOFOBJ)
+redis-check-aof: .make-arch $(CHECKAOFOBJ)
 	$(QUIET_LINK)$(CC) -o $(CHECKAOFPRGNAME) $(CCOPT) $(DEBUG) $(CHECKAOFOBJ) $(CCLINK)
 
 # Because the jemalloc.h header is generated as a part of the jemalloc build
-# process, building it should complete before building any other object.
-%.o: %.c $(ALLOC_DEP)
+# process, building it should complete before building any other object. Instead of
+# depending on a single artifact, simply build all dependencies first.
+%.o: %.c .make-arch
 	$(QUIET_CC)$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) -I../deps/lua/src $<
+
+.PHONY: all clean distclean
 
 clean:
 	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
-	cd ../deps/hiredis && $(MAKE) $@
-	cd ../deps/linenoise && $(MAKE) $@
-	cd ../deps/lua && $(MAKE) $@
-	-(cd ../deps/jemalloc && $(MAKE) distclean)
+
+distclean: clean
+	-(cd ../deps && $(MAKE) distclean)
+	-(rm -f .make-arch)
 
 dep:
 	$(CC) -MM *.c -I ../deps/hiredis -I ../deps/linenoise
