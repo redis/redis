@@ -294,3 +294,7 @@ proc csvdump r {
 proc csvstring s {
     return "\"$s\""
 }
+
+proc roundFloat f {
+    format "%.10g" $f
+}

@@ -152,13 +152,15 @@ start_server {tags {"basic"}} {
 
     test {INCRBYFLOAT against non existing key} {
         r del novar
-        list [r incrbyfloat novar 1] [r get novar] [r incrbyfloat novar 0.25] \
-             [r get novar]
+        list    [roundFloat [r incrbyfloat novar 1]] \
+                [roundFloat [r get novar]] \
+                [roundFloat [r incrbyfloat novar 0.25]] \
+                [roundFloat [r get novar]]
     } {1 1 1.25 1.25}
 
     test {INCRBYFLOAT against key originally set with SET} {
         r set novar 1.5
-        r incrbyfloat novar 1.5
+        roundFloat [r incrbyfloat novar 1.5]
     } {3}
 
     test {INCRBYFLOAT over 32bit value} {
@@ -213,7 +215,7 @@ start_server {tags {"basic"}} {
 
     test {INCRBYFLOAT decrement} {
         r set foo 1
-        r incrbyfloat foo -1.1
+        roundFloat [r incrbyfloat foo -1.1]
     } {-0.1}
 
     test "SETNX target key missing" {

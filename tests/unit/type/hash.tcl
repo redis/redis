@@ -327,30 +327,32 @@ start_server {tags {"hash"}} {
         set rv {}
         r hdel smallhash tmp
         r hdel bighash tmp
-        lappend rv [r hincrbyfloat smallhash tmp 2.5]
-        lappend rv [r hget smallhash tmp]
-        lappend rv [r hincrbyfloat bighash tmp 2.5]
-        lappend rv [r hget bighash tmp]
+        lappend rv [roundFloat [r hincrbyfloat smallhash tmp 2.5]]
+        lappend rv [roundFloat [r hget smallhash tmp]]
+        lappend rv [roundFloat [r hincrbyfloat bighash tmp 2.5]]
+        lappend rv [roundFloat [r hget bighash tmp]]
     } {2.5 2.5 2.5 2.5}
 
     test {HINCRBYFLOAT against hash key created by hincrby itself} {
         set rv {}
-        lappend rv [r hincrbyfloat smallhash tmp 3.5]
-        lappend rv [r hget smallhash tmp]
-        lappend rv [r hincrbyfloat bighash tmp 3.5]
-        lappend rv [r hget bighash tmp]
+        lappend rv [roundFloat [r hincrbyfloat smallhash tmp 3.5]]
+        lappend rv [roundFloat [r hget smallhash tmp]]
+        lappend rv [roundFloat [r hincrbyfloat bighash tmp 3.5]]
+        lappend rv [roundFloat [r hget bighash tmp]]
     } {6 6 6 6}
 
     test {HINCRBYFLOAT against hash key originally set with HSET} {
         r hset smallhash tmp 100
         r hset bighash tmp 100
-        list [r hincrbyfloat smallhash tmp 2.5] [r hincrbyfloat bighash tmp 2.5]
+        list [roundFloat [r hincrbyfloat smallhash tmp 2.5]] \
+             [roundFloat [r hincrbyfloat bighash tmp 2.5]]
     } {102.5 102.5}
 
     test {HINCRBYFLOAT over 32bit value} {
         r hset smallhash tmp 17179869184
         r hset bighash tmp 17179869184
-        list [r hincrbyfloat smallhash tmp 1] [r hincrbyfloat bighash tmp 1]
+        list [r hincrbyfloat smallhash tmp 1] \
+             [r hincrbyfloat bighash tmp 1]
     } {17179869185 17179869185}
 
     test {HINCRBYFLOAT over 32bit value with over 32bit increment} {
