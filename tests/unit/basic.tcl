@@ -213,8 +213,8 @@ start_server {tags {"basic"}} {
 
     test {INCRBYFLOAT decrement} {
         r set foo 1
-        r incrbyfloat foo -1.256
-    } {-0.256}
+        r incrbyfloat foo -1.1
+    } {-0.1}
 
     test "SETNX target key missing" {
         r del novar

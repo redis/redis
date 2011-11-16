@@ -335,11 +335,11 @@ start_server {tags {"hash"}} {
 
     test {HINCRBYFLOAT against hash key created by hincrby itself} {
         set rv {}
-        lappend rv [r hincrbyfloat smallhash tmp 3.1]
+        lappend rv [r hincrbyfloat smallhash tmp 3.5]
         lappend rv [r hget smallhash tmp]
-        lappend rv [r hincrbyfloat bighash tmp 3.1]
+        lappend rv [r hincrbyfloat bighash tmp 3.5]
         lappend rv [r hget bighash tmp]
-    } {5.6 5.6 5.6 5.6}
+    } {6 6 6 6}
 
     test {HINCRBYFLOAT against hash key originally set with HSET} {
         r hset smallhash tmp 100
