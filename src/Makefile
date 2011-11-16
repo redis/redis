@@ -188,34 +188,35 @@ endif
 .make-malloc:
 	-(echo $(MALLOC) > .make-malloc)
 
-# Union of prerequisites
-.prerequisites: .make-arch .make-malloc
+# Union of make-prerequisites
+.make-prerequisites: .make-arch .make-malloc
+	@touch $@
 
-redis-server: .prerequisites $(OBJ)
+redis-server: .make-prerequisites $(OBJ)
 	$(QUIET_LINK)$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) ../deps/lua/src/liblua.a $(CCLINK)
 
-redis-benchmark: .prerequisites $(BENCHOBJ)
+redis-benchmark: .make-prerequisites $(BENCHOBJ)
 	$(QUIET_LINK)$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a $(CCLINK)
 
-redis-benchmark.o: redis-benchmark.c .prerequisites
+redis-benchmark.o: redis-benchmark.c .make-prerequisites
 	$(QUIET_CC)$(CC) -c $(CFLAGS) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
 
-redis-cli: .prerequisites $(CLIOBJ)
+redis-cli: .make-prerequisites $(CLIOBJ)
 	$(QUIET_LINK)$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o $(CCLINK)
 
-redis-cli.o: redis-cli.c .prerequisites
+redis-cli.o: redis-cli.c .make-prerequisites
 	$(QUIET_CC)$(CC) -c $(CFLAGS) -I../deps/hiredis -I../deps/linenoise $(DEBUG) $(COMPILE_TIME) $<
 
-redis-check-dump: .prerequisites $(CHECKDUMPOBJ)
+redis-check-dump: .make-prerequisites $(CHECKDUMPOBJ)
 	$(QUIET_LINK)$(CC) -o $(CHECKDUMPPRGNAME) $(CCOPT) $(DEBUG) $(CHECKDUMPOBJ) $(CCLINK)
 
-redis-check-aof: .prerequisites $(CHECKAOFOBJ)
+redis-check-aof: .make-prerequisites $(CHECKAOFOBJ)
 	$(QUIET_LINK)$(CC) -o $(CHECKAOFPRGNAME) $(CCOPT) $(DEBUG) $(CHECKAOFOBJ) $(CCLINK)
 
 # Because the jemalloc.h header is generated as a part of the jemalloc build
 # process, building it should complete before building any other object. Instead of
 # depending on a single artifact, simply build all dependencies first.
-%.o: %.c .prerequisites
+%.o: %.c .make-prerequisites
 	$(QUIET_CC)$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) -I../deps/lua/src $<
 
 .PHONY: all clean distclean
