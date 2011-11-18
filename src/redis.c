@@ -187,7 +187,7 @@ struct redisCommand redisCommandTable[] = {
     {"save",saveCommand,1,"ar",0,NULL,0,0,0,0,0},
     {"bgsave",bgsaveCommand,1,"ar",0,NULL,0,0,0,0,0},
     {"bgrewriteaof",bgrewriteaofCommand,1,"ar",0,NULL,0,0,0,0,0},
-    {"shutdown",shutdownCommand,1,"ar",0,NULL,0,0,0,0,0},
+    {"shutdown",shutdownCommand,-1,"ar",0,NULL,0,0,0,0,0},
     {"lastsave",lastsaveCommand,1,"r",0,NULL,0,0,0,0,0},
     {"type",typeCommand,2,"r",0,NULL,1,1,1,0,0},
     {"multi",multiCommand,1,"rs",0,NULL,0,0,0,0,0},
@@ -628,7 +628,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* We received a SIGTERM, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
     if (server.shutdown_asap) {
-        if (prepareForShutdown() == REDIS_OK) exit(0);
+        if (prepareForShutdown(0) == REDIS_OK) exit(0);
         redisLog(REDIS_WARNING,"SIGTERM received but errors trying to shut down the server, check the logs for more information");
     }
 
@@ -805,7 +805,7 @@ void createSharedObjects(void) {
     shared.loadingerr = createObject(REDIS_STRING,sdsnew(
         "-LOADING Redis is loading the dataset in memory\r\n"));
     shared.slowscripterr = createObject(REDIS_STRING,sdsnew(
-        "-BUSY Redis is busy running a script. Please wait or stop the server with SHUTDOWN.\r\n"));
+        "-BUSY Redis is busy running a script. You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
     shared.space = createObject(REDIS_STRING,sdsnew(" "));
     shared.colon = createObject(REDIS_STRING,sdsnew(":"));
     shared.plus = createObject(REDIS_STRING,sdsnew("+"));
@@ -884,6 +884,7 @@ void initServerConfig() {
     server.repl_timeout = REDIS_REPL_TIMEOUT;
     server.cluster_enabled = 0;
     server.cluster.configfile = zstrdup("nodes.conf");
+    server.lua_caller = NULL;
     server.lua_time_limit = REDIS_LUA_TIME_LIMIT;
     server.lua_client = NULL;
     server.lua_timedout = 0;
@@ -1232,8 +1233,15 @@ int processCommand(redisClient *c) {
         return REDIS_OK;
     }
 
-    /* Lua script too slow? */
-    if (server.lua_timedout && c->cmd->proc != shutdownCommand) {
+    /* Lua script too slow? Only allow SHUTDOWN NOSAVE and SCRIPT KILL. */
+    if (server.lua_timedout &&
+        !(c->cmd->proc != shutdownCommand &&
+          c->argc == 2 &&
+          tolower(((char*)c->argv[1]->ptr)[0]) == 'n') &&
+        !(c->cmd->proc == scriptCommand &&
+          c->argc == 2 &&
+          tolower(((char*)c->argv[1]->ptr)[0]) == 'k'))
+    {
         addReply(c, shared.slowscripterr);
         return REDIS_OK;
     }
@@ -1253,7 +1261,10 @@ int processCommand(redisClient *c) {
 
 /*================================== Shutdown =============================== */
 
-int prepareForShutdown() {
+int prepareForShutdown(int flags) {
+    int save = flags & REDIS_SHUTDOWN_SAVE;
+    int nosave = flags & REDIS_SHUTDOWN_NOSAVE;
+
     redisLog(REDIS_WARNING,"User requested shutdown...");
     /* Kill the saving child if there is a background saving in progress.
        We want to avoid race conditions, for instance our saving child may
@@ -1275,7 +1286,7 @@ int prepareForShutdown() {
         redisLog(REDIS_NOTICE,"Calling fsync() on the AOF file.");
         aof_fsync(server.appendfd);
     }
-    if (server.saveparamslen > 0) {
+    if ((server.saveparamslen > 0 && !nosave) || save) {
         redisLog(REDIS_NOTICE,"Saving the final RDB snapshot before exiting.");
         /* Snapshotting. Perform a SYNC SAVE and exit */
         if (rdbSave(server.dbfilename) != REDIS_OK) {

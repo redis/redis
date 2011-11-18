@@ -215,6 +215,11 @@
 #define UNIT_SECONDS 0
 #define UNIT_MILLISECONDS 1
 
+/* SHUTDOWN flags */
+#define REDIS_SHUTDOWN_SAVE 1       /* Force SAVE on SHUTDOWN even if no save
+                                       points are configured. */
+#define REDIS_SHUTDOWN_NOSAVE 2     /* Don't SAVE on SHUTDOWN. */
+
 /* We can print the stacktrace, so our assert is defined this way: */
 #define redisAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_redisAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),_exit(1)))
 #define redisAssert(_e) ((_e)?(void)0 : (_redisAssert(#_e,__FILE__,__LINE__),_exit(1)))
@@ -538,7 +543,7 @@ struct redisServer {
     off_t auto_aofrewrite_base_size;/* AOF size on latest startup or rewrite. */
     off_t appendonly_current_size;  /* AOF current size. */
     int aofrewrite_scheduled;       /* Rewrite once BGSAVE terminates. */
-    int shutdown_asap;
+    int shutdown_asap;              /* SHUTDOWN needed */
     int activerehashing;
     char *requirepass;
     /* Persistence */
@@ -615,13 +620,17 @@ struct redisServer {
     /* Scripting */
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
     redisClient *lua_client; /* The "fake client" to query Redis from Lua */
+    redisClient *lua_caller; /* The client running EVAL right now, or NULL */
     dict *lua_scripts; /* A dictionary of SHA1 -> Lua scripts */
     long long lua_time_limit;
     long long lua_time_start;
+    int lua_write_dirty;  /* True if a write command was called during the
+                             execution of the current script. */
     int lua_random_dirty; /* True if a random command was called during the
-                             exection of the current script. */
+                             execution of the current script. */
     int lua_timedout;     /* True if we reached the time limit for script
                              execution. */
+    int lua_kill;         /* Kill the script if true. */
 };
 
 typedef struct pubsubPattern {
