@@ -83,7 +83,7 @@ struct redisCommand *commandTable;
  * p: Pub/Sub related command.
  * f: force replication of this command, regarless of server.dirty.
  * s: command not allowed in scripts.
- * r: random command. Command is not deterministic, that is, the same command
+ * R: random command. Command is not deterministic, that is, the same command
  *    with the same arguments, with the same key space, may have different
  *    results. For instance SPOP and RANDOMKEY are two random commands. */
 struct redisCommand redisCommandTable[] = {
