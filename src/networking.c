@@ -910,13 +910,13 @@ sds getClientInfoString(redisClient *client) {
             *p++ = 'S';
     }
     if (client->flags & REDIS_MASTER) *p++ = 'M';
-    if (p == flags) *p++ = 'N';
     if (client->flags & REDIS_MULTI) *p++ = 'x';
     if (client->flags & REDIS_BLOCKED) *p++ = 'b';
     if (client->flags & REDIS_IO_WAIT) *p++ = 'i';
     if (client->flags & REDIS_DIRTY_CAS) *p++ = 'd';
     if (client->flags & REDIS_CLOSE_AFTER_REPLY) *p++ = 'c';
     if (client->flags & REDIS_UNBLOCKED) *p++ = 'u';
+    if (p == flags) *p++ = 'N';
     *p++ = '\0';
 
     emask = client->fd == -1 ? 0 : aeGetFileEvents(server.el,client->fd);
