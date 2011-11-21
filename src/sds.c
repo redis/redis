@@ -156,6 +156,10 @@ sds sdscat(sds s, char *t) {
     return sdscatlen(s, t, strlen(t));
 }
 
+sds sdscatsds(sds s, sds t) {
+    return sdscatlen(s, t, sdslen(t));
+}
+
 sds sdscpylen(sds s, char *t, size_t len) {
     struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
     size_t totlen = sh->free+sh->len;
