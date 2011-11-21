@@ -48,7 +48,7 @@
 #define REDIS_REQUEST_MAX_SIZE (1024*1024*256) /* max bytes in inline command */
 #define REDIS_SHARED_INTEGERS 10000
 #define REDIS_REPLY_CHUNK_BYTES (5*1500) /* 5 TCP packets with default MTU */
-#define REDIS_MAX_LOGMSG_LEN    1024 /* Default maximum length of syslog messages */
+#define REDIS_MAX_LOGMSG_LEN    4096 /* Default maximum length of syslog messages */
 #define REDIS_AUTO_AOFREWRITE_PERC  100
 #define REDIS_AUTO_AOFREWRITE_MIN_SIZE (1024*1024)
 #define REDIS_SLOWLOG_LOG_SLOWER_THAN 10000
