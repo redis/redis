@@ -38,6 +38,7 @@
 /* Static server configuration */
 #define REDIS_SERVERPORT        6379    /* TCP port */
 #define REDIS_MAXIDLETIME       0       /* default client timeout: infinite */
+#define REDIS_MAX_QUERYBUF_LEN  (1024*1024*1024) /* 1GB max query buffer. */
 #define REDIS_IOBUF_LEN         (1024*16)
 #define REDIS_LOADBUF_LEN       1024
 #define REDIS_DEFAULT_DBNUM     16
@@ -418,6 +419,7 @@ struct redisServer {
     /* Configuration */
     int verbosity;
     int maxidletime;
+    size_t client_max_querybuf_len;
     int dbnum;
     int daemonize;
     int appendonly;
@@ -700,6 +702,7 @@ void addReplyMultiBulkLen(redisClient *c, long length);
 void *dupClientReplyValue(void *o);
 void getClientsMaxBuffers(unsigned long *longest_output_list,
                           unsigned long *biggest_input_buffer);
+sds getClientInfoString(redisClient *client);
 void rewriteClientCommandVector(redisClient *c, int argc, ...);
 
 #ifdef __GNUC__
