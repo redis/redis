@@ -18,6 +18,19 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
+What's new in Redis 2.4.3
+=========================
+
+* redis-cli now supports 'single quotes' style strings.
+* It is possible to disable password auth with CONFIG SET.
+* Some section of redis.conf better documented.
+* Default timeout for client connections now is 0 (no timeout).
+* I/O buffer length modified for better performances with big payloads.
+* Fixed crash on SPARC due to improper alighment due to bad assumptions about data types size.
+* CLIENT LIST output improved, code refactored.
+* [BUGFIX] Max log message length set to 4k to avoid truncation in INFO output written in the log file after a crash.
+* [BUGFIX] Close client connection when the query buffer reaches 1GB and log informaiton about the offending client, instead of crashing the instance when the query buffer reaches 2GB (for sds.c string overflow). This is related to issue #141 (github issues) and should fix the effect of this rare bug related to replication, but the cause is still not perfectly clear.
+
 What's new in Redis 2.4.2
 =========================
 
