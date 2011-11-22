@@ -70,9 +70,31 @@ double R_Zero, R_PosInf, R_NegInf, R_Nan;
 struct redisServer server; /* server global state */
 struct redisCommand *commandTable;
 
-/* Our command table. Command flags are expressed using strings where every
- * character represents a flag. Later the populateCommandTable() function will
- * take care of populating the real 'flags' field using this characters.
+/* Our command table.
+ *
+ * Every entry is composed of the following fields:
+ *
+ * name: a string representing the command name.
+ * function: pointer to the C function implementing the command.
+ * arity: number of arguments, it is possible to use -N to say >= N
+ * sflags: command flags as string. See below for a table of flags.
+ * flags: flags as bitmask. Computed by Redis using the 'sflags' field.
+ * get_keys_proc: an optional function to get key arguments from a command.
+ *                This is only used when the following three fields are not
+ *                enough to specify what arguments are keys.
+ * first_key_index: first argument that is a key
+ * last_key_index: last argument that is a key
+ * key_step: step to get all the keys from first to last argument. For instance
+ *           in MSET the step is two since arguments are key,val,key,val,...
+ * microseconds: microseconds of total execution time for this command.
+ * calls: total number of calls of this command.
+ *
+ * The flags, microseconds and calls fields are computed by Redis and should
+ * always be set to zero.
+ *
+ * Command flags are expressed using strings where every character represents
+ * a flag. Later the populateCommandTable() function will take care of
+ * populating the real 'flags' field using this characters.
  *
  * This is the meaning of the flags:
  *
