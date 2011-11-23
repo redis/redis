@@ -556,7 +556,7 @@ ckh_string_hash(const void *key, unsigned minbits, size_t *hash1, size_t *hash2)
 	} else {
 		ret1 = h;
 		ret2 = hash(key, strlen((const char *)key),
-		    0x8432a476666bbc13U);
+		    0x8432a476666bbc13LLU);
 	}
 
 	*hash1 = ret1;
