@@ -419,6 +419,7 @@ static void acceptCommonHandler(int fd) {
         if (write(c->fd,err,strlen(err)) == -1) {
             /* Nothing to do, Just to avoid the warning... */
         }
+        server.stat_rejected_conn++;
         freeClient(c);
         return;
     }

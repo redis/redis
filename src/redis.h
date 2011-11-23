@@ -527,6 +527,7 @@ struct redisServer {
     long long stat_keyspace_misses; /* number of failed lookups of keys */
     size_t stat_peak_memory;        /* max used memory record */
     long long stat_fork_time;       /* time needed to perform latets fork() */
+    long long stat_rejected_conn;   /* clients rejected because of maxclients */
     list *slowlog;
     long long slowlog_entry_id;
     long long slowlog_log_slower_than;
