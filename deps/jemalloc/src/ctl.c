@@ -1151,11 +1151,13 @@ thread_arena_ctl(const size_t *mib, size_t miblen, void *oldp, size_t *oldlenp,
 
 		/* Set new arena association. */
 		ARENA_SET(arena);
+#ifdef JEMALLOC_TCACHE
 		{
 			tcache_t *tcache = TCACHE_GET();
 			if (tcache != NULL)
 				tcache->arena = arena;
 		}
+#endif
 	}
 
 	ret = 0;
