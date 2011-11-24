@@ -980,20 +980,28 @@ sds getClientInfoString(redisClient *client) {
         client->lastcmd ? client->lastcmd->name : "NULL");
 }
 
+sds getAllClientsInfoString(void) {
+    listNode *ln;
+    listIter li;
+    redisClient *client;
+    sds o = sdsempty();
+
+    listRewind(server.clients,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        client = listNodeValue(ln);
+        o = sdscatsds(o,getClientInfoString(client));
+        o = sdscatlen(o,"\n",1);
+    }
+    return o;
+}
+
 void clientCommand(redisClient *c) {
     listNode *ln;
     listIter li;
     redisClient *client;
 
     if (!strcasecmp(c->argv[1]->ptr,"list") && c->argc == 2) {
-        sds o = sdsempty();
-
-        listRewind(server.clients,&li);
-        while ((ln = listNext(&li)) != NULL) {
-            client = listNodeValue(ln);
-            o = sdscatsds(o,getClientInfoString(client));
-            o = sdscatlen(o,"\n",1);
-        }
+        sds o = getAllClientsInfoString();
         addReplyBulkCBuffer(c,o,sdslen(o));
         sdsfree(o);
     } else if (!strcasecmp(c->argv[1]->ptr,"kill") && c->argc == 3) {
