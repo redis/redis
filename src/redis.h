@@ -703,6 +703,7 @@ void *dupClientReplyValue(void *o);
 void getClientsMaxBuffers(unsigned long *longest_output_list,
                           unsigned long *biggest_input_buffer);
 sds getClientInfoString(redisClient *client);
+sds getAllClientsInfoString(void);
 void rewriteClientCommandVector(redisClient *c, int argc, ...);
 
 #ifdef __GNUC__
