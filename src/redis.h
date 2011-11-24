@@ -634,6 +634,11 @@ struct redisServer {
     int lua_timedout;     /* True if we reached the time limit for script
                              execution. */
     int lua_kill;         /* Kill the script if true. */
+    /* Assert & bug reportign */
+    char *assert_failed;
+    char *assert_file;
+    int assert_line;
+    int bug_report_start; /* True if bug report header already logged. */
 };
 
 typedef struct pubsubPattern {
@@ -1148,5 +1153,6 @@ void *realloc(void *ptr, size_t size) __attribute__ ((deprecated));
 void _redisAssertWithInfo(redisClient *c, robj *o, char *estr, char *file, int line);
 void _redisAssert(char *estr, char *file, int line);
 void _redisPanic(char *msg, char *file, int line);
+void bugReportStart(void);
 
 #endif
