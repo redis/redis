@@ -332,7 +332,7 @@ typedef struct redisClient {
     sds querybuf;
     int argc;
     robj **argv;
-    struct redisCommand *cmd;
+    struct redisCommand *cmd, *lastcmd;
     int reqtype;
     int multibulklen;       /* number of multi bulk arguments left to read */
     long bulklen;           /* length of bulk argument in multi bulk request */
