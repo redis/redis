@@ -33,6 +33,8 @@
 #define	JEMALLOC_MANGLE
 #include "../jemalloc@install_suffix@.h"
 
+#include "jemalloc/internal/private_namespace.h"
+
 #if (defined(JEMALLOC_OSATOMIC) || defined(JEMALLOC_OSSPIN))
 #include <libkern/OSAtomic.h>
 #endif
@@ -633,7 +635,11 @@ ipalloc(size_t usize, size_t alignment, bool zero)
 	if (usize <= arena_maxclass && alignment <= PAGE_SIZE)
 		ret = arena_malloc(usize, zero);
 	else {
-		size_t run_size = 0;
+		size_t run_size
+#ifdef JEMALLOC_CC_SILENCE
+		    = 0
+#endif
+		    ;
 
 		/*
 		 * Ideally we would only ever call sa2u() once per aligned

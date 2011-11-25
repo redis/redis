@@ -50,7 +50,7 @@ extern size_t		map_bias; /* Number of arena chunk header pages. */
 extern size_t		arena_maxclass; /* Max size class for arenas. */
 
 void	*chunk_alloc(size_t size, bool base, bool *zero);
-void	chunk_dealloc(void *chunk, size_t size);
+void	chunk_dealloc(void *chunk, size_t size, bool unmap);
 bool	chunk_boot(void);
 
 #endif /* JEMALLOC_H_EXTERNS */
