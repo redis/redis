@@ -911,9 +911,12 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         return;
     }
     if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
-        sds ci = getClientInfoString(c);
-        redisLog(REDIS_WARNING,"Closing client that reached max query buffer length: %s", ci);
+        sds ci = getClientInfoString(c), bytes = sdsempty();
+
+        bytes = sdscatrepr(bytes,c->querybuf,64);
+        redisLog(REDIS_WARNING,"Closing client that reached max query buffer length: %s (qbuf initial bytes: %s)", ci, bytes);
         sdsfree(ci);
+        sdsfree(bytes);
         freeClient(c);
         return;
     }
