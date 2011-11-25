@@ -57,7 +57,7 @@ void discardCommand(redisClient *c) {
 
     freeClientMultiState(c);
     initClientMultiState(c);
-    c->flags &= (~REDIS_MULTI);
+    c->flags &= ~(REDIS_MULTI|REDIS_DIRTY_CAS);;
     unwatchAllKeys(c);
     addReply(c,shared.ok);
 }
