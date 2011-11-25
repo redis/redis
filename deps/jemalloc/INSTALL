@@ -42,6 +42,12 @@ any of the following arguments (not a definitive list) to 'configure':
     jemalloc overlays the default malloc zone, but makes no attempt to actually
     replace the "malloc", "calloc", etc. symbols.
 
+--with-private-namespace=<prefix>
+    Prefix all library-private APIs with <prefix>.  For shared libraries,
+    symbol visibility mechanisms prevent these symbols from being exported, but
+    for static libraries, naming collisions are a real possibility.  By
+    default, the prefix is "" (empty string).
+
 --with-install-suffix=<suffix>
     Append <suffix> to the base name of all installed files, such that multiple
     versions of jemalloc can coexist in the same installation directory.  For

@@ -569,7 +569,7 @@ arena_chunk_dealloc(arena_t *arena, arena_chunk_t *chunk)
 			arena->ndirty -= spare->ndirty;
 		}
 		malloc_mutex_unlock(&arena->lock);
-		chunk_dealloc((void *)spare, chunksize);
+		chunk_dealloc((void *)spare, chunksize, true);
 		malloc_mutex_lock(&arena->lock);
 #ifdef JEMALLOC_STATS
 		arena->stats.mapped -= chunksize;
@@ -869,9 +869,9 @@ arena_purge(arena_t *arena, bool all)
 	assert(ndirty == arena->ndirty);
 #endif
 	assert(arena->ndirty > arena->npurgatory || all);
-	assert(arena->ndirty > chunk_npages || all);
+	assert(arena->ndirty - arena->npurgatory > chunk_npages || all);
 	assert((arena->nactive >> opt_lg_dirty_mult) < (arena->ndirty -
-	    npurgatory) || all);
+	    arena->npurgatory) || all);
 
 #ifdef JEMALLOC_STATS
 	arena->stats.npurge++;
@@ -1657,6 +1657,7 @@ arena_prof_promoted(const void *ptr, size_t size)
 	assert(ptr != NULL);
 	assert(CHUNK_ADDR2BASE(ptr) != ptr);
 	assert(isalloc(ptr) == PAGE_SIZE);
+	assert(size <= small_maxclass);
 
 	chunk = (arena_chunk_t *)CHUNK_ADDR2BASE(ptr);
 	pageind = ((uintptr_t)ptr - (uintptr_t)chunk) >> PAGE_SHIFT;
