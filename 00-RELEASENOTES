@@ -18,6 +18,22 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
+What's new in Redis 2.4.4
+=========================
+
+* [BUGFIX] jemalloc upgraded to version 2.2.5, previous versions had a
+  potentially serious issue when allocating big memory areas, something that
+  Redis actually does. However we never received bug reports that appear
+  to be caused by jemalloc.
+* [BUGFIX] DISCARD now clears DIRTY_CAS flag in the client. Now the next
+  transaction will not fail if the previous transaction used WATCH and
+  the key was touched.
+* CLIENT LIST output modified to include the last command executed by clients.
+* Better bug report on crash.
+* Protocol errors are now logged for loglevel >= verbose.
+* Two new INFO fields related to AOF, that can be useful when investigating
+  Redis issues.
+
 What's new in Redis 2.4.3
 =========================
 
