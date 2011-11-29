@@ -35,12 +35,14 @@ else
 endif
 
 ifeq ($(USE_TCMALLOC),yes)
+  USE_JEMALLOC=no
   ALLOC_DEP=
   ALLOC_LINK=-ltcmalloc
   ALLOC_FLAGS=-DUSE_TCMALLOC
 endif
 
 ifeq ($(USE_TCMALLOC_MINIMAL),yes)
+  USE_JEMALLOC=no
   ALLOC_DEP=
   ALLOC_LINK=-ltcmalloc_minimal
   ALLOC_FLAGS=-DUSE_TCMALLOC
