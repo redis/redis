@@ -863,7 +863,7 @@ void initServerConfig() {
     server.ipfd = -1;
     server.sofd = -1;
     server.dbnum = REDIS_DEFAULT_DBNUM;
-    server.verbosity = REDIS_VERBOSE;
+    server.verbosity = REDIS_NOTICE;
     server.maxidletime = REDIS_MAXIDLETIME;
     server.client_max_querybuf_len = REDIS_MAX_QUERYBUF_LEN;
     server.saveparams = NULL;
