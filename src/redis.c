@@ -2011,7 +2011,8 @@ int main(int argc, char **argv) {
     if (argc == 2) {
         if (strcmp(argv[1], "-v") == 0 ||
             strcmp(argv[1], "--version") == 0) version();
-        if (strcmp(argv[1], "--help") == 0) usage();
+        if (strcmp(argv[1], "--help") == 0 ||
+            strcmp(argv[1], "-h") == 0) usage();
         resetServerSaveParams();
         loadServerConfig(argv[1]);
     } else if ((argc > 2)) {
