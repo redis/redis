@@ -669,12 +669,17 @@ struct redisFunctionSym {
     unsigned long pointer;
 };
 
+typedef struct {
+    double score;
+    robj *cmpobj;
+    int sort_desc;
+    int sort_alpha;
+} u_sort;
+
 typedef struct _redisSortObject {
     robj *obj;
-    union {
-        double score;
-        robj *cmpobj;
-    } u;
+    u_sort *u;
+    int total;
 } redisSortObject;
 
 typedef struct _redisSortOperation {
