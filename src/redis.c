@@ -1856,8 +1856,16 @@ void version() {
 }
 
 void usage() {
-    fprintf(stderr,"Usage: ./redis-server [/path/to/redis.conf]\n");
+    fprintf(stderr,"Usage: ./redis-server [/path/to/redis.conf] [options]\n");
     fprintf(stderr,"       ./redis-server - (read config from stdin)\n");
+    fprintf(stderr,"       ./redis-server -v or --version\n");
+    fprintf(stderr,"       ./redis-server -h or --help\n\n");
+    fprintf(stderr,"Examples:\n");
+    fprintf(stderr,"       ./redis-server (run the server with default conf)\n");
+    fprintf(stderr,"       ./redis-server /etc/redis/6379.conf\n");
+    fprintf(stderr,"       ./redis-server --port 7777\n");
+    fprintf(stderr,"       ./redis-server --port 7777 --slaveof 127.0.0.1 8888\n");
+    fprintf(stderr,"       ./redis-server /etc/myredis.conf --loglevel verbose\n");
     exit(1);
 }
 
@@ -1876,53 +1884,6 @@ void redisAsciiArt(void) {
     );
     redisLogRaw(REDIS_NOTICE|REDIS_LOG_RAW,buf);
     zfree(buf);
-}
-
-int main(int argc, char **argv) {
-    long long start;
-
-    zmalloc_enable_thread_safeness();
-    initServerConfig();
-    if (argc == 2) {
-        if (strcmp(argv[1], "-v") == 0 ||
-            strcmp(argv[1], "--version") == 0) version();
-        if (strcmp(argv[1], "--help") == 0) usage();
-        resetServerSaveParams();
-        loadServerConfig(argv[1]);
-    } else if ((argc > 2)) {
-        usage();
-    } else {
-        redisLog(REDIS_WARNING,"Warning: no config file specified, using the default config. In order to specify a config file use 'redis-server /path/to/redis.conf'");
-    }
-    if (server.daemonize) daemonize();
-    initServer();
-    if (server.daemonize) createPidFile();
-    redisAsciiArt();
-    redisLog(REDIS_NOTICE,"Server started, Redis version " REDIS_VERSION);
-#ifdef __linux__
-    linuxOvercommitMemoryWarning();
-#endif
-    start = ustime();
-    if (server.appendonly) {
-        if (loadAppendOnlyFile(server.appendfilename) == REDIS_OK)
-            redisLog(REDIS_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
-    } else {
-        if (rdbLoad(server.dbfilename) == REDIS_OK) {
-            redisLog(REDIS_NOTICE,"DB loaded from disk: %.3f seconds",
-                (float)(ustime()-start)/1000000);
-        } else if (errno != ENOENT) {
-            redisLog(REDIS_WARNING,"Fatal error loading the DB. Exiting.");
-            exit(1);
-        }
-    }
-    if (server.ipfd > 0)
-        redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
-    if (server.sofd > 0)
-        redisLog(REDIS_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
-    aeSetBeforeSleepProc(server.el,beforeSleep);
-    aeMain(server.el);
-    aeDeleteEventLoop(server.el);
-    return 0;
 }
 
 #ifdef HAVE_BACKTRACE
@@ -2048,6 +2009,78 @@ void setupSignalHandlers(void) {
     sigaction(SIGILL, &act, NULL);
 #endif
     return;
+}
+
+int main(int argc, char **argv) {
+    long long start;
+
+    zmalloc_enable_thread_safeness();
+    initServerConfig();
+    if (argc >= 2) {
+        int j = 1; /* First option to parse in argv[] */
+        sds options = sdsempty();
+        char *configfile = NULL;
+
+        /* Handle special options --help and --version */
+        if (strcmp(argv[1], "-v") == 0 ||
+            strcmp(argv[1], "--version") == 0) version();
+        if (strcmp(argv[1], "--help") == 0 ||
+            strcmp(argv[1], "-h") == 0) usage();
+        /* First argument is the config file name? */
+        if (argv[j][0] != '-' || argv[j][1] != '-')
+            configfile = argv[j++];
+        /* All the other options are parsed and conceptually appended to the
+         * configuration file. For instance --port 6380 will generate the
+         * string "port 6380\n" to be parsed after the actual file name
+         * is parsed, if any. */
+        while(j != argc) {
+            if (argv[j][0] == '-' && argv[j][1] == '-') {
+                /* Option name */
+                if (sdslen(options)) options = sdscat(options,"\n");
+                options = sdscat(options,argv[j]+2);
+                options = sdscat(options," ");
+            } else {
+                /* Option argument */
+                options = sdscatrepr(options,argv[j],strlen(argv[j]));
+                options = sdscat(options," ");
+            }
+            j++;
+        }
+        resetServerSaveParams();
+        loadServerConfig(configfile,options);
+        sdsfree(options);
+    } else {
+        redisLog(REDIS_WARNING,"Warning: no config file specified, using the default config. In order to specify a config file use 'redis-server /path/to/redis.conf'");
+    }
+    if (server.daemonize) daemonize();
+    initServer();
+    if (server.daemonize) createPidFile();
+    redisAsciiArt();
+    redisLog(REDIS_WARNING,"Server started, Redis version " REDIS_VERSION);
+#ifdef __linux__
+    linuxOvercommitMemoryWarning();
+#endif
+    start = ustime();
+    if (server.appendonly) {
+        if (loadAppendOnlyFile(server.appendfilename) == REDIS_OK)
+            redisLog(REDIS_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
+    } else {
+        if (rdbLoad(server.dbfilename) == REDIS_OK) {
+            redisLog(REDIS_NOTICE,"DB loaded from disk: %.3f seconds",
+                (float)(ustime()-start)/1000000);
+        } else if (errno != ENOENT) {
+            redisLog(REDIS_WARNING,"Fatal error loading the DB. Exiting.");
+            exit(1);
+        }
+    }
+    if (server.ipfd > 0)
+        redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
+    if (server.sofd > 0)
+        redisLog(REDIS_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
+    aeSetBeforeSleepProc(server.el,beforeSleep);
+    aeMain(server.el);
+    aeDeleteEventLoop(server.el);
+    return 0;
 }
 
 /* The End */
