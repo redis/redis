@@ -134,6 +134,18 @@ start_server {
         assert_equal [lsort -real $floats] [r sort mylist]
     }
 
+    test "SORT with STORE returns zero if result is empty (github isse 224)" {
+        r flushdb
+        r sort foo store bar
+    } {0}
+
+    test "SORT with STORE does not create empty lists (github issue 224)" {
+        r flushdb
+        r lpush foo bar
+        r sort foo limit 10 10 store zap
+        r exists zap
+    } {0}
+
     tags {"slow"} {
         set num 100
         set res [create_random_dataset $num lpush]
