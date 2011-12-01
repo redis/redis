@@ -954,7 +954,7 @@ int listMatchPubsubPattern(void *a, void *b);
 int pubsubPublishMessage(robj *channel, robj *message);
 
 /* Configuration */
-void loadServerConfig(char *filename);
+void loadServerConfig(char *filename, char *options);
 void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams();
 

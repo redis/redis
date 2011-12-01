@@ -2008,15 +2008,39 @@ int main(int argc, char **argv) {
 
     zmalloc_enable_thread_safeness();
     initServerConfig();
-    if (argc == 2) {
+    if (argc >= 2) {
+        int j = 1; /* First option to parse in argv[] */
+        sds options = sdsempty();
+        char *configfile = NULL;
+
+        /* Handle special options --help and --version */
         if (strcmp(argv[1], "-v") == 0 ||
             strcmp(argv[1], "--version") == 0) version();
         if (strcmp(argv[1], "--help") == 0 ||
             strcmp(argv[1], "-h") == 0) usage();
+        /* First argument is the config file name? */
+        if (argv[j][0] != '-' || argv[j][1] != '-')
+            configfile = argv[j++];
+        /* All the other options are parsed and conceptually appended to the
+         * configuration file. For instance --port 6380 will generate the
+         * string "port 6380\n" to be parsed after the actual file name
+         * is parsed, if any. */
+        while(j != argc) {
+            if (argv[j][0] == '-' && argv[j][1] == '-') {
+                /* Option name */
+                if (sdslen(options)) options = sdscat(options,"\n");
+                options = sdscat(options,argv[j]+2);
+                options = sdscat(options," ");
+            } else {
+                /* Option argument */
+                options = sdscatrepr(options,argv[j],strlen(argv[j]));
+                options = sdscat(options," ");
+            }
+            j++;
+        }
         resetServerSaveParams();
-        loadServerConfig(argv[1]);
-    } else if ((argc > 2)) {
-        usage();
+        loadServerConfig(configfile,options);
+        sdsfree(options);
     } else {
         redisLog(REDIS_WARNING,"Warning: no config file specified, using the default config. In order to specify a config file use 'redis-server /path/to/redis.conf'");
     }
