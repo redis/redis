@@ -141,11 +141,7 @@ void sortCommand(redisClient *c) {
 
     /* Lookup the key to sort. It must be of the right types */
     sortval = lookupKeyRead(c->db,c->argv[1]);
-    if (sortval == NULL) {
-        addReply(c,shared.emptymultibulk);
-        return;
-    }
-    if (sortval->type != REDIS_SET && sortval->type != REDIS_LIST &&
+    if (sortval && sortval->type != REDIS_SET && sortval->type != REDIS_LIST &&
         sortval->type != REDIS_ZSET)
     {
         addReply(c,shared.wrongtypeerr);
@@ -161,7 +157,10 @@ void sortCommand(redisClient *c) {
     /* Now we need to protect sortval incrementing its count, in the future
      * SORT may have options able to overwrite/delete keys during the sorting
      * and the sorted key itself may get destroied */
-    incrRefCount(sortval);
+    if (sortval)
+        incrRefCount(sortval);
+    else
+        sortval = createListObject();
 
     /* The SORT command has an SQL-alike syntax, parse it */
     while(j < c->argc) {
@@ -200,7 +199,8 @@ void sortCommand(redisClient *c) {
     }
 
     /* Destructively convert encoded sorted sets for SORT. */
-    if (sortval->type == REDIS_ZSET) zsetConvert(sortval, REDIS_ENCODING_SKIPLIST);
+    if (sortval->type == REDIS_ZSET)
+        zsetConvert(sortval, REDIS_ENCODING_SKIPLIST);
 
     /* Load the sorting vector with all the objects to sort */
     switch(sortval->type) {
@@ -367,12 +367,9 @@ void sortCommand(redisClient *c) {
                 }
             }
         }
-        setKey(c->db,storekey,sobj);
+        if (outputlen) setKey(c->db,storekey,sobj);
         decrRefCount(sobj);
-        /* Note: we add 1 because the DB is dirty anyway since even if the
-         * SORT result is empty a new key is set and maybe the old content
-         * replaced. */
-        server.dirty += 1+outputlen;
+        server.dirty += outputlen;
         addReplyLongLong(c,outputlen);
     }
 
