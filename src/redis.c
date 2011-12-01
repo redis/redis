@@ -2048,7 +2048,7 @@ int main(int argc, char **argv) {
     initServer();
     if (server.daemonize) createPidFile();
     redisAsciiArt();
-    redisLog(REDIS_NOTICE,"Server started, Redis version " REDIS_VERSION);
+    redisLog(REDIS_WARNING,"Server started, Redis version " REDIS_VERSION);
 #ifdef __linux__
     linuxOvercommitMemoryWarning();
 #endif
