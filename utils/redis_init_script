@@ -1,5 +1,12 @@
 #!/bin/sh
 #
+### BEGIN INIT INFO
+# Provides: redis
+# Default-Start: 2 3 4 5
+# Default-Stop: 0 1 6
+# Description Redis server init script
+### END INIT INFO
+#
 # Simple Redis init.d script conceived to work on Linux systems
 # as it does use of the /proc filesystem.
 
