@@ -24,6 +24,14 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         llength [r slowlog get 5]
     } {5}
 
+    test {SLOWLOG - GET optional arguemnt to get range of logs works} {
+        llength [r slowlog get 1 3]
+    } {2}
+
+    test {SLOWLOG - GET optional arguemnt to get range of logs works with backward range} {
+        llength [r slowlog get 3 1]
+    } {2}
+
     test {SLOWLOG - RESET subcommand works} {
         r config set slowlog-log-slower-than 100000
         r slowlog reset
@@ -34,7 +42,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         r debug sleep 0.2
         set e [lindex [r slowlog get] 0]
         assert_equal [llength $e] 4
-        assert_equal [lindex $e 0] 105
+        assert_equal [lindex $e 0] 107
         assert_equal [expr {[lindex $e 2] > 100000}] 1
         assert_equal [lindex $e 3] {debug sleep 0.2}
     }
