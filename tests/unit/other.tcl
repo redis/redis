@@ -107,7 +107,7 @@ start_server {tags {"other"}} {
         }
     }
 
-    test {EXPIRES after a reload (snapshot + append only file)} {
+    test {EXPIRES after a reload (snapshot + append only file rewrite)} {
         r flushdb
         r set x 10
         r expire x 1000
@@ -122,6 +122,39 @@ start_server {tags {"other"}} {
         set e2 [expr {$ttl > 900 && $ttl <= 1000}]
         list $e1 $e2
     } {1 1}
+
+    test {EXPIRES after AOF reload (without rewrite)} {
+        r flushdb
+        r config set appendonly yes
+        r set x somevalue
+        r expire x 1000
+        r setex y 2000 somevalue
+        r set z somevalue
+        r expireat z [expr {[clock seconds]+3000}]
+
+        # Milliseconds variants
+        r set px somevalue
+        r pexpire px 1000000
+        r psetex py 2000000 somevalue
+        r set pz somevalue
+        r pexpireat pz [expr {([clock seconds]+3000)*1000}]
+
+        # Reload and check
+        r debug loadaof
+        set ttl [r ttl x]
+        assert {$ttl > 900 && $ttl <= 1000}
+        set ttl [r ttl y]
+        assert {$ttl > 1900 && $ttl <= 2000}
+        set ttl [r ttl z]
+        assert {$ttl > 2900 && $ttl <= 3000}
+        set ttl [r ttl px]
+        assert {$ttl > 900 && $ttl <= 1000}
+        set ttl [r ttl py]
+        assert {$ttl > 1900 && $ttl <= 2000}
+        set ttl [r ttl pz]
+        assert {$ttl > 2900 && $ttl <= 3000}
+        r config set appendonly no
+    }
 
     tags {protocol} {
         test {PIPELINING stresser (also a regression for the old epoll bug)} {

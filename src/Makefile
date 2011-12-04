@@ -5,12 +5,7 @@
 release_hdr := $(shell sh -c './mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 OPTIMIZATION?=-O2
-
-ifeq ($(uname_S),Linux)
-  ifneq ($(FORCE_LIBC_MALLOC),yes)
-    USE_JEMALLOC=yes
-  endif
-endif
+DEPENDENCY_TARGETS=hiredis linenoise lua
 
 ifeq ($(uname_S),SunOS)
   CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -Wall -W -D__EXTENSIONS__ -D_XPG6
@@ -22,27 +17,44 @@ else
   DEBUG?=-g -rdynamic -ggdb 
 endif
 
+# Default allocator
+ifeq ($(uname_S),Linux)
+  MALLOC?=jemalloc
+else
+  MALLOC?=libc
+endif
+
+# Backwards compatibility for selecting an allocator
 ifeq ($(USE_TCMALLOC),yes)
-  ALLOD_DEPS=
+  MALLOC=tcmalloc
+endif
+
+ifeq ($(USE_TCMALLOC_MINIMAL),yes)
+  MALLOC=tcmalloc_minimal
+endif
+
+ifeq ($(USE_JEMALLOC),yes)
+  MALLOC=jemalloc
+endif
+
+ifeq ($(MALLOC),tcmalloc)
   ALLOC_LINK=-ltcmalloc
   ALLOC_FLAGS=-DUSE_TCMALLOC
 endif
 
-ifeq ($(USE_TCMALLOC_MINIMAL),yes)
-  ALLOD_DEPS=
+ifeq ($(MALLOC),tcmalloc_minimal)
   ALLOC_LINK=-ltcmalloc_minimal
   ALLOC_FLAGS=-DUSE_TCMALLOC
 endif
 
-ifeq ($(USE_JEMALLOC),yes)
-  ALLOC_DEP=../deps/jemalloc/lib/libjemalloc.a
-  ALLOC_LINK=$(ALLOC_DEP) -ldl
+ifeq ($(MALLOC),jemalloc)
+  ALLOC_LINK=../deps/jemalloc/lib/libjemalloc.a -ldl
   ALLOC_FLAGS=-DUSE_JEMALLOC -I../deps/jemalloc/include
+  DEPENDENCY_TARGETS+= jemalloc
 endif
 
 CCLINK+= $(ALLOC_LINK)
 CFLAGS+= $(ALLOC_FLAGS)
-
 CCOPT= $(CFLAGS) $(ARCH) $(PROF)
 
 PREFIX= /usr/local
@@ -155,52 +167,66 @@ ziplist.o: ziplist.c zmalloc.h util.h ziplist.h endian.h
 zipmap.o: zipmap.c zmalloc.h endian.h
 zmalloc.o: zmalloc.c config.h zmalloc.h
 
-.PHONY: dependencies
+# Clean local objects when ARCH is different
+ifneq ($(shell sh -c '[ -f .make-arch ] && cat .make-arch'), $(ARCH))
+.make-arch: clean
+else
+.make-arch:
+endif
 
-dependencies:
-	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)hiredis$(ENDCOLOR)
-	@cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
-	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)linenoise$(ENDCOLOR)
-	@cd ../deps/linenoise && $(MAKE) ARCH="$(ARCH)"
-	@echo $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)Lua ansi$(ENDCOLOR)
-	@cd ../deps/lua && $(MAKE) ARCH="$(ARCH)" ansi
+.make-arch:
+	-(cd ../deps && make $(DEPENDENCY_TARGETS) ARCH="$(ARCH)")
+	-(echo $(ARCH) > .make-arch)
 
-../deps/jemalloc/lib/libjemalloc.a:
-	cd ../deps/jemalloc && ./configure $(JEMALLOC_CFLAGS) --with-jemalloc-prefix=je_ --enable-cc-silence && $(MAKE) lib/libjemalloc.a
+# Clean local objects when allocator changes
+ifneq ($(shell sh -c '[ -f .make-malloc ] && cat .make-malloc'), $(MALLOC))
+.make-malloc: clean
+else
+.make-malloc:
+endif
 
-redis-server: dependencies $(OBJ)
-	$(QUIET_LINK)$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) $(CCLINK) $(ALLOC_LINK) ../deps/lua/src/liblua.a
+.make-malloc:
+	-(echo $(MALLOC) > .make-malloc)
 
-redis-benchmark: dependencies $(BENCHOBJ)
-	@cd ../deps/hiredis && $(MAKE) static
-	$(QUIET_LINK)$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a $(CCLINK) $(ALLOC_LINK)
+# Union of make-prerequisites
+.make-prerequisites: .make-arch .make-malloc
+	@touch $@
 
-redis-benchmark.o:
+redis-server: .make-prerequisites $(OBJ)
+	$(QUIET_LINK)$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) ../deps/lua/src/liblua.a $(CCLINK)
+
+redis-benchmark: .make-prerequisites $(BENCHOBJ)
+	$(QUIET_LINK)$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a $(CCLINK)
+
+redis-benchmark.o: redis-benchmark.c .make-prerequisites
 	$(QUIET_CC)$(CC) -c $(CFLAGS) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
 
-redis-cli: dependencies $(CLIOBJ)
-	$(QUIET_LINK)$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o $(CCLINK) $(ALLOC_LINK)
+redis-cli: .make-prerequisites $(CLIOBJ)
+	$(QUIET_LINK)$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o $(CCLINK)
 
-redis-cli.o:
+redis-cli.o: redis-cli.c .make-prerequisites
 	$(QUIET_CC)$(CC) -c $(CFLAGS) -I../deps/hiredis -I../deps/linenoise $(DEBUG) $(COMPILE_TIME) $<
 
-redis-check-dump: $(CHECKDUMPOBJ)
-	$(QUIET_LINK)$(CC) -o $(CHECKDUMPPRGNAME) $(CCOPT) $(DEBUG) $(CHECKDUMPOBJ) $(CCLINK) $(ALLOC_LINK)
+redis-check-dump: .make-prerequisites $(CHECKDUMPOBJ)
+	$(QUIET_LINK)$(CC) -o $(CHECKDUMPPRGNAME) $(CCOPT) $(DEBUG) $(CHECKDUMPOBJ) $(CCLINK)
 
-redis-check-aof: $(CHECKAOFOBJ)
-	$(QUIET_LINK)$(CC) -o $(CHECKAOFPRGNAME) $(CCOPT) $(DEBUG) $(CHECKAOFOBJ) $(CCLINK) $(ALLOC_LINK)
+redis-check-aof: .make-prerequisites $(CHECKAOFOBJ)
+	$(QUIET_LINK)$(CC) -o $(CHECKAOFPRGNAME) $(CCOPT) $(DEBUG) $(CHECKAOFOBJ) $(CCLINK)
 
 # Because the jemalloc.h header is generated as a part of the jemalloc build
-# process, building it should complete before building any other object.
-%.o: %.c $(ALLOC_DEP)
+# process, building it should complete before building any other object. Instead of
+# depending on a single artifact, simply build all dependencies first.
+%.o: %.c .make-prerequisites
 	$(QUIET_CC)$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) -I../deps/lua/src $<
+
+.PHONY: all clean distclean
 
 clean:
 	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
-	cd ../deps/hiredis && $(MAKE) $@
-	cd ../deps/linenoise && $(MAKE) $@
-	cd ../deps/lua && $(MAKE) $@
-	-(cd ../deps/jemalloc && $(MAKE) distclean)
+
+distclean: clean
+	-(cd ../deps && $(MAKE) distclean)
+	-(rm -f .make-arch .make-malloc)
 
 dep:
 	$(CC) -MM *.c -I ../deps/hiredis -I ../deps/linenoise

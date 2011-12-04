@@ -39,8 +39,9 @@
 
 /* Static server configuration */
 #define REDIS_SERVERPORT        6379    /* TCP port */
-#define REDIS_MAXIDLETIME       (60*5)  /* default client timeout */
-#define REDIS_IOBUF_LEN         1024
+#define REDIS_MAXIDLETIME       0       /* default client timeout: infinite */
+#define REDIS_MAX_QUERYBUF_LEN  (1024*1024*1024) /* 1GB max query buffer. */
+#define REDIS_IOBUF_LEN         (1024*16)
 #define REDIS_LOADBUF_LEN       1024
 #define REDIS_DEFAULT_DBNUM     16
 #define REDIS_CONFIGLINE_MAX    1024
@@ -49,25 +50,31 @@
 #define REDIS_MAX_WRITE_PER_EVENT (1024*64)
 #define REDIS_REQUEST_MAX_SIZE (1024*1024*256) /* max bytes in inline command */
 #define REDIS_SHARED_INTEGERS 10000
-#define REDIS_REPLY_CHUNK_BYTES (5*1500) /* 5 TCP packets with default MTU */
+#define REDIS_REPLY_CHUNK_BYTES (16*1024) /* 16k output buffer */
 #define REDIS_MAX_LOGMSG_LEN    1024 /* Default maximum length of syslog messages */
 #define REDIS_AUTO_AOFREWRITE_PERC  100
 #define REDIS_AUTO_AOFREWRITE_MIN_SIZE (1024*1024)
 #define REDIS_SLOWLOG_LOG_SLOWER_THAN 10000
 #define REDIS_SLOWLOG_MAX_LEN 64
+#define REDIS_MAX_CLIENTS 10000
+
+#define REDIS_REPL_TIMEOUT 60
+#define REDIS_REPL_PING_SLAVE_PERIOD 10
+#define REDIS_MBULK_BIG_ARG (1024*32)
 
 /* Hash table parameters */
 #define REDIS_HT_MINFILL        10      /* Minimal hash table fill 10% */
 
-/* Command flags:
- *   REDIS_CMD_DENYOOM:
- *     Commands marked with this flag will return an error when 'maxmemory' is
- *     set and the server is using more than 'maxmemory' bytes of memory.
- *     In short: commands with this flag are denied on low memory conditions.
- *   REDIS_CMD_FORCE_REPLICATION:
- *     Force replication even if dirty is 0. */
-#define REDIS_CMD_DENYOOM 4
-#define REDIS_CMD_FORCE_REPLICATION 8
+/* Command flags. Please check the command table defined in the redis.c file
+ * for more information about the meaning of every flag. */
+#define REDIS_CMD_WRITE 1                   /* "w" flag */
+#define REDIS_CMD_READONLY 2                /* "r" flag */
+#define REDIS_CMD_DENYOOM 4                 /* "m" flag */
+#define REDIS_CMD_FORCE_REPLICATION 8       /* "f" flag */
+#define REDIS_CMD_ADMIN 16                  /* "a" flag */
+#define REDIS_CMD_PUBSUB 32                 /* "p" flag */
+#define REDIS_CMD_NOSCRIPT  64              /* "s" flag */
+#define REDIS_CMD_RANDOM 128                /* "R" flag */
 
 /* Object types */
 #define REDIS_STRING 0
@@ -88,11 +95,6 @@
 #define REDIS_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
 #define REDIS_ENCODING_INTSET 6  /* Encoded as intset */
 #define REDIS_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
-
-/* Object types only used for dumping to disk */
-#define REDIS_EXPIRETIME 253
-#define REDIS_SELECTDB 254
-#define REDIS_EOF 255
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
@@ -132,6 +134,7 @@
 #define REDIS_UNBLOCKED 256 /* This client was unblocked and is stored in
                                server.unblocked_clients */
 #define REDIS_LUA_CLIENT 512 /* This is a non connected client used by Lua */
+#define REDIS_ASKING 1024   /* Client issued the ASKING command */
 
 /* Client request types */
 #define REDIS_REQ_INLINE 1
@@ -207,13 +210,21 @@
 #define REDIS_MAXMEMORY_NO_EVICTION 5
 
 /* Scripting */
-#define REDIS_LUA_TIME_LIMIT 60000 /* milliseconds */
+#define REDIS_LUA_TIME_LIMIT 5000 /* milliseconds */
+
+/* Units */
+#define UNIT_SECONDS 0
+#define UNIT_MILLISECONDS 1
+
+/* SHUTDOWN flags */
+#define REDIS_SHUTDOWN_SAVE 1       /* Force SAVE on SHUTDOWN even if no save
+                                       points are configured. */
+#define REDIS_SHUTDOWN_NOSAVE 2     /* Don't SAVE on SHUTDOWN. */
 
 /* We can print the stacktrace, so our assert is defined this way: */
+#define redisAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_redisAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),_exit(1)))
 #define redisAssert(_e) ((_e)?(void)0 : (_redisAssert(#_e,__FILE__,__LINE__),_exit(1)))
 #define redisPanic(_e) _redisPanic(#_e,__FILE__,__LINE__),_exit(1)
-void _redisAssert(char *estr, char *file, int line);
-void _redisPanic(char *msg, char *file, int line);
 
 /*-----------------------------------------------------------------------------
  * Data types
@@ -231,32 +242,7 @@ typedef struct redisObject {
     unsigned lru:22;        /* lru time (relative to server.lruclock) */
     int refcount;
     void *ptr;
-    /* VM fields are only allocated if VM is active, otherwise the
-     * object allocation function will just allocate
-     * sizeof(redisObjct) minus sizeof(redisObjectVM), so using
-     * Redis without VM active will not have any overhead. */
 } robj;
-
-/* The VM pointer structure - identifies an object in the swap file.
- *
- * This object is stored in place of the value
- * object in the main key->value hash table representing a database.
- * Note that the first fields (type, storage) are the same as the redisObject
- * structure so that vmPointer strucuters can be accessed even when casted
- * as redisObject structures.
- *
- * This is useful as we don't know if a value object is or not on disk, but we
- * are always able to read obj->storage to check this. For vmPointer
- * structures "type" is set to REDIS_VMPOINTER (even if without this field
- * is still possible to check the kind of object from the value of 'storage').*/
-typedef struct vmPointer {
-    unsigned type:4;
-    unsigned storage:2; /* REDIS_VM_SWAPPED or REDIS_VM_LOADING */
-    unsigned notused:26;
-    unsigned int vtype; /* type of the object stored in the swap file */
-    off_t page;         /* the page at witch the object is stored on disk */
-    off_t usedpages;    /* number of pages used on disk */
-} vmpointer;
 
 /* Macro used to initalize a Redis object allocated on the stack.
  * Note that this macro is taken near the structure definition to make sure
@@ -308,7 +294,7 @@ typedef struct redisClient {
     sds querybuf;
     int argc;
     robj **argv;
-    struct redisCommand *cmd;
+    struct redisCommand *cmd, *lastcmd;
     int reqtype;
     int multibulklen;       /* number of multi bulk arguments left to read */
     long bulklen;           /* length of bulk argument in multi bulk request */
@@ -344,7 +330,7 @@ struct sharedObjectsStruct {
     robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *cnegone, *pong, *space,
     *colon, *nullbulk, *nullmultibulk, *queued,
     *emptymultibulk, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
-    *outofrangeerr, *noscripterr, *loadingerr, *plus,
+    *outofrangeerr, *noscripterr, *loadingerr, *slowscripterr, *plus,
     *select0, *select1, *select2, *select3, *select4,
     *select5, *select6, *select7, *select8, *select9,
     *messagebulk, *pmessagebulk, *subscribebulk, *unsubscribebulk, *mbulk3,
@@ -445,6 +431,7 @@ typedef struct {
 #define CLUSTERMSG_TYPE_PONG 1          /* Pong (reply to Ping) */
 #define CLUSTERMSG_TYPE_MEET 2          /* Meet "let's join" message */
 #define CLUSTERMSG_TYPE_FAIL 3          /* Mark node xxx as failing */
+#define CLUSTERMSG_TYPE_PUBLISH 4       /* Pub/Sub Publish propatagion */
 
 /* Initially we don't know our "name", but we'll find it once we connect
  * to the first node, using the getsockname() function. Then we'll use this
@@ -463,16 +450,28 @@ typedef struct {
     char nodename[REDIS_CLUSTER_NAMELEN];
 } clusterMsgDataFail;
 
+typedef struct {
+    uint32_t channel_len;
+    uint32_t message_len;
+    unsigned char bulk_data[8]; /* defined as 8 just for alignment concerns. */
+} clusterMsgDataPublish;
+
 union clusterMsgData {
     /* PING, MEET and PONG */
     struct {
         /* Array of N clusterMsgDataGossip structures */
         clusterMsgDataGossip gossip[1];
     } ping;
+
     /* FAIL */
     struct {
         clusterMsgDataFail about;
     } fail;
+
+    /* PUBLISH */
+    struct {
+        clusterMsgDataPublish msg;
+    } publish;
 };
 
 typedef struct {
@@ -502,6 +501,7 @@ struct redisServer {
     int port;
     char *bindaddr;
     char *unixsocket;
+    mode_t unixsocketperm;
     int ipfd;
     int sofd;
     int cfd;
@@ -527,6 +527,7 @@ struct redisServer {
     long long stat_keyspace_misses; /* number of failed lookups of keys */
     size_t stat_peak_memory;        /* max used memory record */
     long long stat_fork_time;       /* time needed to perform latets fork() */
+    long long stat_rejected_conn;   /* clients rejected because of maxclients */
     list *slowlog;
     long long slowlog_entry_id;
     long long slowlog_log_slower_than;
@@ -534,6 +535,7 @@ struct redisServer {
     /* Configuration */
     int verbosity;
     int maxidletime;
+    size_t client_max_querybuf_len;
     int dbnum;
     int daemonize;
     int appendonly;
@@ -544,7 +546,7 @@ struct redisServer {
     off_t auto_aofrewrite_base_size;/* AOF size on latest startup or rewrite. */
     off_t appendonly_current_size;  /* AOF current size. */
     int aofrewrite_scheduled;       /* Rewrite once BGSAVE terminates. */
-    int shutdown_asap;
+    int shutdown_asap;              /* SHUTDOWN needed */
     int activerehashing;
     char *requirepass;
     /* Persistence */
@@ -575,6 +577,8 @@ struct redisServer {
     char *masterauth;
     char *masterhost;
     int masterport;
+    int repl_ping_slave_period;
+    int repl_timeout;
     redisClient *master;    /* client that is master for this slave */
     int repl_syncio_timeout; /* timeout for synchronous I/O calls */
     int replstate;          /* replication status if the instance is a slave */
@@ -619,9 +623,22 @@ struct redisServer {
     /* Scripting */
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
     redisClient *lua_client; /* The "fake client" to query Redis from Lua */
+    redisClient *lua_caller; /* The client running EVAL right now, or NULL */
     dict *lua_scripts; /* A dictionary of SHA1 -> Lua scripts */
     long long lua_time_limit;
     long long lua_time_start;
+    int lua_write_dirty;  /* True if a write command was called during the
+                             execution of the current script. */
+    int lua_random_dirty; /* True if a random command was called during the
+                             execution of the current script. */
+    int lua_timedout;     /* True if we reached the time limit for script
+                             execution. */
+    int lua_kill;         /* Kill the script if true. */
+    /* Assert & bug reportign */
+    char *assert_failed;
+    char *assert_file;
+    int assert_line;
+    int bug_report_start; /* True if bug report header already logged. */
 };
 
 typedef struct pubsubPattern {
@@ -635,7 +652,8 @@ struct redisCommand {
     char *name;
     redisCommandProc *proc;
     int arity;
-    int flags;
+    char *sflags; /* Flags as string represenation, one char per flag. */
+    int flags;    /* The actual flags, obtained from the 'sflags' field. */
     /* Use a function to determine keys arguments in a command line.
      * Used for Redis Cluster redirect. */
     redisGetKeysProc *getkeys_proc;
@@ -724,6 +742,7 @@ dictType hashDictType;
 
 /* Utils */
 long long ustime(void);
+long long mstime(void);
 
 /* networking.c -- Networking and Client related operations */
 redisClient *createClient(int fd);
@@ -754,6 +773,8 @@ void addReplyMultiBulkLen(redisClient *c, long length);
 void *dupClientReplyValue(void *o);
 void getClientsMaxBuffers(unsigned long *longest_output_list,
                           unsigned long *biggest_input_buffer);
+sds getClientInfoString(redisClient *client);
+sds getAllClientsInfoString(void);
 void rewriteClientCommandVector(redisClient *c, int argc, ...);
 void rewriteClientCommandArgument(redisClient *c, int i, robj *newval);
 
@@ -809,6 +830,7 @@ robj *tryObjectEncoding(robj *o);
 robj *getDecodedObject(robj *o);
 size_t stringObjectLen(robj *o);
 robj *createStringObjectFromLongLong(long long value);
+robj *createStringObjectFromLongDouble(long double value);
 robj *createListObject(void);
 robj *createZiplistObject(void);
 robj *createSetObject(void);
@@ -821,6 +843,8 @@ int checkType(redisClient *c, robj *o, int type);
 int getLongLongFromObjectOrReply(redisClient *c, robj *o, long long *target, const char *msg);
 int getDoubleFromObjectOrReply(redisClient *c, robj *o, double *target, const char *msg);
 int getLongLongFromObject(robj *o, long long *target);
+int getLongDoubleFromObject(robj *o, long double *target);
+int getLongDoubleFromObjectOrReply(redisClient *c, robj *o, long double *target, const char *msg);
 char *strEncoding(int encoding);
 int compareStringObjects(robj *a, robj *b);
 int equalStringObjects(robj *a, robj *b);
@@ -927,9 +951,10 @@ int pubsubUnsubscribeAllChannels(redisClient *c, int notify);
 int pubsubUnsubscribeAllPatterns(redisClient *c, int notify);
 void freePubsubPattern(void *p);
 int listMatchPubsubPattern(void *a, void *b);
+int pubsubPublishMessage(robj *channel, robj *message);
 
 /* Configuration */
-void loadServerConfig(char *filename);
+void loadServerConfig(char *filename, char *options);
 void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams();
 
@@ -937,8 +962,8 @@ void resetServerSaveParams();
 int removeExpire(redisDb *db, robj *key);
 void propagateExpire(redisDb *db, robj *key);
 int expireIfNeeded(redisDb *db, robj *key);
-time_t getExpire(redisDb *db, robj *key);
-void setExpire(redisDb *db, robj *key, time_t when);
+long long getExpire(redisDb *db, robj *key);
+void setExpire(redisDb *db, robj *key, long long when);
 robj *lookupKey(redisDb *db, robj *key);
 robj *lookupKeyRead(redisDb *db, robj *key);
 robj *lookupKeyWrite(redisDb *db, robj *key);
@@ -973,6 +998,7 @@ clusterNode *createClusterNode(char *nodename, int flags);
 int clusterAddNode(clusterNode *node);
 void clusterCron(void);
 clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
+void clusterPropagatePublish(robj *channel, robj *message);
 
 /* Scripting */
 void scriptingInit(void);
@@ -988,6 +1014,7 @@ void echoCommand(redisClient *c);
 void setCommand(redisClient *c);
 void setnxCommand(redisClient *c);
 void setexCommand(redisClient *c);
+void psetexCommand(redisClient *c);
 void getCommand(redisClient *c);
 void delCommand(redisClient *c);
 void existsCommand(redisClient *c);
@@ -999,6 +1026,7 @@ void incrCommand(redisClient *c);
 void decrCommand(redisClient *c);
 void incrbyCommand(redisClient *c);
 void decrbyCommand(redisClient *c);
+void incrbyfloatCommand(redisClient *c);
 void selectCommand(redisClient *c);
 void randomkeyCommand(redisClient *c);
 void keysCommand(redisClient *c);
@@ -1048,8 +1076,11 @@ void mgetCommand(redisClient *c);
 void monitorCommand(redisClient *c);
 void expireCommand(redisClient *c);
 void expireatCommand(redisClient *c);
+void pexpireCommand(redisClient *c);
+void pexpireatCommand(redisClient *c);
 void getsetCommand(redisClient *c);
 void ttlCommand(redisClient *c);
+void pttlCommand(redisClient *c);
 void persistCommand(redisClient *c);
 void slaveofCommand(redisClient *c);
 void debugCommand(redisClient *c);
@@ -1092,6 +1123,7 @@ void hgetallCommand(redisClient *c);
 void hexistsCommand(redisClient *c);
 void configCommand(redisClient *c);
 void hincrbyCommand(redisClient *c);
+void hincrbyfloatCommand(redisClient *c);
 void subscribeCommand(redisClient *c);
 void unsubscribeCommand(redisClient *c);
 void psubscribeCommand(redisClient *c);
@@ -1102,11 +1134,13 @@ void unwatchCommand(redisClient *c);
 void clusterCommand(redisClient *c);
 void restoreCommand(redisClient *c);
 void migrateCommand(redisClient *c);
+void askingCommand(redisClient *c);
 void dumpCommand(redisClient *c);
 void objectCommand(redisClient *c);
 void clientCommand(redisClient *c);
 void evalCommand(redisClient *c);
 void evalShaCommand(redisClient *c);
+void scriptCommand(redisClient *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
@@ -1114,5 +1148,11 @@ void free(void *ptr) __attribute__ ((deprecated));
 void *malloc(size_t size) __attribute__ ((deprecated));
 void *realloc(void *ptr, size_t size) __attribute__ ((deprecated));
 #endif
+
+/* Debugging stuff */
+void _redisAssertWithInfo(redisClient *c, robj *o, char *estr, char *file, int line);
+void _redisAssert(char *estr, char *file, int line);
+void _redisPanic(char *msg, char *file, int line);
+void bugReportStart(void);
 
 #endif

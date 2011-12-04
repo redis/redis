@@ -120,7 +120,19 @@ start_server {tags {"basic"}} {
         r incrby novar 17179869184
     } {34359738368}
 
-    test {INCR fails against key with spaces (no integer encoded)} {
+    test {INCR fails against key with spaces (left)} {
+        r set novar "    11"
+        catch {r incr novar} err
+        format $err
+    } {ERR*}
+
+    test {INCR fails against key with spaces (right)} {
+        r set novar "11    "
+        catch {r incr novar} err
+        format $err
+    } {ERR*}
+
+    test {INCR fails against key with spaces (both)} {
         r set novar "    11    "
         catch {r incr novar} err
         format $err
@@ -137,6 +149,74 @@ start_server {tags {"basic"}} {
         r set novar 17179869184
         r decrby novar 17179869185
     } {-1}
+
+    test {INCRBYFLOAT against non existing key} {
+        r del novar
+        list    [roundFloat [r incrbyfloat novar 1]] \
+                [roundFloat [r get novar]] \
+                [roundFloat [r incrbyfloat novar 0.25]] \
+                [roundFloat [r get novar]]
+    } {1 1 1.25 1.25}
+
+    test {INCRBYFLOAT against key originally set with SET} {
+        r set novar 1.5
+        roundFloat [r incrbyfloat novar 1.5]
+    } {3}
+
+    test {INCRBYFLOAT over 32bit value} {
+        r set novar 17179869184
+        r incrbyfloat novar 1.5
+    } {17179869185.5}
+
+    test {INCRBYFLOAT over 32bit value with over 32bit increment} {
+        r set novar 17179869184
+        r incrbyfloat novar 17179869184
+    } {34359738368}
+
+    test {INCRBYFLOAT fails against key with spaces (left)} {
+        set err {}
+        r set novar "    11"
+        catch {r incrbyfloat novar 1.0} err
+        format $err
+    } {ERR*valid*}
+
+    test {INCRBYFLOAT fails against key with spaces (right)} {
+        set err {}
+        r set novar "11    "
+        catch {r incrbyfloat novar 1.0} err
+        format $err
+    } {ERR*valid*}
+
+    test {INCRBYFLOAT fails against key with spaces (both)} {
+        set err {}
+        r set novar " 11 "
+        catch {r incrbyfloat novar 1.0} err
+        format $err
+    } {ERR*valid*}
+
+    test {INCRBYFLOAT fails against a key holding a list} {
+        r del mylist
+        set err {}
+        r rpush mylist 1
+        catch {r incrbyfloat mylist 1.0} err
+        r del mylist
+        format $err
+    } {ERR*kind*}
+
+    test {INCRBYFLOAT does not allow NaN or Infinity} {
+        r set foo 0
+        set err {}
+        catch {r incrbyfloat foo +inf} err
+        set err
+        # p.s. no way I can force NaN to test it from the API because
+        # there is no way to increment / decrement by infinity nor to
+        # perform divisions.
+    } {ERR*would produce*}
+
+    test {INCRBYFLOAT decrement} {
+        r set foo 1
+        roundFloat [r incrbyfloat foo -1.1]
+    } {-0.1}
 
     test "SETNX target key missing" {
         r del novar
@@ -261,6 +341,25 @@ start_server {tags {"basic"}} {
         catch {r rename mykey mykey} err
         format $err
     } {ERR*}
+
+    test {RENAME with volatile key, should move the TTL as well} {
+        r del mykey mykey2
+        r set mykey foo
+        r expire mykey 100
+        assert {[r ttl mykey] > 95 && [r ttl mykey] <= 100}
+        r rename mykey mykey2
+        assert {[r ttl mykey2] > 95 && [r ttl mykey2] <= 100}
+    }
+
+    test {RENAME with volatile key, should not inherit TTL of target key} {
+        r del mykey mykey2
+        r set mykey foo
+        r set mykey2 bar
+        r expire mykey2 100
+        assert {[r ttl mykey] == -1 && [r ttl mykey2] > 0}
+        r rename mykey mykey2
+        r ttl mykey2
+    } {-1}
 
     test {DEL all keys again (DB 0)} {
         foreach key [r keys *] {

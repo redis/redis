@@ -36,7 +36,7 @@ int pubsubSubscribeChannel(redisClient *c, robj *channel) {
             dictAdd(server.pubsub_channels,channel,clients);
             incrRefCount(channel);
         } else {
-            clients = dictGetEntryVal(de);
+            clients = dictGetVal(de);
         }
         listAddNodeTail(clients,c);
     }
@@ -63,10 +63,10 @@ int pubsubUnsubscribeChannel(redisClient *c, robj *channel, int notify) {
         retval = 1;
         /* Remove the client from the channel -> clients list hash table */
         de = dictFind(server.pubsub_channels,channel);
-        redisAssert(de != NULL);
-        clients = dictGetEntryVal(de);
+        redisAssertWithInfo(c,NULL,de != NULL);
+        clients = dictGetVal(de);
         ln = listSearchKey(clients,c);
-        redisAssert(ln != NULL);
+        redisAssertWithInfo(c,NULL,ln != NULL);
         listDelNode(clients,ln);
         if (listLength(clients) == 0) {
             /* Free the list and associated hash entry at all if this was
@@ -146,7 +146,7 @@ int pubsubUnsubscribeAllChannels(redisClient *c, int notify) {
     int count = 0;
 
     while((de = dictNext(di)) != NULL) {
-        robj *channel = dictGetEntryKey(de);
+        robj *channel = dictGetKey(de);
 
         count += pubsubUnsubscribeChannel(c,channel,notify);
     }
@@ -180,7 +180,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
     /* Send to clients listening for that channel */
     de = dictFind(server.pubsub_channels,channel);
     if (de) {
-        list *list = dictGetEntryVal(de);
+        list *list = dictGetVal(de);
         listNode *ln;
         listIter li;
 
@@ -263,5 +263,6 @@ void punsubscribeCommand(redisClient *c) {
 
 void publishCommand(redisClient *c) {
     int receivers = pubsubPublishMessage(c->argv[1],c->argv[2]);
+    if (server.cluster_enabled) clusterPropagatePublish(c->argv[1],c->argv[2]);
     addReplyLongLong(c,receivers);
 }

@@ -136,9 +136,9 @@ doc: $(DOCS)
 		 @objroot@lib/libjemalloc@install_suffix@.$(SO)
 	@mkdir -p $(@D)
 ifneq (@RPATH@, )
-	$(CC) -o $@ $< @RPATH@@objroot@lib -L@objroot@lib -ljemalloc@install_suffix@
+	$(CC) -o $@ $< @RPATH@@objroot@lib -L@objroot@lib -ljemalloc@install_suffix@ -lpthread
 else
-	$(CC) -o $@ $< -L@objroot@lib -ljemalloc@install_suffix@
+	$(CC) -o $@ $< -L@objroot@lib -ljemalloc@install_suffix@ -lpthread
 endif
 
 install_bin:

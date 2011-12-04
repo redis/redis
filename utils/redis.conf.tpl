@@ -14,15 +14,15 @@
 
 # By default Redis does not run as a daemon. Use 'yes' if you need it.
 # Note that Redis will write a pid file in /var/run/redis.pid when daemonized.
-daemonize no
+daemonize yes
 
 # When running daemonized, Redis writes a pid file in /var/run/redis.pid by
 # default. You can specify a custom pid file location here.
-pidfile /var/run/redis.pid
+pidfile $PIDFILE
 
 # Accept connections on the specified port, default is 6379.
 # If port 0 is specified Redis will not listen on a TCP socket.
-port 6379
+port $REDIS_PORT
 
 # If you want you can bind a single interface, if the bind option is not
 # specified all the interfaces will listen for incoming connections.
@@ -34,10 +34,9 @@ port 6379
 # on a unix socket when not specified.
 #
 # unixsocket /tmp/redis.sock
-# unixsocketperm 755
 
 # Close the connection after a client is idle for N seconds (0 to disable)
-timeout 0
+timeout 300
 
 # Set server verbosity to 'debug'
 # it can be one of:
@@ -45,12 +44,12 @@ timeout 0
 # verbose (many rarely useful info, but not a mess like the debug level)
 # notice (moderately verbose, what you want in production probably)
 # warning (only very important / critical messages are logged)
-loglevel notice
+loglevel verbose
 
 # Specify the log file name. Also 'stdout' can be used to force
 # Redis to log on the standard output. Note that if you use standard
 # output for logging but daemonize, logs will be sent to /dev/null
-logfile stdout
+logfile $REDIS_LOG_FILE
 
 # To enable logging to the system logger, just set 'syslog-enabled' to yes,
 # and optionally update the other syslog parameters to suit your needs.
@@ -104,7 +103,7 @@ dbfilename dump.rdb
 # Also the Append Only File will be created inside this directory.
 # 
 # Note that you must specify a directory here, not a file name.
-dir ./
+dir $REDIS_DATA_DIR
 
 ################################# REPLICATION #################################
 
@@ -126,7 +125,7 @@ dir ./
 # is still in progress, the slave can act in two different ways:
 #
 # 1) if slave-serve-stale-data is set to 'yes' (the default) the slave will
-#    still reply to client requests, possibly with out of date data, or the
+#    still reply to client requests, possibly with out of data data, or the
 #    data set may just be empty if this is the first synchronization.
 #
 # 2) if slave-serve-stale data is set to 'no' the slave will reply with
@@ -134,21 +133,6 @@ dir ./
 #    but to INFO and SLAVEOF.
 #
 slave-serve-stale-data yes
-
-# Slaves send PINGs to server in a predefined interval. It's possible to change
-# this interval with the repl_ping_slave_period option. The default value is 10
-# seconds.
-#
-# repl-ping-slave-period 10
-
-# The following option sets a timeout for both Bulk transfer I/O timeout and
-# master data or ping response timeout. The default value is 60 seconds.
-#
-# It is important to make sure that this value is greater than the value
-# specified for repl-ping-slave-period otherwise a timeout will be detected
-# every time there is low traffic between the master and the slave.
-#
-# repl-timeout 60
 
 ################################## SECURITY ###################################
 
@@ -183,16 +167,13 @@ slave-serve-stale-data yes
 
 ################################### LIMITS ####################################
 
-# Set the max number of connected clients at the same time. By default
-# this limit is set to 10000 clients, however if the Redis server is not
-# able ot configure the process file limit to allow for the specified limit
-# the max number of allowed clients is set to the current file limit
-# minus 32 (as Redis reserves a few file descriptors for internal uses).
-#
+# Set the max number of connected clients at the same time. By default there
+# is no limit, and it's up to the number of file descriptors the Redis process
+# is able to open. The special value '0' means no limits.
 # Once the limit is reached Redis will close all the new connections sending
 # an error 'max number of clients reached'.
 #
-# maxclients 10000
+# maxclients 128
 
 # Don't use more memory than the specified amount of bytes.
 # When the memory limit is reached Redis will try to remove keys with an
@@ -334,39 +315,9 @@ auto-aof-rewrite-min-size 64mb
 ################################ LUA SCRIPTING  ###############################
 
 # Max execution time of a Lua script in milliseconds.
-#
-# If the maximum execution time is reached Redis will log that a script is
-# still in execution after the maxium allowed time and will start to
-# reply to queries with an error.
-#
-# When a long running script exceed the maxium execution time only the
-# SCRIPT KILL and SHUTDOWN NOSAVE commands are available. The first can be
-# used to stop a script that did not yet called write commands. The second
-# is the only way to shut down the server in the case a write commands was
-# already issue by the script but the user don't want to wait for the natural
-# termination of the script.
-#
-# Set it to 0 or a negative value for unlimited execution without warnings.
-lua-time-limit 5000
-
-################################ REDIS CLUSTER  ###############################
-#
-# Normal Redis instances can't be part of a Redis Cluster, only nodes that are
-# started as cluster nodes can. In order to start a Redis instance as a
-# cluster node enable the cluster support uncommenting the following:
-#
-# cluster-enabled yes
-
-# Every cluster node has a cluster configuration file. This file is not
-# intended to be edited by hand. It is created and updated by Redis nodes.
-# Every Redis Cluster node requires a different cluster configuration file.
-# Make sure that instances running in the same system does not have
-# overlapping cluster configuration file names.
-#
-# cluster-config-file nodes-6379.conf
-
-# In order to setup your cluster make sure to read the documentation
-# available at http://redis.io web site.
+# This prevents that a programming error generating an infinite loop will block
+# your server forever. Set it to 0 or a negative value for unlimited execution.
+#lua-time-limit 60000
 
 ################################## SLOW LOG ###################################
 

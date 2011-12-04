@@ -19,6 +19,15 @@
 #endif
 
 /*
+ * JEMALLOC_PRIVATE_NAMESPACE is used as a prefix for all library-private APIs.
+ * For shared libraries, symbol visibility mechanisms prevent these symbols
+ * from being exported, but for static libraries, naming collisions are a real
+ * possibility.
+ */
+#undef JEMALLOC_PRIVATE_NAMESPACE
+#undef JEMALLOC_N
+
+/*
  * Hyper-threaded CPUs may need a special instruction inside spin loops in
  * order to yield to another virtual CPU.
  */

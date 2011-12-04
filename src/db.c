@@ -1,6 +1,7 @@
 #include "redis.h"
 
 #include <signal.h>
+#include <ctype.h>
 
 void SlotToKeyAdd(robj *key);
 void SlotToKeyDel(robj *key);
@@ -34,7 +35,7 @@ void SlotToKeyDel(robj *key);
 robj *lookupKey(redisDb *db, robj *key) {
     dictEntry *de = dictFind(db->dict,key->ptr);
     if (de) {
-        robj *val = dictGetEntryVal(de);
+        robj *val = dictGetVal(de);
 
         /* Update the access time for the aging algorithm.
          * Don't do it if we have a saving child, as this will trigger
@@ -79,7 +80,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     sds copy = sdsdup(key->ptr);
     int retval = dictAdd(db->dict, copy, val);
 
-    redisAssert(retval == REDIS_OK);
+    redisAssertWithInfo(NULL,key,retval == REDIS_OK);
     if (server.cluster_enabled) SlotToKeyAdd(key);
  }
 
@@ -91,7 +92,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
 void dbOverwrite(redisDb *db, robj *key, robj *val) {
     struct dictEntry *de = dictFind(db->dict,key->ptr);
     
-    redisAssert(de != NULL);
+    redisAssertWithInfo(NULL,key,de != NULL);
     dictReplace(db->dict, key->ptr, val);
 }
 
@@ -130,7 +131,7 @@ robj *dbRandomKey(redisDb *db) {
         de = dictGetRandomKey(db->dict);
         if (de == NULL) return NULL;
 
-        key = dictGetEntryKey(de);
+        key = dictGetKey(de);
         keyobj = createStringObject(key,sdslen(key));
         if (dictFind(db->expires,key)) {
             if (expireIfNeeded(db,keyobj)) {
@@ -213,7 +214,13 @@ void flushallCommand(redisClient *c) {
         kill(server.bgsavechildpid,SIGKILL);
         rdbRemoveTempFile(server.bgsavechildpid);
     }
-    rdbSave(server.dbfilename);
+    if (server.saveparamslen > 0) {
+        /* Normally rdbSave() will reset dirty, but we don't want this here
+         * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
+        int saved_dirty = server.dirty;
+        rdbSave(server.dbfilename);
+        server.dirty = saved_dirty;
+    }
     server.dirty++;
 }
 
@@ -276,7 +283,7 @@ void keysCommand(redisClient *c) {
     di = dictGetIterator(c->db->dict);
     allkeys = (pattern[0] == '*' && pattern[1] == '\0');
     while((de = dictNext(di)) != NULL) {
-        sds key = dictGetEntryKey(de);
+        sds key = dictGetKey(de);
         robj *keyobj;
 
         if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
@@ -321,13 +328,28 @@ void typeCommand(redisClient *c) {
 }
 
 void shutdownCommand(redisClient *c) {
-    if (prepareForShutdown() == REDIS_OK)
-        exit(0);
+    int flags = 0;
+
+    if (c->argc > 2) {
+        addReply(c,shared.syntaxerr);
+        return;
+    } else if (c->argc == 2) {
+        if (!strcasecmp(c->argv[1]->ptr,"nosave")) {
+            flags |= REDIS_SHUTDOWN_NOSAVE;
+        } else if (!strcasecmp(c->argv[1]->ptr,"save")) {
+            flags |= REDIS_SHUTDOWN_SAVE;
+        } else {
+            addReply(c,shared.syntaxerr);
+            return;
+        }
+    }
+    if (prepareForShutdown(flags) == REDIS_OK) exit(0);
     addReplyError(c,"Errors trying to SHUTDOWN. Check logs.");
 }
 
 void renameGenericCommand(redisClient *c, int nx) {
     robj *o;
+    long long expire;
 
     /* To use the same key as src and dst is probably an error */
     if (sdscmp(c->argv[1]->ptr,c->argv[2]->ptr) == 0) {
@@ -339,16 +361,18 @@ void renameGenericCommand(redisClient *c, int nx) {
         return;
 
     incrRefCount(o);
+    expire = getExpire(c->db,c->argv[1]);
     if (lookupKeyWrite(c->db,c->argv[2]) != NULL) {
         if (nx) {
             decrRefCount(o);
             addReply(c,shared.czero);
             return;
         }
-        dbOverwrite(c->db,c->argv[2],o);
-    } else {
-        dbAdd(c->db,c->argv[2],o);
+        /* Overwrite: delete the old key before creating the new one with the same name. */
+        dbDelete(c->db,c->argv[2]);
     }
+    dbAdd(c->db,c->argv[2],o);
+    if (expire != -1) setExpire(c->db,c->argv[2],expire);
     dbDelete(c->db,c->argv[1]);
     signalModifiedKey(c->db,c->argv[1]);
     signalModifiedKey(c->db,c->argv[2]);
@@ -419,22 +443,23 @@ void moveCommand(redisClient *c) {
 int removeExpire(redisDb *db, robj *key) {
     /* An expire may only be removed if there is a corresponding entry in the
      * main dict. Otherwise, the key will never be freed. */
-    redisAssert(dictFind(db->dict,key->ptr) != NULL);
+    redisAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
     return dictDelete(db->expires,key->ptr) == DICT_OK;
 }
 
-void setExpire(redisDb *db, robj *key, time_t when) {
-    dictEntry *de;
+void setExpire(redisDb *db, robj *key, long long when) {
+    dictEntry *kde, *de;
 
     /* Reuse the sds from the main dict in the expire dict */
-    de = dictFind(db->dict,key->ptr);
-    redisAssert(de != NULL);
-    dictReplace(db->expires,dictGetEntryKey(de),(void*)when);
+    kde = dictFind(db->dict,key->ptr);
+    redisAssertWithInfo(NULL,key,kde != NULL);
+    de = dictReplaceRaw(db->expires,dictGetKey(kde));
+    dictSetSignedIntegerVal(de,when);
 }
 
 /* Return the expire time of the specified key, or -1 if no expire
  * is associated with this key (i.e. the key is non volatile) */
-time_t getExpire(redisDb *db, robj *key) {
+long long getExpire(redisDb *db, robj *key) {
     dictEntry *de;
 
     /* No expire? return ASAP */
@@ -443,8 +468,8 @@ time_t getExpire(redisDb *db, robj *key) {
 
     /* The entry was found in the expire dict, this means it should also
      * be present in the main dict (safety check). */
-    redisAssert(dictFind(db->dict,key->ptr) != NULL);
-    return (time_t) dictGetEntryVal(de);
+    redisAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
+    return dictGetSignedIntegerVal(de);
 }
 
 /* Propagate expires into slaves and the AOF file.
@@ -472,7 +497,7 @@ void propagateExpire(redisDb *db, robj *key) {
 }
 
 int expireIfNeeded(redisDb *db, robj *key) {
-    time_t when = getExpire(db,key);
+    long long when = getExpire(db,key);
 
     if (when < 0) return 0; /* No expire for this key */
 
@@ -491,7 +516,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
     }
 
     /* Return when this key has not expired */
-    if (time(NULL) <= when) return 0;
+    if (mstime() <= when) return 0;
 
     /* Delete the key */
     server.stat_expiredkeys++;
@@ -503,13 +528,24 @@ int expireIfNeeded(redisDb *db, robj *key) {
  * Expires Commands
  *----------------------------------------------------------------------------*/
 
-void expireGenericCommand(redisClient *c, robj *key, robj *param, long offset) {
+/* Given an string object return true if it contains exactly the "ms"
+ * or "MS" string. This is used in order to check if the last argument
+ * of EXPIRE, EXPIREAT or TTL is "ms" to switch into millisecond input/output */
+int stringObjectEqualsMs(robj *a) {
+    char *arg = a->ptr;
+    return tolower(arg[0]) == 'm' && tolower(arg[1]) == 's' && arg[2] == '\0';
+}
+
+void expireGenericCommand(redisClient *c, long long offset, int unit) {
     dictEntry *de;
-    long seconds;
+    robj *key = c->argv[1], *param = c->argv[2];
+    long long milliseconds;
 
-    if (getLongFromObjectOrReply(c, param, &seconds, NULL) != REDIS_OK) return;
+    if (getLongLongFromObjectOrReply(c, param, &milliseconds, NULL) != REDIS_OK)
+        return;
 
-    seconds -= offset;
+    if (unit == UNIT_SECONDS) milliseconds *= 1000;
+    milliseconds -= offset;
 
     de = dictFind(c->db->dict,key->ptr);
     if (de == NULL) {
@@ -522,10 +558,10 @@ void expireGenericCommand(redisClient *c, robj *key, robj *param, long offset) {
      *
      * Instead we take the other branch of the IF statement setting an expire
      * (possibly in the past) and wait for an explicit DEL from the master. */
-    if (seconds <= 0 && !server.loading && !server.masterhost) {
+    if (milliseconds <= 0 && !server.loading && !server.masterhost) {
         robj *aux;
 
-        redisAssert(dbDelete(c->db,key));
+        redisAssertWithInfo(c,key,dbDelete(c->db,key));
         server.dirty++;
 
         /* Replicate/AOF this as an explicit DEL. */
@@ -536,7 +572,7 @@ void expireGenericCommand(redisClient *c, robj *key, robj *param, long offset) {
         addReply(c, shared.cone);
         return;
     } else {
-        time_t when = time(NULL)+seconds;
+        long long when = mstime()+milliseconds;
         setExpire(c->db,key,when);
         addReply(c,shared.cone);
         signalModifiedKey(c->db,key);
@@ -546,22 +582,42 @@ void expireGenericCommand(redisClient *c, robj *key, robj *param, long offset) {
 }
 
 void expireCommand(redisClient *c) {
-    expireGenericCommand(c,c->argv[1],c->argv[2],0);
+    expireGenericCommand(c,0,UNIT_SECONDS);
 }
 
 void expireatCommand(redisClient *c) {
-    expireGenericCommand(c,c->argv[1],c->argv[2],time(NULL));
+    expireGenericCommand(c,mstime(),UNIT_SECONDS);
 }
 
-void ttlCommand(redisClient *c) {
-    time_t expire, ttl = -1;
+void pexpireCommand(redisClient *c) {
+    expireGenericCommand(c,0,UNIT_MILLISECONDS);
+}
+
+void pexpireatCommand(redisClient *c) {
+    expireGenericCommand(c,mstime(),UNIT_MILLISECONDS);
+}
+
+void ttlGenericCommand(redisClient *c, int output_ms) {
+    long long expire, ttl = -1;
 
     expire = getExpire(c->db,c->argv[1]);
     if (expire != -1) {
-        ttl = (expire-time(NULL));
+        ttl = expire-mstime();
         if (ttl < 0) ttl = -1;
     }
-    addReplyLongLong(c,(long long)ttl);
+    if (ttl == -1) {
+        addReplyLongLong(c,-1);
+    } else {
+        addReplyLongLong(c,output_ms ? ttl : ((ttl+500)/1000));
+    }
+}
+
+void ttlCommand(redisClient *c) {
+    ttlGenericCommand(c, 0);
+}
+
+void pttlCommand(redisClient *c) {
+    ttlGenericCommand(c, 1);
 }
 
 void persistCommand(redisClient *c) {

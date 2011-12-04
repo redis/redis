@@ -28,7 +28,20 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* CRC16 implementation acording to CCITT standards */
+/* CRC16 implementation acording to CCITT standards.
+ *
+ * Note by @antirez: this is actually the XMODEM CRC 16 algorithm, using the
+ * following parameters:
+ *
+ * Name                       : "XMODEM", also known as "ZMODEM", "CRC-16/ACORN"
+ * Width                      : 16 bit
+ * Poly                       : 1021 (That is actually x^16 + x^12 + x^5 + 1)
+ * Initialization             : 0000
+ * Reflect Input byte         : False
+ * Reflect Output CRC         : False
+ * Xor constant to output CRC : 0000
+ * Output for "123456789"     : 31C3
+ */
 
 static const uint16_t crc16tab[256]= {
     0x0000,0x1021,0x2042,0x3063,0x4084,0x50a5,0x60c6,0x70e7,

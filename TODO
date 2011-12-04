@@ -10,11 +10,6 @@ WARNING: are you a possible Redis contributor?
          of a merge. Otherwise it is probably wasted work! Thank you
 
 
-2.6
-===
-
-* Everything under the "SCRIPTING" section.
-
 CLUSTER
 =======
 
@@ -29,8 +24,6 @@ CLUSTER
 SCRIPTING
 =========
 
-* MULTI/EXEC/...: should we do more than simply ignoring it?
-* Prevent Lua from calling itself with redis("eval",...)
 * SCRIPT FLUSH or alike to start a fresh interpreter?
 
 OPTIMIZATIONS

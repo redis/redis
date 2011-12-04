@@ -376,6 +376,13 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     REDIS_NOTUSED(privdata);
     REDIS_NOTUSED(mask);
 
+    /* If this event fired after the user turned the instance into a master
+     * with SLAVEOF NO ONE we must just return ASAP. */
+    if (server.replstate == REDIS_REPL_NONE) {
+        close(fd);
+        return;
+    }
+
     redisLog(REDIS_NOTICE,"Non blocking connect for SYNC fired the event.");
     /* This event should only be triggered once since it is used to have a
      * non-blocking connect(2) to the master. It has been triggered when this
@@ -464,9 +471,22 @@ int connectWithMaster(void) {
         return REDIS_ERR;
     }
 
+    server.repl_transfer_lastio = time(NULL);
     server.repl_transfer_s = fd;
     server.replstate = REDIS_REPL_CONNECTING;
     return REDIS_OK;
+}
+
+/* This function can be called when a non blocking connection is currently
+ * in progress to undo it. */
+void undoConnectWithMaster(void) {
+    int fd = server.repl_transfer_s;
+
+    redisAssert(server.replstate == REDIS_REPL_CONNECTING);
+    aeDeleteFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE);
+    close(fd);
+    server.repl_transfer_s = -1;
+    server.replstate = REDIS_REPL_CONNECT;
 }
 
 void slaveofCommand(redisClient *c) {
@@ -478,6 +498,8 @@ void slaveofCommand(redisClient *c) {
             if (server.master) freeClient(server.master);
             if (server.replstate == REDIS_REPL_TRANSFER)
                 replicationAbortSyncTransfer();
+            else if (server.replstate == REDIS_REPL_CONNECTING)
+                undoConnectWithMaster();
             server.replstate = REDIS_REPL_NONE;
             redisLog(REDIS_NOTICE,"MASTER MODE enabled (user request)");
         }
@@ -497,13 +519,18 @@ void slaveofCommand(redisClient *c) {
 
 /* --------------------------- REPLICATION CRON  ---------------------------- */
 
-#define REDIS_REPL_TIMEOUT 60
-#define REDIS_REPL_PING_SLAVE_PERIOD 10
-
 void replicationCron(void) {
+    /* Non blocking connection timeout? */
+    if (server.masterhost && server.replstate == REDIS_REPL_CONNECTING &&
+        (time(NULL)-server.repl_transfer_lastio) > server.repl_timeout)
+    {
+        redisLog(REDIS_WARNING,"Timeout connecting to the MASTER...");
+        undoConnectWithMaster();
+    }
+
     /* Bulk transfer I/O timeout? */
     if (server.masterhost && server.replstate == REDIS_REPL_TRANSFER &&
-        (time(NULL)-server.repl_transfer_lastio) > REDIS_REPL_TIMEOUT)
+        (time(NULL)-server.repl_transfer_lastio) > server.repl_timeout)
     {
         redisLog(REDIS_WARNING,"Timeout receiving bulk data from MASTER...");
         replicationAbortSyncTransfer();
@@ -511,7 +538,7 @@ void replicationCron(void) {
 
     /* Timed out master when we are an already connected slave? */
     if (server.masterhost && server.replstate == REDIS_REPL_CONNECTED &&
-        (time(NULL)-server.master->lastinteraction) > REDIS_REPL_TIMEOUT)
+        (time(NULL)-server.master->lastinteraction) > server.repl_timeout)
     {
         redisLog(REDIS_WARNING,"MASTER time out: no data nor PING received...");
         freeClient(server.master);
@@ -529,7 +556,7 @@ void replicationCron(void) {
      * So slaves can implement an explicit timeout to masters, and will
      * be able to detect a link disconnection even if the TCP connection
      * will not actually go down. */
-    if (!(server.cronloops % (REDIS_REPL_PING_SLAVE_PERIOD*10))) {
+    if (!(server.cronloops % (server.repl_ping_slave_period*10))) {
         listIter li;
         listNode *ln;
 

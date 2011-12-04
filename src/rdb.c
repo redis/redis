@@ -1,3 +1,6 @@
+#include "redis.h"
+#include "lzf.h"    /* LZF compression library */
+
 #include <math.h>
 #include <sys/types.h>
 #include <sys/time.h>
@@ -5,8 +8,6 @@
 #include <sys/wait.h>
 #include <arpa/inet.h>
 #include <sys/stat.h>
-#include "rdb.h"
-#include "lzf.h" /* LZF compression library */
 
 static int rdbWriteRaw(rio *rdb, void *p, size_t len) {
     if (rdb && rioWrite(rdb,p,len) == 0)
@@ -33,6 +34,17 @@ time_t rdbLoadTime(rio *rdb) {
     int32_t t32;
     if (rioRead(rdb,&t32,4) == 0) return -1;
     return (time_t)t32;
+}
+
+int rdbSaveMillisecondTime(rio *rdb, long long t) {
+    int64_t t64 = (int64_t) t;
+    return rdbWriteRaw(rdb,&t64,8);
+}
+
+long long rdbLoadMillisecondTime(rio *rdb) {
+    int64_t t64;
+    if (rioRead(rdb,&t64,8) == 0) return -1;
+    return (long long)t64;
 }
 
 /* Saves an encoded length. The first two bits in the first byte are used to
@@ -284,7 +296,7 @@ int rdbSaveStringObject(rio *rdb, robj *obj) {
     if (obj->encoding == REDIS_ENCODING_INT) {
         return rdbSaveLongLongAsStringObject(rdb,(long)obj->ptr);
     } else {
-        redisAssert(obj->encoding == REDIS_ENCODING_RAW);
+        redisAssertWithInfo(NULL,obj,obj->encoding == REDIS_ENCODING_RAW);
         return rdbSaveRawString(rdb,obj->ptr,sdslen(obj->ptr));
     }
 }
@@ -475,7 +487,7 @@ int rdbSaveObject(rio *rdb, robj *o) {
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
-                robj *eleobj = dictGetEntryKey(de);
+                robj *eleobj = dictGetKey(de);
                 if ((n = rdbSaveStringObject(rdb,eleobj)) == -1) return -1;
                 nwritten += n;
             }
@@ -504,8 +516,8 @@ int rdbSaveObject(rio *rdb, robj *o) {
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
-                robj *eleobj = dictGetEntryKey(de);
-                double *score = dictGetEntryVal(de);
+                robj *eleobj = dictGetKey(de);
+                double *score = dictGetVal(de);
 
                 if ((n = rdbSaveStringObject(rdb,eleobj)) == -1) return -1;
                 nwritten += n;
@@ -531,8 +543,8 @@ int rdbSaveObject(rio *rdb, robj *o) {
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
-                robj *key = dictGetEntryKey(de);
-                robj *val = dictGetEntryVal(de);
+                robj *key = dictGetKey(de);
+                robj *val = dictGetVal(de);
 
                 if ((n = rdbSaveStringObject(rdb,key)) == -1) return -1;
                 nwritten += n;
@@ -553,7 +565,7 @@ int rdbSaveObject(rio *rdb, robj *o) {
  * we could switch to a faster solution. */
 off_t rdbSavedObjectLen(robj *o) {
     int len = rdbSaveObject(NULL,o);
-    redisAssert(len != -1);
+    redisAssertWithInfo(NULL,o,len != -1);
     return len;
 }
 
@@ -562,14 +574,14 @@ off_t rdbSavedObjectLen(robj *o) {
  * On success if the key was actaully saved 1 is returned, otherwise 0
  * is returned (the key was already expired). */
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val,
-                        time_t expiretime, time_t now)
+                        long long expiretime, long long now)
 {
     /* Save the expire time */
     if (expiretime != -1) {
         /* If this key is already expired skip it */
         if (expiretime < now) return 0;
-        if (rdbSaveType(rdb,REDIS_RDB_OPCODE_EXPIRETIME) == -1) return -1;
-        if (rdbSaveTime(rdb,expiretime) == -1) return -1;
+        if (rdbSaveType(rdb,REDIS_RDB_OPCODE_EXPIRETIME_MS) == -1) return -1;
+        if (rdbSaveMillisecondTime(rdb,expiretime) == -1) return -1;
     }
 
     /* Save type, key, value */
@@ -585,7 +597,7 @@ int rdbSave(char *filename) {
     dictEntry *de;
     char tmpfile[256];
     int j;
-    time_t now = time(NULL);
+    long long now = mstime();
     FILE *fp;
     rio rdb;
 
@@ -598,7 +610,7 @@ int rdbSave(char *filename) {
     }
 
     rioInitWithFile(&rdb,fp);
-    if (rdbWriteRaw(&rdb,"REDIS0002",9) == -1) goto werr;
+    if (rdbWriteRaw(&rdb,"REDIS0003",9) == -1) goto werr;
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
@@ -616,9 +628,9 @@ int rdbSave(char *filename) {
 
         /* Iterate this DB writing every entry */
         while((de = dictNext(di)) != NULL) {
-            sds keystr = dictGetEntryKey(de);
-            robj key, *o = dictGetEntryVal(de);
-            time_t expire;
+            sds keystr = dictGetKey(de);
+            robj key, *o = dictGetVal(de);
+            long long expire;
             
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
@@ -941,25 +953,30 @@ int rdbLoad(char *filename) {
     int type, rdbver;
     redisDb *db = server.db+0;
     char buf[1024];
-    time_t expiretime, now = time(NULL);
+    long long expiretime, now = mstime();
     long loops = 0;
     FILE *fp;
     rio rdb;
 
     fp = fopen(filename,"r");
-    if (!fp) return REDIS_ERR;
+    if (!fp) {
+        errno = ENOENT;
+        return REDIS_ERR;
+    }
     rioInitWithFile(&rdb,fp);
     if (rioRead(&rdb,buf,9) == 0) goto eoferr;
     buf[9] = '\0';
     if (memcmp(buf,"REDIS",5) != 0) {
         fclose(fp);
         redisLog(REDIS_WARNING,"Wrong signature trying to load DB from file");
+        errno = EINVAL;
         return REDIS_ERR;
     }
     rdbver = atoi(buf+5);
-    if (rdbver < 1 || rdbver > 2) {
+    if (rdbver < 1 || rdbver > 3) {
         fclose(fp);
         redisLog(REDIS_WARNING,"Can't handle RDB format version %d",rdbver);
+        errno = EINVAL;
         return REDIS_ERR;
     }
 
@@ -978,6 +995,15 @@ int rdbLoad(char *filename) {
         if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
         if (type == REDIS_RDB_OPCODE_EXPIRETIME) {
             if ((expiretime = rdbLoadTime(&rdb)) == -1) goto eoferr;
+            /* We read the time so we need to read the object type again. */
+            if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
+            /* the EXPIRETIME opcode specifies time in seconds, so convert
+             * into milliesconds. */
+            expiretime *= 1000;
+        } else if (type == REDIS_RDB_OPCODE_EXPIRETIME_MS) {
+            /* Milliseconds precision expire times introduced with RDB
+             * version 3. */
+            if ((expiretime = rdbLoadMillisecondTime(&rdb)) == -1) goto eoferr;
             /* We read the time so we need to read the object type again. */
             if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
         }

@@ -1,4 +1,6 @@
+#include "fmacros.h"
 #include <string.h>
+#include <stdio.h>
 #include "rio.h"
 #include "util.h"
 

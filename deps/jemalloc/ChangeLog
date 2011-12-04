@@ -6,6 +6,43 @@ found in the git revision history:
     http://www.canonware.com/cgi-bin/gitweb.cgi?p=jemalloc.git
     git://canonware.com/jemalloc.git
 
+* 2.2.5 (November 14, 2011)
+
+  Bug fixes:
+  - Fix huge_ralloc() race when using mremap(2).  This is a serious bug that
+    could cause memory corruption and/or crashes.
+  - Fix huge_ralloc() to maintain chunk statistics.
+  - Fix malloc_stats_print(..., "a") output.
+
+* 2.2.4 (November 5, 2011)
+
+  Bug fixes:
+  - Initialize arenas_tsd before using it.  This bug existed for 2.2.[0-3], as
+    well as for --disable-tls builds in earlier releases.
+  - Do not assume a 4 KiB page size in test/rallocm.c.
+
+* 2.2.3 (August 31, 2011)
+
+  This version fixes numerous bugs related to heap profiling.
+
+  Bug fixes:
+  - Fix a prof-related race condition.  This bug could cause memory corruption,
+    but only occurred in non-default configurations (prof_accum:false).
+  - Fix off-by-one backtracing issues (make sure that prof_alloc_prep() is
+    excluded from backtraces).
+  - Fix a prof-related bug in realloc() (only triggered by OOM errors).
+  - Fix prof-related bugs in allocm() and rallocm().
+  - Fix prof_tdata_cleanup() for --disable-tls builds.
+  - Fix a relative include path, to fix objdir builds.
+
+* 2.2.2 (July 30, 2011)
+
+  Bug fixes:
+  - Fix a build error for --disable-tcache.
+  - Fix assertions in arena_purge() (for real this time).
+  - Add the --with-private-namespace option.  This is a workaround for symbol
+    conflicts that can inadvertently arise when using static libraries.
+
 * 2.2.1 (March 30, 2011)
 
   Bug fixes:

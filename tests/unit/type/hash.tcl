@@ -298,14 +298,88 @@ start_server {tags {"hash"}} {
         list [r hincrby smallhash tmp 17179869184] [r hincrby bighash tmp 17179869184]
     } {34359738368 34359738368}
 
-    test {HINCRBY fails against hash value with spaces} {
-        r hset smallhash str "    11    "
-        r hset bighash str "    11    "
+    test {HINCRBY fails against hash value with spaces (left)} {
+        r hset smallhash str " 11"
+        r hset bighash str " 11"
         catch {r hincrby smallhash str 1} smallerr
         catch {r hincrby smallhash str 1} bigerr
         set rv {}
         lappend rv [string match "ERR*not an integer*" $smallerr]
         lappend rv [string match "ERR*not an integer*" $bigerr]
+    } {1 1}
+
+    test {HINCRBY fails against hash value with spaces (right)} {
+        r hset smallhash str "11 "
+        r hset bighash str "11 "
+        catch {r hincrby smallhash str 1} smallerr
+        catch {r hincrby smallhash str 1} bigerr
+        set rv {}
+        lappend rv [string match "ERR*not an integer*" $smallerr]
+        lappend rv [string match "ERR*not an integer*" $bigerr]
+    } {1 1}
+
+    test {HINCRBYFLOAT against non existing database key} {
+        r del htest
+        list [r hincrbyfloat htest foo 2.5]
+    } {2.5}
+
+    test {HINCRBYFLOAT against non existing hash key} {
+        set rv {}
+        r hdel smallhash tmp
+        r hdel bighash tmp
+        lappend rv [roundFloat [r hincrbyfloat smallhash tmp 2.5]]
+        lappend rv [roundFloat [r hget smallhash tmp]]
+        lappend rv [roundFloat [r hincrbyfloat bighash tmp 2.5]]
+        lappend rv [roundFloat [r hget bighash tmp]]
+    } {2.5 2.5 2.5 2.5}
+
+    test {HINCRBYFLOAT against hash key created by hincrby itself} {
+        set rv {}
+        lappend rv [roundFloat [r hincrbyfloat smallhash tmp 3.5]]
+        lappend rv [roundFloat [r hget smallhash tmp]]
+        lappend rv [roundFloat [r hincrbyfloat bighash tmp 3.5]]
+        lappend rv [roundFloat [r hget bighash tmp]]
+    } {6 6 6 6}
+
+    test {HINCRBYFLOAT against hash key originally set with HSET} {
+        r hset smallhash tmp 100
+        r hset bighash tmp 100
+        list [roundFloat [r hincrbyfloat smallhash tmp 2.5]] \
+             [roundFloat [r hincrbyfloat bighash tmp 2.5]]
+    } {102.5 102.5}
+
+    test {HINCRBYFLOAT over 32bit value} {
+        r hset smallhash tmp 17179869184
+        r hset bighash tmp 17179869184
+        list [r hincrbyfloat smallhash tmp 1] \
+             [r hincrbyfloat bighash tmp 1]
+    } {17179869185 17179869185}
+
+    test {HINCRBYFLOAT over 32bit value with over 32bit increment} {
+        r hset smallhash tmp 17179869184
+        r hset bighash tmp 17179869184
+        list [r hincrbyfloat smallhash tmp 17179869184] \
+             [r hincrbyfloat bighash tmp 17179869184]
+    } {34359738368 34359738368}
+
+    test {HINCRBYFLOAT fails against hash value with spaces (left)} {
+        r hset smallhash str " 11"
+        r hset bighash str " 11"
+        catch {r hincrbyfloat smallhash str 1} smallerr
+        catch {r hincrbyfloat smallhash str 1} bigerr
+        set rv {}
+        lappend rv [string match "ERR*not*float*" $smallerr]
+        lappend rv [string match "ERR*not*float*" $bigerr]
+    } {1 1}
+
+    test {HINCRBYFLOAT fails against hash value with spaces (right)} {
+        r hset smallhash str "11 "
+        r hset bighash str "11 "
+        catch {r hincrbyfloat smallhash str 1} smallerr
+        catch {r hincrbyfloat smallhash str 1} bigerr
+        set rv {}
+        lappend rv [string match "ERR*not*float*" $smallerr]
+        lappend rv [string match "ERR*not*float*" $bigerr]
     } {1 1}
 
     test {Hash zipmap regression test for large keys} {

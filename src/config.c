@@ -23,39 +23,25 @@ void resetServerSaveParams() {
     server.saveparamslen = 0;
 }
 
-/* I agree, this is a very rudimental way to load a configuration...
-   will improve later if the config gets more complex */
-void loadServerConfig(char *filename) {
-    FILE *fp;
-    char buf[REDIS_CONFIGLINE_MAX+1], *err = NULL;
-    int linenum = 0;
-    sds line = NULL;
+void loadServerConfigFromString(char *config) {
+    char *err = NULL;
+    int linenum = 0, totlines, i;
+    sds *lines;
 
-    if (filename[0] == '-' && filename[1] == '\0')
-        fp = stdin;
-    else {
-        if ((fp = fopen(filename,"r")) == NULL) {
-            redisLog(REDIS_WARNING, "Fatal error, can't open config file '%s'", filename);
-            exit(1);
-        }
-    }
+    lines = sdssplitlen(config,strlen(config),"\n",1,&totlines);
 
-    while(fgets(buf,REDIS_CONFIGLINE_MAX+1,fp) != NULL) {
+    for (i = 0; i < totlines; i++) {
         sds *argv;
-        int argc, j;
+        int argc;
 
-        linenum++;
-        line = sdsnew(buf);
-        line = sdstrim(line," \t\r\n");
+        linenum = i+1;
+        lines[i] = sdstrim(lines[i]," \t\r\n");
 
         /* Skip comments and blank lines*/
-        if (line[0] == '#' || line[0] == '\0') {
-            sdsfree(line);
-            continue;
-        }
+        if (lines[i][0] == '#' || lines[i][0] == '\0') continue;
 
         /* Split into arguments */
-        argv = sdssplitargs(line,&argc);
+        argv = sdssplitargs(lines[i],&argc);
         sdstolower(argv[0]);
 
         /* Execute config directives */
@@ -73,6 +59,12 @@ void loadServerConfig(char *filename) {
             server.bindaddr = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocket") && argc == 2) {
             server.unixsocket = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"unixsocketperm") && argc == 2) {
+            errno = 0;
+            server.unixsocketperm = (mode_t)strtol(argv[1], NULL, 8);
+            if (errno || server.unixsocketperm > 0777) {
+                err = "Invalid socket file permissions"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"save") && argc == 3) {
             int seconds = atoi(argv[1]);
             int changes = atoi(argv[2]);
@@ -156,7 +148,7 @@ void loadServerConfig(char *filename) {
                 err = "Invalid number of databases"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
-            loadServerConfig(argv[1]);
+            loadServerConfig(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"maxclients") && argc == 2) {
             server.maxclients = atoi(argv[1]);
         } else if (!strcasecmp(argv[0],"maxmemory") && argc == 2) {
@@ -188,6 +180,18 @@ void loadServerConfig(char *filename) {
             server.masterhost = sdsnew(argv[1]);
             server.masterport = atoi(argv[2]);
             server.replstate = REDIS_REPL_CONNECT;
+        } else if (!strcasecmp(argv[0],"repl-ping-slave-period") && argc == 2) {
+            server.repl_ping_slave_period = atoi(argv[1]);
+            if (server.repl_ping_slave_period <= 0) {
+                err = "repl-ping-slave-period must be 1 or greater";
+                goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"repl-timeout") && argc == 2) {
+            server.repl_timeout = atoi(argv[1]);
+            if (server.repl_timeout <= 0) {
+                err = "repl-timeout must be 1 or greater";
+                goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"masterauth") && argc == 2) {
         	server.masterauth = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"slave-serve-stale-data") && argc == 2) {
@@ -307,20 +311,54 @@ void loadServerConfig(char *filename) {
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
-        for (j = 0; j < argc; j++)
-            sdsfree(argv[j]);
-        zfree(argv);
-        sdsfree(line);
+        sdsfreesplitres(argv,argc);
     }
-    if (fp != stdin) fclose(fp);
+    sdsfreesplitres(lines,totlines);
     return;
 
 loaderr:
     fprintf(stderr, "\n*** FATAL CONFIG FILE ERROR ***\n");
     fprintf(stderr, "Reading the configuration file, at line %d\n", linenum);
-    fprintf(stderr, ">>> '%s'\n", line);
+    fprintf(stderr, ">>> '%s'\n", lines[i]);
     fprintf(stderr, "%s\n", err);
     exit(1);
+}
+
+/* Load the server configuration from the specified filename.
+ * The function appends the additional configuration directives stored
+ * in the 'options' string to the config file before loading.
+ *
+ * Both filename and options can be NULL, in such a case are considered
+ * emtpy. This way loadServerConfig can be used to just load a file or
+ * just load a string. */
+void loadServerConfig(char *filename, char *options) {
+    sds config = sdsempty();
+    char buf[REDIS_CONFIGLINE_MAX+1];
+
+    /* Load the file content */
+    if (filename) {
+        FILE *fp;
+
+        if (filename[0] == '-' && filename[1] == '\0') {
+            fp = stdin;
+        } else {
+            if ((fp = fopen(filename,"r")) == NULL) {
+                redisLog(REDIS_WARNING,
+                    "Fatal error, can't open config file '%s'", filename);
+                exit(1);
+            }
+        }
+        while(fgets(buf,REDIS_CONFIGLINE_MAX+1,fp) != NULL)
+            config = sdscat(config,buf);
+        if (fp != stdin) fclose(fp);
+    }
+    /* Append the additional options */
+    if (options) {
+        config = sdscat(config,"\n");
+        config = sdscat(config,options);
+    }
+    loadServerConfigFromString(config);
+    sdsfree(config);
 }
 
 /*-----------------------------------------------------------------------------
@@ -330,8 +368,8 @@ loaderr:
 void configSetCommand(redisClient *c) {
     robj *o;
     long long ll;
-    redisAssert(c->argv[2]->encoding == REDIS_ENCODING_RAW);
-    redisAssert(c->argv[3]->encoding == REDIS_ENCODING_RAW);
+    redisAssertWithInfo(c,c->argv[2],c->argv[2]->encoding == REDIS_ENCODING_RAW);
+    redisAssertWithInfo(c,c->argv[2],c->argv[3]->encoding == REDIS_ENCODING_RAW);
     o = c->argv[3];
 
     if (!strcasecmp(c->argv[2]->ptr,"dbfilename")) {
@@ -339,7 +377,7 @@ void configSetCommand(redisClient *c) {
         server.dbfilename = zstrdup(o->ptr);
     } else if (!strcasecmp(c->argv[2]->ptr,"requirepass")) {
         zfree(server.requirepass);
-        server.requirepass = zstrdup(o->ptr);
+        server.requirepass = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
     } else if (!strcasecmp(c->argv[2]->ptr,"masterauth")) {
         zfree(server.masterauth);
         server.masterauth = zstrdup(o->ptr);
@@ -483,6 +521,18 @@ void configSetCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[2]->ptr,"slowlog-max-len")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.slowlog_max_len = (unsigned)ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"loglevel")) {
+        if (!strcasecmp(o->ptr,"warning")) {
+            server.verbosity = REDIS_WARNING;
+        } else if (!strcasecmp(o->ptr,"notice")) {
+            server.verbosity = REDIS_NOTICE;
+        } else if (!strcasecmp(o->ptr,"verbose")) {
+            server.verbosity = REDIS_VERBOSE;
+        } else if (!strcasecmp(o->ptr,"debug")) {
+            server.verbosity = REDIS_DEBUG;
+        } else {
+            goto badfmt;
+        }
     } else {
         addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
             (char*)c->argv[2]->ptr);
@@ -503,7 +553,7 @@ void configGetCommand(redisClient *c) {
     char *pattern = o->ptr;
     char buf[128];
     int matches = 0;
-    redisAssert(o->encoding == REDIS_ENCODING_RAW);
+    redisAssertWithInfo(c,o,o->encoding == REDIS_ENCODING_RAW);
 
     if (stringmatch(pattern,"dir",0)) {
         char buf[1024];
@@ -666,6 +716,20 @@ void configGetCommand(redisClient *c) {
     if (stringmatch(pattern,"slowlog-max-len",0)) {
         addReplyBulkCString(c,"slowlog-max-len");
         addReplyBulkLongLong(c,server.slowlog_max_len);
+        matches++;
+    }
+    if (stringmatch(pattern,"loglevel",0)) {
+        char *s;
+
+        switch(server.verbosity) {
+        case REDIS_WARNING: s = "warning"; break;
+        case REDIS_VERBOSE: s = "verbose"; break;
+        case REDIS_NOTICE: s = "notice"; break;
+        case REDIS_DEBUG: s = "debug"; break;
+        default: s = "unknown"; break; /* too harmless to panic */
+        }
+        addReplyBulkCString(c,"loglevel");
+        addReplyBulkCString(c,s);
         matches++;
     }
     setDeferredMultiBulkLength(c,replylen,matches*2);

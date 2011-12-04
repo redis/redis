@@ -118,6 +118,13 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
     aeApiDelEvent(eventLoop, fd, mask);
 }
 
+int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
+    if (fd >= AE_SETSIZE) return 0;
+    aeFileEvent *fe = &eventLoop->events[fd];
+
+    return fe->mask;
+}
+
 static void aeGetTime(long *seconds, long *milliseconds)
 {
     struct timeval tv;

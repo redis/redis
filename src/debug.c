@@ -91,16 +91,16 @@ void computeDatasetDigest(unsigned char *final) {
         while((de = dictNext(di)) != NULL) {
             sds key;
             robj *keyobj, *o;
-            time_t expiretime;
+            long long expiretime;
 
             memset(digest,0,20); /* This key-val digest */
-            key = dictGetEntryKey(de);
+            key = dictGetKey(de);
             keyobj = createStringObject(key,sdslen(key));
 
             mixDigest(digest,key,sdslen(key));
 
             /* Make sure the key is loaded if VM is active */
-            o = dictGetEntryVal(de);
+            o = dictGetVal(de);
 
             aux = htonl(o->type);
             mixDigest(digest,&aux,sizeof(aux));
@@ -165,8 +165,8 @@ void computeDatasetDigest(unsigned char *final) {
                     dictEntry *de;
 
                     while((de = dictNext(di)) != NULL) {
-                        robj *eleobj = dictGetEntryKey(de);
-                        double *score = dictGetEntryVal(de);
+                        robj *eleobj = dictGetKey(de);
+                        double *score = dictGetVal(de);
 
                         snprintf(buf,sizeof(buf),"%.17g",*score);
                         memset(eledigest,0,20);
@@ -212,6 +212,9 @@ void computeDatasetDigest(unsigned char *final) {
 void debugCommand(redisClient *c) {
     if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
         *((char*)-1) = 'x';
+    } else if (!strcasecmp(c->argv[1]->ptr,"assert")) {
+        if (c->argc >= 3) c->argv[2] = tryObjectEncoding(c->argv[2]);
+        redisAssertWithInfo(c,c->argv[0],1 == 2);
     } else if (!strcasecmp(c->argv[1]->ptr,"reload")) {
         if (rdbSave(server.dbfilename) != REDIS_OK) {
             addReply(c,shared.err);
@@ -219,7 +222,7 @@ void debugCommand(redisClient *c) {
         }
         emptyDb();
         if (rdbLoad(server.dbfilename) != REDIS_OK) {
-            addReply(c,shared.err);
+            addReplyError(c,"Error trying to load the RDB dump");
             return;
         }
         redisLog(REDIS_WARNING,"DB reloaded by DEBUG RELOAD");
@@ -241,7 +244,7 @@ void debugCommand(redisClient *c) {
             addReply(c,shared.nokeyerr);
             return;
         }
-        val = dictGetEntryVal(de);
+        val = dictGetVal(de);
         strenc = strEncoding(val->encoding);
 
         addReplyStatusFormat(c,
@@ -294,15 +297,65 @@ void debugCommand(redisClient *c) {
 }
 
 void _redisAssert(char *estr, char *file, int line) {
+    bugReportStart();
     redisLog(REDIS_WARNING,"=== ASSERTION FAILED ===");
     redisLog(REDIS_WARNING,"==> %s:%d '%s' is not true",file,line,estr);
 #ifdef HAVE_BACKTRACE
-    redisLog(REDIS_WARNING,"(forcing SIGSEGV in order to print the stack trace)");
+    server.assert_failed = estr;
+    server.assert_file = file;
+    server.assert_line = line;
+    redisLog(REDIS_WARNING,"(forcing SIGSEGV to print the bug report.)");
     *((char*)-1) = 'x';
 #endif
 }
 
+void _redisAssertPrintClientInfo(redisClient *c) {
+    int j;
+
+    bugReportStart();
+    redisLog(REDIS_WARNING,"=== ASSERTION FAILED CLIENT CONTEXT ===");
+    redisLog(REDIS_WARNING,"client->flags = %d", c->flags);
+    redisLog(REDIS_WARNING,"client->fd = %d", c->fd);
+    redisLog(REDIS_WARNING,"client->argc = %d", c->argc);
+    for (j=0; j < c->argc; j++) {
+        char buf[128];
+        char *arg;
+
+        if (c->argv[j]->type == REDIS_STRING &&
+            c->argv[j]->encoding == REDIS_ENCODING_RAW)
+        {
+            arg = (char*) c->argv[j]->ptr;
+        } else {
+            snprintf(buf,sizeof(buf),"Object type: %d, encoding: %d",
+                c->argv[j]->type, c->argv[j]->encoding);
+            arg = buf;
+        }
+        redisLog(REDIS_WARNING,"client->argv[%d] = \"%s\" (refcount: %d)",
+            j, arg, c->argv[j]->refcount);
+    }
+}
+
+void _redisAssertPrintObject(robj *o) {
+    bugReportStart();
+    redisLog(REDIS_WARNING,"=== ASSERTION FAILED OBJECT CONTEXT ===");
+    redisLog(REDIS_WARNING,"Object type: %d", o->type);
+    redisLog(REDIS_WARNING,"Object encoding: %d", o->encoding);
+    redisLog(REDIS_WARNING,"Object refcount: %d", o->refcount);
+    if (o->type == REDIS_STRING && o->encoding == REDIS_ENCODING_RAW) {
+        redisLog(REDIS_WARNING,"Object raw string len: %d", sdslen(o->ptr));
+        if (sdslen(o->ptr) < 4096)
+            redisLog(REDIS_WARNING,"Object raw string content: \"%s\"", (char*)o->ptr);
+    }
+}
+
+void _redisAssertWithInfo(redisClient *c, robj *o, char *estr, char *file, int line) {
+    if (c) _redisAssertPrintClientInfo(c);
+    if (o) _redisAssertPrintObject(o);
+    _redisAssert(estr,file,line);
+}
+
 void _redisPanic(char *msg, char *file, int line) {
+    bugReportStart();
     redisLog(REDIS_WARNING,"------------------------------------------------");
     redisLog(REDIS_WARNING,"!!! Software Failure. Press left mouse button to continue");
     redisLog(REDIS_WARNING,"Guru Meditation: %s #%s:%d",msg,file,line);

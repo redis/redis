@@ -57,5 +57,11 @@ start_server {tags {"repl"}} {
             if {$::valgrind} {after 2000}
             r  0 get mykey
         } {bar}
+
+        test {FLUSHALL should replicate} {
+            r -1 flushall
+            if {$::valgrind} {after 2000}
+            list [r -1 dbsize] [r 0 dbsize]
+        } {0 0}
     }
 }
