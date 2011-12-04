@@ -9,7 +9,14 @@
  * readable and writable using the CONFIG SET/GET command.
  *
  * The slow queries log is actually not "logged" in the Redis log file
- * but is accessible thanks to the SLOWLOG command. */
+ * but is accessible thanks to the SLOWLOG command. 
+ *
+ * slowlog len - returns length of slowlog list
+ * slowlog reset - resets slowlog
+ * slowlog get n - gets all members of slowlog from 0 - n
+ * slowlog get n p -  gets all members of slowlog from n - p
+ *
+ */
 
 /* Create a new slowlog entry.
  * Incrementing the ref count of all the objects retained is up to
@@ -79,21 +86,45 @@ void slowlogCommand(redisClient *c) {
         addReply(c,shared.ok);
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"len")) {
         addReplyLongLong(c,listLength(server.slowlog));
-    } else if ((c->argc == 2 || c->argc == 3) &&
+    } else if ((c->argc == 2 || c->argc == 3 || c->argc == 4) &&
                !strcasecmp(c->argv[1]->ptr,"get"))
     {
-        long count = 10, sent = 0;
+        long count = 10, start_range = 10, sent = 0, end_range = 0;
         listIter li;
         void *totentries;
         listNode *ln;
         slowlogEntry *se;
 
-        if (c->argc == 3 &&
-            getLongFromObjectOrReply(c,c->argv[2],&count,NULL) != REDIS_OK)
-            return;
-
         listRewind(server.slowlog,&li);
+
+        if (c->argc == 3){
+            if (getLongFromObjectOrReply(c,c->argv[2],&start_range,NULL) != REDIS_OK)
+                return;
+            count = start_range;
+        } else if (c->argc == 4){
+            if (getLongFromObjectOrReply(c,c->argv[2],&start_range,NULL) != REDIS_OK)
+                return;
+            if (getLongFromObjectOrReply(c,c->argv[3],&end_range,NULL) != REDIS_OK)
+                return;
+
+            if(start_range > end_range){
+                long cpy = end_range;
+                end_range = start_range;
+                start_range = cpy;
+            }
+
+            count = end_range - start_range;
+
+            listNode *ln_in;
+            long list_index = 1;
+            while(list_index < start_range){
+              ln_in = listNext(&li);
+              list_index++;
+            };
+        }
+
         totentries = addDeferredMultiBulkLength(c);
+
         while(count-- && (ln = listNext(&li))) {
             int j;
 
@@ -108,6 +139,9 @@ void slowlogCommand(redisClient *c) {
             sent++;
         }
         setDeferredMultiBulkLength(c,totentries,sent);
+
+
+
     } else {
         addReplyError(c,
             "Unknown SLOWLOG subcommand or wrong # of args. Try GET, RESET, LEN.");
