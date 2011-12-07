@@ -183,7 +183,7 @@ proc start_server {options {code undefined}} {
     
     # check that the server actually started
     # ugly but tries to be as fast as possible...
-    set retrynum 100
+    if {$::valgrind} {set retrynum 1000} else {set retrynum 100}
     set serverisup 0
 
     if {$::verbose} {
