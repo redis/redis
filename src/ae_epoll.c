@@ -14,7 +14,10 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
 
     if (!state) return -1;
     state->epfd = epoll_create(1024); /* 1024 is just an hint for the kernel */
-    if (state->epfd == -1) return -1;
+    if (state->epfd == -1) {
+        zfree(state);
+        return -1;
+    }
     eventLoop->apidata = state;
     return 0;
 }

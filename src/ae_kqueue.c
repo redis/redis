@@ -16,7 +16,10 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
 
     if (!state) return -1;
     state->kqfd = kqueue();
-    if (state->kqfd == -1) return -1;
+    if (state->kqfd == -1) {
+        zfree(state);
+        return -1;
+    }
     eventLoop->apidata = state;
     
     return 0;    
