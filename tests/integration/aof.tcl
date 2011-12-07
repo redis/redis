@@ -31,11 +31,6 @@ tags {"aof"} {
     }
 
     start_server_aof [list dir $server_path] {
-        test "Unfinished MULTI: Server should not have been started" {
-            if {$::valgrind} {after 2000}
-            assert_equal 0 [is_alive $srv]
-        }
-
         test "Unfinished MULTI: Server should have logged an error" {
             set result [exec cat [dict get $srv stdout] | tail -n1]
             assert_match "*Unexpected end of file reading the append only file*" $result
@@ -49,11 +44,6 @@ tags {"aof"} {
     }
 
     start_server_aof [list dir $server_path] {
-        test "Short read: Server should not have been started" {
-            if {$::valgrind} {after 2000}
-            assert_equal 0 [is_alive $srv]
-        }
-
         test "Short read: Server should have logged an error" {
             set result [exec cat [dict get $srv stdout] | tail -n1]
             assert_match "*Bad file format reading the append only file*" $result
