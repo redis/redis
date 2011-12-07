@@ -2,13 +2,14 @@ set ::global_overrides {}
 set ::tags {}
 set ::valgrind_errors {}
 
-proc error_and_quit {config_file error} {
-    puts "!!COULD NOT START REDIS-SERVER\n"
-    puts "CONFIGURATION:"
-    puts [exec cat $config_file]
-    puts "\nERROR:"
-    puts [string trim $error]
-    exit 1
+proc start_server_error {config_file error} {
+    set err {}
+    append err "Cant' start the Redis server\n"
+    append err "CONFIGURATION:"
+    append err [exec cat $config_file]
+    append err "\nERROR:"
+    append err [string trim $error]
+    send_data_packet $::test_server_fd err $err
 }
 
 proc check_valgrind_errors stderr {
@@ -209,7 +210,10 @@ proc start_server {options {code undefined}} {
     }
 
     if {!$serverisup} {
-        error_and_quit $config_file [exec cat $stderr]
+        set err {}
+        append err [exec cat $stdout] "\n" [exec cat $stderr]
+        start_server_error $config_file $err
+        return
     }
     
     # find out the pid
