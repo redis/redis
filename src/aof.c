@@ -460,10 +460,16 @@ int rewriteListObject(rio *r, robj *key, robj *o) {
         while((ln = listNext(&li))) {
             robj *eleobj = listNodeValue(ln);
 
-            if (rioWriteBulkCount(r,'*',3) == 0) return 0;
-            if (rioWriteBulkString(r,"RPUSH",5) == 0) return 0;
-            if (rioWriteBulkObject(r,key) == 0) return 0;
+            if (count == 0) {
+                int cmd_items = (items > REDIS_AOFREWRITE_ITEMS_PER_CMD) ?
+                    REDIS_AOFREWRITE_ITEMS_PER_CMD : items;
+                if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
+                if (rioWriteBulkString(r,"RPUSH",5) == 0) return 0;
+                if (rioWriteBulkObject(r,key) == 0) return 0;
+            }
             if (rioWriteBulkObject(r,eleobj) == 0) return 0;
+            if (++count == REDIS_AOFREWRITE_ITEMS_PER_CMD) count = 0;
+            items--;
         }
     } else {
         redisPanic("Unknown list encoding");
