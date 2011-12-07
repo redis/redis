@@ -79,9 +79,9 @@ start_server {tags {"expire"}} {
         for {set j 0} {$j < 3} {incr j} {
             r del x
             r setex x 1 somevalue
-            after 997
+            after 900
             set a [r get x]
-            after 1002
+            after 1100
             set b [r get x]
             if {$a eq {somevalue} && $b eq {}} break
         }
@@ -95,23 +95,23 @@ start_server {tags {"expire"}} {
         for {set j 0} {$j < 3} {incr j} {
             r del x y z
             r psetex x 100 somevalue
-            after 97
+            after 80
             set a [r get x]
-            after 102
+            after 120
             set b [r get x]
 
             r set x somevalue
             r pexpire x 100
-            after 97
+            after 80
             set c [r get x]
-            after 102
+            after 120
             set d [r get x]
 
             r set x somevalue
             r pexpireat x [expr ([clock seconds]*1000)+100]
-            after 97
+            after 80
             set e [r get x]
-            after 102
+            after 120
             set f [r get x]
 
             if {$a eq {somevalue} && $b eq {} &&
