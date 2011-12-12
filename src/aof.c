@@ -438,6 +438,7 @@ int rewriteListObject(rio *r, robj *key, robj *o) {
             if (count == 0) {
                 int cmd_items = (items > REDIS_AOFREWRITE_ITEMS_PER_CMD) ?
                     REDIS_AOFREWRITE_ITEMS_PER_CMD : items;
+
                 if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
                 if (rioWriteBulkString(r,"RPUSH",5) == 0) return 0;
                 if (rioWriteBulkObject(r,key) == 0) return 0;
@@ -463,6 +464,7 @@ int rewriteListObject(rio *r, robj *key, robj *o) {
             if (count == 0) {
                 int cmd_items = (items > REDIS_AOFREWRITE_ITEMS_PER_CMD) ?
                     REDIS_AOFREWRITE_ITEMS_PER_CMD : items;
+
                 if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
                 if (rioWriteBulkString(r,"RPUSH",5) == 0) return 0;
                 if (rioWriteBulkObject(r,key) == 0) return 0;
@@ -473,6 +475,53 @@ int rewriteListObject(rio *r, robj *key, robj *o) {
         }
     } else {
         redisPanic("Unknown list encoding");
+    }
+    return 1;
+}
+
+/* Emit the commands needed to rebuild a set object.
+ * The function returns 0 on error, 1 on success. */
+int rewriteSetObject(rio *r, robj *key, robj *o) {
+    long long count = 0, items = setTypeSize(o);
+
+    if (o->encoding == REDIS_ENCODING_INTSET) {
+        int ii = 0;
+        int64_t llval;
+
+        while(intsetGet(o->ptr,ii++,&llval)) {
+            if (count == 0) {
+                int cmd_items = (items > REDIS_AOFREWRITE_ITEMS_PER_CMD) ?
+                    REDIS_AOFREWRITE_ITEMS_PER_CMD : items;
+
+                if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
+                if (rioWriteBulkString(r,"SADD",4) == 0) return 0;
+                if (rioWriteBulkObject(r,key) == 0) return 0;
+            }
+            if (rioWriteBulkLongLong(r,llval) == 0) return 0;
+            if (++count == REDIS_AOFREWRITE_ITEMS_PER_CMD) count = 0;
+            items--;
+        }
+    } else if (o->encoding == REDIS_ENCODING_HT) {
+        dictIterator *di = dictGetIterator(o->ptr);
+        dictEntry *de;
+
+        while((de = dictNext(di)) != NULL) {
+            robj *eleobj = dictGetKey(de);
+            if (count == 0) {
+                int cmd_items = (items > REDIS_AOFREWRITE_ITEMS_PER_CMD) ?
+                    REDIS_AOFREWRITE_ITEMS_PER_CMD : items;
+
+                if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
+                if (rioWriteBulkString(r,"SADD",4) == 0) return 0;
+                if (rioWriteBulkObject(r,key) == 0) return 0;
+            }
+            if (rioWriteBulkObject(r,eleobj) == 0) return 0;
+            if (++count == REDIS_AOFREWRITE_ITEMS_PER_CMD) count = 0;
+            items--;
+        }
+        dictReleaseIterator(di);
+    } else {
+        redisPanic("Unknown set encoding");
     }
     return 1;
 }
@@ -541,30 +590,7 @@ int rewriteAppendOnlyFile(char *filename) {
             } else if (o->type == REDIS_LIST) {
                 if (rewriteListObject(&aof,&key,o) == 0) goto werr;
             } else if (o->type == REDIS_SET) {
-                char cmd[]="*3\r\n$4\r\nSADD\r\n";
-
-                /* Emit the SADDs needed to rebuild the set */
-                if (o->encoding == REDIS_ENCODING_INTSET) {
-                    int ii = 0;
-                    int64_t llval;
-                    while(intsetGet(o->ptr,ii++,&llval)) {
-                        if (rioWrite(&aof,cmd,sizeof(cmd)-1) == 0) goto werr;
-                        if (rioWriteBulkObject(&aof,&key) == 0) goto werr;
-                        if (rioWriteBulkLongLong(&aof,llval) == 0) goto werr;
-                    }
-                } else if (o->encoding == REDIS_ENCODING_HT) {
-                    dictIterator *di = dictGetIterator(o->ptr);
-                    dictEntry *de;
-                    while((de = dictNext(di)) != NULL) {
-                        robj *eleobj = dictGetKey(de);
-                        if (rioWrite(&aof,cmd,sizeof(cmd)-1) == 0) goto werr;
-                        if (rioWriteBulkObject(&aof,&key) == 0) goto werr;
-                        if (rioWriteBulkObject(&aof,eleobj) == 0) goto werr;
-                    }
-                    dictReleaseIterator(di);
-                } else {
-                    redisPanic("Unknown set encoding");
-                }
+                if (rewriteSetObject(&aof,&key,o) == 0) goto werr;
             } else if (o->type == REDIS_ZSET) {
                 /* Emit the ZADDs needed to rebuild the sorted set */
                 char cmd[]="*4\r\n$4\r\nZADD\r\n";
