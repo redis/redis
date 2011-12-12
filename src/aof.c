@@ -595,6 +595,56 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
     return 1;
 }
 
+/* Emit the commands needed to rebuild a hash object.
+ * The function returns 0 on error, 1 on success. */
+int rewriteHashObject(rio *r, robj *key, robj *o) {
+    long long count = 0, items = hashTypeLength(o);
+
+    if (o->encoding == REDIS_ENCODING_ZIPMAP) {
+        unsigned char *p = zipmapRewind(o->ptr);
+        unsigned char *field, *val;
+        unsigned int flen, vlen;
+
+        while((p = zipmapNext(p,&field,&flen,&val,&vlen)) != NULL) {
+            if (count == 0) {
+                int cmd_items = (items > REDIS_AOFREWRITE_ITEMS_PER_CMD) ?
+                    REDIS_AOFREWRITE_ITEMS_PER_CMD : items;
+
+                if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
+                if (rioWriteBulkString(r,"HMSET",5) == 0) return 0;
+                if (rioWriteBulkObject(r,key) == 0) return 0;
+            }
+            if (rioWriteBulkString(r,(char*)field,flen) == 0) return 0;
+            if (rioWriteBulkString(r,(char*)val,vlen) == 0) return 0;
+            if (++count == REDIS_AOFREWRITE_ITEMS_PER_CMD) count = 0;
+            items--;
+        }
+    } else {
+        dictIterator *di = dictGetIterator(o->ptr);
+        dictEntry *de;
+
+        while((de = dictNext(di)) != NULL) {
+            robj *field = dictGetKey(de);
+            robj *val = dictGetVal(de);
+
+            if (count == 0) {
+                int cmd_items = (items > REDIS_AOFREWRITE_ITEMS_PER_CMD) ?
+                    REDIS_AOFREWRITE_ITEMS_PER_CMD : items;
+
+                if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
+                if (rioWriteBulkString(r,"HMSET",5) == 0) return 0;
+                if (rioWriteBulkObject(r,key) == 0) return 0;
+            }
+            if (rioWriteBulkObject(r,field) == 0) return 0;
+            if (rioWriteBulkObject(r,val) == 0) return 0;
+            if (++count == REDIS_AOFREWRITE_ITEMS_PER_CMD) count = 0;
+            items--;
+        }
+        dictReleaseIterator(di);
+    }
+    return 1;
+}
+
 /* Write a sequence of commands able to fully rebuild the dataset into
  * "filename". Used both by REWRITEAOF and BGREWRITEAOF.
  *
@@ -663,37 +713,7 @@ int rewriteAppendOnlyFile(char *filename) {
             } else if (o->type == REDIS_ZSET) {
                 if (rewriteSortedSetObject(&aof,&key,o) == 0) goto werr;
             } else if (o->type == REDIS_HASH) {
-                char cmd[]="*4\r\n$4\r\nHSET\r\n";
-
-                /* Emit the HSETs needed to rebuild the hash */
-                if (o->encoding == REDIS_ENCODING_ZIPMAP) {
-                    unsigned char *p = zipmapRewind(o->ptr);
-                    unsigned char *field, *val;
-                    unsigned int flen, vlen;
-
-                    while((p = zipmapNext(p,&field,&flen,&val,&vlen)) != NULL) {
-                        if (rioWrite(&aof,cmd,sizeof(cmd)-1) == 0) goto werr;
-                        if (rioWriteBulkObject(&aof,&key) == 0) goto werr;
-                        if (rioWriteBulkString(&aof,(char*)field,flen) == 0)
-                            goto werr;
-                        if (rioWriteBulkString(&aof,(char*)val,vlen) == 0)
-                            goto werr;
-                    }
-                } else {
-                    dictIterator *di = dictGetIterator(o->ptr);
-                    dictEntry *de;
-
-                    while((de = dictNext(di)) != NULL) {
-                        robj *field = dictGetKey(de);
-                        robj *val = dictGetVal(de);
-
-                        if (rioWrite(&aof,cmd,sizeof(cmd)-1) == 0) goto werr;
-                        if (rioWriteBulkObject(&aof,&key) == 0) goto werr;
-                        if (rioWriteBulkObject(&aof,field) == 0) goto werr;
-                        if (rioWriteBulkObject(&aof,val) == 0) goto werr;
-                    }
-                    dictReleaseIterator(di);
-                }
+                if (rewriteHashObject(&aof,&key,o) == 0) goto werr;
             } else {
                 redisPanic("Unknown object type");
             }
