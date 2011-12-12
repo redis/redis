@@ -25,6 +25,7 @@ set ::all_tests {
     unit/other
     unit/cas
     unit/quit
+    unit/aofrw
     integration/replication
     integration/replication-2
     integration/replication-3
