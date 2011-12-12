@@ -526,6 +526,75 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
     return 1;
 }
 
+/* Emit the commands needed to rebuild a sorted set object.
+ * The function returns 0 on error, 1 on success. */
+int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
+    long long count = 0, items = zsetLength(o);
+
+    if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+        unsigned char *zl = o->ptr;
+        unsigned char *eptr, *sptr;
+        unsigned char *vstr;
+        unsigned int vlen;
+        long long vll;
+        double score;
+
+        eptr = ziplistIndex(zl,0);
+        redisAssert(eptr != NULL);
+        sptr = ziplistNext(zl,eptr);
+        redisAssert(sptr != NULL);
+
+        while (eptr != NULL) {
+            redisAssert(ziplistGet(eptr,&vstr,&vlen,&vll));
+            score = zzlGetScore(sptr);
+
+            if (count == 0) {
+                int cmd_items = (items > REDIS_AOFREWRITE_ITEMS_PER_CMD) ?
+                    REDIS_AOFREWRITE_ITEMS_PER_CMD : items;
+
+                if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
+                if (rioWriteBulkString(r,"ZADD",4) == 0) return 0;
+                if (rioWriteBulkObject(r,key) == 0) return 0;
+            }
+            if (rioWriteBulkDouble(r,score) == 0) return 0;
+            if (vstr != NULL) {
+                if (rioWriteBulkString(r,(char*)vstr,vlen) == 0) return 0;
+            } else {
+                if (rioWriteBulkLongLong(r,vll) == 0) return 0;
+            }
+            zzlNext(zl,&eptr,&sptr);
+            if (++count == REDIS_AOFREWRITE_ITEMS_PER_CMD) count = 0;
+            items--;
+        }
+    } else if (o->encoding == REDIS_ENCODING_SKIPLIST) {
+        zset *zs = o->ptr;
+        dictIterator *di = dictGetIterator(zs->dict);
+        dictEntry *de;
+
+        while((de = dictNext(di)) != NULL) {
+            robj *eleobj = dictGetKey(de);
+            double *score = dictGetVal(de);
+
+            if (count == 0) {
+                int cmd_items = (items > REDIS_AOFREWRITE_ITEMS_PER_CMD) ?
+                    REDIS_AOFREWRITE_ITEMS_PER_CMD : items;
+
+                if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
+                if (rioWriteBulkString(r,"ZADD",4) == 0) return 0;
+                if (rioWriteBulkObject(r,key) == 0) return 0;
+            }
+            if (rioWriteBulkDouble(r,*score) == 0) return 0;
+            if (rioWriteBulkObject(r,eleobj) == 0) return 0;
+            if (++count == REDIS_AOFREWRITE_ITEMS_PER_CMD) count = 0;
+            items--;
+        }
+        dictReleaseIterator(di);
+    } else {
+        redisPanic("Unknown sorted zset encoding");
+    }
+    return 1;
+}
+
 /* Write a sequence of commands able to fully rebuild the dataset into
  * "filename". Used both by REWRITEAOF and BGREWRITEAOF.
  *
@@ -592,56 +661,7 @@ int rewriteAppendOnlyFile(char *filename) {
             } else if (o->type == REDIS_SET) {
                 if (rewriteSetObject(&aof,&key,o) == 0) goto werr;
             } else if (o->type == REDIS_ZSET) {
-                /* Emit the ZADDs needed to rebuild the sorted set */
-                char cmd[]="*4\r\n$4\r\nZADD\r\n";
-
-                if (o->encoding == REDIS_ENCODING_ZIPLIST) {
-                    unsigned char *zl = o->ptr;
-                    unsigned char *eptr, *sptr;
-                    unsigned char *vstr;
-                    unsigned int vlen;
-                    long long vll;
-                    double score;
-
-                    eptr = ziplistIndex(zl,0);
-                    redisAssert(eptr != NULL);
-                    sptr = ziplistNext(zl,eptr);
-                    redisAssert(sptr != NULL);
-
-                    while (eptr != NULL) {
-                        redisAssert(ziplistGet(eptr,&vstr,&vlen,&vll));
-                        score = zzlGetScore(sptr);
-
-                        if (rioWrite(&aof,cmd,sizeof(cmd)-1) == 0) goto werr;
-                        if (rioWriteBulkObject(&aof,&key) == 0) goto werr;
-                        if (rioWriteBulkDouble(&aof,score) == 0) goto werr;
-                        if (vstr != NULL) {
-                            if (rioWriteBulkString(&aof,(char*)vstr,vlen) == 0)
-                                goto werr;
-                        } else {
-                            if (rioWriteBulkLongLong(&aof,vll) == 0)
-                                goto werr;
-                        }
-                        zzlNext(zl,&eptr,&sptr);
-                    }
-                } else if (o->encoding == REDIS_ENCODING_SKIPLIST) {
-                    zset *zs = o->ptr;
-                    dictIterator *di = dictGetIterator(zs->dict);
-                    dictEntry *de;
-
-                    while((de = dictNext(di)) != NULL) {
-                        robj *eleobj = dictGetKey(de);
-                        double *score = dictGetVal(de);
-
-                        if (rioWrite(&aof,cmd,sizeof(cmd)-1) == 0) goto werr;
-                        if (rioWriteBulkObject(&aof,&key) == 0) goto werr;
-                        if (rioWriteBulkDouble(&aof,*score) == 0) goto werr;
-                        if (rioWriteBulkObject(&aof,eleobj) == 0) goto werr;
-                    }
-                    dictReleaseIterator(di);
-                } else {
-                    redisPanic("Unknown sorted set encoding");
-                }
+                if (rewriteSortedSetObject(&aof,&key,o) == 0) goto werr;
             } else if (o->type == REDIS_HASH) {
                 char cmd[]="*4\r\n$4\r\nHSET\r\n";
 
