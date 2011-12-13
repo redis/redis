@@ -32,8 +32,19 @@ tags {"aof"} {
 
     start_server_aof [list dir $server_path] {
         test "Unfinished MULTI: Server should have logged an error" {
-            set result [exec cat [dict get $srv stdout] | tail -n1]
-            assert_match "*Unexpected end of file reading the append only file*" $result
+            set pattern "*Unexpected end of file reading the append only file*"
+            set retry 10
+            while {$retry} {
+                set result [exec cat [dict get $srv stdout] | tail -n1]
+                if {[string match $pattern $result]} {
+                    break
+                }
+                incr retry -1
+                after 1000
+            }
+            if {$retry == 0} {
+                error "assertion:expected error not found on config file"
+            }
         }
     }
 
@@ -45,8 +56,19 @@ tags {"aof"} {
 
     start_server_aof [list dir $server_path] {
         test "Short read: Server should have logged an error" {
-            set result [exec cat [dict get $srv stdout] | tail -n1]
-            assert_match "*Bad file format reading the append only file*" $result
+            set pattern "*Bad file format reading the append only file*"
+            set retry 10
+            while {$retry} {
+                set result [exec cat [dict get $srv stdout] | tail -n1]
+                if {[string match $pattern $result]} {
+                    break
+                }
+                incr retry -1
+                after 1000
+            }
+            if {$retry == 0} {
+                error "assertion:expected error not found on config file"
+            }
         }
     }
 
