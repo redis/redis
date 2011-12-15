@@ -224,14 +224,8 @@ sds catAppendOnlyExpireAtCommand(sds buf, struct redisCommand *cmd, robj *key, r
 }
 
 void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int argc) {
-    sds buf;
+    sds buf = sdsempty();
     robj *tmpargv[3];
-
-    /* Return ASAP if we are writing a rewrite to finish in order to start
-     * appending to the Append Only File. */
-    if (server.aof_wait_rewrite) return;
-
-    buf = sdsempty();
 
     /* The DB this command was targetting is not the same as the last command
      * we appendend. To issue a SELECT command is needed. */
@@ -265,8 +259,15 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
 
     /* Append to the AOF buffer. This will be flushed on disk just before
      * of re-entering the event loop, so before the client will get a
-     * positive reply about the operation performed. */
-    server.aofbuf = sdscatlen(server.aofbuf,buf,sdslen(buf));
+     * positive reply about the operation performed.
+     *
+     * Note, we don't add stuff in the AOF buffer if aof_wait_rewrite is
+     * non zero, as this means we are starting with a new AOF and the
+     * current one is meaningless (this happens for instance after
+     * a slave resyncs with its master). */
+    if (!server.aof_wait_rewrite) {
+        server.aofbuf = sdscatlen(server.aofbuf,buf,sdslen(buf));
+    }
 
     /* If a background append only file rewriting is in progress we want to
      * accumulate the differences between the child DB and the current one
