@@ -880,6 +880,7 @@ void initServerConfig() {
     server.auto_aofrewrite_min_size = REDIS_AUTO_AOFREWRITE_MIN_SIZE;
     server.auto_aofrewrite_base_size = 0;
     server.aofrewrite_scheduled = 0;
+    server.aof_wait_rewrite = 0;
     server.lastfsync = time(NULL);
     server.appendfd = -1;
     server.appendseldb = -1; /* Make sure the first time will not match */

@@ -547,6 +547,7 @@ struct redisServer {
     off_t auto_aofrewrite_base_size;/* AOF size on latest startup or rewrite. */
     off_t appendonly_current_size;  /* AOF current size. */
     int aofrewrite_scheduled;       /* Rewrite once BGSAVE terminates. */
+    int aof_wait_rewrite;           /* Don't append to AOF before rewrite */
     int shutdown_asap;              /* SHUTDOWN needed */
     int activerehashing;
     char *requirepass;

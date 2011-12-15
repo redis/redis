@@ -358,8 +358,22 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         server.master->authenticated = 1;
         server.replstate = REDIS_REPL_CONNECTED;
         redisLog(REDIS_NOTICE, "MASTER <-> SLAVE sync: Finished with success");
-        /* Rewrite the AOF file now that the dataset changed. */
-        if (server.appendonly) rewriteAppendOnlyFileBackground();
+        /* Restart the AOF subsystem now that we finished the sync. This
+         * will trigger an AOF rewrite, and when done will start appending
+         * to the new file. */
+        if (server.appendonly) {
+            int retry = 10;
+
+            stopAppendOnly();
+            while (retry-- && startAppendOnly() == REDIS_ERR) {
+                redisLog(REDIS_WARNING,"Failed enabling the AOF after successful master synchrnization! Trying it again in one second.");
+                sleep(1);
+            }
+            if (!retry) {
+                redisLog(REDIS_WARNING,"FATAL: this slave instance finished the synchronization with its master, but the AOF can't be turned on. Exiting now.");
+                exit(1);
+            }
+        }
     }
 
     return;
