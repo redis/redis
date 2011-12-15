@@ -490,7 +490,7 @@ int main(int argc, const char **argv) {
     config.numclients = 50;
     config.requests = 10000;
     config.liveclients = 0;
-    config.el = aeCreateEventLoop();
+    config.el = aeCreateEventLoop(1024*10);
     aeCreateTimeEvent(config.el,1,showThroughput,NULL,NULL);
     config.keepalive = 1;
     config.datasize = 3;

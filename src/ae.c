@@ -52,12 +52,22 @@
     #endif
 #endif
 
-aeEventLoop *aeCreateEventLoop(void) {
+aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;
 
-    eventLoop = zmalloc(sizeof(*eventLoop));
-    if (!eventLoop) return NULL;
+    if ((eventLoop = zmalloc(sizeof(*eventLoop))) == NULL) return NULL;
+    eventLoop->events = NULL;
+    eventLoop->fired = NULL;
+    eventLoop->events = zmalloc(sizeof(aeFileEvent)*setsize);
+    eventLoop->fired = zmalloc(sizeof(aeFiredEvent)*setsize);
+    if (eventLoop->events == NULL || eventLoop->fired == NULL) {
+        zfree(eventLoop->events);
+        zfree(eventLoop->fired);
+        zfree(eventLoop);
+        return NULL;
+    }
+    eventLoop->setsize = setsize;
     eventLoop->timeEventHead = NULL;
     eventLoop->timeEventNextId = 0;
     eventLoop->stop = 0;
@@ -69,7 +79,7 @@ aeEventLoop *aeCreateEventLoop(void) {
     }
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
-    for (i = 0; i < AE_SETSIZE; i++)
+    for (i = 0; i < setsize; i++)
         eventLoop->events[i].mask = AE_NONE;
     return eventLoop;
 }
@@ -86,7 +96,7 @@ void aeStop(aeEventLoop *eventLoop) {
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
-    if (fd >= AE_SETSIZE) return AE_ERR;
+    if (fd >= eventLoop->setsize) return AE_ERR;
     aeFileEvent *fe = &eventLoop->events[fd];
 
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
@@ -102,7 +112,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
 
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 {
-    if (fd >= AE_SETSIZE) return;
+    if (fd >= eventLoop->setsize) return;
     aeFileEvent *fe = &eventLoop->events[fd];
 
     if (fe->mask == AE_NONE) return;
@@ -119,7 +129,7 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 }
 
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
-    if (fd >= AE_SETSIZE) return 0;
+    if (fd >= eventLoop->setsize) return 0;
     aeFileEvent *fe = &eventLoop->events[fd];
 
     return fe->mask;
