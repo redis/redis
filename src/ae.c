@@ -86,6 +86,8 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
 
 void aeDeleteEventLoop(aeEventLoop *eventLoop) {
     aeApiFree(eventLoop);
+    zfree(eventLoop->events);
+    zfree(eventLoop->fired);
     zfree(eventLoop);
 }
 
