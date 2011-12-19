@@ -26,6 +26,15 @@ ifeq ($(uname_S),Darwin)
   STLIBNAME?=libhiredis.a
   STLIB_MAKE_CMD?=libtool -static -o ${STLIBNAME} - ${OBJ}
 else
+ifeq ($(uname_S),Haiku)
+  CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -fPIC -Wall -W -Wstrict-prototypes -Wwrite-strings $(ARCH) $(PROF)
+  CCLINK?=-lroot -lnetwork
+  LDFLAGS?=-L. -Wl,-rpath,.
+  DYLIBNAME?=libhiredis.so
+  DYLIB_MAKE_CMD?=gcc -shared -Wl,-soname,${DYLIBNAME} -o ${DYLIBNAME} ${OBJ}
+  STLIBNAME?=libhiredis.a
+  STLIB_MAKE_CMD?=ar rcs ${STLIBNAME} ${OBJ}
+else
   CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -fPIC -Wall -W -Wstrict-prototypes -Wwrite-strings $(ARCH) $(PROF)
   CCLINK?=-lm -pthread
   LDFLAGS?=-L. -Wl,-rpath,.
@@ -33,6 +42,7 @@ else
   DYLIB_MAKE_CMD?=gcc -shared -Wl,-soname,${DYLIBNAME} -o ${DYLIBNAME} ${OBJ}
   STLIBNAME?=libhiredis.a
   STLIB_MAKE_CMD?=ar rcs ${STLIBNAME} ${OBJ}
+endif
 endif
 endif
 

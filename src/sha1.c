@@ -27,6 +27,9 @@ A million repetitions of "a"
 #if defined(__sun)
 #include "solarisfixes.h"
 #endif
+#ifdef __HAIKU__
+#include <stdint.h>
+#endif
 #include "sha1.h"
 #include "config.h"
 

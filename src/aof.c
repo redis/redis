@@ -31,7 +31,7 @@ void stopAppendOnly(void) {
         int statloc;
 
         if (kill(server.bgrewritechildpid,SIGKILL) != -1)
-            wait3(&statloc,0,NULL);
+            waitpid(&statloc,0,NULL);
         /* reset the buffer accumulating changes while the child saves */
         sdsfree(server.bgrewritebuf);
         server.bgrewritebuf = sdsempty();
