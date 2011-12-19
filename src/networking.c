@@ -956,8 +956,12 @@ sds getAllClientsInfoString(void) {
 
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
+        sds cs;
+
         client = listNodeValue(ln);
-        o = sdscatsds(o,getClientInfoString(client));
+        cs = getClientInfoString(client);
+        o = sdscatsds(o,cs);
+        sdsfree(cs);
         o = sdscatlen(o,"\n",1);
     }
     return o;
