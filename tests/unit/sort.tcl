@@ -90,7 +90,38 @@ start_server {
         assert_equal 16 [r llen sort-res]
         assert_encoding ziplist sort-res
     }
+   
+   test "SORT multiple BY integer DESC BY strings ALPHA" {
+        r del mylist
+        r lpush mylist 2
+        r lpush mylist 1
+        r lpush mylist 3
+        r lpush mylist 10
+        r set weight:2 0
+        r set weight:1 0
+        r set weight:3 0
+        r set weight:10 1
+        r set name:2 aaa
+        r set name:1 bbb
+        r set name:3 ccc
+        r set name:10 ddd
+        r sort mylist by weight:* desc by name:* alpha get name:*
+    } {ddd aaa bbb ccc}
 
+    test "SORT multiple BY integer BY strings ALPHA" {
+        r set weight:10 -3
+        r sort mylist by weight:* asc by name:* alpha get name:*
+    } {ddd aaa bbb ccc}
+
+    test "SORT multiple BY integer BY strings ALPHA DESC" {
+        r sort mylist by weight:* asc by name:* alpha desc get name:*
+    } {ddd ccc bbb aaa}
+
+    test "SORT multiple BY integer DESC BY strings ALPHA DESC" {
+        r set weight:10 100 
+        r sort mylist by weight:* asc by name:* alpha desc get name:*
+    } {ccc bbb aaa ddd}
+    
     test "SORT DESC" {
         assert_equal [lsort -decreasing -integer $result] [r sort tosort DESC]
     }

@@ -88,43 +88,60 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     return o;
 }
 
-/* sortCompare() is used by qsort in sortCommand(). Given that qsort_r with
- * the additional parameter is not standard but a BSD-specific we have to
- * pass sorting parameters via the global 'server' structure */
-int sortCompare(const void *s1, const void *s2) {
+/* sortCompareDeep() performs the recursive comparisons for the multiple BY
+ * patterns. Sorting parameters are passed within the objects, since each BY 
+ * pattern may have the modifiers ASC, DESC and ALPHA. The use of BY patterns
+ * is indicated by a parameter in the global 'server' structure */
+int sortCompareDeep(const void *s1, const void *s2, int deep) {
     const redisSortObject *so1 = s1, *so2 = s2;
     int cmp;
 
-    if (!server.sort_alpha) {
+    if (!so1->u[deep].sort_alpha) {
         /* Numeric sorting. Here it's trivial as we precomputed scores */
-        if (so1->u.score > so2->u.score) {
+        if (so1->u[deep].score > so2->u[deep].score) {
             cmp = 1;
-        } else if (so1->u.score < so2->u.score) {
+        } else if (so1->u[deep].score < so2->u[deep].score) {
             cmp = -1;
         } else {
-            cmp = 0;
+            if( deep < so1->total-1 )
+              return sortCompareDeep(s1, s2, deep+1);
+            else
+              cmp = 0;
         }
     } else {
         /* Alphanumeric sorting */
         if (server.sort_bypattern) {
-            if (!so1->u.cmpobj || !so2->u.cmpobj) {
+            if (!so1->u[deep].cmpobj || !so2->u[deep].cmpobj) {
                 /* At least one compare object is NULL */
-                if (so1->u.cmpobj == so2->u.cmpobj)
-                    cmp = 0;
-                else if (so1->u.cmpobj == NULL)
+                if (so1->u[deep].cmpobj == so2->u[deep].cmpobj) {
+                    if( deep < so1->total-1 )
+                        return sortCompareDeep(s1, s2, deep+1);
+                    else
+                        cmp = 0;
+                } else if (so1->u[deep].cmpobj == NULL)
                     cmp = -1;
                 else
                     cmp = 1;
             } else {
                 /* We have both the objects, use strcoll */
-                cmp = strcoll(so1->u.cmpobj->ptr,so2->u.cmpobj->ptr);
+                cmp = strcoll(so1->u[deep].cmpobj->ptr,so2->u[deep].cmpobj->ptr);
+                if( cmp == 0 && deep < so1->total-1 )
+                    return sortCompareDeep(s1, s2, deep+1);
             }
         } else {
             /* Compare elements directly. */
             cmp = compareStringObjects(so1->obj,so2->obj);
+            if( cmp == 0 && deep < so1->total-1 )
+                return sortCompareDeep(s1, s2, deep+1);
         }
     }
-    return server.sort_desc ? -cmp : cmp;
+    return so1->u[deep].sort_desc ? -cmp : cmp;
+}
+
+/* sortCompare() is used by qsort in sortCommand(). Initiates the recursive
+ * comparisons starting by the first BY pattern */
+int sortCompare(const void *s1, const void *s2) {
+    return sortCompareDeep( s1, s2, 0 );
 }
 
 /* The SORT command is the most complex command in Redis. Warning: this code
@@ -132,13 +149,20 @@ int sortCompare(const void *s1, const void *s2) {
 void sortCommand(redisClient *c) {
     list *operations;
     unsigned int outputlen = 0;
-    int desc = 0, alpha = 0;
+    int *desc = NULL, *alpha = NULL;
     int limit_start = 0, limit_count = -1, start, end;
-    int j, dontsort = 0, vectorlen;
+    int j, n, dontsort = 0, numsorts = 0, vectorlen;
     int getop = 0; /* GET operation counter */
-    robj *sortval, *sortby = NULL, *storekey = NULL;
+    robj *sortval, **sortby = NULL, *storekey = NULL;
     redisSortObject *vector; /* Resulting vector to sort */
-
+    
+    sortby = zmalloc( sizeof(robj *) );
+    desc = zmalloc( sizeof(int) );
+    alpha = zmalloc( sizeof(int) );
+    sortby[0] = NULL;
+    desc[0] = 0;
+    alpha[0] = 0;
+    
     /* Lookup the key to sort. It must be of the right types */
     sortval = lookupKeyRead(c->db,c->argv[1]);
     if (sortval && sortval->type != REDIS_SET && sortval->type != REDIS_LIST &&
@@ -166,11 +190,14 @@ void sortCommand(redisClient *c) {
     while(j < c->argc) {
         int leftargs = c->argc-j-1;
         if (!strcasecmp(c->argv[j]->ptr,"asc")) {
-            desc = 0;
+            if(numsorts<1) desc[0] = 0;
+            else desc[numsorts-1] = 0;
         } else if (!strcasecmp(c->argv[j]->ptr,"desc")) {
-            desc = 1;
+            if(numsorts<1) desc[0] = 1;
+            else desc[numsorts-1] = 1;
         } else if (!strcasecmp(c->argv[j]->ptr,"alpha")) {
-            alpha = 1;
+            if(numsorts<1) alpha[0] = 1;
+            else alpha[numsorts-1] = 1;
         } else if (!strcasecmp(c->argv[j]->ptr,"limit") && leftargs >= 2) {
             limit_start = atoi(c->argv[j+1]->ptr);
             limit_count = atoi(c->argv[j+2]->ptr);
@@ -179,7 +206,13 @@ void sortCommand(redisClient *c) {
             storekey = c->argv[j+1];
             j++;
         } else if (!strcasecmp(c->argv[j]->ptr,"by") && leftargs >= 1) {
-            sortby = c->argv[j+1];
+            sortby = zrealloc(sortby, sizeof(robj *) * (numsorts+1));
+            desc = zrealloc(desc, sizeof(int) * (numsorts+1));
+            alpha = zrealloc(alpha, sizeof(int) * (numsorts+1));
+            sortby[numsorts] = c->argv[j+1];
+            desc[numsorts] = 0;
+            alpha[numsorts] = 0;
+            numsorts ++;
             /* If the BY pattern does not contain '*', i.e. it is constant,
              * we don't need to sort nor to lookup the weight keys. */
             if (strchr(c->argv[j+1]->ptr,'*') == NULL) dontsort = 1;
@@ -197,6 +230,9 @@ void sortCommand(redisClient *c) {
         }
         j++;
     }
+
+    /* At least we need one sort */
+    if( numsorts == 0 ) numsorts++;
 
     /* Destructively convert encoded sorted sets for SORT. */
     if (sortval->type == REDIS_ZSET)
@@ -217,8 +253,14 @@ void sortCommand(redisClient *c) {
         listTypeEntry entry;
         while(listTypeNext(li,&entry)) {
             vector[j].obj = listTypeGet(&entry);
-            vector[j].u.score = 0;
-            vector[j].u.cmpobj = NULL;
+            vector[j].u = zmalloc(sizeof(u_sort)*numsorts);
+            vector[j].total = numsorts;
+            for(n = 0; n < numsorts; n++) {
+              vector[j].u[n].sort_alpha = alpha[n];
+              vector[j].u[n].sort_desc = desc[n];
+              vector[j].u[n].score = 0;
+              vector[j].u[n].cmpobj = NULL;
+            }
             j++;
         }
         listTypeReleaseIterator(li);
@@ -227,8 +269,14 @@ void sortCommand(redisClient *c) {
         robj *ele;
         while((ele = setTypeNextObject(si)) != NULL) {
             vector[j].obj = ele;
-            vector[j].u.score = 0;
-            vector[j].u.cmpobj = NULL;
+            vector[j].u = zmalloc(sizeof(u_sort)*numsorts);
+            vector[j].total = numsorts;
+            for(n = 0; n < numsorts; n++) {
+              vector[j].u[n].sort_alpha = alpha[n];
+              vector[j].u[n].sort_desc = desc[n];
+              vector[j].u[n].score = 0;
+              vector[j].u[n].cmpobj = NULL;
+            }
             j++;
         }
         setTypeReleaseIterator(si);
@@ -239,8 +287,14 @@ void sortCommand(redisClient *c) {
         di = dictGetIterator(set);
         while((setele = dictNext(di)) != NULL) {
             vector[j].obj = dictGetKey(setele);
-            vector[j].u.score = 0;
-            vector[j].u.cmpobj = NULL;
+            vector[j].u = zmalloc(sizeof(u_sort)*numsorts);
+            vector[j].total = numsorts;
+            for(n = 0; n < numsorts; n++) {
+              vector[j].u[n].sort_alpha = alpha[n];
+              vector[j].u[n].sort_desc = desc[n];
+              vector[j].u[n].score = 0;
+              vector[j].u[n].cmpobj = NULL;
+            }
             j++;
         }
         dictReleaseIterator(di);
@@ -252,35 +306,37 @@ void sortCommand(redisClient *c) {
     /* Now it's time to load the right scores in the sorting vector */
     if (dontsort == 0) {
         for (j = 0; j < vectorlen; j++) {
-            robj *byval;
-            if (sortby) {
-                /* lookup value to sort by */
-                byval = lookupKeyByPattern(c->db,sortby,vector[j].obj);
-                if (!byval) continue;
-            } else {
-                /* use object itself to sort by */
-                byval = vector[j].obj;
-            }
-
-            if (alpha) {
-                if (sortby) vector[j].u.cmpobj = getDecodedObject(byval);
-            } else {
-                if (byval->encoding == REDIS_ENCODING_RAW) {
-                    vector[j].u.score = strtod(byval->ptr,NULL);
-                } else if (byval->encoding == REDIS_ENCODING_INT) {
-                    /* Don't need to decode the object if it's
-                     * integer-encoded (the only encoding supported) so
-                     * far. We can just cast it */
-                    vector[j].u.score = (long)byval->ptr;
+            for (n = 0; n < numsorts; n++) {
+                robj *byval;
+                if (sortby[n]) {
+                    /* lookup value to sort by */
+                    byval = lookupKeyByPattern(c->db,sortby[n],vector[j].obj);
+                    if (!byval) continue;
                 } else {
-                    redisAssertWithInfo(c,sortval,1 != 1);
+                    /* use object itself to sort by */
+                    byval = vector[j].obj;
                 }
-            }
 
-            /* when the object was retrieved using lookupKeyByPattern,
-             * its refcount needs to be decreased. */
-            if (sortby) {
-                decrRefCount(byval);
+                if (alpha[n]) {
+                    vector[j].u[n].cmpobj = getDecodedObject(byval);
+                } else {
+                    if (byval->encoding == REDIS_ENCODING_RAW) {
+                        vector[j].u[n].score = strtod(byval->ptr,NULL);
+                    } else if (byval->encoding == REDIS_ENCODING_INT) {
+                        /* Don't need to decode the object if it's
+                         * integer-encoded (the only encoding supported) so
+                         * far. We can just cast it */
+                        vector[j].u[n].score = (long)byval->ptr;
+                    } else {
+                        redisAssertWithInfo(c,sortval,1 != 1);
+                    }
+                }
+    
+                /* when the object was retrieved using lookupKeyByPattern,
+                 * its refcount needs to be decreased. */
+                if (sortby[n]) {
+                    decrRefCount(byval);
+                }
             }
         }
     }
@@ -296,9 +352,7 @@ void sortCommand(redisClient *c) {
     if (end >= vectorlen) end = vectorlen-1;
 
     if (dontsort == 0) {
-        server.sort_desc = desc;
-        server.sort_alpha = alpha;
-        server.sort_bypattern = sortby ? 1 : 0;
+        server.sort_bypattern = sortby[0] ? 1 : 0;
         if (sortby && (start != 0 || end != vectorlen-1))
             pqsort(vector,vectorlen,sizeof(redisSortObject),sortCompare, start,end);
         else
@@ -380,10 +434,16 @@ void sortCommand(redisClient *c) {
     decrRefCount(sortval);
     listRelease(operations);
     for (j = 0; j < vectorlen; j++) {
-        if (alpha && vector[j].u.cmpobj)
-            decrRefCount(vector[j].u.cmpobj);
+        for (n = 0; n < numsorts; n++) {
+            if (alpha[n] && vector[j].u[n].cmpobj)
+                decrRefCount(vector[j].u[n].cmpobj);
+        }
+        zfree(vector[j].u);
     }
     zfree(vector);
+    zfree(sortby);
+    zfree(alpha);
+    zfree(desc);
 }
 
 
