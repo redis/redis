@@ -50,6 +50,10 @@ start_server {
             assert_equal $result [r sort tosort BY weight_*]
         }
 
+        test "$title: SORT BY key with limit" {
+            assert_equal [lrange $result 5 9] [r sort tosort BY weight_* LIMIT 5 5]
+        }
+
         test "$title: SORT BY hash field" {
             assert_equal $result [r sort tosort BY wobj_*->weight]
         }
