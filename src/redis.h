@@ -588,7 +588,7 @@ struct redisServer {
     int repl_timeout;               /* Timeout after N seconds of master idle */
     redisClient *master;     /* Client that is master for this slave */
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
-    int replstate;           /* Replication status if the instance is a slave */
+    int repl_state;          /* Replication status if the instance is a slave */
     off_t repl_transfer_left;  /* Bytes left reading .rdb  */
     int repl_transfer_s;     /* Slave -> Master SYNC socket */
     int repl_transfer_fd;    /* Slave -> Master SYNC temp file descriptor */

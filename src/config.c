@@ -179,7 +179,7 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"slaveof") && argc == 3) {
             server.masterhost = sdsnew(argv[1]);
             server.masterport = atoi(argv[2]);
-            server.replstate = REDIS_REPL_CONNECT;
+            server.repl_state = REDIS_REPL_CONNECT;
         } else if (!strcasecmp(argv[0],"repl-ping-slave-period") && argc == 2) {
             server.repl_ping_slave_period = atoi(argv[1]);
             if (server.repl_ping_slave_period <= 0) {
