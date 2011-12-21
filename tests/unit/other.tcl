@@ -140,6 +140,7 @@ start_server {tags {"other"}} {
         r pexpireat pz [expr {([clock seconds]+3000)*1000}]
 
         # Reload and check
+        waitForBgrewriteaof r
         r debug loadaof
         set ttl [r ttl x]
         assert {$ttl > 900 && $ttl <= 1000}
