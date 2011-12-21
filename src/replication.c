@@ -361,7 +361,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         /* Restart the AOF subsystem now that we finished the sync. This
          * will trigger an AOF rewrite, and when done will start appending
          * to the new file. */
-        if (server.appendonly) {
+        if (server.aof_state != REDIS_AOF_OFF) {
             int retry = 10;
 
             stopAppendOnly();

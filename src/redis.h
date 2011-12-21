@@ -560,7 +560,6 @@ struct redisServer {
     off_t auto_aofrewrite_base_size;/* AOF size on latest startup or rewrite. */
     off_t appendonly_current_size;  /* AOF current size. */
     int aofrewrite_scheduled;       /* Rewrite once BGSAVE terminates. */
-    int aof_wait_rewrite;           /* Don't append to AOF before rewrite */
     pid_t bgrewritechildpid;        /* PID if rewriting process */
     sds bgrewritebuf; /* buffer taken by parent during oppend only rewrite */
     sds aofbuf;       /* AOF buffer, written before entering the event loop */

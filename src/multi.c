@@ -67,7 +67,7 @@ void discardCommand(redisClient *c) {
 void execCommandReplicateMulti(redisClient *c) {
     robj *multistring = createStringObject("MULTI",5);
 
-    if (server.appendonly)
+    if (server.aof_state != REDIS_AOF_OFF)
         feedAppendOnlyFile(server.multiCommand,c->db->id,&multistring,1);
     if (listLength(server.slaves))
         replicationFeedSlaves(server.slaves,c->db->id,&multistring,1);
