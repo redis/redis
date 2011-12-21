@@ -560,13 +560,13 @@ struct redisServer {
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
     off_t aof_current_size;         /* AOF current size. */
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
-    pid_t bgrewritechildpid;        /* PID if rewriting process */
-    sds bgrewritebuf; /* buffer taken by parent during oppend only rewrite */
-    sds aofbuf;       /* AOF buffer, written before entering the event loop */
-    int appendfd;     /* File descriptor of currently selected AOF file */
-    int appendseldb;  /* Currently selected DB in AOF */
+    pid_t aof_child_pid;            /* PID if rewriting process */
+    sds aof_rewrite_buf; /* buffer taken by parent during oppend only rewrite */
+    sds aof_buf;      /* AOF buffer, written before entering the event loop */
+    int aof_fd;       /* File descriptor of currently selected AOF file */
+    int aof_selected_db; /* Currently selected DB in AOF */
     time_t aof_flush_postponed_start; /* UNIX time of postponed AOF flush */
-    time_t lastfsync;                 /* UNIX time of last fsync() */
+    time_t aof_last_fsync;            /* UNIX time of last fsync() */
     /* RDB persistence */
     long long dirty;                /* Changes to DB from the last save */
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
