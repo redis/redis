@@ -693,7 +693,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Start a scheduled AOF rewrite if this was requested by the user while
      * a BGSAVE was in progress. */
     if (server.bgsavechildpid == -1 && server.bgrewritechildpid == -1 &&
-        server.aofrewrite_scheduled)
+        server.aof_rewrite_scheduled)
     {
         rewriteAppendOnlyFileBackground();
     }
@@ -736,13 +736,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
          /* Trigger an AOF rewrite if needed */
          if (server.bgsavechildpid == -1 &&
              server.bgrewritechildpid == -1 &&
-             server.auto_aofrewrite_perc &&
-             server.appendonly_current_size > server.auto_aofrewrite_min_size)
+             server.aof_rewrite_perc &&
+             server.aof_current_size > server.aof_rewrite_min_size)
          {
-            long long base = server.auto_aofrewrite_base_size ?
-                            server.auto_aofrewrite_base_size : 1;
-            long long growth = (server.appendonly_current_size*100/base) - 100;
-            if (growth >= server.auto_aofrewrite_perc) {
+            long long base = server.aof_rewrite_base_size ?
+                            server.aof_rewrite_base_size : 1;
+            long long growth = (server.aof_current_size*100/base) - 100;
+            if (growth >= server.aof_rewrite_perc) {
                 redisLog(REDIS_NOTICE,"Starting automatic rewriting of AOF on %lld%% growth",growth);
                 rewriteAppendOnlyFileBackground();
             }
@@ -874,19 +874,19 @@ void initServerConfig() {
     server.syslog_facility = LOG_LOCAL0;
     server.daemonize = 0;
     server.aof_state = REDIS_AOF_OFF;
-    server.appendfsync = APPENDFSYNC_EVERYSEC;
-    server.no_appendfsync_on_rewrite = 0;
-    server.auto_aofrewrite_perc = REDIS_AUTO_AOFREWRITE_PERC;
-    server.auto_aofrewrite_min_size = REDIS_AUTO_AOFREWRITE_MIN_SIZE;
-    server.auto_aofrewrite_base_size = 0;
-    server.aofrewrite_scheduled = 0;
+    server.aof_fsync = AOF_FSYNC_EVERYSEC;
+    server.aof_no_fsync_on_rewrite = 0;
+    server.aof_rewrite_perc = REDIS_AOF_REWRITE_PERC;
+    server.aof_rewrite_min_size = REDIS_AOF_REWRITE_MIN_SIZE;
+    server.aof_rewrite_base_size = 0;
+    server.aof_rewrite_scheduled = 0;
     server.lastfsync = time(NULL);
     server.appendfd = -1;
     server.appendseldb = -1; /* Make sure the first time will not match */
     server.aof_flush_postponed_start = 0;
     server.pidfile = zstrdup("/var/run/redis.pid");
     server.dbfilename = zstrdup("dump.rdb");
-    server.appendfilename = zstrdup("appendonly.aof");
+    server.aof_filename = zstrdup("appendonly.aof");
     server.requirepass = NULL;
     server.rdbcompression = 1;
     server.activerehashing = 1;
@@ -1068,7 +1068,7 @@ void initServer() {
         acceptUnixHandler,NULL) == AE_ERR) oom("creating file event");
 
     if (server.aof_state == REDIS_AOF_ON) {
-        server.appendfd = open(server.appendfilename,
+        server.appendfd = open(server.aof_filename,
                                O_WRONLY|O_APPEND|O_CREAT,0644);
         if (server.appendfd == -1) {
             redisLog(REDIS_WARNING, "Can't open the append-only file: %s",
@@ -1510,9 +1510,9 @@ sds genRedisInfoString(char *section) {
                 "aof_pending_rewrite:%d\r\n"
                 "aof_buffer_length:%zu\r\n"
                 "aof_pending_bio_fsync:%llu\r\n",
-                (long long) server.appendonly_current_size,
-                (long long) server.auto_aofrewrite_base_size,
-                server.aofrewrite_scheduled,
+                (long long) server.aof_current_size,
+                (long long) server.aof_rewrite_base_size,
+                server.aof_rewrite_scheduled,
                 sdslen(server.aofbuf),
                 bioPendingJobsOfType(REDIS_BIO_AOF_FSYNC));
         }
@@ -2099,7 +2099,7 @@ int main(int argc, char **argv) {
 #endif
     start = ustime();
     if (server.aof_state == REDIS_AOF_ON) {
-        if (loadAppendOnlyFile(server.appendfilename) == REDIS_OK)
+        if (loadAppendOnlyFile(server.aof_filename) == REDIS_OK)
             redisLog(REDIS_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
     } else {
         if (rdbLoad(server.dbfilename) == REDIS_OK) {

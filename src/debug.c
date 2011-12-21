@@ -229,7 +229,7 @@ void debugCommand(redisClient *c) {
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
         emptyDb();
-        if (loadAppendOnlyFile(server.appendfilename) != REDIS_OK) {
+        if (loadAppendOnlyFile(server.aof_filename) != REDIS_OK) {
             addReply(c,shared.err);
             return;
         }

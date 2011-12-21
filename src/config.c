@@ -220,20 +220,20 @@ void loadServerConfigFromString(char *config) {
             }
             server.aof_state = yes ? REDIS_AOF_ON : REDIS_AOF_OFF;
         } else if (!strcasecmp(argv[0],"appendfilename") && argc == 2) {
-            zfree(server.appendfilename);
-            server.appendfilename = zstrdup(argv[1]);
+            zfree(server.aof_filename);
+            server.aof_filename = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"no-appendfsync-on-rewrite")
                    && argc == 2) {
-            if ((server.no_appendfsync_on_rewrite= yesnotoi(argv[1])) == -1) {
+            if ((server.aof_no_fsync_on_rewrite= yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"appendfsync") && argc == 2) {
             if (!strcasecmp(argv[1],"no")) {
-                server.appendfsync = APPENDFSYNC_NO;
+                server.aof_fsync = AOF_FSYNC_NO;
             } else if (!strcasecmp(argv[1],"always")) {
-                server.appendfsync = APPENDFSYNC_ALWAYS;
+                server.aof_fsync = AOF_FSYNC_ALWAYS;
             } else if (!strcasecmp(argv[1],"everysec")) {
-                server.appendfsync = APPENDFSYNC_EVERYSEC;
+                server.aof_fsync = AOF_FSYNC_EVERYSEC;
             } else {
                 err = "argument must be 'no', 'always' or 'everysec'";
                 goto loaderr;
@@ -241,15 +241,15 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"auto-aof-rewrite-percentage") &&
                    argc == 2)
         {
-            server.auto_aofrewrite_perc = atoi(argv[1]);
-            if (server.auto_aofrewrite_perc < 0) {
+            server.aof_rewrite_perc = atoi(argv[1]);
+            if (server.aof_rewrite_perc < 0) {
                 err = "Invalid negative percentage for AOF auto rewrite";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"auto-aof-rewrite-min-size") &&
                    argc == 2)
         {
-            server.auto_aofrewrite_min_size = memtoll(argv[1],NULL);
+            server.aof_rewrite_min_size = memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
             server.requirepass = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"pidfile") && argc == 2) {
@@ -415,11 +415,11 @@ void configSetCommand(redisClient *c) {
         server.maxidletime = ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"appendfsync")) {
         if (!strcasecmp(o->ptr,"no")) {
-            server.appendfsync = APPENDFSYNC_NO;
+            server.aof_fsync = AOF_FSYNC_NO;
         } else if (!strcasecmp(o->ptr,"everysec")) {
-            server.appendfsync = APPENDFSYNC_EVERYSEC;
+            server.aof_fsync = AOF_FSYNC_EVERYSEC;
         } else if (!strcasecmp(o->ptr,"always")) {
-            server.appendfsync = APPENDFSYNC_ALWAYS;
+            server.aof_fsync = AOF_FSYNC_ALWAYS;
         } else {
             goto badfmt;
         }
@@ -427,7 +427,7 @@ void configSetCommand(redisClient *c) {
         int yn = yesnotoi(o->ptr);
 
         if (yn == -1) goto badfmt;
-        server.no_appendfsync_on_rewrite = yn;
+        server.aof_no_fsync_on_rewrite = yn;
     } else if (!strcasecmp(c->argv[2]->ptr,"appendonly")) {
         int enable = yesnotoi(o->ptr);
 
@@ -443,10 +443,10 @@ void configSetCommand(redisClient *c) {
         }
     } else if (!strcasecmp(c->argv[2]->ptr,"auto-aof-rewrite-percentage")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
-        server.auto_aofrewrite_perc = ll;
+        server.aof_rewrite_perc = ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"auto-aof-rewrite-min-size")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
-        server.auto_aofrewrite_min_size = ll;
+        server.aof_rewrite_min_size = ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"save")) {
         int vlen, j;
         sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
@@ -621,16 +621,16 @@ void configGetCommand(redisClient *c) {
     }
     if (stringmatch(pattern,"no-appendfsync-on-rewrite",0)) {
         addReplyBulkCString(c,"no-appendfsync-on-rewrite");
-        addReplyBulkCString(c,server.no_appendfsync_on_rewrite ? "yes" : "no");
+        addReplyBulkCString(c,server.aof_no_fsync_on_rewrite ? "yes" : "no");
         matches++;
     }
     if (stringmatch(pattern,"appendfsync",0)) {
         char *policy;
 
-        switch(server.appendfsync) {
-        case APPENDFSYNC_NO: policy = "no"; break;
-        case APPENDFSYNC_EVERYSEC: policy = "everysec"; break;
-        case APPENDFSYNC_ALWAYS: policy = "always"; break;
+        switch(server.aof_fsync) {
+        case AOF_FSYNC_NO: policy = "no"; break;
+        case AOF_FSYNC_EVERYSEC: policy = "everysec"; break;
+        case AOF_FSYNC_ALWAYS: policy = "always"; break;
         default: policy = "unknown"; break; /* too harmless to panic */
         }
         addReplyBulkCString(c,"appendfsync");
@@ -655,12 +655,12 @@ void configGetCommand(redisClient *c) {
     }
     if (stringmatch(pattern,"auto-aof-rewrite-percentage",0)) {
         addReplyBulkCString(c,"auto-aof-rewrite-percentage");
-        addReplyBulkLongLong(c,server.auto_aofrewrite_perc);
+        addReplyBulkLongLong(c,server.aof_rewrite_perc);
         matches++;
     }
     if (stringmatch(pattern,"auto-aof-rewrite-min-size",0)) {
         addReplyBulkCString(c,"auto-aof-rewrite-min-size");
-        addReplyBulkLongLong(c,server.auto_aofrewrite_min_size);
+        addReplyBulkLongLong(c,server.aof_rewrite_min_size);
         matches++;
     }
     if (stringmatch(pattern,"slave-serve-stale-data",0)) {

@@ -52,9 +52,9 @@
 #define REDIS_SHARED_INTEGERS 10000
 #define REDIS_REPLY_CHUNK_BYTES (16*1024) /* 16k output buffer */
 #define REDIS_MAX_LOGMSG_LEN    1024 /* Default maximum length of syslog messages */
-#define REDIS_AUTO_AOFREWRITE_PERC  100
-#define REDIS_AUTO_AOFREWRITE_MIN_SIZE (1024*1024)
-#define REDIS_AOFREWRITE_ITEMS_PER_CMD 64
+#define REDIS_AOF_REWRITE_PERC  100
+#define REDIS_AOF_REWRITE_MIN_SIZE (1024*1024)
+#define REDIS_AOF_REWRITE_ITEMS_PER_CMD 64
 #define REDIS_SLOWLOG_LOG_SLOWER_THAN 10000
 #define REDIS_SLOWLOG_MAX_LEN 64
 #define REDIS_MAX_CLIENTS 10000
@@ -189,9 +189,9 @@
 #define ZSKIPLIST_P 0.25      /* Skiplist P = 1/4 */
 
 /* Append only defines */
-#define APPENDFSYNC_NO 0
-#define APPENDFSYNC_ALWAYS 1
-#define APPENDFSYNC_EVERYSEC 2
+#define AOF_FSYNC_NO 0
+#define AOF_FSYNC_ALWAYS 1
+#define AOF_FSYNC_EVERYSEC 2
 
 /* Zip structure related defaults */
 #define REDIS_HASH_MAX_ZIPMAP_ENTRIES 512
@@ -552,14 +552,14 @@ struct redisServer {
     int daemonize;                  /* True if running as a daemon */
     /* AOF persistence */
     int aof_state;                  /* REDIS_AOF_(ON|OFF|WAIT_REWRITE) */
-    int appendfsync;                /* Kind of fsync() policy */
-    char *appendfilename;           /* Name of the AOF file */
-    int no_appendfsync_on_rewrite;  /* Don't fsync if a rewrite is in prog. */
-    int auto_aofrewrite_perc;       /* Rewrite AOF if % growth is > M and... */
-    off_t auto_aofrewrite_min_size; /* the AOF file is at least N bytes. */
-    off_t auto_aofrewrite_base_size;/* AOF size on latest startup or rewrite. */
-    off_t appendonly_current_size;  /* AOF current size. */
-    int aofrewrite_scheduled;       /* Rewrite once BGSAVE terminates. */
+    int aof_fsync;                  /* Kind of fsync() policy */
+    char *aof_filename;             /* Name of the AOF file */
+    int aof_no_fsync_on_rewrite;    /* Don't fsync if a rewrite is in prog. */
+    int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
+    off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
+    off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
+    off_t aof_current_size;         /* AOF current size. */
+    int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
     pid_t bgrewritechildpid;        /* PID if rewriting process */
     sds bgrewritebuf; /* buffer taken by parent during oppend only rewrite */
     sds aofbuf;       /* AOF buffer, written before entering the event loop */
