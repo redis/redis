@@ -563,7 +563,7 @@ void incrementallyRehash(void) {
  * for dict.c to resize the hash tables accordingly to the fact we have o not
  * running childs. */
 void updateDictResizePolicy(void) {
-    if (server.bgsavechildpid == -1 && server.aof_child_pid == -1)
+    if (server.rdb_child_pid == -1 && server.aof_child_pid == -1)
         dictEnableResize();
     else
         dictDisableResize();
@@ -673,7 +673,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * if we resize the HT while there is the saving child at work actually
      * a lot of memory movements in the parent will cause a lot of pages
      * copied. */
-    if (server.bgsavechildpid == -1 && server.aof_child_pid == -1) {
+    if (server.rdb_child_pid == -1 && server.aof_child_pid == -1) {
         if (!(loops % 10)) tryResizeHashTables();
         if (server.activerehashing) incrementallyRehash();
     }
@@ -692,14 +692,14 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Start a scheduled AOF rewrite if this was requested by the user while
      * a BGSAVE was in progress. */
-    if (server.bgsavechildpid == -1 && server.aof_child_pid == -1 &&
+    if (server.rdb_child_pid == -1 && server.aof_child_pid == -1 &&
         server.aof_rewrite_scheduled)
     {
         rewriteAppendOnlyFileBackground();
     }
 
     /* Check if a background saving or AOF rewrite in progress terminated. */
-    if (server.bgsavechildpid != -1 || server.aof_child_pid != -1) {
+    if (server.rdb_child_pid != -1 || server.aof_child_pid != -1) {
         int statloc;
         pid_t pid;
 
@@ -709,7 +709,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             
             if (WIFSIGNALED(statloc)) bysignal = WTERMSIG(statloc);
 
-            if (pid == server.bgsavechildpid) {
+            if (pid == server.rdb_child_pid) {
                 backgroundSaveDoneHandler(exitcode,bysignal);
             } else {
                 backgroundRewriteDoneHandler(exitcode,bysignal);
@@ -728,13 +728,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                 now-server.lastsave > sp->seconds) {
                 redisLog(REDIS_NOTICE,"%d changes in %d seconds. Saving...",
                     sp->changes, sp->seconds);
-                rdbSaveBackground(server.dbfilename);
+                rdbSaveBackground(server.rdb_filename);
                 break;
             }
          }
 
          /* Trigger an AOF rewrite if needed */
-         if (server.bgsavechildpid == -1 &&
+         if (server.rdb_child_pid == -1 &&
              server.aof_child_pid == -1 &&
              server.aof_rewrite_perc &&
              server.aof_current_size > server.aof_rewrite_min_size)
@@ -885,10 +885,10 @@ void initServerConfig() {
     server.aof_selected_db = -1; /* Make sure the first time will not match */
     server.aof_flush_postponed_start = 0;
     server.pidfile = zstrdup("/var/run/redis.pid");
-    server.dbfilename = zstrdup("dump.rdb");
+    server.rdb_filename = zstrdup("dump.rdb");
     server.aof_filename = zstrdup("appendonly.aof");
     server.requirepass = NULL;
-    server.rdbcompression = 1;
+    server.rdb_compression = 1;
     server.activerehashing = 1;
     server.maxclients = REDIS_MAX_CLIENTS;
     server.bpop_blocked_clients = 0;
@@ -1044,7 +1044,7 @@ void initServer() {
     listSetFreeMethod(server.pubsub_patterns,freePubsubPattern);
     listSetMatchMethod(server.pubsub_patterns,listMatchPubsubPattern);
     server.cronloops = 0;
-    server.bgsavechildpid = -1;
+    server.rdb_child_pid = -1;
     server.aof_child_pid = -1;
     server.aof_rewrite_buf = sdsempty();
     server.aof_buf = sdsempty();
@@ -1305,10 +1305,10 @@ int prepareForShutdown(int flags) {
     /* Kill the saving child if there is a background saving in progress.
        We want to avoid race conditions, for instance our saving child may
        overwrite the synchronous saving did by SHUTDOWN. */
-    if (server.bgsavechildpid != -1) {
+    if (server.rdb_child_pid != -1) {
         redisLog(REDIS_WARNING,"There is a child saving an .rdb. Killing it!");
-        kill(server.bgsavechildpid,SIGKILL);
-        rdbRemoveTempFile(server.bgsavechildpid);
+        kill(server.rdb_child_pid,SIGKILL);
+        rdbRemoveTempFile(server.rdb_child_pid);
     }
     if (server.aof_state != REDIS_AOF_OFF) {
         /* Kill the AOF saving child as the AOF we already have may be longer
@@ -1325,7 +1325,7 @@ int prepareForShutdown(int flags) {
     if ((server.saveparamslen > 0 && !nosave) || save) {
         redisLog(REDIS_NOTICE,"Saving the final RDB snapshot before exiting.");
         /* Snapshotting. Perform a SYNC SAVE and exit */
-        if (rdbSave(server.dbfilename) != REDIS_OK) {
+        if (rdbSave(server.rdb_filename) != REDIS_OK) {
             /* Ooops.. error saving! The best we can do is to continue
              * operating. Note that if there was a background saving process,
              * in the next cron() Redis will be notified that the background
@@ -1499,7 +1499,7 @@ sds genRedisInfoString(char *section) {
             server.loading,
             server.aof_state != REDIS_AOF_OFF,
             server.dirty,
-            server.bgsavechildpid != -1,
+            server.rdb_child_pid != -1,
             server.lastsave,
             server.aof_child_pid != -1);
 
@@ -2102,7 +2102,7 @@ int main(int argc, char **argv) {
         if (loadAppendOnlyFile(server.aof_filename) == REDIS_OK)
             redisLog(REDIS_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
     } else {
-        if (rdbLoad(server.dbfilename) == REDIS_OK) {
+        if (rdbLoad(server.rdb_filename) == REDIS_OK) {
             redisLog(REDIS_NOTICE,"DB loaded from disk: %.3f seconds",
                 (float)(ustime()-start)/1000000);
         } else if (errno != ENOENT) {

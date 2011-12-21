@@ -570,11 +570,11 @@ struct redisServer {
     /* RDB persistence */
     long long dirty;                /* Changes to DB from the last save */
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
-    pid_t bgsavechildpid;           /* PID of RDB saving child */
+    pid_t rdb_child_pid;            /* PID of RDB saving child */
     struct saveparam *saveparams;   /* Save points array for RDB */
     int saveparamslen;              /* Number of saving points */
-    char *dbfilename;               /* Name of RDB file */
-    int rdbcompression;             /* Use compression in RDB? */
+    char *rdb_filename;             /* Name of RDB file */
+    int rdb_compression;            /* Use compression in RDB? */
     /* Logging */
     char *logfile;                  /* Path of log file */
     int syslog_enabled;             /* Is syslog enabled? */

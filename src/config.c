@@ -201,7 +201,7 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"glueoutputbuf")) {
             redisLog(REDIS_WARNING, "Deprecated configuration directive: \"%s\"", argv[0]);
         } else if (!strcasecmp(argv[0],"rdbcompression") && argc == 2) {
-            if ((server.rdbcompression = yesnotoi(argv[1])) == -1) {
+            if ((server.rdb_compression = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"activerehashing") && argc == 2) {
@@ -256,8 +256,8 @@ void loadServerConfigFromString(char *config) {
             zfree(server.pidfile);
             server.pidfile = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"dbfilename") && argc == 2) {
-            zfree(server.dbfilename);
-            server.dbfilename = zstrdup(argv[1]);
+            zfree(server.rdb_filename);
+            server.rdb_filename = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"hash-max-zipmap-entries") && argc == 2) {
             server.hash_max_zipmap_entries = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"hash-max-zipmap-value") && argc == 2) {
@@ -376,8 +376,8 @@ void configSetCommand(redisClient *c) {
     o = c->argv[3];
 
     if (!strcasecmp(c->argv[2]->ptr,"dbfilename")) {
-        zfree(server.dbfilename);
-        server.dbfilename = zstrdup(o->ptr);
+        zfree(server.rdb_filename);
+        server.rdb_filename = zstrdup(o->ptr);
     } else if (!strcasecmp(c->argv[2]->ptr,"requirepass")) {
         zfree(server.requirepass);
         server.requirepass = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
@@ -567,7 +567,7 @@ void configGetCommand(redisClient *c) {
     }
     if (stringmatch(pattern,"dbfilename",0)) {
         addReplyBulkCString(c,"dbfilename");
-        addReplyBulkCString(c,server.dbfilename);
+        addReplyBulkCString(c,server.rdb_filename);
         matches++;
     }
     if (stringmatch(pattern,"requirepass",0)) {
