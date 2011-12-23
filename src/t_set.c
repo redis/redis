@@ -430,7 +430,7 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
 
     if (sort_result) {
         /* The cardinality of intersection will be less or equal than
-         * the size of smallest set. */
+         * the size of smallest set. At least 1 set exists at this point. */
         vectorlen = setTypeSize(sets[0]);
         vector = zmalloc(sizeof(robj*)*vectorlen);
     }
@@ -491,19 +491,18 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
 
         /* Only take action when all sets contain the member */
         if (j == setnum) {
-            if (!dstkey) {
-                if (sort_result) {
-                    if (encoding == REDIS_ENCODING_HT)
-                        vector[cardinality] = getDecodedObject(eleobj);
-                    else {
-                        vector[cardinality] = createStringObjectFromLongLong(intobj);
-                    }
-                } else {
-                    if (encoding == REDIS_ENCODING_HT)
-                        addReplyBulk(c,eleobj);
-                    else
-                        addReplyBulkLongLong(c,intobj);
+            if (sort_result) { /* sort_result implies !dstkey */
+                if (encoding == REDIS_ENCODING_HT)
+                    vector[cardinality] = getDecodedObject(eleobj);
+                else {
+                    vector[cardinality] = createStringObjectFromLongLong(intobj);
                 }
+                cardinality++;
+            } else if (!dstkey) {
+                if (encoding == REDIS_ENCODING_HT)
+                    addReplyBulk(c,eleobj);
+                else
+                    addReplyBulkLongLong(c,intobj);
                 cardinality++;
             } else {
                 if (encoding == REDIS_ENCODING_INTSET) {
