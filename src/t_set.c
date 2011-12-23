@@ -565,6 +565,13 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
     robj *ele, *dstset = NULL;
     int j, cardinality = 0;
 
+    int sort_result;
+    robj **vector = NULL;
+
+    /* If the command is executed in Lua and will return the result set,
+     * it's needed to sort the result for deterministic result. */
+    sort_result = server.lua_caller && dstkey==NULL;
+
     for (j = 0; j < setnum; j++) {
         robj *setobj = dstkey ?
             lookupKeyWrite(c->db,setkeys[j]) :
@@ -610,14 +617,34 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
         if (op == REDIS_OP_DIFF && cardinality == 0) break;
     }
 
+    if (sort_result)
+        vector = zmalloc(sizeof(robj*)*cardinality);
+
     /* Output the content of the resulting set, if not in STORE mode */
     if (!dstkey) {
         addReplyMultiBulkLen(c,cardinality);
         si = setTypeInitIterator(dstset);
+
+        j = 0;
         while((ele = setTypeNextObject(si)) != NULL) {
-            addReplyBulk(c,ele);
-            decrRefCount(ele);
+            if (sort_result) {
+                vector[j] = ele;
+                ++j;
+            } else {
+                addReplyBulk(c, ele);
+                decrRefCount(ele);
+            }
         }
+
+        if (sort_result) {
+            qsort(vector, cardinality, sizeof(robj*), qsortCompareStrings);
+            for (j=0; j<cardinality; ++j) {
+                addReplyBulk(c, vector[j]);
+                decrRefCount(vector[j]);
+            }
+            zfree(vector);
+        }
+
         setTypeReleaseIterator(si);
         decrRefCount(dstset);
     } else {
@@ -635,6 +662,7 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
         server.dirty++;
     }
     zfree(sets);
+
 }
 
 void sunionCommand(redisClient *c) {
