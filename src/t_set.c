@@ -616,32 +616,29 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
         if (op == REDIS_OP_DIFF && cardinality == 0) break;
     }
 
-    if (sort_result)
-        vector = zmalloc(sizeof(robj*)*cardinality);
-
     /* Output the content of the resulting set, if not in STORE mode */
     if (!dstkey) {
         addReplyMultiBulkLen(c,cardinality);
         si = setTypeInitIterator(dstset);
 
-        j = 0;
-        while((ele = setTypeNextObject(si)) != NULL) {
-            if (sort_result) {
+        if (sort_result) {
+            j = 0;
+            vector = zmalloc(sizeof(robj*)*cardinality);
+            while((ele = setTypeNextObject(si)) != NULL) {
                 vector[j] = ele;
                 ++j;
-            } else {
-                addReplyBulk(c, ele);
-                decrRefCount(ele);
             }
-        }
-
-        if (sort_result) {
             qsort(vector, cardinality, sizeof(robj*), qsortCompareStrings);
             for (j=0; j<cardinality; ++j) {
                 addReplyBulk(c, vector[j]);
                 decrRefCount(vector[j]);
             }
             zfree(vector);
+        } else {
+            while((ele = setTypeNextObject(si)) != NULL) {
+                addReplyBulk(c, ele);
+                decrRefCount(ele);
+            }
         }
 
         setTypeReleaseIterator(si);
