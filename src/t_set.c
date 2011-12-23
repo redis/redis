@@ -517,8 +517,14 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
     }
     setTypeReleaseIterator(si);
 
-    if (sort_result)
+    if (sort_result) {
         qsort(vector, cardinality, sizeof(robj*), qsortCompareStrings);
+        for (j=0; j<cardinality; ++j) {
+            addReplyBulk(c, vector[j]);
+            decrRefCount(vector[j]);
+        }
+        zfree(vector);
+    }
 
     if (dstkey) {
         /* Store the resulting set into the target, if the intersection
@@ -534,13 +540,6 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
         signalModifiedKey(c->db,dstkey);
         server.dirty++;
     } else {
-        if (sort_result) {
-            for (j=0; j<cardinality; ++j) {
-                addReplyBulk(c, vector[j]);
-                decrRefCount(vector[j]);
-            }
-            zfree(vector);
-        }
         setDeferredMultiBulkLength(c,replylen,cardinality);
     }
     zfree(sets);
