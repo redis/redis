@@ -380,6 +380,10 @@ int qsortCompareSetsByCardinality(const void *s1, const void *s2) {
     return setTypeSize(*(robj**)s1)-setTypeSize(*(robj**)s2);
 }
 
+static int qsortCompareStrings(const void *s1, const void *s2) {
+    return compareStringObjects(*(robj**)s1, *(robj**)s2);
+}
+
 void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, robj *dstkey) {
     robj **sets = zmalloc(sizeof(robj*)*setnum);
     setTypeIterator *si;
@@ -388,6 +392,14 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
     void *replylen = NULL;
     unsigned long j, cardinality = 0;
     int encoding;
+
+    int sort_result;
+    int vectorlen;
+    robj **vector = NULL;
+
+    /* If the command is executed in Lua and will return the result set,
+     * it's needed to sort the result for deterministic result. */
+    sort_result = server.lua_caller && dstkey==NULL;
 
     for (j = 0; j < setnum; j++) {
         robj *setobj = dstkey ?
@@ -415,6 +427,13 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
     /* Sort sets from the smallest to largest, this will improve our
      * algorithm's performace */
     qsort(sets,setnum,sizeof(robj*),qsortCompareSetsByCardinality);
+
+    if (sort_result) {
+        /* The cardinality of intersection will be less or equal than
+         * the size of smallest set. */
+        vectorlen = setTypeSize(sets[0]);
+        vector = zmalloc(sizeof(robj*)*vectorlen);
+    }
 
     /* The first thing we should output is the total number of elements...
      * since this is a multi-bulk write, but at this stage we don't know
@@ -473,10 +492,18 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
         /* Only take action when all sets contain the member */
         if (j == setnum) {
             if (!dstkey) {
-                if (encoding == REDIS_ENCODING_HT)
-                    addReplyBulk(c,eleobj);
-                else
-                    addReplyBulkLongLong(c,intobj);
+                if (sort_result) {
+                    if (encoding == REDIS_ENCODING_HT)
+                        vector[cardinality] = getDecodedObject(eleobj);
+                    else {
+                        vector[cardinality] = createStringObjectFromLongLong(intobj);
+                    }
+                } else {
+                    if (encoding == REDIS_ENCODING_HT)
+                        addReplyBulk(c,eleobj);
+                    else
+                        addReplyBulkLongLong(c,intobj);
+                }
                 cardinality++;
             } else {
                 if (encoding == REDIS_ENCODING_INTSET) {
@@ -490,6 +517,9 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
         }
     }
     setTypeReleaseIterator(si);
+
+    if (sort_result)
+        qsort(vector, cardinality, sizeof(robj*), qsortCompareStrings);
 
     if (dstkey) {
         /* Store the resulting set into the target, if the intersection
@@ -505,6 +535,13 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
         signalModifiedKey(c->db,dstkey);
         server.dirty++;
     } else {
+        if (sort_result) {
+            for (j=0; j<cardinality; ++j) {
+                addReplyBulk(c, vector[j]);
+                decrRefCount(vector[j]);
+            }
+            zfree(vector);
+        }
         setDeferredMultiBulkLength(c,replylen,cardinality);
     }
     zfree(sets);
