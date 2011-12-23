@@ -518,6 +518,12 @@ start_server {tags {"zset"}} {
         r zinterstore set3 2 set1 set2
     } {0}
 
+    test {ZUNIONSTORE regression, should not create NaN in scores} {
+        r zadd z -inf neginf
+        r zunionstore out 1 z weights 0
+        r zrange out 0 -1 withscores
+    } {neginf 0}
+
     proc stressers {encoding} {
         if {$encoding == "ziplist"} {
             # Little extra to allow proper fuzzing in the sorting stresser
