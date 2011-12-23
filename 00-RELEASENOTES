@@ -18,6 +18,18 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
+What's new in Redis 2.4.5
+=========================
+
+* [BUGFIX] Fixed a ZUNIONSTORE/ZINTERSTORE bug that can cause a NaN to be
+           inserted as a sorted set element score. This happens when one of the
+           elements has +inf/-inf score and the weight used is 0.
+* [BUGFIX] Fixed memory leak in CLIENT INFO.
+* [BUGFIX] Fixed a non critical SORT bug (Issue 224).
+* [BUGFIX] Fixed a replication bug: now the timeout configuration is respected
+           during the connection with the master.
+* --quiet option implemented in the Redis test.
+
 What's new in Redis 2.4.4
 =========================
 
