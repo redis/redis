@@ -492,6 +492,7 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
         /* Only take action when all sets contain the member */
         if (j == setnum) {
             if (sort_result) { /* sort_result implies !dstkey */
+                /* Don't append to reply queue immediately. Push into a vector instead */
                 if (encoding == REDIS_ENCODING_HT)
                     vector[cardinality] = getDecodedObject(eleobj);
                 else {
@@ -518,6 +519,7 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
     setTypeReleaseIterator(si);
 
     if (sort_result) {
+        /* Sort the vector and append to reply queue */
         qsort(vector, cardinality, sizeof(robj*), qsortCompareStrings);
         for (j=0; j<cardinality; ++j) {
             addReplyBulk(c, vector[j]);
@@ -622,11 +624,13 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
 
         if (sort_result) {
             j = 0;
+            /* Extract the elements from set to a vector */
             vector = zmalloc(sizeof(robj*)*cardinality);
             while((ele = setTypeNextObject(si)) != NULL) {
                 vector[j] = ele;
                 ++j;
             }
+            /* Sort the vector and append to reply queue */
             qsort(vector, cardinality, sizeof(robj*), qsortCompareStrings);
             for (j=0; j<cardinality; ++j) {
                 addReplyBulk(c, vector[j]);
