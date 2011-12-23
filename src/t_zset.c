@@ -1548,6 +1548,8 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                 double score, value;
 
                 score = src[0].weight * zval.score;
+                if (isnan(score)) score = 0;
+
                 for (j = 1; j < setnum; j++) {
                     /* It is not safe to access the zset we are
                      * iterating, so explicitly check for equal object. */
@@ -1590,6 +1592,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
 
                 /* Initialize score */
                 score = src[i].weight * zval.score;
+                if (isnan(score)) score = 0;
 
                 /* Because the inputs are sorted by size, it's only possible
                  * for sets at larger indices to hold this element. */
