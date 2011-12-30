@@ -122,8 +122,7 @@ void syncCommand(redisClient *c) {
         if (ln) {
             /* Perfect, the server is already registering differences for
              * another slave. Set the right state, and copy the buffer. */
-            listRelease(c->reply);
-            c->reply = listDup(slave->reply);
+            copyClientOutputBuffer(c,slave);
             c->replstate = REDIS_REPL_WAIT_BGSAVE_END;
             redisLog(REDIS_NOTICE,"Waiting for end of BGSAVE for SYNC");
         } else {

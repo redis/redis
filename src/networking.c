@@ -388,6 +388,16 @@ void addReplyBulkLongLong(redisClient *c, long long ll) {
     addReplyBulkCBuffer(c,buf,len);
 }
 
+/* Copy 'src' client output buffers into 'dst' client output buffers.
+ * The function takes care of freeing the old output buffers of the
+ * destination client. */
+void copyClientOutputBuffer(redisClient *dst, redisClient *src) {
+    listRelease(dst->reply);
+    dst->reply = listDup(src->reply);
+    memcpy(dst->buf,src->buf,src->bufpos);
+    dst->bufpos = src->bufpos;
+}
+
 static void acceptCommonHandler(int fd) {
     redisClient *c;
     if ((c = createClient(fd)) == NULL) {
