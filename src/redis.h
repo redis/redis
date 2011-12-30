@@ -774,6 +774,7 @@ void addReplyStatus(redisClient *c, char *status);
 void addReplyDouble(redisClient *c, double d);
 void addReplyLongLong(redisClient *c, long long ll);
 void addReplyMultiBulkLen(redisClient *c, long length);
+void copyClientOutputBuffer(redisClient *dst, redisClient *src);
 void *dupClientReplyValue(void *o);
 void getClientsMaxBuffers(unsigned long *longest_output_list,
                           unsigned long *biggest_input_buffer);
