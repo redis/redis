@@ -40,14 +40,11 @@
 /* Static server configuration */
 #define REDIS_SERVERPORT        6379    /* TCP port */
 #define REDIS_MAXIDLETIME       0       /* default client timeout: infinite */
-#define REDIS_MAX_QUERYBUF_LEN  (1024*1024*1024) /* 1GB max query buffer. */
-#define REDIS_IOBUF_LEN         (1024*16)  /* Generic I/O buffer size */
 #define REDIS_DEFAULT_DBNUM     16
 #define REDIS_CONFIGLINE_MAX    1024
 #define REDIS_EXPIRELOOKUPS_PER_CRON    10 /* lookup 10 expires per loop */
 #define REDIS_MAX_WRITE_PER_EVENT (1024*64)
 #define REDIS_SHARED_INTEGERS 10000
-#define REDIS_REPLY_CHUNK_BYTES (16*1024) /* 16k output buffer */
 #define REDIS_MAX_LOGMSG_LEN    1024 /* Default maximum length of syslog messages */
 #define REDIS_AOF_REWRITE_PERC  100
 #define REDIS_AOF_REWRITE_MIN_SIZE (1024*1024)
@@ -58,7 +55,12 @@
 
 #define REDIS_REPL_TIMEOUT 60
 #define REDIS_REPL_PING_SLAVE_PERIOD 10
-#define REDIS_MBULK_BIG_ARG (1024*32)
+
+/* Protocol and I/O related defines */
+#define REDIS_MAX_QUERYBUF_LEN  (1024*1024*1024) /* 1GB max query buffer. */
+#define REDIS_IOBUF_LEN         (1024*16)  /* Generic I/O buffer size */
+#define REDIS_REPLY_CHUNK_BYTES (16*1024) /* 16k output buffer */
+#define REDIS_MBULK_BIG_ARG     (1024*32)
 
 /* Hash table parameters */
 #define REDIS_HT_MINFILL        10      /* Minimal hash table fill 10% */
