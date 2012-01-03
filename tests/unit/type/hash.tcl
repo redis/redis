@@ -14,8 +14,8 @@ start_server {tags {"hash"}} {
         list [r hlen smallhash]
     } {8}
 
-    test {Is the small hash encoded with a zipmap?} {
-        assert_encoding zipmap smallhash
+    test {Is the small hash encoded with a ziplist?} {
+        assert_encoding ziplist smallhash
     }
 
     test {HSET/HLEN - Big hash creation} {
@@ -33,7 +33,7 @@ start_server {tags {"hash"}} {
         list [r hlen bighash]
     } {1024}
 
-    test {Is the big hash encoded with a zipmap?} {
+    test {Is the big hash encoded with a ziplist?} {
         assert_encoding hashtable bighash
     }
 
@@ -252,7 +252,7 @@ start_server {tags {"hash"}} {
         lappend rv [r hexists bighash nokey]
     } {1 0 1 0}
 
-    test {Is a zipmap encoded Hash promoted on big payload?} {
+    test {Is a ziplist encoded Hash promoted on big payload?} {
         r hset smallhash foo [string repeat a 1024]
         r debug object smallhash
     } {*hashtable*}
@@ -382,7 +382,7 @@ start_server {tags {"hash"}} {
         lappend rv [string match "ERR*not*float*" $bigerr]
     } {1 1}
 
-    test {Hash zipmap regression test for large keys} {
+    test {Hash ziplist regression test for large keys} {
         r hset hash kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk a
         r hset hash kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk b
         r hget hash kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk

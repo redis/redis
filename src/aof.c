@@ -607,53 +607,55 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
     return 1;
 }
 
+static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
+    if (hi->encoding == REDIS_ENCODING_ZIPLIST) {
+        unsigned char *vstr = NULL;
+        unsigned int vlen = UINT_MAX;
+        long long vll = LLONG_MAX;
+
+        hashTypeCurrentFromZiplist(hi, what, &vstr, &vlen, &vll);
+        if (vstr) {
+            return rioWriteBulkString(r, (char*)vstr, vlen);
+        } else {
+            return rioWriteBulkLongLong(r, vll);
+        }
+
+    } else if (hi->encoding == REDIS_ENCODING_HT) {
+        robj *value;
+
+        hashTypeCurrentFromHashTable(hi, what, &value);
+        return rioWriteBulkObject(r, value);
+    }
+
+    redisPanic("Unknown hash encoding");
+    return 0;
+}
+
 /* Emit the commands needed to rebuild a hash object.
  * The function returns 0 on error, 1 on success. */
 int rewriteHashObject(rio *r, robj *key, robj *o) {
+    hashTypeIterator *hi;
     long long count = 0, items = hashTypeLength(o);
 
-    if (o->encoding == REDIS_ENCODING_ZIPMAP) {
-        unsigned char *p = zipmapRewind(o->ptr);
-        unsigned char *field, *val;
-        unsigned int flen, vlen;
+    hi = hashTypeInitIterator(o);
+    while (hashTypeNext(hi) != REDIS_ERR) {
+        if (count == 0) {
+            int cmd_items = (items > REDIS_AOF_REWRITE_ITEMS_PER_CMD) ?
+                REDIS_AOF_REWRITE_ITEMS_PER_CMD : items;
 
-        while((p = zipmapNext(p,&field,&flen,&val,&vlen)) != NULL) {
-            if (count == 0) {
-                int cmd_items = (items > REDIS_AOF_REWRITE_ITEMS_PER_CMD) ?
-                    REDIS_AOF_REWRITE_ITEMS_PER_CMD : items;
-
-                if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
-                if (rioWriteBulkString(r,"HMSET",5) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
-            }
-            if (rioWriteBulkString(r,(char*)field,flen) == 0) return 0;
-            if (rioWriteBulkString(r,(char*)val,vlen) == 0) return 0;
-            if (++count == REDIS_AOF_REWRITE_ITEMS_PER_CMD) count = 0;
-            items--;
+            if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
+            if (rioWriteBulkString(r,"HMSET",5) == 0) return 0;
+            if (rioWriteBulkObject(r,key) == 0) return 0;
         }
-    } else {
-        dictIterator *di = dictGetIterator(o->ptr);
-        dictEntry *de;
 
-        while((de = dictNext(di)) != NULL) {
-            robj *field = dictGetKey(de);
-            robj *val = dictGetVal(de);
-
-            if (count == 0) {
-                int cmd_items = (items > REDIS_AOF_REWRITE_ITEMS_PER_CMD) ?
-                    REDIS_AOF_REWRITE_ITEMS_PER_CMD : items;
-
-                if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
-                if (rioWriteBulkString(r,"HMSET",5) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
-            }
-            if (rioWriteBulkObject(r,field) == 0) return 0;
-            if (rioWriteBulkObject(r,val) == 0) return 0;
-            if (++count == REDIS_AOF_REWRITE_ITEMS_PER_CMD) count = 0;
-            items--;
-        }
-        dictReleaseIterator(di);
+        if (rioWriteHashIteratorCursor(r, hi, REDIS_HASH_KEY) == 0) return 0;
+        if (rioWriteHashIteratorCursor(r, hi, REDIS_HASH_VALUE) == 0) return 0;
+        if (++count == REDIS_AOF_REWRITE_ITEMS_PER_CMD) count = 0;
+        items--;
     }
+
+    hashTypeReleaseIterator(hi);
+
     return 1;
 }
 
