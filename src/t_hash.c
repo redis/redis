@@ -47,23 +47,18 @@ int hashTypeGetFromZiplist(robj *o, robj *field,
 
     zl = o->ptr;
     fptr = ziplistIndex(zl, ZIPLIST_HEAD);
-    while (fptr != NULL) {
-        /* Grab pointer to the value (fptr points to the field) */
-        vptr = ziplistNext(zl, fptr);
-        redisAssert(vptr != NULL);
-
-        /* Compare field in ziplist with specified field */
-        if (ziplistCompare(fptr, field->ptr, sdslen(field->ptr))) {
-            break;
+    if (fptr != NULL) {
+        fptr = ziplistFind(fptr, field->ptr, sdslen(field->ptr), 1);
+        if (fptr != NULL) {
+            /* Grab pointer to the value (fptr points to the field) */
+            vptr = ziplistNext(zl, fptr);
+            redisAssert(vptr != NULL);
         }
-
-        /* Skip over value */
-        fptr = ziplistNext(zl, vptr);
     }
 
     decrRefCount(field);
 
-    if (fptr != NULL) {
+    if (vptr != NULL) {
         ret = ziplistGet(vptr, vstr, vlen, vll);
         redisAssert(ret);
         return 0;
@@ -164,27 +159,28 @@ int hashTypeSet(robj *o, robj *field, robj *value) {
 
         zl = o->ptr;
         fptr = ziplistIndex(zl, ZIPLIST_HEAD);
-        while (fptr != NULL) {
-            /* Compare field in ziplist with specified field */
-            if (ziplistCompare(fptr, field->ptr, sdslen(field->ptr))) {
-                zl = ziplistDelete(zl,&fptr);
-                zl = ziplistDelete(zl,&fptr);
-                o->ptr = zl;
+        if (fptr != NULL) {
+            fptr = ziplistFind(fptr, field->ptr, sdslen(field->ptr), 1);
+            if (fptr != NULL) {
+                /* Grab pointer to the value (fptr points to the field) */
+                vptr = ziplistNext(zl, fptr);
+                redisAssert(vptr != NULL);
                 update = 1;
-                break;
+
+                /* Delete value */
+                zl = ziplistDelete(zl, &vptr);
+
+                /* Insert new value */
+                zl = ziplistInsert(zl, vptr, value->ptr, sdslen(value->ptr));
             }
-
-            /* Grab pointer to the value (fptr points to the field) */
-            vptr = ziplistNext(zl, fptr);
-            redisAssert(vptr != NULL);
-
-            /* Grab pointer (if any) to the next field */
-            fptr = ziplistNext(zl, vptr);
         }
 
-        /* Push new field/value pair onto the tail of the ziplist */
-        zl = ziplistPush(zl, field->ptr, sdslen(field->ptr), ZIPLIST_TAIL);
-        zl = ziplistPush(zl, value->ptr, sdslen(value->ptr), ZIPLIST_TAIL);
+        if (!update) {
+            /* Push new field/value pair onto the tail of the ziplist */
+            zl = ziplistPush(zl, field->ptr, sdslen(field->ptr), ZIPLIST_TAIL);
+            zl = ziplistPush(zl, value->ptr, sdslen(value->ptr), ZIPLIST_TAIL);
+        }
+
         o->ptr = zl;
 
         decrRefCount(field);
@@ -217,28 +213,20 @@ int hashTypeDelete(robj *o, robj *field) {
     int deleted = 0;
 
     if (o->encoding == REDIS_ENCODING_ZIPLIST) {
-        unsigned char *zl, *fptr, *vptr;
+        unsigned char *zl, *fptr;
 
         field = getDecodedObject(field);
 
         zl = o->ptr;
         fptr = ziplistIndex(zl, ZIPLIST_HEAD);
-        while (fptr != NULL) {
-            /* Compare field in ziplist with specified field */
-            if (ziplistCompare(fptr, field->ptr, sdslen(field->ptr))) {
+        if (fptr != NULL) {
+            fptr = ziplistFind(fptr, field->ptr, sdslen(field->ptr), 1);
+            if (fptr != NULL) {
                 zl = ziplistDelete(zl,&fptr);
                 zl = ziplistDelete(zl,&fptr);
                 o->ptr = zl;
                 deleted = 1;
-                break;
             }
-
-            /* Grab pointer to the value (fptr points to the field) */
-            vptr = ziplistNext(zl, fptr);
-            redisAssert(vptr != NULL);
-
-            /* Grab pointer (if any) to the next field */
-            fptr = ziplistNext(zl, vptr);
         }
 
         decrRefCount(field);
