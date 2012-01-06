@@ -59,4 +59,35 @@ start_server {tags {"protocol"}} {
         reconnect
         assert_error "*wrong*arguments*ping*" {r ping x y z}
     }
+
+    set c 0
+    foreach seq [list "\x00" "*\x00" "$\x00"] {
+        incr c
+        test "Protocol desync regression test #$c" {
+            set s [socket [srv 0 host] [srv 0 port]]
+            puts -nonewline $s $seq
+            set payload [string repeat A 1024]"\n"
+            set test_start [clock seconds]
+            set test_time_limit 5
+            while 1 {
+                if {[catch {
+                    puts -nonewline $s payload
+                    flush $s
+                    incr payload_size [string length $payload]
+                }]} {
+                    set retval [gets $s]
+                    close $s
+                    break
+                } else {
+                    set elapsed [expr {[clock seconds]-$test_start}]
+                    if {$elapsed > $test_time_limit} {
+                        close $s
+                        error "assertion:Redis did not closed connection after protocol desync"
+                    }
+                }
+            }
+            set retval
+        } {*Protocol error*}
+    }
+    unset c
 }
