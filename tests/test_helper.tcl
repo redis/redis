@@ -115,7 +115,7 @@ proc reconnect {args} {
     }
 
     # re-set $srv in the servers list
-    set ::servers [lreplace $::servers end+$level 1 $srv]
+    lset ::servers end+$level $srv
 }
 
 proc redis_deferring_client {args} {
