@@ -1255,6 +1255,7 @@ sds genRedisInfoString(void) {
         "redis_git_dirty:%d\r\n"
         "arch_bits:%s\r\n"
         "multiplexing_api:%s\r\n"
+        "gcc_version:%d.%d.%d\r\n"
         "process_id:%ld\r\n"
         "uptime_in_seconds:%ld\r\n"
         "uptime_in_days:%ld\r\n"
@@ -1297,6 +1298,11 @@ sds genRedisInfoString(void) {
         strtol(redisGitDirty(),NULL,10) > 0,
         (sizeof(long) == 8) ? "64" : "32",
         aeGetApiName(),
+#ifdef __GNUC__
+        __GNUC__,__GNUC_MINOR__,__GNUC_PATCHLEVEL__,
+#else
+        0,0,0,
+#endif
         (long) getpid(),
         uptime,
         uptime/(3600*24),
