@@ -18,6 +18,18 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
+What's new in Redis 2.4.6
+=========================
+
+* [BUGFIX] Fixed issue #141 part 1: Possible protocol desyncs when clients send
+           wrong protocol is now fixed. (See issue 141 for more details)
+* [BUGFIX] Fixed issue #141 part 2: Connection of multiple slaves used to result
+           from time to time into corrupted protocol send to slaves connected
+           after the first one. (See issue 141 for more details)
+* [BUGFIX] Do not propagate DEBUG LOADAOF.
+* New INFO contains information such as ip/port/state for every conneced slave.
+* Show GCC version in INFO output.
+
 What's new in Redis 2.4.5
 =========================
 
