@@ -787,8 +787,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         c->flags &= ~REDIS_UNBLOCKED;
 
         /* Process remaining data in the input buffer. */
-        if (c->querybuf && sdslen(c->querybuf) > 0)
+        if (c->querybuf && sdslen(c->querybuf) > 0) {
+            server.current_client = c;
             processInputBuffer(c);
+            server.current_client = NULL;
+        }
     }
 
     /* Write the AOF buffer on disk */
@@ -1002,6 +1005,7 @@ void initServer() {
             server.syslog_facility);
     }
 
+    server.current_client = NULL;
     server.clients = listCreate();
     server.slaves = listCreate();
     server.monitors = listCreate();
@@ -2004,6 +2008,40 @@ static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     clients = getAllClientsInfoString();
     redisLogRaw(REDIS_WARNING, clients);
     /* Don't sdsfree() strings to avoid a crash. Memory may be corrupted. */
+
+    /* Log CURRENT CLIENT info */
+    if (server.current_client) {
+        redisClient *cc = server.current_client;
+        sds client;
+        int j;
+
+        redisLog(REDIS_WARNING, "--- CURRENT CLIENT INFO");
+        client = getClientInfoString(cc);
+        redisLog(REDIS_WARNING,"client: %s", client);
+        /* Missing sdsfree(client) to avoid crash if memory is corrupted. */
+        for (j = 0; j < cc->argc; j++) {
+            robj *decoded;
+
+            decoded = getDecodedObject(cc->argv[j]);
+            redisLog(REDIS_WARNING,"argv[%d]: '%s'", j, (char*)decoded->ptr);
+            decrRefCount(decoded);
+        }
+        /* Check if the first argument, usually a key, is found inside the
+         * selected DB, and if so print info about the associated object. */
+        if (cc->argc >= 1) {
+            robj *val, *key;
+            dictEntry *de;
+
+            key = getDecodedObject(cc->argv[1]);
+            de = dictFind(cc->db->dict, key->ptr);
+            if (de) {
+                val = dictGetVal(de);
+                redisLog(REDIS_WARNING,"key '%s' found in DB containing the following object:", key->ptr);
+                redisLogObjectDebugInfo(val);
+            }
+            decrRefCount(key);
+        }
+    }
 
     redisLog(REDIS_WARNING,
 "=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n"

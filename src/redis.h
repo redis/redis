@@ -519,6 +519,7 @@ struct redisServer {
     int cfd;                    /* Cluster bus lisetning socket */
     list *clients;              /* List of active clients */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
+    redisClient *current_client; /* Current client, only used on crash report */
     char neterr[ANET_ERR_LEN];  /* Error buffer for anet.c */
     /* RDB / AOF loading information */
     int loading;                /* We are loading data from disk if true */
@@ -1159,5 +1160,6 @@ void _redisAssertWithInfo(redisClient *c, robj *o, char *estr, char *file, int l
 void _redisAssert(char *estr, char *file, int line);
 void _redisPanic(char *msg, char *file, int line);
 void bugReportStart(void);
+void redisLogObjectDebugInfo(robj *o);
 
 #endif
