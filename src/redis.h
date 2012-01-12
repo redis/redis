@@ -400,6 +400,7 @@ struct redisServer {
     /* Fast pointers to often looked up command */
     struct redisCommand *delCommand, *multiCommand;
     list *slaves, *monitors;
+    redisClient *current_client; /* Current client, only used on crash report */
     char neterr[ANET_ERR_LEN];
     aeEventLoop *el;
     int cronloops;              /* number of times the cron function run */
@@ -1071,5 +1072,7 @@ void free(void *ptr) __attribute__ ((deprecated));
 void *malloc(size_t size) __attribute__ ((deprecated));
 void *realloc(void *ptr, size_t size) __attribute__ ((deprecated));
 #endif
+
+void redisLogObjectDebugInfo(robj *o);
 
 #endif

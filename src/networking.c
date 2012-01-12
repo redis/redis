@@ -467,6 +467,9 @@ static void freeClientArgv(redisClient *c) {
 void freeClient(redisClient *c) {
     listNode *ln;
 
+    /* If this is marked as current client unset it */
+    if (server.current_client == c) server.current_client = NULL;
+
     /* Note that if the client we are freeing is blocked into a blocking
      * call, we have to set querybuf to NULL *before* to call
      * unblockClientWaitingData() to avoid processInputBuffer() will get
@@ -875,6 +878,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
 
+    server.current_client = c;
     nread = read(fd, buf, REDIS_IOBUF_LEN);
     if (nread == -1) {
         if (errno == EAGAIN) {
@@ -893,6 +897,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         c->querybuf = sdscatlen(c->querybuf,buf,nread);
         c->lastinteraction = time(NULL);
     } else {
+        server.current_client = NULL;
         return;
     }
     if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
@@ -906,6 +911,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         return;
     }
     processInputBuffer(c);
+    server.current_client = NULL;
 }
 
 void getClientsMaxBuffers(unsigned long *longest_output_list,
