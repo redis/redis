@@ -107,7 +107,11 @@ static sds sdsMakeRoomFor(sds s, size_t addlen) {
     if (free >= addlen) return s;
     len = sdslen(s);
     sh = (void*) (s-(sizeof(struct sdshdr)));
-    newlen = (len+addlen)*2;
+    newlen = (len+addlen);
+    if (newlen < SDS_MAX_PREALLOC)
+        newlen *= 2;
+    else
+        newlen += SDS_MAX_PREALLOC;
     newsh = zrealloc(sh, sizeof(struct sdshdr)+newlen+1);
 #ifdef SDS_ABORT_ON_OOM
     if (newsh == NULL) sdsOomAbort();
