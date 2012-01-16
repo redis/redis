@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 TCL=tclsh8.5
 which $TCL
 if [ "$?" != "0" ]

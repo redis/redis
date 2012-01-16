@@ -1964,14 +1964,6 @@ static void *getMcontextEip(ucontext_t *uc) {
 #endif
 }
 
-void bugReportStart(void) {
-    if (server.bug_report_start == 0) {
-        redisLog(REDIS_WARNING,
-            "=== REDIS BUG REPORT START: Cut & paste starting from here ===");
-        server.bug_report_start = 1;
-    }
-}
-
 static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     void *trace[100];
     char **messages = NULL;
@@ -2062,6 +2054,14 @@ static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     kill(getpid(),sig);
 }
 #endif /* HAVE_BACKTRACE */
+
+void bugReportStart(void) {
+    if (server.bug_report_start == 0) {
+        redisLog(REDIS_WARNING,
+            "=== REDIS BUG REPORT START: Cut & paste starting from here ===");
+        server.bug_report_start = 1;
+    }
+}
 
 static void sigtermHandler(int sig) {
     REDIS_NOTUSED(sig);
