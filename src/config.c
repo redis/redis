@@ -65,13 +65,17 @@ void loadServerConfigFromString(char *config) {
             if (errno || server.unixsocketperm > 0777) {
                 err = "Invalid socket file permissions"; goto loaderr;
             }
-        } else if (!strcasecmp(argv[0],"save") && argc == 3) {
-            int seconds = atoi(argv[1]);
-            int changes = atoi(argv[2]);
-            if (seconds < 1 || changes < 0) {
-                err = "Invalid save parameters"; goto loaderr;
+        } else if (!strcasecmp(argv[0],"save")) {
+            if (argc == 3) {
+                int seconds = atoi(argv[1]);
+                int changes = atoi(argv[2]);
+                if (seconds < 1 || changes < 0) {
+                    err = "Invalid save parameters"; goto loaderr;
+                }
+                appendServerSaveParams(seconds,changes);
+            } else if (argc == 2 && !strcasecmp(argv[1],"")) {
+                resetServerSaveParams();
             }
-            appendServerSaveParams(seconds,changes);
         } else if (!strcasecmp(argv[0],"dir") && argc == 2) {
             if (chdir(argv[1]) == -1) {
                 redisLog(REDIS_WARNING,"Can't chdir to '%s': %s",
