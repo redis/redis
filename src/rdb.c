@@ -993,8 +993,12 @@ int rdbLoad(char *filename) {
         if ((key = rdbLoadStringObject(fp)) == NULL) goto eoferr;
         /* Read value */
         if ((val = rdbLoadObject(type,fp)) == NULL) goto eoferr;
-        /* Check if the key already expired */
-        if (expiretime != -1 && expiretime < now) {
+        /* Check if the key already expired. This function is used when loading
+         * an RDB file from disk, either at startup, or when an RDB was
+         * received from the master. In the latter case, the master is
+         * responsible for key expiry. If we would expire keys here, the
+         * snapshot taken by the master may not be reflected on the slave. */
+        if (server.masterhost == NULL && expiretime != -1 && expiretime < now) {
             decrRefCount(key);
             decrRefCount(val);
             continue;
