@@ -1149,3 +1149,18 @@ unsigned long getClientOutputBufferMemoryUsage(redisClient *c) {
 
     return c->reply_bytes + (list_item_size*listLength(c->reply));
 }
+
+/* Get the class of a client, used in order to envorce limits to different
+ * classes of clients.
+ *
+ * The function will return one of the following:
+ * REDIS_CLIENT_LIMIT_CLASS_NORMAL -> Normal client
+ * REDIS_CLIENT_LIMIT_CLASS_SLAVE  -> Slave or client executing MONITOR command
+ * REDIS_CLIENT_LIMIT_CLASS_PUBSUB -> Client subscribed to Pub/Sub channels
+ */
+int getClientLimitClass(redisClient *c) {
+    if (c->flags & REDIS_SLAVE) return REDIS_CLIENT_LIMIT_CLASS_SLAVE;
+    if (dictSize(c->pubsub_channels) || listLength(c->pubsub_patterns))
+        return REDIS_CLIENT_LIMIT_CLASS_PUBSUB;
+    return REDIS_CLIENT_LIMIT_CLASS_NORMAL;
+}

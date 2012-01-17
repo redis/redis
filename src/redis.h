@@ -146,6 +146,12 @@
 #define REDIS_REQ_INLINE 1
 #define REDIS_REQ_MULTIBULK 2
 
+/* Client classes for client limits, currently used only for
+ * the max-client-output-buffer limit implementation. */
+#define REDIS_CLIENT_LIMIT_CLASS_NORMAL 0
+#define REDIS_CLIENT_LIMIT_CLASS_SLAVE 1
+#define REDIS_CLIENT_LIMIT_CLASS_PUBSUB 2
+
 /* Slave replication state - slave side */
 #define REDIS_REPL_NONE 0 /* No active replication */
 #define REDIS_REPL_CONNECT 1 /* Must connect to master */
