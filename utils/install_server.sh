@@ -135,8 +135,27 @@ CONF=\"$REDIS_CONFIG_FILE\"\n\n
 REDISPORT=\"$REDIS_PORT\"\n\n
 ###############\n\n"
 
-#combine the header and the template (which is actually a static footer)
-echo $REDIS_INIT_HEADER > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
+REDIS_CHKCONFIG_INFO=\
+"# REDHAT chkconfig header\n\n
+# chkconfig: - 58 74\n
+# description: redis_6379 is the redis daemon.\n
+### BEGIN INIT INFO\n
+# Provides: redis_6379\n
+# Required-Start: $network $local_fs $remote_fs\n
+# Required-Stop: $network $local_fs $remote_fs\n
+# Should-Start: $syslog $named\n
+# Should-Stop: $syslog $named\n
+# Short-Description: start and stop redis_6379\n
+# Description: Redis daemon\n
+### END INIT INFO\n\n"
+
+if [[ ! `which chkconfig` ]] ; then 
+	#combine the header and the template (which is actually a static footer)
+	echo -e $REDIS_INIT_HEADER > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
+else
+	#if we're a box with chkconfig on it we want to include info for chkconfig
+	echo -e $REDIS_INIT_HEADER $REDIS_CHKCONFIG_INFO > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
+fi
 
 #copy to /etc/init.d
 cp -f $TMP_FILE $INIT_SCRIPT_DEST && chmod +x $INIT_SCRIPT_DEST || die "Could not copy redis init script to  $INIT_SCRIPT_DEST"
@@ -144,7 +163,15 @@ echo "Copied $TMP_FILE => $INIT_SCRIPT_DEST"
 
 #Install the service
 echo "Installing service..."
-update-rc.d redis_$REDIS_PORT defaults && echo "Success!"
+if [[ ! `which chkconfig` ]] ; then 
+	#if we're not a chkconfig box assume we're able to use update-rc.d
+	update-rc.d redis_$REDIS_PORT defaults && echo "Success!"
+else
+	# we're chkconfig, so lets add to chkconfig and put in runlevel 345
+	chkconfig --add redis_$REDIS_PORT && echo "Successfully added to chkconfig!"
+	chkconfig--level 345 redis_$REDIS_PORT on && echo "Successfully added to runlevels 345!"
+fi
+	
 /etc/init.d/redis_$REDIS_PORT start || die "Failed starting service..."
 
 #tada
