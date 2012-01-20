@@ -496,7 +496,30 @@ void logRegisters(ucontext_t *uc) {
     logStackContent((void**)uc->uc_mcontext->__ss.__esp);
   #endif
 #elif defined(__i386__)
-    return (void*) uc->uc_mcontext.gregs[14]; /* Linux 32 */
+    redisLog(REDIS_WARNING,
+    "\n"
+    "EAX:%p EBX:%p ECX:%p EDX:%p\n"
+    "EDI:%p ESI:%p EBP:%p ESP:%p\n"
+    "SS:%p  EFL:%p EIP:%p CS:%p\n"
+    "DS:%p  ES:%p  FS:%p  GS:%p",
+        uc->uc_mcontext.gregs[11],
+        uc->uc_mcontext.gregs[8],
+        uc->uc_mcontext.gregs[10],
+        uc->uc_mcontext.gregs[9],
+        uc->uc_mcontext.gregs[4],
+        uc->uc_mcontext.gregs[5],
+        uc->uc_mcontext.gregs[6],
+        uc->uc_mcontext.gregs[7],
+        uc->uc_mcontext.gregs[18],
+        uc->uc_mcontext.gregs[17],
+        uc->uc_mcontext.gregs[14],
+        uc->uc_mcontext.gregs[15],
+        uc->uc_mcontext.gregs[3],
+        uc->uc_mcontext.gregs[2],
+        uc->uc_mcontext.gregs[1],
+        uc->uc_mcontext.gregs[0]
+    );
+    logStackContent((void**)uc->uc_mcontext.gregs[7]);
 #elif defined(__X86_64__) || defined(__x86_64__)
     redisLog(REDIS_WARNING,
     "\n"
