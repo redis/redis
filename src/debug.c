@@ -431,7 +431,10 @@ void bugReportStart(void) {
 void logStackContent(void **sp) {
     int i;
     for (i = 15; i >= 0; i--) {
-        redisLog(REDIS_WARNING, "(%p) -> %p", sp+i, sp[i]);
+        if (sizeof(long) == 4)
+            redisLog(REDIS_WARNING, "(%08lx) -> %08lx", sp+i, sp[i]);
+        else
+            redisLog(REDIS_WARNING, "(%016lx) -> %016lx", sp+i, sp[i]);
     }
 }
 
@@ -441,11 +444,11 @@ void logRegisters(ucontext_t *uc) {
   #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
     redisLog(REDIS_WARNING,
     "\n"
-    "RAX:%p RBX:%p RCX:%p RDX:%p\n"
-    "RDI:%p RSI:%p RBP:%p RSP:%p\n"
-    "R8:%p  R9:%p  R10:%p R11:%p\n"
-    "R12:%p R13:%p R14:%p R15:%p\n"
-    "RIP:%p EFL:%p CS:%p  FS:%p GS:%p",
+    "RAX:%016lx RBX:%016lx\nRCX:%016lx RDX:%016lx\n"
+    "RDI:%016lx RSI:%016lx\nRBP:%016lx RSP:%016lx\n"
+    "R8 :%016lx R9 :%016lx\nR10:%016lx R11:%016lx\n"
+    "R12:%016lx R13:%016lx\nR14:%016lx R15:%016lx\n"
+    "RIP:%016lx EFL:%016lx\nCS :%016lx FS:%016lx  GS:%016lx",
         uc->uc_mcontext->__ss.__rax,
         uc->uc_mcontext->__ss.__rbx,
         uc->uc_mcontext->__ss.__rcx,
@@ -472,10 +475,10 @@ void logRegisters(ucontext_t *uc) {
   #else
     redisLog(REDIS_WARNING,
     "\n"
-    "EAX:%p EBX:%p ECX:%p EDX:%p\n"
-    "EDI:%p ESI:%p EBP:%p ESP:%p\n"
-    "SS:%p  EFL:%p EIP:%p CS:%p\n"
-    "DS:%p  ES:%p  FS:%p  GS:%p",
+    "EAX:%08lx EBX:%08lx ECX:%08lx EDX:%08lx\n"
+    "EDI:%08lx ESI:%08lx EBP:%08lx ESP:%08lx\n"
+    "SS:%08lx  EFL:%08lx EIP:%08lx CS :%08lx\n"
+    "DS:%08lx  ES:%08lx  FS :%08lx GS :%08lx",
         uc->uc_mcontext->__ss.__eax,
         uc->uc_mcontext->__ss.__ebx,
         uc->uc_mcontext->__ss.__ecx,
@@ -498,10 +501,10 @@ void logRegisters(ucontext_t *uc) {
 #elif defined(__i386__)
     redisLog(REDIS_WARNING,
     "\n"
-    "EAX:%p EBX:%p ECX:%p EDX:%p\n"
-    "EDI:%p ESI:%p EBP:%p ESP:%p\n"
-    "SS:%p  EFL:%p EIP:%p CS:%p\n"
-    "DS:%p  ES:%p  FS:%p  GS:%p",
+    "EAX:%08lx EBX:%08lx ECX:%08lx EDX:%08lx\n"
+    "EDI:%08lx ESI:%08lx EBP:%08lx ESP:%08lx\n"
+    "SS :%08lx EFL:%08lx EIP:%08lx CS:%08lx\n"
+    "DS :%08lx ES :%08lx FS :%08lx GS:%08lx",
         uc->uc_mcontext.gregs[11],
         uc->uc_mcontext.gregs[8],
         uc->uc_mcontext.gregs[10],
@@ -523,11 +526,11 @@ void logRegisters(ucontext_t *uc) {
 #elif defined(__X86_64__) || defined(__x86_64__)
     redisLog(REDIS_WARNING,
     "\n"
-    "RAX:%p RBX:%p RCX:%p RDX:%p\n"
-    "RDI:%p RSI:%p RBP:%p RSP:%p\n"
-    "R8:%p  R9:%p  R10:%p R11:%p\n"
-    "R12:%p R13:%p R14:%p R15:%p\n"
-    "RIP:%p EFL:%p CSGSFS:%p",
+    "RAX:%016lx RBX:%016lx\nRCX:%016lx RDX:%016lx\n"
+    "RDI:%016lx RSI:%016lx\nRBP:%016lx RSP:%016lx\n"
+    "R8 :%016lx R9 :%016lx\nR10:%016lx R11:%016lx\n"
+    "R12:%016lx R13:%016lx\nR14:%016lx R15:%016lx\n"
+    "RIP:%016lx EFL:%016lx\nCSGSFS:%016lx",
         uc->uc_mcontext.gregs[13],
         uc->uc_mcontext.gregs[11],
         uc->uc_mcontext.gregs[14],
