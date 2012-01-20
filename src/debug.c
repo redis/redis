@@ -498,7 +498,34 @@ void logRegisters(ucontext_t *uc) {
 #elif defined(__i386__)
     return (void*) uc->uc_mcontext.gregs[14]; /* Linux 32 */
 #elif defined(__X86_64__) || defined(__x86_64__)
-    return (void*) uc->uc_mcontext.gregs[16]; /* Linux 64 */
+    redisLog(REDIS_WARNING,
+    "\n"
+    "RAX:%p RBX:%p RCX:%p RDX:%p\n"
+    "RDI:%p RSI:%p RBP:%p RSP:%p\n"
+    "R8:%p  R9:%p  R10:%p R11:%p\n"
+    "R12:%p R13:%p R14:%p R15:%p\n"
+    "RIP:%p EFL:%p CSGSFS:%p",
+        uc->uc_mcontext.gregs[13],
+        uc->uc_mcontext.gregs[11],
+        uc->uc_mcontext.gregs[14],
+        uc->uc_mcontext.gregs[12],
+        uc->uc_mcontext.gregs[8],
+        uc->uc_mcontext.gregs[9],
+        uc->uc_mcontext.gregs[10],
+        uc->uc_mcontext.gregs[15],
+        uc->uc_mcontext.gregs[0],
+        uc->uc_mcontext.gregs[1],
+        uc->uc_mcontext.gregs[2],
+        uc->uc_mcontext.gregs[3],
+        uc->uc_mcontext.gregs[4],
+        uc->uc_mcontext.gregs[5],
+        uc->uc_mcontext.gregs[6],
+        uc->uc_mcontext.gregs[7],
+        uc->uc_mcontext.gregs[16],
+        uc->uc_mcontext.gregs[17],
+        uc->uc_mcontext.gregs[18]
+    );
+    logStackContent((void**)uc->uc_mcontext.gregs[15]);
 #else
     redisLog(REDIS_WARNING,
         "  Dumping of registers not supported for this OS/arch");
