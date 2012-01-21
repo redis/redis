@@ -1080,8 +1080,6 @@ void initServer() {
     scriptingInit();
     slowlogInit();
     bioInit();
-    srand(time(NULL)^getpid());
-
 }
 
 /* Populates the Redis Command Table starting from the hard coded list
@@ -1959,9 +1957,15 @@ void setupSignalHandlers(void) {
 
 int main(int argc, char **argv) {
     long long start;
+    struct timeval tv;
 
+    /* We need to initialize our libraries, and the server. */
     zmalloc_enable_thread_safeness();
+    srand(time(NULL)^getpid());
+    gettimeofday(&tv,NULL);
+    dictSetHashFunctionSeed(tv.tv_sec^tv.tv_usec^getpid());
     initServerConfig();
+
     if (argc >= 2) {
         int j = 1; /* First option to parse in argv[] */
         sds options = sdsempty();

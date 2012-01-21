@@ -85,10 +85,20 @@ unsigned int dictIdentityHashFunction(unsigned int key)
     return key;
 }
 
+static int dict_hash_function_seed = 5183;
+
+void dictSetHashFunctionSeed(unsigned int seed) {
+    dict_hash_function_seed = seed;
+}
+
+unsigned int dictGetHashFunctionSeed(void) {
+    return dict_hash_function_seed;
+}
+
 /* Generic hash function (a popular one from Bernstein).
  * I tested a few and this was the best. */
 unsigned int dictGenHashFunction(const unsigned char *buf, int len) {
-    unsigned int hash = 5381;
+    unsigned int hash = dict_hash_function_seed;
 
     while (len--)
         hash = ((hash << 5) + hash) + (*buf++); /* hash * 33 + c */
@@ -97,7 +107,7 @@ unsigned int dictGenHashFunction(const unsigned char *buf, int len) {
 
 /* And a case insensitive version */
 unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len) {
-    unsigned int hash = 5381;
+    unsigned int hash = dict_hash_function_seed;
 
     while (len--)
         hash = ((hash << 5) + hash) + (tolower(*buf++)); /* hash * 33 + c */
