@@ -1959,7 +1959,7 @@ int main(int argc, char **argv) {
     long long start;
     struct timeval tv;
 
-    /* We need to initialize our libraries, and the server. */
+    /* We need to initialize our libraries, and the server configuration. */
     zmalloc_enable_thread_safeness();
     srand(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
