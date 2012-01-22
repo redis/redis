@@ -85,7 +85,7 @@ unsigned int dictIdentityHashFunction(unsigned int key)
     return key;
 }
 
-static int dict_hash_function_seed = 5183;
+static int dict_hash_function_seed = 5381;
 
 void dictSetHashFunctionSeed(unsigned int seed) {
     dict_hash_function_seed = seed;
