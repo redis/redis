@@ -754,6 +754,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * in order to guarantee a strict consistency. */
     if (server.masterhost == NULL) activeExpireCycle();
 
+    /* Close clients that need to be closed asynchronous */
+    freeClientsInAsyncFreeQueue();
+
     /* Replication cron function -- used to reconnect to master and
      * to detect transfer failures. */
     if (!(loops % 10)) replicationCron();
