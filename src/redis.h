@@ -20,6 +20,7 @@
 #include <syslog.h>
 #include <netinet/in.h>
 #include <lua.h>
+#include <signal.h>
 
 #include "ae.h"      /* Event driven programming library */
 #include "sds.h"     /* Dynamic safe strings */
@@ -1169,5 +1170,6 @@ void _redisAssert(char *estr, char *file, int line);
 void _redisPanic(char *msg, char *file, int line);
 void bugReportStart(void);
 void redisLogObjectDebugInfo(robj *o);
-
+void sigsegvHandler(int sig, siginfo_t *info, void *secret);
+sds genRedisInfoString(char *section);
 #endif
