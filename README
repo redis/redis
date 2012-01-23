@@ -100,14 +100,10 @@ Installing Redis
 
 In order to install Redis binaries into /usr/local/bin just use:
 
-    % sudo make install
+    % make install
 
 You can use "make PREFIX=/some/other/directory install" if you wish to use a
 different destination.
-
-If the message "make: `install' is up to date." displays, try forcing installation:
-
-    % sudo make -B install
 
 Make install will just install binaries in your system, but will not configure
 init scripts and configuration files in the appropriate place. This is not
@@ -128,6 +124,6 @@ You'll be able to stop and start Redis using the script named
 Uninstalling Redis
 ------------------
 
-    % sudo make uninstall
+    % make uninstall
 
 Enjoy!

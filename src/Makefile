@@ -261,17 +261,6 @@ noopt:
 src/help.h:
 	@../utils/generate-command-help.rb > help.h
 
-# Troubleshooting
-#
-# Problem:
-#
-# $ sudo make install
-# make: `install' is up to date.
-#
-# Solution:
-#
-# $ sudo make -B install
-
 install: all
 	mkdir -p $(INSTALL_BIN)
 	$(INSTALL) $(PRGNAME) $(INSTALL_BIN)
