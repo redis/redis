@@ -1266,21 +1266,19 @@ int checkClientOutputBufferLimits(redisClient *c) {
 }
 
 /* Asynchronously close a client if soft or hard limit is reached on the
- * output buffer size. If the client will be closed 1 is returend, otherwise 0
- * is returned.
+ * output buffer size. The caller can check if the client will be closed
+ * checking if the client REDIS_CLOSE_ASAP flag is set.
  *
  * Note: we need to close the client asynchronously because this function is
  * called from contexts where the client can't be freed safely, i.e. from the
  * lower level functions pushing data inside the client output buffers. */
-int asyncCloseClientOnOutputBufferLimitReached(redisClient *c) {
+void asyncCloseClientOnOutputBufferLimitReached(redisClient *c) {
+    if (c->flags & REDIS_CLOSE_ASAP) return;
     if (checkClientOutputBufferLimits(c)) {
         sds client = getClientInfoString(c);
 
         freeClientAsync(c);
-        redisLog(REDIS_NOTICE,"Client %s scheduled to be closed ASAP for overcoming of output buffer limits.");
+        redisLog(REDIS_NOTICE,"Client %s scheduled to be closed ASAP for overcoming of output buffer limits.", client);
         sdsfree(client);
-        return 1;
-    } else {
-        return 0;
     }
 }
