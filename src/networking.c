@@ -1203,7 +1203,7 @@ void rewriteClientCommandArgument(redisClient *c, int i, robj *newval) {
  *
  * Note: this function is very fast so can be called as many time as
  * the caller wishes. The main usage of this function currently is
- * enforcing the client output lenght limits. */
+ * enforcing the client output length limits. */
 unsigned long getClientOutputBufferMemoryUsage(redisClient *c) {
     unsigned long list_item_size = sizeof(listNode);
 
