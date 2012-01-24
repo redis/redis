@@ -1225,6 +1225,22 @@ int getClientLimitClass(redisClient *c) {
     return REDIS_CLIENT_LIMIT_CLASS_NORMAL;
 }
 
+int getClientLimitClassByName(char *name) {
+    if (!strcasecmp(name,"normal")) return REDIS_CLIENT_LIMIT_CLASS_NORMAL;
+    else if (!strcasecmp(name,"slave")) return REDIS_CLIENT_LIMIT_CLASS_SLAVE;
+    else if (!strcasecmp(name,"pubsub")) return REDIS_CLIENT_LIMIT_CLASS_SLAVE;
+    else return -1;
+}
+
+char *getClientLimitClassName(int class) {
+    switch(class) {
+    case REDIS_CLIENT_LIMIT_CLASS_NORMAL:   return "normal";
+    case REDIS_CLIENT_LIMIT_CLASS_SLAVE:    return "slave";
+    case REDIS_CLIENT_LIMIT_CLASS_PUBSUB:   return "pubsub";
+    default:                                return NULL;
+    }
+}
+
 /* The function checks if the client reached output buffer soft or hard
  * limit, and also update the state needed to check the soft limit as
  * a side effect.
