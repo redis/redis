@@ -1294,7 +1294,7 @@ void asyncCloseClientOnOutputBufferLimitReached(redisClient *c) {
         sds client = getClientInfoString(c);
 
         freeClientAsync(c);
-        redisLog(REDIS_NOTICE,"Client %s scheduled to be closed ASAP for overcoming of output buffer limits.", client);
+        redisLog(REDIS_WARNING,"Client %s scheduled to be closed ASAP for overcoming of output buffer limits.", client);
         sdsfree(client);
     }
 }
