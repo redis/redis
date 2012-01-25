@@ -804,7 +804,7 @@ void clusterBroadcastMessage(void *buf, size_t len) {
 
 /* Build the message header */
 void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
-    int totlen;
+    int totlen = 0;
 
     memset(hdr,0,sizeof(*hdr));
     hdr->type = htons(type);
