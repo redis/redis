@@ -915,12 +915,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                 {
                     unsigned char *zl = ziplistNew();
                     unsigned char *zi = zipmapRewind(o->ptr);
+                    unsigned char *fstr, *vstr;
+                    unsigned int flen, vlen;
+                    unsigned int maxlen = 0;
 
-                    while (zi != NULL) {
-                        unsigned char *fstr, *vstr;
-                        unsigned int flen, vlen;
-
-                        zi = zipmapNext(zi, &fstr, &flen, &vstr, &vlen);
+                    while ((zi = zipmapNext(zi, &fstr, &flen, &vstr, &vlen)) != NULL) {
+                        if (flen > maxlen) maxlen = flen;
+                        if (vlen > maxlen) maxlen = vlen;
                         zl = ziplistPush(zl, fstr, flen, ZIPLIST_TAIL);
                         zl = ziplistPush(zl, vstr, vlen, ZIPLIST_TAIL);
                     }
@@ -930,8 +931,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                     o->type = REDIS_HASH;
                     o->encoding = REDIS_ENCODING_ZIPLIST;
 
-                    if (hashTypeLength(o) > server.hash_max_ziplist_entries)
+                    if (hashTypeLength(o) > server.hash_max_ziplist_entries ||
+                        maxlen > server.hash_max_ziplist_value)
+                    {
                         hashTypeConvert(o, REDIS_ENCODING_HT);
+                    }
                 }
                 break;
             case REDIS_RDB_TYPE_LIST_ZIPLIST:
