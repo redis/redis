@@ -74,6 +74,8 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->maxfd = -1;
     eventLoop->beforesleep = NULL;
     if (aeApiCreate(eventLoop) == -1) {
+        zfree(eventLoop->events);
+        zfree(eventLoop->fired);
         zfree(eventLoop);
         return NULL;
     }
