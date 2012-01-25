@@ -613,7 +613,7 @@ int clusterProcessPacket(clusterLink *link) {
             }
         }
         /* Update our info about the node */
-        link->node->pong_received = time(NULL);
+        if (link->node) link->node->pong_received = time(NULL);
 
         /* Update master/slave info */
         if (sender) {
