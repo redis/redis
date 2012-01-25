@@ -54,10 +54,10 @@ start_server {tags {"aofrw"}} {
     }
 
     foreach d {string int} {
-        foreach e {zipmap hashtable} {
+        foreach e {ziplist hashtable} {
             test "AOF rewrite of hash with $e encoding, $d data" {
                 r flushall
-                if {$e eq {zipmap}} {set len 10} else {set len 1000}
+                if {$e eq {ziplist}} {set len 10} else {set len 1000}
                 for {set j 0} {$j < $len} {incr j} {
                     if {$d eq {string}} {
                         set data [randstring 0 16 alpha]

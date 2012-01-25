@@ -209,8 +209,8 @@ int ll2string(char *s, size_t len, long long value) {
 /* Convert a string into a long long. Returns 1 if the string could be parsed
  * into a (non-overflowing) long long, 0 otherwise. The value will be set to
  * the parsed value when appropriate. */
-int string2ll(char *s, size_t slen, long long *value) {
-    char *p = s;
+int string2ll(const char *s, size_t slen, long long *value) {
+    const char *p = s;
     size_t plen = 0;
     int negative = 0;
     unsigned long long v;
@@ -275,7 +275,7 @@ int string2ll(char *s, size_t slen, long long *value) {
 /* Convert a string into a long. Returns 1 if the string could be parsed into a
  * (non-overflowing) long, 0 otherwise. The value will be set to the parsed
  * value when appropriate. */
-int string2l(char *s, size_t slen, long *lval) {
+int string2l(const char *s, size_t slen, long *lval) {
     long long llval;
 
     if (!string2ll(s,slen,&llval))

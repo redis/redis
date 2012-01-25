@@ -47,6 +47,7 @@
 #define REDIS_RDB_TYPE_LIST_ZIPLIST  10
 #define REDIS_RDB_TYPE_SET_INTSET    11
 #define REDIS_RDB_TYPE_ZSET_ZIPLIST  12
+#define REDIS_RDB_TYPE_HASH_ZIPLIST  13
 
 /* Test if a type is an object type. */
 #define rdbIsObjectType(t) ((t >= 0 && t <= 4) || (t >= 9 && t <= 12))
