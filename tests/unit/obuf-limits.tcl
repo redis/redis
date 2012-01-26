@@ -15,7 +15,7 @@ start_server {tags {"obuf-limits"}} {
             if {![regexp {omem=([0-9]+)} $c - omem]} break
             if {$omem > 200000} break
         }
-        assert {$omem >= 100000 && $omem < 200000}
+        assert {$omem >= 99984 && $omem < 200000}
         $rd1 close
     }
 
@@ -38,7 +38,7 @@ start_server {tags {"obuf-limits"}} {
             if {$omem > 100000} {
                 if {$start_time == 0} {set start_time [clock seconds]}
                 set time_elapsed [expr {[clock seconds]-$start_time}]
-                if {[clock seconds]-$start_time >= 5} break
+                if {$time_elapsed >= 5} break
             }
         }
         assert {$omem >= 100000 && $time_elapsed >= 5 && $time_elapsed <= 10}
@@ -64,7 +64,7 @@ start_server {tags {"obuf-limits"}} {
             if {$omem > 100000} {
                 if {$start_time == 0} {set start_time [clock seconds]}
                 set time_elapsed [expr {[clock seconds]-$start_time}]
-                if {[clock seconds]-$start_time >= 10} break
+                if {$time_elapsed >= 10} break
             }
         }
         assert {$omem >= 100000 && $time_elapsed < 6}
