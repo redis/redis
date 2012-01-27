@@ -1,6 +1,10 @@
 #ifndef __CONFIG_H
 #define __CONFIG_H
 
+#if defined(__sun) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined (__NetBSD__)
+#include <strings.h>
+#endif
+
 #ifdef __APPLE__
 #include <AvailabilityMacros.h>
 #endif
