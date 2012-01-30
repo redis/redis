@@ -25,6 +25,16 @@ start_server {tags {"cas"}} {
         r exec
     } {}
 
+    test {EXEC fail on WATCHed key modified by SORT with STORE even if the result is empty} {
+        r flushdb
+        r lpush foo bar
+        r watch foo
+        r sort emptylist store foo
+        r multi
+        r ping
+        r exec
+    } {}
+
     test {After successful EXEC key is no longer watched} {
         r set x 30
         r watch x
