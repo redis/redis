@@ -150,6 +150,13 @@ start_server {
         r exists zap
     } {0}
 
+    test "SORT with STORE removes key if result is empty (github issue 227)" {
+        r flushdb
+        r lpush foo bar
+        r sort emptylist store foo
+        r exists foo
+    } {0}
+
     tags {"slow"} {
         set num 100
         set res [create_random_dataset $num lpush]
