@@ -102,7 +102,10 @@ struct redisCommand *commandTable;
  * s: command not allowed in scripts.
  * R: random command. Command is not deterministic, that is, the same command
  *    with the same arguments, with the same key space, may have different
- *    results. For instance SPOP and RANDOMKEY are two random commands. */
+ *    results. For instance SPOP and RANDOMKEY are two random commands.
+ * S: Sort command output array if called from script, so that the output
+ *    is deterministic.
+ */
 struct redisCommand redisCommandTable[] = {
     {"get",getCommand,2,"r",0,NULL,1,1,1,0,0},
     {"set",setCommand,3,"wm",0,noPreloadGetKeys,1,1,1,0,0},
@@ -145,13 +148,13 @@ struct redisCommand redisCommandTable[] = {
     {"scard",scardCommand,2,"r",0,NULL,1,1,1,0,0},
     {"spop",spopCommand,2,"wRs",0,NULL,1,1,1,0,0},
     {"srandmember",srandmemberCommand,2,"rR",0,NULL,1,1,1,0,0},
-    {"sinter",sinterCommand,-2,"r",0,NULL,1,-1,1,0,0},
+    {"sinter",sinterCommand,-2,"rS",0,NULL,1,-1,1,0,0},
     {"sinterstore",sinterstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0},
-    {"sunion",sunionCommand,-2,"r",0,NULL,1,-1,1,0,0},
+    {"sunion",sunionCommand,-2,"rS",0,NULL,1,-1,1,0,0},
     {"sunionstore",sunionstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0},
-    {"sdiff",sdiffCommand,-2,"r",0,NULL,1,-1,1,0,0},
+    {"sdiff",sdiffCommand,-2,"rS",0,NULL,1,-1,1,0,0},
     {"sdiffstore",sdiffstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0},
-    {"smembers",sinterCommand,2,"r",0,NULL,1,1,1,0,0},
+    {"smembers",sinterCommand,2,"rS",0,NULL,1,1,1,0,0},
     {"zadd",zaddCommand,-4,"wm",0,NULL,1,1,1,0,0},
     {"zincrby",zincrbyCommand,4,"wm",0,NULL,1,1,1,0,0},
     {"zrem",zremCommand,-3,"w",0,NULL,1,1,1,0,0},
@@ -177,8 +180,8 @@ struct redisCommand redisCommandTable[] = {
     {"hincrbyfloat",hincrbyfloatCommand,4,"wm",0,NULL,1,1,1,0,0},
     {"hdel",hdelCommand,-3,"w",0,NULL,1,1,1,0,0},
     {"hlen",hlenCommand,2,"r",0,NULL,1,1,1,0,0},
-    {"hkeys",hkeysCommand,2,"r",0,NULL,1,1,1,0,0},
-    {"hvals",hvalsCommand,2,"r",0,NULL,1,1,1,0,0},
+    {"hkeys",hkeysCommand,2,"rS",0,NULL,1,1,1,0,0},
+    {"hvals",hvalsCommand,2,"rS",0,NULL,1,1,1,0,0},
     {"hgetall",hgetallCommand,2,"r",0,NULL,1,1,1,0,0},
     {"hexists",hexistsCommand,3,"r",0,NULL,1,1,1,0,0},
     {"incrby",incrbyCommand,3,"wm",0,NULL,1,1,1,0,0},
@@ -196,7 +199,7 @@ struct redisCommand redisCommandTable[] = {
     {"expireat",expireatCommand,3,"w",0,NULL,1,1,1,0,0},
     {"pexpire",pexpireCommand,3,"w",0,NULL,1,1,1,0,0},
     {"pexpireat",pexpireatCommand,3,"w",0,NULL,1,1,1,0,0},
-    {"keys",keysCommand,2,"r",0,NULL,0,0,0,0,0},
+    {"keys",keysCommand,2,"rS",0,NULL,0,0,0,0,0},
     {"dbsize",dbsizeCommand,1,"r",0,NULL,0,0,0,0,0},
     {"auth",authCommand,2,"rs",0,NULL,0,0,0,0,0},
     {"ping",pingCommand,1,"r",0,NULL,0,0,0,0,0},
@@ -1118,6 +1121,7 @@ void populateCommandTable(void) {
             case 'f': c->flags |= REDIS_CMD_FORCE_REPLICATION; break;
             case 's': c->flags |= REDIS_CMD_NOSCRIPT; break;
             case 'R': c->flags |= REDIS_CMD_RANDOM; break;
+            case 'S': c->flags |= REDIS_CMD_SORT_FOR_SCRIPT; break;
             default: redisPanic("Unsupported command flag"); break;
             }
             f++;
