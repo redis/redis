@@ -426,10 +426,10 @@ usage:
 " -k <boolean>       1=keep alive 0=reconnect (default 1)\n"
 " -r <keyspacelen>   Use random keys for SET/GET/INCR, random values for SADD\n"
 "  Using this option the benchmark will get/set keys\n"
-"  in the form mykey_rand000000012456 instead of constant\n"
+"  in the form mykey_rand:000000012456 instead of constant\n"
 "  keys, the <keyspacelen> argument determines the max\n"
 "  number of values for the random number. For instance\n"
-"  if set to 10 only rand000000000000 - rand000000000009\n"
+"  if set to 10 only rand:000000000000 - rand:000000000009\n"
 "  range will be allowed.\n"
 " -q                 Quiet. Just show query/sec values\n"
 " --csv              Output in CSV format\n"
@@ -446,6 +446,8 @@ usage:
 "   $ redis-benchmark -t set -n 1000000 -r 100000000\n\n"
 " Benchmark 127.0.0.1:6379 for a few commands producing CSV output:\n"
 "   $ redis-benchmark -t ping,set,get -n 100000 --csv\n\n"
+" Fill a list with 10000 random elements:\n"
+"   $ redis-benchmark -r 10000 -n 10000 lpush mylist ele:rand:000000000000\n\n"
     );
     exit(exit_status);
 }
