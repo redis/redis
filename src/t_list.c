@@ -86,7 +86,7 @@ unsigned long listTypeLength(robj *subject) {
 }
 
 /* Initialize an iterator at the specified index. */
-listTypeIterator *listTypeInitIterator(robj *subject, int index, unsigned char direction) {
+listTypeIterator *listTypeInitIterator(robj *subject, long index, unsigned char direction) {
     listTypeIterator *li = zmalloc(sizeof(listTypeIterator));
     li->subject = subject;
     li->encoding = subject->encoding;
@@ -484,10 +484,7 @@ void rpopCommand(redisClient *c) {
 
 void lrangeCommand(redisClient *c) {
     robj *o;
-    long start;
-    long end;
-    int llen;
-    int rangelen;
+    long start, end, llen, rangelen;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != REDIS_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != REDIS_OK)) return;
@@ -546,10 +543,7 @@ void lrangeCommand(redisClient *c) {
 
 void ltrimCommand(redisClient *c) {
     robj *o;
-    long start;
-    long end;
-    int llen;
-    int j, ltrim, rtrim;
+    long start, end, llen, j, ltrim, rtrim;
     list *list;
     listNode *ln;
 
@@ -604,7 +598,7 @@ void lremCommand(redisClient *c) {
     robj *subject, *obj;
     obj = c->argv[3] = tryObjectEncoding(c->argv[3]);
     long toremove;
-    int removed = 0;
+    long removed = 0;
     listTypeEntry entry;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &toremove, NULL) != REDIS_OK))
