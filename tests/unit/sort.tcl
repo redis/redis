@@ -157,6 +157,13 @@ start_server {
         r exists foo
     } {0}
 
+    test "SORT with BY <constant> and STORE should still order output" {
+        r del myset mylist
+        r sadd myset a b c d e f g h i l m n o p q r s t u v z
+        r sort myset alpha by _ store mylist
+        r lrange mylist 0 -1
+    } {a b c d e f g h i l m n o p q r s t u v z}
+
     tags {"slow"} {
         set num 100
         set res [create_random_dataset $num lpush]

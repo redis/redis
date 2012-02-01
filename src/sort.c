@@ -203,6 +203,15 @@ void sortCommand(redisClient *c) {
         j++;
     }
 
+    /* If we have STORE we need to force sorting for deterministic output
+     * and replication. We use alpha sorting since this is guaranteed to
+     * work with any input. */
+    if (storekey && dontsort) {
+        dontsort = 0;
+        alpha = 1;
+        sortby = NULL;
+    }
+
     /* Destructively convert encoded sorted sets for SORT. */
     if (sortval->type == REDIS_ZSET)
         zsetConvert(sortval, REDIS_ENCODING_SKIPLIST);
