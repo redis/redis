@@ -159,10 +159,10 @@ start_server {
 
     test "SORT with BY <constant> and STORE should still order output" {
         r del myset mylist
-        r sadd myset a b c d e f g h i l m n o p q r s t u v z
+        r sadd myset a b c d e f g h i l m n o p q r s t u v z aa aaa azz
         r sort myset alpha by _ store mylist
         r lrange mylist 0 -1
-    } {a b c d e f g h i l m n o p q r s t u v z}
+    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z}
 
     test "SORT will complain with numerical sorting and bad doubles (1)" {
         r del myset
@@ -183,12 +183,12 @@ start_server {
 
     test "SORT BY sub-sorts lexicographically if score is the same" {
         r del myset
-        r sadd myset u v z a b c d e f g h i l m n o p q r s t
-        foreach ele {a b c d e f g h i l m n o p q r s t u v z} {
+        r sadd myset a b c d e f g h i l m n o p q r s t u v z aa aaa azz
+        foreach ele {a aa aaa azz b c d e f g h i l m n o p q r s t u v z} {
             set score:$ele 100
         }
         r sort myset by score:*
-    } {a b c d e f g h i l m n o p q r s t u v z}
+    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z}
 
     tags {"slow"} {
         set num 100
