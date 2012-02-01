@@ -380,6 +380,10 @@ int qsortCompareSetsByCardinality(const void *s1, const void *s2) {
     return setTypeSize(*(robj**)s1)-setTypeSize(*(robj**)s2);
 }
 
+static int qsortCompareStrings(const void *s1, const void *s2) {
+    return compareStringObjects(*(robj**)s1, *(robj**)s2);
+}
+
 void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, robj *dstkey) {
     robj **sets = zmalloc(sizeof(robj*)*setnum);
     setTypeIterator *si;
@@ -388,6 +392,14 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
     void *replylen = NULL;
     unsigned long j, cardinality = 0;
     int encoding;
+
+    int sort_result;
+    int vectorlen;
+    robj **vector = NULL;
+
+    /* If the command is executed in Lua and will return the result set,
+     * it's needed to sort the result for deterministic result. */
+    sort_result = server.lua_caller && dstkey==NULL;
 
     for (j = 0; j < setnum; j++) {
         robj *setobj = dstkey ?
@@ -415,6 +427,13 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
     /* Sort sets from the smallest to largest, this will improve our
      * algorithm's performace */
     qsort(sets,setnum,sizeof(robj*),qsortCompareSetsByCardinality);
+
+    if (sort_result) {
+        /* The cardinality of intersection will be less or equal than
+         * the size of smallest set. At least 1 set exists at this point. */
+        vectorlen = setTypeSize(sets[0]);
+        vector = zmalloc(sizeof(robj*)*vectorlen);
+    }
 
     /* The first thing we should output is the total number of elements...
      * since this is a multi-bulk write, but at this stage we don't know
@@ -472,7 +491,15 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
 
         /* Only take action when all sets contain the member */
         if (j == setnum) {
-            if (!dstkey) {
+            if (sort_result) { /* sort_result implies !dstkey */
+                /* Don't append to reply queue immediately. Push into a vector instead */
+                if (encoding == REDIS_ENCODING_HT)
+                    vector[cardinality] = getDecodedObject(eleobj);
+                else {
+                    vector[cardinality] = createStringObjectFromLongLong(intobj);
+                }
+                cardinality++;
+            } else if (!dstkey) {
                 if (encoding == REDIS_ENCODING_HT)
                     addReplyBulk(c,eleobj);
                 else
@@ -490,6 +517,16 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
         }
     }
     setTypeReleaseIterator(si);
+
+    if (sort_result) {
+        /* Sort the vector and append to reply queue */
+        qsort(vector, cardinality, sizeof(robj*), qsortCompareStrings);
+        for (j=0; j<cardinality; ++j) {
+            addReplyBulk(c, vector[j]);
+            decrRefCount(vector[j]);
+        }
+        zfree(vector);
+    }
 
     if (dstkey) {
         /* Store the resulting set into the target, if the intersection
@@ -527,6 +564,13 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
     setTypeIterator *si;
     robj *ele, *dstset = NULL;
     int j, cardinality = 0;
+
+    int sort_result;
+    robj **vector = NULL;
+
+    /* If the command is executed in Lua and will return the result set,
+     * it's needed to sort the result for deterministic result. */
+    sort_result = server.lua_caller && dstkey==NULL;
 
     for (j = 0; j < setnum; j++) {
         robj *setobj = dstkey ?
@@ -577,10 +621,29 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
     if (!dstkey) {
         addReplyMultiBulkLen(c,cardinality);
         si = setTypeInitIterator(dstset);
-        while((ele = setTypeNextObject(si)) != NULL) {
-            addReplyBulk(c,ele);
-            decrRefCount(ele);
+
+        if (sort_result) {
+            j = 0;
+            /* Extract the elements from set to a vector */
+            vector = zmalloc(sizeof(robj*)*cardinality);
+            while((ele = setTypeNextObject(si)) != NULL) {
+                vector[j] = ele;
+                ++j;
+            }
+            /* Sort the vector and append to reply queue */
+            qsort(vector, cardinality, sizeof(robj*), qsortCompareStrings);
+            for (j=0; j<cardinality; ++j) {
+                addReplyBulk(c, vector[j]);
+                decrRefCount(vector[j]);
+            }
+            zfree(vector);
+        } else {
+            while((ele = setTypeNextObject(si)) != NULL) {
+                addReplyBulk(c, ele);
+                decrRefCount(ele);
+            }
         }
+
         setTypeReleaseIterator(si);
         decrRefCount(dstset);
     } else {
@@ -598,6 +661,7 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
         server.dirty++;
     }
     zfree(sets);
+
 }
 
 void sunionCommand(redisClient *c) {
