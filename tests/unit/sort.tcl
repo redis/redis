@@ -164,6 +164,32 @@ start_server {
         r lrange mylist 0 -1
     } {a b c d e f g h i l m n o p q r s t u v z}
 
+    test "SORT will complain with numerical sorting and bad doubles (1)" {
+        r del myset
+        r sadd myset 1 2 3 4 not-a-double
+        set e {}
+        catch {r sort myset} e
+        set e
+    } {*ERR*double*}
+
+    test "SORT will complain with numerical sorting and bad doubles (2)" {
+        r del myset
+        r sadd myset 1 2 3 4
+        r mset score:1 10 score:2 20 score:3 30 score:4 not-a-double
+        set e {}
+        catch {r sort myset by score:*} e
+        set e
+    } {*ERR*double*}
+
+    test "SORT BY sub-sorts lexicographically if score is the same" {
+        r del myset
+        r sadd myset u v z a b c d e f g h i l m n o p q r s t
+        foreach ele {a b c d e f g h i l m n o p q r s t u v z} {
+            set score:$ele 100
+        }
+        r sort myset by score:*
+    } {a b c d e f g h i l m n o p q r s t u v z}
+
     tags {"slow"} {
         set num 100
         set res [create_random_dataset $num lpush]
