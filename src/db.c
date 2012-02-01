@@ -37,17 +37,22 @@ robj *lookupKey(redisDb *db, robj *key) {
                 if (notify) handleClientsBlockedOnSwappedKey(db,key);
             }
         }
-        server.stat_keyspace_hits++;
         return val;
     } else {
-        server.stat_keyspace_misses++;
         return NULL;
     }
 }
 
 robj *lookupKeyRead(redisDb *db, robj *key) {
+    robj *val;
+
     expireIfNeeded(db,key);
-    return lookupKey(db,key);
+    val = lookupKey(db,key);
+    if (val == NULL)
+        server.stat_keyspace_misses++;
+    else
+        server.stat_keyspace_hits++;
+    return val;
 }
 
 robj *lookupKeyWrite(redisDb *db, robj *key) {
