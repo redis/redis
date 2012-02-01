@@ -232,6 +232,10 @@
 #define UNIT_SECONDS 0
 #define UNIT_MILLISECONDS 1
 
+/* ID Generation */
+#define REDIS_ID_NAMELEN 6
+#define REDIS_ID_NAMESPACE 256
+
 /* SHUTDOWN flags */
 #define REDIS_SHUTDOWN_SAVE 1       /* Force SAVE on SHUTDOWN even if no save
                                        points are configured. */
@@ -665,6 +669,8 @@ struct redisServer {
     char *assert_file;
     int assert_line;
     int bug_report_start; /* True if bug report header was already logged. */
+    char id_generation_name[REDIS_ID_NAMESPACE];
+         /* hostname to include in generated sequence ids. */
 };
 
 typedef struct pubsubPattern {
@@ -1173,6 +1179,7 @@ void clientCommand(redisClient *c);
 void evalCommand(redisClient *c);
 void evalShaCommand(redisClient *c);
 void scriptCommand(redisClient *c);
+void incridCommand(redisClient *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
