@@ -140,7 +140,22 @@ void luaSortArray(lua_State *lua) {
     lua_pushstring(lua,"sort");
     lua_gettable(lua,-2);       /* Stack: array, table, table.sort */
     lua_pushvalue(lua,-3);      /* Stack: array, table, table.sort, array */
-    lua_call(lua,1,0);          /* Stack: array (sorted), table */
+    if (lua_pcall(lua,1,0,0)) {
+        /* Stack: array, table, error */
+
+        /* We are not interested in the error, we assume that the problem is
+         * that there are 'false' elements inside the array, so we try
+         * again with a slower function but able to handle this case, that
+         * is: table.sort(table, __redis__compare_helper) */
+        lua_pop(lua,1);             /* Stack: array, table */
+        lua_pushstring(lua,"sort"); /* Stack: array, table, sort */
+        lua_gettable(lua,-2);       /* Stack: array, table, table.sort */
+        lua_pushvalue(lua,-3);      /* Stack: array, table, table.sort, array */
+        lua_getglobal(lua,"__redis__compare_helper");
+        /* Stack: array, table, table.sort, array, __redis__compare_helper */
+        lua_call(lua,2,0);
+    }
+    /* Stack: array (sorted), table */
     lua_pop(lua,1);             /* Stack: array (sorted) */
 }
 
@@ -228,7 +243,9 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
      * reply as expected. */
     if ((cmd->flags & REDIS_CMD_SORT_FOR_SCRIPT) &&
         (reply[0] == '*' && reply[1] != '-')) {
-        luaSortArray(lua);
+        /* Skip this step if command is SORT but output was already sorted */
+        if (cmd->proc != sortCommand || server.sort_dontsort)
+            luaSortArray(lua);
     }
     sdsfree(reply);
 
@@ -402,6 +419,18 @@ void scriptingInit(void) {
     lua_settable(lua,-3);
 
     lua_setglobal(lua,"math");
+
+    /* Add a helper funciton that we use to sort the multi bulk output of non
+     * deterministic commands, when containing 'false' elements. */
+    {
+        char *compare_func =    "function __redis__compare_helper(a,b)\n"
+                                "  if a == false then a = '' end\n"
+                                "  if b == false then b = '' end\n"
+                                "  return a<b\n"
+                                "end\n";
+        luaL_loadbuffer(lua,compare_func,strlen(compare_func),"cmp_func_def");
+        lua_pcall(lua,0,0,0);
+    }
 
     /* Create the (non connected) client that we use to execute Redis commands
      * inside the Lua interpreter.

@@ -146,7 +146,7 @@ start_server {
     test "SORT with STORE does not create empty lists (github issue 224)" {
         r flushdb
         r lpush foo bar
-        r sort foo limit 10 10 store zap
+        r sort foo alpha limit 10 10 store zap
         r exists zap
     } {0}
 

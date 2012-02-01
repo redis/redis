@@ -216,7 +216,7 @@ struct redisCommand redisCommandTable[] = {
     {"sync",syncCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"flushdb",flushdbCommand,1,"w",0,NULL,0,0,0,0,0},
     {"flushall",flushallCommand,1,"w",0,NULL,0,0,0,0,0},
-    {"sort",sortCommand,-2,"wm",0,NULL,1,1,1,0,0},
+    {"sort",sortCommand,-2,"wmS",0,NULL,1,1,1,0,0},
     {"info",infoCommand,-1,"r",0,NULL,0,0,0,0,0},
     {"monitor",monitorCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"ttl",ttlCommand,2,"r",0,NULL,1,1,1,0,0},
