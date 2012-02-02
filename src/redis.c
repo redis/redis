@@ -985,6 +985,16 @@ void initServer() {
         }
     }
 
+    /* 32 bit instances are limited to 4GB of address space, so if there is
+     * no explicit limit in the user provided configuration we set a limit
+     * at 3.5GB using maxmemory with 'noeviction' policy'. This saves
+     * useless crashes of the Redis instance. */
+    if (server.arch_bits == 32 && server.maxmemory == 0) {
+        redisLog(REDIS_WARNING,"Warning: 32 bit instance detected but no memory limit set. Setting 3.5 GB maxmemory limit with 'noeviction' policy now.");
+        server.maxmemory = 3584LL*(1024*1024); /* 3584 MB = 3.5 GB */
+        server.maxmemory_policy = REDIS_MAXMEMORY_NO_EVICTION;
+    }
+
     if (server.vm_enabled) vmInit();
     slowlogInit();
     bioInit();
