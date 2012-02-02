@@ -381,6 +381,7 @@ struct sharedObjectsStruct {
 /* Global server state structure */
 struct redisServer {
     pthread_t mainthread;
+    int arch_bits;
     int port;
     char *bindaddr;
     char *unixsocket;
