@@ -1171,24 +1171,34 @@ struct redisCommand *lookupCommandByCString(char *s) {
 }
 
 /* Call() is the core of Redis execution of a command */
-void call(redisClient *c) {
+void call(redisClient *c, int flags) {
     long long dirty, start = ustime(), duration;
 
     dirty = server.dirty;
     c->cmd->proc(c);
     dirty = server.dirty-dirty;
     duration = ustime()-start;
-    c->cmd->microseconds += duration;
-    slowlogPushEntryIfNeeded(c->argv,c->argc,duration);
-    c->cmd->calls++;
 
-    if (server.aof_state != REDIS_AOF_OFF && dirty > 0)
-        feedAppendOnlyFile(c->cmd,c->db->id,c->argv,c->argc);
-    if ((dirty > 0 || c->cmd->flags & REDIS_CMD_FORCE_REPLICATION) &&
-        listLength(server.slaves))
-        replicationFeedSlaves(server.slaves,c->db->id,c->argv,c->argc);
-    if (listLength(server.monitors))
-        replicationFeedMonitors(server.monitors,c->db->id,c->argv,c->argc);
+    /* When EVAL is called loading the AOF we don't want commands called
+     * from Lua to go into the slowlog or to populate statistics. */
+    if (server.loading && c->flags & REDIS_LUA_CLIENT)
+        flags &= ~(REDIS_CALL_SLOWLOG | REDIS_CALL_STATS);
+
+    if (flags & REDIS_CALL_SLOWLOG)
+        slowlogPushEntryIfNeeded(c->argv,c->argc,duration);
+    if (flags & REDIS_CALL_STATS) {
+        c->cmd->microseconds += duration;
+        c->cmd->calls++;
+    }
+    if (flags & REDIS_CALL_PROPAGATE) {
+        if (server.aof_state != REDIS_AOF_OFF && dirty > 0)
+            feedAppendOnlyFile(c->cmd,c->db->id,c->argv,c->argc);
+        if ((dirty > 0 || c->cmd->flags & REDIS_CMD_FORCE_REPLICATION) &&
+            listLength(server.slaves))
+            replicationFeedSlaves(server.slaves,c->db->id,c->argv,c->argc);
+        if (listLength(server.monitors))
+            replicationFeedMonitors(server.monitors,c->db->id,c->argv,c->argc);
+    }
     server.stat_numcommands++;
 }
 
@@ -1317,7 +1327,7 @@ int processCommand(redisClient *c) {
         queueMultiCommand(c);
         addReply(c,shared.queued);
     } else {
-        call(c);
+        call(c,REDIS_CALL_FULL);
     }
     return REDIS_OK;
 }

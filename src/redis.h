@@ -237,6 +237,13 @@
                                        points are configured. */
 #define REDIS_SHUTDOWN_NOSAVE 2     /* Don't SAVE on SHUTDOWN. */
 
+/* Command call flags, see call() function */
+#define REDIS_CALL_NONE 0
+#define REDIS_CALL_SLOWLOG 1
+#define REDIS_CALL_STATS 2
+#define REDIS_CALL_PROPAGATE 4
+#define REDIS_CALL_FULL (REDIS_CALL_SLOWLOG | REDIS_CALL_STATS | REDIS_CALL_PROPAGATE)
+
 /* We can print the stacktrace, so our assert is defined this way: */
 #define redisAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_redisAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),_exit(1)))
 #define redisAssert(_e) ((_e)?(void)0 : (_redisAssert(#_e,__FILE__,__LINE__),_exit(1)))
@@ -938,7 +945,7 @@ int processCommand(redisClient *c);
 void setupSignalHandlers(void);
 struct redisCommand *lookupCommand(sds name);
 struct redisCommand *lookupCommandByCString(char *s);
-void call(redisClient *c);
+void call(redisClient *c, int flags);
 int prepareForShutdown();
 void redisLog(int level, const char *fmt, ...);
 void redisLogRaw(int level, const char *msg);
