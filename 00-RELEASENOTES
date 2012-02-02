@@ -18,6 +18,19 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
+What's new in Redis 2.4.7
+=========================
+
+UPGRADE URGENCY: low/moderate if you don't experience any of the fixed problems.
+
+* [BUGFIX] Fixed false positive in issue #141 regression test.
+* [BUGFIX] Slave should not expire keys when loading an RDB after a SYNC.
+* [BUGFIX] Don't increment stats for key misses / hits when key is written.
+* [BUGFIX] sds.c library now don't allocate more than 1MB ahead.
+* 32 bit instances without a maxmemory set now get a default limit of 3.5GB with
+  maxmemory-policy set to noeviction.
+* Better crash report on crash (containing current client and command arguments).
+
 What's new in Redis 2.4.6
 =========================
 
