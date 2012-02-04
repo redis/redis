@@ -363,6 +363,18 @@ void addReplyDouble(redisClient *c, double d) {
 void addReplyLongLongWithPrefix(redisClient *c, long long ll, char prefix) {
     char buf[128];
     int len;
+
+    /* Things like $3\r\n or *2\r\n are emitted very often by the protocol
+     * so we have a few shared objects to use if the integer is small
+     * like it is most of the times. */
+    if (prefix == '*' && ll < REDIS_SHARED_BULKHDR_LEN) {
+        addReply(c,shared.mbulkhdr[ll]);
+        return;
+    } else if (prefix == '$' && ll < REDIS_SHARED_BULKHDR_LEN) {
+        addReply(c,shared.bulkhdr[ll]);
+        return;
+    }
+
     buf[0] = prefix;
     len = ll2string(buf+1,sizeof(buf)-1,ll);
     buf[len+1] = '\r';

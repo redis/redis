@@ -488,9 +488,10 @@ long long getExpire(redisDb *db, robj *key) {
 void propagateExpire(redisDb *db, robj *key) {
     robj *argv[2];
 
-    argv[0] = createStringObject("DEL",3);
+    argv[0] = shared.del;
     argv[1] = key;
-    incrRefCount(key);
+    incrRefCount(argv[0]);
+    incrRefCount(argv[1]);
 
     if (server.aof_state != REDIS_AOF_OFF)
         feedAppendOnlyFile(server.delCommand,db->id,argv,2);
