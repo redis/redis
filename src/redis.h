@@ -546,7 +546,7 @@ struct sharedObjectsStruct {
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
     *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop,
-    *lpush, *emptyscan,
+    *lpush, *emptyscan, *minstring, *maxstring,
     *select[REDIS_SHARED_SELECT_CMDS],
     *integers[REDIS_SHARED_INTEGERS],
     *mbulkhdr[REDIS_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -1130,11 +1130,17 @@ unsigned long aofRewriteBufferSize(void);
 
 /* Sorted sets data type */
 
-/* Struct to hold a inclusive/exclusive range spec. */
+/* Struct to hold a inclusive/exclusive range spec by score comparison. */
 typedef struct {
     double min, max;
     int minex, maxex; /* are min or max exclusive? */
 } zrangespec;
+
+/* Struct to hold an inclusive/exclusive range spec by lexicographic comparison. */
+typedef struct {
+    robj *min, *max;  /* May be set to shared.(minstring|maxstring) */
+    int minex, maxex; /* are min or max exclusive? */
+} zlexrangespec;
 
 zskiplist *zslCreate(void);
 void zslFree(zskiplist *zsl);
@@ -1387,6 +1393,8 @@ void zincrbyCommand(redisClient *c);
 void zrangeCommand(redisClient *c);
 void zrangebyscoreCommand(redisClient *c);
 void zrevrangebyscoreCommand(redisClient *c);
+void zrangebylexCommand(redisClient *c);
+void zrevrangebylexCommand(redisClient *c);
 void zcountCommand(redisClient *c);
 void zrevrangeCommand(redisClient *c);
 void zcardCommand(redisClient *c);
