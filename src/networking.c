@@ -686,12 +686,17 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
                 c->reply_bytes -= objlen;
             }
         }
-        /* Note that we avoid to send more thank REDIS_MAX_WRITE_PER_EVENT
+        /* Note that we avoid to send more than REDIS_MAX_WRITE_PER_EVENT
          * bytes, in a single threaded server it's a good idea to serve
          * other clients as well, even if a very large request comes from
          * super fast link that is always able to accept data (in real world
-         * scenario think about 'KEYS *' against the loopback interfae) */
-        if (totwritten > REDIS_MAX_WRITE_PER_EVENT) break;
+         * scenario think about 'KEYS *' against the loopback interface).
+         *
+         * However if we are over the maxmemory limit we ignore that and
+         * just deliver as much data as it is possible to deliver. */
+        if (totwritten > REDIS_MAX_WRITE_PER_EVENT &&
+            (server.maxmemory == 0 ||
+             zmalloc_used_memory() < server.maxmemory)) break;
     }
     if (nwritten == -1) {
         if (errno == EAGAIN) {
