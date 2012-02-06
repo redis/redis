@@ -1547,8 +1547,8 @@ int freeMemoryIfNeeded(void) {
     size_t mem_used, mem_tofree, mem_freed;
     int slaves = listLength(server.slaves);
 
-    /* Remove the size of slaves output buffers from the count of used
-     * memory. */
+    /* Remove the size of slaves output buffers and AOF buffer from the
+     * count of used memory. */
     mem_used = zmalloc_used_memory();
     if (slaves) {
         listIter li;
@@ -1563,6 +1563,10 @@ int freeMemoryIfNeeded(void) {
             else
                 mem_used -= obuf_bytes;
         }
+    }
+    if (server.aof_state != REDIS_AOF_OFF) {
+        mem_used -= sdslen(server.aof_buf);
+        mem_used -= sdslen(server.aof_rewrite_buf);
     }
 
     /* Check if we are over the memory limit. */
