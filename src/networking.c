@@ -1091,3 +1091,24 @@ unsigned long getClientOutputBufferMemoryUsage(redisClient *c) {
 
     return c->reply_bytes + (list_item_size*listLength(c->reply));
 }
+
+/* Helper function used by freeMemoryIfNeeded() in order to flush slaves
+ * output buffers without returning control to the event loop. */
+void flushSlavesOutputBuffers(void) {
+    listIter li;
+    listNode *ln;
+
+    listRewind(server.slaves,&li);
+    while((ln = listNext(&li))) {
+        redisClient *slave = listNodeValue(ln);
+        int events;
+
+        events = aeGetFileEvents(server.el,slave->fd);
+        if (events & AE_WRITABLE &&
+            slave->replstate == REDIS_REPL_ONLINE &&
+            listLength(slave->reply))
+        {
+            sendReplyToClient(server.el,slave->fd,slave,0);
+        }
+    }
+}
