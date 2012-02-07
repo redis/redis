@@ -76,4 +76,8 @@ void zmalloc_enable_thread_safeness(void);
 float zmalloc_get_fragmentation_ratio(void);
 size_t zmalloc_get_rss(void);
 
+#ifndef HAVE_MALLOC_SIZE
+size_t zmalloc_size(void *ptr);
+#endif
+
 #endif /* __ZMALLOC_H */
