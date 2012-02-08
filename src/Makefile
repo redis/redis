@@ -175,7 +175,7 @@ else
 endif
 
 .make-arch:
-	-(cd ../deps && make $(DEPENDENCY_TARGETS) ARCH="$(ARCH)")
+	-(cd ../deps && $(MAKE) $(DEPENDENCY_TARGETS) ARCH="$(ARCH)")
 	-(echo $(ARCH) > .make-arch)
 
 # Clean local objects when allocator changes

@@ -389,6 +389,14 @@ void _redisPanic(char *msg, char *file, int line) {
 #endif
 }
 
+void bugReportStart(void) {
+    if (server.bug_report_start == 0) {
+        redisLog(REDIS_WARNING,
+            "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===");
+        server.bug_report_start = 1;
+    }
+}
+
 #ifdef HAVE_BACKTRACE
 static void *getMcontextEip(ucontext_t *uc) {
 #if defined(__FreeBSD__)
@@ -418,14 +426,6 @@ static void *getMcontextEip(ucontext_t *uc) {
 #else
     return NULL;
 #endif
-}
-
-void bugReportStart(void) {
-    if (server.bug_report_start == 0) {
-        redisLog(REDIS_WARNING,
-            "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===");
-        server.bug_report_start = 1;
-    }
 }
 
 void logStackContent(void **sp) {
