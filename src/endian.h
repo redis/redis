@@ -11,10 +11,16 @@ void memrev64(void *p);
 #define memrev16ifbe(p)
 #define memrev32ifbe(p)
 #define memrev64ifbe(p)
+#define intrev16ifbe(v) (v)
+#define intrev32ifbe(v) (v)
+#define intrev64ifbe(v) (v)
 #else
 #define memrev16ifbe(p) memrev16(p)
 #define memrev32ifbe(p) memrev32(p)
 #define memrev64ifbe(p) memrev64(p)
+#define intrev16ifbe(v) intrev16(v)
+#define intrev32ifbe(v) intrev32(v)
+#define intrev64ifbe(v) intrev64(v)
 #endif
 
 #endif
