@@ -465,7 +465,7 @@ static unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsig
              * size of prevlen doesn't have an effect on the *tail* offset. */
             tail = zipEntry(p);
             if (p[tail.headersize+tail.len] != ZIP_END) {
-                ZIPLIST_TAIL_OFFSET(zl) +=
+                ZIPLIST_TAIL_OFFSET(zl) =
                    intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+nextdiff);
             }
 
