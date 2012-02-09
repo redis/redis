@@ -304,7 +304,7 @@ static int64_t zipLoadInteger(unsigned char *p, unsigned char encoding) {
         ret = i16;
     } else if (encoding == ZIP_INT_32B) {
         memcpy(&i32,p,sizeof(i32));
-        memrev16ifbe(&i32);
+        memrev32ifbe(&i32);
         ret = i32;
     } else if (encoding == ZIP_INT_64B) {
         memcpy(&i64,p,sizeof(i64));
