@@ -99,7 +99,7 @@
  * pushed one at a time. */
 #define ZIPLIST_INCR_LENGTH(zl,incr) { \
     if (ZIPLIST_LENGTH(zl) < UINT16_MAX) \
-        ZIPLIST_LENGTH(zl) += intrev16ifbe(incr); \
+        ZIPLIST_LENGTH(zl) = intrev16ifbe(intrev16ifbe(ZIPLIST_LENGTH(zl))+incr); \
 }
 
 typedef struct zlentry {
@@ -308,7 +308,7 @@ static int64_t zipLoadInteger(unsigned char *p, unsigned char encoding) {
         ret = i32;
     } else if (encoding == ZIP_INT_64B) {
         memcpy(&i64,p,sizeof(i64));
-        memrev16ifbe(&i64);
+        memrev64ifbe(&i64);
         ret = i64;
     } else {
         assert(NULL);
@@ -403,8 +403,10 @@ static unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p
             noffset = np-zl;
 
             /* Update tail offset when next element is not the tail element. */
-            if ((zl+intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))) != np)
-                ZIPLIST_TAIL_OFFSET(zl) += intrev32ifbe(extra);
+            if ((zl+intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))) != np) {
+                ZIPLIST_TAIL_OFFSET(zl) =
+                    intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+extra);
+            }
 
             /* Move the tail to the back. */
             memmove(np+rawlensize,
@@ -455,14 +457,17 @@ static unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsig
             zipPrevEncodeLength(p-nextdiff,first.prevrawlen);
 
             /* Update offset for tail */
-            ZIPLIST_TAIL_OFFSET(zl) -= intrev32ifbe(totlen);
+            ZIPLIST_TAIL_OFFSET(zl) =
+                intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))-totlen);
 
             /* When the tail contains more than one entry, we need to take
              * "nextdiff" in account as well. Otherwise, a change in the
              * size of prevlen doesn't have an effect on the *tail* offset. */
             tail = zipEntry(p);
-            if (p[tail.headersize+tail.len] != ZIP_END)
-                ZIPLIST_TAIL_OFFSET(zl) += intrev32ifbe(nextdiff);
+            if (p[tail.headersize+tail.len] != ZIP_END) {
+                ZIPLIST_TAIL_OFFSET(zl) +=
+                   intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+nextdiff);
+            }
 
             /* Move tail to the front of the ziplist */
             memmove(first.p,p-nextdiff,
@@ -542,14 +547,17 @@ static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsig
         zipPrevEncodeLength(p+reqlen,reqlen);
 
         /* Update offset for tail */
-        ZIPLIST_TAIL_OFFSET(zl) += intrev32ifbe(reqlen);
+        ZIPLIST_TAIL_OFFSET(zl) =
+            intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+reqlen);
 
         /* When the tail contains more than one entry, we need to take
          * "nextdiff" in account as well. Otherwise, a change in the
          * size of prevlen doesn't have an effect on the *tail* offset. */
         tail = zipEntry(p+reqlen);
-        if (p[reqlen+tail.headersize+tail.len] != ZIP_END)
-            ZIPLIST_TAIL_OFFSET(zl) += intrev32ifbe(nextdiff);
+        if (p[reqlen+tail.headersize+tail.len] != ZIP_END) {
+            ZIPLIST_TAIL_OFFSET(zl) =
+                intrev32ifbe(intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl))+nextdiff);
+        }
     } else {
         /* This element will be the new tail. */
         ZIPLIST_TAIL_OFFSET(zl) = intrev32ifbe(p-zl);
