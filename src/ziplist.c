@@ -69,7 +69,7 @@
 #include "zmalloc.h"
 #include "util.h"
 #include "ziplist.h"
-#include "endian.h"
+#include "endianconv.h"
 
 #define ZIP_END 255
 #define ZIP_BIGLEN 254

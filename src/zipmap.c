@@ -80,7 +80,7 @@
 #include <string.h>
 #include <assert.h>
 #include "zmalloc.h"
-#include "endian.h"
+#include "endianconv.h"
 
 #define ZIPMAP_BIGLEN 254
 #define ZIPMAP_END 255
