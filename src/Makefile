@@ -59,7 +59,7 @@ CCOPT= $(CFLAGS) $(ARCH) $(PROF)
 
 PREFIX= /usr/local
 INSTALL_BIN= $(PREFIX)/bin
-INSTALL= cp -p
+INSTALL= cp -pf
 
 CCCOLOR="\033[34m"
 LINKCOLOR="\033[34;1m"
