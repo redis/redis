@@ -1564,9 +1564,9 @@ int freeMemoryIfNeeded(void) {
                 mem_used -= obuf_bytes;
         }
     }
-    if (server.aof_state != REDIS_AOF_OFF) {
-        mem_used -= sdslen(server.aof_buf);
-        mem_used -= sdslen(server.aof_rewrite_buf);
+    if (server.appendonly) {
+        mem_used -= sdslen(server.aofbuf);
+        mem_used -= sdslen(server.bgrewritebuf);
     }
 
     /* Check if we are over the memory limit. */

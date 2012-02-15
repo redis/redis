@@ -716,6 +716,7 @@ void getClientsMaxBuffers(unsigned long *longest_output_list,
 sds getClientInfoString(redisClient *client);
 sds getAllClientsInfoString(void);
 void rewriteClientCommandVector(redisClient *c, int argc, ...);
+unsigned long getClientOutputBufferMemoryUsage(redisClient *c);
 void flushSlavesOutputBuffers(void);
 
 #ifdef __GNUC__
