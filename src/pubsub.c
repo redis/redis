@@ -41,7 +41,7 @@ int pubsubSubscribeChannel(redisClient *c, robj *channel) {
         listAddNodeTail(clients,c);
     }
     /* Notify the client */
-    addReply(c,shared.mbulk3);
+    addReply(c,shared.mbulkhdr[3]);
     addReply(c,shared.subscribebulk);
     addReplyBulk(c,channel);
     addReplyLongLong(c,dictSize(c->pubsub_channels)+listLength(c->pubsub_patterns));
@@ -77,7 +77,7 @@ int pubsubUnsubscribeChannel(redisClient *c, robj *channel, int notify) {
     }
     /* Notify the client */
     if (notify) {
-        addReply(c,shared.mbulk3);
+        addReply(c,shared.mbulkhdr[3]);
         addReply(c,shared.unsubscribebulk);
         addReplyBulk(c,channel);
         addReplyLongLong(c,dictSize(c->pubsub_channels)+
@@ -103,7 +103,7 @@ int pubsubSubscribePattern(redisClient *c, robj *pattern) {
         listAddNodeTail(server.pubsub_patterns,pat);
     }
     /* Notify the client */
-    addReply(c,shared.mbulk3);
+    addReply(c,shared.mbulkhdr[3]);
     addReply(c,shared.psubscribebulk);
     addReplyBulk(c,pattern);
     addReplyLongLong(c,dictSize(c->pubsub_channels)+listLength(c->pubsub_patterns));
@@ -128,7 +128,7 @@ int pubsubUnsubscribePattern(redisClient *c, robj *pattern, int notify) {
     }
     /* Notify the client */
     if (notify) {
-        addReply(c,shared.mbulk3);
+        addReply(c,shared.mbulkhdr[3]);
         addReply(c,shared.punsubscribebulk);
         addReplyBulk(c,pattern);
         addReplyLongLong(c,dictSize(c->pubsub_channels)+
@@ -188,7 +188,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
         while ((ln = listNext(&li)) != NULL) {
             redisClient *c = ln->value;
 
-            addReply(c,shared.mbulk3);
+            addReply(c,shared.mbulkhdr[3]);
             addReply(c,shared.messagebulk);
             addReplyBulk(c,channel);
             addReplyBulk(c,message);
@@ -206,7 +206,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
                                 sdslen(pat->pattern->ptr),
                                 (char*)channel->ptr,
                                 sdslen(channel->ptr),0)) {
-                addReply(pat->client,shared.mbulk4);
+                addReply(pat->client,shared.mbulkhdr[4]);
                 addReply(pat->client,shared.pmessagebulk);
                 addReplyBulk(pat->client,pat->pattern);
                 addReplyBulk(pat->client,channel);
