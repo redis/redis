@@ -1329,7 +1329,7 @@ int checkClientOutputBufferLimits(redisClient *c) {
  * called from contexts where the client can't be freed safely, i.e. from the
  * lower level functions pushing data inside the client output buffers. */
 void asyncCloseClientOnOutputBufferLimitReached(redisClient *c) {
-    if (c->flags & REDIS_CLOSE_ASAP) return;
+    if (c->reply_bytes == 0 || c->flags & REDIS_CLOSE_ASAP) return;
     if (checkClientOutputBufferLimits(c)) {
         sds client = getClientInfoString(c);
 
