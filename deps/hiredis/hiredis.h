@@ -123,7 +123,7 @@ typedef struct redisReader {
     size_t pos; /* Buffer cursor */
     size_t len; /* Buffer length */
 
-    redisReadTask rstack[4];
+    redisReadTask rstack[9];
     int ridx; /* Index of current read task */
     void *reply; /* Temporary reply pointer */
 
