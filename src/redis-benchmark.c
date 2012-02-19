@@ -265,7 +265,7 @@ static client createClient(const char *cmd, size_t len) {
         }
     }
 
-    redisSetReplyObjectFunctions(c->context,NULL);
+/*    redisSetReplyObjectFunctions(c->context,NULL); */
     aeCreateFileEvent(config.el,c->context->fd,AE_WRITABLE,writeHandler,c);
     listAddNodeTail(config.clients,c);
     config.liveclients++;
