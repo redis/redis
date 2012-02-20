@@ -150,6 +150,20 @@ void *zrealloc(void *ptr, size_t size) {
 #endif
 }
 
+/* Provide zmalloc_size() for systems where this function is not provided by
+ * malloc itself, given that in that case we store an header with this
+ * information as the first bytes of every allocation. */
+#ifndef HAVE_MALLOC_SIZE
+size_t zmalloc_size(void *ptr) {
+    void *realptr = (char*)ptr-PREFIX_SIZE;
+    size_t size = *((size_t*)realptr);
+    /* Assume at least that all the allocations are padded at sizeof(long) by
+     * the underlying allocator. */
+    if (size&(sizeof(long)-1)) size += sizeof(long)-(size&(sizeof(long)-1));
+    return size+PREFIX_SIZE;
+}
+#endif
+
 void zfree(void *ptr) {
 #ifndef HAVE_MALLOC_SIZE
     void *realptr;
