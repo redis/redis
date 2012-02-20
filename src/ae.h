@@ -61,6 +61,7 @@ typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
 /* File event structure */
 typedef struct aeFileEvent {
     int mask; /* one of AE_(READABLE|WRITABLE) */
+    int filter; /* set it to current eventLoop->epoch when fired in current loop */
     aeFileProc *rfileProc;
     aeFileProc *wfileProc;
     void *clientData;
@@ -92,6 +93,8 @@ typedef struct aeEventLoop {
     aeFiredEvent *fired; /* Fired events */
     aeTimeEvent *timeEventHead;
     int stop;
+    int epoch;      /* Start from 1, incremented by 1 when every loop end */
+    int processing; /* Set it to 1 when we are inside the aeProcessEvents() or set it to 0 */
     void *apidata; /* This is used for polling API specific data */
     aeBeforeSleepProc *beforesleep;
 } aeEventLoop;

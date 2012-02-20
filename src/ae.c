@@ -67,6 +67,8 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->stop = 0;
     eventLoop->maxfd = -1;
     eventLoop->beforesleep = NULL;
+    eventLoop->epoch = 1;
+    eventLoop->processing = 0;
     if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
@@ -103,6 +105,10 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
     fe->mask |= mask;
+    if (eventLoop->processing)
+        fe->filter = eventLoop->epoch;
+    else
+        fe->filter = eventLoop->epoch - 1;
     if (mask & AE_READABLE) fe->rfileProc = proc;
     if (mask & AE_WRITABLE) fe->wfileProc = proc;
     fe->clientData = clientData;
@@ -338,9 +344,18 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             }
         }
 
+        /* note 1. the eventLoop->processing set to 1 at loop start
+         * set to 0 when loop end
+         * 2. evnetLoop->epoch will increment by 1 when loop end
+         * 3. we skip the file process when fe->filter == eventLoop->epoch,
+         * since we set fe->filter to eventLoop->epoch when create a new fileEvent
+         * inside aeProcessEvents */
+        eventLoop->processing = 1;
         numevents = aeApiPoll(eventLoop, tvp);
         for (j = 0; j < numevents; j++) {
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
+            if (fe->filter == eventLoop->epoch) continue;
+
             int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
             int rfired = 0;
@@ -358,6 +373,8 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             }
             processed++;
         }
+        eventLoop->processing = 0;
+        eventLoop->epoch++;
     }
     /* Check time events */
     if (flags & AE_TIME_EVENTS)
