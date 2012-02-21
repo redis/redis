@@ -195,6 +195,9 @@ redis-server: $(OBJ)
 clean:
 	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
 
+distclean: clean
+	-(cd .. && $(MAKE) clean)
+
 dep:
 	$(CC) -MM *.c -I ../deps/hiredis -I ../deps/linenoise
 
