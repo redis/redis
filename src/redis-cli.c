@@ -68,7 +68,7 @@ static struct config {
     char *auth;
     int raw_output; /* output mode per command */
     sds mb_delim;
-    char prompt[32];
+    char prompt[128];
     char *eval;
 } config;
 
@@ -91,12 +91,18 @@ static long long mstime(void) {
 }
 
 static void cliRefreshPrompt(void) {
-    if (config.dbnum == 0)
-        snprintf(config.prompt,sizeof(config.prompt),"redis %s:%d> ",
-            config.hostip, config.hostport);
-    else
-        snprintf(config.prompt,sizeof(config.prompt),"redis %s:%d[%d]> ",
-            config.hostip, config.hostport, config.dbnum);
+    sds prompt = sdsnew("redis ");
+    if (config.hostsocket != NULL) {
+        prompt = sdscat(prompt, config.hostsocket);
+    } else {
+        prompt = sdscatprintf(prompt, "%s:%d", config.hostip, config.hostport);
+        if (config.dbnum > 0) {
+            prompt = sdscatprintf(prompt, "[%d]", config.dbnum);
+        }
+    }
+    prompt = sdscat(prompt, "> ");
+    strncpy(config.prompt, prompt, sizeof(config.prompt));
+    sdsfree(prompt);
 }
 
 /*------------------------------------------------------------------------------
