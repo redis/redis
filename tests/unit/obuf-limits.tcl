@@ -15,7 +15,7 @@ start_server {tags {"obuf-limits"}} {
             if {![regexp {omem=([0-9]+)} $c - omem]} break
             if {$omem > 200000} break
         }
-        assert {$omem >= 99970 && $omem < 200000}
+        assert {$omem >= 99000 && $omem < 200000}
         $rd1 close
     }
 
