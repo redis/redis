@@ -18,6 +18,19 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
+What's new in Redis 2.4.8
+=========================
+
+UPGRADE URGENCY: moderate if you don't experience any of the fixed problems.
+
+* [BUGFIX] Make install now uses cp -f to avoid 'text file busy' errors.
+* [BUGFIX] redis-check-aof is now large files safe also on 32 bit systems.
+* [BUGFIX] Issue #327 fixed: maxmemory and replication now work much better.
+* [BUGFIX] Now HINCRBY can detect overflows too. Fix for issue #330.
+* [BUGFIX] Fixed compilation with latest clang.
+* [BUGFIX] Fixed handling of empty sorted sets produced in RDB by
+           very old Redis versions (1.2.x).
+
 What's new in Redis 2.4.7
 =========================
 
