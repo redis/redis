@@ -10,6 +10,15 @@ CLIEXEC=/usr/local/bin/redis-cli
 PIDFILE=/var/run/redis_${REDISPORT}.pid
 CONF="/etc/redis/${REDISPORT}.conf"
 
+pidof_redis() {
+    if [ -e "$PIDFILE" ]; then
+        if pidof redis-server | tr ' ' '\n' | grep -w $(cat $PIDFILE); then
+            return 0
+        fi
+    fi
+    return 1
+}
+
 case "$1" in
     start)
         if [ -f $PIDFILE ]
@@ -34,6 +43,16 @@ case "$1" in
                     sleep 1
                 done
                 echo "Redis stopped"
+        fi
+        ;;
+    status)
+        PID=$(pidof_redis) || true
+        if [ -n "$PID" ]; then
+            echo "redis-server is running (pid $PID)."
+            exit 1
+        else
+            echo "redis-server is NOT running."
+            exit 1
         fi
         ;;
     *)
