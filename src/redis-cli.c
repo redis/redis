@@ -501,6 +501,11 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
     size_t *argvlen;
     int j, output_raw;
 
+    if (!strcasecmp(command,"help") || !strcasecmp(command,"?")) {
+        cliOutputHelp(--argc, ++argv);
+        return REDIS_OK;
+    }
+
     if (context == NULL) return REDIS_ERR;
 
     output_raw = 0;
@@ -515,10 +520,6 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
         output_raw = 1;
     }
 
-    if (!strcasecmp(command,"help") || !strcasecmp(command,"?")) {
-        cliOutputHelp(--argc, ++argv);
-        return REDIS_OK;
-    }
     if (!strcasecmp(command,"shutdown")) config.shutdown = 1;
     if (!strcasecmp(command,"monitor")) config.monitor_mode = 1;
     if (!strcasecmp(command,"subscribe") ||
