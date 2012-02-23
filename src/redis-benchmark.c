@@ -78,7 +78,7 @@ static struct config {
 typedef struct _client {
     redisContext *context;
     sds obuf;
-    char *randptr[10]; /* needed for MSET against 10 keys */
+    char *randptr[32]; /* needed for MSET against 10 keys */
     size_t randlen;
     unsigned int written; /* bytes of 'obuf' already written */
     long long start; /* start time of a request */
@@ -271,13 +271,11 @@ static client createClient(char *cmd, size_t len) {
 
     /* Find substrings in the output buffer that need to be randomized. */
     if (config.randomkeys) {
-        char *p = c->obuf, *newline;
+        char *p = c->obuf;
         while ((p = strstr(p,":rand:")) != NULL) {
-            newline = strstr(p,"\r\n");
-            assert(newline-(p+6) == 12); /* 12 chars for randomness */
             assert(c->randlen < (signed)(sizeof(c->randptr)/sizeof(char*)));
             c->randptr[c->randlen++] = p+6;
-            p = newline+2;
+            p += 6;
         }
     }
 
@@ -292,7 +290,7 @@ static void createMissingClients(client c) {
     int n = 0;
 
     while(config.liveclients < config.numclients) {
-        createClient(c->obuf,sdslen(c->obuf));
+        createClient(c->obuf,sdslen(c->obuf)/config.pipeline);
 
         /* Listen backlog is quite limited on most systems */
         if (++n > 64) {
