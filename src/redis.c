@@ -1290,6 +1290,7 @@ sds genRedisInfoString(void) {
         "used_memory_rss:%zu\r\n"
         "used_memory_peak:%zu\r\n"
         "used_memory_peak_human:%s\r\n"
+        "max_memory:%zu\r\n"
         "mem_fragmentation_ratio:%.2f\r\n"
         "mem_allocator:%s\r\n"
         "loading:%d\r\n"
@@ -1336,6 +1337,7 @@ sds genRedisInfoString(void) {
         zmalloc_get_rss(),
         server.stat_peak_memory,
         peak_hmem,
+        server.maxmemory,
         zmalloc_get_fragmentation_ratio(),
         ZMALLOC_LIB,
         server.loading,
