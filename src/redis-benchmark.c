@@ -196,7 +196,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     exit(1);
                 }
 
-				freeReplyObject(reply);
+                freeReplyObject(reply);
 
                 if (config.requests_finished < config.requests)
                     config.latency[config.requests_finished++] = c->latency;
