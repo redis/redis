@@ -97,11 +97,10 @@
 #endif
 
 #if (__i386 || __amd64) && __GNUC__
-    #include <features.h>
-
-    #if __GNUC_PREREQ(4,1)
-        #define HAVE_ATOMIC
-    #endif
+#define GNUC_VERSION (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
+#if GNUC_VERSION >= 40100
+#define HAVE_ATOMIC
+#endif
 #endif
 
 
