@@ -35,6 +35,14 @@
 #include "config.h"
 #include "zmalloc.h"
 
+#if (__i386 || __amd64) && __GNUC__
+    #include <features.h>
+
+    #if __GNUC_PREREQ(4,1)
+        #define HAVE_ATOMIC
+    #endif
+#endif
+
 #ifdef HAVE_MALLOC_SIZE
 #define PREFIX_SIZE (0)
 #else
