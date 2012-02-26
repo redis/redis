@@ -96,4 +96,13 @@
 #error "Undefined or invalid BYTE_ORDER"
 #endif
 
+#if (__i386 || __amd64) && __GNUC__
+    #include <features.h>
+
+    #if __GNUC_PREREQ(4,1)
+        #define HAVE_ATOMIC
+    #endif
+#endif
+
+
 #endif
