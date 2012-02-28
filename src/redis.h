@@ -399,16 +399,29 @@ typedef struct clientBufferLimitsConfig {
     time_t soft_limit_seconds;
 } clientBufferLimitsConfig;
 
-/* Currently only used to additionally propagate more commands to AOF/Replication
- * after the propagation of the executed command.
- * The structure contains everything needed to propagate a command:
- * argv and argc, the ID of the database, pointer to the command table entry,
- * and finally the target, that is an xor between REDIS_PROPAGATE_* flags. */
-typedef struct propagatedItem {
+/* The redisOp structure defines a Redis Operation, that is an instance of
+ * a command with an argument vector, database ID, propagation target
+ * (REDIS_PROPAGATE_*), and command pointer.
+ *
+ * Currently only used to additionally propagate more commands to AOF/Replication
+ * after the propagation of the executed command. */
+typedef struct redisOp {
     robj **argv;
     int argc, dbid, target;
     struct redisCommand *cmd;
-} propagatedItem;
+} redisOp;
+
+/* Defines an array of Redis operations. There is an API to add to this
+ * structure in a easy way.
+ *
+ * redisOpArrayInit();
+ * redisOpArrayAppend();
+ * redisOpArrayFree();
+ */
+typedef struct redisOpArray {
+    redisOp *ops;
+    int numops;
+} redisOpArray;
 
 /*-----------------------------------------------------------------------------
  * Redis cluster data structures
@@ -624,7 +637,7 @@ struct redisServer {
     char *rdb_filename;             /* Name of RDB file */
     int rdb_compression;            /* Use compression in RDB? */
     /* Propagation of commands in AOF / replication */
-    propagatedItem also_propagate;  /* Additional command to propagate. */
+    redisOpArray also_propagate;    /* Additional command to propagate. */
     /* Logging */
     char *logfile;                  /* Path of log file */
     int syslog_enabled;             /* Is syslog enabled? */
