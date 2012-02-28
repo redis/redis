@@ -399,6 +399,17 @@ typedef struct clientBufferLimitsConfig {
     time_t soft_limit_seconds;
 } clientBufferLimitsConfig;
 
+/* Currently only used to additionally propagate more commands to AOF/Replication
+ * after the propagation of the executed command.
+ * The structure contains everything needed to propagate a command:
+ * argv and argc, the ID of the database, pointer to the command table entry,
+ * and finally the target, that is an xor between REDIS_PROPAGATE_* flags. */
+typedef struct propagatedItem {
+    robj **argv;
+    int argc, dbid, target;
+    struct redisCommand *cmd;
+} propagatedItem;
+
 /*-----------------------------------------------------------------------------
  * Redis cluster data structures
  *----------------------------------------------------------------------------*/
@@ -562,7 +573,7 @@ struct redisServer {
     off_t loading_loaded_bytes;
     time_t loading_start_time;
     /* Fast pointers to often looked up command */
-    struct redisCommand *delCommand, *multiCommand;
+    struct redisCommand *delCommand, *multiCommand, *lpushCommand;
     int cronloops;                  /* Number of times the cron function run */
     time_t lastsave;                /* Unix time of last save succeeede */
     /* Fields used only for stats */
@@ -612,6 +623,8 @@ struct redisServer {
     int saveparamslen;              /* Number of saving points */
     char *rdb_filename;             /* Name of RDB file */
     int rdb_compression;            /* Use compression in RDB? */
+    /* Propagation of commands in AOF / replication */
+    propagatedItem also_propagate;  /* Additional command to propagate. */
     /* Logging */
     char *logfile;                  /* Path of log file */
     int syslog_enabled;             /* Is syslog enabled? */
@@ -956,6 +969,7 @@ struct redisCommand *lookupCommand(sds name);
 struct redisCommand *lookupCommandByCString(char *s);
 void call(redisClient *c, int flags);
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int flags);
+void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int target);
 int prepareForShutdown();
 void redisLog(int level, const char *fmt, ...);
 void redisLogRaw(int level, const char *msg);

@@ -962,6 +962,7 @@ void initServerConfig() {
     populateCommandTable();
     server.delCommand = lookupCommandByCString("del");
     server.multiCommand = lookupCommandByCString("multi");
+    server.lpushCommand = lookupCommandByCString("lpush");
     
     /* Slow log */
     server.slowlog_log_slower_than = REDIS_SLOWLOG_LOG_SLOWER_THAN;
@@ -1192,6 +1193,20 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
         replicationFeedSlaves(server.slaves,dbid,argv,argc);
 }
 
+/* Used inside commands to propatate an additional command if needed. */
+void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
+                   int target)
+{
+    propagatedItem *pi = &server.also_propagate;
+
+    redisAssert(pi->target == REDIS_PROPAGATE_NONE);
+    pi->cmd = cmd;
+    pi->dbid = dbid;
+    pi->argv = argv;
+    pi->argc = argc;
+    pi->target = target;
+}
+
 /* Call() is the core of Redis execution of a command */
 void call(redisClient *c, int flags) {
     long long dirty, start = ustime(), duration;
@@ -1202,6 +1217,7 @@ void call(redisClient *c, int flags) {
         replicationFeedMonitors(server.monitors,c->db->id,c->argv,c->argc);
 
     /* Call the command. */
+    server.also_propagate.target = REDIS_PROPAGATE_NONE;
     dirty = server.dirty;
     c->cmd->proc(c);
     dirty = server.dirty-dirty;
@@ -1231,6 +1247,16 @@ void call(redisClient *c, int flags) {
             flags |= (REDIS_PROPAGATE_REPL | REDIS_PROPAGATE_AOF);
         if (flags != REDIS_PROPAGATE_NONE)
             propagate(c->cmd,c->db->id,c->argv,c->argc,flags);
+    }
+    /* Commands such as LPUSH or BRPOPLPUSH may propagate an additional
+     * PUSH command. */
+    if (server.also_propagate.target != REDIS_PROPAGATE_NONE) {
+        int j;
+        propagatedItem *pi = &server.also_propagate;
+
+        propagate(pi->cmd, pi->dbid, pi->argv, pi->argc, pi->target);
+        for (j = 0; j < pi->argc; j++) decrRefCount(pi->argv[j]);
+        zfree(pi->argv);
     }
     server.stat_numcommands++;
 }
