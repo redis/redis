@@ -259,7 +259,7 @@ void listTypeConvert(robj *subject, int enc) {
  *----------------------------------------------------------------------------*/
 
 void pushGenericCommand(redisClient *c, int where) {
-    int j, addlen = 0, pushed = 0;
+    int j, waiting = 0, pushed = 0;
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
     int may_have_waiting_clients = (lobj == NULL);
 
@@ -272,7 +272,7 @@ void pushGenericCommand(redisClient *c, int where) {
         c->argv[j] = tryObjectEncoding(c->argv[j]);
         if (may_have_waiting_clients) {
             if (handleClientsWaitingListPush(c,c->argv[1],c->argv[j])) {
-                addlen++;
+                waiting++;
                 continue;
             } else {
                 may_have_waiting_clients = 0;
@@ -285,7 +285,7 @@ void pushGenericCommand(redisClient *c, int where) {
         listTypePush(lobj,c->argv[j],where);
         pushed++;
     }
-    addReplyLongLong(c,addlen + (lobj ? listTypeLength(lobj) : 0));
+    addReplyLongLong(c, waiting + (lobj ? listTypeLength(lobj) : 0));
     if (pushed) signalModifiedKey(c->db,c->argv[1]);
     server.dirty += pushed;
 }
