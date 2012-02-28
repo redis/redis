@@ -955,6 +955,7 @@ void setupSignalHandlers(void);
 struct redisCommand *lookupCommand(sds name);
 struct redisCommand *lookupCommandByCString(char *s);
 void call(redisClient *c, int flags);
+void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int flags);
 int prepareForShutdown();
 void redisLog(int level, const char *fmt, ...);
 void redisLogRaw(int level, const char *msg);
