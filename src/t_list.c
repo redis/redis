@@ -296,8 +296,8 @@ void pushGenericCommand(redisClient *c, int where) {
      * be propagated). */
     if (waiting && pushed) {
         /* CMD KEY a b C D E */
-        for (j = 2; j < pushed+2; j++)
-            rewriteClientCommandArgument(c,j,c->argv[j+waiting]);
+        for (j = 0; j < waiting; j++) decrRefCount(c->argv[j+2]);
+        memmove(c->argv+2,c->argv+2+waiting,sizeof(robj*)*pushed);
         c->argc -= waiting;
     }
 }
