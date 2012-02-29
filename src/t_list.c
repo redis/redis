@@ -933,36 +933,22 @@ void blockingPopGenericCommand(redisClient *c, int where) {
                 return;
             } else {
                 if (listTypeLength(o) != 0) {
-                    /* If the list contains elements fall back to the usual
-                     * non-blocking POP operation */
-                    struct redisCommand *orig_cmd;
-                    robj *argv[2], **orig_argv;
-                    int orig_argc;
+                    /* Non empty list, this is like a non normal [LR]POP. */
+                    robj *value = listTypePop(o,where);
+                    redisAssert(value != NULL);
 
-                    /* We need to alter the command arguments before to call
-                     * popGenericCommand() as the command takes a single key. */
-                    orig_argv = c->argv;
-                    orig_argc = c->argc;
-                    orig_cmd = c->cmd;
-                    argv[1] = c->argv[j];
-                    c->argv = argv;
-                    c->argc = 2;
-
-                    /* Also the return value is different, we need to output
-                     * the multi bulk reply header and the key name. The
-                     * "real" command will add the last element (the value)
-                     * for us. If this souds like an hack to you it's just
-                     * because it is... */
                     addReplyMultiBulkLen(c,2);
-                    addReplyBulk(c,argv[1]);
+                    addReplyBulk(c,c->argv[j]);
+                    addReplyBulk(c,value);
+                    decrRefCount(value);
+                    if (listTypeLength(o) == 0) dbDelete(c->db,c->argv[j]);
+                    signalModifiedKey(c->db,c->argv[j]);
+                    server.dirty++;
 
-                    popGenericCommand(c,where);
-
-                    /* Fix the client structure with the original stuff */
-                    c->argv = orig_argv;
-                    c->argc = orig_argc;
-                    c->cmd = orig_cmd;
-
+                    /* Replicate it as an [LR]POP instead of B[LR]POP. */
+                    rewriteClientCommandVector(c,2,
+                        (where == REDIS_HEAD) ? shared.lpop : shared.rpop,
+                        c->argv[j]);
                     return;
                 }
             }

@@ -365,7 +365,7 @@ struct sharedObjectsStruct {
     *select0, *select1, *select2, *select3, *select4,
     *select5, *select6, *select7, *select8, *select9,
     *messagebulk, *pmessagebulk, *subscribebulk, *unsubscribebulk,
-    *psubscribebulk, *punsubscribebulk, *del,
+    *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop,
     *integers[REDIS_SHARED_INTEGERS],
     *mbulkhdr[REDIS_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
     *bulkhdr[REDIS_SHARED_BULKHDR_LEN];  /* "$<value>\r\n" */
