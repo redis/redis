@@ -596,7 +596,7 @@ void replicationCron(void) {
             if (slave->replstate == REDIS_REPL_SEND_BULK) continue;
             if (slave->replstate == REDIS_REPL_ONLINE) {
                 /* If the slave is online send a normal ping */
-                addReplySds(slave,sdsnew("PING\r\n"));
+                addReplySds(slave,sdsnew("*1\r\n$4\r\nPING\r\n"));
             } else {
                 /* Otherwise we are in the pre-synchronization stage.
                  * Just a newline will do the work of refreshing the
