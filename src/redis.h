@@ -637,6 +637,7 @@ struct redisServer {
     int rdb_compression;            /* Use compression in RDB? */
     time_t lastsave;                /* Unix time of last save succeeede */
     int lastbgsave_status;          /* REDIS_OK or REDIS_ERR */
+    int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
     /* Propagation of commands in AOF / replication */
     redisOpArray also_propagate;    /* Additional command to propagate. */
     /* Logging */

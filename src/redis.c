@@ -1091,6 +1091,7 @@ void initServer() {
     server.stat_rejected_conn = 0;
     server.unixtime = time(NULL);
     server.lastbgsave_status = REDIS_OK;
+    server.stop_writes_on_bgsave_err = 1;
     aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL);
     if (server.ipfd > 0 && aeCreateFileEvent(server.el,server.ipfd,AE_READABLE,
         acceptTcpHandler,NULL) == AE_ERR) oom("creating file event");
@@ -1378,7 +1379,9 @@ int processCommand(redisClient *c) {
     }
 
     /* Don't accept write commands if there are problems persisting on disk. */
-    if (server.saveparamslen > 0 && server.lastbgsave_status == REDIS_ERR &&
+    if (server.stop_writes_on_bgsave_err &&
+        server.saveparamslen > 0
+        && server.lastbgsave_status == REDIS_ERR &&
         c->cmd->flags & REDIS_CMD_WRITE)
     {
         addReply(c, shared.bgsaveerr);
