@@ -1087,11 +1087,7 @@ sds getClientInfoString(redisClient *client) {
     time_t now = time(NULL);
     int emask;
 
-    if (anetPeerToString(client->fd,ip,&port) == -1) {
-        ip[0] = '?';
-        ip[1] = '\0';
-        port = 0;
-    }
+    anetPeerToString(client->fd,ip,&port);
     p = flags;
     if (client->flags & REDIS_SLAVE) {
         if (client->flags & REDIS_MONITOR)
