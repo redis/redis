@@ -656,6 +656,7 @@ int rdbSave(char *filename) {
     redisLog(REDIS_NOTICE,"DB saved on disk");
     server.dirty = 0;
     server.lastsave = time(NULL);
+    server.lastbgsave_status = REDIS_OK;
     return REDIS_OK;
 
 werr:
@@ -1061,12 +1062,15 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
             "Background saving terminated with success");
         server.dirty = server.dirty - server.dirty_before_bgsave;
         server.lastsave = time(NULL);
+        server.lastbgsave_status = REDIS_OK;
     } else if (!bysignal && exitcode != 0) {
         redisLog(REDIS_WARNING, "Background saving error");
+        server.lastbgsave_status = REDIS_ERR;
     } else {
         redisLog(REDIS_WARNING,
             "Background saving terminated by signal %d", bysignal);
         rdbRemoveTempFile(server.rdb_child_pid);
+        server.lastbgsave_status = REDIS_ERR;
     }
     server.rdb_child_pid = -1;
     /* Possibly there are slaves waiting for a BGSAVE in order to be served
