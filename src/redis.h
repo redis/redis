@@ -932,7 +932,7 @@ int syncReadLine(int fd, char *ptr, ssize_t size, int timeout);
 
 /* Replication */
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
-void replicationFeedMonitors(list *monitors, int dictid, robj **argv, int argc);
+void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **argv, int argc);
 void updateSlavesWaitingBgsave(int bgsaveerr);
 void replicationCron(void);
 

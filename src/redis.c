@@ -1248,7 +1248,7 @@ void call(redisClient *c, int flags) {
     /* Sent the command to clients in MONITOR mode, only if the commands are
      * not geneated from reading an AOF. */
     if (listLength(server.monitors) && !server.loading)
-        replicationFeedMonitors(server.monitors,c->db->id,c->argv,c->argc);
+        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
 
     /* Call the command. */
     redisOpArrayInit(&server.also_propagate);
