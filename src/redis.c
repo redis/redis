@@ -801,6 +801,8 @@ void createSharedObjects(void) {
 }
 
 void initServerConfig() {
+    getRandomHexChars(server.runid,REDIS_RUN_ID_SIZE);
+    server.runid[REDIS_RUN_ID_SIZE] = '\0';
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.port = REDIS_SERVERPORT;
     server.bindaddr = NULL;
@@ -1276,6 +1278,7 @@ sds genRedisInfoString(void) {
         "multiplexing_api:%s\r\n"
         "gcc_version:%d.%d.%d\r\n"
         "process_id:%ld\r\n"
+        "run_id:%s\r\n"
         "uptime_in_seconds:%ld\r\n"
         "uptime_in_days:%ld\r\n"
         "lru_clock:%ld\r\n"
@@ -1323,6 +1326,7 @@ sds genRedisInfoString(void) {
         0,0,0,
 #endif
         (long) getpid(),
+        server.runid,
         uptime,
         uptime/(3600*24),
         (unsigned long) server.lruclock,

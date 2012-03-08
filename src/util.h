@@ -8,6 +8,7 @@ int ll2string(char *s, size_t len, long long value);
 int string2ll(char *s, size_t slen, long long *value);
 int string2l(char *s, size_t slen, long *value);
 int d2string(char *buf, size_t len, double value);
+void getRandomHexChars(char *p, unsigned int len);
 long long ustime(void);
 long long mstime(void);
 

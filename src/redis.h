@@ -61,6 +61,8 @@
 #define REDIS_REPL_TIMEOUT 60
 #define REDIS_REPL_PING_SLAVE_PERIOD 10
 
+#define REDIS_RUN_ID_SIZE 40
+
 /* Hash table parameters */
 #define REDIS_HT_MINFILL        10      /* Minimal hash table fill 10% */
 
@@ -408,6 +410,7 @@ struct redisServer {
     char neterr[ANET_ERR_LEN];
     aeEventLoop *el;
     int cronloops;              /* number of times the cron function run */
+    char runid[REDIS_RUN_ID_SIZE+1];  /* ID always different at every exec. */
     time_t lastsave;                /* Unix time of last save succeeede */
     /* Fields used only for stats */
     time_t stat_starttime;          /* server start time */
