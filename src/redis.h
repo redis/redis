@@ -59,6 +59,7 @@
 #define REDIS_REPL_PING_SLAVE_PERIOD 10
 
 #define REDIS_RUN_ID_SIZE 40
+#define REDIS_OPS_SEC_SAMPLES 16
 
 /* Protocol and I/O related defines */
 #define REDIS_MAX_QUERYBUF_LEN  (1024*1024*1024) /* 1GB max query buffer. */
@@ -606,6 +607,12 @@ struct redisServer {
     long long slowlog_entry_id;     /* SLOWLOG current entry ID */
     long long slowlog_log_slower_than; /* SLOWLOG time limit (to get logged) */
     unsigned long slowlog_max_len;     /* SLOWLOG max number of items logged */
+    /* The following two are used to track instantaneous "load" in terms
+     * of operations per second. */
+    long long ops_sec_last_sample_time; /* Timestamp of last sample (in ms) */
+    long long ops_sec_last_sample_ops;  /* numcommands in last sample */
+    long long ops_sec_samples[REDIS_OPS_SEC_SAMPLES];
+    int ops_sec_idx;
     /* Configuration */
     int verbosity;                  /* Loglevel in redis.conf */
     int maxidletime;                /* Client timeout in seconds */
