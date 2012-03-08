@@ -19,20 +19,6 @@ int clusterAddSlot(clusterNode *n, int slot);
  * Initialization
  * -------------------------------------------------------------------------- */
 
-void clusterGetRandomName(char *p) {
-    FILE *fp = fopen("/dev/urandom","r");
-    char *charset = "0123456789abcdef";
-    int j;
-
-    if (fp == NULL || fread(p,REDIS_CLUSTER_NAMELEN,1,fp) == 0) {
-        for (j = 0; j < REDIS_CLUSTER_NAMELEN; j++)
-            p[j] = rand();
-    }
-    for (j = 0; j < REDIS_CLUSTER_NAMELEN; j++)
-        p[j] = charset[p[j] & 0x0F];
-    fclose(fp);
-}
-
 int clusterLoadConfig(char *filename) {
     FILE *fp = fopen(filename,"r");
     char *line;
@@ -304,7 +290,7 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     if (nodename)
         memcpy(node->name, nodename, REDIS_CLUSTER_NAMELEN);
     else
-        clusterGetRandomName(node->name);
+        getRandomHexChars(node->name, REDIS_CLUSTER_NAMELEN);
     node->flags = flags;
     memset(node->slots,0,sizeof(node->slots));
     node->numslaves = 0;

@@ -58,6 +58,8 @@
 #define REDIS_REPL_TIMEOUT 60
 #define REDIS_REPL_PING_SLAVE_PERIOD 10
 
+#define REDIS_RUN_ID_SIZE 40
+
 /* Protocol and I/O related defines */
 #define REDIS_MAX_QUERYBUF_LEN  (1024*1024*1024) /* 1GB max query buffer. */
 #define REDIS_IOBUF_LEN         (1024*16)  /* Generic I/O buffer size */
@@ -813,6 +815,7 @@ dictType hashDictType;
 /* Utils */
 long long ustime(void);
 long long mstime(void);
+void getRandomHexChars(char *p, unsigned int len);
 
 /* networking.c -- Networking and Client related operations */
 redisClient *createClient(int fd);
