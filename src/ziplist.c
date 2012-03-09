@@ -75,6 +75,8 @@
 #define ZIP_BIGLEN 254
 
 /* Different encoding/length possibilities */
+#define ZIP_STR_MASK (0xc0)
+#define ZIP_INT_MASK (0x30)
 #define ZIP_STR_06B (0 << 6)
 #define ZIP_STR_14B (1 << 6)
 #define ZIP_STR_32B (2 << 6)
@@ -82,9 +84,8 @@
 #define ZIP_INT_32B (0xc0 | 1<<4)
 #define ZIP_INT_64B (0xc0 | 2<<4)
 
-/* Macro's to determine type */
-#define ZIP_IS_STR(enc) (((enc) & 0xc0) < 0xc0)
-#define ZIP_IS_INT(enc) (!ZIP_IS_STR(enc) && ((enc) & 0x30) < 0x30)
+/* Macro to determine type */
+#define ZIP_IS_STR(enc) (((enc) & ZIP_STR_MASK) < ZIP_STR_MASK)
 
 /* Utility macros */
 #define ZIPLIST_BYTES(zl)       (*((uint32_t*)(zl)))
@@ -110,19 +111,13 @@ typedef struct zlentry {
     unsigned char *p;
 } zlentry;
 
-/* Return the encoding pointer to by 'p'. */
-static unsigned int zipEntryEncoding(unsigned char *p) {
-    /* String encoding: 2 MSBs */
-    unsigned char b = p[0] & 0xc0;
-    if (b < 0xc0) {
-        return b;
-    } else {
-        /* Integer encoding: 4 MSBs */
-        return p[0] & 0xf0;
-    }
-    assert(NULL);
-    return 0;
-}
+#define ZIP_ENTRY_ENCODING(ptr, encoding) do {                                 \
+    (encoding) = (ptr[0]) & (ZIP_STR_MASK | ZIP_INT_MASK);                     \
+    if (((encoding) & ZIP_STR_MASK) < ZIP_STR_MASK) {                          \
+        /* String encoding: 2 MSBs */                                          \
+        (encoding) &= ZIP_STR_MASK;                                            \
+    }                                                                          \
+} while(0)
 
 /* Return bytes needed to store integer encoded by 'encoding' */
 static unsigned int zipIntSize(unsigned char encoding) {
@@ -133,36 +128,6 @@ static unsigned int zipIntSize(unsigned char encoding) {
     }
     assert(NULL);
     return 0;
-}
-
-/* Decode the encoded length pointed by 'p'. If a pointer to 'lensize' is
- * provided, it is set to the number of bytes required to encode the length. */
-static unsigned int zipDecodeLength(unsigned char *p, unsigned int *lensize) {
-    unsigned char encoding = zipEntryEncoding(p);
-    unsigned int len = 0;
-
-    if (ZIP_IS_STR(encoding)) {
-        switch(encoding) {
-        case ZIP_STR_06B:
-            len = p[0] & 0x3f;
-            if (lensize) *lensize = 1;
-            break;
-        case ZIP_STR_14B:
-            len = ((p[0] & 0x3f) << 8) | p[1];
-            if (lensize) *lensize = 2;
-            break;
-        case ZIP_STR_32B:
-            len = (p[1] << 24) | (p[2] << 16) | (p[3] << 8) | p[4];
-            if (lensize) *lensize = 5;
-            break;
-        default:
-            assert(NULL);
-        }
-    } else {
-        len = zipIntSize(encoding);
-        if (lensize) *lensize = 1;
-    }
-    return len;
 }
 
 /* Encode the length 'l' writing it in 'p'. If p is NULL it just returns
@@ -201,18 +166,33 @@ static unsigned int zipEncodeLength(unsigned char *p, unsigned char encoding, un
     return len;
 }
 
-/* Decode the length of the previous element stored at "p". */
-static unsigned int zipPrevDecodeLength(unsigned char *p, unsigned int *lensize) {
-    unsigned int len = *p;
-    if (len < ZIP_BIGLEN) {
-        if (lensize) *lensize = 1;
-    } else {
-        if (lensize) *lensize = 1+sizeof(len);
-        memcpy(&len,p+1,sizeof(len));
-        memrev32ifbe(&len);
-    }
-    return len;
-}
+/* Decode the length encoded in 'ptr'. The 'encoding' variable will hold the
+ * entries encoding, the 'lensize' variable will hold the number of bytes
+ * required to encode the entries length, and the 'len' variable will hold the
+ * entries length. */
+#define ZIP_DECODE_LENGTH(ptr, encoding, lensize, len) do {                    \
+    ZIP_ENTRY_ENCODING((ptr), (encoding));                                     \
+    if ((encoding) < ZIP_STR_MASK) {                                           \
+        if ((encoding) == ZIP_STR_06B) {                                       \
+            (lensize) = 1;                                                     \
+            (len) = (ptr)[0] & 0x3f;                                           \
+        } else if ((encoding) == ZIP_STR_14B) {                                \
+            (lensize) = 2;                                                     \
+            (len) = (((ptr)[0] & 0x3f) << 8) | (ptr)[1];                       \
+        } else if (encoding == ZIP_STR_32B) {                                  \
+            (lensize) = 5;                                                     \
+            (len) = ((ptr)[1] << 24) |                                         \
+                    ((ptr)[2] << 16) |                                         \
+                    ((ptr)[3] <<  8) |                                         \
+                    ((ptr)[4]);                                                \
+        } else {                                                               \
+            assert(NULL);                                                      \
+        }                                                                      \
+    } else {                                                                   \
+        (lensize) = 1;                                                         \
+        (len) = zipIntSize(encoding);                                          \
+    }                                                                          \
+} while(0);
 
 /* Encode the length of the previous entry and write it to "p". Return the
  * number of bytes needed to encode this length if "p" is NULL. */
@@ -241,12 +221,43 @@ static void zipPrevEncodeLengthForceLarge(unsigned char *p, unsigned int len) {
     memrev32ifbe(p+1);
 }
 
-/* Return the difference in number of bytes needed to store the new length
- * "len" on the entry pointed to by "p". */
+/* Decode the number of bytes required to store the length of the previous
+ * element, from the perspective of the entry pointed to by 'ptr'. */
+#define ZIP_DECODE_PREVLENSIZE(ptr, prevlensize) do {                          \
+    if ((ptr)[0] < ZIP_BIGLEN) {                                               \
+        (prevlensize) = 1;                                                     \
+    } else {                                                                   \
+        (prevlensize) = 5;                                                     \
+    }                                                                          \
+} while(0);
+
+/* Decode the length of the previous element, from the perspective of the entry
+ * pointed to by 'ptr'. */
+#define ZIP_DECODE_PREVLEN(ptr, prevlensize, prevlen) do {                     \
+    ZIP_DECODE_PREVLENSIZE(ptr, prevlensize);                                  \
+    if ((prevlensize) == 1) {                                                  \
+        (prevlen) = (ptr)[0];                                                  \
+    } else if ((prevlensize) == 5) {                                           \
+        assert(sizeof((prevlensize)) == 4);                                    \
+        memcpy(&(prevlen), ((char*)(ptr)) + 1, 4);                             \
+        memrev32ifbe(&len);                                                    \
+    }                                                                          \
+} while(0);
+
+/* Return the difference in number of bytes needed to store the length of the
+ * previous element 'len', in the entry pointed to by 'p'. */
 static int zipPrevLenByteDiff(unsigned char *p, unsigned int len) {
     unsigned int prevlensize;
-    zipPrevDecodeLength(p,&prevlensize);
-    return zipPrevEncodeLength(NULL,len)-prevlensize;
+    ZIP_DECODE_PREVLENSIZE(p, prevlensize);
+    return zipPrevEncodeLength(NULL, len) - prevlensize;
+}
+
+/* Return the total number of bytes used by the entry pointed to by 'p'. */
+static unsigned int zipRawEntryLength(unsigned char *p) {
+    unsigned int prevlensize, encoding, lensize, len;
+    ZIP_DECODE_PREVLENSIZE(p, prevlensize);
+    ZIP_DECODE_LENGTH(p + prevlensize, encoding, lensize, len);
+    return prevlensize + lensize + len;
 }
 
 /* Check if string pointed to by 'entry' can be encoded as an integer.
@@ -319,18 +330,12 @@ static int64_t zipLoadInteger(unsigned char *p, unsigned char encoding) {
 /* Return a struct with all information about an entry. */
 static zlentry zipEntry(unsigned char *p) {
     zlentry e;
-    e.prevrawlen = zipPrevDecodeLength(p,&e.prevrawlensize);
-    e.len = zipDecodeLength(p+e.prevrawlensize,&e.lensize);
-    e.headersize = e.prevrawlensize+e.lensize;
-    e.encoding = zipEntryEncoding(p+e.prevrawlensize);
+
+    ZIP_DECODE_PREVLEN(p, e.prevrawlensize, e.prevrawlen);
+    ZIP_DECODE_LENGTH(p + e.prevrawlensize, e.encoding, e.lensize, e.len);
+    e.headersize = e.prevrawlensize + e.lensize;
     e.p = p;
     return e;
-}
-
-/* Return the total number of bytes used by the entry at "p". */
-static unsigned int zipRawEntryLength(unsigned char *p) {
-    zlentry e = zipEntry(p);
-    return e.headersize + e.len;
 }
 
 /* Create a new empty ziplist. */
@@ -628,10 +633,14 @@ unsigned char *ziplistNext(unsigned char *zl, unsigned char *p) {
      * when the *next* element is ZIP_END (there is no next entry). */
     if (p[0] == ZIP_END) {
         return NULL;
-    } else {
-        p = p+zipRawEntryLength(p);
-        return (p[0] == ZIP_END) ? NULL : p;
     }
+
+    p += zipRawEntryLength(p);
+    if (p[0] == ZIP_END) {
+        return NULL;
+    }
+
+    return p;
 }
 
 /* Return pointer to previous entry in ziplist. */
@@ -727,6 +736,62 @@ unsigned int ziplistCompare(unsigned char *p, unsigned char *sstr, unsigned int 
         }
     }
     return 0;
+}
+
+/* Find pointer to the entry equal to the specified entry. Skip 'skip' entries
+ * between every comparison. Returns NULL when the field could not be found. */
+unsigned char *ziplistFind(unsigned char *p, unsigned char *vstr, unsigned int vlen, unsigned int skip) {
+    int skipcnt = 0;
+    unsigned char vencoding = 0;
+    long long vll = 0;
+
+    while (p[0] != ZIP_END) {
+        unsigned int prevlensize, encoding, lensize, len;
+        unsigned char *q;
+
+        ZIP_DECODE_PREVLENSIZE(p, prevlensize);
+        ZIP_DECODE_LENGTH(p + prevlensize, encoding, lensize, len);
+        q = p + prevlensize + lensize;
+
+        if (skipcnt == 0) {
+            /* Compare current entry with specified entry */
+            if (ZIP_IS_STR(encoding)) {
+                if (len == vlen && memcmp(q, vstr, vlen) == 0) {
+                    return p;
+                }
+            } else {
+                /* Find out if the specified entry can be encoded */
+                if (vencoding == 0) {
+                    /* UINT_MAX when the entry CANNOT be encoded */
+                    if (!zipTryEncoding(vstr, vlen, &vll, &vencoding)) {
+                        vencoding = UCHAR_MAX;
+                    }
+
+                    /* Must be non-zero by now */
+                    assert(vencoding);
+                }
+
+                /* Compare current entry with specified entry */
+                if (encoding == vencoding) {
+                    long long ll = zipLoadInteger(q, encoding);
+                    if (ll == vll) {
+                        return p;
+                    }
+                }
+            }
+
+            /* Reset skip count */
+            skipcnt = skip;
+        } else {
+            /* Skip entry */
+            skipcnt--;
+        }
+
+        /* Move to next entry */
+        p = q + len;
+    }
+
+    return NULL;
 }
 
 /* Return length of ziplist. */

@@ -28,7 +28,6 @@
 #include "adlist.h"  /* Linked lists */
 #include "zmalloc.h" /* total memory usage aware version of malloc/free */
 #include "anet.h"    /* Networking the easy way */
-#include "zipmap.h"  /* Compact string -> string data structure */
 #include "ziplist.h" /* Compact list data structure */
 #include "intset.h"  /* Compact integer set structure */
 #include "version.h" /* Version macro */
@@ -208,8 +207,8 @@
 #define AOF_FSYNC_EVERYSEC 2
 
 /* Zip structure related defaults */
-#define REDIS_HASH_MAX_ZIPMAP_ENTRIES 512
-#define REDIS_HASH_MAX_ZIPMAP_VALUE 64
+#define REDIS_HASH_MAX_ZIPLIST_ENTRIES 512
+#define REDIS_HASH_MAX_ZIPLIST_VALUE 64
 #define REDIS_LIST_MAX_ZIPLIST_ENTRIES 512
 #define REDIS_LIST_MAX_ZIPLIST_VALUE 64
 #define REDIS_SET_MAX_INTSET_ENTRIES 512
@@ -686,8 +685,8 @@ struct redisServer {
     int sort_alpha;
     int sort_bypattern;
     /* Zip structure config, see redis.conf for more information  */
-    size_t hash_max_zipmap_entries;
-    size_t hash_max_zipmap_value;
+    size_t hash_max_ziplist_entries;
+    size_t hash_max_ziplist_value;
     size_t list_max_ziplist_entries;
     size_t list_max_ziplist_value;
     size_t set_max_intset_entries;
@@ -791,10 +790,10 @@ typedef struct {
  * not both are required, store pointers in the iterator to avoid
  * unnecessary memory allocation for fields/values. */
 typedef struct {
+    robj *subject;
     int encoding;
-    unsigned char *zi;
-    unsigned char *zk, *zv;
-    unsigned int zklen, zvlen;
+
+    unsigned char *fptr, *vptr;
 
     dictIterator *di;
     dictEntry *de;
@@ -1020,10 +1019,9 @@ unsigned long setTypeSize(robj *subject);
 void setTypeConvert(robj *subject, int enc);
 
 /* Hash data type */
-void convertToRealHash(robj *o);
+void hashTypeConvert(robj *o, int enc);
 void hashTypeTryConversion(robj *subject, robj **argv, int start, int end);
 void hashTypeTryObjectEncoding(robj *subject, robj **o1, robj **o2);
-int hashTypeGet(robj *o, robj *key, robj **objval, unsigned char **v, unsigned int *vlen);
 robj *hashTypeGetObject(robj *o, robj *key);
 int hashTypeExists(robj *o, robj *key);
 int hashTypeSet(robj *o, robj *key, robj *value);
@@ -1032,7 +1030,11 @@ unsigned long hashTypeLength(robj *o);
 hashTypeIterator *hashTypeInitIterator(robj *subject);
 void hashTypeReleaseIterator(hashTypeIterator *hi);
 int hashTypeNext(hashTypeIterator *hi);
-int hashTypeCurrent(hashTypeIterator *hi, int what, robj **objval, unsigned char **v, unsigned int *vlen);
+void hashTypeCurrentFromZiplist(hashTypeIterator *hi, int what,
+                                unsigned char **vstr,
+                                unsigned int *vlen,
+                                long long *vll);
+void hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what, robj **dst);
 robj *hashTypeCurrentObject(hashTypeIterator *hi, int what);
 robj *hashTypeLookupWriteOrCreate(redisClient *c, robj *key);
 

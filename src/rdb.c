@@ -1,5 +1,6 @@
 #include "redis.h"
 #include "lzf.h"    /* LZF compression library */
+#include "zipmap.h"
 
 #include <math.h>
 #include <sys/types.h>
@@ -424,8 +425,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         else
             redisPanic("Unknown sorted set encoding");
     case REDIS_HASH:
-        if (o->encoding == REDIS_ENCODING_ZIPMAP)
-            return rdbSaveType(rdb,REDIS_RDB_TYPE_HASH_ZIPMAP);
+        if (o->encoding == REDIS_ENCODING_ZIPLIST)
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_HASH_ZIPLIST);
         else if (o->encoding == REDIS_ENCODING_HT)
             return rdbSaveType(rdb,REDIS_RDB_TYPE_HASH);
         else
@@ -530,12 +531,13 @@ int rdbSaveObject(rio *rdb, robj *o) {
         }
     } else if (o->type == REDIS_HASH) {
         /* Save a hash value */
-        if (o->encoding == REDIS_ENCODING_ZIPMAP) {
-            size_t l = zipmapBlobLen((unsigned char*)o->ptr);
+        if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+            size_t l = ziplistBlobLen((unsigned char*)o->ptr);
 
             if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
             nwritten += n;
-        } else {
+
+        } else if (o->encoding == REDIS_ENCODING_HT) {
             dictIterator *di = dictGetIterator(o->ptr);
             dictEntry *de;
 
@@ -552,7 +554,11 @@ int rdbSaveObject(rio *rdb, robj *o) {
                 nwritten += n;
             }
             dictReleaseIterator(di);
+
+        } else {
+            redisPanic("Unknown hash encoding");
         }
+
     } else {
         redisPanic("Unknown object type");
     }
@@ -825,55 +831,69 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             maxelelen <= server.zset_max_ziplist_value)
                 zsetConvert(o,REDIS_ENCODING_ZIPLIST);
     } else if (rdbtype == REDIS_RDB_TYPE_HASH) {
-        size_t hashlen;
+        size_t len;
+        int ret;
 
-        if ((hashlen = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
+        len = rdbLoadLen(rdb, NULL);
+        if (len == REDIS_RDB_LENERR) return NULL;
+
         o = createHashObject();
+
         /* Too many entries? Use an hash table. */
-        if (hashlen > server.hash_max_zipmap_entries)
-            convertToRealHash(o);
-        /* Load every key/value, then set it into the zipmap or hash
-         * table, as needed. */
-        while(hashlen--) {
-            robj *key, *val;
+        if (len > server.hash_max_ziplist_entries)
+            hashTypeConvert(o, REDIS_ENCODING_HT);
 
-            if ((key = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
-            if ((val = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
-            /* If we are using a zipmap and there are too big values
-             * the object is converted to real hash table encoding. */
-            if (o->encoding != REDIS_ENCODING_HT &&
-               ((key->encoding == REDIS_ENCODING_RAW &&
-                sdslen(key->ptr) > server.hash_max_zipmap_value) ||
-                (val->encoding == REDIS_ENCODING_RAW &&
-                sdslen(val->ptr) > server.hash_max_zipmap_value)))
+        /* Load every field and value into the ziplist */
+        while (o->encoding == REDIS_ENCODING_ZIPLIST && len-- > 0) {
+            robj *field, *value;
+
+            /* Load raw strings */
+            field = rdbLoadStringObject(rdb);
+            if (field == NULL) return NULL;
+            redisAssert(field->encoding == REDIS_ENCODING_RAW);
+            value = rdbLoadStringObject(rdb);
+            if (value == NULL) return NULL;
+            redisAssert(field->encoding == REDIS_ENCODING_RAW);
+
+            /* Convert to hash table if size threshold is exceeded */
+            if (sdslen(field->ptr) > server.hash_max_ziplist_value ||
+                sdslen(value->ptr) > server.hash_max_ziplist_value)
             {
-                    convertToRealHash(o);
+                hashTypeConvert(o, REDIS_ENCODING_HT);
+                break;
             }
 
-            if (o->encoding == REDIS_ENCODING_ZIPMAP) {
-                unsigned char *zm = o->ptr;
-                robj *deckey, *decval;
-
-                /* We need raw string objects to add them to the zipmap */
-                deckey = getDecodedObject(key);
-                decval = getDecodedObject(val);
-                zm = zipmapSet(zm,deckey->ptr,sdslen(deckey->ptr),
-                                  decval->ptr,sdslen(decval->ptr),NULL);
-                o->ptr = zm;
-                decrRefCount(deckey);
-                decrRefCount(decval);
-                decrRefCount(key);
-                decrRefCount(val);
-            } else {
-                key = tryObjectEncoding(key);
-                val = tryObjectEncoding(val);
-                dictAdd((dict*)o->ptr,key,val);
-            }
+            /* Add pair to ziplist */
+            o->ptr = ziplistPush(o->ptr, field->ptr, sdslen(field->ptr), ZIPLIST_TAIL);
+            o->ptr = ziplistPush(o->ptr, value->ptr, sdslen(value->ptr), ZIPLIST_TAIL);
         }
+
+        /* Load remaining fields and values into the hash table */
+        while (o->encoding == REDIS_ENCODING_HT && len-- > 0) {
+            robj *field, *value;
+
+            /* Load encoded strings */
+            field = rdbLoadEncodedStringObject(rdb);
+            if (field == NULL) return NULL;
+            value = rdbLoadEncodedStringObject(rdb);
+            if (value == NULL) return NULL;
+
+            field = tryObjectEncoding(field);
+            value = tryObjectEncoding(value);
+
+            /* Add pair to hash table */
+            ret = dictAdd((dict*)o->ptr, field, value);
+            redisAssert(ret == REDIS_OK);
+        }
+
+        /* All pairs should be read by now */
+        redisAssert(len == 0);
+
     } else if (rdbtype == REDIS_RDB_TYPE_HASH_ZIPMAP  ||
                rdbtype == REDIS_RDB_TYPE_LIST_ZIPLIST ||
                rdbtype == REDIS_RDB_TYPE_SET_INTSET   ||
-               rdbtype == REDIS_RDB_TYPE_ZSET_ZIPLIST)
+               rdbtype == REDIS_RDB_TYPE_ZSET_ZIPLIST ||
+               rdbtype == REDIS_RDB_TYPE_HASH_ZIPLIST)
     {
         robj *aux = rdbLoadStringObject(rdb);
 
@@ -891,10 +911,33 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
          * converted. */
         switch(rdbtype) {
             case REDIS_RDB_TYPE_HASH_ZIPMAP:
-                o->type = REDIS_HASH;
-                o->encoding = REDIS_ENCODING_ZIPMAP;
-                if (zipmapLen(o->ptr) > server.hash_max_zipmap_entries)
-                    convertToRealHash(o);
+                /* Convert to ziplist encoded hash. This must be deprecated
+                 * when loading dumps created by Redis 2.4 gets deprecated. */
+                {
+                    unsigned char *zl = ziplistNew();
+                    unsigned char *zi = zipmapRewind(o->ptr);
+                    unsigned char *fstr, *vstr;
+                    unsigned int flen, vlen;
+                    unsigned int maxlen = 0;
+
+                    while ((zi = zipmapNext(zi, &fstr, &flen, &vstr, &vlen)) != NULL) {
+                        if (flen > maxlen) maxlen = flen;
+                        if (vlen > maxlen) maxlen = vlen;
+                        zl = ziplistPush(zl, fstr, flen, ZIPLIST_TAIL);
+                        zl = ziplistPush(zl, vstr, vlen, ZIPLIST_TAIL);
+                    }
+
+                    zfree(o->ptr);
+                    o->ptr = zl;
+                    o->type = REDIS_HASH;
+                    o->encoding = REDIS_ENCODING_ZIPLIST;
+
+                    if (hashTypeLength(o) > server.hash_max_ziplist_entries ||
+                        maxlen > server.hash_max_ziplist_value)
+                    {
+                        hashTypeConvert(o, REDIS_ENCODING_HT);
+                    }
+                }
                 break;
             case REDIS_RDB_TYPE_LIST_ZIPLIST:
                 o->type = REDIS_LIST;
@@ -913,6 +956,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                 o->encoding = REDIS_ENCODING_ZIPLIST;
                 if (zsetLength(o) > server.zset_max_ziplist_entries)
                     zsetConvert(o,REDIS_ENCODING_SKIPLIST);
+                break;
+            case REDIS_RDB_TYPE_HASH_ZIPLIST:
+                o->type = REDIS_HASH;
+                o->encoding = REDIS_ENCODING_ZIPLIST;
+                if (hashTypeLength(o) > server.hash_max_ziplist_entries)
+                    hashTypeConvert(o, REDIS_ENCODING_HT);
                 break;
             default:
                 redisPanic("Unknown encoding");
