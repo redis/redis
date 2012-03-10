@@ -609,6 +609,12 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
     return 1;
 }
 
+/* Write either the key or the value of the currently selected item of an hash.
+ * The 'hi' argument passes a valid Redis hash iterator.
+ * The 'what' filed specifies if to write a key or a value and can be
+ * either REDIS_HASH_KEY or REDIS_HASH_VALUE.
+ *
+ * The function returns 0 on error, non-zero on success. */
 static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
     if (hi->encoding == REDIS_ENCODING_ZIPLIST) {
         unsigned char *vstr = NULL;
