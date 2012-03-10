@@ -1,4 +1,5 @@
 language: erlang
 
 script:
+  - "sudo apt-get install tcl8.5"
   - "make test"
