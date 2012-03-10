@@ -109,11 +109,9 @@ robj *hashTypeGetObject(robj *o, robj *field) {
             incrRefCount(aux);
             value = aux;
         }
-
     } else {
         redisPanic("Unknown hash encoding");
     }
-
     return value;
 }
 
@@ -125,21 +123,14 @@ int hashTypeExists(robj *o, robj *field) {
         unsigned int vlen = UINT_MAX;
         long long vll = LLONG_MAX;
 
-        if (hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll) == 0) {
-            return 1;
-        }
-
+        if (hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll) == 0) return 1;
     } else if (o->encoding == REDIS_ENCODING_HT) {
         robj *aux;
 
-        if (hashTypeGetFromHashTable(o, field, &aux) == 0) {
-            return 1;
-        }
-
+        if (hashTypeGetFromHashTable(o, field, &aux) == 0) return 1;
     } else {
         redisPanic("Unknown hash encoding");
     }
-
     return 0;
 }
 
@@ -303,10 +294,7 @@ int hashTypeNext(hashTypeIterator *hi) {
             redisAssert(vptr != NULL);
             fptr = ziplistNext(zl, vptr);
         }
-
-        if (fptr == NULL) {
-            return REDIS_ERR;
-        }
+        if (fptr == NULL) return REDIS_ERR;
 
         /* Grab pointer to the value (fptr points to the field) */
         vptr = ziplistNext(zl, fptr);
@@ -315,16 +303,11 @@ int hashTypeNext(hashTypeIterator *hi) {
         /* fptr, vptr now point to the first or next pair */
         hi->fptr = fptr;
         hi->vptr = vptr;
-
     } else if (hi->encoding == REDIS_ENCODING_HT) {
-        if ((hi->de = dictNext(hi->di)) == NULL) {
-            return REDIS_ERR;
-        }
-
+        if ((hi->de = dictNext(hi->di)) == NULL) return REDIS_ERR;
     } else {
         redisPanic("Unknown hash encoding");
     }
-
     return REDIS_OK;
 }
 
