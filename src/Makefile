@@ -98,35 +98,39 @@ ae_kqueue.o: ae_kqueue.c
 ae_select.o: ae_select.c
 anet.o: anet.c fmacros.h anet.h
 aof.o: aof.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h
+  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h bio.h
 bio.o: bio.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h bio.h
+  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h bio.h
 cluster.o: cluster.c redis.h fmacros.h config.h ae.h sds.h dict.h \
-  adlist.h zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h
+  adlist.h zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h \
+  rio.h
 config.o: config.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h
+  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
 crc16.o: crc16.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h
+  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
 db.o: db.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h
+  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
 debug.o: debug.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h sha1.h
+  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h sha1.h
 dict.o: dict.c fmacros.h dict.h zmalloc.h
 endianconv.o: endianconv.c
 intset.o: intset.c intset.h zmalloc.h endianconv.h
 lzf_c.o: lzf_c.c lzfP.h
 lzf_d.o: lzf_d.c lzfP.h
 multi.o: multi.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h
+  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
 networking.o: networking.c redis.h fmacros.h config.h ae.h sds.h dict.h \
-  adlist.h zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h
+  adlist.h zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h \
+  rio.h
 object.o: object.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h
+  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
 pqsort.o: pqsort.c
 pubsub.o: pubsub.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h
+  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
+rand.o: rand.c
 rdb.o: rdb.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h lzf.h
+  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h lzf.h \
+  zipmap.h
 redis-benchmark.o: redis-benchmark.c fmacros.h ae.h \
   ../deps/hiredis/hiredis.h sds.h adlist.h zmalloc.h
 redis-check-aof.o: redis-check-aof.c fmacros.h config.h
@@ -134,34 +138,37 @@ redis-check-dump.o: redis-check-dump.c lzf.h
 redis-cli.o: redis-cli.c fmacros.h version.h ../deps/hiredis/hiredis.h \
   sds.h zmalloc.h ../deps/linenoise/linenoise.h help.h
 redis.o: redis.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h slowlog.h \
-  bio.h asciilogo.h
+  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h \
+  slowlog.h bio.h asciilogo.h
 release.o: release.c release.h
 replication.o: replication.c redis.h fmacros.h config.h ae.h sds.h dict.h \
-  adlist.h zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h
+  adlist.h zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h \
+  rio.h
+rio.o: rio.c fmacros.h rio.h sds.h util.h
 scripting.o: scripting.c redis.h fmacros.h config.h ae.h sds.h dict.h \
-  adlist.h zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h \
-  sha1.h rand.h
-rio.o: rio.c sds.h
+  adlist.h zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h \
+  rio.h sha1.h rand.h
 sds.o: sds.c sds.h zmalloc.h
 sha1.o: sha1.c sha1.h config.h
 slowlog.o: slowlog.c redis.h fmacros.h config.h ae.h sds.h dict.h \
-  adlist.h zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h \
-  slowlog.h
+  adlist.h zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h \
+  rio.h slowlog.h
 sort.o: sort.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h pqsort.h
+  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h \
+  pqsort.h
 syncio.o: syncio.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h
+  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
 t_hash.o: t_hash.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h
+  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
 t_list.o: t_list.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h
+  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
 t_set.o: t_set.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h
+  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
 t_string.o: t_string.c redis.h fmacros.h config.h ae.h sds.h dict.h \
-  adlist.h zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h
+  adlist.h zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h \
+  rio.h
 t_zset.o: t_zset.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h zipmap.h ziplist.h intset.h version.h util.h
+  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
 util.o: util.c fmacros.h util.h
 ziplist.o: ziplist.c zmalloc.h util.h ziplist.h endianconv.h
 zipmap.o: zipmap.c zmalloc.h endianconv.h
