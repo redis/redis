@@ -1,0 +1,4 @@
+language: erlang
+
+script:
+  - "make test"
