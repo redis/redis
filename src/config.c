@@ -202,8 +202,6 @@ void loadServerConfigFromString(char *config) {
             if ((server.repl_serve_stale_data = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
-        } else if (!strcasecmp(argv[0],"glueoutputbuf")) {
-            redisLog(REDIS_WARNING, "Deprecated configuration directive: \"%s\"", argv[0]);
         } else if (!strcasecmp(argv[0],"rdbcompression") && argc == 2) {
             if ((server.rdb_compression = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
@@ -262,12 +260,6 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"dbfilename") && argc == 2) {
             zfree(server.rdb_filename);
             server.rdb_filename = zstrdup(argv[1]);
-        } else if (!strcasecmp(argv[0],"hash-max-zipmap-entries") && argc == 2) {
-            redisLog(REDIS_WARNING, "Deprecated configuration directive: \"%s\"", argv[0]);
-            server.hash_max_ziplist_entries = memtoll(argv[1], NULL);
-        } else if (!strcasecmp(argv[0],"hash-max-zipmap-value") && argc == 2) {
-            redisLog(REDIS_WARNING, "Deprecated configuration directive: \"%s\"", argv[0]);
-            server.hash_max_ziplist_value = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"hash-max-ziplist-entries") && argc == 2) {
             server.hash_max_ziplist_entries = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"hash-max-ziplist-value") && argc == 2) {

@@ -22,6 +22,12 @@ but it is better to keep them in mind:
   starting with '#'. All the major clients should be already fixed to work
   with the new INFO format.
 
+Also the following redis.conf and CONFIG GET / SET parameters changed name:
+
+    * hash-max-zipmap-entries, now replaced by hash-max-ziplist-entries
+    * hash-max-zipmap-value, now replaced by hash-max-ziplist-value
+    * glueoutputbuf was no completely removed as it does not make sense
+
 ---------
 CHANGELOG
 ---------
