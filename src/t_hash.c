@@ -75,10 +75,7 @@ int hashTypeGetFromHashTable(robj *o, robj *field, robj **value) {
     redisAssert(o->encoding == REDIS_ENCODING_HT);
 
     de = dictFind(o->ptr, field);
-    if (de == NULL) {
-        return -1;
-    }
-
+    if (de == NULL) return -1;
     *value = dictGetVal(de);
     return 0;
 }
