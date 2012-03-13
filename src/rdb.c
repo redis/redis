@@ -844,9 +844,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             hashTypeConvert(o, REDIS_ENCODING_HT);
 
         /* Load every field and value into the ziplist */
-        while (o->encoding == REDIS_ENCODING_ZIPLIST && len-- > 0) {
+        while (o->encoding == REDIS_ENCODING_ZIPLIST && len > 0) {
             robj *field, *value;
 
+            len--;
             /* Load raw strings */
             field = rdbLoadStringObject(rdb);
             if (field == NULL) return NULL;
@@ -869,9 +870,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         }
 
         /* Load remaining fields and values into the hash table */
-        while (o->encoding == REDIS_ENCODING_HT && len-- > 0) {
+        while (o->encoding == REDIS_ENCODING_HT && len > 0) {
             robj *field, *value;
 
+            len--;
             /* Load encoded strings */
             field = rdbLoadEncodedStringObject(rdb);
             if (field == NULL) return NULL;
