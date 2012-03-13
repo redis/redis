@@ -751,34 +751,6 @@ void resetClient(redisClient *c) {
     if (!(c->flags & REDIS_MULTI)) c->flags &= (~REDIS_ASKING);
 }
 
-void closeTimedoutClients(void) {
-    redisClient *c;
-    listNode *ln;
-    time_t now = time(NULL);
-    listIter li;
-
-    listRewind(server.clients,&li);
-    while ((ln = listNext(&li)) != NULL) {
-        c = listNodeValue(ln);
-        if (server.maxidletime &&
-            !(c->flags & REDIS_SLAVE) &&    /* no timeout for slaves */
-            !(c->flags & REDIS_MASTER) &&   /* no timeout for masters */
-            !(c->flags & REDIS_BLOCKED) &&  /* no timeout for BLPOP */
-            dictSize(c->pubsub_channels) == 0 && /* no timeout for pubsub */
-            listLength(c->pubsub_patterns) == 0 &&
-            (now - c->lastinteraction > server.maxidletime))
-        {
-            redisLog(REDIS_VERBOSE,"Closing idle client");
-            freeClient(c);
-        } else if (c->flags & REDIS_BLOCKED) {
-            if (c->bpop.timeout != 0 && c->bpop.timeout < now) {
-                addReply(c,shared.nullmultibulk);
-                unblockClientWaitingData(c);
-            }
-        }
-    }
-}
-
 int processInlineBuffer(redisClient *c) {
     char *newline = strstr(c->querybuf,"\r\n");
     int argc, j;

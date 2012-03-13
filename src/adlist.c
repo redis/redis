@@ -323,3 +323,19 @@ listNode *listIndex(list *list, long index) {
     }
     return n;
 }
+
+/* Rotate the list removing the tail node and inserting it to the head. */
+void listRotate(list *list) {
+    listNode *tail = list->tail;
+
+    if (listLength(list) <= 1) return;
+
+    /* Detatch current tail */
+    list->tail = tail->prev;
+    list->tail->next = NULL;
+    /* Move it as head */
+    list->head->prev = tail;
+    tail->prev = NULL;
+    tail->next = list->head;
+    list->head = tail;
+}
