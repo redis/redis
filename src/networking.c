@@ -22,7 +22,6 @@ int listMatchObjects(void *a, void *b) {
 
 redisClient *createClient(int fd) {
     redisClient *c = zmalloc(sizeof(redisClient));
-    c->bufpos = 0;
 
     /* passing -1 as fd it is possible to create a non connected client.
      * This is useful since all the Redis commands needs to be executed
@@ -42,6 +41,7 @@ redisClient *createClient(int fd) {
 
     selectDb(c,0);
     c->fd = fd;
+    c->bufpos = 0;
     c->querybuf = sdsempty();
     c->reqtype = 0;
     c->argc = 0;
