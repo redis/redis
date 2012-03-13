@@ -856,6 +856,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             if (value == NULL) return NULL;
             redisAssert(field->encoding == REDIS_ENCODING_RAW);
 
+            /* Add pair to ziplist */
+            o->ptr = ziplistPush(o->ptr, field->ptr, sdslen(field->ptr), ZIPLIST_TAIL);
+            o->ptr = ziplistPush(o->ptr, value->ptr, sdslen(value->ptr), ZIPLIST_TAIL);
+
             /* Convert to hash table if size threshold is exceeded */
             if (sdslen(field->ptr) > server.hash_max_ziplist_value ||
                 sdslen(value->ptr) > server.hash_max_ziplist_value)
@@ -863,10 +867,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                 hashTypeConvert(o, REDIS_ENCODING_HT);
                 break;
             }
-
-            /* Add pair to ziplist */
-            o->ptr = ziplistPush(o->ptr, field->ptr, sdslen(field->ptr), ZIPLIST_TAIL);
-            o->ptr = ziplistPush(o->ptr, value->ptr, sdslen(value->ptr), ZIPLIST_TAIL);
         }
 
         /* Load remaining fields and values into the hash table */
