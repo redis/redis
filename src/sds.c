@@ -111,6 +111,18 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
     return newsh->buf;
 }
 
+/* Reallocate the sds string so that it has no free space at the end. The
+ * contained string remains not altered, but next concatenation operations
+ * will require a reallocation. */
+sds sdsRemoveFreeSpace(sds s) {
+    struct sdshdr *sh;
+
+    sh = (void*) (s-(sizeof(struct sdshdr)));
+    sh = zrealloc(sh, sizeof(struct sdshdr)+sh->len+1);
+    sh->free = 0;
+    return sh->buf;
+}
+
 /* Increment the sds length and decrements the left free space at the
  * end of the string accordingly to 'incr'. Also set the null term
  * in the new end of the string.
