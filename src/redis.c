@@ -628,7 +628,7 @@ long long getOperationsPerSecond(void) {
     return sum / REDIS_OPS_SEC_SAMPLES;
 }
 
-void closeTimedoutClient(redisClient *c) {
+void clientsCronHandleTimeout(redisClient *c) {
     time_t now = time(NULL);
 
     if (server.maxidletime &&
@@ -668,7 +668,7 @@ void clientsCron(void) {
         listRotate(server.clients);
         head = listFirst(server.clients);
         c = listNodeValue(head);
-        closeTimedoutClient(c);
+        clientsCronHandleTimeout(c);
     }
 }
 
