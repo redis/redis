@@ -123,6 +123,12 @@ sds sdsRemoveFreeSpace(sds s) {
     return sh->buf;
 }
 
+size_t sdsAllocSize(sds s) {
+    struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
+
+    return sizeof(*sh)+sh->len+sh->free+1;
+}
+
 /* Increment the sds length and decrements the left free space at the
  * end of the string accordingly to 'incr'. Also set the null term
  * in the new end of the string.
