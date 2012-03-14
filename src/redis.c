@@ -642,7 +642,7 @@ long long getOperationsPerSecond(void) {
 }
 
 void clientsCronHandleTimeout(redisClient *c) {
-    time_t now = time(NULL);
+    time_t now = server.unixtime;
 
     if (server.maxidletime &&
         !(c->flags & REDIS_SLAVE) &&    /* no timeout for slaves */
@@ -662,15 +662,40 @@ void clientsCronHandleTimeout(redisClient *c) {
     }
 }
 
+/* The client query buffer is an sds.c string that can end with a lot of
+ * free space not used, this function reclaims space if needed. */
+void clientsCronResizeQueryBuffer(redisClient *c) {
+    size_t querybuf_size = sdsAllocSize(c->querybuf);
+    time_t idletime = server.unixtime - c->lastinteraction;
+
+    /* There are two conditions to resize the query buffer:
+     * 1) Query buffer is > BIG_ARG and too big for latest peak.
+     * 2) Client is inactive and the buffer is bigger than 1k. */
+    if (((querybuf_size > REDIS_MBULK_BIG_ARG) &&
+         (querybuf_size/(c->querybuf_peak+1)) > 2) ||
+         (querybuf_size > 1024 && idletime > 2))
+    {
+        /* Only resize the query buffer if it is actually wasting space. */
+        if (sdsavail(c->querybuf) > 1024) {
+            c->querybuf = sdsRemoveFreeSpace(c->querybuf);
+        }
+    }
+    /* Reset the peak again to capture the peak memory usage in the next
+     * cycle. */
+    c->querybuf_peak = 0;
+}
+
 void clientsCron(void) {
     /* Make sure to process at least 1/100 of clients per call.
      * Since this function is called 10 times per second we are sure that
      * in the worst case we process all the clients in 10 seconds.
      * In normal conditions (a reasonable number of clients) we process
      * all the clients in a shorter time. */
-    int iterations = listLength(server.clients)/100;
-    if (iterations < 50) iterations = 50;
+    int numclients = listLength(server.clients);
+    int iterations = numclients/100;
 
+    if (iterations < 50)
+        iterations = (numclients < 50) ? numclients : 50;
     while(listLength(server.clients) && iterations--) {
         redisClient *c;
         listNode *head;
@@ -682,6 +707,7 @@ void clientsCron(void) {
         head = listFirst(server.clients);
         c = listNodeValue(head);
         clientsCronHandleTimeout(c);
+        clientsCronResizeQueryBuffer(c);
     }
 }
 

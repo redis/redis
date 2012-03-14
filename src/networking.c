@@ -43,6 +43,7 @@ redisClient *createClient(int fd) {
     c->fd = fd;
     c->bufpos = 0;
     c->querybuf = sdsempty();
+    c->querybuf_peak = 0;
     c->reqtype = 0;
     c->argc = 0;
     c->argv = NULL;
@@ -998,6 +999,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 
     qblen = sdslen(c->querybuf);
+    if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
     c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
     nread = read(fd, c->querybuf+qblen, readlen);
     if (nread == -1) {
