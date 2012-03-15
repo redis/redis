@@ -641,7 +641,8 @@ long long getOperationsPerSecond(void) {
     return sum / REDIS_OPS_SEC_SAMPLES;
 }
 
-void clientsCronHandleTimeout(redisClient *c) {
+/* Check for timeouts. Returns non-zero if the client was terminated */
+int clientsCronHandleTimeout(redisClient *c) {
     time_t now = server.unixtime;
 
     if (server.maxidletime &&
@@ -654,17 +655,21 @@ void clientsCronHandleTimeout(redisClient *c) {
     {
         redisLog(REDIS_VERBOSE,"Closing idle client");
         freeClient(c);
+        return 1;
     } else if (c->flags & REDIS_BLOCKED) {
         if (c->bpop.timeout != 0 && c->bpop.timeout < now) {
             addReply(c,shared.nullmultibulk);
             unblockClientWaitingData(c);
         }
     }
+    return 0;
 }
 
 /* The client query buffer is an sds.c string that can end with a lot of
- * free space not used, this function reclaims space if needed. */
-void clientsCronResizeQueryBuffer(redisClient *c) {
+ * free space not used, this function reclaims space if needed.
+ *
+ * The funciton always returns 0 as it never terminates the client. */
+int clientsCronResizeQueryBuffer(redisClient *c) {
     size_t querybuf_size = sdsAllocSize(c->querybuf);
     time_t idletime = server.unixtime - c->lastinteraction;
 
@@ -683,6 +688,7 @@ void clientsCronResizeQueryBuffer(redisClient *c) {
     /* Reset the peak again to capture the peak memory usage in the next
      * cycle. */
     c->querybuf_peak = 0;
+    return 0;
 }
 
 void clientsCron(void) {
@@ -706,8 +712,11 @@ void clientsCron(void) {
         listRotate(server.clients);
         head = listFirst(server.clients);
         c = listNodeValue(head);
-        clientsCronHandleTimeout(c);
-        clientsCronResizeQueryBuffer(c);
+        /* The following functions do different service checks on the client.
+         * The protocol is that they return non-zero if the client was
+         * terminated. */
+        if (clientsCronHandleTimeout(c)) continue;
+        if (clientsCronResizeQueryBuffer(c)) continue;
     }
 }
 
