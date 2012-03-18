@@ -1904,8 +1904,9 @@ static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
 
     redisLog(REDIS_WARNING,
 "=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n"
-"    Please report the crash opening an issue on github:\n\n"
-"        http://github.com/antirez/redis/issues\n\n"
+"       Please report the crash opening an issue on github:\n\n"
+"           http://github.com/antirez/redis/issues\n\n"
+"  Suspect RAM error? Use redis-server --test-memory to veryfy it.\n\n"
 );
     /* free(messages); Don't call free() with possibly corrupted memory. */
     if (server.daemonize) unlink(server.pidfile);
