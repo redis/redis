@@ -18,6 +18,18 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
+What's new in Redis 2.4.9
+=========================
+
+UPGRADE URGENCY: low. Mostly new features and minor bug fixing.
+
+* [FEATURE] Redis server is now able to test your memory for broken RAM.
+            Usage: ./redis-server --test-memory <megabytes>.
+* [FEATURE] redis-benchmark backported from unstable. Pipelining, run selected
+            tests, and a few more features.
+* [BUGFIX] utils/install_server.sh script now works on Redhat / Centos.
+* [BUGFIX] Minor fix to redis-cli (github issue #306).
+
 What's new in Redis 2.4.8
 =========================
 
