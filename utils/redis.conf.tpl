@@ -1,6 +1,6 @@
 # Redis configuration file example
 
-# Note on units: when memory size is needed, it is possible to specifiy
+# Note on units: when memory size is needed, it is possible to specify
 # it in the usual form of 1k 5GB 4M and so forth:
 #
 # 1k => 1000 bytes
@@ -34,9 +34,10 @@ port $REDIS_PORT
 # on a unix socket when not specified.
 #
 # unixsocket /tmp/redis.sock
+# unixsocketperm 755
 
 # Close the connection after a client is idle for N seconds (0 to disable)
-timeout 300
+timeout 0
 
 # Set server verbosity to 'debug'
 # it can be one of:
@@ -44,7 +45,7 @@ timeout 300
 # verbose (many rarely useful info, but not a mess like the debug level)
 # notice (moderately verbose, what you want in production probably)
 # warning (only very important / critical messages are logged)
-loglevel verbose
+loglevel notice
 
 # Specify the log file name. Also 'stdout' can be used to force
 # Redis to log on the standard output. Note that if you use standard
@@ -81,10 +82,31 @@ databases 16
 #   after 60 sec if at least 10000 keys changed
 #
 #   Note: you can disable saving at all commenting all the "save" lines.
+#
+#   It is also possible to remove all the previously configured save
+#   points by adding a save directive with a single empty string argument
+#   like in the following example:
+#
+#   save ""
 
 save 900 1
 save 300 10
 save 60 10000
+
+# By default Redis will stop accepting writes if RDB snapshots are enabled
+# (at least one save point) and the latest background save failed.
+# This will make the user aware (in an hard way) that data is not persisting
+# on disk properly, otherwise chances are that no one will notice and some
+# distater will happen.
+#
+# If the background saving process will start working again Redis will
+# automatically allow writes again.
+#
+# However if you have setup your proper monitoring of the Redis server
+# and persistence, you may want to disable this feature so that Redis will
+# continue to work as usually even if there are problems with disk,
+# permissions, and so forth.
+stop-writes-on-bgsave-error yes
 
 # Compress string objects using LZF when dump .rdb databases?
 # For default that's set to 'yes' as it's almost always a win.
@@ -125,7 +147,7 @@ dir $REDIS_DATA_DIR
 # is still in progress, the slave can act in two different ways:
 #
 # 1) if slave-serve-stale-data is set to 'yes' (the default) the slave will
-#    still reply to client requests, possibly with out of data data, or the
+#    still reply to client requests, possibly with out of date data, or the
 #    data set may just be empty if this is the first synchronization.
 #
 # 2) if slave-serve-stale data is set to 'no' the slave will reply with
@@ -133,6 +155,21 @@ dir $REDIS_DATA_DIR
 #    but to INFO and SLAVEOF.
 #
 slave-serve-stale-data yes
+
+# Slaves send PINGs to server in a predefined interval. It's possible to change
+# this interval with the repl_ping_slave_period option. The default value is 10
+# seconds.
+#
+# repl-ping-slave-period 10
+
+# The following option sets a timeout for both Bulk transfer I/O timeout and
+# master data or ping response timeout. The default value is 60 seconds.
+#
+# It is important to make sure that this value is greater than the value
+# specified for repl-ping-slave-period otherwise a timeout will be detected
+# every time there is low traffic between the master and the slave.
+#
+# repl-timeout 60
 
 ################################## SECURITY ###################################
 
@@ -151,7 +188,7 @@ slave-serve-stale-data yes
 
 # Command renaming.
 #
-# It is possilbe to change the name of dangerous commands in a shared
+# It is possible to change the name of dangerous commands in a shared
 # environment. For instance the CONFIG command may be renamed into something
 # of hard to guess so that it will be still available for internal-use
 # tools but not available for general clients.
@@ -160,37 +197,46 @@ slave-serve-stale-data yes
 #
 # rename-command CONFIG b840fc02d524045429941cc15f59e41cb7be6c52
 #
-# It is also possilbe to completely kill a command renaming it into
+# It is also possible to completely kill a command renaming it into
 # an empty string:
 #
 # rename-command CONFIG ""
 
 ################################### LIMITS ####################################
 
-# Set the max number of connected clients at the same time. By default there
-# is no limit, and it's up to the number of file descriptors the Redis process
-# is able to open. The special value '0' means no limits.
+# Set the max number of connected clients at the same time. By default
+# this limit is set to 10000 clients, however if the Redis server is not
+# able ot configure the process file limit to allow for the specified limit
+# the max number of allowed clients is set to the current file limit
+# minus 32 (as Redis reserves a few file descriptors for internal uses).
+#
 # Once the limit is reached Redis will close all the new connections sending
 # an error 'max number of clients reached'.
 #
-# maxclients 128
+# maxclients 10000
 
 # Don't use more memory than the specified amount of bytes.
-# When the memory limit is reached Redis will try to remove keys with an
-# EXPIRE set. It will try to start freeing keys that are going to expire
-# in little time and preserve keys with a longer time to live.
-# Redis will also try to remove objects from free lists if possible.
+# When the memory limit is reached Redis will try to remove keys
+# accordingly to the eviction policy selected (see maxmemmory-policy).
 #
-# If all this fails, Redis will start to reply with errors to commands
-# that will use more memory, like SET, LPUSH, and so on, and will continue
-# to reply to most read-only commands like GET.
+# If Redis can't remove keys according to the policy, or if the policy is
+# set to 'noeviction', Redis will start to reply with errors to commands
+# that would use more memory, like SET, LPUSH, and so on, and will continue
+# to reply to read-only commands like GET.
 #
-# WARNING: maxmemory can be a good idea mainly if you want to use Redis as a
-# 'state' server or cache, not as a real DB. When Redis is used as a real
-# database the memory usage will grow over the weeks, it will be obvious if
-# it is going to use too much memory in the long run, and you'll have the time
-# to upgrade. With maxmemory after the limit is reached you'll start to get
-# errors for write operations, and this may even lead to DB inconsistency.
+# This option is usually useful when using Redis as an LRU cache, or to set
+# an hard memory limit for an instance (using the 'noeviction' policy).
+#
+# WARNING: If you have slaves attached to an instance with maxmemory on,
+# the size of the output buffers needed to feed the slaves are subtracted
+# from the used memory count, so that network problems / resyncs will
+# not trigger a loop where keys are evicted, and in turn the output
+# buffer of slaves is full with DELs of keys evicted triggering the deletion
+# of more keys, and so forth until the database is completely emptied.
+#
+# In short... if you have slaves attached it is suggested that you set a lower
+# limit for maxmemory so that there is some free RAM on the system for slave
+# output buffers (but this is not needed if the policy is 'noeviction').
 #
 # maxmemory <bytes>
 
@@ -200,7 +246,7 @@ slave-serve-stale-data yes
 # volatile-lru -> remove the key with an expire set using an LRU algorithm
 # allkeys-lru -> remove any key accordingly to the LRU algorithm
 # volatile-random -> remove a random key with an expire set
-# allkeys->random -> remove a random key, any key
+# allkeys-random -> remove a random key, any key
 # volatile-ttl -> remove the key with the nearest expire time (minor TTL)
 # noeviction -> don't expire at all, just return an error on write operations
 # 
@@ -260,7 +306,7 @@ appendonly no
 #
 # The default is "everysec" that's usually the right compromise between
 # speed and data safety. It's up to you to understand if you can relax this to
-# "no" that will will let the operating system flush the output buffer when
+# "no" that will let the operating system flush the output buffer when
 # it wants, for better performances (but if you can live with the idea of
 # some data loss consider the default persistence mode that's snapshotting),
 # or on the contrary, use "always" that's very slow but a bit safer than
@@ -284,7 +330,7 @@ appendfsync everysec
 # BGSAVE or BGREWRITEAOF is in progress.
 #
 # This means that while another child is saving the durability of Redis is
-# the same as "appendfsync none", that in pratical terms means that it is
+# the same as "appendfsync none", that in practical terms means that it is
 # possible to lost up to 30 seconds of log in the worst scenario (with the
 # default Linux settings).
 # 
@@ -306,7 +352,7 @@ no-appendfsync-on-rewrite no
 # is useful to avoid rewriting the AOF file even if the percentage increase
 # is reached but it is still pretty small.
 #
-# Specify a precentage of zero in order to disable the automatic AOF
+# Specify a percentage of zero in order to disable the automatic AOF
 # rewrite feature.
 
 auto-aof-rewrite-percentage 100
@@ -315,9 +361,39 @@ auto-aof-rewrite-min-size 64mb
 ################################ LUA SCRIPTING  ###############################
 
 # Max execution time of a Lua script in milliseconds.
-# This prevents that a programming error generating an infinite loop will block
-# your server forever. Set it to 0 or a negative value for unlimited execution.
-#lua-time-limit 60000
+#
+# If the maximum execution time is reached Redis will log that a script is
+# still in execution after the maximum allowed time and will start to
+# reply to queries with an error.
+#
+# When a long running script exceed the maximum execution time only the
+# SCRIPT KILL and SHUTDOWN NOSAVE commands are available. The first can be
+# used to stop a script that did not yet called write commands. The second
+# is the only way to shut down the server in the case a write commands was
+# already issue by the script but the user don't want to wait for the natural
+# termination of the script.
+#
+# Set it to 0 or a negative value for unlimited execution without warnings.
+lua-time-limit 5000
+
+################################ REDIS CLUSTER  ###############################
+#
+# Normal Redis instances can't be part of a Redis Cluster, only nodes that are
+# started as cluster nodes can. In order to start a Redis instance as a
+# cluster node enable the cluster support uncommenting the following:
+#
+# cluster-enabled yes
+
+# Every cluster node has a cluster configuration file. This file is not
+# intended to be edited by hand. It is created and updated by Redis nodes.
+# Every Redis Cluster node requires a different cluster configuration file.
+# Make sure that instances running in the same system does not have
+# overlapping cluster configuration file names.
+#
+# cluster-config-file nodes-6379.conf
+
+# In order to setup your cluster make sure to read the documentation
+# available at http://redis.io web site.
 
 ################################## SLOW LOG ###################################
 
@@ -345,12 +421,11 @@ slowlog-max-len 1024
 
 ############################### ADVANCED CONFIG ###############################
 
-# Hashes are encoded in a special way (much more memory efficient) when they
-# have at max a given numer of elements, and the biggest element does not
-# exceed a given threshold. You can configure this limits with the following
-# configuration directives.
-hash-max-zipmap-entries 512
-hash-max-zipmap-value 64
+# Hashes are encoded using a memory efficient data structure when they have a
+# small number of entries, and the biggest entry does not exceed a given
+# threshold. These thresholds can be configured using the following directives.
+hash-max-ziplist-entries 512
+hash-max-ziplist-value 64
 
 # Similarly to hashes, small lists are also encoded in a special way in order
 # to save a lot of space. The special representation is only used when
@@ -373,9 +448,9 @@ zset-max-ziplist-value 64
 
 # Active rehashing uses 1 millisecond every 100 milliseconds of CPU time in
 # order to help rehashing the main Redis hash table (the one mapping top-level
-# keys to values). The hash table implementation redis uses (see dict.c)
+# keys to values). The hash table implementation Redis uses (see dict.c)
 # performs a lazy rehashing: the more operation you run into an hash table
-# that is rhashing, the more rehashing "steps" are performed, so if the
+# that is rehashing, the more rehashing "steps" are performed, so if the
 # server is idle the rehashing is never complete and some more memory is used
 # by the hash table.
 # 
@@ -391,10 +466,47 @@ zset-max-ziplist-value 64
 # want to free memory asap when possible.
 activerehashing yes
 
+# The client output buffer limits can be used to force disconnection of clients
+# that are not reading data from the server fast enough for some reason (a
+# common reason is that a Pub/Sub client can't consume messages as fast as the
+# publisher can produce them).
+#
+# The limit can be set differently for the three different classes of clients:
+#
+# normal -> normal clients
+# slave  -> slave clients and MONITOR clients
+# pubsub -> clients subcribed to at least one pubsub channel or pattern
+#
+# The syntax of every client-output-buffer-limit directive is the following:
+#
+# client-output-buffer-limit <class> <hard limit> <soft limit> <soft seconds>
+#
+# A client is immediately disconnected once the hard limit is reached, or if
+# the soft limit is reached and remains reached for the specified number of
+# seconds (continuously).
+# So for instance if the hard limit is 32 megabytes and the soft limit is
+# 16 megabytes / 10 seconds, the client will get disconnected immediately
+# if the size of the output buffers reach 32 megabytes, but will also get
+# disconnected if the client reaches 16 megabytes and continuously overcomes
+# the limit for 10 seconds.
+#
+# By default normal clients are not limited because they don't receive data
+# without asking (in a push way), but just after a request, so only
+# asynchronous clients may create a scenario where data is requested faster
+# than it can read.
+#
+# Instead there is a default limit for pubsub and slave clients, since
+# subscribers and slaves receive data in a push fashion.
+#
+# Both the hard or the soft limit can be disabled just setting it to zero.
+client-output-buffer-limit normal 0 0 0
+client-output-buffer-limit slave 256mb 64mb 60
+client-output-buffer-limit pubsub 32mb 8mb 60
+
 ################################## INCLUDES ###################################
 
 # Include one or more other config files here.  This is useful if you
-# have a standard template that goes to all redis server but also need
+# have a standard template that goes to all Redis server but also need
 # to customize a few per-server settings.  Include files can include
 # other files, so use this wisely.
 #
