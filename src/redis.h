@@ -366,8 +366,8 @@ struct sharedObjectsStruct {
     *colon, *nullbulk, *nullmultibulk, *queued,
     *emptymultibulk, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
     *outofrangeerr, *noscripterr, *loadingerr, *slowscripterr, *bgsaveerr,
-    *plus, *select0, *select1, *select2, *select3, *select4,
-    *select5, *select6, *select7, *select8, *select9,
+    *roslaveerr, *oomerr, *plus, *select0, *select1, *select2, *select3,
+    *select4, *select5, *select6, *select7, *select8, *select9,
     *messagebulk, *pmessagebulk, *subscribebulk, *unsubscribebulk,
     *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop,
     *integers[REDIS_SHARED_INTEGERS],
@@ -671,6 +671,7 @@ struct redisServer {
     char *repl_transfer_tmpfile; /* Slave-> master SYNC temp file name */
     time_t repl_transfer_lastio; /* Unix time of the latest read, for timeout */
     int repl_serve_stale_data; /* Serve stale data when link is down? */
+    int repl_slave_ro;          /* Slave is read only? */
     time_t repl_down_since; /* Unix time at which link with master went down */
     /* Limits */
     unsigned int maxclients;        /* Max number of simultaneous clients */
@@ -901,6 +902,7 @@ void freeClientMultiState(redisClient *c);
 void queueMultiCommand(redisClient *c);
 void touchWatchedKey(redisDb *db, robj *key);
 void touchWatchedKeysOnFlush(int dbid);
+void discardTransaction(redisClient *c);
 
 /* Redis object implementation */
 void decrRefCount(void *o);
