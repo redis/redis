@@ -240,7 +240,7 @@ static void zipPrevEncodeLengthForceLarge(unsigned char *p, unsigned int len) {
     } else if ((prevlensize) == 5) {                                           \
         assert(sizeof((prevlensize)) == 4);                                    \
         memcpy(&(prevlen), ((char*)(ptr)) + 1, 4);                             \
-        memrev32ifbe(&len);                                                    \
+        memrev32ifbe(&prevlen);                                                \
     }                                                                          \
 } while(0);
 
