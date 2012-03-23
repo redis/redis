@@ -859,14 +859,17 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             /* Add pair to ziplist */
             o->ptr = ziplistPush(o->ptr, field->ptr, sdslen(field->ptr), ZIPLIST_TAIL);
             o->ptr = ziplistPush(o->ptr, value->ptr, sdslen(value->ptr), ZIPLIST_TAIL);
-
             /* Convert to hash table if size threshold is exceeded */
             if (sdslen(field->ptr) > server.hash_max_ziplist_value ||
                 sdslen(value->ptr) > server.hash_max_ziplist_value)
             {
+                decrRefCount(field);
+                decrRefCount(value);
                 hashTypeConvert(o, REDIS_ENCODING_HT);
                 break;
             }
+            decrRefCount(field);
+            decrRefCount(value);
         }
 
         /* Load remaining fields and values into the hash table */
