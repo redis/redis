@@ -135,7 +135,9 @@ int hashTypeExists(robj *o, robj *field) {
 }
 
 /* Add an element, discard the old if the key already exists.
- * Return 0 on insert and 1 on update. */
+ * Return 0 on insert and 1 on update.
+ * This function will take care of incrementing the reference count of the
+ * retained fields and value objects. */
 int hashTypeSet(robj *o, robj *field, robj *value) {
     int update = 0;
 
@@ -168,30 +170,23 @@ int hashTypeSet(robj *o, robj *field, robj *value) {
             zl = ziplistPush(zl, field->ptr, sdslen(field->ptr), ZIPLIST_TAIL);
             zl = ziplistPush(zl, value->ptr, sdslen(value->ptr), ZIPLIST_TAIL);
         }
-
         o->ptr = zl;
-
         decrRefCount(field);
         decrRefCount(value);
 
         /* Check if the ziplist needs to be converted to a hash table */
-        if (hashTypeLength(o) > server.hash_max_ziplist_entries) {
+        if (hashTypeLength(o) > server.hash_max_ziplist_entries)
             hashTypeConvert(o, REDIS_ENCODING_HT);
-        }
-
     } else if (o->encoding == REDIS_ENCODING_HT) {
         if (dictReplace(o->ptr, field, value)) { /* Insert */
             incrRefCount(field);
         } else { /* Update */
             update = 1;
         }
-
         incrRefCount(value);
-
     } else {
         redisPanic("Unknown hash encoding");
     }
-
     return update;
 }
 
@@ -520,7 +515,7 @@ void hincrbyCommand(redisClient *c) {
 
 void hincrbyfloatCommand(redisClient *c) {
     double long value, incr;
-    robj *o, *current, *new;
+    robj *o, *current, *new, *aux;
 
     if (getLongDoubleFromObjectOrReply(c,c->argv[3],&incr,NULL) != REDIS_OK) return;
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
@@ -540,9 +535,17 @@ void hincrbyfloatCommand(redisClient *c) {
     hashTypeTryObjectEncoding(o,&c->argv[2],NULL);
     hashTypeSet(o,c->argv[2],new);
     addReplyBulk(c,new);
-    decrRefCount(new);
     signalModifiedKey(c->db,c->argv[1]);
     server.dirty++;
+
+    /* Always replicate HINCRBYFLOAT as an HSET command with the final value
+     * in order to make sure that differences in float pricision or formatting
+     * will not create differences in replicas or after an AOF restart. */
+    aux = createStringObject("HSET",4);
+    rewriteClientCommandArgument(c,0,aux);
+    decrRefCount(aux);
+    rewriteClientCommandArgument(c,3,new);
+    decrRefCount(new);
 }
 
 static void addHashFieldToReply(redisClient *c, robj *o, robj *field) {
