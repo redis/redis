@@ -1,6 +1,6 @@
 set server_path [tmpdir "server.rdb-encoding-test"]
 
-# Copy RDB with zipmap encoded hash to server path
+# Copy RDB with different encodings in server path
 exec cp tests/assets/encodings.rdb $server_path
 
 start_server [list overrides [list "dir" $server_path "dbfilename" "encodings.rdb"]] {
