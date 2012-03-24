@@ -30,6 +30,8 @@ set ::all_tests {
     integration/replication-2
     integration/replication-3
     integration/aof
+    integration/rdb
+    integration/convert-zipmap-hash-on-load
     unit/pubsub
     unit/slowlog
     unit/scripting

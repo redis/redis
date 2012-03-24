@@ -28,7 +28,6 @@
 #include "adlist.h"  /* Linked lists */
 #include "zmalloc.h" /* total memory usage aware version of malloc/free */
 #include "anet.h"    /* Networking the easy way */
-#include "zipmap.h"  /* Compact string -> string data structure */
 #include "ziplist.h" /* Compact list data structure */
 #include "intset.h"  /* Compact integer set structure */
 #include "version.h" /* Version macro */
@@ -57,6 +56,9 @@
 
 #define REDIS_REPL_TIMEOUT 60
 #define REDIS_REPL_PING_SLAVE_PERIOD 10
+
+#define REDIS_RUN_ID_SIZE 40
+#define REDIS_OPS_SEC_SAMPLES 16
 
 /* Protocol and I/O related defines */
 #define REDIS_MAX_QUERYBUF_LEN  (1024*1024*1024) /* 1GB max query buffer. */
@@ -205,8 +207,8 @@
 #define AOF_FSYNC_EVERYSEC 2
 
 /* Zip structure related defaults */
-#define REDIS_HASH_MAX_ZIPMAP_ENTRIES 512
-#define REDIS_HASH_MAX_ZIPMAP_VALUE 64
+#define REDIS_HASH_MAX_ZIPLIST_ENTRIES 512
+#define REDIS_HASH_MAX_ZIPLIST_VALUE 64
 #define REDIS_LIST_MAX_ZIPLIST_ENTRIES 512
 #define REDIS_LIST_MAX_ZIPLIST_VALUE 64
 #define REDIS_SET_MAX_INTSET_ENTRIES 512
@@ -244,6 +246,11 @@
 #define REDIS_CALL_STATS 2
 #define REDIS_CALL_PROPAGATE 4
 #define REDIS_CALL_FULL (REDIS_CALL_SLOWLOG | REDIS_CALL_STATS | REDIS_CALL_PROPAGATE)
+
+/* Command propagation flags, see propagate() function */
+#define REDIS_PROPAGATE_NONE 0
+#define REDIS_PROPAGATE_AOF 1
+#define REDIS_PROPAGATE_REPL 2
 
 /* We can print the stacktrace, so our assert is defined this way: */
 #define redisAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_redisAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),_exit(1)))
@@ -316,6 +323,7 @@ typedef struct redisClient {
     redisDb *db;
     int dictid;
     sds querybuf;
+    size_t querybuf_peak;   /* Recent (100ms or more) peak of querybuf size */
     int argc;
     robj **argv;
     struct redisCommand *cmd, *lastcmd;
@@ -325,6 +333,7 @@ typedef struct redisClient {
     list *reply;
     unsigned long reply_bytes; /* Tot bytes of objects in reply list */
     int sentlen;
+    time_t ctime;           /* Client creation time */
     time_t lastinteraction; /* time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
     int flags;              /* REDIS_SLAVE | REDIS_MONITOR | REDIS_MULTI ... */
@@ -356,11 +365,11 @@ struct sharedObjectsStruct {
     robj *crlf, *ok, *err, *emptybulk, *czero, *cone, *cnegone, *pong, *space,
     *colon, *nullbulk, *nullmultibulk, *queued,
     *emptymultibulk, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
-    *outofrangeerr, *noscripterr, *loadingerr, *slowscripterr, *plus,
-    *select0, *select1, *select2, *select3, *select4,
-    *select5, *select6, *select7, *select8, *select9,
+    *outofrangeerr, *noscripterr, *loadingerr, *slowscripterr, *bgsaveerr,
+    *roslaveerr, *oomerr, *plus, *select0, *select1, *select2, *select3,
+    *select4, *select5, *select6, *select7, *select8, *select9,
     *messagebulk, *pmessagebulk, *subscribebulk, *unsubscribebulk,
-    *psubscribebulk, *punsubscribebulk, *del,
+    *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop,
     *integers[REDIS_SHARED_INTEGERS],
     *mbulkhdr[REDIS_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
     *bulkhdr[REDIS_SHARED_BULKHDR_LEN];  /* "$<value>\r\n" */
@@ -393,6 +402,30 @@ typedef struct clientBufferLimitsConfig {
     unsigned long long soft_limit_bytes;
     time_t soft_limit_seconds;
 } clientBufferLimitsConfig;
+
+/* The redisOp structure defines a Redis Operation, that is an instance of
+ * a command with an argument vector, database ID, propagation target
+ * (REDIS_PROPAGATE_*), and command pointer.
+ *
+ * Currently only used to additionally propagate more commands to AOF/Replication
+ * after the propagation of the executed command. */
+typedef struct redisOp {
+    robj **argv;
+    int argc, dbid, target;
+    struct redisCommand *cmd;
+} redisOp;
+
+/* Defines an array of Redis operations. There is an API to add to this
+ * structure in a easy way.
+ *
+ * redisOpArrayInit();
+ * redisOpArrayAppend();
+ * redisOpArrayFree();
+ */
+typedef struct redisOpArray {
+    redisOp *ops;
+    int numops;
+} redisOpArray;
 
 /*-----------------------------------------------------------------------------
  * Redis cluster data structures
@@ -538,6 +571,8 @@ struct redisServer {
     char *requirepass;          /* Pass for AUTH command, or NULL */
     char *pidfile;              /* PID file path */
     int arch_bits;              /* 32 or 64 depending on sizeof(long) */
+    int cronloops;              /* Number of times the cron function run */
+    char runid[REDIS_RUN_ID_SIZE+1];  /* ID always different at every exec. */
     /* Networking */
     int port;                   /* TCP listening port */
     char *bindaddr;             /* Bind address or NULL */
@@ -557,9 +592,7 @@ struct redisServer {
     off_t loading_loaded_bytes;
     time_t loading_start_time;
     /* Fast pointers to often looked up command */
-    struct redisCommand *delCommand, *multiCommand;
-    int cronloops;                  /* Number of times the cron function run */
-    time_t lastsave;                /* Unix time of last save succeeede */
+    struct redisCommand *delCommand, *multiCommand, *lpushCommand;
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
     long long stat_numcommands;     /* Number of processed commands */
@@ -575,6 +608,12 @@ struct redisServer {
     long long slowlog_entry_id;     /* SLOWLOG current entry ID */
     long long slowlog_log_slower_than; /* SLOWLOG time limit (to get logged) */
     unsigned long slowlog_max_len;     /* SLOWLOG max number of items logged */
+    /* The following two are used to track instantaneous "load" in terms
+     * of operations per second. */
+    long long ops_sec_last_sample_time; /* Timestamp of last sample (in ms) */
+    long long ops_sec_last_sample_ops;  /* numcommands in last sample */
+    long long ops_sec_samples[REDIS_OPS_SEC_SAMPLES];
+    int ops_sec_idx;
     /* Configuration */
     int verbosity;                  /* Loglevel in redis.conf */
     int maxidletime;                /* Client timeout in seconds */
@@ -607,6 +646,11 @@ struct redisServer {
     int saveparamslen;              /* Number of saving points */
     char *rdb_filename;             /* Name of RDB file */
     int rdb_compression;            /* Use compression in RDB? */
+    time_t lastsave;                /* Unix time of last save succeeede */
+    int lastbgsave_status;          /* REDIS_OK or REDIS_ERR */
+    int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
+    /* Propagation of commands in AOF / replication */
+    redisOpArray also_propagate;    /* Additional command to propagate. */
     /* Logging */
     char *logfile;                  /* Path of log file */
     int syslog_enabled;             /* Is syslog enabled? */
@@ -627,6 +671,7 @@ struct redisServer {
     char *repl_transfer_tmpfile; /* Slave-> master SYNC temp file name */
     time_t repl_transfer_lastio; /* Unix time of the latest read, for timeout */
     int repl_serve_stale_data; /* Serve stale data when link is down? */
+    int repl_slave_ro;          /* Slave is read only? */
     time_t repl_down_since; /* Unix time at which link with master went down */
     /* Limits */
     unsigned int maxclients;        /* Max number of simultaneous clients */
@@ -643,8 +688,8 @@ struct redisServer {
     int sort_alpha;
     int sort_bypattern;
     /* Zip structure config, see redis.conf for more information  */
-    size_t hash_max_zipmap_entries;
-    size_t hash_max_zipmap_value;
+    size_t hash_max_ziplist_entries;
+    size_t hash_max_ziplist_value;
     size_t list_max_ziplist_entries;
     size_t list_max_ziplist_value;
     size_t set_max_intset_entries;
@@ -748,10 +793,10 @@ typedef struct {
  * not both are required, store pointers in the iterator to avoid
  * unnecessary memory allocation for fields/values. */
 typedef struct {
+    robj *subject;
     int encoding;
-    unsigned char *zi;
-    unsigned char *zk, *zv;
-    unsigned int zklen, zvlen;
+
+    unsigned char *fptr, *vptr;
 
     dictIterator *di;
     dictEntry *de;
@@ -780,6 +825,7 @@ dictType hashDictType;
 /* Utils */
 long long ustime(void);
 long long mstime(void);
+void getRandomHexChars(char *p, unsigned int len);
 
 /* networking.c -- Networking and Client related operations */
 redisClient *createClient(int fd);
@@ -856,6 +902,7 @@ void freeClientMultiState(redisClient *c);
 void queueMultiCommand(redisClient *c);
 void touchWatchedKey(redisDb *db, robj *key);
 void touchWatchedKeysOnFlush(int dbid);
+void discardTransaction(redisClient *c);
 
 /* Redis object implementation */
 void decrRefCount(void *o);
@@ -901,7 +948,7 @@ int syncReadLine(int fd, char *ptr, ssize_t size, int timeout);
 
 /* Replication */
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
-void replicationFeedMonitors(list *monitors, int dictid, robj **argv, int argc);
+void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **argv, int argc);
 void updateSlavesWaitingBgsave(int bgsaveerr);
 void replicationCron(void);
 
@@ -950,6 +997,8 @@ void setupSignalHandlers(void);
 struct redisCommand *lookupCommand(sds name);
 struct redisCommand *lookupCommandByCString(char *s);
 void call(redisClient *c, int flags);
+void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int flags);
+void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int target);
 int prepareForShutdown();
 void redisLog(int level, const char *fmt, ...);
 void redisLogRaw(int level, const char *msg);
@@ -974,10 +1023,9 @@ unsigned long setTypeSize(robj *subject);
 void setTypeConvert(robj *subject, int enc);
 
 /* Hash data type */
-void convertToRealHash(robj *o);
+void hashTypeConvert(robj *o, int enc);
 void hashTypeTryConversion(robj *subject, robj **argv, int start, int end);
 void hashTypeTryObjectEncoding(robj *subject, robj **o1, robj **o2);
-int hashTypeGet(robj *o, robj *key, robj **objval, unsigned char **v, unsigned int *vlen);
 robj *hashTypeGetObject(robj *o, robj *key);
 int hashTypeExists(robj *o, robj *key);
 int hashTypeSet(robj *o, robj *key, robj *value);
@@ -986,7 +1034,11 @@ unsigned long hashTypeLength(robj *o);
 hashTypeIterator *hashTypeInitIterator(robj *subject);
 void hashTypeReleaseIterator(hashTypeIterator *hi);
 int hashTypeNext(hashTypeIterator *hi);
-int hashTypeCurrent(hashTypeIterator *hi, int what, robj **objval, unsigned char **v, unsigned int *vlen);
+void hashTypeCurrentFromZiplist(hashTypeIterator *hi, int what,
+                                unsigned char **vstr,
+                                unsigned int *vlen,
+                                long long *vll);
+void hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what, robj **dst);
 robj *hashTypeCurrentObject(hashTypeIterator *hi, int what);
 robj *hashTypeLookupWriteOrCreate(redisClient *c, robj *key);
 
@@ -1185,6 +1237,7 @@ void clientCommand(redisClient *c);
 void evalCommand(redisClient *c);
 void evalShaCommand(redisClient *c);
 void scriptCommand(redisClient *c);
+void timeCommand(redisClient *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
