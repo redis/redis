@@ -1007,6 +1007,7 @@ void initServerConfig() {
     server.aof_rewrite_base_size = 0;
     server.aof_rewrite_scheduled = 0;
     server.aof_last_fsync = time(NULL);
+    server.aof_delayed_fsync = 0;
     server.aof_fd = -1;
     server.aof_selected_db = -1; /* Make sure the first time will not match */
     server.aof_flush_postponed_start = 0;
@@ -1802,12 +1803,14 @@ sds genRedisInfoString(char *section) {
                 "aof_base_size:%lld\r\n"
                 "aof_pending_rewrite:%d\r\n"
                 "aof_buffer_length:%zu\r\n"
-                "aof_pending_bio_fsync:%llu\r\n",
+                "aof_pending_bio_fsync:%llu\r\n"
+                "aof_delayed_fsync:%lu\r\n",
                 (long long) server.aof_current_size,
                 (long long) server.aof_rewrite_base_size,
                 server.aof_rewrite_scheduled,
                 sdslen(server.aof_buf),
-                bioPendingJobsOfType(REDIS_BIO_AOF_FSYNC));
+                bioPendingJobsOfType(REDIS_BIO_AOF_FSYNC),
+                server.aof_delayed_fsync);
         }
 
         if (server.loading) {
