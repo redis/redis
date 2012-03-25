@@ -7,15 +7,24 @@ uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 OPTIMIZATION?=-O2
 DEPENDENCY_TARGETS=hiredis linenoise lua
 
+STD= -std=c99 -pedantic
+WARN= -Wall
+OPT= $(OPTIMIZATION)
+
 ifeq ($(uname_S),SunOS)
-  CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -Wall -W -D__EXTENSIONS__ -D_XPG6
-  CCLINK?=-ldl -lnsl -lsocket -lm -lpthread
-  DEBUG?=-g -ggdb 
+  R_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) -D__EXTENSIONS__ -D_XPG6
+  R_LDFLAGS= $(LDFLAGS)
+  R_LIBS= $(LIBS) -ldl -lnsl -lsocket -lm -lpthread
+  DEBUG= -g -ggdb
 else
-  CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -Wall -W $(ARCH) $(PROF)
-  CCLINK?=-lm -pthread
-  DEBUG?=-g -rdynamic -ggdb 
+  R_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS)
+  R_LDFLAGS= $(LDFLAGS)
+  R_LIBS= $(LIBS) -lm -pthread
+  DEBUG= -g -rdynamic -ggdb
 endif
+
+# Include paths to dependencies
+R_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src
 
 # Default allocator
 ifeq ($(uname_S),Linux)
@@ -38,24 +47,23 @@ ifeq ($(USE_JEMALLOC),yes)
 endif
 
 ifeq ($(MALLOC),tcmalloc)
-  ALLOC_LINK=-ltcmalloc
-  ALLOC_FLAGS=-DUSE_TCMALLOC
+  R_CFLAGS+= -DUSE_TCMALLOC
+  R_LIBS+= -ltcmalloc
 endif
 
 ifeq ($(MALLOC),tcmalloc_minimal)
-  ALLOC_LINK=-ltcmalloc_minimal
-  ALLOC_FLAGS=-DUSE_TCMALLOC
+  R_CFLAGS+= -DUSE_TCMALLOC
+  R_LIBS+= -ltcmalloc_minimal
 endif
 
 ifeq ($(MALLOC),jemalloc)
-  ALLOC_LINK=../deps/jemalloc/lib/libjemalloc.a -ldl
-  ALLOC_FLAGS=-DUSE_JEMALLOC -I../deps/jemalloc/include
   DEPENDENCY_TARGETS+= jemalloc
+  R_CFLAGS+= -DUSE_JEMALLOC -I../deps/jemalloc/include
+  R_LIBS+= ../deps/jemalloc/lib/libjemalloc.a -ldl
 endif
 
-CCLINK+= $(ALLOC_LINK)
-CFLAGS+= $(ALLOC_FLAGS)
-CCOPT= $(CFLAGS) $(ARCH) $(PROF)
+R_CC=$(QUIET_CC)$(CC) $(R_CFLAGS)
+R_LD=$(QUIET_LINK)$(CC) $(R_LDFLAGS)
 
 PREFIX= /usr/local
 INSTALL_BIN= $(PREFIX)/bin
@@ -69,176 +77,100 @@ MAKECOLOR="\033[32;1m"
 ENDCOLOR="\033[0m"
 
 ifndef V
-QUIET_CC = @printf '    %b %b\n' $(CCCOLOR)CC$(ENDCOLOR) $(SRCCOLOR)$@$(ENDCOLOR);
-QUIET_LINK = @printf '    %b %b\n' $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR);
+QUIET_CC = @printf '    %b %b\n' $(CCCOLOR)CC$(ENDCOLOR) $(SRCCOLOR)$@$(ENDCOLOR) 1>&2;
+QUIET_LINK = @printf '    %b %b\n' $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR) 1>&2;
 endif
 
-OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o cluster.o crc16.o endianconv.o slowlog.o scripting.o bio.o rio.o rand.o memtest.o crc64.o
-BENCHOBJ = ae.o anet.o redis-benchmark.o sds.o adlist.o zmalloc.o
-CLIOBJ = anet.o sds.o adlist.o redis-cli.o zmalloc.o release.o
-CHECKDUMPOBJ = redis-check-dump.o lzf_c.o lzf_d.o
-CHECKAOFOBJ = redis-check-aof.o
+R_SERVER_NAME= redis-server
+R_SERVER_OBJ= adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o cluster.o crc16.o endianconv.o slowlog.o scripting.o bio.o rio.o rand.o memtest.o crc64.o
+R_CLI_NAME= redis-cli
+R_CLI_OBJ= anet.o sds.o adlist.o redis-cli.o zmalloc.o release.o
+R_BENCHMARK_NAME= redis-benchmark
+R_BENCHMARK_OBJ= ae.o anet.o redis-benchmark.o sds.o adlist.o zmalloc.o redis-benchmark.o
+R_CHECK_DUMP_NAME= redis-check-dump
+R_CHECK_DUMP_OBJ= redis-check-dump.o lzf_c.o lzf_d.o
+R_CHECK_AOF_NAME= redis-check-aof
+R_CHECK_AOF_OBJ= redis-check-aof.o
 
-PRGNAME = redis-server
-BENCHPRGNAME = redis-benchmark
-CLIPRGNAME = redis-cli
-CHECKDUMPPRGNAME = redis-check-dump
-CHECKAOFPRGNAME = redis-check-aof
-
-all: redis-benchmark redis-cli redis-check-dump redis-check-aof redis-server
+all: $(R_SERVER_NAME) $(R_CLI_NAME) $(R_BENCHMARK_NAME) $(R_CHECK_DUMP_NAME) $(R_CHECK_AOF_NAME)
 	@echo ""
 	@echo "Hint: To run 'make test' is a good idea ;)"
 	@echo ""
 
+.PHONY: all
+
 # Deps (use make dep to generate this)
-adlist.o: adlist.c adlist.h zmalloc.h
-ae.o: ae.c ae.h zmalloc.h config.h ae_kqueue.c
-ae_epoll.o: ae_epoll.c
-ae_kqueue.o: ae_kqueue.c
-ae_select.o: ae_select.c
-anet.o: anet.c fmacros.h anet.h
-aof.o: aof.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h bio.h
-bio.o: bio.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h bio.h
-cluster.o: cluster.c redis.h fmacros.h config.h ae.h sds.h dict.h \
-  adlist.h zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h \
-  rio.h
-config.o: config.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
-crc16.o: crc16.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
-db.o: db.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
-debug.o: debug.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h sha1.h
-dict.o: dict.c fmacros.h dict.h zmalloc.h
-endianconv.o: endianconv.c
-intset.o: intset.c intset.h zmalloc.h endianconv.h
-lzf_c.o: lzf_c.c lzfP.h
-lzf_d.o: lzf_d.c lzfP.h
-multi.o: multi.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
-networking.o: networking.c redis.h fmacros.h config.h ae.h sds.h dict.h \
-  adlist.h zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h \
-  rio.h
-object.o: object.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
-pqsort.o: pqsort.c
-pubsub.o: pubsub.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
-rand.o: rand.c
-rdb.o: rdb.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h lzf.h \
-  zipmap.h
-redis-benchmark.o: redis-benchmark.c fmacros.h ae.h \
-  ../deps/hiredis/hiredis.h sds.h adlist.h zmalloc.h
-redis-check-aof.o: redis-check-aof.c fmacros.h config.h
-redis-check-dump.o: redis-check-dump.c lzf.h
-redis-cli.o: redis-cli.c fmacros.h version.h ../deps/hiredis/hiredis.h \
-  sds.h zmalloc.h ../deps/linenoise/linenoise.h help.h
-redis.o: redis.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h \
-  slowlog.h bio.h asciilogo.h
-release.o: release.c release.h
-replication.o: replication.c redis.h fmacros.h config.h ae.h sds.h dict.h \
-  adlist.h zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h \
-  rio.h
-rio.o: rio.c fmacros.h rio.h sds.h util.h
-scripting.o: scripting.c redis.h fmacros.h config.h ae.h sds.h dict.h \
-  adlist.h zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h \
-  rio.h sha1.h rand.h
-sds.o: sds.c sds.h zmalloc.h
-sha1.o: sha1.c sha1.h config.h
-slowlog.o: slowlog.c redis.h fmacros.h config.h ae.h sds.h dict.h \
-  adlist.h zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h \
-  rio.h slowlog.h
-sort.o: sort.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h \
-  pqsort.h
-syncio.o: syncio.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
-t_hash.o: t_hash.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
-t_list.o: t_list.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
-t_set.o: t_set.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
-t_string.o: t_string.c redis.h fmacros.h config.h ae.h sds.h dict.h \
-  adlist.h zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h \
-  rio.h
-t_zset.o: t_zset.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
-util.o: util.c fmacros.h util.h
-ziplist.o: ziplist.c zmalloc.h util.h ziplist.h endianconv.h
-zipmap.o: zipmap.c zmalloc.h endianconv.h
-zmalloc.o: zmalloc.c config.h zmalloc.h
+include Makefile.dep
 
-# Clean local objects when ARCH is different
-ifneq ($(shell sh -c '[ -f .make-arch ] && cat .make-arch'), $(ARCH))
-.make-arch: clean
-else
-.make-arch:
-endif
+dep:
+	$(R_CC) -MM *.c
 
-.make-arch:
-	-(cd ../deps && $(MAKE) $(DEPENDENCY_TARGETS) ARCH="$(ARCH)")
-	-(echo $(ARCH) > .make-arch)
+.PHONY: dep
 
-# Clean local objects when allocator changes
-ifneq ($(shell sh -c '[ -f .make-malloc ] && cat .make-malloc'), $(MALLOC))
-.make-malloc: clean
-else
-.make-malloc:
-endif
-
-.make-malloc:
-	-(echo $(MALLOC) > .make-malloc)
-
-# Union of make-prerequisites
-.make-prerequisites: .make-arch .make-malloc
+# Prerequisites target
+.make-prerequisites:
 	@touch $@
 
-redis-server: .make-prerequisites $(OBJ)
-	$(QUIET_LINK)$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) ../deps/lua/src/liblua.a $(CCLINK)
+# Clean local objects and build dependencies when R_CFLAGS is different
+ifneq ($(shell sh -c '[ -f .make-cflags ] && cat .make-cflags || echo none'), $(R_CFLAGS))
+.make-cflags: clean
+	-(cd ../deps && $(MAKE) $(DEPENDENCY_TARGETS))
+	-(echo "$(R_CFLAGS)" > .make-cflags)
+.make-prerequisites: .make-cflags
+endif
 
-redis-benchmark: .make-prerequisites $(BENCHOBJ)
-	$(QUIET_LINK)$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a $(CCLINK)
+# Clean local objects when R_LDFLAGS is different
+ifneq ($(shell sh -c '[ -f .make-ldflags ] && cat .make-ldflags || echo none'), $(R_LDFLAGS))
+.make-ldflags: clean
+	-(echo "$(R_LDFLAGS)" > .make-ldflags)
+.make-prerequisites: .make-ldflags
+endif
 
-redis-benchmark.o: redis-benchmark.c .make-prerequisites
-	$(QUIET_CC)$(CC) -c $(CFLAGS) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
+# Clean local objects when MALLOC is different
+ifneq ($(shell sh -c '[ -f .make-malloc ] && cat .make-malloc || echo none'), $(MALLOC))
+.make-malloc: clean
+	-(echo "$(MALLOC)" > .make-malloc)
+.make-prerequisites: .make-malloc
+endif
 
-redis-cli: .make-prerequisites $(CLIOBJ)
-	$(QUIET_LINK)$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o $(CCLINK)
+# redis-server
+$(R_SERVER_NAME): $(R_SERVER_OBJ)
+	$(R_LD) -o $@ $^ ../deps/lua/src/liblua.a $(R_LIBS)
 
-redis-cli.o: redis-cli.c .make-prerequisites
-	$(QUIET_CC)$(CC) -c $(CFLAGS) -I../deps/hiredis -I../deps/linenoise $(DEBUG) $(COMPILE_TIME) $<
+# redis-cli
+$(R_CLI_NAME): $(R_CLI_OBJ)
+	$(R_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o $(R_LIBS)
 
-redis-check-dump: .make-prerequisites $(CHECKDUMPOBJ)
-	$(QUIET_LINK)$(CC) -o $(CHECKDUMPPRGNAME) $(CCOPT) $(DEBUG) $(CHECKDUMPOBJ) $(CCLINK)
+# redis-benchmark
+$(R_BENCHMARK_NAME): $(R_BENCHMARK_OBJ)
+	$(R_LD) -o $@ $^ ../deps/hiredis/libhiredis.a $(R_LIBS)
 
-redis-check-aof: .make-prerequisites $(CHECKAOFOBJ)
-	$(QUIET_LINK)$(CC) -o $(CHECKAOFPRGNAME) $(CCOPT) $(DEBUG) $(CHECKAOFOBJ) $(CCLINK)
+# redis-check-dump
+$(R_CHECK_DUMP_NAME): $(R_CHECK_DUMP_OBJ)
+	$(R_LD) -o $@ $^ $(R_LIBS)
 
-# Because the jemalloc.h header is generated as a part of the jemalloc build
-# process, building it should complete before building any other object. Instead of
-# depending on a single artifact, simply build all dependencies first.
+# redis-check-aof
+$(R_CHECK_AOF_NAME): $(R_CHECK_AOF_OBJ)
+	$(R_LD) -o $@ $^ $(R_LIBS)
+
+# Because the jemalloc.h header is generated as a part of the jemalloc build,
+# building it should complete before building any other object. Instead of
+# depending on a single artifact, build all dependencies first.
 %.o: %.c .make-prerequisites
-	$(QUIET_CC)$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) -I../deps/lua/src $<
-
-.PHONY: all clean distclean lcov
+	$(R_CC) -c $<
 
 clean:
-	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html
+	rm -rf $(R_SERVER_NAME) $(R_CLI_NAME) $(R_BENCHMARK_NAME) $(R_CHECK_DUMP_NAME) $(R_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html
+
+.PHONY: clean
 
 distclean: clean
 	-(cd ../deps && $(MAKE) distclean)
-	-(rm -f .make-arch .make-malloc)
+	-(rm -f .make-*)
 
-dep:
-	$(CC) -MM *.c -I ../deps/hiredis -I ../deps/linenoise
+.PHONY: distclean
 
-test: redis-server redis-check-aof
+test: $(R_SERVER_NAME) $(R_CHECK_AOF_NAME)
 	@(cd ..; ./runtest)
 
 lcov:
@@ -247,8 +179,10 @@ lcov:
 	@geninfo -o redis.info .
 	@genhtml --legend -o lcov-html redis.info
 
-bench:
-	./redis-benchmark
+.PHONY: lcov
+
+bench: $(R_BENCHMARK_NAME)
+	./$(R_BENCHMARK_NAME)
 
 log:
 	git log '--pretty=format:%ad %s (%cn)' --date=short > ../Changelog
@@ -257,27 +191,27 @@ log:
 	@echo ""
 	@echo "WARNING: if it fails under Linux you probably need to install libc6-dev-i386"
 	@echo ""
-	$(MAKE) ARCH="-m32" JEMALLOC_CFLAGS='CFLAGS="-std=gnu99 -Wall -pipe -g3 -fvisibility=hidden -O3 -funroll-loops -m32"'
+	$(MAKE) CFLAGS="$(CFLAGS) -m32" LDFLAGS="$(LDFLAGS) -m32"
 
 gprof:
-	$(MAKE) PROF="-pg"
+	$(MAKE) CFLAGS="$(CFLAGS) -pg" LDFLAGS="$(LDFLAGS) -pg"
 
 gcov:
-	$(MAKE) PROF="-fprofile-arcs -ftest-coverage -DCOVERAGE_TEST"
+	$(MAKE) CFLAGS="$(CFLAGS) -fprofile-arcs -ftest-coverage -DCOVERAGE_TEST"
 
 noopt:
-	$(MAKE) OPTIMIZATION=""
+	$(MAKE) OPT="-O0"
 
 32bitgprof:
-	$(MAKE) PROF="-pg" ARCH="-arch i386"
+	$(MAKE) CFLAGS="$(CFLAGS) -m32" LDFLAGS="$(LDFLAGS) -m32" gprof
 
 src/help.h:
 	@../utils/generate-command-help.rb > help.h
 
 install: all
 	mkdir -p $(INSTALL_BIN)
-	$(INSTALL) $(PRGNAME) $(INSTALL_BIN)
-	$(INSTALL) $(BENCHPRGNAME) $(INSTALL_BIN)
-	$(INSTALL) $(CLIPRGNAME) $(INSTALL_BIN)
-	$(INSTALL) $(CHECKDUMPPRGNAME) $(INSTALL_BIN)
-	$(INSTALL) $(CHECKAOFPRGNAME) $(INSTALL_BIN)
+	$(INSTALL) $(R_SERVER_NAME) $(INSTALL_BIN)
+	$(INSTALL) $(R_BENCHMARK_NAME) $(INSTALL_BIN)
+	$(INSTALL) $(R_CLI_NAME) $(INSTALL_BIN)
+	$(INSTALL) $(R_CHECK_DUMP_NAME) $(INSTALL_BIN)
+	$(INSTALL) $(R_CHECK_AOF_NAME) $(INSTALL_BIN)
