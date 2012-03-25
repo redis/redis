@@ -59,10 +59,11 @@
 #define	BIG_ENDIAN	4321	/* most-significant byte first (IBM, net) */
 #define	PDP_ENDIAN	3412	/* LSB first in word, MSW first in long (pdp)*/
 
-#if defined(vax) || defined(ns32000) || defined(sun386) || defined(__i386__) || \
-    defined(MIPSEL) || defined(_MIPSEL) || defined(BIT_ZERO_ON_RIGHT) || \
-    defined(__alpha__) || defined(__alpha)
-#define BYTE_ORDER	LITTLE_ENDIAN
+#if defined(__i386__) || defined(__x86_64__) || defined(__amd64__) || \
+   defined(vax) || defined(ns32000) || defined(sun386) || \
+   defined(MIPSEL) || defined(_MIPSEL) || defined(BIT_ZERO_ON_RIGHT) || \
+   defined(__alpha__) || defined(__alpha)
+#define BYTE_ORDER    LITTLE_ENDIAN
 #endif
 
 #if defined(sel) || defined(pyr) || defined(mc68000) || defined(sparc) || \
