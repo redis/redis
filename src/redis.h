@@ -590,6 +590,7 @@ struct redisServer {
     char *assert_file;
     int assert_line;
     int bug_report_start; /* True if bug report header was already logged. */
+    int watchdog_period;  /* Software watchdog period in ms. 0 = off */
 };
 
 typedef struct pubsubPattern {
@@ -1109,4 +1110,7 @@ void bugReportStart(void);
 void redisLogObjectDebugInfo(robj *o);
 void sigsegvHandler(int sig, siginfo_t *info, void *secret);
 sds genRedisInfoString(char *section);
+void enableWatchdog(int period);
+void disableWatchdog(void);
+void watchdogScheduleSignal(int period);
 #endif
