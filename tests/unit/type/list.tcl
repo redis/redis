@@ -167,6 +167,16 @@ start_server {
         assert_equal {foo} [r lrange target 0 -1]
     }
 
+    test "BRPOPLPUSH with multiple lists" {
+        set rd [redis_deferring_client]
+        r del blist blist2 target
+        $rd brpoplpush blist blist2 target 0
+        after 1000
+        r rpush blist2 foo
+        assert_equal foo [$rd read]
+        assert_equal {foo} [r lrange target 0 -1]
+    }
+
     test "BRPOPLPUSH with a client BLPOPing the target list" {
         set rd [redis_deferring_client]
         set rd2 [redis_deferring_client]

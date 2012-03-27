@@ -976,31 +976,35 @@ void brpopCommand(redisClient *c) {
 
 void brpoplpushCommand(redisClient *c) {
     time_t timeout;
+    int j;
+    robj *key;
 
-    if (getTimeoutFromObjectOrReply(c,c->argv[3],&timeout) != REDIS_OK)
+    if (getTimeoutFromObjectOrReply(c,c->argv[c->argc-1],&timeout) != REDIS_OK)
         return;
 
-    robj *key = lookupKeyWrite(c->db, c->argv[1]);
-
-    if (key == NULL) {
-        if (c->flags & REDIS_MULTI) {
-
-            /* Blocking against an empty list in a multi state
-             * returns immediately. */
-            addReply(c, shared.nullbulk);
-        } else {
-            /* The list is empty and the client blocks. */
-            blockForKeys(c, c->argv + 1, 1, timeout, c->argv[2]);
-        }
-    } else {
-        if (key->type != REDIS_LIST) {
-            addReply(c, shared.wrongtypeerr);
-        } else {
-
-            /* The list exists and has elements, so
-             * the regular rpoplpushCommand is executed. */
-            redisAssertWithInfo(c,key,listTypeLength(key) > 0);
-            rpoplpushCommand(c);
+    for (j = 1; j < c->argc-2; j++) {
+        key = lookupKeyWrite(c->db,c->argv[j]);
+        if (key != NULL) {
+            if (key->type != REDIS_LIST) {
+                addReply(c, shared.wrongtypeerr);
+                return;
+            } else {
+                if (listTypeLength(key) != 0) {
+                    redisAssertWithInfo(c, key, listTypeLength(key) > 0);
+                    rpoplpushCommand(c);
+                    return;
+                }
+            }
         }
     }
+
+    if (c->flags & REDIS_MULTI) {
+        /* Blocking against an empty list in a multi state
+         * returns immediately. */
+        addReply(c, shared.nullbulk);
+        return;
+    }
+
+    /* The list is empty and the client blocks. */
+    blockForKeys(c, c->argv + 1, c->argc - 2, timeout, c->argv[c->argc-2]);
 }
