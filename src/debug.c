@@ -558,21 +558,11 @@ void logRegisters(ucontext_t *uc) {
 #endif
 }
 
-void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
+/* Logs the stack trace using the backtrace() call. */
+void logStackTrace(ucontext_t *uc) {
     void *trace[100];
-    char **messages = NULL;
     int i, trace_size = 0;
-    ucontext_t *uc = (ucontext_t*) secret;
-    sds infostring, clients;
-    struct sigaction act;
-    REDIS_NOTUSED(info);
-
-    bugReportStart();
-    redisLog(REDIS_WARNING,
-        "    Redis %s crashed by signal: %d", REDIS_VERSION, sig);
-    redisLog(REDIS_WARNING,
-        "    Failed assertion: %s (%s:%d)", server.assert_failed,
-                        server.assert_file, server.assert_line);
+    char **messages = NULL;
 
     /* Generate the stack trace */
     trace_size = backtrace(trace, 100);
@@ -585,6 +575,61 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     redisLog(REDIS_WARNING, "--- STACK TRACE");
     for (i=1; i<trace_size; ++i)
         redisLog(REDIS_WARNING,"%s", messages[i]);
+}
+
+/* Log information about the "current" client, that is, the client that is
+ * currently being served by Redis. May be NULL if Redis is not serving a
+ * client right now. */
+void logCurrentClient(void) {
+    if (server.current_client == NULL) return;
+
+    redisClient *cc = server.current_client;
+    sds client;
+    int j;
+
+    redisLog(REDIS_WARNING, "--- CURRENT CLIENT INFO");
+    client = getClientInfoString(cc);
+    redisLog(REDIS_WARNING,"client: %s", client);
+    sdsfree(client);
+    for (j = 0; j < cc->argc; j++) {
+        robj *decoded;
+
+        decoded = getDecodedObject(cc->argv[j]);
+        redisLog(REDIS_WARNING,"argv[%d]: '%s'", j, (char*)decoded->ptr);
+        decrRefCount(decoded);
+    }
+    /* Check if the first argument, usually a key, is found inside the
+     * selected DB, and if so print info about the associated object. */
+    if (cc->argc >= 1) {
+        robj *val, *key;
+        dictEntry *de;
+
+        key = getDecodedObject(cc->argv[1]);
+        de = dictFind(cc->db->dict, key->ptr);
+        if (de) {
+            val = dictGetVal(de);
+            redisLog(REDIS_WARNING,"key '%s' found in DB containing the following object:", key->ptr);
+            redisLogObjectDebugInfo(val);
+        }
+        decrRefCount(key);
+    }
+}
+
+void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
+    ucontext_t *uc = (ucontext_t*) secret;
+    sds infostring, clients;
+    struct sigaction act;
+    REDIS_NOTUSED(info);
+
+    bugReportStart();
+    redisLog(REDIS_WARNING,
+        "    Redis %s crashed by signal: %d", REDIS_VERSION, sig);
+    redisLog(REDIS_WARNING,
+        "    Failed assertion: %s (%s:%d)", server.assert_failed,
+                        server.assert_file, server.assert_line);
+
+    /* Log the stack trace */
+    logStackTrace(uc);
 
     /* Log INFO and CLIENT LIST */
     redisLog(REDIS_WARNING, "--- INFO OUTPUT");
@@ -595,41 +640,11 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     redisLog(REDIS_WARNING, "--- CLIENT LIST OUTPUT");
     clients = getAllClientsInfoString();
     redisLogRaw(REDIS_WARNING, clients);
-    /* Don't sdsfree() strings to avoid a crash. Memory may be corrupted. */
+    sdsfree(infostring);
+    sdsfree(clients);
 
-    /* Log CURRENT CLIENT info */
-    if (server.current_client) {
-        redisClient *cc = server.current_client;
-        sds client;
-        int j;
-
-        redisLog(REDIS_WARNING, "--- CURRENT CLIENT INFO");
-        client = getClientInfoString(cc);
-        redisLog(REDIS_WARNING,"client: %s", client);
-        /* Missing sdsfree(client) to avoid crash if memory is corrupted. */
-        for (j = 0; j < cc->argc; j++) {
-            robj *decoded;
-
-            decoded = getDecodedObject(cc->argv[j]);
-            redisLog(REDIS_WARNING,"argv[%d]: '%s'", j, (char*)decoded->ptr);
-            decrRefCount(decoded);
-        }
-        /* Check if the first argument, usually a key, is found inside the
-         * selected DB, and if so print info about the associated object. */
-        if (cc->argc >= 1) {
-            robj *val, *key;
-            dictEntry *de;
-
-            key = getDecodedObject(cc->argv[1]);
-            de = dictFind(cc->db->dict, key->ptr);
-            if (de) {
-                val = dictGetVal(de);
-                redisLog(REDIS_WARNING,"key '%s' found in DB containing the following object:", key->ptr);
-                redisLogObjectDebugInfo(val);
-            }
-            decrRefCount(key);
-        }
-    }
+    /* Log the current client */
+    logCurrentClient();
 
     /* Log dump of processor registers */
     logRegisters(uc);
