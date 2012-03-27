@@ -692,7 +692,7 @@ void watchdogScheduleSignal(int period) {
 
     /* Will stop the timer if period is 0. */
     it.it_value.tv_sec = period/1000;
-    it.it_value.tv_usec = period%1000;
+    it.it_value.tv_usec = (period%1000)*1000;
     /* Don't automatically restart. */
     it.it_interval.tv_sec = 0;
     it.it_interval.tv_usec = 0;
