@@ -683,7 +683,7 @@ extern dictType setDictType;
 extern dictType zsetDictType;
 extern dictType dbDictType;
 extern double R_Zero, R_PosInf, R_NegInf, R_Nan;
-dictType hashDictType;
+extern dictType hashDictType;
 
 /*-----------------------------------------------------------------------------
  * Functions prototypes
