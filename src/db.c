@@ -10,28 +10,6 @@ void SlotToKeyDel(robj *key);
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
-/* Important notes on lookup and disk store.
- *
- * When disk store is enabled on lookup we can have different cases.
- *
- * a) The key is in memory:
- *    - If the key is not in IO_SAVEINPROG state we can access it.
- *      As if it's just IO_SAVE this means we have the key in the IO queue
- *      but can't be accessed by the IO thread (it requires to be
- *      translated into an IO Job by the cache cron function.)
- *    - If the key is in IO_SAVEINPROG we can't touch the key and have
- *      to blocking wait completion of operations.
- * b) The key is not in memory:
- *    - If it's marked as non existing on disk as well (negative cache)
- *      we don't need to perform the disk access.
- *    - if the key MAY EXIST, but is not in memory, and it is marked as IO_SAVE
- *      then the key can only be a deleted one. As IO_SAVE keys are never
- *      evicted (dirty state), so the only possibility is that key was deleted.
- *    - if the key MAY EXIST we need to blocking load it.
- *      We check that the key is not in IO_SAVEINPROG state before accessing
- *      the disk object. If it is in this state, we wait.
- */
-
 robj *lookupKey(redisDb *db, robj *key) {
     dictEntry *de = dictFind(db->dict,key->ptr);
     if (de) {
@@ -159,8 +137,6 @@ int dbDelete(redisDb *db, robj *key) {
     }
 }
 
-/* Empty the whole database.
- * If diskstore is enabled this function will just flush the in-memory cache. */
 long long emptyDb() {
     int j;
     long long removed = 0;
