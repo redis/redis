@@ -910,7 +910,7 @@ int getTimeoutFromObjectOrReply(redisClient *c, robj *object, time_t *timeout) {
         return REDIS_ERR;
     }
 
-    if (tval > 0) tval += time(NULL);
+    if (tval > 0) tval += server.unixtime;
     *timeout = tval;
 
     return REDIS_OK;

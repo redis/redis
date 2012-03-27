@@ -270,9 +270,7 @@ robj *tryObjectEncoding(robj *o) {
 
     /* Ok, this object can be encoded...
      *
-     * Can I use a shared object? Only if the object is inside a given
-     * range and if the back end in use is in-memory. For disk store every
-     * object in memory used as value should be independent.
+     * Can I use a shared object? Only if the object is inside a given range
      *
      * Note that we also avoid using shared integers when maxmemory is used
      * because every object needs to have a private LRU field for the LRU
