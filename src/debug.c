@@ -661,11 +661,72 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     /* Make sure we exit with the right signal at the end. So for instance
      * the core will be dumped if enabled. */
     sigemptyset (&act.sa_mask);
-    /* When the SA_SIGINFO flag is set in sa_flags then sa_sigaction
-     * is used. Otherwise, sa_handler is used */
     act.sa_flags = SA_NODEFER | SA_ONSTACK | SA_RESETHAND;
     act.sa_handler = SIG_DFL;
     sigaction (sig, &act, NULL);
     kill(getpid(),sig);
 }
 #endif /* HAVE_BACKTRACE */
+
+/* =========================== Software Watchdog ============================ */
+#include <sys/time.h>
+
+void watchdogSignalHandler(int sig, siginfo_t *info, void *secret) {
+    ucontext_t *uc = (ucontext_t*) secret;
+    REDIS_NOTUSED(info);
+    REDIS_NOTUSED(sig);
+
+    /* Log INFO and CLIENT LIST */
+    redisLog(REDIS_WARNING, "--- WATCHDOG TIMER EXPIRED ---"); 
+#ifdef HAVE_BACKTRACE
+    logStackTrace(uc);
+    redisLog(REDIS_WARNING, "------");
+#endif
+}
+
+/* Schedule a SIGALRM delivery after the specified period in milliseconds.
+ * If a timer is already scheduled, this function will re-schedule it to the
+ * specified time. If period is 0 the current timer is disabled. */
+void watchdogScheduleSignal(int period) {
+    struct itimerval it;
+
+    /* Will stop the timer if period is 0. */
+    it.it_value.tv_sec = period/1000;
+    it.it_value.tv_usec = period%1000;
+    /* Don't automatically restart. */
+    it.it_interval.tv_sec = 0;
+    it.it_interval.tv_usec = 0;
+    setitimer(ITIMER_REAL, &it, NULL);
+}
+
+/* Enable the software watchdong with the specified period in milliseconds. */
+void enableWatchdog(int period) {
+    if (server.watchdog_period == 0) {
+        struct sigaction act;
+
+        /* Watchdog was actually disabled, so we have to setup the signal
+         * handler. */
+        sigemptyset(&act.sa_mask);
+        act.sa_flags = SA_NODEFER | SA_ONSTACK | SA_SIGINFO;
+        act.sa_sigaction = watchdogSignalHandler;
+        sigaction(SIGALRM, &act, NULL);
+    }
+    if (period < 200) period = 200; /* We don't accept periods < 200 ms. */
+    watchdogScheduleSignal(period); /* Adjust the current timer. */
+    server.watchdog_period = period;
+}
+
+/* Disable the software watchdog. */
+void disableWatchdog(void) {
+    struct sigaction act;
+    if (server.watchdog_period == 0) return; /* Already disabled. */
+    watchdogScheduleSignal(0); /* Stop the current timer. */
+
+    /* Set the signal handler to SIG_IGN, this will also remove pending
+     * signals from the queue. */
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = 0;
+    act.sa_handler = SIG_IGN;
+    sigaction(SIGALRM, &act, NULL);
+    server.watchdog_period = 0;
+}
