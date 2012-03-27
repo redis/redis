@@ -227,6 +227,10 @@ void zmalloc_enable_thread_safeness(void) {
     zmalloc_thread_safe = 1;
 }
 
+void zlibc_free(void *ptr) {
+    free(ptr);
+}
+
 /* Get the RSS information in an OS-specific way.
  *
  * WARNING: the function zmalloc_get_rss() is not designed to be fast
