@@ -1004,6 +1004,7 @@ void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, in
 int prepareForShutdown();
 void redisLog(int level, const char *fmt, ...);
 void redisLogRaw(int level, const char *msg);
+void redisLogFromHandler(int level, const char *msg);
 void usage();
 void updateDictResizePolicy(void);
 int htNeedsResize(dict *dict);
