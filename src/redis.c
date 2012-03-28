@@ -305,7 +305,7 @@ void redisLogFromHandler(int level, const char *msg) {
         (server.logfile == NULL && server.daemonize)) return;
     fd = server.logfile ?
         open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644) :
-        STDIN_FILENO;
+        STDOUT_FILENO;
     if (fd == -1) return;
     ll2string(buf,sizeof(buf),getpid());
     write(fd,"[",1);
@@ -316,7 +316,7 @@ void redisLogFromHandler(int level, const char *msg) {
     write(fd,") ",2);
     write(fd,msg,strlen(msg));
     write(fd,"\n",1);
-    close(fd);
+    if (server.logfile) close(fd);
 }
 
 /* Redis generally does not try to recover from out of memory conditions
