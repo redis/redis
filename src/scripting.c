@@ -15,6 +15,7 @@ char *redisProtocolToLuaType_Error(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_MultiBulk(lua_State *lua, char *reply);
 int redis_math_random (lua_State *L);
 int redis_math_randomseed (lua_State *L);
+void hashScript(char *digest, char *script, size_t len);
 
 /* Take a Redis reply in the Redis protocol format and convert it into a
  * Lua type. Thanks to this function, and the introduction of not connected
@@ -306,6 +307,37 @@ int luaRedisPCallCommand(lua_State *lua) {
     return luaRedisGenericCommand(lua,0);
 }
 
+/* This adds redis.sha1hex(string) to Lua scripts using the same hashing
+ * function used for sha1ing lua scripts. */
+int luaRedisSha1Command(lua_State *lua) {
+    int argc = lua_gettop(lua);
+    sds tosha;
+    char digest[41];
+    size_t len;
+    char *s;
+
+    if (argc != 1) {
+        luaPushError(lua, "redis.sha1hex() requires one argument.");
+        return 1;
+    }
+
+    /* convert the string argument */
+    tosha = sdsempty();
+    s = (char*)lua_tolstring(lua,1,&len);
+    tosha = sdscatlen(tosha,s,len);
+
+    /* hash using the scriptHashing function */
+    hashScript(digest,tosha,sdslen(tosha));
+
+    /* push the result */
+    lua_pushstring(lua,digest);
+
+    sdsfree(tosha);
+
+    /* return 1 to indicate result */
+    return 1;
+}
+
 int luaLogCommand(lua_State *lua) {
     int j, argc = lua_gettop(lua);
     int level;
@@ -438,6 +470,11 @@ void scriptingInit(void) {
     lua_pushstring(lua,"LOG_WARNING");
     lua_pushnumber(lua,REDIS_WARNING);
     lua_settable(lua,-3);
+
+    /* redis.sha1hex */
+    lua_pushstring(lua, "sha1hex");
+    lua_pushcfunction(lua, luaRedisSha1Command);
+    lua_settable(lua, -3);
 
     /* Finally set the table as 'redis' global var. */
     lua_setglobal(lua,"redis");
