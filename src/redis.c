@@ -291,6 +291,34 @@ void redisLog(int level, const char *fmt, ...) {
     redisLogRaw(level,msg);
 }
 
+/* Log a fixed message without printf-alike capabilities, in a way that is
+ * safe to call from a signal handler.
+ *
+ * We actually use this only for signals that are not fatal from the point
+ * of view of Redis. Signals that are going to kill the server anyway and
+ * where we need printf-alike features are served by redisLog(). */
+void redisLogFromHandler(int level, const char *msg) {
+    int fd;
+    char buf[64];
+
+    if ((level&0xff) < server.verbosity ||
+        (server.logfile == NULL && server.daemonize)) return;
+    fd = server.logfile ?
+        open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644) :
+        STDIN_FILENO;
+    if (fd == -1) return;
+    ll2string(buf,sizeof(buf),getpid());
+    write(fd,"[",1);
+    write(fd,buf,strlen(buf));
+    write(fd," | signal handler] (",20);
+    ll2string(buf,sizeof(buf),time(NULL));
+    write(fd,buf,strlen(buf));
+    write(fd,") ",2);
+    write(fd,msg,strlen(msg));
+    write(fd,"\n",1);
+    close(fd);
+}
+
 /* Redis generally does not try to recover from out of memory conditions
  * when allocating objects or strings, it is not clear if it will be possible
  * to report this condition to the client since the networking layer itself
@@ -2231,7 +2259,7 @@ void redisAsciiArt(void) {
 static void sigtermHandler(int sig) {
     REDIS_NOTUSED(sig);
 
-    redisLog(REDIS_WARNING,"Received SIGTERM, scheduling shutdown...");
+    redisLogFromHandler(REDIS_WARNING,"Received SIGTERM, scheduling shutdown...");
     server.shutdown_asap = 1;
 }
 
