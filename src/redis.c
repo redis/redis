@@ -726,6 +726,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     REDIS_NOTUSED(id);
     REDIS_NOTUSED(clientData);
 
+    /* Software watchdog: deliver the SIGALRM that will reach the signal
+     * handler if we don't return here fast enough. */
+    if (server.watchdog_period) watchdogScheduleSignal(server.watchdog_period);
+
     /* We take a cached value of the unix time in the global state because
      * with virtual memory and aging there is to store the current time
      * in objects at every object access, and accuracy is not needed.
@@ -1084,11 +1088,12 @@ void initServerConfig() {
     server.slowlog_log_slower_than = REDIS_SLOWLOG_LOG_SLOWER_THAN;
     server.slowlog_max_len = REDIS_SLOWLOG_MAX_LEN;
 
-    /* Assert */
+    /* Debugging */
     server.assert_failed = "<no assertion failed>";
     server.assert_file = "<no file>";
     server.assert_line = 0;
     server.bug_report_start = 0;
+    server.watchdog_period = 0;
 }
 
 /* This function will try to raise the max number of open files accordingly to
