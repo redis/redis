@@ -214,6 +214,11 @@ start_server {tags {"scripting"}} {
         r sadd myset a b c
         r eval {return redis.call('sort','myset','by','_','get','#','get','_:*')} 0
     } {{} {} {} a b c}
+
+    test "redis.sha1hex() implementation" {
+        list [r eval {return redis.sha1hex('')} 0] \
+             [r eval {return redis.sha1hex('Pizza & Mandolino')} 0]
+    } {da39a3ee5e6b4b0d3255bfef95601890afd80709 74822d82031af7493c20eefa13bd07ec4fada82f}
 }
 
 start_server {tags {"scripting repl"}} {
