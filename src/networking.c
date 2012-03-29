@@ -547,6 +547,16 @@ static void freeClientArgv(redisClient *c) {
     c->cmd = NULL;
 }
 
+/* Close all the slaves connections. This is useful in chained replication
+ * when we resync with our own master and want to force all our slaves to
+ * resync with us as well. */
+void disconnectSlaves(void) {
+    while (listLength(server.slaves)) {
+        listNode *ln = listFirst(server.slaves);
+        freeClient((redisClient*)ln->value);
+    }
+}
+
 void freeClient(redisClient *c) {
     listNode *ln;
 
@@ -605,21 +615,12 @@ void freeClient(redisClient *c) {
         server.master = NULL;
         server.repl_state = REDIS_REPL_CONNECT;
         server.repl_down_since = server.unixtime;
-        /* Since we lost the connection with the master, we should also
-         * close the connection with all our slaves if we have any, so
-         * when we'll resync with the master the other slaves will sync again
-         * with us as well. Note that also when the slave is not connected
-         * to the master it will keep refusing connections by other slaves.
+        /* We lost connection with our master, force our slaves to resync
+         * with us as well to load the new data set.
          *
-         * We do this only if server.masterhost != NULL. If it is NULL this
-         * means the user called SLAVEOF NO ONE and we are freeing our
-         * link with the master, so no need to close link with slaves. */
-        if (server.masterhost != NULL) {
-            while (listLength(server.slaves)) {
-                ln = listFirst(server.slaves);
-                freeClient((redisClient*)ln->value);
-            }
-        }
+         * If server.masterhost is NULL te user called SLAVEOF NO ONE so
+         * slave resync is not needed. */
+        if (server.masterhost != NULL) disconnectSlaves();
     }
 
     /* If this client was scheduled for async freeing we need to remove it
