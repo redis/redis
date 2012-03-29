@@ -718,6 +718,7 @@ sds getAllClientsInfoString(void);
 void rewriteClientCommandVector(redisClient *c, int argc, ...);
 unsigned long getClientOutputBufferMemoryUsage(redisClient *c);
 void flushSlavesOutputBuffers(void);
+void disconnectSlaves(void);
 
 #ifdef __GNUC__
 void addReplyErrorFormat(redisClient *c, const char *fmt, ...)

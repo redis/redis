@@ -507,6 +507,7 @@ void slaveofCommand(redisClient *c) {
         server.masterhost = sdsdup(c->argv[1]->ptr);
         server.masterport = atoi(c->argv[2]->ptr);
         if (server.master) freeClient(server.master);
+        disconnectSlaves(); /* Force our slaves to resync with us as well. */
         if (server.replstate == REDIS_REPL_TRANSFER)
             replicationAbortSyncTransfer();
         server.replstate = REDIS_REPL_CONNECT;
