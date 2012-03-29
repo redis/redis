@@ -99,6 +99,21 @@ start_server {tags {"pubsub"}} {
         $rd1 close
     }
 
+    test "PUBLISH/SUBSCRIBE command DEBUG CHANNELS returns all subscriptions" {
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        subscribe $rd1 {chan1}
+        subscribe $rd2 {chan1}
+        subscribe $rd1 {chan2}
+        subscribe $rd1 {chan3}
+        unsubscribe $rd1 {chan2}
+        subscribe $rd2 {chan4}
+        assert_equal {chan1 chan3 chan4}  [lsort [r debug channels]]
+        
+        # clean up clients
+        $rd1 close
+        $rd2 close
+    }
     test "SUBSCRIBE to one channel more than once" {
         set rd1 [redis_deferring_client]
         assert_equal {1 1 1} [subscribe $rd1 {chan1 chan1 chan1}]
