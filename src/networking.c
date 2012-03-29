@@ -618,7 +618,7 @@ void freeClient(redisClient *c) {
         /* We lost connection with our master, force our slaves to resync
          * with us as well to load the new data set.
          *
-         * If server.masterhost is NULL te user called SLAVEOF NO ONE so
+         * If server.masterhost is NULL the user called SLAVEOF NO ONE so
          * slave resync is not needed. */
         if (server.masterhost != NULL) disconnectSlaves();
     }
