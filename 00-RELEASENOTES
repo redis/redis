@@ -18,6 +18,15 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
+What's new in Redis 2.4.10
+==========================
+
+UPGRADE URGENCY: High for users using replication with a DB identifier higher than 9, or chaining replication so that slaves are attached to other slaves. Low for all the other users.
+
+* [FEATURE] Redis --test-meory improved with new test testing addressing.
+* [BUGFIX] Fixed a memory leak: happens when replication is used with DB > 9.
+* [BUGFIX] Fixed a replication bug that happens in chained replicaiton when a slave is attached to a master that is later turned into a slave. Now the chained slave reconnection is properly forced.
+
 What's new in Redis 2.4.9
 =========================
 
