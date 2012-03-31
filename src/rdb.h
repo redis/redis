@@ -7,6 +7,10 @@
 /* TBD: include only necessary headers. */
 #include "redis.h"
 
+/* The current RDB version. When the format changes in a way that is no longer
+ * backward compatible this number gets incremented. */
+#define REDIS_RDB_VERSION 4
+
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
  * the first byte to interpreter the length:
