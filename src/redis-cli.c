@@ -77,6 +77,7 @@ static struct config {
     char *eval;
 } config;
 
+static int cliConnect(int force);
 static void usage();
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
@@ -248,6 +249,7 @@ static void completionCallback(const char *buf, linenoiseCompletions *lc) {
     int i;
     size_t matchlen;
     sds tmp;
+    const char* pivot;
 
     if (strncasecmp(buf,"help ",5) == 0) {
         startpos = 5;
@@ -266,6 +268,29 @@ static void completionCallback(const char *buf, linenoiseCompletions *lc) {
             tmp = sdscat(tmp,helpEntries[i].full);
             linenoiseAddCompletion(lc,tmp);
             sdsfree(tmp);
+        }
+    }
+
+    if (startpos == 0) {
+        pivot = strrchr(buf, ' ');
+
+        if (pivot) {
+            ++pivot; // Skip the space
+
+            cliConnect(0);
+            redisReply *reply = redisCommand(context,"KEYS %s*",pivot);
+
+            if (reply != NULL) {
+                if (reply->type == REDIS_REPLY_ARRAY) {
+                    for (size_t j = 0; j < reply->elements; ++j) {
+                        tmp = sdsnewlen(buf,pivot-buf);
+                        tmp = sdscatrepr(tmp,reply->element[j]->str,strlen(reply->element[j]->str));
+                        linenoiseAddCompletion(lc,tmp);
+                        sdsfree(tmp);
+                    }
+                }
+                freeReplyObject(reply);
+            }
         }
     }
 }
