@@ -945,9 +945,9 @@ int equalStringObjects(robj *a, robj *b);
 unsigned long estimateObjectIdleTime(robj *o);
 
 /* Synchronous I/O with timeout */
-int syncWrite(int fd, char *ptr, ssize_t size, int timeout);
-int syncRead(int fd, char *ptr, ssize_t size, int timeout);
-int syncReadLine(int fd, char *ptr, ssize_t size, int timeout);
+ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout);
+ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout);
+ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout);
 
 /* Replication */
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
