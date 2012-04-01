@@ -166,7 +166,7 @@ if [[ ! `which chkconfig` ]] ; then
 else
 	# we're chkconfig, so lets add to chkconfig and put in runlevel 345
 	chkconfig --add redis_$REDIS_PORT && echo "Successfully added to chkconfig!"
-	chkconfig--level 345 redis_$REDIS_PORT on && echo "Successfully added to runlevels 345!"
+	chkconfig --level 345 redis_$REDIS_PORT on && echo "Successfully added to runlevels 345!"
 fi
 	
 /etc/init.d/redis_$REDIS_PORT start || die "Failed starting service..."
