@@ -216,6 +216,15 @@
 #define REDIS_ZSET_MAX_ZIPLIST_ENTRIES 128
 #define REDIS_ZSET_MAX_ZIPLIST_VALUE 64
 
+/* Floating point to string conversions */
+/* We use 17 digits precision since with 80 bit floats (the default long
+ * double on x86) that precision) after rouding is able to represent most
+ * small decimal numbers in a way that is "non surprising" for the user
+ * (that is, most small decimal numbers will be represented in a way that
+ * when converted back into a string are exactly the same as what
+ * the user typed.) */
+#define REDIS_STRING_MAX_FLOAT_DIGITS_AFTER_DECIMAL 17
+
 /* Sets operations codes */
 #define REDIS_OP_UNION 0
 #define REDIS_OP_DIFF 1
@@ -567,6 +576,8 @@ struct redisServer {
     size_t set_max_intset_entries;
     size_t zset_max_ziplist_entries;
     size_t zset_max_ziplist_value;
+    /* INCRBYFLOAT and HINCRBYFLOAT precision */
+    char string_from_long_double_format[128]; /* format string for LongDoubleObject to stringObject conversion */
     time_t unixtime;        /* Unix time sampled every second. */
     /* Pubsub */
     dict *pubsub_channels;  /* Map channels to list of subscribed clients */
@@ -694,6 +705,7 @@ extern dictType hashDictType;
 long long ustime(void);
 long long mstime(void);
 void getRandomHexChars(char *p, unsigned int len);
+void longDoubleFormatString(int precision, char *format);
 
 /* networking.c -- Networking and Client related operations */
 redisClient *createClient(int fd);
