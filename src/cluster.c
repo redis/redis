@@ -1479,10 +1479,13 @@ void createDumpPayload(rio *payload, robj *o) {
      * ----------------+---------------------+--------------+
      * The SHA1 is just 8 bytes of truncated SHA1 of everything excluding itself.
      * The 2 bytes RDB version is a little endian unsigned integer.  */
+
+    /* RDB version */
     buf[0] = REDIS_RDB_VERSION & 0xff;
     buf[1] = (REDIS_RDB_VERSION >> 8) & 0xff;
     payload->io.buffer.ptr = sdscatlen(payload->io.buffer.ptr,buf,2);
 
+    /* Truncated SHA1 */
     SHA1Init(&ctx);
     SHA1Update(&ctx,(unsigned char*)payload->io.buffer.ptr,
                     sdslen(payload->io.buffer.ptr));
@@ -1499,10 +1502,15 @@ int verifyDumpPayload(unsigned char *p, size_t len) {
     SHA1_CTX ctx;
     uint16_t rdbver;
 
+    /* At least 2 bytes of RDB version and 8 of truncated SHA should be present. */
     if (len < 10) return REDIS_ERR;
     footer = p+(len-10);
+
+    /* Verify RDB version */
     rdbver = (footer[1] << 8) | footer[0];
     if (rdbver != REDIS_RDB_VERSION) return REDIS_ERR;
+
+    /* Verify truncated SHA1 */
     SHA1Init(&ctx);
     SHA1Update(&ctx,p,len-8);
     SHA1Final(hash,&ctx);
