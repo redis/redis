@@ -1,8 +1,86 @@
 #include "redis.h"
+#include "endianconv.h"
 
 /* -----------------------------------------------------------------------------
- * RESTORE and MIGRATE commands
+ * DUMP, RESTORE and MIGRATE commands
  * -------------------------------------------------------------------------- */
+
+/* Generates a DUMP-format representation of the object 'o', adding it to the
+ * io stream pointed by 'rio'. This function can't fail. */
+void createDumpPayload(rio *payload, robj *o) {
+    unsigned char buf[2];
+    uint64_t crc;
+
+    /* Serialize the object in a RDB-like format. It consist of an object type
+     * byte followed by the serialized object. This is understood by RESTORE. */
+    rioInitWithBuffer(payload,sdsempty());
+    redisAssert(rdbSaveObjectType(payload,o));
+    redisAssert(rdbSaveObject(payload,o));
+
+    /* Write the footer, this is how it looks like:
+     * ----------------+---------------------+---------------+
+     * ... RDB payload | 2 bytes RDB version | 8 bytes CRC64 |
+     * ----------------+---------------------+---------------+
+     * RDB version and CRC are both in little endian.
+     */
+
+    /* RDB version */
+    buf[0] = REDIS_RDB_VERSION & 0xff;
+    buf[1] = (REDIS_RDB_VERSION >> 8) & 0xff;
+    payload->io.buffer.ptr = sdscatlen(payload->io.buffer.ptr,buf,2);
+
+    /* CRC64 */
+    crc = crc64((unsigned char*)payload->io.buffer.ptr,
+                sdslen(payload->io.buffer.ptr));
+    memrev64ifbe(&crc);
+    payload->io.buffer.ptr = sdscatlen(payload->io.buffer.ptr,&crc,8);
+}
+
+/* Verify that the RDB version of the dump payload matches the one of this Redis
+ * instance and that the checksum is ok.
+ * If the DUMP payload looks valid REDIS_OK is returned, otherwise REDIS_ERR
+ * is returned. */
+int verifyDumpPayload(unsigned char *p, size_t len) {
+    unsigned char *footer;
+    uint16_t rdbver;
+    uint64_t crc;
+
+    /* At least 2 bytes of RDB version and 8 of CRC64 should be present. */
+    if (len < 10) return REDIS_ERR;
+    footer = p+(len-10);
+
+    /* Verify RDB version */
+    rdbver = (footer[1] << 8) | footer[0];
+    if (rdbver != REDIS_RDB_VERSION) return REDIS_ERR;
+
+    /* Verify CRC64 */
+    crc = crc64(p,len-8);
+    memrev64ifbe(&crc);
+    return (memcmp(&crc,footer+2,8) == 0) ? REDIS_OK : REDIS_ERR;
+}
+
+/* DUMP keyname
+ * DUMP is actually not used by Redis Cluster but it is the obvious
+ * complement of RESTORE and can be useful for different applications. */
+void dumpCommand(redisClient *c) {
+    robj *o, *dumpobj;
+    rio payload;
+
+    /* Check if the key is here. */
+    if ((o = lookupKeyRead(c->db,c->argv[1])) == NULL) {
+        addReply(c,shared.nullbulk);
+        return;
+    }
+
+    /* Create the DUMP encoded representation. */
+    createDumpPayload(&payload,o);
+
+    /* Transfer to the client */
+    dumpobj = createObject(REDIS_STRING,payload.io.buffer.ptr);
+    addReplyBulk(c,dumpobj);
+    decrRefCount(dumpobj);
+    return;
+}
 
 /* RESTORE key ttl serialized-value */
 void restoreCommand(redisClient *c) {
@@ -25,6 +103,12 @@ void restoreCommand(redisClient *c) {
         return;
     }
 
+    /* Verify RDB version and data checksum. */
+    if (verifyDumpPayload(c->argv[3]->ptr,sdslen(c->argv[3]->ptr)) == REDIS_ERR) {
+        addReplyError(c,"DUMP payload version or checksum are wrong");
+        return;
+    }
+
     rioInitWithBuffer(&payload,c->argv[3]->ptr);
     if (((type = rdbLoadObjectType(&payload)) == -1) ||
         ((obj = rdbLoadObject(type,&payload)) == NULL))
@@ -35,7 +119,7 @@ void restoreCommand(redisClient *c) {
 
     /* Create the key and set the TTL if any */
     dbAdd(c->db,c->argv[1],obj);
-    if (ttl) setExpire(c->db,c->argv[1],time(NULL)+ttl);
+    if (ttl) setExpire(c->db,c->argv[1],mstime()+ttl);
     signalModifiedKey(c->db,c->argv[1]);
     addReply(c,shared.ok);
     server.dirty++;
@@ -78,6 +162,7 @@ void migrateCommand(redisClient *c) {
         return;
     }
 
+    /* Create RESTORE payload and generate the protocol to call the command. */
     rioInitWithBuffer(&cmd,sdsempty());
     redisAssertWithInfo(c,NULL,rioWriteBulkCount(&cmd,'*',2));
     redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"SELECT",6));
@@ -91,11 +176,10 @@ void migrateCommand(redisClient *c) {
     redisAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,(ttl == -1) ? 0 : ttl));
 
     /* Finally the last argument that is the serailized object payload
-     * in the form: <type><rdb-serialized-object>. */
-    rioInitWithBuffer(&payload,sdsempty());
-    redisAssertWithInfo(c,NULL,rdbSaveObjectType(&payload,o));
-    redisAssertWithInfo(c,NULL,rdbSaveObject(&payload,o) != -1);
-    redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,payload.io.buffer.ptr,sdslen(payload.io.buffer.ptr)));
+     * in the DUMP format. */
+    createDumpPayload(&payload,o);
+    redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,payload.io.buffer.ptr,
+                                sdslen(payload.io.buffer.ptr)));
     sdsfree(payload.io.buffer.ptr);
 
     /* Tranfer the query to the other node in 64K chunks. */
@@ -160,31 +244,5 @@ socket_rd_err:
         strerror(errno));
     sdsfree(cmd.io.buffer.ptr);
     close(fd);
-    return;
-}
-
-/* DUMP keyname
- * DUMP is actually not used by Redis Cluster but it is the obvious
- * complement of RESTORE and can be useful for different applications. */
-void dumpCommand(redisClient *c) {
-    robj *o, *dumpobj;
-    rio payload;
-
-    /* Check if the key is here. */
-    if ((o = lookupKeyRead(c->db,c->argv[1])) == NULL) {
-        addReply(c,shared.nullbulk);
-        return;
-    }
-
-    /* Serialize the object in a RDB-like format. It consist of an object type
-     * byte followed by the serialized object. This is understood by RESTORE. */
-    rioInitWithBuffer(&payload,sdsempty());
-    redisAssertWithInfo(c,NULL,rdbSaveObjectType(&payload,o));
-    redisAssertWithInfo(c,NULL,rdbSaveObject(&payload,o));
-
-    /* Transfer to the client */
-    dumpobj = createObject(REDIS_STRING,payload.io.buffer.ptr);
-    addReplyBulk(c,dumpobj);
-    decrRefCount(dumpobj);
     return;
 }
