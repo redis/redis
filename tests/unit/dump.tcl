@@ -60,7 +60,7 @@ start_server {tags {"dump"}} {
             $rd debug sleep 5.0 ; # Make second server unable to reply.
             set e {}
             catch {r -1 migrate $second_host $second_port key 9 1000} e
-            assert_match {ERR*} $e
+            assert_match {IOERR*} $e
         }
     }
 }
