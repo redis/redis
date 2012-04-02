@@ -9,18 +9,8 @@ robj *createObject(int type, void *ptr) {
     o->ptr = ptr;
     o->refcount = 1;
 
-    /* Set the LRU to the current lruclock (minutes resolution).
-     * We do this regardless of the fact VM is active as LRU is also
-     * used for the maxmemory directive when Redis is used as cache.
-     *
-     * Note that this code may run in the context of an I/O thread
-     * and accessing server.lruclock in theory is an error
-     * (no locks). But in practice this is safe, and even if we read
-     * garbage Redis will not fail. */
+    /* Set the LRU to the current lruclock (minutes resolution). */
     o->lru = server.lruclock;
-    /* The following is only needed if VM is active, but since the conditional
-     * is probably more costly than initializing the field it's better to
-     * have every field properly initialized anyway. */
     return o;
 }
 
