@@ -42,6 +42,52 @@ start_server {tags {"dump"}} {
             assert {[$first exists key] == 0}
             assert {[$second exists key] == 1}
             assert {[$second get key] eq {Some Value}}
+            assert {[$second ttl key] == -1}
+        }
+    }
+
+    test {MIGRATE propagates TTL correctly} {
+        set first [srv 0 client]
+        r set key "Some Value"
+        start_server {tags {"repl"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            assert {[$first exists key] == 1}
+            assert {[$second exists key] == 0}
+            $first expire key 10
+            set ret [r -1 migrate $second_host $second_port key 9 5000]
+            assert {$ret eq {OK}}
+            assert {[$first exists key] == 0}
+            assert {[$second exists key] == 1}
+            assert {[$second get key] eq {Some Value}}
+            assert {[$second ttl key] >= 7 && [$second ttl key] <= 10}
+        }
+    }
+
+    test {MIGRATE can correctly transfer large values} {
+        set first [srv 0 client]
+        r del key
+        for {set j 0} {$j < 5000} {incr j} {
+            r rpush key 1 2 3 4 5 6 7 8 9 10
+            r rpush key "item 1" "item 2" "item 3" "item 4" "item 5" \
+                        "item 6" "item 7" "item 8" "item 9" "item 10"
+        }
+        assert {[string length [r dump key]] > (1024*64)}
+        start_server {tags {"repl"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            assert {[$first exists key] == 1}
+            assert {[$second exists key] == 0}
+            set ret [r -1 migrate $second_host $second_port key 9 10000]
+            assert {$ret eq {OK}}
+            assert {[$first exists key] == 0}
+            assert {[$second exists key] == 1}
+            assert {[$second ttl key] == -1}
+            assert {[$second llen key] == 5000*20}
         }
     }
 
