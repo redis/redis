@@ -130,7 +130,7 @@ void migrateCommand(redisClient *c) {
     int fd;
     long timeout;
     long dbid;
-    time_t ttl;
+    long long ttl;
     robj *o;
     rio cmd, payload;
 
@@ -168,7 +168,8 @@ void migrateCommand(redisClient *c) {
     redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"SELECT",6));
     redisAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,dbid));
 
-    ttl = getExpire(c->db,c->argv[3]);
+    ttl = getExpire(c->db,c->argv[3])-mstime();
+    if (ttl < 1) ttl = 1;
     redisAssertWithInfo(c,NULL,rioWriteBulkCount(&cmd,'*',4));
     redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"RESTORE",7));
     redisAssertWithInfo(c,NULL,c->argv[3]->encoding == REDIS_ENCODING_RAW);
@@ -190,7 +191,7 @@ void migrateCommand(redisClient *c) {
 
         while ((towrite = sdslen(buf)-pos) > 0) {
             towrite = (towrite > (64*1024) ? (64*1024) : towrite);
-            nwritten = syncWrite(fd,buf+nwritten,towrite,timeout);
+            nwritten = syncWrite(fd,buf+pos,towrite,timeout);
             if (nwritten != (signed)towrite) goto socket_wr_err;
             pos += nwritten;
         }
