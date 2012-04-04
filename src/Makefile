@@ -226,10 +226,10 @@ redis-check-aof: .make-prerequisites $(CHECKAOFOBJ)
 %.o: %.c .make-prerequisites
 	$(QUIET_CC)$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) -I../deps/lua/src $<
 
-.PHONY: all clean distclean
+.PHONY: all clean distclean lcov
 
 clean:
-	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
+	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html
 
 distclean: clean
 	-(cd ../deps && $(MAKE) distclean)
@@ -240,6 +240,12 @@ dep:
 
 test: redis-server redis-check-aof
 	@(cd ..; ./runtest)
+
+lcov:
+	$(MAKE) clean gcov
+	@(set -e; cd ..; ./runtest --clients 1)
+	@geninfo -o redis.info .
+	@genhtml --legend -o lcov-html redis.info
 
 bench:
 	./redis-benchmark
