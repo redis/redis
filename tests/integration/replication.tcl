@@ -97,7 +97,7 @@ start_server {tags {"repl"}} {
                     [lindex $slaves 2] slaveof $master_host $master_port
 
                     # Wait for all the three slaves to reach the "online" state
-                    set retry 100
+                    set retry 500
                     while {$retry} {
                         set info [r -3 info]
                         if {[string match {*slave0:*,online*slave1:*,online*slave2:*,online*} $info]} {
