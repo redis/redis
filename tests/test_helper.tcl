@@ -345,6 +345,7 @@ proc print_help_screen {} {
         "--quiet            Don't show individual tests."
         "--single <unit>    Just execute the specified unit (see next option)."
         "--list-tests       List all the available test units."
+        "--clients <num>    Number of test clients (16)."
         "--force-failure    Force the execution of a test that always fails."
         "--help             Print this help screen."
     } "\n"]
@@ -389,6 +390,9 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     } elseif {$opt eq {--client}} {
         set ::client 1
         set ::test_server_port $arg
+        incr j
+    } elseif {$opt eq {--clients}} {
+        set ::numclients $arg
         incr j
     } elseif {$opt eq {--help}} {
         print_help_screen
