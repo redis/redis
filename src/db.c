@@ -527,7 +527,7 @@ void expireGenericCommand(redisClient *c, long long offset, int unit) {
         return;
 
     if (unit == UNIT_SECONDS) milliseconds *= 1000;
-    milliseconds -= offset;
+    milliseconds += offset;
 
     de = dictFind(c->db->dict,key->ptr);
     if (de == NULL) {
@@ -540,7 +540,7 @@ void expireGenericCommand(redisClient *c, long long offset, int unit) {
      *
      * Instead we take the other branch of the IF statement setting an expire
      * (possibly in the past) and wait for an explicit DEL from the master. */
-    if (milliseconds <= 0 && !server.loading && !server.masterhost) {
+    if (milliseconds <= mstime() && !server.loading && !server.masterhost) {
         robj *aux;
 
         redisAssertWithInfo(c,key,dbDelete(c->db,key));
@@ -554,8 +554,7 @@ void expireGenericCommand(redisClient *c, long long offset, int unit) {
         addReply(c, shared.cone);
         return;
     } else {
-        long long when = mstime()+milliseconds;
-        setExpire(c->db,key,when);
+        setExpire(c->db,key,milliseconds);
         addReply(c,shared.cone);
         signalModifiedKey(c->db,key);
         server.dirty++;
@@ -564,19 +563,19 @@ void expireGenericCommand(redisClient *c, long long offset, int unit) {
 }
 
 void expireCommand(redisClient *c) {
-    expireGenericCommand(c,0,UNIT_SECONDS);
-}
-
-void expireatCommand(redisClient *c) {
     expireGenericCommand(c,mstime(),UNIT_SECONDS);
 }
 
+void expireatCommand(redisClient *c) {
+    expireGenericCommand(c,0,UNIT_SECONDS);
+}
+
 void pexpireCommand(redisClient *c) {
-    expireGenericCommand(c,0,UNIT_MILLISECONDS);
+    expireGenericCommand(c,mstime(),UNIT_MILLISECONDS);
 }
 
 void pexpireatCommand(redisClient *c) {
-    expireGenericCommand(c,mstime(),UNIT_MILLISECONDS);
+    expireGenericCommand(c,0,UNIT_MILLISECONDS);
 }
 
 void ttlGenericCommand(redisClient *c, int output_ms) {
