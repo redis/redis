@@ -62,6 +62,9 @@ double R_Zero, R_PosInf, R_NegInf, R_Nan;
 
 /*================================= Globals ================================= */
 
+/* Alternate stack for SIGSEGV/etc handlers */
+char altstack[SIGSTKSZ];
+
 /* Global vars */
 struct redisServer server; /* server global state */
 struct redisCommand *commandTable;
@@ -2329,15 +2332,24 @@ static void sigtermHandler(int sig) {
 
 void setupSignalHandlers(void) {
     struct sigaction act;
+    stack_t stack;
+
+    stack.ss_sp = altstack;
+    stack.ss_flags = 0;
+    stack.ss_size = SIGSTKSZ;
+
+    sigaltstack(&stack, NULL);
 
     /* When the SA_SIGINFO flag is set in sa_flags then sa_sigaction is used.
      * Otherwise, sa_handler is used. */
     sigemptyset(&act.sa_mask);
-    act.sa_flags = SA_NODEFER | SA_ONSTACK | SA_RESETHAND;
+    act.sa_flags = 0;
     act.sa_handler = sigtermHandler;
     sigaction(SIGTERM, &act, NULL);
 
 #ifdef HAVE_BACKTRACE
+    /* Use alternate stack so we don't clobber stack in case of segv, or when we run out of stack ..
+     * also resethand & nodefer so we can get interrupted (and killed) if we cause SEGV during SEGV handler */
     sigemptyset(&act.sa_mask);
     act.sa_flags = SA_NODEFER | SA_ONSTACK | SA_RESETHAND | SA_SIGINFO;
     act.sa_sigaction = sigsegvHandler;
