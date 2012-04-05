@@ -105,7 +105,6 @@ void computeDatasetDigest(unsigned char *final) {
 
             mixDigest(digest,key,sdslen(key));
 
-            /* Make sure the key is loaded if VM is active */
             o = dictGetVal(de);
 
             aux = htonl(o->type);
