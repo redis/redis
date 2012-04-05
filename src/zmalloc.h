@@ -60,6 +60,11 @@
 #include <malloc/malloc.h>
 #define HAVE_MALLOC_SIZE 1
 #define zmalloc_size(p) malloc_size(p)
+
+#elif __GLIBC__
+#include <malloc.h>
+#define HAVE_MALLOC_SIZE 1
+#define zmalloc_size(p) malloc_usable_size(p)
 #endif
 
 #ifndef ZMALLOC_LIB
