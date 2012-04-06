@@ -104,4 +104,30 @@ start_server {tags {"aofrw"}} {
             }
         }
     }
+
+    test {BGREWRITEAOF is delayed if BGSAVE is in progress} {
+        r multi
+        r bgsave
+        r bgrewriteaof
+        r info persistence
+        set res [r exec]
+        assert_match {*scheduled*} [lindex $res 1]
+        assert_match {*bgrewriteaof_scheduled:1*} [lindex $res 2]
+        while {[string match {*bgrewriteaof_scheduled:1*} [r info persistence]]} {
+            after 100
+        }
+    }
+
+    test {BGREWRITEAOF is refused if already in progress} {
+        catch {
+            r multi
+            r bgrewriteaof
+            r bgrewriteaof
+            r exec
+        } e
+        assert_match {*ERR*already*} $e
+        while {[string match {*bgrewriteaof_scheduled:1*} [r info persistence]]} {
+            after 100
+        }
+    }
 }
