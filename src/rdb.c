@@ -786,7 +786,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             }
 
             /* This will also be called when the set was just converted
-             * to regular hash table encoded set */
+             * to a regular hash table encoded set */
             if (o->encoding == REDIS_ENCODING_HT) {
                 dictAdd((dict*)o->ptr,ele,NULL);
             } else {
