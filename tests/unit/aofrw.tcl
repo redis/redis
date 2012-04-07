@@ -1,4 +1,15 @@
 start_server {tags {"aofrw"}} {
+
+    test {Turning off AOF kills the background writing child if any} {
+        r config set appendonly yes
+        waitForBgrewriteaof r
+        r multi
+        r bgrewriteaof
+        r config set appendonly no
+        r exec
+        set result [exec cat [srv 0 stdout] | tail -n1]
+    } {*Killing*AOF*child*}
+
     foreach d {string int} {
         foreach e {ziplist linkedlist} {
             test "AOF rewrite of list with $e encoding, $d data" {
