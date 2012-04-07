@@ -142,9 +142,15 @@ proc ::redis::redis_multi_bulk_read fd {
     set count [redis_read_line $fd]
     if {$count == -1} return {}
     set l {}
+    set err {}
     for {set i 0} {$i < $count} {incr i} {
-        lappend l [redis_read_reply $fd]
+        if {[catch {
+            lappend l [redis_read_reply $fd]
+        } e] && $err eq {}} {
+            set err $e
+        }
     }
+    if {$err ne {}} {return -code error $err}
     return $l
 }
 

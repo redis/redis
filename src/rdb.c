@@ -26,11 +26,6 @@ int rdbLoadType(rio *rdb) {
     return type;
 }
 
-int rdbSaveTime(rio *rdb, time_t t) {
-    int32_t t32 = (int32_t) t;
-    return rdbWriteRaw(rdb,&t32,4);
-}
-
 time_t rdbLoadTime(rio *rdb) {
     int32_t t32;
     if (rioRead(rdb,&t32,4) == 0) return -1;

@@ -510,24 +510,23 @@ int expireIfNeeded(redisDb *db, robj *key) {
  * Expires Commands
  *----------------------------------------------------------------------------*/
 
-/* Given an string object return true if it contains exactly the "ms"
- * or "MS" string. This is used in order to check if the last argument
- * of EXPIRE, EXPIREAT or TTL is "ms" to switch into millisecond input/output */
-int stringObjectEqualsMs(robj *a) {
-    char *arg = a->ptr;
-    return tolower(arg[0]) == 'm' && tolower(arg[1]) == 's' && arg[2] == '\0';
-}
-
-void expireGenericCommand(redisClient *c, long long offset, int unit) {
+/* This is the generic command implementation for EXPIRE, PEXPIRE, EXPIREAT
+ * and PEXPIREAT. Because the commad second argument may be relative or absolute
+ * the "basetime" argument is used to signal what the base time is (either 0
+ * for *AT variants of the command, or the current time for relative expires).
+ *
+ * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
+ * the argv[2] parameter. The basetime is always specified in milliesconds. */
+void expireGenericCommand(redisClient *c, long long basetime, int unit) {
     dictEntry *de;
     robj *key = c->argv[1], *param = c->argv[2];
-    long long milliseconds;
+    long long when; /* unix time in milliseconds when the key will expire. */
 
-    if (getLongLongFromObjectOrReply(c, param, &milliseconds, NULL) != REDIS_OK)
+    if (getLongLongFromObjectOrReply(c, param, &when, NULL) != REDIS_OK)
         return;
 
-    if (unit == UNIT_SECONDS) milliseconds *= 1000;
-    milliseconds -= offset;
+    if (unit == UNIT_SECONDS) when *= 1000;
+    when += basetime;
 
     de = dictFind(c->db->dict,key->ptr);
     if (de == NULL) {
@@ -540,7 +539,7 @@ void expireGenericCommand(redisClient *c, long long offset, int unit) {
      *
      * Instead we take the other branch of the IF statement setting an expire
      * (possibly in the past) and wait for an explicit DEL from the master. */
-    if (milliseconds <= 0 && !server.loading && !server.masterhost) {
+    if (when <= mstime() && !server.loading && !server.masterhost) {
         robj *aux;
 
         redisAssertWithInfo(c,key,dbDelete(c->db,key));
@@ -554,7 +553,6 @@ void expireGenericCommand(redisClient *c, long long offset, int unit) {
         addReply(c, shared.cone);
         return;
     } else {
-        long long when = mstime()+milliseconds;
         setExpire(c->db,key,when);
         addReply(c,shared.cone);
         signalModifiedKey(c->db,key);
@@ -564,19 +562,19 @@ void expireGenericCommand(redisClient *c, long long offset, int unit) {
 }
 
 void expireCommand(redisClient *c) {
-    expireGenericCommand(c,0,UNIT_SECONDS);
-}
-
-void expireatCommand(redisClient *c) {
     expireGenericCommand(c,mstime(),UNIT_SECONDS);
 }
 
+void expireatCommand(redisClient *c) {
+    expireGenericCommand(c,0,UNIT_SECONDS);
+}
+
 void pexpireCommand(redisClient *c) {
-    expireGenericCommand(c,0,UNIT_MILLISECONDS);
+    expireGenericCommand(c,mstime(),UNIT_MILLISECONDS);
 }
 
 void pexpireatCommand(redisClient *c) {
-    expireGenericCommand(c,mstime(),UNIT_MILLISECONDS);
+    expireGenericCommand(c,0,UNIT_MILLISECONDS);
 }
 
 void ttlGenericCommand(redisClient *c, int output_ms) {
