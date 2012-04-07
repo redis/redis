@@ -185,7 +185,7 @@ unsigned long setTypeSize(robj *subject) {
 }
 
 /* Convert the set to specified encoding. The resulting dict (when converting
- * to a hashtable) is presized to hold the number of elements in the original
+ * to a hash table) is presized to hold the number of elements in the original
  * set. */
 void setTypeConvert(robj *setobj, int enc) {
     setTypeIterator *si;
