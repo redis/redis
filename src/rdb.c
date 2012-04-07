@@ -686,7 +686,7 @@ int rdbSaveBackground(char *filename) {
         if (server.ipfd > 0) close(server.ipfd);
         if (server.sofd > 0) close(server.sofd);
         retval = rdbSave(filename);
-        _exit((retval == REDIS_OK) ? 0 : 1);
+        exitFromChild((retval == REDIS_OK) ? 0 : 1);
     } else {
         /* Parent */
         server.stat_fork_time = ustime()-start;

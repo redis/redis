@@ -263,7 +263,7 @@ gprof:
 	$(MAKE) PROF="-pg"
 
 gcov:
-	$(MAKE) PROF="-fprofile-arcs -ftest-coverage"
+	$(MAKE) PROF="-fprofile-arcs -ftest-coverage -DCOVERAGE_TEST"
 
 noopt:
 	$(MAKE) OPTIMIZATION=""
