@@ -794,6 +794,10 @@ int rewriteAppendOnlyFileBackground(void) {
     long long start;
 
     if (server.aof_child_pid != -1) return REDIS_ERR;
+
+    /* Flush all output buffers before fork() */
+    fflush(NULL);
+
     start = ustime();
     if ((childpid = fork()) == 0) {
         char tmpfile[256];
@@ -803,9 +807,9 @@ int rewriteAppendOnlyFileBackground(void) {
         if (server.sofd > 0) close(server.sofd);
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
         if (rewriteAppendOnlyFile(tmpfile) == REDIS_OK) {
-            _exit(0);
+            exit(0);
         } else {
-            _exit(1);
+            exit(1);
         }
     } else {
         /* Parent */
