@@ -510,14 +510,6 @@ int expireIfNeeded(redisDb *db, robj *key) {
  * Expires Commands
  *----------------------------------------------------------------------------*/
 
-/* Given an string object return true if it contains exactly the "ms"
- * or "MS" string. This is used in order to check if the last argument
- * of EXPIRE, EXPIREAT or TTL is "ms" to switch into millisecond input/output */
-int stringObjectEqualsMs(robj *a) {
-    char *arg = a->ptr;
-    return tolower(arg[0]) == 'm' && tolower(arg[1]) == 's' && arg[2] == '\0';
-}
-
 /* This is the generic command implementation for EXPIRE, PEXPIRE, EXPIREAT
  * and PEXPIREAT. Because the commad second argument may be relative or absolute
  * the "basetime" argument is used to signal what the base time is (either 0
