@@ -2273,6 +2273,9 @@ void createPidFile(void) {
 void daemonize(void) {
     int fd;
 
+    /* Flush output buffers before fork  */
+    fflush(NULL);
+
     if (fork() != 0) exit(0); /* parent exits */
     setsid(); /* create a new session */
 

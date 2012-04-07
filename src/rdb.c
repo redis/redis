@@ -678,6 +678,9 @@ int rdbSaveBackground(char *filename) {
 
     server.dirty_before_bgsave = server.dirty;
 
+    /* Flush all output buffers before fork() */
+    fflush(NULL);
+
     start = ustime();
     if ((childpid = fork()) == 0) {
         int retval;
@@ -686,7 +689,7 @@ int rdbSaveBackground(char *filename) {
         if (server.ipfd > 0) close(server.ipfd);
         if (server.sofd > 0) close(server.sofd);
         retval = rdbSave(filename);
-        _exit((retval == REDIS_OK) ? 0 : 1);
+        exit((retval == REDIS_OK) ? 0 : 1);
     } else {
         /* Parent */
         server.stat_fork_time = ustime()-start;
