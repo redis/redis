@@ -38,6 +38,7 @@ set ::all_tests {
     unit/scripting
     unit/maxmemory
     unit/introspection
+    unit/limits
     unit/obuf-limits
     unit/dump
 }
