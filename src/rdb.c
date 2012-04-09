@@ -717,7 +717,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
     size_t len;
     unsigned int i;
 
-    redisLog(REDIS_DEBUG,"LOADING OBJECT %d (at %d)\n",rdbtype,rdb->tell(rdb));
+    redisLog(REDIS_DEBUG,"LOADING OBJECT %d (at %d)\n",rdbtype,rdbTell(rdb));
     if (rdbtype == REDIS_RDB_TYPE_STRING) {
         /* Read string value */
         if ((o = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
@@ -1039,7 +1039,7 @@ int rdbLoad(char *filename) {
 
         /* Serve the clients from time to time */
         if (!(loops++ % 1000)) {
-            loadingProgress(rdb.tell(&rdb));
+            loadingProgress(rdbTell(&rdb));
             aeProcessEvents(server.el, AE_FILE_EVENTS|AE_DONT_WAIT);
         }
 

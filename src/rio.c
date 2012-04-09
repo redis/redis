@@ -58,6 +58,8 @@ static const rio rioBufferIO = {
     rioBufferRead,
     rioBufferWrite,
     rioBufferTell,
+    NULL,           /* update_checksum */
+    0,              /* current checksum */
     { { NULL, 0 } } /* union for io-specific vars */
 };
 
@@ -65,6 +67,8 @@ static const rio rioFileIO = {
     rioFileRead,
     rioFileWrite,
     rioFileTell,
+    NULL,           /* update_checksum */
+    0,              /* current checksum */
     { { NULL, 0 } } /* union for io-specific vars */
 };
 
@@ -77,6 +81,12 @@ void rioInitWithBuffer(rio *r, sds s) {
     *r = rioBufferIO;
     r->io.buffer.ptr = s;
     r->io.buffer.pos = 0;
+}
+
+/* This function can be installed both in memory and file streams when checksum
+ * computation is needed. */
+void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len) {
+    r->checksum = crc64(r->checksum,buf,len);
 }
 
 /* ------------------------------ Higher level interface ---------------------------
