@@ -18,6 +18,8 @@
 #include "rio.h"
 #include "util.h"
 
+uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
+
 /* Returns 1 or 0 for success/failure. */
 static size_t rioBufferWrite(rio *r, const void *buf, size_t len) {
     r->io.buffer.ptr = sdscatlen(r->io.buffer.ptr,(char*)buf,len);
@@ -86,7 +88,7 @@ void rioInitWithBuffer(rio *r, sds s) {
 /* This function can be installed both in memory and file streams when checksum
  * computation is needed. */
 void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len) {
-    r->checksum = crc64(r->checksum,buf,len);
+    r->cksum = crc64(r->cksum,buf,len);
 }
 
 /* ------------------------------ Higher level interface ---------------------------

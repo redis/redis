@@ -16,7 +16,7 @@ struct _rio {
      * data that was read or written so far. The method should be designed so that
      * can be called with the current checksum, and the buf and len fields pointing
      * to the new block of data to add to the checksum computation. */
-    void (*update_cksum)(struct _rio *, void *buf, size_t len);
+    void (*update_cksum)(struct _rio *, const void *buf, size_t len);
 
     /* The current checksum */
     uint64_t cksum;
@@ -40,13 +40,13 @@ typedef struct _rio rio;
  * if needed. */
 
 inline size_t rioWrite(rio *r, const void *buf, size_t len) {
-    if (r->udpate_cksum) r->update_cksum(r,buf,len);
+    if (r->update_cksum) r->update_cksum(r,buf,len);
     return r->write(r,buf,len);
 }
 
 inline size_t rioRead(rio *r, void *buf, size_t len) {
     if (r->read(r,buf,len) == 1) {
-        if (r->udpate_cksum) r->update_cksum(r,buf,len);
+        if (r->update_cksum) r->update_cksum(r,buf,len);
         return 1;
     }
     return 0;
