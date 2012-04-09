@@ -827,7 +827,7 @@ extern dictType hashDictType;
 long long ustime(void);
 long long mstime(void);
 void getRandomHexChars(char *p, unsigned int len);
-uint64_t crc64(const unsigned char *s, uint64_t l);
+uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 void exitFromChild(int retcode);
 
 /* networking.c -- Networking and Client related operations */
