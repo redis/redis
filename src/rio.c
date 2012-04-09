@@ -1,3 +1,17 @@
+/* rio.c is a simple stream-oriented I/O abstraction that provides an interface
+ * to write code that can consume/produce data using different concrete input
+ * and output devices. For instance the same rdb.c code using the rio abstraction
+ * can be used to read and write the RDB format using in-memory buffers or files.
+ *
+ * A rio object provides the following methods:
+ *  read: read from stream.
+ *  write: write to stream.
+ *  tell: get the current offset.
+ *
+ * It is also possible to set a 'checksum' method that is used by rio.c in order
+ * to compute a checksum of the data written or read, or to query the rio object
+ * for the current checksum. */
+
 #include "fmacros.h"
 #include <string.h>
 #include <stdio.h>
@@ -64,6 +78,10 @@ void rioInitWithBuffer(rio *r, sds s) {
     r->io.buffer.ptr = s;
     r->io.buffer.pos = 0;
 }
+
+/* ------------------------------ Higher level interface ---------------------------
+ * The following higher level functions use lower level rio.c functions to help
+ * generating the Redis protocol for the Append Only File. */
 
 /* Write multi bulk count in the format: "*<count>\r\n". */
 size_t rioWriteBulkCount(rio *r, char prefix, int count) {
