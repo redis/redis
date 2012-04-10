@@ -1460,7 +1460,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
 
     if (setnum < 1) {
         addReplyError(c,
-            "at least 1 input key is needed for ZUNIONSTORE/ZINTERSTORE");
+            "at least 1 input key is needed for ZUNIONSTORE/ZINTERSTORE/ZDIFFSTORE");
         return;
     }
 
@@ -1507,7 +1507,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                         return;
                     }
                 }
-            } else if (remaining >= 2 && !strcasecmp(c->argv[j]->ptr,"aggregate")) {
+            } else if ( op != REDIS_OP_DIFF && remaining >= 2 && !strcasecmp(c->argv[j]->ptr,"aggregate")) {
                 j++; remaining--;
                 if (!strcasecmp(c->argv[j]->ptr,"sum")) {
                     aggregate = REDIS_AGGR_SUM;
@@ -1534,7 +1534,9 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
 
     /* sort sets from the smallest to largest, this will improve our
      * algorithm's performance */
-    qsort(src,setnum,sizeof(zsetopsrc),zuiCompareByCardinality);
+    if ( op != REDIS_OP_DIFF ) {
+        qsort(src, setnum, sizeof(zsetopsrc), zuiCompareByCardinality);
+    }
 
     dstobj = createZsetObject();
     dstzset = dstobj->ptr;
@@ -1620,6 +1622,38 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                         maxelelen = sdslen(tmp->ptr);
             }
         }
+    } else if (op == REDIS_OP_DIFF) {
+        /* Skip everything if the smallest input is empty. */
+        if (zuiLength(&src[0]) > 0) {
+            while (zuiNext(&src[0],&zval)) {
+                double score, value;
+                int exists = 0;
+
+                // weighting doesn't make sense here
+                score = zval.score;
+                if (isnan(score)) score = 0;
+
+                // if this key exists in any other input set, stop looking for it
+                for (j = 1; j < setnum; j++) {
+                    if (zuiFind(&src[j],&zval,&value)) {
+                        exists = 1;
+                        break;
+                    }
+                }
+
+                if (!exists) {
+                    tmp = zuiObjectFromValue(&zval);
+                    znode = zslInsert(dstzset->zsl,score,tmp);
+                    incrRefCount(zval.ele); /* added to skiplist */
+                    dictAdd(dstzset->dict,tmp,&znode->score);
+                    incrRefCount(zval.ele); /* added to dictionary */
+
+                    if (tmp->encoding == REDIS_ENCODING_RAW)
+                        if (sdslen(tmp->ptr) > maxelelen)
+                            maxelelen = sdslen(tmp->ptr);
+                }
+            }
+        }
     } else {
         redisPanic("Unknown operator");
     }
@@ -1655,6 +1689,10 @@ void zunionstoreCommand(redisClient *c) {
 
 void zinterstoreCommand(redisClient *c) {
     zunionInterGenericCommand(c,c->argv[1], REDIS_OP_INTER);
+}
+
+void zdiffstoreCommand(redisClient *c) {
+    zunionInterGenericCommand(c, c->argv[1], REDIS_OP_DIFF);
 }
 
 void zrangeGenericCommand(redisClient *c, int reverse) {

@@ -471,6 +471,21 @@ start_server {tags {"zset"}} {
             assert_equal {b 2 c 3} [r zrange zsetc 0 -1 withscores]
         }
 
+        test "ZDIFFSTORE basics - $encoding" {
+            assert_equal 1 [r zdiffstore zsetc 2 zseta zsetb]
+            assert_equal {a 1} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZDIFFSTORE with WITHSCORES - $encoding" {
+            r del zsetc
+            r zadd zseta 4 e
+            r zadd zseta 5 f
+            r zadd zsetc 4 e
+
+            assert_equal 2 [r zdiffstore zsetd 3 zseta zsetb zsetc]
+            assert_equal {a 1 f 5} [r zrange zsetd 0 -1 withscores]
+        }
+
         foreach cmd {ZUNIONSTORE ZINTERSTORE} {
             test "$cmd with +inf/-inf scores - $encoding" {
                 r del zsetinf1 zsetinf2
