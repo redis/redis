@@ -1586,7 +1586,7 @@ void migrateCommand(redisClient *c) {
     int fd;
     long timeout;
     long dbid;
-    long long ttl, expireat;
+    long long ttl = 0, expireat;
     robj *o;
     rio cmd, payload;
 
@@ -1633,7 +1633,7 @@ void migrateCommand(redisClient *c) {
     redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"RESTORE",7));
     redisAssertWithInfo(c,NULL,c->argv[3]->encoding == REDIS_ENCODING_RAW);
     redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,c->argv[3]->ptr,sdslen(c->argv[3]->ptr)));
-    redisAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,(expireat==-1) ? 0 : ttl));
+    redisAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,ttl));
 
     /* Finally the last argument that is the serailized object payload
      * in the DUMP format. */
