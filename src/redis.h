@@ -646,6 +646,7 @@ struct redisServer {
     int saveparamslen;              /* Number of saving points */
     char *rdb_filename;             /* Name of RDB file */
     int rdb_compression;            /* Use compression in RDB? */
+    int rdb_checksum;               /* Use RDB checksum? */
     time_t lastsave;                /* Unix time of last save succeeede */
     int lastbgsave_status;          /* REDIS_OK or REDIS_ERR */
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */

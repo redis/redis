@@ -1061,6 +1061,7 @@ void initServerConfig() {
     server.aof_filename = zstrdup("appendonly.aof");
     server.requirepass = NULL;
     server.rdb_compression = 1;
+    server.rdb_checksum = 1;
     server.activerehashing = 1;
     server.maxclients = REDIS_MAX_CLIENTS;
     server.bpop_blocked_clients = 0;
