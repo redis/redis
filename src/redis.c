@@ -318,14 +318,15 @@ void redisLogFromHandler(int level, const char *msg) {
         STDOUT_FILENO;
     if (fd == -1) return;
     ll2string(buf,sizeof(buf),getpid());
-    write(fd,"[",1);
-    write(fd,buf,strlen(buf));
-    write(fd," | signal handler] (",20);
+    if (write(fd,"[",1) == -1) goto err;
+    if (write(fd,buf,strlen(buf)) == -1) goto err;
+    if (write(fd," | signal handler] (",20) == -1) goto err;
     ll2string(buf,sizeof(buf),time(NULL));
-    write(fd,buf,strlen(buf));
-    write(fd,") ",2);
-    write(fd,msg,strlen(msg));
-    write(fd,"\n",1);
+    if (write(fd,buf,strlen(buf)) == -1) goto err;
+    if (write(fd,") ",2) == -1) goto err;
+    if (write(fd,msg,strlen(msg)) == -1) goto err;
+    if (write(fd,"\n",1) == -1) goto err;
+err:
     if (server.logfile) close(fd);
 }
 
