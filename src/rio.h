@@ -39,12 +39,12 @@ typedef struct _rio rio;
  * actual implementation of read / write / tell, and will update the checksum
  * if needed. */
 
-inline size_t rioWrite(rio *r, const void *buf, size_t len) {
+static inline size_t rioWrite(rio *r, const void *buf, size_t len) {
     if (r->update_cksum) r->update_cksum(r,buf,len);
     return r->write(r,buf,len);
 }
 
-inline size_t rioRead(rio *r, void *buf, size_t len) {
+static inline size_t rioRead(rio *r, void *buf, size_t len) {
     if (r->read(r,buf,len) == 1) {
         if (r->update_cksum) r->update_cksum(r,buf,len);
         return 1;
@@ -52,7 +52,7 @@ inline size_t rioRead(rio *r, void *buf, size_t len) {
     return 0;
 }
 
-inline off_t rioTell(rio *r) {
+static inline off_t rioTell(rio *r) {
     return r->tell(r);
 }
 
