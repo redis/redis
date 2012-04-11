@@ -103,7 +103,7 @@ all: $(R_SERVER_NAME) $(R_CLI_NAME) $(R_BENCHMARK_NAME) $(R_CHECK_DUMP_NAME) $(R
 include Makefile.dep
 
 dep:
-	$(R_CC) -MM *.c
+	$(R_CC) -MM *.c > Makefile.dep
 
 .PHONY: dep
 
