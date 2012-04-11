@@ -16,11 +16,11 @@
 #endif
 
 #ifdef MEMTEST_32BIT
-#define ULONG_ONEZERO 0xaaaaaaaaaaaaaaaaUL
-#define ULONG_ZEROONE 0x5555555555555555UL
-#else
 #define ULONG_ONEZERO 0xaaaaaaaaUL
 #define ULONG_ZEROONE 0x55555555UL
+#else
+#define ULONG_ONEZERO 0xaaaaaaaaaaaaaaaaUL
+#define ULONG_ZEROONE 0x5555555555555555UL
 #endif
 
 static struct winsize ws;
