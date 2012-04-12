@@ -22,3 +22,5 @@ src/redis.conf
 deps/lua/src/lua
 deps/lua/src/luac
 deps/lua/src/liblua.a
+.make-*
+.prerequisites

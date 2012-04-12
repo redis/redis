@@ -4,8 +4,8 @@ set ::num_failed 0
 set ::tests_failed {}
 
 proc assert {condition} {
-    if {![uplevel 1 expr $condition]} {
-        error "assertion:Expected condition '$condition' to be true"
+    if {![uplevel 1 [list expr $condition]]} {
+        error "assertion:Expected condition '$condition' to be true ([uplevel 1 [list subst -nocommands $condition]])"
     }
 }
 

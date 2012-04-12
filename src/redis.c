@@ -31,11 +31,6 @@
 #include "slowlog.h"
 #include "bio.h"
 
-#ifdef HAVE_BACKTRACE
-#include <execinfo.h>
-#include <ucontext.h>
-#endif /* HAVE_BACKTRACE */
-
 #include <time.h>
 #include <signal.h>
 #include <sys/wait.h>
@@ -53,6 +48,7 @@
 #include <float.h>
 #include <math.h>
 #include <sys/resource.h>
+#include <sys/utsname.h>
 
 /* Our shared "common" objects */
 
@@ -66,13 +62,38 @@ double R_Zero, R_PosInf, R_NegInf, R_Nan;
 
 /*================================= Globals ================================= */
 
+/* Alternate stack for SIGSEGV/etc handlers */
+char altstack[SIGSTKSZ];
+
 /* Global vars */
 struct redisServer server; /* server global state */
 struct redisCommand *commandTable;
 
-/* Our command table. Command flags are expressed using strings where every
- * character represents a flag. Later the populateCommandTable() function will
- * take care of populating the real 'flags' field using this characters.
+/* Our command table.
+ *
+ * Every entry is composed of the following fields:
+ *
+ * name: a string representing the command name.
+ * function: pointer to the C function implementing the command.
+ * arity: number of arguments, it is possible to use -N to say >= N
+ * sflags: command flags as string. See below for a table of flags.
+ * flags: flags as bitmask. Computed by Redis using the 'sflags' field.
+ * get_keys_proc: an optional function to get key arguments from a command.
+ *                This is only used when the following three fields are not
+ *                enough to specify what arguments are keys.
+ * first_key_index: first argument that is a key
+ * last_key_index: last argument that is a key
+ * key_step: step to get all the keys from first to last argument. For instance
+ *           in MSET the step is two since arguments are key,val,key,val,...
+ * microseconds: microseconds of total execution time for this command.
+ * calls: total number of calls of this command.
+ *
+ * The flags, microseconds and calls fields are computed by Redis and should
+ * always be set to zero.
+ *
+ * Command flags are expressed using strings where every character represents
+ * a flag. Later the populateCommandTable() function will take care of
+ * populating the real 'flags' field using this characters.
  *
  * This is the meaning of the flags:
  *
@@ -83,14 +104,18 @@ struct redisCommand *commandTable;
  * p: Pub/Sub related command.
  * f: force replication of this command, regarless of server.dirty.
  * s: command not allowed in scripts.
- * r: random command. Command is not deterministic, that is, the same command
+ * R: random command. Command is not deterministic, that is, the same command
  *    with the same arguments, with the same key space, may have different
- *    results. For instance SPOP and RANDOMKEY are two random commands. */
+ *    results. For instance SPOP and RANDOMKEY are two random commands.
+ * S: Sort command output array if called from script, so that the output
+ *    is deterministic.
+ */
 struct redisCommand redisCommandTable[] = {
     {"get",getCommand,2,"r",0,NULL,1,1,1,0,0},
     {"set",setCommand,3,"wm",0,noPreloadGetKeys,1,1,1,0,0},
     {"setnx",setnxCommand,3,"wm",0,noPreloadGetKeys,1,1,1,0,0},
-    {"setex",setexCommand,4,"wm",0,noPreloadGetKeys,2,2,1,0,0},
+    {"setex",setexCommand,4,"wm",0,noPreloadGetKeys,1,1,1,0,0},
+    {"psetex",psetexCommand,4,"wm",0,noPreloadGetKeys,1,1,1,0,0},
     {"append",appendCommand,3,"wm",0,NULL,1,1,1,0,0},
     {"strlen",strlenCommand,2,"r",0,NULL,1,1,1,0,0},
     {"del",delCommand,-2,"w",0,noPreloadGetKeys,1,-1,1,0,0},
@@ -110,9 +135,9 @@ struct redisCommand redisCommandTable[] = {
     {"linsert",linsertCommand,5,"wm",0,NULL,1,1,1,0,0},
     {"rpop",rpopCommand,2,"w",0,NULL,1,1,1,0,0},
     {"lpop",lpopCommand,2,"w",0,NULL,1,1,1,0,0},
-    {"brpop",brpopCommand,-3,"w",0,NULL,1,1,1,0,0},
-    {"brpoplpush",brpoplpushCommand,4,"wm",0,NULL,1,2,1,0,0},
-    {"blpop",blpopCommand,-3,"w",0,NULL,1,-2,1,0,0},
+    {"brpop",brpopCommand,-3,"ws",0,NULL,1,1,1,0,0},
+    {"brpoplpush",brpoplpushCommand,4,"wms",0,NULL,1,2,1,0,0},
+    {"blpop",blpopCommand,-3,"ws",0,NULL,1,-2,1,0,0},
     {"llen",llenCommand,2,"r",0,NULL,1,1,1,0,0},
     {"lindex",lindexCommand,3,"r",0,NULL,1,1,1,0,0},
     {"lset",lsetCommand,4,"wm",0,NULL,1,1,1,0,0},
@@ -127,13 +152,13 @@ struct redisCommand redisCommandTable[] = {
     {"scard",scardCommand,2,"r",0,NULL,1,1,1,0,0},
     {"spop",spopCommand,2,"wRs",0,NULL,1,1,1,0,0},
     {"srandmember",srandmemberCommand,2,"rR",0,NULL,1,1,1,0,0},
-    {"sinter",sinterCommand,-2,"r",0,NULL,1,-1,1,0,0},
-    {"sinterstore",sinterstoreCommand,-3,"wm",0,NULL,2,-1,1,0,0},
-    {"sunion",sunionCommand,-2,"r",0,NULL,1,-1,1,0,0},
-    {"sunionstore",sunionstoreCommand,-3,"wm",0,NULL,2,-1,1,0,0},
-    {"sdiff",sdiffCommand,-2,"r",0,NULL,1,-1,1,0,0},
-    {"sdiffstore",sdiffstoreCommand,-3,"wm",0,NULL,2,-1,1,0,0},
-    {"smembers",sinterCommand,2,"r",0,NULL,1,1,1,0,0},
+    {"sinter",sinterCommand,-2,"rS",0,NULL,1,-1,1,0,0},
+    {"sinterstore",sinterstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0},
+    {"sunion",sunionCommand,-2,"rS",0,NULL,1,-1,1,0,0},
+    {"sunionstore",sunionstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0},
+    {"sdiff",sdiffCommand,-2,"rS",0,NULL,1,-1,1,0,0},
+    {"sdiffstore",sdiffstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0},
+    {"smembers",sinterCommand,2,"rS",0,NULL,1,1,1,0,0},
     {"zadd",zaddCommand,-4,"wm",0,NULL,1,1,1,0,0},
     {"zincrby",zincrbyCommand,4,"wm",0,NULL,1,1,1,0,0},
     {"zrem",zremCommand,-3,"w",0,NULL,1,1,1,0,0},
@@ -156,14 +181,16 @@ struct redisCommand redisCommandTable[] = {
     {"hmset",hmsetCommand,-4,"wm",0,NULL,1,1,1,0,0},
     {"hmget",hmgetCommand,-3,"r",0,NULL,1,1,1,0,0},
     {"hincrby",hincrbyCommand,4,"wm",0,NULL,1,1,1,0,0},
+    {"hincrbyfloat",hincrbyfloatCommand,4,"wm",0,NULL,1,1,1,0,0},
     {"hdel",hdelCommand,-3,"w",0,NULL,1,1,1,0,0},
     {"hlen",hlenCommand,2,"r",0,NULL,1,1,1,0,0},
-    {"hkeys",hkeysCommand,2,"r",0,NULL,1,1,1,0,0},
-    {"hvals",hvalsCommand,2,"r",0,NULL,1,1,1,0,0},
+    {"hkeys",hkeysCommand,2,"rS",0,NULL,1,1,1,0,0},
+    {"hvals",hvalsCommand,2,"rS",0,NULL,1,1,1,0,0},
     {"hgetall",hgetallCommand,2,"r",0,NULL,1,1,1,0,0},
     {"hexists",hexistsCommand,3,"r",0,NULL,1,1,1,0,0},
     {"incrby",incrbyCommand,3,"wm",0,NULL,1,1,1,0,0},
     {"decrby",decrbyCommand,3,"wm",0,NULL,1,1,1,0,0},
+    {"incrbyfloat",incrbyfloatCommand,3,"wm",0,NULL,1,1,1,0,0},
     {"getset",getsetCommand,3,"wm",0,NULL,1,1,1,0,0},
     {"mset",msetCommand,-3,"wm",0,NULL,1,-1,2,0,0},
     {"msetnx",msetnxCommand,-3,"wm",0,NULL,1,-1,2,0,0},
@@ -174,49 +201,53 @@ struct redisCommand redisCommandTable[] = {
     {"renamenx",renamenxCommand,3,"w",0,renameGetKeys,1,2,1,0,0},
     {"expire",expireCommand,3,"w",0,NULL,1,1,1,0,0},
     {"expireat",expireatCommand,3,"w",0,NULL,1,1,1,0,0},
-    {"keys",keysCommand,2,"r",0,NULL,0,0,0,0,0},
+    {"pexpire",pexpireCommand,3,"w",0,NULL,1,1,1,0,0},
+    {"pexpireat",pexpireatCommand,3,"w",0,NULL,1,1,1,0,0},
+    {"keys",keysCommand,2,"rS",0,NULL,0,0,0,0,0},
     {"dbsize",dbsizeCommand,1,"r",0,NULL,0,0,0,0,0},
-    {"auth",authCommand,2,"r",0,NULL,0,0,0,0,0},
+    {"auth",authCommand,2,"rs",0,NULL,0,0,0,0,0},
     {"ping",pingCommand,1,"r",0,NULL,0,0,0,0,0},
     {"echo",echoCommand,2,"r",0,NULL,0,0,0,0,0},
-    {"save",saveCommand,1,"ar",0,NULL,0,0,0,0,0},
+    {"save",saveCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"bgsave",bgsaveCommand,1,"ar",0,NULL,0,0,0,0,0},
     {"bgrewriteaof",bgrewriteaofCommand,1,"ar",0,NULL,0,0,0,0,0},
-    {"shutdown",shutdownCommand,1,"ar",0,NULL,0,0,0,0,0},
+    {"shutdown",shutdownCommand,-1,"ar",0,NULL,0,0,0,0,0},
     {"lastsave",lastsaveCommand,1,"r",0,NULL,0,0,0,0,0},
     {"type",typeCommand,2,"r",0,NULL,1,1,1,0,0},
     {"multi",multiCommand,1,"rs",0,NULL,0,0,0,0,0},
-    {"exec",execCommand,1,"wms",0,NULL,0,0,0,0,0},
+    {"exec",execCommand,1,"s",0,NULL,0,0,0,0,0},
     {"discard",discardCommand,1,"rs",0,NULL,0,0,0,0,0},
     {"sync",syncCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"flushdb",flushdbCommand,1,"w",0,NULL,0,0,0,0,0},
     {"flushall",flushallCommand,1,"w",0,NULL,0,0,0,0,0},
-    {"sort",sortCommand,-2,"wm",0,NULL,1,1,1,0,0},
+    {"sort",sortCommand,-2,"wmS",0,NULL,1,1,1,0,0},
     {"info",infoCommand,-1,"r",0,NULL,0,0,0,0,0},
     {"monitor",monitorCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"ttl",ttlCommand,2,"r",0,NULL,1,1,1,0,0},
+    {"pttl",pttlCommand,2,"r",0,NULL,1,1,1,0,0},
     {"persist",persistCommand,2,"w",0,NULL,1,1,1,0,0},
-    {"slaveof",slaveofCommand,3,"aws",0,NULL,0,0,0,0,0},
-    {"debug",debugCommand,-2,"aw",0,NULL,0,0,0,0,0},
+    {"slaveof",slaveofCommand,3,"as",0,NULL,0,0,0,0,0},
+    {"debug",debugCommand,-2,"as",0,NULL,0,0,0,0,0},
     {"config",configCommand,-2,"ar",0,NULL,0,0,0,0,0},
     {"subscribe",subscribeCommand,-2,"rps",0,NULL,0,0,0,0,0},
     {"unsubscribe",unsubscribeCommand,-1,"rps",0,NULL,0,0,0,0,0},
     {"psubscribe",psubscribeCommand,-2,"rps",0,NULL,0,0,0,0,0},
     {"punsubscribe",punsubscribeCommand,-1,"rps",0,NULL,0,0,0,0,0},
-    {"publish",publishCommand,3,"rpf",0,NULL,0,0,0,0,0},
+    {"publish",publishCommand,3,"pf",0,NULL,0,0,0,0,0},
     {"watch",watchCommand,-2,"rs",0,noPreloadGetKeys,1,-1,1,0,0},
     {"unwatch",unwatchCommand,1,"rs",0,NULL,0,0,0,0,0},
     {"cluster",clusterCommand,-2,"ar",0,NULL,0,0,0,0,0},
     {"restore",restoreCommand,4,"awm",0,NULL,1,1,1,0,0},
     {"migrate",migrateCommand,6,"aw",0,NULL,0,0,0,0,0},
     {"asking",askingCommand,1,"r",0,NULL,0,0,0,0,0},
-    {"dump",dumpCommand,2,"ar",0,NULL,0,0,0,0,0},
-    {"object",objectCommand,-2,"r",0,NULL,0,0,0,0,0},
+    {"dump",dumpCommand,2,"ar",0,NULL,1,1,1,0,0},
+    {"object",objectCommand,-2,"r",0,NULL,2,2,2,0,0},
     {"client",clientCommand,-2,"ar",0,NULL,0,0,0,0,0},
-    {"eval",evalCommand,-3,"wms",0,zunionInterGetKeys,0,0,0,0,0},
-    {"evalsha",evalShaCommand,-3,"wms",0,zunionInterGetKeys,0,0,0,0,0},
+    {"eval",evalCommand,-3,"s",0,zunionInterGetKeys,0,0,0,0,0},
+    {"evalsha",evalShaCommand,-3,"s",0,zunionInterGetKeys,0,0,0,0,0},
     {"slowlog",slowlogCommand,-2,"r",0,NULL,0,0,0,0,0},
-    {"script",scriptCommand,-2,"ras",0,NULL,0,0,0,0,0}
+    {"script",scriptCommand,-2,"ras",0,NULL,0,0,0,0,0},
+    {"time",timeCommand,1,"rR",0,NULL,0,0,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
@@ -226,7 +257,6 @@ struct redisCommand redisCommandTable[] = {
 void redisLogRaw(int level, const char *msg) {
     const int syslogLevelMap[] = { LOG_DEBUG, LOG_INFO, LOG_NOTICE, LOG_WARNING };
     const char *c = ".-*#";
-    time_t now = time(NULL);
     FILE *fp;
     char buf[64];
     int rawmode = (level & REDIS_LOG_RAW);
@@ -240,7 +270,12 @@ void redisLogRaw(int level, const char *msg) {
     if (rawmode) {
         fprintf(fp,"%s",msg);
     } else {
-        strftime(buf,sizeof(buf),"%d %b %H:%M:%S",localtime(&now));
+        int off;
+        struct timeval tv;
+
+        gettimeofday(&tv,NULL);
+        off = strftime(buf,sizeof(buf),"%d %b %H:%M:%S.",localtime(&tv.tv_sec));
+        snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
         fprintf(fp,"[%d] %s %c %s\n",(int)getpid(),buf,c[level],msg);
     }
     fflush(fp);
@@ -266,6 +301,35 @@ void redisLog(int level, const char *fmt, ...) {
     redisLogRaw(level,msg);
 }
 
+/* Log a fixed message without printf-alike capabilities, in a way that is
+ * safe to call from a signal handler.
+ *
+ * We actually use this only for signals that are not fatal from the point
+ * of view of Redis. Signals that are going to kill the server anyway and
+ * where we need printf-alike features are served by redisLog(). */
+void redisLogFromHandler(int level, const char *msg) {
+    int fd;
+    char buf[64];
+
+    if ((level&0xff) < server.verbosity ||
+        (server.logfile == NULL && server.daemonize)) return;
+    fd = server.logfile ?
+        open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644) :
+        STDOUT_FILENO;
+    if (fd == -1) return;
+    ll2string(buf,sizeof(buf),getpid());
+    if (write(fd,"[",1) == -1) goto err;
+    if (write(fd,buf,strlen(buf)) == -1) goto err;
+    if (write(fd," | signal handler] (",20) == -1) goto err;
+    ll2string(buf,sizeof(buf),time(NULL));
+    if (write(fd,buf,strlen(buf)) == -1) goto err;
+    if (write(fd,") ",2) == -1) goto err;
+    if (write(fd,msg,strlen(msg)) == -1) goto err;
+    if (write(fd,"\n",1) == -1) goto err;
+err:
+    if (server.logfile) close(fd);
+}
+
 /* Redis generally does not try to recover from out of memory conditions
  * when allocating objects or strings, it is not clear if it will be possible
  * to report this condition to the client since the networking layer itself
@@ -286,6 +350,23 @@ long long ustime(void) {
     ust = ((long long)tv.tv_sec)*1000000;
     ust += tv.tv_usec;
     return ust;
+}
+
+/* Return the UNIX time in milliseconds */
+long long mstime(void) {
+    return ustime()/1000;
+}
+
+/* After an RDB dump or AOF rewrite we exit from children using _exit() instead of
+ * exit(), because the latter may interact with the same file objects used by
+ * the parent process. However if we are testing the coverage normal exit() is
+ * used in order to obtain the right coverage information. */
+void exitFromChild(int retcode) {
+#ifdef COVERAGE_TEST
+    exit(retcode);
+#else
+    _exit(retcode);
+#endif
 }
 
 /*====================== Hash table type implementation  ==================== */
@@ -530,7 +611,7 @@ void incrementallyRehash(void) {
  * for dict.c to resize the hash tables accordingly to the fact we have o not
  * running childs. */
 void updateDictResizePolicy(void) {
-    if (server.bgsavechildpid == -1 && server.bgrewritechildpid == -1)
+    if (server.rdb_child_pid == -1 && server.aof_child_pid == -1)
         dictEnableResize();
     else
         dictDisableResize();
@@ -553,19 +634,19 @@ void activeExpireCycle(void) {
          * of the keys were expired. */
         do {
             long num = dictSize(db->expires);
-            time_t now = time(NULL);
+            long long now = mstime();
 
             expired = 0;
             if (num > REDIS_EXPIRELOOKUPS_PER_CRON)
                 num = REDIS_EXPIRELOOKUPS_PER_CRON;
             while (num--) {
                 dictEntry *de;
-                time_t t;
+                long long t;
 
                 if ((de = dictGetRandomKey(db->expires)) == NULL) break;
-                t = (time_t) dictGetEntryVal(de);
+                t = dictGetSignedIntegerVal(de);
                 if (now > t) {
-                    sds key = dictGetEntryKey(de);
+                    sds key = dictGetKey(de);
                     robj *keyobj = createStringObject(key,sdslen(key));
 
                     propagateExpire(db,keyobj);
@@ -580,8 +661,112 @@ void activeExpireCycle(void) {
 }
 
 void updateLRUClock(void) {
-    server.lruclock = (time(NULL)/REDIS_LRU_CLOCK_RESOLUTION) &
+    server.lruclock = (server.unixtime/REDIS_LRU_CLOCK_RESOLUTION) &
                                                 REDIS_LRU_CLOCK_MAX;
+}
+
+
+/* Add a sample to the operations per second array of samples. */
+void trackOperationsPerSecond(void) {
+    long long t = mstime() - server.ops_sec_last_sample_time;
+    long long ops = server.stat_numcommands - server.ops_sec_last_sample_ops;
+    long long ops_sec;
+
+    ops_sec = t > 0 ? (ops*1000/t) : 0;
+
+    server.ops_sec_samples[server.ops_sec_idx] = ops_sec;
+    server.ops_sec_idx = (server.ops_sec_idx+1) % REDIS_OPS_SEC_SAMPLES;
+    server.ops_sec_last_sample_time = mstime();
+    server.ops_sec_last_sample_ops = server.stat_numcommands;
+}
+
+/* Return the mean of all the samples. */
+long long getOperationsPerSecond(void) {
+    int j;
+    long long sum = 0;
+
+    for (j = 0; j < REDIS_OPS_SEC_SAMPLES; j++)
+        sum += server.ops_sec_samples[j];
+    return sum / REDIS_OPS_SEC_SAMPLES;
+}
+
+/* Check for timeouts. Returns non-zero if the client was terminated */
+int clientsCronHandleTimeout(redisClient *c) {
+    time_t now = server.unixtime;
+
+    if (server.maxidletime &&
+        !(c->flags & REDIS_SLAVE) &&    /* no timeout for slaves */
+        !(c->flags & REDIS_MASTER) &&   /* no timeout for masters */
+        !(c->flags & REDIS_BLOCKED) &&  /* no timeout for BLPOP */
+        dictSize(c->pubsub_channels) == 0 && /* no timeout for pubsub */
+        listLength(c->pubsub_patterns) == 0 &&
+        (now - c->lastinteraction > server.maxidletime))
+    {
+        redisLog(REDIS_VERBOSE,"Closing idle client");
+        freeClient(c);
+        return 1;
+    } else if (c->flags & REDIS_BLOCKED) {
+        if (c->bpop.timeout != 0 && c->bpop.timeout < now) {
+            addReply(c,shared.nullmultibulk);
+            unblockClientWaitingData(c);
+        }
+    }
+    return 0;
+}
+
+/* The client query buffer is an sds.c string that can end with a lot of
+ * free space not used, this function reclaims space if needed.
+ *
+ * The funciton always returns 0 as it never terminates the client. */
+int clientsCronResizeQueryBuffer(redisClient *c) {
+    size_t querybuf_size = sdsAllocSize(c->querybuf);
+    time_t idletime = server.unixtime - c->lastinteraction;
+
+    /* There are two conditions to resize the query buffer:
+     * 1) Query buffer is > BIG_ARG and too big for latest peak.
+     * 2) Client is inactive and the buffer is bigger than 1k. */
+    if (((querybuf_size > REDIS_MBULK_BIG_ARG) &&
+         (querybuf_size/(c->querybuf_peak+1)) > 2) ||
+         (querybuf_size > 1024 && idletime > 2))
+    {
+        /* Only resize the query buffer if it is actually wasting space. */
+        if (sdsavail(c->querybuf) > 1024) {
+            c->querybuf = sdsRemoveFreeSpace(c->querybuf);
+        }
+    }
+    /* Reset the peak again to capture the peak memory usage in the next
+     * cycle. */
+    c->querybuf_peak = 0;
+    return 0;
+}
+
+void clientsCron(void) {
+    /* Make sure to process at least 1/100 of clients per call.
+     * Since this function is called 10 times per second we are sure that
+     * in the worst case we process all the clients in 10 seconds.
+     * In normal conditions (a reasonable number of clients) we process
+     * all the clients in a shorter time. */
+    int numclients = listLength(server.clients);
+    int iterations = numclients/100;
+
+    if (iterations < 50)
+        iterations = (numclients < 50) ? numclients : 50;
+    while(listLength(server.clients) && iterations--) {
+        redisClient *c;
+        listNode *head;
+
+        /* Rotate the list, take the current head, process.
+         * This way if the client must be removed from the list it's the
+         * first element and we don't incur into O(N) computation. */
+        listRotate(server.clients);
+        head = listFirst(server.clients);
+        c = listNodeValue(head);
+        /* The following functions do different service checks on the client.
+         * The protocol is that they return non-zero if the client was
+         * terminated. */
+        if (clientsCronHandleTimeout(c)) continue;
+        if (clientsCronResizeQueryBuffer(c)) continue;
+    }
 }
 
 int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
@@ -590,11 +775,17 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     REDIS_NOTUSED(id);
     REDIS_NOTUSED(clientData);
 
+    /* Software watchdog: deliver the SIGALRM that will reach the signal
+     * handler if we don't return here fast enough. */
+    if (server.watchdog_period) watchdogScheduleSignal(server.watchdog_period);
+
     /* We take a cached value of the unix time in the global state because
      * with virtual memory and aging there is to store the current time
      * in objects at every object access, and accuracy is not needed.
      * To access a global var is faster than calling time(NULL) */
     server.unixtime = time(NULL);
+
+    trackOperationsPerSecond();
 
     /* We have just 22 bits per object for LRU information.
      * So we use an (eventually wrapping) LRU clock with 10 seconds resolution.
@@ -617,7 +808,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* We received a SIGTERM, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
     if (server.shutdown_asap) {
-        if (prepareForShutdown() == REDIS_OK) exit(0);
+        if (prepareForShutdown(0) == REDIS_OK) exit(0);
         redisLog(REDIS_WARNING,"SIGTERM received but errors trying to shut down the server, check the logs for more information");
     }
 
@@ -640,7 +831,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * if we resize the HT while there is the saving child at work actually
      * a lot of memory movements in the parent will cause a lot of pages
      * copied. */
-    if (server.bgsavechildpid == -1 && server.bgrewritechildpid == -1) {
+    if (server.rdb_child_pid == -1 && server.aof_child_pid == -1) {
         if (!(loops % 10)) tryResizeHashTables();
         if (server.activerehashing) incrementallyRehash();
     }
@@ -653,20 +844,19 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             zmalloc_used_memory());
     }
 
-    /* Close connections of timedout clients */
-    if ((server.maxidletime && !(loops % 100)) || server.bpop_blocked_clients)
-        closeTimedoutClients();
+    /* We need to do a few operations on clients asynchronously. */
+    clientsCron();
 
     /* Start a scheduled AOF rewrite if this was requested by the user while
      * a BGSAVE was in progress. */
-    if (server.bgsavechildpid == -1 && server.bgrewritechildpid == -1 &&
-        server.aofrewrite_scheduled)
+    if (server.rdb_child_pid == -1 && server.aof_child_pid == -1 &&
+        server.aof_rewrite_scheduled)
     {
         rewriteAppendOnlyFileBackground();
     }
 
     /* Check if a background saving or AOF rewrite in progress terminated. */
-    if (server.bgsavechildpid != -1 || server.bgrewritechildpid != -1) {
+    if (server.rdb_child_pid != -1 || server.aof_child_pid != -1) {
         int statloc;
         pid_t pid;
 
@@ -676,7 +866,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             
             if (WIFSIGNALED(statloc)) bysignal = WTERMSIG(statloc);
 
-            if (pid == server.bgsavechildpid) {
+            if (pid == server.rdb_child_pid) {
                 backgroundSaveDoneHandler(exitcode,bysignal);
             } else {
                 backgroundRewriteDoneHandler(exitcode,bysignal);
@@ -684,32 +874,30 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             updateDictResizePolicy();
         }
     } else {
-         time_t now = time(NULL);
-
         /* If there is not a background saving/rewrite in progress check if
          * we have to save/rewrite now */
          for (j = 0; j < server.saveparamslen; j++) {
             struct saveparam *sp = server.saveparams+j;
 
             if (server.dirty >= sp->changes &&
-                now-server.lastsave > sp->seconds) {
+                server.unixtime-server.lastsave > sp->seconds) {
                 redisLog(REDIS_NOTICE,"%d changes in %d seconds. Saving...",
                     sp->changes, sp->seconds);
-                rdbSaveBackground(server.dbfilename);
+                rdbSaveBackground(server.rdb_filename);
                 break;
             }
          }
 
          /* Trigger an AOF rewrite if needed */
-         if (server.bgsavechildpid == -1 &&
-             server.bgrewritechildpid == -1 &&
-             server.auto_aofrewrite_perc &&
-             server.appendonly_current_size > server.auto_aofrewrite_min_size)
+         if (server.rdb_child_pid == -1 &&
+             server.aof_child_pid == -1 &&
+             server.aof_rewrite_perc &&
+             server.aof_current_size > server.aof_rewrite_min_size)
          {
-            long long base = server.auto_aofrewrite_base_size ?
-                            server.auto_aofrewrite_base_size : 1;
-            long long growth = (server.appendonly_current_size*100/base) - 100;
-            if (growth >= server.auto_aofrewrite_perc) {
+            long long base = server.aof_rewrite_base_size ?
+                            server.aof_rewrite_base_size : 1;
+            long long growth = (server.aof_current_size*100/base) - 100;
+            if (growth >= server.aof_rewrite_perc) {
                 redisLog(REDIS_NOTICE,"Starting automatic rewriting of AOF on %lld%% growth",growth);
                 rewriteAppendOnlyFileBackground();
             }
@@ -725,6 +913,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * On slaves we wait for DEL operations synthesized by the master
      * in order to guarantee a strict consistency. */
     if (server.masterhost == NULL) activeExpireCycle();
+
+    /* Close clients that need to be closed asynchronous */
+    freeClientsInAsyncFreeQueue();
 
     /* Replication cron function -- used to reconnect to master and
      * to detect transfer failures. */
@@ -754,8 +945,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         c->flags &= ~REDIS_UNBLOCKED;
 
         /* Process remaining data in the input buffer. */
-        if (c->querybuf && sdslen(c->querybuf) > 0)
+        if (c->querybuf && sdslen(c->querybuf) > 0) {
+            server.current_client = c;
             processInputBuffer(c);
+            server.current_client = NULL;
+        }
     }
 
     /* Write the AOF buffer on disk */
@@ -794,35 +988,46 @@ void createSharedObjects(void) {
     shared.loadingerr = createObject(REDIS_STRING,sdsnew(
         "-LOADING Redis is loading the dataset in memory\r\n"));
     shared.slowscripterr = createObject(REDIS_STRING,sdsnew(
-        "-BUSY Redis is busy running a script. Please wait or stop the server with SHUTDOWN.\r\n"));
+        "-BUSY Redis is busy running a script. You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
+    shared.bgsaveerr = createObject(REDIS_STRING,sdsnew(
+        "-MISCONF Redis is configured to save RDB snapshots, but is currently not able to persist on disk. Commands that may modify the data set are disabled. Please check Redis logs for details about the error.\r\n"));
+    shared.roslaveerr = createObject(REDIS_STRING,sdsnew(
+        "-READONLY You can't write against a read only slave.\r\n"));
+    shared.oomerr = createObject(REDIS_STRING,sdsnew(
+        "-OOM command not allowed when used memory > 'maxmemory'.\r\n"));
     shared.space = createObject(REDIS_STRING,sdsnew(" "));
     shared.colon = createObject(REDIS_STRING,sdsnew(":"));
     shared.plus = createObject(REDIS_STRING,sdsnew("+"));
-    shared.select0 = createStringObject("select 0\r\n",10);
-    shared.select1 = createStringObject("select 1\r\n",10);
-    shared.select2 = createStringObject("select 2\r\n",10);
-    shared.select3 = createStringObject("select 3\r\n",10);
-    shared.select4 = createStringObject("select 4\r\n",10);
-    shared.select5 = createStringObject("select 5\r\n",10);
-    shared.select6 = createStringObject("select 6\r\n",10);
-    shared.select7 = createStringObject("select 7\r\n",10);
-    shared.select8 = createStringObject("select 8\r\n",10);
-    shared.select9 = createStringObject("select 9\r\n",10);
+
+    for (j = 0; j < REDIS_SHARED_SELECT_CMDS; j++) {
+        shared.select[j] = createObject(REDIS_STRING,
+            sdscatprintf(sdsempty(),"select %d\r\n", j));
+    }
     shared.messagebulk = createStringObject("$7\r\nmessage\r\n",13);
     shared.pmessagebulk = createStringObject("$8\r\npmessage\r\n",14);
     shared.subscribebulk = createStringObject("$9\r\nsubscribe\r\n",15);
     shared.unsubscribebulk = createStringObject("$11\r\nunsubscribe\r\n",18);
     shared.psubscribebulk = createStringObject("$10\r\npsubscribe\r\n",17);
     shared.punsubscribebulk = createStringObject("$12\r\npunsubscribe\r\n",19);
-    shared.mbulk3 = createStringObject("*3\r\n",4);
-    shared.mbulk4 = createStringObject("*4\r\n",4);
+    shared.del = createStringObject("DEL",3);
+    shared.rpop = createStringObject("RPOP",4);
+    shared.lpop = createStringObject("LPOP",4);
     for (j = 0; j < REDIS_SHARED_INTEGERS; j++) {
         shared.integers[j] = createObject(REDIS_STRING,(void*)(long)j);
         shared.integers[j]->encoding = REDIS_ENCODING_INT;
     }
+    for (j = 0; j < REDIS_SHARED_BULKHDR_LEN; j++) {
+        shared.mbulkhdr[j] = createObject(REDIS_STRING,
+            sdscatprintf(sdsempty(),"*%d\r\n",j));
+        shared.bulkhdr[j] = createObject(REDIS_STRING,
+            sdscatprintf(sdsempty(),"$%d\r\n",j));
+    }
 }
 
 void initServerConfig() {
+    getRandomHexChars(server.runid,REDIS_RUN_ID_SIZE);
+    server.runid[REDIS_RUN_ID_SIZE] = '\0';
+    server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.port = REDIS_SERVERPORT;
     server.bindaddr = NULL;
     server.unixsocket = NULL;
@@ -830,8 +1035,9 @@ void initServerConfig() {
     server.ipfd = -1;
     server.sofd = -1;
     server.dbnum = REDIS_DEFAULT_DBNUM;
-    server.verbosity = REDIS_VERBOSE;
+    server.verbosity = REDIS_NOTICE;
     server.maxidletime = REDIS_MAXIDLETIME;
+    server.client_max_querybuf_len = REDIS_MAX_QUERYBUF_LEN;
     server.saveparams = NULL;
     server.loading = 0;
     server.logfile = NULL; /* NULL = log on standard output */
@@ -839,30 +1045,32 @@ void initServerConfig() {
     server.syslog_ident = zstrdup("redis");
     server.syslog_facility = LOG_LOCAL0;
     server.daemonize = 0;
-    server.appendonly = 0;
-    server.appendfsync = APPENDFSYNC_EVERYSEC;
-    server.no_appendfsync_on_rewrite = 0;
-    server.auto_aofrewrite_perc = REDIS_AUTO_AOFREWRITE_PERC;
-    server.auto_aofrewrite_min_size = REDIS_AUTO_AOFREWRITE_MIN_SIZE;
-    server.auto_aofrewrite_base_size = 0;
-    server.aofrewrite_scheduled = 0;
-    server.lastfsync = time(NULL);
-    server.appendfd = -1;
-    server.appendseldb = -1; /* Make sure the first time will not match */
+    server.aof_state = REDIS_AOF_OFF;
+    server.aof_fsync = AOF_FSYNC_EVERYSEC;
+    server.aof_no_fsync_on_rewrite = 0;
+    server.aof_rewrite_perc = REDIS_AOF_REWRITE_PERC;
+    server.aof_rewrite_min_size = REDIS_AOF_REWRITE_MIN_SIZE;
+    server.aof_rewrite_base_size = 0;
+    server.aof_rewrite_scheduled = 0;
+    server.aof_last_fsync = time(NULL);
+    server.aof_delayed_fsync = 0;
+    server.aof_fd = -1;
+    server.aof_selected_db = -1; /* Make sure the first time will not match */
     server.aof_flush_postponed_start = 0;
     server.pidfile = zstrdup("/var/run/redis.pid");
-    server.dbfilename = zstrdup("dump.rdb");
-    server.appendfilename = zstrdup("appendonly.aof");
+    server.rdb_filename = zstrdup("dump.rdb");
+    server.aof_filename = zstrdup("appendonly.aof");
     server.requirepass = NULL;
-    server.rdbcompression = 1;
+    server.rdb_compression = 1;
+    server.rdb_checksum = 1;
     server.activerehashing = 1;
     server.maxclients = REDIS_MAX_CLIENTS;
     server.bpop_blocked_clients = 0;
     server.maxmemory = 0;
     server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_LRU;
     server.maxmemory_samples = 3;
-    server.hash_max_zipmap_entries = REDIS_HASH_MAX_ZIPMAP_ENTRIES;
-    server.hash_max_zipmap_value = REDIS_HASH_MAX_ZIPMAP_VALUE;
+    server.hash_max_ziplist_entries = REDIS_HASH_MAX_ZIPLIST_ENTRIES;
+    server.hash_max_ziplist_value = REDIS_HASH_MAX_ZIPLIST_VALUE;
     server.list_max_ziplist_entries = REDIS_LIST_MAX_ZIPLIST_ENTRIES;
     server.list_max_ziplist_value = REDIS_LIST_MAX_ZIPLIST_VALUE;
     server.set_max_intset_entries = REDIS_SET_MAX_INTSET_ENTRIES;
@@ -873,6 +1081,7 @@ void initServerConfig() {
     server.repl_timeout = REDIS_REPL_TIMEOUT;
     server.cluster_enabled = 0;
     server.cluster.configfile = zstrdup("nodes.conf");
+    server.lua_caller = NULL;
     server.lua_time_limit = REDIS_LUA_TIME_LIMIT;
     server.lua_client = NULL;
     server.lua_timedout = 0;
@@ -884,15 +1093,26 @@ void initServerConfig() {
     appendServerSaveParams(300,100);  /* save after 5 minutes and 100 changes */
     appendServerSaveParams(60,10000); /* save after 1 minute and 10000 changes */
     /* Replication related */
-    server.isslave = 0;
     server.masterauth = NULL;
     server.masterhost = NULL;
     server.masterport = 6379;
     server.master = NULL;
-    server.replstate = REDIS_REPL_NONE;
+    server.repl_state = REDIS_REPL_NONE;
     server.repl_syncio_timeout = REDIS_REPL_SYNCIO_TIMEOUT;
     server.repl_serve_stale_data = 1;
-    server.repl_down_since = -1;
+    server.repl_slave_ro = 1;
+    server.repl_down_since = time(NULL);
+
+    /* Client output buffer limits */
+    server.client_obuf_limits[REDIS_CLIENT_LIMIT_CLASS_NORMAL].hard_limit_bytes = 0;
+    server.client_obuf_limits[REDIS_CLIENT_LIMIT_CLASS_NORMAL].soft_limit_bytes = 0;
+    server.client_obuf_limits[REDIS_CLIENT_LIMIT_CLASS_NORMAL].soft_limit_seconds = 0;
+    server.client_obuf_limits[REDIS_CLIENT_LIMIT_CLASS_SLAVE].hard_limit_bytes = 1024*1024*256;
+    server.client_obuf_limits[REDIS_CLIENT_LIMIT_CLASS_SLAVE].soft_limit_bytes = 1024*1024*64;
+    server.client_obuf_limits[REDIS_CLIENT_LIMIT_CLASS_SLAVE].soft_limit_seconds = 60;
+    server.client_obuf_limits[REDIS_CLIENT_LIMIT_CLASS_PUBSUB].hard_limit_bytes = 1024*1024*32;
+    server.client_obuf_limits[REDIS_CLIENT_LIMIT_CLASS_PUBSUB].soft_limit_bytes = 1024*1024*8;
+    server.client_obuf_limits[REDIS_CLIENT_LIMIT_CLASS_PUBSUB].soft_limit_seconds = 60;
 
     /* Double constants initialization */
     R_Zero = 0.0;
@@ -907,10 +1127,63 @@ void initServerConfig() {
     populateCommandTable();
     server.delCommand = lookupCommandByCString("del");
     server.multiCommand = lookupCommandByCString("multi");
+    server.lpushCommand = lookupCommandByCString("lpush");
     
     /* Slow log */
     server.slowlog_log_slower_than = REDIS_SLOWLOG_LOG_SLOWER_THAN;
     server.slowlog_max_len = REDIS_SLOWLOG_MAX_LEN;
+
+    /* Debugging */
+    server.assert_failed = "<no assertion failed>";
+    server.assert_file = "<no file>";
+    server.assert_line = 0;
+    server.bug_report_start = 0;
+    server.watchdog_period = 0;
+}
+
+/* This function will try to raise the max number of open files accordingly to
+ * the configured max number of clients. It will also account for 32 additional
+ * file descriptors as we need a few more for persistence, listening
+ * sockets, log files and so forth.
+ *
+ * If it will not be possible to set the limit accordingly to the configured
+ * max number of clients, the function will do the reverse setting
+ * server.maxclients to the value that we can actually handle. */
+void adjustOpenFilesLimit(void) {
+    rlim_t maxfiles = server.maxclients+32;
+    struct rlimit limit;
+
+    if (maxfiles < 1024) maxfiles = 1024;
+    if (getrlimit(RLIMIT_NOFILE,&limit) == -1) {
+        redisLog(REDIS_WARNING,"Unable to obtain the current NOFILE limit (%s), assuming 1024 and setting the max clients configuration accordingly.",
+            strerror(errno));
+        server.maxclients = 1024-32;
+    } else {
+        rlim_t oldlimit = limit.rlim_cur;
+
+        /* Set the max number of files if the current limit is not enough
+         * for our needs. */
+        if (oldlimit < maxfiles) {
+            rlim_t f;
+            
+            f = maxfiles;
+            while(f > oldlimit) {
+                limit.rlim_cur = f;
+                limit.rlim_max = f;
+                if (setrlimit(RLIMIT_NOFILE,&limit) != -1) break;
+                f -= 128;
+            }
+            if (f < oldlimit) f = oldlimit;
+            if (f != maxfiles) {
+                server.maxclients = f-32;
+                redisLog(REDIS_WARNING,"Unable to set the max number of files limit to %d (%s), setting the max clients configuration to %d.",
+                    (int) maxfiles, strerror(errno), (int) server.maxclients);
+            } else {
+                redisLog(REDIS_NOTICE,"Max number of open files set to %d",
+                    (int) maxfiles);
+            }
+        }
+    }
 }
 
 void initServer() {
@@ -925,13 +1198,16 @@ void initServer() {
             server.syslog_facility);
     }
 
+    server.current_client = NULL;
     server.clients = listCreate();
+    server.clients_to_close = listCreate();
     server.slaves = listCreate();
     server.monitors = listCreate();
     server.unblocked_clients = listCreate();
 
     createSharedObjects();
-    server.el = aeCreateEventLoop();
+    adjustOpenFilesLimit();
+    server.el = aeCreateEventLoop(server.maxclients+1024);
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     if (server.port != 0) {
@@ -966,10 +1242,10 @@ void initServer() {
     listSetFreeMethod(server.pubsub_patterns,freePubsubPattern);
     listSetMatchMethod(server.pubsub_patterns,listMatchPubsubPattern);
     server.cronloops = 0;
-    server.bgsavechildpid = -1;
-    server.bgrewritechildpid = -1;
-    server.bgrewritebuf = sdsempty();
-    server.aofbuf = sdsempty();
+    server.rdb_child_pid = -1;
+    server.aof_child_pid = -1;
+    server.aof_rewrite_buf = sdsempty();
+    server.aof_buf = sdsempty();
     server.lastsave = time(NULL);
     server.dirty = 0;
     server.stat_numcommands = 0;
@@ -981,60 +1257,44 @@ void initServer() {
     server.stat_keyspace_hits = 0;
     server.stat_peak_memory = 0;
     server.stat_fork_time = 0;
+    server.stat_rejected_conn = 0;
+    memset(server.ops_sec_samples,0,sizeof(server.ops_sec_samples));
+    server.ops_sec_idx = 0;
+    server.ops_sec_last_sample_time = mstime();
+    server.ops_sec_last_sample_ops = 0;
     server.unixtime = time(NULL);
+    server.lastbgsave_status = REDIS_OK;
+    server.stop_writes_on_bgsave_err = 1;
     aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL);
     if (server.ipfd > 0 && aeCreateFileEvent(server.el,server.ipfd,AE_READABLE,
         acceptTcpHandler,NULL) == AE_ERR) oom("creating file event");
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
         acceptUnixHandler,NULL) == AE_ERR) oom("creating file event");
 
-    if (server.appendonly) {
-        server.appendfd = open(server.appendfilename,O_WRONLY|O_APPEND|O_CREAT,0644);
-        if (server.appendfd == -1) {
+    if (server.aof_state == REDIS_AOF_ON) {
+        server.aof_fd = open(server.aof_filename,
+                               O_WRONLY|O_APPEND|O_CREAT,0644);
+        if (server.aof_fd == -1) {
             redisLog(REDIS_WARNING, "Can't open the append-only file: %s",
                 strerror(errno));
             exit(1);
         }
     }
 
+    /* 32 bit instances are limited to 4GB of address space, so if there is
+     * no explicit limit in the user provided configuration we set a limit
+     * at 3.5GB using maxmemory with 'noeviction' policy'. This saves
+     * useless crashes of the Redis instance. */
+    if (server.arch_bits == 32 && server.maxmemory == 0) {
+        redisLog(REDIS_WARNING,"Warning: 32 bit instance detected but no memory limit set. Setting 3.5 GB maxmemory limit with 'noeviction' policy now.");
+        server.maxmemory = 3584LL*(1024*1024); /* 3584 MB = 3.5 GB */
+        server.maxmemory_policy = REDIS_MAXMEMORY_NO_EVICTION;
+    }
+
     if (server.cluster_enabled) clusterInit();
     scriptingInit();
     slowlogInit();
     bioInit();
-    srand(time(NULL)^getpid());
-
-    /* Try to raise the max number of open files accordingly to the
-     * configured max number of clients. Also account for 32 additional
-     * file descriptors as we need a few more for persistence, listening
-     * sockets, log files and so forth. */
-    {
-        rlim_t maxfiles = server.maxclients+32;
-        struct rlimit limit;
-
-        if (maxfiles < 1024) maxfiles = 1024;
-        if (getrlimit(RLIMIT_NOFILE,&limit) == -1) {
-            redisLog(REDIS_WARNING,"Unable to obtain the current NOFILE limit (%s), assuming 1024 and setting the max clients configuration accordingly.",
-                strerror(errno));
-            server.maxclients = 1024-32;
-        } else {
-            rlim_t oldlimit = limit.rlim_cur;
-
-            /* Set the max number of files if the current limit is not enough
-             * for our needs. */
-            if (oldlimit < maxfiles) {
-                limit.rlim_cur = maxfiles;
-                limit.rlim_max = maxfiles;
-                if (setrlimit(RLIMIT_NOFILE,&limit) == -1) {
-                    server.maxclients = oldlimit-32;
-                    redisLog(REDIS_WARNING,"Unable to set the max number of files limit to %d (%s), setting the max clients configuration to %d.",
-                        (int) maxfiles, strerror(errno), (int) server.maxclients);
-                } else {
-                    redisLog(REDIS_NOTICE,"Max number of open files set to %d",
-                        (int) maxfiles);
-                }
-            }
-        }
-    }
 }
 
 /* Populates the Redis Command Table starting from the hard coded list
@@ -1058,6 +1318,7 @@ void populateCommandTable(void) {
             case 'f': c->flags |= REDIS_CMD_FORCE_REPLICATION; break;
             case 's': c->flags |= REDIS_CMD_NOSCRIPT; break;
             case 'R': c->flags |= REDIS_CMD_RANDOM; break;
+            case 'S': c->flags |= REDIS_CMD_SORT_FOR_SCRIPT; break;
             default: redisPanic("Unsupported command flag"); break;
             }
             f++;
@@ -1080,6 +1341,43 @@ void resetCommandTableStats(void) {
     }
 }
 
+/* ========================== Redis OP Array API ============================ */
+
+void redisOpArrayInit(redisOpArray *oa) {
+    oa->ops = NULL;
+    oa->numops = 0;
+}
+
+int redisOpArrayAppend(redisOpArray *oa, struct redisCommand *cmd, int dbid,
+                       robj **argv, int argc, int target)
+{
+    redisOp *op;
+
+    oa->ops = zrealloc(oa->ops,sizeof(redisOp)*(oa->numops+1));
+    op = oa->ops+oa->numops;
+    op->cmd = cmd;
+    op->dbid = dbid;
+    op->argv = argv;
+    op->argc = argc;
+    op->target = target;
+    oa->numops++;
+    return oa->numops;
+}
+
+void redisOpArrayFree(redisOpArray *oa) {
+    while(oa->numops) {
+        int j;
+        redisOp *op;
+
+        oa->numops--;
+        op = oa->ops+oa->numops;
+        for (j = 0; j < op->argc; j++)
+            decrRefCount(op->argv[j]);
+        zfree(op->argv);
+    }
+    zfree(oa->ops);
+}
+
 /* ====================== Commands lookup and execution ===================== */
 
 struct redisCommand *lookupCommand(sds name) {
@@ -1095,25 +1393,84 @@ struct redisCommand *lookupCommandByCString(char *s) {
     return cmd;
 }
 
+/* Propagate the specified command (in the context of the specified database id)
+ * to AOF, Slaves and Monitors.
+ *
+ * flags are an xor between:
+ * + REDIS_PROPAGATE_NONE (no propagation of command at all)
+ * + REDIS_PROPAGATE_AOF (propagate into the AOF file if is enabled)
+ * + REDIS_PROPAGATE_REPL (propagate into the replication link)
+ */
+void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
+               int flags)
+{
+    if (server.aof_state != REDIS_AOF_OFF && flags & REDIS_PROPAGATE_AOF)
+        feedAppendOnlyFile(cmd,dbid,argv,argc);
+    if (flags & REDIS_PROPAGATE_REPL && listLength(server.slaves))
+        replicationFeedSlaves(server.slaves,dbid,argv,argc);
+}
+
+/* Used inside commands to schedule the propagation of additional commands
+ * after the current command is propagated to AOF / Replication. */
+void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
+                   int target)
+{
+    redisOpArrayAppend(&server.also_propagate,cmd,dbid,argv,argc,target);
+}
+
 /* Call() is the core of Redis execution of a command */
-void call(redisClient *c) {
+void call(redisClient *c, int flags) {
     long long dirty, start = ustime(), duration;
 
+    /* Sent the command to clients in MONITOR mode, only if the commands are
+     * not geneated from reading an AOF. */
+    if (listLength(server.monitors) && !server.loading)
+        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
+
+    /* Call the command. */
+    redisOpArrayInit(&server.also_propagate);
     dirty = server.dirty;
     c->cmd->proc(c);
     dirty = server.dirty-dirty;
     duration = ustime()-start;
-    c->cmd->microseconds += duration;
-    slowlogPushEntryIfNeeded(c->argv,c->argc,duration);
-    c->cmd->calls++;
 
-    if (server.appendonly && dirty > 0)
-        feedAppendOnlyFile(c->cmd,c->db->id,c->argv,c->argc);
-    if ((dirty > 0 || c->cmd->flags & REDIS_CMD_FORCE_REPLICATION) &&
-        listLength(server.slaves))
-        replicationFeedSlaves(server.slaves,c->db->id,c->argv,c->argc);
-    if (listLength(server.monitors))
-        replicationFeedMonitors(server.monitors,c->db->id,c->argv,c->argc);
+    /* When EVAL is called loading the AOF we don't want commands called
+     * from Lua to go into the slowlog or to populate statistics. */
+    if (server.loading && c->flags & REDIS_LUA_CLIENT)
+        flags &= ~(REDIS_CALL_SLOWLOG | REDIS_CALL_STATS);
+
+    /* Log the command into the Slow log if needed, and populate the
+     * per-command statistics that we show in INFO commandstats. */
+    if (flags & REDIS_CALL_SLOWLOG)
+        slowlogPushEntryIfNeeded(c->argv,c->argc,duration);
+    if (flags & REDIS_CALL_STATS) {
+        c->cmd->microseconds += duration;
+        c->cmd->calls++;
+    }
+
+    /* Propagate the command into the AOF and replication link */
+    if (flags & REDIS_CALL_PROPAGATE) {
+        int flags = REDIS_PROPAGATE_NONE;
+
+        if (c->cmd->flags & REDIS_CMD_FORCE_REPLICATION)
+            flags |= REDIS_PROPAGATE_REPL;
+        if (dirty)
+            flags |= (REDIS_PROPAGATE_REPL | REDIS_PROPAGATE_AOF);
+        if (flags != REDIS_PROPAGATE_NONE)
+            propagate(c->cmd,c->db->id,c->argv,c->argc,flags);
+    }
+    /* Commands such as LPUSH or BRPOPLPUSH may propagate an additional
+     * PUSH command. */
+    if (server.also_propagate.numops) {
+        int j;
+        redisOp *rop;
+
+        for (j = 0; j < server.also_propagate.numops; j++) {
+            rop = &server.also_propagate.ops[j];
+            propagate(rop->cmd, rop->dbid, rop->argv, rop->argc, rop->target);
+        }
+        redisOpArrayFree(&server.also_propagate);
+    }
     server.stat_numcommands++;
 }
 
@@ -1138,7 +1495,7 @@ int processCommand(redisClient *c) {
 
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
-    c->cmd = lookupCommand(c->argv[0]->ptr);
+    c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
     if (!c->cmd) {
         addReplyErrorFormat(c,"unknown command '%s'",
             (char*)c->argv[0]->ptr);
@@ -1185,11 +1542,31 @@ int processCommand(redisClient *c) {
      * First we try to free some memory if possible (if there are volatile
      * keys in the dataset). If there are not the only thing we can do
      * is returning an error. */
-    if (server.maxmemory) freeMemoryIfNeeded();
-    if (server.maxmemory && (c->cmd->flags & REDIS_CMD_DENYOOM) &&
-        zmalloc_used_memory() > server.maxmemory)
+    if (server.maxmemory) {
+        int retval = freeMemoryIfNeeded();
+        if ((c->cmd->flags & REDIS_CMD_DENYOOM) && retval == REDIS_ERR) {
+            addReply(c, shared.oomerr);
+            return REDIS_OK;
+        }
+    }
+
+    /* Don't accept write commands if there are problems persisting on disk. */
+    if (server.stop_writes_on_bgsave_err &&
+        server.saveparamslen > 0
+        && server.lastbgsave_status == REDIS_ERR &&
+        c->cmd->flags & REDIS_CMD_WRITE)
     {
-        addReplyError(c,"command not allowed when used memory > 'maxmemory'");
+        addReply(c, shared.bgsaveerr);
+        return REDIS_OK;
+    }
+
+    /* Don't accept wirte commands if this is a read only slave. But
+     * accept write commands if this is our master. */
+    if (server.masterhost && server.repl_slave_ro &&
+        !(c->flags & REDIS_MASTER) &&
+        c->cmd->flags & REDIS_CMD_WRITE)
+    {
+        addReply(c, shared.roslaveerr);
         return REDIS_OK;
     }
 
@@ -1206,7 +1583,7 @@ int processCommand(redisClient *c) {
 
     /* Only allow INFO and SLAVEOF when slave-serve-stale-data is no and
      * we are a slave with a broken link with master. */
-    if (server.masterhost && server.replstate != REDIS_REPL_CONNECTED &&
+    if (server.masterhost && server.repl_state != REDIS_REPL_CONNECTED &&
         server.repl_serve_stale_data == 0 &&
         c->cmd->proc != infoCommand && c->cmd->proc != slaveofCommand)
     {
@@ -1221,8 +1598,15 @@ int processCommand(redisClient *c) {
         return REDIS_OK;
     }
 
-    /* Lua script too slow? */
-    if (server.lua_timedout && c->cmd->proc != shutdownCommand) {
+    /* Lua script too slow? Only allow SHUTDOWN NOSAVE and SCRIPT KILL. */
+    if (server.lua_timedout &&
+        !(c->cmd->proc != shutdownCommand &&
+          c->argc == 2 &&
+          tolower(((char*)c->argv[1]->ptr)[0]) == 'n') &&
+        !(c->cmd->proc == scriptCommand &&
+          c->argc == 2 &&
+          tolower(((char*)c->argv[1]->ptr)[0]) == 'k'))
+    {
         addReply(c, shared.slowscripterr);
         return REDIS_OK;
     }
@@ -1235,39 +1619,42 @@ int processCommand(redisClient *c) {
         queueMultiCommand(c);
         addReply(c,shared.queued);
     } else {
-        call(c);
+        call(c,REDIS_CALL_FULL);
     }
     return REDIS_OK;
 }
 
 /*================================== Shutdown =============================== */
 
-int prepareForShutdown() {
+int prepareForShutdown(int flags) {
+    int save = flags & REDIS_SHUTDOWN_SAVE;
+    int nosave = flags & REDIS_SHUTDOWN_NOSAVE;
+
     redisLog(REDIS_WARNING,"User requested shutdown...");
     /* Kill the saving child if there is a background saving in progress.
        We want to avoid race conditions, for instance our saving child may
        overwrite the synchronous saving did by SHUTDOWN. */
-    if (server.bgsavechildpid != -1) {
+    if (server.rdb_child_pid != -1) {
         redisLog(REDIS_WARNING,"There is a child saving an .rdb. Killing it!");
-        kill(server.bgsavechildpid,SIGKILL);
-        rdbRemoveTempFile(server.bgsavechildpid);
+        kill(server.rdb_child_pid,SIGKILL);
+        rdbRemoveTempFile(server.rdb_child_pid);
     }
-    if (server.appendonly) {
+    if (server.aof_state != REDIS_AOF_OFF) {
         /* Kill the AOF saving child as the AOF we already have may be longer
          * but contains the full dataset anyway. */
-        if (server.bgrewritechildpid != -1) {
+        if (server.aof_child_pid != -1) {
             redisLog(REDIS_WARNING,
                 "There is a child rewriting the AOF. Killing it!");
-            kill(server.bgrewritechildpid,SIGKILL);
+            kill(server.aof_child_pid,SIGKILL);
         }
         /* Append only file: fsync() the AOF and exit */
         redisLog(REDIS_NOTICE,"Calling fsync() on the AOF file.");
-        aof_fsync(server.appendfd);
+        aof_fsync(server.aof_fd);
     }
-    if (server.saveparamslen > 0) {
+    if ((server.saveparamslen > 0 && !nosave) || save) {
         redisLog(REDIS_NOTICE,"Saving the final RDB snapshot before exiting.");
         /* Snapshotting. Perform a SYNC SAVE and exit */
-        if (rdbSave(server.dbfilename) != REDIS_OK) {
+        if (rdbSave(server.rdb_filename) != REDIS_OK) {
             /* Ooops.. error saving! The best we can do is to continue
              * operating. Note that if there was a background saving process,
              * in the next cron() Redis will be notified that the background
@@ -1315,6 +1702,17 @@ void echoCommand(redisClient *c) {
     addReplyBulk(c,c->argv[1]);
 }
 
+void timeCommand(redisClient *c) {
+    struct timeval tv;
+
+    /* gettimeofday() can only fail if &tv is a bad addresss so we
+     * don't check for errors. */
+    gettimeofday(&tv,NULL);
+    addReplyMultiBulkLen(c,2);
+    addReplyBulkLongLong(c,tv.tv_sec);
+    addReplyBulkLongLong(c,tv.tv_usec);
+}
+
 /* Convert an amount of bytes into a human readable string in the form
  * of 100B, 2G, 100M, 4K, and so forth. */
 void bytesToHuman(char *s, unsigned long long n) {
@@ -1341,7 +1739,7 @@ void bytesToHuman(char *s, unsigned long long n) {
  * on memory corruption problems. */
 sds genRedisInfoString(char *section) {
     sds info = sdsempty();
-    time_t uptime = time(NULL)-server.stat_starttime;
+    time_t uptime = server.unixtime-server.stat_starttime;
     int j, numcommands;
     struct rusage self_ru, c_ru;
     unsigned long lol, bib;
@@ -1359,15 +1757,21 @@ sds genRedisInfoString(char *section) {
 
     /* Server */
     if (allsections || defsections || !strcasecmp(section,"server")) {
+        struct utsname name;
+
         if (sections++) info = sdscat(info,"\r\n");
+        uname(&name);
         info = sdscatprintf(info,
             "# Server\r\n"
             "redis_version:%s\r\n"
             "redis_git_sha1:%s\r\n"
             "redis_git_dirty:%d\r\n"
-            "arch_bits:%s\r\n"
+            "os:%s %s %s\r\n"
+            "arch_bits:%d\r\n"
             "multiplexing_api:%s\r\n"
+            "gcc_version:%d.%d.%d\r\n"
             "process_id:%ld\r\n"
+            "run_id:%s\r\n"
             "tcp_port:%d\r\n"
             "uptime_in_seconds:%ld\r\n"
             "uptime_in_days:%ld\r\n"
@@ -1375,9 +1779,16 @@ sds genRedisInfoString(char *section) {
             REDIS_VERSION,
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
-            (sizeof(long) == 8) ? "64" : "32",
+            name.sysname, name.release, name.machine,
+            server.arch_bits,
             aeGetApiName(),
+#ifdef __GNUC__
+            __GNUC__,__GNUC_MINOR__,__GNUC_PATCHLEVEL__,
+#else
+            0,0,0,
+#endif
             (long) getpid(),
+            server.runid,
             server.port,
             uptime,
             uptime/(3600*24),
@@ -1389,7 +1800,7 @@ sds genRedisInfoString(char *section) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Clients\r\n"
-            "connected_clients:%d\r\n"
+            "connected_clients:%lu\r\n"
             "client_longest_output_list:%lu\r\n"
             "client_biggest_input_buf:%lu\r\n"
             "blocked_clients:%d\r\n",
@@ -1437,22 +1848,32 @@ sds genRedisInfoString(char *section) {
             "changes_since_last_save:%lld\r\n"
             "bgsave_in_progress:%d\r\n"
             "last_save_time:%ld\r\n"
-            "bgrewriteaof_in_progress:%d\r\n",
+            "last_bgsave_status:%s\r\n"
+            "bgrewriteaof_in_progress:%d\r\n"
+            "bgrewriteaof_scheduled:%d\r\n",
             server.loading,
-            server.appendonly,
+            server.aof_state != REDIS_AOF_OFF,
             server.dirty,
-            server.bgsavechildpid != -1,
+            server.rdb_child_pid != -1,
             server.lastsave,
-            server.bgrewritechildpid != -1);
+            server.lastbgsave_status == REDIS_OK ? "ok" : "err",
+            server.aof_child_pid != -1,
+            server.aof_rewrite_scheduled);
 
-        if (server.appendonly) {
+        if (server.aof_state != REDIS_AOF_OFF) {
             info = sdscatprintf(info,
                 "aof_current_size:%lld\r\n"
                 "aof_base_size:%lld\r\n"
-                "aof_pending_rewrite:%d\r\n",
-                (long long) server.appendonly_current_size,
-                (long long) server.auto_aofrewrite_base_size,
-                server.aofrewrite_scheduled);
+                "aof_pending_rewrite:%d\r\n"
+                "aof_buffer_length:%zu\r\n"
+                "aof_pending_bio_fsync:%llu\r\n"
+                "aof_delayed_fsync:%lu\r\n",
+                (long long) server.aof_current_size,
+                (long long) server.aof_rewrite_base_size,
+                server.aof_rewrite_scheduled,
+                sdslen(server.aof_buf),
+                bioPendingJobsOfType(REDIS_BIO_AOF_FSYNC),
+                server.aof_delayed_fsync);
         }
 
         if (server.loading) {
@@ -1464,7 +1885,7 @@ sds genRedisInfoString(char *section) {
             perc = ((double)server.loading_loaded_bytes /
                    server.loading_total_bytes) * 100;
 
-            elapsed = time(NULL)-server.loading_start_time;
+            elapsed = server.unixtime-server.loading_start_time;
             if (elapsed == 0) {
                 eta = 1; /* A fake 1 second figure if we don't have
                             enough info */
@@ -1494,15 +1915,19 @@ sds genRedisInfoString(char *section) {
             "# Stats\r\n"
             "total_connections_received:%lld\r\n"
             "total_commands_processed:%lld\r\n"
+            "instantaneous_ops_per_sec:%lld\r\n"
+            "rejected_connections:%lld\r\n"
             "expired_keys:%lld\r\n"
             "evicted_keys:%lld\r\n"
             "keyspace_hits:%lld\r\n"
             "keyspace_misses:%lld\r\n"
             "pubsub_channels:%ld\r\n"
-            "pubsub_patterns:%u\r\n"
+            "pubsub_patterns:%lu\r\n"
             "latest_fork_usec:%lld\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
+            getOperationsPerSecond(),
+            server.stat_rejected_conn,
             server.stat_expiredkeys,
             server.stat_evictedkeys,
             server.stat_keyspace_hits,
@@ -1528,31 +1953,62 @@ sds genRedisInfoString(char *section) {
                 "master_sync_in_progress:%d\r\n"
                 ,server.masterhost,
                 server.masterport,
-                (server.replstate == REDIS_REPL_CONNECTED) ?
+                (server.repl_state == REDIS_REPL_CONNECTED) ?
                     "up" : "down",
                 server.master ?
-                ((int)(time(NULL)-server.master->lastinteraction)) : -1,
-                server.replstate == REDIS_REPL_TRANSFER
+                ((int)(server.unixtime-server.master->lastinteraction)) : -1,
+                server.repl_state == REDIS_REPL_TRANSFER
             );
 
-            if (server.replstate == REDIS_REPL_TRANSFER) {
+            if (server.repl_state == REDIS_REPL_TRANSFER) {
                 info = sdscatprintf(info,
                     "master_sync_left_bytes:%ld\r\n"
                     "master_sync_last_io_seconds_ago:%d\r\n"
                     ,(long)server.repl_transfer_left,
-                    (int)(time(NULL)-server.repl_transfer_lastio)
+                    (int)(server.unixtime-server.repl_transfer_lastio)
                 );
             }
 
-            if (server.replstate != REDIS_REPL_CONNECTED) {
+            if (server.repl_state != REDIS_REPL_CONNECTED) {
                 info = sdscatprintf(info,
                     "master_link_down_since_seconds:%ld\r\n",
-                    (long)time(NULL)-server.repl_down_since);
+                    (long)server.unixtime-server.repl_down_since);
             }
         }
         info = sdscatprintf(info,
-            "connected_slaves:%d\r\n",
+            "connected_slaves:%lu\r\n",
             listLength(server.slaves));
+        if (listLength(server.slaves)) {
+            int slaveid = 0;
+            listNode *ln;
+            listIter li;
+
+            listRewind(server.slaves,&li);
+            while((ln = listNext(&li))) {
+                redisClient *slave = listNodeValue(ln);
+                char *state = NULL;
+                char ip[32];
+                int port;
+
+                if (anetPeerToString(slave->fd,ip,&port) == -1) continue;
+                switch(slave->replstate) {
+                case REDIS_REPL_WAIT_BGSAVE_START:
+                case REDIS_REPL_WAIT_BGSAVE_END:
+                    state = "wait_bgsave";
+                    break;
+                case REDIS_REPL_SEND_BULK:
+                    state = "send_bulk";
+                    break;
+                case REDIS_REPL_ONLINE:
+                    state = "online";
+                    break;
+                }
+                if (state == NULL) continue;
+                info = sdscatprintf(info,"slave%d:%s,%d,%s\r\n",
+                    slaveid,ip,port,state);
+                slaveid++;
+            }
+        }
     }
 
     /* CPU */
@@ -1586,7 +2042,7 @@ sds genRedisInfoString(char *section) {
         }
     }
 
-    /* Clusetr */
+    /* Cluster */
     if (allsections || defsections || !strcasecmp(section,"cluster")) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
@@ -1640,23 +2096,57 @@ void monitorCommand(redisClient *c) {
 /* ============================ Maxmemory directive  ======================== */
 
 /* This function gets called when 'maxmemory' is set on the config file to limit
- * the max memory used by the server, and we are out of memory.
- * This function will try to, in order:
+ * the max memory used by the server, before processing a command.
  *
- * - Free objects from the free list
- * - Try to remove keys with an EXPIRE set
+ * The goal of the function is to free enough memory to keep Redis under the
+ * configured memory limit.
  *
- * It is not possible to free enough memory to reach used-memory < maxmemory
- * the server will start refusing commands that will enlarge even more the
- * memory usage.
+ * The function starts calculating how many bytes should be freed to keep
+ * Redis under the limit, and enters a loop selecting the best keys to
+ * evict accordingly to the configured policy.
+ *
+ * If all the bytes needed to return back under the limit were freed the
+ * function returns REDIS_OK, otherwise REDIS_ERR is returned, and the caller
+ * should block the execution of commands that will result in more memory
+ * used by the server.
  */
-void freeMemoryIfNeeded(void) {
-    /* Remove keys accordingly to the active policy as long as we are
-     * over the memory limit. */
-    if (server.maxmemory_policy == REDIS_MAXMEMORY_NO_EVICTION) return;
+int freeMemoryIfNeeded(void) {
+    size_t mem_used, mem_tofree, mem_freed;
+    int slaves = listLength(server.slaves);
 
-    while (server.maxmemory && zmalloc_used_memory() > server.maxmemory) {
-        int j, k, freed = 0;
+    /* Remove the size of slaves output buffers and AOF buffer from the
+     * count of used memory. */
+    mem_used = zmalloc_used_memory();
+    if (slaves) {
+        listIter li;
+        listNode *ln;
+
+        listRewind(server.slaves,&li);
+        while((ln = listNext(&li))) {
+            redisClient *slave = listNodeValue(ln);
+            unsigned long obuf_bytes = getClientOutputBufferMemoryUsage(slave);
+            if (obuf_bytes > mem_used)
+                mem_used = 0;
+            else
+                mem_used -= obuf_bytes;
+        }
+    }
+    if (server.aof_state != REDIS_AOF_OFF) {
+        mem_used -= sdslen(server.aof_buf);
+        mem_used -= sdslen(server.aof_rewrite_buf);
+    }
+
+    /* Check if we are over the memory limit. */
+    if (mem_used <= server.maxmemory) return REDIS_OK;
+
+    if (server.maxmemory_policy == REDIS_MAXMEMORY_NO_EVICTION)
+        return REDIS_ERR; /* We need to free memory, but policy forbids. */
+
+    /* Compute how much memory we need to free. */
+    mem_tofree = mem_used - server.maxmemory;
+    mem_freed = 0;
+    while (mem_freed < mem_tofree) {
+        int j, k, keys_freed = 0;
 
         for (j = 0; j < server.dbnum; j++) {
             long bestval = 0; /* just to prevent warning */
@@ -1679,7 +2169,7 @@ void freeMemoryIfNeeded(void) {
                 server.maxmemory_policy == REDIS_MAXMEMORY_VOLATILE_RANDOM)
             {
                 de = dictGetRandomKey(dict);
-                bestkey = dictGetEntryKey(de);
+                bestkey = dictGetKey(de);
             }
 
             /* volatile-lru and allkeys-lru policy */
@@ -1692,12 +2182,12 @@ void freeMemoryIfNeeded(void) {
                     robj *o;
 
                     de = dictGetRandomKey(dict);
-                    thiskey = dictGetEntryKey(de);
+                    thiskey = dictGetKey(de);
                     /* When policy is volatile-lru we need an additonal lookup
                      * to locate the real key, as dict is set to db->expires. */
                     if (server.maxmemory_policy == REDIS_MAXMEMORY_VOLATILE_LRU)
                         de = dictFind(db->dict, thiskey);
-                    o = dictGetEntryVal(de);
+                    o = dictGetVal(de);
                     thisval = estimateObjectIdleTime(o);
 
                     /* Higher idle time is better candidate for deletion */
@@ -1715,8 +2205,8 @@ void freeMemoryIfNeeded(void) {
                     long thisval;
 
                     de = dictGetRandomKey(dict);
-                    thiskey = dictGetEntryKey(de);
-                    thisval = (long) dictGetEntryVal(de);
+                    thiskey = dictGetKey(de);
+                    thisval = (long) dictGetVal(de);
 
                     /* Expire sooner (minor expire unix timestamp) is better
                      * candidate for deletion */
@@ -1729,16 +2219,36 @@ void freeMemoryIfNeeded(void) {
 
             /* Finally remove the selected key. */
             if (bestkey) {
+                long long delta;
+
                 robj *keyobj = createStringObject(bestkey,sdslen(bestkey));
                 propagateExpire(db,keyobj);
+                /* We compute the amount of memory freed by dbDelete() alone.
+                 * It is possible that actually the memory needed to propagate
+                 * the DEL in AOF and replication link is greater than the one
+                 * we are freeing removing the key, but we can't account for
+                 * that otherwise we would never exit the loop.
+                 *
+                 * AOF and Output buffer memory will be freed eventually so
+                 * we only care about memory used by the key space. */
+                delta = (long long) zmalloc_used_memory();
                 dbDelete(db,keyobj);
+                delta -= (long long) zmalloc_used_memory();
+                mem_freed += delta;
                 server.stat_evictedkeys++;
                 decrRefCount(keyobj);
-                freed++;
+                keys_freed++;
+
+                /* When the memory to free starts to be big enough, we may
+                 * start spending so much time here that is impossible to
+                 * deliver data to the slaves fast enough, so we force the
+                 * transmission here inside the loop. */
+                if (slaves) flushSlavesOutputBuffers();
             }
         }
-        if (!freed) return; /* nothing to free... */
+        if (!keys_freed) return REDIS_ERR; /* nothing to free... */
     }
+    return REDIS_OK;
 }
 
 /* =================================== Main! ================================ */
@@ -1792,14 +2302,27 @@ void daemonize(void) {
 }
 
 void version() {
-    printf("Redis server version %s (%s:%d)\n", REDIS_VERSION,
-        redisGitSHA1(), atoi(redisGitDirty()) > 0);
+    printf("Redis server v=%s sha=%s:%d malloc=%s bits=%d\n",
+        REDIS_VERSION,
+        redisGitSHA1(),
+        atoi(redisGitDirty()) > 0,
+        ZMALLOC_LIB,
+        sizeof(long) == 4 ? 32 : 64);
     exit(0);
 }
 
 void usage() {
-    fprintf(stderr,"Usage: ./redis-server [/path/to/redis.conf]\n");
+    fprintf(stderr,"Usage: ./redis-server [/path/to/redis.conf] [options]\n");
     fprintf(stderr,"       ./redis-server - (read config from stdin)\n");
+    fprintf(stderr,"       ./redis-server -v or --version\n");
+    fprintf(stderr,"       ./redis-server -h or --help\n");
+    fprintf(stderr,"       ./redis-server --test-memory <megabytes>\n\n");
+    fprintf(stderr,"Examples:\n");
+    fprintf(stderr,"       ./redis-server (run the server with default conf)\n");
+    fprintf(stderr,"       ./redis-server /etc/redis/6379.conf\n");
+    fprintf(stderr,"       ./redis-server --port 7777\n");
+    fprintf(stderr,"       ./redis-server --port 7777 --slaveof 127.0.0.1 8888\n");
+    fprintf(stderr,"       ./redis-server /etc/myredis.conf --loglevel verbose\n");
     exit(1);
 }
 
@@ -1820,19 +2343,101 @@ void redisAsciiArt(void) {
     zfree(buf);
 }
 
+static void sigtermHandler(int sig) {
+    REDIS_NOTUSED(sig);
+
+    redisLogFromHandler(REDIS_WARNING,"Received SIGTERM, scheduling shutdown...");
+    server.shutdown_asap = 1;
+}
+
+void setupSignalHandlers(void) {
+    struct sigaction act;
+    stack_t stack;
+
+    stack.ss_sp = altstack;
+    stack.ss_flags = 0;
+    stack.ss_size = SIGSTKSZ;
+
+    sigaltstack(&stack, NULL);
+
+    /* When the SA_SIGINFO flag is set in sa_flags then sa_sigaction is used.
+     * Otherwise, sa_handler is used. */
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = 0;
+    act.sa_handler = sigtermHandler;
+    sigaction(SIGTERM, &act, NULL);
+
+#ifdef HAVE_BACKTRACE
+    /* Use alternate stack so we don't clobber stack in case of segv, or when we run out of stack ..
+     * also resethand & nodefer so we can get interrupted (and killed) if we cause SEGV during SEGV handler */
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = SA_NODEFER | SA_ONSTACK | SA_RESETHAND | SA_SIGINFO;
+    act.sa_sigaction = sigsegvHandler;
+    sigaction(SIGSEGV, &act, NULL);
+    sigaction(SIGBUS, &act, NULL);
+    sigaction(SIGFPE, &act, NULL);
+    sigaction(SIGILL, &act, NULL);
+#endif
+    return;
+}
+
+void memtest(size_t megabytes, int passes);
+
 int main(int argc, char **argv) {
     long long start;
+    struct timeval tv;
 
+    /* We need to initialize our libraries, and the server configuration. */
     zmalloc_enable_thread_safeness();
+    srand(time(NULL)^getpid());
+    gettimeofday(&tv,NULL);
+    dictSetHashFunctionSeed(tv.tv_sec^tv.tv_usec^getpid());
     initServerConfig();
-    if (argc == 2) {
+
+    if (argc >= 2) {
+        int j = 1; /* First option to parse in argv[] */
+        sds options = sdsempty();
+        char *configfile = NULL;
+
+        /* Handle special options --help and --version */
         if (strcmp(argv[1], "-v") == 0 ||
             strcmp(argv[1], "--version") == 0) version();
-        if (strcmp(argv[1], "--help") == 0) usage();
+        if (strcmp(argv[1], "--help") == 0 ||
+            strcmp(argv[1], "-h") == 0) usage();
+        if (strcmp(argv[1], "--test-memory") == 0) {
+            if (argc == 3) {
+                memtest(atoi(argv[2]),50);
+                exit(0);
+            } else {
+                fprintf(stderr,"Please specify the amount of memory to test in megabytes.\n");
+                fprintf(stderr,"Example: ./redis-server --test-memory 4096\n\n");
+                exit(1);
+            }
+        }
+
+        /* First argument is the config file name? */
+        if (argv[j][0] != '-' || argv[j][1] != '-')
+            configfile = argv[j++];
+        /* All the other options are parsed and conceptually appended to the
+         * configuration file. For instance --port 6380 will generate the
+         * string "port 6380\n" to be parsed after the actual file name
+         * is parsed, if any. */
+        while(j != argc) {
+            if (argv[j][0] == '-' && argv[j][1] == '-') {
+                /* Option name */
+                if (sdslen(options)) options = sdscat(options,"\n");
+                options = sdscat(options,argv[j]+2);
+                options = sdscat(options," ");
+            } else {
+                /* Option argument */
+                options = sdscatrepr(options,argv[j],strlen(argv[j]));
+                options = sdscat(options," ");
+            }
+            j++;
+        }
         resetServerSaveParams();
-        loadServerConfig(argv[1]);
-    } else if ((argc > 2)) {
-        usage();
+        loadServerConfig(configfile,options);
+        sdsfree(options);
     } else {
         redisLog(REDIS_WARNING,"Warning: no config file specified, using the default config. In order to specify a config file use 'redis-server /path/to/redis.conf'");
     }
@@ -1840,16 +2445,16 @@ int main(int argc, char **argv) {
     initServer();
     if (server.daemonize) createPidFile();
     redisAsciiArt();
-    redisLog(REDIS_NOTICE,"Server started, Redis version " REDIS_VERSION);
+    redisLog(REDIS_WARNING,"Server started, Redis version " REDIS_VERSION);
 #ifdef __linux__
     linuxOvercommitMemoryWarning();
 #endif
     start = ustime();
-    if (server.appendonly) {
-        if (loadAppendOnlyFile(server.appendfilename) == REDIS_OK)
+    if (server.aof_state == REDIS_AOF_ON) {
+        if (loadAppendOnlyFile(server.aof_filename) == REDIS_OK)
             redisLog(REDIS_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
     } else {
-        if (rdbLoad(server.dbfilename) == REDIS_OK) {
+        if (rdbLoad(server.rdb_filename) == REDIS_OK) {
             redisLog(REDIS_NOTICE,"DB loaded from disk: %.3f seconds",
                 (float)(ustime()-start)/1000000);
         } else if (errno != ENOENT) {
@@ -1865,107 +2470,6 @@ int main(int argc, char **argv) {
     aeMain(server.el);
     aeDeleteEventLoop(server.el);
     return 0;
-}
-
-#ifdef HAVE_BACKTRACE
-static void *getMcontextEip(ucontext_t *uc) {
-#if defined(__FreeBSD__)
-    return (void*) uc->uc_mcontext.mc_eip;
-#elif defined(__dietlibc__)
-    return (void*) uc->uc_mcontext.eip;
-#elif defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
-  #if __x86_64__
-    return (void*) uc->uc_mcontext->__ss.__rip;
-  #elif __i386__
-    return (void*) uc->uc_mcontext->__ss.__eip;
-  #else
-    return (void*) uc->uc_mcontext->__ss.__srr0;
-  #endif
-#elif defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
-  #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
-    return (void*) uc->uc_mcontext->__ss.__rip;
-  #else
-    return (void*) uc->uc_mcontext->__ss.__eip;
-  #endif
-#elif defined(__i386__)
-    return (void*) uc->uc_mcontext.gregs[14]; /* Linux 32 */
-#elif defined(__X86_64__) || defined(__x86_64__)
-    return (void*) uc->uc_mcontext.gregs[16]; /* Linux 64 */
-#elif defined(__ia64__) /* Linux IA64 */
-    return (void*) uc->uc_mcontext.sc_ip;
-#else
-    return NULL;
-#endif
-}
-
-static void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
-    void *trace[100];
-    char **messages = NULL;
-    int i, trace_size = 0;
-    ucontext_t *uc = (ucontext_t*) secret;
-    sds infostring;
-    struct sigaction act;
-    REDIS_NOTUSED(info);
-
-    redisLog(REDIS_WARNING,
-        "======= Ooops! Redis %s got signal: -%d- =======", REDIS_VERSION, sig);
-    infostring = genRedisInfoString("all");
-    redisLogRaw(REDIS_WARNING, infostring);
-    /* It's not safe to sdsfree() the returned string under memory
-     * corruption conditions. Let it leak as we are going to abort */
-
-    trace_size = backtrace(trace, 100);
-    /* overwrite sigaction with caller's address */
-    if (getMcontextEip(uc) != NULL) {
-        trace[1] = getMcontextEip(uc);
-    }
-    messages = backtrace_symbols(trace, trace_size);
-
-    for (i=1; i<trace_size; ++i)
-        redisLog(REDIS_WARNING,"%s", messages[i]);
-
-    /* free(messages); Don't call free() with possibly corrupted memory. */
-    if (server.daemonize) unlink(server.pidfile);
-
-    /* Make sure we exit with the right signal at the end. So for instance
-     * the core will be dumped if enabled. */
-    sigemptyset (&act.sa_mask);
-    /* When the SA_SIGINFO flag is set in sa_flags then sa_sigaction
-     * is used. Otherwise, sa_handler is used */
-    act.sa_flags = SA_NODEFER | SA_ONSTACK | SA_RESETHAND;
-    act.sa_handler = SIG_DFL;
-    sigaction (sig, &act, NULL);
-    kill(getpid(),sig);
-}
-#endif /* HAVE_BACKTRACE */
-
-static void sigtermHandler(int sig) {
-    REDIS_NOTUSED(sig);
-
-    redisLog(REDIS_WARNING,"Received SIGTERM, scheduling shutdown...");
-    server.shutdown_asap = 1;
-}
-
-void setupSignalHandlers(void) {
-    struct sigaction act;
-
-    /* When the SA_SIGINFO flag is set in sa_flags then sa_sigaction is used.
-     * Otherwise, sa_handler is used. */
-    sigemptyset(&act.sa_mask);
-    act.sa_flags = SA_NODEFER | SA_ONSTACK | SA_RESETHAND;
-    act.sa_handler = sigtermHandler;
-    sigaction(SIGTERM, &act, NULL);
-
-#ifdef HAVE_BACKTRACE
-    sigemptyset(&act.sa_mask);
-    act.sa_flags = SA_NODEFER | SA_ONSTACK | SA_RESETHAND | SA_SIGINFO;
-    act.sa_sigaction = sigsegvHandler;
-    sigaction(SIGSEGV, &act, NULL);
-    sigaction(SIGBUS, &act, NULL);
-    sigaction(SIGFPE, &act, NULL);
-    sigaction(SIGILL, &act, NULL);
-#endif
-    return;
 }
 
 /* The End */

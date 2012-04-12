@@ -6,15 +6,24 @@
 
 typedef struct aeApiState {
     int epfd;
-    struct epoll_event events[AE_SETSIZE];
+    struct epoll_event *events;
 } aeApiState;
 
 static int aeApiCreate(aeEventLoop *eventLoop) {
     aeApiState *state = zmalloc(sizeof(aeApiState));
 
     if (!state) return -1;
+    state->events = zmalloc(sizeof(struct epoll_event)*eventLoop->setsize);
+    if (!state->events) {
+        zfree(state);
+        return -1;
+    }
     state->epfd = epoll_create(1024); /* 1024 is just an hint for the kernel */
-    if (state->epfd == -1) return -1;
+    if (state->epfd == -1) {
+        zfree(state->events);
+        zfree(state);
+        return -1;
+    }
     eventLoop->apidata = state;
     return 0;
 }
@@ -23,6 +32,7 @@ static void aeApiFree(aeEventLoop *eventLoop) {
     aeApiState *state = eventLoop->apidata;
 
     close(state->epfd);
+    zfree(state->events);
     zfree(state);
 }
 
@@ -67,7 +77,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = eventLoop->apidata;
     int retval, numevents = 0;
 
-    retval = epoll_wait(state->epfd,state->events,AE_SETSIZE,
+    retval = epoll_wait(state->epfd,state->events,eventLoop->setsize,
             tvp ? (tvp->tv_sec*1000 + tvp->tv_usec/1000) : -1);
     if (retval > 0) {
         int j;

@@ -8,15 +8,24 @@
 
 typedef struct aeApiState {
     int kqfd;
-    struct kevent events[AE_SETSIZE];
+    struct kevent *events;
 } aeApiState;
 
 static int aeApiCreate(aeEventLoop *eventLoop) {
     aeApiState *state = zmalloc(sizeof(aeApiState));
 
     if (!state) return -1;
+    state->events = zmalloc(sizeof(struct kevent)*eventLoop->setsize);
+    if (!state->events) {
+        zfree(state);
+        return -1;
+    }
     state->kqfd = kqueue();
-    if (state->kqfd == -1) return -1;
+    if (state->kqfd == -1) {
+        zfree(state->events);
+        zfree(state);
+        return -1;
+    }
     eventLoop->apidata = state;
     
     return 0;    
@@ -26,6 +35,7 @@ static void aeApiFree(aeEventLoop *eventLoop) {
     aeApiState *state = eventLoop->apidata;
 
     close(state->kqfd);
+    zfree(state->events);
     zfree(state);
 }
 
@@ -66,10 +76,12 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
         struct timespec timeout;
         timeout.tv_sec = tvp->tv_sec;
         timeout.tv_nsec = tvp->tv_usec * 1000;
-        retval = kevent(state->kqfd, NULL, 0, state->events, AE_SETSIZE, &timeout);
+        retval = kevent(state->kqfd, NULL, 0, state->events, eventLoop->setsize,
+                        &timeout);
     } else {
-        retval = kevent(state->kqfd, NULL, 0, state->events, AE_SETSIZE, NULL);
-    }    
+        retval = kevent(state->kqfd, NULL, 0, state->events, eventLoop->setsize,
+                        NULL);
+    }
 
     if (retval > 0) {
         int j;

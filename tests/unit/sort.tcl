@@ -50,6 +50,10 @@ start_server {
             assert_equal $result [r sort tosort BY weight_*]
         }
 
+        test "$title: SORT BY key with limit" {
+            assert_equal [lrange $result 5 9] [r sort tosort BY weight_* LIMIT 5 5]
+        }
+
         test "$title: SORT BY hash field" {
             assert_equal $result [r sort tosort BY wobj_*->weight]
         }
@@ -133,6 +137,58 @@ start_server {
         }
         assert_equal [lsort -real $floats] [r sort mylist]
     }
+
+    test "SORT with STORE returns zero if result is empty (github isse 224)" {
+        r flushdb
+        r sort foo store bar
+    } {0}
+
+    test "SORT with STORE does not create empty lists (github issue 224)" {
+        r flushdb
+        r lpush foo bar
+        r sort foo alpha limit 10 10 store zap
+        r exists zap
+    } {0}
+
+    test "SORT with STORE removes key if result is empty (github issue 227)" {
+        r flushdb
+        r lpush foo bar
+        r sort emptylist store foo
+        r exists foo
+    } {0}
+
+    test "SORT with BY <constant> and STORE should still order output" {
+        r del myset mylist
+        r sadd myset a b c d e f g h i l m n o p q r s t u v z aa aaa azz
+        r sort myset alpha by _ store mylist
+        r lrange mylist 0 -1
+    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z}
+
+    test "SORT will complain with numerical sorting and bad doubles (1)" {
+        r del myset
+        r sadd myset 1 2 3 4 not-a-double
+        set e {}
+        catch {r sort myset} e
+        set e
+    } {*ERR*double*}
+
+    test "SORT will complain with numerical sorting and bad doubles (2)" {
+        r del myset
+        r sadd myset 1 2 3 4
+        r mset score:1 10 score:2 20 score:3 30 score:4 not-a-double
+        set e {}
+        catch {r sort myset by score:*} e
+        set e
+    } {*ERR*double*}
+
+    test "SORT BY sub-sorts lexicographically if score is the same" {
+        r del myset
+        r sadd myset a b c d e f g h i l m n o p q r s t u v z aa aaa azz
+        foreach ele {a aa aaa azz b c d e f g h i l m n o p q r s t u v z} {
+            set score:$ele 100
+        }
+        r sort myset by score:*
+    } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z}
 
     tags {"slow"} {
         set num 100

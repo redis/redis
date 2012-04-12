@@ -31,6 +31,8 @@
 #ifndef __SDS_H
 #define __SDS_H
 
+#define SDS_MAX_PREALLOC (1024*1024)
+
 #include <sys/types.h>
 #include <stdarg.h>
 
@@ -62,6 +64,7 @@ size_t sdsavail(sds s);
 sds sdsgrowzero(sds s, size_t len);
 sds sdscatlen(sds s, void *t, size_t len);
 sds sdscat(sds s, char *t);
+sds sdscatsds(sds s, sds t);
 sds sdscpylen(sds s, char *t, size_t len);
 sds sdscpy(sds s, char *t);
 
@@ -87,5 +90,11 @@ sds sdscatrepr(sds s, char *p, size_t len);
 sds *sdssplitargs(char *line, int *argc);
 void sdssplitargs_free(sds *argv, int argc);
 sds sdsmapchars(sds s, char *from, char *to, size_t setlen);
+
+/* Low level functions exposed to the user API */
+sds sdsMakeRoomFor(sds s, size_t addlen);
+void sdsIncrLen(sds s, int incr);
+sds sdsRemoveFreeSpace(sds s);
+size_t sdsAllocSize(sds s);
 
 #endif

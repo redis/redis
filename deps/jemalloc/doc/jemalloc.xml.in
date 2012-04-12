@@ -2025,7 +2025,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <term>
           <mallctl>swap.fds</mallctl>
           (<type>int *</type>)
-          <literal>r-</literal>
+          <literal>rw</literal>
           [<option>--enable-swap</option>]
         </term>
         <listitem><para>When written to, the files associated with the

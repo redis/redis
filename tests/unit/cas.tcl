@@ -25,6 +25,16 @@ start_server {tags {"cas"}} {
         r exec
     } {}
 
+    test {EXEC fail on WATCHed key modified by SORT with STORE even if the result is empty} {
+        r flushdb
+        r lpush foo bar
+        r watch foo
+        r sort emptylist store foo
+        r multi
+        r ping
+        r exec
+    } {}
+
     test {After successful EXEC key is no longer watched} {
         r set x 30
         r watch x
@@ -125,11 +135,32 @@ start_server {tags {"cas"}} {
     test {WATCH will not consider touched expired keys} {
         r del x
         r set x foo
-        r expire x 2
+        r expire x 1
         r watch x
-        after 3000
+        after 1100
         r multi
         r ping
         r exec
     } {PONG}
+
+    test {DISCARD should clear the WATCH dirty flag on the client} {
+        r watch x
+        r set x 10
+        r multi
+        r discard
+        r multi
+        r incr x
+        r exec
+    } {11}
+
+    test {DISCARD should UNWATCH all the keys} {
+        r watch x
+        r set x 10
+        r multi
+        r discard
+        r set x 10
+        r multi
+        r incr x
+        r exec
+    } {11}
 }

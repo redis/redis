@@ -26,18 +26,19 @@ NOTE: if after building Redis with a 32 bit target you need to rebuild it
 Allocator
 ---------
 
-By default Redis compiles and links against jemalloc under Linux, since
-glibc malloc() has memory fragmentation problems.
+Selecting a non-default memory allocator when building Redis is done by setting
+the `MALLOC` environment variable. Redis is compiled and linked against libc
+malloc by default, with the exception of jemalloc being the default on Linux
+systems. This default was picked because jemalloc has proven to have fewer
+fragmentation problems than libc malloc.
 
-To force a libc malloc() build use:
+To force compiling against libc malloc, use:
 
-    % make FORCE_LIBC_MALLOC=yes
+    % make MALLOC=libc
 
-In all the other non Linux systems the libc malloc() is used by default.
+To compile against jemalloc on Mac OS X systems, use:
 
-On Mac OS X you can force a jemalloc based build using the following:
-
-    % make USE_JEMALLOC=yes
+    % make MALLOC=jemalloc
 
 Verbose build
 -------------
@@ -60,6 +61,15 @@ parameter (the path of the configuration file):
 
     % cd src
     % ./redis-server /path/to/redis.conf
+
+It is possible to alter the Redis configuration passing parameters directly
+as options using the command line. Examples:
+
+    % ./redis-server --port 9999 --slaveof 127.0.0.1 6379
+    % ./redis-server /etc/redis/6379.conf --loglevel debug
+
+All the options in redis.conf are also supported as options using the command
+line, with exactly the same name.
 
 Playing with Redis
 ------------------

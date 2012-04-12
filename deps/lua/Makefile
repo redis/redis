@@ -53,7 +53,7 @@ R= 5.1.4
 all:	$(PLAT)
 
 $(PLATS) clean:
-	cd src && $(MAKE) ARCH="$(ARCH)" $@
+	cd src && $(MAKE) $@
 
 test:	dummy
 	src/lua test/hello.lua

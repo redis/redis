@@ -617,8 +617,6 @@ enable_prof
 enable_stats
 enable_debug
 install_suffix
-jemalloc_cprefix
-jemalloc_prefix
 AUTOCONF
 LD
 AR
@@ -705,6 +703,7 @@ with_xslroot
 with_rpath
 enable_autogen
 with_jemalloc_prefix
+with_private_namespace
 with_install_suffix
 enable_cc_silence
 enable_debug
@@ -1375,6 +1374,8 @@ Optional Packages:
   --with-rpath=<rpath>    Colon-separated rpath (ELF systems only)
   --with-jemalloc-prefix=<prefix>
                           Prefix to prepend to all public APIs
+  --with-private-namespace=<prefix>
+                          Prefix to prepend to all library-private APIs
   --with-install-suffix=<suffix>
                           Suffix to append to all installed files
   --with-static-libunwind=<libunwind.a>
@@ -4800,12 +4801,33 @@ _ACEOF
 #define JEMALLOC_CPREFIX "$JEMALLOC_CPREFIX"
 _ACEOF
 
-  jemalloc_prefix="$JEMALLOC_PREFIX"
-  jemalloc_cprefix="$JEMALLOC_CPREFIX"
-
-
   cat >>confdefs.h <<_ACEOF
 #define JEMALLOC_P(string_that_no_one_should_want_to_use_as_a_jemalloc_API_prefix) ${JEMALLOC_PREFIX}##string_that_no_one_should_want_to_use_as_a_jemalloc_API_prefix
+_ACEOF
+
+fi
+
+
+# Check whether --with-private_namespace was given.
+if test "${with_private_namespace+set}" = set; then :
+  withval=$with_private_namespace; JEMALLOC_PRIVATE_NAMESPACE="$with_private_namespace"
+else
+  JEMALLOC_PRIVATE_NAMESPACE=""
+
+fi
+
+cat >>confdefs.h <<_ACEOF
+#define JEMALLOC_PRIVATE_NAMESPACE "$JEMALLOC_PRIVATE_NAMESPACE"
+_ACEOF
+
+if test "x$JEMALLOC_PRIVATE_NAMESPACE" != "x" ; then
+  cat >>confdefs.h <<_ACEOF
+#define JEMALLOC_N(string_that_no_one_should_want_to_use_as_a_jemalloc_private_namespace_prefix) ${JEMALLOC_PRIVATE_NAMESPACE}##string_that_no_one_should_want_to_use_as_a_jemalloc_private_namespace_prefix
+_ACEOF
+
+else
+  cat >>confdefs.h <<_ACEOF
+#define JEMALLOC_N(string_that_no_one_should_want_to_use_as_a_jemalloc_private_namespace_prefix) string_that_no_one_should_want_to_use_as_a_jemalloc_private_namespace_prefix
 _ACEOF
 
 fi
@@ -5508,7 +5530,7 @@ fi
 
 
 
-if test -d "${srcroot}../.git" ; then
+if test -d "${srcroot}.git" ; then
   git describe --long --abbrev=40 > ${srcroot}VERSION
 fi
 jemalloc_version=`cat ${srcroot}VERSION`
@@ -7346,6 +7368,10 @@ $as_echo "abs_objroot        : ${abs_objroot}" >&6; }
 $as_echo "" >&6; }
 { $as_echo "$as_me:${as_lineno-$LINENO}: result: JEMALLOC_PREFIX    : ${JEMALLOC_PREFIX}" >&5
 $as_echo "JEMALLOC_PREFIX    : ${JEMALLOC_PREFIX}" >&6; }
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: JEMALLOC_PRIVATE_NAMESPACE" >&5
+$as_echo "JEMALLOC_PRIVATE_NAMESPACE" >&6; }
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result:                    : ${JEMALLOC_PRIVATE_NAMESPACE}" >&5
+$as_echo "                   : ${JEMALLOC_PRIVATE_NAMESPACE}" >&6; }
 { $as_echo "$as_me:${as_lineno-$LINENO}: result: install_suffix     : ${install_suffix}" >&5
 $as_echo "install_suffix     : ${install_suffix}" >&6; }
 { $as_echo "$as_me:${as_lineno-$LINENO}: result: autogen            : ${enable_autogen}" >&5

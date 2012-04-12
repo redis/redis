@@ -33,8 +33,6 @@
 #ifndef __AE_H__
 #define __AE_H__
 
-#define AE_SETSIZE (1024*10)    /* Max number of fd supported */
-
 #define AE_OK 0
 #define AE_ERR -1
 
@@ -87,10 +85,11 @@ typedef struct aeFiredEvent {
 
 /* State of an event based program */
 typedef struct aeEventLoop {
-    int maxfd;
+    int maxfd;   /* highest file descriptor currently registered */
+    int setsize; /* max number of file descriptors tracked */
     long long timeEventNextId;
-    aeFileEvent events[AE_SETSIZE]; /* Registered events */
-    aeFiredEvent fired[AE_SETSIZE]; /* Fired events */
+    aeFileEvent *events; /* Registered events */
+    aeFiredEvent *fired; /* Fired events */
     aeTimeEvent *timeEventHead;
     int stop;
     void *apidata; /* This is used for polling API specific data */
@@ -98,12 +97,13 @@ typedef struct aeEventLoop {
 } aeEventLoop;
 
 /* Prototypes */
-aeEventLoop *aeCreateEventLoop(void);
+aeEventLoop *aeCreateEventLoop(int setsize);
 void aeDeleteEventLoop(aeEventLoop *eventLoop);
 void aeStop(aeEventLoop *eventLoop);
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData);
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask);
+int aeGetFileEvents(aeEventLoop *eventLoop, int fd);
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
         aeTimeProc *proc, void *clientData,
         aeEventFinalizerProc *finalizerProc);

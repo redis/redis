@@ -292,11 +292,20 @@ if test "x$JEMALLOC_PREFIX" != "x" ; then
   JEMALLOC_CPREFIX=`echo ${JEMALLOC_PREFIX} | tr "a-z" "A-Z"`
   AC_DEFINE_UNQUOTED([JEMALLOC_PREFIX], ["$JEMALLOC_PREFIX"])
   AC_DEFINE_UNQUOTED([JEMALLOC_CPREFIX], ["$JEMALLOC_CPREFIX"])
-  jemalloc_prefix="$JEMALLOC_PREFIX"
-  jemalloc_cprefix="$JEMALLOC_CPREFIX"
-  AC_SUBST([jemalloc_prefix])
-  AC_SUBST([jemalloc_cprefix])
   AC_DEFINE_UNQUOTED([JEMALLOC_P(string_that_no_one_should_want_to_use_as_a_jemalloc_API_prefix)], [${JEMALLOC_PREFIX}##string_that_no_one_should_want_to_use_as_a_jemalloc_API_prefix])
+fi
+
+dnl Do not mangle library-private APIs by default.
+AC_ARG_WITH([private_namespace],
+  [AS_HELP_STRING([--with-private-namespace=<prefix>], [Prefix to prepend to all library-private APIs])],
+  [JEMALLOC_PRIVATE_NAMESPACE="$with_private_namespace"],
+  [JEMALLOC_PRIVATE_NAMESPACE=""]
+)
+AC_DEFINE_UNQUOTED([JEMALLOC_PRIVATE_NAMESPACE], ["$JEMALLOC_PRIVATE_NAMESPACE"])
+if test "x$JEMALLOC_PRIVATE_NAMESPACE" != "x" ; then
+  AC_DEFINE_UNQUOTED([JEMALLOC_N(string_that_no_one_should_want_to_use_as_a_jemalloc_private_namespace_prefix)], [${JEMALLOC_PRIVATE_NAMESPACE}##string_that_no_one_should_want_to_use_as_a_jemalloc_private_namespace_prefix])
+else
+  AC_DEFINE_UNQUOTED([JEMALLOC_N(string_that_no_one_should_want_to_use_as_a_jemalloc_private_namespace_prefix)], [string_that_no_one_should_want_to_use_as_a_jemalloc_private_namespace_prefix])
 fi
 
 dnl Do not add suffix to installed files by default.
@@ -688,7 +697,7 @@ dnl jemalloc configuration.
 dnl 
 
 dnl Set VERSION if source directory has an embedded git repository.
-if test -d "${srcroot}../.git" ; then
+if test -d "${srcroot}.git" ; then
   git describe --long --abbrev=40 > ${srcroot}VERSION
 fi
 jemalloc_version=`cat ${srcroot}VERSION`
@@ -905,6 +914,8 @@ AC_MSG_RESULT([objroot            : ${objroot}])
 AC_MSG_RESULT([abs_objroot        : ${abs_objroot}])
 AC_MSG_RESULT([])
 AC_MSG_RESULT([JEMALLOC_PREFIX    : ${JEMALLOC_PREFIX}])
+AC_MSG_RESULT([JEMALLOC_PRIVATE_NAMESPACE])
+AC_MSG_RESULT([                   : ${JEMALLOC_PRIVATE_NAMESPACE}])
 AC_MSG_RESULT([install_suffix     : ${install_suffix}])
 AC_MSG_RESULT([autogen            : ${enable_autogen}])
 AC_MSG_RESULT([cc-silence         : ${enable_cc_silence}])

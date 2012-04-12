@@ -1,5 +1,6 @@
 #include "redis.h"
 #include <math.h>
+#include <ctype.h>
 
 robj *createObject(int type, void *ptr) {
     robj *o = zmalloc(sizeof(*o));
@@ -8,18 +9,8 @@ robj *createObject(int type, void *ptr) {
     o->ptr = ptr;
     o->refcount = 1;
 
-    /* Set the LRU to the current lruclock (minutes resolution).
-     * We do this regardless of the fact VM is active as LRU is also
-     * used for the maxmemory directive when Redis is used as cache.
-     *
-     * Note that this code may run in the context of an I/O thread
-     * and accessing server.lruclock in theory is an error
-     * (no locks). But in practice this is safe, and even if we read
-     * garbage Redis will not fail. */
+    /* Set the LRU to the current lruclock (minutes resolution). */
     o->lru = server.lruclock;
-    /* The following is only needed if VM is active, but since the conditional
-     * is probably more costly than initializing the field it's better to
-     * have every field properly initialized anyway. */
     return o;
 }
 
@@ -42,6 +33,30 @@ robj *createStringObjectFromLongLong(long long value) {
         }
     }
     return o;
+}
+
+/* Note: this function is defined into object.c since here it is where it
+ * belongs but it is actually designed to be used just for INCRBYFLOAT */
+robj *createStringObjectFromLongDouble(long double value) {
+    char buf[256];
+    int len;
+
+    /* We use 17 digits precision since with 128 bit floats that precision
+     * after rouding is able to represent most small decimal numbers in a way
+     * that is "non surprising" for the user (that is, most small decimal
+     * numbers will be represented in a way that when converted back into
+     * a string are exactly the same as what the user typed.) */
+    len = snprintf(buf,sizeof(buf),"%.17Lf", value);
+    /* Now remove trailing zeroes after the '.' */
+    if (strchr(buf,'.') != NULL) {
+        char *p = buf+len-1;
+        while(*p == '0') {
+            p--;
+            len--;
+        }
+        if (*p == '.') len--;
+    }
+    return createStringObject(buf,len);
 }
 
 robj *dupStringObject(robj *o) {
@@ -79,12 +94,9 @@ robj *createIntsetObject(void) {
 }
 
 robj *createHashObject(void) {
-    /* All the Hashes start as zipmaps. Will be automatically converted
-     * into hash tables if there are enough elements or big elements
-     * inside. */
-    unsigned char *zm = zipmapNew();
-    robj *o = createObject(REDIS_HASH,zm);
-    o->encoding = REDIS_ENCODING_ZIPMAP;
+    unsigned char *zl = ziplistNew();
+    robj *o = createObject(REDIS_HASH, zl);
+    o->encoding = REDIS_ENCODING_ZIPLIST;
     return o;
 }
 
@@ -160,7 +172,7 @@ void freeHashObject(robj *o) {
     case REDIS_ENCODING_HT:
         dictRelease((dict*) o->ptr);
         break;
-    case REDIS_ENCODING_ZIPMAP:
+    case REDIS_ENCODING_ZIPLIST:
         zfree(o->ptr);
         break;
     default:
@@ -248,9 +260,7 @@ robj *tryObjectEncoding(robj *o) {
 
     /* Ok, this object can be encoded...
      *
-     * Can I use a shared object? Only if the object is inside a given
-     * range and if the back end in use is in-memory. For disk store every
-     * object in memory used as value should be independent.
+     * Can I use a shared object? Only if the object is inside a given range
      *
      * Note that we also avoid using shared integers when maxmemory is used
      * because every object needs to have a private LRU field for the LRU
@@ -350,15 +360,17 @@ int getDoubleFromObject(robj *o, double *target) {
     } else {
         redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
         if (o->encoding == REDIS_ENCODING_RAW) {
+            errno = 0;
             value = strtod(o->ptr, &eptr);
-            if (eptr[0] != '\0' || isnan(value)) return REDIS_ERR;
+            if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
+                errno == ERANGE || isnan(value))
+                return REDIS_ERR;
         } else if (o->encoding == REDIS_ENCODING_INT) {
             value = (long)o->ptr;
         } else {
             redisPanic("Unknown string encoding");
         }
     }
-
     *target = value;
     return REDIS_OK;
 }
@@ -369,11 +381,48 @@ int getDoubleFromObjectOrReply(redisClient *c, robj *o, double *target, const ch
         if (msg != NULL) {
             addReplyError(c,(char*)msg);
         } else {
-            addReplyError(c,"value is not a double");
+            addReplyError(c,"value is not a valid float");
         }
         return REDIS_ERR;
     }
+    *target = value;
+    return REDIS_OK;
+}
 
+int getLongDoubleFromObject(robj *o, long double *target) {
+    long double value;
+    char *eptr;
+
+    if (o == NULL) {
+        value = 0;
+    } else {
+        redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
+        if (o->encoding == REDIS_ENCODING_RAW) {
+            errno = 0;
+            value = strtold(o->ptr, &eptr);
+            if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
+                errno == ERANGE || isnan(value))
+                return REDIS_ERR;
+        } else if (o->encoding == REDIS_ENCODING_INT) {
+            value = (long)o->ptr;
+        } else {
+            redisPanic("Unknown string encoding");
+        }
+    }
+    *target = value;
+    return REDIS_OK;
+}
+
+int getLongDoubleFromObjectOrReply(redisClient *c, robj *o, long double *target, const char *msg) {
+    long double value;
+    if (getLongDoubleFromObject(o, &value) != REDIS_OK) {
+        if (msg != NULL) {
+            addReplyError(c,(char*)msg);
+        } else {
+            addReplyError(c,"value is not a valid float");
+        }
+        return REDIS_ERR;
+    }
     *target = value;
     return REDIS_OK;
 }
@@ -387,9 +436,10 @@ int getLongLongFromObject(robj *o, long long *target) {
     } else {
         redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
         if (o->encoding == REDIS_ENCODING_RAW) {
+            errno = 0;
             value = strtoll(o->ptr, &eptr, 10);
-            if (eptr[0] != '\0') return REDIS_ERR;
-            if (errno == ERANGE && (value == LLONG_MIN || value == LLONG_MAX))
+            if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
+                errno == ERANGE)
                 return REDIS_ERR;
         } else if (o->encoding == REDIS_ENCODING_INT) {
             value = (long)o->ptr;
@@ -397,7 +447,6 @@ int getLongLongFromObject(robj *o, long long *target) {
             redisPanic("Unknown string encoding");
         }
     }
-
     if (target) *target = value;
     return REDIS_OK;
 }
@@ -412,7 +461,6 @@ int getLongLongFromObjectOrReply(redisClient *c, robj *o, long long *target, con
         }
         return REDIS_ERR;
     }
-
     *target = value;
     return REDIS_OK;
 }
@@ -429,7 +477,6 @@ int getLongFromObjectOrReply(redisClient *c, robj *o, long *target, const char *
         }
         return REDIS_ERR;
     }
-
     *target = value;
     return REDIS_OK;
 }
@@ -439,7 +486,6 @@ char *strEncoding(int encoding) {
     case REDIS_ENCODING_RAW: return "raw";
     case REDIS_ENCODING_INT: return "int";
     case REDIS_ENCODING_HT: return "hashtable";
-    case REDIS_ENCODING_ZIPMAP: return "zipmap";
     case REDIS_ENCODING_LINKEDLIST: return "linkedlist";
     case REDIS_ENCODING_ZIPLIST: return "ziplist";
     case REDIS_ENCODING_INTSET: return "intset";
@@ -465,7 +511,7 @@ robj *objectCommandLookup(redisClient *c, robj *key) {
     dictEntry *de;
 
     if ((de = dictFind(c->db->dict,key->ptr)) == NULL) return NULL;
-    return (robj*) dictGetEntryVal(de);
+    return (robj*) dictGetVal(de);
 }
 
 robj *objectCommandLookupOrReply(redisClient *c, robj *key, robj *reply) {

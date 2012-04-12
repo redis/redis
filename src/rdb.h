@@ -7,6 +7,10 @@
 /* TBD: include only necessary headers. */
 #include "redis.h"
 
+/* The current RDB version. When the format changes in a way that is no longer
+ * backward compatible this number gets incremented. */
+#define REDIS_RDB_VERSION 5
+
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
  * the first byte to interpreter the length:
@@ -47,11 +51,13 @@
 #define REDIS_RDB_TYPE_LIST_ZIPLIST  10
 #define REDIS_RDB_TYPE_SET_INTSET    11
 #define REDIS_RDB_TYPE_ZSET_ZIPLIST  12
+#define REDIS_RDB_TYPE_HASH_ZIPLIST  13
 
 /* Test if a type is an object type. */
 #define rdbIsObjectType(t) ((t >= 0 && t <= 4) || (t >= 9 && t <= 12))
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
+#define REDIS_RDB_OPCODE_EXPIRETIME_MS 252
 #define REDIS_RDB_OPCODE_EXPIRETIME 253
 #define REDIS_RDB_OPCODE_SELECTDB   254
 #define REDIS_RDB_OPCODE_EOF        255
@@ -76,7 +82,7 @@ off_t rdbSavedObjectLen(robj *o);
 off_t rdbSavedObjectPages(robj *o);
 robj *rdbLoadObject(int type, rio *rdb);
 void backgroundSaveDoneHandler(int exitcode, int bysignal);
-int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, time_t expireitme, time_t now);
+int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, long long now);
 robj *rdbLoadStringObject(rio *rdb);
 
 #endif
