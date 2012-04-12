@@ -1569,7 +1569,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                 score = src[0].weight * zval.score;
                 if (isnan(score)) score = 0;
 
-                /* Skip key if no range is specified or if the score is out of the specified range */
+                /* Skip key if a range is specified and the score is out of the specified range */
                 if(hasranges && zuiIsOutOfRange(zval.score, &src[0].range))
                     continue;
  
