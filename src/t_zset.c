@@ -1577,6 +1577,9 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                     /* It is not safe to access the zset we are
                      * iterating, so explicitly check for equal object. */
                     if (src[j].subject == src[0].subject) {
+                        /* Skip key if a range is specified and the score is out of the specified range */
+                        if(hasranges && zuiIsOutOfRange(zval.score, &src[j].range))
+                            break;
                         value = zval.score*src[j].weight;
                         zunionInterAggregate(&score,value,aggregate);
                     } else if (zuiFind(&src[j],&zval,&value)) {
