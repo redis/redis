@@ -201,7 +201,7 @@ bench: $(REDIS_BENCHMARK_NAME)
 	$(MAKE) CFLAGS="$(CFLAGS) -m32" LDFLAGS="$(LDFLAGS) -m32"
 
 gcov:
-	$(MAKE) ADD_CFLAGS="-fprofile-arcs -ftest-coverage -DCOVERAGE_TEST"
+	$(MAKE) ADD_CFLAGS="-fprofile-arcs -ftest-coverage -DCOVERAGE_TEST" ADD_LDFLAGS="-fprofile-arcs -ftest-coverage"
 
 noopt:
 	$(MAKE) OPT="-O0"
