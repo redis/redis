@@ -1290,6 +1290,7 @@ void initServer() {
             int len = dp->d_namlen;
             if (len > 3 && !strncmp(dp->d_name + len - 3, ".so", 3)) {
                 char path[1024];
+                redisLog(REDIS_NOTICE, "Registering plugin: %s", dp->d_name);
                 snprintf(path, 1024, "plugins/%s", dp->d_name);
                 void *plugin = dlopen(path, RTLD_NOW);
                 registerPlugin registerCommand = (registerPlugin) dlsym(plugin, "registerCommands");
