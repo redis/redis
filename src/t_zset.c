@@ -1100,6 +1100,7 @@ typedef struct {
     int type; /* Set, sorted set */
     int encoding;
     double weight;
+    zrangespec range;
 
     union {
         /* Set iterators. */
@@ -1441,6 +1442,13 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
     }
 }
 
+/* check if the score is out of range. optimized for large zsets and small ranges */
+static int zuiIsOutOfRange(double value, zrangespec *spec) {
+    return ((value < spec->min || value > spec->max) 
+        || (spec->minex && value == spec->min)
+        || (spec->maxex && value == spec->max));
+}
+
 void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
     int i, j;
     long setnum;
@@ -1453,7 +1461,8 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
     zset *dstzset;
     zskiplistNode *znode;
     int touched = 0;
-
+    int hasranges = 0; /* assuming no ranges argument is specified */
+  
     /* expect setnum input keys to be given */
     if ((getLongFromObjectOrReply(c, c->argv[2], &setnum, NULL) != REDIS_OK))
         return;
@@ -1521,6 +1530,15 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                     return;
                 }
                 j++; remaining--;
+            } else if (remaining >= (setnum + 1) && !strcasecmp(c->argv[j]->ptr,"ranges")) {
+                hasranges = 1; /* ranges argument is specified */
+                j++; remaining--;
+                for (i = 0; i < setnum; i++, j+=2, remaining-=2) {
+                    if (zslParseRange(c->argv[j],c->argv[j+1],&src[i].range) != REDIS_OK) {
+                       addReplyError(c,"min or max is not a float");
+                       return;
+                    }
+                }     
             } else {
                 zfree(src);
                 addReply(c,shared.syntaxerr);
@@ -1551,6 +1569,10 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                 score = src[0].weight * zval.score;
                 if (isnan(score)) score = 0;
 
+                /* Skip key if no range is specified or if the score is out of the specified range */
+                if(hasranges && zuiIsOutOfRange(zval.score, &src[0].range))
+                    continue;
+ 
                 for (j = 1; j < setnum; j++) {
                     /* It is not safe to access the zset we are
                      * iterating, so explicitly check for equal object. */
@@ -1558,6 +1580,9 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                         value = zval.score*src[j].weight;
                         zunionInterAggregate(&score,value,aggregate);
                     } else if (zuiFind(&src[j],&zval,&value)) {
+                        /* Skip key if a range is specified and the score is out of the specified range */
+                        if(hasranges && zuiIsOutOfRange(value, &src[j].range))
+                            break;
                         value *= src[j].weight;
                         zunionInterAggregate(&score,value,aggregate);
                     } else {
