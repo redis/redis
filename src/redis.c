@@ -1280,6 +1280,9 @@ void initServer() {
             exit(1);
         }
     }
+    if (server.plugindir) {
+      redisLog(REDIS_NOTICE, "Plugins directory: %s", server.plugindir);
+    }
 
     /* 32 bit instances are limited to 4GB of address space, so if there is
      * no explicit limit in the user provided configuration we set a limit
