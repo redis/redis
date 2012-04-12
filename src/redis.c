@@ -31,6 +31,7 @@
 #include "slowlog.h"
 #include "bio.h"
 
+#include <dirent.h>
 #include <dlfcn.h>
 #include <time.h>
 #include <signal.h>
@@ -1282,12 +1283,22 @@ void initServer() {
         }
     }
     if (server.plugindir) {
-      redisLog(REDIS_NOTICE, "Plugins directory: %s", server.plugindir);
-      void *plugin = dlopen("plugins/libget.so", RTLD_NOW);
-      registerPlugin registerCommand = (registerPlugin) dlsym(plugin, "registerCommands");
-      int numcommands = 0;
-      struct redisCommand* commands = registerCommand(&numcommands);
-      populateCommandTable(commands, numcommands);
+        redisLog(REDIS_NOTICE, "Plugins directory: %s", server.plugindir);
+        DIR *plugindir = opendir(server.plugindir);
+        struct dirent *dp;
+        while ((dp = readdir(plugindir)) != NULL) {
+            int len = dp->d_namlen;
+            if (len > 3 && !strncmp(dp->d_name + len - 3, ".so", 3)) {
+                char path[1024];
+                snprintf(path, 1024, "plugins/%s", dp->d_name);
+                void *plugin = dlopen(path, RTLD_NOW);
+                registerPlugin registerCommand = (registerPlugin) dlsym(plugin, "registerCommands");
+                int numcommands = 0;
+                struct redisCommand* commands = registerCommand(&numcommands);
+                populateCommandTable(commands, numcommands);
+            }
+        }
+        closedir(plugindir);
     }
 
     /* 32 bit instances are limited to 4GB of address space, so if there is
