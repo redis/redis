@@ -31,6 +31,7 @@
 #include "slowlog.h"
 #include "bio.h"
 
+#include <dlfcn.h>
 #include <time.h>
 #include <signal.h>
 #include <sys/wait.h>
@@ -1124,7 +1125,7 @@ void initServerConfig() {
      * initial configuration, since command names may be changed via
      * redis.conf using the rename-command directive. */
     server.commands = dictCreate(&commandTableDictType,NULL);
-    populateCommandTable();
+    populateCommandTable(redisCommandTable, sizeof(redisCommandTable)/sizeof(struct redisCommand));
     server.delCommand = lookupCommandByCString("del");
     server.multiCommand = lookupCommandByCString("multi");
     server.lpushCommand = lookupCommandByCString("lpush");
@@ -1282,6 +1283,11 @@ void initServer() {
     }
     if (server.plugindir) {
       redisLog(REDIS_NOTICE, "Plugins directory: %s", server.plugindir);
+      void *plugin = dlopen("plugins/libget.so", RTLD_NOW);
+      registerPlugin registerCommand = (registerPlugin) dlsym(plugin, "registerCommands");
+      int numcommands = 0;
+      struct redisCommand* commands = registerCommand(&numcommands);
+      populateCommandTable(commands, numcommands);
     }
 
     /* 32 bit instances are limited to 4GB of address space, so if there is
@@ -1302,9 +1308,8 @@ void initServer() {
 
 /* Populates the Redis Command Table starting from the hard coded list
  * we have on top of redis.c file. */
-void populateCommandTable(void) {
+void populateCommandTable(struct redisCommand* redisCommandTable, int numcommands) {
     int j;
-    int numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
 
     for (j = 0; j < numcommands; j++) {
         struct redisCommand *c = redisCommandTable+j;

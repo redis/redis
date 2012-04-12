@@ -749,6 +749,8 @@ struct redisCommand {
     long long microseconds, calls;
 };
 
+typedef struct redisCommand* (*registerPlugin)(int*);
+
 struct redisFunctionSym {
     char *name;
     unsigned long pointer;
@@ -1013,7 +1015,7 @@ void usage();
 void updateDictResizePolicy(void);
 int htNeedsResize(dict *dict);
 void oom(const char *msg);
-void populateCommandTable(void);
+void populateCommandTable(struct redisCommand* redisCommandTable, int numcommands);
 void resetCommandTableStats(void);
 
 /* Set data type */
