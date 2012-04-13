@@ -585,7 +585,6 @@ struct redisServer {
     int lua_timedout;     /* True if we reached the time limit for script
                              execution. */
     int lua_kill;         /* Kill the script if true. */
-    int lua_protect_globals;    /* If true globals must be declared */
     /* Assert & bug reportign */
     char *assert_failed;
     char *assert_file;
@@ -961,8 +960,6 @@ int *zunionInterGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *num
 
 /* Scripting */
 void scriptingInit(void);
-void scriptingEnableGlobalsProtection(lua_State *lua);
-void scriptingDisableGlobalsProtection(lua_State *lua);
 
 /* Git SHA1 */
 char *redisGitSHA1(void);

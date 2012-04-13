@@ -308,10 +308,6 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"lua-time-limit") && argc == 2) {
             server.lua_time_limit = strtoll(argv[1],NULL,10);
-        } else if (!strcasecmp(argv[0],"lua-protect-globals") && argc == 2) {
-            if ((server.lua_protect_globals = yesnotoi(argv[1])) == -1) {
-                err = "argument must be 'yes' or 'no'"; goto loaderr;
-            }
         } else if (!strcasecmp(argv[0],"slowlog-log-slower-than") &&
                    argc == 2)
         {
@@ -553,16 +549,6 @@ void configSetCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[2]->ptr,"lua-time-limit")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.lua_time_limit = ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"lua-protect-globals")) {
-        int enable = yesnotoi(o->ptr);
-
-        if (enable == -1) goto badfmt;
-        if (enable == 0 && server.lua_protect_globals == 1) {
-            scriptingDisableGlobalsProtection(server.lua);
-        } else if (enable && server.lua_protect_globals == 0) {
-            scriptingEnableGlobalsProtection(server.lua);
-        }
-        server.lua_protect_globals = enable;
     } else if (!strcasecmp(c->argv[2]->ptr,"slowlog-log-slower-than")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR) goto badfmt;
         server.slowlog_log_slower_than = ll;
@@ -757,7 +743,6 @@ void configGetCommand(redisClient *c) {
     config_get_bool_field("rdbcompression", server.rdb_compression);
     config_get_bool_field("rdbchecksum", server.rdb_checksum);
     config_get_bool_field("activerehashing", server.activerehashing);
-    config_get_bool_field("lua-protect-globals", server.lua_protect_globals);
 
     /* Everything we can't handle with macros follows. */
 
