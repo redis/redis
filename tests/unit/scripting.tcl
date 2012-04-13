@@ -229,6 +229,28 @@ start_server {tags {"scripting"}} {
         catch {r eval {a=10} 0} e
         set e
     } {*ERR*attempted to create global*}
+
+    test {Test an example script DECR_IF_GT} {
+        set decr_if_gt {
+            local current
+
+            current = redis.call('get',KEYS[1])
+            if not current then return nil end
+            if current > ARGV[1] then
+                return redis.call('decr',KEYS[1])
+            else
+                return redis.call('get',KEYS[1])
+            end
+        }
+        r set foo 5
+        set res {}
+        lappend res [r eval $decr_if_gt 1 foo 2]
+        lappend res [r eval $decr_if_gt 1 foo 2]
+        lappend res [r eval $decr_if_gt 1 foo 2]
+        lappend res [r eval $decr_if_gt 1 foo 2]
+        lappend res [r eval $decr_if_gt 1 foo 2]
+        set res
+    } {4 3 2 2 2}
 }
 
 start_server {tags {"scripting repl"}} {
