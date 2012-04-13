@@ -219,6 +219,43 @@ start_server {tags {"scripting"}} {
         list [r eval {return redis.sha1hex('')} 0] \
              [r eval {return redis.sha1hex('Pizza & Mandolino')} 0]
     } {da39a3ee5e6b4b0d3255bfef95601890afd80709 74822d82031af7493c20eefa13bd07ec4fada82f}
+
+    test {Globals protection reading an undeclared global variable} {
+        catch {r eval {return a} 0} e
+        set e
+    } {*ERR*global variable*not declared*}
+
+    test {Globals protection setting an undeclared global variable} {
+        catch {r eval {a=10} 0} e
+        set e
+    } {*ERR*assignment to undeclared*}
+
+    test {Globals protection bypassed using 'global' function} {
+        catch {r eval {global("a"); a=10; return a} 0} e
+        set e
+    } {10}
+
+    test {Globals protection can be disabled} {
+        r config set lua-protect-globals no
+        catch {r eval {b=20; return b} 0} e
+        set e
+    } {20}
+
+    test {Globals protection can be re-enabled} {
+        r config set lua-protect-globals yes
+        catch {r eval {c=30; return c} 0} e
+        set e
+    } {*ERR*assignment to undeclared*}
+
+    test {Globals protection 'global' function works with mutliple args} {
+        catch {r eval {
+            global("var1","var2")
+            var1=10
+            var2=20
+            return {var1,var2}
+        } 0 } e
+        set e
+    } {10 20}
 }
 
 start_server {tags {"scripting repl"}} {
