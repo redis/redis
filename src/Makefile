@@ -91,8 +91,8 @@ QUIET_CC = @printf '    %b %b\n' $(CCCOLOR)CC$(ENDCOLOR) $(SRCCOLOR)$@$(ENDCOLOR
 QUIET_LINK = @printf '    %b %b\n' $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR) 1>&2;
 endif
 
-REDIS_SERVEREDIS_NAME= redis-server
-REDIS_SERVEREDIS_OBJ= adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o migrate.o crc16.o endianconv.o slowlog.o scripting.o bio.o rio.o rand.o memtest.o crc64.o
+REDIS_SERVER_NAME= redis-server
+REDIS_SERVER_OBJ= adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o migrate.o crc16.o endianconv.o slowlog.o scripting.o bio.o rio.o rand.o memtest.o crc64.o
 REDIS_CLI_NAME= redis-cli
 REDIS_CLI_OBJ= anet.o sds.o adlist.o redis-cli.o zmalloc.o release.o
 REDIS_BENCHMARK_NAME= redis-benchmark
@@ -102,7 +102,7 @@ REDIS_CHECK_DUMP_OBJ= redis-check-dump.o lzf_c.o lzf_d.o
 REDIS_CHECK_AOF_NAME= redis-check-aof
 REDIS_CHECK_AOF_OBJ= redis-check-aof.o
 
-all: $(REDIS_SERVEREDIS_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_DUMP_NAME) $(REDIS_CHECK_AOF_NAME)
+all: $(REDIS_SERVER_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_DUMP_NAME) $(REDIS_CHECK_AOF_NAME)
 	@echo ""
 	@echo "Hint: To run 'make test' is a good idea ;)"
 	@echo ""
@@ -144,7 +144,7 @@ ifneq ($(shell sh -c '[ -f .make-malloc ] && cat .make-malloc || echo none'), $(
 endif
 
 # redis-server
-$(REDIS_SERVEREDIS_NAME): $(REDIS_SERVEREDIS_OBJ)
+$(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ)
 	$(REDIS_LD) -o $@ $^ ../deps/lua/src/liblua.a $(REDIS_LIBS)
 
 # redis-cli
@@ -170,7 +170,7 @@ $(REDIS_CHECK_AOF_NAME): $(REDIS_CHECK_AOF_OBJ)
 	$(REDIS_CC) -c $<
 
 clean:
-	rm -rf $(REDIS_SERVEREDIS_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_DUMP_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html
+	rm -rf $(REDIS_SERVER_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_DUMP_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html
 
 .PHONY: clean
 
@@ -180,7 +180,7 @@ distclean: clean
 
 .PHONY: distclean
 
-test: $(REDIS_SERVEREDIS_NAME) $(REDIS_CHECK_AOF_NAME)
+test: $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME)
 	@(cd ..; ./runtest)
 
 lcov:
@@ -211,7 +211,7 @@ src/help.h:
 
 install: all
 	mkdir -p $(INSTALL_BIN)
-	$(INSTALL) $(REDIS_SERVEREDIS_NAME) $(INSTALL_BIN)
+	$(INSTALL) $(REDIS_SERVER_NAME) $(INSTALL_BIN)
 	$(INSTALL) $(REDIS_BENCHMARK_NAME) $(INSTALL_BIN)
 	$(INSTALL) $(REDIS_CLI_NAME) $(INSTALL_BIN)
 	$(INSTALL) $(REDIS_CHECK_DUMP_NAME) $(INSTALL_BIN)
