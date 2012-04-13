@@ -427,7 +427,7 @@ void scriptingEnableGlobalsProtection(lua_State *lua) {
 
     /* strict.lua from: http://metalua.luaforge.net/src/lib/strict.lua.html.
      * Modified to be adapted to Redis. */
-    s[j++]="mt = {}\n";
+    s[j++]="local mt = {}\n";
     s[j++]="setmetatable(_G, mt)\n";
     s[j++]="mt.declared = {}\n";
     s[j++]="mt.__newindex = function (t, n, v)\n";
@@ -447,7 +447,11 @@ void scriptingEnableGlobalsProtection(lua_State *lua) {
     s[j++]="  return rawget(t, n)\n";
     s[j++]="end\n";
     s[j++]="function global(...)\n";
-    s[j++]="   for _, v in ipairs{...} do mt.declared[v] = true end\n";
+    s[j++]="  local nargs = select(\"#\",...)\n";
+    s[j++]="  for i = 1, nargs do\n";
+    s[j++]="    local v = select(i,...)\n";
+    s[j++]="    mt.declared[v] = true\n";
+    s[j++]="  end\n";
     s[j++]="end\n";
     s[j++]=NULL;
 
