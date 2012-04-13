@@ -1067,6 +1067,7 @@ void initServerConfig() {
     server.lua_time_limit = REDIS_LUA_TIME_LIMIT;
     server.lua_client = NULL;
     server.lua_timedout = 0;
+    server.lua_protect_globals = 1;
 
     updateLRUClock();
     resetServerSaveParams();
