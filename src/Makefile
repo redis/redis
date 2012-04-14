@@ -184,7 +184,7 @@ test: $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME)
 	@(cd ..; ./runtest)
 
 lcov:
-	$(MAKE) clean gcov
+	$(MAKE) gcov
 	@(set -e; cd ..; ./runtest --clients 1)
 	@geninfo -o redis.info .
 	@genhtml --legend -o lcov-html redis.info
