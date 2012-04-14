@@ -42,6 +42,9 @@ ifeq ($(USE_JEMALLOC),yes)
   MALLOC=jemalloc
 endif
 
+# Override default settings if possible
+-include .make-settings
+
 ifeq ($(uname_S),SunOS)
   FINAL_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS) -D__EXTENSIONS__ -D_XPG6
   FINAL_LDFLAGS= $(LDFLAGS) $(REDIS_LDFLAGS)
@@ -118,30 +121,32 @@ dep:
 
 .PHONY: dep
 
+persist-settings: distclean
+	echo STD=$(STD) >> .make-settings
+	echo WARN=$(WARN) >> .make-settings
+	echo OPT=$(OPT) >> .make-settings
+	echo MALLOC=$(MALLOC) >> .make-settings
+	echo CFLAGS=$(CFLAGS) >> .make-settings
+	echo LDFLAGS=$(LDFLAGS) >> .make-settings
+	echo REDIS_CFLAGS=$(REDIS_CFLAGS) >> .make-settings
+	echo REDIS_LDFLAGS=$(REDIS_LDFLAGS) >> .make-settings
+	echo PREV_FINAL_CFLAGS=$(FINAL_CFLAGS) >> .make-settings
+	echo PREV_FINAL_LDFLAGS=$(FINAL_LDFLAGS) >> .make-settings
+	-(cd ../deps && $(MAKE) $(DEPENDENCY_TARGETS))
+
+.PHONY: persist-settings
+
 # Prerequisites target
 .make-prerequisites:
 	@touch $@
 
-# Clean local objects and build dependencies when FINAL_CFLAGS is different
-ifneq ($(shell sh -c '[ -f .make-cflags ] && cat .make-cflags || echo none'), $(FINAL_CFLAGS))
-.make-cflags: clean
-	-(cd ../deps && $(MAKE) $(DEPENDENCY_TARGETS))
-	-(echo "$(FINAL_CFLAGS)" > .make-cflags)
-.make-prerequisites: .make-cflags
+# Clean everything, persist settings and build dependencies if anything changed
+ifneq ($(strip $(PREV_FINAL_CFLAGS)), $(strip $(FINAL_CFLAGS)))
+.make-prerequisites: persist-settings
 endif
 
-# Clean local objects when FINAL_LDFLAGS is different
-ifneq ($(shell sh -c '[ -f .make-ldflags ] && cat .make-ldflags || echo none'), $(FINAL_LDFLAGS))
-.make-ldflags: clean
-	-(echo "$(FINAL_LDFLAGS)" > .make-ldflags)
-.make-prerequisites: .make-ldflags
-endif
-
-# Clean local objects when MALLOC is different
-ifneq ($(shell sh -c '[ -f .make-malloc ] && cat .make-malloc || echo none'), $(MALLOC))
-.make-malloc: clean
-	-(echo "$(MALLOC)" > .make-malloc)
-.make-prerequisites: .make-malloc
+ifneq ($(strip $(PREV_FINAL_LDFLAGS)), $(strip $(FINAL_LDFLAGS)))
+.make-prerequisites: persist-settings
 endif
 
 # redis-server
