@@ -17,24 +17,10 @@ uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 OPTIMIZATION?=-O2
 DEPENDENCY_TARGETS=hiredis linenoise lua
 
+# Default settings
 STD= -std=c99 -pedantic
 WARN= -Wall
 OPT= $(OPTIMIZATION)
-
-ifeq ($(uname_S),SunOS)
-  FINAL_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS) -D__EXTENSIONS__ -D_XPG6
-  FINAL_LDFLAGS= $(LDFLAGS) $(REDIS_LDFLAGS)
-  FINAL_LIBS= $(LIBS) -ldl -lnsl -lsocket -lm -lpthread
-  DEBUG= -g -ggdb
-else
-  FINAL_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
-  FINAL_LDFLAGS= $(LDFLAGS) $(REDIS_LDFLAGS)
-  FINAL_LIBS= $(LIBS) -lm -pthread
-  DEBUG= -g -rdynamic -ggdb
-endif
-
-# Include paths to dependencies
-FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src
 
 # Default allocator
 ifeq ($(uname_S),Linux)
@@ -55,6 +41,21 @@ endif
 ifeq ($(USE_JEMALLOC),yes)
   MALLOC=jemalloc
 endif
+
+ifeq ($(uname_S),SunOS)
+  FINAL_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS) -D__EXTENSIONS__ -D_XPG6
+  FINAL_LDFLAGS= $(LDFLAGS) $(REDIS_LDFLAGS)
+  FINAL_LIBS= $(LIBS) -ldl -lnsl -lsocket -lm -lpthread
+  DEBUG= -g -ggdb
+else
+  FINAL_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
+  FINAL_LDFLAGS= $(LDFLAGS) $(REDIS_LDFLAGS)
+  FINAL_LIBS= $(LIBS) -lm -pthread
+  DEBUG= -g -rdynamic -ggdb
+endif
+
+# Include paths to dependencies
+FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src
 
 ifeq ($(MALLOC),tcmalloc)
   FINAL_CFLAGS+= -DUSE_TCMALLOC
