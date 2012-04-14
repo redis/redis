@@ -38,9 +38,9 @@ FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src
 
 # Default allocator
 ifeq ($(uname_S),Linux)
-  MALLOC?=jemalloc
+  MALLOC=jemalloc
 else
-  MALLOC?=libc
+  MALLOC=libc
 endif
 
 # Backwards compatibility for selecting an allocator
