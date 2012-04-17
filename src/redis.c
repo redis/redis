@@ -2374,7 +2374,7 @@ int prepareForShutdown(int flags) {
             return REDIS_ERR;
         }
     }
-    if (server.daemonize) {
+    if (server.daemonize || server.pidfile) {
         redisLog(REDIS_NOTICE,"Removing the pid file.");
         unlink(server.pidfile);
     }
@@ -3759,9 +3759,10 @@ int main(int argc, char **argv) {
     }
 
     server.supervised = redisIsSupervised();
-    if (server.daemonize && server.supervised == 0) daemonize();
+    int background = server.daemonize && server.supervised == 0;
+    if (background) daemonize();
     initServer();
-    if (server.daemonize && server.supervised == 0) createPidFile();
+    if (background || server.pidfile) createPidFile();
     redisSetProcTitle(argv[0]);
     redisAsciiArt();
 
