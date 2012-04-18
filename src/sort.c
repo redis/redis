@@ -28,7 +28,7 @@ redisSortOperation *createSortOperation(int type, robj *pattern) {
 robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     char *p, *f, *k;
     sds spat, ssub;
-    robj *keyobj, *fieldobj, *o;
+    robj *keyobj, *fieldobj = NULL, *o;
     int prefixlen, sublen, postfixlen, fieldlen;
 
     /* If the pattern is "#" return the substitution object itself in order
@@ -76,7 +76,7 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     o = lookupKeyRead(db,keyobj);
     if (o == NULL) goto noobj;
 
-    if (fieldlen > 0) {
+    if (fieldobj) {
         if (o->type != REDIS_HASH) goto noobj;
 
         /* Retrieve value from hash by the field name. This operation
@@ -90,7 +90,7 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
         incrRefCount(o);
     }
     decrRefCount(keyobj);
-    if (fieldlen) decrRefCount(fieldobj);
+    if (fieldobj) decrRefCount(fieldobj);
     return o;
 
 noobj:
