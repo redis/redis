@@ -7,7 +7,7 @@ start_server {
 } {
     source "tests/unit/type/list-common.tcl"
 
-    test {LPUSH, RPUSH, LLENGTH, LINDEX - ziplist} {
+    test {LPUSH, RPUSH, LLENGTH, LINDEX, LPOP - ziplist} {
         # first lpush then rpush
         assert_equal 1 [r lpush myziplist1 a]
         assert_equal 2 [r rpush myziplist1 b]
@@ -16,6 +16,9 @@ start_server {
         assert_equal a [r lindex myziplist1 0]
         assert_equal b [r lindex myziplist1 1]
         assert_equal c [r lindex myziplist1 2]
+        assert_equal {} [r lindex myziplist2 3]
+        assert_equal c [r rpop myziplist1]
+        assert_equal a [r lpop myziplist1]
         assert_encoding ziplist myziplist1
 
         # first rpush then lpush
@@ -27,10 +30,12 @@ start_server {
         assert_equal b [r lindex myziplist2 1]
         assert_equal a [r lindex myziplist2 2]
         assert_equal {} [r lindex myziplist2 3]
+        assert_equal a [r rpop myziplist2]
+        assert_equal c [r lpop myziplist2]
         assert_encoding ziplist myziplist2
     }
 
-    test {LPUSH, RPUSH, LLENGTH, LINDEX - regular list} {
+    test {LPUSH, RPUSH, LLENGTH, LINDEX, LPOP - regular list} {
         # first lpush then rpush
         assert_equal 1 [r lpush mylist1 $largevalue(linkedlist)]
         assert_encoding linkedlist mylist1
@@ -41,6 +46,8 @@ start_server {
         assert_equal b [r lindex mylist1 1]
         assert_equal c [r lindex mylist1 2]
         assert_equal {} [r lindex mylist1 3]
+        assert_equal c [r rpop mylist1]
+        assert_equal $largevalue(linkedlist) [r lpop mylist1]
 
         # first rpush then lpush
         assert_equal 1 [r rpush mylist2 $largevalue(linkedlist)]
@@ -52,7 +59,13 @@ start_server {
         assert_equal b [r lindex mylist2 1]
         assert_equal $largevalue(linkedlist) [r lindex mylist2 2]
         assert_equal {} [r lindex mylist2 3]
+        assert_equal $largevalue(linkedlist) [r rpop mylist2]
+        assert_equal c [r lpop mylist2]
     }
+
+    test {R/LPOP against empty list} {
+        r lpop non-existing-list
+    } {}
 
     test {Variadic RPUSH/LPUSH} {
         r del mylist
