@@ -2,12 +2,12 @@
 # Copyright (C) 2009 Salvatore Sanfilippo <antirez at gmail dot com>
 # This file is released under the BSD license, see the COPYING file
 #
-# The Makefile composes the final REDIS_CFLAGS and REDIS_LDFLAGS using
+# The Makefile composes the final FINAL_CFLAGS and FINAL_LDFLAGS using
 # what is needed for Redis plus the standard CFLAGS and LDFLAGS passed.
 # However when building the dependencies (Jemalloc, Lua, Hiredis, ...)
 # CFLAGS and LDFLAGS are propagated to the dependencies, so to pass
-# flags only to be used when compiling / linking Redis itself ADD_CFLAGS
-# and ADD_LDFLAGS are used instead (this is the case of 'make gcov').
+# flags only to be used when compiling / linking Redis itself REDIS_CFLAGS
+# and REDIS_LDFLAGS are used instead (this is the case of 'make gcov').
 #
 # Dependencies are stored in the Makefile.dep file. To rebuild this file
 # Just use 'make dep', but this is only needed by developers.
@@ -17,30 +17,16 @@ uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 OPTIMIZATION?=-O2
 DEPENDENCY_TARGETS=hiredis linenoise lua
 
+# Default settings
 STD= -std=c99 -pedantic
 WARN= -Wall
 OPT= $(OPTIMIZATION)
 
-ifeq ($(uname_S),SunOS)
-  REDIS_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(ADD_CFLAGS) -D__EXTENSIONS__ -D_XPG6
-  REDIS_LDFLAGS= $(LDFLAGS) $(ADD_LDFLAGS)
-  REDIS_LIBS= $(LIBS) -ldl -lnsl -lsocket -lm -lpthread
-  DEBUG= -g -ggdb
-else
-  REDIS_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(ADD_CFLAGS)
-  REDIS_LDFLAGS= $(LDFLAGS) $(ADD_LDFLAGS)
-  REDIS_LIBS= $(LIBS) -lm -pthread
-  DEBUG= -g -rdynamic -ggdb
-endif
-
-# Include paths to dependencies
-REDIS_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src
-
 # Default allocator
 ifeq ($(uname_S),Linux)
-  MALLOC?=jemalloc
+  MALLOC=jemalloc
 else
-  MALLOC?=libc
+  MALLOC=libc
 endif
 
 # Backwards compatibility for selecting an allocator
@@ -56,24 +42,42 @@ ifeq ($(USE_JEMALLOC),yes)
   MALLOC=jemalloc
 endif
 
+# Override default settings if possible
+-include .make-settings
+
+ifeq ($(uname_S),SunOS)
+  FINAL_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS) -D__EXTENSIONS__ -D_XPG6
+  FINAL_LDFLAGS= $(LDFLAGS) $(REDIS_LDFLAGS)
+  FINAL_LIBS= -ldl -lnsl -lsocket -lm -lpthread
+  DEBUG= -g -ggdb
+else
+  FINAL_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
+  FINAL_LDFLAGS= $(LDFLAGS) $(REDIS_LDFLAGS)
+  FINAL_LIBS= -lm -pthread
+  DEBUG= -g -rdynamic -ggdb
+endif
+
+# Include paths to dependencies
+FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src
+
 ifeq ($(MALLOC),tcmalloc)
-  REDIS_CFLAGS+= -DUSE_TCMALLOC
-  REDIS_LIBS+= -ltcmalloc
+  FINAL_CFLAGS+= -DUSE_TCMALLOC
+  FINAL_LIBS+= -ltcmalloc
 endif
 
 ifeq ($(MALLOC),tcmalloc_minimal)
-  REDIS_CFLAGS+= -DUSE_TCMALLOC
-  REDIS_LIBS+= -ltcmalloc_minimal
+  FINAL_CFLAGS+= -DUSE_TCMALLOC
+  FINAL_LIBS+= -ltcmalloc_minimal
 endif
 
 ifeq ($(MALLOC),jemalloc)
   DEPENDENCY_TARGETS+= jemalloc
-  REDIS_CFLAGS+= -DUSE_JEMALLOC -I../deps/jemalloc/include
-  REDIS_LIBS+= ../deps/jemalloc/lib/libjemalloc.a -ldl
+  FINAL_CFLAGS+= -DUSE_JEMALLOC -I../deps/jemalloc/include
+  FINAL_LIBS+= ../deps/jemalloc/lib/libjemalloc.a -ldl
 endif
 
-REDIS_CC=$(QUIET_CC)$(CC) $(REDIS_CFLAGS)
-REDIS_LD=$(QUIET_LINK)$(CC) $(REDIS_LDFLAGS)
+REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)
+REDIS_LD=$(QUIET_LINK)$(CC) $(FINAL_LDFLAGS)
 
 PREFIX= /usr/local
 INSTALL_BIN= $(PREFIX)/bin
@@ -117,51 +121,53 @@ dep:
 
 .PHONY: dep
 
+persist-settings: distclean
+	echo STD=$(STD) >> .make-settings
+	echo WARN=$(WARN) >> .make-settings
+	echo OPT=$(OPT) >> .make-settings
+	echo MALLOC=$(MALLOC) >> .make-settings
+	echo CFLAGS=$(CFLAGS) >> .make-settings
+	echo LDFLAGS=$(LDFLAGS) >> .make-settings
+	echo REDIS_CFLAGS=$(REDIS_CFLAGS) >> .make-settings
+	echo REDIS_LDFLAGS=$(REDIS_LDFLAGS) >> .make-settings
+	echo PREV_FINAL_CFLAGS=$(FINAL_CFLAGS) >> .make-settings
+	echo PREV_FINAL_LDFLAGS=$(FINAL_LDFLAGS) >> .make-settings
+	-(cd ../deps && $(MAKE) $(DEPENDENCY_TARGETS))
+
+.PHONY: persist-settings
+
 # Prerequisites target
 .make-prerequisites:
 	@touch $@
 
-# Clean local objects and build dependencies when REDIS_CFLAGS is different
-ifneq ($(shell sh -c '[ -f .make-cflags ] && cat .make-cflags || echo none'), $(REDIS_CFLAGS))
-.make-cflags: clean
-	-(cd ../deps && $(MAKE) $(DEPENDENCY_TARGETS))
-	-(echo "$(REDIS_CFLAGS)" > .make-cflags)
-.make-prerequisites: .make-cflags
+# Clean everything, persist settings and build dependencies if anything changed
+ifneq ($(strip $(PREV_FINAL_CFLAGS)), $(strip $(FINAL_CFLAGS)))
+.make-prerequisites: persist-settings
 endif
 
-# Clean local objects when REDIS_LDFLAGS is different
-ifneq ($(shell sh -c '[ -f .make-ldflags ] && cat .make-ldflags || echo none'), $(REDIS_LDFLAGS))
-.make-ldflags: clean
-	-(echo "$(REDIS_LDFLAGS)" > .make-ldflags)
-.make-prerequisites: .make-ldflags
-endif
-
-# Clean local objects when MALLOC is different
-ifneq ($(shell sh -c '[ -f .make-malloc ] && cat .make-malloc || echo none'), $(MALLOC))
-.make-malloc: clean
-	-(echo "$(MALLOC)" > .make-malloc)
-.make-prerequisites: .make-malloc
+ifneq ($(strip $(PREV_FINAL_LDFLAGS)), $(strip $(FINAL_LDFLAGS)))
+.make-prerequisites: persist-settings
 endif
 
 # redis-server
 $(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ)
-	$(REDIS_LD) -o $@ $^ ../deps/lua/src/liblua.a $(REDIS_LIBS)
+	$(REDIS_LD) -o $@ $^ ../deps/lua/src/liblua.a $(FINAL_LIBS)
 
 # redis-cli
 $(REDIS_CLI_NAME): $(REDIS_CLI_OBJ)
-	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o $(REDIS_LIBS)
+	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o $(FINAL_LIBS)
 
 # redis-benchmark
 $(REDIS_BENCHMARK_NAME): $(REDIS_BENCHMARK_OBJ)
-	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a $(REDIS_LIBS)
+	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a $(FINAL_LIBS)
 
 # redis-check-dump
 $(REDIS_CHECK_DUMP_NAME): $(REDIS_CHECK_DUMP_OBJ)
-	$(REDIS_LD) -o $@ $^ $(REDIS_LIBS)
+	$(REDIS_LD) -o $@ $^ $(FINAL_LIBS)
 
 # redis-check-aof
 $(REDIS_CHECK_AOF_NAME): $(REDIS_CHECK_AOF_OBJ)
-	$(REDIS_LD) -o $@ $^ $(REDIS_LIBS)
+	$(REDIS_LD) -o $@ $^ $(FINAL_LIBS)
 
 # Because the jemalloc.h header is generated as a part of the jemalloc build,
 # building it should complete before building any other object. Instead of
@@ -184,7 +190,7 @@ test: $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME)
 	@(cd ..; ./runtest)
 
 lcov:
-	$(MAKE) clean gcov
+	$(MAKE) gcov
 	@(set -e; cd ..; ./runtest --clients 1)
 	@geninfo -o redis.info .
 	@genhtml --legend -o lcov-html redis.info
@@ -198,10 +204,10 @@ bench: $(REDIS_BENCHMARK_NAME)
 	@echo ""
 	@echo "WARNING: if it fails under Linux you probably need to install libc6-dev-i386"
 	@echo ""
-	$(MAKE) CFLAGS="$(CFLAGS) -m32" LDFLAGS="$(LDFLAGS) -m32"
+	$(MAKE) CFLAGS="-m32" LDFLAGS="-m32"
 
 gcov:
-	$(MAKE) ADD_CFLAGS="-fprofile-arcs -ftest-coverage -DCOVERAGE_TEST" ADD_LDFLAGS="-fprofile-arcs -ftest-coverage"
+	$(MAKE) REDIS_CFLAGS="-fprofile-arcs -ftest-coverage -DCOVERAGE_TEST" REDIS_LDFLAGS="-fprofile-arcs -ftest-coverage"
 
 noopt:
 	$(MAKE) OPT="-O0"
