@@ -206,6 +206,13 @@ start_server {
         }
     }
 
+    test "SDIFF with first set empty" {
+        r del set1 set2 set3
+        r sadd set2 1 2 3 4
+        r sadd set3 a b c d
+        r sdiff set1 set2 set3
+    } {}
+
     test "SINTER against non-set should throw error" {
         r set key1 x
         assert_error "ERR*wrong kind*" {r sinter key1 noset}
