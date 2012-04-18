@@ -223,6 +223,16 @@ start_server {
         r sinter set1 set2 set3
     } {}
 
+    test "SINTER with same integer elements but different encoding" {
+        r del set1 set2
+        r sadd set1 1 2 3
+        r sadd set2 1 2 3 a
+        r srem set2 a
+        assert_encoding intset set1
+        assert_encoding hashtable set2
+        lsort [r sinter set1 set2]
+    } {1 2 3}
+
     test "SINTERSTORE against non existing keys should delete dstkey" {
         r set setres xxx
         assert_equal 0 [r sinterstore setres foo111 bar222]
