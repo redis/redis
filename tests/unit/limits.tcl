@@ -4,7 +4,9 @@ start_server {tags {"limits"} overrides {maxclients 10}} {
         catch {
             while {$c < 50} {
                 incr c
-                redis_deferring_client
+                set rd [redis_deferring_client]
+                $rd ping
+                $rd read
                 after 100
             }
         } e
