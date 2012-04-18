@@ -251,6 +251,26 @@ start_server {tags {"scripting"}} {
         lappend res [r eval $decr_if_gt 1 foo 2]
         set res
     } {4 3 2 2 2}
+
+    test {Scripting engine resets PRNG at every script execution} {
+        set rand1 [r eval {return tostring(math.random())} 0]
+        set rand2 [r eval {return tostring(math.random())} 0]
+        assert_equal $rand1 $rand2
+    }
+
+    test {Scripting engine PRNG can be seeded correctly} {
+        set rand1 [r eval {
+            math.randomseed(ARGV[1]); return tostring(math.random())
+        } 0 10]
+        set rand2 [r eval {
+            math.randomseed(ARGV[1]); return tostring(math.random())
+        } 0 10]
+        set rand3 [r eval {
+            math.randomseed(ARGV[1]); return tostring(math.random())
+        } 0 20]
+        assert_equal $rand1 $rand2
+        assert {$rand2 ne $rand3}
+    }
 }
 
 start_server {tags {"scripting repl"}} {
