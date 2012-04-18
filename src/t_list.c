@@ -699,6 +699,8 @@ void rpoplpushCommand(redisClient *c) {
         checkType(c,sobj,REDIS_LIST)) return;
 
     if (listTypeLength(sobj) == 0) {
+        /* This may only happen after loading very old RDB files. Recent
+         * versions of Redis delete keys of empty lists. */
         addReply(c,shared.nullbulk);
     } else {
         robj *dobj = lookupKeyWrite(c->db,c->argv[2]);
