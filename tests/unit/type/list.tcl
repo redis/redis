@@ -26,6 +26,7 @@ start_server {
         assert_equal c [r lindex myziplist2 0]
         assert_equal b [r lindex myziplist2 1]
         assert_equal a [r lindex myziplist2 2]
+        assert_equal {} [r lindex myziplist2 3]
         assert_encoding ziplist myziplist2
     }
 
@@ -39,6 +40,7 @@ start_server {
         assert_equal $largevalue(linkedlist) [r lindex mylist1 0]
         assert_equal b [r lindex mylist1 1]
         assert_equal c [r lindex mylist1 2]
+        assert_equal {} [r lindex mylist1 3]
 
         # first rpush then lpush
         assert_equal 1 [r rpush mylist2 $largevalue(linkedlist)]
@@ -49,6 +51,7 @@ start_server {
         assert_equal c [r lindex mylist2 0]
         assert_equal b [r lindex mylist2 1]
         assert_equal $largevalue(linkedlist) [r lindex mylist2 2]
+        assert_equal {} [r lindex mylist2 3]
     }
 
     test {Variadic RPUSH/LPUSH} {
