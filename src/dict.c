@@ -633,6 +633,21 @@ void dictEmpty(dict *d) {
     d->iterators = 0;
 }
 
+void dictEnableResize(void) {
+    dict_can_resize = 1;
+}
+
+void dictDisableResize(void) {
+    dict_can_resize = 0;
+}
+
+#if 0
+
+The following is code that we don't use for Redis currently, but that is part
+of the library.
+
+/* ----------------------- Debugging ------------------------*/
+
 #define DICT_STATS_VECTLEN 50
 static void _dictPrintStatsHt(dictht *ht) {
     unsigned long i, slots = 0, chainlen, maxchainlen = 0;
@@ -685,20 +700,6 @@ void dictPrintStats(dict *d) {
         _dictPrintStatsHt(&d->ht[1]);
     }
 }
-
-void dictEnableResize(void) {
-    dict_can_resize = 1;
-}
-
-void dictDisableResize(void) {
-    dict_can_resize = 0;
-}
-
-#if 0
-
-/* The following are just example hash table types implementations.
- * Not useful for Redis so they are commented out.
- */
 
 /* ----------------------- StringCopy Hash Table Type ------------------------*/
 
