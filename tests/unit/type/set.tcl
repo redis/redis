@@ -216,6 +216,13 @@ start_server {
         assert_error "ERR*wrong kind*" {r sunion key1 noset}
     }
 
+    test "SINTER should handle non existing key as empty" {
+        r del set1 set2 set3
+        r sadd set1 a b c
+        r sadd set2 b c d
+        r sinter set1 set2 set3
+    } {}
+
     test "SINTERSTORE against non existing keys should delete dstkey" {
         r set setres xxx
         assert_equal 0 [r sinterstore setres foo111 bar222]
