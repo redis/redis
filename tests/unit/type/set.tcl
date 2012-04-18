@@ -317,6 +317,13 @@ start_server {
         assert_error "ERR*wrong kind*" {r smove myset2 x foo}
     }
 
+    test "SMOVE with identical source and destination" {
+        r del set
+        r sadd set a b c
+        r smove set set b
+        lsort [r smembers set]
+    } {a b c}
+
     tags {slow} {
         test {intsets implementation stress testing} {
             for {set j 0} {$j < 20} {incr j} {
