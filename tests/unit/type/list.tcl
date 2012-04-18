@@ -399,6 +399,11 @@ start_server {
         }
     }
 
+    test {LINSERT raise error on bad syntax} {
+        catch {[r linsert xlist aft3r aa 42]} e
+        set e
+    } {*ERR*syntax*error*}
+
     test {LPUSHX, RPUSHX convert from ziplist to list} {
         set large $largevalue(linkedlist)
 
