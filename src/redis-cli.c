@@ -49,6 +49,10 @@
 
 #define REDIS_NOTUSED(V) ((void) V)
 
+#define OUTPUT_STANDARD 0
+#define OUTPUT_RAW 1
+#define OUTPUT_CSV 2
+
 static redisContext *context;
 static struct config {
     char *hostip;
@@ -62,9 +66,11 @@ static struct config {
     int monitor_mode;
     int pubsub_mode;
     int latency_mode;
+    int slave_mode;
+    int bigkeys;
     int stdinarg; /* get last arg from stdin. (-x option) */
     char *auth;
-    int raw_output; /* output mode per command */
+    int output; /* output mode, see OUTPUT_* defines */
     sds mb_delim;
     char prompt[128];
 } config;
@@ -431,10 +437,47 @@ static sds cliFormatReplyRaw(redisReply *r) {
     return out;
 }
 
+static sds cliFormatReplyCSV(redisReply *r) {
+    unsigned int i;
+
+    sds out = sdsempty();
+    switch (r->type) {
+    case REDIS_REPLY_ERROR:
+        out = sdscat(out,"ERROR,");
+        out = sdscatrepr(out,r->str,strlen(r->str));
+    break;
+    case REDIS_REPLY_STATUS:
+        out = sdscatrepr(out,r->str,r->len);
+    break;
+    case REDIS_REPLY_INTEGER:
+        out = sdscatprintf(out,"%lld",r->integer);
+    break;
+    case REDIS_REPLY_STRING:
+        out = sdscatrepr(out,r->str,r->len);
+    break;
+    case REDIS_REPLY_NIL:
+        out = sdscat(out,"NIL\n");
+    break;
+    case REDIS_REPLY_ARRAY:
+        for (i = 0; i < r->elements; i++) {
+            sds tmp = cliFormatReplyCSV(r->element[i]);
+            out = sdscatlen(out,tmp,sdslen(tmp));
+            if (i != r->elements-1) out = sdscat(out,",");
+            sdsfree(tmp);
+        }
+    break;
+    default:
+        fprintf(stderr,"Unknown reply type: %d\n", r->type);
+        exit(1);
+    }
+    return out;
+}
+
 static int cliReadReply(int output_raw_strings) {
     void *_reply;
     redisReply *reply;
-    sds out;
+    sds out = NULL;
+    int output = 1;
 
     if (redisGetReply(context,&_reply) != REDIS_OK) {
         if (config.shutdown)
@@ -452,18 +495,24 @@ static int cliReadReply(int output_raw_strings) {
     }
 
     reply = (redisReply*)_reply;
-    if (output_raw_strings) {
-        out = cliFormatReplyRaw(reply);
-    } else {
-        if (config.raw_output) {
+
+    if (output) {
+        if (output_raw_strings) {
             out = cliFormatReplyRaw(reply);
-            out = sdscat(out,"\n");
         } else {
-            out = cliFormatReplyTTY(reply,"");
+            if (config.output == OUTPUT_RAW) {
+                out = cliFormatReplyRaw(reply);
+                out = sdscat(out,"\n");
+            } else if (config.output == OUTPUT_STANDARD) {
+                out = cliFormatReplyTTY(reply,"");
+            } else if (config.output == OUTPUT_CSV) {
+                out = cliFormatReplyCSV(reply);
+                out = sdscat(out,"\n");
+            }
         }
+        fwrite(out,sdslen(out),1,stdout);
+        sdsfree(out);
     }
-    fwrite(out,sdslen(out),1,stdout);
-    sdsfree(out);
     freeReplyObject(reply);
     return REDIS_OK;
 }
@@ -507,7 +556,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
         }
 
         if (config.pubsub_mode) {
-            if (!config.raw_output)
+            if (config.output != OUTPUT_RAW)
                 printf("Reading messages... (press Ctrl-C to quit)\n");
             while (1) {
                 if (cliReadReply(output_raw) != REDIS_OK) exit(1);
@@ -544,8 +593,7 @@ static int parseOptions(int argc, char **argv) {
 
         if (!strcmp(argv[i],"-h") && !lastarg) {
             sdsfree(config.hostip);
-            config.hostip = sdsnew(argv[i+1]);
-            i++;
+            config.hostip = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-h") && lastarg) {
             usage();
         } else if (!strcmp(argv[i],"--help")) {
@@ -553,32 +601,31 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-x")) {
             config.stdinarg = 1;
         } else if (!strcmp(argv[i],"-p") && !lastarg) {
-            config.hostport = atoi(argv[i+1]);
-            i++;
+            config.hostport = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"-s") && !lastarg) {
-            config.hostsocket = argv[i+1];
-            i++;
+            config.hostsocket = argv[++i];
         } else if (!strcmp(argv[i],"-r") && !lastarg) {
-            config.repeat = strtoll(argv[i+1],NULL,10);
-            i++;
+            config.repeat = strtoll(argv[++i],NULL,10);
         } else if (!strcmp(argv[i],"-i") && !lastarg) {
-            double seconds = atof(argv[i+1]);
+            double seconds = atof(argv[++i]);
             config.interval = seconds*1000000;
-            i++;
         } else if (!strcmp(argv[i],"-n") && !lastarg) {
-            config.dbnum = atoi(argv[i+1]);
-            i++;
+            config.dbnum = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"-a") && !lastarg) {
-            config.auth = argv[i+1];
-            i++;
+            config.auth = argv[++i];
         } else if (!strcmp(argv[i],"--raw")) {
-            config.raw_output = 1;
+            config.output = OUTPUT_RAW;
+        } else if (!strcmp(argv[i],"--csv")) {
+            config.output = OUTPUT_CSV;
         } else if (!strcmp(argv[i],"--latency")) {
             config.latency_mode = 1;
+        } else if (!strcmp(argv[i],"--slave")) {
+            config.slave_mode = 1;
+        } else if (!strcmp(argv[i],"--bigkeys")) {
+            config.bigkeys = 1;
         } else if (!strcmp(argv[i],"-d") && !lastarg) {
             sdsfree(config.mb_delim);
-            config.mb_delim = sdsnew(argv[i+1]);
-            i++;
+            config.mb_delim = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-v") || !strcmp(argv[i], "--version")) {
             sds version = cliVersion();
             printf("redis-cli %s\n", version);
@@ -626,6 +673,8 @@ static void usage() {
 "  -d <delimiter>   Multi-bulk delimiter in for raw formatting (default: \\n)\n"
 "  --raw            Use raw formatting for replies (default when STDOUT is not a tty)\n"
 "  --latency        Enter a special mode continuously sampling latency.\n"
+"  --slave          Simulate a slave showing commands received from the master.\n"
+"  --bigkeys        Sample Redis keys looking for big keys.\n"
 "  --help           Output this help and exit\n"
 "  --version        Output version and exit\n"
 "\n"
@@ -781,6 +830,135 @@ static void latencyMode(void) {
     }
 }
 
+static void slaveMode(void) {
+    /* To start we need to send the SYNC command and return the payload.
+     * The hiredis client lib does not understand this part of the protocol
+     * and we don't want to mess with its buffers, so everything is performed
+     * using direct low-level I/O. */
+    int fd = context->fd;
+    char buf[1024], *p;
+    ssize_t nread;
+    unsigned long long payload;
+
+    /* Send the SYNC command. */
+    if (write(fd,"SYNC\r\n",6) != 6) {
+        fprintf(stderr,"Error writing to master\n");
+        exit(1);
+    }
+
+    /* Read $<payload>\r\n, making sure to read just up to "\n" */
+    p = buf;
+    while(1) {
+        nread = read(fd,p,1);
+        if (nread <= 0) {
+            fprintf(stderr,"Error reading bulk length while SYNCing\n");
+            exit(1);
+        }
+        if (*p == '\n') break;
+        p++;
+    }
+    *p = '\0';
+    payload = strtoull(buf+1,NULL,10);
+    fprintf(stderr,"SYNC with master, discarding %lld bytes of bulk tranfer...\n",
+            payload);
+
+    /* Discard the payload. */
+    while(payload) {
+        nread = read(fd,buf,(payload > sizeof(buf)) ? sizeof(buf) : payload);
+        if (nread <= 0) {
+            fprintf(stderr,"Error reading RDB payload while SYNCing\n");
+            exit(1);
+        }
+        payload -= nread;
+    }
+    fprintf(stderr,"SYNC done. Logging commands from master.\n");
+
+    /* Now we can use the hiredis to read the incoming protocol. */
+    config.output = OUTPUT_CSV;
+    while (cliReadReply(0) == REDIS_OK);
+}
+
+#define TYPE_STRING 0
+#define TYPE_LIST   1
+#define TYPE_SET    2
+#define TYPE_HASH   3
+#define TYPE_ZSET   4
+
+static void findBigKeys(void) {
+    unsigned long long biggest[5] = {0,0,0,0,0};
+    unsigned long long samples = 0;
+    redisReply *reply1, *reply2, *reply3;
+    char *sizecmd, *typename[] = {"string","list","set","hash","zset"};
+    int type;
+
+    printf("\n# Press ctrl+c when you have had enough of it... :)\n");
+    printf("# You can use -i 0.1 to sleep 0.1 sec every 100 sampled keys\n");
+    printf("# in order to reduce server load (usually not needed).\n\n");
+    while(1) {
+        /* Sample with RANDOMKEY */
+        reply1 = redisCommand(context,"RANDOMKEY");
+        if (reply1 == NULL) {
+            fprintf(stderr,"\nI/O error\n");
+            exit(1);
+        } else if (reply1->type == REDIS_REPLY_ERROR) {
+            fprintf(stderr, "RANDOMKEY error: %s\n",
+                reply1->str);
+            exit(1);
+        }
+        /* Get the key type */
+        reply2 = redisCommand(context,"TYPE %s",reply1->str);
+        assert(reply2 && reply2->type == REDIS_REPLY_STATUS);
+        samples++;
+
+        /* Get the key "size" */
+        if (!strcmp(reply2->str,"string")) {
+            sizecmd = "STRLEN";
+            type = TYPE_STRING;
+        } else if (!strcmp(reply2->str,"list")) {
+            sizecmd = "LLEN";
+            type = TYPE_LIST;
+        } else if (!strcmp(reply2->str,"set")) {
+            sizecmd = "SCARD";
+            type = TYPE_SET;
+        } else if (!strcmp(reply2->str,"hash")) {
+            sizecmd = "HLEN";
+            type = TYPE_HASH;
+        } else if (!strcmp(reply2->str,"zset")) {
+            sizecmd = "ZCARD";
+            type = TYPE_ZSET;
+        } else if (!strcmp(reply2->str,"none")) {
+            freeReplyObject(reply1);
+            freeReplyObject(reply2);
+            freeReplyObject(reply3);
+            continue;
+        } else {
+            fprintf(stderr, "Unknown key type '%s' for key '%s'\n",
+                reply2->str, reply1->str);
+            exit(1);
+        }
+
+        reply3 = redisCommand(context,"%s %s", sizecmd, reply1->str);
+        if (reply3 && reply3->type == REDIS_REPLY_INTEGER) {
+            if (biggest[type] < (unsigned)reply3->integer) {
+                printf("[%6s] %s | biggest so far with size %llu\n",
+                    typename[type], reply1->str,
+                    (unsigned long long) reply3->integer);
+                biggest[type] = reply3->integer;
+            }
+        }
+
+        if ((samples % 1000000) == 0)
+            printf("(%llu keys sampled)\n", samples);
+
+        if ((samples % 100) == 0 && config.interval)
+            usleep(config.interval);
+
+        freeReplyObject(reply1);
+        freeReplyObject(reply2);
+        if (reply3) freeReplyObject(reply3);
+    }
+}
+
 int main(int argc, char **argv) {
     int firstarg;
 
@@ -795,9 +973,14 @@ int main(int argc, char **argv) {
     config.monitor_mode = 0;
     config.pubsub_mode = 0;
     config.latency_mode = 0;
+    config.slave_mode = 0;
+    config.bigkeys = 0;
     config.stdinarg = 0;
     config.auth = NULL;
-    config.raw_output = !isatty(fileno(stdout)) && (getenv("FAKETTY") == NULL);
+    if (!isatty(fileno(stdout)) && (getenv("FAKETTY") == NULL))
+        config.output = OUTPUT_RAW;
+    else
+        config.output = OUTPUT_STANDARD;
     config.mb_delim = sdsnew("\n");
     cliInitHelp();
 
@@ -809,6 +992,18 @@ int main(int argc, char **argv) {
     if (config.latency_mode) {
         cliConnect(0);
         latencyMode();
+    }
+
+    /* Start in slave mode if appropriate */
+    if (config.slave_mode) {
+        cliConnect(0);
+        slaveMode();
+    }
+
+    /* Find big keys */
+    if (config.bigkeys) {
+        cliConnect(0);
+        findBigKeys();
     }
 
     /* Start interactive mode when no command is provided */
