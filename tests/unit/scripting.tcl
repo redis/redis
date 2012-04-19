@@ -273,6 +273,44 @@ start_server {tags {"scripting"}} {
     }
 }
 
+# Start a new server since the last test in this stanza will kill the
+# instance at all.
+start_server {tags {"scripting"}} {
+    test {Timedout read-only scripts can be killed by SCRIPT KILL} {
+        set rd [redis_deferring_client]
+        r config set lua-time-limit 10
+        $rd eval {while true do end} 0
+        after 200
+        catch {r ping} e
+        assert_match {BUSY*} $e
+        r script kill
+        assert_equal [r ping] "PONG"
+    }
+
+    test {Timedout scripts that modified data can't be killed by SCRIPT KILL} {
+        set rd [redis_deferring_client]
+        r config set lua-time-limit 10
+        $rd eval {redis.call('set','x','y'); while true do end} 0
+        after 200
+        catch {r ping} e
+        assert_match {BUSY*} $e
+        catch {r script kill} e
+        assert_match {ERR*} $e
+        catch {r ping} e
+        assert_match {BUSY*} $e
+    }
+
+    test {SHUTDOWN NOSAVE can kill a timedout script anyway} {
+        # The server sould be still unresponding to normal commands.
+        catch {r ping} e
+        assert_match {BUSY*} $e
+        catch {r shutdown nosave}
+        # Make sure the server was killed
+        catch {set rd [redis_deferring_client]} e
+        assert_match {*connection refused*} $e
+    }
+}
+
 start_server {tags {"scripting repl"}} {
     start_server {} {
         test {Before the slave connects we issue an EVAL command} {
