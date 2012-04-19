@@ -18,6 +18,19 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
+What's new in Redis 2.4.11
+=========================
+
+UPGRADE URGENCY: moderate if you don't experience any of the fixed problems.
+
+* [BUGFIX] Fixed a problem with aeWait() implementation. May cause a crash
+           under non easy to replicate condiitons. See issue #267 on github.
+* [BUGFIX] SORT with GET/BY option fetching expiring keys fixed. Issue #460.
+* [BUGFIX] INFO field master_link_down_since_seconds initialized correctly.
+* [FEATURE] redis-cli back ported from Redis unstable. Now has support for
+            --bigkeys (to sample the DB for very large keys), --slave to
+            simulate a slave instance.
+
 What's new in Redis 2.4.10
 ==========================
 
