@@ -1557,7 +1557,7 @@ int processCommand(redisClient *c) {
 
     /* Lua script too slow? Only allow SHUTDOWN NOSAVE and SCRIPT KILL. */
     if (server.lua_timedout &&
-        !(c->cmd->proc != shutdownCommand &&
+        !(c->cmd->proc == shutdownCommand &&
           c->argc == 2 &&
           tolower(((char*)c->argv[1]->ptr)[0]) == 'n') &&
         !(c->cmd->proc == scriptCommand &&
