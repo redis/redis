@@ -83,6 +83,10 @@
 #define ZIP_INT_16B (0xc0 | 0<<4)
 #define ZIP_INT_32B (0xc0 | 1<<4)
 #define ZIP_INT_64B (0xc0 | 2<<4)
+#define ZIP_INT_24B (0xc0 | 3<<4)
+
+#define INT24_MAX 0x7fffff
+#define INT24_MIN (-INT24_MAX - 1)
 
 /* Macro to determine type */
 #define ZIP_IS_STR(enc) (((enc) & ZIP_STR_MASK) < ZIP_STR_MASK)
@@ -123,6 +127,7 @@ typedef struct zlentry {
 static unsigned int zipIntSize(unsigned char encoding) {
     switch(encoding) {
     case ZIP_INT_16B: return sizeof(int16_t);
+    case ZIP_INT_24B: return sizeof(int32_t)-sizeof(int8_t);
     case ZIP_INT_32B: return sizeof(int32_t);
     case ZIP_INT_64B: return sizeof(int64_t);
     }
@@ -271,6 +276,8 @@ static int zipTryEncoding(unsigned char *entry, unsigned int entrylen, long long
          * of our encoding types that can hold this value. */
         if (value >= INT16_MIN && value <= INT16_MAX) {
             *encoding = ZIP_INT_16B;
+        } else if (value >= INT24_MIN && value <= INT24_MAX) {
+            *encoding = ZIP_INT_24B;
         } else if (value >= INT32_MIN && value <= INT32_MAX) {
             *encoding = ZIP_INT_32B;
         } else {
@@ -291,6 +298,10 @@ static void zipSaveInteger(unsigned char *p, int64_t value, unsigned char encodi
         i16 = value;
         memcpy(p,&i16,sizeof(i16));
         memrev16ifbe(p);
+    } else if (encoding == ZIP_INT_24B) {
+        i32 = value<<8;
+        memrev32ifbe(&i32);
+        memcpy(p,((unsigned char*)&i32)+1,sizeof(i32)-sizeof(int8_t));
     } else if (encoding == ZIP_INT_32B) {
         i32 = value;
         memcpy(p,&i32,sizeof(i32));
@@ -317,6 +328,11 @@ static int64_t zipLoadInteger(unsigned char *p, unsigned char encoding) {
         memcpy(&i32,p,sizeof(i32));
         memrev32ifbe(&i32);
         ret = i32;
+    } else if (encoding == ZIP_INT_24B) {
+        i32 = 0;
+        memcpy(((unsigned char*)&i32)+1,p,sizeof(i32)-sizeof(int8_t));
+        memrev32ifbe(&i32);
+        ret = i32>>8;
     } else if (encoding == ZIP_INT_64B) {
         memcpy(&i64,p,sizeof(i64));
         memrev64ifbe(&i64);
