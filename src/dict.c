@@ -116,8 +116,8 @@ unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len) {
 
 /* ----------------------------- API implementation ------------------------- */
 
-/* Reset an hashtable already initialized with ht_init().
- * NOTE: This function should only called by ht_destroy(). */
+/* Reset a hash table already initialized with ht_init().
+ * NOTE: This function should only be called by ht_destroy(). */
 static void _dictReset(dictht *ht)
 {
     ht->table = NULL;
@@ -162,18 +162,18 @@ int dictResize(dict *d)
     return dictExpand(d, minimal);
 }
 
-/* Expand or create the hashtable */
+/* Expand or create the hash table */
 int dictExpand(dict *d, unsigned long size)
 {
-    dictht n; /* the new hashtable */
+    dictht n; /* the new hash table */
     unsigned long realsize = _dictNextPower(size);
 
     /* the size is invalid if it is smaller than the number of
-     * elements already inside the hashtable */
+     * elements already inside the hash table */
     if (dictIsRehashing(d) || d->ht[0].used > size)
         return DICT_ERR;
 
-    /* Allocate the new hashtable and initialize all pointers to NULL */
+    /* Allocate the new hash table and initialize all pointers to NULL */
     n.size = realsize;
     n.sizemask = realsize-1;
     n.table = zcalloc(realsize*sizeof(dictEntry*));
@@ -280,7 +280,7 @@ int dictAdd(dict *d, void *key, void *val)
  * a value returns the dictEntry structure to the user, that will make
  * sure to fill the value field as he wishes.
  *
- * This function is also directly expoed to user API to be called
+ * This function is also directly exposed to the user API to be called
  * mainly in order to store non-pointers inside the hash value, example:
  *
  * entry = dictAddRaw(dict,mykey);
@@ -607,7 +607,7 @@ static int _dictKeyIndex(dict *d, const void *key)
     unsigned int h, idx, table;
     dictEntry *he;
 
-    /* Expand the hashtable if needed */
+    /* Expand the hash table if needed */
     if (_dictExpandIfNeeded(d) == DICT_ERR)
         return -1;
     /* Compute the key hash value */
