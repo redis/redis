@@ -7,7 +7,7 @@ start_server {tags {"aofrw"}} {
         r bgrewriteaof
         r config set appendonly no
         r exec
-        set result [exec cat [srv 0 stdout] | tail -n1]
+        set result [exec tail -n1 < [srv 0 stdout] ]
     } {*Killing*AOF*child*}
 
     foreach d {string int} {
