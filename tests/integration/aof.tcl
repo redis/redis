@@ -35,7 +35,7 @@ tags {"aof"} {
             set pattern "*Unexpected end of file reading the append only file*"
             set retry 10
             while {$retry} {
-                set result [exec cat [dict get $srv stdout] | tail -n1]
+                set result [exec tail -n1 < [dict get $srv stdout]]
                 if {[string match $pattern $result]} {
                     break
                 }
@@ -59,7 +59,7 @@ tags {"aof"} {
             set pattern "*Bad file format reading the append only file*"
             set retry 10
             while {$retry} {
-                set result [exec cat [dict get $srv stdout] | tail -n1]
+                set result [exec tail -n1 < [dict get $srv stdout]]
                 if {[string match $pattern $result]} {
                     break
                 }
@@ -81,7 +81,7 @@ tags {"aof"} {
     }
 
     test "Short read: Utility should be able to fix the AOF" {
-        set result [exec echo y | src/redis-check-aof --fix $aof_path]
+        set result [exec src/redis-check-aof --fix $aof_path << "y\n"]
         assert_match "*Successfully truncated AOF*" $result
     }
 
