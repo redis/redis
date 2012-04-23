@@ -412,6 +412,13 @@ void luaLoadLibraries(lua_State *lua) {
 #endif
 }
 
+/* Remove a functions that we don't want to expose to the Redis scripting
+ * environment. */
+void luaRemoveUnsupportedFunctions(lua_State *lua) {
+    lua_pushnil(lua);
+    lua_setglobal(lua,"loadfile");
+}
+
 /* This function installs metamethods in the global table _G that prevent
  * the creation of globals accidentally.
  *
@@ -455,7 +462,9 @@ void scriptingEnableGlobalsProtection(lua_State *lua) {
  * See scriptingReset() for more information. */
 void scriptingInit(void) {
     lua_State *lua = lua_open();
+
     luaLoadLibraries(lua);
+    luaRemoveUnsupportedFunctions(lua);
 
     /* Initialize a dictionary we use to map SHAs to scripts.
      * This is useful for replication, as we need to replicate EVALSHA
