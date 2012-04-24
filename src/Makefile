@@ -102,7 +102,7 @@ REDIS_CLI_OBJ= anet.o sds.o adlist.o redis-cli.o zmalloc.o release.o
 REDIS_BENCHMARK_NAME= redis-benchmark
 REDIS_BENCHMARK_OBJ= ae.o anet.o redis-benchmark.o sds.o adlist.o zmalloc.o redis-benchmark.o
 REDIS_CHECK_DUMP_NAME= redis-check-dump
-REDIS_CHECK_DUMP_OBJ= redis-check-dump.o lzf_c.o lzf_d.o
+REDIS_CHECK_DUMP_OBJ= redis-check-dump.o lzf_c.o lzf_d.o crc64.o
 REDIS_CHECK_AOF_NAME= redis-check-aof
 REDIS_CHECK_AOF_OBJ= redis-check-aof.o
 
