@@ -398,30 +398,31 @@ void bugReportStart(void) {
 
 #ifdef HAVE_BACKTRACE
 static void *getMcontextEip(ucontext_t *uc) {
-#if defined(__FreeBSD__)
-    return (void*) uc->uc_mcontext.mc_eip;
-#elif defined(__dietlibc__)
-    return (void*) uc->uc_mcontext.eip;
-#elif defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
-  #if __x86_64__
+#if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
+    /* OSX < 10.6 */
+    #if defined(__x86_64__)
     return (void*) uc->uc_mcontext->__ss.__rip;
-  #elif __i386__
+    #elif defined(__i386__)
     return (void*) uc->uc_mcontext->__ss.__eip;
-  #else
+    #else
     return (void*) uc->uc_mcontext->__ss.__srr0;
-  #endif
+    #endif
 #elif defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
-  #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
+    /* OSX >= 10.6 */
+    #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
     return (void*) uc->uc_mcontext->__ss.__rip;
-  #else
+    #else
     return (void*) uc->uc_mcontext->__ss.__eip;
-  #endif
-#elif defined(__i386__)
+    #endif
+#elif defined(__linux__)
+    /* Linux */
+    #if defined(__i386__)
     return (void*) uc->uc_mcontext.gregs[14]; /* Linux 32 */
-#elif defined(__X86_64__) || defined(__x86_64__)
+    #elif defined(__X86_64__) || defined(__x86_64__)
     return (void*) uc->uc_mcontext.gregs[16]; /* Linux 64 */
-#elif defined(__ia64__) /* Linux IA64 */
+    #elif defined(__ia64__) /* Linux IA64 */
     return (void*) uc->uc_mcontext.sc_ip;
+    #endif
 #else
     return NULL;
 #endif
@@ -439,8 +440,11 @@ void logStackContent(void **sp) {
 
 void logRegisters(ucontext_t *uc) {
     redisLog(REDIS_WARNING, "--- REGISTERS");
+
+/* OSX */
 #if defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
-  #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
+  /* OSX AMD64 */
+    #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
     redisLog(REDIS_WARNING,
     "\n"
     "RAX:%016lx RBX:%016lx\nRCX:%016lx RDX:%016lx\n"
@@ -471,7 +475,8 @@ void logRegisters(ucontext_t *uc) {
         uc->uc_mcontext->__ss.__gs
     );
     logStackContent((void**)uc->uc_mcontext->__ss.__rsp);
-  #else
+    #else
+    /* OSX x86 */
     redisLog(REDIS_WARNING,
     "\n"
     "EAX:%08lx EBX:%08lx ECX:%08lx EDX:%08lx\n"
@@ -496,8 +501,11 @@ void logRegisters(ucontext_t *uc) {
         uc->uc_mcontext->__ss.__gs
     );
     logStackContent((void**)uc->uc_mcontext->__ss.__esp);
-  #endif
-#elif defined(__i386__)
+    #endif
+/* Linux */
+#elif defined(__linux__)
+    /* Linux x86 */
+    #if defined(__i386__)
     redisLog(REDIS_WARNING,
     "\n"
     "EAX:%08lx EBX:%08lx ECX:%08lx EDX:%08lx\n"
@@ -522,7 +530,8 @@ void logRegisters(ucontext_t *uc) {
         uc->uc_mcontext.gregs[0]
     );
     logStackContent((void**)uc->uc_mcontext.gregs[7]);
-#elif defined(__X86_64__) || defined(__x86_64__)
+    #elif defined(__X86_64__) || defined(__x86_64__)
+    /* Linux AMD64 */
     redisLog(REDIS_WARNING,
     "\n"
     "RAX:%016lx RBX:%016lx\nRCX:%016lx RDX:%016lx\n"
@@ -551,6 +560,7 @@ void logRegisters(ucontext_t *uc) {
         uc->uc_mcontext.gregs[18]
     );
     logStackContent((void**)uc->uc_mcontext.gregs[15]);
+    #endif
 #else
     redisLog(REDIS_WARNING,
         "  Dumping of registers not supported for this OS/arch");
@@ -677,7 +687,9 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
 #include <sys/time.h>
 
 void watchdogSignalHandler(int sig, siginfo_t *info, void *secret) {
+#ifdef HAVE_BACKTRACE
     ucontext_t *uc = (ucontext_t*) secret;
+#endif
     REDIS_NOTUSED(info);
     REDIS_NOTUSED(sig);
     sds st, log;
