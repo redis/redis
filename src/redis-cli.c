@@ -800,7 +800,7 @@ static int noninteractive(int argc, char **argv) {
 
 static void latencyMode(void) {
     redisReply *reply;
-    long long start, latency, min, max, tot, count = 0;
+    long long start, latency, min = 0, max = 0, tot = 0, count = 0;
     double avg;
 
     if (!context) exit(1);
@@ -887,7 +887,7 @@ static void slaveMode(void) {
 static void findBigKeys(void) {
     unsigned long long biggest[5] = {0,0,0,0,0};
     unsigned long long samples = 0;
-    redisReply *reply1, *reply2, *reply3;
+    redisReply *reply1, *reply2, *reply3 = NULL;
     char *sizecmd, *typename[] = {"string","list","set","hash","zset"};
     int type;
 
