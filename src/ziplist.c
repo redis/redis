@@ -58,6 +58,10 @@
  *      Integer encoded as int32_t (4 bytes).
  * |1110____| - 1 byte
  *      Integer encoded as int64_t (8 bytes).
+ * |1111____| - 1 byte
+ *      Integer encoded as 24 bit signed (3 bytes).
+ *
+ * All the integers are represented in little endian byte order.
  */
 
 #include <stdio.h>
