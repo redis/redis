@@ -327,10 +327,12 @@ start_server {tags {"scripting repl"}} {
             r evalsha ae3477e27be955de7e1bc9adfdca626b478d3cb2 0
         } {2}
 
-        if {$::valgrind} {after 2000} else {after 100}
-
         test {If EVALSHA was replicated as EVAL the slave should be ok} {
-            r -1 get x
-        } {2}
+            wait_for_condition 50 100 {
+                [r -1 get x] eq {2}
+            } else {
+                fail "Expected 2 in x, but value is '[r -1 get x]'"
+            }
+        }
     }
 }
