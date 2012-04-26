@@ -10,8 +10,11 @@ start_server {tags {"repl"}} {
             set rd [redis_deferring_client]
             $rd brpoplpush a b 5
             r lpush a foo
-            after 1000
-            assert_equal [r debug digest] [r -1 debug digest]
+            wait_for_condition 50 100 {
+                [r debug digest] eq [r -1 debug digest]
+            } else {
+                fail "Master and slave have different digest: [r debug digest] VS [r -1 debug digest]"
+            }
         }
 
         test {BRPOPLPUSH replication, list exists} {
