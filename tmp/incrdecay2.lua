@@ -16,13 +16,16 @@ if last_updated_val == nil then
 end
 
 local increment = 1 - math.floor( dt_ms / decay_ms )
-redis.call('set', changed_ts_key, now_ms)
+
 local new_val = last_updated_val + increment
+local ttl = 30000
 
 if new_val < 0 then
-   redis.call('expireat', KEYS[1], now_ts[1] + 30)
-   return {last_updated_val, dt_ms, increment, new_val, redis.call('incrby', KEYS[1], 1 - last_updated_val)}
+   new_val = 1   
 else
-   redis.call('expireat', KEYS[1], now_ts[1] + math.floor(1000/decay_ms * new_val) + 30)
-   return {last_updated_val, dt_ms, increment, new_val, redis.call('incrby', KEYS[1], increment)}
+   ttl = (new_val * decay_ms) + 30000
 end
+
+redis.call('psetex', changed_ts_key, ttl, now_ms) 
+redis.call('psetex', KEYS[1], ttl, new_val)
+return {last_updated_val, dt_ms, increment, ttl, new_val}
