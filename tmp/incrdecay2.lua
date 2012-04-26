@@ -1,9 +1,8 @@
-local changed_ts_key = KEYS[1] .. '***'
+local changed_ts_key = KEYS[1] .. '.decay'
 local last_ms = tonumber(redis.call('get', changed_ts_key))
 local now_ts = redis.call('time')
 local now_ms = (1000 * now_ts[1]) + now_ts[2]/1000
 local dt_ms = 0
-local decay_ms = 1000
 if last_ms == nil then
    dt_ms = 0
 else
@@ -15,7 +14,8 @@ if last_updated_val == nil then
    last_updated_val = 0      
 end
 
-local increment = 1 - math.floor( dt_ms / decay_ms )
+local decay_ms = 1000 
+local increment = ARGV[1] - math.floor( dt_ms / decay_ms )
 
 local new_val = last_updated_val + increment
 local ttl = 30000
