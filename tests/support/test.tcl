@@ -53,7 +53,7 @@ proc assert_type {type key} {
 # executed.
 proc wait_for_condition {maxtries delay e _else_ elsescript} {
     while {[incr maxtries -1] >= 0} {
-        if {[uplevel 1 expr $e]} break
+        if {[uplevel 1 [list expr $e]]} break
         after $delay
     }
     if {$maxtries == -1} {
