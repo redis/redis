@@ -7,6 +7,7 @@
 #ifdef HAVE_BACKTRACE
 #include <execinfo.h>
 #include <ucontext.h>
+#include <fcntl.h>
 #endif /* HAVE_BACKTRACE */
 
 /* ================================= Debugging ============================== */
@@ -567,27 +568,30 @@ void logRegisters(ucontext_t *uc) {
 #endif
 }
 
-/* Logs the stack trace using the backtrace() call. */
-sds getStackTrace(ucontext_t *uc) {
+/* Logs the stack trace using the backtrace() call. This function is designed
+ * to be called from signal handlers safely. */
+void logStackTrace(ucontext_t *uc) {
     void *trace[100];
-    int i, trace_size = 0;
-    char **messages = NULL;
-    sds st = sdsempty();
+    int trace_size = 0, fd;
+
+    /* Open the log file in append mode. */
+    fd = server.logfile ?
+        open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644) :
+        STDOUT_FILENO;
+    if (fd == -1) return;
 
     /* Generate the stack trace */
     trace_size = backtrace(trace, 100);
 
     /* overwrite sigaction with caller's address */
-    if (getMcontextEip(uc) != NULL) {
+    if (getMcontextEip(uc) != NULL)
         trace[1] = getMcontextEip(uc);
-    }
-    messages = backtrace_symbols(trace, trace_size);
-    for (i=1; i<trace_size; ++i) {
-        st = sdscat(st,messages[i]);
-        st = sdscatlen(st,"\n",1);
-    }
-    zlibc_free(messages);
-    return st;
+
+    /* Write symbols to log file */
+    backtrace_symbols_fd(trace, trace_size, fd);
+
+    /* Cleanup */
+    if (server.logfile) close(fd);
 }
 
 /* Log information about the "current" client, that is, the client that is
@@ -630,7 +634,7 @@ void logCurrentClient(void) {
 
 void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     ucontext_t *uc = (ucontext_t*) secret;
-    sds infostring, clients, st;
+    sds infostring, clients;
     struct sigaction act;
     REDIS_NOTUSED(info);
 
@@ -642,9 +646,8 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
                         server.assert_file, server.assert_line);
 
     /* Log the stack trace */
-    st = getStackTrace(uc);
-    redisLog(REDIS_WARNING, "--- STACK TRACE\n%s", st);
-    sdsfree(st);
+    redisLog(REDIS_WARNING, "--- STACK TRACE");
+    logStackTrace(uc);
 
     /* Log INFO and CLIENT LIST */
     redisLog(REDIS_WARNING, "--- INFO OUTPUT");
@@ -692,19 +695,14 @@ void watchdogSignalHandler(int sig, siginfo_t *info, void *secret) {
 #endif
     REDIS_NOTUSED(info);
     REDIS_NOTUSED(sig);
-    sds st, log;
 
-    log = sdsnew("\n--- WATCHDOG TIMER EXPIRED ---\n");
+    redisLogFromHandler(REDIS_WARNING,"\n--- WATCHDOG TIMER EXPIRED ---");
 #ifdef HAVE_BACKTRACE
-    st = getStackTrace(uc);
+    logStackTrace(uc);
 #else
-    st = sdsnew("Sorry: no support for backtrace().\n");
+    redisLogFromHandler(REDIS_WARNING,"Sorry: no support for backtrace().");
 #endif
-    log = sdscatsds(log,st);
-    log = sdscat(log,"------\n");
-    redisLogFromHandler(REDIS_WARNING,log);
-    sdsfree(st);
-    sdsfree(log);
+    redisLogFromHandler(REDIS_WARNING,"--------\n");
 }
 
 /* Schedule a SIGALRM delivery after the specified period in milliseconds.
