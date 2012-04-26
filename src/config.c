@@ -162,27 +162,31 @@ void loadServerConfigFromString(char *config) {
             server.maxmemory = memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"maxmemory-policy") && argc == 2) {
             if (!strcasecmp(argv[1],"volatile-lru")) {
-                server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_LRU;
+	      server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_LRU;
             } else if (!strcasecmp(argv[1],"volatile-random")) {
-                server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_RANDOM;
+	      server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_RANDOM;
             } else if (!strcasecmp(argv[1],"volatile-ttl")) {
-                server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_TTL;
+	      server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_TTL;
             } else if (!strcasecmp(argv[1],"allkeys-lru")) {
-                server.maxmemory_policy = REDIS_MAXMEMORY_ALLKEYS_LRU;
+	      server.maxmemory_policy = REDIS_MAXMEMORY_ALLKEYS_LRU;
             } else if (!strcasecmp(argv[1],"allkeys-random")) {
-                server.maxmemory_policy = REDIS_MAXMEMORY_ALLKEYS_RANDOM;
+	      server.maxmemory_policy = REDIS_MAXMEMORY_ALLKEYS_RANDOM;
             } else if (!strcasecmp(argv[1],"noeviction")) {
-                server.maxmemory_policy = REDIS_MAXMEMORY_NO_EVICTION;
+	      server.maxmemory_policy = REDIS_MAXMEMORY_NO_EVICTION;	              
             } else {
                 err = "Invalid maxmemory policy";
                 goto loaderr;
             }
-        } else if (!strcasecmp(argv[0],"maxmemory-samples") && argc == 2) {
-            server.maxmemory_samples = atoi(argv[1]);
-            if (server.maxmemory_samples <= 0) {
-                err = "maxmemory-samples must be 1 or greater";
-                goto loaderr;
-            }
+	}
+	//else if (!strcasecmp(argv[0],"lua-nondeterministic-calls")) {
+	//  server.lua_nondeterministic_calls = REDIS_LUA_NONDETERMINISTIC_CALLS;
+        //} 
+	else if (!strcasecmp(argv[0],"maxmemory-samples") && argc == 2) {
+	  server.maxmemory_samples = atoi(argv[1]);
+	  if (server.maxmemory_samples <= 0) {
+	    err = "maxmemory-samples must be 1 or greater";
+	    goto loaderr;
+	  }
         } else if (!strcasecmp(argv[0],"slaveof") && argc == 3) {
             server.masterhost = sdsnew(argv[1]);
             server.masterport = atoi(argv[2]);
@@ -215,6 +219,11 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"rdbchecksum") && argc == 2) {
             if ((server.rdb_checksum = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
+	}
+	else if (!strcasecmp(argv[0],"lua-nondeterministic-calls") && argc == 2) {
+            if ((server.lua_nondeterministic_calls = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"activerehashing") && argc == 2) {
@@ -642,8 +651,14 @@ void configSetCommand(redisClient *c) {
         int yn = yesnotoi(o->ptr);
 
         if (yn == -1) goto badfmt;
-        server.rdb_checksum = yn;
-    } else {
+        server.rdb_checksum = yn;    
+    } else if (!strcasecmp(c->argv[2]->ptr,"lua-nondeterministic-calls")) {
+        int yn = yesnotoi(o->ptr);
+
+        if (yn == -1) goto badfmt;
+        server.lua_nondeterministic_calls = yn;
+    }
+    else {
         addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
             (char*)c->argv[2]->ptr);
         return;
@@ -699,6 +714,7 @@ void configGetCommand(redisClient *c) {
     config_get_string_field("logfile",server.logfile);
     config_get_string_field("pidfile",server.pidfile);
 
+
     /* Numerical values */
     config_get_numerical_field("maxmemory",server.maxmemory);
     config_get_numerical_field("maxmemory-samples",server.maxmemory_samples);
@@ -746,6 +762,8 @@ void configGetCommand(redisClient *c) {
     config_get_bool_field("rdbcompression", server.rdb_compression);
     config_get_bool_field("rdbchecksum", server.rdb_checksum);
     config_get_bool_field("activerehashing", server.activerehashing);
+    config_get_bool_field("lua-nondeterministic-calls", 
+			  server.lua_nondeterministic_calls);
 
     /* Everything we can't handle with macros follows. */
 

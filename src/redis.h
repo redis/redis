@@ -55,6 +55,8 @@
 #define REDIS_SLOWLOG_MAX_LEN 128
 #define REDIS_MAX_CLIENTS 10000
 
+#define REDIS_LUA_NONDETERMINISTIC_CALLS 0
+
 #define REDIS_REPL_TIMEOUT 60
 #define REDIS_REPL_PING_SLAVE_PERIOD 10
 
@@ -578,6 +580,9 @@ struct redisServer {
     dict *lua_scripts;         /* A dictionary of SHA1 -> Lua scripts */
     long long lua_time_limit;  /* Script timeout in seconds */
     long long lua_time_start;  /* Start time of script */
+  
+  int lua_nondeterministic_calls; /* do we allow Non-Deterministic calls in LUA scripts
+				   USE W/ CAUTION this breaks replication */
     int lua_write_dirty;  /* True if a write command was called during the
                              execution of the current script. */
     int lua_random_dirty; /* True if a random command was called during the

@@ -217,7 +217,8 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
      * command marked as non-deterministic was already called in the context
      * of this script. */
     if (cmd->flags & REDIS_CMD_WRITE) {
-        if (server.lua_random_dirty) {
+        if (!server.lua_nondeterministic_calls 
+	    && server.lua_random_dirty) {
             luaPushError(lua,
                 "Write commands not allowed after non deterministic commands");
             goto cleanup;
