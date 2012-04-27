@@ -132,13 +132,13 @@ void memtest_fill_value(unsigned long *l, size_t bytes, unsigned long v1,
         v = (off & 1) ? v2 : v1;
         for (w = 0; w < iwords; w++) {
 #ifdef MEMTEST_32BIT
-            *l1 = *l2 = ((unsigned long)     (rand()&0xffff)) |
-                        (((unsigned long)    (rand()&0xffff)) << 16);
+            *l1 = *l2 = ((unsigned long)     v) |
+                        (((unsigned long)    v) << 16);
 #else
-            *l1 = *l2 = ((unsigned long)     (rand()&0xffff)) |
-                        (((unsigned long)    (rand()&0xffff)) << 16) |
-                        (((unsigned long)    (rand()&0xffff)) << 32) |
-                        (((unsigned long)    (rand()&0xffff)) << 48);
+            *l1 = *l2 = ((unsigned long)     v) |
+                        (((unsigned long)    v) << 16) |
+                        (((unsigned long)    v) << 32) |
+                        (((unsigned long)    v) << 48);
 #endif
             l1 += step;
             l2 += step;
