@@ -716,6 +716,7 @@ void evalGenericCommand(redisClient *c, int evalsha) {
     lua_State *lua = server.lua;
     char funcname[43];
     long long numkeys;
+    int delhook = 0;
 
     /* We want the same PRNG sequence at every call so that our PRNG is
      * not affected by external state. */
@@ -786,19 +787,19 @@ void evalGenericCommand(redisClient *c, int evalsha) {
      * is running for too much time.
      * We set the hook only if the time limit is enabled as the hook will
      * make the Lua script execution slower. */
+    server.lua_caller = c;
+    server.lua_time_start = ustime()/1000;
+    server.lua_kill = 0;
     if (server.lua_time_limit > 0 && server.masterhost == NULL) {
         lua_sethook(lua,luaMaskCountHook,LUA_MASKCOUNT,100000);
-    } else {
-        lua_sethook(lua,luaMaskCountHook,0,0);
+        delhook = 1;
     }
 
     /* At this point whatever this script was never seen before or if it was
      * already defined, we can call it. We have zero arguments and expect
      * a single return value. */
-    server.lua_caller = c;
-    server.lua_time_start = ustime()/1000;
-    server.lua_kill = 0;
     if (lua_pcall(lua,0,1,0)) {
+        if (delhook) lua_sethook(lua,luaMaskCountHook,0,0); /* Disable hook */
         if (server.lua_timedout) {
             server.lua_timedout = 0;
             /* Restore the readable handler that was unregistered when the
@@ -814,6 +815,7 @@ void evalGenericCommand(redisClient *c, int evalsha) {
         lua_gc(lua,LUA_GCCOLLECT,0);
         return;
     }
+    if (delhook) lua_sethook(lua,luaMaskCountHook,0,0); /* Disable hook */
     server.lua_timedout = 0;
     server.lua_caller = NULL;
     selectDb(c,server.lua_client->db->id); /* set DB ID from Lua client */
