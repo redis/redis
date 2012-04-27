@@ -26,7 +26,7 @@ Also the following redis.conf and CONFIG GET / SET parameters changed name:
 
     * hash-max-zipmap-entries, now replaced by hash-max-ziplist-entries
     * hash-max-zipmap-value, now replaced by hash-max-ziplist-value
-    * glueoutputbuf option was now completely removed (was reprecated)
+    * glueoutputbuf option was now completely removed (was deprecated)
 
 ---------
 CHANGELOG
