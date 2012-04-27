@@ -13,9 +13,6 @@ bio.o: bio.c redis.h fmacros.h config.h ../deps/lua/src/lua.h \
 config.o: config.c redis.h fmacros.h config.h ../deps/lua/src/lua.h \
   ../deps/lua/src/luaconf.h ae.h sds.h dict.h adlist.h zmalloc.h anet.h \
   ziplist.h intset.h version.h util.h rdb.h rio.h
-crc16.o: crc16.c redis.h fmacros.h config.h ../deps/lua/src/lua.h \
-  ../deps/lua/src/luaconf.h ae.h sds.h dict.h adlist.h zmalloc.h anet.h \
-  ziplist.h intset.h version.h util.h rdb.h rio.h
 crc64.o: crc64.c
 db.o: db.c redis.h fmacros.h config.h ../deps/lua/src/lua.h \
   ../deps/lua/src/luaconf.h ae.h sds.h dict.h adlist.h zmalloc.h anet.h \
