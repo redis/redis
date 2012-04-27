@@ -32,12 +32,17 @@ Also the following redis.conf and CONFIG GET / SET parameters changed name:
 CHANGELOG
 ---------
 
-What's new in Redis 2.6.0
-=========================
+What's new in Redis 2.5.7 (aka 2.6 Release Candidate 1)
+=======================================================
 
-UPGRADE URGENCY: We suggest new users to start with 2.6.0, and old users to
-                 upgrade after some testing of the application with the new
-                 Redis version.
+UPGRADE URGENCY: upgrade not recommended because this is an RC release.
+
+* This is the first release candidate for Redis 2.6. We are not aware of
+  bugs, but part of this code is young and was never tested in production
+  environments, so handle with care.
+
+An overview of new features and changes in Redis 2.6.x
+======================================================
 
 * Server side Lua scripting, see http://redis.io/commands/eval
 * Virtual Memory removed (was deprecated in 2.4)
