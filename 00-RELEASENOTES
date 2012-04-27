@@ -53,6 +53,7 @@ An overview of new features and changes in Redis 2.6.x
   precision (PEXPIRE, PTTL, ...).
 * Better memory usage for "small" lists, ziplists and hashes when fields or
   values contain small integers.
+* Read only slaves.
 * Clients max output buffer soft and hard limits. You can specifiy different
   limits for different classes of clients (normal,pubsub,slave).
 * AOF is now able to rewrite aggregate data types using variadic commands,
