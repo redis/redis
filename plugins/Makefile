@@ -59,5 +59,5 @@ endif
 REDIS_CC=$(QUIET_CC)$(CC) $(REDIS_CFLAGS)
 REDIS_LD=$(QUIET_LINK)$(CC) $(REDIS_LDFLAGS)
 
-plugin-get.so: plugin-get.c
-	$(REDIS_CC) -flat_namespace -bundle -undefined suppress -o libget.so plugin-get.c
+plugin-hello.so: plugin-hello.c
+	$(REDIS_CC) -flat_namespace -bundle -undefined suppress -o libhello.so plugin-hello.c
