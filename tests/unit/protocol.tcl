@@ -68,7 +68,7 @@ start_server {tags {"protocol"}} {
             puts -nonewline $s $seq
             set payload [string repeat A 1024]"\n"
             set test_start [clock seconds]
-            set test_time_limit 5
+            set test_time_limit 30
             while 1 {
                 if {[catch {
                     puts -nonewline $s payload

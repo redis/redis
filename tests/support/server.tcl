@@ -252,7 +252,7 @@ proc start_server {options {code undefined}} {
 
         while 1 {
             # check that the server actually started and is ready for connections
-            if {[exec cat $stdout | grep "ready to accept" | wc -l] > 0} {
+            if {[exec grep "ready to accept" | wc -l < $stdout] > 0} {
                 break
             }
             after 10

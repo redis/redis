@@ -190,6 +190,13 @@ start_server {
         r sort myset by score:*
     } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z}
 
+    test "SORT GET with pattern ending with just -> does not get hash field" {
+        r del mylist
+        r lpush mylist a
+        r set x:a-> 100
+        r sort mylist by num get x:*->
+    } {100}
+
     tags {"slow"} {
         set num 100
         set res [create_random_dataset $num lpush]

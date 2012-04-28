@@ -155,6 +155,9 @@ void loadServerConfigFromString(char *config) {
             loadServerConfig(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"maxclients") && argc == 2) {
             server.maxclients = atoi(argv[1]);
+            if (server.maxclients < 1) {
+                err = "Invalid max clients limit"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"maxmemory") && argc == 2) {
             server.maxmemory = memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"maxmemory-policy") && argc == 2) {
