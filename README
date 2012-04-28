@@ -9,9 +9,9 @@ example of a plugin included with the change:
 
 #include "redis.h"
 
-extern void getCommand(redisClient *c);
-
-void hello(redisClient*);
+void hello(redisClient *c) {
+  addReplyBulkCString(c, "world!");
+}
 
 struct redisCommand commands[] = {
   {"hello",hello,1,"r",0,NULL,1,1,1,0,0}
@@ -20,10 +20,6 @@ struct redisCommand commands[] = {
 struct redisCommand* registerCommands(int *numcommands) {
   *numcommands = sizeof(commands)/sizeof(struct redisCommand);
   return commands;
-}
-
-void hello(redisClient *c) {
-  addReplyBulkCString(c, "world!");
 }
 
 Your plugin will get a single callback on server start that requests an array
