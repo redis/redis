@@ -206,6 +206,13 @@ start_server {
         }
     }
 
+    test "SDIFF with first set empty" {
+        r del set1 set2 set3
+        r sadd set2 1 2 3 4
+        r sadd set3 a b c d
+        r sdiff set1 set2 set3
+    } {}
+
     test "SINTER against non-set should throw error" {
         r set key1 x
         assert_error "ERR*wrong kind*" {r sinter key1 noset}
@@ -215,6 +222,23 @@ start_server {
         r set key1 x
         assert_error "ERR*wrong kind*" {r sunion key1 noset}
     }
+
+    test "SINTER should handle non existing key as empty" {
+        r del set1 set2 set3
+        r sadd set1 a b c
+        r sadd set2 b c d
+        r sinter set1 set2 set3
+    } {}
+
+    test "SINTER with same integer elements but different encoding" {
+        r del set1 set2
+        r sadd set1 1 2 3
+        r sadd set2 1 2 3 a
+        r srem set2 a
+        assert_encoding intset set1
+        assert_encoding hashtable set2
+        lsort [r sinter set1 set2]
+    } {1 2 3}
 
     test "SINTERSTORE against non existing keys should delete dstkey" {
         r set setres xxx
@@ -316,6 +340,13 @@ start_server {
         r set x 10
         assert_error "ERR*wrong kind*" {r smove myset2 x foo}
     }
+
+    test "SMOVE with identical source and destination" {
+        r del set
+        r sadd set a b c
+        r smove set set b
+        lsort [r smembers set]
+    } {a b c}
 
     tags {slow} {
         test {intsets implementation stress testing} {
