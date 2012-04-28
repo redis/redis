@@ -1,5 +1,8 @@
+*~
 .*.swp
+*.dSYM
 *.o
+*.so
 *.rdb
 *.log
 redis-cli
