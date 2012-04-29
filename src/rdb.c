@@ -605,7 +605,8 @@ int rdbSave(char *filename) {
     rio rdb;
     uint64_t cksum;
 
-    snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
+    copydir(tmpfile, server.rdb_filename, sizeof(tmpfile));
+    snprintf(tmpfile+strlen(tmpfile),256-strlen(tmpfile),"temp-%d.rdb", (int) getpid());
     fp = fopen(tmpfile,"w");
     if (!fp) {
         redisLog(REDIS_WARNING, "Failed opening .rdb for saving: %s",
@@ -718,7 +719,8 @@ int rdbSaveBackground(char *filename) {
 void rdbRemoveTempFile(pid_t childpid) {
     char tmpfile[256];
 
-    snprintf(tmpfile,256,"temp-%d.rdb", (int) childpid);
+    copydir(tmpfile, server.rdb_filename, sizeof(tmpfile));
+    snprintf(tmpfile+strlen(tmpfile),256-strlen(tmpfile),"temp-%d.rdb", (int) childpid);
     unlink(tmpfile);
 }
 
