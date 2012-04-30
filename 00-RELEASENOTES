@@ -18,6 +18,15 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
+What's new in Redis 2.4.12
+=========================
+
+UPGRADE URGENCY: low if you don't experience any of the fixed problems.
+
+* [BUGFIX] Limit the amount of memory consumed by the slow log.
+* [BUGFIX] --test-memory option fixes.
+* [BUGFIX] Less false positives in tests.
+
 What's new in Redis 2.4.11
 =========================
 
