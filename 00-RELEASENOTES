@@ -21,6 +21,9 @@ but it is better to keep them in mind:
 * INFO output is a bit different now, and contains empty lines and comments
   starting with '#'. All the major clients should be already fixed to work
   with the new INFO format.
+* Slaves are only read-only by default (but you can change this easily
+  setting the "slave-read-only" configuration option to "no" editing your
+  redis.conf or using CONFIG SET.
 
 Also the following redis.conf and CONFIG GET / SET parameters changed name:
 
