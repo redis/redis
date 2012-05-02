@@ -32,6 +32,15 @@ Also the following redis.conf and CONFIG GET / SET parameters changed name:
 CHANGELOG
 ---------
 
+What's new in Redis 2.5.8 (aka 2.6 Release Candidate 2)
+=======================================================
+
+UPGRADE URGENCY: high for all the users of the KEYS command, otherwise low.
+
+* [BUGFIX] Fix for KEYS command: if the DB contains keys with expires the KEYS
+           command may return the wrong output, having duplicated or missing
+           keys. See issue #487 and #488 on github for details.
+
 What's new in Redis 2.5.7 (aka 2.6 Release Candidate 1)
 =======================================================
 
