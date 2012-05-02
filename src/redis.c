@@ -1719,37 +1719,40 @@ sds genRedisInfoString(char *section) {
         if (sections++) info = sdscat(info,"\r\n");
         uname(&name);
         info = sdscatprintf(info,
-            "# Server\r\n"
-            "redis_version:%s\r\n"
-            "redis_git_sha1:%s\r\n"
-            "redis_git_dirty:%d\r\n"
-            "os:%s %s %s\r\n"
-            "arch_bits:%d\r\n"
-            "multiplexing_api:%s\r\n"
-            "gcc_version:%d.%d.%d\r\n"
-            "process_id:%ld\r\n"
-            "run_id:%s\r\n"
-            "tcp_port:%d\r\n"
-            "uptime_in_seconds:%ld\r\n"
-            "uptime_in_days:%ld\r\n"
-            "lru_clock:%ld\r\n",
-            REDIS_VERSION,
-            redisGitSHA1(),
-            strtol(redisGitDirty(),NULL,10) > 0,
-            name.sysname, name.release, name.machine,
-            server.arch_bits,
-            aeGetApiName(),
+			    "# Server\r\n"
+			    "redis_version:%s\r\n"
+			    "redis_git_sha1:%s\r\n"
+			    "redis_git_dirty:%d\r\n"
+			    "os:%s %s %s\r\n"
+			    "arch_bits:%d\r\n"
+			    "multiplexing_api:%s\r\n"
+			    "gcc_version:%d.%d.%d\r\n"
+			    "process_id:%ld\r\n"
+			    "run_id:%s\r\n"
+			    "tcp_port:%d\r\n"
+			    "uptime_in_seconds:%ld\r\n"
+			    "uptime_in_days:%ld\r\n"
+			    "lru_clock:%ld\r\n"
+			    "lua_nondeterministic_calls:%d\r\n",
+			    REDIS_VERSION,
+			    redisGitSHA1(),
+			    strtol(redisGitDirty(),NULL,10) > 0,
+			    name.sysname, name.release, name.machine,
+			    server.arch_bits,
+			    aeGetApiName(),
 #ifdef __GNUC__
-            __GNUC__,__GNUC_MINOR__,__GNUC_PATCHLEVEL__,
+			    __GNUC__,__GNUC_MINOR__,__GNUC_PATCHLEVEL__,
 #else
-            0,0,0,
+			    0,0,0,
 #endif
-            (long) getpid(),
-            server.runid,
-            server.port,
-            uptime,
-            uptime/(3600*24),
-            (unsigned long) server.lruclock);
+			    (long) getpid(),
+			    server.runid,
+			    server.port,
+			    uptime,
+			    uptime/(3600*24),
+			    (unsigned long) server.lruclock,
+			    (unsigned int) server.lua_nondeterministic_calls
+			    );
     }
 
     /* Clients */
