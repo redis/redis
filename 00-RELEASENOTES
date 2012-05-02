@@ -18,6 +18,15 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
+What's new in Redis 2.4.13
+=========================
+
+UPGRADE URGENCY: high for all the users of the KEYS command, otherwise low.
+
+* [BUGFIX] Fix for KEYS command: if the DB contains keys with expires the KEYS
+           command may return the wrong output, having duplicated or missing
+           keys. See issue #487 and #488 on github for details.
+
 What's new in Redis 2.4.12
 =========================
 
