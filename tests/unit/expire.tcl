@@ -141,4 +141,15 @@ start_server {tags {"expire"}} {
         set size2 [r dbsize]
         list $size1 $size2
     } {3 0}
+
+    test {5 keys in, 5 keys out} {
+        r flushdb
+        r set a c
+        r expire a 5
+        r set t c
+        r set e c
+        r set s c
+        r set foo b
+        lsort [r keys *]
+    } {a e foo s t}
 }
