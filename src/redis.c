@@ -1291,7 +1291,11 @@ void initServer() {
                 redisLog(REDIS_NOTICE, "Registering plugin: %s", dp->d_name);
                 snprintf(path, 1024, "plugins/%s", dp->d_name);
                 void *plugin = dlopen(path, RTLD_NOW);
-                registerPlugin registerCommand = (registerPlugin) dlsym(plugin, "registerCommands");
+		// Directly casting the dlsym to a register plugin was
+		// annoying the compiler. See this thread:
+		// https://groups.google.com/group/comp.unix.programmer/msg/de36b126ba703795
+		registerPlugin registerCommand;
+		*(void **) (&registerCommand) = dlsym(plugin, "registerCommands");
                 int numcommands = 0;
                 struct redisCommand* commands = registerCommand(&numcommands);
                 populateCommandTable(commands, numcommands);

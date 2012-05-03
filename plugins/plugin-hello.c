@@ -1,8 +1,8 @@
 #include "redis.h"
 
-extern void getCommand(redisClient *c);
-
-void hello(redisClient*);
+void hello(redisClient *c) {
+  addReplyBulkCString(c, "world!");
+}
 
 struct redisCommand commands[] = {
   {"hello",hello,1,"r",0,NULL,1,1,1,0,0}
@@ -13,6 +13,3 @@ struct redisCommand* registerCommands(int *numcommands) {
   return commands;
 }
 
-void hello(redisClient *c) {
-  addReplyBulkCString(c, "world!");
-}
