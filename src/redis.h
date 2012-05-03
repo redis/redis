@@ -52,7 +52,7 @@
 #define REDIS_AOF_REWRITE_MIN_SIZE (1024*1024)
 #define REDIS_AOF_REWRITE_ITEMS_PER_CMD 64
 #define REDIS_SLOWLOG_LOG_SLOWER_THAN 10000
-#define REDIS_SLOWLOG_MAX_LEN 64
+#define REDIS_SLOWLOG_MAX_LEN 128
 #define REDIS_MAX_CLIENTS 10000
 
 #define REDIS_REPL_TIMEOUT 60
@@ -366,7 +366,8 @@ struct sharedObjectsStruct {
     *colon, *nullbulk, *nullmultibulk, *queued,
     *emptymultibulk, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
     *outofrangeerr, *noscripterr, *loadingerr, *slowscripterr, *bgsaveerr,
-    *roslaveerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
+    *masterdownerr, *roslaveerr,
+    *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop,
     *select[REDIS_SHARED_SELECT_CMDS],
     *integers[REDIS_SHARED_INTEGERS],

@@ -7,8 +7,12 @@ start_server {tags {"aofrw"}} {
         r bgrewriteaof
         r config set appendonly no
         r exec
-        set result [exec cat [srv 0 stdout] | tail -n1]
-    } {*Killing*AOF*child*}
+        wait_for_condition 50 100 {
+            [string match {*Killing*AOF*child*} [exec tail -n5 < [srv 0 stdout]]]
+        } else {
+            fail "Can't find 'Killing AOF child' into recent logs"
+        }
+    }
 
     foreach d {string int} {
         foreach e {ziplist linkedlist} {

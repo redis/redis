@@ -64,9 +64,6 @@ double R_Zero, R_PosInf, R_NegInf, R_Nan;
 
 /*================================= Globals ================================= */
 
-/* Alternate stack for SIGSEGV/etc handlers */
-char altstack[SIGSTKSZ];
-
 /* Global vars */
 struct redisServer server; /* server global state */
 struct redisCommand *commandTable;
@@ -991,6 +988,8 @@ void createSharedObjects(void) {
         "-LOADING Redis is loading the dataset in memory\r\n"));
     shared.slowscripterr = createObject(REDIS_STRING,sdsnew(
         "-BUSY Redis is busy running a script. You can only call SCRIPT KILL or SHUTDOWN NOSAVE.\r\n"));
+    shared.masterdownerr = createObject(REDIS_STRING,sdsnew(
+        "-MASTERDOWN Link with MASTER is down and slave-serve-stale-data is set to 'no'.\r\n"));
     shared.bgsaveerr = createObject(REDIS_STRING,sdsnew(
         "-MISCONF Redis is configured to save RDB snapshots, but is currently not able to persist on disk. Commands that may modify the data set are disabled. Please check Redis logs for details about the error.\r\n"));
     shared.roslaveerr = createObject(REDIS_STRING,sdsnew(
@@ -1155,7 +1154,6 @@ void adjustOpenFilesLimit(void) {
     rlim_t maxfiles = server.maxclients+32;
     struct rlimit limit;
 
-    if (maxfiles < 1024) maxfiles = 1024;
     if (getrlimit(RLIMIT_NOFILE,&limit) == -1) {
         redisLog(REDIS_WARNING,"Unable to obtain the current NOFILE limit (%s), assuming 1024 and setting the max clients configuration accordingly.",
             strerror(errno));
@@ -1607,8 +1605,7 @@ int processCommand(redisClient *c) {
         server.repl_serve_stale_data == 0 &&
         c->cmd->proc != infoCommand && c->cmd->proc != slaveofCommand)
     {
-        addReplyError(c,
-            "link with MASTER is down and slave-serve-stale-data is set to no");
+        addReply(c, shared.masterdownerr);
         return REDIS_OK;
     }
 
@@ -1620,7 +1617,7 @@ int processCommand(redisClient *c) {
 
     /* Lua script too slow? Only allow SHUTDOWN NOSAVE and SCRIPT KILL. */
     if (server.lua_timedout &&
-        !(c->cmd->proc != shutdownCommand &&
+        !(c->cmd->proc == shutdownCommand &&
           c->argc == 2 &&
           tolower(((char*)c->argv[1]->ptr)[0]) == 'n') &&
         !(c->cmd->proc == scriptCommand &&
@@ -2372,13 +2369,6 @@ static void sigtermHandler(int sig) {
 
 void setupSignalHandlers(void) {
     struct sigaction act;
-    stack_t stack;
-
-    stack.ss_sp = altstack;
-    stack.ss_flags = 0;
-    stack.ss_size = SIGSTKSZ;
-
-    sigaltstack(&stack, NULL);
 
     /* When the SA_SIGINFO flag is set in sa_flags then sa_sigaction is used.
      * Otherwise, sa_handler is used. */
@@ -2388,10 +2378,8 @@ void setupSignalHandlers(void) {
     sigaction(SIGTERM, &act, NULL);
 
 #ifdef HAVE_BACKTRACE
-    /* Use alternate stack so we don't clobber stack in case of segv, or when we run out of stack ..
-     * also resethand & nodefer so we can get interrupted (and killed) if we cause SEGV during SEGV handler */
     sigemptyset(&act.sa_mask);
-    act.sa_flags = SA_NODEFER | SA_ONSTACK | SA_RESETHAND | SA_SIGINFO;
+    act.sa_flags = SA_NODEFER | SA_RESETHAND | SA_SIGINFO;
     act.sa_sigaction = sigsegvHandler;
     sigaction(SIGSEGV, &act, NULL);
     sigaction(SIGBUS, &act, NULL);

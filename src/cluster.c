@@ -4,6 +4,7 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/socket.h>
 
 void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask);
@@ -901,7 +902,7 @@ void clusterSendPublish(clusterLink *link, robj *channel, robj *message) {
     } else {
         payload = zmalloc(totlen);
         hdr = (clusterMsg*) payload;
-        memcpy(payload,hdr,sizeof(hdr));
+        memcpy(payload,hdr,sizeof(*hdr));
     }
     memcpy(hdr->data.publish.msg.bulk_data,channel->ptr,sdslen(channel->ptr));
     memcpy(hdr->data.publish.msg.bulk_data+sdslen(channel->ptr),
