@@ -25,9 +25,11 @@ set ::all_tests {
     unit/other
     unit/cas
     unit/quit
+    unit/readonly
     integration/replication
     integration/replication-2
     integration/replication-3
+    integration/replication-readonly
     integration/aof
     unit/pubsub
     unit/slowlog

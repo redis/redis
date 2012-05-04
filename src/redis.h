@@ -69,9 +69,14 @@
  *     set and the server is using more than 'maxmemory' bytes of memory.
  *     In short: commands with this flag are denied on low memory conditions.
  *   REDIS_CMD_FORCE_REPLICATION:
- *     Force replication even if dirty is 0. */
+ *     Force replication even if dirty is 0.
+ *   REDIS_CMD_MODIFIES_DATA:
+ *     Commands marked with this flag will return an error when 'read-only' is
+ *     set on the server.
+ */
 #define REDIS_CMD_DENYOOM 4
 #define REDIS_CMD_FORCE_REPLICATION 8
+#define REDIS_CMD_MODIFIES_DATA 16
 
 /* Object types */
 #define REDIS_STRING 0
@@ -456,6 +461,7 @@ struct redisServer {
     char *requirepass;
     int rdbcompression;
     int activerehashing;
+    int readonly;
     /* Replication related */
     int isslave;
     /* Slave specific fields */
