@@ -35,6 +35,15 @@ Also the following redis.conf and CONFIG GET / SET parameters changed name:
 CHANGELOG
 ---------
 
+What's new in Redis 2.5.9 (aka 2.6 Release Candidate 3)
+=======================================================
+
+UPGRADE URGENCY: critical, upgrade ASAP.
+
+* [BUGFIX] Fix for issue #500 (https://github.com/antirez/redis/pull/500).
+           Redis 2.6-RC1 and RC2 may corrupt ziplist-encoded sorted sets
+           produced by Redis 2.4.x.
+
 What's new in Redis 2.5.8 (aka 2.6 Release Candidate 2)
 =======================================================
 
