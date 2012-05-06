@@ -48,7 +48,7 @@ UPGRADE URGENCY: critical, upgrade ASAP.
            (and possibly other BSD-based systems) the slave would block on
            replication to send the SYNC command when the master was not
            available. This is fixed now, but was not affecting Linux installs.
-* Now when slave-serve-stake-data is set to yes and the master is down, instead
+* Now when slave-serve-stale-data is set to yes and the master is down, instead
   of reporting a generic error Redis replies with -MASTERDOWN.
 
 What's new in Redis 2.5.8 (aka 2.6 Release Candidate 2)
