@@ -773,12 +773,11 @@ unsigned int ziplistCompare(unsigned char *p, unsigned char *sstr, unsigned int 
             return 0;
         }
     } else {
-        /* Try to compare encoded values */
+        /* Try to compare encoded values. Don't compare encoding because
+         * different implementations may encoded integers differently. */
         if (zipTryEncoding(sstr,slen,&sval,&sencoding)) {
-            if (entry.encoding == sencoding) {
-                zval = zipLoadInteger(p+entry.headersize,entry.encoding);
-                return zval == sval;
-            }
+          zval = zipLoadInteger(p+entry.headersize,entry.encoding);
+          return zval == sval;
         }
     }
     return 0;
