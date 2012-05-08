@@ -134,6 +134,9 @@ extern void	(*JEMALLOC_P(malloc_message))(void *wcbopaque, const char *s);
 #ifdef __alpha__
 #  define LG_QUANTUM		4
 #endif
+#ifdef __sparc__
+#  define LG_QUANTUM		3
+#endif
 #ifdef __sparc64__
 #  define LG_QUANTUM		4
 #endif
