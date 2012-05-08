@@ -6,7 +6,6 @@ start_server {tags {"readonly"}} {
         r get rok
     } {value}
 
-
     test {explicitly set config readonly on and GET an item} {
         r config set readonly no
         r set rok value

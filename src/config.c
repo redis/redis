@@ -223,7 +223,7 @@ void loadServerConfig(char *filename) {
             if ((server.activerehashing = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
-        } else if (!strcasecmp(argv[0], "readonly") && argc == 2) {
+        } else if (!strcasecmp(argv[0],"readonly") && argc == 2) {
             if ((server.readonly = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
