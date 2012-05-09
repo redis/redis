@@ -79,7 +79,7 @@ endif
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)
 REDIS_LD=$(QUIET_LINK)$(CC) $(FINAL_LDFLAGS)
 
-PREFIX= /usr/local
+PREFIX=? /usr/local
 INSTALL_BIN= $(PREFIX)/bin
 INSTALL= cp -pf
 
