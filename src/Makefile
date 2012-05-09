@@ -54,7 +54,7 @@ endif
 
 CCOPT= $(CFLAGS) $(ARCH) $(PROF)
 
-PREFIX=? /usr/local
+PREFIX?=/usr/local
 INSTALL_BIN= $(PREFIX)/bin
 INSTALL= cp -pf
 
