@@ -658,7 +658,7 @@ void activeExpireCycle(void) {
              * expire. So after a given amount of milliseconds return to the
              * caller waiting for the other active expire cycle. */
             iteration++;
-            if ((iteration & 0xff) == 0 &&  /* & 0xff is the same as % 255 */
+            if ((iteration & 0xff) == 0 && /* Check once every 255 iterations */
                 (mstime()-start) > REDIS_EXPIRELOOKUPS_TIME_LIMIT) return;
         } while (expired > REDIS_EXPIRELOOKUPS_PER_CRON/4);
     }
