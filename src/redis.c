@@ -480,9 +480,10 @@ void updateDictResizePolicy(void) {
  * keys that can be removed from the keyspace. */
 void activeExpireCycle(void) {
     int j;
+    long long start = mstime();
 
     for (j = 0; j < server.dbnum; j++) {
-        int expired;
+        int expired, iteration = 0;
         redisDb *db = server.db+j;
 
         /* Continue to expire if at the end of the cycle more than 25%
@@ -511,6 +512,12 @@ void activeExpireCycle(void) {
                     server.stat_expiredkeys++;
                 }
             }
+            /* We can't block forever here even if there are many keys to
+             * expire. So after a given amount of milliseconds return to the
+             * caller waiting for the other active expire cycle. */
+            iteration++;
+            if ((iteration & 0xff) == 0 &&  /* & 0xff is the same as % 255 */
+                (mstime()-start) > REDIS_EXPIRELOOKUPS_TIME_LIMIT) return;
         } while (expired > REDIS_EXPIRELOOKUPS_PER_CRON/4);
     }
 }

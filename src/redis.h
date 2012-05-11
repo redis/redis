@@ -45,6 +45,7 @@
 #define REDIS_CONFIGLINE_MAX    1024
 #define REDIS_MAX_SYNC_TIME     60      /* Slave can't take more to sync */
 #define REDIS_EXPIRELOOKUPS_PER_CRON    10 /* lookup 10 expires per loop */
+#define REDIS_EXPIRELOOKUPS_TIME_LIMIT 25  /* Time limit in milliseconds */
 #define REDIS_MAX_WRITE_PER_EVENT (1024*64)
 #define REDIS_REQUEST_MAX_SIZE (1024*1024*256) /* max bytes in inline command */
 #define REDIS_SHARED_SELECT_CMDS 10
