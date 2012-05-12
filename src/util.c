@@ -339,6 +339,11 @@ long long ustime(void) {
     return ust;
 }
 
+/* Return the UNIX time in milliseconds */
+long long mstime(void) {
+    return ustime()/1000;
+}
+
 #ifdef UTIL_TEST_MAIN
 #include <assert.h>
 
