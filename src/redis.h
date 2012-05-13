@@ -38,12 +38,13 @@
 #define REDIS_ERR               -1
 
 /* Static server configuration */
+#define REDIS_HZ                10      /* Time interrupt calls/sec. */
 #define REDIS_SERVERPORT        6379    /* TCP port */
 #define REDIS_MAXIDLETIME       0       /* default client timeout: infinite */
 #define REDIS_DEFAULT_DBNUM     16
 #define REDIS_CONFIGLINE_MAX    1024
 #define REDIS_EXPIRELOOKUPS_PER_CRON    10 /* lookup 10 expires per loop */
-#define REDIS_EXPIRELOOKUPS_TIME_LIMIT 25  /* Time limit in milliseconds */
+#define REDIS_EXPIRELOOKUPS_TIME_PERC   25 /* CPU max % for keys collection */
 #define REDIS_MAX_WRITE_PER_EVENT (1024*64)
 #define REDIS_SHARED_SELECT_CMDS 10
 #define REDIS_SHARED_INTEGERS 10000
