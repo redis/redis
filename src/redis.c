@@ -594,8 +594,14 @@ void incrementallyRehash(void) {
     int j;
 
     for (j = 0; j < server.dbnum; j++) {
+        /* Keys dictionary */
         if (dictIsRehashing(server.db[j].dict)) {
             dictRehashMilliseconds(server.db[j].dict,1);
+            break; /* already used our millisecond for this loop... */
+        }
+        /* Expires */
+        if (dictIsRehashing(server.db[j].expires)) {
+            dictRehashMilliseconds(server.db[j].expires,1);
             break; /* already used our millisecond for this loop... */
         }
     }
@@ -622,13 +628,13 @@ void updateDictResizePolicy(void) {
  * keys that can be removed from the keyspace. */
 void activeExpireCycle(void) {
     int j;
-    long long start = mstime(), timelimit;
+    long long start = ustime(), timelimit;
 
     /* We can use at max REDIS_EXPIRELOOKUPS_TIME_PERC percentage of CPU time
      * per iteration. Since this function gets called with a frequency of
      * REDIS_HZ times per second, the following is the max amount of
-     * milliseconds we can spend here: */
-    timelimit = (1000/REDIS_HZ/100)*REDIS_EXPIRELOOKUPS_TIME_PERC;
+     * microseconds we can spend in this function. */
+    timelimit = 1000000*REDIS_EXPIRELOOKUPS_TIME_PERC/REDIS_HZ/100;
     if (timelimit <= 0) timelimit = 1;
 
     for (j = 0; j < server.dbnum; j++) {
@@ -638,8 +644,15 @@ void activeExpireCycle(void) {
         /* Continue to expire if at the end of the cycle more than 25%
          * of the keys were expired. */
         do {
-            long num = dictSize(db->expires);
+            unsigned long num = dictSize(db->expires);
+            unsigned long slots = dictSlots(db->expires);
             long long now = mstime();
+
+            /* When there are less than 1% filled slots getting random
+             * keys is expensive, so stop here waiting for better times...
+             * The dictionary will be resized asap. */
+            if (num && slots > DICT_HT_INITIAL_SIZE &&
+                (num*100/slots < 1)) break;
 
             expired = 0;
             if (num > REDIS_EXPIRELOOKUPS_PER_CRON)
@@ -666,7 +679,7 @@ void activeExpireCycle(void) {
              * caller waiting for the other active expire cycle. */
             iteration++;
             if ((iteration & 0xff) == 0 && /* Check once every 255 iterations */
-                (mstime()-start) > timelimit) return;
+                (ustime()-start) > timelimit) return;
         } while (expired > REDIS_EXPIRELOOKUPS_PER_CRON/4);
     }
 }
@@ -869,7 +882,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * a lot of memory movements in the parent will cause a lot of pages
      * copied. */
     if (server.rdb_child_pid == -1 && server.aof_child_pid == -1) {
-        run_with_period(1000) tryResizeHashTables();
+        tryResizeHashTables();
         if (server.activerehashing) incrementallyRehash();
     }
 

@@ -722,6 +722,8 @@ void watchdogScheduleSignal(int period) {
 
 /* Enable the software watchdong with the specified period in milliseconds. */
 void enableWatchdog(int period) {
+    int min_period;
+
     if (server.watchdog_period == 0) {
         struct sigaction act;
 
@@ -732,7 +734,11 @@ void enableWatchdog(int period) {
         act.sa_sigaction = watchdogSignalHandler;
         sigaction(SIGALRM, &act, NULL);
     }
-    if (period < 200) period = 200; /* We don't accept periods < 200 ms. */
+    /* If the configured period is smaller than twice the timer period, it is
+     * too short for the software watchdog to work reliably. Fix it now
+     * if needed. */
+    min_period = (1000/REDIS_HZ)*2;
+    if (period < min_period) period = min_period;
     watchdogScheduleSignal(period); /* Adjust the current timer. */
     server.watchdog_period = period;
 }
