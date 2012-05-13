@@ -38,7 +38,7 @@
 #define REDIS_ERR               -1
 
 /* Static server configuration */
-#define REDIS_HZ                10      /* Time interrupt calls/sec. */
+#define REDIS_HZ                100     /* Time interrupt calls/sec. */
 #define REDIS_SERVERPORT        6379    /* TCP port */
 #define REDIS_MAXIDLETIME       0       /* default client timeout: infinite */
 #define REDIS_DEFAULT_DBNUM     16
