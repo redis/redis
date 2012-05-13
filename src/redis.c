@@ -622,7 +622,14 @@ void updateDictResizePolicy(void) {
  * keys that can be removed from the keyspace. */
 void activeExpireCycle(void) {
     int j;
-    long long start = mstime();
+    long long start = mstime(), timelimit;
+
+    /* We can use at max REDIS_EXPIRELOOKUPS_TIME_PERC percentage of CPU time
+     * per iteration. Since this function gets called with a frequency of
+     * REDIS_HZ times per second, the following is the max amount of
+     * milliseconds we can spend here: */
+    timelimit = (1000/REDIS_HZ/100)*REDIS_EXPIRELOOKUPS_TIME_PERC;
+    if (timelimit <= 0) timelimit = 1;
 
     for (j = 0; j < server.dbnum; j++) {
         int expired, iteration = 0;
@@ -659,7 +666,7 @@ void activeExpireCycle(void) {
              * caller waiting for the other active expire cycle. */
             iteration++;
             if ((iteration & 0xff) == 0 && /* Check once every 255 iterations */
-                (mstime()-start) > REDIS_EXPIRELOOKUPS_TIME_LIMIT) return;
+                (mstime()-start) > timelimit) return;
         } while (expired > REDIS_EXPIRELOOKUPS_PER_CRON/4);
     }
 }
@@ -745,13 +752,13 @@ int clientsCronResizeQueryBuffer(redisClient *c) {
 }
 
 void clientsCron(void) {
-    /* Make sure to process at least 1/100 of clients per call.
-     * Since this function is called 10 times per second we are sure that
+    /* Make sure to process at least 1/(REDIS_HZ*10) of clients per call.
+     * Since this function is called REDIS_HZ times per second we are sure that
      * in the worst case we process all the clients in 10 seconds.
      * In normal conditions (a reasonable number of clients) we process
      * all the clients in a shorter time. */
     int numclients = listLength(server.clients);
-    int iterations = numclients/100;
+    int iterations = numclients/(REDIS_HZ*10);
 
     if (iterations < 50)
         iterations = (numclients < 50) ? numclients : 50;
@@ -773,6 +780,30 @@ void clientsCron(void) {
     }
 }
 
+/* This is our timer interrupt, called REDIS_HZ times per second.
+ * Here is where we do a number of things that need to be done asynchronously.
+ * For instance:
+ *
+ * - Active expired keys collection (it is also performed in a lazy way on
+ *   lookup).
+ * - Software watchdong.
+ * - Update some statistic.
+ * - Incremental rehashing of the DBs hash tables.
+ * - Triggering BGSAVE / AOF rewrite, and handling of terminated children.
+ * - Clients timeout of differnet kinds.
+ * - Replication reconnection.
+ * - Many more...
+ *
+ * Everything directly called here will be called REDIS_HZ times per second,
+ * so in order to throttle execution of things we want to do less frequently
+ * a macro is used: run_with_period(milliseconds) { .... }
+ */
+
+/* Using the following macro you can run code inside serverCron() with the
+ * specified period, specified in milliseconds.
+ * The actual resolution depends on REDIS_HZ. */
+#define run_with_period(_ms_) if (!(loops % ((_ms_)/(1000/REDIS_HZ))))
+
 int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     int j, loops = server.cronloops;
     REDIS_NOTUSED(eventLoop);
@@ -789,7 +820,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * To access a global var is faster than calling time(NULL) */
     server.unixtime = time(NULL);
 
-    trackOperationsPerSecond();
+    run_with_period(100) trackOperationsPerSecond();
 
     /* We have just 22 bits per object for LRU information.
      * So we use an (eventually wrapping) LRU clock with 10 seconds resolution.
@@ -817,15 +848,17 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* Show some info about non-empty databases */
-    for (j = 0; j < server.dbnum; j++) {
-        long long size, used, vkeys;
+    run_with_period(5000) {
+        for (j = 0; j < server.dbnum; j++) {
+            long long size, used, vkeys;
 
-        size = dictSlots(server.db[j].dict);
-        used = dictSize(server.db[j].dict);
-        vkeys = dictSize(server.db[j].expires);
-        if (!(loops % 50) && (used || vkeys)) {
-            redisLog(REDIS_VERBOSE,"DB %d: %lld keys (%lld volatile) in %lld slots HT.",j,used,vkeys,size);
-            /* dictPrintStats(server.dict); */
+            size = dictSlots(server.db[j].dict);
+            used = dictSize(server.db[j].dict);
+            vkeys = dictSize(server.db[j].expires);
+            if (used || vkeys) {
+                redisLog(REDIS_VERBOSE,"DB %d: %lld keys (%lld volatile) in %lld slots HT.",j,used,vkeys,size);
+                /* dictPrintStats(server.dict); */
+            }
         }
     }
 
@@ -836,12 +869,12 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * a lot of memory movements in the parent will cause a lot of pages
      * copied. */
     if (server.rdb_child_pid == -1 && server.aof_child_pid == -1) {
-        if (!(loops % 10)) tryResizeHashTables();
+        run_with_period(1000) tryResizeHashTables();
         if (server.activerehashing) incrementallyRehash();
     }
 
     /* Show information about connected clients */
-    if (!(loops % 50)) {
+    run_with_period(5000) {
         redisLog(REDIS_VERBOSE,"%d clients connected (%d slaves), %zu bytes in use",
             listLength(server.clients)-listLength(server.slaves),
             listLength(server.slaves),
@@ -923,13 +956,15 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Replication cron function -- used to reconnect to master and
      * to detect transfer failures. */
-    if (!(loops % 10)) replicationCron();
+    run_with_period(1000) replicationCron();
 
     /* Run other sub-systems specific cron jobs */
-    if (server.cluster_enabled && !(loops % 10)) clusterCron();
+    run_with_period(1000) {
+        if (server.cluster_enabled) clusterCron();
+    }
 
     server.cronloops++;
-    return 100;
+    return 1000/REDIS_HZ;
 }
 
 /* This function gets called every time Redis is entering the
