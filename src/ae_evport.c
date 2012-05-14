@@ -65,7 +65,7 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
     }
 
     eventLoop->apidata = state;
-    return 0;    
+    return 0;
 }
 
 static void aeApiFree(aeEventLoop *eventLoop) {
@@ -247,7 +247,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     }
 
     /*
-     * port_getn can return with errno == ETIME having returned some events (!). 
+     * port_getn can return with errno == ETIME having returned some events (!).
      * So if we get ETIME, we check nevents, too.
      */
     nevents = 1;
