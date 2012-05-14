@@ -35,6 +35,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <time.h>
 #include <ctype.h>
 #include <errno.h>
 #include <sys/stat.h>
