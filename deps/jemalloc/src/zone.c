@@ -3,11 +3,18 @@
 #  error "This source file is for zones on Darwin (OS X)."
 #endif
 
+/*
+ * The malloc_default_purgeable_zone function is only available on >= 10.6.
+ * We need to check whether it is present at runtime, thus the weak_import.
+ */
+extern malloc_zone_t *malloc_default_purgeable_zone(void)
+JEMALLOC_ATTR(weak_import);
+
 /******************************************************************************/
 /* Data. */
 
-static malloc_zone_t zone, szone;
-static struct malloc_introspection_t zone_introspect, ozone_introspect;
+static malloc_zone_t zone;
+static struct malloc_introspection_t zone_introspect;
 
 /******************************************************************************/
 /* Function prototypes for non-inline static functions. */
@@ -18,8 +25,10 @@ static void	*zone_calloc(malloc_zone_t *zone, size_t num, size_t size);
 static void	*zone_valloc(malloc_zone_t *zone, size_t size);
 static void	zone_free(malloc_zone_t *zone, void *ptr);
 static void	*zone_realloc(malloc_zone_t *zone, void *ptr, size_t size);
-#if (JEMALLOC_ZONE_VERSION >= 6)
+#if (JEMALLOC_ZONE_VERSION >= 5)
 static void	*zone_memalign(malloc_zone_t *zone, size_t alignment,
+#endif
+#if (JEMALLOC_ZONE_VERSION >= 6)
     size_t size);
 static void	zone_free_definite_size(malloc_zone_t *zone, void *ptr,
     size_t size);
@@ -28,19 +37,6 @@ static void	*zone_destroy(malloc_zone_t *zone);
 static size_t	zone_good_size(malloc_zone_t *zone, size_t size);
 static void	zone_force_lock(malloc_zone_t *zone);
 static void	zone_force_unlock(malloc_zone_t *zone);
-static size_t	ozone_size(malloc_zone_t *zone, void *ptr);
-static void	ozone_free(malloc_zone_t *zone, void *ptr);
-static void	*ozone_realloc(malloc_zone_t *zone, void *ptr, size_t size);
-static unsigned	ozone_batch_malloc(malloc_zone_t *zone, size_t size,
-    void **results, unsigned num_requested);
-static void	ozone_batch_free(malloc_zone_t *zone, void **to_be_freed,
-    unsigned num);
-#if (JEMALLOC_ZONE_VERSION >= 6)
-static void	ozone_free_definite_size(malloc_zone_t *zone, void *ptr,
-    size_t size);
-#endif
-static void	ozone_force_lock(malloc_zone_t *zone);
-static void	ozone_force_unlock(malloc_zone_t *zone);
 
 /******************************************************************************/
 /*
@@ -60,21 +56,21 @@ zone_size(malloc_zone_t *zone, void *ptr)
 	 * not work in practice, we must check all pointers to assure that they
 	 * reside within a mapped chunk before determining size.
 	 */
-	return (ivsalloc(ptr));
+	return (ivsalloc(ptr, config_prof));
 }
 
 static void *
 zone_malloc(malloc_zone_t *zone, size_t size)
 {
 
-	return (JEMALLOC_P(malloc)(size));
+	return (je_malloc(size));
 }
 
 static void *
 zone_calloc(malloc_zone_t *zone, size_t num, size_t size)
 {
 
-	return (JEMALLOC_P(calloc)(num, size));
+	return (je_calloc(num, size));
 }
 
 static void *
@@ -82,7 +78,7 @@ zone_valloc(malloc_zone_t *zone, size_t size)
 {
 	void *ret = NULL; /* Assignment avoids useless compiler warning. */
 
-	JEMALLOC_P(posix_memalign)(&ret, PAGE_SIZE, size);
+	je_posix_memalign(&ret, PAGE, size);
 
 	return (ret);
 }
@@ -91,33 +87,48 @@ static void
 zone_free(malloc_zone_t *zone, void *ptr)
 {
 
-	JEMALLOC_P(free)(ptr);
+	if (ivsalloc(ptr, config_prof) != 0) {
+		je_free(ptr);
+		return;
+	}
+
+	free(ptr);
 }
 
 static void *
 zone_realloc(malloc_zone_t *zone, void *ptr, size_t size)
 {
 
-	return (JEMALLOC_P(realloc)(ptr, size));
+	if (ivsalloc(ptr, config_prof) != 0)
+		return (je_realloc(ptr, size));
+
+	return (realloc(ptr, size));
 }
 
-#if (JEMALLOC_ZONE_VERSION >= 6)
+#if (JEMALLOC_ZONE_VERSION >= 5)
 static void *
 zone_memalign(malloc_zone_t *zone, size_t alignment, size_t size)
 {
 	void *ret = NULL; /* Assignment avoids useless compiler warning. */
 
-	JEMALLOC_P(posix_memalign)(&ret, alignment, size);
+	je_posix_memalign(&ret, alignment, size);
 
 	return (ret);
 }
+#endif
 
+#if (JEMALLOC_ZONE_VERSION >= 6)
 static void
 zone_free_definite_size(malloc_zone_t *zone, void *ptr, size_t size)
 {
 
-	assert(ivsalloc(ptr) == size);
-	JEMALLOC_P(free)(ptr);
+	if (ivsalloc(ptr, config_prof) != 0) {
+		assert(ivsalloc(ptr, config_prof) == size);
+		je_free(ptr);
+		return;
+	}
+
+	free(ptr);
 }
 #endif
 
@@ -133,22 +144,10 @@ zone_destroy(malloc_zone_t *zone)
 static size_t
 zone_good_size(malloc_zone_t *zone, size_t size)
 {
-	size_t ret;
-	void *p;
 
-	/*
-	 * Actually create an object of the appropriate size, then find out
-	 * how large it could have been without moving up to the next size
-	 * class.
-	 */
-	p = JEMALLOC_P(malloc)(size);
-	if (p != NULL) {
-		ret = isalloc(p);
-		JEMALLOC_P(free)(p);
-	} else
-		ret = size;
-
-	return (ret);
+	if (size == 0)
+		size = 1;
+	return (s2u(size));
 }
 
 static void
@@ -164,11 +163,12 @@ zone_force_unlock(malloc_zone_t *zone)
 {
 
 	if (isthreaded)
-		jemalloc_postfork();
+		jemalloc_postfork_parent();
 }
 
-malloc_zone_t *
-create_zone(void)
+JEMALLOC_ATTR(constructor)
+void
+register_zone(void)
 {
 
 	zone.size = (void *)zone_size;
@@ -183,9 +183,14 @@ create_zone(void)
 	zone.batch_free = NULL;
 	zone.introspect = &zone_introspect;
 	zone.version = JEMALLOC_ZONE_VERSION;
-#if (JEMALLOC_ZONE_VERSION >= 6)
+#if (JEMALLOC_ZONE_VERSION >= 5)
 	zone.memalign = zone_memalign;
+#endif
+#if (JEMALLOC_ZONE_VERSION >= 6)
 	zone.free_definite_size = zone_free_definite_size;
+#endif
+#if (JEMALLOC_ZONE_VERSION >= 8)
+	zone.pressure_relief = NULL;
 #endif
 
 	zone_introspect.enumerator = NULL;
@@ -199,156 +204,45 @@ create_zone(void)
 #if (JEMALLOC_ZONE_VERSION >= 6)
 	zone_introspect.zone_locked = NULL;
 #endif
-
-	return (&zone);
-}
-
-static size_t
-ozone_size(malloc_zone_t *zone, void *ptr)
-{
-	size_t ret;
-
-	ret = ivsalloc(ptr);
-	if (ret == 0)
-		ret = szone.size(zone, ptr);
-
-	return (ret);
-}
-
-static void
-ozone_free(malloc_zone_t *zone, void *ptr)
-{
-
-	if (ivsalloc(ptr) != 0)
-		JEMALLOC_P(free)(ptr);
-	else {
-		size_t size = szone.size(zone, ptr);
-		if (size != 0)
-			(szone.free)(zone, ptr);
-	}
-}
-
-static void *
-ozone_realloc(malloc_zone_t *zone, void *ptr, size_t size)
-{
-	size_t oldsize;
-
-	if (ptr == NULL)
-		return (JEMALLOC_P(malloc)(size));
-
-	oldsize = ivsalloc(ptr);
-	if (oldsize != 0)
-		return (JEMALLOC_P(realloc)(ptr, size));
-	else {
-		oldsize = szone.size(zone, ptr);
-		if (oldsize == 0)
-			return (JEMALLOC_P(malloc)(size));
-		else {
-			void *ret = JEMALLOC_P(malloc)(size);
-			if (ret != NULL) {
-				memcpy(ret, ptr, (oldsize < size) ? oldsize :
-				    size);
-				(szone.free)(zone, ptr);
-			}
-			return (ret);
-		}
-	}
-}
-
-static unsigned
-ozone_batch_malloc(malloc_zone_t *zone, size_t size, void **results,
-    unsigned num_requested)
-{
-
-	/* Don't bother implementing this interface, since it isn't required. */
-	return (0);
-}
-
-static void
-ozone_batch_free(malloc_zone_t *zone, void **to_be_freed, unsigned num)
-{
-	unsigned i;
-
-	for (i = 0; i < num; i++)
-		ozone_free(zone, to_be_freed[i]);
-}
-
-#if (JEMALLOC_ZONE_VERSION >= 6)
-static void
-ozone_free_definite_size(malloc_zone_t *zone, void *ptr, size_t size)
-{
-
-	if (ivsalloc(ptr) != 0) {
-		assert(ivsalloc(ptr) == size);
-		JEMALLOC_P(free)(ptr);
-	} else {
-		assert(size == szone.size(zone, ptr));
-		szone.free_definite_size(zone, ptr, size);
-	}
-}
+#if (JEMALLOC_ZONE_VERSION >= 7)
+	zone_introspect.enable_discharge_checking = NULL;
+	zone_introspect.disable_discharge_checking = NULL;
+	zone_introspect.discharge = NULL;
+#ifdef __BLOCKS__
+	zone_introspect.enumerate_discharged_pointers = NULL;
+#else
+	zone_introspect.enumerate_unavailable_without_blocks = NULL;
 #endif
-
-static void
-ozone_force_lock(malloc_zone_t *zone)
-{
-
-	/* jemalloc locking is taken care of by the normal jemalloc zone. */
-	szone.introspect->force_lock(zone);
-}
-
-static void
-ozone_force_unlock(malloc_zone_t *zone)
-{
-
-	/* jemalloc locking is taken care of by the normal jemalloc zone. */
-	szone.introspect->force_unlock(zone);
-}
-
-/*
- * Overlay the default scalable zone (szone) such that existing allocations are
- * drained, and further allocations come from jemalloc.  This is necessary
- * because Core Foundation directly accesses and uses the szone before the
- * jemalloc library is even loaded.
- */
-void
-szone2ozone(malloc_zone_t *zone)
-{
+#endif
 
 	/*
-	 * Stash a copy of the original szone so that we can call its
-	 * functions as needed.  Note that the internally, the szone stores its
-	 * bookkeeping data structures immediately following the malloc_zone_t
-	 * header, so when calling szone functions, we need to pass a pointer
-	 * to the original zone structure.
+	 * The default purgeable zone is created lazily by OSX's libc.  It uses
+	 * the default zone when it is created for "small" allocations
+	 * (< 15 KiB), but assumes the default zone is a scalable_zone.  This
+	 * obviously fails when the default zone is the jemalloc zone, so
+	 * malloc_default_purgeable_zone is called beforehand so that the
+	 * default purgeable zone is created when the default zone is still
+	 * a scalable_zone.  As purgeable zones only exist on >= 10.6, we need
+	 * to check for the existence of malloc_default_purgeable_zone() at
+	 * run time.
 	 */
-	memcpy(&szone, zone, sizeof(malloc_zone_t));
+	if (malloc_default_purgeable_zone != NULL)
+		malloc_default_purgeable_zone();
 
-	zone->size = (void *)ozone_size;
-	zone->malloc = (void *)zone_malloc;
-	zone->calloc = (void *)zone_calloc;
-	zone->valloc = (void *)zone_valloc;
-	zone->free = (void *)ozone_free;
-	zone->realloc = (void *)ozone_realloc;
-	zone->destroy = (void *)zone_destroy;
-	zone->zone_name = "jemalloc_ozone";
-	zone->batch_malloc = ozone_batch_malloc;
-	zone->batch_free = ozone_batch_free;
-	zone->introspect = &ozone_introspect;
-	zone->version = JEMALLOC_ZONE_VERSION;
-#if (JEMALLOC_ZONE_VERSION >= 6)
-	zone->memalign = zone_memalign;
-	zone->free_definite_size = ozone_free_definite_size;
-#endif
+	/* Register the custom zone.  At this point it won't be the default. */
+	malloc_zone_register(&zone);
 
-	ozone_introspect.enumerator = NULL;
-	ozone_introspect.good_size = (void *)zone_good_size;
-	ozone_introspect.check = NULL;
-	ozone_introspect.print = NULL;
-	ozone_introspect.log = NULL;
-	ozone_introspect.force_lock = (void *)ozone_force_lock;
-	ozone_introspect.force_unlock = (void *)ozone_force_unlock;
-	ozone_introspect.statistics = NULL;
-#if (JEMALLOC_ZONE_VERSION >= 6)
-	ozone_introspect.zone_locked = NULL;
-#endif
+	/*
+	 * Unregister and reregister the default zone.  On OSX >= 10.6,
+	 * unregistering takes the last registered zone and places it at the
+	 * location of the specified zone.  Unregistering the default zone thus
+	 * makes the last registered one the default.  On OSX < 10.6,
+	 * unregistering shifts all registered zones.  The first registered zone
+	 * then becomes the default.
+	 */
+	do {
+		malloc_zone_t *default_zone = malloc_default_zone();
+		malloc_zone_unregister(default_zone);
+		malloc_zone_register(default_zone);
+	} while (malloc_default_zone() != &zone);
 }

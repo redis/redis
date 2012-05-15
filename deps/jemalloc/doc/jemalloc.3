@@ -1,13 +1,13 @@
 '\" t
 .\"     Title: JEMALLOC
 .\"    Author: Jason Evans
-.\" Generator: DocBook XSL Stylesheets v1.75.2 <http://docbook.sf.net/>
-.\"      Date: 11/14/2011
+.\" Generator: DocBook XSL Stylesheets v1.76.1 <http://docbook.sf.net/>
+.\"      Date: 05/11/2012
 .\"    Manual: User Manual
-.\"    Source: jemalloc 2.2.5-0-gfc1bb70e5f0d9a58b39efa39cc549b5af5104760
+.\"    Source: jemalloc 3.0.0-0-gfc9b1dbf69f59d7ecfc4ac68da9847e017e1d046
 .\"  Language: English
 .\"
-.TH "JEMALLOC" "3" "11/14/2011" "jemalloc 2.2.5-0-gfc1bb70e5f0d" "User Manual"
+.TH "JEMALLOC" "3" "05/11/2012" "jemalloc 3.0.0-0-gfc9b1dbf69f5" "User Manual"
 .\" -----------------------------------------------------------------
 .\" * Define some portability stuff
 .\" -----------------------------------------------------------------
@@ -31,7 +31,7 @@
 jemalloc \- general purpose memory allocation functions
 .SH "LIBRARY"
 .PP
-This manual describes jemalloc 2\&.2\&.5\-0\-gfc1bb70e5f0d9a58b39efa39cc549b5af5104760\&. More information can be found at the
+This manual describes jemalloc 3\&.0\&.0\-0\-gfc9b1dbf69f59d7ecfc4ac68da9847e017e1d046\&. More information can be found at the
 \m[blue]\fBjemalloc website\fR\m[]\&\s-2\u[1]\d\s+2\&.
 .SH "SYNOPSIS"
 .sp
@@ -48,6 +48,8 @@ This manual describes jemalloc 2\&.2\&.5\-0\-gfc1bb70e5f0d9a58b39efa39cc549b5af5
 .BI "void *calloc(size_t\ " "number" ", size_t\ " "size" ");"
 .HP \w'int\ posix_memalign('u
 .BI "int posix_memalign(void\ **" "ptr" ", size_t\ " "alignment" ", size_t\ " "size" ");"
+.HP \w'void\ *aligned_alloc('u
+.BI "void *aligned_alloc(size_t\ " "alignment" ", size_t\ " "size" ");"
 .HP \w'void\ *realloc('u
 .BI "void *realloc(void\ *" "ptr" ", size_t\ " "size" ");"
 .HP \w'void\ free('u
@@ -76,6 +78,8 @@ const char *\fImalloc_conf\fR;
 .BI "int sallocm(const\ void\ *" "ptr" ", size_t\ *" "rsize" ", int\ " "flags" ");"
 .HP \w'int\ dallocm('u
 .BI "int dallocm(void\ *" "ptr" ", int\ " "flags" ");"
+.HP \w'int\ nallocm('u
+.BI "int nallocm(size_t\ *" "rsize" ", size_t\ " "size" ", int\ " "flags" ");"
 .SH "DESCRIPTION"
 .SS "Standard API"
 .PP
@@ -108,6 +112,18 @@ bytes of memory such that the allocation\*(Aqs base address is an even multiple 
 \fIalignment\fR
 must be a power of 2 at least as large as
 sizeof(\fBvoid *\fR)\&.
+.PP
+The
+\fBaligned_alloc\fR\fB\fR
+function allocates
+\fIsize\fR
+bytes of memory such that the allocation\*(Aqs base address is an even multiple of
+\fIalignment\fR\&. The requested
+\fIalignment\fR
+must be a power of 2\&. Behavior is undefined if
+\fIsize\fR
+is not an integral multiple of
+\fIalignment\fR\&.
 .PP
 The
 \fBrealloc\fR\fB\fR
@@ -236,13 +252,16 @@ for (i = 0; i < nbins; i++) {
 .\}
 .SS "Experimental API"
 .PP
-The experimental API is subject to change or removal without regard for backward compatibility\&.
+The experimental API is subject to change or removal without regard for backward compatibility\&. If
+\fB\-\-disable\-experimental\fR
+is specified during configuration, the experimental API is omitted\&.
 .PP
 The
 \fBallocm\fR\fB\fR,
 \fBrallocm\fR\fB\fR,
-\fBsallocm\fR\fB\fR, and
-\fBdallocm\fR\fB\fR
+\fBsallocm\fR\fB\fR,
+\fBdallocm\fR\fB\fR, and
+\fBnallocm\fR\fB\fR
 functions all have a
 \fIflags\fR
 argument that can be used to specify options\&. The functions only check the options that are contextually relevant\&. Use bitwise or (|) operations to specify one or more of the following:
@@ -286,7 +305,10 @@ to the base address of the allocation, and sets
 to the real size of the allocation if
 \fIrsize\fR
 is not
-\fBNULL\fR\&.
+\fBNULL\fR\&. Behavior is undefined if
+\fIsize\fR
+is
+\fB0\fR\&.
 .PP
 The
 \fBrallocm\fR\fB\fR
@@ -306,6 +328,9 @@ is not
 is non\-zero, an attempt is made to resize the allocation to be at least
 \fIsize\fR + \fIextra\fR)
 bytes, though inability to allocate the extra byte(s) will not by itself result in failure\&. Behavior is undefined if
+\fIsize\fR
+is
+\fB0\fR, or if
 (\fIsize\fR + \fIextra\fR > \fBSIZE_T_MAX\fR)\&.
 .PP
 The
@@ -319,6 +344,23 @@ The
 function causes the memory referenced by
 \fIptr\fR
 to be made available for future allocations\&.
+.PP
+The
+\fBnallocm\fR\fB\fR
+function allocates no memory, but it performs the same size computation as the
+\fBallocm\fR\fB\fR
+function, and if
+\fIrsize\fR
+is not
+\fBNULL\fR
+it sets
+\fI*rsize\fR
+to the real size of the allocation that would result from the equivalent
+\fBallocm\fR\fB\fR
+function call\&. Behavior is undefined if
+\fIsize\fR
+is
+\fB0\fR\&.
 .SH "TUNING"
 .PP
 Once, when the first call is made to one of the memory allocation routines, the allocator initializes its internals based in part on various options that can be specified at compile\- or run\-time\&.
@@ -346,9 +388,9 @@ Traditionally, allocators have used
 to obtain memory, which is suboptimal for several reasons, including race conditions, increased fragmentation, and artificial limitations on maximum usable memory\&. If
 \fB\-\-enable\-dss\fR
 is specified during configuration, this allocator uses both
-\fBsbrk\fR(2)
+\fBmmap\fR(2)
 and
-\fBmmap\fR(2), in that order of preference; otherwise only
+\fBsbrk\fR(2), in that order of preference; otherwise only
 \fBmmap\fR(2)
 is used\&.
 .PP
@@ -364,14 +406,8 @@ User objects are broken into three categories according to size: small, large, a
 .PP
 Each chunk that is managed by an arena tracks its contents as runs of contiguous pages (unused, backing a set of small objects, or backing one large object)\&. The combination of chunk alignment and chunk page maps makes it possible to determine all metadata regarding small and large allocations in constant time\&.
 .PP
-Small objects are managed in groups by page runs\&. Each run maintains a frontier and free list to track which regions are in use\&. Unless
-\fB\-\-disable\-tiny\fR
-is specified during configuration, allocation requests that are no more than half the quantum (8 or 16, depending on architecture) are rounded up to the nearest power of two that is at least
-sizeof(\fBvoid *\fR)\&. Allocation requests that are more than half the quantum, but no more than the minimum cacheline\-multiple size class (see the
-"opt\&.lg_qspace_max"
-option) are rounded up to the nearest multiple of the quantum\&. Allocation requests that are more than the minimum cacheline\-multiple size class, but no more than the minimum subpage\-multiple size class (see the
-"opt\&.lg_cspace_max"
-option) are rounded up to the nearest multiple of the cacheline size (64)\&. Allocation requests that are more than the minimum subpage\-multiple size class, but no more than the maximum subpage\-multiple size class are rounded up to the nearest multiple of the subpage size (256)\&. Allocation requests that are more than the maximum subpage\-multiple size class, but small enough to fit in an arena\-managed chunk (see the
+Small objects are managed in groups by page runs\&. Each run maintains a frontier and free list to track which regions are in use\&. Allocation requests that are no more than half the quantum (8 or 16, depending on architecture) are rounded up to the nearest power of two that is at least
+sizeof(\fBdouble\fR)\&. All other small object size classes are multiples of the quantum, spaced such that internal fragmentation is limited to approximately 25% for all but the smallest size classes\&. Allocation requests that are larger than the maximum small size class, but small enough to fit in an arena\-managed chunk (see the
 "opt\&.lg_chunk"
 option), are rounded up to the nearest run size\&. Allocation requests that are too large to fit in an arena\-managed chunk are rounded up to the nearest multiple of the chunk size\&.
 .PP
@@ -387,50 +423,72 @@ Table 1\&.
 .B Table\ \&1.\ \&Size classes
 .TS
 allbox tab(:);
-lB lB lB.
+lB rB lB.
 T{
 Category
 T}:T{
-Subcategory
+Spacing
 T}:T{
 Size
 T}
 .T&
-l l l
-^ l l
-^ l l
-^ l l
-l s l
-l s l.
+l r l
+^ r l
+^ r l
+^ r l
+^ r l
+^ r l
+^ r l
+l r l
+l r l.
 T{
 Small
 T}:T{
-Tiny
+lg
 T}:T{
 [8]
 T}
 :T{
-Quantum\-spaced
+16
 T}:T{
 [16, 32, 48, \&.\&.\&., 128]
 T}
 :T{
-Cacheline\-spaced
+32
 T}:T{
-[192, 256, 320, \&.\&.\&., 512]
+[160, 192, 224, 256]
 T}
 :T{
-Subpage\-spaced
+64
 T}:T{
-[768, 1024, 1280, \&.\&.\&., 3840]
+[320, 384, 448, 512]
+T}
+:T{
+128
+T}:T{
+[640, 768, 896, 1024]
+T}
+:T{
+256
+T}:T{
+[1280, 1536, 1792, 2048]
+T}
+:T{
+512
+T}:T{
+[2560, 3072, 3584]
 T}
 T{
 Large
+T}:T{
+4 KiB
 T}:T{
 [4 KiB, 8 KiB, 12 KiB, \&.\&.\&., 4072 KiB]
 T}
 T{
 Huge
+T}:T{
+4 MiB
 T}:T{
 [4 MiB, 8 MiB, 12 MiB, \&.\&.\&.]
 T}
@@ -481,12 +539,6 @@ was specified during build configuration\&.
 was specified during build configuration\&.
 .RE
 .PP
-"config\&.dynamic_page_shift" (\fBbool\fR) r\-
-.RS 4
-\fB\-\-enable\-dynamic\-page\-shift\fR
-was specified during build configuration\&.
-.RE
-.PP
 "config\&.fill" (\fBbool\fR) r\-
 .RS 4
 \fB\-\-enable\-fill\fR
@@ -496,6 +548,18 @@ was specified during build configuration\&.
 "config\&.lazy_lock" (\fBbool\fR) r\-
 .RS 4
 \fB\-\-enable\-lazy\-lock\fR
+was specified during build configuration\&.
+.RE
+.PP
+"config\&.mremap" (\fBbool\fR) r\-
+.RS 4
+\fB\-\-enable\-mremap\fR
+was specified during build configuration\&.
+.RE
+.PP
+"config\&.munmap" (\fBbool\fR) r\-
+.RS 4
+\fB\-\-enable\-munmap\fR
 was specified during build configuration\&.
 .RE
 .PP
@@ -523,27 +587,9 @@ was specified during build configuration\&.
 was specified during build configuration\&.
 .RE
 .PP
-"config\&.swap" (\fBbool\fR) r\-
-.RS 4
-\fB\-\-enable\-swap\fR
-was specified during build configuration\&.
-.RE
-.PP
-"config\&.sysv" (\fBbool\fR) r\-
-.RS 4
-\fB\-\-enable\-sysv\fR
-was specified during build configuration\&.
-.RE
-.PP
 "config\&.tcache" (\fBbool\fR) r\-
 .RS 4
 \fB\-\-disable\-tcache\fR
-was not specified during build configuration\&.
-.RE
-.PP
-"config\&.tiny" (\fBbool\fR) r\-
-.RS 4
-\fB\-\-disable\-tiny\fR
 was not specified during build configuration\&.
 .RE
 .PP
@@ -551,6 +597,18 @@ was not specified during build configuration\&.
 .RS 4
 \fB\-\-disable\-tls\fR
 was not specified during build configuration\&.
+.RE
+.PP
+"config\&.utrace" (\fBbool\fR) r\-
+.RS 4
+\fB\-\-enable\-utrace\fR
+was specified during build configuration\&.
+.RE
+.PP
+"config\&.valgrind" (\fBbool\fR) r\-
+.RS 4
+\fB\-\-enable\-valgrind\fR
+was specified during build configuration\&.
 .RE
 .PP
 "config\&.xmalloc" (\fBbool\fR) r\-
@@ -566,16 +624,6 @@ Abort\-on\-warning enabled/disabled\&. If true, most warnings are fatal\&. The p
 in these cases\&. This option is disabled by default unless
 \fB\-\-enable\-debug\fR
 is specified during configuration, in which case it is enabled by default\&.
-.RE
-.PP
-"opt\&.lg_qspace_max" (\fBsize_t\fR) r\-
-.RS 4
-Size (log base 2) of the maximum size class that is a multiple of the quantum (8 or 16 bytes, depending on architecture)\&. Above this size, cacheline spacing is used for size classes\&. The default value is 128 bytes (2^7)\&.
-.RE
-.PP
-"opt\&.lg_cspace_max" (\fBsize_t\fR) r\-
-.RS 4
-Size (log base 2) of the maximum size class that is a multiple of the cacheline size (64)\&. Above this size, subpage spacing (256 bytes) is used for size classes\&. The default value is 512 bytes (2^9)\&.
 .RE
 .PP
 "opt\&.lg_chunk" (\fBsize_t\fR) r\-
@@ -615,6 +663,22 @@ Junk filling enabled/disabled\&. If enabled, each byte of uninitialized allocate
 is specified during configuration, in which case it is enabled by default\&.
 .RE
 .PP
+"opt\&.quarantine" (\fBsize_t\fR) r\- [\fB\-\-enable\-fill\fR]
+.RS 4
+Per thread quarantine size in bytes\&. If non\-zero, each thread maintains a FIFO object quarantine that stores up to the specified number of bytes of memory\&. The quarantined memory is not freed until it is released from quarantine, though it is immediately junk\-filled if the
+"opt\&.junk"
+option is enabled\&. This feature is of particular use in combination with
+\m[blue]\fBValgrind\fR\m[]\&\s-2\u[2]\d\s+2, which can detect attempts to access quarantined objects\&. This is intended for debugging and will impact performance negatively\&. The default quarantine size is 0\&.
+.RE
+.PP
+"opt\&.redzone" (\fBbool\fR) r\- [\fB\-\-enable\-fill\fR]
+.RS 4
+Redzones enabled/disabled\&. If enabled, small allocations have redzones before and after them\&. Furthermore, if the
+"opt\&.junk"
+option is enabled, the redzones are checked for corruption during deallocation\&. However, the primary intended purpose of this feature is to be used in combination with
+\m[blue]\fBValgrind\fR\m[]\&\s-2\u[2]\d\s+2, which needs redzones in order to do effective buffer overflow/underflow detection\&. This option is intended for debugging and will impact performance negatively\&. This option is disabled by default\&.
+.RE
+.PP
 "opt\&.zero" (\fBbool\fR) r\- [\fB\-\-enable\-fill\fR]
 .RS 4
 Zero filling enabled/disabled\&. If enabled, each byte of uninitialized allocated memory will be initialized to 0\&. Note that this initialization only happens once for each byte, so
@@ -624,13 +688,25 @@ and
 calls do not zero memory that was previously allocated\&. This is intended for debugging and will impact performance negatively\&. This option is disabled by default\&.
 .RE
 .PP
-"opt\&.sysv" (\fBbool\fR) r\- [\fB\-\-enable\-sysv\fR]
+"opt\&.utrace" (\fBbool\fR) r\- [\fB\-\-enable\-utrace\fR]
 .RS 4
-If enabled, attempting to allocate zero bytes will return a
-\fBNULL\fR
-pointer instead of a valid pointer\&. (The default behavior is to make a minimal allocation and return a pointer to it\&.) This option is provided for System V compatibility\&. This option is incompatible with the
-"opt\&.xmalloc"
-option\&. This option is disabled by default\&.
+Allocation tracing based on
+\fButrace\fR(2)
+enabled/disabled\&. This option is disabled by default\&.
+.RE
+.PP
+"opt\&.valgrind" (\fBbool\fR) r\- [\fB\-\-enable\-valgrind\fR]
+.RS 4
+\m[blue]\fBValgrind\fR\m[]\&\s-2\u[2]\d\s+2
+support enabled/disabled\&. If enabled, several other options are automatically modified during options processing to work well with Valgrind:
+"opt\&.junk"
+and
+"opt\&.zero"
+are set to false,
+"opt\&.quarantine"
+is set to 16 MiB, and
+"opt\&.redzone"
+is set to true\&. This option is disabled by default\&.
 .RE
 .PP
 "opt\&.xmalloc" (\fBbool\fR) r\- [\fB\-\-enable\-xmalloc\fR]
@@ -656,15 +732,8 @@ This option is disabled by default\&.
 "opt\&.tcache" (\fBbool\fR) r\- [\fB\-\-enable\-tcache\fR]
 .RS 4
 Thread\-specific caching enabled/disabled\&. When there are multiple threads, each thread uses a thread\-specific cache for objects up to a certain size\&. Thread\-specific caching allows many allocations to be satisfied without performing any thread synchronization, at the cost of increased memory use\&. See the
-"opt\&.lg_tcache_gc_sweep"
-and
 "opt\&.lg_tcache_max"
-options for related tuning information\&. This option is enabled by default\&.
-.RE
-.PP
-"opt\&.lg_tcache_gc_sweep" (\fBssize_t\fR) r\- [\fB\-\-enable\-tcache\fR]
-.RS 4
-Approximate interval (log base 2) between full thread\-specific cache garbage collection sweeps, counted in terms of thread\-specific cache allocation/deallocation events\&. Garbage collection is actually performed incrementally, one size class at a time, in order to avoid large collection pauses\&. The default sweep interval is 8192 (2^13); setting this option to \-1 will disable garbage collection\&.
+option for related tuning information\&. This option is enabled by default\&.
 .RE
 .PP
 "opt\&.lg_tcache_max" (\fBsize_t\fR) r\- [\fB\-\-enable\-tcache\fR]
@@ -674,42 +743,28 @@ Maximum size class (log base 2) to cache in the thread\-specific cache\&. At a m
 .PP
 "opt\&.prof" (\fBbool\fR) r\- [\fB\-\-enable\-prof\fR]
 .RS 4
-Memory profiling enabled/disabled\&. If enabled, profile memory allocation activity, and use an
-\fBatexit\fR(3)
-function to dump final memory usage to a file named according to the pattern
-<prefix>\&.<pid>\&.<seq>\&.f\&.heap, where
-<prefix>
-is controlled by the
-"opt\&.prof_prefix"
-option\&. See the
-"opt\&.lg_prof_bt_max"
-option for backtrace depth control\&. See the
+Memory profiling enabled/disabled\&. If enabled, profile memory allocation activity\&. See the
 "opt\&.prof_active"
 option for on\-the\-fly activation/deactivation\&. See the
 "opt\&.lg_prof_sample"
 option for probabilistic sampling control\&. See the
 "opt\&.prof_accum"
 option for control of cumulative sample reporting\&. See the
-"opt\&.lg_prof_tcmax"
-option for control of per thread backtrace caching\&. See the
 "opt\&.lg_prof_interval"
-option for information on interval\-triggered profile dumping, and the
+option for information on interval\-triggered profile dumping, the
 "opt\&.prof_gdump"
-option for information on high\-water\-triggered profile dumping\&. Profile output is compatible with the included
+option for information on high\-water\-triggered profile dumping, and the
+"opt\&.prof_final"
+option for final profile dumping\&. Profile output is compatible with the included
 \fBpprof\fR
 Perl script, which originates from the
-\m[blue]\fBgoogle\-perftools package\fR\m[]\&\s-2\u[2]\d\s+2\&.
+\m[blue]\fBgperftools package\fR\m[]\&\s-2\u[3]\d\s+2\&.
 .RE
 .PP
 "opt\&.prof_prefix" (\fBconst char *\fR) r\- [\fB\-\-enable\-prof\fR]
 .RS 4
 Filename prefix for profile dumps\&. If the prefix is set to the empty string, no automatic dumps will occur; this is primarily useful for disabling the automatic final heap dump (which also disables leak reporting, if enabled)\&. The default prefix is
 jeprof\&.
-.RE
-.PP
-"opt\&.lg_prof_bt_max" (\fBsize_t\fR) r\- [\fB\-\-enable\-prof\fR]
-.RS 4
-Maximum backtrace depth (log base 2) when profiling memory allocation activity\&. The default is 128 (2^7)\&.
 .RE
 .PP
 "opt\&.prof_active" (\fBbool\fR) r\- [\fB\-\-enable\-prof\fR]
@@ -723,21 +778,12 @@ mallctl\&. This option is enabled by default\&.
 .PP
 "opt\&.lg_prof_sample" (\fBssize_t\fR) r\- [\fB\-\-enable\-prof\fR]
 .RS 4
-Average interval (log base 2) between allocation samples, as measured in bytes of allocation activity\&. Increasing the sampling interval decreases profile fidelity, but also decreases the computational overhead\&. The default sample interval is 1 (2^0) (i\&.e\&. all allocations are sampled)\&.
+Average interval (log base 2) between allocation samples, as measured in bytes of allocation activity\&. Increasing the sampling interval decreases profile fidelity, but also decreases the computational overhead\&. The default sample interval is 512 KiB (2^19 B)\&.
 .RE
 .PP
 "opt\&.prof_accum" (\fBbool\fR) r\- [\fB\-\-enable\-prof\fR]
 .RS 4
-Reporting of cumulative object/byte counts in profile dumps enabled/disabled\&. If this option is enabled, every unique backtrace must be stored for the duration of execution\&. Depending on the application, this can impose a large memory overhead, and the cumulative counts are not always of interest\&. See the
-"opt\&.lg_prof_tcmax"
-option for control of per thread backtrace caching, which has important interactions\&. This option is enabled by default\&.
-.RE
-.PP
-"opt\&.lg_prof_tcmax" (\fBssize_t\fR) r\- [\fB\-\-enable\-prof\fR]
-.RS 4
-Maximum per thread backtrace cache (log base 2) used for heap profiling\&. A backtrace can only be discarded if the
-"opt\&.prof_accum"
-option is disabled, and no thread caches currently refer to the backtrace\&. Therefore, a backtrace cache limit should be imposed if the intention is to limit how much memory is used by backtraces\&. By default, no limit is imposed (encoded as \-1)\&.
+Reporting of cumulative object/byte counts in profile dumps enabled/disabled\&. If this option is enabled, every unique backtrace must be stored for the duration of execution\&. Depending on the application, this can impose a large memory overhead, and the cumulative counts are not always of interest\&. This option is disabled by default\&.
 .RE
 .PP
 "opt\&.lg_prof_interval" (\fBssize_t\fR) r\- [\fB\-\-enable\-prof\fR]
@@ -760,31 +806,25 @@ is controlled by the
 option\&. This option is disabled by default\&.
 .RE
 .PP
+"opt\&.prof_final" (\fBbool\fR) r\- [\fB\-\-enable\-prof\fR]
+.RS 4
+Use an
+\fBatexit\fR(3)
+function to dump final memory usage to a file named according to the pattern
+<prefix>\&.<pid>\&.<seq>\&.f\&.heap, where
+<prefix>
+is controlled by the
+"opt\&.prof_prefix"
+option\&. This option is enabled by default\&.
+.RE
+.PP
 "opt\&.prof_leak" (\fBbool\fR) r\- [\fB\-\-enable\-prof\fR]
 .RS 4
 Leak reporting enabled/disabled\&. If enabled, use an
 \fBatexit\fR(3)
 function to report memory leaks detected by allocation sampling\&. See the
-"opt\&.lg_prof_bt_max"
-option for backtrace depth control\&. See the
 "opt\&.prof"
 option for information on analyzing heap profile output\&. This option is disabled by default\&.
-.RE
-.PP
-"opt\&.overcommit" (\fBbool\fR) r\- [\fB\-\-enable\-swap\fR]
-.RS 4
-Over\-commit enabled/disabled\&. If enabled, over\-commit memory as a side effect of using anonymous
-\fBmmap\fR(2)
-or
-\fBsbrk\fR(2)
-for virtual memory allocation\&. In order for overcommit to be disabled, the
-"swap\&.fds"
-mallctl must have been successfully written to\&. This option is enabled by default\&.
-.RE
-.PP
-"tcache\&.flush" (\fBvoid\fR) \-\- [\fB\-\-enable\-tcache\fR]
-.RS 4
-Flush calling thread\*(Aqs tcache\&. This interface releases all cached objects and internal data structures associated with the calling thread\*(Aqs thread\-specific cache\&. Ordinarily, this interface need not be called, since automatic periodic incremental garbage collection occurs, and the thread cache is automatically discarded when a thread exits\&. However, garbage collection is triggered by allocation activity, so it is possible for a thread that stops allocating/deallocating to retain its cache indefinitely, in which case the developer may find manual flushing useful\&.
 .RE
 .PP
 "thread\&.arena" (\fBunsigned\fR) rw
@@ -824,6 +864,17 @@ mallctl\&. This is useful for avoiding the overhead of repeated
 calls\&.
 .RE
 .PP
+"thread\&.tcache\&.enabled" (\fBbool\fR) rw [\fB\-\-enable\-tcache\fR]
+.RS 4
+Enable/disable calling thread\*(Aqs tcache\&. The tcache is implicitly flushed as a side effect of becoming disabled (see
+"thread\&.tcache\&.flush")\&.
+.RE
+.PP
+"thread\&.tcache\&.flush" (\fBvoid\fR) \-\- [\fB\-\-enable\-tcache\fR]
+.RS 4
+Flush calling thread\*(Aqs tcache\&. This interface releases all cached objects and internal data structures associated with the calling thread\*(Aqs thread\-specific cache\&. Ordinarily, this interface need not be called, since automatic periodic incremental garbage collection occurs, and the thread cache is automatically discarded when a thread exits\&. However, garbage collection is triggered by allocation activity, so it is possible for a thread that stops allocating/deallocating to retain its cache indefinitely, in which case the developer may find manual flushing useful\&.
+.RE
+.PP
 "arenas\&.narenas" (\fBunsigned\fR) r\-
 .RS 4
 Maximum number of arenas\&.
@@ -841,64 +892,9 @@ booleans\&. Each boolean indicates whether the corresponding arena is initialize
 Quantum size\&.
 .RE
 .PP
-"arenas\&.cacheline" (\fBsize_t\fR) r\-
-.RS 4
-Assumed cacheline size\&.
-.RE
-.PP
-"arenas\&.subpage" (\fBsize_t\fR) r\-
-.RS 4
-Subpage size class interval\&.
-.RE
-.PP
-"arenas\&.pagesize" (\fBsize_t\fR) r\-
+"arenas\&.page" (\fBsize_t\fR) r\-
 .RS 4
 Page size\&.
-.RE
-.PP
-"arenas\&.chunksize" (\fBsize_t\fR) r\-
-.RS 4
-Chunk size\&.
-.RE
-.PP
-"arenas\&.tspace_min" (\fBsize_t\fR) r\-
-.RS 4
-Minimum tiny size class\&. Tiny size classes are powers of two\&.
-.RE
-.PP
-"arenas\&.tspace_max" (\fBsize_t\fR) r\-
-.RS 4
-Maximum tiny size class\&. Tiny size classes are powers of two\&.
-.RE
-.PP
-"arenas\&.qspace_min" (\fBsize_t\fR) r\-
-.RS 4
-Minimum quantum\-spaced size class\&.
-.RE
-.PP
-"arenas\&.qspace_max" (\fBsize_t\fR) r\-
-.RS 4
-Maximum quantum\-spaced size class\&.
-.RE
-.PP
-"arenas\&.cspace_min" (\fBsize_t\fR) r\-
-.RS 4
-Minimum cacheline\-spaced size class\&.
-.RE
-.PP
-"arenas\&.cspace_max" (\fBsize_t\fR) r\-
-.RS 4
-Maximum cacheline\-spaced size class\&.
-.RE
-.PP
-"arenas\&.sspace_min" (\fBsize_t\fR) r\-
-.RS 4
-Minimum subpage\-spaced size class\&.
-.RE
-.PP
-"arenas\&.sspace_max" (\fBsize_t\fR) r\-
-.RS 4
-Maximum subpage\-spaced size class\&.
 .RE
 .PP
 "arenas\&.tcache_max" (\fBsize_t\fR) r\- [\fB\-\-enable\-tcache\fR]
@@ -906,29 +902,9 @@ Maximum subpage\-spaced size class\&.
 Maximum thread\-cached size class\&.
 .RE
 .PP
-"arenas\&.ntbins" (\fBunsigned\fR) r\-
-.RS 4
-Number of tiny bin size classes\&.
-.RE
-.PP
-"arenas\&.nqbins" (\fBunsigned\fR) r\-
-.RS 4
-Number of quantum\-spaced bin size classes\&.
-.RE
-.PP
-"arenas\&.ncbins" (\fBunsigned\fR) r\-
-.RS 4
-Number of cacheline\-spaced bin size classes\&.
-.RE
-.PP
-"arenas\&.nsbins" (\fBunsigned\fR) r\-
-.RS 4
-Number of subpage\-spaced bin size classes\&.
-.RE
-.PP
 "arenas\&.nbins" (\fBunsigned\fR) r\-
 .RS 4
-Total number of bin size classes\&.
+Number of bin size classes\&.
 .RE
 .PP
 "arenas\&.nhbins" (\fBunsigned\fR) r\- [\fB\-\-enable\-tcache\fR]
@@ -1011,12 +987,12 @@ Total number of bytes in active pages allocated by the application\&. This is a 
 "stats\&.mapped" (\fBsize_t\fR) r\- [\fB\-\-enable\-stats\fR]
 .RS 4
 Total number of bytes in chunks mapped on behalf of the application\&. This is a multiple of the chunk size, and is at least as large as
-"stats\&.active"\&. This does not include inactive chunks backed by swap files\&. his does not include inactive chunks embedded in the DSS\&.
+"stats\&.active"\&. This does not include inactive chunks\&.
 .RE
 .PP
 "stats\&.chunks\&.current" (\fBsize_t\fR) r\- [\fB\-\-enable\-stats\fR]
 .RS 4
-Total number of chunks actively mapped on behalf of the application\&. This does not include inactive chunks backed by swap files\&. This does not include inactive chunks embedded in the DSS\&.
+Total number of chunks actively mapped on behalf of the application\&. This does not include inactive chunks\&.
 .RE
 .PP
 "stats\&.chunks\&.total" (\fBuint64_t\fR) r\- [\fB\-\-enable\-stats\fR]
@@ -1163,11 +1139,6 @@ Cumulative number of runs created\&.
 Cumulative number of times the current run from which to allocate changed\&.
 .RE
 .PP
-"stats\&.arenas\&.<i>\&.bins\&.<j>\&.highruns" (\fBsize_t\fR) r\- [\fB\-\-enable\-stats\fR]
-.RS 4
-Maximum number of runs at any time thus far\&.
-.RE
-.PP
 "stats\&.arenas\&.<i>\&.bins\&.<j>\&.curruns" (\fBsize_t\fR) r\- [\fB\-\-enable\-stats\fR]
 .RS 4
 Current number of runs\&.
@@ -1188,43 +1159,9 @@ Cumulative number of deallocation requests for this size class served directly b
 Cumulative number of allocation requests for this size class\&.
 .RE
 .PP
-"stats\&.arenas\&.<i>\&.lruns\&.<j>\&.highruns" (\fBsize_t\fR) r\- [\fB\-\-enable\-stats\fR]
-.RS 4
-Maximum number of runs at any time thus far for this size class\&.
-.RE
-.PP
 "stats\&.arenas\&.<i>\&.lruns\&.<j>\&.curruns" (\fBsize_t\fR) r\- [\fB\-\-enable\-stats\fR]
 .RS 4
 Current number of runs for this size class\&.
-.RE
-.PP
-"swap\&.avail" (\fBsize_t\fR) r\- [\fB\-\-enable\-stats \-\-enable\-swap\fR]
-.RS 4
-Number of swap file bytes that are currently not associated with any chunk (i\&.e\&. mapped, but otherwise completely unmanaged)\&.
-.RE
-.PP
-"swap\&.prezeroed" (\fBbool\fR) rw [\fB\-\-enable\-swap\fR]
-.RS 4
-If true, the allocator assumes that the swap file(s) contain nothing but nil bytes\&. If this assumption is violated, allocator behavior is undefined\&. This value becomes read\-only after
-"swap\&.fds"
-is successfully written to\&.
-.RE
-.PP
-"swap\&.nfds" (\fBsize_t\fR) r\- [\fB\-\-enable\-swap\fR]
-.RS 4
-Number of file descriptors in use for swap\&.
-.RE
-.PP
-"swap\&.fds" (\fBint *\fR) rw [\fB\-\-enable\-swap\fR]
-.RS 4
-When written to, the files associated with the specified file descriptors are contiguously mapped via
-\fBmmap\fR(2)\&. The resulting virtual memory region is preferred over anonymous
-\fBmmap\fR(2)
-and
-\fBsbrk\fR(2)
-memory\&. Note that if a file\*(Aqs size is not a multiple of the page size, it is automatically truncated to the nearest page size multiple\&. See the
-"swap\&.prezeroed"
-mallctl for specifying that the files are pre\-zeroed\&.
 .RE
 .SH "DEBUGGING MALLOC PROBLEMS"
 .PP
@@ -1240,7 +1177,13 @@ option) tends to expose such bugs in the form of obviously incorrect results and
 "opt\&.zero"
 option) eliminates the symptoms of such bugs\&. Between these two options, it is usually possible to quickly detect, diagnose, and eliminate such bugs\&.
 .PP
-This implementation does not provide much detail about the problems it detects, because the performance impact for storing such information would be prohibitive\&. There are a number of allocator implementations available on the Internet which focus on detecting and pinpointing problems by trading performance for extra sanity checks and detailed diagnostics\&.
+This implementation does not provide much detail about the problems it detects, because the performance impact for storing such information would be prohibitive\&. However, jemalloc does integrate with the most excellent
+\m[blue]\fBValgrind\fR\m[]\&\s-2\u[2]\d\s+2
+tool if the
+\fB\-\-enable\-valgrind\fR
+configuration option is enabled and the
+"opt\&.valgrind"
+option is enabled\&.
 .SH "DIAGNOSTIC MESSAGES"
 .PP
 If any of the memory allocation/deallocation functions detect an error or warning condition, a message will be printed to file descriptor
@@ -1288,6 +1231,28 @@ The
 \fIalignment\fR
 parameter is not a power of 2 at least as large as
 sizeof(\fBvoid *\fR)\&.
+.RE
+.PP
+ENOMEM
+.RS 4
+Memory allocation error\&.
+.RE
+.PP
+The
+\fBaligned_alloc\fR\fB\fR
+function returns a pointer to the allocated memory if successful; otherwise a
+\fBNULL\fR
+pointer is returned and
+\fIerrno\fR
+is set\&. The
+\fBaligned_alloc\fR\fB\fR
+function will fail if:
+.PP
+EINVAL
+.RS 4
+The
+\fIalignment\fR
+parameter is not a power of 2\&.
 .RE
 .PP
 ENOMEM
@@ -1370,14 +1335,15 @@ read/write processing\&.
 The
 \fBallocm\fR\fB\fR,
 \fBrallocm\fR\fB\fR,
-\fBsallocm\fR\fB\fR, and
-\fBdallocm\fR\fB\fR
+\fBsallocm\fR\fB\fR,
+\fBdallocm\fR\fB\fR, and
+\fBnallocm\fR\fB\fR
 functions return
 \fBALLOCM_SUCCESS\fR
 on success; otherwise they return an error value\&. The
-\fBallocm\fR\fB\fR
-and
-\fBrallocm\fR\fB\fR
+\fBallocm\fR\fB\fR,
+\fBrallocm\fR\fB\fR, and
+\fBnallocm\fR\fB\fR
 functions will fail if:
 .PP
 ALLOCM_ERR_OOM
@@ -1442,6 +1408,7 @@ malloc_conf = "lg_chunk:24";
 \fBmadvise\fR(2),
 \fBmmap\fR(2),
 \fBsbrk\fR(2),
+\fButrace\fR(2),
 \fBalloca\fR(3),
 \fBatexit\fR(3),
 \fBgetpagesize\fR(3)
@@ -1469,7 +1436,12 @@ jemalloc website
 \%http://www.canonware.com/jemalloc/
 .RE
 .IP " 2." 4
-google-perftools package
+Valgrind
 .RS 4
-\%http://code.google.com/p/google-perftools/
+\%http://valgrind.org/
+.RE
+.IP " 3." 4
+gperftools package
+.RS 4
+\%http://code.google.com/p/gperftools/
 .RE

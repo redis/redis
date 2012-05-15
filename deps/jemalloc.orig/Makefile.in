@@ -1,0 +1,259 @@
+# Clear out all vpaths, then set just one (default vpath) for the main build
+# directory.
+vpath
+vpath % .
+
+# Clear the default suffixes, so that built-in rules are not used.
+.SUFFIXES :
+
+SHELL := /bin/sh
+
+CC := @CC@
+
+# Configuration parameters.
+DESTDIR =
+BINDIR := $(DESTDIR)@BINDIR@
+INCLUDEDIR := $(DESTDIR)@INCLUDEDIR@
+LIBDIR := $(DESTDIR)@LIBDIR@
+DATADIR := $(DESTDIR)@DATADIR@
+MANDIR := $(DESTDIR)@MANDIR@
+
+# Build parameters.
+CPPFLAGS := @CPPFLAGS@ -I@srcroot@include -I@objroot@include
+CFLAGS := @CFLAGS@
+ifeq (macho, @abi@)
+CFLAGS += -dynamic
+endif
+LDFLAGS := @LDFLAGS@
+LIBS := @LIBS@
+RPATH_EXTRA := @RPATH_EXTRA@
+ifeq (macho, @abi@)
+SO := dylib
+WL_SONAME := dylib_install_name
+else
+SO := so
+WL_SONAME := soname
+endif
+REV := 1
+ifeq (macho, @abi@)
+TEST_LIBRARY_PATH := DYLD_FALLBACK_LIBRARY_PATH=@objroot@lib
+else
+TEST_LIBRARY_PATH :=
+endif
+
+# Lists of files.
+BINS := @srcroot@bin/pprof
+CHDRS := @objroot@include/jemalloc/jemalloc@install_suffix@.h \
+	@objroot@include/jemalloc/jemalloc_defs@install_suffix@.h
+CSRCS := @srcroot@src/jemalloc.c @srcroot@src/arena.c @srcroot@src/atomic.c \
+	@srcroot@src/base.c @srcroot@src/bitmap.c @srcroot@src/chunk.c \
+	@srcroot@src/chunk_dss.c @srcroot@src/chunk_mmap.c \
+	@srcroot@src/chunk_swap.c @srcroot@src/ckh.c @srcroot@src/ctl.c \
+	@srcroot@src/extent.c @srcroot@src/hash.c @srcroot@src/huge.c \
+	@srcroot@src/mb.c @srcroot@src/mutex.c @srcroot@src/prof.c \
+	@srcroot@src/rtree.c @srcroot@src/stats.c @srcroot@src/tcache.c
+ifeq (macho, @abi@)
+CSRCS += @srcroot@src/zone.c
+endif
+STATIC_LIBS :=	@objroot@lib/libjemalloc@install_suffix@.a
+DSOS := @objroot@lib/libjemalloc@install_suffix@.$(SO).$(REV) \
+	@objroot@lib/libjemalloc@install_suffix@.$(SO) \
+	@objroot@lib/libjemalloc@install_suffix@_pic.a
+MAN3 := @objroot@doc/jemalloc@install_suffix@.3
+DOCS_XML := @objroot@doc/jemalloc@install_suffix@.xml
+DOCS_HTML := $(DOCS_XML:@objroot@%.xml=@srcroot@%.html)
+DOCS_MAN3 := $(DOCS_XML:@objroot@%.xml=@srcroot@%.3)
+DOCS := $(DOCS_HTML) $(DOCS_MAN3)
+CTESTS := @srcroot@test/allocated.c @srcroot@test/allocm.c \
+	@srcroot@test/bitmap.c @srcroot@test/mremap.c \
+	@srcroot@test/posix_memalign.c @srcroot@test/rallocm.c \
+	@srcroot@test/thread_arena.c
+
+.PHONY: all dist doc_html doc_man doc
+.PHONY: install_bin install_include install_lib
+.PHONY: install_html install_man install_doc install
+.PHONY: tests check clean distclean relclean
+
+.SECONDARY : $(CTESTS:@srcroot@%.c=@objroot@%.o)
+
+# Default target.
+all: $(DSOS) $(STATIC_LIBS)
+
+dist: doc
+
+@srcroot@doc/%.html : @objroot@doc/%.xml @srcroot@doc/stylesheet.xsl @objroot@doc/html.xsl
+	@XSLTPROC@ -o $@ @objroot@doc/html.xsl $<
+
+@srcroot@doc/%.3 : @objroot@doc/%.xml @srcroot@doc/stylesheet.xsl @objroot@doc/manpages.xsl
+	@XSLTPROC@ -o $@ @objroot@doc/manpages.xsl $<
+
+doc_html: $(DOCS_HTML)
+doc_man: $(DOCS_MAN3)
+doc: $(DOCS)
+
+#
+# Include generated dependency files.
+#
+-include $(CSRCS:@srcroot@%.c=@objroot@%.d)
+-include $(CSRCS:@srcroot@%.c=@objroot@%.pic.d)
+-include $(CTESTS:@srcroot@%.c=@objroot@%.d)
+
+@objroot@src/%.o: @srcroot@src/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -c $(CPPFLAGS) -o $@ $<
+	@$(SHELL) -ec "$(CC) -MM $(CPPFLAGS) $< | sed \"s/\($(subst /,\/,$(notdir $(basename $@)))\)\.o\([ :]*\)/$(subst /,\/,$(strip $(dir $@)))\1.o \2/g\" > $(@:%.o=%.d)"
+
+@objroot@src/%.pic.o: @srcroot@src/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -fPIC -DPIC -c $(CPPFLAGS) -o $@ $<
+	@$(SHELL) -ec "$(CC) -MM $(CPPFLAGS) $< | sed \"s/\($(subst /,\/,$(notdir $(basename $(basename $@))))\)\.o\([ :]*\)/$(subst /,\/,$(strip $(dir $@)))\1.pic.o \2/g\" > $(@:%.o=%.d)"
+
+%.$(SO) : %.$(SO).$(REV)
+	@mkdir -p $(@D)
+	ln -sf $(<F) $@
+
+@objroot@lib/libjemalloc@install_suffix@.$(SO).$(REV) : $(CSRCS:@srcroot@%.c=@objroot@%.pic.o)
+	@mkdir -p $(@D)
+	$(CC) -shared -Wl,-$(WL_SONAME),$(@F) $(RPATH_EXTRA:%=@RPATH@%) -o $@ $+ $(LDFLAGS) $(LIBS)
+
+@objroot@lib/libjemalloc@install_suffix@_pic.a : $(CSRCS:@srcroot@%.c=@objroot@%.pic.o)
+	@mkdir -p $(@D)
+	ar crus $@ $+
+
+@objroot@lib/libjemalloc@install_suffix@.a : $(CSRCS:@srcroot@%.c=@objroot@%.o)
+	@mkdir -p $(@D)
+	ar crus $@ $+
+
+@objroot@test/%.o: @srcroot@test/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -c $(CPPFLAGS) -I@objroot@test -o $@ $<
+	@$(SHELL) -ec "$(CC) -MM $(CPPFLAGS) -I@objroot@test $< | sed \"s/\($(subst /,\/,$(notdir $(basename $@)))\)\.o\([ :]*\)/$(subst /,\/,$(strip $(dir $@)))\1.o \2/g\" > $(@:%.o=%.d)"
+
+# Automatic dependency generation misses #include "*.c".
+@objroot@test/bitmap.o : @objroot@src/bitmap.o
+
+@objroot@test/%: @objroot@test/%.o \
+		 @objroot@lib/libjemalloc@install_suffix@.$(SO)
+	@mkdir -p $(@D)
+ifneq (@RPATH@, )
+	$(CC) -o $@ $< @RPATH@@objroot@lib -L@objroot@lib -ljemalloc@install_suffix@ -lpthread
+else
+	$(CC) -o $@ $< -L@objroot@lib -ljemalloc@install_suffix@ -lpthread
+endif
+
+install_bin:
+	install -d $(BINDIR)
+	@for b in $(BINS); do \
+	echo "install -m 755 $$b $(BINDIR)"; \
+	install -m 755 $$b $(BINDIR); \
+done
+
+install_include:
+	install -d $(INCLUDEDIR)/jemalloc
+	@for h in $(CHDRS); do \
+	echo "install -m 644 $$h $(INCLUDEDIR)/jemalloc"; \
+	install -m 644 $$h $(INCLUDEDIR)/jemalloc; \
+done
+
+install_lib: $(DSOS) $(STATIC_LIBS)
+	install -d $(LIBDIR)
+	install -m 755 @objroot@lib/libjemalloc@install_suffix@.$(SO).$(REV) $(LIBDIR)
+	ln -sf libjemalloc@install_suffix@.$(SO).$(REV) $(LIBDIR)/libjemalloc@install_suffix@.$(SO)
+	install -m 755 @objroot@lib/libjemalloc@install_suffix@_pic.a $(LIBDIR)
+	install -m 755 @objroot@lib/libjemalloc@install_suffix@.a $(LIBDIR)
+
+install_html:
+	install -d $(DATADIR)/doc/jemalloc@install_suffix@
+	@for d in $(DOCS_HTML); do \
+	echo "install -m 644 $$d $(DATADIR)/doc/jemalloc@install_suffix@"; \
+	install -m 644 $$d $(DATADIR)/doc/jemalloc@install_suffix@; \
+done
+
+install_man:
+	install -d $(MANDIR)/man3
+	@for d in $(DOCS_MAN3); do \
+	echo "install -m 644 $$d $(MANDIR)/man3"; \
+	install -m 644 $$d $(MANDIR)/man3; \
+done
+
+install_doc: install_html install_man
+
+install: install_bin install_include install_lib install_doc
+
+tests: $(CTESTS:@srcroot@%.c=@objroot@%)
+
+check: tests
+	@mkdir -p @objroot@test
+	@$(SHELL) -c 'total=0; \
+		failures=0; \
+		echo "========================================="; \
+		for t in $(CTESTS:@srcroot@%.c=@objroot@%); do \
+			total=`expr $$total + 1`; \
+			/bin/echo -n "$${t} ... "; \
+			$(TEST_LIBRARY_PATH) $${t} @abs_srcroot@ @abs_objroot@ \
+			  > @objroot@$${t}.out 2>&1; \
+			if test -e "@srcroot@$${t}.exp"; then \
+				diff -u @srcroot@$${t}.exp \
+				  @objroot@$${t}.out >/dev/null 2>&1; \
+				fail=$$?; \
+				if test "$${fail}" -eq "1" ; then \
+					failures=`expr $${failures} + 1`; \
+					echo "*** FAIL ***"; \
+				else \
+					echo "pass"; \
+				fi; \
+			else \
+				echo "*** FAIL *** (.exp file is missing)"; \
+				failures=`expr $${failures} + 1`; \
+			fi; \
+		done; \
+		echo "========================================="; \
+		echo "Failures: $${failures}/$${total}"'
+
+clean:
+	rm -f $(CSRCS:@srcroot@%.c=@objroot@%.o)
+	rm -f $(CSRCS:@srcroot@%.c=@objroot@%.pic.o)
+	rm -f $(CSRCS:@srcroot@%.c=@objroot@%.d)
+	rm -f $(CSRCS:@srcroot@%.c=@objroot@%.pic.d)
+	rm -f $(CTESTS:@srcroot@%.c=@objroot@%)
+	rm -f $(CTESTS:@srcroot@%.c=@objroot@%.o)
+	rm -f $(CTESTS:@srcroot@%.c=@objroot@%.d)
+	rm -f $(CTESTS:@srcroot@%.c=@objroot@%.out)
+	rm -f $(DSOS) $(STATIC_LIBS)
+
+distclean: clean
+	rm -rf @objroot@autom4te.cache
+	rm -f @objroot@config.log
+	rm -f @objroot@config.status
+	rm -f @objroot@config.stamp
+	rm -f @cfghdrs_out@
+	rm -f @cfgoutputs_out@
+
+relclean: distclean
+	rm -f @objroot@configure
+	rm -f @srcroot@VERSION
+	rm -f $(DOCS_HTML)
+	rm -f $(DOCS_MAN3)
+
+#===============================================================================
+# Re-configuration rules.
+
+ifeq (@enable_autogen@, 1)
+@srcroot@configure : @srcroot@configure.ac
+	cd ./@srcroot@ && @AUTOCONF@
+
+@objroot@config.status : @srcroot@configure
+	./@objroot@config.status --recheck
+
+@srcroot@config.stamp.in : @srcroot@configure.ac
+	echo stamp > @srcroot@config.stamp.in
+
+@objroot@config.stamp : @cfgoutputs_in@ @cfghdrs_in@ @srcroot@configure
+	./@objroot@config.status
+	@touch $@
+
+# There must be some action in order for make to re-read Makefile when it is
+# out of date.
+@cfgoutputs_out@ @cfghdrs_out@ : @objroot@config.stamp
+	@true
+endif

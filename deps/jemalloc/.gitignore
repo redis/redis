@@ -11,6 +11,7 @@
 /lib/
 /Makefile
 /include/jemalloc/internal/jemalloc_internal\.h
+/include/jemalloc/internal/size_classes\.h
 /include/jemalloc/jemalloc\.h
 /include/jemalloc/jemalloc_defs\.h
 /test/jemalloc_test\.h
@@ -21,3 +22,4 @@
 !test/*.c
 !test/*.exp
 /VERSION
+/bin/jemalloc.sh
