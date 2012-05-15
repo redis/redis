@@ -1,9 +1,3 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
-#include <assert.h>
-
 #define	JEMALLOC_MANGLE
 #include "jemalloc_test.h"
 
@@ -15,113 +9,119 @@ main(void)
 	size_t sz, tsz;
 	int r;
 
-	fprintf(stderr, "Test begin\n");
+	malloc_printf("Test begin\n");
 
 	/* Get page size. */
 	{
+#ifdef _WIN32
+		SYSTEM_INFO si;
+		GetSystemInfo(&si);
+		pagesize = (size_t)si.dwPageSize;
+#else
 		long result = sysconf(_SC_PAGESIZE);
 		assert(result != -1);
 		pagesize = (size_t)result;
+#endif
 	}
 
-	r = JEMALLOC_P(allocm)(&p, &sz, 42, 0);
+	r = allocm(&p, &sz, 42, 0);
 	if (r != ALLOCM_SUCCESS) {
-		fprintf(stderr, "Unexpected allocm() error\n");
+		malloc_printf("Unexpected allocm() error\n");
 		abort();
 	}
 
 	q = p;
-	r = JEMALLOC_P(rallocm)(&q, &tsz, sz, 0, ALLOCM_NO_MOVE);
+	r = rallocm(&q, &tsz, sz, 0, ALLOCM_NO_MOVE);
 	if (r != ALLOCM_SUCCESS)
-		fprintf(stderr, "Unexpected rallocm() error\n");
+		malloc_printf("Unexpected rallocm() error\n");
 	if (q != p)
-		fprintf(stderr, "Unexpected object move\n");
+		malloc_printf("Unexpected object move\n");
 	if (tsz != sz) {
-		fprintf(stderr, "Unexpected size change: %zu --> %zu\n",
+		malloc_printf("Unexpected size change: %zu --> %zu\n",
 		    sz, tsz);
 	}
 
 	q = p;
-	r = JEMALLOC_P(rallocm)(&q, &tsz, sz, 5, ALLOCM_NO_MOVE);
+	r = rallocm(&q, &tsz, sz, 5, ALLOCM_NO_MOVE);
 	if (r != ALLOCM_SUCCESS)
-		fprintf(stderr, "Unexpected rallocm() error\n");
+		malloc_printf("Unexpected rallocm() error\n");
 	if (q != p)
-		fprintf(stderr, "Unexpected object move\n");
+		malloc_printf("Unexpected object move\n");
 	if (tsz != sz) {
-		fprintf(stderr, "Unexpected size change: %zu --> %zu\n",
+		malloc_printf("Unexpected size change: %zu --> %zu\n",
 		    sz, tsz);
 	}
 
 	q = p;
-	r = JEMALLOC_P(rallocm)(&q, &tsz, sz + 5, 0, ALLOCM_NO_MOVE);
+	r = rallocm(&q, &tsz, sz + 5, 0, ALLOCM_NO_MOVE);
 	if (r != ALLOCM_ERR_NOT_MOVED)
-		fprintf(stderr, "Unexpected rallocm() result\n");
+		malloc_printf("Unexpected rallocm() result\n");
 	if (q != p)
-		fprintf(stderr, "Unexpected object move\n");
+		malloc_printf("Unexpected object move\n");
 	if (tsz != sz) {
-		fprintf(stderr, "Unexpected size change: %zu --> %zu\n",
+		malloc_printf("Unexpected size change: %zu --> %zu\n",
 		    sz, tsz);
 	}
 
 	q = p;
-	r = JEMALLOC_P(rallocm)(&q, &tsz, sz + 5, 0, 0);
+	r = rallocm(&q, &tsz, sz + 5, 0, 0);
 	if (r != ALLOCM_SUCCESS)
-		fprintf(stderr, "Unexpected rallocm() error\n");
+		malloc_printf("Unexpected rallocm() error\n");
 	if (q == p)
-		fprintf(stderr, "Expected object move\n");
+		malloc_printf("Expected object move\n");
 	if (tsz == sz) {
-		fprintf(stderr, "Expected size change: %zu --> %zu\n",
+		malloc_printf("Expected size change: %zu --> %zu\n",
 		    sz, tsz);
 	}
 	p = q;
 	sz = tsz;
 
-	r = JEMALLOC_P(rallocm)(&q, &tsz, pagesize*2, 0, 0);
+	r = rallocm(&q, &tsz, pagesize*2, 0, 0);
 	if (r != ALLOCM_SUCCESS)
-		fprintf(stderr, "Unexpected rallocm() error\n");
+		malloc_printf("Unexpected rallocm() error\n");
 	if (q == p)
-		fprintf(stderr, "Expected object move\n");
+		malloc_printf("Expected object move\n");
 	if (tsz == sz) {
-		fprintf(stderr, "Expected size change: %zu --> %zu\n",
+		malloc_printf("Expected size change: %zu --> %zu\n",
 		    sz, tsz);
 	}
 	p = q;
 	sz = tsz;
 
-	r = JEMALLOC_P(rallocm)(&q, &tsz, pagesize*4, 0, 0);
+	r = rallocm(&q, &tsz, pagesize*4, 0, 0);
 	if (r != ALLOCM_SUCCESS)
-		fprintf(stderr, "Unexpected rallocm() error\n");
+		malloc_printf("Unexpected rallocm() error\n");
 	if (tsz == sz) {
-		fprintf(stderr, "Expected size change: %zu --> %zu\n",
+		malloc_printf("Expected size change: %zu --> %zu\n",
 		    sz, tsz);
 	}
 	p = q;
 	sz = tsz;
 
-	r = JEMALLOC_P(rallocm)(&q, &tsz, pagesize*2, 0, ALLOCM_NO_MOVE);
+	r = rallocm(&q, &tsz, pagesize*2, 0, ALLOCM_NO_MOVE);
 	if (r != ALLOCM_SUCCESS)
-		fprintf(stderr, "Unexpected rallocm() error\n");
+		malloc_printf("Unexpected rallocm() error\n");
 	if (q != p)
-		fprintf(stderr, "Unexpected object move\n");
+		malloc_printf("Unexpected object move\n");
 	if (tsz == sz) {
-		fprintf(stderr, "Expected size change: %zu --> %zu\n",
+		malloc_printf("Expected size change: %zu --> %zu\n",
 		    sz, tsz);
 	}
 	sz = tsz;
 
-	r = JEMALLOC_P(rallocm)(&q, &tsz, pagesize*4, 0, ALLOCM_NO_MOVE);
+	r = rallocm(&q, &tsz, pagesize*4, 0, ALLOCM_NO_MOVE);
 	if (r != ALLOCM_SUCCESS)
-		fprintf(stderr, "Unexpected rallocm() error\n");
+		malloc_printf("Unexpected rallocm() error\n");
 	if (q != p)
-		fprintf(stderr, "Unexpected object move\n");
+		malloc_printf("Unexpected object move\n");
 	if (tsz == sz) {
-		fprintf(stderr, "Expected size change: %zu --> %zu\n",
+		malloc_printf("Expected size change: %zu --> %zu\n",
 		    sz, tsz);
 	}
 	sz = tsz;
 
-	JEMALLOC_P(dallocm)(p, 0);
+	dallocm(p, 0);
 
-	fprintf(stderr, "Test end\n");
+	malloc_printf("Test end\n");
 	return (0);
 }

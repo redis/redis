@@ -6,6 +6,95 @@ found in the git revision history:
     http://www.canonware.com/cgi-bin/gitweb.cgi?p=jemalloc.git
     git://canonware.com/jemalloc.git
 
+* 3.0.0 (May 11, 2012)
+
+  Although this version adds some major new features, the primary focus is on
+  internal code cleanup that facilitates maintainability and portability, most
+  of which is not reflected in the ChangeLog.  This is the first release to
+  incorporate substantial contributions from numerous other developers, and the
+  result is a more broadly useful allocator (see the git revision history for
+  contribution details).  Note that the license has been unified, thanks to
+  Facebook granting a license under the same terms as the other copyright
+  holders (see COPYING).
+
+  New features:
+  - Implement Valgrind support, redzones, and quarantine.
+  - Add support for additional platforms:
+    + FreeBSD
+    + Mac OS X Lion
+    + MinGW
+    + Windows (no support yet for replacing the system malloc)
+  - Add support for additional architectures:
+    + MIPS
+    + SH4
+    + Tilera
+  - Add support for cross compiling.
+  - Add nallocm(), which rounds a request size up to the nearest size class
+    without actually allocating.
+  - Implement aligned_alloc() (blame C11).
+  - Add the "thread.tcache.enabled" mallctl.
+  - Add the "opt.prof_final" mallctl.
+  - Update pprof (from gperftools 2.0).
+  - Add the --with-mangling option.
+  - Add the --disable-experimental option.
+  - Add the --disable-munmap option, and make it the default on Linux.
+  - Add the --enable-mremap option, which disables use of mremap(2) by default.
+
+  Incompatible changes:
+  - Enable stats by default.
+  - Enable fill by default.
+  - Disable lazy locking by default.
+  - Rename the "tcache.flush" mallctl to "thread.tcache.flush".
+  - Rename the "arenas.pagesize" mallctl to "arenas.page".
+  - Change the "opt.lg_prof_sample" default from 0 to 19 (1 B to 512 KiB).
+  - Change the "opt.prof_accum" default from true to false.
+
+  Removed features:
+  - Remove the swap feature, including the "config.swap", "swap.avail",
+    "swap.prezeroed", "swap.nfds", and "swap.fds" mallctls.
+  - Remove highruns statistics, including the
+    "stats.arenas.<i>.bins.<j>.highruns" and
+    "stats.arenas.<i>.lruns.<j>.highruns" mallctls.
+  - As part of small size class refactoring, remove the "opt.lg_[qc]space_max",
+    "arenas.cacheline", "arenas.subpage", "arenas.[tqcs]space_{min,max}", and
+    "arenas.[tqcs]bins" mallctls.
+  - Remove the "arenas.chunksize" mallctl.
+  - Remove the "opt.lg_prof_tcmax" option.
+  - Remove the "opt.lg_prof_bt_max" option.
+  - Remove the "opt.lg_tcache_gc_sweep" option.
+  - Remove the --disable-tiny option, including the "config.tiny" mallctl.
+  - Remove the --enable-dynamic-page-shift configure option.
+  - Remove the --enable-sysv configure option.
+
+  Bug fixes:
+  - Fix a statistics-related bug in the "thread.arena" mallctl that could cause
+    invalid statistics and crashes.
+  - Work around TLS deallocation via free() on Linux.  This bug could cause
+    write-after-free memory corruption.
+  - Fix a potential deadlock that could occur during interval- and
+    growth-triggered heap profile dumps.
+  - Fix large calloc() zeroing bugs due to dropping chunk map unzeroed flags.
+  - Fix chunk_alloc_dss() to stop claiming memory is zeroed.  This bug could
+    cause memory corruption and crashes with --enable-dss specified.
+  - Fix fork-related bugs that could cause deadlock in children between fork
+    and exec.
+  - Fix malloc_stats_print() to honor 'b' and 'l' in the opts parameter.
+  - Fix realloc(p, 0) to act like free(p).
+  - Do not enforce minimum alignment in memalign().
+  - Check for NULL pointer in malloc_usable_size().
+  - Fix an off-by-one heap profile statistics bug that could be observed in
+    interval- and growth-triggered heap profiles.
+  - Fix the "epoch" mallctl to update cached stats even if the passed in epoch
+    is 0.
+  - Fix bin->runcur management to fix a layout policy bug.  This bug did not
+    affect correctness.
+  - Fix a bug in choose_arena_hard() that potentially caused more arenas to be
+    initialized than necessary.
+  - Add missing "opt.lg_tcache_max" mallctl implementation.
+  - Use glibc allocator hooks to make mixed allocator usage less likely.
+  - Fix build issues for --disable-tcache.
+  - Don't mangle pthread_create() when --with-private-namespace is specified.
+
 * 2.2.5 (November 14, 2011)
 
   Bug fixes:

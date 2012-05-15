@@ -30,11 +30,6 @@ struct ckhc_s {
 };
 
 struct ckh_s {
-#ifdef JEMALLOC_DEBUG
-#define	CKH_MAGIC	0x3af2489d
-	uint32_t	magic;
-#endif
-
 #ifdef CKH_COUNT
 	/* Counters used to get an idea of performance. */
 	uint64_t	ngrows;
@@ -47,7 +42,7 @@ struct ckh_s {
 	/* Used for pseudo-random number generation. */
 #define	CKH_A		1103515241
 #define	CKH_C		12347
-	uint32_t	prn_state;
+	uint32_t	prng_state;
 
 	/* Total number of items. */
 	size_t		count;

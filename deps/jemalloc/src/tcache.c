@@ -1,70 +1,92 @@
 #define	JEMALLOC_TCACHE_C_
 #include "jemalloc/internal/jemalloc_internal.h"
-#ifdef JEMALLOC_TCACHE
+
 /******************************************************************************/
 /* Data. */
 
+malloc_tsd_data(, tcache, tcache_t *, NULL)
+malloc_tsd_data(, tcache_enabled, tcache_enabled_t, tcache_enabled_default)
+
 bool	opt_tcache = true;
 ssize_t	opt_lg_tcache_max = LG_TCACHE_MAXCLASS_DEFAULT;
-ssize_t	opt_lg_tcache_gc_sweep = LG_TCACHE_GC_SWEEP_DEFAULT;
 
 tcache_bin_info_t	*tcache_bin_info;
 static unsigned		stack_nelms; /* Total stack elms per tcache. */
 
-/* Map of thread-specific caches. */
-#ifndef NO_TLS
-__thread tcache_t	*tcache_tls JEMALLOC_ATTR(tls_model("initial-exec"));
-#endif
-
-/*
- * Same contents as tcache, but initialized such that the TSD destructor is
- * called when a thread exits, so that the cache can be cleaned up.
- */
-pthread_key_t		tcache_tsd;
-
-size_t				nhbins;
-size_t				tcache_maxclass;
-unsigned			tcache_gc_incr;
+size_t			nhbins;
+size_t			tcache_maxclass;
 
 /******************************************************************************/
-/* Function prototypes for non-inline static functions. */
 
-static void	tcache_thread_cleanup(void *arg);
+size_t	tcache_salloc(const void *ptr)
+{
 
-/******************************************************************************/
+	return (arena_salloc(ptr, false));
+}
+
+void
+tcache_event_hard(tcache_t *tcache)
+{
+	size_t binind = tcache->next_gc_bin;
+	tcache_bin_t *tbin = &tcache->tbins[binind];
+	tcache_bin_info_t *tbin_info = &tcache_bin_info[binind];
+
+	if (tbin->low_water > 0) {
+		/*
+		 * Flush (ceiling) 3/4 of the objects below the low water mark.
+		 */
+		if (binind < NBINS) {
+			tcache_bin_flush_small(tbin, binind, tbin->ncached -
+			    tbin->low_water + (tbin->low_water >> 2), tcache);
+		} else {
+			tcache_bin_flush_large(tbin, binind, tbin->ncached -
+			    tbin->low_water + (tbin->low_water >> 2), tcache);
+		}
+		/*
+		 * Reduce fill count by 2X.  Limit lg_fill_div such that the
+		 * fill count is always at least 1.
+		 */
+		if ((tbin_info->ncached_max >> (tbin->lg_fill_div+1)) >= 1)
+			tbin->lg_fill_div++;
+	} else if (tbin->low_water < 0) {
+		/*
+		 * Increase fill count by 2X.  Make sure lg_fill_div stays
+		 * greater than 0.
+		 */
+		if (tbin->lg_fill_div > 1)
+			tbin->lg_fill_div--;
+	}
+	tbin->low_water = tbin->ncached;
+
+	tcache->next_gc_bin++;
+	if (tcache->next_gc_bin == nhbins)
+		tcache->next_gc_bin = 0;
+	tcache->ev_cnt = 0;
+}
 
 void *
 tcache_alloc_small_hard(tcache_t *tcache, tcache_bin_t *tbin, size_t binind)
 {
 	void *ret;
 
-	arena_tcache_fill_small(tcache->arena, tbin, binind
-#ifdef JEMALLOC_PROF
-	    , tcache->prof_accumbytes
-#endif
-	    );
-#ifdef JEMALLOC_PROF
-	tcache->prof_accumbytes = 0;
-#endif
+	arena_tcache_fill_small(tcache->arena, tbin, binind,
+	    config_prof ? tcache->prof_accumbytes : 0);
+	if (config_prof)
+		tcache->prof_accumbytes = 0;
 	ret = tcache_alloc_easy(tbin);
 
 	return (ret);
 }
 
 void
-tcache_bin_flush_small(tcache_bin_t *tbin, size_t binind, unsigned rem
-#if (defined(JEMALLOC_STATS) || defined(JEMALLOC_PROF))
-    , tcache_t *tcache
-#endif
-    )
+tcache_bin_flush_small(tcache_bin_t *tbin, size_t binind, unsigned rem,
+    tcache_t *tcache)
 {
 	void *ptr;
 	unsigned i, nflush, ndeferred;
-#ifdef JEMALLOC_STATS
 	bool merged_stats = false;
-#endif
 
-	assert(binind < nbins);
+	assert(binind < NBINS);
 	assert(rem <= tbin->ncached);
 
 	for (nflush = tbin->ncached - rem; nflush > 0; nflush = ndeferred) {
@@ -74,25 +96,21 @@ tcache_bin_flush_small(tcache_bin_t *tbin, size_t binind, unsigned rem
 		arena_t *arena = chunk->arena;
 		arena_bin_t *bin = &arena->bins[binind];
 
-#ifdef JEMALLOC_PROF
-		if (arena == tcache->arena) {
+		if (config_prof && arena == tcache->arena) {
 			malloc_mutex_lock(&arena->lock);
 			arena_prof_accum(arena, tcache->prof_accumbytes);
 			malloc_mutex_unlock(&arena->lock);
 			tcache->prof_accumbytes = 0;
 		}
-#endif
 
 		malloc_mutex_lock(&bin->lock);
-#ifdef JEMALLOC_STATS
-		if (arena == tcache->arena) {
+		if (config_stats && arena == tcache->arena) {
 			assert(merged_stats == false);
 			merged_stats = true;
 			bin->stats.nflushes++;
 			bin->stats.nrequests += tbin->tstats.nrequests;
 			tbin->tstats.nrequests = 0;
 		}
-#endif
 		ndeferred = 0;
 		for (i = 0; i < nflush; i++) {
 			ptr = tbin->avail[i];
@@ -100,10 +118,15 @@ tcache_bin_flush_small(tcache_bin_t *tbin, size_t binind, unsigned rem
 			chunk = (arena_chunk_t *)CHUNK_ADDR2BASE(ptr);
 			if (chunk->arena == arena) {
 				size_t pageind = ((uintptr_t)ptr -
-				    (uintptr_t)chunk) >> PAGE_SHIFT;
+				    (uintptr_t)chunk) >> LG_PAGE;
 				arena_chunk_map_t *mapelm =
-				    &chunk->map[pageind-map_bias];
-				arena_dalloc_bin(arena, chunk, ptr, mapelm);
+				    arena_mapp_get(chunk, pageind);
+				if (config_fill && opt_junk) {
+					arena_alloc_junk_small(ptr,
+					    &arena_bin_info[binind], true);
+				}
+				arena_dalloc_bin_locked(arena, chunk, ptr,
+				    mapelm);
 			} else {
 				/*
 				 * This object was allocated via a different
@@ -117,8 +140,7 @@ tcache_bin_flush_small(tcache_bin_t *tbin, size_t binind, unsigned rem
 		}
 		malloc_mutex_unlock(&bin->lock);
 	}
-#ifdef JEMALLOC_STATS
-	if (merged_stats == false) {
+	if (config_stats && merged_stats == false) {
 		/*
 		 * The flush loop didn't happen to flush to this thread's
 		 * arena, so the stats didn't get merged.  Manually do so now.
@@ -130,7 +152,6 @@ tcache_bin_flush_small(tcache_bin_t *tbin, size_t binind, unsigned rem
 		tbin->tstats.nrequests = 0;
 		malloc_mutex_unlock(&bin->lock);
 	}
-#endif
 
 	memmove(tbin->avail, &tbin->avail[tbin->ncached - rem],
 	    rem * sizeof(void *));
@@ -140,17 +161,12 @@ tcache_bin_flush_small(tcache_bin_t *tbin, size_t binind, unsigned rem
 }
 
 void
-tcache_bin_flush_large(tcache_bin_t *tbin, size_t binind, unsigned rem
-#if (defined(JEMALLOC_STATS) || defined(JEMALLOC_PROF))
-    , tcache_t *tcache
-#endif
-    )
+tcache_bin_flush_large(tcache_bin_t *tbin, size_t binind, unsigned rem,
+    tcache_t *tcache)
 {
 	void *ptr;
 	unsigned i, nflush, ndeferred;
-#ifdef JEMALLOC_STATS
 	bool merged_stats = false;
-#endif
 
 	assert(binind < nhbins);
 	assert(rem <= tbin->ncached);
@@ -162,30 +178,28 @@ tcache_bin_flush_large(tcache_bin_t *tbin, size_t binind, unsigned rem
 		arena_t *arena = chunk->arena;
 
 		malloc_mutex_lock(&arena->lock);
-#if (defined(JEMALLOC_PROF) || defined(JEMALLOC_STATS))
-		if (arena == tcache->arena) {
-#endif
-#ifdef JEMALLOC_PROF
-			arena_prof_accum(arena, tcache->prof_accumbytes);
-			tcache->prof_accumbytes = 0;
-#endif
-#ifdef JEMALLOC_STATS
-			merged_stats = true;
-			arena->stats.nrequests_large += tbin->tstats.nrequests;
-			arena->stats.lstats[binind - nbins].nrequests +=
-			    tbin->tstats.nrequests;
-			tbin->tstats.nrequests = 0;
-#endif
-#if (defined(JEMALLOC_PROF) || defined(JEMALLOC_STATS))
+		if ((config_prof || config_stats) && arena == tcache->arena) {
+			if (config_prof) {
+				arena_prof_accum(arena,
+				    tcache->prof_accumbytes);
+				tcache->prof_accumbytes = 0;
+			}
+			if (config_stats) {
+				merged_stats = true;
+				arena->stats.nrequests_large +=
+				    tbin->tstats.nrequests;
+				arena->stats.lstats[binind - NBINS].nrequests +=
+				    tbin->tstats.nrequests;
+				tbin->tstats.nrequests = 0;
+			}
 		}
-#endif
 		ndeferred = 0;
 		for (i = 0; i < nflush; i++) {
 			ptr = tbin->avail[i];
 			assert(ptr != NULL);
 			chunk = (arena_chunk_t *)CHUNK_ADDR2BASE(ptr);
 			if (chunk->arena == arena)
-				arena_dalloc_large(arena, chunk, ptr);
+				arena_dalloc_large_locked(arena, chunk, ptr);
 			else {
 				/*
 				 * This object was allocated via a different
@@ -199,8 +213,7 @@ tcache_bin_flush_large(tcache_bin_t *tbin, size_t binind, unsigned rem
 		}
 		malloc_mutex_unlock(&arena->lock);
 	}
-#ifdef JEMALLOC_STATS
-	if (merged_stats == false) {
+	if (config_stats && merged_stats == false) {
 		/*
 		 * The flush loop didn't happen to flush to this thread's
 		 * arena, so the stats didn't get merged.  Manually do so now.
@@ -208,18 +221,44 @@ tcache_bin_flush_large(tcache_bin_t *tbin, size_t binind, unsigned rem
 		arena_t *arena = tcache->arena;
 		malloc_mutex_lock(&arena->lock);
 		arena->stats.nrequests_large += tbin->tstats.nrequests;
-		arena->stats.lstats[binind - nbins].nrequests +=
+		arena->stats.lstats[binind - NBINS].nrequests +=
 		    tbin->tstats.nrequests;
 		tbin->tstats.nrequests = 0;
 		malloc_mutex_unlock(&arena->lock);
 	}
-#endif
 
 	memmove(tbin->avail, &tbin->avail[tbin->ncached - rem],
 	    rem * sizeof(void *));
 	tbin->ncached = rem;
 	if ((int)tbin->ncached < tbin->low_water)
 		tbin->low_water = tbin->ncached;
+}
+
+void
+tcache_arena_associate(tcache_t *tcache, arena_t *arena)
+{
+
+	if (config_stats) {
+		/* Link into list of extant tcaches. */
+		malloc_mutex_lock(&arena->lock);
+		ql_elm_new(tcache, link);
+		ql_tail_insert(&arena->tcache_ql, tcache, link);
+		malloc_mutex_unlock(&arena->lock);
+	}
+	tcache->arena = arena;
+}
+
+void
+tcache_arena_dissociate(tcache_t *tcache)
+{
+
+	if (config_stats) {
+		/* Unlink from list of extant tcaches. */
+		malloc_mutex_lock(&tcache->arena->lock);
+		ql_remove(&tcache->arena->tcache_ql, tcache, link);
+		malloc_mutex_unlock(&tcache->arena->lock);
+		tcache_stats_merge(tcache, tcache->arena);
+	}
 }
 
 tcache_t *
@@ -244,7 +283,7 @@ tcache_create(arena_t *arena)
 	 */
 	size = (size + CACHELINE_MASK) & (-CACHELINE);
 
-	if (size <= small_maxclass)
+	if (size <= SMALL_MAXCLASS)
 		tcache = (tcache_t *)arena_malloc_small(arena, size, true);
 	else if (size <= tcache_maxclass)
 		tcache = (tcache_t *)arena_malloc_large(arena, size, true);
@@ -254,15 +293,8 @@ tcache_create(arena_t *arena)
 	if (tcache == NULL)
 		return (NULL);
 
-#ifdef JEMALLOC_STATS
-	/* Link into list of extant tcaches. */
-	malloc_mutex_lock(&arena->lock);
-	ql_elm_new(tcache, link);
-	ql_tail_insert(&arena->tcache_ql, tcache, link);
-	malloc_mutex_unlock(&arena->lock);
-#endif
+	tcache_arena_associate(tcache, arena);
 
-	tcache->arena = arena;
 	assert((TCACHE_NSLOTS_SMALL_MAX & 1U) == 0);
 	for (i = 0; i < nhbins; i++) {
 		tcache->tbins[i].lg_fill_div = 1;
@@ -271,7 +303,7 @@ tcache_create(arena_t *arena)
 		stack_offset += tcache_bin_info[i].ncached_max * sizeof(void *);
 	}
 
-	TCACHE_SET(tcache);
+	tcache_tsd_set(&tcache);
 
 	return (tcache);
 }
@@ -282,121 +314,96 @@ tcache_destroy(tcache_t *tcache)
 	unsigned i;
 	size_t tcache_size;
 
-#ifdef JEMALLOC_STATS
-	/* Unlink from list of extant tcaches. */
-	malloc_mutex_lock(&tcache->arena->lock);
-	ql_remove(&tcache->arena->tcache_ql, tcache, link);
-	malloc_mutex_unlock(&tcache->arena->lock);
-	tcache_stats_merge(tcache, tcache->arena);
-#endif
+	tcache_arena_dissociate(tcache);
 
-	for (i = 0; i < nbins; i++) {
+	for (i = 0; i < NBINS; i++) {
 		tcache_bin_t *tbin = &tcache->tbins[i];
-		tcache_bin_flush_small(tbin, i, 0
-#if (defined(JEMALLOC_STATS) || defined(JEMALLOC_PROF))
-		    , tcache
-#endif
-		    );
+		tcache_bin_flush_small(tbin, i, 0, tcache);
 
-#ifdef JEMALLOC_STATS
-		if (tbin->tstats.nrequests != 0) {
+		if (config_stats && tbin->tstats.nrequests != 0) {
 			arena_t *arena = tcache->arena;
 			arena_bin_t *bin = &arena->bins[i];
 			malloc_mutex_lock(&bin->lock);
 			bin->stats.nrequests += tbin->tstats.nrequests;
 			malloc_mutex_unlock(&bin->lock);
 		}
-#endif
 	}
 
 	for (; i < nhbins; i++) {
 		tcache_bin_t *tbin = &tcache->tbins[i];
-		tcache_bin_flush_large(tbin, i, 0
-#if (defined(JEMALLOC_STATS) || defined(JEMALLOC_PROF))
-		    , tcache
-#endif
-		    );
+		tcache_bin_flush_large(tbin, i, 0, tcache);
 
-#ifdef JEMALLOC_STATS
-		if (tbin->tstats.nrequests != 0) {
+		if (config_stats && tbin->tstats.nrequests != 0) {
 			arena_t *arena = tcache->arena;
 			malloc_mutex_lock(&arena->lock);
 			arena->stats.nrequests_large += tbin->tstats.nrequests;
-			arena->stats.lstats[i - nbins].nrequests +=
+			arena->stats.lstats[i - NBINS].nrequests +=
 			    tbin->tstats.nrequests;
 			malloc_mutex_unlock(&arena->lock);
 		}
-#endif
 	}
 
-#ifdef JEMALLOC_PROF
-	if (tcache->prof_accumbytes > 0) {
+	if (config_prof && tcache->prof_accumbytes > 0) {
 		malloc_mutex_lock(&tcache->arena->lock);
 		arena_prof_accum(tcache->arena, tcache->prof_accumbytes);
 		malloc_mutex_unlock(&tcache->arena->lock);
 	}
-#endif
 
-	tcache_size = arena_salloc(tcache);
-	if (tcache_size <= small_maxclass) {
+	tcache_size = arena_salloc(tcache, false);
+	if (tcache_size <= SMALL_MAXCLASS) {
 		arena_chunk_t *chunk = CHUNK_ADDR2BASE(tcache);
 		arena_t *arena = chunk->arena;
 		size_t pageind = ((uintptr_t)tcache - (uintptr_t)chunk) >>
-		    PAGE_SHIFT;
-		arena_chunk_map_t *mapelm = &chunk->map[pageind-map_bias];
-		arena_run_t *run = (arena_run_t *)((uintptr_t)chunk +
-		    (uintptr_t)((pageind - (mapelm->bits >> PAGE_SHIFT)) <<
-		    PAGE_SHIFT));
-		arena_bin_t *bin = run->bin;
+		    LG_PAGE;
+		arena_chunk_map_t *mapelm = arena_mapp_get(chunk, pageind);
 
-		malloc_mutex_lock(&bin->lock);
-		arena_dalloc_bin(arena, chunk, tcache, mapelm);
-		malloc_mutex_unlock(&bin->lock);
+		arena_dalloc_bin(arena, chunk, tcache, pageind, mapelm);
 	} else if (tcache_size <= tcache_maxclass) {
 		arena_chunk_t *chunk = CHUNK_ADDR2BASE(tcache);
 		arena_t *arena = chunk->arena;
 
-		malloc_mutex_lock(&arena->lock);
 		arena_dalloc_large(arena, chunk, tcache);
-		malloc_mutex_unlock(&arena->lock);
 	} else
 		idalloc(tcache);
 }
 
-static void
+void
 tcache_thread_cleanup(void *arg)
 {
-	tcache_t *tcache = (tcache_t *)arg;
+	tcache_t *tcache = *(tcache_t **)arg;
 
-	if (tcache == (void *)(uintptr_t)1) {
-		/*
-		 * The previous time this destructor was called, we set the key
-		 * to 1 so that other destructors wouldn't cause re-creation of
-		 * the tcache.  This time, do nothing, so that the destructor
-		 * will not be called again.
-		 */
-	} else if (tcache == (void *)(uintptr_t)2) {
+	if (tcache == TCACHE_STATE_DISABLED) {
+		/* Do nothing. */
+	} else if (tcache == TCACHE_STATE_REINCARNATED) {
 		/*
 		 * Another destructor called an allocator function after this
-		 * destructor was called.  Reset tcache to 1 in order to
-		 * receive another callback.
+		 * destructor was called.  Reset tcache to
+		 * TCACHE_STATE_PURGATORY in order to receive another callback.
 		 */
-		TCACHE_SET((uintptr_t)1);
+		tcache = TCACHE_STATE_PURGATORY;
+		tcache_tsd_set(&tcache);
+	} else if (tcache == TCACHE_STATE_PURGATORY) {
+		/*
+		 * The previous time this destructor was called, we set the key
+		 * to TCACHE_STATE_PURGATORY so that other destructors wouldn't
+		 * cause re-creation of the tcache.  This time, do nothing, so
+		 * that the destructor will not be called again.
+		 */
 	} else if (tcache != NULL) {
-		assert(tcache != (void *)(uintptr_t)1);
+		assert(tcache != TCACHE_STATE_PURGATORY);
 		tcache_destroy(tcache);
-		TCACHE_SET((uintptr_t)1);
+		tcache = TCACHE_STATE_PURGATORY;
+		tcache_tsd_set(&tcache);
 	}
 }
 
-#ifdef JEMALLOC_STATS
 void
 tcache_stats_merge(tcache_t *tcache, arena_t *arena)
 {
 	unsigned i;
 
 	/* Merge and reset tcache stats. */
-	for (i = 0; i < nbins; i++) {
+	for (i = 0; i < NBINS; i++) {
 		arena_bin_t *bin = &arena->bins[i];
 		tcache_bin_t *tbin = &tcache->tbins[i];
 		malloc_mutex_lock(&bin->lock);
@@ -406,75 +413,62 @@ tcache_stats_merge(tcache_t *tcache, arena_t *arena)
 	}
 
 	for (; i < nhbins; i++) {
-		malloc_large_stats_t *lstats = &arena->stats.lstats[i - nbins];
+		malloc_large_stats_t *lstats = &arena->stats.lstats[i - NBINS];
 		tcache_bin_t *tbin = &tcache->tbins[i];
 		arena->stats.nrequests_large += tbin->tstats.nrequests;
 		lstats->nrequests += tbin->tstats.nrequests;
 		tbin->tstats.nrequests = 0;
 	}
 }
-#endif
 
 bool
-tcache_boot(void)
+tcache_boot0(void)
 {
+	unsigned i;
 
-	if (opt_tcache) {
-		unsigned i;
+	/*
+	 * If necessary, clamp opt_lg_tcache_max, now that arena_maxclass is
+	 * known.
+	 */
+	if (opt_lg_tcache_max < 0 || (1U << opt_lg_tcache_max) < SMALL_MAXCLASS)
+		tcache_maxclass = SMALL_MAXCLASS;
+	else if ((1U << opt_lg_tcache_max) > arena_maxclass)
+		tcache_maxclass = arena_maxclass;
+	else
+		tcache_maxclass = (1U << opt_lg_tcache_max);
 
-		/*
-		 * If necessary, clamp opt_lg_tcache_max, now that
-		 * small_maxclass and arena_maxclass are known.
-		 */
-		if (opt_lg_tcache_max < 0 || (1U <<
-		    opt_lg_tcache_max) < small_maxclass)
-			tcache_maxclass = small_maxclass;
-		else if ((1U << opt_lg_tcache_max) > arena_maxclass)
-			tcache_maxclass = arena_maxclass;
-		else
-			tcache_maxclass = (1U << opt_lg_tcache_max);
+	nhbins = NBINS + (tcache_maxclass >> LG_PAGE);
 
-		nhbins = nbins + (tcache_maxclass >> PAGE_SHIFT);
-
-		/* Initialize tcache_bin_info. */
-		tcache_bin_info = (tcache_bin_info_t *)base_alloc(nhbins *
-		    sizeof(tcache_bin_info_t));
-		if (tcache_bin_info == NULL)
-			return (true);
-		stack_nelms = 0;
-		for (i = 0; i < nbins; i++) {
-			if ((arena_bin_info[i].nregs << 1) <=
-			    TCACHE_NSLOTS_SMALL_MAX) {
-				tcache_bin_info[i].ncached_max =
-				    (arena_bin_info[i].nregs << 1);
-			} else {
-				tcache_bin_info[i].ncached_max =
-				    TCACHE_NSLOTS_SMALL_MAX;
-			}
-			stack_nelms += tcache_bin_info[i].ncached_max;
+	/* Initialize tcache_bin_info. */
+	tcache_bin_info = (tcache_bin_info_t *)base_alloc(nhbins *
+	    sizeof(tcache_bin_info_t));
+	if (tcache_bin_info == NULL)
+		return (true);
+	stack_nelms = 0;
+	for (i = 0; i < NBINS; i++) {
+		if ((arena_bin_info[i].nregs << 1) <= TCACHE_NSLOTS_SMALL_MAX) {
+			tcache_bin_info[i].ncached_max =
+			    (arena_bin_info[i].nregs << 1);
+		} else {
+			tcache_bin_info[i].ncached_max =
+			    TCACHE_NSLOTS_SMALL_MAX;
 		}
-		for (; i < nhbins; i++) {
-			tcache_bin_info[i].ncached_max = TCACHE_NSLOTS_LARGE;
-			stack_nelms += tcache_bin_info[i].ncached_max;
-		}
-
-		/* Compute incremental GC event threshold. */
-		if (opt_lg_tcache_gc_sweep >= 0) {
-			tcache_gc_incr = ((1U << opt_lg_tcache_gc_sweep) /
-			    nbins) + (((1U << opt_lg_tcache_gc_sweep) % nbins ==
-			    0) ? 0 : 1);
-		} else
-			tcache_gc_incr = 0;
-
-		if (pthread_key_create(&tcache_tsd, tcache_thread_cleanup) !=
-		    0) {
-			malloc_write(
-			    "<jemalloc>: Error in pthread_key_create()\n");
-			abort();
-		}
+		stack_nelms += tcache_bin_info[i].ncached_max;
+	}
+	for (; i < nhbins; i++) {
+		tcache_bin_info[i].ncached_max = TCACHE_NSLOTS_LARGE;
+		stack_nelms += tcache_bin_info[i].ncached_max;
 	}
 
 	return (false);
 }
-/******************************************************************************/
-#endif /* JEMALLOC_TCACHE */
+
+bool
+tcache_boot1(void)
+{
+
+	if (tcache_tsd_boot() || tcache_enabled_tsd_boot())
+		return (true);
+
+	return (false);
+}
