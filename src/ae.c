@@ -44,13 +44,17 @@
 
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
-#ifdef HAVE_EPOLL
-#include "ae_epoll.c"
+#ifdef HAVE_EVPORT
+#include "ae_evport.c"
 #else
-    #ifdef HAVE_KQUEUE
-    #include "ae_kqueue.c"
+    #ifdef HAVE_EPOLL
+    #include "ae_epoll.c"
     #else
-    #include "ae_select.c"
+        #ifdef HAVE_KQUEUE
+        #include "ae_kqueue.c"
+        #else
+        #include "ae_select.c"
+        #endif
     #endif
 #endif
 

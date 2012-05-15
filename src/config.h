@@ -38,6 +38,13 @@
 #define HAVE_KQUEUE 1
 #endif
 
+#ifdef __sun
+#include <sys/feature_tests.h>
+#ifdef _DTRACE_VERSION
+#define HAVE_EVPORT 1
+#endif
+#endif
+
 /* Define aof_fsync to fdatasync() in Linux and fsync() for all the rest */
 #ifdef __linux__
 #define aof_fsync fdatasync
