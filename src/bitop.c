@@ -1,13 +1,8 @@
 #include "redis.h"
 
 /* -----------------------------------------------------------------------------
- * Bits related string commands: GETBIT, SETBIT, BITCOUNT, BITOP.
+ * Helpers and low level bit functions.
  * -------------------------------------------------------------------------- */
-
-#define BITOP_AND   0
-#define BITOP_OR    1
-#define BITOP_XOR   2
-#define BITOP_NOT   3
 
 /* This helper function used by GETBIT / SETBIT parses the bit offset arguemnt
  * making sure an error is returned if it is negative or if it overflows
@@ -29,6 +24,28 @@ static int getBitOffsetFromArgument(redisClient *c, robj *o, size_t *offset) {
     *offset = (size_t)loffset;
     return REDIS_OK;
 }
+
+/* Count number of bits set in the binary array pointed by 's' and long
+ * 'count' bytes. The implementation of this function is required to
+ * work with a input string length up to 512 MB. */
+long popcount(void *s, long count) {
+    long bits = 0;
+    unsigned char *p = s;
+    static const unsigned char bitsinbyte[256] = {0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8};
+
+    /* We can finally count bits. */
+    while(count--) bits += bitsinbyte[*p++];
+    return bits;
+}
+
+/* -----------------------------------------------------------------------------
+ * Bits related string commands: GETBIT, SETBIT, BITCOUNT, BITOP.
+ * -------------------------------------------------------------------------- */
+
+#define BITOP_AND   0
+#define BITOP_OR    1
+#define BITOP_XOR   2
+#define BITOP_NOT   3
 
 /* SETBIT key offset bitvalue */
 void setbitCommand(redisClient *c) {
@@ -201,7 +218,6 @@ void bitopCommand(redisClient *c) {
 
 /* BITCOUNT key [start end] */
 void bitcountCommand(redisClient *c) {
-    static const unsigned char bitsinbyte[256] = {0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8};
     robj *o;
     long start, end;
     unsigned char *p;
@@ -249,11 +265,8 @@ void bitcountCommand(redisClient *c) {
     if (start > end) {
         addReply(c,shared.czero);
     } else {
-        long bits = 0, bytes = end-start+1;
+        long bytes = end-start+1;
 
-        /* We can finally count bits. */
-        p += start;
-        while(bytes--) bits += bitsinbyte[*p++];
-        addReplyLongLong(c,bits);
+        addReplyLongLong(c,popcount(p+start,bytes));
     }
 }
