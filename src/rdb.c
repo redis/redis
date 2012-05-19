@@ -135,6 +135,8 @@ robj *rdbLoadIntegerObject(rio *rdb, int enctype, int encode) {
     unsigned char enc[4];
     long long val;
 
+    val = 0;
+
     if (enctype == REDIS_RDB_ENC_INT8) {
         if (rioRead(rdb,enc,1) == 0) return NULL;
         val = (signed char)enc[0];
@@ -149,7 +151,6 @@ robj *rdbLoadIntegerObject(rio *rdb, int enctype, int encode) {
         v = enc[0]|(enc[1]<<8)|(enc[2]<<16)|(enc[3]<<24);
         val = (int32_t)v;
     } else {
-        val = 0; /* anti-warning */
         redisPanic("Unknown RDB integer encoding type");
     }
     if (encode)

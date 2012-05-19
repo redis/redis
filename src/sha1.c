@@ -106,8 +106,7 @@ CHAR64LONG16* block = (const CHAR64LONG16*)buffer;
     state[2] += c;
     state[3] += d;
     state[4] += e;
-    /* Wipe variables */
-    a = b = c = d = e = 0;
+
 #ifdef SHA1HANDSOFF
     memset(block, '\0', sizeof(block));
 #endif

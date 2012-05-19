@@ -591,7 +591,6 @@ int clusterProcessPacket(clusterLink *link) {
                 redisLog(REDIS_DEBUG,"PONG contains mismatching sender ID");
                 link->node->flags |= REDIS_NODE_NOADDR;
                 freeClusterLink(link);
-                update_config = 1;
                 /* FIXME: remove this node if we already have it.
                  *
                  * If we already have it but the IP is different, use

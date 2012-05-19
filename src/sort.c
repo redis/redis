@@ -231,7 +231,7 @@ void sortCommand(redisClient *c) {
     case REDIS_LIST: vectorlen = listTypeLength(sortval); break;
     case REDIS_SET: vectorlen =  setTypeSize(sortval); break;
     case REDIS_ZSET: vectorlen = dictSize(((zset*)sortval->ptr)->dict); break;
-    default: vectorlen = 0; redisPanic("Bad SORT type"); /* Avoid GCC warning */
+    default: redisPanic("Bad SORT type");
     }
     vector = zmalloc(sizeof(redisSortObject)*vectorlen);
     j = 0;

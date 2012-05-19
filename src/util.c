@@ -361,8 +361,6 @@ void getRandomHexChars(char *p, unsigned int len) {
         }
         if (l >= sizeof(pid)) {
             memcpy(x,&pid,sizeof(pid));
-            l -= sizeof(pid);
-            x += sizeof(pid);
         }
         /* Finally xor it with rand() output, that was already seeded with
          * time() at startup. */

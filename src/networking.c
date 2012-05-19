@@ -724,9 +724,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
              zmalloc_used_memory() < server.maxmemory)) break;
     }
     if (nwritten == -1) {
-        if (errno == EAGAIN) {
-            nwritten = 0;
-        } else {
+        if (errno != EAGAIN) {
             redisLog(REDIS_VERBOSE,
                 "Error writing to client: %s", strerror(errno));
             freeClient(c);
