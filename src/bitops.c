@@ -34,19 +34,28 @@ long popcount(void *s, long count) {
     uint32_t *p4 = s;
     static const unsigned char bitsinbyte[256] = {0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8};
 
-    /* Count bits four bytes at a time */
-    while(count>=4) {
-        uint32_t aux = *p4++;
-        count -= 4;
-#ifdef __GNUC__
-        /* Unsigned int is always >= 4 bytes if compiler is GCC */
-        bits += __builtin_popcount(aux);
-#else
-        bits += bitsinbyte[aux&0xff] +
-                bitsinbyte[(aux>>8)&0xff] +
-                bitsinbyte[(aux>>16)&0xff] +
-                bitsinbyte[(aux>>24)&0xff];
-#endif
+    /* Count bits 16 bytes at a time */
+    while(count>=16) {
+        uint32_t aux1, aux2, aux3, aux4;
+
+        aux1 = *p4++;
+        aux2 = *p4++;
+        aux3 = *p4++;
+        aux4 = *p4++;
+        count -= 16;
+
+        aux1 = aux1 - ((aux1 >> 1) & 0x55555555);
+        aux1 = (aux1 & 0x33333333) + ((aux1 >> 2) & 0x33333333);
+        aux2 = aux2 - ((aux2 >> 1) & 0x55555555);
+        aux2 = (aux2 & 0x33333333) + ((aux2 >> 2) & 0x33333333);
+        aux3 = aux3 - ((aux3 >> 1) & 0x55555555);
+        aux3 = (aux3 & 0x33333333) + ((aux3 >> 2) & 0x33333333);
+        aux4 = aux4 - ((aux4 >> 1) & 0x55555555);
+        aux4 = (aux4 & 0x33333333) + ((aux4 >> 2) & 0x33333333);
+        bits += ((((aux1 + (aux1 >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24) +
+                ((((aux2 + (aux2 >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24) +
+                ((((aux3 + (aux3 >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24) +
+                ((((aux4 + (aux4 >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24);
     }
     /* Count the remaining bytes */
     p = (unsigned char*)p4;
