@@ -44,15 +44,19 @@ start_server {tags {"bitops"}} {
     } 0
 
     catch {unset num}
-    foreach vec [list \
-        "" "\xaa" "\x00\x00\xff" "foobar" \
-        [randstring 2000 3000] [randstring 2000 3000] \
-        [randstring 2000 3000] \
-    ] {
+    foreach vec [list "" "\xaa" "\x00\x00\xff" "foobar"] {
         incr num
         test "BITCOUNT against test vector #$num" {
             r set str $vec
             assert {[r bitcount str] == [count_bits $vec]}
+        }
+    }
+
+    test {BITCOUNT fuzzing} {
+        for {set j 0} {$j < 100} {incr j} {
+            set str [randstring 0 3000]
+            r set str $str
+            assert {[r bitcount str] == [count_bits $str]}
         }
     }
 
@@ -114,17 +118,19 @@ start_server {tags {"bitops"}} {
 
     foreach op {and or xor} {
         test "BITOP $op fuzzing" {
-            set vec {}
-            set veckeys {}
-            set numvec [expr {[randomInt 10]+1}]
-            for {set j 0} {$j < $numvec} {incr j} {
-                set str [randstring 0 1000]
-                lappend vec $str
-                lappend veckeys vector_$j
-                r set vector_$j $str
+            for {set i 0} {$i < 10} {incr i} {
+                set vec {}
+                set veckeys {}
+                set numvec [expr {[randomInt 10]+1}]
+                for {set j 0} {$j < $numvec} {incr j} {
+                    set str [randstring 0 1000]
+                    lappend vec $str
+                    lappend veckeys vector_$j
+                    r set vector_$j $str
+                }
+                r bitop $op target {*}$veckeys
+                assert_equal [r get target] [simulate_bit_op $op {*}$vec]
             }
-            r bitop $op target {*}$veckeys
-            assert_equal [r get target] [simulate_bit_op $op {*}$vec]
         }
     }
 }
