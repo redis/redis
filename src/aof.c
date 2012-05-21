@@ -12,6 +12,12 @@
 
 void aofUpdateCurrentSize(void);
 
+/* ----------------------------------------------------------------------------
+ * AOF file implementation
+ * ------------------------------------------------------------------------- */
+
+/* Starts a background task that performs fsync() against the specified
+ * file descriptor (the one of the AOF file) in another thread. */
 void aof_background_fsync(int fd) {
     bioCreateBackgroundJob(REDIS_BIO_AOF_FSYNC,(void*)(long)fd,NULL,NULL);
 }
@@ -280,6 +286,10 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
     sdsfree(buf);
 }
 
+/* ----------------------------------------------------------------------------
+ * AOF loading
+ * ------------------------------------------------------------------------- */
+
 /* In Redis commands are always executed in the context of a client, so in
  * order to load the append only file we need to create a fake client. */
 struct redisClient *createFakeClient(void) {
@@ -423,6 +433,10 @@ fmterr:
     redisLog(REDIS_WARNING,"Bad file format reading the append only file: make a backup of your AOF file, then use ./redis-check-aof --fix <filename>");
     exit(1);
 }
+
+/* ----------------------------------------------------------------------------
+ * AOF rewrite
+ * ------------------------------------------------------------------------- */
 
 /* Delegate writing an object to writing a bulk string or bulk long long.
  * This is not placed in rio.c since that adds the redis.h dependency. */
