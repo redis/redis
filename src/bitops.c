@@ -159,6 +159,7 @@ void bitopCommand(redisClient *c) {
     char *opname = c->argv[1]->ptr;
     robj *o, *targetkey = c->argv[2];
     long op, j, numkeys;
+    robj **objects;      /* Array of soruce objects. */
     unsigned char **src; /* Array of source strings pointers. */
     long *len, maxlen = 0; /* Array of length of src strings, and max len. */
     unsigned char *res = NULL; /* Resulting string. */
@@ -187,22 +188,30 @@ void bitopCommand(redisClient *c) {
     numkeys = c->argc - 3;
     src = zmalloc(sizeof(unsigned char*) * numkeys);
     len = zmalloc(sizeof(long) * numkeys);
+    objects = zmalloc(sizeof(robj*) * numkeys);
     for (j = 0; j < numkeys; j++) {
         o = lookupKeyRead(c->db,c->argv[j+3]);
         /* Handle non-existing keys as empty strings. */
         if (o == NULL) {
+            objects[j] = NULL;
             src[j] = NULL;
             len[j] = 0;
             continue;
         }
         /* Return an error if one of the keys is not a string. */
         if (checkType(c,o,REDIS_STRING)) {
+            for (j = j-1; j >= 0; j--) {
+                if (objects[j])
+                    decrRefCount(objects[j]);
+            }
             zfree(src);
             zfree(len);
+            zfree(objects);
             return;
         }
-        src[j] = o->ptr;
-        len[j] = sdslen(o->ptr);
+        objects[j] = getDecodedObject(o);
+        src[j] = objects[j]->ptr;
+        len[j] = sdslen(objects[j]->ptr);
         if (len[j] > maxlen) maxlen = len[j];
     }
 
@@ -226,8 +235,13 @@ void bitopCommand(redisClient *c) {
             res[j] = output;
         }
     }
+    for (j = 0; j < numkeys; j++) {
+        if (objects[j])
+            decrRefCount(objects[j]);
+    }
     zfree(src);
     zfree(len);
+    zfree(objects);
 
     /* Store the computed value into the target key */
     if (maxlen) {

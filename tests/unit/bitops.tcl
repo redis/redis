@@ -44,7 +44,7 @@ start_server {tags {"bitops"}} {
     } 0
 
     catch {unset num}
-    foreach vec [list "" "\xaa" "\x00\x00\xff" "foobar"] {
+    foreach vec [list "" "\xaa" "\x00\x00\xff" "foobar" "123"] {
         incr num
         test "BITCOUNT against test vector #$num" {
             r set str $vec
@@ -119,6 +119,7 @@ start_server {tags {"bitops"}} {
     foreach op {and or xor} {
         test "BITOP $op fuzzing" {
             for {set i 0} {$i < 10} {incr i} {
+                r flushall
                 set vec {}
                 set veckeys {}
                 set numvec [expr {[randomInt 10]+1}]
@@ -133,4 +134,20 @@ start_server {tags {"bitops"}} {
             }
         }
     }
+
+    test {BITOP with integer encoded source objects} {
+        r set a 1
+        r set b 2
+        r bitop xor dest a b a
+        r get dest
+    } {2}
+
+    test {BITOP with non string source key} {
+        r del c
+        r set a 1
+        r set b 2
+        r lpush c foo
+        catch {r bitop xor dest a b c d} e
+        set e
+    } {*ERR*}
 }
