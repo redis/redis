@@ -30,12 +30,16 @@ proc zlistAlikeSort {a b} {
 proc warnings_from_file {filename} {
     set lines [split [exec cat $filename] "\n"]
     set matched 0
+    set logall 0
     set result {}
     foreach line $lines {
+        if {[string match {*REDIS BUG REPORT START*} $line]} {
+            set logall 1
+        }
         if {[regexp {^\[\d+\]\s+\d+\s+\w+\s+\d{2}:\d{2}:\d{2} \#} $line]} {
             set matched 1
         }
-        if {$matched} {
+        if {$logall || $matched} {
             lappend result $line
         }
     }
