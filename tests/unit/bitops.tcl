@@ -24,13 +24,13 @@ proc simulate_bit_op {op args} {
     set out {}
     for {set x 0} {$x < $maxlen} {incr x} {
         set bit [string range $b(0) $x $x]
+        if {$op eq {not}} {set bit [expr {!$bit}]}
         for {set j 1} {$j < $count} {incr j} {
             set bit2 [string range $b($j) $x $x]
             switch $op {
                 and {set bit [expr {$bit & $bit2}]}
                 or  {set bit [expr {$bit | $bit2}]}
                 xor {set bit [expr {$bit ^ $bit2}]}
-                not {set bit [expr {!$bit}]}
             }
         }
         append out $bit
@@ -132,6 +132,16 @@ start_server {tags {"bitops"}} {
                 r bitop $op target {*}$veckeys
                 assert_equal [r get target] [simulate_bit_op $op {*}$vec]
             }
+        }
+    }
+
+    test {BITOP NOT fuzzing} {
+        for {set i 0} {$i < 10} {incr i} {
+            r flushall
+            set str [randstring 0 1000]
+            r set str $str
+            r bitop not target str
+            assert_equal [r get target] [simulate_bit_op not $str]
         }
     }
 
