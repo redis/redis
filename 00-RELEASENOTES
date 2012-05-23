@@ -21,6 +21,21 @@ CHANGELOG
 What's new in Redis 2.4.13
 =========================
 
+UPGRADE URGENCY: high, many non trivial bugs fixed in this release.
+
+* [BUGFIX] Fixed issue #518 (Redis 99% CPU when master down).
+* [BUGFIX] Fixed issue #516 (ZINTERSTORE mixing sets and zsets).
+* [BUGFIX] Fixed a bug in install_server.sh when using chkconfig
+* [BUGFIX] Fixes to --test-memory implementation.
+* [BUGFIX] Allow PREFIX to be overridden in Makefile.
+* [BUGFIX] The test is now more reliable on slow computers.
+* redis-cli --pipe mode, see http://redis.io/topics/mass-insert
+* Much better expired keys collection algorithm that makes the server much
+  more responsive when a lot of keys are expiring at the same time.
+
+What's new in Redis 2.4.13
+=========================
+
 UPGRADE URGENCY: high for all the users of the KEYS command, otherwise low.
 
 * [BUGFIX] Fix for KEYS command: if the DB contains keys with expires the KEYS
