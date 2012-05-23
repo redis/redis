@@ -18,7 +18,7 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
-What's new in Redis 2.4.13
+What's new in Redis 2.4.14
 =========================
 
 UPGRADE URGENCY: high, many non trivial bugs fixed in this release.
