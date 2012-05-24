@@ -194,7 +194,6 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
             freeClient(slave);
             return;
         }
-        addReplySds(slave,sdsempty());
         redisLog(REDIS_NOTICE,"Synchronization with slave succeeded");
     }
 }
