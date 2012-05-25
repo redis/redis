@@ -1,39 +1,9 @@
 Redis 2.6 release notes
+=======================
 
-Migrating from 2.4 to 2.6
-=========================
-
-Redis 2.4 is mostly a strict subset of 2.6. However there are a few things
-that you should be aware of:
-
-* You can't use .rdb and AOF files generated with 2.6 into a 2.4 instance.
-* 2.4 slaves can be attached to 2.6 masters, but not the contrary, and only
-  for the time needed to perform the version upgrade.
-
-There are also a few API differences, that are unlikely to cause problems,
-but it is better to keep them in mind:
-
-* SORT now will refuse to sort in numerical mode elements that can't be parsed
-  as numbers.
-* EXPIREs now all have millisecond resolution (but this is very unlikely to
-  break code that was not conceived exploting the previous resolution error
-  in some way.)
-* INFO output is a bit different now, and contains empty lines and comments
-  starting with '#'. All the major clients should be already fixed to work
-  with the new INFO format.
-* Slaves are only read-only by default (but you can change this easily
-  setting the "slave-read-only" configuration option to "no" editing your
-  redis.conf or using CONFIG SET.
-
-Also the following redis.conf and CONFIG GET / SET parameters changed name:
-
-    * hash-max-zipmap-entries, now replaced by hash-max-ziplist-entries
-    * hash-max-zipmap-value, now replaced by hash-max-ziplist-value
-    * glueoutputbuf option was now completely removed (was deprecated)
-
----------
-CHANGELOG
----------
+** IMPORTANT ** Check the 'Migrating from 2.4 to 2.6' section at the end of
+                this file for information about what changed between 2.4 and
+                2.6 and how this may affect your application.
 
 What's new in Redis 2.5.9 (aka 2.6 Release Candidate 3)
 =======================================================
@@ -114,6 +84,46 @@ An overview of new features and changes in Redis 2.6.x
 * More predictable SORT behavior in edge cases.
 * Better support for big endian and *BSD systems.
 * Build system improved.
+
+Migrating from 2.4 to 2.6
+=========================
+
+Redis 2.4 is mostly a strict subset of 2.6. However there are a few things
+that you should be aware of:
+
+* You can't use .rdb and AOF files generated with 2.6 into a 2.4 instance.
+* 2.4 slaves can be attached to 2.6 masters, but not the contrary, and only
+  for the time needed to perform the version upgrade.
+
+There are also a few API differences, that are unlikely to cause problems,
+but it is better to keep them in mind:
+
+* SORT now will refuse to sort in numerical mode elements that can't be parsed
+  as numbers.
+* EXPIREs now all have millisecond resolution (but this is very unlikely to
+  break code that was not conceived exploting the previous resolution error
+  in some way.)
+* INFO output is a bit different now, and contains empty lines and comments
+  starting with '#'. All the major clients should be already fixed to work
+  with the new INFO format.
+* Slaves are only read-only by default (but you can change this easily
+  setting the "slave-read-only" configuration option to "no" editing your
+  redis.conf or using CONFIG SET.
+
+The following INFO fields were renamed for consistency:
+
+     changes_since_last_save -> rdb_changes_since_last_save
+     bgsave_in_progress -> rdb_bgsave_in_progress
+     last_save_time -> rdb_last_save_time
+     last_bgsave_status -> rdb_last_bgsave_status
+     bgrewriteaof_in_progress -> aof_rewrite_in_progress
+     bgrewriteaof_scheduled -> aof_rewrite_scheduled
+
+The following redis.conf and CONFIG GET / SET parameters changed:
+
+    * hash-max-zipmap-entries, now replaced by hash-max-ziplist-entries
+    * hash-max-zipmap-value, now replaced by hash-max-ziplist-value
+    * glueoutputbuf option was now completely removed (was deprecated)
 
 --------------------------------------------------------------------------------
 
