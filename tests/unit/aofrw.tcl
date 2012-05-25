@@ -127,8 +127,8 @@ start_server {tags {"aofrw"}} {
         r info persistence
         set res [r exec]
         assert_match {*scheduled*} [lindex $res 1]
-        assert_match {*bgrewriteaof_scheduled:1*} [lindex $res 2]
-        while {[string match {*bgrewriteaof_scheduled:1*} [r info persistence]]} {
+        assert_match {*aof_rewrite_scheduled:1*} [lindex $res 2]
+        while {[string match {*aof_rewrite_scheduled:1*} [r info persistence]]} {
             after 100
         }
     }
@@ -141,7 +141,7 @@ start_server {tags {"aofrw"}} {
             r exec
         } e
         assert_match {*ERR*already*} $e
-        while {[string match {*bgrewriteaof_scheduled:1*} [r info persistence]]} {
+        while {[string match {*aof_rewrite_scheduled:1*} [r info persistence]]} {
             after 100
         }
     }
