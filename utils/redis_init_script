@@ -36,7 +36,21 @@ case "$1" in
                 echo "Redis stopped"
         fi
         ;;
+    reload)
+        if [ ! -f $PIDFILE ]
+        then
+                echo "$PIDFILE does not exist, process is not running"
+        else
+                PID=$(cat $PIDFILE)
+                echo "Reloading Redis config..."
+                kill -s HUP $PID
+        fi
+        ;;
+     restart)
+        ${0} stop
+        ${0} start
+        ;;
     *)
-        echo "Please use start or stop as first argument"
+        echo "Please use start, stop, reload or restart as first argument"
         ;;
 esac
