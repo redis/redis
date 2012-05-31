@@ -197,6 +197,7 @@ void bitopCommand(redisClient *c) {
             objects[j] = NULL;
             src[j] = NULL;
             len[j] = 0;
+            minlen = 0;
             continue;
         }
         /* Return an error if one of the keys is not a string. */
