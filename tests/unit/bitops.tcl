@@ -160,4 +160,10 @@ start_server {tags {"bitops"}} {
         catch {r bitop xor dest a b c d} e
         set e
     } {*ERR*}
+
+    test {BITOP with empty string after non empty string (issue #529)} {
+        r flushdb
+        r set a "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+        r bitop or x a b
+    } {32}
 }
