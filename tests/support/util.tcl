@@ -83,7 +83,7 @@ proc waitForBgrewriteaof r {
 
 proc wait_for_sync r {
     while 1 {
-        if {[status r master_link_status] eq "down"} {
+        if {[status $r master_link_status] eq "down"} {
             after 10
         } else {
             break

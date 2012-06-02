@@ -319,9 +319,13 @@ start_server {tags {"scripting repl"}} {
 
         test {Connect a slave to the main instance} {
             r -1 slaveof [srv 0 host] [srv 0 port]
-            after 1000
-            s -1 role
-        } {slave}
+            wait_for_condition 50 100 {
+                [s -1 role] eq {slave} &&
+                [string match {*master_link_status:up*} [r -1 info replication]]
+            } else {
+                fail "Can't turn the instance into a slave"
+            }
+        }
 
         test {Now use EVALSHA against the master} {
             r evalsha ae3477e27be955de7e1bc9adfdca626b478d3cb2 0
