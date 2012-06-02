@@ -21,6 +21,9 @@ int rdbSaveType(rio *rdb, unsigned char type) {
     return rdbWriteRaw(rdb,&type,1);
 }
 
+/* Load a "type" in RDB format, that is a one byte unsigned integer.
+ * This function is not only used to load object types, but also special
+ * "types" like the end-of-file type, the EXPIRE type, and so forth. */
 int rdbLoadType(rio *rdb) {
     unsigned char type;
     if (rioRead(rdb,&type,1) == 0) return -1;
@@ -433,7 +436,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
     return -1; /* avoid warning */
 }
 
-/* Load object type. Return -1 when the byte doesn't contain an object type. */
+/* Use rdbLoadType() to load a TYPE in RDB format, but returns -1 if the
+ * type is not specifically a valid Object Type. */
 int rdbLoadObjectType(rio *rdb) {
     int type;
     if ((type = rdbLoadType(rdb)) == -1) return -1;
