@@ -91,6 +91,26 @@ start_server {tags {"dump"}} {
         }
     }
 
+    test {MIGRATE can correctly transfer hashes} {
+        set first [srv 0 client]
+        r del key
+        r hmset key field1 "item 1" field2 "item 2" field3 "item 3" \
+                    field4 "item 4" field5 "item 5" field6 "item 6"
+        start_server {tags {"repl"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            assert {[$first exists key] == 1}
+            assert {[$second exists key] == 0}
+            set ret [r -1 migrate $second_host $second_port key 9 10000]
+            assert {$ret eq {OK}}
+            assert {[$first exists key] == 0}
+            assert {[$second exists key] == 1}
+            assert {[$second ttl key] == -1}
+        }
+    }
+
     test {MIGRATE timeout actually works} {
         set first [srv 0 client]
         r set key "Some Value"
