@@ -887,6 +887,9 @@ void configCommand(redisClient *c) {
         server.stat_rejected_conn = 0;
         server.stat_fork_time = 0;
         server.aof_delayed_fsync = 0;
+        server.ops_sec_last_sample_time = mstime();
+        server.ops_sec_last_sample_ops = 0;
+        memset(server.ops_sec_samples, 0, sizeof server.ops_sec_samples);
         resetCommandTableStats();
         addReply(c,shared.ok);
     } else {
