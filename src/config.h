@@ -30,6 +30,10 @@
 #ifndef __CONFIG_H
 #define __CONFIG_H
 
+#ifdef __unix
+#include <features.h>
+#endif
+
 #ifdef __APPLE__
 #include <AvailabilityMacros.h>
 #endif
@@ -56,7 +60,7 @@
 #endif
 
 /* Test for backtrace() */
-#if defined(__APPLE__) || defined(__linux__)
+#if (defined(__APPLE__) || defined(__linux__)) && !defined(__UCLIBC__)
 #define HAVE_BACKTRACE 1
 #endif
 
