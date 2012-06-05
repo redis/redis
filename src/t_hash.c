@@ -43,7 +43,7 @@ void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
     if (o->encoding != REDIS_ENCODING_ZIPLIST) return;
 
     for (i = start; i <= end; i++) {
-        if (argv[i]->encoding == REDIS_ENCODING_RAW &&
+        if (sdsEncodedObject(argv[i]) &&
             sdslen(argv[i]->ptr) > server.hash_max_ziplist_value)
         {
             hashTypeConvert(o, REDIS_ENCODING_HT);

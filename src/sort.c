@@ -411,7 +411,7 @@ void sortCommand(redisClient *c) {
             if (alpha) {
                 if (sortby) vector[j].u.cmpobj = getDecodedObject(byval);
             } else {
-                if (byval->encoding == REDIS_ENCODING_RAW) {
+                if (sdsEncodedObject(byval)) {
                     char *eptr;
 
                     vector[j].u.score = strtod(byval->ptr,&eptr);

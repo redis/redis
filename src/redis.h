@@ -174,6 +174,7 @@
 #define REDIS_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
 #define REDIS_ENCODING_INTSET 6  /* Encoded as intset */
 #define REDIS_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
+#define REDIS_ENCODING_EMBSTR 8  /* Embedded sds string encoding */
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
@@ -1138,6 +1139,8 @@ void freeZsetObject(robj *o);
 void freeHashObject(robj *o);
 robj *createObject(int type, void *ptr);
 robj *createStringObject(char *ptr, size_t len);
+robj *createRawStringObject(char *ptr, size_t len);
+robj *createEmbeddedStringObject(char *ptr, size_t len);
 robj *dupStringObject(robj *o);
 int isObjectRepresentableAsLongLong(robj *o, long long *llongval);
 robj *tryObjectEncoding(robj *o);
@@ -1164,6 +1167,7 @@ int compareStringObjects(robj *a, robj *b);
 int collateStringObjects(robj *a, robj *b);
 int equalStringObjects(robj *a, robj *b);
 unsigned long estimateObjectIdleTime(robj *o);
+#define sdsEncodedObject(objptr) (objptr->encoding == REDIS_ENCODING_RAW || objptr->encoding == REDIS_ENCODING_EMBSTR)
 
 /* Synchronous I/O with timeout */
 ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout);

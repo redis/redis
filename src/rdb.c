@@ -325,7 +325,7 @@ int rdbSaveStringObject(rio *rdb, robj *obj) {
     if (obj->encoding == REDIS_ENCODING_INT) {
         return rdbSaveLongLongAsStringObject(rdb,(long)obj->ptr);
     } else {
-        redisAssertWithInfo(NULL,obj,obj->encoding == REDIS_ENCODING_RAW);
+        redisAssertWithInfo(NULL,obj,sdsEncodedObject(obj));
         return rdbSaveRawString(rdb,obj->ptr,sdslen(obj->ptr));
     }
 }
@@ -795,7 +795,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             /* If we are using a ziplist and the value is too big, convert
              * the object to a real list. */
             if (o->encoding == REDIS_ENCODING_ZIPLIST &&
-                ele->encoding == REDIS_ENCODING_RAW &&
+                sdsEncodedObject(ele) &&
                 sdslen(ele->ptr) > server.list_max_ziplist_value)
                     listTypeConvert(o,REDIS_ENCODING_LINKEDLIST);
 
@@ -869,9 +869,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             if (rdbLoadDoubleValue(rdb,&score) == -1) return NULL;
 
             /* Don't care about integer-encoded strings. */
-            if (ele->encoding == REDIS_ENCODING_RAW &&
-                sdslen(ele->ptr) > maxelelen)
-                    maxelelen = sdslen(ele->ptr);
+            if (sdsEncodedObject(ele) && sdslen(ele->ptr) > maxelelen)
+                maxelelen = sdslen(ele->ptr);
 
             znode = zslInsert(zs->zsl,score,ele);
             dictAdd(zs->dict,ele,&znode->score);
@@ -903,10 +902,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             /* Load raw strings */
             field = rdbLoadStringObject(rdb);
             if (field == NULL) return NULL;
-            redisAssert(field->encoding == REDIS_ENCODING_RAW);
+            redisAssert(sdsEncodedObject(field));
             value = rdbLoadStringObject(rdb);
             if (value == NULL) return NULL;
-            redisAssert(field->encoding == REDIS_ENCODING_RAW);
+            redisAssert(sdsEncodedObject(value));
 
             /* Add pair to ziplist */
             o->ptr = ziplistPush(o->ptr, field->ptr, sdslen(field->ptr), ZIPLIST_TAIL);

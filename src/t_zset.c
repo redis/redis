@@ -646,7 +646,7 @@ unsigned char *zzlInsertAt(unsigned char *zl, unsigned char *eptr, robj *ele, do
     int scorelen;
     size_t offset;
 
-    redisAssertWithInfo(NULL,ele,ele->encoding == REDIS_ENCODING_RAW);
+    redisAssertWithInfo(NULL,ele,sdsEncodedObject(ele));
     scorelen = d2string(scorebuf,sizeof(scorebuf),score);
     if (eptr == NULL) {
         zl = ziplistPush(zl,ele->ptr,sdslen(ele->ptr),ZIPLIST_TAIL);
@@ -1363,7 +1363,7 @@ int zuiLongLongFromValue(zsetopval *val) {
             if (val->ele->encoding == REDIS_ENCODING_INT) {
                 val->ell = (long)val->ele->ptr;
                 val->flags |= OPVAL_VALID_LL;
-            } else if (val->ele->encoding == REDIS_ENCODING_RAW) {
+            } else if (sdsEncodedObject(val->ele)) {
                 if (string2ll(val->ele->ptr,sdslen(val->ele->ptr),&val->ell))
                     val->flags |= OPVAL_VALID_LL;
             } else {
@@ -1398,7 +1398,7 @@ int zuiBufferFromValue(zsetopval *val) {
             if (val->ele->encoding == REDIS_ENCODING_INT) {
                 val->elen = ll2string((char*)val->_buf,sizeof(val->_buf),(long)val->ele->ptr);
                 val->estr = val->_buf;
-            } else if (val->ele->encoding == REDIS_ENCODING_RAW) {
+            } else if (sdsEncodedObject(val->ele)) {
                 val->elen = sdslen(val->ele->ptr);
                 val->estr = val->ele->ptr;
             } else {
@@ -1624,9 +1624,10 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                     dictAdd(dstzset->dict,tmp,&znode->score);
                     incrRefCount(tmp); /* added to dictionary */
 
-                    if (tmp->encoding == REDIS_ENCODING_RAW)
+                    if (sdsEncodedObject(tmp)) {
                         if (sdslen(tmp->ptr) > maxelelen)
                             maxelelen = sdslen(tmp->ptr);
+                    }
                 }
             }
         }
@@ -1666,9 +1667,10 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                 dictAdd(dstzset->dict,tmp,&znode->score);
                 incrRefCount(zval.ele); /* added to dictionary */
 
-                if (tmp->encoding == REDIS_ENCODING_RAW)
+                if (sdsEncodedObject(tmp)) {
                     if (sdslen(tmp->ptr) > maxelelen)
                         maxelelen = sdslen(tmp->ptr);
+                }
             }
         }
     } else {
@@ -2146,7 +2148,8 @@ void zrankGenericCommand(redisClient *c, int reverse) {
         checkType(c,zobj,REDIS_ZSET)) return;
     llen = zsetLength(zobj);
 
-    redisAssertWithInfo(c,ele,ele->encoding == REDIS_ENCODING_RAW);
+    redisAssertWithInfo(c,ele,sdsEncodedObject(ele));
+
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
         unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
