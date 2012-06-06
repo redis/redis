@@ -89,6 +89,7 @@ typedef struct aeEventLoop {
     int setsize; /* max number of file descriptors tracked */
     long long timeEventNextId;
     aeFileEvent *events; /* Registered events */
+    int events_offset; /* Round-robin offset into events. */
     aeFiredEvent *fired; /* Fired events */
     aeTimeEvent *timeEventHead;
     int stop;

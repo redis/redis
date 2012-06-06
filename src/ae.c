@@ -64,6 +64,7 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
 
     if ((eventLoop = zmalloc(sizeof(*eventLoop))) == NULL) goto err;
     eventLoop->events = zmalloc(sizeof(aeFileEvent)*setsize);
+    eventLoop->events_offset = 0;
     eventLoop->fired = zmalloc(sizeof(aeFiredEvent)*setsize);
     if (eventLoop->events == NULL || eventLoop->fired == NULL) goto err;
     eventLoop->setsize = setsize;
@@ -343,11 +344,14 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             }
         }
 
+        if ( ++ eventLoop->events_offset > eventLoop->setsize )
+            eventLoop->events_offset = 0;
         numevents = aeApiPoll(eventLoop, tvp);
         for (j = 0; j < numevents; j++) {
-            aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
-            int mask = eventLoop->fired[j].mask;
-            int fd = eventLoop->fired[j].fd;
+            aeFiredEvent *fired = &eventLoop->fired[(j + eventLoop->events_offset) % numevents];
+            aeFileEvent *fe = &eventLoop->events[fired->fd];
+            int mask = fired->mask;
+            int fd = fired->fd;
             int rfired = 0;
 
 	    /* note the fe->mask & mask & ... code: maybe an already processed
