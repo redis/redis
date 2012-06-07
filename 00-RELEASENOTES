@@ -5,6 +5,33 @@ Redis 2.6 release notes
                 this file for information about what changed between 2.4 and
                 2.6 and how this may affect your application.
 
+--------------------------------------------------------------------------------
+Upgrade urgency levels:
+
+LOW:      No need to upgrade unless there are new features you want to use.
+MODERATE: Program an upgrade of the server, but it's not urgent.
+HIGH:     There is a critical bug that may affect some part of users. Upgrade!
+CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
+--------------------------------------------------------------------------------
+
+---[ Redis 2.5.10 (2.6 Release Candidate 4) ]
+
+UPGRADE URGENCY: HIGH.
+
+* [BUGFIX]   Allow PREFIX to be overwritten on "make install".
+* [BUGFIX]   Run the test with just one client if the computer is slow.
+* [BUGFIX]   Event port support in our event driven libray.
+* [BUGFIX]   Jemalloc updated to 3.0.0. This fixes a possibly AOF rewrite issue.
+             See https://github.com/antirez/redis/issues/504 for info.
+* [BUGFIX]   Fixed issue #516: ZINTERSTORE / ZUNIONSTORE with mixed sets/zsets.
+* [BUGFIX]   Set fd to writable when poll(2) detects POLLERR or POLLHUP event.
+* [BUGFIX]   Fixed RESTORE hash failure (Issue #532).
+* [IMPROVED] Allow an AOF rewrite buffer > 2GB (Related to issue #504).
+* [IMPROVED] Server cron function frequency is now configurable (REDIS_HZ).
+* [IMPROVED] Better, less blocking expired keys collection algorithm.
+* [FEATURE]  New commands: BITOP and BITCOUNT.
+* [FEATURE]  redis-cli --pipe for mass import.
+
 What's new in Redis 2.5.9 (aka 2.6 Release Candidate 3)
 =======================================================
 
