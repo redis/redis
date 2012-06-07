@@ -48,7 +48,7 @@ void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **
     int j, port;
     sds cmdrepr = sdsnew("+");
     robj *cmdobj;
-    char ip[32];
+    char ip[INET6_ADDRSTRLEN];
     struct timeval tv;
 
     gettimeofday(&tv,NULL);
