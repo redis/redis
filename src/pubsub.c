@@ -48,6 +48,34 @@ int pubsubSubscribeChannel(redisClient *c, robj *channel) {
     return retval;
 }
 
+/* Debug command to return the full list of server channels.
+ * Not for use in production as command will not be performant with a large
+ * number of channels. */
+void channelsCommand(redisClient *c) {
+    dictIterator *di;
+    dictEntry *de;
+    sds pattern = c->argv[1]->ptr;
+    int plen = sdslen(pattern), allchans;
+    unsigned long numchans = 0;
+    void *replylen = addDeferredMultiBulkLength(c);
+    
+    di = dictGetIterator(server.pubsub_channels);
+    allchans = (pattern[0] == '*' && pattern[1] == '\0');
+    while((de = dictNext(di)) != NULL) {
+        robj *chanobj = dictGetKey(de);
+        incrRefCount(chanobj);
+        sds chan = (sds)chanobj->ptr;
+        
+        if (allchans || stringmatchlen(pattern,plen,chan,sdslen(chan),0)) {
+            addReplyBulk(c,chanobj);
+            numchans++;
+        }
+        decrRefCount(chanobj);
+    }
+    dictReleaseIterator(di);
+    setDeferredMultiBulkLength(c,replylen,numchans);
+}
+
 /* Unsubscribe a client from a channel. Returns 1 if the operation succeeded, or
  * 0 if the client was not subscribed to the specified channel. */
 int pubsubUnsubscribeChannel(redisClient *c, robj *channel, int notify) {
