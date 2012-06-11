@@ -403,7 +403,11 @@ void hashTypeConvertZiplist(robj *o, int enc) {
             value = hashTypeCurrentObject(hi, REDIS_HASH_VALUE);
             value = tryObjectEncoding(value);
             ret = dictAdd(dict, field, value);
-            redisAssert(ret == DICT_OK);
+            if (ret != DICT_OK) {
+                redisLogHexDump(REDIS_WARNING,"ziplist with dup elements dump",
+                    o->ptr,ziplistBlobLen(o->ptr));
+                redisAssert(ret == DICT_OK);
+            }
         }
 
         hashTypeReleaseIterator(hi);
