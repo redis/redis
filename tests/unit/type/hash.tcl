@@ -419,4 +419,15 @@ start_server {tags {"hash"}} {
             }
         }
     }
+
+    test {Stress test the hash ziplist -> hashtable encoding conversion} {
+        r config set hash-max-ziplist-entries 32
+        for {set j 0} {$j < 100} {incr j} {
+            r del myhash
+            for {set i 0} {$i < 64} {incr i} {
+                r hset myhash [randomValue] [randomValue]
+            }
+            assert {[r object encoding myhash] eq {hashtable}}
+        }
+    }
 }
