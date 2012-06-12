@@ -397,7 +397,7 @@ start_server {tags {"hash"}} {
     } {b}
 
     foreach size {10 512} {
-        test "Hash fuzzing - $size fields" {
+        test "Hash fuzzing #1 - $size fields" {
             for {set times 0} {$times < 10} {incr times} {
                 catch {unset hash}
                 array set hash {}
@@ -409,6 +409,43 @@ start_server {tags {"hash"}} {
                     set value [randomValue]
                     r hset hash $field $value
                     set hash($field) $value
+                }
+
+                # Verify
+                foreach {k v} [array get hash] {
+                    assert_equal $v [r hget hash $k]
+                }
+                assert_equal [array size hash] [r hlen hash]
+            }
+        }
+
+        test "Hash fuzzing #2 - $size fields" {
+            for {set times 0} {$times < 10} {incr times} {
+                catch {unset hash}
+                array set hash {}
+                r del hash
+
+                # Create
+                for {set j 0} {$j < $size} {incr j} {
+                    randpath {
+                        set field [randomValue]
+                        set value [randomValue]
+                        r hset hash $field $value
+                        set hash($field) $value
+                    } {
+                        set field [randomSignedInt 512]
+                        set value [randomSignedInt 512]
+                        r hset hash $field $value
+                        set hash($field) $value
+                    } {
+                        randpath {
+                            set field [randomValue]
+                        } {
+                            set field [randomSignedInt 512]
+                        }
+                        r hdel hash $field
+                        unset -nocomplain hash($field)
+                    }
                 }
 
                 # Verify
