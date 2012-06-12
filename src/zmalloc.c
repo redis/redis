@@ -30,6 +30,15 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+
+/* This function provide us access to the original libc free(). This is useful
+ * for instance to free results obtained by backtrace_symbols(). We need
+ * to define this function before including zmalloc.h that may shadow the
+ * free implementation if we use jemalloc or another non standard allocator. */
+void zlibc_free(void *ptr) {
+    free(ptr);
+}
+
 #include <string.h>
 #include <pthread.h>
 #include "config.h"
@@ -58,13 +67,29 @@
 #define free(ptr) je_free(ptr)
 #endif
 
+#ifdef HAVE_ATOMIC
+#define update_zmalloc_stat_add(__n) __sync_add_and_fetch(&used_memory, (__n))
+#define update_zmalloc_stat_sub(__n) __sync_sub_and_fetch(&used_memory, (__n))
+#else
+#define update_zmalloc_stat_add(__n) do { \
+    pthread_mutex_lock(&used_memory_mutex); \
+    used_memory += (__n); \
+    pthread_mutex_unlock(&used_memory_mutex); \
+} while(0)
+
+#define update_zmalloc_stat_sub(__n) do { \
+    pthread_mutex_lock(&used_memory_mutex); \
+    used_memory -= (__n); \
+    pthread_mutex_unlock(&used_memory_mutex); \
+} while(0)
+
+#endif
+
 #define update_zmalloc_stat_alloc(__n,__size) do { \
     size_t _n = (__n); \
     if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
     if (zmalloc_thread_safe) { \
-        pthread_mutex_lock(&used_memory_mutex);  \
-        used_memory += _n; \
-        pthread_mutex_unlock(&used_memory_mutex); \
+        update_zmalloc_stat_add(_n); \
     } else { \
         used_memory += _n; \
     } \
@@ -74,9 +99,7 @@
     size_t _n = (__n); \
     if (_n&(sizeof(long)-1)) _n += sizeof(long)-(_n&(sizeof(long)-1)); \
     if (zmalloc_thread_safe) { \
-        pthread_mutex_lock(&used_memory_mutex);  \
-        used_memory -= _n; \
-        pthread_mutex_unlock(&used_memory_mutex); \
+        update_zmalloc_stat_sub(_n); \
     } else { \
         used_memory -= _n; \
     } \
@@ -150,6 +173,20 @@ void *zrealloc(void *ptr, size_t size) {
 #endif
 }
 
+/* Provide zmalloc_size() for systems where this function is not provided by
+ * malloc itself, given that in that case we store an header with this
+ * information as the first bytes of every allocation. */
+#ifndef HAVE_MALLOC_SIZE
+size_t zmalloc_size(void *ptr) {
+    void *realptr = (char*)ptr-PREFIX_SIZE;
+    size_t size = *((size_t*)realptr);
+    /* Assume at least that all the allocations are padded at sizeof(long) by
+     * the underlying allocator. */
+    if (size&(sizeof(long)-1)) size += sizeof(long)-(size&(sizeof(long)-1));
+    return size+PREFIX_SIZE;
+}
+#endif
+
 void zfree(void *ptr) {
 #ifndef HAVE_MALLOC_SIZE
     void *realptr;
@@ -179,9 +216,19 @@ char *zstrdup(const char *s) {
 size_t zmalloc_used_memory(void) {
     size_t um;
 
-    if (zmalloc_thread_safe) pthread_mutex_lock(&used_memory_mutex);
-    um = used_memory;
-    if (zmalloc_thread_safe) pthread_mutex_unlock(&used_memory_mutex);
+    if (zmalloc_thread_safe) {
+#ifdef HAVE_ATOMIC
+        um = __sync_add_and_fetch(&used_memory, 0);
+#else
+        pthread_mutex_lock(&used_memory_mutex);
+        um = used_memory;
+        pthread_mutex_unlock(&used_memory_mutex);
+#endif
+    }
+    else {
+        um = used_memory;
+    }
+
     return um;
 }
 

@@ -26,15 +26,7 @@
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
- *
- * History:
- *
- * - 22 March 2011: History section created on top of sds.c
- * - 22 March 2011: Fixed a problem with "\xab" escapes convertion in
- *                  function sdssplitargs().
  */
-
-#define SDS_ABORT_ON_OOM
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,11 +36,6 @@
 #include "sds.h"
 #include "zmalloc.h"
 
-static void sdsOomAbort(void) {
-    fprintf(stderr,"SDS: Out Of Memory (SDS_ABORT_ON_OOM defined)\n");
-    abort();
-}
-
 sds sdsnewlen(const void *init, size_t initlen) {
     struct sdshdr *sh;
 
@@ -57,11 +44,7 @@ sds sdsnewlen(const void *init, size_t initlen) {
     } else {
         sh = zcalloc(sizeof(struct sdshdr)+initlen+1);
     }
-#ifdef SDS_ABORT_ON_OOM
-    if (sh == NULL) sdsOomAbort();
-#else
     if (sh == NULL) return NULL;
-#endif
     sh->len = initlen;
     sh->free = 0;
     if (initlen && init)
@@ -116,16 +99,34 @@ sds sdsMakeRoomFor(sds s, size_t addlen) {
     if (free >= addlen) return s;
     len = sdslen(s);
     sh = (void*) (s-(sizeof(struct sdshdr)));
-    newlen = (len+addlen)*2;
+    newlen = (len+addlen);
+    if (newlen < SDS_MAX_PREALLOC)
+        newlen *= 2;
+    else
+        newlen += SDS_MAX_PREALLOC;
     newsh = zrealloc(sh, sizeof(struct sdshdr)+newlen+1);
-#ifdef SDS_ABORT_ON_OOM
-    if (newsh == NULL) sdsOomAbort();
-#else
     if (newsh == NULL) return NULL;
-#endif
 
     newsh->free = newlen - len;
     return newsh->buf;
+}
+
+/* Reallocate the sds string so that it has no free space at the end. The
+ * contained string remains not altered, but next concatenation operations
+ * will require a reallocation. */
+sds sdsRemoveFreeSpace(sds s) {
+    struct sdshdr *sh;
+
+    sh = (void*) (s-(sizeof(struct sdshdr)));
+    sh = zrealloc(sh, sizeof(struct sdshdr)+sh->len+1);
+    sh->free = 0;
+    return sh->buf;
+}
+
+size_t sdsAllocSize(sds s) {
+    struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
+
+    return sizeof(*sh)+sh->len+sh->free+1;
 }
 
 /* Increment the sds length and decrements the left free space at the
@@ -178,7 +179,7 @@ sds sdsgrowzero(sds s, size_t len) {
     return s;
 }
 
-sds sdscatlen(sds s, void *t, size_t len) {
+sds sdscatlen(sds s, const void *t, size_t len) {
     struct sdshdr *sh;
     size_t curlen = sdslen(s);
 
@@ -192,15 +193,15 @@ sds sdscatlen(sds s, void *t, size_t len) {
     return s;
 }
 
-sds sdscat(sds s, char *t) {
+sds sdscat(sds s, const char *t) {
     return sdscatlen(s, t, strlen(t));
 }
 
-sds sdscatsds(sds s, sds t) {
+sds sdscatsds(sds s, const sds t) {
     return sdscatlen(s, t, sdslen(t));
 }
 
-sds sdscpylen(sds s, char *t, size_t len) {
+sds sdscpylen(sds s, const char *t, size_t len) {
     struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
     size_t totlen = sh->free+sh->len;
 
@@ -217,7 +218,7 @@ sds sdscpylen(sds s, char *t, size_t len) {
     return s;
 }
 
-sds sdscpy(sds s, char *t) {
+sds sdscpy(sds s, const char *t) {
     return sdscpylen(s, t, strlen(t));
 }
 
@@ -228,11 +229,7 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
 
     while(1) {
         buf = zmalloc(buflen);
-#ifdef SDS_ABORT_ON_OOM
-        if (buf == NULL) sdsOomAbort();
-#else
         if (buf == NULL) return NULL;
-#endif
         buf[buflen-2] = '\0';
         va_copy(cpy,ap);
         vsnprintf(buf, buflen, fmt, cpy);
@@ -317,7 +314,7 @@ void sdstoupper(sds s) {
     for (j = 0; j < len; j++) s[j] = toupper(s[j]);
 }
 
-int sdscmp(sds s1, sds s2) {
+int sdscmp(const sds s1, const sds s2) {
     size_t l1, l2, minlen;
     int cmp;
 
@@ -345,18 +342,14 @@ int sdscmp(sds s1, sds s2) {
  * requires length arguments. sdssplit() is just the
  * same function but for zero-terminated strings.
  */
-sds *sdssplitlen(char *s, int len, char *sep, int seplen, int *count) {
+sds *sdssplitlen(const char *s, int len, const char *sep, int seplen, int *count) {
     int elements = 0, slots = 5, start = 0, j;
     sds *tokens;
 
     if (seplen < 1 || len < 0) return NULL;
 
     tokens = zmalloc(sizeof(sds)*slots);
-#ifdef SDS_ABORT_ON_OOM
-    if (tokens == NULL) sdsOomAbort();
-#else
     if (tokens == NULL) return NULL;
-#endif
 
     if (len == 0) {
         *count = 0;
@@ -369,25 +362,13 @@ sds *sdssplitlen(char *s, int len, char *sep, int seplen, int *count) {
 
             slots *= 2;
             newtokens = zrealloc(tokens,sizeof(sds)*slots);
-            if (newtokens == NULL) {
-#ifdef SDS_ABORT_ON_OOM
-                sdsOomAbort();
-#else
-                goto cleanup;
-#endif
-            }
+            if (newtokens == NULL) goto cleanup;
             tokens = newtokens;
         }
         /* search the separator */
         if ((seplen == 1 && *(s+j) == sep[0]) || (memcmp(s+j,sep,seplen) == 0)) {
             tokens[elements] = sdsnewlen(s+start,j-start);
-            if (tokens[elements] == NULL) {
-#ifdef SDS_ABORT_ON_OOM
-                sdsOomAbort();
-#else
-                goto cleanup;
-#endif
-            }
+            if (tokens[elements] == NULL) goto cleanup;
             elements++;
             start = j+seplen;
             j = j+seplen-1; /* skip the separator */
@@ -395,18 +376,11 @@ sds *sdssplitlen(char *s, int len, char *sep, int seplen, int *count) {
     }
     /* Add the final element. We are sure there is room in the tokens array. */
     tokens[elements] = sdsnewlen(s+start,len-start);
-    if (tokens[elements] == NULL) {
-#ifdef SDS_ABORT_ON_OOM
-                sdsOomAbort();
-#else
-                goto cleanup;
-#endif
-    }
+    if (tokens[elements] == NULL) goto cleanup;
     elements++;
     *count = elements;
     return tokens;
 
-#ifndef SDS_ABORT_ON_OOM
 cleanup:
     {
         int i;
@@ -415,7 +389,6 @@ cleanup:
         *count = 0;
         return NULL;
     }
-#endif
 }
 
 void sdsfreesplitres(sds *tokens, int count) {
@@ -440,7 +413,7 @@ sds sdsfromlonglong(long long value) {
     return sdsnewlen(p,32-(p-buf));
 }
 
-sds sdscatrepr(sds s, char *p, size_t len) {
+sds sdscatrepr(sds s, const char *p, size_t len) {
     s = sdscatlen(s,"\"",1);
     while(len--) {
         switch(*p) {
@@ -508,8 +481,8 @@ int hex_digit_to_int(char c) {
  * Note that sdscatrepr() is able to convert back a string into
  * a quoted string in the same format sdssplitargs() is able to parse.
  */
-sds *sdssplitargs(char *line, int *argc) {
-    char *p = line;
+sds *sdssplitargs(const char *line, int *argc) {
+    const char *p = line;
     char *current = NULL;
     char **vector = NULL;
 
@@ -631,7 +604,7 @@ void sdssplitargs_free(sds *argv, int argc) {
  *
  * The function returns the sds string pointer, that is always the same
  * as the input pointer since no resize is needed. */
-sds sdsmapchars(sds s, char *from, char *to, size_t setlen) {
+sds sdsmapchars(sds s, const char *from, const char *to, size_t setlen) {
     size_t j, i, l = sdslen(s);
 
     for (j = 0; j < l; j++) {

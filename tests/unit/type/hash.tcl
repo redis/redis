@@ -14,8 +14,8 @@ start_server {tags {"hash"}} {
         list [r hlen smallhash]
     } {8}
 
-    test {Is the small hash encoded with a zipmap?} {
-        assert_encoding zipmap smallhash
+    test {Is the small hash encoded with a ziplist?} {
+        assert_encoding ziplist smallhash
     }
 
     test {HSET/HLEN - Big hash creation} {
@@ -33,7 +33,7 @@ start_server {tags {"hash"}} {
         list [r hlen bighash]
     } {1024}
 
-    test {Is the big hash encoded with a zipmap?} {
+    test {Is the big hash encoded with a ziplist?} {
         assert_encoding hashtable bighash
     }
 
@@ -252,7 +252,7 @@ start_server {tags {"hash"}} {
         lappend rv [r hexists bighash nokey]
     } {1 0 1 0}
 
-    test {Is a zipmap encoded Hash promoted on big payload?} {
+    test {Is a ziplist encoded Hash promoted on big payload?} {
         r hset smallhash foo [string repeat a 1024]
         r debug object smallhash
     } {*hashtable*}
@@ -318,6 +318,14 @@ start_server {tags {"hash"}} {
         lappend rv [string match "ERR*not an integer*" $bigerr]
     } {1 1}
 
+    test {HINCRBY can detect overflows} {
+        set e {}
+        r hset hash n -9223372036854775484
+        assert {[r hincrby hash n -1] == -9223372036854775485}
+        catch {r hincrby hash n -10000} e
+        set e
+    } {*overflow*}
+
     test {HINCRBYFLOAT against non existing database key} {
         r del htest
         list [r hincrbyfloat htest foo 2.5]
@@ -382,9 +390,81 @@ start_server {tags {"hash"}} {
         lappend rv [string match "ERR*not*float*" $bigerr]
     } {1 1}
 
-    test {Hash zipmap regression test for large keys} {
+    test {Hash ziplist regression test for large keys} {
         r hset hash kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk a
         r hset hash kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk b
         r hget hash kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk
     } {b}
+
+    foreach size {10 512} {
+        test "Hash fuzzing #1 - $size fields" {
+            for {set times 0} {$times < 10} {incr times} {
+                catch {unset hash}
+                array set hash {}
+                r del hash
+
+                # Create
+                for {set j 0} {$j < $size} {incr j} {
+                    set field [randomValue]
+                    set value [randomValue]
+                    r hset hash $field $value
+                    set hash($field) $value
+                }
+
+                # Verify
+                foreach {k v} [array get hash] {
+                    assert_equal $v [r hget hash $k]
+                }
+                assert_equal [array size hash] [r hlen hash]
+            }
+        }
+
+        test "Hash fuzzing #2 - $size fields" {
+            for {set times 0} {$times < 10} {incr times} {
+                catch {unset hash}
+                array set hash {}
+                r del hash
+
+                # Create
+                for {set j 0} {$j < $size} {incr j} {
+                    randpath {
+                        set field [randomValue]
+                        set value [randomValue]
+                        r hset hash $field $value
+                        set hash($field) $value
+                    } {
+                        set field [randomSignedInt 512]
+                        set value [randomSignedInt 512]
+                        r hset hash $field $value
+                        set hash($field) $value
+                    } {
+                        randpath {
+                            set field [randomValue]
+                        } {
+                            set field [randomSignedInt 512]
+                        }
+                        r hdel hash $field
+                        unset -nocomplain hash($field)
+                    }
+                }
+
+                # Verify
+                foreach {k v} [array get hash] {
+                    assert_equal $v [r hget hash $k]
+                }
+                assert_equal [array size hash] [r hlen hash]
+            }
+        }
+    }
+
+    test {Stress test the hash ziplist -> hashtable encoding conversion} {
+        r config set hash-max-ziplist-entries 32
+        for {set j 0} {$j < 100} {incr j} {
+            r del myhash
+            for {set i 0} {$i < 64} {incr i} {
+                r hset myhash [randomValue] [randomValue]
+            }
+            assert {[r object encoding myhash] eq {hashtable}}
+        }
+    }
 }

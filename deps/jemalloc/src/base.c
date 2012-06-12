@@ -4,7 +4,7 @@
 /******************************************************************************/
 /* Data. */
 
-malloc_mutex_t	base_mtx;
+static malloc_mutex_t	base_mtx;
 
 /*
  * Current pages that are being used for internal memory allocations.  These
@@ -32,7 +32,7 @@ base_pages_alloc(size_t minsize)
 	assert(minsize != 0);
 	csize = CHUNK_CEILING(minsize);
 	zero = false;
-	base_pages = chunk_alloc(csize, true, &zero);
+	base_pages = chunk_alloc(csize, chunksize, true, &zero);
 	if (base_pages == NULL)
 		return (true);
 	base_next_addr = base_pages;
@@ -62,6 +62,17 @@ base_alloc(size_t size)
 	ret = base_next_addr;
 	base_next_addr = (void *)((uintptr_t)base_next_addr + csize);
 	malloc_mutex_unlock(&base_mtx);
+
+	return (ret);
+}
+
+void *
+base_calloc(size_t number, size_t size)
+{
+	void *ret = base_alloc(number * size);
+
+	if (ret != NULL)
+		memset(ret, 0, number * size);
 
 	return (ret);
 }
@@ -103,4 +114,25 @@ base_boot(void)
 		return (true);
 
 	return (false);
+}
+
+void
+base_prefork(void)
+{
+
+	malloc_mutex_prefork(&base_mtx);
+}
+
+void
+base_postfork_parent(void)
+{
+
+	malloc_mutex_postfork_parent(&base_mtx);
+}
+
+void
+base_postfork_child(void)
+{
+
+	malloc_mutex_postfork_child(&base_mtx);
 }

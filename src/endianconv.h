@@ -1,5 +1,8 @@
-/*
- * Copyright (c) 2009-2010, Salvatore Sanfilippo <antirez at gmail dot com>
+/* See endianconv.c top comments for more information
+ *
+ * ----------------------------------------------------------------------------
+ *
+ * Copyright (c) 2011-2012, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -25,16 +28,36 @@
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
- */
+ */ 
 
-#ifndef __UTIL_H
-#define __UTIL_H
-#include <stdlib.h>
+#ifndef __ENDIANCONV_H
+#define __ENDIANCONV_H
 
-/* Abort on out of memory */
-static void redisOOM(void) {
-    fprintf(stderr,"Out of memory in hiredis");
-    exit(1);
-}
+#include <stdint.h>
+
+void memrev16(void *p);
+void memrev32(void *p);
+void memrev64(void *p);
+uint16_t intrev16(uint16_t v);
+uint32_t intrev32(uint32_t v);
+uint64_t intrev64(uint64_t v);
+
+/* variants of the function doing the actual convertion only if the target
+ * host is big endian */
+#if (BYTE_ORDER == LITTLE_ENDIAN)
+#define memrev16ifbe(p)
+#define memrev32ifbe(p)
+#define memrev64ifbe(p)
+#define intrev16ifbe(v) (v)
+#define intrev32ifbe(v) (v)
+#define intrev64ifbe(v) (v)
+#else
+#define memrev16ifbe(p) memrev16(p)
+#define memrev32ifbe(p) memrev32(p)
+#define memrev64ifbe(p) memrev64(p)
+#define intrev16ifbe(v) intrev16(v)
+#define intrev32ifbe(v) intrev32(v)
+#define intrev64ifbe(v) intrev64(v)
+#endif
 
 #endif

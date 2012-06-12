@@ -1,4 +1,19 @@
 start_server {tags {"aofrw"}} {
+
+    test {Turning off AOF kills the background writing child if any} {
+        r config set appendonly yes
+        waitForBgrewriteaof r
+        r multi
+        r bgrewriteaof
+        r config set appendonly no
+        r exec
+        wait_for_condition 50 100 {
+            [string match {*Killing*AOF*child*} [exec tail -n5 < [srv 0 stdout]]]
+        } else {
+            fail "Can't find 'Killing AOF child' into recent logs"
+        }
+    }
+
     foreach d {string int} {
         foreach e {ziplist linkedlist} {
             test "AOF rewrite of list with $e encoding, $d data" {
@@ -54,10 +69,10 @@ start_server {tags {"aofrw"}} {
     }
 
     foreach d {string int} {
-        foreach e {zipmap hashtable} {
+        foreach e {ziplist hashtable} {
             test "AOF rewrite of hash with $e encoding, $d data" {
                 r flushall
-                if {$e eq {zipmap}} {set len 10} else {set len 1000}
+                if {$e eq {ziplist}} {set len 10} else {set len 1000}
                 for {set j 0} {$j < $len} {incr j} {
                     if {$d eq {string}} {
                         set data [randstring 0 16 alpha]
@@ -102,6 +117,32 @@ start_server {tags {"aofrw"}} {
                     error "assertion:$d1 is not equal to $d2"
                 }
             }
+        }
+    }
+
+    test {BGREWRITEAOF is delayed if BGSAVE is in progress} {
+        r multi
+        r bgsave
+        r bgrewriteaof
+        r info persistence
+        set res [r exec]
+        assert_match {*scheduled*} [lindex $res 1]
+        assert_match {*aof_rewrite_scheduled:1*} [lindex $res 2]
+        while {[string match {*aof_rewrite_scheduled:1*} [r info persistence]]} {
+            after 100
+        }
+    }
+
+    test {BGREWRITEAOF is refused if already in progress} {
+        catch {
+            r multi
+            r bgrewriteaof
+            r bgrewriteaof
+            r exec
+        } e
+        assert_match {*ERR*already*} $e
+        while {[string match {*aof_rewrite_scheduled:1*} [r info persistence]]} {
+            after 100
         }
     }
 }

@@ -141,6 +141,11 @@ start_server {tags {"other"}} {
 
         # Reload and check
         waitForBgrewriteaof r
+        # We need to wait two seconds to avoid false positives here, otherwise
+        # the DEBUG LOADAOF command may read a partial file.
+        # Another solution would be to set the fsync policy to no, since this
+        # prevents write() to be delayed by the completion of fsync().
+        after 2000
         r debug loadaof
         set ttl [r ttl x]
         assert {$ttl > 900 && $ttl <= 1000}

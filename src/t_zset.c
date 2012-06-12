@@ -64,6 +64,10 @@ void zslFree(zskiplist *zsl) {
     zfree(zsl);
 }
 
+/* Returns a random level for the new skiplist node we are going to create.
+ * The return value of this function is between 1 and ZSKIPLIST_MAXLEVEL
+ * (both inclusive), with a powerlaw-alike distribution where higher
+ * levels are less likely to be returned. */
 int zslRandomLevel(void) {
     int level = 1;
     while ((random()&0xFFFF) < (ZSKIPLIST_P * 0xFFFF))
@@ -498,7 +502,7 @@ int zzlIsInRange(unsigned char *zl, zrangespec *range) {
         return 0;
 
     p = ziplistIndex(zl,-1); /* Last score. */
-    redisAssert(p != NULL);
+    if (p == NULL) return 0; /* Empty sorted set */
     score = zzlGetScore(p);
     if (!zslValueGteMin(score,range))
         return 0;
@@ -1250,13 +1254,16 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
     if (val->flags & OPVAL_DIRTY_ROBJ)
         decrRefCount(val->ele);
 
-    bzero(val,sizeof(zsetopval));
+    memset(val,0,sizeof(zsetopval));
 
     if (op->type == REDIS_SET) {
         iterset *it = &op->iter.set;
         if (op->encoding == REDIS_ENCODING_INTSET) {
-            if (!intsetGet(it->is.is,it->is.ii,(int64_t*)&val->ell))
+            int64_t ell;
+
+            if (!intsetGet(it->is.is,it->is.ii,&ell))
                 return 0;
+            val->ell = ell;
             val->score = 1.0;
 
             /* Move to next element. */

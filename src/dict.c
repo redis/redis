@@ -85,10 +85,20 @@ unsigned int dictIdentityHashFunction(unsigned int key)
     return key;
 }
 
+static int dict_hash_function_seed = 5381;
+
+void dictSetHashFunctionSeed(unsigned int seed) {
+    dict_hash_function_seed = seed;
+}
+
+unsigned int dictGetHashFunctionSeed(void) {
+    return dict_hash_function_seed;
+}
+
 /* Generic hash function (a popular one from Bernstein).
  * I tested a few and this was the best. */
 unsigned int dictGenHashFunction(const unsigned char *buf, int len) {
-    unsigned int hash = 5381;
+    unsigned int hash = dict_hash_function_seed;
 
     while (len--)
         hash = ((hash << 5) + hash) + (*buf++); /* hash * 33 + c */
@@ -97,7 +107,7 @@ unsigned int dictGenHashFunction(const unsigned char *buf, int len) {
 
 /* And a case insensitive version */
 unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len) {
-    unsigned int hash = 5381;
+    unsigned int hash = dict_hash_function_seed;
 
     while (len--)
         hash = ((hash << 5) + hash) + (tolower(*buf++)); /* hash * 33 + c */
@@ -106,8 +116,8 @@ unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len) {
 
 /* ----------------------------- API implementation ------------------------- */
 
-/* Reset an hashtable already initialized with ht_init().
- * NOTE: This function should only called by ht_destroy(). */
+/* Reset a hash table already initialized with ht_init().
+ * NOTE: This function should only be called by ht_destroy(). */
 static void _dictReset(dictht *ht)
 {
     ht->table = NULL;
@@ -140,7 +150,7 @@ int _dictInit(dict *d, dictType *type,
 }
 
 /* Resize the table to the minimal size that contains all the elements,
- * but with the invariant of a USER/BUCKETS ratio near to <= 1 */
+ * but with the invariant of a USED/BUCKETS ratio near to <= 1 */
 int dictResize(dict *d)
 {
     int minimal;
@@ -152,18 +162,18 @@ int dictResize(dict *d)
     return dictExpand(d, minimal);
 }
 
-/* Expand or create the hashtable */
+/* Expand or create the hash table */
 int dictExpand(dict *d, unsigned long size)
 {
-    dictht n; /* the new hashtable */
+    dictht n; /* the new hash table */
     unsigned long realsize = _dictNextPower(size);
 
     /* the size is invalid if it is smaller than the number of
-     * elements already inside the hashtable */
+     * elements already inside the hash table */
     if (dictIsRehashing(d) || d->ht[0].used > size)
         return DICT_ERR;
 
-    /* Allocate the new hashtable and initialize all pointers to NULL */
+    /* Allocate the new hash table and initialize all pointers to NULL */
     n.size = realsize;
     n.sizemask = realsize-1;
     n.table = zcalloc(realsize*sizeof(dictEntry*));
@@ -270,7 +280,7 @@ int dictAdd(dict *d, void *key, void *val)
  * a value returns the dictEntry structure to the user, that will make
  * sure to fill the value field as he wishes.
  *
- * This function is also directly expoed to user API to be called
+ * This function is also directly exposed to the user API to be called
  * mainly in order to store non-pointers inside the hash value, example:
  *
  * entry = dictAddRaw(dict,mykey);
@@ -597,7 +607,7 @@ static int _dictKeyIndex(dict *d, const void *key)
     unsigned int h, idx, table;
     dictEntry *he;
 
-    /* Expand the hashtable if needed */
+    /* Expand the hash table if needed */
     if (_dictExpandIfNeeded(d) == DICT_ERR)
         return -1;
     /* Compute the key hash value */
@@ -622,6 +632,21 @@ void dictEmpty(dict *d) {
     d->rehashidx = -1;
     d->iterators = 0;
 }
+
+void dictEnableResize(void) {
+    dict_can_resize = 1;
+}
+
+void dictDisableResize(void) {
+    dict_can_resize = 0;
+}
+
+#if 0
+
+/* The following is code that we don't use for Redis currently, but that is part
+of the library. */
+
+/* ----------------------- Debugging ------------------------*/
 
 #define DICT_STATS_VECTLEN 50
 static void _dictPrintStatsHt(dictht *ht) {
@@ -675,20 +700,6 @@ void dictPrintStats(dict *d) {
         _dictPrintStatsHt(&d->ht[1]);
     }
 }
-
-void dictEnableResize(void) {
-    dict_can_resize = 1;
-}
-
-void dictDisableResize(void) {
-    dict_can_resize = 0;
-}
-
-#if 0
-
-/* The following are just example hash table types implementations.
- * Not useful for Redis so they are commented out.
- */
 
 /* ----------------------- StringCopy Hash Table Type ------------------------*/
 

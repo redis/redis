@@ -40,6 +40,13 @@ void queueMultiCommand(redisClient *c) {
     c->mstate.count++;
 }
 
+void discardTransaction(redisClient *c) {
+    freeClientMultiState(c);
+    initClientMultiState(c);
+    c->flags &= ~(REDIS_MULTI|REDIS_DIRTY_CAS);;
+    unwatchAllKeys(c);
+}
+
 void multiCommand(redisClient *c) {
     if (c->flags & REDIS_MULTI) {
         addReplyError(c,"MULTI calls can not be nested");
@@ -54,11 +61,7 @@ void discardCommand(redisClient *c) {
         addReplyError(c,"DISCARD without MULTI");
         return;
     }
-
-    freeClientMultiState(c);
-    initClientMultiState(c);
-    c->flags &= ~(REDIS_MULTI|REDIS_DIRTY_CAS);;
-    unwatchAllKeys(c);
+    discardTransaction(c);
     addReply(c,shared.ok);
 }
 
@@ -112,7 +115,7 @@ void execCommand(redisClient *c) {
         c->argc = c->mstate.commands[j].argc;
         c->argv = c->mstate.commands[j].argv;
         c->cmd = c->mstate.commands[j].cmd;
-        call(c);
+        call(c,REDIS_CALL_FULL);
 
         /* Commands may alter argc/argv, restore mstate. */
         c->mstate.commands[j].argc = c->argc;

@@ -54,7 +54,7 @@ mb_write(void)
 	    );
 #endif
 }
-#elif (defined(__amd64_) || defined(__x86_64__))
+#elif (defined(__amd64__) || defined(__x86_64__))
 JEMALLOC_INLINE void
 mb_write(void)
 {
@@ -86,6 +86,13 @@ mb_write(void)
 	    : /* Inputs. */
 	    : "memory" /* Clobbers. */
 	    );
+}
+#elif defined(__tile__)
+JEMALLOC_INLINE void
+mb_write(void)
+{
+
+	__sync_synchronize();
 }
 #else
 /*

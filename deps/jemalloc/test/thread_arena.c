@@ -1,16 +1,10 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <pthread.h>
-#include <string.h>
-#include <assert.h>
-
 #define	JEMALLOC_MANGLE
 #include "jemalloc_test.h"
 
 #define NTHREADS 10
 
 void *
-thread_start(void *arg)
+je_thread_start(void *arg)
 {
 	unsigned main_arena_ind = *(unsigned *)arg;
 	void *p;
@@ -18,24 +12,24 @@ thread_start(void *arg)
 	size_t size;
 	int err;
 
-	p = JEMALLOC_P(malloc)(1);
+	p = malloc(1);
 	if (p == NULL) {
-		fprintf(stderr, "%s(): Error in malloc()\n", __func__);
+		malloc_printf("%s(): Error in malloc()\n", __func__);
 		return (void *)1;
 	}
 
 	size = sizeof(arena_ind);
-	if ((err = JEMALLOC_P(mallctl)("thread.arena", &arena_ind, &size,
-	    &main_arena_ind, sizeof(main_arena_ind)))) {
-		fprintf(stderr, "%s(): Error in mallctl(): %s\n", __func__,
+	if ((err = mallctl("thread.arena", &arena_ind, &size, &main_arena_ind,
+	    sizeof(main_arena_ind)))) {
+		malloc_printf("%s(): Error in mallctl(): %s\n", __func__,
 		    strerror(err));
 		return (void *)1;
 	}
 
 	size = sizeof(arena_ind);
-	if ((err = JEMALLOC_P(mallctl)("thread.arena", &arena_ind, &size, NULL,
+	if ((err = mallctl("thread.arena", &arena_ind, &size, NULL,
 	    0))) {
-		fprintf(stderr, "%s(): Error in mallctl(): %s\n", __func__,
+		malloc_printf("%s(): Error in mallctl(): %s\n", __func__,
 		    strerror(err));
 		return (void *)1;
 	}
@@ -52,41 +46,33 @@ main(void)
 	unsigned arena_ind;
 	size_t size;
 	int err;
-	pthread_t threads[NTHREADS];
+	je_thread_t threads[NTHREADS];
 	unsigned i;
 
-	fprintf(stderr, "Test begin\n");
+	malloc_printf("Test begin\n");
 
-	p = JEMALLOC_P(malloc)(1);
+	p = malloc(1);
 	if (p == NULL) {
-		fprintf(stderr, "%s(): Error in malloc()\n", __func__);
+		malloc_printf("%s(): Error in malloc()\n", __func__);
 		ret = 1;
-		goto RETURN;
+		goto label_return;
 	}
 
 	size = sizeof(arena_ind);
-	if ((err = JEMALLOC_P(mallctl)("thread.arena", &arena_ind, &size, NULL,
-	    0))) {
-		fprintf(stderr, "%s(): Error in mallctl(): %s\n", __func__,
+	if ((err = mallctl("thread.arena", &arena_ind, &size, NULL, 0))) {
+		malloc_printf("%s(): Error in mallctl(): %s\n", __func__,
 		    strerror(err));
 		ret = 1;
-		goto RETURN;
-	}
-
-	for (i = 0; i < NTHREADS; i++) {
-		if (pthread_create(&threads[i], NULL, thread_start,
-		    (void *)&arena_ind) != 0) {
-			fprintf(stderr, "%s(): Error in pthread_create()\n",
-			    __func__);
-			ret = 1;
-			goto RETURN;
-		}
+		goto label_return;
 	}
 
 	for (i = 0; i < NTHREADS; i++)
-		pthread_join(threads[i], (void *)&ret);
+		je_thread_create(&threads[i], je_thread_start, (void *)&arena_ind);
 
-RETURN:
-	fprintf(stderr, "Test end\n");
+	for (i = 0; i < NTHREADS; i++)
+		je_thread_join(threads[i], (void *)&ret);
+
+label_return:
+	malloc_printf("Test end\n");
 	return (ret);
 }

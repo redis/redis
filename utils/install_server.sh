@@ -1,41 +1,38 @@
-#! /bin/sh
+#!/bin/bash
 
 # Copyright 2011 Dvir Volk <dvirsk at gmail dot com>. All rights reserved.
 #
-# Redistribution and use in source and binary forms, with or without modification, are
-# permitted provided that the following conditions are met:
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
 #
-#   1. Redistributions of source code must retain the above copyright notice, this list of
-#      conditions and the following disclaimer.
+#   1. Redistributions of source code must retain the above copyright notice,
+#   this list of conditions and the following disclaimer.
 #
-#   2. Redistributions in binary form must reproduce the above copyright notice, this list
-#      of conditions and the following disclaimer in the documentation and/or other materials
-#      provided with the distribution.
+#   2. Redistributions in binary form must reproduce the above copyright
+#   notice, this list of conditions and the following disclaimer in the
+#   documentation and/or other materials provided with the distribution.
 #
 # THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED
-# WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
-# FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL Dvir Volk OR
-# CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
-# ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
-# NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
-# ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+# EVENT SHALL Dvir Volk OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+# LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA,
+# OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+# LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+# NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+# EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
-#
-# # # # # # # # # # # # # # # # # # # # # # # # # #
+################################################################################
 #
 # Interactive service installer for redis server
 # this generates a redis config file and an /etc/init.d script, and installs them
 # this scripts should be run as root
-#
-
 
 die () {
 	echo "ERROR: $1. Aborting!" 
 	exit 1
 }
-
 
 #Initial defaults
 _REDIS_PORT=6379
@@ -135,8 +132,27 @@ CONF=\"$REDIS_CONFIG_FILE\"\n\n
 REDISPORT=\"$REDIS_PORT\"\n\n
 ###############\n\n"
 
-#combine the header and the template (which is actually a static footer)
-echo $REDIS_INIT_HEADER > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
+REDIS_CHKCONFIG_INFO=\
+"# REDHAT chkconfig header\n\n
+# chkconfig: - 58 74\n
+# description: redis_6379 is the redis daemon.\n
+### BEGIN INIT INFO\n
+# Provides: redis_6379\n
+# Required-Start: $network $local_fs $remote_fs\n
+# Required-Stop: $network $local_fs $remote_fs\n
+# Should-Start: $syslog $named\n
+# Should-Stop: $syslog $named\n
+# Short-Description: start and stop redis_6379\n
+# Description: Redis daemon\n
+### END INIT INFO\n\n"
+
+if [[ ! `which chkconfig` ]] ; then 
+	#combine the header and the template (which is actually a static footer)
+	echo -e $REDIS_INIT_HEADER > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
+else
+	#if we're a box with chkconfig on it we want to include info for chkconfig
+	echo -e $REDIS_INIT_HEADER $REDIS_CHKCONFIG_INFO > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
+fi
 
 #copy to /etc/init.d
 cp -f $TMP_FILE $INIT_SCRIPT_DEST && chmod +x $INIT_SCRIPT_DEST || die "Could not copy redis init script to  $INIT_SCRIPT_DEST"
@@ -144,13 +160,18 @@ echo "Copied $TMP_FILE => $INIT_SCRIPT_DEST"
 
 #Install the service
 echo "Installing service..."
-update-rc.d redis_$REDIS_PORT defaults && echo "Success!"
+if [[ ! `which chkconfig` ]] ; then 
+	#if we're not a chkconfig box assume we're able to use update-rc.d
+	update-rc.d redis_$REDIS_PORT defaults && echo "Success!"
+else
+	# we're chkconfig, so lets add to chkconfig and put in runlevel 345
+	chkconfig --add redis_$REDIS_PORT && echo "Successfully added to chkconfig!"
+	chkconfig --level 345 redis_$REDIS_PORT on && echo "Successfully added to runlevels 345!"
+fi
+	
 /etc/init.d/redis_$REDIS_PORT start || die "Failed starting service..."
 
 #tada
 echo "Installation successful!"
 exit 0
-
-
-
 

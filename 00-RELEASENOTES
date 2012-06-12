@@ -1,0 +1,85 @@
+Redis 2.6 release notes
+
+Migrating from 2.4 to 2.6
+=========================
+
+Redis 2.4 is mostly a strict subset of 2.6. However there are a few things
+that you should be aware of:
+
+* You can't use .rdb and AOF files generated with 2.6 into a 2.4 instance.
+* 2.4 slaves can be attached to 2.6 masters, but not the contrary, and only
+  for the time needed to perform the version upgrade.
+
+There are also a few API differences, that are unlikely to cause problems,
+but it is better to keep them in mind:
+
+* SORT now will refuse to sort in numerical mode elements that can't be parsed
+  as numbers.
+* EXPIREs now all have millisecond resolution (but this is very unlikely to
+  break code that was not conceived exploting the previous resolution error
+  in some way.)
+* INFO output is a bit different now, and contains empty lines and comments
+  starting with '#'. All the major clients should be already fixed to work
+  with the new INFO format.
+
+Also the following redis.conf and CONFIG GET / SET parameters changed name:
+
+    * hash-max-zipmap-entries, now replaced by hash-max-ziplist-entries
+    * hash-max-zipmap-value, now replaced by hash-max-ziplist-value
+    * glueoutputbuf was no completely removed as it does not make sense
+
+---------
+CHANGELOG
+---------
+
+What's new in Redis 2.6.0
+=========================
+
+UPGRADE URGENCY: We suggest new users to start with 2.6.0, and old users to
+                 upgrade after some testing of the application with the new
+                 Redis version.
+
+* Server side Lua scripting, see http://redis.io/commands/eval
+* Virtual Memory removed (was deprecated in 2.4)
+* Hardcoded limits about max number of clients removed.
+* AOF low level semantics is generally more sane, and especially when used
+  in slaves.
+* Milliseconds resolution expires, also added new commands with milliseconds
+  precision (PEXPIRE, PTTL, ...).
+* Clinets max output buffer soft and hard limits. You can specifiy different
+  limits for different classes of clients (normal,pubsub,slave).
+* AOF is now able to rewrite aggregate data types using variadic commands,
+  often producing an AOF that is faster to save, load, and is smaller in size.
+* Every redis.conf directive is now accepted as a command line option for the
+  redis-server binary, with the same name and number of arguments.
+* Hash table seed randomization for protection against collisions attacks.
+* Performances improved when writing large objects to Redis.
+* Significant parts of the core refactored or rewritten. New internal APIs
+  and core changes allowed to develop Redis Cluster on top of the new code,
+  however for 2.6 all the cluster code was removed, and will be released with
+  Redis 3.0 when it is more complete and stable.
+* Redis ASCII art logo added at startup.
+* Crash report on memory violation or failed asserts improved significantly
+  to make debugging of hard to catch bugs simpler.
+* redis-benchmark improvements: ability to run selected tests,
+  CSV output, faster, better help.
+* redis-cli improvements: --eval for comfortable development of Lua scripts.
+* SHUTDOWN now supports two optional arguments: "SAVE" and "NOSAVE".
+* INFO output split into sections, the command is now able to just show 
+  pecific sections.
+* New statistics about how many time a command was called, and how much
+  execution time it used (INFO commandstats).
+* More predictable SORT behavior in edge cases.
+* INCRBYFLOAT and HINCRBYFLOAT commands.
+
+--------------------------------------------------------------------------------
+
+Credits: Where not specified the implementation and design are done by
+Salvatore Sanfilippo and Pieter Noordhuis. Thanks to VMware for making all
+this possible. Also many thanks to all the other contributors and the amazing
+community we have.
+
+See commit messages for more credits.
+
+Cheers,
+Salvatore

@@ -4,7 +4,7 @@
 /*
  * Simple linear congruential pseudo-random number generator:
  *
- *   prn(y) = (a*x + c) % m
+ *   prng(y) = (a*x + c) % m
  *
  * where the following constants ensure maximal period:
  *
@@ -25,7 +25,7 @@
  *   uint32_t state      : Seed value.
  *   const uint32_t a, c : See above discussion.
  */
-#define prn32(r, lg_range, state, a, c) do {				\
+#define prng32(r, lg_range, state, a, c) do {				\
 	assert(lg_range > 0);						\
 	assert(lg_range <= 32);						\
 									\
@@ -34,8 +34,8 @@
 	r >>= (32 - lg_range);						\
 } while (false)
 
-/* Same as prn32(), but 64 bits of pseudo-randomness, using uint64_t. */
-#define prn64(r, lg_range, state, a, c) do {				\
+/* Same as prng32(), but 64 bits of pseudo-randomness, using uint64_t. */
+#define prng64(r, lg_range, state, a, c) do {				\
 	assert(lg_range > 0);						\
 	assert(lg_range <= 64);						\
 									\

@@ -35,6 +35,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <poll.h>
+#include <string.h>
 
 #include "ae.h"
 #include "zmalloc.h"
@@ -42,13 +44,17 @@
 
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
-#ifdef HAVE_EPOLL
-#include "ae_epoll.c"
+#ifdef HAVE_EVPORT
+#include "ae_evport.c"
 #else
-    #ifdef HAVE_KQUEUE
-    #include "ae_kqueue.c"
+    #ifdef HAVE_EPOLL
+    #include "ae_epoll.c"
     #else
-    #include "ae_select.c"
+        #ifdef HAVE_KQUEUE
+        #include "ae_kqueue.c"
+        #else
+        #include "ae_select.c"
+        #endif
     #endif
 #endif
 
@@ -56,32 +62,30 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;
 
-    if ((eventLoop = zmalloc(sizeof(*eventLoop))) == NULL) return NULL;
-    eventLoop->events = NULL;
-    eventLoop->fired = NULL;
+    if ((eventLoop = zmalloc(sizeof(*eventLoop))) == NULL) goto err;
     eventLoop->events = zmalloc(sizeof(aeFileEvent)*setsize);
     eventLoop->fired = zmalloc(sizeof(aeFiredEvent)*setsize);
-    if (eventLoop->events == NULL || eventLoop->fired == NULL) {
-        zfree(eventLoop->events);
-        zfree(eventLoop->fired);
-        zfree(eventLoop);
-        return NULL;
-    }
+    if (eventLoop->events == NULL || eventLoop->fired == NULL) goto err;
     eventLoop->setsize = setsize;
     eventLoop->timeEventHead = NULL;
     eventLoop->timeEventNextId = 0;
     eventLoop->stop = 0;
     eventLoop->maxfd = -1;
     eventLoop->beforesleep = NULL;
-    if (aeApiCreate(eventLoop) == -1) {
-        zfree(eventLoop);
-        return NULL;
-    }
+    if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
     for (i = 0; i < setsize; i++)
         eventLoop->events[i].mask = AE_NONE;
     return eventLoop;
+
+err:
+    if (eventLoop) {
+        zfree(eventLoop->events);
+        zfree(eventLoop->fired);
+        zfree(eventLoop);
+    }
+    return NULL;
 }
 
 void aeDeleteEventLoop(aeEventLoop *eventLoop) {
@@ -370,21 +374,19 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 /* Wait for millseconds until the given file descriptor becomes
  * writable/readable/exception */
 int aeWait(int fd, int mask, long long milliseconds) {
-    struct timeval tv;
-    fd_set rfds, wfds, efds;
+    struct pollfd pfd;
     int retmask = 0, retval;
 
-    tv.tv_sec = milliseconds/1000;
-    tv.tv_usec = (milliseconds%1000)*1000;
-    FD_ZERO(&rfds);
-    FD_ZERO(&wfds);
-    FD_ZERO(&efds);
+    memset(&pfd, 0, sizeof(pfd));
+    pfd.fd = fd;
+    if (mask & AE_READABLE) pfd.events |= POLLIN;
+    if (mask & AE_WRITABLE) pfd.events |= POLLOUT;
 
-    if (mask & AE_READABLE) FD_SET(fd,&rfds);
-    if (mask & AE_WRITABLE) FD_SET(fd,&wfds);
-    if ((retval = select(fd+1, &rfds, &wfds, &efds, &tv)) > 0) {
-        if (FD_ISSET(fd,&rfds)) retmask |= AE_READABLE;
-        if (FD_ISSET(fd,&wfds)) retmask |= AE_WRITABLE;
+    if ((retval = poll(&pfd, 1, milliseconds))== 1) {
+        if (pfd.revents & POLLIN) retmask |= AE_READABLE;
+        if (pfd.revents & POLLOUT) retmask |= AE_WRITABLE;
+	if (pfd.revents & POLLERR) retmask |= AE_WRITABLE;
+        if (pfd.revents & POLLHUP) retmask |= AE_WRITABLE;
         return retmask;
     } else {
         return retval;

@@ -29,6 +29,15 @@ start_server {
                         set data [randomInt 4294967296]
                     } {
                         set data [randomInt 18446744073709551616]
+                    } {
+                        set data -[randomInt 65536]
+                        if {$data eq {-0}} {set data 0}
+                    } {
+                        set data -[randomInt 4294967296]
+                        if {$data eq {-0}} {set data 0}
+                    } {
+                        set data -[randomInt 18446744073709551616]
+                        if {$data eq {-0}} {set data 0}
                     }
                     lappend l $data
                     r rpush l $data

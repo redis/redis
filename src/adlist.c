@@ -57,7 +57,7 @@ list *listCreate(void)
  * This function can't fail. */
 void listRelease(list *list)
 {
-    unsigned int len;
+    unsigned long len;
     listNode *current, *next;
 
     current = list->head;
@@ -310,7 +310,7 @@ listNode *listSearchKey(list *list, void *key)
  * and so on. Negative integers are used in order to count
  * from the tail, -1 is the last element, -2 the penultimante
  * and so on. If the index is out of range NULL is returned. */
-listNode *listIndex(list *list, int index) {
+listNode *listIndex(list *list, long index) {
     listNode *n;
 
     if (index < 0) {
@@ -322,4 +322,20 @@ listNode *listIndex(list *list, int index) {
         while(index-- && n) n = n->next;
     }
     return n;
+}
+
+/* Rotate the list removing the tail node and inserting it to the head. */
+void listRotate(list *list) {
+    listNode *tail = list->tail;
+
+    if (listLength(list) <= 1) return;
+
+    /* Detatch current tail */
+    list->tail = tail->prev;
+    list->tail->next = NULL;
+    /* Move it as head */
+    list->head->prev = tail;
+    tail->prev = NULL;
+    tail->next = list->head;
+    list->head = tail;
 }

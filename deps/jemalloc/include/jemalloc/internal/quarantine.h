@@ -1,8 +1,8 @@
-#ifndef JEMALLOC_ZONE
-#  error "This source file is for zones on Darwin (OS X)."
-#endif
 /******************************************************************************/
 #ifdef JEMALLOC_H_TYPES
+
+/* Default per thread quarantine size if valgrind is enabled. */
+#define	JEMALLOC_VALGRIND_QUARANTINE_DEFAULT	(ZU(1) << 24)
 
 #endif /* JEMALLOC_H_TYPES */
 /******************************************************************************/
@@ -12,8 +12,8 @@
 /******************************************************************************/
 #ifdef JEMALLOC_H_EXTERNS
 
-malloc_zone_t *create_zone(void);
-void	szone2ozone(malloc_zone_t *zone);
+void	quarantine(void *ptr);
+bool	quarantine_boot(void);
 
 #endif /* JEMALLOC_H_EXTERNS */
 /******************************************************************************/
@@ -21,3 +21,4 @@ void	szone2ozone(malloc_zone_t *zone);
 
 #endif /* JEMALLOC_H_INLINES */
 /******************************************************************************/
+

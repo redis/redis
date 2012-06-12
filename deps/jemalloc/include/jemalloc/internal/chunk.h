@@ -28,20 +28,13 @@
 #ifdef JEMALLOC_H_EXTERNS
 
 extern size_t		opt_lg_chunk;
-#ifdef JEMALLOC_SWAP
-extern bool		opt_overcommit;
-#endif
 
-#if (defined(JEMALLOC_STATS) || defined(JEMALLOC_PROF))
 /* Protects stats_chunks; currently not used for any other purpose. */
 extern malloc_mutex_t	chunks_mtx;
 /* Chunk statistics. */
 extern chunk_stats_t	stats_chunks;
-#endif
 
-#ifdef JEMALLOC_IVSALLOC
 extern rtree_t		*chunks_rtree;
-#endif
 
 extern size_t		chunksize;
 extern size_t		chunksize_mask; /* (chunksize - 1). */
@@ -49,7 +42,7 @@ extern size_t		chunk_npages;
 extern size_t		map_bias; /* Number of arena chunk header pages. */
 extern size_t		arena_maxclass; /* Max size class for arenas. */
 
-void	*chunk_alloc(size_t size, bool base, bool *zero);
+void	*chunk_alloc(size_t size, size_t alignment, bool base, bool *zero);
 void	chunk_dealloc(void *chunk, size_t size, bool unmap);
 bool	chunk_boot(void);
 
@@ -60,6 +53,5 @@ bool	chunk_boot(void);
 #endif /* JEMALLOC_H_INLINES */
 /******************************************************************************/
 
-#include "jemalloc/internal/chunk_swap.h"
 #include "jemalloc/internal/chunk_dss.h"
 #include "jemalloc/internal/chunk_mmap.h"

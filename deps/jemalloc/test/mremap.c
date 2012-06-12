@@ -1,9 +1,3 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <assert.h>
-#include <errno.h>
-#include <string.h>
-
 #define	JEMALLOC_MANGLE
 #include "jemalloc_test.h"
 
@@ -14,33 +8,32 @@ main(void)
 	size_t sz, lg_chunk, chunksize, i;
 	char *p, *q;
 
-	fprintf(stderr, "Test begin\n");
+	malloc_printf("Test begin\n");
 
 	sz = sizeof(lg_chunk);
-	if ((err = JEMALLOC_P(mallctl)("opt.lg_chunk", &lg_chunk, &sz, NULL,
-	    0))) {
+	if ((err = mallctl("opt.lg_chunk", &lg_chunk, &sz, NULL, 0))) {
 		assert(err != ENOENT);
-		fprintf(stderr, "%s(): Error in mallctl(): %s\n", __func__,
+		malloc_printf("%s(): Error in mallctl(): %s\n", __func__,
 		    strerror(err));
 		ret = 1;
-		goto RETURN;
+		goto label_return;
 	}
 	chunksize = ((size_t)1U) << lg_chunk;
 
 	p = (char *)malloc(chunksize);
 	if (p == NULL) {
-		fprintf(stderr, "malloc(%zu) --> %p\n", chunksize, p);
+		malloc_printf("malloc(%zu) --> %p\n", chunksize, p);
 		ret = 1;
-		goto RETURN;
+		goto label_return;
 	}
 	memset(p, 'a', chunksize);
 
 	q = (char *)realloc(p, chunksize * 2);
 	if (q == NULL) {
-		fprintf(stderr, "realloc(%p, %zu) --> %p\n", p, chunksize * 2,
+		malloc_printf("realloc(%p, %zu) --> %p\n", p, chunksize * 2,
 		    q);
 		ret = 1;
-		goto RETURN;
+		goto label_return;
 	}
 	for (i = 0; i < chunksize; i++) {
 		assert(q[i] == 'a');
@@ -50,9 +43,9 @@ main(void)
 
 	q = (char *)realloc(p, chunksize);
 	if (q == NULL) {
-		fprintf(stderr, "realloc(%p, %zu) --> %p\n", p, chunksize, q);
+		malloc_printf("realloc(%p, %zu) --> %p\n", p, chunksize, q);
 		ret = 1;
-		goto RETURN;
+		goto label_return;
 	}
 	for (i = 0; i < chunksize; i++) {
 		assert(q[i] == 'a');
@@ -61,7 +54,7 @@ main(void)
 	free(q);
 
 	ret = 0;
-RETURN:
-	fprintf(stderr, "Test end\n");
+label_return:
+	malloc_printf("Test end\n");
 	return (ret);
 }

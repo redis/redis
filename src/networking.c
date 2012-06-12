@@ -3,6 +3,14 @@
 
 static void setProtocolError(redisClient *c, int pos);
 
+/* To evaluate the output buffer size of a client we need to get size of
+ * allocated objects, however we can't used zmalloc_size() directly on sds
+ * strings because of the trick they use to work (the header is before the
+ * returned pointer), so we use this helper function. */
+size_t zmalloc_size_sds(sds s) {
+    return zmalloc_size(s-sizeof(struct sdshdr));
+}
+
 void *dupClientReplyValue(void *o) {
     incrRefCount((robj*)o);
     return o;
@@ -14,7 +22,6 @@ int listMatchObjects(void *a, void *b) {
 
 redisClient *createClient(int fd) {
     redisClient *c = zmalloc(sizeof(redisClient));
-    c->bufpos = 0;
 
     /* passing -1 as fd it is possible to create a non connected client.
      * This is useful since all the Redis commands needs to be executed
@@ -34,7 +41,9 @@ redisClient *createClient(int fd) {
 
     selectDb(c,0);
     c->fd = fd;
+    c->bufpos = 0;
     c->querybuf = sdsempty();
+    c->querybuf_peak = 0;
     c->reqtype = 0;
     c->argc = 0;
     c->argv = NULL;
@@ -43,10 +52,12 @@ redisClient *createClient(int fd) {
     c->bulklen = -1;
     c->sentlen = 0;
     c->flags = 0;
-    c->lastinteraction = time(NULL);
+    c->ctime = c->lastinteraction = server.unixtime;
     c->authenticated = 0;
     c->replstate = REDIS_REPL_NONE;
     c->reply = listCreate();
+    c->reply_bytes = 0;
+    c->obuf_soft_limit_reached_time = 0;
     listSetFreeMethod(c->reply,decrRefCount);
     listSetDupMethod(c->reply,dupClientReplyValue);
     c->bpop.keys = NULL;
@@ -65,11 +76,23 @@ redisClient *createClient(int fd) {
     return c;
 }
 
-/* Set the event loop to listen for write events on the client's socket.
- * Typically gets called every time a reply is built. */
-int _installWriteEvent(redisClient *c) {
+/* This function is called every time we are going to transmit new data
+ * to the client. The behavior is the following:
+ *
+ * If the client should receive new data (normal clients will) the function
+ * returns REDIS_OK, and make sure to install the write handler in our event
+ * loop so that when the socket is writable new data gets written.
+ *
+ * If the client should not receive new data, because it is a fake client
+ * or a slave, or because the setup of the write handler failed, the function
+ * returns REDIS_ERR.
+ *
+ * Typically gets called every time a reply is built, before adding more
+ * data to the clients output buffers. If the function returns REDIS_ERR no
+ * data should be appended to the output buffers. */
+int prepareClientToWrite(redisClient *c) {
     if (c->flags & REDIS_LUA_CLIENT) return REDIS_OK;
-    if (c->fd <= 0) return REDIS_ERR;
+    if (c->fd <= 0) return REDIS_ERR; /* Fake client */
     if (c->bufpos == 0 && listLength(c->reply) == 0 &&
         (c->replstate == REDIS_REPL_NONE ||
          c->replstate == REDIS_REPL_ONLINE) &&
@@ -123,6 +146,7 @@ void _addReplyObjectToList(redisClient *c, robj *o) {
     if (listLength(c->reply) == 0) {
         incrRefCount(o);
         listAddNodeTail(c->reply,o);
+        c->reply_bytes += zmalloc_size_sds(o->ptr);
     } else {
         tail = listNodeValue(listLast(c->reply));
 
@@ -130,13 +154,17 @@ void _addReplyObjectToList(redisClient *c, robj *o) {
         if (tail->ptr != NULL &&
             sdslen(tail->ptr)+sdslen(o->ptr) <= REDIS_REPLY_CHUNK_BYTES)
         {
+            c->reply_bytes -= zmalloc_size_sds(tail->ptr);
             tail = dupLastObjectIfNeeded(c->reply);
             tail->ptr = sdscatlen(tail->ptr,o->ptr,sdslen(o->ptr));
+            c->reply_bytes += zmalloc_size_sds(tail->ptr);
         } else {
             incrRefCount(o);
             listAddNodeTail(c->reply,o);
+            c->reply_bytes += zmalloc_size_sds(o->ptr);
         }
     }
+    asyncCloseClientOnOutputBufferLimitReached(c);
 }
 
 /* This method takes responsibility over the sds. When it is no longer
@@ -151,6 +179,7 @@ void _addReplySdsToList(redisClient *c, sds s) {
 
     if (listLength(c->reply) == 0) {
         listAddNodeTail(c->reply,createObject(REDIS_STRING,s));
+        c->reply_bytes += zmalloc_size_sds(s);
     } else {
         tail = listNodeValue(listLast(c->reply));
 
@@ -158,13 +187,17 @@ void _addReplySdsToList(redisClient *c, sds s) {
         if (tail->ptr != NULL &&
             sdslen(tail->ptr)+sdslen(s) <= REDIS_REPLY_CHUNK_BYTES)
         {
+            c->reply_bytes -= zmalloc_size_sds(tail->ptr);
             tail = dupLastObjectIfNeeded(c->reply);
             tail->ptr = sdscatlen(tail->ptr,s,sdslen(s));
+            c->reply_bytes += zmalloc_size_sds(tail->ptr);
             sdsfree(s);
         } else {
             listAddNodeTail(c->reply,createObject(REDIS_STRING,s));
+            c->reply_bytes += zmalloc_size_sds(s);
         }
     }
+    asyncCloseClientOnOutputBufferLimitReached(c);
 }
 
 void _addReplyStringToList(redisClient *c, char *s, size_t len) {
@@ -173,7 +206,10 @@ void _addReplyStringToList(redisClient *c, char *s, size_t len) {
     if (c->flags & REDIS_CLOSE_AFTER_REPLY) return;
 
     if (listLength(c->reply) == 0) {
-        listAddNodeTail(c->reply,createStringObject(s,len));
+        robj *o = createStringObject(s,len);
+
+        listAddNodeTail(c->reply,o);
+        c->reply_bytes += zmalloc_size_sds(o->ptr);
     } else {
         tail = listNodeValue(listLast(c->reply));
 
@@ -181,12 +217,18 @@ void _addReplyStringToList(redisClient *c, char *s, size_t len) {
         if (tail->ptr != NULL &&
             sdslen(tail->ptr)+len <= REDIS_REPLY_CHUNK_BYTES)
         {
+            c->reply_bytes -= zmalloc_size_sds(tail->ptr);
             tail = dupLastObjectIfNeeded(c->reply);
             tail->ptr = sdscatlen(tail->ptr,s,len);
+            c->reply_bytes += zmalloc_size_sds(tail->ptr);
         } else {
-            listAddNodeTail(c->reply,createStringObject(s,len));
+            robj *o = createStringObject(s,len);
+
+            listAddNodeTail(c->reply,o);
+            c->reply_bytes += zmalloc_size_sds(o->ptr);
         }
     }
+    asyncCloseClientOnOutputBufferLimitReached(c);
 }
 
 /* -----------------------------------------------------------------------------
@@ -195,7 +237,7 @@ void _addReplyStringToList(redisClient *c, char *s, size_t len) {
  * -------------------------------------------------------------------------- */
 
 void addReply(redisClient *c, robj *obj) {
-    if (_installWriteEvent(c) != REDIS_OK) return;
+    if (prepareClientToWrite(c) != REDIS_OK) return;
 
     /* This is an important place where we can avoid copy-on-write
      * when there is a saving child running, avoiding touching the
@@ -207,19 +249,31 @@ void addReply(redisClient *c, robj *obj) {
     if (obj->encoding == REDIS_ENCODING_RAW) {
         if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != REDIS_OK)
             _addReplyObjectToList(c,obj);
-    } else {
-        /* FIXME: convert the long into string and use _addReplyToBuffer()
-         * instead of calling getDecodedObject. As this place in the
-         * code is too performance critical. */
+    } else if (obj->encoding == REDIS_ENCODING_INT) {
+        /* Optimization: if there is room in the static buffer for 32 bytes
+         * (more than the max chars a 64 bit integer can take as string) we
+         * avoid decoding the object and go for the lower level approach. */
+        if (listLength(c->reply) == 0 && (sizeof(c->buf) - c->bufpos) >= 32) {
+            char buf[32];
+            int len;
+
+            len = ll2string(buf,sizeof(buf),(long)obj->ptr);
+            if (_addReplyToBuffer(c,buf,len) == REDIS_OK)
+                return;
+            /* else... continue with the normal code path, but should never
+             * happen actually since we verified there is room. */
+        }
         obj = getDecodedObject(obj);
         if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != REDIS_OK)
             _addReplyObjectToList(c,obj);
         decrRefCount(obj);
+    } else {
+        redisPanic("Wrong obj->encoding in addReply()");
     }
 }
 
 void addReplySds(redisClient *c, sds s) {
-    if (_installWriteEvent(c) != REDIS_OK) {
+    if (prepareClientToWrite(c) != REDIS_OK) {
         /* The caller expects the sds to be free'd. */
         sdsfree(s);
         return;
@@ -233,19 +287,19 @@ void addReplySds(redisClient *c, sds s) {
 }
 
 void addReplyString(redisClient *c, char *s, size_t len) {
-    if (_installWriteEvent(c) != REDIS_OK) return;
+    if (prepareClientToWrite(c) != REDIS_OK) return;
     if (_addReplyToBuffer(c,s,len) != REDIS_OK)
         _addReplyStringToList(c,s,len);
 }
 
-void _addReplyError(redisClient *c, char *s, size_t len) {
+void addReplyErrorLength(redisClient *c, char *s, size_t len) {
     addReplyString(c,"-ERR ",5);
     addReplyString(c,s,len);
     addReplyString(c,"\r\n",2);
 }
 
 void addReplyError(redisClient *c, char *err) {
-    _addReplyError(c,err,strlen(err));
+    addReplyErrorLength(c,err,strlen(err));
 }
 
 void addReplyErrorFormat(redisClient *c, const char *fmt, ...) {
@@ -260,18 +314,18 @@ void addReplyErrorFormat(redisClient *c, const char *fmt, ...) {
     for (j = 0; j < l; j++) {
         if (s[j] == '\r' || s[j] == '\n') s[j] = ' ';
     }
-    _addReplyError(c,s,sdslen(s));
+    addReplyErrorLength(c,s,sdslen(s));
     sdsfree(s);
 }
 
-void _addReplyStatus(redisClient *c, char *s, size_t len) {
+void addReplyStatusLength(redisClient *c, char *s, size_t len) {
     addReplyString(c,"+",1);
     addReplyString(c,s,len);
     addReplyString(c,"\r\n",2);
 }
 
 void addReplyStatus(redisClient *c, char *status) {
-    _addReplyStatus(c,status,strlen(status));
+    addReplyStatusLength(c,status,strlen(status));
 }
 
 void addReplyStatusFormat(redisClient *c, const char *fmt, ...) {
@@ -279,7 +333,7 @@ void addReplyStatusFormat(redisClient *c, const char *fmt, ...) {
     va_start(ap,fmt);
     sds s = sdscatvprintf(sdsempty(),fmt,ap);
     va_end(ap);
-    _addReplyStatus(c,s,sdslen(s));
+    addReplyStatusLength(c,s,sdslen(s));
     sdsfree(s);
 }
 
@@ -289,7 +343,7 @@ void *addDeferredMultiBulkLength(redisClient *c) {
     /* Note that we install the write event here even if the object is not
      * ready to be sent, since we are sure that before returning to the
      * event loop setDeferredMultiBulkLength() will be called. */
-    if (_installWriteEvent(c) != REDIS_OK) return NULL;
+    if (prepareClientToWrite(c) != REDIS_OK) return NULL;
     listAddNodeTail(c->reply,createObject(REDIS_STRING,NULL));
     return listLast(c->reply);
 }
@@ -304,6 +358,7 @@ void setDeferredMultiBulkLength(redisClient *c, void *node, long length) {
 
     len = listNodeValue(ln);
     len->ptr = sdscatprintf(sdsempty(),"*%ld\r\n",length);
+    c->reply_bytes += zmalloc_size_sds(len->ptr);
     if (ln->next != NULL) {
         next = listNodeValue(ln->next);
 
@@ -313,6 +368,7 @@ void setDeferredMultiBulkLength(redisClient *c, void *node, long length) {
             listDelNode(c->reply,ln->next);
         }
     }
+    asyncCloseClientOnOutputBufferLimitReached(c);
 }
 
 /* Add a duble as a bulk reply */
@@ -326,9 +382,21 @@ void addReplyDouble(redisClient *c, double d) {
 
 /* Add a long long as integer reply or bulk len / multi bulk count.
  * Basically this is used to output <prefix><long long><crlf>. */
-void _addReplyLongLong(redisClient *c, long long ll, char prefix) {
+void addReplyLongLongWithPrefix(redisClient *c, long long ll, char prefix) {
     char buf[128];
     int len;
+
+    /* Things like $3\r\n or *2\r\n are emitted very often by the protocol
+     * so we have a few shared objects to use if the integer is small
+     * like it is most of the times. */
+    if (prefix == '*' && ll < REDIS_SHARED_BULKHDR_LEN) {
+        addReply(c,shared.mbulkhdr[ll]);
+        return;
+    } else if (prefix == '$' && ll < REDIS_SHARED_BULKHDR_LEN) {
+        addReply(c,shared.bulkhdr[ll]);
+        return;
+    }
+
     buf[0] = prefix;
     len = ll2string(buf+1,sizeof(buf)-1,ll);
     buf[len+1] = '\r';
@@ -342,11 +410,11 @@ void addReplyLongLong(redisClient *c, long long ll) {
     else if (ll == 1)
         addReply(c,shared.cone);
     else
-        _addReplyLongLong(c,ll,':');
+        addReplyLongLongWithPrefix(c,ll,':');
 }
 
 void addReplyMultiBulkLen(redisClient *c, long length) {
-    _addReplyLongLong(c,length,'*');
+    addReplyLongLongWithPrefix(c,length,'*');
 }
 
 /* Create the length prefix of a bulk reply, example: $2234 */
@@ -368,7 +436,7 @@ void addReplyBulkLen(redisClient *c, robj *obj) {
             len++;
         }
     }
-    _addReplyLongLong(c,len,'$');
+    addReplyLongLongWithPrefix(c,len,'$');
 }
 
 /* Add a Redis Object as a bulk reply */
@@ -380,7 +448,7 @@ void addReplyBulk(redisClient *c, robj *obj) {
 
 /* Add a C buffer as bulk reply */
 void addReplyBulkCBuffer(redisClient *c, void *p, size_t len) {
-    _addReplyLongLong(c,len,'$');
+    addReplyLongLongWithPrefix(c,len,'$');
     addReplyString(c,p,len);
     addReply(c,shared.crlf);
 }
@@ -411,6 +479,7 @@ void copyClientOutputBuffer(redisClient *dst, redisClient *src) {
     dst->reply = listDup(src->reply);
     memcpy(dst->buf,src->buf,src->bufpos);
     dst->bufpos = src->bufpos;
+    dst->reply_bytes = src->reply_bytes;
 }
 
 static void acceptCommonHandler(int fd) {
@@ -478,6 +547,16 @@ static void freeClientArgv(redisClient *c) {
     c->cmd = NULL;
 }
 
+/* Close all the slaves connections. This is useful in chained replication
+ * when we resync with our own master and want to force all our slaves to
+ * resync with us as well. */
+void disconnectSlaves(void) {
+    while (listLength(server.slaves)) {
+        listNode *ln = listFirst(server.slaves);
+        freeClient((redisClient*)ln->value);
+    }
+}
+
 void freeClient(redisClient *c) {
     listNode *ln;
 
@@ -535,32 +614,54 @@ void freeClient(redisClient *c) {
     if (c->flags & REDIS_MASTER) {
         server.master = NULL;
         server.repl_state = REDIS_REPL_CONNECT;
-        server.repl_down_since = time(NULL);
-        /* Since we lost the connection with the master, we should also
-         * close the connection with all our slaves if we have any, so
-         * when we'll resync with the master the other slaves will sync again
-         * with us as well. Note that also when the slave is not connected
-         * to the master it will keep refusing connections by other slaves.
+        server.repl_down_since = server.unixtime;
+        /* We lost connection with our master, force our slaves to resync
+         * with us as well to load the new data set.
          *
-         * We do this only if server.masterhost != NULL. If it is NULL this
-         * means the user called SLAVEOF NO ONE and we are freeing our
-         * link with the master, so no need to close link with slaves. */
-        if (server.masterhost != NULL) {
-            while (listLength(server.slaves)) {
-                ln = listFirst(server.slaves);
-                freeClient((redisClient*)ln->value);
-            }
-        }
+         * If server.masterhost is NULL the user called SLAVEOF NO ONE so
+         * slave resync is not needed. */
+        if (server.masterhost != NULL) disconnectSlaves();
     }
+
+    /* If this client was scheduled for async freeing we need to remove it
+     * from the queue. */
+    if (c->flags & REDIS_CLOSE_ASAP) {
+        ln = listSearchKey(server.clients_to_close,c);
+        redisAssert(ln != NULL);
+        listDelNode(server.clients_to_close,ln);
+    }
+
     /* Release memory */
     zfree(c->argv);
     freeClientMultiState(c);
     zfree(c);
 }
 
+/* Schedule a client to free it at a safe time in the serverCron() function.
+ * This function is useful when we need to terminate a client but we are in
+ * a context where calling freeClient() is not possible, because the client
+ * should be valid for the continuation of the flow of the program. */
+void freeClientAsync(redisClient *c) {
+    if (c->flags & REDIS_CLOSE_ASAP) return;
+    c->flags |= REDIS_CLOSE_ASAP;
+    listAddNodeTail(server.clients_to_close,c);
+}
+
+void freeClientsInAsyncFreeQueue(void) {
+    while (listLength(server.clients_to_close)) {
+        listNode *ln = listFirst(server.clients_to_close);
+        redisClient *c = listNodeValue(ln);
+
+        c->flags &= ~REDIS_CLOSE_ASAP;
+        freeClient(c);
+        listDelNode(server.clients_to_close,ln);
+    }
+}
+
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     redisClient *c = privdata;
     int nwritten = 0, totwritten = 0, objlen;
+    size_t objmem;
     robj *o;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
@@ -586,6 +687,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         } else {
             o = listNodeValue(listFirst(c->reply));
             objlen = sdslen(o->ptr);
+            objmem = zmalloc_size_sds(o->ptr);
 
             if (objlen == 0) {
                 listDelNode(c->reply,listFirst(c->reply));
@@ -606,14 +708,20 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
             if (c->sentlen == objlen) {
                 listDelNode(c->reply,listFirst(c->reply));
                 c->sentlen = 0;
+                c->reply_bytes -= objmem;
             }
         }
-        /* Note that we avoid to send more thank REDIS_MAX_WRITE_PER_EVENT
+        /* Note that we avoid to send more than REDIS_MAX_WRITE_PER_EVENT
          * bytes, in a single threaded server it's a good idea to serve
          * other clients as well, even if a very large request comes from
          * super fast link that is always able to accept data (in real world
-         * scenario think about 'KEYS *' against the loopback interfae) */
-        if (totwritten > REDIS_MAX_WRITE_PER_EVENT) break;
+         * scenario think about 'KEYS *' against the loopback interface).
+         *
+         * However if we are over the maxmemory limit we ignore that and
+         * just deliver as much data as it is possible to deliver. */
+        if (totwritten > REDIS_MAX_WRITE_PER_EVENT &&
+            (server.maxmemory == 0 ||
+             zmalloc_used_memory() < server.maxmemory)) break;
     }
     if (nwritten == -1) {
         if (errno == EAGAIN) {
@@ -625,7 +733,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
     }
-    if (totwritten > 0) c->lastinteraction = time(NULL);
+    if (totwritten > 0) c->lastinteraction = server.unixtime;
     if (c->bufpos == 0 && listLength(c->reply) == 0) {
         c->sentlen = 0;
         aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
@@ -643,34 +751,6 @@ void resetClient(redisClient *c) {
     c->bulklen = -1;
     /* We clear the ASKING flag as well if we are not inside a MULTI. */
     if (!(c->flags & REDIS_MULTI)) c->flags &= (~REDIS_ASKING);
-}
-
-void closeTimedoutClients(void) {
-    redisClient *c;
-    listNode *ln;
-    time_t now = time(NULL);
-    listIter li;
-
-    listRewind(server.clients,&li);
-    while ((ln = listNext(&li)) != NULL) {
-        c = listNodeValue(ln);
-        if (server.maxidletime &&
-            !(c->flags & REDIS_SLAVE) &&    /* no timeout for slaves */
-            !(c->flags & REDIS_MASTER) &&   /* no timeout for masters */
-            !(c->flags & REDIS_BLOCKED) &&  /* no timeout for BLPOP */
-            dictSize(c->pubsub_channels) == 0 && /* no timeout for pubsub */
-            listLength(c->pubsub_patterns) == 0 &&
-            (now - c->lastinteraction > server.maxidletime))
-        {
-            redisLog(REDIS_VERBOSE,"Closing idle client");
-            freeClient(c);
-        } else if (c->flags & REDIS_BLOCKED) {
-            if (c->bpop.timeout != 0 && c->bpop.timeout < now) {
-                addReply(c,shared.nullmultibulk);
-                unblockClientWaitingData(c);
-            }
-        }
-    }
 }
 
 int processInlineBuffer(redisClient *c) {
@@ -920,6 +1000,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 
     qblen = sdslen(c->querybuf);
+    if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
     c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
     nread = read(fd, c->querybuf+qblen, readlen);
     if (nread == -1) {
@@ -937,7 +1018,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
     if (nread) {
         sdsIncrLen(c->querybuf,nread);
-        c->lastinteraction = time(NULL);
+        c->lastinteraction = server.unixtime;
     } else {
         server.current_client = NULL;
         return;
@@ -978,14 +1059,9 @@ void getClientsMaxBuffers(unsigned long *longest_output_list,
 sds getClientInfoString(redisClient *client) {
     char ip[32], flags[16], events[3], *p;
     int port;
-    time_t now = time(NULL);
     int emask;
 
-    if (anetPeerToString(client->fd,ip,&port) == -1) {
-        ip[0] = '?';
-        ip[1] = '\0';
-        port = 0;
-    }
+    anetPeerToString(client->fd,ip,&port);
     p = flags;
     if (client->flags & REDIS_SLAVE) {
         if (client->flags & REDIS_MONITOR)
@@ -999,6 +1075,7 @@ sds getClientInfoString(redisClient *client) {
     if (client->flags & REDIS_DIRTY_CAS) *p++ = 'd';
     if (client->flags & REDIS_CLOSE_AFTER_REPLY) *p++ = 'c';
     if (client->flags & REDIS_UNBLOCKED) *p++ = 'u';
+    if (client->flags & REDIS_CLOSE_ASAP) *p++ = 'A';
     if (p == flags) *p++ = 'N';
     *p++ = '\0';
 
@@ -1008,16 +1085,20 @@ sds getClientInfoString(redisClient *client) {
     if (emask & AE_WRITABLE) *p++ = 'w';
     *p = '\0';
     return sdscatprintf(sdsempty(),
-        "addr=%s:%d fd=%d idle=%ld flags=%s db=%d sub=%d psub=%d qbuf=%lu obl=%lu oll=%lu events=%s cmd=%s",
+        "addr=%s:%d fd=%d age=%ld idle=%ld flags=%s db=%d sub=%d psub=%d multi=%d qbuf=%lu qbuf-free=%lu obl=%lu oll=%lu omem=%lu events=%s cmd=%s",
         ip,port,client->fd,
-        (long)(now - client->lastinteraction),
+        (long)(server.unixtime - client->ctime),
+        (long)(server.unixtime - client->lastinteraction),
         flags,
         client->db->id,
         (int) dictSize(client->pubsub_channels),
         (int) listLength(client->pubsub_patterns),
+        (client->flags & REDIS_MULTI) ? client->mstate.count : -1,
         (unsigned long) sdslen(client->querybuf),
+        (unsigned long) sdsavail(client->querybuf),
         (unsigned long) client->bufpos,
         (unsigned long) listLength(client->reply),
+        getClientOutputBufferMemoryUsage(client),
         events,
         client->lastcmd ? client->lastcmd->name : "NULL");
 }
@@ -1120,5 +1201,134 @@ void rewriteClientCommandArgument(redisClient *c, int i, robj *newval) {
     if (i == 0) {
         c->cmd = lookupCommand(c->argv[0]->ptr);
         redisAssertWithInfo(c,NULL,c->cmd != NULL);
+    }
+}
+
+/* This function returns the number of bytes that Redis is virtually
+ * using to store the reply still not read by the client.
+ * It is "virtual" since the reply output list may contain objects that
+ * are shared and are not really using additional memory.
+ *
+ * The function returns the total sum of the length of all the objects
+ * stored in the output list, plus the memory used to allocate every
+ * list node. The static reply buffer is not taken into account since it
+ * is allocated anyway.
+ *
+ * Note: this function is very fast so can be called as many time as
+ * the caller wishes. The main usage of this function currently is
+ * enforcing the client output length limits. */
+unsigned long getClientOutputBufferMemoryUsage(redisClient *c) {
+    unsigned long list_item_size = sizeof(listNode)+sizeof(robj);
+
+    return c->reply_bytes + (list_item_size*listLength(c->reply));
+}
+
+/* Get the class of a client, used in order to envorce limits to different
+ * classes of clients.
+ *
+ * The function will return one of the following:
+ * REDIS_CLIENT_LIMIT_CLASS_NORMAL -> Normal client
+ * REDIS_CLIENT_LIMIT_CLASS_SLAVE  -> Slave or client executing MONITOR command
+ * REDIS_CLIENT_LIMIT_CLASS_PUBSUB -> Client subscribed to Pub/Sub channels
+ */
+int getClientLimitClass(redisClient *c) {
+    if (c->flags & REDIS_SLAVE) return REDIS_CLIENT_LIMIT_CLASS_SLAVE;
+    if (dictSize(c->pubsub_channels) || listLength(c->pubsub_patterns))
+        return REDIS_CLIENT_LIMIT_CLASS_PUBSUB;
+    return REDIS_CLIENT_LIMIT_CLASS_NORMAL;
+}
+
+int getClientLimitClassByName(char *name) {
+    if (!strcasecmp(name,"normal")) return REDIS_CLIENT_LIMIT_CLASS_NORMAL;
+    else if (!strcasecmp(name,"slave")) return REDIS_CLIENT_LIMIT_CLASS_SLAVE;
+    else if (!strcasecmp(name,"pubsub")) return REDIS_CLIENT_LIMIT_CLASS_PUBSUB;
+    else return -1;
+}
+
+char *getClientLimitClassName(int class) {
+    switch(class) {
+    case REDIS_CLIENT_LIMIT_CLASS_NORMAL:   return "normal";
+    case REDIS_CLIENT_LIMIT_CLASS_SLAVE:    return "slave";
+    case REDIS_CLIENT_LIMIT_CLASS_PUBSUB:   return "pubsub";
+    default:                                return NULL;
+    }
+}
+
+/* The function checks if the client reached output buffer soft or hard
+ * limit, and also update the state needed to check the soft limit as
+ * a side effect.
+ *
+ * Return value: non-zero if the client reached the soft or the hard limit.
+ *               Otherwise zero is returned. */
+int checkClientOutputBufferLimits(redisClient *c) {
+    int soft = 0, hard = 0, class;
+    unsigned long used_mem = getClientOutputBufferMemoryUsage(c);
+
+    class = getClientLimitClass(c);
+    if (server.client_obuf_limits[class].hard_limit_bytes &&
+        used_mem >= server.client_obuf_limits[class].hard_limit_bytes)
+        hard = 1;
+    if (server.client_obuf_limits[class].soft_limit_bytes &&
+        used_mem >= server.client_obuf_limits[class].soft_limit_bytes)
+        soft = 1;
+
+    /* We need to check if the soft limit is reached continuously for the
+     * specified amount of seconds. */
+    if (soft) {
+        if (c->obuf_soft_limit_reached_time == 0) {
+            c->obuf_soft_limit_reached_time = server.unixtime;
+            soft = 0; /* First time we see the soft limit reached */
+        } else {
+            time_t elapsed = server.unixtime - c->obuf_soft_limit_reached_time;
+
+            if (elapsed <=
+                server.client_obuf_limits[class].soft_limit_seconds) {
+                soft = 0; /* The client still did not reached the max number of
+                             seconds for the soft limit to be considered
+                             reached. */
+            }
+        }
+    } else {
+        c->obuf_soft_limit_reached_time = 0;
+    }
+    return soft || hard;
+}
+
+/* Asynchronously close a client if soft or hard limit is reached on the
+ * output buffer size. The caller can check if the client will be closed
+ * checking if the client REDIS_CLOSE_ASAP flag is set.
+ *
+ * Note: we need to close the client asynchronously because this function is
+ * called from contexts where the client can't be freed safely, i.e. from the
+ * lower level functions pushing data inside the client output buffers. */
+void asyncCloseClientOnOutputBufferLimitReached(redisClient *c) {
+    if (c->reply_bytes == 0 || c->flags & REDIS_CLOSE_ASAP) return;
+    if (checkClientOutputBufferLimits(c)) {
+        sds client = getClientInfoString(c);
+
+        freeClientAsync(c);
+        redisLog(REDIS_WARNING,"Client %s scheduled to be closed ASAP for overcoming of output buffer limits.", client);
+        sdsfree(client);
+    }
+}
+
+/* Helper function used by freeMemoryIfNeeded() in order to flush slaves
+ * output buffers without returning control to the event loop. */
+void flushSlavesOutputBuffers(void) {
+    listIter li;
+    listNode *ln;
+
+    listRewind(server.slaves,&li);
+    while((ln = listNext(&li))) {
+        redisClient *slave = listNodeValue(ln);
+        int events;
+
+        events = aeGetFileEvents(server.el,slave->fd);
+        if (events & AE_WRITABLE &&
+            slave->replstate == REDIS_REPL_ONLINE &&
+            listLength(slave->reply))
+        {
+            sendReplyToClient(server.el,slave->fd,slave,0);
+        }
     }
 }

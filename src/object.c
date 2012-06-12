@@ -9,18 +9,8 @@ robj *createObject(int type, void *ptr) {
     o->ptr = ptr;
     o->refcount = 1;
 
-    /* Set the LRU to the current lruclock (minutes resolution).
-     * We do this regardless of the fact VM is active as LRU is also
-     * used for the maxmemory directive when Redis is used as cache.
-     *
-     * Note that this code may run in the context of an I/O thread
-     * and accessing server.lruclock in theory is an error
-     * (no locks). But in practice this is safe, and even if we read
-     * garbage Redis will not fail. */
+    /* Set the LRU to the current lruclock (minutes resolution). */
     o->lru = server.lruclock;
-    /* The following is only needed if VM is active, but since the conditional
-     * is probably more costly than initializing the field it's better to
-     * have every field properly initialized anyway. */
     return o;
 }
 
@@ -56,7 +46,16 @@ robj *createStringObjectFromLongDouble(long double value) {
      * that is "non surprising" for the user (that is, most small decimal
      * numbers will be represented in a way that when converted back into
      * a string are exactly the same as what the user typed.) */
-    len = snprintf(buf,sizeof(buf),"%.17Lg", value);
+    len = snprintf(buf,sizeof(buf),"%.17Lf", value);
+    /* Now remove trailing zeroes after the '.' */
+    if (strchr(buf,'.') != NULL) {
+        char *p = buf+len-1;
+        while(*p == '0') {
+            p--;
+            len--;
+        }
+        if (*p == '.') len--;
+    }
     return createStringObject(buf,len);
 }
 
@@ -95,12 +94,9 @@ robj *createIntsetObject(void) {
 }
 
 robj *createHashObject(void) {
-    /* All the Hashes start as zipmaps. Will be automatically converted
-     * into hash tables if there are enough elements or big elements
-     * inside. */
-    unsigned char *zm = zipmapNew();
-    robj *o = createObject(REDIS_HASH,zm);
-    o->encoding = REDIS_ENCODING_ZIPMAP;
+    unsigned char *zl = ziplistNew();
+    robj *o = createObject(REDIS_HASH, zl);
+    o->encoding = REDIS_ENCODING_ZIPLIST;
     return o;
 }
 
@@ -176,7 +172,7 @@ void freeHashObject(robj *o) {
     case REDIS_ENCODING_HT:
         dictRelease((dict*) o->ptr);
         break;
-    case REDIS_ENCODING_ZIPMAP:
+    case REDIS_ENCODING_ZIPLIST:
         zfree(o->ptr);
         break;
     default:
@@ -264,9 +260,7 @@ robj *tryObjectEncoding(robj *o) {
 
     /* Ok, this object can be encoded...
      *
-     * Can I use a shared object? Only if the object is inside a given
-     * range and if the back end in use is in-memory. For disk store every
-     * object in memory used as value should be independent.
+     * Can I use a shared object? Only if the object is inside a given range
      *
      * Note that we also avoid using shared integers when maxmemory is used
      * because every object needs to have a private LRU field for the LRU
@@ -492,7 +486,6 @@ char *strEncoding(int encoding) {
     case REDIS_ENCODING_RAW: return "raw";
     case REDIS_ENCODING_INT: return "int";
     case REDIS_ENCODING_HT: return "hashtable";
-    case REDIS_ENCODING_ZIPMAP: return "zipmap";
     case REDIS_ENCODING_LINKEDLIST: return "linkedlist";
     case REDIS_ENCODING_ZIPLIST: return "ziplist";
     case REDIS_ENCODING_INTSET: return "intset";

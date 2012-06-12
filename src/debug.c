@@ -2,6 +2,13 @@
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
 
 #include <arpa/inet.h>
+#include <signal.h>
+
+#ifdef HAVE_BACKTRACE
+#include <execinfo.h>
+#include <ucontext.h>
+#include <fcntl.h>
+#endif /* HAVE_BACKTRACE */
 
 /* ================================= Debugging ============================== */
 
@@ -99,7 +106,6 @@ void computeDatasetDigest(unsigned char *final) {
 
             mixDigest(digest,key,sdslen(key));
 
-            /* Make sure the key is loaded if VM is active */
             o = dictGetVal(de);
 
             aux = htonl(o->type);
@@ -297,6 +303,8 @@ void debugCommand(redisClient *c) {
     }
 }
 
+/* =========================== Crash handling  ============================== */
+
 void _redisAssert(char *estr, char *file, int line) {
     bugReportStart();
     redisLog(REDIS_WARNING,"=== ASSERTION FAILED ===");
@@ -306,8 +314,8 @@ void _redisAssert(char *estr, char *file, int line) {
     server.assert_file = file;
     server.assert_line = line;
     redisLog(REDIS_WARNING,"(forcing SIGSEGV to print the bug report.)");
-    *((char*)-1) = 'x';
 #endif
+    *((char*)-1) = 'x';
 }
 
 void _redisAssertPrintClientInfo(redisClient *c) {
@@ -376,7 +384,400 @@ void _redisPanic(char *msg, char *file, int line) {
     redisLog(REDIS_WARNING,"Guru Meditation: %s #%s:%d",msg,file,line);
 #ifdef HAVE_BACKTRACE
     redisLog(REDIS_WARNING,"(forcing SIGSEGV in order to print the stack trace)");
+#endif
     redisLog(REDIS_WARNING,"------------------------------------------------");
     *((char*)-1) = 'x';
+}
+
+void bugReportStart(void) {
+    if (server.bug_report_start == 0) {
+        redisLog(REDIS_WARNING,
+            "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===");
+        server.bug_report_start = 1;
+    }
+}
+
+#ifdef HAVE_BACKTRACE
+static void *getMcontextEip(ucontext_t *uc) {
+#if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
+    /* OSX < 10.6 */
+    #if defined(__x86_64__)
+    return (void*) uc->uc_mcontext->__ss.__rip;
+    #elif defined(__i386__)
+    return (void*) uc->uc_mcontext->__ss.__eip;
+    #else
+    return (void*) uc->uc_mcontext->__ss.__srr0;
+    #endif
+#elif defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
+    /* OSX >= 10.6 */
+    #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
+    return (void*) uc->uc_mcontext->__ss.__rip;
+    #else
+    return (void*) uc->uc_mcontext->__ss.__eip;
+    #endif
+#elif defined(__linux__)
+    /* Linux */
+    #if defined(__i386__)
+    return (void*) uc->uc_mcontext.gregs[14]; /* Linux 32 */
+    #elif defined(__X86_64__) || defined(__x86_64__)
+    return (void*) uc->uc_mcontext.gregs[16]; /* Linux 64 */
+    #elif defined(__ia64__) /* Linux IA64 */
+    return (void*) uc->uc_mcontext.sc_ip;
+    #endif
+#else
+    return NULL;
 #endif
+}
+
+void logStackContent(void **sp) {
+    int i;
+    for (i = 15; i >= 0; i--) {
+        if (sizeof(long) == 4)
+            redisLog(REDIS_WARNING, "(%08lx) -> %08lx", sp+i, sp[i]);
+        else
+            redisLog(REDIS_WARNING, "(%016lx) -> %016lx", sp+i, sp[i]);
+    }
+}
+
+void logRegisters(ucontext_t *uc) {
+    redisLog(REDIS_WARNING, "--- REGISTERS");
+
+/* OSX */
+#if defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
+  /* OSX AMD64 */
+    #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
+    redisLog(REDIS_WARNING,
+    "\n"
+    "RAX:%016lx RBX:%016lx\nRCX:%016lx RDX:%016lx\n"
+    "RDI:%016lx RSI:%016lx\nRBP:%016lx RSP:%016lx\n"
+    "R8 :%016lx R9 :%016lx\nR10:%016lx R11:%016lx\n"
+    "R12:%016lx R13:%016lx\nR14:%016lx R15:%016lx\n"
+    "RIP:%016lx EFL:%016lx\nCS :%016lx FS:%016lx  GS:%016lx",
+        uc->uc_mcontext->__ss.__rax,
+        uc->uc_mcontext->__ss.__rbx,
+        uc->uc_mcontext->__ss.__rcx,
+        uc->uc_mcontext->__ss.__rdx,
+        uc->uc_mcontext->__ss.__rdi,
+        uc->uc_mcontext->__ss.__rsi,
+        uc->uc_mcontext->__ss.__rbp,
+        uc->uc_mcontext->__ss.__rsp,
+        uc->uc_mcontext->__ss.__r8,
+        uc->uc_mcontext->__ss.__r9,
+        uc->uc_mcontext->__ss.__r10,
+        uc->uc_mcontext->__ss.__r11,
+        uc->uc_mcontext->__ss.__r12,
+        uc->uc_mcontext->__ss.__r13,
+        uc->uc_mcontext->__ss.__r14,
+        uc->uc_mcontext->__ss.__r15,
+        uc->uc_mcontext->__ss.__rip,
+        uc->uc_mcontext->__ss.__rflags,
+        uc->uc_mcontext->__ss.__cs,
+        uc->uc_mcontext->__ss.__fs,
+        uc->uc_mcontext->__ss.__gs
+    );
+    logStackContent((void**)uc->uc_mcontext->__ss.__rsp);
+    #else
+    /* OSX x86 */
+    redisLog(REDIS_WARNING,
+    "\n"
+    "EAX:%08lx EBX:%08lx ECX:%08lx EDX:%08lx\n"
+    "EDI:%08lx ESI:%08lx EBP:%08lx ESP:%08lx\n"
+    "SS:%08lx  EFL:%08lx EIP:%08lx CS :%08lx\n"
+    "DS:%08lx  ES:%08lx  FS :%08lx GS :%08lx",
+        uc->uc_mcontext->__ss.__eax,
+        uc->uc_mcontext->__ss.__ebx,
+        uc->uc_mcontext->__ss.__ecx,
+        uc->uc_mcontext->__ss.__edx,
+        uc->uc_mcontext->__ss.__edi,
+        uc->uc_mcontext->__ss.__esi,
+        uc->uc_mcontext->__ss.__ebp,
+        uc->uc_mcontext->__ss.__esp,
+        uc->uc_mcontext->__ss.__ss,
+        uc->uc_mcontext->__ss.__eflags,
+        uc->uc_mcontext->__ss.__eip,
+        uc->uc_mcontext->__ss.__cs,
+        uc->uc_mcontext->__ss.__ds,
+        uc->uc_mcontext->__ss.__es,
+        uc->uc_mcontext->__ss.__fs,
+        uc->uc_mcontext->__ss.__gs
+    );
+    logStackContent((void**)uc->uc_mcontext->__ss.__esp);
+    #endif
+/* Linux */
+#elif defined(__linux__)
+    /* Linux x86 */
+    #if defined(__i386__)
+    redisLog(REDIS_WARNING,
+    "\n"
+    "EAX:%08lx EBX:%08lx ECX:%08lx EDX:%08lx\n"
+    "EDI:%08lx ESI:%08lx EBP:%08lx ESP:%08lx\n"
+    "SS :%08lx EFL:%08lx EIP:%08lx CS:%08lx\n"
+    "DS :%08lx ES :%08lx FS :%08lx GS:%08lx",
+        uc->uc_mcontext.gregs[11],
+        uc->uc_mcontext.gregs[8],
+        uc->uc_mcontext.gregs[10],
+        uc->uc_mcontext.gregs[9],
+        uc->uc_mcontext.gregs[4],
+        uc->uc_mcontext.gregs[5],
+        uc->uc_mcontext.gregs[6],
+        uc->uc_mcontext.gregs[7],
+        uc->uc_mcontext.gregs[18],
+        uc->uc_mcontext.gregs[17],
+        uc->uc_mcontext.gregs[14],
+        uc->uc_mcontext.gregs[15],
+        uc->uc_mcontext.gregs[3],
+        uc->uc_mcontext.gregs[2],
+        uc->uc_mcontext.gregs[1],
+        uc->uc_mcontext.gregs[0]
+    );
+    logStackContent((void**)uc->uc_mcontext.gregs[7]);
+    #elif defined(__X86_64__) || defined(__x86_64__)
+    /* Linux AMD64 */
+    redisLog(REDIS_WARNING,
+    "\n"
+    "RAX:%016lx RBX:%016lx\nRCX:%016lx RDX:%016lx\n"
+    "RDI:%016lx RSI:%016lx\nRBP:%016lx RSP:%016lx\n"
+    "R8 :%016lx R9 :%016lx\nR10:%016lx R11:%016lx\n"
+    "R12:%016lx R13:%016lx\nR14:%016lx R15:%016lx\n"
+    "RIP:%016lx EFL:%016lx\nCSGSFS:%016lx",
+        uc->uc_mcontext.gregs[13],
+        uc->uc_mcontext.gregs[11],
+        uc->uc_mcontext.gregs[14],
+        uc->uc_mcontext.gregs[12],
+        uc->uc_mcontext.gregs[8],
+        uc->uc_mcontext.gregs[9],
+        uc->uc_mcontext.gregs[10],
+        uc->uc_mcontext.gregs[15],
+        uc->uc_mcontext.gregs[0],
+        uc->uc_mcontext.gregs[1],
+        uc->uc_mcontext.gregs[2],
+        uc->uc_mcontext.gregs[3],
+        uc->uc_mcontext.gregs[4],
+        uc->uc_mcontext.gregs[5],
+        uc->uc_mcontext.gregs[6],
+        uc->uc_mcontext.gregs[7],
+        uc->uc_mcontext.gregs[16],
+        uc->uc_mcontext.gregs[17],
+        uc->uc_mcontext.gregs[18]
+    );
+    logStackContent((void**)uc->uc_mcontext.gregs[15]);
+    #endif
+#else
+    redisLog(REDIS_WARNING,
+        "  Dumping of registers not supported for this OS/arch");
+#endif
+}
+
+/* Logs the stack trace using the backtrace() call. This function is designed
+ * to be called from signal handlers safely. */
+void logStackTrace(ucontext_t *uc) {
+    void *trace[100];
+    int trace_size = 0, fd;
+
+    /* Open the log file in append mode. */
+    fd = server.logfile ?
+        open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644) :
+        STDOUT_FILENO;
+    if (fd == -1) return;
+
+    /* Generate the stack trace */
+    trace_size = backtrace(trace, 100);
+
+    /* overwrite sigaction with caller's address */
+    if (getMcontextEip(uc) != NULL)
+        trace[1] = getMcontextEip(uc);
+
+    /* Write symbols to log file */
+    backtrace_symbols_fd(trace, trace_size, fd);
+
+    /* Cleanup */
+    if (server.logfile) close(fd);
+}
+
+/* Log information about the "current" client, that is, the client that is
+ * currently being served by Redis. May be NULL if Redis is not serving a
+ * client right now. */
+void logCurrentClient(void) {
+    if (server.current_client == NULL) return;
+
+    redisClient *cc = server.current_client;
+    sds client;
+    int j;
+
+    redisLog(REDIS_WARNING, "--- CURRENT CLIENT INFO");
+    client = getClientInfoString(cc);
+    redisLog(REDIS_WARNING,"client: %s", client);
+    sdsfree(client);
+    for (j = 0; j < cc->argc; j++) {
+        robj *decoded;
+
+        decoded = getDecodedObject(cc->argv[j]);
+        redisLog(REDIS_WARNING,"argv[%d]: '%s'", j, (char*)decoded->ptr);
+        decrRefCount(decoded);
+    }
+    /* Check if the first argument, usually a key, is found inside the
+     * selected DB, and if so print info about the associated object. */
+    if (cc->argc >= 1) {
+        robj *val, *key;
+        dictEntry *de;
+
+        key = getDecodedObject(cc->argv[1]);
+        de = dictFind(cc->db->dict, key->ptr);
+        if (de) {
+            val = dictGetVal(de);
+            redisLog(REDIS_WARNING,"key '%s' found in DB containing the following object:", key->ptr);
+            redisLogObjectDebugInfo(val);
+        }
+        decrRefCount(key);
+    }
+}
+
+void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
+    ucontext_t *uc = (ucontext_t*) secret;
+    sds infostring, clients;
+    struct sigaction act;
+    REDIS_NOTUSED(info);
+
+    bugReportStart();
+    redisLog(REDIS_WARNING,
+        "    Redis %s crashed by signal: %d", REDIS_VERSION, sig);
+    redisLog(REDIS_WARNING,
+        "    Failed assertion: %s (%s:%d)", server.assert_failed,
+                        server.assert_file, server.assert_line);
+
+    /* Log the stack trace */
+    redisLog(REDIS_WARNING, "--- STACK TRACE");
+    logStackTrace(uc);
+
+    /* Log INFO and CLIENT LIST */
+    redisLog(REDIS_WARNING, "--- INFO OUTPUT");
+    infostring = genRedisInfoString("all");
+    infostring = sdscatprintf(infostring, "hash_init_value: %u\n",
+        dictGetHashFunctionSeed());
+    redisLogRaw(REDIS_WARNING, infostring);
+    redisLog(REDIS_WARNING, "--- CLIENT LIST OUTPUT");
+    clients = getAllClientsInfoString();
+    redisLogRaw(REDIS_WARNING, clients);
+    sdsfree(infostring);
+    sdsfree(clients);
+
+    /* Log the current client */
+    logCurrentClient();
+
+    /* Log dump of processor registers */
+    logRegisters(uc);
+
+    redisLog(REDIS_WARNING,
+"\n=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n"
+"       Please report the crash opening an issue on github:\n\n"
+"           http://github.com/antirez/redis/issues\n\n"
+"  Suspect RAM error? Use redis-server --test-memory to veryfy it.\n\n"
+);
+    /* free(messages); Don't call free() with possibly corrupted memory. */
+    if (server.daemonize) unlink(server.pidfile);
+
+    /* Make sure we exit with the right signal at the end. So for instance
+     * the core will be dumped if enabled. */
+    sigemptyset (&act.sa_mask);
+    act.sa_flags = SA_NODEFER | SA_ONSTACK | SA_RESETHAND;
+    act.sa_handler = SIG_DFL;
+    sigaction (sig, &act, NULL);
+    kill(getpid(),sig);
+}
+#endif /* HAVE_BACKTRACE */
+
+/* ==================== Logging functions for debugging ===================== */
+
+void redisLogHexDump(int level, char *descr, void *value, size_t len) {
+    char buf[65], *b;
+    unsigned char *v = value;
+    char charset[] = "0123456789abcdef";
+
+    redisLog(level,"%s (hexdump):", descr);
+    b = buf;
+    while(len) {
+        b[0] = charset[(*v)>>4];
+        b[1] = charset[(*v)&0xf];
+        b[2] = '\0';
+        b += 2;
+        len--;
+        v++;
+        if (b-buf == 64 || len == 0) {
+            redisLogRaw(level|REDIS_LOG_RAW,buf);
+            b = buf;
+        }
+    }
+    redisLogRaw(level|REDIS_LOG_RAW,"\n");
+}
+
+/* =========================== Software Watchdog ============================ */
+#include <sys/time.h>
+
+void watchdogSignalHandler(int sig, siginfo_t *info, void *secret) {
+#ifdef HAVE_BACKTRACE
+    ucontext_t *uc = (ucontext_t*) secret;
+#endif
+    REDIS_NOTUSED(info);
+    REDIS_NOTUSED(sig);
+
+    redisLogFromHandler(REDIS_WARNING,"\n--- WATCHDOG TIMER EXPIRED ---");
+#ifdef HAVE_BACKTRACE
+    logStackTrace(uc);
+#else
+    redisLogFromHandler(REDIS_WARNING,"Sorry: no support for backtrace().");
+#endif
+    redisLogFromHandler(REDIS_WARNING,"--------\n");
+}
+
+/* Schedule a SIGALRM delivery after the specified period in milliseconds.
+ * If a timer is already scheduled, this function will re-schedule it to the
+ * specified time. If period is 0 the current timer is disabled. */
+void watchdogScheduleSignal(int period) {
+    struct itimerval it;
+
+    /* Will stop the timer if period is 0. */
+    it.it_value.tv_sec = period/1000;
+    it.it_value.tv_usec = (period%1000)*1000;
+    /* Don't automatically restart. */
+    it.it_interval.tv_sec = 0;
+    it.it_interval.tv_usec = 0;
+    setitimer(ITIMER_REAL, &it, NULL);
+}
+
+/* Enable the software watchdong with the specified period in milliseconds. */
+void enableWatchdog(int period) {
+    int min_period;
+
+    if (server.watchdog_period == 0) {
+        struct sigaction act;
+
+        /* Watchdog was actually disabled, so we have to setup the signal
+         * handler. */
+        sigemptyset(&act.sa_mask);
+        act.sa_flags = SA_NODEFER | SA_ONSTACK | SA_SIGINFO;
+        act.sa_sigaction = watchdogSignalHandler;
+        sigaction(SIGALRM, &act, NULL);
+    }
+    /* If the configured period is smaller than twice the timer period, it is
+     * too short for the software watchdog to work reliably. Fix it now
+     * if needed. */
+    min_period = (1000/REDIS_HZ)*2;
+    if (period < min_period) period = min_period;
+    watchdogScheduleSignal(period); /* Adjust the current timer. */
+    server.watchdog_period = period;
+}
+
+/* Disable the software watchdog. */
+void disableWatchdog(void) {
+    struct sigaction act;
+    if (server.watchdog_period == 0) return; /* Already disabled. */
+    watchdogScheduleSignal(0); /* Stop the current timer. */
+
+    /* Set the signal handler to SIG_IGN, this will also remove pending
+     * signals from the queue. */
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = 0;
+    act.sa_handler = SIG_IGN;
+    sigaction(SIGALRM, &act, NULL);
+    server.watchdog_period = 0;
 }

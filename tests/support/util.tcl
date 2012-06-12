@@ -30,12 +30,16 @@ proc zlistAlikeSort {a b} {
 proc warnings_from_file {filename} {
     set lines [split [exec cat $filename] "\n"]
     set matched 0
+    set logall 0
     set result {}
     foreach line $lines {
+        if {[string match {*REDIS BUG REPORT START*} $line]} {
+            set logall 1
+        }
         if {[regexp {^\[\d+\]\s+\d+\s+\w+\s+\d{2}:\d{2}:\d{2} \#} $line]} {
             set matched 1
         }
-        if {$matched} {
+        if {$logall || $matched} {
             lappend result $line
         }
     }
@@ -51,7 +55,7 @@ proc status {r property} {
 
 proc waitForBgsave r {
     while 1 {
-        if {[status r bgsave_in_progress] eq 1} {
+        if {[status r rdb_bgsave_in_progress] eq 1} {
             if {$::verbose} {
                 puts -nonewline "\nWaiting for background save to finish... "
                 flush stdout
@@ -65,7 +69,7 @@ proc waitForBgsave r {
 
 proc waitForBgrewriteaof r {
     while 1 {
-        if {[status r bgrewriteaof_in_progress] eq 1} {
+        if {[status r aof_rewrite_in_progress] eq 1} {
             if {$::verbose} {
                 puts -nonewline "\nWaiting for background AOF rewrite to finish... "
                 flush stdout
@@ -79,7 +83,7 @@ proc waitForBgrewriteaof r {
 
 proc wait_for_sync r {
     while 1 {
-        if {[status r master_link_status] eq "down"} {
+        if {[status $r master_link_status] eq "down"} {
             after 10
         } else {
             break
@@ -91,6 +95,14 @@ proc randomInt {max} {
     expr {int(rand()*$max)}
 }
 
+proc randomSignedInt {max} {
+    set i [randomInt $max]
+    if {rand() > 0.5} {
+        set i -$i
+    }
+    return $i
+}
+
 proc randpath args {
     set path [expr {int(rand()*[llength $args])}]
     uplevel 1 [lindex $args $path]
@@ -99,13 +111,13 @@ proc randpath args {
 proc randomValue {} {
     randpath {
         # Small enough to likely collide
-        randomInt 1000
+        randomSignedInt 1000
     } {
         # 32 bit compressible signed/unsigned
-        randpath {randomInt 2000000000} {randomInt 4000000000}
+        randpath {randomSignedInt 2000000000} {randomSignedInt 4000000000}
     } {
         # 64 bit
-        randpath {randomInt 1000000000000}
+        randpath {randomSignedInt 1000000000000}
     } {
         # Random string
         randpath {randstring 0 256 alpha} \
