@@ -694,6 +694,62 @@ start_server {
     }
 
     foreach {type large} [array get largevalue] {
+        proc splice_list {type min max} {
+            upvar 1 large large
+            r del mylist
+            create_$type mylist "1 2 3 4 $large"
+            r lsplice mylist $min $max
+            r lrange mylist 0 -1
+        }
+
+        test "LSPLICE start index equals end index - $type" {
+            assert_equal "2 3 4 $large" [splice_list $type 0 0]
+            assert_equal "1 3 4 $large" [splice_list $type 1 1]
+            assert_equal "1 2 4 $large" [splice_list $type 2 2]
+            assert_equal "1 2 3 $large" [splice_list $type 3 3]
+            assert_equal "1 2 3 4" [splice_list $type 4 4]
+            assert_equal "1 2 3 4" [splice_list $type -1 -1]
+            assert_equal "1 2 3 $large" [splice_list $type -2 -2]
+            assert_equal "1 2 4 $large" [splice_list $type -3 -3]
+            assert_equal "1 3 4 $large" [splice_list $type -4 -4]
+            assert_equal "2 3 4 $large" [splice_list $type -5 -5]
+        }
+
+        test "LSPLICE start index is greater than end index - $type" {
+            assert_equal "1 2 3 4 $large" [splice_list $type 3 2]
+            assert_equal "1 2 3 4 $large" [splice_list $type -1 2]
+            assert_equal "1 2 3 4 $large" [splice_list $type -1 0]
+        }
+
+        test "LSPLICE out of range negative start index - $type" {
+            assert_error ERR*range* {splice_list $type -1024 1}
+        }
+
+        test "LSPLICE out of range negative end index - $type" {
+            assert_error "ERR index out of range" {splice_list $type -1024 -1024}
+        }
+
+        test "LSPLICE remove everything - $type" {
+            assert_equal "" [splice_list $type 0 -1]
+            assert_equal "" [splice_list $type 0 4]
+            assert_equal "" [splice_list $type 0 1024]
+            assert_error "ERR index out of range" {splice_list $type -1024 1024}
+        }
+
+        test "LSPLICE basics - $type" {
+            assert_equal "3 4 $large" [splice_list $type 0 1]
+            assert_equal "4 $large" [splice_list $type 0 2]
+            assert_equal "$large" [splice_list $type 0 3]
+            assert_equal "1 4 $large" [splice_list $type 1 2]
+            assert_equal "1 $large" [splice_list $type 1 3]
+            assert_equal "1" [splice_list $type 1 4]
+            assert_equal "1 2 $large" [splice_list $type 2 3]
+            assert_equal "1 2" [splice_list $type 2 4]
+            assert_equal "1 2 3" [splice_list $type 3 4]
+        }
+    }
+
+    foreach {type large} [array get largevalue] {
         test "LSET - $type" {
             create_$type mylist "99 98 $large 96 95"
             r lset mylist 1 foo

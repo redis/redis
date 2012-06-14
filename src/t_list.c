@@ -553,6 +553,64 @@ void lrangeCommand(redisClient *c) {
     }
 }
 
+void lspliceCommand(redisClient *c) {
+    robj *o;
+    long start, end, llen, rangelen;
+    listNode *ln, *tmpln;
+    list *list;
+
+    if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != REDIS_OK) ||
+        (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != REDIS_OK)) return;
+
+    if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.ok)) == NULL ||
+        checkType(c,o,REDIS_LIST)) return;
+    llen = listTypeLength(o);
+
+    /* check for invalid indices */
+    if (start < -llen || end < -llen) {
+        addReply(c,shared.outofrangeerr);
+        return;
+    }
+
+    /* convert negative indices */
+    if (start < 0) start = llen+start;
+    if (end < 0) end = llen+end;
+
+    /* Invariant: start >= 0, so this test will be true when end < 0.
+     * The range is empty when start > end or start >= length. */
+    if (start > end || start >= llen) {
+        addReply(c,shared.ok);
+        return;
+    }
+    if (end >= llen) end = llen-1;
+    rangelen = (end-start)+1;
+
+    /* Remove list elements to perform the splice */
+    if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+        o->ptr = ziplistDeleteRange(o->ptr,start,rangelen);
+    } else if (o->encoding == REDIS_ENCODING_LINKEDLIST) {
+        list = o->ptr;
+
+        /* If we are nearest to the end of the list, reach the element
+         * starting from tail and going backward, as it is faster. */
+        if (start > llen/2) start -= llen;
+        ln = listIndex(list,start);
+
+        while(rangelen--) {
+            tmpln = ln->next;
+            listDelNode(list,ln);
+            ln = tmpln;
+        }
+    } else {
+        redisPanic("List encoding is not LINKEDLIST nor ZIPLIST!");
+    }
+
+    if (listTypeLength(o) == 0) dbDelete(c->db,c->argv[1]);
+    signalModifiedKey(c->db,c->argv[1]);
+    server.dirty++;
+    addReply(c,shared.ok);
+}
+
 void ltrimCommand(redisClient *c) {
     robj *o;
     long start, end, llen, j, ltrim, rtrim;
