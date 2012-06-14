@@ -805,19 +805,24 @@ unsigned char *ziplistFind(unsigned char *p, unsigned char *vstr, unsigned int v
                     return p;
                 }
             } else {
-                /* Find out if the specified entry can be encoded */
+                /* Find out if the searched field can be encoded. Note that
+                 * we do it only the first time, once done vencoding is set
+                 * to non-zero and vll is set to the integer value. */
                 if (vencoding == 0) {
-                    /* UINT_MAX when the entry CANNOT be encoded */
                     if (!zipTryEncoding(vstr, vlen, &vll, &vencoding)) {
+                        /* If the entry can't be encoded we set it to
+                         * UCHAR_MAX so that we don't retry again the next
+                         * time. */
                         vencoding = UCHAR_MAX;
                     }
-
                     /* Must be non-zero by now */
                     assert(vencoding);
                 }
 
-                /* Compare current entry with specified entry */
-                if (encoding == vencoding) {
+                /* Compare current entry with specified entry, do it only
+                 * if vencoding != UCHAR_MAX because if there is no encoding
+                 * possible for the field it can't be a valid integer. */
+                if (vencoding != UCHAR_MAX) {
                     long long ll = zipLoadInteger(q, encoding);
                     if (ll == vll) {
                         return p;
