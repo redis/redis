@@ -225,6 +225,9 @@ void loadServerConfigFromString(char *config) {
             if ((server.daemonize = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
+		} else if (!strcasecmp(argv[0],"user") && argc == 2) {
+			zfree(server.user);
+			server.user = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"appendonly") && argc == 2) {
             int yes;
 

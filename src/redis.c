@@ -49,6 +49,9 @@
 #include <math.h>
 #include <sys/resource.h>
 #include <sys/utsname.h>
+#include <sys/types.h>
+#include <pwd.h>
+#include <grp.h>
 
 /* Our shared "common" objects */
 
@@ -1103,6 +1106,7 @@ void initServerConfig() {
     server.syslog_ident = zstrdup("redis");
     server.syslog_facility = LOG_LOCAL0;
     server.daemonize = 0;
+    server.user = NULL; /* NULL = do not drop privilges */
     server.aof_state = REDIS_AOF_OFF;
     server.aof_fsync = AOF_FSYNC_EVERYSEC;
     server.aof_no_fsync_on_rewrite = 0;
@@ -2373,6 +2377,30 @@ void daemonize(void) {
     }
 }
 
+void dropPrivileges(void) {
+    printf("Dropping privileges to %s\n", server.user);
+
+    struct passwd *pw = getpwnam(server.user);
+
+    if (!setgroups(0, NULL) < 0) {
+        fprintf(stderr, "Preinitializing groups for user %s failed: %s\n",
+                server.user, strerror(errno));
+        exit(1);
+    }
+
+    if (initgroups(server.user, pw->pw_gid) < 0) {
+        fprintf(stderr, "Initializing groups for user %s failed: %s\n",
+                server.user, strerror(errno));
+        exit(1);
+    }
+
+    if (setuid(pw->pw_uid) != 0) {
+        fprintf(stderr, "Could not change user privileges to %s (%d): %s\n",
+                server.user, pw->pw_uid, strerror(errno));
+        exit(1);
+    }
+}
+
 void version() {
     printf("Redis server v=%s sha=%s:%d malloc=%s bits=%d\n",
         REDIS_VERSION,
@@ -2507,6 +2535,7 @@ int main(int argc, char **argv) {
     if (server.daemonize) daemonize();
     initServer();
     if (server.daemonize) createPidFile();
+    if (server.user) dropPrivileges();
     redisAsciiArt();
     redisLog(REDIS_WARNING,"Server started, Redis version " REDIS_VERSION);
 #ifdef __linux__
