@@ -364,7 +364,10 @@ void setDeferredMultiBulkLength(redisClient *c, void *node, long length) {
 
         /* Only glue when the next node is non-NULL (an sds in this case) */
         if (next->ptr != NULL) {
+            c->reply_bytes -= zmalloc_size_sds(len->ptr);
+            c->reply_bytes -= zmalloc_size_sds(next->ptr);
             len->ptr = sdscatlen(len->ptr,next->ptr,sdslen(next->ptr));
+            c->reply_bytes += zmalloc_size_sds(len->ptr);
             listDelNode(c->reply,ln->next);
         }
     }
@@ -1302,6 +1305,7 @@ int checkClientOutputBufferLimits(redisClient *c) {
  * called from contexts where the client can't be freed safely, i.e. from the
  * lower level functions pushing data inside the client output buffers. */
 void asyncCloseClientOnOutputBufferLimitReached(redisClient *c) {
+    redisAssert(c->reply_bytes < ULONG_MAX-(1024*64));
     if (c->reply_bytes == 0 || c->flags & REDIS_CLOSE_ASAP) return;
     if (checkClientOutputBufferLimits(c)) {
         sds client = getClientInfoString(c);
