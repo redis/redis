@@ -18,8 +18,16 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
+What's new in Redis 2.4.15
+==========================
+
+UPGRADE URGENCY: moderate if you use AOF, otherwise low.
+
+* [BUGFIX] Jemalloc updated to 3.0.0. This fixes a possibly AOF rewrite issue.
+           See https://github.com/antirez/redis/issues/504 for info.
+
 What's new in Redis 2.4.14
-=========================
+==========================
 
 UPGRADE URGENCY: high, many non trivial bugs fixed in this release.
 
@@ -34,7 +42,7 @@ UPGRADE URGENCY: high, many non trivial bugs fixed in this release.
   more responsive when a lot of keys are expiring at the same time.
 
 What's new in Redis 2.4.13
-=========================
+==========================
 
 UPGRADE URGENCY: high for all the users of the KEYS command, otherwise low.
 
@@ -43,7 +51,7 @@ UPGRADE URGENCY: high for all the users of the KEYS command, otherwise low.
            keys. See issue #487 and #488 on github for details.
 
 What's new in Redis 2.4.12
-=========================
+==========================
 
 UPGRADE URGENCY: low if you don't experience any of the fixed problems.
 
@@ -52,7 +60,7 @@ UPGRADE URGENCY: low if you don't experience any of the fixed problems.
 * [BUGFIX] Less false positives in tests.
 
 What's new in Redis 2.4.11
-=========================
+==========================
 
 UPGRADE URGENCY: moderate if you don't experience any of the fixed problems.
 
