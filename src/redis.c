@@ -1698,7 +1698,7 @@ int prepareForShutdown(int flags) {
 
 /*================================== Commands =============================== */
 
-/* Return 0 if strings are the same, 1 if they are not.
+/* Return zero if strings are the same, non-zero if they are not.
  * The comparison is performed in a way that prevents an attacker to obtain
  * information about the nature of the strings just monitoring the execution
  * time of the function.
