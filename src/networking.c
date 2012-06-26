@@ -48,6 +48,7 @@ redisClient *createClient(int fd) {
     c->lastinteraction = time(NULL);
     c->authenticated = 0;
     c->replstate = REDIS_REPL_NONE;
+    c->slave_listening_port = 0;
     c->reply = listCreate();
     c->reply_bytes = 0;
     listSetFreeMethod(c->reply,decrRefCount);

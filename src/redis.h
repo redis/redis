@@ -351,6 +351,7 @@ typedef struct redisClient {
     int repldbfd;           /* replication DB file descriptor */
     long repldboff;         /* replication DB file offset */
     off_t repldbsize;       /* replication DB file size */
+    int slave_listening_port; /* As configured with: SLAVECONF listening-port */
     multiState mstate;      /* MULTI/EXEC state */
     blockingState bpop;   /* blocking state */
     list *io_keys;          /* Keys this client is waiting to be loaded from the
@@ -1071,6 +1072,7 @@ void watchCommand(redisClient *c);
 void unwatchCommand(redisClient *c);
 void objectCommand(redisClient *c);
 void clientCommand(redisClient *c);
+void replconfCommand(redisClient *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
