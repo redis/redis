@@ -234,7 +234,7 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
 }
 
 /* Send a synchronous command to the master. Used to send AUTH and
- * REPLCONF commadns before starting the replication with SYNC.
+ * REPLCONF commands before starting the replication with SYNC.
  *
  * On success NULL is returned.
  * On error an sds string describing the error is returned.
