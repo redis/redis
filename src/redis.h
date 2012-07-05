@@ -670,7 +670,7 @@ struct redisServer {
     char *masterauth;               /* AUTH with this password with master */
     char *masterhost;               /* Hostname of master */
     int masterport;                 /* Port of master */
-    int repl_ping_slave_period;     /* Master pings the salve every N seconds */
+    int repl_ping_slave_period;     /* Master pings the slave every N seconds */
     int repl_timeout;               /* Timeout after N seconds of master idle */
     redisClient *master;     /* Client that is master for this slave */
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
