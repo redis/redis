@@ -1163,6 +1163,7 @@ void llenCommand(redisClient *c);
 void lindexCommand(redisClient *c);
 void lrangeCommand(redisClient *c);
 void ltrimCommand(redisClient *c);
+void lspliceCommand(redisClient *c);
 void typeCommand(redisClient *c);
 void lsetCommand(redisClient *c);
 void saddCommand(redisClient *c);

@@ -663,6 +663,40 @@ start_server {
     }
 
     foreach {type large} [array get largevalue] {
+        proc splice_list {type start end} {
+            upvar 1 large large
+            r del mylist
+            create_$type mylist "1 2 3 4 $large"
+            r lsplice mylist $start $end
+            r lrange mylist 0 -1
+        }
+
+        test "LSPLICE basics - $type" {
+            assert_equal "1 3 4 $large" [splice_list $type 1 1]
+            assert_equal "1 4 $large" [splice_list $type 1 2]
+            assert_equal "1 $large" [splice_list $type 1 3]
+            assert_equal "2 3 4 $large" [splice_list $type 0 0]
+            assert_equal "1" [splice_list $type 1 -1]
+            assert_equal "1 $large" [splice_list $type 1 -2]
+            assert_equal "1 2 3" [splice_list $type -2 -1]
+            assert_equal "1 2 3 4" [splice_list $type -1 -1]
+            assert_equal "" [splice_list $type -5 -1]
+        }
+        
+        test "LSPLICE out of range indexes - $type" {
+            assert_equal "" [splice_list $type -10 10]
+            assert_equal "" [splice_list $type 0 5]
+            assert_equal "" [splice_list $type 0 10]
+            assert_equal "1 2 3 4 $large" [splice_list $type 5 5]
+            assert_equal "1 2 3 4 $large" [splice_list $type 5 10]
+        }
+
+        test "LSPLICE inverted indexes - $type" {
+            assert_equal "1 2 3 4 $large" [splice_list $type 2 1]
+        }
+    }
+
+    foreach {type large} [array get largevalue] {
         proc trim_list {type min max} {
             upvar 1 large large
             r del mylist

@@ -606,6 +606,53 @@ void ltrimCommand(redisClient *c) {
     addReply(c,shared.ok);
 }
 
+void lspliceCommand(redisClient *c) {
+    robj *o;
+    long start, end, llen, j, rangelen;
+    list *list;
+    listNode *ln, *next;
+
+    if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != REDIS_OK) ||
+        (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != REDIS_OK)) return;
+
+    if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.ok)) == NULL ||
+        checkType(c,o,REDIS_LIST)) return;
+    llen = listTypeLength(o);
+
+    /* convert negative indexes */
+    if (start < 0) start = llen+start;
+    if (end < 0) end = llen+end;
+    if (start < 0) start = 0;
+
+    /* Invariant: start >= 0, so this test will be true when end < 0.
+     * The range is empty when start > end or start >= length. */
+    if (start > end || start >= llen) {
+        addReply(c,shared.ok);
+        return;
+    }
+    if (end >= llen) end = llen-1;
+    rangelen = (end-start)+1;
+    
+    /* Remove list elements to perform the slice */
+    if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+        o->ptr = ziplistDeleteRange(o->ptr,start,rangelen);
+    } else if (o->encoding == REDIS_ENCODING_LINKEDLIST) {
+        list = o->ptr;
+        ln = listIndex(list, start);
+        for (j = 0; j < rangelen; j++) {
+            next = listNextNode(ln);
+            listDelNode(list,ln);
+            ln = next;
+        }
+    } else {
+        redisPanic("Unknown list encoding");
+    }
+    if (listTypeLength(o) == 0) dbDelete(c->db,c->argv[1]);
+    signalModifiedKey(c->db,c->argv[1]);
+    server.dirty++;
+    addReply(c,shared.ok);
+}
+
 void lremCommand(redisClient *c) {
     robj *subject, *obj;
     obj = c->argv[3] = tryObjectEncoding(c->argv[3]);
