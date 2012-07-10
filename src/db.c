@@ -292,6 +292,8 @@ void scanCommand(redisClient *c) {
     sds pat;
     int patlen, patnoop = 1;
 
+    redisAssert(c->argc >= 2);
+
     /* Use sscanf because we need an *unsigned* long */
     rv = sscanf(c->argv[1]->ptr, "%lu", &cursor);
     if (rv != 1) {
