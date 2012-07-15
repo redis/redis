@@ -1233,7 +1233,7 @@ int main(int argc, char **argv) {
 
     /* Pipe mode */
     if (config.pipe_mode) {
-        cliConnect(0);
+        if (cliConnect(0) == REDIS_ERR) exit(1);
         pipeMode();
     }
 
