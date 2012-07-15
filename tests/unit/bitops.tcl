@@ -73,6 +73,12 @@ start_server {tags {"bitops"}} {
         set e
     } {ERR*syntax*}
 
+    test {BITCOUNT regression test for github issue #582} {
+        r del str
+        r setbit foo 0 1
+        r bitcount foo 0 4294967296
+    } {1}
+
     test {BITOP NOT (empty string)} {
         r set s ""
         r bitop not dest s

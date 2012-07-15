@@ -327,10 +327,9 @@ void bitopCommand(redisClient *c) {
 /* BITCOUNT key [start end] */
 void bitcountCommand(redisClient *c) {
     robj *o;
-    long start, end;
+    long start, end, strlen;
     unsigned char *p;
     char llbuf[32];
-    size_t strlen;
 
     /* Lookup, check for type, and return 0 for non existing keys. */
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
@@ -357,7 +356,7 @@ void bitcountCommand(redisClient *c) {
         if (end < 0) end = strlen+end;
         if (start < 0) start = 0;
         if (end < 0) end = 0;
-        if ((unsigned)end >= strlen) end = strlen-1;
+        if (end >= strlen) end = strlen-1;
     } else if (c->argc == 2) {
         /* The whole string. */
         start = 0;
