@@ -357,7 +357,7 @@ void bitcountCommand(redisClient *c) {
         if (end < 0) end = strlen+end;
         if (start < 0) start = 0;
         if (end < 0) end = 0;
-        if ((unsigned)end >= strlen) end = strlen-1;
+        if (end >= strlen) end = strlen-1;
     } else if (c->argc == 2) {
         /* The whole string. */
         start = 0;
