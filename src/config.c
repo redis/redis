@@ -23,6 +23,32 @@ void resetServerSaveParams() {
     server.saveparamslen = 0;
 }
 
+/* Load config from files that match a glob pattern. */
+static void loadServerConfigGlob(char *pattern) {
+    if(strpbrk(pattern, "*?[") == NULL) {
+        loadServerConfig(pattern, NULL);
+    } else {
+        int j, ret;
+
+        glob_t globbuf;
+        ret = glob(pattern, 0, NULL, &globbuf);
+        if (ret == GLOB_NOMATCH) {
+            redisLog(REDIS_WARNING, "No matching files for '%s'", pattern);
+            return;
+        }
+        if (ret != 0) {
+            redisLog(REDIS_ERR, "Fatal error: glob failed for '%s'", pattern);
+            exit(1);
+        }
+
+        for (j = 0; j < globbuf.gl_pathc; j++) {
+            loadServerConfig(globbuf.gl_pathv[j], NULL);
+        }
+
+        globfree(&globbuf);
+    }
+}
+
 void loadServerConfigFromString(char *config) {
     char *err = NULL;
     int linenum = 0, totlines, i;
@@ -152,7 +178,7 @@ void loadServerConfigFromString(char *config) {
                 err = "Invalid number of databases"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
-            loadServerConfig(argv[1],NULL);
+            loadServerConfigGlob(argv[1]);
         } else if (!strcasecmp(argv[0],"maxclients") && argc == 2) {
             server.maxclients = atoi(argv[1]);
             if (server.maxclients < 1) {
