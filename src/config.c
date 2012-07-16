@@ -374,8 +374,8 @@ loaderr:
  * The function appends the additional configuration directives stored
  * in the 'options' string to the config file before loading.
  *
- * Both filename and options can be NULL, in such a case are considered
- * emtpy. This way loadServerConfig can be used to just load a file or
+ * Both filename and options can be NULL, in such a case they are considered
+ * empty. This way loadServerConfig can be used to just load a file or
  * just load a string. */
 void loadServerConfig(char *filename, char *options) {
     sds config = sdsempty();
