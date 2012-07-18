@@ -114,14 +114,14 @@ void setbitCommand(redisClient *c) {
     o->ptr = sdsgrowzero(o->ptr,byte+1);
 
     /* Get current values */
-    byteval = ((char*)o->ptr)[byte];
+    byteval = ((uint8_t*)o->ptr)[byte];
     bit = 7 - (bitoffset & 0x7);
     bitval = byteval & (1 << bit);
 
     /* Update byte with new bit value and return original value */
     byteval &= ~(1 << bit);
     byteval |= ((on & 0x1) << bit);
-    ((char*)o->ptr)[byte] = byteval;
+    ((uint8_t*)o->ptr)[byte] = byteval;
     signalModifiedKey(c->db,c->argv[1]);
     server.dirty++;
     addReply(c, bitval ? shared.cone : shared.czero);
@@ -148,7 +148,7 @@ void getbitCommand(redisClient *c) {
             bitval = llbuf[byte] & (1 << bit);
     } else {
         if (byte < sdslen(o->ptr))
-            bitval = ((char*)o->ptr)[byte] & (1 << bit);
+            bitval = ((uint8_t*)o->ptr)[byte] & (1 << bit);
     }
 
     addReply(c, bitval ? shared.cone : shared.czero);
