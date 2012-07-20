@@ -199,6 +199,7 @@ int startAppendOnly(void) {
  * fsync. */
 void flushAppendOnlyFile(int force) {
     ssize_t nwritten;
+    time_t since_last_write = 0;
     int sync_in_progress = 0;
 
     if (sdslen(server.aof_buf) == 0) return;
@@ -238,22 +239,78 @@ void flushAppendOnlyFile(int force) {
      * or alike */
     nwritten = write(server.aof_fd,server.aof_buf,sdslen(server.aof_buf));
     if (nwritten != (signed)sdslen(server.aof_buf)) {
+
+        /* Only part of the buffer was written out.  The append-only 
+         * file is in an inconsistent, unusable state.  Fix it. */
+        if (nwritten != -1) {
+            if (!ftruncate(server.aof_fd, server.aof_current_size)) {
+                if (lseek(server.aof_fd, 0, SEEK_END) == -1) {
+                    redisLog(REDIS_WARNING, "Exiting on error removing "
+                             "short write from the append-only file.  "
+                             "lseek: %s", strerror(errno));
+                    exit(1);
+                }
+            } else {
+                redisLog(REDIS_WARNING, "Exiting on error removing "
+                         "short write from the append-only file.  "
+                         "Redis may refuse to load the AOF the next "
+                         "time it starts.  ftruncate: %s",
+                         strerror(errno));
+                exit(1);
+            }
+        }
+
+        /* The situation may be recoverable if all of the following 
+         * conditions hold:
+         *
+         *     1) We are in a 'loose' fsync() mode
+         *
+         *     2) Our write() failed because we ran out of disk space
+         *
+         *     3) We have a child doing a background AOF rewrite
+         *        (probably to the same filesystem)
+         *
+         * When our child dies (because its write() also failed), it 
+         * might free up enough disk capacity for our write() to 
+         * succeed.  Try again in a little while.
+         *
+         * write() won't tell us *why* it failed to write our complete 
+         * buffer if it manages at least one byte.  We have to guess. */
+        if (server.aof_fsync != AOF_FSYNC_ALWAYS) {
+            if ((nwritten == -1 && errno == ENOSPC
+                                && server.aof_child_pid != -1)
+                || (nwritten != -1 && server.aof_child_pid != -1)) {
+
+                /* Guarantee that we won't sit about with an unwritten 
+                 * buffer for an unacceptably long time. */
+                since_last_write = server.unixtime - server.aof_last_write;
+                switch (server.aof_fsync) {
+                    case AOF_FSYNC_EVERYSEC:
+                        if (since_last_write < 2)
+                            return;
+                    case AOF_FSYNC_NO:
+                        if (since_last_write < 30)
+                            return;
+                }
+            }
+        }
+
         /* Ooops, we are in troubles. The best thing to do for now is
          * aborting instead of giving the illusion that everything is
          * working as expected. */
         if (nwritten == -1) {
-            redisLog(REDIS_WARNING,"Exiting on error writing to the append-only file: %s",strerror(errno));
+            redisLog(REDIS_WARNING, "Exiting on error writing to the "
+                     "append-only file: %s", strerror(errno));
         } else {
-            redisLog(REDIS_WARNING,"Exiting on short write while writing to "
-                                   "the append-only file: %s (nwritten=%ld, "
-                                   "expected=%ld)",
-                                   strerror(errno),
-                                   (long)nwritten,
-                                   (long)sdslen(server.aof_buf));
+            redisLog(REDIS_WARNING, "Exiting on error writing to the "
+                     "append-only file (short write): "
+                     "nwritten=%ld, expected=%ld.  Is the disk full?",
+                     (long)nwritten, (long)sdslen(server.aof_buf));
         }
         exit(1);
     }
     server.aof_current_size += nwritten;
+    server.aof_last_write = server.unixtime;
 
     /* Re-use AOF buffer when it is small enough. The maximum comes from the
      * arena size of 4k minus some overhead (but is otherwise arbitrary). */

@@ -943,19 +943,23 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             }
          }
 
-         /* Trigger an AOF rewrite if needed */
-         if (server.rdb_child_pid == -1 &&
-             server.aof_child_pid == -1 &&
-             server.aof_rewrite_perc &&
-             server.aof_current_size > server.aof_rewrite_min_size)
-         {
-            long long base = server.aof_rewrite_base_size ?
-                            server.aof_rewrite_base_size : 1;
-            long long growth = (server.aof_current_size*100/base) - 100;
-            if (growth >= server.aof_rewrite_perc) {
-                redisLog(REDIS_NOTICE,"Starting automatic rewriting of AOF on %lld%% growth",growth);
-                rewriteAppendOnlyFileBackground();
-            }
+         /* Trigger an AOF rewrite if needed.  Only attempt it from time 
+          * to time.  The rewrite might fail and we don't want to spam 
+          * the logs with errors. */
+         run_with_period(10000) {
+             if (server.rdb_child_pid == -1 &&
+                 server.aof_child_pid == -1 &&
+                 server.aof_rewrite_perc &&
+                 server.aof_current_size > server.aof_rewrite_min_size)
+             {
+                long long base = server.aof_rewrite_base_size ?
+                                server.aof_rewrite_base_size : 1;
+                long long growth = (server.aof_current_size*100/base) - 100;
+                if (growth >= server.aof_rewrite_perc) {
+                    redisLog(REDIS_NOTICE,"Starting automatic rewriting of AOF on %lld%% growth",growth);
+                    rewriteAppendOnlyFileBackground();
+                }
+             }
          }
     }
 
@@ -1111,6 +1115,7 @@ void initServerConfig() {
     server.aof_rewrite_min_size = REDIS_AOF_REWRITE_MIN_SIZE;
     server.aof_rewrite_base_size = 0;
     server.aof_rewrite_scheduled = 0;
+    server.aof_last_write = time(NULL);
     server.aof_last_fsync = time(NULL);
     server.aof_rewrite_time_last = -1;
     server.aof_rewrite_time_start = -1;
