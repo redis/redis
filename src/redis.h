@@ -85,6 +85,8 @@
 #define REDIS_CMD_NOSCRIPT  64              /* "s" flag */
 #define REDIS_CMD_RANDOM 128                /* "R" flag */
 #define REDIS_CMD_SORT_FOR_SCRIPT 256       /* "S" flag */
+#define REDIS_CMD_LOADING 512               /* "l" flag */
+#define REDIS_CMD_STALE 1024                /* "t" flag */
 
 /* Object types */
 #define REDIS_STRING 0
