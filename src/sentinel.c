@@ -765,7 +765,6 @@ void sentinelResetMaster(sentinelRedisInstance *ri, int flags) {
     ri->sentinels = dictCreate(&instancesDictType,NULL);
     if (ri->cc) sentinelKillLink(ri,ri->cc);
     if (ri->pc) sentinelKillLink(ri,ri->pc);
-    ri->pending_commands = 0;
     ri->flags &= SRI_MASTER|SRI_CAN_FAILOVER|SRI_DISCONNECTED;
     if (ri->leader) {
         sdsfree(ri->leader);
@@ -891,7 +890,10 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
 
 /* Completely disconnect an hiredis link from an instance. */
 void sentinelKillLink(sentinelRedisInstance *ri, redisAsyncContext *c) {
-    if (ri->cc == c) ri->cc = NULL;
+    if (ri->cc == c) {
+        ri->cc = NULL;
+        ri->pending_commands = 0;
+    }
     if (ri->pc == c) ri->pc = NULL;
     c->data = NULL;
     ri->flags |= SRI_DISCONNECTED;
