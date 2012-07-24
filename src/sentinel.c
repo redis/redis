@@ -1145,8 +1145,8 @@ void sentinelInfoReplyCallback(redisAsyncContext *c, void *reply, void *privdata
     sentinelRedisInstance *ri = c->data;
     redisReply *r;
 
-    ri->pending_commands--;
-    if (!reply) return;
+    if (ri) ri->pending_commands--;
+    if (!reply || !ri) return;
     r = reply;
 
     if (r->type == REDIS_REPLY_STRING) {
@@ -1159,15 +1159,15 @@ void sentinelInfoReplyCallback(redisAsyncContext *c, void *reply, void *privdata
 void sentinelDiscardReplyCallback(redisAsyncContext *c, void *reply, void *privdata) {
     sentinelRedisInstance *ri = c->data;
 
-    ri->pending_commands--;
+    if (ri) ri->pending_commands--;
 }
 
 void sentinelPingReplyCallback(redisAsyncContext *c, void *reply, void *privdata) {
     sentinelRedisInstance *ri = c->data;
     redisReply *r;
 
-    ri->pending_commands--;
-    if (!reply) return;
+    if (ri) ri->pending_commands--;
+    if (!reply || !ri) return;
     r = reply;
 
     if (r->type == REDIS_REPLY_STATUS ||
@@ -1190,8 +1190,8 @@ void sentinelPublishReplyCallback(redisAsyncContext *c, void *reply, void *privd
     sentinelRedisInstance *ri = c->data;
     redisReply *r;
 
-    ri->pending_commands--;
-    if (!reply) return;
+    if (ri) ri->pending_commands--;
+    if (!reply || !ri) return;
     r = reply;
 
     /* Only update pub_time if we actually published our message. Otherwise
@@ -1206,7 +1206,7 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
     sentinelRedisInstance *ri = c->data;
     redisReply *r;
 
-    if (!reply) return;
+    if (!reply || !ri) return;
     r = reply;
 
     /* Update the last activity in the pubsub channel. Note that since we
@@ -1700,8 +1700,8 @@ void sentinelReceiveIsMasterDownReply(redisAsyncContext *c, void *reply, void *p
     sentinelRedisInstance *ri = c->data;
     redisReply *r;
 
-    ri->pending_commands--;
-    if (!reply) return;
+    if (ri) ri->pending_commands--;
+    if (!reply || !ri) return;
     r = reply;
 
     /* Ignore every error or unexpected reply.
