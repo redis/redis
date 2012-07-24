@@ -765,6 +765,7 @@ void sentinelResetMaster(sentinelRedisInstance *ri, int flags) {
     ri->sentinels = dictCreate(&instancesDictType,NULL);
     if (ri->cc) sentinelKillLink(ri,ri->cc);
     if (ri->pc) sentinelKillLink(ri,ri->pc);
+    ri->pending_commands = 0;
     ri->flags &= SRI_MASTER|SRI_CAN_FAILOVER|SRI_DISCONNECTED;
     if (ri->leader) {
         sdsfree(ri->leader);
@@ -778,6 +779,8 @@ void sentinelResetMaster(sentinelRedisInstance *ri, int flags) {
     sdsfree(ri->slave_master_host);
     ri->runid = NULL;
     ri->slave_master_host = NULL;
+    ri->last_avail_time = mstime();
+    ri->last_pong_time = mstime();
     if (flags & SENTINEL_GENERATE_EVENT)
         sentinelEvent(REDIS_WARNING,"+reset-master",ri,"%@");
 }
