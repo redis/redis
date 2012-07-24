@@ -598,10 +598,12 @@ void releaseSentinelRedisInstance(sentinelRedisInstance *ri) {
     /* Release hiredis connections. Note that redisAsyncFree() will call
      * the disconnection callback. */
     if (ri->cc) {
+        ri->cc->data = NULL;
         redisAsyncFree(ri->cc);
         ri->cc = NULL;
     }
     if (ri->pc) {
+        ri->pc->data = NULL;
         redisAsyncFree(ri->pc);
         ri->pc = NULL;
     }
@@ -865,8 +867,11 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
  * for async conenctions. */
 void sentinelDisconnectInstanceFromContext(const redisAsyncContext *c) {
     sentinelRedisInstance *ri = c->data;
-    int pubsub = (ri->pc == c);
+    int pubsub;
 
+    if (ri == NULL) return; /* The instance no longer exists. */
+
+    pubsub = (ri->pc == c);
     sentinelEvent(REDIS_DEBUG, pubsub ? "-pubsub-link" : "-cmd-link", ri,
         "%@ #%s", c->errstr);
     if (pubsub)
@@ -961,7 +966,8 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     sds *lines;
     int numlines, j;
     int role = 0;
-
+    int runid_changed = 0;  /* true if runid changed. */
+    int first_runid = 0;    /* true if this is the first runid we receive. */
 
     /* The following fields must be reset to a given value in the case they
      * are not found at all in the INFO output. */
@@ -977,10 +983,14 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         if (sdslen(l) >= 47 && !memcmp(l,"run_id:",7)) {
             if (ri->runid == NULL) {
                 ri->runid = sdsnewlen(l+7,40);
+                first_runid = 1;
             } else {
-                /* TODO: check if run_id has changed. This means the
-                 * instance has been restarted, we want to set a flag
-                 * and notify this event. */
+                if (strncmp(ri->runid,l+7,40) != 0) {
+                    runid_changed = 1;
+                    sentinelEvent(REDIS_NOTICE,"+reboot",ri,"%@");
+                    sdsfree(ri->runid);
+                    ri->runid = sdsnewlen(l+7,40);
+                }
             }
         }
 
@@ -1048,7 +1058,22 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
 
     /* Act if a slave turned into a master. */
     if ((ri->flags & SRI_SLAVE) && role == SRI_MASTER) {
-        if (ri->flags & SRI_PROMOTED) {
+        if (!(ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
+            (runid_changed || first_runid))
+        {
+            int retval;
+
+            /* If a slave turned into a master, but at the same time the
+             * runid has changed, or it is simply the first time we see and
+             * INFO output from this instance, this is a reboot with a wrong
+             * configuration.
+             *
+             * Log the event and remove the slave. */
+            sentinelEvent(REDIS_WARNING,"-slave-restart-as-master",ri,"%@ #removing it from the attached slaves");
+            retval = dictDelete(ri->master->slaves,ri->name);
+            redisAssert(retval == REDIS_OK);
+            return;
+        } else if (ri->flags & SRI_PROMOTED) {
             /* If this is a promoted slave we can change state to the
              * failover state machine. */
             if (ri->master &&
