@@ -290,6 +290,7 @@ int yesnotoi(char *s);
 void sentinelDisconnectInstanceFromContext(const redisAsyncContext *c);
 void sentinelKillLink(sentinelRedisInstance *ri, redisAsyncContext *c);
 const char *sentinelRedisInstanceTypeStr(sentinelRedisInstance *ri);
+void sentinelAbortFailover(sentinelRedisInstance *ri);
 
 /* ========================= Dictionary types =============================== */
 
@@ -2110,13 +2111,8 @@ void sentinelFailoverSelectSlave(sentinelRedisInstance *ri) {
     sentinelRedisInstance *slave = sentinelSelectSlave(ri);
 
     if (slave == NULL) {
-        sentinelEvent(REDIS_WARNING,"-no-good-slave",ri,
-            "%@ #retrying in %d seconds",
-            (SENTINEL_FAILOVER_FIXED_DELAY+
-             SENTINEL_FAILOVER_MAX_RANDOM_DELAY)/1000);
-        ri->failover_state = SENTINEL_FAILOVER_STATE_WAIT_START;
-        ri->failover_start_time = mstime() + SENTINEL_FAILOVER_FIXED_DELAY +
-                                  SENTINEL_FAILOVER_MAX_RANDOM_DELAY;
+        sentinelEvent(REDIS_WARNING,"-failover-abort-no-good-slave",ri,"%@");
+        sentinelAbortFailover(ri);
     } else {
         sentinelEvent(REDIS_WARNING,"+selected-slave",slave,"%@");
         slave->flags |= SRI_PROMOTED;
@@ -2337,40 +2333,38 @@ void sentinelFailoverStateMachine(sentinelRedisInstance *ri) {
     }
 }
 
-/* The following is called only for master instances and will abort the
- * failover process if:
- *
- * 1) The failover is in progress.
- * 2) We already promoted a slave.
- * 3) The promoted slave is in extended SDOWN condition.
+/* Abort a failover in progress with the following steps:
+ * 1) If this instance is the leaer send a SLAVEOF command to all the already
+ *    reconfigured slaves if any to configure them to replicate with the
+ *    original master.
+ * 2) For both leaders and observers: clear the failover flags and state in
+ *    the master instance.
+ * 3) If there is already a promoted slave and we are the leader, and this
+ *    slave is not DISCONNECTED, try to reconfigure it to replicate
+ *    back to the master as well, sending a best effort SLAVEOF command.
  */
-void sentinelAbortFailoverIfNeeded(sentinelRedisInstance *ri) {
+void sentinelAbortFailover(sentinelRedisInstance *ri) {
+    char master_port[32];
     dictIterator *di;
     dictEntry *de;
 
-    /* Failover is in progress? Do we have a promoted slave? */
-    if (!(ri->flags & SRI_FAILOVER_IN_PROGRESS) || !ri->promoted_slave) return;
-
-    /* Is the promoted slave into an extended SDOWN state? */
-    if (!(ri->promoted_slave->flags & SRI_S_DOWN) ||
-        (mstime() - ri->promoted_slave->s_down_since_time) <
-        (ri->down_after_period * SENTINEL_EXTENDED_SDOWN_MULTIPLIER)) return;
-
-    sentinelEvent(REDIS_WARNING,"-failover-abort-x-sdown",ri->promoted_slave,"%@");
+    redisAssert(ri->flags & SRI_FAILOVER_IN_PROGRESS);
+    ll2string(master_port,sizeof(master_port),ri->addr->port);
 
     /* Clear failover related flags from slaves.
      * Also if we are the leader make sure to send SLAVEOF commands to all the
      * already reconfigured slaves in order to turn them back into slaves of
      * the original master. */
-
     di = dictGetIterator(ri->slaves);
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *slave = dictGetVal(de);
-        if (ri->flags & SRI_I_AM_THE_LEADER) {
-            char master_port[32];
+        if ((ri->flags & SRI_I_AM_THE_LEADER) &&
+            !(slave->flags & SRI_DISCONNECTED) &&
+             (slave->flags & (SRI_PROMOTED|SRI_RECONF_SENT|SRI_RECONF_INPROG|
+                              SRI_RECONF_DONE)))
+        {
             int retval;
 
-            ll2string(master_port,sizeof(master_port),ri->addr->port);
             retval = redisAsyncCommand(slave->cc,
                 sentinelDiscardReplyCallback, NULL, "SLAVEOF %s %s",
                     ri->addr->ip,
@@ -2385,8 +2379,30 @@ void sentinelAbortFailoverIfNeeded(sentinelRedisInstance *ri) {
     ri->flags &= ~(SRI_FAILOVER_IN_PROGRESS|SRI_I_AM_THE_LEADER);
     ri->failover_state = SENTINEL_FAILOVER_STATE_NONE;
     ri->failover_state_change_time = mstime();
-    ri->promoted_slave->flags &= ~SRI_PROMOTED;
-    ri->promoted_slave = NULL;
+    if (ri->promoted_slave) {
+        ri->promoted_slave->flags &= ~SRI_PROMOTED;
+        ri->promoted_slave = NULL;
+    }
+}
+
+/* The following is called only for master instances and will abort the
+ * failover process if:
+ *
+ * 1) The failover is in progress.
+ * 2) We already promoted a slave.
+ * 3) The promoted slave is in extended SDOWN condition.
+ */
+void sentinelAbortFailoverIfNeeded(sentinelRedisInstance *ri) {
+    /* Failover is in progress? Do we have a promoted slave? */
+    if (!(ri->flags & SRI_FAILOVER_IN_PROGRESS) || !ri->promoted_slave) return;
+
+    /* Is the promoted slave into an extended SDOWN state? */
+    if (!(ri->promoted_slave->flags & SRI_S_DOWN) ||
+        (mstime() - ri->promoted_slave->s_down_since_time) <
+        (ri->down_after_period * SENTINEL_EXTENDED_SDOWN_MULTIPLIER)) return;
+
+    sentinelEvent(REDIS_WARNING,"-failover-abort-x-sdown",ri->promoted_slave,"%@");
+    sentinelAbortFailover(ri);
 }
 
 /* ======================== SENTINEL timer handler ==========================
