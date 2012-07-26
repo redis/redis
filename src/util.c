@@ -6,6 +6,7 @@
 #include <limits.h>
 #include <math.h>
 #include <sys/time.h>
+#include <float.h>
 
 #include "util.h"
 
@@ -318,7 +319,7 @@ int d2string(char *buf, size_t len, double value) {
          * integer printing function that is much faster. */
         double min = -4503599627370495; /* (2^52)-1 */
         double max = 4503599627370496; /* -(2^52) */
-        if (val > min && val < max && value == ((double)((long long)value)))
+        if (value > min && value < max && value == ((double)((long long)value)))
             len = ll2string(buf,len,(long long)value);
         else
 #endif
