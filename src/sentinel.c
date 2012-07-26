@@ -294,6 +294,7 @@ void sentinelKillLink(sentinelRedisInstance *ri, redisAsyncContext *c);
 const char *sentinelRedisInstanceTypeStr(sentinelRedisInstance *ri);
 void sentinelAbortFailover(sentinelRedisInstance *ri);
 void sentinelEvent(int level, char *type, sentinelRedisInstance *ri, const char *fmt, ...);
+sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master);
 
 /* ========================= Dictionary types =============================== */
 
@@ -2061,7 +2062,11 @@ void sentinelStartFailover(sentinelRedisInstance *master) {
                 SRI_RECONF_SENT);
         }
     } else {
-        /* Brand new failover as SRI_FAILOVER_IN_PROGRESS was not set. */
+        /* Brand new failover as SRI_FAILOVER_IN_PROGRESS was not set.
+         *
+         * Do we have a slave to promote? Otherwise don't start a failover
+         * at all. */
+        if (sentinelSelectSlave(master) == NULL) return;
         master->failover_state = SENTINEL_FAILOVER_STATE_WAIT_START;
     }
 
