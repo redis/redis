@@ -36,6 +36,7 @@
 #include <ctype.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 
 extern char **environ;
 
