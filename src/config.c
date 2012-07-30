@@ -322,6 +322,11 @@ void loadServerConfigFromString(char *config) {
             server.cluster.configfile = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"lua-time-limit") && argc == 2) {
             server.lua_time_limit = strtoll(argv[1],NULL,10);
+	} else if (!strcasecmp(argv[0], "id-generation-name") && argc == 2) {
+            int len = (strlen(argv[1]) < REDIS_ID_NAMELEN) ?
+                strlen(argv[1]) : REDIS_ID_NAMELEN;
+            bzero(server.id_generation_name, REDIS_ID_NAMESPACE);
+	    memcpy(server.id_generation_name, argv[1], len);
         } else if (!strcasecmp(argv[0],"slowlog-log-slower-than") &&
                    argc == 2)
         {
@@ -575,6 +580,11 @@ void configSetCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[2]->ptr,"lua-time-limit")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.lua_time_limit = ll;
+    } else if (!strcasecmp(c->argv[1]->ptr,"id-generation-name")) {
+        int len = (strlen((char *)o->ptr) < REDIS_ID_NAMELEN) ?
+            strlen((char *)o->ptr) : REDIS_ID_NAMELEN;
+        bzero(server.id_generation_name, REDIS_ID_NAMESPACE);
+        memcpy(server.id_generation_name, o->ptr, len);
     } else if (!strcasecmp(c->argv[2]->ptr,"slowlog-log-slower-than")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR) goto badfmt;
         server.slowlog_log_slower_than = ll;
@@ -721,6 +731,7 @@ void configGetCommand(redisClient *c) {
     config_get_string_field("unixsocket",server.unixsocket);
     config_get_string_field("logfile",server.logfile);
     config_get_string_field("pidfile",server.pidfile);
+    config_get_string_field("id-generation-name",server.id_generation_name);
 
     /* Numerical values */
     config_get_numerical_field("maxmemory",server.maxmemory);

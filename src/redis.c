@@ -47,6 +47,7 @@
 #include <limits.h>
 #include <float.h>
 #include <math.h>
+#include <string.h>
 #include <sys/resource.h>
 #include <sys/utsname.h>
 
@@ -251,7 +252,8 @@ struct redisCommand redisCommandTable[] = {
     {"script",scriptCommand,-2,"ras",0,NULL,0,0,0,0,0},
     {"time",timeCommand,1,"rR",0,NULL,0,0,0,0,0},
     {"bitop",bitopCommand,-4,"wm",0,NULL,2,-1,1,0,0},
-    {"bitcount",bitcountCommand,-2,"r",0,NULL,1,1,1,0,0}
+    {"bitcount",bitcountCommand,-2,"r",0,NULL,1,1,1,0,0},
+    {"incrid",incridCommand,1,"rR",0,NULL,0,0,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
@@ -1201,6 +1203,9 @@ void initServerConfig() {
     /* Slow log */
     server.slowlog_log_slower_than = REDIS_SLOWLOG_LOG_SLOWER_THAN;
     server.slowlog_max_len = REDIS_SLOWLOG_MAX_LEN;
+
+    /* Hostname */
+    (void)gethostname(server.id_generation_name, REDIS_ID_NAMESPACE);
 
     /* Debugging */
     server.assert_failed = "<no assertion failed>";
