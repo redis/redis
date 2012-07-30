@@ -1736,7 +1736,7 @@ int prepareForShutdown(int flags) {
             return REDIS_ERR;
         }
     }
-    if (server.daemonize) {
+    if (server.daemonize || server.pidfile) {
         redisLog(REDIS_NOTICE,"Removing the pid file.");
         unlink(server.pidfile);
     }
@@ -2603,7 +2603,7 @@ int main(int argc, char **argv) {
     }
     if (server.daemonize) daemonize();
     initServer();
-    if (server.daemonize) createPidFile();
+    if (server.daemonize || server.pidfile) createPidFile();
     redisAsciiArt();
 
     if (!server.sentinel_mode) {
