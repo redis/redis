@@ -1,3 +1,32 @@
+Making Redis Pluggable
+----------------------
+
+Have you ever wanted to add a new command to Redis? Or wrap an existing command
+with additional functionality? How about disabling an existing command? All
+these use cases are possible with this small change that allows you to
+register new commands or overwrite existing commands. Here is a trivial
+example of a plugin included with the change:
+
+#include "redis.h"
+
+void hello(redisClient *c) {
+  addReplyBulkCString(c, "world!");
+}
+
+struct redisCommand commands[] = {
+  {"hello",hello,1,"r",0,NULL,1,1,1,0,0}
+};
+
+struct redisCommand* registerCommands(int *numcommands) {
+  *numcommands = sizeof(commands)/sizeof(struct redisCommand);
+  return commands;
+}
+
+Your plugin will get a single callback on server start that requests an array
+of commands you wish to register. This works exactly the same way as the
+normal command registration within Redis. See redis.c for further documentation
+on what the arguments and commands mean in the redisCommand struct.
+
 Where to find complete Redis documentation?
 -------------------------------------------
 

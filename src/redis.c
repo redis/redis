@@ -31,6 +31,8 @@
 #include "slowlog.h"
 #include "bio.h"
 
+#include <dirent.h>
+#include <dlfcn.h>
 #include <time.h>
 #include <signal.h>
 #include <sys/wait.h>
@@ -1193,7 +1195,7 @@ void initServerConfig() {
      * initial configuration, since command names may be changed via
      * redis.conf using the rename-command directive. */
     server.commands = dictCreate(&commandTableDictType,NULL);
-    populateCommandTable();
+    populateCommandTable(redisCommandTable, sizeof(redisCommandTable)/sizeof(struct redisCommand));
     server.delCommand = lookupCommandByCString("del");
     server.multiCommand = lookupCommandByCString("multi");
     server.lpushCommand = lookupCommandByCString("lpush");
@@ -1350,6 +1352,29 @@ void initServer() {
             exit(1);
         }
     }
+    if (server.plugindir) {
+        redisLog(REDIS_NOTICE, "Plugins directory: %s", server.plugindir);
+        DIR *plugindir = opendir(server.plugindir);
+        struct dirent *dp;
+        while ((dp = readdir(plugindir)) != NULL) {
+            int len = dp->d_namlen;
+            if (len > 3 && !strncmp(dp->d_name + len - 3, ".so", 3)) {
+                char path[1024];
+                redisLog(REDIS_NOTICE, "Registering plugin: %s", dp->d_name);
+                snprintf(path, 1024, "plugins/%s", dp->d_name);
+                void *plugin = dlopen(path, RTLD_NOW);
+		// Directly casting the dlsym to a register plugin was
+		// annoying the compiler. See this thread:
+		// https://groups.google.com/group/comp.unix.programmer/msg/de36b126ba703795
+		registerPlugin registerCommand;
+		*(void **) (&registerCommand) = dlsym(plugin, "registerCommands");
+                int numcommands = 0;
+                struct redisCommand* commands = registerCommand(&numcommands);
+                populateCommandTable(commands, numcommands);
+            }
+        }
+        closedir(plugindir);
+    }
 
     /* 32 bit instances are limited to 4GB of address space, so if there is
      * no explicit limit in the user provided configuration we set a limit
@@ -1369,9 +1394,8 @@ void initServer() {
 
 /* Populates the Redis Command Table starting from the hard coded list
  * we have on top of redis.c file. */
-void populateCommandTable(void) {
+void populateCommandTable(struct redisCommand* redisCommandTable, int numcommands) {
     int j;
-    int numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
 
     for (j = 0; j < numcommands; j++) {
         struct redisCommand *c = redisCommandTable+j;

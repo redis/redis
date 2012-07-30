@@ -741,6 +741,7 @@ struct redisServer {
     int assert_line;
     int bug_report_start; /* True if bug report header was already logged. */
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
+    char *plugindir;
 };
 
 typedef struct pubsubPattern {
@@ -765,6 +766,8 @@ struct redisCommand {
     int keystep;  /* The step between first and last key */
     long long microseconds, calls;
 };
+
+typedef struct redisCommand* (*registerPlugin)(int*);
 
 struct redisFunctionSym {
     char *name;
@@ -1032,7 +1035,7 @@ void usage();
 void updateDictResizePolicy(void);
 int htNeedsResize(dict *dict);
 void oom(const char *msg);
-void populateCommandTable(void);
+void populateCommandTable(struct redisCommand* redisCommandTable, int numcommands);
 void resetCommandTableStats(void);
 
 /* Set data type */
