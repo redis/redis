@@ -297,6 +297,22 @@ void debugCommand(redisClient *c) {
 
         usleep(utime);
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"channels") && c->argc == 2) {
+        dictIterator *di;
+        dictEntry *de;
+        unsigned long numchans = 0;
+        void *replylen = addDeferredMultiBulkLength(c);
+        
+        di = dictGetIterator(server.pubsub_channels);
+        while((de = dictNext(di)) != NULL) {
+            robj *chanobj = dictGetKey(de);
+            incrRefCount(chanobj);
+            addReplyBulk(c,chanobj);
+            numchans++;
+            decrRefCount(chanobj);
+        }
+        dictReleaseIterator(di);
+        setDeferredMultiBulkLength(c,replylen,numchans);
     } else {
         addReplyError(c,
             "Syntax error, try DEBUG [SEGFAULT|OBJECT <key>|SWAPIN <key>|SWAPOUT <key>|RELOAD]");
