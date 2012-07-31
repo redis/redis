@@ -1424,8 +1424,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         } else if (ri->flags & SRI_PROMOTED) {
             /* If this is a promoted slave we can change state to the
              * failover state machine. */
-            if (ri->master &&
-                (ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
+            if ((ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
                 (ri->master->flags & SRI_I_AM_THE_LEADER) &&
                 (ri->master->failover_state ==
                     SENTINEL_FAILOVER_STATE_WAIT_PROMOTION))
@@ -1436,24 +1435,36 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                 sentinelEvent(REDIS_WARNING,"+failover-state-reconf-slaves",
                     ri->master,"%@");
             }
-        } else {
-            /* Otherwise we interpret this as the start of the failover. */
-            if (ri->master &&
-                (ri->master->flags & SRI_FAILOVER_IN_PROGRESS) == 0)
-            {
-                ri->master->flags |= SRI_FAILOVER_IN_PROGRESS;
-                sentinelEvent(REDIS_WARNING,"failover-detected",ri->master,"%@");
-                ri->master->failover_state = SENTINEL_FAILOVER_STATE_DETECT_END;
-                ri->master->failover_state_change_time = mstime();
-                ri->master->promoted_slave = ri;
-                ri->flags |= SRI_PROMOTED;
-                /* We are an observer, so we can only assume that the leader
-                 * is reconfiguring the slave instances. For this reason we
-                 * set all the instances as RECONF_SENT waiting for progresses
-                 * on this side. */
-                sentinelAddFlagsToDictOfRedisInstances(ri->master->slaves,
-                    SRI_RECONF_SENT);
+        } else if (!(ri->master->flags & SRI_FAILOVER_IN_PROGRESS) ||
+                    ((ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
+                     (ri->master->flags & SRI_I_AM_THE_LEADER) &&
+                     ri->master->failover_state ==
+                     SENTINEL_FAILOVER_STATE_WAIT_START))
+        {
+            /* No failover in progress? Then it is the start of a failover
+             * and we are an observer.
+             *
+             * We also do that if we are a leader doing a failover, in wait
+             * start, but well, somebody else started before us. */
+
+            if (ri->master->flags & SRI_FAILOVER_IN_PROGRESS) {
+                sentinelEvent(REDIS_WARNING,"-failover-abort-race",
+                                ri->master, "%@");
+                sentinelAbortFailover(ri->master);
             }
+
+            ri->master->flags |= SRI_FAILOVER_IN_PROGRESS;
+            sentinelEvent(REDIS_WARNING,"+failover-detected",ri->master,"%@");
+            ri->master->failover_state = SENTINEL_FAILOVER_STATE_DETECT_END;
+            ri->master->failover_state_change_time = mstime();
+            ri->master->promoted_slave = ri;
+            ri->flags |= SRI_PROMOTED;
+            /* We are an observer, so we can only assume that the leader
+             * is reconfiguring the slave instances. For this reason we
+             * set all the instances as RECONF_SENT waiting for progresses
+             * on this side. */
+            sentinelAddFlagsToDictOfRedisInstances(ri->master->slaves,
+                SRI_RECONF_SENT);
         }
     }
 
