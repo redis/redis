@@ -2400,6 +2400,24 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
 
 /* ---------------- Failover state machine implementation ------------------- */
 void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
+    /* If we in "wait start" but the master is no longer in ODOWN nor in
+     * SDOWN condition we abort the failover. This is important as it
+     * prevents a useless failover in a a notable case of netsplit, where
+     * the senitnels are split from the redis instances. In this case
+     * the failover will not start while there is the split because no
+     * good slave can be reached. However when the split is resolved, we
+     * can go to waitstart if the slave is back rechable a few milliseconds
+     * before the master is. In that case when the master is back online
+     * we cancel the failover. */
+    if ((ri->flags & (SRI_S_DOWN|SRI_O_DOWN)) == 0) {
+        sentinelEvent(REDIS_WARNING,"-failover-abort-master-is-back",
+            ri,"%@");
+        sentinelAbortFailover(ri);
+        return;
+    }
+
+    /* Start the failover going to the next state if enough time has
+     * elapsed. */
     if (mstime() >= ri->failover_start_time) {
         ri->failover_state = SENTINEL_FAILOVER_STATE_SELECT_SLAVE;
         ri->failover_state_change_time = mstime();
