@@ -1384,6 +1384,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     ri->info_refresh = mstime();
     sdsfreesplitres(lines,numlines);
 
+    /* ---------------------------- Acting half ----------------------------- */
     if (sentinel.tilt) return;
 
     /* Act if a master turned into a slave. */
@@ -1407,11 +1408,12 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         if (!(ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
             (runid_changed || first_runid))
         {
-            /* If a slave turned into a master, but at the same time the
-             * runid has changed, or it is simply the first time we see and
-             * INFO output from this instance, this is a reboot with a wrong
-             * configuration.
+            /* If a slave turned into maser but:
              *
+             * 1) Failover not in progress.
+             * 2) RunID hs changed, or its the first time we see an INFO output.
+             * 
+             * We assume this is a reboot with a wrong configuration.
              * Log the event and remove the slave. */
             int retval;
 
