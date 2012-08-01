@@ -14,6 +14,27 @@ HIGH:     There is a critical bug that may affect some part of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+---[ Redis 2.5.12 (2.6 Release Candidate 6) ]
+
+UPGRADE URGENCY: MODERATE.
+
+* [BUGFIX]   Fixed a timing attack on AUTH (Issue #560).
+* [BUGFIX]   Don't assume that "char" is signed.
+* [BUGFIX]   Check that we have connection before enabling pipe mode.
+* [BUGFIX]   Use the optimized version of the function to convert a double to
+             its string representation. Compilation was disabled because of
+             a typo in the #if statement.
+* [IMPROVED} REPLCONF internal command introduced, now INFO shows slaves with
+             correct port numbers. This makes 2.5.12 Redis Sentinel compatible.
+* [IMPROVED] Truncate short write from the AOF for a cleaner restart. On short
+             writes (for instance out of space) Redis will now try to remove
+             the half-written data so that the next restart will work without
+             the need for the "redis-check-aof" utility.
+* [IMPROVED] New in INFO: aof_last_bgrewrite_status
+* [IMPROVED] Allow Pub/Sub in contexts where other commands are blocked.
+* [BUGFIX]   mark fd as writable when EPOLLERR or EPOLLHUP is returned by
+             epoll_wait.
+
 ---[ Redis 2.5.11 (2.6 Release Candidate 5) ]
 
 UPGRADE URGENCY: HIGH.
