@@ -18,6 +18,14 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
+What's new in Redis 2.4.16
+==========================
+
+* INFO command now shows slaves with the correct port number, assuming you
+  use 2.4.16 or greater as slave as well. This makes Redis 2.4.16 compatible
+  with Redis Sentinel. This fix required the introduction of a new internal
+  command called REPLCONF, see commit b998ebe for more information.
+
 What's new in Redis 2.4.15
 ==========================
 
