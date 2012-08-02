@@ -116,6 +116,8 @@ typedef struct sentinelAddr {
 /* Generic flags that can be used with different functions. */
 #define SENTINEL_NO_FLAGS 0
 #define SENTINEL_GENERATE_EVENT 1
+#define SENTINEL_LEADER 2
+#define SENTINEL_OBSERVER 4
 
 /* Script execution flags and limits. */
 #define SENTINEL_SCRIPT_NONE 0
@@ -760,6 +762,32 @@ void sentinelPendingScriptsCommand(redisClient *c) {
         addReplyBulkCString(c,"retry-num");
         addReplyBulkLongLong(c,sj->retry_num);
     }
+}
+
+/* This function calls, if any, the client reconfiguration script with the
+ * following parameters:
+ *
+ * <master-name> <role> <state> <from-ip> <from-port> <to-ip> <to-port>
+ *
+ * It is called every time a failover starts, ends, or is aborted.
+ *
+ * <state> is "start", "end" or "abort".
+ * <role> is either "leader" or "observer".
+ *
+ * from/to fields are respectively master -> promoted slave addresses for
+ * "start" and "end", or the reverse (promoted slave -> master) in case of
+ * "abort".
+ */
+void sentinelCallClientReconfScript(sentinelRedisInstance *master, int role, char *state, sentinelAddr *from, sentinelAddr *to) {
+    char fromport[32], toport[32];
+
+    if (master->client_reconfig_script == NULL) return;
+    ll2string(fromport,sizeof(fromport),from->port);
+    ll2string(toport,sizeof(toport),to->port);
+    sentinelScheduleScriptExecution(master->client_reconfig_script,
+        master->name,
+        (role == SENTINEL_LEADER) ? "leader" : "observer",
+        state, from->ip, fromport, to->ip, toport);
 }
 
 /* ========================== sentinelRedisInstance ========================= */
@@ -1434,6 +1462,8 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                 sentinelEvent(REDIS_WARNING,"+promoted-slave",ri,"%@");
                 sentinelEvent(REDIS_WARNING,"+failover-state-reconf-slaves",
                     ri->master,"%@");
+                sentinelCallClientReconfScript(ri->master,SENTINEL_LEADER,
+                    "start",ri->master->addr,ri->addr);
             }
         } else if (!(ri->master->flags & SRI_FAILOVER_IN_PROGRESS) ||
                     ((ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
@@ -1459,6 +1489,8 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             ri->master->failover_state_change_time = mstime();
             ri->master->promoted_slave = ri;
             ri->flags |= SRI_PROMOTED;
+            sentinelCallClientReconfScript(ri->master,SENTINEL_OBSERVER,
+                "start", ri->master->addr,ri->addr);
             /* We are an observer, so we can only assume that the leader
              * is reconfiguring the slave instances. For this reason we
              * set all the instances as RECONF_SENT waiting for progresses
@@ -2521,9 +2553,14 @@ void sentinelFailoverDetectEnd(sentinelRedisInstance *master) {
     }
 
     if (not_reconfigured == 0) {
+        int role = (master->flags & SRI_I_AM_THE_LEADER) ? SENTINEL_LEADER :
+                                                           SENTINEL_OBSERVER;
+
         sentinelEvent(REDIS_WARNING,"+failover-end",master,"%@");
         master->failover_state = SENTINEL_FAILOVER_STATE_UPDATE_CONFIG;
         master->failover_state_change_time = mstime();
+        sentinelCallClientReconfScript(master,role,"end",master->addr,
+            master->promoted_slave->addr);
     }
 
     /* If I'm the leader it is a good idea to send a best effort SLAVEOF
@@ -2678,6 +2715,7 @@ void sentinelAbortFailover(sentinelRedisInstance *ri) {
     char master_port[32];
     dictIterator *di;
     dictEntry *de;
+    int sentinel_role;
 
     redisAssert(ri->flags & SRI_FAILOVER_IN_PROGRESS);
     ll2string(master_port,sizeof(master_port),ri->addr->port);
@@ -2707,10 +2745,14 @@ void sentinelAbortFailover(sentinelRedisInstance *ri) {
     }
     dictReleaseIterator(di);
 
+    sentinel_role = (ri->flags & SRI_I_AM_THE_LEADER) ? SENTINEL_LEADER :
+                                                        SENTINEL_OBSERVER;
     ri->flags &= ~(SRI_FAILOVER_IN_PROGRESS|SRI_I_AM_THE_LEADER);
     ri->failover_state = SENTINEL_FAILOVER_STATE_NONE;
     ri->failover_state_change_time = mstime();
     if (ri->promoted_slave) {
+        sentinelCallClientReconfScript(ri,sentinel_role,"abort",
+            ri->promoted_slave->addr,ri->addr);
         ri->promoted_slave->flags &= ~SRI_PROMOTED;
         ri->promoted_slave = NULL;
     }
