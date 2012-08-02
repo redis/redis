@@ -7,7 +7,7 @@ Redis 2.4 is mostly a strict subset of 2.6. However there are a few things
 that you should be aware of:
 
 * You can't use .rdb and AOF files generated with 2.6 into a 2.4 instance.
-* 2.4 slaves can be attached to 2.6 masters, but not the contrary, and only
+* 2.6 slaves can be attached to 2.4 masters, but not the contrary, and only
   for the time needed to perform the version upgrade.
 
 There are also a few API differences, that are unlikely to cause problems,
