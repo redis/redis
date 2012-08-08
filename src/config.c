@@ -205,6 +205,10 @@ void loadServerConfigFromString(char *config) {
             if ((server.repl_serve_stale_data = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"slave-allow-key-expires") && argc == 2) {
+            if ((server.slave_allow_key_expires = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"slave-read-only") && argc == 2) {
             if ((server.repl_slave_ro = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
@@ -541,6 +545,11 @@ void configSetCommand(redisClient *c) {
 
         if (yn == -1) goto badfmt;
         server.repl_serve_stale_data = yn;
+    } else if (!strcasecmp(c->argv[2]->ptr,"slave-allow-key-expires")) {
+            int yn = yesnotoi(o->ptr);
+
+            if (yn == -1) goto badfmt;
+            server.slave_allow_key_expires = yn;
     } else if (!strcasecmp(c->argv[2]->ptr,"slave-read-only")) {
         int yn = yesnotoi(o->ptr);
 
@@ -761,6 +770,8 @@ void configGetCommand(redisClient *c) {
             server.aof_no_fsync_on_rewrite);
     config_get_bool_field("slave-serve-stale-data",
             server.repl_serve_stale_data);
+    config_get_bool_field("slave-allow-key-expires",
+            server.slave_allow_key_expires);
     config_get_bool_field("slave-read-only",
             server.repl_slave_ro);
     config_get_bool_field("stop-writes-on-bgsave-error",

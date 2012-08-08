@@ -493,7 +493,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
      * Still we try to return the right information to the caller, 
      * that is, 0 if we think the key should be still valid, 1 if
      * we think the key is expired at this time. */
-    if (server.masterhost != NULL) {
+    if (server.masterhost != NULL && server.slave_allow_key_expires == 0) {
         return mstime() > when;
     }
 

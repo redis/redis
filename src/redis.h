@@ -678,6 +678,7 @@ struct redisServer {
     /* Slave specific fields */
     char *masterauth;               /* AUTH with this password with master */
     char *masterhost;               /* Hostname of master */
+    int slave_allow_key_expires;    /* True if we allow keys to expire on the slave w/o relying on replication */
     int masterport;                 /* Port of master */
     int repl_ping_slave_period;     /* Master pings the salve every N seconds */
     int repl_timeout;               /* Timeout after N seconds of master idle */
