@@ -789,8 +789,7 @@ void hscanCommand(redisClient *c) {
         ln_ = listNextNode(ln);
 
         /* Keep key iff pattern matches */
-        if (!patnoop && !stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0))
-        {
+        if (!patnoop && !stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0)) {
             decrRefCount(kobj);
             listDelNode(keys, ln);
         }
