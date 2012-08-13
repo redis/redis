@@ -789,11 +789,8 @@ void hscanCommand(redisClient *c) {
         ln_ = listNextNode(ln);
 
         /* Keep key iff pattern matches and it hasn't expired */
-        if ((patnoop || stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0)) &&
-            (expireIfNeeded(c->db, kobj) == 0))
+        if (!patnoop && !stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0))
         {
-            /* Keep */
-        } else {
             decrRefCount(kobj);
             listDelNode(keys, ln);
         }
