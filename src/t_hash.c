@@ -708,6 +708,120 @@ void hkeysCommand(redisClient *c) {
     genericHgetallCommand(c,REDIS_HASH_KEY);
 }
 
+void hscanCallback(void *privdata, const dictEntry *de) {
+    list *keys = (list *)privdata;
+    void *key = dictGetKey(de);
+    robj *kobj = getDecodedObject(key);
+    listAddNodeTail(keys, kobj);
+}
+
+void hscanCommand(redisClient *c) {
+    robj *o, *key;
+    int i, j;
+    int rv;
+    char buf[32];
+    list *keys = listCreate();
+    listNode *ln, *ln_;
+    hashTypeIterator *hi;
+    unsigned long cursor = 0;
+    long count = 1;
+    sds pat;
+    int patlen, patnoop = 1;
+
+    redisAssert(c->argc >= 3);
+
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL
+        || checkType(c,o,REDIS_HASH)) return;
+
+    /* Use sscanf because we need an *unsigned* long */
+    rv = sscanf(c->argv[2]->ptr, "%lu", &cursor);
+    if (rv != 1) {
+        addReplyError(c, "invalid cursor");
+        goto cleanup;
+    }
+
+    i = 3;
+    while (i < c->argc) {
+        j = c->argc - i;
+        if (!strcasecmp(c->argv[i]->ptr, "count") && j >= 2) {
+            if (getLongFromObjectOrReply(c, c->argv[i+1], &count, NULL) != REDIS_OK) {
+                goto cleanup;
+            }
+
+            if (count < 1) {
+                addReply(c,shared.syntaxerr);
+                goto cleanup;
+            }
+
+            i += 2;
+        } else if (!strcasecmp(c->argv[i]->ptr, "pattern") && j >= 2) {
+            pat = c->argv[i+1]->ptr;
+            patlen = sdslen(pat);
+
+            /* The pattern is a no-op iff == "*" */
+            patnoop = (pat[0] == '*' && patlen == 1);
+
+            i += 2;
+        } else {
+            addReply(c,shared.syntaxerr);
+            goto cleanup;
+        }
+    }
+
+    if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+        hi = hashTypeInitIterator(o);
+        while (hashTypeNext(hi) != REDIS_ERR) {
+          key = hashTypeCurrentObject(hi, REDIS_HASH_KEY);
+          listAddNodeTail(keys, key);
+        }
+        hashTypeReleaseIterator(hi);
+        cursor = 0;
+    } else {
+        do {
+            cursor = dictScan(o->ptr, cursor, hscanCallback, keys);
+        } while (cursor && listLength(keys) < count);
+    }
+
+    /* Filter keys */
+    ln = listFirst(keys);
+    while (ln) {
+        robj *kobj = listNodeValue(ln);
+        ln_ = listNextNode(ln);
+
+        /* Keep key iff pattern matches and it hasn't expired */
+        if (!patnoop && !stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0))
+        {
+            decrRefCount(kobj);
+            listDelNode(keys, ln);
+        }
+
+        ln = ln_;
+    }
+
+    addReplyMultiBulkLen(c, 2);
+
+    rv = snprintf(buf, sizeof(buf), "%lu", cursor);
+    redisAssert(rv < sizeof(buf));
+    addReplyBulkCBuffer(c, buf, rv);
+
+    addReplyMultiBulkLen(c, listLength(keys));
+    while ((ln = listFirst(keys)) != NULL) {
+      robj *kobj = listNodeValue(ln);
+      addReplyBulk(c, kobj);
+      decrRefCount(kobj);
+      listDelNode(keys, ln);
+    }
+
+cleanup:
+    while ((ln = listFirst(keys)) != NULL) {
+        robj *kobj = listNodeValue(ln);
+        decrRefCount(kobj);
+        listDelNode(keys, ln);
+    }
+
+    listRelease(keys);
+}
+
 void hvalsCommand(redisClient *c) {
     genericHgetallCommand(c,REDIS_HASH_VALUE);
 }

@@ -185,6 +185,66 @@ start_server {tags {"hash"}} {
         lsort [r hkeys bighash]
     } [lsort [array names bighash *]]
 
+    test {HSCAN - small hash} {
+        set cur 0
+        set keys {}
+        while 1 {
+            set res [r hscan smallhash $cur]
+            set cur [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys $k
+            if {$cur == 0} break
+        }
+
+        set keys [lsort -unique [concat {*}$keys]]
+        assert_equal [llength [array names smallhash *]] [llength $keys]
+    }
+
+    test {HSCAN - big hash} {
+        set cur 0
+        set keys {}
+        while 1 {
+            set res [r hscan bighash $cur]
+            set cur [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys $k
+            if {$cur == 0} break
+        }
+
+        set keys [lsort -unique [concat {*}$keys]]
+        assert_equal [llength [array names bighash *]] [llength $keys]
+    }
+
+    test {HSCAN - count} {
+      set cur 0
+      set keys {}
+      while 1 {
+        set res [r hscan smallhash $cur count 5]
+        set cur [lindex $res 0]
+        set k [lindex $res 1]
+        lappend keys $k
+        if {$cur == 0} break
+      }
+
+      set keys [lsort -unique [concat {*}$keys]]
+      assert_equal [llength [array names smallhash *]] [llength $keys]
+    }
+
+    test {HSCAN - pattern} {
+      set cur 0
+      set keys {}
+      while 1 {
+        set res [r hscan smallhash $cur pattern 2]
+        set cur [lindex $res 0]
+        set k [lindex $res 1]
+        lappend keys $k
+        if {$cur == 0} break
+      }
+
+      set keys [lsort -unique [concat {*}$keys]]
+      assert_equal [llength [array names smallhash 2]] [llength $keys]
+    }
+
     test {HVALS - small hash} {
         set vals {}
         foreach {k v} [array get smallhash] {
