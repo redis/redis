@@ -788,7 +788,7 @@ void hscanCommand(redisClient *c) {
         robj *kobj = listNodeValue(ln);
         ln_ = listNextNode(ln);
 
-        /* Keep key iff pattern matches and it hasn't expired */
+        /* Keep key iff pattern matches */
         if (!patnoop && !stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0))
         {
             decrRefCount(kobj);
