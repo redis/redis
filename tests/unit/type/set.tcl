@@ -217,6 +217,7 @@ start_server {
     }
 
     test "SINTERSTORE against non existing keys should delete dstkey" {
+        r del setres
         r set setres xxx
         assert_equal 0 [r sinterstore setres foo111 bar222]
         assert_equal 0 [r exists setres]
