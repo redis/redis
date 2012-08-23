@@ -380,6 +380,14 @@ void pipesaveCommand(redisClient *c) {
     }
 }
 
+void dumpsaveCommand(redisClient *c) {
+    if (rdbDumpsaveBackground(c->fd) == REDIS_OK) {
+        addReplyStatus(c,"Background dumpsave started");
+    } else {
+        addReply(c,shared.err);
+    }
+}
+
 void renameGenericCommand(redisClient *c, int nx) {
     robj *o;
     long long expire;

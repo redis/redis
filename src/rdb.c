@@ -626,18 +626,15 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val,
     return 1;
 }
 
-/* Save the DB on disk. Return REDIS_ERR on error, REDIS_OK on success */
+/* Save the DB to a file.  If filename begins with a pipe (`|'), then
+ * exec whatever program comes after it and write the DB to its stdin.
+ *
+ * Return REDIS_ERR on error, REDIS_OK on success. */
 int rdbSave(char *filename) {
-    dictIterator *di = NULL;
-    dictEntry *de;
-    char tmpfile[256];
-    char magic[10];
-    int j;
-    long long now = mstime();
     FILE *fp;
-    rio rdb;
-    uint64_t cksum;
+    char tmpfile[256];
 
+    /* Open */
     if (filename[0] == '|') {
 #ifdef HAVE_POPEN_MODE_E
         fp = popen(filename+1, "we");
@@ -658,56 +655,20 @@ int rdbSave(char *filename) {
         }
     }
 
-    rioInitWithFile(&rdb,fp);
-    if (server.rdb_checksum)
-        rdb.update_cksum = rioGenericUpdateChecksum;
-    snprintf(magic,sizeof(magic),"REDIS%04d",REDIS_RDB_VERSION);
-    if (rdbWriteRaw(&rdb,magic,9) == -1) goto werr;
-
-    for (j = 0; j < server.dbnum; j++) {
-        redisDb *db = server.db+j;
-        dict *d = db->dict;
-        if (dictSize(d) == 0) continue;
-        di = dictGetSafeIterator(d);
-        if (!di) {
-            if (filename[0] == '|' ) {
-                pclose(fp);
-            } else {
-                fclose(fp);
-            }
-            return REDIS_ERR;
+    /* Write */
+    if (rdbSaveToFileDescriptor(fp) == REDIS_ERR) {
+        if (filename[0] == '|') {
+            pclose(fp);
+            redisLog(REDIS_WARNING,"Write error saving DB to pipe: %s", strerror(errno));
+        } else {
+            fclose(fp);
+            unlink(tmpfile);
+            redisLog(REDIS_WARNING,"Write error saving DB on disk: %s", strerror(errno));
         }
-
-        /* Write the SELECT DB opcode */
-        if (rdbSaveType(&rdb,REDIS_RDB_OPCODE_SELECTDB) == -1) goto werr;
-        if (rdbSaveLen(&rdb,j) == -1) goto werr;
-
-        /* Iterate this DB writing every entry */
-        while((de = dictNext(di)) != NULL) {
-            sds keystr = dictGetKey(de);
-            robj key, *o = dictGetVal(de);
-            long long expire;
-            
-            initStaticStringObject(key,keystr);
-            expire = getExpire(db,&key);
-            if (rdbSaveKeyValuePair(&rdb,&key,o,expire,now) == -1) goto werr;
-        }
-        dictReleaseIterator(di);
+        return REDIS_ERR;
     }
-    di = NULL; /* So that we don't release it again on error. */
 
-    /* EOF opcode */
-    if (rdbSaveType(&rdb,REDIS_RDB_OPCODE_EOF) == -1) goto werr;
-
-    /* CRC64 checksum. It will be zero if checksum computation is disabled, the
-     * loading code skips the check in this case. */
-    cksum = rdb.cksum;
-    memrev64ifbe(&cksum);
-    rioWrite(&rdb,&cksum,8);
-
-    /* Make sure data will not remain on the OS's output buffers */
-    fflush(fp);
-    fsync(fileno(fp));
+    /* Close */
     if (filename[0] == '|') {
         if (pclose(fp) < 0) {
             redisLog(REDIS_WARNING, "Save to pipe failed: %s", strerror(errno));
@@ -730,16 +691,67 @@ int rdbSave(char *filename) {
     server.lastsave = time(NULL);
     server.lastbgsave_status = REDIS_OK;
     return REDIS_OK;
+}
+
+/* Save the DB to the given FILE pointer.  We are responsible neither
+ * for opening nor closing the descriptor. */
+int rdbSaveToFileDescriptor(FILE *fp) {
+    dictIterator *di = NULL;
+    dictEntry *de;
+    char magic[10];
+    int j;
+    long long now = mstime();
+    rio rdb;
+    uint64_t cksum;
+
+    rioInitWithFile(&rdb,fp);
+    if (server.rdb_checksum)
+        rdb.update_cksum = rioGenericUpdateChecksum;
+    snprintf(magic,sizeof(magic),"REDIS%04d",REDIS_RDB_VERSION);
+    if (rdbWriteRaw(&rdb,magic,9) == -1) goto werr;
+
+    for (j = 0; j < server.dbnum; j++) {
+        redisDb *db = server.db+j;
+        dict *d = db->dict;
+        if (dictSize(d) == 0) continue;
+        di = dictGetSafeIterator(d);
+        if (!di) {
+            return REDIS_ERR;
+        }
+
+        /* Write the SELECT DB opcode */
+        if (rdbSaveType(&rdb,REDIS_RDB_OPCODE_SELECTDB) == -1) goto werr;
+        if (rdbSaveLen(&rdb,j) == -1) goto werr;
+
+        /* Iterate this DB writing every entry */
+        while((de = dictNext(di)) != NULL) {
+            sds keystr = dictGetKey(de);
+            robj key, *o = dictGetVal(de);
+            long long expire;
+
+            initStaticStringObject(key,keystr);
+            expire = getExpire(db,&key);
+            if (rdbSaveKeyValuePair(&rdb,&key,o,expire,now) == -1) goto werr;
+        }
+        dictReleaseIterator(di);
+    }
+    di = NULL; /* So that we don't release it again on error. */
+
+    /* EOF opcode */
+    if (rdbSaveType(&rdb,REDIS_RDB_OPCODE_EOF) == -1) goto werr;
+
+    /* CRC64 checksum. It will be zero if checksum computation is disabled, the
+     * loading code skips the check in this case. */
+    cksum = rdb.cksum;
+    memrev64ifbe(&cksum);
+    rioWrite(&rdb,&cksum,8);
+
+    /* Make sure data will not remain on the OS's output buffers */
+    fflush(fp);
+    fsync(fileno(fp));
+    return REDIS_OK;
 
 werr:
-    if (filename[0] == '|') {
-        pclose(fp);
-        redisLog(REDIS_WARNING,"Write error saving DB to pipe: %s", strerror(errno));
-    } else {
-        fclose(fp);
-        unlink(tmpfile);
-        redisLog(REDIS_WARNING,"Write error saving DB on disk: %s", strerror(errno));
-    }
     if (di) dictReleaseIterator(di);
     return REDIS_ERR;
 }
@@ -776,7 +788,7 @@ int rdbSaveBackground(char *filename) {
         server.stat_fork_time = ustime()-start;
         if (childpid == -1) {
             redisLog(REDIS_WARNING,"Can't save in background: fork: %s",
-                strerror(errno));
+                     strerror(errno));
             return REDIS_ERR;
         }
         redisLog(REDIS_NOTICE,"Background saving started by pid %d",childpid);
@@ -812,11 +824,48 @@ int rdbPipesaveBackground(char *command) {
     } else {
         /* Parent */
         if (childpid == -1) {
-            redisLog(REDIS_WARNING,"Can't pipesave in background: fork: %s",
-                strerror(errno));
+            redisLog(REDIS_WARNING,"Can't pipesave: fork: %s",
+                     strerror(errno));
             return REDIS_ERR;
         }
         redisLog(REDIS_NOTICE,"Background pipesave started by pid %d",childpid);
+        server.rdb_child_pid = childpid;
+        updateDictResizePolicy();
+        return REDIS_OK;
+    }
+    return REDIS_OK; /* unreached */
+}
+
+int rdbDumpsaveBackground(int fd) {
+    pid_t childpid;
+    FILE *fp;
+
+    if (server.rdb_child_pid != -1) return REDIS_ERR;
+
+    if ((childpid = fork()) == 0) {
+        int retval;
+
+        /* Child */
+        if (server.ipfd > 0) close(server.ipfd);
+        if (server.sofd > 0) close(server.sofd);
+        fp = fdopen(fd, "w");
+        if (!fp) {
+            redisLog(REDIS_WARNING, "Can't dumpsave: fdopen: %s",
+                     strerror(errno));
+            exitFromChild(1);
+        }
+        retval = rdbSaveToFileDescriptor(fp);
+        exitFromChild((retval == REDIS_OK) ? 0 : 1);
+    } else {
+        /* Parent */
+        if (childpid == -1) {
+            redisLog(REDIS_WARNING,"Can't dumpsave: fork: %s",
+                     strerror(errno));
+            return REDIS_ERR;
+        }
+        aeDeleteFileEvent(server.el,fd,AE_READABLE);
+        close(fd);
+        redisLog(REDIS_NOTICE,"Background dumpsave started by pid %d",childpid);
         server.rdb_child_pid = childpid;
         updateDictResizePolicy();
         return REDIS_OK;
