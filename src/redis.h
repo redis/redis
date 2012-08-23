@@ -824,6 +824,7 @@ struct redisServer {
     time_t rdb_save_time_start;     /* Current RDB save start time. */
     int lastbgsave_status;          /* REDIS_OK or REDIS_ERR */
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
+    char *pipesavecommand;          /* Program to fork to receive an RDB over a pipe */
     /* Propagation of commands in AOF / replication */
     redisOpArray also_propagate;    /* Additional command to propagate. */
     /* Logging */
@@ -1387,6 +1388,7 @@ void lastsaveCommand(redisClient *c);
 void saveCommand(redisClient *c);
 void bgsaveCommand(redisClient *c);
 void bgrewriteaofCommand(redisClient *c);
+void pipesaveCommand(redisClient *c);
 void shutdownCommand(redisClient *c);
 void moveCommand(redisClient *c);
 void renameCommand(redisClient *c);

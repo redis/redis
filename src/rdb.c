@@ -638,12 +638,24 @@ int rdbSave(char *filename) {
     rio rdb;
     uint64_t cksum;
 
-    snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
-    fp = fopen(tmpfile,"w");
-    if (!fp) {
-        redisLog(REDIS_WARNING, "Failed opening .rdb for saving: %s",
-            strerror(errno));
-        return REDIS_ERR;
+    if (filename[0] == '|') {
+#ifdef HAVE_POPEN_MODE_E
+        fp = popen(filename+1, "we");
+#else
+        fp = popen(filename+1, "w");
+#endif
+        if (!fp) {
+            redisLog(REDIS_WARNING, "Failed saving the DB via pipe: %s", strerror(errno));
+            return REDIS_ERR;
+        }
+    } else {
+        snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
+        fp = fopen(tmpfile,"w");
+        if (!fp) {
+            redisLog(REDIS_WARNING, "Failed opening .rdb for saving: %s",
+                strerror(errno));
+            return REDIS_ERR;
+        }
     }
 
     rioInitWithFile(&rdb,fp);
@@ -658,7 +670,11 @@ int rdbSave(char *filename) {
         if (dictSize(d) == 0) continue;
         di = dictGetSafeIterator(d);
         if (!di) {
-            fclose(fp);
+            if (filename[0] == '|' ) {
+                pclose(fp);
+            } else {
+                fclose(fp);
+            }
             return REDIS_ERR;
         }
 
@@ -692,25 +708,38 @@ int rdbSave(char *filename) {
     /* Make sure data will not remain on the OS's output buffers */
     fflush(fp);
     fsync(fileno(fp));
-    fclose(fp);
+    if (filename[0] == '|') {
+        if (pclose(fp) < 0) {
+            redisLog(REDIS_WARNING, "Save to pipe failed: %s", strerror(errno));
+            return REDIS_ERR;
+        }
+        redisLog(REDIS_NOTICE,"DB saved to command '%s'", filename+1);
+    } else {
+        fclose(fp);
 
-    /* Use RENAME to make sure the DB file is changed atomically only
-     * if the generate DB file is ok. */
-    if (rename(tmpfile,filename) == -1) {
-        redisLog(REDIS_WARNING,"Error moving temp DB file on the final destination: %s", strerror(errno));
-        unlink(tmpfile);
-        return REDIS_ERR;
+        /* Use RENAME to make sure the DB file is changed atomically only
+         * if the generate DB file is ok. */
+        if (rename(tmpfile,filename) == -1) {
+            redisLog(REDIS_WARNING,"Error moving temp DB file on the final destination: %s", strerror(errno));
+            unlink(tmpfile);
+            return REDIS_ERR;
+        }
+        redisLog(REDIS_NOTICE,"DB saved on disk");
     }
-    redisLog(REDIS_NOTICE,"DB saved on disk");
     server.dirty = 0;
     server.lastsave = time(NULL);
     server.lastbgsave_status = REDIS_OK;
     return REDIS_OK;
 
 werr:
-    fclose(fp);
-    unlink(tmpfile);
-    redisLog(REDIS_WARNING,"Write error saving DB on disk: %s", strerror(errno));
+    if (filename[0] == '|') {
+        pclose(fp);
+        redisLog(REDIS_WARNING,"Write error saving DB to pipe: %s", strerror(errno));
+    } else {
+        fclose(fp);
+        unlink(tmpfile);
+        redisLog(REDIS_WARNING,"Write error saving DB on disk: %s", strerror(errno));
+    }
     if (di) dictReleaseIterator(di);
     return REDIS_ERR;
 }
@@ -752,6 +781,42 @@ int rdbSaveBackground(char *filename) {
         }
         redisLog(REDIS_NOTICE,"Background saving started by pid %d",childpid);
         server.rdb_save_time_start = time(NULL);
+        server.rdb_child_pid = childpid;
+        updateDictResizePolicy();
+        return REDIS_OK;
+    }
+    return REDIS_OK; /* unreached */
+}
+
+int rdbPipesaveBackground(char *command) {
+    pid_t childpid;
+    char *pipecommand;
+
+    if (server.rdb_child_pid != -1) return REDIS_ERR;
+
+    if (!command || strlen(command) < 1) {
+        redisLog(REDIS_WARNING,"Cannot PIPESAVE without a configured pipesavecommand");
+        return REDIS_ERR;
+    }
+
+    if ((childpid = fork()) == 0) {
+        int retval;
+
+        /* Child */
+        if (server.ipfd > 0) close(server.ipfd);
+        if (server.sofd > 0) close(server.sofd);
+        pipecommand = zmalloc(strlen(command) + 2);
+        snprintf(pipecommand, strlen(command) + 2, "|%s", command);
+        retval = rdbSave(pipecommand);
+        exitFromChild((retval == REDIS_OK) ? 0 : 1);
+    } else {
+        /* Parent */
+        if (childpid == -1) {
+            redisLog(REDIS_WARNING,"Can't pipesave in background: fork: %s",
+                strerror(errno));
+            return REDIS_ERR;
+        }
+        redisLog(REDIS_NOTICE,"Background pipesave started by pid %d",childpid);
         server.rdb_child_pid = childpid;
         updateDictResizePolicy();
         return REDIS_OK;

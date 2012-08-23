@@ -373,6 +373,9 @@ void loadServerConfigFromString(char *config) {
             server.hash_max_ziplist_entries = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"hash-max-ziplist-value") && argc == 2) {
             server.hash_max_ziplist_value = memtoll(argv[1], NULL);
+        } else if (!strcasecmp(argv[0],"pipesavecommand") && argc == 2) {
+            zfree(server.pipesavecommand);
+            server.pipesavecommand = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"list-max-ziplist-entries") && argc == 2){
             server.list_max_ziplist_entries = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"list-max-ziplist-value") && argc == 2) {
@@ -1003,6 +1006,11 @@ void configGetCommand(redisClient *c) {
 
         addReplyBulkCString(c,"dir");
         addReplyBulkCString(c,buf);
+        matches++;
+    }
+    if (stringmatch(pattern,"pipesavecommand",0)) {
+        addReplyBulkCString(c,"pipesavecommand");
+        addReplyBulkCString(c,server.pipesavecommand);
         matches++;
     }
     if (stringmatch(pattern,"maxmemory-policy",0)) {

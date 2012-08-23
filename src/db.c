@@ -372,6 +372,14 @@ void shutdownCommand(redisClient *c) {
     addReplyError(c,"Errors trying to SHUTDOWN. Check logs.");
 }
 
+void pipesaveCommand(redisClient *c) {
+    if (rdbPipesaveBackground(server.pipesavecommand) == REDIS_OK) {
+        addReplyStatus(c,"Background pipesave started");
+    } else {
+        addReply(c,shared.err);
+    }
+}
+
 void renameGenericCommand(redisClient *c, int nx) {
     robj *o;
     long long expire;

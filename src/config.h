@@ -105,6 +105,11 @@
 #define rdb_fsync_range(fd,off,size) fsync(fd)
 #endif
 
+/* Does your popen(3) support the 'e' flag? */
+#ifdef __linux__
+#define HAVE_POPEN_MODE_E 1
+#endif
+
 /* Check if we can use setproctitle().
  * BSD systems have support for it, we provide an implementation for
  * Linux and osx. */
