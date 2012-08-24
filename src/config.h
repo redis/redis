@@ -52,6 +52,14 @@
 #define aof_fsync fsync
 #endif
 
+/* Define rdb_fsync_range to sync_file_range() on Linux, otherwise we use
+ * the plain fsync() call. */
+#ifdef __linux__
+#define rdb_fsync_range(fd,off,size) sync_file_range(fd,off,size,SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE)
+#else
+#define rdb_fsync_range(fd,off,size) fsync(fd)
+#endif
+
 /* Byte ordering detection */
 #include <sys/types.h> /* This will likely define BYTE_ORDER */
 
