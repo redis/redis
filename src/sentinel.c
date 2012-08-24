@@ -74,6 +74,7 @@ typedef struct sentinelAddr {
 #define SRI_RECONF_INPROG (1<<12)   /* Slave synchronization in progress. */
 #define SRI_RECONF_DONE (1<<13)     /* Slave synchronized with new master. */
 #define SRI_FORCE_FAILOVER (1<<14)  /* Force failover with master up. */
+#define SRI_SCRIPT_KILL_SENT (1<<15) /* SCRIPT KILL already sent on -BUSY */
 
 #define SENTINEL_INFO_PERIOD 10000
 #define SENTINEL_PING_PERIOD 1000
@@ -1572,6 +1573,17 @@ void sentinelPingReplyCallback(redisAsyncContext *c, void *reply, void *privdata
             strncmp(r->str,"MASTERDOWN",10) == 0)
         {
             ri->last_avail_time = mstime();
+        } else {
+            /* Send a SCRIPT KILL command if the instance appears to be
+             * down because of a busy script. */
+            if (strncmp(r->str,"BUSY",4) == 0 &&
+                (ri->flags & SRI_S_DOWN) &&
+                !(ri->flags & SRI_SCRIPT_KILL_SENT))
+            {
+                redisAsyncCommand(ri->cc,
+                    sentinelDiscardReplyCallback, NULL, "SCRIPT KILL");
+                ri->flags |= SRI_SCRIPT_KILL_SENT;
+            }
         }
     }
     ri->last_pong_time = mstime();
@@ -2069,7 +2081,7 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
         /* Is subjectively up */
         if (ri->flags & SRI_S_DOWN) {
             sentinelEvent(REDIS_WARNING,"-sdown",ri,"%@");
-            ri->flags &= ~SRI_S_DOWN;
+            ri->flags &= ~(SRI_S_DOWN|SRI_SCRIPT_KILL_SENT);
         }
     }
 }
