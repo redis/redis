@@ -26,7 +26,9 @@
 
 /* Test for backtrace() */
 #if defined(__APPLE__) || defined(__linux__) || defined(__sun)
+#if !defined(__SunOS_5_10) /* Solaris 10 does not contain backtrace() */
 #define HAVE_BACKTRACE 1
+#endif
 #endif
 
 /* Test for polling API */
