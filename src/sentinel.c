@@ -818,7 +818,7 @@ void sentinelCallClientReconfScript(sentinelRedisInstance *master, int role, cha
 sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *hostname, int port, int quorum, sentinelRedisInstance *master) {
     sentinelRedisInstance *ri;
     sentinelAddr *addr;
-    dict *table;
+    dict *table = NULL;
     char slavename[128], *sdsname;
 
     redisAssert(flags & (SRI_MASTER|SRI_SLAVE|SRI_SENTINEL));
