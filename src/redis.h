@@ -62,6 +62,7 @@
 #define REDIS_REPL_PING_SLAVE_PERIOD 10
 
 #define REDIS_RUN_ID_SIZE 40
+#define REDIS_DEFAULT_SLAVE_PRIORITY 100
 
 /* Hash table parameters */
 #define REDIS_HT_MINFILL        10      /* Minimal hash table fill 10% */
@@ -479,6 +480,7 @@ struct redisServer {
     time_t repl_transfer_lastio; /* unix time of the latest read, for timeout */
     int repl_serve_stale_data; /* Serve stale data when link is down? */
     time_t repl_down_since; /* unix time at which link with master went down */
+    int slave_priority;             /* Reported in INFO and used by Sentinel. */
     /* Limits */
     unsigned int maxclients;
     unsigned long long maxmemory;

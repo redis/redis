@@ -333,6 +333,8 @@ void loadServerConfig(char *filename) {
             server.slowlog_log_slower_than = strtoll(argv[1],NULL,10);
         } else if (!strcasecmp(argv[0],"slowlog-max-len") && argc == 2) {
             server.slowlog_max_len = strtoll(argv[1],NULL,10);
+        } else if (!strcasecmp(argv[0],"slave-priority") && argc == 2) {
+            server.slave_priority = atoi(argv[1]);
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
@@ -531,6 +533,10 @@ void configSetCommand(redisClient *c) {
         } else {
             goto badfmt;
         }
+    } else if (!strcasecmp(c->argv[2]->ptr,"slave-priority")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
+            ll <= 0) goto badfmt;
+        server.slave_priority = ll;
     } else {
         addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
             (char*)c->argv[2]->ptr);
@@ -709,6 +715,11 @@ void configGetCommand(redisClient *c) {
     if (stringmatch(pattern,"slowlog-max-len",0)) {
         addReplyBulkCString(c,"slowlog-max-len");
         addReplyBulkLongLong(c,server.slowlog_max_len);
+        matches++;
+    }
+    if (stringmatch(pattern,"slave-priority",0)) {
+        addReplyBulkCString(c,"slave-priority");
+        addReplyBulkLongLong(c,server.slave_priority);
         matches++;
     }
     if (stringmatch(pattern,"loglevel",0)) {
