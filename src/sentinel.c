@@ -1410,6 +1410,10 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                     SENTINEL_MASTER_LINK_STATUS_UP :
                     SENTINEL_MASTER_LINK_STATUS_DOWN;
             }
+
+            /* slave_priority:<priority> */
+            if (sdslen(l) >= 15 && !memcmp(l,"slave_priority:",15))
+                ri->slave_priority = atoi(l+15);
         }
     }
     ri->info_refresh = mstime();
@@ -1881,6 +1885,10 @@ void addReplySentinelRedisInstance(redisClient *c, sentinelRedisInstance *ri) {
 
         addReplyBulkCString(c,"master-port");
         addReplyBulkLongLong(c,ri->slave_master_port);
+        fields++;
+
+        addReplyBulkCString(c,"slave-priority");
+        addReplyBulkLongLong(c,ri->slave_priority);
         fields++;
     }
 
@@ -2439,6 +2447,7 @@ void sentinelStartFailoverIfNeeded(sentinelRedisInstance *master) {
  * 3) info_refresh more recent than SENTINEL_INFO_VALIDITY_TIME.
  * 4) master_link_down_time no more than:
  *     (now - master->s_down_since_time) + (master->down_after_period * 10).
+ * 5) Slave priority can't be zero, otherwise the slave is discareded.
  *
  * Among all the slaves matching the above conditions we select the slave
  * with lower slave_priority. If priority is the same we select the slave
@@ -2476,6 +2485,7 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
 
         if (slave->flags & (SRI_S_DOWN|SRI_O_DOWN|SRI_DISCONNECTED)) continue;
         if (slave->last_avail_time < info_validity_time) continue;
+        if (slave->slave_priority == 0) continue;
 
         /* If the master is in SDOWN state we get INFO for slaves every second.
          * Otherwise we get it with the usual period so we need to account for
