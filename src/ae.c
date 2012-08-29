@@ -58,6 +58,10 @@
     #endif
 #endif
 
+/* Storing the previous time when processTimeEvents was called, it is used
+ * to detect system clock skew. */
+static long lastSec = 0;
+
 aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;
@@ -164,6 +168,38 @@ static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) 
     *ms = when_ms;
 }
 
+/* Insert the new timer in sorted order, so we get O(1) when getting the
+ * nearest timer, while adding and deleting a timer is O(N). */
+static void aeAddTimeEvent(aeEventLoop *eventLoop, aeTimeEvent *te) {
+    aeTimeEvent *entry, *prev;
+
+    entry = eventLoop->timeEventHead;
+    if (!entry) {
+        te->next = NULL;
+        eventLoop->timeEventHead = te; 
+        return;
+    }   
+
+    prev = entry;
+    while (entry &&
+           ((entry->when_sec < te->when_sec) ||
+            ((entry->when_sec == te->when_sec) &&
+             (entry->when_ms < te->when_ms))))
+    {   
+        prev = entry;
+        entry = entry->next;
+    }   
+
+    if (prev == entry) {
+        te->next = entry;
+        eventLoop->timeEventHead = te;
+    } else {
+        prev->next = te;
+        te->next = entry;
+    }
+    return;
+}
+
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
         aeTimeProc *proc, void *clientData,
         aeEventFinalizerProc *finalizerProc)
@@ -178,8 +214,7 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     te->timeProc = proc;
     te->finalizerProc = finalizerProc;
     te->clientData = clientData;
-    te->next = eventLoop->timeEventHead;
-    eventLoop->timeEventHead = te;
+    aeAddTimeEvent(eventLoop, te);
     return id;
 }
 
@@ -209,44 +244,33 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
  * This operation is useful to know how many time the select can be
  * put in sleep without to delay any event.
  * If there are no timers NULL is returned.
- *
- * Note that's O(N) since time events are unsorted.
- * Possible optimizations (not needed by Redis so far, but...):
- * 1) Insert the event in order, so that the nearest is just the head.
- *    Much better but still insertion or deletion of timers is O(N).
- * 2) Use a skiplist to have this operation as O(1) and insertion as O(log(N)).
  */
 static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 {
-    aeTimeEvent *te = eventLoop->timeEventHead;
-    aeTimeEvent *nearest = NULL;
-
-    while(te) {
-        if (!nearest || te->when_sec < nearest->when_sec ||
-                (te->when_sec == nearest->when_sec &&
-                 te->when_ms < nearest->when_ms))
-            nearest = te;
-        te = te->next;
-    }
-    return nearest;
+    return eventLoop->timeEventHead;
 }
 
 /* Process time events */
 static int processTimeEvents(aeEventLoop *eventLoop) {
     int processed = 0;
     aeTimeEvent *te;
-    long long maxId;
+    long now_sec, now_ms;
+
+    aeGetTime(&now_sec, &now_ms);
+    if (now_sec < lastSec) {
+        /* Clock skew found, force expiring all timers */
+        te = eventLoop->timeEventHead;
+        while (te) {
+            te->when_sec = 0;
+            te = te->next;
+        }
+    }
+    lastSec = now_sec;
 
     te = eventLoop->timeEventHead;
-    maxId = eventLoop->timeEventNextId-1;
     while(te) {
-        long now_sec, now_ms;
         long long id;
 
-        if (te->id > maxId) {
-            te = te->next;
-            continue;
-        }
         aeGetTime(&now_sec, &now_ms);
         if (now_sec > te->when_sec ||
             (now_sec == te->when_sec && now_ms >= te->when_ms))
@@ -256,27 +280,14 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
             id = te->id;
             retval = te->timeProc(eventLoop, id, te->clientData);
             processed++;
-            /* After an event is processed our time event list may
-             * no longer be the same, so we restart from head.
-             * Still we make sure to don't process events registered
-             * by event handlers itself in order to don't loop forever.
-             * To do so we saved the max ID we want to handle.
-             *
-             * FUTURE OPTIMIZATIONS:
-             * Note that this is NOT great algorithmically. Redis uses
-             * a single time event so it's not a problem but the right
-             * way to do this is to add the new elements on head, and
-             * to flag deleted elements in a special way for later
-             * deletion (putting references to the nodes to delete into
-             * another linked list). */
             if (retval != AE_NOMORE) {
-                aeAddMillisecondsToNow(retval,&te->when_sec,&te->when_ms);
-            } else {
-                aeDeleteTimeEvent(eventLoop, id);
+                aeCreateTimeEvent(eventLoop, retval, te->timeProc,
+                    te->clientData, te->finalizerProc);
             }
-            te = eventLoop->timeEventHead;
-        } else {
             te = te->next;
+            aeDeleteTimeEvent(eventLoop, id);
+        } else {
+            break;
         }
     }
     return processed;
