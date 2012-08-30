@@ -18,6 +18,17 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
+What's new in Redis 2.4.17
+==========================
+
+* INFO command now contains the run_id field for Redis Sentinel compatibility.
+* Support for the "slave priority" parameter published via INFO and used by
+  Redis Sentinel.
+* [BUGFIX] An optimization to convert double values into strings was not used
+  because of an error in a preprocessor directive. Now it's fixed. Saving
+  datasets with many sorted sets should be faster.
+* [BUGFIX] Fixed a theoretic bug in the ziplist implementation.
+
 What's new in Redis 2.4.16
 ==========================
 
