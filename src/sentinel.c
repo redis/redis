@@ -2521,9 +2521,21 @@ void sentinelStartFailoverIfNeeded(sentinelRedisInstance *master) {
 int compareSlavesForPromotion(const void *a, const void *b) {
     sentinelRedisInstance **sa = (sentinelRedisInstance **)a,
                           **sb = (sentinelRedisInstance **)b;
+    char *sa_runid, *sb_runid;
+
     if ((*sa)->slave_priority != (*sb)->slave_priority)
         return (*sa)->slave_priority - (*sb)->slave_priority;
-    return strcasecmp((*sa)->runid,(*sb)->runid);
+
+    /* If priority is the same, select the slave with that has the
+     * lexicographically smaller runid. Note that we try to handle runid
+     * == NULL as there are old Redis versions that don't publish runid in
+     * INFO. A NULL runid is considered bigger than any other runid. */
+    sa_runid = (*sa)->runid;
+    sb_runid = (*sb)->runid;
+    if (sa_runid == NULL && sb_runid == NULL) return 0;
+    else if (sa_runid == NULL) return 1;  /* a > b */
+    else if (sb_runid == NULL) return -1; /* a < b */
+    return strcasecmp(sa_runid, sb_runid);
 }
 
 sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
