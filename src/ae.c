@@ -58,10 +58,6 @@
     #endif
 #endif
 
-/* Storing the previous time when processTimeEvents was called, it is used
- * to detect system clock skew. */
-static long lastSec = 0;
-
 aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;
@@ -255,17 +251,6 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
     int processed = 0;
     aeTimeEvent *te;
     long now_sec, now_ms;
-
-    aeGetTime(&now_sec, &now_ms);
-    if (now_sec < lastSec) {
-        /* Clock skew found, force expiring all timers */
-        te = eventLoop->timeEventHead;
-        while (te) {
-            te->when_sec = 0;
-            te = te->next;
-        }
-    }
-    lastSec = now_sec;
 
     te = eventLoop->timeEventHead;
     while(te) {
