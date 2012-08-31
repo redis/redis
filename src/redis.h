@@ -167,8 +167,9 @@
 #define REDIS_REPL_NONE 0 /* No active replication */
 #define REDIS_REPL_CONNECT 1 /* Must connect to master */
 #define REDIS_REPL_CONNECTING 2 /* Connecting to master */
-#define REDIS_REPL_TRANSFER 3 /* Receiving .rdb from master */
-#define REDIS_REPL_CONNECTED 4 /* Connected to master */
+#define REDIS_REPL_RECEIVE_PONG 3 /* Wait for PING reply */
+#define REDIS_REPL_TRANSFER 4 /* Receiving .rdb from master */
+#define REDIS_REPL_CONNECTED 5 /* Connected to master */
 
 /* Synchronous read timeout - slave side */
 #define REDIS_REPL_SYNCIO_TIMEOUT 5
