@@ -287,6 +287,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
             luaSortArray(lua);
     }
     sdsfree(reply);
+    c->reply_bytes = 0;
 
 cleanup:
     /* Clean up. Command code may have changed argv/argc so we use the
