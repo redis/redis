@@ -145,6 +145,12 @@ start_server {tags {"scripting"}} {
         set e
     } {*not allowed after*}
 
+    test {EVAL - No arguments to redis.call/pcall is considered an error} {
+        set e {}
+        catch {r eval {return redis.call()} 0} e
+        set e
+    } {*one argument*}
+
     test {EVAL - redis.call variant raises a Lua error on Redis cmd error (1)} {
         set e {}
         catch {
