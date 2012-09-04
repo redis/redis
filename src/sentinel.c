@@ -1426,7 +1426,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
 
     /* Act if a master turned into a slave. */
     if ((ri->flags & SRI_MASTER) && role == SRI_SLAVE) {
-        if (first_runid && ri->slave_master_host) {
+        if ((first_runid || runid_changed) && ri->slave_master_host) {
             /* If it is the first time we receive INFO from it, but it's
              * a slave while it was configured as a master, we want to monitor
              * its master instead. */
@@ -1445,7 +1445,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         if (!(ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
             (runid_changed || first_runid))
         {
-            /* If a slave turned into maser but:
+            /* If a slave turned into master but:
              *
              * 1) Failover not in progress.
              * 2) RunID hs changed, or its the first time we see an INFO output.
