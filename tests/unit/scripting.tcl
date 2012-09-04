@@ -203,23 +203,23 @@ start_server {tags {"scripting"}} {
         r eval {return redis.call('smembers','myset')} 0
     } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z}
 
-    test "SORT is normally not re-ordered by the scripting engine" {
+    test "SORT is normally not alpha re-ordered for the scripting engine" {
         r del myset
         r sadd myset 1 2 3 4 10
         r eval {return redis.call('sort','myset','desc')} 0
     } {10 4 3 2 1}
 
-    test "SORT BY <constant> output gets ordered by scripting" {
+    test "SORT BY <constant> output gets ordered for scripting" {
         r del myset
         r sadd myset a b c d e f g h i l m n o p q r s t u v z aa aaa azz
         r eval {return redis.call('sort','myset','by','_')} 0
     } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z}
 
-    test "SORT output containing NULLs is well handled by scripting" {
+    test "SORT BY <constant> with GET gets ordered for scripting" {
         r del myset
         r sadd myset a b c
         r eval {return redis.call('sort','myset','by','_','get','#','get','_:*')} 0
-    } {{} {} {} a b c}
+    } {a {} b {} c {}}
 
     test "redis.sha1hex() implementation" {
         list [r eval {return redis.sha1hex('')} 0] \
