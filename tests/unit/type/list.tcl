@@ -161,6 +161,47 @@ start_server {
         }
     }
 
+    test "BLPOP, LPUSH + DEL should not awake blocked client" {
+        set rd [redis_deferring_client]
+        r del list
+
+        $rd blpop list 0
+        r multi
+        r lpush list a
+        r del list
+        r exec
+        r del list
+        r lpush list b
+        $rd read
+    } {list b}
+
+    test "BLPOP, LPUSH + DEL + SET should not awake blocked client" {
+        set rd [redis_deferring_client]
+        r del list
+
+        $rd blpop list 0
+        r multi
+        r lpush list a
+        r del list
+        r set list foo
+        r exec
+        r del list
+        r lpush list b
+        $rd read
+    } {list b}
+
+    test "MULTI/EXEC is isolated from the point of view of BLPOP" {
+        set rd [redis_deferring_client]
+        r del list
+        $rd blpop list 0
+        r multi
+        r lpush list a
+        r lpush list b
+        r lpush list c
+        r exec
+        $rd read
+    } {list c}
+
     test "BLPOP with variadic LPUSH" {
         set rd [redis_deferring_client]
         r del blist target
@@ -169,8 +210,8 @@ start_server {
         if {$::valgrind} {after 100}
         assert_equal 2 [r lpush blist foo bar]
         if {$::valgrind} {after 100}
-        assert_equal {blist foo} [$rd read]
-        assert_equal bar [lindex [r lrange blist 0 -1] 0]
+        assert_equal {blist bar} [$rd read]
+        assert_equal foo [lindex [r lrange blist 0 -1] 0]
     }
 
     test "BRPOPLPUSH with zero timeout should block indefinitely" {
@@ -221,6 +262,16 @@ start_server {
         assert_error "ERR*wrong kind*" {$rd read}
         assert_equal {foo} [r lrange blist 0 -1]
     }
+
+    test "BRPOPLPUSH maintains order of elements after failure" {
+        set rd [redis_deferring_client]
+        r del blist target
+        r set target nolist
+        $rd brpoplpush blist target 0
+        r rpush blist a b c
+        assert_error "ERR*wrong kind*" {$rd read}
+        r lrange blist 0 -1
+    } {a b c}
 
     test "BRPOPLPUSH with multiple blocked clients" {
         set rd1 [redis_deferring_client]
@@ -292,6 +343,41 @@ start_server {
         r lrange target 0 -1
         r exec
     } {foo bar {} {} {bar foo}}
+
+    test "PUSH resulting from BRPOPLPUSH affect WATCH" {
+        set blocked_client [redis_deferring_client]
+        set watching_client [redis_deferring_client]
+        r del srclist dstlist somekey
+        r set somekey somevalue
+        $blocked_client brpoplpush srclist dstlist 0
+        $watching_client watch dstlist
+        $watching_client read
+        $watching_client multi
+        $watching_client read
+        $watching_client get somekey
+        $watching_client read
+        r lpush srclist element
+        $watching_client exec
+        $watching_client read
+    } {}
+
+    test "BRPOPLPUSH does not affect WATCH while still blocked" {
+        set blocked_client [redis_deferring_client]
+        set watching_client [redis_deferring_client]
+        r del srclist dstlist somekey
+        r set somekey somevalue
+        $blocked_client brpoplpush srclist dstlist 0
+        $watching_client watch dstlist
+        $watching_client read
+        $watching_client multi
+        $watching_client read
+        $watching_client get somekey
+        $watching_client read
+        $watching_client exec
+        # Blocked BLPOPLPUSH may create problems, unblock it.
+        r lpush srclist element
+        $watching_client read
+    } {somevalue}
 
     test {BRPOPLPUSH timeout} {
       set rd [redis_deferring_client]

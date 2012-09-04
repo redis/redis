@@ -344,5 +344,22 @@ start_server {tags {"scripting repl"}} {
                 fail "Expected 2 in x, but value is '[r -1 get x]'"
             }
         }
+
+        test {Replication of script multiple pushes to list with BLPOP} {
+            set rd [redis_deferring_client]
+            $rd brpop a 0
+            r eval {
+                redis.call("lpush","a","1");
+                redis.call("lpush","a","2");
+            } 0
+            set res [$rd read]
+            $rd close
+            wait_for_condition 50 100 {
+                [r -1 lrange a 0 -1] eq [r lrange a 0 -1]
+            } else {
+                fail "Expected list 'a' in slave and master to be the same, but they are respectively '[r -1 lrange a 0 -1]' and '[r lrange a 0 -1]'"
+            }
+            set res
+        } {a 1}
     }
 }
