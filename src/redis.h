@@ -705,7 +705,6 @@ struct redisServer {
     list *unblocked_clients; /* list of clients to unblock before next loop */
     /* Sort parameters - qsort_r() is only available under BSD so we
      * have to take this state global, in order to pass it to sortCompare() */
-    int sort_dontsort;
     int sort_desc;
     int sort_alpha;
     int sort_bypattern;

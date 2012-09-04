@@ -215,8 +215,11 @@ void sortCommand(redisClient *c) {
 
     /* If we have STORE we need to force sorting for deterministic output
      * and replication. We use alpha sorting since this is guaranteed to
-     * work with any input. */
-    if (storekey && dontsort) {
+     * work with any input.
+     *
+     * We also want determinism when SORT is called from Lua scripts, so
+     * in this case we also force alpha sorting. */
+    if ((storekey || c->flags & REDIS_LUA_CLIENT) && dontsort) {
         dontsort = 0;
         alpha = 1;
         sortby = NULL;
@@ -326,7 +329,6 @@ void sortCommand(redisClient *c) {
     }
     if (end >= vectorlen) end = vectorlen-1;
 
-    server.sort_dontsort = dontsort;
     if (dontsort == 0) {
         server.sort_desc = desc;
         server.sort_alpha = alpha;

@@ -282,8 +282,6 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
      * reply as expected. */
     if ((cmd->flags & REDIS_CMD_SORT_FOR_SCRIPT) &&
         (reply[0] == '*' && reply[1] != '-')) {
-        /* Skip this step if command is SORT but output was already sorted */
-        if (cmd->proc != sortCommand || server.sort_dontsort)
             luaSortArray(lua);
     }
     sdsfree(reply);
