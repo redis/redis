@@ -226,7 +226,11 @@ void existsCommand(redisClient *c) {
 }
 
 void selectCommand(redisClient *c) {
-    int id = atoi(c->argv[1]->ptr);
+    long id;
+
+    if (getLongFromObjectOrReply(c, c->argv[1], &id,
+        "invalid DB index") != REDIS_OK)
+        return;
 
     if (selectDb(c,id) == REDIS_ERR) {
         addReplyError(c,"invalid DB index");
