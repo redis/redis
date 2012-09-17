@@ -10,9 +10,34 @@ Upgrade urgency levels:
 
 LOW:      No need to upgrade unless there are new features you want to use.
 MODERATE: Program an upgrade of the server, but it's not urgent.
-HIGH:     There is a critical bug that may affect some part of users. Upgrade!
+HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
+
+---[ Redis 2.5.13 (2.6 Release Candidate 7) ]
+
+UPGRADE URGENCY: HIGH
+
+* [BUGFIX]   Theoretical bug in ziplist fixed.
+* [BUGFIX]   Better out of memory handling (Log produced in log file).
+* [BUGFIX]   Incrementally flush RDB file on slave side while performing the
+             first synchronization with the master. This makes Redis less
+             blocking in environments where disk I/O is slow.
+* [BUGFIX]   Don't crash with Lua's redis.call() without arguments.
+* [BUGFIX]   Don't crash after a big number of Lua calls on 32 bit systems
+             because of a failed assertion.
+* [BUGFIX]   Fix SORT behaviour when called from scripting.
+* [BUGFIX]   Adjust slave PING period accordingly to REDIS_HZ define.
+* [BUGFIX]   BITCOUNT: fix crash on overflowing arguments.
+* [BUGFIX]   Return an error when SELECT argument is not an integer.
+* [BUGFIX]   Blocking operations on lists were completely reimplemented for
+             correctness. Now blocking list ops and pushes originated from
+             Lua scripts will play well together and will be replicated
+             and transmitted to the AOF correctly.
+* [IMPROVED] Send async PING before starting replication to avoid blocking if
+             master allows us to connect but it is actually not able to reply.
+* [IMPROVED] Support slave-priority for Redis Sentinel.
+* [IMPROVED] Hiredis library updated.
 
 ---[ Redis 2.5.12 (2.6 Release Candidate 6) ]
 
