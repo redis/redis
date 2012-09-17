@@ -2,12 +2,7 @@
 *.o
 *.rdb
 *.log
-redis-cli
-redis-server
-redis-sentinel
-redis-benchmark
-redis-check-dump
-redis-check-aof
+redis-*
 doc-tools
 release
 misc/*
@@ -17,7 +12,6 @@ SHORT_TERM_TODO
 release.h
 src/transfer.sh
 src/configs
-src/redis-server.dSYM
 redis.ds
 src/redis.conf
 deps/lua/src/lua
