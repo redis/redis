@@ -73,6 +73,7 @@ static struct config {
     int loop;
     int idlemode;
     char *tests;
+    char *auth;
 } config;
 
 typedef struct _client {
@@ -263,6 +264,10 @@ static client createClient(char *cmd, size_t len) {
             fprintf(stderr,"%s: %s\n",config.hostsocket,c->context->errstr);
         exit(1);
     }
+    /* Queue an auth call to the server. */
+    if (config.auth != NULL) {
+      redisAppendCommand(c->context,"AUTH %s",config.auth);
+    }
     /* Suppress hiredis cleanup of unused buffers for max speed. */
     c->context->reader->maxbuf = 0;
     /* Queue N requests accordingly to the pipeline size. */
@@ -383,6 +388,9 @@ int parseOptions(int argc, const char **argv) {
         } else if (!strcmp(argv[i],"-s")) {
             if (lastarg) goto invalid;
             config.hostsocket = strdup(argv[++i]);
+        } else if (!strcmp(argv[i],"-a") && !lastarg) {
+            if (lastarg) goto invalid;
+            config.auth = strdup(argv[++i]);
         } else if (!strcmp(argv[i],"-d")) {
             if (lastarg) goto invalid;
             config.datasize = atoi(argv[++i]);
@@ -440,6 +448,7 @@ usage:
 " -h <hostname>      Server hostname (default 127.0.0.1)\n"
 " -p <port>          Server port (default 6379)\n"
 " -s <socket>        Server socket (overrides host and port)\n"
+" -a <password>      Password used to connect to redis\n"
 " -c <clients>       Number of parallel connections (default 50)\n"
 " -n <requests>      Total number of requests (default 10000)\n"
 " -d <size>          Data size of SET/GET value in bytes (default 2)\n"
