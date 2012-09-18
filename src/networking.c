@@ -490,7 +490,7 @@ static void acceptCommonHandler(int fd) {
     redisClient *c;
     if ((c = createClient(fd)) == NULL) {
         redisLog(REDIS_WARNING,"Error allocating resoures for the client");
-        close(fd); /* May be already closed, just ingore errors */
+        close(fd); /* May be already closed, just ignore errors */
         return;
     }
     /* If maxclient directive is set and this is one client more... close the
