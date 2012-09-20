@@ -476,19 +476,21 @@ void srandmemberWithCountCommand(redisClient *c) {
         unsigned long added = 0;
 
         while(added < count) {
-            int retval;
-
             encoding = setTypeRandomElement(set,&ele,&llele);
             if (encoding == REDIS_ENCODING_INTSET) {
-                retval = dictAdd(d,createStringObjectFromLongLong(llele),NULL);
+                ele = createStringObjectFromLongLong(llele);
             } else if (ele->encoding == REDIS_ENCODING_RAW) {
-                retval = dictAdd(d,dupStringObject(ele),NULL);
+                ele = dupStringObject(ele);
             } else if (ele->encoding == REDIS_ENCODING_INT) {
-                retval = dictAdd(d,
-                    createStringObjectFromLongLong((long)ele->ptr),NULL);
+                ele = createStringObjectFromLongLong((long)ele->ptr);
             }
-
-            if (retval == DICT_OK) added++;
+            /* Try to add the object to the dictionary. If it already exists
+             * free it, otherwise increment the number of objects we have
+             * in the result dictionary. */
+            if (dictAdd(d,ele,NULL) == DICT_OK)
+                added++;
+            else
+                decrRefCount(ele);
         }
     }
 
