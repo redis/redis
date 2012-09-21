@@ -349,7 +349,7 @@ void *addDeferredMultiBulkLength(redisClient *c) {
     return listLast(c->reply);
 }
 
-/* Populate the length object and try glueing it to the next chunk. */
+/* Populate the length object and try gluing it to the next chunk. */
 void setDeferredMultiBulkLength(redisClient *c, void *node, long length) {
     listNode *ln = (listNode*)node;
     robj *len, *next;
@@ -375,7 +375,7 @@ void setDeferredMultiBulkLength(redisClient *c, void *node, long length) {
     asyncCloseClientOnOutputBufferLimitReached(c);
 }
 
-/* Add a duble as a bulk reply */
+/* Add a double as a bulk reply */
 void addReplyDouble(redisClient *c, double d) {
     char dbuf[128], sbuf[128];
     int dlen, slen;
@@ -489,13 +489,13 @@ void copyClientOutputBuffer(redisClient *dst, redisClient *src) {
 static void acceptCommonHandler(int fd) {
     redisClient *c;
     if ((c = createClient(fd)) == NULL) {
-        redisLog(REDIS_WARNING,"Error allocating resoures for the client");
-        close(fd); /* May be already closed, just ingore errors */
+        redisLog(REDIS_WARNING,"Error allocating resources for the client");
+        close(fd); /* May be already closed, just ignore errors */
         return;
     }
     /* If maxclient directive is set and this is one client more... close the
      * connection. Note that we create the client instead to check before
-     * for this condition, since now the socket is already set in nonblocking
+     * for this condition, since now the socket is already set in non-blocking
      * mode and we can send an error for free using the Kernel I/O */
     if (listLength(server.clients) > server.maxclients) {
         char *err = "-ERR max number of clients reached\r\n";
@@ -907,7 +907,7 @@ int processMultibulkBuffer(redisClient *c) {
             /* Not enough data (+2 == trailing \r\n) */
             break;
         } else {
-            /* Optimization: if the buffer contanins JUST our bulk element
+            /* Optimization: if the buffer contains JUST our bulk element
              * instead of creating a new object by *copying* the sds we
              * just use the current sds string. */
             if (pos == 0 &&
@@ -990,9 +990,9 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     server.current_client = c;
     readlen = REDIS_IOBUF_LEN;
     /* If this is a multi bulk request, and we are processing a bulk reply
-     * that is large enough, try to maximize the probabilty that the query
-     * buffer contains excatly the SDS string representing the object, even
-     * at the risk of requring more read(2) calls. This way the function
+     * that is large enough, try to maximize the probability that the query
+     * buffer contains exactly the SDS string representing the object, even
+     * at the risk of requiring more read(2) calls. This way the function
      * processMultiBulkBuffer() can avoid copying buffers to create the
      * Redis Object representing the argument. */
     if (c->reqtype == REDIS_REQ_MULTIBULK && c->multibulklen && c->bulklen != -1
@@ -1227,7 +1227,7 @@ unsigned long getClientOutputBufferMemoryUsage(redisClient *c) {
     return c->reply_bytes + (list_item_size*listLength(c->reply));
 }
 
-/* Get the class of a client, used in order to envorce limits to different
+/* Get the class of a client, used in order to enforce limits to different
  * classes of clients.
  *
  * The function will return one of the following:

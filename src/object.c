@@ -42,7 +42,7 @@ robj *createStringObjectFromLongDouble(long double value) {
     int len;
 
     /* We use 17 digits precision since with 128 bit floats that precision
-     * after rouding is able to represent most small decimal numbers in a way
+     * after rounding is able to represent most small decimal numbers in a way
      * that is "non surprising" for the user (that is, most small decimal
      * numbers will be represented in a way that when converted back into
      * a string are exactly the same as what the user typed.) */

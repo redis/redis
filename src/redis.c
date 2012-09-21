@@ -99,7 +99,7 @@ struct redisCommand *commandTable;
  * m: may increase memory usage once called. Don't allow if out of memory.
  * a: admin command, like SAVE or SHUTDOWN.
  * p: Pub/Sub related command.
- * f: force replication of this command, regarless of server.dirty.
+ * f: force replication of this command, regardless of server.dirty.
  * s: command not allowed in scripts.
  * R: random command. Command is not deterministic, that is, the same command
  *    with the same arguments, with the same key space, may have different
@@ -289,7 +289,7 @@ void redisLogRaw(int level, const char *msg) {
     if (server.syslog_enabled) syslog(syslogLevelMap[level], "%s", msg);
 }
 
-/* Like redisLogRaw() but with printf-alike support. This is the funciton that
+/* Like redisLogRaw() but with printf-alike support. This is the function that
  * is used across the code. The raw version is only used in order to dump
  * the INFO output on crash. */
 void redisLog(int level, const char *fmt, ...) {
@@ -364,7 +364,7 @@ void exitFromChild(int retcode) {
 
 /*====================== Hash table type implementation  ==================== */
 
-/* This is an hash table type that uses the SDS dynamic strings libary as
+/* This is an hash table type that uses the SDS dynamic strings library as
  * keys and radis objects as values (objects can hold SDS strings,
  * lists, sets). */
 
@@ -527,7 +527,7 @@ dictType commandTableDictType = {
     NULL                       /* val destructor */
 };
 
-/* Hash type hash table (note that small hashes are represented with zimpaps) */
+/* Hash type hash table (note that small hashes are represented with zipmaps) */
 dictType hashDictType = {
     dictEncObjHash,             /* hash function */
     NULL,                       /* key dup */
@@ -739,7 +739,7 @@ int clientsCronHandleTimeout(redisClient *c) {
 /* The client query buffer is an sds.c string that can end with a lot of
  * free space not used, this function reclaims space if needed.
  *
- * The funciton always returns 0 as it never terminates the client. */
+ * The function always returns 0 as it never terminates the client. */
 int clientsCronResizeQueryBuffer(redisClient *c) {
     size_t querybuf_size = sdsAllocSize(c->querybuf);
     time_t idletime = server.unixtime - c->lastinteraction;
@@ -797,11 +797,11 @@ void clientsCron(void) {
  *
  * - Active expired keys collection (it is also performed in a lazy way on
  *   lookup).
- * - Software watchdong.
+ * - Software watchdog.
  * - Update some statistic.
  * - Incremental rehashing of the DBs hash tables.
  * - Triggering BGSAVE / AOF rewrite, and handling of terminated children.
- * - Clients timeout of differnet kinds.
+ * - Clients timeout of different kinds.
  * - Replication reconnection.
  * - Many more...
  *
@@ -830,7 +830,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* We have just 22 bits per object for LRU information.
      * So we use an (eventually wrapping) LRU clock with 10 seconds resolution.
-     * 2^22 bits with 10 seconds resoluton is more or less 1.5 years.
+     * 2^22 bits with 10 seconds resolution is more or less 1.5 years.
      *
      * Note that even if this will wrap after 1.5 years it's not a problem,
      * everything will still work but just some object will appear younger
@@ -868,7 +868,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         }
     }
 
-    /* We don't want to resize the hash tables while a bacground saving
+    /* We don't want to resize the hash tables while a background saving
      * is in progress: the saving child is created using fork() that is
      * implemented with a copy-on-write semantic in most modern systems, so
      * if we resize the HT while there is the saving child at work actually
@@ -1180,7 +1180,7 @@ void initServerConfig() {
     R_NegInf = -1.0/R_Zero;
     R_Nan = R_Zero/R_Zero;
 
-    /* Command table -- we intiialize it here as it is part of the
+    /* Command table -- we initialize it here as it is part of the
      * initial configuration, since command names may be changed via
      * redis.conf using the rename-command directive. */
     server.commands = dictCreate(&commandTableDictType,NULL);
@@ -1490,7 +1490,7 @@ void call(redisClient *c, int flags) {
     long long dirty, start = ustime(), duration;
 
     /* Sent the command to clients in MONITOR mode, only if the commands are
-     * not geneated from reading an AOF. */
+     * not generated from reading an AOF. */
     if (listLength(server.monitors) && !server.loading)
         replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
 
@@ -1548,7 +1548,7 @@ void call(redisClient *c, int flags) {
  *
  * If 1 is returned the client is still alive and valid and
  * and other operations can be performed by the caller. Otherwise
- * if 0 is returned the client was destroied (i.e. after QUIT). */
+ * if 0 is returned the client was destroyed (i.e. after QUIT). */
 int processCommand(redisClient *c) {
     /* The QUIT command is handled separately. Normal command procs will
      * go through checking for replication and QUIT will cause trouble
@@ -1816,7 +1816,7 @@ void echoCommand(redisClient *c) {
 void timeCommand(redisClient *c) {
     struct timeval tv;
 
-    /* gettimeofday() can only fail if &tv is a bad addresss so we
+    /* gettimeofday() can only fail if &tv is a bad address so we
      * don't check for errors. */
     gettimeofday(&tv,NULL);
     addReplyMultiBulkLen(c,2);
@@ -2219,7 +2219,7 @@ void infoCommand(redisClient *c) {
 }
 
 void monitorCommand(redisClient *c) {
-    /* ignore MONITOR if aleady slave or in monitor mode */
+    /* ignore MONITOR if already slave or in monitor mode */
     if (c->flags & REDIS_SLAVE) return;
 
     c->flags |= (REDIS_SLAVE|REDIS_MONITOR);
@@ -2318,7 +2318,7 @@ int freeMemoryIfNeeded(void) {
 
                     de = dictGetRandomKey(dict);
                     thiskey = dictGetKey(de);
-                    /* When policy is volatile-lru we need an additonal lookup
+                    /* When policy is volatile-lru we need an additional lookup
                      * to locate the real key, as dict is set to db->expires. */
                     if (server.maxmemory_policy == REDIS_MAXMEMORY_VOLATILE_LRU)
                         de = dictFind(db->dict, thiskey);
@@ -2621,7 +2621,7 @@ int main(int argc, char **argv) {
     redisAsciiArt();
 
     if (!server.sentinel_mode) {
-        /* Things only needed when not runnign in Sentinel mode. */
+        /* Things only needed when not running in Sentinel mode. */
         redisLog(REDIS_WARNING,"Server started, Redis version " REDIS_VERSION);
     #ifdef __linux__
         linuxOvercommitMemoryWarning();

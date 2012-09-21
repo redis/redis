@@ -147,7 +147,7 @@ int clusterLoadConfig(char *filename) {
     return REDIS_OK;
 
 fmterr:
-    redisLog(REDIS_WARNING,"Unrecovarable error: corrupted cluster config file.");
+    redisLog(REDIS_WARNING,"Unrecoverable error: corrupted cluster config file.");
     fclose(fp);
     exit(1);
 }
@@ -876,7 +876,7 @@ void clusterSendPing(clusterLink *link, int type) {
 
 /* Send a PUBLISH message.
  *
- * If link is NULL, then the message is broadcasted to the whole cluster. */
+ * If link is NULL, then the message is broadcast to the whole cluster. */
 void clusterSendPublish(clusterLink *link, robj *channel, robj *message) {
     unsigned char buf[4096], *payload;
     clusterMsg *hdr = (clusterMsg*) buf;
@@ -955,7 +955,7 @@ void clusterCron(void) {
     time_t min_ping_sent = 0;
     clusterNode *min_ping_node = NULL;
 
-    /* Check if we have disconnected nodes and reestablish the connection. */
+    /* Check if we have disconnected nodes and re-establish the connection. */
     di = dictGetIterator(server.cluster.nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
@@ -1039,7 +1039,7 @@ void clusterCron(void) {
                 clusterUpdateState();
             }
         } else {
-            /* Timeout reached. Set the noad se possibly failing if it is
+            /* Timeout reached. Set the node as possibly failing if it is
              * not already in this state. */
             if (!(node->flags & (REDIS_NODE_PFAIL|REDIS_NODE_FAIL))) {
                 redisLog(REDIS_DEBUG,"*** NODE %.40s possibly failing",
@@ -1636,14 +1636,14 @@ void migrateCommand(redisClient *c) {
     redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,c->argv[3]->ptr,sdslen(c->argv[3]->ptr)));
     redisAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,ttl));
 
-    /* Finally the last argument that is the serailized object payload
+    /* Finally the last argument that is the serialized object payload
      * in the DUMP format. */
     createDumpPayload(&payload,o);
     redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,payload.io.buffer.ptr,
                                 sdslen(payload.io.buffer.ptr)));
     sdsfree(payload.io.buffer.ptr);
 
-    /* Tranfer the query to the other node in 64K chunks. */
+    /* Transfer the query to the other node in 64K chunks. */
     {
         sds buf = cmd.io.buffer.ptr;
         size_t pos = 0, towrite;
@@ -1703,7 +1703,7 @@ socket_rd_err:
 }
 
 /* The ASKING command is required after a -ASK redirection.
- * The client should issue ASKING before to actualy send the command to
+ * The client should issue ASKING before to actually send the command to
  * the target instance. See the Redis Cluster specification for more
  * information. */
 void askingCommand(redisClient *c) {

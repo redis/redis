@@ -96,7 +96,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj) {
     }
     /* we assume the key is not already inside, since we allow duplicated
      * scores, and the re-insertion of score and redis object should never
-     * happpen since the caller of zslInsert() should test in the hash table
+     * happen since the caller of zslInsert() should test in the hash table
      * if the element is already inside or not. */
     level = zslRandomLevel();
     if (level > zsl->level) {
@@ -256,7 +256,7 @@ zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec range) {
 }
 
 /* Delete all the elements with score between min and max from the skiplist.
- * Min and mx are inclusive, so a score >= min || score <= max is deleted.
+ * Min and max are inclusive, so a score >= min || score <= max is deleted.
  * Note that this function takes the reference to the hash table view of the
  * sorted set, in order to remove the elements from the hash table too. */
 unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec range, dict *dict) {

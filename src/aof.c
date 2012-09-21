@@ -44,7 +44,7 @@ void aofRewriteBufferReset(void) {
     listSetFreeMethod(server.aof_rewrite_buf_blocks,zfree);
 }
 
-/* Return the current size of the AOF rerwite buffer. */
+/* Return the current size of the AOF rewrite buffer. */
 unsigned long aofRewriteBufferSize(void) {
     listNode *ln = listLast(server.aof_rewrite_buf_blocks);
     aofrwblock *block = ln ? ln->value : NULL;
@@ -173,7 +173,7 @@ int startAppendOnly(void) {
         redisLog(REDIS_WARNING,"Redis needs to enable the AOF but can't trigger a background AOF rewrite operation. Check the above logs for more info about the error.");
         return REDIS_ERR;
     }
-    /* We correctly switched on AOF, now wait for the rerwite to be complete
+    /* We correctly switched on AOF, now wait for the rewrite to be complete
      * in order to append data on disk. */
     server.aof_state = REDIS_AOF_WAIT_REWRITE;
     return REDIS_OK;
@@ -212,7 +212,7 @@ void flushAppendOnlyFile(int force) {
          * the write for a couple of seconds. */
         if (sync_in_progress) {
             if (server.aof_flush_postponed_start == 0) {
-                /* No previous write postponinig, remember that we are
+                /* No previous write postponing, remember that we are
                  * postponing the flush and return. */
                 server.aof_flush_postponed_start = server.unixtime;
                 return;
@@ -356,7 +356,7 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
     sds buf = sdsempty();
     robj *tmpargv[3];
 
-    /* The DB this command was targetting is not the same as the last command
+    /* The DB this command was targeting is not the same as the last command
      * we appendend. To issue a SELECT command is needed. */
     if (dictid != server.aof_selected_db) {
         char seldb[64];

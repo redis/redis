@@ -42,7 +42,7 @@ uint16_t intrev16(uint16_t v);
 uint32_t intrev32(uint32_t v);
 uint64_t intrev64(uint64_t v);
 
-/* variants of the function doing the actual convertion only if the target
+/* variants of the function doing the actual conversion only if the target
  * host is big endian */
 #if (BYTE_ORDER == LITTLE_ENDIAN)
 #define memrev16ifbe(p)

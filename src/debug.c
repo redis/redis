@@ -13,7 +13,7 @@
 /* ================================= Debugging ============================== */
 
 /* Compute the sha1 of string at 's' with 'len' bytes long.
- * The SHA1 is then xored againt the string pointed by digest.
+ * The SHA1 is then xored against the string pointed by digest.
  * Since xor is commutative, this operation is used in order to
  * "add" digests relative to unordered elements.
  *
@@ -38,7 +38,7 @@ void xorObjectDigest(unsigned char *digest, robj *o) {
 }
 
 /* This function instead of just computing the SHA1 and xoring it
- * against diget, also perform the digest of "digest" itself and
+ * against digest, also perform the digest of "digest" itself and
  * replace the old value with the new one.
  *
  * So the final digest will be:
@@ -748,7 +748,7 @@ void watchdogScheduleSignal(int period) {
     setitimer(ITIMER_REAL, &it, NULL);
 }
 
-/* Enable the software watchdong with the specified period in milliseconds. */
+/* Enable the software watchdog with the specified period in milliseconds. */
 void enableWatchdog(int period) {
     int min_period;
 

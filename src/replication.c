@@ -21,7 +21,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_START) continue;
 
         /* Feed slaves that are waiting for the initial SYNC (so these commands
-         * are queued in the output buffer until the intial SYNC completes),
+         * are queued in the output buffer until the initial SYNC completes),
          * or are already in sync with the master. */
         if (slave->slaveseldb != dictid) {
             robj *selectcmd;
@@ -82,7 +82,7 @@ void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **
 }
 
 void syncCommand(redisClient *c) {
-    /* ignore SYNC if aleady slave or in monitor mode */
+    /* ignore SYNC if already slave or in monitor mode */
     if (c->flags & REDIS_SLAVE) return;
 
     /* Refuse SYNC requests if we are a slave but the link with our master
@@ -196,7 +196,7 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (slave->repldboff == 0) {
         /* Write the bulk write count before to transfer the DB. In theory here
          * we don't know how much room there is in the output buffer of the
-         * socket, but in pratice SO_SNDLOWAT (the minimum count for output
+         * socket, but in practice SO_SNDLOWAT (the minimum count for output
          * operations) will never be smaller than the few bytes we need. */
         sds bulkcount;
 
@@ -239,7 +239,7 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 }
 
-/* This function is called at the end of every backgrond saving.
+/* This function is called at the end of every background saving.
  * The argument bgsaveerr is REDIS_OK if the background saving succeeded
  * otherwise REDIS_ERR is passed to the function.
  *
@@ -418,7 +418,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
 
             stopAppendOnly();
             while (retry-- && startAppendOnly() == REDIS_ERR) {
-                redisLog(REDIS_WARNING,"Failed enabling the AOF after successful master synchrnization! Trying it again in one second.");
+                redisLog(REDIS_WARNING,"Failed enabling the AOF after successful master synchronization! Trying it again in one second.");
                 sleep(1);
             }
             if (!retry) {

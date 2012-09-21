@@ -4,7 +4,7 @@
  * Helpers and low level bit functions.
  * -------------------------------------------------------------------------- */
 
-/* This helper function used by GETBIT / SETBIT parses the bit offset arguemnt
+/* This helper function used by GETBIT / SETBIT parses the bit offset argument
  * making sure an error is returned if it is negative or if it overflows
  * Redis 512 MB limit for the string value. */
 static int getBitOffsetFromArgument(redisClient *c, robj *o, size_t *offset) {
@@ -159,7 +159,7 @@ void bitopCommand(redisClient *c) {
     char *opname = c->argv[1]->ptr;
     robj *o, *targetkey = c->argv[2];
     long op, j, numkeys;
-    robj **objects;      /* Array of soruce objects. */
+    robj **objects;      /* Array of source objects. */
     unsigned char **src; /* Array of source strings pointers. */
     long *len, maxlen = 0; /* Array of length of src strings, and max len. */
     long minlen = 0;    /* Min len among the input keys. */

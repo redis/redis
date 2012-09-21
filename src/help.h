@@ -111,7 +111,7 @@ struct commandHelp {
     "2.0.0" },
     { "DUMP",
     "key",
-    "Return a serialized verison of the value stored at the specified key.",
+    "Return a serialized version of the value stored at the specified key.",
     0,
     "2.6.0" },
     { "ECHO",

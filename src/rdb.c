@@ -236,7 +236,7 @@ err:
     return NULL;
 }
 
-/* Save a string objet as [len][data] on disk. If the object is a string
+/* Save a string object as [len][data] on disk. If the object is a string
  * representation of an integer value we try to save it in a special form */
 int rdbSaveRawString(rio *rdb, unsigned char *s, size_t len) {
     int enclen;
@@ -292,7 +292,7 @@ int rdbSaveLongLongAsStringObject(rio *rdb, long long value) {
 /* Like rdbSaveStringObjectRaw() but handle encoded objects */
 int rdbSaveStringObject(rio *rdb, robj *obj) {
     /* Avoid to decode the object, then encode it again, if the
-     * object is alrady integer encoded. */
+     * object is already integer encoded. */
     if (obj->encoding == REDIS_ENCODING_INT) {
         return rdbSaveLongLongAsStringObject(rdb,(long)obj->ptr);
     } else {
@@ -338,7 +338,7 @@ robj *rdbLoadEncodedStringObject(rio *rdb) {
 }
 
 /* Save a double value. Doubles are saved as strings prefixed by an unsigned
- * 8 bit integer specifing the length of the representation.
+ * 8 bit integer specifying the length of the representation.
  * This 8 bit integer has special values in order to specify the following
  * conditions:
  * 253: not a number
@@ -577,7 +577,7 @@ off_t rdbSavedObjectLen(robj *o) {
 
 /* Save a key-value pair, with expire time, type, key, value.
  * On error -1 is returned.
- * On success if the key was actaully saved 1 is returned, otherwise 0
+ * On success if the key was actually saved 1 is returned, otherwise 0
  * is returned (the key was already expired). */
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val,
                         long long expiretime, long long now)
@@ -1069,7 +1069,7 @@ int rdbLoad(char *filename) {
             /* We read the time so we need to read the object type again. */
             if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
             /* the EXPIRETIME opcode specifies time in seconds, so convert
-             * into milliesconds. */
+             * into milliseconds. */
             expiretime *= 1000;
         } else if (type == REDIS_RDB_OPCODE_EXPIRETIME_MS) {
             /* Milliseconds precision expire times introduced with RDB

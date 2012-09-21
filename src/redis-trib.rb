@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 
 # TODO (temporary here, we'll move this into the Github issues once
-#       redis-trib initial implementation is complted).
+#       redis-trib initial implementation is completed).
 #
 # - Make sure that if the rehashing fails in the middle redis-trib will try
 #   to recover.
@@ -17,7 +17,7 @@
 #   1) If there is a node that pretend to receive a slot, or to migrate a
 #      slot, but has no entries in that slot, fix it.
 #   2) If there is a node having keys in slots that are not owned by it
-#      fix this condiiton moving the entries in the same node.
+#      fix this condition moving the entries in the same node.
 #   3) Perform more possibly slow tests about the state of the cluster.
 #   4) When aborted slot migration is detected, fix it.
 
@@ -168,12 +168,12 @@ class ClusterNode
         # for instance: [1,2,3,4,5,8,9,20,21,22,23,24,25,30]
         slots = @info[:slots].keys.sort
 
-        # As we want to aggregate adiacent slots we convert all the
+        # As we want to aggregate adjacent slots we convert all the
         # slot integers into ranges (with just one element)
         # So we have something like [1..1,2..2, ... and so forth.
         slots.map!{|x| x..x}
 
-        # Finally we group ranges with adiacent elements.
+        # Finally we group ranges with adjacent elements.
         slots = slots.reduce([]) {|a,b|
             if !a.empty? && b.first == (a[-1].last)+1
                 a[0..-2] + [(a[-1].first)..(b.last)]
@@ -313,7 +313,7 @@ class RedisTrib
     def compute_reshard_table(sources,numslots)
         moved = []
         # Sort from bigger to smaller instance, for two reasons:
-        # 1) If we take less slots than instanes it is better to start getting from
+        # 1) If we take less slots than instances it is better to start getting from
         #    the biggest instances.
         # 2) We take one slot more from the first instance in the case of not perfect
         #    divisibility. Like we have 3 nodes and need to get 10 slots, we take

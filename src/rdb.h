@@ -22,7 +22,7 @@
  *           number specify the kind of object that follows.
  *           See the REDIS_RDB_ENC_* defines.
  *
- * Lenghts up to 63 are stored using a single byte, most DB keys, and may
+ * Lengths up to 63 are stored using a single byte, most DB keys, and may
  * values, will fit inside. */
 #define REDIS_RDB_6BITLEN 0
 #define REDIS_RDB_14BITLEN 1
