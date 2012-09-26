@@ -162,6 +162,7 @@ typedef struct sentinelRedisInstance {
     dict *slaves;       /* Slaves for this master instance. */
     int quorum;         /* Number of sentinels that need to agree on failure. */
     int parallel_syncs; /* How many slaves to reconfigure at same time. */
+    char *auth_pass;    /* Password to use for AUTH against master & slaves. */
 
     /* Slave specific. */
     mstime_t master_link_down_time; /* Slave replication link down time. */
@@ -326,6 +327,7 @@ void sentinelEvent(int level, char *type, sentinelRedisInstance *ri, const char 
 sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master);
 void sentinelScheduleScriptExecution(char *path, ...);
 void sentinelStartFailover(sentinelRedisInstance *master, int state);
+void sentinelDiscardReplyCallback(redisAsyncContext *c, void *reply, void *privdata);
 
 /* ========================= Dictionary types =============================== */
 
@@ -874,6 +876,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->down_after_period = master ? master->down_after_period :
                             SENTINEL_DOWN_AFTER_PERIOD;
     ri->master_link_down_time = 0;
+    ri->auth_pass = NULL;
     ri->slave_priority = SENTINEL_DEFAULT_SLAVE_PRIORITY;
     ri->slave_reconf_sent_time = 0;
     ri->slave_master_host = NULL;
@@ -921,6 +924,7 @@ void releaseSentinelRedisInstance(sentinelRedisInstance *ri) {
     sdsfree(ri->client_reconfig_script);
     sdsfree(ri->slave_master_host);
     sdsfree(ri->leader);
+    sdsfree(ri->auth_pass);
     releaseSentinelAddr(ri->addr);
 
     /* Clear state into the master if needed. */
@@ -1205,6 +1209,11 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
             return "Client reconfiguration script seems non existing or "
                    "non executable.";
         ri->client_reconfig_script = sdsnew(argv[2]);
+   } else if (!strcasecmp(argv[0],"auth-pass") && argc == 3) {
+        /* auth-pass <name> <password> */
+        ri = sentinelGetMasterByName(argv[1]);
+        if (!ri) return "No such master with specified name.";
+        ri->auth_pass = sdsnew(argv[2]);
     } else {
         return "Unrecognized sentinel configuration statement.";
     }
@@ -1263,6 +1272,21 @@ void sentinelDisconnectCallback(const redisAsyncContext *c, int status) {
     sentinelDisconnectInstanceFromContext(c);
 }
 
+/* Send the AUTH command with the specified master password if needed.
+ * Note that for slaves the password set for the master is used.
+ *
+ * We don't check at all if the command was successfully transmitted
+ * to the instance as if it fails Sentinel will detect the instance down,
+ * will disconnect and reconnect the link and so forth. */
+void sentinelSendAuthIfNeeded(sentinelRedisInstance *ri, redisAsyncContext *c) {
+    char *auth_pass = (ri->flags & SRI_MASTER) ? ri->auth_pass :
+                                                 ri->master->auth_pass;
+
+    if (auth_pass)
+        redisAsyncCommand(c, sentinelDiscardReplyCallback, NULL, "AUTH %s",
+            auth_pass);
+}
+
 /* Create the async connections for the specified instance if the instance
  * is disconnected. Note that the SRI_DISCONNECTED flag is set even if just
  * one of the two links (commands and pub/sub) is missing. */
@@ -1284,6 +1308,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
                                             sentinelLinkEstablishedCallback);
             redisAsyncSetDisconnectCallback(ri->cc,
                                             sentinelDisconnectCallback);
+            sentinelSendAuthIfNeeded(ri,ri->cc);
         }
     }
     /* Pub / Sub */
@@ -1303,6 +1328,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
                                             sentinelLinkEstablishedCallback);
             redisAsyncSetDisconnectCallback(ri->pc,
                                             sentinelDisconnectCallback);
+            sentinelSendAuthIfNeeded(ri,ri->pc);
             /* Now we subscribe to the Sentinels "Hello" channel. */
             retval = redisAsyncCommand(ri->pc,
                 sentinelReceiveHelloMessages, NULL, "SUBSCRIBE %s",
