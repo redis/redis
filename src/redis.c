@@ -1827,8 +1827,7 @@ sds genRedisInfoString(char *section) {
         struct utsname name;
         char *mode;
 
-        if (server.cluster_enabled) mode = "cluster";
-        else if (server.sentinel_mode) mode = "sentinel";
+        if (server.sentinel_mode) mode = "sentinel";
         else mode = "standalone";
     
         if (sections++) info = sdscat(info,"\r\n");
@@ -2415,20 +2414,14 @@ void redisAsciiArt(void) {
     char *buf = zmalloc(1024*16);
     char *mode = "stand alone";
 
-    if (server.cluster_enabled) mode = "cluster";
-    else if (server.sentinel_mode) mode = "sentinel";
+    if (server.sentinel_mode) mode = "sentinel";
 
     snprintf(buf,1024*16,ascii_logo,
         REDIS_VERSION,
         redisGitSHA1(),
         strtol(redisGitDirty(),NULL,10) > 0,
         (sizeof(long) == 8) ? "64" : "32",
-<<<<<<< HEAD
-        "stand alone",
-        server.port,
-=======
         mode, server.port,
->>>>>>> 6b5daa2... First implementation of Redis Sentinel.
         (long) getpid()
     );
     redisLogRaw(REDIS_NOTICE|REDIS_LOG_RAW,buf);
@@ -2466,12 +2459,6 @@ void setupSignalHandlers(void) {
 
 void memtest(size_t megabytes, int passes);
 
-<<<<<<< HEAD
-void redisOutOfMemoryHandler(size_t allocation_size) {
-    redisLog(REDIS_WARNING,"Out Of Memory allocating %zu bytes!",
-        allocation_size);
-    redisPanic("OOM");
-=======
 /* Returns 1 if there is --sentinel among the arguments or if
  * argv[0] is exactly "redis-sentinel". */
 int checkForSentinelMode(int argc, char **argv) {
@@ -2498,7 +2485,12 @@ void loadDataFromDisk(void) {
             exit(1);
         }
     }
->>>>>>> 6b5daa2... First implementation of Redis Sentinel.
+}
+
+void redisOutOfMemoryHandler(size_t allocation_size) {
+    redisLog(REDIS_WARNING,"Out Of Memory allocating %zu bytes!",
+        allocation_size);
+    redisPanic("OOM");
 }
 
 int main(int argc, char **argv) {
