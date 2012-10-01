@@ -544,14 +544,6 @@ void scriptingInit(void) {
     lua_pushcfunction(lua, luaRedisSha1hexCommand);
     lua_settable(lua, -3);
 
-    /* redis.NIL */
-    lua_pushstring(lua, "NIL");
-    lua_newtable(lua);
-    lua_pushstring(lua, "nilbulk");
-    lua_pushboolean(lua, 1);
-    lua_settable(lua, -3);
-    lua_settable(lua, -3);
-
     /* redis.error_reply and redis.status_reply */
     lua_pushstring(lua, "error_reply");
     lua_pushcfunction(lua, luaRedisErrorReplyCommand);
@@ -654,30 +646,9 @@ void luaReplyToRedisReply(redisClient *c, lua_State *lua) {
         addReplyLongLong(c,(long long)lua_tonumber(lua,-1));
         break;
     case LUA_TTABLE:
-        /* The table can be an array or it may be in a special format that
-         * Lua uses to return special Redis protocol data types.
-         *
-         * 1) Errors are retuned as a single element table with 'err' field.
-         * 2) Status reply are returned as a single element table with 'ok'
-         *    field.
-         * 3) A Redis nil bulk reply is returned as a single element table
-         *    with 'nilbulk' field set to true.
-         *
-         * All the rest is considered just an array and is translated into
-         * a Redis multi bulk reply. */
-
-        /* Nil bulk reply */
-        lua_pushstring(lua,"nilbulk");
-        lua_gettable(lua,-2);
-        t = lua_type(lua,-1);
-        if (t == LUA_TBOOLEAN) {
-            addReply(c,shared.nullbulk);
-            lua_pop(lua,2);
-            return;
-        }
-        lua_pop(lua,1);
-
-        /* Error reply */
+        /* We need to check if it is an array, an error, or a status reply.
+         * Error are returned as a single element table with 'err' field.
+         * Status replies are returned as single elment table with 'ok' field */
         lua_pushstring(lua,"err");
         lua_gettable(lua,-2);
         t = lua_type(lua,-1);
@@ -689,9 +660,8 @@ void luaReplyToRedisReply(redisClient *c, lua_State *lua) {
             lua_pop(lua,2);
             return;
         }
-        lua_pop(lua,1);
 
-        /* Status reply */
+        lua_pop(lua,1);
         lua_pushstring(lua,"ok");
         lua_gettable(lua,-2);
         t = lua_type(lua,-1);
@@ -702,7 +672,6 @@ void luaReplyToRedisReply(redisClient *c, lua_State *lua) {
             sdsfree(ok);
             lua_pop(lua,1);
         } else {
-            /* Multi bulk reply. */
             void *replylen = addDeferredMultiBulkLength(c);
             int j = 1, mbulklen = 0;
 

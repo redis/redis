@@ -30,10 +30,6 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {this is an error}
 
-    test {EVAL - Lua nil reply -> Redis protocol type conversion} {
-        r eval {return {1,redis.NIL,{nilbulk=true},4}} 0
-    } {1 {} {} 4}
-
     test {EVAL - Lua table -> Redis protocol type conversion} {
         r eval {return {1,2,3,'ciao',{1,2}}} 0
     } {1 2 3 ciao {1 2}}
