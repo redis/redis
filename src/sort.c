@@ -2,6 +2,8 @@
 #include "pqsort.h" /* Partial qsort for SORT+LIMIT */
 #include <math.h> /* isnan() */
 
+zskiplistNode* zslGetElementByRank(zskiplist *zsl, unsigned long rank);
+
 redisSortOperation *createSortOperation(int type, robj *pattern) {
     redisSortOperation *so = zmalloc(sizeof(*so));
     so->type = type;
@@ -156,8 +158,9 @@ void sortCommand(redisClient *c) {
 
     /* Lookup the key to sort. It must be of the right types */
     sortval = lookupKeyRead(c->db,c->argv[1]);
-    if (sortval && sortval->type != REDIS_SET && sortval->type != REDIS_LIST &&
-        sortval->type != REDIS_ZSET)
+    if (sortval && sortval->type != REDIS_SET &&
+                   sortval->type != REDIS_LIST &&
+                   sortval->type != REDIS_ZSET)
     {
         addReply(c,shared.wrongtypeerr);
         return;
@@ -167,7 +170,7 @@ void sortCommand(redisClient *c) {
      * Operations can be GET/DEL/INCR/DECR */
     operations = listCreate();
     listSetFreeMethod(operations,zfree);
-    j = 2;
+    j = 2; /* options start at argv[2] */
 
     /* Now we need to protect sortval incrementing its count, in the future
      * SORT may have options able to overwrite/delete keys during the sorting
@@ -213,13 +216,18 @@ void sortCommand(redisClient *c) {
         j++;
     }
 
-    /* If we have STORE we need to force sorting for deterministic output
-     * and replication. We use alpha sorting since this is guaranteed to
-     * work with any input.
+    /* For the STORE option, or when SORT is called from a Lua script,
+     * we want to force a specific ordering even when no explicit ordering
+     * was asked (SORT BY nosort). This guarantees that replication / AOF
+     * is deterministic.
      *
-     * We also want determinism when SORT is called from Lua scripts, so
-     * in this case we also force alpha sorting. */
-    if ((storekey || c->flags & REDIS_LUA_CLIENT) && dontsort) {
+     * However in the case 'dontsort' is true, but the type to sort is a
+     * sorted set, we don't need to do anything as ordering is guaranteed
+     * in this special case. */
+    if ((storekey || c->flags & REDIS_LUA_CLIENT) &&
+        (dontsort && sortval->type != REDIS_ZSET))
+    {
+        /* Force ALPHA sorting */
         dontsort = 0;
         alpha = 1;
         sortby = NULL;
@@ -229,13 +237,41 @@ void sortCommand(redisClient *c) {
     if (sortval->type == REDIS_ZSET)
         zsetConvert(sortval, REDIS_ENCODING_SKIPLIST);
 
-    /* Load the sorting vector with all the objects to sort */
+    /* Objtain the length of the object to sort. */
     switch(sortval->type) {
     case REDIS_LIST: vectorlen = listTypeLength(sortval); break;
     case REDIS_SET: vectorlen =  setTypeSize(sortval); break;
     case REDIS_ZSET: vectorlen = dictSize(((zset*)sortval->ptr)->dict); break;
     default: vectorlen = 0; redisPanic("Bad SORT type"); /* Avoid GCC warning */
     }
+
+    /* Perform LIMIT start,count sanity checking. */
+    start = (limit_start < 0) ? 0 : limit_start;
+    end = (limit_count < 0) ? vectorlen-1 : start+limit_count-1;
+    if (start >= vectorlen) {
+        start = vectorlen-1;
+        end = vectorlen-2;
+    }
+    if (end >= vectorlen) end = vectorlen-1;
+
+    /* Optimization:
+     *
+     * 1) if the object to sort is a sorted set.
+     * 2) There is nothing to sort as dontsort is true (BY <constant string>).
+     * 3) We have a LIMIT option that actually reduces the number of elements
+     *    to fetch.
+     *
+     * In this case to load all the objects in the vector is a huge waste of
+     * resources. We just allocate a vector that is big enough for the selected
+     * range length, and make sure to load just this part in the vector. */
+    if (sortval->type == REDIS_ZSET &&
+        dontsort &&
+        (start != 0 || end != vectorlen-1))
+    {
+        vectorlen = end-start+1;
+    }
+
+    /* Load the sorting vector with all the objects to sort */
     vector = zmalloc(sizeof(redisSortObject)*vectorlen);
     j = 0;
 
@@ -259,6 +295,48 @@ void sortCommand(redisClient *c) {
             j++;
         }
         setTypeReleaseIterator(si);
+    } else if (sortval->type == REDIS_ZSET && dontsort) {
+        /* Special handling for a sorted set, if 'dontsort' is true.
+         * This makes sure we return elements in the sorted set original
+         * ordering, accordingly to DESC / ASC options.
+         *
+         * Note that in this case we also handle LIMIT here in a direct
+         * way, just getting the required range, as an optimization. */
+
+        zset *zs = sortval->ptr;
+        zskiplist *zsl = zs->zsl;
+        zskiplistNode *ln;
+        robj *ele;
+        int rangelen = vectorlen;
+
+        /* Check if starting point is trivial, before doing log(N) lookup. */
+        if (desc) {
+            long zsetlen = dictSize(((zset*)sortval->ptr)->dict);
+
+            ln = zsl->tail;
+            if (start > 0)
+                ln = zslGetElementByRank(zsl,zsetlen-start);
+        } else {
+            ln = zsl->header->level[0].forward;
+            if (start > 0)
+                ln = zslGetElementByRank(zsl,start+1);
+        }
+
+        while(rangelen--) {
+            redisAssertWithInfo(c,sortval,ln != NULL);
+            ele = ln->obj;
+            vector[j].obj = ele;
+            vector[j].u.score = 0;
+            vector[j].u.cmpobj = NULL;
+            j++;
+            ln = desc ? ln->backward : ln->level[0].forward;
+        }
+        /* The code producing the output does not know that in the case of
+         * sorted set, 'dontsort', and LIMIT, we are able to get just the
+         * range, already sorted, so we need to adjust "start" and "end"
+         * to make sure start is set to 0. */
+        end -= start;
+        start = 0;
     } else if (sortval->type == REDIS_ZSET) {
         dict *set = ((zset*)sortval->ptr)->dict;
         dictIterator *di;
@@ -318,16 +396,6 @@ void sortCommand(redisClient *c) {
             }
         }
     }
-
-    /* We are ready to sort the vector... perform a bit of sanity check
-     * on the LIMIT option too. We'll use a partial version of quicksort. */
-    start = (limit_start < 0) ? 0 : limit_start;
-    end = (limit_count < 0) ? vectorlen-1 : start+limit_count-1;
-    if (start >= vectorlen) {
-        start = vectorlen-1;
-        end = vectorlen-2;
-    }
-    if (end >= vectorlen) end = vectorlen-1;
 
     if (dontsort == 0) {
         server.sort_desc = desc;

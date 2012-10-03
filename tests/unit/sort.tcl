@@ -118,6 +118,47 @@ start_server {
         r sort zset alpha desc
     } {e d c b a}
 
+    test "SORT sorted set BY nosort should retain ordering" {
+        r del zset
+        r zadd zset 1 a
+        r zadd zset 5 b
+        r zadd zset 2 c
+        r zadd zset 10 d
+        r zadd zset 3 e
+        r multi
+        r sort zset by nosort asc
+        r sort zset by nosort desc
+        r exec
+    } {{a c e b d} {d b e c a}}
+
+    test "SORT sorted set BY nosort + LIMIT" {
+        r del zset
+        r zadd zset 1 a
+        r zadd zset 5 b
+        r zadd zset 2 c
+        r zadd zset 10 d
+        r zadd zset 3 e
+        assert_equal [r sort zset by nosort asc limit 0 1] {a}
+        assert_equal [r sort zset by nosort desc limit 0 1] {d}
+        assert_equal [r sort zset by nosort asc limit 0 2] {a c}
+        assert_equal [r sort zset by nosort desc limit 0 2] {d b}
+        assert_equal [r sort zset by nosort limit 5 10] {}
+        assert_equal [r sort zset by nosort limit -10 100] {a c e b d}
+    }
+
+    test "SORT sorted set BY nosort works as expected from scripts" {
+        r del zset
+        r zadd zset 1 a
+        r zadd zset 5 b
+        r zadd zset 2 c
+        r zadd zset 10 d
+        r zadd zset 3 e
+        r eval {
+            return {redis.call('sort','zset','by','nosort','asc'),
+                    redis.call('sort','zset','by','nosort','desc')}
+        } 0
+    } {{a c e b d} {d b e c a}}
+
     test "SORT sorted set: +inf and -inf handling" {
         r del zset
         r zadd zset -100 a
