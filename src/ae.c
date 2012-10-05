@@ -37,6 +37,7 @@
 #include <stdlib.h>
 #include <poll.h>
 #include <string.h>
+#include <time.h>
 
 #include "ae.h"
 #include "zmalloc.h"
