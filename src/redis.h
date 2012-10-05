@@ -436,6 +436,7 @@ struct redisServer {
     int appendonly;
     int appendfsync;
     int no_appendfsync_on_rewrite;
+    long append_fsync_after_objects;
     int auto_aofrewrite_perc;       /* Rewrite AOF if % growth is > M and... */
     off_t auto_aofrewrite_min_size; /* the AOF file is at least N bytes. */
     off_t auto_aofrewrite_base_size;/* AOF size on latest startup or rewrite. */
