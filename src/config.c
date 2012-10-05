@@ -250,6 +250,11 @@ void loadServerConfig(char *filename) {
                 err = "argument must be 'no', 'always' or 'everysec'";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"append-fsync-after-number-of-objects") && argc == 2) {
+            server.append_fsync_after_objects = atol(argv[1]);
+            if (server.append_fsync_after_objects < 0) {
+                err = "Invalid append-fsync-after-number-of-objects value"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"auto-aof-rewrite-percentage") &&
                    argc == 2)
         {
