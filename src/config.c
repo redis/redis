@@ -449,6 +449,9 @@ void configSetCommand(redisClient *c) {
                 }
             }
         }
+    }else if (!strcasecmp(c->argv[2]->ptr,"append-fsync-after-number-of-objects")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
+        server.append_fsync_after_objects = ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"auto-aof-rewrite-percentage")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.auto_aofrewrite_perc = ll;
@@ -645,6 +648,11 @@ void configGetCommand(redisClient *c) {
         addReplyBulkCString(c,"appendfsync");
         addReplyBulkCString(c,policy);
         matches++;
+    }
+    if (stringmatch(pattern,"append-fsync-after-number-of-objects",0)) {
+            addReplyBulkCString(c,"append-fsync-after-number-of-objects");
+            addReplyBulkLongLong(c,server.append_fsync_after_objects);
+            matches++;
     }
     if (stringmatch(pattern,"save",0)) {
         sds buf = sdsempty();
