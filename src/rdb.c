@@ -415,6 +415,7 @@ int rdbSave(char *filename) {
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
         dict *d = db->dict;
+		long objectCounter = 0;
         if (dictSize(d) == 0) continue;
         di = dictGetSafeIterator(d);
         if (!di) {
@@ -432,6 +433,14 @@ int rdbSave(char *filename) {
             robj key, *o = dictGetEntryVal(de);
             time_t expiretime;
             
+			if(server.append_fsync_after_objects){
+	            objectCounter++;
+   				if (objectCounter % server.append_fsync_after_objects == 0) {
+					fflush(fp);
+   					fsync(fileno(fp));
+   				}
+	        }
+
             initStaticStringObject(key,keystr);
             expiretime = getExpire(db,&key);
 
