@@ -201,7 +201,10 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                 if (config.requests_finished < config.requests)
                     config.latency[config.requests_finished++] = c->latency;
                 c->pending--;
-                if (c->pending == 0) clientDone(c);
+                if (c->pending == 0) {
+                    clientDone(c);
+                    break;
+                }
             } else {
                 break;
             }
