@@ -14,6 +14,18 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+---[ Redis 2.5.14 (2.6 Release Candidate 8) ]
+
+* [BUGFIX]   Fixed compilation on FreeBSD.
+* [IMPROVED] SRANDMEMBER <count> that returns multiple random elements.
+* [IMPROVED] Sentinel backported to 2.6. It will be taken in sync with 2.8.
+* [IMPROVED] Helper function for scripting to return errors and status replies.
+* [IMPROVED] SORT by nosort [ASC|DESC] uses sorted set elements ordering.
+* [BUGFIX]   Better resistence to system clock skew.
+* [IMPROVED] Warn the user when the configured maxmemory seems odd.
+* [BUGFIX]   Hashing function is now murmurhash2 for security purposes.
+* [IMPROVED] Install script no longer uses a template but redis.conf itself.
+
 ---[ Redis 2.5.13 (2.6 Release Candidate 7) ]
 
 UPGRADE URGENCY: HIGH
