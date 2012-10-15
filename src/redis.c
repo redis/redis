@@ -205,6 +205,7 @@ struct redisCommand redisCommandTable[] = {
     {"pexpire",pexpireCommand,3,"w",0,NULL,1,1,1,0,0},
     {"pexpireat",pexpireatCommand,3,"w",0,NULL,1,1,1,0,0},
     {"keys",keysCommand,2,"rS",0,NULL,0,0,0,0,0},
+    {"count",countCommand,2,"r",0,NULL,0,0,0,0,0},
     {"dbsize",dbsizeCommand,1,"r",0,NULL,0,0,0,0,0},
     {"auth",authCommand,2,"rs",0,NULL,0,0,0,0,0},
     {"ping",pingCommand,1,"r",0,NULL,0,0,0,0,0},
