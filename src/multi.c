@@ -96,7 +96,7 @@ void execCommand(redisClient *c) {
         c->flags &= ~(REDIS_MULTI|REDIS_DIRTY_CAS);
         unwatchAllKeys(c);
         addReply(c,shared.nullmultibulk);
-        return;
+        goto handle_monitor;
     }
 
     /* Replicate a MULTI request now that we are sure the block is executed.
@@ -132,6 +132,15 @@ void execCommand(redisClient *c) {
      * always send the MULTI command (we can't know beforehand if the
      * next operations will contain at least a modification to the DB). */
     server.dirty++;
+
+handle_monitor:
+    /* Send EXEC to clients waiting data from MONITOR. We do it here
+     * since the natural order of commands execution is actually:
+     * MUTLI, EXEC, ... commands inside transaction ...
+     * Instead EXEC is flagged as REDIS_CMD_SKIP_MONITOR in the command
+     * table, and we do it here with correct ordering. */
+    if (listLength(server.monitors) && !server.loading)
+        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
 }
 
 /* ===================== WATCH (CAS alike for MULTI/EXEC) ===================
