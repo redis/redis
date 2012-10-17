@@ -425,7 +425,7 @@ sentinelAddr *createSentinelAddr(char *hostname, int port) {
         errno = EINVAL;
         return NULL;
     }
-    if (anetResolve(NULL,hostname,buf) == ANET_ERR) {
+    if (anetResolve(NULL,hostname,buf,sizeof(buf)) == ANET_ERR) {
         errno = ENOENT;
         return NULL;
     }
