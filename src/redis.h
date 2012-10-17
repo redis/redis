@@ -467,6 +467,7 @@ typedef struct redisOpArray {
 #define REDIS_CLUSTER_NEEDHELP 2    /* The cluster works, but needs some help */
 #define REDIS_CLUSTER_NAMELEN 40    /* sha1 hex length */
 #define REDIS_CLUSTER_PORT_INCR 10000 /* Cluster port = baseport + PORT_INCR */
+#define REDIS_CLUSTER_IPLEN INET6_ADDRSTRLEN /* IPv6 address string length */
 
 struct clusterNode;
 
@@ -500,7 +501,7 @@ struct clusterNode {
     time_t pong_received;   /* Unix time we received the pong */
     char *configdigest;         /* Configuration digest of this node */
     time_t configdigest_ts;     /* Configuration digest timestamp */
-    char ip[16];                /* Latest known IP address of this node */
+    char ip[REDIS_CLUSTER_IPLEN]; /* Latest known IP address of this node */
     int port;                   /* Latest known port of this node */
     clusterLink *link;          /* TCP/IP link with this node */
 };
@@ -606,10 +607,13 @@ struct redisServer {
     int sentinel_mode;          /* True if this instance is a Sentinel. */
     /* Networking */
     int port;                   /* TCP listening port */
+    int port6;                  /* TCP v6 listening port */
     char *bindaddr;             /* Bind address or NULL */
+    char *bindaddr6;            /* Bind v6 address or NULL */
     char *unixsocket;           /* UNIX socket path */
     mode_t unixsocketperm;      /* UNIX socket permission */
     int ipfd;                   /* TCP socket file descriptor */
+    int ip6fd;                  /* TCP v6 socket file descriptor */
     int sofd;                   /* Unix socket file descriptor */
     int cfd;                    /* Cluster bus lisetning socket */
     list *clients;              /* List of active clients */

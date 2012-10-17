@@ -513,12 +513,12 @@ static void acceptCommonHandler(int fd) {
 
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
-    char cip[128];
+    char cip[128];      /* Could use INET6_ADDRSTRLEN here, but its smaller */
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
 
-    cfd = anetTcpAccept(server.neterr, fd, cip, &cport);
+    cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
     if (cfd == AE_ERR) {
         redisLog(REDIS_WARNING,"Accepting client connection: %s", server.neterr);
         return;
@@ -1061,11 +1061,11 @@ void getClientsMaxBuffers(unsigned long *longest_output_list,
 
 /* Turn a Redis client into an sds string representing its state. */
 sds getClientInfoString(redisClient *client) {
-    char ip[32], flags[16], events[3], *p;
+    char ip[INET6_ADDRSTRLEN], flags[16], events[3], *p;
     int port;
     int emask;
 
-    anetPeerToString(client->fd,ip,&port);
+    anetPeerToString(client->fd,ip,sizeof(ip),&port);
     p = flags;
     if (client->flags & REDIS_SLAVE) {
         if (client->flags & REDIS_MONITOR)
@@ -1138,11 +1138,13 @@ void clientCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"kill") && c->argc == 3) {
         listRewind(server.clients,&li);
         while ((ln = listNext(&li)) != NULL) {
-            char ip[32], addr[64];
+            /* addr size 64 > INET6_ADDRSTRLEN + : + strlen("65535") */
+            char ip[INET6_ADDRSTRLEN], addr[64];
             int port;
 
             client = listNodeValue(ln);
-            if (anetPeerToString(client->fd,ip,&port) == -1) continue;
+            if (anetPeerToString(client->fd,ip,sizeof(ip),&port) == -1) continue;
+            /* IPV6: might want to wrap a v6 address in [] */
             snprintf(addr,sizeof(addr),"%s:%d",ip,port);
             if (strcmp(addr,c->argv[2]->ptr) == 0) {
                 addReply(c,shared.ok);

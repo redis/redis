@@ -1086,10 +1086,13 @@ void initServerConfig() {
     server.runid[REDIS_RUN_ID_SIZE] = '\0';
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.port = REDIS_SERVERPORT;
+    server.port6 = 0;                   /* Disable IPv6 by default */
     server.bindaddr = NULL;
+    server.bindaddr6 = NULL;
     server.unixsocket = NULL;
     server.unixsocketperm = 0;
     server.ipfd = -1;
+    server.ip6fd = -1;
     server.sofd = -1;
     server.dbnum = REDIS_DEFAULT_DBNUM;
     server.verbosity = REDIS_NOTICE;
@@ -1281,6 +1284,13 @@ void initServer() {
             exit(1);
         }
     }
+    if (server.port6 != 0) {
+        server.ip6fd = anetTcp6Server(server.neterr,server.port6,server.bindaddr6);
+        if (server.ip6fd == ANET_ERR) {
+            redisLog(REDIS_WARNING, "Opening port: %s", server.neterr);
+            exit(1);
+        }
+    }
     if (server.unixsocket != NULL) {
         unlink(server.unixsocket); /* don't care if this fails */
         server.sofd = anetUnixServer(server.neterr,server.unixsocket,server.unixsocketperm);
@@ -1289,7 +1299,7 @@ void initServer() {
             exit(1);
         }
     }
-    if (server.ipfd < 0 && server.sofd < 0) {
+    if (server.ipfd < 0 && server.ip6fd < 0 && server.sofd < 0) {
         redisLog(REDIS_WARNING, "Configured to not listen anywhere, exiting.");
         exit(1);
     }
@@ -1334,6 +1344,8 @@ void initServer() {
     aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL);
     if (server.ipfd > 0 && aeCreateFileEvent(server.el,server.ipfd,AE_READABLE,
         acceptTcpHandler,NULL) == AE_ERR) redisPanic("Unrecoverable error creating server.ipfd file event.");
+    if (server.ip6fd > 0 && aeCreateFileEvent(server.el,server.ip6fd,AE_READABLE,
+        acceptTcpHandler,NULL) == AE_ERR) redisPanic("Unrecoverable error creating server.ip6fd file event.");
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
         acceptUnixHandler,NULL) == AE_ERR) redisPanic("Unrecoverable error creating server.sofd file event.");
 
@@ -2129,10 +2141,10 @@ sds genRedisInfoString(char *section) {
             while((ln = listNext(&li))) {
                 redisClient *slave = listNodeValue(ln);
                 char *state = NULL;
-                char ip[32];
+                char ip[INET6_ADDRSTRLEN];
                 int port;
 
-                if (anetPeerToString(slave->fd,ip,&port) == -1) continue;
+                if (anetPeerToString(slave->fd,ip,sizeof(ip),&port) == -1) continue;
                 switch(slave->replstate) {
                 case REDIS_REPL_WAIT_BGSAVE_START:
                 case REDIS_REPL_WAIT_BGSAVE_END:
@@ -2636,6 +2648,8 @@ int main(int argc, char **argv) {
         loadDataFromDisk();
         if (server.ipfd > 0)
             redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
+        if (server.ip6fd > 0)
+            redisLog(REDIS_NOTICE,"The server is now ready to accept IPv6 connections on port %d", server.port6);
         if (server.sofd > 0)
             redisLog(REDIS_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
     }

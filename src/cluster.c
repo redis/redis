@@ -1,6 +1,8 @@
 #include "redis.h"
 #include "endianconv.h"
 
+#include <sys/types.h>
+#include <sys/socket.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -245,17 +247,18 @@ void freeClusterLink(clusterLink *link) {
 
 void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
-    char cip[128];
+    char cip[128];      /* Could use INET6_ADDRSTRLEN here, but its smaller */
     clusterLink *link;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
 
-    cfd = anetTcpAccept(server.neterr, fd, cip, &cport);
+    cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
     if (cfd == AE_ERR) {
         redisLog(REDIS_VERBOSE,"Accepting cluster node: %s", server.neterr);
         return;
     }
+    /* IPV6: might want to wrap a v6 address in [] */
     redisLog(REDIS_VERBOSE,"Accepted cluster node %s:%d", cip, cport);
     /* We need to create a temporary node in order to read the incoming
      * packet in a valid contest. This node will be released once we
@@ -467,14 +470,21 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
     }
 }
 
-/* IP -> string conversion. 'buf' is supposed to at least be 16 bytes. */
+/* IP -> string conversion. 'buf' is supposed to at least be 46 bytes. */
 void nodeIp2String(char *buf, clusterLink *link) {
-    struct sockaddr_in sa;
+    struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
 
     if (getpeername(link->fd, (struct sockaddr*) &sa, &salen) == -1)
         redisPanic("getpeername() failed.");
-    strncpy(buf,inet_ntoa(sa.sin_addr),sizeof(link->node->ip));
+
+    if (sa.ss_family == AF_INET) {
+        struct sockaddr_in *s = (struct sockaddr_in *)&sa;
+        inet_ntop(AF_INET,(void*)&(s->sin_addr),buf,REDIS_CLUSTER_IPLEN);
+    } else {
+        struct sockaddr_in6 *s = (struct sockaddr_in6 *)&sa;
+        inet_ntop(AF_INET6,(void*)&(s->sin6_addr),buf,REDIS_CLUSTER_IPLEN);
+    }
 }
 
 
@@ -1233,11 +1243,12 @@ void clusterCommand(redisClient *c) {
 
     if (!strcasecmp(c->argv[1]->ptr,"meet") && c->argc == 4) {
         clusterNode *n;
-        struct sockaddr_in sa;
+        struct sockaddr_storage sa;
         long port;
 
         /* Perform sanity checks on IP/port */
-        if (inet_aton(c->argv[2]->ptr,&sa.sin_addr) == 0) {
+        if ((inet_pton(AF_INET,c->argv[0]->ptr,&(((struct sockaddr_in *)&sa)->sin_addr)) ||
+             inet_pton(AF_INET6,c->argv[0]->ptr,&(((struct sockaddr_in6 *)&sa)->sin6_addr))) == 0) {
             addReplyError(c,"Invalid IP address in MEET");
             return;
         }
@@ -1251,7 +1262,9 @@ void clusterCommand(redisClient *c) {
         /* Finally add the node to the cluster with a random name, this 
          * will get fixed in the first handshake (ping/pong). */
         n = createClusterNode(NULL,REDIS_NODE_HANDSHAKE|REDIS_NODE_MEET);
-        strncpy(n->ip,inet_ntoa(sa.sin_addr),sizeof(n->ip));
+        sa.ss_family == AF_INET ?
+            inet_ntop(AF_INET,(void*)&(((struct sockaddr_in *)&sa)->sin_addr),n->ip,REDIS_CLUSTER_IPLEN) :
+            inet_ntop(AF_INET6,(void*)&(((struct sockaddr_in6 *)&sa)->sin6_addr),n->ip,REDIS_CLUSTER_IPLEN);
         n->port = port;
         clusterAddNode(n);
         addReply(c,shared.ok);
