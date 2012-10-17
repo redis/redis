@@ -1,6 +1,8 @@
 #include "redis.h"
 #include "endianconv.h"
 
+#include <sys/types.h>
+#include <sys/socket.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -251,7 +253,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
 
-    cfd = anetTcpAccept(server.neterr, fd, cip, &cport);
+    cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
     if (cfd == AE_ERR) {
         redisLog(REDIS_VERBOSE,"Accepting cluster node: %s", server.neterr);
         return;
@@ -474,7 +476,7 @@ void nodeIp2String(char *buf, clusterLink *link) {
 
     if (getpeername(link->fd, (struct sockaddr*) &sa, &salen) == -1)
         redisPanic("getpeername() failed.");
-    strncpy(buf,inet_ntoa(sa.sin_addr),sizeof(link->node->ip));
+    inet_ntop(sa.sin_family,(void*)&(sa.sin_addr),buf,REDIS_CLUSTER_IPLEN);
 }
 
 
@@ -1237,7 +1239,7 @@ void clusterCommand(redisClient *c) {
         long port;
 
         /* Perform sanity checks on IP/port */
-        if (inet_aton(c->argv[2]->ptr,&sa.sin_addr) == 0) {
+        if (inet_pton(AF_INET,c->argv[0]->ptr,&(sa.sin_addr)) == 0) {
             addReplyError(c,"Invalid IP address in MEET");
             return;
         }
@@ -1251,7 +1253,7 @@ void clusterCommand(redisClient *c) {
         /* Finally add the node to the cluster with a random name, this 
          * will get fixed in the first handshake (ping/pong). */
         n = createClusterNode(NULL,REDIS_NODE_HANDSHAKE|REDIS_NODE_MEET);
-        strncpy(n->ip,inet_ntoa(sa.sin_addr),sizeof(n->ip));
+        inet_ntop(sa.sin_family,(void*)&(sa.sin_addr),n->ip,REDIS_CLUSTER_IPLEN);
         n->port = port;
         clusterAddNode(n);
         addReply(c,shared.ok);
