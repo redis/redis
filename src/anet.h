@@ -55,5 +55,6 @@ int anetNonBlock(char *err, int fd);
 int anetTcpNoDelay(char *err, int fd);
 int anetTcpKeepAlive(char *err, int fd);
 int anetPeerToString(int fd, char *ip, size_t ip_len, int *port);
+int anetSockName(int fd, char *ip, size_t ip_len, int *port);
 
 #endif
