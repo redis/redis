@@ -56,7 +56,7 @@ void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **
     if (c->flags & REDIS_LUA_CLIENT) {
         cmdrepr = sdscatprintf(cmdrepr,"[%d lua] ", dictid);
     } else {
-        anetPeerToString(c->fd,ip,&port);
+        anetPeerToString(c->fd,ip,sizeof(ip),&port);
         cmdrepr = sdscatprintf(cmdrepr,"[%d %s:%d] ", dictid,ip,port);
     }
 
