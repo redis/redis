@@ -2353,7 +2353,7 @@ sds genRedisInfoString(char *section) {
                 int port;
                 long lag = 0;
 
-                if (anetPeerToString(slave->fd,ip,&port) == -1) continue;
+                if (anetPeerToString(slave->fd,ip,sizeof(ip),&port) == -1) continue;
                 switch(slave->replstate) {
                 case REDIS_REPL_WAIT_BGSAVE_START:
                 case REDIS_REPL_WAIT_BGSAVE_END:
