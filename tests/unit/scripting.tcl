@@ -301,7 +301,7 @@ start_server {tags {"scripting"}} {
         catch {r ping} e
         assert_match {BUSY*} $e
         catch {r script kill} e
-        assert_match {ERR*} $e
+        assert_match {UNKILLABLE*} $e
         catch {r ping} e
         assert_match {BUSY*} $e
     }
