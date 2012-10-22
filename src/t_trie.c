@@ -265,7 +265,7 @@ static void genericTgetallCommand(redisClient *c, int flags) {
     int multiplier = 0;
     int len = 0;
     tgetAllData cbData;
-    void *replylen;
+    void *replylen = NULL;
 
     if (c->argc > 3) {
         addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
