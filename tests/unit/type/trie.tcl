@@ -1,5 +1,5 @@
-start_server {tags {"hash"}} {
-    test {HSET/HLEN - Small hash creation} {
+start_server {tags {"trie"}} {
+    test {TSET/TLEN - Small hash creation} {
         array set smallhash {}
         for {set i 0} {$i < 8} {incr i} {
             set key [randstring 0 8 alpha]
@@ -8,17 +8,13 @@ start_server {tags {"hash"}} {
                 incr i -1
                 continue
             }
-            r hset smallhash $key $val
+            r tset smallhash $key $val
             set smallhash($key) $val
         }
-        list [r hlen smallhash]
+        list [r tlen smallhash]
     } {8}
 
-    test {Is the small hash encoded with a ziplist?} {
-        assert_encoding ziplist smallhash
-    }
-
-    test {HSET/HLEN - Big hash creation} {
+    test {TSET/TLEN - Big hash creation} {
         array set bighash {}
         for {set i 0} {$i < 1024} {incr i} {
             set key [randstring 0 8 alpha]
@@ -27,125 +23,121 @@ start_server {tags {"hash"}} {
                 incr i -1
                 continue
             }
-            r hset bighash $key $val
+            r tset bighash $key $val
             set bighash($key) $val
         }
-        list [r hlen bighash]
+        list [r tlen bighash]
     } {1024}
 
-    test {Is the big hash encoded with a ziplist?} {
-        assert_encoding hashtable bighash
-    }
-
-    test {HGET against the small hash} {
+    test {TGET against the small hash} {
         set err {}
         foreach k [array names smallhash *] {
-            if {$smallhash($k) ne [r hget smallhash $k]} {
-                set err "$smallhash($k) != [r hget smallhash $k]"
+            if {$smallhash($k) ne [r tget smallhash $k]} {
+                set err "$smallhash($k) != [r tget smallhash $k]"
                 break
             }
         }
         set _ $err
     } {}
 
-    test {HGET against the big hash} {
+    test {TGET against the big hash} {
         set err {}
         foreach k [array names bighash *] {
-            if {$bighash($k) ne [r hget bighash $k]} {
-                set err "$bighash($k) != [r hget bighash $k]"
+            if {$bighash($k) ne [r tget bighash $k]} {
+                set err "$bighash($k) != [r tget bighash $k]"
                 break
             }
         }
         set _ $err
     } {}
 
-    test {HGET against non existing key} {
+    test {TGET against non existing key} {
         set rv {}
-        lappend rv [r hget smallhash __123123123__]
-        lappend rv [r hget bighash __123123123__]
+        lappend rv [r tget smallhash __123123123__]
+        lappend rv [r tget bighash __123123123__]
         set _ $rv
     } {{} {}}
 
-    test {HSET in update and insert mode} {
+    test {TSET in update and insert mode} {
         set rv {}
         set k [lindex [array names smallhash *] 0]
-        lappend rv [r hset smallhash $k newval1]
+        lappend rv [r tset smallhash $k newval1]
         set smallhash($k) newval1
-        lappend rv [r hget smallhash $k]
-        lappend rv [r hset smallhash __foobar123__ newval]
+        lappend rv [r tget smallhash $k]
+        lappend rv [r tset smallhash __foobar123__ newval]
         set k [lindex [array names bighash *] 0]
-        lappend rv [r hset bighash $k newval2]
+        lappend rv [r tset bighash $k newval2]
         set bighash($k) newval2
-        lappend rv [r hget bighash $k]
-        lappend rv [r hset bighash __foobar123__ newval]
-        lappend rv [r hdel smallhash __foobar123__]
-        lappend rv [r hdel bighash __foobar123__]
+        lappend rv [r tget bighash $k]
+        lappend rv [r tset bighash __foobar123__ newval]
+        lappend rv [r tdel smallhash __foobar123__]
+        lappend rv [r tdel bighash __foobar123__]
         set _ $rv
     } {0 newval1 1 0 newval2 1 1 1}
 
-    test {HSETNX target key missing - small hash} {
-        r hsetnx smallhash __123123123__ foo
-        r hget smallhash __123123123__
+    test {TSETNX target key missing - small hash} {
+        r tsetnx smallhash __123123123__ foo
+        r tget smallhash __123123123__
     } {foo}
 
-    test {HSETNX target key exists - small hash} {
-        r hsetnx smallhash __123123123__ bar
-        set result [r hget smallhash __123123123__]
-        r hdel smallhash __123123123__
+    test {TSETNX target key exists - small hash} {
+        r tsetnx smallhash __123123123__ bar
+        set result [r tget smallhash __123123123__]
+        r tdel smallhash __123123123__
         set _ $result
     } {foo}
 
-    test {HSETNX target key missing - big hash} {
-        r hsetnx bighash __123123123__ foo
-        r hget bighash __123123123__
+    test {TSETNX target key missing - big hash} {
+        r tsetnx bighash __123123123__ foo
+        r tget bighash __123123123__
     } {foo}
 
-    test {HSETNX target key exists - big hash} {
-        r hsetnx bighash __123123123__ bar
-        set result [r hget bighash __123123123__]
-        r hdel bighash __123123123__
+    test {TSETNX target key exists - big hash} {
+        r tsetnx bighash __123123123__ bar
+        set result [r tget bighash __123123123__]
+        r tdel bighash __123123123__
         set _ $result
     } {foo}
 
-    test {HMSET wrong number of args} {
-        catch {r hmset smallhash key1 val1 key2} err
+    test {TMSET wrong number of args} {
+        catch {r tmset smallhash key1 val1 key2} err
         format $err
     } {*wrong number*}
 
-    test {HMSET - small hash} {
+    test {TMSET - small hash} {
         set args {}
         foreach {k v} [array get smallhash] {
             set newval [randstring 0 8 alpha]
             set smallhash($k) $newval
             lappend args $k $newval
         }
-        r hmset smallhash {*}$args
+        r tmset smallhash {*}$args
     } {OK}
 
-    test {HMSET - big hash} {
+    test {TMSET - big hash} {
         set args {}
         foreach {k v} [array get bighash] {
             set newval [randstring 0 8 alpha]
             set bighash($k) $newval
             lappend args $k $newval
         }
-        r hmset bighash {*}$args
+        r tmset bighash {*}$args
     } {OK}
 
-    test {HMGET against non existing key and fields} {
+    test {TMGET against non existing key and fields} {
         set rv {}
-        lappend rv [r hmget doesntexist __123123123__ __456456456__]
-        lappend rv [r hmget smallhash __123123123__ __456456456__]
-        lappend rv [r hmget bighash __123123123__ __456456456__]
+        lappend rv [r tmget doesntexist __123123123__ __456456456__]
+        lappend rv [r tmget smallhash __123123123__ __456456456__]
+        lappend rv [r tmget bighash __123123123__ __456456456__]
         set _ $rv
     } {{{} {}} {{} {}} {{} {}}}
 
-    test {HMGET against wrong type} {
+    test {TMGET against wrong type} {
         r set wrongtype somevalue
-        assert_error "*wrong*" {r hmget wrongtype field1 field2}
+        assert_error "*wrong*" {r tmget wrongtype field1 field2}
     }
 
-    test {HMGET - small hash} {
+    test {TMGET - small hash} {
         set keys {}
         set vals {}
         foreach {k v} [array get smallhash] {
@@ -153,7 +145,7 @@ start_server {tags {"hash"}} {
             lappend vals $v
         }
         set err {}
-        set result [r hmget smallhash {*}$keys]
+        set result [r tmget smallhash {*}$keys]
         if {$vals ne $result} {
             set err "$vals != $result"
             break
@@ -161,7 +153,7 @@ start_server {tags {"hash"}} {
         set _ $err
     } {}
 
-    test {HMGET - big hash} {
+    test {TMGET - big hash} {
         set keys {}
         set vals {}
         foreach {k v} [array get bighash] {
@@ -169,7 +161,7 @@ start_server {tags {"hash"}} {
             lappend vals $v
         }
         set err {}
-        set result [r hmget bighash {*}$keys]
+        set result [r tmget bighash {*}$keys]
         if {$vals ne $result} {
             set err "$vals != $result"
             break
@@ -177,223 +169,218 @@ start_server {tags {"hash"}} {
         set _ $err
     } {}
 
-    test {HKEYS - small hash} {
-        lsort [r hkeys smallhash]
+    test {TKEYS - small hash} {
+        lsort [r tkeys smallhash]
     } [lsort [array names smallhash *]]
 
-    test {HKEYS - big hash} {
-        lsort [r hkeys bighash]
+    test {TKEYS - big hash} {
+        lsort [r tkeys bighash]
     } [lsort [array names bighash *]]
 
-    test {HVALS - small hash} {
+    test {TVALS - small hash} {
         set vals {}
         foreach {k v} [array get smallhash] {
             lappend vals $v
         }
         set _ [lsort $vals]
-    } [lsort [r hvals smallhash]]
+    } [lsort [r tvals smallhash]]
 
-    test {HVALS - big hash} {
+    test {TVALS - big hash} {
         set vals {}
         foreach {k v} [array get bighash] {
             lappend vals $v
         }
         set _ [lsort $vals]
-    } [lsort [r hvals bighash]]
+    } [lsort [r tvals bighash]]
 
-    test {HGETALL - small hash} {
-        lsort [r hgetall smallhash]
+    test {TGETALL - small hash} {
+        lsort [r tgetall smallhash]
     } [lsort [array get smallhash]]
 
-    test {HGETALL - big hash} {
-        lsort [r hgetall bighash]
+    test {TGETALL - big hash} {
+        lsort [r tgetall bighash]
     } [lsort [array get bighash]]
 
-    test {HDEL and return value} {
+    test {TDEL and return value} {
         set rv {}
-        lappend rv [r hdel smallhash nokey]
-        lappend rv [r hdel bighash nokey]
+        lappend rv [r tdel smallhash nokey]
+        lappend rv [r tdel bighash nokey]
         set k [lindex [array names smallhash *] 0]
-        lappend rv [r hdel smallhash $k]
-        lappend rv [r hdel smallhash $k]
-        lappend rv [r hget smallhash $k]
+        lappend rv [r tdel smallhash $k]
+        lappend rv [r tdel smallhash $k]
+        lappend rv [r tget smallhash $k]
         unset smallhash($k)
         set k [lindex [array names bighash *] 0]
-        lappend rv [r hdel bighash $k]
-        lappend rv [r hdel bighash $k]
-        lappend rv [r hget bighash $k]
+        lappend rv [r tdel bighash $k]
+        lappend rv [r tdel bighash $k]
+        lappend rv [r tget bighash $k]
         unset bighash($k)
         set _ $rv
     } {0 0 1 0 {} 1 0 {}}
 
-    test {HDEL - more than a single value} {
+    test {TDEL - more than a single value} {
         set rv {}
         r del myhash
-        r hmset myhash a 1 b 2 c 3
-        assert_equal 0 [r hdel myhash x y]
-        assert_equal 2 [r hdel myhash a c f]
-        r hgetall myhash
+        r tmset myhash a 1 b 2 c 3
+        assert_equal 0 [r tdel myhash x y]
+        assert_equal 2 [r tdel myhash a c f]
+        r tgetall myhash
     } {b 2}
 
-    test {HDEL - hash becomes empty before deleting all specified fields} {
+    test {TDEL - hash becomes empty before deleting all specified fields} {
         r del myhash
-        r hmset myhash a 1 b 2 c 3
-        assert_equal 3 [r hdel myhash a b c d e]
+        r tmset myhash a 1 b 2 c 3
+        assert_equal 3 [r tdel myhash a b c d e]
         assert_equal 0 [r exists myhash]
     }
 
-    test {HEXISTS} {
+    test {TEXISTS} {
         set rv {}
         set k [lindex [array names smallhash *] 0]
-        lappend rv [r hexists smallhash $k]
-        lappend rv [r hexists smallhash nokey]
+        lappend rv [r texists smallhash $k]
+        lappend rv [r texists smallhash nokey]
         set k [lindex [array names bighash *] 0]
-        lappend rv [r hexists bighash $k]
-        lappend rv [r hexists bighash nokey]
+        lappend rv [r texists bighash $k]
+        lappend rv [r texists bighash nokey]
     } {1 0 1 0}
 
-    test {Is a ziplist encoded Hash promoted on big payload?} {
-        r hset smallhash foo [string repeat a 1024]
-        r debug object smallhash
-    } {*hashtable*}
-
-    test {HINCRBY against non existing database key} {
+    test {TINCRBY against non existing database key} {
         r del htest
-        list [r hincrby htest foo 2]
+        list [r tincrby htest foo 2]
     } {2}
 
-    test {HINCRBY against non existing hash key} {
+    test {TINCRBY against non existing hash key} {
         set rv {}
-        r hdel smallhash tmp
-        r hdel bighash tmp
-        lappend rv [r hincrby smallhash tmp 2]
-        lappend rv [r hget smallhash tmp]
-        lappend rv [r hincrby bighash tmp 2]
-        lappend rv [r hget bighash tmp]
+        r tdel smallhash tmp
+        r tdel bighash tmp
+        lappend rv [r tincrby smallhash tmp 2]
+        lappend rv [r tget smallhash tmp]
+        lappend rv [r tincrby bighash tmp 2]
+        lappend rv [r tget bighash tmp]
     } {2 2 2 2}
 
-    test {HINCRBY against hash key created by hincrby itself} {
+    test {TINCRBY against hash key created by tincrby itself} {
         set rv {}
-        lappend rv [r hincrby smallhash tmp 3]
-        lappend rv [r hget smallhash tmp]
-        lappend rv [r hincrby bighash tmp 3]
-        lappend rv [r hget bighash tmp]
+        lappend rv [r tincrby smallhash tmp 3]
+        lappend rv [r tget smallhash tmp]
+        lappend rv [r tincrby bighash tmp 3]
+        lappend rv [r tget bighash tmp]
     } {5 5 5 5}
 
-    test {HINCRBY against hash key originally set with HSET} {
-        r hset smallhash tmp 100
-        r hset bighash tmp 100
-        list [r hincrby smallhash tmp 2] [r hincrby bighash tmp 2]
+    test {TINCRBY against hash key originally set with TSET} {
+        r tset smallhash tmp 100
+        r tset bighash tmp 100
+        list [r tincrby smallhash tmp 2] [r tincrby bighash tmp 2]
     } {102 102}
 
-    test {HINCRBY over 32bit value} {
-        r hset smallhash tmp 17179869184
-        r hset bighash tmp 17179869184
-        list [r hincrby smallhash tmp 1] [r hincrby bighash tmp 1]
+    test {TINCRBY over 32bit value} {
+        r tset smallhash tmp 17179869184
+        r tset bighash tmp 17179869184
+        list [r tincrby smallhash tmp 1] [r tincrby bighash tmp 1]
     } {17179869185 17179869185}
 
-    test {HINCRBY over 32bit value with over 32bit increment} {
-        r hset smallhash tmp 17179869184
-        r hset bighash tmp 17179869184
-        list [r hincrby smallhash tmp 17179869184] [r hincrby bighash tmp 17179869184]
+    test {TINCRBY over 32bit value with over 32bit increment} {
+        r tset smallhash tmp 17179869184
+        r tset bighash tmp 17179869184
+        list [r tincrby smallhash tmp 17179869184] [r tincrby bighash tmp 17179869184]
     } {34359738368 34359738368}
 
-    test {HINCRBY fails against hash value with spaces (left)} {
-        r hset smallhash str " 11"
-        r hset bighash str " 11"
-        catch {r hincrby smallhash str 1} smallerr
-        catch {r hincrby smallhash str 1} bigerr
+    test {TINCRBY fails against hash value with spaces (left)} {
+        r tset smallhash str " 11"
+        r tset bighash str " 11"
+        catch {r tincrby smallhash str 1} smallerr
+        catch {r tincrby smallhash str 1} bigerr
         set rv {}
         lappend rv [string match "ERR*not an integer*" $smallerr]
         lappend rv [string match "ERR*not an integer*" $bigerr]
     } {1 1}
 
-    test {HINCRBY fails against hash value with spaces (right)} {
-        r hset smallhash str "11 "
-        r hset bighash str "11 "
-        catch {r hincrby smallhash str 1} smallerr
-        catch {r hincrby smallhash str 1} bigerr
+    test {TINCRBY fails against hash value with spaces (right)} {
+        r tset smallhash str "11 "
+        r tset bighash str "11 "
+        catch {r tincrby smallhash str 1} smallerr
+        catch {r tincrby smallhash str 1} bigerr
         set rv {}
         lappend rv [string match "ERR*not an integer*" $smallerr]
         lappend rv [string match "ERR*not an integer*" $bigerr]
     } {1 1}
 
-    test {HINCRBY can detect overflows} {
+    test {TINCRBY can detect overflows} {
         set e {}
-        r hset hash n -9223372036854775484
-        assert {[r hincrby hash n -1] == -9223372036854775485}
-        catch {r hincrby hash n -10000} e
+        r tset hash n -9223372036854775484
+        assert {[r tincrby hash n -1] == -9223372036854775485}
+        catch {r tincrby hash n -10000} e
         set e
     } {*overflow*}
 
-    test {HINCRBYFLOAT against non existing database key} {
+    test {TINCRBYFLOAT against non existing database key} {
         r del htest
-        list [r hincrbyfloat htest foo 2.5]
+        list [r tincrbyfloat htest foo 2.5]
     } {2.5}
 
-    test {HINCRBYFLOAT against non existing hash key} {
+    test {TINCRBYFLOAT against non existing hash key} {
         set rv {}
-        r hdel smallhash tmp
-        r hdel bighash tmp
-        lappend rv [roundFloat [r hincrbyfloat smallhash tmp 2.5]]
-        lappend rv [roundFloat [r hget smallhash tmp]]
-        lappend rv [roundFloat [r hincrbyfloat bighash tmp 2.5]]
-        lappend rv [roundFloat [r hget bighash tmp]]
+        r tdel smallhash tmp
+        r tdel bighash tmp
+        lappend rv [roundFloat [r tincrbyfloat smallhash tmp 2.5]]
+        lappend rv [roundFloat [r tget smallhash tmp]]
+        lappend rv [roundFloat [r tincrbyfloat bighash tmp 2.5]]
+        lappend rv [roundFloat [r tget bighash tmp]]
     } {2.5 2.5 2.5 2.5}
 
-    test {HINCRBYFLOAT against hash key created by hincrby itself} {
+    test {TINCRBYFLOAT against hash key created by tincrby itself} {
         set rv {}
-        lappend rv [roundFloat [r hincrbyfloat smallhash tmp 3.5]]
-        lappend rv [roundFloat [r hget smallhash tmp]]
-        lappend rv [roundFloat [r hincrbyfloat bighash tmp 3.5]]
-        lappend rv [roundFloat [r hget bighash tmp]]
+        lappend rv [roundFloat [r tincrbyfloat smallhash tmp 3.5]]
+        lappend rv [roundFloat [r tget smallhash tmp]]
+        lappend rv [roundFloat [r tincrbyfloat bighash tmp 3.5]]
+        lappend rv [roundFloat [r tget bighash tmp]]
     } {6 6 6 6}
 
-    test {HINCRBYFLOAT against hash key originally set with HSET} {
-        r hset smallhash tmp 100
-        r hset bighash tmp 100
-        list [roundFloat [r hincrbyfloat smallhash tmp 2.5]] \
-             [roundFloat [r hincrbyfloat bighash tmp 2.5]]
+    test {TINCRBYFLOAT against hash key originally set with TSET} {
+        r tset smallhash tmp 100
+        r tset bighash tmp 100
+        list [roundFloat [r tincrbyfloat smallhash tmp 2.5]] \
+             [roundFloat [r tincrbyfloat bighash tmp 2.5]]
     } {102.5 102.5}
 
-    test {HINCRBYFLOAT over 32bit value} {
-        r hset smallhash tmp 17179869184
-        r hset bighash tmp 17179869184
-        list [r hincrbyfloat smallhash tmp 1] \
-             [r hincrbyfloat bighash tmp 1]
+    test {TINCRBYFLOAT over 32bit value} {
+        r tset smallhash tmp 17179869184
+        r tset bighash tmp 17179869184
+        list [r tincrbyfloat smallhash tmp 1] \
+             [r tincrbyfloat bighash tmp 1]
     } {17179869185 17179869185}
 
-    test {HINCRBYFLOAT over 32bit value with over 32bit increment} {
-        r hset smallhash tmp 17179869184
-        r hset bighash tmp 17179869184
-        list [r hincrbyfloat smallhash tmp 17179869184] \
-             [r hincrbyfloat bighash tmp 17179869184]
+    test {TINCRBYFLOAT over 32bit value with over 32bit increment} {
+        r tset smallhash tmp 17179869184
+        r tset bighash tmp 17179869184
+        list [r tincrbyfloat smallhash tmp 17179869184] \
+             [r tincrbyfloat bighash tmp 17179869184]
     } {34359738368 34359738368}
 
-    test {HINCRBYFLOAT fails against hash value with spaces (left)} {
-        r hset smallhash str " 11"
-        r hset bighash str " 11"
-        catch {r hincrbyfloat smallhash str 1} smallerr
-        catch {r hincrbyfloat smallhash str 1} bigerr
+    test {TINCRBYFLOAT fails against hash value with spaces (left)} {
+        r tset smallhash str " 11"
+        r tset bighash str " 11"
+        catch {r tincrbyfloat smallhash str 1} smallerr
+        catch {r tincrbyfloat smallhash str 1} bigerr
         set rv {}
         lappend rv [string match "ERR*not*float*" $smallerr]
         lappend rv [string match "ERR*not*float*" $bigerr]
     } {1 1}
 
-    test {HINCRBYFLOAT fails against hash value with spaces (right)} {
-        r hset smallhash str "11 "
-        r hset bighash str "11 "
-        catch {r hincrbyfloat smallhash str 1} smallerr
-        catch {r hincrbyfloat smallhash str 1} bigerr
+    test {TINCRBYFLOAT fails against hash value with spaces (right)} {
+        r tset smallhash str "11 "
+        r tset bighash str "11 "
+        catch {r tincrbyfloat smallhash str 1} smallerr
+        catch {r tincrbyfloat smallhash str 1} bigerr
         set rv {}
         lappend rv [string match "ERR*not*float*" $smallerr]
         lappend rv [string match "ERR*not*float*" $bigerr]
     } {1 1}
 
     test {Hash ziplist regression test for large keys} {
-        r hset hash kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk a
-        r hset hash kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk b
-        r hget hash kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk
+        r tset hash kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk a
+        r tset hash kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk b
+        r tget hash kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk
     } {b}
 
     foreach size {10 512} {
@@ -407,15 +394,15 @@ start_server {tags {"hash"}} {
                 for {set j 0} {$j < $size} {incr j} {
                     set field [randomValue]
                     set value [randomValue]
-                    r hset hash $field $value
+                    r tset hash $field $value
                     set hash($field) $value
                 }
 
                 # Verify
                 foreach {k v} [array get hash] {
-                    assert_equal $v [r hget hash $k]
+                    assert_equal $v [r tget hash $k]
                 }
-                assert_equal [array size hash] [r hlen hash]
+                assert_equal [array size hash] [r tlen hash]
             }
         }
 
@@ -430,12 +417,12 @@ start_server {tags {"hash"}} {
                     randpath {
                         set field [randomValue]
                         set value [randomValue]
-                        r hset hash $field $value
+                        r tset hash $field $value
                         set hash($field) $value
                     } {
                         set field [randomSignedInt 512]
                         set value [randomSignedInt 512]
-                        r hset hash $field $value
+                        r tset hash $field $value
                         set hash($field) $value
                     } {
                         randpath {
@@ -443,28 +430,17 @@ start_server {tags {"hash"}} {
                         } {
                             set field [randomSignedInt 512]
                         }
-                        r hdel hash $field
+                        r tdel hash $field
                         unset -nocomplain hash($field)
                     }
                 }
 
                 # Verify
                 foreach {k v} [array get hash] {
-                    assert_equal $v [r hget hash $k]
+                    assert_equal $v [r tget hash $k]
                 }
-                assert_equal [array size hash] [r hlen hash]
+                assert_equal [array size hash] [r tlen hash]
             }
-        }
-    }
-
-    test {Stress test the hash ziplist -> hashtable encoding conversion} {
-        r config set hash-max-ziplist-entries 32
-        for {set j 0} {$j < 100} {incr j} {
-            r del myhash
-            for {set i 0} {$i < 64} {incr i} {
-                r hset myhash [randomValue] [randomValue]
-            }
-            assert {[r object encoding myhash] eq {hashtable}}
         }
     }
 }
