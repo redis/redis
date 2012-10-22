@@ -113,6 +113,42 @@ start_server {tags {"trie"}} {
         lsort [r tgetall trie]
     } [lsort [array get trie]]
 
+    test {TKEYS with prefix} {
+        set rv {}
+
+        r del smallhash
+        r tset smallhash prefix1_a 1
+        r tset smallhash prefix1_b 2
+        r tset smallhash prefix2_a 3
+        r tset smallhash prefix2_b 4
+
+        lappend rv [lsort [r tkeys smallhash]]
+        lappend rv [lsort [r tkeys smallhash prefix]]
+        lappend rv [lsort [r tkeys smallhash prefix1]]
+        lappend rv [lsort [r tkeys smallhash prefix2]]
+        lappend rv [lsort [r tkeys smallhash prefix_doesnotexist]]
+    } {{prefix1_a prefix1_b prefix2_a prefix2_b} {prefix1_a prefix1_b prefix2_a prefix2_b} {prefix1_a prefix1_b} {prefix2_a prefix2_b} {}}
+
+    test {TVALS with prefix} {
+        set rv {}
+
+        lappend rv [lsort [r tvals smallhash]]
+        lappend rv [lsort [r tvals smallhash prefix]]
+        lappend rv [lsort [r tvals smallhash prefix1]]
+        lappend rv [lsort [r tvals smallhash prefix2]]
+        lappend rv [lsort [r tvals smallhash prefix_doesnotexist]]
+    } {{1 2 3 4} {1 2 3 4} {1 2} {3 4} {}}
+
+    test {TGETALL with prefix} {
+        set rv {}
+
+        lappend rv [lsort [r tgetall smallhash]]
+        lappend rv [lsort [r tgetall smallhash prefix]]
+        lappend rv [lsort [r tgetall smallhash prefix1]]
+        lappend rv [lsort [r tgetall smallhash prefix2]]
+        lappend rv [lsort [r tgetall smallhash prefix_doesnotexist]]
+    } {{1 2 3 4 prefix1_a prefix1_b prefix2_a prefix2_b} {1 2 3 4 prefix1_a prefix1_b prefix2_a prefix2_b} {1 2 prefix1_a prefix1_b} {3 4 prefix2_a prefix2_b} {}}
+
     test {TDEL and return value} {
         set rv {}
         lappend rv [r tdel trie nokey]
