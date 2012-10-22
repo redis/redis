@@ -2552,6 +2552,32 @@ void loadDataFromDisk(void) {
     }
 }
 
+/* Initialize hash seed with the best randomness available. */
+void initHashSeed(void) {
+    unsigned char randbytes[16];
+    uint32_t *randwords = (uint32_t*) randbytes;
+    struct timeval tv;
+    
+    /* Try getting seed from /dev/urandom if possible. */
+    FILE *urandom = fopen("/dev/urandom", "r");
+    if (urandom != NULL) {
+        if (fread(randbytes, 1, 16, urandom) == 16) {
+            dictSetHashFunctionSeed(randbytes);
+            fclose(urandom);
+            return;
+        }
+        fclose(urandom);
+    }
+
+    redisLog(REDIS_NOTICE,"Could not open /dev/urandom. Using time and pid as random seed.");
+    gettimeofday(&tv,NULL);
+    randwords[0] = tv.tv_sec * tv.tv_usec;
+    randwords[1] = tv.tv_sec;
+    randwords[2] = tv.tv_usec;
+    randwords[3] = getpid();
+    dictSetHashFunctionSeed(randbytes);
+}
+
 void redisOutOfMemoryHandler(size_t allocation_size) {
     redisLog(REDIS_WARNING,"Out Of Memory allocating %zu bytes!",
         allocation_size);
@@ -2559,14 +2585,11 @@ void redisOutOfMemoryHandler(size_t allocation_size) {
 }
 
 int main(int argc, char **argv) {
-    struct timeval tv;
-
     /* We need to initialize our libraries, and the server configuration. */
     zmalloc_enable_thread_safeness();
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     srand(time(NULL)^getpid());
-    gettimeofday(&tv,NULL);
-    dictSetHashFunctionSeed(tv.tv_sec^tv.tv_usec^getpid());
+    initHashSeed();
     server.sentinel_mode = checkForSentinelMode(argc,argv);
     initServerConfig();
 

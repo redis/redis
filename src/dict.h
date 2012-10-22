@@ -155,15 +155,15 @@ dictEntry *dictNext(dictIterator *iter);
 void dictReleaseIterator(dictIterator *iter);
 dictEntry *dictGetRandomKey(dict *d);
 void dictPrintStats(dict *d);
-unsigned int dictGenHashFunction(const void *key, int len);
+unsigned int dictGenHashFunction(const unsigned char *buf, int len);
 unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len);
 void dictEmpty(dict *d);
 void dictEnableResize(void);
 void dictDisableResize(void);
 int dictRehash(dict *d, int n);
 int dictRehashMilliseconds(dict *d, int ms);
-void dictSetHashFunctionSeed(unsigned int initval);
-unsigned int dictGetHashFunctionSeed(void);
+void dictSetHashFunctionSeed(uint8_t *seed);
+uint8_t *dictGetHashFunctionSeed(void);
 
 /* Hash table types */
 extern dictType dictTypeHeapStringCopyKey;

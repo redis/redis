@@ -85,68 +85,77 @@ unsigned int dictIdentityHashFunction(unsigned int key)
     return key;
 }
 
-static uint32_t dict_hash_function_seed = 5381;
+/* Seed should be randomized on server startup. */
+static uint8_t dict_hash_function_seed[16] = {0};
 
-void dictSetHashFunctionSeed(uint32_t seed) {
-    dict_hash_function_seed = seed;
+void dictSetHashFunctionSeed(uint8_t *seed) {
+    memcpy(dict_hash_function_seed, seed, 16);
 }
 
-uint32_t dictGetHashFunctionSeed(void) {
+uint8_t *dictGetHashFunctionSeed(void) {
     return dict_hash_function_seed;
 }
 
-/* MurmurHash2, by Austin Appleby
- * Note - This code makes a few assumptions about how your machine behaves -
- * 1. We can read a 4-byte value from any address without crashing
- * 2. sizeof(int) == 4
- *
- * And it has a few limitations -
- *
- * 1. It will not work incrementally.
- * 2. It will not produce the same results on little-endian and big-endian
- *    machines.
+/* SipHash24 MAC, by Jean-Philippe Aumasson and Daniel J. Bernstein. Based on the little2
+ * implementation in SUPERCOP, which had the most consistently good performance. Truncates
+ * the 64-bit result to sizeof(unsigned int).
  */
-unsigned int dictGenHashFunction(const void *key, int len) {
-    /* 'm' and 'r' are mixing constants generated offline.
-     They're not really 'magic', they just happen to work well.  */
-    uint32_t seed = dict_hash_function_seed;
-    const uint32_t m = 0x5bd1e995;
-    const int r = 24;
+unsigned int dictGenHashFunction(const unsigned char *buf, int len) {
+    uint64_t n = len;
+    uint64_t v0, v1, v2, v3;
+    uint64_t k0, k1;
+    uint64_t mi, mask, length;
+    size_t i, k;
+    
+  
+    k0 = *((uint64_t*)(dict_hash_function_seed + 0));
+    k1 = *((uint64_t*)(dict_hash_function_seed + 8));
 
-    /* Initialize the hash to a 'random' value */
-    uint32_t h = seed ^ len;
+    v0 = k0 ^ 0x736f6d6570736575ULL;
+    v1 = k1 ^ 0x646f72616e646f6dULL;
+    v2 = k0 ^ 0x6c7967656e657261ULL;
+    v3 = k1 ^ 0x7465646279746573ULL;
 
-    /* Mix 4 bytes at a time into the hash */
-    const unsigned char *data = (const unsigned char *)key;
+#define rotl64(x, c) ( ((x) << (c)) ^ ((x) >> (64-(c))) )
 
-    while(len >= 4) {
-        uint32_t k = *(uint32_t*)data;
+#define HALF_ROUND(a,b,c,d,s,t)			\
+    do {					\
+	a += b;  c += d;			\
+	b = rotl64(b, s); d = rotl64(d, t);	\
+	b ^= a;  d ^= c;			\
+    } while(0)
 
-        k *= m;
-        k ^= k >> r;
-        k *= m;
+#define COMPRESS(v0,v1,v2,v3)			\
+    do {					\
+	HALF_ROUND(v0,v1,v2,v3,13,16);		\
+	v0 = rotl64(v0,32);			\
+	HALF_ROUND(v2,v1,v0,v3,17,21);		\
+	v2 = rotl64(v2, 32);			\
+    } while(0)
 
-        h *= m;
-        h ^= k;
-
-        data += 4;
-        len -= 4;
+    for (i = 0; i < (n-n%8); i += 8) {
+	mi = *((uint64_t*)(buf + i));
+	v3 ^= mi;
+	for (k = 0; k < 2; ++k) COMPRESS(v0,v1,v2,v3);
+	v0 ^= mi;
     }
 
-    /* Handle the last few bytes of the input array  */
-    switch(len) {
-    case 3: h ^= data[2] << 16;
-    case 2: h ^= data[1] << 8;
-    case 1: h ^= data[0]; h *= m;
-    };
+    mi = *((uint64_t*)(buf + i));
+    length = (n&0xff) << 56;
+    mask = n%8 == 0 ? 0 : 0xffffffffffffffffULL >> (8*(8-n%8));
+    mi = (mi&mask) ^ length;
 
-    /* Do a few final mixes of the hash to ensure the last few
-     * bytes are well-incorporated. */
-    h ^= h >> 13;
-    h *= m;
-    h ^= h >> 15;
+    v3 ^= mi;
+    for (k = 0; k < 2; ++k) COMPRESS(v0,v1,v2,v3);
+    v0 ^= mi;
+	
+    v2 ^= 0xff;
+    for (k = 0; k < 4; ++k) COMPRESS(v0,v1,v2,v3);
 
-    return (unsigned int)h;
+#undef rotl64
+#undef COMPRESS
+#undef HALF_ROUND
+    return (unsigned int)((v0 ^ v1) ^ (v2 ^ v3));
 }
 
 /* And a case insensitive hash function (based on djb hash) */

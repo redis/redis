@@ -640,6 +640,7 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     ucontext_t *uc = (ucontext_t*) secret;
     sds infostring, clients;
     struct sigaction act;
+    int i;
     REDIS_NOTUSED(info);
 
     bugReportStart();
@@ -656,8 +657,12 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     /* Log INFO and CLIENT LIST */
     redisLog(REDIS_WARNING, "--- INFO OUTPUT");
     infostring = genRedisInfoString("all");
-    infostring = sdscatprintf(infostring, "hash_init_value: %u\n",
-        dictGetHashFunctionSeed());
+
+    infostring = sdscatprintf(infostring, "hash_init_value: ");
+    for (i = 0; i < 16; i++)
+        infostring = sdscatprintf(infostring, "%02x", dictGetHashFunctionSeed()[i]);
+    infostring = sdscatprintf(infostring, "\n");
+
     redisLogRaw(REDIS_WARNING, infostring);
     redisLog(REDIS_WARNING, "--- CLIENT LIST OUTPUT");
     clients = getAllClientsInfoString();
