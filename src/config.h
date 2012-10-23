@@ -55,6 +55,16 @@
 /* Define rdb_fsync_range to sync_file_range() on Linux, otherwise we use
  * the plain fsync() call. */
 #ifdef __linux__
+#include <linux/version.h>
+#include <features.h>
+#if LINUX_VERSION_CODE >= 0x020617 && __GLIBC_PREREQ(2, 5)
+#define HAVE_SYNC_FILE_RANGE 1
+#else
+#define HAVE_SYNC_FILE_RANGE 0
+#endif
+#endif
+
+#if HAVE_SYNC_FILE_RANGE==1 && defined(__linux__)
 #define rdb_fsync_range(fd,off,size) sync_file_range(fd,off,size,SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE)
 #else
 #define rdb_fsync_range(fd,off,size) fsync(fd)
