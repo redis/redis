@@ -5,6 +5,8 @@
 #include <AvailabilityMacros.h>
 #endif
 
+#include "config_def.h"
+
 /* Define redis_fstat to fstat or fstat64() */
 #if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
 #define redis_fstat fstat64
