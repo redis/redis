@@ -119,7 +119,7 @@ it the proper way for a production system, we have a script doing this
 for Ubuntu and Debian systems:
 
     % cd utils
-    % ./install_server
+    % ./install_server.sh
 
 The script will ask you a few questions and will setup everything you need
 to run Redis properly as a background daemon that will start again on
