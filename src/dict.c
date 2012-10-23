@@ -103,18 +103,14 @@ uint8_t *dictGetHashFunctionSeed(void) {
 unsigned int dictGenHashFunction(const unsigned char *buf, int len) {
     uint64_t n = len;
     uint64_t v0, v1, v2, v3;
-    uint64_t k0, k1;
     uint64_t mi, mask, length;
     size_t i, k;
-    
-  
-    k0 = *((uint64_t*)(dict_hash_function_seed + 0));
-    k1 = *((uint64_t*)(dict_hash_function_seed + 8));
+    uint64_t *key = (uint64_t*)dict_hash_function_seed;
 
-    v0 = k0 ^ 0x736f6d6570736575ULL;
-    v1 = k1 ^ 0x646f72616e646f6dULL;
-    v2 = k0 ^ 0x6c7967656e657261ULL;
-    v3 = k1 ^ 0x7465646279746573ULL;
+    v0 = key[0] ^ 0x736f6d6570736575ULL;
+    v1 = key[1] ^ 0x646f72616e646f6dULL;
+    v2 = key[0] ^ 0x6c7967656e657261ULL;
+    v3 = key[1] ^ 0x7465646279746573ULL;
 
 #define rotl64(x, c) ( ((x) << (c)) ^ ((x) >> (64-(c))) )
 
@@ -160,7 +156,7 @@ unsigned int dictGenHashFunction(const unsigned char *buf, int len) {
 
 /* And a case insensitive hash function (based on djb hash) */
 unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len) {
-    unsigned int hash = (unsigned int)dict_hash_function_seed;
+    unsigned int hash = 5381;
 
     while (len--)
         hash = ((hash << 5) + hash) + (tolower(*buf++)); /* hash * 33 + c */
