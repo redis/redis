@@ -107,7 +107,7 @@ proc tags {tags code} {
 }
 
 proc start_server {options {code undefined}} {
-    # If we are runnign against an external server, we just push the
+    # If we are running against an external server, we just push the
     # host/port pair in the stack the first time
     if {$::external} {
         if {[llength $::servers] == 0} {
