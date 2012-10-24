@@ -1010,6 +1010,8 @@ void startLoading(FILE *fp) {
 /* Refresh the loading progress info */
 void loadingProgress(off_t pos) {
     server.loading_loaded_bytes = pos;
+    if (server.stat_peak_memory < zmalloc_used_memory())
+        server.stat_peak_memory = zmalloc_used_memory();
 }
 
 /* Loading finished */
