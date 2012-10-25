@@ -3,9 +3,13 @@
 default: all
 
 .DEFAULT:
-	cd src && $(MAKE) $@
+		cd src && $(MAKE) $@
 
 install:
-	cd src && $(MAKE) $@
+		cd src && $(MAKE) $@
+
+clean:
+		@rm -f ./get_glibc_version
 
 .PHONY: install
+
