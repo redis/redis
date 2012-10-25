@@ -57,7 +57,7 @@
 #ifdef __linux__
 #include <linux/version.h>
 #include <features.h>
-#if LINUX_VERSION_CODE >= 0x020617 && __GLIBC_PREREQ(2, 5)
+#if (LINUX_VERSION_CODE >= 0x020611 && __GLIBC_PREREQ(2, 6))==1
 #define HAVE_SYNC_FILE_RANGE 1
 #else
 #define HAVE_SYNC_FILE_RANGE 0
