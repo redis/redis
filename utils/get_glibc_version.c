@@ -13,7 +13,7 @@ int main (int argc, char* argv[])
     const char *version = gnu_get_libc_version();
     if ( version && strcmp( GLIBC_VERSION, version ) == 0 ) {
         puts ("#define __LINUX_GLIBC25__");
-        puts ("#include <unistd.h>\n");
+        puts ("#include <asm/unistd.h>\n");
     }
 #endif
 
