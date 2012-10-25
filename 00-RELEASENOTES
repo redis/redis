@@ -14,6 +14,10 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+---[ Redis 2.6.1 ]
+
+* [BUGFIX]   Compilation on Linux < 2.6.17 or glibc < 2.6 fixed (RHLE5 & co).
+
 ---[ Redis 2.6.0 ]
 
 * [BUGFIX]   Allow AUTH when server is in -BUSY state because of a slow script.
