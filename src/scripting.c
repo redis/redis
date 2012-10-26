@@ -598,6 +598,8 @@ void luaLoadLibraries(lua_State *lua) {
 void luaRemoveUnsupportedFunctions(lua_State *lua) {
     lua_pushnil(lua);
     lua_setglobal(lua,"loadfile");
+    lua_pushnil(lua);
+    lua_setglobal(lua,"dofile");
 }
 
 /* This function installs metamethods in the global table _G that prevent
