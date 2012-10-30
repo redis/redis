@@ -62,9 +62,6 @@
 #define REDIS_RDB_OPCODE_SELECTDB   254
 #define REDIS_RDB_OPCODE_EOF        255
 
-/* Test if a type is an opcode. */
-#define rdbIsOpcode(t) (t >= 253 && t <= 255)
-
 int rdbSaveType(rio *rdb, unsigned char type);
 int rdbLoadType(rio *rdb);
 int rdbSaveTime(rio *rdb, time_t t);
