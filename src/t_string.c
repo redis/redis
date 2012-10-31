@@ -26,7 +26,7 @@ void setGenericCommand(redisClient *c, int nx, robj *key, robj *val, robj *expir
         if (unit == UNIT_SECONDS) milliseconds *= 1000;
     }
 
-    if (lookupKeyWrite(c->db,key) != NULL && nx) {
+    if (nx && lookupKeyWrite(c->db,key) != NULL) {
         addReply(c,shared.czero);
         return;
     }
