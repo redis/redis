@@ -152,6 +152,7 @@
 #define REDIS_LUA_CLIENT 512 /* This is a non connected client used by Lua */
 #define REDIS_ASKING 1024   /* Client issued the ASKING command */
 #define REDIS_CLOSE_ASAP 2048 /* Close this client ASAP */
+#define REDIS_UNIX_SOCKET 4096 /* Client connected via Unix domain socket */
 
 /* Client request types */
 #define REDIS_REQ_INLINE 1
