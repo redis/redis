@@ -54,7 +54,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         /* Feed slaves that are waiting for the initial SYNC (so these commands
          * are queued in the output buffer until the initial SYNC completes),
          * or are already in sync with the master. */
-        if (slave->slaveseldb != dictid) {
+        if (server.slaveseldb != dictid) {
             robj *selectcmd;
 
             if (dictid >= 0 && dictid < REDIS_SHARED_SELECT_CMDS) {
@@ -66,11 +66,11 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
             }
             addReply(slave,selectcmd);
             decrRefCount(selectcmd);
-            slave->slaveseldb = dictid;
         }
         addReplyMultiBulkLen(slave,argc);
         for (j = 0; j < argc; j++) addReplyBulk(slave,argv[j]);
     }
+    server.slaveseldb = dictid;
 }
 
 void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **argv, int argc) {
@@ -177,7 +177,7 @@ void syncCommand(redisClient *c) {
         anetDisableTcpNoDelay(NULL, c->fd); /* Non critical if it fails. */
     c->repldbfd = -1;
     c->flags |= REDIS_SLAVE;
-    c->slaveseldb = 0;
+    server.slaveseldb = -1; /* Force to re-emit the SELECT command. */
     listAddNodeTail(server.slaves,c);
     return;
 }
