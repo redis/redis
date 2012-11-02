@@ -593,7 +593,7 @@ typedef struct {
 struct redisServer {
     /* General */
     redisDb *db;
-    dict *commands;             /* Command table hahs table */
+    dict *commands;             /* Command table hash table */
     aeEventLoop *el;
     unsigned lruclock:22;       /* Clock incrementing every minute, for LRU */
     unsigned lruclock_padding:10;
