@@ -663,6 +663,9 @@ void process() {
                ((uint64_t)p[7] << 56);
         if (crc != crc2) {
             SHIFT_ERROR(positions[0].offset, "RDB CRC64 does not match.");
+            if(num_errors == 0) {
+                exit(1);
+            }
         } else {
             printf("CRC64 checksum is OK\n");
         }
@@ -671,7 +674,7 @@ void process() {
     /* print summary on errors */
     if (num_errors) {
         printf("\n");
-        printf("Total unprocessable opcodes: %llu\n",
+        ERROR("Total unprocessable opcodes: %llu\n",
             (unsigned long long) num_errors);
     }
 }
