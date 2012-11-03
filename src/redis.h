@@ -197,7 +197,7 @@
 #define REDIS_CLIENT_LIMIT_CLASS_PUBSUB 2
 #define REDIS_CLIENT_LIMIT_NUM_CLASSES 3
 
-/* Slave replication state - slave side */
+/* Slave replication state - from the point of view of the slave. */
 #define REDIS_REPL_NONE 0 /* No active replication */
 #define REDIS_REPL_CONNECT 1 /* Must connect to master */
 #define REDIS_REPL_CONNECTING 2 /* Connecting to master */
@@ -205,17 +205,17 @@
 #define REDIS_REPL_TRANSFER 4 /* Receiving .rdb from master */
 #define REDIS_REPL_CONNECTED 5 /* Connected to master */
 
-/* Synchronous read timeout - slave side */
-#define REDIS_REPL_SYNCIO_TIMEOUT 5
-
-/* Slave replication state - from the point of view of master
- * Note that in SEND_BULK and ONLINE state the slave receives new updates
+/* Slave replication state - from the point of view of the master.
+ * In SEND_BULK and ONLINE state the slave receives new updates
  * in its output queue. In the WAIT_BGSAVE state instead the server is waiting
  * to start the next background saving in order to send updates to it. */
-#define REDIS_REPL_WAIT_BGSAVE_START 3 /* master waits bgsave to start feeding it */
-#define REDIS_REPL_WAIT_BGSAVE_END 4 /* master waits bgsave to start bulk DB transmission */
-#define REDIS_REPL_SEND_BULK 5 /* master is sending the bulk DB */
-#define REDIS_REPL_ONLINE 6 /* bulk DB already transmitted, receive updates */
+#define REDIS_REPL_WAIT_BGSAVE_START 6 /* We need to produce a new RDB file. */
+#define REDIS_REPL_WAIT_BGSAVE_END 7 /* Waiting RDB file creation to finish. */
+#define REDIS_REPL_SEND_BULK 8 /* Sending RDB file to slave. */
+#define REDIS_REPL_ONLINE 9 /* RDB file transmitted, sending just updates. */
+
+/* Synchronous read timeout - slave side */
+#define REDIS_REPL_SYNCIO_TIMEOUT 5
 
 /* List related stuff */
 #define REDIS_HEAD 0
