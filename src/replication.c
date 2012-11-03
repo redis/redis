@@ -803,23 +803,23 @@ void replicationCron(void) {
     if (!(server.cronloops % (server.repl_ping_slave_period * server.hz))) {
         listIter li;
         listNode *ln;
+        robj *ping_argv[1];
 
+        /* First, send PING */
+        ping_argv[0] = createStringObject("PING",4);
+        replicationFeedSlaves(server.slaves, server.slaveseldb, ping_argv, 1);
+        decrRefCount(ping_argv[0]);
+
+        /* Second, send a newline to all the slaves in pre-synchronization stage,
+         * that is, slaves waiting for the master to create the RDB file.
+         * The newline will be ignored by the slave but will refresh the
+         * last-io timer preventing a timeout. */
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
             redisClient *slave = ln->value;
 
-            /* Don't ping slaves that are in the middle of a bulk transfer
-             * with the master for first synchronization. */
-            if (slave->replstate == REDIS_REPL_SEND_BULK) continue;
-            if (slave->replstate == REDIS_REPL_ONLINE) {
-                /* If the slave is online send a normal ping */
-                addReplySds(slave,sdsnew("*1\r\n$4\r\nPING\r\n"));
-            } else {
-                /* Otherwise we are in the pre-synchronization stage.
-                 * Just a newline will do the work of refreshing the
-                 * connection last interaction time, and at the same time
-                 * we'll be sure that being a single char there are no
-                 * short-write problems. */
+            if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_START ||
+                slave->replstate == REDIS_REPL_WAIT_BGSAVE_END) {
                 if (write(slave->fd, "\n", 1) == -1) {
                     /* Don't worry, it's just a ping. */
                 }
