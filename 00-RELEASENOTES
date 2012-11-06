@@ -14,6 +14,14 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+$--[ Redis 2.6.3 ]
+
+* [BUGFIX]   Fixed 32 bit build on Linux systems.
+* [BUGFIX]   MONITOR and CLIENT LIST: propertly display unix socket clients.
+* [IMPROVED] redis-cli inline help updated.
+* [IMPROVED] Marginally more robust AOF child handling.
+* [IMPROVED] Fixed a few typos in comments.
+
 $--[ Redis 2.6.2 ]
 
 * [BUGFIX]   The compilation fix for RHLE5 in 2.6.1 was broken. Fixed.
