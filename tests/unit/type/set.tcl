@@ -35,7 +35,7 @@ start_server {
 
     test {SADD against non set} {
         r lpush mylist foo
-        assert_error ERR*kind* {r sadd mylist bar}
+        assert_error WRONGTYPE* {r sadd mylist bar}
     }
 
     test "SADD a non-integer against an intset" {
@@ -215,12 +215,12 @@ start_server {
 
     test "SINTER against non-set should throw error" {
         r set key1 x
-        assert_error "ERR*wrong kind*" {r sinter key1 noset}
+        assert_error "WRONGTYPE*" {r sinter key1 noset}
     }
 
     test "SUNION against non-set should throw error" {
         r set key1 x
-        assert_error "ERR*wrong kind*" {r sunion key1 noset}
+        assert_error "WRONGTYPE*" {r sunion key1 noset}
     }
 
     test "SINTER should handle non existing key as empty" {
@@ -445,12 +445,12 @@ start_server {
 
     test "SMOVE wrong src key type" {
         r set x 10
-        assert_error "ERR*wrong kind*" {r smove x myset2 foo}
+        assert_error "WRONGTYPE*" {r smove x myset2 foo}
     }
 
     test "SMOVE wrong dst key type" {
         r set x 10
-        assert_error "ERR*wrong kind*" {r smove myset2 x foo}
+        assert_error "WRONGTYPE*" {r smove myset2 x foo}
     }
 
     test "SMOVE with identical source and destination" {

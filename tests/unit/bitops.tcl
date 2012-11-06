@@ -170,7 +170,7 @@ start_server {tags {"bitops"}} {
         r lpush c foo
         catch {r bitop xor dest a b c d} e
         set e
-    } {*ERR*}
+    } {WRONGTYPE*}
 
     test {BITOP with empty string after non empty string (issue #529)} {
         r flushdb
