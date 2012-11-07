@@ -23,6 +23,22 @@ start_server {tags {"dump"}} {
         set e
     } {*is busy*}
 
+    test {RESTORE can overwrite an existing key with REPLACE} {
+        r set foo bar1
+        set encoded1 [r dump foo]
+        r set foo bar2
+        set encoded2 [r dump foo]
+        r del foo
+        r restore foo 0 $encoded1
+        r restore foo 0 $encoded2 replace
+        r get foo
+    } {bar2}
+
+    test {RESTORE can detect a syntax error for unrecongized options} {
+        catch {r restore foo 0 "..." invalid-option} e
+        set e
+    } {*syntax*}
+
     test {DUMP of non existing key returns nil} {
         r dump nonexisting_key
     } {}
