@@ -62,6 +62,47 @@ start_server {tags {"dump"}} {
         }
     }
 
+    test {MIGRATE is able to copy a key between two instances} {
+        set first [srv 0 client]
+        r del list
+        r lpush list a b c d
+        start_server {tags {"repl"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            assert {[$first exists list] == 1}
+            assert {[$second exists list] == 0}
+            set ret [r -1 migrate $second_host $second_port list 9 5000 copy]
+            assert {$ret eq {OK}}
+            assert {[$first exists list] == 1}
+            assert {[$second exists list] == 1}
+            assert {[$first lrange list 0 -1] eq [$second lrange list 0 -1]}
+        }
+    }
+
+    test {MIGRATE will not overwrite existing keys, unless REPLACE is used} {
+        set first [srv 0 client]
+        r del list
+        r lpush list a b c d
+        start_server {tags {"repl"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            assert {[$first exists list] == 1}
+            assert {[$second exists list] == 0}
+            $second set list somevalue
+            catch {r -1 migrate $second_host $second_port list 9 5000 copy} e
+            assert_match {ERR*} $e
+            set res [r -1 migrate $second_host $second_port list 9 5000 copy replace]
+            assert {$ret eq {OK}}
+            assert {[$first exists list] == 1}
+            assert {[$second exists list] == 1}
+            assert {[$first lrange list 0 -1] eq [$second lrange list 0 -1]}
+        }
+    }
+
     test {MIGRATE propagates TTL correctly} {
         set first [srv 0 client]
         r set key "Some Value"
