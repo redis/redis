@@ -1,5 +1,4 @@
 /* Redis Sentinel implementation
- * -----------------------------
  *
  * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
