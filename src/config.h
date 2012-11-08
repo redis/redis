@@ -25,7 +25,7 @@
 #endif
 
 /* Test for backtrace() */
-#if defined(__APPLE__) || defined(__linux__) || defined(__sun)
+#if defined(__APPLE__) || defined(__linux__)
 #define HAVE_BACKTRACE 1
 #endif
 
