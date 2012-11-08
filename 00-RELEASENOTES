@@ -14,24 +14,28 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
-$--[ Redis 2.6.3 ]
+--[ Redis 2.6.4 ]
 
-* [BUGFIX]   Fixed 32 bit build on Linux systems.
-* [BUGFIX]   MONITOR and CLIENT LIST: propertly display unix socket clients.
-* [IMPROVED] redis-cli inline help updated.
-* [IMPROVED] Marginally more robust AOF child handling.
-* [IMPROVED] Fixed a few typos in comments.
+UPGRADE URGENCY: LOW
 
-$--[ Redis 2.6.2 ]
+* [IMPROVED] BSD license and copyright notice added to every .c and .h file.
+
+--[ Redis 2.6.2 ]
+
+UPGRADE URGENCY: LOW
 
 * [BUGFIX]   The compilation fix for RHLE5 in 2.6.1 was broken. Fixed.
 * [IMPROVED] Linenoise updated, now supports Ctrl+w.
 
 ---[ Redis 2.6.1 ]
 
+UPGRADE URGENCY: LOW
+
 * [BUGFIX]   Compilation on Linux < 2.6.17 or glibc < 2.6 fixed (RHLE5 & co).
 
 ---[ Redis 2.6.0 ]
+
+UPGRADE URGENCY: HIGH
 
 * [BUGFIX]   Allow AUTH when server is in -BUSY state because of a slow script.
 * [BUGFIX]   MULTI/EXEC flow now makes sense when observed in MONITOR
