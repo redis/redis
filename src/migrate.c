@@ -157,7 +157,7 @@ void migrateCommand(redisClient *c) {
             server.neterr);
         return;
     }
-    if ((aeWait(fd,AE_WRITABLE,timeout*1000) & AE_WRITABLE) == 0) {
+    if ((aeWait(fd,AE_WRITABLE,timeout) & AE_WRITABLE) == 0) {
         close(fd);
         addReplySds(c,sdsnew("-IOERR error or timeout connecting to the client\r\n"));
         return;
