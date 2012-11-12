@@ -1688,7 +1688,7 @@ int migrateGetSocket(redisClient *c, robj *host, robj *port, long timeout) {
     anetTcpNoDelay(server.neterr,fd);
 
     /* Check if it connects within the specified timeout. */
-    if ((aeWait(fd,AE_WRITABLE,timeout*1000) & AE_WRITABLE) == 0) {
+    if ((aeWait(fd,AE_WRITABLE,timeout) & AE_WRITABLE) == 0) {
         sdsfree(name);
         addReplySds(c,sdsnew("-IOERR error or timeout connecting to the client\r\n"));
         close(fd);
