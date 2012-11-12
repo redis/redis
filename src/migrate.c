@@ -139,7 +139,7 @@ void migrateCommand(redisClient *c) {
         return;
     if (getLongFromObjectOrReply(c,c->argv[4],&dbid,NULL) != REDIS_OK)
         return;
-    if (timeout <= 0) timeout = 1;
+    if (timeout <= 0) timeout = 1000;
 
     /* Check if the key is here. If not we reply with success as there is
      * nothing to migrate (for instance the key expired in the meantime), but
