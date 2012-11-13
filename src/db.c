@@ -512,12 +512,14 @@ void propagateExpire(redisDb *db, robj *key) {
 }
 
 int expireIfNeeded(redisDb *db, robj *key) {
-    long long when = getExpire(db,key);
-
-    if (when < 0) return 0; /* No expire for this key */
+    long long when;
 
     /* Don't expire anything while loading. It will be done later. */
     if (server.loading) return 0;
+
+    when = getExpire(db,key);
+    if (when < 0) return 0; /* No expire for this key */
+
 
     /* If we are running in the context of a slave, return ASAP:
      * the slave key expiration is controlled by the master that will
