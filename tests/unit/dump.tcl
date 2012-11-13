@@ -186,4 +186,23 @@ start_server {tags {"dump"}} {
             assert_match {IOERR*} $e
         }
     }
+
+    test {MIGRATE is caching connections} {
+        set first [srv 0 client]
+        r set key "Some Value"
+        start_server {tags {"repl"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            assert {[$first exists key] == 1}
+            assert {[$second exists key] == 0}
+
+            set rd [redis_deferring_client]
+            $rd debug sleep 5.0 ; # Make second server unable to reply.
+            set e {}
+            catch {r -1 migrate $second_host $second_port key 9 1000} e
+            assert_match {IOERR*} $e
+        }
+    }
 }
