@@ -1772,7 +1772,7 @@ try_again:
         return;
     if (getLongFromObjectOrReply(c,c->argv[4],&dbid,NULL) != REDIS_OK)
         return;
-    if (timeout <= 0) timeout = 1000;
+    if (timeout <= 0) timeout = DEFAULT_REDIS_CLUSTER_TIMEOUT;
 
     /* Check if the key is here. If not we reply with success as there is
      * nothing to migrate (for instance the key expired in the meantime), but
