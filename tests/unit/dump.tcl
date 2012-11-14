@@ -43,6 +43,27 @@ start_server {tags {"dump"}} {
         r dump nonexisting_key
     } {}
 
+    test {MIGRATE is caching connections} {
+        # Note, we run this as first test so that the connection cache
+        # is empty.
+        set first [srv 0 client]
+        r set key "Some Value"
+        start_server {tags {"repl"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+
+            assert_match {*migrate_cached_sockets:0*} [r -1 info]
+            r -1 migrate $second_host $second_port key 9 1000
+            assert_match {*migrate_cached_sockets:1*} [r -1 info]
+        }
+    }
+
+    test {MIGRATE cached connections are released after some time} {
+        after 15000
+        assert_match {*migrate_cached_sockets:0*} [r info]
+    }
+
     test {MIGRATE is able to migrate a key between two instances} {
         set first [srv 0 client]
         r set key "Some Value"
@@ -180,28 +201,9 @@ start_server {tags {"dump"}} {
             assert {[$second exists key] == 0}
 
             set rd [redis_deferring_client]
-            $rd debug sleep 5.0 ; # Make second server unable to reply.
+            $rd debug sleep 1.0 ; # Make second server unable to reply.
             set e {}
-            catch {r -1 migrate $second_host $second_port key 9 1000} e
-            assert_match {IOERR*} $e
-        }
-    }
-
-    test {MIGRATE is caching connections} {
-        set first [srv 0 client]
-        r set key "Some Value"
-        start_server {tags {"repl"}} {
-            set second [srv 0 client]
-            set second_host [srv 0 host]
-            set second_port [srv 0 port]
-
-            assert {[$first exists key] == 1}
-            assert {[$second exists key] == 0}
-
-            set rd [redis_deferring_client]
-            $rd debug sleep 5.0 ; # Make second server unable to reply.
-            set e {}
-            catch {r -1 migrate $second_host $second_port key 9 1000} e
+            catch {r -1 migrate $second_host $second_port key 9 500} e
             assert_match {IOERR*} $e
         }
     }

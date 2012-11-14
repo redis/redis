@@ -11,6 +11,7 @@ source tests/support/util.tcl
 
 set ::all_tests {
     unit/printver
+    unit/dump
     unit/auth
     unit/protocol
     unit/basic
@@ -40,7 +41,6 @@ set ::all_tests {
     unit/introspection
     unit/limits
     unit/obuf-limits
-    unit/dump
     unit/bitops
 }
 # Index to the next test to run in the ::all_tests list.
