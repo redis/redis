@@ -520,7 +520,6 @@ int expireIfNeeded(redisDb *db, robj *key) {
     when = getExpire(db,key);
     if (when < 0) return 0; /* No expire for this key */
 
-
     /* If we are running in the context of a slave, return ASAP:
      * the slave key expiration is controlled by the master that will
      * send us synthesized DEL operations for expired keys.

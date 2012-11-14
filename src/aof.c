@@ -879,8 +879,6 @@ int rewriteAppendOnlyFile(char *filename) {
             o = dictGetVal(de);
             initStaticStringObject(key,keystr);
 
-            expiretime = getExpire(db,&key);
-
             /* Save the key and associated value */
             if (o->type == REDIS_STRING) {
                 /* Emit a SET command */
@@ -900,7 +898,9 @@ int rewriteAppendOnlyFile(char *filename) {
             } else {
                 redisPanic("Unknown object type");
             }
+
             /* Save the expire time */
+            expiretime = getExpire(db,&key);
             if (expiretime != -1) {
                 char cmd[]="*3\r\n$9\r\nPEXPIREAT\r\n";
                 /* If this key is already expired skip it */

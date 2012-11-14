@@ -139,7 +139,6 @@ void computeDatasetDigest(unsigned char *final) {
 
             aux = htonl(o->type);
             mixDigest(digest,&aux,sizeof(aux));
-            expiretime = getExpire(db,keyobj);
 
             /* Save the key and associated value */
             if (o->type == REDIS_STRING) {
@@ -235,6 +234,7 @@ void computeDatasetDigest(unsigned char *final) {
                 redisPanic("Unknown object type");
             }
             /* If the key has an expire, add it to the mix */
+            expiretime = getExpire(db,keyobj);
             if (expiretime != -1) xorDigest(digest,"!!expire!!",10);
             /* We can finally xor the key-val digest to the final digest */
             xorDigest(final,digest,20);
