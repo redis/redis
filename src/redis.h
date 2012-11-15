@@ -169,19 +169,20 @@
 #define REDIS_AOF_WAIT_REWRITE 2    /* AOF waits rewrite to start appending */
 
 /* Client flags */
-#define REDIS_SLAVE 1       /* This client is a slave server */
-#define REDIS_MASTER 2      /* This client is a master server */
-#define REDIS_MONITOR 4     /* This client is a slave monitor, see MONITOR */
-#define REDIS_MULTI 8       /* This client is in a MULTI context */
-#define REDIS_BLOCKED 16    /* The client is waiting in a blocking operation */
-#define REDIS_DIRTY_CAS 64  /* Watched keys modified. EXEC will fail. */
-#define REDIS_CLOSE_AFTER_REPLY 128 /* Close after writing entire reply. */
-#define REDIS_UNBLOCKED 256 /* This client was unblocked and is stored in
-                               server.unblocked_clients */
-#define REDIS_LUA_CLIENT 512 /* This is a non connected client used by Lua */
-#define REDIS_ASKING 1024   /* Client issued the ASKING command */
-#define REDIS_CLOSE_ASAP 2048 /* Close this client ASAP */
-#define REDIS_UNIX_SOCKET 4096 /* Client connected via Unix domain socket */
+#define REDIS_SLAVE (1<<0)   /* This client is a slave server */
+#define REDIS_MASTER (1<<1)  /* This client is a master server */
+#define REDIS_MONITOR (1<<2) /* This client is a slave monitor, see MONITOR */
+#define REDIS_MULTI (1<<3)   /* This client is in a MULTI context */
+#define REDIS_BLOCKED (1<<4) /* The client is waiting in a blocking operation */
+#define REDIS_DIRTY_CAS (1<<5) /* Watched keys modified. EXEC will fail. */
+#define REDIS_CLOSE_AFTER_REPLY (1<<6) /* Close after writing entire reply. */
+#define REDIS_UNBLOCKED (1<<7) /* This client was unblocked and is stored in
+                                  server.unblocked_clients */
+#define REDIS_LUA_CLIENT (1<<8) /* This is a non connected client used by Lua */
+#define REDIS_ASKING (1<<9)     /* Client issued the ASKING command */
+#define REDIS_CLOSE_ASAP (1<<10)/* Close this client ASAP */
+#define REDIS_UNIX_SOCKET (1<<11) /* Client connected via Unix domain socket */
+#define REDIS_DIRTY_EXEC (1<<12)  /* EXEC will fail for errors while queueing */
 
 /* Client request types */
 #define REDIS_REQ_INLINE 1
@@ -425,7 +426,7 @@ struct sharedObjectsStruct {
     *colon, *nullbulk, *nullmultibulk, *queued,
     *emptymultibulk, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
     *outofrangeerr, *noscripterr, *loadingerr, *slowscripterr, *bgsaveerr,
-    *masterdownerr, *roslaveerr,
+    *masterdownerr, *roslaveerr, *execaborterr,
     *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop,
     *lpush,
@@ -845,6 +846,7 @@ void queueMultiCommand(redisClient *c);
 void touchWatchedKey(redisDb *db, robj *key);
 void touchWatchedKeysOnFlush(int dbid);
 void discardTransaction(redisClient *c);
+void flagTransaction(redisClient *c);
 
 /* Redis object implementation */
 void decrRefCount(void *o);
