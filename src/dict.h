@@ -1,11 +1,11 @@
 /* Hash Tables Implementation.
  *
- * This file implements in memory hash tables with insert/del/replace/find/
- * get-random-element operations. Hash tables will auto resize if needed
+ * This file implements in-memory hash tables with insert/del/replace/find/
+ * get-random-element operations. Hash tables will auto-resize if needed
  * tables of power of two in size are used, collisions are handled by
  * chaining. See the source code for more information... :)
  *
- * Copyright (c) 2006-2010, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2006-2012, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -80,7 +80,7 @@ typedef struct dict {
     int iterators; /* number of iterators currently running */
 } dict;
 
-/* If safe is set to 1 this is a safe iteartor, that means, you can call
+/* If safe is set to 1 this is a safe iterator, that means, you can call
  * dictAdd, dictFind, and other functions against the dictionary even while
  * iterating. Otherwise it is a non safe iterator, and only dictNext()
  * should be called while iterating. */
@@ -155,7 +155,7 @@ dictEntry *dictNext(dictIterator *iter);
 void dictReleaseIterator(dictIterator *iter);
 dictEntry *dictGetRandomKey(dict *d);
 void dictPrintStats(dict *d);
-unsigned int dictGenHashFunction(const unsigned char *buf, int len);
+unsigned int dictGenHashFunction(const void *key, int len);
 unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len);
 void dictEmpty(dict *d);
 void dictEnableResize(void);

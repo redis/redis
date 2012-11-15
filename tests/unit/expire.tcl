@@ -121,12 +121,30 @@ start_server {tags {"expire"}} {
         list $a $b
     } {somevalue {}}
 
-    test {PTTL returns millisecond time to live} {
+    test {TTL returns tiem to live in seconds} {
+        r del x
+        r setex x 10 somevalue
+        set ttl [r ttl x]
+        assert {$ttl > 8 && $ttl <= 10}
+    }
+
+    test {PTTL returns time to live in milliseconds} {
         r del x
         r setex x 1 somevalue
         set ttl [r pttl x]
         assert {$ttl > 900 && $ttl <= 1000}
     }
+
+    test {TTL / PTTL return -1 if key has no expire} {
+        r del x
+        r set x hello
+        list [r ttl x] [r pttl x]
+    } {-1 -1}
+
+    test {TTL / PTTL return -2 if key does not exit} {
+        r del x
+        list [r ttl x] [r pttl x]
+    } {-2 -2}
 
     test {Redis should actively expire keys incrementally} {
         r flushdb

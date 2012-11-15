@@ -95,6 +95,14 @@ proc randomInt {max} {
     expr {int(rand()*$max)}
 }
 
+proc randomSignedInt {max} {
+    set i [randomInt $max]
+    if {rand() > 0.5} {
+        set i -$i
+    }
+    return $i
+}
+
 proc randpath args {
     set path [expr {int(rand()*[llength $args])}]
     uplevel 1 [lindex $args $path]
@@ -103,13 +111,13 @@ proc randpath args {
 proc randomValue {} {
     randpath {
         # Small enough to likely collide
-        randomInt 1000
+        randomSignedInt 1000
     } {
         # 32 bit compressible signed/unsigned
-        randpath {randomInt 2000000000} {randomInt 4000000000}
+        randpath {randomSignedInt 2000000000} {randomSignedInt 4000000000}
     } {
         # 64 bit
-        randpath {randomInt 1000000000000}
+        randpath {randomSignedInt 1000000000000}
     } {
         # Random string
         randpath {randstring 0 256 alpha} \

@@ -143,7 +143,7 @@ start_server {tags {"basic"}} {
         catch {r incr mylist} err
         r rpop mylist
         format $err
-    } {ERR*}
+    } {WRONGTYPE*}
 
     test {DECRBY over 32bit value with over 32bit increment, negative res} {
         r set novar 17179869184
@@ -201,7 +201,7 @@ start_server {tags {"basic"}} {
         catch {r incrbyfloat mylist 1.0} err
         r del mylist
         format $err
-    } {ERR*kind*}
+    } {WRONGTYPE*}
 
     test {INCRBYFLOAT does not allow NaN or Infinity} {
         r set foo 0
@@ -531,7 +531,7 @@ start_server {tags {"basic"}} {
     test "SETBIT against key with wrong type" {
         r del mykey
         r lpush mykey "foo"
-        assert_error "*wrong kind*" {r setbit mykey 0 1}
+        assert_error "WRONGTYPE*" {r setbit mykey 0 1}
     }
 
     test "SETBIT with out of range bit offset" {
@@ -665,7 +665,7 @@ start_server {tags {"basic"}} {
     test "SETRANGE against key with wrong type" {
         r del mykey
         r lpush mykey "foo"
-        assert_error "*wrong kind*" {r setrange mykey 0 bar}
+        assert_error "WRONGTYPE*" {r setrange mykey 0 bar}
     }
 
     test "SETRANGE with out of range offset" {

@@ -1,3 +1,34 @@
+/*
+ * Copyright (c) 2009-2012, Pieter Noordhuis <pcnoordhuis at gmail dot com>
+ * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of Redis nor the names of its contributors may be used
+ *     to endorse or promote products derived from this software without
+ *     specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
+
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -31,6 +62,7 @@
 #define REDIS_ENCODING_HT 3     /* Encoded as an hash table */
 
 /* Object types only used for dumping to disk */
+#define REDIS_EXPIRETIME_MS 252
 #define REDIS_EXPIRETIME 253
 #define REDIS_SELECTDB 254
 #define REDIS_EOF 255
@@ -111,6 +143,16 @@ static char types[256][16];
 /* Prototypes */
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 
+/* Return true if 't' is a valid object type. */
+int checkType(unsigned char t) {
+    /* In case a new object type is added, update the following 
+     * condition as necessary. */
+    return
+        (t >= REDIS_HASH_ZIPMAP && t <= REDIS_HASH_ZIPLIST) ||
+        t <= REDIS_HASH ||
+        t >= REDIS_EXPIRETIME_MS;
+}
+
 /* when number of bytes to read is negative, do a peek */
 int readBytes(void *target, long num) {
     char peek = (num < 0) ? 1 : 0;
@@ -152,7 +194,7 @@ int loadType(entry *e) {
     /* this byte needs to qualify as type */
     unsigned char t;
     if (readBytes(&t, 1)) {
-        if (t <= 4 || (t >=9 && t <= 12) || t >= 253) {
+        if (checkType(t)) {
             e->type = t;
             return 1;
         } else {
@@ -168,16 +210,18 @@ int loadType(entry *e) {
 
 int peekType() {
     unsigned char t;
-    if (readBytes(&t, -1) && (t <= 4 || (t >=9 && t <= 12) || t >= 253))
+    if (readBytes(&t, -1) && (checkType(t)))
         return t;
     return -1;
 }
 
 /* discard time, just consume the bytes */
-int processTime() {
+int processTime(int type) {
     uint32_t offset = CURR_OFFSET;
-    unsigned char t[4];
-    if (readBytes(t, 4)) {
+    unsigned char t[8];
+    int timelen = (type == REDIS_EXPIRETIME_MS) ? 8 : 4;
+
+    if (readBytes(t,timelen)) {
         return 1;
     } else {
         SHIFT_ERROR(offset, "Could not read time");
@@ -472,8 +516,9 @@ entry loadEntry() {
         return e;
     } else {
         /* optionally consume expire */
-        if (e.type == REDIS_EXPIRETIME) {
-            if (!processTime()) return e;
+        if (e.type == REDIS_EXPIRETIME || 
+            e.type == REDIS_EXPIRETIME_MS) {
+            if (!processTime(e.type)) return e;
             if (!loadType(&e)) return e;
         }
 

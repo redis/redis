@@ -145,6 +145,12 @@ start_server {tags {"scripting"}} {
         set e
     } {*not allowed after*}
 
+    test {EVAL - No arguments to redis.call/pcall is considered an error} {
+        set e {}
+        catch {r eval {return redis.call()} 0} e
+        set e
+    } {*one argument*}
+
     test {EVAL - redis.call variant raises a Lua error on Redis cmd error (1)} {
         set e {}
         catch {
@@ -197,23 +203,23 @@ start_server {tags {"scripting"}} {
         r eval {return redis.call('smembers','myset')} 0
     } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z}
 
-    test "SORT is normally not re-ordered by the scripting engine" {
+    test "SORT is normally not alpha re-ordered for the scripting engine" {
         r del myset
         r sadd myset 1 2 3 4 10
         r eval {return redis.call('sort','myset','desc')} 0
     } {10 4 3 2 1}
 
-    test "SORT BY <constant> output gets ordered by scripting" {
+    test "SORT BY <constant> output gets ordered for scripting" {
         r del myset
         r sadd myset a b c d e f g h i l m n o p q r s t u v z aa aaa azz
         r eval {return redis.call('sort','myset','by','_')} 0
     } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z}
 
-    test "SORT output containing NULLs is well handled by scripting" {
+    test "SORT BY <constant> with GET gets ordered for scripting" {
         r del myset
         r sadd myset a b c
         r eval {return redis.call('sort','myset','by','_','get','#','get','_:*')} 0
-    } {{} {} {} a b c}
+    } {a {} b {} c {}}
 
     test "redis.sha1hex() implementation" {
         list [r eval {return redis.sha1hex('')} 0] \
@@ -295,7 +301,7 @@ start_server {tags {"scripting"}} {
         catch {r ping} e
         assert_match {BUSY*} $e
         catch {r script kill} e
-        assert_match {ERR*} $e
+        assert_match {UNKILLABLE*} $e
         catch {r ping} e
         assert_match {BUSY*} $e
     }
@@ -338,5 +344,22 @@ start_server {tags {"scripting repl"}} {
                 fail "Expected 2 in x, but value is '[r -1 get x]'"
             }
         }
+
+        test {Replication of script multiple pushes to list with BLPOP} {
+            set rd [redis_deferring_client]
+            $rd brpop a 0
+            r eval {
+                redis.call("lpush","a","1");
+                redis.call("lpush","a","2");
+            } 0
+            set res [$rd read]
+            $rd close
+            wait_for_condition 50 100 {
+                [r -1 lrange a 0 -1] eq [r lrange a 0 -1]
+            } else {
+                fail "Expected list 'a' in slave and master to be the same, but they are respectively '[r -1 lrange a 0 -1]' and '[r lrange a 0 -1]'"
+            }
+            set res
+        } {a 1}
     }
 }

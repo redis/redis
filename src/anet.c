@@ -1,6 +1,6 @@
 /* anet.c -- Basic TCP socket stuff made a bit less boring
  *
- * Copyright (c) 2006-2010, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2006-2012, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -358,6 +358,21 @@ int anetPeerToString(int fd, char *ip, int *port) {
     socklen_t salen = sizeof(sa);
 
     if (getpeername(fd,(struct sockaddr*)&sa,&salen) == -1) {
+        *port = 0;
+        ip[0] = '?';
+        ip[1] = '\0';
+        return -1;
+    }
+    if (ip) strcpy(ip,inet_ntoa(sa.sin_addr));
+    if (port) *port = ntohs(sa.sin_port);
+    return 0;
+}
+
+int anetSockName(int fd, char *ip, int *port) {
+    struct sockaddr_in sa;
+    socklen_t salen = sizeof(sa);
+
+    if (getsockname(fd,(struct sockaddr*)&sa,&salen) == -1) {
         *port = 0;
         ip[0] = '?';
         ip[1] = '\0';

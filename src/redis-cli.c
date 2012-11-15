@@ -1,6 +1,6 @@
 /* Redis CLI (command line interface)
  *
- * Copyright (c) 2009-2010, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -712,17 +712,17 @@ static void usage() {
 "  -a <password>    Password to use when connecting to the server\n"
 "  -r <repeat>      Execute specified command N times\n"
 "  -i <interval>    When -r is used, waits <interval> seconds per command.\n"
-"                   It is possible to specify sub-second times like -i 0.1.\n"
+"                   It is possible to specify sub-second times like -i 0.1\n"
 "  -n <db>          Database number\n"
 "  -x               Read last argument from STDIN\n"
 "  -d <delimiter>   Multi-bulk delimiter in for raw formatting (default: \\n)\n"
 "  -c               Enable cluster mode (follow -ASK and -MOVED redirections)\n"
 "  --raw            Use raw formatting for replies (default when STDOUT is not a tty)\n"
-"  --latency        Enter a special mode continuously sampling latency.\n"
-"  --slave          Simulate a slave showing commands received from the master.\n"
-"  --pipe           Transfer raw Redis protocol from stdin to server.\n"
-"  --bigkeys        Sample Redis keys looking for big keys.\n"
-"  --eval <file>    Send an EVAL command using the Lua script at <file>.\n"
+"  --latency        Enter a special mode continuously sampling latency\n"
+"  --slave          Simulate a slave showing commands received from the master\n"
+"  --pipe           Transfer raw Redis protocol from stdin to server\n"
+"  --bigkeys        Sample Redis keys looking for big keys\n"
+"  --eval <file>    Send an EVAL command using the Lua script at <file>\n"
 "  --help           Output this help and exit\n"
 "  --version        Output version and exit\n"
 "\n"
@@ -1233,7 +1233,7 @@ int main(int argc, char **argv) {
 
     /* Pipe mode */
     if (config.pipe_mode) {
-        cliConnect(0);
+        if (cliConnect(0) == REDIS_ERR) exit(1);
         pipeMode();
     }
 

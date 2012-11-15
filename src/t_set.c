@@ -1,8 +1,39 @@
+/*
+ * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of Redis nor the names of its contributors may be used
+ *     to endorse or promote products derived from this software without
+ *     specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #include "redis.h"
 
 /*-----------------------------------------------------------------------------
  * Set Commands
  *----------------------------------------------------------------------------*/
+
+void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *dstkey, int op);
 
 /* Factory method to return a set that *can* hold "value". When the object has
  * an integer-encodable value, an intset will be returned. Otherwise a regular
@@ -360,10 +391,164 @@ void spopCommand(redisClient *c) {
     server.dirty++;
 }
 
+/* handle the "SRANDMEMBER key <count>" variant. The normal version of the
+ * command is handled by the srandmemberCommand() function itself. */
+
+/* How many times bigger should be the set compared to the requested size
+ * for us to don't use the "remove elements" strategy? Read later in the
+ * implementation for more info. */
+#define SRANDMEMBER_SUB_STRATEGY_MUL 3
+
+void srandmemberWithCountCommand(redisClient *c) {
+    long l;
+    unsigned long count, size;
+    int uniq = 1;
+    robj *set, *ele;
+    int64_t llele;
+    int encoding;
+
+    dict *d;
+
+    if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != REDIS_OK) return;
+    if (l >= 0) {
+        count = (unsigned) l;
+    } else {
+        /* A negative count means: return the same elements multiple times
+         * (i.e. don't remove the extracted element after every extraction). */
+        count = -l;
+        uniq = 0;
+    }
+
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk))
+        == NULL || checkType(c,set,REDIS_SET)) return;
+    size = setTypeSize(set);
+
+    /* If count is zero, serve it ASAP to avoid special cases later. */
+    if (count == 0) {
+        addReply(c,shared.emptymultibulk);
+        return;
+    }
+
+    /* CASE 1: The count was negative, so the extraction method is just:
+     * "return N random elements" sampling the whole set every time.
+     * This case is trivial and can be served without auxiliary data
+     * structures. */
+    if (!uniq) {
+        addReplyMultiBulkLen(c,count);
+        while(count--) {
+            encoding = setTypeRandomElement(set,&ele,&llele);
+            if (encoding == REDIS_ENCODING_INTSET) {
+                addReplyBulkLongLong(c,llele);
+            } else {
+                addReplyBulk(c,ele);
+            }
+        }
+        return;
+    }
+
+    /* CASE 2:
+     * The number of requested elements is greater than the number of
+     * elements inside the set: simply return the whole set. */
+    if (count >= size) {
+        sunionDiffGenericCommand(c,c->argv,c->argc-1,NULL,REDIS_OP_UNION);
+        return;
+    }
+
+    /* For CASE 3 and CASE 4 we need an auxiliary dictionary. */
+    d = dictCreate(&setDictType,NULL);
+
+    /* CASE 3:
+     * The number of elements inside the set is not greater than
+     * SRANDMEMBER_SUB_STRATEGY_MUL times the number of requested elements.
+     * In this case we create a set from scratch with all the elements, and
+     * subtract random elements to reach the requested number of elements.
+     *
+     * This is done because if the number of requsted elements is just
+     * a bit less than the number of elements in the set, the natural approach
+     * used into CASE 3 is highly inefficient. */
+    if (count*SRANDMEMBER_SUB_STRATEGY_MUL > size) {
+        setTypeIterator *si;
+
+        /* Add all the elements into the temporary dictionary. */
+        si = setTypeInitIterator(set);
+        while((encoding = setTypeNext(si,&ele,&llele)) != -1) {
+            int retval;
+
+            if (encoding == REDIS_ENCODING_INTSET) {
+                retval = dictAdd(d,createStringObjectFromLongLong(llele),NULL);
+            } else if (ele->encoding == REDIS_ENCODING_RAW) {
+                retval = dictAdd(d,dupStringObject(ele),NULL);
+            } else if (ele->encoding == REDIS_ENCODING_INT) {
+                retval = dictAdd(d,
+                    createStringObjectFromLongLong((long)ele->ptr),NULL);
+            }
+            redisAssert(retval == DICT_OK);
+        }
+        setTypeReleaseIterator(si);
+        redisAssert(dictSize(d) == size);
+
+        /* Remove random elements to reach the right count. */
+        while(size > count) {
+            dictEntry *de;
+
+            de = dictGetRandomKey(d);
+            dictDelete(d,dictGetKey(de));
+            size--;
+        }
+    }
+    
+    /* CASE 4: We have a big set compared to the requested number of elements.
+     * In this case we can simply get random elements from the set and add
+     * to the temporary set, trying to eventually get enough unique elements
+     * to reach the specified count. */
+    else {
+        unsigned long added = 0;
+
+        while(added < count) {
+            encoding = setTypeRandomElement(set,&ele,&llele);
+            if (encoding == REDIS_ENCODING_INTSET) {
+                ele = createStringObjectFromLongLong(llele);
+            } else if (ele->encoding == REDIS_ENCODING_RAW) {
+                ele = dupStringObject(ele);
+            } else if (ele->encoding == REDIS_ENCODING_INT) {
+                ele = createStringObjectFromLongLong((long)ele->ptr);
+            }
+            /* Try to add the object to the dictionary. If it already exists
+             * free it, otherwise increment the number of objects we have
+             * in the result dictionary. */
+            if (dictAdd(d,ele,NULL) == DICT_OK)
+                added++;
+            else
+                decrRefCount(ele);
+        }
+    }
+
+    /* CASE 3 & 4: send the result to the user. */
+    {
+        dictIterator *di;
+        dictEntry *de;
+
+        addReplyMultiBulkLen(c,count);
+        di = dictGetIterator(d);
+        while((de = dictNext(di)) != NULL)
+            addReplyBulk(c,dictGetKey(de));
+        dictReleaseIterator(di);
+        dictRelease(d);
+    }
+}
+
 void srandmemberCommand(redisClient *c) {
     robj *set, *ele;
     int64_t llele;
     int encoding;
+
+    if (c->argc == 3) {
+        srandmemberWithCountCommand(c);
+        return;
+    } else if (c->argc > 3) {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
 
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
         checkType(c,set,REDIS_SET)) return;

@@ -76,12 +76,17 @@
 /* Flag that is set when the async context has one or more subscriptions. */
 #define REDIS_SUBSCRIBED 0x20
 
+/* Flag that is set when monitor mode is active */
+#define REDIS_MONITORING 0x40
+
 #define REDIS_REPLY_STRING 1
 #define REDIS_REPLY_ARRAY 2
 #define REDIS_REPLY_INTEGER 3
 #define REDIS_REPLY_NIL 4
 #define REDIS_REPLY_STATUS 5
 #define REDIS_REPLY_ERROR 6
+
+#define REDIS_READER_MAX_BUF (1024*16)  /* Default max unused reader buffer. */
 
 #ifdef __cplusplus
 extern "C" {
@@ -122,6 +127,7 @@ typedef struct redisReader {
     char *buf; /* Read buffer */
     size_t pos; /* Buffer cursor */
     size_t len; /* Buffer length */
+    size_t maxbuf; /* Max length of unused buffer */
 
     redisReadTask rstack[9];
     int ridx; /* Index of current read task */
