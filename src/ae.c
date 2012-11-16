@@ -364,7 +364,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             }
         }
 
-        if ( ++ eventLoop->events_offset > eventLoop->setsize )
+        if ( ++ eventLoop->events_offset >= eventLoop->setsize )
             eventLoop->events_offset = 0;
         numevents = aeApiPoll(eventLoop, tvp);
         for (j = 0; j < numevents; j++) {
