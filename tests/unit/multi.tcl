@@ -1,4 +1,51 @@
-start_server {tags {"cas"}} {
+start_server {tags {"multi"}} {
+    test {MUTLI / EXEC basics} {
+        r del mylist
+        r rpush mylist a
+        r rpush mylist b
+        r rpush mylist c
+        r multi
+        set v1 [r lrange mylist 0 -1]
+        set v2 [r ping]
+        set v3 [r exec]
+        list $v1 $v2 $v3
+    } {QUEUED QUEUED {{a b c} PONG}}
+
+    test {DISCARD} {
+        r del mylist
+        r rpush mylist a
+        r rpush mylist b
+        r rpush mylist c
+        r multi
+        set v1 [r del mylist]
+        set v2 [r discard]
+        set v3 [r lrange mylist 0 -1]
+        list $v1 $v2 $v3
+    } {QUEUED OK {a b c}}
+
+    test {Nested MULTI are not allowed} {
+        set err {}
+        r multi
+        catch {[r multi]} err
+        r exec
+        set _ $err
+    } {*ERR MULTI*}
+
+    test {MULTI where commands alter argc/argv} {
+        r sadd myset a
+        r multi
+        r spop myset
+        list [r exec] [r exists myset]
+    } {a 0}
+
+    test {WATCH inside MULTI is not allowed} {
+        set err {}
+        r multi
+        catch {[r watch x]} err
+        r exec
+        set _ $err
+    } {*ERR WATCH*}
+
     test {EXEC works on WATCHed key not modified} {
         r watch x y z
         r watch k

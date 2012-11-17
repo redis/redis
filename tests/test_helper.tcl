@@ -24,7 +24,7 @@ set ::all_tests {
     unit/sort
     unit/expire
     unit/other
-    unit/cas
+    unit/multi
     unit/quit
     unit/aofrw
     integration/replication
