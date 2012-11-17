@@ -74,6 +74,17 @@ start_server {tags {"multi"}} {
         list [r exists foo1] [r exists foo2]
     } {0 0}
 
+    test {If EXEC aborts, the client MULTI state is cleared} {
+        r del foo1 foo2
+        r multi
+        r set foo1 bar1
+        catch {r non-existing-command}
+        r set foo2 bar2
+        catch {r exec} e
+        assert_match {EXECABORT*} $e
+        r ping
+    } {PONG}
+
     test {EXEC works on WATCHed key not modified} {
         r watch x y z
         r watch k
