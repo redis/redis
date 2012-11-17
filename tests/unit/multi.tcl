@@ -46,6 +46,34 @@ start_server {tags {"multi"}} {
         set _ $err
     } {*ERR WATCH*}
 
+    test {EXEC fails if there are errors while queueing commands #1} {
+        r del foo1 foo2
+        r multi
+        r set foo1 bar1
+        catch {r non-existing-command}
+        r set foo2 bar2
+        catch {r exec} e
+        assert_match {EXECABORT*} $e
+        list [r exists foo1] [r exists foo2]
+    } {0 0}
+
+    test {EXEC fails if there are errors while queueing commands #2} {
+        set rd [redis_deferring_client]
+        r del foo1 foo2
+        r multi
+        r set foo1 bar1
+        $rd config set maxmemory 1
+        catch {r lpush mylist myvalue}
+        $rd config set maxmemory 0
+        r set foo2 bar2
+        catch {r exec} e
+        assert_match {EXECABORT*} $e
+        assert  {[$rd read] eq {OK}}
+        assert  {[$rd read] eq {OK}}
+        $rd close
+        list [r exists foo1] [r exists foo2]
+    } {0 0}
+
     test {EXEC works on WATCHed key not modified} {
         r watch x y z
         r watch k
