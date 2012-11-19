@@ -472,7 +472,7 @@ void srandmemberWithCountCommand(redisClient *c) {
         /* Add all the elements into the temporary dictionary. */
         si = setTypeInitIterator(set);
         while((encoding = setTypeNext(si,&ele,&llele)) != -1) {
-            int retval = DICT_ERR;
+            int retval;
 
             if (encoding == REDIS_ENCODING_INTSET) {
                 retval = dictAdd(d,createStringObjectFromLongLong(llele),NULL);
@@ -481,7 +481,10 @@ void srandmemberWithCountCommand(redisClient *c) {
             } else if (ele->encoding == REDIS_ENCODING_INT) {
                 retval = dictAdd(d,
                     createStringObjectFromLongLong((long)ele->ptr),NULL);
+            } else { 
+                redisPanic("unexpected encoding in returned by setTypeNext()");
             }
+
             redisAssert(retval == DICT_OK);
         }
         setTypeReleaseIterator(si);
