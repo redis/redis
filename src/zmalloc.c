@@ -252,7 +252,7 @@ void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
  * function RedisEstimateRSS() that is a much faster (and less precise)
  * version of the funciton. */
 
-#if defined(HAVE_PROCFS)
+#if defined(HAVE_PROC_STAT)
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -325,7 +325,7 @@ float zmalloc_get_fragmentation_ratio(void) {
     return (float)zmalloc_get_rss()/zmalloc_used_memory();
 }
 
-#if defined(HAVE_PROCFS)
+#if defined(HAVE_PROC_SMAPS)
 size_t zmalloc_get_private_dirty(void) {
     char line[1024];
     size_t pd = 0;
