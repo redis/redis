@@ -665,6 +665,49 @@ void logCurrentClient(void) {
     }
 }
 
+#if defined(HAVE_PROC_MAPS)
+int memtest_non_destructive(void *addr, size_t size); /* memtest.c */
+
+int memtest_test_linux_anonymous_maps(void) {
+    FILE *fp = fopen("/proc/self/maps","r");
+    char line[1024];
+    size_t start_addr, end_addr, size;
+
+    while(fgets(line,sizeof(line),fp) != NULL) {
+        char *start, *end, *p = line;
+        int j;
+
+        start = p;
+        p = strchr(p,'-');
+        if (!p) continue;
+        *p++ = '\0';
+        end = p;
+        p = strchr(p,' ');
+        if (!p) continue;
+        *p++ = '\0';
+        if (strstr(p,"stack") ||
+            strstr(p,"vdso") ||
+            strstr(p,"vsyscall")) continue;
+        if (!strstr(p,"00:00")) continue;
+        if (!strstr(p,"rw")) continue;
+
+        start_addr = strtoul(start,NULL,16);
+        end_addr = strtoul(end,NULL,16);
+        size = end_addr-start_addr;
+        redisLog(REDIS_WARNING,
+            "Testing memory at %lx (%lu bytes)", start_addr, size);
+        for (j = 0; j < 3; j++) {
+            if (memtest_non_destructive((void*)start_addr,size) != 0) {
+                fclose(fp);
+                return 1;
+            }
+        }
+    }
+    fclose(fp);
+    return 0;
+}
+#endif
+
 void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
     ucontext_t *uc = (ucontext_t*) secret;
     sds infostring, clients;
@@ -699,6 +742,18 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
 
     /* Log dump of processor registers */
     logRegisters(uc);
+
+#if defined(HAVE_PROC_MAPS)
+    /* Test memory */
+    redisLog(REDIS_WARNING, "--- FAST MEMORY TEST");
+    if (memtest_test_linux_anonymous_maps()) {
+        redisLog(REDIS_WARNING,
+            "!!! MEMORY ERROR DETECTED! Check your memory ASAP !!!");
+    } else {
+        redisLog(REDIS_WARNING,
+            "Fast memory test PASSED, however your memory can still be broken. Please run a memory test for several hours if possible.");
+    }
+#endif
 
     redisLog(REDIS_WARNING,
 "\n=== REDIS BUG REPORT END. Make sure to include from START to END. ===\n\n"
