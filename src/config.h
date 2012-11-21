@@ -45,7 +45,9 @@
 
 /* Test for proc filesystem */
 #ifdef __linux__
-#define HAVE_PROCFS 1
+#define HAVE_PROC_STAT 1
+#define HAVE_PROC_MAPS 1
+#define HAVE_PROC_SMAPS 1
 #endif
 
 /* Test for task_info() */
