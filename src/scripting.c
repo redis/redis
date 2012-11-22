@@ -532,7 +532,7 @@ void scriptingInit(void) {
     /* Initialize a dictionary we use to map SHAs to scripts.
      * This is useful for replication, as we need to replicate EVALSHA
      * as EVAL, so we need to remember the associated script. */
-    server.lua_scripts = dictCreate(&dbDictType,NULL);
+    server.lua_scripts = dictCreate(&shaScriptObjectDictType,NULL);
 
     /* Register the redis commands table and fields */
     lua_newtable(lua);

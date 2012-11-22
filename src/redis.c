@@ -393,7 +393,8 @@ int dictSdsKeyCompare(void *privdata, const void *key1,
     return memcmp(key1, key2, l1) == 0;
 }
 
-/* A case insensitive version used for the command lookup table. */
+/* A case insensitive version used for the command lookup table and other
+ * places where case insensitive non binary-safe comparison is needed. */
 int dictSdsKeyCaseCompare(void *privdata, const void *key1,
         const void *key2)
 {
@@ -504,6 +505,16 @@ dictType dbDictType = {
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictSdsKeyCompare,          /* key compare */
+    dictSdsDestructor,          /* key destructor */
+    dictRedisObjectDestructor   /* val destructor */
+};
+
+/* server.lua_scripts sha (as sds string) -> scripts (as robj) cache. */
+dictType shaScriptObjectDictType = {
+    dictSdsCaseHash,            /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictSdsKeyCaseCompare,      /* key compare */
     dictSdsDestructor,          /* key destructor */
     dictRedisObjectDestructor   /* val destructor */
 };
