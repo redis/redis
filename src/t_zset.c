@@ -1497,7 +1497,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
     }
 
     /* test if the expected number of keys would overflow */
-    if (3+setnum > c->argc) {
+    if (setnum > c->argc-3) {
         addReply(c,shared.syntaxerr);
         return;
     }
