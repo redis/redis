@@ -14,6 +14,26 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.6.5 ]
+
+UPGRADE URGENCY: MODERATE
+
+Warning: this release of Redis introduces a different behavior in MULTI/EXEC
+         handling of errors. This was done because the new behavior is safer
+         compared to the old one, and should not break any code targeting
+         Redis 2.6 in a critical way.
+
+         For more information check http://redis.io/topics/transactions
+
+* [IMPROVED] RDB/AOF childern now log amount of additional memory used
+             because of copy on write.
+* [BUGFIX]   MIGRATE non critical fixes (see commits for details).
+* [BUGFIX]   MULTI/EXEC: now EXEC aborts on errors before EXEC.
+* [BUGFIX]   Fix integer overflow in zunionInterGenericCommand resulting
+             into Z[INTER|UNION][STORE] commands to crash under extremely
+             unlikely conditions (almost impossible in real world).
+* [BUGFIX]   EVALSHA is now case insensitive (and will not crash).
+
 --[ Redis 2.6.4 ]
 
 UPGRADE URGENCY: LOW
