@@ -1017,3 +1017,8 @@ void scriptCommand(redisClient *c) {
         addReplyError(c, "Unknown SCRIPT subcommand or wrong # of args.");
     }
 }
+
+void revalCommand(redisClient *c) {
+  // TODO
+  addReplyBulk(c, createObject(REDIS_STRING, sdsnew("Hello mruby!")));
+}
