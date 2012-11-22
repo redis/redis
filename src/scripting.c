@@ -37,6 +37,8 @@
 #include <ctype.h>
 #include <math.h>
 
+#include <mruby.h>
+
 char *redisProtocolToLuaType_Int(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Bulk(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Status(lua_State *lua, char *reply);

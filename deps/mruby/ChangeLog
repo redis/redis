@@ -1,0 +1,15 @@
+Thu Apl 19 17:25:18 2012  Yukihiro Matsumoto  <matz@ruby-lang.org>
+
+	* first release version 1.0.0 released.
+
+Local variables:
+add-log-time-format: (lambda ()
+  (let* ((time (current-time))
+	 (system-time-locale "C")
+	 (diff (+ (cadr time) 32400))
+	 (lo (% diff 65536))
+	 (hi (+ (car time) (/ diff 65536))))
+  (format-time-string "%a %b %e %H:%M:%S %Y" (list hi lo) t)))
+indent-tabs-mode: t
+tab-width: 8
+end:

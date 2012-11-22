@@ -1,0 +1,138 @@
+# This is the default Makefile integrated
+# by each Gem. It integrates important constants
+# for usage inside of a Gem.
+
+ifeq ($(strip $(MRUBY_ROOT)),)
+  # mruby src root
+  MRUBY_ROOT := $(realpath ../../..)
+endif
+
+# Tools
+CC := gcc
+RM := rm -f
+AR := ar
+
+# mruby compiler
+ifeq ($(OS),Windows_NT)
+MRBC = $(MRUBY_ROOT)/bin/mrbc.exe
+else
+MRBC = $(MRUBY_ROOT)/bin/mrbc
+endif
+
+SRC_DIR := src
+MRB_DIR := mrblib
+TEST_DIR := test
+
+GEM_TEST_RB_FILES := $(wildcard $(TEST_DIR)/*.rb)
+GEM_TEST_C_FILES := $(wildcard $(TEST_DIR)/*.c)
+
+# LIBR can be manipulated with command line arguments
+ifeq ($(strip $(LIBR)),)
+  # default mruby library
+  LIBR := $(MRUBY_ROOT)/lib/libmruby.a
+endif
+
+GEM_PACKAGE := mrb-$(GEM)-gem.a
+
+ifeq ($(strip $(ACTIVE_GEMS)),)
+  # the default file which contains the active GEMs
+  ACTIVE_GEMS = GEMS.active
+endif
+
+MAKEFILE_GEM_LIST := $(MRUBY_ROOT)/mrbgems/g/MakefileGemList
+-include $(MAKEFILE_GEM_LIST)
+
+# Default rules which are calling the
+# gem specific gem-all and gem-clean
+# implementations of a gem
+
+.PHONY : all
+all : gem-info gem-all
+
+gem-info:
+	@echo "Building Gem '$(GEM)'"
+
+# Building target for C and Ruby files
+gem-c-and-rb-files : gem_mixlib.o
+	$(AR) rs $(GEM_PACKAGE) $(GEM_OBJECTS) $^
+
+gem_mixlib.c : gem_mrblib_header.ctmp gem_mrblib_irep.ctmp gem_mixlib_init.ctmp
+	cat $^ > $@
+
+gem_mixlib_init.ctmp :
+	ruby $(MRUBY_ROOT)/mrbgems/generate_gem_mixlib.rb '$(GEM)' > $@
+
+# Building target for C files
+gem-c-files : gem_srclib.o
+	$(AR) rs $(GEM_PACKAGE) $(GEM_OBJECTS) $<
+
+gem_srclib.c :
+	ruby $(MRUBY_ROOT)/mrbgems/generate_gem_srclib.rb '$(GEM)' > $@
+
+# Building target for Ruby Files
+gem-rb-files : gem_mrblib.o
+	$(AR) rs $(GEM_PACKAGE) $<
+
+gem_mrblib.c : gem_mrblib_header.ctmp gem_mrblib_irep.ctmp gem_mrblib_init.ctmp
+	cat $^ > $@
+
+gem_mrblib_header.ctmp :
+	ruby $(MRUBY_ROOT)/mrbgems/generate_gem_mrblib_header.rb '$(GEM)' > $@
+
+gem_mrblib_init.ctmp :
+	ruby $(MRUBY_ROOT)/mrbgems/generate_gem_mrblib.rb '$(GEM)' > $@
+
+gem_mrblib_irep.ctmp : gem_mrblib.rbtmp
+	$(MRBC) -Bgem_mrblib_irep_$(subst -,_,$(GEM)) -o$@ $<
+
+gem_mrblib.rbtmp :
+		cat $(GEM_RB_FILES) > $@
+
+
+gem_test.ctmp : gem_test.rbtmp $(GEM_TEST_C_FILES)
+	$(MRBC) -Bgem_mrblib_irep_$(subst -,_,$(GEM))_test -o$@ $<
+ifeq ($(GEM_TEST_C_FILES),)
+		echo "void mrb_$(subst -,_,$(GEM))_gem_test_init(mrb_state* mrb) { }" >> $@
+else
+		cat $(GEM_TEST_C_FILES) >> $@
+endif
+
+gem_test.rbtmp : $(GEM_TEST_RB_FILES)
+ifeq ($(GEM_TEST_RB_FILES),)
+		echo > $@
+else
+		cat $(GEM_TEST_RB_FILES) > $@
+endif
+
+gem-test-c-and-rb-files : gem_test.ctmp
+
+gem-test-c-files : gem_test.ctmp
+
+gem-test-rb-files : gem_test.ctmp
+
+
+gem-clean-c-and-rb-files :
+	-$(RM) $(GEM_PACKAGE) gem_mixlib.o gem_mixlib.c gem_mrblib_header.ctmp gem_mrblib_irep.ctmp gem_mixlib_init.ctmp gem_mrblib.rbtmp
+	-$(RM) gem_srclib.c gem_srclib.o $(GEM_OBJECTS) gem_test.ctmp gem_test.rbtmp gem-cflags.tmp gem-ldflags.tmp gem-libs.tmp
+
+gem-clean-c-files :
+	-$(RM) $(GEM_PACKAGE) gem_srclib.c gem_srclib.o $(GEM_OBJECTS) gem_test.ctmp gem_test.rbtmp gem-cflags.tmp gem-ldflags.tmp gem-libs.tmp
+
+gem-clean-rb-files :
+	-$(RM) $(GEM_PACKAGE) gem_mrblib.o gem_mrblib.c gem_mrblib_header.ctmp gem_mrblib_init.ctmp gem_mrblib_irep.ctmp gem_mrblib.rbtmp
+	-$(RM) gem_test.ctmp gem_test.rbtmp gem-cflags.tmp gem-ldflags.tmp gem-libs.tmp
+
+
+%.o : %.c
+	$(CC) -c $(CFLAGS) $(CPPFLAGS) $(GEM_CFLAGS_LIST) $< -o $@
+
+.PHONY : clean
+clean : gem-clean
+	@echo "Gem '$(GEM)' is clean"
+
+.PHONY : gem-flags
+gem-flags :
+	@echo "$(MRUBY_CFLAGS) -I`pwd`/include" >  gem-cflags.tmp
+	@echo "$(MRUBY_LDFLAGS)" >  gem-ldflags.tmp
+	@echo "$(MRUBY_LIBS)" >  gem-libs.tmp
+

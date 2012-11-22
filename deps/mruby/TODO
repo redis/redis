@@ -1,0 +1,15 @@
+Things to do (Things that are not done yet)
+
+* Here document
+* Special variables ($1,$2..)
+* super in aliased methods
+* BEGIN/END (Were we not supporting this?)
+* const_missing
+* respond_to_missing
+
+Things to improve (Done but things to fix)
+
+* Hash (Reduce size. Use khash or save the order)
+* stringEx (Delete encoding、delete CODERANGE、delete everything except UTF-8 or ASCII)
+* Make additions as they are noticed.
+
