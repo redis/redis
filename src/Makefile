@@ -210,7 +210,7 @@ bench: $(REDIS_BENCHMARK_NAME)
 32bit:
 	@echo ""
 	@echo "WARNING: if it fails under Linux you probably need to install libc6-dev-i386"
-	@echo "WARINIG: if you meet '__sync_add_and_fetch_4' error, try to 'make 32bitsync'"
+	@echo "WARNING: if you meet '__sync_add_and_fetch_4' error, try to 'make 32bitsync'"
 	@echo ""
 	$(MAKE) CFLAGS="-m32" LDFLAGS="-m32"
 
