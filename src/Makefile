@@ -210,8 +210,14 @@ bench: $(REDIS_BENCHMARK_NAME)
 32bit:
 	@echo ""
 	@echo "WARNING: if it fails under Linux you probably need to install libc6-dev-i386"
-	@echo ""
+	@echo "WARINIG: if you meet '__sync_add_and_fetch_4' error, try to 'make 32bitsync'"
 	$(MAKE) CFLAGS="-m32" LDFLAGS="-m32"
+
+32bitsync:
+	@echo ""
+	@echo "WARNING: if it fails under Linux you probably need to install libc6-dev-i386"
+	@echo ""
+	$(MAKE) CFLAGS="-m32 -march=i686" LDFLAGS="-m32"
 
 gcov:
 	$(MAKE) REDIS_CFLAGS="-fprofile-arcs -ftest-coverage -DCOVERAGE_TEST" REDIS_LDFLAGS="-fprofile-arcs -ftest-coverage"
