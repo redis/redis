@@ -746,6 +746,7 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
 #if defined(HAVE_PROC_MAPS)
     /* Test memory */
     redisLog(REDIS_WARNING, "--- FAST MEMORY TEST");
+    bioKillThreads();
     if (memtest_test_linux_anonymous_maps()) {
         redisLog(REDIS_WARNING,
             "!!! MEMORY ERROR DETECTED! Check your memory ASAP !!!");
