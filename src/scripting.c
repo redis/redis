@@ -38,6 +38,9 @@
 #include <math.h>
 
 #include <mruby.h>
+#include <mruby/compile.h>
+#include <mruby/proc.h>
+#include <mruby/string.h>
 
 char *redisProtocolToLuaType_Int(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Bulk(lua_State *lua, char *reply);
@@ -1021,6 +1024,23 @@ void scriptCommand(redisClient *c) {
 }
 
 void revalCommand(redisClient *c) {
-  // TODO
-  addReplyBulk(c, createObject(REDIS_STRING, sdsnew("Hello mruby!")));
+    int n;
+    mrb_state *mrb;
+    struct mrb_parser_state* st;
+    mrb_value v;
+
+    char *code = c->argv[1]->ptr;
+
+    // TODO `mrb_state` should be reused.
+    // But current mruby has no GC for `irep`, so we cannot reuse mrb_state.
+    mrb = mrb_open();
+    st = mrb_parse_string(mrb, code, NULL);
+    n = mrb_generate_code(mrb, st);
+    mrb_pool_close(st->pool);
+    v = mrb_run(mrb, mrb_proc_new(mrb, mrb->irep[n]), mrb_top_self(mrb));
+
+    v = mrb_funcall(mrb, v, "to_s", 0);
+    const char *result = RSTRING_PTR(v);
+    addReplyBulk(c, createObject(REDIS_STRING, sdsnew(result)));
+    mrb_close(mrb);
 }
