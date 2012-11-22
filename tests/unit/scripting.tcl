@@ -47,6 +47,10 @@ start_server {tags {"scripting"}} {
         r evalsha 9bd632c7d33e571e9f24556ebed26c3479a87129 0
     } {myval}
 
+    test {EVALSHA - Can we call a SHA1 in uppercase?} {
+        r evalsha 9BD632C7D33E571E9F24556EBED26C3479A87129 0
+    } {myval}
+
     test {EVALSHA - Do we get an error on invalid SHA1?} {
         catch {r evalsha NotValidShaSUM 0} e
         set _ $e
