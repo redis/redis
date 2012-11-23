@@ -274,8 +274,10 @@ static client createClient(char *cmd, size_t len) {
     c->obuf = sdsempty();
 
     if( config.auth != NULL ) {
-        redisAppendCommand( c->context, "AUTH %s", config.auth );
-        c->obuf = sdscatlen(c->obuf, c->context->obuf, sdslen(c->context->obuf));
+        char *buf = NULL;
+        int len = redisFormatCommand( &buf, "AUTH %s", config.auth );
+        c->obuf = sdscatlen(c->obuf, buf, len);
+        free( buf );
     }
 
     for (j = 0; j < config.pipeline; j++) {
@@ -306,8 +308,17 @@ static client createClient(char *cmd, size_t len) {
 static void createMissingClients(client c) {
     int n = 0;
 
+    char *cmd = c->obuf;
+    int len = sdslen(c->obuf);
+    if( config.auth ){
+        char *buf = NULL;
+        int tlen = redisFormatCommand( &buf, "AUTH %s", config.auth );
+        cmd += tlen; 
+        len -= tlen;
+        free(buf); 
+    }
     while(config.liveclients < config.numclients) {
-        createClient(c->obuf,sdslen(c->obuf)/config.pipeline);
+        createClient(cmd,len/config.pipeline);
 
         /* Listen backlog is quite limited on most systems */
         if (++n > 64) {
