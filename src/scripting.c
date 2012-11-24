@@ -41,6 +41,7 @@
 #include <mruby/compile.h>
 #include <mruby/proc.h>
 #include <mruby/string.h>
+#include <mruby/array.h>
 
 char *redisProtocolToLuaType_Int(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Bulk(lua_State *lua, char *reply);
@@ -1023,6 +1024,35 @@ void scriptCommand(redisClient *c) {
     }
 }
 
+void mrbReplyToRedisReply(redisClient *c, mrb_state* mrb, mrb_value value) {
+    enum mrb_vtype type = mrb_type(value);
+
+    switch (type) {
+    case MRB_TT_FIXNUM: {
+        addReplyLongLong(c, (long long)value.value.i);
+        break;
+    }
+    case MRB_TT_ARRAY: {
+        void *replylen = addDeferredMultiBulkLength(c);
+        int i;
+        for (i = 0; i < RARRAY_LEN(value); i++) {
+            mrbReplyToRedisReply(c, mrb, RARRAY_PTR(value)[i]);
+        }
+        setDeferredMultiBulkLength(c, replylen, i);
+        break;
+    }
+    case MRB_TT_HASH: {
+        // TODO
+        // break;
+    }
+    default:
+        // force string
+        value = mrb_obj_as_string(mrb, value);
+        robj *o = createObject(REDIS_STRING, sdsnew(RSTRING_PTR(value)));
+        addReplyBulk(c, o);
+    }
+}
+
 void revalCommand(redisClient *c) {
     int n;
     mrb_state *mrb;
@@ -1039,8 +1069,6 @@ void revalCommand(redisClient *c) {
     mrb_pool_close(st->pool);
     v = mrb_run(mrb, mrb_proc_new(mrb, mrb->irep[n]), mrb_top_self(mrb));
 
-    v = mrb_funcall(mrb, v, "to_s", 0);
-    const char *result = RSTRING_PTR(v);
-    addReplyBulk(c, createObject(REDIS_STRING, sdsnew(result)));
+    mrbReplyToRedisReply(c, mrb, v);
     mrb_close(mrb);
 }
