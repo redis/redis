@@ -1045,6 +1045,15 @@ void mrbReplyToRedisReply(redisClient *c, mrb_state* mrb, mrb_value value) {
         // TODO
         // break;
     }
+    case MRB_TT_OBJECT:
+    case MRB_TT_EXCEPTION: {
+        int isException = mrb_obj_is_kind_of(mrb, value, mrb_class_get(mrb, "Exception"));
+        if (isException) {
+            value = mrb_funcall(mrb, value, "message", 0);
+            addReplyError(c, RSTRING_PTR(value));
+            break;
+        }
+    }
     default:
         // force string
         value = mrb_obj_as_string(mrb, value);
