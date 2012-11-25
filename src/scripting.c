@@ -1027,6 +1027,12 @@ void scriptCommand(redisClient *c) {
 void mrbReplyToRedisReply(redisClient *c, mrb_state* mrb, mrb_value value) {
     enum mrb_vtype type = mrb_type(value);
 
+    // Check `nil`
+    if (mrb_nil_p(value)) {
+        addReply(c, shared.nullbulk);
+        return;
+    }
+
     switch (type) {
     case MRB_TT_FIXNUM: {
         addReplyLongLong(c, (long long)value.value.i);
