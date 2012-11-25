@@ -621,8 +621,7 @@ static int _dictExpandIfNeeded(dict *d)
         (dict_can_resize ||
          d->ht[0].used/d->ht[0].size > dict_force_resize_ratio))
     {
-        return dictExpand(d, ((d->ht[0].size > d->ht[0].used) ?
-                                    d->ht[0].size : d->ht[0].used)*2);
+        return dictExpand(d, d->ht[0].used*2);
     }
     return DICT_OK;
 }
