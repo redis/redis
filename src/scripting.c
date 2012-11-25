@@ -42,6 +42,9 @@
 #include <mruby/proc.h>
 #include <mruby/string.h>
 #include <mruby/array.h>
+#include <mruby/hash.h>
+
+KHASH_DECLARE(ht, mrb_value, mrb_value, 1)
 
 char *redisProtocolToLuaType_Int(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Bulk(lua_State *lua, char *reply);
@@ -1048,8 +1051,19 @@ void mrbReplyToRedisReply(redisClient *c, mrb_state* mrb, mrb_value value) {
         break;
     }
     case MRB_TT_HASH: {
-        // TODO
-        // break;
+        void *replylen = addDeferredMultiBulkLength(c);
+        khash_t(ht) *h = RHASH_TBL(value);
+        int i = 0;
+        khiter_t k;
+        for (k = kh_begin(h); k != kh_end(h); k++) {
+            if (kh_exist(h, k)) {
+                mrbReplyToRedisReply(c, mrb, kh_key(h, k));
+                mrbReplyToRedisReply(c, mrb, kh_value(h, k));
+                i += 2;
+            }
+        }
+        setDeferredMultiBulkLength(c,replylen,i);
+        break;
     }
     case MRB_TT_OBJECT:
     case MRB_TT_EXCEPTION: {
