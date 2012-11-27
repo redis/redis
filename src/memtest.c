@@ -241,34 +241,30 @@ void memtest_test(size_t megabytes, int passes) {
     }
 }
 
-/* This is a fast O(N) best effort memory test, only ZERO-ONE tests and
- * checkerboard tests are performed, without pauses between setting and
- * reading the value, so this can only detect a subclass of permanent errors.
- *
- * However the function does not destroy the content of the memory tested that
- * is left unmodified.
- *
- * If a memory error is detected, 1 is returned. Otherwise 0 is returned. */
-int memtest_non_destructive(void *addr, size_t size) {
+void memtest_non_destructive_invert(void *addr, size_t size) {
     volatile unsigned long *p = addr;
-    unsigned long val;
+    size_t words = size / sizeof(unsigned long);
     size_t j;
 
-    size /= sizeof(unsigned long);
-    for (j = 0; j < size; j++) {
-        val = p[j];
+    /* Invert */
+    for (j = 0; j < words; j++)
+        p[j] = ~p[j];
+}
 
-        p[j] = 0; if (p[j] != 0) goto err;
-        p[j] = (unsigned long)-1; if (p[j] != (unsigned long)-1) goto err;
-        p[j] = ULONG_ONEZERO; if (p[j] != ULONG_ONEZERO) goto err;
-        p[j] = ULONG_ZEROONE; if (p[j] != ULONG_ZEROONE) goto err;
-        p[j] = val; /* restore the original value. */
+void memtest_non_destructive_swap(void *addr, size_t size) {
+    volatile unsigned long *p = addr;
+    size_t words = size / sizeof(unsigned long);
+    size_t j;
+
+    /* Swap */
+    for (j = 0; j < words; j += 2) {
+        unsigned long a, b;
+
+        a = p[j];
+        b = p[j+1];
+        p[j] = b;
+        p[j+1] = a;
     }
-    return 0;
-
-err: /* memory error detected. */
-    p[j] = val;
-    return 1;
 }
 
 void memtest(size_t megabytes, int passes) {
