@@ -874,7 +874,7 @@ void watchdogScheduleSignal(int period) {
     setitimer(ITIMER_REAL, &it, NULL);
 }
 
-/* Enable the software watchdong with the specified period in milliseconds. */
+/* Enable the software watchdog with the specified period in milliseconds. */
 void enableWatchdog(int period) {
     int min_period;
 
