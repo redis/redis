@@ -3,6 +3,16 @@
 /******************************************************************************/
 /* Data. */
 
+const char	*dss_prec_names[] = {
+	"disabled",
+	"primary",
+	"secondary",
+	"N/A"
+};
+
+/* Current dss precedence default, used when creating new arenas. */
+static dss_prec_t	dss_prec_default = DSS_PREC_DEFAULT;
+
 /*
  * Protects sbrk() calls.  This avoids malloc races among threads, though it
  * does not protect against races with threads that call sbrk() directly.
@@ -28,6 +38,31 @@ sbrk(intptr_t increment)
 	return (NULL);
 }
 #endif
+
+dss_prec_t
+chunk_dss_prec_get(void)
+{
+	dss_prec_t ret;
+
+	if (config_dss == false)
+		return (dss_prec_disabled);
+	malloc_mutex_lock(&dss_mtx);
+	ret = dss_prec_default;
+	malloc_mutex_unlock(&dss_mtx);
+	return (ret);
+}
+
+bool
+chunk_dss_prec_set(dss_prec_t dss_prec)
+{
+
+	if (config_dss == false)
+		return (true);
+	malloc_mutex_lock(&dss_mtx);
+	dss_prec_default = dss_prec;
+	malloc_mutex_unlock(&dss_mtx);
+	return (false);
+}
 
 void *
 chunk_alloc_dss(size_t size, size_t alignment, bool *zero)
@@ -88,7 +123,7 @@ chunk_alloc_dss(size_t size, size_t alignment, bool *zero)
 				dss_max = dss_next;
 				malloc_mutex_unlock(&dss_mtx);
 				if (cpad_size != 0)
-					chunk_dealloc(cpad, cpad_size, true);
+					chunk_unmap(cpad, cpad_size);
 				if (*zero) {
 					VALGRIND_MAKE_MEM_UNDEFINED(ret, size);
 					memset(ret, 0, size);

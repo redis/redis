@@ -368,6 +368,15 @@ for (i = 0; i < nbins; i++) {
             object.  This constraint can apply to both growth and
             shrinkage.</para></listitem>
           </varlistentry>
+          <varlistentry>
+            <term><constant>ALLOCM_ARENA(<parameter>a</parameter>)
+            </constant></term>
+
+            <listitem><para>Use the arena specified by the index
+            <parameter>a</parameter>.  This macro does not validate that
+            <parameter>a</parameter> specifies an arena in the valid
+            range.</para></listitem>
+          </varlistentry>
         </variablelist>
       </para>
 
@@ -785,15 +794,29 @@ for (i = 0; i < nbins; i++) {
         chunk size is 4 MiB (2^22).</para></listitem>
       </varlistentry>
 
+      <varlistentry id="opt.dss">
+        <term>
+          <mallctl>opt.dss</mallctl>
+          (<type>const char *</type>)
+          <literal>r-</literal>
+        </term>
+        <listitem><para>dss (<citerefentry><refentrytitle>sbrk</refentrytitle>
+        <manvolnum>2</manvolnum></citerefentry>) allocation precedence as
+        related to <citerefentry><refentrytitle>mmap</refentrytitle>
+        <manvolnum>2</manvolnum></citerefentry> allocation.  The following
+        settings are supported: &ldquo;disabled&rdquo;, &ldquo;primary&rdquo;,
+        and &ldquo;secondary&rdquo; (default).</para></listitem>
+      </varlistentry>
+
       <varlistentry id="opt.narenas">
         <term>
           <mallctl>opt.narenas</mallctl>
           (<type>size_t</type>)
           <literal>r-</literal>
         </term>
-        <listitem><para>Maximum number of arenas to use.  The default maximum
-        number of arenas is four times the number of CPUs, or one if there is a
-        single CPU.</para></listitem>
+        <listitem><para>Maximum number of arenas to use for automatic
+        multiplexing of threads and arenas.  The default is four times the
+        number of CPUs, or one if there is a single CPU.</para></listitem>
       </varlistentry>
 
       <varlistentry id="opt.lg_dirty_mult">
@@ -810,7 +833,7 @@ for (i = 0; i < nbins; i++) {
         <manvolnum>2</manvolnum></citerefentry> or a similar system call.  This
         provides the kernel with sufficient information to recycle dirty pages
         if physical memory becomes scarce and the pages remain unused.  The
-        default minimum ratio is 32:1 (2^5:1); an option value of -1 will
+        default minimum ratio is 8:1 (2^3:1); an option value of -1 will
         disable dirty page purging.</para></listitem>
       </varlistentry>
 
@@ -846,7 +869,9 @@ for (i = 0; i < nbins; i++) {
         <literal>0x5a</literal>.  This is intended for debugging and will
         impact performance negatively.  This option is disabled by default
         unless <option>--enable-debug</option> is specified during
-        configuration, in which case it is enabled by default.</para></listitem>
+        configuration, in which case it is enabled by default unless running
+        inside <ulink
+        url="http://valgrind.org/">Valgrind</ulink>.</para></listitem>
       </varlistentry>
 
       <varlistentry id="opt.quarantine">
@@ -865,8 +890,9 @@ for (i = 0; i < nbins; i++) {
         enabled.  This feature is of particular use in combination with <ulink
         url="http://valgrind.org/">Valgrind</ulink>, which can detect attempts
         to access quarantined objects.  This is intended for debugging and will
-        impact performance negatively.  The default quarantine size is
-        0.</para></listitem>
+        impact performance negatively.  The default quarantine size is 0 unless
+        running inside Valgrind, in which case the default is 16
+        MiB.</para></listitem>
       </varlistentry>
 
       <varlistentry id="opt.redzone">
@@ -885,7 +911,7 @@ for (i = 0; i < nbins; i++) {
         which needs redzones in order to do effective buffer overflow/underflow
         detection.  This option is intended for debugging and will impact
         performance negatively.  This option is disabled by
-        default.</para></listitem>
+        default unless running inside Valgrind.</para></listitem>
       </varlistentry>
 
       <varlistentry id="opt.zero">
@@ -926,15 +952,9 @@ for (i = 0; i < nbins; i++) {
           [<option>--enable-valgrind</option>]
         </term>
         <listitem><para><ulink url="http://valgrind.org/">Valgrind</ulink>
-        support enabled/disabled.  If enabled, several other options are
-        automatically modified during options processing to work well with
-        Valgrind: <link linkend="opt.junk"><mallctl>opt.junk</mallctl></link>
-        and <link linkend="opt.zero"><mallctl>opt.zero</mallctl></link> are set
-        to false, <link
-        linkend="opt.quarantine"><mallctl>opt.quarantine</mallctl></link> is
-        set to 16 MiB, and <link
-        linkend="opt.redzone"><mallctl>opt.redzone</mallctl></link> is set to
-        true.  This option is disabled by default.</para></listitem>
+        support enabled/disabled.  This option is vestigal because jemalloc
+        auto-detects whether it is running inside Valgrind.  This option is
+        disabled by default, unless running inside Valgrind.</para></listitem>
       </varlistentry>
 
       <varlistentry id="opt.xmalloc">
@@ -972,7 +992,8 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <link
         linkend="opt.lg_tcache_max"><mallctl>opt.lg_tcache_max</mallctl></link>
         option for related tuning information.  This option is enabled by
-        default.</para></listitem>
+        default unless running inside <ulink
+        url="http://valgrind.org/">Valgrind</ulink>.</para></listitem>
       </varlistentry>
 
       <varlistentry id="opt.lg_tcache_max">
@@ -1151,11 +1172,8 @@ malloc_conf = "xmalloc:true";]]></programlisting>
           <literal>rw</literal>
         </term>
         <listitem><para>Get or set the arena associated with the calling
-        thread.  The arena index must be less than the maximum number of arenas
-        (see the <link
-        linkend="arenas.narenas"><mallctl>arenas.narenas</mallctl></link>
-        mallctl).  If the specified arena was not initialized beforehand (see
-        the <link
+        thread.  If the specified arena was not initialized beforehand (see the
+        <link
         linkend="arenas.initialized"><mallctl>arenas.initialized</mallctl></link>
         mallctl), it will be automatically initialized as a side effect of
         calling this interface.</para></listitem>
@@ -1247,13 +1265,40 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         the developer may find manual flushing useful.</para></listitem>
       </varlistentry>
 
+      <varlistentry id="arena.i.purge">
+        <term>
+          <mallctl>arena.&lt;i&gt;.purge</mallctl>
+          (<type>unsigned</type>)
+          <literal>--</literal>
+        </term>
+        <listitem><para>Purge unused dirty pages for arena &lt;i&gt;, or for
+        all arenas if &lt;i&gt; equals <link
+        linkend="arenas.narenas"><mallctl>arenas.narenas</mallctl></link>.
+        </para></listitem>
+      </varlistentry>
+
+      <varlistentry id="arena.i.dss">
+        <term>
+          <mallctl>arena.&lt;i&gt;.dss</mallctl>
+          (<type>const char *</type>)
+          <literal>rw</literal>
+        </term>
+        <listitem><para>Set the precedence of dss allocation as related to mmap
+        allocation for arena &lt;i&gt;, or for all arenas if &lt;i&gt; equals
+        <link
+        linkend="arenas.narenas"><mallctl>arenas.narenas</mallctl></link>.  See
+        <link linkend="opt.dss"><mallctl>opt.dss</mallctl></link> for supported
+        settings.
+        </para></listitem>
+      </varlistentry>
+
       <varlistentry id="arenas.narenas">
         <term>
           <mallctl>arenas.narenas</mallctl>
           (<type>unsigned</type>)
           <literal>r-</literal>
         </term>
-        <listitem><para>Maximum number of arenas.</para></listitem>
+        <listitem><para>Current limit on number of arenas.</para></listitem>
       </varlistentry>
 
       <varlistentry id="arenas.initialized">
@@ -1372,6 +1417,16 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         for all arenas if none is specified.</para></listitem>
       </varlistentry>
 
+      <varlistentry>
+        <term>
+          <mallctl>arenas.extend</mallctl>
+          (<type>unsigned</type>)
+          <literal>r-</literal>
+        </term>
+        <listitem><para>Extend the array of arenas by appending a new arena,
+        and returning the new arena index.</para></listitem>
+      </varlistentry>
+
       <varlistentry id="prof.active">
         <term>
           <mallctl>prof.active</mallctl>
@@ -1457,7 +1512,9 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         application.  This is a multiple of the page size, and greater than or
         equal to <link
         linkend="stats.allocated"><mallctl>stats.allocated</mallctl></link>.
-        </para></listitem>
+        This does not include <link linkend="stats.arenas.i.pdirty">
+        <mallctl>stats.arenas.&lt;i&gt;.pdirty</mallctl></link> and pages
+        entirely devoted to allocator metadata.</para></listitem>
       </varlistentry>
 
       <varlistentry>
@@ -1542,6 +1599,20 @@ malloc_conf = "xmalloc:true";]]></programlisting>
 
       <varlistentry>
         <term>
+          <mallctl>stats.arenas.&lt;i&gt;.dss</mallctl>
+          (<type>const char *</type>)
+          <literal>r-</literal>
+        </term>
+        <listitem><para>dss (<citerefentry><refentrytitle>sbrk</refentrytitle>
+        <manvolnum>2</manvolnum></citerefentry>) allocation precedence as
+        related to <citerefentry><refentrytitle>mmap</refentrytitle>
+        <manvolnum>2</manvolnum></citerefentry> allocation.  See <link
+        linkend="opt.dss"><mallctl>opt.dss</mallctl></link> for details.
+        </para></listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>
           <mallctl>stats.arenas.&lt;i&gt;.nthreads</mallctl>
           (<type>unsigned</type>)
           <literal>r-</literal>
@@ -1559,7 +1630,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <listitem><para>Number of pages in active runs.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.pdirty">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.pdirty</mallctl>
           (<type>size_t</type>)
@@ -1865,9 +1936,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
     it detects, because the performance impact for storing such information
     would be prohibitive.  However, jemalloc does integrate with the most
     excellent <ulink url="http://valgrind.org/">Valgrind</ulink> tool if the
-    <option>--enable-valgrind</option> configuration option is enabled and the
-    <link linkend="opt.valgrind"><mallctl>opt.valgrind</mallctl></link> option
-    is enabled.</para>
+    <option>--enable-valgrind</option> configuration option is enabled.</para>
   </refsect1>
   <refsect1 id="diagnostic_messages">
     <title>DIAGNOSTIC MESSAGES</title>

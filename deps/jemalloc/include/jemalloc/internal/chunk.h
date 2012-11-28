@@ -28,6 +28,7 @@
 #ifdef JEMALLOC_H_EXTERNS
 
 extern size_t		opt_lg_chunk;
+extern const char	*opt_dss;
 
 /* Protects stats_chunks; currently not used for any other purpose. */
 extern malloc_mutex_t	chunks_mtx;
@@ -42,9 +43,14 @@ extern size_t		chunk_npages;
 extern size_t		map_bias; /* Number of arena chunk header pages. */
 extern size_t		arena_maxclass; /* Max size class for arenas. */
 
-void	*chunk_alloc(size_t size, size_t alignment, bool base, bool *zero);
+void	*chunk_alloc(size_t size, size_t alignment, bool base, bool *zero,
+    dss_prec_t dss_prec);
+void	chunk_unmap(void *chunk, size_t size);
 void	chunk_dealloc(void *chunk, size_t size, bool unmap);
 bool	chunk_boot(void);
+void	chunk_prefork(void);
+void	chunk_postfork_parent(void);
+void	chunk_postfork_child(void);
 
 #endif /* JEMALLOC_H_EXTERNS */
 /******************************************************************************/
