@@ -1,8 +1,8 @@
-<html><head><meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1"><title>JEMALLOC</title><meta name="generator" content="DocBook XSL Stylesheets V1.76.1"></head><body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF"><div class="refentry" title="JEMALLOC"><a name="id286949398"></a><div class="titlepage"></div><div class="refnamediv"><h2>Name</h2><p>jemalloc &#8212; general purpose memory allocation functions</p></div><div class="refsect1" title="LIBRARY"><a name="library"></a><h2>LIBRARY</h2><p>This manual describes jemalloc 3.0.0-0-gfc9b1dbf69f59d7ecfc4ac68da9847e017e1d046.  More information
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1"><title>JEMALLOC</title><meta name="generator" content="DocBook XSL Stylesheets V1.76.1"></head><body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF"><div class="refentry" title="JEMALLOC"><a name="id286949159"></a><div class="titlepage"></div><div class="refnamediv"><h2>Name</h2><p>jemalloc &#8212; general purpose memory allocation functions</p></div><div class="refsect1" title="LIBRARY"><a name="library"></a><h2>LIBRARY</h2><p>This manual describes jemalloc 3.2.0-0-g87499f6748ebe4817571e817e9f680ccb5bf54a9.  More information
     can be found at the <a class="ulink" href="http://www.canonware.com/jemalloc/" target="_top">jemalloc website</a>.</p></div><div class="refsynopsisdiv" title="SYNOPSIS"><h2>SYNOPSIS</h2><div class="funcsynopsis"><pre class="funcsynopsisinfo">#include &lt;<code class="filename">stdlib.h</code>&gt;
-#include &lt;<code class="filename">jemalloc/jemalloc.h</code>&gt;</pre><div class="refsect2" title="Standard API"><a name="id286949667"></a><h3>Standard API</h3><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">void *<b class="fsfunc">malloc</b>(</code></td><td>size_t <var class="pdparam">size</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">void *<b class="fsfunc">calloc</b>(</code></td><td>size_t <var class="pdparam">number</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">size</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">int <b class="fsfunc">posix_memalign</b>(</code></td><td>void **<var class="pdparam">ptr</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">alignment</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">size</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">void *<b class="fsfunc">aligned_alloc</b>(</code></td><td>size_t <var class="pdparam">alignment</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">size</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">void *<b class="fsfunc">realloc</b>(</code></td><td>void *<var class="pdparam">ptr</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">size</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">void <b class="fsfunc">free</b>(</code></td><td>void *<var class="pdparam">ptr</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div></div><div class="refsect2" title="Non-standard API"><a name="id286949803"></a><h3>Non-standard API</h3><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">size_t <b class="fsfunc">malloc_usable_size</b>(</code></td><td>const void *<var class="pdparam">ptr</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">void <b class="fsfunc">malloc_stats_print</b>(</code></td><td>void <var class="pdparam">(*write_cb)</var>
+#include &lt;<code class="filename">jemalloc/jemalloc.h</code>&gt;</pre><div class="refsect2" title="Standard API"><a name="id286901505"></a><h3>Standard API</h3><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">void *<b class="fsfunc">malloc</b>(</code></td><td>size_t <var class="pdparam">size</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">void *<b class="fsfunc">calloc</b>(</code></td><td>size_t <var class="pdparam">number</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">size</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">int <b class="fsfunc">posix_memalign</b>(</code></td><td>void **<var class="pdparam">ptr</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">alignment</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">size</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">void *<b class="fsfunc">aligned_alloc</b>(</code></td><td>size_t <var class="pdparam">alignment</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">size</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">void *<b class="fsfunc">realloc</b>(</code></td><td>void *<var class="pdparam">ptr</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">size</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">void <b class="fsfunc">free</b>(</code></td><td>void *<var class="pdparam">ptr</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div></div><div class="refsect2" title="Non-standard API"><a name="id286900549"></a><h3>Non-standard API</h3><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">size_t <b class="fsfunc">malloc_usable_size</b>(</code></td><td>const void *<var class="pdparam">ptr</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">void <b class="fsfunc">malloc_stats_print</b>(</code></td><td>void <var class="pdparam">(*write_cb)</var>
             <code>(</code>void *, const char *<code>)</code>
-          , </td></tr><tr><td> </td><td>void *<var class="pdparam">cbopaque</var>, </td></tr><tr><td> </td><td>const char *<var class="pdparam">opts</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">int <b class="fsfunc">mallctl</b>(</code></td><td>const char *<var class="pdparam">name</var>, </td></tr><tr><td> </td><td>void *<var class="pdparam">oldp</var>, </td></tr><tr><td> </td><td>size_t *<var class="pdparam">oldlenp</var>, </td></tr><tr><td> </td><td>void *<var class="pdparam">newp</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">newlen</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">int <b class="fsfunc">mallctlnametomib</b>(</code></td><td>const char *<var class="pdparam">name</var>, </td></tr><tr><td> </td><td>size_t *<var class="pdparam">mibp</var>, </td></tr><tr><td> </td><td>size_t *<var class="pdparam">miblenp</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">int <b class="fsfunc">mallctlbymib</b>(</code></td><td>const size_t *<var class="pdparam">mib</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">miblen</var>, </td></tr><tr><td> </td><td>void *<var class="pdparam">oldp</var>, </td></tr><tr><td> </td><td>size_t *<var class="pdparam">oldlenp</var>, </td></tr><tr><td> </td><td>void *<var class="pdparam">newp</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">newlen</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">void <b class="fsfunc">(*malloc_message)</b>(</code></td><td>void *<var class="pdparam">cbopaque</var>, </td></tr><tr><td> </td><td>const char *<var class="pdparam">s</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><p><span class="type">const char *</span><code class="varname">malloc_conf</code>;</p></div><div class="refsect2" title="Experimental API"><a name="id286950044"></a><h3>Experimental API</h3><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">int <b class="fsfunc">allocm</b>(</code></td><td>void **<var class="pdparam">ptr</var>, </td></tr><tr><td> </td><td>size_t *<var class="pdparam">rsize</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">size</var>, </td></tr><tr><td> </td><td>int <var class="pdparam">flags</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">int <b class="fsfunc">rallocm</b>(</code></td><td>void **<var class="pdparam">ptr</var>, </td></tr><tr><td> </td><td>size_t *<var class="pdparam">rsize</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">size</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">extra</var>, </td></tr><tr><td> </td><td>int <var class="pdparam">flags</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">int <b class="fsfunc">sallocm</b>(</code></td><td>const void *<var class="pdparam">ptr</var>, </td></tr><tr><td> </td><td>size_t *<var class="pdparam">rsize</var>, </td></tr><tr><td> </td><td>int <var class="pdparam">flags</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">int <b class="fsfunc">dallocm</b>(</code></td><td>void *<var class="pdparam">ptr</var>, </td></tr><tr><td> </td><td>int <var class="pdparam">flags</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">int <b class="fsfunc">nallocm</b>(</code></td><td>size_t *<var class="pdparam">rsize</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">size</var>, </td></tr><tr><td> </td><td>int <var class="pdparam">flags</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div></div></div></div><div class="refsect1" title="DESCRIPTION"><a name="description"></a><h2>DESCRIPTION</h2><div class="refsect2" title="Standard API"><a name="id286950218"></a><h3>Standard API</h3><p>The <code class="function">malloc</code>(<em class="parameter"><code></code></em>) function allocates
+          , </td></tr><tr><td> </td><td>void *<var class="pdparam">cbopaque</var>, </td></tr><tr><td> </td><td>const char *<var class="pdparam">opts</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">int <b class="fsfunc">mallctl</b>(</code></td><td>const char *<var class="pdparam">name</var>, </td></tr><tr><td> </td><td>void *<var class="pdparam">oldp</var>, </td></tr><tr><td> </td><td>size_t *<var class="pdparam">oldlenp</var>, </td></tr><tr><td> </td><td>void *<var class="pdparam">newp</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">newlen</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">int <b class="fsfunc">mallctlnametomib</b>(</code></td><td>const char *<var class="pdparam">name</var>, </td></tr><tr><td> </td><td>size_t *<var class="pdparam">mibp</var>, </td></tr><tr><td> </td><td>size_t *<var class="pdparam">miblenp</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">int <b class="fsfunc">mallctlbymib</b>(</code></td><td>const size_t *<var class="pdparam">mib</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">miblen</var>, </td></tr><tr><td> </td><td>void *<var class="pdparam">oldp</var>, </td></tr><tr><td> </td><td>size_t *<var class="pdparam">oldlenp</var>, </td></tr><tr><td> </td><td>void *<var class="pdparam">newp</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">newlen</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">void <b class="fsfunc">(*malloc_message)</b>(</code></td><td>void *<var class="pdparam">cbopaque</var>, </td></tr><tr><td> </td><td>const char *<var class="pdparam">s</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><p><span class="type">const char *</span><code class="varname">malloc_conf</code>;</p></div><div class="refsect2" title="Experimental API"><a name="id286900756"></a><h3>Experimental API</h3><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">int <b class="fsfunc">allocm</b>(</code></td><td>void **<var class="pdparam">ptr</var>, </td></tr><tr><td> </td><td>size_t *<var class="pdparam">rsize</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">size</var>, </td></tr><tr><td> </td><td>int <var class="pdparam">flags</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">int <b class="fsfunc">rallocm</b>(</code></td><td>void **<var class="pdparam">ptr</var>, </td></tr><tr><td> </td><td>size_t *<var class="pdparam">rsize</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">size</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">extra</var>, </td></tr><tr><td> </td><td>int <var class="pdparam">flags</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">int <b class="fsfunc">sallocm</b>(</code></td><td>const void *<var class="pdparam">ptr</var>, </td></tr><tr><td> </td><td>size_t *<var class="pdparam">rsize</var>, </td></tr><tr><td> </td><td>int <var class="pdparam">flags</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">int <b class="fsfunc">dallocm</b>(</code></td><td>void *<var class="pdparam">ptr</var>, </td></tr><tr><td> </td><td>int <var class="pdparam">flags</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div><table border="0" summary="Function synopsis" cellspacing="0" cellpadding="0" class="funcprototype-table"><tr><td><code class="funcdef">int <b class="fsfunc">nallocm</b>(</code></td><td>size_t *<var class="pdparam">rsize</var>, </td></tr><tr><td> </td><td>size_t <var class="pdparam">size</var>, </td></tr><tr><td> </td><td>int <var class="pdparam">flags</var><code>)</code>;</td></tr></table><div class="funcprototype-spacer"> </div></div></div></div><div class="refsect1" title="DESCRIPTION"><a name="description"></a><h2>DESCRIPTION</h2><div class="refsect2" title="Standard API"><a name="id286949297"></a><h3>Standard API</h3><p>The <code class="function">malloc</code>(<em class="parameter"><code></code></em>) function allocates
       <em class="parameter"><code>size</code></em> bytes of uninitialized memory.  The allocated
       space is suitably aligned (after possible pointer coercion) for storage
       of any type of object.</p><p>The <code class="function">calloc</code>(<em class="parameter"><code></code></em>) function allocates
@@ -38,7 +38,7 @@
       <code class="function">malloc</code>(<em class="parameter"><code></code></em>) for the specified size.</p><p>The <code class="function">free</code>(<em class="parameter"><code></code></em>) function causes the
       allocated memory referenced by <em class="parameter"><code>ptr</code></em> to be made
       available for future allocations.  If <em class="parameter"><code>ptr</code></em> is
-      <code class="constant">NULL</code>, no action occurs.</p></div><div class="refsect2" title="Non-standard API"><a name="id286950483"></a><h3>Non-standard API</h3><p>The <code class="function">malloc_usable_size</code>(<em class="parameter"><code></code></em>) function
+      <code class="constant">NULL</code>, no action occurs.</p></div><div class="refsect2" title="Non-standard API"><a name="id286949561"></a><h3>Non-standard API</h3><p>The <code class="function">malloc_usable_size</code>(<em class="parameter"><code></code></em>) function
       returns the usable size of the allocation pointed to by
       <em class="parameter"><code>ptr</code></em>.  The return value may be larger than the size
       that was requested during allocation.  The
@@ -118,7 +118,7 @@ for (i = 0; i &lt; nbins; i++) {
 	len = sizeof(bin_size);
 	mallctlbymib(mib, miblen, &amp;bin_size, &amp;len, NULL, 0);
 	/* Do something with bin_size... */
-}</pre></div><div class="refsect2" title="Experimental API"><a name="id286950724"></a><h3>Experimental API</h3><p>The experimental API is subject to change or removal without regard
+}</pre></div><div class="refsect2" title="Experimental API"><a name="id286949870"></a><h3>Experimental API</h3><p>The experimental API is subject to change or removal without regard
       for backward compatibility.  If <code class="option">--disable-experimental</code>
       is specified during configuration, the experimental API is
       omitted.</p><p>The <code class="function">allocm</code>(<em class="parameter"><code></code></em>),
@@ -146,7 +146,11 @@ for (i = 0; i &lt; nbins; i++) {
             that are initialized to contain zero bytes.  If this option is
             absent, newly allocated memory is uninitialized.</p></dd><dt><span class="term"><code class="constant">ALLOCM_NO_MOVE</code></span></dt><dd><p>For reallocation, fail rather than moving the
             object.  This constraint can apply to both growth and
-            shrinkage.</p></dd></dl></div><p>
+            shrinkage.</p></dd><dt><span class="term"><code class="constant">ALLOCM_ARENA(<em class="parameter"><code>a</code></em>)
+            </code></span></dt><dd><p>Use the arena specified by the index
+            <em class="parameter"><code>a</code></em>.  This macro does not validate that
+            <em class="parameter"><code>a</code></em> specifies an arena in the valid
+            range.</p></dd></dl></div><p>
       </p><p>The <code class="function">allocm</code>(<em class="parameter"><code></code></em>) function allocates at
       least <em class="parameter"><code>size</code></em> bytes of memory, sets
       <em class="parameter"><code>*ptr</code></em> to the base address of the allocation, and
@@ -404,15 +408,24 @@ for (i = 0; i &lt; nbins; i++) {
           (<span class="type">size_t</span>)
           <code class="literal">r-</code>
         </span></dt><dd><p>Virtual memory chunk size (log base 2).  The default
-        chunk size is 4 MiB (2^22).</p></dd><dt><a name="opt.narenas"></a><span class="term">
+        chunk size is 4 MiB (2^22).</p></dd><dt><a name="opt.dss"></a><span class="term">
+          
+    "<code class="mallctl">opt.dss</code>"
+  
+          (<span class="type">const char *</span>)
+          <code class="literal">r-</code>
+        </span></dt><dd><p>dss (<span class="citerefentry"><span class="refentrytitle">sbrk</span>(2)</span>) allocation precedence as
+        related to <span class="citerefentry"><span class="refentrytitle">mmap</span>(2)</span> allocation.  The following
+        settings are supported: &#8220;disabled&#8221;, &#8220;primary&#8221;,
+        and &#8220;secondary&#8221; (default).</p></dd><dt><a name="opt.narenas"></a><span class="term">
           
     "<code class="mallctl">opt.narenas</code>"
   
           (<span class="type">size_t</span>)
           <code class="literal">r-</code>
-        </span></dt><dd><p>Maximum number of arenas to use.  The default maximum
-        number of arenas is four times the number of CPUs, or one if there is a
-        single CPU.</p></dd><dt><a name="opt.lg_dirty_mult"></a><span class="term">
+        </span></dt><dd><p>Maximum number of arenas to use for automatic
+        multiplexing of threads and arenas.  The default is four times the
+        number of CPUs, or one if there is a single CPU.</p></dd><dt><a name="opt.lg_dirty_mult"></a><span class="term">
           
     "<code class="mallctl">opt.lg_dirty_mult</code>"
   
@@ -425,7 +438,7 @@ for (i = 0; i &lt; nbins; i++) {
         pages via <span class="citerefentry"><span class="refentrytitle">madvise</span>(2)</span> or a similar system call.  This
         provides the kernel with sufficient information to recycle dirty pages
         if physical memory becomes scarce and the pages remain unused.  The
-        default minimum ratio is 32:1 (2^5:1); an option value of -1 will
+        default minimum ratio is 8:1 (2^3:1); an option value of -1 will
         disable dirty page purging.</p></dd><dt><a name="opt.stats_print"></a><span class="term">
           
     "<code class="mallctl">opt.stats_print</code>"
@@ -454,7 +467,8 @@ for (i = 0; i &lt; nbins; i++) {
         <code class="literal">0x5a</code>.  This is intended for debugging and will
         impact performance negatively.  This option is disabled by default
         unless <code class="option">--enable-debug</code> is specified during
-        configuration, in which case it is enabled by default.</p></dd><dt><a name="opt.quarantine"></a><span class="term">
+        configuration, in which case it is enabled by default unless running
+        inside <a class="ulink" href="http://valgrind.org/" target="_top">Valgrind</a>.</p></dd><dt><a name="opt.quarantine"></a><span class="term">
           
     "<code class="mallctl">opt.quarantine</code>"
   
@@ -470,8 +484,9 @@ for (i = 0; i &lt; nbins; i++) {
   </a> option is
         enabled.  This feature is of particular use in combination with <a class="ulink" href="http://valgrind.org/" target="_top">Valgrind</a>, which can detect attempts
         to access quarantined objects.  This is intended for debugging and will
-        impact performance negatively.  The default quarantine size is
-        0.</p></dd><dt><a name="opt.redzone"></a><span class="term">
+        impact performance negatively.  The default quarantine size is 0 unless
+        running inside Valgrind, in which case the default is 16
+        MiB.</p></dd><dt><a name="opt.redzone"></a><span class="term">
           
     "<code class="mallctl">opt.redzone</code>"
   
@@ -489,7 +504,7 @@ for (i = 0; i &lt; nbins; i++) {
         which needs redzones in order to do effective buffer overflow/underflow
         detection.  This option is intended for debugging and will impact
         performance negatively.  This option is disabled by
-        default.</p></dd><dt><a name="opt.zero"></a><span class="term">
+        default unless running inside Valgrind.</p></dd><dt><a name="opt.zero"></a><span class="term">
           
     "<code class="mallctl">opt.zero</code>"
   
@@ -520,21 +535,9 @@ for (i = 0; i &lt; nbins; i++) {
           <code class="literal">r-</code>
           [<code class="option">--enable-valgrind</code>]
         </span></dt><dd><p><a class="ulink" href="http://valgrind.org/" target="_top">Valgrind</a>
-        support enabled/disabled.  If enabled, several other options are
-        automatically modified during options processing to work well with
-        Valgrind: <a class="link" href="#opt.junk">
-    "<code class="mallctl">opt.junk</code>"
-  </a>
-        and <a class="link" href="#opt.zero">
-    "<code class="mallctl">opt.zero</code>"
-  </a> are set
-        to false, <a class="link" href="#opt.quarantine">
-    "<code class="mallctl">opt.quarantine</code>"
-  </a> is
-        set to 16 MiB, and <a class="link" href="#opt.redzone">
-    "<code class="mallctl">opt.redzone</code>"
-  </a> is set to
-        true.  This option is disabled by default.</p></dd><dt><a name="opt.xmalloc"></a><span class="term">
+        support enabled/disabled.  This option is vestigal because jemalloc
+        auto-detects whether it is running inside Valgrind.  This option is
+        disabled by default, unless running inside Valgrind.</p></dd><dt><a name="opt.xmalloc"></a><span class="term">
           
     "<code class="mallctl">opt.xmalloc</code>"
   
@@ -566,7 +569,7 @@ malloc_conf = "xmalloc:true";</pre><p>
     "<code class="mallctl">opt.lg_tcache_max</code>"
   </a>
         option for related tuning information.  This option is enabled by
-        default.</p></dd><dt><a name="opt.lg_tcache_max"></a><span class="term">
+        default unless running inside <a class="ulink" href="http://valgrind.org/" target="_top">Valgrind</a>.</p></dd><dt><a name="opt.lg_tcache_max"></a><span class="term">
           
     "<code class="mallctl">opt.lg_tcache_max</code>"
   
@@ -724,12 +727,8 @@ malloc_conf = "xmalloc:true";</pre><p>
           (<span class="type">unsigned</span>)
           <code class="literal">rw</code>
         </span></dt><dd><p>Get or set the arena associated with the calling
-        thread.  The arena index must be less than the maximum number of arenas
-        (see the <a class="link" href="#arenas.narenas">
-    "<code class="mallctl">arenas.narenas</code>"
-  </a>
-        mallctl).  If the specified arena was not initialized beforehand (see
-        the <a class="link" href="#arenas.initialized">
+        thread.  If the specified arena was not initialized beforehand (see the
+        <a class="link" href="#arenas.initialized">
     "<code class="mallctl">arenas.initialized</code>"
   </a>
         mallctl), it will be automatically initialized as a side effect of
@@ -804,13 +803,38 @@ malloc_conf = "xmalloc:true";</pre><p>
         a thread exits.  However, garbage collection is triggered by allocation
         activity, so it is possible for a thread that stops
         allocating/deallocating to retain its cache indefinitely, in which case
-        the developer may find manual flushing useful.</p></dd><dt><a name="arenas.narenas"></a><span class="term">
+        the developer may find manual flushing useful.</p></dd><dt><a name="arena.i.purge"></a><span class="term">
+          
+    "<code class="mallctl">arena.&lt;i&gt;.purge</code>"
+  
+          (<span class="type">unsigned</span>)
+          <code class="literal">--</code>
+        </span></dt><dd><p>Purge unused dirty pages for arena &lt;i&gt;, or for
+        all arenas if &lt;i&gt; equals <a class="link" href="#arenas.narenas">
+    "<code class="mallctl">arenas.narenas</code>"
+  </a>.
+        </p></dd><dt><a name="arena.i.dss"></a><span class="term">
+          
+    "<code class="mallctl">arena.&lt;i&gt;.dss</code>"
+  
+          (<span class="type">const char *</span>)
+          <code class="literal">rw</code>
+        </span></dt><dd><p>Set the precedence of dss allocation as related to mmap
+        allocation for arena &lt;i&gt;, or for all arenas if &lt;i&gt; equals
+        <a class="link" href="#arenas.narenas">
+    "<code class="mallctl">arenas.narenas</code>"
+  </a>.  See
+        <a class="link" href="#opt.dss">
+    "<code class="mallctl">opt.dss</code>"
+  </a> for supported
+        settings.
+        </p></dd><dt><a name="arenas.narenas"></a><span class="term">
           
     "<code class="mallctl">arenas.narenas</code>"
   
           (<span class="type">unsigned</span>)
           <code class="literal">r-</code>
-        </span></dt><dd><p>Maximum number of arenas.</p></dd><dt><a name="arenas.initialized"></a><span class="term">
+        </span></dt><dd><p>Current limit on number of arenas.</p></dd><dt><a name="arenas.initialized"></a><span class="term">
           
     "<code class="mallctl">arenas.initialized</code>"
   
@@ -891,7 +915,14 @@ malloc_conf = "xmalloc:true";</pre><p>
           (<span class="type">unsigned</span>)
           <code class="literal">-w</code>
         </span></dt><dd><p>Purge unused dirty pages for the specified arena, or
-        for all arenas if none is specified.</p></dd><dt><a name="prof.active"></a><span class="term">
+        for all arenas if none is specified.</p></dd><dt><span class="term">
+          
+    "<code class="mallctl">arenas.extend</code>"
+  
+          (<span class="type">unsigned</span>)
+          <code class="literal">r-</code>
+        </span></dt><dd><p>Extend the array of arenas by appending a new arena,
+        and returning the new arena index.</p></dd><dt><a name="prof.active"></a><span class="term">
           
     "<code class="mallctl">prof.active</code>"
   
@@ -966,7 +997,11 @@ malloc_conf = "xmalloc:true";</pre><p>
         equal to <a class="link" href="#stats.allocated">
     "<code class="mallctl">stats.allocated</code>"
   </a>.
-        </p></dd><dt><span class="term">
+        This does not include <a class="link" href="#stats.arenas.i.pdirty">
+        
+    "<code class="mallctl">stats.arenas.&lt;i&gt;.pdirty</code>"
+  </a> and pages
+        entirely devoted to allocator metadata.</p></dd><dt><span class="term">
           
     "<code class="mallctl">stats.mapped</code>"
   
@@ -1028,6 +1063,16 @@ malloc_conf = "xmalloc:true";</pre><p>
         </span></dt><dd><p>Cumulative number of huge deallocation requests.
         </p></dd><dt><span class="term">
           
+    "<code class="mallctl">stats.arenas.&lt;i&gt;.dss</code>"
+  
+          (<span class="type">const char *</span>)
+          <code class="literal">r-</code>
+        </span></dt><dd><p>dss (<span class="citerefentry"><span class="refentrytitle">sbrk</span>(2)</span>) allocation precedence as
+        related to <span class="citerefentry"><span class="refentrytitle">mmap</span>(2)</span> allocation.  See <a class="link" href="#opt.dss">
+    "<code class="mallctl">opt.dss</code>"
+  </a> for details.
+        </p></dd><dt><span class="term">
+          
     "<code class="mallctl">stats.arenas.&lt;i&gt;.nthreads</code>"
   
           (<span class="type">unsigned</span>)
@@ -1039,7 +1084,7 @@ malloc_conf = "xmalloc:true";</pre><p>
   
           (<span class="type">size_t</span>)
           <code class="literal">r-</code>
-        </span></dt><dd><p>Number of pages in active runs.</p></dd><dt><span class="term">
+        </span></dt><dd><p>Number of pages in active runs.</p></dd><dt><a name="stats.arenas.i.pdirty"></a><span class="term">
           
     "<code class="mallctl">stats.arenas.&lt;i&gt;.pdirty</code>"
   
@@ -1263,11 +1308,7 @@ malloc_conf = "xmalloc:true";</pre><p>
     it detects, because the performance impact for storing such information
     would be prohibitive.  However, jemalloc does integrate with the most
     excellent <a class="ulink" href="http://valgrind.org/" target="_top">Valgrind</a> tool if the
-    <code class="option">--enable-valgrind</code> configuration option is enabled and the
-    <a class="link" href="#opt.valgrind">
-    "<code class="mallctl">opt.valgrind</code>"
-  </a> option
-    is enabled.</p></div><div class="refsect1" title="DIAGNOSTIC MESSAGES"><a name="diagnostic_messages"></a><h2>DIAGNOSTIC MESSAGES</h2><p>If any of the memory allocation/deallocation functions detect an
+    <code class="option">--enable-valgrind</code> configuration option is enabled.</p></div><div class="refsect1" title="DIAGNOSTIC MESSAGES"><a name="diagnostic_messages"></a><h2>DIAGNOSTIC MESSAGES</h2><p>If any of the memory allocation/deallocation functions detect an
     error or warning condition, a message will be printed to file descriptor
     <code class="constant">STDERR_FILENO</code>.  Errors will result in the process
     dumping core.  If the <a class="link" href="#opt.abort">
@@ -1283,7 +1324,7 @@ malloc_conf = "xmalloc:true";</pre><p>
     <code class="function">malloc_stats_print</code>(<em class="parameter"><code></code></em>), followed by a string
     pointer.  Please note that doing anything which tries to allocate memory in
     this function is likely to result in a crash or deadlock.</p><p>All messages are prefixed by
-    &#8220;<code class="computeroutput">&lt;jemalloc&gt;: </code>&#8221;.</p></div><div class="refsect1" title="RETURN VALUES"><a name="return_values"></a><h2>RETURN VALUES</h2><div class="refsect2" title="Standard API"><a name="id286955289"></a><h3>Standard API</h3><p>The <code class="function">malloc</code>(<em class="parameter"><code></code></em>) and
+    &#8220;<code class="computeroutput">&lt;jemalloc&gt;: </code>&#8221;.</p></div><div class="refsect1" title="RETURN VALUES"><a name="return_values"></a><h2>RETURN VALUES</h2><div class="refsect2" title="Standard API"><a name="id286954473"></a><h3>Standard API</h3><p>The <code class="function">malloc</code>(<em class="parameter"><code></code></em>) and
       <code class="function">calloc</code>(<em class="parameter"><code></code></em>) functions return a pointer to the
       allocated memory if successful; otherwise a <code class="constant">NULL</code>
       pointer is returned and <code class="varname">errno</code> is set to
@@ -1311,7 +1352,7 @@ malloc_conf = "xmalloc:true";</pre><p>
       allocation failure.  The <code class="function">realloc</code>(<em class="parameter"><code></code></em>)
       function always leaves the original buffer intact when an error occurs.
       </p><p>The <code class="function">free</code>(<em class="parameter"><code></code></em>) function returns no
-      value.</p></div><div class="refsect2" title="Non-standard API"><a name="id286955505"></a><h3>Non-standard API</h3><p>The <code class="function">malloc_usable_size</code>(<em class="parameter"><code></code></em>) function
+      value.</p></div><div class="refsect2" title="Non-standard API"><a name="id286954690"></a><h3>Non-standard API</h3><p>The <code class="function">malloc_usable_size</code>(<em class="parameter"><code></code></em>) function
       returns the usable size of the allocation pointed to by
       <em class="parameter"><code>ptr</code></em>.  </p><p>The <code class="function">mallctl</code>(<em class="parameter"><code></code></em>),
       <code class="function">mallctlnametomib</code>(<em class="parameter"><code></code></em>), and
@@ -1330,7 +1371,7 @@ malloc_conf = "xmalloc:true";</pre><p>
             occurred.</p></dd><dt><span class="term"><span class="errorname">EFAULT</span></span></dt><dd><p>An interface with side effects failed in some way
             not directly related to <code class="function">mallctl*</code>(<em class="parameter"><code></code></em>)
             read/write processing.</p></dd></dl></div><p>
-      </p></div><div class="refsect2" title="Experimental API"><a name="id286955658"></a><h3>Experimental API</h3><p>The <code class="function">allocm</code>(<em class="parameter"><code></code></em>),
+      </p></div><div class="refsect2" title="Experimental API"><a name="id286954842"></a><h3>Experimental API</h3><p>The <code class="function">allocm</code>(<em class="parameter"><code></code></em>),
       <code class="function">rallocm</code>(<em class="parameter"><code></code></em>),
       <code class="function">sallocm</code>(<em class="parameter"><code></code></em>),
       <code class="function">dallocm</code>(<em class="parameter"><code></code></em>), and

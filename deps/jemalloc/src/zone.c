@@ -171,6 +171,16 @@ void
 register_zone(void)
 {
 
+	/*
+	 * If something else replaced the system default zone allocator, don't
+	 * register jemalloc's.
+	 */
+	malloc_zone_t *default_zone = malloc_default_zone();
+	if (!default_zone->zone_name ||
+	    strcmp(default_zone->zone_name, "DefaultMallocZone") != 0) {
+		return;
+	}
+
 	zone.size = (void *)zone_size;
 	zone.malloc = (void *)zone_malloc;
 	zone.calloc = (void *)zone_calloc;
@@ -241,7 +251,7 @@ register_zone(void)
 	 * then becomes the default.
 	 */
 	do {
-		malloc_zone_t *default_zone = malloc_default_zone();
+		default_zone = malloc_default_zone();
 		malloc_zone_unregister(default_zone);
 		malloc_zone_register(default_zone);
 	} while (malloc_default_zone() != &zone);

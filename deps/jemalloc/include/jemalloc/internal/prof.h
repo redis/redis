@@ -223,6 +223,9 @@ void	prof_tdata_cleanup(void *arg);
 void	prof_boot0(void);
 void	prof_boot1(void);
 bool	prof_boot2(void);
+void	prof_prefork(void);
+void	prof_postfork_parent(void);
+void	prof_postfork_child(void);
 
 #endif /* JEMALLOC_H_EXTERNS */
 /******************************************************************************/
@@ -506,7 +509,7 @@ prof_realloc(const void *ptr, size_t size, prof_thr_cnt_t *cnt,
 	if ((uintptr_t)cnt > (uintptr_t)1U) {
 		prof_ctx_set(ptr, cnt->ctx);
 		cnt->epoch++;
-	} else
+	} else if (ptr != NULL)
 		prof_ctx_set(ptr, (prof_ctx_t *)(uintptr_t)1U);
 	/*********/
 	mb_write();

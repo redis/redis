@@ -101,9 +101,9 @@ DOCS_HTML := $(DOCS_XML:$(objroot)%.xml=$(srcroot)%.html)
 DOCS_MAN3 := $(DOCS_XML:$(objroot)%.xml=$(srcroot)%.3)
 DOCS := $(DOCS_HTML) $(DOCS_MAN3)
 CTESTS := $(srcroot)test/aligned_alloc.c $(srcroot)test/allocated.c \
-	$(srcroot)test/bitmap.c $(srcroot)test/mremap.c \
-	$(srcroot)test/posix_memalign.c $(srcroot)test/thread_arena.c \
-	$(srcroot)test/thread_tcache_enabled.c
+	$(srcroot)test/ALLOCM_ARENA.c $(srcroot)test/bitmap.c \
+	$(srcroot)test/mremap.c $(srcroot)test/posix_memalign.c \
+	$(srcroot)test/thread_arena.c $(srcroot)test/thread_tcache_enabled.c
 ifeq ($(enable_experimental), 1)
 CTESTS += $(srcroot)test/allocm.c $(srcroot)test/rallocm.c
 endif
