@@ -377,7 +377,6 @@ malloc_vsnprintf(char *str, size_t size, const char *format, va_list ap)
 		case '\0': goto label_out;
 		case '%': {
 			bool alt_form = false;
-			bool zero_pad = false;
 			bool left_justify = false;
 			bool plus_space = false;
 			bool plus_plus = false;
@@ -397,10 +396,6 @@ malloc_vsnprintf(char *str, size_t size, const char *format, va_list ap)
 				case '#':
 					assert(alt_form == false);
 					alt_form = true;
-					break;
-				case '0':
-					assert(zero_pad == false);
-					zero_pad = true;
 					break;
 				case '-':
 					assert(left_justify == false);

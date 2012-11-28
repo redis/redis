@@ -38,10 +38,10 @@
  *
  *   (nactive >> opt_lg_dirty_mult) >= ndirty
  *
- * So, supposing that opt_lg_dirty_mult is 5, there can be no less than 32
- * times as many active pages as dirty pages.
+ * So, supposing that opt_lg_dirty_mult is 3, there can be no less than 8 times
+ * as many active pages as dirty pages.
  */
-#define	LG_DIRTY_MULT_DEFAULT	5
+#define	LG_DIRTY_MULT_DEFAULT	3
 
 typedef struct arena_chunk_map_s arena_chunk_map_t;
 typedef struct arena_chunk_s arena_chunk_t;
@@ -69,7 +69,7 @@ struct arena_chunk_map_s {
 		/*
 		 * Linkage for run trees.  There are two disjoint uses:
 		 *
-		 * 1) arena_t's runs_avail_{clean,dirty} trees.
+		 * 1) arena_t's runs_avail tree.
 		 * 2) arena_run_t conceptually uses this linkage for in-use
 		 *    non-full runs, rather than directly embedding linkage.
 		 */
@@ -162,20 +162,24 @@ typedef rb_tree(arena_chunk_map_t) arena_run_tree_t;
 /* Arena chunk header. */
 struct arena_chunk_s {
 	/* Arena that owns the chunk. */
-	arena_t		*arena;
+	arena_t			*arena;
 
-	/* Linkage for the arena's chunks_dirty list. */
-	ql_elm(arena_chunk_t) link_dirty;
-
-	/*
-	 * True if the chunk is currently in the chunks_dirty list, due to
-	 * having at some point contained one or more dirty pages.  Removal
-	 * from chunks_dirty is lazy, so (dirtied && ndirty == 0) is possible.
-	 */
-	bool		dirtied;
+	/* Linkage for tree of arena chunks that contain dirty runs. */
+	rb_node(arena_chunk_t)	dirty_link;
 
 	/* Number of dirty pages. */
-	size_t		ndirty;
+	size_t			ndirty;
+
+	/* Number of available runs. */
+	size_t			nruns_avail;
+
+	/*
+	 * Number of available run adjacencies.  Clean and dirty available runs
+	 * are not coalesced, which causes virtual memory fragmentation.  The
+	 * ratio of (nruns_avail-nruns_adjac):nruns_adjac is used for tracking
+	 * this fragmentation.
+	 * */
+	size_t			nruns_adjac;
 
 	/*
 	 * Map of pages within chunk that keeps track of free/large/small.  The
@@ -183,7 +187,7 @@ struct arena_chunk_s {
 	 * need to be tracked in the map.  This omission saves a header page
 	 * for common chunk sizes (e.g. 4 MiB).
 	 */
-	arena_chunk_map_t map[1]; /* Dynamically sized. */
+	arena_chunk_map_t	map[1]; /* Dynamically sized. */
 };
 typedef rb_tree(arena_chunk_t) arena_chunk_tree_t;
 
@@ -331,8 +335,10 @@ struct arena_s {
 
 	uint64_t		prof_accumbytes;
 
-	/* List of dirty-page-containing chunks this arena manages. */
-	ql_head(arena_chunk_t)	chunks_dirty;
+	dss_prec_t		dss_prec;
+
+	/* Tree of dirty-page-containing chunks this arena manages. */
+	arena_chunk_tree_t	chunks_dirty;
 
 	/*
 	 * In order to avoid rapid chunk allocation/deallocation when an arena
@@ -367,18 +373,9 @@ struct arena_s {
 
 	/*
 	 * Size/address-ordered trees of this arena's available runs.  The trees
-	 * are used for first-best-fit run allocation.  The dirty tree contains
-	 * runs with dirty pages (i.e. very likely to have been touched and
-	 * therefore have associated physical pages), whereas the clean tree
-	 * contains runs with pages that either have no associated physical
-	 * pages, or have pages that the kernel may recycle at any time due to
-	 * previous madvise(2) calls.  The dirty tree is used in preference to
-	 * the clean tree for allocations, because using dirty pages reduces
-	 * the amount of dirty purging necessary to keep the active:dirty page
-	 * ratio below the purge threshold.
+	 * are used for first-best-fit run allocation.
 	 */
-	arena_avail_tree_t	runs_avail_clean;
-	arena_avail_tree_t	runs_avail_dirty;
+	arena_avail_tree_t	runs_avail;
 
 	/* bins is used to store trees of free regions. */
 	arena_bin_t		bins[NBINS];
@@ -422,13 +419,16 @@ void	arena_dalloc_small(arena_t *arena, arena_chunk_t *chunk, void *ptr,
 void	arena_dalloc_large_locked(arena_t *arena, arena_chunk_t *chunk,
     void *ptr);
 void	arena_dalloc_large(arena_t *arena, arena_chunk_t *chunk, void *ptr);
-void	arena_stats_merge(arena_t *arena, size_t *nactive, size_t *ndirty,
-    arena_stats_t *astats, malloc_bin_stats_t *bstats,
-    malloc_large_stats_t *lstats);
 void	*arena_ralloc_no_move(void *ptr, size_t oldsize, size_t size,
     size_t extra, bool zero);
-void	*arena_ralloc(void *ptr, size_t oldsize, size_t size, size_t extra,
-    size_t alignment, bool zero, bool try_tcache);
+void	*arena_ralloc(arena_t *arena, void *ptr, size_t oldsize, size_t size,
+    size_t extra, size_t alignment, bool zero, bool try_tcache_alloc,
+    bool try_tcache_dalloc);
+dss_prec_t	arena_dss_prec_get(arena_t *arena);
+void	arena_dss_prec_set(arena_t *arena, dss_prec_t dss_prec);
+void	arena_stats_merge(arena_t *arena, const char **dss, size_t *nactive,
+    size_t *ndirty, arena_stats_t *astats, malloc_bin_stats_t *bstats,
+    malloc_large_stats_t *lstats);
 bool	arena_new(arena_t *arena, unsigned ind);
 void	arena_boot(void);
 void	arena_prefork(arena_t *arena);

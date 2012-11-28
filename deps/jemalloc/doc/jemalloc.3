@@ -2,12 +2,12 @@
 .\"     Title: JEMALLOC
 .\"    Author: Jason Evans
 .\" Generator: DocBook XSL Stylesheets v1.76.1 <http://docbook.sf.net/>
-.\"      Date: 05/11/2012
+.\"      Date: 11/09/2012
 .\"    Manual: User Manual
-.\"    Source: jemalloc 3.0.0-0-gfc9b1dbf69f59d7ecfc4ac68da9847e017e1d046
+.\"    Source: jemalloc 3.2.0-0-g87499f6748ebe4817571e817e9f680ccb5bf54a9
 .\"  Language: English
 .\"
-.TH "JEMALLOC" "3" "05/11/2012" "jemalloc 3.0.0-0-gfc9b1dbf69f5" "User Manual"
+.TH "JEMALLOC" "3" "11/09/2012" "jemalloc 3.2.0-0-g87499f6748eb" "User Manual"
 .\" -----------------------------------------------------------------
 .\" * Define some portability stuff
 .\" -----------------------------------------------------------------
@@ -31,7 +31,7 @@
 jemalloc \- general purpose memory allocation functions
 .SH "LIBRARY"
 .PP
-This manual describes jemalloc 3\&.0\&.0\-0\-gfc9b1dbf69f59d7ecfc4ac68da9847e017e1d046\&. More information can be found at the
+This manual describes jemalloc 3\&.2\&.0\-0\-g87499f6748ebe4817571e817e9f680ccb5bf54a9\&. More information can be found at the
 \m[blue]\fBjemalloc website\fR\m[]\&\s-2\u[1]\d\s+2\&.
 .SH "SYNOPSIS"
 .sp
@@ -292,6 +292,14 @@ Initialize newly allocated memory to contain zero bytes\&. In the growing reallo
 \fBALLOCM_NO_MOVE\fR
 .RS 4
 For reallocation, fail rather than moving the object\&. This constraint can apply to both growth and shrinkage\&.
+.RE
+.PP
+\fBALLOCM_ARENA(\fR\fB\fIa\fR\fR\fB) \fR
+.RS 4
+Use the arena specified by the index
+\fIa\fR\&. This macro does not validate that
+\fIa\fR
+specifies an arena in the valid range\&.
 .RE
 .PP
 The
@@ -631,16 +639,23 @@ is specified during configuration, in which case it is enabled by default\&.
 Virtual memory chunk size (log base 2)\&. The default chunk size is 4 MiB (2^22)\&.
 .RE
 .PP
+"opt\&.dss" (\fBconst char *\fR) r\-
+.RS 4
+dss (\fBsbrk\fR(2)) allocation precedence as related to
+\fBmmap\fR(2)
+allocation\&. The following settings are supported: \(lqdisabled\(rq, \(lqprimary\(rq, and \(lqsecondary\(rq (default)\&.
+.RE
+.PP
 "opt\&.narenas" (\fBsize_t\fR) r\-
 .RS 4
-Maximum number of arenas to use\&. The default maximum number of arenas is four times the number of CPUs, or one if there is a single CPU\&.
+Maximum number of arenas to use for automatic multiplexing of threads and arenas\&. The default is four times the number of CPUs, or one if there is a single CPU\&.
 .RE
 .PP
 "opt\&.lg_dirty_mult" (\fBssize_t\fR) r\-
 .RS 4
 Per\-arena minimum ratio (log base 2) of active to dirty pages\&. Some dirty unused pages may be allowed to accumulate, within the limit set by the ratio (or one chunk worth of dirty pages, whichever is greater), before informing the kernel about some of those pages via
 \fBmadvise\fR(2)
-or a similar system call\&. This provides the kernel with sufficient information to recycle dirty pages if physical memory becomes scarce and the pages remain unused\&. The default minimum ratio is 32:1 (2^5:1); an option value of \-1 will disable dirty page purging\&.
+or a similar system call\&. This provides the kernel with sufficient information to recycle dirty pages if physical memory becomes scarce and the pages remain unused\&. The default minimum ratio is 8:1 (2^3:1); an option value of \-1 will disable dirty page purging\&.
 .RE
 .PP
 "opt\&.stats_print" (\fBbool\fR) r\-
@@ -660,7 +675,8 @@ Junk filling enabled/disabled\&. If enabled, each byte of uninitialized allocate
 0xa5\&. All deallocated memory will be initialized to
 0x5a\&. This is intended for debugging and will impact performance negatively\&. This option is disabled by default unless
 \fB\-\-enable\-debug\fR
-is specified during configuration, in which case it is enabled by default\&.
+is specified during configuration, in which case it is enabled by default unless running inside
+\m[blue]\fBValgrind\fR\m[]\&\s-2\u[2]\d\s+2\&.
 .RE
 .PP
 "opt\&.quarantine" (\fBsize_t\fR) r\- [\fB\-\-enable\-fill\fR]
@@ -668,7 +684,7 @@ is specified during configuration, in which case it is enabled by default\&.
 Per thread quarantine size in bytes\&. If non\-zero, each thread maintains a FIFO object quarantine that stores up to the specified number of bytes of memory\&. The quarantined memory is not freed until it is released from quarantine, though it is immediately junk\-filled if the
 "opt\&.junk"
 option is enabled\&. This feature is of particular use in combination with
-\m[blue]\fBValgrind\fR\m[]\&\s-2\u[2]\d\s+2, which can detect attempts to access quarantined objects\&. This is intended for debugging and will impact performance negatively\&. The default quarantine size is 0\&.
+\m[blue]\fBValgrind\fR\m[]\&\s-2\u[2]\d\s+2, which can detect attempts to access quarantined objects\&. This is intended for debugging and will impact performance negatively\&. The default quarantine size is 0 unless running inside Valgrind, in which case the default is 16 MiB\&.
 .RE
 .PP
 "opt\&.redzone" (\fBbool\fR) r\- [\fB\-\-enable\-fill\fR]
@@ -676,7 +692,7 @@ option is enabled\&. This feature is of particular use in combination with
 Redzones enabled/disabled\&. If enabled, small allocations have redzones before and after them\&. Furthermore, if the
 "opt\&.junk"
 option is enabled, the redzones are checked for corruption during deallocation\&. However, the primary intended purpose of this feature is to be used in combination with
-\m[blue]\fBValgrind\fR\m[]\&\s-2\u[2]\d\s+2, which needs redzones in order to do effective buffer overflow/underflow detection\&. This option is intended for debugging and will impact performance negatively\&. This option is disabled by default\&.
+\m[blue]\fBValgrind\fR\m[]\&\s-2\u[2]\d\s+2, which needs redzones in order to do effective buffer overflow/underflow detection\&. This option is intended for debugging and will impact performance negatively\&. This option is disabled by default unless running inside Valgrind\&.
 .RE
 .PP
 "opt\&.zero" (\fBbool\fR) r\- [\fB\-\-enable\-fill\fR]
@@ -698,15 +714,7 @@ enabled/disabled\&. This option is disabled by default\&.
 "opt\&.valgrind" (\fBbool\fR) r\- [\fB\-\-enable\-valgrind\fR]
 .RS 4
 \m[blue]\fBValgrind\fR\m[]\&\s-2\u[2]\d\s+2
-support enabled/disabled\&. If enabled, several other options are automatically modified during options processing to work well with Valgrind:
-"opt\&.junk"
-and
-"opt\&.zero"
-are set to false,
-"opt\&.quarantine"
-is set to 16 MiB, and
-"opt\&.redzone"
-is set to true\&. This option is disabled by default\&.
+support enabled/disabled\&. This option is vestigal because jemalloc auto\-detects whether it is running inside Valgrind\&. This option is disabled by default, unless running inside Valgrind\&.
 .RE
 .PP
 "opt\&.xmalloc" (\fBbool\fR) r\- [\fB\-\-enable\-xmalloc\fR]
@@ -733,7 +741,8 @@ This option is disabled by default\&.
 .RS 4
 Thread\-specific caching enabled/disabled\&. When there are multiple threads, each thread uses a thread\-specific cache for objects up to a certain size\&. Thread\-specific caching allows many allocations to be satisfied without performing any thread synchronization, at the cost of increased memory use\&. See the
 "opt\&.lg_tcache_max"
-option for related tuning information\&. This option is enabled by default\&.
+option for related tuning information\&. This option is enabled by default unless running inside
+\m[blue]\fBValgrind\fR\m[]\&\s-2\u[2]\d\s+2\&.
 .RE
 .PP
 "opt\&.lg_tcache_max" (\fBsize_t\fR) r\- [\fB\-\-enable\-tcache\fR]
@@ -829,9 +838,7 @@ option for information on analyzing heap profile output\&. This option is disabl
 .PP
 "thread\&.arena" (\fBunsigned\fR) rw
 .RS 4
-Get or set the arena associated with the calling thread\&. The arena index must be less than the maximum number of arenas (see the
-"arenas\&.narenas"
-mallctl)\&. If the specified arena was not initialized beforehand (see the
+Get or set the arena associated with the calling thread\&. If the specified arena was not initialized beforehand (see the
 "arenas\&.initialized"
 mallctl), it will be automatically initialized as a side effect of calling this interface\&.
 .RE
@@ -875,9 +882,23 @@ Enable/disable calling thread\*(Aqs tcache\&. The tcache is implicitly flushed a
 Flush calling thread\*(Aqs tcache\&. This interface releases all cached objects and internal data structures associated with the calling thread\*(Aqs thread\-specific cache\&. Ordinarily, this interface need not be called, since automatic periodic incremental garbage collection occurs, and the thread cache is automatically discarded when a thread exits\&. However, garbage collection is triggered by allocation activity, so it is possible for a thread that stops allocating/deallocating to retain its cache indefinitely, in which case the developer may find manual flushing useful\&.
 .RE
 .PP
+"arena\&.<i>\&.purge" (\fBunsigned\fR) \-\-
+.RS 4
+Purge unused dirty pages for arena <i>, or for all arenas if <i> equals
+"arenas\&.narenas"\&.
+.RE
+.PP
+"arena\&.<i>\&.dss" (\fBconst char *\fR) rw
+.RS 4
+Set the precedence of dss allocation as related to mmap allocation for arena <i>, or for all arenas if <i> equals
+"arenas\&.narenas"\&. See
+"opt\&.dss"
+for supported settings\&.
+.RE
+.PP
 "arenas\&.narenas" (\fBunsigned\fR) r\-
 .RS 4
-Maximum number of arenas\&.
+Current limit on number of arenas\&.
 .RE
 .PP
 "arenas\&.initialized" (\fBbool *\fR) r\-
@@ -942,6 +963,11 @@ Maximum size supported by this large size class\&.
 Purge unused dirty pages for the specified arena, or for all arenas if none is specified\&.
 .RE
 .PP
+"arenas\&.extend" (\fBunsigned\fR) r\-
+.RS 4
+Extend the array of arenas by appending a new arena, and returning the new arena index\&.
+.RE
+.PP
 "prof\&.active" (\fBbool\fR) rw [\fB\-\-enable\-prof\fR]
 .RS 4
 Control whether sampling is currently active\&. See the
@@ -981,7 +1007,9 @@ Total number of bytes allocated by the application\&.
 "stats\&.active" (\fBsize_t\fR) r\- [\fB\-\-enable\-stats\fR]
 .RS 4
 Total number of bytes in active pages allocated by the application\&. This is a multiple of the page size, and greater than or equal to
-"stats\&.allocated"\&.
+"stats\&.allocated"\&. This does not include
+"stats\&.arenas\&.<i>\&.pdirty"
+and pages entirely devoted to allocator metadata\&.
 .RE
 .PP
 "stats\&.mapped" (\fBsize_t\fR) r\- [\fB\-\-enable\-stats\fR]
@@ -1018,6 +1046,15 @@ Cumulative number of huge allocation requests\&.
 "stats\&.huge\&.ndalloc" (\fBuint64_t\fR) r\- [\fB\-\-enable\-stats\fR]
 .RS 4
 Cumulative number of huge deallocation requests\&.
+.RE
+.PP
+"stats\&.arenas\&.<i>\&.dss" (\fBconst char *\fR) r\-
+.RS 4
+dss (\fBsbrk\fR(2)) allocation precedence as related to
+\fBmmap\fR(2)
+allocation\&. See
+"opt\&.dss"
+for details\&.
 .RE
 .PP
 "stats\&.arenas\&.<i>\&.nthreads" (\fBunsigned\fR) r\-
@@ -1181,9 +1218,7 @@ This implementation does not provide much detail about the problems it detects, 
 \m[blue]\fBValgrind\fR\m[]\&\s-2\u[2]\d\s+2
 tool if the
 \fB\-\-enable\-valgrind\fR
-configuration option is enabled and the
-"opt\&.valgrind"
-option is enabled\&.
+configuration option is enabled\&.
 .SH "DIAGNOSTIC MESSAGES"
 .PP
 If any of the memory allocation/deallocation functions detect an error or warning condition, a message will be printed to file descriptor

@@ -288,7 +288,7 @@ tcache_create(arena_t *arena)
 	else if (size <= tcache_maxclass)
 		tcache = (tcache_t *)arena_malloc_large(arena, size, true);
 	else
-		tcache = (tcache_t *)icalloc(size);
+		tcache = (tcache_t *)icallocx(size, false, arena);
 
 	if (tcache == NULL)
 		return (NULL);
@@ -364,7 +364,7 @@ tcache_destroy(tcache_t *tcache)
 
 		arena_dalloc_large(arena, chunk, tcache);
 	} else
-		idalloc(tcache);
+		idallocx(tcache, false);
 }
 
 void

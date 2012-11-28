@@ -1270,4 +1270,46 @@ prof_boot2(void)
 	return (false);
 }
 
+void
+prof_prefork(void)
+{
+
+	if (opt_prof) {
+		unsigned i;
+
+		malloc_mutex_lock(&bt2ctx_mtx);
+		malloc_mutex_lock(&prof_dump_seq_mtx);
+		for (i = 0; i < PROF_NCTX_LOCKS; i++)
+			malloc_mutex_lock(&ctx_locks[i]);
+	}
+}
+
+void
+prof_postfork_parent(void)
+{
+
+	if (opt_prof) {
+		unsigned i;
+
+		for (i = 0; i < PROF_NCTX_LOCKS; i++)
+			malloc_mutex_postfork_parent(&ctx_locks[i]);
+		malloc_mutex_postfork_parent(&prof_dump_seq_mtx);
+		malloc_mutex_postfork_parent(&bt2ctx_mtx);
+	}
+}
+
+void
+prof_postfork_child(void)
+{
+
+	if (opt_prof) {
+		unsigned i;
+
+		for (i = 0; i < PROF_NCTX_LOCKS; i++)
+			malloc_mutex_postfork_child(&ctx_locks[i]);
+		malloc_mutex_postfork_child(&prof_dump_seq_mtx);
+		malloc_mutex_postfork_child(&bt2ctx_mtx);
+	}
+}
+
 /******************************************************************************/

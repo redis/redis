@@ -4,7 +4,8 @@
 /******************************************************************************/
 /* Data. */
 
-size_t	opt_lg_chunk = LG_CHUNK_DEFAULT;
+const char	*opt_dss = DSS_DEFAULT;
+size_t		opt_lg_chunk = LG_CHUNK_DEFAULT;
 
 malloc_mutex_t	chunks_mtx;
 chunk_stats_t	stats_chunks;
@@ -15,8 +16,10 @@ chunk_stats_t	stats_chunks;
  * address space.  Depending on function, different tree orderings are needed,
  * which is why there are two trees with the same contents.
  */
-static extent_tree_t	chunks_szad;
-static extent_tree_t	chunks_ad;
+static extent_tree_t	chunks_szad_mmap;
+static extent_tree_t	chunks_ad_mmap;
+static extent_tree_t	chunks_szad_dss;
+static extent_tree_t	chunks_ad_dss;
 
 rtree_t		*chunks_rtree;
 
@@ -30,19 +33,23 @@ size_t		arena_maxclass; /* Max size class for arenas. */
 /******************************************************************************/
 /* Function prototypes for non-inline static functions. */
 
-static void	*chunk_recycle(size_t size, size_t alignment, bool base,
+static void	*chunk_recycle(extent_tree_t *chunks_szad,
+    extent_tree_t *chunks_ad, size_t size, size_t alignment, bool base,
     bool *zero);
-static void	chunk_record(void *chunk, size_t size);
+static void	chunk_record(extent_tree_t *chunks_szad,
+    extent_tree_t *chunks_ad, void *chunk, size_t size);
 
 /******************************************************************************/
 
 static void *
-chunk_recycle(size_t size, size_t alignment, bool base, bool *zero)
+chunk_recycle(extent_tree_t *chunks_szad, extent_tree_t *chunks_ad, size_t size,
+    size_t alignment, bool base, bool *zero)
 {
 	void *ret;
 	extent_node_t *node;
 	extent_node_t key;
 	size_t alloc_size, leadsize, trailsize;
+	bool zeroed;
 
 	if (base) {
 		/*
@@ -61,7 +68,7 @@ chunk_recycle(size_t size, size_t alignment, bool base, bool *zero)
 	key.addr = NULL;
 	key.size = alloc_size;
 	malloc_mutex_lock(&chunks_mtx);
-	node = extent_tree_szad_nsearch(&chunks_szad, &key);
+	node = extent_tree_szad_nsearch(chunks_szad, &key);
 	if (node == NULL) {
 		malloc_mutex_unlock(&chunks_mtx);
 		return (NULL);
@@ -72,13 +79,13 @@ chunk_recycle(size_t size, size_t alignment, bool base, bool *zero)
 	trailsize = node->size - leadsize - size;
 	ret = (void *)((uintptr_t)node->addr + leadsize);
 	/* Remove node from the tree. */
-	extent_tree_szad_remove(&chunks_szad, node);
-	extent_tree_ad_remove(&chunks_ad, node);
+	extent_tree_szad_remove(chunks_szad, node);
+	extent_tree_ad_remove(chunks_ad, node);
 	if (leadsize != 0) {
 		/* Insert the leading space as a smaller chunk. */
 		node->size = leadsize;
-		extent_tree_szad_insert(&chunks_szad, node);
-		extent_tree_ad_insert(&chunks_ad, node);
+		extent_tree_szad_insert(chunks_szad, node);
+		extent_tree_ad_insert(chunks_ad, node);
 		node = NULL;
 	}
 	if (trailsize != 0) {
@@ -101,23 +108,24 @@ chunk_recycle(size_t size, size_t alignment, bool base, bool *zero)
 		}
 		node->addr = (void *)((uintptr_t)(ret) + size);
 		node->size = trailsize;
-		extent_tree_szad_insert(&chunks_szad, node);
-		extent_tree_ad_insert(&chunks_ad, node);
+		extent_tree_szad_insert(chunks_szad, node);
+		extent_tree_ad_insert(chunks_ad, node);
 		node = NULL;
 	}
 	malloc_mutex_unlock(&chunks_mtx);
 
-	if (node != NULL)
+	zeroed = false;
+	if (node != NULL) {
+		if (node->zeroed) {
+			zeroed = true;
+			*zero = true;
+		}
 		base_node_dealloc(node);
-#ifdef JEMALLOC_PURGE_MADVISE_DONTNEED
-	/* Pages are zeroed as a side effect of pages_purge(). */
-	*zero = true;
-#else
-	if (*zero) {
+	}
+	if (zeroed == false && *zero) {
 		VALGRIND_MAKE_MEM_UNDEFINED(ret, size);
 		memset(ret, 0, size);
 	}
-#endif
 	return (ret);
 }
 
@@ -128,7 +136,8 @@ chunk_recycle(size_t size, size_t alignment, bool base, bool *zero)
  * advantage of them if they are returned.
  */
 void *
-chunk_alloc(size_t size, size_t alignment, bool base, bool *zero)
+chunk_alloc(size_t size, size_t alignment, bool base, bool *zero,
+    dss_prec_t dss_prec)
 {
 	void *ret;
 
@@ -137,17 +146,26 @@ chunk_alloc(size_t size, size_t alignment, bool base, bool *zero)
 	assert(alignment != 0);
 	assert((alignment & chunksize_mask) == 0);
 
-	ret = chunk_recycle(size, alignment, base, zero);
-	if (ret != NULL)
+	/* "primary" dss. */
+	if (config_dss && dss_prec == dss_prec_primary) {
+		if ((ret = chunk_recycle(&chunks_szad_dss, &chunks_ad_dss, size,
+		    alignment, base, zero)) != NULL)
+			goto label_return;
+		if ((ret = chunk_alloc_dss(size, alignment, zero)) != NULL)
+			goto label_return;
+	}
+	/* mmap. */
+	if ((ret = chunk_recycle(&chunks_szad_mmap, &chunks_ad_mmap, size,
+	    alignment, base, zero)) != NULL)
 		goto label_return;
-
-	ret = chunk_alloc_mmap(size, alignment, zero);
-	if (ret != NULL)
+	if ((ret = chunk_alloc_mmap(size, alignment, zero)) != NULL)
 		goto label_return;
-
-	if (config_dss) {
-		ret = chunk_alloc_dss(size, alignment, zero);
-		if (ret != NULL)
+	/* "secondary" dss. */
+	if (config_dss && dss_prec == dss_prec_secondary) {
+		if ((ret = chunk_recycle(&chunks_szad_dss, &chunks_ad_dss, size,
+		    alignment, base, zero)) != NULL)
+			goto label_return;
+		if ((ret = chunk_alloc_dss(size, alignment, zero)) != NULL)
 			goto label_return;
 	}
 
@@ -189,11 +207,13 @@ label_return:
 }
 
 static void
-chunk_record(void *chunk, size_t size)
+chunk_record(extent_tree_t *chunks_szad, extent_tree_t *chunks_ad, void *chunk,
+    size_t size)
 {
+	bool unzeroed;
 	extent_node_t *xnode, *node, *prev, key;
 
-	pages_purge(chunk, size);
+	unzeroed = pages_purge(chunk, size);
 
 	/*
 	 * Allocate a node before acquiring chunks_mtx even though it might not
@@ -205,7 +225,7 @@ chunk_record(void *chunk, size_t size)
 
 	malloc_mutex_lock(&chunks_mtx);
 	key.addr = (void *)((uintptr_t)chunk + size);
-	node = extent_tree_ad_nsearch(&chunks_ad, &key);
+	node = extent_tree_ad_nsearch(chunks_ad, &key);
 	/* Try to coalesce forward. */
 	if (node != NULL && node->addr == key.addr) {
 		/*
@@ -213,10 +233,11 @@ chunk_record(void *chunk, size_t size)
 		 * not change the position within chunks_ad, so only
 		 * remove/insert from/into chunks_szad.
 		 */
-		extent_tree_szad_remove(&chunks_szad, node);
+		extent_tree_szad_remove(chunks_szad, node);
 		node->addr = chunk;
 		node->size += size;
-		extent_tree_szad_insert(&chunks_szad, node);
+		node->zeroed = (node->zeroed && (unzeroed == false));
+		extent_tree_szad_insert(chunks_szad, node);
 		if (xnode != NULL)
 			base_node_dealloc(xnode);
 	} else {
@@ -234,12 +255,13 @@ chunk_record(void *chunk, size_t size)
 		node = xnode;
 		node->addr = chunk;
 		node->size = size;
-		extent_tree_ad_insert(&chunks_ad, node);
-		extent_tree_szad_insert(&chunks_szad, node);
+		node->zeroed = (unzeroed == false);
+		extent_tree_ad_insert(chunks_ad, node);
+		extent_tree_szad_insert(chunks_szad, node);
 	}
 
 	/* Try to coalesce backward. */
-	prev = extent_tree_ad_prev(&chunks_ad, node);
+	prev = extent_tree_ad_prev(chunks_ad, node);
 	if (prev != NULL && (void *)((uintptr_t)prev->addr + prev->size) ==
 	    chunk) {
 		/*
@@ -247,17 +269,32 @@ chunk_record(void *chunk, size_t size)
 		 * not change the position within chunks_ad, so only
 		 * remove/insert node from/into chunks_szad.
 		 */
-		extent_tree_szad_remove(&chunks_szad, prev);
-		extent_tree_ad_remove(&chunks_ad, prev);
+		extent_tree_szad_remove(chunks_szad, prev);
+		extent_tree_ad_remove(chunks_ad, prev);
 
-		extent_tree_szad_remove(&chunks_szad, node);
+		extent_tree_szad_remove(chunks_szad, node);
 		node->addr = prev->addr;
 		node->size += prev->size;
-		extent_tree_szad_insert(&chunks_szad, node);
+		node->zeroed = (node->zeroed && prev->zeroed);
+		extent_tree_szad_insert(chunks_szad, node);
 
 		base_node_dealloc(prev);
 	}
 	malloc_mutex_unlock(&chunks_mtx);
+}
+
+void
+chunk_unmap(void *chunk, size_t size)
+{
+	assert(chunk != NULL);
+	assert(CHUNK_ADDR2BASE(chunk) == chunk);
+	assert(size != 0);
+	assert((size & chunksize_mask) == 0);
+
+	if (config_dss && chunk_in_dss(chunk))
+		chunk_record(&chunks_szad_dss, &chunks_ad_dss, chunk, size);
+	else if (chunk_dealloc_mmap(chunk, size))
+		chunk_record(&chunks_szad_mmap, &chunks_ad_mmap, chunk, size);
 }
 
 void
@@ -273,15 +310,13 @@ chunk_dealloc(void *chunk, size_t size, bool unmap)
 		rtree_set(chunks_rtree, (uintptr_t)chunk, NULL);
 	if (config_stats || config_prof) {
 		malloc_mutex_lock(&chunks_mtx);
+		assert(stats_chunks.curchunks >= (size / chunksize));
 		stats_chunks.curchunks -= (size / chunksize);
 		malloc_mutex_unlock(&chunks_mtx);
 	}
 
-	if (unmap) {
-		if ((config_dss && chunk_in_dss(chunk)) ||
-		    chunk_dealloc_mmap(chunk, size))
-			chunk_record(chunk, size);
-	}
+	if (unmap)
+		chunk_unmap(chunk, size);
 }
 
 bool
@@ -301,8 +336,10 @@ chunk_boot(void)
 	}
 	if (config_dss && chunk_dss_boot())
 		return (true);
-	extent_tree_szad_new(&chunks_szad);
-	extent_tree_ad_new(&chunks_ad);
+	extent_tree_szad_new(&chunks_szad_mmap);
+	extent_tree_ad_new(&chunks_ad_mmap);
+	extent_tree_szad_new(&chunks_szad_dss);
+	extent_tree_ad_new(&chunks_ad_dss);
 	if (config_ivsalloc) {
 		chunks_rtree = rtree_new((ZU(1) << (LG_SIZEOF_PTR+3)) -
 		    opt_lg_chunk);
@@ -311,4 +348,34 @@ chunk_boot(void)
 	}
 
 	return (false);
+}
+
+void
+chunk_prefork(void)
+{
+
+	malloc_mutex_lock(&chunks_mtx);
+	if (config_ivsalloc)
+		rtree_prefork(chunks_rtree);
+	chunk_dss_prefork();
+}
+
+void
+chunk_postfork_parent(void)
+{
+
+	chunk_dss_postfork_parent();
+	if (config_ivsalloc)
+		rtree_postfork_parent(chunks_rtree);
+	malloc_mutex_postfork_parent(&chunks_mtx);
+}
+
+void
+chunk_postfork_child(void)
+{
+
+	chunk_dss_postfork_child();
+	if (config_ivsalloc)
+		rtree_postfork_child(chunks_rtree);
+	malloc_mutex_postfork_child(&chunks_mtx);
 }
