@@ -37,6 +37,7 @@
 #include <execinfo.h>
 #include <ucontext.h>
 #include <fcntl.h>
+#include "bio.h"
 #endif /* HAVE_BACKTRACE */
 
 /* ================================= Debugging ============================== */
