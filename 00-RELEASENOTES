@@ -18,6 +18,13 @@ to modify your program in order to use Redis 2.4.
 CHANGELOG
 ---------
 
+What's new in Redis 2.4.18
+==========================
+
+UPGRADE URGENCY: critical if you experienced one more more crashes.
+
+* [BUGFIX] Jemalloc updated to 3.2.0.
+
 What's new in Redis 2.4.17
 ==========================
 
