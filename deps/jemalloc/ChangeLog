@@ -6,6 +6,47 @@ found in the git revision history:
     http://www.canonware.com/cgi-bin/gitweb.cgi?p=jemalloc.git
     git://canonware.com/jemalloc.git
 
+* 3.2.0 (November 9, 2012)
+
+  In addition to a couple of bug fixes, this version modifies page run
+  allocation and dirty page purging algorithms in order to better control
+  page-level virtual memory fragmentation.
+
+  Incompatible changes:
+  - Change the "opt.lg_dirty_mult" default from 5 to 3 (32:1 to 8:1).
+
+  Bug fixes:
+  - Fix dss/mmap allocation precedence code to use recyclable mmap memory only
+    after primary dss allocation fails.
+  - Fix deadlock in the "arenas.purge" mallctl.  This regression was introduced
+    in 3.1.0 by the addition of the "arena.<i>.purge" mallctl.
+
+* 3.1.0 (October 16, 2012)
+
+  New features:
+  - Auto-detect whether running inside Valgrind, thus removing the need to
+    manually specify MALLOC_CONF=valgrind:true.
+  - Add the "arenas.extend" mallctl, which allows applications to create
+    manually managed arenas.
+  - Add the ALLOCM_ARENA() flag for {,r,d}allocm().
+  - Add the "opt.dss", "arena.<i>.dss", and "stats.arenas.<i>.dss" mallctls,
+    which provide control over dss/mmap precedence.
+  - Add the "arena.<i>.purge" mallctl, which obsoletes "arenas.purge".
+  - Define LG_QUANTUM for hppa.
+
+  Incompatible changes:
+  - Disable tcache by default if running inside Valgrind, in order to avoid
+    making unallocated objects appear reachable to Valgrind.
+  - Drop const from malloc_usable_size() argument on Linux.
+
+  Bug fixes:
+  - Fix heap profiling crash if sampled object is freed via realloc(p, 0).
+  - Remove const from __*_hook variable declarations, so that glibc can modify
+    them during process forking.
+  - Fix mlockall(2)/madvise(2) interaction.
+  - Fix fork(2)-related deadlocks.
+  - Fix error return value for "thread.tcache.enabled" mallctl.
+
 * 3.0.0 (May 11, 2012)
 
   Although this version adds some major new features, the primary focus is on

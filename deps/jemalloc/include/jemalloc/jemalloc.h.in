@@ -25,6 +25,8 @@ extern "C" {
 #endif
 #define	ALLOCM_ZERO	((int)0x40)
 #define	ALLOCM_NO_MOVE	((int)0x80)
+/* Bias arena index bits so that 0 encodes "ALLOCM_ARENA() unspecified". */
+#define	ALLOCM_ARENA(a)	((int)(((a)+1) << 8))
 
 #define	ALLOCM_SUCCESS		0
 #define	ALLOCM_ERR_OOM		1
@@ -59,7 +61,8 @@ JEMALLOC_EXPORT void *	je_memalign(size_t alignment, size_t size)
 JEMALLOC_EXPORT void *	je_valloc(size_t size) JEMALLOC_ATTR(malloc);
 #endif
 
-JEMALLOC_EXPORT size_t	je_malloc_usable_size(const void *ptr);
+JEMALLOC_EXPORT size_t	je_malloc_usable_size(
+    JEMALLOC_USABLE_SIZE_CONST void *ptr);
 JEMALLOC_EXPORT void	je_malloc_stats_print(void (*write_cb)(void *,
     const char *), void *je_cbopaque, const char *opts);
 JEMALLOC_EXPORT int	je_mallctl(const char *name, void *oldp,

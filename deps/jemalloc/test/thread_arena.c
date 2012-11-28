@@ -1,7 +1,7 @@
 #define	JEMALLOC_MANGLE
 #include "jemalloc_test.h"
 
-#define NTHREADS 10
+#define	NTHREADS 10
 
 void *
 je_thread_start(void *arg)
@@ -66,8 +66,10 @@ main(void)
 		goto label_return;
 	}
 
-	for (i = 0; i < NTHREADS; i++)
-		je_thread_create(&threads[i], je_thread_start, (void *)&arena_ind);
+	for (i = 0; i < NTHREADS; i++) {
+		je_thread_create(&threads[i], je_thread_start,
+		    (void *)&arena_ind);
+	}
 
 	for (i = 0; i < NTHREADS; i++)
 		je_thread_join(threads[i], (void *)&ret);
