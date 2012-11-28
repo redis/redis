@@ -14,6 +14,13 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.6.6 ]
+
+UPGRADE URGENCY: CRITICAL if you experienced one more more crashes.
+                 MODERATE if Redis is running fine for you.
+
+* [BUGFIX]   Jemalloc updated to 3.2.0.
+
 --[ Redis 2.6.5 ]
 
 UPGRADE URGENCY: MODERATE
