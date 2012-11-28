@@ -24,6 +24,18 @@ start_server {tags {"zset"}} {
             assert_encoding $encoding ztmp
         }
 
+        test "ZREG - $encoding" {
+            r del ztmp 
+            r zadd ztmp 1 1
+            r zadd ztmp 2 2
+            r zadd ztmp 3 one
+            r zadd ztmp 4 two
+            r zadd ztmp 5 three
+            assert_equal {1 2 one two three} [r zreg ztmp *]
+            assert_equal {one two} [r zreg ztmp *o*]
+            assert_equal {2} [r zreg ztmp 2]
+        }
+
         test "ZSET basic ZADD and score update - $encoding" {
             r del ztmp
             r zadd ztmp 10 x
