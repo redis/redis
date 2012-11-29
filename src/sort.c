@@ -135,6 +135,26 @@ noobj:
 /* sortCompare() is used by qsort in sortCommand(). Given that qsort_r with
  * the additional parameter is not standard but a BSD-specific we have to
  * pass sorting parameters via the global 'server' structure */
+int compareStringWithLocale(robj *a, robj *b) {
+    redisAssertWithInfo(NULL,a,a->type == REDIS_STRING && b->type == REDIS_STRING);
+    char bufa[128], bufb[128], *astr, *bstr;
+
+    if (a == b) return 0;
+    if (a->encoding != REDIS_ENCODING_RAW) {
+        ll2string(bufa,sizeof(bufa),(long) a->ptr);
+        astr = bufa;
+    } else {
+        astr = a->ptr;
+    }
+    if (b->encoding != REDIS_ENCODING_RAW) {
+        ll2string(bufb,sizeof(bufb),(long) b->ptr);
+        bstr = bufb;
+    } else {
+        bstr = b->ptr;
+    }
+    return strcoll(astr,bstr);
+}
+
 int sortCompare(const void *s1, const void *s2) {
     const redisSortObject *so1 = s1, *so2 = s2;
     int cmp;
@@ -168,7 +188,7 @@ int sortCompare(const void *s1, const void *s2) {
             }
         } else {
             /* Compare elements directly. */
-            cmp = compareStringObjects(so1->obj,so2->obj);
+            cmp = compareStringWithLocale(so1->obj,so2->obj);
         }
     }
     return server.sort_desc ? -cmp : cmp;

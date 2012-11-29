@@ -49,6 +49,8 @@
 #include <math.h>
 #include <sys/resource.h>
 #include <sys/utsname.h>
+#include <locale.h>
+#include <stdlib.h>
 
 /* Our shared "common" objects */
 
@@ -1235,6 +1237,10 @@ void initServerConfig() {
     server.assert_line = 0;
     server.bug_report_start = 0;
     server.watchdog_period = 0;
+    server.locale = getenv("LC_COLLATE");
+    if( server.locale == NULL ){
+        server.locale = zstrdup("en_US.utf8"); 
+    }
 }
 
 /* This function will try to raise the max number of open files accordingly to
@@ -2672,6 +2678,7 @@ int main(int argc, char **argv) {
     if (server.daemonize) createPidFile();
     redisAsciiArt();
 
+    setlocale( LC_COLLATE, server.locale );
     if (!server.sentinel_mode) {
         /* Things only needed when not running in Sentinel mode. */
         redisLog(REDIS_WARNING,"Server started, Redis version " REDIS_VERSION);
