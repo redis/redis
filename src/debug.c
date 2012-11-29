@@ -29,6 +29,7 @@
 
 #include "redis.h"
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
+#include "crc64.h"
 
 #include <arpa/inet.h>
 #include <signal.h>
@@ -667,7 +668,6 @@ void logCurrentClient(void) {
 }
 
 #if defined(HAVE_PROC_MAPS)
-uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 void memtest_non_destructive_invert(void *addr, size_t size);
 void memtest_non_destructive_swap(void *addr, size_t size);
 #define MEMTEST_MAX_REGIONS 128

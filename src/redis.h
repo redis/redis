@@ -1192,6 +1192,7 @@ void scriptingInit(void);
 /* Git SHA1 */
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
+uint64_t redisBuildId(void);
 
 /* Commands prototypes */
 void authCommand(redisClient *c);

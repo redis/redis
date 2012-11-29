@@ -40,6 +40,7 @@
 #include <stdint.h>
 #include <limits.h>
 #include "lzf.h"
+#include "crc64.h"
 
 /* Object types */
 #define REDIS_STRING 0
@@ -139,9 +140,6 @@ static double R_Zero, R_PosInf, R_NegInf, R_Nan;
 
 /* store string types for output */
 static char types[256][16];
-
-/* Prototypes */
-uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 
 /* Return true if 't' is a valid object type. */
 int checkType(unsigned char t) {
