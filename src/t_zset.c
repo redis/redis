@@ -836,6 +836,110 @@ void zsetConvert(robj *zobj, int encoding) {
 /*-----------------------------------------------------------------------------
  * Sorted set commands 
  *----------------------------------------------------------------------------*/
+unsigned int zregListCompare( char *s, unsigned int slen, 
+                          unsigned char *vstr, unsigned int vlen,
+                          long long vlong) {
+    char buf[128];
+    char *p = (char *)vstr;
+    unsigned int len = vlen;
+    unsigned int ret = 0;
+
+    if( p == NULL ) {
+        p = buf;
+        len = ll2string( p, 128, vlong ); 
+    }
+
+    if( stringmatchlen((const char *)s, slen, p, len, 0)) {
+        ret = 1;
+    }
+
+    return ret;
+}
+
+unsigned int zregSkipListCompare( char *s, unsigned int slen, robj *obj ) {
+    char buf[128];
+    int len;
+
+    char *p = obj->ptr;
+    int ret = 0;
+
+    if (obj->encoding == REDIS_ENCODING_RAW) {
+        len = sdslen(p);
+    } else if (obj->encoding == REDIS_ENCODING_INT) {
+        p = buf;
+        len = ll2string(buf,sizeof(buf),(long)obj->ptr);
+    } else {
+        redisPanic("Wrong obj->encoding in addReply()");
+    }
+
+    if( stringmatchlen((const char *)s, slen, p, len, 0)) {
+        ret = 1;
+    }
+
+    return ret;
+}
+
+void zregCommand(redisClient *c){
+    robj *key = c->argv[1];
+    robj *zobj;
+    sds pattern = c->argv[2]->ptr;
+    int plen = sdslen(pattern), allkeys;
+    int numkeys = 0;
+
+   if ((zobj = lookupKeyReadOrReply(c,key,shared.emptymultibulk)) == NULL
+            || checkType(c,zobj,REDIS_ZSET)) return;
+    
+    allkeys = (pattern[0] == '*' && pattern[1] == '\0');
+    void *replylen = addDeferredMultiBulkLength(c);
+    if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
+        unsigned char *zl = zobj->ptr;
+        unsigned char *eptr = ziplistIndex(zl,0), *sptr;
+        while (eptr != NULL) {
+            sptr = ziplistNext(zl,eptr);
+            redisAssertWithInfo(NULL,zobj,sptr != NULL);
+
+            unsigned char *vstr;
+            unsigned int vlen;
+            long long vlong;
+
+            redisAssertWithInfo(c,zobj,eptr != NULL && sptr != NULL);
+            redisAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
+
+            if( allkeys || zregListCompare( pattern, plen, vstr, vlen, vlong ) ){
+                if (vstr == NULL)
+                    addReplyBulkLongLong(c,vlong);
+                else
+                    addReplyBulkCBuffer(c,vstr,vlen);
+                numkeys++;
+            }
+            /* Move to next element. */
+            eptr = ziplistNext(zl,sptr);
+        }
+    }else if(zobj->encoding == REDIS_ENCODING_SKIPLIST){
+        zset *zs = zobj->ptr;
+        zskiplist *zsl = zs->zsl;
+        zskiplistNode *ln;
+        robj *ele;
+
+        /* Check if starting point is trivial, before doing log(N) lookup. */
+        int llen = zsetLength(zobj);
+        ln = zsl->header->level[0].forward;
+        while(llen--) {
+            redisAssertWithInfo(c,zobj,ln != NULL);
+            ele = ln->obj;
+
+            if( allkeys || zregSkipListCompare( pattern, plen, ele ) ){
+                addReplyBulk(c,ele);
+                numkeys++;
+            }
+            ln = ln->level[0].forward;
+        }
+    }else{
+        redisPanic("Unknown sorted set encoding");
+    }
+
+    setDeferredMultiBulkLength(c,replylen,numkeys);
+}
 
 /* This generic command implements both ZADD and ZINCRBY. */
 void zaddGenericCommand(redisClient *c, int incr) {
