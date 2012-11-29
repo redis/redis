@@ -1099,7 +1099,10 @@ void revalCommand(redisClient *c) {
     // But current mruby has no GC for `irep`, so we cannot reuse mrb_state.
     mrb = mrb_open();
 
-    // TODO Check argc
+    if (argc < count + 3) {
+        addReplyError(c, "Number of keys can't be greater than number of args");
+        goto cleanup;
+    }
 
     KEYS = mrb_ary_new_capa(mrb, count);
     for (i = 3; i < count + 3; i++) {
@@ -1119,5 +1122,7 @@ void revalCommand(redisClient *c) {
     v = mrb_run(mrb, mrb_proc_new(mrb, mrb->irep[n]), mrb_top_self(mrb));
 
     mrbReplyToRedisReply(c, mrb, v);
+
+cleanup:
     mrb_close(mrb);
 }
