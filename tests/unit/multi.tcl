@@ -63,13 +63,13 @@ start_server {tags {"multi"}} {
         r multi
         r set foo1 bar1
         $rd config set maxmemory 1
+        assert  {[$rd read] eq {OK}}
         catch {r lpush mylist myvalue}
         $rd config set maxmemory 0
+        assert  {[$rd read] eq {OK}}
         r set foo2 bar2
         catch {r exec} e
         assert_match {EXECABORT*} $e
-        assert  {[$rd read] eq {OK}}
-        assert  {[$rd read] eq {OK}}
         $rd close
         list [r exists foo1] [r exists foo2]
     } {0 0}
