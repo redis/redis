@@ -1088,6 +1088,7 @@ void revalCommand(redisClient *c) {
     struct mrb_parser_state* st;
     mrb_value v;
     mrb_value ARGV;
+    mrb_value KEYS;
 
     char *code = c->argv[1]->ptr;
     int count = atoi(c->argv[2]->ptr);
@@ -1095,6 +1096,14 @@ void revalCommand(redisClient *c) {
     // TODO `mrb_state` should be reused.
     // But current mruby has no GC for `irep`, so we cannot reuse mrb_state.
     mrb = mrb_open();
+
+    // TODO Check argc
+
+    KEYS = mrb_ary_new_capa(mrb, count);
+    for (int i = 0; i < count; i++) {
+        mrb_ary_push(mrb, KEYS, mrb_str_new(mrb, c->argv[i + 3]->ptr, strlen(c->argv[i + 3]->ptr)));
+    }
+    mrb_define_global_const(mrb, "KEYS", KEYS);
 
     ARGV = mrb_ary_new_capa(mrb, count);
     // TODO Setup ARGV
