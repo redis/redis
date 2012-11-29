@@ -84,6 +84,7 @@
 #define REDIS_AOF_REWRITE_ITEMS_PER_CMD 64
 #define REDIS_SLOWLOG_LOG_SLOWER_THAN 10000
 #define REDIS_SLOWLOG_MAX_LEN 128
+#define REDIS_SLOWLOG_MAX_COMPLEXITY_PARAMS 10
 #define REDIS_MAX_CLIENTS 10000
 #define REDIS_AUTHPASS_MAX_LEN 512
 #define REDIS_DEFAULT_SLAVE_PRIORITY 100
@@ -488,6 +489,11 @@ typedef struct redisOpArray {
     int numops;
 } redisOpArray;
 
+struct complexity_param {
+   char chr;
+   unsigned long long value;
+};
+
 /*-----------------------------------------------------------------------------
  * Global server state
  *----------------------------------------------------------------------------*/
@@ -542,6 +548,8 @@ struct redisServer {
     long long slowlog_entry_id;     /* SLOWLOG current entry ID */
     long long slowlog_log_slower_than; /* SLOWLOG time limit (to get logged) */
     unsigned long slowlog_max_len;     /* SLOWLOG max number of items logged */
+    struct complexity_param slowlog_complexity_params[REDIS_SLOWLOG_MAX_COMPLEXITY_PARAMS];
+    int slowlog_complexity_params_count;    
     /* The following two are used to track instantaneous "load" in terms
      * of operations per second. */
     long long ops_sec_last_sample_time; /* Timestamp of last sample (in ms) */

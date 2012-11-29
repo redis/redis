@@ -50,6 +50,7 @@
  * from tail to head, useful for ZREVRANGE. */
 
 #include "redis.h"
+#include "slowlog.h"
 #include <math.h>
 
 zskiplistNode *zslCreateNode(int level, double score, robj *obj) {
@@ -884,6 +885,8 @@ void zaddGenericCommand(redisClient *c, int incr) {
             return;
         }
     }
+    
+    slowlogAddComplexityParam('N',zsetLength(zobj));
 
     for (j = 0; j < elements; j++) {
         score = scores[j];
@@ -997,6 +1000,8 @@ void zremCommand(redisClient *c) {
     if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero)) == NULL ||
         checkType(c,zobj,REDIS_ZSET)) return;
 
+    slowlogAddComplexityParam('N', zsetLength(zobj));
+    
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
         unsigned char *eptr;
 
@@ -1059,6 +1064,8 @@ void zremrangebyscoreCommand(redisClient *c) {
     if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero)) == NULL ||
         checkType(c,zobj,REDIS_ZSET)) return;
 
+    slowlogAddComplexityParam('N', zsetLength(zobj));
+
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
         zobj->ptr = zzlDeleteRangeByScore(zobj->ptr,range,&deleted);
         if (zzlLength(zobj->ptr) == 0) dbDelete(c->db,key);
@@ -1070,6 +1077,8 @@ void zremrangebyscoreCommand(redisClient *c) {
     } else {
         redisPanic("Unknown sorted set encoding");
     }
+    
+    slowlogAddComplexityParam('M', deleted);
 
     if (deleted) signalModifiedKey(c->db,key);
     server.dirty += deleted;
@@ -1103,6 +1112,8 @@ void zremrangebyrankCommand(redisClient *c) {
         return;
     }
     if (end >= llen) end = llen-1;
+    
+    slowlogAddComplexityParam('N', llen);
 
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
         /* Correct for 1-based rank. */
@@ -1118,6 +1129,8 @@ void zremrangebyrankCommand(redisClient *c) {
     } else {
         redisPanic("Unknown sorted set encoding");
     }
+
+    slowlogAddComplexityParam('M', deleted);
 
     if (deleted) signalModifiedKey(c->db,key);
     server.dirty += deleted;
@@ -1573,8 +1586,11 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
     memset(&zval, 0, sizeof(zval));
 
     if (op == REDIS_OP_INTER) {
+        int src0len = zuiLength(&src[0]);
+        slowlogAddComplexityParam('N', src0len);
+        slowlogAddComplexityParam('K', setnum);
         /* Skip everything if the smallest input is empty. */
-        if (zuiLength(&src[0]) > 0) {
+        if (src0len > 0) {
             /* Precondition: as src[0] is non-empty and the inputs are ordered
              * by size, all src[i > 0] are non-empty too. */
             while (zuiNext(&src[0],&zval)) {
@@ -1612,12 +1628,14 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
             }
         }
     } else if (op == REDIS_OP_UNION) {
+        unsigned long n = 0;
         for (i = 0; i < setnum; i++) {
             if (zuiLength(&src[i]) == 0)
                 continue;
 
             while (zuiNext(&src[i],&zval)) {
                 double score, value;
+                n++;
 
                 /* Skip key when already processed */
                 if (dictFind(dstzset->dict,zuiObjectFromValue(&zval)) != NULL)
@@ -1652,6 +1670,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                         maxelelen = sdslen(tmp->ptr);
             }
         }
+        slowlogAddComplexityParam('N', n);
     } else {
         redisPanic("Unknown operator");
     }
@@ -1678,6 +1697,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
         decrRefCount(dstobj);
         addReply(c,shared.czero);
     }
+    slowlogAddComplexityParam('M', zsetLength(dstobj));    
     zfree(src);
 }
 
@@ -1725,6 +1745,9 @@ void zrangeGenericCommand(redisClient *c, int reverse) {
     }
     if (end >= llen) end = llen-1;
     rangelen = (end-start)+1;
+
+    slowlogAddComplexityParam('N', llen);
+    slowlogAddComplexityParam('M', rangelen);
 
     /* Return the result in form of a multi-bulk reply */
     addReplyMultiBulkLen(c, withscores ? (rangelen*2) : rangelen);
@@ -1979,6 +2002,9 @@ void genericZrangebyscoreCommand(redisClient *c, int reverse) {
         redisPanic("Unknown sorted set encoding");
     }
 
+    slowlogAddComplexityParam('N',zsetLength(zobj));
+    slowlogAddComplexityParam('M', rangelen);
+    
     if (withscores) {
         rangelen *= 2;
     }
@@ -2068,6 +2094,9 @@ void zcountCommand(redisClient *c) {
         redisPanic("Unknown sorted set encoding");
     }
 
+    slowlogAddComplexityParam('N',zsetLength(zobj));
+    slowlogAddComplexityParam('M',count);
+    
     addReplyLongLong(c, count);
 }
 
@@ -2121,6 +2150,8 @@ void zrankGenericCommand(redisClient *c, int reverse) {
     if ((zobj = lookupKeyReadOrReply(c,key,shared.nullbulk)) == NULL ||
         checkType(c,zobj,REDIS_ZSET)) return;
     llen = zsetLength(zobj);
+    
+    slowlogAddComplexityParam('N', llen);
 
     redisAssertWithInfo(c,ele,ele->encoding == REDIS_ENCODING_RAW);
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {

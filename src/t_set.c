@@ -28,6 +28,7 @@
  */
 
 #include "redis.h"
+#include "slowlog.h"
 
 /*-----------------------------------------------------------------------------
  * Set Commands
@@ -600,6 +601,8 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
     /* Sort sets from the smallest to largest, this will improve our
      * algorithm's performace */
     qsort(sets,setnum,sizeof(robj*),qsortCompareSetsByCardinality);
+    
+    slowlogAddComplexityParam('N', setTypeSize(sets[0]));
 
     /* The first thing we should output is the total number of elements...
      * since this is a multi-bulk write, but at this stage we don't know
@@ -712,6 +715,7 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
     setTypeIterator *si;
     robj *ele, *dstset = NULL;
     int j, cardinality = 0;
+    unsigned long n = 0;
 
     for (j = 0; j < setnum; j++) {
         robj *setobj = dstkey ?
@@ -741,6 +745,7 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
 
         si = setTypeInitIterator(sets[j]);
         while((ele = setTypeNextObject(si)) != NULL) {
+            n++;
             if (op == REDIS_OP_UNION || j == 0) {
                 if (setTypeAdd(dstset,ele)) {
                     cardinality++;
@@ -757,6 +762,7 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
         /* Exit when result set is empty. */
         if (op == REDIS_OP_DIFF && cardinality == 0) break;
     }
+    slowlogAddComplexityParam('N', n);
 
     /* Output the content of the resulting set, if not in STORE mode */
     if (!dstkey) {

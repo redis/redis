@@ -81,6 +81,13 @@ slowlogEntry *slowlogCreateEntry(robj **argv, int argc, long long duration) {
     se->time = time(NULL);
     se->duration = duration;
     se->id = server.slowlog_entry_id++;
+    if (server.slowlog_complexity_params_count) {
+            se->complexity_info = sdsnew("Complexity info: ");
+            for (j = 0; j < server.slowlog_complexity_params_count-1; j++)
+                se->complexity_info = sdscatprintf(se->complexity_info, "%c:%llu,", server.slowlog_complexity_params[j].chr, server.slowlog_complexity_params[j].value);
+            se->complexity_info = sdscatprintf(se->complexity_info, "%c:%llu", server.slowlog_complexity_params[j].chr, server.slowlog_complexity_params[j].value);
+    } else
+        se->complexity_info = NULL;
     return se;
 }
 
@@ -92,6 +99,7 @@ void slowlogFreeEntry(void *septr) {
     slowlogEntry *se = septr;
     int j;
 
+    sdsfree(se->complexity_info);
     for (j = 0; j < se->argc; j++)
         decrRefCount(se->argv[j]);
     zfree(se->argv);
@@ -152,10 +160,11 @@ void slowlogCommand(redisClient *c) {
             int j;
 
             se = ln->value;
-            addReplyMultiBulkLen(c,4);
+            addReplyMultiBulkLen(c,5);
             addReplyLongLong(c,se->id);
             addReplyLongLong(c,se->time);
             addReplyLongLong(c,se->duration);
+            addReplyStatus(c,se->complexity_info ? se->complexity_info : "");
             addReplyMultiBulkLen(c,se->argc);
             for (j = 0; j < se->argc; j++)
                 addReplyBulk(c,se->argv[j]);
@@ -165,5 +174,14 @@ void slowlogCommand(redisClient *c) {
     } else {
         addReplyError(c,
             "Unknown SLOWLOG subcommand or wrong # of args. Try GET, RESET, LEN.");
+    }
+}
+
+/* Add complexity param info for the current command */
+void slowlogAddComplexityParam(char chr, unsigned long long value) {
+    if (server.slowlog_complexity_params_count < REDIS_SLOWLOG_MAX_COMPLEXITY_PARAMS) {
+        server.slowlog_complexity_params[server.slowlog_complexity_params_count].chr = chr;
+        server.slowlog_complexity_params[server.slowlog_complexity_params_count].value = value;
+        server.slowlog_complexity_params_count++;
     }
 }

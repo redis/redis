@@ -28,6 +28,7 @@
  */
 
 #include "redis.h"
+#include "slowlog.h"
 
 /*-----------------------------------------------------------------------------
  * Pubsub low level API
@@ -77,7 +78,7 @@ int pubsubSubscribeChannel(redisClient *c, robj *channel) {
     return retval;
 }
 
-/* Unsubscribe a client from a channel. Returns 1 if the operation succeeded, or
+/* Unsubscribe a client from a channel. Returns number of clients that were subscribed to the channel, or
  * 0 if the client was not subscribed to the specified channel. */
 int pubsubUnsubscribeChannel(redisClient *c, robj *channel, int notify) {
     struct dictEntry *de;
@@ -89,12 +90,12 @@ int pubsubUnsubscribeChannel(redisClient *c, robj *channel, int notify) {
     incrRefCount(channel); /* channel may be just a pointer to the same object
                             we have in the hash tables. Protect it... */
     if (dictDelete(c->pubsub_channels,channel) == DICT_OK) {
-        retval = 1;
         /* Remove the client from the channel -> clients list hash table */
         de = dictFind(server.pubsub_channels,channel);
         redisAssertWithInfo(c,NULL,de != NULL);
         clients = dictGetVal(de);
         ln = listSearchKey(clients,c);
+        retval = listLength(clients);
         redisAssertWithInfo(c,NULL,ln != NULL);
         listDelNode(clients,ln);
         if (listLength(clients) == 0) {
@@ -167,8 +168,8 @@ int pubsubUnsubscribePattern(redisClient *c, robj *pattern, int notify) {
     return retval;
 }
 
-/* Unsubscribe from all the channels. Return the number of channels the
- * client was subscribed from. */
+/* Unsubscribe from all the channels. Return the number clients that were 
+ * subscribed to this channel. */ 
 int pubsubUnsubscribeAllChannels(redisClient *c, int notify) {
     dictIterator *di = dictGetSafeIterator(c->pubsub_channels);
     dictEntry *de;
@@ -205,6 +206,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
     struct dictEntry *de;
     listNode *ln;
     listIter li;
+    int m = 0;
 
     /* Send to clients listening for that channel */
     de = dictFind(server.pubsub_channels,channel);
@@ -224,11 +226,13 @@ int pubsubPublishMessage(robj *channel, robj *message) {
             receivers++;
         }
     }
+    slowlogAddComplexityParam('N', receivers);
     /* Send to clients listening to matching channels */
     if (listLength(server.pubsub_patterns)) {
         listRewind(server.pubsub_patterns,&li);
         channel = getDecodedObject(channel);
         while ((ln = listNext(&li)) != NULL) {
+            m++;
             pubsubPattern *pat = ln->value;
 
             if (stringmatchlen((char*)pat->pattern->ptr,
@@ -245,6 +249,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
         }
         decrRefCount(channel);
     }
+    slowlogAddComplexityParam('M', m);
     return receivers;
 }
 
@@ -260,25 +265,29 @@ void subscribeCommand(redisClient *c) {
 }
 
 void unsubscribeCommand(redisClient *c) {
+    unsigned long n = 0;
     if (c->argc == 1) {
-        pubsubUnsubscribeAllChannels(c,1);
-        return;
+        n = pubsubUnsubscribeAllChannels(c,1);
     } else {
         int j;
 
         for (j = 1; j < c->argc; j++)
-            pubsubUnsubscribeChannel(c,c->argv[j],1);
+            n += pubsubUnsubscribeChannel(c,c->argv[j],1);
     }
+    slowlogAddComplexityParam('N', n);
 }
 
 void psubscribeCommand(redisClient *c) {
     int j;
 
+    slowlogAddComplexityParam('N', listLength(c->pubsub_patterns));
     for (j = 1; j < c->argc; j++)
         pubsubSubscribePattern(c,c->argv[j]);
 }
 
 void punsubscribeCommand(redisClient *c) {
+    slowlogAddComplexityParam('N', listLength(c->pubsub_patterns));
+    slowlogAddComplexityParam('M', listLength(server.pubsub_patterns));
     if (c->argc == 1) {
         pubsubUnsubscribeAllPatterns(c,1);
         return;

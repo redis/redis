@@ -31,6 +31,7 @@
 
 #include "redis.h"
 #include "pqsort.h" /* Partial qsort for SORT+LIMIT */
+#include "slowlog.h"
 #include <math.h> /* isnan() */
 
 zskiplistNode* zslGetElementByRank(zskiplist *zsl, unsigned long rank);
@@ -285,6 +286,8 @@ void sortCommand(redisClient *c) {
     }
     if (end >= vectorlen) end = vectorlen-1;
 
+    slowlogAddComplexityParam('M', end-start+1);
+
     /* Optimization:
      *
      * 1) if the object to sort is a sorted set.
@@ -305,6 +308,8 @@ void sortCommand(redisClient *c) {
     /* Load the sorting vector with all the objects to sort */
     vector = zmalloc(sizeof(redisSortObject)*vectorlen);
     j = 0;
+
+    slowlogAddComplexityParam('N', vectorlen);
 
     if (sortval->type == REDIS_LIST) {
         listTypeIterator *li = listTypeInitIterator(sortval,0,REDIS_TAIL);

@@ -28,6 +28,7 @@
  */
 
 #include "redis.h"
+#include "slowlog.h"
 
 void signalListAsReady(redisClient *c, robj *key);
 
@@ -333,6 +334,7 @@ void pushxGenericCommand(redisClient *c, robj *refval, robj *val, int where) {
     listTypeIterator *iter;
     listTypeEntry entry;
     int inserted = 0;
+    unsigned long n = 0;
 
     if ((subject = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,subject,REDIS_LIST)) return;
@@ -352,6 +354,7 @@ void pushxGenericCommand(redisClient *c, robj *refval, robj *val, int where) {
         /* Seek refval from head to tail */
         iter = listTypeInitIterator(subject,0,REDIS_TAIL);
         while (listTypeNext(iter,&entry)) {
+            n++;
             if (listTypeEqual(&entry,refval)) {
                 listTypeInsert(&entry,val,where);
                 inserted = 1;
@@ -359,6 +362,7 @@ void pushxGenericCommand(redisClient *c, robj *refval, robj *val, int where) {
             }
         }
         listTypeReleaseIterator(iter);
+        slowlogAddComplexityParam('N', n);
 
         if (inserted) {
             /* Check if the length exceeds the ziplist length threshold. */
@@ -618,6 +622,7 @@ void ltrimCommand(redisClient *c) {
     } else {
         redisPanic("Unknown list encoding");
     }
+    slowlogAddComplexityParam('N', ltrim+rtrim);
     if (listTypeLength(o) == 0) dbDelete(c->db,c->argv[1]);
     signalModifiedKey(c->db,c->argv[1]);
     server.dirty++;
@@ -630,6 +635,7 @@ void lremCommand(redisClient *c) {
     long toremove;
     long removed = 0;
     listTypeEntry entry;
+    unsigned long n = 0;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &toremove, NULL) != REDIS_OK))
         return;
@@ -650,6 +656,7 @@ void lremCommand(redisClient *c) {
     }
 
     while (listTypeNext(li,&entry)) {
+        n++;
         if (listTypeEqual(&entry,obj)) {
             listTypeDelete(&entry);
             server.dirty++;
@@ -658,6 +665,7 @@ void lremCommand(redisClient *c) {
         }
     }
     listTypeReleaseIterator(li);
+    slowlogAddComplexityParam('N', n);
 
     /* Clean up raw encoded object */
     if (subject->encoding == REDIS_ENCODING_ZIPLIST)
