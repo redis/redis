@@ -1083,9 +1083,7 @@ void mrbReplyToRedisReply(redisClient *c, mrb_state* mrb, mrb_value value) {
 }
 
 void revalCommand(redisClient *c) {
-    int n;
     mrb_state *mrb;
-    struct mrb_parser_state* st;
     mrb_value v;
     mrb_value ARGV;
     mrb_value KEYS;
@@ -1116,10 +1114,11 @@ void revalCommand(redisClient *c) {
     }
     mrb_define_global_const(mrb, "ARGV", ARGV);
 
-    st = mrb_parse_string(mrb, code, NULL);
-    n = mrb_generate_code(mrb, st);
-    mrb_pool_close(st->pool);
-    v = mrb_run(mrb, mrb_proc_new(mrb, mrb->irep[n]), mrb_top_self(mrb));
+    v = mrb_load_string(mrb, code);
+    if (mrb->exc) {
+        addReplyErrorFormat(c, "Error compiling script: %s\n", RSTRING_PTR(mrb_obj_as_string(mrb, mrb_obj_value(mrb->exc))));
+        goto cleanup;
+    }
 
     mrbReplyToRedisReply(c, mrb, v);
 
