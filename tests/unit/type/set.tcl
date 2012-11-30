@@ -199,9 +199,10 @@ start_server {
 
         test "SDIFFSTORE with three sets - $type" {
             r sdiffstore setres set1 set4 set5
-            # The type is determined by type of the first key to diff against.
-            # See the implementation for more information.
-            assert_encoding $type setres
+            # When we start with intsets, we should always end with intsets.
+            if {$type eq {intset}} {
+                assert_encoding intset setres
+            }
             assert_equal {1 2 3 4} [lsort [r smembers setres]]
         }
     }
