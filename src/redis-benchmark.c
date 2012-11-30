@@ -35,6 +35,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
+#include <time.h>
 #include <sys/time.h>
 #include <signal.h>
 #include <assert.h>
@@ -510,6 +511,7 @@ int main(int argc, const char **argv) {
 
     client c;
 
+    srandom(time(NULL));
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
 
