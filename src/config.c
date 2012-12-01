@@ -31,6 +31,9 @@
 
 #include "redis.h"
 
+/* For path expansions. This header is part of POSIX. */
+#include <wordexp.h>
+
 /*-----------------------------------------------------------------------------
  * Config file parsing
  *----------------------------------------------------------------------------*/
@@ -53,6 +56,35 @@ void resetServerSaveParams() {
     server.saveparams = NULL;
     server.saveparamslen = 0;
 }
+
+int expandPath(char *path, char *errstring) {
+	wordexp_t exp;
+	int error = 0;
+
+	/* We don't do command substitution for security reasons. */
+	error = wordexp(path, &exp, WRDE_NOCMD);
+	switch(error) {
+		case WRDE_BADCHAR:
+			errstring = "Illegal occurrence of newline or one of "
+				"|, &, ;, <, >, (, ), {, }.";
+			break;
+		case WRDE_CMDSUB:
+			errstring = "Attempted command substition";
+			break;
+		case WRDE_NOSPACE:
+			errstring = "Out of memory";
+			break;
+		case WRDE_SYNTAX:
+			errstring = "Shell syntax error (check parentheses and quotes)";
+			break;
+	}
+	if (error == 0) {
+		strcpy(path, exp.we_wordv[0]);
+	}
+	wordfree(&exp);
+	return error;
+}
+
 
 void loadServerConfigFromString(char *config) {
     char *err = NULL;
@@ -89,6 +121,9 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"bind") && argc == 2) {
             server.bindaddr = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocket") && argc == 2) {
+			if (expandPath(argv[1], err) != 0) {
+				goto loaderr;
+			}
             server.unixsocket = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocketperm") && argc == 2) {
             errno = 0;
@@ -108,6 +143,9 @@ void loadServerConfigFromString(char *config) {
                 resetServerSaveParams();
             }
         } else if (!strcasecmp(argv[0],"dir") && argc == 2) {
+			if (expandPath(argv[1], err) != 0) {
+				goto loaderr;
+			}
             if (chdir(argv[1]) == -1) {
                 redisLog(REDIS_WARNING,"Can't chdir to '%s': %s",
                     argv[1], strerror(errno));
@@ -124,6 +162,10 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"logfile") && argc == 2) {
             FILE *logfp;
+
+			if (expandPath(argv[1], err) != 0) {
+				goto loaderr;
+			}
 
             server.logfile = zstrdup(argv[1]);
             if (!strcasecmp(server.logfile,"stdout")) {
@@ -264,6 +306,9 @@ void loadServerConfigFromString(char *config) {
             }
             server.aof_state = yes ? REDIS_AOF_ON : REDIS_AOF_OFF;
         } else if (!strcasecmp(argv[0],"appendfilename") && argc == 2) {
+			if (expandPath(argv[1], err) != 0) {
+				goto loaderr;
+			}
             zfree(server.aof_filename);
             server.aof_filename = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"no-appendfsync-on-rewrite")
@@ -301,9 +346,15 @@ void loadServerConfigFromString(char *config) {
             }
             server.requirepass = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"pidfile") && argc == 2) {
+			if (expandPath(argv[1], err) != 0) {
+				goto loaderr;
+			}
             zfree(server.pidfile);
             server.pidfile = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"dbfilename") && argc == 2) {
+			if (expandPath(argv[1], err) != 0) {
+				goto loaderr;
+			}
             zfree(server.rdb_filename);
             server.rdb_filename = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"hash-max-ziplist-entries") && argc == 2) {
@@ -349,6 +400,9 @@ void loadServerConfigFromString(char *config) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"cluster-config-file") && argc == 2) {
+			if (expandPath(argv[1], err) != 0) {
+				goto loaderr;
+			}
             zfree(server.cluster.configfile);
             server.cluster.configfile = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"lua-time-limit") && argc == 2) {

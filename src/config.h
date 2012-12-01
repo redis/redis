@@ -30,6 +30,9 @@
 #ifndef __CONFIG_H
 #define __CONFIG_H
 
+/* Expand the given path using wordexp.h */
+int expandPath(char *path, char *errstring);
+
 #ifdef __APPLE__
 #include <AvailabilityMacros.h>
 #endif
