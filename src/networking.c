@@ -757,16 +757,14 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
             (server.maxmemory == 0 ||
              zmalloc_used_memory() < server.maxmemory)) break;
     }
-    if (nwritten == -1) {
-        if (errno == EAGAIN) {
-            nwritten = 0;
-        } else {
-            redisLog(REDIS_VERBOSE,
+
+    if (nwritten == -1 && errno != EAGAIN) {
+        redisLog(REDIS_VERBOSE,
                 "Error writing to client: %s", strerror(errno));
-            freeClient(c);
-            return;
-        }
+        freeClient(c);
+        return;
     }
+
     if (totwritten > 0) c->lastinteraction = server.unixtime;
     if (c->bufpos == 0 && listLength(c->reply) == 0) {
         c->sentlen = 0;
