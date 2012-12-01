@@ -753,22 +753,33 @@ void rpoplpushCommand(redisClient *c) {
 /* Set a client in blocking mode for the specified key, with the specified
  * timeout */
 void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeout, robj *target) {
+    dict *added;
     dictEntry *de;
     list *l;
-    int j;
+    int j, i;
 
     c->bpop.keys = zmalloc(sizeof(robj*)*numkeys);
-    c->bpop.count = numkeys;
     c->bpop.timeout = timeout;
     c->bpop.target = target;
 
-    if (target != NULL) {
-        incrRefCount(target);
-    }
+    if (target != NULL) incrRefCount(target);
 
+    /* Create a dictionary that we use to avoid adding duplicated keys
+     * in case the user calls something like: "BLPOP foo foo foo 0".
+     * The rest of the implementation is simpler if we know there are no
+     * duplications in the key waiting list. */
+    added = dictCreate(&setDictType,NULL);
+
+    i = 0; /* The index for c->bpop.keys[...], we can't use the j loop
+              variable as the list of keys may have duplicated elements. */
     for (j = 0; j < numkeys; j++) {
+        /* Add the key in the "added" dictionary to make sure there are 
+         * no duplicated keys. */
+        if (dictAdd(added,keys[j],NULL) != DICT_OK) continue;
+        incrRefCount(keys[j]);
+
         /* Add the key in the client structure, to map clients -> keys */
-        c->bpop.keys[j] = keys[j];
+        c->bpop.keys[i++] = keys[j];
         incrRefCount(keys[j]);
 
         /* And in the other "side", to map keys -> clients */
@@ -786,9 +797,12 @@ void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeout, robj
         }
         listAddNodeTail(l,c);
     }
+    c->bpop.count = i;
+
     /* Mark the client as a blocked client */
     c->flags |= REDIS_BLOCKED;
     server.bpop_blocked_clients++;
+    dictRelease(added);
 }
 
 /* Unblock a client that's waiting in a blocking operation such as BLPOP */
