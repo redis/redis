@@ -1082,6 +1082,47 @@ void mrbReplyToRedisReply(redisClient *c, mrb_state* mrb, mrb_value value) {
     }
 }
 
+mrb_value mrbRedisCallCammand(mrb_state *mrb, mrb_value self) {
+    mrb_value *mrb_argv;
+    int len;
+    struct redisCommand *cmd;
+    robj **argv;
+    redisClient *c = server.lua_client; // TODO Use another name
+    // sds reply;
+
+    mrb_get_args(mrb, "*", &mrb_argv, &len);
+
+    if (!len) {
+        // TODO Return error
+        return mrb_nil_value();
+    }
+
+    // TODO Free on exit this function (Use zfree)
+    argv = zmalloc(sizeof(robj*) * len);
+
+    for (int i = 1; i < len; i++) {
+        // TODO Check `mrb_argv` to accept `String` or `Symbol` only
+        char *arg = RSTRING_PTR(mrb_obj_as_string(mrb, mrb_argv[i]));
+        argv[i] = createStringObject(arg, strlen(arg));
+    }
+
+    c->argv = argv;
+    c->argc = len;
+
+    cmd = lookupCommandByCString(RSTRING_PTR(*mrb_argv));
+    // TODO Check `cmd` for existing command
+
+    // TODO Check `server.maxmemory`
+    // TODO Check cmd->flags
+
+    c->cmd = cmd;
+    call(c, REDIS_CALL_SLOWLOG | REDIS_CALL_STATS);
+
+    // TODO Parse `c->reply` to mruby
+
+    return *mrb_argv;
+}
+
 void revalCommand(redisClient *c) {
     mrb_state *mrb;
     mrb_value v;
@@ -1089,6 +1130,7 @@ void revalCommand(redisClient *c) {
     mrb_value KEYS;
 
     int i;
+    struct RClass *REDIS;
     char *code = c->argv[1]->ptr;
     int count = atoi(c->argv[2]->ptr);
     int argc = c->argc;
@@ -1113,6 +1155,9 @@ void revalCommand(redisClient *c) {
         mrb_ary_push(mrb, ARGV, mrb_str_new(mrb, c->argv[i]->ptr, strlen(c->argv[i]->ptr)));
     }
     mrb_define_global_const(mrb, "ARGV", ARGV);
+
+    REDIS = mrb_define_class(mrb, "REDIS", mrb->object_class);
+    mrb_define_class_method(mrb, REDIS, "call", mrbRedisCallCammand, ARGS_REQ(1));
 
     v = mrb_load_string(mrb, code);
     if (mrb->exc) {
