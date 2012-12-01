@@ -190,6 +190,27 @@ start_server {
         $rd read
     } {list b}
 
+    test "BLPOP with same key multiple times should work (issue #801)" {
+        set rd [redis_deferring_client]
+        r del list1 list2
+
+        # Data arriving after the BLPOP.
+        $rd blpop list1 list2 list2 list1 0
+        r lpush list1 a
+        assert_equal [$rd read] {list1 a}
+        $rd blpop list1 list2 list2 list1 0
+        r lpush list2 b
+        assert_equal [$rd read] {list2 b}
+
+        # Data already there.
+        r lpush list1 a
+        r lpush list2 b
+        $rd blpop list1 list2 list2 list1 0
+        assert_equal [$rd read] {list1 a}
+        $rd blpop list1 list2 list2 list1 0
+        assert_equal [$rd read] {list2 b}
+    }
+
     test "MULTI/EXEC is isolated from the point of view of BLPOP" {
         set rd [redis_deferring_client]
         r del list
