@@ -350,9 +350,8 @@ typedef struct multiState {
 } multiState;
 
 typedef struct blockingState {
-    robj **keys;            /* The key we are waiting to terminate a blocking
+    dict *keys;             /* The keys we are waiting to terminate a blocking
                              * operation such as BLPOP. Otherwise NULL. */
-    int count;              /* Number of blocking keys */
     time_t timeout;         /* Blocking operation timeout. If UNIX current time
                              * is >= timeout then the operation timed out. */
     robj *target;           /* The key that should receive the element,
