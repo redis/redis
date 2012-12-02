@@ -753,33 +753,18 @@ void rpoplpushCommand(redisClient *c) {
 /* Set a client in blocking mode for the specified key, with the specified
  * timeout */
 void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeout, robj *target) {
-    dict *added;
     dictEntry *de;
     list *l;
-    int j, i;
+    int j;
 
-    c->bpop.keys = zmalloc(sizeof(robj*)*numkeys);
     c->bpop.timeout = timeout;
     c->bpop.target = target;
 
     if (target != NULL) incrRefCount(target);
 
-    /* Create a dictionary that we use to avoid adding duplicated keys
-     * in case the user calls something like: "BLPOP foo foo foo 0".
-     * The rest of the implementation is simpler if we know there are no
-     * duplications in the key waiting list. */
-    added = dictCreate(&setDictType,NULL);
-
-    i = 0; /* The index for c->bpop.keys[...], we can't use the j loop
-              variable as the list of keys may have duplicated elements. */
     for (j = 0; j < numkeys; j++) {
-        /* Add the key in the "added" dictionary to make sure there are 
-         * no duplicated keys. */
-        if (dictAdd(added,keys[j],NULL) != DICT_OK) continue;
-        incrRefCount(keys[j]);
-
-        /* Add the key in the client structure, to map clients -> keys */
-        c->bpop.keys[i++] = keys[j];
+        /* If the key already exists in the dict ignore it. */
+        if (dictAdd(c->bpop.keys,keys[j],NULL) != DICT_OK) continue;
         incrRefCount(keys[j]);
 
         /* And in the other "side", to map keys -> clients */
@@ -797,39 +782,40 @@ void blockForKeys(redisClient *c, robj **keys, int numkeys, time_t timeout, robj
         }
         listAddNodeTail(l,c);
     }
-    c->bpop.count = i;
 
     /* Mark the client as a blocked client */
     c->flags |= REDIS_BLOCKED;
     server.bpop_blocked_clients++;
-    dictRelease(added);
 }
 
 /* Unblock a client that's waiting in a blocking operation such as BLPOP */
 void unblockClientWaitingData(redisClient *c) {
     dictEntry *de;
+    dictIterator *di;
     list *l;
-    int j;
 
-    redisAssertWithInfo(c,NULL,c->bpop.keys != NULL);
+    redisAssertWithInfo(c,NULL,dictSize(c->bpop.keys) != 0);
+    di = dictGetIterator(c->bpop.keys);
     /* The client may wait for multiple keys, so unblock it for every key. */
-    for (j = 0; j < c->bpop.count; j++) {
+    while((de = dictNext(di)) != NULL) {
+        robj *key = dictGetKey(de);
+
         /* Remove this client from the list of clients waiting for this key. */
-        de = dictFind(c->db->blocking_keys,c->bpop.keys[j]);
-        redisAssertWithInfo(c,c->bpop.keys[j],de != NULL);
-        l = dictGetVal(de);
+        l = dictFetchValue(c->db->blocking_keys,key);
+        redisAssertWithInfo(c,key,l != NULL);
         listDelNode(l,listSearchKey(l,c));
         /* If the list is empty we need to remove it to avoid wasting memory */
         if (listLength(l) == 0)
-            dictDelete(c->db->blocking_keys,c->bpop.keys[j]);
-        decrRefCount(c->bpop.keys[j]);
+            dictDelete(c->db->blocking_keys,key);
     }
+    dictReleaseIterator(di);
 
     /* Cleanup the client structure */
-    zfree(c->bpop.keys);
-    c->bpop.keys = NULL;
-    if (c->bpop.target) decrRefCount(c->bpop.target);
-    c->bpop.target = NULL;
+    dictEmpty(c->bpop.keys);
+    if (c->bpop.target) {
+        decrRefCount(c->bpop.target);
+        c->bpop.target = NULL;
+    }
     c->flags &= ~REDIS_BLOCKED;
     c->flags |= REDIS_UNBLOCKED;
     server.bpop_blocked_clients--;
