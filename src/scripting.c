@@ -51,6 +51,13 @@ char *redisProtocolToLuaType_Bulk(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Status(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Error(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_MultiBulk(lua_State *lua, char *reply);
+
+char *redisProtocolToMrbType_Int(mrb_state *mrb, mrb_value context, char *reply);
+char *redisProtocolToMrbType_Bulk(mrb_state *mrb, mrb_value context, char *reply);
+char *redisProtocolToMrbType_Status(mrb_state *mrb, mrb_value context, char *reply);
+char *redisProtocolToMrbType_Error(mrb_state *mrb, mrb_value context, char *reply);
+char *redisProtocolToMrbType_MultiBulk(mrb_state *mrb, mrb_value context, char *reply);
+
 int redis_math_random (lua_State *L);
 int redis_math_randomseed (lua_State *L);
 void sha1hex(char *digest, char *script, size_t len);
@@ -1082,13 +1089,105 @@ void mrbReplyToRedisReply(redisClient *c, mrb_state* mrb, mrb_value value) {
     }
 }
 
+char *redisProtocolToMrbType(mrb_state *mrb, mrb_value array, char *reply) {
+    char *p = reply;
+
+    switch(*p) {
+    case ':':
+        p = redisProtocolToMrbType_Int(mrb, array, reply);
+        break;
+    case '$':
+        p = redisProtocolToMrbType_Bulk(mrb, array, reply);
+        break;
+    case '+':
+        p = redisProtocolToMrbType_Status(mrb, array, reply);
+        break;
+    case '-':
+        p = redisProtocolToMrbType_Error(mrb, array, reply);
+        break;
+    case '*':
+        p = redisProtocolToMrbType_MultiBulk(mrb, array, reply);
+        break;
+    }
+    return p;
+}
+
+char *redisProtocolToMrbType_Int(mrb_state *mrb, mrb_value context, char *reply) {
+    char *p = strchr(reply + 1, '\r');
+    long long value;
+    long digit;
+    mrb_value result;
+
+    string2ll(reply + 1, p - reply - 1, &value);
+    digit = value % 10 + 1;
+
+    result = mrb_funcall(mrb, mrb_str_new(mrb, reply + 1, digit), "to_i", 0);
+    mrb_ary_push(mrb, context, result);
+
+    return p + 2;
+}
+
+char *redisProtocolToMrbType_Bulk(mrb_state *mrb, mrb_value context, char *reply) {
+    char *p = strchr(reply + 1, '\r');
+    long long bulklen;
+    mrb_value result;
+
+    string2ll(reply + 1, p - reply - 1, &bulklen);
+    if (bulklen == -1) {
+        result = mrb_nil_value();
+        mrb_ary_push(mrb, context, result);
+        return p + 2;
+    } else {
+        result = mrb_str_new(mrb, p + 2, bulklen);
+        mrb_ary_push(mrb, context, result);
+        return p + 2 + bulklen + 2;
+    }
+}
+
+char *redisProtocolToMrbType_Status(mrb_state *mrb, mrb_value context, char *reply) {
+    char *p = strchr(reply + 1, '\r');
+    // TODO Use Symbol??
+    mrb_ary_push(mrb, context, mrb_str_new(mrb, "(OK)", 4));
+    return p + 2;
+}
+
+char *redisProtocolToMrbType_Error(mrb_state *mrb, mrb_value context, char *reply) {
+    char *p = strchr(reply + 1, '\r');
+    mrb_value result;
+    struct RClass *StandardError = mrb_class_get(mrb, "StandardError");
+
+    result = mrb_exc_new(mrb, StandardError, reply + 1, p - reply - 1);
+    mrb_ary_push(mrb, context, result);
+    return p + 2;
+}
+
+char *redisProtocolToMrbType_MultiBulk(mrb_state *mrb, mrb_value context, char *reply) {
+    char *p = strchr(reply + 1, '\r');
+    long long mbulklen;
+    mrb_value result = mrb_ary_new_capa(mrb, 0);
+    int j;
+
+    string2ll(reply + 1, p - reply - 1, &mbulklen);
+    p += 2;
+    if (mbulklen == -1) {
+        return p;
+    }
+    for (j = 0; j < mbulklen; j++) {
+        p = redisProtocolToMrbType(mrb, result, p);
+    }
+
+    mrb_ary_push(mrb, context, result);
+    return p;
+}
+
 mrb_value mrbRedisCallCammand(mrb_state *mrb, mrb_value self) {
     mrb_value *mrb_argv;
     int len;
     struct redisCommand *cmd;
     robj **argv;
     redisClient *c = server.lua_client; // TODO Use another name
-    // sds reply;
+    sds reply;
+    mrb_value result;
 
     mrb_get_args(mrb, "*", &mrb_argv, &len);
 
@@ -1118,9 +1217,23 @@ mrb_value mrbRedisCallCammand(mrb_state *mrb, mrb_value self) {
     c->cmd = cmd;
     call(c, REDIS_CALL_SLOWLOG | REDIS_CALL_STATS);
 
-    // TODO Parse `c->reply` to mruby
+    reply = sdsempty();
+    if (c->bufpos) {
+        reply = sdscatlen(reply, c->buf, c->bufpos);
+        c->bufpos = 0;
+    }
+    while (listLength(c->reply)) {
+        robj *o = listNodeValue(listFirst(c->reply));
 
-    return *mrb_argv;
+        reply = sdscatlen(reply, o->ptr, sdslen(o->ptr));
+        listDelNode(c->reply, listFirst(c->reply));
+    }
+
+    result = mrb_ary_new_capa(mrb, 0);
+    redisProtocolToMrbType(mrb, result, reply);
+    sdsfree(reply);
+
+    return mrb_ary_pop(mrb, result);
 }
 
 void revalCommand(redisClient *c) {
