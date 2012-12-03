@@ -45,16 +45,23 @@ endif
 # Override default settings if possible
 -include .make-settings
 
+# Test for Clang and remove linking option(s).
+ifneq (,$(findstring clang, $(shell $(CC) --version)))
+	LDFLAG_DYN=
+else
+	LDFLAG_DYN = -rdynamic
+endif
+
 ifeq ($(uname_S),SunOS)
   FINAL_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS) -D__EXTENSIONS__ -D_XPG6
   FINAL_LDFLAGS= $(LDFLAGS) $(REDIS_LDFLAGS) -g -ggdb
-  FINAL_LIBS= -ldl -lnsl -lsocket -lm -lpthread
+  FINAL_LIBS= -ldl -lnsl -lsocket -lm -pthread
   DEBUG= -g -ggdb
 else
   FINAL_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
-  FINAL_LDFLAGS= $(LDFLAGS) $(REDIS_LDFLAGS) -g -rdynamic -ggdb
-  FINAL_LIBS= -lm -pthread
-  DEBUG= -g -rdynamic -ggdb
+  FINAL_LDFLAGS= $(LDFLAGS) $(REDIS_LDFLAGS) -g $(LDFLAG_DYN) -ggdb
+  FINAL_LIBS= -lm -lpthread
+  DEBUG= -g $(LDFLAG_DYN) -ggdb
 endif
 
 # Include paths to dependencies
