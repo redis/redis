@@ -605,6 +605,7 @@ void freeClient(redisClient *c) {
     c->querybuf = NULL;
     if (c->flags & REDIS_BLOCKED)
         unblockClientWaitingData(c);
+    dictRelease(c->bpop.keys);
 
     /* UNWATCH all the keys */
     unwatchAllKeys(c);
