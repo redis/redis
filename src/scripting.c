@@ -1192,8 +1192,11 @@ mrb_value mrbRedisCallCammand(mrb_state *mrb, mrb_value self) {
     mrb_get_args(mrb, "*", &mrb_argv, &len);
 
     if (!len) {
-        // TODO Return error
-        return mrb_nil_value();
+        struct RClass *Error = E_ARGUMENT_ERROR;
+        char *message = "Please specify at least one argument for REDIS.call()";
+        mrb_value error;
+        error = mrb_exc_new(mrb, Error, message, strlen(message));
+        return error;
     }
 
     // TODO Free on exit this function (Use zfree)
