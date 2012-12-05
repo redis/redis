@@ -1513,6 +1513,7 @@ void call(redisClient *c, int flags) {
      * per-command statistics that we show in INFO commandstats. */
     if (flags & REDIS_CALL_SLOWLOG)
         slowlogPushEntryIfNeeded(c->argv,c->argc,duration);
+    server.slowlog_complexity_params_count = 0; /* Need to zero the count in case we're in a nested call to "call()" */
     if (flags & REDIS_CALL_STATS) {
         c->cmd->microseconds += duration;
         c->cmd->calls++;
