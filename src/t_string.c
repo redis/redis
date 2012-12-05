@@ -49,7 +49,9 @@ void setGenericCommand(redisClient *c, int nx, robj *key, robj *val, robj *expir
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != REDIS_OK)
             return;
         if (milliseconds <= 0) {
-            addReplyError(c,"invalid expire time in SETEX");
+            char buf[128];
+            sprintf( buf, "invalid expire time in %s", (char *)(c->argv[0]->ptr) );
+            addReplyError(c,buf);
             return;
         }
         if (unit == UNIT_SECONDS) milliseconds *= 1000;
