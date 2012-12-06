@@ -1188,16 +1188,16 @@ mrb_value mrbRedisCallCammand(mrb_state *mrb, mrb_value self) {
     redisClient *c = server.lua_client; // TODO Use another name
     sds reply;
     mrb_value error;
-    char *message;
+    struct RClass *errorClass;
+    char *errorMessage;
     mrb_value result;
 
     mrb_get_args(mrb, "*", &mrb_argv, &len);
 
     if (!len) {
-        struct RClass *Error = E_ARGUMENT_ERROR;
-        message = "Please specify at least one argument for REDIS.call()";
-        error = mrb_exc_new(mrb, Error, message, strlen(message));
-        return error;
+        errorClass = E_ARGUMENT_ERROR;
+        errorMessage = "Please specify at least one argument for REDIS.call()";
+        goto cleanup;
     }
 
     // TODO Free on exit this function (Use zfree)
@@ -1216,17 +1216,16 @@ mrb_value mrbRedisCallCammand(mrb_state *mrb, mrb_value self) {
     if (!cmd || ((cmd->arity > 0 && cmd->arity != len) ||
           (len < -cmd->arity)))
     {
-        struct RClass *Error = E_ARGUMENT_ERROR;
+        errorClass = E_ARGUMENT_ERROR;
         if (cmd) {
-            message = "Wrong number of args calling Redis command From mruby script";
+            errorMessage = "Wrong number of args calling Redis command From mruby script";
         } else {
-            message = "Unknown Redis command called from mruby script";
+            errorMessage = "Unknown Redis command called from mruby script";
         }
-        error = mrb_exc_new(mrb, Error, message, strlen(message));
-        return error;
+        goto cleanup;
     }
 
-    // TODO Check `cmd` for existing command
+    // TODO Check whether `cmd` is allowed instead script.
 
     // TODO Check `server.maxmemory`
     // TODO Check cmd->flags
@@ -1251,6 +1250,13 @@ mrb_value mrbRedisCallCammand(mrb_state *mrb, mrb_value self) {
     sdsfree(reply);
 
     return mrb_ary_pop(mrb, result);
+
+cleanup:
+    if (errorClass) {
+        error = mrb_exc_new(mrb, errorClass, errorMessage, strlen(errorMessage));
+        return error;
+    }
+    return mrb_nil_value();
 }
 
 void revalCommand(redisClient *c) {
