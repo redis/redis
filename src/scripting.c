@@ -1200,7 +1200,6 @@ mrb_value mrbRedisCallCammand(mrb_state *mrb, mrb_value self) {
         goto cleanup;
     }
 
-    // TODO Free on exit this function (Use zfree)
     argv = zmalloc(sizeof(robj*) * len);
 
     for (int i = 1; i < len; i++) {
@@ -1249,9 +1248,19 @@ mrb_value mrbRedisCallCammand(mrb_state *mrb, mrb_value self) {
     redisProtocolToMrbType(mrb, result, reply);
     sdsfree(reply);
 
+    for (int j = 1; j < c->argc; j++) {
+      decrRefCount(c->argv[j]);
+    }
+    zfree(c->argv);
+
     return mrb_ary_pop(mrb, result);
 
 cleanup:
+    for (int j = 1; j < c->argc; j++) {
+        decrRefCount(c->argv[j]);
+    }
+    zfree(c->argv);
+
     if (errorClass) {
         error = mrb_exc_new(mrb, errorClass, errorMessage, strlen(errorMessage));
         return error;
