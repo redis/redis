@@ -1224,7 +1224,11 @@ mrb_value mrbRedisCallCammand(mrb_state *mrb, mrb_value self) {
         goto cleanup;
     }
 
-    // TODO Check whether `cmd` is allowed instead script.
+    if (cmd->flags & REDIS_CMD_NOSCRIPT) {
+        errorClass = E_ARGUMENT_ERROR;
+        errorMessage = "This Redis command is not allowed from scripts";
+        goto cleanup;
+    }
 
     // TODO Check `server.maxmemory`
     // TODO Check cmd->flags
