@@ -1187,14 +1187,15 @@ mrb_value mrbRedisCallCammand(mrb_state *mrb, mrb_value self) {
     robj **argv;
     redisClient *c = server.lua_client; // TODO Use another name
     sds reply;
+    mrb_value error;
+    char *message;
     mrb_value result;
 
     mrb_get_args(mrb, "*", &mrb_argv, &len);
 
     if (!len) {
         struct RClass *Error = E_ARGUMENT_ERROR;
-        char *message = "Please specify at least one argument for REDIS.call()";
-        mrb_value error;
+        message = "Please specify at least one argument for REDIS.call()";
         error = mrb_exc_new(mrb, Error, message, strlen(message));
         return error;
     }
@@ -1212,6 +1213,19 @@ mrb_value mrbRedisCallCammand(mrb_state *mrb, mrb_value self) {
     c->argc = len;
 
     cmd = lookupCommandByCString(RSTRING_PTR(*mrb_argv));
+    if (!cmd || ((cmd->arity > 0 && cmd->arity != len) ||
+          (len < -cmd->arity)))
+    {
+        struct RClass *Error = E_ARGUMENT_ERROR;
+        if (cmd) {
+            message = "Wrong number of args calling Redis command From mruby script";
+        } else {
+            message = "Unknown Redis command called from mruby script";
+        }
+        error = mrb_exc_new(mrb, Error, message, strlen(message));
+        return error;
+    }
+
     // TODO Check `cmd` for existing command
 
     // TODO Check `server.maxmemory`
