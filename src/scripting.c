@@ -1203,9 +1203,21 @@ mrb_value mrbRedisCallCammand(mrb_state *mrb, mrb_value self) {
     argv = zmalloc(sizeof(robj*) * len);
 
     for (int i = 1; i < len; i++) {
-        // TODO Check `mrb_argv` to accept `String` or `Symbol` only
-        char *arg = RSTRING_PTR(mrb_obj_as_string(mrb, mrb_argv[i]));
-        argv[i] = createStringObject(arg, strlen(arg));
+        enum mrb_vtype type = mrb_type(mrb_argv[i]);
+        char *arg;
+        switch (type) {
+        case MRB_TT_STRING:
+        case MRB_TT_SYMBOL:
+        case MRB_TT_FIXNUM:
+        case MRB_TT_FLOAT:
+            arg = RSTRING_PTR(mrb_obj_as_string(mrb, mrb_argv[i]));
+            argv[i] = createStringObject(arg, strlen(arg));
+            break;
+        default:
+            errorClass = E_ARGUMENT_ERROR;
+            errorMessage = "mruby REDIS.call() command arguments must be strings or integers or symbols";
+            goto cleanup;
+        }
     }
 
     c->argv = argv;
