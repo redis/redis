@@ -2041,6 +2041,45 @@ void sentinelCommand(redisClient *c) {
             addReplyBulkCString(c,addr->ip);
             addReplyBulkLongLong(c,addr->port);
         }
+    } else if (!strcasecmp(c->argv[1]->ptr,"get-master-that-met-quorum-addr-by-name")) {
+        /* SENTINEL GET-MASTER-THAT-MET-QUORUM-ADDR-BY-NAME <master-name> */
+        sentinelRedisInstance *ri;
+
+        if (c->argc != 3) goto numargserr;
+        ri = sentinelGetMasterByName(c->argv[2]->ptr);
+        if (ri == NULL) {
+            addReply(c,shared.nullmultibulk);
+        } else if (ri->info_refresh == 0) {
+            addReplySds(c,sdsnew("-IDONTKNOW I have not enough information to reply. Please ask another Sentinel.\r\n"));
+        } else {
+            sentinelAddr *addr = ri->addr;
+
+            if ((ri->flags & SRI_FAILOVER_IN_PROGRESS) && ri->promoted_slave)
+                addr = ri->promoted_slave->addr;
+
+            // Count the connected sentinels for this master.
+            dictIterator *di;
+            dictEntry *de;
+            int connectedSentinels = 1;
+
+            di = dictGetIterator(ri->sentinels);
+
+            while((de = dictNext(di)) != NULL) {
+                sentinelRedisInstance *otherri = dictGetVal(de);
+
+                if ((otherri->flags & SRI_DISCONNECTED) == 0) connectedSentinels++;
+            }
+            dictReleaseIterator(di);
+
+            if(connectedSentinels < ri->quorum){
+                addReplySds(c,sdsnew("-IDONTKNOW I have not enough information to reply, quorum not met. Please ask another Sentinel.\r\n"));
+            }
+            else {
+                addReplyMultiBulkLen(c,2);
+                addReplyBulkCString(c,addr->ip);
+                addReplyBulkLongLong(c,addr->port);
+            }
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"failover")) {
         /* SENTINEL FAILOVER <master-name> */
         sentinelRedisInstance *ri;
