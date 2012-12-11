@@ -281,6 +281,55 @@ start_server {tags {"scripting"}} {
         assert_equal $rand1 $rand2
         assert {$rand2 ne $rand3}
     }
+
+    test {REVAL - Does mruby interpreter replies to our requests?} {
+        r reval {'hello'} 0
+    } {hello}
+
+    test {REVAL - mruby integer -> Redis protocol type conversion} {
+        r reval {100.5} 0
+    } {100}
+
+    test {REVAL - mruby string -> Redis protocol type conversion} {
+        r reval {'hello world'} 0
+    } {hello world}
+
+    test {REVAL - mruby true boolean -> Redis protocol type conversion} {
+        r reval {true} 0
+    } {1}
+
+    test {REVAL - mruby false boolean -> Redis protocol type conversion} {
+        r reval {false} 0
+    } {}
+
+    # TODO Support status
+    # test {REVAL - mruby status code reply -> Redis protocol type conversion} {
+    #     r reval {return {ok='fine'}} 0
+    # } {fine}
+
+    test {REVAL - mruby error reply -> Redis protocol type conversion} {
+        catch {
+            r reval {StandardError.new} 0
+        } e
+        set _ $e
+    } {ERR StandardError}
+
+    test {REVAL - mruby array -> Redis protocol type conversion} {
+        r reval {[1,2,3,'hi',[1,2]]} 0
+    } {1 2 3 hi {1 2}}
+
+    test {REVAL - mruby hash -> Redis protocol type conversion} {
+        r reval {{:a => {1 => 2}}} 0
+    } {a {1 2}}
+
+    test {REVAL - Are the KEYS and ARGS arrays populated correctly?} {
+        r reval {[KEYS[0],KEYS[1],ARGV[0],ARGV[1]]} 2 a b c d
+    } {a b c d}
+
+    test {REVAL - is mruby able to call Redis API?} {
+        r set mykey myval
+        r reval {REDIS.call('get','mykey')} 0
+    } {myval}
 }
 
 # Start a new server since the last test in this stanza will kill the
