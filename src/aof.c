@@ -178,7 +178,7 @@ void stopAppendOnly(void) {
         redisLog(REDIS_NOTICE,"Killing running AOF rewrite child: %ld",
             (long) server.aof_child_pid);
         if (kill(server.aof_child_pid,SIGKILL) != -1)
-            wait3(&statloc,0,NULL);
+            wait4(server.aof_child_pid,&statloc,0,NULL);
         /* reset the buffer accumulating changes while the child saves */
         aofRewriteBufferReset();
         aofRemoveTempFile(server.aof_child_pid);
