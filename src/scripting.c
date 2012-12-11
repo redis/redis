@@ -1285,6 +1285,37 @@ error:
     return mrb_nil_value();
 }
 
+int isRecursiveMrbObject(mrb_state *mrb, mrb_value value, mrb_value list) {
+    if (!mrb_array_p(value) && !mrb_hash_p(value)) {
+        return 0;
+    }
+
+    for (int i = 0; i < RARRAY_LEN(list); i++) {
+        if (mrb_obj_equal(mrb, value, RARRAY_PTR(list)[i])) {
+            return 1;
+        }
+    }
+    mrb_ary_push(mrb, list, value);
+
+    if (mrb_array_p(value)) {
+        mrb_value obj;
+        for (int i = 0; i < RARRAY_LEN(value); i++) {
+            obj = RARRAY_PTR(value)[i];
+            if (isRecursiveMrbObject(mrb, obj, list)) return 1;
+        }
+    } else if (mrb_hash_p(value)) {
+        khash_t(ht) *h = RHASH_TBL(value);
+        khiter_t k;
+        for (k = kh_begin(h); k != kh_end(h); k++) {
+            if (kh_exist(h, k)) {
+                if (isRecursiveMrbObject(mrb, kh_key(h, k), list)) return 1;
+                if (isRecursiveMrbObject(mrb, kh_value(h, k), list)) return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 void revalCommand(redisClient *c) {
     mrb_state *mrb;
     mrb_value v;
@@ -1324,6 +1355,11 @@ void revalCommand(redisClient *c) {
     v = mrb_load_string(mrb, code);
     if (mrb->exc) {
         addReplyErrorFormat(c, "Error compiling script: %s\n", RSTRING_PTR(mrb_obj_as_string(mrb, mrb_obj_value(mrb->exc))));
+        goto cleanup;
+    }
+
+    if (isRecursiveMrbObject(mrb, v, mrb_ary_new(mrb))) {
+        addReplyError(c, "Recursive mruby object is not acceptable");
         goto cleanup;
     }
 
