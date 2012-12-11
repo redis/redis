@@ -1074,6 +1074,12 @@ void mrbReplyToRedisReply(redisClient *c, mrb_state* mrb, mrb_value value) {
         setDeferredMultiBulkLength(c,replylen,i);
         break;
     }
+    case MRB_TT_TRUE:
+        addReplyLongLong(c, 1);
+        break;
+    case MRB_TT_FALSE:
+        addReply(c, shared.nullbulk);
+        break;
     case MRB_TT_OBJECT:
     case MRB_TT_EXCEPTION: {
         int isException = mrb_obj_is_kind_of(mrb, value, mrb_class_get(mrb, "Exception"));
