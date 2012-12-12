@@ -95,6 +95,8 @@ static const rio rioBufferIO = {
     rioBufferTell,
     NULL,           /* update_checksum */
     0,              /* current checksum */
+    0,              /* bytes read or written */
+    0,              /* read/write chunk size */
     { { NULL, 0 } } /* union for io-specific vars */
 };
 
@@ -104,6 +106,8 @@ static const rio rioFileIO = {
     rioFileTell,
     NULL,           /* update_checksum */
     0,              /* current checksum */
+    0,              /* bytes read or written */
+    0,              /* read/write chunk size */
     { { NULL, 0 } } /* union for io-specific vars */
 };
 

@@ -52,6 +52,12 @@ struct _rio {
     /* The current checksum */
     uint64_t cksum;
 
+    /* number of bytes read or written */
+    size_t processed_bytes;
+
+    /* maximum simgle read or write chunk size */
+    size_t max_processing_chunk;
+
     /* Backend-specific vars. */
     union {
         struct {
@@ -71,16 +77,29 @@ typedef struct _rio rio;
  * if needed. */
 
 static inline size_t rioWrite(rio *r, const void *buf, size_t len) {
-    if (r->update_cksum) r->update_cksum(r,buf,len);
-    return r->write(r,buf,len);
+    while (len) {
+        size_t bytes_to_write = (r->max_processing_chunk && r->max_processing_chunk < len) ? r->max_processing_chunk : len;
+        if (r->update_cksum) r->update_cksum(r,buf,bytes_to_write);
+        if (r->write(r,buf,bytes_to_write) == 0)
+            return 0;
+        buf = (char*)buf + bytes_to_write;
+        len -= bytes_to_write;
+        r->processed_bytes += bytes_to_write;
+    }
+    return 1;
 }
 
 static inline size_t rioRead(rio *r, void *buf, size_t len) {
-    if (r->read(r,buf,len) == 1) {
-        if (r->update_cksum) r->update_cksum(r,buf,len);
-        return 1;
+    while (len) {
+        size_t bytes_to_read = (r->max_processing_chunk && r->max_processing_chunk < len) ? r->max_processing_chunk : len;
+        if (r->read(r,buf,bytes_to_read) == 0)
+            return 0;
+        if (r->update_cksum) r->update_cksum(r,buf,bytes_to_read);
+        buf = (char*)buf + bytes_to_read;
+        len -= bytes_to_read;
+        r->processed_bytes += bytes_to_read;
     }
-    return 0;
+    return 1;
 }
 
 static inline off_t rioTell(rio *r) {

@@ -1057,13 +1057,24 @@ void stopLoading(void) {
     server.loading = 0;
 }
 
+/* Track loading progress in order to serve client's from time to time
+   and if needed calculate rdb checksum  */
+void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
+    if (server.rdb_checksum)
+        rioGenericUpdateChecksum(r, buf, len);
+    if (server.loading_process_events_interval_bytes &&
+        (r->processed_bytes + len)/server.loading_process_events_interval_bytes > r->processed_bytes/server.loading_process_events_interval_bytes) {
+        loadingProgress(r->processed_bytes);
+        aeProcessEvents(server.el, AE_FILE_EVENTS|AE_DONT_WAIT);
+    }
+}
+
 int rdbLoad(char *filename) {
     uint32_t dbid;
     int type, rdbver;
     redisDb *db = server.db+0;
     char buf[1024];
     long long expiretime, now = mstime();
-    long loops = 0;
     FILE *fp;
     rio rdb;
 
@@ -1073,8 +1084,8 @@ int rdbLoad(char *filename) {
         return REDIS_ERR;
     }
     rioInitWithFile(&rdb,fp);
-    if (server.rdb_checksum)
-        rdb.update_cksum = rioGenericUpdateChecksum;
+    rdb.update_cksum = rdbLoadProgressCallback;
+    rdb.max_processing_chunk = server.loading_process_events_interval_bytes;
     if (rioRead(&rdb,buf,9) == 0) goto eoferr;
     buf[9] = '\0';
     if (memcmp(buf,"REDIS",5) != 0) {
@@ -1095,12 +1106,6 @@ int rdbLoad(char *filename) {
     while(1) {
         robj *key, *val;
         expiretime = -1;
-
-        /* Serve the clients from time to time */
-        if (!(loops++ % 1000)) {
-            loadingProgress(rioTell(&rdb));
-            aeProcessEvents(server.el, AE_FILE_EVENTS|AE_DONT_WAIT);
-        }
 
         /* Read type. */
         if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
