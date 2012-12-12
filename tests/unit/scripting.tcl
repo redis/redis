@@ -330,6 +330,56 @@ start_server {tags {"scripting"}} {
         r set mykey myval
         r reval {REDIS.call('get','mykey')} 0
     } {myval}
+
+    test {REVAL - Redis bulk -> mruby type conversion} {
+        r set mykey myval
+        r reval {
+            foo = REDIS.call('get','mykey')
+            [foo.class.to_s,foo]
+        } 0
+    } {String myval}
+
+    test {REVAL - Redis integer -> mruby type conversion} {
+        r reval {
+            foo = REDIS.call('incr','m')
+            [foo.class.to_s,foo]
+        } 0
+    } {Fixnum 1}
+
+    test {REVAL - Redis multi bulk -> mruby type conversion} {
+        r del mylist
+        r rpush mylist a
+        r rpush mylist b
+        r rpush mylist c
+        r reval {
+            foo = REDIS.call('lrange','mylist',0,-1)
+            [foo.class.to_s,*foo,foo.size]
+        } 0
+    } {Array a b c 3}
+
+    # TODO Support status
+    # test {REVAL - Redis status reply -> mruby type conversion} {
+    #     r reval {
+    #         foo = redis.pcall('set','mykey','myval')
+    #         [foo.class._to_s,foo[:ok]]
+    #     } 0
+    # } {Hash OK}
+
+    test {REVAL - Redis error reply -> mruby type conversion} {
+        r set mykey myval
+        r reval {
+            foo = REDIS.call('incr','mykey')
+            [foo.class.to_s,foo.to_s]
+        } 0
+    } {StandardError {ERR value is not an integer or out of range}}
+
+    test {REVAL - Redis nil bulk reply -> mruby type conversion} {
+        r del mykey
+        r reval {
+            foo = REDIS.call('get','mykey')
+            [foo.class.to_s,foo.nil?]
+        } 0
+    } {NilClass 1}
 }
 
 # Start a new server since the last test in this stanza will kill the
