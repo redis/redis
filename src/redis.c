@@ -1290,6 +1290,7 @@ void initServerConfig() {
     server.lua_client = NULL;
     server.lua_timedout = 0;
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);
+    server.loading_process_events_interval_bytes = (1024*1024*2);
 
     updateLRUClock();
     resetServerSaveParams();
