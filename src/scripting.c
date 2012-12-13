@@ -1197,7 +1197,7 @@ mrb_value mrbRedisCallCammand(mrb_state *mrb, mrb_value self) {
     if (!len) {
         errorClass = E_ARGUMENT_ERROR;
         errorMessage = "Please specify at least one argument for REDIS.call()";
-        goto cleanup;
+        goto error;
     }
 
     argv = zmalloc(sizeof(robj*) * len);
@@ -1261,6 +1261,7 @@ cleanup:
     }
     zfree(c->argv);
 
+error:
     if (errorClass) {
         error = mrb_exc_new(mrb, errorClass, errorMessage, strlen(errorMessage));
         return error;
