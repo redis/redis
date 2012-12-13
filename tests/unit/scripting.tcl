@@ -408,6 +408,16 @@ start_server {tags {"scripting"}} {
         } e
         set e
     } {*number of args*}
+
+    test {Handling error for refering an undeclared variable} {
+        catch {r reval {hi} 0} e
+        set e
+    } {*undefined method 'hi' for main*}
+
+    test {Handling error for invalid syntax} {
+        catch {r reval {:-<} 0} e
+        set e
+    } {*syntax error*}
 }
 
 # Start a new server since the last test in this stanza will kill the
