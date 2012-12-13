@@ -380,6 +380,34 @@ start_server {tags {"scripting"}} {
             [foo.class.to_s,foo.nil?]
         } 0
     } {NilClass 1}
+
+    test {REVAL - Scripts can't run certain commands} {
+        set e {}
+        catch {r reval {REDIS.call('spop','x')} 0} e
+        set e
+    } {*not allowed*}
+
+    test {REVAL - No arguments to REDIS.call/pcall is considered an error} {
+        set e {}
+        catch {r reval {REDIS.call()} 0} e
+        set e
+    } {*one argument*}
+
+    test {REVAL - REDIS.call variant raises a mruby error on Redis cmd error (1)} {
+        set e {}
+        catch {
+            r reval "REDIS.call('nosuchcommand')" 0
+        } e
+        set e
+    } {*Unknown Redis*}
+
+    test {REVAL - REDIS.call variant raises a mruby error on Redis cmd error (1)} {
+        set e {}
+        catch {
+            r reval {REDIS.call('get','a','b','c')} 0
+        } e
+        set e
+    } {*number of args*}
 }
 
 # Start a new server since the last test in this stanza will kill the
