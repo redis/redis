@@ -67,7 +67,9 @@
 #define REDIS_ERR               -1
 
 /* Static server configuration */
-#define REDIS_HZ                100     /* Time interrupt calls/sec. */
+#define REDIS_DEFAULT_HZ        10      /* Time interrupt calls/sec. */
+#define REDIS_MIN_HZ            1
+#define REDIS_MAX_HZ            500 
 #define REDIS_SERVERPORT        6379    /* TCP port */
 #define REDIS_MAXIDLETIME       0       /* default client timeout: infinite */
 #define REDIS_DEFAULT_DBNUM     16
@@ -291,8 +293,8 @@
 
 /* Using the following macro you can run code inside serverCron() with the
  * specified period, specified in milliseconds.
- * The actual resolution depends on REDIS_HZ. */
-#define run_with_period(_ms_) if (!(server.cronloops%((_ms_)/(1000/REDIS_HZ))))
+ * The actual resolution depends on server.hz. */
+#define run_with_period(_ms_) if ((_ms_ <= 1000/server.hz) || !(server.cronloops%((_ms_)/(1000/server.hz))))
 
 /* We can print the stacktrace, so our assert is defined this way: */
 #define redisAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_redisAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),_exit(1)))
@@ -621,6 +623,7 @@ typedef struct {
 
 struct redisServer {
     /* General */
+    int hz;                     /* serverCron() calls frequency in hertz */
     redisDb *db;
     dict *commands;             /* Command table hash table */
     aeEventLoop *el;
