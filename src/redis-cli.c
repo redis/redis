@@ -753,6 +753,30 @@ static char **convertToSds(int count, char** args) {
   return sds;
 }
 
+#define REDISCLI_HISTFILE "REDISCLI_HISTFILE"
+#define DEFAULT_REDISCLI_HISTFILE ".rediscli_history"
+
+static sds getHistoryPath() {
+    char *path = NULL;
+    sds historyPath = NULL;
+   
+    path = getenv(REDISCLI_HISTFILE);
+    if (path != NULL && *path != '\0') {
+        if (!strcmp("/dev/null", path)) {
+            return NULL;
+        }
+
+        historyPath = sdscatprintf(sdsempty(), "%s", path); 
+    } else {
+        char *home = getenv("HOME");
+        if (home != NULL && *home != '\0') {
+            historyPath = sdscatprintf(sdsempty(), "%s/%s", home, DEFAULT_REDISCLI_HISTFILE);
+        }
+    }
+
+    return historyPath;
+}
+
 #define LINE_BUFLEN 4096
 static void repl() {
     sds historyfile = NULL;
@@ -766,10 +790,9 @@ static void repl() {
 
     /* Only use history when stdin is a tty. */
     if (isatty(fileno(stdin))) {
-        history = 1;
-
-        if (getenv("HOME") != NULL) {
-            historyfile = sdscatprintf(sdsempty(),"%s/.rediscli_history",getenv("HOME"));
+        historyfile = getHistoryPath();
+        if (historyfile != NULL) {
+            history = 1;
             linenoiseHistoryLoad(historyfile);
         }
     }
