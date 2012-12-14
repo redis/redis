@@ -650,9 +650,9 @@ void activeExpireCycle(void) {
 
     /* We can use at max REDIS_EXPIRELOOKUPS_TIME_PERC percentage of CPU time
      * per iteration. Since this function gets called with a frequency of
-     * REDIS_HZ times per second, the following is the max amount of
+     * server.hz times per second, the following is the max amount of
      * microseconds we can spend in this function. */
-    timelimit = 1000000*REDIS_EXPIRELOOKUPS_TIME_PERC/REDIS_HZ/100;
+    timelimit = 1000000*REDIS_EXPIRELOOKUPS_TIME_PERC/server.hz/100;
     if (timelimit <= 0) timelimit = 1;
 
     for (j = 0; j < server.dbnum; j++) {
@@ -785,13 +785,13 @@ int clientsCronResizeQueryBuffer(redisClient *c) {
 }
 
 void clientsCron(void) {
-    /* Make sure to process at least 1/(REDIS_HZ*10) of clients per call.
-     * Since this function is called REDIS_HZ times per second we are sure that
+    /* Make sure to process at least 1/(server.hz*10) of clients per call.
+     * Since this function is called server.hz times per second we are sure that
      * in the worst case we process all the clients in 10 seconds.
      * In normal conditions (a reasonable number of clients) we process
      * all the clients in a shorter time. */
     int numclients = listLength(server.clients);
-    int iterations = numclients/(REDIS_HZ*10);
+    int iterations = numclients/(server.hz*10);
 
     if (iterations < 50)
         iterations = (numclients < 50) ? numclients : 50;
@@ -813,7 +813,7 @@ void clientsCron(void) {
     }
 }
 
-/* This is our timer interrupt, called REDIS_HZ times per second.
+/* This is our timer interrupt, called server.hz times per second.
  * Here is where we do a number of things that need to be done asynchronously.
  * For instance:
  *
@@ -827,7 +827,7 @@ void clientsCron(void) {
  * - Replication reconnection.
  * - Many more...
  *
- * Everything directly called here will be called REDIS_HZ times per second,
+ * Everything directly called here will be called server.hz times per second,
  * so in order to throttle execution of things we want to do less frequently
  * a macro is used: run_with_period(milliseconds) { .... }
  */
@@ -1009,7 +1009,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     server.cronloops++;
-    return 1000/REDIS_HZ;
+    return 1000/server.hz;
 }
 
 /* This function gets called every time Redis is entering the
@@ -1115,6 +1115,7 @@ void createSharedObjects(void) {
 
 void initServerConfig() {
     getRandomHexChars(server.runid,REDIS_RUN_ID_SIZE);
+    server.hz = REDIS_DEFAULT_HZ;
     server.runid[REDIS_RUN_ID_SIZE] = '\0';
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.port = REDIS_SERVERPORT;
@@ -1940,6 +1941,7 @@ sds genRedisInfoString(char *section) {
             "tcp_port:%d\r\n"
             "uptime_in_seconds:%ld\r\n"
             "uptime_in_days:%ld\r\n"
+            "hz:%d\r\n"
             "lru_clock:%ld\r\n",
             REDIS_VERSION,
             redisGitSHA1(),
@@ -1959,6 +1961,7 @@ sds genRedisInfoString(char *section) {
             server.port,
             uptime,
             uptime/(3600*24),
+            server.hz,
             (unsigned long) server.lruclock);
     }
 

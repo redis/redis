@@ -778,7 +778,7 @@ void replicationCron(void) {
      * So slaves can implement an explicit timeout to masters, and will
      * be able to detect a link disconnection even if the TCP connection
      * will not actually go down. */
-    if (!(server.cronloops % (server.repl_ping_slave_period * REDIS_HZ))) {
+    if (!(server.cronloops % (server.repl_ping_slave_period * server.hz))) {
         listIter li;
         listNode *ln;
 
