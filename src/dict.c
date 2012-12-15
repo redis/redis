@@ -197,13 +197,9 @@ int _dictInit(dict *d, dictType *type,
  * but with the invariant of a USED/BUCKETS ratio near to <= 1 */
 int dictResize(dict *d)
 {
-    int minimal;
-
     if (!dict_can_resize || dictIsRehashing(d)) return DICT_ERR;
-    minimal = d->ht[0].used;
-    if (minimal < DICT_HT_INITIAL_SIZE)
-        minimal = DICT_HT_INITIAL_SIZE;
-    return dictExpand(d, minimal);
+
+    return dictExpand(d, d->ht[0].used);
 }
 
 /* Expand or create the hash table */
