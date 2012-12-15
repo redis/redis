@@ -223,12 +223,11 @@ int dictExpand(dict *d, unsigned long size)
      * we just set the first hash table so that it can accept keys. */
     if (d->ht[0].table == NULL) {
         d->ht[0] = n;
-        return DICT_OK;
+    } else {
+    /* Otherwise, prepare a second hash table for incremental rehashing */
+        d->ht[1] = n;
+        d->rehashidx = 0;
     }
-
-    /* Prepare a second hash table for incremental rehashing */
-    d->ht[1] = n;
-    d->rehashidx = 0;
     return DICT_OK;
 }
 
