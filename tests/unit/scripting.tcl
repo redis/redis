@@ -302,11 +302,6 @@ start_server {tags {"scripting"}} {
         r reval {false} 0
     } {}
 
-    # TODO Support status
-    # test {REVAL - mruby status code reply -> Redis protocol type conversion} {
-    #     r reval {return {ok='fine'}} 0
-    # } {fine}
-
     test {REVAL - mruby error reply -> Redis protocol type conversion} {
         catch {
             r reval {StandardError.new} 0
@@ -320,7 +315,7 @@ start_server {tags {"scripting"}} {
 
     test {REVAL - mruby hash -> Redis protocol type conversion} {
         r reval {{:a => {1 => 2}}} 0
-    } {a {1 2}}
+    } {}
 
     test {REVAL - Are the KEYS and ARGS arrays populated correctly?} {
         r reval {[KEYS[0],KEYS[1],ARGV[0],ARGV[1]]} 2 a b c d
@@ -357,13 +352,12 @@ start_server {tags {"scripting"}} {
         } 0
     } {Array a b c 3}
 
-    # TODO Support status
-    # test {REVAL - Redis status reply -> mruby type conversion} {
-    #     r reval {
-    #         foo = redis.pcall('set','mykey','myval')
-    #         [foo.class._to_s,foo[:ok]]
-    #     } 0
-    # } {Hash OK}
+    test {REVAL - Redis status reply -> mruby type conversion} {
+        r reval {
+            foo = REDIS.call('set','mykey','myval')
+            [foo.class.to_s,foo[:ok]]
+        } 0
+    } {Hash OK}
 
     test {REVAL - Redis error reply -> mruby type conversion} {
         r set mykey myval
@@ -408,6 +402,10 @@ start_server {tags {"scripting"}} {
         } e
         set e
     } {*number of args*}
+
+    test {REVAL - mruby status code reply -> Redis protocol type conversion} {
+        r reval {{ok: 'fine'}} 0
+    } {fine}
 
     test {Handling error for refering an undeclared variable} {
         catch {r reval {hi} 0} e

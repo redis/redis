@@ -1060,18 +1060,48 @@ void mrbReplyToRedisReply(redisClient *c, mrb_state* mrb, mrb_value value) {
         break;
     }
     case MRB_TT_HASH: {
-        void *replylen = addDeferredMultiBulkLength(c);
+        /* We need to check if it is an hash, an error, or a status reply.
+         * Status replies are returned as single element hash with :ok field */
         khash_t(ht) *h = RHASH_TBL(value);
-        int i = 0;
         khiter_t k;
+        int replied = 0;
         for (k = kh_begin(h); k != kh_end(h); k++) {
-            if (kh_exist(h, k)) {
-                mrbReplyToRedisReply(c, mrb, kh_key(h, k));
-                mrbReplyToRedisReply(c, mrb, kh_value(h, k));
-                i += 2;
+            if (!kh_exist(h, k) || replied) {
+                continue;
+            }
+
+            // String and Symbol are acceptable.
+            mrb_value key = kh_key(h,k);
+            if (mrb_symbol_p(key)) {
+                key = mrb_obj_as_string(mrb, key);
+            }
+            if (!mrb_string_p(key)) {
+                continue;
+            }
+
+            char *sep = NULL;
+            if (!strcmp(RSTRING_PTR(key), "ok")) {
+                sep = "+";
+            } else if (!strcmp(RSTRING_PTR(key), "err")) {
+                sep = "-";
+            }
+            if (sep == NULL) {
+                continue;
+            }
+
+            mrb_value val = kh_value(h, k);
+            // Only String is acceptable.
+            if (mrb_string_p(val)) {
+                sds status = sdsnew(RSTRING_PTR(val));
+                addReplySds(c, sdscatprintf(sdsempty(), "%s%s\r\n", sep, status));
+                sdsfree(status);
+                replied = 1;
             }
         }
-        setDeferredMultiBulkLength(c,replylen,i);
+        if (!replied) {
+            void *replylen = addDeferredMultiBulkLength(c);
+            setDeferredMultiBulkLength(c, replylen, 0);
+        }
         break;
     }
     case MRB_TT_TRUE:
@@ -1154,8 +1184,11 @@ char *redisProtocolToMrbType_Bulk(mrb_state *mrb, mrb_value context, char *reply
 
 char *redisProtocolToMrbType_Status(mrb_state *mrb, mrb_value context, char *reply) {
     char *p = strchr(reply + 1, '\r');
-    // TODO Use Symbol??
-    mrb_ary_push(mrb, context, mrb_str_new(mrb, "(OK)", 4));
+    mrb_value hash = mrb_hash_new(mrb);
+    mrb_value key = mrb_str_new(mrb, "ok", 2);
+    key = mrb_funcall(mrb, key, "to_sym", 0);
+    mrb_hash_set(mrb, hash, key, mrb_str_new(mrb, reply + 1, p - reply - 1));
+    mrb_ary_push(mrb, context, hash);
     return p + 2;
 }
 
