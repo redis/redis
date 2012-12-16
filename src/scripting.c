@@ -677,7 +677,7 @@ void luaReplyToRedisReply(redisClient *c, lua_State *lua) {
     case LUA_TTABLE:
         /* We need to check if it is an array, an error, or a status reply.
          * Error are returned as a single element table with 'err' field.
-         * Status replies are returned as single elment table with 'ok' field */
+         * Status replies are returned as single element table with 'ok' field */
         lua_pushstring(lua,"err");
         lua_gettable(lua,-2);
         t = lua_type(lua,-1);
