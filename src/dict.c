@@ -602,6 +602,8 @@ dictEntry *dictGetRandomKey(dict *d)
 /* Expand the hash table if needed */
 static int _dictExpandIfNeeded(dict *d)
 {
+    unsigned long ratio;
+
     /* Incremental rehashing already in progress. Return. */
     if (dictIsRehashing(d)) return DICT_OK;
 
@@ -612,9 +614,8 @@ static int _dictExpandIfNeeded(dict *d)
      * table (global setting) or we should avoid it but the ratio between
      * elements/buckets is over the "safe" threshold, we resize doubling
      * the number of buckets. */
-    if (d->ht[0].used >= d->ht[0].size &&
-        (dict_can_resize ||
-         d->ht[0].used/d->ht[0].size > dict_force_resize_ratio))
+    ratio = d->ht[0].used / d->ht[0].size;
+    if ((ratio >= 1 && dict_can_resize) || (ratio > dict_force_resize_ratio))
     {
         return dictExpand(d, d->ht[0].used*2);
     }
