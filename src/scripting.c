@@ -597,7 +597,7 @@ void scriptingInit(void) {
 
     lua_setglobal(lua,"math");
 
-    /* Add a helper funciton that we use to sort the multi bulk output of non
+    /* Add a helper function that we use to sort the multi bulk output of non
      * deterministic commands, when containing 'false' elements. */
     {
         char *compare_func =    "function __redis__compare_helper(a,b)\n"
@@ -834,7 +834,7 @@ void evalGenericCommand(redisClient *c, int evalsha) {
     if (lua_isnil(lua,1)) {
         lua_pop(lua,1); /* remove the nil from the stack */
         /* Function not defined... let's define it if we have the
-         * body of the funciton. If this is an EVALSHA call we can just
+         * body of the function. If this is an EVALSHA call we can just
          * return an error. */
         if (evalsha) {
             addReply(c, shared.noscripterr);
