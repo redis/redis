@@ -48,7 +48,7 @@ void sha1hex(char *digest, char *script, size_t len);
 
 /* Take a Redis reply in the Redis protocol format and convert it into a
  * Lua type. Thanks to this function, and the introduction of not connected
- * clients, it is trvial to implement the redis() lua function.
+ * clients, it is trivial to implement the redis() lua function.
  *
  * Basically we take the arguments, execute the Redis command in the context
  * of a non connected client, then take the generated reply and convert it
