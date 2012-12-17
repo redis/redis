@@ -418,6 +418,16 @@ start_server {tags {"scripting"}} {
         catch {r reval {:-<} 0} e
         set e
     } {*syntax error*}
+
+    test {Handling error for recursive array} {
+        catch {r reval {a = []; a << [a]; a} 0} e
+        set e
+    } {*Recursive mruby object*}
+
+    test {Handling error for recursive hash} {
+        catch {r reval {h = {}; h[:key] = [h]; h} 0} e
+        set e
+    } {*Recursive mruby object*}
 }
 
 # Start a new server since the last test in this stanza will kill the
