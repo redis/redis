@@ -2,7 +2,8 @@ Note: by contributing code to the Redis project in any form, including sending
 a pull request via Github, a code fragment or patch via private email or
 public discussion groups, you agree to release your code under the terms
 of the BSD license that you can find in the COPYING file included in the Redis
-source distribution.
+source distribution. You will include BSD license in the COPYING file within
+each source file that you contribute.
 
 # IMPORTANT: HOW TO USE REDIS GITHUB ISSUES
 
