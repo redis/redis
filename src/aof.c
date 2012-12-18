@@ -854,7 +854,8 @@ int rewriteAppendOnlyFile(char *filename) {
 
     /* Note that we have to use a different temp name here compared to the
      * one used by rewriteAppendOnlyFileBackground() function. */
-    snprintf(tmpfile,256,"temp-rewriteaof-%d.aof", (int) getpid());
+    copydir(tmpfile, server.aof_filename, sizeof(tmpfile));
+    snprintf(tmpfile+strlen(tmpfile),256,"temp-rewriteaof-%d.aof", (int) getpid());
     fp = fopen(tmpfile,"w");
     if (!fp) {
         redisLog(REDIS_WARNING, "Opening the temp file for AOF rewrite in rewriteAppendOnlyFile(): %s", strerror(errno));
@@ -968,7 +969,8 @@ int rewriteAppendOnlyFileBackground(void) {
         /* Child */
         if (server.ipfd > 0) close(server.ipfd);
         if (server.sofd > 0) close(server.sofd);
-        snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
+        copydir(tmpfile,server.aof_filename,sizeof(tmpfile));
+        snprintf(tmpfile+strlen(tmpfile),256-strlen(tmpfile),"temp-rewriteaof-bg-%d.aof", (int) getpid());
         if (rewriteAppendOnlyFile(tmpfile) == REDIS_OK) {
             size_t private_dirty = zmalloc_get_private_dirty();
 
@@ -1022,7 +1024,8 @@ void bgrewriteaofCommand(redisClient *c) {
 void aofRemoveTempFile(pid_t childpid) {
     char tmpfile[256];
 
-    snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) childpid);
+    copydir(tmpfile,server.aof_filename,sizeof(tmpfile));    
+    snprintf(tmpfile+strlen(tmpfile),256-strlen(tmpfile),"temp-rewriteaof-bg-%d.aof", (int) childpid);
     unlink(tmpfile);
 }
 
@@ -1054,7 +1057,8 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 
         /* Flush the differences accumulated by the parent to the
          * rewritten AOF. */
-        snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof",
+        copydir(tmpfile,server.aof_filename,sizeof(tmpfile));
+        snprintf(tmpfile+strlen(tmpfile),256-strlen(tmpfile),"temp-rewriteaof-bg-%d.aof",
             (int)server.aof_child_pid);
         newfd = open(tmpfile,O_WRONLY|O_APPEND);
         if (newfd == -1) {

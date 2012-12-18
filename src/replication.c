@@ -657,7 +657,8 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     /* Prepare a suitable temp file for bulk transfer */
     while(maxtries--) {
-        snprintf(tmpfile,256,
+        copydir(tmpfile, server.rdb_filename, sizeof(tmpfile));
+        snprintf(tmpfile+strlen(tmpfile),256-strlen(tmpfile),
             "temp-%d.%ld.rdb",(int)server.unixtime,(long int)getpid());
         dfd = open(tmpfile,O_CREAT|O_WRONLY|O_EXCL,0644);
         if (dfd != -1) break;
