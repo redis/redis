@@ -1,0 +1,32 @@
+This is the Garantia Data custom Redis version, which is based on the publicly
+available Redis 2.6 with various additional features we use internally.
+
+This file provides some high-level documentation of the additional features.
+
+Conditional Replication
+-----------------------
+
+Conditional replication allows slaves and masters to avoid replication if the
+data on both ends is identical.  This is done by maintaining a 'dbversion'
+value which gets updated on every write (a kind of incremental hash). The
+SYNC command is extended to allow slaves to announce their dbversion and
+request replication from scratch only if it mismatches the master's dbversion.
+
+The 'dbversion' value is stored in the RDB, which makes it incompatible with
+stock Redis RDB files.
+
+
+
+New/Modified Redis Commands
+---------------------------
+
+SYNC <dbversion>
+    When sent by a slave, the master will compare the requested dbversion to
+    its own.  If identical, it will respond with "+INSYNC" and skip creation
+    of RDB file.  Instead, it will begin sending the command stream as if
+    the RDB creation and transmission was complete.
+
+    dbversion is a hash-like value that gets updated whenever a write
+    operation is performed and represents a database "state".  It is also
+    stored in RDB files.
+

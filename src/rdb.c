@@ -649,9 +649,12 @@ int rdbSave(char *filename) {
     rioInitWithFile(&rdb,fp);
     if (server.rdb_checksum)
         rdb.update_cksum = rioGenericUpdateChecksum;
-    snprintf(magic,sizeof(magic),"REDIS%04d",REDIS_RDB_VERSION);
+    snprintf(magic,sizeof(magic),"REDIS%04d",REDIS_RDB_VERSION_GARANTIA);
     if (rdbWriteRaw(&rdb,magic,9) == -1) goto werr;
 
+    /* write dbversion */
+    if (rdbWriteRaw(&rdb,&server.dbversion, sizeof(server.dbversion)) == -1) goto werr;
+    
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
         dict *d = db->dict;
@@ -1095,11 +1098,18 @@ int rdbLoad(char *filename) {
         return REDIS_ERR;
     }
     rdbver = atoi(buf+5);
-    if (rdbver < 1 || rdbver > REDIS_RDB_VERSION) {
+    if (rdbver < 1 || 
+        (rdbver < REDIS_RDB_VERSION_GARANTIA_PREFIX && rdbver > REDIS_RDB_VERSION) ||
+        (rdbver > REDIS_RDB_VERSION_GARANTIA_PREFIX && rdbver > REDIS_RDB_VERSION_GARANTIA)) {
         fclose(fp);
         redisLog(REDIS_WARNING,"Can't handle RDB format version %d",rdbver);
         errno = EINVAL;
         return REDIS_ERR;
+    }
+
+    /* read dbversion */
+    if (rdbver > REDIS_RDB_VERSION_GARANTIA_PREFIX) {
+        if (rioRead(&rdb, &server.dbversion, sizeof(server.dbversion)) == 0) goto eoferr;
     }
 
     startLoading(fp);

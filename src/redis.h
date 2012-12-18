@@ -563,6 +563,7 @@ struct redisServer {
     size_t client_max_querybuf_len; /* Limit for client query buffer length */
     int dbnum;                      /* Total number of configured DBs */
     int daemonize;                  /* True if running as a daemon */
+    int conditional_sync;           /* Conditional synchronziation support */
     clientBufferLimitsConfig client_obuf_limits[REDIS_CLIENT_LIMIT_NUM_CLASSES];
     /* AOF persistence */
     int aof_state;                  /* REDIS_AOF_(ON|OFF|WAIT_REWRITE) */
@@ -588,6 +589,7 @@ struct redisServer {
     /* RDB persistence */
     long long dirty;                /* Changes to DB from the last save */
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
+    unsigned long long dbversion;   /* Current unique DB version */
     pid_t rdb_child_pid;            /* PID of RDB saving child */
     struct saveparam *saveparams;   /* Save points array for RDB */
     int saveparamslen;              /* Number of saving points */
@@ -965,6 +967,7 @@ int htNeedsResize(dict *dict);
 void oom(const char *msg);
 void populateCommandTable(void);
 void resetCommandTableStats(void);
+void update_dbversion(redisClient *c);
 
 /* Set data type */
 robj *setTypeCreate(robj *value);

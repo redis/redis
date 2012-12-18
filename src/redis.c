@@ -219,7 +219,7 @@ struct redisCommand redisCommandTable[] = {
     {"multi",multiCommand,1,"rs",0,NULL,0,0,0,0,0},
     {"exec",execCommand,1,"sM",0,NULL,0,0,0,0,0},
     {"discard",discardCommand,1,"rs",0,NULL,0,0,0,0,0},
-    {"sync",syncCommand,1,"ars",0,NULL,0,0,0,0,0},
+    {"sync",syncCommand,-1,"ars",0,NULL,0,0,0,0,0},
     {"replconf",replconfCommand,-1,"ars",0,NULL,0,0,0,0,0},
     {"flushdb",flushdbCommand,1,"w",0,NULL,0,0,0,0,0},
     {"flushall",flushallCommand,1,"w",0,NULL,0,0,0,0,0},
@@ -1101,6 +1101,7 @@ void initServerConfig() {
     server.syslog_ident = zstrdup("redis");
     server.syslog_facility = LOG_LOCAL0;
     server.daemonize = 0;
+    server.conditional_sync = 1;
     server.aof_state = REDIS_AOF_OFF;
     server.aof_fsync = AOF_FSYNC_EVERYSEC;
     server.aof_no_fsync_on_rewrite = 0;
@@ -1312,6 +1313,7 @@ void initServer() {
     server.rdb_save_time_last = -1;
     server.rdb_save_time_start = -1;
     server.dirty = 0;
+    server.dbversion = 0;
     server.stat_numcommands = 0;
     server.stat_numconnections = 0;
     server.stat_expiredkeys = 0;
@@ -1484,6 +1486,26 @@ void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
     redisOpArrayAppend(&server.also_propagate,cmd,dbid,argv,argc,target);
 }
 
+void update_dbversion(redisClient *c)
+{
+    int i;
+
+    /* we don't want to do real hashing here because of performance, so we
+     * try to bump the dbversion in a somewhat request-related manner without
+     * going through full hashing.
+     */
+    server.dbversion += *(unsigned short *) c->argv[0];     /* command */
+    server.dbversion += c->argc;    
+    for (i = 1; i < c->argc; i++) {
+        robj *a = c->argv[i];
+        if (a->type != REDIS_STRING)
+            continue;
+        if (a->encoding == REDIS_ENCODING_RAW && sdslen(a->ptr) > 4) {
+            server.dbversion += *(unsigned int *)a->ptr;
+        }
+    }
+}
+
 /* Call() is the core of Redis execution of a command */
 void call(redisClient *c, int flags) {
     long long dirty, start = ustime(), duration;
@@ -1514,6 +1536,9 @@ void call(redisClient *c, int flags) {
      * per-command statistics that we show in INFO commandstats. */
     if (flags & REDIS_CALL_SLOWLOG)
         slowlogPushEntryIfNeeded(c->argv,c->argc,duration);
+    if (dirty > 0 && server.conditional_sync) {
+        update_dbversion(c);
+    }
     server.slowlog_complexity_params_count = 0; /* Need to zero the count in case we're in a nested call to "call()" */
     if (flags & REDIS_CALL_STATS) {
         c->cmd->microseconds += duration;
@@ -1952,6 +1977,7 @@ sds genRedisInfoString(char *section) {
             "# Persistence\r\n"
             "loading:%d\r\n"
             "rdb_changes_since_last_save:%lld\r\n"
+            "rdb_dbversion:%016llx\r\n"
             "rdb_bgsave_in_progress:%d\r\n"
             "rdb_last_save_time:%ld\r\n"
             "rdb_last_bgsave_status:%s\r\n"
@@ -1965,6 +1991,7 @@ sds genRedisInfoString(char *section) {
             "aof_last_bgrewrite_status:%s\r\n",
             server.loading,
             server.dirty,
+            server.dbversion,
             server.rdb_child_pid != -1,
             server.lastsave,
             (server.lastbgsave_status == REDIS_OK) ? "ok" : "err",

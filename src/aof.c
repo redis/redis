@@ -478,7 +478,8 @@ int loadAppendOnlyFile(char *filename) {
     struct redis_stat sb;
     int old_aof_state = server.aof_state;
     long loops = 0;
-
+    int select_skipped = 0;
+    
     if (fp && redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) {
         server.aof_current_size = 0;
         fclose(fp);
@@ -548,6 +549,13 @@ int loadAppendOnlyFile(char *filename) {
         /* The fake client should never get blocked */
         redisAssert((fakeClient->flags & REDIS_BLOCKED) == 0);
 
+        /* Compute dbversion */
+        if (!select_skipped && cmd->proc == selectCommand) {
+            select_skipped = 1;
+        } else {
+            if (server.conditional_sync) update_dbversion(fakeClient);
+        }
+        
         /* Clean up. Command code may have changed argv/argc so we use the
          * argv/argc of the client instead of the local variables. */
         for (j = 0; j < fakeClient->argc; j++)
