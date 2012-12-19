@@ -35,9 +35,9 @@
 #include <limits.h>
 #include <math.h>
 #include <unistd.h>
-#include <sys/time.h>
 #include <float.h>
 
+#include "config.h"
 #include "util.h"
 
 /* Glob-style pattern matching. */
@@ -378,7 +378,7 @@ void getRandomHexChars(char *p, unsigned int len) {
         pid_t pid = getpid();
 
         /* Use time and PID to fill the initial array. */
-        gettimeofday(&tv,NULL);
+        redis_gettimeofday(&tv,NULL);
         if (l >= sizeof(tv.tv_usec)) {
             memcpy(x,&tv.tv_usec,sizeof(tv.tv_usec));
             l -= sizeof(tv.tv_usec);
@@ -404,6 +404,22 @@ void getRandomHexChars(char *p, unsigned int len) {
         p[j] = charset[p[j] & 0x0F];
     fclose(fp);
 }
+
+int redis_gettimeofday(struct timeval *tp, struct timezone *tzp) {
+#ifndef USE_CLOCK_REALTIME_FAST
+    return gettimeofday(tp, tzp);
+#else
+    struct timespec ts;
+    int r = clock_gettime(CLOCK_REALTIME_FAST, &ts);
+    tp->tv_sec = ts.tv_sec;
+    tp->tv_usec = ts.tv_nsec/1000;
+    if (NULL != tzp) {
+        tzp->tz_minuteswest = 0;
+        tzp->tz_dsttime = 0;
+    }
+    return r;
+#endif /* USE_CLOCK_REALTIME_FAST */
+} /* redis_gettimeofday() */
 
 #ifdef UTIL_TEST_MAIN
 #include <assert.h>

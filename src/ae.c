@@ -42,6 +42,7 @@
 #include "ae.h"
 #include "zmalloc.h"
 #include "config.h"
+#include "util.h"
 
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
@@ -147,7 +148,7 @@ static void aeGetTime(long *seconds, long *milliseconds)
 {
     struct timeval tv;
 
-    gettimeofday(&tv, NULL);
+    redis_gettimeofday(&tv, NULL);
     *seconds = tv.tv_sec;
     *milliseconds = tv.tv_usec/1000;
 }

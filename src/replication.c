@@ -82,7 +82,7 @@ void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **
     char ip[32];
     struct timeval tv;
 
-    gettimeofday(&tv,NULL);
+    redis_gettimeofday(&tv,NULL);
     cmdrepr = sdscatprintf(cmdrepr,"%ld.%06ld ",(long)tv.tv_sec,(long)tv.tv_usec);
     if (c->flags & REDIS_LUA_CLIENT) {
         cmdrepr = sdscatprintf(cmdrepr,"[%d lua] ",dictid);

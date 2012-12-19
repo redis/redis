@@ -178,4 +178,8 @@
 #endif
 #endif
 
+#if defined(__FreeBSD__)
+#define USE_CLOCK_REALTIME_FAST
+#endif
+
 #endif
