@@ -310,6 +310,9 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"dbfilename") && argc == 2) {
             zfree(server.rdb_filename);
             server.rdb_filename = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"syncdbfilename") && argc == 2) {
+            zfree(server.rdb_syncfilename);
+            server.rdb_syncfilename = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"hash-max-ziplist-entries") && argc == 2) {
             server.hash_max_ziplist_entries = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"hash-max-ziplist-value") && argc == 2) {
@@ -462,6 +465,9 @@ void configSetCommand(redisClient *c) {
     if (!strcasecmp(c->argv[2]->ptr,"dbfilename")) {
         zfree(server.rdb_filename);
         server.rdb_filename = zstrdup(o->ptr);
+    } else if (!strcasecmp(c->argv[2]->ptr,"syncdbfilename")) {
+        zfree(server.rdb_syncfilename);
+        server.rdb_syncfilename = zstrdup(o->ptr);
     } else if (!strcasecmp(c->argv[2]->ptr,"requirepass")) {
         if (sdslen(o->ptr) > REDIS_AUTHPASS_MAX_LEN) goto badfmt;
         zfree(server.requirepass);
@@ -754,6 +760,7 @@ void configGetCommand(redisClient *c) {
 
     /* String values */
     config_get_string_field("dbfilename",server.rdb_filename);
+    config_get_string_field("syncdbfilename",server.rdb_syncfilename);
     config_get_string_field("requirepass",server.requirepass);
     config_get_string_field("masterauth",server.requirepass);
     config_get_string_field("bind",server.bindaddr);

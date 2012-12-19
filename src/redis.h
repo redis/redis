@@ -266,6 +266,11 @@
 #define REDIS_MAXMEMORY_ALLKEYS_RANDOM 4
 #define REDIS_MAXMEMORY_NO_EVICTION 5
 
+/* BGSAVE types */
+#define REDIS_BGSAVE_NORMAL 0       /* Regular BGSAVE/SAVE or periodic save */
+#define REDIS_BGSAVE_SYNC 1         /* SYNC due to slave connecting */
+#define REDIS_BGSAVE_TO 2           /* GR.BGSAVETO command */
+
 /* Scripting */
 #define REDIS_LUA_TIME_LIMIT 5000 /* milliseconds */
 
@@ -594,12 +599,15 @@ struct redisServer {
     struct saveparam *saveparams;   /* Save points array for RDB */
     int saveparamslen;              /* Number of saving points */
     char *rdb_filename;             /* Name of RDB file */
+    char *rdb_syncfilename;         /* Name of RDB file used for SYNC handling */
+    char *rdb_bgsavefilename;       /* Name of RDB file currently BGSAVE is handling */
+    int rdb_bgsavetype;             /* Type of BGSAVE operation now in progress */
     int rdb_compression;            /* Use compression in RDB? */
     int rdb_checksum;               /* Use RDB checksum? */
     time_t lastsave;                /* Unix time of last save succeeede */
     time_t rdb_save_time_last;      /* Time used by last RDB save run. */
     time_t rdb_save_time_start;     /* Current RDB save start time. */
-    int lastbgsave_status;          /* REDIS_OK or REDIS_ERR */
+    int lastbgsave_status;          /* REDIS_OK or REDIS_ERR */    
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
     /* Propagation of commands in AOF / replication */
     redisOpArray also_propagate;    /* Additional command to propagate. */
@@ -1086,6 +1094,7 @@ void dbsizeCommand(redisClient *c);
 void lastsaveCommand(redisClient *c);
 void saveCommand(redisClient *c);
 void bgsaveCommand(redisClient *c);
+void bgsavetoCommand(redisClient *c);
 void bgrewriteaofCommand(redisClient *c);
 void shutdownCommand(redisClient *c);
 void moveCommand(redisClient *c);

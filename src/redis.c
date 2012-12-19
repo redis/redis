@@ -212,6 +212,7 @@ struct redisCommand redisCommandTable[] = {
     {"echo",echoCommand,2,"r",0,NULL,0,0,0,0,0},
     {"save",saveCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"bgsave",bgsaveCommand,1,"ar",0,NULL,0,0,0,0,0},
+    {"bgsaveto",bgsavetoCommand,2,"ar",0,NULL,0,0,0,0,0},
     {"bgrewriteaof",bgrewriteaofCommand,1,"ar",0,NULL,0,0,0,0,0},
     {"shutdown",shutdownCommand,-1,"ar",0,NULL,0,0,0,0,0},
     {"lastsave",lastsaveCommand,1,"r",0,NULL,0,0,0,0,0},
@@ -932,7 +933,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                 server.unixtime-server.lastsave > sp->seconds) {
                 redisLog(REDIS_NOTICE,"%d changes in %d seconds. Saving...",
                     sp->changes, sp->seconds);
-                rdbSaveBackground(server.rdb_filename);
+                rdbSaveBackground(server.rdb_filename, REDIS_BGSAVE_NORMAL);
                 break;
             }
          }

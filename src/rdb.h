@@ -102,7 +102,7 @@ uint32_t rdbLoadLen(rio *rdb, int *isencoded);
 int rdbSaveObjectType(rio *rdb, robj *o);
 int rdbLoadObjectType(rio *rdb);
 int rdbLoad(char *filename);
-int rdbSaveBackground(char *filename);
+int rdbSaveBackground(char *filename, int bgsavetype);
 void rdbRemoveTempFile(pid_t childpid);
 int rdbSave(char *filename);
 int rdbSaveObject(rio *rdb, robj *o);

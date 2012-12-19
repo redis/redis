@@ -16,6 +16,26 @@ The 'dbversion' value is stored in the RDB, which makes it incompatible with
 stock Redis RDB files.
 
 
+Different BGSAVE Types
+----------------------
+
+Redis uses the same BGSAVE mechanism for persistence and for slave-trigerred
+replication.  In order for this to work well while persistence policies are
+managed, we introduce the following changes:
+
+- A 'syncdbfilename' configuration parameter allows us to use a different
+  RDB file for SYNC handling (on the master side).  If not specified, the
+  'dbfilename' paramter will be used instead.
+
+- When 'syncdbfilename' is defined, background saves performed for the
+  purpose of replication don't overwrite the usual RDB file and do not
+  affect the 'rdb_last_save_time', 'rdb_changes_since_last_save',
+  and 'rdb_last_bgsave_...' fields.
+
+In addition, we provide a dedicated BGSAVETO command which triggers a
+background save operation to a specific file.  This operation also doesn't
+modify the fields above.
+
 
 New/Modified Redis Commands
 ---------------------------
@@ -29,4 +49,12 @@ SYNC <dbversion>
     dbversion is a hash-like value that gets updated whenever a write
     operation is performed and represents a database "state".  It is also
     stored in RDB files.
+
+BGSAVETO <filename>
+    Initiate an ad-hoc BGSAVE operation to a specific file.  The file will
+    be created in the working directory specified by the global 'dir'
+    parameter.  This background save operation is transparent and does not
+    update the regular save parameters (rdb_last_save_time,
+    rdb_changes_since_last_save, rdb_last_bgsave_status, etc.) so it does not
+    disrupt on-going persistence policy.
 

@@ -182,7 +182,7 @@ void syncCommand(redisClient *c) {
         } else {
             /* Ok we don't have a BGSAVE in progress, let's start one */
             redisLog(REDIS_NOTICE,"Starting BGSAVE for SYNC");
-            if (rdbSaveBackground(server.rdb_filename) != REDIS_OK) {
+            if (rdbSaveBackground(server.rdb_syncfilename != NULL ? server.rdb_syncfilename : server.rdb_filename, REDIS_BGSAVE_SYNC) != REDIS_OK) {
                 redisLog(REDIS_NOTICE,"Replication failed, can't BGSAVE");
                 addReplyError(c,"Unable to perform background save");
                 return;
@@ -317,7 +317,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr) {
                 redisLog(REDIS_WARNING,"SYNC failed. BGSAVE child returned an error");
                 continue;
             }
-            if ((slave->repldbfd = open(server.rdb_filename,O_RDONLY)) == -1 ||
+            if ((slave->repldbfd = open(server.rdb_syncfilename ? server.rdb_syncfilename : server.rdb_filename,O_RDONLY)) == -1 ||
                 redis_fstat(slave->repldbfd,&buf) == -1) {
                 freeClient(slave);
                 redisLog(REDIS_WARNING,"SYNC failed. Can't open/stat DB after BGSAVE: %s", strerror(errno));
@@ -334,7 +334,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr) {
         }
     }
     if (startbgsave) {
-        if (rdbSaveBackground(server.rdb_filename) != REDIS_OK) {
+        if (rdbSaveBackground(server.rdb_syncfilename != NULL ? server.rdb_syncfilename : server.rdb_filename, REDIS_BGSAVE_SYNC) != REDIS_OK) {
             listIter li;
 
             listRewind(server.slaves,&li);
