@@ -307,7 +307,7 @@ static int zipPrevLenByteDiff(unsigned char *p, unsigned int len) {
 
 /* Return the total number of bytes used by the entry pointed to by 'p'. */
 static unsigned int zipRawEntryLength(unsigned char *p) {
-    unsigned int prevlensize, encoding, lensize, len;
+    unsigned int prevlensize, encoding, lensize = 0, len = 0;
     ZIP_DECODE_PREVLENSIZE(p, prevlensize);
     ZIP_DECODE_LENGTH(p + prevlensize, encoding, lensize, len);
     return prevlensize + lensize + len;
@@ -822,7 +822,7 @@ unsigned char *ziplistFind(unsigned char *p, unsigned char *vstr, unsigned int v
     long long vll = 0;
 
     while (p[0] != ZIP_END) {
-        unsigned int prevlensize, encoding, lensize, len;
+        unsigned int prevlensize, encoding, lensize = 0, len = 0;
         unsigned char *q;
 
         ZIP_DECODE_PREVLENSIZE(p, prevlensize);
