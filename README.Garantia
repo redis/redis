@@ -37,6 +37,16 @@ background save operation to a specific file.  This operation also doesn't
 modify the fields above.
 
 
+Additional Redis Configuration Parameters
+-----------------------------------------
+
+load-on-startup
+    Provides the ability to disable auto-loading of RDB/AOF files on startup,
+    even if they exist.  This is useful on slaves that would immediately need
+    to replicate from masters anyway.
+
+
+
 New/Modified Redis Commands
 ---------------------------
 
