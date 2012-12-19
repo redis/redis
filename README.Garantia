@@ -60,6 +60,18 @@ SYNC <dbversion>
     operation is performed and represents a database "state".  It is also
     stored in RDB files.
 
+SYNCNOW
+    Initiates a slave-like SYNC operation, but requires the server to proceed
+    only if no other SYNC is in progress.  Essentially this means the RDB we
+    will be receiving represents the current database state without applying
+    any additional queued commands.
+
+    The server responds with an ERROR if another SYNC or BGSAVE are already
+    in progress.  Otherwise, a 2-part multibulk is returned immediately with
+    the first part being a "+SYNC STARTED" status.  The 2nd part is sent
+    as soon as the RDB is created and includes the contents of the RDB, and
+    the connection continues to behave as a standard slave connection. 
+
 BGSAVETO <filename>
     Initiate an ad-hoc BGSAVE operation to a specific file.  The file will
     be created in the working directory specified by the global 'dir'
