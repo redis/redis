@@ -249,6 +249,7 @@ struct redisCommand redisCommandTable[] = {
     {"eval",evalCommand,-3,"s",0,zunionInterGetKeys,0,0,0,0,0},
     {"evalsha",evalShaCommand,-3,"s",0,zunionInterGetKeys,0,0,0,0,0},
     {"slowlog",slowlogCommand,-2,"r",0,NULL,0,0,0,0,0},
+    {"drain",drainCommand,1,"arsm",0,NULL,0,0,0,0,0},
     {"script",scriptCommand,-2,"ras",0,NULL,0,0,0,0,0},
     {"time",timeCommand,1,"rR",0,NULL,0,0,0,0,0},
     {"bitop",bitopCommand,-4,"wm",0,NULL,2,-1,1,0,0},
@@ -854,6 +855,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         redisLog(REDIS_WARNING,"SIGTERM received but errors trying to shut down the server, check the logs for more information");
     }
 
+    /* Cancel draining mode if not polled for a long time */
+    if (server.draining && server.unixtime - server.last_drain_time >= 10)
+        server.draining = 0;
+
     /* Show some info about non-empty databases */
     run_with_period(5000) {
         for (j = 0; j < server.dbnum; j++) {
@@ -1070,6 +1075,8 @@ void createSharedObjects(void) {
     shared.rpop = createStringObject("RPOP",4);
     shared.lpop = createStringObject("LPOP",4);
     shared.lpush = createStringObject("LPUSH",5);
+    shared.drained = createObject(REDIS_STRING,sdsnew("+DRAINED\r\n"));
+    shared.draining = createObject(REDIS_STRING,sdsnew("+DRAINING\r\n"));    
     for (j = 0; j < REDIS_SHARED_INTEGERS; j++) {
         shared.integers[j] = createObject(REDIS_STRING,(void*)(long)j);
         shared.integers[j]->encoding = REDIS_ENCODING_INT;
@@ -1663,6 +1670,16 @@ int processCommand(redisClient *c) {
         return REDIS_OK;
     }
 
+    /* Only allow DRAIN, INFO and PING when draining */
+    if (server.draining &&
+        c->cmd->proc != infoCommand &&
+        c->cmd->proc != pingCommand &&
+        c->cmd->proc != drainCommand) {
+
+        addReplyError(c, "only INFO / PING / DRAIN allowed while draining");
+        return REDIS_OK;
+    }
+
     /* Only allow INFO and SLAVEOF when slave-serve-stale-data is no and
      * we are a slave with a broken link with master. */
     if (server.masterhost && server.repl_state != REDIS_REPL_CONNECTED &&
@@ -1708,6 +1725,7 @@ int processCommand(redisClient *c) {
         if (listLength(server.ready_keys))
             handleClientsBlockedOnLists();
     }
+
     return REDIS_OK;
 }
 
@@ -2239,6 +2257,17 @@ void monitorCommand(redisClient *c) {
     c->slaveseldb = 0;
     listAddNodeTail(server.monitors,c);
     addReply(c,shared.ok);
+}
+
+void drainCommand(redisClient *c) {
+    if (replicationInSync(server.slaves)) {
+        server.draining = 0;
+        addReply(c, shared.drained);
+    } else {
+        server.draining = 1;
+        server.last_drain_time = time(NULL);
+        addReply(c, shared.draining);
+    }
 }
 
 /* ============================ Maxmemory directive  ======================== */

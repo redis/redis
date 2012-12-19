@@ -39,6 +39,29 @@
 
 /* ---------------------------------- MASTER -------------------------------- */
 
+int replicationInSync(list *slaves)
+{
+    listNode *ln;
+    listIter li;
+
+    listRewind(slaves, &li);
+    while ((ln = listNext(&li))) {
+        redisClient *slave = ln->value;
+
+        /* A slave that's waiting for BGSAVE means we're not in sync */
+        if (slave->replstate != REDIS_REPL_ONLINE) {
+            return 0;
+        }
+
+        if (slave->bufpos > 0 ||
+            listLength(slave->reply) > 0) {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     listNode *ln;
     listIter li;

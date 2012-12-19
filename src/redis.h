@@ -435,7 +435,7 @@ struct sharedObjectsStruct {
     *masterdownerr, *roslaveerr, *execaborterr,
     *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop,
-    *lpush,
+    *lpush, *drained, *draining,
     *select[REDIS_SHARED_SELECT_CMDS],
     *integers[REDIS_SHARED_INTEGERS],
     *mbulkhdr[REDIS_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -612,6 +612,8 @@ struct redisServer {
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
     /* Propagation of commands in AOF / replication */
     redisOpArray also_propagate;    /* Additional command to propagate. */
+    int draining;                   /* Currently draining to slaves? */
+    time_t last_drain_time;         /* Time of last DRAIN command */
     /* Logging */
     char *logfile;                  /* Path of log file */
     int syslog_enabled;             /* Is syslog enabled? */
@@ -912,6 +914,7 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout);
 ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout);
 
 /* Replication */
+int replicationInSync(list *slaves);
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
 void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **argv, int argc);
 void updateSlavesWaitingBgsave(int bgsaveerr);
@@ -1199,6 +1202,7 @@ void migrateCommand(redisClient *c);
 void dumpCommand(redisClient *c);
 void objectCommand(redisClient *c);
 void clientCommand(redisClient *c);
+void drainCommand(redisClient *c);
 void evalCommand(redisClient *c);
 void evalShaCommand(redisClient *c);
 void scriptCommand(redisClient *c);

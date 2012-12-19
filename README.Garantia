@@ -80,3 +80,13 @@ BGSAVETO <filename>
     rdb_changes_since_last_save, rdb_last_bgsave_status, etc.) so it does not
     disrupt on-going persistence policy.
 
+DRAIN
+    Provide a safety mechanism to guarnatee that all slaves are up to date.
+    This includes: (a) verifying that all slaves are online; (b) verifying
+    that the network buffers of slave connections are empty.
+
+    DRAIN returns "+DRAINED" if all slaves are up-to-date as described above.
+    Otherwise, "+DRAINING" is returned and the server enters a draining-state
+    in which it will not accept any command other than INFO, PING or DRAIN
+    (which is expected to be used by the caller to poll the server state).
+
