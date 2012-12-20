@@ -60,7 +60,7 @@ robj *lookupKeyRead(redisDb *db, robj *key) {
 
     expireIfNeeded(db,key);
     val = lookupKey(db,key);
-    if (!(server.current_client->flags & REDIS_MASTER)) {
+    if (server.current_client != NULL && !(server.current_client->flags & REDIS_MASTER)) {
         if (val == NULL)
             server.stat_keyspace_read_misses++;
         else
@@ -74,7 +74,7 @@ robj *lookupKeyWrite(redisDb *db, robj *key) {
     
     expireIfNeeded(db,key);
     val = lookupKey(db,key);
-    if (!(server.current_client->flags & REDIS_MASTER)) {
+    if (server.current_client != NULL && !(server.current_client->flags & REDIS_MASTER)) {
         if (val == NULL)
             server.stat_keyspace_write_misses++;
         else
