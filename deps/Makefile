@@ -43,13 +43,15 @@ distclean:
 
 hiredis: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd hiredis && $(MAKE) static
+	@mkdir -p hiredis/$(OBJDIR)
+	cd hiredis/$(OBJDIR) && $(MAKE) -f ../Makefile static VPATH=.. CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)"
 
 .PHONY: hiredis
 
 linenoise: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd linenoise && $(MAKE)
+	@mkdir -p linenoise/$(OBJDIR)
+	cd linenoise/$(OBJDIR) && $(MAKE) -f ../Makefile VPATH=.. CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)"
 
 .PHONY: linenoise
 
@@ -63,7 +65,8 @@ LUA_LDFLAGS+= $(LDFLAGS)
 
 lua: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd lua/src && $(MAKE) all CFLAGS="$(LUA_CFLAGS)" MYLDFLAGS="$(LUA_LDFLAGS)"
+	@mkdir -p lua/$(OBJDIR)
+	cd lua/$(OBJDIR) && $(MAKE) -f ../src/Makefile all CFLAGS="$(LUA_CFLAGS)" MYLDFLAGS="$(LUA_LDFLAGS)" VPATH=../src
 
 .PHONY: lua
 
@@ -72,7 +75,8 @@ JEMALLOC_LDFLAGS= $(LDFLAGS)
 
 jemalloc: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd jemalloc && ./configure --with-jemalloc-prefix=je_ --enable-cc-silence CFLAGS="$(JEMALLOC_CFLAGS)" LDFLAGS="$(JEMALLOC_LDFLAGS)"
-	cd jemalloc && $(MAKE) CFLAGS="$(JEMALLOC_CFLAGS)" LDFLAGS="$(JEMALLOC_LDFLAGS)" lib/libjemalloc.a
+	@mkdir -p jemalloc/$(OBJDIR)
+	@cd jemalloc/$(OBJDIR) && ../configure --with-jemalloc-prefix=je_ --enable-cc-silence CFLAGS="$(JEMALLOC_CFLAGS)" LDFLAGS="$(JEMALLOC_LDFLAGS)"
+	@cd jemalloc/$(OBJDIR) && $(MAKE) CFLAGS="$(JEMALLOC_CFLAGS)" LDFLAGS="$(JEMALLOC_LDFLAGS)" lib/libjemalloc.a
 
 .PHONY: jemalloc

@@ -6,4 +6,17 @@ then
     echo "You need '$TCL' in order to run the Redis test"
     exit 1
 fi
+
+if [ "$BUILD_ARCH" = "" ]
+then
+  echo "You need to specify BUILD_ARCH to determine what version to test"
+  exit 1
+fi
+
+ln -sf obj.${BUILD_ARCH}/redis-server src/redis-server
+ln -sf obj.${BUILD_ARCH}/redis-check-aof src/redis-check-aof
+
 $TCL tests/test_helper.tcl $*
+
+rm src/redis-server
+rm src/redis-check-aof

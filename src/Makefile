@@ -12,7 +12,21 @@
 # Dependencies are stored in the Makefile.dep file. To rebuild this file
 # Just use 'make dep', but this is only needed by developers.
 
-release_hdr := $(shell sh -c './mkreleasehdr.sh')
+ifeq (,$(filter obj.%,$(notdir $(CURDIR))))
+include target.mk
+else
+
+VPATH = .:$(SRCDIR)
+BUILD_ARCH ?= $(shell uname -m)
+export BUILD_ARCH
+
+ifeq ($(BUILD_ARCH), i686)
+CFLAGS="-m32"
+LDFLAGS="-m32"
+BIN_SUFFIX=.i686
+endif
+
+release_hdr := $(shell sh -c 'cd $(SRCDIR) ; ./mkreleasehdr.sh')
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 OPTIMIZATION?=-O2
 DEPENDENCY_TARGETS=hiredis linenoise lua
@@ -58,7 +72,7 @@ else
 endif
 
 # Include paths to dependencies
-FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src
+FINAL_CFLAGS+= -I$(SRCDIR)/../deps/hiredis -I$(SRCDIR)/../deps/linenoise -I$(SRCDIR)/../deps/lua/src
 
 ifeq ($(MALLOC),tcmalloc)
   FINAL_CFLAGS+= -DUSE_TCMALLOC
@@ -72,8 +86,8 @@ endif
 
 ifeq ($(MALLOC),jemalloc)
   DEPENDENCY_TARGETS+= jemalloc
-  FINAL_CFLAGS+= -DUSE_JEMALLOC -I../deps/jemalloc/include
-  FINAL_LIBS+= ../deps/jemalloc/lib/libjemalloc.a -ldl
+  FINAL_CFLAGS+= -DUSE_JEMALLOC -I$(SRCDIR)/../deps/jemalloc/$(OBJDIR)/include
+  FINAL_LIBS+= $(SRCDIR)/../deps/jemalloc/$(OBJDIR)/lib/libjemalloc.a -ldl
 endif
 
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)
@@ -109,6 +123,11 @@ REDIS_CHECK_DUMP_OBJ= redis-check-dump.o lzf_c.o lzf_d.o crc64.o
 REDIS_CHECK_AOF_NAME= redis-check-aof
 REDIS_CHECK_AOF_OBJ= redis-check-aof.o
 
+# Common dependencies
+LIBHIREDIS=$(SRCDIR)/../deps/hiredis/$(OBJDIR)/libhiredis.a
+LINENOISE=$(SRCDIR)/../deps/linenoise/$(OBJDIR)/linenoise.o
+LIBLUA=$(SRCDIR)/../deps/lua/$(OBJDIR)/liblua.a
+
 all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_DUMP_NAME) $(REDIS_CHECK_AOF_NAME)
 	@echo ""
 	@echo "Hint: To run 'make test' is a good idea ;)"
@@ -117,10 +136,10 @@ all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCH
 .PHONY: all
 
 # Deps (use make dep to generate this)
-include Makefile.dep
+include $(SRCDIR)/Makefile.dep
 
 dep:
-	$(REDIS_CC) -MM *.c > Makefile.dep
+	$(REDIS_CC) -MM *.c > $(SRCDIR)/Makefile.dep
 
 .PHONY: dep
 
@@ -135,7 +154,7 @@ persist-settings: distclean
 	echo REDIS_LDFLAGS=$(REDIS_LDFLAGS) >> .make-settings
 	echo PREV_FINAL_CFLAGS=$(FINAL_CFLAGS) >> .make-settings
 	echo PREV_FINAL_LDFLAGS=$(FINAL_LDFLAGS) >> .make-settings
-	-(cd ../deps && $(MAKE) $(DEPENDENCY_TARGETS))
+	-(cd $(SRCDIR)/../deps && $(MAKE) $(DEPENDENCY_TARGETS) CFLAGS=$(CFLAGS) LDFLAGS=$(LDFLAGS))
 
 .PHONY: persist-settings
 
@@ -154,7 +173,7 @@ endif
 
 # redis-server
 $(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ)
-	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a $(FINAL_LIBS)
+	$(REDIS_LD) -o $@ $^ $(LIBHIREDIS) $(LIBLUA) $(FINAL_LIBS)
 
 # redis-sentinel
 $(REDIS_SENTINEL_NAME): $(REDIS_SERVER_NAME)
@@ -162,11 +181,11 @@ $(REDIS_SENTINEL_NAME): $(REDIS_SERVER_NAME)
 
 # redis-cli
 $(REDIS_CLI_NAME): $(REDIS_CLI_OBJ)
-	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o $(FINAL_LIBS)
+	$(REDIS_LD) -o $@ $^ $(LIBHIREDIS) $(LINENOISE) $(FINAL_LIBS)
 
 # redis-benchmark
 $(REDIS_BENCHMARK_NAME): $(REDIS_BENCHMARK_OBJ)
-	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a $(FINAL_LIBS)
+	$(REDIS_LD) -o $@ $^ $(LIBHIREDIS) $(FINAL_LIBS)
 
 # redis-check-dump
 $(REDIS_CHECK_DUMP_NAME): $(REDIS_CHECK_DUMP_OBJ)
@@ -188,17 +207,17 @@ clean:
 .PHONY: clean
 
 distclean: clean
-	-(cd ../deps && $(MAKE) distclean)
+	-(cd $(SRCDIR)/../deps && $(MAKE) distclean)
 	-(rm -f .make-*)
 
 .PHONY: distclean
 
 test: $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME)
-	@(cd ..; ./runtest)
+	@(cd $(SRCDIR)/..; ./runtest)
 
 lcov:
 	$(MAKE) gcov
-	@(set -e; cd ..; ./runtest --clients 1)
+	@(set -e; cd $(SRCDIR)/..; ./runtest --clients 1)
 	@geninfo -o redis.info .
 	@genhtml --legend -o lcov-html redis.info
 
@@ -208,10 +227,8 @@ bench: $(REDIS_BENCHMARK_NAME)
 	./$(REDIS_BENCHMARK_NAME)
 
 32bit:
-	@echo ""
-	@echo "WARNING: if it fails under Linux you probably need to install libc6-dev-i386"
-	@echo ""
-	$(MAKE) CFLAGS="-m32" LDFLAGS="-m32"
+	@echo "To build a 32-bit version, use BUILD_ARCH=<32-bit architecture>."
+	@echo "For example, on Intel platforms use 'make BUILD_ARCH=i686'"
 
 gcov:
 	$(MAKE) REDIS_CFLAGS="-fprofile-arcs -ftest-coverage -DCOVERAGE_TEST" REDIS_LDFLAGS="-fprofile-arcs -ftest-coverage"
@@ -220,12 +237,14 @@ noopt:
 	$(MAKE) OPT="-O0"
 
 src/help.h:
-	@../utils/generate-command-help.rb > help.h
+	@$(SRCDIR)/../utils/generate-command-help.rb > help.h
 
 install: all
 	mkdir -p $(INSTALL_BIN)
-	$(REDIS_INSTALL) $(REDIS_SERVER_NAME) $(INSTALL_BIN)
-	$(REDIS_INSTALL) $(REDIS_BENCHMARK_NAME) $(INSTALL_BIN)
-	$(REDIS_INSTALL) $(REDIS_CLI_NAME) $(INSTALL_BIN)
-	$(REDIS_INSTALL) $(REDIS_CHECK_DUMP_NAME) $(INSTALL_BIN)
-	$(REDIS_INSTALL) $(REDIS_CHECK_AOF_NAME) $(INSTALL_BIN)
+	$(REDIS_INSTALL) $(REDIS_SERVER_NAME) $(INSTALL_BIN)/$(REDIS_SERVER_NAME)$(BIN_SUFFIX)
+	$(REDIS_INSTALL) $(REDIS_BENCHMARK_NAME) $(INSTALL_BIN)/$(REDIS_BENCHMARK_NAME)$(BIN_SUFFIX)
+	$(REDIS_INSTALL) $(REDIS_CLI_NAME) $(INSTALL_BIN)/$(REDIS_CLI_NAME)$(BIN_SUFFIX)
+	$(REDIS_INSTALL) $(REDIS_CHECK_DUMP_NAME) $(INSTALL_BIN)/$(REDIS_CHECK_DUMP_NAME)$(BIN_SUFFIX)
+	$(REDIS_INSTALL) $(REDIS_CHECK_AOF_NAME) $(INSTALL_BIN)/$(REDIS_CHECK_AOF_NAME)$(BIN_SUFFIX)
+
+endif

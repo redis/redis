@@ -108,3 +108,24 @@ DRAIN
     in which it will not accept any command other than INFO, PING or DRAIN
     (which is expected to be used by the caller to poll the server state).
 
+
+Build Tree Changes
+------------------
+
+Targets are built into architecture-specific directories named 'obj.<ARCH>'.
+It is possible to explicitly specify target architecture by passing a
+BUILD_ARCH= variable to make.  For example, to build both 64-bit and 32-bit
+versions in the same source tree in Linux:
+
+    make BUILD_ARCH=x86_64
+    make BUILD_ARCH=i686
+
+When installed, i686 executables also have a .i686 suffix to allow simple
+installation into a single location:
+
+    make BUILD_ARCH=x86_64 install
+    make BUILD_ARCH=i686 install
+
+Will (by default) result with a /usr/local/bin/redis-server 64-bit version
+and a /usr/local/bin/redis-server.i686 32-bit version.
+

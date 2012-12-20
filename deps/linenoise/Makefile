@@ -15,7 +15,7 @@ linenoise_example: linenoise.o example.o
 	$(R_LD) -o $@ $^
 
 .c.o:
-	$(R_CC) -c $<
+	$(R_CC) -o $@ -c $<
 
 clean:
-	rm -f linenoise_example *.o
+	rm -f linenoise_example *.o $(OBJDIR)/*.o
