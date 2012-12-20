@@ -184,6 +184,7 @@
 #define REDIS_CLOSE_ASAP (1<<10)/* Close this client ASAP */
 #define REDIS_UNIX_SOCKET (1<<11) /* Client connected via Unix domain socket */
 #define REDIS_DIRTY_EXEC (1<<12)  /* EXEC will fail for errors while queueing */
+#define REDIS_HIDDEN (1<<13)    /* Client is hidden, won't show up in MONITOR */
 
 /* Client request types */
 #define REDIS_REQ_INLINE 1
@@ -1207,6 +1208,7 @@ void dumpCommand(redisClient *c);
 void objectCommand(redisClient *c);
 void clientCommand(redisClient *c);
 void drainCommand(redisClient *c);
+void hideconnectionCommand(redisClient *c);
 void evalCommand(redisClient *c);
 void evalShaCommand(redisClient *c);
 void scriptCommand(redisClient *c);

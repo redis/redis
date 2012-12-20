@@ -108,6 +108,9 @@ DRAIN
     in which it will not accept any command other than INFO, PING or DRAIN
     (which is expected to be used by the caller to poll the server state).
 
+HIDECONNECTION
+    Flags the current client connection hidden, so that its commands will
+    not show up in MONITOR output.
 
 Build Tree Changes
 ------------------

@@ -253,7 +253,8 @@ struct redisCommand redisCommandTable[] = {
     {"script",scriptCommand,-2,"ras",0,NULL,0,0,0,0,0},
     {"time",timeCommand,1,"rR",0,NULL,0,0,0,0,0},
     {"bitop",bitopCommand,-4,"wm",0,NULL,2,-1,1,0,0},
-    {"bitcount",bitcountCommand,-2,"r",0,NULL,1,1,1,0,0}
+    {"bitcount",bitcountCommand,-2,"r",0,NULL,1,1,1,0,0},
+    {"hideconnection",hideconnectionCommand,1,"r",0,NULL,0,0,0,0,0}
 };
 
 /*============================ Utility functions ============================ */
@@ -1526,7 +1527,8 @@ void call(redisClient *c, int flags) {
 
     /* Sent the command to clients in MONITOR mode, only if the commands are
      * not geneated from reading an AOF. */
-    if (listLength(server.monitors) &&
+    if (!(c->flags & REDIS_HIDDEN) &&
+        listLength(server.monitors) &&
         !server.loading &&
         !(c->cmd->flags & REDIS_CMD_SKIP_MONITOR))
     {
@@ -2281,6 +2283,12 @@ void drainCommand(redisClient *c) {
         addReply(c, shared.draining);
     }
 }
+
+void hideconnectionCommand(redisClient *c) {
+    c->flags |= REDIS_HIDDEN;
+    addReply(c, shared.ok);
+}
+
 
 /* ============================ Maxmemory directive  ======================== */
 
