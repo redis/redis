@@ -2008,14 +2008,14 @@ sds genRedisInfoString(char *section) {
             "rdb_last_bgsave_status:%s\r\n"
             "rdb_last_bgsave_time_sec:%ld\r\n"
             "rdb_current_bgsave_time_sec:%ld\r\n"
-            "rdb_saves:%ld\r\n"
+            "rdb_saves:%lld\r\n"
             "aof_enabled:%d\r\n"
             "aof_rewrite_in_progress:%d\r\n"
             "aof_rewrite_scheduled:%d\r\n"
             "aof_last_rewrite_time_sec:%ld\r\n"
             "aof_current_rewrite_time_sec:%ld\r\n"
             "aof_last_bgrewrite_status:%s\r\n"
-            "aof_rewrites:%ld\r\n",
+            "aof_rewrites:%lld\r\n",
             server.loading,
             server.dirty,
             server.dbversion,
