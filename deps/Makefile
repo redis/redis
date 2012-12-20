@@ -68,7 +68,7 @@ lua: .make-prerequisites
 
 .PHONY: lua
 
-MRUBY_CFLAGS+= $(CFLAGS)
+MRUBY_CFLAGS+= -DDISABLE_STDIO $(CFLAGS)
 MRUBY_LDFLAGS+= $(LDFLAGS)
 
 mruby: .make-prerequisites
