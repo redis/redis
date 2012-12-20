@@ -528,7 +528,7 @@ struct redisServer {
     list *clients;              /* List of active clients */
     list *clients_to_close;     /* Clients to close asynchronously */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
-    redisClient *current_client; /* Current client, only used on crash report */
+    redisClient *current_client; /* Current client */
     char neterr[ANET_ERR_LEN];  /* Error buffer for anet.c */
     /* RDB / AOF loading information */
     int loading;                /* We are loading data from disk if true */
@@ -545,8 +545,10 @@ struct redisServer {
     long long stat_numconnections;  /* Number of connections received */
     long long stat_expiredkeys;     /* Number of expired keys */
     long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */
-    long long stat_keyspace_hits;   /* Number of successful lookups of keys */
-    long long stat_keyspace_misses; /* Number of failed lookups of keys */
+    long long stat_keyspace_read_hits;      /* number of successful lookups of keys for read */
+    long long stat_keyspace_read_misses;    /* number of failed lookups of keys for read*/
+    long long stat_keyspace_write_hits;     /* number of successful lookups of keys for write */
+    long long stat_keyspace_write_misses;   /* number of failed lookups of keys for write */
     size_t stat_peak_memory;        /* Max used memory record */
     long long stat_fork_time;       /* Time needed to perform latets fork() */
     long long stat_rejected_conn;   /* Clients rejected because of maxclients */

@@ -46,6 +46,17 @@ load-on-startup
     to replicate from masters anyway.
 
 
+Additional Statistics
+---------------------
+
+keyspace_read_hits
+keyspace_write_hits
+keyspace_read_misses
+keyspace_write_misses
+    These parameters replace the original keyspace_hists/keyspace_misses and
+    provide more information about hits/miss ratios of read-only vs. update
+    operations.
+
 
 New/Modified Redis Commands
 ---------------------------

@@ -1329,8 +1329,10 @@ void initServer() {
     server.stat_expiredkeys = 0;
     server.stat_evictedkeys = 0;
     server.stat_starttime = time(NULL);
-    server.stat_keyspace_misses = 0;
-    server.stat_keyspace_hits = 0;
+    server.stat_keyspace_read_misses = 0;
+    server.stat_keyspace_read_hits = 0;
+    server.stat_keyspace_write_misses = 0;
+    server.stat_keyspace_write_hits = 0;
     server.stat_peak_memory = 0;
     server.stat_fork_time = 0;
     server.stat_rejected_conn = 0;
@@ -2088,8 +2090,10 @@ sds genRedisInfoString(char *section) {
             "rejected_connections:%lld\r\n"
             "expired_keys:%lld\r\n"
             "evicted_keys:%lld\r\n"
-            "keyspace_hits:%lld\r\n"
-            "keyspace_misses:%lld\r\n"
+            "keyspace_read_hits:%lld\r\n"
+            "keyspace_read_misses:%lld\r\n"
+            "keyspace_write_hits:%lld\r\n"
+            "keyspace_write_misses:%lld\r\n"
             "pubsub_channels:%ld\r\n"
             "pubsub_patterns:%lu\r\n"
             "latest_fork_usec:%lld\r\n",
@@ -2099,8 +2103,10 @@ sds genRedisInfoString(char *section) {
             server.stat_rejected_conn,
             server.stat_expiredkeys,
             server.stat_evictedkeys,
-            server.stat_keyspace_hits,
-            server.stat_keyspace_misses,
+            server.stat_keyspace_read_hits,
+            server.stat_keyspace_read_misses,
+            server.stat_keyspace_write_hits,
+            server.stat_keyspace_write_misses,
             dictSize(server.pubsub_channels),
             listLength(server.pubsub_patterns),
             server.stat_fork_time);
