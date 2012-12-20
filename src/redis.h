@@ -550,6 +550,8 @@ struct redisServer {
     long long stat_keyspace_write_hits;     /* number of successful lookups of keys for write */
     long long stat_keyspace_write_misses;   /* number of failed lookups of keys for write */
     size_t stat_peak_memory;        /* Max used memory record */
+    long long stat_aof_rewrites;    /* number of aof file rewrites performed */
+    long long stat_rdb_saves;       /* number of rdb saves performed */
     long long stat_fork_time;       /* Time needed to perform latets fork() */
     long long stat_rejected_conn;   /* Clients rejected because of maxclients */
     list *slowlog;                  /* SLOWLOG list of commands */

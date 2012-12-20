@@ -724,6 +724,7 @@ int rdbSaveBackground(char *filename, int bgsavetype) {
     long long start;
 
     if (server.rdb_child_pid != -1) return REDIS_ERR;
+    if (bgsavetype == REDIS_BGSAVE_NORMAL) server.stat_rdb_saves++;
 
     server.dirty_before_bgsave = server.dirty;
 

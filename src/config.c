@@ -955,6 +955,8 @@ void configCommand(redisClient *c) {
         server.stat_expiredkeys = 0;
         server.stat_rejected_conn = 0;
         server.stat_fork_time = 0;
+        server.stat_aof_rewrites = 0;
+        server.stat_rdb_saves = 0;
         server.aof_delayed_fsync = 0;
         resetCommandTableStats();
         addReply(c,shared.ok);

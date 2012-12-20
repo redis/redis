@@ -57,6 +57,13 @@ keyspace_write_misses
     provide more information about hits/miss ratios of read-only vs. update
     operations.
 
+aof_rewrites
+    Counts the number of AOF rewrites performed.
+
+rdb_saves
+    Counts the number of regular background saves performed.  This includes
+    explicit BGSAVE as well as automatic saves due to 'save' configuration
+    parameter thresholds, but not saves to dedicated SYNC file or BGSAVETO.
 
 New/Modified Redis Commands
 ---------------------------
