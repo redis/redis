@@ -362,7 +362,7 @@ start_server {tags {"scripting"}} {
     test {REVAL - Redis error reply -> mruby type conversion} {
         r set mykey myval
         r reval {
-            foo = REDIS.call('incr','mykey')
+            foo = REDIS.pcall('incr','mykey')
             [foo.class.to_s,foo.to_s]
         } 0
     } {StandardError {ERR value is not an integer or out of range}}

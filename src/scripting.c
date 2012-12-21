@@ -1225,14 +1225,13 @@ char *redisProtocolToMrbType_MultiBulk(mrb_state *mrb, mrb_value context, char *
     return p;
 }
 
-mrb_value mrbRedisCallCammand(mrb_state *mrb, mrb_value self) {
+mrb_value mrbRedisGenericCommand(mrb_state *mrb, mrb_value self, int raise_error) {
     mrb_value *mrb_argv;
     int len;
     struct redisCommand *cmd;
     robj **argv;
     redisClient *c = server.lua_client; // TODO Use another name
     sds reply;
-    mrb_value error;
     struct RClass *errorClass;
     char *errorMessage;
     mrb_value result;
@@ -1314,7 +1313,11 @@ mrb_value mrbRedisCallCammand(mrb_state *mrb, mrb_value self) {
     }
     zfree(c->argv);
 
-    return mrb_ary_pop(mrb, result);
+    result = mrb_ary_pop(mrb, result);
+    if (raise_error && mrb_obj_is_kind_of(mrb, result, mrb_class_get(mrb, "Exception"))) {
+        mrb_exc_raise(mrb, result);
+    }
+    return result;
 
 cleanup:
     for (int j = 1; j < c->argc; j++) {
@@ -1324,10 +1327,21 @@ cleanup:
 
 error:
     if (errorClass) {
-        error = mrb_exc_new(mrb, errorClass, errorMessage, strlen(errorMessage));
-        return error;
+        if (raise_error) {
+            mrb_raise(mrb, errorClass, errorMessage);
+        } else {
+            return mrb_exc_new(mrb, errorClass, errorMessage, strlen(errorMessage));
+        }
     }
     return mrb_nil_value();
+}
+
+mrb_value mrbRedisCallCammand(mrb_state *mrb, mrb_value self) {
+    return mrbRedisGenericCommand(mrb, self, 1);
+}
+
+mrb_value mrbRedisPCallCammand(mrb_state *mrb, mrb_value self) {
+    return mrbRedisGenericCommand(mrb, self, 0);
 }
 
 int isRecursiveMrbObject(mrb_state *mrb, mrb_value value, mrb_value list) {
@@ -1396,6 +1410,7 @@ void revalCommand(redisClient *c) {
 
     REDIS = mrb_define_class(mrb, "REDIS", mrb->object_class);
     mrb_define_class_method(mrb, REDIS, "call", mrbRedisCallCammand, ARGS_REQ(1));
+    mrb_define_class_method(mrb, REDIS, "pcall", mrbRedisPCallCammand, ARGS_REQ(1));
 
     v = mrb_load_string(mrb, code);
     if (mrb->exc) {
