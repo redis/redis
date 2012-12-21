@@ -181,7 +181,7 @@ handle_monitor:
      * Instead EXEC is flagged as REDIS_CMD_SKIP_MONITOR in the command
      * table, and we do it here with correct ordering. */
     if (listLength(server.monitors) && !server.loading)
-        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
+        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc,0);
 }
 
 /* ===================== WATCH (CAS alike for MULTI/EXEC) ===================

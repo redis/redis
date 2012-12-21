@@ -227,7 +227,7 @@ struct redisCommand redisCommandTable[] = {
     {"flushall",flushallCommand,1,"w",0,NULL,0,0,0,0,0},
     {"sort",sortCommand,-2,"wm",0,NULL,1,1,1,0,0},
     {"info",infoCommand,-1,"rlt",0,NULL,0,0,0,0,0},
-    {"monitor",monitorCommand,1,"ars",0,NULL,0,0,0,0,0},
+    {"monitor",monitorCommand,-1,"ars",0,NULL,0,0,0,0,0},
     {"ttl",ttlCommand,2,"r",0,NULL,1,1,1,0,0},
     {"pttl",pttlCommand,2,"r",0,NULL,1,1,1,0,0},
     {"persist",persistCommand,2,"w",0,NULL,1,1,1,0,0},
@@ -1532,7 +1532,7 @@ void call(redisClient *c, int flags) {
         !server.loading &&
         !(c->cmd->flags & REDIS_CMD_SKIP_MONITOR))
     {
-        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
+        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc, 0);
     }
 
     /* Call the command. */
@@ -2267,6 +2267,20 @@ void monitorCommand(redisClient *c) {
     /* ignore MONITOR if already slave or in monitor mode */
     if (c->flags & REDIS_SLAVE) return;
 
+    /* 2nd argument is a TRUNCATED flag or none */
+    if (c->argc > 2) {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+    
+    if (c->argc == 2) {
+        if (strcasecmp(c->argv[1]->ptr, "truncated") == 0) {
+            c->flags |= REDIS_MONITOR_TRUNCATE;
+        } else {
+            addReply(c,shared.syntaxerr);
+            return;
+        }
+    }    
     c->flags |= (REDIS_SLAVE|REDIS_MONITOR);
     c->slaveseldb = 0;
     listAddNodeTail(server.monitors,c);

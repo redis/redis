@@ -96,7 +96,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     }
 }
 
-void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **argv, int argc) {
+void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **argv, int argc, int do_truncated) {
     listNode *ln;
     listIter li;
     int j, port;
@@ -104,6 +104,7 @@ void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **
     robj *cmdobj;
     char ip[32];
     struct timeval tv;
+    int need_truncated_ver = 0;
 
     gettimeofday(&tv,NULL);
     cmdrepr = sdscatprintf(cmdrepr,"%ld.%06ld ",(long)tv.tv_sec,(long)tv.tv_usec);
@@ -120,8 +121,11 @@ void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **
         if (argv[j]->encoding == REDIS_ENCODING_INT) {
             cmdrepr = sdscatprintf(cmdrepr, "\"%ld\"", (long)argv[j]->ptr);
         } else {
-            cmdrepr = sdscatrepr(cmdrepr,(char*)argv[j]->ptr,
-                        sdslen(argv[j]->ptr));
+            int len = sdslen(argv[j]->ptr);
+            if (do_truncated && len > REDIS_MONITOR_TRUNCATE_LENGTH) {
+                len = REDIS_MONITOR_TRUNCATE_LENGTH;
+            }
+            cmdrepr = sdscatrepr(cmdrepr,(char*)argv[j]->ptr, len);
         }
         if (j != argc-1)
             cmdrepr = sdscatlen(cmdrepr," ",1);
@@ -132,9 +136,23 @@ void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **
     listRewind(monitors,&li);
     while((ln = listNext(&li))) {
         redisClient *monitor = ln->value;
+        if (do_truncated) {
+            if (!(monitor->flags & REDIS_MONITOR_TRUNCATE))
+                continue;
+        } else {
+            if (monitor->flags & REDIS_MONITOR_TRUNCATE) {
+                need_truncated_ver = 1;
+                continue;
+            }
+        }
+
         addReply(monitor,cmdobj);
     }
     decrRefCount(cmdobj);
+
+    if (need_truncated_ver) {
+        replicationFeedMonitors(c, monitors, dictid, argv, argc, 1);
+    }
 }
 
 void syncnowCommand(redisClient *c) {
