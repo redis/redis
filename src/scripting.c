@@ -1044,6 +1044,8 @@ void mrbReplyToRedisReply(redisClient *c, mrb_state* mrb, mrb_value value) {
     }
 
     switch (type) {
+    case MRB_TT_FLOAT:
+        value = mrb_funcall(mrb, value, "to_i", 0);
     case MRB_TT_FIXNUM: {
         addReplyLongLong(c, (long long)value.value.i);
         break;
