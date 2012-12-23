@@ -45,6 +45,8 @@ load-on-startup
     even if they exist.  This is useful on slaves that would immediately need
     to replicate from masters anyway.
 
+optionally-include
+    Works like 'include' but silently ignores non-existing files.
 
 Additional Statistics
 ---------------------

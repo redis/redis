@@ -184,6 +184,12 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1],NULL);
+        } else if (!strcasecmp(argv[0],"optionally-include") && argc == 2) {
+            FILE *tmp = fopen(argv[1], "r");
+            if (tmp != NULL) {
+                fclose(tmp);
+                loadServerConfig(argv[1],NULL);
+            }
         } else if (!strcasecmp(argv[0],"maxclients") && argc == 2) {
             server.maxclients = atoi(argv[1]);
             if (server.maxclients < 1) {
