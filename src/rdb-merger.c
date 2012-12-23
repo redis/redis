@@ -1,5 +1,4 @@
 #include "redis.h"
-#include "gd.h"
 #include <unistd.h>
 #include <stdio.h>
 
@@ -61,7 +60,7 @@ int main(int argc, char **argv) {
 
     if (conf) {
         resetServerSaveParams();
-        loadServerConfig(conf);
+        loadServerConfig(conf, NULL);
     }
     
     init();

@@ -1184,6 +1184,155 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
     return REDIS_ERR; /* Just to avoid warning */
 }
 
+void rdbMergerProgress(rio *r, const void *buf, size_t len) {
+    if (server.rdb_checksum)
+        rioGenericUpdateChecksum(r, buf, len);
+    server.loading_loaded_bytes += len;
+    if (server.loading_total_bytes && /* If we should print progress */
+        (server.loading_total_bytes == server.loading_loaded_bytes || /* We're at the end of the input or we completed a chunk */
+        server.loading_loaded_bytes/r->max_processing_chunk > (server.loading_loaded_bytes - len)/r->max_processing_chunk)) 
+        fprintf(stderr, "progress: %.2f\n",(100.0f*server.loading_loaded_bytes)/server.loading_total_bytes);
+}
+
+#define FREE_ROBJ(o) do { decrRefCount(o); o = NULL; } while (0)
+int mergerRdbs(int ifile_count, char **infiles, char *outfile, const int progress) {
+    FILE *ifp = NULL;
+    FILE *ofp = NULL;
+    int type, rdbver;
+    char buf[1024];
+    robj *key = NULL;
+    robj *val = NULL;
+    long long expiretime;
+    char magic[10];
+    rio rdb;
+    rio irdb;
+    uint64_t cksum;
+
+    if (!strcmp(outfile, "-"))
+        ofp = stdout;
+    else
+        ofp = fopen(outfile,"w");
+    if (!ofp) {
+        redisLog(REDIS_WARNING, "Error opening output file %s", outfile);
+        goto err;
+    }
+    rioInitWithFile(&rdb, ofp);
+    if (server.rdb_checksum)
+        rdb.update_cksum = rioGenericUpdateChecksum;
+    snprintf(magic,sizeof(magic),"REDIS%04d",REDIS_RDB_VERSION);
+    if (rdbWriteRaw(&rdb,magic,9) == -1) goto err;
+
+    /* Calculate sum of input file sizes for progress indication */
+    if (progress) {
+        int i;
+        server.loading_total_bytes = 0;
+        for (i = 0; i < ifile_count; i++) {
+            struct stat sb;
+            if (stat(infiles[i], &sb) == -1) {
+                redisLog(REDIS_WARNING,"Failed getting input file size for %s", infiles[i]);
+                goto err;
+            }
+            server.loading_total_bytes += sb.st_size;
+        }
+    }
+
+    server.loading_loaded_bytes = 0;
+    for (;ifile_count--; infiles++) {
+        ifp = fopen(*infiles,"r");
+        if (!ifp) {
+            redisLog(REDIS_WARNING, "Error opening input file %s", *infiles);
+            goto err;
+        }
+        rioInitWithFile(&irdb, ifp);
+        irdb.update_cksum = rdbMergerProgress;
+        irdb.max_processing_chunk = 1024*1024;
+        if (rioRead(&irdb,buf,9) == 0) goto err;
+        buf[9] = '\0';
+        if (memcmp(buf,"REDIS",5) != 0) {
+            redisLog(REDIS_WARNING,"Wrong signature trying to load DB from file");
+            errno = EINVAL;
+            goto err;
+        }
+        rdbver = atoi(buf+5);
+        if (rdbver < 1 || rdbver > REDIS_RDB_VERSION) {
+            redisLog(REDIS_WARNING,"Can't handle RDB format version %d",rdbver);
+            errno = EINVAL;
+            goto err;
+        }
+
+        while(1) {
+            /* Read type. */
+            if ((type = rdbLoadType(&irdb)) == -1) goto err;
+            /* Handle end of input file */
+            if (type == REDIS_RDB_OPCODE_EOF) {
+                /* Verify the checksum if RDB version is >= 5 */
+                if (rdbver >= 5 && server.rdb_checksum) {
+                    uint64_t cksum, expected = irdb.cksum;
+                    if (rioRead(&irdb,&cksum,8) == 0) goto err;
+                    memrev64ifbe(&cksum);
+                    if (cksum != 0 && cksum != expected) {
+                        redisLog(REDIS_WARNING,"Wrong RDB checksum for file %s %p %p", *infiles, (void*)expected, (void*)cksum);
+                        errno = EINVAL;
+                        goto err;
+                    }
+                }
+
+                fclose(ifp);
+                ifp = NULL;
+                break;
+            }
+            /* Ignore DB selection command (we merge into a single default db) */
+            else if (type == REDIS_RDB_OPCODE_SELECTDB) {
+                /* We ignore db selection types because we want to merge all input files into a single (default) db */
+                if (rdbLoadLen(&irdb,NULL) == REDIS_RDB_LENERR) goto err;
+                continue;
+            }
+            /* Handle expire time */
+            else if (type == REDIS_RDB_OPCODE_EXPIRETIME) {
+                if (rdbSaveType(&rdb,REDIS_RDB_OPCODE_EXPIRETIME_MS) == -1) goto err;
+                if ((expiretime = rdbLoadTime(&irdb)) == -1) goto err;
+                if (rdbSaveMillisecondTime(&rdb,expiretime*1000) == -1) goto err;
+                continue;
+            }
+            else if (type == REDIS_RDB_OPCODE_EXPIRETIME_MS) {
+                if (rdbSaveType(&rdb,REDIS_RDB_OPCODE_EXPIRETIME_MS) == -1) goto err;
+                if ((expiretime = rdbLoadMillisecondTime(&irdb)) == -1) goto err;
+                if (rdbSaveMillisecondTime(&rdb,expiretime) == -1) goto err;
+                continue;
+            }
+
+            /* Handle normal object */
+            if (rdbSaveType(&rdb,type) == -1) goto err;
+            /* Handle key */
+            if ((key = rdbLoadStringObject(&irdb)) == NULL) goto err;
+            if (rdbSaveStringObject(&rdb,key) == -1) goto err;
+            FREE_ROBJ(key);
+            /* Handle value */
+            if ((val = rdbLoadObject(type,&irdb)) == NULL) goto err;
+            if (rdbSaveObject(&rdb,val) == -1) goto err;
+            FREE_ROBJ(val);
+        }
+    }
+    /* Save EOF opcode */
+    if (rdbSaveType(&rdb,REDIS_RDB_OPCODE_EOF) == -1) goto err;
+    /* CRC64 checksum. It will be zero if checksum computation is disabled, the
+    * loading code skips the check in this case. */
+    cksum = rdb.cksum;
+    memrev64ifbe(&cksum);
+    rioWrite(&rdb,&cksum,8);
+
+    fclose(ofp);
+    return REDIS_OK;
+
+err:
+    if (ofp) fclose(ofp);
+    if (ifp) fclose(ifp);
+    if (val) FREE_ROBJ(val);
+    if (key) FREE_ROBJ(key);
+    redisLog(REDIS_WARNING,"Error merging rdb files: %s", strerror(errno));
+    return REDIS_ERR;
+}
+
 /* A background saving child (BGSAVE) terminated its work. Handle this. */
 void backgroundSaveDoneHandler(int exitcode, int bysignal) {
     if (!bysignal && exitcode == 0) {
