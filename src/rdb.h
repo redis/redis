@@ -39,8 +39,9 @@
 /* The current RDB version. When the format changes in a way that is no longer
  * backward compatible this number gets incremented. */
 #define REDIS_RDB_VERSION 6
-#define REDIS_RDB_VERSION_GARANTIA_PREFIX 1000
-#define REDIS_RDB_VERSION_GARANTIA 1006
+
+/* Special key used to store dbversion in a backward-compatible manner */
+#define REDIS_RDB_DBVERSION_KEY "\xDB__dbversion__\xDB"
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of

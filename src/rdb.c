@@ -650,11 +650,29 @@ int rdbSave(char *filename) {
     rioInitWithFile(&rdb,fp);
     if (server.rdb_checksum)
         rdb.update_cksum = rioGenericUpdateChecksum;
-    snprintf(magic,sizeof(magic),"REDIS%04d",REDIS_RDB_VERSION_GARANTIA);
+    snprintf(magic,sizeof(magic),"REDIS%04d",REDIS_RDB_VERSION);
     if (rdbWriteRaw(&rdb,magic,9) == -1) goto werr;
 
     /* write dbversion */
-    if (rdbWriteRaw(&rdb,&server.dbversion, sizeof(server.dbversion)) == -1) goto werr;
+    if (server.conditional_sync) {
+        char dbversion_hex[20];
+        robj *key;
+        robj *val;
+        int ret;
+        
+        snprintf(dbversion_hex, sizeof(dbversion_hex)-1, "%016llx", server.dbversion);        
+        key = createObject(REDIS_STRING, sdsnew(REDIS_RDB_DBVERSION_KEY));
+        val = createObject(REDIS_STRING, sdsnew(dbversion_hex));
+
+        ret = rdbSaveKeyValuePair(&rdb, key, val, -1, -1);
+        if (ret != -1) {
+            /* verify we don't write it again if for any reason it got loaded/inserted */
+            dbDelete(&server.db[0], key);
+        }
+        decrRefCount(key);
+        decrRefCount(val);
+        if (ret == -1) goto werr;        
+    }
     
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
@@ -1079,6 +1097,26 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     }
 }
 
+static void readDbVersion(void)
+{    
+    robj *key = createObject(REDIS_STRING, sdsnew(REDIS_RDB_DBVERSION_KEY));
+    robj *val = lookupKey(&server.db[0], key);
+
+    if (val != NULL && val->type == REDIS_STRING) {
+        char *err = NULL;
+        unsigned long long dbversion = strtoull(val->ptr, &err, 16);
+
+        if (!err || *err != '\0') {
+            redisLog(REDIS_WARNING, "Invalid dbversion reading DB from file");            
+        } else {
+            server.dbversion = dbversion;
+            dbDelete(&server.db[0], key);
+        }
+    }
+
+    decrRefCount(key);
+}
+
 int rdbLoad(char *filename) {
     uint32_t dbid;
     int type, rdbver;
@@ -1105,18 +1143,11 @@ int rdbLoad(char *filename) {
         return REDIS_ERR;
     }
     rdbver = atoi(buf+5);
-    if (rdbver < 1 || 
-        (rdbver < REDIS_RDB_VERSION_GARANTIA_PREFIX && rdbver > REDIS_RDB_VERSION) ||
-        (rdbver > REDIS_RDB_VERSION_GARANTIA_PREFIX && rdbver > REDIS_RDB_VERSION_GARANTIA)) {
+    if (rdbver < 1 || rdbver > REDIS_RDB_VERSION) {
         fclose(fp);
         redisLog(REDIS_WARNING,"Can't handle RDB format version %d",rdbver);
         errno = EINVAL;
         return REDIS_ERR;
-    }
-
-    /* read dbversion */
-    if (rdbver > REDIS_RDB_VERSION_GARANTIA_PREFIX) {
-        if (rioRead(&rdb, &server.dbversion, sizeof(server.dbversion)) == 0) goto eoferr;
     }
 
     startLoading(fp);
@@ -1190,6 +1221,9 @@ int rdbLoad(char *filename) {
             exit(1);
         }
     }
+
+    /* Read dbversion */
+    readDbVersion();
 
     fclose(fp);
     stopLoading();
