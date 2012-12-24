@@ -151,6 +151,8 @@ REDIS_CHKCONFIG_INFO=\
 # Provides: redis_6379\n
 # Required-Start: $network $local_fs $remote_fs\n
 # Required-Stop: $network $local_fs $remote_fs\n
+# Default-Start: 2 3 4 5\n
+# Default-Stop: 0 1 6\n
 # Should-Start: $syslog $named\n
 # Should-Stop: $syslog $named\n
 # Short-Description: start and stop redis_6379\n

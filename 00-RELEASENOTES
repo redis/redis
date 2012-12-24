@@ -14,6 +14,13 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.6.7 ]
+
+UPGRADE URGENCY: MODERATE (unless you BLPOP using the same key multiple times).
+
+* [BUGFIX]   Don't crash if BLPOP & co are called with the same key repeated
+             multiple times (Issue #801).
+
 --[ Redis 2.6.6 ]
 
 UPGRADE URGENCY: CRITICAL if you experienced one more more crashes.

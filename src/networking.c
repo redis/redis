@@ -90,8 +90,7 @@ redisClient *createClient(int fd) {
     c->obuf_soft_limit_reached_time = 0;
     listSetFreeMethod(c->reply,decrRefCount);
     listSetDupMethod(c->reply,dupClientReplyValue);
-    c->bpop.keys = NULL;
-    c->bpop.count = 0;
+    c->bpop.keys = dictCreate(&setDictType,NULL);
     c->bpop.timeout = 0;
     c->bpop.target = NULL;
     c->io_keys = listCreate();
@@ -606,6 +605,7 @@ void freeClient(redisClient *c) {
     c->querybuf = NULL;
     if (c->flags & REDIS_BLOCKED)
         unblockClientWaitingData(c);
+    dictRelease(c->bpop.keys);
 
     /* UNWATCH all the keys */
     unwatchAllKeys(c);
