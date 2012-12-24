@@ -478,7 +478,8 @@ int loadAppendOnlyFile(char *filename) {
     struct redis_stat sb;
     int old_aof_state = server.aof_state;
     long loops = 0;
-
+    int select_skipped = 0;
+    
     if (fp && redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) {
         server.aof_current_size = 0;
         fclose(fp);
@@ -548,6 +549,13 @@ int loadAppendOnlyFile(char *filename) {
         /* The fake client should never get blocked */
         redisAssert((fakeClient->flags & REDIS_BLOCKED) == 0);
 
+        /* Compute dbversion */
+        if (!select_skipped && cmd->proc == selectCommand) {
+            select_skipped = 1;
+        } else {
+            if (server.conditional_sync) update_dbversion(fakeClient);
+        }
+        
         /* Clean up. Command code may have changed argv/argc so we use the
          * argv/argc of the client instead of the local variables. */
         for (j = 0; j < fakeClient->argc; j++)
@@ -846,7 +854,8 @@ int rewriteAppendOnlyFile(char *filename) {
 
     /* Note that we have to use a different temp name here compared to the
      * one used by rewriteAppendOnlyFileBackground() function. */
-    snprintf(tmpfile,256,"temp-rewriteaof-%d.aof", (int) getpid());
+    copydir(tmpfile, server.aof_filename, sizeof(tmpfile));
+    snprintf(tmpfile+strlen(tmpfile),256,"temp-rewriteaof-%d.aof", (int) getpid());
     fp = fopen(tmpfile,"w");
     if (!fp) {
         redisLog(REDIS_WARNING, "Opening the temp file for AOF rewrite in rewriteAppendOnlyFile(): %s", strerror(errno));
@@ -953,6 +962,7 @@ int rewriteAppendOnlyFileBackground(void) {
     long long start;
 
     if (server.aof_child_pid != -1) return REDIS_ERR;
+    server.stat_aof_rewrites++;
     start = ustime();
     if ((childpid = fork()) == 0) {
         char tmpfile[256];
@@ -960,7 +970,8 @@ int rewriteAppendOnlyFileBackground(void) {
         /* Child */
         if (server.ipfd > 0) close(server.ipfd);
         if (server.sofd > 0) close(server.sofd);
-        snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
+        copydir(tmpfile,server.aof_filename,sizeof(tmpfile));
+        snprintf(tmpfile+strlen(tmpfile),256-strlen(tmpfile),"temp-rewriteaof-bg-%d.aof", (int) getpid());
         if (rewriteAppendOnlyFile(tmpfile) == REDIS_OK) {
             size_t private_dirty = zmalloc_get_private_dirty();
 
@@ -1014,7 +1025,8 @@ void bgrewriteaofCommand(redisClient *c) {
 void aofRemoveTempFile(pid_t childpid) {
     char tmpfile[256];
 
-    snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) childpid);
+    copydir(tmpfile,server.aof_filename,sizeof(tmpfile));    
+    snprintf(tmpfile+strlen(tmpfile),256-strlen(tmpfile),"temp-rewriteaof-bg-%d.aof", (int) childpid);
     unlink(tmpfile);
 }
 
@@ -1046,7 +1058,8 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 
         /* Flush the differences accumulated by the parent to the
          * rewritten AOF. */
-        snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof",
+        copydir(tmpfile,server.aof_filename,sizeof(tmpfile));
+        snprintf(tmpfile+strlen(tmpfile),256-strlen(tmpfile),"temp-rewriteaof-bg-%d.aof",
             (int)server.aof_child_pid);
         newfd = open(tmpfile,O_WRONLY|O_APPEND);
         if (newfd == -1) {

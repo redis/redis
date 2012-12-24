@@ -184,6 +184,12 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1],NULL);
+        } else if (!strcasecmp(argv[0],"optionally-include") && argc == 2) {
+            FILE *tmp = fopen(argv[1], "r");
+            if (tmp != NULL) {
+                fclose(tmp);
+                loadServerConfig(argv[1],NULL);
+            }
         } else if (!strcasecmp(argv[0],"maxclients") && argc == 2) {
             server.maxclients = atoi(argv[1]);
             if (server.maxclients < 1) {
@@ -256,6 +262,14 @@ void loadServerConfigFromString(char *config) {
             if ((server.daemonize = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"load-on-startup") && argc == 2) {
+            if ((server.load_on_startup = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"conditional-sync") && argc == 2) {
+            if ((server.conditional_sync = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"appendonly") && argc == 2) {
             int yes;
 
@@ -306,6 +320,9 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"dbfilename") && argc == 2) {
             zfree(server.rdb_filename);
             server.rdb_filename = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"syncdbfilename") && argc == 2) {
+            zfree(server.rdb_syncfilename);
+            server.rdb_syncfilename = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"hash-max-ziplist-entries") && argc == 2) {
             server.hash_max_ziplist_entries = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"hash-max-ziplist-value") && argc == 2) {
@@ -458,6 +475,9 @@ void configSetCommand(redisClient *c) {
     if (!strcasecmp(c->argv[2]->ptr,"dbfilename")) {
         zfree(server.rdb_filename);
         server.rdb_filename = zstrdup(o->ptr);
+    } else if (!strcasecmp(c->argv[2]->ptr,"syncdbfilename")) {
+        zfree(server.rdb_syncfilename);
+        server.rdb_syncfilename = zstrdup(o->ptr);
     } else if (!strcasecmp(c->argv[2]->ptr,"requirepass")) {
         if (sdslen(o->ptr) > REDIS_AUTHPASS_MAX_LEN) goto badfmt;
         zfree(server.requirepass);
@@ -750,6 +770,7 @@ void configGetCommand(redisClient *c) {
 
     /* String values */
     config_get_string_field("dbfilename",server.rdb_filename);
+    config_get_string_field("syncdbfilename",server.rdb_syncfilename);
     config_get_string_field("requirepass",server.requirepass);
     config_get_string_field("masterauth",server.requirepass);
     config_get_string_field("bind",server.bindaddr);
@@ -931,13 +952,17 @@ void configCommand(redisClient *c) {
         configGetCommand(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"resetstat")) {
         if (c->argc != 2) goto badarity;
-        server.stat_keyspace_hits = 0;
-        server.stat_keyspace_misses = 0;
+        server.stat_keyspace_read_hits = 0;
+        server.stat_keyspace_read_misses = 0;
+        server.stat_keyspace_write_hits = 0;
+        server.stat_keyspace_write_misses = 0;
         server.stat_numcommands = 0;
         server.stat_numconnections = 0;
         server.stat_expiredkeys = 0;
         server.stat_rejected_conn = 0;
         server.stat_fork_time = 0;
+        server.stat_aof_rewrites = 0;
+        server.stat_rdb_saves = 0;
         server.aof_delayed_fsync = 0;
         resetCommandTableStats();
         addReply(c,shared.ok);

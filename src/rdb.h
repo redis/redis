@@ -40,6 +40,9 @@
  * backward compatible this number gets incremented. */
 #define REDIS_RDB_VERSION 6
 
+/* Special key used to store dbversion in a backward-compatible manner */
+#define REDIS_RDB_DBVERSION_KEY "\xDB__dbversion__\xDB"
+
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
  * the first byte to interpreter the length:
@@ -100,7 +103,7 @@ uint32_t rdbLoadLen(rio *rdb, int *isencoded);
 int rdbSaveObjectType(rio *rdb, robj *o);
 int rdbLoadObjectType(rio *rdb);
 int rdbLoad(char *filename);
-int rdbSaveBackground(char *filename);
+int rdbSaveBackground(char *filename, int bgsavetype);
 void rdbRemoveTempFile(pid_t childpid);
 int rdbSave(char *filename);
 int rdbSaveObject(rio *rdb, robj *o);

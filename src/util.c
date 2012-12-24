@@ -405,6 +405,28 @@ void getRandomHexChars(char *p, unsigned int len) {
     fclose(fp);
 }
 
+/* Copy directory part of filename */
+int copydir(char *target, const char *src, int target_len)
+{
+    const char *p;
+    int len;
+    
+    if (!(p = strrchr(src, '/'))) {
+        *target = '\0';
+        return 0;
+    }
+
+    len = p - src + 1;
+    if (len >= target_len)
+        len = target_len - 1;
+    
+    memcpy(target, src, len);
+    target[len] = '\0';
+
+    return len;
+}
+
+
 #ifdef UTIL_TEST_MAIN
 #include <assert.h>
 

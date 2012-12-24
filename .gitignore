@@ -20,3 +20,5 @@ deps/lua/src/liblua.a
 .make-*
 .prerequisites
 *.dSYM
+obj.*/
+rdb-merger

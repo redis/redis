@@ -3,3 +3,4 @@
 *.gcov
 redis.info
 lcov-html
+/Makefile.dep

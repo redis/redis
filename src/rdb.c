@@ -638,7 +638,8 @@ int rdbSave(char *filename) {
     rio rdb;
     uint64_t cksum;
 
-    snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
+    copydir(tmpfile, filename, sizeof(tmpfile));
+    snprintf(tmpfile+strlen(tmpfile),256-strlen(tmpfile),"temp-%d.rdb", (int) getpid());
     fp = fopen(tmpfile,"w");
     if (!fp) {
         redisLog(REDIS_WARNING, "Failed opening .rdb for saving: %s",
@@ -652,6 +653,27 @@ int rdbSave(char *filename) {
     snprintf(magic,sizeof(magic),"REDIS%04d",REDIS_RDB_VERSION);
     if (rdbWriteRaw(&rdb,magic,9) == -1) goto werr;
 
+    /* write dbversion */
+    if (server.conditional_sync) {
+        char dbversion_hex[20];
+        robj *key;
+        robj *val;
+        int ret;
+        
+        snprintf(dbversion_hex, sizeof(dbversion_hex)-1, "%016llx", server.dbversion);        
+        key = createObject(REDIS_STRING, sdsnew(REDIS_RDB_DBVERSION_KEY));
+        val = createObject(REDIS_STRING, sdsnew(dbversion_hex));
+
+        ret = rdbSaveKeyValuePair(&rdb, key, val, -1, -1);
+        if (ret != -1) {
+            /* verify we don't write it again if for any reason it got loaded/inserted */
+            dbDelete(&server.db[0], key);
+        }
+        decrRefCount(key);
+        decrRefCount(val);
+        if (ret == -1) goto werr;        
+    }
+    
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
         dict *d = db->dict;
@@ -715,15 +737,20 @@ werr:
     return REDIS_ERR;
 }
 
-int rdbSaveBackground(char *filename) {
+int rdbSaveBackground(char *filename, int bgsavetype) {
     pid_t childpid;
     long long start;
 
     if (server.rdb_child_pid != -1) return REDIS_ERR;
+    if (bgsavetype == REDIS_BGSAVE_NORMAL) server.stat_rdb_saves++;
 
     server.dirty_before_bgsave = server.dirty;
 
     start = ustime();
+    if (server.rdb_bgsavefilename) zfree(server.rdb_bgsavefilename);
+    server.rdb_bgsavefilename = zstrdup(filename);
+    server.rdb_bgsavetype = bgsavetype;
+    
     if ((childpid = fork()) == 0) {
         int retval;
 
@@ -761,7 +788,8 @@ int rdbSaveBackground(char *filename) {
 void rdbRemoveTempFile(pid_t childpid) {
     char tmpfile[256];
 
-    snprintf(tmpfile,256,"temp-%d.rdb", (int) childpid);
+    copydir(tmpfile, server.rdb_bgsavefilename, sizeof(tmpfile));
+    snprintf(tmpfile+strlen(tmpfile),256-strlen(tmpfile),"temp-%d.rdb", (int) childpid);
     unlink(tmpfile);
 }
 
@@ -1069,6 +1097,26 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     }
 }
 
+static void readDbVersion(void)
+{    
+    robj *key = createObject(REDIS_STRING, sdsnew(REDIS_RDB_DBVERSION_KEY));
+    robj *val = lookupKey(&server.db[0], key);
+
+    if (val != NULL && val->type == REDIS_STRING) {
+        char *err = NULL;
+        unsigned long long dbversion = strtoull(val->ptr, &err, 16);
+
+        if (!err || *err != '\0') {
+            redisLog(REDIS_WARNING, "Invalid dbversion reading DB from file");            
+        } else {
+            server.dbversion = dbversion;
+            dbDelete(&server.db[0], key);
+        }
+    }
+
+    decrRefCount(key);
+}
+
 int rdbLoad(char *filename) {
     uint32_t dbid;
     int type, rdbver;
@@ -1173,6 +1221,9 @@ int rdbLoad(char *filename) {
             exit(1);
         }
     }
+
+    /* Read dbversion */
+    readDbVersion();
 
     fclose(fp);
     stopLoading();
@@ -1335,20 +1386,30 @@ err:
 
 /* A background saving child (BGSAVE) terminated its work. Handle this. */
 void backgroundSaveDoneHandler(int exitcode, int bysignal) {
+    int update_status = 0;
+
+    /* Don't update status on implicit saves (SYNC to dedicated file or BGSAVETO) */
+    if (server.rdb_bgsavetype == REDIS_BGSAVE_NORMAL ||
+       (server.rdb_bgsavetype == REDIS_BGSAVE_SYNC && !server.rdb_syncfilename)) {
+        update_status = 1;
+    }
+
     if (!bysignal && exitcode == 0) {
         redisLog(REDIS_NOTICE,
             "Background saving terminated with success");
-        server.dirty = server.dirty - server.dirty_before_bgsave;
-        server.lastsave = time(NULL);
-        server.lastbgsave_status = REDIS_OK;
+        if (update_status) {
+            server.dirty = server.dirty - server.dirty_before_bgsave;
+            server.lastsave = time(NULL);
+            server.lastbgsave_status = REDIS_OK;
+        }
     } else if (!bysignal && exitcode != 0) {
         redisLog(REDIS_WARNING, "Background saving error");
-        server.lastbgsave_status = REDIS_ERR;
+        if (update_status) server.lastbgsave_status = REDIS_ERR;
     } else {
         redisLog(REDIS_WARNING,
             "Background saving terminated by signal %d", bysignal);
         rdbRemoveTempFile(server.rdb_child_pid);
-        server.lastbgsave_status = REDIS_ERR;
+        if (update_status) server.lastbgsave_status = REDIS_ERR;
     }
     server.rdb_child_pid = -1;
     server.rdb_save_time_last = time(NULL)-server.rdb_save_time_start;
@@ -1375,9 +1436,32 @@ void bgsaveCommand(redisClient *c) {
         addReplyError(c,"Background save already in progress");
     } else if (server.aof_child_pid != -1) {
         addReplyError(c,"Can't BGSAVE while AOF log rewriting is in progress");
-    } else if (rdbSaveBackground(server.rdb_filename) == REDIS_OK) {
+    } else if (rdbSaveBackground(server.rdb_filename, REDIS_BGSAVE_NORMAL) == REDIS_OK) {
         addReplyStatus(c,"Background saving started");
     } else {
         addReply(c,shared.err);
     }
 }
+
+void bgsavetoCommand(redisClient *c) {
+    char tmpfile[256];
+    char *p;
+    snprintf(tmpfile, sizeof(tmpfile), "%s", (char *)c->argv[1]->ptr);
+
+    /* make sure we don't write files outside of the current dir */
+    while ((p = strchr(tmpfile, '/')) != NULL) {
+        *p = '_';
+    }
+
+    if (server.rdb_child_pid != -1) {
+        addReplyError(c,"Background save already in progress");
+    } else if (server.aof_child_pid != -1) {
+        addReplyError(c,"Can't BGSAVETO while AOF log rewriting is in progress");
+    } else if (rdbSaveBackground(tmpfile, REDIS_BGSAVE_TO) == REDIS_OK) {
+        addReplyStatus(c,"Background saving started");
+    } else {
+        addReply(c,shared.err);
+    }
+}
+
+

@@ -184,6 +184,11 @@
 #define REDIS_CLOSE_ASAP (1<<10)/* Close this client ASAP */
 #define REDIS_UNIX_SOCKET (1<<11) /* Client connected via Unix domain socket */
 #define REDIS_DIRTY_EXEC (1<<12)  /* EXEC will fail for errors while queueing */
+#define REDIS_HIDDEN (1<<13)    /* Client is hidden, won't show up in MONITOR */
+#define REDIS_MONITOR_TRUNCATE (1<<14)  /* Truncate MONITOR output on this connection */
+
+/* Truncation length when REDIS_MONITOR_TRUNCATE is used */
+#define REDIS_MONITOR_TRUNCATE_LENGTH 1024
 
 /* Client request types */
 #define REDIS_REQ_INLINE 1
@@ -265,6 +270,11 @@
 #define REDIS_MAXMEMORY_ALLKEYS_LRU 3
 #define REDIS_MAXMEMORY_ALLKEYS_RANDOM 4
 #define REDIS_MAXMEMORY_NO_EVICTION 5
+
+/* BGSAVE types */
+#define REDIS_BGSAVE_NORMAL 0       /* Regular BGSAVE/SAVE or periodic save */
+#define REDIS_BGSAVE_SYNC 1         /* SYNC due to slave connecting */
+#define REDIS_BGSAVE_TO 2           /* GR.BGSAVETO command */
 
 /* Scripting */
 #define REDIS_LUA_TIME_LIMIT 5000 /* milliseconds */
@@ -430,7 +440,7 @@ struct sharedObjectsStruct {
     *masterdownerr, *roslaveerr, *execaborterr,
     *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop,
-    *lpush,
+    *lpush, *drained, *draining,
     *select[REDIS_SHARED_SELECT_CMDS],
     *integers[REDIS_SHARED_INTEGERS],
     *mbulkhdr[REDIS_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -523,7 +533,7 @@ struct redisServer {
     list *clients;              /* List of active clients */
     list *clients_to_close;     /* Clients to close asynchronously */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
-    redisClient *current_client; /* Current client, only used on crash report */
+    redisClient *current_client; /* Current client */
     char neterr[ANET_ERR_LEN];  /* Error buffer for anet.c */
     /* RDB / AOF loading information */
     int loading;                /* We are loading data from disk if true */
@@ -540,9 +550,13 @@ struct redisServer {
     long long stat_numconnections;  /* Number of connections received */
     long long stat_expiredkeys;     /* Number of expired keys */
     long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */
-    long long stat_keyspace_hits;   /* Number of successful lookups of keys */
-    long long stat_keyspace_misses; /* Number of failed lookups of keys */
+    long long stat_keyspace_read_hits;      /* number of successful lookups of keys for read */
+    long long stat_keyspace_read_misses;    /* number of failed lookups of keys for read*/
+    long long stat_keyspace_write_hits;     /* number of successful lookups of keys for write */
+    long long stat_keyspace_write_misses;   /* number of failed lookups of keys for write */
     size_t stat_peak_memory;        /* Max used memory record */
+    long long stat_aof_rewrites;    /* number of aof file rewrites performed */
+    long long stat_rdb_saves;       /* number of rdb saves performed */
     long long stat_fork_time;       /* Time needed to perform latets fork() */
     long long stat_rejected_conn;   /* Clients rejected because of maxclients */
     list *slowlog;                  /* SLOWLOG list of commands */
@@ -563,6 +577,8 @@ struct redisServer {
     size_t client_max_querybuf_len; /* Limit for client query buffer length */
     int dbnum;                      /* Total number of configured DBs */
     int daemonize;                  /* True if running as a daemon */
+    int load_on_startup;            /* True if server should load AOF/RDB on startup */
+    int conditional_sync;           /* Conditional synchronziation support */
     clientBufferLimitsConfig client_obuf_limits[REDIS_CLIENT_LIMIT_NUM_CLASSES];
     /* AOF persistence */
     int aof_state;                  /* REDIS_AOF_(ON|OFF|WAIT_REWRITE) */
@@ -588,19 +604,25 @@ struct redisServer {
     /* RDB persistence */
     long long dirty;                /* Changes to DB from the last save */
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
+    unsigned long long dbversion;   /* Current unique DB version */
     pid_t rdb_child_pid;            /* PID of RDB saving child */
     struct saveparam *saveparams;   /* Save points array for RDB */
     int saveparamslen;              /* Number of saving points */
     char *rdb_filename;             /* Name of RDB file */
+    char *rdb_syncfilename;         /* Name of RDB file used for SYNC handling */
+    char *rdb_bgsavefilename;       /* Name of RDB file currently BGSAVE is handling */
+    int rdb_bgsavetype;             /* Type of BGSAVE operation now in progress */
     int rdb_compression;            /* Use compression in RDB? */
     int rdb_checksum;               /* Use RDB checksum? */
     time_t lastsave;                /* Unix time of last save succeeede */
     time_t rdb_save_time_last;      /* Time used by last RDB save run. */
     time_t rdb_save_time_start;     /* Current RDB save start time. */
-    int lastbgsave_status;          /* REDIS_OK or REDIS_ERR */
+    int lastbgsave_status;          /* REDIS_OK or REDIS_ERR */    
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
     /* Propagation of commands in AOF / replication */
     redisOpArray also_propagate;    /* Additional command to propagate. */
+    int draining;                   /* Currently draining to slaves? */
+    time_t last_drain_time;         /* Time of last DRAIN command */
     /* Logging */
     char *logfile;                  /* Path of log file */
     int syslog_enabled;             /* Is syslog enabled? */
@@ -901,8 +923,9 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout);
 ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout);
 
 /* Replication */
+int replicationInSync(list *slaves);
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
-void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **argv, int argc);
+void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **argv, int argc, int do_truncated);
 void updateSlavesWaitingBgsave(int bgsaveerr);
 void replicationCron(void);
 
@@ -965,6 +988,7 @@ int htNeedsResize(dict *dict);
 void oom(const char *msg);
 void populateCommandTable(void);
 void resetCommandTableStats(void);
+void update_dbversion(redisClient *c);
 
 /* Set data type */
 robj *setTypeCreate(robj *value);
@@ -1083,6 +1107,7 @@ void dbsizeCommand(redisClient *c);
 void lastsaveCommand(redisClient *c);
 void saveCommand(redisClient *c);
 void bgsaveCommand(redisClient *c);
+void bgsavetoCommand(redisClient *c);
 void bgrewriteaofCommand(redisClient *c);
 void shutdownCommand(redisClient *c);
 void moveCommand(redisClient *c);
@@ -1115,6 +1140,7 @@ void sunionstoreCommand(redisClient *c);
 void sdiffCommand(redisClient *c);
 void sdiffstoreCommand(redisClient *c);
 void syncCommand(redisClient *c);
+void syncnowCommand(redisClient *c);
 void flushdbCommand(redisClient *c);
 void flushallCommand(redisClient *c);
 void sortCommand(redisClient *c);
@@ -1185,6 +1211,8 @@ void migrateCommand(redisClient *c);
 void dumpCommand(redisClient *c);
 void objectCommand(redisClient *c);
 void clientCommand(redisClient *c);
+void drainCommand(redisClient *c);
+void hideconnectionCommand(redisClient *c);
 void evalCommand(redisClient *c);
 void evalShaCommand(redisClient *c);
 void scriptCommand(redisClient *c);
