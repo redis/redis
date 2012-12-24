@@ -119,6 +119,12 @@ MONITOR TRUNCATED
     command in order to request limited-length command output.  Currently
     all commands are truncated to max. 1024 bytes (hard coded).
 
+SLOWLOG GET
+    The slowlog now includes some additional information showing values
+    which affected the calculation complexity of the slow command. This
+    is useful if the command operated on keys that don't exist anymore
+    or if the command had more parameters than allowed in the slow log.
+
 Build Tree Changes
 ------------------
 
