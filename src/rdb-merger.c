@@ -65,7 +65,7 @@ int main(int argc, char **argv) {
     
     init();
     
-    if (mergerRdbs(argc - optind, argv + optind, outfile, progress) != REDIS_OK) {
+    if (mergeRdbs(argc - optind, argv + optind, outfile, progress) != REDIS_OK) {
         fprintf(stderr, "Error merging rdb files\n");
         return 1;
     }

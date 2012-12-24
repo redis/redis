@@ -1246,7 +1246,7 @@ void rdbMergerProgress(rio *r, const void *buf, size_t len) {
 }
 
 #define FREE_ROBJ(o) do { decrRefCount(o); o = NULL; } while (0)
-int mergerRdbs(int ifile_count, char **infiles, char *outfile, const int progress) {
+int mergeRdbs(int ifile_count, char **infiles, char *outfile, const int progress) {
     FILE *ifp = NULL;
     FILE *ofp = NULL;
     int type, rdbver;
