@@ -466,7 +466,7 @@ typedef struct redisClient {
     int authenticated;      /* when requirepass is non-NULL */
     int replstate;          /* replication state if this is a slave */
     int repldbfd;           /* replication DB file descriptor */
-    long repldboff;         /* replication DB file offset */
+    off_t repldboff;        /* replication DB file offset */
     off_t repldbsize;       /* replication DB file size */
     long long reploff;      /* replication offset if this is our master */
     long long repl_ack_off; /* replication ack offset, if this is a slave */
