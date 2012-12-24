@@ -399,7 +399,7 @@ typedef struct redisClient {
     int authenticated;      /* when requirepass is non-NULL */
     int replstate;          /* replication state if this is a slave */
     int repldbfd;           /* replication DB file descriptor */
-    long repldboff;         /* replication DB file offset */
+    off_t repldboff;        /* replication DB file offset */
     off_t repldbsize;       /* replication DB file size */
     int slave_listening_port; /* As configured with: SLAVECONF listening-port */
     multiState mstate;      /* MULTI/EXEC state */
