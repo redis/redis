@@ -21,5 +21,5 @@ Makefile : ;
 
 .PHONY: clean
 clean:
-	rm -rf $(OBJDIR)
+	rm -rf $(OBJDIR) $(CURDIR)/Makefile.dep
 
