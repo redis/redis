@@ -650,6 +650,7 @@ struct redisServer {
     /* Limits */
     unsigned int maxclients;        /* Max number of simultaneous clients */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
+    unsigned long long minmemory_os; /* OS Free memory threshold that */
     int maxmemory_policy;           /* Policy for key evition */
     int maxmemory_samples;          /* Pricision of random sampling */
     /* Blocked clients */
@@ -969,7 +970,7 @@ unsigned int zsetLength(robj *zobj);
 void zsetConvert(robj *zobj, int encoding);
 
 /* Core functions */
-int freeMemoryIfNeeded(void);
+int freeMemoryIfNeeded(unsigned long long maxmemory);
 int processCommand(redisClient *c);
 void setupSignalHandlers(void);
 struct redisCommand *lookupCommand(sds name);

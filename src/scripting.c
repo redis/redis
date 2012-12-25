@@ -278,7 +278,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     if (server.maxmemory && server.lua_write_dirty == 0 &&
         (cmd->flags & REDIS_CMD_DENYOOM))
     {
-        if (freeMemoryIfNeeded() == REDIS_ERR) {
+        if (freeMemoryIfNeeded(server.maxmemory) == REDIS_ERR) {
             luaPushError(lua, shared.oomerr->ptr);
             goto cleanup;
         }

@@ -794,6 +794,84 @@ void clientsCron(void) {
     }
 }
 
+#ifdef __linux__
+long long int getFreeOSMemory(void) {
+    FILE *meminfo_file;
+    char buf[128];
+    long long int memfree_value = -1;
+    long long int buffers_value = -1;
+    long long int cached_value = -1;
+    long long int memfree = -1;
+    
+    meminfo_file = fopen("/proc/meminfo", "r");
+    if (!meminfo_file)
+        return -1;
+    while (fgets(buf, sizeof(buf)-1, meminfo_file) != NULL) {
+        char *p = NULL;
+        char *k;
+        char *arg;
+        if (!(k = strtok_r(buf, " ", &p)))
+            break;  /* parse error */
+        if (!(arg = strtok_r(NULL, " ", &p)))
+            break;  /* parse error */
+        if (strcmp(k, "MemFree:") == 0) {
+            memfree_value = strtoull(arg, &p, 10);
+            if (!p || *p != '\0')
+                memfree_value = -1;    /* parse error */
+        } else if (strcmp(k, "Buffers:") == 0) {
+            buffers_value = strtoull(arg, &p, 10);
+            if (!p || *p != '\0')
+                buffers_value = -1;    /* parse error */
+        } else if (strcmp(k, "Cached:") == 0) {
+            cached_value = strtoull(arg, &p, 10);
+            if (!p || *p != '\0')
+                cached_value = -1;    /* parse error */
+        }
+        if (memfree_value != -1 &&
+            buffers_value != -1 &&
+            cached_value != -1) {
+            memfree = memfree_value + buffers_value + cached_value;
+            break;
+        }
+    }
+    fclose(meminfo_file);
+    if (memfree > 0)
+        memfree *= 1024;
+    
+    return memfree;
+}
+#else
+#error "Implement getFreeOSMemory for this platform first."
+#endif
+
+void checkOSMemory(void) {
+    /* Called periodically if minmemory_os is defined, and verifies that
+     * enough free OS memory is reported.  If not, it attempts to free 1/2
+     * of the minmemory_os value.
+     */
+
+    long long int os_memfree;
+    
+    if (!server.minmemory_os)
+        return;
+    
+    os_memfree = getFreeOSMemory();
+    if (os_memfree < 0)
+        return;
+    if ((unsigned long long) os_memfree < server.minmemory_os) {
+        long long int delta = server.minmemory_os - os_memfree;
+
+        if ((long long int) zmalloc_used_memory() > (delta / 2)) {
+            redisLog(REDIS_WARNING, "OS Memory is low, trying to free %llu bytes.", delta / 2);
+           
+            freeMemoryIfNeeded(zmalloc_used_memory() - (delta / 2));
+        } else {
+            redisLog(REDIS_WARNING, "OS Memory is low, but this redis is too small to attempt eviction.");
+        }        
+    }            
+}
+
+
 /* This is our timer interrupt, called REDIS_HZ times per second.
  * Here is where we do a number of things that need to be done asynchronously.
  * For instance:
@@ -856,6 +934,11 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         redisLog(REDIS_WARNING,"SIGTERM received but errors trying to shut down the server, check the logs for more information");
     }
 
+    /* Try to evict if OS memory is low */
+    run_with_period(10000) {
+        checkOSMemory();
+    }
+    
     /* Cancel draining mode if not polled for a long time */
     if (server.draining && server.unixtime - server.last_drain_time >= 10)
         server.draining = 0;
@@ -1636,7 +1719,7 @@ int processCommand(redisClient *c) {
      * keys in the dataset). If there are not the only thing we can do
      * is returning an error. */
     if (server.maxmemory) {
-        int retval = freeMemoryIfNeeded();
+        int retval = freeMemoryIfNeeded(server.maxmemory);
         if ((c->cmd->flags & REDIS_CMD_DENYOOM) && retval == REDIS_ERR) {
             flagTransaction(c);
             addReply(c, shared.oomerr);
@@ -2321,7 +2404,7 @@ void hideconnectionCommand(redisClient *c) {
  * should block the execution of commands that will result in more memory
  * used by the server.
  */
-int freeMemoryIfNeeded(void) {
+int freeMemoryIfNeeded(unsigned long long maxmemory) {
     size_t mem_used, mem_tofree, mem_freed;
     int slaves = listLength(server.slaves);
 
@@ -2348,13 +2431,13 @@ int freeMemoryIfNeeded(void) {
     }
 
     /* Check if we are over the memory limit. */
-    if (mem_used <= server.maxmemory) return REDIS_OK;
+    if (mem_used <= maxmemory) return REDIS_OK;
 
     if (server.maxmemory_policy == REDIS_MAXMEMORY_NO_EVICTION)
         return REDIS_ERR; /* We need to free memory, but policy forbids. */
 
     /* Compute how much memory we need to free. */
-    mem_tofree = mem_used - server.maxmemory;
+    mem_tofree = mem_used - maxmemory;
     mem_freed = 0;
     while (mem_freed < mem_tofree) {
         int j, k, keys_freed = 0;
