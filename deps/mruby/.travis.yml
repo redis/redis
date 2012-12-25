@@ -1,0 +1,3 @@
+# no installation...
+
+script: "./minirake all test"

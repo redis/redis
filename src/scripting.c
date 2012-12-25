@@ -37,11 +37,27 @@
 #include <ctype.h>
 #include <math.h>
 
+#include <mruby.h>
+#include <mruby/compile.h>
+#include <mruby/proc.h>
+#include <mruby/string.h>
+#include <mruby/array.h>
+#include <mruby/hash.h>
+
+KHASH_DECLARE(ht, mrb_value, mrb_value, 1)
+
 char *redisProtocolToLuaType_Int(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Bulk(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Status(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_Error(lua_State *lua, char *reply);
 char *redisProtocolToLuaType_MultiBulk(lua_State *lua, char *reply);
+
+char *redisProtocolToMrbType_Int(mrb_state *mrb, mrb_value context, char *reply);
+char *redisProtocolToMrbType_Bulk(mrb_state *mrb, mrb_value context, char *reply);
+char *redisProtocolToMrbType_Status(mrb_state *mrb, mrb_value context, char *reply);
+char *redisProtocolToMrbType_Error(mrb_state *mrb, mrb_value context, char *reply);
+char *redisProtocolToMrbType_MultiBulk(mrb_state *mrb, mrb_value context, char *reply);
+
 int redis_math_random (lua_State *L);
 int redis_math_randomseed (lua_State *L);
 void sha1hex(char *digest, char *script, size_t len);
@@ -1016,4 +1032,399 @@ void scriptCommand(redisClient *c) {
     } else {
         addReplyError(c, "Unknown SCRIPT subcommand or wrong # of args.");
     }
+}
+
+void mrbReplyToRedisReply(redisClient *c, mrb_state* mrb, mrb_value value) {
+    enum mrb_vtype type = mrb_type(value);
+
+    // Check `nil`
+    if (mrb_nil_p(value)) {
+        addReply(c, shared.nullbulk);
+        return;
+    }
+
+    switch (type) {
+    case MRB_TT_FLOAT:
+        value = mrb_funcall(mrb, value, "to_i", 0);
+    case MRB_TT_FIXNUM: {
+        addReplyLongLong(c, (long long)value.value.i);
+        break;
+    }
+    case MRB_TT_ARRAY: {
+        void *replylen = addDeferredMultiBulkLength(c);
+        int i;
+        for (i = 0; i < RARRAY_LEN(value); i++) {
+            mrbReplyToRedisReply(c, mrb, RARRAY_PTR(value)[i]);
+        }
+        setDeferredMultiBulkLength(c, replylen, i);
+        break;
+    }
+    case MRB_TT_HASH: {
+        /* We need to check if it is an hash, an error, or a status reply.
+         * Status replies are returned as single element hash with :ok field */
+        khash_t(ht) *h = RHASH_TBL(value);
+        khiter_t k;
+        int replied = 0;
+        for (k = kh_begin(h); k != kh_end(h); k++) {
+            if (!kh_exist(h, k) || replied) {
+                continue;
+            }
+
+            // String and Symbol are acceptable.
+            mrb_value key = kh_key(h,k);
+            if (mrb_symbol_p(key)) {
+                key = mrb_obj_as_string(mrb, key);
+            }
+            if (!mrb_string_p(key)) {
+                continue;
+            }
+
+            char *sep = NULL;
+            if (!strcmp(RSTRING_PTR(key), "ok")) {
+                sep = "+";
+            } else if (!strcmp(RSTRING_PTR(key), "err")) {
+                sep = "-";
+            }
+            if (sep == NULL) {
+                continue;
+            }
+
+            mrb_value val = kh_value(h, k);
+            // Only String is acceptable.
+            if (mrb_string_p(val)) {
+                sds status = sdsnew(RSTRING_PTR(val));
+                addReplySds(c, sdscatprintf(sdsempty(), "%s%s\r\n", sep, status));
+                sdsfree(status);
+                replied = 1;
+            }
+        }
+        if (!replied) {
+            void *replylen = addDeferredMultiBulkLength(c);
+            setDeferredMultiBulkLength(c, replylen, 0);
+        }
+        break;
+    }
+    case MRB_TT_TRUE:
+        addReplyLongLong(c, 1);
+        break;
+    case MRB_TT_FALSE:
+        addReply(c, shared.nullbulk);
+        break;
+    case MRB_TT_STRING: {
+        robj *o = createObject(REDIS_STRING, sdsnew(RSTRING_PTR(value)));
+        addReplyBulk(c, o);
+        break;
+    }
+    case MRB_TT_OBJECT:
+    case MRB_TT_EXCEPTION: {
+        int isException = mrb_obj_is_kind_of(mrb, value, mrb_class_get(mrb, "Exception"));
+        if (isException) {
+            value = mrb_funcall(mrb, value, "message", 0);
+            addReplyError(c, RSTRING_PTR(value));
+        } else {
+            addReply(c, shared.nullbulk);
+        }
+        break;
+    }
+    default:
+        addReply(c, shared.nullbulk);
+    }
+}
+
+char *redisProtocolToMrbType(mrb_state *mrb, mrb_value array, char *reply) {
+    char *p = reply;
+
+    switch(*p) {
+    case ':':
+        p = redisProtocolToMrbType_Int(mrb, array, reply);
+        break;
+    case '$':
+        p = redisProtocolToMrbType_Bulk(mrb, array, reply);
+        break;
+    case '+':
+        p = redisProtocolToMrbType_Status(mrb, array, reply);
+        break;
+    case '-':
+        p = redisProtocolToMrbType_Error(mrb, array, reply);
+        break;
+    case '*':
+        p = redisProtocolToMrbType_MultiBulk(mrb, array, reply);
+        break;
+    }
+    return p;
+}
+
+char *redisProtocolToMrbType_Int(mrb_state *mrb, mrb_value context, char *reply) {
+    char *p = strchr(reply + 1, '\r');
+    long long value;
+    long digit;
+    mrb_value result;
+
+    string2ll(reply + 1, p - reply - 1, &value);
+    digit = value % 10 + 1;
+
+    result = mrb_funcall(mrb, mrb_str_new(mrb, reply + 1, digit), "to_i", 0);
+    mrb_ary_push(mrb, context, result);
+
+    return p + 2;
+}
+
+char *redisProtocolToMrbType_Bulk(mrb_state *mrb, mrb_value context, char *reply) {
+    char *p = strchr(reply + 1, '\r');
+    long long bulklen;
+    mrb_value result;
+
+    string2ll(reply + 1, p - reply - 1, &bulklen);
+    if (bulklen == -1) {
+        result = mrb_nil_value();
+        mrb_ary_push(mrb, context, result);
+        return p + 2;
+    } else {
+        result = mrb_str_new(mrb, p + 2, bulklen);
+        mrb_ary_push(mrb, context, result);
+        return p + 2 + bulklen + 2;
+    }
+}
+
+char *redisProtocolToMrbType_Status(mrb_state *mrb, mrb_value context, char *reply) {
+    char *p = strchr(reply + 1, '\r');
+    mrb_value hash = mrb_hash_new(mrb);
+    mrb_value key = mrb_str_new(mrb, "ok", 2);
+    key = mrb_funcall(mrb, key, "to_sym", 0);
+    mrb_hash_set(mrb, hash, key, mrb_str_new(mrb, reply + 1, p - reply - 1));
+    mrb_ary_push(mrb, context, hash);
+    return p + 2;
+}
+
+char *redisProtocolToMrbType_Error(mrb_state *mrb, mrb_value context, char *reply) {
+    char *p = strchr(reply + 1, '\r');
+    mrb_value result;
+    struct RClass *StandardError = mrb_class_get(mrb, "StandardError");
+
+    result = mrb_exc_new(mrb, StandardError, reply + 1, p - reply - 1);
+    mrb_ary_push(mrb, context, result);
+    return p + 2;
+}
+
+char *redisProtocolToMrbType_MultiBulk(mrb_state *mrb, mrb_value context, char *reply) {
+    char *p = strchr(reply + 1, '\r');
+    long long mbulklen;
+    mrb_value result = mrb_ary_new_capa(mrb, 0);
+    int j;
+
+    string2ll(reply + 1, p - reply - 1, &mbulklen);
+    p += 2;
+    if (mbulklen == -1) {
+        return p;
+    }
+    for (j = 0; j < mbulklen; j++) {
+        p = redisProtocolToMrbType(mrb, result, p);
+    }
+
+    mrb_ary_push(mrb, context, result);
+    return p;
+}
+
+mrb_value mrbRedisGenericCommand(mrb_state *mrb, mrb_value self, int raise_error) {
+    mrb_value *mrb_argv;
+    int len;
+    struct redisCommand *cmd;
+    robj **argv;
+    redisClient *c = server.lua_client; // TODO Use another name
+    sds reply;
+    struct RClass *errorClass;
+    char *errorMessage;
+    mrb_value result;
+
+    mrb_get_args(mrb, "*", &mrb_argv, &len);
+
+    if (!len) {
+        errorClass = E_ARGUMENT_ERROR;
+        errorMessage = "Please specify at least one argument for REDIS.call()";
+        goto error;
+    }
+
+    argv = zmalloc(sizeof(robj*) * len);
+
+    for (int i = 1; i < len; i++) {
+        enum mrb_vtype type = mrb_type(mrb_argv[i]);
+        char *arg;
+        switch (type) {
+        case MRB_TT_STRING:
+        case MRB_TT_SYMBOL:
+        case MRB_TT_FIXNUM:
+        case MRB_TT_FLOAT:
+            arg = RSTRING_PTR(mrb_obj_as_string(mrb, mrb_argv[i]));
+            argv[i] = createStringObject(arg, strlen(arg));
+            break;
+        default:
+            errorClass = E_ARGUMENT_ERROR;
+            errorMessage = "mruby REDIS.call() command arguments must be strings or integers or symbols";
+            goto cleanup;
+        }
+    }
+
+    c->argv = argv;
+    c->argc = len;
+
+    cmd = lookupCommandByCString(RSTRING_PTR(*mrb_argv));
+    if (!cmd || ((cmd->arity > 0 && cmd->arity != len) ||
+          (len < -cmd->arity)))
+    {
+        errorClass = E_ARGUMENT_ERROR;
+        if (cmd) {
+            errorMessage = "Wrong number of args calling Redis command From mruby script";
+        } else {
+            errorMessage = "Unknown Redis command called from mruby script";
+        }
+        goto cleanup;
+    }
+
+    if (cmd->flags & REDIS_CMD_NOSCRIPT) {
+        errorClass = E_ARGUMENT_ERROR;
+        errorMessage = "This Redis command is not allowed from scripts";
+        goto cleanup;
+    }
+
+    // TODO Check `server.maxmemory`
+    // TODO Check cmd->flags
+
+    c->cmd = cmd;
+    call(c, REDIS_CALL_SLOWLOG | REDIS_CALL_STATS);
+
+    reply = sdsempty();
+    if (c->bufpos) {
+        reply = sdscatlen(reply, c->buf, c->bufpos);
+        c->bufpos = 0;
+    }
+    while (listLength(c->reply)) {
+        robj *o = listNodeValue(listFirst(c->reply));
+
+        reply = sdscatlen(reply, o->ptr, sdslen(o->ptr));
+        listDelNode(c->reply, listFirst(c->reply));
+    }
+
+    result = mrb_ary_new_capa(mrb, 0);
+    redisProtocolToMrbType(mrb, result, reply);
+    sdsfree(reply);
+
+    for (int j = 1; j < c->argc; j++) {
+      decrRefCount(c->argv[j]);
+    }
+    zfree(c->argv);
+
+    result = mrb_ary_pop(mrb, result);
+    if (raise_error && mrb_obj_is_kind_of(mrb, result, mrb_class_get(mrb, "Exception"))) {
+        mrb_exc_raise(mrb, result);
+    }
+    return result;
+
+cleanup:
+    for (int j = 1; j < c->argc; j++) {
+        decrRefCount(c->argv[j]);
+    }
+    zfree(c->argv);
+
+error:
+    if (errorClass) {
+        if (raise_error) {
+            mrb_raise(mrb, errorClass, errorMessage);
+        } else {
+            return mrb_exc_new(mrb, errorClass, errorMessage, strlen(errorMessage));
+        }
+    }
+    return mrb_nil_value();
+}
+
+mrb_value mrbRedisCallCammand(mrb_state *mrb, mrb_value self) {
+    return mrbRedisGenericCommand(mrb, self, 1);
+}
+
+mrb_value mrbRedisPCallCammand(mrb_state *mrb, mrb_value self) {
+    return mrbRedisGenericCommand(mrb, self, 0);
+}
+
+int isRecursiveMrbObject(mrb_state *mrb, mrb_value value, mrb_value list) {
+    if (!mrb_array_p(value) && !mrb_hash_p(value)) {
+        return 0;
+    }
+
+    for (int i = 0; i < RARRAY_LEN(list); i++) {
+        if (mrb_obj_equal(mrb, value, RARRAY_PTR(list)[i])) {
+            return 1;
+        }
+    }
+    mrb_ary_push(mrb, list, value);
+
+    if (mrb_array_p(value)) {
+        mrb_value obj;
+        for (int i = 0; i < RARRAY_LEN(value); i++) {
+            obj = RARRAY_PTR(value)[i];
+            if (isRecursiveMrbObject(mrb, obj, list)) return 1;
+        }
+    } else if (mrb_hash_p(value)) {
+        khash_t(ht) *h = RHASH_TBL(value);
+        khiter_t k;
+        for (k = kh_begin(h); k != kh_end(h); k++) {
+            if (kh_exist(h, k)) {
+                if (isRecursiveMrbObject(mrb, kh_key(h, k), list)) return 1;
+                if (isRecursiveMrbObject(mrb, kh_value(h, k), list)) return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+void revalCommand(redisClient *c) {
+    mrb_state *mrb;
+    mrb_value v;
+    mrb_value ARGV;
+    mrb_value KEYS;
+
+    int i;
+    struct RClass *REDIS;
+    char *code = c->argv[1]->ptr;
+    int count = atoi(c->argv[2]->ptr);
+    int argc = c->argc;
+
+    // TODO `mrb_state` should be reused.
+    // But current mruby has no GC for `irep`, so we cannot reuse mrb_state.
+    mrb = mrb_open();
+
+    if (argc < count + 3) {
+        addReplyError(c, "Number of keys can't be greater than number of args");
+        goto cleanup;
+    }
+
+    KEYS = mrb_ary_new_capa(mrb, count);
+    for (i = 3; i < count + 3; i++) {
+        mrb_ary_push(mrb, KEYS, mrb_str_new(mrb, c->argv[i]->ptr, strlen(c->argv[i]->ptr)));
+    }
+    mrb_define_global_const(mrb, "KEYS", KEYS);
+
+    ARGV = mrb_ary_new_capa(mrb, argc - count - 3);
+    for (; i < argc; i++) {
+        mrb_ary_push(mrb, ARGV, mrb_str_new(mrb, c->argv[i]->ptr, strlen(c->argv[i]->ptr)));
+    }
+    mrb_define_global_const(mrb, "ARGV", ARGV);
+
+    REDIS = mrb_define_class(mrb, "REDIS", mrb->object_class);
+    mrb_define_class_method(mrb, REDIS, "call", mrbRedisCallCammand, ARGS_REQ(1));
+    mrb_define_class_method(mrb, REDIS, "pcall", mrbRedisPCallCammand, ARGS_REQ(1));
+
+    v = mrb_load_string(mrb, code);
+    if (mrb->exc) {
+        addReplyErrorFormat(c, "Error compiling script: %s\n", RSTRING_PTR(mrb_obj_as_string(mrb, mrb_obj_value(mrb->exc))));
+        goto cleanup;
+    }
+
+    if (isRecursiveMrbObject(mrb, v, mrb_ary_new(mrb))) {
+        addReplyError(c, "Recursive mruby object is not acceptable");
+        goto cleanup;
+    }
+
+    mrbReplyToRedisReply(c, mrb, v);
+
+cleanup:
+    mrb_close(mrb);
 }

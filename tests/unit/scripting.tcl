@@ -281,6 +281,151 @@ start_server {tags {"scripting"}} {
         assert_equal $rand1 $rand2
         assert {$rand2 ne $rand3}
     }
+
+    test {REVAL - Does mruby interpreter replies to our requests?} {
+        r reval {'hello'} 0
+    } {hello}
+
+    test {REVAL - mruby integer -> Redis protocol type conversion} {
+        r reval {100.5} 0
+    } {100}
+
+    test {REVAL - mruby string -> Redis protocol type conversion} {
+        r reval {'hello world'} 0
+    } {hello world}
+
+    test {REVAL - mruby true boolean -> Redis protocol type conversion} {
+        r reval {true} 0
+    } {1}
+
+    test {REVAL - mruby false boolean -> Redis protocol type conversion} {
+        r reval {false} 0
+    } {}
+
+    test {REVAL - mruby error reply -> Redis protocol type conversion} {
+        catch {
+            r reval {StandardError.new} 0
+        } e
+        set _ $e
+    } {ERR StandardError}
+
+    test {REVAL - mruby array -> Redis protocol type conversion} {
+        r reval {[1,2,3,'hi',[1,2]]} 0
+    } {1 2 3 hi {1 2}}
+
+    test {REVAL - mruby hash -> Redis protocol type conversion} {
+        r reval {{:a => {1 => 2}}} 0
+    } {}
+
+    test {REVAL - Are the KEYS and ARGS arrays populated correctly?} {
+        r reval {[KEYS[0],KEYS[1],ARGV[0],ARGV[1]]} 2 a b c d
+    } {a b c d}
+
+    test {REVAL - is mruby able to call Redis API?} {
+        r set mykey myval
+        r reval {REDIS.call('get','mykey')} 0
+    } {myval}
+
+    test {REVAL - Redis bulk -> mruby type conversion} {
+        r set mykey myval
+        r reval {
+            foo = REDIS.call('get','mykey')
+            [foo.class.to_s,foo]
+        } 0
+    } {String myval}
+
+    test {REVAL - Redis integer -> mruby type conversion} {
+        r reval {
+            foo = REDIS.call('incr','m')
+            [foo.class.to_s,foo]
+        } 0
+    } {Fixnum 1}
+
+    test {REVAL - Redis multi bulk -> mruby type conversion} {
+        r del mylist
+        r rpush mylist a
+        r rpush mylist b
+        r rpush mylist c
+        r reval {
+            foo = REDIS.call('lrange','mylist',0,-1)
+            [foo.class.to_s,*foo,foo.size]
+        } 0
+    } {Array a b c 3}
+
+    test {REVAL - Redis status reply -> mruby type conversion} {
+        r reval {
+            foo = REDIS.call('set','mykey','myval')
+            [foo.class.to_s,foo[:ok]]
+        } 0
+    } {Hash OK}
+
+    test {REVAL - Redis error reply -> mruby type conversion} {
+        r set mykey myval
+        r reval {
+            foo = REDIS.pcall('incr','mykey')
+            [foo.class.to_s,foo.to_s]
+        } 0
+    } {StandardError {ERR value is not an integer or out of range}}
+
+    test {REVAL - Redis nil bulk reply -> mruby type conversion} {
+        r del mykey
+        r reval {
+            foo = REDIS.call('get','mykey')
+            [foo.class.to_s,foo.nil?]
+        } 0
+    } {NilClass 1}
+
+    test {REVAL - Scripts can't run certain commands} {
+        set e {}
+        catch {r reval {REDIS.call('spop','x')} 0} e
+        set e
+    } {*not allowed*}
+
+    test {REVAL - No arguments to REDIS.call/pcall is considered an error} {
+        set e {}
+        catch {r reval {REDIS.call()} 0} e
+        set e
+    } {*one argument*}
+
+    test {REVAL - REDIS.call variant raises a mruby error on Redis cmd error (1)} {
+        set e {}
+        catch {
+            r reval "REDIS.call('nosuchcommand')" 0
+        } e
+        set e
+    } {*Unknown Redis*}
+
+    test {REVAL - REDIS.call variant raises a mruby error on Redis cmd error (1)} {
+        set e {}
+        catch {
+            r reval {REDIS.call('get','a','b','c')} 0
+        } e
+        set e
+    } {*number of args*}
+
+    test {REVAL - mruby status code reply -> Redis protocol type conversion} {
+        r reval {{ok: 'fine'}} 0
+    } {fine}
+
+    test {Handling error for refering an undeclared variable} {
+        catch {r reval {hi} 0} e
+        set e
+    } {*undefined method 'hi' for main*}
+
+    test {Handling error for invalid syntax} {
+        catch {r reval {:-<} 0} e
+        set e
+    } {*syntax error*}
+
+    test {Handling error for recursive array} {
+        catch {r reval {a = []; a << [a]; a} 0} e
+        set e
+    } {*Recursive mruby object*}
+
+    test {Handling error for recursive hash} {
+        catch {r reval {h = {}; h[:key] = [h]; h} 0} e
+        set e
+    } {*Recursive mruby object*}
 }
 
 # Start a new server since the last test in this stanza will kill the

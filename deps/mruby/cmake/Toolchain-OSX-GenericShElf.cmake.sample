@@ -1,0 +1,37 @@
+#
+# Typical usage:
+#    0) install cmake version 2.8-9 or higher.
+#    1) install a PizzaFactory cross compiler
+#       a) darwin toolchain targeting sh-elf: http://sourceforge.jp/projects/pf3gnuchains/downloads/50061/sh-pizzafactory-elf.pkg/
+#       b) install pkg.
+#       c) export PATH=$PATH:/pizza/bin
+#    2) cp cmake/Toolchain-OSX-GenericShElf.cmake.sample ~/Toolchain-OSX-GenericShElf.cmake
+#    3) tweak toolchain values as needed
+#    4) cd build
+#    5) cmake -DCMAKE_TOOLCHAIN_FILE=~/Toolchain-OSX-GenericShElf.cmake ..
+#    6) Run mirb on gdb
+#       a) sh-pizzafactory-elf-gdb tools/mirb/mirb
+#       b) target sim
+#       c) load
+#       d) run
+
+# name of the target OS on which the built artifacts will run
+# and the toolchain prefix
+set(CMAKE_SYSTEM_NAME Generic)
+set(TOOLCHAIN_PREFIX sh-pizzafactory-elf)
+
+# cross compilers to use for C and C++
+set(CMAKE_C_COMPILER ${TOOLCHAIN_PREFIX}-gcc)
+set(CMAKE_CXX_COMPILER ${TOOLCHAIN_PREFIX}-g++)
+
+# target environment(s) on the build host system
+#   set 1st to dir with the cross compiler's C/C++ headers/libs
+#   set 2nd to dir containing personal cross development headers/libs
+set(CMAKE_FIND_ROOT_PATH /pizza/${TOOLCHAIN_PREFIX})
+
+# modify default behavior of FIND_XXX() commands to
+# search for headers/libs in the target environment and
+# search for programs in the build host environment
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)

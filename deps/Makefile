@@ -37,6 +37,7 @@ distclean:
 	-(cd linenoise && $(MAKE) clean) > /dev/null || true
 	-(cd lua && $(MAKE) clean) > /dev/null || true
 	-(cd jemalloc && [ -f Makefile ] && $(MAKE) distclean) > /dev/null || true
+	-(cd mruby && ./minirake clean) > /dev/null || true
 	-(rm -f .make-*)
 
 .PHONY: distclean
@@ -67,7 +68,16 @@ lua: .make-prerequisites
 
 .PHONY: lua
 
-JEMALLOC_CFLAGS= -std=gnu99 -Wall -pipe -g3 -O3 -funroll-loops $(CFLAGS)
+MRUBY_CFLAGS+= -DDISABLE_STDIO $(CFLAGS)
+MRUBY_LDFLAGS+= $(LDFLAGS)
+
+mruby: .make-prerequisites
+	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
+	cd mruby && $(MAKE) CFLAGS="$(MRUBY_CFLAGS)" MYLDFLAGS="$(MRUBY_LDFLAGS)"
+
+.PHONY: mruby
+
+JEMALLOC_CFLAGS= --Wall -pipe -g3 -O3 -funroll-loops $(CFLAGS)
 JEMALLOC_LDFLAGS= $(LDFLAGS)
 
 jemalloc: .make-prerequisites

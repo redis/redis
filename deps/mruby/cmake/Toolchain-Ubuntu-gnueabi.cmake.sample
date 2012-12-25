@@ -1,0 +1,29 @@
+# Sample toolchain file for building for ARM from an Ubuntu Linux system.
+#
+# Typical usage:
+#    1) install cross compiler: `sudo apt-get install gcc-arm-linux-gnueabi`
+#    2) cp cmake/Toolchain-Ubuntu-gnueabi.cmake.sample ~/Toolchain-Ubuntu-gnueabi.cmake
+#    3) tweak toolchain values as needed
+#    4) cd build
+#    5) cmake -DCMAKE_TOOLCHAIN_FILE=~/Toolchain-Ubuntu-gnueabi.cmake ..
+
+# name of the target OS on which the built artifacts will run and the
+# toolchain prefix. if target is an embedded system without an OS, set
+# CMAKE_SYSTEM_NAME to `Generic`
+set(CMAKE_SYSTEM_NAME Linux)
+set(TOOLCHAIN_PREFIX arm-linux-gnueabi)
+
+# cross compilers to use for C
+set(CMAKE_C_COMPILER ${TOOLCHAIN_PREFIX}-gcc)
+
+# target environment on the build host system
+#   set 1st to dir with the cross compiler's C/C++ headers/libs
+#   set 2nd to dir containing personal cross development headers/libs
+set(CMAKE_FIND_ROOT_PATH /usr/${TOOLCHAIN_PREFIX} ~/crossdev/eabi)
+
+# modify default behavior of FIND_XXX() commands to
+# search for headers/libs in the target environment and
+# search for programs in the build host environment
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
