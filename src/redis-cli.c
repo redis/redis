@@ -487,8 +487,11 @@ static int cliReadReply(int output_raw_strings) {
     int output = 1;
 
     if (redisGetReply(context,&_reply) != REDIS_OK) {
-        if (config.shutdown)
+        if (config.shutdown) {
+            redisFree(context);
+            context = NULL;
             return REDIS_OK;
+        }
         if (config.interactive) {
             /* Filter cases where we should reconnect */
             if (context->err == REDIS_ERR_IO && errno == ECONNRESET)
