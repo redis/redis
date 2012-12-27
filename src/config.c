@@ -230,7 +230,13 @@ void loadServerConfigFromString(char *config) {
                 err = "repl-timeout must be 1 or greater";
                 goto loaderr;
             }
-        } else if (!strcasecmp(argv[0],"masterauth") && argc == 2) {
+        } else if (!strcasecmp(argv[0],"repl-auto-resync") && argc == 2) {
+            server.repl_auto_resync = yesnotoi(argv[1]);
+            if (server.repl_auto_resync == -1) {
+                err = "repl-auto-resync must be 'yes' or 'no'";
+                goto loaderr;
+            }
+		} else if (!strcasecmp(argv[0],"masterauth") && argc == 2) {
         	server.masterauth = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"slave-serve-stale-data") && argc == 2) {
             if ((server.repl_serve_stale_data = yesnotoi(argv[1])) == -1) {

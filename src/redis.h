@@ -602,6 +602,7 @@ struct redisServer {
     int masterport;                 /* Port of master */
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
     int repl_timeout;               /* Timeout after N seconds of master idle */
+    int repl_auto_resync;           /* Automatically reconnect to master? */
     redisClient *master;     /* Client that is master for this slave */
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
     int repl_state;          /* Replication status if the instance is a slave */

@@ -647,7 +647,11 @@ void freeClient(redisClient *c) {
     /* Case 2: we lost the connection with the master. */
     if (c->flags & REDIS_MASTER) {
         server.master = NULL;
-        server.repl_state = REDIS_REPL_CONNECT;
+        if (server.repl_auto_resync) {
+            server.repl_state = REDIS_REPL_CONNECT;
+        } else {
+            server.repl_state = REDIS_REPL_NONE;
+        }
         server.repl_down_since = server.unixtime;
         /* We lost connection with our master, force our slaves to resync
          * with us as well to load the new data set.
