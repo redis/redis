@@ -687,7 +687,7 @@ int rdbSave(char *filename) {
      * loading code skips the check in this case. */
     cksum = rdb.cksum;
     memrev64ifbe(&cksum);
-    rioWrite(&rdb,&cksum,8);
+    if (rioWrite(&rdb,&cksum,8) == 0) goto werr;
 
     /* Make sure data will not remain on the OS's output buffers */
     fflush(fp);
