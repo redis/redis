@@ -1352,15 +1352,18 @@ int mergeRdbs(int ifile_count, char **infiles, char *outfile, const int progress
                 continue;
             }
 
-            /* Handle normal object */
-            if (rdbSaveType(&rdb,type) == -1) goto err;
-            /* Handle key */
+            /* Load key and value */
             if ((key = rdbLoadStringObject(&irdb)) == NULL) goto err;
-            if (rdbSaveStringObject(&rdb,key) == -1) goto err;
-            FREE_ROBJ(key);
-            /* Handle value */
             if ((val = rdbLoadObject(type,&irdb)) == NULL) goto err;
+
+            /* Ignore the special db version key */
+            if (strcmp(key->ptr, REDIS_RDB_DBVERSION_KEY) != 0) {
+                /* Save the object */
+                if (rdbSaveType(&rdb,type) == -1) goto err;
+                if (rdbSaveStringObject(&rdb,key) == -1) goto err;
             if (rdbSaveObject(&rdb,val) == -1) goto err;
+            }
+            FREE_ROBJ(key);
             FREE_ROBJ(val);
         }
     }
