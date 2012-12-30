@@ -709,7 +709,7 @@ int rdbSave(char *filename) {
      * loading code skips the check in this case. */
     cksum = rdb.cksum;
     memrev64ifbe(&cksum);
-    rioWrite(&rdb,&cksum,8);
+    if (rioWrite(&rdb,&cksum,8) == 0) goto werr;
 
     /* Make sure data will not remain on the OS's output buffers */
     fflush(fp);
@@ -1235,7 +1235,7 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
     return REDIS_ERR; /* Just to avoid warning */
 }
 
-void rdbMergerProgress(rio *r, const void *buf, size_t len) {
+void rdbCksumAndProgressCallback(rio *r, const void *buf, size_t len) {
     if (server.rdb_checksum)
         rioGenericUpdateChecksum(r, buf, len);
     server.loading_loaded_bytes += len;
@@ -1295,7 +1295,7 @@ int mergeRdbs(int ifile_count, char **infiles, char *outfile, const int progress
             goto err;
         }
         rioInitWithFile(&irdb, ifp);
-        irdb.update_cksum = rdbMergerProgress;
+        irdb.update_cksum = rdbCksumAndProgressCallback;
         irdb.max_processing_chunk = 1024*1024;
         if (rioRead(&irdb,buf,9) == 0) goto err;
         buf[9] = '\0';
@@ -1317,11 +1317,11 @@ int mergeRdbs(int ifile_count, char **infiles, char *outfile, const int progress
             /* Handle end of input file */
             if (type == REDIS_RDB_OPCODE_EOF) {
                 /* Verify the checksum if RDB version is >= 5 */
-                if (rdbver >= 5 && server.rdb_checksum) {
+                if (rdbver >= 5) {
                     uint64_t cksum, expected = irdb.cksum;
                     if (rioRead(&irdb,&cksum,8) == 0) goto err;
                     memrev64ifbe(&cksum);
-                    if (cksum != 0 && cksum != expected) {
+                    if (server.rdb_checksum && cksum != 0 && cksum != expected) {
                         redisLog(REDIS_WARNING,"Wrong RDB checksum for file %s %p %p", *infiles, (void*)expected, (void*)cksum);
                         errno = EINVAL;
                         goto err;
@@ -1373,7 +1373,7 @@ int mergeRdbs(int ifile_count, char **infiles, char *outfile, const int progress
     * loading code skips the check in this case. */
     cksum = rdb.cksum;
     memrev64ifbe(&cksum);
-    rioWrite(&rdb,&cksum,8);
+    if (rioWrite(&rdb,&cksum,8) == 0) goto err;
 
     fclose(ofp);
     return REDIS_OK;
