@@ -1890,6 +1890,8 @@ void bytesToHuman(char *s, unsigned long long n) {
     } else if (n < (1024LL*1024*1024*1024)) {
         d = (double)n/(1024LL*1024*1024);
         sprintf(s,"%.2fG",d);
+    } else {
+        sprintf(s,"%lluB",n);
     }
 }
 
