@@ -59,7 +59,7 @@ fi
 #read the redis config file
 _REDIS_CONFIG_FILE="/etc/redis/$REDIS_PORT.conf"
 read -p "Please select the redis config file name [$_REDIS_CONFIG_FILE] " REDIS_CONFIG_FILE
-if [ !"$REDIS_CONFIG_FILE" ] ; then
+if [ ! "$REDIS_CONFIG_FILE" ] ; then
 	REDIS_CONFIG_FILE=$_REDIS_CONFIG_FILE
 	echo "Selected default - $REDIS_CONFIG_FILE"
 fi
@@ -69,7 +69,7 @@ mkdir -p `dirname "$REDIS_CONFIG_FILE"` || die "Could not create redis config di
 #read the redis log file path
 _REDIS_LOG_FILE="/var/log/redis_$REDIS_PORT.log"
 read -p "Please select the redis log file name [$_REDIS_LOG_FILE] " REDIS_LOG_FILE
-if [ !"$REDIS_LOG_FILE" ] ; then
+if [ ! "$REDIS_LOG_FILE" ] ; then
 	REDIS_LOG_FILE=$_REDIS_LOG_FILE
 	echo "Selected default - $REDIS_LOG_FILE"
 fi
@@ -78,7 +78,7 @@ fi
 #get the redis data directory
 _REDIS_DATA_DIR="/var/lib/redis/$REDIS_PORT"
 read -p "Please select the data directory for this instance [$_REDIS_DATA_DIR] " REDIS_DATA_DIR
-if [ !"$REDIS_DATA_DIR" ] ; then
+if [ ! "$REDIS_DATA_DIR" ] ; then
 	REDIS_DATA_DIR=$_REDIS_DATA_DIR
 	echo "Selected default - $REDIS_DATA_DIR"
 fi
