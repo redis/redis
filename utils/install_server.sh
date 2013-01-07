@@ -159,7 +159,7 @@ REDIS_CHKCONFIG_INFO=\
 # Description: Redis daemon\n
 ### END INIT INFO\n\n"
 
-if [ !`which chkconfig` ] ; then 
+if [ ! `which chkconfig` ] ; then 
 	#combine the header and the template (which is actually a static footer)
 	echo $REDIS_INIT_HEADER > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
 else
@@ -173,7 +173,7 @@ echo "Copied $TMP_FILE => $INIT_SCRIPT_DEST"
 
 #Install the service
 echo "Installing service..."
-if [ !`which chkconfig` ] ; then 
+if [ ! `which chkconfig` ] ; then 
 	#if we're not a chkconfig box assume we're able to use update-rc.d
 	update-rc.d redis_$REDIS_PORT defaults && echo "Success!"
 else
