@@ -161,7 +161,7 @@ REDIS_CHKCONFIG_INFO=\
 
 if [ !`which chkconfig` ] ; then 
 	#combine the header and the template (which is actually a static footer)
-	echo $REDIS_INIT_HEADER > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
+	echo -e $REDIS_INIT_HEADER > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
 else
 	#if we're a box with chkconfig on it we want to include info for chkconfig
 	echo -e $REDIS_INIT_HEADER $REDIS_CHKCONFIG_INFO > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
