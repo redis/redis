@@ -714,7 +714,7 @@ int memtest_test_linux_anonymous_maps(void) {
         crc1 = crc64(crc1,(void*)start_vect[j],size_vect[j]);
     }
 
-    /* 2) Invert bits, swap adiacent words, swap again, invert bits.
+    /* 2) Invert bits, swap adjacent words, swap again, invert bits.
      * This is the error amplification step. */
     for (j = 0; j < regions; j++)
         memtest_non_destructive_invert((void*)start_vect[j],size_vect[j]);
