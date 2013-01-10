@@ -1361,7 +1361,7 @@ int mergeRdbs(int ifile_count, char **infiles, char *outfile, const int progress
                 /* Save the object */
                 if (rdbSaveType(&rdb,type) == -1) goto err;
                 if (rdbSaveStringObject(&rdb,key) == -1) goto err;
-            if (rdbSaveObject(&rdb,val) == -1) goto err;
+                if (rdbSaveObject(&rdb,val) == -1) goto err;
             }
             FREE_ROBJ(key);
             FREE_ROBJ(val);
