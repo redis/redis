@@ -139,10 +139,10 @@ all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCH
 .PHONY: all
 
 # Deps (use make dep to generate this)
-include $(SRCDIR)/Makefile.dep
+-include $(SRCDIR)/Makefile.dep
 
 $(SRCDIR)/Makefile.dep:
-	$(REDIS_CC) -MM ../*.c > $(SRCDIR)/Makefile.dep
+	-$(REDIS_CC) -MM ../*.c > $(SRCDIR)/Makefile.dep
 
 persist-settings: distclean
 	echo STD=$(STD) >> .make-settings
