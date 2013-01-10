@@ -62,7 +62,7 @@ To run Redis with the default configuration just type:
 
     % cd src
     % ./redis-server
-    
+
 If you want to provide your redis.conf, you have to run it using an additional
 parameter (the path of the configuration file):
 
@@ -96,7 +96,7 @@ then in another terminal try the following:
     (integer) 1
     redis> incr mycounter
     (integer) 2
-    redis> 
+    redis>
 
 You can find the list of all the available commands here:
 
@@ -125,8 +125,17 @@ The script will ask you a few questions and will setup everything you need
 to run Redis properly as a background daemon that will start again on
 system reboots.
 
+Also you can install server in non-interactive mode. Examples:
+- install with default values:
+    % ./install_server --non-interactive
+- install by specifing only custom port and configuration template:
+    % ./install_server --non-interactive --port=6379 --config-tpl=/path/to/your/config/template.tpl
+- show the list of supported non-interactive parameters:
+    % ./install_server --help
+
 You'll be able to stop and start Redis using the script named
 /etc/init.d/redis_<portnumber>, for instance /etc/init.d/redis_6379.
+
 
 Code contributions
 ---
