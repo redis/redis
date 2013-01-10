@@ -14,6 +14,17 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.6.8 ]
+
+UPGRADE URGENCY: MODERATE if you use Lua scripting. Otherwise LOW.
+
+* [BUGFIX]   Multiple fixes for EVAL (issue #872).
+* [BUGFIX]   Fix overflow in mstime() in redis-cli and benchmark.
+* [BUGFIX]   Fix Linux / PPC64 behavior by correcting endianess detection.
+* [BUGFIX]   Fix NetBSD build by defining _XOPEN_SOURCE appropriately.
+* [BUGFIX]   Added missing license and copyright in a few places.
+* [BUGFIX]   Better error reporting when fd event creation fails.
+
 --[ Redis 2.6.7 ]
 
 UPGRADE URGENCY: MODERATE (unless you BLPOP using the same key multiple times).
