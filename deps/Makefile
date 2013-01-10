@@ -66,7 +66,7 @@ LUA_LDFLAGS+= $(LDFLAGS)
 lua: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
 	@mkdir -p lua/$(OBJDIR)
-	cd lua/$(OBJDIR) && $(MAKE) -f ../src/Makefile all CFLAGS="$(LUA_CFLAGS)" MYLDFLAGS="$(LUA_LDFLAGS)" VPATH=../src
+	cd lua/$(OBJDIR) && $(MAKE) -f ../src/Makefile all CFLAGS="$(LUA_CFLAGS)" MYLDFLAGS="$(LUA_LDFLAGS)" LIBS="-lm" VPATH=../src
 
 .PHONY: lua
 
