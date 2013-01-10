@@ -297,6 +297,12 @@ start_server {tags {"scripting"}} {
         assert_equal [r ping] "PONG"
     }
 
+    test {Timedout script link is still usable after Lua returns} {
+        r config set lua-time-limit 10
+        r eval {for i=1,100000 do redis.call('ping') end return 'ok'} 0
+        r ping
+    } {PONG}
+
     test {Timedout scripts that modified data can't be killed by SCRIPT KILL} {
         set rd [redis_deferring_client]
         r config set lua-time-limit 10
@@ -310,6 +316,8 @@ start_server {tags {"scripting"}} {
         assert_match {BUSY*} $e
     }
 
+    # Note: keep this test at the end of this server stanza because it
+    # kills the server.
     test {SHUTDOWN NOSAVE can kill a timedout script anyway} {
         # The server sould be still unresponding to normal commands.
         catch {r ping} e
@@ -323,9 +331,16 @@ start_server {tags {"scripting"}} {
 
 start_server {tags {"scripting repl"}} {
     start_server {} {
-        test {Before the slave connects we issue an EVAL command} {
+        test {Before the slave connects we issue two EVAL commands} {
+            # One with an error, but still executing a command.
+            # SHA is: 6e8bd6bdccbe78899e3cc06b31b6dbf4324c2e56
+            catch {
+                r eval {redis.call('incr','x'); redis.call('nonexisting')} 0
+            }
+            # One command is correct:
+            # SHA is: ae3477e27be955de7e1bc9adfdca626b478d3cb2
             r eval {return redis.call('incr','x')} 0
-        } {1}
+        } {2}
 
         test {Connect a slave to the main instance} {
             r -1 slaveof [srv 0 host] [srv 0 port]
@@ -337,15 +352,20 @@ start_server {tags {"scripting repl"}} {
             }
         }
 
-        test {Now use EVALSHA against the master} {
+        test {Now use EVALSHA against the master, with both SHAs} {
+            # The server should replicate successful and unsuccessful
+            # commands as EVAL instead of EVALSHA.
+            catch {
+                r evalsha 6e8bd6bdccbe78899e3cc06b31b6dbf4324c2e56 0
+            }
             r evalsha ae3477e27be955de7e1bc9adfdca626b478d3cb2 0
-        } {2}
+        } {4}
 
-        test {If EVALSHA was replicated as EVAL the slave should be ok} {
+        test {If EVALSHA was replicated as EVAL, 'x' should be '4'} {
             wait_for_condition 50 100 {
-                [r -1 get x] eq {2}
+                [r -1 get x] eq {4}
             } else {
-                fail "Expected 2 in x, but value is '[r -1 get x]'"
+                fail "Expected 4 in x, but value is '[r -1 get x]'"
             }
         }
 
