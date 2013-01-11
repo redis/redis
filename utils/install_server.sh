@@ -100,8 +100,8 @@ fi
 
 #render the tmplates
 TMP_FILE="/tmp/$REDIS_PORT.conf"
-DEFAULT_CONFIG="../redis.conf"
-INIT_TPL_FILE="./redis_init_script.tpl"
+DEFAULT_CONFIG="`dirname $0`/../redis.conf"
+INIT_TPL_FILE="`dirname $0`/./redis_init_script.tpl"
 INIT_SCRIPT_DEST="/etc/init.d/redis_$REDIS_PORT"
 PIDFILE="/var/run/redis_$REDIS_PORT.pid"
 
@@ -123,7 +123,7 @@ s#^dir .+\$#dir ${REDIS_DATA_DIR}#;\
 s#^pidfile .+\$#pidfile ${PIDFILE}#;\
 s#^daemonize no\$#daemonize yes#;" 
 echo $SED_EXPR
-sed -r "$SED_EXPR" $DEFAULT_CONFIG  >> $TMP_FILE
+sed -r "$SED_EXPR" "$DEFAULT_CONFIG"  >> $TMP_FILE
 
 #cat $TPL_FILE | while read line; do eval "echo \"$line\"" >> $TMP_FILE; done
 cp -f $TMP_FILE $REDIS_CONFIG_FILE || exit 1
