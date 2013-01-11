@@ -757,16 +757,20 @@ int luaCreateFunction(redisClient *c, lua_State *lua, char *funcname, robj *body
     funcdef = sdscatlen(funcdef," end",4);
 
     if (luaL_loadbuffer(lua,funcdef,sdslen(funcdef),"@user_script")) {
-        addReplyErrorFormat(c,"Error compiling script (new function): %s\n",
-            lua_tostring(lua,-1));
+        if (c != NULL) {
+            addReplyErrorFormat(c,"Error compiling script (new function): %s\n",
+                lua_tostring(lua,-1));
+        }
         lua_pop(lua,1);
         sdsfree(funcdef);
         return REDIS_ERR;
     }
     sdsfree(funcdef);
     if (lua_pcall(lua,0,0,0)) {
-        addReplyErrorFormat(c,"Error running script (new function): %s\n",
-            lua_tostring(lua,-1));
+        if (c != NULL) {
+            addReplyErrorFormat(c,"Error running script (new function): %s\n",
+                lua_tostring(lua,-1));
+        }
         lua_pop(lua,1);
         return REDIS_ERR;
     }
@@ -911,6 +915,22 @@ void evalGenericCommand(redisClient *c, int evalsha) {
             resetRefCount(createStringObject("EVAL",4)));
         rewriteClientCommandArgument(c,1,script);
     }
+
+    /* When we have slaves we want to always replicate scripts, but avoid
+     * EVAL when a script has no impact on the slave.
+     */
+    if (!server.lua_write_dirty) {
+        robj *script = createStringObject("SCRIPT", 6);
+        robj *load = createStringObject("LOAD", 4);
+
+        /* Rewrite as SCRIPT LOAD.  Note that SHA1 expansion has already
+         * been done here.
+         */
+        rewriteClientCommandVector(c, 3, script, load, c->argv[1]);
+        decrRefCount(script);
+        decrRefCount(load);
+        server.dirty++;
+    }
 }
 
 void evalCommand(redisClient *c) {
@@ -1004,6 +1024,7 @@ void scriptCommand(redisClient *c) {
         }
         addReplyBulkCBuffer(c,funcname+2,40);
         sdsfree(sha);
+        server.dirty++; /* Replicate this command */
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"kill")) {
         if (server.lua_caller == NULL) {
             addReplySds(c,sdsnew("-NOTBUSY No scripts in execution right now.\r\n"));

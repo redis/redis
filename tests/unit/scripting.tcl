@@ -367,3 +367,41 @@ start_server {tags {"scripting repl"}} {
         } {a 1}
     }
 }
+
+start_server {tags {"persistent script repl"}} {
+    start_server {} {
+        test {Load read-only script 99 into the main instance using EVAL} {
+            r eval {return 99} 0
+        } {99}
+
+        test {Connect a slave to the main instance} {
+            r -1 slaveof [srv 0 host] [srv 0 port]
+            wait_for_condition 50 100 {
+                [s -1 role] eq {slave} &&
+                [string match {*master_link_status:up*} [r -1 info replication]]
+            } else {
+                fail "Can't turn the instance into a slave"
+            }
+        }
+
+        test {EVALSHA against slave to run script 99} {
+            r -1 evalsha a2eba4a6e7d6643bc4b14aa4f9e0eedd55dbae3d 0
+        } {99}
+
+        test {Load read-only script 98 into the main instance using EVAL} {
+            r eval {return 98} 0
+        } {98}
+
+        test {EVALSHA against slave to run script 98} {
+            r -1 evalsha 069e4d5d0c3afa79c9a545d8c620dbb94c2a5996 0
+        } {98}
+
+        test {Load read-only script 97 into the main instance using SCRIPT LOAD} {
+            r script load {return 97}
+        } {3f1673c4bedd6a9bc81500f26a454cd277092f80}
+
+        test {EVALSHA against slave to run script 97} {
+            r -1 evalsha 3f1673c4bedd6a9bc81500f26a454cd277092f80 0
+        } {97}
+    }
+}

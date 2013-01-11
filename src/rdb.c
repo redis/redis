@@ -31,6 +31,7 @@
 #include "lzf.h"    /* LZF compression library */
 #include "zipmap.h"
 #include "endianconv.h"
+#include "lua.h"
 
 #include <math.h>
 #include <sys/types.h>
@@ -700,6 +701,20 @@ int rdbSave(char *filename) {
         }
         dictReleaseIterator(di);
     }
+
+    /* Store scripts */
+    di = dictGetSafeIterator(server.lua_scripts);
+    while ((de = dictNext(di)) != NULL) {
+        robj key, *o = dictGetVal(de);
+        sds keystr = sdsnew(REDIS_RDB_SCRIPT_KEY_PREFIX);
+        keystr = sdscatsds(keystr, dictGetKey(de));
+        keystr = sdscat(keystr, REDIS_RDB_SCRIPT_KEY_SUFFIX);
+
+        initStaticStringObject(key, keystr);
+        if (rdbSaveKeyValuePair(&rdb,&key,o,-1,-1) == -1) goto werr; 
+    }
+    dictReleaseIterator(di);
+
     di = NULL; /* So that we don't release it again on error. */
 
     /* EOF opcode */
@@ -1190,6 +1205,31 @@ int rdbLoad(char *filename) {
         if ((key = rdbLoadStringObject(&rdb)) == NULL) goto eoferr;
         /* Read value */
         if ((val = rdbLoadObject(type,&rdb)) == NULL) goto eoferr;
+        /* Handle meta-keys */
+        if (val->type == REDIS_STRING && (*(char *)key->ptr & 0xff) == 0xdb) {
+            sds keystr = (sds) key->ptr;
+
+            if (sdslen(keystr) == REDIS_RDB_SCRIPT_KEY_LEN &&
+                !memcmp(keystr, REDIS_RDB_SCRIPT_KEY_PREFIX, sizeof(REDIS_RDB_SCRIPT_KEY_PREFIX)-1)) {
+                    char funcname[43];
+                    robj *shakey = createStringObject(keystr + sizeof(REDIS_RDB_SCRIPT_KEY_PREFIX)-1, 40);
+
+                    funcname[0] = 'f';
+                    funcname[1] = '_';
+                    memcpy(funcname + 2, shakey->ptr, 40);
+                    funcname[42] = 0;
+
+                    if (luaCreateFunction(NULL, server.lua, funcname, val) != REDIS_OK)  {
+                        redisLog(REDIS_WARNING, "FATAL: Data file contains an invalid LUA script.\n");
+                        exit(1);
+                    }
+                    decrRefCount(shakey);
+                    decrRefCount(key);
+
+                    continue;
+            }
+        }
+
         /* Check if the key already expired. This function is used when loading
          * an RDB file from disk, either at startup, or when an RDB was
          * received from the master. In the latter case, the master is

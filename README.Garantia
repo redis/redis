@@ -16,6 +16,21 @@ The 'dbversion' value is stored in the RDB, which makes it incompatible with
 stock Redis RDB files.
 
 
+Script Replication
+------------------
+
+This version of Redis provides a mechanism to store scripts in RDB files. As
+a results, scripts are as persistent as the database itself.  Also, this
+allows slave servers to receive scripts when initiating a replication link.
+
+In addition, Redis behaves a bit differently in order to fully support
+script replication:
+- EVAL command with a DB-modifying script will be replicated as-is.
+- EVAL command with a non-DB modifying script will be replicated as a 
+  SCRIPT LOAD command (to save processing on the slave).
+- The same applies to EVALSHA, which is replicated as an EVAL or SCRIPT LOAD.
+
+
 Different BGSAVE Types
 ----------------------
 

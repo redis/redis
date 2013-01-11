@@ -42,6 +42,9 @@
 
 /* Special key used to store dbversion in a backward-compatible manner */
 #define REDIS_RDB_DBVERSION_KEY "\xDB__dbversion__\xDB"
+#define REDIS_RDB_SCRIPT_KEY_PREFIX "\xDB__lua_script__"
+#define REDIS_RDB_SCRIPT_KEY_SUFFIX "__\xDB"
+#define REDIS_RDB_SCRIPT_KEY_LEN (sizeof(REDIS_RDB_SCRIPT_KEY_PREFIX)-1 + sizeof(REDIS_RDB_SCRIPT_KEY_SUFFIX)-1 + 40)
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
