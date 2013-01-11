@@ -380,6 +380,7 @@ typedef struct redisClient {
     int fd;
     redisDb *db;
     int dictid;
+    robj *name;             /* As set by CLIENT SETNAME */
     sds querybuf;
     size_t querybuf_peak;   /* Recent (100ms or more) peak of querybuf size */
     int argc;
