@@ -79,12 +79,6 @@ unsigned int dictIntHashFunction(unsigned int key)
     return key;
 }
 
-/* Identity hash function for integer keys */
-unsigned int dictIdentityHashFunction(unsigned int key)
-{
-    return key;
-}
-
 static uint32_t dict_hash_function_seed = 5381;
 
 void dictSetHashFunctionSeed(uint32_t seed) {
