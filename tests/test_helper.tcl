@@ -189,7 +189,7 @@ proc test_server_main {} {
     set start_port [expr {$::port+100}]
     for {set j 0} {$j < $::numclients} {incr j} {
         set start_port [find_available_port $start_port]
-        set p [exec tclsh8.5 [info script] {*}$::argv \
+        set p [exec tclsh [info script] {*}$::argv \
             --client $port --port $start_port &]
         lappend ::clients_pids $p
         incr start_port 10

@@ -1,5 +1,5 @@
 #!/bin/sh
-TCL=tclsh8.5
+TCL=tclsh
 which $TCL
 if [ "$?" != "0" ]
 then

@@ -78,7 +78,7 @@ start_server {tags {"repl"}} {
 }
 
 proc start_write_load {host port seconds} {
-    exec tclsh8.5 tests/helpers/gen_write_load.tcl $host $port $seconds &
+    exec tclsh tests/helpers/gen_write_load.tcl $host $port $seconds &
 }
 
 proc stop_write_load {handle} {
