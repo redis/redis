@@ -15,7 +15,7 @@ je_thread_start(void *arg)
 	p = malloc(1);
 	if (p == NULL) {
 		malloc_printf("%s(): Error in malloc()\n", __func__);
-		return (void *)1;
+		goto label_return;
 	}
 
 	size = sizeof(arena_ind);
@@ -23,7 +23,7 @@ je_thread_start(void *arg)
 	    sizeof(main_arena_ind)))) {
 		malloc_printf("%s(): Error in mallctl(): %s\n", __func__,
 		    strerror(err));
-		return (void *)1;
+		goto label_return;
 	}
 
 	size = sizeof(arena_ind);
@@ -31,11 +31,16 @@ je_thread_start(void *arg)
 	    0))) {
 		malloc_printf("%s(): Error in mallctl(): %s\n", __func__,
 		    strerror(err));
-		return (void *)1;
+		goto label_return;
 	}
 	assert(arena_ind == main_arena_ind);
 
+	free(p);
 	return (NULL);
+
+label_return:
+	free(p);
+	return (void *)1;
 }
 
 int
@@ -75,6 +80,7 @@ main(void)
 		je_thread_join(threads[i], (void *)&ret);
 
 label_return:
+	free(p);
 	malloc_printf("Test end\n");
 	return (ret);
 }
