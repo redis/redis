@@ -342,6 +342,8 @@ void replicationAbortSyncTransfer(void) {
     unlink(server.repl_transfer_tmpfile);
     zfree(server.repl_transfer_tmpfile);
     server.repl_state = REDIS_REPL_CONNECT;
+    server.repl_transfer_s = -1;
+    server.repl_transfer_fd = -1;
 }
 
 /* Asynchronously read the SYNC payload we receive from a master */
@@ -530,6 +532,18 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
         return;
     }
 
+    if (fd != server.repl_transfer_s) {
+        if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &sockerr, &errlen) == -1)
+            sockerr = errno;
+        if (sockerr) {
+            aeDeleteFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE);
+            redisLog(REDIS_WARNING,"Error condition on socket: %s",
+                    strerror(sockerr));
+        }
+        close(fd);
+        return;
+    }
+
     /* Check for errors in the socket. */
     if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &sockerr, &errlen) == -1)
         sockerr = errno;
@@ -682,6 +696,15 @@ int connectWithMaster(void) {
     return REDIS_OK;
 }
 
+void closeConnectWithMaster() {
+    int fd = server.repl_transfer_s;
+    if (fd != -1) {
+        aeDeleteFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE);
+        close(fd);
+        server.repl_transfer_s = -1;
+    }
+}
+
 /* This function can be called when a non blocking connection is currently
  * in progress to undo it. */
 void undoConnectWithMaster(void) {
@@ -695,6 +718,16 @@ void undoConnectWithMaster(void) {
     server.repl_state = REDIS_REPL_CONNECT;
 }
 
+void closeReplicationWithMaster(void) {
+    if (server.repl_state == REDIS_REPL_TRANSFER)
+        replicationAbortSyncTransfer();
+    else {
+        closeConnectWithMaster();
+    }
+    redisLog(REDIS_NOTICE,"Disconnect with Master...");
+}
+
+
 void slaveofCommand(redisClient *c) {
     if (!strcasecmp(c->argv[1]->ptr,"no") &&
         !strcasecmp(c->argv[2]->ptr,"one")) {
@@ -702,11 +735,8 @@ void slaveofCommand(redisClient *c) {
             sdsfree(server.masterhost);
             server.masterhost = NULL;
             if (server.master) freeClient(server.master);
-            if (server.repl_state == REDIS_REPL_TRANSFER)
-                replicationAbortSyncTransfer();
-            else if (server.repl_state == REDIS_REPL_CONNECTING ||
-                     server.repl_state == REDIS_REPL_RECEIVE_PONG)
-                undoConnectWithMaster();
+
+            closeReplicationWithMaster();
             server.repl_state = REDIS_REPL_NONE;
             redisLog(REDIS_NOTICE,"MASTER MODE enabled (user request)");
         }
@@ -730,8 +760,7 @@ void slaveofCommand(redisClient *c) {
         server.masterport = port;
         if (server.master) freeClient(server.master);
         disconnectSlaves(); /* Force our slaves to resync with us as well. */
-        if (server.repl_state == REDIS_REPL_TRANSFER)
-            replicationAbortSyncTransfer();
+        closeReplicationWithMaster();
         server.repl_state = REDIS_REPL_CONNECT;
         redisLog(REDIS_NOTICE,"SLAVE OF %s:%d enabled (user request)",
             server.masterhost, server.masterport);
