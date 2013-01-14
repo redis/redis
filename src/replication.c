@@ -695,6 +695,27 @@ void undoConnectWithMaster(void) {
     server.repl_state = REDIS_REPL_CONNECT;
 }
 
+/* This function aborts a non blocking replication attempt if there is one
+ * in progress, by canceling the non-blocking connect attempt or
+ * the initial bulk transfer.
+ *
+ * If there was a replication handshake in progress 1 is returned and
+ * the replication state (server.repl_state) set to REDIS_REPL_CONNECT.
+ *
+ * Otherwise zero is returned and no operation is perforemd at all. */
+int cancelReplicationHandshake(void) {
+    if (server.repl_state == REDIS_REPL_TRANSFER) {
+        replicationAbortSyncTransfer();
+    } else if (server.repl_state == REDIS_REPL_CONNECTING ||
+             server.repl_state == REDIS_REPL_RECEIVE_PONG)
+    {
+        undoConnectWithMaster();
+    } else {
+        return 0;
+    }
+    return 1;
+}
+
 void slaveofCommand(redisClient *c) {
     if (!strcasecmp(c->argv[1]->ptr,"no") &&
         !strcasecmp(c->argv[2]->ptr,"one")) {
@@ -702,11 +723,7 @@ void slaveofCommand(redisClient *c) {
             sdsfree(server.masterhost);
             server.masterhost = NULL;
             if (server.master) freeClient(server.master);
-            if (server.repl_state == REDIS_REPL_TRANSFER)
-                replicationAbortSyncTransfer();
-            else if (server.repl_state == REDIS_REPL_CONNECTING ||
-                     server.repl_state == REDIS_REPL_RECEIVE_PONG)
-                undoConnectWithMaster();
+            cancelReplicationHandshake();
             server.repl_state = REDIS_REPL_NONE;
             redisLog(REDIS_NOTICE,"MASTER MODE enabled (user request)");
         }
@@ -730,8 +747,7 @@ void slaveofCommand(redisClient *c) {
         server.masterport = port;
         if (server.master) freeClient(server.master);
         disconnectSlaves(); /* Force our slaves to resync with us as well. */
-        if (server.repl_state == REDIS_REPL_TRANSFER)
-            replicationAbortSyncTransfer();
+        cancelReplicationHandshake();
         server.repl_state = REDIS_REPL_CONNECT;
         redisLog(REDIS_NOTICE,"SLAVE OF %s:%d enabled (user request)",
             server.masterhost, server.masterport);
