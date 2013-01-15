@@ -2304,6 +2304,8 @@ void monitorCommand(redisClient *c) {
  * used by the server.
  */
 int freeMemoryIfNeeded(void) {
+    if (server.masterhost) return REDIS_OK;
+
     size_t mem_used, mem_tofree, mem_freed;
     int slaves = listLength(server.slaves);
 
