@@ -230,6 +230,12 @@ void loadServerConfigFromString(char *config) {
                 err = "repl-timeout must be 1 or greater";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"repl-syncio-timeout") && argc == 2) {
+            server.repl_syncio_timeout = atoi(argv[1]);
+            if (server.repl_syncio_timeout <= 0) {
+                err = "repl-syncio-timeout must be 1 or greater";
+                goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"masterauth") && argc == 2) {
         	server.masterauth = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"slave-serve-stale-data") && argc == 2) {
@@ -698,6 +704,9 @@ void configSetCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[2]->ptr,"repl-timeout")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll <= 0) goto badfmt;
         server.repl_timeout = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"repl-syncio-timeout")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll <= 0) goto badfmt;
+        server.repl_syncio_timeout = ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"watchdog-period")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         if (ll)
@@ -805,6 +814,7 @@ void configGetCommand(redisClient *c) {
     config_get_numerical_field("databases",server.dbnum);
     config_get_numerical_field("repl-ping-slave-period",server.repl_ping_slave_period);
     config_get_numerical_field("repl-timeout",server.repl_timeout);
+    config_get_numerical_field("repl-syncio-timeout",server.repl_syncio_timeout);
     config_get_numerical_field("maxclients",server.maxclients);
     config_get_numerical_field("watchdog-period",server.watchdog_period);
     config_get_numerical_field("slave-priority",server.slave_priority);
