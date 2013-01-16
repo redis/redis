@@ -14,6 +14,20 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.6.9 ]
+
+UPGRADE URGENCY: MODERATE if you use replication.
+
+* [BUGFIX]   Changing master at runtime (SLAVEOF command) in presence of
+             network problems, or in very rapid succession, could result
+             in non-critical problems (GitHub Issue #828).
+* [IMPROVED] CLINGET GETNAME and SETNAME to set and query connection names
+             reported by CLIENT LIST. Very useful for debugging of
+             problems.
+* [IMPROVED] redis-cli is now able to transfer an RDB file from a remote
+             server to a local file using the --rdb <filename> command
+             line option.
+
 --[ Redis 2.6.8 ]
 
 UPGRADE URGENCY: MODERATE if you use Lua scripting. Otherwise LOW.
