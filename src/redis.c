@@ -819,11 +819,11 @@ void clientsCron(void) {
  *
  * - Active expired keys collection (it is also performed in a lazy way on
  *   lookup).
- * - Software watchdong.
+ * - Software watchdog.
  * - Update some statistic.
  * - Incremental rehashing of the DBs hash tables.
  * - Triggering BGSAVE / AOF rewrite, and handling of terminated children.
- * - Clients timeout of differnet kinds.
+ * - Clients timeout of different kinds.
  * - Replication reconnection.
  * - Many more...
  *
