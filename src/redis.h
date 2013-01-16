@@ -144,12 +144,12 @@
  *
  * 00|000000 => if the two MSB are 00 the len is the 6 bits of this byte
  * 01|000000 00000000 =>  01, the len is 14 byes, 6 bits + 8 bits of next byte
- * 10|000000 [32 bit integer] => if it's 01, a full 32 bit len will follow
+ * 10|000000 [32 bit integer] => if it's 10, a full 32 bit len will follow
  * 11|000000 this means: specially encoded object will follow. The six bits
  *           number specify the kind of object that follows.
  *           See the REDIS_RDB_ENC_* defines.
  *
- * Lenghts up to 63 are stored using a single byte, most DB keys, and may
+ * Lengths up to 63 are stored using a single byte, most DB keys, and may
  * values, will fit inside. */
 #define REDIS_RDB_6BITLEN 0
 #define REDIS_RDB_14BITLEN 1
@@ -319,7 +319,7 @@ typedef struct redisObject {
     void *ptr;
 } robj;
 
-/* Macro used to initalize a Redis object allocated on the stack.
+/* Macro used to initialize a Redis object allocated on the stack.
  * Note that this macro is taken near the structure definition to make sure
  * we'll update it when the structure is changed, to avoid bugs like
  * bug #85 introduced exactly in this way. */
@@ -376,7 +376,7 @@ typedef struct readyList {
     robj *key;
 } readyList;
 
-/* With multiplexing we need to take per-clinet state.
+/* With multiplexing we need to take per-client state.
  * Clients are taken in a liked list. */
 typedef struct redisClient {
     int fd;
@@ -554,14 +554,14 @@ typedef struct {
 /* Redis cluster messages header */
 
 /* Note that the PING, PONG and MEET messages are actually the same exact
- * kind of packet. PONG is the reply to ping, in the extact format as a PING,
+ * kind of packet. PONG is the reply to ping, in the exact format as a PING,
  * while MEET is a special PING that forces the receiver to add the sender
  * as a node (if it is not already in the list). */
 #define CLUSTERMSG_TYPE_PING 0          /* Ping */
 #define CLUSTERMSG_TYPE_PONG 1          /* Pong (reply to Ping) */
 #define CLUSTERMSG_TYPE_MEET 2          /* Meet "let's join" message */
 #define CLUSTERMSG_TYPE_FAIL 3          /* Mark node xxx as failing */
-#define CLUSTERMSG_TYPE_PUBLISH 4       /* Pub/Sub Publish propatagion */
+#define CLUSTERMSG_TYPE_PUBLISH 4       /* Pub/Sub Publish propagation */
 
 /* Initially we don't know our "name", but we'll find it once we connect
  * to the first node, using the getsockname() function. Then we'll use this
@@ -645,7 +645,7 @@ struct redisServer {
     mode_t unixsocketperm;      /* UNIX socket permission */
     int ipfd;                   /* TCP socket file descriptor */
     int sofd;                   /* Unix socket file descriptor */
-    int cfd;                    /* Cluster bus lisetning socket */
+    int cfd;                    /* Cluster bus listening socket */
     list *clients;              /* List of active clients */
     list *clients_to_close;     /* Clients to close asynchronously */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
@@ -669,7 +669,7 @@ struct redisServer {
     long long stat_keyspace_hits;   /* Number of successful lookups of keys */
     long long stat_keyspace_misses; /* Number of failed lookups of keys */
     size_t stat_peak_memory;        /* Max used memory record */
-    long long stat_fork_time;       /* Time needed to perform latets fork() */
+    long long stat_fork_time;       /* Time needed to perform latest fork() */
     long long stat_rejected_conn;   /* Clients rejected because of maxclients */
     list *slowlog;                  /* SLOWLOG list of commands */
     long long slowlog_entry_id;     /* SLOWLOG current entry ID */
@@ -718,7 +718,7 @@ struct redisServer {
     char *rdb_filename;             /* Name of RDB file */
     int rdb_compression;            /* Use compression in RDB? */
     int rdb_checksum;               /* Use RDB checksum? */
-    time_t lastsave;                /* Unix time of last save succeeede */
+    time_t lastsave;                /* Unix time of last successful save */
     time_t rdb_save_time_last;      /* Time used by last RDB save run. */
     time_t rdb_save_time_start;     /* Current RDB save start time. */
     int lastbgsave_status;          /* REDIS_OK or REDIS_ERR */
@@ -753,7 +753,7 @@ struct redisServer {
     /* Limits */
     unsigned int maxclients;        /* Max number of simultaneous clients */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
-    int maxmemory_policy;           /* Policy for key evition */
+    int maxmemory_policy;           /* Policy for key eviction */
     int maxmemory_samples;          /* Pricision of random sampling */
     /* Blocked clients */
     unsigned int bpop_blocked_clients; /* Number of clients blocked by lists */
@@ -793,7 +793,7 @@ struct redisServer {
     int lua_timedout;     /* True if we reached the time limit for script
                              execution. */
     int lua_kill;         /* Kill the script if true. */
-    /* Assert & bug reportign */
+    /* Assert & bug reporting */
     char *assert_failed;
     char *assert_file;
     int assert_line;
@@ -812,14 +812,14 @@ struct redisCommand {
     char *name;
     redisCommandProc *proc;
     int arity;
-    char *sflags; /* Flags as string represenation, one char per flag. */
+    char *sflags; /* Flags as string representation, one char per flag. */
     int flags;    /* The actual flags, obtained from the 'sflags' field. */
     /* Use a function to determine keys arguments in a command line.
      * Used for Redis Cluster redirect. */
     redisGetKeysProc *getkeys_proc;
     /* What keys should be loaded in background when calling this command? */
     int firstkey; /* The first argument that's a key (0 = no keys) */
-    int lastkey;  /* THe last argument that's a key */
+    int lastkey;  /* The last argument that's a key */
     int keystep;  /* The step between first and last key */
     long long microseconds, calls;
 };
@@ -866,7 +866,7 @@ typedef struct {
     dictIterator *di;
 } setTypeIterator;
 
-/* Structure to hold hash iteration abstration. Note that iteration over
+/* Structure to hold hash iteration abstraction. Note that iteration over
  * hashes involves both fields and values. Because it is possible that
  * not both are required, store pointers in the iterator to avoid
  * unnecessary memory allocation for fields/values. */

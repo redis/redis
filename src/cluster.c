@@ -177,7 +177,7 @@ int clusterLoadConfig(char *filename) {
     return REDIS_OK;
 
 fmterr:
-    redisLog(REDIS_WARNING,"Unrecovarable error: corrupted cluster config file.");
+    redisLog(REDIS_WARNING,"Unrecoverable error: corrupted cluster config file.");
     fclose(fp);
     exit(1);
 }
@@ -985,7 +985,7 @@ void clusterCron(void) {
     time_t min_ping_sent = 0;
     clusterNode *min_ping_node = NULL;
 
-    /* Check if we have disconnected nodes and reestablish the connection. */
+    /* Check if we have disconnected nodes and re-establish the connection. */
     di = dictGetIterator(server.cluster.nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
@@ -1069,7 +1069,7 @@ void clusterCron(void) {
                 clusterUpdateState();
             }
         } else {
-            /* Timeout reached. Set the noad se possibly failing if it is
+            /* Timeout reached. Set the node as possibly failing if it is
              * not already in this state. */
             if (!(node->flags & (REDIS_NODE_PFAIL|REDIS_NODE_FAIL))) {
                 redisLog(REDIS_DEBUG,"*** NODE %.40s possibly failing",
@@ -1803,7 +1803,7 @@ try_again:
     redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,c->argv[3]->ptr,sdslen(c->argv[3]->ptr)));
     redisAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,ttl));
 
-    /* Emit the payload argument, that is the serailized object using
+    /* Emit the payload argument, that is the serialized object using
      * the DUMP format. */
     createDumpPayload(&payload,o);
     redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,payload.io.buffer.ptr,
@@ -1815,7 +1815,7 @@ try_again:
     if (replace)
         redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"REPLACE",7));
 
-    /* Tranfer the query to the other node in 64K chunks. */
+    /* Transfer the query to the other node in 64K chunks. */
     errno = 0;
     {
         sds buf = cmd.io.buffer.ptr;
@@ -1882,7 +1882,7 @@ socket_rd_err:
 }
 
 /* The ASKING command is required after a -ASK redirection.
- * The client should issue ASKING before to actualy send the command to
+ * The client should issue ASKING before to actually send the command to
  * the target instance. See the Redis Cluster specification for more
  * information. */
 void askingCommand(redisClient *c) {
