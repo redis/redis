@@ -385,7 +385,7 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
     sds buf = sdsempty();
     robj *tmpargv[3];
 
-    /* The DB this command was targetting is not the same as the last command
+    /* The DB this command was targeting is not the same as the last command
      * we appendend. To issue a SELECT command is needed. */
     if (dictid != server.aof_selected_db) {
         char seldb[64];

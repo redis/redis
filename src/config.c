@@ -333,7 +333,7 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
 
-            /* If the target command name is the emtpy string we just
+            /* If the target command name is the empty string we just
              * remove it from the command table. */
             retval = dictDelete(server.commands, argv[1]);
             redisAssert(retval == DICT_OK);
@@ -378,7 +378,7 @@ void loadServerConfigFromString(char *config) {
             soft = memtoll(argv[3],NULL);
             soft_seconds = atoi(argv[4]);
             if (soft_seconds < 0) {
-                err = "Negative number of seconds in soft limt is invalid";
+                err = "Negative number of seconds in soft limit is invalid";
                 goto loaderr;
             }
             server.client_obuf_limits[class].hard_limit_bytes = hard;
@@ -423,7 +423,7 @@ loaderr:
  * in the 'options' string to the config file before loading.
  *
  * Both filename and options can be NULL, in such a case are considered
- * emtpy. This way loadServerConfig can be used to just load a file or
+ * empty. This way loadServerConfig can be used to just load a file or
  * just load a string. */
 void loadServerConfig(char *filename, char *options) {
     sds config = sdsempty();
