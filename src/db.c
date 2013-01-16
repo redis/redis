@@ -44,7 +44,7 @@ robj *lookupKey(redisDb *db, robj *key) {
     if (de) {
         robj *val = dictGetVal(de);
 
-        /* Update the access time for the aging algorithm.
+        /* Update the access time for the ageing algorithm.
          * Don't do it if we have a saving child, as this will trigger
          * a copy on write madness. */
         if (server.rdb_child_pid == -1 && server.aof_child_pid == -1)
@@ -85,7 +85,7 @@ robj *lookupKeyWriteOrReply(redisClient *c, robj *key, robj *reply) {
 }
 
 /* Add the key to the DB. It's up to the caller to increment the reference
- * counte of the value if needed.
+ * counter of the value if needed.
  *
  * The program is aborted if the key already exists. */
 void dbAdd(redisDb *db, robj *key, robj *val) {
@@ -538,7 +538,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
  * for *AT variants of the command, or the current time for relative expires).
  *
  * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
- * the argv[2] parameter. The basetime is always specified in milliesconds. */
+ * the argv[2] parameter. The basetime is always specified in milliseconds. */
 void expireGenericCommand(redisClient *c, long long basetime, int unit) {
     dictEntry *de;
     robj *key = c->argv[1], *param = c->argv[2];

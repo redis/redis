@@ -3,6 +3,4 @@ Redis 2.7 release notes
 
 This is the unstable version of Redis 2.8, currently work in progress.
 
-When it will be ready it will be releaed as Redis 2.8.0
-
-Unstable versions of Redis 2.8 will be called 2.7.0, 2.7.1, and so forth.
+When it will be ready for production, it will be releaed as Redis 2.8.0.

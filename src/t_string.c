@@ -43,7 +43,7 @@ static int checkStringLength(redisClient *c, long long size) {
 }
 
 void setGenericCommand(redisClient *c, int nx, robj *key, robj *val, robj *expire, int unit) {
-    long long milliseconds = 0; /* initialized to avoid an harmness warning */
+    long long milliseconds = 0; /* initialized to avoid any harmness warning */
 
     if (expire) {
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != REDIS_OK)
@@ -340,7 +340,7 @@ void incrbyfloatCommand(redisClient *c) {
     addReplyBulk(c,new);
 
     /* Always replicate INCRBYFLOAT as a SET command with the final value
-     * in order to make sure that differences in float pricision or formatting
+     * in order to make sure that differences in float prrcision or formatting
      * will not create differences in replicas or after an AOF restart. */
     aux = createStringObject("SET",3);
     rewriteClientCommandArgument(c,0,aux);
