@@ -378,7 +378,7 @@ void *addDeferredMultiBulkLength(redisClient *c) {
     return listLast(c->reply);
 }
 
-/* Populate the length object and try glueing it to the next chunk. */
+/* Populate the length object and try gluing it to the next chunk. */
 void setDeferredMultiBulkLength(redisClient *c, void *node, long length) {
     listNode *ln = (listNode*)node;
     robj *len, *next;
@@ -404,7 +404,7 @@ void setDeferredMultiBulkLength(redisClient *c, void *node, long length) {
     asyncCloseClientOnOutputBufferLimitReached(c);
 }
 
-/* Add a duble as a bulk reply */
+/* Add a double as a bulk reply */
 void addReplyDouble(redisClient *c, double d) {
     char dbuf[128], sbuf[128];
     int dlen, slen;
@@ -526,7 +526,7 @@ static void acceptCommonHandler(int fd, int flags) {
     }
     /* If maxclient directive is set and this is one client more... close the
      * connection. Note that we create the client instead to check before
-     * for this condition, since now the socket is already set in nonblocking
+     * for this condition, since now the socket is already set in non-blocking
      * mode and we can send an error for free using the Kernel I/O */
     if (listLength(server.clients) > server.maxclients) {
         char *err = "-ERR max number of clients reached\r\n";
@@ -941,7 +941,7 @@ int processMultibulkBuffer(redisClient *c) {
             /* Not enough data (+2 == trailing \r\n) */
             break;
         } else {
-            /* Optimization: if the buffer contanins JUST our bulk element
+            /* Optimization: if the buffer containns JUST our bulk element
              * instead of creating a new object by *copying* the sds we
              * just use the current sds string. */
             if (pos == 0 &&

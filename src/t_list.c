@@ -45,10 +45,10 @@ void listTypeTryConversion(robj *subject, robj *value) {
             listTypeConvert(subject,REDIS_ENCODING_LINKEDLIST);
 }
 
-/* The function pushes an elmenet to the specified list object 'subject',
+/* The function pushes an element to the specified list object 'subject',
  * at head or tail position as specified by 'where'.
  *
- * There is no need for the caller to incremnet the refcount of 'value' as
+ * There is no need for the caller to increment the refcount of 'value' as
  * the function takes care of it if needed. */
 void listTypePush(robj *subject, robj *value, int where) {
     /* Check if we need to convert the ziplist */
@@ -825,7 +825,7 @@ void unblockClientWaitingData(redisClient *c) {
 /* If the specified key has clients blocked waiting for list pushes, this
  * function will put the key reference into the server.ready_keys list.
  * Note that db->ready_keys is an hash table that allows us to avoid putting
- * the same key agains and again in the list in case of multiple pushes
+ * the same key again and again in the list in case of multiple pushes
  * made by a script or in the context of MULTI/EXEC.
  *
  * The list will be finally processed by handleClientsBlockedOnLists() */
@@ -858,7 +858,7 @@ void signalListAsReady(redisClient *c, robj *key) {
  *
  * 1) Provide the client with the 'value' element.
  * 2) If the dstkey is not NULL (we are serving a BRPOPLPUSH) also push the
- *    'value' element on the destionation list (the LPUSH side of the command).
+ *    'value' element on the destination list (the LPUSH side of the command).
  * 3) Propagate the resulting BRPOP, BLPOP and additional LPUSH if any into
  *    the AOF and replication channel.
  *
@@ -868,7 +868,7 @@ void signalListAsReady(redisClient *c, robj *key) {
  *
  * The function returns REDIS_OK if we are able to serve the client, otherwise
  * REDIS_ERR is returned to signal the caller that the list POP operation
- * should be undoed as the client was not served: This only happens for
+ * should be undone as the client was not served: This only happens for
  * BRPOPLPUSH that fails to push the value to the destination key as it is
  * of the wrong type. */
 int serveClientBlockedOnList(redisClient *receiver, robj *key, robj *dstkey, redisDb *db, robj *value, int where)

@@ -250,7 +250,7 @@ void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
  *
  * For this kind of "fast RSS reporting" usages use instead the
  * function RedisEstimateRSS() that is a much faster (and less precise)
- * version of the funciton. */
+ * version of the function. */
 
 #if defined(HAVE_PROCFS)
 #include <unistd.h>
