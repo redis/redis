@@ -969,9 +969,9 @@ const char *sentinelRedisInstanceTypeStr(sentinelRedisInstance *ri) {
  * a master's Sentinels dictionary, we want to be very sure about not
  * having duplicated instances for any reason. This is so important because
  * we use those other sentinels in order to run our quorum protocol to
- * understand if it's time to proceeed with the fail over.
+ * understand if it's time to proceed with the fail over.
  *
- * Making sure no duplication is possible we greately improve the robustness
+ * Making sure no duplication is possible we greatly improve the robustness
  * of the quorum (otherwise we may end counting the same instance multiple
  * times for some reason).
  *
@@ -1238,7 +1238,7 @@ void sentinelKillLink(sentinelRedisInstance *ri, redisAsyncContext *c) {
  * cleanup needed.
  *
  * Note: we don't free the hiredis context as hiredis will do it for us
- * for async conenctions. */
+ * for async connections. */
 void sentinelDisconnectInstanceFromContext(const redisAsyncContext *c) {
     sentinelRedisInstance *ri = c->data;
     int pubsub;
@@ -1647,7 +1647,7 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
 
     /* Update the last activity in the pubsub channel. Note that since we
      * receive our messages as well this timestamp can be used to detect
-     * if the link is probably diconnected even if it seems otherwise. */
+     * if the link is probably disconnected even if it seems otherwise. */
     ri->pc_last_activity = mstime();
    
     /* Sanity check in the reply we expect, so that the code that follows
@@ -1939,7 +1939,7 @@ void addReplySentinelRedisInstance(redisClient *c, sentinelRedisInstance *ri) {
     setDeferredMultiBulkLength(c,mbl,fields*2);
 }
 
-/* Output a number of instances contanined inside a dictionary as
+/* Output a number of instances contained inside a dictionary as
  * Redis protocol. */
 void addReplyDictOfRedisInstances(redisClient *c, dict *instances) {
     dictIterator *di;
@@ -2535,7 +2535,7 @@ void sentinelStartFailoverIfNeeded(sentinelRedisInstance *master) {
  * 3) info_refresh more recent than SENTINEL_INFO_VALIDITY_TIME.
  * 4) master_link_down_time no more than:
  *     (now - master->s_down_since_time) + (master->down_after_period * 10).
- * 5) Slave priority can't be zero, otherwise the slave is discareded.
+ * 5) Slave priority can't be zero, otherwise the slave is discarded.
  *
  * Among all the slaves matching the above conditions we select the slave
  * with lower slave_priority. If priority is the same we select the slave
@@ -2611,10 +2611,10 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
     /* If we in "wait start" but the master is no longer in ODOWN nor in
      * SDOWN condition we abort the failover. This is important as it
      * prevents a useless failover in a a notable case of netsplit, where
-     * the senitnels are split from the redis instances. In this case
+     * the sentinels are split from the redis instances. In this case
      * the failover will not start while there is the split because no
      * good slave can be reached. However when the split is resolved, we
-     * can go to waitstart if the slave is back rechable a few milliseconds
+     * can go to waitstart if the slave is back reachable a few milliseconds
      * before the master is. In that case when the master is back online
      * we cancel the failover. */
     if ((ri->flags & (SRI_S_DOWN|SRI_O_DOWN|SRI_FORCE_FAILOVER)) == 0) {
@@ -3026,13 +3026,13 @@ void sentinelHandleDictOfRedisInstances(dict *instances) {
  * following conditions happen:
  *
  * 1) The Sentiel process for some time is blocked, for every kind of
- * random reason: the load is huge, the computer was freezed for some time
+ * random reason: the load is huge, the computer was frozen for some time
  * in I/O or alike, the process was stopped by a signal. Everything.
  * 2) The system clock was altered significantly.
  *
  * Under both this conditions we'll see everything as timed out and failing
  * without good reasons. Instead we enter the TILT mode and wait
- * for SENTIENL_TILT_PERIOD to elapse before starting to act again.
+ * for SENTINEL_TILT_PERIOD to elapse before starting to act again.
  *
  * During TILT time we still collect information, we just do not act. */
 void sentinelCheckTiltCondition(void) {

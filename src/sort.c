@@ -45,7 +45,7 @@ redisSortOperation *createSortOperation(int type, robj *pattern) {
 /* Return the value associated to the key with a name obtained using
  * the following rules:
  *
- * 1) The first occurence of '*' in 'pattern' is substituted with 'subst'.
+ * 1) The first occurrence of '*' in 'pattern' is substituted with 'subst'.
  *
  * 2) If 'pattern' matches the "->" string, everything on the left of
  *    the arrow is treated as the name of an hash field, and the part on the
@@ -147,7 +147,7 @@ int sortCompare(const void *s1, const void *s2) {
             cmp = -1;
         } else {
             /* Objects have the same score, but we don't want the comparison
-             * to be undefined, so we compare objects lexicographycally.
+             * to be undefined, so we compare objects lexicographically.
              * This way the result of SORT is deterministic. */
             cmp = compareStringObjects(so1->obj,so2->obj);
         }
@@ -205,7 +205,7 @@ void sortCommand(redisClient *c) {
 
     /* Now we need to protect sortval incrementing its count, in the future
      * SORT may have options able to overwrite/delete keys during the sorting
-     * and the sorted key itself may get destroied */
+     * and the sorted key itself may get destroyed */
     if (sortval)
         incrRefCount(sortval);
     else

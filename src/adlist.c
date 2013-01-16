@@ -97,7 +97,7 @@ list *listAddNodeHead(list *list, void *value)
     return list;
 }
 
-/* Add a new node to the list, to tail, contaning the specified 'value'
+/* Add a new node to the list, to tail, containing the specified 'value'
  * pointer as value.
  *
  * On error, NULL is returned and no operation is performed (i.e. the
@@ -308,7 +308,7 @@ listNode *listSearchKey(list *list, void *key)
 /* Return the element at the specified zero-based index
  * where 0 is the head, 1 is the element next to head
  * and so on. Negative integers are used in order to count
- * from the tail, -1 is the last element, -2 the penultimante
+ * from the tail, -1 is the last element, -2 the penultimate
  * and so on. If the index is out of range NULL is returned. */
 listNode *listIndex(list *list, long index) {
     listNode *n;
@@ -330,7 +330,7 @@ void listRotate(list *list) {
 
     if (listLength(list) <= 1) return;
 
-    /* Detatch current tail */
+    /* Detach current tail */
     list->tail = tail->prev;
     list->tail->next = NULL;
     /* Move it as head */
