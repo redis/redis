@@ -1288,19 +1288,19 @@ int main(int argc, char **argv) {
 
     /* Latency mode */
     if (config.latency_mode) {
-        cliConnect(0);
+        if (cliConnect(0) == REDIS_ERR) exit(1);
         latencyMode();
     }
 
     /* Slave mode */
     if (config.slave_mode) {
-        cliConnect(0);
+        if (cliConnect(0) == REDIS_ERR) exit(1);
         slaveMode();
     }
 
     /* Get RDB mode. */
     if (config.getrdb_mode) {
-        cliConnect(0);
+        if (cliConnect(0) == REDIS_ERR) exit(1);
         getRDB();
     }
 
@@ -1312,7 +1312,7 @@ int main(int argc, char **argv) {
 
     /* Find big keys */
     if (config.bigkeys) {
-        cliConnect(0);
+        if (cliConnect(0) == REDIS_ERR) exit(1);
         findBigKeys();
     }
 
