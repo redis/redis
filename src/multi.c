@@ -223,7 +223,7 @@ void watchForKey(redisClient *c, robj *key) {
         incrRefCount(key);
     }
     listAddNodeTail(clients,c);
-    /* Add the new key to the lits of keys watched by this client */
+    /* Add the new key to the lists of keys watched by this client */
     wk = zmalloc(sizeof(*wk));
     wk->key = key;
     wk->db = c->db;
