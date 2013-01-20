@@ -107,7 +107,7 @@ typedef lu_int32 Instruction;
 
 
 #ifndef lua_lock
-#define lua_lock(L)     ((void) 0) 
+#define lua_lock(L)     ((void) 0)
 #define lua_unlock(L)   ((void) 0)
 #endif
 
@@ -118,7 +118,7 @@ typedef lu_int32 Instruction;
 
 /*
 ** macro to control inclusion of some hard tests on stack reallocation
-*/ 
+*/
 #ifndef HARDSTACKTESTS
 #define condhardstacktests(x)	((void)0)
 #else

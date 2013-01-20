@@ -791,7 +791,7 @@ void replicationCron(void) {
             redisLog(REDIS_NOTICE,"MASTER <-> SLAVE sync started");
         }
     }
-    
+
     /* If we have attached slaves, PING them from time to time.
      * So slaves can implement an explicit timeout to masters, and will
      * be able to detect a link disconnection even if the TCP connection

@@ -1021,7 +1021,7 @@ static void getRDB(void) {
 
     while(payload) {
         ssize_t nread, nwritten;
-        
+
         nread = read(s,buf,(payload > sizeof(buf)) ? sizeof(buf) : payload);
         if (nread <= 0) {
             fprintf(stderr,"I/O Error reading RDB payload from socket\n");
@@ -1096,7 +1096,7 @@ static void pipeMode(void) {
                         errors++;
                     } else if (eof && reply->type == REDIS_REPLY_STRING &&
                                       reply->len == 20) {
-                        /* Check if this is the reply to our final ECHO 
+                        /* Check if this is the reply to our final ECHO
                          * command. If so everything was received
                          * from the server. */
                         if (memcmp(reply->str,magic,20) == 0) {
@@ -1117,7 +1117,7 @@ static void pipeMode(void) {
                 /* Transfer current buffer to server. */
                 if (obuf_len != 0) {
                     ssize_t nwritten = write(fd,obuf+obuf_pos,obuf_len);
-                    
+
                     if (nwritten == -1) {
                         if (errno != EAGAIN && errno != EINTR) {
                             fprintf(stderr, "Error writing to the server: %s\n",

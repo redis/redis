@@ -143,7 +143,7 @@ static char types[256][16];
 
 /* Return true if 't' is a valid object type. */
 int checkType(unsigned char t) {
-    /* In case a new object type is added, update the following 
+    /* In case a new object type is added, update the following
      * condition as necessary. */
     return
         (t >= REDIS_HASH_ZIPMAP && t <= REDIS_HASH_ZIPLIST) ||
@@ -514,7 +514,7 @@ entry loadEntry() {
         return e;
     } else {
         /* optionally consume expire */
-        if (e.type == REDIS_EXPIRETIME || 
+        if (e.type == REDIS_EXPIRETIME ||
             e.type == REDIS_EXPIRETIME_MS) {
             if (!processTime(e.type)) return e;
             if (!loadType(&e)) return e;

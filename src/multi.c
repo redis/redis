@@ -217,7 +217,7 @@ void watchForKey(redisClient *c, robj *key) {
     }
     /* This key is not already watched in this DB. Let's add it */
     clients = dictFetchValue(c->db->watched_keys,key);
-    if (!clients) { 
+    if (!clients) {
         clients = listCreate();
         dictAdd(c->db->watched_keys,key,clients);
         incrRefCount(key);
