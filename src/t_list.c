@@ -995,7 +995,7 @@ void handleClientsBlockedOnLists(void) {
                         }
                     }
                 }
-                
+
                 if (listTypeLength(o) == 0) dbDelete(rl->db,rl->key);
                 /* We don't call signalModifiedKey() as it was already called
                  * when an element was pushed on the list. */

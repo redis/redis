@@ -54,8 +54,8 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         return -1;
     }
     eventLoop->apidata = state;
-    
-    return 0;    
+
+    return 0;
 }
 
 static void aeApiFree(aeEventLoop *eventLoop) {
@@ -69,7 +69,7 @@ static void aeApiFree(aeEventLoop *eventLoop) {
 static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     aeApiState *state = eventLoop->apidata;
     struct kevent ke;
-    
+
     if (mask & AE_READABLE) {
         EV_SET(&ke, fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
         if (kevent(state->kqfd, &ke, 1, NULL, 0, NULL) == -1) return -1;
@@ -112,16 +112,16 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
 
     if (retval > 0) {
         int j;
-        
+
         numevents = retval;
         for(j = 0; j < numevents; j++) {
             int mask = 0;
             struct kevent *e = state->events+j;
-            
+
             if (e->filter == EVFILT_READ) mask |= AE_READABLE;
             if (e->filter == EVFILT_WRITE) mask |= AE_WRITABLE;
-            eventLoop->fired[j].fd = e->ident; 
-            eventLoop->fired[j].mask = mask;           
+            eventLoop->fired[j].fd = e->ident;
+            eventLoop->fired[j].mask = mask;
         }
     }
     return numevents;

@@ -55,7 +55,7 @@ int clusterLoadConfig(char *filename) {
     FILE *fp = fopen(filename,"r");
     char *line;
     int maxline, j;
-   
+
     if (fp == NULL) return REDIS_ERR;
 
     /* Parse the file. Note that single liens of the cluster config file can
@@ -189,7 +189,7 @@ fmterr:
 int clusterSaveConfig(void) {
     sds ci = clusterGenNodesDescription();
     int fd;
-    
+
     if ((fd = open(server.cluster.configfile,O_WRONLY|O_CREAT|O_TRUNC,0644))
         == -1) goto err;
     if (write(fd,ci,sdslen(ci)) != (ssize_t)sdslen(ci)) goto err;
@@ -369,7 +369,7 @@ void clusterNodeResetSlaves(clusterNode *n) {
 
 void freeClusterNode(clusterNode *n) {
     sds nodename;
-    
+
     nodename = sdsnewlen(n->name, REDIS_CLUSTER_NAMELEN);
     redisAssert(dictDelete(server.cluster.nodes,nodename) == DICT_OK);
     sdsfree(nodename);
@@ -381,7 +381,7 @@ void freeClusterNode(clusterNode *n) {
 /* Add a node to the nodes hash table */
 int clusterAddNode(clusterNode *node) {
     int retval;
-    
+
     retval = dictAdd(server.cluster.nodes,
             sdsnewlen(node->name,REDIS_CLUSTER_NAMELEN), node);
     return (retval == DICT_OK) ? REDIS_OK : REDIS_ERR;
@@ -405,7 +405,7 @@ clusterNode *clusterLookupNode(char *name) {
 void clusterRenameNode(clusterNode *node, char *newname) {
     int retval;
     sds s = sdsnewlen(node->name, REDIS_CLUSTER_NAMELEN);
-   
+
     redisLog(REDIS_DEBUG,"Renaming node %.40s into %.40s",
         node->name, newname);
     retval = dictDelete(server.cluster.nodes, s);
@@ -455,7 +455,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
         if (node != NULL) {
             /* We already know this node. Let's start updating the last
              * time PONG figure if it is newer than our figure.
-             * Note that it's not a problem if we have a PING already 
+             * Note that it's not a problem if we have a PING already
              * in progress against this node. */
             if (node->pong_received < (signed) ntohl(g->pong_received)) {
                  redisLog(REDIS_DEBUG,"Node pong_received updated by gossip");
@@ -719,7 +719,7 @@ int clusterProcessPacket(clusterLink *link) {
 /* This function is called when we detect the link with this node is lost.
    We set the node as no longer connected. The Cluster Cron will detect
    this connection and will try to get it connected again.
-   
+
    Instead if the node is a temporary node used to accept a query, we
    completely free the node on error. */
 void handleLinkIOError(clusterLink *link) {
@@ -863,7 +863,7 @@ void clusterSendPing(clusterLink *link, int type) {
     if (link->node && type == CLUSTERMSG_TYPE_PING)
         link->node->ping_sent = time(NULL);
     clusterBuildMessageHdr(hdr,type);
-        
+
     /* Populate the gossip fields */
     while(freshnodes > 0 && gossipcount < 3) {
         struct dictEntry *de = dictGetRandomKey(server.cluster.nodes);
@@ -1278,7 +1278,7 @@ void clusterCommand(redisClient *c) {
             return;
         }
 
-        /* Finally add the node to the cluster with a random name, this 
+        /* Finally add the node to the cluster with a random name, this
          * will get fixed in the first handshake (ping/pong). */
         n = createClusterNode(NULL,REDIS_NODE_HANDSHAKE|REDIS_NODE_MEET);
         strncpy(n->ip,inet_ntoa(sa.sin_addr),sizeof(n->ip));
@@ -1329,7 +1329,7 @@ void clusterCommand(redisClient *c) {
             if (slots[j]) {
                 int retval;
 
-                /* If this slot was set as importing we can clear this 
+                /* If this slot was set as importing we can clear this
                  * state as now we are the real owner of the slot. */
                 if (server.cluster.importing_slots_from[j])
                     server.cluster.importing_slots_from[j] = NULL;
@@ -1781,7 +1781,7 @@ try_again:
         addReplySds(c,sdsnew("+NOKEY\r\n"));
         return;
     }
-    
+
     /* Connect */
     fd = migrateGetSocket(c,c->argv[1],c->argv[2],timeout);
     if (fd == -1) return; /* error sent to the client by migrateGetSocket() */
