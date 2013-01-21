@@ -54,6 +54,7 @@
 #include "ae.h"      /* Event driven programming library */
 #include "sds.h"     /* Dynamic safe strings */
 #include "dict.h"    /* Hash tables */
+#include "trie.h"    /* Tries */
 #include "adlist.h"  /* Linked lists */
 #include "zmalloc.h" /* total memory usage aware version of malloc/free */
 #include "anet.h"    /* Networking the easy way */
@@ -125,6 +126,7 @@
 #define REDIS_SET 2
 #define REDIS_ZSET 3
 #define REDIS_HASH 4
+#define REDIS_TRIE 5
 
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
@@ -996,6 +998,7 @@ void freeListObject(robj *o);
 void freeSetObject(robj *o);
 void freeZsetObject(robj *o);
 void freeHashObject(robj *o);
+void freeTrieObject(robj *o);
 robj *createObject(int type, void *ptr);
 robj *createStringObject(char *ptr, size_t len);
 robj *dupStringObject(robj *o);
@@ -1010,6 +1013,7 @@ robj *createZiplistObject(void);
 robj *createSetObject(void);
 robj *createIntsetObject(void);
 robj *createHashObject(void);
+robj *createTrieObject(void);
 robj *createZsetObject(void);
 robj *createZsetZiplistObject(void);
 int getLongFromObjectOrReply(redisClient *c, robj *o, long *target, const char *msg);
@@ -1304,6 +1308,19 @@ void hmsetCommand(redisClient *c);
 void hmgetCommand(redisClient *c);
 void hdelCommand(redisClient *c);
 void hlenCommand(redisClient *c);
+void tsetCommand(redisClient *c);
+void tsetnxCommand(redisClient *c);
+void tgetCommand(redisClient *c);
+void tmsetCommand(redisClient *c);
+void tmgetCommand(redisClient *c);
+void tincrbyCommand(redisClient *c);
+void tincrbyfloatCommand(redisClient *c);
+void tdelCommand(redisClient *c);
+void tlenCommand(redisClient *c);
+void tkeysCommand(redisClient *c);
+void tvalsCommand(redisClient *c);
+void tgetallCommand(redisClient *c);
+void texistsCommand(redisClient *c);
 void zremrangebyrankCommand(redisClient *c);
 void zunionstoreCommand(redisClient *c);
 void zinterstoreCommand(redisClient *c);

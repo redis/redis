@@ -664,6 +664,30 @@ int main(int argc, const char **argv) {
             free(cmd);
         }
 
+        if (test_is_selected("hset")) {
+            len = redisFormatCommand(&cmd,"HSET mytrie foo:rand:000000000000 %s",data);
+            benchmark("HSET",cmd,len);
+            free(cmd);
+        }
+
+        if (test_is_selected("hget")) {
+            len = redisFormatCommand(&cmd,"HGET mytrie foo:rand:000000000000");
+            benchmark("HGET",cmd,len);
+            free(cmd);
+        }
+
+        if (test_is_selected("tset")) {
+            len = redisFormatCommand(&cmd,"TSET mytrie foo:rand:000000000000 %s",data);
+            benchmark("TSET",cmd,len);
+            free(cmd);
+        }
+
+        if (test_is_selected("tget")) {
+            len = redisFormatCommand(&cmd,"TGET mytrie foo:rand:000000000000");
+            benchmark("TGET",cmd,len);
+            free(cmd);
+        }
+
         if (test_is_selected("mset")) {
             const char *argv[21];
             argv[0] = "MSET";

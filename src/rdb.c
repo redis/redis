@@ -459,6 +459,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             return rdbSaveType(rdb,REDIS_RDB_TYPE_HASH);
         else
             redisPanic("Unknown hash encoding");
+    case REDIS_TRIE:
+        return rdbSaveType(rdb,REDIS_RDB_TYPE_TRIE);
     default:
         redisPanic("Unknown object type");
     }
@@ -472,6 +474,24 @@ int rdbLoadObjectType(rio *rdb) {
     if ((type = rdbLoadType(rdb)) == -1) return -1;
     if (!rdbIsObjectType(type)) return -1;
     return type;
+}
+
+typedef struct rdbSaveTrieData {
+    rio *rdb;
+    int nwritten;
+} rdbSaveTrieData;
+
+static int rdbSaveTrieNode(trieNode *node, const unsigned char *key,
+    size_t len, void *data)
+{
+    int n;
+    rdbSaveTrieData *rdbData = (rdbSaveTrieData*)data;
+
+    if ((n = rdbSaveRawString(rdbData->rdb,(unsigned char *)key,len)) == -1) return TRIE_ERR;
+    rdbData->nwritten += n;
+    if ((n = rdbSaveStringObject(rdbData->rdb,trieGetVal(node))) == -1) return TRIE_ERR;
+    rdbData->nwritten += n;
+    return TRIE_OK;
 }
 
 /* Save a Redis object. Returns -1 on error, 0 on success. */
@@ -587,7 +607,17 @@ int rdbSaveObject(rio *rdb, robj *o) {
         } else {
             redisPanic("Unknown hash encoding");
         }
+    } else if (o->type == REDIS_TRIE) {
+        trie *t = (trie*)o->ptr;
+        rdbSaveTrieData data;
 
+        if ((n = rdbSaveLen(rdb,trieSize(t))) == -1) return -1;
+        nwritten += n;
+
+        data.nwritten = 0;
+        data.rdb = rdb;
+        if (trieWalk(t, rdbSaveTrieNode, &data) == TRIE_ERR) return -1;
+        nwritten += data.nwritten;
     } else {
         redisPanic("Unknown object type");
     }
@@ -671,7 +701,7 @@ int rdbSave(char *filename) {
             sds keystr = dictGetKey(de);
             robj key, *o = dictGetVal(de);
             long long expire;
-            
+
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
             if (rdbSaveKeyValuePair(&rdb,&key,o,expire,now) == -1) goto werr;
@@ -945,7 +975,33 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 
         /* All pairs should be read by now */
         redisAssert(len == 0);
+    } else if (rdbtype == REDIS_RDB_TYPE_TRIE) {
+        size_t len;
+        int ret;
 
+        len = rdbLoadLen(rdb, NULL);
+        if (len == REDIS_RDB_LENERR) return NULL;
+
+        o = createTrieObject();
+
+        while (len > 0) {
+            robj *field, *value;
+
+            len--;
+            /* Load key/value */
+            field = rdbLoadStringObject(rdb);
+            if (field == NULL) return NULL;
+            value = rdbLoadEncodedStringObject(rdb);
+            if (value == NULL) return NULL;
+
+            value = tryObjectEncoding(value);
+
+            /* Add pair to trie */
+            ret = trieAdd((trie*)o->ptr, field->ptr, sdslen((sds)field->ptr), value);
+            /* The field is not referenced by the trie */
+            decrRefCount(field);
+            redisAssert(ret == TRIE_OK);
+        }
     } else if (rdbtype == REDIS_RDB_TYPE_HASH_ZIPMAP  ||
                rdbtype == REDIS_RDB_TYPE_LIST_ZIPLIST ||
                rdbtype == REDIS_RDB_TYPE_SET_INTSET   ||

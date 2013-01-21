@@ -21,6 +21,7 @@ set ::all_tests {
     unit/type/set
     unit/type/zset
     unit/type/hash
+    unit/type/trie
     unit/sort
     unit/expire
     unit/other

@@ -130,6 +130,13 @@ robj *createHashObject(void) {
     return o;
 }
 
+robj *createTrieObject(void) {
+    trie *t = trieCreate();
+    robj *o = createObject(REDIS_TRIE, t);
+    o->encoding = REDIS_ENCODING_RAW;
+    return o;
+}
+
 robj *createZsetObject(void) {
     zset *zs = zmalloc(sizeof(*zs));
     robj *o;
@@ -211,6 +218,10 @@ void freeHashObject(robj *o) {
     }
 }
 
+void freeTrieObject(robj *o) {
+    trieRelease((trie *)o->ptr, decrRefCount);
+}
+
 void incrRefCount(robj *o) {
     o->refcount++;
 }
@@ -226,6 +237,7 @@ void decrRefCount(void *obj) {
         case REDIS_SET: freeSetObject(o); break;
         case REDIS_ZSET: freeZsetObject(o); break;
         case REDIS_HASH: freeHashObject(o); break;
+        case REDIS_TRIE: freeTrieObject(o); break;
         default: redisPanic("Unknown object type"); break;
         }
         zfree(o);
