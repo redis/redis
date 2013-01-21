@@ -5,6 +5,9 @@ TARGETS=32bit noopt test
 all:
 	cd src && $(MAKE) $@
 
+static:
+	cd src && $(MAKE) $@
+
 install: dummy
 	cd src && $(MAKE) $@
 

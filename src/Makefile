@@ -49,12 +49,22 @@ endif
 ifeq ($(USE_JEMALLOC),yes)
   ALLOC_DEP=../deps/jemalloc/lib/libjemalloc.a
   ALLOC_LINK=$(ALLOC_DEP) -ldl
-  ALLOC_FLAGS=-DUSE_JEMALLOC -I../deps/jemalloc/include
+  ALLOC_FLAGS=-DUSE_JEMALLOC
+    ifdef JEMALLOC_SHARED
+      ALLOC_DEP=
+      ALLOC_LINK=-ljemalloc
+      ALLOC_FLAGS=-DUSE_JEMALLOC -I/usr/include
+    else
+      ALLOC_DEP=../deps/jemalloc/lib/libjemalloc.a
+      ALLOC_LINK=$(ALLOC_DEP) -ldl
+      ALLOC_FLAGS=-DUSE_JEMALLOC -I../deps/jemalloc/include
+    endif
 endif
 
 CCOPT= $(CFLAGS) $(ARCH) $(PROF)
 
 PREFIX= /usr/local
+INSTALL_LIB= $(PREFIX)/lib
 INSTALL_BIN= $(PREFIX)/bin
 INSTALL= cp -p
 
@@ -64,13 +74,15 @@ CLIOBJ = anet.o sds.o adlist.o redis-cli.o zmalloc.o release.o
 CHECKDUMPOBJ = redis-check-dump.o lzf_c.o lzf_d.o
 CHECKAOFOBJ = redis-check-aof.o
 
+AEP_FLAGS = -DHAVE_EPOLL -shared
+
 PRGNAME = redis-server
 BENCHPRGNAME = redis-benchmark
 CLIPRGNAME = redis-cli
 CHECKDUMPPRGNAME = redis-check-dump
 CHECKAOFPRGNAME = redis-check-aof
 
-all: redis-benchmark redis-cli redis-check-dump redis-check-aof redis-server
+all: static redis-benchmark redis-cli redis-check-dump redis-check-aof redis-server
 	@echo ""
 	@echo "Hint: To run 'make test' is a good idea ;)"
 	@echo ""
@@ -187,10 +199,31 @@ redis-check-aof: $(CHECKAOFOBJ)
 redis-server: $(OBJ)
 	$(QUIET_LINK)$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) $(CCLINK) $(ALLOC_LINK)
 
+LIBNAME=libredis
+API_VERSION = 2
+MINOR_VERSION = 4
+PATCH_VERSION = 1
+
+FULL_VERSION = $(API_VERSION).$(MINOR_VERSION).$(PATCH_VERSION)
+
+STATIC = $(LIBNAME).$(FULL_VERSION).a
+LIBOBJ = $(OBJ)
+
+static: $(STATIC)
+
+#$(LIBOBJ) : %.o : %.c %.h
+#	$(QUIET_CC)$(CC) -c $(CFLAGS) $(DEBUG) $(AEP_FLAGS) -fPIC $<
+
+$(STATIC) : $(LIBOBJ)
+	ar rcs $@ $(LIBOBJ)
+
 # Because the jemalloc.h header is generated as a part of the jemalloc build
 # process, building it should complete before building any other object.
 %.o: %.c $(ALLOC_DEP)
 	$(QUIET_CC)$(CC) -c $(CFLAGS) $(ALLOC_FLAGS) $(DEBUG) $(COMPILE_TIME) $<
+
+clean-lib:
+	rm -rf $(LIBOBJ) libredis*
 
 clean:
 	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
@@ -227,8 +260,10 @@ noopt:
 
 install: all
 	mkdir -p $(INSTALL_BIN)
+	mkdir -p $(INSTALL_LIB)
 	$(INSTALL) $(PRGNAME) $(INSTALL_BIN)
 	$(INSTALL) $(BENCHPRGNAME) $(INSTALL_BIN)
 	$(INSTALL) $(CLIPRGNAME) $(INSTALL_BIN)
 	$(INSTALL) $(CHECKDUMPPRGNAME) $(INSTALL_BIN)
 	$(INSTALL) $(CHECKAOFPRGNAME) $(INSTALL_BIN)
+	$(INSTALL) $(STATIC) $(INSTALL_LIB)
