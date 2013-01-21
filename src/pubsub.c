@@ -179,6 +179,14 @@ int pubsubUnsubscribeAllChannels(redisClient *c, int notify) {
 
         count += pubsubUnsubscribeChannel(c,channel,notify);
     }
+    /* We were subscribed to nothing? Still reply to the client. */
+    if (notify && count == 0) {
+        addReply(c,shared.mbulkhdr[3]);
+        addReply(c,shared.unsubscribebulk);
+        addReply(c,shared.nullbulk);
+        addReplyLongLong(c,dictSize(c->pubsub_channels)+
+                       listLength(c->pubsub_patterns));
+    }
     dictReleaseIterator(di);
     return count;
 }
@@ -195,6 +203,14 @@ int pubsubUnsubscribeAllPatterns(redisClient *c, int notify) {
         robj *pattern = ln->value;
 
         count += pubsubUnsubscribePattern(c,pattern,notify);
+    }
+    if (notify && count == 0) {
+        /* We were subscribed to nothing? Still reply to the client. */
+        addReply(c,shared.mbulkhdr[3]);
+        addReply(c,shared.punsubscribebulk);
+        addReply(c,shared.nullbulk);
+        addReplyLongLong(c,dictSize(c->pubsub_channels)+
+                       listLength(c->pubsub_patterns));
     }
     return count;
 }
