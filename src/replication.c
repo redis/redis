@@ -438,6 +438,7 @@ void replicationAbortSyncTransfer(void) {
     }
 #else
     close(server.repl_transfer_s);
+#endif
     close(server.repl_transfer_fd);
     unlink(server.repl_transfer_tmpfile);
     zfree(server.repl_transfer_tmpfile);

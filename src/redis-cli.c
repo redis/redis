@@ -41,7 +41,9 @@
 #include <ctype.h>
 #include <errno.h>
 #include <sys/stat.h>
+#ifndef _WIN32
 #include <sys/time.h>
+#endif
 #include <assert.h>
 #include <fcntl.h>
 #ifdef _WIN32
@@ -60,6 +62,21 @@
 
 #include <limits.h>
 
+#ifdef _WIN32
+#include <fcntl.h>
+#ifndef FD_SETSIZE
+#define FD_SETSIZE 16000
+#endif
+#ifndef STDIN_FILENO
+  #define STDIN_FILENO (_fileno(stdin))
+#endif
+#include <winsock2.h>
+#include <windows.h>
+#include "win32fixes.h"
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+#define strtoull _strtoui64
+#endif
 
 #include "hiredis.h"
 #include "sds.h"
@@ -1121,7 +1138,7 @@ static void getRDB(void) {
     while(payload) {
         ssize_t nread, nwritten;
         
-        nread = read(s,buf,(payload > sizeof(buf)) ? sizeof(buf) : payload);
+        nread = read(s,buf,(unsigned int)(payload > sizeof(buf)) ? sizeof(buf) : payload);
         if (nread <= 0) {
             fprintf(stderr,"I/O Error reading RDB payload from socket\n");
             exit(1);

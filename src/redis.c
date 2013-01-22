@@ -664,8 +664,8 @@ void activeExpireCycle(void) {
      * 2) If last time we hit the time limit, we want to scan all DBs
      * in this iteration, as there is work to do in some DB and we don't want
      * expired keys to use memory for too much time. */
-    if (dbs_per_call > server.dbnum || timelimit_exit)
-        dbs_per_call = server.dbnum;
+    if (dbs_per_call > (unsigned)server.dbnum || timelimit_exit)
+        dbs_per_call = (unsigned)server.dbnum;
 
     /* We can use at max REDIS_EXPIRELOOKUPS_TIME_PERC percentage of CPU time
      * per iteration. Since this function gets called with a frequency of
@@ -868,7 +868,7 @@ void databasesCron(void) {
         unsigned int j;
 
         /* Don't test more DBs than we have. */
-        if (dbs_per_call > server.dbnum) dbs_per_call = server.dbnum;
+        if (dbs_per_call > (unsigned)server.dbnum) dbs_per_call = server.dbnum;
 
         /* Resize */
         for (j = 0; j < dbs_per_call; j++) {
