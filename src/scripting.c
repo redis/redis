@@ -106,7 +106,7 @@ char *redisProtocolToLuaType_Bulk(lua_State *lua, char *reply) {
         lua_pushboolean(lua,0);
         return p+2;
     } else {
-        lua_pushlstring(lua,p+2,bulklen);
+        lua_pushlstring(lua,p+2,(size_t)bulklen);
         return p+2+bulklen+2;
     }
 }
@@ -402,7 +402,7 @@ int luaLogCommand(lua_State *lua) {
         luaPushError(lua, "First argument must be a number (log level).");
         return 1;
     }
-    level = lua_tonumber(lua,-argc);
+    level = (int)lua_tonumber(lua,-argc);
     if (level < REDIS_DEBUG || level > REDIS_WARNING) {
         luaPushError(lua, "Invalid debug level.");
         return 1;
@@ -652,7 +652,7 @@ void sha1hex(char *digest, char *script, size_t len) {
     int j;
 
     SHA1Init(&ctx);
-    SHA1Update(&ctx,(unsigned char*)script,len);
+    SHA1Update(&ctx,(unsigned char*)script,(u_int32_t)len);
     SHA1Final(hash,&ctx);
 
     for (j = 0; j < 20; j++) {
@@ -849,8 +849,8 @@ void evalGenericCommand(redisClient *c, int evalsha) {
 
     /* Populate the argv and keys table accordingly to the arguments that
      * EVAL received. */
-    luaSetGlobalArray(lua,"KEYS",c->argv+3,numkeys);
-    luaSetGlobalArray(lua,"ARGV",c->argv+3+numkeys,c->argc-3-numkeys);
+    luaSetGlobalArray(lua,"KEYS",c->argv+3,(int)numkeys);
+    luaSetGlobalArray(lua,"ARGV",c->argv+3+numkeys,(int)(c->argc-3-numkeys));
 
     /* Select the right DB in the context of the Lua client */
     selectDb(server.lua_client,c->db->id);

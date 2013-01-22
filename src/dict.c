@@ -41,11 +41,14 @@
 #include <stdarg.h>
 #include <assert.h>
 #include <limits.h>
+#ifndef _WIN32
 #include <sys/time.h>
+#endif
 #include <ctype.h>
 
 #include "dict.h"
 #include "zmalloc.h"
+#include "win32fixes.h"
 
 /* Using dictEnableResize() / dictDisableResize() we make possible to
  * enable/disable resizing of the hash table as needed. This is very important
@@ -61,7 +64,12 @@ static unsigned int dict_force_resize_ratio = 5;
 /* -------------------------- private prototypes ---------------------------- */
 
 static int _dictExpandIfNeeded(dict *ht);
+static int _dictExpandIfNeeded(dict *ht);
+#ifdef _WIN32
+static size_t _dictNextPower(size_t size);
+#else
 static unsigned long _dictNextPower(unsigned long size);
+#endif
 static int _dictKeyIndex(dict *ht, const void *key);
 static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
 
@@ -200,12 +208,45 @@ int dictResize(dict *d)
     int minimal;
 
     if (!dict_can_resize || dictIsRehashing(d)) return DICT_ERR;
-    minimal = d->ht[0].used;
+    minimal = (int)d->ht[0].used;
     if (minimal < DICT_HT_INITIAL_SIZE)
         minimal = DICT_HT_INITIAL_SIZE;
     return dictExpand(d, minimal);
 }
 
+#ifdef _WIN32
+/* Expand or create the hash table */
+int dictExpand(dict *d, size_t size)
+{
+    dictht n; /* the new hash table */
+    size_t realsize = _dictNextPower(size);
+
+    /* the size is invalid if it is smaller than the number of
+     * elements already inside the hash table */
+    if (dictIsRehashing(d) || d->ht[0].used > size)
+        return DICT_ERR;
+
+    /* Allocate the new hash table and initialize all pointers to NULL */
+    n.size = realsize;
+    n.sizemask = realsize-1;
+    n.table = zcalloc(realsize*sizeof(dictEntry*));
+    n.used = (size_t) 0;
+
+    /* Is this the first initialization? If so it's not really a rehashing
+     * we just set the first hash table so that it can accept keys. */
+    if (d->ht[0].table == NULL) {
+        d->ht[0] = n;
+        return DICT_OK;
+    }
+
+    /* Prepare a second hash table for incremental rehashing */
+    d->ht[1] = n;
+    d->rehashidx = 0;
+
+/* Expand or create the hash table */
+    return DICT_OK;
+}
+#else
 /* Expand or create the hash table */
 int dictExpand(dict *d, unsigned long size)
 {
@@ -235,6 +276,7 @@ int dictExpand(dict *d, unsigned long size)
     d->rehashidx = 0;
     return DICT_OK;
 }
+#endif
 
 /* Performs N steps of incremental rehashing. Returns 1 if there are still
  * keys to move from the old to the new hash table, otherwise 0 is returned.
@@ -280,10 +322,14 @@ int dictRehash(dict *d, int n) {
 }
 
 long long timeInMilliseconds(void) {
+#ifdef _WIN32
+    return GetTickCount();
+#else
     struct timeval tv;
 
     gettimeofday(&tv,NULL);
     return (((long long)tv.tv_sec)*1000)+(tv.tv_usec/1000);
+#endif
 }
 
 /* Rehash for an amount of time between ms milliseconds and ms+1 milliseconds */
@@ -446,7 +492,11 @@ int dictDeleteNoFree(dict *ht, const void *key) {
 /* Destroy an entire dictionary */
 int _dictClear(dict *d, dictht *ht)
 {
+#ifdef _WIN32
+    size_t i;
+#else
     unsigned long i;
+#endif
 
     /* Free all the elements */
     for (i = 0; i < ht->size && ht->used > 0; i++) {
@@ -627,6 +677,21 @@ static int _dictExpandIfNeeded(dict *d)
     return DICT_OK;
 }
 
+#ifdef _WIN32
+/* Our hash table capability is a power of two */
+static size_t _dictNextPower(size_t size)
+{
+    size_t i = DICT_HT_INITIAL_SIZE;
+
+    if (size >= LONG_MAX) return LONG_MAX;
+
+    while(1) {
+        if (i >= size)
+            return i;
+        i *= 2;
+    }
+}
+#else
 /* Our hash table capability is a power of two */
 static unsigned long _dictNextPower(unsigned long size)
 {
@@ -639,6 +704,7 @@ static unsigned long _dictNextPower(unsigned long size)
         i *= 2;
     }
 }
+#endif
 
 /* Returns the index of a free slot that can be populated with
  * an hash entry for the given 'key'.

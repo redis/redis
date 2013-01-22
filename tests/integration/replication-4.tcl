@@ -4,7 +4,7 @@ proc start_bg_complex_data {host port db ops} {
 }
 
 proc stop_bg_complex_data {handle} {
-    catch {exec /bin/kill -9 $handle}
+    kill_proc2 $handle
 }
 
 start_server {tags {"repl"}} {

@@ -32,7 +32,9 @@
 #include "fmacros.h"
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <strings.h>
+#endif
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
@@ -40,6 +42,9 @@
 #include "net.h"
 #include "dict.c"
 #include "sds.h"
+#ifdef _WIN32
+  #include "../../src/win32fixes.h"
+#endif
 
 #define _EL_ADD_READ(ctx) do { \
         if ((ctx)->ev.addRead) (ctx)->ev.addRead((ctx)->ev.data); \
@@ -57,23 +62,28 @@
         if ((ctx)->ev.cleanup) (ctx)->ev.cleanup((ctx)->ev.data); \
     } while(0);
 
+#ifdef _WIN32
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+#endif
+
 /* Forward declaration of function in hiredis.c */
 void __redisAppendCommand(redisContext *c, char *cmd, size_t len);
 
 /* Functions managing dictionary of callbacks for pub/sub. */
 static unsigned int callbackHash(const void *key) {
-    return dictGenHashFunction((unsigned char*)key,sdslen((char*)key));
+    return dictGenHashFunction((unsigned char*)key,(int)sdslen((char*)key));
 }
 
 static void *callbackValDup(void *privdata, const void *src) {
-    ((void) privdata);
     redisCallback *dup = malloc(sizeof(*dup));
+    ((void) privdata);
     memcpy(dup,src,sizeof(*dup));
     return dup;
 }
 
 static int callbackKeyCompare(void *privdata, const void *key1, const void *key2) {
-    int l1, l2;
+    size_t l1, l2;
     ((void) privdata);
 
     l1 = sdslen((sds)key1);
@@ -442,7 +452,7 @@ void redisProcessCallbacks(redisAsyncContext *ac) {
 static int __redisAsyncHandleConnect(redisAsyncContext *ac) {
     redisContext *c = &(ac->c);
 
-    if (redisCheckSocketError(c,c->fd) == REDIS_ERR) {
+    if (redisCheckSocketError(c,(int)c->fd) == REDIS_ERR) {
         /* Try again later when connect(2) is still in progress. */
         if (errno == EINPROGRESS)
             return REDIS_OK;

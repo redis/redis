@@ -13,6 +13,9 @@ start_server {tags {"repl"}} {
             after 4000 ;# Make sure everything expired before taking the digest
             r keys *   ;# Force DEL syntesizing to slave
             after 1000 ;# Wait another second. Now everything should be fine.
+            wait_for_condition 50 100 {
+                [r debug digest] eq [r -1 debug digest]
+            } else {
             if {[r debug digest] ne [r -1 debug digest]} {
                 set csv1 [csvdump r]
                 set csv2 [csvdump {r -1}]
@@ -24,6 +27,7 @@ start_server {tags {"repl"}} {
                 close $fd
                 puts "Master - Slave inconsistency"
                 puts "Run diff -u against /tmp/repldump*.txt for more info"
+            }
             }
             assert_equal [r debug digest] [r -1 debug digest]
         }

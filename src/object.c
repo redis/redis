@@ -29,6 +29,11 @@
  */
 
 #include "redis.h"
+#ifdef _WIN32
+#include "win32fixes.h"
+#else
+#include <pthread.h>
+#endif
 #include <math.h>
 #include <ctype.h>
 
@@ -57,7 +62,7 @@ robj *createStringObjectFromLongLong(long long value) {
         if (value >= LONG_MIN && value <= LONG_MAX) {
             o = createObject(REDIS_STRING, NULL);
             o->encoding = REDIS_ENCODING_INT;
-            o->ptr = (void*)((long)value);
+            o->ptr = (void*)(value);
         } else {
             o = createObject(REDIS_STRING,sdsfromlonglong(value));
         }
@@ -162,6 +167,11 @@ void freeListObject(robj *o) {
     case REDIS_ENCODING_ZIPLIST:
         zfree(o->ptr);
         break;
+#ifdef _WIN32
+    case REDIS_ENCODING_LINKEDLISTARRAY:
+        cowReleaseListArray(o->ptr);
+        break;
+#endif
     default:
         redisPanic("Unknown list encoding type");
     }
@@ -175,6 +185,11 @@ void freeSetObject(robj *o) {
     case REDIS_ENCODING_INTSET:
         zfree(o->ptr);
         break;
+#ifdef _WIN32
+    case REDIS_ENCODING_HTARRAY:
+        cowReleaseDictArray(o->ptr);
+        break;
+#endif
     default:
         redisPanic("Unknown set encoding type");
     }
@@ -192,6 +207,11 @@ void freeZsetObject(robj *o) {
     case REDIS_ENCODING_ZIPLIST:
         zfree(o->ptr);
         break;
+#ifdef _WIN32
+    case REDIS_ENCODING_HTZARRAY:
+        cowReleaseDictZArray(o->ptr);
+        break;
+#endif
     default:
         redisPanic("Unknown sorted set encoding");
     }
@@ -205,6 +225,11 @@ void freeHashObject(robj *o) {
     case REDIS_ENCODING_ZIPLIST:
         zfree(o->ptr);
         break;
+#ifdef _WIN32
+    case REDIS_ENCODING_HTARRAY:
+        cowReleaseDictArray(o->ptr);
+        break;
+#endif
     default:
         redisPanic("Unknown hash encoding type");
         break;
@@ -220,6 +245,11 @@ void decrRefCount(void *obj) {
 
     if (o->refcount <= 0) redisPanic("decrRefCount against refcount <= 0");
     if (o->refcount == 1) {
+#ifdef _WIN32
+        if (server.isBackgroundSaving == 1) {
+            if (deferFreeObject(o) == 1) return;
+        }
+#endif
         switch(o->type) {
         case REDIS_STRING: freeStringObject(o); break;
         case REDIS_LIST: freeListObject(o); break;
@@ -262,7 +292,7 @@ int checkType(redisClient *c, robj *o, int type) {
 int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
     redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
     if (o->encoding == REDIS_ENCODING_INT) {
-        if (llval) *llval = (long) o->ptr;
+        if (llval) *llval = (long long) o->ptr;
         return REDIS_OK;
     } else {
         return string2ll(o->ptr,sdslen(o->ptr),llval) ? REDIS_OK : REDIS_ERR;
@@ -336,9 +366,9 @@ robj *getDecodedObject(robj *o) {
  * sdscmp() from sds.c will apply memcmp() so this function ca be considered
  * binary safe. */
 int compareStringObjects(robj *a, robj *b) {
-    redisAssertWithInfo(NULL,a,a->type == REDIS_STRING && b->type == REDIS_STRING);
     char bufa[128], bufb[128], *astr, *bstr;
     int bothsds = 1;
+    redisAssertWithInfo(NULL,a,a->type == REDIS_STRING && b->type == REDIS_STRING);
 
     if (a == b) return 0;
     if (a->encoding != REDIS_ENCODING_RAW) {
@@ -429,7 +459,11 @@ int getLongDoubleFromObject(robj *o, long double *target) {
         redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
         if (o->encoding == REDIS_ENCODING_RAW) {
             errno = 0;
+#ifdef _WIN32
+            value = wstrtod(o->ptr, &eptr);
+#else
             value = strtold(o->ptr, &eptr);
+#endif
             if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
                 errno == ERANGE || isnan(value))
                 return REDIS_ERR;
@@ -507,7 +541,7 @@ int getLongFromObjectOrReply(redisClient *c, robj *o, long *target, const char *
         }
         return REDIS_ERR;
     }
-    *target = value;
+    *target = (long)value;
     return REDIS_OK;
 }
 

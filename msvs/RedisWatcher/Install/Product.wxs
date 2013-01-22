@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi" xmlns:util='http://schemas.microsoft.com/wix/UtilExtension'>
+    <Product Id="3404a743-6802-41dd-a0bd-9229827fd2af" Name="RedisWatcher" Language="1033" Version="1.0.0.0" Manufacturer="MsOpenTech" 
+             UpgradeCode="dcf0348c-eb55-4f12-b639-15310d3a9b5d">
+        <Package InstallerVersion="200" Compressed="yes" />
+
+        <Media Id="1" Cabinet="media1.cab" EmbedCab="yes" />
+
+        <PropertyRef Id="WIX_ACCOUNT_USERS" />
+        <PropertyRef Id="WIX_ACCOUNT_ADMINISTRATORS"/>
+
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="ProgramFilesFolder">
+                <Directory Id="INSTALLLOCATION" Name="RedisWatcher">
+                    <Component Id="ProductComponent" Guid="1b743227-f33f-426c-a0ea-20bd159b21d6">
+                      <File Id="RedisWatcher.exe" Name="$(var.RedisWatcher.TargetFileName)" Source="$(var.RedisWatcher.TargetPath)" 
+                              DiskId="1" KeyPath="yes" />
+                      <File Id="RedisWatcher.man" Name="RedisWatcher.man" Source="$(var.RedisWatcher.ProjectDir)" DiskId="1" >
+                        <util:EventManifest MessageFile="[INSTALLLOCATION]RedisWatcher.exe" ResourceFile="[INSTALLLOCATION]RedisWatcher.exe"/>
+                      </File>
+                      <File Id="watcher.conf" Name="watcher.conf" Source="$(var.RedisWatcher.ProjectDir)" DiskId="1" >
+                        <Permission GenericAll="yes" GenericWrite="yes" User="[WIX_ACCOUNT_USERS]" />
+                        <Permission  GenericAll="yes" User="[WIX_ACCOUNT_ADMINISTRATORS]" />
+                      </File>
+                      <ServiceInstall Id="RedisWatcherSvc" Name="RedisWatcherSvc" DisplayName ="Redis watcher" ErrorControl="normal"
+                                      Start="auto" Type="ownProcess" Description="Redis process starter and watchdog">
+                      </ServiceInstall>
+                      <ServiceControl Id="SvcControl" Name="RedisWatcherSvc" Remove="uninstall" Stop="both" Wait="no" />
+                    </Component>
+                </Directory>
+            </Directory>
+        </Directory>
+
+        <Feature Id="ProductFeature" Title="RedisWatcher" Level="1">
+            <ComponentRef Id="ProductComponent" />
+            
+            <ComponentGroupRef Id="Product.Generated" />
+        </Feature>
+    </Product>
+</Wix>

@@ -33,9 +33,11 @@
 #include "async.h"
 
 #include <ctype.h>
+#ifndef _WIN32
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
+#endif
 
 extern char **environ;
 
@@ -229,16 +231,16 @@ typedef struct redisAeEvents {
 } redisAeEvents;
 
 static void redisAeReadEvent(aeEventLoop *el, int fd, void *privdata, int mask) {
+    redisAeEvents *e = (redisAeEvents*)privdata;
     ((void)el); ((void)fd); ((void)mask);
 
-    redisAeEvents *e = (redisAeEvents*)privdata;
     redisAsyncHandleRead(e->context);
 }
 
 static void redisAeWriteEvent(aeEventLoop *el, int fd, void *privdata, int mask) {
+    redisAeEvents *e = (redisAeEvents*)privdata;
     ((void)el); ((void)fd); ((void)mask);
 
-    redisAeEvents *e = (redisAeEvents*)privdata;
     redisAsyncHandleWrite(e->context);
 }
 
@@ -297,7 +299,7 @@ static int redisAeAttach(aeEventLoop *loop, redisAsyncContext *ac) {
     e = (redisAeEvents*)zmalloc(sizeof(*e));
     e->context = ac;
     e->loop = loop;
-    e->fd = c->fd;
+    e->fd = (int)c->fd;
     e->reading = e->writing = 0;
 
     /* Register functions to start/stop listening for events */
@@ -1377,7 +1379,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     ri->master_link_down_time = 0;
 
     /* Process line by line. */
-    lines = sdssplitlen(info,strlen(info),"\r\n",2,&numlines);
+    lines = sdssplitlen(info,(int)strlen(info),"\r\n",2,&numlines);
     for (j = 0; j < numlines; j++) {
         sentinelRedisInstance *slave;
         sds l = lines[j];
@@ -2024,7 +2026,7 @@ void addReplyDictOfRedisInstances(redisClient *c, dict *instances) {
     dictEntry *de;
 
     di = dictGetIterator(instances);
-    addReplyMultiBulkLen(c,dictSize(instances));
+    addReplyMultiBulkLen(c,(long)dictSize(instances));
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
 
@@ -2173,8 +2175,9 @@ void sentinelInfoCommand(redisClient *c) {
     }
 
     if (!strcasecmp(section,"server") || defsections) {
+        sds serversection;
         if (sections++) info = sdscat(info,"\r\n");
-        sds serversection = genRedisInfoString("server");
+        serversection = genRedisInfoString("server");
         info = sdscatlen(info,serversection,sdslen(serversection));
         sdsfree(serversection);
     }

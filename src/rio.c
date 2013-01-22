@@ -51,6 +51,9 @@
 #include <unistd.h>
 #include "rio.h"
 #include "util.h"
+#ifdef _WIN32
+#include "win32fixes.h"
+#endif
 #include "config.h"
 #include "redis.h"
 
@@ -59,7 +62,7 @@ uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 /* Returns 1 or 0 for success/failure. */
 static size_t rioBufferWrite(rio *r, const void *buf, size_t len) {
     r->io.buffer.ptr = sdscatlen(r->io.buffer.ptr,(char*)buf,len);
-    r->io.buffer.pos += len;
+    r->io.buffer.pos += (off_t)len;
     return 1;
 }
 
@@ -68,7 +71,7 @@ static size_t rioBufferRead(rio *r, void *buf, size_t len) {
     if (sdslen(r->io.buffer.ptr)-r->io.buffer.pos < len)
         return 0; /* not enough buffer to return len bytes. */
     memcpy(buf,r->io.buffer.ptr+r->io.buffer.pos,len);
-    r->io.buffer.pos += len;
+    r->io.buffer.pos += (off_t)len;
     return 1;
 }
 
@@ -100,7 +103,7 @@ static size_t rioFileRead(rio *r, void *buf, size_t len) {
 
 /* Returns read/write position in file. */
 static off_t rioFileTell(rio *r) {
-    return ftello(r->io.file.fp);
+    return (off_t)ftello(r->io.file.fp);
 }
 
 static const rio rioBufferIO = {
@@ -174,7 +177,7 @@ size_t rioWriteBulkCount(rio *r, char prefix, int count) {
 size_t rioWriteBulkString(rio *r, const char *buf, size_t len) {
     size_t nwritten;
 
-    if ((nwritten = rioWriteBulkCount(r,'$',len)) == 0) return 0;
+    if ((nwritten = rioWriteBulkCount(r,'$',(int)len)) == 0) return 0;
     if (len > 0 && rioWrite(r,buf,len) == 0) return 0;
     if (rioWrite(r,"\r\n",2) == 0) return 0;
     return nwritten+len+2;

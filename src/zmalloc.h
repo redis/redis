@@ -77,6 +77,9 @@ float zmalloc_get_fragmentation_ratio(void);
 size_t zmalloc_get_rss(void);
 size_t zmalloc_get_private_dirty(void);
 void zlibc_free(void *ptr);
+#ifdef _WIN32
+void zmalloc_free_used_memory_mutex(void);
+#endif
 
 #ifndef HAVE_MALLOC_SIZE
 size_t zmalloc_size(void *ptr);
