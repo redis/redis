@@ -1528,8 +1528,9 @@ void call(redisClient *c, int flags) {
         if (flags != REDIS_PROPAGATE_NONE)
             propagate(c->cmd,c->db->id,c->argv,c->argc,flags);
     }
-    /* Commands such as LPUSH or BRPOPLPUSH may propagate an additional
-     * PUSH command. */
+
+    /* Handle the alsoPropagate() API to handle commands that want to propagate
+     * multiple separated commands. */
     if (server.also_propagate.numops) {
         int j;
         redisOp *rop;

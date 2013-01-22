@@ -38,6 +38,7 @@
 #include <poll.h>
 #include <string.h>
 #include <time.h>
+#include <errno.h>
 
 #include "ae.h"
 #include "zmalloc.h"
@@ -104,7 +105,10 @@ void aeStop(aeEventLoop *eventLoop) {
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
-    if (fd >= eventLoop->setsize) return AE_ERR;
+    if (fd >= eventLoop->setsize) {
+        errno = ERANGE;
+        return AE_ERR;
+    }
     aeFileEvent *fe = &eventLoop->events[fd];
 
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
