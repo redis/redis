@@ -1,0 +1,235 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <Keyword>Win32Proj</Keyword>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <LinkIncremental>true</LinkIncremental>
+    <TargetName>redis-server</TargetName>
+    <GenerateManifest>false</GenerateManifest>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <LinkIncremental>true</LinkIncremental>
+    <TargetName>redis-server</TargetName>
+    <GenerateManifest>false</GenerateManifest>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <LinkIncremental>false</LinkIncremental>
+    <TargetName>redis-server</TargetName>
+    <GenerateManifest>false</GenerateManifest>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <LinkIncremental>false</LinkIncremental>
+    <TargetName>redis-server</TargetName>
+    <GenerateManifest>false</GenerateManifest>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <PreprocessorDefinitions>_WIN32IOCP;WIN32;_DEBUG;_CONSOLE;__x86_64__;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(SolutionDir)..\deps\lua\src;$(SolutionDir)..\deps\hiredis</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <WarningLevel>Level3</WarningLevel>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <Optimization>Disabled</Optimization>
+      <DisableSpecificWarnings>4996;4146</DisableSpecificWarnings>
+    </ClCompile>
+    <Link>
+      <TargetMachine>MachineX86</TargetMachine>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <SubSystem>Console</SubSystem>
+      <AdditionalLibraryDirectories>$(OutDir);$(OutDir)lib</AdditionalLibraryDirectories>
+      <AdditionalDependencies>lua.lib;hiredis.lib;ws2_32.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;advapi32.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>_WIN32IOCP;WIN32;_DEBUG;_CONSOLE;__x86_64__;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(SolutionDir)..\deps\lua\src;$(SolutionDir)..\deps\hiredis</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <WarningLevel>Level3</WarningLevel>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <Optimization>Disabled</Optimization>
+      <DisableSpecificWarnings>4996;4146</DisableSpecificWarnings>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <SubSystem>Console</SubSystem>
+      <AdditionalLibraryDirectories>$(OutDir);$(OutDir)lib</AdditionalLibraryDirectories>
+      <AdditionalDependencies>lua.lib;hiredis.lib;ws2_32.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;advapi32.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <PreprocessorDefinitions>_WIN32IOCP;WIN32;NDEBUG;_CONSOLE;__x86_64__;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(SolutionDir)..\deps\lua\src;$(SolutionDir)..\deps\hiredis</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <WarningLevel>Level3</WarningLevel>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <DisableSpecificWarnings>4996;4146</DisableSpecificWarnings>
+    </ClCompile>
+    <Link>
+      <TargetMachine>MachineX86</TargetMachine>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <SubSystem>Console</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalLibraryDirectories>$(OutDir);$(OutDir)lib</AdditionalLibraryDirectories>
+      <AdditionalDependencies>lua.lib;hiredis.lib;ws2_32.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;advapi32.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>_WIN32IOCP;WIN32;NDEBUG;_CONSOLE;__x86_64__;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(SolutionDir)..\deps\lua\src;$(SolutionDir)..\deps\hiredis</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <WarningLevel>Level3</WarningLevel>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <DisableSpecificWarnings>4996;4146</DisableSpecificWarnings>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <SubSystem>Console</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalLibraryDirectories>$(OutDir);$(OutDir)lib</AdditionalLibraryDirectories>
+      <AdditionalDependencies>lua.lib;hiredis.lib;ws2_32.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;advapi32.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="..\src\adlist.c" />
+    <ClCompile Include="..\src\ae.c" />
+    <ClCompile Include="..\src\anet.c" />
+    <ClCompile Include="..\src\aof.c" />
+    <ClCompile Include="..\src\bio.c" />
+    <ClCompile Include="..\src\bitops.c" />
+    <ClCompile Include="..\src\config.c" />
+    <ClCompile Include="..\src\crc64.c" />
+    <ClCompile Include="..\src\db.c" />
+    <ClCompile Include="..\src\debug.c" />
+    <ClCompile Include="..\src\dict.c" />
+    <ClCompile Include="..\src\endianconv.c" />
+    <ClCompile Include="..\src\intset.c" />
+    <ClCompile Include="..\src\lzf_c.c" />
+    <ClCompile Include="..\src\lzf_d.c" />
+    <ClCompile Include="..\src\memtest.c" />
+    <ClCompile Include="..\src\migrate.c" />
+    <ClCompile Include="..\src\multi.c" />
+    <ClCompile Include="..\src\networking.c" />
+    <ClCompile Include="..\src\object.c" />
+    <ClCompile Include="..\src\pqsort.c" />
+    <ClCompile Include="..\src\pubsub.c" />
+    <ClCompile Include="..\src\rand.c" />
+    <ClCompile Include="..\src\rdb.c" />
+    <ClCompile Include="..\src\redis.c" />
+    <ClCompile Include="..\src\release.c" />
+    <ClCompile Include="..\src\replication.c" />
+    <ClCompile Include="..\src\rio.c" />
+    <ClCompile Include="..\src\scripting.c" />
+    <ClCompile Include="..\src\sds.c" />
+    <ClCompile Include="..\src\sentinel.c" />
+    <ClCompile Include="..\src\sha1.c" />
+    <ClCompile Include="..\src\slowlog.c" />
+    <ClCompile Include="..\src\sort.c" />
+    <ClCompile Include="..\src\syncio.c" />
+    <ClCompile Include="..\src\t_hash.c" />
+    <ClCompile Include="..\src\t_list.c" />
+    <ClCompile Include="..\src\t_set.c" />
+    <ClCompile Include="..\src\t_string.c" />
+    <ClCompile Include="..\src\t_zset.c" />
+    <ClCompile Include="..\src\util.c" />
+    <ClCompile Include="..\src\win32fixes.c" />
+    <ClCompile Include="..\src\win32_bksv.c" />
+    <ClCompile Include="..\src\win32_cow.c" />
+    <ClCompile Include="..\src\win32_wsiocp.c" />
+    <ClCompile Include="..\src\ziplist.c" />
+    <ClCompile Include="..\src\zipmap.c" />
+    <ClCompile Include="..\src\zmalloc.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\src\adlist.h" />
+    <ClInclude Include="..\src\ae.h" />
+    <ClInclude Include="..\src\anet.h" />
+    <ClInclude Include="..\src\bio.h" />
+    <ClInclude Include="..\src\config.h" />
+    <ClInclude Include="..\src\dict.h" />
+    <ClInclude Include="..\src\endianconv.h" />
+    <ClInclude Include="..\src\fmacros.h" />
+    <ClInclude Include="..\src\help.h" />
+    <ClInclude Include="..\src\intset.h" />
+    <ClInclude Include="..\src\lzf.h" />
+    <ClInclude Include="..\src\lzfP.h" />
+    <ClInclude Include="..\src\pqsort.h" />
+    <ClInclude Include="..\src\rand.h" />
+    <ClInclude Include="..\src\rdb.h" />
+    <ClInclude Include="..\src\redis.h" />
+    <ClInclude Include="..\src\rio.h" />
+    <ClInclude Include="..\src\sds.h" />
+    <ClInclude Include="..\src\sha1.h" />
+    <ClInclude Include="..\src\slowlog.h" />
+    <ClInclude Include="..\src\solarisfixes.h" />
+    <ClInclude Include="..\src\testhelp.h" />
+    <ClInclude Include="..\src\util.h" />
+    <ClInclude Include="..\src\version.h" />
+    <ClInclude Include="..\src\win32fixes.h" />
+    <ClInclude Include="..\src\win32_bksv.h" />
+    <ClInclude Include="..\src\win32_cow.h" />
+    <ClInclude Include="..\src\win32_wsiocp.h" />
+    <ClInclude Include="..\src\ziplist.h" />
+    <ClInclude Include="..\src\zipmap.h" />
+    <ClInclude Include="..\src\zmalloc.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

@@ -77,7 +77,7 @@ int hashTypeGetFromZiplist(robj *o, robj *field,
     zl = o->ptr;
     fptr = ziplistIndex(zl, ZIPLIST_HEAD);
     if (fptr != NULL) {
-        fptr = ziplistFind(fptr, field->ptr, sdslen(field->ptr), 1);
+        fptr = ziplistFind(fptr, field->ptr, (unsigned int)sdslen(field->ptr), 1);
         if (fptr != NULL) {
             /* Grab pointer to the value (fptr points to the field) */
             vptr = ziplistNext(zl, fptr);
@@ -179,7 +179,7 @@ int hashTypeSet(robj *o, robj *field, robj *value) {
         zl = o->ptr;
         fptr = ziplistIndex(zl, ZIPLIST_HEAD);
         if (fptr != NULL) {
-            fptr = ziplistFind(fptr, field->ptr, sdslen(field->ptr), 1);
+            fptr = ziplistFind(fptr, field->ptr, (unsigned int)sdslen(field->ptr), 1);
             if (fptr != NULL) {
                 /* Grab pointer to the value (fptr points to the field) */
                 vptr = ziplistNext(zl, fptr);
@@ -190,14 +190,14 @@ int hashTypeSet(robj *o, robj *field, robj *value) {
                 zl = ziplistDelete(zl, &vptr);
 
                 /* Insert new value */
-                zl = ziplistInsert(zl, vptr, value->ptr, sdslen(value->ptr));
+                zl = ziplistInsert(zl, vptr, value->ptr, (unsigned int)sdslen(value->ptr));
             }
         }
 
         if (!update) {
             /* Push new field/value pair onto the tail of the ziplist */
-            zl = ziplistPush(zl, field->ptr, sdslen(field->ptr), ZIPLIST_TAIL);
-            zl = ziplistPush(zl, value->ptr, sdslen(value->ptr), ZIPLIST_TAIL);
+            zl = ziplistPush(zl, field->ptr, (unsigned int)sdslen(field->ptr), ZIPLIST_TAIL);
+            zl = ziplistPush(zl, value->ptr, (unsigned int)sdslen(value->ptr), ZIPLIST_TAIL);
         }
         o->ptr = zl;
         decrRefCount(field);
@@ -232,7 +232,7 @@ int hashTypeDelete(robj *o, robj *field) {
         zl = o->ptr;
         fptr = ziplistIndex(zl, ZIPLIST_HEAD);
         if (fptr != NULL) {
-            fptr = ziplistFind(fptr, field->ptr, sdslen(field->ptr), 1);
+            fptr = ziplistFind(fptr, field->ptr, (unsigned int)sdslen(field->ptr), 1);
             if (fptr != NULL) {
                 zl = ziplistDelete(zl,&fptr);
                 zl = ziplistDelete(zl,&fptr);
@@ -265,7 +265,7 @@ unsigned long hashTypeLength(robj *o) {
     if (o->encoding == REDIS_ENCODING_ZIPLIST) {
         length = ziplistLen(o->ptr) / 2;
     } else if (o->encoding == REDIS_ENCODING_HT) {
-        length = dictSize((dict*)o->ptr);
+        length = (unsigned long)dictSize((dict*)o->ptr);
     } else {
         redisPanic("Unknown hash encoding");
     }

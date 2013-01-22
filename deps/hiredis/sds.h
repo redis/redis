@@ -34,6 +34,11 @@
 #include <sys/types.h>
 #include <stdarg.h>
 
+#ifdef _WIN32
+  #define inline __inline
+  #define va_copy(d,s) d = (s)
+#endif
+
 typedef char *sds;
 
 struct sdshdr {
@@ -43,12 +48,12 @@ struct sdshdr {
 };
 
 static inline size_t sdslen(const sds s) {
-    struct sdshdr *sh = (void*)(s-(sizeof(struct sdshdr)));
+    struct sdshdr *sh = (struct sdshdr *)(s-(sizeof(struct sdshdr)));
     return sh->len;
 }
 
 static inline size_t sdsavail(const sds s) {
-    struct sdshdr *sh = (void*)(s-(sizeof(struct sdshdr)));
+    struct sdshdr *sh = (struct sdshdr *)(s-(sizeof(struct sdshdr)));
     return sh->free;
 }
 

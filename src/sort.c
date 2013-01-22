@@ -88,16 +88,16 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
 
     /* Find out if we're dealing with a hash dereference. */
     if ((f = strstr(p+1, "->")) != NULL && *(f+2) != '\0') {
-        fieldlen = sdslen(spat)-(f-spat)-2;
+        fieldlen = (int)(sdslen(spat)-(f-spat)-2);
         fieldobj = createStringObject(f+2,fieldlen);
     } else {
         fieldlen = 0;
     }
 
     /* Perform the '*' substitution. */
-    prefixlen = p-spat;
-    sublen = sdslen(ssub);
-    postfixlen = sdslen(spat)-(prefixlen+1)-(fieldlen ? fieldlen+2 : 0);
+    prefixlen = (int)(p-spat);
+    sublen = (int)sdslen(ssub);
+    postfixlen = (int)(sdslen(spat)-(prefixlen+1)-(fieldlen ? fieldlen+2 : 0));
     keyobj = createStringObject(NULL,prefixlen+sublen+postfixlen);
     k = keyobj->ptr;
     memcpy(k,spat,prefixlen);
@@ -272,7 +272,7 @@ void sortCommand(redisClient *c) {
     switch(sortval->type) {
     case REDIS_LIST: vectorlen = listTypeLength(sortval); break;
     case REDIS_SET: vectorlen =  setTypeSize(sortval); break;
-    case REDIS_ZSET: vectorlen = dictSize(((zset*)sortval->ptr)->dict); break;
+    case REDIS_ZSET: vectorlen = (int)dictSize(((zset*)sortval->ptr)->dict); break;
     default: vectorlen = 0; redisPanic("Bad SORT type"); /* Avoid GCC warning */
     }
 
@@ -342,7 +342,7 @@ void sortCommand(redisClient *c) {
 
         /* Check if starting point is trivial, before doing log(N) lookup. */
         if (desc) {
-            long zsetlen = dictSize(((zset*)sortval->ptr)->dict);
+            long zsetlen = (long)dictSize(((zset*)sortval->ptr)->dict);
 
             ln = zsl->tail;
             if (start > 0)

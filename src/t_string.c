@@ -156,8 +156,13 @@ void setrangeCommand(redisClient *c) {
         if (checkStringLength(c,offset+sdslen(value)) != REDIS_OK)
             return;
 
+#ifdef _WIN32
+        /* Create a copy when the object is shared or encoded or COW is on. */
+        if (o->refcount != 1 || o->encoding != REDIS_ENCODING_RAW || server.isBackgroundSaving == 1) {
+#else
         /* Create a copy when the object is shared or encoded. */
         if (o->refcount != 1 || o->encoding != REDIS_ENCODING_RAW) {
+#endif
             robj *decoded = getDecodedObject(o);
             o = createStringObject(decoded->ptr, sdslen(decoded->ptr));
             decrRefCount(decoded);
@@ -196,11 +201,11 @@ void getrangeCommand(redisClient *c) {
     }
 
     /* Convert negative indexes */
-    if (start < 0) start = strlen+start;
-    if (end < 0) end = strlen+end;
+    if (start < 0) start = (long)(strlen+start);
+    if (end < 0) end = (long)(strlen+end);
     if (start < 0) start = 0;
     if (end < 0) end = 0;
-    if ((unsigned)end >= strlen) end = strlen-1;
+    if ((unsigned)end >= strlen) end = (long)(strlen-1);
 
     /* Precondition: end >= 0 && end < strlen, so the only condition where
      * nothing can be returned is: start > end. */
@@ -370,8 +375,13 @@ void appendCommand(redisClient *c) {
         if (checkStringLength(c,totlen) != REDIS_OK)
             return;
 
+#ifdef _WIN32
+        /* If the object is shared or encoded or COW is on, we have to make a copy */
+        if (o->refcount != 1 || o->encoding != REDIS_ENCODING_RAW || server.isBackgroundSaving == 1) {
+#else
         /* If the object is shared or encoded, we have to make a copy */
         if (o->refcount != 1 || o->encoding != REDIS_ENCODING_RAW) {
+#endif
             robj *decoded = getDecodedObject(o);
             o = createStringObject(decoded->ptr, sdslen(decoded->ptr));
             decrRefCount(decoded);

@@ -28,7 +28,9 @@
  */
 
 #include "redis.h"
+#ifndef _WIN32
 #include <sys/uio.h>
+#endif
 
 static void setProtocolError(redisClient *c, int pos);
 
@@ -62,7 +64,12 @@ redisClient *createClient(int fd) {
         if (aeCreateFileEvent(server.el,fd,AE_READABLE,
             readQueryFromClient, c) == AE_ERR)
         {
+#ifdef _WIN32
+            aeWinSocketDetach(fd, 0);
+            closesocket(fd);
+#else
             close(fd);
+#endif
             zfree(c);
             return NULL;
         }
@@ -163,7 +170,7 @@ int _addReplyToBuffer(redisClient *c, char *s, size_t len) {
     if (len > available) return REDIS_ERR;
 
     memcpy(c->buf+c->bufpos,s,len);
-    c->bufpos+=len;
+    c->bufpos+=(int)len;
     return REDIS_OK;
 }
 
@@ -175,7 +182,7 @@ void _addReplyObjectToList(redisClient *c, robj *o) {
     if (listLength(c->reply) == 0) {
         incrRefCount(o);
         listAddNodeTail(c->reply,o);
-        c->reply_bytes += zmalloc_size_sds(o->ptr);
+        c->reply_bytes += (unsigned long)zmalloc_size_sds(o->ptr);
     } else {
         tail = listNodeValue(listLast(c->reply));
 
@@ -183,14 +190,14 @@ void _addReplyObjectToList(redisClient *c, robj *o) {
         if (tail->ptr != NULL &&
             sdslen(tail->ptr)+sdslen(o->ptr) <= REDIS_REPLY_CHUNK_BYTES)
         {
-            c->reply_bytes -= zmalloc_size_sds(tail->ptr);
+            c->reply_bytes -= (unsigned long)zmalloc_size_sds(tail->ptr);
             tail = dupLastObjectIfNeeded(c->reply);
             tail->ptr = sdscatlen(tail->ptr,o->ptr,sdslen(o->ptr));
-            c->reply_bytes += zmalloc_size_sds(tail->ptr);
+            c->reply_bytes += (unsigned long)zmalloc_size_sds(tail->ptr);
         } else {
             incrRefCount(o);
             listAddNodeTail(c->reply,o);
-            c->reply_bytes += zmalloc_size_sds(o->ptr);
+            c->reply_bytes += (unsigned long)zmalloc_size_sds(o->ptr);
         }
     }
     asyncCloseClientOnOutputBufferLimitReached(c);
@@ -208,7 +215,7 @@ void _addReplySdsToList(redisClient *c, sds s) {
 
     if (listLength(c->reply) == 0) {
         listAddNodeTail(c->reply,createObject(REDIS_STRING,s));
-        c->reply_bytes += zmalloc_size_sds(s);
+        c->reply_bytes += (unsigned long)zmalloc_size_sds(s);
     } else {
         tail = listNodeValue(listLast(c->reply));
 
@@ -216,14 +223,14 @@ void _addReplySdsToList(redisClient *c, sds s) {
         if (tail->ptr != NULL &&
             sdslen(tail->ptr)+sdslen(s) <= REDIS_REPLY_CHUNK_BYTES)
         {
-            c->reply_bytes -= zmalloc_size_sds(tail->ptr);
+            c->reply_bytes -= (unsigned long)zmalloc_size_sds(tail->ptr);
             tail = dupLastObjectIfNeeded(c->reply);
             tail->ptr = sdscatlen(tail->ptr,s,sdslen(s));
-            c->reply_bytes += zmalloc_size_sds(tail->ptr);
+            c->reply_bytes += (unsigned long)zmalloc_size_sds(tail->ptr);
             sdsfree(s);
         } else {
             listAddNodeTail(c->reply,createObject(REDIS_STRING,s));
-            c->reply_bytes += zmalloc_size_sds(s);
+            c->reply_bytes += (unsigned long)zmalloc_size_sds(s);
         }
     }
     asyncCloseClientOnOutputBufferLimitReached(c);
@@ -238,7 +245,7 @@ void _addReplyStringToList(redisClient *c, char *s, size_t len) {
         robj *o = createStringObject(s,len);
 
         listAddNodeTail(c->reply,o);
-        c->reply_bytes += zmalloc_size_sds(o->ptr);
+        c->reply_bytes += (unsigned long)zmalloc_size_sds(o->ptr);
     } else {
         tail = listNodeValue(listLast(c->reply));
 
@@ -246,15 +253,15 @@ void _addReplyStringToList(redisClient *c, char *s, size_t len) {
         if (tail->ptr != NULL &&
             sdslen(tail->ptr)+len <= REDIS_REPLY_CHUNK_BYTES)
         {
-            c->reply_bytes -= zmalloc_size_sds(tail->ptr);
+            c->reply_bytes -= (unsigned long)zmalloc_size_sds(tail->ptr);
             tail = dupLastObjectIfNeeded(c->reply);
             tail->ptr = sdscatlen(tail->ptr,s,len);
-            c->reply_bytes += zmalloc_size_sds(tail->ptr);
+            c->reply_bytes += (unsigned long)zmalloc_size_sds(tail->ptr);
         } else {
             robj *o = createStringObject(s,len);
 
             listAddNodeTail(c->reply,o);
-            c->reply_bytes += zmalloc_size_sds(o->ptr);
+            c->reply_bytes += (unsigned long)zmalloc_size_sds(o->ptr);
         }
     }
     asyncCloseClientOnOutputBufferLimitReached(c);
@@ -334,8 +341,9 @@ void addReplyError(redisClient *c, char *err) {
 void addReplyErrorFormat(redisClient *c, const char *fmt, ...) {
     size_t l, j;
     va_list ap;
+    sds s;
     va_start(ap,fmt);
-    sds s = sdscatvprintf(sdsempty(),fmt,ap);
+    s = sdscatvprintf(sdsempty(),fmt,ap);
     va_end(ap);
     /* Make sure there are no newlines in the string, otherwise invalid protocol
      * is emitted. */
@@ -358,9 +366,10 @@ void addReplyStatus(redisClient *c, char *status) {
 }
 
 void addReplyStatusFormat(redisClient *c, const char *fmt, ...) {
+    sds s;
     va_list ap;
     va_start(ap,fmt);
-    sds s = sdscatvprintf(sdsempty(),fmt,ap);
+    s = sdscatvprintf(sdsempty(),fmt,ap);
     va_end(ap);
     addReplyStatusLength(c,s,sdslen(s));
     sdsfree(s);
@@ -387,16 +396,16 @@ void setDeferredMultiBulkLength(redisClient *c, void *node, long length) {
 
     len = listNodeValue(ln);
     len->ptr = sdscatprintf(sdsempty(),"*%ld\r\n",length);
-    c->reply_bytes += zmalloc_size_sds(len->ptr);
+    c->reply_bytes += (unsigned long)zmalloc_size_sds(len->ptr);
     if (ln->next != NULL) {
         next = listNodeValue(ln->next);
 
         /* Only glue when the next node is non-NULL (an sds in this case) */
         if (next->ptr != NULL) {
-            c->reply_bytes -= zmalloc_size_sds(len->ptr);
-            c->reply_bytes -= zmalloc_size_sds(next->ptr);
+            c->reply_bytes -= (unsigned long)zmalloc_size_sds(len->ptr);
+            c->reply_bytes -= (unsigned long)zmalloc_size_sds(next->ptr);
             len->ptr = sdscatlen(len->ptr,next->ptr,sdslen(next->ptr));
-            c->reply_bytes += zmalloc_size_sds(len->ptr);
+            c->reply_bytes += (unsigned long)zmalloc_size_sds(len->ptr);
             listDelNode(c->reply,ln->next);
         }
     }
@@ -407,7 +416,20 @@ void setDeferredMultiBulkLength(redisClient *c, void *node, long length) {
 void addReplyDouble(redisClient *c, double d) {
     char dbuf[128], sbuf[128];
     int dlen, slen;
+#ifdef _WIN32
+    if (isnan(d)) {
+        dlen = snprintf(dbuf,sizeof(dbuf),"nan");
+    } else if (isinf(d)) {
+        if (d < 0)
+            dlen = snprintf(dbuf,sizeof(dbuf),"-inf");
+        else
+            dlen = snprintf(dbuf,sizeof(dbuf),"inf");
+    } else {
+        dlen = snprintf(dbuf,sizeof(dbuf),"%.17g",d);
+    }
+#else
     dlen = snprintf(dbuf,sizeof(dbuf),"%.17g",d);
+#endif
     slen = snprintf(sbuf,sizeof(sbuf),"$%d\r\n%s\r\n",dlen,dbuf);
     addReplyString(c,sbuf,slen);
 }
@@ -520,7 +542,12 @@ static void acceptCommonHandler(int fd, int flags) {
         redisLog(REDIS_WARNING,
             "Error registering fd event for the new client: %s (fd=%d)",
             strerror(errno),fd);
+#ifdef _WIN32
+        aeWinSocketDetach(fd, 0);
+        closesocket(fd); /* May be already closed, just ingore errors */
+#else
         close(fd); /* May be already closed, just ignore errors */
+#endif
         return;
     }
     /* If maxclient directive is set and this is one client more... close the
@@ -531,7 +558,11 @@ static void acceptCommonHandler(int fd, int flags) {
         char *err = "-ERR max number of clients reached\r\n";
 
         /* That's a best effort error message, don't check write errors */
+#ifdef _WIN32
+        if (send((SOCKET)c->fd,err,(int)strlen(err),0) == SOCKET_ERROR) {
+#else
         if (write(c->fd,err,strlen(err)) == -1) {
+#endif
             /* Nothing to do, Just to avoid the warning... */
         }
         server.stat_rejected_conn++;
@@ -603,6 +634,9 @@ void freeClient(redisClient *c) {
      * unblockClientWaitingData() to avoid processInputBuffer() will get
      * called. Also it is important to remove the file events after
      * this, because this call adds the READABLE event. */
+#ifdef _WIN32
+    aeWinSocketDetach(c->fd, 1);
+#endif
     sdsfree(c->querybuf);
     c->querybuf = NULL;
     if (c->flags & REDIS_BLOCKED)
@@ -622,7 +656,11 @@ void freeClient(redisClient *c) {
     aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
     listRelease(c->reply);
     freeClientArgv(c);
+#ifdef _WIN32
+    closesocket(c->fd);
+#else
     close(c->fd);
+#endif
     /* Remove from the list of clients */
     ln = listSearchKey(server.clients,c);
     redisAssert(ln != NULL);
@@ -638,9 +676,10 @@ void freeClient(redisClient *c) {
     /* Master/slave cleanup.
      * Case 1: we lost the connection with a slave. */
     if (c->flags & REDIS_SLAVE) {
+        list *l;
         if (c->replstate == REDIS_REPL_SEND_BULK && c->repldbfd != -1)
             close(c->repldbfd);
-        list *l = (c->flags & REDIS_MONITOR) ? server.monitors : server.slaves;
+        l = (c->flags & REDIS_MONITOR) ? server.monitors : server.slaves;
         ln = listSearchKey(l,c);
         redisAssert(ln != NULL);
         listDelNode(l,ln);
@@ -694,6 +733,133 @@ void freeClientsInAsyncFreeQueue(void) {
     }
 }
 
+
+#ifdef _WIN32
+void sendReplyBufferDone(aeEventLoop *el, int fd, void *privdata, int written) {
+    aeWinSendReq *req = (aeWinSendReq *)privdata;
+    redisClient *c = (redisClient *)req->client;
+    int offset = (int)(req->buf - (char *)req->data + written);
+    REDIS_NOTUSED(el);
+    REDIS_NOTUSED(fd);
+
+    if (c->bufpos == offset) {
+        c->bufpos = 0;
+        c->sentlen = 0;
+    }
+    if (c->bufpos == 0 && listLength(c->reply) == 0) {
+        aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
+
+        /* Close connection after entire reply has been sent. */
+        if (c->flags & REDIS_CLOSE_AFTER_REPLY) {
+            freeClient(c);
+        }
+    }
+}
+
+void sendReplyListDone(aeEventLoop *el, int fd, void *privdata, int written) {
+    aeWinSendReq *req = (aeWinSendReq *)privdata;
+    redisClient *c = (redisClient *)req->client;
+    robj *o = (robj *)req->data;
+    REDIS_NOTUSED(el);
+    REDIS_NOTUSED(fd);
+
+    decrRefCount(o);
+
+    if (c->bufpos == 0 && listLength(c->reply) == 0) {
+        c->sentlen = 0;
+        aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
+
+        /* Close connection after entire reply has been sent. */
+        if (c->flags & REDIS_CLOSE_AFTER_REPLY){
+            freeClient(c);
+        }
+    }
+}
+
+void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
+    redisClient *c = (redisClient *)privdata;
+    int nwritten = 0, totwritten = 0, objlen;
+    size_t objmem;
+    robj *o;
+    int result = 0;
+    listIter li;
+    listNode *ln;
+    REDIS_NOTUSED(el);
+    REDIS_NOTUSED(mask);
+
+    if (c->flags & REDIS_MASTER) {
+        /* do not send to master */
+        c->bufpos = 0;
+        c->sentlen = 0;
+        while (listLength(c->reply)) {
+            listDelNode(c->reply,listFirst(c->reply));
+        }
+        c->lastinteraction = time(NULL);
+        return;
+    }
+
+    /* move list pointer to last one sent or first in list */
+    listRewind(c->reply, &li);
+    ln = listNext(&li);
+
+    while(c->bufpos > c->sentlen || ln != NULL) {
+        if (c->bufpos > c->sentlen) {
+            nwritten = c->bufpos - c->sentlen;
+            result = aeWinSocketSend(fd,c->buf+c->sentlen, nwritten,0,
+                                        el, c, c->buf, sendReplyBufferDone);
+            if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
+                redisLog(REDIS_VERBOSE, "Error writing to client: %s", wsa_strerror(errno));
+                freeClient(c);
+                return;
+            }
+            c->sentlen += nwritten;
+            totwritten += nwritten;
+
+        } else {
+            o = listNodeValue(ln);
+            objlen = (int)sdslen(o->ptr);
+            objmem = zmalloc_size_sds(o->ptr);
+
+            if (objlen == 0) {
+                listDelNode(c->reply,ln);
+                ln = listNext(&li);
+                continue;
+            }
+
+            /* object ref placed in request, release in sendReplyListDone */
+            incrRefCount(o);
+            result = aeWinSocketSend(fd, ((char*)o->ptr), objlen, 0,
+                                        el, c, o, sendReplyListDone);
+            if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
+                redisLog(REDIS_VERBOSE,
+                    "Error writing to client: %s", wsa_strerror(errno));
+                decrRefCount(o);
+                freeClient(c);
+                return;
+            }
+            totwritten += objlen;
+            /* remove from list - object kept alive due to incrRefCount */
+            listDelNode(c->reply,listFirst(c->reply));
+            c->reply_bytes -= (unsigned long)objmem;
+            ln = listNext(&li);
+        }
+        /* Note that we avoid to send more than REDIS_MAX_WRITE_PER_EVENT
+         * bytes, in a single threaded server it's a good idea to serve
+         * other clients as well, even if a very large request comes from
+         * super fast link that is always able to accept data (in real world
+         * scenario think about 'KEYS *' against the loopback interface).
+         *
+         * However if we are over the maxmemory limit we ignore that and
+         * just deliver as much data as it is possible to deliver. */
+        if (totwritten > REDIS_MAX_WRITE_PER_EVENT &&
+            (server.maxmemory == 0 ||
+             zmalloc_used_memory() < server.maxmemory)) break;
+    }
+    if (totwritten > 0) c->lastinteraction = server.unixtime;
+
+}
+
+#else
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     redisClient *c = privdata;
     int nwritten = 0, totwritten = 0, objlen;
@@ -778,6 +944,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         if (c->flags & REDIS_CLOSE_AFTER_REPLY) freeClient(c);
     }
 }
+#endif
 
 /* resetClient prepare the client to process the next command */
 void resetClient(redisClient *c) {
@@ -806,10 +973,10 @@ int processInlineBuffer(redisClient *c) {
 
     /* Split the input buffer up to the \r\n */
     querylen = newline-(c->querybuf);
-    argv = sdssplitlen(c->querybuf,querylen," ",1,&argc);
+    argv = sdssplitlen(c->querybuf,(int)querylen," ",1,&argc);
 
     /* Leave data after the first line of the query in the buffer */
-    c->querybuf = sdsrange(c->querybuf,querylen+2,-1);
+    c->querybuf = sdsrange(c->querybuf,(int)(querylen+2),-1);
 
     /* Setup argv array on client structure */
     if (c->argv) zfree(c->argv);
@@ -874,13 +1041,13 @@ int processMultibulkBuffer(redisClient *c) {
             return REDIS_ERR;
         }
 
-        pos = (newline-c->querybuf)+2;
+        pos = (int)(newline-c->querybuf)+2;
         if (ll <= 0) {
             c->querybuf = sdsrange(c->querybuf,pos,-1);
             return REDIS_OK;
         }
 
-        c->multibulklen = ll;
+        c->multibulklen = (int)ll;
 
         /* Setup argv array on client structure */
         if (c->argv) zfree(c->argv);
@@ -919,7 +1086,7 @@ int processMultibulkBuffer(redisClient *c) {
                 return REDIS_ERR;
             }
 
-            pos += newline-(c->querybuf+pos)+2;
+            pos += (int)(newline-(c->querybuf+pos)+2);
             if (ll >= REDIS_MBULK_BIG_ARG) {
                 /* If we are going to read a large object from network
                  * try to make it likely that it will start at c->querybuf
@@ -929,9 +1096,9 @@ int processMultibulkBuffer(redisClient *c) {
                 pos = 0;
                 /* Hint the sds library about the amount of bytes this string is
                  * going to contain. */
-                c->querybuf = sdsMakeRoomFor(c->querybuf,ll+2);
+                c->querybuf = sdsMakeRoomFor(c->querybuf,(size_t)(ll+2));
             }
-            c->bulklen = ll;
+            c->bulklen = (long)ll;
         }
 
         /* Read bulk argument */
@@ -1030,7 +1197,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (c->reqtype == REDIS_REQ_MULTIBULK && c->multibulklen && c->bulklen != -1
         && c->bulklen >= REDIS_MBULK_BIG_ARG)
     {
-        int remaining = (unsigned)(c->bulklen+2)-sdslen(c->querybuf);
+        int remaining = (int)((unsigned)(c->bulklen+2)-sdslen(c->querybuf));
 
         if (remaining < readlen) readlen = remaining;
     }
@@ -1038,12 +1205,33 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
     c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
+#ifdef _WIN32
+    nread = recv((SOCKET)fd, c->querybuf+qblen, readlen, 0);
+    if (nread < 0) {
+        errno = WSAGetLastError();
+        if (errno == WSAECONNRESET) {
+            /* Windows fix: Not an error, intercept it.  */
+            redisLog(REDIS_VERBOSE, "Client closed connection");
+            freeClient(c);
+            return;
+        } else if ((errno == ENOENT) || (errno == WSAEWOULDBLOCK)) {
+            /* Windows fix: Intercept winsock slang for EAGAIN */
+            errno = EAGAIN;
+            nread = -1; /* Winsock can send ENOENT instead EAGAIN */
+        }
+    }
+#else
     nread = read(fd, c->querybuf+qblen, readlen);
+#endif
     if (nread == -1) {
         if (errno == EAGAIN) {
             nread = 0;
         } else {
+#ifdef _WIN32
+            redisLog(REDIS_VERBOSE, "Reading from client: %s",wsa_strerror(errno));
+#else
             redisLog(REDIS_VERBOSE, "Reading from client: %s",strerror(errno));
+#endif
             freeClient(c);
             return;
         }
@@ -1052,6 +1240,9 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         freeClient(c);
         return;
     }
+#ifdef _WIN32
+    aeWinReceiveDone(fd);
+#endif
     if (nread) {
         sdsIncrLen(c->querybuf,nread);
         c->lastinteraction = server.unixtime;
@@ -1085,7 +1276,7 @@ void getClientsMaxBuffers(unsigned long *longest_output_list,
         c = listNodeValue(ln);
 
         if (listLength(c->reply) > lol) lol = listLength(c->reply);
-        if (sdslen(c->querybuf) > bib) bib = sdslen(c->querybuf);
+        if (sdslen(c->querybuf) > bib) bib = (unsigned long)sdslen(c->querybuf);
     }
     *longest_output_list = lol;
     *biggest_input_buffer = bib;

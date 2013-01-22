@@ -68,8 +68,15 @@ robj *lookupKeyRead(redisDb *db, robj *key) {
 }
 
 robj *lookupKeyWrite(redisDb *db, robj *key) {
+    robj *o;
     expireIfNeeded(db,key);
-    return lookupKey(db,key);
+    o = lookupKey(db,key);
+#ifdef _WIN32
+    if (server.isBackgroundSaving) {
+        o = cowEnsureWriteCopy(db, key, o);
+    }
+#endif
+    return o;
 }
 
 robj *lookupKeyReadOrReply(redisClient *c, robj *key, robj *reply) {
@@ -156,6 +163,13 @@ robj *dbRandomKey(redisDb *db) {
 
 /* Delete a key, value, and associated expiration entry if any, from the DB */
 int dbDelete(redisDb *db, robj *key) {
+#ifdef _WIN32
+    /* If copy on write, may need to copy dict before delete */
+    if (server.isBackgroundSaving) {
+        cowEnsureWriteCopy(db, key, NULL);
+        if (dictSize(db->expires) > 0) cowEnsureExpiresCopy(db);
+    }
+#endif
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
@@ -171,6 +185,13 @@ long long emptyDb() {
     long long removed = 0;
 
     for (j = 0; j < server.dbnum; j++) {
+#ifdef _WIN32
+        /* If copy on write, may need to copy dict before delete */
+        if (server.isBackgroundSaving) {
+            cowEnsureWriteCopy(&server.db[j], NULL, NULL);
+            cowEnsureExpiresCopy(&server.db[j]);
+        }
+#endif
         removed += dictSize(server.db[j].dict);
         dictEmpty(server.db[j].dict);
         dictEmpty(server.db[j].expires);
@@ -207,6 +228,13 @@ void signalFlushedDb(int dbid) {
  *----------------------------------------------------------------------------*/
 
 void flushdbCommand(redisClient *c) {
+#ifdef _WIN32
+    /* If copy on write, may need to copy dict before delete */
+    if (server.isBackgroundSaving) {
+        cowEnsureWriteCopy(c->db, NULL, NULL);
+        cowEnsureExpiresCopy(c->db);
+    }
+#endif
     server.dirty += dictSize(c->db->dict);
     signalFlushedDb(c->db->id);
     dictEmpty(c->db->dict);
@@ -219,13 +247,17 @@ void flushallCommand(redisClient *c) {
     server.dirty += emptyDb();
     addReply(c,shared.ok);
     if (server.rdb_child_pid != -1) {
+#ifdef _WIN32
+        bkgdsave_termthread();
+#else
         kill(server.rdb_child_pid,SIGKILL);
+#endif
         rdbRemoveTempFile(server.rdb_child_pid);
     }
     if (server.saveparamslen > 0) {
         /* Normally rdbSave() will reset dirty, but we don't want this here
          * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
-        int saved_dirty = server.dirty;
+        long long saved_dirty = server.dirty;
         rdbSave(server.rdb_filename);
         server.dirty = saved_dirty;
     }
@@ -284,7 +316,7 @@ void keysCommand(redisClient *c) {
     dictIterator *di;
     dictEntry *de;
     sds pattern = c->argv[1]->ptr;
-    int plen = sdslen(pattern), allkeys;
+    int plen = (int)sdslen(pattern), allkeys;
     unsigned long numkeys = 0;
     void *replylen = addDeferredMultiBulkLength(c);
 
@@ -294,7 +326,7 @@ void keysCommand(redisClient *c) {
         sds key = dictGetKey(de);
         robj *keyobj;
 
-        if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
+        if (allkeys || stringmatchlen(pattern,plen,key,(int)sdslen(key),0)) {
             keyobj = createStringObject(key,sdslen(key));
             if (expireIfNeeded(c->db,keyobj) == 0) {
                 addReplyBulk(c,keyobj);
@@ -446,6 +478,11 @@ void moveCommand(redisClient *c) {
 int removeExpire(redisDb *db, robj *key) {
     /* An expire may only be removed if there is a corresponding entry in the
      * main dict. Otherwise, the key will never be freed. */
+#ifdef _WIN32
+    if (server.isBackgroundSaving) {
+        cowEnsureExpiresCopy(db);
+    }
+#endif
     redisAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
     return dictDelete(db->expires,key->ptr) == DICT_OK;
 }
@@ -453,6 +490,11 @@ int removeExpire(redisDb *db, robj *key) {
 void setExpire(redisDb *db, robj *key, long long when) {
     dictEntry *kde, *de;
 
+#ifdef _WIN32
+    if (server.isBackgroundSaving) {
+        cowEnsureExpiresCopy(db);
+    }
+#endif
     /* Reuse the sds from the main dict in the expire dict */
     kde = dictFind(db->dict,key->ptr);
     redisAssertWithInfo(NULL,key,kde != NULL);
@@ -474,6 +516,22 @@ long long getExpire(redisDb *db, robj *key) {
     redisAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
     return dictGetSignedIntegerVal(de);
 }
+
+#ifdef _WIN32
+/* Return the expire time of the specified key, or -1 if no expire
+ * is associated with this key (i.e. the key is non volatile)
+   Called from background save - do not try and find key in normal dict,
+    since find on RO dict does not work */
+time_t getExpireForSave(redisDb *db, robj *key) {
+    dictEntry *de;
+
+    /* No expire? return ASAP */
+    if (dictSize(db->expires) == 0 ||
+       (de = dictFind(db->expires,key->ptr)) == NULL) return -1;
+
+    return dictGetSignedIntegerVal(de);
+}
+#endif
 
 /* Propagate expires into slaves and the AOF file.
  * When a key expires in the master, a DEL operation for this key is sent

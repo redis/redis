@@ -81,6 +81,9 @@
 #include <assert.h>
 #include "zmalloc.h"
 #include "endianconv.h"
+#ifdef _WIN32
+#define inline __inline
+#endif
 
 #define ZIPMAP_BIGLEN 254
 #define ZIPMAP_END 255
@@ -236,7 +239,7 @@ unsigned char *zipmapSet(unsigned char *zm, unsigned char *key, unsigned int kle
             /* Store the offset of this key within the current zipmap, so
              * it can be resized. Then, move the tail backwards so this
              * pair fits at the current position. */
-            offset = p-zm;
+            offset = (unsigned int)(p-zm);
             zm = zipmapResize(zm, zmlen-freelen+reqlen);
             p = zm+offset;
 
@@ -256,7 +259,7 @@ unsigned char *zipmapSet(unsigned char *zm, unsigned char *key, unsigned int kle
     if (empty >= ZIPMAP_VALUE_MAX_FREE) {
         /* First, move the tail <empty> bytes to the front, then resize
          * the zipmap to be <empty> bytes smaller. */
-        offset = p-zm;
+        offset = (unsigned int)(p-zm);
         memmove(p+reqlen, p+freelen, zmlen-(offset+freelen+1));
         zmlen -= empty;
         zm = zipmapResize(zm, zmlen);

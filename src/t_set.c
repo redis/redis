@@ -207,7 +207,7 @@ int setTypeRandomElement(robj *setobj, robj **objele, int64_t *llele) {
 
 unsigned long setTypeSize(robj *subject) {
     if (subject->encoding == REDIS_ENCODING_HT) {
-        return dictSize((dict*)subject->ptr);
+        return (unsigned long)dictSize((dict*)subject->ptr);
     } else if (subject->encoding == REDIS_ENCODING_INTSET) {
         return intsetLen((intset*)subject->ptr);
     } else {
@@ -562,7 +562,7 @@ void srandmemberCommand(redisClient *c) {
 }
 
 int qsortCompareSetsByCardinality(const void *s1, const void *s2) {
-    return setTypeSize(*(robj**)s1)-setTypeSize(*(robj**)s2);
+    return (int)(setTypeSize(*(robj**)s1)-setTypeSize(*(robj**)s2));
 }
 
 void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, robj *dstkey) {
