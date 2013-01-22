@@ -140,7 +140,7 @@ void setbitCommand(redisClient *c) {
     }
 
     /* Grow sds value to the right length if necessary */
-    byte = bitoffset >> 3;
+    byte = (int)(bitoffset >> 3);
     o->ptr = sdsgrowzero(o->ptr,byte+1);
 
     /* Get current values */
@@ -243,16 +243,16 @@ void bitopCommand(redisClient *c) {
         }
         objects[j] = getDecodedObject(o);
         src[j] = objects[j]->ptr;
-        len[j] = sdslen(objects[j]->ptr);
+        len[j] = (long)sdslen(objects[j]->ptr);
         if (len[j] > maxlen) maxlen = len[j];
         if (j == 0 || len[j] < minlen) minlen = len[j];
     }
 
     /* Compute the bit operation, if at least one string is not empty. */
     if (maxlen) {
-        res = (unsigned char*) sdsnewlen(NULL,maxlen);
         unsigned char output, byte;
         long i;
+        res = (unsigned char*) sdsnewlen(NULL,maxlen);
 
         /* Fast path: as far as we have data for all the input bitmaps we
          * can take a fast path that performs much better than the
@@ -372,7 +372,7 @@ void bitcountCommand(redisClient *c) {
         strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
     } else {
         p = (unsigned char*) o->ptr;
-        strlen = sdslen(o->ptr);
+        strlen = (long)sdslen(o->ptr);
     }
 
     /* Parse start/end range if any. */

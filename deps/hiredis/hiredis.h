@@ -33,7 +33,20 @@
 #define __HIREDIS_H
 #include <stdio.h> /* for size_t */
 #include <stdarg.h> /* for va_list */
+#ifndef _WIN32
 #include <sys/time.h> /* for struct timeval */
+#endif
+#ifdef _WIN32
+    #ifndef FD_SETSIZE
+      #define FD_SETSIZE 16000
+    #endif
+    #include <winsock2.h>
+    #include <windows.h>
+
+    #ifndef va_copy
+      #define va_copy(d,s) d = (s)
+    #endif
+#endif
 
 #define HIREDIS_MAJOR 0
 #define HIREDIS_MINOR 10
@@ -164,7 +177,11 @@ int redisFormatCommandArgv(char **target, int argc, const char **argv, const siz
 typedef struct redisContext {
     int err; /* Error flags, 0 when there is no error */
     char errstr[128]; /* String representation of error when applicable */
+#ifdef _WIN32
+    SOCKET fd;
+#else
     int fd;
+#endif
     int flags;
     char *obuf; /* Write buffer */
     redisReader *reader; /* Protocol reader */
@@ -176,10 +193,13 @@ redisContext *redisConnectNonBlock(const char *ip, int port);
 redisContext *redisConnectUnix(const char *path);
 redisContext *redisConnectUnixWithTimeout(const char *path, struct timeval tv);
 redisContext *redisConnectUnixNonBlock(const char *path);
+redisContext *redisConnected();
+redisContext *redisConnectedNonBlock();
 int redisSetTimeout(redisContext *c, struct timeval tv);
 void redisFree(redisContext *c);
 int redisBufferRead(redisContext *c);
 int redisBufferWrite(redisContext *c, int *done);
+int redisBufferReadDone(redisContext *c, char *buf, int nread);
 
 /* In a blocking context, this function first checks if there are unconsumed
  * replies to return and returns one if so. Otherwise, it flushes the output

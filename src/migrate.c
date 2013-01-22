@@ -158,7 +158,12 @@ void migrateCommand(redisClient *c) {
         return;
     }
     if ((aeWait(fd,AE_WRITABLE,timeout) & AE_WRITABLE) == 0) {
+#ifdef _WIN32
+        aeWinSocketDetach(fd, 1);
+        closesocket(fd);
+#else
         close(fd);
+#endif
         addReplySds(c,sdsnew("-IOERR error or timeout connecting to the client\r\n"));
         return;
     }
@@ -195,7 +200,7 @@ void migrateCommand(redisClient *c) {
 
         while ((towrite = sdslen(buf)-pos) > 0) {
             towrite = (towrite > (64*1024) ? (64*1024) : towrite);
-            nwritten = syncWrite(fd,buf+pos,towrite,timeout);
+            nwritten = syncWrite(fd,buf+pos,(ssize_t)towrite,timeout);
             if (nwritten != (signed)towrite) goto socket_wr_err;
             pos += nwritten;
         }
@@ -230,18 +235,33 @@ void migrateCommand(redisClient *c) {
     }
 
     sdsfree(cmd.io.buffer.ptr);
+#ifdef _WIN32
+    aeWinSocketDetach(fd, 1);
+    closesocket(fd);
+#else
     close(fd);
+#endif
     return;
 
 socket_wr_err:
     addReplySds(c,sdsnew("-IOERR error or timeout writing to target instance\r\n"));
     sdsfree(cmd.io.buffer.ptr);
+#ifdef _WIN32
+    aeWinSocketDetach(fd, 1);
+    closesocket(fd);
+#else
     close(fd);
+#endif
     return;
 
 socket_rd_err:
     addReplySds(c,sdsnew("-IOERR error or timeout reading from target node\r\n"));
     sdsfree(cmd.io.buffer.ptr);
+#ifdef _WIN32
+    aeWinSocketDetach(fd, 1);
+    closesocket(fd);
+#else
     close(fd);
+#endif
     return;
 }

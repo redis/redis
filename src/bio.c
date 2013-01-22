@@ -60,6 +60,9 @@
 
 #include "redis.h"
 #include "bio.h"
+#ifdef _WIN32
+#include "win32fixes.h"
+#endif
 
 static pthread_mutex_t bio_mutex[REDIS_BIO_NUM_OPS];
 static pthread_cond_t bio_condvar[REDIS_BIO_NUM_OPS];
@@ -107,7 +110,7 @@ void bioInit(void) {
     pthread_attr_getstacksize(&attr,&stacksize);
     if (!stacksize) stacksize = 1; /* The world is full of Solaris Fixes */
     while (stacksize < REDIS_THREAD_STACK_SIZE) stacksize *= 2;
-    pthread_attr_setstacksize(&attr, stacksize);
+    pthread_attr_setstacksize(&attr, ((ssize_t)stacksize));
 
     /* Ready to spawn our threads. We use the single argument the thread
      * function accepts in order to pass the job ID the thread is
@@ -137,7 +140,11 @@ void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3) {
 
 void *bioProcessBackgroundJobs(void *arg) {
     struct bio_job *job;
+#ifdef _WIN32
+    size_t type = (size_t) arg;
+#else
     unsigned long type = (unsigned long) arg;
+#endif
     sigset_t sigset;
 
     pthread_detach(pthread_self());

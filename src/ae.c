@@ -31,11 +31,13 @@
  */
 
 #include <stdio.h>
-#include <sys/time.h>
 #include <sys/types.h>
+#ifndef _WIN32
+#include <sys/time.h>
 #include <unistd.h>
-#include <stdlib.h>
 #include <poll.h>
+#endif
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <errno.h>
@@ -46,6 +48,9 @@
 
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
+#ifdef _WIN32
+#include "ae_wsiocp.c"
+#else
 #ifdef HAVE_EVPORT
 #include "ae_evport.c"
 #else
@@ -58,6 +63,7 @@
         #include "ae_select.c"
         #endif
     #endif
+#endif
 #endif
 
 aeEventLoop *aeCreateEventLoop(int setsize) {
@@ -105,11 +111,12 @@ void aeStop(aeEventLoop *eventLoop) {
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
+    aeFileEvent *fe;
     if (fd >= eventLoop->setsize) {
         errno = ERANGE;
         return AE_ERR;
     }
-    aeFileEvent *fe = &eventLoop->events[fd];
+    fe = &eventLoop->events[fd];
 
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
@@ -124,8 +131,9 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
 
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 {
+    aeFileEvent *fe;
     if (fd >= eventLoop->setsize) return;
-    aeFileEvent *fe = &eventLoop->events[fd];
+    fe = &eventLoop->events[fd];
 
     if (fe->mask == AE_NONE) return;
     fe->mask = fe->mask & (~mask);
@@ -141,8 +149,9 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 }
 
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
+    aeFileEvent *fe;
     if (fd >= eventLoop->setsize) return 0;
-    aeFileEvent *fe = &eventLoop->events[fd];
+    fe = &eventLoop->events[fd];
 
     return fe->mask;
 }
@@ -160,7 +169,7 @@ static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) 
     long cur_sec, cur_ms, when_sec, when_ms;
 
     aeGetTime(&cur_sec, &cur_ms);
-    when_sec = cur_sec + milliseconds/1000;
+    when_sec = (long)(cur_sec + milliseconds/1000);
     when_ms = cur_ms + milliseconds%1000;
     if (when_ms >= 1000) {
         when_sec ++;
@@ -275,7 +284,11 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
         if (now_sec > te->when_sec ||
             (now_sec == te->when_sec && now_ms >= te->when_ms))
         {
+#ifdef _WIN32
+            long long retval;
+#else
             int retval;
+#endif
 
             id = te->id;
             retval = te->timeProc(eventLoop, id, te->clientData);
@@ -397,6 +410,29 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
 /* Wait for milliseconds until the given file descriptor becomes
  * writable/readable/exception */
+#ifdef _WIN32
+int aeWait(int fd, int mask, long long milliseconds) {
+    struct timeval tv;
+    fd_set rfds, wfds, efds;
+    int retmask = 0, retval;
+
+    tv.tv_sec = (long)(milliseconds/1000);
+    tv.tv_usec = (milliseconds%1000)*1000;
+    FD_ZERO(&rfds);
+    FD_ZERO(&wfds);
+    FD_ZERO(&efds);
+
+    if (mask & AE_READABLE) FD_SET(fd,&rfds);
+    if (mask & AE_WRITABLE) FD_SET(fd,&wfds);
+    if ((retval = select(fd+1, &rfds, &wfds, &efds, &tv)) > 0) {
+        if (FD_ISSET(fd,&rfds)) retmask |= AE_READABLE;
+        if (FD_ISSET(fd,&wfds)) retmask |= AE_WRITABLE;
+        return retmask;
+    } else {
+        return retval;
+    }
+}
+#else
 int aeWait(int fd, int mask, long long milliseconds) {
     struct pollfd pfd;
     int retmask = 0, retval;
@@ -416,6 +452,7 @@ int aeWait(int fd, int mask, long long milliseconds) {
         return retval;
     }
 }
+#endif
 
 void aeMain(aeEventLoop *eventLoop) {
     eventLoop->stop = 0;

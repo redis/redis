@@ -34,16 +34,18 @@
 
 #include <math.h>
 #include <sys/types.h>
+#ifndef _WIN32
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
 #include <arpa/inet.h>
+#endif
 #include <sys/stat.h>
 
 static int rdbWriteRaw(rio *rdb, void *p, size_t len) {
     if (rdb && rioWrite(rdb,p,len) == 0)
         return -1;
-    return len;
+    return (int)len;
 }
 
 int rdbSaveType(rio *rdb, unsigned char type) {
@@ -102,7 +104,7 @@ int rdbSaveLen(rio *rdb, uint32_t len) {
         if (rdbWriteRaw(rdb,&len,4) == -4) return -1;
         nwritten = 1+4;
     }
-    return nwritten;
+    return (int)nwritten;
 }
 
 /* Load an encoded length. The "isencoded" argument is set to 1 if the length
@@ -219,7 +221,7 @@ int rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
     if (len <= 4) return 0;
     outlen = len-4;
     if ((out = zmalloc(outlen+1)) == NULL) return 0;
-    comprlen = lzf_compress(s, len, out, outlen);
+    comprlen = lzf_compress(s, (unsigned int)len, out, (unsigned int)outlen);
     if (comprlen == 0) {
         zfree(out);
         return 0;
@@ -229,10 +231,10 @@ int rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
     if ((n = rdbWriteRaw(rdb,&byte,1)) == -1) goto writeerr;
     nwritten += n;
 
-    if ((n = rdbSaveLen(rdb,comprlen)) == -1) goto writeerr;
+    if ((n = rdbSaveLen(rdb,(uint32_t)comprlen)) == -1) goto writeerr;
     nwritten += n;
 
-    if ((n = rdbSaveLen(rdb,len)) == -1) goto writeerr;
+    if ((n = rdbSaveLen(rdb,(uint32_t)len)) == -1) goto writeerr;
     nwritten += n;
 
     if ((n = rdbWriteRaw(rdb,out,comprlen)) == -1) goto writeerr;
@@ -290,11 +292,11 @@ int rdbSaveRawString(rio *rdb, unsigned char *s, size_t len) {
     }
 
     /* Store verbatim */
-    if ((n = rdbSaveLen(rdb,len)) == -1) return -1;
+    if ((n = rdbSaveLen(rdb,(uint32_t)len)) == -1) return -1;
     nwritten += n;
     if (len > 0) {
         if (rdbWriteRaw(rdb,s,len) == -1) return -1;
-        nwritten += len;
+        nwritten += (int)len;
     }
     return nwritten;
 }
@@ -402,7 +404,7 @@ int rdbSaveDoubleValue(rio *rdb, double val) {
         else
 #endif
             snprintf((char*)buf+1,sizeof(buf)-1,"%.17g",val);
-        buf[0] = strlen((char*)buf+1);
+        buf[0] = (unsigned char)strlen((char*)buf+1);
         len = buf[0]+1;
     }
     return rdbWriteRaw(rdb,buf,len);
@@ -436,6 +438,10 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             return rdbSaveType(rdb,REDIS_RDB_TYPE_LIST_ZIPLIST);
         else if (o->encoding == REDIS_ENCODING_LINKEDLIST)
             return rdbSaveType(rdb,REDIS_RDB_TYPE_LIST);
+#ifdef _WIN32
+        else if (o->encoding == REDIS_ENCODING_LINKEDLISTARRAY)
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_LIST);
+#endif
         else
             redisPanic("Unknown list encoding");
     case REDIS_SET:
@@ -443,6 +449,10 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             return rdbSaveType(rdb,REDIS_RDB_TYPE_SET_INTSET);
         else if (o->encoding == REDIS_ENCODING_HT)
             return rdbSaveType(rdb,REDIS_RDB_TYPE_SET);
+#ifdef _WIN32
+        else if (o->encoding == REDIS_ENCODING_HTARRAY)
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_SET);
+#endif
         else
             redisPanic("Unknown set encoding");
     case REDIS_ZSET:
@@ -450,6 +460,10 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             return rdbSaveType(rdb,REDIS_RDB_TYPE_ZSET_ZIPLIST);
         else if (o->encoding == REDIS_ENCODING_SKIPLIST)
             return rdbSaveType(rdb,REDIS_RDB_TYPE_ZSET);
+#ifdef _WIN32
+        else if (o->encoding == REDIS_ENCODING_HTZARRAY)
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_ZSET);
+#endif
         else
             redisPanic("Unknown sorted set encoding");
     case REDIS_HASH:
@@ -457,6 +471,10 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             return rdbSaveType(rdb,REDIS_RDB_TYPE_HASH_ZIPLIST);
         else if (o->encoding == REDIS_ENCODING_HT)
             return rdbSaveType(rdb,REDIS_RDB_TYPE_HASH);
+#ifdef _WIN32
+        else if (o->encoding == REDIS_ENCODING_HTARRAY)
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_HASH);
+#endif
         else
             redisPanic("Unknown hash encoding");
     default:
@@ -475,6 +493,194 @@ int rdbLoadObjectType(rio *rdb) {
 }
 
 /* Save a Redis object. Returns -1 on error, 0 on success. */
+#ifdef _WIN32
+int rdbSaveObject(rio *rdb, robj *o) {
+    int n, nwritten = 0;
+
+    if (o->type == REDIS_STRING) {
+        /* Save a string value */
+        if ((n = rdbSaveStringObject(rdb,o)) == -1) return -1;
+        nwritten += n;
+    } else if (o->type == REDIS_LIST) {
+        /* Save a list value */
+        cowLock();
+        if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+            size_t l = ziplistBlobLen((unsigned char*)o->ptr);
+            cowUnlock();
+
+            if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
+            nwritten += n;
+        } else if (o->encoding == REDIS_ENCODING_LINKEDLIST ||
+                   o->encoding == REDIS_ENCODING_LINKEDLISTARRAY) {
+            listNode *ln;
+            roListIter li;
+            int32_t len;
+
+            if (o->encoding == REDIS_ENCODING_LINKEDLIST) {
+                list *list = o->ptr;
+                len = listLength(list);
+
+                roListRewind(list, NULL, &li);
+            } else {
+                /* read only array */
+                cowListArray *ar = (cowListArray *)o->ptr;
+                len = (uint32_t)ar->numele;
+
+                roListRewind(NULL, ar, &li);
+            }
+            /* initialized iterator and len. Can unlock and iterate */
+            cowUnlock();
+
+            if ((n = rdbSaveLen(rdb,len)) == -1) return -1;
+            nwritten += n;
+
+            while((ln = roListNext(&li))) {
+                robj *eleobj = listNodeValue(ln);
+                if ((n = rdbSaveStringObject(rdb,eleobj)) == -1) return -1;
+                nwritten += n;
+            }
+        } else {
+            cowUnlock();
+            redisPanic("Unknown list encoding");
+        }
+    } else if (o->type == REDIS_SET) {
+        /* Save a set value */
+        cowLock();
+        if (o->encoding == REDIS_ENCODING_HT ||
+            o->encoding == REDIS_ENCODING_HTARRAY) {
+            dictEntry *de;
+            roDictIter *di;
+            int32_t len;
+
+            if (o->encoding == REDIS_ENCODING_HT) {
+                dict *set = o->ptr;
+                di = roDictGetIterator(set, NULL);
+                len = (int32_t)dictSize(set);
+            } else {
+                /* read only array */
+                cowDictArray *ar = (cowDictArray *)o->ptr;
+                di = roDictGetIterator(NULL, ar);
+                len = (uint32_t)ar->numele;
+            }
+            /* initialized iterator and len. Can unlock and iterate */
+            cowUnlock();
+
+            if ((n = rdbSaveLen(rdb,len)) == -1) return -1;
+            nwritten += n;
+
+            while((de = roDictNext(di)) != NULL) {
+                robj *eleobj = dictGetKey(de);
+                if ((n = rdbSaveStringObject(rdb,eleobj)) == -1) return -1;
+                nwritten += n;
+            }
+            roDictReleaseIterator(di);
+        } else if (o->encoding == REDIS_ENCODING_INTSET) {
+            size_t l = intsetBlobLen((intset*)o->ptr);
+            cowUnlock();
+
+            if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
+            nwritten += n;
+        } else {
+            cowUnlock();
+            redisPanic("Unknown set encoding");
+        }
+    } else if (o->type == REDIS_ZSET) {
+        /* Save a sorted set value */
+        cowLock();
+        if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+            size_t l = ziplistBlobLen((unsigned char*)o->ptr);
+            cowUnlock();
+
+            if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
+            nwritten += n;
+        } else if (o->encoding == REDIS_ENCODING_SKIPLIST ||
+                   o->encoding == REDIS_ENCODING_HTZARRAY) {
+            dictEntry *de;
+            roZDictIter *di;
+            int32_t len;
+
+            if (o->encoding == REDIS_ENCODING_SKIPLIST) {
+                zset *zs = o->ptr;
+                di = roZDictGetIterator(zs->dict, NULL);
+                len = (int32_t)dictSize(zs->dict);
+            } else {
+                /* read only array */
+                cowDictZArray *ar = (cowDictZArray *)o->ptr;
+                di = roZDictGetIterator(NULL, ar);
+                len = (uint32_t)ar->numele;
+            }
+            /* initialized iterator and len. Can unlock and iterate */
+            cowUnlock();
+
+            if ((n = rdbSaveLen(rdb,len)) == -1) return -1;
+            nwritten += n;
+
+            while((de = roZDictNext(di)) != NULL) {
+                robj *eleobj = dictGetKey(de);
+                double *score = dictGetVal(de);
+
+                if ((n = rdbSaveStringObject(rdb,eleobj)) == -1) return -1;
+                nwritten += n;
+                if ((n = rdbSaveDoubleValue(rdb,*score)) == -1) return -1;
+                nwritten += n;
+            }
+            roZDictReleaseIterator(di);
+        } else {
+            cowUnlock();
+            redisPanic("Unknown sorted set encoding");
+        }
+    } else if (o->type == REDIS_HASH) {
+        /* Save a hash value */
+        cowLock();
+        if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+            size_t l = ziplistBlobLen((unsigned char*)o->ptr);
+            cowUnlock();
+
+            if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
+            nwritten += n;
+
+        } else if (o->encoding == REDIS_ENCODING_HT ||
+                   o->encoding == REDIS_ENCODING_HTARRAY) {
+            roDictIter *di;
+            dictEntry *de;
+            int32_t len;
+
+            if (o->encoding == REDIS_ENCODING_HT) {
+                len = (int32_t)dictSize((dict*)o->ptr);
+                di = roDictGetIterator(o->ptr, NULL);
+            } else {
+                /* read only array */
+                cowDictArray *ar = (cowDictArray *)o->ptr;
+                di = roDictGetIterator(NULL, ar);
+                len = (uint32_t)ar->numele;
+            }
+            /* initialized iterator and len. Can unlock and iterate */
+            cowUnlock();
+
+            if ((n = rdbSaveLen(rdb,len)) == -1) return -1;
+            nwritten += n;
+
+            while((de = roDictNext(di)) != NULL) {
+                robj *key = dictGetKey(de);
+                robj *val = dictGetVal(de);
+
+                if ((n = rdbSaveStringObject(rdb,key)) == -1) return -1;
+                nwritten += n;
+                if ((n = rdbSaveStringObject(rdb,val)) == -1) return -1;
+                nwritten += n;
+            }
+            roDictReleaseIterator(di);
+        } else {
+            cowUnlock();
+            redisPanic("Unknown hash encoding");
+        }
+
+    } else {
+        redisPanic("Unknown object type");
+    }
+    return nwritten;
+}
+#else
 int rdbSaveObject(rio *rdb, robj *o) {
     int n, nwritten = 0;
 
@@ -491,8 +697,8 @@ int rdbSaveObject(rio *rdb, robj *o) {
             nwritten += n;
         } else if (o->encoding == REDIS_ENCODING_LINKEDLIST) {
             list *list = o->ptr;
-            listIter li;
             listNode *ln;
+            listIter li;
 
             if ((n = rdbSaveLen(rdb,listLength(list))) == -1) return -1;
             nwritten += n;
@@ -510,8 +716,8 @@ int rdbSaveObject(rio *rdb, robj *o) {
         /* Save a set value */
         if (o->encoding == REDIS_ENCODING_HT) {
             dict *set = o->ptr;
-            dictIterator *di = dictGetIterator(set);
             dictEntry *de;
+            dictIterator *di = dictGetIterator(set);
 
             if ((n = rdbSaveLen(rdb,dictSize(set))) == -1) return -1;
             nwritten += n;
@@ -539,8 +745,8 @@ int rdbSaveObject(rio *rdb, robj *o) {
             nwritten += n;
         } else if (o->encoding == REDIS_ENCODING_SKIPLIST) {
             zset *zs = o->ptr;
-            dictIterator *di = dictGetIterator(zs->dict);
             dictEntry *de;
+            dictIterator *di = dictGetIterator(zs->dict);
 
             if ((n = rdbSaveLen(rdb,dictSize(zs->dict))) == -1) return -1;
             nwritten += n;
@@ -593,6 +799,7 @@ int rdbSaveObject(rio *rdb, robj *o) {
     }
     return nwritten;
 }
+#endif
 
 /* Return the length the object will have on disk if saved with
  * the rdbSaveObject() function. Currently we use a trick to get
@@ -601,7 +808,7 @@ int rdbSaveObject(rio *rdb, robj *o) {
 off_t rdbSavedObjectLen(robj *o) {
     int len = rdbSaveObject(NULL,o);
     redisAssertWithInfo(NULL,o,len != -1);
-    return len;
+    return (off_t)len;
 }
 
 /* Save a key-value pair, with expire time, type, key, value.
@@ -622,13 +829,27 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val,
     /* Save type, key, value */
     if (rdbSaveObjectType(rdb,val) == -1) return -1;
     if (rdbSaveStringObject(rdb,key) == -1) return -1;
+#ifdef _WIN32
+    /* check if using read-only encoding for saving */
+    if (val->type == REDIS_LIST ||
+        val->type == REDIS_SET ||
+        val->type == REDIS_ZSET ||
+        val->type == REDIS_HASH) {
+            val = (robj *)getRoConvertedObj(key->ptr, val);
+    }
+#endif
     if (rdbSaveObject(rdb,val) == -1) return -1;
     return 1;
 }
 
 /* Save the DB on disk. Return REDIS_ERR on error, REDIS_OK on success */
 int rdbSave(char *filename) {
+#ifdef _WIN32
+    roDictIter *di = NULL;
+    dictIterator * expIter = NULL;
+#else
     dictIterator *di = NULL;
+#endif
     dictEntry *de;
     char tmpfile[256];
     char magic[10];
@@ -639,7 +860,11 @@ int rdbSave(char *filename) {
     uint64_t cksum;
 
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
+#ifdef _WIN32
+    fp = fopen(tmpfile,"wb");
+#else
     fp = fopen(tmpfile,"w");
+#endif
     if (!fp) {
         redisLog(REDIS_WARNING, "Failed opening .rdb for saving: %s",
             strerror(errno));
@@ -655,8 +880,20 @@ int rdbSave(char *filename) {
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
         dict *d = db->dict;
+#ifdef _WIN32
+        if (server.isBackgroundSaving == 1) {
+            /* use background DB copy */
+            db = server.cowSaveDb+j;
+            d = db->dict;
+        }
+        if (roDBDictSize(j) == 0) continue;
+        di = roDBGetIterator(j);
+        /* to prevent rehash of expires from background thread, get safe iterator */
+        expIter = dictGetSafeIterator(db->expires);
+#else
         if (dictSize(d) == 0) continue;
         di = dictGetSafeIterator(d);
+#endif
         if (!di) {
             fclose(fp);
             return REDIS_ERR;
@@ -667,16 +904,29 @@ int rdbSave(char *filename) {
         if (rdbSaveLen(&rdb,j) == -1) goto werr;
 
         /* Iterate this DB writing every entry */
+#ifdef _WIN32
+        while((de = roDictNext(di)) != NULL) {
+#else
         while((de = dictNext(di)) != NULL) {
+#endif
             sds keystr = dictGetKey(de);
             robj key, *o = dictGetVal(de);
             long long expire;
             
             initStaticStringObject(key,keystr);
+#ifdef _WIN32
+            expire = getExpireForSave(db,&key);
+#else
             expire = getExpire(db,&key);
+#endif
             if (rdbSaveKeyValuePair(&rdb,&key,o,expire,now) == -1) goto werr;
         }
+#ifdef _WIN32
+        if (expIter) dictReleaseIterator(expIter);
+        roDictReleaseIterator(di);
+#else
         dictReleaseIterator(di);
+#endif
     }
     di = NULL; /* So that we don't release it again on error. */
 
@@ -711,10 +961,38 @@ werr:
     fclose(fp);
     unlink(tmpfile);
     redisLog(REDIS_WARNING,"Write error saving DB on disk: %s", strerror(errno));
+#ifdef _WIN32
+    if (expIter) dictReleaseIterator(expIter);
+    if (di) roDictReleaseIterator(di);
+#else
     if (di) dictReleaseIterator(di);
+#endif
     return REDIS_ERR;
 }
 
+#ifdef _WIN32
+int rdbSaveBackground(char *filename) {
+    if (server.rdb_child_pid != -1) return REDIS_ERR;
+    if (server.aof_child_pid != -1) return REDIS_ERR;
+    server.dirty_before_bgsave = server.dirty;
+
+    server.rdb_child_pid = getpid();
+    server.rdb_save_time_start = time(NULL);
+    if (bkgdsave_start(filename, rdbSave) == -1) {
+        /* couldn't do in background. Do it in foreground */
+        redisLog(REDIS_WARNING,"Background save failed. Trying foreground");
+        server.rdbbkgdfsave.background = 0;
+        if (rdbSave(filename) == REDIS_OK) {
+            backgroundSaveDoneHandler(0, 0);
+            return REDIS_OK;
+        } else {
+            backgroundSaveDoneHandler(1, 0);
+            return REDIS_ERR;
+        }
+    }
+    return REDIS_OK;
+}
+#else
 int rdbSaveBackground(char *filename) {
     pid_t childpid;
     long long start;
@@ -757,6 +1035,7 @@ int rdbSaveBackground(char *filename) {
     }
     return REDIS_OK; /* unreached */
 }
+#endif
 
 void rdbRemoveTempFile(pid_t childpid) {
     char tmpfile[256];
@@ -801,7 +1080,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 
             if (o->encoding == REDIS_ENCODING_ZIPLIST) {
                 dec = getDecodedObject(ele);
-                o->ptr = ziplistPush(o->ptr,dec->ptr,sdslen(dec->ptr),REDIS_TAIL);
+                o->ptr = ziplistPush(o->ptr,dec->ptr,(unsigned int)sdslen(dec->ptr),REDIS_TAIL);
                 decrRefCount(dec);
                 decrRefCount(ele);
             } else {
@@ -909,8 +1188,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             redisAssert(field->encoding == REDIS_ENCODING_RAW);
 
             /* Add pair to ziplist */
-            o->ptr = ziplistPush(o->ptr, field->ptr, sdslen(field->ptr), ZIPLIST_TAIL);
-            o->ptr = ziplistPush(o->ptr, value->ptr, sdslen(value->ptr), ZIPLIST_TAIL);
+            o->ptr = ziplistPush(o->ptr, field->ptr, (unsigned int)sdslen(field->ptr), ZIPLIST_TAIL);
+            o->ptr = ziplistPush(o->ptr, value->ptr, (unsigned int)sdslen(value->ptr), ZIPLIST_TAIL);
             /* Convert to hash table if size threshold is exceeded */
             if (sdslen(field->ptr) > server.hash_max_ziplist_value ||
                 sdslen(value->ptr) > server.hash_max_ziplist_value)
@@ -1067,7 +1346,11 @@ int rdbLoad(char *filename) {
     FILE *fp;
     rio rdb;
 
+#ifdef _WIN32
+    if ((fp = fopen(filename,"rb")) == NULL) return REDIS_ERR;
+#else
     if ((fp = fopen(filename,"r")) == NULL) return REDIS_ERR;
+#endif
 
     rioInitWithFile(&rdb,fp);
     if (server.rdb_checksum)
@@ -1196,6 +1479,11 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
         if (bysignal != SIGUSR1)
             server.lastbgsave_status = REDIS_ERR;
     }
+#ifdef _WIN32
+    server.rdbbkgdfsave.state = BKSAVE_IDLE;
+    /* turn off copy on write */
+    cowBkgdSaveStop();
+#endif
     server.rdb_child_pid = -1;
     server.rdb_save_time_last = time(NULL)-server.rdb_save_time_start;
     server.rdb_save_time_start = -1;

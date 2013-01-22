@@ -159,6 +159,12 @@
 #endif
 #endif
 
+#ifdef _WIN32
+#ifndef BYTE_ORDER
+#define BYTE_ORDER LITTLE_ENDIAN
+#endif
+#endif
+
 #if !defined(BYTE_ORDER) || \
     (BYTE_ORDER != BIG_ENDIAN && BYTE_ORDER != LITTLE_ENDIAN)
 	/* you must determine what the correct bit order is for

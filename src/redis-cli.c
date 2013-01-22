@@ -34,15 +34,35 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 #include <time.h>
 #include <ctype.h>
 #include <errno.h>
 #include <sys/stat.h>
+#ifndef _WIN32
 #include <sys/time.h>
+#endif
 #include <assert.h>
 #include <fcntl.h>
 #include <limits.h>
+
+#ifdef _WIN32
+#include <fcntl.h>
+#ifndef FD_SETSIZE
+#define FD_SETSIZE 16000
+#endif
+#ifndef STDIN_FILENO
+  #define STDIN_FILENO (_fileno(stdin))
+#endif
+#include <winsock2.h>
+#include <windows.h>
+#include "win32fixes.h"
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+#define strtoull _strtoui64
+#endif
 
 #include "hiredis.h"
 #include "sds.h"
@@ -102,7 +122,7 @@ static long long mstime(void) {
 
     gettimeofday(&tv, NULL);
     mst = ((long long)tv.tv_sec)*1000;
-    mst += tv.tv_usec/1000;
+    mst += (long long)(tv.tv_usec/1000);
     return mst;
 }
 
@@ -388,7 +408,7 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
             sds tmp;
 
             /* Calculate chars needed to represent the largest index */
-            i = r->elements;
+            i = (unsigned int)r->elements;
             do {
                 idxlen++;
                 i /= 10;
@@ -558,7 +578,12 @@ static int cliReadReply(int output_raw_strings) {
                 out = sdscat(out,"\n");
             }
         }
+#ifdef _WIN32
+        /* if size is too large, fwrite fails. Use fprintf */
+        fprintf(stdout, "%s", out);
+#else
         fwrite(out,sdslen(out),1,stdout);
+#endif
         sdsfree(out);
     }
     freeReplyObject(reply);
@@ -686,10 +711,10 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-s") && !lastarg) {
             config.hostsocket = argv[++i];
         } else if (!strcmp(argv[i],"-r") && !lastarg) {
-            config.repeat = strtoll(argv[++i],NULL,10);
+            config.repeat = (long)strtoll(argv[++i],NULL,10);
         } else if (!strcmp(argv[i],"-i") && !lastarg) {
             double seconds = atof(argv[++i]);
-            config.interval = seconds*1000000;
+            config.interval = (long)(seconds*1000000);
         } else if (!strcmp(argv[i],"-n") && !lastarg) {
             config.dbnum = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"-a") && !lastarg) {
@@ -816,10 +841,17 @@ static void repl() {
     if (isatty(fileno(stdin))) {
         history = 1;
 
+#ifdef _WIN32
+        if (getenv("USERPROFILE") != NULL) {
+            historyfile = sdscatprintf(sdsempty(),"%s\\.rediscli_history",getenv("USERPROFILE"));
+            linenoiseHistoryLoad(historyfile);
+        }
+#else
         if (getenv("HOME") != NULL) {
             historyfile = sdscatprintf(sdsempty(),"%s/.rediscli_history",getenv("HOME"));
             linenoiseHistoryLoad(historyfile);
         }
+#endif
     }
 
     cliRefreshPrompt();
@@ -1022,7 +1054,11 @@ static void slaveMode(void) {
     while(payload) {
         ssize_t nread;
 
+#ifdef _WIN32
+        nread = read(fd,buf,(payload > sizeof(buf)) ? sizeof(buf) : (unsigned int)payload);
+#else
         nread = read(fd,buf,(payload > sizeof(buf)) ? sizeof(buf) : payload);
+#endif
         if (nread <= 0) {
             fprintf(stderr,"Error reading RDB payload while SYNCing\n");
             exit(1);
@@ -1062,7 +1098,7 @@ static void getRDB(void) {
     while(payload) {
         ssize_t nread, nwritten;
         
-        nread = read(s,buf,(payload > sizeof(buf)) ? sizeof(buf) : payload);
+        nread = read(s,buf,(unsigned int)(payload > sizeof(buf)) ? sizeof(buf) : payload);
         if (nread <= 0) {
             fprintf(stderr,"I/O Error reading RDB payload from socket\n");
             exit(1);
@@ -1082,7 +1118,7 @@ static void getRDB(void) {
 }
 
 static void pipeMode(void) {
-    int fd = context->fd;
+    int fd = (int)context->fd;
     long long errors = 0, replies = 0, obuf_len = 0, obuf_pos = 0;
     char ibuf[1024*16], obuf[1024*16]; /* Input and output buffers */
     char aneterr[ANET_ERR_LEN];
@@ -1092,7 +1128,7 @@ static void pipeMode(void) {
     int done = 0;
     char magic[20]; /* Special reply we recognize. */
 
-    srand(time(NULL));
+    srand((unsigned int)time(NULL));
 
     /* Use non blocking I/O. */
     if (anetNonBlock(aneterr,fd) == ANET_ERR) {
@@ -1156,7 +1192,7 @@ static void pipeMode(void) {
             while(1) {
                 /* Transfer current buffer to server. */
                 if (obuf_len != 0) {
-                    ssize_t nwritten = write(fd,obuf+obuf_pos,obuf_len);
+                    ssize_t nwritten = write(fd,obuf+obuf_pos,(unsigned int)obuf_len);
                     
                     if (nwritten == -1) {
                         if (errno != EAGAIN && errno != EINTR) {
@@ -1278,7 +1314,7 @@ static void findBigKeys(void) {
 
         reply3 = redisCommand(context,"%s %s", sizecmd, reply1->str);
         if (reply3 && reply3->type == REDIS_REPLY_INTEGER) {
-            if (biggest[type] < reply3->integer) {
+            if (biggest[type] < (unsigned)reply3->integer) {
                 printf("Biggest %-6s found so far '%s' with %llu %s.\n",
                     typename[type], reply1->str,
                     (unsigned long long) reply3->integer,
@@ -1468,6 +1504,19 @@ int main(int argc, char **argv) {
     config.mb_delim = sdsnew("\n");
     cliInitHelp();
 
+#ifdef _WIN32
+    _fmode = _O_BINARY;
+    _setmode(_fileno(stdin), _O_BINARY);
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_BINARY);
+
+    if (!w32initWinSock()) {
+      printf("Winsock init error %d", WSAGetLastError());
+      exit(1);
+    };
+
+    atexit((void(*)(void)) WSACleanup);
+#endif
     firstarg = parseOptions(argc,argv);
     argc -= firstarg;
     argv += firstarg;

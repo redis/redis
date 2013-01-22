@@ -42,12 +42,19 @@
 #include <string.h>
 #include <time.h>
 #include <limits.h>
+#ifndef _WIN32
 #include <unistd.h>
-#include <errno.h>
 #include <inttypes.h>
+#endif
+#include <errno.h>
+#ifdef _WIN32
+#include "win32fixes.h"
+#include "win32_bksv.h"
+#else
 #include <pthread.h>
 #include <syslog.h>
 #include <netinet/in.h>
+#endif
 #include <lua.h>
 #include <signal.h>
 
@@ -61,6 +68,8 @@
 #include "intset.h"  /* Compact integer set structure */
 #include "version.h" /* Version macro */
 #include "util.h"    /* Misc functions useful in many places */
+
+#include "win32_cow.h" /* Windows copy on write */
 
 /* Error codes */
 #define REDIS_OK                0
@@ -138,6 +147,11 @@
 #define REDIS_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
 #define REDIS_ENCODING_INTSET 6  /* Encoded as intset */
 #define REDIS_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
+#ifdef _WIN32
+#define REDIS_ENCODING_HTARRAY  12        /* read-only dict array for bgsave */
+#define REDIS_ENCODING_LINKEDLISTARRAY 13 /* read-only list array for bgsave */
+#define REDIS_ENCODING_HTZARRAY  14       /* read-only zset dict array for bgsave */
+#endif
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
@@ -597,6 +611,16 @@ struct redisServer {
     time_t rdb_save_time_start;     /* Current RDB save start time. */
     int lastbgsave_status;          /* REDIS_OK or REDIS_ERR */
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
+#ifdef _WIN32
+    /* Windows copy on write for AOF and RDB persistence */
+    bkgdfsave rdbbkgdfsave;
+    dict *cowDictCopied;
+    dict *cowDictConverted;
+    int isBackgroundSaving;
+    bkgdDbExt *cowSaveDbExt;
+    redisDb *cowSaveDb;
+    bkgditers cowCurIters;
+#endif
     /* Propagation of commands in AOF / replication */
     redisOpArray also_propagate;    /* Additional command to propagate. */
     /* Logging */
@@ -697,7 +721,11 @@ struct redisCommand {
 
 struct redisFunctionSym {
     char *name;
+#ifdef _WIN32
+    size_t pointer;
+#else
     unsigned long pointer;
+#endif
 };
 
 typedef struct _redisSortObject {
@@ -912,6 +940,10 @@ void stopLoading(void);
 
 /* RDB persistence */
 #include "rdb.h"
+#ifdef _WIN32
+robj *cowEnsureWriteCopy(redisDb *db, robj *key, robj *val);
+void cowEnsureExpiresCopy(redisDb *db);
+#endif
 
 /* AOF persistence */
 void flushAppendOnlyFile(int force);
@@ -1016,6 +1048,9 @@ int removeExpire(redisDb *db, robj *key);
 void propagateExpire(redisDb *db, robj *key);
 int expireIfNeeded(redisDb *db, robj *key);
 long long getExpire(redisDb *db, robj *key);
+#ifdef _WIN32
+time_t getExpireForSave(redisDb *db, robj *key);
+#endif
 void setExpire(redisDb *db, robj *key, long long when);
 robj *lookupKey(redisDb *db, robj *key);
 robj *lookupKeyRead(redisDb *db, robj *key);
@@ -1206,7 +1241,9 @@ void _redisAssert(char *estr, char *file, int line);
 void _redisPanic(char *msg, char *file, int line);
 void bugReportStart(void);
 void redisLogObjectDebugInfo(robj *o);
+#ifdef HAVE_BACKTRACE
 void sigsegvHandler(int sig, siginfo_t *info, void *secret);
+#endif
 sds genRedisInfoString(char *section);
 void enableWatchdog(int period);
 void disableWatchdog(void);

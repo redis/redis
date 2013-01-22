@@ -50,7 +50,7 @@ sds sdsnewlen(const void *init, size_t initlen) {
 #else
     if (sh == NULL) return NULL;
 #endif
-    sh->len = initlen;
+    sh->len = (int)initlen;
     sh->free = 0;
     if (initlen) {
         if (init) memcpy(sh->buf, init, initlen);
@@ -80,7 +80,7 @@ void sdsfree(sds s) {
 
 void sdsupdatelen(sds s) {
     struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
-    int reallen = strlen(s);
+    int reallen = (int)strlen(s);
     sh->free += (sh->len-reallen);
     sh->len = reallen;
 }
@@ -101,7 +101,7 @@ static sds sdsMakeRoomFor(sds s, size_t addlen) {
     if (newsh == NULL) return NULL;
 #endif
 
-    newsh->free = newlen - len;
+    newsh->free = (int)(newlen - len);
     return newsh->buf;
 }
 
@@ -119,8 +119,8 @@ sds sdsgrowzero(sds s, size_t len) {
     sh = (void*)(s-(sizeof(struct sdshdr)));
     memset(s+curlen,0,(len-curlen+1)); /* also set trailing \0 byte */
     totlen = sh->len+sh->free;
-    sh->len = len;
-    sh->free = totlen-sh->len;
+    sh->len = (int)len;
+    sh->free = (int)(totlen-sh->len);
     return s;
 }
 
@@ -132,8 +132,8 @@ sds sdscatlen(sds s, const void *t, size_t len) {
     if (s == NULL) return NULL;
     sh = (void*) (s-(sizeof(struct sdshdr)));
     memcpy(s+curlen, t, len);
-    sh->len = curlen+len;
-    sh->free = sh->free-len;
+    sh->len = (int)(curlen+len);
+    sh->free = (int)(sh->free-len);
     s[curlen+len] = '\0';
     return s;
 }
@@ -154,8 +154,8 @@ sds sdscpylen(sds s, char *t, size_t len) {
     }
     memcpy(s, t, len);
     s[len] = '\0';
-    sh->len = len;
-    sh->free = totlen-len;
+    sh->len = (int)len;
+    sh->free = (int)(totlen-len);
     return s;
 }
 
@@ -211,8 +211,8 @@ sds sdstrim(sds s, const char *cset) {
     len = (sp > ep) ? 0 : ((ep-sp)+1);
     if (sh->buf != sp) memmove(sh->buf, sp, len);
     sh->buf[len] = '\0';
-    sh->free = sh->free+(sh->len-len);
-    sh->len = len;
+    sh->free = (int)(sh->free+(sh->len-len));
+    sh->len = (int)len;
     return s;
 }
 
@@ -222,11 +222,11 @@ sds sdsrange(sds s, int start, int end) {
 
     if (len == 0) return s;
     if (start < 0) {
-        start = len+start;
+        start = (int)(len+start);
         if (start < 0) start = 0;
     }
     if (end < 0) {
-        end = len+end;
+        end = (int)(len+end);
         if (end < 0) end = 0;
     }
     newlen = (start > end) ? 0 : (end-start)+1;
@@ -234,7 +234,7 @@ sds sdsrange(sds s, int start, int end) {
         if (start >= (signed)len) {
             newlen = 0;
         } else if (end >= (signed)len) {
-            end = len-1;
+            end = (int)(len-1);
             newlen = (start > end) ? 0 : (end-start)+1;
         }
     } else {
@@ -242,19 +242,19 @@ sds sdsrange(sds s, int start, int end) {
     }
     if (start && newlen) memmove(sh->buf, sh->buf+start, newlen);
     sh->buf[newlen] = 0;
-    sh->free = sh->free+(sh->len-newlen);
-    sh->len = newlen;
+    sh->free = (int)(sh->free+(sh->len-newlen));
+    sh->len = (int)newlen;
     return s;
 }
 
 void sdstolower(sds s) {
-    int len = sdslen(s), j;
+    int len = (int)sdslen(s), j;
 
     for (j = 0; j < len; j++) s[j] = tolower(s[j]);
 }
 
 void sdstoupper(sds s) {
-    int len = sdslen(s), j;
+    int len = (int)sdslen(s), j;
 
     for (j = 0; j < len; j++) s[j] = toupper(s[j]);
 }
@@ -267,7 +267,7 @@ int sdscmp(sds s1, sds s2) {
     l2 = sdslen(s2);
     minlen = (l1 < l2) ? l1 : l2;
     cmp = memcmp(s1,s2,minlen);
-    if (cmp == 0) return l1-l2;
+    if (cmp == 0) return (int)(l1-l2);
     return cmp;
 }
 
