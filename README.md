@@ -1,4 +1,4 @@
-Redis on Windows 2.6 prototype
+﻿Redis on Windows 2.6 prototype
 ===
 ## What's new in this release
 
