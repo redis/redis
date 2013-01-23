@@ -391,6 +391,10 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"slave-priority") && argc == 2) {
             server.slave_priority = atoi(argv[1]);
+        } else if (!strcasecmp(argv[0],"notify-keyspace-events") && argc == 2) {
+            if ((server.notify_keyspace_events = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"sentinel")) {
             /* argc == 1 is handled by main() as we need to enter the sentinel
              * mode ASAP. */
@@ -709,11 +713,11 @@ void configSetCommand(redisClient *c) {
 
         if (yn == -1) goto badfmt;
         server.rdb_compression = yn;
-    } else if (!strcasecmp(c->argv[2]->ptr,"rdbchecksum")) {
+    } else if (!strcasecmp(c->argv[2]->ptr,"notify-keyspace-events")) {
         int yn = yesnotoi(o->ptr);
 
         if (yn == -1) goto badfmt;
-        server.rdb_checksum = yn;
+        server.notify_keyspace_events = yn;
     } else if (!strcasecmp(c->argv[2]->ptr,"slave-priority")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll <= 0) goto badfmt;
@@ -823,6 +827,7 @@ void configGetCommand(redisClient *c) {
     config_get_bool_field("rdbcompression", server.rdb_compression);
     config_get_bool_field("rdbchecksum", server.rdb_checksum);
     config_get_bool_field("activerehashing", server.activerehashing);
+    config_get_bool_field("notify-keyspace-events", server.notify_keyspace_events);
 
     /* Everything we can't handle with macros follows. */
 

@@ -1158,6 +1158,7 @@ void initServerConfig() {
     server.rdb_compression = 1;
     server.rdb_checksum = 1;
     server.activerehashing = 1;
+    server.notify_keyspace_events = 0;
     server.maxclients = REDIS_MAX_CLIENTS;
     server.bpop_blocked_clients = 0;
     server.maxmemory = 0;
