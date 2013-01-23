@@ -47,6 +47,8 @@ void notifyKeyspaceEvent(char *event, robj *key, int dbid) {
     char buf[24];
     robj *chan1, *chan2, *eventobj;
 
+    if (!server.notify_keyspace_events) return;
+
     /* The prefix of the two channels is identical if not for
      * 'keyspace' that is 'keyevent' in the event channel name, so
      * we build a single prefix and overwrite 'event' with 'space'. */
@@ -62,7 +64,7 @@ void notifyKeyspaceEvent(char *event, robj *key, int dbid) {
     /* The keyspace channel name has a trailing key name, while
      * the keyevent channel name has a trailing event name. */
     keyspace_chan = sdscatsds(keyspace_chan, key->ptr);
-    keyevent_chan = sdscatsds(keyspace_chan, eventobj->ptr);
+    keyevent_chan = sdscatsds(keyevent_chan, eventobj->ptr);
     chan1 = createObject(REDIS_STRING, keyspace_chan);
     chan2 = createObject(REDIS_STRING, keyevent_chan);
 
