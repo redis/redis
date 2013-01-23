@@ -1,5 +1,5 @@
 proc start_bg_complex_data {host port db ops} {
-    exec tclsh8.5 tests/helpers/bg_complex_data.tcl $host $port $db $ops &
+    exec tclsh tests/helpers/bg_complex_data.tcl $host $port $db $ops &
 }
 
 proc stop_bg_complex_data {handle} {
