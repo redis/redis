@@ -382,7 +382,8 @@ void renameGenericCommand(redisClient *c, int nx) {
             addReply(c,shared.czero);
             return;
         }
-        /* Overwrite: delete the old key before creating the new one with the same name. */
+        /* Overwrite: delete the old key before creating the new one
+         * with the same name. */
         dbDelete(c->db,c->argv[2]);
     }
     dbAdd(c->db,c->argv[2],o);
