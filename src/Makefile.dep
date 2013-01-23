@@ -40,6 +40,9 @@ networking.o: networking.c redis.h fmacros.h config.h \
   ../deps/lua/src/lua.h ../deps/lua/src/luaconf.h ae.h sds.h dict.h \
   adlist.h zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h \
   rio.h
+notify.o: notify.c redis.h fmacros.h config.h ../deps/lua/src/lua.h \
+  ../deps/lua/src/luaconf.h ae.h sds.h dict.h adlist.h zmalloc.h anet.h \
+  ziplist.h intset.h version.h util.h rdb.h rio.h
 object.o: object.c redis.h fmacros.h config.h ../deps/lua/src/lua.h \
   ../deps/lua/src/luaconf.h ae.h sds.h dict.h adlist.h zmalloc.h anet.h \
   ziplist.h intset.h version.h util.h rdb.h rio.h
