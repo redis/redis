@@ -1948,7 +1948,7 @@ sds genRedisInfoString(char *section) {
             REDIS_VERSION,
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
-            redisBuildId(),
+            (long long unsigned int)redisBuildId(),
             mode,
             name.sysname, name.release, name.machine,
             server.arch_bits,
@@ -2502,7 +2502,7 @@ void version() {
         atoi(redisGitDirty()) > 0,
         ZMALLOC_LIB,
         sizeof(long) == 4 ? 32 : 64,
-        redisBuildId());
+        (long long unsigned int)redisBuildId());
     exit(0);
 }
 
