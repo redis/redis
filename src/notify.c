@@ -74,6 +74,6 @@ void notifyKeyspaceEvent(char *event, robj *key, int dbid) {
 
     /* Release objects. */
     decrRefCount(eventobj);
-    decrRefCount(keyspace_chan);
-    decrRefCount(keyevent_chan);
+    decrRefCount(chan1);
+    decrRefCount(chan2);
 }
