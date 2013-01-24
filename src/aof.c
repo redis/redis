@@ -456,7 +456,7 @@ struct redisClient *createFakeClient(void) {
     c->reply_bytes = 0;
     c->obuf_soft_limit_reached_time = 0;
     c->watched_keys = listCreate();
-    listSetFreeMethod(c->reply,decrRefCount);
+    listSetFreeMethod(c->reply,decrRefCountVoid);
     listSetDupMethod(c->reply,dupClientReplyValue);
     initClientMultiState(c);
     return c;

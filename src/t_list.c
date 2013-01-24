@@ -275,7 +275,7 @@ void listTypeConvert(robj *subject, int enc) {
 
     if (enc == REDIS_ENCODING_LINKEDLIST) {
         list *l = listCreate();
-        listSetFreeMethod(l,decrRefCount);
+        listSetFreeMethod(l,decrRefCountVoid);
 
         /* listTypeGet returns a robj with incremented refcount */
         li = listTypeInitIterator(subject,0,REDIS_TAIL);

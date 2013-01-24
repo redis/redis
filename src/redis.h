@@ -989,7 +989,8 @@ void discardTransaction(redisClient *c);
 void flagTransaction(redisClient *c);
 
 /* Redis object implementation */
-void decrRefCount(void *o);
+void decrRefCount(robj *o);
+void decrRefCountVoid(void *o);
 void incrRefCount(robj *o);
 robj *resetRefCount(robj *obj);
 void freeStringObject(robj *o);
