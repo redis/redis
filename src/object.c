@@ -215,9 +215,7 @@ void incrRefCount(robj *o) {
     o->refcount++;
 }
 
-void decrRefCount(void *obj) {
-    robj *o = obj;
-
+void decrRefCount(robj *o) {
     if (o->refcount <= 0) redisPanic("decrRefCount against refcount <= 0");
     if (o->refcount == 1) {
         switch(o->type) {
@@ -232,6 +230,13 @@ void decrRefCount(void *obj) {
     } else {
         o->refcount--;
     }
+}
+
+/* This variant of decrRefCount() gets its argument as void, and is useful
+ * as free method in data structures that expect a 'void free_object(void*)'
+ * prototype for the free method. */
+void decrRefCountVoid(void *o) {
+    decrRefCount(o);
 }
 
 /* This function set the ref count to zero without freeing the object.
