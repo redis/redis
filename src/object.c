@@ -97,7 +97,7 @@ robj *dupStringObject(robj *o) {
 robj *createListObject(void) {
     list *l = listCreate();
     robj *o = createObject(REDIS_LIST,l);
-    listSetFreeMethod(l,decrRefCount);
+    listSetFreeMethod(l,decrRefCountVoid);
     o->encoding = REDIS_ENCODING_LINKEDLIST;
     return o;
 }
