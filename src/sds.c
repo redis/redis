@@ -141,7 +141,7 @@ size_t sdsAllocSize(sds s) {
  * right-trim the string.
  *
  * Using sdsIncrLen() and sdsMakeRoomFor() it is possible to mount the
- * following schema to cat bytes coming from the kerenl to the end of an
+ * following schema to cat bytes coming from the kernel to the end of an
  * sds string new things without copying into an intermediate buffer:
  *
  * oldlen = sdslen(s);
@@ -596,7 +596,7 @@ void sdssplitargs_free(sds *argv, int argc) {
 }
 
 /* Modify the string substituting all the occurrences of the set of
- * characters specifed in the 'from' string to the corresponding character
+ * characters specified in the 'from' string to the corresponding character
  * in the 'to' array.
  *
  * For instance: sdsmapchars(mystring, "ho", "01", 2)

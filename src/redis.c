@@ -99,7 +99,7 @@ struct redisCommand *commandTable;
  * m: may increase memory usage once called. Don't allow if out of memory.
  * a: admin command, like SAVE or SHUTDOWN.
  * p: Pub/Sub related command.
- * f: force replication of this command, regarless of server.dirty.
+ * f: force replication of this command, regardless of server.dirty.
  * s: command not allowed in scripts.
  * R: random command. Command is not deterministic, that is, the same command
  *    with the same arguments, with the same key space, may have different
@@ -292,7 +292,7 @@ void redisLogRaw(int level, const char *msg) {
     if (server.syslog_enabled) syslog(syslogLevelMap[level], "%s", msg);
 }
 
-/* Like redisLogRaw() but with printf-alike support. This is the funciton that
+/* Like redisLogRaw() but with printf-alike support. This is the function that
  * is used across the code. The raw version is only used in order to dump
  * the INFO output on crash. */
 void redisLog(int level, const char *fmt, ...) {
@@ -367,7 +367,7 @@ void exitFromChild(int retcode) {
 
 /*====================== Hash table type implementation  ==================== */
 
-/* This is an hash table type that uses the SDS dynamic strings libary as
+/* This is an hash table type that uses the SDS dynamic strings library as
  * keys and radis objects as values (objects can hold SDS strings,
  * lists, sets). */
 
@@ -541,7 +541,7 @@ dictType commandTableDictType = {
     NULL                       /* val destructor */
 };
 
-/* Hash type hash table (note that small hashes are represented with zimpaps) */
+/* Hash type hash table (note that small hashes are represented with zipmaps) */
 dictType hashDictType = {
     dictEncObjHash,             /* hash function */
     NULL,                       /* key dup */
@@ -742,7 +742,7 @@ int clientsCronHandleTimeout(redisClient *c) {
 /* The client query buffer is an sds.c string that can end with a lot of
  * free space not used, this function reclaims space if needed.
  *
- * The funciton always returns 0 as it never terminates the client. */
+ * The function always returns 0 as it never terminates the client. */
 int clientsCronResizeQueryBuffer(redisClient *c) {
     size_t querybuf_size = sdsAllocSize(c->querybuf);
     time_t idletime = server.unixtime - c->lastinteraction;
@@ -878,11 +878,11 @@ void checkOSMemory(void) {
  *
  * - Active expired keys collection (it is also performed in a lazy way on
  *   lookup).
- * - Software watchdong.
+ * - Software watchdog.
  * - Update some statistic.
  * - Incremental rehashing of the DBs hash tables.
  * - Triggering BGSAVE / AOF rewrite, and handling of terminated children.
- * - Clients timeout of differnet kinds.
+ * - Clients timeout of different kinds.
  * - Replication reconnection.
  * - Many more...
  *
@@ -911,7 +911,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* We have just 22 bits per object for LRU information.
      * So we use an (eventually wrapping) LRU clock with 10 seconds resolution.
-     * 2^22 bits with 10 seconds resoluton is more or less 1.5 years.
+     * 2^22 bits with 10 seconds resolution is more or less 1.5 years.
      *
      * Note that even if this will wrap after 1.5 years it's not a problem,
      * everything will still work but just some object will appear younger
@@ -932,6 +932,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     if (server.shutdown_asap) {
         if (prepareForShutdown(0) == REDIS_OK) exit(0);
         redisLog(REDIS_WARNING,"SIGTERM received but errors trying to shut down the server, check the logs for more information");
+        server.shutdown_asap = 0;
     }
 
     /* Try to evict if OS memory is low */
@@ -958,7 +959,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         }
     }
 
-    /* We don't want to resize the hash tables while a bacground saving
+    /* We don't want to resize the hash tables while a background saving
      * is in progress: the saving child is created using fork() that is
      * implemented with a copy-on-write semantic in most modern systems, so
      * if we resize the HT while there is the saving child at work actually
@@ -1274,7 +1275,7 @@ void initServerConfig() {
     R_NegInf = -1.0/R_Zero;
     R_Nan = R_Zero/R_Zero;
 
-    /* Command table -- we intiialize it here as it is part of the
+    /* Command table -- we initiialize it here as it is part of the
      * initial configuration, since command names may be changed via
      * redis.conf using the rename-command directive. */
     server.commands = dictCreate(&commandTableDictType,NULL);
@@ -1609,7 +1610,7 @@ void call(redisClient *c, int flags) {
     long long dirty, start = ustime(), duration;
 
     /* Sent the command to clients in MONITOR mode, only if the commands are
-     * not geneated from reading an AOF. */
+     * not generated from reading an AOF. */
     if (!(c->flags & REDIS_HIDDEN) &&
         listLength(server.monitors) &&
         !server.loading &&
@@ -1633,7 +1634,7 @@ void call(redisClient *c, int flags) {
 
     /* Log the command into the Slow log if needed, and populate the
      * per-command statistics that we show in INFO commandstats. */
-    if (flags & REDIS_CALL_SLOWLOG)
+    if (flags & REDIS_CALL_SLOWLOG && c->cmd->proc != execCommand)
         slowlogPushEntryIfNeeded(c->argv,c->argc,duration);
     if (dirty > 0 && server.conditional_sync) {
         update_dbversion(c);
@@ -1677,8 +1678,8 @@ void call(redisClient *c, int flags) {
  * server for a bulk read from the client.
  *
  * If 1 is returned the client is still alive and valid and
- * and other operations can be performed by the caller. Otherwise
- * if 0 is returned the client was destroied (i.e. after QUIT). */
+ * other operations can be performed by the caller. Otherwise
+ * if 0 is returned the client was destroyed (i.e. after QUIT). */
 int processCommand(redisClient *c) {
     /* The QUIT command is handled separately. Normal command procs will
      * go through checking for replication and QUIT will cause trouble
@@ -1831,7 +1832,7 @@ int prepareForShutdown(int flags) {
        overwrite the synchronous saving did by SHUTDOWN. */
     if (server.rdb_child_pid != -1) {
         redisLog(REDIS_WARNING,"There is a child saving an .rdb. Killing it!");
-        kill(server.rdb_child_pid,SIGKILL);
+        kill(server.rdb_child_pid,SIGUSR1);
         rdbRemoveTempFile(server.rdb_child_pid);
     }
     if (server.aof_state != REDIS_AOF_OFF) {
@@ -1840,7 +1841,7 @@ int prepareForShutdown(int flags) {
         if (server.aof_child_pid != -1) {
             redisLog(REDIS_WARNING,
                 "There is a child rewriting the AOF. Killing it!");
-            kill(server.aof_child_pid,SIGKILL);
+            kill(server.aof_child_pid,SIGUSR1);
         }
         /* Append only file: fsync() the AOF and exit */
         redisLog(REDIS_NOTICE,"Calling fsync() on the AOF file.");
@@ -1942,7 +1943,7 @@ void echoCommand(redisClient *c) {
 void timeCommand(redisClient *c) {
     struct timeval tv;
 
-    /* gettimeofday() can only fail if &tv is a bad addresss so we
+    /* gettimeofday() can only fail if &tv is a bad address so we
      * don't check for errors. */
     gettimeofday(&tv,NULL);
     addReplyMultiBulkLen(c,2);

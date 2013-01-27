@@ -102,7 +102,7 @@ void discardCommand(redisClient *c) {
 }
 
 /* Send a MULTI command to all the slaves and AOF file. Check the execCommand
- * implememntation for more information. */
+ * implementation for more information. */
 void execCommandReplicateMulti(redisClient *c) {
     robj *multistring = createStringObject("MULTI",5);
 
@@ -223,7 +223,7 @@ void watchForKey(redisClient *c, robj *key) {
         incrRefCount(key);
     }
     listAddNodeTail(clients,c);
-    /* Add the new key to the lits of keys watched by this client */
+    /* Add the new key to the list of keys watched by this client */
     wk = zmalloc(sizeof(*wk));
     wk->key = key;
     wk->db = c->db;

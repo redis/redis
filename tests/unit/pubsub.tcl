@@ -192,4 +192,14 @@ start_server {tags {"pubsub"}} {
         # clean up clients
         $rd1 close
     }
+
+    test "PUNSUBSCRIBE and UNSUBSCRIBE should always reply." {
+        # Make sure we are not subscribed to any channel at all.
+        r punsubscribe
+        r unsubscribe
+        # Now check if the commands still reply correctly.
+        set reply1 [r punsubscribe]
+        set reply2 [r unsubscribe]
+        concat $reply1 $reply2
+    } {punsubscribe {} 0 unsubscribe {} 0}
 }
