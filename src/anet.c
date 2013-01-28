@@ -266,24 +266,15 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, int flags) {
       sa.sin_addr.s_addr = inAddress;
     }
 
-    if (flags & ANET_CONNECT_NONBLOCK) {
-        if (anetNonBlock(err,s) != ANET_OK)
-            return ANET_ERR;
-    }
-    if (connect((SOCKET)s, (struct sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
-        errno = WSAGetLastError();
-        if ((errno == WSAEWOULDBLOCK)) errno = EINPROGRESS;
+    if (aeWinSocketConnect(s, (struct sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
+        if ((errno == WSAEWOULDBLOCK || errno == WSA_IO_PENDING)) errno = EINPROGRESS;
         if (errno == EINPROGRESS && flags & ANET_CONNECT_NONBLOCK) {
-            aeWinSocketAttach(s);
             return s;
         }
 
         anetSetError(err, "connect: %d\n", errno);
         closesocket(s);
         return ANET_ERR;
-    }
-    if (flags & ANET_CONNECT_NONBLOCK) {
-        aeWinSocketAttach(s);
     }
 
     return s;
@@ -490,8 +481,7 @@ int anetTcpServer(char *err, int port, char *bindaddr)
         inAddress = inet_addr(bindaddr);
         if (inAddress == INADDR_NONE || inAddress == INADDR_ANY) {
             anetSetError(err, "Invalid bind address\n");
-            aeWinSocketDetach(s, 0);
-            closesocket((SOCKET)s);
+            aeWinCloseSocket((SOCKET)s);
             return ANET_ERR;
         }
         else {

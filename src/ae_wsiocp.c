@@ -132,6 +132,7 @@ aeSockState *aeGetExistingSockState(void *apistate, int fd) {
 // find matching value in list and remove. If found return 1
 int removeMatchFromList(list *socklist, void *value) {
     listNode *node;
+    if (socklist == NULL) return 0;
     node = listFirst(socklist);
     while (node != NULL) {
         if (listNodeValue(node) == value) {
@@ -143,14 +144,17 @@ int removeMatchFromList(list *socklist, void *value) {
     return 0;
 }
 
-/* delete data for socket / fd being monitored */
+/* delete data for socket / fd being monitored
+   or move to the closing queue if operations are pending.
+   Return 1 if deleted or not found, 0 if pending*/
 void aeDelSockState(void *apistate, aeSockState *sockState) {
     int sindex;
     list *socklist;
 
     if (apistate == NULL) return;
 
-    if (sockState->wreqs == 0 && (sockState->masks & (READ_QUEUED | SOCKET_ATTACHED)) == 0) {
+    if (sockState->wreqs == 0 &&
+            (sockState->masks & (READ_QUEUED | CONNECT_PENDING | SOCKET_ATTACHED | CLOSE_PENDING)) == 0) {
         // see if in active list
         sindex = aeSocketIndex(sockState->fd);
         socklist = &(((aeApiState *)apistate)->lookup[sindex]);
@@ -228,31 +232,35 @@ static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
 
     if (mask & AE_READABLE) {
         sockstate->masks |= AE_READABLE;
-        if (sockstate->masks & LISTEN_SOCK) {
-            /* actually a listen. Do not treat as read */
-        } else {
-            if ((sockstate->masks & READ_QUEUED) == 0) {
-                // queue up a 0 byte read
-                aeWinReceiveDone(fd);
+        if ((sockstate->masks & CONNECT_PENDING) == 0) {
+            if (sockstate->masks & LISTEN_SOCK) {
+                /* actually a listen. Do not treat as read */
+            } else {
+                if ((sockstate->masks & READ_QUEUED) == 0) {
+                    // queue up a 0 byte read
+                    aeWinReceiveDone(fd);
+                }
             }
         }
     }
     if (mask & AE_WRITABLE) {
         sockstate->masks |= AE_WRITABLE;
-        // if no write active, then need to queue write ready
-        if (sockstate->wreqs == 0) {
-            asendreq *areq = (asendreq *)zmalloc(sizeof(asendreq));
-            memset(areq, 0, sizeof(asendreq));
-            if (PostQueuedCompletionStatus(state->iocp,
-                                        0,
-                                        fd,
-                                        &areq->ov) == 0) {
-                errno = GetLastError();
-                zfree(areq);
-                return -1;
+        if ((sockstate->masks & CONNECT_PENDING) == 0) {
+            // if no write active, then need to queue write ready
+            if (sockstate->wreqs == 0) {
+                asendreq *areq = (asendreq *)zmalloc(sizeof(asendreq));
+                memset(areq, 0, sizeof(asendreq));
+                if (PostQueuedCompletionStatus(state->iocp,
+                                            0,
+                                            fd,
+                                            &areq->ov) == 0) {
+                    errno = GetLastError();
+                    zfree(areq);
+                    return -1;
+                }
+                sockstate->wreqs++;
+                listAddNodeTail(&sockstate->wreqlist, areq);
             }
-            sockstate->wreqs++;
-            listAddNodeTail(&sockstate->wreqlist, areq);
         }
     }
     return 0;
@@ -327,88 +335,102 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
             /* the competion key is the socket */
             SOCKET sock = (SOCKET)entry->lpCompletionKey;
             sockstate = aeGetExistingSockState(state, (int)sock);
-            if (sockstate == NULL) continue;
 
-            if ((sockstate->masks & LISTEN_SOCK) && entry->lpOverlapped != NULL) {
-                /* need to set event for listening */
-                aacceptreq *areq = (aacceptreq *)entry->lpOverlapped;
-                areq->next = sockstate->reqs;
-                sockstate->reqs = areq;
-                sockstate->masks &= ~ACCEPT_PENDING;
-                if (sockstate->masks & AE_READABLE) {
-                    eventLoop->fired[numevents].fd = (int)sock;
-                    eventLoop->fired[numevents].mask = AE_READABLE;
-                    numevents++;
-                }
-            } else {
-                /* check if event is read complete (may be 0 length read) */
-                int matched = 0;
-                if (entry->lpOverlapped == &sockstate->ov_read) {
-                    matched = 1;
-                    sockstate->masks &= ~READ_QUEUED;
+            if (sockstate != NULL) {
+                if ((sockstate->masks & LISTEN_SOCK) && entry->lpOverlapped != NULL) {
+                    /* need to set event for listening */
+                    aacceptreq *areq = (aacceptreq *)entry->lpOverlapped;
+                    areq->next = sockstate->reqs;
+                    sockstate->reqs = areq;
+                    sockstate->masks &= ~ACCEPT_PENDING;
                     if (sockstate->masks & AE_READABLE) {
                         eventLoop->fired[numevents].fd = (int)sock;
                         eventLoop->fired[numevents].mask = AE_READABLE;
                         numevents++;
                     }
-                } else if (sockstate->wreqs > 0 && entry->lpOverlapped != NULL) {
-                    /* should be write complete. Get results */
-                    asendreq *areq = (asendreq *)entry->lpOverlapped;
-                    matched = removeMatchFromList(&sockstate->wreqlist, areq);
-                    if (matched) {
-                        /* call write complete callback so buffers can be freed */
-                        if (areq->proc != NULL) {
-                            DWORD written = 0;
-                            DWORD flags;
-                            WSAGetOverlappedResult(sock, &areq->ov, &written, FALSE, &flags);
-                            areq->proc(areq->eventLoop, (int)sock, &areq->req, (int)written);
-                        }
-                        sockstate->wreqs--;
-                        zfree(areq);
-                        /* if no active write requests, set ready to write */
-                        if (sockstate->wreqs == 0 && sockstate->masks & AE_WRITABLE) {
+                } else if (sockstate->masks & CONNECT_PENDING) {
+                    /* check if connect complete */
+                    if (entry->lpOverlapped == &sockstate->ov_read) {
+                        sockstate->masks &= ~CONNECT_PENDING;
+                        /* enable read and write events for this connection */
+                        aeApiAddEvent(eventLoop, (int)sock, sockstate->masks);
+                    }
+                } else {
+                    int matched = 0;
+                    /* check if event is read complete (may be 0 length read) */
+                    if (entry->lpOverlapped == &sockstate->ov_read) {
+                        matched = 1;
+                        sockstate->masks &= ~READ_QUEUED;
+                        if (sockstate->masks & AE_READABLE) {
                             eventLoop->fired[numevents].fd = (int)sock;
-                            eventLoop->fired[numevents].mask = AE_WRITABLE;
+                            eventLoop->fired[numevents].mask = AE_READABLE;
                             numevents++;
                         }
-                    }
-                }
-
-                if (matched == 0) {
-                    // no match for active connection.
-                    // Try the closing list since socket value is reused.
-                    list *socklist = &(state->closing);
-                    listNode *node;
-                    node = listFirst(socklist);
-                    while (node != NULL && matched == 0) {
-                        sockstate = (aeSockState *)listNodeValue(node);
-                        if (sockstate->fd == sock) {
-                            if (entry->lpOverlapped == &sockstate->ov_read) {
-                                // read complete
-                                sockstate->masks &= ~READ_QUEUED;
-                                matched = 1;
-                            } else {
-                                // check pending writes
-                                asendreq *areq = (asendreq *)entry->lpOverlapped;
-                                matched = removeMatchFromList(&sockstate->wreqlist, areq);
-                                if (matched) {
-                                    sockstate->wreqs--;
-                                    zfree(areq);
-                                }
+                    } else if (sockstate->wreqs > 0 && entry->lpOverlapped != NULL) {
+                        /* should be write complete. Get results */
+                        asendreq *areq = (asendreq *)entry->lpOverlapped;
+                        matched = removeMatchFromList(&sockstate->wreqlist, areq);
+                        if (matched) {
+                            /* call write complete callback so buffers can be freed */
+                            if (areq->proc != NULL) {
+                                DWORD written = 0;
+                                DWORD flags;
+                                WSAGetOverlappedResult(sock, &areq->ov, &written, FALSE, &flags);
+                                areq->proc(areq->eventLoop, (int)sock, &areq->req, (int)written);
+                            }
+                            sockstate->wreqs--;
+                            zfree(areq);
+                            /* if no active write requests, set ready to write */
+                            if (sockstate->wreqs == 0 && sockstate->masks & AE_WRITABLE) {
+                                eventLoop->fired[numevents].fd = (int)sock;
+                                eventLoop->fired[numevents].mask = AE_WRITABLE;
+                                numevents++;
                             }
                         }
-                        node = listNextNode(node);
+                    }
+                    if (matched == 0) {
+                        /* redisLog */printf("Sec:%lld Unknown complete (closed) on %d\n", gettimeofdaysecs(NULL), sock);
+                        sockstate = NULL;
                     }
                 }
-
-                if (matched == 0) {
-                    sockstate = NULL;
+            } else {
+                // no match for active connection.
+                // Try the closing list.
+                list *socklist = &(state->closing);
+                listNode *node;
+                node = listFirst(socklist);
+                while (node != NULL) {
+                    sockstate = (aeSockState *)listNodeValue(node);
+                    if (sockstate->fd == sock) {
+                        if (sockstate->masks & CONNECT_PENDING) {
+                            /* check if connect complete */
+                            if (entry->lpOverlapped == &sockstate->ov_read) {
+                                sockstate->masks &= ~CONNECT_PENDING;
+                            }
+                        } else if (entry->lpOverlapped == &sockstate->ov_read) {
+                            // read complete
+                            sockstate->masks &= ~READ_QUEUED;
+                        } else {
+                            // check pending writes
+                            asendreq *areq = (asendreq *)entry->lpOverlapped;
+                            if (removeMatchFromList(&sockstate->wreqlist, areq)) {
+                                sockstate->wreqs--;
+                                zfree(areq);
+                            }
+                        }
+                        if (sockstate->wreqs == 0 &&
+                            (sockstate->masks & (CONNECT_PENDING | READ_QUEUED | SOCKET_ATTACHED)) == 0) {
+                            if ((sockstate->masks & CLOSE_PENDING) != 0) {
+                                closesocket(sock);
+                                sockstate->masks &= ~(CLOSE_PENDING);
+                            }
+                            // safe to delete sockstate
+                            aeDelSockState(state, sockstate);
+                        }
+                        break;
+                    }
+                    node = listNextNode(node);
                 }
-            }
-            if (sockstate != NULL && sockstate->wreqs == 0 &&
-                (sockstate->masks & (READ_QUEUED | SOCKET_ATTACHED)) == 0) {
-                // safe to delete sockstate
-                aeDelSockState(state, sockstate);
             }
         }
     }

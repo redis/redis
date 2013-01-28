@@ -35,6 +35,7 @@ static fnGetSockState * aeGetSockState;
 static fnDelSockState * aeDelSockState;
 
 static LPFN_ACCEPTEX acceptex;
+static LPFN_CONNECTEX connectex;
 static LPFN_GETACCEPTEXSOCKADDRS getaddrs;
 
 #define SUCCEEDED_WITH_IOCP(result)                        \
@@ -262,6 +263,12 @@ int aeWinSocketSend(int fd, char *buf, int len, int flags,
     asendreq *areq;
 
     sockstate = aeGetSockState(iocpState, fd);
+
+    if (sockstate != NULL &&
+        (sockstate->masks & CONNECT_PENDING)) {
+        aeWait(fd, AE_WRITABLE, 50);
+    }
+
     /* if not an async socket, do normal send */
     if (sockstate == NULL ||
         (sockstate->masks & SOCKET_ATTACHED) == 0 ||
@@ -304,6 +311,61 @@ int aeWinSocketSend(int fd, char *buf, int len, int flags,
     return SOCKET_ERROR;
 }
 
+/* for non-blocking connect with IOCP */
+int aeWinSocketConnect(int fd, const struct sockaddr *sa, int len) {
+    const GUID wsaid_connectex = WSAID_CONNECTEX;
+    DWORD result, bytes;
+    SOCKET sock = (SOCKET)fd;
+    aeSockState *sockstate;
+    struct sockaddr_in addr;
+
+    if (connectex == NULL) {
+        result = WSAIoctl(sock,
+                        SIO_GET_EXTENSION_FUNCTION_POINTER,
+                        (void *)&wsaid_connectex,
+                        sizeof(GUID),
+                        &connectex,
+                        sizeof(LPFN_CONNECTEX),
+                        &bytes,
+                        NULL,
+                        NULL);
+        if (result == SOCKET_ERROR) {
+            connectex = NULL;
+            return SOCKET_ERROR;
+        }
+    }
+
+    if ((sockstate = aeGetSockState(iocpState, fd)) == NULL) {
+        errno = WSAEINVAL;
+        return SOCKET_ERROR;
+    }
+
+    if (aeWinSocketAttach(fd) != 0) {
+        return SOCKET_ERROR;
+    }
+
+    memset(&sockstate->ov_read, 0, sizeof(sockstate->ov_read));
+    /* need to bind sock before connectex */
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = 0;
+    result = bind(sock, (struct sockaddr *)&addr, sizeof(addr));
+
+    result = connectex(sock, sa, len, NULL, 0, NULL, &sockstate->ov_read);
+    if (result != TRUE) {
+        result = WSAGetLastError();
+        if (result == ERROR_IO_PENDING) {
+            errno = WSA_IO_PENDING;
+            sockstate->masks |= CONNECT_PENDING;
+        } else {
+            errno = result;
+            return SOCKET_ERROR;
+        }
+    }
+    return 0;
+}
+
 /* for each asynch socket, need to associate completion port */
 int aeWinSocketAttach(int fd) {
     DWORD yes = 1;
@@ -341,45 +403,55 @@ int aeWinSocketAttach(int fd) {
     return 0;
 }
 
-/* when closing socket, need to unassociate completion port */
-int aeWinSocketDetach(int fd, int shutd) {
-    aeSockState *sockstate;
+void aeShutdown(int fd) {
     char rbuf[100];
+    struct timeval timenow;
+    long long waitmsecs = 50;      /* wait up to 50 millisecs */
+    long long endms;
+    long long nowms;
 
-    if ((sockstate = aeGetSockState(iocpState, fd)) == NULL) {
-        errno = WSAEINVAL;
-        return -1;
-    }
+    /* wait for last item to complete up to tosecs seconds*/
+    gettimeofday(&timenow, NULL);
+    endms = ((long long)timenow.tv_sec * 1000) +
+                    ((long long)timenow.tv_usec / 1000) + waitmsecs;
 
-    if (shutd == 1) {
-        struct timeval timenow;
-        struct timeval timeend;
-        long tosecs = 5;
-
-        /* wait for last item to complete up to tosecs seconds*/
-        gettimeofday(&timenow, NULL);
-        timeend.tv_sec = timenow.tv_sec + tosecs;
-        timeend.tv_usec = timenow.tv_usec;
-
-        if (shutdown(fd, SD_SEND) != SOCKET_ERROR) {
-            /* read data until no more or error to ensure shutdown completed */
-            while (1) {
-                int rc = recv(fd, rbuf, 100, 0);
-                if (rc == 0 || rc == SOCKET_ERROR)
+    if (shutdown(fd, SD_SEND) != SOCKET_ERROR) {
+        /* read data until no more or error to ensure shutdown completed */
+        while (1) {
+            int rc = recv(fd, rbuf, 100, 0);
+            if (rc == 0 || rc == SOCKET_ERROR)
+                break;
+            else {
+                gettimeofday(&timenow, NULL);
+                nowms = ((long long)timenow.tv_sec * 1000) +
+                            ((long long)timenow.tv_usec / 1000);
+                if (nowms > endms)
                     break;
-                else {
-                    gettimeofday(&timenow, NULL);
-                    if (timenow.tv_sec > timeend.tv_sec ||
-                        (timenow.tv_sec == timeend.tv_sec && timenow.tv_usec > timeend.tv_usec))
-                        break;
-                }
             }
-        } else {
-            int err = WSAGetLastError();
         }
     }
+}
+
+/* when closing socket, need to unassociate completion port */
+int aeWinCloseSocket(int fd) {
+    aeSockState *sockstate;
+
+    if ((sockstate = aeGetSockState(iocpState, fd)) == NULL) {
+        closesocket((SOCKET)fd);
+        return 0;
+    }
+
+    aeShutdown(fd);
     sockstate->masks &= ~(SOCKET_ATTACHED | AE_WRITABLE | AE_READABLE);
+
+    if (sockstate->wreqs == 0 &&
+        (sockstate->masks & (READ_QUEUED | CONNECT_PENDING | SOCKET_ATTACHED)) == 0) {
+        closesocket((SOCKET)fd);
+    } else {
+        sockstate->masks |= CLOSE_PENDING;
+    }
     aeDelSockState(iocpState, sockstate);
+
     return 0;
 }
 
