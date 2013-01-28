@@ -635,9 +635,6 @@ void freeClient(redisClient *c) {
      * unblockClientWaitingData() to avoid processInputBuffer() will get
      * called. Also it is important to remove the file events after
      * this, because this call adds the READABLE event. */
-#ifdef _WIN32
-    aeWinSocketDetach(c->fd, 1);
-#endif
     sdsfree(c->querybuf);
     c->querybuf = NULL;
     if (c->flags & REDIS_BLOCKED)
