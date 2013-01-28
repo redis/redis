@@ -206,8 +206,9 @@ PATCH_VERSION = 1
 
 FULL_VERSION = $(API_VERSION).$(MINOR_VERSION).$(PATCH_VERSION)
 
+# LIBOBJ contains everything in the above OBJ list except redis.o
 STATIC = $(LIBNAME).$(FULL_VERSION).a
-LIBOBJ = $(OBJ)
+LIBOBJ = adlist.o ae.o anet.o dict.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o vm.o pubsub.o multi.o debug.o sort.o intset.o syncio.o slowlog.o bio.o
 
 static: $(STATIC)
 
@@ -222,11 +223,8 @@ $(STATIC) : $(LIBOBJ)
 %.o: %.c $(ALLOC_DEP)
 	$(QUIET_CC)$(CC) -c $(CFLAGS) $(ALLOC_FLAGS) $(DEBUG) $(COMPILE_TIME) $<
 
-clean-lib:
-	rm -rf $(LIBOBJ) libredis*
-
 clean:
-	rm -rf $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
+	rm -rf $(STATIC) $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
 
 dep:
 	$(CC) -MM *.c -I ../deps/hiredis -I ../deps/linenoise
