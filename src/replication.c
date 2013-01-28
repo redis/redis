@@ -423,8 +423,7 @@ void replicationAbortSyncTransfer(void) {
 
     aeDeleteFileEvent(server.el,server.repl_transfer_s,AE_READABLE);
 #ifdef _WIN32
-    aeWinSocketDetach(server.repl_transfer_s, 1);
-    closesocket(server.repl_transfer_s);
+    aeWinCloseSocket(server.repl_transfer_s);
 #else
     close(server.repl_transfer_s);
 #endif
@@ -774,8 +773,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
 
 error:
 #ifdef _WIN32
-    aeWinSocketDetach(fd, 1);
-    closesocket(fd);
+    aeWinCloseSocket(fd);
 #else
     close(fd);
 #endif
@@ -798,8 +796,7 @@ int connectWithMaster(void) {
             AE_ERR)
     {
 #ifdef _WIN32
-        aeWinSocketDetach(fd, 1);
-        closesocket(fd);
+        aeWinCloseSocket(fd);
 #else
         close(fd);
 #endif
@@ -822,8 +819,7 @@ void undoConnectWithMaster(void) {
                 server.repl_state == REDIS_REPL_RECEIVE_PONG);
     aeDeleteFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE);
 #ifdef _WIN32
-    aeWinSocketDetach(fd, 1);
-    closesocket(fd);
+    aeWinCloseSocket(fd);
 #else
     close(fd);
 #endif

@@ -1,4 +1,4 @@
-﻿Redis on Windows 2.6 prototype
+Redis on Windows 2.6 prototype
 ===
 ## What's new in this release
 
@@ -6,9 +6,10 @@
 - The port is similar to the port of Redis 2.4, including the same background saving technology.
 - There is support for x64 version as well as 32 bit versions.
 - For the 64 bit version, there is a limit of 2^32 objects in a structure, and a max length of 2^32 for any object
-- Version number now 2.6.8-pre1 to indicate prerelease and to enable changing
+- Version number now 2.6.8-pre2 to indicate prerelease and to enable changing
+- Version 2.6.8-pre2 fixes several failures that existed in 2.6.8-pre1. Most of these were related to handling opening and closing of non-blocking sockets.
 
-===
+##Acknowledgements
 Special thanks to Dušan Majkic (https://github.com/dmajkic, https://github.com/dmajkic/redis/) for his project on GitHub that gave us the opportunity to quickly learn some on the intricacies of Redis code. His project also helped us to build our prototype quickly.
 
 ## Repo branches
@@ -49,8 +50,5 @@ To run the Redis test suite requires some manual work:
 If a Unix shell is not installed you may see the following error message: "couldn't execute "cat": no such file or directory".
 
 ## Known issues
-When the unit tests are run, a few failures are reported, mostly related to replication. The exact failures vary per run. The tests pass if they are run individually. We are still investigating if this is a timing problem with the tests or with the port of the Redis server.
-
 The are 3 consistent failures in the protocol module, having to do with receiving an error message when the client connection is closed due to bad data. These tests are disabled for now.
 
- 

@@ -240,7 +240,7 @@ int pthread_sigmask(int how, const sigset_t *set, sigset_t *oset) {
     }
 
   errno = ENOSYS;
-  return -1;
+  return 0;
 }
 
 int win32_pthread_join(pthread_t *thread, void **value_ptr)  {

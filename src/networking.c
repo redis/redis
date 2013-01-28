@@ -65,8 +65,7 @@ redisClient *createClient(int fd) {
             readQueryFromClient, c) == AE_ERR)
         {
 #ifdef _WIN32
-            aeWinSocketDetach(fd, 0);
-            closesocket(fd);
+            aeWinCloseSocket(fd);
 #else
             close(fd);
 #endif
@@ -543,8 +542,7 @@ static void acceptCommonHandler(int fd, int flags) {
             "Error registering fd event for the new client: %s (fd=%d)",
             strerror(errno),fd);
 #ifdef _WIN32
-        aeWinSocketDetach(fd, 0);
-        closesocket(fd); /* May be already closed, just ingore errors */
+        aeWinCloseSocket(fd); /* May be already closed, just ingore errors */
 #else
         close(fd); /* May be already closed, just ignore errors */
 #endif
@@ -634,9 +632,6 @@ void freeClient(redisClient *c) {
      * unblockClientWaitingData() to avoid processInputBuffer() will get
      * called. Also it is important to remove the file events after
      * this, because this call adds the READABLE event. */
-#ifdef _WIN32
-    aeWinSocketDetach(c->fd, 1);
-#endif
     sdsfree(c->querybuf);
     c->querybuf = NULL;
     if (c->flags & REDIS_BLOCKED)
@@ -657,7 +652,7 @@ void freeClient(redisClient *c) {
     listRelease(c->reply);
     freeClientArgv(c);
 #ifdef _WIN32
-    closesocket(c->fd);
+    aeWinCloseSocket(c->fd);
 #else
     close(c->fd);
 #endif
@@ -751,7 +746,7 @@ void sendReplyBufferDone(aeEventLoop *el, int fd, void *privdata, int written) {
 
         /* Close connection after entire reply has been sent. */
         if (c->flags & REDIS_CLOSE_AFTER_REPLY) {
-            freeClient(c);
+            freeClientAsync(c);
         }
     }
 }
@@ -771,7 +766,7 @@ void sendReplyListDone(aeEventLoop *el, int fd, void *privdata, int written) {
 
         /* Close connection after entire reply has been sent. */
         if (c->flags & REDIS_CLOSE_AFTER_REPLY){
-            freeClient(c);
+            freeClientAsync(c);
         }
     }
 }
