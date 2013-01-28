@@ -65,6 +65,8 @@ typedef void fnDelSockState(void *apistate, aeSockState *sockState);
 #define SOCKET_ATTACHED     0x000400
 #define ACCEPT_PENDING      0x000800
 #define LISTEN_SOCK         0x001000
+#define CONNECT_PENDING     0x002000
+#define CLOSE_PENDING       0x004000
 
 void aeWinInit(void *state, HANDLE iocp, fnGetSockState *getSockState, fnDelSockState *delSockState);
 void aeWinCleanup();

@@ -305,12 +305,13 @@ typedef struct aeWinSendReq {
 
 
 int aeWinSocketAttach(int fd);
-int aeWinSocketDetach(int fd, int shutd);
+int aeWinCloseSocket(int fd);
 int aeWinReceiveDone(int fd);
 int aeWinSocketSend(int fd, char *buf, int len, int flags,
                     void *eventLoop, void *client, void *data, void *proc);
 int aeWinListen(SOCKET sock, int backlog);
 int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len);
+int aeWinSocketConnect(int fd, const struct sockaddr *sa, int len);
 
 int strerror_r(int err, char* buf, size_t buflen);
 char *wsa_strerror(int err);
