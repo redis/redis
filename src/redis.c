@@ -2613,7 +2613,7 @@ void version() {
         redisGitSHA1(),
         atoi(redisGitDirty()) > 0,
         ZMALLOC_LIB,
-        sizeof(long) == 4 ? 32 : 64);
+        sizeof(void *) == 4 ? 32 : 64);
     exit(0);
 }
 
@@ -2645,7 +2645,7 @@ void redisAsciiArt(void) {
         REDIS_VERSION,
         redisGitSHA1(),
         strtol(redisGitDirty(),NULL,10) > 0,
-        (sizeof(long) == 8) ? "64" : "32",
+        (sizeof(void *) == 8) ? "64" : "32",
         mode, server.port,
         (long) getpid()
     );
