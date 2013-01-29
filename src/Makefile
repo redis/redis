@@ -86,6 +86,17 @@ BENCHOBJ = ae.o anet.o redis-benchmark.o sds.o adlist.o zmalloc.o
 CLIOBJ = anet.o sds.o adlist.o redis-cli.o zmalloc.o release.o
 CHECKDUMPOBJ = redis-check-dump.o lzf_c.o lzf_d.o
 CHECKAOFOBJ = redis-check-aof.o
+LIBOBJ = ae.o zmalloc.o
+
+LIBNAME=libredis-async
+API_VERSION = 2
+MINOR_VERSION = 4
+PATCH_VERSION = 1
+
+FULL_VERSION = $(API_VERSION).$(MINOR_VERSION).$(PATCH_VERSION)
+
+# LIBOBJ contains what is needed for async client
+STATIC = $(LIBNAME).a
 
 AEP_FLAGS = -DHAVE_EPOLL -shared
 
@@ -211,17 +222,6 @@ redis-check-aof: $(CHECKAOFOBJ)
 
 redis-server: $(OBJ)
 	$(QUIET_LINK)$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) $(CCLINK) $(ALLOC_LINK)
-
-LIBNAME=libredis
-API_VERSION = 2
-MINOR_VERSION = 4
-PATCH_VERSION = 1
-
-FULL_VERSION = $(API_VERSION).$(MINOR_VERSION).$(PATCH_VERSION)
-
-# LIBOBJ contains everything in the above OBJ list except redis.o
-STATIC = $(LIBNAME).$(FULL_VERSION).a
-LIBOBJ = adlist.o ae.o anet.o dict.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o vm.o pubsub.o multi.o debug.o sort.o intset.o syncio.o slowlog.o bio.o
 
 static: $(STATIC)
 
