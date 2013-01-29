@@ -8,6 +8,7 @@ Redis on Windows 2.6 prototype
 - For the 64 bit version, there is a limit of 2^32 objects in a structure, and a max length of 2^32 for any object
 - Version number now 2.6.8-pre2 to indicate prerelease and to enable changing
 - Version 2.6.8-pre2 fixes several failures that existed in 2.6.8-pre1. Most of these were related to handling opening and closing of non-blocking sockets.
+- The unit/protocol desync test is updated to use nonblocking socket and now works on Windows
 
 ##Acknowledgements
 Special thanks to Dušan Majkic (https://github.com/dmajkic, https://github.com/dmajkic/redis/) for his project on GitHub that gave us the opportunity to quickly learn some on the intricacies of Redis code. His project also helped us to build our prototype quickly.
@@ -50,5 +51,4 @@ To run the Redis test suite requires some manual work:
 If a Unix shell is not installed you may see the following error message: "couldn't execute "cat": no such file or directory".
 
 ## Known issues
-The are 3 consistent failures in the protocol module, having to do with receiving an error message when the client connection is closed due to bad data. These tests are disabled for now.
-
+None.
