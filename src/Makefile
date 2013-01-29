@@ -53,12 +53,25 @@ ifeq ($(USE_JEMALLOC),yes)
     ifdef JEMALLOC_SHARED
       ALLOC_DEP=
       ALLOC_LINK=-ljemalloc
-      ALLOC_FLAGS=-DUSE_JEMALLOC -I/usr/include
+      ALLOC_FLAGS=-DUSE_JEMALLOC -I$(SYSROOT)/usr/include
     else
       ALLOC_DEP=../deps/jemalloc/lib/libjemalloc.a
       ALLOC_LINK=$(ALLOC_DEP) -ldl
       ALLOC_FLAGS=-DUSE_JEMALLOC -I../deps/jemalloc/include
     endif
+endif
+
+HIREDIS_DEP=../deps/hiredis/libhiredis.a
+HIREDIS_LINK=$(HIREDIS_DEP) -ldl
+HIREDIS_FLAGS=
+ifdef HIREDIS_SHARED
+  HIREDIS_DEP=
+  HIREDIS_LINK=-lhiredis
+  HIREDIS_FLAGS=-I$(SYSROOT)/usr/include
+else
+  HIREDIS_DEP=../deps/hiredis/libhiredis.a
+  HIREDIS_LINK=$(HIREDIS_DEP) -ldl
+  HIREDIS_FLAGS=-I../deps/hiredis
 endif
 
 CCOPT= $(CFLAGS) $(ARCH) $(PROF)
@@ -171,18 +184,18 @@ dependencies:
 	@cd ../deps/jemalloc && ./configure $(JEMALLOC_CFLAGS) --with-jemalloc-prefix=je_ --enable-cc-silence && $(MAKE) lib/libjemalloc.a
 
 redis-benchmark.o:
-	$(QUIET_CC)$(CC) -c $(CFLAGS) -I../deps/hiredis $(DEBUG) $(COMPILE_TIME) $<
+	$(QUIET_CC)$(CC) -c $(CFLAGS) $(HIREDIS_FLAGS) $(DEBUG) $(COMPILE_TIME) $<
 
 redis-benchmark: dependencies $(BENCHOBJ)
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)hiredis$(ENDCOLOR)
 	@cd ../deps/hiredis && $(MAKE) static ARCH="$(ARCH)"
-	$(QUIET_LINK)$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) ../deps/hiredis/libhiredis.a $(CCLINK) $(ALLOC_LINK)
+	$(QUIET_LINK)$(CC) -o $(BENCHPRGNAME) $(CCOPT) $(DEBUG) $(BENCHOBJ) $(CCLINK) $(ALLOC_LINK) $(HIREDIS_LINK)
 
 redis-cli.o:
-	$(QUIET_CC)$(CC) -c $(CFLAGS) -I../deps/hiredis -I../deps/linenoise $(DEBUG) $(COMPILE_TIME) $<
+	$(QUIET_CC)$(CC) -c $(CFLAGS) $(HIREDIS_FLAGS) -I../deps/linenoise $(DEBUG) $(COMPILE_TIME) $<
 
 redis-cli: dependencies $(CLIOBJ)
-	$(QUIET_LINK)$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/hiredis/libhiredis.a ../deps/linenoise/linenoise.o $(CCLINK) $(ALLOC_LINK)
+	$(QUIET_LINK)$(CC) -o $(CLIPRGNAME) $(CCOPT) $(DEBUG) $(CLIOBJ) ../deps/linenoise/linenoise.o $(CCLINK) $(ALLOC_LINK) $(HIREDIS_LINK)
 
 redis-check-dump.o:
 	$(QUIET_CC)$(CC) -c $(CFLAGS) $(DEBUG) $(COMPILE_TIME) $<
