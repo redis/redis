@@ -108,8 +108,7 @@ void execCommandReplicateMulti(redisClient *c) {
 
     if (server.aof_state != REDIS_AOF_OFF)
         feedAppendOnlyFile(server.multiCommand,c->db->id,&multistring,1);
-    if (listLength(server.slaves))
-        replicationFeedSlaves(server.slaves,c->db->id,&multistring,1);
+    replicationFeedSlaves(server.slaves,c->db->id,&multistring,1);
     decrRefCount(multistring);
 }
 
