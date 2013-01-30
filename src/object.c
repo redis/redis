@@ -81,7 +81,12 @@ robj *createStringObjectFromLongDouble(long double value) {
      * that is "non surprising" for the user (that is, most small decimal
      * numbers will be represented in a way that when converted back into
      * a string are exactly the same as what the user typed.) */
+#ifdef _WIN32
+    /* on Windows the magic number is 15 */
+    len = snprintf(buf,sizeof(buf),"%.15Lf", value);
+#else
     len = snprintf(buf,sizeof(buf),"%.17Lf", value);
+#endif
     /* Now remove trailing zeroes after the '.' */
     if (strchr(buf,'.') != NULL) {
         char *p = buf+len-1;
