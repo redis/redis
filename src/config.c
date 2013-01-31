@@ -230,6 +230,10 @@ void loadServerConfigFromString(char *config) {
                 err = "repl-timeout must be 1 or greater";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"repl-disable-tcp-nodelay") && argc==2) {
+            if ((server.repl_disable_tcp_nodelay = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"masterauth") && argc == 2) {
         	server.masterauth = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"slave-serve-stale-data") && argc == 2) {
@@ -382,8 +386,6 @@ void loadServerConfigFromString(char *config) {
             if ((server.stop_writes_on_bgsave_err = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
-        } else if (!strcasecmp(argv[0],"slave-tcp-nodelay-off") && argc == 2) {
-            server.slave_tcp_nodelay_off = atoi(argv[1]);
         } else if (!strcasecmp(argv[0],"slave-priority") && argc == 2) {
             server.slave_priority = atoi(argv[1]);
         } else if (!strcasecmp(argv[0],"notify-keyspace-events") && argc == 2) {
@@ -717,10 +719,11 @@ void configSetCommand(redisClient *c) {
 
         if (flags == -1) goto badfmt;
         server.notify_keyspace_events = flags;
-    } else if (!strcasecmp(c->argv[2]->ptr,"slave-tcp-nodelay-off")) {
-        if (getLongLongFromObject(o,&ll) == REDIS_ERR ) goto badfmt;
+    } else if (!strcasecmp(c->argv[2]->ptr,"repl-disable-tcp-nodelay")) {
+        int yn = yesnotoi(o->ptr);
 
-        server.slave_tcp_nodelay_off = ll;
+        if (yn == -1) goto badfmt;
+        server.repl_disable_tcp_nodelay = yn;
     } else if (!strcasecmp(c->argv[2]->ptr,"slave-priority")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll <= 0) goto badfmt;
@@ -814,7 +817,6 @@ void configGetCommand(redisClient *c) {
     config_get_numerical_field("repl-timeout",server.repl_timeout);
     config_get_numerical_field("maxclients",server.maxclients);
     config_get_numerical_field("watchdog-period",server.watchdog_period);
-    config_get_numerical_field("slave-tcp-nodelay-off",server.slave_tcp_nodelay_off);
     config_get_numerical_field("slave-priority",server.slave_priority);
     config_get_numerical_field("hz",server.hz);
 
@@ -831,6 +833,8 @@ void configGetCommand(redisClient *c) {
     config_get_bool_field("rdbcompression", server.rdb_compression);
     config_get_bool_field("rdbchecksum", server.rdb_checksum);
     config_get_bool_field("activerehashing", server.activerehashing);
+    config_get_bool_field("repl-disable-tcp-nodelay",
+            server.repl_disable_tcp_nodelay);
 
     /* Everything we can't handle with macros follows. */
 
