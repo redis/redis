@@ -118,14 +118,6 @@ void syncCommand(redisClient *c) {
     /* ignore SYNC if already slave or in monitor mode */
     if (c->flags & REDIS_SLAVE) return;
 
-    if (server.slave_tcp_nodelay_off) {
-        redisLog(REDIS_NOTICE, "Turning off slave's :%d TCP NODELAY SETTING", c->fd);
-        char err[1024];
-        if (anetTcpNoDelayOff(err, c->fd) == ANET_ERR)
-            redisLog(REDIS_WARNING,
-                "Can't turn off %d 's tcp nodelay setting: %s", c->fd, err);
-    }
-
     /* Refuse SYNC requests if we are a slave but the link with our master
      * is not ok... */
     if (server.masterhost && server.repl_state != REDIS_REPL_CONNECTED) {
@@ -180,6 +172,9 @@ void syncCommand(redisClient *c) {
         }
         c->replstate = REDIS_REPL_WAIT_BGSAVE_END;
     }
+
+    if (server.repl_disable_tcp_nodelay)
+        anetDisableTcpNoDelay(NULL, c->fd); /* Non critical if it fails. */
     c->repldbfd = -1;
     c->flags |= REDIS_SLAVE;
     c->slaveseldb = 0;

@@ -1685,7 +1685,7 @@ int migrateGetSocket(redisClient *c, robj *host, robj *port, long timeout) {
             server.neterr);
         return -1;
     }
-    anetTcpNoDelay(server.neterr,fd);
+    anetEnableTcpNoDelay(server.neterr,fd);
 
     /* Check if it connects within the specified timeout. */
     if ((aeWait(fd,AE_WRITABLE,timeout) & AE_WRITABLE) == 0) {
