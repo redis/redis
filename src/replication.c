@@ -87,7 +87,7 @@ void resizeReplicationBacklog(long long newsize) {
 }
 
 void freeReplicationBacklog(void) {
-    redisAssert(server.repl_backlog != NULL);
+    redisAssert(listLength(server.slaves) == 0);
     zfree(server.repl_backlog);
     server.repl_backlog = NULL;
 }
@@ -1217,6 +1217,7 @@ void slaveofCommand(redisClient *c) {
         if (server.master) freeClient(server.master);
         disconnectSlaves(); /* Force our slaves to resync with us as well. */
         replicationDiscardCachedMaster(); /* Don't try a PSYNC. */
+        freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
         cancelReplicationHandshake();
         server.repl_state = REDIS_REPL_CONNECT;
         redisLog(REDIS_NOTICE,"SLAVE OF %s:%d enabled (user request)",
