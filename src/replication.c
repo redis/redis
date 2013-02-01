@@ -923,7 +923,7 @@ int slaveTryPartialResynchronization(int fd) {
     reply = sendSynchronousCommand(fd,"PSYNC",psync_runid,psync_offset,NULL);
 
     if (!strncmp(reply,"+FULLRESYNC",11)) {
-        char *runid, *offset;
+        char *runid = NULL, *offset = NULL;
 
         /* FULL RESYNC, parse the reply in order to extract the run id
          * and the replication offset. */
