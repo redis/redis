@@ -557,6 +557,8 @@ int linenoiseHistoryAdd(const char *line) {
         if (history == NULL) return 0;
         memset(history,0,(sizeof(char*)*history_max_len));
     }
+    if (history_len > 0 && strcmp(history[history_len-1], line) == 0)
+      return 1;
     linecopy = strdup(line);
     if (!linecopy) return 0;
     if (history_len == history_max_len) {
