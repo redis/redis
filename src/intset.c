@@ -352,7 +352,12 @@ int main(int argc, char **argv) {
     uint8_t success;
     int i;
     intset *is;
+
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined (__NetBSD__)
     sranddev();
+#else
+    srand(time(NULL));
+#endif
 
     printf("Value encodings: "); {
         assert(_intsetValueEncoding(-32768) == INTSET_ENC_INT16);
@@ -375,6 +380,7 @@ int main(int argc, char **argv) {
         is = intsetAdd(is,4,&success); assert(success);
         is = intsetAdd(is,4,&success); assert(!success);
         ok();
+        zfree(is);
     }
 
     printf("Large number of random adds: "); {
@@ -387,6 +393,7 @@ int main(int argc, char **argv) {
         assert(intrev32ifbe(is->length) == inserts);
         checkConsistency(is);
         ok();
+        zfree(is);
     }
 
     printf("Upgrade from int16 to int32: "); {
@@ -398,6 +405,7 @@ int main(int argc, char **argv) {
         assert(intsetFind(is,32));
         assert(intsetFind(is,65535));
         checkConsistency(is);
+        zfree(is);              
 
         is = intsetNew();
         is = intsetAdd(is,32,NULL);
@@ -408,6 +416,7 @@ int main(int argc, char **argv) {
         assert(intsetFind(is,-65535));
         checkConsistency(is);
         ok();
+        zfree(is);
     }
 
     printf("Upgrade from int16 to int64: "); {
@@ -419,6 +428,7 @@ int main(int argc, char **argv) {
         assert(intsetFind(is,32));
         assert(intsetFind(is,4294967295));
         checkConsistency(is);
+        zfree(is);
 
         is = intsetNew();
         is = intsetAdd(is,32,NULL);
@@ -429,6 +439,7 @@ int main(int argc, char **argv) {
         assert(intsetFind(is,-4294967295));
         checkConsistency(is);
         ok();
+        zfree(is);
     }
 
     printf("Upgrade from int32 to int64: "); {
@@ -440,6 +451,7 @@ int main(int argc, char **argv) {
         assert(intsetFind(is,65535));
         assert(intsetFind(is,4294967295));
         checkConsistency(is);
+        zfree(is);
 
         is = intsetNew();
         is = intsetAdd(is,65535,NULL);
@@ -450,6 +462,7 @@ int main(int argc, char **argv) {
         assert(intsetFind(is,-4294967295));
         checkConsistency(is);
         ok();
+        zfree(is);
     }
 
     printf("Stress lookups: "); {
@@ -462,6 +475,7 @@ int main(int argc, char **argv) {
         start = usec();
         for (i = 0; i < num; i++) intsetSearch(is,rand() % ((1<<bits)-1),NULL);
         printf("%ld lookups, %ld element set, %lldusec\n",num,size,usec()-start);
+        zfree(is);
     }
 
     printf("Stress add+delete: "); {
@@ -478,6 +492,7 @@ int main(int argc, char **argv) {
         }
         checkConsistency(is);
         ok();
+        zfree(is);
     }
 }
 #endif
