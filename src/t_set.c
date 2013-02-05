@@ -472,7 +472,7 @@ void srandmemberWithCountCommand(redisClient *c) {
         /* Add all the elements into the temporary dictionary. */
         si = setTypeInitIterator(set);
         while((encoding = setTypeNext(si,&ele,&llele)) != -1) {
-            int retval;
+            int retval = DICT_ERR;
 
             if (encoding == REDIS_ENCODING_INTSET) {
                 retval = dictAdd(d,createStringObjectFromLongLong(llele),NULL);
