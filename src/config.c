@@ -73,6 +73,10 @@ void loadServerConfigFromString(char *config) {
 
         /* Split into arguments */
         argv = sdssplitargs(lines[i],&argc);
+        if (argv == NULL) {
+            err = "can't parse this line";
+            goto loaderr;
+        }
         sdstolower(argv[0]);
 
         /* Execute config directives */
