@@ -952,6 +952,7 @@ werr:
 int rewriteAppendOnlyFileBackground(void) {
     pid_t childpid;
     long long start;
+    int j;
 
     if (server.aof_child_pid != -1) return REDIS_ERR;
     start = ustime();
@@ -959,7 +960,8 @@ int rewriteAppendOnlyFileBackground(void) {
         char tmpfile[256];
 
         /* Child */
-        if (server.ipfd > 0) close(server.ipfd);
+        for (j = 0; j < REDIS_MAX_IP; j++)
+            if (server.ipfd[j] > 0) close(server.ipfd[j]);
         if (server.sofd > 0) close(server.sofd);
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
         if (rewriteAppendOnlyFile(tmpfile) == REDIS_OK) {

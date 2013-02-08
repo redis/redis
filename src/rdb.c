@@ -718,6 +718,7 @@ werr:
 int rdbSaveBackground(char *filename) {
     pid_t childpid;
     long long start;
+    int j;
 
     if (server.rdb_child_pid != -1) return REDIS_ERR;
 
@@ -728,7 +729,8 @@ int rdbSaveBackground(char *filename) {
         int retval;
 
         /* Child */
-        if (server.ipfd > 0) close(server.ipfd);
+        for (j = 0; j < REDIS_MAX_IP; j++)
+            if (server.ipfd[j] > 0) close(server.ipfd[j]);
         if (server.sofd > 0) close(server.sofd);
         retval = rdbSave(filename);
         if (retval == REDIS_OK) {

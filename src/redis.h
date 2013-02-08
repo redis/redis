@@ -93,6 +93,7 @@
 #define REDIS_REPL_PING_SLAVE_PERIOD 10
 #define REDIS_RUN_ID_SIZE 40
 #define REDIS_OPS_SEC_SAMPLES 16
+#define REDIS_MAX_IP 4                  /* number of addresses to listen on */
 
 /* Protocol and I/O related defines */
 #define REDIS_MAX_QUERYBUF_LEN  (1024*1024*1024) /* 1GB max query buffer. */
@@ -657,7 +658,7 @@ struct redisServer {
     char *bindaddr;             /* Bind address or NULL */
     char *unixsocket;           /* UNIX socket path */
     mode_t unixsocketperm;      /* UNIX socket permission */
-    int ipfd;                   /* TCP socket file descriptor */
+    int ipfd[REDIS_MAX_IP];     /* TCP socket file descriptors */
     int sofd;                   /* Unix socket file descriptor */
     int cfd;                    /* Cluster bus listening socket */
     list *clients;              /* List of active clients */
