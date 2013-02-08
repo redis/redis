@@ -81,6 +81,11 @@ void loadServerConfigFromString(char *config) {
             if (server.maxidletime < 0) {
                 err = "Invalid timeout value"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"tcp-keepalive") && argc == 2) {
+            server.tcpkeepalive = atoi(argv[1]);
+            if (server.tcpkeepalive < 0) {
+                err = "Invalid tcp-keepalive value"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"port") && argc == 2) {
             server.port = atoi(argv[1]);
             if (server.port < 0 || server.port > 65535) {
@@ -528,6 +533,10 @@ void configSetCommand(redisClient *c) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0 || ll > LONG_MAX) goto badfmt;
         server.maxidletime = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"tcp-keepalive")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
+            ll < 0 || ll > INT_MAX) goto badfmt;
+        server.tcpkeepalive = ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"appendfsync")) {
         if (!strcasecmp(o->ptr,"no")) {
             server.aof_fsync = AOF_FSYNC_NO;
@@ -795,6 +804,7 @@ void configGetCommand(redisClient *c) {
     config_get_numerical_field("maxmemory",server.maxmemory);
     config_get_numerical_field("maxmemory-samples",server.maxmemory_samples);
     config_get_numerical_field("timeout",server.maxidletime);
+    config_get_numerical_field("tcp-keepalive",server.tcpkeepalive);
     config_get_numerical_field("auto-aof-rewrite-percentage",
             server.aof_rewrite_perc);
     config_get_numerical_field("auto-aof-rewrite-min-size",
