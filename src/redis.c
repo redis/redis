@@ -1384,6 +1384,9 @@ void initServer() {
     server.stat_peak_memory = 0;
     server.stat_fork_time = 0;
     server.stat_rejected_conn = 0;
+    server.stat_sync_full = 0;
+    server.stat_sync_partial_ok = 0;
+    server.stat_sync_partial_err = 0;
     memset(server.ops_sec_samples,0,sizeof(server.ops_sec_samples));
     server.ops_sec_idx = 0;
     server.ops_sec_last_sample_time = mstime();
@@ -2128,6 +2131,9 @@ sds genRedisInfoString(char *section) {
             "total_commands_processed:%lld\r\n"
             "instantaneous_ops_per_sec:%lld\r\n"
             "rejected_connections:%lld\r\n"
+            "sync_full:%lld\r\n"
+            "sync_partial_ok:%lld\r\n"
+            "sync_partial_err:%lld\r\n"
             "expired_keys:%lld\r\n"
             "evicted_keys:%lld\r\n"
             "keyspace_hits:%lld\r\n"
@@ -2140,6 +2146,9 @@ sds genRedisInfoString(char *section) {
             server.stat_numcommands,
             getOperationsPerSecond(),
             server.stat_rejected_conn,
+            server.stat_sync_full,
+            server.stat_sync_partial_ok,
+            server.stat_sync_partial_err,
             server.stat_expiredkeys,
             server.stat_evictedkeys,
             server.stat_keyspace_hits,
