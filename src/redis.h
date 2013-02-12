@@ -561,6 +561,9 @@ struct redisServer {
     size_t stat_peak_memory;        /* Max used memory record */
     long long stat_fork_time;       /* Time needed to perform latest fork() */
     long long stat_rejected_conn;   /* Clients rejected because of maxclients */
+    long long stat_sync_full;       /* Number of full resyncs with slaves. */
+    long long stat_sync_partial_ok; /* Number of accepted PSYNC requests. */
+    long long stat_sync_partial_err;/* Number of unaccepted PSYNC requests. */
     list *slowlog;                  /* SLOWLOG list of commands */
     long long slowlog_entry_id;     /* SLOWLOG current entry ID */
     long long slowlog_log_slower_than; /* SLOWLOG time limit (to get logged) */

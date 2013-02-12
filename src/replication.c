@@ -490,8 +490,23 @@ void syncCommand(redisClient *c) {
      *
      * So the slave knows the new runid and offset to try a PSYNC later
      * if the connection with the master is lost. */
-    if (!strcasecmp(c->argv[0]->ptr,"psync") &&
-        masterTryPartialResynchronization(c) == REDIS_OK) return;
+    if (!strcasecmp(c->argv[0]->ptr,"psync")) {
+        if (masterTryPartialResynchronization(c) == REDIS_OK) {
+            server.stat_sync_partial_ok++;
+            return; /* No full resync needed, return. */
+        } else {
+            char *master_runid = c->argv[1]->ptr;
+            
+            /* Increment stats for failed PSYNCs, but only if the
+             * runid is not "?", as this is used by slaves to force a full
+             * resync on purpose when they are not albe to partially
+             * resync. */
+            if (master_runid[0] != '?') server.stat_sync_partial_err++;
+        }
+    }
+
+    /* Full resynchronization. */
+    server.stat_sync_full++;
 
     /* Here we need to check if there is a background saving operation
      * in progress, or if it is required to start one */
