@@ -579,11 +579,16 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
             goto error;
         }
 
-        /* We don't care about the reply, it can be +PONG or an error since
-         * the server requires AUTH. As long as it replies correctly, it's
-         * fine from our point of view. */
-        if (buf[0] != '-' && buf[0] != '+') {
-            redisLog(REDIS_WARNING,"Unexpected reply to PING from master.");
+        /* We accept only two replies as valid, a positive +PONG reply
+         * (we just check for "+") or an authentication error.
+         * Note that older versions of Redis replied with "operation not
+         * permitted" instead of using a proper error code, so we test
+         * both. */
+        if (buf[0] != '+' &&
+            strncmp(buf,"-NOAUTH",7) != 0 &&
+            strncmp(buf,"-ERR operation not permitted",28) != 0)
+        {
+            redisLog(REDIS_WARNING,"Error reply to PING from master: '%s'",buf);
             goto error;
         } else {
             redisLog(REDIS_NOTICE,
