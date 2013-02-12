@@ -238,6 +238,7 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"repl-disable-tcp-nodelay") && argc==2) {
             if ((server.repl_disable_tcp_nodelay = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"repl-backlog-size") && argc == 2) {
             long long size = strtoll(argv[0],NULL,10);
             if (size <= 0) {
