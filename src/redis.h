@@ -50,6 +50,7 @@
 #include <netinet/in.h>
 #include <lua.h>
 #include <signal.h>
+#include <pwd.h>
 
 #include "ae.h"      /* Event driven programming library */
 #include "sds.h"     /* Dynamic safe strings */

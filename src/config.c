@@ -35,6 +35,57 @@
  * Config file parsing
  *----------------------------------------------------------------------------*/
 
+char *
+expandTilde(char *path) {
+    struct passwd *pwd;
+    char username[256], epath[4096];
+    char *sudo_uid;
+    size_t len;
+    uid_t uid;
+    int i;
+
+    if (path[0] != '~') {
+        goto out;
+    }
+
+    for (i = 1; path[i] != '/' && path[i] != '\0'; i++) {
+        username[i - 1] = path[i];
+    }
+    username[i - 1] = '\0';
+
+    errno = 0;
+    if (username[0] != '\0')
+        pwd = getpwnam(username);
+    else {
+        uid = getuid();
+        if (uid == 0) {
+            sudo_uid = getenv("SUDO_UID");
+            if (sudo_uid != NULL) {
+                uid = atoi(sudo_uid);
+            }
+        }
+        pwd = getpwuid(getuid());
+    }
+    if (pwd == NULL) {
+        if (errno)
+            goto err;
+        else
+            goto out;
+    }
+
+    len = snprintf(epath, sizeof(epath), "%s%s", pwd->pw_dir,
+      path + 1 + strlen(username));
+    if (len >= (sizeof(epath) - 1) || len == -1)
+        goto err;
+
+    return zstrdup(epath);
+out:
+    return zstrdup(path);
+err:
+    fprintf(stderr, "Unable to expand %s: %s\n", path, strerror(errno));
+    exit(1);
+}
+
 int yesnotoi(char *s) {
     if (!strcasecmp(s,"yes")) return 1;
     else if (!strcasecmp(s,"no")) return 0;
@@ -113,11 +164,13 @@ void loadServerConfigFromString(char *config) {
                 resetServerSaveParams();
             }
         } else if (!strcasecmp(argv[0],"dir") && argc == 2) {
-            if (chdir(argv[1]) == -1) {
+			char *wdir = expandTilde(argv[1]);
+            if (chdir(wdir) == -1) {
                 redisLog(REDIS_WARNING,"Can't chdir to '%s': %s",
-                    argv[1], strerror(errno));
+                    wdir, strerror(errno));
                 exit(1);
             }
+			zfree(wdir);
         } else if (!strcasecmp(argv[0],"loglevel") && argc == 2) {
             if (!strcasecmp(argv[1],"debug")) server.verbosity = REDIS_DEBUG;
             else if (!strcasecmp(argv[1],"verbose")) server.verbosity = REDIS_VERBOSE;
@@ -130,7 +183,7 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"logfile") && argc == 2) {
             FILE *logfp;
 
-            server.logfile = zstrdup(argv[1]);
+			server.logfile = expandTilde(argv[1]);
             if (!strcasecmp(server.logfile,"stdout")) {
                 zfree(server.logfile);
                 server.logfile = NULL;
@@ -278,7 +331,7 @@ void loadServerConfigFromString(char *config) {
             server.aof_state = yes ? REDIS_AOF_ON : REDIS_AOF_OFF;
         } else if (!strcasecmp(argv[0],"appendfilename") && argc == 2) {
             zfree(server.aof_filename);
-            server.aof_filename = zstrdup(argv[1]);
+            server.aof_filename = expandTilde(argv[1]);
         } else if (!strcasecmp(argv[0],"no-appendfsync-on-rewrite")
                    && argc == 2) {
             if ((server.aof_no_fsync_on_rewrite= yesnotoi(argv[1])) == -1) {
@@ -315,10 +368,10 @@ void loadServerConfigFromString(char *config) {
             server.requirepass = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"pidfile") && argc == 2) {
             zfree(server.pidfile);
-            server.pidfile = zstrdup(argv[1]);
+            server.pidfile = expandTilde(argv[1]);
         } else if (!strcasecmp(argv[0],"dbfilename") && argc == 2) {
             zfree(server.rdb_filename);
-            server.rdb_filename = zstrdup(argv[1]);
+            server.rdb_filename = expandTilde(argv[1]);
         } else if (!strcasecmp(argv[0],"hash-max-ziplist-entries") && argc == 2) {
             server.hash_max_ziplist_entries = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"hash-max-ziplist-value") && argc == 2) {
@@ -363,7 +416,7 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"cluster-config-file") && argc == 2) {
             zfree(server.cluster.configfile);
-            server.cluster.configfile = zstrdup(argv[1]);
+            server.cluster.configfile = expandTilde(argv[1]);
         } else if (!strcasecmp(argv[0],"lua-time-limit") && argc == 2) {
             server.lua_time_limit = strtoll(argv[1],NULL,10);
         } else if (!strcasecmp(argv[0],"slowlog-log-slower-than") &&
@@ -485,7 +538,7 @@ void configSetCommand(redisClient *c) {
 
     if (!strcasecmp(c->argv[2]->ptr,"dbfilename")) {
         zfree(server.rdb_filename);
-        server.rdb_filename = zstrdup(o->ptr);
+        server.rdb_filename = expandTilde(o->ptr);
     } else if (!strcasecmp(c->argv[2]->ptr,"requirepass")) {
         if (sdslen(o->ptr) > REDIS_AUTHPASS_MAX_LEN) goto badfmt;
         zfree(server.requirepass);
