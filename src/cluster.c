@@ -332,6 +332,8 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     node->configdigest = NULL;
     node->configdigest_ts = 0;
     node->link = NULL;
+    node->ip[0] = '\0';
+    node->port = 0;
     return node;
 }
 
