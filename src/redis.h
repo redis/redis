@@ -560,7 +560,6 @@ struct clusterNode {
 typedef struct clusterNode clusterNode;
 
 typedef struct {
-    char *configfile;
     clusterNode *myself;  /* This node */
     int state;            /* REDIS_CLUSTER_OK, REDIS_CLUSTER_FAIL, ... */
     int node_timeout;
