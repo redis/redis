@@ -820,8 +820,9 @@ struct redisServer {
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of REDIS_NOTIFY... flags. */
     /* Cluster */
-    int cluster_enabled;    /* Is cluster enabled? */
-    clusterState cluster;   /* State of the cluster */
+    int cluster_enabled;      /* Is cluster enabled? */
+    char *cluster_configfile; /* Cluster auto-generated config file name. */
+    clusterState *cluster;  /* State of the cluster */
     /* Scripting */
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
     redisClient *lua_client;   /* The "fake client" to query Redis from Lua */

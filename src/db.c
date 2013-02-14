@@ -745,14 +745,14 @@ int *zunionInterGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *num
 void SlotToKeyAdd(robj *key) {
     unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
 
-    zslInsert(server.cluster.slots_to_keys,hashslot,key);
+    zslInsert(server.cluster->slots_to_keys,hashslot,key);
     incrRefCount(key);
 }
 
 void SlotToKeyDel(robj *key) {
     unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
 
-    zslDelete(server.cluster.slots_to_keys,hashslot,key);
+    zslDelete(server.cluster->slots_to_keys,hashslot,key);
 }
 
 unsigned int GetKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count) {
@@ -763,7 +763,7 @@ unsigned int GetKeysInSlot(unsigned int hashslot, robj **keys, unsigned int coun
     range.min = range.max = hashslot;
     range.minex = range.maxex = 0;
     
-    n = zslFirstInRange(server.cluster.slots_to_keys, range);
+    n = zslFirstInRange(server.cluster->slots_to_keys, range);
     while(n && n->score == hashslot && count--) {
         keys[j++] = n->obj;
         n = n->level[0].forward;
