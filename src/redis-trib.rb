@@ -24,7 +24,7 @@
 require 'rubygems'
 require 'redis'
 
-ClusterHashSlots = 4096
+ClusterHashSlots = 16384
 
 def xputs(s)
     printf s
@@ -238,10 +238,10 @@ class RedisTrib
         @nodes.each{|n|
             slots = slots.merge(n.slots)
         }
-        if slots.length == 4096
-            puts "[OK] All 4096 slots covered."
+        if slots.length == ClusterHashSlots
+            puts "[OK] All #{ClusterHashSlots} slots covered."
         else
-            errors << "[ERR] Not all 4096 slots are covered by nodes."
+            errors << "[ERR] Not all #{ClusterHashSlots} slots are covered by nodes."
             puts errors[-1]
         end
         return errors
@@ -384,8 +384,8 @@ class RedisTrib
             exit 1
         end
         numslots = 0
-        while numslots <= 0 or numslots > 4096
-            print "How many slots do you want to move (from 1 to 4096)? "
+        while numslots <= 0 or numslots > ClusterHashSlots
+            print "How many slots do you want to move (from 1 to #{ClusterHashSlots})? "
             numslots = STDIN.gets.to_i
         end
         target = nil
