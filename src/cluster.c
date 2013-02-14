@@ -299,10 +299,10 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
  * Key space handling
  * -------------------------------------------------------------------------- */
 
-/* We have 4096 hash slots. The hash slot of a given key is obtained
- * as the least significant 12 bits of the crc16 of the key. */
+/* We have 16384 hash slots. The hash slot of a given key is obtained
+ * as the least significant 14 bits of the crc16 of the key. */
 unsigned int keyHashSlot(char *key, int keylen) {
-    return crc16(key,keylen) & 0x0FFF;
+    return crc16(key,keylen) & 0x3FFF;
 }
 
 /* -----------------------------------------------------------------------------

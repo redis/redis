@@ -514,7 +514,7 @@ typedef struct redisOpArray {
  * Redis cluster data structures
  *----------------------------------------------------------------------------*/
 
-#define REDIS_CLUSTER_SLOTS 4096
+#define REDIS_CLUSTER_SLOTS 16384
 #define REDIS_CLUSTER_OK 0          /* Everything looks ok */
 #define REDIS_CLUSTER_FAIL 1        /* The cluster can't work */
 #define REDIS_CLUSTER_NEEDHELP 2    /* The cluster works, but needs some help */
