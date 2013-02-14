@@ -754,7 +754,7 @@ void clusterWriteHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
  * full length of the packet. When a whole packet is in memory this function
  * will call the function to process the packet. And so forth. */
 void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    char buf[1024];
+    char buf[4096];
     ssize_t nread;
     clusterMsg *hdr;
     clusterLink *link = (clusterLink*) privdata;
@@ -852,7 +852,7 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
 /* Send a PING or PONG packet to the specified node, making sure to add enough
  * gossip informations. */
 void clusterSendPing(clusterLink *link, int type) {
-    unsigned char buf[1024];
+    unsigned char buf[4096];
     clusterMsg *hdr = (clusterMsg*) buf;
     int gossipcount = 0, totlen;
     /* freshnodes is the number of nodes we can still use to populate the
@@ -957,7 +957,7 @@ void clusterSendPublish(clusterLink *link, robj *channel, robj *message) {
  * we switch the node state to REDIS_NODE_FAIL and ask all the other
  * nodes to do the same ASAP. */
 void clusterSendFail(char *nodename) {
-    unsigned char buf[1024];
+    unsigned char buf[4096];
     clusterMsg *hdr = (clusterMsg*) buf;
 
     clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_FAIL);
