@@ -1901,16 +1901,16 @@ void askingCommand(redisClient *c) {
  * Cluster functions related to serving / redirecting clients
  * -------------------------------------------------------------------------- */
 
-/* Return the pointer to the cluster node that is able to serve the query
- * as all the keys belong to hash slots for which the node is in charge.
+/* Return the pointer to the cluster node that is able to serve the command.
+ * For the function to succeed the command should only target a single
+ * key (or the same key multiple times).
  *
  * If the returned node should be used only for this request, the *ask
  * integer is set to '1', otherwise to '0'. This is used in order to
  * let the caller know if we should reply with -MOVED or with -ASK.
  *
- * If the request contains more than a single key NULL is returned,
- * however a request with more then a key argument where the key is always
- * the same is valid, like in: RPOPLPUSH mylist mylist.*/
+ * If the command contains multiple keys, and as a consequence it is not
+ * possible to handle the request in Redis Cluster, NULL is returned. */
 clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask) {
     clusterNode *n = NULL;
     robj *firstkey = NULL;
