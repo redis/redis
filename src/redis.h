@@ -637,6 +637,8 @@ typedef struct {
     union clusterMsgData data;
 } clusterMsg;
 
+#define CLUSTERMSG_MIN_LEN (sizeof(clusterMsg)-sizeof(union clusterMsgData))
+
 /*-----------------------------------------------------------------------------
  * Global server state
  *----------------------------------------------------------------------------*/
