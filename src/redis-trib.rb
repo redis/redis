@@ -313,13 +313,16 @@ class RedisTrib
     def compute_reshard_table(sources,numslots)
         moved = []
         # Sort from bigger to smaller instance, for two reasons:
-        # 1) If we take less slots than instances it is better to start getting from
-        #    the biggest instances.
-        # 2) We take one slot more from the first instance in the case of not perfect
-        #    divisibility. Like we have 3 nodes and need to get 10 slots, we take
-        #    4 from the first, and 3 from the rest. So the biggest is always the first.
+        # 1) If we take less slots than instances it is better to start
+        #    getting from the biggest instances.
+        # 2) We take one slot more from the first instance in the case of not
+        #    perfect divisibility. Like we have 3 nodes and need to get 10
+        #    slots, we take 4 from the first, and 3 from the rest. So the
+        #    biggest is always the first.
         sources = sources.sort{|a,b| b.slots.length <=> a.slots.length}
-        source_tot_slots = sources.inject(0) {|sum,source| sum+source.slots.length}
+        source_tot_slots = sources.inject(0) {|sum,source|
+            sum+source.slots.length
+        }
         sources.each_with_index{|s,i|
             # Every node will provide a number of slots proportional to the
             # slots it has assigned.
@@ -347,8 +350,8 @@ class RedisTrib
     def move_slot(source,target,slot,o={})
         # We start marking the slot as importing in the destination node,
         # and the slot as migrating in the target host. Note that the order of
-        # the operations is important, as otherwise a client may be redirected to
-        # the target node that does not yet know it is importing this slot.
+        # the operations is important, as otherwise a client may be redirected
+        # to the target node that does not yet know it is importing this slot.
         print "Moving slot #{slot} from #{source.info_string}: "; STDOUT.flush
         target.r.cluster("setslot",slot,"importing",source.info[:name])
         source.r.cluster("setslot",slot,"migrating",source.info[:name])
