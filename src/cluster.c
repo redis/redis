@@ -1963,7 +1963,6 @@ clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **arg
                 /* If it is not the first key, make sure it is exactly
                  * the same key as the first we saw. */
                 if (!equalStringObjects(firstkey,margv[keyindex[j]])) {
-                    decrRefCount(firstkey);
                     getKeysFreeResult(keyindex);
                     return NULL;
                 }
