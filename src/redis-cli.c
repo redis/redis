@@ -1156,7 +1156,6 @@ static void pipeMode(void) {
                         memcpy(obuf,echo,sizeof(echo)-1);
                         obuf_len = sizeof(echo)-1;
                         obuf_pos = 0;
-                        completed = 1;
                         printf("All data transferred. Waiting for the last reply...\n");
                     } else if (nread == -1) {
                         fprintf(stderr, "Error reading from stdin: %s\n",
