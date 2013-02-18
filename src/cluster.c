@@ -73,6 +73,39 @@ void clusterCloseAllSlots(void);
 void clusterSetNodeAsMaster(clusterNode *n);
 void clusterDelNode(clusterNode *delnode);
 
+struct redisNodeFlags {
+    uint16_t flag;
+    char     *attr;
+};
+
+static struct redisNodeFlags nodeflags[] = {
+    {REDIS_NODE_MYSELF,    "myself,"},
+    {REDIS_NODE_MASTER,    "master,"},
+    {REDIS_NODE_SLAVE,     "slave,"},
+    {REDIS_NODE_PFAIL,     "fail?,"},
+    {REDIS_NODE_FAIL,      "fail,"},
+    {REDIS_NODE_HANDSHAKE, "handshake,"},
+    {REDIS_NODE_NOADDR,    "noaddr,"}
+};
+
+sds representRedisNodeFlags(sds ci, uint16_t flags) {
+    if (flags == 0) {
+        ci = sdscat(ci,"noflags");
+    } else {
+        int size = sizeof(nodeflags) / sizeof(struct redisNodeFlags);
+        for (int i=0; i < size; i++) {
+            struct redisNodeFlags *nodeflag = nodeflags + i;
+            if (flags & nodeflag->flag) {
+                ci = sdscat(ci, nodeflag->attr);
+            }
+        }
+
+        if (ci[sdslen(ci)-1] == ',') ci[sdslen(ci)-1] = ' ';
+    }
+
+    return ci;
+}
+
 /* -----------------------------------------------------------------------------
  * Initialization
  * -------------------------------------------------------------------------- */
@@ -1145,20 +1178,11 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
     clusterNode *sender = link->node ? link->node : clusterLookupNode(hdr->sender);
 
     while(count--) {
-        sds ci = sdsempty();
         uint16_t flags = ntohs(g->flags);
         clusterNode *node;
 
-        if (flags == 0) ci = sdscat(ci,"noflags,");
-        if (flags & REDIS_NODE_MYSELF) ci = sdscat(ci,"myself,");
-        if (flags & REDIS_NODE_MASTER) ci = sdscat(ci,"master,");
-        if (flags & REDIS_NODE_SLAVE) ci = sdscat(ci,"slave,");
-        if (flags & REDIS_NODE_PFAIL) ci = sdscat(ci,"fail?,");
-        if (flags & REDIS_NODE_FAIL) ci = sdscat(ci,"fail,");
-        if (flags & REDIS_NODE_HANDSHAKE) ci = sdscat(ci,"handshake,");
-        if (flags & REDIS_NODE_NOADDR) ci = sdscat(ci,"noaddr,");
-        if (ci[sdslen(ci)-1] == ',') ci[sdslen(ci)-1] = ' ';
-
+        sds ci = sdsempty();
+        ci = representRedisNodeFlags(ci, flags);
         redisLog(REDIS_DEBUG,"GOSSIP %.40s %s:%d %s",
             g->nodename,
             g->ip,
@@ -3355,15 +3379,7 @@ sds clusterGenNodeDescription(clusterNode *node) {
         node->port);
 
     /* Flags */
-    if (node->flags == 0) ci = sdscat(ci,"noflags,");
-    if (node->flags & REDIS_NODE_MYSELF) ci = sdscat(ci,"myself,");
-    if (node->flags & REDIS_NODE_MASTER) ci = sdscat(ci,"master,");
-    if (node->flags & REDIS_NODE_SLAVE) ci = sdscat(ci,"slave,");
-    if (node->flags & REDIS_NODE_PFAIL) ci = sdscat(ci,"fail?,");
-    if (node->flags & REDIS_NODE_FAIL) ci = sdscat(ci,"fail,");
-    if (node->flags & REDIS_NODE_HANDSHAKE) ci =sdscat(ci,"handshake,");
-    if (node->flags & REDIS_NODE_NOADDR) ci = sdscat(ci,"noaddr,");
-    if (ci[sdslen(ci)-1] == ',') ci[sdslen(ci)-1] = ' ';
+    ci = representRedisNodeFlags(ci, node->flags);
 
     /* Slave of... or just "-" */
     if (node->slaveof)
