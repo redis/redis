@@ -332,6 +332,8 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     node->ping_sent = node->pong_received = 0;
     node->configdigest = NULL;
     node->configdigest_ts = 0;
+    node->ip[0] = '\0';
+    node->port = 0;
     node->link = NULL;
     memset(node->ip,0,sizeof(node->ip));
     node->port = 0;
