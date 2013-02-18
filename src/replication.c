@@ -731,7 +731,15 @@ void slaveofCommand(redisClient *c) {
         if (server.masterhost) {
             sdsfree(server.masterhost);
             server.masterhost = NULL;
-            if (server.master) freeClient(server.master);
+
+	    /* If the master sent SLAVEOF NO ONE, we free the client
+	       after sending the reply, otherwise immediately */
+	    if (server.master && c == server.master) {
+	      c->flags |= REDIS_CLOSE_AFTER_REPLY;
+	    } else if (server.master) {
+	      freeClient(server.master);
+	    }
+
             cancelReplicationHandshake();
             server.repl_state = REDIS_REPL_NONE;
             redisLog(REDIS_NOTICE,"MASTER MODE enabled (user request)");
