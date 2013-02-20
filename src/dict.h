@@ -90,6 +90,8 @@ typedef struct dictIterator {
     dictEntry *entry, *nextEntry;
 } dictIterator;
 
+typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
+
 /* This is the initial size of every hash table */
 #define DICT_HT_INITIAL_SIZE     4
 
@@ -164,6 +166,7 @@ int dictRehash(dict *d, int n);
 int dictRehashMilliseconds(dict *d, int ms);
 void dictSetHashFunctionSeed(unsigned int initval);
 unsigned int dictGetHashFunctionSeed(void);
+unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, void *privdata);
 
 /* Hash table types */
 extern dictType dictTypeHeapStringCopyKey;
