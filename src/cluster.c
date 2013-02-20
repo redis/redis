@@ -2007,7 +2007,7 @@ clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **arg
      * it is assigned to a different node, but only if the client
      * issued an ASKING command before. */
     if (server.cluster->importing_slots_from[slot] != NULL &&
-        c->flags & REDIS_ASKING) {
+        (c->flags & REDIS_ASKING || cmd->flags & REDIS_CMD_ASKING)) {
         return server.cluster->myself;
     }
     /* It's not a -ASK case. Base case: just return the right node. */

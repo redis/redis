@@ -111,6 +111,8 @@ struct redisCommand *commandTable;
  *    server this data. Normally no command is accepted in this condition
  *    but just a few.
  * M: Do not automatically propagate the command on MONITOR.
+ * k: Perform an implicit ASKING for this command, so the command will be
+ *    accepted in cluster mode if the slot is marked as 'importing'.
  */
 struct redisCommand redisCommandTable[] = {
     {"get",getCommand,2,"r",0,NULL,1,1,1,0,0},
@@ -242,6 +244,7 @@ struct redisCommand redisCommandTable[] = {
     {"unwatch",unwatchCommand,1,"rs",0,NULL,0,0,0,0,0},
     {"cluster",clusterCommand,-2,"ar",0,NULL,0,0,0,0,0},
     {"restore",restoreCommand,-4,"awm",0,NULL,1,1,1,0,0},
+    {"restore-asking",restoreCommand,-4,"awmk",0,NULL,1,1,1,0,0},
     {"migrate",migrateCommand,-6,"aw",0,NULL,0,0,0,0,0},
     {"asking",askingCommand,1,"r",0,NULL,0,0,0,0,0},
     {"dump",dumpCommand,2,"ar",0,NULL,1,1,1,0,0},
@@ -1453,6 +1456,7 @@ void populateCommandTable(void) {
             case 'l': c->flags |= REDIS_CMD_LOADING; break;
             case 't': c->flags |= REDIS_CMD_STALE; break;
             case 'M': c->flags |= REDIS_CMD_SKIP_MONITOR; break;
+            case 'k': c->flags |= REDIS_CMD_ASKING; break;
             default: redisPanic("Unsupported command flag"); break;
             }
             f++;
