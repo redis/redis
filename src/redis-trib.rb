@@ -354,7 +354,7 @@ class RedisTrib
         # to the target node that does not yet know it is importing this slot.
         print "Moving slot #{slot} from #{source.info_string}: "; STDOUT.flush
         target.r.cluster("setslot",slot,"importing",source.info[:name])
-        source.r.cluster("setslot",slot,"migrating",source.info[:name])
+        source.r.cluster("setslot",slot,"migrating",target.info[:name])
         # Migrate all the keys from source to target using the MIGRATE command
         while true
             keys = source.r.cluster("getkeysinslot",slot,10)
