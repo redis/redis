@@ -816,12 +816,16 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 
 /* resetClient prepare the client to process the next command */
 void resetClient(redisClient *c) {
+    redisCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
+
     freeClientArgv(c);
     c->reqtype = 0;
     c->multibulklen = 0;
     c->bulklen = -1;
-    /* We clear the ASKING flag as well if we are not inside a MULTI. */
-    if (!(c->flags & REDIS_MULTI)) c->flags &= (~REDIS_ASKING);
+    /* We clear the ASKING flag as well if we are not inside a MULTI, and
+     * if what we just executed is not the ASKING command itself. */
+    if (!(c->flags & REDIS_MULTI) && prevcmd != askingCommand)
+        c->flags &= (~REDIS_ASKING);
 }
 
 int processInlineBuffer(redisClient *c) {
