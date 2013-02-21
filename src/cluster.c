@@ -655,8 +655,7 @@ int clusterProcessPacket(clusterLink *link) {
             }
         }
 
-        /* Update our info about served slots if this new node is serving
-         * slots that are not served from our point of view. */
+        /* Update our info about served slots. */
         if (sender && sender->flags & REDIS_NODE_MASTER) {
             int newslots, j;
 
@@ -666,12 +665,25 @@ int clusterProcessPacket(clusterLink *link) {
             if (newslots) {
                 for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
                     if (clusterNodeGetSlotBit(sender,j)) {
+                        /* If this slot was not served, or served by a node
+                         * in FAIL state, update the table with the new node
+                         * caliming to serve the slot. */
                         if (server.cluster->slots[j] == sender) continue;
                         if (server.cluster->slots[j] == NULL ||
                             server.cluster->slots[j]->flags & REDIS_NODE_FAIL)
                         {
                             clusterDelSlot(j);
                             clusterAddSlot(sender,j);
+                            update_state = update_config = 1;
+                        }
+                    } else {
+                        /* If this slot was served by this node, but it is
+                         * no longer claiming it, del it from the table. */
+                        if (server.cluster->slots[j] == sender) {
+                            /* Set the bit again before calling
+                             * clusterDelSlot() or the assert will fail. */
+                            clusterNodeSetSlotBit(sender,j);
+                            clusterDelSlot(j);
                             update_state = update_config = 1;
                         }
                     }
