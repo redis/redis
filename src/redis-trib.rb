@@ -39,12 +39,14 @@ class ClusterNode
             exit 1
         end
         @r = nil
+        @fix = false
         @info = {}
         @info[:host] = s[0]
         @info[:port] = s[1]
         @info[:slots] = {}
         @dirty = false # True if we need to flush slots info into node.
         @friends = []
+        @errors = []
     end
 
     def friends
@@ -231,20 +233,35 @@ class RedisTrib
 
     def check_cluster
         puts "Performing Cluster Check (using node #{@nodes[0]})"
-        errors = []
         show_nodes
-        # Check if all the slots are covered
+        check_slots_coverage
+    end
+
+    # Merge slots of every known node. If the resulting slots are equal
+    # to ClusterHashSlots, then all slots are served.
+    def covered_slots
         slots = {}
         @nodes.each{|n|
             slots = slots.merge(n.slots)
         }
+        slots
+    end
+
+    def check_slots_coverage
+        slots = covered_slots
         if slots.length == ClusterHashSlots
             puts "[OK] All #{ClusterHashSlots} slots covered."
         else
-            errors << "[ERR] Not all #{ClusterHashSlots} slots are covered by nodes."
-            puts errors[-1]
+            @errors <<
+                "[ERR] Not all #{ClusterHashSlots} slots are covered by nodes."
+            puts @errors[-1]
+            fix_slots_covarege if @fix
         end
-        return errors
+    end
+
+    def fix_slots_coverage
+        slots = covered_slots
+        # TODO ... actually fix coverage
     end
 
     def alloc_slots
@@ -374,15 +391,21 @@ class RedisTrib
 
     # redis-trib subcommands implementations
 
-    def check_cluster_cmd   
+    def check_cluster_cmd
+        load_cluster_info_from_node(ARGV[1])
+        check_cluster
+    end
+
+    def fix_cluster_cmd
+        @fix = true
         load_cluster_info_from_node(ARGV[1])
         check_cluster
     end
 
     def reshard_cluster_cmd
         load_cluster_info_from_node(ARGV[1])
-        errors = check_cluster
-        if errors.length != 0
+        check_cluster
+        if @errors.length != 0
             puts "Please fix your cluster problems before resharding."
             exit 1
         end
@@ -467,9 +490,10 @@ class RedisTrib
 end
 
 COMMANDS={
-    "create" => ["create_cluster_cmd", -2, "host1:port host2:port ... hostN:port"],
-    "check" =>  ["check_cluster_cmd", 2, "host:port"],
-    "reshard" =>  ["reshard_cluster_cmd", 2, "host:port"]
+    "create"  => ["create_cluster_cmd", -2, "host1:port1 ... hostN:portN"],
+    "check"   => ["check_cluster_cmd", 2, "host:port"],
+    "fix"     => ["fix_cluster_cmd", 2, "host:port"],
+    "reshard" => ["reshard_cluster_cmd", 2, "host:port"]
 }
 
 # Sanity check
@@ -477,7 +501,7 @@ if ARGV.length == 0
     puts "Usage: redis-trib <command> <arguments ...>"
     puts
     COMMANDS.each{|k,v|
-        puts "  #{k.ljust(20)} #{v[2]}"
+        puts "  #{k.ljust(10)} #{v[2]}"
     }
     puts
     exit 1
