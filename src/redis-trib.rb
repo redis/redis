@@ -39,14 +39,12 @@ class ClusterNode
             exit 1
         end
         @r = nil
-        @fix = false
         @info = {}
         @info[:host] = s[0]
         @info[:port] = s[1]
         @info[:slots] = {}
         @dirty = false # True if we need to flush slots info into node.
         @friends = []
-        @errors = []
     end
 
     def friends
@@ -210,6 +208,8 @@ end
 class RedisTrib
     def initialize
         @nodes = []
+        @fix = false
+        @errors = []
     end
 
     def check_arity(req_args, num_args)
