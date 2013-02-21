@@ -46,6 +46,7 @@ sds clusterGenNodesDescription(void);
 clusterNode *clusterLookupNode(char *name);
 int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
 int clusterAddSlot(clusterNode *n, int slot);
+int clusterDelSlot(int slot);
 
 /* -----------------------------------------------------------------------------
  * Initialization
@@ -669,7 +670,8 @@ int clusterProcessPacket(clusterLink *link) {
                         if (server.cluster->slots[j] == NULL ||
                             server.cluster->slots[j]->flags & REDIS_NODE_FAIL)
                         {
-                            server.cluster->slots[j] = sender;
+                            clusterDelSlot(j);
+                            clusterAddSlot(sender,j);
                             update_state = update_config = 1;
                         }
                     }
