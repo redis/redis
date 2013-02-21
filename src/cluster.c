@@ -70,6 +70,8 @@ int clusterLoadConfig(char *filename) {
     while(fgets(line,maxline,fp) != NULL) {
         int argc;
         sds *argv = sdssplitargs(line,&argc);
+        if (argv == NULL) goto fmterr;
+
         clusterNode *n, *master;
         char *p, *s;
 
