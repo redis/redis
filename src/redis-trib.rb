@@ -255,7 +255,7 @@ class RedisTrib
             @errors <<
                 "[ERR] Not all #{ClusterHashSlots} slots are covered by nodes."
             puts @errors[-1]
-            fix_slots_covarege if @fix
+            fix_slots_coverage if @fix
         end
     end
 
