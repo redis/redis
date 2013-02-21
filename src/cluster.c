@@ -1135,8 +1135,8 @@ int clusterNodeGetSlotBit(clusterNode *n, int slot) {
  * If the slot is already assigned to another instance this is considered
  * an error and REDIS_ERR is returned. */
 int clusterAddSlot(clusterNode *n, int slot) {
-    if (clusterNodeSetSlotBit(n,slot) != 0)
-        return REDIS_ERR;
+    if (server.cluster->slots[slot]) return REDIS_ERR;
+    clusterNodeSetSlotBit(n,slot);
     server.cluster->slots[slot] = n;
     return REDIS_OK;
 }
