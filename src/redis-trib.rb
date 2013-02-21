@@ -259,9 +259,44 @@ class RedisTrib
         end
     end
 
+    def nodes_with_keys_in_slot(slot)
+        nodes = []
+        @nodes.each{|n|
+            nodes << n if n.r.cluster("getkeysinslot",slot,1).length > 0
+        }
+        nodes
+    end
+
     def fix_slots_coverage
-        slots = covered_slots
-        # TODO ... actually fix coverage
+        not_covered = (0...ClusterHashSlots).to_a - covered_slots.keys
+        puts "\nFixing slots coverage..."
+        puts "List of not covered slots: " + not_covered.join(",")
+
+        # For every slot, take action depending on the actual condition:
+        # 1) No node has keys for this slot.
+        # 2) A single node has keys for this slot.
+        # 3) Multiple nodes have keys for this slot.
+        slots = {}
+        not_covered.each{|slot|
+            nodes = nodes_with_keys_in_slot(slot)
+            slots[slot] = nodes
+            puts "Slot #{slot} has keys in #{nodes.length} nodes"
+        }
+
+        none = slots.select {|k,v| v.length == 0}
+        single = slots.select {|k,v| v.length == 1}
+        multi = slots.select {|k,v| v.length > 1}
+
+        # TODO: Handle none and single cases as well.
+        if single.length
+            puts "The folowing uncovered slots have keys in just one node:"
+            puts single.keys.join(",")
+            yes_or_die "Fix this slots by covering with those nodes?"
+            single.each{|slot,nodes|
+                puts "Covering slot #{slot} with #{nodes[0]}"
+                nodes[0].r.cluster("addslots",slot)
+            }
+        end
     end
 
     def alloc_slots
