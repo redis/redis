@@ -287,11 +287,23 @@ class RedisTrib
         single = slots.select {|k,v| v.length == 1}
         multi = slots.select {|k,v| v.length > 1}
 
-        # TODO: Handle none and single cases as well.
-        if single.length
+        # Handle case "1": keys in no node.
+        if none.length > 0
+            puts "The folowing uncovered slots have no keys across the cluster:"
+            puts none.keys.join(",")
+            yes_or_die "Fix these slots by covering with a random node?"
+            none.each{|slot,nodes|
+                node = @nodes.sample
+                puts "Covering slot #{slot} with #{node}"
+                node.r.cluster("addslots",slot)
+            }
+        end
+
+        # Handle case "2": keys only in one node.
+        if single.length > 0
             puts "The folowing uncovered slots have keys in just one node:"
             puts single.keys.join(",")
-            yes_or_die "Fix this slots by covering with those nodes?"
+            yes_or_die "Fix these slots by covering with those nodes?"
             single.each{|slot,nodes|
                 puts "Covering slot #{slot} with #{nodes[0]}"
                 nodes[0].r.cluster("addslots",slot)
