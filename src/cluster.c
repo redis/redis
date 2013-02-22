@@ -336,7 +336,67 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     node->link = NULL;
     memset(node->ip,0,sizeof(node->ip));
     node->port = 0;
+    node->fail_reports = listCreate();
+    listSetFreeMethod(node->fail_reports,zfree);
     return node;
+}
+
+/* This function is called every time we get a failure report from a node.
+ * The side effect is to populate the fail_reports list (or to update
+ * the timestamp of an existing report).
+ *
+ * 'failing' is the node that is in failure state according to the
+ * 'sender' node. */
+void clusterNodeAddFailureReport(clusterNode *failing, clusterNode *sender) {
+    list *l = failing->fail_reports;
+    listNode *ln;
+    listIter li;
+    clusterNodeFailReport *fr;
+
+    /* If a failure report from the same sender already exists, just update
+     * the timestamp. */
+    listRewind(l,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        fr = ln->value;
+        if (fr->node == sender) {
+            fr->time = time(NULL);
+            return;
+        }
+    }
+
+    /* Otherwise create a new report. */
+    fr = zmalloc(sizeof(*fr));
+    fr->node = sender;
+    fr->time = time(NULL);
+    listAddNodeTail(l,fr);
+}
+
+/* Remove failure reports that are too old, where too old means reasonably
+ * older than the global node timeout. Note that anyway for a node to be
+ * flagged as FAIL we need to have a local PFAIL state that is at least
+ * older than the global node timeout, so we don't just trust the number
+ * of failure reports from other nodes. */
+void clusterNodeCleanupFailureReports(clusterNode *node) {
+    list *l = node->fail_reports;
+    listNode *ln;
+    listIter li;
+    clusterNodeFailReport *fr;
+    time_t maxtime = server.cluster->node_timeout*2;
+    time_t now = time(NULL);
+
+    listRewind(l,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        fr = ln->value;
+        if (now - fr->time > maxtime) listDelNode(l,ln);
+    }
+}
+
+/* Return the number of external nodes that believe 'node' is failing,
+ * not including this node, that may have a PFAIL or FAIL state for this
+ * node as well. */
+int clusterNodeFailureReportsCount(clusterNode *node) {
+    clusterNodeCleanupFailureReports(node);
+    return listLength(node->fail_reports);
 }
 
 int clusterNodeRemoveSlave(clusterNode *master, clusterNode *slave) {
@@ -373,12 +433,13 @@ void clusterNodeResetSlaves(clusterNode *n) {
 
 void freeClusterNode(clusterNode *n) {
     sds nodename;
-    
+
     nodename = sdsnewlen(n->name, REDIS_CLUSTER_NAMELEN);
     redisAssert(dictDelete(server.cluster->nodes,nodename) == DICT_OK);
     sdsfree(nodename);
     if (n->slaveof) clusterNodeRemoveSlave(n->slaveof, n);
     if (n->link) freeClusterLink(n->link);
+    listRelease(n->fail_reports);
     zfree(n);
 }
 
@@ -1172,6 +1233,7 @@ void clusterUpdateState(void) {
     int ok = 1;
     int j;
 
+    /* Check if all the slots are covered. */
     for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
         if (server.cluster->slots[j] == NULL ||
             server.cluster->slots[j]->flags & (REDIS_NODE_FAIL))
@@ -1180,6 +1242,8 @@ void clusterUpdateState(void) {
             break;
         }
     }
+
+    /* Update cluster->state accordingly. */
     if (ok) {
         if (server.cluster->state == REDIS_CLUSTER_NEEDHELP) {
             server.cluster->state = REDIS_CLUSTER_NEEDHELP;
