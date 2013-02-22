@@ -34,6 +34,7 @@
 
 void SlotToKeyAdd(robj *key);
 void SlotToKeyDel(robj *key);
+void SlotToKeyFlush(void);
 
 /*-----------------------------------------------------------------------------
  * C-level DB API
@@ -213,12 +214,14 @@ void flushdbCommand(redisClient *c) {
     signalFlushedDb(c->db->id);
     dictEmpty(c->db->dict);
     dictEmpty(c->db->expires);
+    if (server.cluster_enabled) SlotToKeyFlush();
     addReply(c,shared.ok);
 }
 
 void flushallCommand(redisClient *c) {
     signalFlushedDb(-1);
     server.dirty += emptyDb();
+    if (server.cluster_enabled) SlotToKeyFlush();
     addReply(c,shared.ok);
     if (server.rdb_child_pid != -1) {
         kill(server.rdb_child_pid,SIGUSR1);
@@ -753,6 +756,11 @@ void SlotToKeyDel(robj *key) {
     unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
 
     zslDelete(server.cluster->slots_to_keys,hashslot,key);
+}
+
+void SlotToKeyFlush(void) {
+    zslFree(server.cluster->slots_to_keys);
+    server.cluster->slots_to_keys = zslCreate();
 }
 
 unsigned int GetKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count) {
