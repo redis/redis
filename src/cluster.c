@@ -47,6 +47,7 @@ clusterNode *clusterLookupNode(char *name);
 int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
 int clusterAddSlot(clusterNode *n, int slot);
 int clusterDelSlot(int slot);
+int clusterNodeSetSlotBit(clusterNode *n, int slot);
 
 /* -----------------------------------------------------------------------------
  * Initialization
