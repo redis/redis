@@ -229,7 +229,8 @@ void clusterInit(void) {
     if (clusterLoadConfig(server.cluster_configfile) == REDIS_ERR) {
         /* No configuration found. We will just use the random name provided
          * by the createClusterNode() function. */
-        server.cluster->myself = createClusterNode(NULL,REDIS_NODE_MYSELF);
+        server.cluster->myself =
+            createClusterNode(NULL,REDIS_NODE_MYSELF|REDIS_NODE_MASTER);
         redisLog(REDIS_NOTICE,"No cluster configuration found, I'm %.40s",
             server.cluster->myself->name);
         clusterAddNode(server.cluster->myself);
