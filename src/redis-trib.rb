@@ -280,7 +280,7 @@ class RedisTrib
         not_covered.each{|slot|
             nodes = nodes_with_keys_in_slot(slot)
             slots[slot] = nodes
-            puts "Slot #{slot} has keys in #{nodes.length} nodes"
+            puts "Slot #{slot} has keys in #{nodes.length} nodes: #{nodes.join}"
         }
 
         none = slots.select {|k,v| v.length == 0}
