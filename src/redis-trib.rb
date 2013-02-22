@@ -309,6 +309,23 @@ class RedisTrib
                 nodes[0].r.cluster("addslots",slot)
             }
         end
+
+        # Handle case "3": keys in multiple nodes.
+        if multi.length > 0
+            puts "The folowing uncovered slots have keys in multiple nodes:"
+            puts multi.keys.join(",")
+            yes_or_die "Fix these slots by moving keys into a single node?"
+            multi.each{|slot,nodes|
+                puts "Covering slot #{slot} moving keys to #{nodes[0]}"
+                # TODO
+                # 1) Set all nodes as "MIGRATING" for this slot, so that we
+                # can access keys in the hash slot using ASKING.
+                # 2) Move everything to node[0]
+                # 3) Clear MIGRATING from nodes, and ADDSLOTS the slot to
+                # node[0].
+                raise "TODO: Work in progress"
+            }
+        end
     end
 
     def alloc_slots
