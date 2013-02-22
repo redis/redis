@@ -192,6 +192,19 @@ class ClusterNode
         "[#{@info[:cluster_state].upcase}] #{self.info[:name]} #{self.to_s} slots:#{slots} (#{self.slots.length} slots)"
     end
 
+    # Return a single string representing nodes and associated slots.
+    # TODO: remove slaves from config when slaves will be handled
+    # by Redis Cluster.
+    def get_config_signature
+        config = []
+        @r.cluster("nodes").each_line{|l|
+            s = l.split
+            slots = s[7..-1].select {|x| x[0..0] != "["}
+            config << s[0]+":"+(slots.sort.join(","))
+        }
+        config.sort.join("|")
+    end
+
     def info
         @info
     end
@@ -234,6 +247,7 @@ class RedisTrib
     def check_cluster
         puts "Performing Cluster Check (using node #{@nodes[0]})"
         show_nodes
+        check_config_consistency
         check_slots_coverage
     end
 
@@ -325,6 +339,19 @@ class RedisTrib
                 # node[0].
                 raise "TODO: Work in progress"
             }
+        end
+    end
+
+    # Check if all the nodes agree about the cluster configuration
+    def check_config_consistency
+        signatures=[]
+        @nodes.each{|n|
+            signatures << n.get_config_signature
+        }
+        if signatures.uniq.length != 1
+            puts "[ERR] Nodes don't agree about configuration!"
+        else
+            puts "[OK] All nodes agree about slots configuration."
         end
     end
 
