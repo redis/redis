@@ -570,6 +570,7 @@ typedef struct clusterNode clusterNode;
 typedef struct {
     clusterNode *myself;  /* This node */
     int state;            /* REDIS_CLUSTER_OK, REDIS_CLUSTER_FAIL, ... */
+    int size;             /* Num of master nodes with at least one slot */
     int node_timeout;
     dict *nodes;          /* Hash table of name -> clusterNode structures */
     clusterNode *migrating_slots_to[REDIS_CLUSTER_SLOTS];
@@ -960,6 +961,7 @@ long long mstime(void);
 void getRandomHexChars(char *p, unsigned int len);
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 void exitFromChild(int retcode);
+long popcount(void *s, long count);
 
 /* networking.c -- Networking and Client related operations */
 redisClient *createClient(int fd);

@@ -217,6 +217,7 @@ void clusterInit(void) {
     server.cluster = zmalloc(sizeof(clusterState));
     server.cluster->myself = NULL;
     server.cluster->state = REDIS_CLUSTER_FAIL;
+    server.cluster->size = 1;
     server.cluster->nodes = dictCreate(&clusterNodesDictType,NULL);
     server.cluster->node_timeout = 15;
     memset(server.cluster->migrating_slots_to,0,
@@ -1253,6 +1254,24 @@ void clusterUpdateState(void) {
         }
     } else {
         server.cluster->state = REDIS_CLUSTER_FAIL;
+    }
+
+    /* Compute the cluster size, that is the number of master nodes
+     * serving at least a single slot. */
+    {
+        dictIterator *di;
+        dictEntry *de;
+
+        server.cluster->size = 0;
+        di = dictGetIterator(server.cluster->nodes);
+        while((de = dictNext(di)) != NULL) {
+            clusterNode *node = dictGetVal(de);
+
+            if (node->flags & REDIS_NODE_MASTER &&
+                popcount(node->slots,sizeof(node->slots)))
+                server.cluster->size++;
+        }
+        dictReleaseIterator(di);
     }
 }
 
