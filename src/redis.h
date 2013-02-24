@@ -1151,7 +1151,6 @@ void redisLogFromHandler(int level, const char *msg);
 void usage();
 void updateDictResizePolicy(void);
 int htNeedsResize(dict *dict);
-void oom(const char *msg);
 void populateCommandTable(void);
 void resetCommandTableStats(void);
 
