@@ -32,8 +32,9 @@
 #include <signal.h>
 #include <ctype.h>
 
-void SlotToKeyAdd(robj *key);
-void SlotToKeyDel(robj *key);
+void slotToKeyAdd(robj *key);
+void slotToKeyDel(robj *key);
+void slotToKeyFlush(void);
 
 /*-----------------------------------------------------------------------------
  * C-level DB API
@@ -93,7 +94,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     int retval = dictAdd(db->dict, copy, val);
 
     redisAssertWithInfo(NULL,key,retval == REDIS_OK);
-    if (server.cluster_enabled) SlotToKeyAdd(key);
+    if (server.cluster_enabled) slotToKeyAdd(key);
  }
 
 /* Overwrite an existing key with a new value. Incrementing the reference
@@ -161,7 +162,7 @@ int dbDelete(redisDb *db, robj *key) {
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
     if (dictDelete(db->dict,key->ptr) == DICT_OK) {
-        if (server.cluster_enabled) SlotToKeyDel(key);
+        if (server.cluster_enabled) slotToKeyDel(key);
         return 1;
     } else {
         return 0;
@@ -213,12 +214,14 @@ void flushdbCommand(redisClient *c) {
     signalFlushedDb(c->db->id);
     dictEmpty(c->db->dict);
     dictEmpty(c->db->expires);
+    if (server.cluster_enabled) slotToKeyFlush();
     addReply(c,shared.ok);
 }
 
 void flushallCommand(redisClient *c) {
     signalFlushedDb(-1);
     server.dirty += emptyDb();
+    if (server.cluster_enabled) slotToKeyFlush();
     addReply(c,shared.ok);
     if (server.rdb_child_pid != -1) {
         kill(server.rdb_child_pid,SIGUSR1);
@@ -742,17 +745,22 @@ int *zunionInterGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *num
 /* Slot to Key API. This is used by Redis Cluster in order to obtain in
  * a fast way a key that belongs to a specified hash slot. This is useful
  * while rehashing the cluster. */
-void SlotToKeyAdd(robj *key) {
+void slotToKeyAdd(robj *key) {
     unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
 
     zslInsert(server.cluster->slots_to_keys,hashslot,key);
     incrRefCount(key);
 }
 
-void SlotToKeyDel(robj *key) {
+void slotToKeyDel(robj *key) {
     unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
 
     zslDelete(server.cluster->slots_to_keys,hashslot,key);
+}
+
+void slotToKeyFlush(void) {
+    zslFree(server.cluster->slots_to_keys);
+    server.cluster->slots_to_keys = zslCreate();
 }
 
 unsigned int GetKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count) {

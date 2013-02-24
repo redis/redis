@@ -122,6 +122,7 @@
 #define REDIS_CMD_LOADING 512               /* "l" flag */
 #define REDIS_CMD_STALE 1024                /* "t" flag */
 #define REDIS_CMD_SKIP_MONITOR 2048         /* "M" flag */
+#define REDIS_CMD_ASKING 4096               /* "k" flag */
 
 /* Object types */
 #define REDIS_STRING 0
@@ -542,6 +543,12 @@ typedef struct clusterLink {
 #define REDIS_NODE_MEET 128     /* Send a MEET message to this node */
 #define REDIS_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
 
+/* This structure represent elements of node->fail_reports. */
+struct clusterNodeFailReport {
+    struct clusterNode *node;  /* Node reporting the failure condition. */
+    time_t time;               /* Time of the last report from this node. */
+} typedef clusterNodeFailReport;
+
 struct clusterNode {
     char name[REDIS_CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
     int flags;      /* REDIS_NODE_... */
@@ -556,12 +563,14 @@ struct clusterNode {
     char ip[16];                /* Latest known IP address of this node */
     int port;                   /* Latest known port of this node */
     clusterLink *link;          /* TCP/IP link with this node */
+    list *fail_reports;         /* List of nodes signaling this as failing */
 };
 typedef struct clusterNode clusterNode;
 
 typedef struct {
     clusterNode *myself;  /* This node */
     int state;            /* REDIS_CLUSTER_OK, REDIS_CLUSTER_FAIL, ... */
+    int size;             /* Num of master nodes with at least one slot */
     int node_timeout;
     dict *nodes;          /* Hash table of name -> clusterNode structures */
     clusterNode *migrating_slots_to[REDIS_CLUSTER_SLOTS];
@@ -952,6 +961,7 @@ long long mstime(void);
 void getRandomHexChars(char *p, unsigned int len);
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 void exitFromChild(int retcode);
+long popcount(void *s, long count);
 
 /* networking.c -- Networking and Client related operations */
 redisClient *createClient(int fd);
