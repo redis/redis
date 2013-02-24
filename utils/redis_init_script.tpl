@@ -9,6 +9,11 @@ case "$1" in
                 $EXEC $CONF
         fi
         ;;
+    restart)
+    	stop
+    	sleep 5
+    	start
+    	;;
     stop)
         if [ ! -f $PIDFILE ]
         then
