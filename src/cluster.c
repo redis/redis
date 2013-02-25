@@ -374,6 +374,32 @@ void clusterNodeAddFailureReport(clusterNode *failing, clusterNode *sender) {
     listAddNodeTail(l,fr);
 }
 
+/* Remove the failing report for 'node' if it was previously considered
+ * failing by 'sender'. This function is called when a node informs us via
+ * gossip that a node is OK from its point of view (no FAIL or PFAIL flags).
+ *
+ * Note that this function is called relatively often as it gets called even
+ * when there are no nodes failing, and is O(N), however when the cluster is
+ * fine the failure reports list is empty so the function runs in constant
+ * time. */
+void clusterNodeDelFailureReport(clusterNode *node, clusterNode *sender) {
+    list *l = node->fail_reports;
+    listNode *ln;
+    listIter li;
+    clusterNodeFailReport *fr;
+
+    /* Search for a failure report from this sender. */
+    listRewind(l,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        fr = ln->value;
+        if (fr->node == sender) break;
+    }
+    if (!ln) return; /* No failure report from this sender. */
+
+    /* Remove the failure report. */
+    listDelNode(l,ln);
+}
+
 /* Remove failure reports that are too old, where too old means reasonably
  * older than the global node timeout. Note that anyway for a node to be
  * flagged as FAIL we need to have a local PFAIL state that is at least
