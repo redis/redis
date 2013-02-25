@@ -2735,7 +2735,7 @@ int main(int argc, char **argv) {
     redisAsciiArt();
 
     if (!server.sentinel_mode) {
-        /* Things only needed when not running in Sentinel mode. */
+        /* Things not needed when running in Sentinel mode. */
         redisLog(REDIS_WARNING,"Server started, Redis version " REDIS_VERSION);
     #ifdef __linux__
         linuxOvercommitMemoryWarning();
