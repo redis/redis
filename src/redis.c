@@ -2741,6 +2741,14 @@ int main(int argc, char **argv) {
         linuxOvercommitMemoryWarning();
     #endif
         loadDataFromDisk();
+        if (server.cluster_enabled) {
+            if (verifyClusterConfigWithData() == REDIS_ERR) {
+                redisLog(REDIS_WARNING,
+                    "You can't have keys in a DB different than DB 0 when in "
+                    "Cluster mode. Exiting.");
+                exit(1);
+            }
+        }
         if (server.ipfd > 0)
             redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
         if (server.sofd > 0)

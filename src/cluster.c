@@ -1276,6 +1276,32 @@ void clusterUpdateState(void) {
     }
 }
 
+/* This function is called after the node startup in order to verify that data
+ * loaded from disk is in agreement with the cluster configuration:
+ *
+ * 1) If we find keys about hash slots we have no responsibility for, the
+ *    following happens:
+ *    A) If no other node is in charge according to the current cluster
+ *       configuration, we add these slots to our node.
+ *    B) If according to our config other nodes are already in charge for
+ *       this lots, we set the slots as IMPORTING from our point of view
+ *       in order to justify we have those slots, and in order to make
+ *       redis-trib aware of the issue, so that it can try to fix it.
+ * 2) If we find data in a DB different than DB0 we return REDIS_ERR to
+ *    signal the caller it should quit the server with an error message
+ *    or take other actions.
+ *
+ * The function always returns REDIS_OK even if it will try to correct
+ * the error described in "1". However if data is found in DB different
+ * from DB0, REDIS_ERR is returned.
+ *
+ * The function also uses the logging facility in order to warn the user
+ * about desynchronizations between the data we have in memory and the
+ * cluster configuration. */
+int verifyClusterConfigWithData(void) {
+    return REDIS_OK;
+}
+
 /* -----------------------------------------------------------------------------
  * CLUSTER command
  * -------------------------------------------------------------------------- */
