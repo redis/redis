@@ -778,3 +778,19 @@ unsigned int GetKeysInSlot(unsigned int hashslot, robj **keys, unsigned int coun
     }
     return j;
 }
+
+unsigned int CountKeysInSlot(unsigned int hashslot) {
+    zskiplistNode *n;
+    zrangespec range;
+    int j = 0;
+
+    range.min = range.max = hashslot;
+    range.minex = range.maxex = 0;
+    
+    n = zslFirstInRange(server.cluster->slots_to_keys, range);
+    while(n && n->score == hashslot) {
+        j++;
+        n = n->level[0].forward;
+    }
+    return j;
+}
