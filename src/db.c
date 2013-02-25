@@ -780,17 +780,30 @@ unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int coun
 }
 
 unsigned int countKeysInSlot(unsigned int hashslot) {
-    zskiplistNode *n;
+    zskiplist *zsl = server.cluster->slots_to_keys;
+    zskiplistNode *zn;
     zrangespec range;
-    int j = 0;
+    int rank, count = 0;
 
     range.min = range.max = hashslot;
     range.minex = range.maxex = 0;
-    
-    n = zslFirstInRange(server.cluster->slots_to_keys, range);
-    while(n && n->score == hashslot) {
-        j++;
-        n = n->level[0].forward;
+
+    /* Find first element in range */
+    zn = zslFirstInRange(zsl, range);
+
+    /* Use rank of first element, if any, to determine preliminary count */
+    if (zn != NULL) {
+        rank = zslGetRank(zsl, zn->score, zn->obj);
+        count = (zsl->length - (rank - 1));
+
+        /* Find last element in range */
+        zn = zslLastInRange(zsl, range);
+
+        /* Use rank of last element, if any, to determine the actual count */
+        if (zn != NULL) {
+            rank = zslGetRank(zsl, zn->score, zn->obj);
+            count -= (zsl->length - rank);
+        }
     }
-    return j;
+    return count;
 }
