@@ -1226,8 +1226,8 @@ long long emptyDb();
 int selectDb(redisClient *c, int id);
 void signalModifiedKey(redisDb *db, robj *key);
 void signalFlushedDb(int dbid);
-unsigned int GetKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count);
-unsigned int CountKeysInSlot(unsigned int hashslot);
+unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count);
+unsigned int countKeysInSlot(unsigned int hashslot);
 int verifyClusterConfigWithData(void);
 
 /* API to get key arguments from commands */

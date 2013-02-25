@@ -763,7 +763,7 @@ void slotToKeyFlush(void) {
     server.cluster->slots_to_keys = zslCreate();
 }
 
-unsigned int GetKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count) {
+unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count) {
     zskiplistNode *n;
     zrangespec range;
     int j = 0;
@@ -779,7 +779,7 @@ unsigned int GetKeysInSlot(unsigned int hashslot, robj **keys, unsigned int coun
     return j;
 }
 
-unsigned int CountKeysInSlot(unsigned int hashslot) {
+unsigned int countKeysInSlot(unsigned int hashslot) {
     zskiplistNode *n;
     zrangespec range;
     int j = 0;
