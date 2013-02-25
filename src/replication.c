@@ -276,7 +276,11 @@ void syncCommand(redisClient *c) {
         }
         c->repldbfd = -1;
     }
-    
+
+    if (server.repl_disable_tcp_nodelay)
+        anetDisableTcpNoDelay(NULL, c->fd); /* Non critical if it fails. */
+    c->repldbfd = -1;
+
     c->flags |= REDIS_SLAVE;
     c->slaveseldb = 0;
     listAddNodeTail(server.slaves,c);
@@ -539,6 +543,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
                 return;
             }
             redisLog(REDIS_NOTICE, "MASTER <-> SLAVE sync: Loading DB in memory");
+            signalFlushedDb(-1);
             emptyDb();
             /* Before loading the DB into memory we need to delete the readable
              * handler, otherwise it will get called recursively since

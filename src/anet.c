@@ -75,16 +75,73 @@ int anetNonBlock(char *err, int fd)
     return ANET_OK;
 }
 
-int anetTcpNoDelay(char *err, int fd)
+/* Set TCP keep alive option to detect dead peers. The interval option
+ * is only used for Linux as we are using Linux-specific APIs to set
+ * the probe send time, interval, and count. */
+int anetKeepAlive(char *err, int fd, int interval)
 {
-    int yes = 1;
-    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes)) == -1)
+    int val = 1;
+
+    if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val)) == -1)
+    {
+        anetSetError(err, "setsockopt SO_KEEPALIVE: %s", strerror(errno));
+        return ANET_ERR;
+    }
+
+#ifdef __linux__
+    /* Default settings are more or less garbage, with the keepalive time
+     * set to 7200 by default on Linux. Modify settings to make the feature
+     * actually useful. */
+
+    /* Send first probe after interval. */
+    val = interval;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &val, sizeof(val)) < 0) {
+        anetSetError(err, "setsockopt TCP_KEEPIDLE: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
+
+    /* Send next probes after the specified interval. Note that we set the
+     * delay as interval / 3, as we send three probes before detecting
+     * an error (see the next setsockopt call). */
+    val = interval/3;
+    if (val == 0) val = 1;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &val, sizeof(val)) < 0) {
+        anetSetError(err, "setsockopt TCP_KEEPINTVL: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
+
+    /* Consider the socket in error state after three we send three ACK
+     * probes without getting a reply. */
+    val = 3;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &val, sizeof(val)) < 0) {
+        anetSetError(err, "setsockopt TCP_KEEPCNT: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
+#endif
+
+    return ANET_OK;
+}
+
+static int anetSetTcpNoDelay(char *err, int fd, int val)
+{
+    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1)
     {
         anetSetError(err, "setsockopt TCP_NODELAY: %s", strerror(errno));
         return ANET_ERR;
     }
     return ANET_OK;
 }
+
+int anetEnableTcpNoDelay(char *err, int fd)
+{
+    return anetSetTcpNoDelay(err, fd, 1);
+}
+
+int anetDisableTcpNoDelay(char *err, int fd) 
+{
+    return anetSetTcpNoDelay(err, fd, 0);
+}
+
 
 int anetSetSendBuffer(char *err, int fd, int buffsize)
 {

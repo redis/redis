@@ -14,6 +14,27 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.6.10 ]
+
+UPGRADE URGENCY: MODERATE, this release contains many non-critical fixes
+                 and many small improvements.
+
+* [BUGFIX]   redis-cli --rdb, fixed when the server sends newlines to ping.
+* [BUGFIX]   redis-cli, minor fixes on connection handling, prompt.
+* [BUGFIX]   Slow log: don't log EXEC, just executed commands.
+* [BUGFIX]   On failed shutdown don't try again and again compulsively.
+* [BUGFIX]   Fix build on sunos without backtrace().
+* [BUGFIX]   UNSUBSCRIBE and PUNSUBSCRIBE: always provide a reply (see 742e580)
+* [BUGFIX]   Lua struct library was broken, upgraded.
+* [BUGFIX]   Fix a bug in srandmemberWithCountCommand() with count argument.
+* [BUGFIX]   Test: disable clients timeout to prevent issues on slow systems.
+* [BUGFIX]   Sentinel: don't advertise the promoted slave as master too early.
+* [IMPROVED] Whitelist SIGUSR1, see http://redis.io/topics/signals.
+* [IMPROVED] Simpler to understand redis-cli --bigkeys output.
+* [IMPROVED] Test now works with tclsh > 8.5.
+* [IMPROVED] Added option to turn of the Nagle algorithm in slave socket.
+* [IMPROVED] Optionally use SO_KEEPALIVE to detect dead peers.
+
 --[ Redis 2.6.9 ]
 
 UPGRADE URGENCY: MODERATE if you use replication.
