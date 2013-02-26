@@ -2663,10 +2663,9 @@ void redisOutOfMemoryHandler(size_t allocation_size) {
 }
 
 void redisSetProcTitle(char *title) {
-    setproctitle("%s %s:%d",
-        title,
-        server.bindaddr ? server.bindaddr : "*",
-        server.port);
+    char buf[512] = "";
+    sprintf(buf, "%s %s", title, server.proctitle);
+    set_proc_title(buf);
 }
 
 int main(int argc, char **argv) {
@@ -2739,6 +2738,7 @@ int main(int argc, char **argv) {
     if (server.daemonize) daemonize();
     initServer();
     if (server.daemonize) createPidFile();
+    init_proc_title(argc, argv);
     redisSetProcTitle(argv[0]);
     redisAsciiArt();
 
