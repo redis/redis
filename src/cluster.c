@@ -374,6 +374,26 @@ void clusterNodeAddFailureReport(clusterNode *failing, clusterNode *sender) {
     listAddNodeTail(l,fr);
 }
 
+/* Remove failure reports that are too old, where too old means reasonably
+ * older than the global node timeout. Note that anyway for a node to be
+ * flagged as FAIL we need to have a local PFAIL state that is at least
+ * older than the global node timeout, so we don't just trust the number
+ * of failure reports from other nodes. */
+void clusterNodeCleanupFailureReports(clusterNode *node) {
+    list *l = node->fail_reports;
+    listNode *ln;
+    listIter li;
+    clusterNodeFailReport *fr;
+    time_t maxtime = server.cluster->node_timeout*2;
+    time_t now = time(NULL);
+
+    listRewind(l,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        fr = ln->value;
+        if (now - fr->time > maxtime) listDelNode(l,ln);
+    }
+}
+
 /* Remove the failing report for 'node' if it was previously considered
  * failing by 'sender'. This function is called when a node informs us via
  * gossip that a node is OK from its point of view (no FAIL or PFAIL flags).
@@ -399,26 +419,6 @@ void clusterNodeDelFailureReport(clusterNode *node, clusterNode *sender) {
     /* Remove the failure report. */
     listDelNode(l,ln);
     clusterNodeCleanupFailureReports(node);
-}
-
-/* Remove failure reports that are too old, where too old means reasonably
- * older than the global node timeout. Note that anyway for a node to be
- * flagged as FAIL we need to have a local PFAIL state that is at least
- * older than the global node timeout, so we don't just trust the number
- * of failure reports from other nodes. */
-void clusterNodeCleanupFailureReports(clusterNode *node) {
-    list *l = node->fail_reports;
-    listNode *ln;
-    listIter li;
-    clusterNodeFailReport *fr;
-    time_t maxtime = server.cluster->node_timeout*2;
-    time_t now = time(NULL);
-
-    listRewind(l,&li);
-    while ((ln = listNext(&li)) != NULL) {
-        fr = ln->value;
-        if (now - fr->time > maxtime) listDelNode(l,ln);
-    }
 }
 
 /* Return the number of external nodes that believe 'node' is failing,
