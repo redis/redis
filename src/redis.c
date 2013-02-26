@@ -2585,6 +2585,13 @@ void redisOutOfMemoryHandler(size_t allocation_size) {
     redisPanic("OOM");
 }
 
+void redisSetProcTitle(char *title) {
+    setproctitle("%s %s:%d",
+        title,
+        server.bindaddr ? server.bindaddr : "*",
+        server.port);
+}
+
 int main(int argc, char **argv) {
     struct timeval tv;
 
@@ -2655,6 +2662,7 @@ int main(int argc, char **argv) {
     if (server.daemonize) daemonize();
     initServer();
     if (server.daemonize) createPidFile();
+    redisSetProcTitle(argv[0]);
     redisAsciiArt();
 
     if (!server.sentinel_mode) {
