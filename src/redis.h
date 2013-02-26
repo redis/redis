@@ -962,6 +962,7 @@ void getRandomHexChars(char *p, unsigned int len);
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 void exitFromChild(int retcode);
 long popcount(void *s, long count);
+void redisSetProcTitle(char *title);
 
 /* networking.c -- Networking and Client related operations */
 redisClient *createClient(int fd);
