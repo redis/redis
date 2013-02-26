@@ -398,6 +398,7 @@ void clusterNodeDelFailureReport(clusterNode *node, clusterNode *sender) {
 
     /* Remove the failure report. */
     listDelNode(l,ln);
+    clusterNodeCleanupFailureReports(node);
 }
 
 /* Remove failure reports that are too old, where too old means reasonably
