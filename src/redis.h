@@ -61,6 +61,7 @@
 #include "intset.h"  /* Compact integer set structure */
 #include "version.h" /* Version macro */
 #include "util.h"    /* Misc functions useful in many places */
+#include "setproctitle.h" /* Process title */
 
 /* Error codes */
 #define REDIS_OK                0
@@ -673,6 +674,7 @@ struct redisServer {
     char *bindaddr;             /* Bind address or NULL */
     char *unixsocket;           /* UNIX socket path */
     mode_t unixsocketperm;      /* UNIX socket permission */
+    char *proctitle;            /* Process title */
     int ipfd;                   /* TCP socket file descriptor */
     int sofd;                   /* Unix socket file descriptor */
     int cfd;                    /* Cluster bus listening socket */
