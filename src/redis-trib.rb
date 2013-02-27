@@ -85,7 +85,7 @@ class ClusterNode
     def assert_empty
         if !(@r.cluster("info").split("\r\n").index("cluster_known_nodes:1")) ||
             (@r.info['db0'])
-            puts "Error: Node #{self} is not empty. Either the node already knows other nodes (check with nodes-info) or contains some key in database 0."
+            puts "Error: Node #{self} is not empty. Either the node already knows other nodes (check with CLUSTER NODES) or contains some key in database 0."
             exit 1
         end
     end
@@ -402,7 +402,7 @@ class RedisTrib
     end
 
     def load_cluster_info_from_node(nodeaddr)
-        node = ClusterNode.new(ARGV[1])
+        node = ClusterNode.new(nodeaddr)
         node.connect(:abort => true)
         node.assert_cluster
         node.load_info(:getfriends => true)
@@ -578,13 +578,34 @@ class RedisTrib
         join_cluster
         check_cluster
     end
+
+    def addnode_cluster_cmd
+        puts "Adding node #{ARGV[1]} to cluster #{ARGV[2]}"
+
+        # Check the existing cluster
+        load_cluster_info_from_node(ARGV[2])
+        check_cluster
+
+        # Add the new node
+        new = ClusterNode.new(ARGV[1])
+        new.connect(:abort => true)
+        new.assert_cluster
+        new.load_info
+        new.assert_empty
+        first = @nodes.first.info
+
+        # Send CLUSTER MEET command to the new node
+        puts "Send CLUSTER MEET to node #{new} to make it join the cluster."
+        new.r.cluster("meet",first[:host],first[:port])
+    end
 end
 
 COMMANDS={
     "create"  => ["create_cluster_cmd", -2, "host1:port1 ... hostN:portN"],
     "check"   => ["check_cluster_cmd", 2, "host:port"],
     "fix"     => ["fix_cluster_cmd", 2, "host:port"],
-    "reshard" => ["reshard_cluster_cmd", 2, "host:port"]
+    "reshard" => ["reshard_cluster_cmd", 2, "host:port"],
+    "addnode" => ["addnode_cluster_cmd", 3, "new_host:new_port existing_host:existing_port"]
 }
 
 # Sanity check
