@@ -117,7 +117,6 @@
 #define INIT_SETPROCTITLE_REPLACEMENT
 void spt_init(int argc, char *argv[]);
 void setproctitle(const char *fmt, ...);
-void spt_init(int argc, char *argv[]);
 #endif
 
 /* Byte ordering detection */
