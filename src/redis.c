@@ -976,7 +976,11 @@ void initServer() {
     server.stat_peak_memory = 0;
     server.stat_fork_time = 0;
     server.unixtime = time(NULL);
-    aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL);
+    if(aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
+        redisPanic("create time event failed");
+        exit(1);
+    }
+
     if (server.ipfd > 0 && aeCreateFileEvent(server.el,server.ipfd,AE_READABLE,
         acceptTcpHandler,NULL) == AE_ERR) oom("creating file event");
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
