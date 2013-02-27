@@ -384,7 +384,7 @@ void redisLogObjectDebugInfo(robj *o) {
     redisLog(REDIS_WARNING,"Object encoding: %d", o->encoding);
     redisLog(REDIS_WARNING,"Object refcount: %d", o->refcount);
     if (o->type == REDIS_STRING && o->encoding == REDIS_ENCODING_RAW) {
-        redisLog(REDIS_WARNING,"Object raw string len: %d", sdslen(o->ptr));
+        redisLog(REDIS_WARNING,"Object raw string len: %zu", sdslen(o->ptr));
         if (sdslen(o->ptr) < 4096)
             redisLog(REDIS_WARNING,"Object raw string content: \"%s\"", (char*)o->ptr);
     } else if (o->type == REDIS_LIST) {
@@ -467,10 +467,13 @@ static void *getMcontextEip(ucontext_t *uc) {
 void logStackContent(void **sp) {
     int i;
     for (i = 15; i >= 0; i--) {
+        unsigned long addr = (unsigned long) sp+i;
+        unsigned long val = (unsigned long) sp[i];
+
         if (sizeof(long) == 4)
-            redisLog(REDIS_WARNING, "(%08lx) -> %08lx", sp+i, sp[i]);
+            redisLog(REDIS_WARNING, "(%08lx) -> %08lx", addr, val);
         else
-            redisLog(REDIS_WARNING, "(%016lx) -> %016lx", sp+i, sp[i]);
+            redisLog(REDIS_WARNING, "(%016lx) -> %016lx", addr, val);
     }
 }
 
@@ -488,27 +491,27 @@ void logRegisters(ucontext_t *uc) {
     "R8 :%016lx R9 :%016lx\nR10:%016lx R11:%016lx\n"
     "R12:%016lx R13:%016lx\nR14:%016lx R15:%016lx\n"
     "RIP:%016lx EFL:%016lx\nCS :%016lx FS:%016lx  GS:%016lx",
-        uc->uc_mcontext->__ss.__rax,
-        uc->uc_mcontext->__ss.__rbx,
-        uc->uc_mcontext->__ss.__rcx,
-        uc->uc_mcontext->__ss.__rdx,
-        uc->uc_mcontext->__ss.__rdi,
-        uc->uc_mcontext->__ss.__rsi,
-        uc->uc_mcontext->__ss.__rbp,
-        uc->uc_mcontext->__ss.__rsp,
-        uc->uc_mcontext->__ss.__r8,
-        uc->uc_mcontext->__ss.__r9,
-        uc->uc_mcontext->__ss.__r10,
-        uc->uc_mcontext->__ss.__r11,
-        uc->uc_mcontext->__ss.__r12,
-        uc->uc_mcontext->__ss.__r13,
-        uc->uc_mcontext->__ss.__r14,
-        uc->uc_mcontext->__ss.__r15,
-        uc->uc_mcontext->__ss.__rip,
-        uc->uc_mcontext->__ss.__rflags,
-        uc->uc_mcontext->__ss.__cs,
-        uc->uc_mcontext->__ss.__fs,
-        uc->uc_mcontext->__ss.__gs
+        (unsigned long) uc->uc_mcontext->__ss.__rax,
+        (unsigned long) uc->uc_mcontext->__ss.__rbx,
+        (unsigned long) uc->uc_mcontext->__ss.__rcx,
+        (unsigned long) uc->uc_mcontext->__ss.__rdx,
+        (unsigned long) uc->uc_mcontext->__ss.__rdi,
+        (unsigned long) uc->uc_mcontext->__ss.__rsi,
+        (unsigned long) uc->uc_mcontext->__ss.__rbp,
+        (unsigned long) uc->uc_mcontext->__ss.__rsp,
+        (unsigned long) uc->uc_mcontext->__ss.__r8,
+        (unsigned long) uc->uc_mcontext->__ss.__r9,
+        (unsigned long) uc->uc_mcontext->__ss.__r10,
+        (unsigned long) uc->uc_mcontext->__ss.__r11,
+        (unsigned long) uc->uc_mcontext->__ss.__r12,
+        (unsigned long) uc->uc_mcontext->__ss.__r13,
+        (unsigned long) uc->uc_mcontext->__ss.__r14,
+        (unsigned long) uc->uc_mcontext->__ss.__r15,
+        (unsigned long) uc->uc_mcontext->__ss.__rip,
+        (unsigned long) uc->uc_mcontext->__ss.__rflags,
+        (unsigned long) uc->uc_mcontext->__ss.__cs,
+        (unsigned long) uc->uc_mcontext->__ss.__fs,
+        (unsigned long) uc->uc_mcontext->__ss.__gs
     );
     logStackContent((void**)uc->uc_mcontext->__ss.__rsp);
     #else
@@ -519,22 +522,22 @@ void logRegisters(ucontext_t *uc) {
     "EDI:%08lx ESI:%08lx EBP:%08lx ESP:%08lx\n"
     "SS:%08lx  EFL:%08lx EIP:%08lx CS :%08lx\n"
     "DS:%08lx  ES:%08lx  FS :%08lx GS :%08lx",
-        uc->uc_mcontext->__ss.__eax,
-        uc->uc_mcontext->__ss.__ebx,
-        uc->uc_mcontext->__ss.__ecx,
-        uc->uc_mcontext->__ss.__edx,
-        uc->uc_mcontext->__ss.__edi,
-        uc->uc_mcontext->__ss.__esi,
-        uc->uc_mcontext->__ss.__ebp,
-        uc->uc_mcontext->__ss.__esp,
-        uc->uc_mcontext->__ss.__ss,
-        uc->uc_mcontext->__ss.__eflags,
-        uc->uc_mcontext->__ss.__eip,
-        uc->uc_mcontext->__ss.__cs,
-        uc->uc_mcontext->__ss.__ds,
-        uc->uc_mcontext->__ss.__es,
-        uc->uc_mcontext->__ss.__fs,
-        uc->uc_mcontext->__ss.__gs
+        (unsigned long) uc->uc_mcontext->__ss.__eax,
+        (unsigned long) uc->uc_mcontext->__ss.__ebx,
+        (unsigned long) uc->uc_mcontext->__ss.__ecx,
+        (unsigned long) uc->uc_mcontext->__ss.__edx,
+        (unsigned long) uc->uc_mcontext->__ss.__edi,
+        (unsigned long) uc->uc_mcontext->__ss.__esi,
+        (unsigned long) uc->uc_mcontext->__ss.__ebp,
+        (unsigned long) uc->uc_mcontext->__ss.__esp,
+        (unsigned long) uc->uc_mcontext->__ss.__ss,
+        (unsigned long) uc->uc_mcontext->__ss.__eflags,
+        (unsigned long) uc->uc_mcontext->__ss.__eip,
+        (unsigned long) uc->uc_mcontext->__ss.__cs,
+        (unsigned long) uc->uc_mcontext->__ss.__ds,
+        (unsigned long) uc->uc_mcontext->__ss.__es,
+        (unsigned long) uc->uc_mcontext->__ss.__fs,
+        (unsigned long) uc->uc_mcontext->__ss.__gs
     );
     logStackContent((void**)uc->uc_mcontext->__ss.__esp);
     #endif
@@ -548,22 +551,22 @@ void logRegisters(ucontext_t *uc) {
     "EDI:%08lx ESI:%08lx EBP:%08lx ESP:%08lx\n"
     "SS :%08lx EFL:%08lx EIP:%08lx CS:%08lx\n"
     "DS :%08lx ES :%08lx FS :%08lx GS:%08lx",
-        uc->uc_mcontext.gregs[11],
-        uc->uc_mcontext.gregs[8],
-        uc->uc_mcontext.gregs[10],
-        uc->uc_mcontext.gregs[9],
-        uc->uc_mcontext.gregs[4],
-        uc->uc_mcontext.gregs[5],
-        uc->uc_mcontext.gregs[6],
-        uc->uc_mcontext.gregs[7],
-        uc->uc_mcontext.gregs[18],
-        uc->uc_mcontext.gregs[17],
-        uc->uc_mcontext.gregs[14],
-        uc->uc_mcontext.gregs[15],
-        uc->uc_mcontext.gregs[3],
-        uc->uc_mcontext.gregs[2],
-        uc->uc_mcontext.gregs[1],
-        uc->uc_mcontext.gregs[0]
+        (unsigned long) uc->uc_mcontext.gregs[11],
+        (unsigned long) uc->uc_mcontext.gregs[8],
+        (unsigned long) uc->uc_mcontext.gregs[10],
+        (unsigned long) uc->uc_mcontext.gregs[9],
+        (unsigned long) uc->uc_mcontext.gregs[4],
+        (unsigned long) uc->uc_mcontext.gregs[5],
+        (unsigned long) uc->uc_mcontext.gregs[6],
+        (unsigned long) uc->uc_mcontext.gregs[7],
+        (unsigned long) uc->uc_mcontext.gregs[18],
+        (unsigned long) uc->uc_mcontext.gregs[17],
+        (unsigned long) uc->uc_mcontext.gregs[14],
+        (unsigned long) uc->uc_mcontext.gregs[15],
+        (unsigned long) uc->uc_mcontext.gregs[3],
+        (unsigned long) uc->uc_mcontext.gregs[2],
+        (unsigned long) uc->uc_mcontext.gregs[1],
+        (unsigned long) uc->uc_mcontext.gregs[0]
     );
     logStackContent((void**)uc->uc_mcontext.gregs[7]);
     #elif defined(__X86_64__) || defined(__x86_64__)
@@ -575,25 +578,25 @@ void logRegisters(ucontext_t *uc) {
     "R8 :%016lx R9 :%016lx\nR10:%016lx R11:%016lx\n"
     "R12:%016lx R13:%016lx\nR14:%016lx R15:%016lx\n"
     "RIP:%016lx EFL:%016lx\nCSGSFS:%016lx",
-        uc->uc_mcontext.gregs[13],
-        uc->uc_mcontext.gregs[11],
-        uc->uc_mcontext.gregs[14],
-        uc->uc_mcontext.gregs[12],
-        uc->uc_mcontext.gregs[8],
-        uc->uc_mcontext.gregs[9],
-        uc->uc_mcontext.gregs[10],
-        uc->uc_mcontext.gregs[15],
-        uc->uc_mcontext.gregs[0],
-        uc->uc_mcontext.gregs[1],
-        uc->uc_mcontext.gregs[2],
-        uc->uc_mcontext.gregs[3],
-        uc->uc_mcontext.gregs[4],
-        uc->uc_mcontext.gregs[5],
-        uc->uc_mcontext.gregs[6],
-        uc->uc_mcontext.gregs[7],
-        uc->uc_mcontext.gregs[16],
-        uc->uc_mcontext.gregs[17],
-        uc->uc_mcontext.gregs[18]
+        (unsigned long) uc->uc_mcontext.gregs[13],
+        (unsigned long) uc->uc_mcontext.gregs[11],
+        (unsigned long) uc->uc_mcontext.gregs[14],
+        (unsigned long) uc->uc_mcontext.gregs[12],
+        (unsigned long) uc->uc_mcontext.gregs[8],
+        (unsigned long) uc->uc_mcontext.gregs[9],
+        (unsigned long) uc->uc_mcontext.gregs[10],
+        (unsigned long) uc->uc_mcontext.gregs[15],
+        (unsigned long) uc->uc_mcontext.gregs[0],
+        (unsigned long) uc->uc_mcontext.gregs[1],
+        (unsigned long) uc->uc_mcontext.gregs[2],
+        (unsigned long) uc->uc_mcontext.gregs[3],
+        (unsigned long) uc->uc_mcontext.gregs[4],
+        (unsigned long) uc->uc_mcontext.gregs[5],
+        (unsigned long) uc->uc_mcontext.gregs[6],
+        (unsigned long) uc->uc_mcontext.gregs[7],
+        (unsigned long) uc->uc_mcontext.gregs[16],
+        (unsigned long) uc->uc_mcontext.gregs[17],
+        (unsigned long) uc->uc_mcontext.gregs[18]
     );
     logStackContent((void**)uc->uc_mcontext.gregs[15]);
     #endif
@@ -660,7 +663,7 @@ void logCurrentClient(void) {
         de = dictFind(cc->db->dict, key->ptr);
         if (de) {
             val = dictGetVal(de);
-            redisLog(REDIS_WARNING,"key '%s' found in DB containing the following object:", key->ptr);
+            redisLog(REDIS_WARNING,"key '%s' found in DB containing the following object:", (char*)key->ptr);
             redisLogObjectDebugInfo(val);
         }
         decrRefCount(key);
