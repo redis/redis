@@ -599,6 +599,11 @@ class RedisTrib
         puts "Send CLUSTER MEET to node #{new} to make it join the cluster."
         new.r.cluster("meet",first[:host],first[:port])
     end
+
+    def help_cluster_cmd
+        show_help
+        exit 0
+    end
 end
 
 COMMANDS={
@@ -606,17 +611,22 @@ COMMANDS={
     "check"   => ["check_cluster_cmd", 2, "host:port"],
     "fix"     => ["fix_cluster_cmd", 2, "host:port"],
     "reshard" => ["reshard_cluster_cmd", 2, "host:port"],
-    "addnode" => ["addnode_cluster_cmd", 3, "new_host:new_port existing_host:existing_port"]
+    "addnode" => ["addnode_cluster_cmd", 3, "new_host:new_port existing_host:existing_port"],
+    "help"    => ["help_cluster_cmd", 1, "(show this help)"]
 }
 
-# Sanity check
-if ARGV.length == 0
+def show_help
     puts "Usage: redis-trib <command> <arguments ...>"
     puts
     COMMANDS.each{|k,v|
         puts "  #{k.ljust(10)} #{v[2]}"
     }
     puts
+end
+
+# Sanity check
+if ARGV.length == 0
+    show_help
     exit 1
 end
 
