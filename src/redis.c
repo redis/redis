@@ -1361,7 +1361,7 @@ void initServer() {
     server.lastbgsave_status = REDIS_OK;
     server.stop_writes_on_bgsave_err = 1;
     if(aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
-        redisPanic("create time event failed");
+        redisPanic("Can't create the serverCron time event.");
         exit(1);
     }
     if (server.ipfd > 0 && aeCreateFileEvent(server.el,server.ipfd,AE_READABLE,
