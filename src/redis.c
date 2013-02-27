@@ -912,7 +912,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     if (!server.sentinel_mode) {
         run_with_period(5000) {
             redisLog(REDIS_VERBOSE,
-                "%d clients connected (%d slaves), %zu bytes in use",
+                "%lu clients connected (%lu slaves), %zu bytes in use",
                 listLength(server.clients)-listLength(server.slaves),
                 listLength(server.slaves),
                 zmalloc_used_memory());
@@ -961,7 +961,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             if (server.dirty >= sp->changes &&
                 server.unixtime-server.lastsave > sp->seconds) {
                 redisLog(REDIS_NOTICE,"%d changes in %d seconds. Saving...",
-                    sp->changes, sp->seconds);
+                    sp->changes, (int)sp->seconds);
                 rdbSaveBackground(server.rdb_filename);
                 break;
             }
@@ -1401,7 +1401,7 @@ void initServer() {
     server.lastbgsave_status = REDIS_OK;
     server.stop_writes_on_bgsave_err = 1;
     if(aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
-        redisPanic("create time event failed");
+        redisPanic("Can't create the serverCron time event.");
         exit(1);
     }
     if (server.ipfd > 0 && aeCreateFileEvent(server.el,server.ipfd,AE_READABLE,
@@ -1986,7 +1986,7 @@ sds genRedisInfoString(char *section) {
             REDIS_VERSION,
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
-            redisBuildId(),
+            (unsigned long long) redisBuildId(),
             mode,
             name.sysname, name.release, name.machine,
             server.arch_bits,
@@ -2560,7 +2560,7 @@ void version() {
         atoi(redisGitDirty()) > 0,
         ZMALLOC_LIB,
         sizeof(long) == 4 ? 32 : 64,
-        redisBuildId());
+        (unsigned long long) redisBuildId());
     exit(0);
 }
 
@@ -2667,13 +2667,23 @@ void redisOutOfMemoryHandler(size_t allocation_size) {
 }
 
 void redisSetProcTitle(char *title) {
-    setproctitle("%s %s", title, server.proctitle);
+#ifdef USE_SETPROCTITLE
+    setproctitle("%s %s:%d",
+        title,
+        server.bindaddr ? server.bindaddr : "*",
+        server.port);
+#else
+    REDIS_NOTUSED(title);
+#endif
 }
 
 int main(int argc, char **argv) {
     struct timeval tv;
 
     /* We need to initialize our libraries, and the server configuration. */
+#ifdef INIT_SETPROCTITLE_REPLACEMENT
+    spt_init(argc, argv);
+#endif
     zmalloc_enable_thread_safeness();
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     srand(time(NULL)^getpid());

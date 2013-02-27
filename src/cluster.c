@@ -727,7 +727,7 @@ int clusterProcessPacket(clusterLink *link) {
     sender = clusterLookupNode(hdr->sender);
     if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_MEET) {
         int update_config = 0;
-        redisLog(REDIS_DEBUG,"Ping packet received: %p", link->node);
+        redisLog(REDIS_DEBUG,"Ping packet received: %p", (void*)link->node);
 
         /* Add this node if it is new for us and the msg type is MEET.
          * In this stage we don't try to add the node with the right
@@ -755,7 +755,7 @@ int clusterProcessPacket(clusterLink *link) {
         int update_state = 0;
         int update_config = 0;
 
-        redisLog(REDIS_DEBUG,"Pong packet received: %p", link->node);
+        redisLog(REDIS_DEBUG,"Pong packet received: %p", (void*)link->node);
         if (link->node) {
             if (link->node->flags & REDIS_NODE_HANDSHAKE) {
                 /* If we already have this node, try to change the

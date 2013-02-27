@@ -2,6 +2,8 @@
  * setproctitle.c - Linux/Darwin setproctitle.
  * --------------------------------------------------------------------------
  * Copyright (C) 2010  William Ahern
+ * Copyright (C) 2013  Salvatore Sanfilippo
+ * Copyright (C) 2013  Stam He
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
@@ -42,10 +44,9 @@
 
 
 #if !HAVE_SETPROCTITLE
-#if (defined __linux || defined __APPLE__) && defined __GNUC__
+#if (defined __linux || defined __APPLE__)
 
 extern char **environ;
-
 
 static struct {
 	/* original value */

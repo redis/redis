@@ -1149,7 +1149,12 @@ void call(redisClient *c, int flags);
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int flags);
 void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int target);
 int prepareForShutdown();
+#ifdef __GNUC__
+void redisLog(int level, const char *fmt, ...)
+    __attribute__((format(printf, 2, 3)));
+#else
 void redisLog(int level, const char *fmt, ...);
+#endif
 void redisLogRaw(int level, const char *msg);
 void redisLogFromHandler(int level, const char *msg);
 void usage();

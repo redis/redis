@@ -759,8 +759,8 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
         server.repl_transfer_size = strtol(buf+1,NULL,10);
         redisLog(REDIS_NOTICE,
-            "MASTER <-> SLAVE sync: receiving %ld bytes from master",
-            server.repl_transfer_size);
+            "MASTER <-> SLAVE sync: receiving %lld bytes from master",
+            (long long) server.repl_transfer_size);
         return;
     }
 
@@ -1433,7 +1433,8 @@ void replicationCron(void) {
             freeReplicationBacklog();
             redisLog(REDIS_NOTICE,
                 "Replication backlog freed after %d seconds "
-                "without connected slaves.", server.repl_backlog_time_limit);
+                "without connected slaves.",
+                (int) server.repl_backlog_time_limit);
         }
     }
 }
