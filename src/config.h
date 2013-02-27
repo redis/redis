@@ -115,6 +115,7 @@
 #if (defined __linux || defined __APPLE__)
 #define USE_SETPROCTITLE
 void setproctitle(const char *fmt, ...);
+void spt_init(int argc, char *argv[]);
 #endif
 
 /* Byte ordering detection */

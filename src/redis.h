@@ -673,6 +673,7 @@ struct redisServer {
     char *bindaddr;             /* Bind address or NULL */
     char *unixsocket;           /* UNIX socket path */
     mode_t unixsocketperm;      /* UNIX socket permission */
+    char *proctitle;            /* Porcess title */
     int ipfd;                   /* TCP socket file descriptor */
     int sofd;                   /* Unix socket file descriptor */
     int cfd;                    /* Cluster bus listening socket */

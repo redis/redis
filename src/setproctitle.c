@@ -44,6 +44,8 @@
 #if !HAVE_SETPROCTITLE
 #if (defined __linux || defined __APPLE__) && defined __GNUC__
 
+extern char **environ;
+
 
 static struct {
 	/* original value */
@@ -142,9 +144,8 @@ static int spt_copyargs(int argc, char *argv[]) {
 } /* spt_copyargs() */
 
 
-void spt_init(int argc, char *argv[], char *envp[]) __attribute__((constructor));
-
-void spt_init(int argc, char *argv[], char *envp[]) {
+void spt_init(int argc, char *argv[]) {
+    char **envp = environ;
 	char *base, *end, *nul, *tmp;
 	int i, error;
 
