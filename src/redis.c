@@ -2586,16 +2586,23 @@ void redisOutOfMemoryHandler(size_t allocation_size) {
 }
 
 void redisSetProcTitle(char *title) {
+#ifdef USE_SETPROCTITLE
     setproctitle("%s %s:%d",
         title,
         server.bindaddr ? server.bindaddr : "*",
         server.port);
+#else
+    REDIS_NOTUSED(title);
+#endif
 }
 
 int main(int argc, char **argv) {
     struct timeval tv;
 
     /* We need to initialize our libraries, and the server configuration. */
+#ifdef INIT_SETPROCTITLE_REPLACEMENT
+    spt_init(argc, argv);
+#endif
     zmalloc_enable_thread_safeness();
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     srand(time(NULL)^getpid());
