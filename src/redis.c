@@ -912,7 +912,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     if (!server.sentinel_mode) {
         run_with_period(5000) {
             redisLog(REDIS_VERBOSE,
-                "%d clients connected (%d slaves), %zu bytes in use",
+                "%lu clients connected (%lu slaves), %zu bytes in use",
                 listLength(server.clients)-listLength(server.slaves),
                 listLength(server.slaves),
                 zmalloc_used_memory());
@@ -961,7 +961,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             if (server.dirty >= sp->changes &&
                 server.unixtime-server.lastsave > sp->seconds) {
                 redisLog(REDIS_NOTICE,"%d changes in %d seconds. Saving...",
-                    sp->changes, sp->seconds);
+                    sp->changes, (int)sp->seconds);
                 rdbSaveBackground(server.rdb_filename);
                 break;
             }

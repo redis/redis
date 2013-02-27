@@ -536,7 +536,7 @@ int loadAppendOnlyFile(char *filename) {
         /* Command lookup */
         cmd = lookupCommand(argv[0]->ptr);
         if (!cmd) {
-            redisLog(REDIS_WARNING,"Unknown command '%s' reading the append only file", argv[0]->ptr);
+            redisLog(REDIS_WARNING,"Unknown command '%s' reading the append only file", (char*)argv[0]->ptr);
             exit(1);
         }
         /* Run the command in the context of a fake client */
