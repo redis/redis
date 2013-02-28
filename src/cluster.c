@@ -1328,31 +1328,47 @@ void clusterCron(void) {
  * Slots management
  * -------------------------------------------------------------------------- */
 
+/* Test bit 'pos' in a generic bitmap. Return 1 if the bit is zet,
+ * otherwise 0. */
+int bitmapTestBit(unsigned char *bitmap, int pos) {
+    off_t byte = pos/8;
+    int bit = pos&7;
+    return (bitmap[byte] & (1<<bit)) != 0;
+}
+
+/* Set the bit at position 'pos' in a bitmap. */
+void bitmapSetBit(unsigned char *bitmap, int pos) {
+    off_t byte = pos/8;
+    int bit = pos&7;
+    bitmap[byte] |= 1<<bit;
+}
+
+/* Clear the bit at position 'pos' in a bitmap. */
+void bitmapClearBit(unsigned char *bitmap, int pos) {
+    off_t byte = pos/8;
+    int bit = pos&7;
+    bitmap[byte] &= ~(1<<bit);
+}
+
 /* Set the slot bit and return the old value. */
 int clusterNodeSetSlotBit(clusterNode *n, int slot) {
-    off_t byte = slot/8;
-    int bit = slot&7;
-    int old = (n->slots[byte] & (1<<bit)) != 0;
-    n->slots[byte] |= 1<<bit;
+    int old = bitmapTestBit(n->slots,slot);
+    bitmapSetBit(n->slots,slot);
     if (!old) n->numslots++;
     return old;
 }
 
 /* Clear the slot bit and return the old value. */
 int clusterNodeClearSlotBit(clusterNode *n, int slot) {
-    off_t byte = slot/8;
-    int bit = slot&7;
-    int old = (n->slots[byte] & (1<<bit)) != 0;
-    n->slots[byte] &= ~(1<<bit);
+    int old = bitmapTestBit(n->slots,slot);
+    bitmapClearBit(n->slots,slot);
     if (old) n->numslots--;
     return old;
 }
 
 /* Return the slot bit from the cluster node structure. */
 int clusterNodeGetSlotBit(clusterNode *n, int slot) {
-    off_t byte = slot/8;
-    int bit = slot&7;
-    return (n->slots[byte] & (1<<bit)) != 0;
+    return bitmapTestBit(n->slots,slot);
 }
 
 /* Add the specified slot to the list of slots that node 'n' will
