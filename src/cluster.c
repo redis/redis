@@ -1110,8 +1110,7 @@ void clusterSendPing(clusterLink *link, int type) {
          */
         if (this == server.cluster->myself ||
             this->flags & (REDIS_NODE_HANDSHAKE|REDIS_NODE_NOADDR) ||
-            (this->link == NULL &&
-             popcount(this->slots,sizeof(this->slots)) == 0))
+            (this->link == NULL && this->numslots == 0))
         {
                 freshnodes--; /* otherwise we may loop forever. */
                 continue;
@@ -1418,8 +1417,7 @@ void clusterUpdateState(void) {
         while((de = dictNext(di)) != NULL) {
             clusterNode *node = dictGetVal(de);
 
-            if (node->flags & REDIS_NODE_MASTER &&
-                popcount(node->slots,sizeof(node->slots)))
+            if (node->flags & REDIS_NODE_MASTER && node->numslots)
                 server.cluster->size++;
         }
         dictReleaseIterator(di);
