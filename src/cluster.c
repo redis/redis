@@ -874,12 +874,10 @@ int clusterProcessPacket(clusterLink *link) {
                             update_state = update_config = 1;
                         }
                     } else {
-                        /* If this slot was served by this node, but it is
-                         * no longer claiming it, del it from the table. */
-                        if (server.cluster->slots[j] == sender) {
-                            clusterDelSlot(j);
-                            update_state = update_config = 1;
-                        }
+                        /* This node claims to no longer handling the slot,
+                         * however we don't change our config as this is likely
+                         * happening because a resharding is in progress, and
+                         * it already knows where to redirect clients. */
                     }
                 }
             }
