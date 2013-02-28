@@ -1099,10 +1099,17 @@ void clusterSendPing(clusterLink *link, int type) {
         clusterMsgDataGossip *gossip;
         int j;
 
-        /* Not interesting to gossip about ourself.
-         * Nor to send gossip info about HANDSHAKE state nodes (zero info). */
+        /* In the gossip section don't include:
+         * 1) Myself.
+         * 2) Nodes in HANDSHAKE state.
+         * 3) Nodes with the NOADDR flag set.
+         * 4) Disconnected nodes if they don't have configured slots.
+         */
         if (this == server.cluster->myself ||
-            this->flags & REDIS_NODE_HANDSHAKE) {
+            this->flags & (REDIS_NODE_HANDSHAKE|REDIS_NODE_NOADDR) ||
+            (this->link == NULL &&
+             popcount(this->slots,sizeof(this->slots)) == 0))
+        {
                 freshnodes--; /* otherwise we may loop forever. */
                 continue;
         }
