@@ -200,6 +200,7 @@ class ClusterNode
         @r.cluster("nodes").each_line{|l|
             s = l.split
             slots = s[7..-1].select {|x| x[0..0] != "["}
+            next if slots.length == 0
             config << s[0]+":"+(slots.sort.join(","))
         }
         config.sort.join("|")
