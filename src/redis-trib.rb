@@ -85,7 +85,7 @@ class ClusterNode
     def assert_empty
         if !(@r.cluster("info").split("\r\n").index("cluster_known_nodes:1")) ||
             (@r.info['db0'])
-            puts "Error: Node #{self} is not empty. Either the node already knows other nodes (check with nodes-info) or contains some key in database 0."
+            puts "Error: Node #{self} is not empty. Either the node already knows other nodes (check with CLUSTER NODES) or contains some key in database 0."
             exit 1
         end
     end
@@ -402,12 +402,13 @@ class RedisTrib
     end
 
     def load_cluster_info_from_node(nodeaddr)
-        node = ClusterNode.new(ARGV[1])
+        node = ClusterNode.new(nodeaddr)
         node.connect(:abort => true)
         node.assert_cluster
         node.load_info(:getfriends => true)
         add_node(node)
         node.friends.each{|f|
+            next if f[:flags].index("noaddr") or f[:flags].index("disconnected")
             fnode = ClusterNode.new(f[:addr])
             fnode.connect()
             fnode.load_info()
@@ -578,23 +579,54 @@ class RedisTrib
         join_cluster
         check_cluster
     end
+
+    def addnode_cluster_cmd
+        puts "Adding node #{ARGV[1]} to cluster #{ARGV[2]}"
+
+        # Check the existing cluster
+        load_cluster_info_from_node(ARGV[2])
+        check_cluster
+
+        # Add the new node
+        new = ClusterNode.new(ARGV[1])
+        new.connect(:abort => true)
+        new.assert_cluster
+        new.load_info
+        new.assert_empty
+        first = @nodes.first.info
+
+        # Send CLUSTER MEET command to the new node
+        puts "Send CLUSTER MEET to node #{new} to make it join the cluster."
+        new.r.cluster("meet",first[:host],first[:port])
+    end
+
+    def help_cluster_cmd
+        show_help
+        exit 0
+    end
 end
 
 COMMANDS={
     "create"  => ["create_cluster_cmd", -2, "host1:port1 ... hostN:portN"],
     "check"   => ["check_cluster_cmd", 2, "host:port"],
     "fix"     => ["fix_cluster_cmd", 2, "host:port"],
-    "reshard" => ["reshard_cluster_cmd", 2, "host:port"]
+    "reshard" => ["reshard_cluster_cmd", 2, "host:port"],
+    "addnode" => ["addnode_cluster_cmd", 3, "new_host:new_port existing_host:existing_port"],
+    "help"    => ["help_cluster_cmd", 1, "(show this help)"]
 }
 
-# Sanity check
-if ARGV.length == 0
+def show_help
     puts "Usage: redis-trib <command> <arguments ...>"
     puts
     COMMANDS.each{|k,v|
         puts "  #{k.ljust(10)} #{v[2]}"
     }
     puts
+end
+
+# Sanity check
+if ARGV.length == 0
+    show_help
     exit 1
 end
 
