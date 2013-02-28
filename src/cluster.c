@@ -330,6 +330,7 @@ clusterNode *createClusterNode(char *nodename, int flags) {
         getRandomHexChars(node->name, REDIS_CLUSTER_NAMELEN);
     node->flags = flags;
     memset(node->slots,0,sizeof(node->slots));
+    node->numslots = 0;
     node->numslaves = 0;
     node->slaves = NULL;
     node->slaveof = NULL;
@@ -884,6 +885,8 @@ int clusterProcessPacket(clusterLink *link) {
                         }
                     }
                 }
+                sender->numslots =
+                    popcount(sender->slots,sizeof(sender->slots));
             }
         }
 
@@ -1332,6 +1335,7 @@ int clusterNodeSetSlotBit(clusterNode *n, int slot) {
     int bit = slot&7;
     int old = (n->slots[byte] & (1<<bit)) != 0;
     n->slots[byte] |= 1<<bit;
+    if (!old) n->numslots++;
     return old;
 }
 
@@ -1341,6 +1345,7 @@ int clusterNodeClearSlotBit(clusterNode *n, int slot) {
     int bit = slot&7;
     int old = (n->slots[byte] & (1<<bit)) != 0;
     n->slots[byte] &= ~(1<<bit);
+    if (old) n->numslots--;
     return old;
 }
 
