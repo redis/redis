@@ -48,6 +48,7 @@ int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
 int clusterAddSlot(clusterNode *n, int slot);
 int clusterDelSlot(int slot);
 int clusterNodeSetSlotBit(clusterNode *n, int slot);
+int bitmapTestBit(unsigned char *bitmap, int pos);
 
 /* -----------------------------------------------------------------------------
  * Initialization
@@ -854,14 +855,13 @@ int clusterProcessPacket(clusterLink *link) {
 
         /* Update our info about served slots. */
         if (sender && sender->flags & REDIS_NODE_MASTER) {
-            int newslots, j;
+            int changes, j;
 
-            newslots =
+            changes =
                 memcmp(sender->slots,hdr->myslots,sizeof(hdr->myslots)) != 0;
-            memcpy(sender->slots,hdr->myslots,sizeof(hdr->myslots));
-            if (newslots) {
+            if (changes) {
                 for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
-                    if (clusterNodeGetSlotBit(sender,j)) {
+                    if (bitmapTestBit(hdr->myslots,j)) {
                         /* If this slot was not served, or served by a node
                          * in FAIL state, update the table with the new node
                          * caliming to serve the slot. */
@@ -877,16 +877,11 @@ int clusterProcessPacket(clusterLink *link) {
                         /* If this slot was served by this node, but it is
                          * no longer claiming it, del it from the table. */
                         if (server.cluster->slots[j] == sender) {
-                            /* Set the bit again before calling
-                             * clusterDelSlot() or the assert will fail. */
-                            clusterNodeSetSlotBit(sender,j);
                             clusterDelSlot(j);
                             update_state = update_config = 1;
                         }
                     }
                 }
-                sender->numslots =
-                    popcount(sender->slots,sizeof(sender->slots));
             }
         }
 
