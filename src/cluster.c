@@ -48,6 +48,7 @@ int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
 int clusterAddSlot(clusterNode *n, int slot);
 int clusterDelSlot(int slot);
 int clusterNodeSetSlotBit(clusterNode *n, int slot);
+int bitmapTestBit(unsigned char *bitmap, int pos);
 
 /* -----------------------------------------------------------------------------
  * Initialization
@@ -330,6 +331,7 @@ clusterNode *createClusterNode(char *nodename, int flags) {
         getRandomHexChars(node->name, REDIS_CLUSTER_NAMELEN);
     node->flags = flags;
     memset(node->slots,0,sizeof(node->slots));
+    node->numslots = 0;
     node->numslaves = 0;
     node->slaves = NULL;
     node->slaveof = NULL;
@@ -853,14 +855,13 @@ int clusterProcessPacket(clusterLink *link) {
 
         /* Update our info about served slots. */
         if (sender && sender->flags & REDIS_NODE_MASTER) {
-            int newslots, j;
+            int changes, j;
 
-            newslots =
+            changes =
                 memcmp(sender->slots,hdr->myslots,sizeof(hdr->myslots)) != 0;
-            memcpy(sender->slots,hdr->myslots,sizeof(hdr->myslots));
-            if (newslots) {
+            if (changes) {
                 for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
-                    if (clusterNodeGetSlotBit(sender,j)) {
+                    if (bitmapTestBit(hdr->myslots,j)) {
                         /* If this slot was not served, or served by a node
                          * in FAIL state, update the table with the new node
                          * caliming to serve the slot. */
@@ -873,15 +874,10 @@ int clusterProcessPacket(clusterLink *link) {
                             update_state = update_config = 1;
                         }
                     } else {
-                        /* If this slot was served by this node, but it is
-                         * no longer claiming it, del it from the table. */
-                        if (server.cluster->slots[j] == sender) {
-                            /* Set the bit again before calling
-                             * clusterDelSlot() or the assert will fail. */
-                            clusterNodeSetSlotBit(sender,j);
-                            clusterDelSlot(j);
-                            update_state = update_config = 1;
-                        }
+                        /* This node claims to no longer handling the slot,
+                         * however we don't change our config as this is likely
+                         * happening because a resharding is in progress, and
+                         * it already knows where to redirect clients. */
                     }
                 }
             }
@@ -1099,10 +1095,16 @@ void clusterSendPing(clusterLink *link, int type) {
         clusterMsgDataGossip *gossip;
         int j;
 
-        /* Not interesting to gossip about ourself.
-         * Nor to send gossip info about HANDSHAKE state nodes (zero info). */
+        /* In the gossip section don't include:
+         * 1) Myself.
+         * 2) Nodes in HANDSHAKE state.
+         * 3) Nodes with the NOADDR flag set.
+         * 4) Disconnected nodes if they don't have configured slots.
+         */
         if (this == server.cluster->myself ||
-            this->flags & REDIS_NODE_HANDSHAKE) {
+            this->flags & (REDIS_NODE_HANDSHAKE|REDIS_NODE_NOADDR) ||
+            (this->link == NULL && this->numslots == 0))
+        {
                 freshnodes--; /* otherwise we may loop forever. */
                 continue;
         }
@@ -1319,29 +1321,47 @@ void clusterCron(void) {
  * Slots management
  * -------------------------------------------------------------------------- */
 
+/* Test bit 'pos' in a generic bitmap. Return 1 if the bit is zet,
+ * otherwise 0. */
+int bitmapTestBit(unsigned char *bitmap, int pos) {
+    off_t byte = pos/8;
+    int bit = pos&7;
+    return (bitmap[byte] & (1<<bit)) != 0;
+}
+
+/* Set the bit at position 'pos' in a bitmap. */
+void bitmapSetBit(unsigned char *bitmap, int pos) {
+    off_t byte = pos/8;
+    int bit = pos&7;
+    bitmap[byte] |= 1<<bit;
+}
+
+/* Clear the bit at position 'pos' in a bitmap. */
+void bitmapClearBit(unsigned char *bitmap, int pos) {
+    off_t byte = pos/8;
+    int bit = pos&7;
+    bitmap[byte] &= ~(1<<bit);
+}
+
 /* Set the slot bit and return the old value. */
 int clusterNodeSetSlotBit(clusterNode *n, int slot) {
-    off_t byte = slot/8;
-    int bit = slot&7;
-    int old = (n->slots[byte] & (1<<bit)) != 0;
-    n->slots[byte] |= 1<<bit;
+    int old = bitmapTestBit(n->slots,slot);
+    bitmapSetBit(n->slots,slot);
+    if (!old) n->numslots++;
     return old;
 }
 
 /* Clear the slot bit and return the old value. */
 int clusterNodeClearSlotBit(clusterNode *n, int slot) {
-    off_t byte = slot/8;
-    int bit = slot&7;
-    int old = (n->slots[byte] & (1<<bit)) != 0;
-    n->slots[byte] &= ~(1<<bit);
+    int old = bitmapTestBit(n->slots,slot);
+    bitmapClearBit(n->slots,slot);
+    if (old) n->numslots--;
     return old;
 }
 
 /* Return the slot bit from the cluster node structure. */
 int clusterNodeGetSlotBit(clusterNode *n, int slot) {
-    off_t byte = slot/8;
-    int bit = slot&7;
-    return (n->slots[byte] & (1<<bit)) != 0;
+    return bitmapTestBit(n->slots,slot);
 }
 
 /* Add the specified slot to the list of slots that node 'n' will
@@ -1406,8 +1426,7 @@ void clusterUpdateState(void) {
         while((de = dictNext(di)) != NULL) {
             clusterNode *node = dictGetVal(de);
 
-            if (node->flags & REDIS_NODE_MASTER &&
-                popcount(node->slots,sizeof(node->slots)))
+            if (node->flags & REDIS_NODE_MASTER && node->numslots)
                 server.cluster->size++;
         }
         dictReleaseIterator(di);
