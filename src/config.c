@@ -101,6 +101,8 @@ void loadServerConfigFromString(char *config) {
             if (errno || server.unixsocketperm > 0777) {
                 err = "Invalid socket file permissions"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"proctitle") && argc == 2) {
+            server.proctitle = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"save")) {
             if (argc == 3) {
                 int seconds = atoi(argv[1]);

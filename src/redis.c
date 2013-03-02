@@ -1137,6 +1137,7 @@ void initServerConfig() {
     server.bindaddr = NULL;
     server.unixsocket = NULL;
     server.unixsocketperm = 0;
+    server.proctitle = NULL;
     server.ipfd = -1;
     server.sofd = -1;
     server.dbnum = REDIS_DEFAULT_DBNUM;
@@ -2749,7 +2750,12 @@ int main(int argc, char **argv) {
     if (server.daemonize) daemonize();
     initServer();
     if (server.daemonize) createPidFile();
-    redisSetProcTitle(argv[0]);
+
+    if(server.proctitle){
+        spt_init(argc, argv);
+        redisSetProcTitle(argv[0]);
+    }
+
     redisAsciiArt();
 
     if (!server.sentinel_mode) {
