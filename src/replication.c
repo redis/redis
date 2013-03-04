@@ -1229,7 +1229,7 @@ int cancelReplicationHandshake(void) {
 /* Set replication to the specified master address and port. */
 void replicationSetMaster(char *ip, int port) {
     sdsfree(server.masterhost);
-    server.masterhost = sdsdup(ip);
+    server.masterhost = sdsnew(ip);
     server.masterport = port;
     if (server.master) freeClient(server.master);
     disconnectSlaves(); /* Force our slaves to resync with us as well. */
