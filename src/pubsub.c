@@ -278,7 +278,6 @@ void subscribeCommand(redisClient *c) {
 void unsubscribeCommand(redisClient *c) {
     if (c->argc == 1) {
         pubsubUnsubscribeAllChannels(c,1);
-        return;
     } else {
         int j;
 
@@ -297,7 +296,6 @@ void psubscribeCommand(redisClient *c) {
 void punsubscribeCommand(redisClient *c) {
     if (c->argc == 1) {
         pubsubUnsubscribeAllPatterns(c,1);
-        return;
     } else {
         int j;
 
