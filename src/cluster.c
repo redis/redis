@@ -1464,6 +1464,10 @@ int verifyClusterConfigWithData(void) {
     int j;
     int update_config = 0;
 
+    /* If this node is a slave, don't perform the check at all as we
+     * completely depend on the replication stream. */
+    if (server.cluster->myself->flags & REDIS_NODE_SLAVE) return REDIS_OK;
+
     /* Make sure we only have keys in DB0. */
     for (j = 1; j < server.dbnum; j++) {
         if (dictSize(server.db[j].dict)) return REDIS_ERR;
