@@ -63,9 +63,12 @@ int clusterLoadConfig(char *filename) {
 
     /* Parse the file. Note that single liens of the cluster config file can
      * be really long as they include all the hash slots of the node.
-     * This means in the worst possible case REDIS_CLUSTER_SLOTS/2 integers.
-     * To simplify we allocate 1024+REDIS_CLUSTER_SLOTS*16 bytes per line. */
-    maxline = 1024+REDIS_CLUSTER_SLOTS*16;
+     * This means in the worst possible case, half of the Redis slots will be
+     * present in a single line, possibly in importing or migrating state, so
+     * together with the node ID of the sender/receiver.
+     *
+     * To simplify we allocate 1024+REDIS_CLUSTER_SLOTS*128 bytes per line. */
+    maxline = 1024+REDIS_CLUSTER_SLOTS*128;
     line = zmalloc(maxline);
     while(fgets(line,maxline,fp) != NULL) {
         int argc;
