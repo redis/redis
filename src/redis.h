@@ -1025,6 +1025,8 @@ void replicationScriptCacheInit(void);
 void replicationScriptCacheFlush(void);
 void replicationScriptCacheAdd(sds sha1);
 int replicationScriptCacheExists(sds sha1);
+void replicationSetMaster(char *ip, int port);
+void replicationUnsetMaster(void);
 
 /* Generic persistence functions */
 void startLoading(FILE *fp);

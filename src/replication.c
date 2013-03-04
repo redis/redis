@@ -1205,16 +1205,35 @@ int cancelReplicationHandshake(void) {
     return 1;
 }
 
+/* Set replication to the specified master address and port. */
+void replicationSetMaster(char *ip, int port) {
+    sdsfree(server.masterhost);
+    server.masterhost = sdsdup(ip);
+    server.masterport = port;
+    if (server.master) freeClient(server.master);
+    disconnectSlaves(); /* Force our slaves to resync with us as well. */
+    replicationDiscardCachedMaster(); /* Don't try a PSYNC. */
+    freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
+    cancelReplicationHandshake();
+    server.repl_state = REDIS_REPL_CONNECT;
+}
+
+/* Cancel replication, setting the instance as a master itself. */
+void replicationUnsetMaster(void) {
+    if (server.masterhost == NULL) return; /* Nothing to do. */
+    sdsfree(server.masterhost);
+    server.masterhost = NULL;
+    if (server.master) freeClient(server.master);
+    replicationDiscardCachedMaster();
+    cancelReplicationHandshake();
+    server.repl_state = REDIS_REPL_NONE;
+}
+
 void slaveofCommand(redisClient *c) {
     if (!strcasecmp(c->argv[1]->ptr,"no") &&
         !strcasecmp(c->argv[2]->ptr,"one")) {
         if (server.masterhost) {
-            sdsfree(server.masterhost);
-            server.masterhost = NULL;
-            if (server.master) freeClient(server.master);
-            replicationDiscardCachedMaster();
-            cancelReplicationHandshake();
-            server.repl_state = REDIS_REPL_NONE;
+            replicationUnsetMaster();
             redisLog(REDIS_NOTICE,"MASTER MODE enabled (user request)");
         }
     } else {
@@ -1232,15 +1251,7 @@ void slaveofCommand(redisClient *c) {
         }
         /* There was no previous master or the user specified a different one,
          * we can continue. */
-        sdsfree(server.masterhost);
-        server.masterhost = sdsdup(c->argv[1]->ptr);
-        server.masterport = port;
-        if (server.master) freeClient(server.master);
-        disconnectSlaves(); /* Force our slaves to resync with us as well. */
-        replicationDiscardCachedMaster(); /* Don't try a PSYNC. */
-        freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
-        cancelReplicationHandshake();
-        server.repl_state = REDIS_REPL_CONNECT;
+        replicationSetMaster(c->argv[1]->ptr, port);
         redisLog(REDIS_NOTICE,"SLAVE OF %s:%d enabled (user request)",
             server.masterhost, server.masterport);
     }
