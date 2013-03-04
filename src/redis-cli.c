@@ -56,6 +56,7 @@
 #define OUTPUT_STANDARD 0
 #define OUTPUT_RAW 1
 #define OUTPUT_CSV 2
+#define REDIS_CLI_KEEPALIVE_INTERVAL 15 /* seconds */
 
 static redisContext *context;
 static struct config {
@@ -331,6 +332,12 @@ static int cliConnect(int force) {
             context = NULL;
             return REDIS_ERR;
         }
+
+        /* Set aggressive KEEP_ALIVE socket option in the Redis context socket
+         * in order to prevent timeouts caused by the execution of long
+         * commands. At the same time this improves the detection of real
+         * errors. */
+        anetKeepAlive(NULL, context->fd, REDIS_CLI_KEEPALIVE_INTERVAL);
 
         /* Do AUTH and select the right DB. */
         if (cliAuth() != REDIS_OK)
