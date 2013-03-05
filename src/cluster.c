@@ -854,7 +854,10 @@ int clusterProcessPacket(clusterLink *link) {
                 sender->flags &= ~REDIS_NODE_MASTER;
                 sender->flags |= REDIS_NODE_SLAVE;
                 if (sender->numslaves) clusterNodeResetSlaves(sender);
-                if (master) clusterNodeAddSlave(master,sender);
+                if (master) {
+                    clusterNodeAddSlave(master,sender);
+                    sender->slaveof = master;
+                }
             }
         }
 
