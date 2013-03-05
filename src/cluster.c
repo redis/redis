@@ -1313,11 +1313,8 @@ void clusterCron(void) {
              * help if it is not transitive (that is, if it does not
              * turn into a FAIL state).
              *
-             * The FAIL condition is also reversible if there are no slaves
-             * for this host, so no slave election should be in progress.
-             *
-             * TODO: consider all the implications of resurrecting a
-             * FAIL node. */
+             * The FAIL condition is also reversible under specific
+             * conditions detected by clearNodeFailureIfNeeded(). */
             if (node->flags & REDIS_NODE_PFAIL) {
                 node->flags &= ~REDIS_NODE_PFAIL;
             } else if (node->flags & REDIS_NODE_FAIL) {
