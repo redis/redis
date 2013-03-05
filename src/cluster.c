@@ -1362,6 +1362,18 @@ void clusterCron(void) {
         }
     }
     dictReleaseIterator(di);
+
+    /* If we are a slave node but the replication is still turned off,
+     * enable it if we know the address of our master and it appears to
+     * be up. */
+    if (server.cluster->myself->flags & REDIS_NODE_SLAVE &&
+        server.masterhost == NULL &&
+        server.cluster->myself->slaveof &&
+        !(server.cluster->myself->slaveof->flags & REDIS_NODE_NOADDR))
+    {
+        replicationSetMaster(server.cluster->myself->slaveof->ip,
+                             server.cluster->myself->slaveof->port);
+    }
 }
 
 /* -----------------------------------------------------------------------------
