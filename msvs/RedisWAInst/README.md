@@ -10,14 +10,14 @@ Deploying Redis to Windows Azure
 RedisInstWA command line
 ------------------------
 
-RedisInst4WA –Source &lt;path to redis exe or URL to ZIP&gt; -Config &lt;path to cscfg file folder&gt; -RedisConf &lt;path to redis.conf file folder&gt; -Domain &lt;Azure domain&gt; -Subscription &lt;Azure subscription&gt; [-X64] [--Pass &lt;other parameters&gt;]
+RedisInst4WA -Source &lt;path to redis exe or URL to ZIP&gt; -Config &lt;path to cscfg file folder&gt; -RedisConf &lt;path to redis.conf file folder&gt; -Domain &lt;Azure domain&gt; -Subscription &lt;Azure subscription&gt; [-X64] [--Pass &lt;other parameters&gt;]
 
-If deploying to the Azure emulator, then use –Emu in place of –Domain and –Subscription.
+If deploying to the Azure emulator, then use -Emu in place of -Domain and -Subscription.
 Note that the Source may be to local Redis exe files, or may reference a GitHub zip file. If using a zip file, the 32 bit binaries are used by default. To use the 64 bit binaries include the optional -X64 parameter.  
  
 For example: -Source https://github.com/MSOpenTech/redis/archive/2.4.zip will download the zip file for the latest code for branch 2.4.
 
-The - -Pass (note the double ‘-‘) parameter is optional. Any parameters following this are passed on to Inst4WA. This is useful to override settings such as region or slot. See the Pass-through parameters section.
+The --Pass (note the double '-') parameter is optional. Any parameters following this are passed on to Inst4WA. This is useful to override settings such as region or slot. See the Pass-through parameters section.
 
 ### Deployment notes
 If deploying to the Azure emulator, you will need to manually remove the deployment after you have finished testing. You should also remove a previous deployment before trying to deploy a second time.  
