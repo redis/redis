@@ -173,7 +173,7 @@ int clusterLoadConfig(char *filename) {
             while(start <= stop) clusterAddSlot(n, start++);
         }
 
-        sdssplitargs_free(argv,argc);
+        sdsfreesplitres(argv,argc);
     }
     zfree(line);
     fclose(fp);
