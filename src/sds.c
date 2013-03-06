@@ -480,6 +480,11 @@ int hex_digit_to_int(char c) {
  *
  * Note that sdscatrepr() is able to convert back a string into
  * a quoted string in the same format sdssplitargs() is able to parse.
+ *
+ * The function returns the allocated tokens on success, even when the
+ * input string is empty, or NULL if the input contains unbalanced
+ * quotes or closed quotes followed by non space characters
+ * as in: "foo"bar or "foo'
  */
 sds *sdssplitargs(const char *line, int *argc) {
     const char *p = line;
@@ -576,6 +581,9 @@ sds *sdssplitargs(const char *line, int *argc) {
             (*argc)++;
             current = NULL;
         } else {
+            /* Even on empty input string returns something not NULL that
+             * can be freed by sdssplitargs_free. */
+            if (vector == NULL) vector = zmalloc(sizeof(void*));
             return vector;
         }
     }
