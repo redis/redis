@@ -42,13 +42,13 @@ namespace RedisInstWA
             down.Download(uri, path);
         }
 
-        public string FindBinZip(string path)
+        public string FindBinZip(string path, string binzip)
         {
             IEnumerable<string> subdirs = Directory.EnumerateDirectories(path);
             if (subdirs != null && subdirs.Count() > 0)
             {
                 string subpath = Path.Combine(path, subdirs.First());
-                string binpath = Path.Combine(subpath, @"msvs\bin\release\redisbin.zip");
+                string binpath = Path.Combine(subpath, @"msvs\bin\release\", binzip);
                 if (File.Exists(binpath))
                 {
                     return binpath;
@@ -66,7 +66,7 @@ namespace RedisInstWA
             outdir.CopyHere(inzip.Items(), 0);  // 4 for no progress dialog, 16 for Yes to all
         }
 
-        public int DownloadAndExtract(string zipurl, string workPath, string binfolder)
+        public int DownloadAndExtract(string zipurl, string workPath, string binfolder, bool isX64)
         {
             string zippath = Path.Combine(workPath, "zipfile");
             if (!FolderHelper.MakeFolderReset(zippath))
@@ -87,11 +87,12 @@ namespace RedisInstWA
                 // unzip the downloaded file
                 ExtractFilesFromZip(zipfile, zippath);
 
-                string embeddedzip = FindBinZip(zippath);
+                string binzip = isX64 ? "redisbin64.zip" : "redisbin.zip";
+                string embeddedzip = FindBinZip(zippath, binzip);
                 if (embeddedzip == null)
                 {
                     // binaries zip not found
-                    Console.WriteLine("Did not find redisbin.zip in downloaded zip file");
+                    Console.WriteLine("Did not find {0} in downloaded zip file", binzip);
                     return 2;
                 }
                 string binpath = Path.Combine(workPath, binfolder);

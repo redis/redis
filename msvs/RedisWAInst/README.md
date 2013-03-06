@@ -10,10 +10,10 @@ Deploying Redis to Windows Azure
 RedisInstWA command line
 ------------------------
 
-RedisInst4WA –Source &lt;path to redis exe or URL to ZIP&gt; -Config &lt;path to cscfg file folder&gt; -RedisConf &lt;path to redis.conf file folder&gt; -Domain &lt;Azure domain&gt; -Subscription &lt;Azure subscription&gt; [--Pass &lt;other parameters&gt;]
+RedisInst4WA –Source &lt;path to redis exe or URL to ZIP&gt; -Config &lt;path to cscfg file folder&gt; -RedisConf &lt;path to redis.conf file folder&gt; -Domain &lt;Azure domain&gt; -Subscription &lt;Azure subscription&gt; [-X64] [--Pass &lt;other parameters&gt;]
 
 If deploying to the Azure emulator, then use –Emu in place of –Domain and –Subscription.
-Note that the Source may be to local Redis exe files, or may reference a GitHub zip file.  
+Note that the Source may be to local Redis exe files, or may reference a GitHub zip file. If using a zip file, the 32 bit binaries are used by default. To use the 64 bit binaries include the optional -X64 parameter.  
  
 For example: -Source https://github.com/MSOpenTech/redis/archive/2.4.zip will download the zip file for the latest code for branch 2.4.
 
@@ -26,7 +26,7 @@ After downloading files, you may have to unblock the DLLs to enable them to be u
 ### Pass-through parameters
 * StorageAccountName – default DomainName + ‘stg’
 * DeploymentName – default DomainName + ‘deploy’
-* Region – default ‘North Central US’
+* Region – default ‘West US’
 * DeploymentOption – default ‘Production’
 * PublishSettingsFilePath – default is any file in –Config folder with publishsettings extension.
 

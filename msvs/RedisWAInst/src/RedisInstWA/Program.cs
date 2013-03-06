@@ -44,6 +44,7 @@ namespace RedisInstWA
         static string Domain;
         static string Subscription;
         static string passThough;
+        static bool IsX64;
 
         // Values from environment or configuration
         static string WorkPath;
@@ -136,6 +137,7 @@ namespace RedisInstWA
             bool isRedisConf = false;
             bool isEmuOrAzure = false;
             passThough = "";
+            IsX64 = false;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -311,6 +313,10 @@ namespace RedisInstWA
                     }
                     break;
                 }
+                else if (args[i].StartsWith("-X64", StringComparison.InvariantCultureIgnoreCase))
+                {
+                    IsX64 = true;
+                }
                 else
                 {
                     Console.WriteLine("Unknown option specified " + args[i]);
@@ -364,7 +370,7 @@ namespace RedisInstWA
             if (!IsLocal)
             {
                 ExtractZip exz = new ExtractZip();
-                int rc = exz.DownloadAndExtract(GitUrl, workPath, BinariesSubDir);
+                int rc = exz.DownloadAndExtract(GitUrl, workPath, BinariesSubDir, IsX64);
                 isCopied = rc == 0;
             }
             else
@@ -441,8 +447,8 @@ namespace RedisInstWA
             string args = "-XmlConfigPath " + @"""" + Path.Combine(WorkPath, "XmlConfig.xml") + @"""";
             if (!IsEmul)
             {
-                // append DomainName and Subscription
-                args = args + " -DomainName " + Domain + " -Subscription " + Subscription;
+                // append DomainName and Subscription, enclosing values in quotes
+                args = args + " -DomainName " + @"""" + Domain + @"""" + " -Subscription " + @"""" + Subscription + @"""";
             }
             // append passthrough args
             args = args + passThough;
@@ -486,6 +492,7 @@ namespace RedisInstWA
                          "-Source <Github URL to ZIP>: URL to download redis. For example:\r\n" + 
                          "        'https://github.com/MSOpenTech/redis/archive/2.4.zip'\r\n" +
                          "-Source <path to redis-server.exe>: local path to folder with redis exe files\r\n" +
+                         "-X64: Use this to deploy 64bit binaries. If omitted then 32bit binaries are used\r\n" +
                          "-Config <path to install configuration>: local path to folder with .csdef file\r\n" +
                          "-RedisConf <path to redis.conf>: local path to folder with redis.conf file\r\n" +
                          "-Emu: Use this if deploying to emulator\r\n" +

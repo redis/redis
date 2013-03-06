@@ -47,3 +47,15 @@ msvs/lua/lua/x64/
 msvs/x64/
 msvs/ipch
 msvs/RedisServer.opensdf
+!msvs/RedisWaInst/bin/*
+!msvs/RedisWaInst/bin/Inst4WA/*
+!msvs/RedisWaInst/bin/RedisPkgBin/*
+msvs/RedisWAInst/src/RedisDeployCmdlets/bin/
+msvs/RedisWAInst/src/RedisDeployCmdlets/obj/
+msvs/RedisWAInst/src/RedisInstBin/
+msvs/RedisWAInst/src/RedisInstWA/app.config
+msvs/RedisWAInst/src/RedisInstWA/bin/
+msvs/RedisWAInst/src/RedisInstWA/obj/
+msvs/RedisWAInst/src/RedisServer/bin/
+msvs/RedisWAInst/src/RedisServer/obj/
+
