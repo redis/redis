@@ -518,7 +518,6 @@ typedef struct redisOpArray {
 #define REDIS_CLUSTER_SLOTS 16384
 #define REDIS_CLUSTER_OK 0          /* Everything looks ok */
 #define REDIS_CLUSTER_FAIL 1        /* The cluster can't work */
-#define REDIS_CLUSTER_NEEDHELP 2    /* The cluster works, but needs some help */
 #define REDIS_CLUSTER_NAMELEN 40    /* sha1 hex length */
 #define REDIS_CLUSTER_PORT_INCR 10000 /* Cluster port = baseport + PORT_INCR */
 

@@ -1450,28 +1450,20 @@ int clusterDelSlot(int slot) {
  * Cluster state evaluation function
  * -------------------------------------------------------------------------- */
 void clusterUpdateState(void) {
-    int ok = 1;
     int j;
+
+    /* Start assuming the state is OK. We'll turn it into FAIL if there
+     * are the right conditions. */
+    server.cluster->state = REDIS_CLUSTER_OK;
 
     /* Check if all the slots are covered. */
     for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
         if (server.cluster->slots[j] == NULL ||
             server.cluster->slots[j]->flags & (REDIS_NODE_FAIL))
         {
-            ok = 0;
+            server.cluster->state = REDIS_CLUSTER_FAIL;
             break;
         }
-    }
-
-    /* Update cluster->state accordingly. */
-    if (ok) {
-        if (server.cluster->state == REDIS_CLUSTER_NEEDHELP) {
-            server.cluster->state = REDIS_CLUSTER_NEEDHELP;
-        } else {
-            server.cluster->state = REDIS_CLUSTER_OK;
-        }
-    } else {
-        server.cluster->state = REDIS_CLUSTER_FAIL;
     }
 
     /* Compute the cluster size, that is the number of master nodes
