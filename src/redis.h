@@ -559,6 +559,7 @@ struct clusterNode {
     struct clusterNode *slaveof; /* pointer to the master node */
     time_t ping_sent;       /* Unix time we sent latest ping */
     time_t pong_received;   /* Unix time we received the pong */
+    time_t fail_time;       /* Unix time when FAIL flag was set */
     char *configdigest;         /* Configuration digest of this node */
     time_t configdigest_ts;     /* Configuration digest timestamp */
     char ip[16];                /* Latest known IP address of this node */
@@ -1097,6 +1098,8 @@ void replicationCron(void);
 void replicationHandleMasterDisconnection(void);
 void replicationCacheMaster(redisClient *c);
 void resizeReplicationBacklog(long long newsize);
+void replicationSetMaster(char *ip, int port);
+void replicationUnsetMaster(void);
 
 /* Generic persistence functions */
 void startLoading(FILE *fp);

@@ -63,13 +63,18 @@ int clusterLoadConfig(char *filename) {
 
     /* Parse the file. Note that single liens of the cluster config file can
      * be really long as they include all the hash slots of the node.
-     * This means in the worst possible case REDIS_CLUSTER_SLOTS/2 integers.
-     * To simplify we allocate 1024+REDIS_CLUSTER_SLOTS*16 bytes per line. */
-    maxline = 1024+REDIS_CLUSTER_SLOTS*16;
+     * This means in the worst possible case, half of the Redis slots will be
+     * present in a single line, possibly in importing or migrating state, so
+     * together with the node ID of the sender/receiver.
+     *
+     * To simplify we allocate 1024+REDIS_CLUSTER_SLOTS*128 bytes per line. */
+    maxline = 1024+REDIS_CLUSTER_SLOTS*128;
     line = zmalloc(maxline);
     while(fgets(line,maxline,fp) != NULL) {
         int argc;
         sds *argv = sdssplitargs(line,&argc);
+        if (argv == NULL) goto fmterr;
+
         clusterNode *n, *master;
         char *p, *s;
 
@@ -102,6 +107,7 @@ int clusterLoadConfig(char *filename) {
                 n->flags |= REDIS_NODE_PFAIL;
             } else if (!strcasecmp(s,"fail")) {
                 n->flags |= REDIS_NODE_FAIL;
+                n->fail_time = time(NULL);
             } else if (!strcasecmp(s,"handshake")) {
                 n->flags |= REDIS_NODE_HANDSHAKE;
             } else if (!strcasecmp(s,"noaddr")) {
@@ -336,6 +342,7 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     node->slaves = NULL;
     node->slaveof = NULL;
     node->ping_sent = node->pong_received = 0;
+    node->fail_time = 0;
     node->configdigest = NULL;
     node->configdigest_ts = 0;
     node->link = NULL;
@@ -589,6 +596,7 @@ void markNodeAsFailingIfNeeded(clusterNode *node) {
     /* Mark the node as failing. */
     node->flags &= ~REDIS_NODE_PFAIL;
     node->flags |= REDIS_NODE_FAIL;
+    node->fail_time = time(NULL);
 
     /* Broadcast the failing node name to everybody */
     clusterSendFail(node->name);
@@ -603,11 +611,38 @@ void markNodeAsFailingIfNeeded(clusterNode *node) {
  * Currently we only revert the FAIL state if there are no slaves for this
  * node, so that no election was possible. */
 void clearNodeFailureIfNeeded(clusterNode *node) {
-    if (node->flags & REDIS_NODE_FAIL && !node->numslaves) {
+    int changes = 0;
+    time_t now = time(NULL);
+
+    redisAssert(node->flags & REDIS_NODE_FAIL);
+
+    /* For slaves we always clear the FAIL flag if we can contact the
+     * node again. */
+    if (node->flags & REDIS_NODE_SLAVE) {
         redisLog(REDIS_NOTICE,
-            "Clear FAIL state for node %.40s: is reachable and has no slaves.",
+            "Clear FAIL state for node %.40s: slave is already reachable.",
                 node->name);
         node->flags &= ~REDIS_NODE_FAIL;
+        changes++;
+    }
+
+    /* If it is a master and...
+     * 1) The FAIL state was set more than 2 times the node timeout + 10 sec.
+     * 2) It is yet serving slots from our point of view (not failed over).
+     * Apparently no one is going to fix these slots, clear the FAIL flag. */
+    if (node->flags & REDIS_NODE_MASTER &&
+        node->numslots > 0 &&
+        (now - node->fail_time) > (server.cluster->node_timeout*2+10))
+    {
+        redisLog(REDIS_NOTICE,
+            "Clear FAIL state for node %.40s: is reachable again and nobody is serving its slots after some time.",
+                node->name);
+        node->flags &= ~REDIS_NODE_FAIL;
+        changes++;
+    }
+
+    /* Update state and save config. */
+    if (changes) {
         clusterUpdateState();
         clusterSaveConfigOrDie();
     }
@@ -849,7 +884,10 @@ int clusterProcessPacket(clusterLink *link) {
                 sender->flags &= ~REDIS_NODE_MASTER;
                 sender->flags |= REDIS_NODE_SLAVE;
                 if (sender->numslaves) clusterNodeResetSlaves(sender);
-                if (master) clusterNodeAddSlave(master,sender);
+                if (master) {
+                    clusterNodeAddSlave(master,sender);
+                    sender->slaveof = master;
+                }
             }
         }
 
@@ -899,6 +937,7 @@ int clusterProcessPacket(clusterLink *link) {
                 "FAIL message received from %.40s about %.40s",
                 hdr->sender, hdr->data.fail.about.nodename);
             failing->flags |= REDIS_NODE_FAIL;
+            failing->fail_time = time(NULL);
             failing->flags &= ~REDIS_NODE_PFAIL;
             clusterUpdateState();
             clusterSaveConfigOrDie();
@@ -1271,22 +1310,33 @@ void clusterCron(void) {
     di = dictGetIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
+        time_t now = time(NULL);
         int delay;
 
         if (node->flags &
             (REDIS_NODE_MYSELF|REDIS_NODE_NOADDR|REDIS_NODE_HANDSHAKE))
                 continue;
+
         /* Check only if we already sent a ping and did not received
          * a reply yet. */
         if (node->ping_sent == 0 ||
             node->ping_sent <= node->pong_received) continue;
 
+        /* If our ping is older than half the cluster timeout (may happen
+         * in a cluster with many nodes), send a new ping. */
+        if (node->link &&
+            (now - node->ping_sent) > server.cluster->node_timeout/2)
+        {
+            clusterSendPing(node->link, CLUSTERMSG_TYPE_PING);
+            continue;
+        }
+
         /* If we never received a pong, use the ping time to compute
          * the delay. */
         if (node->pong_received) {
-            delay = time(NULL) - node->pong_received;
+            delay = now - node->pong_received;
         } else {
-            delay = time(NULL) - node->ping_sent;
+            delay = now - node->ping_sent;
         }
 
         if (delay < server.cluster->node_timeout) {
@@ -1294,11 +1344,8 @@ void clusterCron(void) {
              * help if it is not transitive (that is, if it does not
              * turn into a FAIL state).
              *
-             * The FAIL condition is also reversible if there are no slaves
-             * for this host, so no slave election should be in progress.
-             *
-             * TODO: consider all the implications of resurrecting a
-             * FAIL node. */
+             * The FAIL condition is also reversible under specific
+             * conditions detected by clearNodeFailureIfNeeded(). */
             if (node->flags & REDIS_NODE_PFAIL) {
                 node->flags &= ~REDIS_NODE_PFAIL;
             } else if (node->flags & REDIS_NODE_FAIL) {
@@ -1315,6 +1362,18 @@ void clusterCron(void) {
         }
     }
     dictReleaseIterator(di);
+
+    /* If we are a slave node but the replication is still turned off,
+     * enable it if we know the address of our master and it appears to
+     * be up. */
+    if (server.cluster->myself->flags & REDIS_NODE_SLAVE &&
+        server.masterhost == NULL &&
+        server.cluster->myself->slaveof &&
+        !(server.cluster->myself->slaveof->flags & REDIS_NODE_NOADDR))
+    {
+        replicationSetMaster(server.cluster->myself->slaveof->ip,
+                             server.cluster->myself->slaveof->port);
+    }
 }
 
 /* -----------------------------------------------------------------------------
@@ -1459,6 +1518,10 @@ int verifyClusterConfigWithData(void) {
     int j;
     int update_config = 0;
 
+    /* If this node is a slave, don't perform the check at all as we
+     * completely depend on the replication stream. */
+    if (server.cluster->myself->flags & REDIS_NODE_SLAVE) return REDIS_OK;
+
     /* Make sure we only have keys in DB0. */
     for (j = 1; j < server.dbnum; j++) {
         if (dictSize(server.db[j].dict)) return REDIS_ERR;
@@ -1494,6 +1557,24 @@ int verifyClusterConfigWithData(void) {
     }
     if (update_config) clusterSaveConfigOrDie();
     return REDIS_OK;
+}
+
+/* -----------------------------------------------------------------------------
+ * SLAVE nodes handling
+ * -------------------------------------------------------------------------- */
+
+/* Set the specified node 'n' as master. */
+void clusterSetMaster(clusterNode *n) {
+    clusterNode *myself = server.cluster->myself;
+
+    redisAssert(n != myself);
+
+    if (myself->flags & REDIS_NODE_MASTER) {
+        myself->flags &= ~REDIS_NODE_MASTER;
+        myself->flags |= REDIS_NODE_SLAVE;
+    }
+    myself->slaveof = n;
+    replicationSetMaster(n->ip, n->port);
 }
 
 /* -----------------------------------------------------------------------------
@@ -1844,6 +1925,42 @@ void clusterCommand(redisClient *c) {
             return;
         }
         clusterDelNode(n);
+        clusterUpdateState();
+        clusterSaveConfigOrDie();
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"replicate") && c->argc == 3) {
+        /* CLUSTER REPLICATE <NODE ID> */
+        clusterNode *n = clusterLookupNode(c->argv[2]->ptr);
+
+        /* Lookup the specified node in our table. */
+        if (!n) {
+            addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[2]->ptr);
+            return;
+        }
+
+        /* I can't replicate myself. */
+        if (n == server.cluster->myself) {
+            addReplyError(c,"Can't replicate myself");
+            return;
+        }
+
+        /* Can't replicate a slave. */
+        if (n->slaveof != NULL) {
+            addReplyError(c,"I can only replicate a master, not a slave.");
+            return;
+        }
+
+        /* We should have no assigned slots to accept to replicate some
+         * other node. */
+        if (server.cluster->myself->numslots != 0 ||
+            dictSize(server.db[0].dict) != 0)
+        {
+            addReplyError(c,"To set a master the node must be empty and without assigned slots.");
+            return;
+        }
+
+        /* Set the master. */
+        clusterSetMaster(n);
         clusterUpdateState();
         clusterSaveConfigOrDie();
         addReply(c,shared.ok);

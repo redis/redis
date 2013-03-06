@@ -440,6 +440,12 @@ void loadServerConfigFromString(char *config) {
         sdsfreesplitres(argv,argc);
     }
     sdsfreesplitres(lines,totlines);
+
+    /* Sanity checks. */
+    if (server.cluster_enabled && server.masterhost) {
+        err = "slaveof directive not allowed in cluster mode";
+        goto loaderr;
+    }
     return;
 
 loaderr:
