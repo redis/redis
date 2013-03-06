@@ -475,8 +475,10 @@ int hex_digit_to_int(char c) {
  * foo bar "newline are supported\n" and "\xff\x00otherstuff"
  *
  * The number of arguments is stored into *argc, and an array
- * of sds is returned. The caller should sdsfree() all the returned
- * strings and finally zfree() the array itself.
+ * of sds is returned.
+ *
+ * The caller should free the resulting array of sds strings with
+ * sdsfreesplitres().
  *
  * Note that sdscatrepr() is able to convert back a string into
  * a quoted string in the same format sdssplitargs() is able to parse.
@@ -581,8 +583,7 @@ sds *sdssplitargs(const char *line, int *argc) {
             (*argc)++;
             current = NULL;
         } else {
-            /* Even on empty input string returns something not NULL that
-             * can be freed by sdssplitargs_free. */
+            /* Even on empty input string return something not NULL. */
             if (vector == NULL) vector = zmalloc(sizeof(void*));
             return vector;
         }
@@ -595,13 +596,6 @@ err:
     if (current) sdsfree(current);
     *argc = 0;
     return NULL;
-}
-
-void sdssplitargs_free(sds *argv, int argc) {
-    int j;
-
-    for (j = 0 ;j < argc; j++) sdsfree(argv[j]);
-    zfree(argv);
 }
 
 /* Modify the string substituting all the occurrences of the set of
