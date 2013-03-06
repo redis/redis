@@ -99,7 +99,7 @@ namespace RedisInstWA
     <Parameter Name=""Subscription"" Value=""{1}"" Required=""yes""></Parameter>
     <Parameter Name=""StorageAccountName"" ValuePrefixRef=""DomainName"" ValueSuffix=""stg"" Required=""yes""></Parameter>
     <Parameter Name=""DeploymentName"" ValuePrefixRef=""DomainName"" ValueSuffix=""deploy"" Required=""yes""></Parameter>
-    <Parameter Name=""Region"" Value=""North Central US""></Parameter>
+    <Parameter Name=""Region"" Value=""West US""></Parameter>
     <Parameter Name=""DeploymentOption"" Value=""Production""></Parameter>
 ";
 
@@ -166,7 +166,7 @@ namespace RedisInstWA
         // Master role install
         // {0} is index for role - should be 0
         private const string instXmlMasterRoleStep =
-@"    <Step Type=""Cmdlet"" Command=""Add-AzureWorkerRole"" Message=""Creating Redis worker role."">
+@"    <Step Type=""Cmdlet"" Command=""DeployCmdlets4WA\Add-AzureWorkerRole"" Message=""Creating Redis worker role."">
       <CommandParam Name=""RoleBinariesFolder"" ParameterName=""RedisPkgDir"" />
       <CommandParam Name=""CSCFGFile"" ParameterName=""CSCFGFile"" />
       <CommandParam Name=""CSDEFFile"" ParameterName=""CSDEFFile"" />
@@ -190,7 +190,7 @@ namespace RedisInstWA
         // Slave role install
         // {0} is index for role
         private const string instXmlSlaveRoleStep =
-@"    <Step Type=""Cmdlet"" Command=""Add-AzureWorkerRole"" Message=""Creating Redis worker role."">
+@"    <Step Type=""Cmdlet"" Command=""DeployCmdlets4WA\Add-AzureWorkerRole"" Message=""Creating Redis worker role."">
       <CommandParam Name=""RoleBinariesFolder"" ParameterName=""RedisPkgDir"" />
       <CommandParam Name=""CSCFGFile"" ParameterName=""CSCFGFile"" />
       <CommandParam Name=""CSDEFFile"" ParameterName=""CSDEFFile"" />
