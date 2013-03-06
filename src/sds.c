@@ -593,6 +593,7 @@ err:
         sdsfree(vector[*argc]);
     zfree(vector);
     if (current) sdsfree(current);
+    *argc = 0;
     return NULL;
 }
 
