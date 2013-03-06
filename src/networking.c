@@ -1259,7 +1259,7 @@ void rewriteClientCommandVector(redisClient *c, int argc, ...) {
     /* Replace argv and argc with our new versions. */
     c->argv = argv;
     c->argc = argc;
-    c->cmd = lookupCommand(c->argv[0]->ptr);
+    c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
     redisAssertWithInfo(c,NULL,c->cmd != NULL);
     va_end(ap);
 }
@@ -1277,7 +1277,7 @@ void rewriteClientCommandArgument(redisClient *c, int i, robj *newval) {
 
     /* If this is the command name make sure to fix c->cmd. */
     if (i == 0) {
-        c->cmd = lookupCommand(c->argv[0]->ptr);
+        c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
         redisAssertWithInfo(c,NULL,c->cmd != NULL);
     }
 }
