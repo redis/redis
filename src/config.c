@@ -74,7 +74,7 @@ void loadServerConfigFromString(char *config) {
         /* Split into arguments */
         argv = sdssplitargs(lines[i],&argc);
         if (argv == NULL) {
-            err = "can't parse this line";
+            err = "Unbalanced quotes in configuration line";
             goto loaderr;
         }
         sdstolower(argv[0]);
