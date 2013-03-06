@@ -850,8 +850,7 @@ static void repl() {
                 }
             }
             /* Free the argument vector */
-            while(argc--) sdsfree(argv[argc]);
-            zfree(argv);
+            sdsfreesplitres(argv,argc);
         }
         /* linenoise() returns malloc-ed lines like readline() */
         free(line);
