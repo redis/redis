@@ -23,6 +23,8 @@ UPGRADE URGENCY: LOW, however updating is encouraged if you have many instances
 * [BUGFIX]   redis-cli: use keepalive socket option for improved reliability.
 * [BUGFIX]   Allow AUTH while loading the DB in memory.
 * [BUGFIX]   Don't segfault on unbalanced quotes while parsing config file.
+* [BUGFIX]   Don't segfault if command gets propagated to AOF / replication
+             link as another command name that was renamed in redis.conf
 * [IMPROVED] serverCron() frequency is now a runtime parameter (was REDIS_HZ).
 * [IMPROVED] Use a lot less CPU when idle, even with many configured DBs.
 
