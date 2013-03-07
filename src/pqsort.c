@@ -76,12 +76,12 @@ swapfunc(char *a, char *b, size_t n, int swaptype)
 		swapcode(char, a, b, n)
 }
 
-#define swap(a, b)						\
-	if (swaptype == 0) {					\
-		long t = *(long *)(void *)(a);			\
-		*(long *)(void *)(a) = *(long *)(void *)(b);	\
-		*(long *)(void *)(b) = t;			\
-	} else							\
+#define swap(a, b)															\
+	if (swaptype == 0) {													\
+		*(long *)(void *)(a) = *(long *)(void *)(a) ^ *(long *)(void *)(b); \
+		*(long *)(void *)(b) = *(long *)(void *)(a) ^ *(long *)(void *)(b);	\
+		*(long *)(void *)(a) = *(long *)(void *)(a) ^ *(long *)(void *)(b);	\
+	} else																	\
 		swapfunc(a, b, es, swaptype)
 
 #define vecswap(a, b, n) if ((n) > 0) swapfunc((a), (b), (size_t)(n), swaptype)
