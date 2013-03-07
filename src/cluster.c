@@ -1451,6 +1451,7 @@ int clusterDelSlot(int slot) {
  * -------------------------------------------------------------------------- */
 void clusterUpdateState(void) {
     int j, initial_state = server.cluster->state;
+    int unreachable_masters = 0;
 
     /* Start assuming the state is OK. We'll turn it into FAIL if there
      * are the right conditions. */
@@ -1467,7 +1468,10 @@ void clusterUpdateState(void) {
     }
 
     /* Compute the cluster size, that is the number of master nodes
-     * serving at least a single slot. */
+     * serving at least a single slot.
+     *
+     * At the same time count the number of unreachable masters with
+     * at least one node. */
     {
         dictIterator *di;
         dictEntry *de;
@@ -1477,10 +1481,23 @@ void clusterUpdateState(void) {
         while((de = dictNext(di)) != NULL) {
             clusterNode *node = dictGetVal(de);
 
-            if (node->flags & REDIS_NODE_MASTER && node->numslots)
+            if (node->flags & REDIS_NODE_MASTER && node->numslots) {
                 server.cluster->size++;
+                if (node->flags & (REDIS_NODE_FAIL|REDIS_NODE_PFAIL))
+                    unreachable_masters++;
+            }
         }
         dictReleaseIterator(di);
+    }
+
+    /* If we can't reach at least half the masters, change the cluster state
+     * as FAIL, as we are not even able to mark nodes as FAIL in this side
+     * of the netsplit because of lack of majority. */
+    {
+        int needed_quorum = (server.cluster->size / 2) + 1;
+        
+        if (unreachable_masters >= needed_quorum)
+            server.cluster->state = REDIS_CLUSTER_FAIL;
     }
 
     /* Log a state change */
