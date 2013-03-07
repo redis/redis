@@ -1250,7 +1250,7 @@ void clusterPropagatePublish(robj *channel, robj *message) {
 void clusterCron(void) {
     dictIterator *di;
     dictEntry *de;
-    int j;
+    int j, update_state = 0;
     time_t min_ping_sent = 0;
     clusterNode *min_ping_node = NULL;
 
@@ -1348,6 +1348,7 @@ void clusterCron(void) {
              * conditions detected by clearNodeFailureIfNeeded(). */
             if (node->flags & REDIS_NODE_PFAIL) {
                 node->flags &= ~REDIS_NODE_PFAIL;
+                update_state = 1;
             } else if (node->flags & REDIS_NODE_FAIL) {
                 clearNodeFailureIfNeeded(node);
             }
@@ -1358,6 +1359,7 @@ void clusterCron(void) {
                 redisLog(REDIS_DEBUG,"*** NODE %.40s possibly failing",
                     node->name);
                 node->flags |= REDIS_NODE_PFAIL;
+                update_state = 1;
             }
         }
     }
@@ -1374,6 +1376,8 @@ void clusterCron(void) {
         replicationSetMaster(server.cluster->myself->slaveof->ip,
                              server.cluster->myself->slaveof->port);
     }
+
+    if (update_state) clusterUpdateState();
 }
 
 /* -----------------------------------------------------------------------------
