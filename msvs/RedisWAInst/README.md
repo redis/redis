@@ -24,11 +24,11 @@ If deploying to the Azure emulator, you will need to manually remove the deploym
 After downloading files, you may have to unblock the DLLs to enable them to be used. Please follow instructions at [http://msdn.microsoft.com/en-us/library/ee890038(VS.100).aspx](http://msdn.microsoft.com/en-us/library/ee890038(VS.100).aspx)
 
 ### Pass-through parameters
-* StorageAccountName – default DomainName + ‘stg’
-* DeploymentName – default DomainName + ‘deploy’
-* Region – default ‘West US’
-* DeploymentOption – default ‘Production’
-* PublishSettingsFilePath – default is any file in –Config folder with publishsettings extension.
+* StorageAccountName - default DomainName + 'stg'
+* DeploymentName - default DomainName + 'deploy'
+* Region - default 'West US'
+* DeploymentOption - default 'Production'
+* PublishSettingsFilePath - default is any file in –Config folder with publishsettings extension.
 
 Configuring the deployment
 --------------------------
