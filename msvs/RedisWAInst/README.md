@@ -10,7 +10,7 @@ Deploying Redis to Windows Azure
 RedisInstWA command line
 ------------------------
 
-RedisInst4WA -Source &lt;path to redis exe or URL to ZIP&gt; -Config &lt;path to cscfg file folder&gt; -RedisConf &lt;path to redis.conf file folder&gt; -Domain &lt;Azure domain&gt; -Subscription &lt;Azure subscription&gt; [-X64] [--Pass &lt;other parameters&gt;]
+RedisInstWA -Source &lt;path to redis exe or URL to ZIP&gt; -Config &lt;path to cscfg file folder&gt; -RedisConf &lt;path to redis.conf file folder&gt; -Domain &lt;Azure domain&gt; -Subscription &lt;Azure subscription&gt; [-X64] [--Pass &lt;other parameters&gt;]
 
 If deploying to the Azure emulator, then use -Emu in place of -Domain and -Subscription.
 Note that the Source may be to local Redis exe files, or may reference a GitHub zip file. If using a zip file, the 32 bit binaries are used by default. To use the 64 bit binaries include the optional -X64 parameter.  
@@ -58,7 +58,7 @@ For example:
 
 Implementation detail
 ---------------------
-RedisInst4WA creates a folder in the current working directory called RedisInstWork. All the files necessary for deployment are copied here.
+RedisInstWA creates a folder in the current working directory called RedisInstWork. All the files necessary for deployment are copied here.
 
 It makes a copy of the redis exe files to deploy in the release sub folder.  It copies the redis.conf file here. It also creates an XmlConfig.xml file that is used as input by the Inst4WA application.
 
