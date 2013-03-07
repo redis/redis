@@ -1450,7 +1450,7 @@ int clusterDelSlot(int slot) {
  * Cluster state evaluation function
  * -------------------------------------------------------------------------- */
 void clusterUpdateState(void) {
-    int j;
+    int j, initial_state = server.cluster->state;
 
     /* Start assuming the state is OK. We'll turn it into FAIL if there
      * are the right conditions. */
@@ -1482,6 +1482,11 @@ void clusterUpdateState(void) {
         }
         dictReleaseIterator(di);
     }
+
+    /* Log a state change */
+    if (initial_state != server.cluster->state)
+        redisLog(REDIS_WARNING,"Cluster state changed: %s",
+            server.cluster->state == REDIS_CLUSTER_OK ? "ok" : "fail");
 }
 
 /* This function is called after the node startup in order to verify that data
