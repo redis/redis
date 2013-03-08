@@ -571,36 +571,32 @@ int htNeedsResize(dict *dict) {
 
 /* If the percentage of used slots in the HT reaches REDIS_HT_MINFILL
  * we resize the hash table to save memory */
-void tryResizeHashTables(void) {
-    int j;
-
-    for (j = 0; j < server.dbnum; j++) {
-        if (htNeedsResize(server.db[j].dict))
-            dictResize(server.db[j].dict);
-        if (htNeedsResize(server.db[j].expires))
-            dictResize(server.db[j].expires);
-    }
+void tryResizeHashTables(int dbid) {
+    if (htNeedsResize(server.db[dbid].dict))
+        dictResize(server.db[dbid].dict);
+    if (htNeedsResize(server.db[dbid].expires))
+        dictResize(server.db[dbid].expires);
 }
 
 /* Our hash table implementation performs rehashing incrementally while
  * we write/read from the hash table. Still if the server is idle, the hash
  * table will use two tables for a long time. So we try to use 1 millisecond
- * of CPU time at every serverCron() loop in order to rehash some key. */
-void incrementallyRehash(void) {
-    int j;
-
-    for (j = 0; j < server.dbnum; j++) {
-        /* Keys dictionary */
-        if (dictIsRehashing(server.db[j].dict)) {
-            dictRehashMilliseconds(server.db[j].dict,1);
-            break; /* already used our millisecond for this loop... */
-        }
-        /* Expires */
-        if (dictIsRehashing(server.db[j].expires)) {
-            dictRehashMilliseconds(server.db[j].expires,1);
-            break; /* already used our millisecond for this loop... */
-        }
+ * of CPU time at every call of this function to perform some rehahsing.
+ *
+ * The function returns 1 if some rehashing was performed, otherwise 0
+ * is returned. */
+int incrementallyRehash(int dbid) {
+    /* Keys dictionary */
+    if (dictIsRehashing(server.db[dbid].dict)) {
+        dictRehashMilliseconds(server.db[dbid].dict,1);
+        return 1; /* already used our millisecond for this loop... */
     }
+    /* Expires */
+    if (dictIsRehashing(server.db[dbid].expires)) {
+        dictRehashMilliseconds(server.db[dbid].expires,1);
+        return 1; /* already used our millisecond for this loop... */
+    }
+    return 0;
 }
 
 /* This function is called once a background process of some kind terminates,
@@ -797,20 +793,39 @@ void clientsCron(void) {
  * incrementally in Redis databases, such as active key expiring, resizing,
  * rehashing. */
 void databasesCron(void) {
-    /* Expire a few keys per cycle, only if this is a master.
-     * On slaves we wait for DEL operations synthesized by the master
-     * in order to guarantee a strict consistency. */
+    /* Expire keys by random sampling. Not required for slaves
+     * as master will synthesize DELs for us. */
     if (server.masterhost == NULL) activeExpireCycle();
 
-    /* We don't want to resize the hash tables while a background saving
-     * is in progress: the saving child is created using fork() that is
-     * implemented with a copy-on-write semantic in most modern systems, so
-     * if we resize the HT while there is the saving child at work actually
-     * a lot of memory movements in the parent will cause a lot of pages
-     * copied. */
+    /* Perform hash tables rehashing if needed, but only if there are no
+     * other processes saving the DB on disk. Otherwise rehashing is bad
+     * as will cause a lot of copy-on-write of memory pages. */
     if (server.rdb_child_pid == -1 && server.aof_child_pid == -1) {
-        tryResizeHashTables();
-        if (server.activerehashing) incrementallyRehash();
+        /* We use global counters so if we stop the computation at a given
+         * DB we'll be able to start from the successive in the next
+         * cron loop iteration. */
+        static int resize_db = 0;
+        static int rehash_db = 0;
+        int j;
+
+        /* Resize */
+        for (j = 0; j < REDIS_DBCRON_DBS_PER_SEC; j++) {
+            tryResizeHashTables(resize_db % server.dbnum);
+            resize_db++;
+        }
+
+        /* Rehash */
+        if (server.activerehashing) {
+            for (j = 0; j < REDIS_DBCRON_DBS_PER_SEC; j++) {
+                int work_done = incrementallyRehash(rehash_db % server.dbnum);
+                rehash_db++;
+                if (work_done) {
+                    /* If the function did some work, stop here, we'll do
+                     * more at the next cron loop. */
+                    break;
+                }
+            }
+        }
     }
 }
 
