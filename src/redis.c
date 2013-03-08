@@ -819,6 +819,27 @@ void clientsCron(void) {
     }
 }
 
+/* This function handles 'background' operations we are required to do
+ * incrementally in Redis databases, such as active key expiring, resizing,
+ * rehashing. */
+void databasesCron(void) {
+    /* Expire a few keys per cycle, only if this is a master.
+     * On slaves we wait for DEL operations synthesized by the master
+     * in order to guarantee a strict consistency. */
+    if (server.masterhost == NULL) activeExpireCycle();
+
+    /* We don't want to resize the hash tables while a background saving
+     * is in progress: the saving child is created using fork() that is
+     * implemented with a copy-on-write semantic in most modern systems, so
+     * if we resize the HT while there is the saving child at work actually
+     * a lot of memory movements in the parent will cause a lot of pages
+     * copied. */
+    if (server.rdb_child_pid == -1 && server.aof_child_pid == -1) {
+        tryResizeHashTables();
+        if (server.activerehashing) incrementallyRehash();
+    }
+}
+
 /* This is our timer interrupt, called server.hz times per second.
  * Here is where we do a number of things that need to be done asynchronously.
  * For instance:
@@ -895,17 +916,6 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                 /* dictPrintStats(server.dict); */
             }
         }
-    }
-
-    /* We don't want to resize the hash tables while a background saving
-     * is in progress: the saving child is created using fork() that is
-     * implemented with a copy-on-write semantic in most modern systems, so
-     * if we resize the HT while there is the saving child at work actually
-     * a lot of memory movements in the parent will cause a lot of pages
-     * copied. */
-    if (server.rdb_child_pid == -1 && server.aof_child_pid == -1) {
-        tryResizeHashTables();
-        if (server.activerehashing) incrementallyRehash();
     }
 
     /* Show information about connected clients */
@@ -987,11 +997,6 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* If we postponed an AOF buffer flush, let's try to do it every time the
      * cron function is called. */
     if (server.aof_flush_postponed_start) flushAppendOnlyFile(0);
-
-    /* Expire a few keys per cycle, only if this is a master.
-     * On slaves we wait for DEL operations synthesized by the master
-     * in order to guarantee a strict consistency. */
-    if (server.masterhost == NULL) activeExpireCycle();
 
     /* Close clients that need to be closed asynchronous */
     freeClientsInAsyncFreeQueue();
