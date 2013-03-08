@@ -616,9 +616,13 @@ void updateDictResizePolicy(void) {
 /* Try to expire a few timed out keys. The algorithm used is adaptive and
  * will use few CPU cycles if there are few expiring keys, otherwise
  * it will get more aggressive to avoid that too much memory is used by
- * keys that can be removed from the keyspace. */
+ * keys that can be removed from the keyspace.
+ *
+ * No more than REDIS_DBCRON_DBS_PER_SEC databases are tested at every
+ * iteration. */
 void activeExpireCycle(void) {
-    int j, iteration = 0;
+    static unsigned int current_db = 0;
+    unsigned int j, iteration = 0;
     long long start = ustime(), timelimit;
 
     /* We can use at max REDIS_EXPIRELOOKUPS_TIME_PERC percentage of CPU time
@@ -628,9 +632,14 @@ void activeExpireCycle(void) {
     timelimit = 1000000*REDIS_EXPIRELOOKUPS_TIME_PERC/server.hz/100;
     if (timelimit <= 0) timelimit = 1;
 
-    for (j = 0; j < server.dbnum; j++) {
+    for (j = 0; j < REDIS_DBCRON_DBS_PER_SEC; j++) {
         int expired;
-        redisDb *db = server.db+j;
+        redisDb *db = server.db+(current_db % server.dbnum);
+
+        /* Increment the DB now so we are sure if we run out of time
+         * in the current DB we'll restart from the next. This allows to
+         * distribute the time evenly across DBs. */
+        current_db++;
 
         /* Continue to expire if at the end of the cycle more than 25%
          * of the keys were expired. */
