@@ -801,9 +801,9 @@ void databasesCron(void) {
         /* We use global counters so if we stop the computation at a given
          * DB we'll be able to start from the successive in the next
          * cron loop iteration. */
-        static int resize_db = 0;
-        static int rehash_db = 0;
-        int j;
+        static unsigned int resize_db = 0;
+        static unsigned int rehash_db = 0;
+        unsigned int j;
 
         /* Resize */
         for (j = 0; j < REDIS_DBCRON_DBS_PER_SEC; j++) {
