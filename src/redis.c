@@ -619,7 +619,7 @@ void updateDictResizePolicy(void) {
  * it will get more aggressive to avoid that too much memory is used by
  * keys that can be removed from the keyspace.
  *
- * No more than REDIS_DBCRON_DBS_PER_SEC databases are tested at every
+ * No more than REDIS_DBCRON_DBS_PER_CALL databases are tested at every
  * iteration. */
 void activeExpireCycle(void) {
     static unsigned int current_db = 0;
@@ -633,7 +633,7 @@ void activeExpireCycle(void) {
     timelimit = 1000000*REDIS_EXPIRELOOKUPS_TIME_PERC/server.hz/100;
     if (timelimit <= 0) timelimit = 1;
 
-    for (j = 0; j < REDIS_DBCRON_DBS_PER_SEC; j++) {
+    for (j = 0; j < REDIS_DBCRON_DBS_PER_CALL; j++) {
         int expired;
         redisDb *db = server.db+(current_db % server.dbnum);
 
@@ -818,14 +818,14 @@ void databasesCron(void) {
         unsigned int j;
 
         /* Resize */
-        for (j = 0; j < REDIS_DBCRON_DBS_PER_SEC; j++) {
+        for (j = 0; j < REDIS_DBCRON_DBS_PER_CALL; j++) {
             tryResizeHashTables(resize_db % server.dbnum);
             resize_db++;
         }
 
         /* Rehash */
         if (server.activerehashing) {
-            for (j = 0; j < REDIS_DBCRON_DBS_PER_SEC; j++) {
+            for (j = 0; j < REDIS_DBCRON_DBS_PER_CALL; j++) {
                 int work_done = incrementallyRehash(rehash_db % server.dbnum);
                 rehash_db++;
                 if (work_done) {
