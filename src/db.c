@@ -116,7 +116,8 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
  * 2) clients WATCHing for the destination key notified.
  * 3) The expire time of the key is reset (the key is made persistent). */
 void setKey(redisDb *db, robj *key, robj *val) {
-    dictReplace(db->dict, key->ptr, val);
+    if (dictReplace(db->dict, key->ptr, val))
+        incrRefCount(key);
     incrRefCount(val);
     removeExpire(db,key);
     signalModifiedKey(db,key);
