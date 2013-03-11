@@ -623,7 +623,11 @@ void updateDictResizePolicy(void) {
 void activeExpireCycle(void) {
     static unsigned int current_db = 0;
     unsigned int j, iteration = 0;
+    unsigned int dbs_per_call = REDIS_DBCRON_DBS_PER_CALL;
     long long start = ustime(), timelimit;
+
+    /* Don't test more DBs than we have. */
+    if (dbs_per_call > server.dbnum) dbs_per_call = server.dbnum;
 
     /* We can use at max REDIS_EXPIRELOOKUPS_TIME_PERC percentage of CPU time
      * per iteration. Since this function gets called with a frequency of
@@ -632,7 +636,7 @@ void activeExpireCycle(void) {
     timelimit = 1000000*REDIS_EXPIRELOOKUPS_TIME_PERC/server.hz/100;
     if (timelimit <= 0) timelimit = 1;
 
-    for (j = 0; j < REDIS_DBCRON_DBS_PER_CALL; j++) {
+    for (j = 0; j < dbs_per_call; j++) {
         int expired;
         redisDb *db = server.db+(current_db % server.dbnum);
 
@@ -816,17 +820,21 @@ void databasesCron(void) {
          * cron loop iteration. */
         static unsigned int resize_db = 0;
         static unsigned int rehash_db = 0;
+        unsigned int dbs_per_call = REDIS_DBCRON_DBS_PER_CALL;
         unsigned int j;
 
+        /* Don't test more DBs than we have. */
+        if (dbs_per_call > server.dbnum) dbs_per_call = server.dbnum;
+
         /* Resize */
-        for (j = 0; j < REDIS_DBCRON_DBS_PER_CALL; j++) {
+        for (j = 0; j < dbs_per_call; j++) {
             tryResizeHashTables(resize_db % server.dbnum);
             resize_db++;
         }
 
         /* Rehash */
         if (server.activerehashing) {
-            for (j = 0; j < REDIS_DBCRON_DBS_PER_CALL; j++) {
+            for (j = 0; j < dbs_per_call; j++) {
                 int work_done = incrementallyRehash(rehash_db % server.dbnum);
                 rehash_db++;
                 if (work_done) {
