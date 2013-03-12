@@ -23,3 +23,10 @@ start_server [list overrides [list "dir" $server_path "dbfilename" "encodings.rd
 }
 }
 
+set server_path [tmpdir "server.rdb-startup-test"]
+
+start_server [list overrides [list "dir" $server_path]] {
+    test {Server started empty with non-existing RDB file} {
+        r debug digest
+    } {0000000000000000000000000000000000000000}
+}
