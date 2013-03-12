@@ -1232,6 +1232,7 @@ void initServerConfig() {
     server.requirepass = NULL;
     server.rdb_compression = 1;
     server.rdb_checksum = 1;
+    server.stop_writes_on_bgsave_err = 1;
     server.activerehashing = 1;
     server.notify_keyspace_events = 0;
     server.maxclients = REDIS_MAX_CLIENTS;
@@ -1459,7 +1460,6 @@ void initServer() {
     server.ops_sec_last_sample_ops = 0;
     server.unixtime = time(NULL);
     server.lastbgsave_status = REDIS_OK;
-    server.stop_writes_on_bgsave_err = 1;
     if(aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
         redisPanic("Can't create the serverCron time event.");
         exit(1);
