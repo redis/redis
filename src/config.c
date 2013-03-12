@@ -196,6 +196,8 @@ void loadServerConfigFromString(char *config) {
             server.dbnum = atoi(argv[1]);
             if (server.dbnum < 1) {
                 err = "Invalid number of databases"; goto loaderr;
+            } else if (server.cluster_enabled) {
+                server.dbnum = 1;
             }
         } else if (!strcasecmp(argv[0],"include") && argc == 2) {
             loadServerConfig(argv[1],NULL);
