@@ -1069,7 +1069,6 @@ int rdbLoad(char *filename) {
 
     fp = fopen(filename,"r");
     if (!fp) {
-        errno = ENOENT;
         return REDIS_ERR;
     }
     rioInitWithFile(&rdb,fp);
