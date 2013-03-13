@@ -1398,6 +1398,9 @@ void initServer() {
     createSharedObjects();
     adjustOpenFilesLimit();
     server.el = aeCreateEventLoop(server.maxclients+1024);
+
+    if (server.cluster_enabled) server.dbnum = 1;
+
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     if (server.port != 0) {
