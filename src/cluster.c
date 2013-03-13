@@ -40,6 +40,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void clusterSendPing(clusterLink *link, int type);
 void clusterSendFail(char *nodename);
+void clusterSendFailoverAuthIfNeeded(clusterNode *sender);
 void clusterUpdateState(void);
 int clusterNodeGetSlotBit(clusterNode *n, int slot);
 sds clusterGenNodesDescription(void);
@@ -870,7 +871,13 @@ int clusterProcessPacket(clusterLink *link) {
                  * status... */
                 return 0;
             }
+        } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST) {
+            if (!sender) return 0;  /* We don't know that node. */
+            /* If we are not a master, ignore that message at all. */
+            if (!(server.cluster->myself->flags & REDIS_NODE_MASTER)) return 0;
+            clusterSendFailoverAuthIfNeeded(sender);
         }
+
         /* Update our info about the node */
         if (link->node) link->node->pong_received = time(NULL);
 
@@ -1265,6 +1272,18 @@ void clusterRequestFailoverAuth(void) {
     totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
     hdr->totlen = htonl(totlen);
     clusterBroadcastMessage(payload,totlen);
+}
+
+/* If we believe 'sender' is the "first slave" of it's master, reply with
+ * a FAILOVER_AUTH_GRANTED packet.
+ *
+ * To be a first slave the sender must:
+ * 1) Be a slave.
+ * 2) Its master should be in FAIL state.
+ * 3) Ordering all the slave IDs for its master by run-id, it should be the
+ *    first (the smallest).
+ */
+void clusterSendFailoverAuthIfNeeded(clusterNode *sender) {
 }
 
 /* This function is called if we are a slave node and our master serving
