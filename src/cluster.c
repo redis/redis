@@ -1274,16 +1274,43 @@ void clusterRequestFailoverAuth(void) {
     clusterBroadcastMessage(payload,totlen);
 }
 
-/* If we believe 'sender' is the "first slave" of it's master, reply with
+/* If we believe 'node' is the "first slave" of it's master, reply with
  * a FAILOVER_AUTH_GRANTED packet.
  *
  * To be a first slave the sender must:
  * 1) Be a slave.
  * 2) Its master should be in FAIL state.
- * 3) Ordering all the slave IDs for its master by run-id, it should be the
- *    first (the smallest).
+ * 3) Ordering all the slaves IDs for its master by run-id, it should be the
+ *    first (the smallest) among the ones not in FAIL / PFAIL state.
  */
-void clusterSendFailoverAuthIfNeeded(clusterNode *sender) {
+void clusterSendFailoverAuthIfNeeded(clusterNode *node) {
+    char first[REDIS_CLUSTER_NAMELEN];
+    clusterNode *master = node->slaveof;
+    int j;
+
+    /* Node is a slave? Its master is down? */
+    if (!(node->flags & REDIS_NODE_SLAVE) ||
+        master == NULL ||
+        !(master->flags & REDIS_NODE_FAIL)) return;
+
+    /* Iterate all the master slaves to check what's the first one. */
+    memset(first,0xff,sizeof(first));
+    for (j = 0; j < master->numslaves; j++) {
+        clusterNode *slave = master->slaves[j];
+
+        if (slave->flags & (REDIS_NODE_FAIL|REDIS_NODE_PFAIL)) continue;
+        if (memcmp(slave->name,first,sizeof(first)) < 0) {
+            memcpy(first,slave->name,sizeof(first));
+        }
+    }
+
+    /* Is 'node' the first slave? */
+    if (memcmp(node->name,first,sizeof(first)) != 0) return;
+
+    /* We can send the packet. */
+    /* TODO: send the packet refactoring the code so that we have a
+     * sendEmtpyPacketWithType() function and broadcastEmptyPacketWithType().
+     */
 }
 
 /* This function is called if we are a slave node and our master serving
