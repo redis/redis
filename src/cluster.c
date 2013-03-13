@@ -1243,6 +1243,22 @@ void clusterPropagatePublish(robj *channel, robj *message) {
 }
 
 /* -----------------------------------------------------------------------------
+ * SLAVE node specific functions
+ * -------------------------------------------------------------------------- */
+
+/* This function is called if we are a slave node and our master serving
+ * a non-zero amount of hash slots is in PFAIL state.
+ *
+ * The gaol of this function is:
+ * 1) To check if we are able to perform a failover, is our data updated?
+ * 2) Ask reachable masters the authorization to perform the failover.
+ * 3) Check if there is the majority of masters agreeing we should failover.
+ * 4) Perform the failover informing all the other nodes.
+ */
+void clusterHandleSlaveFailover(void) {
+}
+
+/* -----------------------------------------------------------------------------
  * CLUSTER cron job
  * -------------------------------------------------------------------------- */
 
@@ -1375,6 +1391,16 @@ void clusterCron(void) {
     {
         replicationSetMaster(server.cluster->myself->slaveof->ip,
                              server.cluster->myself->slaveof->port);
+    }
+
+    /* If we are a slave and our master is down, but is serving slots,
+     * call the function that handles the failover. */
+    if (server.cluster->myself->flags & REDIS_NODE_SLAVE &&
+        server.cluster->myself->slaveof &&
+        server.cluster->myself->slaveof->flags & REDIS_NODE_FAIL &&
+        server.cluster->myself->slaveof->numslots != 0)
+    {
+        clusterHandleSlaveFailover();
     }
 
     if (update_state) clusterUpdateState();
