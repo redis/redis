@@ -62,3 +62,22 @@ start_server_and_kill_it [list "dir" $server_path] {
         fail "Server started even if RDB was unreadable!"
     }
 }
+
+# Fix permissions of the RDB file, but corrupt its CRC64 checksum.
+file attributes [file join $server_path dump.rdb] -permissions 0666
+set filesize [file size [file join $server_path dump.rdb]]
+set fd [open [file join $server_path dump.rdb] r+]
+fconfigure $fd -translation binary
+seek $fd -8 end
+puts -nonewline $fd "foobar00"; # Corrupt the checksum
+close $fd
+
+# Now make sure the server aborted with an error
+start_server_and_kill_it [list "dir" $server_path] {
+    wait_for_condition 50 100 {
+        [string match {*RDB checksum*} \
+            [exec tail -n1 < [dict get $srv stdout]]]
+    } else {
+        fail "Server started even if RDB was corrupted!"
+    }
+}
