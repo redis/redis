@@ -793,6 +793,10 @@ int clusterProcessPacket(clusterLink *link) {
                 ntohl(hdr->data.publish.msg.channel_len) +
                 ntohl(hdr->data.publish.msg.message_len);
         if (totlen != explen) return 1;
+    } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST) {
+        uint32_t explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
+
+        if (totlen != explen) return 1;
     }
 
     /* Ready to process the packet. Dispatch by type. */
