@@ -227,6 +227,8 @@ void clusterInit(void) {
     server.cluster->size = 1;
     server.cluster->nodes = dictCreate(&clusterNodesDictType,NULL);
     server.cluster->node_timeout = 15;
+    server.cluster->failover_auth_time = 0;
+    server.cluster->failover_auth_count = 0;
     memset(server.cluster->migrating_slots_to,0,
         sizeof(server.cluster->migrating_slots_to));
     memset(server.cluster->importing_slots_from,0,
@@ -1256,6 +1258,33 @@ void clusterPropagatePublish(robj *channel, robj *message) {
  * 4) Perform the failover informing all the other nodes.
  */
 void clusterHandleSlaveFailover(void) {
+    time_t data_age = server.unixtime - server.repl_down_since;
+    time_t auth_age = server.unixtime - server.cluster->failover_auth_time;
+    int needed_quorum = (server.cluster->size / 2) + 1;
+
+    /* Check if our data is recent enough. For now we just use a fixed
+     * constant of ten times the node timeout since the cluster should
+     * react much faster to a master down. */
+    if (data_age > server.cluster->node_timeout * 10) return;
+
+    /* TODO: check if we are the first slave as well? Or just rely on the
+     * master authorization? */
+
+    /* Ask masters if we are authorized to perform the failover. If there
+     * is a pending auth request that's too old, reset it. */
+    if (server.cluster->failover_auth_time == 0 || auth_age > 15) {
+        server.cluster->failover_auth_time = time(NULL);
+        server.cluster->failover_auth_count = 0;
+
+        /* TODO: Broadcast the AUTH request. */
+        return; /* Wait for replies. */
+    }
+
+    /* Check if we reached the quorum. */
+    if (server.cluster->failover_auth_count > needed_quorum) {
+        /* TODO: Perform election. */
+        /* TODO: Broadcast update to cluster. */
+    }
 }
 
 /* -----------------------------------------------------------------------------

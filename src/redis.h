@@ -579,6 +579,8 @@ typedef struct {
     clusterNode *importing_slots_from[REDIS_CLUSTER_SLOTS];
     clusterNode *slots[REDIS_CLUSTER_SLOTS];
     zskiplist *slots_to_keys;
+    int failover_auth_time;     /* Time at which we sent the AUTH request. */
+    int failover_auth_count;    /* Number of authorizations received. */
 } clusterState;
 
 /* Redis cluster messages header */
