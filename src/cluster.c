@@ -1248,6 +1248,23 @@ void clusterPropagatePublish(robj *channel, robj *message) {
  * SLAVE node specific functions
  * -------------------------------------------------------------------------- */
 
+/* This function sends a FAILOVE_AUTH_REQUEST message to every node in order to
+ * see if there is the quorum for this slave instance to failover its failing
+ * master.
+ *
+ * Note that we send the failover request to everybody, master and slave nodes,
+ * but only the masters are supposed to reply to our query. */
+void clusterRequestFailoverAuth(void) {
+    unsigned char buf[4096], *payload;
+    clusterMsg *hdr = (clusterMsg*) buf;
+    uint32_t totlen;
+
+    clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST);
+    totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
+    hdr->totlen = htonl(totlen);
+    clusterBroadcastMessage(payload,totlen);
+}
+
 /* This function is called if we are a slave node and our master serving
  * a non-zero amount of hash slots is in PFAIL state.
  *
