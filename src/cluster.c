@@ -1274,6 +1274,19 @@ void clusterRequestFailoverAuth(void) {
     clusterBroadcastMessage(payload,totlen);
 }
 
+/* Send a FAILOVER_AUTH_ACK message to the specified node. */
+void clusterSendFailoverAuth(clusterNode *node) {
+    unsigned char buf[4096], *payload;
+    clusterMsg *hdr = (clusterMsg*) buf;
+    uint32_t totlen;
+
+    if (!node->link) return;
+    clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK);
+    totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
+    hdr->totlen = htonl(totlen);
+    clusterSendMessage(node->link,payload,totlen);
+}
+
 /* If we believe 'node' is the "first slave" of it's master, reply with
  * a FAILOVER_AUTH_GRANTED packet.
  *
@@ -1308,9 +1321,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node) {
     if (memcmp(node->name,first,sizeof(first)) != 0) return;
 
     /* We can send the packet. */
-    /* TODO: send the packet refactoring the code so that we have a
-     * sendEmtpyPacketWithType() function and broadcastEmptyPacketWithType().
-     */
+    clusterSendFailoverAuth(node);
 }
 
 /* This function is called if we are a slave node and our master serving
