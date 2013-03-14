@@ -1271,19 +1271,19 @@ void clusterPropagatePublish(robj *channel, robj *message) {
  * Note that we send the failover request to everybody, master and slave nodes,
  * but only the masters are supposed to reply to our query. */
 void clusterRequestFailoverAuth(void) {
-    unsigned char buf[4096], *payload;
+    unsigned char buf[4096];
     clusterMsg *hdr = (clusterMsg*) buf;
     uint32_t totlen;
 
     clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST);
     totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
     hdr->totlen = htonl(totlen);
-    clusterBroadcastMessage(payload,totlen);
+    clusterBroadcastMessage(buf,totlen);
 }
 
 /* Send a FAILOVER_AUTH_ACK message to the specified node. */
 void clusterSendFailoverAuth(clusterNode *node) {
-    unsigned char buf[4096], *payload;
+    unsigned char buf[4096];
     clusterMsg *hdr = (clusterMsg*) buf;
     uint32_t totlen;
 
@@ -1291,7 +1291,7 @@ void clusterSendFailoverAuth(clusterNode *node) {
     clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK);
     totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
     hdr->totlen = htonl(totlen);
-    clusterSendMessage(node->link,payload,totlen);
+    clusterSendMessage(node->link,buf,totlen);
 }
 
 /* If we believe 'node' is the "first slave" of it's master, reply with
