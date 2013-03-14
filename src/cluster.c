@@ -872,17 +872,6 @@ int clusterProcessPacket(clusterLink *link) {
                  * status... */
                 return 0;
             }
-        } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST) {
-            if (!sender) return 0;  /* We don't know that node. */
-            /* If we are not a master, ignore that message at all. */
-            if (!(server.cluster->myself->flags & REDIS_NODE_MASTER)) return 0;
-            clusterSendFailoverAuthIfNeeded(sender);
-        } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK) {
-            if (!sender) return 0;  /* We don't know that node. */
-            /* If this is a master, increment the number of acknowledges
-             * we received so far. */
-            if (sender->flags & REDIS_NODE_MASTER)
-                server.cluster->failover_auth_count++;
         }
 
         /* Update our info about the node */
@@ -976,6 +965,17 @@ int clusterProcessPacket(clusterLink *link) {
             decrRefCount(channel);
             decrRefCount(message);
         }
+    } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST) {
+        if (!sender) return 0;  /* We don't know that node. */
+        /* If we are not a master, ignore that message at all. */
+        if (!(server.cluster->myself->flags & REDIS_NODE_MASTER)) return 0;
+        clusterSendFailoverAuthIfNeeded(sender);
+    } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK) {
+        if (!sender) return 0;  /* We don't know that node. */
+        /* If this is a master, increment the number of acknowledges
+         * we received so far. */
+        if (sender->flags & REDIS_NODE_MASTER)
+            server.cluster->failover_auth_count++;
     } else {
         redisLog(REDIS_WARNING,"Received unknown packet type: %d", type);
     }
