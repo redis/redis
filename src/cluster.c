@@ -794,7 +794,8 @@ int clusterProcessPacket(clusterLink *link) {
                 ntohl(hdr->data.publish.msg.channel_len) +
                 ntohl(hdr->data.publish.msg.message_len);
         if (totlen != explen) return 1;
-    } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST) {
+    } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST ||
+               type == CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK) {
         uint32_t explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
 
         if (totlen != explen) return 1;
@@ -876,6 +877,12 @@ int clusterProcessPacket(clusterLink *link) {
             /* If we are not a master, ignore that message at all. */
             if (!(server.cluster->myself->flags & REDIS_NODE_MASTER)) return 0;
             clusterSendFailoverAuthIfNeeded(sender);
+        } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK) {
+            if (!sender) return 0;  /* We don't know that node. */
+            /* If this is a master, increment the number of acknowledges
+             * we received so far. */
+            if (sender->flags & REDIS_NODE_MASTER)
+                server.cluster->failover_auth_count++;
         }
 
         /* Update our info about the node */
