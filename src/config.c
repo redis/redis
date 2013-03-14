@@ -789,7 +789,7 @@ void configGetCommand(redisClient *c) {
     /* String values */
     config_get_string_field("dbfilename",server.rdb_filename);
     config_get_string_field("requirepass",server.requirepass);
-    config_get_string_field("masterauth",server.requirepass);
+    config_get_string_field("masterauth",server.masterauth);
     config_get_string_field("bind",server.bindaddr);
     config_get_string_field("unixsocket",server.unixsocket);
     config_get_string_field("logfile",server.logfile);
