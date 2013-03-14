@@ -1325,7 +1325,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node) {
 }
 
 /* This function is called if we are a slave node and our master serving
- * a non-zero amount of hash slots is in PFAIL state.
+ * a non-zero amount of hash slots is in FAIL state.
  *
  * The gaol of this function is:
  * 1) To check if we are able to perform a failover, is our data updated?
@@ -1352,12 +1352,14 @@ void clusterHandleSlaveFailover(void) {
         server.cluster->failover_auth_time = time(NULL);
         server.cluster->failover_auth_count = 0;
 
-        /* TODO: Broadcast the AUTH request. */
+        clusterRequestFailoverAuth();
         return; /* Wait for replies. */
     }
 
     /* Check if we reached the quorum. */
     if (server.cluster->failover_auth_count > needed_quorum) {
+        redisLog(REDIS_WARNING,
+            "Masters quorum reached: failing over my (failing) master.");
         /* TODO: Perform election. */
         /* TODO: Broadcast update to cluster. */
     }
