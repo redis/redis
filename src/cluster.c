@@ -612,7 +612,7 @@ void markNodeAsFailingIfNeeded(clusterNode *node) {
  * state.
  *
  * Currently we only revert the FAIL state if there are no slaves for this
- * node, so that no election was possible. */
+ * node, so that no promotion was possible. */
 void clearNodeFailureIfNeeded(clusterNode *node) {
     int changes = 0;
     time_t now = time(NULL);
@@ -1390,7 +1390,7 @@ void clusterHandleSlaveFailover(void) {
     if (server.cluster->failover_auth_count >= needed_quorum) {
         redisLog(REDIS_WARNING,
             "Masters quorum reached: failing over my (failing) master.");
-        /* TODO: Perform election. */
+        /* TODO: Perform promotion. */
         /* TODO: Broadcast update to cluster. */
     }
 }
