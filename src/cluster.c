@@ -877,11 +877,13 @@ int clusterProcessPacket(clusterLink *link) {
         /* Update our info about the node */
         if (link->node) link->node->pong_received = time(NULL);
 
-        /* Update master/slave info */
+        /* Update master/slave state */
         if (sender) {
             if (!memcmp(hdr->slaveof,REDIS_NODE_NULL_NAME,
                 sizeof(hdr->slaveof)))
             {
+                if (sender->slaveof)
+                    clusterNodeRemoveSlave(sender->slaveof,sender);
                 sender->flags &= ~REDIS_NODE_SLAVE;
                 sender->flags |= REDIS_NODE_MASTER;
                 sender->slaveof = NULL;
@@ -898,7 +900,9 @@ int clusterProcessPacket(clusterLink *link) {
             }
         }
 
-        /* Update our info about served slots. */
+        /* Update our info about served slots.
+         * Note: this MUST happen after we update the master/slave state
+         * so that REDIS_NODE_MASTER flag will be set. */
         if (sender && sender->flags & REDIS_NODE_MASTER) {
             int changes, j;
 
@@ -909,7 +913,7 @@ int clusterProcessPacket(clusterLink *link) {
                     if (bitmapTestBit(hdr->myslots,j)) {
                         /* If this slot was not served, or served by a node
                          * in FAIL state, update the table with the new node
-                         * caliming to serve the slot. */
+                         * claiming to serve the slot. */
                         if (server.cluster->slots[j] == sender) continue;
                         if (server.cluster->slots[j] == NULL ||
                             server.cluster->slots[j]->flags & REDIS_NODE_FAIL)
