@@ -48,6 +48,7 @@ clusterNode *clusterLookupNode(char *name);
 int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
 int clusterAddSlot(clusterNode *n, int slot);
 int clusterDelSlot(int slot);
+int clusterDelNodeSlots(clusterNode *node);
 int clusterNodeSetSlotBit(clusterNode *n, int slot);
 int bitmapTestBit(unsigned char *bitmap, int pos);
 
@@ -882,13 +883,30 @@ int clusterProcessPacket(clusterLink *link) {
             if (!memcmp(hdr->slaveof,REDIS_NODE_NULL_NAME,
                 sizeof(hdr->slaveof)))
             {
-                if (sender->slaveof)
+                /* Node is a master. */
+                if (sender->flags & REDIS_NODE_SLAVE &&
+                    sender->slaveof != NULL)
+                {
+                    /* If the node changed role and is now a master, remove
+                     * it from the list of slaves of its old master. */
                     clusterNodeRemoveSlave(sender->slaveof,sender);
+                    update_state = 1;
+                    update_config = 1;
+                }
                 sender->flags &= ~REDIS_NODE_SLAVE;
                 sender->flags |= REDIS_NODE_MASTER;
                 sender->slaveof = NULL;
             } else {
+                /* Node is a slave. */
                 clusterNode *master = clusterLookupNode(hdr->slaveof);
+
+                if (sender->flags & REDIS_NODE_MASTER) {
+                    /* If the node changed role and is now a slave, clear all
+                     * its slots as them are no longer served. */
+                    clusterDelNodeSlots(sender);
+                    update_state = 1;
+                    update_config = 1;
+                }
 
                 sender->flags &= ~REDIS_NODE_MASTER;
                 sender->flags |= REDIS_NODE_SLAVE;
@@ -1627,6 +1645,18 @@ int clusterDelSlot(int slot) {
     redisAssert(clusterNodeClearSlotBit(n,slot) == 1);
     server.cluster->slots[slot] = NULL;
     return REDIS_OK;
+}
+
+/* Delete all the slots associated with the specified node.
+ * The number of deleted slots is returned. */
+int clusterDelNodeSlots(clusterNode *node) {
+    int deleted = 0, j;
+
+    for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
+        if (clusterNodeGetSlotBit(node,j)) clusterDelSlot(j);
+        deleted++;
+    }
+    return deleted;
 }
 
 /* -----------------------------------------------------------------------------
