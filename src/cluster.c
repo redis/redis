@@ -1193,6 +1193,27 @@ void clusterSendPing(clusterLink *link, int type) {
     clusterSendMessage(link,buf,totlen);
 }
 
+/* Send a PING packet to every connected node that's not in handshake state.
+ *
+ * Usually cluster nodes will ping just another node every second, however
+ * in Redis Cluster pings are not just used for failure detection, but also
+ * to carry important configuration informations. So broadcasting a ping is
+ * useful when something changes in the configuration and we want to make
+ * the cluster aware ASAP (for instance after a slave promotion). */
+void clusterBroadcastPing(void) {
+    dictIterator *di;
+    dictEntry *de;
+
+    di = dictGetIterator(server.cluster->nodes);
+    while((de = dictNext(di)) != NULL) {
+        clusterNode *node = dictGetVal(de);
+
+        if (node->flags & (REDIS_NODE_MYSELF|REDIS_NODE_HANDSHAKE)) continue;
+        clusterSendPing(node->link,CLUSTERMSG_TYPE_PONG);
+    }
+    dictReleaseIterator(di);
+}
+
 /* Send a PUBLISH message.
  *
  * If link is NULL, then the message is broadcasted to the whole cluster. */
