@@ -1390,8 +1390,20 @@ void clusterHandleSlaveFailover(void) {
     if (server.cluster->failover_auth_count >= needed_quorum) {
         redisLog(REDIS_WARNING,
             "Masters quorum reached: failing over my (failing) master.");
-        /* TODO: Perform promotion. */
-        /* TODO: Broadcast update to cluster. */
+        /* We have the quorum, perform all the steps to correctly promote
+         * this slave to a master.
+         *
+         * 1) Turn this node into a master. */
+        clusterNodeRemoveSlave(server.cluster->myself->slaveof,
+                               server.cluster->myself);
+        server.cluster->myself->flags &= ~REDIS_NODE_SLAVE;
+        server.cluster->myself->flags |= REDIS_NODE_MASTER;
+        server.cluster->myself->slaveof = NULL;
+        replicationUnsetMaster();
+
+        /* 2) Ping all the other nodes so that they can update the state
+         *    accordingly and detect that we switched to master role. */
+        clusterBroadcastPing();
     }
 }
 
