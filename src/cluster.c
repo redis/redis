@@ -1085,7 +1085,8 @@ void clusterSendMessage(clusterLink *link, unsigned char *msg, size_t msglen) {
     link->sndbuf = sdscatlen(link->sndbuf, msg, msglen);
 }
 
-/* Send a message to all the nodes with a reliable link */
+/* Send a message to all the nodes that are part of the cluster having
+ * a connected link. */
 void clusterBroadcastMessage(void *buf, size_t len) {
     dictIterator *di;
     dictEntry *de;
@@ -1095,7 +1096,8 @@ void clusterBroadcastMessage(void *buf, size_t len) {
         clusterNode *node = dictGetVal(de);
 
         if (!node->link) continue;
-        if (node->flags & (REDIS_NODE_MYSELF|REDIS_NODE_NOADDR)) continue;
+        if (node->flags & (REDIS_NODE_MYSELF|REDIS_NODE_HANDSHAKE))
+            continue;
         clusterSendMessage(node->link,buf,len);
     }
     dictReleaseIterator(di);
