@@ -1402,6 +1402,7 @@ void clusterHandleSlaveFailover(void) {
      * is a pending auth request that's too old, reset it. */
     if (server.cluster->failover_auth_time == 0 || auth_age > 15)
     {
+        redisLog(REDIS_WARNING,"Asking masters if I can failover...");
         server.cluster->failover_auth_time = time(NULL);
         server.cluster->failover_auth_count = 0;
         clusterRequestFailoverAuth();
