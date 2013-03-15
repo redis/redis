@@ -1355,16 +1355,16 @@ void clusterHandleSlaveFailover(void) {
 
     /* Ask masters if we are authorized to perform the failover. If there
      * is a pending auth request that's too old, reset it. */
-    if (server.cluster->failover_auth_time == 0 || auth_age > 15) {
+    if (server.cluster->failover_auth_time == 0 || auth_age > 15)
+    {
         server.cluster->failover_auth_time = time(NULL);
         server.cluster->failover_auth_count = 0;
-
         clusterRequestFailoverAuth();
         return; /* Wait for replies. */
     }
 
     /* Check if we reached the quorum. */
-    if (server.cluster->failover_auth_count > needed_quorum) {
+    if (server.cluster->failover_auth_count >= needed_quorum) {
         redisLog(REDIS_WARNING,
             "Masters quorum reached: failing over my (failing) master.");
         /* TODO: Perform election. */
