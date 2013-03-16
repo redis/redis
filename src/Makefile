@@ -200,6 +200,8 @@ distclean: clean
 test: $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME)
 	@(cd ..; ./runtest)
 
+check: test
+
 lcov:
 	$(MAKE) gcov
 	@(set -e; cd ..; ./runtest --clients 1)
