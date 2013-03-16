@@ -24,22 +24,22 @@ OPT= $(OPTIMIZATION)
 
 # Default allocator
 ifeq ($(uname_S),Linux)
-  MALLOC=jemalloc
+	MALLOC=jemalloc
 else
-  MALLOC=libc
+	MALLOC=libc
 endif
 
 # Backwards compatibility for selecting an allocator
 ifeq ($(USE_TCMALLOC),yes)
-  MALLOC=tcmalloc
+	MALLOC=tcmalloc
 endif
 
 ifeq ($(USE_TCMALLOC_MINIMAL),yes)
-  MALLOC=tcmalloc_minimal
+	MALLOC=tcmalloc_minimal
 endif
 
 ifeq ($(USE_JEMALLOC),yes)
-  MALLOC=jemalloc
+	MALLOC=jemalloc
 endif
 
 # Override default settings if possible
@@ -65,19 +65,19 @@ endif
 FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src
 
 ifeq ($(MALLOC),tcmalloc)
-  FINAL_CFLAGS+= -DUSE_TCMALLOC
-  FINAL_LIBS+= -ltcmalloc
+	FINAL_CFLAGS+= -DUSE_TCMALLOC
+	FINAL_LIBS+= -ltcmalloc
 endif
 
 ifeq ($(MALLOC),tcmalloc_minimal)
-  FINAL_CFLAGS+= -DUSE_TCMALLOC
-  FINAL_LIBS+= -ltcmalloc_minimal
+	FINAL_CFLAGS+= -DUSE_TCMALLOC
+	FINAL_LIBS+= -ltcmalloc_minimal
 endif
 
 ifeq ($(MALLOC),jemalloc)
-  DEPENDENCY_TARGETS+= jemalloc
-  FINAL_CFLAGS+= -DUSE_JEMALLOC -I../deps/jemalloc/include
-  FINAL_LIBS+= ../deps/jemalloc/lib/libjemalloc.a -ldl
+	DEPENDENCY_TARGETS+= jemalloc
+	FINAL_CFLAGS+= -DUSE_JEMALLOC -I../deps/jemalloc/include
+	FINAL_LIBS+= ../deps/jemalloc/lib/libjemalloc.a -ldl
 endif
 
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)
