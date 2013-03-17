@@ -58,7 +58,6 @@ else ifeq ($(uname_S),Darwin)
 else
 	FINAL_LDFLAGS+= -rdynamic
 	FINAL_LIBS+= -pthread
-	DEBUG+= -rdynamic
 endif
 
 # Include paths to dependencies
