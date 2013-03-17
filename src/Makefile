@@ -231,7 +231,7 @@ src/help.h:
 	@../utils/generate-command-help.rb > help.h
 
 install: all
-	mkdir -p $(INSTALL_BIN)
+	@mkdir -p $(INSTALL_BIN)
 	$(REDIS_INSTALL) $(REDIS_SERVER_NAME) $(INSTALL_BIN)
 	$(REDIS_INSTALL) $(REDIS_BENCHMARK_NAME) $(INSTALL_BIN)
 	$(REDIS_INSTALL) $(REDIS_CLI_NAME) $(INSTALL_BIN)
