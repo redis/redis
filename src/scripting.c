@@ -200,7 +200,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     if (argc == 0) {
         luaPushError(lua,
             "Please specify at least one argument for redis.call()");
-        return 1;
+        goto err;
     }
 
     /* Build the arguments vector */
@@ -223,7 +223,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         zfree(argv);
         luaPushError(lua,
             "Lua redis() command arguments must be strings or integers");
-        return 1;
+        goto err;
     }
 
     /* Setup our fake client for command execution */
@@ -323,6 +323,7 @@ cleanup:
         decrRefCount(c->argv[j]);
     zfree(c->argv);
 
+err:
     if (raise_error) {
         /* If we are here we should have an error in the stack, in the
          * form of a table with an "err" field. Extract the string to
