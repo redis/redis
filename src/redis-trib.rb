@@ -409,7 +409,9 @@ class RedisTrib
         node.load_info(:getfriends => true)
         add_node(node)
         node.friends.each{|f|
-            next if f[:flags].index("noaddr") or f[:flags].index("disconnected")
+            next if f[:flags].index("noaddr") ||
+                    f[:flags].index("disconnected") ||
+                    f[:flags].index("fail")
             fnode = ClusterNode.new(f[:addr])
             fnode.connect()
             fnode.load_info()
