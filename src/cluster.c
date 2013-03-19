@@ -884,34 +884,33 @@ int clusterProcessPacket(clusterLink *link) {
                 sizeof(hdr->slaveof)))
             {
                 /* Node is a master. */
-                if (sender->flags & REDIS_NODE_SLAVE &&
-                    sender->slaveof != NULL)
-                {
-                    /* If the node changed role and is now a master, remove
-                     * it from the list of slaves of its old master. */
-                    clusterNodeRemoveSlave(sender->slaveof,sender);
+                if (sender->flags & REDIS_NODE_SLAVE) {
+                    /* Slave turned into master? Reconfigure it. */
+                    if (sender->slaveof)
+                        clusterNodeRemoveSlave(sender->slaveof,sender);
+                    sender->flags &= ~REDIS_NODE_SLAVE;
+                    sender->flags |= REDIS_NODE_MASTER;
+                    sender->slaveof = NULL;
                     update_state = 1;
                     update_config = 1;
                 }
-                sender->flags &= ~REDIS_NODE_SLAVE;
-                sender->flags |= REDIS_NODE_MASTER;
-                sender->slaveof = NULL;
             } else {
                 /* Node is a slave. */
                 clusterNode *master = clusterLookupNode(hdr->slaveof);
 
                 if (sender->flags & REDIS_NODE_MASTER) {
-                    /* If the node changed role and is now a slave, clear all
-                     * its slots as them are no longer served. */
+                    /* Master just turned into a slave? Reconfigure the node. */
                     clusterDelNodeSlots(sender);
+                    sender->flags &= ~REDIS_NODE_MASTER;
+                    sender->flags |= REDIS_NODE_SLAVE;
+                    /* Remove the list of slaves from the node. */
+                    if (sender->numslaves) clusterNodeResetSlaves(sender);
                     update_state = 1;
                     update_config = 1;
                 }
 
-                sender->flags &= ~REDIS_NODE_MASTER;
-                sender->flags |= REDIS_NODE_SLAVE;
-                if (sender->numslaves) clusterNodeResetSlaves(sender);
-                if (master) {
+                /* Master node changed for this slave? */
+                if (sender->slaveof != master) {
                     clusterNodeAddSlave(master,sender);
                     sender->slaveof = master;
                 }
