@@ -50,6 +50,7 @@ int clusterAddSlot(clusterNode *n, int slot);
 int clusterDelSlot(int slot);
 int clusterDelNodeSlots(clusterNode *node);
 int clusterNodeSetSlotBit(clusterNode *n, int slot);
+void clusterSetMaster(clusterNode *n);
 int bitmapTestBit(unsigned char *bitmap, int pos);
 
 /* -----------------------------------------------------------------------------
@@ -885,12 +886,25 @@ int clusterProcessPacket(clusterLink *link) {
             {
                 /* Node is a master. */
                 if (sender->flags & REDIS_NODE_SLAVE) {
-                    /* Slave turned into master? Reconfigure it. */
+                    /* Slave turned into master! */
+                    clusterNode *oldmaster = sender->slaveof;
+
+                    /* Reconfigure node as master. */
                     if (sender->slaveof)
                         clusterNodeRemoveSlave(sender->slaveof,sender);
                     sender->flags &= ~REDIS_NODE_SLAVE;
                     sender->flags |= REDIS_NODE_MASTER;
                     sender->slaveof = NULL;
+
+                    /* If this node used to be our slave, it means that
+                     * we were failed over. We'll turn ourself into a slave
+                     * of the new master. */
+                    if (oldmaster == server.cluster->myself) {
+                        redisLog(REDIS_WARNING,"One of my slaves took my place. Reconfiguring myself as a replica of %.40s", sender->name);
+                        clusterSetMaster(sender);
+                    }
+
+                    /* Update config and state. */
                     update_state = 1;
                     update_config = 1;
                 }
@@ -899,12 +913,15 @@ int clusterProcessPacket(clusterLink *link) {
                 clusterNode *master = clusterLookupNode(hdr->slaveof);
 
                 if (sender->flags & REDIS_NODE_MASTER) {
-                    /* Master just turned into a slave? Reconfigure the node. */
+                    /* Master turned into a slave! Reconfigure the node. */
                     clusterDelNodeSlots(sender);
                     sender->flags &= ~REDIS_NODE_MASTER;
                     sender->flags |= REDIS_NODE_SLAVE;
+
                     /* Remove the list of slaves from the node. */
                     if (sender->numslaves) clusterNodeResetSlaves(sender);
+
+                    /* Update config and state. */
                     update_state = 1;
                     update_config = 1;
                 }
