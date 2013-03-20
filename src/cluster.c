@@ -907,6 +907,7 @@ int clusterProcessPacket(clusterLink *link) {
                         oldmaster == server.cluster->myself)
                     {
                         redisLog(REDIS_WARNING,"One of my slaves took my place. Reconfiguring myself as a replica of %.40s", sender->name);
+                        clusterDelNodeSlots(server.cluster->myself);
                         clusterSetMaster(sender);
                     }
 
@@ -1836,11 +1837,13 @@ int verifyClusterConfigWithData(void) {
  * SLAVE nodes handling
  * -------------------------------------------------------------------------- */
 
-/* Set the specified node 'n' as master. */
+/* Set the specified node 'n' as master. Setup the node as a slave if
+ * needed. */
 void clusterSetMaster(clusterNode *n) {
     clusterNode *myself = server.cluster->myself;
 
     redisAssert(n != myself);
+    redisAssert(myself->numslots == 0);
 
     if (myself->flags & REDIS_NODE_MASTER) {
         myself->flags &= ~REDIS_NODE_MASTER;
