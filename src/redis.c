@@ -212,7 +212,7 @@ struct redisCommand redisCommandTable[] = {
     {"echo",echoCommand,2,"r",0,NULL,0,0,0,0,0},
     {"save",saveCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"bgsave",bgsaveCommand,1,"ar",0,NULL,0,0,0,0,0},
-    {"bgsaveto",bgsavetoCommand,2,"ar",0,NULL,0,0,0,0,0},
+    {"bgsaveto",bgsavetoCommand,-2,"ar",0,NULL,0,0,0,0,0},
     {"bgrewriteaof",bgrewriteaofCommand,1,"ar",0,NULL,0,0,0,0,0},
     {"shutdown",shutdownCommand,-1,"ar",0,NULL,0,0,0,0,0},
     {"lastsave",lastsaveCommand,1,"r",0,NULL,0,0,0,0,0},
@@ -1024,7 +1024,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
                 server.unixtime-server.lastsave > sp->seconds) {
                 redisLog(REDIS_NOTICE,"%d changes in %d seconds. Saving...",
                     sp->changes, sp->seconds);
-                rdbSaveBackground(server.rdb_filename, REDIS_BGSAVE_NORMAL);
+                rdbSaveBackground(server.rdb_filename, REDIS_BGSAVE_NORMAL, -1);
                 break;
             }
          }
@@ -1850,7 +1850,7 @@ int prepareForShutdown(int flags) {
     if ((server.saveparamslen > 0 && !nosave) || save) {
         redisLog(REDIS_NOTICE,"Saving the final RDB snapshot before exiting.");
         /* Snapshotting. Perform a SYNC SAVE and exit */
-        if (rdbSave(server.rdb_filename) != REDIS_OK) {
+        if (rdbSave(server.rdb_filename, -1) != REDIS_OK) {
             /* Ooops.. error saving! The best we can do is to continue
              * operating. Note that if there was a background saving process,
              * in the next cron() Redis will be notified that the background

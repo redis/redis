@@ -511,6 +511,22 @@ int getLongFromObjectOrReply(redisClient *c, robj *o, long *target, const char *
     return REDIS_OK;
 }
 
+int getIntInRangeFromObjectOrReply(redisClient *c, robj *o, int *target, const char *msg, int min, int max) {
+    long long value;
+
+    if (getLongLongFromObjectOrReply(c, o, &value, msg) != REDIS_OK) return REDIS_ERR;
+    if (value < (long long)min || value > (long long)max) {
+        if (msg != NULL) {
+            addReplyError(c,(char*)msg);
+        } else {
+            addReplyError(c,"value is out of range");
+        }
+        return REDIS_ERR;
+    }
+    *target = (int)value;
+    return REDIS_OK;
+}
+
 char *strEncoding(int encoding) {
     switch(encoding) {
     case REDIS_ENCODING_RAW: return "raw";

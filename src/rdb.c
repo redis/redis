@@ -628,7 +628,7 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val,
 }
 
 /* Save the DB on disk. Return REDIS_ERR on error, REDIS_OK on success */
-int rdbSave(char *filename) {
+int rdbSave(char *filename, int dbnum) {
     dictIterator *di = NULL;
     dictEntry *de;
     char tmpfile[256];
@@ -676,6 +676,9 @@ int rdbSave(char *filename) {
     }
     
     for (j = 0; j < server.dbnum; j++) {
+        /* Skip all DB's except the one specified (if specified) */
+        if (dbnum != -1 && dbnum != j)
+            continue;
         redisDb *db = server.db+j;
         dict *d = db->dict;
         if (dictSize(d) == 0) continue;
@@ -752,7 +755,7 @@ werr:
     return REDIS_ERR;
 }
 
-int rdbSaveBackground(char *filename, int bgsavetype) {
+int rdbSaveBackground(char *filename, int bgsavetype, int dbnum) {
     pid_t childpid;
     long long start;
 
@@ -772,7 +775,7 @@ int rdbSaveBackground(char *filename, int bgsavetype) {
         /* Child */
         if (server.ipfd > 0) close(server.ipfd);
         if (server.sofd > 0) close(server.sofd);
-        retval = rdbSave(filename);
+        retval = rdbSave(filename, dbnum);
         if (retval == REDIS_OK) {
             size_t private_dirty = zmalloc_get_private_dirty();
 
@@ -1472,7 +1475,7 @@ void saveCommand(redisClient *c) {
         addReplyError(c,"Background save already in progress");
         return;
     }
-    if (rdbSave(server.rdb_filename) == REDIS_OK) {
+    if (rdbSave(server.rdb_filename, -1) == REDIS_OK) {
         addReply(c,shared.ok);
     } else {
         addReply(c,shared.err);
@@ -1484,7 +1487,7 @@ void bgsaveCommand(redisClient *c) {
         addReplyError(c,"Background save already in progress");
     } else if (server.aof_child_pid != -1) {
         addReplyError(c,"Can't BGSAVE while AOF log rewriting is in progress");
-    } else if (rdbSaveBackground(server.rdb_filename, REDIS_BGSAVE_NORMAL) == REDIS_OK) {
+    } else if (rdbSaveBackground(server.rdb_filename, REDIS_BGSAVE_NORMAL, -1) == REDIS_OK) {
         addReplyStatus(c,"Background saving started");
     } else {
         addReply(c,shared.err);
@@ -1494,7 +1497,15 @@ void bgsaveCommand(redisClient *c) {
 void bgsavetoCommand(redisClient *c) {
     char tmpfile[256];
     char *p;
+    int dbnum = -1;
     snprintf(tmpfile, sizeof(tmpfile), "%s", (char *)c->argv[1]->ptr);
+
+    if (c->argc == 3 && getIntInRangeFromObjectOrReply(c, c->argv[2], &dbnum, NULL, 0, server.dbnum-1) != REDIS_OK) 
+        return;
+    else if (c->argc > 3) {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
 
     /* make sure we don't write files outside of the current dir */
     while ((p = strchr(tmpfile, '/')) != NULL) {
@@ -1505,7 +1516,7 @@ void bgsavetoCommand(redisClient *c) {
         addReplyError(c,"Background save already in progress");
     } else if (server.aof_child_pid != -1) {
         addReplyError(c,"Can't BGSAVETO while AOF log rewriting is in progress");
-    } else if (rdbSaveBackground(tmpfile, REDIS_BGSAVE_TO) == REDIS_OK) {
+    } else if (rdbSaveBackground(tmpfile, REDIS_BGSAVE_TO, dbnum) == REDIS_OK) {
         addReplyStatus(c,"Background saving started");
     } else {
         addReply(c,shared.err);

@@ -907,6 +907,7 @@ robj *createHashObject(void);
 robj *createZsetObject(void);
 robj *createZsetZiplistObject(void);
 int getLongFromObjectOrReply(redisClient *c, robj *o, long *target, const char *msg);
+int getIntInRangeFromObjectOrReply(redisClient *c, robj *o, int *target, const char *msg, int min, int max);
 int checkType(redisClient *c, robj *o, int type);
 int getLongLongFromObjectOrReply(redisClient *c, robj *o, long long *target, const char *msg);
 int getDoubleFromObjectOrReply(redisClient *c, robj *o, double *target, const char *msg);

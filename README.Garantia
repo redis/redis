@@ -48,8 +48,8 @@ managed, we introduce the following changes:
   and 'rdb_last_bgsave_...' fields.
 
 In addition, we provide a dedicated BGSAVETO command which triggers a
-background save operation to a specific file.  This operation also doesn't
-modify the fields above.
+background save operation to a specific file with optional database number
+argument. This operation also doesn't modify the fields above.
 
 
 Additional Redis Configuration Parameters

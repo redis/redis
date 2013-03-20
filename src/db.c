@@ -237,7 +237,7 @@ void flushallCommand(redisClient *c) {
         /* Normally rdbSave() will reset dirty, but we don't want this here
          * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
         int saved_dirty = server.dirty;
-        rdbSave(server.rdb_filename);
+        rdbSave(server.rdb_filename, -1);
         server.dirty = saved_dirty;
     }
     server.dirty++;

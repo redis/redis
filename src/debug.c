@@ -255,7 +255,7 @@ void debugCommand(redisClient *c) {
         if (c->argc >= 3) c->argv[2] = tryObjectEncoding(c->argv[2]);
         redisAssertWithInfo(c,c->argv[0],1 == 2);
     } else if (!strcasecmp(c->argv[1]->ptr,"reload")) {
-        if (rdbSave(server.rdb_filename) != REDIS_OK) {
+        if (rdbSave(server.rdb_filename, -1) != REDIS_OK) {
             addReply(c,shared.err);
             return;
         }
