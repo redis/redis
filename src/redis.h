@@ -542,6 +542,7 @@ typedef struct clusterLink {
 #define REDIS_NODE_HANDSHAKE 32 /* We have still to exchange the first ping */
 #define REDIS_NODE_NOADDR   64  /* We don't know the address of this node */
 #define REDIS_NODE_MEET 128     /* Send a MEET message to this node */
+#define REDIS_NODE_PROMOTED 256 /* Master was a slave propoted by failover */
 #define REDIS_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
 
 /* This structure represent elements of node->fail_reports. */
