@@ -1156,6 +1156,7 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
                                     REDIS_CLUSTER_NAMELEN);
     }
     hdr->port = htons(server.port);
+    hdr->flags = htons(server.cluster->myself->flags);
     hdr->state = server.cluster->state;
     memset(hdr->configdigest,0,32); /* FIXME: set config digest */
 

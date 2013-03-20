@@ -648,8 +648,9 @@ typedef struct {
     char slaveof[REDIS_CLUSTER_NAMELEN];
     char configdigest[32];
     uint16_t port;      /* Sender TCP base port */
+    uint16_t flags;     /* Sender node flags */
     unsigned char state; /* Cluster state from the POV of the sender */
-    unsigned char notused[5]; /* Reserved for future use. For alignment. */
+    unsigned char notused[3]; /* Reserved for future use. For alignment. */
     union clusterMsgData data;
 } clusterMsg;
 
