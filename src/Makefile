@@ -22,6 +22,10 @@ STD=-std=c99 -pedantic
 WARN=-Wall
 OPT=$(OPTIMIZATION)
 
+PREFIX?=/usr/local
+INSTALL_BIN=$(PREFIX)/bin
+INSTALL=install
+
 # Default allocator
 ifeq ($(uname_S),Linux)
 	MALLOC=jemalloc
@@ -51,6 +55,7 @@ FINAL_LIBS=-lm
 DEBUG=-g -ggdb
 
 ifeq ($(uname_S),SunOS)
+	INSTALL=cp -pf
 	FINAL_CFLAGS+= -D__EXTENSIONS__ -D_XPG6
 	FINAL_LIBS+= -ldl -lnsl -lsocket -lpthread
 else ifeq ($(uname_S),Darwin)
@@ -82,10 +87,6 @@ endif
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)
 REDIS_LD=$(QUIET_LINK)$(CC) $(FINAL_LDFLAGS)
 REDIS_INSTALL=$(QUIET_INSTALL)$(INSTALL)
-
-PREFIX?=/usr/local
-INSTALL_BIN=$(PREFIX)/bin
-INSTALL=cp -pf
 
 CCCOLOR="\033[34m"
 LINKCOLOR="\033[34;1m"
