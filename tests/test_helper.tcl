@@ -2,6 +2,8 @@
 # This softare is released under the BSD License. See the COPYING file for
 # more information.
 
+package require Tcl 8.5
+
 set tcl_precision 17
 source tests/support/redis.tcl
 source tests/support/server.tcl
@@ -176,6 +178,7 @@ proc find_available_port start {
 
 proc test_server_main {} {
     cleanup
+    set tclsh [info nameofexecutable]
     # Open a listening socket, trying different ports in order to find a
     # non busy one.
     set port [find_available_port 11111]
@@ -189,7 +192,7 @@ proc test_server_main {} {
     set start_port [expr {$::port+100}]
     for {set j 0} {$j < $::numclients} {incr j} {
         set start_port [find_available_port $start_port]
-        set p [exec tclsh8.5 [info script] {*}$::argv \
+        set p [exec $tclsh [info script] {*}$::argv \
             --client $port --port $start_port &]
         lappend ::clients_pids $p
         incr start_port 10

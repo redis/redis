@@ -451,7 +451,7 @@ void srandmemberWithCountCommand(redisClient *c) {
      * The number of requested elements is greater than the number of
      * elements inside the set: simply return the whole set. */
     if (count >= size) {
-        sunionDiffGenericCommand(c,c->argv,c->argc-1,NULL,REDIS_OP_UNION);
+        sunionDiffGenericCommand(c,c->argv+1,1,NULL,REDIS_OP_UNION);
         return;
     }
 
@@ -473,7 +473,7 @@ void srandmemberWithCountCommand(redisClient *c) {
         /* Add all the elements into the temporary dictionary. */
         si = setTypeInitIterator(set);
         while((encoding = setTypeNext(si,&ele,&llele)) != -1) {
-            int retval;
+            int retval = DICT_ERR;
 
             if (encoding == REDIS_ENCODING_INTSET) {
                 retval = dictAdd(d,createStringObjectFromLongLong(llele),NULL);

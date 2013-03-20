@@ -215,7 +215,7 @@ struct redisCommand redisCommandTable[] = {
     {"bgsaveto",bgsavetoCommand,-2,"ar",0,NULL,0,0,0,0,0},
     {"bgrewriteaof",bgrewriteaofCommand,1,"ar",0,NULL,0,0,0,0,0},
     {"shutdown",shutdownCommand,-1,"ar",0,NULL,0,0,0,0,0},
-    {"lastsave",lastsaveCommand,1,"r",0,NULL,0,0,0,0,0},
+    {"lastsave",lastsaveCommand,1,"rR",0,NULL,0,0,0,0,0},
     {"type",typeCommand,2,"r",0,NULL,1,1,1,0,0},
     {"multi",multiCommand,1,"rs",0,NULL,0,0,0,0,0},
     {"exec",execCommand,1,"sM",0,NULL,0,0,0,0,0},
@@ -541,7 +541,7 @@ dictType commandTableDictType = {
     NULL                       /* val destructor */
 };
 
-/* Hash type hash table (note that small hashes are represented with zipmaps) */
+/* Hash type hash table (note that small hashes are represented with ziplists) */
 dictType hashDictType = {
     dictEncObjHash,             /* hash function */
     NULL,                       /* key dup */
@@ -1187,6 +1187,7 @@ void initServerConfig() {
     server.dbnum = REDIS_DEFAULT_DBNUM;
     server.verbosity = REDIS_NOTICE;
     server.maxidletime = REDIS_MAXIDLETIME;
+    server.tcpkeepalive = 0;
     server.client_max_querybuf_len = REDIS_MAX_QUERYBUF_LEN;
     server.saveparams = NULL;
     server.loading = 0;
@@ -1256,6 +1257,7 @@ void initServerConfig() {
     server.repl_serve_stale_data = 1;
     server.repl_slave_ro = 1;
     server.repl_down_since = time(NULL);
+    server.repl_disable_tcp_nodelay = 0;
     server.slave_priority = REDIS_DEFAULT_SLAVE_PRIORITY;
 
     /* Client output buffer limits */
