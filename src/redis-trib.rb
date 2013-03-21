@@ -299,7 +299,7 @@ class RedisTrib
             end
         }
         open_slots.uniq!
-        if open_slots.length
+        if open_slots.length > 0
             puts "[WARNING] The following slots are open: #{open_slots.join(",")}"
         end
         if @fix
