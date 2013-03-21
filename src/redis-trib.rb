@@ -57,6 +57,10 @@ class ClusterNode
         @info[:slots]
     end
 
+    def has_flag?(flag)
+        @info[:flags].index(flag)
+    end
+
     def to_s
         "#{@info[:host]}:#{@info[:port]}"
     end
@@ -197,7 +201,7 @@ class ClusterNode
             x.count == 1 ? x.first.to_s : "#{x.first}-#{x.last}"
         }.join(",")
 
-        "[#{@info[:cluster_state].upcase}] #{self.info[:name]} #{self.to_s} slots:#{slots} (#{self.slots.length} slots)"
+        "[#{@info[:cluster_state].upcase} #{(self.info[:flags]-["myself"]).join(",")}] #{self.info[:name]} #{self.to_s} slots:#{slots} (#{self.slots.length} slots)"
     end
 
     # Return a single string representing nodes and associated slots.
@@ -257,6 +261,7 @@ class RedisTrib
         puts "Performing Cluster Check (using node #{@nodes[0]})"
         show_nodes
         check_config_consistency
+        check_open_slots
         check_slots_coverage
     end
 
@@ -279,6 +284,26 @@ class RedisTrib
                 "[ERR] Not all #{ClusterHashSlots} slots are covered by nodes."
             puts @errors[-1]
             fix_slots_coverage if @fix
+        end
+    end
+
+    def check_open_slots
+        open_slots = []
+        @nodes.each{|n|
+            if n.info[:migrating].size > 0
+                puts "[WARNING] Node #{n} has slots in migrating state."
+                open_slots += n.info[:migrating].keys
+            elsif n.info[:importing].size > 0
+                puts "[WARNING] Node #{n} has slots in importing state."
+                open_slots += n.info[:importing].keys
+            end
+        }
+        open_slots.uniq!
+        if open_slots.length
+            puts "[WARNING] The following slots are open: #{open_slots.join(",")}"
+        end
+        if @fix
+            open_slots.each{|slot| fix_open_slot slot}
         end
     end
 
@@ -348,6 +373,36 @@ class RedisTrib
                 # node[0].
                 raise "TODO: Work in progress"
             }
+        end
+    end
+
+    # Slot 'slot' was found to be in importing or migrating state in one or
+    # more nodes. This function fixes this condition by migrating keys where
+    # it seems more sensible.
+    def fix_open_slot(slot)
+        migrating = []
+        importing = []
+        @nodes.each{|n|
+            next if n.has_flag? "slave"
+            if n.info[:migrating][slot]
+                migrating << n
+            elsif n.info[:importing][slot]
+                importing << n
+            elsif n.r.cluster("countkeysinslot",slot) > 0
+                puts "Found keys about slot #{slot} in node #{n}!"
+            end
+        }
+        puts "Fixing open slot 0:"
+        puts "Set as migrating in: #{migrating.join(",")}"
+        puts "Set as importing in: #{importing.join(",")}"
+
+        # Case 1: The slot is in migrating state in one slot, and in
+        #         importing state in 1 slot. That's trivial to address.
+        if migrating.length == 1 && importing.length == 1
+            puts "Moving slot zero to #{importing[1]}"
+            move_slot(migrating[0],importing[0],0,:verbose=>true)
+        else
+            puts "Sorry, Redis-trib can't fix this slot yet (work in progress)"
         end
     end
 
@@ -472,7 +527,7 @@ class RedisTrib
         # and the slot as migrating in the target host. Note that the order of
         # the operations is important, as otherwise a client may be redirected
         # to the target node that does not yet know it is importing this slot.
-        print "Moving slot #{slot} from #{source.info_string}: "; STDOUT.flush
+        print "Moving slot #{slot} from #{source} to #{target}: "; STDOUT.flush
         target.r.cluster("setslot",slot,"importing",source.info[:name])
         source.r.cluster("setslot",slot,"migrating",target.info[:name])
         # Migrate all the keys from source to target using the MIGRATE command
