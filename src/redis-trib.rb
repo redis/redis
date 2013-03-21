@@ -576,8 +576,9 @@ class RedisTrib
         while not target
             print "What is the receiving node ID? "
             target = get_node_by_name(STDIN.gets.chop)
-            if not target
-                puts "The specified node is not known, please retry."
+            if !target || target.has_flag?("slave")
+                puts "The specified node is not known or not a master, please retry."
+                target = nil
             end
         end
         sources = []
@@ -598,11 +599,12 @@ class RedisTrib
             elsif line == "all"
                 @nodes.each{|n|
                     next if n.info[:name] == target.info[:name]
+                    next if n.has_flag?("slave")
                     sources << n
                 }
                 break
-            elsif not src
-                puts "The specified node is not known, please retry."
+            elsif !src || src.has_flags?("slave")
+                puts "The specified node is not known or is not a master, please retry."
             elsif src.info[:name] == target.info[:name]
                 puts "It is not possible to use the target node as source node."
             else
