@@ -43,6 +43,8 @@ class ClusterNode
         @info[:host] = s[0]
         @info[:port] = s[1]
         @info[:slots] = {}
+        @info[:migrating] = {}
+        @info[:importing] = {}
         @dirty = false # True if we need to flush slots info into node.
         @friends = []
     end
@@ -112,7 +114,13 @@ class ClusterNode
                 @info[:slots] = {}
                 slots.each{|s|
                     if s[0..0] == '['
-                        # Fixme: for now skipping migration entries
+                        if s[2..4] == "->-" # Migrating
+                            slot,dst = s[1..-1].split("->-")
+                            @info[:migrating][slot] = dst
+                        elsif s[2..4] == "-<-" # Importing
+                            slot,src = s[1..-1].split("-<-")
+                            @info[:importing][slot] = src
+                        end
                     elsif s.index("-")
                         start,stop = s.split("-")
                         self.add_slots((start.to_i)..(stop.to_i))
