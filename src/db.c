@@ -178,6 +178,7 @@ long long emptyDb() {
         dictEmpty(server.db[j].dict);
         dictEmpty(server.db[j].expires);
     }
+    if (server.cluster_enabled) slotToKeyFlush();
     return removed;
 }
 
@@ -221,7 +222,6 @@ void flushdbCommand(redisClient *c) {
 void flushallCommand(redisClient *c) {
     signalFlushedDb(-1);
     server.dirty += emptyDb();
-    if (server.cluster_enabled) slotToKeyFlush();
     addReply(c,shared.ok);
     if (server.rdb_child_pid != -1) {
         kill(server.rdb_child_pid,SIGUSR1);
