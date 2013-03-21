@@ -613,10 +613,7 @@ void markNodeAsFailingIfNeeded(clusterNode *node) {
 
 /* This function is called only if a node is marked as FAIL, but we are able
  * to reach it again. It checks if there are the conditions to undo the FAIL
- * state.
- *
- * Currently we only revert the FAIL state if there are no slaves for this
- * node, so that no promotion was possible. */
+ * state. */
 void clearNodeFailureIfNeeded(clusterNode *node) {
     int changes = 0;
     time_t now = time(NULL);
