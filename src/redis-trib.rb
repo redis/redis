@@ -258,7 +258,7 @@ class RedisTrib
     end
 
     def check_cluster
-        puts "Performing Cluster Check (using node #{@nodes[0]})"
+        puts ">>> Performing Cluster Check (using node #{@nodes[0]})"
         show_nodes
         check_config_consistency
         check_open_slots
@@ -276,6 +276,7 @@ class RedisTrib
     end
 
     def check_slots_coverage
+        puts ">>> Check slots coverage..."
         slots = covered_slots
         if slots.length == ClusterHashSlots
             puts "[OK] All #{ClusterHashSlots} slots covered."
@@ -288,6 +289,7 @@ class RedisTrib
     end
 
     def check_open_slots
+        puts ">>> Check for open slots..."
         open_slots = []
         @nodes.each{|n|
             if n.info[:migrating].size > 0
