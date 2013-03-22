@@ -603,7 +603,7 @@ class RedisTrib
                     sources << n
                 }
                 break
-            elsif !src || src.has_flags?("slave")
+            elsif !src || src.has_flag?("slave")
                 puts "The specified node is not known or is not a master, please retry."
             elsif src.info[:name] == target.info[:name]
                 puts "It is not possible to use the target node as source node."
