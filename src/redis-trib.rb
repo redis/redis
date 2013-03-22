@@ -250,6 +250,11 @@ class RedisTrib
         @nodes << node
     end
 
+    def cluster_error(msg)
+        @errors << msg
+        puts msg
+    end
+
     def get_node_by_name(name)
         @nodes.each{|n|
             return n if n.info[:name] == name.downcase
@@ -281,9 +286,8 @@ class RedisTrib
         if slots.length == ClusterHashSlots
             puts "[OK] All #{ClusterHashSlots} slots covered."
         else
-            @errors <<
+            cluster_error \
                 "[ERR] Not all #{ClusterHashSlots} slots are covered by nodes."
-            puts @errors[-1]
             fix_slots_coverage if @fix
         end
     end
@@ -293,10 +297,12 @@ class RedisTrib
         open_slots = []
         @nodes.each{|n|
             if n.info[:migrating].size > 0
-                puts "[WARNING] Node #{n} has slots in migrating state."
+                cluster_error \
+                    "[WARNING] Node #{n} has slots in migrating state."
                 open_slots += n.info[:migrating].keys
             elsif n.info[:importing].size > 0
-                puts "[WARNING] Node #{n} has slots in importing state."
+                cluster_error \
+                    "[WARNING] Node #{n} has slots in importing state."
                 open_slots += n.info[:importing].keys
             end
         }
@@ -566,7 +572,7 @@ class RedisTrib
         load_cluster_info_from_node(ARGV[1])
         check_cluster
         if @errors.length != 0
-            puts "Please fix your cluster problems before resharding."
+            puts "\n--- Please fix your cluster problems before resharding ---"
             exit 1
         end
         numslots = 0
