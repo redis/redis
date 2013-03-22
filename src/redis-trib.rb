@@ -118,10 +118,10 @@ class ClusterNode
                 @info[:slots] = {}
                 slots.each{|s|
                     if s[0..0] == '['
-                        if s[2..4] == "->-" # Migrating
+                        if s.index("->-") # Migrating
                             slot,dst = s[1..-1].split("->-")
                             @info[:migrating][slot] = dst
-                        elsif s[2..4] == "-<-" # Importing
+                        elsif s.index("-<-") # Importing
                             slot,src = s[1..-1].split("-<-")
                             @info[:importing][slot] = src
                         end
