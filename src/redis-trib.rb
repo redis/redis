@@ -407,8 +407,7 @@ class RedisTrib
         # Case 1: The slot is in migrating state in one slot, and in
         #         importing state in 1 slot. That's trivial to address.
         if migrating.length == 1 && importing.length == 1
-            puts "Moving slot zero to #{importing[1]}"
-            move_slot(migrating[0],importing[0],0,:verbose=>true)
+            move_slot(migrating[0],importing[0],slot,:verbose=>true)
         else
             puts "Sorry, Redis-trib can't fix this slot yet (work in progress)"
         end
