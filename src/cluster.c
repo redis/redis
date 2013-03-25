@@ -855,6 +855,7 @@ int clusterProcessPacket(clusterLink *link) {
                 redisLog(REDIS_DEBUG,"Handshake with node %.40s completed.",
                     link->node->name);
                 link->node->flags &= ~REDIS_NODE_HANDSHAKE;
+                link->node->flags |= flags&(REDIS_NODE_MASTER|REDIS_NODE_SLAVE);
                 update_config = 1;
             } else if (memcmp(link->node->name,hdr->sender,
                         REDIS_CLUSTER_NAMELEN) != 0)
