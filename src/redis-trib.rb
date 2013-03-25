@@ -40,6 +40,7 @@ def xputs(s)
         color=nil
     end
 
+    color = nil if ENV['TERM'] != "xterm"
     print "\033[#{color}m" if color
     print s
     print "\033[0m" if color
