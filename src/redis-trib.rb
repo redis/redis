@@ -431,15 +431,29 @@ class RedisTrib
 
     # Check if all the nodes agree about the cluster configuration
     def check_config_consistency
-        signatures=[]
-        @nodes.each{|n|
-            signatures << n.get_config_signature
-        }
-        if signatures.uniq.length != 1
+        if !is_config_consistent?
             cluster_error "[ERR] Nodes don't agree about configuration!"
         else
             xputs "[OK] All nodes agree about slots configuration."
         end
+    end
+
+    def is_config_consistent?
+        signatures=[]
+        @nodes.each{|n|
+            signatures << n.get_config_signature
+        }
+        return signatures.uniq.length == 1
+    end
+
+    def wait_cluster_join
+        print "Waiting for the cluster to join"
+        while !is_config_consistent?
+            print "."
+            STDOUT.flush
+            sleep 1
+        end
+        print "\n"
     end
 
     def alloc_slots
@@ -668,6 +682,11 @@ class RedisTrib
         xputs ">>> Nodes configuration updated"
         xputs ">>> Sending CLUSTER MEET messages to join the cluster"
         join_cluster
+        # Give one second for the join to start, in order to avoid that
+        # wait_cluster_join will find all the nodes agree about the config as
+        # they are still empty with unassigned slots.
+        sleep 1
+        wait_cluster_join
         check_cluster
     end
 
