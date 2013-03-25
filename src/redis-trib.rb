@@ -27,7 +27,23 @@ require 'redis'
 ClusterHashSlots = 16384
 
 def xputs(s)
-    puts s
+    case s[0..2]
+    when ">>>"
+        color="29;1"
+    when "[ER"
+        color="31;1"
+    when "[OK"
+        color="32"
+    when "[FA","***"
+        color="33"
+    else
+        color=nil
+    end
+
+    print "\033[#{color}m" if color
+    print s
+    print "\033[0m" if color
+    print "\n"
 end
 
 class ClusterNode
