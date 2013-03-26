@@ -139,6 +139,15 @@ void execCommand(redisClient *c) {
         goto handle_monitor;
     }
 
+    if (c->mstate.count == 0) {
+        freeClientMultiState(c);
+        initClientMultiState(c);
+        c->flags &= ~(REDIS_MULTI|REDIS_DIRTY_CAS|REDIS_DIRTY_EXEC);
+        unwatchAllKeys(c);
+        addReplyMultiBulkLen(c,c->mstate.count);
+        goto handle_monitor;
+    }
+
     /* Replicate a MULTI request now that we are sure the block is executed.
      * This way we'll deliver the MULTI/..../EXEC block as a whole and
      * both the AOF and the replication link will have the same consistency
