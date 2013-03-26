@@ -626,17 +626,17 @@ void pexpireatCommand(redisClient *c) {
 void ttlGenericCommand(redisClient *c, int output_ms) {
     long long expire, ttl = -1;
 
-    expire = getExpire(c->db,c->argv[1]);
     /* If the key does not exist at all, return -2 */
-    if (expire == -1 && lookupKeyRead(c->db,c->argv[1]) == NULL) {
+    if (lookupKeyRead(c->db,c->argv[1]) == NULL) {
         addReplyLongLong(c,-2);
         return;
     }
     /* The key exists. Return -1 if it has no expire, or the actual
      * TTL value otherwise. */
+    expire = getExpire(c->db,c->argv[1]);
     if (expire != -1) {
         ttl = expire-mstime();
-        if (ttl < 0) ttl = -1;
+        if (ttl < 0) ttl = 0;
     }
     if (ttl == -1) {
         addReplyLongLong(c,-1);
