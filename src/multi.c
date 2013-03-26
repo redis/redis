@@ -131,10 +131,7 @@ void execCommand(redisClient *c) {
     if (c->flags & (REDIS_DIRTY_CAS|REDIS_DIRTY_EXEC)) {
         addReply(c, c->flags & REDIS_DIRTY_EXEC ? shared.execaborterr :
                                                   shared.nullmultibulk);
-        freeClientMultiState(c);
-        initClientMultiState(c);
-        c->flags &= ~(REDIS_MULTI|REDIS_DIRTY_CAS|REDIS_DIRTY_EXEC);
-        unwatchAllKeys(c);
+        discardTransaction(c);
         goto handle_monitor;
     }
 
@@ -164,9 +161,7 @@ void execCommand(redisClient *c) {
     c->argv = orig_argv;
     c->argc = orig_argc;
     c->cmd = orig_cmd;
-    freeClientMultiState(c);
-    initClientMultiState(c);
-    c->flags &= ~(REDIS_MULTI|REDIS_DIRTY_CAS|REDIS_DIRTY_EXEC);
+    discardTransaction(c);
     /* Make sure the EXEC command is always replicated / AOF, since we
      * always send the MULTI command (we can't know beforehand if the
      * next operations will contain at least a modification to the DB). */
