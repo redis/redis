@@ -103,13 +103,11 @@ void discardCommand(redisClient *c) {
 
 /* Send a MULTI command to all the slaves and AOF file. Check the execCommand
  * implementation for more information. */
-void execCommandReplicateMulti(redisClient *c) {
+void execCommandPropagateMulti(redisClient *c) {
     robj *multistring = createStringObject("MULTI",5);
 
-    if (server.aof_state != REDIS_AOF_OFF)
-        feedAppendOnlyFile(server.multiCommand,c->db->id,&multistring,1);
-    if (listLength(server.slaves))
-        replicationFeedSlaves(server.slaves,c->db->id,&multistring,1);
+    propagate(server.multiCommand,c->db->id,&multistring,1,
+              REDIS_PROPAGATE_AOF|REDIS_PROPAGATE_REPL);
     decrRefCount(multistring);
 }
 
@@ -140,11 +138,11 @@ void execCommand(redisClient *c) {
         goto handle_monitor;
     }
 
-    /* Replicate a MULTI request now that we are sure the block is executed.
+    /* Propagate a MULTI request now that we are sure the block is executed.
      * This way we'll deliver the MULTI/..../EXEC block as a whole and
      * both the AOF and the replication link will have the same consistency
      * and atomicity guarantees. */
-    execCommandReplicateMulti(c);
+    execCommandPropagateMulti(c);
 
     /* Exec all the queued commands */
     unwatchAllKeys(c); /* Unwatch ASAP otherwise we'll waste CPU cycles */
