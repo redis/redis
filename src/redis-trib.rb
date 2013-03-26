@@ -217,7 +217,10 @@ class ClusterNode
             x.count == 1 ? x.first.to_s : "#{x.first}-#{x.last}"
         }.join(",")
 
-        "[#{@info[:cluster_state].upcase} #{(self.info[:flags]-["myself"]).join(",")}] #{self.info[:name]} #{self.to_s} slots:#{slots} (#{self.slots.length} slots)"
+        role = self.has_flag?("master") ? "M" : "S"
+        "#{role}: #{self.info[:name]} #{self.to_s}\n"+
+        "   slots:#{slots} (#{self.slots.length} slots) "+
+        "#{(self.info[:flags]-["myself"]).join(",")}"
     end
 
     # Return a single string representing nodes and associated slots.
