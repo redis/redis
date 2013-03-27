@@ -1079,6 +1079,7 @@ char *sentinelHandleConfiguration(char **argv, int argc);
 
 /* Scripting */
 void scriptingInit(void);
+void scriptingReset(void);
 int luaCreateFunction(redisClient *c, lua_State *lua, char *funcname, robj *body);
 
 /* Git SHA1 */
