@@ -205,7 +205,10 @@ start_server {tags {"multi"}} {
         r select 5
         r multi
         r ping
-        r exec
+        set res [r exec]
+        # Restore original DB
+        r select 9
+        set res
     } {PONG}
 
     test {WATCH will consider touched keys target of EXPIRE} {
