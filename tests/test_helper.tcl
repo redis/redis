@@ -438,9 +438,15 @@ proc read_from_replication_stream {s} {
         after 100
     }
     fconfigure $s -blocking 1
-    set count [string range $count 1 end]
+
+    # Workaround for Redis 2.6, not always using the new protocol in the
+    # replication channel (this was fixed in >= 2.8).
+    if {[string tolower [lindex [split $count] 0]] eq {select}} {
+        return $count
+    }
 
     # Return a list of arguments for the command.
+    set count [string range $count 1 end]
     set res {}
     for {set j 0} {$j < $count} {incr j} {
         read $s 1
