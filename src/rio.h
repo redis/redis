@@ -66,6 +66,7 @@ struct _rio {
         } buffer;
         struct {
             FILE *fp;
+            size_t fsync_interval;
         } file;
     } io;
 };
@@ -107,6 +108,7 @@ static inline off_t rioTell(rio *r) {
 }
 
 void rioInitWithFile(rio *r, FILE *fp);
+void rioInitWithFileAndFsyncInterval(rio *r, FILE *fp, size_t fsyncInterval);
 void rioInitWithBuffer(rio *r, sds s);
 
 size_t rioWriteBulkCount(rio *r, char prefix, int count);

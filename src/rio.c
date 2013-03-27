@@ -48,6 +48,7 @@
 #include "fmacros.h"
 #include <string.h>
 #include <stdio.h>
+#include <unistd.h>
 #include "rio.h"
 #include "util.h"
 
@@ -76,7 +77,17 @@ static off_t rioBufferTell(rio *r) {
 
 /* Returns 1 or 0 for success/failure. */
 static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
-    return fwrite(buf,len,1,r->io.file.fp);
+    size_t bytes_written = 0;
+    while (len) {
+        size_t bytes_to_write = (r->io.file.fsync_interval && r->io.file.fsync_interval < len) ? r->io.file.fsync_interval : len;
+        if (fwrite((char*)buf + bytes_written,bytes_to_write,1,r->io.file.fp) != 1)
+            return 0;
+        bytes_written += bytes_to_write;
+        len -= bytes_to_write;
+        if (r->io.file.fsync_interval && r->processed_bytes/r->io.file.fsync_interval < (r->processed_bytes + bytes_written)/r->io.file.fsync_interval)
+            fsync(fileno(r->io.file.fp));
+    }
+    return 1;
 }
 
 /* Returns 1 or 0 for success/failure. */
@@ -114,6 +125,12 @@ static const rio rioFileIO = {
 void rioInitWithFile(rio *r, FILE *fp) {
     *r = rioFileIO;
     r->io.file.fp = fp;
+}
+
+void rioInitWithFileAndFsyncInterval(rio *r, FILE *fp, size_t fsyncInterval) {
+    *r = rioFileIO;
+    r->io.file.fp = fp;
+    r->io.file.fsync_interval = fsyncInterval;
 }
 
 void rioInitWithBuffer(rio *r, sds s) {

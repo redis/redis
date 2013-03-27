@@ -648,7 +648,7 @@ int rdbSave(char *filename, int dbnum) {
         return REDIS_ERR;
     }
 
-    rioInitWithFile(&rdb,fp);
+    rioInitWithFileAndFsyncInterval(&rdb,fp, 1024*1024*16);
     if (server.rdb_checksum)
         rdb.update_cksum = rioGenericUpdateChecksum;
     snprintf(magic,sizeof(magic),"REDIS%04d",REDIS_RDB_VERSION);

@@ -863,7 +863,7 @@ int rewriteAppendOnlyFile(char *filename) {
         return REDIS_ERR;
     }
 
-    rioInitWithFile(&aof,fp);
+    rioInitWithFileAndFsyncInterval(&aof,fp, 1024*1024*16);
     for (j = 0; j < server.dbnum; j++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
         redisDb *db = server.db+j;
