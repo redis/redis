@@ -540,7 +540,6 @@ int expireIfNeeded(redisDb *db, robj *key) {
  * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
  * the argv[2] parameter. The basetime is always specified in milliseconds. */
 void expireGenericCommand(redisClient *c, long long basetime, int unit) {
-    dictEntry *de;
     robj *key = c->argv[1], *param = c->argv[2];
     long long when; /* unix time in milliseconds when the key will expire. */
 
@@ -550,11 +549,12 @@ void expireGenericCommand(redisClient *c, long long basetime, int unit) {
     if (unit == UNIT_SECONDS) when *= 1000;
     when += basetime;
 
-    de = dictFind(c->db->dict,key->ptr);
-    if (de == NULL) {
+    /* No key, return zero. */
+    if (lookupKeyRead(c->db,key) == NULL) {
         addReply(c,shared.czero);
         return;
     }
+
     /* EXPIRE with negative TTL, or EXPIREAT with a timestamp into the past
      * should never be executed as a DEL when load the AOF or in the context
      * of a slave instance.
