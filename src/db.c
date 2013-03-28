@@ -573,8 +573,11 @@ void expireGenericCommand(redisClient *c, long long basetime, int unit) {
 
     /* No key, return zero. */
     if (lookupKeyRead(c->db,key) == NULL) {
+        server.stat_keyspace_misses--;
         addReply(c,shared.czero);
         return;
+    } else {
+        server.stat_keyspace_hits--;
     }
 
     /* EXPIRE with negative TTL, or EXPIREAT with a timestamp into the past
