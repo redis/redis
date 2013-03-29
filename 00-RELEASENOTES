@@ -14,6 +14,22 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.6.12 ]
+
+UPGRADE URGENCY: MODERATE, nothing very critical but a few non trivial bugs.
+
+* [BUGFIX]   redis-cli --bigkeys: don't crash with empty DB.
+* [BUGFIX]   stop-writes-on-bgsave-error now works in redis.conf
+* [BUGFIX]   Don't crash at startup if RDB is there but can't be opened.
+* [BUGFIX]   Initial value for master_link_down_since_seconds is now huge.
+* [BUGFIX]   Allow SELECT while loading the DB.
+* [BUGFIX]   Don't replicate/AOF an empty MULTI/EXEC if the transaction
+             is empty or containing just read-only commands.
+* [BUGFIX]   EXPIRE should not be able to resurrect keys (see issue #1026).
+* [IMPROVED] Extended SET back ported from Redis 2.8 / unstable
+             See http://redis.io/commands/set for more information.
+* [IMPROVED] Test suite improved.
+
 --[ Redis 2.6.11 ]
 
 UPGRADE URGENCY: LOW, however updating is encouraged if you have many instances
