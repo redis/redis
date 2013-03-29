@@ -101,15 +101,19 @@ void setCommand(redisClient *c) {
         char *a = c->argv[j]->ptr;
         robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
 
-        if (a[0] == 'n' && a[1] == 'x' && a[2] == '\0') {
+        if ((a[0] == 'n' || a[0] == 'N') && 
+            (a[1] == 'x' || a[1] == 'X') && a[2] == '\0') {
             flags |= REDIS_SET_NX;
-        } else if (a[0] == 'x' && a[1] == 'x' && a[2] == '\0') {
+        } else if ((a[0] == 'x' || a[0] == 'X') && 
+                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0') {
             flags |= REDIS_SET_XX;
-        } else if (a[0] == 'e' && a[1] == 'x' && a[2] == '\0' && next) {
+        } else if ((a[0] == 'e' || a[0] == 'E') && 
+                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' && next) {
             unit = UNIT_SECONDS;
             expire = next;
             j++;
-        } else if (a[0] == 'p' && a[1] == 'x' && a[2] == '\0' && next) {
+        } else if ((a[0] == 'p' || a[0] == 'P') && 
+                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' && next) {
             unit = UNIT_MILLISECONDS;
             expire = next;
             j++;
