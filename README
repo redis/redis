@@ -128,6 +128,43 @@ system reboots.
 You'll be able to stop and start Redis using the script named
 /etc/init.d/redis_<portnumber>, for instance /etc/init.d/redis_6379.
 
+How To Handle Redis Build Error
+--------------------------
+
+If you meet some error during Redis build, check below cases.
+
+1] __sync_add_and_fetch_4 error
+ 
+ it is because your gcc tries to build redis through i386 command sets in 32bit mode.
+ Just add code to {add here} below line in src/Makefile
+ 
+ 32bit:
+    @echo ""
+    @echo "WARNING: if it fails under Linux you probably need to install libc6-dev-i386"
+    @echo ""
+    $(MAKE) CFLAGS="-m32 {add here}" LDFLAGS="-m32"
+
+ 1) if you use gcc version newer than 4.2.x
+    -march=native
+
+ 2) if you use gcc version older than 4.2.x(ex 4.1.2 in RHEL 5.4)
+    -march=core2 or -march=i686
+    
+    check this page for your suitable cpu arch
+    http://gcc.gnu.org/onlinedocs/gcc/i386-and-x86_002d64-Options.html
+
+2] Can't build deps folder
+
+ it is because that you might stop building or you had a experience to fail build redis
+ Redis makes .make-prerequisites and .make-setting files during building. If make find them
+ make skips building deps folder
+
+ using below command
+ 
+ % make distclean
+
+ and if you retry "make", it will work well.
+
 Code contributions
 ---
 
