@@ -1,1 +1,1 @@
-#define REDIS_VERSION "2.9.8"
+#define REDIS_VERSION "2.9.9"
