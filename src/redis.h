@@ -94,6 +94,7 @@
 #define REDIS_REPL_PING_SLAVE_PERIOD 10
 #define REDIS_RUN_ID_SIZE 40
 #define REDIS_OPS_SEC_SAMPLES 16
+#define REDIS_BGSAVE_RETRY_DELAY 5 /* Wait a few secs before trying again. */
 
 /* Protocol and I/O related defines */
 #define REDIS_MAX_QUERYBUF_LEN  (1024*1024*1024) /* 1GB max query buffer. */
@@ -593,6 +594,7 @@ struct redisServer {
     int rdb_compression;            /* Use compression in RDB? */
     int rdb_checksum;               /* Use RDB checksum? */
     time_t lastsave;                /* Unix time of last successful save */
+    time_t lastbgsave_try;          /* Unix time of last attempted bgsave */
     time_t rdb_save_time_last;      /* Time used by last RDB save run. */
     time_t rdb_save_time_start;     /* Current RDB save start time. */
     int lastbgsave_status;          /* REDIS_OK or REDIS_ERR */
