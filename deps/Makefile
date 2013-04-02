@@ -54,8 +54,8 @@ linenoise: .make-prerequisites
 .PHONY: linenoise
 
 ifeq ($(uname_S),SunOS)
-  # Make isinf() available
-  LUA_CFLAGS= -D__C99FEATURES__=1
+	# Make isinf() available
+	LUA_CFLAGS= -D__C99FEATURES__=1
 endif
 
 LUA_CFLAGS+= -O2 -Wall -DLUA_ANSI $(CFLAGS)
