@@ -48,8 +48,11 @@
 #include "fmacros.h"
 #include <string.h>
 #include <stdio.h>
+#include <unistd.h>
 #include "rio.h"
 #include "util.h"
+#include "config.h"
+#include "redis.h"
 
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 
@@ -76,7 +79,18 @@ static off_t rioBufferTell(rio *r) {
 
 /* Returns 1 or 0 for success/failure. */
 static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
-    return fwrite(buf,len,1,r->io.file.fp);
+    size_t retval;
+
+    retval = fwrite(buf,len,1,r->io.file.fp);
+    r->io.file.buffered += len;
+
+    if (r->io.file.autosync &&
+        r->io.file.buffered >= r->io.file.autosync)
+    {
+        aof_fsync(fileno(r->io.file.fp));
+        r->io.file.buffered = 0;
+    }
+    return retval;
 }
 
 /* Returns 1 or 0 for success/failure. */
@@ -110,6 +124,8 @@ static const rio rioFileIO = {
 void rioInitWithFile(rio *r, FILE *fp) {
     *r = rioFileIO;
     r->io.file.fp = fp;
+    r->io.file.buffered = 0;
+    r->io.file.autosync = 0;
 }
 
 void rioInitWithBuffer(rio *r, sds s) {
@@ -122,6 +138,19 @@ void rioInitWithBuffer(rio *r, sds s) {
  * computation is needed. */
 void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len) {
     r->cksum = crc64(r->cksum,buf,len);
+}
+
+/* Set the file-based rio object to auto-fsync every 'bytes' file written.
+ * By default this is set to zero that means no automatic file sync is
+ * performed.
+ *
+ * This feature is useful in a few contexts since when we rely on OS write
+ * buffers sometimes the OS buffers way too much, resulting in too many
+ * disk I/O concentrated in very little time. When we fsync in an explicit
+ * way instead the I/O pressure is more distributed across time. */
+void rioSetAutoSync(rio *r, off_t bytes) {
+    redisAssert(r->read == rioFileIO.read);
+    r->io.file.autosync = bytes;
 }
 
 /* ------------------------------ Higher level interface ---------------------------
