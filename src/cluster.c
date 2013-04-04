@@ -231,7 +231,7 @@ void clusterInit(void) {
     server.cluster->state = REDIS_CLUSTER_FAIL;
     server.cluster->size = 1;
     server.cluster->nodes = dictCreate(&clusterNodesDictType,NULL);
-    server.cluster->node_timeout = 15;
+    server.cluster->node_timeout = REDIS_CLUSTER_DEFAULT_NODE_TIMEOUT;
     server.cluster->failover_auth_time = 0;
     server.cluster->failover_auth_count = 0;
     memset(server.cluster->migrating_slots_to,0,
@@ -405,7 +405,8 @@ void clusterNodeCleanupFailureReports(clusterNode *node) {
     listNode *ln;
     listIter li;
     clusterNodeFailReport *fr;
-    time_t maxtime = server.cluster->node_timeout*2;
+    time_t maxtime = server.cluster->node_timeout *
+                     REDIS_CLUSTER_FAIL_REPORT_VALIDITY_MULT;
     time_t now = time(NULL);
 
     listRewind(l,&li);
@@ -631,12 +632,17 @@ void clearNodeFailureIfNeeded(clusterNode *node) {
     }
 
     /* If it is a master and...
-     * 1) The FAIL state was set more than 2 times the node timeout + 10 sec.
+     * 1) The FAIL state is old enough. We use our node timeout multiplicator
+     *    plus some additional fixed time. The additional time is useful when
+     *    the node timeout is extremely short and the reaction time of
+     *    the cluster may be longer, so wait at least a few seconds always.
      * 2) It is yet serving slots from our point of view (not failed over).
      * Apparently no one is going to fix these slots, clear the FAIL flag. */
     if (node->flags & REDIS_NODE_MASTER &&
         node->numslots > 0 &&
-        (now - node->fail_time) > (server.cluster->node_timeout*2+10))
+        (now - node->fail_time) >
+        (server.cluster->node_timeout * REDIS_CLUSTER_FAIL_UNDO_TIME_MULT +
+                                        REDIS_CLUSTER_FAIL_UNDO_TIME_ADD))
     {
         redisLog(REDIS_NOTICE,
             "Clear FAIL state for node %.40s: is reachable again and nobody is serving its slots after some time.",
@@ -1418,14 +1424,18 @@ void clusterHandleSlaveFailover(void) {
     /* Check if our data is recent enough. For now we just use a fixed
      * constant of ten times the node timeout since the cluster should
      * react much faster to a master down. */
-    if (data_age > server.cluster->node_timeout * 10) return;
+    if (data_age >
+        server.cluster->node_timeout * REDIS_CLUSTER_SLAVE_VALIDITY_MULT)
+        return;
 
     /* TODO: check if we are the first slave as well? Or just rely on the
      * master authorization? */
 
     /* Ask masters if we are authorized to perform the failover. If there
      * is a pending auth request that's too old, reset it. */
-    if (server.cluster->failover_auth_time == 0 || auth_age > 15)
+    if (server.cluster->failover_auth_time == 0 ||
+        auth_age >
+        server.cluster->node_timeout * REDIS_CLUSTER_FAILOVER_AUTH_RETRY_MULT)
     {
         redisLog(REDIS_WARNING,"Asking masters if I can failover...");
         server.cluster->failover_auth_time = time(NULL);
