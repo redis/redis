@@ -878,6 +878,7 @@ void configGetCommand(redisClient *c) {
     config_get_numerical_field("watchdog-period",server.watchdog_period);
     config_get_numerical_field("slave-priority",server.slave_priority);
     config_get_numerical_field("hz",server.hz);
+    config_get_numerical_field("cluster-node-timeout",server.cluster_node_timeout);
 
     /* Bool (yes/no) values */
     config_get_bool_field("no-appendfsync-on-rewrite",
