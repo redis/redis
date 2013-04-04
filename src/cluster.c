@@ -231,7 +231,7 @@ void clusterInit(void) {
     server.cluster->state = REDIS_CLUSTER_FAIL;
     server.cluster->size = 1;
     server.cluster->nodes = dictCreate(&clusterNodesDictType,NULL);
-    server.cluster->node_timeout = REDIS_CLUSTER_DEFAULT_NODE_TIMEOUT;
+    server.cluster->node_timeout = server.cluster_node_timeout;
     server.cluster->failover_auth_time = 0;
     server.cluster->failover_auth_count = 0;
     memset(server.cluster->migrating_slots_to,0,
