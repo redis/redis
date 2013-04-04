@@ -522,7 +522,6 @@ typedef struct redisOpArray {
 #define REDIS_CLUSTER_FAIL 1        /* The cluster can't work */
 #define REDIS_CLUSTER_NAMELEN 40    /* sha1 hex length */
 #define REDIS_CLUSTER_PORT_INCR 10000 /* Cluster port = baseport + PORT_INCR */
-#define REDIS_CLUSTER_FAILOVER_DELAY 5 /* Seconds */
 
 /* The following defines are amunt of time, sometimes expressed as
  * multiplicators of the node timeout value (when ending with MULT). */
@@ -532,6 +531,7 @@ typedef struct redisOpArray {
 #define REDIS_CLUSTER_FAIL_UNDO_TIME_ADD 10 /* Some additional time. */
 #define REDIS_CLUSTER_SLAVE_VALIDITY_MULT 10 /* Slave data validity. */
 #define REDIS_CLUSTER_FAILOVER_AUTH_RETRY_MULT 1 /* Auth request retry time. */
+#define REDIS_CLUSTER_FAILOVER_DELAY 5 /* Seconds */
 
 struct clusterNode;
 
