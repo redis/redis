@@ -1555,11 +1555,6 @@ void clusterCron(void) {
             (REDIS_NODE_MYSELF|REDIS_NODE_NOADDR|REDIS_NODE_HANDSHAKE))
                 continue;
 
-        /* Check only if we already sent a ping and did not received
-         * a reply yet. */
-        if (node->ping_sent == 0 ||
-            node->ping_sent <= node->pong_received) continue;
-
         /* If our ping is older than half the cluster timeout (may happen
          * in a cluster with many nodes), send a new ping. */
         if (node->link &&
@@ -1568,6 +1563,11 @@ void clusterCron(void) {
             clusterSendPing(node->link, CLUSTERMSG_TYPE_PING);
             continue;
         }
+
+        /* Check only if we already sent a ping and did not received
+         * a reply yet. */
+        if (node->ping_sent == 0 ||
+            node->ping_sent <= node->pong_received) continue;
 
         /* If we never received a pong, use the ping time to compute
          * the delay. */
