@@ -138,7 +138,7 @@ REDIS_INIT_HEADER=\
 #Configurations injected by install_server below....\n\n
 EXEC=$REDIS_EXECUTABLE\n
 CLIEXEC=$CLI_EXEC\n
-PIDFILE=$PIDFILE\n
+PIDFILE=\"$PIDFILE\"\n
 CONF=\"$REDIS_CONFIG_FILE\"\n\n
 REDISPORT=\"$REDIS_PORT\"\n\n
 ###############\n\n"
