@@ -912,6 +912,18 @@ int clusterProcessPacket(clusterLink *link) {
                         clusterSetMaster(sender);
                     }
 
+                    /* If we are a slave, and this node used to be a slave
+                     * of our master, and now has the PROMOTED flag set, we
+                     * need to switch our replication setup over it. */
+                    if (flags & REDIS_NODE_PROMOTED &&
+                        server.cluster->myself->flags & REDIS_NODE_SLAVE &&
+                        server.cluster->myself->slaveof == oldmaster)
+                    {
+                        redisLog(REDIS_WARNING,"One of the slaves failed over my master. Reconfiguring myself as a replica of %.40s", sender->name);
+                        clusterDelNodeSlots(server.cluster->myself);
+                        clusterSetMaster(sender);
+                    }
+
                     /* Update config and state. */
                     update_state = 1;
                     update_config = 1;
