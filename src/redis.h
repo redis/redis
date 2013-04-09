@@ -583,7 +583,6 @@ typedef struct {
     clusterNode *myself;  /* This node */
     int state;            /* REDIS_CLUSTER_OK, REDIS_CLUSTER_FAIL, ... */
     int size;             /* Num of master nodes with at least one slot */
-    int node_timeout;
     dict *nodes;          /* Hash table of name -> clusterNode structures */
     clusterNode *migrating_slots_to[REDIS_CLUSTER_SLOTS];
     clusterNode *importing_slots_from[REDIS_CLUSTER_SLOTS];

@@ -231,7 +231,6 @@ void clusterInit(void) {
     server.cluster->state = REDIS_CLUSTER_FAIL;
     server.cluster->size = 1;
     server.cluster->nodes = dictCreate(&clusterNodesDictType,NULL);
-    server.cluster->node_timeout = server.cluster_node_timeout;
     server.cluster->failover_auth_time = 0;
     server.cluster->failover_auth_count = 0;
     memset(server.cluster->migrating_slots_to,0,
@@ -403,7 +402,7 @@ void clusterNodeCleanupFailureReports(clusterNode *node) {
     listNode *ln;
     listIter li;
     clusterNodeFailReport *fr;
-    time_t maxtime = server.cluster->node_timeout *
+    time_t maxtime = server.cluster_node_timeout *
                      REDIS_CLUSTER_FAIL_REPORT_VALIDITY_MULT;
     time_t now = time(NULL);
 
@@ -639,7 +638,7 @@ void clearNodeFailureIfNeeded(clusterNode *node) {
     if (node->flags & REDIS_NODE_MASTER &&
         node->numslots > 0 &&
         (now - node->fail_time) >
-        (server.cluster->node_timeout * REDIS_CLUSTER_FAIL_UNDO_TIME_MULT +
+        (server.cluster_node_timeout * REDIS_CLUSTER_FAIL_UNDO_TIME_MULT +
                                         REDIS_CLUSTER_FAIL_UNDO_TIME_ADD))
     {
         redisLog(REDIS_NOTICE,
@@ -1422,7 +1421,7 @@ void clusterHandleSlaveFailover(void) {
      * constant of ten times the node timeout since the cluster should
      * react much faster to a master down. */
     if (data_age >
-        server.cluster->node_timeout * REDIS_CLUSTER_SLAVE_VALIDITY_MULT)
+        server.cluster_node_timeout * REDIS_CLUSTER_SLAVE_VALIDITY_MULT)
         return;
 
     /* TODO: check if we are the first slave as well? Or just rely on the
@@ -1432,7 +1431,7 @@ void clusterHandleSlaveFailover(void) {
      * is a pending auth request that's too old, reset it. */
     if (server.cluster->failover_auth_time == 0 ||
         auth_age >
-        server.cluster->node_timeout * REDIS_CLUSTER_FAILOVER_AUTH_RETRY_MULT)
+        server.cluster_node_timeout * REDIS_CLUSTER_FAILOVER_AUTH_RETRY_MULT)
     {
         redisLog(REDIS_WARNING,"Asking masters if I can failover...");
         server.cluster->failover_auth_time = time(NULL);
@@ -1555,7 +1554,7 @@ void clusterCron(void) {
         /* If our ping is older than half the cluster timeout (may happen
          * in a cluster with many nodes), send a new ping. */
         if (node->link &&
-            (now - node->ping_sent) > server.cluster->node_timeout/2)
+            (now - node->ping_sent) > server.cluster_node_timeout/2)
         {
             clusterSendPing(node->link, CLUSTERMSG_TYPE_PING);
             continue;
@@ -1574,7 +1573,7 @@ void clusterCron(void) {
             delay = now - node->ping_sent;
         }
 
-        if (delay < server.cluster->node_timeout) {
+        if (delay < server.cluster_node_timeout) {
             /* The PFAIL condition can be reversed without external
              * help if it is not transitive (that is, if it does not
              * turn into a FAIL state).
