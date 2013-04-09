@@ -350,8 +350,6 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     node->slaveof = NULL;
     node->ping_sent = node->pong_received = 0;
     node->fail_time = 0;
-    node->configdigest = NULL;
-    node->configdigest_ts = 0;
     node->link = NULL;
     memset(node->ip,0,sizeof(node->ip));
     node->port = 0;
@@ -1171,7 +1169,6 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
     hdr->port = htons(server.port);
     hdr->flags = htons(server.cluster->myself->flags);
     hdr->state = server.cluster->state;
-    memset(hdr->configdigest,0,32); /* FIXME: set config digest */
 
     if (type == CLUSTERMSG_TYPE_FAIL) {
         totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);

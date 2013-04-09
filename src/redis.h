@@ -572,8 +572,6 @@ struct clusterNode {
     time_t ping_sent;       /* Unix time we sent latest ping */
     time_t pong_received;   /* Unix time we received the pong */
     time_t fail_time;       /* Unix time when FAIL flag was set */
-    char *configdigest;         /* Configuration digest of this node */
-    time_t configdigest_ts;     /* Configuration digest timestamp */
     char ip[16];                /* Latest known IP address of this node */
     int port;                   /* Latest known port of this node */
     clusterLink *link;          /* TCP/IP link with this node */
@@ -657,11 +655,11 @@ typedef struct {
     char sender[REDIS_CLUSTER_NAMELEN]; /* Name of the sender node */
     unsigned char myslots[REDIS_CLUSTER_SLOTS/8];
     char slaveof[REDIS_CLUSTER_NAMELEN];
-    char configdigest[32];
+    char notused1[32];  /* 32 bytes reserved for future usage. */
     uint16_t port;      /* Sender TCP base port */
     uint16_t flags;     /* Sender node flags */
     unsigned char state; /* Cluster state from the POV of the sender */
-    unsigned char notused[3]; /* Reserved for future use. For alignment. */
+    unsigned char notused2[3]; /* Reserved for future use. For alignment. */
     union clusterMsgData data;
 } clusterMsg;
 
