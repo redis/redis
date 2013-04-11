@@ -1529,6 +1529,7 @@ void clusterCron(void) {
         if (node->flags & (REDIS_NODE_MYSELF|REDIS_NODE_NOADDR)) continue;
         if (node->link == NULL) {
             int fd;
+            time_t old_ping_sent;
             clusterLink *link;
 
             fd = anetTcpNonBlockConnect(server.neterr, node->ip,
@@ -1544,8 +1545,15 @@ void clusterCron(void) {
              * If the node is flagged as MEET, we send a MEET message instead
              * of a PING one, to force the receiver to add us in its node
              * table. */
+            old_ping_sent = node->ping_sent;
             clusterSendPing(link, node->flags & REDIS_NODE_MEET ?
                     CLUSTERMSG_TYPE_MEET : CLUSTERMSG_TYPE_PING);
+            if (old_ping_sent) {
+                /* If there was an active ping before the link was
+                 * disconnected, we want to restore the ping time, otherwise
+                 * replaced by the clusterSendPing() call. */
+                node->ping_sent = old_ping_sent;
+            }
             /* We can clear the flag after the first packet is sent.
              * If we'll never receive a PONG, we'll never send new packets
              * to this node. Instead after the PONG is received and we
