@@ -276,7 +276,7 @@ clusterLink *createClusterLink(clusterNode *node) {
 }
 
 /* Free a cluster link, but does not free the associated node of course.
- * Just this function will make sure that the original node associated
+ * This function will just make sure that the original node associated
  * with this link will have the 'link' field set to NULL. */
 void freeClusterLink(clusterLink *link) {
     if (link->fd != -1) {
