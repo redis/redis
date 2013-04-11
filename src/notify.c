@@ -30,7 +30,7 @@
 #include "redis.h"
 
 /* This file implements keyspace events notification via Pub/Sub ad
- * described at http://redis.io/topics/keyspace-events. */
+ * described at http://redis.io/topics/notifications. */
 
 /* Turn a string representing notification classes into an integer
  * representing notification classes flags xored.
