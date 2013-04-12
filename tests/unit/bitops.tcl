@@ -195,7 +195,7 @@ start_server {tags {"bitops"}} {
         set e
     } {WRONGTYPE*}
 
-    test {BITPOS simple} {
+    test {BITPOS simple, repeated} {
         r del a
         r setbit a 0 1
         r setbit a 1 1
@@ -204,6 +204,8 @@ start_server {tags {"bitops"}} {
         r setbit a 100 1
         r setbit a 127 1
         r setbit a 128 1
+
+        assert_equal {0 1 8 50 100 127 128} [r bitpos a]
         assert_equal {0 1 8 50 100 127 128} [r bitpos a]
     }
 

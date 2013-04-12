@@ -464,7 +464,7 @@ void bitposCommand(redisClient *c) {
     if (start > end) {
         addReply(c,shared.emptymultibulk);
     } else {
-        uint32_t num;
+        unsigned char byte;
         int i, pos;
         long bytecount = end-start+1; /* count the bytes to read */
         long bitcount = 0;
@@ -475,13 +475,13 @@ void bitposCommand(redisClient *c) {
 
         /* iterate over bytes */
         while(bytecount--) {
-            num = (uint32_t)*p++;
+            byte = *p++;
             i = 128, pos = 0;
-            while (num) {
-                if (num & i) res[bitcount++] = start*8 + pos;
+            while (byte) {
+                if (byte & i) res[bitcount++] = start*8 + pos;
                 if (limit && bitcount >= limit) break;
 
-                num &= ~(1 << (8-pos));
+                byte &= ~(1 << (8-pos));
                 i>>=1;
                 pos++;
             }
