@@ -461,7 +461,7 @@ void bitposCommand(redisClient *c) {
     if (limit < 1) limit = -1;
 
     /* Precondition: end >= 0 && end < strlen, so the only condition where
-     * zero can be returned is: start > end. */
+     * empty can be returned is: start > end. */
     if (start > end) {
         addReply(c,shared.emptymultibulk);
         return;
@@ -481,9 +481,9 @@ void bitposCommand(redisClient *c) {
         while (byte && limit) {
             if (byte & i) {
                 res[bitcount++] = start*8 + pos;
+                byte &= ~(1 << 7-pos);
                 limit--;
             }
-            byte &= ~(1 << (8-pos));
             i>>=1;
             pos++;
         }

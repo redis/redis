@@ -209,6 +209,14 @@ start_server {tags {"bitops"}} {
         assert_equal {0 1 8 50 100 127 128} [r bitpos a]
     }
 
+    test {BITPOS whole byte} {
+        r del a
+        for {set j 6} {$j < 18} {incr j} {
+            r setbit a $j 1
+        }
+        assert_equal {6 7 8 9 10 11 12 13 14 15 16 17} [r bitpos a]
+    }
+
     test {BITPOS with start } {
         r del a
         r setbit a 3  1
