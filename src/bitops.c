@@ -464,22 +464,28 @@ void bitposCommand(redisClient *c) {
     if (start > end) {
         addReply(c,shared.emptymultibulk);
     } else {
-        p = p+start; /* fast-forward */
-        long count = end-start+1; /* count the bytes to read */
+        uint32_t num;
+        int i, pos;
+        long bytecount = end-start+1; /* count the bytes to read */
+        long bitcount = 0;
+        long res[bytecount*8]; /* allocate the maximum number of results */
 
-        uint32_t val;
-        long i, bitcount=0;
-        long res[count*8]; /* allocate the maximum number of results */
+        /* fast-forward */
+        p = p+start;
 
         /* iterate over bytes */
-        for(i=0; i<count; i++) {
-            val = (uint32_t)*p++;
-            int j, bitpos;
-            for (j=128, bitpos=0; j>0; j>>=1, bitpos++) {
-                if (val & j) res[bitcount++] = (i+start)*8 + bitpos;
-                if (limit > 0 && bitcount >= limit) break;
+        while(bytecount--) {
+            num = (uint32_t)*p++;
+            i = 128, pos = 0;
+            while (num) {
+                if (num & i) res[bitcount++] = start*8 + pos;
+                if (limit && bitcount >= limit) break;
+
+                num &= ~(1 << (8-pos));
+                i>>=1;
+                pos++;
             }
-            if (limit > 0 && bitcount >= limit) break;
+            start++;
         }
 
         addReplyMultiBulkLen(c, bitcount);
