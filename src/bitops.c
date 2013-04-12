@@ -414,9 +414,10 @@ void bitcountCommand(redisClient *c) {
 /* BITPOS key [start end limit] */
 void bitposCommand(redisClient *c) {
     robj *o;
-    long start, end, limit, strlen;
-    unsigned char *p;
+    long start, end, limit, strlen, li;
+    unsigned char *p, byte;
     char llbuf[32];
+    int i, pos;
 
     /* Lookup, check for type, and return 0 for non existing keys. */
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL ||
@@ -457,41 +458,41 @@ void bitposCommand(redisClient *c) {
     if (start < 0) start = 0;
     if (end < 0) end = 0;
     if (end >= strlen) end = strlen-1;
-    if (limit < 0) limit = 0;
+    if (limit < 1) limit = -1;
 
     /* Precondition: end >= 0 && end < strlen, so the only condition where
      * zero can be returned is: start > end. */
     if (start > end) {
         addReply(c,shared.emptymultibulk);
-    } else {
-        unsigned char byte;
-        int i, pos;
-        long bytecount = end-start+1; /* count the bytes to read */
-        long bitcount = 0;
-        long res[bytecount*8]; /* allocate the maximum number of results */
+        return;
+    }
 
-        /* fast-forward */
-        p = p+start;
+    long bytecount = end-start+1; /* count the bytes to read */
+    long res[bytecount*8]; /* allocate the maximum number of results */
+    long bitcount = 0;
 
-        /* iterate over bytes */
-        while(bytecount--) {
-            byte = *p++;
-            i = 128, pos = 0;
-            while (byte) {
-                if (byte & i) res[bitcount++] = start*8 + pos;
-                if (limit && bitcount >= limit) break;
+    /* fast-forward */
+    p = p+start;
 
-                byte &= ~(1 << (8-pos));
-                i>>=1;
-                pos++;
+    /* iterate over bytes */
+    while(bytecount--) {
+        byte = *p++;
+        i = 128, pos = 0;
+        while (byte && limit) {
+            if (byte & i) {
+                res[bitcount++] = start*8 + pos;
+                limit--;
             }
-            start++;
+            byte &= ~(1 << (8-pos));
+            i>>=1;
+            pos++;
         }
+        start++;
+    }
 
-        addReplyMultiBulkLen(c, bitcount);
-        for(i=0; i<bitcount; i++) {
-            addReplyBulkLongLong(c, res[i]);
-        }
+    addReplyMultiBulkLen(c, bitcount);
+    for(li=0; li<bitcount; li++) {
+        addReplyBulkLongLong(c, res[li]);
     }
 
 }
