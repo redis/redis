@@ -969,7 +969,7 @@ int rewriteAppendOnlyFileBackground(void) {
             if (private_dirty) {
                 redisLog(REDIS_NOTICE,
                     "AOF rewrite: %lu MB of memory used by copy-on-write",
-                    private_dirty/(1024*1024));
+                    (long unsigned int)(private_dirty/(1024*1024)));
             }
             exitFromChild(0);
         } else {
