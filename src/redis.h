@@ -1173,7 +1173,7 @@ struct redisCommand *lookupCommandOrOriginal(sds name);
 void call(redisClient *c, int flags);
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int flags);
 void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int target);
-int prepareForShutdown();
+int prepareForShutdown(int flag);
 #ifdef __GNUC__
 void redisLog(int level, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
