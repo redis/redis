@@ -223,6 +223,7 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, int flags)
     }
     if (flags & ANET_CONNECT_NONBLOCK) {
         if (anetNonBlock(err,s) != ANET_OK)
+            close(s);
             return ANET_ERR;
     }
     if (connect(s, (struct sockaddr*)&sa, sizeof(sa)) == -1) {
