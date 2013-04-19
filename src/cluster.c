@@ -1548,7 +1548,7 @@ void clusterCron(void) {
         }
     }
     if (min_ping_node) {
-        redisLog(REDIS_DEBUG,"Pinging node %40s", min_ping_node->name);
+        redisLog(REDIS_DEBUG,"Pinging node %.40s", min_ping_node->name);
         clusterSendPing(min_ping_node->link, CLUSTERMSG_TYPE_PING);
     }
 
