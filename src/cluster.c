@@ -341,6 +341,7 @@ clusterNode *createClusterNode(char *nodename, int flags) {
         memcpy(node->name, nodename, REDIS_CLUSTER_NAMELEN);
     else
         getRandomHexChars(node->name, REDIS_CLUSTER_NAMELEN);
+    node->name[REDIS_CLUSTER_NAMELEN] = '\0';
     node->flags = flags;
     memset(node->slots,0,sizeof(node->slots));
     node->numslots = 0;

@@ -562,7 +562,7 @@ struct clusterNodeFailReport {
 } typedef clusterNodeFailReport;
 
 struct clusterNode {
-    char name[REDIS_CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
+    char name[REDIS_CLUSTER_NAMELEN+1]; /* Node name, hex string, sha1-size */
     int flags;      /* REDIS_NODE_... */
     unsigned char slots[REDIS_CLUSTER_SLOTS/8]; /* slots handled by this node */
     int numslots;   /* Number of slots handled by this node */
