@@ -74,6 +74,8 @@ typedef struct sentinelAddr {
 #define SRI_RECONF_DONE (1<<13)     /* Slave synchronized with new master. */
 #define SRI_FORCE_FAILOVER (1<<14)  /* Force failover with master up. */
 #define SRI_SCRIPT_KILL_SENT (1<<15) /* SCRIPT KILL already sent on -BUSY */
+#define SRI_DEMOTE (1<<16)   /* If the instance claims to be a master, demote
+                                it into a slave sending SLAVEOF. */
 
 #define SENTINEL_INFO_PERIOD 10000
 #define SENTINEL_PING_PERIOD 1000
@@ -1401,7 +1403,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
              * otherwise add it. */
             if (sentinelRedisInstanceLookupSlave(ri,ip,atoi(port)) == NULL) {
                 if ((slave = createSentinelRedisInstance(NULL,SRI_SLAVE,ip,
-                            atoi(port), ri->quorum,ri)) != NULL)
+                            atoi(port), ri->quorum, ri)) != NULL)
                 {
                     sentinelEvent(REDIS_NOTICE,"+slave",slave,"%@");
                 }
@@ -1467,7 +1469,19 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
 
     /* Act if a slave turned into a master. */
     if ((ri->flags & SRI_SLAVE) && role == SRI_MASTER) {
-        if (!(ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
+        if (ri->flags & SRI_DEMOTE) {
+            int retval;
+
+            /* Old master returned back? Turn it into a slave ASAP.
+             * We'll clear this flag only when we have the acknowledge
+             * that it's a slave again. */
+            retval = redisAsyncCommand(ri->cc,
+                sentinelDiscardReplyCallback, NULL, "SLAVEOF %s %d",
+                    ri->master->addr->ip,
+                    ri->master->addr->port);
+            if (retval == REDIS_OK)
+                sentinelEvent(REDIS_NOTICE,"+demote-old-slave",ri,"%@");
+        } else if (!(ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
             (runid_changed || first_runid))
         {
             /* If a slave turned into master but:
@@ -1563,6 +1577,12 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
              * to the next slave. */
             ri->failover_state_change_time = mstime();
         }
+    }
+
+    /* Detect if the old master was demoted as slave. */
+    if (role == SRI_SLAVE && ri->flags & SRI_DEMOTE) {
+        sentinelEvent(REDIS_NOTICE,"+slave",ri,"%@");
+        ri->flags &= ~SRI_DEMOTE;
     }
 }
 
@@ -1835,6 +1855,7 @@ void addReplySentinelRedisInstance(redisClient *c, sentinelRedisInstance *ri) {
     if (ri->flags & SRI_RECONF_SENT) flags = sdscat(flags,"reconf_sent,");
     if (ri->flags & SRI_RECONF_INPROG) flags = sdscat(flags,"reconf_inprog,");
     if (ri->flags & SRI_RECONF_DONE) flags = sdscat(flags,"reconf_done,");
+    if (ri->flags & SRI_DEMOTE) flags = sdscat(flags,"demote,");
 
     if (sdslen(flags) != 0) flags = sdsrange(flags,0,-2); /* remove last "," */
     addReplyBulkCString(c,flags);
@@ -2592,6 +2613,7 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
         mstime_t info_validity_time = mstime()-SENTINEL_INFO_VALIDITY_TIME;
 
         if (slave->flags & (SRI_S_DOWN|SRI_O_DOWN|SRI_DISCONNECTED)) continue;
+        if (slave->flags & SRI_DEMOTE) continue; /* Old master not yet ready. */
         if (slave->last_avail_time < info_validity_time) continue;
         if (slave->slave_priority == 0) continue;
 
@@ -2837,12 +2859,28 @@ void sentinelFailoverReconfNextSlave(sentinelRedisInstance *master) {
 void sentinelFailoverSwitchToPromotedSlave(sentinelRedisInstance *master) {
     sentinelRedisInstance *ref = master->promoted_slave ?
                                  master->promoted_slave : master;
+    sds old_master_ip;
+    int old_master_port;
 
     sentinelEvent(REDIS_WARNING,"+switch-master",master,"%s %s %d %s %d",
         master->name, master->addr->ip, master->addr->port,
         ref->addr->ip, ref->addr->port);
 
+    old_master_ip = sdsdup(master->addr->ip);
+    old_master_port = master->addr->port;
     sentinelResetMasterAndChangeAddress(master,ref->addr->ip,ref->addr->port);
+    /* If this is a real switch, that is, we have master->promoted_slave not
+     * NULL, then we want to add the old master as a slave of the new master,
+     * but flagging it with SRI_DEMOTE so that we know we'll need to send
+     * SLAVEOF once the old master is reachable again. */
+    if (master != ref) {
+        /* Add the new slave, but don't generate a Sentinel event as it will
+         * happen later when finally the instance will claim to be a slave
+         * in the INFO output. */
+        createSentinelRedisInstance(NULL,SRI_SLAVE|SRI_DEMOTE,
+                    old_master_ip, old_master_port, master->quorum, master);
+    }
+    sdsfree(old_master_ip);
 }
 
 void sentinelFailoverStateMachine(sentinelRedisInstance *ri) {
