@@ -2623,7 +2623,7 @@ void loadDataFromDisk(void) {
 void redisOutOfMemoryHandler(size_t allocation_size) {
     redisLog(REDIS_WARNING,"Out Of Memory allocating %zu bytes!",
         allocation_size);
-    redisPanic("OOM");
+    redisPanic("Redis aborting for OUT OF MEMORY");
 }
 
 int main(int argc, char **argv) {
