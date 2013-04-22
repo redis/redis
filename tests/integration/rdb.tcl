@@ -63,8 +63,10 @@ start_server_and_kill_it [list "dir" $server_path] {
     }
 }
 
-# Fix permissions of the RDB file, but corrupt its CRC64 checksum.
+# Fix permissions of the RDB file.
 file attributes [file join $server_path dump.rdb] -permissions 0666
+
+# Corrupt its CRC64 checksum.
 set filesize [file size [file join $server_path dump.rdb]]
 set fd [open [file join $server_path dump.rdb] r+]
 fconfigure $fd -translation binary
