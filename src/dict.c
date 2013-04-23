@@ -729,14 +729,6 @@ unsigned long dictScan(dict *d,
     v++;
     v = rev(v);
 
-    /* Only preprare cursor for the next iteration when it is non-zero,
-     * so that 0 can be used as end-of-scan sentinel. */
-    if (v) {
-        /* Set unmasked bits so the cursor will keep its position
-         * regardless of the mask in the next iterations */
-        v |= ~m0;
-    }
-
     return v;
 }
 
