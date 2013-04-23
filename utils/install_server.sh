@@ -69,16 +69,16 @@ mkdir -p `dirname "$REDIS_CONFIG_FILE"` || die "Could not create redis config di
 #read the redis log file path
 _REDIS_LOG_FILE="/var/log/redis_$REDIS_PORT.log"
 read -p "Please select the redis log file name [$_REDIS_LOG_FILE] " REDIS_LOG_FILE
-if [ !"$REDIS_LOG_FILE" ] ; then
+if [ -z "$REDIS_LOG_FILE" ] ; then
 	REDIS_LOG_FILE=$_REDIS_LOG_FILE
 	echo "Selected default - $REDIS_LOG_FILE"
 fi
-
+mkdir -p `dirname ${REDIS_LOG_FILE}` || die "Could not create log dir"
 
 #get the redis data directory
 _REDIS_DATA_DIR="/var/lib/redis/$REDIS_PORT"
 read -p "Please select the data directory for this instance [$_REDIS_DATA_DIR] " REDIS_DATA_DIR
-if [ !"$REDIS_DATA_DIR" ] ; then
+if [ -z "$REDIS_DATA_DIR" ] ; then
 	REDIS_DATA_DIR=$_REDIS_DATA_DIR
 	echo "Selected default - $REDIS_DATA_DIR"
 fi
@@ -159,9 +159,9 @@ REDIS_CHKCONFIG_INFO=\
 # Description: Redis daemon\n
 ### END INIT INFO\n\n"
 
-if [ !`which chkconfig` ] ; then 
+if [ -z `which chkconfig 2>/dev/null` ] ; then 
 	#combine the header and the template (which is actually a static footer)
-	echo $REDIS_INIT_HEADER > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
+	echo -e $REDIS_INIT_HEADER > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
 else
 	#if we're a box with chkconfig on it we want to include info for chkconfig
 	echo -e $REDIS_INIT_HEADER $REDIS_CHKCONFIG_INFO > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
@@ -173,7 +173,7 @@ echo "Copied $TMP_FILE => $INIT_SCRIPT_DEST"
 
 #Install the service
 echo "Installing service..."
-if [ !`which chkconfig` ] ; then 
+if [ -z `which chkconfig 2>/dev/null` ] ; then 
 	#if we're not a chkconfig box assume we're able to use update-rc.d
 	update-rc.d redis_$REDIS_PORT defaults && echo "Success!"
 else
