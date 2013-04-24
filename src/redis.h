@@ -762,6 +762,7 @@ struct redisServer {
     time_t aof_rewrite_time_start;  /* Current AOF rewrite start time. */
     int aof_lastbgrewrite_status;   /* REDIS_OK or REDIS_ERR */
     unsigned long aof_delayed_fsync;  /* delayed AOF fsync() counter */
+    int aof_rewrite_incremental_fsync;/* fsync incrementally while rewriting? */
     /* RDB persistence */
     long long dirty;                /* Changes to DB from the last save */
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
