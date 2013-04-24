@@ -1452,19 +1452,15 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     if (sentinel.tilt) return;
 
     /* Act if a master turned into a slave. */
-    if ((ri->flags & SRI_MASTER) && role == SRI_SLAVE) {
-        if ((first_runid || runid_changed) && ri->slave_master_host) {
-            /* If it is the first time we receive INFO from it, but it's
-             * a slave while it was configured as a master, we want to monitor
-             * its master instead. */
-            sentinelEvent(REDIS_WARNING,"+redirect-to-master",ri,
-                "%s %s %d %s %d",
-                ri->name, ri->addr->ip, ri->addr->port,
-                ri->slave_master_host, ri->slave_master_port);
-            sentinelResetMasterAndChangeAddress(ri,ri->slave_master_host,
-                                                   ri->slave_master_port);
-            return;
-        }
+    if ((ri->flags & SRI_MASTER) && role == SRI_SLAVE && ri->slave_master_host)
+    {
+        sentinelEvent(REDIS_WARNING,"+redirect-to-master",ri,
+            "%s %s %d %s %d",
+            ri->name, ri->addr->ip, ri->addr->port,
+            ri->slave_master_host, ri->slave_master_port);
+        sentinelResetMasterAndChangeAddress(ri,ri->slave_master_host,
+                                               ri->slave_master_port);
+        return;
     }
 
     /* Act if a slave turned into a master. */
