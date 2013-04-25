@@ -2145,10 +2145,25 @@ sds genRedisInfoString(char *section) {
 
     /* Persistence */
     if (allsections || defsections || !strcasecmp(section,"persistence")) {
+        char dir[4096];
+        char aof_path[4096];
+        char rdb_path[4096];
+        char *pdir = getcwd(dir, 4095);
+
+        if (pdir) {
+            if (server.aof_filename) {
+                snprintf(aof_path, 4095, "%s/%s", dir, server.aof_filename);
+            }
+            if (server.rdb_filename) {
+                snprintf(rdb_path, 4095, "%s/%s", dir, server.rdb_filename);
+            }
+        }
+
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Persistence\r\n"
             "loading:%d\r\n"
+            "rdb_path:%s\r\n"
             "rdb_changes_since_last_save:%lld\r\n"
             "rdb_bgsave_in_progress:%d\r\n"
             "rdb_last_save_time:%ld\r\n"
@@ -2156,12 +2171,14 @@ sds genRedisInfoString(char *section) {
             "rdb_last_bgsave_time_sec:%ld\r\n"
             "rdb_current_bgsave_time_sec:%ld\r\n"
             "aof_enabled:%d\r\n"
+            "aof_path:%s\r\n"
             "aof_rewrite_in_progress:%d\r\n"
             "aof_rewrite_scheduled:%d\r\n"
             "aof_last_rewrite_time_sec:%ld\r\n"
             "aof_current_rewrite_time_sec:%ld\r\n"
             "aof_last_bgrewrite_status:%s\r\n",
             server.loading,
+            (server.rdb_filename != NULL) ? rdb_path : "null" ,
             server.dirty,
             server.rdb_child_pid != -1,
             server.lastsave,
@@ -2170,6 +2187,7 @@ sds genRedisInfoString(char *section) {
             (server.rdb_child_pid == -1) ?
                 -1 : time(NULL)-server.rdb_save_time_start,
             server.aof_state != REDIS_AOF_OFF,
+            (server.aof_filename != NULL) ? aof_path : "null" ,
             server.aof_child_pid != -1,
             server.aof_rewrite_scheduled,
             server.aof_rewrite_time_last,
