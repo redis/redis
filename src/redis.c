@@ -2062,6 +2062,7 @@ sds genRedisInfoString(char *section) {
         uname(&name);
         info = sdscatprintf(info,
             "# Server\r\n"
+            "hostname:%s\r\n"
             "redis_version:%s\r\n"
             "redis_git_sha1:%s\r\n"
             "redis_git_dirty:%d\r\n"
@@ -2078,6 +2079,7 @@ sds genRedisInfoString(char *section) {
             "uptime_in_days:%ld\r\n"
             "hz:%d\r\n"
             "lru_clock:%ld\r\n",
+            name.nodename,
             REDIS_VERSION,
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
