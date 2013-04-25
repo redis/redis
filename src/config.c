@@ -493,7 +493,11 @@ void configSetCommand(redisClient *c) {
         server.requirepass = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
     } else if (!strcasecmp(c->argv[2]->ptr,"masterauth")) {
         zfree(server.masterauth);
-        server.masterauth = zstrdup(o->ptr);
+        if (sdslen(o->ptr)) {
+          server.masterauth = zstrdup(o->ptr);
+        } else {
+          server.masterauth = NULL;
+        }
     } else if (!strcasecmp(c->argv[2]->ptr,"maxmemory")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0) goto badfmt;
