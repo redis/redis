@@ -36,6 +36,12 @@
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <ifaddrs.h>
+#include <netinet/in.h>
+#include <string.h>
+#include <strings.h>
+#include <arpa/inet.h>
+#include <netdb.h>
 
 void replicationDiscardCachedMaster(void);
 void replicationResurrectCachedMaster(int newfd);
@@ -1279,6 +1285,12 @@ void slaveofCommand(redisClient *c) {
             addReplySds(c,sdsnew("+OK Already connected to specified master\r\n"));
             return;
         }
+
+        if (isLocalAddress(c->argv[1]->ptr) && port == server.port) {
+            redisLog(REDIS_NOTICE,"SLAVE OF would result into synchronization with ourselfs. No operation performed.");
+            addReplyError(c, "Unable to synchronize with ourselves");
+            return;
+        }
         /* There was no previous master or the user specified a different one,
          * we can continue. */
         replicationSetMaster(c->argv[1]->ptr, port);
@@ -1286,6 +1298,57 @@ void slaveofCommand(redisClient *c) {
             server.masterhost, server.masterport);
     }
     addReply(c,shared.ok);
+}
+
+/* Checks if given address is local host */
+int isLocalAddress(const char *addr) {
+    struct ifaddrs *ifAddrStruct = NULL;
+    struct ifaddrs *ifa = NULL;
+    void *tmpAddrPtr = NULL;
+    struct addrinfo hints, *servinfo, *p;
+    struct sockaddr_in *h;
+    int rv;
+
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC; // use AF_INET6 to force IPv6
+    hints.ai_socktype = SOCK_STREAM;
+
+    if ((rv = getaddrinfo(addr, NULL, &hints, &servinfo)) != 0) {
+        return 0;
+    }
+
+    getifaddrs(&ifAddrStruct);
+
+    for (ifa = ifAddrStruct; ifa != NULL; ifa = ifa->ifa_next) {
+        if (ifa ->ifa_addr->sa_family == AF_INET) { // check it is IP4
+            // is a valid IP4 Address
+            tmpAddrPtr = &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr;
+            char addressBuffer[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, tmpAddrPtr, addressBuffer, INET_ADDRSTRLEN);
+
+            for(p = servinfo; p != NULL; p = p->ai_next) {
+                h = (struct sockaddr_in*)p->ai_addr;
+                if (strcasecmp(inet_ntoa(h->sin_addr), addressBuffer) == 0) {
+                    return 1;
+                }
+            }
+        } else if (ifa->ifa_addr->sa_family==AF_INET6) { // check it is IP6
+            // is a valid IP6 Address
+            tmpAddrPtr=&((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr;
+            char addressBuffer[INET6_ADDRSTRLEN];
+            inet_ntop(AF_INET6, tmpAddrPtr, addressBuffer, INET6_ADDRSTRLEN);
+
+            for(p = servinfo; p != NULL; p = p->ai_next) {
+                h = (struct sockaddr_in*)p->ai_addr;
+                if (strcasecmp(inet_ntoa(h->sin_addr), addressBuffer) == 0) {
+                    return 1;
+                }
+            }
+        }
+    }
+    if (servinfo != NULL) freeaddrinfo(servinfo);
+    if (ifAddrStruct != NULL) freeifaddrs(ifAddrStruct);
+    return 0;
 }
 
 /* ---------------------- MASTER CACHING FOR PSYNC -------------------------- */

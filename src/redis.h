@@ -1119,6 +1119,7 @@ void replicationCacheMaster(redisClient *c);
 void resizeReplicationBacklog(long long newsize);
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
+int isLocalAddress(const char *addr);
 
 /* Generic persistence functions */
 void startLoading(FILE *fp);
