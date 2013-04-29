@@ -19,9 +19,9 @@ Lua 5.1 Reference Manual
 by Roberto Ierusalimschy, Luiz Henrique de Figueiredo, Waldemar Celes
 <p>
 <small>
-Copyright &copy; 2006-2008 Lua.org, PUC-Rio.
+Copyright &copy; 2006&ndash;2012 Lua.org, PUC-Rio.
 Freely available under the terms of the
-<a href="http://www.lua.org/license.html#5">Lua license</a>.
+<a href="http://www.lua.org/license.html">Lua license</a>.
 </small>
 <hr>
 <p>
@@ -29,11 +29,13 @@ Freely available under the terms of the
 <a href="contents.html#contents">contents</A>
 &middot;
 <a href="contents.html#index">index</A>
+&middot;
+<A HREF="http://www.lua.org/manual/">other versions</A>
 
 <!-- ====================================================================== -->
 <p>
 
-<!-- $Id: manual.of,v 1.48 2008/08/18 15:24:20 roberto Exp $ -->
+<!-- $Id: manual.of,v 1.49.1.2 2012/01/13 20:23:26 roberto Exp $ -->
 
 
 
@@ -5645,7 +5647,7 @@ Currently, Lua has the following standard libraries:
 
 <ul>
 
-<li>basic library,</li> which includes the coroutine sub-library;
+<li>basic library, which includes the coroutine sub-library;</li>
 
 <li>package library;</li>
 
@@ -5709,7 +5711,7 @@ when absent, it defaults to "assertion failed!"
 
 
 <p>
-<hr><h3><a name="pdf-collectgarbage"><code>collectgarbage (opt [, arg])</code></a></h3>
+<hr><h3><a name="pdf-collectgarbage"><code>collectgarbage ([opt [, arg]])</code></a></h3>
 
 
 <p>
@@ -5718,16 +5720,17 @@ It performs different functions according to its first argument, <code>opt</code
 
 <ul>
 
+<li><b>"collect":</b>
+performs a full garbage-collection cycle.
+This is the default option.
+</li>
+
 <li><b>"stop":</b>
 stops the garbage collector.
 </li>
 
 <li><b>"restart":</b>
 restarts the garbage collector.
-</li>
-
-<li><b>"collect":</b>
-performs a full garbage-collection cycle.
 </li>
 
 <li><b>"count":</b>
@@ -5760,7 +5763,7 @@ Returns the previous value for <em>step</em>.
 
 
 <p>
-<hr><h3><a name="pdf-dofile"><code>dofile (filename)</code></a></h3>
+<hr><h3><a name="pdf-dofile"><code>dofile ([filename])</code></a></h3>
 Opens the named file and executes its contents as a Lua chunk.
 When called without arguments,
 <code>dofile</code> executes the contents of the standard input (<code>stdin</code>).
@@ -8421,7 +8424,7 @@ Otherwise, it returns the name of the upvalue.
 
 
 <p>
-<hr><h3><a name="pdf-debug.traceback"><code>debug.traceback ([thread,] [message] [, level])</code></a></h3>
+<hr><h3><a name="pdf-debug.traceback"><code>debug.traceback ([thread,] [message [, level]])</code></a></h3>
 
 
 <p>
@@ -8789,12 +8792,12 @@ Here is the complete syntax of Lua in extended BNF.
 
 
 <HR>
-<SMALL>
+<SMALL CLASS="footer">
 Last update:
-Mon Aug 18 13:25:46 BRT 2008
+Mon Feb 13 18:54:19 BRST 2012
 </SMALL>
 <!--
-Last change: revised for Lua 5.1.4
+Last change: revised for Lua 5.1.5
 -->
 
 </body></html>
