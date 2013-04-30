@@ -14,6 +14,29 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.6.13 ]
+
+UPGRADE URGENCY: MODERATE, nothing very critical but upgrading is suggested
+                 if you experienced:
+
+                 1) Strange issues with Lua scripting.
+                 2) Not reconfigured reappearing master using Sentinel.
+                 3) Server continusly trying to save on save error.
+
+                 This version of Redis may also help with AOF and slow / busy
+                 disks and latency issues.
+
+* [FIX] Throttle BGSAVE attempt on saving error.
+* [FIX] redis-cli: raise error on bad command line switch.
+* [FIX] Redis/Jemalloc Gitignore were too aggressive.
+* [FIX] Test: fix RDB test checking file permissions.
+* [FIX] Sentinel: always redirect on master->slave transition.
+* [FIX] Lua updated to version 5.1.5. Fixes rare scripting issues.
+* [NEW] AOF: improved latency figures with slow/busy disks.
+* [NEW] Sentinel: turn old master into a slave when it comes back.
+* [NEW] More explicit panic message on out of memory.
+* [NEW] redis-cli: --latency-history mode implemented.
+
 --[ Redis 2.6.12 ]
 
 UPGRADE URGENCY: MODERATE, nothing very critical but a few non trivial bugs.
