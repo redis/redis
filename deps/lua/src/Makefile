@@ -9,8 +9,8 @@ PLAT= none
 
 CC?= gcc
 CFLAGS= -O2 -Wall $(MYCFLAGS)
-AR= ar rcu
-RANLIB= ranlib
+AR?= ar
+RANLIB?= ranlib
 RM= rm -f
 LIBS= -lm $(MYLIBS)
 
@@ -48,7 +48,7 @@ o:	$(ALL_O)
 a:	$(ALL_A)
 
 $(LUA_A): $(CORE_O) $(LIB_O)
-	$(AR) $@ $(CORE_O) $(LIB_O)	# DLL needs all object files
+	$(AR) rcu $@ $(CORE_O) $(LIB_O)	# DLL needs all object files
 	$(RANLIB) $@
 
 $(LUA_T): $(LUA_O) $(LUA_A)
