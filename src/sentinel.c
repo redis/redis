@@ -1481,18 +1481,20 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         if (ri->flags & SRI_DEMOTE) {
             /* If this sentinel was partitioned from the slave's master,
              * or tilted recently, wait some time before to act,
-             * so that DOWN and roles info will be refreshed. */
-            if (!sentinelRedisInstanceNoDownFor(ri->master,
-                SENTINEL_INFO_PERIOD*2))
-                return;
-            if (mstime()-sentinel.tilt_start_time <
-                SENTINEL_TILT_PERIOD+ri->master->down_after_period*2)
+             * so that DOWN and roles INFO will be refreshed. */
+            mstime_t wait_time = SENTINEL_INFO_PERIOD*2 +
+                                 ri->master->down_after_period*2;
+
+            if (!sentinelRedisInstanceNoDownFor(ri->master,wait_time) ||
+                (mstime()-sentinel.tilt_start_time) < wait_time)
                 return;
 
-            /* Old master returned back? Turn it into a slave ASAP if:
+            /* Old master returned back? Turn it into a slave ASAP if
+             * we can reach what we believe is the new master now, and
+             * have a recent role information for it.
              *
-             * We'll clear this flag only when we have the acknowledge
-             * that it's a slave again. */
+             * Note: we'll clear the DEMOTE flag only when we have the
+             * acknowledge that it's a slave again. */
             if (ri->master->flags & SRI_MASTER &&
                 (ri->master->flags & (SRI_S_DOWN|SRI_O_DOWN)) == 0 &&
                 (mstime() - ri->master->info_refresh) < SENTINEL_INFO_PERIOD*2)
