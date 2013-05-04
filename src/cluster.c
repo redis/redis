@@ -1247,14 +1247,14 @@ void clusterSendPing(clusterLink *link, int type) {
             this->flags & (REDIS_NODE_HANDSHAKE|REDIS_NODE_NOADDR) ||
             (this->link == NULL && this->numslots == 0))
         {
-                freshnodes--; /* otherwise we may loop forever. */
-                continue;
+            freshnodes--; /* otherwise we may loop forever. */
+            continue;
         }
 
         /* Check if we already added this node */
         for (j = 0; j < gossipcount; j++) {
             if (memcmp(hdr->data.ping.gossip[j].nodename,this->name,
-                    REDIS_CLUSTER_NAMELEN) == 0) break;
+                       REDIS_CLUSTER_NAMELEN) == 0) break;
         }
         if (j != gossipcount) continue;
 
