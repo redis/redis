@@ -2,7 +2,7 @@ Redis on Windows 2.6 prototype
 ===
 ## What's new in this release
 
-- This is a port for Windows based on Redis 2.6.8.
+- This is a port for Windows based on Redis 2.6. The latest version merged in 2.6.12.
 - The port is similar to the port of Redis 2.4, including the same background saving technology.
 - There is support for x64 version as well as 32 bit versions.
 - For the 64 bit version, there is a limit of 2^32 objects in a structure, and a max length of 2^32 for any object
