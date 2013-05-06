@@ -177,7 +177,7 @@ void stopAppendOnly(void) {
 
         redisLog(REDIS_NOTICE,"Killing running AOF rewrite child: %ld",
             (long) server.aof_child_pid);
-        if (kill(server.aof_child_pid,SIGKILL) != -1)
+        if (kill(server.aof_child_pid,SIGUSR1) != -1)
             wait3(&statloc,0,NULL);
         /* reset the buffer accumulating changes while the child saves */
         aofRewriteBufferReset();
@@ -385,7 +385,7 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
     sds buf = sdsempty();
     robj *tmpargv[3];
 
-    /* The DB this command was targetting is not the same as the last command
+    /* The DB this command was targeting is not the same as the last command
      * we appendend. To issue a SELECT command is needed. */
     if (dictid != server.aof_selected_db) {
         char seldb[64];
@@ -442,6 +442,7 @@ struct redisClient *createFakeClient(void) {
 
     selectDb(c,0);
     c->fd = -1;
+    c->name = NULL;
     c->querybuf = sdsempty();
     c->querybuf_peak = 0;
     c->argc = 0;

@@ -68,11 +68,21 @@ void loadServerConfigFromString(char *config) {
         linenum = i+1;
         lines[i] = sdstrim(lines[i]," \t\r\n");
 
-        /* Skip comments and blank lines*/
+        /* Skip comments and blank lines */
         if (lines[i][0] == '#' || lines[i][0] == '\0') continue;
 
         /* Split into arguments */
         argv = sdssplitargs(lines[i],&argc);
+        if (argv == NULL) {
+            err = "Unbalanced quotes in configuration line";
+            goto loaderr;
+        }
+
+        /* Skip this line if the resulting command vector is empty. */
+        if (argc == 0) {
+            sdsfreesplitres(argv,argc);
+            return;
+        }
         sdstolower(argv[0]);
 
         /* Execute config directives */
@@ -80,6 +90,11 @@ void loadServerConfigFromString(char *config) {
             server.maxidletime = atoi(argv[1]);
             if (server.maxidletime < 0) {
                 err = "Invalid timeout value"; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"tcp-keepalive") && argc == 2) {
+            server.tcpkeepalive = atoi(argv[1]);
+            if (server.tcpkeepalive < 0) {
+                err = "Invalid tcp-keepalive value"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"port") && argc == 2) {
             server.port = atoi(argv[1]);
@@ -230,6 +245,10 @@ void loadServerConfigFromString(char *config) {
                 err = "repl-timeout must be 1 or greater";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"repl-disable-tcp-nodelay") && argc==2) {
+            if ((server.repl_disable_tcp_nodelay = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"masterauth") && argc == 2) {
         	server.masterauth = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"slave-serve-stale-data") && argc == 2) {
@@ -256,6 +275,10 @@ void loadServerConfigFromString(char *config) {
             if ((server.daemonize = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"hz") && argc == 2) {
+            server.hz = atoi(argv[1]);
+            if (server.hz < REDIS_MIN_HZ) server.hz = REDIS_MIN_HZ;
+            if (server.hz > REDIS_MAX_HZ) server.hz = REDIS_MAX_HZ;
         } else if (!strcasecmp(argv[0],"appendonly") && argc == 2) {
             int yes;
 
@@ -329,7 +352,7 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
 
-            /* If the target command name is the emtpy string we just
+            /* If the target command name is the empty string we just
              * remove it from the command table. */
             retval = dictDelete(server.commands, argv[1]);
             redisAssert(retval == DICT_OK);
@@ -367,7 +390,7 @@ void loadServerConfigFromString(char *config) {
             soft = memtoll(argv[3],NULL);
             soft_seconds = atoi(argv[4]);
             if (soft_seconds < 0) {
-                err = "Negative number of seconds in soft limt is invalid";
+                err = "Negative number of seconds in soft limit is invalid";
                 goto loaderr;
             }
             server.client_obuf_limits[class].hard_limit_bytes = hard;
@@ -412,7 +435,7 @@ loaderr:
  * in the 'options' string to the config file before loading.
  *
  * Both filename and options can be NULL, in such a case are considered
- * emtpy. This way loadServerConfig can be used to just load a file or
+ * empty. This way loadServerConfig can be used to just load a file or
  * just load a string. */
 void loadServerConfig(char *filename, char *options) {
     sds config = sdsempty();
@@ -475,6 +498,12 @@ void configSetCommand(redisClient *c) {
             }
             freeMemoryIfNeeded();
         }
+    } else if (!strcasecmp(c->argv[2]->ptr,"hz")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
+            ll < 0) goto badfmt;
+        server.hz = (int) ll;
+        if (server.hz < REDIS_MIN_HZ) server.hz = REDIS_MIN_HZ;
+        if (server.hz > REDIS_MAX_HZ) server.hz = REDIS_MAX_HZ;
     } else if (!strcasecmp(c->argv[2]->ptr,"maxmemory-policy")) {
         if (!strcasecmp(o->ptr,"volatile-lru")) {
             server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_LRU;
@@ -499,6 +528,10 @@ void configSetCommand(redisClient *c) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0 || ll > LONG_MAX) goto badfmt;
         server.maxidletime = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"tcp-keepalive")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
+            ll < 0 || ll > INT_MAX) goto badfmt;
+        server.tcpkeepalive = ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"appendfsync")) {
         if (!strcasecmp(o->ptr,"no")) {
             server.aof_fsync = AOF_FSYNC_NO;
@@ -697,6 +730,11 @@ void configSetCommand(redisClient *c) {
 
         if (yn == -1) goto badfmt;
         server.rdb_checksum = yn;
+    } else if (!strcasecmp(c->argv[2]->ptr,"repl-disable-tcp-nodelay")) {
+        int yn = yesnotoi(o->ptr);
+
+        if (yn == -1) goto badfmt;
+        server.repl_disable_tcp_nodelay = yn;
     } else if (!strcasecmp(c->argv[2]->ptr,"slave-priority")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll <= 0) goto badfmt;
@@ -751,7 +789,7 @@ void configGetCommand(redisClient *c) {
     /* String values */
     config_get_string_field("dbfilename",server.rdb_filename);
     config_get_string_field("requirepass",server.requirepass);
-    config_get_string_field("masterauth",server.requirepass);
+    config_get_string_field("masterauth",server.masterauth);
     config_get_string_field("bind",server.bindaddr);
     config_get_string_field("unixsocket",server.unixsocket);
     config_get_string_field("logfile",server.logfile);
@@ -761,6 +799,7 @@ void configGetCommand(redisClient *c) {
     config_get_numerical_field("maxmemory",server.maxmemory);
     config_get_numerical_field("maxmemory-samples",server.maxmemory_samples);
     config_get_numerical_field("timeout",server.maxidletime);
+    config_get_numerical_field("tcp-keepalive",server.tcpkeepalive);
     config_get_numerical_field("auto-aof-rewrite-percentage",
             server.aof_rewrite_perc);
     config_get_numerical_field("auto-aof-rewrite-min-size",
@@ -791,6 +830,7 @@ void configGetCommand(redisClient *c) {
     config_get_numerical_field("maxclients",server.maxclients);
     config_get_numerical_field("watchdog-period",server.watchdog_period);
     config_get_numerical_field("slave-priority",server.slave_priority);
+    config_get_numerical_field("hz",server.hz);
 
     /* Bool (yes/no) values */
     config_get_bool_field("no-appendfsync-on-rewrite",
@@ -805,6 +845,8 @@ void configGetCommand(redisClient *c) {
     config_get_bool_field("rdbcompression", server.rdb_compression);
     config_get_bool_field("rdbchecksum", server.rdb_checksum);
     config_get_bool_field("activerehashing", server.activerehashing);
+    config_get_bool_field("repl-disable-tcp-nodelay",
+            server.repl_disable_tcp_nodelay);
 
     /* Everything we can't handle with macros follows. */
 

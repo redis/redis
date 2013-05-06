@@ -188,7 +188,7 @@ robj *setTypeNextObject(setTypeIterator *si) {
  * The caller provides both pointers to be populated with the right
  * object. The return value of the function is the object->encoding
  * field of the object and is used by the caller to check if the
- * int64_t pointer or the redis object pointere was populated.
+ * int64_t pointer or the redis object pointer was populated.
  *
  * When an object is returned (the set was a real set) the ref count
  * of the object is not incremented so this function can be considered
@@ -450,7 +450,7 @@ void srandmemberWithCountCommand(redisClient *c) {
      * The number of requested elements is greater than the number of
      * elements inside the set: simply return the whole set. */
     if (count >= size) {
-        sunionDiffGenericCommand(c,c->argv,c->argc-1,NULL,REDIS_OP_UNION);
+        sunionDiffGenericCommand(c,c->argv+1,1,NULL,REDIS_OP_UNION);
         return;
     }
 
@@ -472,7 +472,7 @@ void srandmemberWithCountCommand(redisClient *c) {
         /* Add all the elements into the temporary dictionary. */
         si = setTypeInitIterator(set);
         while((encoding = setTypeNext(si,&ele,&llele)) != -1) {
-            int retval;
+            int retval = DICT_ERR;
 
             if (encoding == REDIS_ENCODING_INTSET) {
                 retval = dictAdd(d,createStringObjectFromLongLong(llele),NULL);
@@ -598,7 +598,7 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
         sets[j] = setobj;
     }
     /* Sort sets from the smallest to largest, this will improve our
-     * algorithm's performace */
+     * algorithm's performance */
     qsort(sets,setnum,sizeof(robj*),qsortCompareSetsByCardinality);
 
     /* The first thing we should output is the total number of elements...

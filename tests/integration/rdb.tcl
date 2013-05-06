@@ -23,3 +23,61 @@ start_server [list overrides [list "dir" $server_path "dbfilename" "encodings.rd
 }
 }
 
+set server_path [tmpdir "server.rdb-startup-test"]
+
+start_server [list overrides [list "dir" $server_path]] {
+    test {Server started empty with non-existing RDB file} {
+        r debug digest
+    } {0000000000000000000000000000000000000000}
+    # Save an RDB file, needed for the next test.
+    r save
+}
+
+start_server [list overrides [list "dir" $server_path]] {
+    test {Server started empty with empty RDB file} {
+        r debug digest
+    } {0000000000000000000000000000000000000000}
+}
+
+# Helper function to start a server and kill it, just to check the error
+# logged.
+set defaults {}
+proc start_server_and_kill_it {overrides code} {
+    upvar defaults defaults srv srv server_path server_path
+    set config [concat $defaults $overrides]
+    set srv [start_server [list overrides $config]]
+    uplevel 1 $code
+    kill_server $srv
+}
+
+# Make the RDB file unreadable
+file attributes [file join $server_path dump.rdb] -permissions 0222
+
+# Now make sure the server aborted with an error
+start_server_and_kill_it [list "dir" $server_path] {
+    wait_for_condition 50 100 {
+        [string match {*Fatal error loading*} \
+            [exec tail -n1 < [dict get $srv stdout]]]
+    } else {
+        fail "Server started even if RDB was unreadable!"
+    }
+}
+
+# Fix permissions of the RDB file, but corrupt its CRC64 checksum.
+file attributes [file join $server_path dump.rdb] -permissions 0666
+set filesize [file size [file join $server_path dump.rdb]]
+set fd [open [file join $server_path dump.rdb] r+]
+fconfigure $fd -translation binary
+seek $fd -8 end
+puts -nonewline $fd "foobar00"; # Corrupt the checksum
+close $fd
+
+# Now make sure the server aborted with an error
+start_server_and_kill_it [list "dir" $server_path] {
+    wait_for_condition 50 100 {
+        [string match {*RDB checksum*} \
+            [exec tail -n1 < [dict get $srv stdout]]]
+    } else {
+        fail "Server started even if RDB was corrupted!"
+    }
+}

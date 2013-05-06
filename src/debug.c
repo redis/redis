@@ -42,7 +42,7 @@
 /* ================================= Debugging ============================== */
 
 /* Compute the sha1 of string at 's' with 'len' bytes long.
- * The SHA1 is then xored againt the string pointed by digest.
+ * The SHA1 is then xored against the string pointed by digest.
  * Since xor is commutative, this operation is used in order to
  * "add" digests relative to unordered elements.
  *
@@ -67,7 +67,7 @@ void xorObjectDigest(unsigned char *digest, robj *o) {
 }
 
 /* This function instead of just computing the SHA1 and xoring it
- * against diget, also perform the digest of "digest" itself and
+ * against digest, also perform the digest of "digest" itself and
  * replace the old value with the new one.
  *
  * So the final digest will be:
@@ -330,9 +330,14 @@ void debugCommand(redisClient *c) {
 
         usleep(utime);
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"set-active-expire") &&
+               c->argc == 3)
+    {
+        server.active_expire_enabled = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
     } else {
-        addReplyError(c,
-            "Syntax error, try DEBUG [SEGFAULT|OBJECT <key>|SWAPIN <key>|SWAPOUT <key>|RELOAD]");
+        addReplyErrorFormat(c, "Unknown DEBUG subcommand or wrong number of arguments for '%s'",
+            (char*)c->argv[1]->ptr);
     }
 }
 
@@ -794,7 +799,7 @@ void enableWatchdog(int period) {
     /* If the configured period is smaller than twice the timer period, it is
      * too short for the software watchdog to work reliably. Fix it now
      * if needed. */
-    min_period = (1000/REDIS_HZ)*2;
+    min_period = (1000/server.hz)*2;
     if (period < min_period) period = min_period;
     watchdogScheduleSignal(period); /* Adjust the current timer. */
     server.watchdog_period = period;

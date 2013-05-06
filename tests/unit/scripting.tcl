@@ -34,7 +34,7 @@ start_server {tags {"scripting"}} {
         r eval {return {1,2,3,'ciao',{1,2}}} 0
     } {1 2 3 ciao {1 2}}
 
-    test {EVAL - Are the KEYS and ARGS arrays populated correctly?} {
+    test {EVAL - Are the KEYS and ARGV arrays populated correctly?} {
         r eval {return {KEYS[1],KEYS[2],ARGV[1],ARGV[2]}} 2 a b c d
     } {a b c d}
 

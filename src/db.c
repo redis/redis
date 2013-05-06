@@ -44,7 +44,7 @@ robj *lookupKey(redisDb *db, robj *key) {
     if (de) {
         robj *val = dictGetVal(de);
 
-        /* Update the access time for the aging algorithm.
+        /* Update the access time for the ageing algorithm.
          * Don't do it if we have a saving child, as this will trigger
          * a copy on write madness. */
         if (server.rdb_child_pid == -1 && server.aof_child_pid == -1)
@@ -85,7 +85,7 @@ robj *lookupKeyWriteOrReply(redisClient *c, robj *key, robj *reply) {
 }
 
 /* Add the key to the DB. It's up to the caller to increment the reference
- * counte of the value if needed.
+ * counter of the value if needed.
  *
  * The program is aborted if the key already exists. */
 void dbAdd(redisDb *db, robj *key, robj *val) {
@@ -219,7 +219,7 @@ void flushallCommand(redisClient *c) {
     server.dirty += emptyDb();
     addReply(c,shared.ok);
     if (server.rdb_child_pid != -1) {
-        kill(server.rdb_child_pid,SIGKILL);
+        kill(server.rdb_child_pid,SIGUSR1);
         rdbRemoveTempFile(server.rdb_child_pid);
     }
     if (server.saveparamslen > 0) {
@@ -538,9 +538,8 @@ int expireIfNeeded(redisDb *db, robj *key) {
  * for *AT variants of the command, or the current time for relative expires).
  *
  * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
- * the argv[2] parameter. The basetime is always specified in milliesconds. */
+ * the argv[2] parameter. The basetime is always specified in milliseconds. */
 void expireGenericCommand(redisClient *c, long long basetime, int unit) {
-    dictEntry *de;
     robj *key = c->argv[1], *param = c->argv[2];
     long long when; /* unix time in milliseconds when the key will expire. */
 
@@ -550,11 +549,12 @@ void expireGenericCommand(redisClient *c, long long basetime, int unit) {
     if (unit == UNIT_SECONDS) when *= 1000;
     when += basetime;
 
-    de = dictFind(c->db->dict,key->ptr);
-    if (de == NULL) {
+    /* No key, return zero. */
+    if (lookupKeyRead(c->db,key) == NULL) {
         addReply(c,shared.czero);
         return;
     }
+
     /* EXPIRE with negative TTL, or EXPIREAT with a timestamp into the past
      * should never be executed as a DEL when load the AOF or in the context
      * of a slave instance.

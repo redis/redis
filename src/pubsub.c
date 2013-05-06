@@ -117,7 +117,7 @@ int pubsubUnsubscribeChannel(redisClient *c, robj *channel, int notify) {
     return retval;
 }
 
-/* Subscribe a client to a pattern. Returns 1 if the operation succeeded, or 0 if the clinet was already subscribed to that pattern. */
+/* Subscribe a client to a pattern. Returns 1 if the operation succeeded, or 0 if the client was already subscribed to that pattern. */
 int pubsubSubscribePattern(redisClient *c, robj *pattern) {
     int retval = 0;
 
@@ -179,6 +179,14 @@ int pubsubUnsubscribeAllChannels(redisClient *c, int notify) {
 
         count += pubsubUnsubscribeChannel(c,channel,notify);
     }
+    /* We were subscribed to nothing? Still reply to the client. */
+    if (notify && count == 0) {
+        addReply(c,shared.mbulkhdr[3]);
+        addReply(c,shared.unsubscribebulk);
+        addReply(c,shared.nullbulk);
+        addReplyLongLong(c,dictSize(c->pubsub_channels)+
+                       listLength(c->pubsub_patterns));
+    }
     dictReleaseIterator(di);
     return count;
 }
@@ -195,6 +203,14 @@ int pubsubUnsubscribeAllPatterns(redisClient *c, int notify) {
         robj *pattern = ln->value;
 
         count += pubsubUnsubscribePattern(c,pattern,notify);
+    }
+    if (notify && count == 0) {
+        /* We were subscribed to nothing? Still reply to the client. */
+        addReply(c,shared.mbulkhdr[3]);
+        addReply(c,shared.punsubscribebulk);
+        addReply(c,shared.nullbulk);
+        addReplyLongLong(c,dictSize(c->pubsub_channels)+
+                       listLength(c->pubsub_patterns));
     }
     return count;
 }
@@ -262,7 +278,6 @@ void subscribeCommand(redisClient *c) {
 void unsubscribeCommand(redisClient *c) {
     if (c->argc == 1) {
         pubsubUnsubscribeAllChannels(c,1);
-        return;
     } else {
         int j;
 
@@ -281,7 +296,6 @@ void psubscribeCommand(redisClient *c) {
 void punsubscribeCommand(redisClient *c) {
     if (c->argc == 1) {
         pubsubUnsubscribeAllPatterns(c,1);
-        return;
     } else {
         int j;
 

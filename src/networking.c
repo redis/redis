@@ -58,7 +58,9 @@ redisClient *createClient(int fd) {
      * contexts (for instance a Lua script) we need a non connected client. */
     if (fd != -1) {
         anetNonBlock(NULL,fd);
-        anetTcpNoDelay(NULL,fd);
+        anetEnableTcpNoDelay(NULL,fd);
+        if (server.tcpkeepalive)
+            anetKeepAlive(NULL,fd,server.tcpkeepalive);
         if (aeCreateFileEvent(server.el,fd,AE_READABLE,
             readQueryFromClient, c) == AE_ERR)
         {
@@ -70,6 +72,7 @@ redisClient *createClient(int fd) {
 
     selectDb(c,0);
     c->fd = fd;
+    c->name = NULL;
     c->bufpos = 0;
     c->querybuf = sdsempty();
     c->querybuf_peak = 0;
@@ -377,7 +380,7 @@ void *addDeferredMultiBulkLength(redisClient *c) {
     return listLast(c->reply);
 }
 
-/* Populate the length object and try glueing it to the next chunk. */
+/* Populate the length object and try gluing it to the next chunk. */
 void setDeferredMultiBulkLength(redisClient *c, void *node, long length) {
     listNode *ln = (listNode*)node;
     robj *len, *next;
@@ -403,7 +406,7 @@ void setDeferredMultiBulkLength(redisClient *c, void *node, long length) {
     asyncCloseClientOnOutputBufferLimitReached(c);
 }
 
-/* Add a duble as a bulk reply */
+/* Add a double as a bulk reply */
 void addReplyDouble(redisClient *c, double d) {
     char dbuf[128], sbuf[128];
     int dlen, slen;
@@ -525,7 +528,7 @@ static void acceptCommonHandler(int fd, int flags) {
     }
     /* If maxclient directive is set and this is one client more... close the
      * connection. Note that we create the client instead to check before
-     * for this condition, since now the socket is already set in nonblocking
+     * for this condition, since now the socket is already set in non-blocking
      * mode and we can send an error for free using the Kernel I/O */
     if (listLength(server.clients) > server.maxclients) {
         char *err = "-ERR max number of clients reached\r\n";
@@ -668,6 +671,7 @@ void freeClient(redisClient *c) {
     }
 
     /* Release memory */
+    if (c->name) decrRefCount(c->name);
     zfree(c->argv);
     freeClientMultiState(c);
     zfree(c);
@@ -939,7 +943,7 @@ int processMultibulkBuffer(redisClient *c) {
             /* Not enough data (+2 == trailing \r\n) */
             break;
         } else {
-            /* Optimization: if the buffer contanins JUST our bulk element
+            /* Optimization: if the buffer contains JUST our bulk element
              * instead of creating a new object by *copying* the sds we
              * just use the current sds string. */
             if (pos == 0 &&
@@ -1123,9 +1127,11 @@ sds getClientInfoString(redisClient *client) {
     if (emask & AE_WRITABLE) *p++ = 'w';
     *p = '\0';
     return sdscatprintf(sdsempty(),
-        "addr=%s:%d fd=%d age=%ld idle=%ld flags=%s db=%d sub=%d psub=%d multi=%d qbuf=%lu qbuf-free=%lu obl=%lu oll=%lu omem=%lu events=%s cmd=%s",
+        "addr=%s:%d fd=%d name=%s age=%ld idle=%ld flags=%s db=%d sub=%d psub=%d multi=%d qbuf=%lu qbuf-free=%lu obl=%lu oll=%lu omem=%lu events=%s cmd=%s",
         (client->flags & REDIS_UNIX_SOCKET) ? server.unixsocket : ip,
-        port,client->fd,
+        port,
+        client->fd,
+        client->name ? (char*)client->name->ptr : "",
         (long)(server.unixtime - client->ctime),
         (long)(server.unixtime - client->lastinteraction),
         flags,
@@ -1190,8 +1196,41 @@ void clientCommand(redisClient *c) {
             }
         }
         addReplyError(c,"No such client");
+    } else if (!strcasecmp(c->argv[1]->ptr,"setname") && c->argc == 3) {
+        int j, len = sdslen(c->argv[2]->ptr);
+        char *p = c->argv[2]->ptr;
+
+        /* Setting the client name to an empty string actually removes
+         * the current name. */
+        if (len == 0) {
+            if (c->name) decrRefCount(c->name);
+            c->name = NULL;
+            addReply(c,shared.ok);
+            return;
+        }
+
+        /* Otherwise check if the charset is ok. We need to do this otherwise
+         * CLIENT LIST format will break. You should always be able to
+         * split by space to get the different fields. */
+        for (j = 0; j < len; j++) {
+            if (p[j] < '!' || p[j] > '~') { /* ASCII is assumed. */
+                addReplyError(c,
+                    "Client names cannot contain spaces, "
+                    "newlines or special characters.");
+                return;
+            }
+        }
+        if (c->name) decrRefCount(c->name);
+        c->name = c->argv[2];
+        incrRefCount(c->name);
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"getname") && c->argc == 2) {
+        if (c->name)
+            addReplyBulk(c,c->name);
+        else
+            addReply(c,shared.nullbulk);
     } else {
-        addReplyError(c, "Syntax error, try CLIENT (LIST | KILL ip:port)");
+        addReplyError(c, "Syntax error, try CLIENT (LIST | KILL ip:port | GETNAME | SETNAME connection-name)");
     }
 }
 
@@ -1220,7 +1259,7 @@ void rewriteClientCommandVector(redisClient *c, int argc, ...) {
     /* Replace argv and argc with our new versions. */
     c->argv = argv;
     c->argc = argc;
-    c->cmd = lookupCommand(c->argv[0]->ptr);
+    c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
     redisAssertWithInfo(c,NULL,c->cmd != NULL);
     va_end(ap);
 }
@@ -1238,7 +1277,7 @@ void rewriteClientCommandArgument(redisClient *c, int i, robj *newval) {
 
     /* If this is the command name make sure to fix c->cmd. */
     if (i == 0) {
-        c->cmd = lookupCommand(c->argv[0]->ptr);
+        c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
         redisAssertWithInfo(c,NULL,c->cmd != NULL);
     }
 }
