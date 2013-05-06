@@ -9,12 +9,15 @@ Redis on Windows 2.6 prototype
 - Version number now 2.6.8-pre2 to indicate prerelease and to enable changing
 - Version 2.6.8-pre2 fixes several failures that existed in 2.6.8-pre1. Most of these were related to handling opening and closing of non-blocking sockets.
 - The unit/protocol desync test is updated to use nonblocking socket and now works on Windows
+- The binaries (unsigned) have been moved to the root to make them easier to find. Previously they were under msvs.
+- Signed binaries can be downloaded using Nuget.
 
 ##Acknowledgements
 Special thanks to Dušan Majkic (https://github.com/dmajkic, https://github.com/dmajkic/redis/) for his project on GitHub that gave us the opportunity to quickly learn some on the intricacies of Redis code. His project also helped us to build our prototype quickly.
 
 ## Repo branches
-- 2.6_alpha: This is the only 2.6 branch so far. Only basic testing has been done.
+- 2.6: This is the branch for the Windows Redis port based on Redis 2.6.
+- 2.4: This branch has the Windows Redis port based on Redis 2.4.
 
 ## How to build Redis using Visual Studio
 
@@ -40,7 +43,9 @@ So far the RedisWAInst is not carried over to 2.6. However this should not be af
 
 ## Release Notes
 
-This is a pre-release version of the software.
+The branch has been renamed from 2.6_alpha to 2.6 to indicate that the test pass has been completed.
+
+This is a release version of the software.
 
 To run the Redis test suite requires some manual work:
 
