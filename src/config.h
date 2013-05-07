@@ -105,6 +105,20 @@
 #define rdb_fsync_range(fd,off,size) fsync(fd)
 #endif
 
+/* Check if we can use setproctitle().
+ * BSD systems have support for it, we provide an implementation for
+ * Linux and osx. */
+#if (defined __NetBSD__ || defined __FreeBSD__ || defined __OpenBSD__)
+#define USE_SETPROCTITLE
+#endif
+
+#if (defined __linux || defined __APPLE__)
+#define USE_SETPROCTITLE
+#define INIT_SETPROCTITLE_REPLACEMENT
+void spt_init(int argc, char *argv[]);
+void setproctitle(const char *fmt, ...);
+#endif
+
 /* Byte ordering detection */
 #include <sys/types.h> /* This will likely define BYTE_ORDER */
 

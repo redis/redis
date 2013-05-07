@@ -723,6 +723,7 @@ int rdbSaveBackground(char *filename) {
     if (server.rdb_child_pid != -1) return REDIS_ERR;
 
     server.dirty_before_bgsave = server.dirty;
+    server.lastbgsave_try = time(NULL);
 
     start = ustime();
     if ((childpid = fork()) == 0) {
@@ -732,6 +733,7 @@ int rdbSaveBackground(char *filename) {
         for (j = 0; j < REDIS_MAX_IP; j++)
             if (server.ipfd[j] > 0) close(server.ipfd[j]);
         if (server.sofd > 0) close(server.sofd);
+        redisSetProcTitle("redis-rdb-bgsave");
         retval = rdbSave(filename);
         if (retval == REDIS_OK) {
             size_t private_dirty = zmalloc_get_private_dirty();
@@ -774,7 +776,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
     size_t len;
     unsigned int i;
 
-    redisLog(REDIS_DEBUG,"LOADING OBJECT %d (at %d)\n",rdbtype,rioTell(rdb));
     if (rdbtype == REDIS_RDB_TYPE_STRING) {
         /* Read string value */
         if ((o = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
@@ -1069,11 +1070,8 @@ int rdbLoad(char *filename) {
     FILE *fp;
     rio rdb;
 
-    fp = fopen(filename,"r");
-    if (!fp) {
-        errno = ENOENT;
-        return REDIS_ERR;
-    }
+    if ((fp = fopen(filename,"r")) == NULL) return REDIS_ERR;
+
     rioInitWithFile(&rdb,fp);
     if (server.rdb_checksum)
         rdb.update_cksum = rioGenericUpdateChecksum;

@@ -55,5 +55,6 @@ int anetEnableTcpNoDelay(char *err, int fd);
 int anetDisableTcpNoDelay(char *err, int fd);
 int anetTcpKeepAlive(char *err, int fd);
 int anetPeerToString(int fd, char *ip, int *port);
+int anetKeepAlive(char *err, int fd, int interval);
 
 #endif

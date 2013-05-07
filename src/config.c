@@ -68,11 +68,21 @@ void loadServerConfigFromString(char *config) {
         linenum = i+1;
         lines[i] = sdstrim(lines[i]," \t\r\n");
 
-        /* Skip comments and blank lines*/
+        /* Skip comments and blank lines */
         if (lines[i][0] == '#' || lines[i][0] == '\0') continue;
 
         /* Split into arguments */
         argv = sdssplitargs(lines[i],&argc);
+        if (argv == NULL) {
+            err = "Unbalanced quotes in configuration line";
+            goto loaderr;
+        }
+
+        /* Skip this line if the resulting command vector is empty. */
+        if (argc == 0) {
+            sdsfreesplitres(argv,argc);
+            return;
+        }
         sdstolower(argv[0]);
 
         /* Execute config directives */
@@ -80,6 +90,11 @@ void loadServerConfigFromString(char *config) {
             server.maxidletime = atoi(argv[1]);
             if (server.maxidletime < 0) {
                 err = "Invalid timeout value"; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"tcp-keepalive") && argc == 2) {
+            server.tcpkeepalive = atoi(argv[1]);
+            if (server.tcpkeepalive < 0) {
+                err = "Invalid tcp-keepalive value"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"port") && argc == 2) {
             server.port = atoi(argv[1]);
@@ -234,6 +249,19 @@ void loadServerConfigFromString(char *config) {
             if ((server.repl_disable_tcp_nodelay = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"repl-backlog-size") && argc == 2) {
+            long long size = strtoll(argv[1],NULL,10);
+            if (size <= 0) {
+                err = "repl-backlog-size must be 1 or greater.";
+                goto loaderr;
+            }
+            resizeReplicationBacklog(size);
+        } else if (!strcasecmp(argv[0],"repl-backlog-ttl") && argc == 2) {
+            server.repl_backlog_time_limit = atoi(argv[1]);
+            if (server.repl_backlog_time_limit < 0) {
+                err = "repl-backlog-ttl can't be negative ";
+                goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"masterauth") && argc == 2) {
         	server.masterauth = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"slave-serve-stale-data") && argc == 2) {
@@ -302,6 +330,12 @@ void loadServerConfigFromString(char *config) {
                    argc == 2)
         {
             server.aof_rewrite_min_size = memtoll(argv[1],NULL);
+        } else if (!strcasecmp(argv[0],"aof-rewrite-incremental-fsync") &&
+                   argc == 2)
+        {
+            if ((server.aof_rewrite_incremental_fsync = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
             if (strlen(argv[1]) > REDIS_AUTHPASS_MAX_LEN) {
                 err = "Password is longer than REDIS_AUTHPASS_MAX_LEN";
@@ -357,8 +391,13 @@ void loadServerConfigFromString(char *config) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"cluster-config-file") && argc == 2) {
-            zfree(server.cluster.configfile);
-            server.cluster.configfile = zstrdup(argv[1]);
+            zfree(server.cluster_configfile);
+            server.cluster_configfile = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"cluster-node-timeout") && argc == 2) {
+            server.cluster_node_timeout = atoi(argv[1]);
+            if (server.cluster_node_timeout <= 0) {
+                err = "cluster node timeout must be 1 or greater"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"lua-time-limit") && argc == 2) {
             server.lua_time_limit = strtoll(argv[1],NULL,10);
         } else if (!strcasecmp(argv[0],"slowlog-log-slower-than") &&
@@ -420,6 +459,12 @@ void loadServerConfigFromString(char *config) {
         sdsfreesplitres(argv,argc);
     }
     sdsfreesplitres(lines,totlines);
+
+    /* Sanity checks. */
+    if (server.cluster_enabled && server.masterhost) {
+        err = "slaveof directive not allowed in cluster mode";
+        goto loaderr;
+    }
     return;
 
 loaderr:
@@ -487,7 +532,7 @@ void configSetCommand(redisClient *c) {
         server.requirepass = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
     } else if (!strcasecmp(c->argv[2]->ptr,"masterauth")) {
         zfree(server.masterauth);
-        server.masterauth = zstrdup(o->ptr);
+        server.masterauth = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
     } else if (!strcasecmp(c->argv[2]->ptr,"maxmemory")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0) goto badfmt;
@@ -528,6 +573,10 @@ void configSetCommand(redisClient *c) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0 || ll > LONG_MAX) goto badfmt;
         server.maxidletime = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"tcp-keepalive")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
+            ll < 0 || ll > INT_MAX) goto badfmt;
+        server.tcpkeepalive = ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"appendfsync")) {
         if (!strcasecmp(o->ptr,"no")) {
             server.aof_fsync = AOF_FSYNC_NO;
@@ -562,6 +611,11 @@ void configSetCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[2]->ptr,"auto-aof-rewrite-min-size")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.aof_rewrite_min_size = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"aof-rewrite-incremental-fsync")) {
+        int yn = yesnotoi(o->ptr);
+
+        if (yn == -1) goto badfmt;
+        server.aof_rewrite_incremental_fsync = yn;
     } else if (!strcasecmp(c->argv[2]->ptr,"save")) {
         int vlen, j;
         sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
@@ -710,6 +764,12 @@ void configSetCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[2]->ptr,"repl-timeout")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll <= 0) goto badfmt;
         server.repl_timeout = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"repl-backlog-size")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll <= 0) goto badfmt;
+        resizeReplicationBacklog(ll);
+    } else if (!strcasecmp(c->argv[2]->ptr,"repl-backlog-ttl")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
+        server.repl_backlog_time_limit = ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"watchdog-period")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         if (ll)
@@ -735,6 +795,10 @@ void configSetCommand(redisClient *c) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll <= 0) goto badfmt;
         server.slave_priority = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"cluster-node-timeout")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
+            ll <= 0) goto badfmt;
+        server.cluster_node_timeout = ll;
     } else {
         addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
             (char*)c->argv[2]->ptr);
@@ -785,7 +849,7 @@ void configGetCommand(redisClient *c) {
     /* String values */
     config_get_string_field("dbfilename",server.rdb_filename);
     config_get_string_field("requirepass",server.requirepass);
-    config_get_string_field("masterauth",server.requirepass);
+    config_get_string_field("masterauth",server.masterauth);
     config_get_string_field("bind",server.bindaddr);
     config_get_string_field("unixsocket",server.unixsocket);
     config_get_string_field("logfile",server.logfile);
@@ -795,6 +859,7 @@ void configGetCommand(redisClient *c) {
     config_get_numerical_field("maxmemory",server.maxmemory);
     config_get_numerical_field("maxmemory-samples",server.maxmemory_samples);
     config_get_numerical_field("timeout",server.maxidletime);
+    config_get_numerical_field("tcp-keepalive",server.tcpkeepalive);
     config_get_numerical_field("auto-aof-rewrite-percentage",
             server.aof_rewrite_perc);
     config_get_numerical_field("auto-aof-rewrite-min-size",
@@ -822,10 +887,13 @@ void configGetCommand(redisClient *c) {
     config_get_numerical_field("databases",server.dbnum);
     config_get_numerical_field("repl-ping-slave-period",server.repl_ping_slave_period);
     config_get_numerical_field("repl-timeout",server.repl_timeout);
+    config_get_numerical_field("repl-backlog-size",server.repl_backlog_size);
+    config_get_numerical_field("repl-backlog-ttl",server.repl_backlog_time_limit);
     config_get_numerical_field("maxclients",server.maxclients);
     config_get_numerical_field("watchdog-period",server.watchdog_period);
     config_get_numerical_field("slave-priority",server.slave_priority);
     config_get_numerical_field("hz",server.hz);
+    config_get_numerical_field("cluster-node-timeout",server.cluster_node_timeout);
 
     /* Bool (yes/no) values */
     config_get_bool_field("no-appendfsync-on-rewrite",
@@ -842,6 +910,8 @@ void configGetCommand(redisClient *c) {
     config_get_bool_field("activerehashing", server.activerehashing);
     config_get_bool_field("repl-disable-tcp-nodelay",
             server.repl_disable_tcp_nodelay);
+    config_get_bool_field("aof-rewrite-incremental-fsync",
+            server.aof_rewrite_incremental_fsync);
 
     /* Everything we can't handle with macros follows. */
 

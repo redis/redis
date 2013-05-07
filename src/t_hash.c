@@ -384,15 +384,12 @@ robj *hashTypeCurrentObject(hashTypeIterator *hi, int what) {
         } else {
             dst = createStringObjectFromLongLong(vll);
         }
-
     } else if (hi->encoding == REDIS_ENCODING_HT) {
         hashTypeCurrentFromHashTable(hi, what, &dst);
         incrRefCount(dst);
-
     } else {
         redisPanic("Unknown hash encoding");
     }
-
     return dst;
 }
 

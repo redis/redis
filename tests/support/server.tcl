@@ -84,8 +84,8 @@ proc ping_server {host port} {
         puts $fd "PING\r\n"
         flush $fd
         set reply [gets $fd]
-        if {[string range $reply 0 4] eq {+PONG} ||
-            [string range $reply 0 3] eq {-ERR}} {
+        if {[string range $reply 0 0] eq {+} ||
+            [string range $reply 0 0] eq {-}} {
             set retval 1
         }
         close $fd

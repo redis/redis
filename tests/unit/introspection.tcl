@@ -50,6 +50,10 @@ start_server {tags {"introspection"}} {
         assert_match {*foobar*} [r client list]
         $rd close
         # Now the client should no longer be listed
-        string match {*foobar*} [r client list]
-    } {0}
+        wait_for_condition 50 100 {
+            [string match {*foobar*} [r client list]] == 0
+        } else {
+            fail "Client still listed in CLIENT LIST after SETNAME."
+        }
+    }
 }

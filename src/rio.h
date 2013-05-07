@@ -43,10 +43,11 @@ struct _rio {
     size_t (*read)(struct _rio *, void *buf, size_t len);
     size_t (*write)(struct _rio *, const void *buf, size_t len);
     off_t (*tell)(struct _rio *);
-    /* The update_cksum method if not NULL is used to compute the checksum of all the
-     * data that was read or written so far. The method should be designed so that
-     * can be called with the current checksum, and the buf and len fields pointing
-     * to the new block of data to add to the checksum computation. */
+    /* The update_cksum method if not NULL is used to compute the checksum of
+     * all the data that was read or written so far. The method should be
+     * designed so that can be called with the current checksum, and the buf
+     * and len fields pointing to the new block of data to add to the checksum
+     * computation. */
     void (*update_cksum)(struct _rio *, const void *buf, size_t len);
 
     /* The current checksum */
@@ -60,6 +61,8 @@ struct _rio {
         } buffer;
         struct {
             FILE *fp;
+            off_t buffered; /* Bytes written since last fsync. */
+            off_t autosync; /* fsync after 'autosync' bytes written. */
         } file;
     } io;
 };
@@ -96,5 +99,6 @@ size_t rioWriteBulkLongLong(rio *r, long long l);
 size_t rioWriteBulkDouble(rio *r, double d);
 
 void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len);
+void rioSetAutoSync(rio *r, off_t bytes);
 
 #endif

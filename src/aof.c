@@ -536,7 +536,7 @@ int loadAppendOnlyFile(char *filename) {
         /* Command lookup */
         cmd = lookupCommand(argv[0]->ptr);
         if (!cmd) {
-            redisLog(REDIS_WARNING,"Unknown command '%s' reading the append only file", argv[0]->ptr);
+            redisLog(REDIS_WARNING,"Unknown command '%s' reading the append only file", (char*)argv[0]->ptr);
             exit(1);
         }
         /* Run the command in the context of a fake client */
@@ -855,6 +855,8 @@ int rewriteAppendOnlyFile(char *filename) {
     }
 
     rioInitWithFile(&aof,fp);
+    if (server.aof_rewrite_incremental_fsync)
+        rioSetAutoSync(&aof,REDIS_AOF_AUTOSYNC_BYTES);
     for (j = 0; j < server.dbnum; j++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
         redisDb *db = server.db+j;
@@ -882,6 +884,9 @@ int rewriteAppendOnlyFile(char *filename) {
 
             expiretime = getExpire(db,&key);
 
+            /* If this key is already expired skip it */
+            if (expiretime != -1 && expiretime < now) continue;
+
             /* Save the key and associated value */
             if (o->type == REDIS_STRING) {
                 /* Emit a SET command */
@@ -904,8 +909,6 @@ int rewriteAppendOnlyFile(char *filename) {
             /* Save the expire time */
             if (expiretime != -1) {
                 char cmd[]="*3\r\n$9\r\nPEXPIREAT\r\n";
-                /* If this key is already expired skip it */
-                if (expiretime < now) continue;
                 if (rioWrite(&aof,cmd,sizeof(cmd)-1) == 0) goto werr;
                 if (rioWriteBulkObject(&aof,&key) == 0) goto werr;
                 if (rioWriteBulkLongLong(&aof,expiretime) == 0) goto werr;
@@ -963,6 +966,7 @@ int rewriteAppendOnlyFileBackground(void) {
         for (j = 0; j < REDIS_MAX_IP; j++)
             if (server.ipfd[j] > 0) close(server.ipfd[j]);
         if (server.sofd > 0) close(server.sofd);
+        redisSetProcTitle("redis-aof-rewrite");
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
         if (rewriteAppendOnlyFile(tmpfile) == REDIS_OK) {
             size_t private_dirty = zmalloc_get_private_dirty();
