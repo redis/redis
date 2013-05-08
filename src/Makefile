@@ -57,7 +57,7 @@ DEBUG=-g -ggdb
 ifeq ($(uname_S),SunOS)
 	INSTALL=cp -pf
 	FINAL_CFLAGS+= -D__EXTENSIONS__ -D_XPG6
-	FINAL_LIBS+= -ldl -lnsl -lsocket -lpthread
+	FINAL_LIBS+= -ldl -lnsl -lsocket -lresolv -lpthread
 else ifeq ($(uname_S),Darwin)
 	
 else
