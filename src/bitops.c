@@ -481,7 +481,7 @@ void bitposCommand(redisClient *c) {
         while (byte && limit) {
             if (byte & i) {
                 res[bitcount++] = start*8 + pos;
-                byte &= ~(1 << 7-pos);
+                byte &= ~(1 << (7-pos));
                 limit--;
             }
             i>>=1;
