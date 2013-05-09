@@ -1219,7 +1219,7 @@ void initServerConfig() {
     server.loading = 0;
     server.logfile = NULL; /* NULL = log on standard output */
     server.syslog_enabled = 0;
-    server.syslog_ident = zstrdup("redis");
+    server.syslog_ident = zstrdup(REDIS_DEFAULT_SYSLOG_IDENT);
     server.syslog_facility = LOG_LOCAL0;
     server.daemonize = 0;
     server.aof_state = REDIS_AOF_OFF;
@@ -1238,7 +1238,7 @@ void initServerConfig() {
     server.aof_selected_db = -1; /* Make sure the first time will not match */
     server.aof_flush_postponed_start = 0;
     server.aof_rewrite_incremental_fsync = 1;
-    server.pidfile = zstrdup("/var/run/redis.pid");
+    server.pidfile = zstrdup(REDIS_DEFAULT_PID_FILE);
     server.rdb_filename = zstrdup("dump.rdb");
     server.aof_filename = zstrdup("appendonly.aof");
     server.requirepass = NULL;
@@ -1264,7 +1264,7 @@ void initServerConfig() {
     server.repl_timeout = REDIS_REPL_TIMEOUT;
     server.cluster_enabled = 0;
     server.cluster_node_timeout = REDIS_CLUSTER_DEFAULT_NODE_TIMEOUT;
-    server.cluster_configfile = zstrdup("nodes.conf");
+    server.cluster_configfile = zstrdup(REDIS_DEFAULT_CLUSTER_CONFIG_FILE);
     server.lua_caller = NULL;
     server.lua_time_limit = REDIS_LUA_TIME_LIMIT;
     server.lua_client = NULL;
