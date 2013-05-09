@@ -519,6 +519,7 @@ typedef struct redisOpArray {
 
 struct redisServer {
     /* General */
+    char *configfile;           /* Absolute config file path, or NULL */
     int hz;                     /* serverCron() calls frequency in hertz */
     redisDb *db;
     dict *commands;             /* Command table */
