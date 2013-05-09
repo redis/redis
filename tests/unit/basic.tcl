@@ -712,4 +712,46 @@ start_server {tags {"basic"}} {
             assert_equal [string range $bin $_start $_end] [r getrange bin $start $end]
         }
     }
+
+    test {Extended SET can detect syntax errors} {
+        set e {}
+        catch {r set foo bar non-existing-option} e
+        set e
+    } {*syntax*}
+
+    test {Extended SET NX option} {
+        r del foo
+        set v1 [r set foo 1 nx]
+        set v2 [r set foo 2 nx]
+        list $v1 $v2 [r get foo]
+    } {OK {} 1}
+
+    test {Extended SET XX option} {
+        r del foo
+        set v1 [r set foo 1 xx]
+        r set foo bar
+        set v2 [r set foo 2 xx]
+        list $v1 $v2 [r get foo]
+    } {{} OK 2}
+
+    test {Extended SET EX option} {
+        r del foo
+        r set foo bar ex 10
+        set ttl [r ttl foo]
+        assert {$ttl <= 10 && $ttl > 5}
+    }
+
+    test {Extended SET PX option} {
+        r del foo
+        r set foo bar px 10000
+        set ttl [r ttl foo]
+        assert {$ttl <= 10 && $ttl > 5}
+    }
+
+    test {Extended SET using multiple options at once} {
+        r set foo val
+        assert {[r set foo bar xx px 10000] eq {OK}}
+        set ttl [r ttl foo]
+        assert {$ttl <= 10 && $ttl > 5}
+    }
 }

@@ -53,18 +53,31 @@ proc start_server_and_kill_it {overrides code} {
 # Make the RDB file unreadable
 file attributes [file join $server_path dump.rdb] -permissions 0222
 
+# Detect root account (it is able to read the file even with 002 perm)
+set isroot 0
+catch {
+    open [file join $server_path dump.rdb]
+    set isroot 1
+}
+
 # Now make sure the server aborted with an error
-start_server_and_kill_it [list "dir" $server_path] {
-    wait_for_condition 50 100 {
-        [string match {*Fatal error loading*} \
-            [exec tail -n1 < [dict get $srv stdout]]]
-    } else {
-        fail "Server started even if RDB was unreadable!"
+if {!$isroot} {
+    start_server_and_kill_it [list "dir" $server_path] {
+        test {Server should not start if RDB file can't be open} {
+            wait_for_condition 50 100 {
+                [string match {*Fatal error loading*} \
+                    [exec tail -n1 < [dict get $srv stdout]]]
+            } else {
+                fail "Server started even if RDB was unreadable!"
+            }
+        }
     }
 }
 
-# Fix permissions of the RDB file, but corrupt its CRC64 checksum.
+# Fix permissions of the RDB file.
 file attributes [file join $server_path dump.rdb] -permissions 0666
+
+# Corrupt its CRC64 checksum.
 set filesize [file size [file join $server_path dump.rdb]]
 set fd [open [file join $server_path dump.rdb] r+]
 fconfigure $fd -translation binary
@@ -74,10 +87,12 @@ close $fd
 
 # Now make sure the server aborted with an error
 start_server_and_kill_it [list "dir" $server_path] {
-    wait_for_condition 50 100 {
-        [string match {*RDB checksum*} \
-            [exec tail -n1 < [dict get $srv stdout]]]
-    } else {
-        fail "Server started even if RDB was corrupted!"
+    test {Server should not start if RDB is corrupted} {
+        wait_for_condition 50 100 {
+            [string match {*RDB checksum*} \
+                [exec tail -n1 < [dict get $srv stdout]]]
+        } else {
+            fail "Server started even if RDB was corrupted!"
+        }
     }
 }
