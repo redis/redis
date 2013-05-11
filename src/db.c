@@ -352,7 +352,7 @@ void shutdownCommand(redisClient *c) {
     if (c->argc > 2) {
         addReply(c,shared.syntaxerr);
         return;
-    } else if (c->argc == 2) {
+    } if (c->argc == 2) {
         if (!strcasecmp(c->argv[1]->ptr,"nosave")) {
             flags |= REDIS_SHUTDOWN_NOSAVE;
         } else if (!strcasecmp(c->argv[1]->ptr,"save")) {
@@ -361,7 +361,17 @@ void shutdownCommand(redisClient *c) {
             addReply(c,shared.syntaxerr);
             return;
         }
+    } else {
+        addReply(c,shared.syntaxerr);
+        return;
     }
+
+    if (server.loading && 
+        (flags & REDIS_SHUTDOWN_NOSAVE) != REDIS_SHUTDOWN_NOSAVE) {
+        addReply(c, shared.loadingerr);
+        return;
+    }    
+
     if (prepareForShutdown(flags) == REDIS_OK) exit(0);
     addReplyError(c,"Errors trying to SHUTDOWN. Check logs.");
 }
