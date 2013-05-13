@@ -1198,6 +1198,8 @@ void createSharedObjects(void) {
 }
 
 void initServerConfig() {
+    int j;
+
     getRandomHexChars(server.runid,REDIS_RUN_ID_SIZE);
     server.configfile = NULL;
     server.hz = REDIS_DEFAULT_HZ;
@@ -1303,15 +1305,8 @@ void initServerConfig() {
     server.repl_no_slaves_since = time(NULL);
 
     /* Client output buffer limits */
-    server.client_obuf_limits[REDIS_CLIENT_LIMIT_CLASS_NORMAL].hard_limit_bytes = 0;
-    server.client_obuf_limits[REDIS_CLIENT_LIMIT_CLASS_NORMAL].soft_limit_bytes = 0;
-    server.client_obuf_limits[REDIS_CLIENT_LIMIT_CLASS_NORMAL].soft_limit_seconds = 0;
-    server.client_obuf_limits[REDIS_CLIENT_LIMIT_CLASS_SLAVE].hard_limit_bytes = 1024*1024*256;
-    server.client_obuf_limits[REDIS_CLIENT_LIMIT_CLASS_SLAVE].soft_limit_bytes = 1024*1024*64;
-    server.client_obuf_limits[REDIS_CLIENT_LIMIT_CLASS_SLAVE].soft_limit_seconds = 60;
-    server.client_obuf_limits[REDIS_CLIENT_LIMIT_CLASS_PUBSUB].hard_limit_bytes = 1024*1024*32;
-    server.client_obuf_limits[REDIS_CLIENT_LIMIT_CLASS_PUBSUB].soft_limit_bytes = 1024*1024*8;
-    server.client_obuf_limits[REDIS_CLIENT_LIMIT_CLASS_PUBSUB].soft_limit_seconds = 60;
+    for (j = 0; j < REDIS_CLIENT_LIMIT_NUM_CLASSES; j++)
+        server.client_obuf_limits[j] = clientBufferLimitsDefaults[j];
 
     /* Double constants initialization */
     R_Zero = 0.0;
