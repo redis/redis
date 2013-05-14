@@ -1374,11 +1374,20 @@ void rewriteConfigClientoutputbufferlimitOption(struct rewriteConfigState *state
     }
 }
 
+/* Glue together the configuration lines in the current configuration
+ * rewrite state into a single string, stripping multiple empty lines. */
 sds rewriteConfigGetContentFromState(struct rewriteConfigState *state) {
     sds content = sdsempty();
-    int j;
+    int j, was_empty = 0;
 
     for (j = 0; j < state->numlines; j++) {
+        /* Every cluster of empty lines is turned into a single empty line. */
+        if (sdslen(state->lines[j]) == 0) {
+            if (was_empty) continue;
+            was_empty = 1;
+        } else {
+            was_empty = 0;
+        }
         content = sdscatsds(content,state->lines[j]);
         content = sdscatlen(content,"\n",1);
     }
