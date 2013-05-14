@@ -123,6 +123,7 @@ struct redisCommand redisCommandTable[] = {
     {"append",appendCommand,3,"wm",0,NULL,1,1,1,0,0},
     {"strlen",strlenCommand,2,"r",0,NULL,1,1,1,0,0},
     {"del",delCommand,-2,"w",0,noPreloadGetKeys,1,-1,1,0,0},
+    {"delkeys",delKeysCommand,2,"ws",0,NULL,0,-0,0,0,0},
     {"exists",existsCommand,2,"r",0,NULL,1,1,1,0,0},
     {"setbit",setbitCommand,4,"wm",0,NULL,1,1,1,0,0},
     {"getbit",getbitCommand,3,"r",0,NULL,1,1,1,0,0},
@@ -1321,6 +1322,7 @@ void initServerConfig() {
     server.orig_commands = dictCreate(&commandTableDictType,NULL);
     populateCommandTable();
     server.delCommand = lookupCommandByCString("del");
+    server.delKeysCommand = lookupCommandByCString("delkeys");
     server.multiCommand = lookupCommandByCString("multi");
     server.lpushCommand = lookupCommandByCString("lpush");
     server.lpopCommand = lookupCommandByCString("lpop");
