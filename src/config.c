@@ -1481,7 +1481,7 @@ void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
  * set accordingly. */
 int rewriteConfigOverwriteFile(char *configfile, sds content) {
     int retval = 0;
-    int fd = open(configfile,O_RDWR|O_CREAT);
+    int fd = open(configfile,O_RDWR|O_CREAT,0644);
     int content_size = sdslen(content), padding = 0;
     struct stat sb;
     sds content_padded;
