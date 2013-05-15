@@ -264,11 +264,12 @@ void redisLogRaw(int level, const char *msg) {
     FILE *fp;
     char buf[64];
     int rawmode = (level & REDIS_LOG_RAW);
+    int log_to_stdout = server.logfile[0] == '\0';
 
     level &= 0xff; /* clear flags */
     if (level < server.verbosity) return;
 
-    fp = (server.logfile == NULL) ? stdout : fopen(server.logfile,"a");
+    fp = log_to_stdout ? stdout : fopen(server.logfile,"a");
     if (!fp) return;
 
     if (rawmode) {
@@ -284,8 +285,7 @@ void redisLogRaw(int level, const char *msg) {
     }
     fflush(fp);
 
-    if (server.logfile) fclose(fp);
-
+    if (!log_to_stdout) fclose(fp);
     if (server.syslog_enabled) syslog(syslogLevelMap[level], "%s", msg);
 }
 
@@ -313,13 +313,13 @@ void redisLog(int level, const char *fmt, ...) {
  * where we need printf-alike features are served by redisLog(). */
 void redisLogFromHandler(int level, const char *msg) {
     int fd;
+    int log_to_stdout = server.logfile[0] == '\0';
     char buf[64];
 
-    if ((level&0xff) < server.verbosity ||
-        (server.logfile == NULL && server.daemonize)) return;
-    fd = server.logfile ?
-        open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644) :
-        STDOUT_FILENO;
+    if ((level&0xff) < server.verbosity || (log_to_stdout && server.daemonize))
+        return;
+    fd = log_to_stdout ? STDOUT_FILENO : 
+                         open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
     if (fd == -1) return;
     ll2string(buf,sizeof(buf),getpid());
     if (write(fd,"[",1) == -1) goto err;
@@ -331,7 +331,7 @@ void redisLogFromHandler(int level, const char *msg) {
     if (write(fd,msg,strlen(msg)) == -1) goto err;
     if (write(fd,"\n",1) == -1) goto err;
 err:
-    if (server.logfile) close(fd);
+    if (!log_to_stdout) close(fd);
 }
 
 /* Return the UNIX time in microseconds */
@@ -1172,25 +1172,25 @@ void initServerConfig() {
     server.port = REDIS_SERVERPORT;
     server.bindaddr = NULL;
     server.unixsocket = NULL;
-    server.unixsocketperm = 0;
+    server.unixsocketperm = REDIS_DEFAULT_UNIX_SOCKET_PERM;
     server.ipfd = -1;
     server.sofd = -1;
     server.dbnum = REDIS_DEFAULT_DBNUM;
-    server.verbosity = REDIS_NOTICE;
+    server.verbosity = REDIS_DEFAULT_VERBOSITY;
     server.maxidletime = REDIS_MAXIDLETIME;
-    server.tcpkeepalive = 0;
+    server.tcpkeepalive = REDIS_DEFAULT_TCP_KEEPALIVE;
     server.active_expire_enabled = 1;
     server.client_max_querybuf_len = REDIS_MAX_QUERYBUF_LEN;
     server.saveparams = NULL;
     server.loading = 0;
-    server.logfile = NULL; /* NULL = log on standard output */
-    server.syslog_enabled = 0;
+    server.logfile = zstrdup(REDIS_DEFAULT_LOGFILE);
+    server.syslog_enabled = REDIS_DEFAULT_SYSLOG_ENABLED;
     server.syslog_ident = zstrdup(REDIS_DEFAULT_SYSLOG_IDENT);
     server.syslog_facility = LOG_LOCAL0;
-    server.daemonize = 0;
+    server.daemonize = REDIS_DEFAULT_DAEMONIZE;
     server.aof_state = REDIS_AOF_OFF;
-    server.aof_fsync = AOF_FSYNC_EVERYSEC;
-    server.aof_no_fsync_on_rewrite = 0;
+    server.aof_fsync = REDIS_DEFAULT_AOF_FSYNC;
+    server.aof_no_fsync_on_rewrite = REDIS_DEFAULT_AOF_NO_FSYNC_ON_REWRITE;
     server.aof_rewrite_perc = REDIS_AOF_REWRITE_PERC;
     server.aof_rewrite_min_size = REDIS_AOF_REWRITE_MIN_SIZE;
     server.aof_rewrite_base_size = 0;
@@ -1203,21 +1203,21 @@ void initServerConfig() {
     server.aof_fd = -1;
     server.aof_selected_db = -1; /* Make sure the first time will not match */
     server.aof_flush_postponed_start = 0;
-    server.aof_rewrite_incremental_fsync = 1;
+    server.aof_rewrite_incremental_fsync = REDIS_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC;
     server.pidfile = zstrdup(REDIS_DEFAULT_PID_FILE);
-    server.rdb_filename = zstrdup("dump.rdb");
+    server.rdb_filename = zstrdup(REDIS_DEFAULT_RDB_FILENAME);
     server.aof_filename = zstrdup("appendonly.aof");
     server.requirepass = NULL;
-    server.rdb_compression = 1;
-    server.rdb_checksum = 1;
-    server.stop_writes_on_bgsave_err = 1;
-    server.activerehashing = 1;
+    server.rdb_compression = REDIS_DEFAULT_RDB_COMPRESSION;
+    server.rdb_checksum = REDIS_DEFAULT_RDB_CHECKSUM;
+    server.stop_writes_on_bgsave_err = REDIS_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR;
+    server.activerehashing = REDIS_DEFAULT_ACTIVE_REHASHING;
     server.notify_keyspace_events = 0;
     server.maxclients = REDIS_MAX_CLIENTS;
     server.bpop_blocked_clients = 0;
-    server.maxmemory = 0;
-    server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_LRU;
-    server.maxmemory_samples = 3;
+    server.maxmemory = REDIS_DEFAULT_MAXMEMORY;
+    server.maxmemory_policy = REDIS_DEFAULT_MAXMEMORY_POLICY;
+    server.maxmemory_samples = REDIS_DEFAULT_MAXMEMORY_SAMPLES;
     server.hash_max_ziplist_entries = REDIS_HASH_MAX_ZIPLIST_ENTRIES;
     server.hash_max_ziplist_value = REDIS_HASH_MAX_ZIPLIST_VALUE;
     server.list_max_ziplist_entries = REDIS_LIST_MAX_ZIPLIST_ENTRIES;
@@ -1248,10 +1248,10 @@ void initServerConfig() {
     server.repl_master_initial_offset = -1;
     server.repl_state = REDIS_REPL_NONE;
     server.repl_syncio_timeout = REDIS_REPL_SYNCIO_TIMEOUT;
-    server.repl_serve_stale_data = 1;
-    server.repl_slave_ro = 1;
+    server.repl_serve_stale_data = REDIS_DEFAULT_SLAVE_SERVE_STALE_DATA;
+    server.repl_slave_ro = REDIS_DEFAULT_SLAVE_READ_ONLY;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
-    server.repl_disable_tcp_nodelay = 0;
+    server.repl_disable_tcp_nodelay = REDIS_DEFAULT_REPL_DISABLE_TCP_NODELAY;
     server.slave_priority = REDIS_DEFAULT_SLAVE_PRIORITY;
     server.master_repl_offset = 0;
 
