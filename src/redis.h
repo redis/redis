@@ -378,6 +378,7 @@ typedef struct redisObject {
 typedef struct redisDb {
     dict *dict;                 /* The keyspace for this DB */
     dict *expires;              /* Timeout of keys with a timeout set */
+    dict *weights;              /* write protection keys using recent time */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP) */
     dict *ready_keys;           /* Blocked keys that received a PUSH */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
@@ -475,7 +476,7 @@ struct sharedObjectsStruct {
     *colon, *nullbulk, *nullmultibulk, *queued,
     *emptymultibulk, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
     *outofrangeerr, *noscripterr, *loadingerr, *slowscripterr, *bgsaveerr,
-    *masterdownerr, *roslaveerr, *execaborterr, *noautherr,
+    *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *weighterror,
     *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop,
     *lpush,
@@ -1266,6 +1267,9 @@ void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams();
 
 /* db.c -- Keyspace access API */
+int removeWeight(redisDb *db, robj *key);
+long long getWeight(redisDb *db, robj *key);
+void setWeight(redisDb *db, robj *key, long long when);
 int removeExpire(redisDb *db, robj *key);
 void propagateExpire(redisDb *db, robj *key);
 int expireIfNeeded(redisDb *db, robj *key);
@@ -1398,6 +1402,7 @@ void pexpireatCommand(redisClient *c);
 void getsetCommand(redisClient *c);
 void ttlCommand(redisClient *c);
 void pttlCommand(redisClient *c);
+void weightCommand(redisClient *c);
 void persistCommand(redisClient *c);
 void slaveofCommand(redisClient *c);
 void debugCommand(redisClient *c);

@@ -229,6 +229,7 @@ struct redisCommand redisCommandTable[] = {
     {"sort",sortCommand,-2,"wm",0,NULL,1,1,1,0,0},
     {"info",infoCommand,-1,"rlt",0,NULL,0,0,0,0,0},
     {"monitor",monitorCommand,1,"ars",0,NULL,0,0,0,0,0},
+    {"weight",weightCommand,2,"r",0,NULL,1,1,1,0,0},
     {"ttl",ttlCommand,2,"r",0,NULL,1,1,1,0,0},
     {"pttl",pttlCommand,2,"r",0,NULL,1,1,1,0,0},
     {"persist",persistCommand,2,"w",0,NULL,1,1,1,0,0},
@@ -602,6 +603,8 @@ void tryResizeHashTables(int dbid) {
         dictResize(server.db[dbid].dict);
     if (htNeedsResize(server.db[dbid].expires))
         dictResize(server.db[dbid].expires);
+    if (htNeedsResize(server.db[dbid].weights))
+        dictResize(server.db[dbid].weights);
 }
 
 /* Our hash table implementation performs rehashing incrementally while
@@ -620,6 +623,11 @@ int incrementallyRehash(int dbid) {
     /* Expires */
     if (dictIsRehashing(server.db[dbid].expires)) {
         dictRehashMilliseconds(server.db[dbid].expires,1);
+        return 1; /* already used our millisecond for this loop... */
+    }
+    /* Weights */
+    if (dictIsRehashing(server.db[dbid].weights)) {
+        dictRehashMilliseconds(server.db[dbid].weights,1);
         return 1; /* already used our millisecond for this loop... */
     }
     return 0;
@@ -1157,6 +1165,8 @@ void createSharedObjects(void) {
         "-READONLY You can't write against a read only slave.\r\n"));
     shared.noautherr = createObject(REDIS_STRING,sdsnew(
         "-NOAUTH Authentication required.\r\n"));
+    shared.weighterror = createObject(REDIS_STRING,sdsnew(
+        "-TXERROR Key's current weight is higher than new\r\n"));
     shared.oomerr = createObject(REDIS_STRING,sdsnew(
         "-OOM command not allowed when used memory > 'maxmemory'.\r\n"));
     shared.execaborterr = createObject(REDIS_STRING,sdsnew(
@@ -1431,6 +1441,7 @@ void initServer() {
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].dict = dictCreate(&dbDictType,NULL);
         server.db[j].expires = dictCreate(&keyptrDictType,NULL);
+        server.db[j].weights = dictCreate(&keyptrDictType,NULL);
         server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].ready_keys = dictCreate(&setDictType,NULL);
         server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
@@ -2400,13 +2411,14 @@ sds genRedisInfoString(char *section) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Keyspace\r\n");
         for (j = 0; j < server.dbnum; j++) {
-            long long keys, vkeys;
+            long long keys, vkeys, weightkeys;
 
             keys = dictSize(server.db[j].dict);
             vkeys = dictSize(server.db[j].expires);
-            if (keys || vkeys) {
-                info = sdscatprintf(info, "db%d:keys=%lld,expires=%lld\r\n",
-                    j, keys, vkeys);
+            weightkeys = dictSize(server.db[j].weights);
+            if (keys || vkeys || weightkeys) {
+                info = sdscatprintf(info, "db%d:keys=%lld,expires=%lld,weights=%lld\r\n",
+                    j, keys, vkeys, weightkeys);
             }
         }
     }
