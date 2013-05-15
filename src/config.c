@@ -1568,7 +1568,7 @@ int rewriteConfig(char *path) {
     rewriteConfigNumericalOption(state,"maxmemory-samples",server.maxmemory_samples,REDIS_DEFAULT_MAXMEMORY_SAMPLES);
     rewriteConfigAppendonlyOption(state);
     rewriteConfigEnumOption(state,"appendfsync",server.aof_fsync,
-        "eveysec", AOF_FSYNC_EVERYSEC,
+        "everysec", AOF_FSYNC_EVERYSEC,
         "always", AOF_FSYNC_ALWAYS,
         "no", AOF_FSYNC_NO,
         NULL, REDIS_DEFAULT_AOF_FSYNC);
