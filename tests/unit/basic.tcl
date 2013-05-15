@@ -19,6 +19,21 @@ start_server {tags {"basic"}} {
         r get x
     } {}
 
+    test {DELKEYS count} {
+        foreach key {foo_a foo_b foo_c} {
+            r set $key hello
+        }
+        r delkeys foo*
+    } {3}
+
+    test {DELKEYS realy deleted} {
+        foreach key {foo_a foo_b foo_c} {
+            r set $key hello
+        }
+        r delkeys foo*
+        lsort [r keys foo*]
+    } {}
+
     test {Vararg DEL} {
         r set foo1 a
         r set foo2 b

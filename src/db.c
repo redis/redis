@@ -252,6 +252,34 @@ void delCommand(redisClient *c) {
     addReplyLongLong(c,deleted);
 }
 
+void delKeysCommand(redisClient *c) {
+    int deleted = 0;
+    sds pattern = c->argv[1]->ptr;
+    int plen    = sdslen(pattern);
+
+    dictEntry *de;
+    dictIterator *di;
+
+    di = dictGetSafeIterator(c->db->dict);
+
+    while((de = dictNext(di)) != NULL) {
+        sds key = dictGetKey(de);
+
+        if (stringmatchlen(pattern,plen,key,sdslen(key),0)) {
+            robj *keyobj = createStringObject(key,sdslen(key));
+
+            if (dbDelete(c->db,keyobj)) {
+                signalModifiedKey(c->db,keyobj);
+                notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"delkeys",keyobj,c->db->id);
+                server.dirty++;
+                deleted++;
+            }
+        }
+    }
+
+    addReplyLongLong(c,deleted);
+}
+
 void existsCommand(redisClient *c) {
     expireIfNeeded(c->db,c->argv[1]);
     if (dbExists(c->db,c->argv[1])) {

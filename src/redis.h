@@ -733,7 +733,7 @@ struct redisServer {
     off_t loading_loaded_bytes;
     time_t loading_start_time;
     /* Fast pointers to often looked up command */
-    struct redisCommand *delCommand, *multiCommand, *lpushCommand, *lpopCommand,
+    struct redisCommand *delCommand, *delKeysCommand, *multiCommand, *lpushCommand, *lpopCommand,
                         *rpopCommand;
     /* Fields used only for stats */
     time_t stat_starttime;          /* Server start time */
@@ -1334,6 +1334,7 @@ void setexCommand(redisClient *c);
 void psetexCommand(redisClient *c);
 void getCommand(redisClient *c);
 void delCommand(redisClient *c);
+void delKeysCommand(redisClient *c);
 void existsCommand(redisClient *c);
 void setbitCommand(redisClient *c);
 void getbitCommand(redisClient *c);
