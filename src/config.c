@@ -1335,17 +1335,21 @@ void rewriteConfigEnumOption(struct rewriteConfigState *state, char *option, int
 void rewriteConfigSyslogfacilityOption(struct rewriteConfigState *state) {
     int value = server.syslog_facility, j;
     int force = value != LOG_LOCAL0;
-    char *name, *option = "syslog-facility";
+    char *name = NULL;
+    char *option = "syslog-facility";
     sds line;
 
-    for (j = 0; validSyslogFacilities[j].name; j++) {
+    for (j = 0; validSyslogFacilities[j].name != NULL; j++) {
         if (validSyslogFacilities[j].value == value) {
             name = (char*) validSyslogFacilities[j].name;
             break;
         }
     }
-    line = sdscatprintf(sdsempty(),"%s %s",option,name);
-    rewriteConfigRewriteLine(state,option,line,force);
+    
+    if (name) {
+        line = sdscatprintf(sdsempty(),"%s %s",option,name);
+        rewriteConfigRewriteLine(state,option,line,force);
+    }
 }
 
 /* Rewrite the save option. */
