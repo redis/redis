@@ -233,6 +233,7 @@ int aeWinReceiveDone(int fd) {
     /* use zero length read with overlapped to get notification
      of when data is available */
     memset(&sockstate->ov_read, 0, sizeof(sockstate->ov_read));
+    wsarecvflags = 0;
 
     zreadbuf.buf = zreadchar;
     zreadbuf.len = 0;
