@@ -1068,11 +1068,8 @@ static void slaveMode(void) {
 
     /* Discard the payload. */
     while(payload) {
-<<<<<<< HEAD
         ssize_t nread;
 
-=======
->>>>>>> ea9d7b98eab5239cd6f2a9b104b57e5939d1ea6b
 #ifdef _WIN32
         nread = read(fd,buf,(payload > sizeof(buf)) ? sizeof(buf) : (unsigned int)payload);
 #else
@@ -1334,11 +1331,7 @@ static void findBigKeys(void) {
         reply3 = redisCommand(context,"%s %s", sizecmd, reply1->str);
         if (reply3 && reply3->type == REDIS_REPLY_INTEGER) {
             if (biggest[type] < (unsigned)reply3->integer) {
-<<<<<<< HEAD
                 printf("Biggest %-6s found so far '%s' with %llu %s.\n",
-=======
-                printf("[%6s] %s | biggest so far with size %llu\n",
->>>>>>> ea9d7b98eab5239cd6f2a9b104b57e5939d1ea6b
                     typename[type], reply1->str,
                     (unsigned long long) reply3->integer,
                     typeunit[type]);
