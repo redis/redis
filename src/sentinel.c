@@ -235,6 +235,9 @@ static void redisAeReadEvent(aeEventLoop *el, int fd, void *privdata, int mask) 
     ((void)el); ((void)fd); ((void)mask);
 
     redisAsyncHandleRead(e->context);
+#ifdef _WIN32
+    aeWinReceiveDone(fd);
+#endif
 }
 
 static void redisAeWriteEvent(aeEventLoop *el, int fd, void *privdata, int mask) {
@@ -284,6 +287,10 @@ static void redisAeCleanup(void *privdata) {
     redisAeEvents *e = (redisAeEvents*)privdata;
     redisAeDelRead(privdata);
     redisAeDelWrite(privdata);
+#ifdef _WIN32
+    aeWinCloseSocket((int)e->fd);
+    e->fd = 0;
+#endif
     zfree(e);
 }
 
@@ -294,6 +301,10 @@ static int redisAeAttach(aeEventLoop *loop, redisAsyncContext *ac) {
     /* Nothing should be attached when something is already attached */
     if (ac->ev.data != NULL)
         return REDIS_ERR;
+
+#ifdef _WIN32
+    aeWinSocketAttach((int)c->fd);
+#endif
 
     /* Create container for context and r/w events */
     e = (redisAeEvents*)zmalloc(sizeof(*e));
