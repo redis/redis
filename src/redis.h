@@ -99,6 +99,26 @@
 #define REDIS_DEFAULT_REPL_BACKLOG_TIME_LIMIT (60*60)  /* 1 hour */
 #define REDIS_REPL_BACKLOG_MIN_SIZE (1024*16)          /* 16k */
 #define REDIS_BGSAVE_RETRY_DELAY 5 /* Wait a few secs before trying again. */
+#define REDIS_DEFAULT_PID_FILE "/var/run/redis.pid"
+#define REDIS_DEFAULT_SYSLOG_IDENT "redis"
+#define REDIS_DEFAULT_CLUSTER_CONFIG_FILE "nodes.conf"
+#define REDIS_DEFAULT_DAEMONIZE 0
+#define REDIS_DEFAULT_UNIX_SOCKET_PERM 0
+#define REDIS_DEFAULT_TCP_KEEPALIVE 0
+#define REDIS_DEFAULT_LOGFILE ""
+#define REDIS_DEFAULT_SYSLOG_ENABLED 0
+#define REDIS_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR 1
+#define REDIS_DEFAULT_RDB_COMPRESSION 1
+#define REDIS_DEFAULT_RDB_CHECKSUM 1
+#define REDIS_DEFAULT_RDB_FILENAME "dump.rdb"
+#define REDIS_DEFAULT_SLAVE_SERVE_STALE_DATA 1
+#define REDIS_DEFAULT_SLAVE_READ_ONLY 1
+#define REDIS_DEFAULT_REPL_DISABLE_TCP_NODELAY 0
+#define REDIS_DEFAULT_MAXMEMORY 0
+#define REDIS_DEFAULT_MAXMEMORY_SAMPLES 3
+#define REDIS_DEFAULT_AOF_NO_FSYNC_ON_REWRITE 0
+#define REDIS_DEFAULT_ACTIVE_REHASHING 1
+#define REDIS_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC 1
 
 /* Protocol and I/O related defines */
 #define REDIS_MAX_QUERYBUF_LEN  (1024*1024*1024) /* 1GB max query buffer. */
@@ -242,6 +262,7 @@
 #define REDIS_NOTICE 2
 #define REDIS_WARNING 3
 #define REDIS_LOG_RAW (1<<10) /* Modifier to log without timestamp */
+#define REDIS_DEFAULT_VERBOSITY REDIS_NOTICE
 
 /* Anti-warning macro... */
 #define REDIS_NOTUSED(V) ((void) V)
@@ -253,6 +274,7 @@
 #define AOF_FSYNC_NO 0
 #define AOF_FSYNC_ALWAYS 1
 #define AOF_FSYNC_EVERYSEC 2
+#define REDIS_DEFAULT_AOF_FSYNC AOF_FSYNC_EVERYSEC
 
 /* Zip structure related defaults */
 #define REDIS_HASH_MAX_ZIPLIST_ENTRIES 512
@@ -275,6 +297,7 @@
 #define REDIS_MAXMEMORY_ALLKEYS_LRU 3
 #define REDIS_MAXMEMORY_ALLKEYS_RANDOM 4
 #define REDIS_MAXMEMORY_NO_EVICTION 5
+#define REDIS_DEFAULT_MAXMEMORY_POLICY REDIS_MAXMEMORY_VOLATILE_LRU
 
 /* Scripting */
 #define REDIS_LUA_TIME_LIMIT 5000 /* milliseconds */
@@ -491,6 +514,8 @@ typedef struct clientBufferLimitsConfig {
     time_t soft_limit_seconds;
 } clientBufferLimitsConfig;
 
+extern clientBufferLimitsConfig clientBufferLimitsDefaults[REDIS_CLIENT_LIMIT_NUM_CLASSES];
+
 /* The redisOp structure defines a Redis Operation, that is an instance of
  * a command with an argument vector, database ID, propagation target
  * (REDIS_PROPAGATE_*), and command pointer.
@@ -673,6 +698,7 @@ typedef struct {
 
 struct redisServer {
     /* General */
+    char *configfile;           /* Absolute config file path, or NULL */
     int hz;                     /* serverCron() calls frequency in hertz */
     redisDb *db;
     dict *commands;             /* Command table */
@@ -985,7 +1011,7 @@ long long mstime(void);
 void getRandomHexChars(char *p, unsigned int len);
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 void exitFromChild(int retcode);
-long popcount(void *s, long count);
+size_t popcount(void *s, long count);
 void redisSetProcTitle(char *title);
 
 /* networking.c -- Networking and Client related operations */
