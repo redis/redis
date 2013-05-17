@@ -1209,7 +1209,6 @@ void initServerConfig() {
     server.bindaddr = NULL;
     server.unixsocket = NULL;
     server.unixsocketperm = REDIS_DEFAULT_UNIX_SOCKET_PERM;
-    server.unixsocketperm = 0;
     for (j = 0; j < REDIS_MAX_IP; j++)
         server.ipfd[j] = -1;
     server.sofd = -1;
