@@ -105,7 +105,7 @@ void loadServerConfigFromString(char *config) {
         /* Skip this line if the resulting command vector is empty. */
         if (argc == 0) {
             sdsfreesplitres(argv,argc);
-            return;
+            continue;
         }
         sdstolower(argv[0]);
 
