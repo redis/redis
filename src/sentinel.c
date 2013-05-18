@@ -161,6 +161,7 @@ typedef struct sentinelRedisInstance {
     /* Master specific. */
     dict *sentinels;    /* Other sentinels monitoring the same master. */
     dict *slaves;       /* Slaves for this master instance. */
+    dict *observers;    /* observer mode slaves lists */
     int quorum;         /* Number of sentinels that need to agree on failure. */
     int parallel_syncs; /* How many slaves to reconfigure at same time. */
     char *auth_pass;    /* Password to use for AUTH against master & slaves. */
@@ -351,6 +352,15 @@ dictType instancesDictType = {
     dictSdsKeyCompare,         /* key compare */
     NULL,                      /* key destructor */
     dictInstancesValDestructor /* val destructor */
+};
+
+dictType observersDictType = {
+    dictSdsHash,               /* hash function */
+    NULL,                      /* key dup */
+    NULL,                      /* val dup */
+    dictSdsKeyCompare,         /* key compare */
+    NULL,                      /* key destructor */
+    NULL                       /* val destructor */
 };
 
 /* Instance runid (sds) -> votes (long casted to void*)
@@ -888,6 +898,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->parallel_syncs = SENTINEL_DEFAULT_PARALLEL_SYNCS;
     ri->master = master;
     ri->slaves = dictCreate(&instancesDictType,NULL);
+    ri->observers = dictCreate(&observersDictType,NULL);
     ri->info_refresh = 0;
 
     /* Failover state. */
@@ -913,6 +924,7 @@ void releaseSentinelRedisInstance(sentinelRedisInstance *ri) {
     /* Release all its slaves or sentinels if any. */
     dictRelease(ri->sentinels);
     dictRelease(ri->slaves);
+    dictRelease(ri->observers);
 
     /* Release hiredis connections. */
     if (ri->cc) sentinelKillLink(ri,ri->cc);
@@ -1065,7 +1077,7 @@ void sentinelDelFlagsToDictOfRedisInstances(dict *instances, int flags) {
 }
 
 /* Reset the state of a monitored master:
- * 1) Remove all slaves.
+ * 1) Remove all slaves and observers.
  * 2) Remove all sentinels.
  * 3) Remove most of the flags resulting from runtime operations.
  * 4) Reset timers to their default value.
@@ -1075,8 +1087,10 @@ void sentinelDelFlagsToDictOfRedisInstances(dict *instances, int flags) {
 void sentinelResetMaster(sentinelRedisInstance *ri, int flags) {
     redisAssert(ri->flags & SRI_MASTER);
     dictRelease(ri->slaves);
+    dictRelease(ri->observers);
     dictRelease(ri->sentinels);
     ri->slaves = dictCreate(&instancesDictType,NULL);
+    ri->observers= dictCreate(&observersDictType,NULL);
     ri->sentinels = dictCreate(&instancesDictType,NULL);
     if (ri->cc) sentinelKillLink(ri,ri->cc);
     if (ri->pc) sentinelKillLink(ri,ri->pc);
@@ -1228,6 +1242,13 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
         ri = sentinelGetMasterByName(argv[1]);
         if (!ri) return "No such master with specified name.";
         ri->auth_pass = sdsnew(argv[2]);
+    } else if (!strcasecmp(argv[0],"observers") && argc == 4){
+        ri = sentinelGetMasterByName(argv[1]);
+        if (!ri) return "No such master with specified name.";
+
+        sds name = sdsempty();
+        name = sdscatprintf(name,"%s:%s",argv[2],argv[3]);
+        dictAdd(ri->observers, name, NULL);
     } else {
         return "Unrecognized sentinel configuration statement.";
     }
@@ -1532,6 +1553,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
 
             sentinelEvent(REDIS_WARNING,"-slave-restart-as-master",ri,"%@ #removing it from the attached slaves");
             retval = dictDelete(ri->master->slaves,ri->name);
+            dictDelete(ri->master->observers,ri->name);
             redisAssert(retval == REDIS_OK);
             return;
         } else if (!sentinel.tilt && ri->flags & SRI_PROMOTED) {
@@ -2042,6 +2064,24 @@ void sentinelCommand(redisClient *c) {
         if (c->argc != 2) goto numargserr;
 
         addReplyDictOfRedisInstances(c,sentinel.masters);
+    } else if (!strcasecmp(c->argv[1]->ptr,"observers")) {
+        sentinelRedisInstance *ri;
+        int size;
+        dictIterator *di;
+        dictEntry *de;
+
+        if (c->argc != 3) goto numargserr;
+        if ((ri = sentinelGetMasterByNameOrReplyError(c,c->argv[2])) == NULL)
+            return;
+
+        size = dictSize(ri->observers); 
+        addReplyMultiBulkLen(c,size);
+
+        di = dictGetIterator(ri->observers);
+        while((de = dictNext(di)) != NULL) {
+            addReplyBulkCString(c, dictGetKey(de));
+        }
+        dictReleaseIterator(di);
     } else if (!strcasecmp(c->argv[1]->ptr,"slaves")) {
         /* SENTINEL SLAVES <master-name> */
         sentinelRedisInstance *ri;
@@ -2656,6 +2696,7 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
         sentinelRedisInstance *slave = dictGetVal(de);
         mstime_t info_validity_time = mstime()-SENTINEL_INFO_VALIDITY_TIME;
 
+        if (dictFind(master->observers,dictGetKey(de))) continue;
         if (slave->flags & (SRI_S_DOWN|SRI_O_DOWN|SRI_DISCONNECTED)) continue;
         if (slave->flags & SRI_DEMOTE) continue; /* Old master not yet ready. */
         if (slave->last_avail_time < info_validity_time) continue;
