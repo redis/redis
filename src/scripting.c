@@ -787,7 +787,8 @@ void evalGenericCommand(redisClient *c, int evalsha) {
     lua_State *lua = server.lua;
     char funcname[43];
     long long numkeys;
-    int delhook = 0, err;
+    int delhook = 0, err, have_debug_info;
+    lua_Debug lua_debug_info;
 
     /* We want the same PRNG sequence at every call so that our PRNG is
      * not affected by external state. */
@@ -866,9 +867,18 @@ void evalGenericCommand(redisClient *c, int evalsha) {
         delhook = 1;
     }
 
-    /* At this point whatever this script was never seen before or if it was
+    /* At this point whether this script was never seen before or if it was
      * already defined, we can call it. We have zero arguments and expect
      * a single return value. */
+
+    /* First, duplicate the function and retrieve debugging information so we
+     * can print the source code location if there is an error */
+    lua_pushvalue(lua, -1);
+
+    /* lua_getinfo is not guaranteed to succeed, so we'll only print error info
+     * if it is successful */
+    have_debug_info = lua_getinfo(lua, ">S", &lua_debug_info);
+
     err = lua_pcall(lua,0,1,0);
 
     /* Perform some cleanup that we need to do both on error and success. */
@@ -885,8 +895,15 @@ void evalGenericCommand(redisClient *c, int evalsha) {
     lua_gc(lua,LUA_GCSTEP,1);
 
     if (err) {
-        addReplyErrorFormat(c,"Error running script (call to %s): %s\n",
-            funcname, lua_tostring(lua,-1));
+        if(have_debug_info) {
+            addReplyErrorFormat(c, "Error running script (call to %s): %s:%d:"\
+                " %s\n",  funcname, lua_debug_info.source,
+                lua_debug_info.linedefined, lua_tostring(lua, -1));
+
+        } else {
+            addReplyErrorFormat(c,"Error running script (call to %s): %s\n",
+               funcname, lua_tostring(lua,-1));
+        }
         lua_pop(lua,1); /* Consume the Lua reply. */
     } else {
         /* On success convert the Lua return value into Redis protocol, and
