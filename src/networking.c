@@ -127,7 +127,8 @@ redisClient *createClient(int fd) {
  * data should be appended to the output buffers. */
 int prepareClientToWrite(redisClient *c) {
     if (c->flags & REDIS_LUA_CLIENT) return REDIS_OK;
-    if (c->flags & REDIS_MASTER) return REDIS_ERR;
+    if ((c->flags & REDIS_MASTER) &&
+        !(c->flags & REDIS_MASTER_FORCE_REPLY)) return REDIS_ERR;
     if (c->fd <= 0) return REDIS_ERR; /* Fake client */
     if (c->bufpos == 0 && listLength(c->reply) == 0 &&
         (c->replstate == REDIS_REPL_NONE ||
