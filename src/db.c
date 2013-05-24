@@ -161,6 +161,8 @@ int dbDelete(redisDb *db, robj *key) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
+    if (dictSize(db->weights) > 0) dictDelete(db->weights,key->ptr);
+
     if (dictDelete(db->dict,key->ptr) == DICT_OK) {
         if (server.cluster_enabled) slotToKeyDel(key);
         return 1;
@@ -177,6 +179,7 @@ long long emptyDb() {
         removed += dictSize(server.db[j].dict);
         dictEmpty(server.db[j].dict);
         dictEmpty(server.db[j].expires);
+        dictEmpty(server.db[j].weights);
     }
     if (server.cluster_enabled) slotToKeyFlush();
     return removed;
@@ -215,6 +218,7 @@ void flushdbCommand(redisClient *c) {
     signalFlushedDb(c->db->id);
     dictEmpty(c->db->dict);
     dictEmpty(c->db->expires);
+    dictEmpty(c->db->weights);
     if (server.cluster_enabled) slotToKeyFlush();
     addReply(c,shared.ok);
 }
@@ -471,6 +475,7 @@ int removeExpire(redisDb *db, robj *key) {
     return dictDelete(db->expires,key->ptr) == DICT_OK;
 }
 
+
 void setExpire(redisDb *db, robj *key, long long when) {
     dictEntry *kde, *de;
 
@@ -495,6 +500,32 @@ long long getExpire(redisDb *db, robj *key) {
     redisAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
     return dictGetSignedIntegerVal(de);
 }
+
+int removeWeight(redisDb *db, robj *key) {
+    redisAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
+    return dictDelete(db->weights,key->ptr) == DICT_OK;
+}
+
+
+void setWeight(redisDb *db, robj *key, long long weight) {
+    dictEntry *kde, *de;
+
+    kde = dictFind(db->dict,key->ptr);
+    redisAssertWithInfo(NULL,key,kde != NULL);
+    de = dictReplaceRaw(db->weights,dictGetKey(kde));
+    dictSetSignedIntegerVal(de,weight);
+}
+
+long long getWeight(redisDb *db, robj *key) {
+    dictEntry *de;
+
+    if (dictSize(db->weights) == 0 ||
+       (de = dictFind(db->weights,key->ptr)) == NULL) return -1;
+
+    redisAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
+    return dictGetSignedIntegerVal(de);
+}
+
 
 /* Propagate expires into slaves and the AOF file.
  * When a key expires in the master, a DEL operation for this key is sent
@@ -621,6 +652,23 @@ void pexpireCommand(redisClient *c) {
 
 void pexpireatCommand(redisClient *c) {
     expireGenericCommand(c,0,UNIT_MILLISECONDS);
+}
+
+void weightCommand(redisClient *c) {
+    long long weight = -1;
+
+    /* If the key does not exist at all, return -1*/
+    if (lookupKeyRead(c->db,c->argv[1]) == NULL) {
+        addReplyLongLong(c,-1);
+        return;
+    }
+
+    weight = getWeight(c->db,c->argv[1]);
+    if (weight == -1) {
+        /* key exists but don't have weight*/
+        weight = 0;
+    }
+    addReplyLongLong(c,weight);
 }
 
 void ttlGenericCommand(redisClient *c, int output_ms) {

@@ -14,6 +14,26 @@ start_server {tags {"basic"}} {
         r get x
     } {}
 
+    test {SET wt basic} {
+        r set x 123 wt 100000
+        catch {r set x 234 wt 10000} err
+        format $err
+        assert_equal 123 [r get x]
+        r set x 234 wt 100001
+        assert_equal 234 [r get x]
+        r del x
+    } 
+
+    test {weight basic} {
+        r set x 123 wt 100000
+        assert_equal 100000 [r weight x]
+        r del x
+        r set t 123
+        assert_equal 0 [r weight t]
+        r del t
+        assert {[r weight y] == -1}
+    }
+
     test {DEL against a single item} {
         r del x
         r get x

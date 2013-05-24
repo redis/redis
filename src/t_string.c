@@ -61,9 +61,11 @@ static int checkStringLength(redisClient *c, long long size) {
 #define REDIS_SET_NO_FLAGS 0
 #define REDIS_SET_NX (1<<0)     /* Set if key not exists. */
 #define REDIS_SET_XX (1<<1)     /* Set if key exists. */
+#define REDIS_SET_WT (1<<2)     /* Set if weight is less */
 
-void setGenericCommand(redisClient *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
+void setGenericCommand(redisClient *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *weight, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
+    long long wt = 0;
 
     if (expire) {
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != REDIS_OK)
@@ -74,6 +76,15 @@ void setGenericCommand(redisClient *c, int flags, robj *key, robj *val, robj *ex
         }
         if (unit == UNIT_SECONDS) milliseconds *= 1000;
     }
+    
+    if (weight) {
+        if (getLongLongFromObjectOrReply(c, weight, &wt, NULL) != REDIS_OK)
+            return;
+        if (wt <= 0) {
+            addReplyError(c,"tx time should be grater than zero");
+            return;
+        }
+    }
 
     if ((flags & REDIS_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
         (flags & REDIS_SET_XX && lookupKeyWrite(c->db,key) == NULL))
@@ -81,8 +92,17 @@ void setGenericCommand(redisClient *c, int flags, robj *key, robj *val, robj *ex
         addReply(c, abort_reply ? abort_reply : shared.nullbulk);
         return;
     }
+
+    if (weight) {
+        long long w = getWeight(c->db,key);
+        if (w != 0 && wt <= w) {
+            addReply(c, abort_reply ? abort_reply : shared.weighterror);
+            return;
+        }
+    }
     setKey(c->db,key,val);
     server.dirty++;
+    if (weight) setWeight(c->db,key,wt);
     if (expire) setExpire(c->db,key,mstime()+milliseconds);
     notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"set",key,c->db->id);
     if (expire) notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,
@@ -94,6 +114,7 @@ void setGenericCommand(redisClient *c, int flags, robj *key, robj *val, robj *ex
 void setCommand(redisClient *c) {
     int j;
     robj *expire = NULL;
+    robj *weight = NULL;
     int unit = UNIT_SECONDS;
     int flags = REDIS_SET_NO_FLAGS;
 
@@ -117,6 +138,11 @@ void setCommand(redisClient *c) {
             unit = UNIT_MILLISECONDS;
             expire = next;
             j++;
+        } else if ((a[0] == 'w' || a[0] == 'W') &&
+                   (a[1] == 't' || a[1] == 'T') && a[2] == '\0' && next) {
+            flags |= REDIS_SET_WT;
+            weight = next;
+            j++;
         } else {
             addReply(c,shared.syntaxerr);
             return;
@@ -124,22 +150,22 @@ void setCommand(redisClient *c) {
     }
 
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
+    setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,weight,NULL,NULL);
 }
 
 void setnxCommand(redisClient *c) {
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setGenericCommand(c,REDIS_SET_NX,c->argv[1],c->argv[2],NULL,0,shared.cone,shared.czero);
+    setGenericCommand(c,REDIS_SET_NX,c->argv[1],c->argv[2],NULL,0,NULL,shared.cone,shared.czero);
 }
 
 void setexCommand(redisClient *c) {
     c->argv[3] = tryObjectEncoding(c->argv[3]);
-    setGenericCommand(c,REDIS_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_SECONDS,NULL,NULL);
+    setGenericCommand(c,REDIS_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_SECONDS,NULL,NULL,NULL);
 }
 
 void psetexCommand(redisClient *c) {
     c->argv[3] = tryObjectEncoding(c->argv[3]);
-    setGenericCommand(c,REDIS_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_MILLISECONDS,NULL,NULL);
+    setGenericCommand(c,REDIS_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_MILLISECONDS,NULL,NULL,NULL);
 }
 
 int getGenericCommand(redisClient *c) {
