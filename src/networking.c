@@ -88,6 +88,8 @@ redisClient *createClient(int fd) {
     c->authenticated = 0;
     c->replstate = REDIS_REPL_NONE;
     c->reploff = 0;
+    c->repl_ack_off = 0;
+    c->repl_ack_time = 0;
     c->slave_listening_port = 0;
     c->reply = listCreate();
     c->reply_bytes = 0;
