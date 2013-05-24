@@ -117,8 +117,8 @@ redisClient *createClient(int fd) {
  * loop so that when the socket is writable new data gets written.
  *
  * If the client should not receive new data, because it is a fake client
- * or a slave, or because the setup of the write handler failed, the function
- * returns REDIS_ERR.
+ * or a slave not yet online, or because the setup of the write handler
+ * failed, the function returns REDIS_ERR.
  *
  * Typically gets called every time a reply is built, before adding more
  * data to the clients output buffers. If the function returns REDIS_ERR no
