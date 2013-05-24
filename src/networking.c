@@ -116,15 +116,15 @@ redisClient *createClient(int fd) {
  * returns REDIS_OK, and make sure to install the write handler in our event
  * loop so that when the socket is writable new data gets written.
  *
- * If the client should not receive new data, because it is a fake client
- * or a slave not yet online, or because the setup of the write handler
+ * If the client should not receive new data, because it is a fake client,
+ * a master, a slave not yet online, or because the setup of the write handler
  * failed, the function returns REDIS_ERR.
  *
  * Typically gets called every time a reply is built, before adding more
  * data to the clients output buffers. If the function returns REDIS_ERR no
  * data should be appended to the output buffers. */
 int prepareClientToWrite(redisClient *c) {
-    if (c->flags & REDIS_LUA_CLIENT) return REDIS_OK;
+    if (c->flags & (REDIS_LUA_CLIENT|REDIS_MASTER)) return REDIS_OK;
     if (c->fd <= 0) return REDIS_ERR; /* Fake client */
     if (c->bufpos == 0 && listLength(c->reply) == 0 &&
         (c->replstate == REDIS_REPL_NONE ||
@@ -739,13 +739,8 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     while(c->bufpos > 0 || listLength(c->reply)) {
         if (c->bufpos > 0) {
-            if (c->flags & REDIS_MASTER) {
-                /* Don't reply to a master */
-                nwritten = c->bufpos - c->sentlen;
-            } else {
-                nwritten = write(fd,c->buf+c->sentlen,c->bufpos-c->sentlen);
-                if (nwritten <= 0) break;
-            }
+            nwritten = write(fd,c->buf+c->sentlen,c->bufpos-c->sentlen);
+            if (nwritten <= 0) break;
             c->sentlen += nwritten;
             totwritten += nwritten;
 
@@ -765,13 +760,8 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
                 continue;
             }
 
-            if (c->flags & REDIS_MASTER) {
-                /* Don't reply to a master */
-                nwritten = objlen - c->sentlen;
-            } else {
-                nwritten = write(fd, ((char*)o->ptr)+c->sentlen,objlen-c->sentlen);
-                if (nwritten <= 0) break;
-            }
+            nwritten = write(fd, ((char*)o->ptr)+c->sentlen,objlen-c->sentlen);
+            if (nwritten <= 0) break;
             c->sentlen += nwritten;
             totwritten += nwritten;
 
