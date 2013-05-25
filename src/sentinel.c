@@ -370,6 +370,7 @@ dictType leaderVotesDictType = {
 
 void sentinelCommand(redisClient *c);
 void sentinelInfoCommand(redisClient *c);
+void sentinelConfigCommand(redisClient *c);
 
 struct redisCommand sentinelcmds[] = {
     {"ping",pingCommand,1,"",0,NULL,0,0,0,0,0},
@@ -378,6 +379,7 @@ struct redisCommand sentinelcmds[] = {
     {"unsubscribe",unsubscribeCommand,-1,"",0,NULL,0,0,0,0,0},
     {"psubscribe",psubscribeCommand,-2,"",0,NULL,0,0,0,0,0},
     {"punsubscribe",punsubscribeCommand,-1,"",0,NULL,0,0,0,0,0},
+    {"config",sentinelConfigCommand,-2,"ar",0,NULL,0,0,0,0,0},
     {"info",sentinelInfoCommand,-1,"",0,NULL,0,0,0,0,0}
 };
 
@@ -3145,3 +3147,85 @@ void sentinelTimer(void) {
     sentinelKillTimedoutScripts();
 }
 
+sds rewriteSentinelConfigReadOldFile(char *path) {
+    char buf[REDIS_CONFIGLINE_MAX+1];
+    sds newcontent = sdsempty();
+
+    FILE *fp = fopen(path,"r");
+    if (fp == NULL && errno != ENOENT) return NULL;
+
+    while(fgets(buf,REDIS_CONFIGLINE_MAX+1,fp) != NULL) {
+        int argc;
+        sds *argv;
+        sds line = sdstrim(sdsnew(buf),"\r\n\t ");
+
+        if (line[0] == '#' || line[0] == '\0') {
+            newcontent = sdscatprintf(newcontent,"%s\n", line);
+            sdsfree(line);
+            continue;
+        }
+
+        argv = sdssplitargs(line,&argc);
+        if (argv == NULL) {
+            /* Apparently the line is unparsable for some reason, for
+             * instance it may have unbalanced quotes. Load it as a
+             * comment. */
+            sds aux = sdsnew("# ??? ");
+            aux = sdscatsds(aux,line);
+            newcontent = sdscatprintf(newcontent,"%s\n", aux);
+            sdsfree(line);
+            sdsfree(aux);
+            continue;
+        }
+
+        sdstolower(argv[0]);
+        if (argc == 6 && strcasecmp(argv[0],"sentinel") == 0 &&
+            strcasecmp(argv[1], "monitor")==0 ) {
+            sentinelRedisInstance *ri = sentinelGetMasterByName(argv[2]);
+            sdsfree(line);
+            line = sdscatprintf(sdsempty(), "sentinel monitor %s %s %d %d",
+                                 argv[2], ri->addr->ip, ri->addr->port, ri->quorum);     
+        }
+
+        newcontent = sdscatprintf(newcontent,"%s\n", line);
+        sdsfreesplitres(argv,argc);
+    }
+
+    fclose(fp);
+    return newcontent;
+}
+
+static int rewriteSentinelConfig(char *path) {
+    sds newcontent;
+    int retval;
+
+    newcontent = rewriteSentinelConfigReadOldFile(path);
+    if (NULL == newcontent) {
+        return -1;
+    }
+
+    retval = rewriteConfigOverwriteFile(path, newcontent);
+    sdsfree(newcontent);
+    return retval;
+}
+
+void sentinelConfigCommand(redisClient *c) {
+    if (!strcasecmp(c->argv[1]->ptr,"rewrite")) {
+        if (c->argc != 2) goto badarity;
+        if (server.configfile == NULL) {
+            addReplyError(c,"The server is running without a config file");
+            return;
+        }
+        if (rewriteSentinelConfig(server.configfile) == -1) {
+            addReplyErrorFormat(c,"Rewriting config file: %s(%s)", 
+                                  server.configfile, strerror(errno));
+        } else {
+            addReply(c,shared.ok);
+        }
+    }
+    return;
+
+badarity:
+    addReplyErrorFormat(c,"Wrong number of arguments for CONFIG %s",
+        (char*) c->argv[1]->ptr);
+}
