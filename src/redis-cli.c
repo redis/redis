@@ -873,7 +873,6 @@ static char **convertToSds(int count, char** args) {
   return sds;
 }
 
-#define LINE_BUFLEN 4096
 static void repl(void) {
     sds historyfile = NULL;
     int history = 0;
