@@ -1441,6 +1441,10 @@ void replicationCron(void) {
             redisLog(REDIS_NOTICE,"MASTER <-> SLAVE sync started");
         }
     }
+
+    /* Send ACK to master from time to time. */
+    if (server.masterhost && server.master)
+        replicationSendAck();
     
     /* If we have attached slaves, PING them from time to time.
      * So slaves can implement an explicit timeout to masters, and will
