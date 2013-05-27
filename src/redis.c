@@ -1798,15 +1798,6 @@ int processCommand(redisClient *c) {
         call(c,REDIS_CALL_FULL);
         if (listLength(server.ready_keys))
             handleClientsBlockedOnLists();
-        /* Acknowledge the master about the execution of this command. */
-        if (c->flags & REDIS_MASTER) {
-            c->flags |= REDIS_MASTER_FORCE_REPLY;
-            addReplyMultiBulkLen(c,3);
-            addReplyBulkCString(c,"REPLCONF");
-            addReplyBulkCString(c,"ACK");
-            addReplyBulkLongLong(c,c->reploff);
-            c->flags &= ~REDIS_MASTER_FORCE_REPLY;
-        }
     }
     return REDIS_OK;
 }
