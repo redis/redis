@@ -394,13 +394,15 @@ typedef struct multiCmd {
 typedef struct multiState {
     multiCmd *commands;     /* Array of MULTI commands */
     int count;              /* Total number of MULTI commands */
+    int minreplicas;        /* MINREPLICAS for synchronous replication */
+    time_t minreplicas_timeout; /* MINREPLICAS timeout as unixtime. */
 } multiState;
 
 typedef struct blockingState {
     dict *keys;             /* The keys we are waiting to terminate a blocking
                              * operation such as BLPOP. Otherwise NULL. */
     time_t timeout;         /* Blocking operation timeout. If UNIX current time
-                             * is >= timeout then the operation timed out. */
+                             * is > timeout then the operation timed out. */
     robj *target;           /* The key that should receive the element,
                              * for BRPOPLPUSH. */
 } blockingState;
