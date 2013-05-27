@@ -1302,6 +1302,22 @@ void slaveofCommand(redisClient *c) {
     addReply(c,shared.ok);
 }
 
+/* Send a REPLCONF ACK command to the master to inform it about the current
+ * processed offset. If we are not connected with a master, the command has
+ * no effects. */
+void replicationSendAck(void) {
+    redisClient *c = server.master;
+
+    if (c != NULL) {
+        c->flags |= REDIS_MASTER_FORCE_REPLY;
+        addReplyMultiBulkLen(c,3);
+        addReplyBulkCString(c,"REPLCONF");
+        addReplyBulkCString(c,"ACK");
+        addReplyBulkLongLong(c,c->reploff);
+        c->flags &= ~REDIS_MASTER_FORCE_REPLY;
+    }
+}
+
 /* ---------------------- MASTER CACHING FOR PSYNC -------------------------- */
 
 /* In order to implement partial synchronization we need to be able to cache
@@ -1390,6 +1406,7 @@ void replicationResurrectCachedMaster(int newfd) {
 
 /* --------------------------- REPLICATION CRON  ---------------------------- */
 
+/* Replication cron funciton, called 1 time per second. */
 void replicationCron(void) {
     /* Non blocking connection timeout? */
     if (server.masterhost &&
