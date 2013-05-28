@@ -424,6 +424,7 @@ int masterTryPartialResynchronization(redisClient *c) {
      * 3) Send the backlog data (from the offset to the end) to the slave. */
     c->flags |= REDIS_SLAVE;
     c->replstate = REDIS_REPL_ONLINE;
+    c->repl_ack_time = server.unixtime;
     listAddNodeTail(server.slaves,c);
     /* We can't use the connection buffers since they are used to accumulate
      * new commands at this stage. But we are sure the socket send buffer is
@@ -588,6 +589,20 @@ void replconfCommand(redisClient *c) {
                     &port,NULL) != REDIS_OK))
                 return;
             c->slave_listening_port = port;
+        } else if (!strcasecmp(c->argv[j]->ptr,"ack")) {
+            /* REPLCONF ACK is used by slave to inform the master the amount
+             * of replication stream that it processed so far. It is an
+             * internal only command that normal clients should never use. */
+            long long offset;
+
+            if (!(c->flags & REDIS_SLAVE)) return;
+            if ((getLongLongFromObject(c->argv[j+1], &offset) != REDIS_OK))
+                return;
+            if (offset > c->repl_ack_off)
+                c->repl_ack_off = offset;
+            c->repl_ack_time = server.unixtime;
+            /* Note: this command does not reply anything! */
+            return;
         } else {
             addReplyErrorFormat(c,"Unrecognized REPLCONF option: %s",
                 (char*)c->argv[j]->ptr);
@@ -641,6 +656,7 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
         slave->repldbfd = -1;
         aeDeleteFileEvent(server.el,slave->fd,AE_WRITABLE);
         slave->replstate = REDIS_REPL_ONLINE;
+        slave->repl_ack_time = server.unixtime;
         if (aeCreateFileEvent(server.el, slave->fd, AE_WRITABLE,
             sendReplyToClient, slave) == AE_ERR) {
             freeClient(slave);
@@ -1288,6 +1304,22 @@ void slaveofCommand(redisClient *c) {
     addReply(c,shared.ok);
 }
 
+/* Send a REPLCONF ACK command to the master to inform it about the current
+ * processed offset. If we are not connected with a master, the command has
+ * no effects. */
+void replicationSendAck(void) {
+    redisClient *c = server.master;
+
+    if (c != NULL) {
+        c->flags |= REDIS_MASTER_FORCE_REPLY;
+        addReplyMultiBulkLen(c,3);
+        addReplyBulkCString(c,"REPLCONF");
+        addReplyBulkCString(c,"ACK");
+        addReplyBulkLongLong(c,c->reploff);
+        c->flags &= ~REDIS_MASTER_FORCE_REPLY;
+    }
+}
+
 /* ---------------------- MASTER CACHING FOR PSYNC -------------------------- */
 
 /* In order to implement partial synchronization we need to be able to cache
@@ -1376,6 +1408,7 @@ void replicationResurrectCachedMaster(int newfd) {
 
 /* --------------------------- REPLICATION CRON  ---------------------------- */
 
+/* Replication cron funciton, called 1 time per second. */
 void replicationCron(void) {
     /* Non blocking connection timeout? */
     if (server.masterhost &&
@@ -1410,6 +1443,10 @@ void replicationCron(void) {
             redisLog(REDIS_NOTICE,"MASTER <-> SLAVE sync started");
         }
     }
+
+    /* Send ACK to master from time to time. */
+    if (server.masterhost && server.master)
+        replicationSendAck();
     
     /* If we have attached slaves, PING them from time to time.
      * So slaves can implement an explicit timeout to masters, and will
@@ -1438,6 +1475,31 @@ void replicationCron(void) {
                 if (write(slave->fd, "\n", 1) == -1) {
                     /* Don't worry, it's just a ping. */
                 }
+            }
+        }
+    }
+
+    /* Disconnect timedout slaves. */
+    if (listLength(server.slaves)) {
+        listIter li;
+        listNode *ln;
+
+        listRewind(server.slaves,&li);
+        while((ln = listNext(&li))) {
+            redisClient *slave = ln->value;
+
+            if (slave->replstate != REDIS_REPL_ONLINE) continue;
+            if ((server.unixtime - slave->repl_ack_time) > server.repl_timeout)
+            {
+                char ip[32];
+                int port;
+
+                if (anetPeerToString(slave->fd,ip,&port) != -1) {
+                    redisLog(REDIS_WARNING,
+                        "Disconnecting timedout slave: %s:%d",
+                        ip, slave->slave_listening_port);
+                }
+                freeClient(slave);
             }
         }
     }

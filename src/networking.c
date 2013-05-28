@@ -88,6 +88,8 @@ redisClient *createClient(int fd) {
     c->authenticated = 0;
     c->replstate = REDIS_REPL_NONE;
     c->reploff = 0;
+    c->repl_ack_off = 0;
+    c->repl_ack_time = 0;
     c->slave_listening_port = 0;
     c->reply = listCreate();
     c->reply_bytes = 0;
@@ -125,7 +127,8 @@ redisClient *createClient(int fd) {
  * data should be appended to the output buffers. */
 int prepareClientToWrite(redisClient *c) {
     if (c->flags & REDIS_LUA_CLIENT) return REDIS_OK;
-    if (c->flags & REDIS_MASTER) return REDIS_ERR;
+    if ((c->flags & REDIS_MASTER) &&
+        !(c->flags & REDIS_MASTER_FORCE_REPLY)) return REDIS_ERR;
     if (c->fd <= 0) return REDIS_ERR; /* Fake client */
     if (c->bufpos == 0 && listLength(c->reply) == 0 &&
         (c->replstate == REDIS_REPL_NONE ||

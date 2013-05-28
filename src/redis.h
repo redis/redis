@@ -213,6 +213,7 @@
 #define REDIS_CLOSE_ASAP (1<<10)/* Close this client ASAP */
 #define REDIS_UNIX_SOCKET (1<<11) /* Client connected via Unix domain socket */
 #define REDIS_DIRTY_EXEC (1<<12)  /* EXEC will fail for errors while queueing */
+#define REDIS_MASTER_FORCE_REPLY (1<<13)  /* Queue replies even if is master */
 
 /* Client request types */
 #define REDIS_REQ_INLINE 1
@@ -394,13 +395,15 @@ typedef struct multiCmd {
 typedef struct multiState {
     multiCmd *commands;     /* Array of MULTI commands */
     int count;              /* Total number of MULTI commands */
+    int minreplicas;        /* MINREPLICAS for synchronous replication */
+    time_t minreplicas_timeout; /* MINREPLICAS timeout as unixtime. */
 } multiState;
 
 typedef struct blockingState {
     dict *keys;             /* The keys we are waiting to terminate a blocking
                              * operation such as BLPOP. Otherwise NULL. */
     time_t timeout;         /* Blocking operation timeout. If UNIX current time
-                             * is >= timeout then the operation timed out. */
+                             * is > timeout then the operation timed out. */
     robj *target;           /* The key that should receive the element,
                              * for BRPOPLPUSH. */
 } blockingState;
@@ -450,6 +453,8 @@ typedef struct redisClient {
     long repldboff;         /* replication DB file offset */
     off_t repldbsize;       /* replication DB file size */
     long long reploff;      /* replication offset if this is our master */
+    long long repl_ack_off; /* replication ack offset, if this is a slave */
+    long long repl_ack_time;/* replication ack time, if this is a slave */
     char replrunid[REDIS_RUN_ID_SIZE+1]; /* master run id if this is a master */
     int slave_listening_port; /* As configured with: SLAVECONF listening-port */
     multiState mstate;      /* MULTI/EXEC state */
