@@ -48,7 +48,7 @@
 #define off64_t off_t
 #endif
 
-int replace_ftruncate(int fd, off64_t length);
+int replace_ftruncate(int fd, long long length);
 
 
 #define snprintf _snprintf
@@ -59,7 +59,7 @@ int replace_ftruncate(int fd, off64_t length);
 #define isnan _isnan
 #define isfinite _finite
 #define isinf(x) (!_finite(x))
-#define lseek64 lseek
+#define lseek64 _lseeki64
 /* following defined to choose little endian byte order */
 #define __i386__ 1
 #if !defined(va_copy)

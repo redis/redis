@@ -134,7 +134,7 @@ int replace_setsockopt(int socket, int level, int optname, const void *optval, s
 }
 
 /* set size with 64bit support */
-int replace_ftruncate(int fd, off64_t length) {
+int replace_ftruncate(int fd, long long length) {
     HANDLE h = (HANDLE) _get_osfhandle (fd);
     LARGE_INTEGER l, o;
 

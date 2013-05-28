@@ -419,8 +419,13 @@ typedef struct redisClient {
     int authenticated;      /* when requirepass is non-NULL */
     int replstate;          /* replication state if this is a slave */
     int repldbfd;           /* replication DB file descriptor */
+#ifdef _WIN32
+    long long repldboff;        /* replication DB file offset */
+    long long repldbsize;       /* replication DB file size */
+#else
     long repldboff;         /* replication DB file offset */
     off_t repldbsize;       /* replication DB file size */
+#endif
     int slave_listening_port; /* As configured with: SLAVECONF listening-port */
     multiState mstate;      /* MULTI/EXEC state */
     blockingState bpop;   /* blocking state */
@@ -542,8 +547,13 @@ struct redisServer {
     char neterr[ANET_ERR_LEN];  /* Error buffer for anet.c */
     /* RDB / AOF loading information */
     int loading;                /* We are loading data from disk if true */
+#ifdef _WIN32
+    long long loading_total_bytes;
+    long long loading_loaded_bytes;
+#else
     off_t loading_total_bytes;
     off_t loading_loaded_bytes;
+#endif
     time_t loading_start_time;
     /* Fast pointers to often looked up command */
     struct redisCommand *delCommand, *multiCommand, *lpushCommand, *lpopCommand,
@@ -584,9 +594,15 @@ struct redisServer {
     char *aof_filename;             /* Name of the AOF file */
     int aof_no_fsync_on_rewrite;    /* Don't fsync if a rewrite is in prog. */
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
+#ifdef _WIN32
+    long long aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
+    long long aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
+    long long aof_current_size;         /* AOF current size. */
+#else
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
     off_t aof_current_size;         /* AOF current size. */
+#endif
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
     pid_t aof_child_pid;            /* PID if rewriting process */
     list *aof_rewrite_buf_blocks;   /* Hold changes during an AOF rewrite. */

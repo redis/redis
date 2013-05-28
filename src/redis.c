@@ -2282,8 +2282,13 @@ sds genRedisInfoString(char *section) {
         if (server.loading) {
             double perc;
             time_t eta, elapsed;
+#ifdef _WIN32
+            long long remaining_bytes = server.loading_total_bytes-
+                                    server.loading_loaded_bytes;
+#else
             off_t remaining_bytes = server.loading_total_bytes-
                                     server.loading_loaded_bytes;
+#endif
 
             perc = ((double)server.loading_loaded_bytes /
                    server.loading_total_bytes) * 100;
