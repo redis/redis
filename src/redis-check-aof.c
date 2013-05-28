@@ -163,10 +163,10 @@ int main(int argc, char **argv) {
     int fix = 0;
     FILE *fp;
     struct redis_stat sb;
-    off_t size;
-    off_t pos;
-    off_t diff;
 #ifdef _WIN32
+    long long size;
+    long long pos;
+    long long diff;
     LARGE_INTEGER l;
     HANDLE h;
 
@@ -174,6 +174,10 @@ int main(int argc, char **argv) {
     _setmode(_fileno(stdin), _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);
     _setmode(_fileno(stderr), _O_BINARY);
+#else
+    off_t size;
+    off_t pos;
+    off_t diff;
 #endif
 
     if (argc < 2) {

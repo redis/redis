@@ -39,8 +39,13 @@
 #define redis_fstat fstat64
 #define redis_stat stat64
 #else
+#ifdef _WIN32
+#define redis_fstat _fstat64
+#define redis_stat _stat64
+#else
 #define redis_fstat fstat
 #define redis_stat stat
+#endif
 #endif
 
 /* Test for proc filesystem */
