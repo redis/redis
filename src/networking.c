@@ -692,6 +692,7 @@ void freeClient(redisClient *c) {
          * backlog. */
         if (c->flags & REDIS_SLAVE && listLength(server.slaves) == 0)
             server.repl_no_slaves_since = server.unixtime;
+        refreshGoodSlavesCount();
     }
 
     /* Case 2: we lost the connection with the master. */
