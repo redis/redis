@@ -440,6 +440,16 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"slave-priority") && argc == 2) {
             server.slave_priority = atoi(argv[1]);
+        } else if (!strcasecmp(argv[0],"min-slaves-to-write") && argc == 2) {
+            server.repl_min_slaves_to_write = atoi(argv[1]);
+            if (server.repl_min_slaves_to_write < 0) {
+                err = "Invalid value for min-slaves-to-write."; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"min-slaves-max-lag") && argc == 2) {
+            server.repl_min_slaves_max_lag = atoi(argv[1]);
+            if (server.repl_min_slaves_max_lag < 0) {
+                err = "Invalid value for min-slaves-max-lag."; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"notify-keyspace-events") && argc == 2) {
             int flags = keyspaceEventsStringToFlags(argv[1]);
 
@@ -801,6 +811,14 @@ void configSetCommand(redisClient *c) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll <= 0) goto badfmt;
         server.slave_priority = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"min-slaves-to-write")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
+            ll < 0) goto badfmt;
+        server.repl_min_slaves_to_write = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"min-slaves-max-lag")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
+            ll < 0) goto badfmt;
+        server.repl_min_slaves_max_lag = ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"cluster-node-timeout")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll <= 0) goto badfmt;
@@ -902,6 +920,8 @@ void configGetCommand(redisClient *c) {
     config_get_numerical_field("maxclients",server.maxclients);
     config_get_numerical_field("watchdog-period",server.watchdog_period);
     config_get_numerical_field("slave-priority",server.slave_priority);
+    config_get_numerical_field("min-slaves-to-write",server.repl_min_slaves_to_write);
+    config_get_numerical_field("min-slaves-max-lag",server.repl_min_slaves_max_lag);
     config_get_numerical_field("hz",server.hz);
     config_get_numerical_field("cluster-node-timeout",server.cluster_node_timeout);
 

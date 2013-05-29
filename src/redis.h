@@ -118,6 +118,8 @@
 #define REDIS_DEFAULT_AOF_NO_FSYNC_ON_REWRITE 0
 #define REDIS_DEFAULT_ACTIVE_REHASHING 1
 #define REDIS_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC 1
+#define REDIS_DEFAULT_MIN_SLAVES_TO_WRITE 0
+#define REDIS_DEFAULT_MIN_SLAVES_MAX_LAG 10
 
 /* Protocol and I/O related defines */
 #define REDIS_MAX_QUERYBUF_LEN  (1024*1024*1024) /* 1GB max query buffer. */
@@ -480,7 +482,7 @@ struct sharedObjectsStruct {
     *colon, *nullbulk, *nullmultibulk, *queued,
     *emptymultibulk, *wrongtypeerr, *nokeyerr, *syntaxerr, *sameobjecterr,
     *outofrangeerr, *noscripterr, *loadingerr, *slowscripterr, *bgsaveerr,
-    *masterdownerr, *roslaveerr, *execaborterr, *noautherr,
+    *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
     *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop,
     *lpush,
@@ -831,6 +833,9 @@ struct redisServer {
                                        gets released. */
     time_t repl_no_slaves_since;    /* We have no slaves since that time.
                                        Only valid if server.slaves len is 0. */
+    int repl_min_slaves_to_write;   /* Min number of slaves to write. */
+    int repl_min_slaves_max_lag;    /* Max lag of <count> slaves to write. */
+    int repl_good_slaves_count;     /* Number of slaves with lag <= max_lag. */
     /* Replication (slave) */
     char *masterauth;               /* AUTH with this password with master */
     char *masterhost;               /* Hostname of master */
@@ -1151,6 +1156,7 @@ void replicationCacheMaster(redisClient *c);
 void resizeReplicationBacklog(long long newsize);
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
+void refreshGoodSlavesCount(void);
 
 /* Generic persistence functions */
 void startLoading(FILE *fp);

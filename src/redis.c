@@ -1161,6 +1161,8 @@ void createSharedObjects(void) {
         "-OOM command not allowed when used memory > 'maxmemory'.\r\n"));
     shared.execaborterr = createObject(REDIS_STRING,sdsnew(
         "-EXECABORT Transaction discarded because of previous errors.\r\n"));
+    shared.noreplicaserr = createObject(REDIS_STRING,sdsnew(
+        "-NOREPLICAS Not enough good slaves to write.\r\n"));
     shared.space = createObject(REDIS_STRING,sdsnew(" "));
     shared.colon = createObject(REDIS_STRING,sdsnew(":"));
     shared.plus = createObject(REDIS_STRING,sdsnew("+"));
@@ -1264,6 +1266,8 @@ void initServerConfig() {
     server.shutdown_asap = 0;
     server.repl_ping_slave_period = REDIS_REPL_PING_SLAVE_PERIOD;
     server.repl_timeout = REDIS_REPL_TIMEOUT;
+    server.repl_min_slaves_to_write = REDIS_DEFAULT_MIN_SLAVES_TO_WRITE;
+    server.repl_min_slaves_max_lag = REDIS_DEFAULT_MIN_SLAVES_MAX_LAG;
     server.cluster_enabled = 0;
     server.cluster_node_timeout = REDIS_CLUSTER_DEFAULT_NODE_TIMEOUT;
     server.cluster_configfile = zstrdup(REDIS_DEFAULT_CLUSTER_CONFIG_FILE);
@@ -1469,6 +1473,7 @@ void initServer() {
     server.ops_sec_last_sample_ops = 0;
     server.unixtime = time(NULL);
     server.lastbgsave_status = REDIS_OK;
+    server.repl_good_slaves_count = 0;
     if(aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
         redisPanic("Can't create the serverCron time event.");
         exit(1);
@@ -1800,6 +1805,16 @@ int processCommand(redisClient *c) {
     {
         flagTransaction(c);
         addReply(c, shared.bgsaveerr);
+        return REDIS_OK;
+    }
+
+    /* Don't accept write commands if there are not enough good slaves and
+     * used configured the min-slaves-to-write option. */
+    if (server.repl_min_slaves_to_write && server.repl_min_slaves_max_lag &&
+        server.repl_good_slaves_count < server.repl_min_slaves_to_write)
+    {
+        flagTransaction(c);
+        addReply(c, shared.noreplicaserr);
         return REDIS_OK;
     }
 

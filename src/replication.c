@@ -1406,6 +1406,30 @@ void replicationResurrectCachedMaster(int newfd) {
     }
 }
 
+/* ------------------------- MIN-SLAVES-TO-WRITE  --------------------------- */
+
+/* This function counts the number of slaves with lag <= min-slaves-max-lag.
+ * If the option is active, the server will prevent writes if there are not
+ * enough connected slaves with the specified lag (or less). */
+void refreshGoodSlavesCount(void) {
+    listIter li;
+    listNode *ln;
+    int good = 0;
+
+    if (!server.repl_min_slaves_to_write ||
+        !server.repl_min_slaves_max_lag) return;
+
+    listRewind(server.slaves,&li);
+    while((ln = listNext(&li))) {
+        redisClient *slave = ln->value;
+        time_t lag = server.unixtime - slave->repl_ack_time;
+
+        if (slave->replstate == REDIS_REPL_ONLINE &&
+            lag <= server.repl_min_slaves_max_lag) good++;
+    }
+    server.repl_good_slaves_count = good;
+}
+
 /* --------------------------- REPLICATION CRON  ---------------------------- */
 
 /* Replication cron funciton, called 1 time per second. */
@@ -1519,4 +1543,7 @@ void replicationCron(void) {
                 (int) server.repl_backlog_time_limit);
         }
     }
+
+    /* Refresh the number of slaves with lag <= min-slaves-max-lag. */
+    refreshGoodSlavesCount();
 }
