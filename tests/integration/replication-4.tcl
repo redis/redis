@@ -54,3 +54,45 @@ start_server {tags {"repl"}} {
         }
     }
 }
+
+start_server {tags {"repl"}} {
+    start_server {} {
+        set master [srv -1 client]
+        set master_host [srv -1 host]
+        set master_port [srv -1 port]
+        set slave [srv 0 client]
+
+        test {First server should have role slave after SLAVEOF} {
+            $slave slaveof $master_host $master_port
+            wait_for_condition 50 100 {
+                [s 0 master_link_status] eq {up}
+            } else {
+                fail "Replication not started."
+            }
+        }
+
+        test {With min-slaves-to-write (1,3): master should be writable} {
+            $master config set min-slaves-max-lag 3
+            $master config set min-slaves-to-write 1
+            $master set foo bar
+        } {OK}
+
+        test {With min-slaves-to-write (2,3): master should not be writable} {
+            $master config set min-slaves-max-lag 3
+            $master config set min-slaves-to-write 2
+            catch {$master set foo bar} e
+            set e
+        } {NOREPLICAS*}
+
+        test {With min-slaves-to-write: master not writable with lagged slave} {
+            $master config set min-slaves-max-lag 2
+            $master config set min-slaves-to-write 1
+            assert {[$master set foo bar] eq {OK}}
+            $slave deferred 1
+            $slave debug sleep 4
+            after 3000
+            catch {$master set foo bar} e
+            set e
+        } {NOREPLICAS*}
+    }
+}
