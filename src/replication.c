@@ -441,6 +441,7 @@ int masterTryPartialResynchronization(redisClient *c) {
      * to -1 to force the master to emit SELECT, since the slave already
      * has this state from the previous connection with the master. */
 
+    refreshGoodSlavesCount();
     return REDIS_OK; /* The caller can return, no full resync needed. */
 
 need_full_resync:
@@ -662,6 +663,7 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
             freeClient(slave);
             return;
         }
+        refreshGoodSlavesCount();
         redisLog(REDIS_NOTICE,"Synchronization with slave succeeded");
     }
 }
