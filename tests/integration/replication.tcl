@@ -112,7 +112,7 @@ start_server {tags {"repl"}} {
                     set retry 500
                     while {$retry} {
                         set info [r -3 info]
-                        if {[string match {*slave0:*,online*slave1:*,online*slave2:*,online*} $info]} {
+                        if {[string match {*slave0:*state=online*slave1:*state=online*slave2:*state=online*} $info]} {
                             break
                         } else {
                             incr retry -1
