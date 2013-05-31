@@ -89,8 +89,8 @@ start_server {tags {"repl"}} {
             $master config set min-slaves-to-write 1
             assert {[$master set foo bar] eq {OK}}
             $slave deferred 1
-            $slave debug sleep 4
-            after 3000
+            $slave debug sleep 6
+            after 4000
             catch {$master set foo bar} e
             set e
         } {NOREPLICAS*}
