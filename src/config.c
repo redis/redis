@@ -809,7 +809,7 @@ void configSetCommand(redisClient *c) {
         server.repl_disable_tcp_nodelay = yn;
     } else if (!strcasecmp(c->argv[2]->ptr,"slave-priority")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
-            ll <= 0) goto badfmt;
+            ll < 0) goto badfmt;
         server.slave_priority = ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"min-slaves-to-write")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
