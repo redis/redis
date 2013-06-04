@@ -387,9 +387,12 @@ void redisLogObjectDebugInfo(robj *o) {
     redisLog(REDIS_WARNING,"Object encoding: %d", o->encoding);
     redisLog(REDIS_WARNING,"Object refcount: %d", o->refcount);
     if (o->type == REDIS_STRING && o->encoding == REDIS_ENCODING_RAW) {
-        redisLog(REDIS_WARNING,"Object raw string len: %d", sdslen(o->ptr));
-        if (sdslen(o->ptr) < 4096)
-            redisLog(REDIS_WARNING,"Object raw string content: \"%s\"", (char*)o->ptr);
+        redisLog(REDIS_WARNING,"Object raw string len: %zu", sdslen(o->ptr));
+        if (sdslen(o->ptr) < 4096) {
+            sds repr = sdscatrepr(sdsempty(),o->ptr,sdslen(o->ptr));
+            redisLog(REDIS_WARNING,"Object raw string content: %s", repr);
+            sdsfree(repr);
+        }
     } else if (o->type == REDIS_LIST) {
         redisLog(REDIS_WARNING,"List length: %d", (int) listTypeLength(o));
     } else if (o->type == REDIS_SET) {
