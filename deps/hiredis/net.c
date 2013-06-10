@@ -353,6 +353,47 @@ int redisContextSetTimeout(redisContext *c, struct timeval tv) {
 #endif
 
 #ifdef _WIN32
+int redisContextPreConnectTcp(redisContext *c, const char *addr, int port,
+                            struct timeval *timeout, struct sockaddr_in *sa) {
+    int s;
+    int blocking = (c->flags & REDIS_BLOCK);
+    unsigned long inAddress;
+
+    if ((s = redisCreateSocket(c,AF_INET)) < 0)
+        return REDIS_ERR;
+
+    sa->sin_family = AF_INET;
+    sa->sin_port = htons(port);
+
+    inAddress = inet_addr(addr);
+    if (inAddress == INADDR_NONE || inAddress == INADDR_ANY) {
+        struct hostent *he;
+
+        he = gethostbyname(addr);
+        if (he == NULL) {
+            __redisSetError(c,REDIS_ERR_OTHER,
+                sdscatprintf(sdsempty(),"can't resolve: %s\n", addr));
+            closesocket(s);
+            return REDIS_ERR;
+        }
+        memcpy(&sa->sin_addr, he->h_addr, sizeof(struct in_addr));
+    }
+    else {
+        sa->sin_addr.s_addr = inAddress;
+    }
+
+    if (redisSetTcpNoDelay(c,s) != REDIS_OK)
+        return REDIS_ERR;
+
+    if (blocking ==  0) {
+        if (redisSetBlocking(c,s,0) != REDIS_OK)
+            return REDIS_ERR;
+    }
+
+    c->fd = s;
+    return REDIS_OK;
+}
+
 int redisContextConnectTcp(redisContext *c, const char *addr, int port, struct timeval *timeout) {
     int s;
     int blocking = (c->flags & REDIS_BLOCK);
@@ -385,6 +426,10 @@ int redisContextConnectTcp(redisContext *c, const char *addr, int port, struct t
     if (redisSetTcpNoDelay(c,s) != REDIS_OK)
         return REDIS_ERR;
 
+    if (blocking ==  0) {
+        if (redisSetBlocking(c,s,0) != REDIS_OK)
+            return REDIS_ERR;
+    }
     if (connect((SOCKET)s, (struct sockaddr*)&sa, sizeof(sa)) == -1) {
         errno = WSAGetLastError();
         if ((errno == WSAEINVAL) || (errno == WSAEWOULDBLOCK))
@@ -399,9 +444,6 @@ int redisContextConnectTcp(redisContext *c, const char *addr, int port, struct t
 
     if (blocking) {
         if (redisSetBlocking(c,s,1) != REDIS_OK)
-            return REDIS_ERR;
-    } else {
-        if (redisSetBlocking(c,s,0) != REDIS_OK)
             return REDIS_ERR;
     }
 

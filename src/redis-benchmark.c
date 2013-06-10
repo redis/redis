@@ -315,7 +315,16 @@ static client createClient(char *cmd, size_t len) {
     client c = zmalloc(sizeof(struct _client));
 
     if (config.hostsocket == NULL) {
+#ifdef _WIN32
+        struct sockaddr_in sa;
+        c->context = redisPreConnectNonBlock(config.hostip,config.hostport, &sa);
+        if (aeWinSocketConnect(c->context->fd, (struct sockaddr *)&sa, sizeof(sa)) != 0) {
+            c->context->err = errno;
+            strerror_r(errno,c->context->errstr,sizeof(c->context->errstr));
+        }
+#else
         c->context = redisConnectNonBlock(config.hostip,config.hostport);
+#endif
     } else {
         c->context = redisConnectUnixNonBlock(config.hostsocket);
     }
@@ -347,9 +356,6 @@ static client createClient(char *cmd, size_t len) {
         }
     }
 
-#ifdef _WIN32
-    aeWinSocketAttach((int)c->context->fd);
-#endif
 /*    redisSetReplyObjectFunctions(c->context,NULL); */
     aeCreateFileEvent(config.el,(int)c->context->fd,AE_WRITABLE,writeHandler,c);
     listAddNodeTail(config.clients,c);
