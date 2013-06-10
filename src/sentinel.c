@@ -240,12 +240,38 @@ static void redisAeReadEvent(aeEventLoop *el, int fd, void *privdata, int mask) 
 #endif
 }
 
+#ifdef _WIN32
+static void writeHandlerDone(aeEventLoop *el, int fd, void *privdata, int nwritten) {
+    aeWinSendReq *req = (aeWinSendReq *)privdata;
+    redisAeEvents *e = (redisAeEvents *)req->client;
+
+    redisAsyncHandleWriteComplete(e->context, nwritten);
+}
+
+static void redisAeWriteEvent(aeEventLoop *el, int fd, void *privdata, int mask) {
+    redisAeEvents *e = (redisAeEvents*)privdata;
+    redisContext *c = &(e->context->c);
+    int result;
+    ((void)el); ((void)fd); ((void)mask);
+
+    if (redisAsyncHandleWritePrep(e->context) == REDIS_OK) {
+        result = aeWinSocketSend((int)c->fd,(char*)c->obuf,(int)(sdslen(c->obuf)), 0,
+                                        el, e, NULL, writeHandlerDone);
+        if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
+            if (errno != EPIPE)
+                fprintf(stderr, "Writing to socket %s\n", wsa_strerror(errno));
+            return;
+        }
+    }
+}
+#else
 static void redisAeWriteEvent(aeEventLoop *el, int fd, void *privdata, int mask) {
     redisAeEvents *e = (redisAeEvents*)privdata;
     ((void)el); ((void)fd); ((void)mask);
 
     redisAsyncHandleWrite(e->context);
 }
+#endif
 
 static void redisAeAddRead(void *privdata) {
     redisAeEvents *e = (redisAeEvents*)privdata;
@@ -301,10 +327,6 @@ static int redisAeAttach(aeEventLoop *loop, redisAsyncContext *ac) {
     /* Nothing should be attached when something is already attached */
     if (ac->ev.data != NULL)
         return REDIS_ERR;
-
-#ifdef _WIN32
-    aeWinSocketAttach((int)c->fd);
-#endif
 
     /* Create container for context and r/w events */
     e = (redisAeEvents*)zmalloc(sizeof(*e));

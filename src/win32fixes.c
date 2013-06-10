@@ -447,8 +447,8 @@ time_t gettimeofdaysecs(unsigned int *usec)
 
     /*converting file time to unix epoch*/
     tmpres /= 10;  /*convert into microseconds*/
-    tmpres -= DELTA_EPOCH_IN_MICROSECS; 
-    *usec = (unsigned int)(tmpres % 1000000UL);
+    tmpres -= DELTA_EPOCH_IN_MICROSECS;
+    if (usec != NULL) *usec = (unsigned int)(tmpres % 1000000UL);
     return (tmpres / 1000000UL);
 }
 

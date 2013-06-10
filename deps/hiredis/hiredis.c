@@ -1095,6 +1095,16 @@ redisContext *redisConnectedNonBlock() {
     return c;
 }
 
+#ifdef _WIN32
+redisContext *redisPreConnectNonBlock(const char *ip, int port, struct sockaddr_in *sa) {
+    redisContext *c = redisContextInit();
+    c->fd = -1;
+    c->flags &= ~REDIS_BLOCK;
+    redisContextPreConnectTcp(c, ip, port, NULL, sa);
+    return c;
+}
+#endif
+
 /* Set read/write timeout on a blocking socket. */
 int redisSetTimeout(redisContext *c, struct timeval tv) {
     if (c->flags & REDIS_BLOCK)
@@ -1144,14 +1154,21 @@ int redisBufferRead(redisContext *c) {
     return REDIS_OK;
 }
 
-
+#ifdef _WIN32
 /* Use this function if the caller has already read the data. It will
  * feed bytes to the reply parser.
  *
  * After this function is called, you may use redisContextReadReply to
  * see if there is a reply available. */
 int redisBufferReadDone(redisContext *c, char *buf, int nread) {
-    if (nread == 0) {
+    if (nread == -1) {
+        if (errno == EAGAIN && !(c->flags & REDIS_BLOCK)) {
+            /* Try again later */
+        } else {
+            __redisSetError(c,REDIS_ERR_IO,NULL);
+            return REDIS_ERR;
+        }
+    } else if (nread == 0) {
         __redisSetError(c,REDIS_ERR_EOF, sdsnew("Server closed the connection"));
         return REDIS_ERR;
     } else {
@@ -1162,6 +1179,7 @@ int redisBufferReadDone(redisContext *c, char *buf, int nread) {
     }
     return REDIS_OK;
 }
+#endif
 
 /* Write the output buffer to the socket.
  *
@@ -1209,6 +1227,23 @@ int redisBufferWrite(redisContext *c, int *done) {
     if (done != NULL) *done = (sdslen(c->obuf) == 0);
     return REDIS_OK;
 }
+
+#ifdef _WIN32
+/* Use this function if the caller has already written the data.
+ */
+int redisBufferWriteDone(redisContext *c, int nwritten, int *done) {
+    if (nwritten > 0) {
+        if (nwritten == (signed)sdslen(c->obuf)) {
+            sdsfree(c->obuf);
+            c->obuf = sdsempty();
+        } else {
+            c->obuf = sdsrange(c->obuf, nwritten, -1);
+        }
+    }
+    if (done != NULL) *done = (sdslen(c->obuf) == 0);
+    return REDIS_OK;
+}
+#endif
 
 /* Internal helper function to try and get a reply from the reader,
  * or set an error in the context otherwise. */

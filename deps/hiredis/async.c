@@ -151,12 +151,26 @@ static void __redisAsyncCopyError(redisAsyncContext *ac) {
     ac->errstr = c->errstr;
 }
 
+#ifdef _WIN32
+redisAsyncContext *redisAsyncConnect(const char *ip, int port) {
+    struct sockaddr_in sa;
+    redisContext *c = redisPreConnectNonBlock(ip, port, &sa);
+    redisAsyncContext *ac = redisAsyncInitialize(c);
+    if (aeWinSocketConnect(c->fd, (struct sockaddr *)&sa, sizeof(sa)) != 0) {
+        c->err = errno;
+        strerror_r(errno,c->errstr,sizeof(c->errstr));
+    }
+    __redisAsyncCopyError(ac);
+    return ac;
+}
+#else
 redisAsyncContext *redisAsyncConnect(const char *ip, int port) {
     redisContext *c = redisConnectNonBlock(ip,port);
     redisAsyncContext *ac = redisAsyncInitialize(c);
     __redisAsyncCopyError(ac);
     return ac;
 }
+#endif
 
 redisAsyncContext *redisAsyncConnectUnix(const char *path) {
     redisContext *c = redisConnectUnixNonBlock(path);
@@ -518,6 +532,46 @@ void redisAsyncHandleWrite(redisAsyncContext *ac) {
         _EL_ADD_READ(ac);
     }
 }
+
+#ifdef _WIN32
+/* The redisAsyncHandleWrite is split into a Prep and Complete routines
+   To allow using a write routine suitable for async behavior.
+   For Windows this will use IOCP on write. */
+int redisAsyncHandleWritePrep(redisAsyncContext *ac) {
+    redisContext *c = &(ac->c);
+
+    if (!(c->flags & REDIS_CONNECTED)) {
+        /* Abort connect was not successful. */
+        if (__redisAsyncHandleConnect(ac) != REDIS_OK)
+            return REDIS_ERR;
+        /* Try again later when the context is still not connected. */
+        if (!(c->flags & REDIS_CONNECTED))
+            return REDIS_ERR;
+    }
+    return REDIS_OK;
+}
+
+int redisAsyncHandleWriteComplete(redisAsyncContext *ac, int written) {
+    redisContext *c = &(ac->c);
+    int done = 0;
+    int rc;
+
+    rc = redisBufferWriteDone(c, written, &done);
+    if (rc == REDIS_ERR) {
+        __redisAsyncDisconnect(ac);
+    } else {
+        /* Continue writing when not done, stop writing otherwise */
+        if (!done)
+            _EL_ADD_WRITE(ac);
+        else
+            _EL_DEL_WRITE(ac);
+
+        /* Always schedule reads after writes */
+        _EL_ADD_READ(ac);
+    }
+    return REDIS_OK;
+}
+#endif
 
 /* Sets a pointer to the first argument and its length starting at p. Returns
  * the number of bytes to skip to get to the following argument. */
