@@ -818,7 +818,7 @@ int clusterProcessPacket(clusterLink *link) {
         /* Add this node if it is new for us and the msg type is MEET.
          * In this stage we don't try to add the node with the right
          * flags, slaveof pointer, and so forth, as this details will be
-         * resolved when we'll receive PONGs from the server. */
+         * resolved when we'll receive PONGs from the node. */
         if (!sender && type == CLUSTERMSG_TYPE_MEET) {
             clusterNode *node;
 
@@ -894,7 +894,7 @@ int clusterProcessPacket(clusterLink *link) {
             link->node->ping_sent = 0;
 
             /* The PFAIL condition can be reversed without external
-             * help if it is not transitive (that is, if it does not
+             * help if it is momentary (that is, if it does not
              * turn into a FAIL state).
              *
              * The FAIL condition is also reversible under specific
