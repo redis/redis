@@ -33,7 +33,11 @@ case "$1" in
             echo 'Redis is running ('`cat $PIDFILE`')'
         fi
         ;;
+    restart)
+        $0 stop
+        $0 start
+        ;;
     *)
-        echo "Please use start, stop or status as first argument"
+        echo "Please use start, stop, restart or status as first argument"
         ;;
 esac

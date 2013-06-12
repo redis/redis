@@ -153,7 +153,7 @@ REDISPORT="$REDIS_PORT"
 # chkconfig: - 58 74
 # description: redis_${REDIS_PORT} is the redis daemon.
 ### BEGIN INIT INFO
-# Provides: redis_6379
+# Provides: redis_${REDIS_PORT}
 # Required-Start: \$network \$local_fs \$remote_fs
 # Required-Stop: \$network \$local_fs \$remote_fs
 # Default-Start: 2 3 4 5
