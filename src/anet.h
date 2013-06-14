@@ -40,7 +40,7 @@
 #endif
 
 int anetTcpConnect(char *err, char *addr, int port);
-int anetTcpNonBlockConnect(char *err, char *addr, int port);
+int anetTcpNonBlockConnect(char *err, char *addr, int port, char *bindaddr);
 int anetUnixConnect(char *err, char *path);
 int anetUnixNonBlockConnect(char *err, char *path);
 int anetRead(int fd, char *buf, int count);
