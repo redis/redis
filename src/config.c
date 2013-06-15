@@ -1332,7 +1332,7 @@ void rewriteConfigOctalOption(struct rewriteConfigState *state, char *option, in
  * specified. See how the function is used for more information. */
 void rewriteConfigEnumOption(struct rewriteConfigState *state, char *option, int value, ...) {
     va_list ap;
-    char *enum_name, *matching_name;
+    char *enum_name, *matching_name = NULL;
     int enum_val, def_val, force;
     sds line;
     
@@ -1348,26 +1348,33 @@ void rewriteConfigEnumOption(struct rewriteConfigState *state, char *option, int
     }
     va_end(ap);
     
-    force = value != def_val;
-    line = sdscatprintf(sdsempty(),"%s %s",option,matching_name);
-    rewriteConfigRewriteLine(state,option,line,force);
+    if (matching_name) {
+        force = value != def_val;
+        line = sdscatprintf(sdsempty(),"%s %s",option,matching_name);
+        rewriteConfigRewriteLine(state,option,line,force);
+    }
 }
 
 /* Rewrite the syslog-fability option. */
 void rewriteConfigSyslogfacilityOption(struct rewriteConfigState *state) {
     int value = server.syslog_facility, j;
     int force = value != LOG_LOCAL0;
-    char *name, *option = "syslog-facility";
+    char *name = NULL;
+    char  *option = "syslog-facility";
+
     sds line;
 
-    for (j = 0; validSyslogFacilities[j].name; j++) {
+    for (j = 0; validSyslogFacilities[j].name != NULL; j++) {
         if (validSyslogFacilities[j].value == value) {
             name = (char*) validSyslogFacilities[j].name;
             break;
         }
     }
-    line = sdscatprintf(sdsempty(),"%s %s",option,name);
-    rewriteConfigRewriteLine(state,option,line,force);
+
+    if (name) {
+        line = sdscatprintf(sdsempty(),"%s %s",option,name);
+        rewriteConfigRewriteLine(state,option,line,force);
+    }
 }
 
 /* Rewrite the save option. */
