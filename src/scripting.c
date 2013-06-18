@@ -631,7 +631,7 @@ void scriptingInit(void) {
                                 "    i = debug.getinfo(3,'nSl')\n"
                                 "  end\n"
                                 "  if i then\n"
-                                "    return err ..': '.. i.source .. ': ' .. i.currentline\n"
+                                "    return i.source .. ':' .. i.currentline .. ': ' .. err\n"
                                 "  else\n"
                                 "    return err\n"
                                 "  end\n"
