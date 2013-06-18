@@ -620,6 +620,26 @@ void scriptingInit(void) {
         lua_pcall(lua,0,0,0);
     }
 
+    /* Add a helper function we use for pcall error reporting.
+     * Note that when the error is in the C function we want to report the
+     * information about the caller, that's what makes sense from the point
+     * of view of the user debugging a script. */
+    {
+        char *errh_func =       "function __redis__err__handler(err)\n"
+                                "  local i = debug.getinfo(2,'nSl')\n"
+                                "  if i and i.what == 'C' then\n"
+                                "    i = debug.getinfo(3,'nSl')\n"
+                                "  end\n"
+                                "  if i then\n"
+                                "    return err ..': '.. i.source .. ': ' .. i.currentline\n"
+                                "  else\n"
+                                "    return err\n"
+                                "  end\n"
+                                "end\n";
+        luaL_loadbuffer(lua,errh_func,strlen(errh_func),"@err_handler_def");
+        lua_pcall(lua,0,0,0);
+    }
+
     /* Create the (non connected) client that we use to execute Redis commands
      * inside the Lua interpreter.
      * Note: there is no need to create it again when this function is called
@@ -840,21 +860,25 @@ void evalGenericCommand(redisClient *c, int evalsha) {
         funcname[42] = '\0';
     }
 
+    /* Push the pcall error handler function on the stack. */
+    lua_getglobal(lua, "__redis__err__handler");
+
     /* Try to lookup the Lua function */
     lua_getglobal(lua, funcname);
-    if (lua_isnil(lua,1)) {
+    if (lua_isnil(lua,-1)) {
         lua_pop(lua,1); /* remove the nil from the stack */
         /* Function not defined... let's define it if we have the
          * body of the function. If this is an EVALSHA call we can just
          * return an error. */
         if (evalsha) {
+            lua_pop(lua,1); /* remove the error handler from the stack. */
             addReply(c, shared.noscripterr);
             return;
         }
         if (luaCreateFunction(c,lua,funcname,c->argv[1]) == REDIS_ERR) return;
         /* Now the following is guaranteed to return non nil */
         lua_getglobal(lua, funcname);
-        redisAssert(!lua_isnil(lua,1));
+        redisAssert(!lua_isnil(lua,-1));
     }
 
     /* Populate the argv and keys table accordingly to the arguments that
@@ -881,7 +905,7 @@ void evalGenericCommand(redisClient *c, int evalsha) {
      * already defined, we can call it. We have zero arguments and expect
      * a single return value. */
 
-    err = lua_pcall(lua,0,1,0);
+    err = lua_pcall(lua,0,1,-2);
 
     /* Perform some cleanup that we need to do both on error and success. */
     if (delhook) lua_sethook(lua,luaMaskCountHook,0,0); /* Disable hook */
