@@ -619,11 +619,12 @@ void logRegisters(ucontext_t *uc) {
 void logStackTrace(ucontext_t *uc) {
     void *trace[100];
     int trace_size = 0, fd;
+    int log_to_stdout = server.logfile[0] == '\0';
 
     /* Open the log file in append mode. */
-    fd = server.logfile ?
-        open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644) :
-        STDOUT_FILENO;
+    fd = log_to_stdout ?
+        STDOUT_FILENO :
+        open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
     if (fd == -1) return;
 
     /* Generate the stack trace */
@@ -637,7 +638,7 @@ void logStackTrace(ucontext_t *uc) {
     backtrace_symbols_fd(trace, trace_size, fd);
 
     /* Cleanup */
-    if (server.logfile) close(fd);
+    if (!log_to_stdout) close(fd);
 }
 
 /* Log information about the "current" client, that is, the client that is
