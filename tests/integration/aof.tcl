@@ -98,7 +98,7 @@ tags {"aof"} {
         }
     }
 
-    ## Test that SPOP (that modifies the client its argc/argv) is correctly free'd
+    ## Test that SPOP (that modifies the client's argc/argv) is correctly free'd
     create_aof {
         append_to_aof [formatCommand sadd set foo]
         append_to_aof [formatCommand sadd set bar]
