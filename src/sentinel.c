@@ -40,6 +40,8 @@
 extern char **environ;
 
 #define REDIS_SENTINEL_PORT 26379
+#define SLAVE_IP_MARK   ":ip="
+#define SLAVE_PORT_MARK ",port="
 
 /* ======================== Sentinel global state =========================== */
 
@@ -1404,11 +1406,11 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         {
             char *ip, *port, *end;
 
-            ip = strchr(l,':'); if (!ip) continue;
-            ip++; /* Now ip points to start of ip address. */
-            port = strchr(ip,','); if (!port) continue;
+            ip = strstr(l,SLAVE_IP_MARK); if (!ip) continue;
+            ip+=strlen(SLAVE_IP_MARK); /* Now ip points to start of ip address. */
+            port = strstr(ip,SLAVE_PORT_MARK); if (!port) continue;
             *port = '\0'; /* nul term for easy access. */
-            port++; /* Now port points to start of port number. */
+            port+=strlen(SLAVE_PORT_MARK); /* Now port points to start of port number. */
             end = strchr(port,','); if (!end) continue;
             *end = '\0'; /* nul term for easy access. */
 
