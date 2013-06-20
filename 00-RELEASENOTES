@@ -22,7 +22,7 @@ UPGRADE URGENCY: HIGH because of the following two issues:
 
 * [FIX] AOF bug: expire could be removed from key on AOF rewrite.
 * [FIX] Allow writes from scripts called by AOF loading in read-only slaves.
-* [FIX] Sentinel: parse new verison of INFO replication output correctly.
+* [FIX] Sentinel: parse new version of INFO replication output correctly.
 * [NEW] Reset masterauth if an empty string is configured.
 
 --[ Redis 2.6.13 ]
