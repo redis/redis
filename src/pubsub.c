@@ -336,8 +336,8 @@ void pubsubCommand(redisClient *c) {
         }
         dictReleaseIterator(di);
         setDeferredMultiBulkLength(c,replylen,mblen);
-    } else if (!strcasecmp(c->argv[1]->ptr,"numsub") && c->argc > 2) {
-        /* PUBSUB NUMSUB Channel_1 [... Channel_N] */
+    } else if (!strcasecmp(c->argv[1]->ptr,"numsub") && c->argc >= 2) {
+        /* PUBSUB NUMSUB [Channel_1 ... Channel_N] */
         int j;
 
         addReplyMultiBulkLen(c,(c->argc-2)*2);
