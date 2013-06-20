@@ -1397,20 +1397,33 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             }
         }
 
-        /* slave0:<ip>,<port>,<state> */
+        /* old versions: slave0:<ip>,<port>,<state>
+         * new versions: slave0:ip=127.0.0.1,port=9999,... */
         if ((ri->flags & SRI_MASTER) &&
             sdslen(l) >= 7 &&
             !memcmp(l,"slave",5) && isdigit(l[5]))
         {
             char *ip, *port, *end;
 
-            ip = strchr(l,':'); if (!ip) continue;
-            ip++; /* Now ip points to start of ip address. */
-            port = strchr(ip,','); if (!port) continue;
-            *port = '\0'; /* nul term for easy access. */
-            port++; /* Now port points to start of port number. */
-            end = strchr(port,','); if (!end) continue;
-            *end = '\0'; /* nul term for easy access. */
+            if (strstr(l,"ip=") == NULL) {
+                /* Old format. */
+                ip = strchr(l,':'); if (!ip) continue;
+                ip++; /* Now ip points to start of ip address. */
+                port = strchr(ip,','); if (!port) continue;
+                *port = '\0'; /* nul term for easy access. */
+                port++; /* Now port points to start of port number. */
+                end = strchr(port,','); if (!end) continue;
+                *end = '\0'; /* nul term for easy access. */
+            } else {
+                /* New format. */
+                ip = strstr(l,"ip="); if (!ip) continue;
+                ip += 3; /* Now ip points to start of ip address. */
+                port = strstr(l,"port="); if (!port) continue;
+                port += 5; /* Now port points to start of port number. */
+                /* Nul term both fields for easy access. */
+                end = strchr(ip,','); if (end) *end = '\0';
+                end = strchr(port,','); if (end) *end = '\0';
+            }
 
             /* Check if we already have this slave into our table,
              * otherwise add it. */
