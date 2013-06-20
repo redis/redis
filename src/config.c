@@ -1309,7 +1309,7 @@ void rewriteConfigOctalOption(struct rewriteConfigState *state, char *option, in
  * specified. See how the function is used for more information. */
 void rewriteConfigEnumOption(struct rewriteConfigState *state, char *option, int value, ...) {
     va_list ap;
-    char *enum_name, *matching_name;
+    char *enum_name, *matching_name = NULL;
     int enum_val, def_val, force;
     sds line;
     
@@ -1334,7 +1334,7 @@ void rewriteConfigEnumOption(struct rewriteConfigState *state, char *option, int
 void rewriteConfigSyslogfacilityOption(struct rewriteConfigState *state) {
     int value = server.syslog_facility, j;
     int force = value != LOG_LOCAL0;
-    char *name, *option = "syslog-facility";
+    char *name = NULL, *option = "syslog-facility";
     sds line;
 
     for (j = 0; validSyslogFacilities[j].name; j++) {
