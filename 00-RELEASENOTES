@@ -14,6 +14,17 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.6.14 ] Release date: 20 Jun 2013
+
+UPGRADE URGENCY: HIGH because of the following two issues:
+    * Lua scripting + Replication + AOF in slaves problem (see Issue #1164).
+    * AOF + expires possible race condition (see Issue #1079).
+
+* [FIX] AOF bug: expire could be removed from key on AOF rewrite.
+* [FIX] Allow writes from scripts called by AOF loading in read-only slaves.
+* [FIX] Sentinel: parse new verison of INFO replication output correctly.
+* [NEW] Reset masterauth if an empty string is configured.
+
 --[ Redis 2.6.13 ]
 
 UPGRADE URGENCY: MODERATE, nothing very critical but upgrading is suggested
