@@ -1042,6 +1042,7 @@ void scriptCommand(redisClient *c) {
         }
         addReplyBulkCBuffer(c,funcname+2,40);
         sdsfree(sha);
+        forceCommandPropagation(c,REDIS_PROPAGATE_REPL);
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"kill")) {
         if (server.lua_caller == NULL) {
             addReplySds(c,sdsnew("-NOTBUSY No scripts in execution right now.\r\n"));

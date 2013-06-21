@@ -138,7 +138,7 @@
 #define REDIS_CMD_WRITE 1                   /* "w" flag */
 #define REDIS_CMD_READONLY 2                /* "r" flag */
 #define REDIS_CMD_DENYOOM 4                 /* "m" flag */
-#define REDIS_CMD_FORCE_REPLICATION 8       /* "f" flag */
+#define REDIS_CMD_NOT_USED_1 8              /* no longer used flag */
 #define REDIS_CMD_ADMIN 16                  /* "a" flag */
 #define REDIS_CMD_PUBSUB 32                 /* "p" flag */
 #define REDIS_CMD_NOSCRIPT  64              /* "s" flag */
@@ -215,6 +215,8 @@
 #define REDIS_UNIX_SOCKET (1<<11) /* Client connected via Unix domain socket */
 #define REDIS_DIRTY_EXEC (1<<12)  /* EXEC will fail for errors while queueing */
 #define REDIS_MASTER_FORCE_REPLY (1<<13)  /* Queue replies even if is master */
+#define REDIS_FORCE_AOF (1<<14)   /* Force AOF propagation of current cmd. */
+#define REDIS_FORCE_REPL (1<<15)  /* Force replication of current cmd. */
 
 /* Client request types */
 #define REDIS_REQ_INLINE 1
@@ -1043,6 +1045,7 @@ struct redisCommand *lookupCommandOrOriginal(sds name);
 void call(redisClient *c, int flags);
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int flags);
 void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int target);
+void forceCommandPropagation(redisClient *c, int flags);
 int prepareForShutdown();
 #ifdef __GNUC__
 void redisLog(int level, const char *fmt, ...)
