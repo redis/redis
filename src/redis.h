@@ -67,13 +67,16 @@
 #define REDIS_ERR               -1
 
 /* Static server configuration */
-#define REDIS_HZ                100     /* Time interrupt calls/sec. */
+#define REDIS_DEFAULT_HZ        10      /* Time interrupt calls/sec. */
+#define REDIS_MIN_HZ            1
+#define REDIS_MAX_HZ            500 
 #define REDIS_SERVERPORT        6379    /* TCP port */
 #define REDIS_MAXIDLETIME       0       /* default client timeout: infinite */
 #define REDIS_DEFAULT_DBNUM     16
 #define REDIS_CONFIGLINE_MAX    1024
 #define REDIS_EXPIRELOOKUPS_PER_CRON    10 /* lookup 10 expires per loop */
 #define REDIS_EXPIRELOOKUPS_TIME_PERC   25 /* CPU max % for keys collection */
+#define REDIS_DBCRON_DBS_PER_CALL 16
 #define REDIS_MAX_WRITE_PER_EVENT (1024*64)
 #define REDIS_SHARED_SELECT_CMDS 10
 #define REDIS_SHARED_INTEGERS 10000
@@ -92,6 +95,7 @@
 #define REDIS_REPL_PING_SLAVE_PERIOD 10
 #define REDIS_RUN_ID_SIZE 40
 #define REDIS_OPS_SEC_SAMPLES 16
+#define REDIS_BGSAVE_RETRY_DELAY 5 /* Wait a few secs before trying again. */
 
 /* Protocol and I/O related defines */
 #define REDIS_MAX_QUERYBUF_LEN  (1024*1024*1024) /* 1GB max query buffer. */
@@ -99,6 +103,8 @@
 #define REDIS_REPLY_CHUNK_BYTES (16*1024) /* 16k output buffer */
 #define REDIS_INLINE_MAX_SIZE   (1024*64) /* Max size of inline reads */
 #define REDIS_MBULK_BIG_ARG     (1024*32)
+#define REDIS_AOF_AUTOSYNC_BYTES (1024*1024*16) /* fdatasync every 16MB */
+#define REDIS_RDB_AUTOSYNC_BYTES (1024*1024*16) /* fdatasync every 16MB */
 
 /* Hash table parameters */
 #define REDIS_HT_MINFILL        10      /* Minimal hash table fill 10% */
@@ -302,8 +308,8 @@
 
 /* Using the following macro you can run code inside serverCron() with the
  * specified period, specified in milliseconds.
- * The actual resolution depends on REDIS_HZ. */
-#define run_with_period(_ms_) if (!(server.cronloops%((_ms_)/(1000/REDIS_HZ))))
+ * The actual resolution depends on server.hz. */
+#define run_with_period(_ms_) if ((_ms_ <= 1000/server.hz) || !(server.cronloops%((_ms_)/(1000/server.hz))))
 
 /* We can print the stacktrace, so our assert is defined this way: */
 #define redisAssertWithInfo(_c,_o,_e) ((_e)?(void)0 : (_redisAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),_exit(1)))
@@ -510,8 +516,10 @@ struct complexity_param {
 
 struct redisServer {
     /* General */
+    int hz;                     /* serverCron() calls frequency in hertz */
     redisDb *db;
-    dict *commands;             /* Command table hash table */
+    dict *commands;             /* Command table */
+    dict *orig_commands;        /* Command table before command renaming. */
     aeEventLoop *el;
     unsigned lruclock:22;       /* Clock incrementing every minute, for LRU */
     unsigned lruclock_padding:10;
@@ -575,6 +583,7 @@ struct redisServer {
     int verbosity;                  /* Loglevel in redis.conf */
     int maxidletime;                /* Client timeout in seconds */
     int tcpkeepalive;               /* Set SO_KEEPALIVE if non-zero. */
+    int active_expire_enabled;      /* Can be disabled for testing purposes. */
     size_t client_max_querybuf_len; /* Limit for client query buffer length */
     int dbnum;                      /* Total number of configured DBs */
     int daemonize;                  /* True if running as a daemon */
@@ -602,6 +611,7 @@ struct redisServer {
     time_t aof_rewrite_time_start;  /* Current AOF rewrite start time. */
     int aof_lastbgrewrite_status;   /* REDIS_OK or REDIS_ERR */
     unsigned long aof_delayed_fsync;  /* delayed AOF fsync() counter */
+    int aof_rewrite_incremental_fsync;/* fsync incrementally while rewriting? */
     /* RDB persistence */
     long long dirty;                /* Changes to DB from the last save */
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
@@ -616,10 +626,12 @@ struct redisServer {
     int rdb_compression;            /* Use compression in RDB? */
     int rdb_checksum;               /* Use RDB checksum? */
     time_t lastsave;                /* Unix time of last successful save */
+    time_t lastbgsave_try;          /* Unix time of last attempted bgsave */
     time_t rdb_save_time_last;      /* Time used by last RDB save run. */
     time_t rdb_save_time_start;     /* Current RDB save start time. */
     int lastbgsave_status;          /* REDIS_OK or REDIS_ERR */    
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
+    int rdb_incremental_fsync;      /* fsync incrementally while rewriting? */
     /* Propagation of commands in AOF / replication */
     redisOpArray also_propagate;    /* Additional command to propagate. */
     int draining;                   /* Currently draining to slaves? */
@@ -979,6 +991,7 @@ int processCommand(redisClient *c);
 void setupSignalHandlers(void);
 struct redisCommand *lookupCommand(sds name);
 struct redisCommand *lookupCommandByCString(char *s);
+struct redisCommand *lookupCommandOrOriginal(sds name);
 void call(redisClient *c, int flags);
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int flags);
 void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int target);

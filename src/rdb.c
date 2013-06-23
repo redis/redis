@@ -648,7 +648,9 @@ int rdbSave(char *filename, int dbnum) {
         return REDIS_ERR;
     }
 
-    rioInitWithFileAndFsyncInterval(&rdb,fp, 1024*1024*16);
+    rioInitWithFile(&rdb,fp);
+    if (server.rdb_incremental_fsync)
+        rioSetAutoSync(&rdb,REDIS_RDB_AUTOSYNC_BYTES);
     if (server.rdb_checksum)
         rdb.update_cksum = rioGenericUpdateChecksum;
     snprintf(magic,sizeof(magic),"REDIS%04d",REDIS_RDB_VERSION);
@@ -763,6 +765,7 @@ int rdbSaveBackground(char *filename, int bgsavetype, int dbnum) {
     if (bgsavetype == REDIS_BGSAVE_NORMAL) server.stat_rdb_saves++;
 
     server.dirty_before_bgsave = server.dirty;
+    server.lastbgsave_try = time(NULL);
 
     start = ustime();
     if (server.rdb_bgsavefilename) zfree(server.rdb_bgsavefilename);
@@ -1144,11 +1147,8 @@ int rdbLoad(char *filename) {
     FILE *fp;
     rio rdb;
 
-    fp = fopen(filename,"r");
-    if (!fp) {
-        errno = ENOENT;
-        return REDIS_ERR;
-    }
+    if ((fp = fopen(filename,"r")) == NULL) return REDIS_ERR;
+
     rioInitWithFile(&rdb,fp);
     rdb.update_cksum = rdbLoadProgressCallback;
     rdb.max_processing_chunk = server.loading_process_events_interval_bytes;

@@ -26,9 +26,20 @@ After building Redis is a good idea to test it, using:
 
     % make test
 
-NOTE: if after building Redis with a 32 bit target you need to rebuild it
-      with a 64 bit target you need to perform a "make clean" in the root
-      directory of the Redis distribution.
+Fixing problems building 32 bit binaries
+---------
+
+If after building Redis with a 32 bit target you need to rebuild it
+with a 64 bit target, or the other way around, you need to perform a
+"make distclean" in the root directory of the Redis distribution.
+
+In case of build errors when trying to build a 32 bit binary of Redis, try
+the following steps:
+
+* Install the packages libc6-dev-i386 (also try g++-multilib).
+* Try using the following command line instead of "make 32bit":
+
+    make CFLAGS="-m32 -march=native" LDFLAGS="-m32"
 
 Allocator
 ---------

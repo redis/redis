@@ -863,7 +863,9 @@ int rewriteAppendOnlyFile(char *filename) {
         return REDIS_ERR;
     }
 
-    rioInitWithFileAndFsyncInterval(&aof,fp, 1024*1024*16);
+    rioInitWithFile(&aof,fp);
+    if (server.aof_rewrite_incremental_fsync)
+        rioSetAutoSync(&aof,REDIS_AOF_AUTOSYNC_BYTES);
     for (j = 0; j < server.dbnum; j++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
         redisDb *db = server.db+j;
@@ -891,6 +893,9 @@ int rewriteAppendOnlyFile(char *filename) {
 
             expiretime = getExpire(db,&key);
 
+            /* If this key is already expired skip it */
+            if (expiretime != -1 && expiretime < now) continue;
+
             /* Save the key and associated value */
             if (o->type == REDIS_STRING) {
                 /* Emit a SET command */
@@ -913,8 +918,6 @@ int rewriteAppendOnlyFile(char *filename) {
             /* Save the expire time */
             if (expiretime != -1) {
                 char cmd[]="*3\r\n$9\r\nPEXPIREAT\r\n";
-                /* If this key is already expired skip it */
-                if (expiretime < now) continue;
                 if (rioWrite(&aof,cmd,sizeof(cmd)-1) == 0) goto werr;
                 if (rioWriteBulkObject(&aof,&key) == 0) goto werr;
                 if (rioWriteBulkLongLong(&aof,expiretime) == 0) goto werr;

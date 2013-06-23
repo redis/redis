@@ -408,6 +408,65 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
     }
 }
 
+proc attach_to_replication_stream {} {
+    set s [socket [srv 0 "host"] [srv 0 "port"]]
+    fconfigure $s -translation binary
+    puts -nonewline $s "SYNC\r\n"
+    flush $s
+
+    # Get the count
+    set count [gets $s]
+    set prefix [string range $count 0 0]
+    if {$prefix ne {$}} {
+        error "attach_to_replication_stream error. Received '$count' as count."
+    }
+    set count [string range $count 1 end]
+
+    # Consume the bulk payload
+    while {$count} {
+        set buf [read $s $count]
+        set count [expr {$count-[string length $buf]}]
+    }
+    return $s
+}
+
+proc read_from_replication_stream {s} {
+    fconfigure $s -blocking 0
+    set attempt 0
+    while {[gets $s count] == -1} {
+        if {[incr attempt] == 10} return ""
+        after 100
+    }
+    fconfigure $s -blocking 1
+
+    # Workaround for Redis 2.6, not always using the new protocol in the
+    # replication channel (this was fixed in >= 2.8).
+    if {[string tolower [lindex [split $count] 0]] eq {select}} {
+        return $count
+    }
+
+    # Return a list of arguments for the command.
+    set count [string range $count 1 end]
+    set res {}
+    for {set j 0} {$j < $count} {incr j} {
+        read $s 1
+        set arg [::redis::redis_bulk_read $s]
+        if {$j == 0} {set arg [string tolower $arg]}
+        lappend res $arg
+    }
+    return $res
+}
+
+proc assert_replication_stream {s patterns} {
+    for {set j 0} {$j < [llength $patterns]} {incr j} {
+        assert_match [lindex $patterns $j] [read_from_replication_stream $s]
+    }
+}
+
+proc close_replication_stream {s} {
+    close $s
+}
+
 # With the parallel test running multiple Redis instances at the same time
 # we need a fast enough computer, otherwise a lot of tests may generate
 # false positives.

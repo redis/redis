@@ -51,6 +51,8 @@
 #include <unistd.h>
 #include "rio.h"
 #include "util.h"
+#include "config.h"
+#include "redis.h"
 
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 
@@ -79,10 +81,10 @@ static off_t rioBufferTell(rio *r) {
 static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
     size_t bytes_written = 0;
     while (len) {
-        size_t bytes_to_write = (r->io.file.fsync_interval && r->io.file.fsync_interval < len) ? r->io.file.fsync_interval : len;
+        size_t bytes_to_write = (r->io.file.autosync && r->io.file.autosync < len) ? r->io.file.autosync : len;
         if (fwrite((char*)buf + bytes_written,bytes_to_write,1,r->io.file.fp) != 1)
             return 0;
-        if (r->io.file.fsync_interval && (r->processed_bytes + bytes_written)/r->io.file.fsync_interval < (r->processed_bytes + bytes_written + bytes_to_write)/r->io.file.fsync_interval)
+        if (r->io.file.autosync && (r->processed_bytes + bytes_written)/r->io.file.autosync < (r->processed_bytes + bytes_written + bytes_to_write)/r->io.file.autosync)
             fsync(fileno(r->io.file.fp));
         bytes_written += bytes_to_write;
         len -= bytes_to_write;
@@ -125,12 +127,7 @@ static const rio rioFileIO = {
 void rioInitWithFile(rio *r, FILE *fp) {
     *r = rioFileIO;
     r->io.file.fp = fp;
-}
-
-void rioInitWithFileAndFsyncInterval(rio *r, FILE *fp, size_t fsyncInterval) {
-    *r = rioFileIO;
-    r->io.file.fp = fp;
-    r->io.file.fsync_interval = fsyncInterval;
+    r->io.file.autosync = 0;
 }
 
 void rioInitWithBuffer(rio *r, sds s) {
@@ -143,6 +140,19 @@ void rioInitWithBuffer(rio *r, sds s) {
  * computation is needed. */
 void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len) {
     r->cksum = crc64(r->cksum,buf,len);
+}
+
+/* Set the file-based rio object to auto-fsync every 'bytes' file written.
+ * By default this is set to zero that means no automatic file sync is
+ * performed.
+ *
+ * This feature is useful in a few contexts since when we rely on OS write
+ * buffers sometimes the OS buffers way too much, resulting in too many
+ * disk I/O concentrated in very little time. When we fsync in an explicit
+ * way instead the I/O pressure is more distributed across time. */
+void rioSetAutoSync(rio *r, off_t bytes) {
+    redisAssert(r->read == rioFileIO.read);
+    r->io.file.autosync = bytes;
 }
 
 /* ------------------------------ Higher level interface ---------------------------

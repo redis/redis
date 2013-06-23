@@ -42,6 +42,7 @@
 #include <sys/time.h>
 #include <assert.h>
 #include <fcntl.h>
+#include <limits.h>
 
 #include "hiredis.h"
 #include "sds.h"
@@ -56,6 +57,7 @@
 #define OUTPUT_STANDARD 0
 #define OUTPUT_RAW 1
 #define OUTPUT_CSV 2
+#define REDIS_CLI_KEEPALIVE_INTERVAL 15 /* seconds */
 
 static redisContext *context;
 static struct config {
@@ -70,11 +72,13 @@ static struct config {
     int monitor_mode;
     int pubsub_mode;
     int latency_mode;
+    int latency_history;
     int cluster_mode;
     int cluster_reissue_command;
     int slave_mode;
     int pipe_mode;
     int getrdb_mode;
+    int stat_mode;
     char *rdb_filename;
     int bigkeys;
     int stdinarg; /* get last arg from stdin. (-x option) */
@@ -331,6 +335,12 @@ static int cliConnect(int force) {
             context = NULL;
             return REDIS_ERR;
         }
+
+        /* Set aggressive KEEP_ALIVE socket option in the Redis context socket
+         * in order to prevent timeouts caused by the execution of long
+         * commands. At the same time this improves the detection of real
+         * errors. */
+        anetKeepAlive(NULL, context->fd, REDIS_CLI_KEEPALIVE_INTERVAL);
 
         /* Do AUTH and select the right DB. */
         if (cliAuth() != REDIS_OK)
@@ -623,6 +633,36 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
     return REDIS_OK;
 }
 
+/* Send the INFO command, reconnecting the link if needed. */
+static redisReply *reconnectingInfo(void) {
+    redisContext *c = context;
+    redisReply *reply = NULL;
+    int tries = 0;
+
+    assert(!c->err);
+    while(reply == NULL) {
+        while (c->err & (REDIS_ERR_IO | REDIS_ERR_EOF)) {
+            printf("Reconnecting (%d)...\r", ++tries);
+            fflush(stdout);
+
+            redisFree(c);
+            c = redisConnect(config.hostip,config.hostport);
+            usleep(1000000);
+        }
+
+        reply = redisCommand(c,"INFO");
+        if (c->err && !(c->err & (REDIS_ERR_IO | REDIS_ERR_EOF))) {
+            fprintf(stderr, "Error: %s\n", c->errstr);
+            exit(1);
+        } else if (tries > 0) {
+            printf("\n");
+        }
+    }
+
+    context = c;
+    return reply;
+}
+
 /*------------------------------------------------------------------------------
  * User interface
  *--------------------------------------------------------------------------- */
@@ -661,8 +701,13 @@ static int parseOptions(int argc, char **argv) {
             config.output = OUTPUT_CSV;
         } else if (!strcmp(argv[i],"--latency")) {
             config.latency_mode = 1;
+        } else if (!strcmp(argv[i],"--latency-history")) {
+            config.latency_mode = 1;
+            config.latency_history = 1;
         } else if (!strcmp(argv[i],"--slave")) {
             config.slave_mode = 1;
+        } else if (!strcmp(argv[i],"--stat")) {
+            config.stat_mode = 1;
         } else if (!strcmp(argv[i],"--rdb") && !lastarg) {
             config.getrdb_mode = 1;
             config.rdb_filename = argv[++i];
@@ -683,7 +728,15 @@ static int parseOptions(int argc, char **argv) {
             sdsfree(version);
             exit(0);
         } else {
-            break;
+            if (argv[i][0] == '-') {
+                fprintf(stderr,
+                    "Unrecognized option or bad number of args for: '%s'\n",
+                    argv[i]);
+                exit(1);
+            } else {
+                /* Likely the command name, stop here. */
+                break;
+            }
         }
     }
     return i;
@@ -712,26 +765,29 @@ static void usage() {
 "redis-cli %s\n"
 "\n"
 "Usage: redis-cli [OPTIONS] [cmd [arg [arg ...]]]\n"
-"  -h <hostname>    Server hostname (default: 127.0.0.1)\n"
-"  -p <port>        Server port (default: 6379)\n"
-"  -s <socket>      Server socket (overrides hostname and port)\n"
-"  -a <password>    Password to use when connecting to the server\n"
-"  -r <repeat>      Execute specified command N times\n"
-"  -i <interval>    When -r is used, waits <interval> seconds per command.\n"
-"                   It is possible to specify sub-second times like -i 0.1\n"
-"  -n <db>          Database number\n"
-"  -x               Read last argument from STDIN\n"
-"  -d <delimiter>   Multi-bulk delimiter in for raw formatting (default: \\n)\n"
-"  -c               Enable cluster mode (follow -ASK and -MOVED redirections)\n"
-"  --raw            Use raw formatting for replies (default when STDOUT is not a tty)\n"
-"  --latency        Enter a special mode continuously sampling latency\n"
-"  --slave          Simulate a slave showing commands received from the master\n"
-"  --rdb <filename> Transfer an RDB dump from remote server to local file.\n"
-"  --pipe           Transfer raw Redis protocol from stdin to server\n"
-"  --bigkeys        Sample Redis keys looking for big keys\n"
-"  --eval <file>    Send an EVAL command using the Lua script at <file>\n"
-"  --help           Output this help and exit\n"
-"  --version        Output version and exit\n"
+"  -h <hostname>     Server hostname (default: 127.0.0.1)\n"
+"  -p <port>         Server port (default: 6379)\n"
+"  -s <socket>       Server socket (overrides hostname and port)\n"
+"  -a <password>     Password to use when connecting to the server\n"
+"  -r <repeat>       Execute specified command N times\n"
+"  -i <interval>     When -r is used, waits <interval> seconds per command.\n"
+"                    It is possible to specify sub-second times like -i 0.1\n"
+"  -n <db>           Database number\n"
+"  -x                Read last argument from STDIN\n"
+"  -d <delimiter>    Multi-bulk delimiter in for raw formatting (default: \\n)\n"
+"  -c                Enable cluster mode (follow -ASK and -MOVED redirections)\n"
+"  --raw             Use raw formatting for replies (default when STDOUT is\n"
+"                    not a tty)\n"
+"  --latency         Enter a special mode continuously sampling latency\n"
+"  --latency-history Like --latency but tracking latency changes over time.\n"
+"                    Default time interval is 15 sec. Change it using -i.\n"
+"  --slave           Simulate a slave showing commands received from the master\n"
+"  --rdb <filename>  Transfer an RDB dump from remote server to local file.\n"
+"  --pipe            Transfer raw Redis protocol from stdin to server\n"
+"  --bigkeys         Sample Redis keys looking for big keys\n"
+"  --eval <file>     Send an EVAL command using the Lua script at <file>\n"
+"  --help            Output this help and exit\n"
+"  --version         Output version and exit\n"
 "\n"
 "Examples:\n"
 "  cat /etc/passwd | redis-cli -x set mypasswd\n"
@@ -843,8 +899,7 @@ static void repl() {
                 }
             }
             /* Free the argument vector */
-            while(argc--) sdsfree(argv[argc]);
-            zfree(argv);
+            sdsfreesplitres(argv,argc);
         }
         /* linenoise() returns malloc-ed lines like readline() */
         free(line);
@@ -903,10 +958,16 @@ static int evalMode(int argc, char **argv) {
     return cliSendCommand(argc+3-got_comma, argv2, config.repeat);
 }
 
+#define LATENCY_SAMPLE_RATE 10 /* milliseconds. */
+#define LATENCY_HISTORY_DEFAULT_INTERVAL 15000 /* milliseconds. */
 static void latencyMode(void) {
     redisReply *reply;
     long long start, latency, min = 0, max = 0, tot = 0, count = 0;
+    long long history_interval =
+        config.interval ? config.interval/1000 :
+                          LATENCY_HISTORY_DEFAULT_INTERVAL;
     double avg;
+    long long history_start = mstime();
 
     if (!context) exit(1);
     while(1) {
@@ -931,7 +992,13 @@ static void latencyMode(void) {
         printf("\x1b[0G\x1b[2Kmin: %lld, max: %lld, avg: %.2f (%lld samples)",
             min, max, avg, count);
         fflush(stdout);
-        usleep(10000);
+        if (config.latency_history && mstime()-history_start > history_interval)
+        {
+            printf(" -- %.2f seconds range\n", (float)(mstime()-history_start)/1000);
+            history_start = mstime();
+            min = max = tot = count = 0;
+        }
+        usleep(LATENCY_SAMPLE_RATE * 1000);
     }
 }
 
@@ -1199,7 +1266,11 @@ static void findBigKeys(void) {
             fprintf(stderr, "RANDOMKEY error: %s\n",
                 reply1->str);
             exit(1);
+        } else if (reply1->type == REDIS_REPLY_NIL) {
+            fprintf(stderr, "It looks like the database is empty!\n");
+            exit(1);
         }
+
         /* Get the key type */
         reply2 = redisCommand(context,"TYPE %s",reply1->str);
         assert(reply2 && reply2->type == REDIS_REPLY_STATUS);
@@ -1255,6 +1326,145 @@ static void findBigKeys(void) {
     }
 }
 
+/* Return the specified INFO field from the INFO command output "info".
+ * A new buffer is allocated for the result, that needs to be free'd.
+ * If the field is not found NULL is returned. */
+static char *getInfoField(char *info, char *field) {
+    char *p = strstr(info,field);
+    char *n1, *n2;
+    char *result;
+
+    if (!p) return NULL;
+    p += strlen(field)+1;
+    n1 = strchr(p,'\r');
+    n2 = strchr(p,',');
+    if (n2 && n2 < n1) n1 = n2;
+    result = malloc(sizeof(char)*(n1-p)+1);
+    memcpy(result,p,(n1-p));
+    result[n1-p] = '\0';
+    return result;
+}
+
+/* Like the above function but automatically convert the result into
+ * a long. On error (missing field) LONG_MIN is returned. */
+static long getLongInfoField(char *info, char *field) {
+    char *value = getInfoField(info,field);
+    long l;
+
+    if (!value) return LONG_MIN;
+    l = strtol(value,NULL,10);
+    free(value);
+    return l;
+}
+
+/* Convert number of bytes into a human readable string of the form:
+ * 100B, 2G, 100M, 4K, and so forth. */
+void bytesToHuman(char *s, long long n) {
+    double d;
+
+    if (n < 0) {
+        *s = '-';
+        s++;
+        n = -n;
+    }
+    if (n < 1024) {
+        /* Bytes */
+        sprintf(s,"%lluB",n);
+        return;
+    } else if (n < (1024*1024)) {
+        d = (double)n/(1024);
+        sprintf(s,"%.2fK",d);
+    } else if (n < (1024LL*1024*1024)) {
+        d = (double)n/(1024*1024);
+        sprintf(s,"%.2fM",d);
+    } else if (n < (1024LL*1024*1024*1024)) {
+        d = (double)n/(1024LL*1024*1024);
+        sprintf(s,"%.2fG",d);
+    }
+}
+
+static void statMode() {
+    redisReply *reply;
+    long aux, requests = 0;
+    int i = 0;
+
+    while(1) {
+        char buf[64];
+        int j;
+
+        reply = reconnectingInfo();
+        if (reply->type == REDIS_REPLY_ERROR) {
+            printf("ERROR: %s\n", reply->str);
+            exit(1);
+        }
+
+        if ((i++ % 20) == 0) {
+            printf(
+"------- data ------ --------------------- load -------------------- - child -\n"
+"keys       mem      clients blocked requests            connections          \n");
+        }
+
+        /* Keys */
+        aux = 0;
+        for (j = 0; j < 20; j++) {
+            long k;
+
+            sprintf(buf,"db%d:keys",j);
+            k = getLongInfoField(reply->str,buf);
+            if (k == LONG_MIN) continue;
+            aux += k;
+        }
+        sprintf(buf,"%ld",aux);
+        printf("%-11s",buf);
+
+        /* Used memory */
+        aux = getLongInfoField(reply->str,"used_memory");
+        bytesToHuman(buf,aux);
+        printf("%-8s",buf);
+
+        /* Clients */
+        aux = getLongInfoField(reply->str,"connected_clients");
+        sprintf(buf,"%ld",aux);
+        printf(" %-8s",buf);
+
+        /* Blocked (BLPOPPING) Clients */
+        aux = getLongInfoField(reply->str,"blocked_clients");
+        sprintf(buf,"%ld",aux);
+        printf("%-8s",buf);
+
+        /* Requets */
+        aux = getLongInfoField(reply->str,"total_commands_processed");
+        sprintf(buf,"%ld (+%ld)",aux,requests == 0 ? 0 : aux-requests);
+        printf("%-19s",buf);
+        requests = aux;
+
+        /* Connections */
+        aux = getLongInfoField(reply->str,"total_connections_received");
+        sprintf(buf,"%ld",aux);
+        printf(" %-12s",buf);
+
+        /* Children */
+        aux = getLongInfoField(reply->str,"bgsave_in_progress");
+        aux |= getLongInfoField(reply->str,"aof_rewrite_in_progress") << 1;
+        switch(aux) {
+        case 0: break;
+        case 1:
+            printf("SAVE");
+            break;
+        case 2:
+            printf("AOF");
+            break;
+        case 3:
+            printf("SAVE+AOF");
+            break;
+        }
+
+        printf("\n");
+        freeReplyObject(reply);
+        usleep(config.interval);
+    }
+}
+
 int main(int argc, char **argv) {
     int firstarg;
 
@@ -1269,6 +1479,7 @@ int main(int argc, char **argv) {
     config.monitor_mode = 0;
     config.pubsub_mode = 0;
     config.latency_mode = 0;
+    config.latency_history = 0;
     config.cluster_mode = 0;
     config.slave_mode = 0;
     config.getrdb_mode = 0;
@@ -1317,6 +1528,13 @@ int main(int argc, char **argv) {
     if (config.bigkeys) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
         findBigKeys();
+    }
+
+    /* Stat mode */
+    if (config.stat_mode) {
+        if (cliConnect(0) == REDIS_ERR) exit(1);
+        if (config.interval == 0) config.interval = 1000000;
+        statMode();
     }
 
     /* Start interactive mode when no command is provided */

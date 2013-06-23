@@ -306,7 +306,6 @@ void punsubscribeCommand(redisClient *c) {
     slowlogAddComplexityParam('M', listLength(server.pubsub_patterns));
     if (c->argc == 1) {
         pubsubUnsubscribeAllPatterns(c,1);
-        return;
     } else {
         int j;
 
