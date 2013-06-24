@@ -1476,6 +1476,7 @@ void initServer() {
         server.maxmemory_policy = REDIS_MAXMEMORY_NO_EVICTION;
     }
 
+    replicationScriptCacheInit();
     scriptingInit();
     slowlogInit();
     bioInit();
