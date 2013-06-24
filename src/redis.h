@@ -862,6 +862,10 @@ struct redisServer {
     int slave_priority;             /* Reported in INFO and used by Sentinel. */
     char repl_master_runid[REDIS_RUN_ID_SIZE+1];  /* Master run id for PSYNC. */
     long long repl_master_initial_offset;         /* Master PSYNC offset. */
+    /* Replication script cache. */
+    dict *repl_scriptcache_dict;        /* SHA1 all slaves are aware of. */
+    list *repl_scriptcache_fifo;        /* First in, first out LRU eviction. */
+    int repl_scriptcache_size;          /* Max number of elements. */
     /* Limits */
     unsigned int maxclients;        /* Max number of simultaneous clients */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
@@ -1012,6 +1016,7 @@ extern dictType dbDictType;
 extern dictType shaScriptObjectDictType;
 extern double R_Zero, R_PosInf, R_NegInf, R_Nan;
 extern dictType hashDictType;
+extern dictType replScriptCacheDictType;
 
 /*-----------------------------------------------------------------------------
  * Functions prototypes
