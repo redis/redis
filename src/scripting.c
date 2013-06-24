@@ -655,10 +655,6 @@ void scriptingInit(void) {
      * to global variables. */
     scriptingEnableGlobalsProtection(lua);
 
-    /* Initialize the Replication Script Cache for EVALSHA propagation to
-     * slaves and AOF. */
-    replicationScriptCacheInit();
-
     server.lua = lua;
 }
 
