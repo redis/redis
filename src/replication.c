@@ -546,6 +546,8 @@ void syncCommand(redisClient *c) {
             return;
         }
         c->replstate = REDIS_REPL_WAIT_BGSAVE_END;
+        /* Flush the script cache for the new slave. */
+        replicationScriptCacheFlush();
     }
 
     if (server.repl_disable_tcp_nodelay)
@@ -711,6 +713,11 @@ void updateSlavesWaitingBgsave(int bgsaveerr) {
         }
     }
     if (startbgsave) {
+        /* Since we are starting a new background save for one or more slaves,
+         * we flush the Replication Script Cache to use EVAL to propagate every
+         * new EVALSHA for the first time, since all the new slaves don't know
+         * about previous scripts. */
+        replicationScriptCacheFlush();
         if (rdbSaveBackground(server.rdb_filename) != REDIS_OK) {
             listIter li;
 
@@ -1471,10 +1478,16 @@ void replicationScriptCacheInit(void) {
 }
 
 /* Empty the script cache. Should be called every time we are no longer sure
- * that every slave knows about all the scripts in our set, for example
- * every time a new slave connects to this master and performs a full
- * resynchronization. There is no need to flush the cache when a partial
- * resynchronization is performed. */
+ * that every slave knows about all the scripts in our set, or when the
+ * current AOF "context" is no longer aware of the script. In general we
+ * should flush the cache:
+ *
+ * 1) Every time a new slave reconnects to this master and performs a
+ *    full SYNC (PSYNC does not require flushing).
+ * 2) Every time an AOF rewrite is performed.
+ * 3) Every time we are left without slaves at all, and AOF is off, in order
+ *    to reclaim otherwise unused memory.
+ */
 void replicationScriptCacheFlush(void) {
     dictEmpty(server.repl_scriptcache_dict);
     listRelease(server.repl_scriptcache_fifo);
@@ -1507,7 +1520,7 @@ void replicationScriptCacheAdd(sds sha1) {
 /* Returns non-zero if the specified entry exists inside the cache, that is,
  * if all the slaves are aware of this script SHA1. */
 int replicationScriptCacheExists(sds sha1) {
-    return dictFetchValue(server.repl_scriptcache_dict,sha1) != NULL;
+    return dictFind(server.repl_scriptcache_dict,sha1) != NULL;
 }
 
 /* --------------------------- REPLICATION CRON  ----------------------------- */
@@ -1622,6 +1635,16 @@ void replicationCron(void) {
                 "without connected slaves.",
                 (int) server.repl_backlog_time_limit);
         }
+    }
+
+    /* If AOF is disabled and we no longer have attached slaves, we can
+     * free our Replication Script Cache as there is no need to propagate
+     * EVALSHA at all. */
+    if (listLength(server.slaves) == 0 &&
+        server.aof_state == REDIS_AOF_OFF &&
+        listLength(server.repl_scriptcache_fifo) != 0)
+    {
+        replicationScriptCacheFlush();
     }
 
     /* Refresh the number of slaves with lag <= min-slaves-max-lag. */

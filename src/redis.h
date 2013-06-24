@@ -1165,6 +1165,10 @@ void resizeReplicationBacklog(long long newsize);
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
 void refreshGoodSlavesCount(void);
+void replicationScriptCacheInit(void);
+void replicationScriptCacheFlush(void);
+void replicationScriptCacheAdd(sds sha1);
+int replicationScriptCacheExists(sds sha1);
 
 /* Generic persistence functions */
 void startLoading(FILE *fp);
