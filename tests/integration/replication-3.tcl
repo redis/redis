@@ -46,6 +46,10 @@ start_server {tags {"repl"}} {
 
         set numops 20000 ;# Enough to trigger the Script Cache LRU eviction.
 
+        # While we are at it, enable AOF to test it will be consistent as well
+        # after the test.
+        r config set appendonly yes
+
         test {MASTER and SLAVE consistency with EVALSHA replication} {
             array set oldsha {}
             for {set j 0} {$j < $numops} {incr j} {
@@ -60,6 +64,13 @@ start_server {tags {"repl"}} {
                 # Additionally call one of the old scripts as well, at random.
                 set res [r evalsha $oldsha([randomInt $j]) 0]
                 assert {$res > 2}
+
+                # Trigger an AOF rewrite while we are half-way, this also
+                # forces the flush of the script cache, and we will cover
+                # more code as a result.
+                if {$j == $numops / 2} {
+                    catch {r bgrewriteaof}
+                }
             }
 
             wait_for_condition 50 100 {
@@ -79,6 +90,12 @@ start_server {tags {"repl"}} {
                 puts "Run diff -u against /tmp/repldump*.txt for more info"
 
             }
+
+            set old_digest [r debug digest]
+            r config set appendonly no
+            r debug loadaof
+            set new_digest [r debug digest]
+            assert {$old_digest eq $new_digest}
         }
     }
 }
