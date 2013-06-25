@@ -2,9 +2,12 @@ start_server {tags {"repl"}} {
     start_server {} {
         test {First server should have role slave after SLAVEOF} {
             r -1 slaveof [srv 0 host] [srv 0 port]
-            after 1000
-            s -1 role
-        } {slave}
+            wait_for_condition 50 100 {
+                [s -1 master_link_status] eq {up}
+            } else {
+                fail "Replication not started."
+            }
+        }
 
         if {$::accurate} {set numops 50000} else {set numops 5000}
 
