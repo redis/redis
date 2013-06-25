@@ -91,10 +91,12 @@ proc wait_for_sync r {
     }
 }
 
+# Random integer between 0 and max (excluded).
 proc randomInt {max} {
     expr {int(rand()*$max)}
 }
 
+# Random signed integer between -max and max (both extremes excluded).
 proc randomSignedInt {max} {
     set i [randomInt $max]
     if {rand() > 0.5} {
