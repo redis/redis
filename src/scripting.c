@@ -1020,6 +1020,7 @@ void scriptCommand(redisClient *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"flush")) {
         scriptingReset();
         addReply(c,shared.ok);
+        replicationScriptCacheFlush();
         server.dirty++; /* Propagating this command is a good idea. */
     } else if (c->argc >= 2 && !strcasecmp(c->argv[1]->ptr,"exists")) {
         int j;
