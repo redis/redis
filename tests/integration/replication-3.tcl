@@ -32,3 +32,53 @@ start_server {tags {"repl"}} {
         }
     }
 }
+
+start_server {tags {"repl"}} {
+    start_server {} {
+        test {First server should have role slave after SLAVEOF} {
+            r -1 slaveof [srv 0 host] [srv 0 port]
+            wait_for_condition 50 100 {
+                [s -1 master_link_status] eq {up}
+            } else {
+                fail "Replication not started."
+            }
+        }
+
+        set numops 20000 ;# Enough to trigger the Script Cache LRU eviction.
+
+        test {MASTER and SLAVE consistency with EVALSHA replication} {
+            array set oldsha {}
+            for {set j 0} {$j < $numops} {incr j} {
+                set key "key:$j"
+                # Make sure to create scripts that have different SHA1s
+                set script "return redis.call('incr','$key')"
+                set sha1 [r eval "return redis.sha1hex(\"$script\")" 0]
+                set oldsha($j) $sha1
+                r eval $script 0
+                set res [r evalsha $sha1 0]
+                assert {$res == 2}
+                # Additionally call one of the old scripts as well, at random.
+                set res [r evalsha $oldsha([randomInt $j]) 0]
+                assert {$res > 2}
+            }
+
+            wait_for_condition 50 100 {
+                [r dbsize] == $numops &&
+                [r -1 dbsize] == $numops &&
+                [r debug digest] eq [r -1 debug digest]
+            } else {
+                set csv1 [csvdump r]
+                set csv2 [csvdump {r -1}]
+                set fd [open /tmp/repldump1.txt w]
+                puts -nonewline $fd $csv1
+                close $fd
+                set fd [open /tmp/repldump2.txt w]
+                puts -nonewline $fd $csv2
+                close $fd
+                puts "Master - Slave inconsistency"
+                puts "Run diff -u against /tmp/repldump*.txt for more info"
+
+            }
+        }
+    }
+}
