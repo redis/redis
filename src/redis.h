@@ -219,6 +219,7 @@
 #define REDIS_MASTER_FORCE_REPLY (1<<13)  /* Queue replies even if is master */
 #define REDIS_FORCE_AOF (1<<14)   /* Force AOF propagation of current cmd. */
 #define REDIS_FORCE_REPL (1<<15)  /* Force replication of current cmd. */
+#define REDIS_PRE_PSYNC_SLAVE (1<<16) /* Slave don't understand PSYNC. */
 
 /* Client request types */
 #define REDIS_REQ_INLINE 1

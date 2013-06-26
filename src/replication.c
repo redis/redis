@@ -505,6 +505,11 @@ void syncCommand(redisClient *c) {
              * resync. */
             if (master_runid[0] != '?') server.stat_sync_partial_err++;
         }
+    } else {
+        /* If a slave uses SYNC, we are dealing with an old implementation
+         * of the replication protocol (like redis-cli --slave). Flag the client
+         * so that we don't expect to receive REPLCONF ACK feedbacks. */
+        c->flags |= REDIS_PRE_PSYNC_SLAVE;
     }
 
     /* Full resynchronization. */
@@ -1606,6 +1611,7 @@ void replicationCron(void) {
             redisClient *slave = ln->value;
 
             if (slave->replstate != REDIS_REPL_ONLINE) continue;
+            if (slave->flags & REDIS_PRE_PSYNC_SLAVE) continue;
             if ((server.unixtime - slave->repl_ack_time) > server.repl_timeout)
             {
                 char ip[32];
