@@ -53,6 +53,15 @@ namespace RedisInstWA
                 {
                     return binpath;
                 }
+                else
+                {
+                    // bin folder moved in later versions.
+                    binpath = Path.Combine(subpath, @"bin\release\", binzip);
+                    if (File.Exists(binpath))
+                    {
+                        return binpath;
+                    }
+                }
             }
 
             return null;
