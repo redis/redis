@@ -1349,6 +1349,9 @@ char *redisGitSHA1(void);
 char *redisGitDirty(void);
 uint64_t redisBuildId(void);
 
+/* config */
+int rewriteConfigOverwriteFile(char *configfile, sds content);
+
 /* Commands prototypes */
 void authCommand(redisClient *c);
 void pingCommand(redisClient *c);
