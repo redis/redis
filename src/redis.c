@@ -213,7 +213,7 @@ struct redisCommand redisCommandTable[] = {
     {"save",saveCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"bgsave",bgsaveCommand,1,"ar",0,NULL,0,0,0,0,0},
     {"bgrewriteaof",bgrewriteaofCommand,1,"ar",0,NULL,0,0,0,0,0},
-    {"shutdown",shutdownCommand,-1,"ar",0,NULL,0,0,0,0,0},
+    {"shutdown",shutdownCommand,-1,"arl",0,NULL,0,0,0,0,0},
     {"lastsave",lastsaveCommand,1,"rR",0,NULL,0,0,0,0,0},
     {"type",typeCommand,2,"r",0,NULL,1,1,1,0,0},
     {"multi",multiCommand,1,"rs",0,NULL,0,0,0,0,0},
