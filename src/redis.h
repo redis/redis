@@ -130,6 +130,10 @@
 #define REDIS_MBULK_BIG_ARG     (1024*32)
 #define REDIS_LONGSTR_SIZE      21          /* Bytes needed for long -> str */
 #define REDIS_AOF_AUTOSYNC_BYTES (1024*1024*32) /* fdatasync every 32MB */
+/* When configuring the Redis eventloop, we setup it so that the total number
+ * of file descriptors we can handle are server.maxclients + FDSET_INCR
+ * that is our safety margin. */
+#define REDIS_EVENTLOOP_FDSET_INCR 128
 
 /* Hash table parameters */
 #define REDIS_HT_MINFILL        10      /* Minimal hash table fill 10% */
@@ -1239,6 +1243,7 @@ int htNeedsResize(dict *dict);
 void oom(const char *msg);
 void populateCommandTable(void);
 void resetCommandTableStats(void);
+void adjustOpenFilesLimit(void);
 
 /* Set data type */
 robj *setTypeCreate(robj *value);
