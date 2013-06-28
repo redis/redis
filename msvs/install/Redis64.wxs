@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi" xmlns:util='http://schemas.microsoft.com/wix/UtilExtension'>
+  <Product Id="C48F2197-3D55-4F88-B4DD-530687C485F0" Name="Redis 64 bit" Language="1033" Version="2.6.12.0"
+           Manufacturer="Microsoft Open Technologies, Inc." UpgradeCode="2B4801F5-22D8-430C-88B9-A9218E38E3E9">
+    <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" />
+
+    <Media Id="1" Cabinet="media1.cab" EmbedCab="yes" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+
+    <PropertyRef Id="WIX_ACCOUNT_USERS" />
+    <PropertyRef Id="WIX_ACCOUNT_ADMINISTRATORS"/>
+
+    <UIRef Id="WixUI_InstallDirCust"/>
+
+    <Feature Id="RedisFeature" Title="Redis" Level="1">
+      <ComponentGroupRef Id="RedisComponents" />
+    </Feature>
+    <Feature Id="WatcherFeature" Title="Redis Watcher" Level="1">
+      <ComponentGroupRef Id="WatcherComponents" />
+    </Feature>
+  </Product>
+
+  <Fragment>
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="Redis" >
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramFilesFolder">
+        <Directory Id="INSTALLFOLDER32" Name="Redis" >
+          <Directory Id="WATCHERFOLDER" Name="Watcher" />
+        </Directory>
+      </Directory>
+    </Directory>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="RedisComponents" Directory="INSTALLFOLDER">
+      <Component Id="Server" Guid="E3150BEC-9C78-48C4-AC4B-49766B5A431A" Win64="yes">
+        <File Id="redisserver.exe" Name="redis-server.exe" Source="x64\redis-server.exe" DiskId="1" KeyPath="yes" />
+      </Component>
+      <Component Id="Client" Guid="B6D378B9-30E6-4367-915B-208FA67F06BC" Win64="yes">
+        <File Id="rediscli.exe" Name="redis-cli.exe" Source="x64\redis-cli.exe" DiskId="1" KeyPath="yes" />
+      </Component>
+      <Component Id="CheckAof" Guid="4A115146-E7FE-486D-9CB6-6CE4CC41DB21" Win64="yes">
+        <File Id="redischeckaof.exe" Name="redis-check-aof.exe" Source="x64\redis-check-aof.exe" DiskId="1" KeyPath="yes" />
+      </Component>
+      <Component Id="CheckDump" Guid="2CBDE2A2-4297-4CBE-99E8-0B598D06447B" Win64="yes">
+        <File Id="redischeckdump.exe" Name="redis-check-dump.exe" Source="x64\redis-check-dump.exe" DiskId="1" KeyPath="yes" />
+      </Component>
+      <Component Id="RedisConf" Guid="" Win64="yes">
+        <File Id="redisconf.exe" Name="redis.conf" Source="x64\redis.conf" DiskId="1" KeyPath="yes">
+          <Permission GenericAll="yes" GenericWrite="yes" User="[WIX_ACCOUNT_USERS]" />
+          <Permission  GenericAll="yes" User="[WIX_ACCOUNT_ADMINISTRATORS]" />
+        </File>
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="WatcherComponents" Directory="WATCHERFOLDER">
+      <Component Id="rediswatcher" Guid="F85C1F89-3329-400B-9ACF-084CD31BC577" Win64="no">
+        <File Id="rediswatcher.exe" Name="rediswatcher.exe" Source="x64\rediswatcher.exe" DiskId="1" KeyPath="yes" />
+        <File Id="RedisWatcher.man" Name="RedisWatcher.man" Source="x64\rediswatcher.man" DiskId="1" >
+          <util:EventManifest MessageFile="[WATCHERFOLDER]RedisWatcher.exe" ResourceFile="[WATCHERFOLDER]RedisWatcher.exe"/>
+        </File>
+        <File Id="watcher.conf" Name="watcher.conf" Source="x64\watcher.conf" DiskId="1" >
+          <Permission GenericAll="yes" GenericWrite="yes" User="[WIX_ACCOUNT_USERS]" />
+          <Permission  GenericAll="yes" User="[WIX_ACCOUNT_ADMINISTRATORS]" />
+        </File>
+        <ServiceInstall Id="RedisWatcherSvc" Name="RedisWatcherSvc" DisplayName ="Redis watcher" ErrorControl="normal"
+                        Start="auto" Type="ownProcess" Description="Redis process starter and watchdog">
+        </ServiceInstall>
+        <ServiceControl Id="SvcControl" Name="RedisWatcherSvc" Remove="uninstall" Stop="both" Wait="no" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <UI Id="WixUI_InstallDirCust">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
+
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+      <Property Id="WixUI_Mode" Value="InstallDirCust" />
+
+      <DialogRef Id="BrowseDlg" />
+      <DialogRef Id="DiskCostDlg" />
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="UserExit" />
+
+      <Publish Dialog="BrowseDlg" Control="OK" Event="DoAction" Value="WixUIValidatePath" Order="3">1</Publish>
+      <Publish Dialog="BrowseDlg" Control="OK" Event="SpawnDialog" Value="InvalidDirDlg" Order="4"><![CDATA[WIXUI_INSTALLDIR_VALID<>"1"]]></Publish>
+
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999">1</Publish>
+
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirOptDlg">NOT Installed</Publish>
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg">Installed AND PATCH</Publish>
+
+      <Publish Dialog="InstallDirOptDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg">1</Publish>
+      <Publish Dialog="InstallDirOptDlg" Control="Next" Event="SetTargetPath" Value="[WIXUI_INSTALLDIR]" Order="1">1</Publish>
+      <Publish Dialog="InstallDirOptDlg" Control="Next" Event="DoAction" Value="WixUIValidatePath" Order="2">NOT WIXUI_DONTVALIDATEPATH</Publish>
+      <Publish Dialog="InstallDirOptDlg" Control="Next" Event="SpawnDialog" Value="InvalidDirDlg" Order="3"><![CDATA[NOT WIXUI_DONTVALIDATEPATH AND WIXUI_INSTALLDIR_VALID<>"1"]]></Publish>
+      <Publish Dialog="InstallDirOptDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="4">WIXUI_DONTVALIDATEPATH OR WIXUI_INSTALLDIR_VALID="1"</Publish>
+      <Publish Dialog="InstallDirOptDlg" Control="ChangeFolder" Property="_BrowseProperty" Value="[WIXUI_INSTALLDIR]" Order="1">1</Publish>
+      <Publish Dialog="InstallDirOptDlg" Control="ChangeFolder" Event="SpawnDialog" Value="BrowseDlg" Order="2">1</Publish>
+
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="InstallDirOptDlg" Order="1">NOT Installed</Publish>
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Order="2">Installed AND NOT PATCH</Publish>
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2">Installed AND PATCH</Publish>
+
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg">1</Publish>
+
+      <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
+      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
+      <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg">1</Publish>
+
+      <Property Id="ARPNOMODIFY" Value="1" />
+    </UI>
+
+    <UIRef Id="WixUI_Common" />
+  </Fragment>
+
+  <Fragment>
+    <UI>
+      <Dialog Id="InstallDirOptDlg" Width="370" Height="270" Title="!(loc.InstallDirDlg_Title)">
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
+          <Publish Event="AddLocal" Value="ALL" Order="1">1</Publish>
+          <Publish Event="Remove" Value="WatcherFeature" Order="2"><![CDATA[WIXUI_InstallWatcher<>"1"]]></Publish>
+        </Control>
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg">1</Publish>
+        </Control>
+
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15" Transparent="yes" NoPrefix="yes" Text="!(loc.InstallDirDlgDescription)" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="!(loc.InstallDirDlgTitle)" />
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+
+        <Control Id="FolderLabel" Type="Text" X="20" Y="60" Width="290" Height="30" NoPrefix="yes" Text="!(loc.InstallDirDlgFolderLabel)" />
+        <Control Id="Folder" Type="PathEdit" X="20" Y="100" Width="320" Height="18" Property="WIXUI_INSTALLDIR" Indirect="yes" />
+        <Control Id="ChangeFolder" Type="PushButton" X="20" Y="120" Width="56" Height="17" Text="!(loc.InstallDirDlgChange)" />
+
+        <Control Id="InstallWatcherCheckBox" Type="CheckBox" X="20" Y="160" Width="226" Height="18" CheckBoxValue="1" Property="WIXUI_InstallWatcher" Text="Install Redis Watcher service?" Integer="yes" />
+      </Dialog>
+    </UI>
+  </Fragment>
+</Wix>
