@@ -40,5 +40,6 @@ int string2ll(const char *s, size_t slen, long long *value);
 int string2l(const char *s, size_t slen, long *value);
 int d2string(char *buf, size_t len, double value);
 sds getAbsolutePath(char *filename);
+int pathIsBaseName(char *path);
 
 #endif
