@@ -457,6 +457,14 @@ sds getAbsolutePath(char *filename) {
     return abspath;
 }
 
+/* Return true if the specified path is just a file basename without any
+ * relative or absolute path. This function just checks that no / or \
+ * character exists inside the specified path, that's enough in the
+ * environments where Redis runs. */
+int pathIsBaseName(char *path) {
+    return strchr(path,'/') == NULL && strchr(path,'\\') == NULL;
+}
+
 #ifdef UTIL_TEST_MAIN
 #include <assert.h>
 
