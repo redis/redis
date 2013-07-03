@@ -1204,8 +1204,12 @@ static void pipeMode(void) {
                     ssize_t nread = read(STDIN_FILENO,obuf,sizeof(obuf));
 
                     if (nread == 0) {
+                        /* The ECHO sequence starts with a "\r\n" so that if there
+                         * is garbage in the protocol we read from stdin, the ECHO
+                         * will likely still be properly formatted.
+                         * CRLF is ignored by Redis, so it has no effects. */
                         char echo[] =
-                        "*2\r\n$4\r\nECHO\r\n$20\r\n01234567890123456789\r\n";
+                        "\r\n*2\r\n$4\r\nECHO\r\n$20\r\n01234567890123456789\r\n";
                         int j;
 
                         eof = 1;
@@ -1214,7 +1218,7 @@ static void pipeMode(void) {
                          * to make sure everything was read from the server. */
                         for (j = 0; j < 20; j++)
                             magic[j] = rand() & 0xff;
-                        memcpy(echo+19,magic,20);
+                        memcpy(echo+21,magic,20);
                         memcpy(obuf,echo,sizeof(echo)-1);
                         obuf_len = sizeof(echo)-1;
                         obuf_pos = 0;
