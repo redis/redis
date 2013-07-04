@@ -45,7 +45,7 @@ int anetUnixConnect(char *err, char *path);
 int anetUnixNonBlockConnect(char *err, char *path);
 int anetRead(int fd, char *buf, int count);
 int anetResolve(char *err, char *host, char *ipbuf);
-int anetTcpServer(char *err, int port, char *bindaddr);
+int anetTcpServer(char *err, int port, char **bindaddr, int bindaddr_count);
 int anetUnixServer(char *err, char *path, mode_t perm);
 int anetTcpAccept(char *err, int serversock, char *ip, int *port);
 int anetUnixAccept(char *err, int serversock);
