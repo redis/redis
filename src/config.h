@@ -56,8 +56,10 @@
 #endif
 
 /* Test for backtrace() */
+#if defined(__i386__) || defined(__x86_64__) || defined(__ia64__)
 #if defined(__APPLE__) || defined(__linux__)
 #define HAVE_BACKTRACE 1
+#endif
 #endif
 
 /* Test for polling API */
