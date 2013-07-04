@@ -1221,7 +1221,7 @@ void initServerConfig() {
     server.runid[REDIS_RUN_ID_SIZE] = '\0';
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.port = REDIS_SERVERPORT;
-    server.bindaddr = NULL;
+    server.bindaddr_count = 0;
     server.unixsocket = NULL;
     server.unixsocketperm = REDIS_DEFAULT_UNIX_SOCKET_PERM;
     server.ipfd = -1;
@@ -1426,7 +1426,7 @@ void initServer() {
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     if (server.port != 0) {
-        server.ipfd = anetTcpServer(server.neterr,server.port,server.bindaddr);
+        server.ipfd = anetTcpServer(server.neterr,server.port,server.bindaddr,server.bindaddr_count);
         if (server.ipfd == ANET_ERR) {
             redisLog(REDIS_WARNING, "Opening port %d: %s",
                 server.port, server.neterr);
@@ -2837,7 +2837,7 @@ void redisSetProcTitle(char *title) {
 #ifdef USE_SETPROCTITLE
     setproctitle("%s %s:%d",
         title,
-        server.bindaddr ? server.bindaddr : "*",
+        server.bindaddr_count ? server.bindaddr[0] : "*",
         server.port);
 #else
     REDIS_NOTUSED(title);
