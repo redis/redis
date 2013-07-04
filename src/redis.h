@@ -120,6 +120,7 @@
 #define REDIS_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC 1
 #define REDIS_DEFAULT_MIN_SLAVES_TO_WRITE 0
 #define REDIS_DEFAULT_MIN_SLAVES_MAX_LAG 10
+#define REDIS_BINDADDR_MAX 16
 
 /* Protocol and I/O related defines */
 #define REDIS_MAX_QUERYBUF_LEN  (1024*1024*1024) /* 1GB max query buffer. */
@@ -576,7 +577,8 @@ struct redisServer {
     int sentinel_mode;          /* True if this instance is a Sentinel. */
     /* Networking */
     int port;                   /* TCP listening port */
-    char *bindaddr;             /* Bind address or NULL */
+    char *bindaddr[REDIS_BINDADDR_MAX]; /* Addresses we should bind to */
+    int bindaddr_count;         /* Number of addresses in server.bindaddr[] */
     char *unixsocket;           /* UNIX socket path */
     mode_t unixsocketperm;      /* UNIX socket permission */
     int ipfd;                   /* TCP socket file descriptor */
