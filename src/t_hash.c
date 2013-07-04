@@ -234,8 +234,7 @@ int hashTypeDelete(robj *o, robj *field) {
         if (fptr != NULL) {
             fptr = ziplistFind(fptr, field->ptr, sdslen(field->ptr), 1);
             if (fptr != NULL) {
-                zl = ziplistDelete(zl,&fptr);
-                zl = ziplistDelete(zl,&fptr);
+                zl = ziplistDeleteRangeFromOffset(zl,&fptr,2);
                 o->ptr = zl;
                 deleted = 1;
             }
