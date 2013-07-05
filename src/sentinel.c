@@ -185,6 +185,7 @@ typedef struct sentinelRedisInstance {
     mstime_t failover_start_time;   /* When to start to failover if leader. */
     mstime_t failover_timeout;      /* Max time to refresh failover state. */
     struct sentinelRedisInstance *promoted_slave; /* Promoted slave instance. */
+    struct sentinelRedisInstance *explict_promoted_slave; /* Slave for Explict_Promote */
     /* Scripts executed to notify admin or reconfigure clients: when they
      * are set to NULL no script is executed. */
     char *notification_script;
@@ -329,6 +330,7 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master);
 void sentinelScheduleScriptExecution(char *path, ...);
 void sentinelStartFailover(sentinelRedisInstance *master, int state);
 void sentinelDiscardReplyCallback(redisAsyncContext *c, void *reply, void *privdata);
+sentinelRedisInstance *findSlave(sentinelRedisInstance *master, char *name);
 
 /* ========================= Dictionary types =============================== */
 
@@ -897,6 +899,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->failover_start_time = 0;
     ri->failover_timeout = SENTINEL_DEFAULT_FAILOVER_TIMEOUT;
     ri->promoted_slave = NULL;
+    ri->explict_promoted_slave = NULL;
     ri->notification_script = NULL;
     ri->client_reconfig_script = NULL;
 
@@ -931,6 +934,8 @@ void releaseSentinelRedisInstance(sentinelRedisInstance *ri) {
     /* Clear state into the master if needed. */
     if ((ri->flags & SRI_SLAVE) && (ri->flags & SRI_PROMOTED) && ri->master)
         ri->master->promoted_slave = NULL;
+
+    ri->explict_promoted_slave = NULL;
 
     zfree(ri);
 }
@@ -1089,6 +1094,7 @@ void sentinelResetMaster(sentinelRedisInstance *ri, int flags) {
     ri->failover_state_change_time = 0;
     ri->failover_start_time = 0;
     ri->promoted_slave = NULL;
+    ri->explict_promoted_slave = NULL;
     sdsfree(ri->runid);
     sdsfree(ri->slave_master_host);
     ri->runid = NULL;
@@ -2130,18 +2136,42 @@ void sentinelCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"failover")) {
         /* SENTINEL FAILOVER <master-name> */
         sentinelRedisInstance *ri;
+        char name[4096];
 
-        if (c->argc != 3) goto numargserr;
+        if (c->argc != 3 && c->argc != 5) goto numargserr;
         if ((ri = sentinelGetMasterByNameOrReplyError(c,c->argv[2])) == NULL)
             return;
         if (ri->flags & SRI_FAILOVER_IN_PROGRESS) {
             addReplySds(c,sdsnew("-INPROG Failover already in progress\r\n"));
             return;
         }
-        if (sentinelSelectSlave(ri) == NULL) {
-            addReplySds(c,sdsnew("-NOGOODSLAVE No suitable slave to promote\r\n"));
-            return;
-        }
+
+        if (c->argc == 3) {
+            if (sentinelSelectSlave(ri) == NULL) {
+                addReplySds(c,sdsnew("-NOGOODSLAVE No suitable slave to promote\r\n"));
+                return;
+            }
+        } else {
+            sentinelRedisInstance *slave;
+            snprintf(name,sizeof(name)-1,"%s:%s",c->argv[3]->ptr,c->argv[4]->ptr);
+            slave = findSlave(ri, name);
+            if (slave == NULL) {
+                sds ret = sdscatprintf(sdsempty(), "-NOREQUESTEDSLAVE %s is not slave.\r\n", name);
+                addReplySds(c,ret);
+                return;
+            }
+            if (slave->flags & (SRI_S_DOWN|SRI_O_DOWN|SRI_DISCONNECTED)) {
+                sds ret = sdscatprintf(sdsempty(), "-NOGOODSLAVE %s is down or disconnected.\r\n", name);
+                addReplySds(c,ret);
+                return;
+            }
+            if (slave->flags & SRI_DEMOTE) {
+                sds ret = sdscatprintf(sdsempty(), "-NOGOODSLAVE %s is demoted. old master is not ready yet\r\n", name);
+                addReplySds(c,ret);
+                return;
+            }
+            ri->explict_promoted_slave = slave;
+        }   
         sentinelStartFailover(ri,SENTINEL_FAILOVER_STATE_WAIT_START);
         ri->flags |= SRI_FORCE_FAILOVER;
         addReply(c,shared.ok);
@@ -2651,6 +2681,23 @@ int compareSlavesForPromotion(const void *a, const void *b) {
     return strcasecmp(sa_runid, sb_runid);
 }
 
+sentinelRedisInstance *findSlave(sentinelRedisInstance *master, char *name) {
+    dictIterator *di;
+    dictEntry *de;
+    sentinelRedisInstance *selected = NULL;
+
+    di = dictGetIterator(master->slaves);
+    while((de = dictNext(di)) != NULL) {
+        sentinelRedisInstance *slave = dictGetVal(de);
+        if (strcasecmp(name, slave->name) == 0) {
+            selected = slave; 
+            break;
+        }
+    }
+    dictReleaseIterator(di);
+    return selected;
+}
+
 sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
     sentinelRedisInstance **instance =
         zmalloc(sizeof(instance[0])*dictSize(master->slaves));
@@ -2721,7 +2768,13 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
 }
 
 void sentinelFailoverSelectSlave(sentinelRedisInstance *ri) {
-    sentinelRedisInstance *slave = sentinelSelectSlave(ri);
+    sentinelRedisInstance *slave = NULL;
+
+    if (ri->explict_promoted_slave == NULL) {
+        slave = sentinelSelectSlave(ri);
+    } else {
+        slave = ri->explict_promoted_slave;
+    }
 
     if (slave == NULL) {
         sentinelEvent(REDIS_WARNING,"-failover-abort-no-good-slave",ri,"%@");
@@ -2734,6 +2787,8 @@ void sentinelFailoverSelectSlave(sentinelRedisInstance *ri) {
         ri->failover_state_change_time = mstime();
         sentinelEvent(REDIS_NOTICE,"+failover-state-send-slaveof-noone",
             slave, "%@");
+
+        ri->explict_promoted_slave = NULL;
     }
 }
 
