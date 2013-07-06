@@ -1,4 +1,12 @@
 #!/bin/sh
+### BEGIN INIT INFO
+# Provides: redis
+# Required-Start: $local_fs $remote_fs $network $named
+# Required-Stop: $local_fs $remote_fs $network $named
+# Default-Start: 2 3 4 5
+# Default-Stop: 0 1 6
+# Short-Description: Start Redis daemon at boot time
+### END INIT INFO
 #
 # Simple Redis init.d script conceived to work on Linux systems
 # as it does use of the /proc filesystem.
