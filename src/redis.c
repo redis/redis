@@ -2975,8 +2975,6 @@ int main(int argc, char **argv) {
         }
         if (server.ipfd_count > 0)
             redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
-        if (server.ip6fd > 0)
-            redisLog(REDIS_NOTICE,"The server is now ready to accept IPv6 connections on port %d", server.port6);
         if (server.sofd > 0)
             redisLog(REDIS_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
     }

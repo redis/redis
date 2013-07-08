@@ -1614,10 +1614,10 @@ void replicationCron(void) {
             if (slave->flags & REDIS_PRE_PSYNC_SLAVE) continue;
             if ((server.unixtime - slave->repl_ack_time) > server.repl_timeout)
             {
-                char ip[32];
+                char ip[REDIS_IP_STR_LEN];
                 int port;
 
-                if (anetPeerToString(slave->fd,ip,&port) != -1) {
+                if (anetPeerToString(slave->fd,ip,sizeof(ip),&port) != -1) {
                     redisLog(REDIS_WARNING,
                         "Disconnecting timedout slave: %s:%d",
                         ip, slave->slave_listening_port);
