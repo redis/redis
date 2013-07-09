@@ -589,6 +589,7 @@ struct redisServer {
     int dbnum;                      /* Total number of configured DBs */
     int daemonize;                  /* True if running as a daemon */
     int load_on_startup;            /* True if server should load AOF/RDB on startup */
+    char *preload_file;             /* [aof|rdb]:[filename] to preload on startup */
     int conditional_sync;           /* Conditional synchronziation support */
     clientBufferLimitsConfig client_obuf_limits[REDIS_CLIENT_LIMIT_NUM_CLASSES];
     /* Slave Buffer Throttling */

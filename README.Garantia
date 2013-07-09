@@ -72,8 +72,13 @@ load-on-startup
     even if they exist.  This is useful on slaves that would immediately need
     to replicate from masters anyway.
 
+preload-file
+    Provides a mechanism to load an arbitrary rdb or aof file on server
+    startup, regardless of of snapshot/appendonly configuration.
+
 optionally-include
     Works like 'include' but silently ignores non-existing files.
+
 
 Additional Statistics
 ---------------------

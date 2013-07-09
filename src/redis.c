@@ -1268,6 +1268,7 @@ void initServerConfig() {
     server.syslog_facility = LOG_LOCAL0;
     server.daemonize = 0;
     server.load_on_startup = 1;
+    server.preload_file = NULL;
     server.conditional_sync = 1;
     server.aof_state = REDIS_AOF_OFF;
     server.aof_fsync = AOF_FSYNC_EVERYSEC;
@@ -2794,6 +2795,29 @@ int checkForSentinelMode(int argc, char **argv) {
 /* Function called at startup to load RDB or AOF file in memory. */
 void loadDataFromDisk(void) {
     long long start = ustime();
+
+    /* Handle preload_file, which overrides anything else. */
+    if (server.preload_file) {
+        if (!strncmp(server.preload_file, "aof:/", 5)) {
+            if (loadAppendOnlyFile(server.preload_file+4) == REDIS_OK) {
+                redisLog(REDIS_NOTICE,"DB pre-loaded from append only file: %s: %.3f seconds",server.preload_file+4, (float)(ustime()-start)/1000000);
+                return;
+            }
+        } else if (!strncmp(server.preload_file, "rdb:/", 5)) {
+            if (rdbLoad(server.preload_file + 4) == REDIS_OK) {
+                redisLog(REDIS_NOTICE,"DB pre-loaded from rdb file: %s: %.3f seconds",
+                    server.preload_file+4, (float)(ustime()-start)/1000000);
+                return;
+            }
+        } else {
+            redisLog(REDIS_WARNING,"Invalid preload-file configuration: %s. Exiting.", server.preload_file);
+            exit(1);
+        }
+
+        redisLog(REDIS_WARNING,"Failed pre-loading the DB from file: %s. Exiting.", server.preload_file+4);
+        exit(1);
+    }
+   
     if (server.aof_state == REDIS_AOF_ON) {
         if (loadAppendOnlyFile(server.aof_filename) == REDIS_OK)
             redisLog(REDIS_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);

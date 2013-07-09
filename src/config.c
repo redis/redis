@@ -287,6 +287,12 @@ void loadServerConfigFromString(char *config) {
             if ((server.load_on_startup = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"preload-file") && argc == 2) {
+            if (strncmp(argv[1], "aof:/", 5) && strncmp(argv[1], "rdb:/", 5)) {
+                err = "argument must be in the format '[aof|rdb]:[filename]'"; goto loaderr;
+            }
+            zfree(server.preload_file);
+            server.preload_file = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"conditional-sync") && argc == 2) {
             if ((server.conditional_sync = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
