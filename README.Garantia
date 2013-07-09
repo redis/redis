@@ -99,6 +99,7 @@ rdb_saves
     explicit BGSAVE as well as automatic saves due to 'save' configuration
     parameter thresholds, but not saves to dedicated SYNC file or BGSAVETO.
 
+
 New/Modified Redis Commands
 ---------------------------
 
@@ -156,6 +157,7 @@ SLOWLOG GET
     which affected the calculation complexity of the slow command. This
     is useful if the command operated on keys that don't exist anymore
     or if the command had more parameters than allowed in the slow log.
+
 
 Build Tree Changes
 ------------------

@@ -574,6 +574,7 @@ struct redisServer {
     unsigned long slowlog_max_len;     /* SLOWLOG max number of items logged */
     struct complexity_param slowlog_complexity_params[REDIS_SLOWLOG_MAX_COMPLEXITY_PARAMS];
     int slowlog_complexity_params_count;    
+    int stat_current_request_recorded;
     /* The following two are used to track instantaneous "load" in terms
      * of operations per second. */
     long long ops_sec_last_sample_time; /* Timestamp of last sample (in ms) */

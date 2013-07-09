@@ -1726,6 +1726,7 @@ void call(redisClient *c, int flags) {
 
     /* Call the command. */
     server.slowlog_complexity_params_count = 0;
+    server.stat_current_request_recorded = 0;
     redisOpArrayInit(&server.also_propagate);
     dirty = server.dirty;
     c->cmd->proc(c);
