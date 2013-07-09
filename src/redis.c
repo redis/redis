@@ -823,84 +823,6 @@ void clientsCron(void) {
     }
 }
 
-#ifdef __linux__
-long long int getFreeOSMemory(void) {
-    FILE *meminfo_file;
-    char buf[128];
-    long long int memfree_value = -1;
-    long long int buffers_value = -1;
-    long long int cached_value = -1;
-    long long int memfree = -1;
-    
-    meminfo_file = fopen("/proc/meminfo", "r");
-    if (!meminfo_file)
-        return -1;
-    while (fgets(buf, sizeof(buf)-1, meminfo_file) != NULL) {
-        char *p = NULL;
-        char *k;
-        char *arg;
-        if (!(k = strtok_r(buf, " ", &p)))
-            break;  /* parse error */
-        if (!(arg = strtok_r(NULL, " ", &p)))
-            break;  /* parse error */
-        if (strcmp(k, "MemFree:") == 0) {
-            memfree_value = strtoull(arg, &p, 10);
-            if (!p || *p != '\0')
-                memfree_value = -1;    /* parse error */
-        } else if (strcmp(k, "Buffers:") == 0) {
-            buffers_value = strtoull(arg, &p, 10);
-            if (!p || *p != '\0')
-                buffers_value = -1;    /* parse error */
-        } else if (strcmp(k, "Cached:") == 0) {
-            cached_value = strtoull(arg, &p, 10);
-            if (!p || *p != '\0')
-                cached_value = -1;    /* parse error */
-        }
-        if (memfree_value != -1 &&
-            buffers_value != -1 &&
-            cached_value != -1) {
-            memfree = memfree_value + buffers_value + cached_value;
-            break;
-        }
-    }
-    fclose(meminfo_file);
-    if (memfree > 0)
-        memfree *= 1024;
-    
-    return memfree;
-}
-#else
-#error "Implement getFreeOSMemory for this platform first."
-#endif
-
-void checkOSMemory(void) {
-    /* Called periodically if minmemory_os is defined, and verifies that
-     * enough free OS memory is reported.  If not, it attempts to free 1/2
-     * of the minmemory_os value.
-     */
-
-    long long int os_memfree;
-    
-    if (!server.minmemory_os)
-        return;
-    
-    os_memfree = getFreeOSMemory();
-    if (os_memfree < 0)
-        return;
-    if ((unsigned long long) os_memfree < server.minmemory_os) {
-        long long int delta = server.minmemory_os - os_memfree;
-
-        if ((long long int) zmalloc_used_memory() > (delta / 2)) {
-            redisLog(REDIS_WARNING, "OS Memory is low, trying to free %llu bytes.", delta / 2);
-           
-            freeMemoryIfNeeded(zmalloc_used_memory() - (delta / 2));
-        } else {
-            redisLog(REDIS_WARNING, "OS Memory is low, but this redis is too small to attempt eviction.");
-        }        
-    }            
-}
-
-
 /* This function handles 'background' operations we are required to do
  * incrementally in Redis databases, such as active key expiring, resizing,
  * rehashing. */
@@ -1009,11 +931,6 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         server.shutdown_asap = 0;
     }
 
-    /* Try to evict if OS memory is low */
-    run_with_period(10000) {
-        checkOSMemory();
-    }
-    
     /* Cancel draining mode if not polled for a long time */
     if (server.draining && server.unixtime - server.last_drain_time >= 10)
         server.draining = 0;
