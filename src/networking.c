@@ -552,7 +552,7 @@ static void acceptCommonHandler(int fd, int flags) {
 
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
-    char cip[128];      /* Could use INET6_ADDRSTRLEN here, but its smaller */
+    char cip[REDIS_IP_STR_LEN];
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
@@ -1206,8 +1206,7 @@ void clientCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"kill") && c->argc == 3) {
         listRewind(server.clients,&li);
         while ((ln = listNext(&li)) != NULL) {
-            /* addr size 64 > INET6_ADDRSTRLEN + : + strlen("65535") */
-            char ip[INET6_ADDRSTRLEN], addr[64];
+            char ip[REDIS_IP_STR_LEN], addr[REDIS_IP_STR_LEN+64];
             int port;
 
             client = listNodeValue(ln);

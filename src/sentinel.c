@@ -1837,7 +1837,7 @@ void sentinelPingInstance(sentinelRedisInstance *ri) {
                (now - ri->last_pub_time) > SENTINEL_PUBLISH_PERIOD)
     {
         /* PUBLISH hello messages only to masters. */
-        char ip[INET6_ADDRSTRLEN];
+        char ip[REDIS_IP_STR_LEN];
         if (anetSockName(ri->cc->c.fd,ip,sizeof(ip),NULL) != -1) {
             char myaddr[128];
 
