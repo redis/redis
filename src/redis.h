@@ -1073,6 +1073,7 @@ void copyClientOutputBuffer(redisClient *dst, redisClient *src);
 void *dupClientReplyValue(void *o);
 void getClientsMaxBuffers(unsigned long *longest_output_list,
                           unsigned long *biggest_input_buffer);
+void formatPeerId(char *peerid, size_t peerid_len, char *ip, int port);
 int getClientPeerId(redisClient *client, char *peerid, size_t peerid_len);
 sds getClientInfoString(redisClient *client);
 sds getAllClientsInfoString(void);
