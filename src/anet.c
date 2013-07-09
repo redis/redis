@@ -392,7 +392,7 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af)
         if ((s = socket(p->ai_family,p->ai_socktype,p->ai_protocol)) == -1)
             continue;
 
-        if (AF_INET6 == af && anetV6Only(err,s) == ANET_ERR)
+        if (af == AF_INET6 && anetV6Only(err,s) == ANET_ERR)
             goto error;    /* could continue here? */
 
         if (anetListen(err,s,p->ai_addr,p->ai_addrlen) == ANET_ERR)

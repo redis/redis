@@ -1391,7 +1391,18 @@ void initServer() {
          * entering the loop if j == 0. */
         if (server.bindaddr_count == 0) server.bindaddr[0] = NULL;
         for (j = 0; j < server.bindaddr_count || j == 0; j++) {
-            server.ipfd[server.ipfd_count] = anetTcpServer(server.neterr,server.port,server.bindaddr[j]);
+            if (server.bindaddr[j] == NULL) {
+                /* Bind * for both IPv6 and IPv4. */
+                server.ipfd[0] = anetTcp6Server(server.neterr,server.port,NULL);
+                if (server.ipfd[0] != ANET_ERR) server.ipfd_count++;
+                server.ipfd[1] = anetTcpServer(server.neterr,server.port,NULL);
+            } else if (strchr(server.bindaddr[j],':')) {
+                /* Bind IPv6 address. */
+                server.ipfd[server.ipfd_count] = anetTcp6Server(server.neterr,server.port,server.bindaddr[j]);
+            } else {
+                /* Bind IPv4 address. */
+                server.ipfd[server.ipfd_count] = anetTcpServer(server.neterr,server.port,server.bindaddr[j]);
+            }
             if (server.ipfd[server.ipfd_count] == ANET_ERR) {
                 redisLog(REDIS_WARNING,
                     "Creating Server TCP listening socket %s:%d: %s",
