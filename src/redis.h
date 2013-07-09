@@ -121,6 +121,7 @@
 #define REDIS_DEFAULT_MIN_SLAVES_TO_WRITE 0
 #define REDIS_DEFAULT_MIN_SLAVES_MAX_LAG 10
 #define REDIS_IP_STR_LEN INET6_ADDRSTRLEN
+#define REDIS_PEER_ID_LEN (REDIS_IP_STR_LEN+32) /* Must be enough for ip:port */
 #define REDIS_BINDADDR_MAX 16
 
 /* Protocol and I/O related defines */
@@ -908,6 +909,7 @@ void copyClientOutputBuffer(redisClient *dst, redisClient *src);
 void *dupClientReplyValue(void *o);
 void getClientsMaxBuffers(unsigned long *longest_output_list,
                           unsigned long *biggest_input_buffer);
+void getClientPeerId(redisClient *client, char *peerid, size_t peerid_len);
 sds getClientInfoString(redisClient *client);
 sds getAllClientsInfoString(void);
 void rewriteClientCommandVector(redisClient *c, int argc, ...);

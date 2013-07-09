@@ -1122,14 +1122,42 @@ void getClientsMaxBuffers(unsigned long *longest_output_list,
     *biggest_input_buffer = bib;
 }
 
+/* A Redis "Peer ID" is a colon separated ip:port pair.
+ * For IPv4 it's in the form x.y.z.k:pork, example: "127.0.0.1:1234".
+ * For IPv6 addresses we use [] around the IP part, like in "[::1]:1234".
+ * For Unix socekts we use path:0, like in "/tmp/redis:0".
+ *
+ * A Peer ID always fits inside a buffer of REDIS_PEER_ID_LEN bytes, including
+ * the null term.
+ *
+ * The function is always successful, but if the IP or port can't be extracted
+ * for some reason, "?" and "0" are used (this is the semantics of
+ * anetPeerToString() from anet.c). In practical terms this should never
+ * happen. */
+void getClientPeerId(redisClient *client, char *peerid, size_t peerid_len) {
+    char ip[REDIS_IP_STR_LEN];
+    int port;
+
+    if (client->flags & REDIS_UNIX_SOCKET) {
+        /* Unix socket client. */
+        snprintf(peerid,peerid_len,"%s:0",server.unixsocket);
+        return;
+    } else {
+        /* TCP client. */
+        anetPeerToString(client->fd,ip,sizeof(ip),&port);
+        if (strchr(ip,':'))
+            snprintf(peerid,peerid_len,"[%s]:%d",ip,port);
+        else
+            snprintf(peerid,peerid_len,"%s:%d",ip,port);
+    }
+}
+
 /* Turn a Redis client into an sds string representing its state. */
 sds getClientInfoString(redisClient *client) {
-    char ip[REDIS_IP_STR_LEN], flags[16], events[3], *p;
-    int port = 0; /* initialized to zero for the unix socket case. */
+    char peerid[REDIS_PEER_ID_LEN], flags[16], events[3], *p;
     int emask;
 
-    if (!(client->flags & REDIS_UNIX_SOCKET))
-        anetPeerToString(client->fd,ip,sizeof(ip),&port);
+    getClientPeerId(client,peerid,sizeof(peerid));
     p = flags;
     if (client->flags & REDIS_SLAVE) {
         if (client->flags & REDIS_MONITOR)
@@ -1154,9 +1182,8 @@ sds getClientInfoString(redisClient *client) {
     if (emask & AE_WRITABLE) *p++ = 'w';
     *p = '\0';
     return sdscatprintf(sdsempty(),
-        "addr=%s:%d fd=%d name=%s age=%ld idle=%ld flags=%s db=%d sub=%d psub=%d multi=%d qbuf=%lu qbuf-free=%lu obl=%lu oll=%lu omem=%lu events=%s cmd=%s",
-        (client->flags & REDIS_UNIX_SOCKET) ? server.unixsocket : ip,
-        port,
+        "addr=%s fd=%d name=%s age=%ld idle=%ld flags=%s db=%d sub=%d psub=%d multi=%d qbuf=%lu qbuf-free=%lu obl=%lu oll=%lu omem=%lu events=%s cmd=%s",
+        peerid,
         client->fd,
         client->name ? (char*)client->name->ptr : "",
         (long)(server.unixtime - client->ctime),
