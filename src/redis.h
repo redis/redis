@@ -411,6 +411,7 @@ typedef struct redisClient {
     int sentlen;
     time_t ctime;           /* Client creation time */
     time_t lastinteraction; /* time of the last interaction, used for timeout */
+    time_t lastrequest;     /* time of last request */
     time_t obuf_soft_limit_reached_time;
     int flags;              /* REDIS_SLAVE | REDIS_MONITOR | REDIS_MULTI ... */
     int slaveseldb;         /* slave selected db, if this client is a slave */
@@ -590,6 +591,12 @@ struct redisServer {
     int load_on_startup;            /* True if server should load AOF/RDB on startup */
     int conditional_sync;           /* Conditional synchronziation support */
     clientBufferLimitsConfig client_obuf_limits[REDIS_CLIENT_LIMIT_NUM_CLASSES];
+    /* Slave Buffer Throttling */
+    unsigned long long slave_obuf_throttle_threshold;   /* Slave output buffer threshold for thorttling */
+    unsigned long long slave_obuf_throttle_limit;       /* Largest slave output buffer while throttling */
+    unsigned long long slave_obuf_throttle_repl_rate;   /* Replication rate (bytes/sec) */
+    int slave_obuf_throttle_max_delay_ms;               /* Maxium throttle-down delay, in ms */
+    long long throttle_resume_time_ms;                  /* Throttle down existing connections until time */
     /* AOF persistence */
     int aof_state;                  /* REDIS_AOF_(ON|OFF|WAIT_REWRITE) */
     int aof_fsync;                  /* Kind of fsync() policy */
@@ -829,6 +836,7 @@ void addReplySds(redisClient *c, sds s);
 void processInputBuffer(redisClient *c);
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask);
+int handleRequestThrottling(redisClient *c);
 void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask);
 void addReplyBulk(redisClient *c, robj *obj);
 void addReplyBulkCString(redisClient *c, char *s);

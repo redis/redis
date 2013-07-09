@@ -52,6 +52,18 @@ background save operation to a specific file with optional database number
 argument. This operation also doesn't modify the fields above.
 
 
+Slave output buffer throttling
+------------------------------
+
+The slave output buffer throttling is used to slow down incoming requests
+when a slave initiates replication and the output buffer grows too fast
+and beyond certain thresholds.
+
+Using the 'slave-output-buffer-throttling' configuration parameter, it is
+possible to throttle down write requests in order to control the rate in
+which slave server buffers grow during replication.
+
+
 Additional Redis Configuration Parameters
 -----------------------------------------
 

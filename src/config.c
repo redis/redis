@@ -427,6 +427,11 @@ void loadServerConfigFromString(char *config) {
             server.client_obuf_limits[class].hard_limit_bytes = hard;
             server.client_obuf_limits[class].soft_limit_bytes = soft;
             server.client_obuf_limits[class].soft_limit_seconds = soft_seconds;
+        } else if (!strcasecmp(argv[0],"slave-output-buffer-throttling") && argc == 5) {
+            server.slave_obuf_throttle_threshold = memtoll(argv[1],NULL);
+            server.slave_obuf_throttle_limit = memtoll(argv[2],NULL);
+            server.slave_obuf_throttle_repl_rate = memtoll(argv[3],NULL);
+            server.slave_obuf_throttle_max_delay_ms = strtoul(argv[4],NULL,10);
         } else if (!strcasecmp(argv[0],"stop-writes-on-bgsave-error") &&
                    argc == 2) {
             if ((server.stop_writes_on_bgsave_err = yesnotoi(argv[1])) == -1) {
@@ -747,6 +752,21 @@ void configSetCommand(redisClient *c) {
             server.client_obuf_limits[class].soft_limit_seconds = soft_seconds;
         }
         sdsfreesplitres(v,vlen);
+    } else if (!strcasecmp(c->argv[2]->ptr,"slave-output-buffer-throttling")) {
+        int vlen;
+        sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
+
+        if (vlen != 4) {
+            sdsfreesplitres(v,vlen);
+            goto badfmt;
+        }
+
+        server.slave_obuf_throttle_threshold = strtoll(v[0],NULL,10);
+        server.slave_obuf_throttle_limit = strtoll(v[1],NULL,10);
+        server.slave_obuf_throttle_repl_rate = strtoll(v[2],NULL,10);
+        server.slave_obuf_throttle_max_delay_ms = strtoul(v[3],NULL,10);
+
+        sdsfreesplitres(v,vlen);
     } else if (!strcasecmp(c->argv[2]->ptr,"stop-writes-on-bgsave-error")) {
         int yn = yesnotoi(o->ptr);
 
@@ -988,6 +1008,17 @@ void configGetCommand(redisClient *c) {
                 buf = sdscatlen(buf," ",1);
         }
         addReplyBulkCString(c,"client-output-buffer-limit");
+        addReplyBulkCString(c,buf);
+        sdsfree(buf);
+        matches++;
+    }
+    if (stringmatch(pattern,"slave-output-buffer-throttling",0)) {
+        sds buf = sdscatprintf(sdsempty(), "%llu %llu %llu %u",
+            server.slave_obuf_throttle_threshold,
+            server.slave_obuf_throttle_limit,
+            server.slave_obuf_throttle_repl_rate,
+            server.slave_obuf_throttle_max_delay_ms);
+        addReplyBulkCString(c,"slave-output-buffer-throttling");
         addReplyBulkCString(c,buf);
         sdsfree(buf);
         matches++;

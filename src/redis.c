@@ -1345,6 +1345,13 @@ void initServerConfig() {
     server.client_obuf_limits[REDIS_CLIENT_LIMIT_CLASS_PUBSUB].soft_limit_bytes = 1024*1024*8;
     server.client_obuf_limits[REDIS_CLIENT_LIMIT_CLASS_PUBSUB].soft_limit_seconds = 60;
 
+    /* Throttling */
+    server.slave_obuf_throttle_threshold = 0;
+    server.slave_obuf_throttle_limit = 0;
+    server.slave_obuf_throttle_repl_rate = 30*1024*1024;
+    server.slave_obuf_throttle_max_delay_ms = 500;
+    server.throttle_resume_time_ms = 0;
+
     /* Double constants initialization */
     R_Zero = 0.0;
     R_PosInf = 1.0/R_Zero;

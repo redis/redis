@@ -85,6 +85,7 @@ redisClient *createClient(int fd) {
     c->sentlen = 0;
     c->flags = 0;
     c->ctime = c->lastinteraction = server.unixtime;
+    c->lastrequest = 0;
     c->authenticated = 0;
     c->replstate = REDIS_REPL_NONE;
     c->slave_listening_port = 0;
@@ -1016,12 +1017,30 @@ void processInputBuffer(redisClient *c) {
     }
 }
 
+int handleRequestThrottling(redisClient *c) {
+    /* If we're in a throttling interval, we just check to see when it can
+     * be turned off.  This does NOT apply to new connections, on which we
+     * allow the first command anyway.
+     */
+    if (!server.throttle_resume_time_ms) return REDIS_OK;
+    if (mstime() >= server.throttle_resume_time_ms) {
+        server.throttle_resume_time_ms = 0;
+        return REDIS_OK;
+    }
+    if (c != NULL && c->lastcmd == NULL) return REDIS_OK;
+
+    return REDIS_ERR;
+}
+
 void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     redisClient *c = (redisClient*) privdata;
     int nread, readlen;
     size_t qblen;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
+
+    /* Don't process new requests while throttling */
+    if (handleRequestThrottling(c) != REDIS_OK) return;
 
     server.current_client = c;
     readlen = REDIS_IOBUF_LEN;
@@ -1059,6 +1078,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (nread) {
         sdsIncrLen(c->querybuf,nread);
         c->lastinteraction = server.unixtime;
+        c->lastrequest = server.unixtime;
     } else {
         server.current_client = NULL;
         return;
@@ -1341,6 +1361,7 @@ char *getClientLimitClassName(int class) {
 int checkClientOutputBufferLimits(redisClient *c) {
     int soft = 0, hard = 0, class;
     unsigned long used_mem = getClientOutputBufferMemoryUsage(c);
+    static time_t last_log_msg = 0;
 
     class = getClientLimitClass(c);
     if (server.client_obuf_limits[class].hard_limit_bytes &&
@@ -1349,6 +1370,37 @@ int checkClientOutputBufferLimits(redisClient *c) {
     if (server.client_obuf_limits[class].soft_limit_bytes &&
         used_mem >= server.client_obuf_limits[class].soft_limit_bytes)
         soft = 1;
+
+    /* Handle slave output buffer throttling */
+    if (server.slave_obuf_throttle_threshold &&
+        server.slave_obuf_throttle_repl_rate &&
+        server.slave_obuf_throttle_limit &&
+        class == REDIS_CLIENT_LIMIT_CLASS_SLAVE && 
+        !server.throttle_resume_time_ms &&
+        used_mem > server.slave_obuf_throttle_threshold &&
+        c->replstate != REDIS_REPL_ONLINE) {
+
+        unsigned long estimated_repl_time = (zmalloc_used_memory() - used_mem) / server.slave_obuf_throttle_repl_rate;
+        size_t obuf_bytes_per_sec = server.slave_obuf_throttle_limit / (estimated_repl_time ? estimated_repl_time : 1);
+        time_t elapsed_repl_time = time(NULL) - c->lastrequest;
+
+        if (used_mem > elapsed_repl_time * obuf_bytes_per_sec) {
+            size_t bytes_exceeding = used_mem - (elapsed_repl_time * obuf_bytes_per_sec);
+            unsigned long throttle_time_ms = bytes_exceeding / obuf_bytes_per_sec * 1000;
+
+            if (server.slave_obuf_throttle_max_delay_ms && throttle_time_ms > server.slave_obuf_throttle_max_delay_ms)
+                throttle_time_ms = server.slave_obuf_throttle_max_delay_ms;
+            
+            server.throttle_resume_time_ms = mstime() + throttle_time_ms;
+            if (time(NULL) - last_log_msg > 10) {
+                sds client = getClientInfoString(c);
+
+                redisLog(REDIS_WARNING, "Slave %s triggered request throttling.", client);
+                sdsfree(client);
+                last_log_msg = time(NULL);
+            }
+        }
+    }
 
     /* We need to check if the soft limit is reached continuously for the
      * specified amount of seconds. */
