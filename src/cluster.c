@@ -306,7 +306,7 @@ void freeClusterLink(clusterLink *link) {
 
 void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
-    char cip[128];      /* Could use INET6_ADDRSTRLEN here, but its smaller */
+    char cip[REDIS_IP_STR_LEN];
     clusterLink *link;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);

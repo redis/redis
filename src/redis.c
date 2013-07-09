@@ -2435,7 +2435,7 @@ sds genRedisInfoString(char *section) {
             while((ln = listNext(&li))) {
                 redisClient *slave = listNodeValue(ln);
                 char *state = NULL;
-                char ip[INET6_ADDRSTRLEN];
+                char ip[REDIS_IP_STR_LEN];
                 int port;
                 long lag = 0;
 
