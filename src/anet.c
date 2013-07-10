@@ -237,18 +237,11 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, int flags)
             continue;
 
         /* if we set err then goto cleanup, otherwise next */
-        if (anetSetReuseAddr(err,s) == ANET_ERR) {
+        if (anetSetReuseAddr(err,s) == ANET_ERR) goto error;
+        if (flags & ANET_CONNECT_NONBLOCK && anetNonBlock(err,s) != ANET_OK)
             goto error;
-        }
-        if (flags & ANET_CONNECT_NONBLOCK) {
-            if (anetNonBlock(err,s) != ANET_OK)
-                goto error;
-        }
         if (connect(s,p->ai_addr,p->ai_addrlen) == -1) {
-            if (errno == EINPROGRESS &&
-                flags & ANET_CONNECT_NONBLOCK)
-                goto end;
-
+            if (errno == EINPROGRESS && flags & ANET_CONNECT_NONBLOCK) goto end;
             close(s);
             continue;
         }
