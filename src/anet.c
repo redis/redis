@@ -392,11 +392,9 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af)
         if ((s = socket(p->ai_family,p->ai_socktype,p->ai_protocol)) == -1)
             continue;
 
-        if (af == AF_INET6 && anetV6Only(err,s) == ANET_ERR)
-            goto error;    /* could continue here? */
-
-        if (anetListen(err,s,p->ai_addr,p->ai_addrlen) == ANET_ERR)
-            goto error;    /* could continue here? */
+        if (af == AF_INET6 && anetV6Only(err,s) == ANET_ERR) goto error;
+        if (anetSetReuseAddr(err,s) == ANET_ERR) goto error;
+        if (anetListen(err,s,p->ai_addr,p->ai_addrlen) == ANET_ERR) goto error;
         goto end;
     }
     if (p == NULL) {
