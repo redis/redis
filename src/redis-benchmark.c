@@ -676,6 +676,13 @@ int main(int argc, const char **argv) {
             free(cmd);
         }
 
+        if (test_is_selected("publish")) {
+            len = redisFormatCommand(&cmd,"PUBLISH foo:rand:000000000000 %s",data);
+            benchmark("PUBLISH",cmd,len);
+            free(cmd);
+        }
+
+
         if (!config.csv) printf("\n");
     } while(config.loop);
 
