@@ -337,6 +337,7 @@ char* loadStringObject() {
     if (len == REDIS_RDB_LENERR) return NULL;
 
     char *buf = malloc(sizeof(char) * (len+1));
+    if (buf == NULL) return NULL;
     buf[len] = '\0';
     if (!readBytes(buf, len)) {
         free(buf);
