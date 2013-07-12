@@ -1159,6 +1159,7 @@ int getLongDoubleFromObject(robj *o, long double *target);
 int getLongDoubleFromObjectOrReply(redisClient *c, robj *o, long double *target, const char *msg);
 char *strEncoding(int encoding);
 int compareStringObjects(robj *a, robj *b);
+int collateStringObjects(robj *a, robj *b);
 int equalStringObjects(robj *a, robj *b);
 unsigned long estimateObjectIdleTime(robj *o);
 
