@@ -1428,6 +1428,31 @@ void initServer() {
 
     /* Open the TCP listening sockets. */
     if (server.port != 0) {
+<<<<<<< HEAD
+        if (!server.bindaddr || !strchr(server.bindaddr, ',')) {
+            server.ipfd[0] = anetTcpServer(server.neterr,server.port,server.bindaddr);
+            if (server.ipfd[0] == ANET_ERR) {
+                redisLog(REDIS_WARNING, "Opening port %d: %s",
+                    server.port, server.neterr);
+                exit(1);
+            }
+        }
+        else {
+            int cnt = 0;
+            sds * ba = sdssplitlen(server.bindaddr, strlen(server.bindaddr), ",", 1, &cnt);
+            if (cnt > REDIS_MAX_IP)
+                cnt = REDIS_MAX_IP;
+            for (j = 0; j < cnt; j++) {
+                server.ipfd[j] = anetTcpServer(server.neterr,server.port,ba[j]);
+                if (server.ipfd[j] == ANET_ERR) {
+                    redisLog(REDIS_WARNING, "Opening port %d: %s",
+                        server.port, server.neterr);
+                    exit(1);
+                }
+            }
+            if (ba)
+                zfree(ba);
+=======
         /* Force binding of 0.0.0.0 if no bind address is specified, always
          * entering the loop if j == 0. */
         if (server.bindaddr_count == 0) server.bindaddr[0] = NULL;
@@ -1452,6 +1477,7 @@ void initServer() {
                 exit(1);
             }
             server.ipfd_count++;
+>>>>>>> 34e20658307ae47bba4b4e14198534b361f4a642
         }
     }
 
@@ -1464,9 +1490,13 @@ void initServer() {
             exit(1);
         }
     }
+<<<<<<< HEAD
+    if (server.ipfd[0] < 0 && server.sofd < 0) {
+=======
 
     /* Abort if there are no listening sockets at all. */
     if (server.ipfd_count == 0 && server.sofd < 0) {
+>>>>>>> 34e20658307ae47bba4b4e14198534b361f4a642
         redisLog(REDIS_WARNING, "Configured to not listen anywhere, exiting.");
         exit(1);
     }
@@ -1521,6 +1551,11 @@ void initServer() {
         redisPanic("Can't create the serverCron time event.");
         exit(1);
     }
+<<<<<<< HEAD
+    for (j = 0; j < REDIS_MAX_IP; j++)
+        if (server.ipfd[j] > 0 && aeCreateFileEvent(server.el,server.ipfd[j],AE_READABLE,
+            acceptTcpHandler,NULL) == AE_ERR) redisPanic("Unrecoverable error creating server.ipfd file event.");
+=======
 
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
@@ -1532,6 +1567,7 @@ void initServer() {
                     "Unrecoverable error creating server.ipfd file event.");
             }
     }
+>>>>>>> 34e20658307ae47bba4b4e14198534b361f4a642
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
         acceptUnixHandler,NULL) == AE_ERR) redisPanic("Unrecoverable error creating server.sofd file event.");
 
@@ -1988,6 +2024,7 @@ void closeListeningSockets(int unlink_unix_socket) {
 int prepareForShutdown(int flags) {
     int save = flags & REDIS_SHUTDOWN_SAVE;
     int nosave = flags & REDIS_SHUTDOWN_NOSAVE;
+    int j;
 
     redisLog(REDIS_WARNING,"User requested shutdown...");
     /* Kill the saving child if there is a background saving in progress.
@@ -2028,7 +2065,18 @@ int prepareForShutdown(int flags) {
         unlink(server.pidfile);
     }
     /* Close the listening sockets. Apparently this allows faster restarts. */
+<<<<<<< HEAD
+    for (j = 0; j < REDIS_MAX_IP; j++)
+        if (server.ipfd[j] != -1) close(server.ipfd[j]);
+    if (server.sofd != -1) close(server.sofd);
+    if (server.unixsocket) {
+        redisLog(REDIS_NOTICE,"Removing the unix socket file.");
+        unlink(server.unixsocket); /* don't care if this fails */
+    }
+
+=======
     closeListeningSockets(1);
+>>>>>>> 34e20658307ae47bba4b4e14198534b361f4a642
     redisLog(REDIS_WARNING,"Redis is now ready to exit, bye bye...");
     return REDIS_OK;
 }
@@ -2986,7 +3034,11 @@ int main(int argc, char **argv) {
                 exit(1);
             }
         }
+<<<<<<< HEAD
+        if (server.ipfd[0] > 0)
+=======
         if (server.ipfd_count > 0)
+>>>>>>> 34e20658307ae47bba4b4e14198534b361f4a642
             redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
         if (server.sofd > 0)
             redisLog(REDIS_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);

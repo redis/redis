@@ -718,6 +718,7 @@ werr:
 int rdbSaveBackground(char *filename) {
     pid_t childpid;
     long long start;
+    int j;
 
     if (server.rdb_child_pid != -1) return REDIS_ERR;
 

@@ -955,6 +955,7 @@ werr:
 int rewriteAppendOnlyFileBackground(void) {
     pid_t childpid;
     long long start;
+    int j;
 
     if (server.aof_child_pid != -1) return REDIS_ERR;
     start = ustime();
