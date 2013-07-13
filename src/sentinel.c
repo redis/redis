@@ -426,7 +426,7 @@ sentinelAddr *createSentinelAddr(char *hostname, int port) {
         errno = EINVAL;
         return NULL;
     }
-    if (anetResolve(NULL,hostname,buf) == ANET_ERR) {
+    if (anetResolve(NULL,hostname,buf,sizeof(buf)) == ANET_ERR) {
         errno = ENOENT;
         return NULL;
     }
@@ -835,7 +835,9 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
 
     /* For slaves and sentinel we use ip:port as name. */
     if (flags & (SRI_SLAVE|SRI_SENTINEL)) {
-        snprintf(slavename,sizeof(slavename),"%s:%d",hostname,port);
+        snprintf(slavename,sizeof(slavename),
+            strchr(hostname,':') ? "[%s]:%d" : "%s:%d",
+            hostname,port);
         name = slavename;
     }
 
@@ -943,7 +945,9 @@ sentinelRedisInstance *sentinelRedisInstanceLookupSlave(
     sentinelRedisInstance *slave;
   
     redisAssert(ri->flags & SRI_MASTER);
-    key = sdscatprintf(sdsempty(),"%s:%d",ip,port);
+    key = sdscatprintf(sdsempty(),
+        strchr(ip,':') ? "[%s]:%d" : "%s:%d",
+        ip,port);
     slave = dictFetchValue(ri->slaves,key);
     sdsfree(key);
     return slave;
@@ -1397,20 +1401,33 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             }
         }
 
-        /* slave0:<ip>,<port>,<state> */
+        /* old versions: slave0:<ip>,<port>,<state>
+         * new versions: slave0:ip=127.0.0.1,port=9999,... */
         if ((ri->flags & SRI_MASTER) &&
             sdslen(l) >= 7 &&
             !memcmp(l,"slave",5) && isdigit(l[5]))
         {
             char *ip, *port, *end;
 
-            ip = strchr(l,':'); if (!ip) continue;
-            ip++; /* Now ip points to start of ip address. */
-            port = strchr(ip,','); if (!port) continue;
-            *port = '\0'; /* nul term for easy access. */
-            port++; /* Now port points to start of port number. */
-            end = strchr(port,','); if (!end) continue;
-            *end = '\0'; /* nul term for easy access. */
+            if (strstr(l,"ip=") == NULL) {
+                /* Old format. */
+                ip = strchr(l,':'); if (!ip) continue;
+                ip++; /* Now ip points to start of ip address. */
+                port = strchr(ip,','); if (!port) continue;
+                *port = '\0'; /* nul term for easy access. */
+                port++; /* Now port points to start of port number. */
+                end = strchr(port,','); if (!end) continue;
+                *end = '\0'; /* nul term for easy access. */
+            } else {
+                /* New format. */
+                ip = strstr(l,"ip="); if (!ip) continue;
+                ip += 3; /* Now ip points to start of ip address. */
+                port = strstr(l,"port="); if (!port) continue;
+                port += 5; /* Now port points to start of port number. */
+                /* Nul term both fields for easy access. */
+                end = strchr(ip,','); if (end) *end = '\0';
+                end = strchr(port,','); if (end) *end = '\0';
+            }
 
             /* Check if we already have this slave into our table,
              * otherwise add it. */
@@ -1728,9 +1745,13 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
 
     {
         int numtokens, port, removed, canfailover;
+        /* Separator changed from ":" to "," in recent versions in order to
+         * play well with IPv6 addresses. For now we make sure to parse both
+         * correctly detecting if there is "," inside the string. */
+        char *sep = strchr(r->element[2]->str,',') ? "," : ":";
         char **token = sdssplitlen(r->element[2]->str,
                                    r->element[2]->len,
-                                   ":",1,&numtokens);
+                                   sep,1,&numtokens);
         sentinelRedisInstance *sentinel;
 
         if (numtokens == 4) {
@@ -1824,14 +1845,12 @@ void sentinelPingInstance(sentinelRedisInstance *ri) {
                (now - ri->last_pub_time) > SENTINEL_PUBLISH_PERIOD)
     {
         /* PUBLISH hello messages only to masters. */
-        struct sockaddr_in sa;
-        socklen_t salen = sizeof(sa);
+        char ip[REDIS_IP_STR_LEN];
+        if (anetSockName(ri->cc->c.fd,ip,sizeof(ip),NULL) != -1) {
+            char myaddr[REDIS_IP_STR_LEN+128];
 
-        if (getsockname(ri->cc->c.fd,(struct sockaddr*)&sa,&salen) != -1) {
-            char myaddr[128];
-
-            snprintf(myaddr,sizeof(myaddr),"%s:%d:%s:%d",
-                inet_ntoa(sa.sin_addr), server.port, server.runid,
+            snprintf(myaddr,sizeof(myaddr),"%s,%d,%s,%d",
+                ip, server.port, server.runid,
                 (ri->flags & SRI_CAN_FAILOVER) != 0);
             retval = redisAsyncCommand(ri->cc,
                 sentinelPublishReplyCallback, NULL, "PUBLISH %s %s",

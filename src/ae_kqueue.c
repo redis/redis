@@ -54,8 +54,14 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         return -1;
     }
     eventLoop->apidata = state;
-    
     return 0;    
+}
+
+static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
+    aeApiState *state = eventLoop->apidata;
+
+    state->events = zrealloc(state->events, sizeof(struct kevent)*setsize);
+    return 0;
 }
 
 static void aeApiFree(aeEventLoop *eventLoop) {

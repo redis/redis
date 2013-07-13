@@ -730,9 +730,7 @@ int rdbSaveBackground(char *filename) {
         int retval;
 
         /* Child */
-        for (j = 0; j < REDIS_MAX_IP; j++)
-            if (server.ipfd[j] > 0) close(server.ipfd[j]);
-        if (server.sofd > 0) close(server.sofd);
+        closeListeningSockets(0);
         redisSetProcTitle("redis-rdb-bgsave");
         retval = rdbSave(filename);
         if (retval == REDIS_OK) {

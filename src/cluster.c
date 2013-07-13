@@ -31,6 +31,8 @@
 #include "redis.h"
 #include "endianconv.h"
 
+#include <sys/types.h>
+#include <sys/socket.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -224,7 +226,7 @@ void clusterSaveConfigOrDie(void) {
 }
 
 void clusterInit(void) {
-    int saveconf = 0;
+    int saveconf = 0, j;
 
     server.cluster = zmalloc(sizeof(clusterState));
     server.cluster->myself = NULL;
@@ -251,14 +253,24 @@ void clusterInit(void) {
     }
     if (saveconf) clusterSaveConfigOrDie();
     /* We need a listening TCP port for our cluster messaging needs */
-    server.cfd = anetTcpServer(server.neterr,
-            server.port+REDIS_CLUSTER_PORT_INCR, server.bindaddr);
-    if (server.cfd == -1) {
-        redisLog(REDIS_WARNING, "Opening cluster TCP port: %s", server.neterr);
-        exit(1);
+    server.cfd_count = 0;
+    if (server.bindaddr_count == 0) server.bindaddr[0] = NULL;
+    for (j = 0; j < server.bindaddr_count || j == 0; j++) {
+        server.cfd[j] = anetTcpServer(
+            server.neterr, server.port+REDIS_CLUSTER_PORT_INCR,
+            server.bindaddr[j]);
+        if (server.cfd[j] == -1) {
+            redisLog(REDIS_WARNING,
+                "Opening cluster listening TCP socket %s:%d: %s",
+                    server.bindaddr[j] ? server.bindaddr[j] : "*",
+                    server.port+REDIS_CLUSTER_PORT_INCR,
+                    server.neterr);
+            exit(1);
+        }
+        if (aeCreateFileEvent(server.el, server.cfd[j], AE_READABLE,
+            clusterAcceptHandler, NULL) == AE_ERR) redisPanic("Unrecoverable error creating Redis Cluster file event.");
+        server.cfd_count++;
     }
-    if (aeCreateFileEvent(server.el, server.cfd, AE_READABLE,
-        clusterAcceptHandler, NULL) == AE_ERR) redisPanic("Unrecoverable error creating Redis Cluster file event.");
     server.cluster->slots_to_keys = zslCreate();
 }
 
@@ -294,17 +306,18 @@ void freeClusterLink(clusterLink *link) {
 
 void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
-    char cip[128];
+    char cip[REDIS_IP_STR_LEN];
     clusterLink *link;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
 
-    cfd = anetTcpAccept(server.neterr, fd, cip, &cport);
+    cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
     if (cfd == AE_ERR) {
         redisLog(REDIS_VERBOSE,"Accepting cluster node: %s", server.neterr);
         return;
     }
+    /* IPV6: might want to wrap a v6 address in [] */
     redisLog(REDIS_VERBOSE,"Accepted cluster node %s:%d", cip, cport);
     /* We need to create a temporary node in order to read the incoming
      * packet in a valid contest. This node will be released once we
@@ -741,21 +754,55 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
     }
 }
 
-/* IP -> string conversion. 'buf' is supposed to at least be 16 bytes. */
+/* IP -> string conversion. 'buf' is supposed to at least be 46 bytes. */
 void nodeIp2String(char *buf, clusterLink *link) {
-    struct sockaddr_in sa;
+    struct sockaddr_storage sa;
     socklen_t salen = sizeof(sa);
 
     if (getpeername(link->fd, (struct sockaddr*) &sa, &salen) == -1)
         redisPanic("getpeername() failed.");
-    strncpy(buf,inet_ntoa(sa.sin_addr),sizeof(link->node->ip));
+
+    if (sa.ss_family == AF_INET) {
+        struct sockaddr_in *s = (struct sockaddr_in *)&sa;
+        inet_ntop(AF_INET,(void*)&(s->sin_addr),buf,REDIS_CLUSTER_IPLEN);
+    } else {
+        struct sockaddr_in6 *s = (struct sockaddr_in6 *)&sa;
+        inet_ntop(AF_INET6,(void*)&(s->sin6_addr),buf,REDIS_CLUSTER_IPLEN);
+    }
 }
 
 
 /* Update the node address to the IP address that can be extracted
- * from link->fd, and at the specified port. */
-void nodeUpdateAddress(clusterNode *node, clusterLink *link, int port) {
-    /* TODO */
+ * from link->fd, and at the specified port.
+ * Also disconnect the node link so that we'll connect again to the new
+ * address.
+ *
+ * If the ip/port pair are already correct no operation is performed at
+ * all.
+ *
+ * The function returns 0 if the node address is still the same,
+ * otherwise 1 is returned. */
+int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link, int port) {
+    char ip[REDIS_IP_STR_LEN];
+
+    /* We don't proceed if the link is the same as the sender link, as this
+     * function is designed to see if the node link is consistent with the
+     * symmetric link that is used to receive PINGs from the node.
+     *
+     * As a side effect this function never frees the passed 'link', so
+     * it is safe to call during packet processing. */
+    if (link == node->link) return 0;
+
+    nodeIp2String(ip,link);
+    if (node->port == port && strcmp(ip,node->ip) == 0) return 0;
+
+    /* IP / port is different, update it. */
+    memcpy(node->ip,ip,sizeof(ip));
+    node->port = port;
+    if (node->link) freeClusterLink(node->link);
+    redisLog(REDIS_WARNING,"Address updated for node %.40s, now %s:%d",
+        node->name, node->ip, node->port);
+    return 1;
 }
 
 /* When this function is called, there is a packet to process starting
@@ -818,7 +865,7 @@ int clusterProcessPacket(clusterLink *link) {
         /* Add this node if it is new for us and the msg type is MEET.
          * In this stage we don't try to add the node with the right
          * flags, slaveof pointer, and so forth, as this details will be
-         * resolved when we'll receive PONGs from the server. */
+         * resolved when we'll receive PONGs from the node. */
         if (!sender && type == CLUSTERMSG_TYPE_MEET) {
             clusterNode *node;
 
@@ -854,8 +901,14 @@ int clusterProcessPacket(clusterLink *link) {
                 if (sender) {
                     redisLog(REDIS_WARNING,
                         "Handshake error: we already know node %.40s, updating the address if needed.", sender->name);
-                    nodeUpdateAddress(sender,link,ntohs(hdr->port));
-                    freeClusterNode(link->node); /* will free the link too */
+                    if (nodeUpdateAddressIfNeeded(sender,link,ntohs(hdr->port)))
+                    {
+                        clusterUpdateState();
+                        clusterSaveConfigOrDie();
+                    }
+                    /* Free this node as we alrady have it. This will
+                     * cause the link to be freed as well. */
+                    freeClusterNode(link->node);
                     return 0;
                 }
 
@@ -888,13 +941,22 @@ int clusterProcessPacket(clusterLink *link) {
             }
         }
 
+        /* Update the node address if it changed. */
+        if (sender && type == CLUSTERMSG_TYPE_PING &&
+            !(sender->flags & REDIS_NODE_HANDSHAKE) &&
+            nodeUpdateAddressIfNeeded(sender,link,ntohs(hdr->port)))
+        {
+            update_state = 1;
+            update_config = 1;
+        }
+
         /* Update our info about the node */
         if (link->node && type == CLUSTERMSG_TYPE_PONG) {
             link->node->pong_received = time(NULL);
             link->node->ping_sent = 0;
 
             /* The PFAIL condition can be reversed without external
-             * help if it is not transitive (that is, if it does not
+             * help if it is momentary (that is, if it does not
              * turn into a FAIL state).
              *
              * The FAIL condition is also reversible under specific
@@ -1049,12 +1111,12 @@ int clusterProcessPacket(clusterLink *link) {
             decrRefCount(message);
         }
     } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST) {
-        if (!sender) return 0;  /* We don't know that node. */
+        if (!sender) return 1;  /* We don't know that node. */
         /* If we are not a master, ignore that message at all. */
         if (!(server.cluster->myself->flags & REDIS_NODE_MASTER)) return 0;
         clusterSendFailoverAuthIfNeeded(sender);
     } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK) {
-        if (!sender) return 0;  /* We don't know that node. */
+        if (!sender) return 1;  /* We don't know that node. */
         /* If this is a master, increment the number of acknowledges
          * we received so far. */
         if (sender->flags & REDIS_NODE_MASTER)
@@ -2014,11 +2076,12 @@ void clusterCommand(redisClient *c) {
     if (!strcasecmp(c->argv[1]->ptr,"meet") && c->argc == 4) {
         /* CLUSTER MEET <ip> <port> */
         clusterNode *n;
-        struct sockaddr_in sa;
+        struct sockaddr_storage sa;
         long port;
 
         /* Perform sanity checks on IP/port */
-        if (inet_aton(c->argv[2]->ptr,&sa.sin_addr) == 0) {
+        if ((inet_pton(AF_INET,c->argv[0]->ptr,&(((struct sockaddr_in *)&sa)->sin_addr)) ||
+             inet_pton(AF_INET6,c->argv[0]->ptr,&(((struct sockaddr_in6 *)&sa)->sin6_addr))) == 0) {
             addReplyError(c,"Invalid IP address in MEET");
             return;
         }
@@ -2032,7 +2095,9 @@ void clusterCommand(redisClient *c) {
         /* Finally add the node to the cluster with a random name, this 
          * will get fixed in the first handshake (ping/pong). */
         n = createClusterNode(NULL,REDIS_NODE_HANDSHAKE|REDIS_NODE_MEET);
-        strncpy(n->ip,inet_ntoa(sa.sin_addr),sizeof(n->ip));
+        sa.ss_family == AF_INET ?
+            inet_ntop(AF_INET,(void*)&(((struct sockaddr_in *)&sa)->sin_addr),n->ip,REDIS_CLUSTER_IPLEN) :
+            inet_ntop(AF_INET6,(void*)&(((struct sockaddr_in6 *)&sa)->sin6_addr),n->ip,REDIS_CLUSTER_IPLEN);
         n->port = port;
         clusterAddNode(n);
         addReply(c,shared.ok);

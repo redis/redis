@@ -58,7 +58,7 @@ static int getBitOffsetFromArgument(redisClient *c, robj *o, size_t *offset) {
 /* Count number of bits set in the binary array pointed by 's' and long
  * 'count' bytes. The implementation of this function is required to
  * work with a input string length up to 512 MB. */
-size_t popcount(void *s, long count) {
+size_t redisPopcount(void *s, long count) {
     size_t bits = 0;
     unsigned char *p;
     uint32_t *p4 = s;
@@ -407,6 +407,6 @@ void bitcountCommand(redisClient *c) {
     } else {
         long bytes = end-start+1;
 
-        addReplyLongLong(c,popcount(p+start,bytes));
+        addReplyLongLong(c,redisPopcount(p+start,bytes));
     }
 }
