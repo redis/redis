@@ -2084,12 +2084,10 @@ void clusterCommand(redisClient *c) {
             if (inet_pton(AF_INET6,c->argv[2]->ptr,&(((struct sockaddr_in6 *)&sa)->sin6_addr))) == 0) {
                 addReplyError(c,"Invalid IP address in MEET");
                 return;
-            }
-            else {
+            } else {
                 sa.ss_family = AF_INET6;
             }
-        }
-        else {
+        } else {
             sa.ss_family = AF_INET;
         }
         if (getLongFromObjectOrReply(c, c->argv[3], &port, NULL) != REDIS_OK ||
