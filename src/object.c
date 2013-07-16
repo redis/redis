@@ -422,8 +422,12 @@ int getDoubleFromObject(robj *o, double *target) {
         if (o->encoding == REDIS_ENCODING_RAW) {
             errno = 0;
             value = strtod(o->ptr, &eptr);
-            if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
-                errno == ERANGE || isnan(value))
+            if (isspace(((char*)o->ptr)[0]) ||
+                eptr[0] != '\0' ||
+                (errno == ERANGE &&
+                    (value == HUGE_VAL || value == -HUGE_VAL || value == 0)) ||
+                errno == EINVAL ||
+                isnan(value))
                 return REDIS_ERR;
         } else if (o->encoding == REDIS_ENCODING_INT) {
             value = (long)o->ptr;
