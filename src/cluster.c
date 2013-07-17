@@ -2081,7 +2081,7 @@ void clusterCommand(redisClient *c) {
 
         /* Perform sanity checks on IP/port */
         if (inet_pton(AF_INET,c->argv[2]->ptr,&(((struct sockaddr_in *)&sa)->sin_addr)) == 0) {
-            if (inet_pton(AF_INET6,c->argv[2]->ptr,&(((struct sockaddr_in6 *)&sa)->sin6_addr))) == 0) {
+            if (inet_pton(AF_INET6,c->argv[2]->ptr,&(((struct sockaddr_in6 *)&sa)->sin6_addr)) == 0) {
                 addReplyError(c,"Invalid IP address in MEET");
                 return;
             } else {
