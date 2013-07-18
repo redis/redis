@@ -2,8 +2,8 @@ Redis 2.8 release notes
 =======================
 
 ** IMPORTANT ** Check the 'Migrating from 2.6 to 2.8' section at the end of
-                this file for information about what changed between 2.4 and
-                2.6 and how this may affect your application.
+                this file for information about what changed between 2.6 and
+                2.8 and how this may affect your application.
 
 --------------------------------------------------------------------------------
 Upgrade urgency levels:
