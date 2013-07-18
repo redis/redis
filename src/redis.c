@@ -320,7 +320,7 @@ void redisLogFromHandler(int level, const char *msg) {
 
     if ((level&0xff) < server.verbosity || (log_to_stdout && server.daemonize))
         return;
-    fd = log_to_stdout ? STDOUT_FILENO : 
+    fd = log_to_stdout ? STDOUT_FILENO :
                          open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
     if (fd == -1) return;
     ll2string(buf,sizeof(buf),getpid());

@@ -1102,34 +1102,6 @@ void configGetCommand(redisClient *c) {
  * CONFIG REWRITE implementation
  *----------------------------------------------------------------------------*/
 
-/* IGNORE:
- *
- * rename-command
- * include
- *
- * Special handling:
- *
- * notify-keyspace-events
- * client-output-buffer-limit
- * save
- * appendonly
- * appendfsync
- * dir
- * maxmemory-policy
- * loglevel
- * unixsocketperm
- * slaveof
- *
- * Type of config directives:
- *
- * CUSTOM
- * VERBATIM
- * YESNO
- * L
- * LL
- *
- */
-
 /* We use the following dictionary type to store where a configuration
  * option is mentioned in the old configuration file, so it's
  * like "maxmemory" -> list of line numbers (first line is zero). */
@@ -1363,7 +1335,7 @@ void rewriteConfigEnumOption(struct rewriteConfigState *state, char *option, int
     char *enum_name, *matching_name = NULL;
     int enum_val, def_val, force;
     sds line;
-    
+ 
     va_start(ap, value);
     while(1) {
         enum_name = va_arg(ap,char*);
@@ -1375,7 +1347,7 @@ void rewriteConfigEnumOption(struct rewriteConfigState *state, char *option, int
         if (value == enum_val) matching_name = enum_name;
     }
     va_end(ap);
-    
+
     force = value != def_val;
     line = sdscatprintf(sdsempty(),"%s %s",option,matching_name);
     rewriteConfigRewriteLine(state,option,line,force);
@@ -1439,7 +1411,7 @@ void rewriteConfigAppendonlyOption(struct rewriteConfigState *state) {
     int force = server.aof_state != REDIS_AOF_OFF;
     char *option = "appendonly";
     sds line;
-    
+
     line = sdscatprintf(sdsempty(),"%s %s", option,
         (server.aof_state == REDIS_AOF_OFF) ? "no" : "yes");
     rewriteConfigRewriteLine(state,option,line,force);

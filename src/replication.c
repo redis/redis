@@ -182,7 +182,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         }
     }
     server.slaveseldb = dictid;
-   
+
     /* Add the multi bulk reply size to the static buffer, that is, the number
      * of arguments of the command to send to every slave. */
     b[0] = '*';
@@ -498,7 +498,7 @@ void syncCommand(redisClient *c) {
             return; /* No full resync needed, return. */
         } else {
             char *master_runid = c->argv[1]->ptr;
-            
+
             /* Increment stats for failed PSYNCs, but only if the
              * runid is not "?", as this is used by slaves to force a full
              * resync on purpose when they are not albe to partially

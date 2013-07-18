@@ -1,6 +1,90 @@
-Redis 2.7 release notes
+Redis 2.8 release notes
 =======================
 
-This is the unstable version of Redis 2.8, currently work in progress.
+** IMPORTANT ** Check the 'Migrating from 2.6 to 2.8' section at the end of
+                this file for information about what changed between 2.4 and
+                2.6 and how this may affect your application.
 
-When it will be ready for production, it will be releaed as Redis 2.8.0.
+--------------------------------------------------------------------------------
+Upgrade urgency levels:
+
+LOW:      No need to upgrade unless there are new features you want to use.
+MODERATE: Program an upgrade of the server, but it's not urgent.
+HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
+CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
+--------------------------------------------------------------------------------
+
+--[ Redis 2.8 Release Candidate 1 (2.7.101) ] Release date: 18 Jul 2013
+
+This is the first release candidate of Redis 2.8 (official version is 2.7.101).
+
+The following is a list of improvements in Redis 2.8, compared to Redis 2.6.
+
+* [NEW] Slaves are now able to partially resynchronize with the master, so most
+        of the times a full resynchornization with the RDB creation in the master
+        side is not needed when the master-slave link is disconnected for a short
+        amount of time.
+* [NEW] Experimental IPv6 support.4
+* [NEW] Slaves explicitly ping masters now, a master is able to detect a timedout
+        slave independently.
+* [NEW] Masters can stop accepting writes if not enough slaves with a given
+        maxium latency are connected.
+* [NEW] Keyspace changes notifications via Pub/Sub.
+* [NEW] CONFIG SET maxclients is now available.
+* [NEW] Ability to bind multiple IP addresses.
+* [NEW] Set process names so that you can recognize, in the "ps" command output,
+        the listening port of an instance, or if it is a saving child.
+* [NEW] Automatic memory check on crash.
+* [NEW] CONFIG REWRITE is able to materialize the changes in the configuration
+        operated using CONFIG SET into the redis.conf file.
+* [NEW] More NetBSD friendly code base.
+* [NEW] PUBSUB command for Pub/Sub introspection capabilities.
+* [NEW] EVALSHA can now be replicated as such, without requiring to be expanded
+        to a full EVAL for the replication link.
+* [NEW] Better Lua scripts error reporting.
+* [NEW] SDIFF performances improved.
+* [FIX] A number of bugfixes.
+
+Migrating from 2.6 to 2.8
+=========================
+
+Redis 2.6 is mostly a strict subset of 2.8. However there are a few things
+that you should be aware of:
+
+The following commands changed behavior:
+
+    * SORT with ALPHA now sort according to local collation locale if no STORE
+      option is used.
+    * ZADD/ZINCRBY are now able to accept a bigger range of values as valid
+      scores, that is, all the values you may end having as a result of
+      calling ZINCRBY multiple times.
+    * Many errors are now prefixed by a more specific error code instead of
+      the generic -ERR, for example -WRONGTYPE, -NOAUTH, ...
+    * PUBLISH called inside lua scripts is now correctly propagated to slaves.
+
+The following redis.conf and CONFIG GET / SET parameters changed:
+
+    * logfile now uses the empty string in order to log to standard output,
+      so 'logfile stdout' is now invalid, use 'logfile ""' instead.
+
+The following INFO fields changed format in a non-backward compatible way:
+
+    * The list of slaves in INFO is now in field=value format.
+
+Replication:
+
+    Redis 2.8 can be used as slave for Redis 2.6, but doing this is only
+    a good idea for a short amonut of time needed to upgrade your servers.
+    We suggest to update both master and slaves about at the same time.
+
+--------------------------------------------------------------------------------
+
+Credits: Where not specified the implementation and design is done by
+Salvatore Sanfilippo. Thanks to VMware and Pivotal for making all
+this possible. Also many thanks to all the other contributors and the amazing
+community we have.
+
+See commit messages for more credits.
+
+Cheers,
+Salvatore
