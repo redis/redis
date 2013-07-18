@@ -476,6 +476,7 @@ typedef struct redisClient {
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
+    double monitor_prob;     /* probability that a monitor receives a command */
 
     /* Response buffer */
     int bufpos;
