@@ -347,7 +347,6 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
     redisAssertWithInfo(NULL,a,a->type == REDIS_STRING && b->type == REDIS_STRING);
     char bufa[128], bufb[128], *astr, *bstr;
     size_t alen, blen, minlen;
-    int bothsds = 1;
 
     if (a == b) return 0;
     if (a->encoding != REDIS_ENCODING_RAW) {
