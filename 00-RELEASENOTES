@@ -21,14 +21,14 @@ This is the first release candidate of Redis 2.8 (official version is 2.7.101).
 The following is a list of improvements in Redis 2.8, compared to Redis 2.6.
 
 * [NEW] Slaves are now able to partially resynchronize with the master, so most
-        of the times a full resynchornization with the RDB creation in the master
+        of the times a full resynchronization with the RDB creation in the master
         side is not needed when the master-slave link is disconnected for a short
         amount of time.
-* [NEW] Experimental IPv6 support.4
-* [NEW] Slaves explicitly ping masters now, a master is able to detect a timedout
+* [NEW] Experimental IPv6 support.
+* [NEW] Slaves explicitly ping masters now, a master is able to detect a timed out
         slave independently.
 * [NEW] Masters can stop accepting writes if not enough slaves with a given
-        maxium latency are connected.
+        maximum latency are connected.
 * [NEW] Keyspace changes notifications via Pub/Sub.
 * [NEW] CONFIG SET maxclients is now available.
 * [NEW] Ability to bind multiple IP addresses.
@@ -42,7 +42,7 @@ The following is a list of improvements in Redis 2.8, compared to Redis 2.6.
 * [NEW] EVALSHA can now be replicated as such, without requiring to be expanded
         to a full EVAL for the replication link.
 * [NEW] Better Lua scripts error reporting.
-* [NEW] SDIFF performances improved.
+* [NEW] SDIFF performance improved.
 * [FIX] A number of bugfixes.
 
 Migrating from 2.6 to 2.8
@@ -53,14 +53,14 @@ that you should be aware of:
 
 The following commands changed behavior:
 
-    * SORT with ALPHA now sort according to local collation locale if no STORE
+    * SORT with ALPHA now sorts according to local collation locale if no STORE
       option is used.
     * ZADD/ZINCRBY are now able to accept a bigger range of values as valid
       scores, that is, all the values you may end having as a result of
       calling ZINCRBY multiple times.
     * Many errors are now prefixed by a more specific error code instead of
       the generic -ERR, for example -WRONGTYPE, -NOAUTH, ...
-    * PUBLISH called inside lua scripts is now correctly propagated to slaves.
+    * PUBLISH called inside Lua scripts is now correctly propagated to slaves.
 
 The following redis.conf and CONFIG GET / SET parameters changed:
 
@@ -74,8 +74,8 @@ The following INFO fields changed format in a non-backward compatible way:
 Replication:
 
     Redis 2.8 can be used as slave for Redis 2.6, but doing this is only
-    a good idea for a short amonut of time needed to upgrade your servers.
-    We suggest to update both master and slaves about at the same time.
+    a good idea for the short amount of time needed to upgrade your servers.
+    We suggest to update both master and slaves at about the same time.
 
 --------------------------------------------------------------------------------
 
