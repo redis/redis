@@ -413,7 +413,10 @@ void setDeferredMultiBulkLength(redisClient *c, void *node, long length) {
         /* Only glue when the next node is non-NULL (an sds in this case) */
         if (next->ptr != NULL) {
             c->reply_bytes -= zmalloc_size_sds(len->ptr);
-            c->reply_bytes -= zmalloc_size_sds(next->ptr);
+            if (next->encoding == REDIS_ENCODING_RAW)
+                c->reply_bytes -= zmalloc_size_sds(next->ptr);
+            else
+                c->reply_bytes -= sdslen(next->ptr);
             len->ptr = sdscatlen(len->ptr,next->ptr,sdslen(next->ptr));
             c->reply_bytes += zmalloc_size_sds(len->ptr);
             listDelNode(c->reply,ln->next);
