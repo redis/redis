@@ -76,12 +76,16 @@ endif
 
 CCOPT= $(CFLAGS) $(ARCH) $(PROF)
 
-PREFIX= /usr/local
-INSTALL_LIB= $(PREFIX)/lib
-INSTALL_BIN= $(PREFIX)/bin
+PREFIX?= /usr/local
+INSTALL_LIB= $(DESTDIR)$(PREFIX)/lib
+INSTALL_BIN= $(DESTDIR)$(PREFIX)/bin
 INSTALL= cp -p
 
-OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o vm.o pubsub.o multi.o debug.o sort.o intset.o syncio.o slowlog.o bio.o
+OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o \
+ pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o \
+ db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o \
+ config.o aof.o vm.o pubsub.o multi.o debug.o sort.o intset.o syncio.o \
+ slowlog.o bio.o
 BENCHOBJ = ae.o anet.o redis-benchmark.o sds.o adlist.o zmalloc.o
 CLIOBJ = anet.o sds.o adlist.o redis-cli.o zmalloc.o release.o
 CHECKDUMPOBJ = redis-check-dump.o lzf_c.o lzf_d.o
@@ -97,8 +101,12 @@ FULL_VERSION = $(API_VERSION).$(MINOR_VERSION).$(PATCH_VERSION)
 
 # LIBOBJ contains what is needed for async client
 STATIC = $(LIBNAME).a
+SHARED = $(LIBNAME).so.$(FULL_VERSION)
+SONAME = $(LIBNAME).so.$(API_VERSION)
+LDNAME = $(LIBNAME).so
 
-AEP_FLAGS = -DHAVE_EPOLL -shared
+# don't eneable unless you want to use polling
+#AEP_FLAGS = -DHAVE_EPOLL 
 
 PRGNAME = redis-server
 BENCHPRGNAME = redis-benchmark
@@ -223,13 +231,16 @@ redis-check-aof: $(CHECKAOFOBJ)
 redis-server: $(OBJ)
 	$(QUIET_LINK)$(CC) -o $(PRGNAME) $(CCOPT) $(DEBUG) $(OBJ) $(CCLINK) $(ALLOC_LINK)
 
-static: $(STATIC)
+static: $(STATIC) $(SHARED)
 
-#$(LIBOBJ) : %.o : %.c %.h
-#	$(QUIET_CC)$(CC) -c $(CFLAGS) $(DEBUG) $(AEP_FLAGS) -fPIC $<
+$(LIBOBJ) : %.o : %.c %.h
+	$(QUIET_CC)$(CC) -c $(CFLAGS) $(DEBUG) $(AEP_FLAGS) -fPIC $<
 
 $(STATIC) : $(LIBOBJ)
 	ar rcs $@ $(LIBOBJ)
+
+$(SHARED) : $(LIBOBJ)
+	$(QUIET_LINK)$(CC) $(LIBOBJ) -shared -Wl,-soname,$(SONAME) -o $@
 
 # Because the jemalloc.h header is generated as a part of the jemalloc build
 # process, building it should complete before building any other object.
@@ -237,7 +248,7 @@ $(STATIC) : $(LIBOBJ)
 	$(QUIET_CC)$(CC) -c $(CFLAGS) $(ALLOC_FLAGS) $(DEBUG) $(COMPILE_TIME) $<
 
 clean:
-	rm -rf $(STATIC) $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
+	rm -rf $(STATIC) $(SHARED) $(PRGNAME) $(BENCHPRGNAME) $(CLIPRGNAME) $(CHECKDUMPPRGNAME) $(CHECKAOFPRGNAME) *.o *.gcda *.gcno *.gcov
 
 dep:
 	$(CC) -MM *.c -I ../deps/hiredis -I ../deps/linenoise
@@ -277,4 +288,4 @@ install: all
 	$(INSTALL) $(CLIPRGNAME) $(INSTALL_BIN)
 	$(INSTALL) $(CHECKDUMPPRGNAME) $(INSTALL_BIN)
 	$(INSTALL) $(CHECKAOFPRGNAME) $(INSTALL_BIN)
-	$(INSTALL) $(STATIC) $(INSTALL_LIB)
+	$(INSTALL) -t $(INSTALL_LIB) $(STATIC) $(SHARED)

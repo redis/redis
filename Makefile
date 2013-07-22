@@ -5,7 +5,7 @@ TARGETS=32bit noopt test
 all:
 	cd src && $(MAKE) $@
 
-static:
+redis-async:
 	cd src && $(MAKE) $@
 
 install: dummy
