@@ -781,6 +781,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 
             if (objlen == 0) {
                 listDelNode(c->reply,listFirst(c->reply));
+                c->reply_bytes -= objmem;
                 continue;
             }
 
