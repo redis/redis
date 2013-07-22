@@ -754,4 +754,11 @@ start_server {tags {"basic"}} {
         set ttl [r ttl foo]
         assert {$ttl <= 10 && $ttl > 5}
     }
+
+    test {KEYS * two times with long key, Github issue #1208} {
+        r flushdb
+        r set dlskeriewrioeuwqoirueioqwrueoqwrueqw test
+        r keys *
+        r keys *
+    } {dlskeriewrioeuwqoirueioqwrueoqwrueqw}
 }
