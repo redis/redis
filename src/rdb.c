@@ -110,10 +110,10 @@ int rdbSaveLzfStringObject(FILE *fp, unsigned char *s, size_t len) {
     /* We require at least four bytes compression for this to be worth it */
     if (len <= 4) return 0;
     outlen = len-4;
-    if ((out = zmalloc(outlen+1)) == NULL) return 0;
+    if ((out = z_malloc(outlen+1)) == NULL) return 0;
     comprlen = lzf_compress(s, len, out, outlen);
     if (comprlen == 0) {
-        zfree(out);
+        z_free(out);
         return 0;
     }
     /* Data compressed! Let's save it on disk */
@@ -130,11 +130,11 @@ int rdbSaveLzfStringObject(FILE *fp, unsigned char *s, size_t len) {
     if ((n = rdbWriteRaw(fp,out,comprlen)) == -1) goto writeerr;
     nwritten += n;
 
-    zfree(out);
+    z_free(out);
     return nwritten;
 
 writeerr:
-    zfree(out);
+    z_free(out);
     return -1;
 }
 
@@ -618,14 +618,14 @@ robj *rdbLoadLzfStringObject(FILE*fp) {
 
     if ((clen = rdbLoadLen(fp,NULL)) == REDIS_RDB_LENERR) return NULL;
     if ((len = rdbLoadLen(fp,NULL)) == REDIS_RDB_LENERR) return NULL;
-    if ((c = zmalloc(clen)) == NULL) goto err;
+    if ((c = z_malloc(clen)) == NULL) goto err;
     if ((val = sdsnewlen(NULL,len)) == NULL) goto err;
     if (fread(c,clen,1,fp) == 0) goto err;
     if (lzf_decompress(c,clen,val,len) == 0) goto err;
-    zfree(c);
+    z_free(c);
     return createObject(REDIS_STRING,val);
 err:
-    zfree(c);
+    z_free(c);
     sdsfree(val);
     return NULL;
 }
@@ -856,7 +856,7 @@ robj *rdbLoadObject(int type, FILE *fp) {
 
         if (aux == NULL) return NULL;
         o = createObject(REDIS_STRING,NULL); /* string is just placeholder */
-        o->ptr = zmalloc(sdslen(aux->ptr));
+        o->ptr = z_malloc(sdslen(aux->ptr));
         memcpy(o->ptr,aux->ptr,sdslen(aux->ptr));
         decrRefCount(aux);
 
@@ -1031,16 +1031,16 @@ int rdbLoad(char *filename) {
 
         /* Flush data on disk once 32 MB of additional RAM are used... */
         force_swapout = 0;
-        if ((zmalloc_used_memory() - server.vm_max_memory) > 1024*1024*32)
+        if ((z_malloc_used_memory() - server.vm_max_memory) > 1024*1024*32)
             force_swapout = 1;
 
         /* If we have still some hope of having some value fitting memory
          * then we try random sampling. */
         if (!swap_all_values && server.vm_enabled && force_swapout) {
-            while (zmalloc_used_memory() > server.vm_max_memory) {
+            while (z_malloc_used_memory() > server.vm_max_memory) {
                 if (vmSwapOneObjectBlocking() == REDIS_ERR) break;
             }
-            if (zmalloc_used_memory() > server.vm_max_memory)
+            if (z_malloc_used_memory() > server.vm_max_memory)
                 swap_all_values = 1; /* We are already using too much mem */
         }
     }

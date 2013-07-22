@@ -11,14 +11,14 @@ int yesnotoi(char *s) {
 }
 
 void appendServerSaveParams(time_t seconds, int changes) {
-    server.saveparams = zrealloc(server.saveparams,sizeof(struct saveparam)*(server.saveparamslen+1));
+    server.saveparams = z_realloc(server.saveparams,sizeof(struct saveparam)*(server.saveparamslen+1));
     server.saveparams[server.saveparamslen].seconds = seconds;
     server.saveparams[server.saveparamslen].changes = changes;
     server.saveparamslen++;
 }
 
 void resetServerSaveParams() {
-    zfree(server.saveparams);
+    z_free(server.saveparams);
     server.saveparams = NULL;
     server.saveparamslen = 0;
 }
@@ -71,9 +71,9 @@ void loadServerConfig(char *filename) {
                 err = "Invalid port"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"bind") && argc == 2) {
-            server.bindaddr = zstrdup(argv[1]);
+            server.bindaddr = z_strdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocket") && argc == 2) {
-            server.unixsocket = zstrdup(argv[1]);
+            server.unixsocket = z_strdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocketperm") && argc == 2) {
             server.unixsocketperm = (mode_t)strtol(argv[1], NULL, 8);
             if (errno || server.unixsocketperm > 0777) {
@@ -104,9 +104,9 @@ void loadServerConfig(char *filename) {
         } else if (!strcasecmp(argv[0],"logfile") && argc == 2) {
             FILE *logfp;
 
-            server.logfile = zstrdup(argv[1]);
+            server.logfile = z_strdup(argv[1]);
             if (!strcasecmp(server.logfile,"stdout")) {
-                zfree(server.logfile);
+                z_free(server.logfile);
                 server.logfile = NULL;
             }
             if (server.logfile) {
@@ -125,8 +125,8 @@ void loadServerConfig(char *filename) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"syslog-ident") && argc == 2) {
-            if (server.syslog_ident) zfree(server.syslog_ident);
-            server.syslog_ident = zstrdup(argv[1]);
+            if (server.syslog_ident) z_free(server.syslog_ident);
+            server.syslog_ident = z_strdup(argv[1]);
         } else if (!strcasecmp(argv[0],"syslog-facility") && argc == 2) {
             struct {
                 const char     *name;
@@ -195,7 +195,7 @@ void loadServerConfig(char *filename) {
             server.masterport = atoi(argv[2]);
             server.replstate = REDIS_REPL_CONNECT;
         } else if (!strcasecmp(argv[0],"masterauth") && argc == 2) {
-        	server.masterauth = zstrdup(argv[1]);
+        	server.masterauth = z_strdup(argv[1]);
         } else if (!strcasecmp(argv[0],"slave-serve-stale-data") && argc == 2) {
             if ((server.repl_serve_stale_data = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
@@ -219,8 +219,8 @@ void loadServerConfig(char *filename) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"appendfilename") && argc == 2) {
-            zfree(server.appendfilename);
-            server.appendfilename = zstrdup(argv[1]);
+            z_free(server.appendfilename);
+            server.appendfilename = z_strdup(argv[1]);
         } else if (!strcasecmp(argv[0],"no-appendfsync-on-rewrite")
                    && argc == 2) {
             if ((server.no_appendfsync_on_rewrite= yesnotoi(argv[1])) == -1) {
@@ -250,13 +250,13 @@ void loadServerConfig(char *filename) {
         {
             server.auto_aofrewrite_min_size = memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"requirepass") && argc == 2) {
-            server.requirepass = zstrdup(argv[1]);
+            server.requirepass = z_strdup(argv[1]);
         } else if (!strcasecmp(argv[0],"pidfile") && argc == 2) {
-            zfree(server.pidfile);
-            server.pidfile = zstrdup(argv[1]);
+            z_free(server.pidfile);
+            server.pidfile = z_strdup(argv[1]);
         } else if (!strcasecmp(argv[0],"dbfilename") && argc == 2) {
-            zfree(server.dbfilename);
-            server.dbfilename = zstrdup(argv[1]);
+            z_free(server.dbfilename);
+            server.dbfilename = z_strdup(argv[1]);
         } else if (!strcasecmp(argv[0],"vm-enabled") && argc == 2) {
             if ((server.vm_enabled = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
@@ -266,8 +266,8 @@ void loadServerConfig(char *filename) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"vm-swap-file") && argc == 2) {
-            zfree(server.vm_swap_file);
-            server.vm_swap_file = zstrdup(argv[1]);
+            z_free(server.vm_swap_file);
+            server.vm_swap_file = z_strdup(argv[1]);
         } else if (!strcasecmp(argv[0],"vm-max-memory") && argc == 2) {
             server.vm_max_memory = memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"vm-page-size") && argc == 2) {
@@ -325,7 +325,7 @@ void loadServerConfig(char *filename) {
         }
         for (j = 0; j < argc; j++)
             sdsfree(argv[j]);
-        zfree(argv);
+        z_free(argv);
         sdsfree(line);
     }
     if (fp != stdin) fclose(fp);
@@ -361,14 +361,14 @@ void configSetCommand(redisClient *c) {
     o = c->argv[3];
 
     if (!strcasecmp(c->argv[2]->ptr,"dbfilename")) {
-        zfree(server.dbfilename);
-        server.dbfilename = zstrdup(o->ptr);
+        z_free(server.dbfilename);
+        server.dbfilename = z_strdup(o->ptr);
     } else if (!strcasecmp(c->argv[2]->ptr,"requirepass")) {
-        zfree(server.requirepass);
-        server.requirepass = zstrdup(o->ptr);
+        z_free(server.requirepass);
+        server.requirepass = z_strdup(o->ptr);
     } else if (!strcasecmp(c->argv[2]->ptr,"masterauth")) {
-        zfree(server.masterauth);
-        server.masterauth = zstrdup(o->ptr);
+        z_free(server.masterauth);
+        server.masterauth = z_strdup(o->ptr);
     } else if (!strcasecmp(c->argv[2]->ptr,"maxmemory")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0) goto badfmt;

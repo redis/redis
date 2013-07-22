@@ -11,7 +11,7 @@ typedef struct aeApiState {
 } aeApiState;
 
 static int aeApiCreate(aeEventLoop *eventLoop) {
-    aeApiState *state = zmalloc(sizeof(aeApiState));
+    aeApiState *state = z_malloc(sizeof(aeApiState));
 
     if (!state) return -1;
     state->epfd = epoll_create(1024); /* 1024 is just an hint for the kernel */
@@ -24,7 +24,7 @@ static void aeApiFree(aeEventLoop *eventLoop) {
     aeApiState *state = eventLoop->apidata;
 
     close(state->epfd);
-    zfree(state);
+    z_free(state);
 }
 
 static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {

@@ -334,7 +334,7 @@ static unsigned int zipRawEntryLength(unsigned char *p) {
 /* Create a new empty ziplist. */
 unsigned char *ziplistNew(void) {
     unsigned int bytes = ZIPLIST_HEADER_SIZE+1;
-    unsigned char *zl = zmalloc(bytes);
+    unsigned char *zl = z_malloc(bytes);
     ZIPLIST_BYTES(zl) = bytes;
     ZIPLIST_TAIL_OFFSET(zl) = ZIPLIST_HEADER_SIZE;
     ZIPLIST_LENGTH(zl) = 0;
@@ -344,7 +344,7 @@ unsigned char *ziplistNew(void) {
 
 /* Resize the ziplist. */
 static unsigned char *ziplistResize(unsigned char *zl, unsigned int len) {
-    zl = zrealloc(zl,len);
+    zl = z_realloc(zl,len);
     ZIPLIST_BYTES(zl) = len;
     zl[len-1] = ZIP_END;
     return zl;
@@ -851,7 +851,7 @@ void stress(int pos, int num, int maxsize, int dnum) {
         }
         printf("List size: %8d, bytes: %8d, %dx push+pop (%s): %6lld usec\n",
             i,ZIPLIST_BYTES(zl),num,posstr[pos],usec()-start);
-        zfree(zl);
+        z_free(zl);
     }
 }
 
@@ -1303,7 +1303,7 @@ int main(int argc, char **argv) {
                 }
                 assert(memcmp(buf,listNodeValue(refnode),buflen) == 0);
             }
-            zfree(zl);
+            z_free(zl);
             listRelease(ref);
         }
         printf("SUCCESS\n\n");

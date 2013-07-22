@@ -93,12 +93,12 @@ static void zmalloc_oom(size_t size) {
     abort();
 }
 
-void *zmalloc(size_t size) {
+void *z_malloc(size_t size) {
     void *ptr = malloc(size+PREFIX_SIZE);
 
     if (!ptr) zmalloc_oom(size);
 #ifdef HAVE_MALLOC_SIZE
-    update_zmalloc_stat_alloc(zmalloc_size(ptr),size);
+    update_zmalloc_stat_alloc(z_malloc_size(ptr),size);
     return ptr;
 #else
     *((size_t*)ptr) = size;
@@ -107,12 +107,12 @@ void *zmalloc(size_t size) {
 #endif
 }
 
-void *zcalloc(size_t size) {
+void *z_calloc(size_t size) {
     void *ptr = calloc(1, size+PREFIX_SIZE);
 
     if (!ptr) zmalloc_oom(size);
 #ifdef HAVE_MALLOC_SIZE
-    update_zmalloc_stat_alloc(zmalloc_size(ptr),size);
+    update_zmalloc_stat_alloc(z_malloc_size(ptr),size);
     return ptr;
 #else
     *((size_t*)ptr) = size;
@@ -121,21 +121,21 @@ void *zcalloc(size_t size) {
 #endif
 }
 
-void *zrealloc(void *ptr, size_t size) {
+void *z_realloc(void *ptr, size_t size) {
 #ifndef HAVE_MALLOC_SIZE
     void *realptr;
 #endif
     size_t oldsize;
     void *newptr;
 
-    if (ptr == NULL) return zmalloc(size);
+    if (ptr == NULL) return z_malloc(size);
 #ifdef HAVE_MALLOC_SIZE
-    oldsize = zmalloc_size(ptr);
+    oldsize = z_malloc_size(ptr);
     newptr = realloc(ptr,size);
     if (!newptr) zmalloc_oom(size);
 
     update_zmalloc_stat_free(oldsize);
-    update_zmalloc_stat_alloc(zmalloc_size(newptr),size);
+    update_zmalloc_stat_alloc(z_malloc_size(newptr),size);
     return newptr;
 #else
     realptr = (char*)ptr-PREFIX_SIZE;
@@ -150,7 +150,7 @@ void *zrealloc(void *ptr, size_t size) {
 #endif
 }
 
-void zfree(void *ptr) {
+void z_free(void *ptr) {
 #ifndef HAVE_MALLOC_SIZE
     void *realptr;
     size_t oldsize;
@@ -158,7 +158,7 @@ void zfree(void *ptr) {
 
     if (ptr == NULL) return;
 #ifdef HAVE_MALLOC_SIZE
-    update_zmalloc_stat_free(zmalloc_size(ptr));
+    update_zmalloc_stat_free(z_malloc_size(ptr));
     free(ptr);
 #else
     realptr = (char*)ptr-PREFIX_SIZE;
@@ -168,15 +168,15 @@ void zfree(void *ptr) {
 #endif
 }
 
-char *zstrdup(const char *s) {
+char *z_strdup(const char *s) {
     size_t l = strlen(s)+1;
-    char *p = zmalloc(l);
+    char *p = z_malloc(l);
 
     memcpy(p,s,l);
     return p;
 }
 
-size_t zmalloc_used_memory(void) {
+size_t z_malloc_used_memory(void) {
     size_t um;
 
     if (zmalloc_thread_safe) pthread_mutex_lock(&used_memory_mutex);
@@ -185,13 +185,13 @@ size_t zmalloc_used_memory(void) {
     return um;
 }
 
-void zmalloc_enable_thread_safeness(void) {
+void z_malloc_enable_thread_safeness(void) {
     zmalloc_thread_safe = 1;
 }
 
 /* Get the RSS information in an OS-specific way.
  *
- * WARNING: the function zmalloc_get_rss() is not designed to be fast
+ * WARNING: the function z_malloc_get_rss() is not designed to be fast
  * and may not be called in the busy loops where Redis tries to release
  * memory expiring or swapping out objects.
  *
@@ -205,7 +205,7 @@ void zmalloc_enable_thread_safeness(void) {
 #include <sys/stat.h>
 #include <fcntl.h>
 
-size_t zmalloc_get_rss(void) {
+size_t z_malloc_get_rss(void) {
     int page = sysconf(_SC_PAGESIZE);
     size_t rss;
     char buf[4096];
@@ -245,7 +245,7 @@ size_t zmalloc_get_rss(void) {
 #include <mach/task.h>
 #include <mach/mach_init.h>
 
-size_t zmalloc_get_rss(void) {
+size_t z_malloc_get_rss(void) {
     task_t task = MACH_PORT_NULL;
     struct task_basic_info t_info;
     mach_msg_type_number_t t_info_count = TASK_BASIC_INFO_COUNT;
@@ -257,17 +257,18 @@ size_t zmalloc_get_rss(void) {
     return t_info.resident_size;
 }
 #else
-size_t zmalloc_get_rss(void) {
+size_t z_malloc_get_rss(void) {
     /* If we can't get the RSS in an OS-specific way for this system just
-     * return the memory usage we estimated in zmalloc()..
+     * return the memory usage we estimated in z_malloc()..
      *
      * Fragmentation will appear to be always 1 (no fragmentation)
      * of course... */
-    return zmalloc_used_memory();
+    return z_malloc_used_memory();
 }
 #endif
 
 /* Fragmentation = RSS / allocated-bytes */
-float zmalloc_get_fragmentation_ratio(void) {
-    return (float)zmalloc_get_rss()/zmalloc_used_memory();
+float z_malloc_get_fragmentation_ratio(void) {
+    return (float)z_malloc_get_rss()/z_malloc_used_memory();
 }
+

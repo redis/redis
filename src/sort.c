@@ -2,7 +2,7 @@
 #include "pqsort.h" /* Partial qsort for SORT+LIMIT */
 
 redisSortOperation *createSortOperation(int type, robj *pattern) {
-    redisSortOperation *so = zmalloc(sizeof(*so));
+    redisSortOperation *so = z_malloc(sizeof(*so));
     so->type = type;
     so->pattern = pattern;
     return so;
@@ -155,7 +155,7 @@ void sortCommand(redisClient *c) {
     /* Create a list of operations to perform for every sorted element.
      * Operations can be GET/DEL/INCR/DECR */
     operations = listCreate();
-    listSetFreeMethod(operations,zfree);
+    listSetFreeMethod(operations,z_free);
     j = 2;
 
     /* Now we need to protect sortval incrementing its count, in the future
@@ -209,7 +209,7 @@ void sortCommand(redisClient *c) {
     case REDIS_ZSET: vectorlen = dictSize(((zset*)sortval->ptr)->dict); break;
     default: vectorlen = 0; redisPanic("Bad SORT type"); /* Avoid GCC warning */
     }
-    vector = zmalloc(sizeof(redisSortObject)*vectorlen);
+    vector = z_malloc(sizeof(redisSortObject)*vectorlen);
     j = 0;
 
     if (sortval->type == REDIS_LIST) {
@@ -385,7 +385,7 @@ void sortCommand(redisClient *c) {
         if (alpha && vector[j].u.cmpobj)
             decrRefCount(vector[j].u.cmpobj);
     }
-    zfree(vector);
+    z_free(vector);
 }
 
 

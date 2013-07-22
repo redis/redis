@@ -92,7 +92,7 @@ void bioInit(void) {
 }
 
 void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3) {
-    struct bio_job *job = zmalloc(sizeof(*job));
+    struct bio_job *job = z_malloc(sizeof(*job));
 
     job->time = time(NULL);
     job->arg1 = arg1;
@@ -134,7 +134,7 @@ void *bioProcessBackgroundJobs(void *arg) {
         } else {
             redisPanic("Wrong job type in bioProcessBackgroundJobs().");
         }
-        zfree(job);
+        z_free(job);
 
         /* Lock again before reiterating the loop, if there are no longer
          * jobs to process we'll block again in pthread_cond_wait(). */

@@ -248,7 +248,7 @@ void feedAppendOnlyFile(struct redisCommand *cmd, int dictid, robj **argv, int a
 /* In Redis commands are always executed in the context of a client, so in
  * order to load the append only file we need to create a fake client. */
 struct redisClient *createFakeClient(void) {
-    struct redisClient *c = zmalloc(sizeof(*c));
+    struct redisClient *c = z_malloc(sizeof(*c));
 
     selectDb(c,0);
     c->fd = -1;
@@ -273,7 +273,7 @@ void freeFakeClient(struct redisClient *c) {
     listRelease(c->reply);
     listRelease(c->watched_keys);
     freeClientMultiState(c);
-    zfree(c);
+    z_free(c);
 }
 
 /* Replay the append log file. On error REDIS_OK is returned. On non fatal
@@ -329,7 +329,7 @@ int loadAppendOnlyFile(char *filename) {
         argc = atoi(buf+1);
         if (argc < 1) goto fmterr;
 
-        argv = zmalloc(sizeof(robj*)*argc);
+        argv = z_malloc(sizeof(robj*)*argc);
         for (j = 0; j < argc; j++) {
             if (fgets(buf,sizeof(buf),fp) == NULL) goto readerr;
             if (buf[0] != '$') goto fmterr;
@@ -360,15 +360,15 @@ int loadAppendOnlyFile(char *filename) {
          * argv/argc of the client instead of the local variables. */
         for (j = 0; j < fakeClient->argc; j++)
             decrRefCount(fakeClient->argv[j]);
-        zfree(fakeClient->argv);
+        z_free(fakeClient->argv);
 
         /* Handle swapping while loading big datasets when VM is on */
         force_swapout = 0;
-        if ((zmalloc_used_memory() - server.vm_max_memory) > 1024*1024*32)
+        if ((z_malloc_used_memory() - server.vm_max_memory) > 1024*1024*32)
             force_swapout = 1;
 
         if (server.vm_enabled && force_swapout) {
-            while (zmalloc_used_memory() > server.vm_max_memory) {
+            while (z_malloc_used_memory() > server.vm_max_memory) {
                 if (vmSwapOneObjectBlocking() == REDIS_ERR) break;
             }
         }

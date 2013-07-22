@@ -271,7 +271,7 @@ void replicationAbortSyncTransfer(void) {
     close(server.repl_transfer_s);
     close(server.repl_transfer_fd);
     unlink(server.repl_transfer_tmpfile);
-    zfree(server.repl_transfer_tmpfile);
+    z_free(server.repl_transfer_tmpfile);
     server.replstate = REDIS_REPL_CONNECT;
 }
 
@@ -351,7 +351,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
         /* Final setup of the connected slave <- master link */
-        zfree(server.repl_transfer_tmpfile);
+        z_free(server.repl_transfer_tmpfile);
         close(server.repl_transfer_fd);
         server.master = createClient(server.repl_transfer_s);
         server.master->flags |= REDIS_MASTER;
@@ -437,7 +437,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     server.repl_transfer_left = -1;
     server.repl_transfer_fd = dfd;
     server.repl_transfer_lastio = time(NULL);
-    server.repl_transfer_tmpfile = zstrdup(tmpfile);
+    server.repl_transfer_tmpfile = z_strdup(tmpfile);
     return;
 
 error:

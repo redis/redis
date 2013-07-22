@@ -11,7 +11,7 @@ int listMatchObjects(void *a, void *b) {
 }
 
 redisClient *createClient(int fd) {
-    redisClient *c = zmalloc(sizeof(redisClient));
+    redisClient *c = z_malloc(sizeof(redisClient));
     c->bufpos = 0;
 
     anetNonBlock(NULL,fd);
@@ -20,7 +20,7 @@ redisClient *createClient(int fd) {
         readQueryFromClient, c) == AE_ERR)
     {
         close(fd);
-        zfree(c);
+        z_free(c);
         return NULL;
     }
 
@@ -543,9 +543,9 @@ void freeClient(redisClient *c) {
         }
     }
     /* Release memory */
-    zfree(c->argv);
+    z_free(c->argv);
     freeClientMultiState(c);
-    zfree(c);
+    z_free(c);
 }
 
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
@@ -679,8 +679,8 @@ int processInlineBuffer(redisClient *c) {
     c->querybuf = sdsrange(c->querybuf,querylen+2,-1);
 
     /* Setup argv array on client structure */
-    if (c->argv) zfree(c->argv);
-    c->argv = zmalloc(sizeof(robj*)*argc);
+    if (c->argv) z_free(c->argv);
+    c->argv = z_malloc(sizeof(robj*)*argc);
 
     /* Create redis objects for all arguments. */
     for (c->argc = 0, j = 0; j < argc; j++) {
@@ -691,7 +691,7 @@ int processInlineBuffer(redisClient *c) {
             sdsfree(argv[j]);
         }
     }
-    zfree(argv);
+    z_free(argv);
     return REDIS_OK;
 }
 
@@ -739,8 +739,8 @@ int processMultibulkBuffer(redisClient *c) {
         c->multibulklen = ll;
 
         /* Setup argv array on client structure */
-        if (c->argv) zfree(c->argv);
-        c->argv = zmalloc(sizeof(robj*)*c->multibulklen);
+        if (c->argv) z_free(c->argv);
+        c->argv = z_malloc(sizeof(robj*)*c->multibulklen);
     }
 
     redisAssert(c->multibulklen > 0);
@@ -956,7 +956,7 @@ void rewriteClientCommandVector(redisClient *c, int argc, ...) {
     int j;
     robj **argv; /* The new argument vector */
 
-    argv = zmalloc(sizeof(robj*)*argc);
+    argv = z_malloc(sizeof(robj*)*argc);
     va_start(ap,argc);
     for (j = 0; j < argc; j++) {
         robj *a;
@@ -969,7 +969,7 @@ void rewriteClientCommandVector(redisClient *c, int argc, ...) {
      * sure that if the same objects are reused in the new vector the
      * refcount gets incremented before it gets decremented. */
     for (j = 0; j < c->argc; j++) decrRefCount(c->argv[j]);
-    zfree(c->argv);
+    z_free(c->argv);
     /* Replace argv and argc with our new versions. */
     c->argv = argv;
     c->argc = argc;

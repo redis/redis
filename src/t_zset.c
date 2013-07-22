@@ -24,7 +24,7 @@
  * from tail to head, useful for ZREVRANGE. */
 
 zskiplistNode *zslCreateNode(int level, double score, robj *obj) {
-    zskiplistNode *zn = zmalloc(sizeof(*zn)+level*sizeof(struct zskiplistLevel));
+    zskiplistNode *zn = z_malloc(sizeof(*zn)+level*sizeof(struct zskiplistLevel));
     zn->score = score;
     zn->obj = obj;
     return zn;
@@ -34,7 +34,7 @@ zskiplist *zslCreate(void) {
     int j;
     zskiplist *zsl;
 
-    zsl = zmalloc(sizeof(*zsl));
+    zsl = z_malloc(sizeof(*zsl));
     zsl->level = 1;
     zsl->length = 0;
     zsl->header = zslCreateNode(ZSKIPLIST_MAXLEVEL,0,NULL);
@@ -49,19 +49,19 @@ zskiplist *zslCreate(void) {
 
 void zslFreeNode(zskiplistNode *node) {
     decrRefCount(node->obj);
-    zfree(node);
+    z_free(node);
 }
 
 void zslFree(zskiplist *zsl) {
     zskiplistNode *node = zsl->header->level[0].forward, *next;
 
-    zfree(zsl->header);
+    z_free(zsl->header);
     while(node) {
         next = node->level[0].forward;
         zslFreeNode(node);
         node = next;
     }
-    zfree(zsl);
+    z_free(zsl);
 }
 
 int zslRandomLevel(void) {
@@ -746,7 +746,7 @@ void zsetConvert(robj *zobj, int encoding) {
         if (encoding != REDIS_ENCODING_SKIPLIST)
             redisPanic("Unknown target encoding");
 
-        zs = zmalloc(sizeof(*zs));
+        zs = z_malloc(sizeof(*zs));
         zs->dict = dictCreate(&zsetDictType,NULL);
         zs->zsl = zslCreate();
 
@@ -770,7 +770,7 @@ void zsetConvert(robj *zobj, int encoding) {
             zzlNext(zl,&eptr,&sptr);
         }
 
-        zfree(zobj->ptr);
+        z_free(zobj->ptr);
         zobj->ptr = zs;
         zobj->encoding = REDIS_ENCODING_SKIPLIST;
     } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
@@ -784,8 +784,8 @@ void zsetConvert(robj *zobj, int encoding) {
         zs = zobj->ptr;
         dictRelease(zs->dict);
         node = zs->zsl->header->level[0].forward;
-        zfree(zs->zsl->header);
-        zfree(zs->zsl);
+        z_free(zs->zsl->header);
+        z_free(zs->zsl);
 
         while (node) {
             ele = getDecodedObject(node->obj);
@@ -797,7 +797,7 @@ void zsetConvert(robj *zobj, int encoding) {
             node = next;
         }
 
-        zfree(zs);
+        z_free(zs);
         zobj->ptr = zl;
         zobj->encoding = REDIS_ENCODING_ZIPLIST;
     } else {
@@ -828,12 +828,12 @@ void zaddGenericCommand(redisClient *c, int incr) {
     /* Start parsing all the scores, we need to emit any syntax error
      * before executing additions to the sorted set, as the command should
      * either execute fully or nothing at all. */
-    scores = zmalloc(sizeof(double)*elements);
+    scores = z_malloc(sizeof(double)*elements);
     for (j = 0; j < elements; j++) {
         if (getDoubleFromObjectOrReply(c,c->argv[2+j*2],&scores[j],NULL)
             != REDIS_OK)
         {
-            zfree(scores);
+            z_free(scores);
             return;
         }
     }
@@ -852,7 +852,7 @@ void zaddGenericCommand(redisClient *c, int incr) {
     } else {
         if (zobj->type != REDIS_ZSET) {
             addReply(c,shared.wrongtypeerr);
-            zfree(scores);
+            z_free(scores);
             return;
         }
     }
@@ -872,7 +872,7 @@ void zaddGenericCommand(redisClient *c, int incr) {
                         addReplyError(c,nanerr);
                         /* Don't need to check if the sorted set is empty
                          * because we know it has at least one element. */
-                        zfree(scores);
+                        z_free(scores);
                         return;
                     }
                 }
@@ -915,7 +915,7 @@ void zaddGenericCommand(redisClient *c, int incr) {
                         addReplyError(c,nanerr);
                         /* Don't need to check if the sorted set is empty
                          * because we know it has at least one element. */
-                        zfree(scores);
+                        z_free(scores);
                         return;
                     }
                 }
@@ -946,7 +946,7 @@ void zaddGenericCommand(redisClient *c, int incr) {
             redisPanic("Unknown sorted set encoding");
         }
     }
-    zfree(scores);
+    z_free(scores);
     if (incr) /* ZINCRBY */
         addReplyDouble(c,score);
     else /* ZADD */
@@ -1469,12 +1469,12 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
     }
 
     /* read keys to be used for input */
-    src = zcalloc(sizeof(zsetopsrc) * setnum);
+    src = z_calloc(sizeof(zsetopsrc) * setnum);
     for (i = 0, j = 3; i < setnum; i++, j++) {
         robj *obj = lookupKeyWrite(c->db,c->argv[j]);
         if (obj != NULL) {
             if (obj->type != REDIS_ZSET && obj->type != REDIS_SET) {
-                zfree(src);
+                z_free(src);
                 addReply(c,shared.wrongtypeerr);
                 return;
             }
@@ -1501,7 +1501,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                     if (getDoubleFromObjectOrReply(c,c->argv[j],&src[i].weight,
                             "weight value is not a double") != REDIS_OK)
                     {
-                        zfree(src);
+                        z_free(src);
                         return;
                     }
                 }
@@ -1514,13 +1514,13 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                 } else if (!strcasecmp(c->argv[j]->ptr,"max")) {
                     aggregate = REDIS_AGGR_MAX;
                 } else {
-                    zfree(src);
+                    z_free(src);
                     addReply(c,shared.syntaxerr);
                     return;
                 }
                 j++; remaining--;
             } else {
-                zfree(src);
+                z_free(src);
                 addReply(c,shared.syntaxerr);
                 return;
             }
@@ -1641,7 +1641,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
         decrRefCount(dstobj);
         addReply(c,shared.czero);
     }
-    zfree(src);
+    z_free(src);
 }
 
 void zunionstoreCommand(redisClient *c) {

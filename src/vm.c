@@ -31,7 +31,7 @@
 /* Create a VM pointer object. This kind of objects are used in place of
  * values in the key -> value hash table, for swapped out objects. */
 vmpointer *createVmPointer(robj *o) {
-    vmpointer *vp = zmalloc(sizeof(vmpointer));
+    vmpointer *vp = z_malloc(sizeof(vmpointer));
 
     vp->type = REDIS_VMPOINTER;
     vp->storage = REDIS_VM_SWAPPED;
@@ -46,7 +46,7 @@ void vmInit(void) {
     struct flock fl;
 
     if (server.vm_max_threads != 0)
-        zmalloc_enable_thread_safeness(); /* we need thread safe zmalloc() */
+        z_malloc_enable_thread_safeness(); /* we need thread safe z_malloc() */
 
     redisLog(REDIS_NOTICE,"Using '%s' as swap file",server.vm_swap_file);
     /* Try to open the old swap file, otherwise create it */
@@ -86,7 +86,7 @@ void vmInit(void) {
     } else {
         redisLog(REDIS_NOTICE,"Swap file allocated with success");
     }
-    server.vm_bitmap = zcalloc((server.vm_pages+7)/8);
+    server.vm_bitmap = z_calloc((server.vm_pages+7)/8);
     redisLog(REDIS_VERBOSE,"Allocated %lld bytes page table for %lld pages",
         (long long) (server.vm_pages+7)/8, server.vm_pages);
 
@@ -318,7 +318,7 @@ robj *vmGenericLoadObject(vmpointer *vp, int preview) {
     if (!preview) {
         redisLog(REDIS_DEBUG, "VM: object %p loaded from disk", (void*)vp);
         vmMarkPagesFree(vp->page,vp->usedpages);
-        zfree(vp);
+        z_free(vp);
         server.vm_stats_swapped_objects--;
     } else {
         redisLog(REDIS_DEBUG, "VM: object %p previewed from disk", (void*)vp);
@@ -557,7 +557,7 @@ void freeIOJob(iojob *j) {
         decrRefCount(j->val);
     }
     decrRefCount(j->key);
-    zfree(j);
+    z_free(j);
 }
 
 /* Every time a thread finished a Job, it writes a byte into the write side
@@ -628,7 +628,7 @@ void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
             /* Handle clients waiting for this key to be loaded. */
             handleClientsBlockedOnSwappedKey(db,j->key);
             freeIOJob(j);
-            zfree(vp);
+            z_free(vp);
         } else if (j->type == REDIS_IOJOB_PREPARE_SWAP) {
             /* Now we know the amount of pages required to swap this object.
              * Let's find some space for it, and queue this task again
@@ -681,7 +681,7 @@ void vmThreadedIOCompletedJob(aeEventLoop *el, int fd, void *privdata,
             /* Put a few more swap requests in queue if we are still
              * out of memory */
             if (trytoswap && vmCanSwapOut() &&
-                zmalloc_used_memory() > server.vm_max_memory)
+                z_malloc_used_memory() > server.vm_max_memory)
             {
                 int more = 1;
                 while(more) {
@@ -924,7 +924,7 @@ void queueIOJob(iojob *j) {
 int vmSwapObjectThreaded(robj *key, robj *val, redisDb *db) {
     iojob *j;
 
-    j = zmalloc(sizeof(*j));
+    j = z_malloc(sizeof(*j));
     j->type = REDIS_IOJOB_PREPARE_SWAP;
     j->db = db;
     j->key = key;
@@ -994,7 +994,7 @@ int waitForSwappedKey(redisClient *c, robj *key) {
         vmpointer *vp = (vmpointer*)o;
 
         o->storage = REDIS_VM_LOADING;
-        j = zmalloc(sizeof(*j));
+        j = z_malloc(sizeof(*j));
         j->type = REDIS_IOJOB_LOAD;
         j->db = c->db;
         j->id = (robj*)vp;

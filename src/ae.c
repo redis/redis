@@ -56,7 +56,7 @@ aeEventLoop *aeCreateEventLoop(void) {
     aeEventLoop *eventLoop;
     int i;
 
-    eventLoop = zmalloc(sizeof(*eventLoop));
+    eventLoop = z_malloc(sizeof(*eventLoop));
     if (!eventLoop) return NULL;
     eventLoop->timeEventHead = NULL;
     eventLoop->timeEventNextId = 0;
@@ -64,7 +64,7 @@ aeEventLoop *aeCreateEventLoop(void) {
     eventLoop->maxfd = -1;
     eventLoop->beforesleep = NULL;
     if (aeApiCreate(eventLoop) == -1) {
-        zfree(eventLoop);
+        z_free(eventLoop);
         return NULL;
     }
     /* Events with mask == AE_NONE are not set. So let's initialize the
@@ -76,7 +76,7 @@ aeEventLoop *aeCreateEventLoop(void) {
 
 void aeDeleteEventLoop(aeEventLoop *eventLoop) {
     aeApiFree(eventLoop);
-    zfree(eventLoop);
+    z_free(eventLoop);
 }
 
 void aeStop(aeEventLoop *eventLoop) {
@@ -148,7 +148,7 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
     long long id = eventLoop->timeEventNextId++;
     aeTimeEvent *te;
 
-    te = zmalloc(sizeof(*te));
+    te = z_malloc(sizeof(*te));
     if (te == NULL) return AE_ERR;
     te->id = id;
     aeAddMillisecondsToNow(milliseconds,&te->when_sec,&te->when_ms);
@@ -173,7 +173,7 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id)
                 prev->next = te->next;
             if (te->finalizerProc)
                 te->finalizerProc(eventLoop, te->clientData);
-            zfree(te);
+            z_free(te);
             return AE_OK;
         }
         prev = te;

@@ -113,7 +113,7 @@ static void freeClient(client c) {
     aeDeleteFileEvent(config.el,c->context->fd,AE_READABLE);
     redisFree(c->context);
     sdsfree(c->obuf);
-    zfree(c);
+    z_free(c);
     config.liveclients--;
     ln = listSearchKey(config.clients,c);
     assert(ln != NULL);
@@ -235,7 +235,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 }
 
 static client createClient(const char *cmd, size_t len) {
-    client c = zmalloc(sizeof(struct _client));
+    client c = z_malloc(sizeof(struct _client));
     if (config.hostsocket == NULL) {
         c->context = redisConnectNonBlock(config.hostip,config.hostport);
     } else {
@@ -463,7 +463,7 @@ int main(int argc, const char **argv) {
     argc -= i;
     argv += i;
 
-    config.latency = zmalloc(sizeof(long long)*config.requests);
+    config.latency = z_malloc(sizeof(long long)*config.requests);
 
     if (config.keepalive == 0) {
         printf("WARNING: keepalive disabled, you probably need 'echo 1 > /proc/sys/net/ipv4/tcp_tw_reuse' for Linux and 'sudo sysctl -w net.inet.tcp.msl=1000' for Mac OS X in order to use a lot of clients/requests\n");
@@ -496,7 +496,7 @@ int main(int argc, const char **argv) {
 
     /* Run default benchmark suite. */
     do {
-        data = zmalloc(config.datasize+1);
+        data = z_malloc(config.datasize+1);
         memset(data,'x',config.datasize);
         data[config.datasize] = '\0';
 

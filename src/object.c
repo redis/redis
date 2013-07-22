@@ -3,7 +3,7 @@
 #include <math.h>
 
 robj *createObject(int type, void *ptr) {
-    robj *o = zmalloc(sizeof(*o));
+    robj *o = z_malloc(sizeof(*o));
     o->type = type;
     o->encoding = REDIS_ENCODING_RAW;
     o->ptr = ptr;
@@ -92,7 +92,7 @@ robj *createHashObject(void) {
 }
 
 robj *createZsetObject(void) {
-    zset *zs = zmalloc(sizeof(*zs));
+    zset *zs = z_malloc(sizeof(*zs));
     robj *o;
 
     zs->dict = dictCreate(&zsetDictType,NULL);
@@ -121,7 +121,7 @@ void freeListObject(robj *o) {
         listRelease((list*) o->ptr);
         break;
     case REDIS_ENCODING_ZIPLIST:
-        zfree(o->ptr);
+        z_free(o->ptr);
         break;
     default:
         redisPanic("Unknown list encoding type");
@@ -134,7 +134,7 @@ void freeSetObject(robj *o) {
         dictRelease((dict*) o->ptr);
         break;
     case REDIS_ENCODING_INTSET:
-        zfree(o->ptr);
+        z_free(o->ptr);
         break;
     default:
         redisPanic("Unknown set encoding type");
@@ -148,10 +148,10 @@ void freeZsetObject(robj *o) {
         zs = o->ptr;
         dictRelease(zs->dict);
         zslFree(zs->zsl);
-        zfree(zs);
+        z_free(zs);
         break;
     case REDIS_ENCODING_ZIPLIST:
-        zfree(o->ptr);
+        z_free(o->ptr);
         break;
     default:
         redisPanic("Unknown sorted set encoding");
@@ -164,7 +164,7 @@ void freeHashObject(robj *o) {
         dictRelease((dict*) o->ptr);
         break;
     case REDIS_ENCODING_ZIPMAP:
-        zfree(o->ptr);
+        z_free(o->ptr);
         break;
     default:
         redisPanic("Unknown hash encoding type");
@@ -187,7 +187,7 @@ void decrRefCount(void *obj) {
         if (o->storage == REDIS_VM_LOADING) vmCancelThreadedIOJob(o);
         vmMarkPagesFree(vp->page,vp->usedpages);
         server.vm_stats_swapped_objects--;
-        zfree(vp);
+        z_free(vp);
         return;
     }
 
@@ -212,7 +212,7 @@ void decrRefCount(void *obj) {
         case REDIS_HASH: freeHashObject(o); break;
         default: redisPanic("Unknown object type"); break;
         }
-        zfree(o);
+        z_free(o);
     } else {
         o->refcount--;
     }

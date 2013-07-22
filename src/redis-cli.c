@@ -638,7 +638,7 @@ static void usage() {
 /* Turn the plain C strings into Sds strings */
 static char **convertToSds(int count, char** args) {
   int j;
-  char **sds = zmalloc(sizeof(char*)*count);
+  char **sds = z_malloc(sizeof(char*)*count);
 
   for(j = 0; j < count; j++)
     sds[j] = sdsnew(args[j]);
@@ -719,7 +719,7 @@ static void repl() {
             }
             /* Free the argument vector */
             while(argc--) sdsfree(argv[argc]);
-            zfree(argv);
+            z_free(argv);
         }
         /* linenoise() returns malloc-ed lines like readline() */
         free(line);
@@ -730,7 +730,7 @@ static void repl() {
 static int noninteractive(int argc, char **argv) {
     int retval = 0;
     if (config.stdinarg) {
-        argv = zrealloc(argv, (argc+1)*sizeof(char*));
+        argv = z_realloc(argv, (argc+1)*sizeof(char*));
         argv[argc] = readArgFromStdin();
         retval = cliSendCommand(argc+1, argv, config.repeat);
     } else {
