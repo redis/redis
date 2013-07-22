@@ -200,10 +200,11 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         char *objptr;
 
         if (argv[j]->encoding != REDIS_ENCODING_RAW &&
-            argv[j]->encoding != REDIS_ENCODING_INT) {
+            argv[j]->encoding != REDIS_ENCODING_INT &&
+            argv[j]->encoding != REDIS_ENCODING_EMBSTR) {
             redisPanic("Unexpected encoding");
         }
-        if (argv[j]->encoding == REDIS_ENCODING_RAW) {
+        if (sdsEncodedObject(argv[j])) {
             objlen = sdslen(argv[j]->ptr);
             objptr = argv[j]->ptr;
         } else {
