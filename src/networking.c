@@ -829,7 +829,7 @@ void resetClient(redisClient *c) {
 int processInlineBuffer(redisClient *c) {
     char *newline = strstr(c->querybuf,"\r\n");
     int argc, j;
-    sds *argv;
+    sds *argv, aux;
     size_t querylen;
 
     /* Nothing to do without a \r\n */
@@ -843,7 +843,9 @@ int processInlineBuffer(redisClient *c) {
 
     /* Split the input buffer up to the \r\n */
     querylen = newline-(c->querybuf);
-    argv = sdssplitlen(c->querybuf,querylen," ",1,&argc);
+    aux = sdsnewlen(c->querybuf,querylen);
+    argv = sdssplitargs(aux,&argc);
+    sdsfree(aux);
 
     /* Leave data after the first line of the query in the buffer */
     c->querybuf = sdsrange(c->querybuf,querylen+2,-1);
