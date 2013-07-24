@@ -1920,7 +1920,7 @@ void addReplySentinelRedisInstance(redisClient *c, sentinelRedisInstance *ri) {
     if (ri->flags & SRI_RECONF_DONE) flags = sdscat(flags,"reconf_done,");
     if (ri->flags & SRI_DEMOTE) flags = sdscat(flags,"demote,");
 
-    if (sdslen(flags) != 0) flags = sdsrange(flags,0,-2); /* remove last "," */
+    if (sdslen(flags) != 0) sdsrange(flags,0,-2); /* remove last "," */
     addReplyBulkCString(c,flags);
     sdsfree(flags);
     fields++;
