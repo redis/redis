@@ -179,11 +179,31 @@ int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
 
 static void aeGetTime(long *seconds, long *milliseconds)
 {
+/*
+ * On FreeBSD calling gettimeofday() causes all the cores on a multicore
+ * system to be synchronized. On a heavily loaded system with a
+ * significantly CPU bound application this can cause a 40% overall
+ * system degradation.
+ *
+ * A better option is to use clock_gettime() and pass in the
+ * CLOCK_REALTIME_FAST clock as the clock to use. This achieves the
+ * same behavior as gettimeofday() on Linux.
+ */
+#if defined(__FreeBSD__)
+#include <sys/time.h>
+	struct timespec ts;
+    int r = clock_gettime(CLOCK_REALTIME_FAST, &ts);
+	
+	*seconds = ts.tv_sec;
+    *milliseconds = ts.tv_nsec/1000000;
+#else
     struct timeval tv;
 
     gettimeofday(&tv, NULL);
-    *seconds = tv.tv_sec;
+	
+	  *seconds = tv.tv_sec;
     *milliseconds = tv.tv_usec/1000;
+#endif
 }
 
 static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) {
