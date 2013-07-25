@@ -1446,7 +1446,7 @@ void initServer() {
                 
                 /* It should be ip_count plus one 
                  * because out of this branch, the server.ipfd_count would increase */
-                server.ipfd_count = ip_count - 1; 
+                server.ipfd_count += (ip_count - 1); 
 
             } else if (strchr(server.bindaddr[j],':')) {
                 /* Bind IPv6 address. */
