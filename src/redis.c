@@ -1403,6 +1403,7 @@ void adjustOpenFilesLimit(void) {
 
 void initServer() {
     int j;
+    int ip_count;
 
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
@@ -1434,12 +1435,18 @@ void initServer() {
         if (server.bindaddr_count == 0) server.bindaddr[0] = NULL;
         for (j = 0; j < server.bindaddr_count || j == 0; j++) {
             if (server.bindaddr[j] == NULL) {
-                /* Bind * for both IPv6 and IPv4. */
-                server.ipfd[server.ipfd_count] = anetTcp6Server(server.neterr,server.port,NULL);
-                if (server.ipfd[server.ipfd_count] != ANET_ERR) server.ipfd_count++;
+                /* Bind * for both IPv6 and IPv4. 
+                 * Should consider that someone only has IPV6 and someone only get IPV4 */
+                ip_count = 0;
+                server.ipfd[ip_count] = anetTcp6Server(server.neterr,server.port,NULL);
+                if (server.ipfd[ip_count] != ANET_ERR) ip_count++;
                 
-                server.ipfd[server.ipfd_count] = anetTcpServer(server.neterr,server.port,NULL);
+                server.ipfd[ip_count] = anetTcpServer(server.neterr,server.port,NULL);
+                if(server.ipfd[ip_count] != ANET_ERR ) ip_count++;
                 
+                /* It should be ip_count plus one 
+                 * because out of this branch, the server.ipfd_count would increase */
+                server.ipfd_count = ip_count - 1; 
 
             } else if (strchr(server.bindaddr[j],':')) {
                 /* Bind IPv6 address. */
