@@ -47,7 +47,7 @@ start_server {tags {"zset"}} {
             r zincrby myzset +inf abc
             assert_error "*NaN*" {r zincrby myzset -inf abc}
         }
-		
+
         test {ZADD - Variadic version base case} {
             r del myzset
             list [r zadd myzset 10 a 20 b 30 c] [r zrange myzset 0 -1 withscores]
@@ -507,34 +507,34 @@ start_server {tags {"zset"}} {
             }
         }
 		
-		test "ZSUMSCORE key doesn't exist" {
-			assert_error "*no*key*" {r zsumscore nosrtset -inf +inf}
-		}
-		
-		test "ZSUMSCORE wrong type" {
-			r sadd my_set_1 "hello world"
-			assert_error "*WRONGTYPE*" {r zsumscore my_set_1 -inf +inf}
-			r del my_set_1
-		}
+        test "ZSUMSCORE key doesn't exist" {
+            assert_error "*no*key*" {r zsumscore nosrtset -inf +inf}
+        }
 
-		test "ZSUMSCORE wrong number of arguments" {
-			r zadd my_set_2 0 m1
-			assert_error "*wrong number of arguments*" {r zsumscore my_set_2 0}
-			assert_error "*wrong number of arguments*" {r zsumscore my_set_2 0 1 3}
-			r del my_set_2
-		}
-		
-		test "ZSUMSCORE sum of the range check - $encoding" {
-			r zadd my_set_3 50 m1
-			assert_equal 50 [r zsumscore my_set_3 -inf +inf]
-			assert_equal 0 [r zsumscore my_set_3 -inf (50]
-			assert_equal 0 [r zsumscore my_set_3 (50 +inf]
-		}
-		
-		test "ZSUMSCORE basic" {
-			r zadd my_set_4 1 m0 0.2 m1 0.03 m2 0.004 m3
-			assert_equal 1.234 [r zsumscore my_set_4 -inf +inf]
-		}
+        test "ZSUMSCORE wrong type" {
+            r sadd my_set_1 "hello world"
+            assert_error "*WRONGTYPE*" {r zsumscore my_set_1 -inf +inf}
+            r del my_set_1
+        }
+
+        test "ZSUMSCORE wrong number of arguments" {
+            r zadd my_set_2 0 m1
+            assert_error "*wrong number of arguments*" {r zsumscore my_set_2 0}
+            assert_error "*wrong number of arguments*" {r zsumscore my_set_2 0 1 3}
+            r del my_set_2
+        }
+
+        test "ZSUMSCORE sum of the range check - $encoding" {
+            r zadd my_set_3 50 m1
+            assert_equal 50 [r zsumscore my_set_3 -inf +inf]
+            assert_equal 0 [r zsumscore my_set_3 -inf (50]
+            assert_equal 0 [r zsumscore my_set_3 (50 +inf]
+        }
+
+        test "ZSUMSCORE basic" {
+            r zadd my_set_4 1 m0 0.2 m1 0.03 m2 0.004 m3
+            assert_equal 1.234 [r zsumscore my_set_4 -inf +inf]
+        }
     }
 
     basics ziplist
@@ -782,32 +782,31 @@ start_server {tags {"zset"}} {
             assert_equal {} $err
         }
 
-		test "ZSUMSCORE of $elements integers - $encoding" {
-			r del my_zset_$encoding
-			set tcl_sum 0
-			for {set i 0} {$i < $elements} {incr i} {
-				set score [expr int(rand()*10)]
-				r zadd my_zset_$encoding $score $i
-				set tcl_sum [expr $tcl_sum + $score]
-			}
+        test "ZSUMSCORE of $elements integers - $encoding" {
+            r del my_zset_$encoding
+            set tcl_sum 0
+            for {set i 0} {$i < $elements} {incr i} {
+                set score [expr int(rand()*10)]
+                r zadd my_zset_$encoding $score $i
+                set tcl_sum [expr $tcl_sum + $score]
+            }
+            assert_encoding $encoding my_zset_$encoding
+            assert_equal $tcl_sum [r zsumscore my_zset_$encoding -inf +inf]
+        }
 
-			assert_encoding $encoding my_zset_$encoding
-			assert_equal $tcl_sum [r zsumscore my_zset_$encoding -inf +inf]
-		}
-
-		test "ZSUMSCORE of $elements doubles - $encoding" {
-			r del my_zset_$encoding
-			r del my_zset_ref_$encoding
-			set tcl_sum 0
-			for {set i 0} {$i < $elements} {incr i} {
-				set score [expr rand()]
-				r zadd my_zset_$encoding $score m_$i
-				set tcl_sum [expr $score +  $tcl_sum]
-			}
-			assert_encoding $encoding my_zset_$encoding
-			# this is the best approximation i get when running the unit test
-			assert_equal [format "%.14g" [r zsumscore my_zset_$encoding -inf +inf]] [format "%.14g" $tcl_sum]
-		}
+        test "ZSUMSCORE of $elements doubles - $encoding" {
+            r del my_zset_$encoding
+            r del my_zset_ref_$encoding
+            set tcl_sum 0
+            for {set i 0} {$i < $elements} {incr i} {
+                set score [expr rand()]
+                r zadd my_zset_$encoding $score m_$i
+                set tcl_sum [expr $score +  $tcl_sum]
+            }
+            assert_encoding $encoding my_zset_$encoding
+            # this is the best approximation i get when running the unit test
+            assert_equal [format "%.14g" [r zsumscore my_zset_$encoding -inf +inf]] [format "%.14g" $tcl_sum]
+        }
     }
 	
     tags {"slow"} {
