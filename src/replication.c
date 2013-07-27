@@ -28,7 +28,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-
 #include "redis.h"
 
 #include <sys/time.h>
@@ -324,7 +323,8 @@ void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **
     listRewind(monitors,&li);
     while((ln = listNext(&li))) {
         redisClient *monitor = ln->value;
-        addReply(monitor,cmdobj);
+        if (monitor->monitor_prob == 1.0 || monitor->monitor_prob > (double)rand()/(double)RAND_MAX)
+            addReply(monitor,cmdobj);
     }
     decrRefCount(cmdobj);
 }

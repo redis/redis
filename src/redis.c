@@ -229,7 +229,7 @@ struct redisCommand redisCommandTable[] = {
     {"flushall",flushallCommand,1,"w",0,NULL,0,0,0,0,0},
     {"sort",sortCommand,-2,"wm",0,NULL,1,1,1,0,0},
     {"info",infoCommand,-1,"rlt",0,NULL,0,0,0,0,0},
-    {"monitor",monitorCommand,1,"ars",0,NULL,0,0,0,0,0},
+    {"monitor",monitorCommand,-1,"ars",0,NULL,0,0,0,0,0},
     {"ttl",ttlCommand,2,"r",0,NULL,1,1,1,0,0},
     {"pttl",pttlCommand,2,"r",0,NULL,1,1,1,0,0},
     {"persist",persistCommand,2,"w",0,NULL,1,1,1,0,0},
@@ -2554,6 +2554,22 @@ void infoCommand(redisClient *c) {
 void monitorCommand(redisClient *c) {
     /* ignore MONITOR if already slave or in monitor mode */
     if (c->flags & REDIS_SLAVE) return;
+
+    if (c->argc > 2) {
+        addReply(c,shared.syntaxerr);
+        return;
+    } else if (c->argc == 2) {
+        float prob = strtof(c->argv[1]->ptr, NULL);
+
+        if (prob >= 0.0 && prob <= 1.0) {
+            c->monitor_prob = prob;
+        } else {
+            addReply(c,shared.syntaxerr);
+            return;
+        }
+    } else {
+        c->monitor_prob = 1.0;
+    }
 
     c->flags |= (REDIS_SLAVE|REDIS_MONITOR);
     listAddNodeTail(server.monitors,c);
