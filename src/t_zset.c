@@ -2137,6 +2137,57 @@ void zscoreCommand(redisClient *c) {
     }
 }
 
+void zsumscoreCommand(redisClient *c) {
+	robj *key = c->argv[1];
+	robj *zobj;
+	zrangespec range;
+	double sum = 0.0;
+
+	/* Parse the range arguments */
+	if (zslParseRange(c->argv[2],c->argv[3],&range) != REDIS_OK) {
+		addReplyError(c,"min or max is not a float");
+		return;
+	}
+
+	if ((zobj = lookupKeyReadOrReply(c, key, shared.nokeyerr)) == NULL ||
+			checkType(c,zobj,REDIS_ZSET)) return;
+
+	if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
+		unsigned char *zl = zobj->ptr;
+		unsigned char *eptr, *sptr;
+		double score;
+
+		eptr = zzlFirstInRange(zl, range);
+		sptr = (eptr == NULL) ? NULL : ziplistNext(zl, eptr);
+		for (; eptr != NULL; zzlNext(zl, &eptr, &sptr)) {
+			score = zzlGetScore(sptr);
+			if (!zslValueLteMax(score, &range))
+				break;
+			sum += score;
+		}
+
+	} else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
+		zset *zs = zobj->ptr;
+		zskiplistNode *zn;
+		double score;
+
+		for (zn = zslFirstInRange(zs->zsl, range); zn != NULL;
+				zn = zn->level[0].forward) {
+			score = zn->score;
+			if (!zslValueLteMax(score, &range))
+				break;
+			sum += score;
+		}
+	} else {
+		redisPanic("Unknown sorted set encoding");
+	}
+
+	if (isnan(sum))
+		addReplyError(c, "sum is not a float");
+	else
+		addReplyDouble(c, sum);
+}
+
 void zrankGenericCommand(redisClient *c, int reverse) {
     robj *key = c->argv[1];
     robj *ele = c->argv[2];
