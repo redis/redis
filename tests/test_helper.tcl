@@ -53,6 +53,7 @@ set ::host 127.0.0.1
 set ::port 21111
 set ::traceleaks 0
 set ::valgrind 0
+set ::valgrind_version 0
 set ::verbose 0
 set ::quiet 0
 set ::denytags {}
@@ -372,6 +373,7 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         incr j
     } elseif {$opt eq {--valgrind}} {
         set ::valgrind 1
+        set ::valgrind_version [exec valgrind --version]
     } elseif {$opt eq {--quiet}} {
         set ::quiet 1
     } elseif {$opt eq {--host}} {
