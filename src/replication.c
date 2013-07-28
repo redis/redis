@@ -188,7 +188,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     b[0] = '*';
     len = ll2string(b+1,REDIS_LONGSTR_SIZE,argc);
     b += len+1;
-    buf_left -= len;
+    buf_left -= len+1;
     b[0] = '\r';
     b[1] = '\n';
     b += 2;
@@ -219,7 +219,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         b[0] = '$';
         len = ll2string(b+1,REDIS_LONGSTR_SIZE,objlen);
         b += len+1;
-        buf_left -= len;
+        buf_left -= len+1;
         b[0] = '\r';
         b[1] = '\n';
         b += 2;
