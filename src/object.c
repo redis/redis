@@ -418,7 +418,6 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
     redisAssertWithInfo(NULL,a,a->type == REDIS_STRING && b->type == REDIS_STRING);
     char bufa[128], bufb[128], *astr, *bstr;
     size_t alen, blen, minlen;
-    int bothsds = 1;
 
     if (a == b) return 0;
     if (sdsEncodedObject(a)) {
@@ -427,7 +426,6 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
     } else {
         alen = ll2string(bufa,sizeof(bufa),(long) a->ptr);
         astr = bufa;
-        bothsds = 0;
     }
     if (sdsEncodedObject(b)) {
         bstr = b->ptr;
@@ -435,7 +433,6 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
     } else {
         blen = ll2string(bufb,sizeof(bufb),(long) b->ptr);
         bstr = bufb;
-        bothsds = 0;
     }
     if (flags & REDIS_COMPARE_COLL) {
         return strcoll(astr,bstr);
