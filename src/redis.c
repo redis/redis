@@ -1376,7 +1376,9 @@ void adjustOpenFilesLimit(void) {
             strerror(errno));
         server.maxclients = 1024-REDIS_ESSENTIAL_FD;
     } else {
-        rlim_t oldlimit = limit.rlim_cur;
+        /* promising that server.maxclient will always be positive */
+        rlim_t oldlimit = (limit.rlim_cur > REDIS_ESSENTIAL_FD+1) ? 
+            limit.rlim_cur : REDIS_ESSENTIAL_FD+1;
 
         /* Set the max number of files if the current limit is not enough
          * for our needs. */
@@ -1384,14 +1386,15 @@ void adjustOpenFilesLimit(void) {
             rlim_t f;
 
             f = maxfiles;
-            while(f > oldlimit && (long int)f > 0) {
+            while(f > oldlimit) {
                 limit.rlim_cur = f;
                 limit.rlim_max = f;
                 if (setrlimit(RLIMIT_NOFILE,&limit) != -1) break;
+                /* check for wrap-around */
+                if (f - 128 > f) break;
                 f -= 128;
             }
-            oldlimit = limit.rlim_cur;
-            if ((long int)f < (long int)oldlimit) f = oldlimit;
+            if (f < oldlimit) f = oldlimit;
             if (f != maxfiles) {
                 server.maxclients = f-REDIS_ESSENTIAL_FD;
                 redisLog(REDIS_WARNING,"Unable to set the max number of files limit to %d (%s), setting the max clients configuration to %d.",
