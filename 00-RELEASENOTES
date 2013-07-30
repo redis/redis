@@ -14,6 +14,17 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8 Release Candidate 2 (2.7.102) ] Release date: 30 Jul 2013
+
+This is the second release candidate of Redis 2.8 (official version is 2.7.102).
+Important bugs fixed inside.
+
+# UPGRADE URGENCY: HIGH
+
+* [FIX] Fixed a critical replication bug, see issue #1221.
+* [NEW] The new inline protocol now accepts quoted strings like, for example
+        you can now type in a telnet session: set 'foo bar' "hello world\n".
+
 --[ Redis 2.8 Release Candidate 1 (2.7.101) ] Release date: 18 Jul 2013
 
 This is the first release candidate of Redis 2.8 (official version is 2.7.101).
