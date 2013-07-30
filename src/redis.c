@@ -51,6 +51,8 @@
 #include <sys/utsname.h>
 #include <locale.h>
 
+#define REDIS_ESSENTIAL_FD 32
+
 /* Our shared "common" objects */
 
 struct sharedObjectsStruct shared;
@@ -1366,13 +1368,13 @@ void initServerConfig() {
  * max number of clients, the function will do the reverse setting
  * server.maxclients to the value that we can actually handle. */
 void adjustOpenFilesLimit(void) {
-    rlim_t maxfiles = server.maxclients+32;
+    rlim_t maxfiles = server.maxclients+REDIS_ESSENTIAL_FD;
     struct rlimit limit;
 
     if (getrlimit(RLIMIT_NOFILE,&limit) == -1) {
         redisLog(REDIS_WARNING,"Unable to obtain the current NOFILE limit (%s), assuming 1024 and setting the max clients configuration accordingly.",
             strerror(errno));
-        server.maxclients = 1024-32;
+        server.maxclients = 1024-REDIS_ESSENTIAL_FD;
     } else {
         rlim_t oldlimit = limit.rlim_cur;
 
@@ -1380,17 +1382,18 @@ void adjustOpenFilesLimit(void) {
          * for our needs. */
         if (oldlimit < maxfiles) {
             rlim_t f;
-            
+
             f = maxfiles;
-            while(f > oldlimit) {
+            while(f > oldlimit && (long int)f > 0) {
                 limit.rlim_cur = f;
                 limit.rlim_max = f;
                 if (setrlimit(RLIMIT_NOFILE,&limit) != -1) break;
                 f -= 128;
             }
-            if (f < oldlimit) f = oldlimit;
+            oldlimit = limit.rlim_cur;
+            if ((long int)f < (long int)oldlimit) f = oldlimit;
             if (f != maxfiles) {
-                server.maxclients = f-32;
+                server.maxclients = f-REDIS_ESSENTIAL_FD;
                 redisLog(REDIS_WARNING,"Unable to set the max number of files limit to %d (%s), setting the max clients configuration to %d.",
                     (int) maxfiles, strerror(errno), (int) server.maxclients);
             } else {
