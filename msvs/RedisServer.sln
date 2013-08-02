@@ -1,6 +1,8 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 11.00
 # Visual Studio 2010
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "lua", "lua\lua\lua.vcxproj", "{170B0909-5F75-467F-9501-C99DEC16C6DC}"
+EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RedisServer", "RedisServer.vcxproj", "{46842776-68A5-EC98-6A09-1859BBFC73AA}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "hiredis", "hiredis\hiredis.vcxproj", "{13E85053-54B3-487B-8DDB-3430B1C1B3BF}"
@@ -18,8 +20,6 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RedisCli", "RedisCli\RedisC
 	ProjectSection(ProjectDependencies) = postProject
 		{13E85053-54B3-487B-8DDB-3430B1C1B3BF} = {13E85053-54B3-487B-8DDB-3430B1C1B3BF}
 	EndProjectSection
-EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "lua", "lua\lua\lua.vcxproj", "{170B0909-5F75-467F-9501-C99DEC16C6DC}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
