@@ -55,4 +55,16 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         set e [lindex [r slowlog get] 0]
         lindex $e 3
     } {sadd set foo {AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA... (1 more bytes)}}
+
+    test {SLOWLOG - EXEC is not logged, just executed commands} {
+        r config set slowlog-log-slower-than 100000
+        r slowlog reset
+        assert_equal [r slowlog len] 0
+        r multi
+        r debug sleep 0.2
+        r exec
+        assert_equal [r slowlog len] 1
+        set e [lindex [r slowlog get] 0]
+        assert_equal [lindex $e 3] {debug sleep 0.2}
+    }
 }

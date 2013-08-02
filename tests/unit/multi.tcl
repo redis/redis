@@ -205,7 +205,10 @@ start_server {tags {"multi"}} {
         r select 5
         r multi
         r ping
-        r exec
+        set res [r exec]
+        # Restore original DB
+        r select 9
+        set res
     } {PONG}
 
     test {WATCH will consider touched keys target of EXPIRE} {
@@ -249,4 +252,58 @@ start_server {tags {"multi"}} {
         r incr x
         r exec
     } {11}
+
+    test {MULTI / EXEC is propagated correctly (single write command)} {
+        set repl [attach_to_replication_stream]
+        r multi
+        r set foo bar
+        r exec
+        assert_replication_stream $repl {
+            {select *}
+            {multi}
+            {set foo bar}
+            {exec}
+        }
+        close_replication_stream $repl
+    }
+
+    test {MULTI / EXEC is propagated correctly (empty transaction)} {
+        set repl [attach_to_replication_stream]
+        r multi
+        r exec
+        r set foo bar
+        assert_replication_stream $repl {
+            {select *}
+            {set foo bar}
+        }
+        close_replication_stream $repl
+    }
+
+    test {MULTI / EXEC is propagated correctly (read-only commands)} {
+        r set foo value1
+        set repl [attach_to_replication_stream]
+        r multi
+        r get foo
+        r exec
+        r set foo value2
+        assert_replication_stream $repl {
+            {select *}
+            {set foo value2}
+        }
+        close_replication_stream $repl
+    }
+
+    test {MULTI / EXEC is propagated correctly (write command, no effect)} {
+        r del bar foo bar
+        set repl [attach_to_replication_stream]
+        r multi
+        r del foo
+        r exec
+        assert_replication_stream $repl {
+            {select *}
+            {multi}
+            {exec}
+        }
+        close_replication_stream $repl
+    }
 }

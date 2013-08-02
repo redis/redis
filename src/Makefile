@@ -18,71 +18,75 @@ OPTIMIZATION?=-O2
 DEPENDENCY_TARGETS=hiredis linenoise lua
 
 # Default settings
-STD= -std=c99 -pedantic
-WARN= -Wall
-OPT= $(OPTIMIZATION)
+STD=-std=c99 -pedantic
+WARN=-Wall
+OPT=$(OPTIMIZATION)
+
+PREFIX?=/usr/local
+INSTALL_BIN=$(PREFIX)/bin
+INSTALL=install
 
 # Default allocator
 ifeq ($(uname_S),Linux)
-  MALLOC=jemalloc
+	MALLOC=jemalloc
 else
-  MALLOC=libc
+	MALLOC=libc
 endif
 
 # Backwards compatibility for selecting an allocator
 ifeq ($(USE_TCMALLOC),yes)
-  MALLOC=tcmalloc
+	MALLOC=tcmalloc
 endif
 
 ifeq ($(USE_TCMALLOC_MINIMAL),yes)
-  MALLOC=tcmalloc_minimal
+	MALLOC=tcmalloc_minimal
 endif
 
 ifeq ($(USE_JEMALLOC),yes)
-  MALLOC=jemalloc
+	MALLOC=jemalloc
 endif
 
 # Override default settings if possible
 -include .make-settings
 
+FINAL_CFLAGS=$(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
+FINAL_LDFLAGS=$(LDFLAGS) $(REDIS_LDFLAGS) $(DEBUG)
+FINAL_LIBS=-lm
+DEBUG=-g -ggdb
+
 ifeq ($(uname_S),SunOS)
-  FINAL_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS) -D__EXTENSIONS__ -D_XPG6
-  FINAL_LDFLAGS= $(LDFLAGS) $(REDIS_LDFLAGS) -g -ggdb
-  FINAL_LIBS= -ldl -lnsl -lsocket -lm -lpthread
-  DEBUG= -g -ggdb
+	INSTALL=cp -pf
+	FINAL_CFLAGS+= -D__EXTENSIONS__ -D_XPG6
+	FINAL_LIBS+= -ldl -lnsl -lsocket -lpthread
+else ifeq ($(uname_S),Darwin)
+	
 else
-  FINAL_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
-  FINAL_LDFLAGS= $(LDFLAGS) $(REDIS_LDFLAGS) -g -rdynamic -ggdb
-  FINAL_LIBS= -lm -pthread
-  DEBUG= -g -rdynamic -ggdb
+	FINAL_LDFLAGS+= -rdynamic
+	FINAL_LIBS+= -pthread
 endif
 
 # Include paths to dependencies
 FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src
 
 ifeq ($(MALLOC),tcmalloc)
-  FINAL_CFLAGS+= -DUSE_TCMALLOC
-  FINAL_LIBS+= -ltcmalloc
+	FINAL_CFLAGS+= -DUSE_TCMALLOC
+	FINAL_LIBS+= -ltcmalloc
 endif
 
 ifeq ($(MALLOC),tcmalloc_minimal)
-  FINAL_CFLAGS+= -DUSE_TCMALLOC
-  FINAL_LIBS+= -ltcmalloc_minimal
+	FINAL_CFLAGS+= -DUSE_TCMALLOC
+	FINAL_LIBS+= -ltcmalloc_minimal
 endif
 
 ifeq ($(MALLOC),jemalloc)
-  DEPENDENCY_TARGETS+= jemalloc
-  FINAL_CFLAGS+= -DUSE_JEMALLOC -I../deps/jemalloc/include
-  FINAL_LIBS+= ../deps/jemalloc/lib/libjemalloc.a -ldl
+	DEPENDENCY_TARGETS+= jemalloc
+	FINAL_CFLAGS+= -DUSE_JEMALLOC -I../deps/jemalloc/include
+	FINAL_LIBS+= ../deps/jemalloc/lib/libjemalloc.a -ldl
 endif
 
 REDIS_CC=$(QUIET_CC)$(CC) $(FINAL_CFLAGS)
 REDIS_LD=$(QUIET_LINK)$(CC) $(FINAL_LDFLAGS)
 REDIS_INSTALL=$(QUIET_INSTALL)$(INSTALL)
-
-PREFIX?=/usr/local
-INSTALL_BIN= $(PREFIX)/bin
-INSTALL= cp -pf
 
 CCCOLOR="\033[34m"
 LINKCOLOR="\033[34;1m"
@@ -97,17 +101,17 @@ QUIET_LINK = @printf '    %b %b\n' $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$@$(EN
 QUIET_INSTALL = @printf '    %b %b\n' $(LINKCOLOR)INSTALL$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR) 1>&2;
 endif
 
-REDIS_SERVER_NAME= redis-server
-REDIS_SENTINEL_NAME= redis-sentinel
-REDIS_SERVER_OBJ= adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o cluster.o crc16.o endianconv.o slowlog.o scripting.o bio.o rio.o rand.o memtest.o crc64.o bitops.o sentinel.o
-REDIS_CLI_NAME= redis-cli
-REDIS_CLI_OBJ= anet.o sds.o adlist.o redis-cli.o zmalloc.o release.o anet.o ae.o crc64.o
-REDIS_BENCHMARK_NAME= redis-benchmark
-REDIS_BENCHMARK_OBJ= ae.o anet.o redis-benchmark.o sds.o adlist.o zmalloc.o redis-benchmark.o
-REDIS_CHECK_DUMP_NAME= redis-check-dump
-REDIS_CHECK_DUMP_OBJ= redis-check-dump.o lzf_c.o lzf_d.o crc64.o
-REDIS_CHECK_AOF_NAME= redis-check-aof
-REDIS_CHECK_AOF_OBJ= redis-check-aof.o
+REDIS_SERVER_NAME=redis-server
+REDIS_SENTINEL_NAME=redis-sentinel
+REDIS_SERVER_OBJ=adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o cluster.o crc16.o endianconv.o slowlog.o scripting.o bio.o rio.o rand.o memtest.o crc64.o bitops.o sentinel.o notify.o setproctitle.o
+REDIS_CLI_NAME=redis-cli
+REDIS_CLI_OBJ=anet.o sds.o adlist.o redis-cli.o zmalloc.o release.o anet.o ae.o crc64.o
+REDIS_BENCHMARK_NAME=redis-benchmark
+REDIS_BENCHMARK_OBJ=ae.o anet.o redis-benchmark.o sds.o adlist.o zmalloc.o redis-benchmark.o
+REDIS_CHECK_DUMP_NAME=redis-check-dump
+REDIS_CHECK_DUMP_OBJ=redis-check-dump.o lzf_c.o lzf_d.o crc64.o
+REDIS_CHECK_AOF_NAME=redis-check-aof
+REDIS_CHECK_AOF_OBJ=redis-check-aof.o
 
 all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_DUMP_NAME) $(REDIS_CHECK_AOF_NAME)
 	@echo ""
@@ -196,6 +200,8 @@ distclean: clean
 test: $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME)
 	@(cd ..; ./runtest)
 
+check: test
+
 lcov:
 	$(MAKE) gcov
 	@(set -e; cd ..; ./runtest --clients 1)
@@ -217,13 +223,16 @@ gcov:
 	$(MAKE) REDIS_CFLAGS="-fprofile-arcs -ftest-coverage -DCOVERAGE_TEST" REDIS_LDFLAGS="-fprofile-arcs -ftest-coverage"
 
 noopt:
-	$(MAKE) OPT="-O0"
+	$(MAKE) OPTIMIZATION="-O0"
+
+valgrind:
+	$(MAKE) OPTIMIZATION="-O0" MALLOC="libc"
 
 src/help.h:
 	@../utils/generate-command-help.rb > help.h
 
 install: all
-	mkdir -p $(INSTALL_BIN)
+	@mkdir -p $(INSTALL_BIN)
 	$(REDIS_INSTALL) $(REDIS_SERVER_NAME) $(INSTALL_BIN)
 	$(REDIS_INSTALL) $(REDIS_BENCHMARK_NAME) $(INSTALL_BIN)
 	$(REDIS_INSTALL) $(REDIS_CLI_NAME) $(INSTALL_BIN)

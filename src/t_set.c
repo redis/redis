@@ -188,7 +188,7 @@ robj *setTypeNextObject(setTypeIterator *si) {
  * The caller provides both pointers to be populated with the right
  * object. The return value of the function is the object->encoding
  * field of the object and is used by the caller to check if the
- * int64_t pointer or the redis object pointere was populated.
+ * int64_t pointer or the redis object pointer was populated.
  *
  * When an object is returned (the set was a real set) the ref count
  * of the object is not incremented so this function can be considered
@@ -266,14 +266,17 @@ void saddCommand(redisClient *c) {
         c->argv[j] = tryObjectEncoding(c->argv[j]);
         if (setTypeAdd(set,c->argv[j])) added++;
     }
-    if (added) signalModifiedKey(c->db,c->argv[1]);
+    if (added) {
+        signalModifiedKey(c->db,c->argv[1]);
+        notifyKeyspaceEvent(REDIS_NOTIFY_SET,"sadd",c->argv[1],c->db->id);
+    }
     server.dirty += added;
     addReplyLongLong(c,added);
 }
 
 void sremCommand(redisClient *c) {
     robj *set;
-    int j, deleted = 0;
+    int j, deleted = 0, keyremoved = 0;
 
     if ((set = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,set,REDIS_SET)) return;
@@ -283,12 +286,17 @@ void sremCommand(redisClient *c) {
             deleted++;
             if (setTypeSize(set) == 0) {
                 dbDelete(c->db,c->argv[1]);
+                keyremoved = 1;
                 break;
             }
         }
     }
     if (deleted) {
         signalModifiedKey(c->db,c->argv[1]);
+        notifyKeyspaceEvent(REDIS_NOTIFY_SET,"srem",c->argv[1],c->db->id);
+        if (keyremoved)
+            notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",c->argv[1],
+                                c->db->id);
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
@@ -322,9 +330,13 @@ void smoveCommand(redisClient *c) {
         addReply(c,shared.czero);
         return;
     }
+    notifyKeyspaceEvent(REDIS_NOTIFY_SET,"srem",c->argv[1],c->db->id);
 
     /* Remove the src set from the database when empty */
-    if (setTypeSize(srcset) == 0) dbDelete(c->db,c->argv[1]);
+    if (setTypeSize(srcset) == 0) {
+        dbDelete(c->db,c->argv[1]);
+        notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
+    }
     signalModifiedKey(c->db,c->argv[1]);
     signalModifiedKey(c->db,c->argv[2]);
     server.dirty++;
@@ -336,7 +348,10 @@ void smoveCommand(redisClient *c) {
     }
 
     /* An extra key has changed when ele was successfully added to dstset */
-    if (setTypeAdd(dstset,ele)) server.dirty++;
+    if (setTypeAdd(dstset,ele)) {
+        server.dirty++;
+        notifyKeyspaceEvent(REDIS_NOTIFY_SET,"sadd",c->argv[2],c->db->id);
+    }
     addReply(c,shared.cone);
 }
 
@@ -378,6 +393,7 @@ void spopCommand(redisClient *c) {
         incrRefCount(ele);
         setTypeRemove(set,ele);
     }
+    notifyKeyspaceEvent(REDIS_NOTIFY_SET,"spop",c->argv[1],c->db->id);
 
     /* Replicate/AOF this command as an SREM operation */
     aux = createStringObject("SREM",4);
@@ -386,7 +402,10 @@ void spopCommand(redisClient *c) {
     decrRefCount(aux);
 
     addReplyBulk(c,ele);
-    if (setTypeSize(set) == 0) dbDelete(c->db,c->argv[1]);
+    if (setTypeSize(set) == 0) {
+        dbDelete(c->db,c->argv[1]);
+        notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
+    }
     signalModifiedKey(c->db,c->argv[1]);
     server.dirty++;
 }
@@ -450,7 +469,7 @@ void srandmemberWithCountCommand(redisClient *c) {
      * The number of requested elements is greater than the number of
      * elements inside the set: simply return the whole set. */
     if (count >= size) {
-        sunionDiffGenericCommand(c,c->argv,c->argc-1,NULL,REDIS_OP_UNION);
+        sunionDiffGenericCommand(c,c->argv+1,1,NULL,REDIS_OP_UNION);
         return;
     }
 
@@ -472,15 +491,12 @@ void srandmemberWithCountCommand(redisClient *c) {
         /* Add all the elements into the temporary dictionary. */
         si = setTypeInitIterator(set);
         while((encoding = setTypeNext(si,&ele,&llele)) != -1) {
-            int retval;
+            int retval = DICT_ERR;
 
             if (encoding == REDIS_ENCODING_INTSET) {
                 retval = dictAdd(d,createStringObjectFromLongLong(llele),NULL);
-            } else if (ele->encoding == REDIS_ENCODING_RAW) {
+            } else {
                 retval = dictAdd(d,dupStringObject(ele),NULL);
-            } else if (ele->encoding == REDIS_ENCODING_INT) {
-                retval = dictAdd(d,
-                    createStringObjectFromLongLong((long)ele->ptr),NULL);
             }
             redisAssert(retval == DICT_OK);
         }
@@ -508,10 +524,8 @@ void srandmemberWithCountCommand(redisClient *c) {
             encoding = setTypeRandomElement(set,&ele,&llele);
             if (encoding == REDIS_ENCODING_INTSET) {
                 ele = createStringObjectFromLongLong(llele);
-            } else if (ele->encoding == REDIS_ENCODING_RAW) {
+            } else {
                 ele = dupStringObject(ele);
-            } else if (ele->encoding == REDIS_ENCODING_INT) {
-                ele = createStringObjectFromLongLong((long)ele->ptr);
             }
             /* Try to add the object to the dictionary. If it already exists
              * free it, otherwise increment the number of objects we have
@@ -606,7 +620,7 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
         sets[j] = setobj;
     }
     /* Sort sets from the smallest to largest, this will improve our
-     * algorithm's performace */
+     * algorithm's performance */
     qsort(sets,setnum,sizeof(robj*),qsortCompareSetsByCardinality);
 
     /* The first thing we should output is the total number of elements...
@@ -687,13 +701,18 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
     if (dstkey) {
         /* Store the resulting set into the target, if the intersection
          * is not an empty set. */
-        dbDelete(c->db,dstkey);
+        int deleted = dbDelete(c->db,dstkey);
         if (setTypeSize(dstset) > 0) {
             dbAdd(c->db,dstkey,dstset);
             addReplyLongLong(c,setTypeSize(dstset));
+            notifyKeyspaceEvent(REDIS_NOTIFY_SET,"sinterstore",
+                dstkey,c->db->id);
         } else {
             decrRefCount(dstset);
             addReply(c,shared.czero);
+            if (deleted)
+                notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",
+                    dstkey,c->db->id);
         }
         signalModifiedKey(c->db,dstkey);
         server.dirty++;
@@ -852,13 +871,19 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
     } else {
         /* If we have a target key where to store the resulting set
          * create this key with the result set inside */
-        dbDelete(c->db,dstkey);
+        int deleted = dbDelete(c->db,dstkey);
         if (setTypeSize(dstset) > 0) {
             dbAdd(c->db,dstkey,dstset);
             addReplyLongLong(c,setTypeSize(dstset));
+            notifyKeyspaceEvent(REDIS_NOTIFY_SET,
+                op == REDIS_OP_UNION ? "sunionstore" : "sdiffstore",
+                dstkey,c->db->id);
         } else {
             decrRefCount(dstset);
             addReply(c,shared.czero);
+            if (deleted)
+                notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",
+                    dstkey,c->db->id);
         }
         signalModifiedKey(c->db,dstkey);
         server.dirty++;

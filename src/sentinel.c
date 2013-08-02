@@ -74,6 +74,8 @@ typedef struct sentinelAddr {
 #define SRI_RECONF_DONE (1<<13)     /* Slave synchronized with new master. */
 #define SRI_FORCE_FAILOVER (1<<14)  /* Force failover with master up. */
 #define SRI_SCRIPT_KILL_SENT (1<<15) /* SCRIPT KILL already sent on -BUSY */
+#define SRI_DEMOTE (1<<16)   /* If the instance claims to be a master, demote
+                                it into a slave sending SLAVEOF. */
 
 #define SENTINEL_INFO_PERIOD 10000
 #define SENTINEL_PING_PERIOD 1000
@@ -403,7 +405,7 @@ void initSentinel(void) {
     /* Initialize various data structures. */
     sentinel.masters = dictCreate(&instancesDictType,NULL);
     sentinel.tilt = 0;
-    sentinel.tilt_start_time = mstime();
+    sentinel.tilt_start_time = 0;
     sentinel.previous_time = mstime();
     sentinel.running_scripts = 0;
     sentinel.scripts_queue = listCreate();
@@ -424,7 +426,7 @@ sentinelAddr *createSentinelAddr(char *hostname, int port) {
         errno = EINVAL;
         return NULL;
     }
-    if (anetResolve(NULL,hostname,buf) == ANET_ERR) {
+    if (anetResolve(NULL,hostname,buf,sizeof(buf)) == ANET_ERR) {
         errno = ENOENT;
         return NULL;
     }
@@ -833,7 +835,9 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
 
     /* For slaves and sentinel we use ip:port as name. */
     if (flags & (SRI_SLAVE|SRI_SENTINEL)) {
-        snprintf(slavename,sizeof(slavename),"%s:%d",hostname,port);
+        snprintf(slavename,sizeof(slavename),
+            strchr(hostname,':') ? "[%s]:%d" : "%s:%d",
+            hostname,port);
         name = slavename;
     }
 
@@ -941,7 +945,9 @@ sentinelRedisInstance *sentinelRedisInstanceLookupSlave(
     sentinelRedisInstance *slave;
   
     redisAssert(ri->flags & SRI_MASTER);
-    key = sdscatprintf(sdsempty(),"%s:%d",ip,port);
+    key = sdscatprintf(sdsempty(),
+        strchr(ip,':') ? "[%s]:%d" : "%s:%d",
+        ip,port);
     slave = dictFetchValue(ri->slaves,key);
     sdsfree(key);
     return slave;
@@ -969,9 +975,9 @@ const char *sentinelRedisInstanceTypeStr(sentinelRedisInstance *ri) {
  * a master's Sentinels dictionary, we want to be very sure about not
  * having duplicated instances for any reason. This is so important because
  * we use those other sentinels in order to run our quorum protocol to
- * understand if it's time to proceeed with the fail over.
+ * understand if it's time to proceed with the fail over.
  *
- * Making sure no duplication is possible we greately improve the robustness
+ * Making sure no duplication is possible we greatly improve the robustness
  * of the quorum (otherwise we may end counting the same instance multiple
  * times for some reason).
  *
@@ -1130,7 +1136,6 @@ int sentinelResetMastersByPattern(char *pattern, int flags) {
  * TODO: make this reset so that original sentinels are re-added with
  * same ip / port / runid.
  */
-
 int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *ip, int port) {
     sentinelAddr *oldaddr, *newaddr;
 
@@ -1139,10 +1144,24 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *ip,
     sentinelResetMaster(master,SENTINEL_NO_FLAGS);
     oldaddr = master->addr;
     master->addr = newaddr;
+    master->o_down_since_time = 0;
+    master->s_down_since_time = 0;
+
     /* Release the old address at the end so we are safe even if the function
      * gets the master->addr->ip and master->addr->port as arguments. */
     releaseSentinelAddr(oldaddr);
     return REDIS_OK;
+}
+
+/* Return non-zero if there was no SDOWN or ODOWN error associated to this
+ * instance in the latest 'ms' milliseconds. */
+int sentinelRedisInstanceNoDownFor(sentinelRedisInstance *ri, mstime_t ms) {
+    mstime_t most_recent;
+
+    most_recent = ri->s_down_since_time;
+    if (ri->o_down_since_time > most_recent)
+        most_recent = ri->o_down_since_time;
+    return most_recent == 0 || (mstime() - most_recent) > ms;
 }
 
 /* ============================ Config handling ============================= */
@@ -1238,7 +1257,7 @@ void sentinelKillLink(sentinelRedisInstance *ri, redisAsyncContext *c) {
  * cleanup needed.
  *
  * Note: we don't free the hiredis context as hiredis will do it for us
- * for async conenctions. */
+ * for async connections. */
 void sentinelDisconnectInstanceFromContext(const redisAsyncContext *c) {
     sentinelRedisInstance *ri = c->data;
     int pubsub;
@@ -1382,26 +1401,39 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             }
         }
 
-        /* slave0:<ip>,<port>,<state> */
+        /* old versions: slave0:<ip>,<port>,<state>
+         * new versions: slave0:ip=127.0.0.1,port=9999,... */
         if ((ri->flags & SRI_MASTER) &&
             sdslen(l) >= 7 &&
             !memcmp(l,"slave",5) && isdigit(l[5]))
         {
             char *ip, *port, *end;
 
-            ip = strchr(l,':'); if (!ip) continue;
-            ip++; /* Now ip points to start of ip address. */
-            port = strchr(ip,','); if (!port) continue;
-            *port = '\0'; /* nul term for easy access. */
-            port++; /* Now port points to start of port number. */
-            end = strchr(port,','); if (!end) continue;
-            *end = '\0'; /* nul term for easy access. */
+            if (strstr(l,"ip=") == NULL) {
+                /* Old format. */
+                ip = strchr(l,':'); if (!ip) continue;
+                ip++; /* Now ip points to start of ip address. */
+                port = strchr(ip,','); if (!port) continue;
+                *port = '\0'; /* nul term for easy access. */
+                port++; /* Now port points to start of port number. */
+                end = strchr(port,','); if (!end) continue;
+                *end = '\0'; /* nul term for easy access. */
+            } else {
+                /* New format. */
+                ip = strstr(l,"ip="); if (!ip) continue;
+                ip += 3; /* Now ip points to start of ip address. */
+                port = strstr(l,"port="); if (!port) continue;
+                port += 5; /* Now port points to start of port number. */
+                /* Nul term both fields for easy access. */
+                end = strchr(ip,','); if (end) *end = '\0';
+                end = strchr(port,','); if (end) *end = '\0';
+            }
 
             /* Check if we already have this slave into our table,
              * otherwise add it. */
             if (sentinelRedisInstanceLookupSlave(ri,ip,atoi(port)) == NULL) {
                 if ((slave = createSentinelRedisInstance(NULL,SRI_SLAVE,ip,
-                            atoi(port), ri->quorum,ri)) != NULL)
+                            atoi(port), ri->quorum, ri)) != NULL)
                 {
                     sentinelEvent(REDIS_NOTICE,"+slave",slave,"%@");
                 }
@@ -1446,44 +1478,80 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     ri->info_refresh = mstime();
     sdsfreesplitres(lines,numlines);
 
-    /* ---------------------------- Acting half ----------------------------- */
-    if (sentinel.tilt) return;
+    /* ---------------------------- Acting half -----------------------------
+     * Some things will not happen if sentinel.tilt is true, but some will
+     * still be processed. */
 
-    /* Act if a master turned into a slave. */
-    if ((ri->flags & SRI_MASTER) && role == SRI_SLAVE) {
-        if ((first_runid || runid_changed) && ri->slave_master_host) {
-            /* If it is the first time we receive INFO from it, but it's
-             * a slave while it was configured as a master, we want to monitor
-             * its master instead. */
-            sentinelEvent(REDIS_WARNING,"+redirect-to-master",ri,
-                "%s %s %d %s %d",
-                ri->name, ri->addr->ip, ri->addr->port,
-                ri->slave_master_host, ri->slave_master_port);
-            sentinelResetMasterAndChangeAddress(ri,ri->slave_master_host,
-                                                   ri->slave_master_port);
-            return;
-        }
+    /* When what we believe is our master, turned into a slave, the wiser
+     * thing we can do is to follow the events and redirect to the new
+     * master, always. */
+    if ((ri->flags & SRI_MASTER) && role == SRI_SLAVE && ri->slave_master_host)
+    {
+        sentinelEvent(REDIS_WARNING,"+redirect-to-master",ri,
+            "%s %s %d %s %d",
+            ri->name, ri->addr->ip, ri->addr->port,
+            ri->slave_master_host, ri->slave_master_port);
+        sentinelResetMasterAndChangeAddress(ri,ri->slave_master_host,
+                                               ri->slave_master_port);
+        return; /* Don't process anything after this event. */
     }
 
-    /* Act if a slave turned into a master. */
+    /* Handle slave -> master role switch. */
     if ((ri->flags & SRI_SLAVE) && role == SRI_MASTER) {
-        if (!(ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
-            (runid_changed || first_runid))
+        if (!sentinel.tilt && ri->flags & SRI_DEMOTE) {
+            /* If this sentinel was partitioned from the slave's master,
+             * or tilted recently, wait some time before to act,
+             * so that DOWN and roles INFO will be refreshed. */
+            mstime_t wait_time = SENTINEL_INFO_PERIOD*2 +
+                                 ri->master->down_after_period*2;
+
+            if (!sentinelRedisInstanceNoDownFor(ri->master,wait_time) ||
+                (mstime()-sentinel.tilt_start_time) < wait_time)
+                return;
+
+            /* Old master returned back? Turn it into a slave ASAP if
+             * we can reach what we believe is the new master now, and
+             * have a recent role information for it.
+             *
+             * Note: we'll clear the DEMOTE flag only when we have the
+             * acknowledge that it's a slave again. */
+            if (ri->master->flags & SRI_MASTER &&
+                (ri->master->flags & (SRI_S_DOWN|SRI_O_DOWN)) == 0 &&
+                (mstime() - ri->master->info_refresh) < SENTINEL_INFO_PERIOD*2)
+            {
+                int retval;
+                retval = redisAsyncCommand(ri->cc,
+                    sentinelDiscardReplyCallback, NULL, "SLAVEOF %s %d",
+                        ri->master->addr->ip,
+                        ri->master->addr->port);
+                if (retval == REDIS_OK)
+                    sentinelEvent(REDIS_NOTICE,"+demote-old-slave",ri,"%@");
+            } else {
+                /* Otherwise if there are not the conditions to demote, we
+                 * no longer trust the DEMOTE flag and remove it. */
+                ri->flags &= ~SRI_DEMOTE;
+                sentinelEvent(REDIS_NOTICE,"-demote-flag-cleared",ri,"%@");
+            }
+        } else if (!(ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
+                    (runid_changed || first_runid))
         {
             /* If a slave turned into master but:
              *
              * 1) Failover not in progress.
-             * 2) RunID hs changed, or its the first time we see an INFO output.
+             * 2) RunID has changed or its the first time we see an INFO output.
              * 
              * We assume this is a reboot with a wrong configuration.
-             * Log the event and remove the slave. */
+             * Log the event and remove the slave. Note that this is processed
+             * in tilt mode as well, otherwise we lose the information that the
+             * runid changed (reboot?) and when the tilt mode ends a fake
+             * failover will be detected. */
             int retval;
 
             sentinelEvent(REDIS_WARNING,"-slave-restart-as-master",ri,"%@ #removing it from the attached slaves");
             retval = dictDelete(ri->master->slaves,ri->name);
             redisAssert(retval == REDIS_OK);
             return;
-        } else if (ri->flags & SRI_PROMOTED) {
+        } else if (!sentinel.tilt && ri->flags & SRI_PROMOTED) {
             /* If this is a promoted slave we can change state to the
              * failover state machine. */
             if ((ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
@@ -1499,11 +1567,12 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                 sentinelCallClientReconfScript(ri->master,SENTINEL_LEADER,
                     "start",ri->master->addr,ri->addr);
             }
-        } else if (!(ri->master->flags & SRI_FAILOVER_IN_PROGRESS) ||
-                    ((ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
-                     (ri->master->flags & SRI_I_AM_THE_LEADER) &&
-                     ri->master->failover_state ==
-                     SENTINEL_FAILOVER_STATE_WAIT_START))
+        } else if (!sentinel.tilt && (
+                    !(ri->master->flags & SRI_FAILOVER_IN_PROGRESS) ||
+                     ((ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
+                      (ri->master->flags & SRI_I_AM_THE_LEADER) &&
+                       ri->master->failover_state ==
+                       SENTINEL_FAILOVER_STATE_WAIT_START)))
         {
             /* No failover in progress? Then it is the start of a failover
              * and we are an observer.
@@ -1523,6 +1592,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             ri->master->failover_state_change_time = mstime();
             ri->master->promoted_slave = ri;
             ri->flags |= SRI_PROMOTED;
+            ri->flags &= ~SRI_DEMOTE;
             sentinelCallClientReconfScript(ri->master,SENTINEL_OBSERVER,
                 "start", ri->master->addr,ri->addr);
             /* We are an observer, so we can only assume that the leader
@@ -1533,6 +1603,10 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                 SRI_RECONF_SENT);
         }
     }
+
+    /* None of the following conditions are processed when in tilt mode, so
+     * return asap. */
+    if (sentinel.tilt) return;
 
     /* Detect if the slave that is in the process of being reconfigured
      * changed state. */
@@ -1563,6 +1637,13 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
              * to the next slave. */
             ri->failover_state_change_time = mstime();
         }
+    }
+
+    /* Detect if the old master was demoted as slave and generate the
+     * +slave event. */
+    if (role == SRI_SLAVE && ri->flags & SRI_DEMOTE) {
+        sentinelEvent(REDIS_NOTICE,"+slave",ri,"%@");
+        ri->flags &= ~SRI_DEMOTE;
     }
 }
 
@@ -1647,7 +1728,7 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
 
     /* Update the last activity in the pubsub channel. Note that since we
      * receive our messages as well this timestamp can be used to detect
-     * if the link is probably diconnected even if it seems otherwise. */
+     * if the link is probably disconnected even if it seems otherwise. */
     ri->pc_last_activity = mstime();
    
     /* Sanity check in the reply we expect, so that the code that follows
@@ -1664,9 +1745,13 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
 
     {
         int numtokens, port, removed, canfailover;
+        /* Separator changed from ":" to "," in recent versions in order to
+         * play well with IPv6 addresses. For now we make sure to parse both
+         * correctly detecting if there is "," inside the string. */
+        char *sep = strchr(r->element[2]->str,',') ? "," : ":";
         char **token = sdssplitlen(r->element[2]->str,
                                    r->element[2]->len,
-                                   ":",1,&numtokens);
+                                   sep,1,&numtokens);
         sentinelRedisInstance *sentinel;
 
         if (numtokens == 4) {
@@ -1760,14 +1845,12 @@ void sentinelPingInstance(sentinelRedisInstance *ri) {
                (now - ri->last_pub_time) > SENTINEL_PUBLISH_PERIOD)
     {
         /* PUBLISH hello messages only to masters. */
-        struct sockaddr_in sa;
-        socklen_t salen = sizeof(sa);
+        char ip[REDIS_IP_STR_LEN];
+        if (anetSockName(ri->cc->c.fd,ip,sizeof(ip),NULL) != -1) {
+            char myaddr[REDIS_IP_STR_LEN+128];
 
-        if (getsockname(ri->cc->c.fd,(struct sockaddr*)&sa,&salen) != -1) {
-            char myaddr[128];
-
-            snprintf(myaddr,sizeof(myaddr),"%s:%d:%s:%d",
-                inet_ntoa(sa.sin_addr), server.port, server.runid,
+            snprintf(myaddr,sizeof(myaddr),"%s,%d,%s,%d",
+                ip, server.port, server.runid,
                 (ri->flags & SRI_CAN_FAILOVER) != 0);
             retval = redisAsyncCommand(ri->cc,
                 sentinelPublishReplyCallback, NULL, "PUBLISH %s %s",
@@ -1835,8 +1918,9 @@ void addReplySentinelRedisInstance(redisClient *c, sentinelRedisInstance *ri) {
     if (ri->flags & SRI_RECONF_SENT) flags = sdscat(flags,"reconf_sent,");
     if (ri->flags & SRI_RECONF_INPROG) flags = sdscat(flags,"reconf_inprog,");
     if (ri->flags & SRI_RECONF_DONE) flags = sdscat(flags,"reconf_done,");
+    if (ri->flags & SRI_DEMOTE) flags = sdscat(flags,"demote,");
 
-    if (sdslen(flags) != 0) flags = sdsrange(flags,0,-2); /* remove last "," */
+    if (sdslen(flags) != 0) sdsrange(flags,0,-2); /* remove last "," */
     addReplyBulkCString(c,flags);
     sdsfree(flags);
     fields++;
@@ -1939,7 +2023,7 @@ void addReplySentinelRedisInstance(redisClient *c, sentinelRedisInstance *ri) {
     setDeferredMultiBulkLength(c,mbl,fields*2);
 }
 
-/* Output a number of instances contanined inside a dictionary as
+/* Output a number of instances contained inside a dictionary as
  * Redis protocol. */
 void addReplyDictOfRedisInstances(redisClient *c, dict *instances) {
     dictIterator *di;
@@ -2035,8 +2119,16 @@ void sentinelCommand(redisClient *c) {
         } else {
             sentinelAddr *addr = ri->addr;
 
-            if ((ri->flags & SRI_FAILOVER_IN_PROGRESS) && ri->promoted_slave)
+            /* If we are in the middle of a failover, and the slave was
+             * already successfully switched to master role, we can advertise
+             * the new address as slave in order to allow clients to talk
+             * with the new master ASAP. */
+            if ((ri->flags & SRI_FAILOVER_IN_PROGRESS) &&
+                ri->promoted_slave &&
+                ri->failover_state >= SENTINEL_FAILOVER_STATE_RECONF_SLAVES)
+            {
                 addr = ri->promoted_slave->addr;
+            }
             addReplyMultiBulkLen(c,2);
             addReplyBulkCString(c,addr->ip);
             addReplyBulkLongLong(c,addr->port);
@@ -2535,7 +2627,7 @@ void sentinelStartFailoverIfNeeded(sentinelRedisInstance *master) {
  * 3) info_refresh more recent than SENTINEL_INFO_VALIDITY_TIME.
  * 4) master_link_down_time no more than:
  *     (now - master->s_down_since_time) + (master->down_after_period * 10).
- * 5) Slave priority can't be zero, otherwise the slave is discareded.
+ * 5) Slave priority can't be zero, otherwise the slave is discarded.
  *
  * Among all the slaves matching the above conditions we select the slave
  * with lower slave_priority. If priority is the same we select the slave
@@ -2584,6 +2676,7 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
         mstime_t info_validity_time = mstime()-SENTINEL_INFO_VALIDITY_TIME;
 
         if (slave->flags & (SRI_S_DOWN|SRI_O_DOWN|SRI_DISCONNECTED)) continue;
+        if (slave->flags & SRI_DEMOTE) continue; /* Old master not yet ready. */
         if (slave->last_avail_time < info_validity_time) continue;
         if (slave->slave_priority == 0) continue;
 
@@ -2611,10 +2704,10 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
     /* If we in "wait start" but the master is no longer in ODOWN nor in
      * SDOWN condition we abort the failover. This is important as it
      * prevents a useless failover in a a notable case of netsplit, where
-     * the senitnels are split from the redis instances. In this case
+     * the sentinels are split from the redis instances. In this case
      * the failover will not start while there is the split because no
      * good slave can be reached. However when the split is resolved, we
-     * can go to waitstart if the slave is back rechable a few milliseconds
+     * can go to waitstart if the slave is back reachable a few milliseconds
      * before the master is. In that case when the master is back online
      * we cancel the failover. */
     if ((ri->flags & (SRI_S_DOWN|SRI_O_DOWN|SRI_FORCE_FAILOVER)) == 0) {
@@ -2829,12 +2922,28 @@ void sentinelFailoverReconfNextSlave(sentinelRedisInstance *master) {
 void sentinelFailoverSwitchToPromotedSlave(sentinelRedisInstance *master) {
     sentinelRedisInstance *ref = master->promoted_slave ?
                                  master->promoted_slave : master;
+    sds old_master_ip;
+    int old_master_port;
 
     sentinelEvent(REDIS_WARNING,"+switch-master",master,"%s %s %d %s %d",
         master->name, master->addr->ip, master->addr->port,
         ref->addr->ip, ref->addr->port);
 
+    old_master_ip = sdsdup(master->addr->ip);
+    old_master_port = master->addr->port;
     sentinelResetMasterAndChangeAddress(master,ref->addr->ip,ref->addr->port);
+    /* If this is a real switch, that is, we have master->promoted_slave not
+     * NULL, then we want to add the old master as a slave of the new master,
+     * but flagging it with SRI_DEMOTE so that we know we'll need to send
+     * SLAVEOF once the old master is reachable again. */
+    if (master != ref) {
+        /* Add the new slave, but don't generate a Sentinel event as it will
+         * happen later when finally the instance will claim to be a slave
+         * in the INFO output. */
+        createSentinelRedisInstance(NULL,SRI_SLAVE|SRI_DEMOTE,
+                    old_master_ip, old_master_port, master->quorum, master);
+    }
+    sdsfree(old_master_ip);
 }
 
 void sentinelFailoverStateMachine(sentinelRedisInstance *ri) {
@@ -3026,13 +3135,13 @@ void sentinelHandleDictOfRedisInstances(dict *instances) {
  * following conditions happen:
  *
  * 1) The Sentiel process for some time is blocked, for every kind of
- * random reason: the load is huge, the computer was freezed for some time
+ * random reason: the load is huge, the computer was frozen for some time
  * in I/O or alike, the process was stopped by a signal. Everything.
  * 2) The system clock was altered significantly.
  *
  * Under both this conditions we'll see everything as timed out and failing
  * without good reasons. Instead we enter the TILT mode and wait
- * for SENTIENL_TILT_PERIOD to elapse before starting to act again.
+ * for SENTINEL_TILT_PERIOD to elapse before starting to act again.
  *
  * During TILT time we still collect information, we just do not act. */
 void sentinelCheckTiltCondition(void) {

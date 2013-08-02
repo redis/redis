@@ -26,7 +26,7 @@ Also the following redis.conf and CONFIG GET / SET parameters changed name:
 
     * hash-max-zipmap-entries, now replaced by hash-max-ziplist-entries
     * hash-max-zipmap-value, now replaced by hash-max-ziplist-value
-    * glueoutputbuf was no completely removed as it does not make sense
+    * glueoutputbuf was now completely removed as it does not make sense
 
 ---------
 CHANGELOG
@@ -46,7 +46,7 @@ UPGRADE URGENCY: We suggest new users to start with 2.6.0, and old users to
   in slaves.
 * Milliseconds resolution expires, also added new commands with milliseconds
   precision (PEXPIRE, PTTL, ...).
-* Clinets max output buffer soft and hard limits. You can specifiy different
+* Clients max output buffer soft and hard limits. You can specifiy different
   limits for different classes of clients (normal,pubsub,slave).
 * AOF is now able to rewrite aggregate data types using variadic commands,
   often producing an AOF that is faster to save, load, and is smaller in size.

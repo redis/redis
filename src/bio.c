@@ -74,7 +74,7 @@ static list *bio_jobs[REDIS_BIO_NUM_OPS];
 static unsigned long long bio_pending[REDIS_BIO_NUM_OPS];
 
 /* This structure represents a background Job. It is only used locally to this
- * file as the API deos not expose the internals at all. */
+ * file as the API does not expose the internals at all. */
 struct bio_job {
     time_t time; /* Time at which the job was created. */
     /* Job specific arguments pointers. If we need to pass more than three

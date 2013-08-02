@@ -29,6 +29,7 @@
 
 #include "redis.h"
 #include <sys/uio.h>
+#include <math.h>
 
 static void setProtocolError(redisClient *c, int pos);
 
@@ -38,6 +39,17 @@ static void setProtocolError(redisClient *c, int pos);
  * returned pointer), so we use this helper function. */
 size_t zmalloc_size_sds(sds s) {
     return zmalloc_size(s-sizeof(struct sdshdr));
+}
+
+/* Return the amount of memory used by the sds string at object->ptr
+ * for a string object. */
+size_t getStringObjectSdsUsedMemory(robj *o) {
+    redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
+    switch(o->encoding) {
+    case REDIS_ENCODING_RAW: return zmalloc_size_sds(o->ptr);
+    case REDIS_ENCODING_EMBSTR: return sdslen(o->ptr);
+    default: return 0; /* Just integer encoding for now. */
+    }
 }
 
 void *dupClientReplyValue(void *o) {
@@ -58,7 +70,9 @@ redisClient *createClient(int fd) {
      * contexts (for instance a Lua script) we need a non connected client. */
     if (fd != -1) {
         anetNonBlock(NULL,fd);
-        anetTcpNoDelay(NULL,fd);
+        anetEnableTcpNoDelay(NULL,fd);
+        if (server.tcpkeepalive)
+            anetKeepAlive(NULL,fd,server.tcpkeepalive);
         if (aeCreateFileEvent(server.el,fd,AE_READABLE,
             readQueryFromClient, c) == AE_ERR)
         {
@@ -70,6 +84,7 @@ redisClient *createClient(int fd) {
 
     selectDb(c,0);
     c->fd = fd;
+    c->name = NULL;
     c->bufpos = 0;
     c->querybuf = sdsempty();
     c->querybuf_peak = 0;
@@ -84,21 +99,24 @@ redisClient *createClient(int fd) {
     c->ctime = c->lastinteraction = server.unixtime;
     c->authenticated = 0;
     c->replstate = REDIS_REPL_NONE;
+    c->reploff = 0;
+    c->repl_ack_off = 0;
+    c->repl_ack_time = 0;
     c->slave_listening_port = 0;
     c->reply = listCreate();
     c->reply_bytes = 0;
     c->obuf_soft_limit_reached_time = 0;
-    listSetFreeMethod(c->reply,decrRefCount);
+    listSetFreeMethod(c->reply,decrRefCountVoid);
     listSetDupMethod(c->reply,dupClientReplyValue);
     c->bpop.keys = dictCreate(&setDictType,NULL);
     c->bpop.timeout = 0;
     c->bpop.target = NULL;
     c->io_keys = listCreate();
     c->watched_keys = listCreate();
-    listSetFreeMethod(c->io_keys,decrRefCount);
+    listSetFreeMethod(c->io_keys,decrRefCountVoid);
     c->pubsub_channels = dictCreate(&setDictType,NULL);
     c->pubsub_patterns = listCreate();
-    listSetFreeMethod(c->pubsub_patterns,decrRefCount);
+    listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     if (fd != -1) listAddNodeTail(server.clients,c);
     initClientMultiState(c);
@@ -112,15 +130,17 @@ redisClient *createClient(int fd) {
  * returns REDIS_OK, and make sure to install the write handler in our event
  * loop so that when the socket is writable new data gets written.
  *
- * If the client should not receive new data, because it is a fake client
- * or a slave, or because the setup of the write handler failed, the function
- * returns REDIS_ERR.
+ * If the client should not receive new data, because it is a fake client,
+ * a master, a slave not yet online, or because the setup of the write handler
+ * failed, the function returns REDIS_ERR.
  *
  * Typically gets called every time a reply is built, before adding more
  * data to the clients output buffers. If the function returns REDIS_ERR no
  * data should be appended to the output buffers. */
 int prepareClientToWrite(redisClient *c) {
     if (c->flags & REDIS_LUA_CLIENT) return REDIS_OK;
+    if ((c->flags & REDIS_MASTER) &&
+        !(c->flags & REDIS_MASTER_FORCE_REPLY)) return REDIS_ERR;
     if (c->fd <= 0) return REDIS_ERR; /* Fake client */
     if (c->bufpos == 0 && listLength(c->reply) == 0 &&
         (c->replstate == REDIS_REPL_NONE ||
@@ -175,12 +195,13 @@ void _addReplyObjectToList(redisClient *c, robj *o) {
     if (listLength(c->reply) == 0) {
         incrRefCount(o);
         listAddNodeTail(c->reply,o);
-        c->reply_bytes += zmalloc_size_sds(o->ptr);
+        c->reply_bytes += getStringObjectSdsUsedMemory(o);
     } else {
         tail = listNodeValue(listLast(c->reply));
 
         /* Append to this object when possible. */
         if (tail->ptr != NULL &&
+            tail->encoding == REDIS_ENCODING_RAW &&
             sdslen(tail->ptr)+sdslen(o->ptr) <= REDIS_REPLY_CHUNK_BYTES)
         {
             c->reply_bytes -= zmalloc_size_sds(tail->ptr);
@@ -190,7 +211,7 @@ void _addReplyObjectToList(redisClient *c, robj *o) {
         } else {
             incrRefCount(o);
             listAddNodeTail(c->reply,o);
-            c->reply_bytes += zmalloc_size_sds(o->ptr);
+            c->reply_bytes += getStringObjectSdsUsedMemory(o);
         }
     }
     asyncCloseClientOnOutputBufferLimitReached(c);
@@ -213,7 +234,7 @@ void _addReplySdsToList(redisClient *c, sds s) {
         tail = listNodeValue(listLast(c->reply));
 
         /* Append to this object when possible. */
-        if (tail->ptr != NULL &&
+        if (tail->ptr != NULL && tail->encoding == REDIS_ENCODING_RAW &&
             sdslen(tail->ptr)+sdslen(s) <= REDIS_REPLY_CHUNK_BYTES)
         {
             c->reply_bytes -= zmalloc_size_sds(tail->ptr);
@@ -238,12 +259,12 @@ void _addReplyStringToList(redisClient *c, char *s, size_t len) {
         robj *o = createStringObject(s,len);
 
         listAddNodeTail(c->reply,o);
-        c->reply_bytes += zmalloc_size_sds(o->ptr);
+        c->reply_bytes += getStringObjectSdsUsedMemory(o);
     } else {
         tail = listNodeValue(listLast(c->reply));
 
         /* Append to this object when possible. */
-        if (tail->ptr != NULL &&
+        if (tail->ptr != NULL && tail->encoding == REDIS_ENCODING_RAW &&
             sdslen(tail->ptr)+len <= REDIS_REPLY_CHUNK_BYTES)
         {
             c->reply_bytes -= zmalloc_size_sds(tail->ptr);
@@ -254,7 +275,7 @@ void _addReplyStringToList(redisClient *c, char *s, size_t len) {
             robj *o = createStringObject(s,len);
 
             listAddNodeTail(c->reply,o);
-            c->reply_bytes += zmalloc_size_sds(o->ptr);
+            c->reply_bytes += getStringObjectSdsUsedMemory(o);
         }
     }
     asyncCloseClientOnOutputBufferLimitReached(c);
@@ -275,7 +296,7 @@ void addReply(redisClient *c, robj *obj) {
      * If the encoding is RAW and there is room in the static buffer
      * we'll be able to send the object to the client without
      * messing with its page. */
-    if (obj->encoding == REDIS_ENCODING_RAW) {
+    if (sdsEncodedObject(obj)) {
         if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != REDIS_OK)
             _addReplyObjectToList(c,obj);
     } else if (obj->encoding == REDIS_ENCODING_INT) {
@@ -377,7 +398,7 @@ void *addDeferredMultiBulkLength(redisClient *c) {
     return listLast(c->reply);
 }
 
-/* Populate the length object and try glueing it to the next chunk. */
+/* Populate the length object and try gluing it to the next chunk. */
 void setDeferredMultiBulkLength(redisClient *c, void *node, long length) {
     listNode *ln = (listNode*)node;
     robj *len, *next;
@@ -387,6 +408,7 @@ void setDeferredMultiBulkLength(redisClient *c, void *node, long length) {
 
     len = listNodeValue(ln);
     len->ptr = sdscatprintf(sdsempty(),"*%ld\r\n",length);
+    len->encoding = REDIS_ENCODING_RAW; /* in case it was an EMBSTR. */
     c->reply_bytes += zmalloc_size_sds(len->ptr);
     if (ln->next != NULL) {
         next = listNodeValue(ln->next);
@@ -394,7 +416,7 @@ void setDeferredMultiBulkLength(redisClient *c, void *node, long length) {
         /* Only glue when the next node is non-NULL (an sds in this case) */
         if (next->ptr != NULL) {
             c->reply_bytes -= zmalloc_size_sds(len->ptr);
-            c->reply_bytes -= zmalloc_size_sds(next->ptr);
+            c->reply_bytes -= getStringObjectSdsUsedMemory(next);
             len->ptr = sdscatlen(len->ptr,next->ptr,sdslen(next->ptr));
             c->reply_bytes += zmalloc_size_sds(len->ptr);
             listDelNode(c->reply,ln->next);
@@ -403,13 +425,19 @@ void setDeferredMultiBulkLength(redisClient *c, void *node, long length) {
     asyncCloseClientOnOutputBufferLimitReached(c);
 }
 
-/* Add a duble as a bulk reply */
+/* Add a double as a bulk reply */
 void addReplyDouble(redisClient *c, double d) {
     char dbuf[128], sbuf[128];
     int dlen, slen;
-    dlen = snprintf(dbuf,sizeof(dbuf),"%.17g",d);
-    slen = snprintf(sbuf,sizeof(sbuf),"$%d\r\n%s\r\n",dlen,dbuf);
-    addReplyString(c,sbuf,slen);
+    if (isinf(d)) {
+        /* Libc in odd systems (Hi Solaris!) will format infinite in a
+         * different way, so better to handle it in an explicit way. */
+        addReplyBulkCString(c, d > 0 ? "inf" : "-inf");
+    } else {
+        dlen = snprintf(dbuf,sizeof(dbuf),"%.17g",d);
+        slen = snprintf(sbuf,sizeof(sbuf),"$%d\r\n%s\r\n",dlen,dbuf);
+        addReplyString(c,sbuf,slen);
+    }
 }
 
 /* Add a long long as integer reply or bulk len / multi bulk count.
@@ -453,7 +481,7 @@ void addReplyMultiBulkLen(redisClient *c, long length) {
 void addReplyBulkLen(redisClient *c, robj *obj) {
     size_t len;
 
-    if (obj->encoding == REDIS_ENCODING_RAW) {
+    if (sdsEncodedObject(obj)) {
         len = sdslen(obj->ptr);
     } else {
         long n = (long)obj->ptr;
@@ -517,13 +545,15 @@ void copyClientOutputBuffer(redisClient *dst, redisClient *src) {
 static void acceptCommonHandler(int fd, int flags) {
     redisClient *c;
     if ((c = createClient(fd)) == NULL) {
-        redisLog(REDIS_WARNING,"Error allocating resources for the client");
+        redisLog(REDIS_WARNING,
+            "Error registering fd event for the new client: %s (fd=%d)",
+            strerror(errno),fd);
         close(fd); /* May be already closed, just ignore errors */
         return;
     }
     /* If maxclient directive is set and this is one client more... close the
      * connection. Note that we create the client instead to check before
-     * for this condition, since now the socket is already set in nonblocking
+     * for this condition, since now the socket is already set in non-blocking
      * mode and we can send an error for free using the Kernel I/O */
     if (listLength(server.clients) > server.maxclients) {
         char *err = "-ERR max number of clients reached\r\n";
@@ -542,12 +572,12 @@ static void acceptCommonHandler(int fd, int flags) {
 
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
-    char cip[128];
+    char cip[REDIS_IP_STR_LEN];
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
 
-    cfd = anetTcpAccept(server.neterr, fd, cip, &cport);
+    cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
     if (cfd == AE_ERR) {
         redisLog(REDIS_WARNING,"Accepting client connection: %s", server.neterr);
         return;
@@ -590,11 +620,41 @@ void disconnectSlaves(void) {
     }
 }
 
+/* This function is called when the slave lose the connection with the
+ * master into an unexpected way. */
+void replicationHandleMasterDisconnection(void) {
+    server.master = NULL;
+    server.repl_state = REDIS_REPL_CONNECT;
+    server.repl_down_since = server.unixtime;
+    /* We lost connection with our master, force our slaves to resync
+     * with us as well to load the new data set.
+     *
+     * If server.masterhost is NULL the user called SLAVEOF NO ONE so
+     * slave resync is not needed. */
+    if (server.masterhost != NULL) disconnectSlaves();
+}
+
 void freeClient(redisClient *c) {
     listNode *ln;
 
     /* If this is marked as current client unset it */
     if (server.current_client == c) server.current_client = NULL;
+
+    /* If it is our master that's beging disconnected we should make sure
+     * to cache the state to try a partial resynchronization later.
+     *
+     * Note that before doing this we make sure that the client is not in
+     * some unexpected state, by checking its flags. */
+    if (server.master &&
+         (c->flags & REDIS_MASTER) &&
+        !(c->flags & (REDIS_CLOSE_AFTER_REPLY|
+                     REDIS_CLOSE_ASAP|
+                     REDIS_BLOCKED|
+                     REDIS_UNBLOCKED)))
+    {
+        replicationCacheMaster(c);
+        return;
+    }
 
     /* Note that if the client we are freeing is blocked into a blocking
      * call, we have to set querybuf to NULL *before* to call
@@ -615,16 +675,21 @@ void freeClient(redisClient *c) {
     pubsubUnsubscribeAllPatterns(c,0);
     dictRelease(c->pubsub_channels);
     listRelease(c->pubsub_patterns);
-    /* Obvious cleanup */
-    aeDeleteFileEvent(server.el,c->fd,AE_READABLE);
-    aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
+    /* Close socket, unregister events, and remove list of replies and
+     * accumulated arguments. */
+    if (c->fd != -1) {
+        aeDeleteFileEvent(server.el,c->fd,AE_READABLE);
+        aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
+        close(c->fd);
+    }
     listRelease(c->reply);
     freeClientArgv(c);
-    close(c->fd);
     /* Remove from the list of clients */
-    ln = listSearchKey(server.clients,c);
-    redisAssert(ln != NULL);
-    listDelNode(server.clients,ln);
+    if (c->fd != -1) {
+        ln = listSearchKey(server.clients,c);
+        redisAssert(ln != NULL);
+        listDelNode(server.clients,ln);
+    }
     /* When client was just unblocked because of a blocking operation,
      * remove it from the list with unblocked clients. */
     if (c->flags & REDIS_UNBLOCKED) {
@@ -642,20 +707,16 @@ void freeClient(redisClient *c) {
         ln = listSearchKey(l,c);
         redisAssert(ln != NULL);
         listDelNode(l,ln);
+        /* We need to remember the time when we started to have zero
+         * attached slaves, as after some time we'll free the replication
+         * backlog. */
+        if (c->flags & REDIS_SLAVE && listLength(server.slaves) == 0)
+            server.repl_no_slaves_since = server.unixtime;
+        refreshGoodSlavesCount();
     }
 
     /* Case 2: we lost the connection with the master. */
-    if (c->flags & REDIS_MASTER) {
-        server.master = NULL;
-        server.repl_state = REDIS_REPL_CONNECT;
-        server.repl_down_since = server.unixtime;
-        /* We lost connection with our master, force our slaves to resync
-         * with us as well to load the new data set.
-         *
-         * If server.masterhost is NULL the user called SLAVEOF NO ONE so
-         * slave resync is not needed. */
-        if (server.masterhost != NULL) disconnectSlaves();
-    }
+    if (c->flags & REDIS_MASTER) replicationHandleMasterDisconnection();
 
     /* If this client was scheduled for async freeing we need to remove it
      * from the queue. */
@@ -666,6 +727,7 @@ void freeClient(redisClient *c) {
     }
 
     /* Release memory */
+    if (c->name) decrRefCount(c->name);
     zfree(c->argv);
     freeClientMultiState(c);
     zfree(c);
@@ -702,13 +764,8 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     while(c->bufpos > 0 || listLength(c->reply)) {
         if (c->bufpos > 0) {
-            if (c->flags & REDIS_MASTER) {
-                /* Don't reply to a master */
-                nwritten = c->bufpos - c->sentlen;
-            } else {
-                nwritten = write(fd,c->buf+c->sentlen,c->bufpos-c->sentlen);
-                if (nwritten <= 0) break;
-            }
+            nwritten = write(fd,c->buf+c->sentlen,c->bufpos-c->sentlen);
+            if (nwritten <= 0) break;
             c->sentlen += nwritten;
             totwritten += nwritten;
 
@@ -721,20 +778,16 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         } else {
             o = listNodeValue(listFirst(c->reply));
             objlen = sdslen(o->ptr);
-            objmem = zmalloc_size_sds(o->ptr);
+            objmem = getStringObjectSdsUsedMemory(o);
 
             if (objlen == 0) {
                 listDelNode(c->reply,listFirst(c->reply));
+                c->reply_bytes -= objmem;
                 continue;
             }
 
-            if (c->flags & REDIS_MASTER) {
-                /* Don't reply to a master */
-                nwritten = objlen - c->sentlen;
-            } else {
-                nwritten = write(fd, ((char*)o->ptr)+c->sentlen,objlen-c->sentlen);
-                if (nwritten <= 0) break;
-            }
+            nwritten = write(fd, ((char*)o->ptr)+c->sentlen,objlen-c->sentlen);
+            if (nwritten <= 0) break;
             c->sentlen += nwritten;
             totwritten += nwritten;
 
@@ -779,18 +832,22 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 
 /* resetClient prepare the client to process the next command */
 void resetClient(redisClient *c) {
+    redisCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
+
     freeClientArgv(c);
     c->reqtype = 0;
     c->multibulklen = 0;
     c->bulklen = -1;
-    /* We clear the ASKING flag as well if we are not inside a MULTI. */
-    if (!(c->flags & REDIS_MULTI)) c->flags &= (~REDIS_ASKING);
+    /* We clear the ASKING flag as well if we are not inside a MULTI, and
+     * if what we just executed is not the ASKING command itself. */
+    if (!(c->flags & REDIS_MULTI) && prevcmd != askingCommand)
+        c->flags &= (~REDIS_ASKING);
 }
 
 int processInlineBuffer(redisClient *c) {
     char *newline = strstr(c->querybuf,"\r\n");
     int argc, j;
-    sds *argv;
+    sds *argv, aux;
     size_t querylen;
 
     /* Nothing to do without a \r\n */
@@ -804,10 +861,12 @@ int processInlineBuffer(redisClient *c) {
 
     /* Split the input buffer up to the \r\n */
     querylen = newline-(c->querybuf);
-    argv = sdssplitlen(c->querybuf,querylen," ",1,&argc);
+    aux = sdsnewlen(c->querybuf,querylen);
+    argv = sdssplitargs(aux,&argc);
+    sdsfree(aux);
 
     /* Leave data after the first line of the query in the buffer */
-    c->querybuf = sdsrange(c->querybuf,querylen+2,-1);
+    sdsrange(c->querybuf,querylen+2,-1);
 
     /* Setup argv array on client structure */
     if (c->argv) zfree(c->argv);
@@ -836,7 +895,7 @@ static void setProtocolError(redisClient *c, int pos) {
         sdsfree(client);
     }
     c->flags |= REDIS_CLOSE_AFTER_REPLY;
-    c->querybuf = sdsrange(c->querybuf,pos,-1);
+    sdsrange(c->querybuf,pos,-1);
 }
 
 int processMultibulkBuffer(redisClient *c) {
@@ -874,7 +933,7 @@ int processMultibulkBuffer(redisClient *c) {
 
         pos = (newline-c->querybuf)+2;
         if (ll <= 0) {
-            c->querybuf = sdsrange(c->querybuf,pos,-1);
+            sdsrange(c->querybuf,pos,-1);
             return REDIS_OK;
         }
 
@@ -923,7 +982,7 @@ int processMultibulkBuffer(redisClient *c) {
                  * try to make it likely that it will start at c->querybuf
                  * boundary so that we can optimized object creation
                  * avoiding a large copy of data. */
-                c->querybuf = sdsrange(c->querybuf,pos,-1);
+                sdsrange(c->querybuf,pos,-1);
                 pos = 0;
                 /* Hint the sds library about the amount of bytes this string is
                  * going to contain. */
@@ -937,7 +996,7 @@ int processMultibulkBuffer(redisClient *c) {
             /* Not enough data (+2 == trailing \r\n) */
             break;
         } else {
-            /* Optimization: if the buffer contanins JUST our bulk element
+            /* Optimization: if the buffer contains JUST our bulk element
              * instead of creating a new object by *copying* the sds we
              * just use the current sds string. */
             if (pos == 0 &&
@@ -962,7 +1021,7 @@ int processMultibulkBuffer(redisClient *c) {
     }
 
     /* Trim to pos */
-    if (pos) c->querybuf = sdsrange(c->querybuf,pos,-1);
+    if (pos) sdsrange(c->querybuf,pos,-1);
 
     /* We're done when c->multibulk == 0 */
     if (c->multibulklen == 0) return REDIS_OK;
@@ -1053,6 +1112,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (nread) {
         sdsIncrLen(c->querybuf,nread);
         c->lastinteraction = server.unixtime;
+        if (c->flags & REDIS_MASTER) c->reploff += nread;
     } else {
         server.current_client = NULL;
         return;
@@ -1089,14 +1149,52 @@ void getClientsMaxBuffers(unsigned long *longest_output_list,
     *biggest_input_buffer = bib;
 }
 
+/* This is an helper function for getClientPeerId().
+ * It writes the specified ip/port to "peerid" as a null termiated string
+ * in the form ip:port if ip does not contain ":" itself, otherwise
+ * [ip]:port format is used (for IPv6 addresses basically). */
+void formatPeerId(char *peerid, size_t peerid_len, char *ip, int port) {
+    if (strchr(ip,':'))
+        snprintf(peerid,peerid_len,"[%s]:%d",ip,port);
+    else
+        snprintf(peerid,peerid_len,"%s:%d",ip,port);
+}
+
+/* A Redis "Peer ID" is a colon separated ip:port pair.
+ * For IPv4 it's in the form x.y.z.k:pork, example: "127.0.0.1:1234".
+ * For IPv6 addresses we use [] around the IP part, like in "[::1]:1234".
+ * For Unix socekts we use path:0, like in "/tmp/redis:0".
+ *
+ * A Peer ID always fits inside a buffer of REDIS_PEER_ID_LEN bytes, including
+ * the null term.
+ *
+ * The function returns REDIS_OK on succcess, and REDIS_ERR on failure.
+ *
+ * On failure the function still populates 'peerid' with the "?:0" string
+ * in case you want to relax error checking or need to display something
+ * anyway (see anetPeerToString implementation for more info). */
+int getClientPeerId(redisClient *client, char *peerid, size_t peerid_len) {
+    char ip[REDIS_IP_STR_LEN];
+    int port;
+
+    if (client->flags & REDIS_UNIX_SOCKET) {
+        /* Unix socket client. */
+        snprintf(peerid,peerid_len,"%s:0",server.unixsocket);
+        return REDIS_OK;
+    } else {
+        /* TCP client. */
+        int retval = anetPeerToString(client->fd,ip,sizeof(ip),&port);
+        formatPeerId(peerid,peerid_len,ip,port);
+        return (retval == -1) ? REDIS_ERR : REDIS_OK;
+    }
+}
+
 /* Turn a Redis client into an sds string representing its state. */
 sds getClientInfoString(redisClient *client) {
-    char ip[32], flags[16], events[3], *p;
-    int port = 0; /* initialized to zero for the unix socket case. */
+    char peerid[REDIS_PEER_ID_LEN], flags[16], events[3], *p;
     int emask;
 
-    if (!(client->flags & REDIS_UNIX_SOCKET))
-        anetPeerToString(client->fd,ip,&port);
+    getClientPeerId(client,peerid,sizeof(peerid));
     p = flags;
     if (client->flags & REDIS_SLAVE) {
         if (client->flags & REDIS_MONITOR)
@@ -1121,9 +1219,10 @@ sds getClientInfoString(redisClient *client) {
     if (emask & AE_WRITABLE) *p++ = 'w';
     *p = '\0';
     return sdscatprintf(sdsempty(),
-        "addr=%s:%d fd=%d age=%ld idle=%ld flags=%s db=%d sub=%d psub=%d multi=%d qbuf=%lu qbuf-free=%lu obl=%lu oll=%lu omem=%lu events=%s cmd=%s",
-        (client->flags & REDIS_UNIX_SOCKET) ? server.unixsocket : ip,
-        port,client->fd,
+        "addr=%s fd=%d name=%s age=%ld idle=%ld flags=%s db=%d sub=%d psub=%d multi=%d qbuf=%lu qbuf-free=%lu obl=%lu oll=%lu omem=%lu events=%s cmd=%s",
+        peerid,
+        client->fd,
+        client->name ? (char*)client->name->ptr : "",
         (long)(server.unixtime - client->ctime),
         (long)(server.unixtime - client->lastinteraction),
         flags,
@@ -1171,13 +1270,12 @@ void clientCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"kill") && c->argc == 3) {
         listRewind(server.clients,&li);
         while ((ln = listNext(&li)) != NULL) {
-            char ip[32], addr[64];
-            int port;
+            char peerid[REDIS_PEER_ID_LEN];
 
             client = listNodeValue(ln);
-            if (anetPeerToString(client->fd,ip,&port) == -1) continue;
-            snprintf(addr,sizeof(addr),"%s:%d",ip,port);
-            if (strcmp(addr,c->argv[2]->ptr) == 0) {
+            if (getClientPeerId(client,peerid,sizeof(peerid)) == REDIS_ERR)
+                continue;
+            if (strcmp(peerid,c->argv[2]->ptr) == 0) {
                 addReply(c,shared.ok);
                 if (c == client) {
                     client->flags |= REDIS_CLOSE_AFTER_REPLY;
@@ -1188,8 +1286,41 @@ void clientCommand(redisClient *c) {
             }
         }
         addReplyError(c,"No such client");
+    } else if (!strcasecmp(c->argv[1]->ptr,"setname") && c->argc == 3) {
+        int j, len = sdslen(c->argv[2]->ptr);
+        char *p = c->argv[2]->ptr;
+
+        /* Setting the client name to an empty string actually removes
+         * the current name. */
+        if (len == 0) {
+            if (c->name) decrRefCount(c->name);
+            c->name = NULL;
+            addReply(c,shared.ok);
+            return;
+        }
+
+        /* Otherwise check if the charset is ok. We need to do this otherwise
+         * CLIENT LIST format will break. You should always be able to
+         * split by space to get the different fields. */
+        for (j = 0; j < len; j++) {
+            if (p[j] < '!' || p[j] > '~') { /* ASCII is assumed. */
+                addReplyError(c,
+                    "Client names cannot contain spaces, "
+                    "newlines or special characters.");
+                return;
+            }
+        }
+        if (c->name) decrRefCount(c->name);
+        c->name = c->argv[2];
+        incrRefCount(c->name);
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"getname") && c->argc == 2) {
+        if (c->name)
+            addReplyBulk(c,c->name);
+        else
+            addReply(c,shared.nullbulk);
     } else {
-        addReplyError(c, "Syntax error, try CLIENT (LIST | KILL ip:port)");
+        addReplyError(c, "Syntax error, try CLIENT (LIST | KILL ip:port | GETNAME | SETNAME connection-name)");
     }
 }
 
@@ -1218,7 +1349,7 @@ void rewriteClientCommandVector(redisClient *c, int argc, ...) {
     /* Replace argv and argc with our new versions. */
     c->argv = argv;
     c->argc = argc;
-    c->cmd = lookupCommand(c->argv[0]->ptr);
+    c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
     redisAssertWithInfo(c,NULL,c->cmd != NULL);
     va_end(ap);
 }
@@ -1236,7 +1367,7 @@ void rewriteClientCommandArgument(redisClient *c, int i, robj *newval) {
 
     /* If this is the command name make sure to fix c->cmd. */
     if (i == 0) {
-        c->cmd = lookupCommand(c->argv[0]->ptr);
+        c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
         redisAssertWithInfo(c,NULL,c->cmd != NULL);
     }
 }

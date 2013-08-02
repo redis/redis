@@ -32,8 +32,9 @@
 #include <signal.h>
 #include <ctype.h>
 
-void SlotToKeyAdd(robj *key);
-void SlotToKeyDel(robj *key);
+void slotToKeyAdd(robj *key);
+void slotToKeyDel(robj *key);
+void slotToKeyFlush(void);
 
 /*-----------------------------------------------------------------------------
  * C-level DB API
@@ -44,7 +45,7 @@ robj *lookupKey(redisDb *db, robj *key) {
     if (de) {
         robj *val = dictGetVal(de);
 
-        /* Update the access time for the aging algorithm.
+        /* Update the access time for the ageing algorithm.
          * Don't do it if we have a saving child, as this will trigger
          * a copy on write madness. */
         if (server.rdb_child_pid == -1 && server.aof_child_pid == -1)
@@ -85,7 +86,7 @@ robj *lookupKeyWriteOrReply(redisClient *c, robj *key, robj *reply) {
 }
 
 /* Add the key to the DB. It's up to the caller to increment the reference
- * counte of the value if needed.
+ * counter of the value if needed.
  *
  * The program is aborted if the key already exists. */
 void dbAdd(redisDb *db, robj *key, robj *val) {
@@ -93,7 +94,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
     int retval = dictAdd(db->dict, copy, val);
 
     redisAssertWithInfo(NULL,key,retval == REDIS_OK);
-    if (server.cluster_enabled) SlotToKeyAdd(key);
+    if (server.cluster_enabled) slotToKeyAdd(key);
  }
 
 /* Overwrite an existing key with a new value. Incrementing the reference
@@ -161,7 +162,7 @@ int dbDelete(redisDb *db, robj *key) {
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
     if (dictDelete(db->dict,key->ptr) == DICT_OK) {
-        if (server.cluster_enabled) SlotToKeyDel(key);
+        if (server.cluster_enabled) slotToKeyDel(key);
         return 1;
     } else {
         return 0;
@@ -177,6 +178,7 @@ long long emptyDb() {
         dictEmpty(server.db[j].dict);
         dictEmpty(server.db[j].expires);
     }
+    if (server.cluster_enabled) slotToKeyFlush();
     return removed;
 }
 
@@ -213,6 +215,7 @@ void flushdbCommand(redisClient *c) {
     signalFlushedDb(c->db->id);
     dictEmpty(c->db->dict);
     dictEmpty(c->db->expires);
+    if (server.cluster_enabled) slotToKeyFlush();
     addReply(c,shared.ok);
 }
 
@@ -221,7 +224,7 @@ void flushallCommand(redisClient *c) {
     server.dirty += emptyDb();
     addReply(c,shared.ok);
     if (server.rdb_child_pid != -1) {
-        kill(server.rdb_child_pid,SIGKILL);
+        kill(server.rdb_child_pid,SIGUSR1);
         rdbRemoveTempFile(server.rdb_child_pid);
     }
     if (server.saveparamslen > 0) {
@@ -240,6 +243,8 @@ void delCommand(redisClient *c) {
     for (j = 1; j < c->argc; j++) {
         if (dbDelete(c->db,c->argv[j])) {
             signalModifiedKey(c->db,c->argv[j]);
+            notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,
+                "del",c->argv[j],c->db->id);
             server.dirty++;
             deleted++;
         }
@@ -357,6 +362,12 @@ void shutdownCommand(redisClient *c) {
             return;
         }
     }
+    /* SHUTDOWN can be called even while the server is in "loading" state.
+     * When this happens we need to make sure no attempt is performed to save
+     * the dataset on shutdown (otherwise it could overwrite the current DB
+     * with half-read data). */
+    if (server.loading)
+        flags = (flags & ~REDIS_SHUTDOWN_SAVE) | REDIS_SHUTDOWN_NOSAVE;
     if (prepareForShutdown(flags) == REDIS_OK) exit(0);
     addReplyError(c,"Errors trying to SHUTDOWN. Check logs.");
 }
@@ -382,7 +393,8 @@ void renameGenericCommand(redisClient *c, int nx) {
             addReply(c,shared.czero);
             return;
         }
-        /* Overwrite: delete the old key before creating the new one with the same name. */
+        /* Overwrite: delete the old key before creating the new one
+         * with the same name. */
         dbDelete(c->db,c->argv[2]);
     }
     dbAdd(c->db,c->argv[2],o);
@@ -390,6 +402,10 @@ void renameGenericCommand(redisClient *c, int nx) {
     dbDelete(c->db,c->argv[1]);
     signalModifiedKey(c->db,c->argv[1]);
     signalModifiedKey(c->db,c->argv[2]);
+    notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"rename_from",
+        c->argv[1],c->db->id);
+    notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"rename_to",
+        c->argv[2],c->db->id);
     server.dirty++;
     addReply(c,nx ? shared.cone : shared.ok);
 }
@@ -504,8 +520,7 @@ void propagateExpire(redisDb *db, robj *key) {
 
     if (server.aof_state != REDIS_AOF_OFF)
         feedAppendOnlyFile(server.delCommand,db->id,argv,2);
-    if (listLength(server.slaves))
-        replicationFeedSlaves(server.slaves,db->id,argv,2);
+    replicationFeedSlaves(server.slaves,db->id,argv,2);
 
     decrRefCount(argv[0]);
     decrRefCount(argv[1]);
@@ -536,6 +551,8 @@ int expireIfNeeded(redisDb *db, robj *key) {
     /* Delete the key */
     server.stat_expiredkeys++;
     propagateExpire(db,key);
+    notifyKeyspaceEvent(REDIS_NOTIFY_EXPIRED,
+        "expired",key,db->id);
     return dbDelete(db,key);
 }
 
@@ -549,9 +566,8 @@ int expireIfNeeded(redisDb *db, robj *key) {
  * for *AT variants of the command, or the current time for relative expires).
  *
  * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
- * the argv[2] parameter. The basetime is always specified in milliesconds. */
+ * the argv[2] parameter. The basetime is always specified in milliseconds. */
 void expireGenericCommand(redisClient *c, long long basetime, int unit) {
-    dictEntry *de;
     robj *key = c->argv[1], *param = c->argv[2];
     long long when; /* unix time in milliseconds when the key will expire. */
 
@@ -561,11 +577,12 @@ void expireGenericCommand(redisClient *c, long long basetime, int unit) {
     if (unit == UNIT_SECONDS) when *= 1000;
     when += basetime;
 
-    de = dictFind(c->db->dict,key->ptr);
-    if (de == NULL) {
+    /* No key, return zero. */
+    if (lookupKeyRead(c->db,key) == NULL) {
         addReply(c,shared.czero);
         return;
     }
+
     /* EXPIRE with negative TTL, or EXPIREAT with a timestamp into the past
      * should never be executed as a DEL when load the AOF or in the context
      * of a slave instance.
@@ -583,12 +600,14 @@ void expireGenericCommand(redisClient *c, long long basetime, int unit) {
         rewriteClientCommandVector(c,2,aux,key);
         decrRefCount(aux);
         signalModifiedKey(c->db,key);
+        notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",key,c->db->id);
         addReply(c, shared.cone);
         return;
     } else {
         setExpire(c->db,key,when);
         addReply(c,shared.cone);
         signalModifiedKey(c->db,key);
+        notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"expire",key,c->db->id);
         server.dirty++;
         return;
     }
@@ -613,17 +632,17 @@ void pexpireatCommand(redisClient *c) {
 void ttlGenericCommand(redisClient *c, int output_ms) {
     long long expire, ttl = -1;
 
-    expire = getExpire(c->db,c->argv[1]);
     /* If the key does not exist at all, return -2 */
-    if (expire == -1 && lookupKeyRead(c->db,c->argv[1]) == NULL) {
+    if (lookupKeyRead(c->db,c->argv[1]) == NULL) {
         addReplyLongLong(c,-2);
         return;
     }
     /* The key exists. Return -1 if it has no expire, or the actual
      * TTL value otherwise. */
+    expire = getExpire(c->db,c->argv[1]);
     if (expire != -1) {
         ttl = expire-mstime();
-        if (ttl < 0) ttl = -1;
+        if (ttl < 0) ttl = 0;
     }
     if (ttl == -1) {
         addReplyLongLong(c,-1);
@@ -732,20 +751,25 @@ int *zunionInterGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *num
 /* Slot to Key API. This is used by Redis Cluster in order to obtain in
  * a fast way a key that belongs to a specified hash slot. This is useful
  * while rehashing the cluster. */
-void SlotToKeyAdd(robj *key) {
+void slotToKeyAdd(robj *key) {
     unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
 
-    zslInsert(server.cluster.slots_to_keys,hashslot,key);
+    zslInsert(server.cluster->slots_to_keys,hashslot,key);
     incrRefCount(key);
 }
 
-void SlotToKeyDel(robj *key) {
+void slotToKeyDel(robj *key) {
     unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
 
-    zslDelete(server.cluster.slots_to_keys,hashslot,key);
+    zslDelete(server.cluster->slots_to_keys,hashslot,key);
 }
 
-unsigned int GetKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count) {
+void slotToKeyFlush(void) {
+    zslFree(server.cluster->slots_to_keys);
+    server.cluster->slots_to_keys = zslCreate();
+}
+
+unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count) {
     zskiplistNode *n;
     zrangespec range;
     int j = 0;
@@ -753,10 +777,39 @@ unsigned int GetKeysInSlot(unsigned int hashslot, robj **keys, unsigned int coun
     range.min = range.max = hashslot;
     range.minex = range.maxex = 0;
     
-    n = zslFirstInRange(server.cluster.slots_to_keys, range);
+    n = zslFirstInRange(server.cluster->slots_to_keys, range);
     while(n && n->score == hashslot && count--) {
         keys[j++] = n->obj;
         n = n->level[0].forward;
     }
     return j;
+}
+
+unsigned int countKeysInSlot(unsigned int hashslot) {
+    zskiplist *zsl = server.cluster->slots_to_keys;
+    zskiplistNode *zn;
+    zrangespec range;
+    int rank, count = 0;
+
+    range.min = range.max = hashslot;
+    range.minex = range.maxex = 0;
+
+    /* Find first element in range */
+    zn = zslFirstInRange(zsl, range);
+
+    /* Use rank of first element, if any, to determine preliminary count */
+    if (zn != NULL) {
+        rank = zslGetRank(zsl, zn->score, zn->obj);
+        count = (zsl->length - (rank - 1));
+
+        /* Find last element in range */
+        zn = zslLastInRange(zsl, range);
+
+        /* Use rank of last element, if any, to determine the actual count */
+        if (zn != NULL) {
+            rank = zslGetRank(zsl, zn->score, zn->obj);
+            count -= (zsl->length - rank);
+        }
+    }
+    return count;
 }

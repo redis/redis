@@ -115,6 +115,10 @@ proc ::redis::__method__channel {id fd} {
     return $fd
 }
 
+proc ::redis::__method__deferred {id fd val} {
+    set ::redis::deferred($id) $val
+}
+
 proc ::redis::redis_write {fd buf} {
     puts -nonewline $fd $buf
 }

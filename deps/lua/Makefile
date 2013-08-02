@@ -48,7 +48,7 @@ TO_MAN= lua.1 luac.1
 
 # Lua version and release.
 V= 5.1
-R= 5.1.4
+R= 5.1.5
 
 all:	$(PLAT)
 

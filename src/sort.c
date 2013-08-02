@@ -45,7 +45,7 @@ redisSortOperation *createSortOperation(int type, robj *pattern) {
 /* Return the value associated to the key with a name obtained using
  * the following rules:
  *
- * 1) The first occurence of '*' in 'pattern' is substituted with 'subst'.
+ * 1) The first occurrence of '*' in 'pattern' is substituted with 'subst'.
  *
  * 2) If 'pattern' matches the "->" string, everything on the left of
  *    the arrow is treated as the name of an hash field, and the part on the
@@ -147,7 +147,7 @@ int sortCompare(const void *s1, const void *s2) {
             cmp = -1;
         } else {
             /* Objects have the same score, but we don't want the comparison
-             * to be undefined, so we compare objects lexicographycally.
+             * to be undefined, so we compare objects lexicographically.
              * This way the result of SORT is deterministic. */
             cmp = compareStringObjects(so1->obj,so2->obj);
         }
@@ -163,12 +163,22 @@ int sortCompare(const void *s1, const void *s2) {
                 else
                     cmp = 1;
             } else {
-                /* We have both the objects, use strcoll */
-                cmp = strcoll(so1->u.cmpobj->ptr,so2->u.cmpobj->ptr);
+                /* We have both the objects, compare them. */
+                if (server.sort_store) {
+                    cmp = compareStringObjects(so1->u.cmpobj,so2->u.cmpobj);
+                } else {
+                    /* Here we can use strcoll() directly as we are sure that
+                     * the objects are decoded string objects. */
+                    cmp = strcoll(so1->u.cmpobj->ptr,so2->u.cmpobj->ptr);
+                }
             }
         } else {
             /* Compare elements directly. */
-            cmp = compareStringObjects(so1->obj,so2->obj);
+            if (server.sort_store) {
+                cmp = compareStringObjects(so1->obj,so2->obj);
+            } else {
+                cmp = collateStringObjects(so1->obj,so2->obj);
+            }
         }
     }
     return server.sort_desc ? -cmp : cmp;
@@ -205,7 +215,7 @@ void sortCommand(redisClient *c) {
 
     /* Now we need to protect sortval incrementing its count, in the future
      * SORT may have options able to overwrite/delete keys during the sorting
-     * and the sorted key itself may get destroied */
+     * and the sorted key itself may get destroyed */
     if (sortval)
         incrRefCount(sortval);
     else
@@ -401,7 +411,7 @@ void sortCommand(redisClient *c) {
             if (alpha) {
                 if (sortby) vector[j].u.cmpobj = getDecodedObject(byval);
             } else {
-                if (byval->encoding == REDIS_ENCODING_RAW) {
+                if (sdsEncodedObject(byval)) {
                     char *eptr;
 
                     vector[j].u.score = strtod(byval->ptr,&eptr);
@@ -432,6 +442,7 @@ void sortCommand(redisClient *c) {
         server.sort_desc = desc;
         server.sort_alpha = alpha;
         server.sort_bypattern = sortby ? 1 : 0;
+        server.sort_store = storekey ? 1 : 0;
         if (sortby && (start != 0 || end != vectorlen-1))
             pqsort(vector,vectorlen,sizeof(redisSortObject),sortCompare, start,end);
         else
@@ -504,9 +515,12 @@ void sortCommand(redisClient *c) {
         }
         if (outputlen) {
             setKey(c->db,storekey,sobj);
+            notifyKeyspaceEvent(REDIS_NOTIFY_LIST,"sortstore",storekey,
+                                c->db->id);
             server.dirty += outputlen;
         } else if (dbDelete(c->db,storekey)) {
             signalModifiedKey(c->db,storekey);
+            notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",storekey,c->db->id);
             server.dirty++;
         }
         decrRefCount(sobj);
@@ -525,5 +539,3 @@ void sortCommand(redisClient *c) {
     }
     zfree(vector);
 }
-
-
