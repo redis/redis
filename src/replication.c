@@ -383,6 +383,11 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
             goto error;
         }
         server.repl_transfer_size = strtol(buf+1,NULL,10);
+        if (server.repl_transfer_size < server.repl_min_transfer_size) {
+            redisLog(REDIS_WARNING,"Bad RDB from MASTER, the transfer size of %ld is less than minimum allowed %ld bytes",
+                server.repl_transfer_size, server.repl_min_transfer_size);
+            goto error;
+        }
         redisLog(REDIS_NOTICE,
             "MASTER <-> SLAVE sync: receiving %ld bytes from master",
             server.repl_transfer_size);
