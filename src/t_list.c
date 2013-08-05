@@ -295,7 +295,7 @@ void listTypeConvert(robj *subject, int enc) {
  *----------------------------------------------------------------------------*/
 
 void pushGenericCommand(redisClient *c, int where) {
-    int j, waiting = 0, pushed = 0;
+    int j, pushed = 0;
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
     int may_have_waiting_clients = (lobj == NULL);
 
@@ -315,7 +315,7 @@ void pushGenericCommand(redisClient *c, int where) {
         listTypePush(lobj,c->argv[j],where);
         pushed++;
     }
-    addReplyLongLong(c, waiting + (lobj ? listTypeLength(lobj) : 0));
+    addReplyLongLong(c, (lobj ? listTypeLength(lobj) : 0));
     if (pushed) {
         char *event = (where == REDIS_HEAD) ? "lpush" : "rpush";
 
