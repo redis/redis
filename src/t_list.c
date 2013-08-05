@@ -334,19 +334,25 @@ void rpushCommand(redisClient *c) {
 }
 
 void pushxGenericCommand(redisClient *c, int where) {
+    int j, pushed = 0;
     robj *subject;
 
     if ((subject = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,subject,REDIS_LIST)) return;
 
-    char *event = (where == REDIS_HEAD) ? "lpush" : "rpush";
-    c->argv[2] = tryObjectEncoding(c->argv[2]);
-    listTypePush(subject,c->argv[2],where);
-    signalModifiedKey(c->db,c->argv[1]);
-    notifyKeyspaceEvent(REDIS_NOTIFY_LIST,event,c->argv[1],c->db->id);
-    server.dirty++;
-
+    for (j = 2; j < c->argc; j++) {
+        c->argv[j] = tryObjectEncoding(c->argv[j]);
+        listTypePush(subject,c->argv[j],where);
+        pushed++;
+    }
     addReplyLongLong(c,listTypeLength(subject));
+
+    if (pushed) {
+        char *event = (where == REDIS_HEAD) ? "lpush" : "rpush";
+        signalModifiedKey(c->db,c->argv[1]);
+        notifyKeyspaceEvent(REDIS_NOTIFY_LIST,event,c->argv[1],c->db->id);
+    }
+    server.dirty += pushed;
 }
 
 void lpushxCommand(redisClient *c) {
@@ -1026,7 +1032,7 @@ void handleClientsBlockedOnLists(void) {
                         }
                     }
                 }
-                
+
                 if (listTypeLength(o) == 0) dbDelete(rl->db,rl->key);
                 /* We don't call signalModifiedKey() as it was already called
                  * when an element was pushed on the list. */
