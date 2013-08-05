@@ -74,7 +74,7 @@
 #define REDIS_MAXIDLETIME       0       /* default client timeout: infinite */
 #define REDIS_DEFAULT_DBNUM     16
 #define REDIS_CONFIGLINE_MAX    1024
-#define REDIS_EXPIRELOOKUPS_PER_CRON    10 /* lookup 10 expires per loop */
+#define REDIS_EXPIRELOOKUPS_PER_CRON   20 /* lookup 20 expires per loop */
 #define REDIS_EXPIRELOOKUPS_TIME_PERC   25 /* CPU max % for keys collection */
 #define REDIS_DBCRON_DBS_PER_CALL 16
 #define REDIS_MAX_WRITE_PER_EVENT (1024*64)
@@ -744,7 +744,8 @@ struct redisServer {
     size_t set_max_intset_entries;
     size_t zset_max_ziplist_entries;
     size_t zset_max_ziplist_value;
-    time_t unixtime;        /* Unix time sampled every second. */
+    time_t unixtime;        /* Unix time sampled every cron cycle. */
+    long long mstime;       /* Like 'unixtime' but with milliseconds resolution. */
     /* Pubsub */
     dict *pubsub_channels;  /* Map channels to list of subscribed clients */
     list *pubsub_patterns;  /* A list of pubsub_patterns */
