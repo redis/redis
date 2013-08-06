@@ -518,6 +518,11 @@ start_server {
             # check inserting integer encoded value
             assert_equal 9 [r linsert xlist before aa 42]
             assert_equal 42 [r lrange xlist 0 0]
+
+            # check linsert is variadic
+            assert_equal 12 [r linsert xlist before zz foo 42 bar]
+            assert_equal 14 [r linsert xlist after d x y]
+            assert_equal "42 aa a $large foo 42 bar zz c yy d x y dd" [r lrange xlist 0 15]
         }
     }
 
