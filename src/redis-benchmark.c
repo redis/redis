@@ -204,10 +204,16 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                 freeReplyObject(reply);
 
                 if (c->selectlen) {
+                    int j;
+
                     /* This is the OK from SELECT. Just discard the SELECT
                      * from the buffer. */
                     c->pending--;
                     sdsrange(c->obuf,c->selectlen,-1);
+                    /* We also need to fix the pointers to the strings
+                     * we need to randomize. */
+                    for (j = 0; j < c->randlen; j++)
+                        c->randptr[j] -= c->selectlen;
                     c->selectlen = 0;
                     continue;
                 }
