@@ -648,33 +648,37 @@ int activeExpireCycleTryExpire(redisDb *db, struct dictEntry *de, long long now)
  * No more than REDIS_DBCRON_DBS_PER_CALL databases are tested at every
  * iteration.
  *
- * If fast is non-zero the function will try to run a "fast" expire cycle that
- * takes no longer than EXPIRE_FAST_CYCLE_DURATION microseconds, and is not
- * repeated again before the same amount of time.
- *
  * This kind of call is used when Redis detects that timelimit_exit is
  * true, so there is more work to do, and we do it more incrementally from
- * the beforeSleep() function of the event loop. */
+ * the beforeSleep() function of the event loop.
+ *
+ * Expire cycle type:
+ *
+ * If type is ACTIVE_EXPIRE_CYCLE_FAST the function will try to run a
+ * "fast" expire cycle that takes no longer than EXPIRE_FAST_CYCLE_DURATION
+ * microseconds, and is not repeated again before the same amount of time.
+ *
+ * If type is ACTIVE_EXPIRE_CYCLE_SLOW, that normal expire cycle is
+ * executed, where the time limit is a percentage of the REDIS_HZ period
+ * as specified by the REDIS_EXPIRELOOKUPS_TIME_PERC define. */
 
-#define EXPIRE_FAST_CYCLE_DURATION 1000
-
-void activeExpireCycle(int fast) {
+void activeExpireCycle(int type) {
     /* This function has some global state in order to continue the work
      * incrementally across calls. */
     static unsigned int current_db = 0; /* Last DB tested. */
     static int timelimit_exit = 0;      /* Time limit hit in previous call? */
+    static long long last_fast_cycle = 0; /* When last fast cycle ran. */
 
     unsigned int j, iteration = 0;
     unsigned int dbs_per_call = REDIS_DBCRON_DBS_PER_CALL;
     long long start = ustime(), timelimit;
-    static long long last_fast_cycle = 0;
 
-    if (fast) {
+    if (type == ACTIVE_EXPIRE_CYCLE_FAST) {
         /* Don't start a fast cycle if the previous cycle did not exited
          * for time limt. Also don't repeat a fast cycle for the same period
          * as the fast cycle total duration itself. */
         if (!timelimit_exit) return;
-        if (start < last_fast_cycle + EXPIRE_FAST_CYCLE_DURATION) return;
+        if (start < last_fast_cycle + ACTIVE_EXPIRE_CYCLE_FAST_DURATION) return;
         last_fast_cycle = start;
     }
 
@@ -688,15 +692,16 @@ void activeExpireCycle(int fast) {
     if (dbs_per_call > server.dbnum || timelimit_exit)
         dbs_per_call = server.dbnum;
 
-    /* We can use at max REDIS_EXPIRELOOKUPS_TIME_PERC percentage of CPU time
+    /* We can use at max ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC percentage of CPU time
      * per iteration. Since this function gets called with a frequency of
      * server.hz times per second, the following is the max amount of
      * microseconds we can spend in this function. */
-    timelimit = 1000000*REDIS_EXPIRELOOKUPS_TIME_PERC/server.hz/100;
+    timelimit = 1000000*ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC/server.hz/100;
     timelimit_exit = 0;
     if (timelimit <= 0) timelimit = 1;
 
-    if (fast) timelimit = EXPIRE_FAST_CYCLE_DURATION; /* in microseconds. */
+    if (type == ACTIVE_EXPIRE_CYCLE_FAST)
+        timelimit = ACTIVE_EXPIRE_CYCLE_FAST_DURATION; /* in microseconds. */
 
     for (j = 0; j < dbs_per_call; j++) {
         int expired;
@@ -727,8 +732,8 @@ void activeExpireCycle(int fast) {
             /* The main collection cycle. Sample random keys among keys
              * with an expire set, checking for expired ones. */
             expired = 0;
-            if (num > REDIS_EXPIRELOOKUPS_PER_CRON)
-                num = REDIS_EXPIRELOOKUPS_PER_CRON;
+            if (num > ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP)
+                num = ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP;
             while (num--) {
                 dictEntry *de;
 
@@ -745,7 +750,9 @@ void activeExpireCycle(int fast) {
                 timelimit_exit = 1;
             }
             if (timelimit_exit) return;
-        } while (expired > REDIS_EXPIRELOOKUPS_PER_CRON/4);
+            /* We don't repeat the cycle if there are less than 25% of keys
+             * found expired in the current DB. */
+        } while (expired > ACTIVE_EXPIRE_CYCLE_LOOKUPS_PER_LOOP/4);
     }
 }
 
@@ -865,7 +872,7 @@ void databasesCron(void) {
     /* Expire keys by random sampling. Not required for slaves
      * as master will synthesize DELs for us. */
     if (server.active_expire_enabled && server.masterhost == NULL)
-        activeExpireCycle(0);
+        activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW);
 
     /* Perform hash tables rehashing if needed, but only if there are no
      * other processes saving the DB on disk. Otherwise rehashing is bad
@@ -1098,7 +1105,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     redisClient *c;
 
     /* Run a fast expire cycle. */
-    activeExpireCycle(1);
+    activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
 
     /* Try to process pending commands for clients that were just unblocked. */
     while (listLength(server.unblocked_clients)) {
