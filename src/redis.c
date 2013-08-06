@@ -695,7 +695,7 @@ void activeExpireCycle(int type) {
          * for time limt. Also don't repeat a fast cycle for the same period
          * as the fast cycle total duration itself. */
         if (!timelimit_exit) return;
-        if (start < last_fast_cycle + ACTIVE_EXPIRE_CYCLE_FAST_DURATION) return;
+        if (start < last_fast_cycle + ACTIVE_EXPIRE_CYCLE_FAST_DURATION*2) return;
         last_fast_cycle = start;
     }
 
