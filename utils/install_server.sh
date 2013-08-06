@@ -125,12 +125,16 @@ s#^daemonize no\$#daemonize yes#;"
 echo $SED_EXPR
 sed -r "$SED_EXPR" $DEFAULT_CONFIG  >> $TMP_FILE
 
-#cat $TPL_FILE | while read line; do eval "echo \"$line\"" >> $TMP_FILE; done
-cp -f $TMP_FILE $REDIS_CONFIG_FILE || exit 1
-
-#Generate sample script from template file
+cp -f $TMP_FILE $REDIS_CONFIG_FILE.default || exit 1
+if [ ! -f ${REDIS_CONFIG_FILE} ]
+then
+	cp -f ${TMP_FILE} ${REDIS_CONFIG_FILE}
+fi
 rm -f $TMP_FILE
 
+###
+# Generate sample script from template file
+###
 # Refactor this code:
 # - No need to check which system we are on. The init info are comments and
 #   do not interfere with update_rc.d systems. Additionally:
