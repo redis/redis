@@ -29,6 +29,7 @@
 
 #include "redis.h"
 #include <sys/uio.h>
+#include <math.h>
 
 static void setProtocolError(redisClient *c, int pos);
 
@@ -38,6 +39,17 @@ static void setProtocolError(redisClient *c, int pos);
  * returned pointer), so we use this helper function. */
 size_t zmalloc_size_sds(sds s) {
     return zmalloc_size(s-sizeof(struct sdshdr));
+}
+
+/* Return the amount of memory used by the sds string at object->ptr
+ * for a string object. */
+size_t getStringObjectSdsUsedMemory(robj *o) {
+    redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
+    switch(o->encoding) {
+    case REDIS_ENCODING_RAW: return zmalloc_size_sds(o->ptr);
+    case REDIS_ENCODING_EMBSTR: return sdslen(o->ptr);
+    default: return 0; /* Just integer encoding for now. */
+    }
 }
 
 void *dupClientReplyValue(void *o) {
@@ -183,12 +195,13 @@ void _addReplyObjectToList(redisClient *c, robj *o) {
     if (listLength(c->reply) == 0) {
         incrRefCount(o);
         listAddNodeTail(c->reply,o);
-        c->reply_bytes += zmalloc_size_sds(o->ptr);
+        c->reply_bytes += getStringObjectSdsUsedMemory(o);
     } else {
         tail = listNodeValue(listLast(c->reply));
 
         /* Append to this object when possible. */
         if (tail->ptr != NULL &&
+            tail->encoding == REDIS_ENCODING_RAW &&
             sdslen(tail->ptr)+sdslen(o->ptr) <= REDIS_REPLY_CHUNK_BYTES)
         {
             c->reply_bytes -= zmalloc_size_sds(tail->ptr);
@@ -198,7 +211,7 @@ void _addReplyObjectToList(redisClient *c, robj *o) {
         } else {
             incrRefCount(o);
             listAddNodeTail(c->reply,o);
-            c->reply_bytes += zmalloc_size_sds(o->ptr);
+            c->reply_bytes += getStringObjectSdsUsedMemory(o);
         }
     }
     asyncCloseClientOnOutputBufferLimitReached(c);
@@ -221,7 +234,7 @@ void _addReplySdsToList(redisClient *c, sds s) {
         tail = listNodeValue(listLast(c->reply));
 
         /* Append to this object when possible. */
-        if (tail->ptr != NULL &&
+        if (tail->ptr != NULL && tail->encoding == REDIS_ENCODING_RAW &&
             sdslen(tail->ptr)+sdslen(s) <= REDIS_REPLY_CHUNK_BYTES)
         {
             c->reply_bytes -= zmalloc_size_sds(tail->ptr);
@@ -246,12 +259,12 @@ void _addReplyStringToList(redisClient *c, char *s, size_t len) {
         robj *o = createStringObject(s,len);
 
         listAddNodeTail(c->reply,o);
-        c->reply_bytes += zmalloc_size_sds(o->ptr);
+        c->reply_bytes += getStringObjectSdsUsedMemory(o);
     } else {
         tail = listNodeValue(listLast(c->reply));
 
         /* Append to this object when possible. */
-        if (tail->ptr != NULL &&
+        if (tail->ptr != NULL && tail->encoding == REDIS_ENCODING_RAW &&
             sdslen(tail->ptr)+len <= REDIS_REPLY_CHUNK_BYTES)
         {
             c->reply_bytes -= zmalloc_size_sds(tail->ptr);
@@ -262,7 +275,7 @@ void _addReplyStringToList(redisClient *c, char *s, size_t len) {
             robj *o = createStringObject(s,len);
 
             listAddNodeTail(c->reply,o);
-            c->reply_bytes += zmalloc_size_sds(o->ptr);
+            c->reply_bytes += getStringObjectSdsUsedMemory(o);
         }
     }
     asyncCloseClientOnOutputBufferLimitReached(c);
@@ -283,7 +296,7 @@ void addReply(redisClient *c, robj *obj) {
      * If the encoding is RAW and there is room in the static buffer
      * we'll be able to send the object to the client without
      * messing with its page. */
-    if (obj->encoding == REDIS_ENCODING_RAW) {
+    if (sdsEncodedObject(obj)) {
         if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != REDIS_OK)
             _addReplyObjectToList(c,obj);
     } else if (obj->encoding == REDIS_ENCODING_INT) {
@@ -395,6 +408,7 @@ void setDeferredMultiBulkLength(redisClient *c, void *node, long length) {
 
     len = listNodeValue(ln);
     len->ptr = sdscatprintf(sdsempty(),"*%ld\r\n",length);
+    len->encoding = REDIS_ENCODING_RAW; /* in case it was an EMBSTR. */
     c->reply_bytes += zmalloc_size_sds(len->ptr);
     if (ln->next != NULL) {
         next = listNodeValue(ln->next);
@@ -402,7 +416,7 @@ void setDeferredMultiBulkLength(redisClient *c, void *node, long length) {
         /* Only glue when the next node is non-NULL (an sds in this case) */
         if (next->ptr != NULL) {
             c->reply_bytes -= zmalloc_size_sds(len->ptr);
-            c->reply_bytes -= zmalloc_size_sds(next->ptr);
+            c->reply_bytes -= getStringObjectSdsUsedMemory(next);
             len->ptr = sdscatlen(len->ptr,next->ptr,sdslen(next->ptr));
             c->reply_bytes += zmalloc_size_sds(len->ptr);
             listDelNode(c->reply,ln->next);
@@ -415,9 +429,15 @@ void setDeferredMultiBulkLength(redisClient *c, void *node, long length) {
 void addReplyDouble(redisClient *c, double d) {
     char dbuf[128], sbuf[128];
     int dlen, slen;
-    dlen = snprintf(dbuf,sizeof(dbuf),"%.17g",d);
-    slen = snprintf(sbuf,sizeof(sbuf),"$%d\r\n%s\r\n",dlen,dbuf);
-    addReplyString(c,sbuf,slen);
+    if (isinf(d)) {
+        /* Libc in odd systems (Hi Solaris!) will format infinite in a
+         * different way, so better to handle it in an explicit way. */
+        addReplyBulkCString(c, d > 0 ? "inf" : "-inf");
+    } else {
+        dlen = snprintf(dbuf,sizeof(dbuf),"%.17g",d);
+        slen = snprintf(sbuf,sizeof(sbuf),"$%d\r\n%s\r\n",dlen,dbuf);
+        addReplyString(c,sbuf,slen);
+    }
 }
 
 /* Add a long long as integer reply or bulk len / multi bulk count.
@@ -461,7 +481,7 @@ void addReplyMultiBulkLen(redisClient *c, long length) {
 void addReplyBulkLen(redisClient *c, robj *obj) {
     size_t len;
 
-    if (obj->encoding == REDIS_ENCODING_RAW) {
+    if (sdsEncodedObject(obj)) {
         len = sdslen(obj->ptr);
     } else {
         long n = (long)obj->ptr;
@@ -552,12 +572,12 @@ static void acceptCommonHandler(int fd, int flags) {
 
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
-    char cip[128];
+    char cip[REDIS_IP_STR_LEN];
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
 
-    cfd = anetTcpAccept(server.neterr, fd, cip, &cport);
+    cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
     if (cfd == AE_ERR) {
         redisLog(REDIS_WARNING,"Accepting client connection: %s", server.neterr);
         return;
@@ -758,10 +778,11 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         } else {
             o = listNodeValue(listFirst(c->reply));
             objlen = sdslen(o->ptr);
-            objmem = zmalloc_size_sds(o->ptr);
+            objmem = getStringObjectSdsUsedMemory(o);
 
             if (objlen == 0) {
                 listDelNode(c->reply,listFirst(c->reply));
+                c->reply_bytes -= objmem;
                 continue;
             }
 
@@ -826,7 +847,7 @@ void resetClient(redisClient *c) {
 int processInlineBuffer(redisClient *c) {
     char *newline = strstr(c->querybuf,"\r\n");
     int argc, j;
-    sds *argv;
+    sds *argv, aux;
     size_t querylen;
 
     /* Nothing to do without a \r\n */
@@ -840,10 +861,12 @@ int processInlineBuffer(redisClient *c) {
 
     /* Split the input buffer up to the \r\n */
     querylen = newline-(c->querybuf);
-    argv = sdssplitlen(c->querybuf,querylen," ",1,&argc);
+    aux = sdsnewlen(c->querybuf,querylen);
+    argv = sdssplitargs(aux,&argc);
+    sdsfree(aux);
 
     /* Leave data after the first line of the query in the buffer */
-    c->querybuf = sdsrange(c->querybuf,querylen+2,-1);
+    sdsrange(c->querybuf,querylen+2,-1);
 
     /* Setup argv array on client structure */
     if (c->argv) zfree(c->argv);
@@ -872,7 +895,7 @@ static void setProtocolError(redisClient *c, int pos) {
         sdsfree(client);
     }
     c->flags |= REDIS_CLOSE_AFTER_REPLY;
-    c->querybuf = sdsrange(c->querybuf,pos,-1);
+    sdsrange(c->querybuf,pos,-1);
 }
 
 int processMultibulkBuffer(redisClient *c) {
@@ -910,7 +933,7 @@ int processMultibulkBuffer(redisClient *c) {
 
         pos = (newline-c->querybuf)+2;
         if (ll <= 0) {
-            c->querybuf = sdsrange(c->querybuf,pos,-1);
+            sdsrange(c->querybuf,pos,-1);
             return REDIS_OK;
         }
 
@@ -959,7 +982,7 @@ int processMultibulkBuffer(redisClient *c) {
                  * try to make it likely that it will start at c->querybuf
                  * boundary so that we can optimized object creation
                  * avoiding a large copy of data. */
-                c->querybuf = sdsrange(c->querybuf,pos,-1);
+                sdsrange(c->querybuf,pos,-1);
                 pos = 0;
                 /* Hint the sds library about the amount of bytes this string is
                  * going to contain. */
@@ -998,7 +1021,7 @@ int processMultibulkBuffer(redisClient *c) {
     }
 
     /* Trim to pos */
-    if (pos) c->querybuf = sdsrange(c->querybuf,pos,-1);
+    if (pos) sdsrange(c->querybuf,pos,-1);
 
     /* We're done when c->multibulk == 0 */
     if (c->multibulklen == 0) return REDIS_OK;
@@ -1126,14 +1149,52 @@ void getClientsMaxBuffers(unsigned long *longest_output_list,
     *biggest_input_buffer = bib;
 }
 
+/* This is an helper function for getClientPeerId().
+ * It writes the specified ip/port to "peerid" as a null termiated string
+ * in the form ip:port if ip does not contain ":" itself, otherwise
+ * [ip]:port format is used (for IPv6 addresses basically). */
+void formatPeerId(char *peerid, size_t peerid_len, char *ip, int port) {
+    if (strchr(ip,':'))
+        snprintf(peerid,peerid_len,"[%s]:%d",ip,port);
+    else
+        snprintf(peerid,peerid_len,"%s:%d",ip,port);
+}
+
+/* A Redis "Peer ID" is a colon separated ip:port pair.
+ * For IPv4 it's in the form x.y.z.k:pork, example: "127.0.0.1:1234".
+ * For IPv6 addresses we use [] around the IP part, like in "[::1]:1234".
+ * For Unix socekts we use path:0, like in "/tmp/redis:0".
+ *
+ * A Peer ID always fits inside a buffer of REDIS_PEER_ID_LEN bytes, including
+ * the null term.
+ *
+ * The function returns REDIS_OK on succcess, and REDIS_ERR on failure.
+ *
+ * On failure the function still populates 'peerid' with the "?:0" string
+ * in case you want to relax error checking or need to display something
+ * anyway (see anetPeerToString implementation for more info). */
+int getClientPeerId(redisClient *client, char *peerid, size_t peerid_len) {
+    char ip[REDIS_IP_STR_LEN];
+    int port;
+
+    if (client->flags & REDIS_UNIX_SOCKET) {
+        /* Unix socket client. */
+        snprintf(peerid,peerid_len,"%s:0",server.unixsocket);
+        return REDIS_OK;
+    } else {
+        /* TCP client. */
+        int retval = anetPeerToString(client->fd,ip,sizeof(ip),&port);
+        formatPeerId(peerid,peerid_len,ip,port);
+        return (retval == -1) ? REDIS_ERR : REDIS_OK;
+    }
+}
+
 /* Turn a Redis client into an sds string representing its state. */
 sds getClientInfoString(redisClient *client) {
-    char ip[32], flags[16], events[3], *p;
-    int port = 0; /* initialized to zero for the unix socket case. */
+    char peerid[REDIS_PEER_ID_LEN], flags[16], events[3], *p;
     int emask;
 
-    if (!(client->flags & REDIS_UNIX_SOCKET))
-        anetPeerToString(client->fd,ip,&port);
+    getClientPeerId(client,peerid,sizeof(peerid));
     p = flags;
     if (client->flags & REDIS_SLAVE) {
         if (client->flags & REDIS_MONITOR)
@@ -1158,9 +1219,8 @@ sds getClientInfoString(redisClient *client) {
     if (emask & AE_WRITABLE) *p++ = 'w';
     *p = '\0';
     return sdscatprintf(sdsempty(),
-        "addr=%s:%d fd=%d name=%s age=%ld idle=%ld flags=%s db=%d sub=%d psub=%d multi=%d qbuf=%lu qbuf-free=%lu obl=%lu oll=%lu omem=%lu events=%s cmd=%s",
-        (client->flags & REDIS_UNIX_SOCKET) ? server.unixsocket : ip,
-        port,
+        "addr=%s fd=%d name=%s age=%ld idle=%ld flags=%s db=%d sub=%d psub=%d multi=%d qbuf=%lu qbuf-free=%lu obl=%lu oll=%lu omem=%lu events=%s cmd=%s",
+        peerid,
         client->fd,
         client->name ? (char*)client->name->ptr : "",
         (long)(server.unixtime - client->ctime),
@@ -1210,13 +1270,12 @@ void clientCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"kill") && c->argc == 3) {
         listRewind(server.clients,&li);
         while ((ln = listNext(&li)) != NULL) {
-            char ip[32], addr[64];
-            int port;
+            char peerid[REDIS_PEER_ID_LEN];
 
             client = listNodeValue(ln);
-            if (anetPeerToString(client->fd,ip,&port) == -1) continue;
-            snprintf(addr,sizeof(addr),"%s:%d",ip,port);
-            if (strcmp(addr,c->argv[2]->ptr) == 0) {
+            if (getClientPeerId(client,peerid,sizeof(peerid)) == REDIS_ERR)
+                continue;
+            if (strcmp(peerid,c->argv[2]->ptr) == 0) {
                 addReply(c,shared.ok);
                 if (c == client) {
                     client->flags |= REDIS_CLOSE_AFTER_REPLY;

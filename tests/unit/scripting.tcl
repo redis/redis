@@ -281,6 +281,23 @@ start_server {tags {"scripting"}} {
         assert_equal $rand1 $rand2
         assert {$rand2 ne $rand3}
     }
+
+    test {EVAL processes writes from AOF in read-only slaves} {
+        r flushall
+        r config set appendonly yes
+        r eval {redis.call("set","foo","100")} 0
+        r eval {redis.call("incr","foo")} 0
+        r eval {redis.call("incr","foo")} 0
+        wait_for_condition 50 100 {
+            [s aof_rewrite_in_progress] == 0
+        } else {
+            fail "AOF rewrite can't complete after CONFIG SET appendonly yes."
+        }
+        r config set slave-read-only yes
+        r slaveof 127.0.0.1 0
+        r debug loadaof
+        r get foo
+    } {102}
 }
 
 # Start a new server since the last test in this stanza will kill the

@@ -49,6 +49,7 @@
 #include <math.h>
 #include <sys/resource.h>
 #include <sys/utsname.h>
+#include <locale.h>
 
 /* Our shared "common" objects */
 
@@ -215,7 +216,7 @@ struct redisCommand redisCommandTable[] = {
     {"save",saveCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"bgsave",bgsaveCommand,1,"ar",0,NULL,0,0,0,0,0},
     {"bgrewriteaof",bgrewriteaofCommand,1,"ar",0,NULL,0,0,0,0,0},
-    {"shutdown",shutdownCommand,-1,"ar",0,NULL,0,0,0,0,0},
+    {"shutdown",shutdownCommand,-1,"arl",0,NULL,0,0,0,0,0},
     {"lastsave",lastsaveCommand,1,"rR",0,NULL,0,0,0,0,0},
     {"type",typeCommand,2,"r",0,NULL,1,1,1,0,0},
     {"multi",multiCommand,1,"rs",0,NULL,0,0,0,0,0},
@@ -239,7 +240,8 @@ struct redisCommand redisCommandTable[] = {
     {"unsubscribe",unsubscribeCommand,-1,"rpslt",0,NULL,0,0,0,0,0},
     {"psubscribe",psubscribeCommand,-2,"rpslt",0,NULL,0,0,0,0,0},
     {"punsubscribe",punsubscribeCommand,-1,"rpslt",0,NULL,0,0,0,0,0},
-    {"publish",publishCommand,3,"pfltr",0,NULL,0,0,0,0,0},
+    {"publish",publishCommand,3,"pltr",0,NULL,0,0,0,0,0},
+    {"pubsub",pubsubCommand,-2,"pltrR",0,NULL,0,0,0,0,0},
     {"watch",watchCommand,-2,"rs",0,noPreloadGetKeys,1,-1,1,0,0},
     {"unwatch",unwatchCommand,1,"rs",0,NULL,0,0,0,0,0},
     {"cluster",clusterCommand,-2,"ar",0,NULL,0,0,0,0,0},
@@ -463,7 +465,7 @@ int dictEncObjKeyCompare(void *privdata, const void *key1,
 unsigned int dictEncObjHash(const void *key) {
     robj *o = (robj*) key;
 
-    if (o->encoding == REDIS_ENCODING_RAW) {
+    if (sdsEncodedObject(o)) {
         return dictGenHashFunction(o->ptr, sdslen((sds)o->ptr));
     } else {
         if (o->encoding == REDIS_ENCODING_INT) {
@@ -582,6 +584,18 @@ dictType migrateCacheDictType = {
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictSdsKeyCompare,          /* key compare */
+    dictSdsDestructor,          /* key destructor */
+    NULL                        /* val destructor */
+};
+
+/* Replication cached script dict (server.repl_scriptcache_dict).
+ * Keys are sds SHA1 strings, while values are not used at all in the current
+ * implementation. */
+dictType replScriptCacheDictType = {
+    dictSdsCaseHash,            /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictSdsKeyCaseCompare,      /* key compare */
     dictSdsDestructor,          /* key destructor */
     NULL                        /* val destructor */
 };
@@ -1208,10 +1222,10 @@ void initServerConfig() {
     server.runid[REDIS_RUN_ID_SIZE] = '\0';
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.port = REDIS_SERVERPORT;
-    server.bindaddr = NULL;
+    server.bindaddr_count = 0;
     server.unixsocket = NULL;
     server.unixsocketperm = REDIS_DEFAULT_UNIX_SOCKET_PERM;
-    server.ipfd = -1;
+    server.ipfd_count = 0;
     server.sofd = -1;
     server.dbnum = REDIS_DEFAULT_DBNUM;
     server.verbosity = REDIS_DEFAULT_VERBOSITY;
@@ -1276,6 +1290,7 @@ void initServerConfig() {
     server.lua_client = NULL;
     server.lua_timedout = 0;
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);
+    server.loading_process_events_interval_bytes = (1024*1024*2);
 
     updateLRUClock();
     resetServerSaveParams();
@@ -1409,17 +1424,39 @@ void initServer() {
 
     createSharedObjects();
     adjustOpenFilesLimit();
-    server.el = aeCreateEventLoop(server.maxclients+1024);
+    server.el = aeCreateEventLoop(server.maxclients+REDIS_EVENTLOOP_FDSET_INCR);
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
+    /* Open the TCP listening sockets. */
     if (server.port != 0) {
-        server.ipfd = anetTcpServer(server.neterr,server.port,server.bindaddr);
-        if (server.ipfd == ANET_ERR) {
-            redisLog(REDIS_WARNING, "Opening port %d: %s",
-                server.port, server.neterr);
-            exit(1);
+        /* Force binding of 0.0.0.0 if no bind address is specified, always
+         * entering the loop if j == 0. */
+        if (server.bindaddr_count == 0) server.bindaddr[0] = NULL;
+        for (j = 0; j < server.bindaddr_count || j == 0; j++) {
+            if (server.bindaddr[j] == NULL) {
+                /* Bind * for both IPv6 and IPv4. */
+                server.ipfd[0] = anetTcp6Server(server.neterr,server.port,NULL);
+                if (server.ipfd[0] != ANET_ERR) server.ipfd_count++;
+                server.ipfd[1] = anetTcpServer(server.neterr,server.port,NULL);
+            } else if (strchr(server.bindaddr[j],':')) {
+                /* Bind IPv6 address. */
+                server.ipfd[server.ipfd_count] = anetTcp6Server(server.neterr,server.port,server.bindaddr[j]);
+            } else {
+                /* Bind IPv4 address. */
+                server.ipfd[server.ipfd_count] = anetTcpServer(server.neterr,server.port,server.bindaddr[j]);
+            }
+            if (server.ipfd[server.ipfd_count] == ANET_ERR) {
+                redisLog(REDIS_WARNING,
+                    "Creating Server TCP listening socket %s:%d: %s",
+                    server.bindaddr[j] ? server.bindaddr[j] : "*",
+                    server.port, server.neterr);
+                exit(1);
+            }
+            server.ipfd_count++;
         }
     }
+
+    /* Open the listening Unix domain socket. */
     if (server.unixsocket != NULL) {
         unlink(server.unixsocket); /* don't care if this fails */
         server.sofd = anetUnixServer(server.neterr,server.unixsocket,server.unixsocketperm);
@@ -1428,10 +1465,14 @@ void initServer() {
             exit(1);
         }
     }
-    if (server.ipfd < 0 && server.sofd < 0) {
+
+    /* Abort if there are no listening sockets at all. */
+    if (server.ipfd_count == 0 && server.sofd < 0) {
         redisLog(REDIS_WARNING, "Configured to not listen anywhere, exiting.");
         exit(1);
     }
+
+    /* Create the Redis databases, and initialize other internal state. */
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].dict = dictCreate(&dbDictType,NULL);
         server.db[j].expires = dictCreate(&keyptrDictType,NULL);
@@ -1474,15 +1515,28 @@ void initServer() {
     server.unixtime = time(NULL);
     server.lastbgsave_status = REDIS_OK;
     server.repl_good_slaves_count = 0;
+
+    /* Create the serverCron() time event, that's our main way to process
+     * background operations. */
     if(aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
         redisPanic("Can't create the serverCron time event.");
         exit(1);
     }
-    if (server.ipfd > 0 && aeCreateFileEvent(server.el,server.ipfd,AE_READABLE,
-        acceptTcpHandler,NULL) == AE_ERR) redisPanic("Unrecoverable error creating server.ipfd file event.");
+
+    /* Create an event handler for accepting new connections in TCP and Unix
+     * domain sockets. */
+    for (j = 0; j < server.ipfd_count; j++) {
+        if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,
+            acceptTcpHandler,NULL) == AE_ERR)
+            {
+                redisPanic(
+                    "Unrecoverable error creating server.ipfd file event.");
+            }
+    }
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
         acceptUnixHandler,NULL) == AE_ERR) redisPanic("Unrecoverable error creating server.sofd file event.");
 
+    /* Open the AOF file if needed. */
     if (server.aof_state == REDIS_AOF_ON) {
         server.aof_fd = open(server.aof_filename,
                                O_WRONLY|O_APPEND|O_CREAT,0644);
@@ -1504,6 +1558,7 @@ void initServer() {
     }
 
     if (server.cluster_enabled) clusterInit();
+    replicationScriptCacheInit();
     scriptingInit();
     slowlogInit();
     bioInit();
@@ -1527,7 +1582,6 @@ void populateCommandTable(void) {
             case 'm': c->flags |= REDIS_CMD_DENYOOM; break;
             case 'a': c->flags |= REDIS_CMD_ADMIN; break;
             case 'p': c->flags |= REDIS_CMD_PUBSUB; break;
-            case 'f': c->flags |= REDIS_CMD_FORCE_REPLICATION; break;
             case 's': c->flags |= REDIS_CMD_NOSCRIPT; break;
             case 'R': c->flags |= REDIS_CMD_RANDOM; break;
             case 'S': c->flags |= REDIS_CMD_SORT_FOR_SCRIPT; break;
@@ -1651,9 +1705,18 @@ void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
     redisOpArrayAppend(&server.also_propagate,cmd,dbid,argv,argc,target);
 }
 
+/* It is possible to call the function forceCommandPropagation() inside a
+ * Redis command implementaiton in order to to force the propagation of a
+ * specific command execution into AOF / Replication. */
+void forceCommandPropagation(redisClient *c, int flags) {
+    if (flags & REDIS_PROPAGATE_REPL) c->flags |= REDIS_FORCE_REPL;
+    if (flags & REDIS_PROPAGATE_AOF) c->flags |= REDIS_FORCE_AOF;
+}
+
 /* Call() is the core of Redis execution of a command */
 void call(redisClient *c, int flags) {
     long long dirty, start = ustime(), duration;
+    int client_old_flags = c->flags;
 
     /* Sent the command to clients in MONITOR mode, only if the commands are
      * not generated from reading an AOF. */
@@ -1665,6 +1728,7 @@ void call(redisClient *c, int flags) {
     }
 
     /* Call the command. */
+    c->flags &= ~(REDIS_FORCE_AOF|REDIS_FORCE_REPL);
     redisOpArrayInit(&server.also_propagate);
     dirty = server.dirty;
     c->cmd->proc(c);
@@ -1675,6 +1739,16 @@ void call(redisClient *c, int flags) {
      * from Lua to go into the slowlog or to populate statistics. */
     if (server.loading && c->flags & REDIS_LUA_CLIENT)
         flags &= ~(REDIS_CALL_SLOWLOG | REDIS_CALL_STATS);
+
+    /* If the caller is Lua, we want to force the EVAL caller to propagate
+     * the script if the command flag or client flag are forcing the
+     * propagation. */
+    if (c->flags & REDIS_LUA_CLIENT && server.lua_caller) {
+        if (c->flags & REDIS_FORCE_REPL)
+            server.lua_caller->flags |= REDIS_FORCE_REPL;
+        if (c->flags & REDIS_FORCE_AOF)
+            server.lua_caller->flags |= REDIS_FORCE_AOF;
+    }
 
     /* Log the command into the Slow log if needed, and populate the
      * per-command statistics that we show in INFO commandstats. */
@@ -1689,13 +1763,18 @@ void call(redisClient *c, int flags) {
     if (flags & REDIS_CALL_PROPAGATE) {
         int flags = REDIS_PROPAGATE_NONE;
 
-        if (c->cmd->flags & REDIS_CMD_FORCE_REPLICATION)
-            flags |= REDIS_PROPAGATE_REPL;
+        if (c->flags & REDIS_FORCE_REPL) flags |= REDIS_PROPAGATE_REPL;
+        if (c->flags & REDIS_FORCE_AOF) flags |= REDIS_PROPAGATE_AOF;
         if (dirty)
             flags |= (REDIS_PROPAGATE_REPL | REDIS_PROPAGATE_AOF);
         if (flags != REDIS_PROPAGATE_NONE)
             propagate(c->cmd,c->db->id,c->argv,c->argc,flags);
     }
+
+    /* Restore the old FORCE_AOF/REPL flags, since call can be executed
+     * recursively. */
+    c->flags &= ~(REDIS_FORCE_AOF|REDIS_FORCE_REPL);
+    c->flags |= client_old_flags & (REDIS_FORCE_AOF|REDIS_FORCE_REPL);
 
     /* Handle the alsoPropagate() API to handle commands that want to propagate
      * multiple separated commands. */
@@ -1892,6 +1971,21 @@ int processCommand(redisClient *c) {
 
 /*================================== Shutdown =============================== */
 
+/* Close listening sockets. Also unlink the unix domain socket if
+ * unlink_unix_socket is non-zero. */
+void closeListeningSockets(int unlink_unix_socket) {
+    int j;
+
+    for (j = 0; j < server.ipfd_count; j++) close(server.ipfd[j]);
+    if (server.sofd != -1) close(server.sofd);
+    if (server.cluster_enabled)
+        for (j = 0; j < server.cfd_count; j++) close(server.cfd[j]);
+    if (unlink_unix_socket && server.unixsocket) {
+        redisLog(REDIS_NOTICE,"Removing the unix socket file.");
+        unlink(server.unixsocket); /* don't care if this fails */
+    }
+}
+
 int prepareForShutdown(int flags) {
     int save = flags & REDIS_SHUTDOWN_SAVE;
     int nosave = flags & REDIS_SHUTDOWN_NOSAVE;
@@ -1935,13 +2029,7 @@ int prepareForShutdown(int flags) {
         unlink(server.pidfile);
     }
     /* Close the listening sockets. Apparently this allows faster restarts. */
-    if (server.ipfd != -1) close(server.ipfd);
-    if (server.sofd != -1) close(server.sofd);
-    if (server.unixsocket) {
-        redisLog(REDIS_NOTICE,"Removing the unix socket file.");
-        unlink(server.unixsocket); /* don't care if this fails */
-    }
-
+    closeListeningSockets(1);
     redisLog(REDIS_WARNING,"Redis is now ready to exit, bye bye...");
     return REDIS_OK;
 }
@@ -2088,8 +2176,8 @@ sds genRedisInfoString(char *section) {
             "process_id:%ld\r\n"
             "run_id:%s\r\n"
             "tcp_port:%d\r\n"
-            "uptime_in_seconds:%ld\r\n"
-            "uptime_in_days:%ld\r\n"
+            "uptime_in_seconds:%jd\r\n"
+            "uptime_in_days:%jd\r\n"
             "hz:%d\r\n"
             "lru_clock:%ld\r\n"
             "config_file:%s\r\n",
@@ -2109,8 +2197,8 @@ sds genRedisInfoString(char *section) {
             (long) getpid(),
             server.runid,
             server.port,
-            uptime,
-            uptime/(3600*24),
+            (intmax_t)uptime,
+            (intmax_t)(uptime/(3600*24)),
             server.hz,
             (unsigned long) server.lruclock,
             server.configfile ? server.configfile : "");
@@ -2167,30 +2255,30 @@ sds genRedisInfoString(char *section) {
             "loading:%d\r\n"
             "rdb_changes_since_last_save:%lld\r\n"
             "rdb_bgsave_in_progress:%d\r\n"
-            "rdb_last_save_time:%ld\r\n"
+            "rdb_last_save_time:%jd\r\n"
             "rdb_last_bgsave_status:%s\r\n"
-            "rdb_last_bgsave_time_sec:%ld\r\n"
-            "rdb_current_bgsave_time_sec:%ld\r\n"
+            "rdb_last_bgsave_time_sec:%jd\r\n"
+            "rdb_current_bgsave_time_sec:%jd\r\n"
             "aof_enabled:%d\r\n"
             "aof_rewrite_in_progress:%d\r\n"
             "aof_rewrite_scheduled:%d\r\n"
-            "aof_last_rewrite_time_sec:%ld\r\n"
-            "aof_current_rewrite_time_sec:%ld\r\n"
+            "aof_last_rewrite_time_sec:%jd\r\n"
+            "aof_current_rewrite_time_sec:%jd\r\n"
             "aof_last_bgrewrite_status:%s\r\n",
             server.loading,
             server.dirty,
             server.rdb_child_pid != -1,
-            server.lastsave,
+            (intmax_t)server.lastsave,
             (server.lastbgsave_status == REDIS_OK) ? "ok" : "err",
-            server.rdb_save_time_last,
-            (server.rdb_child_pid == -1) ?
-                -1 : time(NULL)-server.rdb_save_time_start,
+            (intmax_t)server.rdb_save_time_last,
+            (intmax_t)((server.rdb_child_pid == -1) ?
+                -1 : time(NULL)-server.rdb_save_time_start),
             server.aof_state != REDIS_AOF_OFF,
             server.aof_child_pid != -1,
             server.aof_rewrite_scheduled,
-            server.aof_rewrite_time_last,
-            (server.aof_child_pid == -1) ?
-                -1 : time(NULL)-server.aof_rewrite_time_start,
+            (intmax_t)server.aof_rewrite_time_last,
+            (intmax_t)((server.aof_child_pid == -1) ?
+                -1 : time(NULL)-server.aof_rewrite_time_start),
             (server.aof_lastbgrewrite_status == REDIS_OK) ? "ok" : "err");
 
         if (server.aof_state != REDIS_AOF_OFF) {
@@ -2229,16 +2317,16 @@ sds genRedisInfoString(char *section) {
             }
 
             info = sdscatprintf(info,
-                "loading_start_time:%ld\r\n"
+                "loading_start_time:%jd\r\n"
                 "loading_total_bytes:%llu\r\n"
                 "loading_loaded_bytes:%llu\r\n"
                 "loading_loaded_perc:%.2f\r\n"
-                "loading_eta_seconds:%ld\r\n"
-                ,(unsigned long) server.loading_start_time,
+                "loading_eta_seconds:%jd\r\n",
+                (intmax_t) server.loading_start_time,
                 (unsigned long long) server.loading_total_bytes,
                 (unsigned long long) server.loading_loaded_bytes,
                 perc,
-                eta
+                (intmax_t)eta
             );
         }
     }
@@ -2317,8 +2405,8 @@ sds genRedisInfoString(char *section) {
 
             if (server.repl_state != REDIS_REPL_CONNECTED) {
                 info = sdscatprintf(info,
-                    "master_link_down_since_seconds:%ld\r\n",
-                    (long)server.unixtime-server.repl_down_since);
+                    "master_link_down_since_seconds:%jd\r\n",
+                    (intmax_t)server.unixtime-server.repl_down_since);
             }
             info = sdscatprintf(info,
                 "slave_priority:%d\r\n"
@@ -2349,11 +2437,11 @@ sds genRedisInfoString(char *section) {
             while((ln = listNext(&li))) {
                 redisClient *slave = listNodeValue(ln);
                 char *state = NULL;
-                char ip[32];
+                char ip[REDIS_IP_STR_LEN];
                 int port;
                 long lag = 0;
 
-                if (anetPeerToString(slave->fd,ip,&port) == -1) continue;
+                if (anetPeerToString(slave->fd,ip,sizeof(ip),&port) == -1) continue;
                 switch(slave->replstate) {
                 case REDIS_REPL_WAIT_BGSAVE_START:
                 case REDIS_REPL_WAIT_BGSAVE_END:
@@ -2799,63 +2887,11 @@ void redisSetProcTitle(char *title) {
 #ifdef USE_SETPROCTITLE
     setproctitle("%s %s:%d",
         title,
-        server.bindaddr ? server.bindaddr : "*",
+        server.bindaddr_count ? server.bindaddr[0] : "*",
         server.port);
 #else
     REDIS_NOTUSED(title);
 #endif
-}
-
-/* Given the filename, return the absolute path as an SDS string, or NULL
- * if it fails for some reason. Note that "filename" may be an absolute path
- * already, this will be detected and handled correctly.
- *
- * The function does not try to normalize everything, but only the obvious
- * case of one or more "../" appearning at the start of "filename"
- * relative path. */
-sds getAbsolutePath(char *filename) {
-    char cwd[1024];
-    sds abspath;
-    sds relpath = sdsnew(filename);
-
-    relpath = sdstrim(relpath," \r\n\t");
-    if (relpath[0] == '/') return relpath; /* Path is already absolute. */
-
-    /* If path is relative, join cwd and relative path. */
-    if (getcwd(cwd,sizeof(cwd)) == NULL) {
-        sdsfree(relpath);
-        return NULL;
-    }
-    abspath = sdsnew(cwd);
-    if (sdslen(abspath) && abspath[sdslen(abspath)-1] != '/')
-        abspath = sdscat(abspath,"/");
-
-    /* At this point we have the current path always ending with "/", and
-     * the trimmed relative path. Try to normalize the obvious case of
-     * trailing ../ elements at the start of the path.
-     *
-     * For every "../" we find in the filename, we remove it and also remove
-     * the last element of the cwd, unless the current cwd is "/". */
-    while (sdslen(relpath) >= 3 &&
-           relpath[0] == '.' && relpath[1] == '.' && relpath[2] == '/')
-    {
-        relpath = sdsrange(relpath,3,-1);
-        if (sdslen(abspath) > 1) {
-            char *p = abspath + sdslen(abspath)-2;
-            int trimlen = 1;
-
-            while(*p != '/') {
-                p--;
-                trimlen++;
-            }
-            abspath = sdsrange(abspath,0,-(trimlen+1));
-        }
-    }
-
-    /* Finally glue the two parts together. */
-    abspath = sdscatsds(abspath,relpath);
-    sdsfree(relpath);
-    return abspath;
 }
 
 int main(int argc, char **argv) {
@@ -2865,6 +2901,7 @@ int main(int argc, char **argv) {
 #ifdef INIT_SETPROCTITLE_REPLACEMENT
     spt_init(argc, argv);
 #endif
+    setlocale(LC_COLLATE,"");
     zmalloc_enable_thread_safeness();
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     srand(time(NULL)^getpid());
@@ -2950,7 +2987,7 @@ int main(int argc, char **argv) {
                 exit(1);
             }
         }
-        if (server.ipfd > 0)
+        if (server.ipfd_count > 0)
             redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
         if (server.sofd > 0)
             redisLog(REDIS_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);

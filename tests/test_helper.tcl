@@ -186,7 +186,7 @@ proc test_server_main {} {
     if {!$::quiet} {
         puts "Starting test server at port $port"
     }
-    socket -server accept_test_clients $port
+    socket -server accept_test_clients -myaddr 127.0.0.1 $port
 
     # Start the client instances
     set ::clients_pids {}

@@ -188,7 +188,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     b[0] = '*';
     len = ll2string(b+1,REDIS_LONGSTR_SIZE,argc);
     b += len+1;
-    buf_left -= len;
+    buf_left -= len+1;
     b[0] = '\r';
     b[1] = '\n';
     b += 2;
@@ -200,10 +200,11 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         char *objptr;
 
         if (argv[j]->encoding != REDIS_ENCODING_RAW &&
-            argv[j]->encoding != REDIS_ENCODING_INT) {
+            argv[j]->encoding != REDIS_ENCODING_INT &&
+            argv[j]->encoding != REDIS_ENCODING_EMBSTR) {
             redisPanic("Unexpected encoding");
         }
-        if (argv[j]->encoding == REDIS_ENCODING_RAW) {
+        if (sdsEncodedObject(argv[j])) {
             objlen = sdslen(argv[j]->ptr);
             objptr = argv[j]->ptr;
         } else {
@@ -218,7 +219,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         b[0] = '$';
         len = ll2string(b+1,REDIS_LONGSTR_SIZE,objlen);
         b += len+1;
-        buf_left -= len;
+        buf_left -= len+1;
         b[0] = '\r';
         b[1] = '\n';
         b += 2;
@@ -290,10 +291,10 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
 void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **argv, int argc) {
     listNode *ln;
     listIter li;
-    int j, port;
+    int j;
     sds cmdrepr = sdsnew("+");
     robj *cmdobj;
-    char ip[32];
+    char peerid[REDIS_PEER_ID_LEN];
     struct timeval tv;
 
     gettimeofday(&tv,NULL);
@@ -303,8 +304,8 @@ void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **
     } else if (c->flags & REDIS_UNIX_SOCKET) {
         cmdrepr = sdscatprintf(cmdrepr,"[%d unix:%s] ",dictid,server.unixsocket);
     } else {
-        anetPeerToString(c->fd,ip,&port);
-        cmdrepr = sdscatprintf(cmdrepr,"[%d %s:%d] ",dictid,ip,port);
+        getClientPeerId(c,peerid,sizeof(peerid));
+        cmdrepr = sdscatprintf(cmdrepr,"[%d %s] ",dictid,peerid);
     }
 
     for (j = 0; j < argc; j++) {
@@ -505,6 +506,11 @@ void syncCommand(redisClient *c) {
              * resync. */
             if (master_runid[0] != '?') server.stat_sync_partial_err++;
         }
+    } else {
+        /* If a slave uses SYNC, we are dealing with an old implementation
+         * of the replication protocol (like redis-cli --slave). Flag the client
+         * so that we don't expect to receive REPLCONF ACK feedbacks. */
+        c->flags |= REDIS_PRE_PSYNC_SLAVE;
     }
 
     /* Full resynchronization. */
@@ -546,6 +552,8 @@ void syncCommand(redisClient *c) {
             return;
         }
         c->replstate = REDIS_REPL_WAIT_BGSAVE_END;
+        /* Flush the script cache for the new slave. */
+        replicationScriptCacheFlush();
     }
 
     if (server.repl_disable_tcp_nodelay)
@@ -711,6 +719,11 @@ void updateSlavesWaitingBgsave(int bgsaveerr) {
         }
     }
     if (startbgsave) {
+        /* Since we are starting a new background save for one or more slaves,
+         * we flush the Replication Script Cache to use EVAL to propagate every
+         * new EVALSHA for the first time, since all the new slaves don't know
+         * about previous scripts. */
+        replicationScriptCacheFlush();
         if (rdbSaveBackground(server.rdb_filename) != REDIS_OK) {
             listIter li;
 
@@ -1432,7 +1445,91 @@ void refreshGoodSlavesCount(void) {
     server.repl_good_slaves_count = good;
 }
 
-/* --------------------------- REPLICATION CRON  ---------------------------- */
+/* ----------------------- REPLICATION SCRIPT CACHE --------------------------
+ * The goal of this code is to keep track of scripts already sent to every
+ * connected slave, in order to be able to replicate EVALSHA as it is without
+ * translating it to EVAL every time it is possible.
+ *
+ * We use a capped collection implemented by an hash table for fast lookup
+ * of scripts we can send as EVALSHA, plus a linked list that is used for
+ * eviction of the oldest entry when the max number of items is reached.
+ *
+ * We don't care about taking a different cache for every different slave
+ * since to fill the cache again is not very costly, the goal of this code
+ * is to avoid that the same big script is trasmitted a big number of times
+ * per second wasting bandwidth and processor speed, but it is not a problem
+ * if we need to rebuild the cache from scratch from time to time, every used
+ * script will need to be transmitted a single time to reappear in the cache.
+ *
+ * This is how the system works:
+ *
+ * 1) Every time a new slave connects, we flush the whole script cache.
+ * 2) We only send as EVALSHA what was sent to the master as EVALSHA, without
+ *    trying to convert EVAL into EVALSHA specifically for slaves.
+ * 3) Every time we trasmit a script as EVAL to the slaves, we also add the
+ *    corresponding SHA1 of the script into the cache as we are sure every
+ *    slave knows about the script starting from now.
+ * 4) On SCRIPT FLUSH command, we replicate the command to all the slaves
+ *    and at the same time flush the script cache.
+ * 5) When the last slave disconnects, flush the cache.
+ * 6) We handle SCRIPT LOAD as well since that's how scripts are loaded
+ *    in the master sometimes.
+ */
+
+/* Initialize the script cache, only called at startup. */
+void replicationScriptCacheInit(void) {
+    server.repl_scriptcache_size = 10000;
+    server.repl_scriptcache_dict = dictCreate(&replScriptCacheDictType,NULL);
+    server.repl_scriptcache_fifo = listCreate();
+}
+
+/* Empty the script cache. Should be called every time we are no longer sure
+ * that every slave knows about all the scripts in our set, or when the
+ * current AOF "context" is no longer aware of the script. In general we
+ * should flush the cache:
+ *
+ * 1) Every time a new slave reconnects to this master and performs a
+ *    full SYNC (PSYNC does not require flushing).
+ * 2) Every time an AOF rewrite is performed.
+ * 3) Every time we are left without slaves at all, and AOF is off, in order
+ *    to reclaim otherwise unused memory.
+ */
+void replicationScriptCacheFlush(void) {
+    dictEmpty(server.repl_scriptcache_dict);
+    listRelease(server.repl_scriptcache_fifo);
+    server.repl_scriptcache_fifo = listCreate();
+}
+
+/* Add an entry into the script cache, if we reach max number of entries the
+ * oldest is removed from the list. */
+void replicationScriptCacheAdd(sds sha1) {
+    int retval;
+    sds key = sdsdup(sha1);
+
+    /* Evict oldest. */
+    if (listLength(server.repl_scriptcache_fifo) == server.repl_scriptcache_size)
+    {
+        listNode *ln = listLast(server.repl_scriptcache_fifo);
+        sds oldest = listNodeValue(ln);
+
+        retval = dictDelete(server.repl_scriptcache_dict,oldest);
+        redisAssert(retval == DICT_OK);
+        listDelNode(server.repl_scriptcache_fifo,ln);
+    }
+
+    /* Add current. */
+    retval = dictAdd(server.repl_scriptcache_dict,key,NULL);
+    listAddNodeHead(server.repl_scriptcache_fifo,key);
+    redisAssert(retval == DICT_OK);
+}
+
+/* Returns non-zero if the specified entry exists inside the cache, that is,
+ * if all the slaves are aware of this script SHA1. */
+int replicationScriptCacheExists(sds sha1) {
+    return dictFind(server.repl_scriptcache_dict,sha1) != NULL;
+}
+
+/* --------------------------- REPLICATION CRON  ----------------------------- */
 
 /* Replication cron funciton, called 1 time per second. */
 void replicationCron(void) {
@@ -1458,7 +1555,7 @@ void replicationCron(void) {
     if (server.masterhost && server.repl_state == REDIS_REPL_CONNECTED &&
         (time(NULL)-server.master->lastinteraction) > server.repl_timeout)
     {
-        redisLog(REDIS_WARNING,"MASTER time out: no data nor PING received...");
+        redisLog(REDIS_WARNING,"MASTER timeout: no data nor PING received...");
         freeClient(server.master);
     }
 
@@ -1515,12 +1612,13 @@ void replicationCron(void) {
             redisClient *slave = ln->value;
 
             if (slave->replstate != REDIS_REPL_ONLINE) continue;
+            if (slave->flags & REDIS_PRE_PSYNC_SLAVE) continue;
             if ((server.unixtime - slave->repl_ack_time) > server.repl_timeout)
             {
-                char ip[32];
+                char ip[REDIS_IP_STR_LEN];
                 int port;
 
-                if (anetPeerToString(slave->fd,ip,&port) != -1) {
+                if (anetPeerToString(slave->fd,ip,sizeof(ip),&port) != -1) {
                     redisLog(REDIS_WARNING,
                         "Disconnecting timedout slave: %s:%d",
                         ip, slave->slave_listening_port);
@@ -1544,6 +1642,16 @@ void replicationCron(void) {
                 "without connected slaves.",
                 (int) server.repl_backlog_time_limit);
         }
+    }
+
+    /* If AOF is disabled and we no longer have attached slaves, we can
+     * free our Replication Script Cache as there is no need to propagate
+     * EVALSHA at all. */
+    if (listLength(server.slaves) == 0 &&
+        server.aof_state == REDIS_AOF_OFF &&
+        listLength(server.repl_scriptcache_fifo) != 0)
+    {
+        replicationScriptCacheFlush();
     }
 
     /* Refresh the number of slaves with lag <= min-slaves-max-lag. */

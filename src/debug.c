@@ -329,8 +329,11 @@ void debugCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"sleep") && c->argc == 3) {
         double dtime = strtod(c->argv[2]->ptr,NULL);
         long long utime = dtime*1000000;
+        struct timespec tv;
 
-        usleep(utime);
+        tv.tv_sec = utime / 1000000;
+        tv.tv_nsec = (utime % 1000000) * 1000;
+        nanosleep(&tv, NULL);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"set-active-expire") &&
                c->argc == 3)
@@ -370,9 +373,7 @@ void _redisAssertPrintClientInfo(redisClient *c) {
         char buf[128];
         char *arg;
 
-        if (c->argv[j]->type == REDIS_STRING &&
-            c->argv[j]->encoding == REDIS_ENCODING_RAW)
-        {
+        if (c->argv[j]->type == REDIS_STRING && sdsEncodedObject(c->argv[j])) {
             arg = (char*) c->argv[j]->ptr;
         } else {
             snprintf(buf,sizeof(buf),"Object type: %d, encoding: %d",
@@ -388,7 +389,7 @@ void redisLogObjectDebugInfo(robj *o) {
     redisLog(REDIS_WARNING,"Object type: %d", o->type);
     redisLog(REDIS_WARNING,"Object encoding: %d", o->encoding);
     redisLog(REDIS_WARNING,"Object refcount: %d", o->refcount);
-    if (o->type == REDIS_STRING && o->encoding == REDIS_ENCODING_RAW) {
+    if (o->type == REDIS_STRING && sdsEncodedObject(o)) {
         redisLog(REDIS_WARNING,"Object raw string len: %zu", sdslen(o->ptr));
         if (sdslen(o->ptr) < 4096) {
             sds repr = sdscatrepr(sdsempty(),o->ptr,sdslen(o->ptr));
@@ -619,11 +620,12 @@ void logRegisters(ucontext_t *uc) {
 void logStackTrace(ucontext_t *uc) {
     void *trace[100];
     int trace_size = 0, fd;
+    int log_to_stdout = server.logfile[0] == '\0';
 
     /* Open the log file in append mode. */
-    fd = server.logfile ?
-        open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644) :
-        STDOUT_FILENO;
+    fd = log_to_stdout ?
+        STDOUT_FILENO :
+        open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
     if (fd == -1) return;
 
     /* Generate the stack trace */
@@ -637,7 +639,7 @@ void logStackTrace(ucontext_t *uc) {
     backtrace_symbols_fd(trace, trace_size, fd);
 
     /* Cleanup */
-    if (server.logfile) close(fd);
+    if (!log_to_stdout) close(fd);
 }
 
 /* Log information about the "current" client, that is, the client that is

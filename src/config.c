@@ -125,8 +125,15 @@ void loadServerConfigFromString(char *config) {
             if (server.port < 0 || server.port > 65535) {
                 err = "Invalid port"; goto loaderr;
             }
-        } else if (!strcasecmp(argv[0],"bind") && argc == 2) {
-            server.bindaddr = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"bind") && argc >= 2) {
+            int j, addresses = argc-1;
+
+            if (addresses > REDIS_BINDADDR_MAX) {
+                err = "Too many bind addresses specified"; goto loaderr;
+            }
+            for (j = 0; j < addresses; j++)
+                server.bindaddr[j] = zstrdup(argv[j+1]);
+            server.bindaddr_count = addresses;
         } else if (!strcasecmp(argv[0],"unixsocket") && argc == 2) {
             server.unixsocket = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocketperm") && argc == 2) {
@@ -306,6 +313,10 @@ void loadServerConfigFromString(char *config) {
             }
             server.aof_state = yes ? REDIS_AOF_ON : REDIS_AOF_OFF;
         } else if (!strcasecmp(argv[0],"appendfilename") && argc == 2) {
+            if (!pathIsBaseName(argv[1])) {
+                err = "appendfilename can't be a path, just a filename";
+                goto loaderr;
+            }
             zfree(server.aof_filename);
             server.aof_filename = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"no-appendfsync-on-rewrite")
@@ -352,6 +363,10 @@ void loadServerConfigFromString(char *config) {
             zfree(server.pidfile);
             server.pidfile = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"dbfilename") && argc == 2) {
+            if (!pathIsBaseName(argv[1])) {
+                err = "dbfilename can't be a path, just a filename";
+                goto loaderr;
+            }
             zfree(server.rdb_filename);
             server.rdb_filename = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"hash-max-ziplist-entries") && argc == 2) {
@@ -535,11 +550,15 @@ void loadServerConfig(char *filename, char *options) {
 void configSetCommand(redisClient *c) {
     robj *o;
     long long ll;
-    redisAssertWithInfo(c,c->argv[2],c->argv[2]->encoding == REDIS_ENCODING_RAW);
-    redisAssertWithInfo(c,c->argv[2],c->argv[3]->encoding == REDIS_ENCODING_RAW);
+    redisAssertWithInfo(c,c->argv[2],sdsEncodedObject(c->argv[2]));
+    redisAssertWithInfo(c,c->argv[3],sdsEncodedObject(c->argv[3]));
     o = c->argv[3];
 
     if (!strcasecmp(c->argv[2]->ptr,"dbfilename")) {
+        if (!pathIsBaseName(o->ptr)) {
+            addReplyError(c, "dbfilename can't be a path, just a filename");
+            return;
+        }
         zfree(server.rdb_filename);
         server.rdb_filename = zstrdup(o->ptr);
     } else if (!strcasecmp(c->argv[2]->ptr,"requirepass")) {
@@ -559,10 +578,35 @@ void configSetCommand(redisClient *c) {
             }
             freeMemoryIfNeeded();
         }
+    } else if (!strcasecmp(c->argv[2]->ptr,"maxclients")) {
+        int orig_value = server.maxclients;
+
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
+
+        /* Try to check if the OS is capable of supporting so many FDs. */
+        server.maxclients = ll;
+        if (ll > orig_value) {
+            adjustOpenFilesLimit();
+            if (server.maxclients != ll) {
+                addReplyErrorFormat(c,"The operating system is not able to handle the specified number of clients, try with %d", server.maxclients);
+                server.maxclients = orig_value;
+                return;
+            }
+            if (aeGetSetSize(server.el) <
+                server.maxclients + REDIS_EVENTLOOP_FDSET_INCR)
+            {
+                if (aeResizeSetSize(server.el,
+                    server.maxclients + REDIS_EVENTLOOP_FDSET_INCR) == AE_ERR)
+                {
+                    addReplyError(c,"The event loop API used by Redis is not able to handle the specified number of clients");
+                    server.maxclients = orig_value;
+                    return;
+                }
+            }
+        }
     } else if (!strcasecmp(c->argv[2]->ptr,"hz")) {
-        if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
-            ll < 0) goto badfmt;
-        server.hz = (int) ll;
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
+        server.hz = ll;
         if (server.hz < REDIS_MIN_HZ) server.hz = REDIS_MIN_HZ;
         if (server.hz > REDIS_MAX_HZ) server.hz = REDIS_MAX_HZ;
     } else if (!strcasecmp(c->argv[2]->ptr,"maxmemory-policy")) {
@@ -874,13 +918,12 @@ void configGetCommand(redisClient *c) {
     char *pattern = o->ptr;
     char buf[128];
     int matches = 0;
-    redisAssertWithInfo(c,o,o->encoding == REDIS_ENCODING_RAW);
+    redisAssertWithInfo(c,o,sdsEncodedObject(o));
 
     /* String values */
     config_get_string_field("dbfilename",server.rdb_filename);
     config_get_string_field("requirepass",server.requirepass);
     config_get_string_field("masterauth",server.masterauth);
-    config_get_string_field("bind",server.bindaddr);
     config_get_string_field("unixsocket",server.unixsocket);
     config_get_string_field("logfile",server.logfile);
     config_get_string_field("pidfile",server.pidfile);
@@ -996,8 +1039,8 @@ void configGetCommand(redisClient *c) {
         int j;
 
         for (j = 0; j < server.saveparamslen; j++) {
-            buf = sdscatprintf(buf,"%ld %d",
-                    server.saveparams[j].seconds,
+            buf = sdscatprintf(buf,"%jd %d",
+                    (intmax_t)server.saveparams[j].seconds,
                     server.saveparams[j].changes);
             if (j != server.saveparamslen-1)
                 buf = sdscatlen(buf," ",1);
@@ -1065,6 +1108,14 @@ void configGetCommand(redisClient *c) {
         addReplyBulkCString(c,"notify-keyspace-events");
         addReplyBulk(c,flagsobj);
         decrRefCount(flagsobj);
+        matches++;
+    }
+    if (stringmatch(pattern,"bind",0)) {
+        sds aux = sdsjoin(server.bindaddr,server.bindaddr_count," ");
+
+        addReplyBulkCString(c,"bind");
+        addReplyBulkCString(c,aux);
+        sdsfree(aux);
         matches++;
     }
     setDeferredMultiBulkLength(c,replylen,matches*2);
@@ -1332,7 +1383,7 @@ void rewriteConfigOctalOption(struct rewriteConfigState *state, char *option, in
  * specified. See how the function is used for more information. */
 void rewriteConfigEnumOption(struct rewriteConfigState *state, char *option, int value, ...) {
     va_list ap;
-    char *enum_name, *matching_name;
+    char *enum_name, *matching_name = NULL;
     int enum_val, def_val, force;
     sds line;
     
@@ -1357,7 +1408,7 @@ void rewriteConfigEnumOption(struct rewriteConfigState *state, char *option, int
 void rewriteConfigSyslogfacilityOption(struct rewriteConfigState *state) {
     int value = server.syslog_facility, j;
     int force = value != LOG_LOCAL0;
-    char *name, *option = "syslog-facility";
+    char *name = NULL, *option = "syslog-facility";
     sds line;
 
     for (j = 0; validSyslogFacilities[j].name; j++) {
@@ -1456,6 +1507,25 @@ void rewriteConfigClientoutputbufferlimitOption(struct rewriteConfigState *state
                 (long) server.client_obuf_limits[j].soft_limit_seconds);
         rewriteConfigRewriteLine(state,option,line,force);
     }
+}
+
+/* Rewrite the bind option. */
+void rewriteConfigBindOption(struct rewriteConfigState *state) {
+    int force = 1;
+    sds line, addresses;
+    char *option = "bind";
+
+    /* Nothing to rewrite if we don't have bind addresses. */
+    if (server.bindaddr_count == 0) return;
+
+    /* Rewrite as bind <addr1> <addr2> ... <addrN> */
+    addresses = sdsjoin(server.bindaddr,server.bindaddr_count," ");
+    line = sdsnew(option);
+    line = sdscatlen(line, " ", 1);
+    line = sdscatsds(line, addresses);
+    sdsfree(addresses);
+
+    rewriteConfigRewriteLine(state,option,line,force);
 }
 
 /* Glue together the configuration lines in the current configuration
@@ -1593,7 +1663,7 @@ int rewriteConfig(char *path) {
     rewriteConfigYesNoOption(state,"daemonize",server.daemonize,0);
     rewriteConfigStringOption(state,"pidfile",server.pidfile,REDIS_DEFAULT_PID_FILE);
     rewriteConfigNumericalOption(state,"port",server.port,REDIS_SERVERPORT);
-    rewriteConfigStringOption(state,"bind",server.bindaddr,NULL);
+    rewriteConfigBindOption(state);
     rewriteConfigStringOption(state,"unixsocket",server.unixsocket,NULL);
     rewriteConfigOctalOption(state,"unixsocketperm",server.unixsocketperm,REDIS_DEFAULT_UNIX_SOCKET_PERM);
     rewriteConfigNumericalOption(state,"timeout",server.maxidletime,REDIS_MAXIDLETIME);
