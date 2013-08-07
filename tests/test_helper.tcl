@@ -470,7 +470,7 @@ proc close_replication_stream {s} {
 # With the parallel test running multiple Redis instances at the same time
 # we need a fast enough computer, otherwise a lot of tests may generate
 # false positives.
-# If the computer is too slow we revert the sequetial test without any
+# If the computer is too slow we revert the sequential test without any
 # parallelism, that is, clients == 1.
 proc is_a_slow_computer {} {
     set start [clock milliseconds]
