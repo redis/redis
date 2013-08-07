@@ -125,6 +125,7 @@ static void freeClient(client c) {
     aeDeleteFileEvent(config.el,c->context->fd,AE_READABLE);
     redisFree(c->context);
     sdsfree(c->obuf);
+    zfree(c->randptr);
     zfree(c);
     config.liveclients--;
     ln = listSearchKey(config.clients,c);
