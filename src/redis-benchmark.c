@@ -46,6 +46,7 @@
 #include "zmalloc.h"
 
 #define REDIS_NOTUSED(V) ((void) V)
+#define RANDPTR_INITIAL_SIZE 8
 
 static struct config {
     aeEventLoop *el;
@@ -80,12 +81,13 @@ static struct config {
 typedef struct _client {
     redisContext *context;
     sds obuf;
-    char *randptr[32]; /* needed for MSET against 10 keys */
-    size_t randlen;
-    unsigned int written; /* bytes of 'obuf' already written */
-    long long start; /* start time of a request */
-    long long latency; /* request latency */
-    int pending;    /* Number of pending requests (sent but no reply received) */
+    char **randptr;         /* Pointers to :rand: strings inside the command buf */
+    size_t randlen;         /* Number of pointers in client->randptr */
+    size_t randfree;        /* Number of unused pointers in client->randptr */
+    unsigned int written;   /* Bytes of 'obuf' already written */
+    long long start;        /* Start time of a request */
+    long long latency;      /* Request latency */
+    int pending;            /* Number of pending requests (replies to consume) */
     int selectlen;  /* If non-zero, a SELECT of 'selectlen' bytes is currently
                        used as a prefix of the pipline of commands. This gets
                        discarded the first time it's sent. */
@@ -305,6 +307,8 @@ static client createClient(char *cmd, size_t len) {
     for (j = 0; j < config.pipeline; j++)
         c->obuf = sdscatlen(c->obuf,cmd,len);
     c->randlen = 0;
+    c->randfree = RANDPTR_INITIAL_SIZE;
+    c->randptr = zmalloc(sizeof(char*)*c->randfree);
     c->written = 0;
     c->pending = config.pipeline;
     if (c->selectlen) c->pending++;
@@ -313,8 +317,12 @@ static client createClient(char *cmd, size_t len) {
     if (config.randomkeys) {
         char *p = c->obuf;
         while ((p = strstr(p,":rand:")) != NULL) {
-            assert(c->randlen < (signed)(sizeof(c->randptr)/sizeof(char*)));
+            if (c->randfree == 0) {
+                c->randptr = zrealloc(c->randptr,sizeof(char*)*c->randlen*2);
+                c->randfree += c->randlen;
+            }
             c->randptr[c->randlen++] = p+6;
+            c->randfree--;
             p += 6;
         }
     }
