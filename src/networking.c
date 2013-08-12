@@ -701,8 +701,10 @@ void freeClient(redisClient *c) {
     /* Master/slave cleanup.
      * Case 1: we lost the connection with a slave. */
     if (c->flags & REDIS_SLAVE) {
-        if (c->replstate == REDIS_REPL_SEND_BULK && c->repldbfd != -1)
-            close(c->repldbfd);
+        if (c->replstate == REDIS_REPL_SEND_BULK) {
+            if (c->repldbfd != -1) close(c->repldbfd);
+            if (c->replpreamble) sdsfree(c->replpreamble);
+        }
         list *l = (c->flags & REDIS_MONITOR) ? server.monitors : server.slaves;
         ln = listSearchKey(l,c);
         redisAssert(ln != NULL);
