@@ -474,7 +474,10 @@ void addReplyLongLong(redisClient *c, long long ll) {
 }
 
 void addReplyMultiBulkLen(redisClient *c, long length) {
-    addReplyLongLongWithPrefix(c,length,'*');
+    if (length < REDIS_SHARED_BULKHDR_LEN)
+        addReply(c,shared.mbulkhdr[length]);
+    else
+        addReplyLongLongWithPrefix(c,length,'*');
 }
 
 /* Create the length prefix of a bulk reply, example: $2234 */
@@ -496,7 +499,11 @@ void addReplyBulkLen(redisClient *c, robj *obj) {
             len++;
         }
     }
-    addReplyLongLongWithPrefix(c,len,'$');
+
+    if (len < REDIS_SHARED_BULKHDR_LEN)
+        addReply(c,shared.bulkhdr[len]);
+    else
+        addReplyLongLongWithPrefix(c,len,'$');
 }
 
 /* Add a Redis Object as a bulk reply */
