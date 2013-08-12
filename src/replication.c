@@ -206,7 +206,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
             aux[len+2] = '\n';
             feedReplicationBacklog(aux,len+3);
             feedReplicationBacklogWithObject(argv[j]);
-            feedReplicationBacklogWithObject(aux+len+1,2);
+            feedReplicationBacklog(aux+len+1,2);
         }
     }
 
