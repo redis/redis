@@ -488,6 +488,7 @@ typedef struct redisClient {
     int repldbfd;           /* replication DB file descriptor */
     off_t repldboff;        /* replication DB file offset */
     off_t repldbsize;       /* replication DB file size */
+    sds replpreamble;       /* replication DB preamble. */
     long long reploff;      /* replication offset if this is our master */
     long long repl_ack_off; /* replication ack offset, if this is a slave */
     long long repl_ack_time;/* replication ack time, if this is a slave */
