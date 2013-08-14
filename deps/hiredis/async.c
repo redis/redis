@@ -156,6 +156,7 @@ redisAsyncContext *redisAsyncConnect(const char *ip, int port) {
     struct sockaddr_in sa;
     redisContext *c = redisPreConnectNonBlock(ip, port, &sa);
     redisAsyncContext *ac = redisAsyncInitialize(c);
+    c = &(ac->c);
     if (aeWinSocketConnect(c->fd, (struct sockaddr *)&sa, sizeof(sa)) != 0) {
         c->err = errno;
         strerror_r(errno,c->errstr,sizeof(c->errstr));
