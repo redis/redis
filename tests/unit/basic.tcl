@@ -37,6 +37,17 @@ start_server {tags {"basic"}} {
         lsort [r keys *]
     } {foo_a foo_b foo_c key_x key_y key_z}
 
+    test {VKEYS with pattern} {
+        foreach key {key_x key_y key_z foo_a foo_b foo_c} {
+            r set $key hello
+        }
+	lsort [r vkeys foo*]
+    } {foo_a foo_b foo_c hello hello hello}
+
+    test {VKEYS to get all keys} {
+        lsort [r vkeys *]
+    } {foo_a foo_b foo_c hello hello hello hello hello hello key_x key_y key_z}
+
     test {DBSIZE} {
         r dbsize
     } {6}

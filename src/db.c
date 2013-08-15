@@ -291,6 +291,41 @@ void randomkeyCommand(redisClient *c) {
     decrRefCount(key);
 }
 
+void vkeysCommand(redisClient *c) {
+    dictIterator *di;
+    dictEntry *de;
+    sds pattern = c->argv[1]->ptr;
+    int plen = sdslen(pattern), allkeys;
+    unsigned long numkeys = 0;
+    void *replylen = addDeferredMultiBulkLength(c);
+
+    di = dictGetSafeIterator(c->db->dict);
+    allkeys = (pattern[0] == '*' && pattern[1] == '\0');
+    while((de = dictNext(di)) != NULL) {
+        sds key = dictGetKey(de);
+        robj *keyobj;
+        robj *valobj;
+        if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
+            keyobj = createStringObject(key,sdslen(key));
+            if (expireIfNeeded(c->db,keyobj) == 0) {
+                redisAssert((valobj = lookupKeyReadOrReply(c,keyobj,shared.nullbulk)) != NULL);
+                if (valobj->type == REDIS_STRING) {
+                    addReplyBulk(c,keyobj);
+                    numkeys++;
+                    
+                    addReplyBulk(c,valobj);
+                    numkeys++;
+                }
+                
+            }
+            decrRefCount(keyobj);
+        }
+    }
+    dictReleaseIterator(di);
+    setDeferredMultiBulkLength(c,replylen,numkeys);
+}
+
+
 void keysCommand(redisClient *c) {
     dictIterator *di;
     dictEntry *de;
