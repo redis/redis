@@ -765,8 +765,8 @@ void genericHskeysCommand(redisClient *c) {
 		hashTypeCurrentFromZiplist(hi, REDIS_HASH_KEY, &vstr, &vlen, &vll);
 		if (vstr) {
 			if (allkeys || stringmatchlen(pattern,plen,(char *) vstr,(int) vlen,0)){
-                		addHashIteratorCursorToReply(c, hi, REDIS_HASH_KEY);
-                		count++;
+                		addReplyBulkCBuffer(c, vstr, vlen);
+				count++;
                			addHashIteratorCursorToReply(c, hi, REDIS_HASH_VALUE);
                 		count++;
 		        }
@@ -779,7 +779,7 @@ void genericHskeysCommand(redisClient *c) {
 		sds key = value->ptr;
 		int len = sdslen(key);
 		if (allkeys || stringmatchlen(pattern,plen,key, len,0)){
-                                addHashIteratorCursorToReply(c, hi, REDIS_HASH_KEY);
+                                addReplyBulk(c, value);
                                 count++;
                                 addHashIteratorCursorToReply(c, hi, REDIS_HASH_VALUE);
                                 count++;
