@@ -209,6 +209,14 @@ start_server {tags {"hash"}} {
         lsort [r hgetall bighash]
     } [lsort [array get bighash]]
 
+    test {HSKEYS - small hash} {
+        lsort [r hskeys smallhash *]
+    } [lsort [array get smallhash]]
+
+    test {HSKEYS - big hash} {
+        lsort [r hskeys bighash *]
+    } [lsort [array get bighash]]
+
     test {HDEL and return value} {
         set rv {}
         lappend rv [r hdel smallhash nokey]

@@ -740,8 +740,65 @@ void genericHgetallCommand(redisClient *c, int flags) {
     redisAssert(count == length);
 }
 
+void genericHskeysCommand(redisClient *c) {
+    robj *o;
+    hashTypeIterator *hi;
+
+    int count = 0;
+
+    sds pattern = c->argv[2]->ptr;
+    int plen = sdslen(pattern), allkeys;
+
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL
+        || checkType(c,o,REDIS_HASH)) return;
+
+    void *replylen = addDeferredMultiBulkLength(c);
+
+    allkeys = (pattern[0] == '*' && pattern[1] == '\0');
+
+    hi = hashTypeInitIterator(o);
+    while (hashTypeNext(hi) != REDIS_ERR) {
+	if (hi->encoding == REDIS_ENCODING_ZIPLIST) {
+        	unsigned char *vstr = NULL;
+        	unsigned int vlen = UINT_MAX;
+        	long long vll = LLONG_MAX;
+		hashTypeCurrentFromZiplist(hi, REDIS_HASH_KEY, &vstr, &vlen, &vll);
+		if (vstr) {
+			if (allkeys || stringmatchlen(pattern,plen,(char *) vstr,(int) vlen,0)){
+                		addHashIteratorCursorToReply(c, hi, REDIS_HASH_KEY);
+                		count++;
+               			addHashIteratorCursorToReply(c, hi, REDIS_HASH_VALUE);
+                		count++;
+		        }
+		}
+    	} else if (hi->encoding == REDIS_ENCODING_HT) {
+        	robj *value;
+       		hashTypeCurrentFromHashTable(hi, REDIS_HASH_KEY, &value);
+		if(!sdsEncodedObject(value))
+			value = getDecodedObject(value);
+		sds key = value->ptr;
+		int len = sdslen(key);
+		if (allkeys || stringmatchlen(pattern,plen,key, len,0)){
+                                addHashIteratorCursorToReply(c, hi, REDIS_HASH_KEY);
+                                count++;
+                                addHashIteratorCursorToReply(c, hi, REDIS_HASH_VALUE);
+                                count++;
+                }
+   	} else {
+        	redisPanic("Unknown hash encoding");
+    	}
+    }
+    hashTypeReleaseIterator(hi);
+    setDeferredMultiBulkLength(c,replylen,count);
+
+}
+
 void hkeysCommand(redisClient *c) {
     genericHgetallCommand(c,REDIS_HASH_KEY);
+}
+
+void hskeysCommand(redisClient *c) {
+    genericHskeysCommand(c);
 }
 
 void hvalsCommand(redisClient *c) {
