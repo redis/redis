@@ -88,6 +88,7 @@ typedef struct dictIterator {
     dict *d;
     int table, index, safe;
     dictEntry *entry, *nextEntry;
+    long long fingerprint; /* unsafe iterator fingerprint for misuse detection */
 } dictIterator;
 
 /* This is the initial size of every hash table */
