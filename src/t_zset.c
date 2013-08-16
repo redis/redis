@@ -1640,7 +1640,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
             while (zuiNext(&src[i],&zval)) {
                 double score, value;
 
-                /* Skip key when already processed */
+                /* Skip an element that when already processed */
                 if (dictFind(dstzset->dict,zuiObjectFromValue(&zval)) != NULL)
                     continue;
 
@@ -1648,8 +1648,10 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                 score = src[i].weight * zval.score;
                 if (isnan(score)) score = 0;
 
-                /* Because the inputs are sorted by size, it's only possible
-                 * for sets at larger indices to hold this element. */
+                /* We need to check only next sets to see if this element
+                 * exists, since we process every element just one time so
+                 * it can't exist in a previous set (otherwise it would be
+                 * already processed). */
                 for (j = (i+1); j < setnum; j++) {
                     /* It is not safe to access the zset we are
                      * iterating, so explicitly check for equal object. */
