@@ -105,12 +105,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include <assert.h>
 #include <limits.h>
 #include "zmalloc.h"
 #include "util.h"
 #include "ziplist.h"
 #include "endianconv.h"
+#include "redisassert.h"
 
 #define ZIP_END 255
 #define ZIP_BIGLEN 254
