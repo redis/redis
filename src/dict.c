@@ -534,7 +534,7 @@ long long dictFingerprint(dict *d) {
         /* For the hashing step we use Tomas Wang's 64 bit integer hash. */
         hash = (~hash) + (hash << 21); // hash = (hash << 21) - hash - 1;
         hash = hash ^ (hash >> 24);
-        hash = (hash + (hash << 3)) + (hash << 8); // hash * 265
+        hash = (hash + (hash << 3)) + (hash << 8); // hash * 256
         hash = hash ^ (hash >> 14);
         hash = (hash + (hash << 2)) + (hash << 4); // hash * 21
         hash = hash ^ (hash >> 28);
