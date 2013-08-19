@@ -14,6 +14,22 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8 Release Candidate 3 (2.7.103) ] Release date: 19 Aug 2013
+
+This is the third release candidate of Redis 2.8 (official version is 2.7.103).
+Important bugs fixed inside.
+
+# UPGRADE URGENCY: HIGH
+
+* [FIX] Improved expired keys collection algorithm. Even under heavy load keys
+        to be expired can't accumulate because of lack of CPU time.
+* [FIX] Replication speed regression fixed (issue #1238).
+* [FIX] Fixed an hard to trigger PSYNC bug.
+* [FIX] Fixed Issue #1240, ZUNIONSTORE could lead to wrong result.
+* [NEW] Add per-db average TTL information in INFO output.
+* [NEW] redis-benchmark improvements.
+* [NEW] dict.c API wrong usage detection.
+
 --[ Redis 2.8 Release Candidate 2 (2.7.102) ] Release date: 30 Jul 2013
 
 This is the second release candidate of Redis 2.8 (official version is 2.7.102).
