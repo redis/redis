@@ -737,7 +737,7 @@ int rdbSaveBackground(char *filename) {
 
             if (private_dirty) {
                 redisLog(REDIS_NOTICE,
-                    "RDB: %lu MB of memory used by copy-on-write",
+                    "RDB: %zu MB of memory used by copy-on-write",
                     private_dirty/(1024*1024));
             }
         }
