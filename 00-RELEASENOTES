@@ -14,6 +14,22 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.6.15 ] Release date: 21 Aug 2013
+
+UPGRADE URGENCY: MODERATE, upgrade ASAP only if you experience issues related to
+                 the expired keys collection algorithm, or if you use the
+                 ZUNIONSTORE command.
+
+* [FIX] Improved expired keys collection algorithm. Even under heavy load keys
+        to be expired can't accumulate because of lack of CPU time.
+* [FIX] Fixed Issue #1240, ZUNIONSTORE could lead to wrong result.
+* [NEW] redis-benchmark improvements.
+* [NEW] dict.c API wrong usage detection.
+
+WARNING: redis-benchmark released with 2.6.15 features non backward compatible
+         change in the way the random arguments are specified, use the --help
+         option for more information.
+
 --[ Redis 2.6.14 ] Release date: 20 Jun 2013
 
 UPGRADE URGENCY: HIGH because of the following two issues:
