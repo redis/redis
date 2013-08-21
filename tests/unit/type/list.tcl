@@ -312,6 +312,13 @@ start_server {
       set rd1 [redis_deferring_client]
       set rd2 [redis_deferring_client]
 
+      # there is an inherent race here, but at least verify rd1/rd2 are
+      # connected before racing them against r.
+      $rd1 ping
+      assert_equal {PONG} [$rd1 read]
+      $rd2 ping
+      assert_equal {PONG} [$rd2 read]
+
       r del list1 list2 list3
 
       $rd1 brpoplpush list1 list2 0
@@ -327,6 +334,11 @@ start_server {
     test "Circular BRPOPLPUSH" {
       set rd1 [redis_deferring_client]
       set rd2 [redis_deferring_client]
+
+      $rd1 ping
+      assert_equal {PONG} [$rd1 read]
+      $rd2 ping
+      assert_equal {PONG} [$rd2 read]
 
       r del list1 list2
 
