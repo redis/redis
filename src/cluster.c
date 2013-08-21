@@ -1585,7 +1585,7 @@ void clusterCron(void) {
     clusterNode *min_pong_node = NULL;
 
     /* Check if we have disconnected nodes and re-establish the connection. */
-    di = dictGetIterator(server.cluster->nodes);
+    di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
