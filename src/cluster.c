@@ -887,7 +887,9 @@ int clusterProcessPacket(clusterLink *link) {
     }
 
     /* PING or PONG: process config information. */
-    if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_PONG) {
+    if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_PONG ||
+        type == CLUSTERMSG_TYPE_MEET)
+    {
         int update_state = 0;
         int update_config = 0;
 
