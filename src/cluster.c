@@ -259,6 +259,15 @@ void clusterInit(void) {
         server.cfd,&server.cfd_count) == REDIS_ERR)
     {
         exit(1);
+    } else {
+        int j;
+
+        for (j = 0; j < server.cfd_count; j++) {
+            if (aeCreateFileEvent(server.el, server.cfd[j], AE_READABLE,
+                clusterAcceptHandler, NULL) == AE_ERR)
+                    redisPanic("Unrecoverable error creating Redis Cluster "
+                                "file event.");
+        }
     }
 
     /* The slots -> keys map is a sorted set. Init it. */
