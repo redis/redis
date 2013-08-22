@@ -1474,6 +1474,61 @@ void adjustOpenFilesLimit(void) {
     }
 }
 
+/* Initialize a set of file descriptors to listen to the specified 'port'
+ * binding the addresses specified in the Redis server configuration.
+ *
+ * The listening file descriptors are stored in the integer array 'fds'
+ * and their number is set in '*count'.
+ *
+ * The addresses to bind are specified in the global server.bindaddr array
+ * and their number is server.bindaddr_count. If the server configuration
+ * contains no specific addresses to bind, this function will try to
+ * bind * (all addresses) for both the IPv4 and IPv6 protocols.
+ *
+ * On success the function returns REDIS_OK.
+ *
+ * On error the function returns REDIS_ERR. For the function to be on
+ * error, at least one of the server.bindaddr addresses was
+ * impossible to bind, or no bind addresses were specified in the server
+ * configuration but the function is not able to bind * for at least
+ * one of the IPv4 or IPv6 protocols. */
+int listenToPort(int port, int *fds, int *count) {
+    int j;
+
+    /* Force binding of 0.0.0.0 if no bind address is specified, always
+     * entering the loop if j == 0. */
+    if (server.bindaddr_count == 0) server.bindaddr[0] = NULL;
+    for (j = 0; j < server.bindaddr_count || j == 0; j++) {
+        if (server.bindaddr[j] == NULL) {
+            /* Bind * for both IPv6 and IPv4, we enter here only if
+             * server.bindaddr_count == 0. */
+            fds[*count] = anetTcp6Server(server.neterr,port,NULL);
+            if (fds[*count] != ANET_ERR) (*count)++;
+            fds[*count] = anetTcpServer(server.neterr,port,NULL);
+            if (fds[*count] != ANET_ERR) (*count)++;
+            /* Exit the loop if we were able to bind * on IPv4 or IPv6,
+             * otherwise fds[*count] will be ANET_ERR and we'll print an
+             * error and return to the caller with an error. */
+            if (*count) break;
+        } else if (strchr(server.bindaddr[j],':')) {
+            /* Bind IPv6 address. */
+            fds[*count] = anetTcp6Server(server.neterr,port,server.bindaddr[j]);
+        } else {
+            /* Bind IPv4 address. */
+            fds[*count] = anetTcpServer(server.neterr,port,server.bindaddr[j]);
+        }
+        if (fds[*count] == ANET_ERR) {
+            redisLog(REDIS_WARNING,
+                "Creating Server TCP listening socket %s:%d: %s",
+                server.bindaddr[j] ? server.bindaddr[j] : "*",
+                server.port, server.neterr);
+            return REDIS_ERR;
+        }
+        (*count)++;
+    }
+    return REDIS_OK;
+}
+
 void initServer() {
     int j;
 
@@ -1500,44 +1555,9 @@ void initServer() {
     server.el = aeCreateEventLoop(server.maxclients+REDIS_EVENTLOOP_FDSET_INCR);
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
-    /* Open the TCP listening sockets. */
-    if (server.port != 0) {
-        /* Force binding of 0.0.0.0 if no bind address is specified, always
-         * entering the loop if j == 0. */
-        if (server.bindaddr_count == 0) server.bindaddr[0] = NULL;
-        for (j = 0; j < server.bindaddr_count || j == 0; j++) {
-            if (server.bindaddr[j] == NULL) {
-                /* Bind * for both IPv6 and IPv4, we enter here only if
-                 * server.bindaddr_count == 0. */
-                server.ipfd[server.ipfd_count] =
-                    anetTcp6Server(server.neterr,server.port,NULL);
-                if (server.ipfd[server.ipfd_count] != ANET_ERR)
-                    server.ipfd_count++;
-                server.ipfd[server.ipfd_count] =
-                    anetTcpServer(server.neterr,server.port,NULL);
-                if(server.ipfd[server.ipfd_count] != ANET_ERR)
-                    server.ipfd_count++;
-                /* Exit the loop if we were able to bind * on IPv4 or IPv6,
-                 * otherwise server.ipfd[server.ipfd_count] will be ANET_ERR
-                 * and we'll print an error and exit. */
-                if (server.ipfd_count) break;
-            } else if (strchr(server.bindaddr[j],':')) {
-                /* Bind IPv6 address. */
-                server.ipfd[server.ipfd_count] = anetTcp6Server(server.neterr,server.port,server.bindaddr[j]);
-            } else {
-                /* Bind IPv4 address. */
-                server.ipfd[server.ipfd_count] = anetTcpServer(server.neterr,server.port,server.bindaddr[j]);
-            }
-            if (server.ipfd[server.ipfd_count] == ANET_ERR) {
-                redisLog(REDIS_WARNING,
-                    "Creating Server TCP listening socket %s:%d: %s",
-                    server.bindaddr[j] ? server.bindaddr[j] : "*",
-                    server.port, server.neterr);
-                exit(1);
-            }
-            server.ipfd_count++;
-        }
-    }
+    /* Open the TCP listening socket for the user commands. */
+    if (listenToPort(server.port,server.ipfd,&server.ipfd_count) == REDIS_ERR)
+        exit(1);
 
     /* Open the listening Unix domain socket. */
     if (server.unixsocket != NULL) {
