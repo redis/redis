@@ -1270,20 +1270,20 @@ int zuiLength(zsetopsrc *op) {
         return 0;
 
     if (op->type == REDIS_SET) {
-        iterset *it = &op->iter.set;
         if (op->encoding == REDIS_ENCODING_INTSET) {
-            return intsetLen(it->is.is);
+            return intsetLen(op->subject->ptr);
         } else if (op->encoding == REDIS_ENCODING_HT) {
-            return dictSize(it->ht.dict);
+            dict *ht = op->subject->ptr;
+            return dictSize(ht);
         } else {
             redisPanic("Unknown set encoding");
         }
     } else if (op->type == REDIS_ZSET) {
-        iterzset *it = &op->iter.zset;
         if (op->encoding == REDIS_ENCODING_ZIPLIST) {
-            return zzlLength(it->zl.zl);
+            return zzlLength(op->subject->ptr);
         } else if (op->encoding == REDIS_ENCODING_SKIPLIST) {
-            return it->sl.zs->zsl->length;
+            zset *zs = op->subject->ptr;
+            return zs->zsl->length;
         } else {
             redisPanic("Unknown sorted set encoding");
         }
@@ -1419,18 +1419,19 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
         return 0;
 
     if (op->type == REDIS_SET) {
-        iterset *it = &op->iter.set;
-
         if (op->encoding == REDIS_ENCODING_INTSET) {
-            if (zuiLongLongFromValue(val) && intsetFind(it->is.is,val->ell)) {
+            if (zuiLongLongFromValue(val) &&
+                intsetFind(op->subject->ptr,val->ell))
+            {
                 *score = 1.0;
                 return 1;
             } else {
                 return 0;
             }
         } else if (op->encoding == REDIS_ENCODING_HT) {
+            dict *ht = op->subject->ptr;
             zuiObjectFromValue(val);
-            if (dictFind(it->ht.dict,val->ele) != NULL) {
+            if (dictFind(ht,val->ele) != NULL) {
                 *score = 1.0;
                 return 1;
             } else {
@@ -1440,19 +1441,19 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
             redisPanic("Unknown set encoding");
         }
     } else if (op->type == REDIS_ZSET) {
-        iterzset *it = &op->iter.zset;
         zuiObjectFromValue(val);
 
         if (op->encoding == REDIS_ENCODING_ZIPLIST) {
-            if (zzlFind(it->zl.zl,val->ele,score) != NULL) {
+            if (zzlFind(op->subject->ptr,val->ele,score) != NULL) {
                 /* Score is already set by zzlFind. */
                 return 1;
             } else {
                 return 0;
             }
         } else if (op->encoding == REDIS_ENCODING_SKIPLIST) {
+            zset *zs = op->subject->ptr;
             dictEntry *de;
-            if ((de = dictFind(it->sl.zs->dict,val->ele)) != NULL) {
+            if ((de = dictFind(zs->dict,val->ele)) != NULL) {
                 *score = *(double*)dictGetVal(de);
                 return 1;
             } else {
@@ -1580,9 +1581,6 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
         }
     }
 
-    for (i = 0; i < setnum; i++)
-        zuiInitIterator(&src[i]);
-
     /* sort sets from the smallest to largest, this will improve our
      * algorithm's performance */
     qsort(src,setnum,sizeof(zsetopsrc),zuiCompareByCardinality);
@@ -1596,6 +1594,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
         if (zuiLength(&src[0]) > 0) {
             /* Precondition: as src[0] is non-empty and the inputs are ordered
              * by size, all src[i > 0] are non-empty too. */
+            zuiInitIterator(&src[0]);
             while (zuiNext(&src[0],&zval)) {
                 double score, value;
 
@@ -1630,16 +1629,18 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                     }
                 }
             }
+            zuiClearIterator(&src[0]);
         }
     } else if (op == REDIS_OP_UNION) {
         for (i = 0; i < setnum; i++) {
             if (zuiLength(&src[i]) == 0)
                 continue;
 
+            zuiInitIterator(&src[i]);
             while (zuiNext(&src[i],&zval)) {
                 double score, value;
 
-                /* Skip key when already processed */
+                /* Skip an element that when already processed */
                 if (dictFind(dstzset->dict,zuiObjectFromValue(&zval)) != NULL)
                     continue;
 
@@ -1647,8 +1648,10 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                 score = src[i].weight * zval.score;
                 if (isnan(score)) score = 0;
 
-                /* Because the inputs are sorted by size, it's only possible
-                 * for sets at larger indices to hold this element. */
+                /* We need to check only next sets to see if this element
+                 * exists, since we process every element just one time so
+                 * it can't exist in a previous set (otherwise it would be
+                 * already processed). */
                 for (j = (i+1); j < setnum; j++) {
                     /* It is not safe to access the zset we are
                      * iterating, so explicitly check for equal object. */
@@ -1672,13 +1675,11 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                         maxelelen = sdslen(tmp->ptr);
                 }
             }
+            zuiClearIterator(&src[i]);
         }
     } else {
         redisPanic("Unknown operator");
     }
-
-    for (i = 0; i < setnum; i++)
-        zuiClearIterator(&src[i]);
 
     if (dbDelete(c->db,dstkey)) {
         signalModifiedKey(c->db,dstkey);

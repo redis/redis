@@ -226,7 +226,7 @@ void clusterSaveConfigOrDie(void) {
 }
 
 void clusterInit(void) {
-    int saveconf = 0, j;
+    int saveconf = 0;
 
     server.cluster = zmalloc(sizeof(clusterState));
     server.cluster->myself = NULL;
@@ -252,25 +252,25 @@ void clusterInit(void) {
         saveconf = 1;
     }
     if (saveconf) clusterSaveConfigOrDie();
-    /* We need a listening TCP port for our cluster messaging needs */
+
+    /* We need a listening TCP port for our cluster messaging needs. */
     server.cfd_count = 0;
-    if (server.bindaddr_count == 0) server.bindaddr[0] = NULL;
-    for (j = 0; j < server.bindaddr_count || j == 0; j++) {
-        server.cfd[j] = anetTcpServer(
-            server.neterr, server.port+REDIS_CLUSTER_PORT_INCR,
-            server.bindaddr[j]);
-        if (server.cfd[j] == -1) {
-            redisLog(REDIS_WARNING,
-                "Opening cluster listening TCP socket %s:%d: %s",
-                    server.bindaddr[j] ? server.bindaddr[j] : "*",
-                    server.port+REDIS_CLUSTER_PORT_INCR,
-                    server.neterr);
-            exit(1);
+    if (listenToPort(server.port+REDIS_CLUSTER_PORT_INCR,
+        server.cfd,&server.cfd_count) == REDIS_ERR)
+    {
+        exit(1);
+    } else {
+        int j;
+
+        for (j = 0; j < server.cfd_count; j++) {
+            if (aeCreateFileEvent(server.el, server.cfd[j], AE_READABLE,
+                clusterAcceptHandler, NULL) == AE_ERR)
+                    redisPanic("Unrecoverable error creating Redis Cluster "
+                                "file event.");
         }
-        if (aeCreateFileEvent(server.el, server.cfd[j], AE_READABLE,
-            clusterAcceptHandler, NULL) == AE_ERR) redisPanic("Unrecoverable error creating Redis Cluster file event.");
-        server.cfd_count++;
     }
+
+    /* The slots -> keys map is a sorted set. Init it. */
     server.cluster->slots_to_keys = zslCreate();
 }
 
@@ -887,7 +887,9 @@ int clusterProcessPacket(clusterLink *link) {
     }
 
     /* PING or PONG: process config information. */
-    if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_PONG) {
+    if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_PONG ||
+        type == CLUSTERMSG_TYPE_MEET)
+    {
         int update_state = 0;
         int update_config = 0;
 
@@ -1585,7 +1587,7 @@ void clusterCron(void) {
     clusterNode *min_pong_node = NULL;
 
     /* Check if we have disconnected nodes and re-establish the connection. */
-    di = dictGetIterator(server.cluster->nodes);
+    di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
@@ -2080,8 +2082,15 @@ void clusterCommand(redisClient *c) {
         long port;
 
         /* Perform sanity checks on IP/port */
-        if ((inet_pton(AF_INET,c->argv[0]->ptr,&(((struct sockaddr_in *)&sa)->sin_addr)) ||
-             inet_pton(AF_INET6,c->argv[0]->ptr,&(((struct sockaddr_in6 *)&sa)->sin6_addr))) == 0) {
+        if (inet_pton(AF_INET,c->argv[2]->ptr,
+            &(((struct sockaddr_in *)&sa)->sin_addr)))
+        {
+            sa.ss_family = AF_INET;
+        } else if (inet_pton(AF_INET6,c->argv[2]->ptr,
+            &(((struct sockaddr_in6 *)&sa)->sin6_addr)))
+        {
+            sa.ss_family = AF_INET6;
+        } else {
             addReplyError(c,"Invalid IP address in MEET");
             return;
         }
@@ -2095,9 +2104,17 @@ void clusterCommand(redisClient *c) {
         /* Finally add the node to the cluster with a random name, this 
          * will get fixed in the first handshake (ping/pong). */
         n = createClusterNode(NULL,REDIS_NODE_HANDSHAKE|REDIS_NODE_MEET);
-        sa.ss_family == AF_INET ?
-            inet_ntop(AF_INET,(void*)&(((struct sockaddr_in *)&sa)->sin_addr),n->ip,REDIS_CLUSTER_IPLEN) :
-            inet_ntop(AF_INET6,(void*)&(((struct sockaddr_in6 *)&sa)->sin6_addr),n->ip,REDIS_CLUSTER_IPLEN);
+
+        /* Set node->ip as the normalized string representation of the node
+         * IP address. */
+        if (sa.ss_family == AF_INET)
+            inet_ntop(AF_INET,
+                (void*)&(((struct sockaddr_in *)&sa)->sin_addr),
+                n->ip,REDIS_CLUSTER_IPLEN);
+        else
+            inet_ntop(AF_INET6,
+                (void*)&(((struct sockaddr_in6 *)&sa)->sin6_addr),
+                n->ip,REDIS_CLUSTER_IPLEN);
         n->port = port;
         clusterAddNode(n);
         addReply(c,shared.ok);
