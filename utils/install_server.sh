@@ -132,7 +132,7 @@ then
 	echo "Not overwriting existing config (${REDIS_CONFIG_FILE})"
 	echo "Please inspect:"
 	echo "	${REDIS_CONFIG_FILE}.default"
-        echo "for changes and new features."
+	echo "for changes and new features."
 fi
 rm -f $TMP_FILE
 
