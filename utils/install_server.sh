@@ -129,6 +129,10 @@ cp -f $TMP_FILE $REDIS_CONFIG_FILE.default || exit 1
 if [ ! -f ${REDIS_CONFIG_FILE} ]
 then
 	cp -f ${TMP_FILE} ${REDIS_CONFIG_FILE}
+	echo "Not overwriting existing config (${REDIS_CONFIG_FILE})"
+	echo "Please inspect:"
+	echo "	${REDIS_CONFIG_FILE}.default"
+        echo "for changes and new features."
 fi
 rm -f $TMP_FILE
 
