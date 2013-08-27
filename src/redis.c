@@ -1127,8 +1127,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     listNode *ln;
     redisClient *c;
 
-    /* Run a fast expire cycle. */
-    activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
+    /* Run a fast expire cycle (the called function will return
+     * ASAP if a fast cycle is not needed). */
+    if (server.active_expire_enabled && server.masterhost == NULL)
+        activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
 
     /* Try to process pending commands for clients that were just unblocked. */
     while (listLength(server.unblocked_clients)) {
