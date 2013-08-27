@@ -372,8 +372,7 @@ robj *tryObjectEncoding(robj *o) {
              * We do that only for relatively large strings as this branch
              * is only entered if the length of the string is greater than
              * REDIS_ENCODING_EMBSTR_SIZE_LIMIT. */
-            if (len > 64 &&
-                o->encoding == REDIS_ENCODING_RAW &&
+            if (o->encoding == REDIS_ENCODING_RAW &&
                 sdsavail(s) > len/10)
             {
                 o->ptr = sdsRemoveFreeSpace(o->ptr);
