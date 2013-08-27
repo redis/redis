@@ -306,7 +306,7 @@ void debugCommand(redisClient *c) {
         val = dictGetVal(de);
         key = dictGetKey(de);
 
-        if (val->type != REDIS_STRING || !sdsEncodedObject(val)) {
+        if (val->type != REDIS_STRING || val->encoding != REDIS_ENCODING_RAW) {
             addReplyError(c,"Not an sds encoded string.");
         } else {
             addReplyStatusFormat(c,
