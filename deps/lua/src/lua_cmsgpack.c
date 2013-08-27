@@ -374,7 +374,7 @@ static int table_is_an_array(lua_State *L) {
     while(lua_next(L,-2)) {
         /* Stack: ... key value */
         lua_pop(L,1); /* Stack: ... key */
-        if (!lua_isnumber(L,-1)) goto not_array;
+        if (lua_type(L,-1) != LUA_TNUMBER) goto not_array;
         n = lua_tonumber(L,-1);
         idx = n;
         if (idx != n || idx < 1) goto not_array;
