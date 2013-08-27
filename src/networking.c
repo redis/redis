@@ -989,13 +989,13 @@ int processMultibulkBuffer(redisClient *c) {
             if (ll >= REDIS_MBULK_BIG_ARG) {
                 /* If we are going to read a large object from network
                  * try to make it likely that it will start at c->querybuf
-                 * boundary so that we can optimized object creation
+                 * boundary so that we can optimize object creation
                  * avoiding a large copy of data. */
                 sdsrange(c->querybuf,pos,-1);
                 pos = 0;
                 /* Hint the sds library about the amount of bytes this string is
                  * going to contain. */
-                c->querybuf = sdsMakeRoomFor(c->querybuf,ll+2);
+                c->querybuf = sdsMakeRoomFor(c->querybuf,ll+2-sdslen(c->querybuf));
             }
             c->bulklen = ll;
         }
