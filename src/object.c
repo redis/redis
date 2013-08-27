@@ -339,6 +339,7 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
 robj *tryObjectEncoding(robj *o) {
     long value;
     sds s = o->ptr;
+    size_t len;
 
     if (o->encoding == REDIS_ENCODING_INT)
         return o; /* Already encoded */
@@ -351,8 +352,11 @@ robj *tryObjectEncoding(robj *o) {
     /* Currently we try to encode only strings */
     redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
 
-    /* Check if we can represent this string as a long integer */
-    if (!string2l(s,sdslen(s),&value)) {
+    /* Check if we can represent this string as a long integer.
+     * Note that we are sure that a string larger than 21 chars is not
+     * representable as a 64 bit integer. */
+    len = sdslen(s);
+    if (len > 21 || !string2l(s,len,&value)) {
         /* Integer encoding not possible. Check if we can use EMBSTR. */
         if (sdslen(s) <= REDIS_ENCODING_EMBSTR_SIZE_LIMIT) {
             robj *emb = createEmbeddedStringObject(s,sdslen(s));
