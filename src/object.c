@@ -363,7 +363,22 @@ robj *tryObjectEncoding(robj *o) {
             decrRefCount(o);
             return emb;
         } else {
-            /* Otherwise return the original object. */
+            /* We can't encode the object...
+             *
+             * Do the last try, and at least optimize the SDS string inside
+             * the string object to require little space, in case there
+             * is more than 10% of free space at the end of the SDS string.
+             *
+             * We do that only for relatively large strings as this branch
+             * is only entered if the length of the string is greater than
+             * REDIS_ENCODING_EMBSTR_SIZE_LIMIT. */
+            if (len > 64 &&
+                o->encoding == REDIS_ENCODING_RAW &&
+                sdsavail(s) > len/10)
+            {
+                o->ptr = sdsRemoveFreeSpace(o->ptr);
+            }
+            /* Return the original object. */
             return o;
         }
     }
