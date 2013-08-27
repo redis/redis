@@ -293,7 +293,26 @@ robj *tryObjectEncoding(robj *o) {
 
     /* Check if we can represent this string as a long integer */
     len = sdslen(s);
-    if (len > 21 || !string2l(s,len,&value)) return o;
+    if (len > 21 || !string2l(s,len,&value)) {
+        /* We can't encode the object...
+         *
+         * Do the last try, and at least optimize the SDS string inside
+         * the string object to require little space, in case there
+         * is more than 10% of free space at the end of the SDS string.
+         *
+         * We do that for larger strings, using the arbitrary value
+         * of 32 bytes. This code was backported from the unstable branch
+         * where this is performed when the object is too large to be
+         * encoded as EMBSTR. */
+        if (len > 32 &&
+            o->encoding == REDIS_ENCODING_RAW &&
+            sdsavail(s) > len/10)
+        {
+            o->ptr = sdsRemoveFreeSpace(o->ptr);
+        }
+        /* Return the original object. */
+        return o;
+    }
 
     /* Ok, this object can be encoded...
      *
