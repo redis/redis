@@ -189,7 +189,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
 
         /* Add the multi bulk reply length. */
         aux[0] = '*';
-        len = ll2string(aux+1,sizeof(aux-1),argc);
+        len = ll2string(aux+1,sizeof(aux)-1,argc);
         aux[len+1] = '\r';
         aux[len+2] = '\n';
         feedReplicationBacklog(aux,len+3);
