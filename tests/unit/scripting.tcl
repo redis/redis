@@ -282,6 +282,21 @@ start_server {tags {"scripting"}} {
         assert {$rand2 ne $rand3}
     }
 
+    test {EVAL does not leak in the Lua stack} {
+        r set x 0
+        # Use a non blocking client to speedup the loop.
+        set rd [redis_deferring_client]
+        for {set j 0} {$j < 10000} {incr j} {
+            $rd eval {return redis.call("incr",KEYS[1])} 1 x
+        }
+        for {set j 0} {$j < 10000} {incr j} {
+            $rd read
+        }
+        assert {[s used_memory_lua] < 1024*100}
+        $rd close
+        r get x
+    } {10000}
+
     test {EVAL processes writes from AOF in read-only slaves} {
         r flushall
         r config set appendonly yes
