@@ -14,6 +14,19 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8 Release Candidate 4 (2.7.104) ] Release date: 30 Aug 2013
+
+This is the fourth release candidate of Redis 2.8 (official version is 2.7.104).
+Important bugs fixed inside.
+
+# UPGRADE URGENCY: HIGH because of the EVAL memory leak.
+
+* [FIX] Fixed a serious EVAL memory leak in the Lua stack.
+* [FIX] Fixed server startup when no IPv6 address exists in any interface.
+* [FIX] Send MISCONFIG error when BGSAVE fails because can't fork.
+* [FIX] Memory efficiency with large (> a few kbytes) values improved considerably.
+* [NEW] DEBUG SDSLEN for sds memory debugging.
+
 --[ Redis 2.8 Release Candidate 3 (2.7.103) ] Release date: 19 Aug 2013
 
 This is the third release candidate of Redis 2.8 (official version is 2.7.103).
