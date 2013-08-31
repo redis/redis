@@ -1404,11 +1404,10 @@ void adjustOpenFilesLimit(void) {
                 } else {
                     server.maxclients = 0;
                     redisLog(REDIS_WARNING,"Unable to set the max number of "
-                                "files limit to the smallest files number for"
-                                " running Redis %d (%s), setting the max "
-                                "clients configuration to %d",
-                                (int)REDIS_ESSENTIAL_FD, strerror(errno),
-                                (int)server.maxclients);
+                                "files limit to the smallest files number (%d) for"
+                                " running Redis (%s). ",
+                                (int)REDIS_ESSENTIAL_FD, strerror(errno));
+                    exit(1);
                 }
             } else {
                 redisLog(REDIS_NOTICE,"Max number of open files set to %d",
