@@ -1380,8 +1380,8 @@ void clusterSendPublish(clusterLink *link, robj *channel, robj *message) {
         payload = buf;
     } else {
         payload = zmalloc(totlen);
-        hdr = (clusterMsg*) payload;
         memcpy(payload,hdr,sizeof(*hdr));
+        hdr = (clusterMsg*) payload;
     }
     memcpy(hdr->data.publish.msg.bulk_data,channel->ptr,sdslen(channel->ptr));
     memcpy(hdr->data.publish.msg.bulk_data+sdslen(channel->ptr),
