@@ -317,6 +317,10 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         redisLog(REDIS_VERBOSE,"Accepting cluster node: %s", server.neterr);
         return;
     }
+    anetNonBlock(NULL,cfd);
+    anetEnableTcpNoDelay(NULL,cfd);
+
+    /* Use non-blocking I/O for cluster messages. */
     /* IPV6: might want to wrap a v6 address in [] */
     redisLog(REDIS_VERBOSE,"Accepted cluster node %s:%d", cip, cport);
     /* We need to create a temporary node in order to read the incoming
