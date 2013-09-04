@@ -545,7 +545,7 @@ void clusterDelNode(clusterNode *delnode) {
     }
 
     /* 2) Remove failure reports. */
-    di = dictGetIterator(server.cluster->nodes);
+    di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
@@ -1234,7 +1234,7 @@ void clusterBroadcastMessage(void *buf, size_t len) {
     dictIterator *di;
     dictEntry *de;
 
-    di = dictGetIterator(server.cluster->nodes);
+    di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
@@ -1346,7 +1346,7 @@ void clusterBroadcastPong(void) {
     dictIterator *di;
     dictEntry *de;
 
-    di = dictGetIterator(server.cluster->nodes);
+    di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
@@ -1647,7 +1647,7 @@ void clusterCron(void) {
     }
 
     /* Iterate nodes to check if we need to flag something as failing */
-    di = dictGetIterator(server.cluster->nodes);
+    di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
         time_t now = time(NULL);
@@ -1849,7 +1849,7 @@ void clusterUpdateState(void) {
         dictEntry *de;
 
         server.cluster->size = 0;
-        di = dictGetIterator(server.cluster->nodes);
+        di = dictGetSafeIterator(server.cluster->nodes);
         while((de = dictNext(di)) != NULL) {
             clusterNode *node = dictGetVal(de);
 
@@ -1978,7 +1978,7 @@ sds clusterGenNodesDescription(void) {
     dictEntry *de;
     int j, start;
 
-    di = dictGetIterator(server.cluster->nodes);
+    di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
