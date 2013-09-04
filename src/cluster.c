@@ -359,6 +359,7 @@ clusterNode *createClusterNode(char *nodename, int flags) {
         memcpy(node->name, nodename, REDIS_CLUSTER_NAMELEN);
     else
         getRandomHexChars(node->name, REDIS_CLUSTER_NAMELEN);
+    node->ctime = time(NULL);
     node->flags = flags;
     memset(node->slots,0,sizeof(node->slots));
     node->numslots = 0;
@@ -1588,6 +1589,16 @@ void clusterCron(void) {
         clusterNode *node = dictGetVal(de);
 
         if (node->flags & (REDIS_NODE_MYSELF|REDIS_NODE_NOADDR)) continue;
+
+        /* A Node in HANDSHAKE state has a limited lifespan equal to the
+         * configured node timeout. */
+        if (node->flags & REDIS_NODE_HANDSHAKE &&
+            server.unixtime - node->ctime > server.cluster_node_timeout)
+        {
+            freeClusterNode(node);
+            continue;
+        }
+
         if (node->link == NULL) {
             int fd;
             time_t old_ping_sent;
