@@ -674,6 +674,24 @@ void clearNodeFailureIfNeeded(clusterNode *node) {
     }
 }
 
+/* Return true if we already have a node in HANDSHAKE state matching the
+ * specified ip address and port number. This function is used in order to
+ * avoid adding a new handshake node for the same address multiple times. */
+int clusterHandshakeInProgress(char *ip, int port) {
+    dictIterator *di;
+    dictEntry *de;
+
+    di = dictGetSafeIterator(server.cluster->nodes);
+    while((de = dictNext(di)) != NULL) {
+        clusterNode *node = dictGetVal(de);
+
+        if (!(node->flags & REDIS_NODE_HANDSHAKE)) continue;
+        if (!strcasecmp(node->ip,ip) && node->port == port) break;
+    }
+    dictReleaseIterator(di);
+    return de != NULL;
+}
+
 /* Process the gossip section of PING or PONG packets.
  * Note that this function assumes that the packet is already sanity-checked
  * by the caller, not in the content of the gossip section, but in the
@@ -736,7 +754,9 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
              * Note that we require that the sender of this gossip message
              * is a well known node in our cluster, otherwise we risk
              * joining another cluster. */
-            if (sender && !(flags & REDIS_NODE_NOADDR)) {
+            if (sender && !(flags & REDIS_NODE_NOADDR) &&
+                !clusterHandshakeInProgress(g->ip,ntohs(g->port)))
+            {
                 clusterNode *newnode;
 
                 redisLog(REDIS_DEBUG,"Adding the new node");
