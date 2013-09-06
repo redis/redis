@@ -614,6 +614,7 @@ struct clusterNodeFailReport {
 } typedef clusterNodeFailReport;
 
 struct clusterNode {
+    time_t ctime;   /* Node object creation time. */
     char name[REDIS_CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
     int flags;      /* REDIS_NODE_... */
     unsigned char slots[REDIS_CLUSTER_SLOTS/8]; /* slots handled by this node */
@@ -1096,6 +1097,7 @@ int getClientLimitClassByName(char *name);
 char *getClientLimitClassName(int class);
 void flushSlavesOutputBuffers(void);
 void disconnectSlaves(void);
+int listenToPort(int port, int *fds, int *count);
 
 #ifdef __GNUC__
 void addReplyErrorFormat(redisClient *c, const char *fmt, ...)

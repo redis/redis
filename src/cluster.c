@@ -45,7 +45,7 @@ void clusterSendFail(char *nodename);
 void clusterSendFailoverAuthIfNeeded(clusterNode *sender);
 void clusterUpdateState(void);
 int clusterNodeGetSlotBit(clusterNode *n, int slot);
-sds clusterGenNodesDescription(void);
+sds clusterGenNodesDescription(int filter);
 clusterNode *clusterLookupNode(char *name);
 int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
 int clusterAddSlot(clusterNode *n, int slot);
@@ -203,7 +203,7 @@ fmterr:
  * This function writes the node config and returns 0, on error -1
  * is returned. */
 int clusterSaveConfig(void) {
-    sds ci = clusterGenNodesDescription();
+    sds ci = clusterGenNodesDescription(REDIS_NODE_HANDSHAKE);
     int fd;
     
     if ((fd = open(server.cluster_configfile,O_WRONLY|O_CREAT|O_TRUNC,0644))
@@ -226,7 +226,7 @@ void clusterSaveConfigOrDie(void) {
 }
 
 void clusterInit(void) {
-    int saveconf = 0, j;
+    int saveconf = 0;
 
     server.cluster = zmalloc(sizeof(clusterState));
     server.cluster->myself = NULL;
@@ -252,25 +252,25 @@ void clusterInit(void) {
         saveconf = 1;
     }
     if (saveconf) clusterSaveConfigOrDie();
-    /* We need a listening TCP port for our cluster messaging needs */
+
+    /* We need a listening TCP port for our cluster messaging needs. */
     server.cfd_count = 0;
-    if (server.bindaddr_count == 0) server.bindaddr[0] = NULL;
-    for (j = 0; j < server.bindaddr_count || j == 0; j++) {
-        server.cfd[j] = anetTcpServer(
-            server.neterr, server.port+REDIS_CLUSTER_PORT_INCR,
-            server.bindaddr[j]);
-        if (server.cfd[j] == -1) {
-            redisLog(REDIS_WARNING,
-                "Opening cluster listening TCP socket %s:%d: %s",
-                    server.bindaddr[j] ? server.bindaddr[j] : "*",
-                    server.port+REDIS_CLUSTER_PORT_INCR,
-                    server.neterr);
-            exit(1);
+    if (listenToPort(server.port+REDIS_CLUSTER_PORT_INCR,
+        server.cfd,&server.cfd_count) == REDIS_ERR)
+    {
+        exit(1);
+    } else {
+        int j;
+
+        for (j = 0; j < server.cfd_count; j++) {
+            if (aeCreateFileEvent(server.el, server.cfd[j], AE_READABLE,
+                clusterAcceptHandler, NULL) == AE_ERR)
+                    redisPanic("Unrecoverable error creating Redis Cluster "
+                                "file event.");
         }
-        if (aeCreateFileEvent(server.el, server.cfd[j], AE_READABLE,
-            clusterAcceptHandler, NULL) == AE_ERR) redisPanic("Unrecoverable error creating Redis Cluster file event.");
-        server.cfd_count++;
     }
+
+    /* The slots -> keys map is a sorted set. Init it. */
     server.cluster->slots_to_keys = zslCreate();
 }
 
@@ -317,6 +317,10 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         redisLog(REDIS_VERBOSE,"Accepting cluster node: %s", server.neterr);
         return;
     }
+    anetNonBlock(NULL,cfd);
+    anetEnableTcpNoDelay(NULL,cfd);
+
+    /* Use non-blocking I/O for cluster messages. */
     /* IPV6: might want to wrap a v6 address in [] */
     redisLog(REDIS_VERBOSE,"Accepted cluster node %s:%d", cip, cport);
     /* We need to create a temporary node in order to read the incoming
@@ -355,6 +359,7 @@ clusterNode *createClusterNode(char *nodename, int flags) {
         memcpy(node->name, nodename, REDIS_CLUSTER_NAMELEN);
     else
         getRandomHexChars(node->name, REDIS_CLUSTER_NAMELEN);
+    node->ctime = time(NULL);
     node->flags = flags;
     memset(node->slots,0,sizeof(node->slots));
     node->numslots = 0;
@@ -541,7 +546,7 @@ void clusterDelNode(clusterNode *delnode) {
     }
 
     /* 2) Remove failure reports. */
-    di = dictGetIterator(server.cluster->nodes);
+    di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
@@ -669,6 +674,24 @@ void clearNodeFailureIfNeeded(clusterNode *node) {
     }
 }
 
+/* Return true if we already have a node in HANDSHAKE state matching the
+ * specified ip address and port number. This function is used in order to
+ * avoid adding a new handshake node for the same address multiple times. */
+int clusterHandshakeInProgress(char *ip, int port) {
+    dictIterator *di;
+    dictEntry *de;
+
+    di = dictGetSafeIterator(server.cluster->nodes);
+    while((de = dictNext(di)) != NULL) {
+        clusterNode *node = dictGetVal(de);
+
+        if (!(node->flags & REDIS_NODE_HANDSHAKE)) continue;
+        if (!strcasecmp(node->ip,ip) && node->port == port) break;
+    }
+    dictReleaseIterator(di);
+    return de != NULL;
+}
+
 /* Process the gossip section of PING or PONG packets.
  * Note that this function assumes that the packet is already sanity-checked
  * by the caller, not in the content of the gossip section, but in the
@@ -704,15 +727,8 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
         /* Update our state accordingly to the gossip sections */
         node = clusterLookupNode(g->nodename);
         if (node != NULL) {
-            /* We already know this node. Let's start updating the last
-             * time PONG figure if it is newer than our figure.
-             * Note that it's not a problem if we have a PING already 
-             * in progress against this node. */
-            if (node->pong_received < (signed) ntohl(g->pong_received)) {
-                 redisLog(REDIS_DEBUG,"Node pong_received updated by gossip");
-                node->pong_received = ntohl(g->pong_received);
-            }
-            /* Handle failure reports, only when the sender is a master. */
+            /* We already know this node.
+               Handle failure reports, only when the sender is a master. */
             if (sender && sender->flags & REDIS_NODE_MASTER &&
                 node != server.cluster->myself)
             {
@@ -738,7 +754,9 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
              * Note that we require that the sender of this gossip message
              * is a well known node in our cluster, otherwise we risk
              * joining another cluster. */
-            if (sender && !(flags & REDIS_NODE_NOADDR)) {
+            if (sender && !(flags & REDIS_NODE_NOADDR) &&
+                !clusterHandshakeInProgress(g->ip,ntohs(g->port)))
+            {
                 clusterNode *newnode;
 
                 redisLog(REDIS_DEBUG,"Adding the new node");
@@ -887,7 +905,9 @@ int clusterProcessPacket(clusterLink *link) {
     }
 
     /* PING or PONG: process config information. */
-    if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_PONG) {
+    if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_PONG ||
+        type == CLUSTERMSG_TYPE_MEET)
+    {
         int update_state = 0;
         int update_config = 0;
 
@@ -1170,53 +1190,52 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
 
-again:
-    rcvbuflen = sdslen(link->rcvbuf);
-    if (rcvbuflen < 4) {
-        /* First, obtain the first four bytes to get the full message
-         * length. */
-        readlen = 4 - rcvbuflen;
-    } else {
-        /* Finally read the full message. */
-        hdr = (clusterMsg*) link->rcvbuf;
-        if (rcvbuflen == 4) {
-            /* Perform some sanity check on the message length. */
-            if (ntohl(hdr->totlen) < CLUSTERMSG_MIN_LEN) {
-                redisLog(REDIS_WARNING,
-                    "Bad message length received from Cluster bus.");
-                handleLinkIOError(link);
-                return;
+    while(1) { /* Read as long as there is data to read. */
+        rcvbuflen = sdslen(link->rcvbuf);
+        if (rcvbuflen < 4) {
+            /* First, obtain the first four bytes to get the full message
+             * length. */
+            readlen = 4 - rcvbuflen;
+        } else {
+            /* Finally read the full message. */
+            hdr = (clusterMsg*) link->rcvbuf;
+            if (rcvbuflen == 4) {
+                /* Perform some sanity check on the message length. */
+                if (ntohl(hdr->totlen) < CLUSTERMSG_MIN_LEN) {
+                    redisLog(REDIS_WARNING,
+                        "Bad message length received from Cluster bus.");
+                    handleLinkIOError(link);
+                    return;
+                }
             }
+            readlen = ntohl(hdr->totlen) - rcvbuflen;
+            if (readlen > sizeof(buf)) readlen = sizeof(buf);
         }
-        readlen = ntohl(hdr->totlen) - rcvbuflen;
-    }
 
-    nread = read(fd,buf,readlen);
-    if (nread == -1 && errno == EAGAIN) return; /* No more data ready. */
+        nread = read(fd,buf,readlen);
+        if (nread == -1 && errno == EAGAIN) return; /* No more data ready. */
 
-    if (nread <= 0) {
-        /* I/O error... */
-        redisLog(REDIS_DEBUG,"I/O error reading from node link: %s",
-            (nread == 0) ? "connection closed" : strerror(errno));
-        handleLinkIOError(link);
-        return;
-    } else {
-        /* Read data and recast the pointer to the new buffer. */
-        link->rcvbuf = sdscatlen(link->rcvbuf,buf,nread);
-        hdr = (clusterMsg*) link->rcvbuf;
-        rcvbuflen += nread;
-    }
+        if (nread <= 0) {
+            /* I/O error... */
+            redisLog(REDIS_DEBUG,"I/O error reading from node link: %s",
+                (nread == 0) ? "connection closed" : strerror(errno));
+            handleLinkIOError(link);
+            return;
+        } else {
+            /* Read data and recast the pointer to the new buffer. */
+            link->rcvbuf = sdscatlen(link->rcvbuf,buf,nread);
+            hdr = (clusterMsg*) link->rcvbuf;
+            rcvbuflen += nread;
+        }
 
-    /* Total length obtained? read the payload now instead of burning
-     * cycles waiting for a new event to fire. */
-    if (rcvbuflen == 4) goto again;
-
-    /* Whole packet in memory? We can process it. */
-    if (rcvbuflen == ntohl(hdr->totlen)) {
-        if (clusterProcessPacket(link)) {
-            sdsfree(link->rcvbuf);
-            link->rcvbuf = sdsempty();
-            rcvbuflen = 0; /* Useless line of code currently... defensive. */
+        /* Total length obtained? Process this packet. */
+        if (rcvbuflen >= 4 && rcvbuflen == ntohl(hdr->totlen)) {
+            if (clusterProcessPacket(link)) {
+                sdsfree(link->rcvbuf);
+                link->rcvbuf = sdsempty();
+            } else {
+                return; /* Link no longer valid. */
+            }
         }
     }
 }
@@ -1236,7 +1255,7 @@ void clusterBroadcastMessage(void *buf, size_t len) {
     dictIterator *di;
     dictEntry *de;
 
-    di = dictGetIterator(server.cluster->nodes);
+    di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
@@ -1348,7 +1367,7 @@ void clusterBroadcastPong(void) {
     dictIterator *di;
     dictEntry *de;
 
-    di = dictGetIterator(server.cluster->nodes);
+    di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
@@ -1385,8 +1404,8 @@ void clusterSendPublish(clusterLink *link, robj *channel, robj *message) {
         payload = buf;
     } else {
         payload = zmalloc(totlen);
-        hdr = (clusterMsg*) payload;
         memcpy(payload,hdr,sizeof(*hdr));
+        hdr = (clusterMsg*) payload;
     }
     memcpy(hdr->data.publish.msg.bulk_data,channel->ptr,sdslen(channel->ptr));
     memcpy(hdr->data.publish.msg.bulk_data+sdslen(channel->ptr),
@@ -1585,11 +1604,21 @@ void clusterCron(void) {
     clusterNode *min_pong_node = NULL;
 
     /* Check if we have disconnected nodes and re-establish the connection. */
-    di = dictGetIterator(server.cluster->nodes);
+    di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
         if (node->flags & (REDIS_NODE_MYSELF|REDIS_NODE_NOADDR)) continue;
+
+        /* A Node in HANDSHAKE state has a limited lifespan equal to the
+         * configured node timeout. */
+        if (node->flags & REDIS_NODE_HANDSHAKE &&
+            server.unixtime - node->ctime > server.cluster_node_timeout)
+        {
+            freeClusterNode(node);
+            continue;
+        }
+
         if (node->link == NULL) {
             int fd;
             time_t old_ping_sent;
@@ -1649,7 +1678,7 @@ void clusterCron(void) {
     }
 
     /* Iterate nodes to check if we need to flag something as failing */
-    di = dictGetIterator(server.cluster->nodes);
+    di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
         time_t now = time(NULL);
@@ -1851,7 +1880,7 @@ void clusterUpdateState(void) {
         dictEntry *de;
 
         server.cluster->size = 0;
-        di = dictGetIterator(server.cluster->nodes);
+        di = dictGetSafeIterator(server.cluster->nodes);
         while((de = dictNext(di)) != NULL) {
             clusterNode *node = dictGetVal(de);
 
@@ -1974,15 +2003,29 @@ void clusterSetMaster(clusterNode *n) {
  * CLUSTER command
  * -------------------------------------------------------------------------- */
 
-sds clusterGenNodesDescription(void) {
+/* Generate a csv-alike representation of the nodes we are aware of,
+ * including the "myself" node, and return an SDS string containing the
+ * representation (it is up to the caller to free it).
+ *
+ * All the nodes matching at least one of the node flags specified in
+ * "filter" are excluded from the output, so using zero as a filter will
+ * include all the known nodes in the representation, including nodes in
+ * the HANDSHAKE state.
+ *
+ * The representation obtained using this function is used for the output
+ * of the CLUSTER NODES function, and as format for the cluster
+ * configuration file (nodes.conf) for a given node. */
+sds clusterGenNodesDescription(int filter) {
     sds ci = sdsempty();
     dictIterator *di;
     dictEntry *de;
     int j, start;
 
-    di = dictGetIterator(server.cluster->nodes);
+    di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
+
+        if (node->flags & filter) continue;
 
         /* Node coordinates */
         ci = sdscatprintf(ci,"%.40s %s:%d ",
@@ -2080,8 +2123,15 @@ void clusterCommand(redisClient *c) {
         long port;
 
         /* Perform sanity checks on IP/port */
-        if ((inet_pton(AF_INET,c->argv[0]->ptr,&(((struct sockaddr_in *)&sa)->sin_addr)) ||
-             inet_pton(AF_INET6,c->argv[0]->ptr,&(((struct sockaddr_in6 *)&sa)->sin6_addr))) == 0) {
+        if (inet_pton(AF_INET,c->argv[2]->ptr,
+            &(((struct sockaddr_in *)&sa)->sin_addr)))
+        {
+            sa.ss_family = AF_INET;
+        } else if (inet_pton(AF_INET6,c->argv[2]->ptr,
+            &(((struct sockaddr_in6 *)&sa)->sin6_addr)))
+        {
+            sa.ss_family = AF_INET6;
+        } else {
             addReplyError(c,"Invalid IP address in MEET");
             return;
         }
@@ -2095,16 +2145,24 @@ void clusterCommand(redisClient *c) {
         /* Finally add the node to the cluster with a random name, this 
          * will get fixed in the first handshake (ping/pong). */
         n = createClusterNode(NULL,REDIS_NODE_HANDSHAKE|REDIS_NODE_MEET);
-        sa.ss_family == AF_INET ?
-            inet_ntop(AF_INET,(void*)&(((struct sockaddr_in *)&sa)->sin_addr),n->ip,REDIS_CLUSTER_IPLEN) :
-            inet_ntop(AF_INET6,(void*)&(((struct sockaddr_in6 *)&sa)->sin6_addr),n->ip,REDIS_CLUSTER_IPLEN);
+
+        /* Set node->ip as the normalized string representation of the node
+         * IP address. */
+        if (sa.ss_family == AF_INET)
+            inet_ntop(AF_INET,
+                (void*)&(((struct sockaddr_in *)&sa)->sin_addr),
+                n->ip,REDIS_CLUSTER_IPLEN);
+        else
+            inet_ntop(AF_INET6,
+                (void*)&(((struct sockaddr_in6 *)&sa)->sin6_addr),
+                n->ip,REDIS_CLUSTER_IPLEN);
         n->port = port;
         clusterAddNode(n);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"nodes") && c->argc == 2) {
         /* CLUSTER NODES */
         robj *o;
-        sds ci = clusterGenNodesDescription();
+        sds ci = clusterGenNodesDescription(0);
 
         o = createObject(REDIS_STRING,ci);
         addReplyBulk(c,o);
@@ -2287,6 +2345,14 @@ void clusterCommand(redisClient *c) {
             (unsigned long)sdslen(info)));
         addReplySds(c,info);
         addReply(c,shared.crlf);
+    } else if (!strcasecmp(c->argv[1]->ptr,"saveconfig") && c->argc == 2) {
+        int retval = clusterSaveConfig();
+
+        if (retval == 0)
+            addReply(c,shared.ok);
+        else
+            addReplyErrorFormat(c,"error saving the cluster node config: %s",
+                strerror(errno));
     } else if (!strcasecmp(c->argv[1]->ptr,"keyslot") && c->argc == 3) {
         /* CLUSTER KEYSLOT <key> */
         sds key = c->argv[2]->ptr;
