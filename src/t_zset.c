@@ -99,9 +99,12 @@ void zslFree(zskiplist *zsl) {
  * levels are less likely to be returned. */
 int zslRandomLevel(void) {
     int level = 1;
-    while ((random()&0xFFFF) < (ZSKIPLIST_P * 0xFFFF))
+    while ((level < ZSKIPLIST_MAXLEVEL) && 
+           ((random()&0xFFFF) < (ZSKIPLIST_P * 0xFFFF))) {
         level += 1;
-    return (level<ZSKIPLIST_MAXLEVEL) ? level : ZSKIPLIST_MAXLEVEL;
+    }
+
+    return level;
 }
 
 zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj) {
