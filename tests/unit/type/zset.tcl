@@ -442,6 +442,16 @@ start_server {tags {"zset"}} {
             assert_equal {a 1 b 2 c 3 d 3} [r zrange zsetc 0 -1 withscores]
         }
 
+        test "ZUNIONSTORE with AGGREGATE COUNT - $encoding" {
+            assert_equal 4 [r zunionstore zsetc 2 zseta zsetb aggregate count]
+            assert_equal {a 1 d 1 b 2 c 2} [r zrange zsetc 0 -1 withscores]
+        }
+        
+        test "ZUNIONSTORE with AGGREGATE AVG - $encoding" {
+            assert_equal 4 [r zunionstore zsetc 2 zseta zsetb aggregate avg]
+            assert_equal {a 1 b 1.5 c 2.5 d 3} [r zrange zsetc 0 -1 withscores]
+        }
+
         test "ZINTERSTORE basics - $encoding" {
             assert_equal 2 [r zinterstore zsetc 2 zseta zsetb]
             assert_equal {b 3 c 5} [r zrange zsetc 0 -1 withscores]
