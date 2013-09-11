@@ -1474,11 +1474,13 @@ int zuiCompareByCardinality(const void *s1, const void *s2) {
 #define REDIS_AGGR_SUM 1
 #define REDIS_AGGR_MIN 2
 #define REDIS_AGGR_MAX 3
+#define REDIS_AGGR_COUNT 4
+#define REDIS_AGGR_AVG 5
 #define zunionInterDictValue(_e) (dictGetVal(_e) == NULL ? 1.0 : *(double*)dictGetVal(_e))
 
-inline static void zunionInterAggregate(double *target, double val, int aggregate) {
+inline static void zunionInterAggregate(double *target, double *count, double val, int aggregate) {
     if (aggregate == REDIS_AGGR_SUM) {
-        *target = *target + val;
+        *target += val;
         /* The result of adding two doubles is NaN when one variable
          * is +inf and the other is -inf. When these numbers are added,
          * we maintain the convention of the result being 0.0. */
@@ -1487,6 +1489,12 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
         *target = val < *target ? val : *target;
     } else if (aggregate == REDIS_AGGR_MAX) {
         *target = val > *target ? val : *target;
+    } else if (aggregate == REDIS_AGGR_COUNT) {
+        *count += 1;
+    } else if (aggregate == REDIS_AGGR_AVG) {
+        *target += val;
+        *count += 1;
+        if (isnan(*target)) *target = 0.0;
     } else {
         /* safety net */
         redisPanic("Unknown ZUNION/INTER aggregate type");
@@ -1567,6 +1575,10 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                     aggregate = REDIS_AGGR_MIN;
                 } else if (!strcasecmp(c->argv[j]->ptr,"max")) {
                     aggregate = REDIS_AGGR_MAX;
+                } else if (!strcasecmp(c->argv[j]->ptr,"count")) {
+                    aggregate = REDIS_AGGR_COUNT;
+                } else if (!strcasecmp(c->argv[j]->ptr,"avg")) {
+                    aggregate = REDIS_AGGR_AVG;
                 } else {
                     zfree(src);
                     addReply(c,shared.syntaxerr);
@@ -1596,20 +1608,21 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
              * by size, all src[i > 0] are non-empty too. */
             zuiInitIterator(&src[0]);
             while (zuiNext(&src[0],&zval)) {
-                double score, value;
+                double score, count, value;
 
                 score = src[0].weight * zval.score;
                 if (isnan(score)) score = 0;
+                count = 1;
 
                 for (j = 1; j < setnum; j++) {
                     /* It is not safe to access the zset we are
                      * iterating, so explicitly check for equal object. */
                     if (src[j].subject == src[0].subject) {
                         value = zval.score*src[j].weight;
-                        zunionInterAggregate(&score,value,aggregate);
+                        zunionInterAggregate(&score,&count,value,aggregate);
                     } else if (zuiFind(&src[j],&zval,&value)) {
                         value *= src[j].weight;
-                        zunionInterAggregate(&score,value,aggregate);
+                        zunionInterAggregate(&score,&count,value,aggregate);
                     } else {
                         break;
                     }
@@ -1618,6 +1631,10 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                 /* Only continue when present in every input. */
                 if (j == setnum) {
                     tmp = zuiObjectFromValue(&zval);
+                    if (aggregate == REDIS_AGGR_AVG) {
+                        score = score / count;
+                        if (isnan(score)) score = 0;
+                    } else if (aggregate == REDIS_AGGR_COUNT) score = count;
                     znode = zslInsert(dstzset->zsl,score,tmp);
                     incrRefCount(tmp); /* added to skiplist */
                     dictAdd(dstzset->dict,tmp,&znode->score);
@@ -1637,7 +1654,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
 
             zuiInitIterator(&src[i]);
             while (zuiNext(&src[i],&zval)) {
-                double score, value;
+                double score, count, value;
 
                 /* Skip an element that when already processed */
                 if (dictFind(dstzset->dict,zuiObjectFromValue(&zval)) != NULL)
@@ -1646,6 +1663,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                 /* Initialize score */
                 score = src[i].weight * zval.score;
                 if (isnan(score)) score = 0;
+                count = 1;
 
                 /* We need to check only next sets to see if this element
                  * exists, since we process every element just one time so
@@ -1656,14 +1674,18 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                      * iterating, so explicitly check for equal object. */
                     if(src[j].subject == src[i].subject) {
                         value = zval.score*src[j].weight;
-                        zunionInterAggregate(&score,value,aggregate);
+                        zunionInterAggregate(&score,&count,value,aggregate);
                     } else if (zuiFind(&src[j],&zval,&value)) {
                         value *= src[j].weight;
-                        zunionInterAggregate(&score,value,aggregate);
+                        zunionInterAggregate(&score,&count,value,aggregate);
                     }
                 }
 
                 tmp = zuiObjectFromValue(&zval);
+                if (aggregate == REDIS_AGGR_AVG) {
+                    score = score / count;
+                    if (isnan(score)) score = 0;
+                } else if (aggregate == REDIS_AGGR_COUNT) score = count;
                 znode = zslInsert(dstzset->zsl,score,tmp);
                 incrRefCount(zval.ele); /* added to skiplist */
                 dictAdd(dstzset->dict,tmp,&znode->score);
