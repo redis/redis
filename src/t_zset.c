@@ -1486,10 +1486,10 @@ inline static void zunionInterAggregate(double *target, double *count, double va
          * we maintain the convention of the result being 0.0. */
         if (isnan(*target)) *target = 0.0;
     } else if (aggregate == REDIS_AGGR_MIN) {
-    	val *= weight;
+        val *= weight;
         *target = val < *target ? val : *target;
     } else if (aggregate == REDIS_AGGR_MAX) {
-    	val *= weight;
+        val *= weight;
         *target = val > *target ? val : *target;
     } else if (aggregate == REDIS_AGGR_COUNT) {
         *count += weight;
@@ -1509,8 +1509,8 @@ inline static void zunionInterAggregateFinalize(double *target, double count, in
     if (aggregate == REDIS_AGGR_COUNT) {
         *target = count;
     } else if (aggregate == REDIS_AGGR_AVG) {
-       	*target /= count;
-       	/* The result of 0.0 / 0.0 is NaN.  Change it to 0.0 */
+        *target /= count;
+        /* The result of 0.0 / 0.0 is NaN.  Change it to 0.0 */
         if (isnan(*target)) *target = 0.0;
     }
 }
