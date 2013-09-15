@@ -257,6 +257,17 @@ void sortCommand(redisClient *c) {
         j++;
     }
 
+    /* Deny writing in read only slave */
+    if (server.masterhost && server.repl_slave_ro &&
+            !(c->flags & REDIS_MASTER) && storekey)
+    {
+        decrRefCount(sortval);
+        listRelease(operations);
+        addReply(c, shared.roslaveerr);
+        return;
+    }
+
+
     /* For the STORE option, or when SORT is called from a Lua script,
      * we want to force a specific ordering even when no explicit ordering
      * was asked (SORT BY nosort). This guarantees that replication / AOF
