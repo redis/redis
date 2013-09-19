@@ -27,21 +27,34 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-char *ascii_logo =
-"                _._                                                  \n"
-"           _.-``__ ''-._                                             \n"
-"      _.-``    `.  `_.  ''-._           Redis %s (%s/%d) %s bit\n"
-"  .-`` .-```.  ```\\/    _.,_ ''-._                                   \n"
-" (    '      ,       .-`  | `,    )     Running in %s mode\n"
-" |`-._`-...-` __...-.``-._|'` _.-'|     Port: %d\n"
-" |    `-._   `._    /     _.-'    |     PID: %ld\n"
-"  `-._    `-._  `-./  _.-'    _.-'                                   \n"
-" |`-._`-._    `-.__.-'    _.-'_.-'|                                  \n"
-" |    `-._`-._        _.-'_.-'    |           http://redis.io        \n"
-"  `-._    `-._`-.__.-'_.-'    _.-'                                   \n"
-" |`-._`-._    `-.__.-'    _.-'_.-'|                                  \n"
-" |    `-._`-._        _.-'_.-'    |                                  \n"
-"  `-._    `-._`-.__.-'_.-'    _.-'                                   \n"
-"      `-._    `-.__.-'    _.-'                                       \n"
-"          `-._        _.-'                                           \n"
-"              `-.__.-'                                               \n\n";
+#define ANSI_DR "\033[31;22m"
+#define ANSI_BR "\033[31;1m"
+#define ANSI_BB "\033[34;1m"
+#define ANSI_GR "\033[30;1m"
+#define ANSI_DW "\033[37;22m"
+#define ANSI_BW "\033[37;1m"
+#define ANSI_CL "\033[0m"
+#define VER_LINE  ANSI_BW "Redis %s (%s/%d) %s bit\n"
+#define MODE_LINE ANSI_DW "Running in %s mode\n"
+#define PORT_LINE ANSI_DW "Port: %d\n"
+#define PID_LINE  ANSI_DW "PID: %ld\n"
+#define URL_LINE  ANSI_BB "http://redis.io\n"
+
+char *ascii_logo = ANSI_DR
+"                _._\n"
+"           _.-``" ANSI_DW "__" ANSI_DR " ''-._\n"
+"      _.-``    " ANSI_DW "`.  `_." ANSI_DR "  ''-._           " VER_LINE ANSI_DR
+"  .-``" ANSI_DW " .-```.  ```\\/"ANSI_GR "    _.,_ " ANSI_DR "''-._\n"
+" (    " ANSI_DW "'      ," ANSI_GR "       .-`  | `," ANSI_DR "    )     " MODE_LINE ANSI_DR
+" |`-._" ANSI_DW "`-...-` __...-." ANSI_GR "``-._|'`" ANSI_DR " _.-'|     " PORT_LINE ANSI_DR
+" |    `-._   " ANSI_DW "`._    /" ANSI_DR "     _.-'    |     " PID_LINE ANSI_DR
+"  `-._    `-._  " ANSI_DW "`-./" ANSI_DR "  _.-'    _.-'\n"
+" |`-._`-._    `-"                    ".__.-'    _.-'_.-'|\n"
+" |    `-._`-._  "                    "      _.-'_.-'    |           " URL_LINE ANSI_DR
+"  `-._    `-._`-"                    ".__.-'_.-'    _.-'\n"
+" |`-._`-._    `-"                    ".__.-'    _.-'_.-'|\n"
+" |    `-._`-._  "                    "      _.-'_.-'    |\n"
+"  `-._    `-._`-"                    ".__.-'_.-'    _.-'\n"
+"      `-._    `-"                    ".__.-'    _.-'\n"
+"          `-._  "                    "      _.-'\n"
+"              `-"                    ".__.-'\n" ANSI_CL "\n";
