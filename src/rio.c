@@ -48,7 +48,9 @@
 #include "fmacros.h"
 #include <string.h>
 #include <stdio.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 #include "rio.h"
 #include "util.h"
 #ifdef _WIN32

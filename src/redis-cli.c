@@ -59,6 +59,7 @@
 #define strncasecmp _strnicmp
 #define strtoull _strtoui64
 #endif
+#endif
 
 #include <limits.h>
 
