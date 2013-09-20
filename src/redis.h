@@ -704,6 +704,9 @@ typedef struct {
     uint32_t totlen;    /* Total length of this message */
     uint16_t type;      /* Message type */
     uint16_t count;     /* Only used for some kind of messages. */
+    uint64_t time;      /* Time at which this request was sent (in milliseconds),
+                           this field is copied in reply messages so that the
+                           original sender knows how old the reply is. */
     char sender[REDIS_CLUSTER_NAMELEN]; /* Name of the sender node */
     unsigned char myslots[REDIS_CLUSTER_SLOTS/8];
     char slaveof[REDIS_CLUSTER_NAMELEN];

@@ -42,7 +42,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void clusterSendPing(clusterLink *link, int type);
 void clusterSendFail(char *nodename);
-void clusterSendFailoverAuthIfNeeded(clusterNode *sender);
+void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request);
 void clusterUpdateState(void);
 int clusterNodeGetSlotBit(clusterNode *n, int slot);
 sds clusterGenNodesDescription(int filter);
@@ -1134,7 +1134,7 @@ int clusterProcessPacket(clusterLink *link) {
         if (!sender) return 1;  /* We don't know that node. */
         /* If we are not a master, ignore that message at all. */
         if (!(server.cluster->myself->flags & REDIS_NODE_MASTER)) return 0;
-        clusterSendFailoverAuthIfNeeded(sender);
+        clusterSendFailoverAuthIfNeeded(sender,hdr);
     } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK) {
         if (!sender) return 1;  /* We don't know that node. */
         /* If this is a master, increment the number of acknowledges
@@ -1464,11 +1464,14 @@ void clusterRequestFailoverAuth(void) {
     clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST);
     totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
     hdr->totlen = htonl(totlen);
+    hdr->time = mstime();
     clusterBroadcastMessage(buf,totlen);
 }
 
-/* Send a FAILOVER_AUTH_ACK message to the specified node. */
-void clusterSendFailoverAuth(clusterNode *node) {
+/* Send a FAILOVER_AUTH_ACK message to the specified node.
+ * Reqtime is the time field from the original failover auth request packet,
+ * so that the receiver is able to check the reply age. */
+void clusterSendFailoverAuth(clusterNode *node, uint64_t reqtime) {
     unsigned char buf[4096];
     clusterMsg *hdr = (clusterMsg*) buf;
     uint32_t totlen;
@@ -1477,11 +1480,14 @@ void clusterSendFailoverAuth(clusterNode *node) {
     clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK);
     totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
     hdr->totlen = htonl(totlen);
+    hdr->time = reqtime;
     clusterSendMessage(node->link,buf,totlen);
 }
 
 /* If we believe 'node' is the "first slave" of it's master, reply with
  * a FAILOVER_AUTH_GRANTED packet.
+ * The 'request' field points to the authorization request packet header, we
+ * need it in order to copy back the 'time' field in our reply.
  *
  * To be a first slave the sender must:
  * 1) Be a slave.
@@ -1489,7 +1495,7 @@ void clusterSendFailoverAuth(clusterNode *node) {
  * 3) Ordering all the slaves IDs for its master by run-id, it should be the
  *    first (the smallest) among the ones not in FAIL / PFAIL state.
  */
-void clusterSendFailoverAuthIfNeeded(clusterNode *node) {
+void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     char first[REDIS_CLUSTER_NAMELEN];
     clusterNode *master = node->slaveof;
     int j;
@@ -1514,7 +1520,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node) {
     if (memcmp(node->name,first,sizeof(first)) != 0) return;
 
     /* We can send the packet. */
-    clusterSendFailoverAuth(node);
+    clusterSendFailoverAuth(node,request->time);
 }
 
 /* This function is called if we are a slave node and our master serving
