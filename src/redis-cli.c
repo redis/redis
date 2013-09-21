@@ -783,6 +783,7 @@ static void usage() {
 "  -c                 Enable cluster mode (follow -ASK and -MOVED redirections)\n"
 "  --raw              Use raw formatting for replies (default when STDOUT is\n"
 "                     not a tty)\n"
+"  --csv              Output in CSV format\n"
 "  --latency          Enter a special mode continuously sampling latency\n"
 "  --latency-history  Like --latency but tracking latency changes over time.\n"
 "                     Default time interval is 15 sec. Change it using -i.\n"
