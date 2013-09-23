@@ -473,7 +473,6 @@ void bitposCommand(redisClient *c) {
         return;
     }
 
-    /* fast-forward */
     p = (p + start);
     bytecount = (end - start + 1);
     replylen = addDeferredMultiBulkLength(c);
@@ -485,7 +484,7 @@ void bitposCommand(redisClient *c) {
         while (byte && limit) {
             if (byte & i) {
                 addReplyBulkLongLong(c, (start * 8 + pos));
-                byte &= ~(1 << (7-pos));
+                byte &= ~(1 << (7 - pos));
                 ++bitcount;
                 --limit;
                 limit = (((-1) > (limit)) ? (-1) : (limit));
