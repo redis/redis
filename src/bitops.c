@@ -410,3 +410,87 @@ void bitcountCommand(redisClient *c) {
         addReplyLongLong(c,redisPopcount(p+start,bytes));
     }
 }
+
+/* BITPOS key [start end limit] */
+void bitposCommand(redisClient *c) {
+    robj *o;
+    long start, end, limit = -1, strlen;
+    void *replylen = NULL;
+    unsigned char *p, byte;
+    char llbuf[32];
+    unsigned long bytecount = 0;
+    unsigned long bitcount = 0;
+
+    /* Lookup, check for type, and return 0 for non existing keys. */
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
+        checkType(c,o,REDIS_STRING)) return;
+
+    /* Set the 'p' pointer to the string, that can be just a stack allocated
+     * array if our string was integer encoded. */
+    if (o->encoding == REDIS_ENCODING_INT) {
+        p = (unsigned char*) llbuf;
+        strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
+    } else {
+        p = (unsigned char*) o->ptr;
+        strlen = sdslen(o->ptr);
+    }
+
+    /* Parse start/end range if any. */
+    if (c->argc == 5) {
+        if (getLongFromObjectOrReply(c,c->argv[4],&limit,NULL) != REDIS_OK)
+            return;
+    }
+    if (c->argc >= 4) {
+        if (getLongFromObjectOrReply(c,c->argv[2],&start,NULL) != REDIS_OK)
+            return;
+        if (getLongFromObjectOrReply(c,c->argv[3],&end,NULL) != REDIS_OK)
+            return;
+        /* Convert negative indexes */
+        if (start < 0) start = strlen+start;
+        if (end < 0) end = strlen+end;
+        if (start < 0) start = 0;
+        if (end < 0) end = 0;
+        if (end >= strlen) end = strlen-1;
+    } else if (c->argc >= 2) {
+        /* The whole string. */
+        start = 0;
+        end = strlen-1;
+    } else {
+        /* Syntax error. */
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+
+    /* Precondition: end >= 0 && end < strlen, so the only condition where
+     * zero can be returned is: start > end. */
+    if (start > end) {
+        addReply(c,shared.emptymultibulk);
+        return;
+    }
+
+    /* fast-forward */
+    p = (p + start);
+    bytecount = (end - start + 1);
+    replylen = addDeferredMultiBulkLength(c);
+
+    /* iterate over bytes */
+    while (bytecount--) {
+        unsigned int i = 128, pos = 0;
+        byte = *p++;
+        while (byte && limit) {
+            if (byte & i) {
+                addReplyBulkLongLong(c, (start * 8 + pos));
+                byte &= ~(1 << (7-pos));
+                ++bitcount;
+                --limit;
+                limit = (((-1) > (limit)) ? (-1) : (limit));
+            }
+            i >>= 1;
+            pos++;
+        }
+        start++;
+    }
+
+    setDeferredMultiBulkLength(c, replylen, bitcount);
+}
+
