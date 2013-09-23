@@ -466,7 +466,6 @@ void bitposCommand(redisClient *c) {
     if (end < 0) end = 0;
     if (end >= strlen) end = strlen-1;
 
-    printf("start %ld end %ld\n", start, end);
     /* Precondition: end >= 0 && end < strlen, so the only condition where
      * zero can be returned is: start > end. */
     if (start > end) {
