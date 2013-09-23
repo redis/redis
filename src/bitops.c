@@ -422,7 +422,7 @@ void bitposCommand(redisClient *c) {
     unsigned long bitcount = 0;
 
     /* Lookup, check for type, and return 0 for non existing keys. */
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL ||
         checkType(c,o,REDIS_STRING)) return;
 
     /* Set the 'p' pointer to the string, that can be just a stack allocated
@@ -445,13 +445,11 @@ void bitposCommand(redisClient *c) {
             return;
         if (getLongFromObjectOrReply(c,c->argv[3],&end,NULL) != REDIS_OK)
             return;
-        /* Convert negative indexes */
-        if (start < 0) start = strlen+start;
-        if (end < 0) end = strlen+end;
-        if (start < 0) start = 0;
-        if (end < 0) end = 0;
-        if (end >= strlen) end = strlen-1;
-    } else if (c->argc >= 2) {
+    } else if (c->argc == 3) {
+        if (getLongFromObjectOrReply(c,c->argv[2],&start,NULL) != REDIS_OK)
+            return;
+        end = strlen-1;
+    } else if (c->argc == 2) {
         /* The whole string. */
         start = 0;
         end = strlen-1;
@@ -461,6 +459,14 @@ void bitposCommand(redisClient *c) {
         return;
     }
 
+    /* Convert negative indexes */
+    if (start < 0) start = strlen+start;
+    if (end < 0) end = strlen+end;
+    if (start < 0) start = 0;
+    if (end < 0) end = 0;
+    if (end >= strlen) end = strlen-1;
+
+    printf("start %ld end %ld\n", start, end);
     /* Precondition: end >= 0 && end < strlen, so the only condition where
      * zero can be returned is: start > end. */
     if (start > end) {

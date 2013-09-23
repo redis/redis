@@ -177,4 +177,88 @@ start_server {tags {"bitops"}} {
         r set a "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
         r bitop or x a b
     } {32}
+
+    test {BITPOS returns empty when used non existing key} {
+        r bitpos no-key
+    } {}
+
+    test {BITPOS empty when end > start} {
+        r del a
+        r setbit a 33 1
+        r bitpos a 5 4
+    } {}
+
+    test {BITPOS against non-string keys} {
+        r del a
+        r lpush a foo
+        catch {r bitpos a} e
+        set e
+    } {WRONGTYPE*}
+
+    test {BITPOS simple, repeated} {
+        r del a
+        r setbit a 0 1
+        r setbit a 1 1
+        r setbit a 8 1
+        r setbit a 50 1
+        r setbit a 100 1
+        r setbit a 127 1
+        r setbit a 128 1
+
+        assert_equal {0 1 8 50 100 127 128} [r bitpos a]
+        assert_equal {0 1 8 50 100 127 128} [r bitpos a]
+    }
+
+    test {BITPOS whole byte} {
+        r del a
+        for {set j 6} {$j < 18} {incr j} {
+            r setbit a $j 1
+        }
+        assert_equal {6 7 8 9 10 11 12 13 14 15 16 17} [r bitpos a]
+    }
+
+    test {BITPOS with start} {
+        r del a
+        r setbit a 3  1
+        r setbit a 9  1
+        r setbit a 17 1
+        r setbit a 33 1
+        assert_equal {17 33} [r bitpos a 2]
+    }
+
+    test {BITPOS with start and end} {
+        r del a
+        r setbit a 3  1
+        r setbit a 9  1
+        r setbit a 17 1
+        r setbit a 33 1
+        assert_equal {9 17} [r bitpos a 1 2]
+    }
+
+    test {BITPOS with relative start and end} {
+        r del a
+        r setbit a 3  1
+        r setbit a 9  1
+        r setbit a 17 1
+        r setbit a 33 1
+        assert_equal {17 33} [r bitpos a -3 -1]
+    }
+
+    test {BITPOS with limit} {
+        r del a
+        r setbit a 3  1
+        r setbit a 9  1
+        r setbit a 17 1
+        r setbit a 33 1
+        assert_equal {3 9} [r bitpos a 0 -1 2]
+    }
+
+    test {BITPOS with start end limit} {
+        r del a
+        r setbit a 3  1
+        r setbit a 9  1
+        r setbit a 17 1
+        r setbit a 33 1
+        assert_equal {17} [r bitpos a 2 -1 1]
+    }
 }
