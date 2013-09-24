@@ -2922,7 +2922,10 @@ void redisAsciiArt(void) {
     char *buf = zmalloc(1024*16);
     char *mode = "stand alone";
 
-    snprintf(buf,1024*16,
+    if (server.cluster_enabled) mode = "cluster";
+    else if (server.sentinel_mode) mode = "sentinel";
+
+     snprintf(buf,1024*16,
         (server.color == REDIS_COLOR_ON || (server.color == REDIS_COLOR_AUTO && fp_is_a_tty) ? ascii_logo_color : ascii_logo),
         REDIS_VERSION,
         redisGitSHA1(),
