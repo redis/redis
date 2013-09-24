@@ -267,6 +267,7 @@ struct redisCommand redisCommandTable[] = {
  * redisLog() is to prefer. */
 void redisLogRaw(int level, const char *msg) {
     const int syslogLevelMap[] = { LOG_DEBUG, LOG_INFO, LOG_NOTICE, LOG_WARNING };
+    char *colorLevelMap[] = { "\033[30;1m", "\033[37;22m", "\033[37;1m", "\033[33;1m" };
     const char *c = ".-*#";
     FILE *fp;
     char buf[64];
@@ -288,7 +289,10 @@ void redisLogRaw(int level, const char *msg) {
         gettimeofday(&tv,NULL);
         off = strftime(buf,sizeof(buf),"%d %b %H:%M:%S.",localtime(&tv.tv_sec));
         snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
-        fprintf(fp,"[%d] %s %c %s\n",(int)getpid(),buf,c[level],msg);
+        if (server.color == REDIS_COLOR_ON || (server.color == REDIS_COLOR_AUTO && isatty(fileno(fp))))
+            fprintf(fp,"%s[%d] %s %c %s\033[0m\n", (int)getpid(),buf,c[level],msg);
+        else
+            fprintf(fp,"[%d] %s %c %s\n",(int)getpid(),buf,c[level],msg);
     }
     fflush(fp);
 
@@ -1311,6 +1315,7 @@ void initServerConfig() {
     server.saveparams = NULL;
     server.loading = 0;
     server.logfile = zstrdup(REDIS_DEFAULT_LOGFILE);
+    server.color = REDIS_DEFAULT_COLOR;
     server.syslog_enabled = REDIS_DEFAULT_SYSLOG_ENABLED;
     server.syslog_ident = zstrdup(REDIS_DEFAULT_SYSLOG_IDENT);
     server.syslog_facility = LOG_LOCAL0;
@@ -2908,13 +2913,17 @@ void usage() {
 
 void redisAsciiArt(void) {
 #include "asciilogo.h"
+
+    int log_to_stdout = server.logfile[0] == '\0';
+    FILE *fp = log_to_stdout ? stdout : fopen(server.logfile,"a");
+    int fp_is_a_tty = fp && isatty(fileno(fp));
+    if (!log_to_stdout) fclose(fp);
+
     char *buf = zmalloc(1024*16);
     char *mode = "stand alone";
 
-    if (server.cluster_enabled) mode = "cluster";
-    else if (server.sentinel_mode) mode = "sentinel";
-
-    snprintf(buf,1024*16,ascii_logo,
+    snprintf(buf,1024*16,
+        (server.color == REDIS_COLOR_ON || (server.color == REDIS_COLOR_AUTO && fp_is_a_tty) ? ascii_logo_color : ascii_logo),
         REDIS_VERSION,
         redisGitSHA1(),
         strtol(redisGitDirty(),NULL,10) > 0,

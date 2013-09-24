@@ -40,7 +40,7 @@
 #define PID_LINE  ANSI_DW "PID: %ld\n"
 #define URL_LINE  ANSI_BB "http://redis.io\n"
 
-char *ascii_logo = ANSI_DR
+char *ascii_logo_color = ANSI_DR
 "                _._\n"
 "           _.-``" ANSI_DW "__" ANSI_DR " ''-._\n"
 "      _.-``    " ANSI_DW "`.  `_." ANSI_DR "  ''-._           " VER_LINE ANSI_DR
@@ -58,3 +58,22 @@ char *ascii_logo = ANSI_DR
 "      `-._    `-"                    ".__.-'    _.-'\n"
 "          `-._  "                    "      _.-'\n"
 "              `-"                    ".__.-'\n" ANSI_CL "\n";
+
+char *ascii_logo =
+"                _._                                                  \n"
+"           _.-``__ ''-._                                             \n"
+"      _.-``    `.  `_.  ''-._           Redis %s (%s/%d) %s bit\n"
+"  .-`` .-```.  ```\\/    _.,_ ''-._                                   \n"
+" (    '      ,       .-`  | `,    )     Running in %s mode\n"
+" |`-._`-...-` __...-.``-._|'` _.-'|     Port: %d\n"
+" |    `-._   `._    /     _.-'    |     PID: %ld\n"
+"  `-._    `-._  `-./  _.-'    _.-'                                   \n"
+" |`-._`-._    `-.__.-'    _.-'_.-'|                                  \n"
+" |    `-._`-._        _.-'_.-'    |           http://redis.io        \n"
+"  `-._    `-._`-.__.-'_.-'    _.-'                                   \n"
+" |`-._`-._    `-.__.-'    _.-'_.-'|                                  \n"
+" |    `-._`-._        _.-'_.-'    |                                  \n"
+"  `-._    `-._`-.__.-'_.-'    _.-'                                   \n"
+"      `-._    `-.__.-'    _.-'                                       \n"
+"          `-._        _.-'                                           \n"
+"              `-.__.-'                                               \n\n";
