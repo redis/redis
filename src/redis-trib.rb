@@ -119,7 +119,7 @@ class ClusterNode
             # name addr flags role ping_sent ping_recv link_status slots
             split = n.split
             name,addr,flags,role,ping_sent,ping_recv,config_epoch,link_status = split[0..6]
-            slots = split[7..-1]
+            slots = split[8..-1]
             info = {
                 :name => name,
                 :addr => addr,
@@ -230,7 +230,7 @@ class ClusterNode
         config = []
         @r.cluster("nodes").each_line{|l|
             s = l.split
-            slots = s[7..-1].select {|x| x[0..0] != "["}
+            slots = s[8..-1].select {|x| x[0..0] != "["}
             next if slots.length == 0
             config << s[0]+":"+(slots.sort.join(","))
         }
