@@ -873,6 +873,7 @@ int clusterProcessPacket(clusterLink *link) {
     uint32_t totlen = ntohl(hdr->totlen);
     uint16_t type = ntohs(hdr->type);
     uint16_t flags = ntohs(hdr->flags);
+    uint64_t senderCurrentEpoch, senderConfigEpoch;
     clusterNode *sender;
 
     redisLog(REDIS_DEBUG,"--- Processing packet of type %d, %lu bytes",
@@ -909,9 +910,17 @@ int clusterProcessPacket(clusterLink *link) {
         if (totlen != explen) return 1;
     }
 
-    /* Process packets by type. */
+    /* Check if the sender is known.
+     * If it is, update our currentEpoch to its epoch if greater than our. */
     sender = clusterLookupNode(hdr->sender);
+    if (sender && !(sender->flags & REDIS_NODE_HANDSHAKE)) {
+        senderCurrentEpoch = ntohu64(hdr->currentEpoch);
+        senderConfigEpoch = ntohu64(hdr->configEpoch);
+        if (senderCurrentEpoch > server.cluster->currentEpoch)
+            server.cluster->currentEpoch = senderCurrentEpoch;
+    }
 
+    /* Process packets by type. */
     if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_MEET) {
         int update_config = 0;
         redisLog(REDIS_DEBUG,"Ping packet received: %p", (void*)link->node);
