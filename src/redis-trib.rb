@@ -118,7 +118,7 @@ class ClusterNode
         nodes.each{|n|
             # name addr flags role ping_sent ping_recv link_status slots
             split = n.split
-            name,addr,flags,role,ping_sent,ping_recv,link_status = split[0..6]
+            name,addr,flags,role,ping_sent,ping_recv,config_epoch,link_status = split[0..6]
             slots = split[7..-1]
             info = {
                 :name => name,
