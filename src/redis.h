@@ -617,6 +617,7 @@ struct clusterNode {
     time_t ctime;   /* Node object creation time. */
     char name[REDIS_CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
     int flags;      /* REDIS_NODE_... */
+    uint64_t configEpoch; /* Last configEpoch observed for this node */
     unsigned char slots[REDIS_CLUSTER_SLOTS/8]; /* slots handled by this node */
     int numslots;   /* Number of slots handled by this node */
     int numslaves;  /* Number of slave nodes, if this is a master */
@@ -634,6 +635,7 @@ typedef struct clusterNode clusterNode;
 
 typedef struct {
     clusterNode *myself;  /* This node */
+    uint64_t currentEpoch;
     int state;            /* REDIS_CLUSTER_OK, REDIS_CLUSTER_FAIL, ... */
     int size;             /* Num of master nodes with at least one slot */
     dict *nodes;          /* Hash table of name -> clusterNode structures */
@@ -707,6 +709,9 @@ typedef struct {
     uint64_t time;      /* Time at which this request was sent (in milliseconds),
                            this field is copied in reply messages so that the
                            original sender knows how old the reply is. */
+    uint64_t currentEpoch;  /* The epoch accordingly to the sending node. */
+    uint64_t configEpoch;   /* The config epoch if it's a master, or the last epoch
+                               advertised by its master if it is a slave. */
     char sender[REDIS_CLUSTER_NAMELEN]; /* Name of the sender node */
     unsigned char myslots[REDIS_CLUSTER_SLOTS/8];
     char slaveof[REDIS_CLUSTER_NAMELEN];
