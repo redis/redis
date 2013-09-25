@@ -1321,12 +1321,20 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
     hdr->flags = htons(server.cluster->myself->flags);
     hdr->state = server.cluster->state;
 
+    /* Set the currentEpoch and configEpochs. Note that configEpoch is
+     * set to the master configEpoch if this node is a slave. */
+    hdr->currentEpoch = htonu64(server.cluster->currentEpoch);
+    if (server.cluster->myself->flags & REDIS_NODE_SLAVE)
+        hdr->configEpoch = htonu64(server.cluster->myself->slaveof->configEpoch);
+    else
+        hdr->configEpoch = htonu64(server.cluster->myself->configEpoch);
+
     if (type == CLUSTERMSG_TYPE_FAIL) {
         totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
         totlen += sizeof(clusterMsgDataFail);
     }
     hdr->totlen = htonl(totlen);
-    /* For PING, PONG, and MEET, fixing the totlen field is up to the caller */
+    /* For PING, PONG, and MEET, fixing the totlen field is up to the caller. */
 }
 
 /* Send a PING or PONG packet to the specified node, making sure to add enough
