@@ -1624,7 +1624,7 @@ void clusterHandleSlaveFailover(void) {
     if (mstime() < server.cluster->failover_auth_time) return;
 
     /* Return ASAP if the election is too old to be valid. */
-    if (mstime() - server.cluster->failover_auth_time > server.cluster_node_timeout)
+    if (mstime() - server.cluster->failover_auth_time > server.cluster_node_timeout * 1000)
         return;
 
     /* Ask for votes if needed. */
@@ -1835,16 +1835,10 @@ void clusterCron(void) {
     }
 
     /* If we are a slave and our master is down, but is serving slots,
-     * call the function that handles the failover.
-     * This function is called with a small delay in order to let the
-     * FAIL message to propagate after failure detection, this is not
-     * strictly required but makes 99.99% of failovers mechanically
-     * simpler. */
+     * call the function that handles the failover. */
     if (server.cluster->myself->flags & REDIS_NODE_SLAVE &&
         server.cluster->myself->slaveof &&
         server.cluster->myself->slaveof->flags & REDIS_NODE_FAIL &&
-        (server.unixtime - server.cluster->myself->slaveof->fail_time) >
-         REDIS_CLUSTER_FAILOVER_DELAY &&
         server.cluster->myself->slaveof->numslots != 0)
     {
         clusterHandleSlaveFailover();
