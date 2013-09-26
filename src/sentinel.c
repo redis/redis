@@ -43,8 +43,6 @@ extern char **environ;
 
 /* ======================== Sentinel global state =========================== */
 
-typedef long long mstime_t; /* millisecond time type. */
-
 /* Address object, used to describe an ip:port pair. */
 typedef struct sentinelAddr {
     char *ip;

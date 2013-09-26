@@ -368,6 +368,8 @@
  * Data types
  *----------------------------------------------------------------------------*/
 
+typedef long long mstime_t; /* millisecond time type. */
+
 /* A redis object, that is a type able to hold a string / list / set */
 
 /* The actual Redis Object */
@@ -581,7 +583,7 @@ typedef struct redisOpArray {
 #define REDIS_CLUSTER_FAIL_UNDO_TIME_MULT 2 /* Undo fail if master is back. */
 #define REDIS_CLUSTER_FAIL_UNDO_TIME_ADD 10 /* Some additional time. */
 #define REDIS_CLUSTER_SLAVE_VALIDITY_MULT 10 /* Slave data validity. */
-#define REDIS_CLUSTER_FAILOVER_AUTH_RETRY_MULT 1 /* Auth request retry time. */
+#define REDIS_CLUSTER_FAILOVER_AUTH_RETRY_MULT 4 /* Auth request retry time. */
 #define REDIS_CLUSTER_FAILOVER_DELAY 5 /* Seconds */
 
 struct clusterNode;
@@ -643,8 +645,11 @@ typedef struct {
     clusterNode *importing_slots_from[REDIS_CLUSTER_SLOTS];
     clusterNode *slots[REDIS_CLUSTER_SLOTS];
     zskiplist *slots_to_keys;
-    int failover_auth_time;     /* Time at which we sent the AUTH request. */
-    int failover_auth_count;    /* Number of authorizations received. */
+    /* The following fields are used to take the slave state on elections. */
+    mstime_t failover_auth_time;/* Time at which we'll try to get elected in ms. */
+    int failover_auth_count;    /* Number of votes received so far. */
+    int failover_auth_sent;     /* True if we already asked for votes. */
+    uint64_t failover_auth_epoch; /* Epoch of the current election. */
 } clusterState;
 
 /* Redis cluster messages header */
