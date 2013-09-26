@@ -258,6 +258,7 @@ void clusterInit(void) {
     server.cluster->failover_auth_time = 0;
     server.cluster->failover_auth_count = 0;
     server.cluster->failover_auth_epoch = 0;
+    server.cluster->last_vote_epoch = 0;
     memset(server.cluster->migrating_slots_to,0,
         sizeof(server.cluster->migrating_slots_to));
     memset(server.cluster->importing_slots_from,0,
@@ -396,6 +397,7 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     memset(node->ip,0,sizeof(node->ip));
     node->port = 0;
     node->fail_reports = listCreate();
+    node->voted_time = 0;
     listSetFreeMethod(node->fail_reports,zfree);
     return node;
 }
@@ -1178,15 +1180,18 @@ int clusterProcessPacket(clusterLink *link) {
         }
     } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST) {
         if (!sender) return 1;  /* We don't know that node. */
-        /* If we are not a master, ignore that message at all. */
-        if (!(server.cluster->myself->flags & REDIS_NODE_MASTER)) return 0;
         clusterSendFailoverAuthIfNeeded(sender,hdr);
     } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK) {
         if (!sender) return 1;  /* We don't know that node. */
-        /* If this is a master, increment the number of acknowledges
-         * we received so far. */
-        if (sender->flags & REDIS_NODE_MASTER)
+        /* We consider this vote only if the sender if a master serving
+         * a non zero number of slots, with the currentEpoch that is equal
+         * to our currentEpoch. */
+        if (sender->flags & REDIS_NODE_MASTER &&
+            sender->numslots > 0 &&
+            senderCurrentEpoch == server.cluster->currentEpoch)
+        {
             server.cluster->failover_auth_count++;
+        }
     } else {
         redisLog(REDIS_WARNING,"Received unknown packet type: %d", type);
     }
@@ -1538,43 +1543,38 @@ void clusterSendFailoverAuth(clusterNode *node, uint64_t reqtime) {
     clusterSendMessage(node->link,buf,totlen);
 }
 
-/* If we believe 'node' is the "first slave" of it's master, reply with
- * a FAILOVER_AUTH_GRANTED packet.
- * The 'request' field points to the authorization request packet header, we
- * need it in order to copy back the 'time' field in our reply.
- *
- * To be a first slave the sender must:
- * 1) Be a slave.
- * 2) Its master should be in FAIL state.
- * 3) Ordering all the slaves IDs for its master by run-id, it should be the
- *    first (the smallest) among the ones not in FAIL / PFAIL state.
- */
+/* Vote for the node asking for our vote if there are the conditions. */
 void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
-    char first[REDIS_CLUSTER_NAMELEN];
     clusterNode *master = node->slaveof;
-    int j;
+    uint64_t requestEpoch = ntohu64(request->currentEpoch);
 
-    /* Node is a slave? Its master is down? */
+    /* IF we are not a master serving at least 1 slot, we don't have the
+     * right to vote, as the cluster size in Redis Cluster is the number
+     * of masters serving at least one slot, and quorum is the cluster size + 1 */
+    if (!(server.cluster->myself->flags & REDIS_NODE_MASTER)) return;
+    if (server.cluster->myself->numslots == 0) return;
+
+    /* Request epoch must be >= our currentEpoch. */
+    if (requestEpoch < server.cluster->currentEpoch) return;
+
+    /* I already voted for this epoch? Return ASAP. */
+    if (server.cluster->last_vote_epoch == server.cluster->currentEpoch) return;
+
+    /* Node must be a slave and its master down. */
     if (!(node->flags & REDIS_NODE_SLAVE) ||
         master == NULL ||
         !(master->flags & REDIS_NODE_FAIL)) return;
 
-    /* Iterate all the master slaves to check what's the first one. */
-    memset(first,0xff,sizeof(first));
-    for (j = 0; j < master->numslaves; j++) {
-        clusterNode *slave = master->slaves[j];
+    /* We did not voted for a slave about this master for two
+     * times the node timeout. This is not strictly needed for correctness
+     * of the algorithm but makes the base case more linear. */
+    if (server.unixtime - node->slaveof->voted_time <
+        server.cluster_node_timeout * 2) return;
 
-        if (slave->flags & (REDIS_NODE_FAIL|REDIS_NODE_PFAIL)) continue;
-        if (memcmp(slave->name,first,sizeof(first)) < 0) {
-            memcpy(first,slave->name,sizeof(first));
-        }
-    }
-
-    /* Is 'node' the first slave? */
-    if (memcmp(node->name,first,sizeof(first)) != 0) return;
-
-    /* We can send the packet. */
+    /* We can vote for this slave. */
     clusterSendFailoverAuth(node,request->time);
+    server.cluster->last_vote_epoch = server.cluster->currentEpoch;
+    node->slaveof->voted_time = server.unixtime;
 }
 
 /* This function is called if we are a slave node and our master serving
@@ -1583,8 +1583,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
  * The gaol of this function is:
  * 1) To check if we are able to perform a failover, is our data updated?
  * 2) Try to get elected by masters.
- * 3) Check if there is the majority of masters agreeing we should failover.
- * 4) Perform the failover informing all the other nodes.
+ * 3) Perform the failover informing all the other nodes.
  */
 void clusterHandleSlaveFailover(void) {
     time_t data_age = server.unixtime - server.repl_down_since;

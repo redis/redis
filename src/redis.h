@@ -628,6 +628,7 @@ struct clusterNode {
     time_t ping_sent;       /* Unix time we sent latest ping */
     time_t pong_received;   /* Unix time we received the pong */
     time_t fail_time;       /* Unix time when FAIL flag was set */
+    time_t voted_time;      /* Last time we voted for a slave of this master */
     char ip[REDIS_IP_STR_LEN];  /* Latest known IP address of this node */
     int port;                   /* Latest known port of this node */
     clusterLink *link;          /* TCP/IP link with this node */
@@ -650,6 +651,8 @@ typedef struct {
     int failover_auth_count;    /* Number of votes received so far. */
     int failover_auth_sent;     /* True if we already asked for votes. */
     uint64_t failover_auth_epoch; /* Epoch of the current election. */
+    /* The followign fields are uesd by masters to take state on elections. */
+    uint64_t last_vote_epoch;   /* Epoch of the last vote granted. */
 } clusterState;
 
 /* Redis cluster messages header */
