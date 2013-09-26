@@ -647,12 +647,13 @@ typedef struct {
     clusterNode *slots[REDIS_CLUSTER_SLOTS];
     zskiplist *slots_to_keys;
     /* The following fields are used to take the slave state on elections. */
-    mstime_t failover_auth_time;/* Time at which we'll try to get elected in ms. */
+    mstime_t failover_auth_time;/* Time at which we'll try to get elected in ms*/
     int failover_auth_count;    /* Number of votes received so far. */
     int failover_auth_sent;     /* True if we already asked for votes. */
     uint64_t failover_auth_epoch; /* Epoch of the current election. */
     /* The followign fields are uesd by masters to take state on elections. */
     uint64_t last_vote_epoch;   /* Epoch of the last vote granted. */
+    int handle_slave_failover_asap; /* Call clusterHandleSlaveFailover() ASAP. */
 } clusterState;
 
 /* Redis cluster messages header */
@@ -1380,6 +1381,7 @@ void clusterCron(void);
 clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
 void clusterPropagatePublish(robj *channel, robj *message);
 void migrateCloseTimedoutSockets(void);
+void clusterBeforeSleep(void);
 
 /* Sentinel */
 void initSentinelConfig(void);

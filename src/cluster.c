@@ -53,6 +53,7 @@ int clusterDelSlot(int slot);
 int clusterDelNodeSlots(clusterNode *node);
 int clusterNodeSetSlotBit(clusterNode *n, int slot);
 void clusterSetMaster(clusterNode *n);
+void clusterHandleSlaveFailover(void);
 int bitmapTestBit(unsigned char *bitmap, int pos);
 
 /* -----------------------------------------------------------------------------
@@ -1191,6 +1192,9 @@ int clusterProcessPacket(clusterLink *link) {
             senderCurrentEpoch == server.cluster->currentEpoch)
         {
             server.cluster->failover_auth_count++;
+            /* Maybe we reached a quorum here, set a flag to make sure
+             * we check ASAP. */
+            server.cluster->handle_slave_failover_asap++;
         }
     } else {
         redisLog(REDIS_WARNING,"Received unknown packet type: %d", type);
@@ -1291,7 +1295,11 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 }
 
-/* Put stuff into the send buffer. */
+/* Put stuff into the send buffer.
+ *
+ * It is guaranteed that this function will never have as a side effect
+ * the link to be invalidated, so it is safe to call this function
+ * from event handlers that will do stuff with the same link later. */
 void clusterSendMessage(clusterLink *link, unsigned char *msg, size_t msglen) {
     if (sdslen(link->sndbuf) == 0 && msglen != 0)
         aeCreateFileEvent(server.el,link->fd,AE_WRITABLE,
@@ -1301,7 +1309,11 @@ void clusterSendMessage(clusterLink *link, unsigned char *msg, size_t msglen) {
 }
 
 /* Send a message to all the nodes that are part of the cluster having
- * a connected link. */
+ * a connected link.
+ * 
+ * It is guaranteed that this function will never have as a side effect
+ * some node->link to be invalidated, so it is safe to call this function
+ * from event handlers that will do stuff with node links later. */
 void clusterBroadcastMessage(void *buf, size_t len) {
     dictIterator *di;
     dictEntry *de;
@@ -1416,10 +1428,11 @@ void clusterSendPing(clusterLink *link, int type) {
     clusterSendMessage(link,buf,totlen);
 }
 
-/* Send a PONG packet to every connected node that's not in handshake state.
+/* Send a PONG packet to every connected node that's not in handshake state
+ * and for which we have a valid link.
  *
- * In Redis Cluster pings are not just used for failure detection, but also
- * to carry important configuration informations. So broadcasting a pong is
+ * In Redis Cluster pongs are not used just for failure detection, but also
+ * to carry important configuration information. So broadcasting a pong is
  * useful when something changes in the configuration and we want to make
  * the cluster aware ASAP (for instance after a slave promotion). */
 void clusterBroadcastPong(void) {
@@ -1430,6 +1443,7 @@ void clusterBroadcastPong(void) {
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
 
+        if (!node->link) continue;
         if (node->flags & (REDIS_NODE_MYSELF|REDIS_NODE_HANDSHAKE)) continue;
         clusterSendPing(node->link,CLUSTERMSG_TYPE_PONG);
     }
@@ -1590,6 +1604,15 @@ void clusterHandleSlaveFailover(void) {
     mstime_t auth_age = mstime() - server.cluster->failover_auth_time;
     int needed_quorum = (server.cluster->size / 2) + 1;
     int j;
+
+    /* Pre conditions to run the function:
+     * 1) We are a slave.
+     * 2) Our master is flagged as FAIL.
+     * 3) It is serving slots. */
+    if (!(server.cluster->myself->flags & REDIS_NODE_SLAVE) ||
+        server.cluster->myself->slaveof == NULL ||
+        !(server.cluster->myself->slaveof->flags & REDIS_NODE_FAIL) ||
+        server.cluster->myself->slaveof->numslots == 0) return;
 
     /* Remove the node timeout from the data age as it is fine that we are
      * disconnected from our master at least for the time it was down to be
@@ -1834,17 +1857,19 @@ void clusterCron(void) {
                              server.cluster->myself->slaveof->port);
     }
 
-    /* If we are a slave and our master is down, but is serving slots,
-     * call the function that handles the failover. */
-    if (server.cluster->myself->flags & REDIS_NODE_SLAVE &&
-        server.cluster->myself->slaveof &&
-        server.cluster->myself->slaveof->flags & REDIS_NODE_FAIL &&
-        server.cluster->myself->slaveof->numslots != 0)
-    {
-        clusterHandleSlaveFailover();
-    }
-
+    clusterHandleSlaveFailover();
     if (update_state) clusterUpdateState();
+}
+
+/* This function is called before the event handler returns to sleep for
+ * events. It is useful to perform operations that must be done ASAP in
+ * reaction to events fired but that are not safe to perform inside event
+ * handlers. */
+void clusterBeforeSleep(void) {
+    if (server.cluster->handle_slave_failover_asap) {
+        clusterHandleSlaveFailover();
+        server.cluster->handle_slave_failover_asap = 0;
+    }
 }
 
 /* -----------------------------------------------------------------------------
