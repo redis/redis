@@ -914,14 +914,17 @@ int clusterProcessPacket(clusterLink *link) {
         if (totlen != explen) return 1;
     }
 
-    /* Check if the sender is known.
-     * If it is, update our currentEpoch to its epoch if greater than our. */
+    /* Check if the sender is a known node. */
     sender = clusterLookupNode(hdr->sender);
     if (sender && !(sender->flags & REDIS_NODE_HANDSHAKE)) {
+        /* Update our curretEpoch if we see a newer epoch in the cluster. */
         senderCurrentEpoch = ntohu64(hdr->currentEpoch);
         senderConfigEpoch = ntohu64(hdr->configEpoch);
         if (senderCurrentEpoch > server.cluster->currentEpoch)
             server.cluster->currentEpoch = senderCurrentEpoch;
+        /* Update the sender configEpoch if it is publishing a newer one. */
+        if (senderConfigEpoch > sender->configEpoch)
+            sender->configEpoch = senderConfigEpoch;
     }
 
     /* Process packets by type. */
@@ -1999,8 +2002,14 @@ void clusterUpdateState(void) {
     }
 
     /* If we can't reach at least half the masters, change the cluster state
-     * as FAIL, as we are not even able to mark nodes as FAIL in this side
-     * of the netsplit because of lack of majority. */
+     * to FAIL, as we are not even able to mark nodes as FAIL in this side
+     * of the netsplit because of lack of majority.
+     *
+     * TODO: when this condition is entered, we should not undo it for some
+     * (small) time after the majority is reachable again, to make sure that
+     * other nodes have enough time to inform this node of a configuration change.
+     * Otherwise a client with an old routing table may write to this node
+     * and later it may turn into a slave losing the write. */
     {
         int needed_quorum = (server.cluster->size / 2) + 1;
         
