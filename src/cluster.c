@@ -1672,7 +1672,7 @@ void clusterHandleSlaveFailover(void) {
         clusterNode *oldmaster = server.cluster->myself->slaveof;
 
         redisLog(REDIS_WARNING,
-            "Failover election won: failing over my (failing) master.");
+            "Failover election won: I'm the new master.");
         /* We have the quorum, perform all the steps to correctly promote
          * this slave to a master.
          *
