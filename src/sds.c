@@ -347,10 +347,10 @@ sds sdscatprintf(sds s, const char *fmt, ...) {
  * Example:
  *
  * s = sdsnew("AA...AA.a.aa.aHelloWorld     :::");
- * s = sdstrim(s,"A. :");
+ * s = sdstrim(s,"Aa. :");
  * printf("%s\n", s);
  *
- * Output will be just "Hello World".
+ * Output will be just "HelloWorld".
  */
 sds sdstrim(sds s, const char *cset) {
     struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
@@ -811,32 +811,38 @@ int main(void) {
         test_cond("sdstrim() correctly trims characters",
             sdslen(x) == 4 && memcmp(x,"ciao\0",5) == 0)
 
-        y = sdsrange(sdsdup(x),1,1);
+        y = sdsdup(x);
+        sdsrange(y,1,1);
         test_cond("sdsrange(...,1,1)",
             sdslen(y) == 1 && memcmp(y,"i\0",2) == 0)
 
         sdsfree(y);
-        y = sdsrange(sdsdup(x),1,-1);
+        y = sdsdup(x);
+        sdsrange(y,1,-1);
         test_cond("sdsrange(...,1,-1)",
             sdslen(y) == 3 && memcmp(y,"iao\0",4) == 0)
 
         sdsfree(y);
-        y = sdsrange(sdsdup(x),-2,-1);
+        y = sdsdup(x);
+        sdsrange(y,-2,-1);
         test_cond("sdsrange(...,-2,-1)",
             sdslen(y) == 2 && memcmp(y,"ao\0",3) == 0)
 
         sdsfree(y);
-        y = sdsrange(sdsdup(x),2,1);
+        y = sdsdup(x);
+        sdsrange(y,2,1);
         test_cond("sdsrange(...,2,1)",
             sdslen(y) == 0 && memcmp(y,"\0",1) == 0)
 
         sdsfree(y);
-        y = sdsrange(sdsdup(x),1,100);
+        y = sdsdup(x);
+        sdsrange(y,1,100);
         test_cond("sdsrange(...,1,100)",
             sdslen(y) == 3 && memcmp(y,"iao\0",4) == 0)
 
         sdsfree(y);
-        y = sdsrange(sdsdup(x),100,100);
+        y = sdsdup(x);
+        sdsrange(y,100,100);
         test_cond("sdsrange(...,100,100)",
             sdslen(y) == 0 && memcmp(y,"\0",1) == 0)
 
