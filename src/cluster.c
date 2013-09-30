@@ -1543,14 +1543,11 @@ void clusterRequestFailoverAuth(void) {
     clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST);
     totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
     hdr->totlen = htonl(totlen);
-    hdr->time = mstime();
     clusterBroadcastMessage(buf,totlen);
 }
 
-/* Send a FAILOVER_AUTH_ACK message to the specified node.
- * Reqtime is the time field from the original failover auth request packet,
- * so that the receiver is able to check the reply age. */
-void clusterSendFailoverAuth(clusterNode *node, uint64_t reqtime) {
+/* Send a FAILOVER_AUTH_ACK message to the specified node. */
+void clusterSendFailoverAuth(clusterNode *node) {
     unsigned char buf[4096];
     clusterMsg *hdr = (clusterMsg*) buf;
     uint32_t totlen;
@@ -1559,7 +1556,6 @@ void clusterSendFailoverAuth(clusterNode *node, uint64_t reqtime) {
     clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK);
     totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
     hdr->totlen = htonl(totlen);
-    hdr->time = reqtime;
     clusterSendMessage(node->link,buf,totlen);
 }
 
@@ -1592,7 +1588,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
         server.cluster_node_timeout * 2) return;
 
     /* We can vote for this slave. */
-    clusterSendFailoverAuth(node,request->time);
+    clusterSendFailoverAuth(node);
     server.cluster->last_vote_epoch = server.cluster->currentEpoch;
     node->slaveof->voted_time = server.unixtime;
 }

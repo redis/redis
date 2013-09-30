@@ -715,9 +715,6 @@ typedef struct {
     uint32_t totlen;    /* Total length of this message */
     uint16_t type;      /* Message type */
     uint16_t count;     /* Only used for some kind of messages. */
-    uint64_t time;      /* Time at which this request was sent (in milliseconds),
-                           this field is copied in reply messages so that the
-                           original sender knows how old the reply is. */
     uint64_t currentEpoch;  /* The epoch accordingly to the sending node. */
     uint64_t configEpoch;   /* The config epoch if it's a master, or the last epoch
                                advertised by its master if it is a slave. */
