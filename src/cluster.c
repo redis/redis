@@ -135,8 +135,6 @@ int clusterLoadConfig(char *filename) {
                 n->flags |= REDIS_NODE_HANDSHAKE;
             } else if (!strcasecmp(s,"noaddr")) {
                 n->flags |= REDIS_NODE_NOADDR;
-            } else if (!strcasecmp(s,"promoted")) {
-                n->flags |= REDIS_NODE_PROMOTED;
             } else if (!strcasecmp(s,"noflags")) {
                 /* nothing to do */
             } else {
@@ -755,7 +753,6 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
         if (flags & REDIS_NODE_FAIL) ci = sdscat(ci,"fail,");
         if (flags & REDIS_NODE_HANDSHAKE) ci = sdscat(ci,"handshake,");
         if (flags & REDIS_NODE_NOADDR) ci = sdscat(ci,"noaddr,");
-        if (flags & REDIS_NODE_PROMOTED) ci = sdscat(ci,"promoted,");
         if (ci[sdslen(ci)-1] == ',') ci[sdslen(ci)-1] = ' ';
 
         redisLog(REDIS_DEBUG,"GOSSIP %.40s %s:%d %s",
@@ -1051,38 +1048,12 @@ int clusterProcessPacket(clusterLink *link) {
             {
                 /* Node is a master. */
                 if (sender->flags & REDIS_NODE_SLAVE) {
-                    /* Slave turned into master! */
-                    clusterNode *oldmaster = sender->slaveof;
-
                     /* Reconfigure node as master. */
                     if (sender->slaveof)
                         clusterNodeRemoveSlave(sender->slaveof,sender);
                     sender->flags &= ~REDIS_NODE_SLAVE;
                     sender->flags |= REDIS_NODE_MASTER;
                     sender->slaveof = NULL;
-
-                    /* If this node used to be our slave, and now has the
-                     * PROMOTED flag set. We'll turn ourself into a slave
-                     * of the new master. */
-                    if (flags & REDIS_NODE_PROMOTED &&
-                        oldmaster == server.cluster->myself)
-                    {
-                        redisLog(REDIS_WARNING,"One of my slaves took my place. Reconfiguring myself as a replica of %.40s", sender->name);
-                        clusterDelNodeSlots(server.cluster->myself);
-                        clusterSetMaster(sender);
-                    }
-
-                    /* If we are a slave, and this node used to be a slave
-                     * of our master, and now has the PROMOTED flag set, we
-                     * need to switch our replication setup over it. */
-                    if (flags & REDIS_NODE_PROMOTED &&
-                        server.cluster->myself->flags & REDIS_NODE_SLAVE &&
-                        server.cluster->myself->slaveof == oldmaster)
-                    {
-                        redisLog(REDIS_WARNING,"One of the slaves failed over my master. Reconfiguring myself as a replica of %.40s", sender->name);
-                        clusterDelNodeSlots(server.cluster->myself);
-                        clusterSetMaster(sender);
-                    }
 
                     /* Update config and state. */
                     update_state = 1;
@@ -1125,25 +1096,54 @@ int clusterProcessPacket(clusterLink *link) {
             changes =
                 memcmp(sender->slots,hdr->myslots,sizeof(hdr->myslots)) != 0;
             if (changes) {
+                clusterNode *curmaster, *newmaster = NULL;
+
+                /* Here we set curmaster to this node or the node this node
+                 * replicates to if it's a slave. In the for loop we are
+                 * interested to check if slots are taken away from curmaster. */
+                if (server.cluster->myself->flags & REDIS_NODE_MASTER)
+                    curmaster = server.cluster->myself;
+                else
+                    curmaster = server.cluster->myself->slaveof;
+
                 for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
                     if (bitmapTestBit(hdr->myslots,j)) {
-                        /* If this slot was not served, or served by a node
-                         * in FAIL state, update the table with the new node
-                         * claiming to serve the slot. */
+                        /* We rebind the slot to the new node claiming it if:
+                         * 1) The slot was unassigned.
+                         * 2) The new node claims it with a greater configEpoch. */
                         if (server.cluster->slots[j] == sender) continue;
                         if (server.cluster->slots[j] == NULL ||
-                            server.cluster->slots[j]->flags & REDIS_NODE_FAIL)
+                            server.cluster->slots[j]->configEpoch <
+                            senderConfigEpoch)
                         {
+                            if (server.cluster->slots[j] == curmaster)
+                                newmaster = sender;
                             clusterDelSlot(j);
                             clusterAddSlot(sender,j);
                             update_state = update_config = 1;
                         }
                     } else {
                         /* This node claims to no longer handling the slot,
-                         * however we don't change our config as this is likely
-                         * happening because a resharding is in progress, and
-                         * it already knows where to redirect clients. */
+                         * however we don't change our config as this is likely:
+                         * 1) Rehashing in progress.
+                         * 2) Failover.
+                         * In both cases we'll be informed about who is serving
+                         * the slot eventually. In the meantime it's up to the
+                         * original owner to try to redirect our clients to the
+                         * right node. */
                     }
+                }
+
+                /* If at least one slot was reassigned from a node to another node
+                 * with a greater configEpoch, it is possible that:
+                 * 1) We are a master is left without slots. This means that we were
+                 *    failed over and we should turn into a replica of the new
+                 *    master.
+                 * 2) We are a slave and our master is left without slots. We need
+                 *    to replicate to the new slots owner. */
+                if (newmaster && curmaster->numslots == 0) {
+                    redisLog(REDIS_WARNING,"Configuration change detected. Reconfiguring myself as a replica of %.40s", sender->name);
+                    clusterSetMaster(sender);
                 }
             }
         }
@@ -1681,7 +1681,6 @@ void clusterHandleSlaveFailover(void) {
                                server.cluster->myself);
         server.cluster->myself->flags &= ~REDIS_NODE_SLAVE;
         server.cluster->myself->flags |= REDIS_NODE_MASTER;
-        server.cluster->myself->flags |= REDIS_NODE_PROMOTED;
         server.cluster->myself->slaveof = NULL;
         replicationUnsetMaster();
 
@@ -2109,9 +2108,6 @@ void clusterSetMaster(clusterNode *n) {
         myself->flags &= ~REDIS_NODE_MASTER;
         myself->flags |= REDIS_NODE_SLAVE;
     }
-    /* Clear the promoted flag anyway if we are a slave, to ensure it will
-     * be set only when the node turns into a master because of fail over. */
-    myself->flags &= ~REDIS_NODE_PROMOTED;
     myself->slaveof = n;
     replicationSetMaster(n->ip, n->port);
 }
@@ -2159,7 +2155,6 @@ sds clusterGenNodesDescription(int filter) {
         if (node->flags & REDIS_NODE_FAIL) ci = sdscat(ci,"fail,");
         if (node->flags & REDIS_NODE_HANDSHAKE) ci =sdscat(ci,"handshake,");
         if (node->flags & REDIS_NODE_NOADDR) ci = sdscat(ci,"noaddr,");
-        if (node->flags & REDIS_NODE_PROMOTED) ci = sdscat(ci,"promoted,");
         if (ci[sdslen(ci)-1] == ',') ci[sdslen(ci)-1] = ' ';
 
         /* Slave of... or just "-" */
