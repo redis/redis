@@ -231,6 +231,7 @@ int clusterSaveConfig(void) {
     if ((fd = open(server.cluster_configfile,O_WRONLY|O_CREAT|O_TRUNC,0644))
         == -1) goto err;
     if (write(fd,ci,sdslen(ci)) != (ssize_t)sdslen(ci)) goto err;
+    fsync(fd);
     close(fd);
     sdsfree(ci);
     return 0;
