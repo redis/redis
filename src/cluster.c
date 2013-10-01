@@ -1191,11 +1191,11 @@ int clusterProcessPacket(clusterLink *link) {
     } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK) {
         if (!sender) return 1;  /* We don't know that node. */
         /* We consider this vote only if the sender is a master serving
-         * a non zero number of slots, with the currentEpoch that is equal
-         * to our currentEpoch. */
+         * a non zero number of slots, and its currentEpoch is greater or
+         * equal to epoch where this node started the election. */
         if (sender->flags & REDIS_NODE_MASTER &&
             sender->numslots > 0 &&
-            senderCurrentEpoch == server.cluster->currentEpoch)
+            senderCurrentEpoch >= server.cluster->failover_auth_epoch)
         {
             server.cluster->failover_auth_count++;
             /* Maybe we reached a quorum here, set a flag to make sure
