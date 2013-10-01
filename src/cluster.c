@@ -1190,7 +1190,7 @@ int clusterProcessPacket(clusterLink *link) {
         clusterSendFailoverAuthIfNeeded(sender,hdr);
     } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK) {
         if (!sender) return 1;  /* We don't know that node. */
-        /* We consider this vote only if the sender if a master serving
+        /* We consider this vote only if the sender is a master serving
          * a non zero number of slots, with the currentEpoch that is equal
          * to our currentEpoch. */
         if (sender->flags & REDIS_NODE_MASTER &&
