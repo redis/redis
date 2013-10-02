@@ -1086,6 +1086,9 @@ int clusterProcessPacket(clusterLink *link) {
                         clusterNodeRemoveSlave(sender->slaveof,sender);
                     clusterNodeAddSlave(master,sender);
                     sender->slaveof = master;
+
+                    /* Update config. */
+                    update_config = 1;
                 }
             }
         }
