@@ -654,6 +654,8 @@ typedef struct {
     /* The followign fields are uesd by masters to take state on elections. */
     uint64_t last_vote_epoch;   /* Epoch of the last vote granted. */
     int handle_slave_failover_asap; /* Call clusterHandleSlaveFailover() ASAP. */
+    long long stats_bus_messages_sent;  /* Num of msg sent via cluster bus. */
+    long long stats_bus_messages_received; /* Num of msg received via cluster bus. */
 } clusterState;
 
 /* Redis cluster messages header */
