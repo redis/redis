@@ -653,10 +653,16 @@ typedef struct {
     uint64_t failover_auth_epoch; /* Epoch of the current election. */
     /* The followign fields are uesd by masters to take state on elections. */
     uint64_t last_vote_epoch;   /* Epoch of the last vote granted. */
-    int handle_slave_failover_asap; /* Call clusterHandleSlaveFailover() ASAP. */
+    int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
     long long stats_bus_messages_sent;  /* Num of msg sent via cluster bus. */
     long long stats_bus_messages_received; /* Num of msg received via cluster bus. */
 } clusterState;
+
+/* clusterState todo_before_sleep flags. */
+#define CLUSTER_TODO_HANDLE_FAILOVER (1<<0)
+#define CLUSTER_TODO_UPDATE_STATE (1<<1)
+#define CLUSTER_TODO_SAVE_CONFIG (1<<2)
+#define CLUSTER_TODO_FSYNC_CONFIG (1<<3)
 
 /* Redis cluster messages header */
 
