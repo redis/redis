@@ -49,6 +49,7 @@
 #ifdef _WIN32
 #include "win32fixes.h"
 #define ANET_NOTUSED(V) ((void) V)
+#include "win32_socketmap.h"
 #endif
 
 #include "anet.h"
@@ -245,9 +246,12 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, int flags) {
     struct sockaddr_in sa;
     unsigned long inAddress;
 
-    if ((s = anetCreateSocket(err,AF_INET)) == ANET_ERR)
+    if ((s = anetCreateSocket(err,AF_INET)) == ANET_ERR) {
         return ANET_ERR;
-
+    }
+    else {
+        smAddSocket(s);
+    }
     sa.sin_family = AF_INET;
     sa.sin_port = htons((u_short)port);
     inAddress = inet_addr(addr);
@@ -258,6 +262,7 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, int flags) {
         if (he == NULL) {
             anetSetError(err, "can't resolve: %s\n", addr);
             closesocket(s);
+            smRemoveSocket(s);
             return ANET_ERR;
         }
         memcpy(&sa.sin_addr, he->h_addr, sizeof(struct in_addr));
@@ -274,6 +279,7 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, int flags) {
 
         anetSetError(err, "connect: %d\n", errno);
         closesocket(s);
+        smRemoveSocket(s);
         return ANET_ERR;
     }
 
@@ -435,12 +441,14 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len) {
         errno = WSAGetLastError();
         anetSetError(err, "bind error: %d\n", errno);
         closesocket((SOCKET)s);
+        smRemoveSocket(s);
         return ANET_ERR;
     }
     if (aeWinListen((SOCKET)s, 511) == SOCKET_ERROR) { /* the magic 511 constant is from nginx */
         errno = WSAGetLastError();
         anetSetError(err, "listen error: %d\n", errno);
         closesocket((SOCKET)s);
+        smRemoveSocket(s);
         return ANET_ERR;
     }
     return ANET_OK;
@@ -456,6 +464,8 @@ int anetTcpServer(char *err, int port, char *bindaddr)
 
     if ((s = anetCreateSocket(err,AF_INET)) == ANET_ERR)
         return ANET_ERR;
+
+    smAddSocket(s);
 
     /* Override for SO_REUSEADDR for windows server socks */
     if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &n, sizeof(n)) == SOCKET_ERROR) {

@@ -27,6 +27,7 @@
 #include <mswsock.h>
 #include <Guiddef.h>
 #include "win32_wsiocp.h"
+#include "win32_socketmap.h"
 
 
 static void *iocpState;
@@ -64,6 +65,10 @@ int aeWinQueueAccept(SOCKET listensock) {
         errno = WSAEINVAL;
         return -1;
     }
+    else {
+        smAddSocket(acceptsock);
+    }
+
 
     accsockstate = aeGetSockState(iocpState, (int)acceptsock);
     if (accsockstate == NULL) {
@@ -90,6 +95,7 @@ int aeWinQueueAccept(SOCKET listensock) {
         errno = WSAGetLastError();
         sockstate->masks &= ~ACCEPT_PENDING;
         closesocket(acceptsock);
+        smRemoveSocket(acceptsock);
         accsockstate->masks = 0;
         zfree(areq);
         return -1;
@@ -439,6 +445,7 @@ int aeWinCloseSocket(int fd) {
 
     if ((sockstate = aeGetSockState(iocpState, fd)) == NULL) {
         closesocket((SOCKET)fd);
+        smRemoveSocket(fd);
         return 0;
     }
 
@@ -448,6 +455,7 @@ int aeWinCloseSocket(int fd) {
     if (sockstate->wreqs == 0 &&
         (sockstate->masks & (READ_QUEUED | CONNECT_PENDING | SOCKET_ATTACHED)) == 0) {
         closesocket((SOCKET)fd);
+        smRemoveSocket(fd);
     } else {
         sockstate->masks |= CLOSE_PENDING;
     }

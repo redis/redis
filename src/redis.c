@@ -36,6 +36,7 @@
 #ifdef _WIN32
 #include <locale.h>
 #define LOG_LOCAL0 0
+#include "win32_socketmap.h"
 #else
 #include <sys/wait.h>
 #include <arpa/inet.h>
@@ -258,67 +259,6 @@ struct redisCommand redisCommandTable[] = {
 };
 
 /*============================ Utility functions ============================ */
-
-/* Low level logging. To use only for very big messages, otherwise
- * redisLog() is to prefer. */
-void redisLogRaw(int level, const char *msg) {
-#ifndef _WIN32
-    const int syslogLevelMap[] = { LOG_DEBUG, LOG_INFO, LOG_NOTICE, LOG_WARNING };
-#endif
-    const char *c = ".-*#";
-    FILE *fp;
-    char buf[64];
-    int rawmode = (level & REDIS_LOG_RAW);
-
-    level &= 0xff; /* clear flags */
-    if (level < server.verbosity) return;
-
-    fp = (server.logfile == NULL) ? stdout : fopen(server.logfile,"a");
-    if (!fp) return;
-
-    if (rawmode) {
-        fprintf(fp,"%s",msg);
-    } else {
-        int off;
-#ifdef _WIN32
-        time_t secs;
-        unsigned int usecs;
-
-        secs = gettimeofdaysecs(&usecs);
-        off = (int)strftime(buf,sizeof(buf),"%d %b %H:%M:%S.",localtime(&secs));
-        snprintf(buf+off,sizeof(buf)-off,"%03d",usecs/1000);
-#else
-        struct timeval tv;
-
-        gettimeofday(&tv,NULL);
-        off = strftime(buf,sizeof(buf),"%d %b %H:%M:%S.",localtime(&tv.tv_sec));
-        snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
-#endif
-        fprintf(fp,"[%d] %s %c %s\n",(int)getpid(),buf,c[level],msg);
-    }
-    fflush(fp);
-
-    if (server.logfile) fclose(fp);
-#ifndef _WIN32
-    if (server.syslog_enabled) syslog(syslogLevelMap[level], "%s", msg);
-#endif
-}
-
-/* Like redisLogRaw() but with printf-alike support. This is the function that
- * is used across the code. The raw version is only used in order to dump
- * the INFO output on crash. */
-void redisLog(int level, const char *fmt, ...) {
-    va_list ap;
-    char msg[REDIS_MAX_LOGMSG_LEN];
-
-    if ((level&0xff) < server.verbosity) return;
-
-    va_start(ap, fmt);
-    vsnprintf(msg, sizeof(msg), fmt, ap);
-    va_end(ap);
-
-    redisLogRaw(level,msg);
-}
 
 #ifdef _WIN32
 /* Misc Windows house keeping */
@@ -1214,6 +1154,7 @@ void initServerConfig() {
     server.sofd = -1;
     server.dbnum = REDIS_DEFAULT_DBNUM;
     server.verbosity = REDIS_NOTICE;
+    setLogVerbosityLevel(server.verbosity);
     server.maxidletime = REDIS_MAXIDLETIME;
     server.tcpkeepalive = 0;
     server.active_expire_enabled = 1;
@@ -1918,8 +1859,14 @@ int prepareForShutdown(int flags) {
     }
     /* Close the listening sockets. Apparently this allows faster restarts. */
 #ifdef _WIN32
-    if (server.ipfd != -1) closesocket(server.ipfd);
-    if (server.sofd != -1) closesocket(server.sofd);
+    if (server.ipfd != -1) {
+        closesocket(server.ipfd);
+        smRemoveSocket(server.ipfd);
+    }
+    if (server.sofd != -1) {
+        closesocket(server.sofd);
+        smRemoveSocket(server.sofd);
+    }
 #else
     if (server.ipfd != -1) close(server.ipfd);
     if (server.sofd != -1) close(server.sofd);

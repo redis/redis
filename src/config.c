@@ -157,6 +157,9 @@ void loadServerConfigFromString(char *config) {
                         "Can't open the log file: %s", strerror(errno));
                     goto loaderr;
                 }
+                else {
+                    setLogFile( server.logfile );
+                }
                 fclose(logfp);
             }
         } else if (!strcasecmp(argv[0],"syslog-enabled") && argc == 2) {
@@ -688,6 +691,7 @@ void configSetCommand(redisClient *c) {
         } else {
             goto badfmt;
         }
+        setLogVerbosityLevel(server.verbosity);
     } else if (!strcasecmp(c->argv[2]->ptr,"client-output-buffer-limit")) {
         int vlen, j;
         sds *v = sdssplitlen(o->ptr,(int)sdslen(o->ptr)," ",1,&vlen);

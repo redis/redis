@@ -40,7 +40,7 @@
 #define fseeko fseeko64
 #define ftello ftello64
 
-#define inline __inline
+//#define inline __inline
 
 #undef ftruncate
 #define ftruncate replace_ftruncate

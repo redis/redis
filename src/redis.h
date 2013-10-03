@@ -70,6 +70,7 @@
 #include "util.h"    /* Misc functions useful in many places */
 
 #include "win32_cow.h" /* Windows copy on write */
+#include "redisLog.h" /* moved logging for hiredis and RedisCli usage /*
 
 /* Error codes */
 #define REDIS_OK                0
@@ -90,7 +91,6 @@
 #define REDIS_SHARED_SELECT_CMDS 10
 #define REDIS_SHARED_INTEGERS 10000
 #define REDIS_SHARED_BULKHDR_LEN 32
-#define REDIS_MAX_LOGMSG_LEN    1024 /* Default maximum length of syslog messages */
 #define REDIS_AOF_REWRITE_PERC  100
 #define REDIS_AOF_REWRITE_MIN_SIZE (1024*1024)
 #define REDIS_AOF_REWRITE_ITEMS_PER_CMD 64
@@ -243,13 +243,6 @@
 #define REDIS_SORT_ASC 1
 #define REDIS_SORT_DESC 2
 #define REDIS_SORTKEY_MAX 1024
-
-/* Log levels */
-#define REDIS_DEBUG 0
-#define REDIS_VERBOSE 1
-#define REDIS_NOTICE 2
-#define REDIS_WARNING 3
-#define REDIS_LOG_RAW (1<<10) /* Modifier to log without timestamp */
 
 /* Anti-warning macro... */
 #define REDIS_NOTUSED(V) ((void) V)
@@ -1008,9 +1001,6 @@ void call(redisClient *c, int flags);
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int flags);
 void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int target);
 int prepareForShutdown();
-void redisLog(int level, const char *fmt, ...);
-void redisLogRaw(int level, const char *msg);
-void redisLogFromHandler(int level, const char *msg);
 void usage();
 void updateDictResizePolicy(void);
 int htNeedsResize(dict *dict);

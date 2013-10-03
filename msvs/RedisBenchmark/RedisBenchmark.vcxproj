@@ -167,8 +167,10 @@
     <ClCompile Include="..\..\src\ae.c" />
     <ClCompile Include="..\..\src\anet.c" />
     <ClCompile Include="..\..\src\redis-benchmark.c" />
+    <ClCompile Include="..\..\src\RedisLog.c" />
     <ClCompile Include="..\..\src\sds.c" />
     <ClCompile Include="..\..\src\win32fixes.c" />
+    <ClCompile Include="..\..\src\win32_socketmap.cpp" />
     <ClCompile Include="..\..\src\win32_wsiocp.c" />
     <ClCompile Include="..\..\src\zmalloc.c" />
   </ItemGroup>

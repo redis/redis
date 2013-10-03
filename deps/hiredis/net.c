@@ -60,6 +60,7 @@
 #include "sds.h"
 #ifdef _WIN32
   #include "../../src/win32fixes.h"
+  #include "../../src/win32_socketmap.h"
 #endif
 
 /* Defined in hiredis.c */
@@ -104,6 +105,7 @@ static int redisCreateSocket(redisContext *c, int type) {
         if (setsockopt((int)s, SOL_SOCKET, SO_REUSEADDR, (const char *) &on, sizeof(on)) == -1) {
             __redisSetError(c,REDIS_ERR_IO,NULL);
             closesocket(s);
+            smRemoveSocket(s);
             return REDIS_ERR;
         }
     }
@@ -143,6 +145,7 @@ static int redisSetBlocking(redisContext *c, int fd, int blocking) {
         __redisSetError(c,REDIS_ERR_IO,
             sdscatprintf(sdsempty(), "ioctlsocket(FIONBIO): %d\n", errno));
         closesocket(fd);
+        smRemoveSocket(fd);
         return REDIS_ERR;
     };
 
@@ -183,6 +186,7 @@ static int redisSetTcpNoDelay(redisContext *c, int fd) {
         __redisSetError(c,REDIS_ERR_IO,
             sdscatprintf(sdsempty(), "setsockopt(TCP_NODELAY): %d", (int)GetLastError()));
         closesocket(fd);
+        smRemoveSocket(fd);
         return REDIS_ERR;
     }
     return REDIS_OK;
@@ -218,6 +222,7 @@ static int redisContextWaitReady(redisContext *c, int fd, const struct timeval *
         if (select(FD_SETSIZE, NULL, &wfd, NULL, toptr) == -1) {
             __redisSetErrorFromErrno(c,REDIS_ERR_IO,"select(2)");
             closesocket(fd);
+            smRemoveSocket(fd);
             return REDIS_ERR;
         }
 
@@ -225,6 +230,7 @@ static int redisContextWaitReady(redisContext *c, int fd, const struct timeval *
             errno = WSAGetLastError();
             __redisSetErrorFromErrno(c,REDIS_ERR_IO,NULL);
             closesocket(fd);
+            smRemoveSocket(fd);
             return REDIS_ERR;
         }
 
@@ -236,6 +242,7 @@ static int redisContextWaitReady(redisContext *c, int fd, const struct timeval *
 
     __redisSetErrorFromErrno(c,REDIS_ERR_IO,NULL);
     closesocket(fd);
+    smRemoveSocket(fd);
     return REDIS_ERR;
 }
 #else
@@ -298,6 +305,7 @@ int redisCheckSocketError(redisContext *c, int fd) {
         errno = WSAGetLastError();
         __redisSetErrorFromErrno(c,REDIS_ERR_IO,"getsockopt(SO_ERROR)");
         closesocket(fd);
+        smRemoveSocket(fd);
         return REDIS_ERR;
     }
 #else
@@ -374,6 +382,7 @@ int redisContextPreConnectTcp(redisContext *c, const char *addr, int port,
             __redisSetError(c,REDIS_ERR_OTHER,
                 sdscatprintf(sdsempty(),"can't resolve: %s\n", addr));
             closesocket(s);
+            smRemoveSocket(s);
             return REDIS_ERR;
         }
         memcpy(&sa->sin_addr, he->h_addr, sizeof(struct in_addr));
@@ -415,6 +424,7 @@ int redisContextConnectTcp(redisContext *c, const char *addr, int port, struct t
             __redisSetError(c,REDIS_ERR_OTHER,
                 sdscatprintf(sdsempty(),"can't resolve: %s\n", addr));
             closesocket(s);
+            smRemoveSocket(s);
             return REDIS_ERR;
         }
         memcpy(&sa.sin_addr, he->h_addr, sizeof(struct in_addr));

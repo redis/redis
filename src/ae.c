@@ -36,6 +36,8 @@
 #include <sys/time.h>
 #include <unistd.h>
 #include <poll.h>
+#else
+#include "win32_socketmap.h"
 #endif
 #include <stdlib.h>
 #include <string.h>
@@ -45,6 +47,8 @@
 #include "ae.h"
 #include "zmalloc.h"
 #include "config.h"
+
+
 
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
@@ -112,11 +116,26 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
     aeFileEvent *fe;
+
+
+#ifdef _WIN32  
+    if (smGetSocketCount() >= eventLoop->setsize) {
+        errno = ERANGE;
+        return AE_ERR;
+    }
+
+    if(smLookupFD(fd) == -1 ) {
+        errno = ERANGE;
+        return AE_ERR;
+    }
+    fe = &eventLoop->events[smLookupFD(fd)];
+#else
     if (fd >= eventLoop->setsize) {
         errno = ERANGE;
         return AE_ERR;
     }
     fe = &eventLoop->events[fd];
+#endif
 
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
@@ -132,8 +151,17 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 {
     aeFileEvent *fe;
+#ifdef _WIN32
+    if (smGetSocketCount() >= eventLoop->setsize) return;
+
+    if(smLookupFD(fd) == -1 ) return;
+
+    fe = &eventLoop->events[smLookupFD(fd)];
+#else
     if (fd >= eventLoop->setsize) return;
+
     fe = &eventLoop->events[fd];
+#endif
 
     if (fe->mask == AE_NONE) return;
     fe->mask = fe->mask & (~mask);
@@ -150,8 +178,17 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
     aeFileEvent *fe;
+#ifdef _WIN32
+    if(smLookupFD(fd) == -1 ) DebugBreak();
+
+    if (smGetSocketCount() >= eventLoop->setsize) return 0;
+
+    fe = &eventLoop->events[smLookupFD(fd)];
+#else
     if (fd >= eventLoop->setsize) return 0;
+
     fe = &eventLoop->events[fd];
+#endif
 
     return fe->mask;
 }
@@ -382,10 +419,23 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
         numevents = aeApiPoll(eventLoop, tvp);
         for (j = 0; j < numevents; j++) {
-            aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
+            aeFileEvent *fe;
             int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
             int rfired = 0;
+
+#ifdef _WIN32
+            if(smLookupFD(eventLoop->fired[j].fd) == -1 ) {
+                // We may have already processed a socket close request 
+                // before a subscription notification gets sent out
+                processed++;
+                continue;
+            }
+
+            fe = &eventLoop->events[smLookupFD(eventLoop->fired[j].fd)];
+#else
+            fe = &eventLoop->events[eventLoop->fired[j].fd];
+#endif
 
 	    /* note the fe->mask & mask & ... code: maybe an already processed
              * event removed an element that fired and we still didn't

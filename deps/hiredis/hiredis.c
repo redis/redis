@@ -44,6 +44,7 @@
 #include "sds.h"
 #ifdef _WIN32
   #include "../../src/win32fixes.h"
+  #include "../../src/win32_socketmap.h"
 #endif
 
 static redisReply *createReplyObject(int type);
@@ -1025,6 +1026,7 @@ void redisFree(redisContext *c) {
     if (c->fd > 0)
 #ifdef _WIN32
         closesocket(c->fd);
+        smRemoveSocket(c->fd);
 #else
         close(c->fd);
 #endif

@@ -177,6 +177,7 @@
     <ClCompile Include="..\src\rand.c" />
     <ClCompile Include="..\src\rdb.c" />
     <ClCompile Include="..\src\redis.c" />
+    <ClCompile Include="..\src\RedisLog.c" />
     <ClCompile Include="..\src\release.c" />
     <ClCompile Include="..\src\replication.c" />
     <ClCompile Include="..\src\rio.c" />
@@ -196,6 +197,7 @@
     <ClCompile Include="..\src\win32fixes.c" />
     <ClCompile Include="..\src\win32_bksv.c" />
     <ClCompile Include="..\src\win32_cow.c" />
+    <ClCompile Include="..\src\win32_socketmap.cpp" />
     <ClCompile Include="..\src\win32_wsiocp.c" />
     <ClCompile Include="..\src\ziplist.c" />
     <ClCompile Include="..\src\zipmap.c" />
@@ -218,6 +220,7 @@
     <ClInclude Include="..\src\rand.h" />
     <ClInclude Include="..\src\rdb.h" />
     <ClInclude Include="..\src\redis.h" />
+    <ClInclude Include="..\src\redisLog.h" />
     <ClInclude Include="..\src\rio.h" />
     <ClInclude Include="..\src\sds.h" />
     <ClInclude Include="..\src\sha1.h" />
@@ -229,6 +232,7 @@
     <ClInclude Include="..\src\win32fixes.h" />
     <ClInclude Include="..\src\win32_bksv.h" />
     <ClInclude Include="..\src\win32_cow.h" />
+    <ClInclude Include="..\src\win32_socketmap.h" />
     <ClInclude Include="..\src\win32_wsiocp.h" />
     <ClInclude Include="..\src\ziplist.h" />
     <ClInclude Include="..\src\zipmap.h" />
