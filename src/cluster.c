@@ -1339,12 +1339,21 @@ void clusterBroadcastMessage(void *buf, size_t len) {
 /* Build the message header */
 void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
     int totlen = 0;
+    clusterNode *master;
+
+    /* If this node is a master, we send its slots bitmap and configEpoch.
+     * If this node is a slave we send the master's information instead (the
+     * node is flagged as slave so the receiver knows that it is NOT really
+     * in charge for this slots. */
+    master = (server.cluster->myself->flags & REDIS_NODE_SLAVE &&
+              server.cluster->myself->slaveof) ?
+              server.cluster->myself->slaveof : server.cluster->myself;
 
     memset(hdr,0,sizeof(*hdr));
     hdr->type = htons(type);
     memcpy(hdr->sender,server.cluster->myself->name,REDIS_CLUSTER_NAMELEN);
-    memcpy(hdr->myslots,server.cluster->myself->slots,
-        sizeof(hdr->myslots));
+
+    memcpy(hdr->myslots,master->slots,sizeof(hdr->myslots));
     memset(hdr->slaveof,0,REDIS_CLUSTER_NAMELEN);
     if (server.cluster->myself->slaveof != NULL) {
         memcpy(hdr->slaveof,server.cluster->myself->slaveof->name,
@@ -1354,13 +1363,9 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
     hdr->flags = htons(server.cluster->myself->flags);
     hdr->state = server.cluster->state;
 
-    /* Set the currentEpoch and configEpochs. Note that configEpoch is
-     * set to the master configEpoch if this node is a slave. */
+    /* Set the currentEpoch and configEpochs. */
     hdr->currentEpoch = htonu64(server.cluster->currentEpoch);
-    if (server.cluster->myself->flags & REDIS_NODE_SLAVE)
-        hdr->configEpoch = htonu64(server.cluster->myself->slaveof->configEpoch);
-    else
-        hdr->configEpoch = htonu64(server.cluster->myself->configEpoch);
+    hdr->configEpoch = htonu64(master->configEpoch);
 
     if (type == CLUSTERMSG_TYPE_FAIL) {
         totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
