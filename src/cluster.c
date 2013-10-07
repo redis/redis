@@ -681,7 +681,7 @@ void clearNodeFailureIfNeeded(clusterNode *node) {
      * node again. */
     if (node->flags & REDIS_NODE_SLAVE) {
         redisLog(REDIS_NOTICE,
-            "Clear FAIL state for node %.40s: slave is already reachable.",
+            "Clear FAIL state for node %.40s: slave is reachable again.",
                 node->name);
         node->flags &= ~REDIS_NODE_FAIL;
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
