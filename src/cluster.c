@@ -1607,10 +1607,17 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
  * 3) Perform the failover informing all the other nodes.
  */
 void clusterHandleSlaveFailover(void) {
-    time_t data_age = server.unixtime - server.repl_down_since;
+    time_t data_age;
     mstime_t auth_age = mstime() - server.cluster->failover_auth_time;
     int needed_quorum = (server.cluster->size / 2) + 1;
     int j;
+
+    /* Set data_age to the number of seconds we are disconnected from the master. */
+    if (server.repl_state == REDIS_REPL_CONNECTED) {
+        data_age = server.unixtime - server.master->lastinteraction;
+    } else {
+        data_age = server.unixtime - server.repl_down_since;
+    }
 
     /* Pre conditions to run the function:
      * 1) We are a slave.
