@@ -1567,7 +1567,10 @@ void clusterSendFailoverAuth(clusterNode *node) {
 /* Vote for the node asking for our vote if there are the conditions. */
 void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     clusterNode *master = node->slaveof;
-    uint64_t requestEpoch = ntohu64(request->currentEpoch);
+    uint64_t requestCurrentEpoch = ntohu64(request->currentEpoch);
+    uint64_t requestConfigEpoch = ntohu64(request->configEpoch);
+    unsigned char *claimed_slots = request->myslots;
+    int j;
 
     /* IF we are not a master serving at least 1 slot, we don't have the
      * right to vote, as the cluster size in Redis Cluster is the number
@@ -1576,7 +1579,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     if (server.cluster->myself->numslots == 0) return;
 
     /* Request epoch must be >= our currentEpoch. */
-    if (requestEpoch < server.cluster->currentEpoch) return;
+    if (requestCurrentEpoch < server.cluster->currentEpoch) return;
 
     /* I already voted for this epoch? Return ASAP. */
     if (server.cluster->last_vote_epoch == server.cluster->currentEpoch) return;
@@ -1591,6 +1594,19 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
      * of the algorithm but makes the base case more linear. */
     if (server.unixtime - node->slaveof->voted_time <
         server.cluster_node_timeout * 2) return;
+
+    /* The slave requesting the vote must have a configEpoch for the claimed slots
+     * that is >= the one of the masters currently serving the same slots in the
+     * current configuration. */
+    for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
+        if (bitmapTestBit(claimed_slots, j) == 0) continue;
+        if (server.cluster->slots[j] == NULL ||
+            server.cluster->slots[j]->configEpoch <= requestConfigEpoch) continue;
+        /* If we reached this point we found a slot that in our current slots
+         * is served by a master with a greater configEpoch than the one claimed
+         * by the slave requesting our vote. Refuse to vote for this slave. */
+        return;
+    }
 
     /* We can vote for this slave. */
     clusterSendFailoverAuth(node);
@@ -1910,7 +1926,7 @@ void clusterDoBeforeSleep(int flags) {
  * Slots management
  * -------------------------------------------------------------------------- */
 
-/* Test bit 'pos' in a generic bitmap. Return 1 if the bit is zet,
+/* Test bit 'pos' in a generic bitmap. Return 1 if the bit is set,
  * otherwise 0. */
 int bitmapTestBit(unsigned char *bitmap, int pos) {
     off_t byte = pos/8;
