@@ -368,6 +368,8 @@
  * Data types
  *----------------------------------------------------------------------------*/
 
+typedef long long mstime_t; /* millisecond time type. */
+
 /* A redis object, that is a type able to hold a string / list / set */
 
 /* The actual Redis Object */
@@ -581,7 +583,7 @@ typedef struct redisOpArray {
 #define REDIS_CLUSTER_FAIL_UNDO_TIME_MULT 2 /* Undo fail if master is back. */
 #define REDIS_CLUSTER_FAIL_UNDO_TIME_ADD 10 /* Some additional time. */
 #define REDIS_CLUSTER_SLAVE_VALIDITY_MULT 10 /* Slave data validity. */
-#define REDIS_CLUSTER_FAILOVER_AUTH_RETRY_MULT 1 /* Auth request retry time. */
+#define REDIS_CLUSTER_FAILOVER_AUTH_RETRY_MULT 4 /* Auth request retry time. */
 #define REDIS_CLUSTER_FAILOVER_DELAY 5 /* Seconds */
 
 struct clusterNode;
@@ -617,6 +619,7 @@ struct clusterNode {
     time_t ctime;   /* Node object creation time. */
     char name[REDIS_CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
     int flags;      /* REDIS_NODE_... */
+    uint64_t configEpoch; /* Last configEpoch observed for this node */
     unsigned char slots[REDIS_CLUSTER_SLOTS/8]; /* slots handled by this node */
     int numslots;   /* Number of slots handled by this node */
     int numslaves;  /* Number of slave nodes, if this is a master */
@@ -625,6 +628,7 @@ struct clusterNode {
     time_t ping_sent;       /* Unix time we sent latest ping */
     time_t pong_received;   /* Unix time we received the pong */
     time_t fail_time;       /* Unix time when FAIL flag was set */
+    time_t voted_time;      /* Last time we voted for a slave of this master */
     char ip[REDIS_IP_STR_LEN];  /* Latest known IP address of this node */
     int port;                   /* Latest known port of this node */
     clusterLink *link;          /* TCP/IP link with this node */
@@ -634,6 +638,7 @@ typedef struct clusterNode clusterNode;
 
 typedef struct {
     clusterNode *myself;  /* This node */
+    uint64_t currentEpoch;
     int state;            /* REDIS_CLUSTER_OK, REDIS_CLUSTER_FAIL, ... */
     int size;             /* Num of master nodes with at least one slot */
     dict *nodes;          /* Hash table of name -> clusterNode structures */
@@ -641,9 +646,23 @@ typedef struct {
     clusterNode *importing_slots_from[REDIS_CLUSTER_SLOTS];
     clusterNode *slots[REDIS_CLUSTER_SLOTS];
     zskiplist *slots_to_keys;
-    int failover_auth_time;     /* Time at which we sent the AUTH request. */
-    int failover_auth_count;    /* Number of authorizations received. */
+    /* The following fields are used to take the slave state on elections. */
+    mstime_t failover_auth_time;/* Time at which we'll try to get elected in ms*/
+    int failover_auth_count;    /* Number of votes received so far. */
+    int failover_auth_sent;     /* True if we already asked for votes. */
+    uint64_t failover_auth_epoch; /* Epoch of the current election. */
+    /* The followign fields are uesd by masters to take state on elections. */
+    uint64_t last_vote_epoch;   /* Epoch of the last vote granted. */
+    int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
+    long long stats_bus_messages_sent;  /* Num of msg sent via cluster bus. */
+    long long stats_bus_messages_received; /* Num of msg received via cluster bus. */
 } clusterState;
+
+/* clusterState todo_before_sleep flags. */
+#define CLUSTER_TODO_HANDLE_FAILOVER (1<<0)
+#define CLUSTER_TODO_UPDATE_STATE (1<<1)
+#define CLUSTER_TODO_SAVE_CONFIG (1<<2)
+#define CLUSTER_TODO_FSYNC_CONFIG (1<<3)
 
 /* Redis cluster messages header */
 
@@ -704,9 +723,9 @@ typedef struct {
     uint32_t totlen;    /* Total length of this message */
     uint16_t type;      /* Message type */
     uint16_t count;     /* Only used for some kind of messages. */
-    uint64_t time;      /* Time at which this request was sent (in milliseconds),
-                           this field is copied in reply messages so that the
-                           original sender knows how old the reply is. */
+    uint64_t currentEpoch;  /* The epoch accordingly to the sending node. */
+    uint64_t configEpoch;   /* The config epoch if it's a master, or the last epoch
+                               advertised by its master if it is a slave. */
     char sender[REDIS_CLUSTER_NAMELEN]; /* Name of the sender node */
     unsigned char myslots[REDIS_CLUSTER_SLOTS/8];
     char slaveof[REDIS_CLUSTER_NAMELEN];
@@ -1367,6 +1386,7 @@ void clusterCron(void);
 clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
 void clusterPropagatePublish(robj *channel, robj *message);
 void migrateCloseTimedoutSockets(void);
+void clusterBeforeSleep(void);
 
 /* Sentinel */
 void initSentinelConfig(void);
