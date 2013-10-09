@@ -1629,9 +1629,9 @@ void clusterHandleSlaveFailover(void) {
 
     /* Set data_age to the number of seconds we are disconnected from the master. */
     if (server.repl_state == REDIS_REPL_CONNECTED) {
-        data_age = server.unixtime - server.master->lastinteraction * 1000;
+        data_age = (server.unixtime - server.master->lastinteraction) * 1000;
     } else {
-        data_age = server.unixtime - server.repl_down_since * 1000;
+        data_age = (server.unixtime - server.repl_down_since) * 1000;
     }
 
     /* Pre conditions to run the function:
