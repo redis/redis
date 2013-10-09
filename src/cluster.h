@@ -14,7 +14,7 @@
 
 /* The following defines are amunt of time, sometimes expressed as
  * multiplicators of the node timeout value (when ending with MULT). */
-#define REDIS_CLUSTER_DEFAULT_NODE_TIMEOUT 15
+#define REDIS_CLUSTER_DEFAULT_NODE_TIMEOUT 15000
 #define REDIS_CLUSTER_FAIL_REPORT_VALIDITY_MULT 2 /* Fail report validity. */
 #define REDIS_CLUSTER_FAIL_UNDO_TIME_MULT 2 /* Undo fail if master is back. */
 #define REDIS_CLUSTER_FAIL_UNDO_TIME_ADD 10 /* Some additional time. */
@@ -26,7 +26,7 @@ struct clusterNode;
 
 /* clusterLink encapsulates everything needed to talk with a remote node. */
 typedef struct clusterLink {
-    time_t ctime;               /* Link creation time */
+    mstime_t ctime;             /* Link creation time */
     int fd;                     /* TCP socket file descriptor */
     sds sndbuf;                 /* Packet send buffer */
     sds rcvbuf;                 /* Packet reception buffer */
@@ -48,11 +48,11 @@ typedef struct clusterLink {
 /* This structure represent elements of node->fail_reports. */
 struct clusterNodeFailReport {
     struct clusterNode *node;  /* Node reporting the failure condition. */
-    time_t time;               /* Time of the last report from this node. */
+    mstime_t time;             /* Time of the last report from this node. */
 } typedef clusterNodeFailReport;
 
 struct clusterNode {
-    time_t ctime;   /* Node object creation time. */
+    mstime_t ctime; /* Node object creation time. */
     char name[REDIS_CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
     int flags;      /* REDIS_NODE_... */
     uint64_t configEpoch; /* Last configEpoch observed for this node */
@@ -61,10 +61,10 @@ struct clusterNode {
     int numslaves;  /* Number of slave nodes, if this is a master */
     struct clusterNode **slaves; /* pointers to slave nodes */
     struct clusterNode *slaveof; /* pointer to the master node */
-    time_t ping_sent;       /* Unix time we sent latest ping */
-    time_t pong_received;   /* Unix time we received the pong */
-    time_t fail_time;       /* Unix time when FAIL flag was set */
-    time_t voted_time;      /* Last time we voted for a slave of this master */
+    mstime_t ping_sent;       /* Unix time we sent latest ping */
+    mstime_t pong_received;   /* Unix time we received the pong */
+    mstime_t fail_time;       /* Unix time when FAIL flag was set */
+    mstime_t voted_time;      /* Last time we voted for a slave of this master */
     char ip[REDIS_IP_STR_LEN];  /* Latest known IP address of this node */
     int port;                   /* Latest known port of this node */
     clusterLink *link;          /* TCP/IP link with this node */

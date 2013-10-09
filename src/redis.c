@@ -1155,7 +1155,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     run_with_period(1000) replicationCron();
 
     /* Run the Redis Cluster cron. */
-    run_with_period(1000) {
+    run_with_period(100) {
         if (server.cluster_enabled) clusterCron();
     }
 
