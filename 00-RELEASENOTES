@@ -14,6 +14,19 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8 Release Candidate 5 (2.7.105) ] Release date: 9 Oct 2013
+
+This is the 5th release candidate of Redis 2.8 (official version is 2.7.105).
+Important bugs fixed inside.
+
+# UPGRADE URGENCY: HIGH because of many non critical replication bugs fixed.
+
+* [FIX] redis-cli: don't crash with --bigkeys when the key no longer exist.
+* [FIX] Allow AUTH / PING when disconnected from slave and serve-stale-data is no.
+* [FIX] PSYNC: safer handling of PSYNC requests with offsets in the future.
+* [FIX] Replication: Fix master timeout detection.
+* [FIX] Replication: Correctly install the write handler after successful PSYNC.
+
 --[ Redis 2.8 Release Candidate 4 (2.7.104) ] Release date: 30 Aug 2013
 
 This is the fourth release candidate of Redis 2.8 (official version is 2.7.104).
