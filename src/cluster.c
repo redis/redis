@@ -29,6 +29,7 @@
  */
 
 #include "redis.h"
+#include "cluster.h"
 #include "endianconv.h"
 
 #include <sys/types.h>
@@ -38,6 +39,8 @@
 #include <unistd.h>
 #include <sys/socket.h>
 
+clusterNode *createClusterNode(char *nodename, int flags);
+int clusterAddNode(clusterNode *node);
 void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void clusterSendPing(clusterLink *link, int type);

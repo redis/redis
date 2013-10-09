@@ -28,6 +28,7 @@
  */
 
 #include "redis.h"
+#include "cluster.h"
 
 #include <signal.h>
 #include <ctype.h>

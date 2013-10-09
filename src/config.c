@@ -29,6 +29,7 @@
  */
 
 #include "redis.h"
+#include "cluster.h"
 
 #include <fcntl.h>
 #include <sys/stat.h>
