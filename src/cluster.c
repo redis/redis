@@ -1742,6 +1742,9 @@ void clusterCron(void) {
     int j, update_state = 0;
     mstime_t min_pong = 0, now = mstime();
     clusterNode *min_pong_node = NULL;
+    static unsigned long long iteration = 0;
+
+    iteration++; /* Number of times this function was called so far. */
 
     /* Check if we have disconnected nodes and re-establish the connection. */
     di = dictGetSafeIterator(server.cluster->nodes);
@@ -1798,23 +1801,27 @@ void clusterCron(void) {
     }
     dictReleaseIterator(di);
 
-    /* Ping some random node. Check a few random nodes and ping the one with
-     * the oldest pong_received time */
-    for (j = 0; j < 2; j++) {
-        de = dictGetRandomKey(server.cluster->nodes);
-        clusterNode *this = dictGetVal(de);
+    /* Ping some random node 1 time every 10 iterations, so that we usually ping
+     * one random node every second. */
+    if (!(iteration % 10)) {
+        /* Check a few random nodes and ping the one with the oldest
+         * pong_received time. */
+        for (j = 0; j < 5; j++) {
+            de = dictGetRandomKey(server.cluster->nodes);
+            clusterNode *this = dictGetVal(de);
 
-        /* Don't ping nodes disconnected or with a ping currently active. */
-        if (this->link == NULL || this->ping_sent != 0) continue;
-        if (this->flags & (REDIS_NODE_MYSELF|REDIS_NODE_HANDSHAKE)) continue;
-        if (min_pong_node == NULL || min_pong > this->pong_received) {
-            min_pong_node = this;
-            min_pong = this->pong_received;
+            /* Don't ping nodes disconnected or with a ping currently active. */
+            if (this->link == NULL || this->ping_sent != 0) continue;
+            if (this->flags & (REDIS_NODE_MYSELF|REDIS_NODE_HANDSHAKE)) continue;
+            if (min_pong_node == NULL || min_pong > this->pong_received) {
+                min_pong_node = this;
+                min_pong = this->pong_received;
+            }
         }
-    }
-    if (min_pong_node) {
-        redisLog(REDIS_DEBUG,"Pinging node %.40s", min_pong_node->name);
-        clusterSendPing(min_pong_node->link, CLUSTERMSG_TYPE_PING);
+        if (min_pong_node) {
+            redisLog(REDIS_DEBUG,"Pinging node %.40s", min_pong_node->name);
+            clusterSendPing(min_pong_node->link, CLUSTERMSG_TYPE_PING);
+        }
     }
 
     /* Iterate nodes to check if we need to flag something as failing */
