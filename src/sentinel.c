@@ -39,7 +39,9 @@
 #include <sys/wait.h>
 #endif
 
+#ifndef _WIN32
 extern char **environ;
+#endif
 
 #define REDIS_SENTINEL_PORT 26379
 
@@ -671,7 +673,11 @@ void sentinelRunPendingScripts(void) {
             sj->pid = 0;
         } else if (pid == 0) {
             /* Child */
+#ifdef _WIN32
+            _execv(sj->argv[0],sj->argv);
+#else
             execve(sj->argv[0],sj->argv,environ);
+#endif
             /* If we are here an error occurred. */
             _exit(2); /* Don't retry execution. */
         } else {

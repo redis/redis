@@ -53,8 +53,7 @@ sGetQueuedCompletionStatusEx pGetQueuedCompletionStatusEx;
  * socket value is not an index. Convert socket to index
   * and then find matching structure in list */
 
-/* prefer prime number for number of indexes */
-#define MAX_SOCKET_LOOKUP   1021
+#define MAX_SOCKET_LOOKUP   65535
 
 /* structure that keeps state of sockets and Completion port handle */
 typedef struct aeApiState {
@@ -65,10 +64,9 @@ typedef struct aeApiState {
     list closing;
 } aeApiState;
 
-/* convert socket value to an index
- * Use simple modulo. We can add hash if needed */
+/* uses virtual FD as an index */
 int aeSocketIndex(int fd) {
-    return fd % MAX_SOCKET_LOOKUP;
+    return smLookupFD( fd );
 }
 
 /* get data for socket / fd being monitored. Create if not found*/

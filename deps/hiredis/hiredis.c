@@ -1023,13 +1023,14 @@ static redisContext *redisContextInit(void) {
 }
 
 void redisFree(redisContext *c) {
-    if (c->fd > 0)
+    if (c->fd > 0) {
 #ifdef _WIN32
         closesocket(c->fd);
         smRemoveSocket(c->fd);
 #else
         close(c->fd);
 #endif
+    }
     if (c->obuf != NULL)
         sdsfree(c->obuf);
     if (c->reader != NULL)

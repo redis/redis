@@ -367,8 +367,13 @@ int redisContextPreConnectTcp(redisContext *c, const char *addr, int port,
     int blocking = (c->flags & REDIS_BLOCK);
     unsigned long inAddress;
 
-    if ((s = redisCreateSocket(c,AF_INET)) < 0)
+    if ((s = redisCreateSocket(c,AF_INET)) < 0) {
         return REDIS_ERR;
+    }
+    else {
+        smAddSocket(s);
+    }
+
 
     sa->sin_family = AF_INET;
     sa->sin_port = htons(port);

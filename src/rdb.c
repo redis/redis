@@ -39,6 +39,8 @@
 #include <sys/resource.h>
 #include <sys/wait.h>
 #include <arpa/inet.h>
+#else
+#include <stdio.h>
 #endif
 #include <sys/stat.h>
 
@@ -414,6 +416,11 @@ int rdbSaveDoubleValue(rio *rdb, double val) {
 int rdbLoadDoubleValue(rio *rdb, double *val) {
     char buf[128];
     unsigned char len;
+#ifdef _WIN32
+    double scannedVal = 0;
+    int assigned = 0;
+    memset(buf, 128, 0);
+#endif
 
     if (rioRead(rdb,&len,1) == 0) return -1;
     switch(len) {
@@ -423,8 +430,18 @@ int rdbLoadDoubleValue(rio *rdb, double *val) {
     default:
         if (rioRead(rdb,buf,len) == 0) return -1;
         buf[len] = '\0';
+#ifdef _WIN32
+        assigned = sscanf_s(buf, "%lg", &scannedVal);
+        if( assigned != 0 ) {
+            (*val) = scannedVal;
+            return 0;
+        } else {
+            return -1;
+        }
+#else
         sscanf(buf, "%lg", val);
         return 0;
+#endif
     }
 }
 
@@ -1338,13 +1355,15 @@ void stopLoading(void) {
 }
 
 int rdbLoad(char *filename) {
-    uint32_t dbid;
-    int type, rdbver;
+    uint32_t dbid = 0;
+    int type = 0;
+    int rdbver = 0;
     redisDb *db = server.db+0;
     char buf[1024];
-    long long expiretime, now = mstime();
+    long long expiretime;
+    long now = mstime();
     long loops = 0;
-    FILE *fp;
+    FILE *fp = NULL;
     rio rdb;
 
 #ifdef _WIN32

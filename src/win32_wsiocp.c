@@ -442,6 +442,7 @@ void aeShutdown(int fd) {
 /* when closing socket, need to unassociate completion port */
 int aeWinCloseSocket(int fd) {
     aeSockState *sockstate;
+    BOOL closed = FALSE;
 
     if ((sockstate = aeGetSockState(iocpState, fd)) == NULL) {
         closesocket((SOCKET)fd);
@@ -455,11 +456,13 @@ int aeWinCloseSocket(int fd) {
     if (sockstate->wreqs == 0 &&
         (sockstate->masks & (READ_QUEUED | CONNECT_PENDING | SOCKET_ATTACHED)) == 0) {
         closesocket((SOCKET)fd);
-        smRemoveSocket(fd);
+        closed = TRUE;
     } else {
         sockstate->masks |= CLOSE_PENDING;
     }
     aeDelSockState(iocpState, sockstate);
+
+    if (closed == TRUE) smRemoveSocket(fd);
 
     return 0;
 }
