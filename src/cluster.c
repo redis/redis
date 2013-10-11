@@ -1743,8 +1743,16 @@ void clusterCron(void) {
     mstime_t min_pong = 0, now = mstime();
     clusterNode *min_pong_node = NULL;
     static unsigned long long iteration = 0;
+    mstime_t handshake_timeout;
 
     iteration++; /* Number of times this function was called so far. */
+
+    /* The handshake timeout is the time after which an handshake node that was
+     * not turned into a normal node is removed from the nodes. Usually it is
+     * just the NODE_TIMEOUT value, but when NODE_TIMEOUT is too small we use
+     * the value of 1 second. */
+    handshake_timeout = server.cluster_node_timeout;
+    if (handshake_timeout < 1000) handshake_timeout = 1000;
 
     /* Check if we have disconnected nodes and re-establish the connection. */
     di = dictGetSafeIterator(server.cluster->nodes);
@@ -1756,7 +1764,7 @@ void clusterCron(void) {
         /* A Node in HANDSHAKE state has a limited lifespan equal to the
          * configured node timeout. */
         if (node->flags & REDIS_NODE_HANDSHAKE &&
-            now - node->ctime > server.cluster_node_timeout)
+            now - node->ctime > handshake_timeout)
         {
             freeClusterNode(node);
             continue;
