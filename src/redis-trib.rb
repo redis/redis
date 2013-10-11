@@ -589,19 +589,19 @@ class RedisTrib
 
     # redis-trib subcommands implementations
 
-    def check_cluster_cmd
-        load_cluster_info_from_node(ARGV[1])
+    def check_cluster_cmd(argv,opt)
+        load_cluster_info_from_node(argv[0])
         check_cluster
     end
 
-    def fix_cluster_cmd
+    def fix_cluster_cmd(argv,opt)
         @fix = true
-        load_cluster_info_from_node(ARGV[1])
+        load_cluster_info_from_node(argv[0])
         check_cluster
     end
 
-    def reshard_cluster_cmd
-        load_cluster_info_from_node(ARGV[1])
+    def reshard_cluster_cmd(argv,opt)
+        load_cluster_info_from_node(argv[0])
         check_cluster
         if @errors.length != 0
             puts "*** Please fix your cluster problems before resharding"
@@ -667,9 +667,9 @@ class RedisTrib
         }
     end
 
-    def create_cluster_cmd
+    def create_cluster_cmd(argv,opt)
         xputs ">>> Creating cluster"
-        ARGV[1..-1].each{|n|
+        argv[0..-1].each{|n|
             node = ClusterNode.new(n)
             node.connect(:abort => true)
             node.assert_cluster
@@ -693,15 +693,15 @@ class RedisTrib
         check_cluster
     end
 
-    def addnode_cluster_cmd
-        xputs ">>> Adding node #{ARGV[1]} to cluster #{ARGV[2]}"
+    def addnode_cluster_cmd(argv,opt)
+        xputs ">>> Adding node #{argv[0]} to cluster #{argv[1]}"
 
         # Check the existing cluster
-        load_cluster_info_from_node(ARGV[2])
+        load_cluster_info_from_node(argv[1])
         check_cluster
 
         # Add the new node
-        new = ClusterNode.new(ARGV[1])
+        new = ClusterNode.new(argv[0])
         new.connect(:abort => true)
         new.assert_cluster
         new.load_info
@@ -713,9 +713,38 @@ class RedisTrib
         new.r.cluster("meet",first[:host],first[:port])
     end
 
-    def help_cluster_cmd
+    def help_cluster_cmd(opt)
         show_help
         exit 0
+    end
+
+    # Parse the options for the specific command "cmd".
+    # Returns an hash populate with option => value pairs, and the index of
+    # the first non-option argument in ARGV.
+    def parse_options(cmd)
+        idx = 1 ; # Current index into ARGV
+        options={}
+        while idx < ARGV.length && ARGV[idx][0..1] == '--'
+            if ARGV[idx][0..1] == "--"
+                option = ARGV[idx][2..-1]
+                idx += 1
+                if ALLOWED_OPTIONS[cmd] == nil || ALLOWED_OPTIONS[cmd][option] == nil
+                    puts "Unknown option '#{option}' for command '#{cmd}'"
+                    exit 1
+                end
+                if ALLOWED_OPTIONS[cmd][option]
+                    value = ARGV[idx]
+                    idx += 1
+                else
+                    value = true
+                end
+                options[option] = value
+            else
+                # Remaining arguments are not options.
+                break
+            end
+        end
+        return options,idx
     end
 end
 
@@ -726,6 +755,10 @@ COMMANDS={
     "reshard" => ["reshard_cluster_cmd", 2, "host:port"],
     "addnode" => ["addnode_cluster_cmd", 3, "new_host:new_port existing_host:existing_port"],
     "help"    => ["help_cluster_cmd", 1, "(show this help)"]
+}
+
+ALLOWED_OPTIONS={
+    "create" => {"slaves" => false}
 }
 
 def show_help
@@ -749,7 +782,10 @@ if !cmd_spec
     puts "Unknown redis-trib subcommand '#{ARGV[0]}'"
     exit 1
 end
-rt.check_arity(cmd_spec[1],ARGV.length)
+
+# Parse options
+cmd_options,first_non_option = rt.parse_options(ARGV[0].downcase)
+rt.check_arity(cmd_spec[1],ARGV.length-(first_non_option-1))
 
 # Dispatch
-rt.send(cmd_spec[0])
+rt.send(cmd_spec[0],ARGV[first_non_option..-1],cmd_options)
