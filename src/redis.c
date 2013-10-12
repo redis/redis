@@ -51,6 +51,7 @@
 #include <sys/resource.h>
 #include <sys/utsname.h>
 #include <locale.h>
+#include <unistd.h>
 
 /* Our shared "common" objects */
 
@@ -2866,10 +2867,13 @@ void createPidFile(void) {
 }
 
 void daemonize(void) {
-    int fd;
+    int fd, i;
 
     if (fork() != 0) exit(0); /* parent exits */
     setsid(); /* create a new session */
+
+    for (i = 3; i < sysconf(_SC_OPEN_MAX); i++)
+       	close(i);
 
     /* Every output goes to /dev/null. If Redis is daemonized but
      * the 'logfile' is set to 'stdout' in the configuration file
