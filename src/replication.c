@@ -343,7 +343,7 @@ int masterTryPartialResynchronization(redisClient *c) {
         /* Run id "?" is used by slaves that want to force a full resync. */
         if (master_runid[0] != '?') {
             redisLog(REDIS_NOTICE,"Partial resynchronization not accepted: "
-                "Runid mismatch (Client asked for '%s', I'm '%s')",
+                "Runid mismatch (Client asked for runid '%s', my runid is '%s')",
                 master_runid, server.runid);
         } else {
             redisLog(REDIS_NOTICE,"Full resync requested by slave.");
@@ -356,10 +356,14 @@ int masterTryPartialResynchronization(redisClient *c) {
        REDIS_OK) goto need_full_resync;
     if (!server.repl_backlog ||
         psync_offset < server.repl_backlog_off ||
-        psync_offset >= (server.repl_backlog_off + server.repl_backlog_size))
+        psync_offset > (server.repl_backlog_off + server.repl_backlog_histlen))
     {
         redisLog(REDIS_NOTICE,
             "Unable to partial resync with the slave for lack of backlog (Slave request was: %lld).", psync_offset);
+        if (psync_offset > server.master_repl_offset) {
+            redisLog(REDIS_WARNING,
+                "Warning: slave tried to PSYNC with an offset that is greater than the master replication offset.");
+        }
         goto need_full_resync;
     }
 
@@ -1370,6 +1374,16 @@ void replicationResurrectCachedMaster(int newfd) {
                           readQueryFromClient, server.master)) {
         redisLog(REDIS_WARNING,"Error resurrecting the cached master, impossible to add the readable handler: %s", strerror(errno));
         freeClientAsync(server.master); /* Close ASAP. */
+    }
+
+    /* We may also need to install the write handler as well if there is
+     * pending data in the write buffers. */
+    if (server.master->bufpos || listLength(server.master->reply)) {
+        if (aeCreateFileEvent(server.el, newfd, AE_WRITABLE,
+                          sendReplyToClient, server.master)) {
+            redisLog(REDIS_WARNING,"Error resurrecting the cached master, impossible to add the writable handler: %s", strerror(errno));
+            freeClientAsync(server.master); /* Close ASAP. */
+        }
     }
 }
 

@@ -28,6 +28,7 @@
  */
 
 #include "redis.h"
+#include "cluster.h"
 #include "slowlog.h"
 #include "bio.h"
 
@@ -1154,7 +1155,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     run_with_period(1000) replicationCron();
 
     /* Run the Redis Cluster cron. */
-    run_with_period(1000) {
+    run_with_period(100) {
         if (server.cluster_enabled) clusterCron();
     }
 
@@ -1203,6 +1204,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Write the AOF buffer on disk */
     flushAppendOnlyFile(0);
+
+    /* Call the Redis Cluster before sleep function. */
+    if (server.cluster_enabled) clusterBeforeSleep();
 }
 
 /* =========================== Server initialization ======================== */

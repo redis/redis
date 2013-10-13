@@ -29,6 +29,7 @@
  */
 
 #include "redis.h"
+#include "cluster.h"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -415,7 +416,7 @@ void loadServerConfigFromString(char *config) {
             zfree(server.cluster_configfile);
             server.cluster_configfile = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"cluster-node-timeout") && argc == 2) {
-            server.cluster_node_timeout = atoi(argv[1]);
+            server.cluster_node_timeout = strtoll(argv[1],NULL,10);
             if (server.cluster_node_timeout <= 0) {
                 err = "cluster node timeout must be 1 or greater"; goto loaderr;
             }
@@ -1786,7 +1787,7 @@ void configCommand(redisClient *c) {
         }
     } else {
         addReplyError(c,
-            "CONFIG subcommand must be one of GET, SET, RESETSTAT");
+            "CONFIG subcommand must be one of GET, SET, RESETSTAT, REWRITE");
     }
     return;
 
