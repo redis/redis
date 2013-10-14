@@ -218,6 +218,7 @@ int clusterLoadConfig(char *filename) {
 
 fmterr:
     redisLog(REDIS_WARNING,"Unrecoverable error: corrupted cluster config file.");
+    zfree(line);
     fclose(fp);
     exit(1);
 }
@@ -239,6 +240,7 @@ int clusterSaveConfig(int do_fsync) {
     return 0;
 
 err:
+    close(fd);
     sdsfree(ci);
     return -1;
 }
@@ -330,7 +332,8 @@ void freeClusterLink(clusterLink *link) {
     sdsfree(link->rcvbuf);
     if (link->node)
         link->node->link = NULL;
-    close(link->fd);
+    if (link->fd != -1)
+        close(link->fd);
     zfree(link);
 }
 
@@ -532,6 +535,7 @@ int clusterNodeAddSlave(clusterNode *master, clusterNode *slave) {
 
 void clusterNodeResetSlaves(clusterNode *n) {
     zfree(n->slaves);
+    n->slaves = NULL;
     n->numslaves = 0;
 }
 
