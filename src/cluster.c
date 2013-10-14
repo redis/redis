@@ -284,6 +284,7 @@ int clusterLoadConfig(char *filename) {
 fmterr:
     redisLog(REDIS_WARNING,
         "Unrecoverable error: corrupted cluster config file.");
+    zfree(line);
     fclose(fp);
     exit(1);
 }
