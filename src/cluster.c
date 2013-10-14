@@ -332,7 +332,8 @@ void freeClusterLink(clusterLink *link) {
     sdsfree(link->rcvbuf);
     if (link->node)
         link->node->link = NULL;
-    close(link->fd);
+    if (link->fd != -1)
+        close(link->fd);
     zfree(link);
 }
 
