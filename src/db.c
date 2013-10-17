@@ -298,11 +298,28 @@ void keysCommand(redisClient *c) {
     sds pattern = c->argv[1]->ptr;
     int plen = sdslen(pattern), allkeys;
     unsigned long numkeys = 0;
-    void *replylen = addDeferredMultiBulkLength(c);
+    void *replylen;
+    long limit = 0;
+    
+    if (c->argc != 3 && c->argc != 2) {
+        addReplyError(c, "invalid argument number");
+        return;
+    }
 
+    if (c->argc == 3) {
+        if (getLongFromObjectOrReply(c,c->argv[2],&limit,NULL) != REDIS_OK)
+            return;
+
+        if (limit <= 0) {
+            addReplyError(c,"limit must be positive");
+            return;
+        }
+    }
+
+    replylen = addDeferredMultiBulkLength(c);
     di = dictGetSafeIterator(c->db->dict);
     allkeys = (pattern[0] == '*' && pattern[1] == '\0');
-    while((de = dictNext(di)) != NULL) {
+    while((limit == 0 || numkeys < limit) && (de = dictNext(di)) != NULL) {
         sds key = dictGetKey(de);
         robj *keyobj;
 
