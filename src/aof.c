@@ -142,7 +142,11 @@ ssize_t aofRewriteBufferWrite(int fd) {
         ssize_t nwritten;
 
         if (block->used) {
+#ifdef _WIN32
+            nwritten = send(fd,block->buf,block->used,0);
+#else
             nwritten = write(fd,block->buf,block->used);
+#endif
             if (nwritten != block->used) {
                 if (nwritten == 0) errno = EIO;
                 return -1;

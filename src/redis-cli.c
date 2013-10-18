@@ -1139,12 +1139,20 @@ static void getRDB(void) {
     while(payload) {
         ssize_t nread, nwritten;
         
+#ifdef _WIN32
+        nread = recv(s,buf,(unsigned int)(payload > sizeof(buf)) ? sizeof(buf) : payload,0);
+#else
         nread = read(s,buf,(unsigned int)(payload > sizeof(buf)) ? sizeof(buf) : payload);
+#endif
         if (nread <= 0) {
             fprintf(stderr,"I/O Error reading RDB payload from socket\n");
             exit(1);
         }
+#ifdef _WIN32
+        nwritten = send(fd, buf, nread,0);
+#else
         nwritten = write(fd, buf, nread);
+#endif
         if (nwritten != nread) {
             fprintf(stderr,"Error writing data to file: %s\n",
                 strerror(errno));
@@ -1233,7 +1241,11 @@ static void pipeMode(void) {
             while(1) {
                 /* Transfer current buffer to server. */
                 if (obuf_len != 0) {
+#ifdef _WIN32
+                    ssize_t nwritten = send(fd,obuf+obuf_pos,(unsigned int)obuf_len,0);
+#else
                     ssize_t nwritten = write(fd,obuf+obuf_pos,(unsigned int)obuf_len);
+#endif
                     
                     if (nwritten == -1) {
                         if (errno != EAGAIN && errno != EINTR) {

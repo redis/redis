@@ -37,6 +37,8 @@
 #include <unistd.h>
 #include <poll.h>
 #else
+#include <sys/types.h> 
+#include <sys/timeb.h>
 #include "win32_socketmap.h"
 #endif
 #include <stdlib.h>
@@ -52,7 +54,7 @@
 
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
-#ifdef _WIN32
+#ifdef WIN32_IOCP
 #include "ae_wsiocp.c"
 #else
 #ifdef HAVE_EVPORT
@@ -119,7 +121,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
 
 
 #ifdef _WIN32  
-    if (smGetSocketCount() >= eventLoop->setsize) {
+    if (smGetMaxFD() >= eventLoop->setsize) {
         errno = ERANGE;
         return AE_ERR;
     }
@@ -152,7 +154,7 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 {
     aeFileEvent *fe;
 #ifdef _WIN32
-    if (smGetSocketCount() >= eventLoop->setsize) return;
+    if (smGetMaxFD() >= eventLoop->setsize) return;
 
     if(smLookupFD(fd) == -1 ) return;
 
@@ -181,7 +183,7 @@ int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
 #ifdef _WIN32
     if(smLookupFD(fd) == -1 ) DebugBreak();
 
-    if (smGetSocketCount() >= eventLoop->setsize) return 0;
+    if (smGetMaxFD() >= eventLoop->setsize) return 0;
 
     fe = &eventLoop->events[smLookupFD(fd)];
 #else
@@ -195,11 +197,20 @@ int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
 
 static void aeGetTime(long *seconds, long *milliseconds)
 {
+#ifdef _WIN32
+    struct _timeb tb;
+
+    memset(&tb,0,sizeof(struct _timeb));
+    _ftime_s(&tb);
+    (*seconds) = (long)tb.time;
+    (*milliseconds) = (long)tb.millitm;
+#else
     struct timeval tv;
 
     gettimeofday(&tv, NULL);
     *seconds = tv.tv_sec;
     *milliseconds = tv.tv_usec/1000;
+#endif
 }
 
 static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) {

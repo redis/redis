@@ -122,7 +122,7 @@ static void freeClient(client c) {
     listNode *ln;
     aeDeleteFileEvent(config.el,(int)c->context->fd,AE_WRITABLE);
     aeDeleteFileEvent(config.el,(int)c->context->fd,AE_READABLE);
-#ifdef _WIN32
+#ifdef WIN32_IOCP
     aeWinCloseSocket((int)c->context->fd);
     c->context->fd = 0;
 #endif
@@ -187,7 +187,7 @@ static void clientDone(client c) {
 static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     client c = privdata;
     void *reply = NULL;
-#ifdef _WIN32
+#ifdef WIN32_IOCP
     int nread;
     char buf[1024*16];
 #endif
@@ -200,7 +200,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
      * is not part of the latency, so calculate it only once, here. */
     if (c->latency < 0) c->latency = ustime()-(c->start);
 
-#ifdef _WIN32
+#ifdef WIN32_IOCP
     nread = recv((SOCKET)c->context->fd,buf,sizeof(buf),0);
     if (nread == -1) {
         errno = WSAGetLastError();
@@ -219,7 +219,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         fprintf(stderr,"Error: %s\n",c->context->errstr);
         exit(1);
     } else {
-#ifdef _WIN32
+#ifdef WIN32_IOCP
         aeWinReceiveDone((int)c->context->fd);
 #endif
         while(c->pending) {
@@ -284,7 +284,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     if (sdslen(c->obuf) > c->written) {
         void *ptr = c->obuf+c->written;
-#ifdef _WIN32
+#ifdef WIN32_IOCP
         int result = aeWinSocketSend((int)c->context->fd,(char*)ptr,(int)(sdslen(c->obuf)-c->written), 0,
                                         el, c, NULL, writeHandlerDone);
         if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
@@ -294,7 +294,11 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
 #else
+#ifdef WIN32
+        int nwritten = send(c->context->fd,(const char*)ptr,sdslen(c->obuf)-c->written, 0);
+#else
         int nwritten = write(c->context->fd,ptr,sdslen(c->obuf)-c->written);
+#endif
         if (nwritten == -1) {
             if (errno != EPIPE)
                 fprintf(stderr, "Writing to socket: %s\n", strerror(errno));
@@ -315,7 +319,7 @@ static client createClient(char *cmd, size_t len) {
     client c = zmalloc(sizeof(struct _client));
 
     if (config.hostsocket == NULL) {
-#ifdef _WIN32
+#ifdef WIN32_IOCP
         struct sockaddr_in sa;
         c->context = redisPreConnectNonBlock(config.hostip,config.hostport, &sa);
         if (aeWinSocketConnect(c->context->fd, (struct sockaddr *)&sa, sizeof(sa)) != 0) {

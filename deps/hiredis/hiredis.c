@@ -1128,7 +1128,7 @@ int redisBufferRead(redisContext *c) {
     if (c->err)
         return REDIS_ERR;
 
-#ifdef _WIN32
+#ifdef WIN32_IOCP
     nread = recv((SOCKET)c->fd,buf,sizeof(buf),0);
     if (nread == -1) {
         errno = WSAGetLastError();
@@ -1136,7 +1136,11 @@ int redisBufferRead(redisContext *c) {
             errno = EAGAIN;
     }
 #else
+#ifdef _WIN32
+    nread = recv((SOCKET)c->fd,buf,sizeof(buf),0);
+#else
     nread = read(c->fd,buf,sizeof(buf));
+#endif
 #endif
     if (nread == -1) {
         if (errno == EAGAIN && !(c->flags & REDIS_BLOCK)) {

@@ -224,7 +224,7 @@ void replconfCommand(redisClient *c) {
     addReply(c,shared.ok);
 }
 
-#ifdef _WIN32
+#ifdef WIN32_IOCP
 void sendBulkToSlaveLenDone(aeEventLoop *el, int fd, void *privdata, int written) {
     aeWinSendReq *req = (aeWinSendReq *)privdata;
     REDIS_NOTUSED(el);
@@ -303,11 +303,11 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
 #else
 
 void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
-    redisClient *slave = privdata;
-    REDIS_NOTUSED(el);
-    REDIS_NOTUSED(mask);
+    redisClient *slave = (redisClient *)privdata;
     char buf[REDIS_IOBUF_LEN];
     ssize_t nwritten, buflen;
+    REDIS_NOTUSED(el);
+    REDIS_NOTUSED(mask);
 
     if (slave->repldboff == 0) {
         /* Write the bulk write count before to transfer the DB. In theory here
@@ -318,7 +318,11 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
 
         bulkcount = sdscatprintf(sdsempty(),"$%lld\r\n",(unsigned long long)
             slave->repldbsize);
+#ifdef _WIN32
+        if (send(fd,bulkcount,sdslen(bulkcount), 0) != (signed)sdslen(bulkcount))
+#else
         if (write(fd,bulkcount,sdslen(bulkcount)) != (signed)sdslen(bulkcount))
+#endif
         {
             sdsfree(bulkcount);
             freeClient(slave);
@@ -334,7 +338,11 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
         freeClient(slave);
         return;
     }
+#ifdef _WIN32
+    if ((nwritten = send(fd,buf,buflen,0)) == -1) {
+#else
     if ((nwritten = write(fd,buf,buflen)) == -1) {
+#endif
         redisLog(REDIS_VERBOSE,"Write error sending DB to slave: %s",
             strerror(errno));
         freeClient(slave);
@@ -425,7 +433,7 @@ void replicationAbortSyncTransfer(void) {
     redisAssert(server.repl_state == REDIS_REPL_TRANSFER);
 
     aeDeleteFileEvent(server.el,server.repl_transfer_s,AE_READABLE);
-#ifdef _WIN32
+#ifdef WIN32_IOCP
     aeWinCloseSocket(server.repl_transfer_s);
     if (server.repl_transfer_fd != -1) {
         close(server.repl_transfer_fd);
@@ -437,7 +445,11 @@ void replicationAbortSyncTransfer(void) {
         server.repl_transfer_tmpfile = NULL;
     }
 #else
+#ifdef _WIN32
+    closesocket(server.repl_transfer_s);
+#else
     close(server.repl_transfer_s);
+#endif
     close(server.repl_transfer_fd);
     unlink(server.repl_transfer_tmpfile);
     zfree(server.repl_transfer_tmpfile);
@@ -465,7 +477,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
             goto error;
         }
 
-#ifdef _WIN32
+#ifdef WIN32_IOCP
         aeWinReceiveDone(fd);
 #endif
         if (buf[0] == '-') {
@@ -493,7 +505,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     /* Read bulk data */
     left = server.repl_transfer_size - server.repl_transfer_read;
     readlen = (left < (signed)sizeof(buf)) ? left : (signed)sizeof(buf);
-#ifdef _WIN32
+#ifdef WIN32_IOCP
     nread = recv((SOCKET)fd,buf,readlen,0);
     if (nread <= 0) {
         if (server.repl_transfer_size) {
@@ -507,7 +519,11 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
     aeWinReceiveDone(fd);
 #else
+#ifdef _WIN32
+    nread = recv((SOCKET)fd,buf,readlen,0);
+#else
     nread = read(fd,buf,readlen);
+#endif
     if (nread <= 0) {
         redisLog(REDIS_WARNING,"I/O error trying to sync with MASTER: %s",
             (nread == -1) ? strerror(errno) : "connection lost");
@@ -793,10 +809,14 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     return;
 
 error:
-#ifdef _WIN32
+#ifdef WIN32_IOCP
     aeWinCloseSocket(fd);
 #else
+#ifdef _WIN32
+    closesocket(fd);
+#else
     close(fd);
+#endif
 #endif
     server.repl_transfer_s = -1;
     server.repl_state = REDIS_REPL_CONNECT;
@@ -816,10 +836,14 @@ int connectWithMaster(void) {
     if (aeCreateFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE,syncWithMaster,NULL) ==
             AE_ERR)
     {
-#ifdef _WIN32
+#ifdef WIN32_IOCP
         aeWinCloseSocket(fd);
 #else
+#ifdef _WIN32
+        closesocket(fd);
+#else
         close(fd);
+#endif
 #endif
         redisLog(REDIS_WARNING,"Can't create readable event for SYNC");
         return REDIS_ERR;
@@ -839,10 +863,14 @@ void undoConnectWithMaster(void) {
     redisAssert(server.repl_state == REDIS_REPL_CONNECTING ||
                 server.repl_state == REDIS_REPL_RECEIVE_PONG);
     aeDeleteFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE);
-#ifdef _WIN32
+#ifdef WIN32_IOCP
     aeWinCloseSocket(fd);
 #else
+#ifdef _WIN32
+    closesocket(fd);
+#else
     close(fd);
+#endif
 #endif
     server.repl_transfer_s = -1;
     server.repl_state = REDIS_REPL_CONNECT;
@@ -969,11 +997,15 @@ void replicationCron(void) {
                  * connection last interaction time, and at the same time
                  * we'll be sure that being a single char there are no
                  * short-write problems. */
-#ifdef _WIN32
+#ifdef WIN32_IOCP
                 if (aeWinSocketSend(slave->fd, "\n", 1, 0,
                                     server.el, NULL, NULL, NULL) == -1) {
 #else
+#ifdef _WIN32
+                if (send(slave->fd, "\n", 1, 0) == -1) {
+#else
                 if (write(slave->fd, "\n", 1) == -1) {
+#endif
 #endif
                     /* Don't worry, it's just a ping. */
                 }

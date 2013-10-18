@@ -48,7 +48,7 @@
 #include <stdio.h>
 #ifdef _WIN32
 #include "win32fixes.h"
-#define ANET_NOTUSED(V) ((void) V)
+#define ANET_NOTUSED(V) V
 #include "win32_socketmap.h"
 #endif
 
@@ -218,7 +218,7 @@ int anetResolve(char *err, char *host, char *ipbuf)
     return ANET_OK;
 }
 
-#ifdef _WIN32
+#ifdef WIN32_IOCP
 static int anetCreateSocket(char *err, int domain) {
     SOCKET s;
     int on = 1;
@@ -308,19 +308,39 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, int flags)
 {
     int s;
     struct sockaddr_in sa;
+#ifdef _WIN32
+    DWORD result;
+    unsigned long inAddress;
+#endif
 
-    if ((s = anetCreateSocket(err,AF_INET)) == ANET_ERR)
+    if ((s = anetCreateSocket(err,AF_INET)) == ANET_ERR) {
         return ANET_ERR;
+    }
+#ifdef _WIN32
+    else {
+        smAddSocket(s);
+    }
+#endif
 
     sa.sin_family = AF_INET;
     sa.sin_port = htons(port);
+#ifdef _WIN32
+    inAddress = inet_addr(addr);
+    if (inAddress == INADDR_NONE || inAddress == INADDR_ANY) {
+#else
     if (inet_aton(addr, &sa.sin_addr) == 0) {
+#endif
         struct hostent *he;
 
         he = gethostbyname(addr);
         if (he == NULL) {
             anetSetError(err, "can't resolve: %s", addr);
+#ifdef _WIN32
+            closesocket(s);
+            smRemoveSocket(s);
+#else
             close(s);
+#endif
             return ANET_ERR;
         }
         memcpy(&sa.sin_addr, he->h_addr, sizeof(struct in_addr));
@@ -329,13 +349,29 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, int flags)
         if (anetNonBlock(err,s) != ANET_OK)
             return ANET_ERR;
     }
+
+#ifdef _WIN32
+    if (connect(s, (struct sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
+        result = WSAGetLastError();
+        errno = result;
+        if ((errno == WSAEWOULDBLOCK || errno == WSA_IO_PENDING)) errno = EINPROGRESS;
+        if (errno == EINPROGRESS && flags & ANET_CONNECT_NONBLOCK) {
+            return s;
+        }
+#else
     if (connect(s, (struct sockaddr*)&sa, sizeof(sa)) == -1) {
         if (errno == EINPROGRESS &&
             flags & ANET_CONNECT_NONBLOCK)
             return s;
+#endif
 
         anetSetError(err, "connect: %s", strerror(errno));
+#ifdef _WIN32
+        closesocket(s);
+        smRemoveSocket(s);
+#else
         close(s);
+#endif
         return ANET_ERR;
     }
     return s;
@@ -434,7 +470,7 @@ int anetWrite(int fd, char *buf, int count)
     return totlen;
 }
 
-#ifdef _WIN32
+#ifdef WIN32_IOCP
 static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len) {
     int r = bind((SOCKET)s,sa,len);
     if (r == SOCKET_ERROR) {
@@ -530,15 +566,35 @@ int anetTcpServer(char *err, int port, char *bindaddr)
     if ((s = anetCreateSocket(err,AF_INET)) == ANET_ERR)
         return ANET_ERR;
 
+#ifdef _WIN32
+    smAddSocket(s);
+#endif
+
     memset(&sa,0,sizeof(sa));
     sa.sin_family = AF_INET;
     sa.sin_port = htons(port);
     sa.sin_addr.s_addr = htonl(INADDR_ANY);
+#ifdef _WIN32
+    if (bindaddr) {
+        unsigned long inAddress;
+        inAddress = inet_addr(bindaddr);
+        if (inAddress == INADDR_NONE || inAddress == INADDR_ANY) {
+            anetSetError(err, "Invalid bind address\n");
+            closesocket((SOCKET)s);
+            smRemoveSocket((SOCKET)s);
+            return ANET_ERR;
+        }
+        else {
+            sa.sin_addr.s_addr = inAddress;
+        }
+    }
+#else
     if (bindaddr && inet_aton(bindaddr, &sa.sin_addr) == 0) {
         anetSetError(err, "invalid bind address");
         close(s);
         return ANET_ERR;
     }
+#endif
     if (anetListen(err,s,(struct sockaddr*)&sa,sizeof(sa)) == ANET_ERR)
         return ANET_ERR;
     return s;
@@ -570,7 +626,7 @@ int anetUnixServer(char *err, char *path, mode_t perm)
 #endif
 }
 
-#ifdef _WIN32
+#ifdef WIN32_IOCP
 static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *len) {
     SOCKET fd;
     while(1) {
@@ -588,7 +644,7 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
     return (int)fd;
 }
 #else
-static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *len) {
+int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *len) {
     int fd;
     while(1) {
         fd = accept(s,sa,len);
@@ -615,6 +671,11 @@ int anetTcpAccept(char *err, int s, char *ip, int *port) {
 
     if (ip) strcpy(ip,inet_ntoa(sa.sin_addr));
     if (port) *port = ntohs(sa.sin_port);
+
+#ifdef _WIN32
+    smAddSocket(fd);
+#endif
+
     return fd;
 }
 

@@ -237,12 +237,12 @@ static void redisAeReadEvent(aeEventLoop *el, int fd, void *privdata, int mask) 
     ((void)el); ((void)fd); ((void)mask);
 
     redisAsyncHandleRead(e->context);
-#ifdef _WIN32
+#ifdef WIN32_IOCP
     aeWinReceiveDone(fd);
 #endif
 }
 
-#ifdef _WIN32
+#ifdef WIN32_IOCP
 static void writeHandlerDone(aeEventLoop *el, int fd, void *privdata, int nwritten) {
     aeWinSendReq *req = (aeWinSendReq *)privdata;
     redisAeEvents *e = (redisAeEvents *)req->client;
@@ -315,7 +315,7 @@ static void redisAeCleanup(void *privdata) {
     redisAeEvents *e = (redisAeEvents*)privdata;
     redisAeDelRead(privdata);
     redisAeDelWrite(privdata);
-#ifdef _WIN32
+#ifdef WIN32_IOCP
     aeWinCloseSocket((int)e->fd);
     e->fd = 0;
 #endif

@@ -151,7 +151,7 @@ static void __redisAsyncCopyError(redisAsyncContext *ac) {
     ac->errstr = c->errstr;
 }
 
-#ifdef _WIN32
+#ifdef WIN32_IOCP
 redisAsyncContext *redisAsyncConnect(const char *ip, int port) {
     struct sockaddr_in sa;
     redisContext *c = redisPreConnectNonBlock(ip, port, &sa);

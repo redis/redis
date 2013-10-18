@@ -857,7 +857,7 @@ unsigned long getClientOutputBufferMemoryUsage(redisClient *c);
 void freeClientsInAsyncFreeQueue(void);
 void asyncCloseClientOnOutputBufferLimitReached(redisClient *c);
 int getClientLimitClassByName(char *name);
-char *getClientLimitClassName(int class);
+char *getClientLimitClassName(int cl);
 void flushSlavesOutputBuffers(void);
 void disconnectSlaves(void);
 

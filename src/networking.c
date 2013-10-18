@@ -66,10 +66,14 @@ redisClient *createClient(int fd) {
         if (aeCreateFileEvent(server.el,fd,AE_READABLE,
             readQueryFromClient, c) == AE_ERR)
         {
-#ifdef _WIN32
+#ifdef WIN32_IOCP
             aeWinCloseSocket(fd);
 #else
-            close(fd);
+#ifdef _WIN32
+        closesocket(fd);
+#else
+        close(fd);
+#endif
 #endif
             zfree(c);
             return NULL;
@@ -544,10 +548,14 @@ static void acceptCommonHandler(int fd, int flags) {
         redisLog(REDIS_WARNING,
             "Error registering fd event for the new client: %s (fd=%d)",
             strerror(errno),fd);
-#ifdef _WIN32
+#ifdef WIN32_IOCP
         aeWinCloseSocket(fd); /* May be already closed, just ingore errors */
 #else
-        close(fd); /* May be already closed, just ignore errors */
+#ifdef _WIN32
+        closesocket(fd);
+#else
+        close(fd);  /* May be already closed, just ignore errors */
+#endif
 #endif
         return;
     }
@@ -654,10 +662,14 @@ void freeClient(redisClient *c) {
     aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
     listRelease(c->reply);
     freeClientArgv(c);
-#ifdef _WIN32
+#ifdef WIN32_IOCP
     aeWinCloseSocket(c->fd);
 #else
+#ifdef _WIN32
+    closesocket(c->fd);
+#else
     close(c->fd);
+#endif
 #endif
     /* Remove from the list of clients */
     ln = listSearchKey(server.clients,c);
@@ -733,7 +745,7 @@ void freeClientsInAsyncFreeQueue(void) {
 }
 
 
-#ifdef _WIN32
+#ifdef WIN32_IOCP
 void sendReplyBufferDone(aeEventLoop *el, int fd, void *privdata, int written) {
     aeWinSendReq *req = (aeWinSendReq *)privdata;
     redisClient *c = (redisClient *)req->client;
@@ -873,7 +885,11 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
                 /* Don't reply to a master */
                 nwritten = c->bufpos - c->sentlen;
             } else {
+#ifdef _WIN32
+                nwritten = send(fd,c->buf+c->sentlen,c->bufpos-c->sentlen,0);
+#else
                 nwritten = write(fd,c->buf+c->sentlen,c->bufpos-c->sentlen);
+#endif
                 if (nwritten <= 0) break;
             }
             c->sentlen += nwritten;
@@ -899,7 +915,11 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
                 /* Don't reply to a master */
                 nwritten = objlen - c->sentlen;
             } else {
+#ifdef _WIN32
+                nwritten = send(fd, ((char*)o->ptr)+c->sentlen,objlen-c->sentlen,0);
+#else
                 nwritten = write(fd, ((char*)o->ptr)+c->sentlen,objlen-c->sentlen);
+#endif
                 if (nwritten <= 0) break;
             }
             c->sentlen += nwritten;
@@ -1171,6 +1191,8 @@ void processInputBuffer(redisClient *c) {
         if (c->argc == 0) {
             resetClient(c);
         } else {
+            errno = 0;  // JEP
+
             /* Only reset the client when the command was executed. */
             if (processCommand(c) == REDIS_OK)
                 resetClient(c);
@@ -1239,7 +1261,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         freeClient(c);
         return;
     }
-#ifdef _WIN32
+#ifdef WIN32_IOCP
     aeWinReceiveDone(fd);
 #endif
     if (nread) {

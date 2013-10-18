@@ -54,7 +54,7 @@ public:
         return instance;
     }
 private:
-    SocketMap() {};                   
+    SocketMap() { maxFD = minFD; };                   
     SocketMap(SocketMap const&);	  // Don't implement to guarantee singleton semantics
     void operator=(SocketMap const&); // Don't implement to guarantee singleton semantics
 
@@ -65,6 +65,7 @@ private:
 
 public:
 	const static int minFD = 3;
+    int maxFD;
 	const static int invalidFD = -1;
 
 private:
@@ -77,7 +78,8 @@ private:
 			FDRecyclePool.pop();
 			return FD;
 		} else {
-			return (int)(minFD + SocketToFDMap.size());
+            maxFD = minFD + SocketToFDMap.size();
+			return maxFD;
 		}
 	}
 
@@ -129,9 +131,14 @@ public:
 		}
 	}
 
-	/* Returns the number of socket->FD mappings allocated. */
-	int getCount() {
-		return (int)(SocketToFDMap.size());
+	/* Returns the smallest FD available */
+	int getMinFD() {
+		return minFD;
+	}
+
+    /* Returns the largest FD allocated so far */
+    int getMaxFD() {
+        return maxFD;
 	}
 };
 
@@ -152,7 +159,11 @@ extern "C" {
 		return SocketMap::getInstance().lookupFD(s);
 	}
 
-	int smGetSocketCount() {
-		return SocketMap::getInstance().getCount();
+	int smGetMinFD() {
+		return SocketMap::getInstance().getMinFD();
+    }
+
+	int smGetMaxFD() {
+		return SocketMap::getInstance().getMaxFD();
 	}
 }

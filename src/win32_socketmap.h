@@ -32,7 +32,8 @@ int smAddSocket( SOCKET s );
 void smRemoveSocket( SOCKET s );
 SOCKET smLookupSocket( int FD );
 int smLookupFD( SOCKET s );
-int smGetSocketCount();
+int smGetMinFD();
+int smGetMaxFD();
 
 #ifdef __cplusplus
 }
