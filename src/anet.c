@@ -59,6 +59,9 @@ static void anetSetError(char *err, const char *fmt, ...)
 
 int anetNonBlock(char *err, int fd)
 {
+#ifdef HAVE_ACCEPT4
+    return ANET_OK;
+#else
     int flags;
 
     /* Set the socket non-blocking.
@@ -73,6 +76,7 @@ int anetNonBlock(char *err, int fd)
         return ANET_ERR;
     }
     return ANET_OK;
+#endif
 }
 
 /* Set TCP keep alive option to detect dead peers. The interval option
