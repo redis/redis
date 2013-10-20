@@ -65,7 +65,7 @@
 #define HAVE_EPOLL 1
 #endif
 
-/* Test for accept4 */
+/* Test for accept4() */
 #ifdef __linux__
 #define HAVE_ACCEPT4 1
 #endif
