@@ -433,7 +433,11 @@ int anetUnixServer(char *err, char *path, mode_t perm)
 static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *len) {
     int fd;
     while(1) {
+#ifdef HAVE_ACCEPT4
+        fd = accept4(s, sa, len,  SOCK_NONBLOCK);
+#else
         fd = accept(s,sa,len);
+#endif
         if (fd == -1) {
             if (errno == EINTR)
                 continue;
