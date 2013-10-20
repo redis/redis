@@ -59,7 +59,7 @@ static void anetSetError(char *err, const char *fmt, ...)
 
 int anetNonBlock(char *err, int fd)
 {
-    /* Depend on accept4() to  set the socket as non blocking. */
+    /* Depend on accept4() to  set the socket as non-blocking. */
 #ifndef HAVE_ACCEPT4
     int flags;
 
@@ -437,7 +437,7 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
     int fd;
     while(1) {
         /* Use the accept4() call on linux to simultaneously accept and
-         * set a socket as non blocking. */
+         * set a socket as non-blocking. */
 #ifdef HAVE_ACCEPT4
         fd = accept4(s, sa, len,  SOCK_NONBLOCK);
 #else
