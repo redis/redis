@@ -347,7 +347,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         redisLog(REDIS_VERBOSE,"Accepting cluster node: %s", server.neterr);
         return;
     }
-    anetNonBlock(NULL,fd);
+    anetNonBlock(NULL,cfd);
     anetEnableTcpNoDelay(NULL,cfd);
 
     /* Use non-blocking I/O for cluster messages. */
