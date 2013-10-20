@@ -59,7 +59,7 @@ static void anetSetError(char *err, const char *fmt, ...)
 
 int anetNonBlock(char *err, int fd)
 {
-    /* Depend on accept4() to  set the socket as  non blocking. */
+    /* Depend on accept4() to  set the socket as non blocking. */
 #ifndef HAVE_ACCEPT4
     int flags;
 
