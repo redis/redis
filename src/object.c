@@ -589,12 +589,13 @@ int getLongLongFromObject(robj *o, long long *target) {
     } else {
         redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
         if (sdsEncodedObject(o)) {
+            if(sdslen(o->ptr) == 0)
+                return REDIS_ERR;
             errno = 0;
             value = strtoll(o->ptr, &eptr, 10);
             if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
                 errno == ERANGE)
                 return REDIS_ERR;
-
             if(eptr != o->ptr + sdslen(o->ptr))
                 return REDIS_ERR;
         } else if (o->encoding == REDIS_ENCODING_INT) {
