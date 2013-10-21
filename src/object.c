@@ -594,6 +594,9 @@ int getLongLongFromObject(robj *o, long long *target) {
             if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
                 errno == ERANGE)
                 return REDIS_ERR;
+
+            if(eptr != o->ptr + sdslen(o->ptr))
+                return REDIS_ERR;
         } else if (o->encoding == REDIS_ENCODING_INT) {
             value = (long)o->ptr;
         } else {
