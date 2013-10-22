@@ -440,7 +440,7 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
         /* Use the accept4() call on linux to simultaneously accept and
          * set a socket as non-blocking. */
 #ifdef HAVE_ACCEPT4
-        fd = accept4(s, sa, len,  SOCK_NONBLOCK);
+        fd = accept4(s, sa, len,  SOCK_NONBLOCK | SOCK_CLOEXEC);
 #else
         fd = accept(s,sa,len);
 #endif
