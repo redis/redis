@@ -2872,6 +2872,7 @@ void daemonize(void) {
     if (fork() != 0) exit(0); /* parent exits */
     setsid(); /* create a new session */
 
+    /* Close all File Descriptors inherited from the parent process. */
     for (i = 3; i < sysconf(_SC_OPEN_MAX); i++)
        	close(i);
 
