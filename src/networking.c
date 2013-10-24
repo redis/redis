@@ -887,6 +887,30 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
             } else {
 #ifdef _WIN32
                 nwritten = send(fd,c->buf+c->sentlen,c->bufpos-c->sentlen,0);
+                if(nwritten == SOCKET_ERROR )
+                {
+                    /* Test for client closure with select before terminating the socket connection server side. */
+                    DWORD writeError = WSAGetLastError();
+                    if( writeError == WSAEWOULDBLOCK )
+                    {
+                        errno = EAGAIN;
+                    }
+                    else
+                    {
+                    fd_set readfds;
+                    char *errMsg = NULL;
+                        FormatMessageA(
+                            FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, 
+                            NULL, writeError, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&errMsg, 0, NULL);
+                        FD_ZERO(&readfds);
+                        FD_SET(fd,&readfds);
+                        if (select(0, &readfds, NULL, NULL, NULL) == SOCKET_ERROR) {
+                            redisLog(REDIS_VERBOSE, "Error writing reply to client. Client disconnect? err=%s", errMsg);
+                        } else {
+                            redisLog(REDIS_VERBOSE, "Error writing reply to client. Client still connected! err=%s", errMsg);
+                        }
+                    }
+                }
 #else
                 nwritten = write(fd,c->buf+c->sentlen,c->bufpos-c->sentlen);
 #endif
@@ -917,6 +941,30 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
             } else {
 #ifdef _WIN32
                 nwritten = send(fd, ((char*)o->ptr)+c->sentlen,objlen-c->sentlen,0);
+                if(nwritten == SOCKET_ERROR )
+                {
+                    /* Test for client closure with select before terminating the socket connection server side. */
+                    DWORD writeError = WSAGetLastError();
+                    if( writeError == WSAEWOULDBLOCK )
+                    {
+                        errno = EAGAIN;
+                    }
+                    else
+                    {
+                        fd_set readfds;
+                        char *errMsg = NULL;
+                        FormatMessageA(
+                            FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, 
+                            NULL, writeError, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&errMsg, 0, NULL);
+                        FD_ZERO(&readfds);
+                        FD_SET(fd,&readfds);
+                        if (select(0, &readfds, NULL, NULL, NULL ) == SOCKET_ERROR) {
+                            redisLog(REDIS_VERBOSE, "Error writing reply to client. Client disconnect? err=%s", errMsg);
+                        } else {
+                            redisLog(REDIS_VERBOSE, "Error writing reply to client. Client still connected! err=%s", errMsg);
+                        }
+                    }
+                }
 #else
                 nwritten = write(fd, ((char*)o->ptr)+c->sentlen,objlen-c->sentlen);
 #endif
@@ -1239,6 +1287,22 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
             /* Windows fix: Intercept winsock slang for EAGAIN */
             errno = EAGAIN;
             nread = -1; /* Winsock can send ENOENT instead EAGAIN */
+        }
+    }
+    else if (nread == 0) {
+        /* Non-blocking sockets can return 0 without the client having been gracefully closed. This might be a bug in recv().
+           Test for client closure with select before terminating the socket connection server side. */
+        int ret;
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(fd,&readfds);
+        if ((ret = select(0, &readfds, NULL, NULL, NULL )) == SOCKET_ERROR) {
+            redisLog(REDIS_VERBOSE, "Client closed connection");
+            freeClient(c);
+            return;
+        } else {
+            errno = EAGAIN;
+            nread = -1; 
         }
     }
 #else
