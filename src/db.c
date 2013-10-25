@@ -354,7 +354,7 @@ void scanCommand(redisClient *c) {
             pat = c->argv[i+1]->ptr;
             patlen = sdslen(pat);
 
-            /* The pattern is a no-op iff == "*" */
+            /* The pattern is a no-op if == "*" */
             patnoop = (pat[0] == '*' && patlen == 1);
 
             i += 2;
