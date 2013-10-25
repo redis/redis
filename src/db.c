@@ -338,7 +338,9 @@ void scanCommand(redisClient *c) {
     while (i < c->argc) {
         j = c->argc - i;
         if (!strcasecmp(c->argv[i]->ptr, "count") && j >= 2) {
-            if (getLongFromObjectOrReply(c, c->argv[i+1], &count, NULL) != REDIS_OK) {
+            if (getLongFromObjectOrReply(c, c->argv[i+1], &count, NULL)
+                != REDIS_OK)
+            {
                 goto cleanup;
             }
 
@@ -373,7 +375,8 @@ void scanCommand(redisClient *c) {
         nextnode = listNextNode(node);
 
         /* Keep key iff pattern matches and it hasn't expired */
-        if ((patnoop || stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0)) &&
+        if ((patnoop ||
+             stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0)) &&
             (expireIfNeeded(c->db, kobj) == 0))
         {
             /* Keep */
