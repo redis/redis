@@ -445,7 +445,7 @@ typedef struct readyList {
 } readyList;
 
 /* With multiplexing we need to take per-client state.
- * Clients are taken in a liked list. */
+ * Clients are taken in a linked list. */
 typedef struct redisClient {
     int fd;
     redisDb *db;
