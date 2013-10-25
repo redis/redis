@@ -698,7 +698,7 @@ static unsigned long rev(unsigned long v) {
  * (in binary) 1111. The position of a key in the hash table will be always
  * the last four bits of the hash output, and so forth.
  *
- * WHAT HAPPENS DURING REHASHING, WHEN YOU HAVE TWO TABLES?
+ * WHAT HAPPENS IF THE TABLE CHANGES IN SIZE?
  *
  * If the hash table grows, elements can go anyway in one multiple of
  * the old bucket: for example let's say that we already iterated with
@@ -720,7 +720,7 @@ static unsigned long rev(unsigned long v) {
  * as we are sure that, we tried for example, both 0111 and 1111 (all the
  * variations of the higher bit) so we don't need to test it again.
  *
- * But wait... You have *two* tables in a given moment during rehashing!
+ * WAIT... YOU HAVE *TWO* TABLES DURING REHASHING!
  *
  * Yes, this is true, but we always iterate the smaller one of the tables,
  * testing also all the expansions of the current cursor into the larger
