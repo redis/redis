@@ -319,7 +319,7 @@ void scanCallback(void *privdata, const dictEntry *de) {
 void scanCommand(redisClient *c) {
     int rv;
     int i, j;
-    char buf[32];
+    char buf[REDIS_LONGSTR_SIZE];
     list *keys = listCreate();
     listNode *ln, *ln_;
     unsigned long cursor = 0;
