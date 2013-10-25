@@ -360,7 +360,7 @@ void scanCommand(redisClient *c) {
             }
 
             i += 2;
-        } else if (!strcasecmp(c->argv[i]->ptr, "pattern") && j >= 2) {
+        } else if (!strcasecmp(c->argv[i]->ptr, "match") && j >= 2) {
             pat = c->argv[i+1]->ptr;
             patlen = sdslen(pat);
 
