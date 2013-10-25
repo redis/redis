@@ -398,11 +398,7 @@ void scanCommand(redisClient *c) {
     }
 
 cleanup:
-    while ((node = listFirst(keys)) != NULL) {
-        robj *kobj = listNodeValue(node);
-        decrRefCount(kobj);
-        listDelNode(keys, node);
-    }
+    listSetFreeMethod(keys,decrRefCountVoid);
     listRelease(keys);
 }
 
