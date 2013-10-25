@@ -321,7 +321,7 @@ void scanCommand(redisClient *c) {
     int i, j;
     char buf[REDIS_LONGSTR_SIZE];
     list *keys = listCreate();
-    listNode *ln, *ln_;
+    listNode *node, *nextnode;
     unsigned long cursor = 0;
     long count = 1;
     sds pat;
@@ -367,10 +367,10 @@ void scanCommand(redisClient *c) {
     } while (cursor && listLength(keys) < count);
 
     /* Filter keys */
-    ln = listFirst(keys);
-    while (ln) {
-        robj *kobj = listNodeValue(ln);
-        ln_ = listNextNode(ln);
+    node = listFirst(keys);
+    while (node) {
+        robj *kobj = listNodeValue(node);
+        nextnode = listNextNode(node);
 
         /* Keep key iff pattern matches and it hasn't expired */
         if ((patnoop || stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0)) &&
@@ -379,9 +379,9 @@ void scanCommand(redisClient *c) {
             /* Keep */
         } else {
             decrRefCount(kobj);
-            listDelNode(keys, ln);
+            listDelNode(keys, node);
         }
-        ln = ln_;
+        node = nextnode;
     }
 
     addReplyMultiBulkLen(c, 2);
@@ -390,18 +390,18 @@ void scanCommand(redisClient *c) {
     addReplyBulkCBuffer(c, buf, rv);
 
     addReplyMultiBulkLen(c, listLength(keys));
-    while ((ln = listFirst(keys)) != NULL) {
-        robj *kobj = listNodeValue(ln);
+    while ((node = listFirst(keys)) != NULL) {
+        robj *kobj = listNodeValue(node);
         addReplyBulk(c, kobj);
         decrRefCount(kobj);
-        listDelNode(keys, ln);
+        listDelNode(keys, node);
     }
 
 cleanup:
-    while ((ln = listFirst(keys)) != NULL) {
-        robj *kobj = listNodeValue(ln);
+    while ((node = listFirst(keys)) != NULL) {
+        robj *kobj = listNodeValue(node);
         decrRefCount(kobj);
-        listDelNode(keys, ln);
+        listDelNode(keys, node);
     }
     listRelease(keys);
 }
