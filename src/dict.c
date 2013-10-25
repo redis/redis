@@ -660,6 +660,90 @@ static unsigned long rev(unsigned long v) {
     return v;
 }
 
+/* dictScan() is used to iterate over the elements of a dictionary.
+ *
+ * Iterating works in the following way:
+ *
+ * 1) Initially you call the function using a cursor (v) value of 0.
+ * 2) The function performs one step of the iteration, and returns the
+ *    new cursor value that you must use in the next call.
+ * 3) When the returned cursor is 0, the iteration is complete.
+ *
+ * The function guarantees that all the elements that are present in the
+ * dictionary from the start to the end of the iteration are returned.
+ * However it is possible that some element is returned multiple time.
+ *
+ * For every element returned, the callback 'fn' passed as argument is
+ * called, with 'privdata' as first argument and the dictionar entry
+ * 'de' as second argument.
+ *
+ * HOW IT WORKS.
+ *
+ * The algorithm used in the iteration was designed by Pieter Noordhuis.
+ * The main idea is to increment a cursor starting from the higher order
+ * bits, that is, instead of incrementing the cursor normally, the bits
+ * of the cursor are reversed, then the cursor is incremented, and finally
+ * the bits are reversed again.
+ *
+ * This strategy is needed because the hash table may be resized from one
+ * call to the other call of the same iteration.
+ *
+ * dict.c hash tables are always power of two in size, and they
+ * use chaining, so the position of an element in a given table is given
+ * always by computing the bitwise AND between Hash(key) and SIZE-1
+ * (where SIZE-1 is always the mask that is equivalent to taking the rest
+ *  of the division between the Hash of the key and SIZE).
+ *
+ * For example if the current hash table size is 64, the mask is
+ * (in binary) 1111. The position of a key in the hash table will be always
+ * the last four bits of the hash output, and so forth.
+ *
+ * WHAT HAPPENS DURING REHASHING, WHEN YOU HAVE TWO TABLES?
+ *
+ * If the hash table grows, elements can go anyway in one multiple of
+ * the old bucket: for example let's say that we already iterated with
+ * a 4 bit cursor 1100, since the mask is 1111 (hash table size = 16).
+ *
+ * If the hash table will be resized to 64 elements, and the new mask will
+ * be 111111, the new buckets that you obtain substituting in ??1100
+ * either 0 or 1, can be targeted only by keys that we already visited
+ * when scanning the bucket 1100 in the smaller hash table.
+ *
+ * By iterating the higher bits first, because of the inverted counter, the
+ * cursor does not need to restart if the table size gets bigger, and will
+ * just continue iterating with cursors that don't have '1100' at the end,
+ * nor any other combination of final 4 bits already explored.
+ *
+ * Similarly when the table size shrinks over time, for example going from
+ * 16 to 8, If a combination of the lower three bits (the mask for size 8
+ * is 111) was already completely explored, it will not be visited again
+ * as we are sure that, we tried for example, both 0111 and 1111 (all the
+ * variations of the higher bit) so we don't need to test it again.
+ *
+ * But wait... You have *two* tables in a given moment during rehashing!
+ *
+ * Yes, this is true, but we always iterate the smaller one of the tables,
+ * testing also all the expansions of the current cursor into the larger
+ * table. So for example if the current cursor is 101 and we also have a
+ * larger table of size 16, we also test (0)101 and (1)101 inside the larger
+ * table. This reduces the problem back to having only one table, where
+ * the larger one, if exists, is just an expansion of the smaller one.
+ *
+ * LIMITATIONS
+ *
+ * This iterator is completely stateless, and this is a huge advantage,
+ * including no additional memory used.
+ *
+ * The disadvantages resulting from this design are:
+ *
+ * 1) It is possible that we return duplicated elements. However this is usually
+ *    easy to deal with in the application level.
+ * 2) The iterator must return multiple elements per call, as it needs to always
+ *    return all the keys chained in a given bucket, and all the expansions, so
+ *    we are sure we don't miss keys moving.
+ * 3) The reverse cursor is somewhat hard to understand at first, but this
+ *    comment is supposed to help.
+ */
 unsigned long dictScan(dict *d,
                        unsigned long v,
                        dictScanFunction *fn,
