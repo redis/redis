@@ -345,6 +345,10 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, int flags)
         }
         memcpy(&sa.sin_addr, he->h_addr, sizeof(struct in_addr));
     }
+    else {
+      sa.sin_addr.s_addr = inAddress;
+    }
+
     if (flags & ANET_CONNECT_NONBLOCK) {
         if (anetNonBlock(err,s) != ANET_OK)
             return ANET_ERR;

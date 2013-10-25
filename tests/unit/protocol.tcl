@@ -78,7 +78,7 @@ start_server {tags {"protocol"}} {
                     incr payload_size [string length $payload]
                 }]} {
                     #windows - don't read after reset
-                    #set retval [gets $s]
+                    set retval [gets $s]
                     close $s
                     break
                 } else {
