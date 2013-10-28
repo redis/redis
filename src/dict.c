@@ -754,6 +754,8 @@ unsigned long dictScan(dict *d,
     unsigned long s0, s1;
     unsigned long m0, m1;
 
+    if (dictSize(d) == 0) return 0;
+
     if (!dictIsRehashing(d)) {
         t0 = &(d->ht[0]);
         m0 = t0->sizemask;
