@@ -469,7 +469,7 @@ void scanGenericCommand(redisClient *c, robj *o) {
             listAddNodeTail(keys,
                 (vstr != NULL) ? createStringObject((char*)vstr,vlen) :
                                  createStringObjectFromLongLong(vll));
-            ziplistNext(o->ptr,p);
+            p = ziplistNext(o->ptr,p);
         }
     } else {
         redisPanic("Not handled encoding in SCAN.");
