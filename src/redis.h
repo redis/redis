@@ -499,7 +499,7 @@ struct sharedObjectsStruct {
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
     *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop,
-    *lpush,
+    *lpush, *emptyscan,
     *select[REDIS_SHARED_SELECT_CMDS],
     *integers[REDIS_SHARED_INTEGERS],
     *mbulkhdr[REDIS_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -1167,6 +1167,7 @@ int selectDb(redisClient *c, int id);
 void signalModifiedKey(redisDb *db, robj *key);
 void signalFlushedDb(int dbid);
 unsigned int GetKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count);
+void scanGenericCommand(redisClient *c, robj *o);
 
 /* API to get key arguments from commands */
 #define REDIS_GETKEYS_ALL 0
@@ -1250,6 +1251,7 @@ void sunionCommand(redisClient *c);
 void sunionstoreCommand(redisClient *c);
 void sdiffCommand(redisClient *c);
 void sdiffstoreCommand(redisClient *c);
+void sscanCommand(redisClient *c);
 void syncCommand(redisClient *c);
 void flushdbCommand(redisClient *c);
 void flushallCommand(redisClient *c);

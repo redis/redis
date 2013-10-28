@@ -911,3 +911,11 @@ void sdiffCommand(redisClient *c) {
 void sdiffstoreCommand(redisClient *c) {
     sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],REDIS_OP_DIFF);
 }
+
+void sscanCommand(redisClient *c) {
+    robj *set;
+
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
+        checkType(c,set,REDIS_SET)) return;
+    scanGenericCommand(c,set);
+}
