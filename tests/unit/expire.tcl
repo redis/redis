@@ -121,6 +121,36 @@ start_server {tags {"expire"}} {
         list $a $b
     } {somevalue {}}
 
+    test {EXPIRENX wont set expire if expire already set} {
+        r del x y z
+        r setex x 10 somevalue
+        r set z 10
+        list [r expirenx x 10] [r expirenx y 10] [r expirenx z 10]
+    } {0 0 1}
+
+    test {PEXPIRENX wont set expire if expire already set} {
+        r del x y z
+        r setex x 10 somevalue
+        r set z 10
+        list [r pexpirenx x 10] [r pexpirenx y 10] [r pexpirenx z 10]
+    } {0 0 1}
+
+    test {EXPIREATNX wont set expire if expire already set} {
+        r del x y z
+        r setex x 10 somevalue
+        r set z 10
+        set j [expr [clock seconds]+15]
+        list [r expireatnx x $j] [r expireatnx y $j] [r expireatnx z $j]
+    } {0 0 1}
+
+    test {PEXPIREATNX wont set expire if expire already set} {
+        r del x y z
+        r setex x 10 somevalue
+        r set z 10
+        set j [expr ([clock seconds]*1000)+100]
+        list [r pexpireatnx x $j] [r pexpireatnx y $j] [r pexpireatnx z $j]
+    } {0 0 1}
+
     test {TTL returns tiem to live in seconds} {
         r del x
         r setex x 10 somevalue
