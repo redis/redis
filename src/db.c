@@ -170,7 +170,7 @@ int dbDelete(redisDb *db, robj *key) {
     }
 }
 
-long long emptyDb() {
+long long emptyDb(void) {
     int j;
     long long removed = 0;
 
