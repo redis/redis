@@ -2208,7 +2208,7 @@ void zrevrankCommand(redisClient *c) {
 void zscanCommand(redisClient *c) {
     robj *o;
 
-    if ((o= lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
         checkType(c,o,REDIS_ZSET)) return;
     scanGenericCommand(c,o);
 }

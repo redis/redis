@@ -766,7 +766,7 @@ void hexistsCommand(redisClient *c) {
 void hscanCommand(redisClient *c) {
     robj *o;
 
-    if ((o= lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
         checkType(c,o,REDIS_HASH)) return;
     scanGenericCommand(c,o);
 }
