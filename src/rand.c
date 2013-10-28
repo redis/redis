@@ -43,6 +43,8 @@
 
 #include <stdint.h>
 
+#include "rand.h"
+
 #define N	16
 #define MASK	((1 << (N - 1)) + (1 << (N - 1)) - 1)
 #define LOW(x)	((unsigned)(x) & MASK)
