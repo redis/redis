@@ -68,7 +68,7 @@ void clusterDoBeforeSleep(int flags);
  * (which is not saved on permanent storage) to the greatest configEpoch found
  * in the loaded nodes (configEpoch is stored on permanent storage as soon as
  * it changes for some node). */
-void clusterSetStartupEpoch() {
+static void clusterSetStartupEpoch(void) {
     dictIterator *di;
     dictEntry *de;
 
