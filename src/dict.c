@@ -751,7 +751,6 @@ unsigned long dictScan(dict *d,
 {
     dictht *t0, *t1;
     const dictEntry *de;
-    unsigned long s0, s1;
     unsigned long m0, m1;
 
     if (!dictIsRehashing(d)) {
@@ -775,8 +774,6 @@ unsigned long dictScan(dict *d,
             t1 = &d->ht[0];
         }
 
-        s0 = t0->size;
-        s1 = t1->size;
         m0 = t0->sizemask;
         m1 = t1->sizemask;
 
