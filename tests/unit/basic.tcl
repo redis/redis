@@ -261,6 +261,21 @@ start_server {tags {"basic"}} {
         assert_equal 20 [r get x]
     }
 
+    test "SETNXEX target key missing" {
+	r del novar
+	assert_equal 1 [r setnxex novar 100 foobared]
+	assert_equal "foobared" [r get novar]
+	assert {[r ttl novar] > 95 && [r ttl novar] <= 100}
+    }
+
+    test "SETNXEX target key exists" {
+	r del novar
+	r setnxex novar 20 foobared
+	after 10000
+	assert_equal 0 [r setnxex novar 100 foobared]
+	assert {[r ttl novar] > 0 && [r ttl novar] <= 11}
+    }
+
     test {EXISTS} {
         set res {}
         r set newkey test
@@ -292,7 +307,7 @@ start_server {tags {"basic"}} {
         catch {r foobaredcommand} err
         string match ERR* $err
     } {1}
-    
+
     test {RENAME basic usage} {
         r set mykey hello
         r rename mykey mykey1
