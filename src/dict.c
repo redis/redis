@@ -666,7 +666,7 @@ static unsigned long rev(unsigned long v) {
  *
  * The function guarantees that all the elements that are present in the
  * dictionary from the start to the end of the iteration are returned.
- * However it is possible that some element is returned multiple time.
+ * However it is possible that some element is returned multiple times.
  *
  * For every element returned, the callback 'fn' passed as argument is
  * called, with 'privdata' as first argument and the dictionar entry
