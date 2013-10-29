@@ -288,7 +288,8 @@ start_server {tags {"scripting"}} {
         r eval {redis.call("set","foo","100")} 0
         r eval {redis.call("incr","foo")} 0
         r eval {redis.call("incr","foo")} 0
-        wait_for_condition 50 100 {
+# windows build needs a bit longer than the "50 100" specified
+        wait_for_condition 100 1000 {
             [s aof_rewrite_in_progress] == 0
         } else {
             fail "AOF rewrite can't complete after CONFIG SET appendonly yes."
