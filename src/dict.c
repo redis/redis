@@ -671,7 +671,7 @@ static unsigned long rev(unsigned long v) {
  *
  * The function guarantees that all the elements that are present in the
  * dictionary from the start to the end of the iteration are returned.
- * However it is possible that some element is returned multiple time.
+ * However it is possible that some element is returned multiple times.
  *
  * For every element returned, the callback 'fn' passed as argument is
  * called, with 'privdata' as first argument and the dictionar entry
@@ -694,7 +694,7 @@ static unsigned long rev(unsigned long v) {
  * (where SIZE-1 is always the mask that is equivalent to taking the rest
  *  of the division between the Hash of the key and SIZE).
  *
- * For example if the current hash table size is 64, the mask is
+ * For example if the current hash table size is 16, the mask is
  * (in binary) 1111. The position of a key in the hash table will be always
  * the last four bits of the hash output, and so forth.
  *
