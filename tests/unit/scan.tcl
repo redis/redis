@@ -9,11 +9,11 @@ start_server {tags {"scan"}} {
             set res [r scan $cur]
             set cur [lindex $res 0]
             set k [lindex $res 1]
-            lappend keys $k
+            lappend keys {*}$k
             if {$cur == 0} break
         }
 
-        set keys [lsort -unique [concat {*}$keys]]
+        set keys [lsort -unique $keys]
         assert_equal 1000 [llength $keys]
     }
 
@@ -27,11 +27,11 @@ start_server {tags {"scan"}} {
             set res [r scan $cur count 5]
             set cur [lindex $res 0]
             set k [lindex $res 1]
-            lappend keys $k
+            lappend keys {*}$k
             if {$cur == 0} break
         }
 
-        set keys [lsort -unique [concat {*}$keys]]
+        set keys [lsort -unique $keys]
         assert_equal 1000 [llength $keys]
     }
 
@@ -45,11 +45,11 @@ start_server {tags {"scan"}} {
             set res [r scan $cur match "key:1??"]
             set cur [lindex $res 0]
             set k [lindex $res 1]
-            lappend keys $k
+            lappend keys {*}$k
             if {$cur == 0} break
         }
 
-        set keys [lsort -unique [concat {*}$keys]]
+        set keys [lsort -unique $keys]
         assert_equal 100 [llength $keys]
     }
 }
