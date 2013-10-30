@@ -166,7 +166,7 @@ int readBytes(void *target, long num) {
     return 1;
 }
 
-int processHeader() {
+static int processHeader(void) {
     char buf[10] = "_________";
     int dump_version;
 
@@ -206,7 +206,7 @@ int loadType(entry *e) {
     return 0;
 }
 
-int peekType() {
+static int peekType(void) {
     unsigned char t;
     if (readBytes(&t, -1) && (checkType(t)))
         return t;
@@ -287,7 +287,7 @@ char *loadIntegerObject(int enctype) {
     return buf;
 }
 
-char* loadLzfStringObject() {
+static char* loadLzfStringObject(void) {
     unsigned int slen, clen;
     char *c, *s;
 
@@ -311,7 +311,7 @@ char* loadLzfStringObject() {
 }
 
 /* returns NULL when not processable, char* when valid */
-char* loadStringObject() {
+static char* loadStringObject(void) {
     uint32_t offset = CURR_OFFSET;
     int isencoded;
     uint32_t len;
@@ -360,7 +360,7 @@ int processStringObject(char** store) {
     return 1;
 }
 
-double* loadDoubleValue() {
+static double* loadDoubleValue(void) {
     char buf[256];
     unsigned char len;
     double* val;
@@ -483,7 +483,7 @@ int loadPair(entry *e) {
     return 1;
 }
 
-entry loadEntry() {
+static entry loadEntry(void) {
     entry e = { NULL, -1, 0 };
     uint32_t length, offset[4];
 
@@ -600,7 +600,7 @@ void printErrorStack(entry *e) {
     }
 }
 
-void process() {
+static void process(void) {
     uint64_t num_errors = 0, num_valid_ops = 0, num_valid_bytes = 0;
     entry entry;
     int dump_version = processHeader();

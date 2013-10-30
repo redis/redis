@@ -1297,7 +1297,7 @@ void createSharedObjects(void) {
     }
 }
 
-void initServerConfig() {
+static void initServerConfig(void) {
     int j;
 
     getRandomHexChars(server.runid,REDIS_RUN_ID_SIZE);
@@ -1540,7 +1540,7 @@ int listenToPort(int port, int *fds, int *count) {
     return REDIS_OK;
 }
 
-void initServer() {
+static void initServer(void) {
     int j;
 
     signal(SIGHUP, SIG_IGN);
@@ -2887,7 +2887,7 @@ void daemonize(void) {
     }
 }
 
-void version() {
+static void version(void) {
     printf("Redis server v=%s sha=%s:%d malloc=%s bits=%d build=%llx\n",
         REDIS_VERSION,
         redisGitSHA1(),
@@ -2898,7 +2898,7 @@ void version() {
     exit(0);
 }
 
-void usage() {
+void usage(void) {
     fprintf(stderr,"Usage: ./redis-server [/path/to/redis.conf] [options]\n");
     fprintf(stderr,"       ./redis-server - (read config from stdin)\n");
     fprintf(stderr,"       ./redis-server -v or --version\n");
