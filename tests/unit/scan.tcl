@@ -126,4 +126,44 @@ start_server {tags {"scan"}} {
             assert_equal $count [llength $keys2]
         }
     }
+
+    foreach enc {ziplist skiplist} {
+        test "ZSCAN with encoding $enc" {
+            # Create the Sorted Set
+            r del zset
+            if {$enc eq {ziplist}} {
+                set count 30
+            } else {
+                set count 1000
+            }
+            set elements {}
+            for {set j 0} {$j < $count} {incr j} {
+                lappend elements $j key:$j
+            }
+            r zadd zset {*}$elements
+
+            # Verify that the encoding matches.
+            assert {[r object encoding zset] eq $enc}
+
+            # Test ZSCAN
+            set cur 0
+            set keys {}
+            while 1 {
+                set res [r zscan zset $cur]
+                set cur [lindex $res 0]
+                set k [lindex $res 1]
+                lappend keys {*}$k
+                if {$cur == 0} break
+            }
+
+            set keys2 {}
+            foreach {k v} $keys {
+                assert {$k eq "key:$v"}
+                lappend keys2 $k
+            }
+
+            set keys2 [lsort -unique $keys2]
+            assert_equal $count [llength $keys2]
+        }
+    }
 }
