@@ -159,6 +159,7 @@
 #define REDIS_CMD_STALE 1024                /* "t" flag */
 #define REDIS_CMD_SKIP_MONITOR 2048         /* "M" flag */
 #define REDIS_CMD_ASKING 4096               /* "k" flag */
+#define REDIS_CMD_EVAL 8192                 /* "e" flag */
 
 /* Object types */
 #define REDIS_STRING 0
@@ -709,6 +710,7 @@ struct redisServer {
     int repl_min_slaves_to_write;   /* Min number of slaves to write. */
     int repl_min_slaves_max_lag;    /* Max lag of <count> slaves to write. */
     int repl_good_slaves_count;     /* Number of slaves with lag <= max_lag. */
+    int repl_sync_eval_as_multi;    /* Instead of EVAL replicate MULTI/EXEC */
     /* Replication (slave) */
     char *masterauth;               /* AUTH with this password with master */
     char *masterhost;               /* Hostname of master */

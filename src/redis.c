@@ -257,8 +257,8 @@ struct redisCommand redisCommandTable[] = {
     {"dump",dumpCommand,2,"ar",0,NULL,1,1,1,0,0},
     {"object",objectCommand,-2,"r",0,NULL,2,2,2,0,0},
     {"client",clientCommand,-2,"ar",0,NULL,0,0,0,0,0},
-    {"eval",evalCommand,-3,"s",0,zunionInterGetKeys,0,0,0,0,0},
-    {"evalsha",evalShaCommand,-3,"s",0,zunionInterGetKeys,0,0,0,0,0},
+    {"eval",evalCommand,-3,"se",0,zunionInterGetKeys,0,0,0,0,0},
+    {"evalsha",evalShaCommand,-3,"se",0,zunionInterGetKeys,0,0,0,0,0},
     {"slowlog",slowlogCommand,-2,"r",0,NULL,0,0,0,0,0},
     {"script",scriptCommand,-2,"ras",0,NULL,0,0,0,0,0},
     {"time",timeCommand,1,"rR",0,NULL,0,0,0,0,0},
@@ -1395,6 +1395,7 @@ void initServerConfig() {
     server.repl_slave_ro = REDIS_DEFAULT_SLAVE_READ_ONLY;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
     server.repl_disable_tcp_nodelay = REDIS_DEFAULT_REPL_DISABLE_TCP_NODELAY;
+    server.repl_sync_eval_as_multi = 0;
     server.slave_priority = REDIS_DEFAULT_SLAVE_PRIORITY;
     server.master_repl_offset = 0;
 
@@ -1705,6 +1706,7 @@ void populateCommandTable(void) {
             case 't': c->flags |= REDIS_CMD_STALE; break;
             case 'M': c->flags |= REDIS_CMD_SKIP_MONITOR; break;
             case 'k': c->flags |= REDIS_CMD_ASKING; break;
+            case 'e': c->flags |= REDIS_CMD_EVAL; break;
             default: redisPanic("Unsupported command flag"); break;
             }
             f++;
@@ -1875,8 +1877,12 @@ void call(redisClient *c, int flags) {
         c->cmd->calls++;
     }
 
-    /* Propagate the command into the AOF and replication link */
-    if (flags & REDIS_CALL_PROPAGATE) {
+    /* Propagate the command into the AOF and replication link.
+     * When repl-sync-eval-as-multi is true "eval" and "evalsha" commands
+     * are not propagated because scripting.c will do all neccessary propagation */
+    if (flags & REDIS_CALL_PROPAGATE &&
+        (!(c->cmd->flags & REDIS_CMD_EVAL) || !server.repl_sync_eval_as_multi))
+    {
         int flags = REDIS_PROPAGATE_NONE;
 
         if (c->flags & REDIS_FORCE_REPL) flags |= REDIS_PROPAGATE_REPL;
