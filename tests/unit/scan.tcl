@@ -166,4 +166,33 @@ start_server {tags {"scan"}} {
             assert_equal $count [llength $keys2]
         }
     }
+
+    test "SCAN guarantees check under write load" {
+        r flushdb
+        r debug populate 100
+
+        # We start scanning here, so keys from 0 to 99 should all be
+        # reported at the end of the iteration.
+        set keys {}
+        while 1 {
+            set res [r scan $cur]
+            set cur [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys {*}$k
+            if {$cur == 0} break
+            # Write 10 random keys at every SCAN iteration.
+            for {set j 0} {$j < 10} {incr j} {
+                r set addedkey:[randomInt 1000] foo
+            }
+        }
+
+        set keys2 {}
+        foreach k $keys {
+            if {[string length $k] > 6} continue
+            lappend keys2 $k
+        }
+
+        set keys2 [lsort -unique $keys2]
+        assert_equal 100 [llength $keys2]
+    }
 }
