@@ -370,7 +370,7 @@ void scanGenericCommand(redisClient *c, robj *o) {
     unsigned long cursor = 0;
     long count = 10;
     sds pat;
-    int patlen, patnoop = 1;
+    int patlen, use_pattern = 0;
     dict *ht;
 
     /* Object must be NULL (to iterate keys names), or the type of the object
@@ -408,8 +408,9 @@ void scanGenericCommand(redisClient *c, robj *o) {
             pat = c->argv[i+1]->ptr;
             patlen = sdslen(pat);
 
-            /* The pattern is a no-op iff == "*" */
-            patnoop = (pat[0] == '*' && patlen == 1);
+            /* The pattern always matches if it is exactly "*", so it is
+             * equivalent to disabling it. */
+            use_pattern = !(pat[0] == '*' && patlen == 1);
 
             i += 2;
         } else {
@@ -483,7 +484,7 @@ void scanGenericCommand(redisClient *c, robj *o) {
         int filter = 0;
 
         /* Filter element if it does not match the pattern. */
-        if (!filter && !patnoop) {
+        if (!filter && use_pattern) {
             if (sdsEncodedObject(kobj)) {
                 if (!stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0))
                     filter = 1;
