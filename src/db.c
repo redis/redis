@@ -475,16 +475,16 @@ void scanGenericCommand(redisClient *c, robj *o) {
 
         /* Filter element if it does not match the pattern. */
         if (!filter && use_pattern) {
-            if (sdsEncodedObject(kobj)) {
-                if (!stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0))
-                    filter = 1;
-            } else {
+            if (kobj->encoding == REDIS_ENCODING_INT) {
                 char buf[REDIS_LONGSTR_SIZE];
                 int len;
 
                 redisAssert(kobj->encoding == REDIS_ENCODING_INT);
                 len = ll2string(buf,sizeof(buf),(long)kobj->ptr);
                 if (!stringmatchlen(pat, patlen, buf, len, 0)) filter = 1;
+            } else {
+                if (!stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0))
+                    filter = 1;
             }
         }
 
