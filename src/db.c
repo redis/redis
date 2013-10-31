@@ -470,15 +470,28 @@ void scanGenericCommand(redisClient *c, robj *o) {
     while (node) {
         robj *kobj = listNodeValue(node);
         nextnode = listNextNode(node);
+        int filter = 0;
 
-        /* Keep key iff pattern matches and, if we are iterating the key
-         * space, check that the key hasn't expired. */
-        if ((patnoop ||
-             stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0)) &&
-            (o != NULL || expireIfNeeded(c->db, kobj) == 0))
-        {
-            /* Keep */
-        } else {
+        /* Filter element if it does not match the pattern. */
+        if (!filter && !patnoop) {
+            if (sdsEncodedObject(kobj)) {
+                if (!stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0))
+                    filter = 1;
+            } else {
+                char buf[REDIS_LONGSTR_SIZE];
+                int len;
+
+                redisAssert(kobj->encoding == REDIS_ENCODING_INT);
+                len = ll2string(buf,sizeof(buf),(long)kobj->ptr);
+                if (!stringmatchlen(pat, patlen, buf, len, 0)) filter = 1;
+            }
+        }
+
+        /* Filter element if it is an expired key. */
+        if (!filter && o == NULL && expireIfNeeded(c->db, kobj)) filter = 1;
+
+        /* Remove the element and its associted value if needed. */
+        if (filter) {
             decrRefCount(kobj);
             listDelNode(keys, node);
             /* Also remove the value for hashes and sorted sets. */
