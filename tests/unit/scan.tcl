@@ -202,5 +202,7 @@ start_server {tags {"scan"}} {
         r sadd set {*}$objects
         set res [r sscan set 0 MATCH *a* COUNT 100]
         assert_equal [lsort -unique [lindex $res 1]] {a}
+        set res [r sscan set 0 MATCH *1* COUNT 100]
+        assert_equal [lsort -unique [lindex $res 1]] {1}
     }
 }
