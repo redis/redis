@@ -310,7 +310,10 @@ static void _dictRehashStep(dict *d) {
     if (d->iterators == 0) dictRehash(d,1);
 }
 
-/* Add an element to the target hash table */
+/* Add an element to the target hash table
+ * If the add operation was successful, return DICT_OK, otherwise
+ * return DICT_ERR.
+ */
 int dictAdd(dict *d, void *key, void *val)
 {
     dictEntry *entry = dictAddRaw(d,key);
@@ -477,6 +480,9 @@ void dictRelease(dict *d)
     zfree(d);
 }
 
+/* Finds an entry in the hash table with the given key.
+ * Returns NULL if the entry cannot be found.
+ */
 dictEntry *dictFind(dict *d, const void *key)
 {
     dictEntry *he;
@@ -498,6 +504,9 @@ dictEntry *dictFind(dict *d, const void *key)
     return NULL;
 }
 
+/* Fetches the value associated with a key in the hash table.
+ * If the key cannot be found, NULL is returned.
+ */
 void *dictFetchValue(dict *d, const void *key) {
     dictEntry *he;
 
@@ -543,6 +552,11 @@ long long dictFingerprint(dict *d) {
     return hash;
 }
 
+/*
+ * Returns an iterator for the given dictionary.
+ * The iterator returned will be non-safe.  That is, only
+ * dictNext() should be called while iterating.
+ */
 dictIterator *dictGetIterator(dict *d)
 {
     dictIterator *iter = zmalloc(sizeof(*iter));
@@ -556,6 +570,11 @@ dictIterator *dictGetIterator(dict *d)
     return iter;
 }
 
+/*
+ * Returns a safe iterator for the given dictionary.
+ * That is, functions like dictAdd() and dictFind()
+ * may safely be called while iterating.
+ */
 dictIterator *dictGetSafeIterator(dict *d) {
     dictIterator *i = dictGetIterator(d);
 
@@ -563,6 +582,10 @@ dictIterator *dictGetSafeIterator(dict *d) {
     return i;
 }
 
+/*
+ * Gets the next entry from the given iterator.
+ * If there are no more entries, NULL is returned.
+ */
 dictEntry *dictNext(dictIterator *iter)
 {
     while (1) {
@@ -598,6 +621,9 @@ dictEntry *dictNext(dictIterator *iter)
     return NULL;
 }
 
+/*
+ * Release (free) the given iterator.
+ */
 void dictReleaseIterator(dictIterator *iter)
 {
     if (!(iter->index == -1 && iter->table == 0)) {
@@ -715,6 +741,9 @@ static int _dictKeyIndex(dict *d, const void *key)
     return idx;
 }
 
+/*
+ * Empty the given dictionary.
+ */
 void dictEmpty(dict *d) {
     _dictClear(d,&d->ht[0]);
     _dictClear(d,&d->ht[1]);
@@ -722,10 +751,18 @@ void dictEmpty(dict *d) {
     d->iterators = 0;
 }
 
+/*
+ * Enables hash table resizing.  See comments
+ * for dict_can_resize for details.
+ */
 void dictEnableResize(void) {
     dict_can_resize = 1;
 }
 
+/*
+ * Disables hash table resizing.  See comments
+ * for dict_can_resize for details.
+ */
 void dictDisableResize(void) {
     dict_can_resize = 0;
 }
