@@ -1167,7 +1167,8 @@ int selectDb(redisClient *c, int id);
 void signalModifiedKey(redisDb *db, robj *key);
 void signalFlushedDb(int dbid);
 unsigned int GetKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count);
-void scanGenericCommand(redisClient *c, robj *o);
+void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor);
+int parseScanCursorOrReply(redisClient *c, robj *o, unsigned long *cursor);
 
 /* API to get key arguments from commands */
 #define REDIS_GETKEYS_ALL 0
