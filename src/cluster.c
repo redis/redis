@@ -869,7 +869,7 @@ int clusterProcessPacket(clusterLink *link) {
     uint32_t totlen = ntohl(hdr->totlen);
     uint16_t type = ntohs(hdr->type);
     uint16_t flags = ntohs(hdr->flags);
-    uint64_t senderCurrentEpoch, senderConfigEpoch;
+    uint64_t senderCurrentEpoch = 0, senderConfigEpoch = 0;
     clusterNode *sender;
 
     server.cluster->stats_bus_messages_received++;
@@ -1684,7 +1684,7 @@ void clusterHandleSlaveFailover(void) {
         server.cluster->currentEpoch++;
         server.cluster->failover_auth_epoch = server.cluster->currentEpoch;
         redisLog(REDIS_WARNING,"Starting a failover election for epoch %llu.",
-            server.cluster->currentEpoch);
+            (unsigned long long) server.cluster->currentEpoch);
         clusterRequestFailoverAuth();
         server.cluster->failover_auth_sent = 1;
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
