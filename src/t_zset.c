@@ -2210,8 +2210,10 @@ void zrevrankCommand(redisClient *c) {
 
 void zscanCommand(redisClient *c) {
     robj *o;
+    unsigned long cursor;
 
+    if (parseScanCursorOrReply(c,c->argv[2],&cursor) == REDIS_ERR) return;
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
         checkType(c,o,REDIS_ZSET)) return;
-    scanGenericCommand(c,o);
+    scanGenericCommand(c,o,cursor);
 }

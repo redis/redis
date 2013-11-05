@@ -909,8 +909,10 @@ void sdiffstoreCommand(redisClient *c) {
 
 void sscanCommand(redisClient *c) {
     robj *set;
+    unsigned long cursor;
 
+    if (parseScanCursorOrReply(c,c->argv[2],&cursor) == REDIS_ERR) return;
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
         checkType(c,set,REDIS_SET)) return;
-    scanGenericCommand(c,set);
+    scanGenericCommand(c,set,cursor);
 }
