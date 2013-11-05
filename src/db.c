@@ -452,6 +452,7 @@ void scanGenericCommand(redisClient *c, robj *o) {
 
         while(intsetGet(o->ptr,pos++,&ll))
             listAddNodeTail(keys,createStringObjectFromLongLong(ll));
+        cursor = 0;
     } else if (o->type == REDIS_HASH || o->type == REDIS_ZSET) {
         unsigned char *p = ziplistIndex(o->ptr,0);
         unsigned char *vstr;
@@ -465,6 +466,7 @@ void scanGenericCommand(redisClient *c, robj *o) {
                                  createStringObjectFromLongLong(vll));
             p = ziplistNext(o->ptr,p);
         }
+        cursor = 0;
     } else {
         redisPanic("Not handled encoding in SCAN.");
     }
