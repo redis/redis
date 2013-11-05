@@ -445,7 +445,7 @@ void scanGenericCommand(redisClient *c, robj *o) {
         } while (cursor && listLength(keys) < count);
     } else if (o->type == REDIS_SET) {
         int pos = 0;
-        long long ll;
+        int64_t ll;
 
         while(intsetGet(o->ptr,pos++,&ll))
             listAddNodeTail(keys,createStringObjectFromLongLong(ll));
