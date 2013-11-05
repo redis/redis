@@ -350,7 +350,7 @@ void scanCallback(void *privdata, const dictEntry *de) {
     if (val) listAddNodeTail(keys, val);
 }
 
-/* Try to parse a SCAN cursor stored ad object 'o':
+/* Try to parse a SCAN cursor stored at object 'o':
  * if the cursor is valid, store it as unsigned integer into *cursor and
  * returns REDIS_OK. Otherwise return REDIS_ERR and send an error to the
  * client. */
