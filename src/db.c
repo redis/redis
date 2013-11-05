@@ -505,11 +505,16 @@ void scanGenericCommand(redisClient *c, robj *o) {
         if (filter) {
             decrRefCount(kobj);
             listDelNode(keys, node);
-            /* Also remove the value for hashes and sorted sets. */
-            if (o && (o->type == REDIS_ZSET || o->type == REDIS_HASH)) {
-                node = nextnode;
+        }
+
+        /* If this is an hash or a sorted set, we have a flat list of
+         * key-value elements, so if this element was filtered, remove the
+         * value, or skip it if it was not filtered: we only match keys. */
+        if (o && (o->type == REDIS_ZSET || o->type == REDIS_HASH)) {
+            node = nextnode;
+            nextnode = listNextNode(node);
+            if (filter) {
                 kobj = listNodeValue(node);
-                nextnode = listNextNode(node);
                 decrRefCount(kobj);
                 listDelNode(keys, node);
             }
