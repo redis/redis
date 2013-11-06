@@ -1300,9 +1300,10 @@ void sentinelSendAuthIfNeeded(sentinelRedisInstance *ri, redisAsyncContext *c) {
     char *auth_pass = (ri->flags & SRI_MASTER) ? ri->auth_pass :
                                                  ri->master->auth_pass;
 
-    if (auth_pass)
-        redisAsyncCommand(c, sentinelDiscardReplyCallback, NULL, "AUTH %s",
-            auth_pass);
+    if (auth_pass) {
+        if (redisAsyncCommand(c, sentinelDiscardReplyCallback, NULL, "AUTH %s",
+            auth_pass) == REDIS_OK) ri->pending_commands++;
+    }
 }
 
 /* Create the async connections for the specified instance if the instance
@@ -1691,8 +1692,10 @@ void sentinelPingReplyCallback(redisAsyncContext *c, void *reply, void *privdata
                 (ri->flags & SRI_S_DOWN) &&
                 !(ri->flags & SRI_SCRIPT_KILL_SENT))
             {
-                redisAsyncCommand(ri->cc,
-                    sentinelDiscardReplyCallback, NULL, "SCRIPT KILL");
+                if (redisAsyncCommand(ri->cc,
+                        sentinelDiscardReplyCallback, NULL,
+                        "SCRIPT KILL") == REDIS_OK)
+                    ri->pending_commands++;
                 ri->flags |= SRI_SCRIPT_KILL_SENT;
             }
         }
