@@ -327,6 +327,7 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master);
 void sentinelScheduleScriptExecution(char *path, ...);
 void sentinelStartFailover(sentinelRedisInstance *master, int state);
 void sentinelDiscardReplyCallback(redisAsyncContext *c, void *reply, void *privdata);
+int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port);
 
 /* ========================= Dictionary types =============================== */
 
@@ -2535,6 +2536,7 @@ char *sentinelGetObjectiveLeader(sentinelRedisInstance *master) {
  * discarded. */
 int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port) {
     char portstr[32];
+    int retval;
 
     ll2string(portstr,sizeof(portstr),port);
 
@@ -2899,7 +2901,6 @@ void sentinelFailoverReconfNextSlave(sentinelRedisInstance *master) {
     {
         sentinelRedisInstance *slave = dictGetVal(de);
         int retval;
-        char master_port[32];
 
         /* Skip the promoted slave, and already configured slaves. */
         if (slave->flags & (SRI_PROMOTED|SRI_RECONF_DONE)) continue;
