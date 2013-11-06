@@ -1421,7 +1421,7 @@ void initServer() {
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     if (server.port != 0) {
-        server.ipfd = anetTcpServer(server.neterr,server.port,server.bindaddr);
+        server.ipfd = anetTcpServer(server.neterr,server.port,server.bindaddr,server.backlog);
         if (server.ipfd == ANET_ERR) {
             redisLog(REDIS_WARNING, "Opening port %d: %s",
                 server.port, server.neterr);
@@ -1430,7 +1430,7 @@ void initServer() {
     }
     if (server.unixsocket != NULL) {
         unlink(server.unixsocket); /* don't care if this fails */
-        server.sofd = anetUnixServer(server.neterr,server.unixsocket,server.unixsocketperm);
+        server.sofd = anetUnixServer(server.neterr,server.unixsocket,server.unixsocketperm,server.backlog);
         if (server.sofd == ANET_ERR) {
             redisLog(REDIS_WARNING, "Opening socket: %s", server.neterr);
             exit(1);

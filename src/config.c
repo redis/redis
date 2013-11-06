@@ -101,6 +101,11 @@ void loadServerConfigFromString(char *config) {
             if (server.port < 0 || server.port > 65535) {
                 err = "Invalid port"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"backlog") && argc == 2) {
+            server.backlog = atoi(argv[1]);
+            if (server.backlog < 0) {
+                err = "Invalid backlog value"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"bind") && argc == 2) {
             server.bindaddr = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocket") && argc == 2) {
