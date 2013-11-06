@@ -987,8 +987,11 @@ werr:
     return REDIS_ERR;
 }
 
+//#define _USE_COW
+
 #ifdef _WIN32
 int rdbSaveBackground(char *filename) {
+#ifdef _USE_COW
     if (server.rdb_child_pid != -1) return REDIS_ERR;
     if (server.aof_child_pid != -1) return REDIS_ERR;
     server.dirty_before_bgsave = server.dirty;
@@ -1008,6 +1011,9 @@ int rdbSaveBackground(char *filename) {
         }
     }
     return REDIS_OK;
+#else
+    return REDIS_OK;
+#endif
 }
 #else
 int rdbSaveBackground(char *filename) {

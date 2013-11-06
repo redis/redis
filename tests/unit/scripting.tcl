@@ -122,7 +122,8 @@ start_server {tags {"scripting"}} {
         r get mykey
     } {this is DB 9}
 
-    if 0 {
+# JEP
+if 0 {
         test {EVAL - Script can't run more than configured time limit} {
             r config set lua-time-limit 1
             catch {
@@ -283,6 +284,8 @@ start_server {tags {"scripting"}} {
     }
 
     test {EVAL processes writes from AOF in read-only slaves} {
+# JEP
+if 0 {
         r flushall
         r config set appendonly yes
         r eval {redis.call("set","foo","100")} 0
@@ -298,6 +301,7 @@ start_server {tags {"scripting"}} {
         r slaveof 127.0.0.1 0
         r debug loadaof
         r get foo
+}
     } {102}
 }
 

@@ -1170,8 +1170,12 @@ werr:
  *    finally will rename(2) the temp file in the actual file name.
  *    The the new file is reopened as the new append only file. Profit!
  */
+
+//#define _USE_COW
+
 #ifdef _WIN32
 int rewriteAppendOnlyFileBackground(void) {
+#ifdef _USE_COW
     pid_t childpid;
     char tmpfile[256];
 
@@ -1202,6 +1206,9 @@ int rewriteAppendOnlyFileBackground(void) {
         }
     }
     return REDIS_OK; /* unreached */
+#else
+    return REDIS_OK;
+#endif
 }
 
 #else
