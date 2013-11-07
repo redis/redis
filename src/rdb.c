@@ -99,7 +99,7 @@ int rdbSaveLen(rio *rdb, uint32_t len) {
         buf[0] = (REDIS_RDB_32BITLEN<<6);
         if (rdbWriteRaw(rdb,buf,1) == -1) return -1;
         len = htonl(len);
-        if (rdbWriteRaw(rdb,&len,4) == -4) return -1;
+        if (rdbWriteRaw(rdb,&len,4) == -1) return -1;
         nwritten = 1+4;
     }
     return nwritten;
