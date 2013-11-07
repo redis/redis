@@ -517,10 +517,10 @@ class RedisTrib
 
         # Alloc slots on masters
         i = 0
-        masters.each{|n|
+        masters.each_with_index{|n,masternum|
             first = i*slots_per_node
             last = first+slots_per_node-1
-            last = ClusterHashSlots-1 if i == @nodes.length-1
+            last = ClusterHashSlots-1 if masternum == masters.length-1
             n.add_slots first..last
             i += 1
         }
