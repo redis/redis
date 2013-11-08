@@ -1210,6 +1210,11 @@ int clusterProcessPacket(clusterLink *link) {
                             "an UPDATE message about %.40s\n",
                                 sender->name, server.cluster->slots[j]->name);
                         clusterSendUpdate(sender->link,server.cluster->slots[j]);
+
+                        /* TODO: instead of exiting the loop send every other
+                         * UPDATE packet for other nodes that are the new owner
+                         * of sender's slots. */
+                        break;
                     }
                 }
             }
