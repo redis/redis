@@ -112,7 +112,8 @@ typedef struct clusterState {
 #define CLUSTERMSG_TYPE_FAIL 3          /* Mark node xxx as failing */
 #define CLUSTERMSG_TYPE_PUBLISH 4       /* Pub/Sub Publish propagation */
 #define CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST 5 /* May I failover? */
-#define CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK 6     /* Yes, you can failover. */
+#define CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK 6     /* Yes, you have my vote */
+#define CLUSTERMSG_TYPE_UPDATE 7        /* Another node slots configuration */
 
 /* Initially we don't know our "name", but we'll find it once we connect
  * to the first node, using the getsockname() function. Then we'll use this
@@ -137,6 +138,12 @@ typedef struct {
     unsigned char bulk_data[8]; /* defined as 8 just for alignment concerns. */
 } clusterMsgDataPublish;
 
+typedef struct {
+    uint64_t configEpoch; /* Config epoch of the specified instance. */
+    char nodename[REDIS_CLUSTER_NAMELEN]; /* Name of the slots owner. */
+    unsigned char slots[REDIS_CLUSTER_SLOTS/8]; /* Slots bitmap. */
+} clusterMsgDataUpdate;
+
 union clusterMsgData {
     /* PING, MEET and PONG */
     struct {
@@ -153,6 +160,11 @@ union clusterMsgData {
     struct {
         clusterMsgDataPublish msg;
     } publish;
+
+    /* UPDATE */
+    struct {
+        clusterMsgDataUpdate nodecfg;
+    } update;
 };
 
 typedef struct {

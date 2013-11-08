@@ -59,6 +59,7 @@ void clusterSetMaster(clusterNode *n);
 void clusterHandleSlaveFailover(void);
 int bitmapTestBit(unsigned char *bitmap, int pos);
 void clusterDoBeforeSleep(int flags);
+void clusterSendUpdate(clusterLink *link, clusterNode *node);
 
 /* -----------------------------------------------------------------------------
  * Initialization
@@ -855,6 +856,84 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link, int port) {
     return 1;
 }
 
+/* Reconfigure the specified node 'n' as a master. This function is called when
+ * a node that we believed to be a slave is now acting as master in order to
+ * update the state of the node. */
+void clusterSetNodeAsMaster(clusterNode *n) {
+    if (n->flags & REDIS_NODE_MASTER) return;
+
+    if (n->slaveof) clusterNodeRemoveSlave(n->slaveof,n);
+    n->flags &= ~REDIS_NODE_SLAVE;
+    n->flags |= REDIS_NODE_MASTER;
+    n->slaveof = NULL;
+
+    /* Update config and state. */
+    clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                         CLUSTER_TODO_UPDATE_STATE);
+}
+
+/* This function is called when we receive a master configuration via a
+ * PING, PONG or UPDATE packet. What we receive is a node, a configEpoch of the
+ * node, and the set of slots claimed under this configEpoch.
+ *
+ * What we do is to rebind the slots with newer configuration compared to our
+ * local configuration, and if needed, we turn ourself into a replica of the
+ * node (see the function comments for more info).
+ *
+ * The 'sender' is the node for which we received a configuration update.
+ * Sometimes it is not actaully the "Sender" of the information, like in the case
+ * we receive the info via an UPDATE packet. */
+void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoch,
+                                  unsigned char *slots)
+{
+    int j;
+    clusterNode *curmaster, *newmaster = NULL;
+
+    /* Here we set curmaster to this node or the node this node
+     * replicates to if it's a slave. In the for loop we are
+     * interested to check if slots are taken away from curmaster. */
+    if (server.cluster->myself->flags & REDIS_NODE_MASTER)
+        curmaster = server.cluster->myself;
+    else
+        curmaster = server.cluster->myself->slaveof;
+
+    for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
+        if (bitmapTestBit(slots,j)) {
+            /* We rebind the slot to the new node claiming it if:
+             * 1) The slot was unassigned.
+             * 2) The new node claims it with a greater configEpoch. */
+            if (server.cluster->slots[j] == sender) continue;
+            if (server.cluster->slots[j] == NULL ||
+                server.cluster->slots[j]->configEpoch <
+                senderConfigEpoch)
+            {
+                if (server.cluster->slots[j] == curmaster)
+                    newmaster = sender;
+                clusterDelSlot(j);
+                clusterAddSlot(sender,j);
+                clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                                     CLUSTER_TODO_UPDATE_STATE|
+                                     CLUSTER_TODO_FSYNC_CONFIG);
+            }
+        }
+    }
+
+    /* If at least one slot was reassigned from a node to another node
+     * with a greater configEpoch, it is possible that:
+     * 1) We are a master left without slots. This means that we were
+     *    failed over and we should turn into a replica of the new
+     *    master.
+     * 2) We are a slave and our master is left without slots. We need
+     *    to replicate to the new slots owner. */
+    if (newmaster && curmaster->numslots == 0) {
+        redisLog(REDIS_WARNING,"Configuration change detected. Reconfiguring myself as a replica of %.40s", sender->name);
+        clusterSetMaster(sender);
+        clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                             CLUSTER_TODO_UPDATE_STATE|
+                             CLUSTER_TODO_FSYNC_CONFIG);
+    }
+}
+
 /* When this function is called, there is a packet to process starting
  * at node->rcvbuf. Releasing the buffer is up to the caller, so this
  * function should just handle the higher level stuff of processing the
@@ -904,6 +983,11 @@ int clusterProcessPacket(clusterLink *link) {
                type == CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK) {
         uint32_t explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
 
+        if (totlen != explen) return 1;
+    } else if (type == CLUSTERMSG_TYPE_UPDATE) {
+        uint32_t explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
+
+        explen += sizeof(clusterMsgDataUpdate);
         if (totlen != explen) return 1;
     }
 
@@ -1029,24 +1113,13 @@ int clusterProcessPacket(clusterLink *link) {
             }
         }
 
-        /* Update master/slave state */
+        /* Check for role switch: slave -> master or master -> slave. */
         if (sender) {
             if (!memcmp(hdr->slaveof,REDIS_NODE_NULL_NAME,
                 sizeof(hdr->slaveof)))
             {
                 /* Node is a master. */
-                if (sender->flags & REDIS_NODE_SLAVE) {
-                    /* Reconfigure node as master. */
-                    if (sender->slaveof)
-                        clusterNodeRemoveSlave(sender->slaveof,sender);
-                    sender->flags &= ~REDIS_NODE_SLAVE;
-                    sender->flags |= REDIS_NODE_MASTER;
-                    sender->slaveof = NULL;
-
-                    /* Update config and state. */
-                    clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
-                                         CLUSTER_TODO_UPDATE_STATE);
-                }
+                clusterSetNodeAsMaster(sender);
             } else {
                 /* Node is a slave. */
                 clusterNode *master = clusterLookupNode(hdr->slaveof);
@@ -1079,67 +1152,70 @@ int clusterProcessPacket(clusterLink *link) {
         }
 
         /* Update our info about served slots.
+         *
          * Note: this MUST happen after we update the master/slave state
          * so that REDIS_NODE_MASTER flag will be set. */
-        if (sender && sender->flags & REDIS_NODE_MASTER) {
-            int changes, j;
 
-            changes =
-                memcmp(sender->slots,hdr->myslots,sizeof(hdr->myslots)) != 0;
-            if (changes) {
-                clusterNode *curmaster, *newmaster = NULL;
+        /* Many checks are only needed if the set of served slots this
+         * instance claims is different compared to the set of slots we have for
+         * it. Check this ASAP to avoid other computational expansive checks later. */
+        clusterNode *sender_master = NULL; /* Sender or its master if it is a slave. */
+        int dirty_slots = 0; /* Sender claimed slots don't match my view? */
 
-                /* Here we set curmaster to this node or the node this node
-                 * replicates to if it's a slave. In the for loop we are
-                 * interested to check if slots are taken away from curmaster. */
-                if (server.cluster->myself->flags & REDIS_NODE_MASTER)
-                    curmaster = server.cluster->myself;
-                else
-                    curmaster = server.cluster->myself->slaveof;
+        if (sender) {
+            sender_master = (sender->flags & REDIS_NODE_MASTER) ? sender :
+                                                                  sender->slaveof;
+            if (sender_master) {
+                dirty_slots = memcmp(sender_master->slots,
+                        hdr->myslots,sizeof(hdr->myslots)) != 0;
+            }
+        }
 
-                for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
-                    if (bitmapTestBit(hdr->myslots,j)) {
-                        /* We rebind the slot to the new node claiming it if:
-                         * 1) The slot was unassigned.
-                         * 2) The new node claims it with a greater configEpoch. */
-                        if (server.cluster->slots[j] == sender) continue;
-                        if (server.cluster->slots[j] == NULL ||
-                            server.cluster->slots[j]->configEpoch <
-                            senderConfigEpoch)
-                        {
-                            if (server.cluster->slots[j] == curmaster)
-                                newmaster = sender;
-                            clusterDelSlot(j);
-                            clusterAddSlot(sender,j);
-                            clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
-                                                 CLUSTER_TODO_UPDATE_STATE|
-                                                 CLUSTER_TODO_FSYNC_CONFIG);
-                        }
-                    } else {
-                        /* This node claims to no longer handling the slot,
-                         * however we don't change our config as this is likely:
-                         * 1) Rehashing in progress.
-                         * 2) Failover.
-                         * In both cases we'll be informed about who is serving
-                         * the slot eventually. In the meantime it's up to the
-                         * original owner to try to redirect our clients to the
-                         * right node. */
+        /* 1) If the sender of the message is a master, and we detected that the
+         *    set of slots it claims changed, scan the slots to see if we need
+         *    to update our configuration. */
+        if (sender && sender->flags & REDIS_NODE_MASTER && dirty_slots) {
+            clusterUpdateSlotsConfigWith(sender,senderConfigEpoch,hdr->myslots);
+        }
+
+        /* 2) We also check for the reverse condition, that is, the sender claims
+         *    to serve slots we know are served by a master with a greater
+         *    configEpoch. If this happens we inform the sender.
+         *
+         * This is useful because sometimes after a partition heals, a reappearing
+         * master may be the last one to claim a given set of hash slots, but with
+         * a configuration that other instances know to be deprecated. Example:
+         *
+         * A and B are master and slave for slots 1,2,3.
+         * A is partitioned away, B gets promoted.
+         * B is partitioned away, and A returns available.
+         *
+         * Usually B would PING A publishing its set of served slots and its
+         * configEpoch, but because of the partition B can't inform A of the new
+         * configuration, so other nodes that have an updated table must do it.
+         * In this way A will stop to act as a master (or can try to failover if
+         * there are the conditions to win the election). */
+        if (sender && dirty_slots) {
+            int j;
+
+            for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
+                if (bitmapTestBit(hdr->myslots,j)) {
+                    if (server.cluster->slots[j] == sender ||
+                        server.cluster->slots[j] == NULL) continue;
+                    if (server.cluster->slots[j]->configEpoch >
+                        senderConfigEpoch)
+                    {
+                        redisLog(REDIS_WARNING,
+                            "Node %.40s has old slots configuration, sending "
+                            "an UPDATE message about %.40s",
+                                sender->name, server.cluster->slots[j]->name);
+                        clusterSendUpdate(sender->link,server.cluster->slots[j]);
+
+                        /* TODO: instead of exiting the loop send every other
+                         * UPDATE packet for other nodes that are the new owner
+                         * of sender's slots. */
+                        break;
                     }
-                }
-
-                /* If at least one slot was reassigned from a node to another node
-                 * with a greater configEpoch, it is possible that:
-                 * 1) We are a master is left without slots. This means that we were
-                 *    failed over and we should turn into a replica of the new
-                 *    master.
-                 * 2) We are a slave and our master is left without slots. We need
-                 *    to replicate to the new slots owner. */
-                if (newmaster && curmaster->numslots == 0) {
-                    redisLog(REDIS_WARNING,"Configuration change detected. Reconfiguring myself as a replica of %.40s", sender->name);
-                    clusterSetMaster(sender);
-                    clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
-                                         CLUSTER_TODO_UPDATE_STATE|
-                                         CLUSTER_TODO_FSYNC_CONFIG);
                 }
             }
         }
@@ -1200,6 +1276,21 @@ int clusterProcessPacket(clusterLink *link) {
              * we check ASAP. */
             clusterDoBeforeSleep(CLUSTER_TODO_HANDLE_FAILOVER);
         }
+    } else if (type == CLUSTERMSG_TYPE_UPDATE) {
+        clusterNode *n; /* The node the update is about. */
+        uint64_t reportedConfigEpoch = ntohu64(hdr->data.update.nodecfg.configEpoch);
+
+        if (!sender) return 1;  /* We don't know the sender. */
+        n = clusterLookupNode(hdr->data.update.nodecfg.nodename);
+        if (!n) return 1;   /* We don't know the reported node. */
+        if (n->configEpoch >= reportedConfigEpoch) return 1; /* Nothing new. */
+
+        /* If in our current config the node is a slave, set it as a master. */
+        if (n->flags & REDIS_NODE_SLAVE) clusterSetNodeAsMaster(n);
+
+        /* Check the bitmap of served slots and udpate our config accordingly. */
+        clusterUpdateSlotsConfigWith(n,reportedConfigEpoch,
+            hdr->data.update.nodecfg.slots);
     } else {
         redisLog(REDIS_WARNING,"Received unknown packet type: %d", type);
     }
@@ -1241,7 +1332,7 @@ void clusterWriteHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
  * full length of the packet. When a whole packet is in memory this function
  * will call the function to process the packet. And so forth. */
 void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    char buf[4096];
+    char buf[sizeof(clusterMsg)];
     ssize_t nread;
     clusterMsg *hdr;
     clusterLink *link = (clusterLink*) privdata;
@@ -1369,6 +1460,9 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
     if (type == CLUSTERMSG_TYPE_FAIL) {
         totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
         totlen += sizeof(clusterMsgDataFail);
+    } else if (type == CLUSTERMSG_TYPE_UPDATE) {
+        totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
+        totlen += sizeof(clusterMsgDataUpdate);
     }
     hdr->totlen = htonl(totlen);
     /* For PING, PONG, and MEET, fixing the totlen field is up to the caller. */
@@ -1377,7 +1471,7 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
 /* Send a PING or PONG packet to the specified node, making sure to add enough
  * gossip informations. */
 void clusterSendPing(clusterLink *link, int type) {
-    unsigned char buf[4096];
+    unsigned char buf[sizeof(clusterMsg)];
     clusterMsg *hdr = (clusterMsg*) buf;
     int gossipcount = 0, totlen;
     /* freshnodes is the number of nodes we can still use to populate the
@@ -1464,7 +1558,7 @@ void clusterBroadcastPong(void) {
  *
  * If link is NULL, then the message is broadcasted to the whole cluster. */
 void clusterSendPublish(clusterLink *link, robj *channel, robj *message) {
-    unsigned char buf[4096], *payload;
+    unsigned char buf[sizeof(clusterMsg)], *payload;
     clusterMsg *hdr = (clusterMsg*) buf;
     uint32_t totlen;
     uint32_t channel_len, message_len;
@@ -1510,12 +1604,26 @@ void clusterSendPublish(clusterLink *link, robj *channel, robj *message) {
  * we switch the node state to REDIS_NODE_FAIL and ask all the other
  * nodes to do the same ASAP. */
 void clusterSendFail(char *nodename) {
-    unsigned char buf[4096];
+    unsigned char buf[sizeof(clusterMsg)];
     clusterMsg *hdr = (clusterMsg*) buf;
 
     clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_FAIL);
     memcpy(hdr->data.fail.about.nodename,nodename,REDIS_CLUSTER_NAMELEN);
     clusterBroadcastMessage(buf,ntohl(hdr->totlen));
+}
+
+/* Send an UPDATE message to the specified link carrying the specified 'node'
+ * slots configuration. The node name, slots bitmap, and configEpoch info
+ * are included. */
+void clusterSendUpdate(clusterLink *link, clusterNode *node) {
+    unsigned char buf[sizeof(clusterMsg)];
+    clusterMsg *hdr = (clusterMsg*) buf;
+
+    clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_UPDATE);
+    memcpy(hdr->data.update.nodecfg.nodename,node->name,REDIS_CLUSTER_NAMELEN);
+    hdr->data.update.nodecfg.configEpoch = htonu64(node->configEpoch);
+    memcpy(hdr->data.update.nodecfg.slots,node->slots,sizeof(node->slots));
+    clusterSendMessage(link,buf,ntohl(hdr->totlen));
 }
 
 /* -----------------------------------------------------------------------------
@@ -1540,7 +1648,7 @@ void clusterPropagatePublish(robj *channel, robj *message) {
  * Note that we send the failover request to everybody, master and slave nodes,
  * but only the masters are supposed to reply to our query. */
 void clusterRequestFailoverAuth(void) {
-    unsigned char buf[4096];
+    unsigned char buf[sizeof(clusterMsg)];
     clusterMsg *hdr = (clusterMsg*) buf;
     uint32_t totlen;
 
@@ -1552,7 +1660,7 @@ void clusterRequestFailoverAuth(void) {
 
 /* Send a FAILOVER_AUTH_ACK message to the specified node. */
 void clusterSendFailoverAuth(clusterNode *node) {
-    unsigned char buf[4096];
+    unsigned char buf[sizeof(clusterMsg)];
     clusterMsg *hdr = (clusterMsg*) buf;
     uint32_t totlen;
 
