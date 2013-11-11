@@ -74,8 +74,6 @@ typedef struct sentinelAddr {
 #define SRI_RECONF_DONE (1<<13)     /* Slave synchronized with new master. */
 #define SRI_FORCE_FAILOVER (1<<14)  /* Force failover with master up. */
 #define SRI_SCRIPT_KILL_SENT (1<<15) /* SCRIPT KILL already sent on -BUSY */
-#define SRI_DEMOTE (1<<16)   /* If the instance claims to be a master, demote
-                                it into a slave sending SLAVEOF. */
 
 #define SENTINEL_INFO_PERIOD 10000
 #define SENTINEL_PING_PERIOD 1000
@@ -92,7 +90,6 @@ typedef struct sentinelAddr {
 #define SENTINEL_MIN_LINK_RECONNECT_PERIOD 15000
 #define SENTINEL_DEFAULT_FAILOVER_TIMEOUT (60*15*1000)
 #define SENTINEL_MAX_PENDING_COMMANDS 100
-#define SENTINEL_EXTENDED_SDOWN_MULTIPLIER 10
 
 /* How many milliseconds is an information valid? This applies for instance
  * to the reply to SENTINEL IS-MASTER-DOWN-BY-ADDR replies. */
@@ -1504,108 +1501,44 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
 
     /* Handle slave -> master role switch. */
     if ((ri->flags & SRI_SLAVE) && role == SRI_MASTER) {
-        if (!sentinel.tilt && ri->flags & SRI_DEMOTE) {
-            /* If this sentinel was partitioned from the slave's master,
-             * or tilted recently, wait some time before to act,
-             * so that DOWN and roles INFO will be refreshed. */
-            mstime_t wait_time = SENTINEL_INFO_PERIOD*2 +
-                                 ri->master->down_after_period*2;
+        /* If this is a promoted slave we can change state to the
+         * failover state machine. */
+        if (!sentinel.tilt &&
+            (ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
+            (ri->master->flags & SRI_I_AM_THE_LEADER) &&
+            (ri->master->failover_state ==
+                SENTINEL_FAILOVER_STATE_WAIT_PROMOTION))
+        {
+            ri->master->failover_state = SENTINEL_FAILOVER_STATE_RECONF_SLAVES;
+            ri->master->failover_state_change_time = mstime();
+            sentinelEvent(REDIS_WARNING,"+promoted-slave",ri,"%@");
+            sentinelEvent(REDIS_WARNING,"+failover-state-reconf-slaves",
+                ri->master,"%@");
+            sentinelCallClientReconfScript(ri->master,SENTINEL_LEADER,
+                "start",ri->master->addr,ri->addr);
+        } else if (!sentinel.tilt) {
+            /* A slave turned into a master. We want to force our view and
+             * reconfigure as slave, but make sure to wait some time before
+             * doing this in order to make sure to receive an updated
+             * configuratio via Pub/Sub if any. */
+            mstime_t wait_time = SENTINEL_PUBLISH_PERIOD*4;
 
             if (!sentinelRedisInstanceNoDownFor(ri->master,wait_time) ||
                 (mstime()-sentinel.tilt_start_time) < wait_time)
                 return;
 
-            /* Old master returned back? Turn it into a slave ASAP if
-             * we can reach what we believe is the new master now, and
-             * have a recent role information for it.
-             *
-             * Note: we'll clear the DEMOTE flag only when we have the
-             * acknowledge that it's a slave again. */
+            /* Make sure the master is sane before reconfiguring this instance
+             * into a slave. */
             if (ri->master->flags & SRI_MASTER &&
                 (ri->master->flags & (SRI_S_DOWN|SRI_O_DOWN)) == 0 &&
                 (mstime() - ri->master->info_refresh) < SENTINEL_INFO_PERIOD*2)
             {
-                int retval;
-                retval = sentinelSendSlaveOf(ri,
+                int retval = sentinelSendSlaveOf(ri,
                         ri->master->addr->ip,
                         ri->master->addr->port);
                 if (retval == REDIS_OK)
                     sentinelEvent(REDIS_NOTICE,"+demote-old-slave",ri,"%@");
-            } else {
-                /* Otherwise if there are not the conditions to demote, we
-                 * no longer trust the DEMOTE flag and remove it. */
-                ri->flags &= ~SRI_DEMOTE;
-                sentinelEvent(REDIS_NOTICE,"-demote-flag-cleared",ri,"%@");
             }
-        } else if (!(ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
-                    (runid_changed || first_runid))
-        {
-            /* If a slave turned into master but:
-             *
-             * 1) Failover not in progress.
-             * 2) RunID has changed or its the first time we see an INFO output.
-             * 
-             * We assume this is a reboot with a wrong configuration.
-             * Log the event and remove the slave. Note that this is processed
-             * in tilt mode as well, otherwise we lose the information that the
-             * runid changed (reboot?) and when the tilt mode ends a fake
-             * failover will be detected. */
-            int retval;
-
-            sentinelEvent(REDIS_WARNING,"-slave-restart-as-master",ri,"%@ #removing it from the attached slaves");
-            retval = dictDelete(ri->master->slaves,ri->name);
-            redisAssert(retval == REDIS_OK);
-            return;
-        } else if (!sentinel.tilt && ri->flags & SRI_PROMOTED) {
-            /* If this is a promoted slave we can change state to the
-             * failover state machine. */
-            if ((ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
-                (ri->master->flags & SRI_I_AM_THE_LEADER) &&
-                (ri->master->failover_state ==
-                    SENTINEL_FAILOVER_STATE_WAIT_PROMOTION))
-            {
-                ri->master->failover_state = SENTINEL_FAILOVER_STATE_RECONF_SLAVES;
-                ri->master->failover_state_change_time = mstime();
-                sentinelEvent(REDIS_WARNING,"+promoted-slave",ri,"%@");
-                sentinelEvent(REDIS_WARNING,"+failover-state-reconf-slaves",
-                    ri->master,"%@");
-                sentinelCallClientReconfScript(ri->master,SENTINEL_LEADER,
-                    "start",ri->master->addr,ri->addr);
-            }
-        } else if (!sentinel.tilt && (
-                    !(ri->master->flags & SRI_FAILOVER_IN_PROGRESS) ||
-                     ((ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
-                      (ri->master->flags & SRI_I_AM_THE_LEADER) &&
-                       ri->master->failover_state ==
-                       SENTINEL_FAILOVER_STATE_WAIT_START)))
-        {
-            /* No failover in progress? Then it is the start of a failover
-             * and we are an observer.
-             *
-             * We also do that if we are a leader doing a failover, in wait
-             * start, but well, somebody else started before us. */
-
-            if (ri->master->flags & SRI_FAILOVER_IN_PROGRESS) {
-                sentinelEvent(REDIS_WARNING,"-failover-abort-race",
-                                ri->master, "%@");
-                sentinelAbortFailover(ri->master);
-            }
-
-            ri->master->flags |= SRI_FAILOVER_IN_PROGRESS;
-            sentinelEvent(REDIS_WARNING,"+failover-detected",ri->master,"%@");
-            ri->master->failover_state = SENTINEL_FAILOVER_STATE_DETECT_END;
-            ri->master->failover_state_change_time = mstime();
-            ri->master->promoted_slave = ri;
-            ri->flags |= SRI_PROMOTED;
-            ri->flags &= ~SRI_DEMOTE;
-            sentinelCallClientReconfScript(ri->master,SENTINEL_OBSERVER,
-                "start", ri->master->addr,ri->addr);
-            /* We are an observer, so we can only assume that the leader
-             * is reconfiguring the slave instances. For this reason we
-             * set all the instances as RECONF_SENT waiting for progresses
-             * on this side. */
-            sentinelAddFlagsToDictOfRedisInstances(ri->master->slaves,
-                SRI_RECONF_SENT);
         }
     }
 
@@ -1642,13 +1575,6 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
              * to the next slave. */
             ri->failover_state_change_time = mstime();
         }
-    }
-
-    /* Detect if the old master was demoted as slave and generate the
-     * +slave event. */
-    if (role == SRI_SLAVE && ri->flags & SRI_DEMOTE) {
-        sentinelEvent(REDIS_NOTICE,"+slave",ri,"%@");
-        ri->flags &= ~SRI_DEMOTE;
     }
 }
 
@@ -1958,7 +1884,6 @@ void addReplySentinelRedisInstance(redisClient *c, sentinelRedisInstance *ri) {
     if (ri->flags & SRI_RECONF_SENT) flags = sdscat(flags,"reconf_sent,");
     if (ri->flags & SRI_RECONF_INPROG) flags = sdscat(flags,"reconf_inprog,");
     if (ri->flags & SRI_RECONF_DONE) flags = sdscat(flags,"reconf_done,");
-    if (ri->flags & SRI_DEMOTE) flags = sdscat(flags,"demote,");
 
     if (sdslen(flags) != 0) sdsrange(flags,0,-2); /* remove last "," */
     addReplyBulkCString(c,flags);
@@ -2750,7 +2675,6 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
         mstime_t info_validity_time = mstime()-SENTINEL_INFO_VALIDITY_TIME;
 
         if (slave->flags & (SRI_S_DOWN|SRI_O_DOWN|SRI_DISCONNECTED)) continue;
-        if (slave->flags & SRI_DEMOTE) continue; /* Old master not yet ready. */
         if (slave->last_avail_time < info_validity_time) continue;
         if (slave->slave_priority == 0) continue;
 
@@ -2994,16 +2918,14 @@ void sentinelFailoverSwitchToPromotedSlave(sentinelRedisInstance *master) {
     old_master_ip = sdsdup(master->addr->ip);
     old_master_port = master->addr->port;
     sentinelResetMasterAndChangeAddress(master,ref->addr->ip,ref->addr->port);
-    /* If this is a real switch, that is, we have master->promoted_slave not
-     * NULL, then we want to add the old master as a slave of the new master,
-     * but flagging it with SRI_DEMOTE so that we know we'll need to send
-     * SLAVEOF once the old master is reachable again. */
+    /* If this is a real switch and not just a user requested reset, we want
+     * to add all the known instances as slaves, and also all the sentinels
+     * back to this master. */
     if (master != ref) {
-        /* Add the new slave, but don't generate a Sentinel event as it will
-         * happen later when finally the instance will claim to be a slave
-         * in the INFO output. */
-        createSentinelRedisInstance(NULL,SRI_SLAVE|SRI_DEMOTE,
+        /* TODO:
+        createSentinelRedisInstance(NULL,SRI_SLAVE
                     old_master_ip, old_master_port, master->quorum, master);
+        */
     }
     sdsfree(old_master_ip);
 }
@@ -3036,15 +2958,9 @@ void sentinelFailoverStateMachine(sentinelRedisInstance *ri) {
 }
 
 /* Abort a failover in progress with the following steps:
- * 1) If this instance is the leaer send a SLAVEOF command to all the already
- *    reconfigured slaves if any to configure them to replicate with the
- *    original master.
- * 2) For both leaders and observers: clear the failover flags and state in
- *    the master instance.
- * 3) If there is already a promoted slave and we are the leader, and this
- *    slave is not DISCONNECTED, try to reconfigure it to replicate
- *    back to the master as well, sending a best effort SLAVEOF command.
- */
+ * 1) Set the master back to the original one, increment the config epoch.
+ * 2) Reconfig slaves to replicate to the old master.
+ * 3) Reconfig the promoted slave as a slave as well. */
 void sentinelAbortFailover(sentinelRedisInstance *ri) {
     dictIterator *di;
     dictEntry *de;
@@ -3085,26 +3001,6 @@ void sentinelAbortFailover(sentinelRedisInstance *ri) {
         ri->promoted_slave->flags &= ~SRI_PROMOTED;
         ri->promoted_slave = NULL;
     }
-}
-
-/* The following is called only for master instances and will abort the
- * failover process if:
- *
- * 1) The failover is in progress.
- * 2) We already promoted a slave.
- * 3) The promoted slave is in extended SDOWN condition.
- */
-void sentinelAbortFailoverIfNeeded(sentinelRedisInstance *ri) {
-    /* Failover is in progress? Do we have a promoted slave? */
-    if (!(ri->flags & SRI_FAILOVER_IN_PROGRESS) || !ri->promoted_slave) return;
-
-    /* Is the promoted slave into an extended SDOWN state? */
-    if (!(ri->promoted_slave->flags & SRI_S_DOWN) ||
-        (mstime() - ri->promoted_slave->s_down_since_time) <
-        (ri->down_after_period * SENTINEL_EXTENDED_SDOWN_MULTIPLIER)) return;
-
-    sentinelEvent(REDIS_WARNING,"-failover-abort-x-sdown",ri->promoted_slave,"%@");
-    sentinelAbortFailover(ri);
 }
 
 /* ======================== SENTINEL timer handler ==========================
@@ -3152,7 +3048,6 @@ void sentinelHandleRedisInstance(sentinelRedisInstance *ri) {
         sentinelCheckObjectivelyDown(ri);
         sentinelStartFailoverIfNeeded(ri);
         sentinelFailoverStateMachine(ri);
-        sentinelAbortFailoverIfNeeded(ri);
     }
 }
 
