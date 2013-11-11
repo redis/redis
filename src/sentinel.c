@@ -1651,11 +1651,13 @@ void sentinelPublishReplyCallback(redisAsyncContext *c, void *reply, void *privd
 /* This is our Pub/Sub callback for the Hello channel. It's useful in order
  * to discover other sentinels attached at the same master. */
 void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privdata) {
-    sentinelRedisInstance *ri = c->data;
+    sentinelRedisInstance *ri = c->data, *master;
     redisReply *r;
 
     if (!reply || !ri) return;
     r = reply;
+
+    master = (ri->flags & SRI_MASTER) ? ri : ri->master;
 
     /* Update the last activity in the pubsub channel. Note that since we
      * receive our messages as well this timestamp can be used to detect
@@ -1691,26 +1693,26 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
             master_port = atoi(token[7]);
             canfailover = atoi(token[3]);
             si = getSentinelRedisInstanceByAddrAndRunID(
-                            ri->sentinels,token[0],port,token[2]);
+                            master->sentinels,token[0],port,token[2]);
             current_epoch = strtoull(token[4],NULL,10);
             master_config_epoch = strtoull(token[8],NULL,10);
-            sentinelRedisInstance *master;
+            sentinelRedisInstance *msgmaster;
 
             if (!si) {
                 /* If not, remove all the sentinels that have the same runid
                  * OR the same ip/port, because it's either a restart or a
                  * network topology change. */
-                removed = removeMatchingSentinelsFromMaster(ri,token[0],port,
+                removed = removeMatchingSentinelsFromMaster(master,token[0],port,
                                 token[2]);
                 if (removed) {
-                    sentinelEvent(REDIS_NOTICE,"-dup-sentinel",ri,
+                    sentinelEvent(REDIS_NOTICE,"-dup-sentinel",master,
                         "%@ #duplicate of %s:%d or %s",
                         token[0],port,token[2]);
                 }
 
                 /* Add the new sentinel. */
                 si = createSentinelRedisInstance(NULL,SRI_SENTINEL,
-                                token[0],port,ri->quorum,ri);
+                                token[0],port,master->quorum,master);
                 if (si) {
                     sentinelEvent(REDIS_NOTICE,"+sentinel",si,"%@");
                     /* The runid is NULL after a new instance creation and
@@ -1725,17 +1727,18 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
                 sentinel.current_epoch = current_epoch;
 
             /* Update master info if received configuration is newer. */
-            if ((master = sentinelGetMasterByName(token[5])) != NULL) {
-                if (master->config_epoch < master_config_epoch) {
-                    master->config_epoch = master_config_epoch;
-                    if (master_port != master->addr->port ||
-                        !strcmp(master->addr->ip, token[6]))
+            if ((msgmaster = sentinelGetMasterByName(token[5])) != NULL) {
+                if (msgmaster->config_epoch < master_config_epoch) {
+                    msgmaster->config_epoch = master_config_epoch;
+                    if (master_port != msgmaster->addr->port ||
+                        !strcmp(msgmaster->addr->ip, token[6]))
                     {
                         sentinelEvent(REDIS_WARNING,"+switch-master",
-                            master,"%s %s %d %s %d",
-                            master->name, master->addr->ip, master->addr->port,
+                            msgmaster,"%s %s %d %s %d",
+                            msgmaster->name,
+                            msgmaster->addr->ip, msgmaster->addr->port,
                             token[6], master_port);
-                        sentinelResetMasterAndChangeAddress(ri,
+                        sentinelResetMasterAndChangeAddress(msgmaster,
                                                     token[6], master_port);
                     }
                 }
