@@ -74,6 +74,7 @@ typedef struct sentinelAddr {
 #define SRI_FORCE_FAILOVER (1<<13)  /* Force failover with master up. */
 #define SRI_SCRIPT_KILL_SENT (1<<14) /* SCRIPT KILL already sent on -BUSY */
 
+#define SENTINEL_NO_FLAGS 0         /* Generic no flags define. */
 #define SENTINEL_INFO_PERIOD 10000
 #define SENTINEL_PING_PERIOD 1000
 #define SENTINEL_ASK_PERIOD 1000
@@ -2328,7 +2329,8 @@ void sentinelReceiveIsMasterDownReply(redisAsyncContext *c, void *reply, void *p
  * SENTINEL IS-MASTER-DOWN-BY-ADDR requests to other sentinels
  * in order to get the replies that allow to reach the quorum and
  * possibly also mark the master as objectively down. */
-void sentinelAskMasterStateToOtherSentinels(sentinelRedisInstance *master) {
+#define SENTINEL_ASK_FORCED (1<<0)
+void sentinelAskMasterStateToOtherSentinels(sentinelRedisInstance *master, int flags) {
     dictIterator *di;
     dictEntry *de;
 
@@ -2361,7 +2363,8 @@ void sentinelAskMasterStateToOtherSentinels(sentinelRedisInstance *master) {
          * 3) We did not received the info within SENTINEL_ASK_PERIOD ms. */
         if ((master->flags & SRI_S_DOWN) == 0) continue;
         if (ri->flags & SRI_DISCONNECTED) continue;
-        if (mstime() - ri->last_master_down_reply_time < SENTINEL_ASK_PERIOD)
+        if (!(flags & SENTINEL_ASK_FORCED) &&
+            mstime() - ri->last_master_down_reply_time < SENTINEL_ASK_PERIOD)
             continue;
 
         /* Ask */
@@ -2561,20 +2564,23 @@ void sentinelStartFailover(sentinelRedisInstance *master) {
  * 2) The master is marked as SRI_CAN_FAILOVER, so we can failover it.
  * 
  * We still don't know if we'll win the election so it is possible that we
- * start the failover but that we'll not be able to act. */
-void sentinelStartFailoverIfNeeded(sentinelRedisInstance *master) {
+ * start the failover but that we'll not be able to act.
+ *
+ * Return non-zero if a failover was started. */
+int sentinelStartFailoverIfNeeded(sentinelRedisInstance *master) {
     /* We can't failover if the master is not in O_DOWN state. */
     if (!(master->flags & SRI_CAN_FAILOVER) ||
-        !(master->flags & SRI_O_DOWN)) return;
+        !(master->flags & SRI_O_DOWN)) return 0;
 
     /* Failover already in progress? */
-    if (master->flags & SRI_FAILOVER_IN_PROGRESS) return;
+    if (master->flags & SRI_FAILOVER_IN_PROGRESS) return 0;
 
     /* Last failover attempt started too little time ago? */
     if (mstime() - master->failover_start_time <
-        SENTINEL_PUBLISH_PERIOD*4) return;
+        SENTINEL_PUBLISH_PERIOD*4) return 0;
 
     sentinelStartFailover(master);
+    return 1;
 }
 
 /* Select a suitable slave to promote. The current algorithm only uses
@@ -2986,9 +2992,10 @@ void sentinelHandleRedisInstance(sentinelRedisInstance *ri) {
     /* Only masters */
     if (ri->flags & SRI_MASTER) {
         sentinelCheckObjectivelyDown(ri);
-        sentinelStartFailoverIfNeeded(ri);
+        if (sentinelStartFailoverIfNeeded(ri))
+            sentinelAskMasterStateToOtherSentinels(ri,SENTINEL_ASK_FORCED);
         sentinelFailoverStateMachine(ri);
-        sentinelAskMasterStateToOtherSentinels(ri);
+        sentinelAskMasterStateToOtherSentinels(ri,SENTINEL_NO_FLAGS);
     }
 }
 
