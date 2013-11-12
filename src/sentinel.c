@@ -67,13 +67,12 @@ typedef struct sentinelAddr {
 #define SRI_CAN_FAILOVER (1<<7)
 #define SRI_FAILOVER_IN_PROGRESS (1<<8) /* Failover is in progress for
                                            this master. */
-#define SRI_I_AM_THE_LEADER (1<<9)     /* We are the leader for this master. */
-#define SRI_PROMOTED (1<<10)            /* Slave selected for promotion. */
-#define SRI_RECONF_SENT (1<<11)     /* SLAVEOF <newmaster> sent. */
-#define SRI_RECONF_INPROG (1<<12)   /* Slave synchronization in progress. */
-#define SRI_RECONF_DONE (1<<13)     /* Slave synchronized with new master. */
-#define SRI_FORCE_FAILOVER (1<<14)  /* Force failover with master up. */
-#define SRI_SCRIPT_KILL_SENT (1<<15) /* SCRIPT KILL already sent on -BUSY */
+#define SRI_PROMOTED (1<<9)            /* Slave selected for promotion. */
+#define SRI_RECONF_SENT (1<<10)     /* SLAVEOF <newmaster> sent. */
+#define SRI_RECONF_INPROG (1<<11)   /* Slave synchronization in progress. */
+#define SRI_RECONF_DONE (1<<12)     /* Slave synchronized with new master. */
+#define SRI_FORCE_FAILOVER (1<<13)  /* Force failover with master up. */
+#define SRI_SCRIPT_KILL_SENT (1<<14) /* SCRIPT KILL already sent on -BUSY */
 
 #define SENTINEL_INFO_PERIOD 10000
 #define SENTINEL_PING_PERIOD 1000
@@ -177,6 +176,7 @@ typedef struct sentinelRedisInstance {
                            this is a Sentinel, this is the runid of the Sentinel
                            that this Sentinel voted as leader. */
     uint64_t leader_epoch; /* Epoch of the 'leader' field. */
+    uint64_t failover_epoch; /* Epoch of the currently started failover. */
     int failover_state; /* See SENTINEL_FAILOVER_STATE_* defines. */
     mstime_t failover_state_change_time;
     mstime_t failover_start_time;   /* When to start to failover if leader. */
@@ -325,7 +325,7 @@ void sentinelAbortFailover(sentinelRedisInstance *ri);
 void sentinelEvent(int level, char *type, sentinelRedisInstance *ri, const char *fmt, ...);
 sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master);
 void sentinelScheduleScriptExecution(char *path, ...);
-void sentinelStartFailover(sentinelRedisInstance *master, int state);
+void sentinelStartFailover(sentinelRedisInstance *master);
 void sentinelDiscardReplyCallback(redisAsyncContext *c, void *reply, void *privdata);
 int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port);
 char *sentinelVoteLeader(sentinelRedisInstance *master, uint64_t req_epoch, char *req_runid, uint64_t *leader_epoch);
@@ -897,6 +897,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     /* Failover state. */
     ri->leader = NULL;
     ri->leader_epoch = 0;
+    ri->failover_epoch = 0;
     ri->failover_state = SENTINEL_FAILOVER_STATE_NONE;
     ri->failover_state_change_time = 0;
     ri->failover_start_time = 0;
@@ -1524,7 +1525,6 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
          * failover state machine. */
         if (!sentinel.tilt &&
             (ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
-            (ri->master->flags & SRI_I_AM_THE_LEADER) &&
             (ri->master->failover_state ==
                 SENTINEL_FAILOVER_STATE_WAIT_PROMOTION))
         {
@@ -1900,8 +1900,6 @@ void addReplySentinelRedisInstance(redisClient *c, sentinelRedisInstance *ri) {
     if (ri->flags & SRI_MASTER_DOWN) flags = sdscat(flags,"master_down,");
     if (ri->flags & SRI_FAILOVER_IN_PROGRESS)
         flags = sdscat(flags,"failover_in_progress,");
-    if (ri->flags & SRI_I_AM_THE_LEADER)
-        flags = sdscat(flags,"i_am_the_leader,");
     if (ri->flags & SRI_PROMOTED) flags = sdscat(flags,"promoted,");
     if (ri->flags & SRI_RECONF_SENT) flags = sdscat(flags,"reconf_sent,");
     if (ri->flags & SRI_RECONF_INPROG) flags = sdscat(flags,"reconf_inprog,");
@@ -2149,7 +2147,7 @@ void sentinelCommand(redisClient *c) {
             addReplySds(c,sdsnew("-NOGOODSLAVE No suitable slave to promote\r\n"));
             return;
         }
-        sentinelStartFailover(ri,SENTINEL_FAILOVER_STATE_WAIT_START);
+        sentinelStartFailover(ri);
         ri->flags |= SRI_FORCE_FAILOVER;
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"pending-scripts")) {
@@ -2349,6 +2347,14 @@ void sentinelAskMasterStateToOtherSentinels(sentinelRedisInstance *master) {
     dictIterator *di;
     dictEntry *de;
 
+    /* Vote for myself if I see the master is already in ODOWN state. */
+    if (master->flags & SRI_O_DOWN) {
+        uint64_t leader_epoch;
+
+        sentinelVoteLeader(master,sentinel.current_epoch,server.runid,
+                                    &leader_epoch);
+    }
+
     di = dictGetIterator(master->sentinels);
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
@@ -2368,8 +2374,7 @@ void sentinelAskMasterStateToOtherSentinels(sentinelRedisInstance *master) {
          * 1) We believe it is down, or there is a failover in progress.
          * 2) Sentinel is connected.
          * 3) We did not received the info within SENTINEL_ASK_PERIOD ms. */
-        if ((master->flags & (SRI_S_DOWN|SRI_FAILOVER_IN_PROGRESS)) == 0)
-            continue;
+        if ((master->flags & SRI_S_DOWN) == 0) continue;
         if (ri->flags & SRI_DISCONNECTED) continue;
         if (mstime() - ri->last_master_down_reply_time < SENTINEL_ASK_PERIOD)
             continue;
@@ -2379,7 +2384,9 @@ void sentinelAskMasterStateToOtherSentinels(sentinelRedisInstance *master) {
         retval = redisAsyncCommand(ri->cc,
                     sentinelReceiveIsMasterDownReply, NULL,
                     "SENTINEL is-master-down-by-addr %s %s %llu %s",
-                    master->addr->ip, port, sentinel.current_epoch, server.runid);
+                    master->addr->ip, port,
+                    sentinel.current_epoch,
+                    server.runid);
         if (retval == REDIS_OK) ri->pending_commands++;
     }
     dictReleaseIterator(di);
@@ -2417,7 +2424,9 @@ char *sentinelVoteLeader(sentinelRedisInstance *master, uint64_t req_epoch, char
     if (req_epoch > sentinel.current_epoch)
         sentinel.current_epoch = req_epoch;
 
-    if (si && master->leader_epoch < req_epoch) {
+    if (si && master->leader_epoch < req_epoch &&
+              sentinel.current_epoch <= req_epoch)
+    {
         sdsfree(master->leader);
         master->leader = sdsnew(req_runid);
         master->leader_epoch = sentinel.current_epoch;
@@ -2449,25 +2458,27 @@ void sentinelLeaderIncr(dict *counters, char *runid) {
 }
 
 /* Scan all the Sentinels attached to this master to check if there
- * is a leader for a given term, and return it if any.
+ * is a leader for the specified epoch.
  *
  * To be a leader for a given epoch, we should have the majorify of
- * the Sentinels we know about that reported the same instance as
+ * the Sentinels we know that reported the same instance as
  * leader for the same epoch. */
-char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t term) {
+char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     dict *counters;
     dictIterator *di;
     dictEntry *de;
     unsigned int voters = 0, voters_quorum;
     char *myvote;
     char *winner = NULL;
+    uint64_t leader_epoch;
 
     redisAssert(master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS));
     counters = dictCreate(&leaderVotesDictType,NULL);
 
-    /* Count my vote. */
-    myvote = sentinelGetSubjectiveLeader(master);
-    if (myvote) {
+    /* Count my vote (and vote for myself if I still did not voted for
+     * the currnet epoch). */
+    myvote = sentinelVoteLeader(master,epoch,server.runid,&leader_epoch);
+    if (myvote && leader_epoch == epoch) {
         sentinelLeaderIncr(counters,myvote);
         voters++;
     }
@@ -2476,13 +2487,8 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t term) {
     di = dictGetIterator(master->sentinels);
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
-        if (ri->leader == NULL) continue;
-        /* If the failover is not already in progress we are only interested
-         * in Sentinels that believe the master is down. Otherwise the leader
-         * selection is useful for the "failover-takedown" when the original
-         * leader fails. In that case we consider all the voters. */
-        if (!(master->flags & SRI_FAILOVER_IN_PROGRESS) &&
-            !(ri->flags & SRI_MASTER_DOWN)) continue;
+        if (ri->leader == NULL || ri->leader_epoch != sentinel.current_epoch)
+            continue;
         sentinelLeaderIncr(counters,ri->leader);
         voters++;
     }
@@ -2548,32 +2554,14 @@ int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port) {
     return REDIS_OK;
 }
 
-/* Setup the master state to start a failover as a leader.
- *
- * State can be either:
- *
- * SENTINEL_FAILOVER_STATE_WAIT_START: starts a failover from scratch.
- * SENTINEL_FAILOVER_STATE_RECONF_SLAVES: takedown a failed failover.
- */
-void sentinelStartFailover(sentinelRedisInstance *master, int state) {
+/* Setup the master state to start a failover. */
+void sentinelStartFailover(sentinelRedisInstance *master) {
     redisAssert(master->flags & SRI_MASTER);
-    redisAssert(state == SENTINEL_FAILOVER_STATE_WAIT_START ||
-                state == SENTINEL_FAILOVER_STATE_RECONF_SLAVES);
 
-    master->failover_state = state;
-    master->flags |= SRI_FAILOVER_IN_PROGRESS|SRI_I_AM_THE_LEADER;
+    master->failover_state = SENTINEL_FAILOVER_STATE_WAIT_START;
+    master->flags |= SRI_FAILOVER_IN_PROGRESS;
+    master->failover_epoch = ++sentinel.current_epoch;
     sentinelEvent(REDIS_WARNING,"+failover-triggered",master,"%@");
-
-    /* Pick a random delay if it's a fresh failover (WAIT_START), and not
-     * a recovery of a failover started by another sentinel. */
-    if (master->failover_state == SENTINEL_FAILOVER_STATE_WAIT_START) {
-        master->failover_start_time = mstime() +
-            SENTINEL_FAILOVER_FIXED_DELAY +
-            (rand() % SENTINEL_FAILOVER_MAX_RANDOM_DELAY);
-        sentinelEvent(REDIS_WARNING,"+failover-state-wait-start",master,
-            "%@ #starting in %lld milliseconds",
-            master->failover_start_time-mstime());
-    }
     master->failover_state_change_time = mstime();
 }
 
@@ -2582,66 +2570,18 @@ void sentinelStartFailover(sentinelRedisInstance *master, int state) {
  *
  * 1) Enough time has passed since O_DOWN.
  * 2) The master is marked as SRI_CAN_FAILOVER, so we can failover it.
- * 3) We are the objectively leader for this master.
- *
- * If the conditions are met we flag the master as SRI_FAILOVER_IN_PROGRESS
- * and SRI_I_AM_THE_LEADER.
- */
+ * 
+ * We still don't know if we'll win the election so it is possible that we
+ * start the failover but that we'll not be able to act. */
 void sentinelStartFailoverIfNeeded(sentinelRedisInstance *master) {
-    char *leader;
-    int isleader;
-
-    /* We can't failover if the master is not in O_DOWN state or if
-     * there is not already a failover in progress (to perform the
-     * takedown if the leader died) or if this Sentinel is not allowed
-     * to start a failover. */
+    /* We can't failover if the master is not in O_DOWN state. */
     if (!(master->flags & SRI_CAN_FAILOVER) ||
-        !(master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS))) return;
+        !(master->flags & SRI_O_DOWN)) return;
 
-    leader = sentinelGetObjectiveLeader(master);
-    isleader = leader && strcasecmp(leader,server.runid) == 0;
-    sdsfree(leader);
+    /* Failover already in progress? */
+    if (master->flags & SRI_FAILOVER_IN_PROGRESS) return;
 
-    /* If I'm not the leader, I can't failover for sure. */
-    if (!isleader) return;
-
-    /* If the failover is already in progress there are two options... */
-    if (master->flags & SRI_FAILOVER_IN_PROGRESS) {
-        if (master->flags & SRI_I_AM_THE_LEADER) {
-            /* 1) I'm flagged as leader so I already started the failover.
-             *    Just return. */
-            return;
-        } else {
-            mstime_t elapsed = mstime() - master->failover_state_change_time;
-
-            /* 2) I'm the new leader, but I'm not flagged as leader in the
-             *    master: I did not started the failover, but the original
-             *    leader has no longer the leadership.
-             *
-             *    In this case if the failover appears to be lagging
-             *    for at least 25% of the configured failover timeout,
-             *    I can assume I can take control. Otherwise
-             *    it's better to return and wait more. */
-            if (elapsed < (master->failover_timeout/4)) return;
-            sentinelEvent(REDIS_WARNING,"+failover-takedown",master,"%@");
-            /* We have already an elected slave if we are in
-             * FAILOVER_IN_PROGRESS state, that is, the slave that we
-             * observed turning into a master. */
-            sentinelStartFailover(master,SENTINEL_FAILOVER_STATE_RECONF_SLAVES);
-            /* As an observer we flagged all the slaves as RECONF_SENT but
-             * now we are in charge of actually sending the reconfiguration
-             * command so let's clear this flag for all the instances. */
-            sentinelDelFlagsToDictOfRedisInstances(master->slaves,
-                SRI_RECONF_SENT);
-        }
-    } else {
-        /* Brand new failover as SRI_FAILOVER_IN_PROGRESS was not set.
-         *
-         * Do we have a slave to promote? Otherwise don't start a failover
-         * at all. */
-        if (sentinelSelectSlave(master) == NULL) return;
-        sentinelStartFailover(master,SENTINEL_FAILOVER_STATE_WAIT_START);
-    }
+    sentinelStartFailover(master);
 }
 
 /* Select a suitable slave to promote. The current algorithm only uses
@@ -2725,29 +2665,22 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
 
 /* ---------------- Failover state machine implementation ------------------- */
 void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
-    /* If we in "wait start" but the master is no longer in ODOWN nor in
-     * SDOWN condition we abort the failover. This is important as it
-     * prevents a useless failover in a a notable case of netsplit, where
-     * the sentinels are split from the redis instances. In this case
-     * the failover will not start while there is the split because no
-     * good slave can be reached. However when the split is resolved, we
-     * can go to waitstart if the slave is back reachable a few milliseconds
-     * before the master is. In that case when the master is back online
-     * we cancel the failover. */
-    if ((ri->flags & (SRI_S_DOWN|SRI_O_DOWN|SRI_FORCE_FAILOVER)) == 0) {
-        sentinelEvent(REDIS_WARNING,"-failover-abort-master-is-back",
-            ri,"%@");
-        sentinelAbortFailover(ri);
-        return;
-    }
+    char *leader;
+    int isleader;
+
+    /* Check if we are the leader for the failover epoch. */
+    leader = sentinelGetLeader(ri, ri->failover_epoch);
+    isleader = leader && strcasecmp(leader,server.runid) == 0;
+    sdsfree(leader);
+
+    /* If I'm not the leader, I can't continue with the failover. */
+    if (!isleader) return;
 
     /* Start the failover going to the next state if enough time has
      * elapsed. */
-    if (mstime() >= ri->failover_start_time) {
-        ri->failover_state = SENTINEL_FAILOVER_STATE_SELECT_SLAVE;
-        ri->failover_state_change_time = mstime();
-        sentinelEvent(REDIS_WARNING,"+failover-state-select-slave",ri,"%@");
-    }
+    ri->failover_state = SENTINEL_FAILOVER_STATE_SELECT_SLAVE;
+    ri->failover_state_change_time = mstime();
+    sentinelEvent(REDIS_WARNING,"+failover-state-select-slave",ri,"%@");
 }
 
 void sentinelFailoverSelectSlave(sentinelRedisInstance *ri) {
@@ -2831,8 +2764,7 @@ void sentinelFailoverDetectEnd(sentinelRedisInstance *master) {
     }
 
     if (not_reconfigured == 0) {
-        int role = (master->flags & SRI_I_AM_THE_LEADER) ? SENTINEL_LEADER :
-                                                           SENTINEL_OBSERVER;
+        int role = SENTINEL_LEADER;
 
         sentinelEvent(REDIS_WARNING,"+failover-end",master,"%@");
         master->failover_state = SENTINEL_FAILOVER_STATE_UPDATE_CONFIG;
@@ -2844,7 +2776,7 @@ void sentinelFailoverDetectEnd(sentinelRedisInstance *master) {
     /* If I'm the leader it is a good idea to send a best effort SLAVEOF
      * command to all the slaves still not reconfigured to replicate with
      * the new master. */
-    if (timeout && (master->flags & SRI_I_AM_THE_LEADER)) {
+    if (timeout) {
         dictIterator *di;
         dictEntry *de;
 
@@ -3001,8 +2933,7 @@ void sentinelAbortFailover(sentinelRedisInstance *ri) {
     di = dictGetIterator(ri->slaves);
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *slave = dictGetVal(de);
-        if ((ri->flags & SRI_I_AM_THE_LEADER) &&
-            !(slave->flags & SRI_DISCONNECTED) &&
+        if (!(slave->flags & SRI_DISCONNECTED) &&
              (slave->flags & (SRI_PROMOTED|SRI_RECONF_SENT|SRI_RECONF_INPROG|
                               SRI_RECONF_DONE)))
         {
@@ -3016,9 +2947,8 @@ void sentinelAbortFailover(sentinelRedisInstance *ri) {
     }
     dictReleaseIterator(di);
 
-    sentinel_role = (ri->flags & SRI_I_AM_THE_LEADER) ? SENTINEL_LEADER :
-                                                        SENTINEL_OBSERVER;
-    ri->flags &= ~(SRI_FAILOVER_IN_PROGRESS|SRI_I_AM_THE_LEADER|SRI_FORCE_FAILOVER);
+    sentinel_role = SENTINEL_LEADER;
+    ri->flags &= ~(SRI_FAILOVER_IN_PROGRESS|SRI_FORCE_FAILOVER);
     ri->failover_state = SENTINEL_FAILOVER_STATE_NONE;
     ri->failover_state_change_time = mstime();
     if (ri->promoted_slave) {
@@ -3040,16 +2970,6 @@ void sentinelHandleRedisInstance(sentinelRedisInstance *ri) {
     /* Every kind of instance */
     sentinelReconnectInstance(ri);
     sentinelPingInstance(ri);
-
-    /* Masters and slaves */
-    if (ri->flags & (SRI_MASTER|SRI_SLAVE)) {
-        /* Nothing so far. */
-    }
-
-    /* Only masters */
-    if (ri->flags & SRI_MASTER) {
-        sentinelAskMasterStateToOtherSentinels(ri);
-    }
 
     /* ============== ACTING HALF ============= */
     /* We don't proceed with the acting half if we are in TILT mode.
@@ -3074,6 +2994,7 @@ void sentinelHandleRedisInstance(sentinelRedisInstance *ri) {
         sentinelCheckObjectivelyDown(ri);
         sentinelStartFailoverIfNeeded(ri);
         sentinelFailoverStateMachine(ri);
+        sentinelAskMasterStateToOtherSentinels(ri);
     }
 }
 
