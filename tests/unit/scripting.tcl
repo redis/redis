@@ -283,27 +283,25 @@ if 0 {
         assert {$rand2 ne $rand3}
     }
 
-    test {EVAL processes writes from AOF in read-only slaves} {
-# JEP
-if 0 {
-        r flushall
-        r config set appendonly yes
-        r eval {redis.call("set","foo","100")} 0
-        r eval {redis.call("incr","foo")} 0
-        r eval {redis.call("incr","foo")} 0
+# Win - COW killing redis - disabled replication 
+#    test {EVAL processes writes from AOF in read-only slaves} {
+#        r flushall
+#        r config set appendonly yes
+#        r eval {redis.call("set","foo","100")} 0
+#        r eval {redis.call("incr","foo")} 0
+#        r eval {redis.call("incr","foo")} 0
 # windows build needs a bit longer than the "50 100" specified
-        wait_for_condition 100 1000 {
-            [s aof_rewrite_in_progress] == 0
-        } else {
-            fail "AOF rewrite can't complete after CONFIG SET appendonly yes."
-        }
-        r config set slave-read-only yes
-        r slaveof 127.0.0.1 0
-        r debug loadaof
-        r get foo
-}
-    } {102}
-}
+#        wait_for_condition 100 1000 {
+#            [s aof_rewrite_in_progress] == 0
+#        } else {
+#            fail "AOF rewrite can't complete after CONFIG SET appendonly yes."
+#        }
+#        r config set slave-read-only yes
+#        r slaveof 127.0.0.1 0
+#        r debug loadaof
+#        r get foo
+#    } {102}
+#}
 
 # Start a new server since the last test in this stanza will kill the
 # instance at all.
@@ -364,48 +362,49 @@ start_server {tags {"scripting repl"}} {
             r eval {return redis.call('incr','x')} 0
         } {2}
 
-        test {Connect a slave to the main instance} {
-            r -1 slaveof [srv 0 host] [srv 0 port]
-            wait_for_condition 50 100 {
-                [s -1 role] eq {slave} &&
-                [string match {*master_link_status:up*} [r -1 info replication]]
-            } else {
-                fail "Can't turn the instance into a slave"
-            }
-        }
-
-        test {Now use EVALSHA against the master, with both SHAs} {
-            # The server should replicate successful and unsuccessful
-            # commands as EVAL instead of EVALSHA.
-            catch {
-                r evalsha 6e8bd6bdccbe78899e3cc06b31b6dbf4324c2e56 0
-            }
-            r evalsha ae3477e27be955de7e1bc9adfdca626b478d3cb2 0
-        } {4}
-
-        test {If EVALSHA was replicated as EVAL, 'x' should be '4'} {
-            wait_for_condition 50 100 {
-                [r -1 get x] eq {4}
-            } else {
-                fail "Expected 4 in x, but value is '[r -1 get x]'"
-            }
-        }
-
-        test {Replication of script multiple pushes to list with BLPOP} {
-            set rd [redis_deferring_client]
-            $rd brpop a 0
-            r eval {
-                redis.call("lpush","a","1");
-                redis.call("lpush","a","2");
-            } 0
-            set res [$rd read]
-            $rd close
-            wait_for_condition 50 100 {
-                [r -1 lrange a 0 -1] eq [r lrange a 0 -1]
-            } else {
-                fail "Expected list 'a' in slave and master to be the same, but they are respectively '[r -1 lrange a 0 -1]' and '[r lrange a 0 -1]'"
-            }
-            set res
-        } {a 1}
+# Win - COW killing redis - disabled replication 
+#        test {Connect a slave to the main instance} {
+#            r -1 slaveof [srv 0 host] [srv 0 port]
+#            wait_for_condition 50 100 {
+#                [s -1 role] eq {slave} &&
+#                [string match {*master_link_status:up*} [r -1 info replication]]
+#            } else {
+#                fail "Can't turn the instance into a slave"
+#            }
+#        }
+#
+#        test {Now use EVALSHA against the master, with both SHAs} {
+#            # The server should replicate successful and unsuccessful
+#            # commands as EVAL instead of EVALSHA.
+#            catch {
+#                r evalsha 6e8bd6bdccbe78899e3cc06b31b6dbf4324c2e56 0
+#            }
+#            r evalsha ae3477e27be955de7e1bc9adfdca626b478d3cb2 0
+#        } {4}
+#
+#        test {If EVALSHA was replicated as EVAL, 'x' should be '4'} {
+#            wait_for_condition 50 100 {
+#                [r -1 get x] eq {4}
+#            } else {
+#                fail "Expected 4 in x, but value is '[r -1 get x]'"
+#            }
+#        }
+#
+#        test {Replication of script multiple pushes to list with BLPOP} {
+#            set rd [redis_deferring_client]
+#            $rd brpop a 0
+#            r eval {
+#                redis.call("lpush","a","1");
+#                redis.call("lpush","a","2");
+#            } 0
+#            set res [$rd read]
+#            $rd close
+#            wait_for_condition 50 100 {
+#                [r -1 lrange a 0 -1] eq [r lrange a 0 -1]
+#            } else {
+#                fail "Expected list 'a' in slave and master to be the same, but they are respectively '[r -1 lrange a 0 -1]' and '[r lrange a 0 -1]'"
+#            }
+#            set res
+#        } {a 1}
     }
 }
