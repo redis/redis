@@ -1941,6 +1941,10 @@ void addReplySentinelRedisInstance(redisClient *c, sentinelRedisInstance *ri) {
 
     /* Only masters */
     if (ri->flags & SRI_MASTER) {
+        addReplyBulkCString(c,"config-epoch");
+        addReplyBulkLongLong(c,ri->config_epoch);
+        fields++;
+
         addReplyBulkCString(c,"num-slaves");
         addReplyBulkLongLong(c,dictSize(ri->slaves));
         fields++;
