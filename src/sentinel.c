@@ -1545,7 +1545,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                         ri->master->addr->ip,
                         ri->master->addr->port);
                 if (retval == REDIS_OK)
-                    sentinelEvent(REDIS_NOTICE,"+demote-old-slave",ri,"%@");
+                    sentinelEvent(REDIS_NOTICE,"+convert-to-slave",ri,"%@");
             }
         }
     }
