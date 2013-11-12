@@ -1511,6 +1511,12 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             (ri->master->failover_state ==
                 SENTINEL_FAILOVER_STATE_WAIT_PROMOTION))
         {
+            /* Now that we are sure the slave was reconfigured as a master
+             * set the master configuration epoch to the epoch we won the
+             * election to perform this failover. This will force the other
+             * Sentinels to update their config (assuming there is not
+             * a newer one already available). */
+            ri->master->config_epoch = ri->master->failover_epoch;
             ri->master->failover_state = SENTINEL_FAILOVER_STATE_RECONF_SLAVES;
             ri->master->failover_state_change_time = mstime();
             sentinelEvent(REDIS_WARNING,"+promoted-slave",ri,"%@");
@@ -2419,6 +2425,13 @@ char *sentinelVoteLeader(sentinelRedisInstance *master, uint64_t req_epoch, char
         master->leader_epoch = sentinel.current_epoch;
         sentinelEvent(REDIS_WARNING,"+vote-for-leader",master,"%s %llu",
             master->leader, (unsigned long long) master->leader_epoch);
+        /* If we did not voted for ourselves, set the master failover start
+         * time to now, in order to force a delay before we can start a
+         * failover for the same master.
+         *
+         * The random addition is useful to desynchronize a bit the slaves
+         * and reduce the chance that no slave gets majority. */
+        master->failover_start_time = mstime() + rand() % 2000;
     }
 
     *leader_epoch = master->leader_epoch;
@@ -2673,7 +2686,14 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
     sdsfree(leader);
 
     /* If I'm not the leader, I can't continue with the failover. */
-    if (!isleader) return;
+    if (!isleader) {
+        /* Abort the failover if I'm not the leader after some time. */
+        if (mstime() - ri->failover_start_time > 10000) {
+            sentinelEvent(REDIS_WARNING,"-failover-abort-not-elected",ri,"%@");
+            sentinelAbortFailover(ri);
+        }
+        return;
+    }
     sentinelEvent(REDIS_WARNING,"+elected-leader",ri,"%@");
 
     /* Start the failover going to the next state if enough time has
