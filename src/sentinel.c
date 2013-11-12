@@ -1336,7 +1336,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
         }
     }
     /* Pub / Sub */
-    if ((ri->flags & SRI_MASTER) && ri->pc == NULL) {
+    if ((ri->flags & (SRI_MASTER|SRI_SLAVE)) && ri->pc == NULL) {
         ri->pc = redisAsyncConnect(ri->addr->ip,ri->addr->port);
         if (ri->pc->err) {
             sentinelEvent(REDIS_DEBUG,"-pubsub-link-reconnection",ri,"%@ #%s",
