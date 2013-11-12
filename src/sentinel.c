@@ -179,7 +179,7 @@ typedef struct sentinelRedisInstance {
     uint64_t failover_epoch; /* Epoch of the currently started failover. */
     int failover_state; /* See SENTINEL_FAILOVER_STATE_* defines. */
     mstime_t failover_state_change_time;
-    mstime_t failover_start_time;   /* When to start to failover if leader. */
+    mstime_t failover_start_time;   /* Last failover attempt start time. */
     mstime_t failover_timeout;      /* Max time to refresh failover state. */
     struct sentinelRedisInstance *promoted_slave; /* Promoted slave instance. */
     /* Scripts executed to notify admin or reconfigure clients: when they
@@ -2413,7 +2413,7 @@ char *sentinelVoteLeader(sentinelRedisInstance *master, uint64_t req_epoch, char
     }
 
     *leader_epoch = master->leader_epoch;
-    return master->leader;
+    return master->leader ? sdsnew(master->leader) : NULL;
 }
 
 struct sentinelLeader {
@@ -2542,6 +2542,7 @@ void sentinelStartFailover(sentinelRedisInstance *master) {
     master->flags |= SRI_FAILOVER_IN_PROGRESS;
     master->failover_epoch = ++sentinel.current_epoch;
     sentinelEvent(REDIS_WARNING,"+failover-triggered",master,"%@");
+    master->failover_start_time = mstime();
     master->failover_state_change_time = mstime();
 }
 
@@ -2560,6 +2561,10 @@ void sentinelStartFailoverIfNeeded(sentinelRedisInstance *master) {
 
     /* Failover already in progress? */
     if (master->flags & SRI_FAILOVER_IN_PROGRESS) return;
+
+    /* Last failover attempt started too little time ago? */
+    if (mstime() - master->failover_start_time <
+        SENTINEL_PUBLISH_PERIOD*4) return;
 
     sentinelStartFailover(master);
 }
