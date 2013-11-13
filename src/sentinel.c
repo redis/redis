@@ -2319,8 +2319,18 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
         sentinelKillLink(ri,ri->pc);
     }
 
-    /* Update the subjectively down flag. */
-    if (elapsed > ri->down_after_period) {
+    /* Update the subjectively down flag. We believe the instance is in SDOWN
+     * state if:
+     * 1) It is not replying.
+     * 2) We believe it is a master, it reports to be a slave for enough time
+     *    to meet the down_after_period, plus enough time to get two times
+     *    INFO report from the instance. */
+    if (elapsed > ri->down_after_period ||
+        (ri->flags & SRI_MASTER &&
+         ri->role_reported == SRI_SLAVE &&
+         mstime() - ri->role_reported_time >
+          (ri->down_after_period+SENTINEL_INFO_PERIOD*2)))
+    {
         /* Is subjectively down */
         if ((ri->flags & SRI_S_DOWN) == 0) {
             sentinelEvent(REDIS_WARNING,"+sdown",ri,"%@");
