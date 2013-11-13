@@ -1574,7 +1574,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
              * configuratio via Pub/Sub if any. */
             mstime_t wait_time = SENTINEL_PUBLISH_PERIOD*4;
 
-            if (!sentinelRedisInstanceNoDownFor(ri->master,wait_time) ||
+            if (!sentinelRedisInstanceNoDownFor(ri,wait_time) ||
                 (mstime()-sentinel.tilt_start_time) < wait_time)
                 return;
 
