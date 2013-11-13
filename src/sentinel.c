@@ -1433,6 +1433,19 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
 
 /* ======================== Redis instances pinging  ======================== */
 
+/* Return true if master looks "sane", that is:
+ * 1) It is actually a master in the current configuration.
+ * 2) It reports itself as a master.
+ * 3) It is not SDOWN or ODOWN.
+ * 4) We obtained last INFO no more than two times the INFO period of time ago. */
+int sentinelMasterLooksSane(sentinelRedisInstance *master) {
+    return
+        master->flags & SRI_MASTER &&
+        master->role_reported == SRI_MASTER &&
+        (master->flags & (SRI_S_DOWN|SRI_O_DOWN)) == 0 &&
+        (mstime() - master->info_refresh) < SENTINEL_INFO_PERIOD*2;
+}
+
 /* Process the INFO output from masters. */
 void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     sds *lines;
@@ -1596,22 +1609,13 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                 "start",ri->master->addr,ri->addr);
         } else if (!sentinel.tilt) {
             /* A slave turned into a master. We want to force our view and
-             * reconfigure as slave, but make sure to wait some time before
-             * doing this in order to make sure to receive an updated
-             * configuration via Pub/Sub if any. */
+             * reconfigure as slave. Wait some time after the change before
+             * going forward, to receive new configs if any. */
             mstime_t wait_time = SENTINEL_PUBLISH_PERIOD*4;
 
-            if (!sentinelRedisInstanceNoDownFor(ri,wait_time) ||
-                mstime() - ri->role_reported_time < wait_time ||
-                mstime() - sentinel.tilt_start_time < wait_time)
-                return;
-
-            /* Make sure the master is sane before reconfiguring this instance
-             * into a slave. */
-            if (ri->master->flags & SRI_MASTER &&
-                ri->master->role_reported == SRI_MASTER &&
-                (ri->master->flags & (SRI_S_DOWN|SRI_O_DOWN)) == 0 &&
-                (mstime() - ri->master->info_refresh) < SENTINEL_INFO_PERIOD*2)
+            if (sentinelMasterLooksSane(ri->master) &&
+               sentinelRedisInstanceNoDownFor(ri,wait_time) &&
+               mstime() - ri->role_reported_time > wait_time)
             {
                 int retval = sentinelSendSlaveOf(ri,
                         ri->master->addr->ip,
@@ -1629,16 +1633,11 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     {
         mstime_t wait_time = SENTINEL_PUBLISH_PERIOD*4;
 
-        if (!sentinelRedisInstanceNoDownFor(ri,wait_time) ||
-            mstime() - ri->slave_conf_change_time < wait_time)
-            return;
-
         /* Make sure the master is sane before reconfiguring this instance
          * into a slave. */
-        if (ri->master->flags & SRI_MASTER &&
-            ri->master->role_reported == SRI_MASTER &&
-            (ri->master->flags & (SRI_S_DOWN|SRI_O_DOWN)) == 0 &&
-            (mstime() - ri->master->info_refresh) < SENTINEL_INFO_PERIOD*2)
+        if (sentinelMasterLooksSane(ri->master) &&
+            sentinelRedisInstanceNoDownFor(ri,wait_time) &&
+            mstime() - ri->slave_conf_change_time > wait_time)
         {
             int retval = sentinelSendSlaveOf(ri,
                     ri->master->addr->ip,
