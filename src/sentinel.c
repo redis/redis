@@ -1598,7 +1598,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             /* A slave turned into a master. We want to force our view and
              * reconfigure as slave, but make sure to wait some time before
              * doing this in order to make sure to receive an updated
-             * configuratio via Pub/Sub if any. */
+             * configuration via Pub/Sub if any. */
             mstime_t wait_time = SENTINEL_PUBLISH_PERIOD*4;
 
             if (!sentinelRedisInstanceNoDownFor(ri,wait_time) ||
@@ -1619,6 +1619,32 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                 if (retval == REDIS_OK)
                     sentinelEvent(REDIS_NOTICE,"+convert-to-slave",ri,"%@");
             }
+        }
+    }
+
+    /* Handle slaves replicating to a different master address. */
+    if ((ri->flags & SRI_SLAVE) && !sentinel.tilt &&
+        (ri->slave_master_port != ri->master->addr->port ||
+         strcasecmp(ri->slave_master_host,ri->master->addr->ip)))
+    {
+        mstime_t wait_time = SENTINEL_PUBLISH_PERIOD*4;
+
+        if (!sentinelRedisInstanceNoDownFor(ri,wait_time) ||
+            mstime() - ri->slave_conf_change_time < wait_time)
+            return;
+
+        /* Make sure the master is sane before reconfiguring this instance
+         * into a slave. */
+        if (ri->master->flags & SRI_MASTER &&
+            ri->master->role_reported == SRI_MASTER &&
+            (ri->master->flags & (SRI_S_DOWN|SRI_O_DOWN)) == 0 &&
+            (mstime() - ri->master->info_refresh) < SENTINEL_INFO_PERIOD*2)
+        {
+            int retval = sentinelSendSlaveOf(ri,
+                    ri->master->addr->ip,
+                    ri->master->addr->port);
+            if (retval == REDIS_OK)
+                sentinelEvent(REDIS_NOTICE,"+fix-slave-config",ri,"%@");
         }
     }
 
