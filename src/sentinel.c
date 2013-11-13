@@ -72,7 +72,6 @@ typedef struct sentinelAddr {
 #define SRI_FORCE_FAILOVER (1<<13)  /* Force failover with master up. */
 #define SRI_SCRIPT_KILL_SENT (1<<14) /* SCRIPT KILL already sent on -BUSY */
 
-#define SENTINEL_NO_FLAGS 0         /* Generic no flags define. */
 #define SENTINEL_INFO_PERIOD 10000
 #define SENTINEL_PING_PERIOD 1000
 #define SENTINEL_ASK_PERIOD 1000
@@ -111,11 +110,13 @@ typedef struct sentinelAddr {
 #define SENTINEL_MASTER_LINK_STATUS_UP 0
 #define SENTINEL_MASTER_LINK_STATUS_DOWN 1
 
-/* Generic flags that can be used with different functions. */
+/* Generic flags that can be used with different functions.
+ * They use higher bits to avoid colliding with the function specific
+ * flags. */
 #define SENTINEL_NO_FLAGS 0
-#define SENTINEL_GENERATE_EVENT 1
-#define SENTINEL_LEADER 2
-#define SENTINEL_OBSERVER 4
+#define SENTINEL_GENERATE_EVENT (1<<16)
+#define SENTINEL_LEADER (1<<17)
+#define SENTINEL_OBSERVER (1<<18)
 
 /* Script execution flags and limits. */
 #define SENTINEL_SCRIPT_NONE 0
@@ -1079,12 +1080,16 @@ void sentinelDelFlagsToDictOfRedisInstances(dict *instances, int flags) {
  * 5) In the process of doing this undo the failover if in progress.
  * 6) Disconnect the connections with the master (will reconnect automatically).
  */
+
+#define SENTINEL_RESET_NO_SENTINELS (1<<0)
 void sentinelResetMaster(sentinelRedisInstance *ri, int flags) {
     redisAssert(ri->flags & SRI_MASTER);
     dictRelease(ri->slaves);
-    dictRelease(ri->sentinels);
     ri->slaves = dictCreate(&instancesDictType,NULL);
-    ri->sentinels = dictCreate(&instancesDictType,NULL);
+    if (!(flags & SENTINEL_RESET_NO_SENTINELS)) {
+        dictRelease(ri->sentinels);
+        ri->sentinels = dictCreate(&instancesDictType,NULL);
+    }
     if (ri->cc) sentinelKillLink(ri,ri->cc);
     if (ri->pc) sentinelKillLink(ri,ri->pc);
     ri->flags &= SRI_MASTER|SRI_CAN_FAILOVER|SRI_DISCONNECTED;
@@ -1134,17 +1139,13 @@ int sentinelResetMastersByPattern(char *pattern, int flags) {
  * This is used to handle the +switch-master and +redirect-to-master events.
  *
  * The function returns REDIS_ERR if the address can't be resolved for some
- * reason. Otherwise REDIS_OK is returned.
- *
- * TODO: make this reset so that original sentinels are re-added with
- * same ip / port / runid.
- */
+ * reason. Otherwise REDIS_OK is returned.  */
 int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *ip, int port) {
     sentinelAddr *oldaddr, *newaddr;
 
     newaddr = createSentinelAddr(ip,port);
     if (newaddr == NULL) return REDIS_ERR;
-    sentinelResetMaster(master,SENTINEL_NO_FLAGS);
+    sentinelResetMaster(master,SENTINEL_RESET_NO_SENTINELS);
     oldaddr = master->addr;
     master->addr = newaddr;
     master->o_down_since_time = 0;
@@ -2898,15 +2899,6 @@ void sentinelFailoverSwitchToPromotedSlave(sentinelRedisInstance *master) {
     old_master_ip = sdsdup(master->addr->ip);
     old_master_port = master->addr->port;
     sentinelResetMasterAndChangeAddress(master,ref->addr->ip,ref->addr->port);
-    /* If this is a real switch and not just a user requested reset, we want
-     * to add all the known instances as slaves, and also all the sentinels
-     * back to this master. */
-    if (master != ref) {
-        /* TODO:
-        createSentinelRedisInstance(NULL,SRI_SLAVE
-                    old_master_ip, old_master_port, master->quorum, master);
-        */
-    }
     sdsfree(old_master_ip);
 }
 
