@@ -445,6 +445,11 @@ void releaseSentinelAddr(sentinelAddr *sa) {
     zfree(sa);
 }
 
+/* Return non-zero if two addresses are equal. */
+int sentinelAddrIsEqual(sentinelAddr *a, sentinelAddr *b) {
+    return a->port == b->port && !strcasecmp(a->ip,b->ip);
+}
+
 /* =========================== Events notification ========================== */
 
 /* Send an event to log, pub/sub, user notification script.
@@ -1144,14 +1149,53 @@ int sentinelResetMastersByPattern(char *pattern, int flags) {
  * reason. Otherwise REDIS_OK is returned.  */
 int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *ip, int port) {
     sentinelAddr *oldaddr, *newaddr;
+    sentinelAddr **slaves = NULL;
+    int numslaves = 0, j;
+    dictIterator *di;
+    dictEntry *de;
 
     newaddr = createSentinelAddr(ip,port);
     if (newaddr == NULL) return REDIS_ERR;
+
+    /* Make a list of slaves to add back after the reset.
+     * Don't include the one having the address we are switching to. */
+    di = dictGetIterator(master->slaves);
+    while((de = dictNext(di)) != NULL) {
+        sentinelRedisInstance *slave = dictGetVal(de);
+
+        if (sentinelAddrIsEqual(slave->addr,newaddr)) continue;
+        slaves = zrealloc(slaves,sizeof(sentinelAddr*)*(numslaves+1));
+        slaves[numslaves++] = createSentinelAddr(slave->addr->ip,
+                                                 slave->addr->port);
+    }
+    dictReleaseIterator(di);
+    
+    /* If we are switching to a different address, include the old address
+     * as a slave as well, so that we'll be able to sense / reconfigure
+     * the old master. */
+    if (!sentinelAddrIsEqual(newaddr,master->addr)) {
+        slaves = zrealloc(slaves,sizeof(sentinelAddr*)*(numslaves+1));
+        slaves[numslaves++] = createSentinelAddr(master->addr->ip,
+                                                 master->addr->port);
+    }
+
+    /* Reset and switch address. */
     sentinelResetMaster(master,SENTINEL_RESET_NO_SENTINELS);
     oldaddr = master->addr;
     master->addr = newaddr;
     master->o_down_since_time = 0;
     master->s_down_since_time = 0;
+
+    /* Add slaves back. */
+    for (j = 0; j < numslaves; j++) {
+        sentinelRedisInstance *slave;
+
+        slave = createSentinelRedisInstance(NULL,SRI_SLAVE,slaves[j]->ip,
+                    slaves[j]->port, master->quorum, master);
+        releaseSentinelAddr(slaves[j]);
+        if (slave) sentinelEvent(REDIS_NOTICE,"+slave",slave,"%@");
+    }
+    zfree(slaves);
 
     /* Release the old address at the end so we are safe even if the function
      * gets the master->addr->ip and master->addr->port as arguments. */
