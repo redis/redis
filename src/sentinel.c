@@ -1607,6 +1607,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             /* Make sure the master is sane before reconfiguring this instance
              * into a slave. */
             if (ri->master->flags & SRI_MASTER &&
+                ri->master->role_reported == SRI_MASTER &&
                 (ri->master->flags & (SRI_S_DOWN|SRI_O_DOWN)) == 0 &&
                 (mstime() - ri->master->info_refresh) < SENTINEL_INFO_PERIOD*2)
             {
