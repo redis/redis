@@ -162,6 +162,7 @@ typedef struct sentinelRedisInstance {
      * we do silly things. */
     int role_reported;
     mstime_t role_reported_time;
+    mstime_t slave_conf_change_time; /* Last time slave master addr changed. */
 
     /* Master specific. */
     dict *sentinels;    /* Other sentinels monitoring the same master. */
@@ -922,6 +923,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     /* Role */
     ri->role_reported = ri->flags & (SRI_MASTER|SRI_SLAVE);
     ri->role_reported_time = mstime();
+    ri->slave_conf_change_time = mstime();
 
     /* Add into the right table. */
     dictAdd(table, ri->name, ri);
@@ -1515,13 +1517,24 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         if (role == SRI_SLAVE) {
             /* master_host:<host> */
             if (sdslen(l) >= 12 && !memcmp(l,"master_host:",12)) {
-                sdsfree(ri->slave_master_host);
-                ri->slave_master_host = sdsnew(l+12);
+                if (ri->slave_master_host == NULL ||
+                    strcasecmp(l+12,ri->slave_master_host))
+                {
+                    sdsfree(ri->slave_master_host);
+                    ri->slave_master_host = sdsnew(l+12);
+                    ri->slave_conf_change_time = mstime();
+                }
             }
 
             /* master_port:<port> */
-            if (sdslen(l) >= 12 && !memcmp(l,"master_port:",12))
-                ri->slave_master_port = atoi(l+12);
+            if (sdslen(l) >= 12 && !memcmp(l,"master_port:",12)) {
+                int slave_master_port = atoi(l+12);
+
+                if (ri->slave_master_port != slave_master_port) {
+                    ri->slave_master_port = slave_master_port;
+                    ri->slave_conf_change_time = mstime();
+                }
+            }
             
             /* master_link_status:<status> */
             if (sdslen(l) >= 19 && !memcmp(l,"master_link_status:",19)) {
@@ -1548,6 +1561,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         if (ri->role_reported != SRI_SLAVE) {
             ri->role_reported_time = mstime();
             ri->role_reported = SRI_SLAVE;
+            ri->slave_conf_change_time = mstime();
         }
     }
 
