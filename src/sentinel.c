@@ -1545,23 +1545,11 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
      * Some things will not happen if sentinel.tilt is true, but some will
      * still be processed. */
 
-    /* When what we believe is our master, turned into a slave, the wiser
-     * thing we can do is to follow the events and redirect to the new
-     * master, always. */
+    /* Handle master -> slave role switch. */
     if ((ri->flags & SRI_MASTER) && role == SRI_SLAVE) {
         if (ri->role_reported != SRI_SLAVE) {
             ri->role_reported_time = mstime();
             ri->role_reported = SRI_SLAVE;
-        }
-
-        if (ri->slave_master_host) {
-            sentinelEvent(REDIS_WARNING,"+redirect-to-master",ri,
-                "%s %s %d %s %d",
-                ri->name, ri->addr->ip, ri->addr->port,
-                ri->slave_master_host, ri->slave_master_port);
-            sentinelResetMasterAndChangeAddress(ri,ri->slave_master_host,
-                                                   ri->slave_master_port);
-            return; /* Don't process anything after this event. */
         }
     }
 
