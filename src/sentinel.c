@@ -1549,9 +1549,9 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
      * thing we can do is to follow the events and redirect to the new
      * master, always. */
     if ((ri->flags & SRI_MASTER) && role == SRI_SLAVE) {
-        if (ri->role_reported != SRI_MASTER) {
+        if (ri->role_reported != SRI_SLAVE) {
             ri->role_reported_time = mstime();
-            ri->role_reported = SRI_MASTER;
+            ri->role_reported = SRI_SLAVE;
         }
 
         if (ri->slave_master_host) {
@@ -1567,9 +1567,9 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
 
     /* Handle slave -> master role switch. */
     if ((ri->flags & SRI_SLAVE) && role == SRI_MASTER) {
-        if (ri->role_reported != SRI_SLAVE) {
+        if (ri->role_reported != SRI_MASTER) {
             ri->role_reported_time = mstime();
-            ri->role_reported = SRI_SLAVE;
+            ri->role_reported = SRI_MASTER;
         }
 
         /* If this is a promoted slave we can change state to the
@@ -2005,6 +2005,15 @@ void addReplySentinelRedisInstance(redisClient *c, sentinelRedisInstance *ri) {
     if (ri->flags & (SRI_MASTER|SRI_SLAVE)) {
         addReplyBulkCString(c,"info-refresh");
         addReplyBulkLongLong(c,mstime() - ri->info_refresh);
+        fields++;
+
+        addReplyBulkCString(c,"role-reported");
+        addReplyBulkCString(c, (ri->role_reported == SRI_MASTER) ? "master" :
+                                                                   "slave");
+        fields++;
+
+        addReplyBulkCString(c,"role-reported-time");
+        addReplyBulkLongLong(c,mstime() - ri->role_reported_time);
         fields++;
     }
 
