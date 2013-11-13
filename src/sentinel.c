@@ -155,6 +155,14 @@ typedef struct sentinelRedisInstance {
     mstime_t down_after_period; /* Consider it down after that period. */
     mstime_t info_refresh;  /* Time at which we received INFO output from it. */
 
+    /* Role and the first time we observed it.
+     * This is useful in order to delay replacing what the instance reports
+     * with our own configuration. We need to always wait some time in order
+     * to give a chance to the leader to report the new configuration before
+     * we do silly things. */
+    int role_reported;
+    mstime_t role_reported_time;
+
     /* Master specific. */
     dict *sentinels;    /* Other sentinels monitoring the same master. */
     dict *slaves;       /* Slaves for this master instance. */
@@ -911,6 +919,10 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->notification_script = NULL;
     ri->client_reconfig_script = NULL;
 
+    /* Role */
+    ri->role_reported = ri->flags & (SRI_MASTER|SRI_SLAVE);
+    ri->role_reported_time = mstime();
+
     /* Add into the right table. */
     dictAdd(table, ri->name, ri);
     return ri;
@@ -1536,6 +1548,11 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
      * master, always. */
     if ((ri->flags & SRI_MASTER) && role == SRI_SLAVE && ri->slave_master_host)
     {
+        if (ri->role_reported != SRI_MASTER) {
+            ri->role_reported_time = mstime();
+            ri->role_reported = SRI_MASTER;
+        }
+
         sentinelEvent(REDIS_WARNING,"+redirect-to-master",ri,
             "%s %s %d %s %d",
             ri->name, ri->addr->ip, ri->addr->port,
@@ -1547,6 +1564,11 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
 
     /* Handle slave -> master role switch. */
     if ((ri->flags & SRI_SLAVE) && role == SRI_MASTER) {
+        if (ri->role_reported != SRI_SLAVE) {
+            ri->role_reported_time = mstime();
+            ri->role_reported = SRI_SLAVE;
+        }
+
         /* If this is a promoted slave we can change state to the
          * failover state machine. */
         if (!sentinel.tilt &&
@@ -1575,7 +1597,8 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             mstime_t wait_time = SENTINEL_PUBLISH_PERIOD*4;
 
             if (!sentinelRedisInstanceNoDownFor(ri,wait_time) ||
-                (mstime()-sentinel.tilt_start_time) < wait_time)
+                mstime() - ri->role_reported_time < wait_time ||
+                mstime() - sentinel.tilt_start_time < wait_time)
                 return;
 
             /* Make sure the master is sane before reconfiguring this instance
