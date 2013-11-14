@@ -1626,6 +1626,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
 
     /* Handle slaves replicating to a different master address. */
     if ((ri->flags & SRI_SLAVE) && !sentinel.tilt &&
+        role == SRI_SLAVE &&
         (ri->slave_master_port != ri->master->addr->port ||
          strcasecmp(ri->slave_master_host,ri->master->addr->ip)))
     {
