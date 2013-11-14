@@ -1226,6 +1226,24 @@ int sentinelRedisInstanceNoDownFor(sentinelRedisInstance *ri, mstime_t ms) {
     return most_recent == 0 || (mstime() - most_recent) > ms;
 }
 
+/* Return the current master address, that is, its address or the address
+ * of the promoted slave if already operational. */
+sentinelAddr *sentinelGetCurrentMasterAddress(sentinelRedisInstance *master) {
+    /* If we are failing over the master, and the state is already
+     * SENTINEL_FAILOVER_STATE_RECONF_SLAVES or greater, it means that we
+     * already have the new configuration epoch in the master, and the
+     * slave acknowledged the configuration switch. Advertise the new
+     * address. */
+    if ((master->flags & SRI_FAILOVER_IN_PROGRESS) &&
+        master->promoted_slave &&
+        master->failover_state >= SENTINEL_FAILOVER_STATE_RECONF_SLAVES)
+    {
+        return master->promoted_slave->addr;
+    } else {
+        return master->addr;
+    }
+}
+
 /* ============================ Config handling ============================= */
 char *sentinelHandleConfiguration(char **argv, int argc) {
     sentinelRedisInstance *ri;
@@ -2217,18 +2235,8 @@ void sentinelCommand(redisClient *c) {
         } else if (ri->info_refresh == 0) {
             addReplySds(c,sdsnew("-IDONTKNOW I have not enough information to reply. Please ask another Sentinel.\r\n"));
         } else {
-            sentinelAddr *addr = ri->addr;
+            sentinelAddr *addr = sentinelGetCurrentMasterAddress(ri);
 
-            /* If we are in the middle of a failover, and the slave was
-             * already successfully switched to master role, we can advertise
-             * the new address as slave in order to allow clients to talk
-             * with the new master ASAP. */
-            if ((ri->flags & SRI_FAILOVER_IN_PROGRESS) &&
-                ri->promoted_slave &&
-                ri->failover_state >= SENTINEL_FAILOVER_STATE_RECONF_SLAVES)
-            {
-                addr = ri->promoted_slave->addr;
-            }
             addReplyMultiBulkLen(c,2);
             addReplyBulkCString(c,addr->ip);
             addReplyBulkLongLong(c,addr->port);
