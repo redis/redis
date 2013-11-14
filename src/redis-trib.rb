@@ -61,6 +61,7 @@ class ClusterNode
         @info[:slots] = {}
         @info[:migrating] = {}
         @info[:importing] = {}
+        @info[:replicate] = false
         @dirty = false # True if we need to flush slots info into node.
         @friends = []
     end
@@ -118,8 +119,8 @@ class ClusterNode
         nodes.each{|n|
             # name addr flags role ping_sent ping_recv link_status slots
             split = n.split
-            name,addr,flags,role,ping_sent,ping_recv,link_status = split[0..6]
-            slots = split[7..-1]
+            name,addr,flags,role,ping_sent,ping_recv,config_epoch,link_status = split[0..6]
+            slots = split[8..-1]
             info = {
                 :name => name,
                 :addr => addr,
@@ -172,16 +173,33 @@ class ClusterNode
         @dirty = true
     end
 
+    def set_as_replica(node_id)
+        @info[:replicate] = node_id
+        @dirty = true
+    end
+
     def flush_node_config
         return if !@dirty
-        new = []
-        @info[:slots].each{|s,val|
-            if val == :new
-                new << s
-                @info[:slots][s] = true
+        if @info[:replicate]
+            begin
+                @r.cluster("replicate",@info[:replicate])
+            rescue
+                # If the cluster did not already joined it is possible that
+                # the slave does not know the master node yet. So on errors
+                # we return ASAP leaving the dirty flag set, to flush the
+                # config later.
+                return
             end
-        }
-        @r.cluster("addslots",*new)
+        else
+            new = []
+            @info[:slots].each{|s,val|
+                if val == :new
+                    new << s
+                    @info[:slots][s] = true
+                end
+            }
+            @r.cluster("addslots",*new)
+        end
         @dirty = false
     end
 
@@ -218,9 +236,14 @@ class ClusterNode
         }.join(",")
 
         role = self.has_flag?("master") ? "M" : "S"
-        "#{role}: #{self.info[:name]} #{self.to_s}\n"+
-        "   slots:#{slots} (#{self.slots.length} slots) "+
-        "#{(self.info[:flags]-["myself"]).join(",")}"
+
+        if self.info[:replicate] and @dirty
+            "S: #{self.info[:name]} #{self.to_s}"
+        else
+            "#{role}: #{self.info[:name]} #{self.to_s}\n"+
+            "   slots:#{slots} (#{self.slots.length} slots) "+
+            "#{(self.info[:flags]-["myself"]).join(",")}"
+        end
     end
 
     # Return a single string representing nodes and associated slots.
@@ -230,7 +253,7 @@ class ClusterNode
         config = []
         @r.cluster("nodes").each_line{|l|
             s = l.split
-            slots = s[7..-1].select {|x| x[0..0] != "["}
+            slots = s[8..-1].select {|x| x[0..0] != "["}
             next if slots.length == 0
             config << s[0]+":"+(slots.sort.join(","))
         }
@@ -460,14 +483,67 @@ class RedisTrib
     end
 
     def alloc_slots
-        slots_per_node = ClusterHashSlots/@nodes.length
-        i = 0
+        nodes_count = @nodes.length
+        masters_count = @nodes.length / (@replicas+1)
+        slots_per_node = ClusterHashSlots / masters_count
+        masters = []
+        slaves = []
+
+        # The first step is to split instances by IP. This is useful as
+        # we'll try to allocate master nodes in different physical machines
+        # (as much as possible) and to allocate slaves of a given master in
+        # different physical machines as well.
+        #
+        # This code assumes just that if the IP is different, than it is more
+        # likely that the instance is running in a different physical host
+        # or at least a different virtual machine.
+        ips = {}
         @nodes.each{|n|
+            ips[n.info[:host]] = [] if !ips[n.info[:host]]
+            ips[n.info[:host]] << n
+        }
+
+        # Select master instances
+        puts "Using #{masters_count} masters:"
+        while masters.length < masters_count
+            ips.each{|ip,nodes_list|
+                next if nodes_list.length == 0
+                masters << nodes_list.shift
+                puts masters[-1]
+                nodes_count -= 1
+                break if masters.length == masters_count
+            }
+        end
+
+        # Alloc slots on masters
+        i = 0
+        masters.each_with_index{|n,masternum|
             first = i*slots_per_node
             last = first+slots_per_node-1
-            last = ClusterHashSlots-1 if i == @nodes.length-1
+            last = ClusterHashSlots-1 if masternum == masters.length-1
             n.add_slots first..last
             i += 1
+        }
+
+        # Select N replicas for every master.
+        # We try to split the replicas among all the IPs with spare nodes
+        # trying to avoid the host where the master is running, if possible.
+        masters.each{|m|
+            i = 0
+            while i < @replicas
+                ips.each{|ip,nodes_list|
+                    next if nodes_list.length == 0
+                    # Skip instances with the same IP as the master if we
+                    # have some more IPs available.
+                    next if ip == m.info[:host] && nodes_count > nodes_list.length
+                    slave = nodes_list.shift
+                    slave.set_as_replica(m.info[:name])
+                    nodes_count -= 1
+                    i += 1
+                    puts "#{m} replica ##{i} is #{slave}"
+                    break if masters.length == masters_count
+                }
+            end
         }
     end
 
@@ -589,19 +665,19 @@ class RedisTrib
 
     # redis-trib subcommands implementations
 
-    def check_cluster_cmd
-        load_cluster_info_from_node(ARGV[1])
+    def check_cluster_cmd(argv,opt)
+        load_cluster_info_from_node(argv[0])
         check_cluster
     end
 
-    def fix_cluster_cmd
+    def fix_cluster_cmd(argv,opt)
         @fix = true
-        load_cluster_info_from_node(ARGV[1])
+        load_cluster_info_from_node(argv[0])
         check_cluster
     end
 
-    def reshard_cluster_cmd
-        load_cluster_info_from_node(ARGV[1])
+    def reshard_cluster_cmd(argv,opt)
+        load_cluster_info_from_node(argv[0])
         check_cluster
         if @errors.length != 0
             puts "*** Please fix your cluster problems before resharding"
@@ -667,9 +743,26 @@ class RedisTrib
         }
     end
 
-    def create_cluster_cmd
+    # This is an helper function for create_cluster_cmd that verifies if
+    # the number of nodes and the specified replicas have a valid configuration
+    # where there are at least three master nodes and enough replicas per node.
+    def check_create_parameters
+        masters = @nodes.length/(@replicas+1)
+        if masters < 3
+            puts "*** ERROR: Invalid configuration for cluster creation."
+            puts "*** Redis Cluster requires at least 3 master nodes."
+            puts "*** This is not possible with #{@nodes.length} nodes and #{@replicas} replicas per node."
+            puts "*** At least #{3*(@replicas+1)} nodes are required."
+            exit 1
+        end
+    end
+
+    def create_cluster_cmd(argv,opt)
+        opt = {'replicas' => 0}.merge(opt)
+        @replicas = opt['replicas'].to_i
+
         xputs ">>> Creating cluster"
-        ARGV[1..-1].each{|n|
+        argv[0..-1].each{|n|
             node = ClusterNode.new(n)
             node.connect(:abort => true)
             node.assert_cluster
@@ -677,6 +770,7 @@ class RedisTrib
             node.assert_empty
             add_node(node)
         }
+        check_create_parameters
         xputs ">>> Performing hash slots allocation on #{@nodes.length} nodes..."
         alloc_slots
         show_nodes
@@ -690,18 +784,19 @@ class RedisTrib
         # they are still empty with unassigned slots.
         sleep 1
         wait_cluster_join
+        flush_nodes_config # Useful for the replicas
         check_cluster
     end
 
-    def addnode_cluster_cmd
-        xputs ">>> Adding node #{ARGV[1]} to cluster #{ARGV[2]}"
+    def addnode_cluster_cmd(argv,opt)
+        xputs ">>> Adding node #{argv[0]} to cluster #{argv[1]}"
 
         # Check the existing cluster
-        load_cluster_info_from_node(ARGV[2])
+        load_cluster_info_from_node(argv[1])
         check_cluster
 
         # Add the new node
-        new = ClusterNode.new(ARGV[1])
+        new = ClusterNode.new(argv[0])
         new.connect(:abort => true)
         new.assert_cluster
         new.load_info
@@ -713,9 +808,38 @@ class RedisTrib
         new.r.cluster("meet",first[:host],first[:port])
     end
 
-    def help_cluster_cmd
+    def help_cluster_cmd(opt)
         show_help
         exit 0
+    end
+
+    # Parse the options for the specific command "cmd".
+    # Returns an hash populate with option => value pairs, and the index of
+    # the first non-option argument in ARGV.
+    def parse_options(cmd)
+        idx = 1 ; # Current index into ARGV
+        options={}
+        while idx < ARGV.length && ARGV[idx][0..1] == '--'
+            if ARGV[idx][0..1] == "--"
+                option = ARGV[idx][2..-1]
+                idx += 1
+                if ALLOWED_OPTIONS[cmd] == nil || ALLOWED_OPTIONS[cmd][option] == nil
+                    puts "Unknown option '#{option}' for command '#{cmd}'"
+                    exit 1
+                end
+                if ALLOWED_OPTIONS[cmd][option]
+                    value = ARGV[idx]
+                    idx += 1
+                else
+                    value = true
+                end
+                options[option] = value
+            else
+                # Remaining arguments are not options.
+                break
+            end
+        end
+        return options,idx
     end
 end
 
@@ -728,8 +852,12 @@ COMMANDS={
     "help"    => ["help_cluster_cmd", 1, "(show this help)"]
 }
 
+ALLOWED_OPTIONS={
+    "create" => {"replicas" => true}
+}
+
 def show_help
-    puts "Usage: redis-trib <command> <arguments ...>"
+    puts "Usage: redis-trib <command> <options> <arguments ...>"
     puts
     COMMANDS.each{|k,v|
         puts "  #{k.ljust(10)} #{v[2]}"
@@ -749,7 +877,10 @@ if !cmd_spec
     puts "Unknown redis-trib subcommand '#{ARGV[0]}'"
     exit 1
 end
-rt.check_arity(cmd_spec[1],ARGV.length)
+
+# Parse options
+cmd_options,first_non_option = rt.parse_options(ARGV[0].downcase)
+rt.check_arity(cmd_spec[1],ARGV.length-(first_non_option-1))
 
 # Dispatch
-rt.send(cmd_spec[0])
+rt.send(cmd_spec[0],ARGV[first_non_option..-1],cmd_options)

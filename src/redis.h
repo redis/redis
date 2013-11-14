@@ -368,6 +368,8 @@
  * Data types
  *----------------------------------------------------------------------------*/
 
+typedef long long mstime_t; /* millisecond time type. */
+
 /* A redis object, that is a type able to hold a string / list / set */
 
 /* The actual Redis Object */
@@ -502,7 +504,7 @@ struct sharedObjectsStruct {
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
     *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop,
-    *lpush,
+    *lpush, *emptyscan,
     *select[REDIS_SHARED_SELECT_CMDS],
     *integers[REDIS_SHARED_INTEGERS],
     *mbulkhdr[REDIS_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -564,162 +566,10 @@ typedef struct redisOpArray {
 } redisOpArray;
 
 /*-----------------------------------------------------------------------------
- * Redis cluster data structures
- *----------------------------------------------------------------------------*/
-
-#define REDIS_CLUSTER_SLOTS 16384
-#define REDIS_CLUSTER_OK 0          /* Everything looks ok */
-#define REDIS_CLUSTER_FAIL 1        /* The cluster can't work */
-#define REDIS_CLUSTER_NAMELEN 40    /* sha1 hex length */
-#define REDIS_CLUSTER_PORT_INCR 10000 /* Cluster port = baseport + PORT_INCR */
-#define REDIS_CLUSTER_IPLEN INET6_ADDRSTRLEN /* IPv6 address string length */
-
-/* The following defines are amunt of time, sometimes expressed as
- * multiplicators of the node timeout value (when ending with MULT). */
-#define REDIS_CLUSTER_DEFAULT_NODE_TIMEOUT 15
-#define REDIS_CLUSTER_FAIL_REPORT_VALIDITY_MULT 2 /* Fail report validity. */
-#define REDIS_CLUSTER_FAIL_UNDO_TIME_MULT 2 /* Undo fail if master is back. */
-#define REDIS_CLUSTER_FAIL_UNDO_TIME_ADD 10 /* Some additional time. */
-#define REDIS_CLUSTER_SLAVE_VALIDITY_MULT 10 /* Slave data validity. */
-#define REDIS_CLUSTER_FAILOVER_AUTH_RETRY_MULT 1 /* Auth request retry time. */
-#define REDIS_CLUSTER_FAILOVER_DELAY 5 /* Seconds */
-
-struct clusterNode;
-
-/* clusterLink encapsulates everything needed to talk with a remote node. */
-typedef struct clusterLink {
-    time_t ctime;               /* Link creation time */
-    int fd;                     /* TCP socket file descriptor */
-    sds sndbuf;                 /* Packet send buffer */
-    sds rcvbuf;                 /* Packet reception buffer */
-    struct clusterNode *node;   /* Node related to this link if any, or NULL */
-} clusterLink;
-
-/* Node flags */
-#define REDIS_NODE_MASTER 1     /* The node is a master */
-#define REDIS_NODE_SLAVE 2      /* The node is a slave */
-#define REDIS_NODE_PFAIL 4      /* Failure? Need acknowledge */
-#define REDIS_NODE_FAIL 8       /* The node is believed to be malfunctioning */
-#define REDIS_NODE_MYSELF 16    /* This node is myself */
-#define REDIS_NODE_HANDSHAKE 32 /* We have still to exchange the first ping */
-#define REDIS_NODE_NOADDR   64  /* We don't know the address of this node */
-#define REDIS_NODE_MEET 128     /* Send a MEET message to this node */
-#define REDIS_NODE_PROMOTED 256 /* Master was a slave propoted by failover */
-#define REDIS_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
-
-/* This structure represent elements of node->fail_reports. */
-struct clusterNodeFailReport {
-    struct clusterNode *node;  /* Node reporting the failure condition. */
-    time_t time;               /* Time of the last report from this node. */
-} typedef clusterNodeFailReport;
-
-struct clusterNode {
-    time_t ctime;   /* Node object creation time. */
-    char name[REDIS_CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
-    int flags;      /* REDIS_NODE_... */
-    unsigned char slots[REDIS_CLUSTER_SLOTS/8]; /* slots handled by this node */
-    int numslots;   /* Number of slots handled by this node */
-    int numslaves;  /* Number of slave nodes, if this is a master */
-    struct clusterNode **slaves; /* pointers to slave nodes */
-    struct clusterNode *slaveof; /* pointer to the master node */
-    time_t ping_sent;       /* Unix time we sent latest ping */
-    time_t pong_received;   /* Unix time we received the pong */
-    time_t fail_time;       /* Unix time when FAIL flag was set */
-    char ip[REDIS_IP_STR_LEN];  /* Latest known IP address of this node */
-    int port;                   /* Latest known port of this node */
-    clusterLink *link;          /* TCP/IP link with this node */
-    list *fail_reports;         /* List of nodes signaling this as failing */
-};
-typedef struct clusterNode clusterNode;
-
-typedef struct {
-    clusterNode *myself;  /* This node */
-    int state;            /* REDIS_CLUSTER_OK, REDIS_CLUSTER_FAIL, ... */
-    int size;             /* Num of master nodes with at least one slot */
-    dict *nodes;          /* Hash table of name -> clusterNode structures */
-    clusterNode *migrating_slots_to[REDIS_CLUSTER_SLOTS];
-    clusterNode *importing_slots_from[REDIS_CLUSTER_SLOTS];
-    clusterNode *slots[REDIS_CLUSTER_SLOTS];
-    zskiplist *slots_to_keys;
-    int failover_auth_time;     /* Time at which we sent the AUTH request. */
-    int failover_auth_count;    /* Number of authorizations received. */
-} clusterState;
-
-/* Redis cluster messages header */
-
-/* Note that the PING, PONG and MEET messages are actually the same exact
- * kind of packet. PONG is the reply to ping, in the exact format as a PING,
- * while MEET is a special PING that forces the receiver to add the sender
- * as a node (if it is not already in the list). */
-#define CLUSTERMSG_TYPE_PING 0          /* Ping */
-#define CLUSTERMSG_TYPE_PONG 1          /* Pong (reply to Ping) */
-#define CLUSTERMSG_TYPE_MEET 2          /* Meet "let's join" message */
-#define CLUSTERMSG_TYPE_FAIL 3          /* Mark node xxx as failing */
-#define CLUSTERMSG_TYPE_PUBLISH 4       /* Pub/Sub Publish propagation */
-#define CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST 5 /* May I failover? */
-#define CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK 6     /* Yes, you can failover. */
-
-/* Initially we don't know our "name", but we'll find it once we connect
- * to the first node, using the getsockname() function. Then we'll use this
- * address for all the next messages. */
-typedef struct {
-    char nodename[REDIS_CLUSTER_NAMELEN];
-    uint32_t ping_sent;
-    uint32_t pong_received;
-    char ip[16];    /* IP address last time it was seen */
-    uint16_t port;  /* port last time it was seen */
-    uint16_t flags;
-    uint32_t notused; /* for 64 bit alignment */
-} clusterMsgDataGossip;
-
-typedef struct {
-    char nodename[REDIS_CLUSTER_NAMELEN];
-} clusterMsgDataFail;
-
-typedef struct {
-    uint32_t channel_len;
-    uint32_t message_len;
-    unsigned char bulk_data[8]; /* defined as 8 just for alignment concerns. */
-} clusterMsgDataPublish;
-
-union clusterMsgData {
-    /* PING, MEET and PONG */
-    struct {
-        /* Array of N clusterMsgDataGossip structures */
-        clusterMsgDataGossip gossip[1];
-    } ping;
-
-    /* FAIL */
-    struct {
-        clusterMsgDataFail about;
-    } fail;
-
-    /* PUBLISH */
-    struct {
-        clusterMsgDataPublish msg;
-    } publish;
-};
-
-typedef struct {
-    uint32_t totlen;    /* Total length of this message */
-    uint16_t type;      /* Message type */
-    uint16_t count;     /* Only used for some kind of messages. */
-    char sender[REDIS_CLUSTER_NAMELEN]; /* Name of the sender node */
-    unsigned char myslots[REDIS_CLUSTER_SLOTS/8];
-    char slaveof[REDIS_CLUSTER_NAMELEN];
-    char notused1[32];  /* 32 bytes reserved for future usage. */
-    uint16_t port;      /* Sender TCP base port */
-    uint16_t flags;     /* Sender node flags */
-    unsigned char state; /* Cluster state from the POV of the sender */
-    unsigned char notused2[3]; /* Reserved for future use. For alignment. */
-    union clusterMsgData data;
-} clusterMsg;
-
-#define CLUSTERMSG_MIN_LEN (sizeof(clusterMsg)-sizeof(union clusterMsgData))
-
-/*-----------------------------------------------------------------------------
  * Global server state
  *----------------------------------------------------------------------------*/
+
+struct clusterState;
 
 struct redisServer {
     /* General */
@@ -918,9 +768,9 @@ struct redisServer {
                                    xor of REDIS_NOTIFY... flags. */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
-    int cluster_node_timeout; /* Cluster node timeout. */
+    mstime_t cluster_node_timeout; /* Cluster node timeout. */
     char *cluster_configfile; /* Cluster auto-generated config file name. */
-    clusterState *cluster;  /* State of the cluster */
+    struct clusterState *cluster;  /* State of the cluster */
     /* Scripting */
     lua_State *lua; /* The Lua interpreter. We use just one for all clients */
     redisClient *lua_client;   /* The "fake client" to query Redis from Lua */
@@ -1344,6 +1194,8 @@ void signalFlushedDb(int dbid);
 unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count);
 unsigned int countKeysInSlot(unsigned int hashslot);
 int verifyClusterConfigWithData(void);
+void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor);
+int parseScanCursorOrReply(redisClient *c, robj *o, unsigned long *cursor);
 
 /* API to get key arguments from commands */
 #define REDIS_GETKEYS_ALL 0
@@ -1358,12 +1210,10 @@ int *zunionInterGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *num
 void clusterInit(void);
 unsigned short crc16(const char *buf, int len);
 unsigned int keyHashSlot(char *key, int keylen);
-clusterNode *createClusterNode(char *nodename, int flags);
-int clusterAddNode(clusterNode *node);
 void clusterCron(void);
-clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
 void clusterPropagatePublish(robj *channel, robj *message);
 void migrateCloseTimedoutSockets(void);
+void clusterBeforeSleep(void);
 
 /* Sentinel */
 void initSentinelConfig(void);
@@ -1402,6 +1252,7 @@ void incrbyfloatCommand(redisClient *c);
 void selectCommand(redisClient *c);
 void randomkeyCommand(redisClient *c);
 void keysCommand(redisClient *c);
+void scanCommand(redisClient *c);
 void dbsizeCommand(redisClient *c);
 void lastsaveCommand(redisClient *c);
 void saveCommand(redisClient *c);
@@ -1437,6 +1288,7 @@ void sunionCommand(redisClient *c);
 void sunionstoreCommand(redisClient *c);
 void sdiffCommand(redisClient *c);
 void sdiffstoreCommand(redisClient *c);
+void sscanCommand(redisClient *c);
 void syncCommand(redisClient *c);
 void flushdbCommand(redisClient *c);
 void flushallCommand(redisClient *c);
@@ -1489,10 +1341,12 @@ void hlenCommand(redisClient *c);
 void zremrangebyrankCommand(redisClient *c);
 void zunionstoreCommand(redisClient *c);
 void zinterstoreCommand(redisClient *c);
+void zscanCommand(redisClient *c);
 void hkeysCommand(redisClient *c);
 void hvalsCommand(redisClient *c);
 void hgetallCommand(redisClient *c);
 void hexistsCommand(redisClient *c);
+void hscanCommand(redisClient *c);
 void configCommand(redisClient *c);
 void hincrbyCommand(redisClient *c);
 void hincrbyfloatCommand(redisClient *c);

@@ -28,6 +28,7 @@
  */
 
 #include "redis.h"
+#include "cluster.h"
 #include "slowlog.h"
 #include "bio.h"
 
@@ -164,6 +165,7 @@ struct redisCommand redisCommandTable[] = {
     {"sdiff",sdiffCommand,-2,"rS",0,NULL,1,-1,1,0,0},
     {"sdiffstore",sdiffstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0},
     {"smembers",sinterCommand,2,"rS",0,NULL,1,1,1,0,0},
+    {"sscan",sscanCommand,-3,"rR",0,NULL,1,1,1,0,0},
     {"zadd",zaddCommand,-4,"wm",0,NULL,1,1,1,0,0},
     {"zincrby",zincrbyCommand,4,"wm",0,NULL,1,1,1,0,0},
     {"zrem",zremCommand,-3,"w",0,NULL,1,1,1,0,0},
@@ -180,6 +182,7 @@ struct redisCommand redisCommandTable[] = {
     {"zscore",zscoreCommand,3,"r",0,NULL,1,1,1,0,0},
     {"zrank",zrankCommand,3,"r",0,NULL,1,1,1,0,0},
     {"zrevrank",zrevrankCommand,3,"r",0,NULL,1,1,1,0,0},
+    {"zscan",zscanCommand,-3,"rR",0,NULL,1,1,1,0,0},
     {"hset",hsetCommand,4,"wm",0,NULL,1,1,1,0,0},
     {"hsetnx",hsetnxCommand,4,"wm",0,NULL,1,1,1,0,0},
     {"hget",hgetCommand,3,"r",0,NULL,1,1,1,0,0},
@@ -193,6 +196,7 @@ struct redisCommand redisCommandTable[] = {
     {"hvals",hvalsCommand,2,"rS",0,NULL,1,1,1,0,0},
     {"hgetall",hgetallCommand,2,"r",0,NULL,1,1,1,0,0},
     {"hexists",hexistsCommand,3,"r",0,NULL,1,1,1,0,0},
+    {"hscan",hscanCommand,-3,"rR",0,NULL,1,1,1,0,0},
     {"incrby",incrbyCommand,3,"wm",0,NULL,1,1,1,0,0},
     {"decrby",decrbyCommand,3,"wm",0,NULL,1,1,1,0,0},
     {"incrbyfloat",incrbyfloatCommand,3,"wm",0,NULL,1,1,1,0,0},
@@ -209,9 +213,10 @@ struct redisCommand redisCommandTable[] = {
     {"pexpire",pexpireCommand,3,"w",0,NULL,1,1,1,0,0},
     {"pexpireat",pexpireatCommand,3,"w",0,NULL,1,1,1,0,0},
     {"keys",keysCommand,2,"rS",0,NULL,0,0,0,0,0},
+    {"scan",scanCommand,-2,"rR",0,NULL,0,0,0,0,0},
     {"dbsize",dbsizeCommand,1,"r",0,NULL,0,0,0,0,0},
-    {"auth",authCommand,2,"rsl",0,NULL,0,0,0,0,0},
-    {"ping",pingCommand,1,"r",0,NULL,0,0,0,0,0},
+    {"auth",authCommand,2,"rslt",0,NULL,0,0,0,0,0},
+    {"ping",pingCommand,1,"rt",0,NULL,0,0,0,0,0},
     {"echo",echoCommand,2,"r",0,NULL,0,0,0,0,0},
     {"save",saveCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"bgsave",bgsaveCommand,1,"ar",0,NULL,0,0,0,0,0},
@@ -1154,7 +1159,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     run_with_period(1000) replicationCron();
 
     /* Run the Redis Cluster cron. */
-    run_with_period(1000) {
+    run_with_period(100) {
         if (server.cluster_enabled) clusterCron();
     }
 
@@ -1203,6 +1208,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Write the AOF buffer on disk */
     flushAppendOnlyFile(0);
+
+    /* Call the Redis Cluster before sleep function. */
+    if (server.cluster_enabled) clusterBeforeSleep();
 }
 
 /* =========================== Server initialization ======================== */
@@ -1222,6 +1230,7 @@ void createSharedObjects(void) {
     shared.emptymultibulk = createObject(REDIS_STRING,sdsnew("*0\r\n"));
     shared.pong = createObject(REDIS_STRING,sdsnew("+PONG\r\n"));
     shared.queued = createObject(REDIS_STRING,sdsnew("+QUEUED\r\n"));
+    shared.emptyscan = createObject(REDIS_STRING,sdsnew("*2\r\n$1\r\n0\r\n*0\r\n"));
     shared.wrongtypeerr = createObject(REDIS_STRING,sdsnew(
         "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"));
     shared.nokeyerr = createObject(REDIS_STRING,sdsnew(
