@@ -411,6 +411,9 @@ need_full_resync:
 
 /* SYNC ad PSYNC command implemenation. */
 void syncCommand(redisClient *c) {
+    char ip[REDIS_IP_STR_LEN];
+    int port;
+
     /* ignore SYNC if already slave or in monitor mode */
     if (c->flags & REDIS_SLAVE) return;
 
@@ -430,7 +433,14 @@ void syncCommand(redisClient *c) {
         return;
     }
 
-    redisLog(REDIS_NOTICE,"Slave asks for synchronization");
+                
+    if (anetPeerToString(c->fd,ip,sizeof(ip),&port) == -1) {
+        redisLog(REDIS_NOTICE,"Slave asks for synchronization");
+    } else {
+        redisLog(REDIS_NOTICE,"Slave(%s:%d) asks for synchronization",
+                 ip, c->slave_listening_port);
+    }
+
 
     /* Try a partial resynchronization if this is a PSYNC command.
      * If it fails, we continue with usual full resynchronization, however
