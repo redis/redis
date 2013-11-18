@@ -1312,6 +1312,35 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
         ri = sentinelGetMasterByName(argv[1]);
         if (!ri) return "No such master with specified name.";
         ri->auth_pass = sdsnew(argv[2]);
+    } else if (!strcasecmp(argv[0],"config-epoch") && argc == 3) {
+        /* config-epoch <name> <epoch> */
+        ri = sentinelGetMasterByName(argv[1]);
+        if (!ri) return "No such master with specified name.";
+        ri->config_epoch = strtoull(argv[2],NULL,10);
+        if (ri->config_epoch > sentinel.current_epoch)
+            sentinel.current_epoch = ri->config_epoch;
+    } else if (!strcasecmp(argv[0],"slave") && argc == 3) {
+        sentinelRedisInstance *slave;
+
+        /* slave <name> <ip> <port> */
+        ri = sentinelGetMasterByName(argv[1]);
+        if (!ri) return "No such master with specified name.";
+        if ((slave = createSentinelRedisInstance(NULL,SRI_SLAVE,argv[2],
+                    atoi(argv[3]), ri->quorum, ri)) == NULL)
+        {
+            return "Wrong hostname or port for slave.";
+        }
+    } else if (!strcasecmp(argv[0],"sentinel") && argc == 3) {
+        sentinelRedisInstance *si;
+
+        /* sentinel <name> <ip> <port> */
+        ri = sentinelGetMasterByName(argv[1]);
+        if (!ri) return "No such master with specified name.";
+        if ((si = createSentinelRedisInstance(NULL,SRI_SENTINEL,argv[2],
+                    atoi(argv[3]), ri->quorum, ri)) == NULL)
+        {
+            return "Wrong hostname or port for sentinel.";
+        }
     } else {
         return "Unrecognized sentinel configuration statement.";
     }
