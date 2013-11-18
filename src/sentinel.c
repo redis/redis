@@ -77,7 +77,7 @@ typedef struct sentinelAddr {
 #define SENTINEL_INFO_PERIOD 10000
 #define SENTINEL_PING_PERIOD 1000
 #define SENTINEL_ASK_PERIOD 1000
-#define SENTINEL_PUBLISH_PERIOD 5000
+#define SENTINEL_PUBLISH_PERIOD 2000
 #define SENTINEL_DOWN_AFTER_PERIOD 30000
 #define SENTINEL_HELLO_CHANNEL "__sentinel__:hello"
 #define SENTINEL_TILT_TRIGGER 2000
@@ -1650,7 +1650,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         (ri->slave_master_port != ri->master->addr->port ||
          strcasecmp(ri->slave_master_host,ri->master->addr->ip)))
     {
-        mstime_t wait_time = SENTINEL_PUBLISH_PERIOD*4;
+        mstime_t wait_time = ri->master->failover_timeout;
 
         /* Make sure the master is sane before reconfiguring this instance
          * into a slave. */
