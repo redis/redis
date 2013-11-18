@@ -89,6 +89,7 @@ typedef struct sentinelAddr {
 #define SENTINEL_MIN_LINK_RECONNECT_PERIOD 15000
 #define SENTINEL_DEFAULT_FAILOVER_TIMEOUT (60*15*1000)
 #define SENTINEL_MAX_PENDING_COMMANDS 100
+#define SENTINEL_ELECTION_TIMEOUT 10000
 
 /* How many milliseconds is an information valid? This applies for instance
  * to the reply to SENTINEL IS-MASTER-DOWN-BY-ADDR replies. */
@@ -2818,7 +2819,7 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
     /* If I'm not the leader, I can't continue with the failover. */
     if (!isleader) {
         /* Abort the failover if I'm not the leader after some time. */
-        if (mstime() - ri->failover_start_time > 10000) {
+        if (mstime() - ri->failover_start_time > SENTINEL_ELECTION_TIMEOUT) {
             sentinelEvent(REDIS_WARNING,"-failover-abort-not-elected",ri,"%@");
             sentinelAbortFailover(ri);
         }
