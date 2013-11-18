@@ -1206,7 +1206,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
 
 /* Rewrite the specified configuration option with the new "line".
  * It progressively uses lines of the file that were already used for the same
- * configuraiton option in the old version of the file, removing that line from
+ * configuration option in the old version of the file, removing that line from
  * the map of options -> line numbers.
  *
  * If there are lines associated with a given configuration option and
