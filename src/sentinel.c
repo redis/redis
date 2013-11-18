@@ -85,7 +85,7 @@ typedef struct sentinelAddr {
 #define SENTINEL_SLAVE_RECONF_RETRY_PERIOD 10000
 #define SENTINEL_DEFAULT_PARALLEL_SYNCS 1
 #define SENTINEL_MIN_LINK_RECONNECT_PERIOD 15000
-#define SENTINEL_DEFAULT_FAILOVER_TIMEOUT (60*15*1000)
+#define SENTINEL_DEFAULT_FAILOVER_TIMEOUT (60*5*1000)
 #define SENTINEL_MAX_PENDING_COMMANDS 100
 #define SENTINEL_ELECTION_TIMEOUT 10000
 
@@ -105,8 +105,7 @@ typedef struct sentinelAddr {
 #define SENTINEL_FAILOVER_STATE_WAIT_NEXT_SLAVE 6 /* wait replication */
 #define SENTINEL_FAILOVER_STATE_ALERT_CLIENTS 7 /* Run user script. */
 #define SENTINEL_FAILOVER_STATE_WAIT_ALERT_SCRIPT 8 /* Wait script exec. */
-#define SENTINEL_FAILOVER_STATE_DETECT_END 9 /* Check for failover end. */
-#define SENTINEL_FAILOVER_STATE_UPDATE_CONFIG 10 /* Monitor promoted slave. */
+#define SENTINEL_FAILOVER_STATE_UPDATE_CONFIG 9 /* Monitor promoted slave. */
 
 #define SENTINEL_MASTER_LINK_STATUS_UP 0
 #define SENTINEL_MASTER_LINK_STATUS_DOWN 1
@@ -1693,10 +1692,6 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             ri->flags &= ~SRI_RECONF_INPROG;
             ri->flags |= SRI_RECONF_DONE;
             sentinelEvent(REDIS_NOTICE,"+slave-reconf-done",ri,"%@");
-            /* If we are moving forward (a new slave is now configured)
-             * we update the change_time as we are conceptually passing
-             * to the next slave. */
-            ri->failover_state_change_time = mstime();
         }
     }
 }
@@ -1968,7 +1963,6 @@ const char *sentinelFailoverStateStr(int state) {
     case SENTINEL_FAILOVER_STATE_WAIT_PROMOTION: return "wait_promotion";
     case SENTINEL_FAILOVER_STATE_RECONF_SLAVES: return "reconf_slaves";
     case SENTINEL_FAILOVER_STATE_ALERT_CLIENTS: return "alert_clients";
-    case SENTINEL_FAILOVER_STATE_DETECT_END: return "detect_end";
     case SENTINEL_FAILOVER_STATE_UPDATE_CONFIG: return "update_config";
     default: return "unknown";
     }
@@ -2816,17 +2810,20 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
 
     /* If I'm not the leader, I can't continue with the failover. */
     if (!isleader) {
+        int election_timeout = SENTINEL_ELECTION_TIMEOUT;
+
+        /* The election timeout is the MIN between SENTINEL_ELECTION_TIMEOUT
+         * and the configured failover timeout. */
+        if (election_timeout > ri->failover_timeout)
+            election_timeout = ri->failover_timeout;
         /* Abort the failover if I'm not the leader after some time. */
-        if (mstime() - ri->failover_start_time > SENTINEL_ELECTION_TIMEOUT) {
+        if (mstime() - ri->failover_start_time > election_timeout) {
             sentinelEvent(REDIS_WARNING,"-failover-abort-not-elected",ri,"%@");
             sentinelAbortFailover(ri);
         }
         return;
     }
     sentinelEvent(REDIS_WARNING,"+elected-leader",ri,"%@");
-
-    /* Start the failover going to the next state if enough time has
-     * elapsed. */
     ri->failover_state = SENTINEL_FAILOVER_STATE_SELECT_SLAVE;
     ri->failover_state_change_time = mstime();
     sentinelEvent(REDIS_WARNING,"+failover-state-select-slave",ri,"%@");
@@ -2835,6 +2832,8 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
 void sentinelFailoverSelectSlave(sentinelRedisInstance *ri) {
     sentinelRedisInstance *slave = sentinelSelectSlave(ri);
 
+    /* We don't handle the timeout in this state as the function aborts
+     * the failover or go forward in the next state. */
     if (slave == NULL) {
         sentinelEvent(REDIS_WARNING,"-failover-abort-no-good-slave",ri,"%@");
         sentinelAbortFailover(ri);
@@ -2852,7 +2851,16 @@ void sentinelFailoverSelectSlave(sentinelRedisInstance *ri) {
 void sentinelFailoverSendSlaveOfNoOne(sentinelRedisInstance *ri) {
     int retval;
 
-    if (ri->promoted_slave->flags & SRI_DISCONNECTED) return;
+    /* We can't send the command to the promoted slave if it is now
+     * disconnected. Retry again and again with this state until the timeout
+     * is reached, then abort the failover. */
+    if (ri->promoted_slave->flags & SRI_DISCONNECTED) {
+        if (mstime() - ri->failover_state_change_time > ri->failover_timeout) {
+            sentinelEvent(REDIS_WARNING,"-failover-abort-slave-timeout",ri,"%@");
+            sentinelAbortFailover(ri);
+        }
+        return;
+    }
 
     /* Send SLAVEOF NO ONE command to turn the slave into a master.
      * We actually register a generic callback for this command as we don't
@@ -2869,16 +2877,11 @@ void sentinelFailoverSendSlaveOfNoOne(sentinelRedisInstance *ri) {
 /* We actually wait for promotion indirectly checking with INFO when the
  * slave turns into a master. */
 void sentinelFailoverWaitPromotion(sentinelRedisInstance *ri) {
-    mstime_t elapsed = mstime() - ri->failover_state_change_time;
-
-    if (elapsed >= SENTINEL_PROMOTION_RETRY_PERIOD) {
-        sentinelEvent(REDIS_WARNING,"-promotion-timeout",ri->promoted_slave,
-            "%@");
-        sentinelEvent(REDIS_WARNING,"+failover-state-select-slave",ri,"%@");
-        ri->failover_state = SENTINEL_FAILOVER_STATE_SELECT_SLAVE;
-        ri->failover_state_change_time = mstime();
-        ri->promoted_slave->flags &= ~SRI_PROMOTED;
-        ri->promoted_slave = NULL;
+    /* Just handle the timeout. Switching to the next state is handled
+     * by the function parsing the INFO command of the promoted slave. */
+    if (mstime() - ri->failover_state_change_time > ri->failover_timeout) {
+        sentinelEvent(REDIS_WARNING,"-failover-abort-slave-timeout",ri,"%@");
+        sentinelAbortFailover(ri);
     }
 }
 
@@ -3002,6 +3005,8 @@ void sentinelFailoverReconfNextSlave(sentinelRedisInstance *master) {
         }
     }
     dictReleaseIterator(di);
+
+    /* Check if all the slaves are reconfigured and handle timeout. */
     sentinelFailoverDetectEnd(master);
 }
 
@@ -3049,50 +3054,46 @@ void sentinelFailoverStateMachine(sentinelRedisInstance *ri) {
         case SENTINEL_FAILOVER_STATE_RECONF_SLAVES:
             sentinelFailoverReconfNextSlave(ri);
             break;
-        case SENTINEL_FAILOVER_STATE_DETECT_END:
-            sentinelFailoverDetectEnd(ri);
-            break;
     }
 }
 
-/* Abort a failover in progress with the following steps:
- * 1) Set the master back to the original one, increment the config epoch.
- * 2) Reconfig slaves to replicate to the old master.
- * 3) Reconfig the promoted slave as a slave as well. */
+/* Abort a failover in progress:
+ *
+ * This function can only be called before the promoted slave acknowledged
+ * the slave -> master switch. Otherwise the failover can't be aborted and
+ * will reach its end.
+ * 
+ * If there is a promoted slave and we already got acknowledge of the
+ * slave -> master switch, we clear our flags and redirect to the
+ * new master. Eventually the config will be propagated if it is the one
+ * with the greater config epoch for this master.
+ *
+ * Otherwise if we still did not received the acknowledgement from the
+ * promoted slave, or there is no promoted slave at all, we just clear the
+ * failover-in-progress state as there is nothing to do (if the promoted
+ * slave for some reason actually received our "SLAVEOF NO ONE" command
+ * even if we did not received the ACK, it will be reverted to slave again
+ * by one of the Sentinels). */
 void sentinelAbortFailover(sentinelRedisInstance *ri) {
     dictIterator *di;
     dictEntry *de;
-    int sentinel_role;
 
     redisAssert(ri->flags & SRI_FAILOVER_IN_PROGRESS);
+    redisAssert(ri->failover_state <= SENTINEL_FAILOVER_STATE_WAIT_PROMOTION);
 
-    /* Clear failover related flags from slaves.
-     * Also if we are the leader make sure to send SLAVEOF commands to all the
-     * already reconfigured slaves in order to turn them back into slaves of
-     * the original master. */
+    /* Clear failover related flags from slaves. */
     di = dictGetIterator(ri->slaves);
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *slave = dictGetVal(de);
-        if (!(slave->flags & SRI_DISCONNECTED) &&
-             (slave->flags & (SRI_PROMOTED|SRI_RECONF_SENT|SRI_RECONF_INPROG|
-                              SRI_RECONF_DONE)))
-        {
-            int retval;
-
-            retval = sentinelSendSlaveOf(slave,ri->addr->ip,ri->addr->port);
-            if (retval == REDIS_OK)
-                sentinelEvent(REDIS_NOTICE,"-slave-reconf-undo",slave,"%@");
-        }
         slave->flags &= ~(SRI_RECONF_SENT|SRI_RECONF_INPROG|SRI_RECONF_DONE);
     }
     dictReleaseIterator(di);
 
-    sentinel_role = SENTINEL_LEADER;
     ri->flags &= ~(SRI_FAILOVER_IN_PROGRESS|SRI_FORCE_FAILOVER);
     ri->failover_state = SENTINEL_FAILOVER_STATE_NONE;
     ri->failover_state_change_time = mstime();
     if (ri->promoted_slave) {
-        sentinelCallClientReconfScript(ri,sentinel_role,"abort",
+        sentinelCallClientReconfScript(ri,SENTINEL_LEADER,"abort",
             ri->promoted_slave->addr,ri->addr);
         ri->promoted_slave->flags &= ~SRI_PROMOTED;
         ri->promoted_slave = NULL;
