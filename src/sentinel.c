@@ -87,7 +87,7 @@ typedef struct sentinelAddr {
 #define SENTINEL_SLAVE_RECONF_RETRY_PERIOD 10000
 #define SENTINEL_DEFAULT_PARALLEL_SYNCS 1
 #define SENTINEL_MIN_LINK_RECONNECT_PERIOD 15000
-#define SENTINEL_DEFAULT_FAILOVER_TIMEOUT (60*5*1000)
+#define SENTINEL_DEFAULT_FAILOVER_TIMEOUT (60*3*1000)
 #define SENTINEL_MAX_PENDING_COMMANDS 100
 #define SENTINEL_ELECTION_TIMEOUT 10000
 
@@ -2715,7 +2715,7 @@ int sentinelStartFailoverIfNeeded(sentinelRedisInstance *master) {
 
     /* Last failover attempt started too little time ago? */
     if (mstime() - master->failover_start_time <
-        SENTINEL_PUBLISH_PERIOD*4) return 0;
+        master->failover_timeout*2) return 0;
 
     sentinelStartFailover(master);
     return 1;
