@@ -1157,7 +1157,7 @@ int sentinelResetMastersByPattern(char *pattern, int flags) {
 /* Reset the specified master with sentinelResetMaster(), and also change
  * the ip:port address, but take the name of the instance unmodified.
  *
- * This is used to handle the +switch-master and +redirect-to-master events.
+ * This is used to handle the +switch-master event.
  *
  * The function returns REDIS_ERR if the address can't be resolved for some
  * reason. Otherwise REDIS_OK is returned.  */
@@ -3063,40 +3063,15 @@ void sentinelFailoverStateMachine(sentinelRedisInstance *ri) {
  *
  * This function can only be called before the promoted slave acknowledged
  * the slave -> master switch. Otherwise the failover can't be aborted and
- * will reach its end.
- * 
- * If there is a promoted slave and we already got acknowledge of the
- * slave -> master switch, we clear our flags and redirect to the
- * new master. Eventually the config will be propagated if it is the one
- * with the greater config epoch for this master.
- *
- * Otherwise if we still did not received the acknowledgement from the
- * promoted slave, or there is no promoted slave at all, we just clear the
- * failover-in-progress state as there is nothing to do (if the promoted
- * slave for some reason actually received our "SLAVEOF NO ONE" command
- * even if we did not received the ACK, it will be reverted to slave again
- * by one of the Sentinels). */
+ * will reach its end (possibly by timeout). */
 void sentinelAbortFailover(sentinelRedisInstance *ri) {
-    dictIterator *di;
-    dictEntry *de;
-
     redisAssert(ri->flags & SRI_FAILOVER_IN_PROGRESS);
     redisAssert(ri->failover_state <= SENTINEL_FAILOVER_STATE_WAIT_PROMOTION);
-
-    /* Clear failover related flags from slaves. */
-    di = dictGetIterator(ri->slaves);
-    while((de = dictNext(di)) != NULL) {
-        sentinelRedisInstance *slave = dictGetVal(de);
-        slave->flags &= ~(SRI_RECONF_SENT|SRI_RECONF_INPROG|SRI_RECONF_DONE);
-    }
-    dictReleaseIterator(di);
 
     ri->flags &= ~(SRI_FAILOVER_IN_PROGRESS|SRI_FORCE_FAILOVER);
     ri->failover_state = SENTINEL_FAILOVER_STATE_NONE;
     ri->failover_state_change_time = mstime();
     if (ri->promoted_slave) {
-        sentinelCallClientReconfScript(ri,SENTINEL_LEADER,"abort",
-            ri->promoted_slave->addr,ri->addr);
         ri->promoted_slave->flags &= ~SRI_PROMOTED;
         ri->promoted_slave = NULL;
     }
