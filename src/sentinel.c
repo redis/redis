@@ -1309,7 +1309,7 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
         ri->config_epoch = strtoull(argv[2],NULL,10);
         if (ri->config_epoch > sentinel.current_epoch)
             sentinel.current_epoch = ri->config_epoch;
-    } else if (!strcasecmp(argv[0],"known-slave") && argc == 3) {
+    } else if (!strcasecmp(argv[0],"known-slave") && argc == 4) {
         sentinelRedisInstance *slave;
 
         /* known-slave <name> <ip> <port> */
@@ -1320,7 +1320,7 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
         {
             return "Wrong hostname or port for slave.";
         }
-    } else if (!strcasecmp(argv[0],"known-sentinel") && argc == 3) {
+    } else if (!strcasecmp(argv[0],"known-sentinel") && argc == 4) {
         sentinelRedisInstance *si;
 
         /* known-sentinel <name> <ip> <port> */
