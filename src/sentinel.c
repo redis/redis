@@ -77,7 +77,6 @@ typedef struct sentinelAddr {
 #define SENTINEL_TILT_TRIGGER 2000
 #define SENTINEL_TILT_PERIOD (SENTINEL_PING_PERIOD*30)
 #define SENTINEL_DEFAULT_SLAVE_PRIORITY 100
-#define SENTINEL_PROMOTION_RETRY_PERIOD 30000
 #define SENTINEL_SLAVE_RECONF_RETRY_PERIOD 10000
 #define SENTINEL_DEFAULT_PARALLEL_SYNCS 1
 #define SENTINEL_MIN_LINK_RECONNECT_PERIOD 15000
@@ -88,8 +87,6 @@ typedef struct sentinelAddr {
 /* How many milliseconds is an information valid? This applies for instance
  * to the reply to SENTINEL IS-MASTER-DOWN-BY-ADDR replies. */
 #define SENTINEL_INFO_VALIDITY_TIME 5000
-#define SENTINEL_FAILOVER_FIXED_DELAY 5000
-#define SENTINEL_FAILOVER_MAX_RANDOM_DELAY 10000
 
 /* Failover machine different states. */
 #define SENTINEL_FAILOVER_STATE_NONE 0  /* No failover in progress. */
@@ -98,10 +95,7 @@ typedef struct sentinelAddr {
 #define SENTINEL_FAILOVER_STATE_SEND_SLAVEOF_NOONE 3 /* Slave -> Master */
 #define SENTINEL_FAILOVER_STATE_WAIT_PROMOTION 4 /* Wait slave to change role */
 #define SENTINEL_FAILOVER_STATE_RECONF_SLAVES 5 /* SLAVEOF newmaster */
-#define SENTINEL_FAILOVER_STATE_WAIT_NEXT_SLAVE 6 /* wait replication */
-#define SENTINEL_FAILOVER_STATE_ALERT_CLIENTS 7 /* Run user script. */
-#define SENTINEL_FAILOVER_STATE_WAIT_ALERT_SCRIPT 8 /* Wait script exec. */
-#define SENTINEL_FAILOVER_STATE_UPDATE_CONFIG 9 /* Monitor promoted slave. */
+#define SENTINEL_FAILOVER_STATE_UPDATE_CONFIG 6 /* Monitor promoted slave. */
 
 #define SENTINEL_MASTER_LINK_STATUS_UP 0
 #define SENTINEL_MASTER_LINK_STATUS_DOWN 1
@@ -2114,7 +2108,6 @@ const char *sentinelFailoverStateStr(int state) {
     case SENTINEL_FAILOVER_STATE_SEND_SLAVEOF_NOONE: return "send_slaveof_noone";
     case SENTINEL_FAILOVER_STATE_WAIT_PROMOTION: return "wait_promotion";
     case SENTINEL_FAILOVER_STATE_RECONF_SLAVES: return "reconf_slaves";
-    case SENTINEL_FAILOVER_STATE_ALERT_CLIENTS: return "alert_clients";
     case SENTINEL_FAILOVER_STATE_UPDATE_CONFIG: return "update_config";
     default: return "unknown";
     }
