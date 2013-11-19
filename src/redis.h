@@ -1144,6 +1144,8 @@ sds keyspaceEventsFlagsToString(int flags);
 void loadServerConfig(char *filename, char *options);
 void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams();
+struct rewriteConfigState; /* Forward declaration to export API. */
+void rewriteConfigRewriteLine(struct rewriteConfigState *state, char *option, sds line, int force);
 
 /* db.c -- Keyspace access API */
 int removeExpire(redisDb *db, robj *key);
