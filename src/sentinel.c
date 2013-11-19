@@ -2672,7 +2672,7 @@ void sentinelAskMasterStateToOtherSentinels(sentinelRedisInstance *master, int f
  * voted for the specifed 'req_epoch' or one greater.
  *
  * If a vote is not available returns NULL, otherwise return the Sentinel
- * runid and populate the leader_epoch with the epoch of the last vote. */
+ * runid and populate the leader_epoch with the epoch of the vote. */
 char *sentinelVoteLeader(sentinelRedisInstance *master, uint64_t req_epoch, char *req_runid, uint64_t *leader_epoch) {
     if (req_epoch > sentinel.current_epoch) {
         sentinel.current_epoch = req_epoch;
@@ -2680,7 +2680,8 @@ char *sentinelVoteLeader(sentinelRedisInstance *master, uint64_t req_epoch, char
             (unsigned long long) sentinel.current_epoch);
     }
 
-    if (master->leader_epoch < req_epoch && sentinel.current_epoch <= req_epoch) {
+    if (master->leader_epoch < req_epoch && sentinel.current_epoch <= req_epoch)
+    {
         sdsfree(master->leader);
         master->leader = sdsnew(req_runid);
         master->leader_epoch = sentinel.current_epoch;
@@ -2692,7 +2693,8 @@ char *sentinelVoteLeader(sentinelRedisInstance *master, uint64_t req_epoch, char
          *
          * The random addition is useful to desynchronize a bit the slaves
          * and reduce the chance that no slave gets majority. */
-        master->failover_start_time = mstime() + rand() % 2000;
+        if (strcasecmp(master->leader,server.runid))
+            master->failover_start_time = mstime() + rand() % 2000;
     }
 
     *leader_epoch = master->leader_epoch;
@@ -2706,17 +2708,19 @@ struct sentinelLeader {
 
 /* Helper function for sentinelGetLeader, increment the counter
  * relative to the specified runid. */
-void sentinelLeaderIncr(dict *counters, char *runid) {
+int sentinelLeaderIncr(dict *counters, char *runid) {
     dictEntry *de = dictFind(counters,runid);
     uint64_t oldval;
 
     if (de) {
         oldval = dictGetUnsignedIntegerVal(de);
         dictSetUnsignedIntegerVal(de,oldval+1);
+        return oldval+1;
     } else {
         de = dictAddRaw(counters,runid);
         redisAssert(de != NULL);
         dictSetUnsignedIntegerVal(de,1);
+        return 1;
     }
 }
 
@@ -2734,49 +2738,57 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     char *myvote;
     char *winner = NULL;
     uint64_t leader_epoch;
+    uint64_t max_votes = 0;
 
     redisAssert(master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS));
     counters = dictCreate(&leaderVotesDictType,NULL);
-
-    /* Count my vote (and vote for myself if I still did not voted for
-     * the currnet epoch). */
-    myvote = sentinelVoteLeader(master,epoch,server.runid,&leader_epoch);
-    if (myvote && leader_epoch == epoch) {
-        sentinelLeaderIncr(counters,myvote);
-        voters++;
-    }
 
     /* Count other sentinels votes */
     di = dictGetIterator(master->sentinels);
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
-        if (ri->leader == NULL || ri->leader_epoch != sentinel.current_epoch)
-            continue;
-        sentinelLeaderIncr(counters,ri->leader);
+        if (ri->leader != NULL && ri->leader_epoch == sentinel.current_epoch)
+            sentinelLeaderIncr(counters,ri->leader);
         voters++;
     }
     dictReleaseIterator(di);
-    voters_quorum = voters/2+1;
 
     /* Check what's the winner. For the winner to win, it needs two conditions:
      * 1) Absolute majority between voters (50% + 1).
      * 2) And anyway at least master->quorum votes. */
-    {
-        uint64_t max_votes = 0; /* Max votes so far. */
+    di = dictGetIterator(counters);
+    while((de = dictNext(di)) != NULL) {
+        uint64_t votes = dictGetUnsignedIntegerVal(de);
 
-        di = dictGetIterator(counters);
-        while((de = dictNext(di)) != NULL) {
-            uint64_t votes = dictGetUnsignedIntegerVal(de);
-
-            if (max_votes < votes) {
-                max_votes = votes;
-                winner = dictGetKey(de);
-            }
+        if (votes > max_votes) {
+            max_votes = votes;
+            winner = dictGetKey(de);
         }
-        dictReleaseIterator(di);
-        if (winner && (max_votes < voters_quorum || max_votes < master->quorum))
-            winner = NULL;
     }
+    dictReleaseIterator(di);
+
+    /* Count this Sentinel vote:
+     * if this Sentinel did not voted yet, either vote for the most
+     * common voted sentinel, or for itself if no vote exists at all. */
+    if (winner)
+        myvote = sentinelVoteLeader(master,epoch,winner,&leader_epoch);
+    else
+        myvote = sentinelVoteLeader(master,epoch,server.runid,&leader_epoch);
+
+    if (myvote && leader_epoch == epoch) {
+        uint64_t votes = sentinelLeaderIncr(counters,myvote);
+
+        if (votes > max_votes) {
+            max_votes = votes;
+            winner = myvote;
+        }
+    }
+    voters++; /* Anyway, count me as one of the voters. */
+
+    voters_quorum = voters/2+1;
+    if (winner && (max_votes < voters_quorum || max_votes < master->quorum))
+        winner = NULL;
+
     winner = winner ? sdsnew(winner) : NULL;
     sdsfree(myvote);
     dictRelease(counters);
