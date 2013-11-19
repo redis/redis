@@ -3108,6 +3108,8 @@ int main(int argc, char **argv) {
             redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
         if (server.sofd > 0)
             redisLog(REDIS_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
+    } else {
+        redisLog(REDIS_WARNING,"Sentinel runid is %s", server.runid);
     }
 
     /* Warning the user about suspicious maxmemory setting. */
