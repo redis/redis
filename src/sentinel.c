@@ -2361,8 +2361,9 @@ void sentinelCommand(redisClient *c) {
                                     (ri->flags & SRI_MASTER))
             isdown = 1;
 
-        /* Vote for the master (or fetch the previous vote) */
-        if (ri && ri->flags & SRI_MASTER) {
+        /* Vote for the master (or fetch the previous vote) if the request
+         * includes a runid, otherwise the sender is not seeking for a vote. */
+        if (ri && ri->flags & SRI_MASTER && strcasecmp(c->argv[5]->ptr,"*")) {
             leader = sentinelVoteLeader(ri,(uint64_t)req_epoch,
                                             c->argv[5]->ptr,
                                             &leader_epoch);
@@ -2372,7 +2373,7 @@ void sentinelCommand(redisClient *c) {
          * down state, leader, vote epoch. */
         addReplyMultiBulkLen(c,3);
         addReply(c, isdown ? shared.cone : shared.czero);
-        addReplyBulkCString(c, leader ? leader : "?");
+        addReplyBulkCString(c, leader ? leader : "*");
         addReplyLongLong(c, (long long)leader_epoch);
         if (leader) sdsfree(leader);
     } else if (!strcasecmp(c->argv[1]->ptr,"reset")) {
@@ -2607,9 +2608,13 @@ void sentinelReceiveIsMasterDownReply(redisAsyncContext *c, void *reply, void *p
         } else {
             ri->flags &= ~SRI_MASTER_DOWN;
         }
-        sdsfree(ri->leader);
-        ri->leader = sdsnew(r->element[1]->str);
-        ri->leader_epoch = r->element[2]->integer;
+        if (strcmp(r->element[1]->str,"*")) {
+            /* If the runid in the reply is not "*" the Sentinel actually
+             * replied with a vote. */
+            sdsfree(ri->leader);
+            ri->leader = sdsnew(r->element[1]->str);
+            ri->leader_epoch = r->element[2]->integer;
+        }
     }
 }
 
@@ -2662,7 +2667,8 @@ void sentinelAskMasterStateToOtherSentinels(sentinelRedisInstance *master, int f
                     "SENTINEL is-master-down-by-addr %s %s %llu %s",
                     master->addr->ip, port,
                     sentinel.current_epoch,
-                    server.runid);
+                    (master->failover_state > SENTINEL_FAILOVER_STATE_NONE) ?
+                    server.runid : "*");
         if (retval == REDIS_OK) ri->pending_commands++;
     }
     dictReleaseIterator(di);
