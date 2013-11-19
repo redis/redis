@@ -439,6 +439,16 @@ sentinelAddr *createSentinelAddr(char *hostname, int port) {
     return sa;
 }
 
+/* Return a duplicate of the source address. */
+sentinelAddr *dupSentinelAddr(sentinelAddr *src) {
+    sentinelAddr *sa;
+
+    sa = zmalloc(sizeof(*sa));
+    sa->ip = sdsnew(src->ip);
+    sa->port = src->port;
+    return sa;
+}
+
 /* Free a Sentinel address. Can't fail. */
 void releaseSentinelAddr(sentinelAddr *sa) {
     sdsfree(sa->ip);
@@ -785,15 +795,13 @@ void sentinelPendingScriptsCommand(redisClient *c) {
  *
  * <master-name> <role> <state> <from-ip> <from-port> <to-ip> <to-port>
  *
- * It is called every time a failover starts, ends, or is aborted.
+ * It is called every time a failover is performed.
  *
- * <state> is "start", "end" or "abort".
+ * <state> is currently always "failover".
  * <role> is either "leader" or "observer".
  *
  * from/to fields are respectively master -> promoted slave addresses for
- * "start" and "end", or the reverse (promoted slave -> master) in case of
- * "abort".
- */
+ * "start" and "end". */
 void sentinelCallClientReconfScript(sentinelRedisInstance *master, int role, char *state, sentinelAddr *from, sentinelAddr *to) {
     char fromport[32], toport[32];
 
@@ -2011,13 +2019,21 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
                     if (master_port != msgmaster->addr->port ||
                         !strcmp(msgmaster->addr->ip, token[5]))
                     {
+                        sentinelAddr *old_addr;
+
                         sentinelEvent(REDIS_WARNING,"+switch-master",
                             msgmaster,"%s %s %d %s %d",
                             msgmaster->name,
                             msgmaster->addr->ip, msgmaster->addr->port,
                             token[5], master_port);
+
+                        old_addr = dupSentinelAddr(msgmaster->addr);
                         sentinelResetMasterAndChangeAddress(msgmaster,
                                                     token[5], master_port);
+                        sentinelCallClientReconfScript(msgmaster,
+                            SENTINEL_OBSERVER,"start",
+                            old_addr,msgmaster->addr);
+                        releaseSentinelAddr(old_addr);
                     }
                 }
             }
@@ -3040,13 +3056,9 @@ void sentinelFailoverDetectEnd(sentinelRedisInstance *master) {
     }
 
     if (not_reconfigured == 0) {
-        int role = SENTINEL_LEADER;
-
         sentinelEvent(REDIS_WARNING,"+failover-end",master,"%@");
         master->failover_state = SENTINEL_FAILOVER_STATE_UPDATE_CONFIG;
         master->failover_state_change_time = mstime();
-        sentinelCallClientReconfScript(master,role,"end",master->addr,
-            master->promoted_slave->addr);
     }
 
     /* If I'm the leader it is a good idea to send a best effort SLAVEOF
