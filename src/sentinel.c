@@ -2903,6 +2903,9 @@ int sentinelStartFailoverIfNeeded(sentinelRedisInstance *master) {
  * NULL if no suitable slave was found.
  */
 
+/* Helper for sentinelSelectSlave(). This is used by qsort() in order to
+ * sort suitable slaves in a "better first" order, to take the first of
+ * the list. */
 int compareSlavesForPromotion(const void *a, const void *b) {
     sentinelRedisInstance **sa = (sentinelRedisInstance **)a,
                           **sb = (sentinelRedisInstance **)b;
@@ -2911,8 +2914,16 @@ int compareSlavesForPromotion(const void *a, const void *b) {
     if ((*sa)->slave_priority != (*sb)->slave_priority)
         return (*sa)->slave_priority - (*sb)->slave_priority;
 
-    /* If priority is the same, select the slave with that has the
-     * lexicographically smaller runid. Note that we try to handle runid
+    /* If priority is the same, select the slave with greater replication
+     * offset (processed more data frmo the master). */
+    if ((*sa)->slave_repl_offset > (*sb)->slave_repl_offset) {
+        return -1; /* a < b */
+    } else if ((*sa)->slave_repl_offset < (*sb)->slave_repl_offset) {
+        return 1; /* b > a */
+    }
+
+    /* If the replication offset is the same select the slave with that has
+     * the lexicographically smaller runid. Note that we try to handle runid
      * == NULL as there are old Redis versions that don't publish runid in
      * INFO. A NULL runid is considered bigger than any other runid. */
     sa_runid = (*sa)->runid;
