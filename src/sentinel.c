@@ -167,10 +167,11 @@ typedef struct sentinelRedisInstance {
     mstime_t master_link_down_time; /* Slave replication link down time. */
     int slave_priority; /* Slave priority according to its INFO output. */
     mstime_t slave_reconf_sent_time; /* Time at which we sent SLAVE OF <new> */
-    struct sentinelRedisInstance *master; /* Master instance if SRI_SLAVE is set. */
+    struct sentinelRedisInstance *master; /* Master instance if it's slave. */
     char *slave_master_host;    /* Master host as reported by INFO */
     int slave_master_port;      /* Master port as reported by INFO */
     int slave_master_link_status; /* Master link status as reported by INFO */
+    unsigned long long slave_repl_offset; /* Slave replication offset. */
     /* Failover */
     char *leader;       /* If this is a master instance, this is the runid of
                            the Sentinel that should perform the failover. If
@@ -902,6 +903,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->slave_master_host = NULL;
     ri->slave_master_port = 0;
     ri->slave_master_link_status = SENTINEL_MASTER_LINK_STATUS_DOWN;
+    ri->slave_repl_offset = 0;
     ri->sentinels = dictCreate(&instancesDictType,NULL);
     ri->quorum = quorum;
     ri->parallel_syncs = SENTINEL_DEFAULT_PARALLEL_SYNCS;
@@ -1740,6 +1742,10 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             /* slave_priority:<priority> */
             if (sdslen(l) >= 15 && !memcmp(l,"slave_priority:",15))
                 ri->slave_priority = atoi(l+15);
+
+            /* slave_repl_offset:<offset> */
+            if (sdslen(l) >= 18 && !memcmp(l,"slave_repl_offset:",18))
+                ri->slave_repl_offset = strtoull(l+18,NULL,10);
         }
     }
     ri->info_refresh = mstime();
@@ -2263,6 +2269,10 @@ void addReplySentinelRedisInstance(redisClient *c, sentinelRedisInstance *ri) {
 
         addReplyBulkCString(c,"slave-priority");
         addReplyBulkLongLong(c,ri->slave_priority);
+        fields++;
+
+        addReplyBulkCString(c,"slave-repl-offset");
+        addReplyBulkLongLong(c,ri->slave_repl_offset);
         fields++;
     }
 
