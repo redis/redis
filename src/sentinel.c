@@ -1141,6 +1141,7 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *ip,
     newaddr = createSentinelAddr(ip,port);
     if (newaddr == NULL) return REDIS_ERR;
     sentinelResetMaster(master,SENTINEL_NO_FLAGS);
+
     oldaddr = master->addr;
     master->addr = newaddr;
     master->o_down_since_time = 0;
@@ -1151,6 +1152,50 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *ip,
     releaseSentinelAddr(oldaddr);
     return REDIS_OK;
 }
+
+int sentinelRestoreMaster(sentinelRedisInstance *master) {
+    dictIterator *di;
+    dictEntry *de;
+    sentinelRedisInstance *slave;
+    char slave_ip[256];
+    char master_ip[256];
+    int slave_port;
+    int master_port;
+    sentinelAddr *oldaddr;
+
+    strcpy(master_ip, master->slave_master_host);
+    master_port = master->slave_master_port;
+
+    dict *slaves = master->slaves;
+    master->slaves = dictCreate(&instancesDictType,NULL);
+
+    oldaddr = master->addr;
+
+    strcpy(slave_ip, oldaddr->ip);
+    slave_port = oldaddr->port;
+
+    sentinelResetMasterAndChangeAddress(master, master_ip, master_port);
+
+    slave = createSentinelRedisInstance(NULL,SRI_SLAVE,slave_ip,
+                            slave_port, master->quorum, master);
+
+    di = dictGetIterator(slaves);
+    while((de = dictNext(di)) != NULL) {
+        sentinelRedisInstance *ri = dictGetVal(de);
+        if (strcmp(ri->addr->ip, master_ip) == 0 &&
+            ri->addr->port == master_port ) {
+            continue;
+        }
+
+        slave = createSentinelRedisInstance(NULL,SRI_SLAVE,ri->addr->ip,
+                            ri->addr->port, master->quorum, master);
+        
+    }
+    dictReleaseIterator(di);
+    dictRelease(slaves);
+    return REDIS_OK;
+}
+
 
 /* Return non-zero if there was no SDOWN or ODOWN error associated to this
  * instance in the latest 'ms' milliseconds. */
@@ -1487,12 +1532,17 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
      * master, always. */
     if ((ri->flags & SRI_MASTER) && role == SRI_SLAVE && ri->slave_master_host)
     {
-        sentinelEvent(REDIS_WARNING,"+redirect-to-master",ri,
-            "%s %s %d %s %d",
-            ri->name, ri->addr->ip, ri->addr->port,
-            ri->slave_master_host, ri->slave_master_port);
-        sentinelResetMasterAndChangeAddress(ri,ri->slave_master_host,
-                                               ri->slave_master_port);
+        if (ri->slaves == NULL) {
+            sentinelEvent(REDIS_WARNING,"+redirect-to-master",ri,
+                    "%s %s %d %s %d",
+                    ri->name, ri->addr->ip, ri->addr->port,
+                    ri->slave_master_host, ri->slave_master_port);
+            sentinelResetMasterAndChangeAddress(ri,ri->slave_master_host,
+                    ri->slave_master_port);
+        } else {
+            sentinelRestoreMaster(ri);
+        }
+
         return; /* Don't process anything after this event. */
     }
 

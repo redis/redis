@@ -1393,7 +1393,7 @@ void initServerConfig() {
     server.repl_syncio_timeout = REDIS_REPL_SYNCIO_TIMEOUT;
     server.repl_serve_stale_data = REDIS_DEFAULT_SLAVE_SERVE_STALE_DATA;
     server.repl_slave_ro = REDIS_DEFAULT_SLAVE_READ_ONLY;
-    server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
+    server.repl_down_since = mstime(); /* Never connected, repl is down since EVER. */
     server.repl_disable_tcp_nodelay = REDIS_DEFAULT_REPL_DISABLE_TCP_NODELAY;
     server.slave_priority = REDIS_DEFAULT_SLAVE_PRIORITY;
     server.master_repl_offset = 0;
