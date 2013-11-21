@@ -1187,6 +1187,7 @@ void initSentinelConfig(void);
 void initSentinel(void);
 void sentinelTimer(void);
 char *sentinelHandleConfiguration(char **argv, int argc);
+void sentinelIsRunning(void);
 
 /* Scripting */
 void scriptingInit(void);
