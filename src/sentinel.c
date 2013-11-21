@@ -2669,14 +2669,6 @@ void sentinelAskMasterStateToOtherSentinels(sentinelRedisInstance *master, int f
     dictIterator *di;
     dictEntry *de;
 
-    /* Vote for myself if I see the master is already in ODOWN state. */
-    if (master->flags & SRI_O_DOWN) {
-        uint64_t leader_epoch;
-
-        sentinelVoteLeader(master,sentinel.current_epoch,server.runid,
-                                    &leader_epoch);
-    }
-
     di = dictGetIterator(master->sentinels);
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
