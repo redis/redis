@@ -995,8 +995,8 @@ const char *sentinelRedisInstanceTypeStr(sentinelRedisInstance *ri) {
     else return "unknown";
 }
 
-/* This function removes all the instances found in the dictionary of instances
- * 'd', having either:
+/* This function removes all the instances found in the dictionary of
+ * sentinels in the specified 'master', having either:
  * 
  * 1) The same ip/port as specified.
  * 2) The same runid.
@@ -1007,13 +1007,9 @@ const char *sentinelRedisInstanceTypeStr(sentinelRedisInstance *ri) {
  *
  * This function is useful because every time we add a new Sentinel into
  * a master's Sentinels dictionary, we want to be very sure about not
- * having duplicated instances for any reason. This is so important because
- * we use those other sentinels in order to run our quorum protocol to
- * understand if it's time to proceed with the fail over.
- *
- * Making sure no duplication is possible we greatly improve the robustness
- * of the quorum (otherwise we may end counting the same instance multiple
- * times for some reason).
+ * having duplicated instances for any reason. This is important because
+ * other sentinels are needed to reach ODOWN quorum, and later to get
+ * voted for a given configuration epoch in order to perform the failover.
  *
  * The function returns the number of Sentinels removed. */
 int removeMatchingSentinelsFromMaster(sentinelRedisInstance *master, char *ip, int port, char *runid) {
@@ -1625,7 +1621,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
  * 1) It is actually a master in the current configuration.
  * 2) It reports itself as a master.
  * 3) It is not SDOWN or ODOWN.
- * 4) We obtained last INFO no more than two times the INFO period of time ago. */
+ * 4) We obtained last INFO no more than two times the INFO period time ago. */
 int sentinelMasterLooksSane(sentinelRedisInstance *master) {
     return
         master->flags & SRI_MASTER &&
@@ -2562,8 +2558,8 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
         sentinelKillLink(ri,ri->pc);
     }
 
-    /* Update the subjectively down flag. We believe the instance is in SDOWN
-     * state if:
+    /* Update the SDOWN flag. We believe the instance is SDOWN if:
+     *
      * 1) It is not replying.
      * 2) We believe it is a master, it reports to be a slave for enough time
      *    to meet the down_after_period, plus enough time to get two times
@@ -2589,7 +2585,12 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
     }
 }
 
-/* Is this instance down accordingly to the configured quorum? */
+/* Is this instance down according to the configured quorum?
+ *
+ * Note that ODOWN is a weak quorum, it only means that enough Sentinels
+ * reported in a given time range that the instance was not reachable.
+ * However messages can be delayed so there are no strong guarantees about
+ * N instances agreeing at the same time about the down state. */
 void sentinelCheckObjectivelyDown(sentinelRedisInstance *master) {
     dictIterator *di;
     dictEntry *de;
@@ -2659,10 +2660,10 @@ void sentinelReceiveIsMasterDownReply(redisAsyncContext *c, void *reply, void *p
     }
 }
 
-/* If we think (subjectively) the master is down, we start sending
+/* If we think the master is down, we start sending
  * SENTINEL IS-MASTER-DOWN-BY-ADDR requests to other sentinels
- * in order to get the replies that allow to reach the quorum and
- * possibly also mark the master as objectively down. */
+ * in order to get the replies that allow to reach the quorum
+ * needed to mark the master in ODOWN state and trigger a failover. */
 #define SENTINEL_ASK_FORCED (1<<0)
 void sentinelAskMasterStateToOtherSentinels(sentinelRedisInstance *master, int flags) {
     dictIterator *di;
@@ -3224,11 +3225,7 @@ void sentinelFailoverReconfNextSlave(sentinelRedisInstance *master) {
 
 /* This function is called when the slave is in
  * SENTINEL_FAILOVER_STATE_UPDATE_CONFIG state. In this state we need
- * to remove it from the master table and add the promoted slave instead.
- *
- * If there are no promoted slaves as this instance is unique, we remove
- * and re-add it with the same address to trigger a complete state
- * refresh. */
+ * to remove it from the master table and add the promoted slave instead. */
 void sentinelFailoverSwitchToPromotedSlave(sentinelRedisInstance *master) {
     sentinelRedisInstance *ref = master->promoted_slave ?
                                  master->promoted_slave : master;
