@@ -58,7 +58,7 @@ typedef struct sentinelAddr {
 #define SRI_SENTINEL (1<<2)
 #define SRI_DISCONNECTED (1<<3)
 #define SRI_S_DOWN (1<<4)   /* Subjectively down (no quorum). */
-#define SRI_O_DOWN (1<<5)   /* Objectively down (quorum reached). */
+#define SRI_O_DOWN (1<<5)   /* Objectively down (confirmed by others). */
 #define SRI_MASTER_DOWN (1<<6) /* A Sentinel with this flag set thinks that
                                    its master is down. */
 #define SRI_FAILOVER_IN_PROGRESS (1<<7) /* Failover is in progress for
@@ -70,6 +70,7 @@ typedef struct sentinelAddr {
 #define SRI_FORCE_FAILOVER (1<<12)  /* Force failover with master up. */
 #define SRI_SCRIPT_KILL_SENT (1<<13) /* SCRIPT KILL already sent on -BUSY */
 
+/* Note: times are in milliseconds. */
 #define SENTINEL_INFO_PERIOD 10000
 #define SENTINEL_PING_PERIOD 1000
 #define SENTINEL_ASK_PERIOD 1000
@@ -85,10 +86,6 @@ typedef struct sentinelAddr {
 #define SENTINEL_DEFAULT_FAILOVER_TIMEOUT (60*3*1000)
 #define SENTINEL_MAX_PENDING_COMMANDS 100
 #define SENTINEL_ELECTION_TIMEOUT 10000
-
-/* How many milliseconds is an information valid? This applies for instance
- * to the reply to SENTINEL IS-MASTER-DOWN-BY-ADDR replies. */
-#define SENTINEL_INFO_VALIDITY_TIME 5000
 
 /* Failover machine different states. */
 #define SENTINEL_FAILOVER_STATE_NONE 0  /* No failover in progress. */
@@ -2679,7 +2676,7 @@ void sentinelAskMasterStateToOtherSentinels(sentinelRedisInstance *master, int f
         int retval;
 
         /* If the master state from other sentinel is too old, we clear it. */
-        if (elapsed > SENTINEL_INFO_VALIDITY_TIME) {
+        if (elapsed > SENTINEL_ASK_PERIOD*5) {
             ri->flags &= ~SRI_MASTER_DOWN;
             sdsfree(ri->leader);
             ri->leader = NULL;
@@ -2917,15 +2914,26 @@ int sentinelStartFailoverIfNeeded(sentinelRedisInstance *master) {
  * the following parameters:
  *
  * 1) None of the following conditions: S_DOWN, O_DOWN, DISCONNECTED.
- * 2) last_avail_time more recent than SENTINEL_INFO_VALIDITY_TIME.
- * 3) info_refresh more recent than SENTINEL_INFO_VALIDITY_TIME.
+ * 2) Last time the slave replied to ping no more than 5 times the PING period.
+ * 3) info_refresh not older than 3 times the INFO refresh period.
  * 4) master_link_down_time no more than:
  *     (now - master->s_down_since_time) + (master->down_after_period * 10).
+ *    Basically since the master is down from our POV, the slave reports
+ *    to be disconnected no more than 10 times the configured down-after-period.
+ *    This is pretty much black magic but the idea is, the master was not
+ *    available so the slave may be lagging, but not over a certain time.
+ *    Anyway we'll select the best slave according to replication offset.
  * 5) Slave priority can't be zero, otherwise the slave is discarded.
  *
  * Among all the slaves matching the above conditions we select the slave
- * with lower slave_priority. If priority is the same we select the slave
- * with lexicographically smaller runid.
+ * with, in order of sorting key:
+ *
+ * - lower slave_priority.
+ * - bigger processed replication offset.
+ * - lexicographically smaller runid.
+ *
+ * Basically if runid is the same, the slave that processed more commands
+ * from the master is selected.
  *
  * The function returns the pointer to the selected slave, otherwise
  * NULL if no suitable slave was found.
@@ -2978,18 +2986,20 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
     di = dictGetIterator(master->slaves);
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *slave = dictGetVal(de);
-        mstime_t info_validity_time = mstime()-SENTINEL_INFO_VALIDITY_TIME;
+        mstime_t info_validity_time;
 
         if (slave->flags & (SRI_S_DOWN|SRI_O_DOWN|SRI_DISCONNECTED)) continue;
-        if (slave->last_avail_time < info_validity_time) continue;
+        if (mstime() - slave->last_avail_time > SENTINEL_PING_PERIOD*5) continue;
         if (slave->slave_priority == 0) continue;
 
         /* If the master is in SDOWN state we get INFO for slaves every second.
          * Otherwise we get it with the usual period so we need to account for
          * a larger delay. */
-        if ((master->flags & SRI_S_DOWN) == 0)
-            info_validity_time -= SENTINEL_INFO_PERIOD;
-        if (slave->info_refresh < info_validity_time) continue;
+        if (master->flags & SRI_S_DOWN)
+            info_validity_time = SENTINEL_PING_PERIOD*5;
+        else
+            info_validity_time = SENTINEL_INFO_PERIOD*3;
+        if (mstime() - slave->info_refresh > info_validity_time) continue;
         if (slave->master_link_down_time > max_master_down_time) continue;
         instance[instances++] = slave;
     }
