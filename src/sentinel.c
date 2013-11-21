@@ -2452,6 +2452,8 @@ void sentinelCommand(redisClient *c) {
             addReplySds(c,sdsnew("-NOGOODSLAVE No suitable slave to promote\r\n"));
             return;
         }
+        redisLog(REDIS_WARNING,"Executing user requested FAILOVER of '%s'",
+            ri->name);
         sentinelStartFailover(ri);
         ri->flags |= SRI_FORCE_FAILOVER;
         addReply(c,shared.ok);
@@ -3017,8 +3019,9 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
     isleader = leader && strcasecmp(leader,server.runid) == 0;
     sdsfree(leader);
 
-    /* If I'm not the leader, I can't continue with the failover. */
-    if (!isleader) {
+    /* If I'm not the leader, and it is not a forced failover via
+     * SENTINEL FAILOVER, then I can't continue with the failover. */
+    if (!isleader && !(ri->flags & SRI_FORCE_FAILOVER)) {
         int election_timeout = SENTINEL_ELECTION_TIMEOUT;
 
         /* The election timeout is the MIN between SENTINEL_ELECTION_TIMEOUT
