@@ -14,6 +14,15 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.0 ] Release date: 22 Nov 2013
+
+# UPGRADE URGENCY: LOW, unless you want to upgrade to new Sentinel code.
+
+* [FIX] Fixed an error in rdbWriteRaw() that should have no practical impact.
+* [NEW] Log the new master when SLAVEOF command is used.
+* [NEW] Sentinel code synchronized with the unstable branch, the new Sentinel
+        is a reimplementation that uses more reliable algorithms.
+
 --[ Redis 2.8 Release Candidate 6 (2.7.106) ] Release date: 6 Nov 2013
 
 This is the 6th release candidate of Redis 2.8 (official version is 2.7.106).
