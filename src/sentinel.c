@@ -2027,7 +2027,7 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
                 if (msgmaster->config_epoch < master_config_epoch) {
                     msgmaster->config_epoch = master_config_epoch;
                     if (master_port != msgmaster->addr->port ||
-                        !strcmp(msgmaster->addr->ip, token[5]))
+                        strcmp(msgmaster->addr->ip, token[5]))
                     {
                         sentinelAddr *old_addr;
 
