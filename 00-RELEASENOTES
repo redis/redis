@@ -14,6 +14,15 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.1 ] Release date: 25 Nov 2013
+
+# UPGRADE URGENCY: LOW for Redis, CRITICAL for Senitnel. You don't need to
+                   upgrade your Redis instances but it is highly recommended
+                   to upgrade and restart all the Sentinel processes.
+
+* [FIX] Fixed a bug in "new Sentinel" config propagation.
+* [FIX] Fixed a false positive in Redis tests.
+
 --[ Redis 2.8.0 ] Release date: 22 Nov 2013
 
 # UPGRADE URGENCY: LOW, unless you want to upgrade to new Sentinel code.
