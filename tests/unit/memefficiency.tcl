@@ -22,7 +22,7 @@ start_server {tags {"memefficiency"}} {
         64    0.25
         128   0.35
         1024  0.75
-        16384 0.90
+        16384 0.82
     } {
         test "Memory efficiency with values in range $size_range" {
             set efficiency [test_memory_efficiency $size_range]
