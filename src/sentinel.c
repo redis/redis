@@ -1609,9 +1609,8 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
         }
     }
     /* Clear the DISCONNECTED flags only if we have both the connections
-     * (or just the commands connection if this is a slave or a
-     * sentinel instance). */
-    if (ri->cc && (ri->flags & (SRI_SLAVE|SRI_SENTINEL) || ri->pc))
+     * (or just the commands connection if this is a sentinel instance). */
+    if (ri->cc && (ri->flags & SRI_SENTINEL || ri->pc))
         ri->flags &= ~SRI_DISCONNECTED;
 }
 
