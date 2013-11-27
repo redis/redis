@@ -58,18 +58,8 @@ ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout) {
 
         /* Optimistically try to write before checking if the file descriptor
          * is actually writable. At worst we get EAGAIN. */
-#ifdef _WIN32
-        nwritten = send((SOCKET)fd,ptr,size,0);
-#else
         nwritten = write(fd,ptr,size);
-#endif
         if (nwritten == -1) {
-#ifdef _WIN32
-            errno = WSAGetLastError();
-            if ((errno == ENOENT) || (errno == WSAEWOULDBLOCK)) {
-                errno = EAGAIN;
-            }
-#endif
             if (errno != EAGAIN) return -1;
         } else {
             ptr += nwritten;
@@ -105,22 +95,12 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
 
         /* Optimistically try to read before checking if the file descriptor
          * is actually readable. At worst we get EAGAIN. */
-#ifdef _WIN32
-        nread = recv((SOCKET)fd,ptr,size,0);
-#else
         nread = read(fd,ptr,size);
-#endif
         if (nread == 0) {
             redisLog(REDIS_WARNING,"syncRead returned 0");
             return -1; /* short read. */
         }
         if (nread == -1) {
-#ifdef _WIN32
-            errno = WSAGetLastError();
-            if ((errno == ENOENT) || (errno == WSAEWOULDBLOCK)) {
-                errno = EAGAIN;
-            }
-#endif
             if (errno != EAGAIN) {
             redisLog(REDIS_WARNING,"syncRead returned -1 : %d", errno);
                 return -1;

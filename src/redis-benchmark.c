@@ -201,7 +201,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (c->latency < 0) c->latency = ustime()-(c->start);
 
 #ifdef WIN32_IOCP
-    nread = recv((SOCKET)c->context->fd,buf,sizeof(buf),0);
+    nread = read(c->context->fd,buf,sizeof(buf));
     if (nread == -1) {
         errno = WSAGetLastError();
         if ((errno == ENOENT) || (errno == WSAEWOULDBLOCK)) {
@@ -285,7 +285,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (sdslen(c->obuf) > c->written) {
         void *ptr = c->obuf+c->written;
 #ifdef WIN32_IOCP
-        int result = aeWinSocketSend((int)c->context->fd,(char*)ptr,(int)(sdslen(c->obuf)-c->written), 0,
+        int result = aeWinSocketSend(c->context->fd,(char*)ptr,(int)(sdslen(c->obuf)-c->written), 
                                         el, c, NULL, writeHandlerDone);
         if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
             if (errno != EPIPE)
@@ -294,11 +294,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
 #else
-#ifdef WIN32
-        int nwritten = send(c->context->fd,(const char*)ptr,sdslen(c->obuf)-c->written, 0);
-#else
         int nwritten = write(c->context->fd,ptr,sdslen(c->obuf)-c->written);
-#endif
         if (nwritten == -1) {
             if (errno != EPIPE)
                 fprintf(stderr, "Writing to socket: %s\n", strerror(errno));
@@ -586,10 +582,6 @@ int main(int argc, const char **argv) {
 
     client c;
 
-#ifdef _WIN32
-    w32initWinSock();
-#endif
-
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
 
@@ -757,8 +749,5 @@ int main(int argc, const char **argv) {
         if (!config.csv) printf("\n");
     } while(config.loop);
 
-#ifdef _WIN32
-    WSACleanup();
-#endif
     return 0;
 }

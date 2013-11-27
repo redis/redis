@@ -257,7 +257,7 @@ static void redisAeWriteEvent(aeEventLoop *el, int fd, void *privdata, int mask)
     ((void)el); ((void)fd); ((void)mask);
 
     if (redisAsyncHandleWritePrep(e->context) == REDIS_OK) {
-        result = aeWinSocketSend((int)c->fd,(char*)c->obuf,(int)(sdslen(c->obuf)), 0,
+        result = aeWinSocketSend((int)c->fd,(char*)c->obuf,(int)(sdslen(c->obuf)), 
                                         el, e, NULL, writeHandlerDone);
         if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
             if (errno != EPIPE)

@@ -20,21 +20,21 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#pragma once
+#include <Windows.h>
 
-#include <Winsock2.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-int smAddSocket( SOCKET s );
-void smRemoveSocket( SOCKET s );
-SOCKET smLookupSocket( int FD );
-int smLookupFD( SOCKET s );
-int smGetMinFD();
-int smGetMaxFD();
-
-#ifdef __cplusplus
+BOOL APIENTRY DllMain( HMODULE hModule,
+                       DWORD  ul_reason_for_call,
+                       LPVOID lpReserved
+					 )
+{
+	switch (ul_reason_for_call)
+	{
+	case DLL_PROCESS_ATTACH:
+	case DLL_THREAD_ATTACH:
+	case DLL_THREAD_DETACH:
+	case DLL_PROCESS_DETACH:
+		break;
+	}
+	return TRUE;
 }
-#endif
+

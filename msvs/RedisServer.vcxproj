@@ -281,6 +281,7 @@
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <DisableSpecificWarnings>4996;4146</DisableSpecificWarnings>
+      <Optimization>Full</Optimization>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -337,7 +338,8 @@
     <ClCompile Include="..\src\win32fixes.c" />
     <ClCompile Include="..\src\win32_bksv.c" />
     <ClCompile Include="..\src\win32_cow.c" />
-    <ClCompile Include="..\src\win32_socketmap.cpp" />
+    <ClCompile Include="..\src\Win32_FDAPI.cpp" />
+    <ClCompile Include="..\src\win32_rfdmap.cpp" />
     <ClCompile Include="..\src\win32_wsiocp.c" />
     <ClCompile Include="..\src\ziplist.c" />
     <ClCompile Include="..\src\zipmap.c" />
@@ -372,11 +374,18 @@
     <ClInclude Include="..\src\win32fixes.h" />
     <ClInclude Include="..\src\win32_bksv.h" />
     <ClInclude Include="..\src\win32_cow.h" />
-    <ClInclude Include="..\src\win32_socketmap.h" />
+    <ClInclude Include="..\src\Win32_FDAPI.h" />
+    <ClInclude Include="..\src\win32_rfdmap.h" />
     <ClInclude Include="..\src\win32_wsiocp.h" />
+    <ClInclude Include="..\src\WS2tcpip.h" />
     <ClInclude Include="..\src\ziplist.h" />
     <ClInclude Include="..\src\zipmap.h" />
     <ClInclude Include="..\src\zmalloc.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\src\APIBridge\APIBridge.vcxproj">
+      <Project>{0a28b490-79de-4d7f-bb46-d75cf0d026ed}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

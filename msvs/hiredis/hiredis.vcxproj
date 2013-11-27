@@ -276,13 +276,24 @@
     <None Include="ReadMe.txt" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\deps\hiredis\async.c" />
-    <ClCompile Include="..\..\deps\hiredis\dict.c" />
-    <ClCompile Include="..\..\deps\hiredis\hiredis.c" />
-    <ClCompile Include="..\..\deps\hiredis\net.c" />
-    <ClCompile Include="..\..\deps\hiredis\sds.c" />
-    <ClCompile Include="..\..\src\RedisLog.c" />
-    <ClCompile Include="..\..\src\win32_socketmap.cpp" />
+    <ClCompile Include="..\..\deps\hiredis\async.c">
+      <CompileAs Condition="'$(Configuration)|$(Platform)'=='Debug_IOCP|x64'">Default</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\..\deps\hiredis\dict.c">
+      <CompileAs Condition="'$(Configuration)|$(Platform)'=='Debug_IOCP|x64'">Default</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\..\deps\hiredis\hiredis.c">
+      <CompileAs Condition="'$(Configuration)|$(Platform)'=='Debug_IOCP|x64'">Default</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\..\deps\hiredis\net.c">
+      <CompileAs Condition="'$(Configuration)|$(Platform)'=='Debug_IOCP|x64'">Default</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\..\deps\hiredis\sds.c">
+      <CompileAs Condition="'$(Configuration)|$(Platform)'=='Debug_IOCP|x64'">Default</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\..\src\RedisLog.c">
+      <CompileAs Condition="'$(Configuration)|$(Platform)'=='Debug_IOCP|x64'">Default</CompileAs>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\deps\hiredis\async.h" />

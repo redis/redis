@@ -47,33 +47,25 @@
 #include <assert.h>
 #include <fcntl.h>
 #ifdef _WIN32
-#ifndef FD_SETSIZE
-#define FD_SETSIZE 16000
 #ifndef STDIN_FILENO
   #define STDIN_FILENO (_fileno(stdin))
 #endif
-#include <winsock2.h>
-#include <windows.h>
 #include "win32fixes.h"
+#include <windows.h>
 #define strcasecmp _stricmp
 #define strncasecmp _strnicmp
 #define strtoull _strtoui64
-#endif
 #endif
 
 #include <limits.h>
 
 #ifdef _WIN32
 #include <fcntl.h>
-#ifndef FD_SETSIZE
-#define FD_SETSIZE 16000
-#endif
 #ifndef STDIN_FILENO
   #define STDIN_FILENO (_fileno(stdin))
 #endif
-#include <winsock2.h>
-#include <windows.h>
 #include "win32fixes.h"
+#include <windows.h>
 #define strcasecmp _stricmp
 #define strncasecmp _strnicmp
 #define strtoull _strtoui64
@@ -1138,21 +1130,12 @@ static void getRDB(void) {
 
     while(payload) {
         ssize_t nread, nwritten;
-        
-#ifdef _WIN32
-        nread = recv(s,buf,(unsigned int)(payload > sizeof(buf)) ? sizeof(buf) : payload,0);
-#else
         nread = read(s,buf,(unsigned int)(payload > sizeof(buf)) ? sizeof(buf) : payload);
-#endif
         if (nread <= 0) {
             fprintf(stderr,"I/O Error reading RDB payload from socket\n");
             exit(1);
         }
-#ifdef _WIN32
-        nwritten = send(fd, buf, nread,0);
-#else
         nwritten = write(fd, buf, nread);
-#endif
         if (nwritten != nread) {
             fprintf(stderr,"Error writing data to file: %s\n",
                 strerror(errno));
@@ -1241,11 +1224,7 @@ static void pipeMode(void) {
             while(1) {
                 /* Transfer current buffer to server. */
                 if (obuf_len != 0) {
-#ifdef _WIN32
-                    ssize_t nwritten = send(fd,obuf+obuf_pos,(unsigned int)obuf_len,0);
-#else
                     ssize_t nwritten = write(fd,obuf+obuf_pos,(unsigned int)obuf_len);
-#endif
                     
                     if (nwritten == -1) {
                         if (errno != EAGAIN && errno != EINTR) {
@@ -1563,13 +1542,6 @@ int main(int argc, char **argv) {
     _setmode(_fileno(stdin), _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);
     _setmode(_fileno(stderr), _O_BINARY);
-
-    if (!w32initWinSock()) {
-      printf("Winsock init error %d", WSAGetLastError());
-      exit(1);
-    };
-
-    atexit((void(*)(void)) WSACleanup);
 #endif
     firstarg = parseOptions(argc,argv);
     argc -= firstarg;

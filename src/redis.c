@@ -36,7 +36,6 @@
 #ifdef _WIN32
 #include <locale.h>
 #define LOG_LOCAL0 0
-#include "win32_socketmap.h"
 #else
 #include <sys/wait.h>
 #include <arpa/inet.h>
@@ -259,17 +258,6 @@ struct redisCommand redisCommandTable[] = {
 };
 
 /*============================ Utility functions ============================ */
-
-#ifdef _WIN32
-/* Misc Windows house keeping */
-void win32Cleanup(void) {
-
-    zmalloc_free_used_memory_mutex();
-
-    /* Clear winsocks */
-    WSACleanup();
-}
-#endif /* _WIN32 */
 
 /* Log a fixed message without printf-alike capabilities, in a way that is
  * safe to call from a signal handler.
@@ -1346,14 +1334,6 @@ void initServer() {
     /* MingGW 32 lacks declaration of RtlGenRandom, MinGw64 don't */
     lib = LoadLibraryA("advapi32.dll");
     RtlGenRandom = (RtlGenRandomFunc)GetProcAddress(lib, "SystemFunction036");
-
-    /* Winsocks must be initialized */
-    if (!w32initWinSock()) {
-        redisLog(REDIS_WARNING, "Can't init WinSock2; Error code: %d", WSAGetLastError());
-        exit(1);
-    };
-    /* ... and cleaned at application exit */
-    atexit((void(*)(void)) win32Cleanup);
 #endif
 
     server.current_client = NULL;
@@ -1858,19 +1838,9 @@ int prepareForShutdown(int flags) {
         unlink(server.pidfile);
     }
     /* Close the listening sockets. Apparently this allows faster restarts. */
-#ifdef _WIN32
-    if (server.ipfd != -1) {
-        closesocket(server.ipfd);
-        smRemoveSocket(server.ipfd);
-    }
-    if (server.sofd != -1) {
-        closesocket(server.sofd);
-        smRemoveSocket(server.sofd);
-    }
-#else
     if (server.ipfd != -1) close(server.ipfd);
     if (server.sofd != -1) close(server.sofd);
-#endif
+
     if (server.unixsocket) {
         redisLog(REDIS_NOTICE,"Removing the unix socket file.");
         unlink(server.unixsocket); /* don't care if this fails */

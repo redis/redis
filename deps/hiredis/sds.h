@@ -44,7 +44,7 @@ typedef char *sds;
 struct sdshdr {
     int len;
     int free;
-    char buf[];
+    char* buf;
 };
 
 static inline size_t sdslen(const sds s) {

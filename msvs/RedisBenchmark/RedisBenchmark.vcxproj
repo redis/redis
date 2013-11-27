@@ -313,16 +313,41 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\src\adlist.c" />
-    <ClCompile Include="..\..\src\ae.c" />
-    <ClCompile Include="..\..\src\anet.c" />
-    <ClCompile Include="..\..\src\redis-benchmark.c" />
-    <ClCompile Include="..\..\src\RedisLog.c" />
-    <ClCompile Include="..\..\src\sds.c" />
-    <ClCompile Include="..\..\src\win32fixes.c" />
-    <ClCompile Include="..\..\src\win32_socketmap.cpp" />
+    <ClCompile Include="..\..\src\adlist.c">
+      <CompileAs Condition="'$(Configuration)|$(Platform)'=='Debug_IOCP|x64'">Default</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\..\src\ae.c">
+      <CompileAs Condition="'$(Configuration)|$(Platform)'=='Debug_IOCP|x64'">Default</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\..\src\anet.c">
+      <CompileAs Condition="'$(Configuration)|$(Platform)'=='Debug_IOCP|x64'">Default</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\..\src\redis-benchmark.c">
+      <CompileAs Condition="'$(Configuration)|$(Platform)'=='Debug_IOCP|x64'">Default</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\..\src\RedisLog.c">
+      <CompileAs Condition="'$(Configuration)|$(Platform)'=='Debug_IOCP|x64'">Default</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\..\src\sds.c">
+      <CompileAs Condition="'$(Configuration)|$(Platform)'=='Debug_IOCP|x64'">Default</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\..\src\win32fixes.c">
+      <CompileAs Condition="'$(Configuration)|$(Platform)'=='Debug_IOCP|x64'">Default</CompileAs>
+    </ClCompile>
+    <ClCompile Include="..\..\src\Win32_FDAPI.cpp" />
+    <ClCompile Include="..\..\src\win32_rfdmap.cpp" />
     <ClCompile Include="..\..\src\win32_wsiocp.c" />
-    <ClCompile Include="..\..\src\zmalloc.c" />
+    <ClCompile Include="..\..\src\zmalloc.c">
+      <CompileAs Condition="'$(Configuration)|$(Platform)'=='Debug_IOCP|x64'">Default</CompileAs>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\src\WS2tcpip.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\APIBridge\APIBridge.vcxproj">
+      <Project>{0a28b490-79de-4d7f-bb46-d75cf0d026ed}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

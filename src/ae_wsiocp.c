@@ -66,7 +66,7 @@ typedef struct aeApiState {
 
 /* uses virtual FD as an index */
 int aeSocketIndex(int fd) {
-    return smLookupFD( fd );
+    return fd;
 }
 
 /* get data for socket / fd being monitored. Create if not found*/
@@ -331,8 +331,8 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
         LPOVERLAPPED_ENTRY entry = state->entries;
         for (j = 0; j < numComplete && numevents < state->setsize; j++, entry++) {
             /* the competion key is the socket */
-            SOCKET sock = (SOCKET)entry->lpCompletionKey;
-            sockstate = aeGetExistingSockState(state, (int)sock);
+            int rfd = (int)entry->lpCompletionKey;
+            sockstate = aeGetExistingSockState(state, rfd);
 
             if (sockstate != NULL) {
                 if ((sockstate->masks & LISTEN_SOCK) && entry->lpOverlapped != NULL) {
@@ -342,7 +342,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                     sockstate->reqs = areq;
                     sockstate->masks &= ~ACCEPT_PENDING;
                     if (sockstate->masks & AE_READABLE) {
-                        eventLoop->fired[numevents].fd = (int)sock;
+                        eventLoop->fired[numevents].fd = rfd;
                         eventLoop->fired[numevents].mask = AE_READABLE;
                         numevents++;
                     }
@@ -351,7 +351,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                     if (entry->lpOverlapped == &sockstate->ov_read) {
                         sockstate->masks &= ~CONNECT_PENDING;
                         /* enable read and write events for this connection */
-                        aeApiAddEvent(eventLoop, (int)sock, sockstate->masks);
+                        aeApiAddEvent(eventLoop, rfd, sockstate->masks);
                     }
                 } else {
                     int matched = 0;
@@ -360,7 +360,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                         matched = 1;
                         sockstate->masks &= ~READ_QUEUED;
                         if (sockstate->masks & AE_READABLE) {
-                            eventLoop->fired[numevents].fd = (int)sock;
+                            eventLoop->fired[numevents].fd = rfd;
                             eventLoop->fired[numevents].mask = AE_READABLE;
                             numevents++;
                         }
@@ -373,21 +373,21 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                             if (areq->proc != NULL) {
                                 DWORD written = 0;
                                 DWORD flags;
-                                WSAGetOverlappedResult(sock, &areq->ov, &written, FALSE, &flags);
-                                areq->proc(areq->eventLoop, (int)sock, &areq->req, (int)written);
+                                WSAGetOverlappedResult(rfd, &areq->ov, &written, FALSE, &flags);
+                                areq->proc(areq->eventLoop, rfd, &areq->req, (int)written);
                             }
                             sockstate->wreqs--;
                             zfree(areq);
                             /* if no active write requests, set ready to write */
                             if (sockstate->wreqs == 0 && sockstate->masks & AE_WRITABLE) {
-                                eventLoop->fired[numevents].fd = (int)sock;
+                                eventLoop->fired[numevents].fd = rfd;
                                 eventLoop->fired[numevents].mask = AE_WRITABLE;
                                 numevents++;
                             }
                         }
                     }
                     if (matched == 0) {
-                        /* redisLog */printf("Sec:%lld Unknown complete (closed) on %d\n", gettimeofdaysecs(NULL), sock);
+                        /* redisLog */printf("Sec:%lld Unknown complete (closed) on %d\n", gettimeofdaysecs(NULL), rfd);
                         sockstate = NULL;
                     }
                 }
@@ -399,7 +399,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                 node = listFirst(socklist);
                 while (node != NULL) {
                     sockstate = (aeSockState *)listNodeValue(node);
-                    if (sockstate->fd == sock) {
+                    if (sockstate->fd == rfd) {
                         if (sockstate->masks & CONNECT_PENDING) {
                             /* check if connect complete */
                             if (entry->lpOverlapped == &sockstate->ov_read) {
@@ -419,7 +419,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                         if (sockstate->wreqs == 0 &&
                             (sockstate->masks & (CONNECT_PENDING | READ_QUEUED | SOCKET_ATTACHED)) == 0) {
                             if ((sockstate->masks & CLOSE_PENDING) != 0) {
-                                closesocket(sock);
+                                close(rfd);
                                 sockstate->masks &= ~(CLOSE_PENDING);
                             }
                             // safe to delete sockstate

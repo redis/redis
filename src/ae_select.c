@@ -77,31 +77,16 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     retval = select(eventLoop->maxfd+1,
                 &state->_rfds,&state->_wfds,NULL,tvp);
     if (retval > 0) {
-#ifdef _WIN32    
-        for (j = smGetMinFD(); j <= smGetMaxFD(); j++) {
-#else
         for (j = 0; j <= eventLoop->maxfd; j++) {
-#endif
             int mask = 0;
-#ifdef _WIN32
-            int s = smLookupSocket(j);
-#endif
             aeFileEvent *fe = &eventLoop->events[j];
 
             if (fe->mask == AE_NONE) continue;
-#ifdef _WIN32    
-            if (fe->mask & AE_READABLE && FD_ISSET(s,&state->_rfds))
-                mask |= AE_READABLE;
-            if (fe->mask & AE_WRITABLE && FD_ISSET(s,&state->_wfds))
-                mask |= AE_WRITABLE;
-            eventLoop->fired[numevents].fd = s;
-#else
             if (fe->mask & AE_READABLE && FD_ISSET(j,&state->_rfds))
                 mask |= AE_READABLE;
             if (fe->mask & AE_WRITABLE && FD_ISSET(j,&state->_wfds))
                 mask |= AE_WRITABLE;
             eventLoop->fired[numevents].fd = j;
-#endif
             eventLoop->fired[numevents].mask = mask;
             numevents++;
         }

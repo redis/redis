@@ -167,8 +167,6 @@ int main(int argc, char **argv) {
     long long size;
     long long pos;
     long long diff;
-    LARGE_INTEGER l;
-    HANDLE h;
 
     _fmode = _O_BINARY;
     _setmode(_fileno(stdin), _O_BINARY);
@@ -232,16 +230,7 @@ int main(int argc, char **argv) {
                     printf("Aborting...\n");
                     exit(1);
             }
-#ifdef _WIN32
-            h = (HANDLE) _get_osfhandle(fileno(fp));
-            l.QuadPart = pos;
-
-            fflush(fp);
-
-            if (!SetFilePointerEx(h, l, &l, FILE_BEGIN) || !SetEndOfFile(h)) {
-#else
             if (ftruncate(fileno(fp), pos) == -1) {
-#endif
                 printf("Failed to truncate AOF\n");
                 exit(1);
             } else {

@@ -11,24 +11,22 @@
 #include <process.h>
 #include <stdlib.h>
 #include <errno.h>
-#ifndef FD_SETSIZE
-#define FD_SETSIZE 16000
-#endif
-#include <winsock2.h>
-#include <windows.h>
+#include "win32fixes.h"
+//#include <windows.h>
 #include <signal.h>
 #include <time.h>
 #include <locale.h>
 #include <math.h>
 #include <string.h>
-#include "win32fixes.h"
-
+//#include <io.h>
 
 /* Redefined here to avoid redis.h so it can be used in other projects */
 #define REDIS_NOTUSED(V) ((void) V)
 #define REDIS_THREAD_STACK_SIZE (1024*1024*4)
 
 /* Winsock requires library initialization on startup  */
+/* now handled in Win32FDAPI_Init.cpp 
+*
 int w32initWinSock(void) {
 
     WSADATA t_wsa;
@@ -39,11 +37,12 @@ int w32initWinSock(void) {
     iError = WSAStartup(wVers, &t_wsa);
 
     if(iError != NO_ERROR || LOBYTE(t_wsa.wVersion) != 2 || HIBYTE(t_wsa.wVersion) != 2 ) {
-        return 0; /* not done; check WSAGetLastError() for error number */
+        return 0; // not done; check WSAGetLastError() for error number
     };
 
     return 1;
 }
+*/
 
 /* Behaves as posix, works without ifdefs, makes compiler happy */
 int sigaction(int sig, struct sigaction *in, struct sigaction *out) {
@@ -80,33 +79,6 @@ int kill(pid_t pid, int sig) {
     };
 }
 
-/* Forced write to disk */
-int fsync (int fd) {
-    HANDLE h = (HANDLE) _get_osfhandle(fd);
-    DWORD err;
-
-    if (h == INVALID_HANDLE_VALUE) {
-        errno = EBADF;
-        return -1;
-    }
-
-    if (!FlushFileBuffers(h)) {
-        /* Windows error -> Unix */
-        err = GetLastError();
-        switch (err) {
-            case ERROR_INVALID_HANDLE:
-            errno = EINVAL;
-            break;
-
-            default:
-            errno = EIO;
-        }
-        return -1;
-    }
-
-    return 0;
-}
-
 /* Missing wait3() implementation */
 pid_t wait3(int *stat_loc, int options, void *rusage) {
     REDIS_NOTUSED(stat_loc);
@@ -126,29 +98,6 @@ int replace_random() {
     }
     RtlGenRandom(&x, sizeof(UINT_MAX));
     return (int)(x >> 1);
-}
-
-/* BSD sockets compatibile replacement */
-int replace_setsockopt(int socket, int level, int optname, const void *optval, socklen_t optlen) {
-    return (setsockopt)((SOCKET)socket, level, optname, (const char *)optval, optlen);
-}
-
-/* set size with 64bit support */
-int replace_ftruncate(int fd, long long length) {
-    HANDLE h = (HANDLE) _get_osfhandle (fd);
-    LARGE_INTEGER l, o;
-
-    if (h == INVALID_HANDLE_VALUE) {
-        errno = EBADF;
-        return -1;
-    }
-
-    l.QuadPart = length;
-
-    if (!SetFilePointerEx(h, l, &o, FILE_BEGIN)) return -1;
-    if (!SetEndOfFile(h)) return -1;
-
-    return 0;
 }
 
 /* Rename which works on Windows when file exists */

@@ -142,11 +142,7 @@ ssize_t aofRewriteBufferWrite(int fd) {
         ssize_t nwritten;
 
         if (block->used) {
-#ifdef _WIN32
-            nwritten = send(fd,block->buf,block->used,0);
-#else
             nwritten = write(fd,block->buf,block->used);
-#endif
             if (nwritten != block->used) {
                 if (nwritten == 0) errno = EIO;
                 return -1;
@@ -1398,7 +1394,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             goto cleanup;
         }
         /* now open the files again with new names */
-        newfd = open(server.aof_filename, O_WRONLY|O_APPEND|_O_BINARY);
+        newfd = open(server.aof_filename, O_WRONLY|O_APPEND|_O_BINARY,0);
         if (newfd == -1) {
             /* Windows fix: More info */
             redisLog(REDIS_WARNING, "Not able to reopen the temporary AOF file after rename");

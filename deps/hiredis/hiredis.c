@@ -44,7 +44,6 @@
 #include "sds.h"
 #ifdef _WIN32
   #include "../../src/win32fixes.h"
-  #include "../../src/win32_socketmap.h"
 #endif
 
 static redisReply *createReplyObject(int type);
@@ -1024,12 +1023,7 @@ static redisContext *redisContextInit(void) {
 
 void redisFree(redisContext *c) {
     if (c->fd > 0) {
-#ifdef _WIN32
-        closesocket(c->fd);
-        smRemoveSocket(c->fd);
-#else
         close(c->fd);
-#endif
     }
     if (c->obuf != NULL)
         sdsfree(c->obuf);
@@ -1128,20 +1122,7 @@ int redisBufferRead(redisContext *c) {
     if (c->err)
         return REDIS_ERR;
 
-#ifdef WIN32_IOCP
-    nread = recv((SOCKET)c->fd,buf,sizeof(buf),0);
-    if (nread == -1) {
-        errno = WSAGetLastError();
-        if ((errno == ENOENT) || (errno == WSAEWOULDBLOCK))
-            errno = EAGAIN;
-    }
-#else
-#ifdef _WIN32
-    nread = recv((SOCKET)c->fd,buf,sizeof(buf),0);
-#else
     nread = read(c->fd,buf,sizeof(buf));
-#endif
-#endif
     if (nread == -1) {
         if (errno == EAGAIN && !(c->flags & REDIS_BLOCK)) {
             /* Try again later */
@@ -1205,16 +1186,7 @@ int redisBufferWrite(redisContext *c, int *done) {
         return REDIS_ERR;
 
     if (sdslen(c->obuf) > 0) {
-#ifdef _WIN32
-        nwritten = send((SOCKET)c->fd,c->obuf,(int)sdslen(c->obuf),0);
-        if (nwritten == -1) {
-            errno = WSAGetLastError();
-            if ((errno == ENOENT) || (errno == WSAEWOULDBLOCK))
-                errno = EAGAIN;
-        }
-#else
         nwritten = write(c->fd,c->obuf,sdslen(c->obuf));
-#endif
         if (nwritten == -1) {
             if (errno == EAGAIN && !(c->flags & REDIS_BLOCK)) {
                 /* Try again later */

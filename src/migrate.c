@@ -161,11 +161,7 @@ void migrateCommand(redisClient *c) {
 #ifdef WIN32_IOCP
         aeWinCloseSocket(fd);
 #else
-#ifdef _WIN32
-        closesocket(fd);
-#else
         close(fd);
-#endif
 #endif
         addReplySds(c,sdsnew("-IOERR error or timeout connecting to the client\r\n"));
         return;
@@ -241,11 +237,7 @@ void migrateCommand(redisClient *c) {
 #ifdef WIN32_IOCP
     aeWinCloseSocket(fd);
 #else
-#ifdef _WIN32
-        closesocket(fd);
-#else
         close(fd);
-#endif
 #endif
     return;
 
@@ -255,11 +247,7 @@ socket_wr_err:
 #ifdef WIN32_IOCP
     aeWinCloseSocket(fd);
 #else
-#ifdef _WIN32
-    closesocket(fd);
-#else
     close(fd);
-#endif
 #endif
     return;
 
@@ -269,11 +257,7 @@ socket_rd_err:
 #ifdef WIN32_IOCP
     aeWinCloseSocket(fd);
 #else
-#ifdef _WIN32
-        closesocket(fd);
-#else
         close(fd);
-#endif
 #endif
     return;
 }

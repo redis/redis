@@ -69,11 +69,7 @@ redisClient *createClient(int fd) {
 #ifdef WIN32_IOCP
             aeWinCloseSocket(fd);
 #else
-#ifdef _WIN32
-        closesocket(fd);
-#else
         close(fd);
-#endif
 #endif
             zfree(c);
             return NULL;
@@ -551,11 +547,7 @@ static void acceptCommonHandler(int fd, int flags) {
 #ifdef WIN32_IOCP
         aeWinCloseSocket(fd); /* May be already closed, just ingore errors */
 #else
-#ifdef _WIN32
-        closesocket(fd);
-#else
         close(fd);  /* May be already closed, just ignore errors */
-#endif
 #endif
         return;
     }
@@ -567,11 +559,7 @@ static void acceptCommonHandler(int fd, int flags) {
         char *err = "-ERR max number of clients reached\r\n";
 
         /* That's a best effort error message, don't check write errors */
-#ifdef _WIN32
-        if (send((SOCKET)c->fd,err,(int)strlen(err),0) == SOCKET_ERROR) {
-#else
         if (write(c->fd,err,strlen(err)) == -1) {
-#endif
             /* Nothing to do, Just to avoid the warning... */
         }
         server.stat_rejected_conn++;
@@ -665,11 +653,7 @@ void freeClient(redisClient *c) {
 #ifdef WIN32_IOCP
     aeWinCloseSocket(c->fd);
 #else
-#ifdef _WIN32
-    closesocket(c->fd);
-#else
     close(c->fd);
-#endif
 #endif
     /* Remove from the list of clients */
     ln = listSearchKey(server.clients,c);
@@ -816,7 +800,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     while(c->bufpos > c->sentlen || ln != NULL) {
         if (c->bufpos > c->sentlen) {
             nwritten = c->bufpos - c->sentlen;
-            result = aeWinSocketSend(fd,c->buf+c->sentlen, nwritten,0,
+            result = aeWinSocketSend(fd,c->buf+c->sentlen, nwritten,
                                         el, c, c->buf, sendReplyBufferDone);
             if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
                 redisLog(REDIS_VERBOSE, "Error writing to client: %s", wsa_strerror(errno));
@@ -839,7 +823,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 
             /* object ref placed in request, release in sendReplyListDone */
             incrRefCount(o);
-            result = aeWinSocketSend(fd, ((char*)o->ptr), objlen, 0,
+            result = aeWinSocketSend(fd, ((char*)o->ptr), objlen, 
                                         el, c, o, sendReplyListDone);
             if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
                 redisLog(REDIS_VERBOSE,
@@ -885,35 +869,8 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
                 /* Don't reply to a master */
                 nwritten = c->bufpos - c->sentlen;
             } else {
-#ifdef _WIN32
-                nwritten = send(fd,c->buf+c->sentlen,c->bufpos-c->sentlen,0);
-                if(nwritten == SOCKET_ERROR )
-                {
-                    /* Test for client closure with select before terminating the socket connection server side. */
-                    DWORD writeError = WSAGetLastError();
-                    if( writeError == WSAEWOULDBLOCK )
-                    {
-                        errno = EAGAIN;
-                    }
-                    else
-                    {
-                    fd_set readfds;
-                    char *errMsg = NULL;
-                        FormatMessageA(
-                            FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, 
-                            NULL, writeError, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&errMsg, 0, NULL);
-                        FD_ZERO(&readfds);
-                        FD_SET(fd,&readfds);
-                        if (select(0, &readfds, NULL, NULL, NULL) == SOCKET_ERROR) {
-                            redisLog(REDIS_VERBOSE, "Error writing reply to client. Client disconnect? err=%s", errMsg);
-                        } else {
-                            redisLog(REDIS_VERBOSE, "Error writing reply to client. Client still connected! err=%s", errMsg);
-                        }
-                    }
-                }
-#else
+
                 nwritten = write(fd,c->buf+c->sentlen,c->bufpos-c->sentlen);
-#endif
                 if (nwritten <= 0) break;
             }
             c->sentlen += nwritten;
@@ -939,35 +896,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
                 /* Don't reply to a master */
                 nwritten = objlen - c->sentlen;
             } else {
-#ifdef _WIN32
-                nwritten = send(fd, ((char*)o->ptr)+c->sentlen,objlen-c->sentlen,0);
-                if(nwritten == SOCKET_ERROR )
-                {
-                    /* Test for client closure with select before terminating the socket connection server side. */
-                    DWORD writeError = WSAGetLastError();
-                    if( writeError == WSAEWOULDBLOCK )
-                    {
-                        errno = EAGAIN;
-                    }
-                    else
-                    {
-                        fd_set readfds;
-                        char *errMsg = NULL;
-                        FormatMessageA(
-                            FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, 
-                            NULL, writeError, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&errMsg, 0, NULL);
-                        FD_ZERO(&readfds);
-                        FD_SET(fd,&readfds);
-                        if (select(0, &readfds, NULL, NULL, NULL ) == SOCKET_ERROR) {
-                            redisLog(REDIS_VERBOSE, "Error writing reply to client. Client disconnect? err=%s", errMsg);
-                        } else {
-                            redisLog(REDIS_VERBOSE, "Error writing reply to client. Client still connected! err=%s", errMsg);
-                        }
-                    }
-                }
-#else
                 nwritten = write(fd, ((char*)o->ptr)+c->sentlen,objlen-c->sentlen);
-#endif
                 if (nwritten <= 0) break;
             }
             c->sentlen += nwritten;
@@ -1274,40 +1203,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
     c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
-#ifdef _WIN32
-    nread = recv((SOCKET)fd, c->querybuf+qblen, readlen, 0);
-    if (nread < 0) {
-        errno = WSAGetLastError();
-        if (errno == WSAECONNRESET) {
-            /* Windows fix: Not an error, intercept it.  */
-            redisLog(REDIS_VERBOSE, "Client closed connection");
-            freeClient(c);
-            return;
-        } else if ((errno == ENOENT) || (errno == WSAEWOULDBLOCK)) {
-            /* Windows fix: Intercept winsock slang for EAGAIN */
-            errno = EAGAIN;
-            nread = -1; /* Winsock can send ENOENT instead EAGAIN */
-        }
-    }
-    else if (nread == 0) {
-        /* Non-blocking sockets can return 0 without the client having been gracefully closed. This might be a bug in recv().
-           Test for client closure with select before terminating the socket connection server side. */
-        int ret;
-        fd_set readfds;
-        FD_ZERO(&readfds);
-        FD_SET(fd,&readfds);
-        if ((ret = select(0, &readfds, NULL, NULL, NULL )) == SOCKET_ERROR) {
-            redisLog(REDIS_VERBOSE, "Client closed connection");
-            freeClient(c);
-            return;
-        } else {
-            errno = EAGAIN;
-            nread = -1; 
-        }
-    }
-#else
     nread = read(fd, c->querybuf+qblen, readlen);
-#endif
     if (nread == -1) {
         if (errno == EAGAIN) {
             nread = 0;

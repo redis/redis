@@ -37,10 +37,7 @@
 #include <sys/time.h> /* for struct timeval */
 #endif
 #ifdef _WIN32
-    #ifndef FD_SETSIZE
-      #define FD_SETSIZE 16000
-    #endif
-    #include <winsock2.h>
+    #include "..\..\src\Win32_FDAPI.h"
     #include <windows.h>
 
     #ifndef va_copy
@@ -177,11 +174,7 @@ int redisFormatCommandArgv(char **target, int argc, const char **argv, const siz
 typedef struct redisContext {
     int err; /* Error flags, 0 when there is no error */
     char errstr[128]; /* String representation of error when applicable */
-#ifdef _WIN32
-    SOCKET fd;
-#else
     int fd;
-#endif
     int flags;
     char *obuf; /* Write buffer */
     redisReader *reader; /* Protocol reader */

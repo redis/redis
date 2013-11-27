@@ -8,6 +8,8 @@
 #ifndef WIN32FIXES_H
 #define WIN32FIXES_H
 
+#pragma warning(error: 4005)
+
 #ifdef WIN32
 #ifndef _WIN32
 #define _WIN32
@@ -22,14 +24,8 @@
 #include "fmacros.h"
 #include <stdlib.h>
 #include <stdio.h>
-#include <io.h>
 #include <signal.h>
 #include <sys/types.h>
-#ifndef FD_SETSIZE
-#define FD_SETSIZE 16000
-#endif
-#include <winsock2.h>  /* setsocketopt */
-#include <ws2tcpip.h>
 #include <windows.h>
 #include <float.h>
 #include <fcntl.h>    /* _O_BINARY */
@@ -37,19 +33,10 @@
 #include <process.h>
 #include <sys/types.h>
 
+#include "Win32_FDAPI.h"    
+
 #define fseeko fseeko64
 #define ftello ftello64
-
-//#define inline __inline
-
-#undef ftruncate
-#define ftruncate replace_ftruncate
-#ifndef off64_t
-#define off64_t off_t
-#endif
-
-int replace_ftruncate(int fd, long long length);
-
 
 #define snprintf _snprintf
 #define ftello64 _ftelli64
@@ -59,7 +46,6 @@ int replace_ftruncate(int fd, long long length);
 #define isnan _isnan
 #define isfinite _finite
 #define isinf(x) (!_finite(x))
-#define lseek64 _lseeki64
 /* following defined to choose little endian byte order */
 #define __i386__ 1
 #if !defined(va_copy)
@@ -78,9 +64,6 @@ RtlGenRandomFunc RtlGenRandom;
 #define rand() replace_random()
 int replace_random();
 
-#if !defined(ssize_t)
-typedef int ssize_t;
-#endif
 
 #if !defined(mode_t)
 #define mode_t long
@@ -222,11 +205,6 @@ int sigaction(int sig, struct sigaction *in, struct sigaction *out);
 #define ETIMEDOUT WSAETIMEDOUT
 #endif
 
-#define setsockopt(a,b,c,d,e) replace_setsockopt(a,b,c,d,e)
-
-int replace_setsockopt(int socket, int level, int optname,
-                     const void *optval, socklen_t optlen);
-
 #define rename(a,b) replace_rename(a,b)
 int replace_rename(const char *src, const char *dest);
 
@@ -246,7 +224,7 @@ int replace_rename(const char *src, const char *dest);
 #define pthread_attr_getstacksize(x, y) (*(y) = *(x))
 #define pthread_attr_setstacksize(x, y) (*(x) = y)
 
-#define pthread_t u_int
+#define pthread_t unsigned int
 
 int pthread_create(pthread_t *thread, const void *unused,
                     void *(*start_routine)(void*), void *arg);
@@ -271,7 +249,6 @@ int pthread_sigmask(int how, const sigset_t *set, sigset_t *oldset);
 
 /* Misc Unix -> Win32 */
 int kill(pid_t pid, int sig);
-int fsync (int fd);
 pid_t wait3(int *stat_loc, int options, void *rusage);
 
 int w32initWinSock(void);
@@ -307,9 +284,9 @@ typedef struct aeWinSendReq {
 int aeWinSocketAttach(int fd);
 int aeWinCloseSocket(int fd);
 int aeWinReceiveDone(int fd);
-int aeWinSocketSend(int fd, char *buf, int len, int flags,
+int aeWinSocketSend(int fd, char *buf, int len, 
                     void *eventLoop, void *client, void *data, void *proc);
-int aeWinListen(SOCKET sock, int backlog);
+int aeWinListen(int rfd, int backlog);
 int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len);
 int aeWinSocketConnect(int fd, const struct sockaddr *sa, int len);
 

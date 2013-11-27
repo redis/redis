@@ -778,7 +778,7 @@ int main(int argc, char **argv) {
     _setmode(_fileno(stdout), _O_BINARY);
     _setmode(_fileno(stderr), _O_BINARY);
 
-    fd = open(argv[1], O_RDONLY|_O_BINARY);
+    fd = open(argv[1], O_RDONLY|_O_BINARY,0);
 #else
     fd = open(argv[1], O_RDONLY);
 #endif

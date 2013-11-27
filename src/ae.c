@@ -39,7 +39,7 @@
 #else
 #include <sys/types.h> 
 #include <sys/timeb.h>
-#include "win32_socketmap.h"
+#include "..\..\src\Win32_FDAPI.h"
 #endif
 #include <stdlib.h>
 #include <string.h>
@@ -120,24 +120,11 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
     aeFileEvent *fe;
 
 
-#ifdef _WIN32  
-    if (smGetMaxFD() >= eventLoop->setsize) {
-        errno = ERANGE;
-        return AE_ERR;
-    }
-
-    if(smLookupFD(fd) == -1 ) {
-        errno = ERANGE;
-        return AE_ERR;
-    }
-    fe = &eventLoop->events[smLookupFD(fd)];
-#else
     if (fd >= eventLoop->setsize) {
         errno = ERANGE;
         return AE_ERR;
     }
     fe = &eventLoop->events[fd];
-#endif
 
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
@@ -153,17 +140,8 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 {
     aeFileEvent *fe;
-#ifdef _WIN32
-    if (smGetMaxFD() >= eventLoop->setsize) return;
-
-    if(smLookupFD(fd) == -1 ) return;
-
-    fe = &eventLoop->events[smLookupFD(fd)];
-#else
     if (fd >= eventLoop->setsize) return;
-
     fe = &eventLoop->events[fd];
-#endif
 
     if (fe->mask == AE_NONE) return;
     fe->mask = fe->mask & (~mask);
@@ -180,17 +158,9 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
     aeFileEvent *fe;
-#ifdef _WIN32
-    if(smLookupFD(fd) == -1 ) DebugBreak();
-
-    if (smGetMaxFD() >= eventLoop->setsize) return 0;
-
-    fe = &eventLoop->events[smLookupFD(fd)];
-#else
     if (fd >= eventLoop->setsize) return 0;
 
     fe = &eventLoop->events[fd];
-#endif
 
     return fe->mask;
 }
@@ -435,18 +405,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             int fd = eventLoop->fired[j].fd;
             int rfired = 0;
 
-#ifdef _WIN32
-            if(smLookupFD(eventLoop->fired[j].fd) == -1 ) {
-                // We may have already processed a socket close request 
-                // before a subscription notification gets sent out
-                processed++;
-                continue;
-            }
-
-            fe = &eventLoop->events[smLookupFD(eventLoop->fired[j].fd)];
-#else
             fe = &eventLoop->events[eventLoop->fired[j].fd];
-#endif
 
 	    /* note the fe->mask & mask & ... code: maybe an already processed
              * event removed an element that fired and we still didn't
@@ -471,29 +430,6 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
 /* Wait for milliseconds until the given file descriptor becomes
  * writable/readable/exception */
-#ifdef _WIN32
-int aeWait(int fd, int mask, long long milliseconds) {
-    struct timeval tv;
-    fd_set rfds, wfds, efds;
-    int retmask = 0, retval;
-
-    tv.tv_sec = (long)(milliseconds/1000);
-    tv.tv_usec = (milliseconds%1000)*1000;
-    FD_ZERO(&rfds);
-    FD_ZERO(&wfds);
-    FD_ZERO(&efds);
-
-    if (mask & AE_READABLE) FD_SET(fd,&rfds);
-    if (mask & AE_WRITABLE) FD_SET(fd,&wfds);
-    if ((retval = select(fd+1, &rfds, &wfds, &efds, &tv)) > 0) {
-        if (FD_ISSET(fd,&rfds)) retmask |= AE_READABLE;
-        if (FD_ISSET(fd,&wfds)) retmask |= AE_WRITABLE;
-        return retmask;
-    } else {
-        return retval;
-    }
-}
-#else
 int aeWait(int fd, int mask, long long milliseconds) {
     struct pollfd pfd;
     int retmask = 0, retval;
@@ -503,7 +439,7 @@ int aeWait(int fd, int mask, long long milliseconds) {
     if (mask & AE_READABLE) pfd.events |= POLLIN;
     if (mask & AE_WRITABLE) pfd.events |= POLLOUT;
 
-    if ((retval = poll(&pfd, 1, milliseconds))== 1) {
+    if ((retval = poll(&pfd, 1, (int)milliseconds))== 1) {
         if (pfd.revents & POLLIN) retmask |= AE_READABLE;
         if (pfd.revents & POLLOUT) retmask |= AE_WRITABLE;
 	if (pfd.revents & POLLERR) retmask |= AE_WRITABLE;
@@ -513,7 +449,6 @@ int aeWait(int fd, int mask, long long milliseconds) {
         return retval;
     }
 }
-#endif
 
 void aeMain(aeEventLoop *eventLoop) {
     eventLoop->stop = 0;
