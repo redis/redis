@@ -1996,7 +1996,8 @@ int processCommand(redisClient *c) {
     if (server.stop_writes_on_bgsave_err &&
         server.saveparamslen > 0
         && server.lastbgsave_status == REDIS_ERR &&
-        c->cmd->flags & REDIS_CMD_WRITE)
+        (c->cmd->flags & REDIS_CMD_WRITE ||
+         c->cmd->proc == pingCommand))
     {
         flagTransaction(c);
         addReply(c, shared.bgsaveerr);
