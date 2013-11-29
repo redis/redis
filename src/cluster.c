@@ -1681,7 +1681,8 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
 
     /* IF we are not a master serving at least 1 slot, we don't have the
      * right to vote, as the cluster size in Redis Cluster is the number
-     * of masters serving at least one slot, and quorum is the cluster size + 1 */
+     * of masters serving at least one slot, and quorum is the cluster
+     * size + 1 */
     if (!(server.cluster->myself->flags & REDIS_NODE_MASTER)) return;
     if (server.cluster->myself->numslots == 0) return;
 
@@ -1702,9 +1703,9 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     if (mstime() - node->slaveof->voted_time < server.cluster_node_timeout * 2)
         return;
 
-    /* The slave requesting the vote must have a configEpoch for the claimed slots
-     * that is >= the one of the masters currently serving the same slots in the
-     * current configuration. */
+    /* The slave requesting the vote must have a configEpoch for the claimed
+     * slots that is >= the one of the masters currently serving the same
+     * slots in the current configuration. */
     for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
         if (bitmapTestBit(claimed_slots, j) == 0) continue;
         if (server.cluster->slots[j] == NULL ||
@@ -1735,7 +1736,8 @@ void clusterHandleSlaveFailover(void) {
     int needed_quorum = (server.cluster->size / 2) + 1;
     int j;
 
-    /* Set data_age to the number of seconds we are disconnected from the master. */
+    /* Set data_age to the number of seconds we are disconnected from
+     * the master. */
     if (server.repl_state == REDIS_REPL_CONNECTED) {
         data_age = (server.unixtime - server.master->lastinteraction) * 1000;
     } else {
@@ -1765,8 +1767,7 @@ void clusterHandleSlaveFailover(void) {
         return;
 
     /* Compute the time at which we can start an election. */
-    if (server.cluster->failover_auth_time == 0 ||
-        auth_age >
+    if (auth_age >
         server.cluster_node_timeout * REDIS_CLUSTER_FAILOVER_AUTH_RETRY_MULT)
     {
         server.cluster->failover_auth_time = mstime() +
@@ -1775,7 +1776,8 @@ void clusterHandleSlaveFailover(void) {
             random() % 500; /* Random delay between 0 and 500 milliseconds. */
         server.cluster->failover_auth_count = 0;
         server.cluster->failover_auth_sent = 0;
-        redisLog(REDIS_WARNING,"Start of election delayed for %lld milliseconds.",
+        redisLog(REDIS_WARNING,
+            "Start of election delayed for %lld milliseconds.",
             server.cluster->failover_auth_time - mstime());
         return;
     }
@@ -1784,8 +1786,7 @@ void clusterHandleSlaveFailover(void) {
     if (mstime() < server.cluster->failover_auth_time) return;
 
     /* Return ASAP if the election is too old to be valid. */
-    if (mstime() - server.cluster->failover_auth_time > server.cluster_node_timeout)
-        return;
+    if (auth_age > server.cluster_node_timeout) return;
 
     /* Ask for votes if needed. */
     if (server.cluster->failover_auth_sent == 0) {
@@ -1827,7 +1828,8 @@ void clusterHandleSlaveFailover(void) {
         }
 
         /* 3) Update my configEpoch to the epoch of the election. */
-        server.cluster->myself->configEpoch = server.cluster->failover_auth_epoch;
+        server.cluster->myself->configEpoch =
+            server.cluster->failover_auth_epoch;
 
         /* 4) Update state and save config. */
         clusterUpdateState();
