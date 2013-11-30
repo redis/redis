@@ -94,6 +94,7 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include "linenoise.h"
 
@@ -596,6 +597,8 @@ int linenoiseHistorySave(char *filename) {
     int j;
     
     if (fp == NULL) return -1;
+    chmod(filename, S_IRUSR|S_IWUSR);
+    
     for (j = 0; j < history_len; j++)
         fprintf(fp,"%s\n",history[j]);
     fclose(fp);
@@ -612,7 +615,7 @@ int linenoiseHistoryLoad(char *filename) {
     char buf[LINENOISE_MAX_LINE];
     
     if (fp == NULL) return -1;
-
+    
     while (fgets(buf,LINENOISE_MAX_LINE,fp) != NULL) {
         char *p;
         
