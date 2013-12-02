@@ -2783,6 +2783,7 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     char *winner = NULL;
     uint64_t leader_epoch;
     uint64_t max_votes = 0;
+    char *default_winner = server.runid;
 
     redisAssert(master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS));
     counters = dictCreate(&leaderVotesDictType,NULL);
@@ -2794,6 +2795,9 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
         if (ri->leader != NULL && ri->leader_epoch == sentinel.current_epoch)
             sentinelLeaderIncr(counters,ri->leader);
         voters++;
+
+        if (!(ri->flags & (SRI_S_DOWN|SRI_O_DOWN)) && strcmp(default_winner, ri->runid) > 0)
+            default_winner = ri->runid;
     }
     dictReleaseIterator(di);
 
@@ -2813,11 +2817,12 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
 
     /* Count this Sentinel vote:
      * if this Sentinel did not voted yet, either vote for the most
-     * common voted sentinel, or for itself if no vote exists at all. */
+     * common voted sentinel, or known live sentinel with lexicographically
+     * least runid. */
     if (winner)
         myvote = sentinelVoteLeader(master,epoch,winner,&leader_epoch);
     else
-        myvote = sentinelVoteLeader(master,epoch,server.runid,&leader_epoch);
+        myvote = sentinelVoteLeader(master,epoch,default_winner,&leader_epoch);
 
     if (myvote && leader_epoch == epoch) {
         uint64_t votes = sentinelLeaderIncr(counters,myvote);
