@@ -14,6 +14,15 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.2 ] Release date: 2 Dec 2013
+
+# UPGRADE URGENCY: MODERATE for both Redis and Sentinel.
+
+* [FIX] Sentinel better desynchronization to avoid split-brain elections
+        where no Sentinel managed to get elected.
+* [FIX] Stop accepting writes on "MISCONF" error only if master, not slave.
+* [FIX] Reply to PING with an error on "MISCONF" errors.
+
 --[ Redis 2.8.1 ] Release date: 25 Nov 2013
 
 # UPGRADE URGENCY: LOW for Redis, CRITICAL for Senitnel. You don't need to
