@@ -685,7 +685,7 @@ void freeClient(redisClient *c) {
         listDelNode(server.clients,ln);
     }
     /* When client was just unblocked because of a blocking operation,
-     * remove it from the list with unblocked clients. */
+     * remove it from the list of unblocked clients. */
     if (c->flags & REDIS_UNBLOCKED) {
         ln = listSearchKey(server.unblocked_clients,c);
         redisAssert(ln != NULL);
