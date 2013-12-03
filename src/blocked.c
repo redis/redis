@@ -26,6 +26,39 @@
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
+ *
+ * ---------------------------------------------------------------------------
+ *
+ * API:
+ *
+ * getTimeoutFromObjectOrReply() is just an utility function to parse a
+ * timeout argument since blocking operations usually require a timeout.
+ *
+ * blockClient() set the REDIS_BLOCKED flag in the client, and set the
+ * specified block type 'btype' filed to one of REDIS_BLOCKED_* macros.
+ *
+ * unblockClient() unblocks the client doing the following:
+ * 1) It calls the btype-specific function to cleanup the state.
+ * 2) It unblocks the client by unsetting the REDIS_BLOCKED flag.
+ * 3) It puts the client into a list of just unblocked clients that are
+ *    processed ASAP in the beforeSleep() event loop callback, so that
+ *    if there is some query buffer to process, we do it. This is also
+ *    required because otherwise there is no 'readable' event fired, we
+ *    already read the pending commands. We also set the REDIS_UNBLOCKED
+ *    flag to remember the client is in the unblocked_clients list.
+ *
+ * processUnblockedClients() is called inside the beforeSleep() function
+ * to process the query buffer from unblocked clients and remove the clients
+ * from the blocked_clients queue.
+ *
+ * replyToBlockedClientTimedOut() is called by the cron function when
+ * a client blocked reaches the specified timeout (if the timeout is set
+ * to 0, no timeout is processed).
+ * It usually just needs to send a reply to the client.
+ *
+ * When implementing a new type of blocking opeation, the implementation
+ * should modify unblockClient() and replyToBlockedClientTimedOut() in order
+ * to handle the btype-specific behavior of this two functions.
  */
 
 #include "redis.h"
