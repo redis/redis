@@ -100,9 +100,7 @@ redisClient *createClient(int fd) {
     c->bpop.keys = dictCreate(&setDictType,NULL);
     c->bpop.timeout = 0;
     c->bpop.target = NULL;
-    c->io_keys = listCreate();
     c->watched_keys = listCreate();
-    listSetFreeMethod(c->io_keys,decrRefCountVoid);
     c->pubsub_channels = dictCreate(&setDictType,NULL);
     c->pubsub_patterns = listCreate();
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
@@ -650,13 +648,11 @@ void freeClient(redisClient *c) {
         return;
     }
 
-    /* Note that if the client we are freeing is blocked into a blocking
-     * call, we have to set querybuf to NULL *before* to call
-     * unblockClientWaitingData() to avoid processInputBuffer() will get
-     * called. Also it is important to remove the file events after
-     * this, because this call adds the READABLE event. */
+    /* Free the query buffer */
     sdsfree(c->querybuf);
     c->querybuf = NULL;
+
+    /* Deallocate structures used to block on blocking ops. */
     if (c->flags & REDIS_BLOCKED)
         unblockClientWaitingData(c);
     dictRelease(c->bpop.keys);
@@ -664,11 +660,13 @@ void freeClient(redisClient *c) {
     /* UNWATCH all the keys */
     unwatchAllKeys(c);
     listRelease(c->watched_keys);
+
     /* Unsubscribe from all the pubsub channels */
     pubsubUnsubscribeAllChannels(c,0);
     pubsubUnsubscribeAllPatterns(c,0);
     dictRelease(c->pubsub_channels);
     listRelease(c->pubsub_patterns);
+
     /* Close socket, unregister events, and remove list of replies and
      * accumulated arguments. */
     if (c->fd != -1) {
@@ -678,12 +676,14 @@ void freeClient(redisClient *c) {
     }
     listRelease(c->reply);
     freeClientArgv(c);
+
     /* Remove from the list of clients */
     if (c->fd != -1) {
         ln = listSearchKey(server.clients,c);
         redisAssert(ln != NULL);
         listDelNode(server.clients,ln);
     }
+
     /* When client was just unblocked because of a blocking operation,
      * remove it from the list of unblocked clients. */
     if (c->flags & REDIS_UNBLOCKED) {
@@ -691,9 +691,9 @@ void freeClient(redisClient *c) {
         redisAssert(ln != NULL);
         listDelNode(server.unblocked_clients,ln);
     }
-    listRelease(c->io_keys);
-    /* Master/slave cleanup.
-     * Case 1: we lost the connection with a slave. */
+
+    /* Master/slave cleanup Case 1:
+     * we lost the connection with a slave. */
     if (c->flags & REDIS_SLAVE) {
         if (c->replstate == REDIS_REPL_SEND_BULK && c->repldbfd != -1)
             close(c->repldbfd);
@@ -709,7 +709,8 @@ void freeClient(redisClient *c) {
         refreshGoodSlavesCount();
     }
 
-    /* Case 2: we lost the connection with the master. */
+    /* Master/slave cleanup Case 2:
+     * we lost the connection with the master. */
     if (c->flags & REDIS_MASTER) replicationHandleMasterDisconnection();
 
     /* If this client was scheduled for async freeing we need to remove it
@@ -720,7 +721,8 @@ void freeClient(redisClient *c) {
         listDelNode(server.clients_to_close,ln);
     }
 
-    /* Release memory */
+    /* Release other dynamically allocated client structure fields,
+     * and finally release the client structure itself. */
     if (c->name) decrRefCount(c->name);
     zfree(c->argv);
     freeClientMultiState(c);
