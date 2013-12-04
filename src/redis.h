@@ -495,7 +495,8 @@ typedef struct redisClient {
     int slave_listening_port; /* As configured with: SLAVECONF listening-port */
     multiState mstate;      /* MULTI/EXEC state */
     int btype;              /* Type of blocking op if REDIS_BLOCKED. */
-    blockingState bpop;   /* blocking state */
+    blockingState bpop;     /* blocking state */
+    long long woff;         /* Last write global replication offset. */
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
@@ -750,6 +751,9 @@ struct redisServer {
     dict *repl_scriptcache_dict;        /* SHA1 all slaves are aware of. */
     list *repl_scriptcache_fifo;        /* First in, first out LRU eviction. */
     int repl_scriptcache_size;          /* Max number of elements. */
+    /* Synchronous replication. */
+    list *clients_waiting_acks;         /* Clients waiting in WAIT command. */
+    int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
     /* Limits */
     unsigned int maxclients;        /* Max number of simultaneous clients */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
@@ -1063,6 +1067,9 @@ void replicationScriptCacheInit(void);
 void replicationScriptCacheFlush(void);
 void replicationScriptCacheAdd(sds sha1);
 int replicationScriptCacheExists(sds sha1);
+void processClientsWaitingReplicas(void);
+void unblockClientWaitingReplicas(redisClient *c);
+int replicationCountAcksByOffset(long long offset);
 
 /* Generic persistence functions */
 void startLoading(FILE *fp);
@@ -1398,6 +1405,7 @@ void timeCommand(redisClient *c);
 void bitopCommand(redisClient *c);
 void bitcountCommand(redisClient *c);
 void replconfCommand(redisClient *c);
+void waitCommand(redisClient *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
