@@ -22,7 +22,7 @@ each source file that you contribute.
 
 1. Drop a message to the Redis Google Group with a proposal of semantics/API.
 
-2. If in steps 1 you get an acknowledge from the project leaders, use the
+2. If in step 1 you get an acknowledge from the project leaders, use the
    following procedure to submit a patch:
 
     a. Fork Redis on github ( http://help.github.com/fork-a-repo/ )
