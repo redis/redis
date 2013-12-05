@@ -872,7 +872,7 @@ long long getOperationsPerSecond(void) {
 
 /* Check for timeouts. Returns non-zero if the client was terminated */
 int clientsCronHandleTimeout(redisClient *c) {
-    mstime_t now = mstime();
+    time_t now = server.unixtime;
 
     if (server.maxidletime &&
         !(c->flags & REDIS_SLAVE) &&    /* no timeout for slaves */
@@ -886,7 +886,12 @@ int clientsCronHandleTimeout(redisClient *c) {
         freeClient(c);
         return 1;
     } else if (c->flags & REDIS_BLOCKED) {
-        if (c->bpop.timeout != 0 && c->bpop.timeout < now) {
+        /* Blocked OPS timeout is handled with milliseconds resolution.
+         * However note that the actual resolution is limited by
+         * server.hz. */
+        mstime_t now_ms = mstime();
+
+        if (c->bpop.timeout != 0 && c->bpop.timeout < now_ms) {
             replyToBlockedClientTimedOut(c);
             unblockClient(c);
         }
