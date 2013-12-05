@@ -844,7 +844,7 @@ void unblockClientWaitingData(redisClient *c) {
 
 /* If the specified key has clients blocked waiting for list pushes, this
  * function will put the key reference into the server.ready_keys list.
- * Note that db->ready_keys is an hash table that allows us to avoid putting
+ * Note that db->ready_keys is a hash table that allows us to avoid putting
  * the same key again and again in the list in case of multiple pushes
  * made by a script or in the context of MULTI/EXEC.
  *
@@ -872,7 +872,7 @@ void signalListAsReady(redisClient *c, robj *key) {
     redisAssert(dictAdd(c->db->ready_keys,key,NULL) == DICT_OK);
 }
 
-/* This is an helper function for handleClientsBlockedOnLists(). It's work
+/* This is a helper function for handleClientsBlockedOnLists(). It's work
  * is to serve a specific client (receiver) that is blocked on 'key'
  * in the context of the specified 'db', doing the following:
  *

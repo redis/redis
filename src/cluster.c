@@ -639,7 +639,7 @@ void clusterRenameNode(clusterNode *node, char *newname) {
  * in the cluster without dealing with the problem if other nodes re-adding
  * back the node to nodes we already sent the FORGET command to.
  *
- * The data structure used is an hash table with an sds string representing
+ * The data structure used is a hash table with an sds string representing
  * the node ID as key, and the time when it is ok to re-add the node as
  * value.
  * -------------------------------------------------------------------------- */
@@ -853,7 +853,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
             }
         } else {
             /* If it's not in NOADDR state and we don't have it, we
-             * start an handshake process against this IP/PORT pairs.
+             * start a handshake process against this IP/PORT pairs.
              *
              * Note that we require that the sender of this gossip message
              * is a well known node in our cluster, otherwise we risk
@@ -1128,7 +1128,7 @@ int clusterProcessPacket(clusterLink *link) {
                 }
 
                 /* First thing to do is replacing the random name with the
-                 * right node name if this was an handshake stage. */
+                 * right node name if this was a handshake stage. */
                 clusterRenameNode(link->node, hdr->sender);
                 redisLog(REDIS_DEBUG,"Handshake with node %.40s completed.",
                     link->node->name);
@@ -1928,7 +1928,7 @@ void clusterCron(void) {
 
     iteration++; /* Number of times this function was called so far. */
 
-    /* The handshake timeout is the time after which an handshake node that was
+    /* The handshake timeout is the time after which a handshake node that was
      * not turned into a normal node is removed from the nodes. Usually it is
      * just the NODE_TIMEOUT value, but when NODE_TIMEOUT is too small we use
      * the value of 1 second. */

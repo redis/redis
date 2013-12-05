@@ -60,7 +60,7 @@
 #define REDIS_ENCODING_RAW 0    /* Raw representation */
 #define REDIS_ENCODING_INT 1    /* Encoded as integer */
 #define REDIS_ENCODING_ZIPMAP 2 /* Encoded as zipmap */
-#define REDIS_ENCODING_HT 3     /* Encoded as an hash table */
+#define REDIS_ENCODING_HT 3     /* Encoded as a hash table */
 
 /* Object types only used for dumping to disk */
 #define REDIS_EXPIRETIME_MS 252

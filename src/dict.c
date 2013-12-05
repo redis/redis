@@ -53,7 +53,7 @@
  * around when there is a child performing saving operations.
  *
  * Note that even when dict_can_resize is set to 0, not all resizes are
- * prevented: an hash table is still allowed to grow if the ratio between
+ * prevented: a hash table is still allowed to grow if the ratio between
  * the number of elements and the buckets > dict_force_resize_ratio. */
 static int dict_can_resize = 1;
 static unsigned int dict_force_resize_ratio = 5;
@@ -853,7 +853,7 @@ static unsigned long _dictNextPower(unsigned long size)
 }
 
 /* Returns the index of a free slot that can be populated with
- * an hash entry for the given 'key'.
+ * a hash entry for the given 'key'.
  * If the key already exists, -1 is returned.
  *
  * Note that if we are in the process of rehashing the hash table, the
