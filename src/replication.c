@@ -1399,7 +1399,7 @@ void refreshGoodSlavesCount(void) {
  * connected slave, in order to be able to replicate EVALSHA as it is without
  * translating it to EVAL every time it is possible.
  *
- * We use a capped collection implemented by an hash table for fast lookup
+ * We use a capped collection implemented by a hash table for fast lookup
  * of scripts we can send as EVALSHA, plus a linked list that is used for
  * eviction of the oldest entry when the max number of items is reached.
  *

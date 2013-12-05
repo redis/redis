@@ -895,7 +895,7 @@ void evalGenericCommand(redisClient *c, int evalsha) {
     /* Select the right DB in the context of the Lua client */
     selectDb(server.lua_client,c->db->id);
     
-    /* Set an hook in order to be able to stop the script execution if it
+    /* Set a hook in order to be able to stop the script execution if it
      * is running for too much time.
      * We set the hook only if the time limit is enabled as the hook will
      * make the Lua script execution slower. */
@@ -1059,7 +1059,7 @@ void scriptCommand(redisClient *c) {
         if (server.lua_caller == NULL) {
             addReplySds(c,sdsnew("-NOTBUSY No scripts in execution right now.\r\n"));
         } else if (server.lua_write_dirty) {
-            addReplySds(c,sdsnew("-UNKILLABLE Sorry the script already executed write commands against the dataset. You can either wait the script termination or kill the server in an hard way using the SHUTDOWN NOSAVE command.\r\n"));
+            addReplySds(c,sdsnew("-UNKILLABLE Sorry the script already executed write commands against the dataset. You can either wait the script termination or kill the server in a hard way using the SHUTDOWN NOSAVE command.\r\n"));
         } else {
             server.lua_kill = 1;
             addReply(c,shared.ok);

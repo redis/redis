@@ -36,7 +36,7 @@
  * in order to get O(log(N)) INSERT and REMOVE operations into a sorted
  * data structure.
  *
- * The elements are added to an hash table mapping Redis objects to scores.
+ * The elements are added to a hash table mapping Redis objects to scores.
  * At the same time the elements are added to a skip list mapping scores
  * to Redis objects (so objects are sorted by scores in this "view"). */
 

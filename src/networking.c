@@ -1150,7 +1150,7 @@ void getClientsMaxBuffers(unsigned long *longest_output_list,
     *biggest_input_buffer = bib;
 }
 
-/* This is an helper function for getClientPeerId().
+/* This is a helper function for getClientPeerId().
  * It writes the specified ip/port to "peerid" as a null termiated string
  * in the form ip:port if ip does not contain ":" itself, otherwise
  * [ip]:port format is used (for IPv6 addresses basically). */

@@ -360,7 +360,7 @@ int parseScanCursorOrReply(redisClient *c, robj *o, unsigned long *cursor) {
 }
 
 /* This command implements SCAN, HSCAN and SSCAN commands.
- * If object 'o' is passed, then it must be an Hash or Set object, otherwise
+ * If object 'o' is passed, then it must be a Hash or Set object, otherwise
  * if 'o' is NULL the command will operate on the dictionary associated with
  * the current database.
  *
@@ -368,7 +368,7 @@ int parseScanCursorOrReply(redisClient *c, robj *o, unsigned long *cursor) {
  * the client arguments vector is a key so it skips it before iterating
  * in order to parse options.
  *
- * In the case of an Hash object the function returns both the field and value
+ * In the case of a Hash object the function returns both the field and value
  * of every element on the Hash. */
 void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
     int rv;
@@ -423,12 +423,12 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
     /* Step 2: Iterate the collection.
      *
      * Note that if the object is encoded with a ziplist, intset, or any other
-     * representation that is not an hash table, we are sure that it is also
+     * representation that is not a hash table, we are sure that it is also
      * composed of a small number of elements. So to avoid taking state we
      * just return everything inside the object in a single call, setting the
      * cursor to zero to signal the end of the iteration. */
 
-    /* Handle the case of an hash table. */
+    /* Handle the case of a hash table. */
     ht = NULL;
     if (o == NULL) {
         ht = c->db->dict;
@@ -510,7 +510,7 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
             listDelNode(keys, node);
         }
 
-        /* If this is an hash or a sorted set, we have a flat list of
+        /* If this is a hash or a sorted set, we have a flat list of
          * key-value elements, so if this element was filtered, remove the
          * value, or skip it if it was not filtered: we only match keys. */
         if (o && (o->type == REDIS_ZSET || o->type == REDIS_HASH)) {

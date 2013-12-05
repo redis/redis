@@ -48,8 +48,8 @@ redisSortOperation *createSortOperation(int type, robj *pattern) {
  * 1) The first occurrence of '*' in 'pattern' is substituted with 'subst'.
  *
  * 2) If 'pattern' matches the "->" string, everything on the left of
- *    the arrow is treated as the name of an hash field, and the part on the
- *    left as the key name containing an hash. The value of the specified
+ *    the arrow is treated as the name of a hash field, and the part on the
+ *    left as the key name containing a hash. The value of the specified
  *    field is returned.
  *
  * 3) If 'pattern' equals "#", the function simply returns 'subst' itself so

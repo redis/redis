@@ -892,7 +892,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 
         o = createHashObject();
 
-        /* Too many entries? Use an hash table. */
+        /* Too many entries? Use a hash table. */
         if (len > server.hash_max_ziplist_entries)
             hashTypeConvert(o, REDIS_ENCODING_HT);
 

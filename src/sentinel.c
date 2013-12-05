@@ -135,7 +135,7 @@ typedef struct sentinelRedisInstance {
                                  if the link is idle and must be reconnected. */
     mstime_t last_pub_time;   /* Last time we sent hello via Pub/Sub. */
     mstime_t last_hello_time; /* Only used if SRI_SENTINEL is set. Last time
-                                 we received an hello from this Sentinel
+                                 we received a hello from this Sentinel
                                  via Pub/Sub. */
     mstime_t last_master_down_reply_time; /* Time of last reply to
                                              SENTINEL is-master-down command. */
@@ -1492,7 +1492,7 @@ void sentinelFlushConfig(void) {
 
 /* ====================== hiredis connection handling ======================= */
 
-/* Completely disconnect an hiredis link from an instance. */
+/* Completely disconnect a hiredis link from an instance. */
 void sentinelKillLink(sentinelRedisInstance *ri, redisAsyncContext *c) {
     if (ri->cc == c) {
         ri->cc = NULL;
@@ -1504,7 +1504,7 @@ void sentinelKillLink(sentinelRedisInstance *ri, redisAsyncContext *c) {
     redisAsyncFree(c);
 }
 
-/* This function takes an hiredis context that is in an error condition
+/* This function takes a hiredis context that is in an error condition
  * and make sure to mark the instance as disconnected performing the
  * cleanup needed.
  *
