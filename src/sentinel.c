@@ -1764,22 +1764,22 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
      * Some things will not happen if sentinel.tilt is true, but some will
      * still be processed. */
 
+    /* Remember when the role changed. */
+    if (role != ri->role_reported) {
+        ri->role_reported_time = mstime();
+        ri->role_reported = role;
+        if (role == SRI_SLAVE) ri->slave_conf_change_time = mstime();
+    }
+
     /* Handle master -> slave role switch. */
     if ((ri->flags & SRI_MASTER) && role == SRI_SLAVE) {
-        if (ri->role_reported != SRI_SLAVE) {
-            ri->role_reported_time = mstime();
-            ri->role_reported = SRI_SLAVE;
-            ri->slave_conf_change_time = mstime();
-        }
+        /* Nothing to do, but masters claiming to be slaves are
+         * considered to be unreachable by Sentinel, so eventually
+         * a failover will be triggered. */
     }
 
     /* Handle slave -> master role switch. */
     if ((ri->flags & SRI_SLAVE) && role == SRI_MASTER) {
-        if (ri->role_reported != SRI_MASTER) {
-            ri->role_reported_time = mstime();
-            ri->role_reported = SRI_MASTER;
-        }
-
         /* If this is a promoted slave we can change state to the
          * failover state machine. */
         if (!sentinel.tilt &&
