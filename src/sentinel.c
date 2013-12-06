@@ -1131,6 +1131,8 @@ void sentinelResetMaster(sentinelRedisInstance *ri, int flags) {
     ri->slave_master_host = NULL;
     ri->last_avail_time = mstime();
     ri->last_pong_time = mstime();
+    ri->role_reported_time = mstime();
+    ri->role_reported = SRI_MASTER;
     if (flags & SENTINEL_GENERATE_EVENT)
         sentinelEvent(REDIS_WARNING,"+reset-master",ri,"%@");
 }
