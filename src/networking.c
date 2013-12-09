@@ -865,10 +865,13 @@ void resetClient(redisClient *c) {
 }
 
 int processInlineBuffer(redisClient *c) {
-    char *newline = strstr(c->querybuf,"\r\n");
+    char *newline;
     int argc, j;
     sds *argv, aux;
     size_t querylen;
+
+    /* Search for end of line */
+    newline = strchr(c->querybuf,'\n');
 
     /* Nothing to do without a \r\n */
     if (newline == NULL) {
@@ -878,6 +881,10 @@ int processInlineBuffer(redisClient *c) {
         }
         return REDIS_ERR;
     }
+
+    /* Handle the \r\n case. */
+    if (newline && newline != c->querybuf && *(newline-1) == '\r')
+        newline--;
 
     /* Split the input buffer up to the \r\n */
     querylen = newline-(c->querybuf);
