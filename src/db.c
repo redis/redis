@@ -47,8 +47,12 @@ robj *lookupKey(redisDb *db, robj *key) {
         /* Update the access time for the ageing algorithm.
          * Don't do it if we have a saving child, as this will trigger
          * a copy on write madness. */
-        if (server.rdb_child_pid == -1 && server.aof_child_pid == -1)
+        if (server.rdb_child_pid == -1 && server.aof_child_pid == -1) {
             val->lru = server.lruclock;
+            /* LRU */
+            dlTouch(lruList, de);
+            /* !LRU */
+        }
         return val;
     } else {
         return NULL;
@@ -90,9 +94,13 @@ robj *lookupKeyWriteOrReply(redisClient *c, robj *key, robj *reply) {
  * The program is aborted if the key already exists. */
 void dbAdd(redisDb *db, robj *key, robj *val) {
     sds copy = sdsdup(key->ptr);
-    int retval = dictAdd(db->dict, copy, val);
+    /* LRU */
+    dictEntry *de = dictAddReturnEntry(db->dict, copy, val);
 
-    redisAssertWithInfo(NULL,key,retval == REDIS_OK);
+    redisAssertWithInfo(NULL,key,de != NULL);
+    de->dbid = db->id;
+    dlAdd(lruList, de);
+    /* !LRU */
  }
 
 /* Overwrite an existing key with a new value. Incrementing the reference
@@ -105,6 +113,10 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
     
     redisAssertWithInfo(NULL,key,de != NULL);
     dictReplace(db->dict, key->ptr, val);
+    /* LRU */
+    de->dbid = db->id;
+    dlTouch(lruList, de);
+    /* !LRU */
 }
 
 /* High level Set operation. This function can be used in order to set
@@ -159,7 +171,9 @@ int dbDelete(redisDb *db, robj *key) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
-    if (dictDelete(db->dict,key->ptr) == DICT_OK) {
+    /* LRU */
+    if (dictDeleteDictQueue(db->dict,key->ptr,lruList) == DICT_OK) {
+    /* !LRU */
         return 1;
     } else {
         return 0;
@@ -175,6 +189,9 @@ long long emptyDb() {
         dictEmpty(server.db[j].dict);
         dictEmpty(server.db[j].expires);
     }
+    /* LRU */
+    dlEmpty(lruList);
+    /* !LRU */
     return removed;
 }
 
@@ -211,6 +228,9 @@ void flushdbCommand(redisClient *c) {
     signalFlushedDb(c->db->id);
     dictEmpty(c->db->dict);
     dictEmpty(c->db->expires);
+    /* LRU */
+    dlFlushDb(lruList, c->db->id);
+    /* !LRU */
     addReply(c,shared.ok);
 }
 

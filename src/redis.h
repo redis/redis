@@ -62,6 +62,10 @@
 #include "version.h" /* Version macro */
 #include "util.h"    /* Misc functions useful in many places */
 
+/* LRU */
+#include "dictList.h"
+/* !LRU */
+
 /* Error codes */
 #define REDIS_OK                0
 #define REDIS_ERR               -1
@@ -312,6 +316,9 @@
 #define REDIS_MAXMEMORY_ALLKEYS_LRU 3
 #define REDIS_MAXMEMORY_ALLKEYS_RANDOM 4
 #define REDIS_MAXMEMORY_NO_EVICTION 5
+/* LRU */
+#define REDIS_MAXMEMORY_ALLKEYS_REAL_LRU 6
+/* !LRU */
 #define REDIS_DEFAULT_MAXMEMORY_POLICY REDIS_MAXMEMORY_VOLATILE_LRU
 
 /* Scripting */

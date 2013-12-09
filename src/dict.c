@@ -320,6 +320,16 @@ int dictAdd(dict *d, void *key, void *val)
     return DICT_OK;
 }
 
+/* Add an element to the target hash table */
+dictEntry* dictAddReturnEntry(dict *d, void *key, void *val)
+{
+    dictEntry *entry = dictAddRaw(d,key);
+
+    if (!entry) return NULL;
+    dictSetVal(d, entry, val);
+    return entry;
+}
+
 /* Low level add. This function adds the entry but instead of setting
  * a value returns the dictEntry structure to the user, that will make
  * sure to fill the value field as he wishes.
@@ -398,7 +408,7 @@ dictEntry *dictReplaceRaw(dict *d, void *key) {
 }
 
 /* Search and remove an element */
-static int dictGenericDelete(dict *d, const void *key, int nofree)
+static int dictGenericDelete(dict *d, const void *key, int nofree, dictList *dl)
 {
     unsigned int h, idx;
     dictEntry *he, *prevHe;
@@ -423,6 +433,9 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
                     dictFreeKey(d, he);
                     dictFreeVal(d, he);
                 }
+                /* LRU */
+                if (dl) dlDelete(dl, he);
+                /* !LRU */
                 zfree(he);
                 d->ht[table].used--;
                 return DICT_OK;
@@ -436,12 +449,18 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
 }
 
 int dictDelete(dict *ht, const void *key) {
-    return dictGenericDelete(ht,key,0);
+    return dictGenericDelete(ht,key,0,NULL);
 }
 
 int dictDeleteNoFree(dict *ht, const void *key) {
-    return dictGenericDelete(ht,key,1);
+    return dictGenericDelete(ht,key,1,NULL);
 }
+
+/* LRU */
+int dictDeleteDictQueue (dict *ht, const void *key, struct dictList *dl) {
+    return dictGenericDelete(ht,key,0,dl);
+}
+/* !LRU */
 
 /* Destroy an entire dictionary */
 int _dictClear(dict *d, dictht *ht)

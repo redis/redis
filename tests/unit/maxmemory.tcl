@@ -1,6 +1,6 @@
 start_server {tags {"maxmemory"}} {
     foreach policy {
-        allkeys-random allkeys-lru volatile-lru volatile-random volatile-ttl
+        allkeys-random allkeys-lru allkeys-real-lru volatile-lru volatile-random volatile-ttl
     } {
         test "maxmemory - is the memory limit honoured? (policy $policy)" {
             # make sure to start with a blank instance
@@ -32,7 +32,7 @@ start_server {tags {"maxmemory"}} {
     }
 
     foreach policy {
-        allkeys-random allkeys-lru volatile-lru volatile-random volatile-ttl
+        allkeys-random allkeys-lru allkeys-real-lru volatile-lru volatile-random volatile-ttl
     } {
         test "maxmemory - only allkeys-* should remove non-volatile keys ($policy)" {
             # make sure to start with a blank instance

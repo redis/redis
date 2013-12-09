@@ -34,6 +34,9 @@
  */
 
 #include <stdint.h>
+/* LRU */
+#include "dictList.h"
+/* !LRU */
 
 #ifndef __DICT_H
 #define __DICT_H
@@ -52,6 +55,10 @@ typedef struct dictEntry {
         int64_t s64;
     } v;
     struct dictEntry *next;
+    /* LRU */
+    int dbid;
+    struct dictEntry *lruPrev, *lruNext;
+    /* !LRU */
 } dictEntry;
 
 typedef struct dictType {
@@ -143,11 +150,13 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 dict *dictCreate(dictType *type, void *privDataPtr);
 int dictExpand(dict *d, unsigned long size);
 int dictAdd(dict *d, void *key, void *val);
+dictEntry* dictAddReturnEntry(dict *d, void *key, void *val);
 dictEntry *dictAddRaw(dict *d, void *key);
 int dictReplace(dict *d, void *key, void *val);
 dictEntry *dictReplaceRaw(dict *d, void *key);
 int dictDelete(dict *d, const void *key);
 int dictDeleteNoFree(dict *d, const void *key);
+int dictDeleteDictQueue (dict *ht, const void *key, dictList *dl);
 void dictRelease(dict *d);
 dictEntry * dictFind(dict *d, const void *key);
 void *dictFetchValue(dict *d, const void *key);

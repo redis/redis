@@ -66,6 +66,7 @@ double R_Zero, R_PosInf, R_NegInf, R_Nan;
 /* Global vars */
 struct redisServer server; /* server global state */
 struct redisCommand *commandTable;
+dictList           *lruList;
 
 /* Our command table.
  *
@@ -2594,6 +2595,36 @@ void monitorCommand(redisClient *c) {
 
 /* ============================ Maxmemory directive  ======================== */
 
+long long evict (redisDb *db, sds key, int slaves) {
+    long long delta;
+
+    robj *keyobj = createStringObject(key,sdslen(key));
+    propagateExpire(db,keyobj);
+    /* We compute the amount of memory freed by dbDelete() alone.
+     * It is possible that actually the memory needed to propagate
+     * the DEL in AOF and replication link is greater than the one
+     * we are freeing removing the key, but we can't account for
+     * that otherwise we would never exit the loop.
+     *
+     * AOF and Output buffer memory will be freed eventually so
+     * we only care about memory used by the key space. */
+    delta = (long long) zmalloc_used_memory();
+    dbDelete(db,keyobj);
+    delta -= (long long) zmalloc_used_memory();
+    server.stat_evictedkeys++;
+    notifyKeyspaceEvent(REDIS_NOTIFY_EVICTED, "evicted",
+        keyobj, db->id);
+    decrRefCount(keyobj);
+
+    /* When the memory to free starts to be big enough, we may
+     * start spending so much time here that is impossible to
+     * deliver data to the slaves fast enough, so we force the
+     * transmission here inside the loop. */
+    if (slaves) flushSlavesOutputBuffers();
+
+    return delta;
+}
+
 /* This function gets called when 'maxmemory' is set on the config file to limit
  * the max memory used by the server, before processing a command.
  *
@@ -2646,6 +2677,20 @@ int freeMemoryIfNeeded(void) {
     mem_freed = 0;
     while (mem_freed < mem_tofree) {
         int j, k, keys_freed = 0;
+
+        /* LRU */
+        if (server.maxmemory_policy == REDIS_MAXMEMORY_ALLKEYS_REAL_LRU) {
+            dictEntry *de = dlGetLast(lruList);
+
+            if (de) {
+                mem_freed += evict(server.db + de->dbid, de->key, slaves);
+                keys_freed++;
+            }
+            //TODO:
+            if (!keys_freed) return REDIS_ERR; /* nothing to free... */
+            continue;
+        }
+        /* !LRU */
 
         for (j = 0; j < server.dbnum; j++) {
             long bestval = 0; /* just to prevent warning */
@@ -2718,33 +2763,8 @@ int freeMemoryIfNeeded(void) {
 
             /* Finally remove the selected key. */
             if (bestkey) {
-                long long delta;
-
-                robj *keyobj = createStringObject(bestkey,sdslen(bestkey));
-                propagateExpire(db,keyobj);
-                /* We compute the amount of memory freed by dbDelete() alone.
-                 * It is possible that actually the memory needed to propagate
-                 * the DEL in AOF and replication link is greater than the one
-                 * we are freeing removing the key, but we can't account for
-                 * that otherwise we would never exit the loop.
-                 *
-                 * AOF and Output buffer memory will be freed eventually so
-                 * we only care about memory used by the key space. */
-                delta = (long long) zmalloc_used_memory();
-                dbDelete(db,keyobj);
-                delta -= (long long) zmalloc_used_memory();
-                mem_freed += delta;
-                server.stat_evictedkeys++;
-                notifyKeyspaceEvent(REDIS_NOTIFY_EVICTED, "evicted",
-                    keyobj, db->id);
-                decrRefCount(keyobj);
+                mem_freed += evict(db, bestkey, slaves);
                 keys_freed++;
-
-                /* When the memory to free starts to be big enough, we may
-                 * start spending so much time here that is impossible to
-                 * deliver data to the slaves fast enough, so we force the
-                 * transmission here inside the loop. */
-                if (slaves) flushSlavesOutputBuffers();
             }
         }
         if (!keys_freed) return REDIS_ERR; /* nothing to free... */
@@ -2940,6 +2960,10 @@ int main(int argc, char **argv) {
     dictSetHashFunctionSeed(tv.tv_sec^tv.tv_usec^getpid());
     server.sentinel_mode = checkForSentinelMode(argc,argv);
     initServerConfig();
+
+    /* LRU */
+    lruList = dlCreate();
+    /* !LRU */
 
     /* We need to init sentinel right now as parsing the configuration file
      * in sentinel mode will have the effect of populating the sentinel

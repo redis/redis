@@ -356,4 +356,17 @@ start_server {tags {"pubsub"}} {
         r config set maxmemory 0
         $rd1 close
     }
+
+    test "Keyspace notifications: evicted events" {
+        r config set notify-keyspace-events Ee
+        r config set maxmemory-policy allkeys-real-lru
+        r flushdb
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+        r set foo bar
+        r config set maxmemory 1
+        assert_equal {pmessage * __keyevent@9__:evicted foo} [$rd1 read]
+        r config set maxmemory 0
+        $rd1 close
+    }
 }
