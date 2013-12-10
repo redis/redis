@@ -837,7 +837,7 @@ void unblockClientWaitingData(redisClient *c) {
     dictReleaseIterator(di);
 
     /* Cleanup the client structure */
-    dictEmpty(c->bpop.keys);
+    dictEmpty(c->bpop.keys,NULL);
     if (c->bpop.target) {
         decrRefCount(c->bpop.target);
         c->bpop.target = NULL;

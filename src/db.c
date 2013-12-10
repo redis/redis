@@ -166,14 +166,14 @@ int dbDelete(redisDb *db, robj *key) {
     }
 }
 
-long long emptyDb() {
+long long emptyDb(void(callback)(void*)) {
     int j;
     long long removed = 0;
 
     for (j = 0; j < server.dbnum; j++) {
         removed += dictSize(server.db[j].dict);
-        dictEmpty(server.db[j].dict);
-        dictEmpty(server.db[j].expires);
+        dictEmpty(server.db[j].dict,callback);
+        dictEmpty(server.db[j].expires,callback);
     }
     return removed;
 }
@@ -209,14 +209,14 @@ void signalFlushedDb(int dbid) {
 void flushdbCommand(redisClient *c) {
     server.dirty += dictSize(c->db->dict);
     signalFlushedDb(c->db->id);
-    dictEmpty(c->db->dict);
-    dictEmpty(c->db->expires);
+    dictEmpty(c->db->dict,NULL);
+    dictEmpty(c->db->expires,NULL);
     addReply(c,shared.ok);
 }
 
 void flushallCommand(redisClient *c) {
     signalFlushedDb(-1);
-    server.dirty += emptyDb();
+    server.dirty += emptyDb(NULL);
     addReply(c,shared.ok);
     if (server.rdb_child_pid != -1) {
         kill(server.rdb_child_pid,SIGUSR1);
