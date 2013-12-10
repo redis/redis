@@ -271,7 +271,6 @@ static aeTimeEvent *aeSearchNearestTimer(aeEventLoop *eventLoop)
 static int processTimeEvents(aeEventLoop *eventLoop) {
     int processed = 0;
     aeTimeEvent *te;
-    long long maxId;
     time_t now = time(NULL);
 
     /* If the system clock is moved to the future, and then set back to the
@@ -292,11 +291,10 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
     eventLoop->lastTime = now;
 
     te = eventLoop->timeEventHead;
-    maxId = eventLoop->timeEventNextId-1;
     while(te) {
         long now_sec, now_ms;
         long long id;
-
+        
         aeGetTime(&now_sec, &now_ms);
         if (now_sec > te->when_sec ||
             (now_sec == te->when_sec && now_ms >= te->when_ms))
