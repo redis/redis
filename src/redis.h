@@ -1070,6 +1070,7 @@ int replicationScriptCacheExists(sds sha1);
 void processClientsWaitingReplicas(void);
 void unblockClientWaitingReplicas(redisClient *c);
 int replicationCountAcksByOffset(long long offset);
+void replicationSendNewlineToMaster(void);
 
 /* Generic persistence functions */
 void startLoading(FILE *fp);
