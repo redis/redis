@@ -297,10 +297,6 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
         long now_sec, now_ms;
         long long id;
 
-        if (te->id > maxId) {
-            te = te->next;
-            continue;
-        }
         aeGetTime(&now_sec, &now_ms);
         if (now_sec > te->when_sec ||
             (now_sec == te->when_sec && now_ms >= te->when_ms))
