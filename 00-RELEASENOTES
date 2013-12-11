@@ -14,6 +14,24 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.3 ] Release date: 11 Dec 2013
+
+# UPGRADE URGENCY: MODERATE for Redis, HIGH for Sentinel.
+
+* [FIX] Sentinel instance role sampling fixed, the system is now more
+        reliable during failover and when reconfiguring instances with
+        non matching configuration.
+* [FIX] Inline requests are now handled even when terminated with just LF.
+* [FIX] Replication timeout handling greatly improved, now the slave is able
+        to ping the master while removing the old data from memory, and while
+        loading the new RDB file. This avoid false timeouts sensed by
+        masters.
+* [FIX] Fixed a replication bug involving 32 bit instances and big datasets
+        hard to compress that resulted into more than 2GB of RDB file sent.
+* [FIX] Return error for inline requests with unbalanced quotes.
+* [FIX] Publish the slave replication offset even when disconnected from the
+        master if there is still a cached master instance.
+
 --[ Redis 2.8.2 ] Release date: 2 Dec 2013
 
 # UPGRADE URGENCY: MODERATE for both Redis and Sentinel.
