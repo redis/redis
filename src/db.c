@@ -172,7 +172,7 @@ int dbDelete(redisDb *db, robj *key) {
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
     /* LRU */
-    if (dictDeleteDictQueue(db->dict,key->ptr,lruList) == DICT_OK) {
+    if (dictDeleteDictList(db->dict,key->ptr,lruList) == DICT_OK) {
     /* !LRU */
         return 1;
     } else {

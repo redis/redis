@@ -156,7 +156,7 @@ int dictReplace(dict *d, void *key, void *val);
 dictEntry *dictReplaceRaw(dict *d, void *key);
 int dictDelete(dict *d, const void *key);
 int dictDeleteNoFree(dict *d, const void *key);
-int dictDeleteDictQueue (dict *ht, const void *key, dictList *dl);
+int dictDeleteDictList(dict *ht, const void *key, dictList *dl);
 void dictRelease(dict *d);
 dictEntry * dictFind(dict *d, const void *key);
 void *dictFetchValue(dict *d, const void *key);

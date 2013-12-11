@@ -457,7 +457,7 @@ int dictDeleteNoFree(dict *ht, const void *key) {
 }
 
 /* LRU */
-int dictDeleteDictQueue (dict *ht, const void *key, struct dictList *dl) {
+int dictDeleteDictList(dict *ht, const void *key, struct dictList *dl) {
     return dictGenericDelete(ht,key,0,dl);
 }
 /* !LRU */
