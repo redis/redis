@@ -14,6 +14,19 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.6.17 ] Release date: 11 Dec 2013
+
+UPGRADE URGENCY: MODERATE.
+
+* [FIX] redis-cli: fix big keys search when the key no longer exist.
+* [FIX] Allow AUTH / PING when disconnected from slave with serve-stale-data on.
+* [FIX] redis-benchmark: update help for new __rand_int__ form.
+* [FIX] Fix broken rdbWriteRaw() return value check in rdb.c (harmless).
+* [FIX] Log to what master a slave is going to connect to.
+* [FIX] Only run the fast active expire cycle if master & enabled.
+* [FIX] Fixed a replication bug involving 32 bit instances and big datasets
+        hard to compress that resulted into more than 2GB of RDB file sent.
+
 --[ Redis 2.6.16 ] Release date: 28 Aug 2013
 
 UPGRADE URGENCY: MODERATE.
