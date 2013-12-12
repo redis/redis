@@ -383,7 +383,7 @@ sds sdstrim(sds s, const char *cset) {
  * Example:
  *
  * s = sdsnew("Hello World");
- * sdstrim(s,1,-1); => "ello Worl"
+ * sdsrange(s,1,-1); => "ello World"
  */
 void sdsrange(sds s, int start, int end) {
     struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
