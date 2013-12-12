@@ -55,14 +55,18 @@ FINAL_LIBS=-lm
 DEBUG=-g -ggdb
 
 ifeq ($(uname_S),SunOS)
+	# SunOS
 	INSTALL=cp -pf
 	FINAL_CFLAGS+= -D__EXTENSIONS__ -D_XPG6
 	FINAL_LIBS+= -ldl -lnsl -lsocket -lpthread
-else ifeq ($(uname_S),Darwin)
-	
 else
+ifeq ($(uname_S),Darwin)
+	# Darwin (nothing to do)
+else
+	# All the other OSes (notably Linux)
 	FINAL_LDFLAGS+= -rdynamic
 	FINAL_LIBS+= -pthread
+endif
 endif
 
 # Include paths to dependencies
