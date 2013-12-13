@@ -214,6 +214,12 @@ start_server {
         r sdiff set1 set2 set3
     } {}
 
+    test "SDIFF with same set two times" {
+        r del set1
+        r sadd set1 a b c 1 2 3 4 5 6
+        r sdiff set1 set1
+    } {}
+
     test "SDIFF fuzzing" {
         for {set j 0} {$j < 100} {incr j} {
             unset -nocomplain s
