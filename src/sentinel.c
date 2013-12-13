@@ -1638,8 +1638,6 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     sds *lines;
     int numlines, j;
     int role = 0;
-    int runid_changed = 0;  /* true if runid changed. */
-    int first_runid = 0;    /* true if this is the first runid we receive. */
 
     /* The following fields must be reset to a given value in the case they
      * are not found at all in the INFO output. */
@@ -1655,10 +1653,8 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         if (sdslen(l) >= 47 && !memcmp(l,"run_id:",7)) {
             if (ri->runid == NULL) {
                 ri->runid = sdsnewlen(l+7,40);
-                first_runid = 1;
             } else {
                 if (strncmp(ri->runid,l+7,40) != 0) {
-                    runid_changed = 1;
                     sentinelEvent(REDIS_NOTICE,"+reboot",ri,"%@");
                     sdsfree(ri->runid);
                     ri->runid = sdsnewlen(l+7,40);
@@ -3234,17 +3230,12 @@ void sentinelFailoverReconfNextSlave(sentinelRedisInstance *master) {
 void sentinelFailoverSwitchToPromotedSlave(sentinelRedisInstance *master) {
     sentinelRedisInstance *ref = master->promoted_slave ?
                                  master->promoted_slave : master;
-    sds old_master_ip;
-    int old_master_port;
 
     sentinelEvent(REDIS_WARNING,"+switch-master",master,"%s %s %d %s %d",
         master->name, master->addr->ip, master->addr->port,
         ref->addr->ip, ref->addr->port);
 
-    old_master_ip = sdsdup(master->addr->ip);
-    old_master_port = master->addr->port;
     sentinelResetMasterAndChangeAddress(master,ref->addr->ip,ref->addr->port);
-    sdsfree(old_master_ip);
 }
 
 void sentinelFailoverStateMachine(sentinelRedisInstance *ri) {
