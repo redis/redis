@@ -3096,6 +3096,7 @@ int main(int argc, char **argv) {
         /* First argument is the config file name? */
         if (argv[j][0] != '-' || argv[j][1] != '-')
             configfile = argv[j++];
+        if (configfile) server.configfile = getAbsolutePath(configfile);
         /* All the other options are parsed and conceptually appended to the
          * configuration file. For instance --port 6380 will generate the
          * string "port 6380\n" to be parsed after the actual file name
@@ -3116,7 +3117,6 @@ int main(int argc, char **argv) {
         resetServerSaveParams();
         loadServerConfig(configfile,options);
         sdsfree(options);
-        if (configfile) server.configfile = getAbsolutePath(configfile);
     } else {
         redisLog(REDIS_WARNING, "Warning: no config file specified, using the default config. In order to specify a config file use %s /path/to/%s.conf", argv[0], server.sentinel_mode ? "sentinel" : "redis");
     }
