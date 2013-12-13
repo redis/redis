@@ -1,5 +1,5 @@
 adlist.o: adlist.c adlist.h zmalloc.h
-ae.o: ae.c ae.h zmalloc.h config.h ae_kqueue.c
+ae.o: ae.c ae.h zmalloc.h config.h ae_kqueue.c ae_select.c ae_evport.c ae_epoll.c
 ae_epoll.o: ae_epoll.c
 ae_evport.o: ae_evport.c
 ae_kqueue.o: ae_kqueue.c
@@ -24,7 +24,7 @@ db.o: db.c redis.h fmacros.h config.h ../deps/lua/src/lua.h \
 debug.o: debug.c redis.h fmacros.h config.h ../deps/lua/src/lua.h \
   ../deps/lua/src/luaconf.h ae.h sds.h dict.h adlist.h zmalloc.h anet.h \
   ziplist.h intset.h version.h util.h rdb.h rio.h sha1.h crc64.h bio.h
-dict.o: dict.c fmacros.h dict.h zmalloc.h
+dict.o: dict.c fmacros.h dict.h zmalloc.h redisassert.h
 endianconv.o: endianconv.c
 intset.o: intset.c intset.h zmalloc.h endianconv.h config.h
 lzf_c.o: lzf_c.c lzfP.h
@@ -70,18 +70,18 @@ replication.o: replication.c redis.h fmacros.h config.h \
   ../deps/lua/src/lua.h ../deps/lua/src/luaconf.h ae.h sds.h dict.h \
   adlist.h zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h \
   rio.h
-rio.o: rio.c fmacros.h rio.h sds.h util.h crc64.h
+rio.o: rio.c fmacros.h rio.h sds.h util.h crc64.h config.h redis.h \
+  ../deps/lua/src/lua.h ../deps/lua/src/luaconf.h ae.h dict.h adlist.h \
+  zmalloc.h anet.h ziplist.h intset.h version.h rdb.h
 scripting.o: scripting.c redis.h fmacros.h config.h ../deps/lua/src/lua.h \
   ../deps/lua/src/luaconf.h ae.h sds.h dict.h adlist.h zmalloc.h anet.h \
   ziplist.h intset.h version.h util.h rdb.h rio.h sha1.h rand.h \
-  ../deps/lua/src/lauxlib.h ../deps/lua/src/lua.h \
-  ../deps/lua/src/lualib.h
+  ../deps/lua/src/lauxlib.h ../deps/lua/src/lualib.h
 sds.o: sds.c sds.h zmalloc.h
 sentinel.o: sentinel.c redis.h fmacros.h config.h ../deps/lua/src/lua.h \
   ../deps/lua/src/luaconf.h ae.h sds.h dict.h adlist.h zmalloc.h anet.h \
   ziplist.h intset.h version.h util.h rdb.h rio.h \
-  ../deps/hiredis/hiredis.h ../deps/hiredis/async.h \
-  ../deps/hiredis/hiredis.h
+  ../deps/hiredis/hiredis.h ../deps/hiredis/async.h
 setproctitle.o: setproctitle.c
 sha1.o: sha1.c sha1.h config.h
 slowlog.o: slowlog.c redis.h fmacros.h config.h ../deps/lua/src/lua.h \
@@ -108,7 +108,8 @@ t_string.o: t_string.c redis.h fmacros.h config.h ../deps/lua/src/lua.h \
 t_zset.o: t_zset.c redis.h fmacros.h config.h ../deps/lua/src/lua.h \
   ../deps/lua/src/luaconf.h ae.h sds.h dict.h adlist.h zmalloc.h anet.h \
   ziplist.h intset.h version.h util.h rdb.h rio.h
-util.o: util.c fmacros.h util.h
-ziplist.o: ziplist.c zmalloc.h util.h ziplist.h endianconv.h config.h
+util.o: util.c fmacros.h util.h sds.h
+ziplist.o: ziplist.c zmalloc.h util.h sds.h ziplist.h endianconv.h \
+  config.h redisassert.h
 zipmap.o: zipmap.c zmalloc.h endianconv.h config.h
 zmalloc.o: zmalloc.c config.h zmalloc.h
