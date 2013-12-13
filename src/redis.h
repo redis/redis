@@ -485,7 +485,7 @@ typedef struct redisClient {
     int authenticated;      /* when requirepass is non-NULL */
     int replstate;          /* replication state if this is a slave */
     int repldbfd;           /* replication DB file descriptor */
-    long repldboff;         /* replication DB file offset */
+    off_t repldboff;        /* replication DB file offset */
     off_t repldbsize;       /* replication DB file size */
     sds replpreamble;       /* replication DB preamble. */
     long long reploff;      /* replication offset if this is our master */
@@ -1070,6 +1070,7 @@ int replicationScriptCacheExists(sds sha1);
 void processClientsWaitingReplicas(void);
 void unblockClientWaitingReplicas(redisClient *c);
 int replicationCountAcksByOffset(long long offset);
+void replicationSendNewlineToMaster(void);
 
 /* Generic persistence functions */
 void startLoading(FILE *fp);
@@ -1212,7 +1213,7 @@ void setKey(redisDb *db, robj *key, robj *val);
 int dbExists(redisDb *db, robj *key);
 robj *dbRandomKey(redisDb *db);
 int dbDelete(redisDb *db, robj *key);
-long long emptyDb();
+long long emptyDb(void(callback)(void*));
 int selectDb(redisClient *c, int id);
 void signalModifiedKey(redisDb *db, robj *key);
 void signalFlushedDb(int dbid);

@@ -444,13 +444,14 @@ int dictDeleteNoFree(dict *ht, const void *key) {
 }
 
 /* Destroy an entire dictionary */
-int _dictClear(dict *d, dictht *ht)
-{
+int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
     unsigned long i;
 
     /* Free all the elements */
     for (i = 0; i < ht->size && ht->used > 0; i++) {
         dictEntry *he, *nextHe;
+
+        if (callback && (i & 65535) == 0) callback(d->privdata);
 
         if ((he = ht->table[i]) == NULL) continue;
         while(he) {
@@ -472,8 +473,8 @@ int _dictClear(dict *d, dictht *ht)
 /* Clear & Release the hash table */
 void dictRelease(dict *d)
 {
-    _dictClear(d,&d->ht[0]);
-    _dictClear(d,&d->ht[1]);
+    _dictClear(d,&d->ht[0],NULL);
+    _dictClear(d,&d->ht[1],NULL);
     zfree(d);
 }
 
@@ -882,9 +883,9 @@ static int _dictKeyIndex(dict *d, const void *key)
     return idx;
 }
 
-void dictEmpty(dict *d) {
-    _dictClear(d,&d->ht[0]);
-    _dictClear(d,&d->ht[1]);
+void dictEmpty(dict *d, void(callback)(void*)) {
+    _dictClear(d,&d->ht[0],callback);
+    _dictClear(d,&d->ht[1],callback);
     d->rehashidx = -1;
     d->iterators = 0;
 }

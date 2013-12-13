@@ -160,7 +160,7 @@ dictEntry *dictGetRandomKey(dict *d);
 void dictPrintStats(dict *d);
 unsigned int dictGenHashFunction(const void *key, int len);
 unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len);
-void dictEmpty(dict *d);
+void dictEmpty(dict *d, void(callback)(void*));
 void dictEnableResize(void);
 void dictDisableResize(void);
 int dictRehash(dict *d, int n);
