@@ -87,7 +87,7 @@ class ClusterNode
         print "Connecting to node #{self}: "
         STDOUT.flush
         begin
-            @r = Redis.new(:host => @info[:host], :port => @info[:port])
+            @r = Redis.new(:host => @info[:host], :port => @info[:port], :timeout => 60)
             @r.ping
         rescue
             xputs "[ERR] Sorry, can't connect to node #{self}"
