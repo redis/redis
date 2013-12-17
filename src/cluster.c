@@ -537,6 +537,7 @@ int clusterNodeAddSlave(clusterNode *master, clusterNode *slave) {
 void clusterNodeResetSlaves(clusterNode *n) {
     zfree(n->slaves);
     n->numslaves = 0;
+    n->slaves = NULL;
 }
 
 void freeClusterNode(clusterNode *n) {
