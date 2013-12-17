@@ -748,7 +748,7 @@ void markNodeAsFailingIfNeeded(clusterNode *node) {
  * to reach it again. It checks if there are the conditions to undo the FAIL
  * state. */
 void clearNodeFailureIfNeeded(clusterNode *node) {
-    time_t now = mstime();
+    mstime_t now = mstime();
 
     redisAssert(node->flags & REDIS_NODE_FAIL);
 
