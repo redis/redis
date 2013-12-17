@@ -259,6 +259,7 @@ void clusterInit(void) {
     server.cluster->currentEpoch = 0;
     server.cluster->state = REDIS_CLUSTER_FAIL;
     server.cluster->size = 1;
+    server.cluster->todo_before_sleep = 0;
     server.cluster->nodes = dictCreate(&clusterNodesDictType,NULL);
     server.cluster->nodes_black_list =
         dictCreate(&clusterNodesBlackListDictType,NULL);
