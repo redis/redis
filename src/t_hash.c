@@ -759,3 +759,13 @@ void hexistsCommand(redisClient *c) {
 
     addReply(c, hashTypeExists(o,c->argv[2]) ? shared.cone : shared.czero);
 }
+
+void hscanCommand(redisClient *c) {
+    robj *o;
+    unsigned long cursor;
+
+    if (parseScanCursorOrReply(c,c->argv[2],&cursor) == REDIS_ERR) return;
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
+        checkType(c,o,REDIS_HASH)) return;
+    scanGenericCommand(c,o,cursor);
+}

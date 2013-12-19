@@ -820,6 +820,7 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
         while((ele = setTypeNextObject(si)) != NULL) {
             for (j = 1; j < setnum; j++) {
                 if (!sets[j]) continue; /* no key is an empty set. */
+                if (sets[j] == sets[0]) break; /* same set! */
                 if (setTypeIsMember(sets[j],ele)) break;
             }
             if (j == setnum) {
@@ -905,4 +906,14 @@ void sdiffCommand(redisClient *c) {
 
 void sdiffstoreCommand(redisClient *c) {
     sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],REDIS_OP_DIFF);
+}
+
+void sscanCommand(redisClient *c) {
+    robj *set;
+    unsigned long cursor;
+
+    if (parseScanCursorOrReply(c,c->argv[2],&cursor) == REDIS_ERR) return;
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
+        checkType(c,set,REDIS_SET)) return;
+    scanGenericCommand(c,set,cursor);
 }

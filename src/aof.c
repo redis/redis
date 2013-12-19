@@ -449,6 +449,7 @@ struct redisClient *createFakeClient(void) {
     c->argv = NULL;
     c->bufpos = 0;
     c->flags = 0;
+    c->btype = REDIS_BLOCKED_NONE;
     /* We set the fake client as a slave waiting for the synchronization
      * so that Redis will not try to send replies to this client. */
     c->replstate = REDIS_REPL_WAIT_BGSAVE_START;
@@ -771,7 +772,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
     return 1;
 }
 
-/* Write either the key or the value of the currently selected item of an hash.
+/* Write either the key or the value of the currently selected item of a hash.
  * The 'hi' argument passes a valid Redis hash iterator.
  * The 'what' filed specifies if to write a key or a value and can be
  * either REDIS_HASH_KEY or REDIS_HASH_VALUE.
