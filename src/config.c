@@ -1543,23 +1543,12 @@ void rewriteConfigReleaseState(struct rewriteConfigState *state) {
  * should be replaced by empty lines.
  *
  * This function does just this, iterating all the option names and
- * blanking all the lines still associated.
- *
- * Two options "include" and "rename-command" are special, they are
- * just kept because struct RedisServer doesn't record them. Notice
- * this also means the included config file isn't rewritten, you'd
- * better put "include" at the beginning of Redis main config file
- * so that runtime config change won't be canceled by conflicted
- * options in the included config file. */
+ * blanking all the lines still associated. */
 void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
     dictIterator *di = dictGetIterator(state->option_to_line);
     dictEntry *de;
 
     while((de = dictNext(di)) != NULL) {
-        sds option = dictGetKey(de);
-        if (!strcmp(option, "include") || !strcmp(option, "rename-command"))
-            continue;
-
         list *l = dictGetVal(de);
         sds option = dictGetKey(de);
 
