@@ -1107,8 +1107,8 @@ void configGetCommand(redisClient *c) {
 /* We use the following dictionary type to store where a configuration
  * option is mentioned in the old configuration file, so it's
  * like "maxmemory" -> list of line numbers (first line is zero). */
-unsigned int dictSdsHash(const void *key);
-int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
+unsigned int dictSdsCaseHash(const void *key);
+int dictSdsKeyCaseCompare(void *privdata, const void *key1, const void *key2);
 void dictSdsDestructor(void *privdata, void *val);
 void dictListDestructor(void *privdata, void *val);
 
@@ -1168,7 +1168,7 @@ void rewriteConfigAddLineNumberToOption(struct rewriteConfigState *state, sds op
 void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, char *option) {
     sds opt = sdsnew(option);
 
-    if (dictAdd(state->rewritten,opt) != DICT_OK) sdsfree(opt);
+    if (dictAdd(state->rewritten,opt,NULL) != DICT_OK) sdsfree(opt);
 }
 
 /* Read the old file, split it into lines to populate a newly created
@@ -1565,7 +1565,7 @@ void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
 
         /* Don't blank lines about options the rewrite process
          * don't understand. */
-        if (dictFetch(state->rewritten,option) == NULL) {
+        if (dictFetchValue(state->rewritten,option) == NULL) {
             redisLog(REDIS_DEBUG,"Not rewritten option: %s", option);
             continue;
         }
