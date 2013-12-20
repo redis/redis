@@ -1982,7 +1982,8 @@ int processCommand(redisClient *c) {
      * 2) The command has no key arguments. */
     if (server.cluster_enabled &&
         !(c->flags & REDIS_MASTER) &&
-        !(c->cmd->getkeys_proc == NULL && c->cmd->firstkey == 0))
+        !(c->cmd->getkeys_proc == NULL && c->cmd->firstkey == 0) &&
+		!(server.masterhost != NULL && c->cmd->flags == REDIS_CMD_READONLY))
     {
         int hashslot;
 
