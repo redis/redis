@@ -2205,20 +2205,24 @@ int clusterDelNodeSlots(clusterNode *node) {
 /* -----------------------------------------------------------------------------
  * Cluster state evaluation function
  * -------------------------------------------------------------------------- */
+
+#define REDIS_CLUSTER_MAX_REJOIN_DELAY 5000
+
 void clusterUpdateState(void) {
-    int j, initial_state = server.cluster->state;
+    int j, new_state;
     int unreachable_masters = 0;
+    static mstime_t among_minority_time;
 
     /* Start assuming the state is OK. We'll turn it into FAIL if there
      * are the right conditions. */
-    server.cluster->state = REDIS_CLUSTER_OK;
+    new_state = REDIS_CLUSTER_OK;
 
     /* Check if all the slots are covered. */
     for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
         if (server.cluster->slots[j] == NULL ||
             server.cluster->slots[j]->flags & (REDIS_NODE_FAIL))
         {
-            server.cluster->state = REDIS_CLUSTER_FAIL;
+            new_state = REDIS_CLUSTER_FAIL;
             break;
         }
     }
@@ -2248,24 +2252,39 @@ void clusterUpdateState(void) {
 
     /* If we can't reach at least half the masters, change the cluster state
      * to FAIL, as we are not even able to mark nodes as FAIL in this side
-     * of the netsplit because of lack of majority.
-     *
-     * TODO: when this condition is entered, we should not undo it for some
-     * (small) time after the majority is reachable again, to make sure that
-     * other nodes have enough time to inform this node of a configuration change.
-     * Otherwise a client with an old routing table may write to this node
-     * and later it may turn into a slave losing the write. */
+     * of the netsplit because of lack of majority. */
     {
         int needed_quorum = (server.cluster->size / 2) + 1;
         
-        if (unreachable_masters >= needed_quorum)
-            server.cluster->state = REDIS_CLUSTER_FAIL;
+        if (unreachable_masters >= needed_quorum) {
+            new_state = REDIS_CLUSTER_FAIL;
+            among_minority_time = mstime();
+        }
     }
 
     /* Log a state change */
-    if (initial_state != server.cluster->state)
+    if (new_state != server.cluster->state) {
+        mstime_t rejoin_delay = server.cluster_node_timeout;
+
+        /* If the instance is a master and was partitioned away with the
+         * minority, don't let it accept queries for some time after the
+         * partition heals, to make sure there is enough time to receive
+         * a configuration update. */
+        if (rejoin_delay > REDIS_CLUSTER_MAX_REJOIN_DELAY)
+            rejoin_delay = REDIS_CLUSTER_MAX_REJOIN_DELAY;
+
+        if (new_state == REDIS_CLUSTER_OK &&
+            server.cluster->myself->flags & REDIS_NODE_MASTER &&
+            mstime() - among_minority_time < rejoin_delay)
+        {
+            return;
+        }
+
+        /* Change the state and log the event. */
         redisLog(REDIS_WARNING,"Cluster state changed: %s",
-            server.cluster->state == REDIS_CLUSTER_OK ? "ok" : "fail");
+            new_state == REDIS_CLUSTER_OK ? "ok" : "fail");
+        server.cluster->state = new_state;
+    }
 }
 
 /* This function is called after the node startup in order to verify that data
