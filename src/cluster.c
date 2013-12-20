@@ -1217,11 +1217,6 @@ int clusterProcessPacket(clusterLink *link) {
                 link->node->port = 0;
                 freeClusterLink(link);
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
-                /* FIXME: remove this node if we already have it.
-                 *
-                 * If we already have it but the IP is different, use
-                 * the new one if the old node is in FAIL, PFAIL, or NOADDR
-                 * status... */
                 return 0;
             }
         }
