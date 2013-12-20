@@ -986,6 +986,14 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link, int port) {
     if (node->link) freeClusterLink(node->link);
     redisLog(REDIS_WARNING,"Address updated for node %.40s, now %s:%d",
         node->name, node->ip, node->port);
+
+    /* Check if this is our master and we have to change the
+     * replication target as well. */
+    if (server.cluster->myself->flags & REDIS_NODE_SLAVE &&
+        server.cluster->myself->slaveof == node)
+    {
+        replicationSetMaster(node->ip, node->port);
+    }
     return 1;
 }
 
