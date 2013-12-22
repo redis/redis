@@ -666,6 +666,16 @@ void freeClient(redisClient *c) {
         }
     }
 
+    /* Log link disconnection with slave */
+    if (c->flags & REDIS_SLAVE) {
+        char ip[REDIS_IP_STR_LEN];
+
+        if (anetPeerToString(c->fd,ip,sizeof(ip),NULL) == -1)
+            strncpy(ip,"?",REDIS_IP_STR_LEN);
+        redisLog(REDIS_WARNING,"Connection with slave %s:%d lost.",
+            ip, c->slave_listening_port);
+    }
+
     /* Free the query buffer */
     sdsfree(c->querybuf);
     c->querybuf = NULL;
