@@ -1256,6 +1256,7 @@ void replicationSetMaster(char *ip, int port) {
     freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
     cancelReplicationHandshake();
     server.repl_state = REDIS_REPL_CONNECT;
+    server.master_repl_offset = 0;
 }
 
 /* Cancel replication, setting the instance as a master itself. */
@@ -1263,7 +1264,17 @@ void replicationUnsetMaster(void) {
     if (server.masterhost == NULL) return; /* Nothing to do. */
     sdsfree(server.masterhost);
     server.masterhost = NULL;
-    if (server.master) freeClient(server.master);
+    if (server.master) {
+        if (listLength(server.slaves) == 0) {
+            /* If this instance is turned into a master and there are no
+             * slaves, it inherits the replication offset from the master.
+             * Under certain conditions this makes replicas comparable by
+             * replication offset to understand what is the most updated. */
+            server.master_repl_offset = server.master->reploff;
+            freeReplicationBacklog();
+        }
+        freeClient(server.master);
+    }
     replicationDiscardCachedMaster();
     cancelReplicationHandshake();
     server.repl_state = REDIS_REPL_NONE;
