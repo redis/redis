@@ -1900,7 +1900,8 @@ void clusterHandleSlaveFailover(void) {
      * constant of ten times the node timeout since the cluster should
      * react much faster to a master down. */
     if (data_age >
-        server.cluster_node_timeout * REDIS_CLUSTER_SLAVE_VALIDITY_MULT)
+        (server.repl_ping_slave_period * 1000) +
+        (server.cluster_node_timeout * REDIS_CLUSTER_SLAVE_VALIDITY_MULT))
         return;
 
     /* Compute the time at which we can start an election. */
