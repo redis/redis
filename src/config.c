@@ -1416,6 +1416,8 @@ void rewriteConfigSaveOption(struct rewriteConfigState *state) {
             server.saveparams[j].seconds, server.saveparams[j].changes);
         rewriteConfigRewriteLine(state,"save",line,1);
     }
+    /* Mark "save" as processed in case server.saveparamslen is zero. */
+    rewriteConfigMarkAsProcessed(state,"save");
 }
 
 /* Rewrite the dir option, always using absolute paths.*/
@@ -1554,7 +1556,7 @@ void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
 
         /* Don't blank lines about options the rewrite process
          * don't understand. */
-        if (dictFetchValue(state->rewritten,option) == NULL) {
+        if (dictFind(state->rewritten,option) == NULL) {
             redisLog(REDIS_DEBUG,"Not rewritten option: %s", option);
             continue;
         }
