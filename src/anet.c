@@ -488,7 +488,7 @@ int anetPeerToString(int fd, char *ip, size_t ip_len, int *port) {
     socklen_t salen = sizeof(sa);
 
     if (getpeername(fd,(struct sockaddr*)&sa,&salen) == -1) {
-        *port = 0;
+        if (port) *port = 0;
         ip[0] = '?';
         ip[1] = '\0';
         return -1;
@@ -510,7 +510,7 @@ int anetSockName(int fd, char *ip, size_t ip_len, int *port) {
     socklen_t salen = sizeof(sa);
 
     if (getsockname(fd,(struct sockaddr*)&sa,&salen) == -1) {
-        *port = 0;
+        if (port) *port = 0;
         ip[0] = '?';
         ip[1] = '\0';
         return -1;
