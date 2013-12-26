@@ -239,7 +239,7 @@ int dictExpand(dict *d, unsigned long size)
 /* Performs N steps of incremental rehashing. Returns 1 if there are still
  * keys to move from the old to the new hash table, otherwise 0 is returned.
  * Note that a rehashing step consists in moving a bucket (that may have more
- * thank one key as we use chaining) from the old to the new hash table. */
+ * than one key as we use chaining) from the old to the new hash table. */
 int dictRehash(dict *d, int n) {
     if (!dictIsRehashing(d)) return 0;
 
