@@ -847,7 +847,7 @@ int clusterStartHandshake(char *ip, int port) {
         return 0;
     }
 
-    /* Add the node with a random address (NULL as first argument to
+    /* Add the node with a random name (NULL as first argument to
      * createClusterNode()). Everything will be fixed during the
      * handskake. */
     n = createClusterNode(NULL,REDIS_NODE_HANDSHAKE|REDIS_NODE_MEET);
