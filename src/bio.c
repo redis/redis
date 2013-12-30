@@ -124,7 +124,7 @@ void bioInit(void) {
 }
 
 void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3) {
-    struct bio_job *job = zmalloc(sizeof(*job));
+    struct bio_job *job = (struct bio_job *)zmalloc(sizeof(*job));
 
     job->time = time(NULL);
     job->arg1 = arg1;
@@ -166,7 +166,7 @@ void *bioProcessBackgroundJobs(void *arg) {
         }
         /* Pop the job from the queue. */
         ln = listFirst(bio_jobs[type]);
-        job = ln->value;
+        job = (struct bio_job*)ln->value;
         /* It is now possible to unlock the background system as we know have
          * a stand alone job structure to process.*/
         pthread_mutex_unlock(&bio_mutex[type]);

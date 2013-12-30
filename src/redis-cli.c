@@ -167,11 +167,11 @@ static void cliInitHelp() {
     helpEntry tmp;
 
     helpEntriesLen = len = commandslen+groupslen;
-    helpEntries = malloc(sizeof(helpEntry)*len);
+    helpEntries = (helpEntry*)malloc(sizeof(helpEntry)*len);
 
     for (i = 0; i < groupslen; i++) {
         tmp.argc = 1;
-        tmp.argv = malloc(sizeof(sds));
+        tmp.argv = (sds*)malloc(sizeof(sds));
         tmp.argv[0] = sdscatprintf(sdsempty(),"@%s",commandGroups[i]);
         tmp.full = tmp.argv[0];
         tmp.type = CLI_HELP_GROUP;
@@ -294,7 +294,7 @@ static int cliAuth() {
     redisReply *reply;
     if (config.auth == NULL) return REDIS_OK;
 
-    reply = redisCommand(context,"AUTH %s",config.auth);
+    reply = (redisReply*)redisCommand(context,"AUTH %s",config.auth);
     if (reply != NULL) {
         freeReplyObject(reply);
         return REDIS_OK;
@@ -307,7 +307,7 @@ static int cliSelect() {
     redisReply *reply;
     if (config.dbnum == 0) return REDIS_OK;
 
-    reply = redisCommand(context,"SELECT %d",config.dbnum);
+    reply = (redisReply*)redisCommand(context,"SELECT %d",config.dbnum);
     if (reply != NULL) {
         freeReplyObject(reply);
         return REDIS_OK;
@@ -600,7 +600,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
         !strcasecmp(command,"psubscribe")) config.pubsub_mode = 1;
 
     /* Setup argument length */
-    argvlen = malloc(argc*sizeof(size_t));
+    argvlen = (size_t*)malloc(argc*sizeof(size_t));
     for (j = 0; j < argc; j++)
         argvlen[j] = sdslen(argv[j]);
 
@@ -654,7 +654,7 @@ static redisReply *reconnectingInfo(void) {
             usleep(1000000);
         }
 
-        reply = redisCommand(c,"INFO");
+        reply = (redisReply*)redisCommand(c,"INFO");
         if (c->err && !(c->err & (REDIS_ERR_IO | REDIS_ERR_EOF))) {
             fprintf(stderr, "Error: %s\n", c->errstr);
             exit(1);
@@ -818,7 +818,7 @@ static void usage() {
 /* Turn the plain C strings into Sds strings */
 static char **convertToSds(int count, char** args) {
   int j;
-  char **sds = zmalloc(sizeof(char*)*count);
+  char **sds = (char**)zmalloc(sizeof(char*)*count);
 
   for(j = 0; j < count; j++)
     sds[j] = sdsnew(args[j]);
@@ -920,7 +920,7 @@ static void repl() {
 static int noninteractive(int argc, char **argv) {
     int retval = 0;
     if (config.stdinarg) {
-        argv = zrealloc(argv, (argc+1)*sizeof(char*));
+        argv = (char**)zrealloc(argv, (argc+1)*sizeof(char*));
         argv[argc] = readArgFromStdin();
         retval = cliSendCommand(argc+1, argv, config.repeat);
     } else {
@@ -951,7 +951,7 @@ static int evalMode(int argc, char **argv) {
     fclose(fp);
 
     /* Create our argument vector */
-    argv2 = zmalloc(sizeof(sds)*(argc+3));
+    argv2 = (char**)zmalloc(sizeof(sds)*(argc+3));
     argv2[0] = sdsnew("EVAL");
     argv2[1] = script;
     for (j = 0; j < argc; j++) {
@@ -982,7 +982,7 @@ static void latencyMode(void) {
     if (!context) exit(1);
     while(1) {
         start = mstime();
-        reply = redisCommand(context,"PING");
+        reply = (redisReply*)redisCommand(context,"PING");
         if (reply == NULL) {
             fprintf(stderr,"\nI/O error\n");
             exit(1);
@@ -1279,7 +1279,7 @@ static void findBigKeys(void) {
     unsigned long long biggest[5] = {0,0,0,0,0};
     unsigned long long samples = 0;
     redisReply *reply1, *reply2, *reply3 = NULL;
-    char *sizecmd, *typename[] = {"string","list","set","hash","zset"};
+    char *sizecmd, *typeName[] = {"string","list","set","hash","zset"};
     char *typeunit[] = {"bytes","items","members","fields","members"};
     int type;
 
@@ -1288,7 +1288,7 @@ static void findBigKeys(void) {
     printf("# in order to reduce server load (usually not needed).\n\n");
     while(1) {
         /* Sample with RANDOMKEY */
-        reply1 = redisCommand(context,"RANDOMKEY");
+        reply1 = (redisReply*)redisCommand(context,"RANDOMKEY");
         if (reply1 == NULL) {
             fprintf(stderr,"\nI/O error\n");
             exit(1);
@@ -1302,7 +1302,7 @@ static void findBigKeys(void) {
         }
 
         /* Get the key type */
-        reply2 = redisCommand(context,"TYPE %s",reply1->str);
+        reply2 = (redisReply*)redisCommand(context,"TYPE %s",reply1->str);
         assert(reply2 && reply2->type == REDIS_REPLY_STATUS);
         samples++;
 
@@ -1332,11 +1332,11 @@ static void findBigKeys(void) {
             exit(1);
         }
 
-        reply3 = redisCommand(context,"%s %s", sizecmd, reply1->str);
+        reply3 = (redisReply*)redisCommand(context,"%s %s", sizecmd, reply1->str);
         if (reply3 && reply3->type == REDIS_REPLY_INTEGER) {
             if (biggest[type] < reply3->integer) {
                 printf("Biggest %-6s found so far '%s' with %llu %s.\n",
-                    typename[type], reply1->str,
+                    typeName[type], reply1->str,
                     (unsigned long long) reply3->integer,
                     typeunit[type]);
                 biggest[type] = reply3->integer;
@@ -1368,7 +1368,7 @@ static char *getInfoField(char *info, char *field) {
     n1 = strchr(p,'\r');
     n2 = strchr(p,',');
     if (n2 && n2 < n1) n1 = n2;
-    result = malloc(sizeof(char)*(n1-p)+1);
+    result = (char*)malloc(sizeof(char)*(n1-p)+1);
     memcpy(result,p,(n1-p));
     result[n1-p] = '\0';
     return result;

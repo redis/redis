@@ -111,7 +111,7 @@ void processUnblockedClients(void) {
     while (listLength(server.unblocked_clients)) {
         ln = listFirst(server.unblocked_clients);
         redisAssert(ln != NULL);
-        c = ln->value;
+        c = (redisClient*)ln->value;
         listDelNode(server.unblocked_clients,ln);
         c->flags &= ~REDIS_UNBLOCKED;
         c->btype = REDIS_BLOCKED_NONE;

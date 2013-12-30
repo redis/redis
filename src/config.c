@@ -67,7 +67,7 @@ int yesnotoi(char *s) {
 }
 
 void appendServerSaveParams(time_t seconds, int changes) {
-    server.saveparams = zrealloc(server.saveparams,sizeof(struct saveparam)*(server.saveparamslen+1));
+    server.saveparams = (struct saveparam*)zrealloc(server.saveparams,sizeof(struct saveparam)*(server.saveparamslen+1));
     server.saveparams[server.saveparamslen].seconds = seconds;
     server.saveparams[server.saveparamslen].changes = changes;
     server.saveparamslen++;
@@ -431,11 +431,11 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"client-output-buffer-limit") &&
                    argc == 5)
         {
-            int class = getClientLimitClassByName(argv[1]);
+            int limitClass = getClientLimitClassByName(argv[1]);
             unsigned long long hard, soft;
             int soft_seconds;
 
-            if (class == -1) {
+            if (limitClass == -1) {
                 err = "Unrecognized client limit class";
                 goto loaderr;
             }
@@ -446,9 +446,9 @@ void loadServerConfigFromString(char *config) {
                 err = "Negative number of seconds in soft limit is invalid";
                 goto loaderr;
             }
-            server.client_obuf_limits[class].hard_limit_bytes = hard;
-            server.client_obuf_limits[class].soft_limit_bytes = soft;
-            server.client_obuf_limits[class].soft_limit_seconds = soft_seconds;
+            server.client_obuf_limits[limitClass].hard_limit_bytes = hard;
+            server.client_obuf_limits[limitClass].soft_limit_bytes = soft;
+            server.client_obuf_limits[limitClass].soft_limit_seconds = soft_seconds;
         } else if (!strcasecmp(argv[0],"stop-writes-on-bgsave-error") &&
                    argc == 2) {
             if ((server.stop_writes_on_bgsave_err = yesnotoi(argv[1])) == -1) {
@@ -555,21 +555,21 @@ void configSetCommand(redisClient *c) {
     redisAssertWithInfo(c,c->argv[3],sdsEncodedObject(c->argv[3]));
     o = c->argv[3];
 
-    if (!strcasecmp(c->argv[2]->ptr,"dbfilename")) {
-        if (!pathIsBaseName(o->ptr)) {
+    if (!strcasecmp((char*)c->argv[2]->ptr,"dbfilename")) {
+        if (!pathIsBaseName((char*)o->ptr)) {
             addReplyError(c, "dbfilename can't be a path, just a filename");
             return;
         }
         zfree(server.rdb_filename);
-        server.rdb_filename = zstrdup(o->ptr);
-    } else if (!strcasecmp(c->argv[2]->ptr,"requirepass")) {
-        if (sdslen(o->ptr) > REDIS_AUTHPASS_MAX_LEN) goto badfmt;
+        server.rdb_filename = zstrdup((const char*)o->ptr);
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"requirepass")) {
+        if (sdslen((sds)o->ptr) > REDIS_AUTHPASS_MAX_LEN) goto badfmt;
         zfree(server.requirepass);
-        server.requirepass = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
-    } else if (!strcasecmp(c->argv[2]->ptr,"masterauth")) {
+        server.requirepass = ((char*)o->ptr)[0] ? zstrdup((char*)o->ptr) : NULL;
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"masterauth")) {
         zfree(server.masterauth);
-        server.masterauth = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
-    } else if (!strcasecmp(c->argv[2]->ptr,"maxmemory")) {
+        server.masterauth = ((char*)o->ptr)[0] ? zstrdup((char*)o->ptr) : NULL;
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"maxmemory")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0) goto badfmt;
         server.maxmemory = ll;
@@ -579,7 +579,7 @@ void configSetCommand(redisClient *c) {
             }
             freeMemoryIfNeeded();
         }
-    } else if (!strcasecmp(c->argv[2]->ptr,"maxclients")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"maxclients")) {
         int orig_value = server.maxclients;
 
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
@@ -605,56 +605,56 @@ void configSetCommand(redisClient *c) {
                 }
             }
         }
-    } else if (!strcasecmp(c->argv[2]->ptr,"hz")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"hz")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.hz = ll;
         if (server.hz < REDIS_MIN_HZ) server.hz = REDIS_MIN_HZ;
         if (server.hz > REDIS_MAX_HZ) server.hz = REDIS_MAX_HZ;
-    } else if (!strcasecmp(c->argv[2]->ptr,"maxmemory-policy")) {
-        if (!strcasecmp(o->ptr,"volatile-lru")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"maxmemory-policy")) {
+        if (!strcasecmp((char*)o->ptr,"volatile-lru")) {
             server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_LRU;
-        } else if (!strcasecmp(o->ptr,"volatile-random")) {
+        } else if (!strcasecmp((char*)o->ptr,"volatile-random")) {
             server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_RANDOM;
-        } else if (!strcasecmp(o->ptr,"volatile-ttl")) {
+        } else if (!strcasecmp((char*)o->ptr,"volatile-ttl")) {
             server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_TTL;
-        } else if (!strcasecmp(o->ptr,"allkeys-lru")) {
+        } else if (!strcasecmp((char*)o->ptr,"allkeys-lru")) {
             server.maxmemory_policy = REDIS_MAXMEMORY_ALLKEYS_LRU;
-        } else if (!strcasecmp(o->ptr,"allkeys-random")) {
+        } else if (!strcasecmp((char*)o->ptr,"allkeys-random")) {
             server.maxmemory_policy = REDIS_MAXMEMORY_ALLKEYS_RANDOM;
-        } else if (!strcasecmp(o->ptr,"noeviction")) {
+        } else if (!strcasecmp((char*)o->ptr,"noeviction")) {
             server.maxmemory_policy = REDIS_MAXMEMORY_NO_EVICTION;
         } else {
             goto badfmt;
         }
-    } else if (!strcasecmp(c->argv[2]->ptr,"maxmemory-samples")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"maxmemory-samples")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll <= 0) goto badfmt;
         server.maxmemory_samples = ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"timeout")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"timeout")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0 || ll > LONG_MAX) goto badfmt;
         server.maxidletime = ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"tcp-keepalive")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"tcp-keepalive")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0 || ll > INT_MAX) goto badfmt;
         server.tcpkeepalive = ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"appendfsync")) {
-        if (!strcasecmp(o->ptr,"no")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"appendfsync")) {
+        if (!strcasecmp((char*)o->ptr,"no")) {
             server.aof_fsync = AOF_FSYNC_NO;
-        } else if (!strcasecmp(o->ptr,"everysec")) {
+        } else if (!strcasecmp((char*)o->ptr,"everysec")) {
             server.aof_fsync = AOF_FSYNC_EVERYSEC;
-        } else if (!strcasecmp(o->ptr,"always")) {
+        } else if (!strcasecmp((char*)o->ptr,"always")) {
             server.aof_fsync = AOF_FSYNC_ALWAYS;
         } else {
             goto badfmt;
         }
-    } else if (!strcasecmp(c->argv[2]->ptr,"no-appendfsync-on-rewrite")) {
-        int yn = yesnotoi(o->ptr);
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"no-appendfsync-on-rewrite")) {
+        int yn = yesnotoi((char*)o->ptr);
 
         if (yn == -1) goto badfmt;
         server.aof_no_fsync_on_rewrite = yn;
-    } else if (!strcasecmp(c->argv[2]->ptr,"appendonly")) {
-        int enable = yesnotoi(o->ptr);
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"appendonly")) {
+        int enable = yesnotoi((char*)o->ptr);
 
         if (enable == -1) goto badfmt;
         if (enable == 0 && server.aof_state != REDIS_AOF_OFF) {
@@ -666,20 +666,20 @@ void configSetCommand(redisClient *c) {
                 return;
             }
         }
-    } else if (!strcasecmp(c->argv[2]->ptr,"auto-aof-rewrite-percentage")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"auto-aof-rewrite-percentage")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.aof_rewrite_perc = ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"auto-aof-rewrite-min-size")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"auto-aof-rewrite-min-size")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.aof_rewrite_min_size = ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"aof-rewrite-incremental-fsync")) {
-        int yn = yesnotoi(o->ptr);
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"aof-rewrite-incremental-fsync")) {
+        int yn = yesnotoi((char*)o->ptr);
 
         if (yn == -1) goto badfmt;
         server.aof_rewrite_incremental_fsync = yn;
-    } else if (!strcasecmp(c->argv[2]->ptr,"save")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"save")) {
         int vlen, j;
-        sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
+        sds *v = sdssplitlen((char*)o->ptr,sdslen((sds)o->ptr)," ",1,&vlen);
 
         /* Perform sanity check before setting the new config:
          * - Even number of args
@@ -711,66 +711,66 @@ void configSetCommand(redisClient *c) {
             appendServerSaveParams(seconds, changes);
         }
         sdsfreesplitres(v,vlen);
-    } else if (!strcasecmp(c->argv[2]->ptr,"slave-serve-stale-data")) {
-        int yn = yesnotoi(o->ptr);
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"slave-serve-stale-data")) {
+        int yn = yesnotoi((char*)o->ptr);
 
         if (yn == -1) goto badfmt;
         server.repl_serve_stale_data = yn;
-    } else if (!strcasecmp(c->argv[2]->ptr,"slave-read-only")) {
-        int yn = yesnotoi(o->ptr);
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"slave-read-only")) {
+        int yn = yesnotoi((char*)o->ptr);
 
         if (yn == -1) goto badfmt;
         server.repl_slave_ro = yn;
-    } else if (!strcasecmp(c->argv[2]->ptr,"dir")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"dir")) {
         if (chdir((char*)o->ptr) == -1) {
             addReplyErrorFormat(c,"Changing directory: %s", strerror(errno));
             return;
         }
-    } else if (!strcasecmp(c->argv[2]->ptr,"hash-max-ziplist-entries")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"hash-max-ziplist-entries")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.hash_max_ziplist_entries = ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"hash-max-ziplist-value")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"hash-max-ziplist-value")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.hash_max_ziplist_value = ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"list-max-ziplist-entries")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"list-max-ziplist-entries")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.list_max_ziplist_entries = ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"list-max-ziplist-value")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"list-max-ziplist-value")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.list_max_ziplist_value = ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"set-max-intset-entries")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"set-max-intset-entries")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.set_max_intset_entries = ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"zset-max-ziplist-entries")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"zset-max-ziplist-entries")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.zset_max_ziplist_entries = ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"zset-max-ziplist-value")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"zset-max-ziplist-value")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.zset_max_ziplist_value = ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"lua-time-limit")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"lua-time-limit")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.lua_time_limit = ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"slowlog-log-slower-than")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"slowlog-log-slower-than")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR) goto badfmt;
         server.slowlog_log_slower_than = ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"slowlog-max-len")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"slowlog-max-len")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.slowlog_max_len = (unsigned)ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"loglevel")) {
-        if (!strcasecmp(o->ptr,"warning")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"loglevel")) {
+        if (!strcasecmp((char*)o->ptr,"warning")) {
             server.verbosity = REDIS_WARNING;
-        } else if (!strcasecmp(o->ptr,"notice")) {
+        } else if (!strcasecmp((char*)o->ptr,"notice")) {
             server.verbosity = REDIS_NOTICE;
-        } else if (!strcasecmp(o->ptr,"verbose")) {
+        } else if (!strcasecmp((char*)o->ptr,"verbose")) {
             server.verbosity = REDIS_VERBOSE;
-        } else if (!strcasecmp(o->ptr,"debug")) {
+        } else if (!strcasecmp((char*)o->ptr,"debug")) {
             server.verbosity = REDIS_DEBUG;
         } else {
             goto badfmt;
         }
-    } else if (!strcasecmp(c->argv[2]->ptr,"client-output-buffer-limit")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"client-output-buffer-limit")) {
         int vlen, j;
-        sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
+        sds *v = sdssplitlen((char*)o->ptr,sdslen((sds)o->ptr)," ",1,&vlen);
 
         /* We need a multiple of 4: <class> <hard> <soft> <soft_seconds> */
         if (vlen % 4) {
@@ -800,73 +800,73 @@ void configSetCommand(redisClient *c) {
         }
         /* Finally set the new config */
         for (j = 0; j < vlen; j += 4) {
-            int class;
+            int limitClass;
             unsigned long long hard, soft;
             int soft_seconds;
 
-            class = getClientLimitClassByName(v[j]);
+            limitClass = getClientLimitClassByName(v[j]);
             hard = strtoll(v[j+1],NULL,10);
             soft = strtoll(v[j+2],NULL,10);
             soft_seconds = strtoll(v[j+3],NULL,10);
 
-            server.client_obuf_limits[class].hard_limit_bytes = hard;
-            server.client_obuf_limits[class].soft_limit_bytes = soft;
-            server.client_obuf_limits[class].soft_limit_seconds = soft_seconds;
+            server.client_obuf_limits[limitClass].hard_limit_bytes = hard;
+            server.client_obuf_limits[limitClass].soft_limit_bytes = soft;
+            server.client_obuf_limits[limitClass].soft_limit_seconds = soft_seconds;
         }
         sdsfreesplitres(v,vlen);
-    } else if (!strcasecmp(c->argv[2]->ptr,"stop-writes-on-bgsave-error")) {
-        int yn = yesnotoi(o->ptr);
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"stop-writes-on-bgsave-error")) {
+        int yn = yesnotoi((char*)o->ptr);
 
         if (yn == -1) goto badfmt;
         server.stop_writes_on_bgsave_err = yn;
-    } else if (!strcasecmp(c->argv[2]->ptr,"repl-ping-slave-period")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"repl-ping-slave-period")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll <= 0) goto badfmt;
         server.repl_ping_slave_period = ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"repl-timeout")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"repl-timeout")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll <= 0) goto badfmt;
         server.repl_timeout = ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"repl-backlog-size")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"repl-backlog-size")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll <= 0) goto badfmt;
         resizeReplicationBacklog(ll);
-    } else if (!strcasecmp(c->argv[2]->ptr,"repl-backlog-ttl")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"repl-backlog-ttl")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.repl_backlog_time_limit = ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"watchdog-period")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"watchdog-period")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         if (ll)
             enableWatchdog(ll);
         else
             disableWatchdog();
-    } else if (!strcasecmp(c->argv[2]->ptr,"rdbcompression")) {
-        int yn = yesnotoi(o->ptr);
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"rdbcompression")) {
+        int yn = yesnotoi((char*)o->ptr);
 
         if (yn == -1) goto badfmt;
         server.rdb_compression = yn;
-    } else if (!strcasecmp(c->argv[2]->ptr,"notify-keyspace-events")) {
-        int flags = keyspaceEventsStringToFlags(o->ptr);
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"notify-keyspace-events")) {
+        int flags = keyspaceEventsStringToFlags((char*)o->ptr);
 
         if (flags == -1) goto badfmt;
         server.notify_keyspace_events = flags;
-    } else if (!strcasecmp(c->argv[2]->ptr,"repl-disable-tcp-nodelay")) {
-        int yn = yesnotoi(o->ptr);
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"repl-disable-tcp-nodelay")) {
+        int yn = yesnotoi((char*)o->ptr);
 
         if (yn == -1) goto badfmt;
         server.repl_disable_tcp_nodelay = yn;
-    } else if (!strcasecmp(c->argv[2]->ptr,"slave-priority")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"slave-priority")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0) goto badfmt;
         server.slave_priority = ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"min-slaves-to-write")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"min-slaves-to-write")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0) goto badfmt;
         server.repl_min_slaves_to_write = ll;
         refreshGoodSlavesCount();
-    } else if (!strcasecmp(c->argv[2]->ptr,"min-slaves-max-lag")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"min-slaves-max-lag")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0) goto badfmt;
         server.repl_min_slaves_max_lag = ll;
         refreshGoodSlavesCount();
-    } else if (!strcasecmp(c->argv[2]->ptr,"cluster-node-timeout")) {
+    } else if (!strcasecmp((char*)c->argv[2]->ptr,"cluster-node-timeout")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll <= 0) goto badfmt;
         server.cluster_node_timeout = ll;
@@ -916,7 +916,7 @@ badfmt: /* Bad format errors */
 void configGetCommand(redisClient *c) {
     robj *o = c->argv[2];
     void *replylen = addDeferredMultiBulkLength(c);
-    char *pattern = o->ptr;
+    char *pattern = (char*)o->ptr;
     char buf[128];
     int matches = 0;
     redisAssertWithInfo(c,o,sdsEncodedObject(o));
@@ -1170,13 +1170,13 @@ struct rewriteConfigState {
 
 /* Append the new line to the current configuration state. */
 void rewriteConfigAppendLine(struct rewriteConfigState *state, sds line) {
-    state->lines = zrealloc(state->lines, sizeof(char*) * (state->numlines+1));
+    state->lines = (sds*)zrealloc(state->lines, sizeof(char*) * (state->numlines+1));
     state->lines[state->numlines++] = line;
 }
 
 /* Populate the option -> list of line numbers map. */
 void rewriteConfigAddLineNumberToOption(struct rewriteConfigState *state, sds option, int linenum) {
-    list *l = dictFetchValue(state->option_to_line,option);
+    list *l = (list*)dictFetchValue(state->option_to_line,option);
 
     if (l == NULL) {
         l = listCreate();
@@ -1189,7 +1189,8 @@ void rewriteConfigAddLineNumberToOption(struct rewriteConfigState *state, sds op
  * This is useful as only unused lines of processed options will be blanked
  * in the config file, while options the rewrite process does not understand
  * remain untouched. */
-void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, char *option) {
+void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, 
+                                  const char *option) {
     sds opt = sdsnew(option);
 
     if (dictAdd(state->rewritten,opt,NULL) != DICT_OK) sdsfree(opt);
@@ -1202,7 +1203,7 @@ void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, char *option
  * If the old file does not exist at all, an empty state is returned. */
 struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     FILE *fp = fopen(path,"r");
-    struct rewriteConfigState *state = zmalloc(sizeof(*state));
+    struct rewriteConfigState *state = (struct rewriteConfigState*)zmalloc(sizeof(*state));
     char buf[REDIS_CONFIGLINE_MAX+1];
     int linenum = -1;
 
@@ -1273,9 +1274,10 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
  *
  * "line" is either used, or freed, so the caller does not need to free it
  * in any way. */
-void rewriteConfigRewriteLine(struct rewriteConfigState *state, char *option, sds line, int force) {
+void rewriteConfigRewriteLine(struct rewriteConfigState *state, 
+                              const char *option, sds line, int force) {
     sds o = sdsnew(option);
-    list *l = dictFetchValue(state->option_to_line,o);
+    list *l = (list*)dictFetchValue(state->option_to_line,o);
 
     rewriteConfigMarkAsProcessed(state,option);
 
@@ -1369,7 +1371,7 @@ void rewriteConfigStringOption(struct rewriteConfigState *state, char *option, c
 }
 
 /* Rewrite a numerical (long long range) option. */
-void rewriteConfigNumericalOption(struct rewriteConfigState *state, char *option, long long value, long long defvalue) {
+void rewriteConfigNumericalOption(struct rewriteConfigState *state, const char *option, long long value, long long defvalue) {
     int force = value != defvalue;
     sds line = sdscatprintf(sdsempty(),"%s %lld",option,value);
 
@@ -1575,8 +1577,8 @@ void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
     dictEntry *de;
 
     while((de = dictNext(di)) != NULL) {
-        list *l = dictGetVal(de);
-        sds option = dictGetKey(de);
+        list *l = (list*)dictGetVal(de);
+        sds option = (sds)dictGetKey(de);
 
         /* Don't blank lines about options the rewrite process
          * don't understand. */
@@ -1772,13 +1774,13 @@ int rewriteConfig(char *path) {
  *----------------------------------------------------------------------------*/
 
 void configCommand(redisClient *c) {
-    if (!strcasecmp(c->argv[1]->ptr,"set")) {
+    if (!strcasecmp((char*)c->argv[1]->ptr,"set")) {
         if (c->argc != 4) goto badarity;
         configSetCommand(c);
-    } else if (!strcasecmp(c->argv[1]->ptr,"get")) {
+    } else if (!strcasecmp((char*)c->argv[1]->ptr,"get")) {
         if (c->argc != 3) goto badarity;
         configGetCommand(c);
-    } else if (!strcasecmp(c->argv[1]->ptr,"resetstat")) {
+    } else if (!strcasecmp((char*)c->argv[1]->ptr,"resetstat")) {
         if (c->argc != 2) goto badarity;
         server.stat_keyspace_hits = 0;
         server.stat_keyspace_misses = 0;
@@ -1790,7 +1792,7 @@ void configCommand(redisClient *c) {
         server.aof_delayed_fsync = 0;
         resetCommandTableStats();
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"rewrite")) {
+    } else if (!strcasecmp((char*)c->argv[1]->ptr,"rewrite")) {
         if (c->argc != 2) goto badarity;
         if (server.configfile == NULL) {
             addReplyError(c,"The server is running without a config file");

@@ -112,7 +112,7 @@ int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id);
 int aeProcessEvents(aeEventLoop *eventLoop, int flags);
 int aeWait(int fd, int mask, long long milliseconds);
 void aeMain(aeEventLoop *eventLoop);
-char *aeGetApiName(void);
+const char *aeGetApiName(void);
 void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep);
 int aeGetSetSize(aeEventLoop *eventLoop);
 int aeResizeSetSize(aeEventLoop *eventLoop, int setsize);

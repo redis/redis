@@ -3,7 +3,7 @@
 #ifndef __REDIS_HELP_H
 #define __REDIS_HELP_H
 
-static char *commandGroups[] = {
+static const char *commandGroups[] = {
     "generic",
     "string",
     "list",
@@ -18,11 +18,11 @@ static char *commandGroups[] = {
 };
 
 struct commandHelp {
-  char *name;
-  char *params;
-  char *summary;
+  const char *name;
+  const char *params;
+  const char *summary;
   int group;
-  char *since;
+  const char *since;
 } commandHelp[] = {
     { "APPEND",
     "key value",

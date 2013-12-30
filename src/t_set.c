@@ -47,18 +47,18 @@ robj *setTypeCreate(robj *value) {
 int setTypeAdd(robj *subject, robj *value) {
     long long llval;
     if (subject->encoding == REDIS_ENCODING_HT) {
-        if (dictAdd(subject->ptr,value,NULL) == DICT_OK) {
+        if (dictAdd((dict*)subject->ptr,value,NULL) == DICT_OK) {
             incrRefCount(value);
             return 1;
         }
     } else if (subject->encoding == REDIS_ENCODING_INTSET) {
         if (isObjectRepresentableAsLongLong(value,&llval) == REDIS_OK) {
             uint8_t success = 0;
-            subject->ptr = intsetAdd(subject->ptr,llval,&success);
+            subject->ptr = intsetAdd((intset*)subject->ptr,llval,&success);
             if (success) {
                 /* Convert to regular set when the intset contains
                  * too many entries. */
-                if (intsetLen(subject->ptr) > server.set_max_intset_entries)
+                if (intsetLen((intset*)subject->ptr) > server.set_max_intset_entries)
                     setTypeConvert(subject,REDIS_ENCODING_HT);
                 return 1;
             }
@@ -68,7 +68,7 @@ int setTypeAdd(robj *subject, robj *value) {
 
             /* The set *was* an intset and this value is not integer
              * encodable, so dictAdd should always work. */
-            redisAssertWithInfo(NULL,value,dictAdd(subject->ptr,value,NULL) == DICT_OK);
+            redisAssertWithInfo(NULL,value,dictAdd((dict*)subject->ptr,value,NULL) == DICT_OK);
             incrRefCount(value);
             return 1;
         }
@@ -81,14 +81,14 @@ int setTypeAdd(robj *subject, robj *value) {
 int setTypeRemove(robj *setobj, robj *value) {
     long long llval;
     if (setobj->encoding == REDIS_ENCODING_HT) {
-        if (dictDelete(setobj->ptr,value) == DICT_OK) {
-            if (htNeedsResize(setobj->ptr)) dictResize(setobj->ptr);
+        if (dictDelete((dict*)setobj->ptr,value) == DICT_OK) {
+            if (htNeedsResize((dict*)setobj->ptr)) dictResize((dict*)setobj->ptr);
             return 1;
         }
     } else if (setobj->encoding == REDIS_ENCODING_INTSET) {
         if (isObjectRepresentableAsLongLong(value,&llval) == REDIS_OK) {
             int success;
-            setobj->ptr = intsetRemove(setobj->ptr,llval,&success);
+            setobj->ptr = intsetRemove((intset*)setobj->ptr,llval,&success);
             if (success) return 1;
         }
     } else {
@@ -112,11 +112,11 @@ int setTypeIsMember(robj *subject, robj *value) {
 }
 
 setTypeIterator *setTypeInitIterator(robj *subject) {
-    setTypeIterator *si = zmalloc(sizeof(setTypeIterator));
+    setTypeIterator *si = (setTypeIterator*)zmalloc(sizeof(setTypeIterator));
     si->subject = subject;
     si->encoding = subject->encoding;
     if (si->encoding == REDIS_ENCODING_HT) {
-        si->di = dictGetIterator(subject->ptr);
+        si->di = dictGetIterator((dict*)subject->ptr);
     } else if (si->encoding == REDIS_ENCODING_INTSET) {
         si->ii = 0;
     } else {
@@ -146,9 +146,9 @@ int setTypeNext(setTypeIterator *si, robj **objele, int64_t *llele) {
     if (si->encoding == REDIS_ENCODING_HT) {
         dictEntry *de = dictNext(si->di);
         if (de == NULL) return -1;
-        *objele = dictGetKey(de);
+        *objele = (robj*)dictGetKey(de);
     } else if (si->encoding == REDIS_ENCODING_INTSET) {
-        if (!intsetGet(si->subject->ptr,si->ii++,llele))
+        if (!intsetGet((intset*)si->subject->ptr,si->ii++,llele))
             return -1;
     }
     return si->encoding;
@@ -195,10 +195,10 @@ robj *setTypeNextObject(setTypeIterator *si) {
  * copy on write friendly. */
 int setTypeRandomElement(robj *setobj, robj **objele, int64_t *llele) {
     if (setobj->encoding == REDIS_ENCODING_HT) {
-        dictEntry *de = dictGetRandomKey(setobj->ptr);
-        *objele = dictGetKey(de);
+        dictEntry *de = dictGetRandomKey((dict*)setobj->ptr);
+        *objele = (robj*)dictGetKey(de);
     } else if (setobj->encoding == REDIS_ENCODING_INTSET) {
-        *llele = intsetRandom(setobj->ptr);
+        *llele = intsetRandom((intset*)setobj->ptr);
     } else {
         redisPanic("Unknown set encoding");
     }
@@ -229,7 +229,7 @@ void setTypeConvert(robj *setobj, int enc) {
         robj *element;
 
         /* Presize the dict to avoid rehashing */
-        dictExpand(d,intsetLen(setobj->ptr));
+        dictExpand(d,intsetLen((intset*)setobj->ptr));
 
         /* To add the elements we extract integers and create redis objects */
         si = setTypeInitIterator(setobj);
@@ -388,7 +388,7 @@ void spopCommand(redisClient *c) {
     encoding = setTypeRandomElement(set,&ele,&llele);
     if (encoding == REDIS_ENCODING_INTSET) {
         ele = createStringObjectFromLongLong(llele);
-        set->ptr = intsetRemove(set->ptr,llele,NULL);
+        set->ptr = intsetRemove((intset*)set->ptr,llele,NULL);
     } else {
         incrRefCount(ele);
         setTypeRemove(set,ele);
@@ -545,7 +545,7 @@ void srandmemberWithCountCommand(redisClient *c) {
         addReplyMultiBulkLen(c,count);
         di = dictGetIterator(d);
         while((de = dictNext(di)) != NULL)
-            addReplyBulk(c,dictGetKey(de));
+            addReplyBulk(c,(robj*)dictGetKey(de));
         dictReleaseIterator(di);
         dictRelease(d);
     }
@@ -588,7 +588,7 @@ int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
 }
 
 void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, robj *dstkey) {
-    robj **sets = zmalloc(sizeof(robj*)*setnum);
+    robj **sets = (robj **)zmalloc(sizeof(robj*)*setnum);
     setTypeIterator *si;
     robj *eleobj, *dstset = NULL;
     int64_t intobj;
@@ -735,7 +735,7 @@ void sinterstoreCommand(redisClient *c) {
 #define REDIS_OP_INTER 2
 
 void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *dstkey, int op) {
-    robj **sets = zmalloc(sizeof(robj*)*setnum);
+    robj **sets = (robj**)zmalloc(sizeof(robj*)*setnum);
     setTypeIterator *si;
     robj *ele, *dstset = NULL;
     int j, cardinality = 0;
@@ -877,8 +877,9 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
             dbAdd(c->db,dstkey,dstset);
             addReplyLongLong(c,setTypeSize(dstset));
             notifyKeyspaceEvent(REDIS_NOTIFY_SET,
-                op == REDIS_OP_UNION ? "sunionstore" : "sdiffstore",
-                dstkey,c->db->id);
+                                (char*)(op == REDIS_OP_UNION ? "sunionstore" : "sdiffstore"),
+                                dstkey,
+                                c->db->id);
         } else {
             decrRefCount(dstset);
             addReply(c,shared.czero);

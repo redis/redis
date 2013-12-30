@@ -123,7 +123,7 @@ loop:	SWAPINIT(a, es);
 		}
 		pm = med3(pl, pm, pn, cmp);
 	}
-	swap(a, pm);
+	swap((char*)a, pm);
 	pa = pb = (char *) a + es;
 
 	pc = pd = (char *) a + (n - 1) * es;
@@ -151,7 +151,7 @@ loop:	SWAPINIT(a, es);
 
 	pn = (char *) a + n * es;
 	r = min(pa - (char *) a, pb - pa);
-	vecswap(a, pb - r, r);
+	vecswap((char*)a, pb - r, r);
 	r = min((size_t)(pd - pc), pn - pd - es);
 	vecswap(pb, pn - r, r);
 	if ((r = pb - pa) > es) {

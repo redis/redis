@@ -95,7 +95,7 @@
 
 /* Create a new empty zipmap. */
 unsigned char *zipmapNew(void) {
-    unsigned char *zm = zmalloc(2);
+    unsigned char *zm = (unsigned char*)zmalloc(2);
 
     zm[0] = 0; /* Length */
     zm[1] = ZIPMAP_END;
@@ -201,7 +201,7 @@ static unsigned int zipmapRawEntryLength(unsigned char *p) {
 }
 
 static inline unsigned char *zipmapResize(unsigned char *zm, unsigned int len) {
-    zm = zrealloc(zm, len);
+    zm = (unsigned char *)zrealloc(zm, len);
     zm[len-1] = ZIPMAP_END;
     return zm;
 }

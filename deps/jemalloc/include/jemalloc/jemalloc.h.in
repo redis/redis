@@ -152,6 +152,6 @@ JEMALLOC_EXPORT int	je_nallocm(size_t *rsize, size_t size, int flags);
 #endif
 
 #ifdef __cplusplus
-};
+}
 #endif
 #endif /* JEMALLOC_H_ */

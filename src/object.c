@@ -33,7 +33,7 @@
 #include <ctype.h>
 
 robj *createObject(int type, void *ptr) {
-    robj *o = zmalloc(sizeof(*o));
+    robj *o = (robj *)zmalloc(sizeof(*o));
     o->type = type;
     o->encoding = REDIS_ENCODING_RAW;
     o->ptr = ptr;
@@ -46,16 +46,16 @@ robj *createObject(int type, void *ptr) {
 
 /* Create a string object with encoding REDIS_ENCODING_RAW, that is a plain
  * string object where o->ptr points to a proper sds string. */
-robj *createRawStringObject(char *ptr, size_t len) {
+robj *createRawStringObject(const char *ptr, size_t len) {
     return createObject(REDIS_STRING,sdsnewlen(ptr,len));
 }
 
 /* Create a string object with encoding REDIS_ENCODING_EMBSTR, that is
  * an object where the sds string is actually an unmodifiable string
  * allocated in the same chunk as the object itself. */
-robj *createEmbeddedStringObject(char *ptr, size_t len) {
-    robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr)+len+1);
-    struct sdshdr *sh = (void*)(o+1);
+robj *createEmbeddedStringObject(const char *ptr, size_t len) {
+    robj *o = (robj*)zmalloc(sizeof(robj)+sizeof(struct sdshdr)+len+1);
+    struct sdshdr *sh = (struct sdshdr *)(void*)(o+1);
 
     o->type = REDIS_STRING;
     o->encoding = REDIS_ENCODING_EMBSTR;
@@ -78,7 +78,7 @@ robj *createEmbeddedStringObject(char *ptr, size_t len) {
  * REIDS_ENCODING_EMBSTR_SIZE_LIMIT, otherwise the RAW encoding is
  * used. */
 #define REDIS_ENCODING_EMBSTR_SIZE_LIMIT 32
-robj *createStringObject(char *ptr, size_t len) {
+robj *createStringObject(const char *ptr, size_t len) {
     if (len <= REDIS_ENCODING_EMBSTR_SIZE_LIMIT)
         return createEmbeddedStringObject(ptr,len);
     else
@@ -141,9 +141,9 @@ robj *dupStringObject(robj *o) {
 
     switch(o->encoding) {
     case REDIS_ENCODING_RAW:
-        return createRawStringObject(o->ptr,sdslen(o->ptr));
+        return createRawStringObject((char*)o->ptr,sdslen((sds)o->ptr));
     case REDIS_ENCODING_EMBSTR:
-        return createEmbeddedStringObject(o->ptr,sdslen(o->ptr));
+        return createEmbeddedStringObject((char*)o->ptr,sdslen((sds)o->ptr));
     case REDIS_ENCODING_INT:
         d = createObject(REDIS_STRING, NULL);
         d->encoding = REDIS_ENCODING_INT;
@@ -192,10 +192,10 @@ robj *createHashObject(void) {
 }
 
 robj *createZsetObject(void) {
-    zset *zs = zmalloc(sizeof(*zs));
+    zset *zs = (zset*)zmalloc(sizeof(*zs));
     robj *o;
 
-    zs->dict = dictCreate(&zsetDictType,NULL);
+    zs->theDict = dictCreate(&zsetDictType,NULL);
     zs->zsl = zslCreate();
     o = createObject(REDIS_ZSET,zs);
     o->encoding = REDIS_ENCODING_SKIPLIST;
@@ -211,7 +211,7 @@ robj *createZsetZiplistObject(void) {
 
 void freeStringObject(robj *o) {
     if (o->encoding == REDIS_ENCODING_RAW) {
-        sdsfree(o->ptr);
+        sdsfree((sds)o->ptr);
     }
 }
 
@@ -245,8 +245,8 @@ void freeZsetObject(robj *o) {
     zset *zs;
     switch (o->encoding) {
     case REDIS_ENCODING_SKIPLIST:
-        zs = o->ptr;
-        dictRelease(zs->dict);
+        zs = (zset*)o->ptr;
+        dictRelease(zs->theDict);
         zslFree(zs->zsl);
         zfree(zs);
         break;
@@ -297,7 +297,7 @@ void decrRefCount(robj *o) {
  * as free method in data structures that expect a 'void free_object(void*)'
  * prototype for the free method. */
 void decrRefCountVoid(void *o) {
-    decrRefCount(o);
+    decrRefCount((robj*)o);
 }
 
 /* This function set the ref count to zero without freeing the object.
@@ -331,14 +331,14 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
         if (llval) *llval = (long) o->ptr;
         return REDIS_OK;
     } else {
-        return string2ll(o->ptr,sdslen(o->ptr),llval) ? REDIS_OK : REDIS_ERR;
+        return string2ll((char*)o->ptr,sdslen((sds)o->ptr),llval) ? REDIS_OK : REDIS_ERR;
     }
 }
 
 /* Try to encode a string object in order to save space */
 robj *tryObjectEncoding(robj *o) {
     long value;
-    sds s = o->ptr;
+    sds s = (sds)o->ptr;
     size_t len;
 
     if (o->encoding == REDIS_ENCODING_INT)
@@ -375,7 +375,7 @@ robj *tryObjectEncoding(robj *o) {
             if (o->encoding == REDIS_ENCODING_RAW &&
                 sdsavail(s) > len/10)
             {
-                o->ptr = sdsRemoveFreeSpace(o->ptr);
+                o->ptr = sdsRemoveFreeSpace((sds)o->ptr);
             }
             /* Return the original object. */
             return o;
@@ -394,7 +394,7 @@ robj *tryObjectEncoding(robj *o) {
         incrRefCount(shared.integers[value]);
         return shared.integers[value];
     } else {
-        if (o->encoding == REDIS_ENCODING_RAW) sdsfree(o->ptr);
+        if (o->encoding == REDIS_ENCODING_RAW) sdsfree((sds)o->ptr);
         o->encoding = REDIS_ENCODING_INT;
         o->ptr = (void*) value;
         return o;
@@ -439,14 +439,14 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
 
     if (a == b) return 0;
     if (sdsEncodedObject(a)) {
-        astr = a->ptr;
+        astr = (char*)a->ptr;
         alen = sdslen(astr);
     } else {
         alen = ll2string(bufa,sizeof(bufa),(long) a->ptr);
         astr = bufa;
     }
     if (sdsEncodedObject(b)) {
-        bstr = b->ptr;
+        bstr = (char*)b->ptr;
         blen = sdslen(bstr);
     } else {
         blen = ll2string(bufb,sizeof(bufb),(long) b->ptr);
@@ -492,7 +492,7 @@ int equalStringObjects(robj *a, robj *b) {
 size_t stringObjectLen(robj *o) {
     redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
     if (sdsEncodedObject(o)) {
-        return sdslen(o->ptr);
+        return sdslen((sds)o->ptr);
     } else {
         char buf[32];
 
@@ -510,7 +510,7 @@ int getDoubleFromObject(robj *o, double *target) {
         redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
         if (sdsEncodedObject(o)) {
             errno = 0;
-            value = strtod(o->ptr, &eptr);
+            value = strtod((char*)o->ptr, &eptr);
             if (isspace(((char*)o->ptr)[0]) ||
                 eptr[0] != '\0' ||
                 (errno == ERANGE &&
@@ -552,7 +552,7 @@ int getLongDoubleFromObject(robj *o, long double *target) {
         redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
         if (sdsEncodedObject(o)) {
             errno = 0;
-            value = strtold(o->ptr, &eptr);
+            value = strtold((char*)o->ptr, &eptr);
             if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
                 errno == ERANGE || isnan(value))
                 return REDIS_ERR;
@@ -590,7 +590,7 @@ int getLongLongFromObject(robj *o, long long *target) {
         redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
         if (sdsEncodedObject(o)) {
             errno = 0;
-            value = strtoll(o->ptr, &eptr, 10);
+            value = strtoll((char*)o->ptr, &eptr, 10);
             if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
                 errno == ERANGE)
                 return REDIS_ERR;
@@ -634,7 +634,7 @@ int getLongFromObjectOrReply(redisClient *c, robj *o, long *target, const char *
     return REDIS_OK;
 }
 
-char *strEncoding(int encoding) {
+const char *strEncoding(int encoding) {
     switch(encoding) {
     case REDIS_ENCODING_RAW: return "raw";
     case REDIS_ENCODING_INT: return "int";
@@ -664,7 +664,7 @@ unsigned long estimateObjectIdleTime(robj *o) {
 robj *objectCommandLookup(redisClient *c, robj *key) {
     dictEntry *de;
 
-    if ((de = dictFind(c->db->dict,key->ptr)) == NULL) return NULL;
+    if ((de = dictFind(c->db->theDict,key->ptr)) == NULL) return NULL;
     return (robj*) dictGetVal(de);
 }
 
@@ -680,15 +680,15 @@ robj *objectCommandLookupOrReply(redisClient *c, robj *key, robj *reply) {
 void objectCommand(redisClient *c) {
     robj *o;
 
-    if (!strcasecmp(c->argv[1]->ptr,"refcount") && c->argc == 3) {
+    if (!strcasecmp((char*)c->argv[1]->ptr,"refcount") && c->argc == 3) {
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
                 == NULL) return;
         addReplyLongLong(c,o->refcount);
-    } else if (!strcasecmp(c->argv[1]->ptr,"encoding") && c->argc == 3) {
+    } else if (!strcasecmp((char*)c->argv[1]->ptr,"encoding") && c->argc == 3) {
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
                 == NULL) return;
         addReplyBulkCString(c,strEncoding(o->encoding));
-    } else if (!strcasecmp(c->argv[1]->ptr,"idletime") && c->argc == 3) {
+    } else if (!strcasecmp((char*)c->argv[1]->ptr,"idletime") && c->argc == 3) {
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
                 == NULL) return;
         addReplyLongLong(c,estimateObjectIdleTime(o));

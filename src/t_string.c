@@ -98,7 +98,7 @@ void setCommand(redisClient *c) {
     int flags = REDIS_SET_NO_FLAGS;
 
     for (j = 3; j < c->argc; j++) {
-        char *a = c->argv[j]->ptr;
+        char *a = (char*)c->argv[j]->ptr;
         robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
 
         if ((a[0] == 'n' || a[0] == 'N') &&
@@ -172,7 +172,7 @@ void getsetCommand(redisClient *c) {
 void setrangeCommand(redisClient *c) {
     robj *o;
     long offset;
-    sds value = c->argv[3]->ptr;
+    sds value = (sds)c->argv[3]->ptr;
 
     if (getLongFromObjectOrReply(c,c->argv[2],&offset,NULL) != REDIS_OK)
         return;
@@ -217,21 +217,21 @@ void setrangeCommand(redisClient *c) {
         /* Create a copy when the object is shared or encoded. */
         if (o->refcount != 1 || o->encoding != REDIS_ENCODING_RAW) {
             robj *decoded = getDecodedObject(o);
-            o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
+            o = createRawStringObject((char*)decoded->ptr, sdslen((sds)decoded->ptr));
             decrRefCount(decoded);
             dbOverwrite(c->db,c->argv[1],o);
         }
     }
 
     if (sdslen(value) > 0) {
-        o->ptr = sdsgrowzero(o->ptr,offset+sdslen(value));
+        o->ptr = sdsgrowzero((sds)o->ptr,offset+sdslen(value));
         memcpy((char*)o->ptr+offset,value,sdslen(value));
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(REDIS_NOTIFY_STRING,
             "setrange",c->argv[1],c->db->id);
         server.dirty++;
     }
-    addReplyLongLong(c,sdslen(o->ptr));
+    addReplyLongLong(c,sdslen((sds)o->ptr));
 }
 
 void getrangeCommand(redisClient *c) {
@@ -251,7 +251,7 @@ void getrangeCommand(redisClient *c) {
         str = llbuf;
         strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
     } else {
-        str = o->ptr;
+        str = (char*)o->ptr;
         strlen = sdslen(str);
     }
 
@@ -329,7 +329,7 @@ void msetnxCommand(redisClient *c) {
 
 void incrDecrCommand(redisClient *c, long long incr) {
     long long value, oldvalue;
-    robj *o, *new;
+    robj *o, *newString;
 
     o = lookupKeyWrite(c->db,c->argv[1]);
     if (o != NULL && checkType(c,o,REDIS_STRING)) return;
@@ -342,16 +342,16 @@ void incrDecrCommand(redisClient *c, long long incr) {
         return;
     }
     value += incr;
-    new = createStringObjectFromLongLong(value);
+    newString = createStringObjectFromLongLong(value);
     if (o)
-        dbOverwrite(c->db,c->argv[1],new);
+        dbOverwrite(c->db,c->argv[1],newString);
     else
-        dbAdd(c->db,c->argv[1],new);
+        dbAdd(c->db,c->argv[1],newString);
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"incrby",c->argv[1],c->db->id);
     server.dirty++;
     addReply(c,shared.colon);
-    addReply(c,new);
+    addReply(c,newString);
     addReply(c,shared.crlf);
 }
 
@@ -379,7 +379,7 @@ void decrbyCommand(redisClient *c) {
 
 void incrbyfloatCommand(redisClient *c) {
     long double incr, value;
-    robj *o, *new, *aux;
+    robj *o, *newString, *aux;
 
     o = lookupKeyWrite(c->db,c->argv[1]);
     if (o != NULL && checkType(c,o,REDIS_STRING)) return;
@@ -392,15 +392,15 @@ void incrbyfloatCommand(redisClient *c) {
         addReplyError(c,"increment would produce NaN or Infinity");
         return;
     }
-    new = createStringObjectFromLongDouble(value);
+    newString = createStringObjectFromLongDouble(value);
     if (o)
-        dbOverwrite(c->db,c->argv[1],new);
+        dbOverwrite(c->db,c->argv[1],newString);
     else
-        dbAdd(c->db,c->argv[1],new);
+        dbAdd(c->db,c->argv[1],newString);
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"incrbyfloat",c->argv[1],c->db->id);
     server.dirty++;
-    addReplyBulk(c,new);
+    addReplyBulk(c,newString);
 
     /* Always replicate INCRBYFLOAT as a SET command with the final value
      * in order to make sure that differences in float precision or formatting
@@ -408,7 +408,7 @@ void incrbyfloatCommand(redisClient *c) {
     aux = createStringObject("SET",3);
     rewriteClientCommandArgument(c,0,aux);
     decrRefCount(aux);
-    rewriteClientCommandArgument(c,2,new);
+    rewriteClientCommandArgument(c,2,newString);
 }
 
 void appendCommand(redisClient *c) {
@@ -429,21 +429,21 @@ void appendCommand(redisClient *c) {
 
         /* "append" is an argument, so always an sds */
         append = c->argv[2];
-        totlen = stringObjectLen(o)+sdslen(append->ptr);
+        totlen = stringObjectLen(o)+sdslen((sds)append->ptr);
         if (checkStringLength(c,totlen) != REDIS_OK)
             return;
 
         /* If the object is shared or encoded, we have to make a copy */
         if (o->refcount != 1 || o->encoding != REDIS_ENCODING_RAW) {
             robj *decoded = getDecodedObject(o);
-            o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
+            o = createRawStringObject((char*)decoded->ptr, sdslen((sds)decoded->ptr));
             decrRefCount(decoded);
             dbOverwrite(c->db,c->argv[1],o);
         }
 
         /* Append the value */
-        o->ptr = sdscatlen(o->ptr,append->ptr,sdslen(append->ptr));
-        totlen = sdslen(o->ptr);
+        o->ptr = sdscatlen((sds)o->ptr,append->ptr,sdslen((sds)append->ptr));
+        totlen = sdslen((sds)o->ptr);
     }
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"append",c->argv[1],c->db->id);

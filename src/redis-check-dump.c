@@ -282,7 +282,7 @@ char *loadIntegerObject(int enctype) {
 
     /* convert val into string */
     char *buf;
-    buf = malloc(sizeof(char) * 128);
+    buf = (char*)malloc(sizeof(char) * 128);
     sprintf(buf, "%lld", val);
     return buf;
 }
@@ -294,13 +294,13 @@ char* loadLzfStringObject() {
     if ((clen = loadLength(NULL)) == REDIS_RDB_LENERR) return NULL;
     if ((slen = loadLength(NULL)) == REDIS_RDB_LENERR) return NULL;
 
-    c = malloc(clen);
+    c = (char*)malloc(clen);
     if (!readBytes(c, clen)) {
         free(c);
         return NULL;
     }
 
-    s = malloc(slen+1);
+    s = (char*)malloc(slen+1);
     if (lzf_decompress(c,clen,s,slen) == 0) {
         free(c); free(s);
         return NULL;
@@ -334,7 +334,7 @@ char* loadStringObject() {
 
     if (len == REDIS_RDB_LENERR) return NULL;
 
-    char *buf = malloc(sizeof(char) * (len+1));
+    char *buf = (char*)malloc(sizeof(char) * (len+1));
     buf[len] = '\0';
     if (!readBytes(buf, len)) {
         free(buf);
@@ -367,7 +367,7 @@ double* loadDoubleValue() {
 
     if (!readBytes(&len,1)) return NULL;
 
-    val = malloc(sizeof(double));
+    val = (double*)malloc(sizeof(double));
     switch(len) {
     case 255: *val = R_NegInf;  return val;
     case 254: *val = R_PosInf;  return val;
@@ -679,7 +679,7 @@ void process() {
 
     /* Verify checksum */
     if (dump_version >= 5) {
-        uint64_t crc = crc64(0,positions[0].data,positions[0].size);
+        uint64_t crc = crc64(0,(unsigned char*)positions[0].data,positions[0].size);
         uint64_t crc2;
         unsigned char *p = (unsigned char*)positions[0].data+positions[0].size;
         crc2 = ((uint64_t)p[0] << 0) |

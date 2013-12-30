@@ -9,6 +9,10 @@
 #ifndef lua_h
 #define lua_h
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdarg.h>
 #include <stddef.h>
 
@@ -383,6 +387,10 @@ struct lua_Debug {
 * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ******************************************************************************/
+
+#ifdef __cplusplus
+}
+#endif
 
 
 #endif

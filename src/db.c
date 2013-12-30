@@ -42,9 +42,9 @@ void slotToKeyFlush(void);
  *----------------------------------------------------------------------------*/
 
 robj *lookupKey(redisDb *db, robj *key) {
-    dictEntry *de = dictFind(db->dict,key->ptr);
+    dictEntry *de = dictFind(db->theDict,key->ptr);
     if (de) {
-        robj *val = dictGetVal(de);
+        robj *val = (robj*)dictGetVal(de);
 
         /* Update the access time for the ageing algorithm.
          * Don't do it if we have a saving child, as this will trigger
@@ -91,8 +91,8 @@ robj *lookupKeyWriteOrReply(redisClient *c, robj *key, robj *reply) {
  *
  * The program is aborted if the key already exists. */
 void dbAdd(redisDb *db, robj *key, robj *val) {
-    sds copy = sdsdup(key->ptr);
-    int retval = dictAdd(db->dict, copy, val);
+    sds copy = sdsdup((sds)key->ptr);
+    int retval = dictAdd(db->theDict, copy, val);
 
     redisAssertWithInfo(NULL,key,retval == REDIS_OK);
     if (server.cluster_enabled) slotToKeyAdd(key);
@@ -104,10 +104,10 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
  *
  * The program is aborted if the key was not already present. */
 void dbOverwrite(redisDb *db, robj *key, robj *val) {
-    struct dictEntry *de = dictFind(db->dict,key->ptr);
+    struct dictEntry *de = dictFind(db->theDict,key->ptr);
     
     redisAssertWithInfo(NULL,key,de != NULL);
-    dictReplace(db->dict, key->ptr, val);
+    dictReplace(db->theDict, key->ptr, val);
 }
 
 /* High level Set operation. This function can be used in order to set
@@ -128,7 +128,7 @@ void setKey(redisDb *db, robj *key, robj *val) {
 }
 
 int dbExists(redisDb *db, robj *key) {
-    return dictFind(db->dict,key->ptr) != NULL;
+    return dictFind(db->theDict,key->ptr) != NULL;
 }
 
 /* Return a random key, in form of a Redis object.
@@ -142,10 +142,10 @@ robj *dbRandomKey(redisDb *db) {
         sds key;
         robj *keyobj;
 
-        de = dictGetRandomKey(db->dict);
+        de = dictGetRandomKey(db->theDict);
         if (de == NULL) return NULL;
 
-        key = dictGetKey(de);
+        key = (sds)dictGetKey(de);
         keyobj = createStringObject(key,sdslen(key));
         if (dictFind(db->expires,key)) {
             if (expireIfNeeded(db,keyobj)) {
@@ -162,7 +162,7 @@ int dbDelete(redisDb *db, robj *key) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
-    if (dictDelete(db->dict,key->ptr) == DICT_OK) {
+    if (dictDelete(db->theDict,key->ptr) == DICT_OK) {
         if (server.cluster_enabled) slotToKeyDel(key);
         return 1;
     } else {
@@ -175,9 +175,9 @@ long long emptyDb(void(callback)(void*)) {
     long long removed = 0;
 
     for (j = 0; j < server.dbnum; j++) {
-        removed += dictSize(server.db[j].dict);
-        dictEmpty(server.db[j].dict,callback);
-        dictEmpty(server.db[j].expires,callback);
+        removed += dictSize(server.db[j].theDict);
+        dictEmpty(server.db[j].theDict, callback);
+        dictEmpty(server.db[j].expires, callback);
     }
     if (server.cluster_enabled) slotToKeyFlush();
     return removed;
@@ -212,9 +212,9 @@ void signalFlushedDb(int dbid) {
  *----------------------------------------------------------------------------*/
 
 void flushdbCommand(redisClient *c) {
-    server.dirty += dictSize(c->db->dict);
+    server.dirty += dictSize(c->db->theDict);
     signalFlushedDb(c->db->id);
-    dictEmpty(c->db->dict,NULL);
+    dictEmpty(c->db->theDict,NULL);
     dictEmpty(c->db->expires,NULL);
     if (server.cluster_enabled) slotToKeyFlush();
     addReply(c,shared.ok);
@@ -295,15 +295,15 @@ void randomkeyCommand(redisClient *c) {
 void keysCommand(redisClient *c) {
     dictIterator *di;
     dictEntry *de;
-    sds pattern = c->argv[1]->ptr;
+    sds pattern = (sds)c->argv[1]->ptr;
     int plen = sdslen(pattern), allkeys;
     unsigned long numkeys = 0;
     void *replylen = addDeferredMultiBulkLength(c);
 
-    di = dictGetSafeIterator(c->db->dict);
+    di = dictGetSafeIterator(c->db->theDict);
     allkeys = (pattern[0] == '*' && pattern[1] == '\0');
     while((de = dictNext(di)) != NULL) {
-        sds key = dictGetKey(de);
+        sds key = (sds)dictGetKey(de);
         robj *keyobj;
 
         if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
@@ -323,23 +323,23 @@ void keysCommand(redisClient *c) {
  * returned by the dictionary iterator into a list. */
 void scanCallback(void *privdata, const dictEntry *de) {
     void **pd = (void**) privdata;
-    list *keys = pd[0];
-    robj *o = pd[1];
+    list *keys = (list*)pd[0];
+    robj *o = (robj*)pd[1];
     robj *key, *val = NULL;
 
     if (o == NULL) {
-        sds sdskey = dictGetKey(de);
+        sds sdskey = (sds)dictGetKey(de);
         key = createStringObject(sdskey, sdslen(sdskey));
     } else if (o->type == REDIS_SET) {
-        key = dictGetKey(de);
+        key = (robj*)dictGetKey(de);
         incrRefCount(key);
     } else if (o->type == REDIS_HASH) {
-        key = dictGetKey(de);
+        key = (robj*)dictGetKey(de);
         incrRefCount(key);
-        val = dictGetVal(de);
+        val = (robj*)dictGetVal(de);
         incrRefCount(val);
     } else if (o->type == REDIS_ZSET) {
-        key = dictGetKey(de);
+        key = (robj*)dictGetKey(de);
         incrRefCount(key);
         val = createStringObjectFromLongDouble(*(double*)dictGetVal(de));
     } else {
@@ -360,7 +360,7 @@ int parseScanCursorOrReply(redisClient *c, robj *o, unsigned long *cursor) {
     /* Use strtoul() because we need an *unsigned* long, so
      * getLongLongFromObject() does not cover the whole cursor space. */
     errno = 0;
-    *cursor = strtoul(o->ptr, &eptr, 10);
+    *cursor = strtoul((char*)o->ptr, &eptr, 10);
     if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' || errno == ERANGE)
     {
         addReplyError(c, "invalid cursor");
@@ -402,7 +402,7 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
     /* Step 1: Parse options. */
     while (i < c->argc) {
         j = c->argc - i;
-        if (!strcasecmp(c->argv[i]->ptr, "count") && j >= 2) {
+        if (!strcasecmp((char*)c->argv[i]->ptr, "count") && j >= 2) {
             if (getLongFromObjectOrReply(c, c->argv[i+1], &count, NULL)
                 != REDIS_OK)
             {
@@ -415,8 +415,8 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
             }
 
             i += 2;
-        } else if (!strcasecmp(c->argv[i]->ptr, "match") && j >= 2) {
-            pat = c->argv[i+1]->ptr;
+        } else if (!strcasecmp((char*)c->argv[i]->ptr, "match") && j >= 2) {
+            pat = (sds)c->argv[i+1]->ptr;
             patlen = sdslen(pat);
 
             /* The pattern always matches if it is exactly "*", so it is
@@ -441,15 +441,15 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
     /* Handle the case of a hash table. */
     ht = NULL;
     if (o == NULL) {
-        ht = c->db->dict;
+        ht = c->db->theDict;
     } else if (o->type == REDIS_SET && o->encoding == REDIS_ENCODING_HT) {
-        ht = o->ptr;
+        ht = (dict*)o->ptr;
     } else if (o->type == REDIS_HASH && o->encoding == REDIS_ENCODING_HT) {
-        ht = o->ptr;
+        ht = (dict*)o->ptr;
         count *= 2; /* We return key / value for this type. */
     } else if (o->type == REDIS_ZSET && o->encoding == REDIS_ENCODING_SKIPLIST) {
-        zset *zs = o->ptr;
-        ht = zs->dict;
+        zset *zs = (zset*)o->ptr;
+        ht = zs->theDict;
         count *= 2; /* We return key / value for this type. */
     }
 
@@ -468,11 +468,11 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
         int pos = 0;
         int64_t ll;
 
-        while(intsetGet(o->ptr,pos++,&ll))
+        while(intsetGet((intset*)o->ptr,pos++,&ll))
             listAddNodeTail(keys,createStringObjectFromLongLong(ll));
         cursor = 0;
     } else if (o->type == REDIS_HASH || o->type == REDIS_ZSET) {
-        unsigned char *p = ziplistIndex(o->ptr,0);
+        unsigned char *p = ziplistIndex((unsigned char*)o->ptr,0);
         unsigned char *vstr;
         unsigned int vlen;
         long long vll;
@@ -482,7 +482,7 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
             listAddNodeTail(keys,
                 (vstr != NULL) ? createStringObject((char*)vstr,vlen) :
                                  createStringObjectFromLongLong(vll));
-            p = ziplistNext(o->ptr,p);
+            p = ziplistNext((unsigned char*)o->ptr,p);
         }
         cursor = 0;
     } else {
@@ -492,14 +492,14 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
     /* Step 3: Filter elements. */
     node = listFirst(keys);
     while (node) {
-        robj *kobj = listNodeValue(node);
+        robj *kobj = (robj *)listNodeValue(node);
         nextnode = listNextNode(node);
         int filter = 0;
 
         /* Filter element if it does not match the pattern. */
         if (!filter && use_pattern) {
             if (sdsEncodedObject(kobj)) {
-                if (!stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0))
+                if (!stringmatchlen(pat, patlen, (char*)kobj->ptr, sdslen((sds)kobj->ptr), 0))
                     filter = 1;
             } else {
                 char buf[REDIS_LONGSTR_SIZE];
@@ -527,7 +527,7 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
             node = nextnode;
             nextnode = listNextNode(node);
             if (filter) {
-                kobj = listNodeValue(node);
+                kobj = (robj*)listNodeValue(node);
                 decrRefCount(kobj);
                 listDelNode(keys, node);
             }
@@ -543,7 +543,7 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
 
     addReplyMultiBulkLen(c, listLength(keys));
     while ((node = listFirst(keys)) != NULL) {
-        robj *kobj = listNodeValue(node);
+        robj *kobj = (robj*)listNodeValue(node);
         addReplyBulk(c, kobj);
         decrRefCount(kobj);
         listDelNode(keys, node);
@@ -562,7 +562,7 @@ void scanCommand(redisClient *c) {
 }
 
 void dbsizeCommand(redisClient *c) {
-    addReplyLongLong(c,dictSize(c->db->dict));
+    addReplyLongLong(c,dictSize(c->db->theDict));
 }
 
 void lastsaveCommand(redisClient *c) {
@@ -571,7 +571,7 @@ void lastsaveCommand(redisClient *c) {
 
 void typeCommand(redisClient *c) {
     robj *o;
-    char *type;
+    const char *type;
 
     o = lookupKeyRead(c->db,c->argv[1]);
     if (o == NULL) {
@@ -596,9 +596,9 @@ void shutdownCommand(redisClient *c) {
         addReply(c,shared.syntaxerr);
         return;
     } else if (c->argc == 2) {
-        if (!strcasecmp(c->argv[1]->ptr,"nosave")) {
+        if (!strcasecmp((char*)c->argv[1]->ptr,"nosave")) {
             flags |= REDIS_SHUTDOWN_NOSAVE;
-        } else if (!strcasecmp(c->argv[1]->ptr,"save")) {
+        } else if (!strcasecmp((char*)c->argv[1]->ptr,"save")) {
             flags |= REDIS_SHUTDOWN_SAVE;
         } else {
             addReply(c,shared.syntaxerr);
@@ -620,7 +620,7 @@ void renameGenericCommand(redisClient *c, int nx) {
     long long expire;
 
     /* To use the same key as src and dst is probably an error */
-    if (sdscmp(c->argv[1]->ptr,c->argv[2]->ptr) == 0) {
+    if (sdscmp((sds)c->argv[1]->ptr, (sds)c->argv[2]->ptr) == 0) {
         addReply(c,shared.sameobjecterr);
         return;
     }
@@ -674,7 +674,7 @@ void moveCommand(redisClient *c) {
     /* Obtain source and target DB pointers */
     src = c->db;
     srcid = c->db->id;
-    if (selectDb(c,atoi(c->argv[2]->ptr)) == REDIS_ERR) {
+    if (selectDb(c,atoi((char*)c->argv[2]->ptr)) == REDIS_ERR) {
         addReply(c,shared.outofrangeerr);
         return;
     }
@@ -716,7 +716,7 @@ void moveCommand(redisClient *c) {
 int removeExpire(redisDb *db, robj *key) {
     /* An expire may only be removed if there is a corresponding entry in the
      * main dict. Otherwise, the key will never be freed. */
-    redisAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
+    redisAssertWithInfo(NULL,key,dictFind(db->theDict,key->ptr) != NULL);
     return dictDelete(db->expires,key->ptr) == DICT_OK;
 }
 
@@ -724,7 +724,7 @@ void setExpire(redisDb *db, robj *key, long long when) {
     dictEntry *kde, *de;
 
     /* Reuse the sds from the main dict in the expire dict */
-    kde = dictFind(db->dict,key->ptr);
+    kde = dictFind(db->theDict,key->ptr);
     redisAssertWithInfo(NULL,key,kde != NULL);
     de = dictReplaceRaw(db->expires,dictGetKey(kde));
     dictSetSignedIntegerVal(de,when);
@@ -741,7 +741,7 @@ long long getExpire(redisDb *db, robj *key) {
 
     /* The entry was found in the expire dict, this means it should also
      * be present in the main dict (safety check). */
-    redisAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
+    redisAssertWithInfo(NULL,key,dictFind(db->theDict,key->ptr) != NULL);
     return dictGetSignedIntegerVal(de);
 }
 
@@ -905,7 +905,7 @@ void pttlCommand(redisClient *c) {
 void persistCommand(redisClient *c) {
     dictEntry *de;
 
-    de = dictFind(c->db->dict,c->argv[1]->ptr);
+    de = dictFind(c->db->theDict,c->argv[1]->ptr);
     if (de == NULL) {
         addReply(c,shared.czero);
     } else {
@@ -932,7 +932,7 @@ int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, in
     }
     last = cmd->lastkey;
     if (last < 0) last = argc+last;
-    keys = zmalloc(sizeof(int)*((last - cmd->firstkey)+1));
+    keys = (int*)zmalloc(sizeof(int)*((last - cmd->firstkey)+1));
     for (j = cmd->firstkey; j <= last; j += cmd->keystep) {
         redisAssert(j < argc);
         keys[i++] = j;
@@ -964,7 +964,7 @@ int *noPreloadGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *numke
 
 int *renameGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *numkeys, int flags) {
     if (flags & REDIS_GETKEYS_PRELOAD) {
-        int *keys = zmalloc(sizeof(int));
+        int *keys = (int*)zmalloc(sizeof(int));
         *numkeys = 1;
         keys[0] = 1;
         return keys;
@@ -978,14 +978,14 @@ int *zunionInterGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *num
     REDIS_NOTUSED(cmd);
     REDIS_NOTUSED(flags);
 
-    num = atoi(argv[2]->ptr);
+    num = atoi((char*)argv[2]->ptr);
     /* Sanity check. Don't return any key if the command is going to
      * reply with syntax error. */
     if (num > (argc-3)) {
         *numkeys = 0;
         return NULL;
     }
-    keys = zmalloc(sizeof(int)*num);
+    keys = (int*)zmalloc(sizeof(int)*num);
     for (i = 0; i < num; i++) keys[i] = 3+i;
     *numkeys = num;
     return keys;
@@ -995,14 +995,14 @@ int *zunionInterGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *num
  * a fast way a key that belongs to a specified hash slot. This is useful
  * while rehashing the cluster. */
 void slotToKeyAdd(robj *key) {
-    unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
+    unsigned int hashslot = keyHashSlot((char*)key->ptr,sdslen((sds)key->ptr));
 
     zslInsert(server.cluster->slots_to_keys,hashslot,key);
     incrRefCount(key);
 }
 
 void slotToKeyDel(robj *key) {
-    unsigned int hashslot = keyHashSlot(key->ptr,sdslen(key->ptr));
+    unsigned int hashslot = keyHashSlot((char*)key->ptr,sdslen((sds)key->ptr));
 
     zslDelete(server.cluster->slots_to_keys,hashslot,key);
 }

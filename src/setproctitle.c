@@ -29,6 +29,7 @@
 #define _GNU_SOURCE
 #endif
 
+#include <stdbool.h> /* _Bool */
 #include <stddef.h>	/* NULL size_t */
 #include <stdarg.h>	/* va_list va_start va_end */
 #include <stdlib.h>	/* malloc(3) setenv(3) clearenv(3) setproctitle(3) getprogname(3) */

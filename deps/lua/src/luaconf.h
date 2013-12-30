@@ -8,6 +8,10 @@
 #ifndef lconfig_h
 #define lconfig_h
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <limits.h>
 #include <stddef.h>
 
@@ -757,7 +761,9 @@ union luai_Cast { double l_d; long l_l; };
 ** without modifying the main part of the file.
 */
 
-
+#ifdef __cplusplus
+}
+#endif
 
 #endif
 
