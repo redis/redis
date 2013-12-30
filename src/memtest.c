@@ -57,7 +57,7 @@ static struct winsize ws;
 size_t progress_printed; /* Printed chars in screen-wide progress bar. */
 size_t progress_full; /* How many chars to write to fill the progress bar. */
 
-void memtest_progress_start(char *title, int pass) {
+void memtest_progress_start(const char *title, int pass) {
     int j;
 
     printf("\x1b[H\x1b[2J");    /* Cursor home, clear screen. */

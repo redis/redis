@@ -851,7 +851,7 @@ void zsetConvert(robj *zobj, int encoding) {
 
 /* This generic command implements both ZADD and ZINCRBY. */
 void zaddGenericCommand(redisClient *c, int incr) {
-    static char *nanerr = "resulting score is not a number (NaN)";
+    static const char *nanerr = "resulting score is not a number (NaN)";
     robj *key = c->argv[1];
     robj *ele;
     robj *zobj;

@@ -39,7 +39,7 @@
  * Redis 512 MB limit for the string value. */
 static int getBitOffsetFromArgument(redisClient *c, robj *o, size_t *offset) {
     long long loffset;
-    char *err = "bit offset is not an integer or out of range";
+    const char *err = "bit offset is not an integer or out of range";
 
     if (getLongLongFromObjectOrReply(c,o,&loffset,err) != REDIS_OK)
         return REDIS_ERR;
@@ -105,7 +105,7 @@ size_t redisPopcount(void *s, long count) {
 /* SETBIT key offset bitvalue */
 void setbitCommand(redisClient *c) {
     robj *o;
-    char *err = "bit is not an integer or out of range";
+    const char *err = "bit is not an integer or out of range";
     size_t bitoffset;
     int byte, bit;
     int byteval, bitval;

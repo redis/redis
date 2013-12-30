@@ -80,7 +80,7 @@ void resetServerSaveParams() {
 }
 
 void loadServerConfigFromString(char *config) {
-    char *err = NULL;
+    const char *err = NULL;
     int linenum = 0, totlines, i;
     sds *lines;
 
@@ -1007,7 +1007,7 @@ void configGetCommand(redisClient *c) {
         matches++;
     }
     if (stringmatch(pattern,"maxmemory-policy",0)) {
-        char *s;
+        const char *s;
 
         switch(server.maxmemory_policy) {
         case REDIS_MAXMEMORY_VOLATILE_LRU: s = "volatile-lru"; break;
@@ -1023,7 +1023,7 @@ void configGetCommand(redisClient *c) {
         matches++;
     }
     if (stringmatch(pattern,"appendfsync",0)) {
-        char *policy;
+        const char *policy;
 
         switch(server.aof_fsync) {
         case AOF_FSYNC_NO: policy = "no"; break;
@@ -1052,7 +1052,7 @@ void configGetCommand(redisClient *c) {
         matches++;
     }
     if (stringmatch(pattern,"loglevel",0)) {
-        char *s;
+        const char *s;
 
         switch(server.verbosity) {
         case REDIS_WARNING: s = "warning"; break;
@@ -1329,7 +1329,7 @@ int rewriteConfigFormatMemory(char *buf, size_t len, long long bytes) {
 }
 
 /* Rewrite a simple "option-name <bytes>" configuration option. */
-void rewriteConfigBytesOption(struct rewriteConfigState *state, char *option, long long value, long long defvalue) {
+void rewriteConfigBytesOption(struct rewriteConfigState *state, const char *option, long long value, long long defvalue) {
     char buf[64];
     int force = value != defvalue;
     sds line;
@@ -1340,7 +1340,7 @@ void rewriteConfigBytesOption(struct rewriteConfigState *state, char *option, lo
 }
 
 /* Rewrite a yes/no option. */
-void rewriteConfigYesNoOption(struct rewriteConfigState *state, char *option, int value, int defvalue) {
+void rewriteConfigYesNoOption(struct rewriteConfigState *state, const char *option, int value, int defvalue) {
     int force = value != defvalue;
     sds line = sdscatprintf(sdsempty(),"%s %s",option,
         value ? "yes" : "no");
@@ -1349,7 +1349,7 @@ void rewriteConfigYesNoOption(struct rewriteConfigState *state, char *option, in
 }
 
 /* Rewrite a string option. */
-void rewriteConfigStringOption(struct rewriteConfigState *state, char *option, char *value, char *defvalue) {
+void rewriteConfigStringOption(struct rewriteConfigState *state, const char *option, char *value, const char *defvalue) {
     int force = 1;
     sds line;
 
@@ -1379,7 +1379,7 @@ void rewriteConfigNumericalOption(struct rewriteConfigState *state, const char *
 }
 
 /* Rewrite a octal option. */
-void rewriteConfigOctalOption(struct rewriteConfigState *state, char *option, int value, int defvalue) {
+void rewriteConfigOctalOption(struct rewriteConfigState *state, const char *option, int value, int defvalue) {
     int force = value != defvalue;
     sds line = sdscatprintf(sdsempty(),"%s %o",option,value);
 
@@ -1389,7 +1389,7 @@ void rewriteConfigOctalOption(struct rewriteConfigState *state, char *option, in
 /* Rewrite an enumeration option, after the "value" every enum/value pair
  * is specified, terminated by NULL. After NULL the default value is
  * specified. See how the function is used for more information. */
-void rewriteConfigEnumOption(struct rewriteConfigState *state, char *option, int value, ...) {
+void rewriteConfigEnumOption(struct rewriteConfigState *state, const char *option, int value, ...) {
     va_list ap;
     char *enum_name, *matching_name = NULL;
     int enum_val, def_val, force;
@@ -1416,7 +1416,7 @@ void rewriteConfigEnumOption(struct rewriteConfigState *state, char *option, int
 void rewriteConfigSyslogfacilityOption(struct rewriteConfigState *state) {
     int value = server.syslog_facility, j;
     int force = value != LOG_LOCAL0;
-    char *name = NULL, *option = "syslog-facility";
+    const char *name = NULL, *option = "syslog-facility";
     sds line;
 
     for (j = 0; validSyslogFacilities[j].name; j++) {
@@ -1459,7 +1459,7 @@ void rewriteConfigDirOption(struct rewriteConfigState *state) {
 
 /* Rewrite the slaveof option. */
 void rewriteConfigSlaveofOption(struct rewriteConfigState *state) {
-    char *option = "slaveof";
+    const char *option = "slaveof";
     sds line;
 
     /* If this is a master, we want all the slaveof config options
@@ -1476,7 +1476,7 @@ void rewriteConfigSlaveofOption(struct rewriteConfigState *state) {
 /* Rewrite the notify-keyspace-events option. */
 void rewriteConfigNotifykeyspaceeventsOption(struct rewriteConfigState *state) {
     int force = server.notify_keyspace_events != 0;
-    char *option = "notify-keyspace-events";
+    const char *option = "notify-keyspace-events";
     sds line, flags;
 
     flags = keyspaceEventsFlagsToString(server.notify_keyspace_events);
@@ -1490,7 +1490,7 @@ void rewriteConfigNotifykeyspaceeventsOption(struct rewriteConfigState *state) {
 /* Rewrite the client-output-buffer-limit option. */
 void rewriteConfigClientoutputbufferlimitOption(struct rewriteConfigState *state) {
     int j;
-    char *option = "client-output-buffer-limit";
+    const char *option = "client-output-buffer-limit";
 
     for (j = 0; j < REDIS_CLIENT_LIMIT_NUM_CLASSES; j++) {
         int force = (server.client_obuf_limits[j].hard_limit_bytes !=
@@ -1518,7 +1518,7 @@ void rewriteConfigClientoutputbufferlimitOption(struct rewriteConfigState *state
 void rewriteConfigBindOption(struct rewriteConfigState *state) {
     int force = 1;
     sds line, addresses;
-    char *option = "bind";
+    const char *option = "bind";
 
     /* Nothing to rewrite if we don't have bind addresses. */
     if (server.bindaddr_count == 0) {

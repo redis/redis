@@ -365,7 +365,7 @@ int d2string(char *buf, size_t len, double value) {
  * sure that it is either a different instance or it was restarted. */
 void getRandomHexChars(char *p, unsigned int len) {
     FILE *fp = fopen("/dev/urandom","r");
-    char *charset = "0123456789abcdef";
+    const char *charset = "0123456789abcdef";
     unsigned int j;
 
     if (fp == NULL || fread(p,len,1,fp) == 0) {

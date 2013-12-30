@@ -387,8 +387,8 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
     list *keys = listCreate();
     listNode *node, *nextnode;
     long count = 10;
-    sds pat;
-    int patlen, use_pattern = 0;
+    sds pat = NULL;
+    int patlen = 0, use_pattern = 0;
     dict *ht;
 
     /* Object must be NULL (to iterate keys names), or the type of the object

@@ -3041,7 +3041,7 @@ void redisOutOfMemoryHandler(size_t allocation_size) {
     redisPanic("Redis aborting for OUT OF MEMORY");
 }
 
-void redisSetProcTitle(char *title) {
+void redisSetProcTitle(const char *title) {
 #ifdef USE_SETPROCTITLE
     setproctitle("%s %s:%d",
         title,

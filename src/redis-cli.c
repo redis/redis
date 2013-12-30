@@ -359,7 +359,7 @@ static void cliPrintContextError() {
     fprintf(stderr,"Error: %s\n",context->errstr);
 }
 
-static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
+static sds cliFormatReplyTTY(redisReply *r, const char *prefix) {
     sds out = sdsempty();
     switch (r->type) {
     case REDIS_REPLY_ERROR:
@@ -1279,8 +1279,8 @@ static void findBigKeys(void) {
     unsigned long long biggest[5] = {0,0,0,0,0};
     unsigned long long samples = 0;
     redisReply *reply1, *reply2, *reply3 = NULL;
-    char *sizecmd, *typeName[] = {"string","list","set","hash","zset"};
-    char *typeunit[] = {"bytes","items","members","fields","members"};
+    const char *sizecmd, *typeName[] = {"string","list","set","hash","zset"};
+    const char *typeunit[] = {"bytes","items","members","fields","members"};
     int type;
 
     printf("\n# Press ctrl+c when you have had enough of it... :)\n");
@@ -1358,7 +1358,7 @@ static void findBigKeys(void) {
 /* Return the specified INFO field from the INFO command output "info".
  * A new buffer is allocated for the result, that needs to be free'd.
  * If the field is not found NULL is returned. */
-static char *getInfoField(char *info, char *field) {
+static char *getInfoField(char *info, const char *field) {
     char *p = strstr(info,field);
     char *n1, *n2;
     char *result;
@@ -1376,7 +1376,7 @@ static char *getInfoField(char *info, char *field) {
 
 /* Like the above function but automatically convert the result into
  * a long. On error (missing field) LONG_MIN is returned. */
-static long getLongInfoField(char *info, char *field) {
+static long getLongInfoField(char *info, const char *field) {
     char *value = getInfoField(info,field);
     long l;
 

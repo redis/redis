@@ -2740,7 +2740,7 @@ void clusterCommand(redisClient *c) {
         addReply(c,shared.ok);
     } else if (!strcasecmp((char*)c->argv[1]->ptr,"info") && c->argc == 2) {
         /* CLUSTER INFO */
-        char *statestr[] = {"ok","fail","needhelp"};
+        const char *statestr[] = {"ok","fail","needhelp"};
         int slots_assigned = 0, slots_ok = 0, slots_pfail = 0, slots_fail = 0;
         int j;
 

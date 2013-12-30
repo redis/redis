@@ -155,7 +155,7 @@ char *redisProtocolToLuaType_MultiBulk(lua_State *lua, char *reply) {
     return p;
 }
 
-void luaPushError(lua_State *lua, char *error) {
+void luaPushError(lua_State *lua, const char *error) {
     lua_Debug dbg;
 
     lua_newtable(lua);
@@ -384,7 +384,7 @@ int luaRedisSha1hexCommand(lua_State *lua) {
  * return redis.error_reply("ERR Some Error")
  * return redis.status_reply("ERR Some Error")
  */
-int luaRedisReturnSingleFieldTable(lua_State *lua, char *field) {
+int luaRedisReturnSingleFieldTable(lua_State *lua, const char *field) {
     if (lua_gettop(lua) != 1 || lua_type(lua,-1) != LUA_TSTRING) {
         luaPushError(lua, "wrong number or type of arguments");
         return 1;
@@ -511,7 +511,7 @@ void luaRemoveUnsupportedFunctions(lua_State *lua) {
  * It should be the last to be called in the scripting engine initialization
  * sequence, because it may interact with creation of globals. */
 void scriptingEnableGlobalsProtection(lua_State *lua) {
-    char *s[32];
+    const char *s[32];
     sds code = sdsempty();
     int j = 0;
 
@@ -623,7 +623,8 @@ void scriptingInit(void) {
     /* Add a helper function that we use to sort the multi bulk output of non
      * deterministic commands, when containing 'false' elements. */
     {
-        char *compare_func =    "function __redis__compare_helper(a,b)\n"
+        const char *compare_func =    
+                                "function __redis__compare_helper(a,b)\n"
                                 "  if a == false then a = '' end\n"
                                 "  if b == false then b = '' end\n"
                                 "  return a<b\n"
@@ -637,7 +638,7 @@ void scriptingInit(void) {
      * information about the caller, that's what makes sense from the point
      * of view of the user debugging a script. */
     {
-        char *errh_func =       "function __redis__err__handler(err)\n"
+        const char *errh_func = "function __redis__err__handler(err)\n"
                                 "  local i = debug.getinfo(2,'nSl')\n"
                                 "  if i and i.what == 'C' then\n"
                                 "    i = debug.getinfo(3,'nSl')\n"
@@ -690,7 +691,7 @@ void scriptingReset(void) {
 void sha1hex(char *digest, char *script, size_t len) {
     SHA1_CTX ctx;
     unsigned char hash[20];
-    char *cset = "0123456789abcdef";
+    const char *cset = "0123456789abcdef";
     int j;
 
     SHA1Init(&ctx);
@@ -770,7 +771,7 @@ void luaReplyToRedisReply(redisClient *c, lua_State *lua) {
 
 /* Set an array of Redis String Objects as a Lua array (table) stored into a
  * global variable. */
-void luaSetGlobalArray(lua_State *lua, char *var, robj **elev, int elec) {
+void luaSetGlobalArray(lua_State *lua, const char *var, robj **elev, int elec) {
     int j;
 
     lua_newtable(lua);

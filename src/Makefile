@@ -46,11 +46,14 @@ ifeq ($(USE_JEMALLOC),yes)
 	MALLOC=jemalloc
 endif
 
+ifdef CXX
+CC=g++
+WARN+=-Wno-long-long -Wno-sign-compare -Wno-pedantic
+STD=-std=c++0x -pedantic
+endif
+
 # Override default settings if possible
 -include .make-settings
-
-CC=g++
-WARN+=-Wno-long-long
 
 FINAL_CFLAGS=$(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
 FINAL_LDFLAGS=$(LDFLAGS) $(REDIS_LDFLAGS) $(DEBUG)
