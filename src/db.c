@@ -150,6 +150,10 @@ robj *dbRandomKey(redisDb *db) {
         if (dictFind(db->expires,key)) {
             if (expireIfNeeded(db,keyobj)) {
                 decrRefCount(keyobj);
+                /* Escaping from infinite loop by RANDOMKEY if slave has only expired key. */
+                if (server.masterhost != NULL && dictSize(db->dict) == dictSize(db->expires)) {
+                    return NULL;
+                }
                 continue; /* search for another key. This expired. */
             }
         }
