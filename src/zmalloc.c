@@ -69,6 +69,11 @@ void zlibc_free(void *ptr) {
 #define calloc(count,size) je_calloc(count,size)
 #define realloc(ptr,size) je_realloc(ptr,size)
 #define free(ptr) je_free(ptr)
+#elif defined(USE_DLMALLOC)
+#define malloc(size) dlmalloc(size)
+#define calloc(count,size) dlcalloc(count,size)
+#define realloc(ptr,size) dlrealloc(ptr,size)
+#define free(ptr) dlfree(ptr)
 #endif
 
 #ifdef HAVE_ATOMIC

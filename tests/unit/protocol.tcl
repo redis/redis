@@ -1,6 +1,4 @@
 start_server {tags {"protocol"}} {
-#JEP
-if 0 {	
     test "Handle an empty query" {
         reconnect
         r write "\r\n"
@@ -97,7 +95,6 @@ if 0 {
         } {*Protocol error*}
     }
     unset c
-}
 }
 
 start_server {tags {"regression"}} {

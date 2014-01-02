@@ -49,7 +49,6 @@
 #include <errno.h>
 #ifdef _WIN32
 #include "win32fixes.h"
-#include "win32_bksv.h"
 #else
 #include <pthread.h>
 #include <syslog.h>
@@ -69,7 +68,6 @@
 #include "version.h" /* Version macro */
 #include "util.h"    /* Misc functions useful in many places */
 
-#include "win32_cow.h" /* Windows copy on write */
 #include "redisLog.h" /* moved logging for hiredis and RedisCli usage /*
 
 /* Error codes */
@@ -624,16 +622,6 @@ struct redisServer {
     time_t rdb_save_time_start;     /* Current RDB save start time. */
     int lastbgsave_status;          /* REDIS_OK or REDIS_ERR */
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
-#ifdef _WIN32
-    /* Windows copy on write for AOF and RDB persistence */
-    bkgdfsave rdbbkgdfsave;
-    dict *cowDictCopied;
-    dict *cowDictConverted;
-    int isBackgroundSaving;
-    bkgdDbExt *cowSaveDbExt;
-    redisDb *cowSaveDb;
-    bkgditers cowCurIters;
-#endif
     /* Propagation of commands in AOF / replication */
     redisOpArray also_propagate;    /* Additional command to propagate. */
     /* Logging */

@@ -47,7 +47,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <PreprocessorDefinitions>_WIN32IOCP;WIN32;_DEBUG;_CONSOLE;__x86_64__;%(PreprocessorDefinitions);WIN32_IOCP;WIN32_IOCP</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_WIN32IOCP;WIN32;USE_DL_PREFIX;LACKS_STDLIB_H;_DEBUG;_CONSOLE;__x86_64__;%(PreprocessorDefinitions);WIN32_IOCP;WIN32_IOCP;USE_DLMALLOC</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(SolutionDir)..\deps\lua\src;$(SolutionDir)..\deps\hiredis</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
@@ -60,11 +60,12 @@
       <SubSystem>Console</SubSystem>
       <AdditionalLibraryDirectories>$(OutDir);$(OutDir)lib</AdditionalLibraryDirectories>
       <AdditionalDependencies>lua.lib;hiredis.lib;ws2_32.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;advapi32.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <RandomizedBaseAddress>false</RandomizedBaseAddress>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <PreprocessorDefinitions>_WIN32IOCP;WIN32;NDEBUG;_CONSOLE;__x86_64__;%(PreprocessorDefinitions);WIN32_IOCP;WIN32_IOCP</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_WIN32IOCP;WIN32;USE_DL_PREFIX;LACKS_STDLIB_H;NDEBUG;_CONSOLE;__x86_64__;%(PreprocessorDefinitions);WIN32_IOCP;USE_DLMALLOC</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(SolutionDir)..\deps\lua\src;$(SolutionDir)..\deps\hiredis</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
@@ -78,6 +79,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <AdditionalLibraryDirectories>$(OutDir);$(OutDir)lib</AdditionalLibraryDirectories>
       <AdditionalDependencies>lua.lib;hiredis.lib;ws2_32.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;advapi32.lib;shell32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <RandomizedBaseAddress>false</RandomizedBaseAddress>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -124,9 +126,10 @@
     <ClCompile Include="..\src\t_zset.c" />
     <ClCompile Include="..\src\util.c" />
     <ClCompile Include="..\src\win32fixes.c" />
-    <ClCompile Include="..\src\win32_bksv.c" />
-    <ClCompile Include="..\src\win32_cow.c" />
+    <ClCompile Include="..\src\Win32_dlmalloc.c" />
     <ClCompile Include="..\src\Win32_FDAPI.cpp" />
+    <ClCompile Include="..\src\Win32_QFork.cpp" />
+    <ClCompile Include="..\src\Win32_QFork_impl.c" />
     <ClCompile Include="..\src\win32_rfdmap.cpp" />
     <ClCompile Include="..\src\win32_wsiocp.c" />
     <ClCompile Include="..\src\ziplist.c" />
@@ -160,10 +163,12 @@
     <ClInclude Include="..\src\util.h" />
     <ClInclude Include="..\src\version.h" />
     <ClInclude Include="..\src\win32fixes.h" />
-    <ClInclude Include="..\src\win32_bksv.h" />
-    <ClInclude Include="..\src\win32_cow.h" />
+    <ClInclude Include="..\src\Win32_dlmalloc.h" />
     <ClInclude Include="..\src\Win32_FDAPI.h" />
+    <ClInclude Include="..\src\Win32_QFork.h" />
+    <ClInclude Include="..\src\Win32_QFork_impl.h" />
     <ClInclude Include="..\src\win32_rfdmap.h" />
+    <ClInclude Include="..\src\Win32_SmartHandle.h" />
     <ClInclude Include="..\src\win32_wsiocp.h" />
     <ClInclude Include="..\src\WS2tcpip.h" />
     <ClInclude Include="..\src\ziplist.h" />

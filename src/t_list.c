@@ -336,12 +336,6 @@ void pushxGenericCommand(redisClient *c, robj *refval, robj *val, int where) {
 
     if ((subject = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,subject,REDIS_LIST)) return;
-#ifdef _WIN32
-    /* need this because does not call lookupKeyWriteOrReply() */
-    if (subject && server.isBackgroundSaving) {
-        subject = cowEnsureWriteCopy(c->db, c->argv[1], subject);
-    }
-#endif
 
     if (refval != NULL) {
         /* Note: we expect refval to be string-encoded because it is *not* the

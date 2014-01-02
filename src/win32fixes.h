@@ -34,6 +34,7 @@
 #include <sys/types.h>
 
 #include "Win32_FDAPI.h"    
+#include "Win32_QFork.h"
 
 #define fseeko fseeko64
 #define ftello ftello64
@@ -170,7 +171,7 @@ int getrusage(int who, struct rusage * rusage);
 #endif /*SIG_SETMASK*/
 
 typedef	void (*__p_sig_fn_t)(int);
-typedef int pid_t;
+typedef DWORD pid_t;
 
 #ifndef _SIGSET_T_
 #define _SIGSET_T_

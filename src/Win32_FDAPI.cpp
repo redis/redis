@@ -25,6 +25,7 @@
 #include "APIBridge\APIBridge.h"
 #include <exception>
 #include <mswsock.h>
+#include <sys/stat.h>
 
 #define CATCH_AND_REPORT()  catch(const std::exception &){printf("std exception");}catch(...){printf("other exception");}
 
@@ -63,6 +64,7 @@ redis_connect connect = NULL;
 redis_read read = NULL;
 redis_write write = NULL;
 redis_fsync fsync = NULL;
+_redis_fstat fdapi_fstat64 = NULL;
 redis_listen listen = NULL;
 redis_ftruncate ftruncate = NULL;
 redis_bind bind = NULL;
@@ -482,21 +484,14 @@ ssize_t redis_write_impl(int fd, const void *buf, size_t count) {
 
 int redis_fsync_impl(int fd) {
     try {
-/*
-        The only place fsync is called is in rewriteAppendOnlyFile() ~@line 1132:
-              aof_fsync(fileno(fp));
-        
-        This is taking a FILE* and converting it to a CRT FD. Since this layer is not mapping FILE* APIS,
-        we assume that the fd passed in is what we want already.
-
         int posixFD = RFDMap::getInstance().lookupPosixFD( fd );
         if( posixFD == -1 ) {
-            errno = EBADF;
-            return -1;
+            // There is one place in Redis where we are not tracking posix FDs because it involves
+            // direct ocnversion of a FILE* to an FD.
+            posixFD = fd;
         }
-*/
 
-        HANDLE h = (HANDLE) APIBridge::_get_osfhandle(fd);
+        HANDLE h = (HANDLE) APIBridge::_get_osfhandle(posixFD);
         DWORD err;
 
         if (h == INVALID_HANDLE_VALUE) {
@@ -518,6 +513,20 @@ int redis_fsync_impl(int fd) {
         }
 
         return 0;
+    } CATCH_AND_REPORT()
+
+    errno = EBADF;
+    return -1;
+}
+
+int redis_fstat_impl(int fd, struct __stat64 *buffer) {
+    try {
+        int posixFD = RFDMap::getInstance().lookupPosixFD( fd );
+        if( posixFD == -1 ) {
+            posixFD = fd;
+        }
+
+        return _fstat64(posixFD, buffer);
     } CATCH_AND_REPORT()
 
     errno = EBADF;
@@ -842,6 +851,7 @@ private:
         read = redis_read_impl;
         write = redis_write_impl; 
         fsync = redis_fsync_impl;
+        fdapi_fstat64 = (_redis_fstat)redis_fstat_impl;
         listen = redis_listen_impl;
         ftruncate = redis_ftruncate_impl;
         bind = redis_bind_impl;

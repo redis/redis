@@ -933,18 +933,26 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Check if a background saving or AOF rewrite in progress terminated. */
     if (server.rdb_child_pid != -1 || server.aof_child_pid != -1) {
 #ifdef _WIN32
-        if (server.rdbbkgdfsave.state == BKSAVE_SUCCESS) {
-            if (server.rdb_child_pid != -1) {
+        if (GetForkOperationStatus() == osCOMPLETE) {
+            OperationType type = server.rdb_child_pid != -1 ? otRDB : otAOF;
+            redisLog(REDIS_WARNING,"fork operation complete");
+            EndForkOperation();
+            if (type == otRDB) {
                 backgroundSaveDoneHandler(0, 0);
             } else {
                 backgroundRewriteDoneHandler(0, 0);
             }
-        } else if (server.rdbbkgdfsave.state == BKSAVE_FAILED) {
-            if (server.rdb_child_pid != -1) {
-                backgroundSaveDoneHandler(1, 0);
+            updateDictResizePolicy();
+        } else if (GetForkOperationStatus() == osFAILED) {
+            OperationType type = server.rdb_child_pid != -1 ? otRDB : otAOF;
+            redisLog(REDIS_WARNING,"fork operation failed");
+            EndForkOperation();
+            if (type == otRDB) {
+                backgroundSaveDoneHandler(0, 1);
             } else {
-                backgroundRewriteDoneHandler(1, 0);
+                backgroundRewriteDoneHandler(0, 1);
             }
+            updateDictResizePolicy();
         }
 #else
         int statloc;
@@ -1798,7 +1806,7 @@ int prepareForShutdown(int flags) {
     if (server.rdb_child_pid != -1) {
         redisLog(REDIS_WARNING,"There is a child saving an .rdb. Killing it!");
 #ifdef _WIN32
-        bkgdsave_termthread();
+        AbortForkOperation();
 #else
         kill(server.rdb_child_pid,SIGUSR1);
 #endif
@@ -1811,7 +1819,7 @@ int prepareForShutdown(int flags) {
             redisLog(REDIS_WARNING,
                 "There is a child rewriting the AOF. Killing it!");
 #ifdef _WIN32
-            bkgdsave_termthread();
+            AbortForkOperation();
 #else
             kill(server.aof_child_pid,SIGUSR1);
 #endif
@@ -2813,9 +2821,6 @@ int main(int argc, char **argv) {
     }
     if (server.daemonize) daemonize();
     initServer();
-#ifdef _WIN32
-    cowInit();
-#endif
     if (server.daemonize) createPidFile();
     redisAsciiArt();
 

@@ -22,6 +22,10 @@
 
 #pragma once
 
+#ifndef _WIN32_FDAPI_H
+#define _WIN32_FDAPI_H
+#endif
+
 // fcntl flags used in Redis
 #define	F_GETFL		3
 #define	F_SETFL		4
@@ -136,6 +140,7 @@ typedef int (*redis_connect)(int sockfd, const struct sockaddr *addr, size_t add
 typedef ssize_t (*redis_read)(int fd, void *buf, size_t count);
 typedef ssize_t (*redis_write)(int fd, const void *buf, size_t count); 
 typedef int (*redis_fsync)(int fd);
+typedef int (*_redis_fstat)(int fd, struct __stat64 *buffer);
 typedef int (*redis_listen)(int sockfd, int backlog);
 typedef int (*redis_ftruncate)(int fd, long long length);
 typedef int (*redis_bind)(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
@@ -179,6 +184,7 @@ extern redis_connect connect;
 extern redis_read read;
 extern redis_write write;
 extern redis_fsync fsync;
+extern _redis_fstat fdapi_fstat64;
 extern redis_listen listen;
 extern redis_ftruncate ftruncate;
 extern redis_bind bind;

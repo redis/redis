@@ -107,28 +107,24 @@ start_server {tags {"other"}} {
         }
     }
 
-# COW killing redis. Eliminating all tests for replication, RDB and AOF until a better COW solution is found.
-#
-#    test {EXPIRES after a reload (snapshot + append only file rewrite)} {
-#
-#        r flushdb
-#        r set x 10
-#        r expire x 1000
-#        r save
-#        r debug reload
-#        set ttl [r ttl x]
-#        set e1 [expr {$ttl > 900 && $ttl <= 1000}]
-#        r bgrewriteaof
-#        waitForBgrewriteaof r
-#        r debug loadaof
-#        set ttl [r ttl x]
-#        set e2 [expr {$ttl > 900 && $ttl <= 1000}]
-#        list $e1 $e2
-#    } {1 1}
+    test {EXPIRES after a reload (snapshot + append only file rewrite)} {
+
+        r flushdb
+        r set x 10
+        r expire x 1000
+        r save
+        r debug reload
+        set ttl [r ttl x]
+        set e1 [expr {$ttl > 900 && $ttl <= 1000}]
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+        set ttl [r ttl x]
+        set e2 [expr {$ttl > 900 && $ttl <= 1000}]
+        list $e1 $e2
+    } {1 1}
 
     test {EXPIRES after AOF reload (without rewrite)} {
-# JEP
-if 0 {
         r flushdb
         r config set appendonly yes
         r set x somevalue
@@ -165,7 +161,6 @@ if 0 {
         set ttl [r ttl pz]
         assert {$ttl > 2900 && $ttl <= 3000}
         r config set appendonly no
-}
     }
 
     tags {protocol} {
