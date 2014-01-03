@@ -47,9 +47,7 @@ start_server {tags {"introspection"}} {
     } {*name=someothername*}
 
     test {After CLIENT SETNAME, connection can still be closed} {
-		if { [string match {*win32*} [platform::identify]] == 1 } {
-			puts "Known issue: windows version of tclsh8.5 not closing socket"
-		} else {
+		if { [string match {*win32*} [platform::identify]] == 0 } {
 			set rd [redis_deferring_client]
 			$rd client setname foobar
 			assert_equal [$rd read] "OK"
@@ -61,6 +59,8 @@ start_server {tags {"introspection"}} {
 			} else {
 				fail "Client still listed in CLIENT LIST after SETNAME."
 			}
+		} else {
+			fail "Win32: bypassing broken unit test (windows version of tclsh8.5 not closing socket)"
 		}
     }
 }

@@ -11,18 +11,6 @@ source tests/support/tmpfile.tcl
 source tests/support/test.tcl
 source tests/support/util.tcl
 
-#    integration/replication
-#    integration/replication-2
-#    integration/replication-3
-#    integration/replication-4
-#    integration/aof
-#    integration/rdb
-
-#    unit/multi
-
-#    unit/aofrw
-
-
 set ::all_tests {
     unit/printver
     unit/auth
@@ -37,7 +25,15 @@ set ::all_tests {
     unit/sort
     unit/expire
     unit/other
+    unit/multi
     unit/quit
+    unit/aofrw
+    integration/replication
+    integration/replication-2
+    integration/replication-3
+    integration/replication-4
+    integration/aof
+    integration/rdb
     integration/convert-zipmap-hash-on-load
     unit/pubsub
     unit/slowlog

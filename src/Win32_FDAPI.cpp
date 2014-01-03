@@ -393,7 +393,7 @@ int redis_poll_impl(struct pollfd *fds, nfds_t nfds, int timeout) {
 int redis_getsockopt_impl(int sockfd, int level, int optname, void *optval, socklen_t *optlen) {
     try {
         SOCKET s = RFDMap::getInstance().lookupSocket(sockfd);
-        if( s != INVALID_SOCKET ) {
+        if( s == INVALID_SOCKET ) {
             errno = EBADF;
             return -1;
         }
@@ -409,7 +409,7 @@ int redis_getsockopt_impl(int sockfd, int level, int optname, void *optval, sock
 int redis_connect_impl(int sockfd, const struct sockaddr *addr, size_t addrlen) {
     try {
         SOCKET s = RFDMap::getInstance().lookupSocket(sockfd);
-        if( s != INVALID_SOCKET ) {
+        if( s == INVALID_SOCKET ) {
             errno = EBADF;
             return -1;
         }

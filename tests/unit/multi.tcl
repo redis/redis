@@ -1,3 +1,5 @@
+package require platform 1.0.4
+
 start_server {tags {"multi"}} {
     test {MUTLI / EXEC basics} {
         r del mylist
@@ -267,7 +269,9 @@ start_server {tags {"multi"}} {
         close_replication_stream $repl
     }
 
+
     test {MULTI / EXEC is propagated correctly (empty transaction)} {
+if { [string match {*win32*} [platform::identify]] == 0 } {
         set repl [attach_to_replication_stream]
         r multi
         r exec
@@ -277,9 +281,13 @@ start_server {tags {"multi"}} {
             {set foo bar}
         }
         close_replication_stream $repl
+} else {
+	fail "Win32: bypassing broken unit test"
+}		
     }
 
     test {MULTI / EXEC is propagated correctly (read-only commands)} {
+if { [string match {*win32*} [platform::identify]] == 0 } {
         r set foo value1
         set repl [attach_to_replication_stream]
         r multi
@@ -291,9 +299,13 @@ start_server {tags {"multi"}} {
             {set foo value2}
         }
         close_replication_stream $repl
+} else {
+	fail "Win32: bypassing broken unit test"
+}		
     }
 
     test {MULTI / EXEC is propagated correctly (write command, no effect)} {
+if { [string match {*win32*} [platform::identify]] == 0 } {
         r del bar foo bar
         set repl [attach_to_replication_stream]
         r multi
@@ -305,5 +317,9 @@ start_server {tags {"multi"}} {
             {exec}
         }
         close_replication_stream $repl
+} else {
+	fail "Win32: bypassing broken unit test"
+}		
     }
+
 }

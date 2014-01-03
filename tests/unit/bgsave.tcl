@@ -2272,8 +2272,8 @@ start_server {tags {"other"}} {
 
 # On Windows there are issues with expiring keys and the bgsave/flushload mechanism. 
 # It looks like a race condition.
-if { [string match {*win32*} [platform::identify]] == 0 } {
     test {BGSAVE expires} {
+if { [string match {*win32*} [platform::identify]] == 0 } {
         waitForBgsave r
         r flushdb
         r set x 10
@@ -2287,9 +2287,13 @@ if { [string match {*win32*} [platform::identify]] == 0 } {
         set e1 [expr {$ttl > 900 && $ttl <= 1000}]
         assert_equal $e1 1
         r flushdb
+} else {
+	fail "Win32: bypassing broken unit test"
+}
     } {OK}
 
     test {BGSAVE expires stress} {
+if { [string match {*win32*} [platform::identify]] == 0 } {
         waitForBgsave r
         r flushdb
         r save
@@ -2305,7 +2309,9 @@ if { [string match {*win32*} [platform::identify]] == 0 } {
 			after 200
 		}
         r flushdb
+} else {
+	fail "Win32: bypassing broken unit test"
+}	
     } {OK}
-}
 
 }

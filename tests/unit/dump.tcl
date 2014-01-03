@@ -1,3 +1,5 @@
+package require platform 1.0.4
+
 start_server {tags {"dump"}} {
     test {DUMP / RESTORE are able to serialize / unserialize a simple key} {
         r set foo bar
@@ -67,7 +69,7 @@ start_server {tags {"dump"}} {
     }
 
     test {MIGRATE can correctly transfer large values} {
-		# win - works single pass, but fails with full unit test pass. Probably a timing issue.
+if { [string match {*win32*} [platform::identify]] == 0 } {
 		set first [srv 0 client]
 		r del key
 		for {set j 0} {$j < 5000} {incr j} {
@@ -90,7 +92,11 @@ start_server {tags {"dump"}} {
 			assert {[$second ttl key] == -1}
 			assert {[$second llen key] == 5000*20}
 		}
-    }
+} else {
+	fail "Win32: bypassing broken unit test"
+}
+
+} 
 
     test {MIGRATE can correctly transfer hashes} {
         set first [srv 0 client]
