@@ -419,6 +419,7 @@ int rewriteAppendOnlyFile(char *filename) {
     }
     for (j = 0; j < server.dbnum; j++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
+        long objectCounter = 0;
         redisDb *db = server.db+j;
         dict *d = db->dict;
         if (dictSize(d) == 0) continue;
@@ -438,6 +439,14 @@ int rewriteAppendOnlyFile(char *filename) {
             robj key, *o;
             time_t expiretime;
             int swapped;
+
+            if(server.append_fsync_after_objects){
+                objectCounter++;
+				if (objectCounter % server.append_fsync_after_objects == 0) {
+					fflush(fp);
+					aof_fsync(fileno(fp));
+				}
+            }
 
             keystr = dictGetEntryKey(de);
             o = dictGetEntryVal(de);
