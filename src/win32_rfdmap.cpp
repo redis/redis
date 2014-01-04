@@ -60,6 +60,7 @@ void RFDMap::removeSocket(SOCKET s) {
     }
 	RFD rfd = (*mit).second;
 	RFDRecyclePool.push(rfd);
+    RFDToSocketMap.erase(rfd);
 	SocketToRFDMap.erase(s);
 }
 
@@ -83,6 +84,7 @@ void RFDMap::removePosixFD(int posixFD) {
     }
 	RFD rfd = (*mit).second;
 	RFDRecyclePool.push(rfd);
+    RFDToPosixFDMap.erase(rfd);
 	PosixFDToRFDMap.erase(posixFD);
 }
 

@@ -271,7 +271,6 @@ start_server {tags {"multi"}} {
 
 
     test {MULTI / EXEC is propagated correctly (empty transaction)} {
-if { [string match {*win32*} [platform::identify]] == 0 } {
         set repl [attach_to_replication_stream]
         r multi
         r exec
@@ -281,13 +280,9 @@ if { [string match {*win32*} [platform::identify]] == 0 } {
             {set foo bar}
         }
         close_replication_stream $repl
-} else {
-	fail "Win32: bypassing broken unit test"
-}		
     }
 
     test {MULTI / EXEC is propagated correctly (read-only commands)} {
-if { [string match {*win32*} [platform::identify]] == 0 } {
         r set foo value1
         set repl [attach_to_replication_stream]
         r multi
@@ -299,13 +294,9 @@ if { [string match {*win32*} [platform::identify]] == 0 } {
             {set foo value2}
         }
         close_replication_stream $repl
-} else {
-	fail "Win32: bypassing broken unit test"
-}		
     }
 
     test {MULTI / EXEC is propagated correctly (write command, no effect)} {
-if { [string match {*win32*} [platform::identify]] == 0 } {
         r del bar foo bar
         set repl [attach_to_replication_stream]
         r multi
@@ -317,9 +308,6 @@ if { [string match {*win32*} [platform::identify]] == 0 } {
             {exec}
         }
         close_replication_stream $repl
-} else {
-	fail "Win32: bypassing broken unit test"
-}		
     }
 
 }
