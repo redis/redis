@@ -122,19 +122,22 @@ start_server {tags {"scripting"}} {
         r get mykey
     } {this is DB 9}
 
-# JEP
-if 0 {
-        test {EVAL - Script can't run more than configured time limit} {
-            r config set lua-time-limit 1
-            catch {
-                r eval {
-                    local i = 0
-                    while true do i=i+1 end
-                } 0
-            } e
-            set _ $e
-        } {*execution time*}
-    }
+    # this test hangs in windows
+    test {EVAL - Script can't run more than configured time limit} {
+		if { $::tcl_platform(platform) != "windows" } {
+			r config set lua-time-limit 1
+			catch {
+				r eval {
+					local i = 0
+					while true do i=i+1 end
+				} 0
+			} e
+			set _ $e
+		} else {
+			fail "Win32: bypassing failing test"
+		}
+    } {*execution time*}
+
 
     test {EVAL - Scripts can't run certain commands} {
         set e {}

@@ -1,5 +1,3 @@
-package require platform 1.0.4
-
 set defaults { appendonly {yes} appendfilename {appendonly.aof} }
 set server_path [tmpdir server.aof]
 set aof_path "$server_path/appendonly.aof"
@@ -82,7 +80,6 @@ tags {"aof"} {
         assert_match "*not valid*" $result
     }
 
-# failing on Win32
     test "Short read: Utility should be able to fix the AOF" {
         set result [exec src/redis-check-aof --fix $aof_path << "y\n"]
         assert_match "*Successfully truncated AOF*" $result

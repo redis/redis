@@ -1,5 +1,3 @@
-package require platform 1.0.4
-
 start_server {tags {"expire"}} {
     test {EXPIRE - set timeouts multiple times} {
         r set x foobar
@@ -81,7 +79,7 @@ start_server {tags {"expire"}} {
 		set minExpire 900
 		set expire 1
 		set maxExpire 1100
-		if { [string match {*win32*} [platform::identify]] == 1 } {
+		if { $::tcl_platform(platform) == "windows" } {
 			# tweaking windows expire times in order to bypass unit test failures. statement-statement execution time on a fully taxed system can be 150ms.
 			set minExpire 1000
 			set expire 2
@@ -107,7 +105,7 @@ start_server {tags {"expire"}} {
 		set minExpire 80
 		set expire 100
 		set maxExpire 120
-		if { [string match {*win32*} [platform::identify]] == 1 } {
+		if { $::tcl_platform(platform) == "windows" } {
 			# tweaking windows expire times in order to bypass unit test failures. statement-statement execution time on a fully taxed system can be 100's of ms.
 			set minExpire 10
 			set expire 1000
@@ -150,7 +148,7 @@ start_server {tags {"expire"}} {
 		set expireTime 1
 		set minTime 900
 		set maxTime 1000
-		if { [string match {*win32*} [platform::identify]] == 1 } {
+		if { $::tcl_platform(platform) == "windows" } {
 			set expireTime 2
 			set minTime 200
 			set maxTime 2000
@@ -164,7 +162,7 @@ start_server {tags {"expire"}} {
     test {Redis should actively expire keys incrementally} {
     	set expireTime 500
 		set evictionTime 1000
-		if { [string match {*win32*} [platform::identify]] == 1 } {
+		if { $::tcl_platform(platform) == "windows" } {
 			set expireTime 2000
 			set evictionTime 4000
 		}

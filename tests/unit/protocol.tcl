@@ -60,13 +60,12 @@ start_server {tags {"protocol"}} {
         assert_error "*wrong*arguments*ping*" {r ping x y z}
     }
 
+# this is linux version
     set c 0
     foreach seq [list "\x00" "*\x00" "$\x00"] {
         incr c
         test "Protocol desync regression test #$c" {
             set s [socket [srv 0 host] [srv 0 port]]
-            # windows - set nonblocking
-            fconfigure $s -blocking false
             puts -nonewline $s $seq
             set payload [string repeat A 1024]"\n"
             set test_start [clock seconds]
@@ -77,13 +76,10 @@ start_server {tags {"protocol"}} {
                     flush $s
                     incr payload_size [string length $payload]
                 }]} {
-                    #windows - don't read after reset
                     set retval [gets $s]
                     close $s
                     break
                 } else {
-                    #windows - if data available, read line
-                    if {[read $s 1] ne ""} { set retval [gets $s] }
                     set elapsed [expr {[clock seconds]-$test_start}]
                     if {$elapsed > $test_time_limit} {
                         close $s
@@ -95,6 +91,43 @@ start_server {tags {"protocol"}} {
         } {*Protocol error*}
     }
     unset c
+
+
+#    set c 0
+#    foreach seq [list "\x00" "*\x00" "$\x00"] {
+#        incr c
+#        test "Protocol desync regression test #$c" {
+#            set s [socket [srv 0 host] [srv 0 port]]
+#            # windows - set nonblocking
+#            fconfigure $s -blocking false
+#            puts -nonewline $s $seq
+#            set payload [string repeat A 1024]"\n"
+#            set test_start [clock seconds]
+#            set test_time_limit 30
+#            while 1 {
+#                if {[catch {
+#                    puts -nonewline $s payload
+#                    flush $s
+#                    incr payload_size [string length $payload]
+#                }]} {
+#                    #windows - don't read after reset
+#                    set retval [gets $s]
+#                    close $s
+#                   break
+#                } else {
+#                    #windows - if data available, read line
+#                    if {[read $s 1] ne ""} { set retval [gets $s] }
+#                    set elapsed [expr {[clock seconds]-$test_start}]
+#                    if {$elapsed > $test_time_limit} {
+#                        close $s
+#                        error "assertion:Redis did not closed connection after protocol desync"
+#                    }
+#                }
+#            }
+#            set retval
+#        } {*Protocol error*}
+#    }
+#    unset c
 }
 
 start_server {tags {"regression"}} {

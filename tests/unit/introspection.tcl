@@ -1,5 +1,3 @@
-package require platform 1.0.4
-
 start_server {tags {"introspection"}} {
     test {CLIENT LIST} {
         r client list
