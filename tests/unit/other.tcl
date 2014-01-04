@@ -1,3 +1,5 @@
+package require platform 1.0.4
+
 start_server {tags {"other"}} {
     if {$::force_failure} {
         # This is used just for test suite development purposes.
@@ -119,6 +121,10 @@ start_server {tags {"other"}} {
         r bgrewriteaof
         waitForBgrewriteaof r
         r debug loadaof
+		if { [string match {*win32*} [platform::identify]] == 1 } {
+			# how to detect that loadaof is done? Windows needs this delay otherwise.
+			after 100
+		}
         set ttl [r ttl x]
         set e2 [expr {$ttl > 900 && $ttl <= 1000}]
         list $e1 $e2
