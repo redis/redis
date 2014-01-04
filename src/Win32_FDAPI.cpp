@@ -551,16 +551,17 @@ int redis_listen_impl(int sockfd, int backlog) {
 int redis_ftruncate_impl(int fd, long long length) {
     try
     {
+        LARGE_INTEGER l, o;
+        HANDLE h = INVALID_HANDLE_VALUE;
+
         int posixFD = RFDMap::getInstance().lookupPosixFD( fd );
         if( posixFD == -1 ) {
-            errno = EBADF;
-            return -1;
+            h = (HANDLE) APIBridge::_get_osfhandle (fd);
+        } else {
+            h = (HANDLE) APIBridge::_get_osfhandle (posixFD);
         }
 
-        HANDLE h = (HANDLE) APIBridge::_get_osfhandle (fd);
-        LARGE_INTEGER l, o;
-
-        if (h == INVALID_HANDLE_VALUE) {
+        if( h == INVALID_HANDLE_VALUE) {
             errno = EBADF;
             return -1;
         }

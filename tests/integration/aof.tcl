@@ -83,7 +83,6 @@ tags {"aof"} {
     }
 
 # failing on Win32
-if { [string match {*win32*} [platform::identify]] == 0 } {
     test "Short read: Utility should be able to fix the AOF" {
         set result [exec src/redis-check-aof --fix $aof_path << "y\n"]
         assert_match "*Successfully truncated AOF*" $result
@@ -101,9 +100,6 @@ if { [string match {*win32*} [platform::identify]] == 0 } {
             assert_equal "" [$client get bar]
         }
     }
-} else {
-puts "Win32: bypassing broken unit tests"
-}
 
     ## Test that SPOP (that modifies the client its argc/argv) is correctly free'd
     create_aof {
