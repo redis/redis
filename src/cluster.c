@@ -240,6 +240,7 @@ int clusterSaveConfig(int do_fsync) {
     return 0;
 
 err:
+    close(fd);
     sdsfree(ci);
     return -1;
 }
