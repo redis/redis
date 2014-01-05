@@ -162,6 +162,10 @@ struct redisCommand redisCommandTable[] = {
     {"sdiff",sdiffCommand,-2,"rS",0,NULL,1,-1,1,0,0},
     {"sdiffstore",sdiffstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0},
     {"smembers",sinterCommand,2,"rS",0,NULL,1,1,1,0,0},
+    {"iadd",iaddCommand,-5,"wm",0,NULL,1,1,1,0,0},
+    {"irem",iremCommand,-3,"w",0,NULL,1,1,1,0,0},
+    {"irembystab",irembystabCommand,3,"w",0,NULL,1,1,1,0,0},
+    {"istab",istabCommand,-3,"r",0,NULL,1,1,1,0,0},    
     {"sscan",sscanCommand,-3,"rR",0,NULL,1,1,1,0,0},
     {"zadd",zaddCommand,-4,"wm",0,NULL,1,1,1,0,0},
     {"zincrby",zincrbyCommand,4,"wm",0,NULL,1,1,1,0,0},
@@ -502,6 +506,16 @@ dictType zsetDictType = {
     dictEncObjKeyCompare,      /* key compare */
     dictRedisObjectDestructor, /* key destructor */
     NULL                       /* val destructor */
+};
+
+/* Interval sets hash (node: an avl tree is used in addition to the hash table) */
+dictType isetDictType = {
+    dictEncObjHash, /* hash function */
+    NULL, /* key dup */
+    NULL, /* val dup */
+    dictEncObjKeyCompare, /* key compare */
+    dictRedisObjectDestructor, /* key destructor */
+    NULL /* val destructor */
 };
 
 /* Db->dict, keys are sds strings, vals are Redis objects. */
