@@ -459,6 +459,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             return rdbSaveType(rdb,REDIS_RDB_TYPE_HASH);
         else
             redisPanic("Unknown hash encoding");
+    case REDIS_ISET:
+        return rdbSaveType(rdb,REDIS_RDB_TYPE_ISET);            
     default:
         redisPanic("Unknown object type");
     }
@@ -587,7 +589,27 @@ int rdbSaveObject(rio *rdb, robj *o) {
         } else {
             redisPanic("Unknown hash encoding");
         }
-
+    } else if (o->type == REDIS_ISET) {
+        /* Save an AVL tree */
+        avl * tree = o->ptr;
+        dictIterator *di = dictGetIterator(tree->dict);
+        dictEntry *de;
+        
+        if ((n = rdbSaveLen(rdb,dictSize(tree->dict))) == -1) return -1;
+        nwritten += n;
+        
+        while((de = dictNext(di)) != NULL) {
+            robj *eleobj = dictGetKey(de);
+            double *scores = dictGetVal(de);
+            
+            if ((n = rdbSaveStringObject(rdb,eleobj)) == -1) return -1;
+            nwritten += n;
+            if ((n = rdbSaveDoubleValue(rdb,scores[0])) == -1) return -1;
+            nwritten += n;
+            if ((n = rdbSaveDoubleValue(rdb,scores[1])) == -1) return -1;
+            nwritten += n;
+        }
+        dictReleaseIterator(di);
     } else {
         redisPanic("Unknown object type");
     }
@@ -947,6 +969,39 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         /* All pairs should be read by now */
         redisAssert(len == 0);
 
+    } else if (rdbtype == REDIS_RDB_TYPE_ISET) {
+        /* Read list/set value */
+        
+        size_t isetlen;
+        avl * tree;
+        size_t maxelelen = 0;
+        
+        if ((isetlen = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
+        o = createIsetObject();
+        tree = o->ptr;
+        
+        /* Load every single element of the list/set */
+        while(isetlen--) {
+            robj *ele;
+            double score1;
+            double score2;
+            
+            avlNode *inode;
+            
+            if ((ele = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
+            ele = tryObjectEncoding(ele);
+            if (rdbLoadDoubleValue(rdb,&score1) == -1) return NULL;
+            if (rdbLoadDoubleValue(rdb,&score2) == -1) return NULL;
+            
+            /* Don't care about integer-encoded strings. */
+            if (ele->encoding == REDIS_ENCODING_RAW &&
+                sdslen(ele->ptr) > maxelelen)
+                maxelelen = sdslen(ele->ptr);
+            
+            inode = avlInsert(tree, score1, score2, ele);
+            dictAdd(tree->dict,ele,&inode->scores);
+            incrRefCount(ele); /* Added to dictionary. */
+        }
     } else if (rdbtype == REDIS_RDB_TYPE_HASH_ZIPMAP  ||
                rdbtype == REDIS_RDB_TYPE_LIST_ZIPLIST ||
                rdbtype == REDIS_RDB_TYPE_SET_INTSET   ||
