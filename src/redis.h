@@ -179,7 +179,7 @@
 #define REDIS_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
 #define REDIS_ENCODING_INTSET 6  /* Encoded as intset */
 #define REDIS_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
-#define REDIS_ENCODING_AVLTREE 9 /* interval set, 8 used in unstable /*
+#define REDIS_ENCODING_AVLTREE 9 /* interval set, 8 used in unstable */
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
