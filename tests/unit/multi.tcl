@@ -267,7 +267,6 @@ start_server {tags {"multi"}} {
         close_replication_stream $repl
     }
 
-
     test {MULTI / EXEC is propagated correctly (empty transaction)} {
         set repl [attach_to_replication_stream]
         r multi
@@ -307,5 +306,4 @@ start_server {tags {"multi"}} {
         }
         close_replication_stream $repl
     }
-
 }

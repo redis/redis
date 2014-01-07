@@ -84,7 +84,7 @@ tags {"aof"} {
         set result [exec src/redis-check-aof --fix $aof_path << "y\n"]
         assert_match "*Successfully truncated AOF*" $result
     }
-	
+
     ## Test that the server can be started using the truncated AOF
     start_server_aof [list dir $server_path] {
         test "Fixed AOF: Server should have been started" {
