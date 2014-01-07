@@ -39,7 +39,7 @@
  * Redis 512 MB limit for the string value. */
 static int getBitOffsetFromArgument(redisClient *c, robj *o, size_t *offset) {
     long long loffset;
-    char *err = "bit offset is not an integer or out of range";
+    const char *err = "bit offset is not an integer or out of range";
 
     if (getLongLongFromObjectOrReply(c,o,&loffset,err) != REDIS_OK)
         return REDIS_ERR;
@@ -61,7 +61,7 @@ static int getBitOffsetFromArgument(redisClient *c, robj *o, size_t *offset) {
 size_t redisPopcount(void *s, long count) {
     size_t bits = 0;
     unsigned char *p;
-    uint32_t *p4 = s;
+    uint32_t *p4 = (uint32_t *)s;
     static const unsigned char bitsinbyte[256] = {0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8};
 
     /* Count bits 16 bytes at a time */
@@ -105,7 +105,7 @@ size_t redisPopcount(void *s, long count) {
 /* SETBIT key offset bitvalue */
 void setbitCommand(redisClient *c) {
     robj *o;
-    char *err = "bit is not an integer or out of range";
+    const char *err = "bit is not an integer or out of range";
     size_t bitoffset;
     int byte, bit;
     int byteval, bitval;
@@ -133,7 +133,7 @@ void setbitCommand(redisClient *c) {
         /* Create a copy when the object is shared or encoded. */
         if (o->refcount != 1 || o->encoding != REDIS_ENCODING_RAW) {
             robj *decoded = getDecodedObject(o);
-            o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
+            o = createRawStringObject((char*)decoded->ptr, sdslen((sds)decoded->ptr));
             decrRefCount(decoded);
             dbOverwrite(c->db,c->argv[1],o);
         }
@@ -141,7 +141,7 @@ void setbitCommand(redisClient *c) {
 
     /* Grow sds value to the right length if necessary */
     byte = bitoffset >> 3;
-    o->ptr = sdsgrowzero(o->ptr,byte+1);
+    o->ptr = sdsgrowzero((sds)o->ptr,byte+1);
 
     /* Get current values */
     byteval = ((uint8_t*)o->ptr)[byte];
@@ -175,7 +175,7 @@ void getbitCommand(redisClient *c) {
     byte = bitoffset >> 3;
     bit = 7 - (bitoffset & 0x7);
     if (sdsEncodedObject(o)) {
-        if (byte < sdslen(o->ptr))
+        if (byte < sdslen((sds)o->ptr))
             bitval = ((uint8_t*)o->ptr)[byte] & (1 << bit);
     } else {
         if (byte < (size_t)ll2string(llbuf,sizeof(llbuf),(long)o->ptr))
@@ -187,7 +187,7 @@ void getbitCommand(redisClient *c) {
 
 /* BITOP op_name target_key src_key1 src_key2 src_key3 ... src_keyN */
 void bitopCommand(redisClient *c) {
-    char *opname = c->argv[1]->ptr;
+    char *opname = (char *)c->argv[1]->ptr;
     robj *o, *targetkey = c->argv[2];
     long op, j, numkeys;
     robj **objects;      /* Array of source objects. */
@@ -218,9 +218,9 @@ void bitopCommand(redisClient *c) {
 
     /* Lookup keys, and store pointers to the string objects into an array. */
     numkeys = c->argc - 3;
-    src = zmalloc(sizeof(unsigned char*) * numkeys);
-    len = zmalloc(sizeof(long) * numkeys);
-    objects = zmalloc(sizeof(robj*) * numkeys);
+    src = (unsigned char**)zmalloc(sizeof(unsigned char*) * numkeys);
+    len = (long*)zmalloc(sizeof(long) * numkeys);
+    objects = (robj**)zmalloc(sizeof(robj*) * numkeys);
     for (j = 0; j < numkeys; j++) {
         o = lookupKeyRead(c->db,c->argv[j+3]);
         /* Handle non-existing keys as empty strings. */
@@ -243,8 +243,8 @@ void bitopCommand(redisClient *c) {
             return;
         }
         objects[j] = getDecodedObject(o);
-        src[j] = objects[j]->ptr;
-        len[j] = sdslen(objects[j]->ptr);
+        src[j] = (unsigned char*)objects[j]->ptr;
+        len[j] = sdslen((sds)objects[j]->ptr);
         if (len[j] > maxlen) maxlen = len[j];
         if (j == 0 || len[j] < minlen) minlen = len[j];
     }
@@ -375,7 +375,7 @@ void bitcountCommand(redisClient *c) {
         strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
     } else {
         p = (unsigned char*) o->ptr;
-        strlen = sdslen(o->ptr);
+        strlen = sdslen((sds)o->ptr);
     }
 
     /* Parse start/end range if any. */

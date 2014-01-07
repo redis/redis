@@ -40,16 +40,16 @@
  * On error, NULL is returned. Otherwise the pointer to the new list. */
 list *listCreate(void)
 {
-    struct list *list;
+    struct list *myList;
 
-    if ((list = zmalloc(sizeof(*list))) == NULL)
+    if ((myList = (list*)zmalloc(sizeof(*myList))) == NULL)
         return NULL;
-    list->head = list->tail = NULL;
-    list->len = 0;
-    list->dup = NULL;
-    list->free = NULL;
-    list->match = NULL;
-    return list;
+    myList->head = myList->tail = NULL;
+    myList->len = 0;
+    myList->dup = NULL;
+    myList->free = NULL;
+    myList->match = NULL;
+    return myList;
 }
 
 /* Free the whole list.
@@ -81,7 +81,7 @@ list *listAddNodeHead(list *list, void *value)
 {
     listNode *node;
 
-    if ((node = zmalloc(sizeof(*node))) == NULL)
+    if ((node = (listNode*)zmalloc(sizeof(*node))) == NULL)
         return NULL;
     node->value = value;
     if (list->len == 0) {
@@ -107,7 +107,7 @@ list *listAddNodeTail(list *list, void *value)
 {
     listNode *node;
 
-    if ((node = zmalloc(sizeof(*node))) == NULL)
+    if ((node = (listNode*)zmalloc(sizeof(*node))) == NULL)
         return NULL;
     node->value = value;
     if (list->len == 0) {
@@ -126,7 +126,7 @@ list *listAddNodeTail(list *list, void *value)
 list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
     listNode *node;
 
-    if ((node = zmalloc(sizeof(*node))) == NULL)
+    if ((node = (listNode*)zmalloc(sizeof(*node))) == NULL)
         return NULL;
     node->value = value;
     if (after) {
@@ -179,7 +179,7 @@ listIter *listGetIterator(list *list, int direction)
 {
     listIter *iter;
     
-    if ((iter = zmalloc(sizeof(*iter))) == NULL) return NULL;
+    if ((iter = (listIter*)zmalloc(sizeof(*iter))) == NULL) return NULL;
     if (direction == AL_START_HEAD)
         iter->next = list->head;
     else

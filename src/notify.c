@@ -90,7 +90,7 @@ sds keyspaceEventsFlagsToString(int flags) {
  * 'event' is a C string representing the event name.
  * 'key' is a Redis object representing the key name.
  * 'dbid' is the database ID where the key lives.  */
-void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
+void notifyKeyspaceEvent(int type, const char *event, robj *key, int dbid) {
     sds chan;
     robj *chanobj, *eventobj;
     int len = -1;
@@ -107,7 +107,7 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
         len = ll2string(buf,sizeof(buf),dbid);
         chan = sdscatlen(chan, buf, len);
         chan = sdscatlen(chan, "__:", 3);
-        chan = sdscatsds(chan, key->ptr);
+        chan = sdscatsds(chan, (sds)key->ptr);
         chanobj = createObject(REDIS_STRING, chan);
         pubsubPublishMessage(chanobj, eventobj);
         decrRefCount(chanobj);
@@ -119,7 +119,7 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
         if (len == -1) len = ll2string(buf,sizeof(buf),dbid);
         chan = sdscatlen(chan, buf, len);
         chan = sdscatlen(chan, "__:", 3);
-        chan = sdscatsds(chan, eventobj->ptr);
+        chan = sdscatsds(chan, (sds)eventobj->ptr);
         chanobj = createObject(REDIS_STRING, chan);
         pubsubPublishMessage(chanobj, key);
         decrRefCount(chanobj);

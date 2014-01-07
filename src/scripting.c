@@ -27,6 +27,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifdef __cplusplus
+#define __STDC_LIMIT_MACROS
+#endif
+
 #include "redis.h"
 #include "sha1.h"
 #include "rand.h"
@@ -151,7 +155,7 @@ char *redisProtocolToLuaType_MultiBulk(lua_State *lua, char *reply) {
     return p;
 }
 
-void luaPushError(lua_State *lua, char *error) {
+void luaPushError(lua_State *lua, const char *error) {
     lua_Debug dbg;
 
     lua_newtable(lua);
@@ -215,7 +219,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     }
 
     /* Build the arguments vector */
-    argv = zmalloc(sizeof(robj*)*argc);
+    argv = (robj**)zmalloc(sizeof(robj*)*argc);
     for (j = 0; j < argc; j++) {
         if (!lua_isstring(lua,j+1)) break;
         argv[j] = createStringObject((char*)lua_tostring(lua,j+1),
@@ -242,7 +246,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     c->argc = argc;
 
     /* Command lookup */
-    cmd = lookupCommand(argv[0]->ptr);
+    cmd = lookupCommand((sds)argv[0]->ptr);
     if (!cmd || ((cmd->arity > 0 && cmd->arity != argc) ||
                    (argc < -cmd->arity)))
     {
@@ -272,13 +276,13 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
                    !server.loading &&
                    !(server.lua_caller->flags & REDIS_MASTER))
         {
-            luaPushError(lua, shared.roslaveerr->ptr);
+            luaPushError(lua, (char*)shared.roslaveerr->ptr);
             goto cleanup;
         } else if (server.stop_writes_on_bgsave_err &&
                    server.saveparamslen > 0 &&
                    server.lastbgsave_status == REDIS_ERR)
         {
-            luaPushError(lua, shared.bgsaveerr->ptr);
+            luaPushError(lua, (char*)shared.bgsaveerr->ptr);
             goto cleanup;
         }
     }
@@ -291,7 +295,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         (cmd->flags & REDIS_CMD_DENYOOM))
     {
         if (freeMemoryIfNeeded() == REDIS_ERR) {
-            luaPushError(lua, shared.oomerr->ptr);
+            luaPushError(lua, (char*)shared.oomerr->ptr);
             goto cleanup;
         }
     }
@@ -312,9 +316,9 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         c->bufpos = 0;
     }
     while(listLength(c->reply)) {
-        robj *o = listNodeValue(listFirst(c->reply));
+        robj *o = (robj*)listNodeValue(listFirst(c->reply));
 
-        reply = sdscatlen(reply,o->ptr,sdslen(o->ptr));
+        reply = sdscatlen(reply,o->ptr,sdslen((sds)o->ptr));
         listDelNode(c->reply,listFirst(c->reply));
     }
     if (raise_error && reply[0] != '-') raise_error = 0;
@@ -380,7 +384,7 @@ int luaRedisSha1hexCommand(lua_State *lua) {
  * return redis.error_reply("ERR Some Error")
  * return redis.status_reply("ERR Some Error")
  */
-int luaRedisReturnSingleFieldTable(lua_State *lua, char *field) {
+int luaRedisReturnSingleFieldTable(lua_State *lua, const char *field) {
     if (lua_gettop(lua) != 1 || lua_type(lua,-1) != LUA_TSTRING) {
         luaPushError(lua, "wrong number or type of arguments");
         return 1;
@@ -467,9 +471,16 @@ void luaLoadLib(lua_State *lua, const char *libname, lua_CFunction luafunc) {
   lua_call(lua, 1, 0);
 }
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 LUALIB_API int (luaopen_cjson) (lua_State *L);
 LUALIB_API int (luaopen_struct) (lua_State *L);
 LUALIB_API int (luaopen_cmsgpack) (lua_State *L);
+#ifdef __cplusplus
+}
+#endif
+
 
 void luaLoadLibraries(lua_State *lua) {
     luaLoadLib(lua, "", luaopen_base);
@@ -500,7 +511,7 @@ void luaRemoveUnsupportedFunctions(lua_State *lua) {
  * It should be the last to be called in the scripting engine initialization
  * sequence, because it may interact with creation of globals. */
 void scriptingEnableGlobalsProtection(lua_State *lua) {
-    char *s[32];
+    const char *s[32];
     sds code = sdsempty();
     int j = 0;
 
@@ -612,7 +623,8 @@ void scriptingInit(void) {
     /* Add a helper function that we use to sort the multi bulk output of non
      * deterministic commands, when containing 'false' elements. */
     {
-        char *compare_func =    "function __redis__compare_helper(a,b)\n"
+        const char *compare_func =    
+                                "function __redis__compare_helper(a,b)\n"
                                 "  if a == false then a = '' end\n"
                                 "  if b == false then b = '' end\n"
                                 "  return a<b\n"
@@ -626,7 +638,7 @@ void scriptingInit(void) {
      * information about the caller, that's what makes sense from the point
      * of view of the user debugging a script. */
     {
-        char *errh_func =       "function __redis__err__handler(err)\n"
+        const char *errh_func = "function __redis__err__handler(err)\n"
                                 "  local i = debug.getinfo(2,'nSl')\n"
                                 "  if i and i.what == 'C' then\n"
                                 "    i = debug.getinfo(3,'nSl')\n"
@@ -679,7 +691,7 @@ void scriptingReset(void) {
 void sha1hex(char *digest, char *script, size_t len) {
     SHA1_CTX ctx;
     unsigned char hash[20];
-    char *cset = "0123456789abcdef";
+    const char *cset = "0123456789abcdef";
     int j;
 
     SHA1Init(&ctx);
@@ -759,12 +771,12 @@ void luaReplyToRedisReply(redisClient *c, lua_State *lua) {
 
 /* Set an array of Redis String Objects as a Lua array (table) stored into a
  * global variable. */
-void luaSetGlobalArray(lua_State *lua, char *var, robj **elev, int elec) {
+void luaSetGlobalArray(lua_State *lua, const char *var, robj **elev, int elec) {
     int j;
 
     lua_newtable(lua);
     for (j = 0; j < elec; j++) {
-        lua_pushlstring(lua,(char*)elev[j]->ptr,sdslen(elev[j]->ptr));
+        lua_pushlstring(lua,(char*)elev[j]->ptr,sdslen((sds)elev[j]->ptr));
         lua_rawseti(lua,-2,j+1);
     }
     lua_setglobal(lua,var);
@@ -785,7 +797,7 @@ int luaCreateFunction(redisClient *c, lua_State *lua, char *funcname, robj *body
     funcdef = sdscat(funcdef,"function ");
     funcdef = sdscatlen(funcdef,funcname,42);
     funcdef = sdscatlen(funcdef,"() ",3);
-    funcdef = sdscatlen(funcdef,body->ptr,sdslen(body->ptr));
+    funcdef = sdscatlen(funcdef,body->ptr,sdslen((sds)body->ptr));
     funcdef = sdscatlen(funcdef," end",4);
 
     if (luaL_loadbuffer(lua,funcdef,sdslen(funcdef),"@user_script")) {
@@ -850,11 +862,11 @@ void evalGenericCommand(redisClient *c, int evalsha) {
     funcname[1] = '_';
     if (!evalsha) {
         /* Hash the code if this is an EVAL call */
-        sha1hex(funcname+2,c->argv[1]->ptr,sdslen(c->argv[1]->ptr));
+        sha1hex(funcname+2,(char*)c->argv[1]->ptr,sdslen((sds)c->argv[1]->ptr));
     } else {
         /* We already have the SHA if it is a EVALSHA */
         int j;
-        char *sha = c->argv[1]->ptr;
+        char *sha = (char *)c->argv[1]->ptr;
 
         for (j = 0; j < 40; j++)
             funcname[j+2] = tolower(sha[j]);
@@ -947,13 +959,13 @@ void evalGenericCommand(redisClient *c, int evalsha) {
      * flush our cache of scripts that can be replicated as EVALSHA, while
      * for AOF we need to do so every time we rewrite the AOF file. */
     if (evalsha) {
-        if (!replicationScriptCacheExists(c->argv[1]->ptr)) {
+        if (!replicationScriptCacheExists((sds)c->argv[1]->ptr)) {
             /* This script is not in our script cache, replicate it as
              * EVAL, then add it into the script cache, as from now on
              * slaves and AOF know about it. */
-            robj *script = dictFetchValue(server.lua_scripts,c->argv[1]->ptr);
+            robj *script = (robj*)dictFetchValue(server.lua_scripts,c->argv[1]->ptr);
 
-            replicationScriptCacheAdd(c->argv[1]->ptr);
+            replicationScriptCacheAdd((sds)c->argv[1]->ptr);
             redisAssertWithInfo(c,NULL,script != NULL);
             rewriteClientCommandArgument(c,0,
                 resetRefCount(createStringObject("EVAL",4)));
@@ -967,7 +979,7 @@ void evalCommand(redisClient *c) {
 }
 
 void evalShaCommand(redisClient *c) {
-    if (sdslen(c->argv[1]->ptr) != 40) {
+    if (sdslen((sds)c->argv[1]->ptr) != 40) {
         /* We know that a match is not possible if the provided SHA is
          * not the right length. So we return an error ASAP, this way
          * evalGenericCommand() can be implemented without string length
@@ -1022,12 +1034,12 @@ int redis_math_randomseed (lua_State *L) {
  * ------------------------------------------------------------------------- */
 
 void scriptCommand(redisClient *c) {
-    if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"flush")) {
+    if (c->argc == 2 && !strcasecmp((char*)c->argv[1]->ptr,"flush")) {
         scriptingReset();
         addReply(c,shared.ok);
         replicationScriptCacheFlush();
         server.dirty++; /* Propagating this command is a good idea. */
-    } else if (c->argc >= 2 && !strcasecmp(c->argv[1]->ptr,"exists")) {
+    } else if (c->argc >= 2 && !strcasecmp((char*)c->argv[1]->ptr,"exists")) {
         int j;
 
         addReplyMultiBulkLen(c, c->argc-2);
@@ -1037,13 +1049,13 @@ void scriptCommand(redisClient *c) {
             else
                 addReply(c,shared.czero);
         }
-    } else if (c->argc == 3 && !strcasecmp(c->argv[1]->ptr,"load")) {
+    } else if (c->argc == 3 && !strcasecmp((char*)c->argv[1]->ptr,"load")) {
         char funcname[43];
         sds sha;
 
         funcname[0] = 'f';
         funcname[1] = '_';
-        sha1hex(funcname+2,c->argv[2]->ptr,sdslen(c->argv[2]->ptr));
+        sha1hex(funcname+2,(char*)c->argv[2]->ptr,sdslen((sds)c->argv[2]->ptr));
         sha = sdsnewlen(funcname+2,40);
         if (dictFind(server.lua_scripts,sha) == NULL) {
             if (luaCreateFunction(c,server.lua,funcname,c->argv[2])
@@ -1055,7 +1067,7 @@ void scriptCommand(redisClient *c) {
         addReplyBulkCBuffer(c,funcname+2,40);
         sdsfree(sha);
         forceCommandPropagation(c,REDIS_PROPAGATE_REPL|REDIS_PROPAGATE_AOF);
-    } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"kill")) {
+    } else if (c->argc == 2 && !strcasecmp((char*)c->argv[1]->ptr,"kill")) {
         if (server.lua_caller == NULL) {
             addReplySds(c,sdsnew("-NOTBUSY No scripts in execution right now.\r\n"));
         } else if (server.lua_write_dirty) {

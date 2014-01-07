@@ -57,7 +57,7 @@ static struct winsize ws;
 size_t progress_printed; /* Printed chars in screen-wide progress bar. */
 size_t progress_full; /* How many chars to write to fill the progress bar. */
 
-void memtest_progress_start(char *title, int pass) {
+void memtest_progress_start(const char *title, int pass) {
     int j;
 
     printf("\x1b[H\x1b[2J");    /* Cursor home, clear screen. */
@@ -207,7 +207,7 @@ void memtest_compare_times(unsigned long *m, size_t bytes, int pass, int times) 
 
 void memtest_test(size_t megabytes, int passes) {
     size_t bytes = megabytes*1024*1024;
-    unsigned long *m = malloc(bytes);
+    unsigned long *m = (unsigned long *)malloc(bytes);
     int pass = 0;
 
     if (m == NULL) {
@@ -240,7 +240,7 @@ void memtest_test(size_t megabytes, int passes) {
 }
 
 void memtest_non_destructive_invert(void *addr, size_t size) {
-    volatile unsigned long *p = addr;
+    volatile unsigned long *p = (unsigned long *)addr;
     size_t words = size / sizeof(unsigned long);
     size_t j;
 
@@ -250,7 +250,7 @@ void memtest_non_destructive_invert(void *addr, size_t size) {
 }
 
 void memtest_non_destructive_swap(void *addr, size_t size) {
-    volatile unsigned long *p = addr;
+    volatile unsigned long *p = (unsigned long *)addr;
     size_t words = size / sizeof(unsigned long);
     size_t j;
 

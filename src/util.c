@@ -70,12 +70,12 @@ int stringmatchlen(const char *pattern, int patternLen,
             break;
         case '[':
         {
-            int not, match;
+            int notOperand, match;
 
             pattern++;
             patternLen--;
-            not = pattern[0] == '^';
-            if (not) {
+            notOperand = pattern[0] == '^';
+            if (notOperand) {
                 pattern++;
                 patternLen--;
             }
@@ -122,7 +122,7 @@ int stringmatchlen(const char *pattern, int patternLen,
                 pattern++;
                 patternLen--;
             }
-            if (not)
+            if (notOperand)
                 match = !match;
             if (!match)
                 return 0; /* no match */
@@ -365,7 +365,7 @@ int d2string(char *buf, size_t len, double value) {
  * sure that it is either a different instance or it was restarted. */
 void getRandomHexChars(char *p, unsigned int len) {
     FILE *fp = fopen("/dev/urandom","r");
-    char *charset = "0123456789abcdef";
+    const char *charset = "0123456789abcdef";
     unsigned int j;
 
     if (fp == NULL || fread(p,len,1,fp) == 0) {

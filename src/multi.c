@@ -57,12 +57,12 @@ void queueMultiCommand(redisClient *c) {
     multiCmd *mc;
     int j;
 
-    c->mstate.commands = zrealloc(c->mstate.commands,
+    c->mstate.commands = (multiCmd*)zrealloc(c->mstate.commands,
             sizeof(multiCmd)*(c->mstate.count+1));
     mc = c->mstate.commands+c->mstate.count;
     mc->cmd = c->cmd;
     mc->argc = c->argc;
-    mc->argv = zmalloc(sizeof(robj*)*c->argc);
+    mc->argv = (robj**)zmalloc(sizeof(robj*)*c->argc);
     memcpy(mc->argv,c->argv,sizeof(robj*)*c->argc);
     for (j = 0; j < c->argc; j++)
         incrRefCount(mc->argv[j]);
@@ -208,12 +208,12 @@ void watchForKey(redisClient *c, robj *key) {
     /* Check if we are already watching for this key */
     listRewind(c->watched_keys,&li);
     while((ln = listNext(&li))) {
-        wk = listNodeValue(ln);
+        wk = (watchedKey*)listNodeValue(ln);
         if (wk->db == c->db && equalStringObjects(key,wk->key))
             return; /* Key already watched */
     }
     /* This key is not already watched in this DB. Let's add it */
-    clients = dictFetchValue(c->db->watched_keys,key);
+    clients = (list*)dictFetchValue(c->db->watched_keys,key);
     if (!clients) { 
         clients = listCreate();
         dictAdd(c->db->watched_keys,key,clients);
@@ -221,7 +221,7 @@ void watchForKey(redisClient *c, robj *key) {
     }
     listAddNodeTail(clients,c);
     /* Add the new key to the list of keys watched by this client */
-    wk = zmalloc(sizeof(*wk));
+    wk = (watchedKey*)zmalloc(sizeof(*wk));
     wk->key = key;
     wk->db = c->db;
     incrRefCount(key);
@@ -242,8 +242,8 @@ void unwatchAllKeys(redisClient *c) {
 
         /* Lookup the watched key -> clients list and remove the client
          * from the list */
-        wk = listNodeValue(ln);
-        clients = dictFetchValue(wk->db->watched_keys, wk->key);
+        wk = (watchedKey*)listNodeValue(ln);
+        clients = (list*)dictFetchValue(wk->db->watched_keys, wk->key);
         redisAssertWithInfo(c,NULL,clients != NULL);
         listDelNode(clients,listSearchKey(clients,c));
         /* Kill the entry at all if this was the only client */
@@ -264,14 +264,14 @@ void touchWatchedKey(redisDb *db, robj *key) {
     listNode *ln;
 
     if (dictSize(db->watched_keys) == 0) return;
-    clients = dictFetchValue(db->watched_keys, key);
+    clients = (list*)dictFetchValue(db->watched_keys, key);
     if (!clients) return;
 
     /* Mark all the clients watching this key as REDIS_DIRTY_CAS */
     /* Check if we are already watching for this key */
     listRewind(clients,&li);
     while((ln = listNext(&li))) {
-        redisClient *c = listNodeValue(ln);
+        redisClient *c = (redisClient*)listNodeValue(ln);
 
         c->flags |= REDIS_DIRTY_CAS;
     }
@@ -288,16 +288,16 @@ void touchWatchedKeysOnFlush(int dbid) {
     /* For every client, check all the waited keys */
     listRewind(server.clients,&li1);
     while((ln = listNext(&li1))) {
-        redisClient *c = listNodeValue(ln);
+        redisClient *c = (redisClient*)listNodeValue(ln);
         listRewind(c->watched_keys,&li2);
         while((ln = listNext(&li2))) {
-            watchedKey *wk = listNodeValue(ln);
+            watchedKey *wk = (watchedKey*)listNodeValue(ln);
 
             /* For every watched key matching the specified DB, if the
              * key exists, mark the client as dirty, as the key will be
              * removed. */
             if (dbid == -1 || wk->db->id == dbid) {
-                if (dictFind(wk->db->dict, wk->key->ptr) != NULL)
+                if (dictFind(wk->db->theDict, wk->key->ptr) != NULL)
                     c->flags |= REDIS_DIRTY_CAS;
             }
         }

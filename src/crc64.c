@@ -37,6 +37,10 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE. */
 
+#ifdef __cplusplus
+#define __STDC_CONSTANT_MACROS
+#endif
+
 #include <stdint.h>
 
 static const uint64_t crc64_tab[256] = {

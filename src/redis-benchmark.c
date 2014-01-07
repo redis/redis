@@ -138,7 +138,7 @@ static void freeAllClients(void) {
 
     while(ln) {
         next = ln->next;
-        freeClient(ln->value);
+        freeClient((client)ln->value);
         ln = next;
     }
 }
@@ -184,7 +184,7 @@ static void clientDone(client c) {
 }
 
 static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    client c = privdata;
+    client c = (client)privdata;
     void *reply = NULL;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(fd);
@@ -213,7 +213,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                 freeReplyObject(reply);
 
                 if (c->selectlen) {
-                    int j;
+                    size_t j;
 
                     /* This is the OK from SELECT. Just discard the SELECT
                      * from the buffer. */
@@ -242,7 +242,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 }
 
 static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    client c = privdata;
+    client c = (client)privdata;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(fd);
     REDIS_NOTUSED(mask);
@@ -300,9 +300,9 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
  *
  * Even when cloning another client, the SELECT command is automatically prefixed
  * if needed. */
-static client createClient(char *cmd, size_t len, client from) {
+static client createClient(const char *cmd, size_t len, client from) {
     int j;
-    client c = zmalloc(sizeof(struct _client));
+    client c = (client)zmalloc(sizeof(struct _client));
 
     if (config.hostsocket == NULL) {
         c->context = redisConnectNonBlock(config.hostip,config.hostport);
@@ -357,7 +357,7 @@ static client createClient(char *cmd, size_t len, client from) {
         if (from) {
             c->randlen = from->randlen;
             c->randfree = 0;
-            c->randptr = zmalloc(sizeof(char*)*c->randlen);
+            c->randptr = (char**)zmalloc(sizeof(char*)*c->randlen);
             /* copy the offsets. */
             for (j = 0; j < c->randlen; j++) {
                 c->randptr[j] = c->obuf + (from->randptr[j]-from->obuf);
@@ -369,10 +369,10 @@ static client createClient(char *cmd, size_t len, client from) {
 
             c->randlen = 0;
             c->randfree = RANDPTR_INITIAL_SIZE;
-            c->randptr = zmalloc(sizeof(char*)*c->randfree);
+            c->randptr = (char**)zmalloc(sizeof(char*)*c->randfree);
             while ((p = strstr(p,"__rand_int__")) != NULL) {
                 if (c->randfree == 0) {
-                    c->randptr = zrealloc(c->randptr,sizeof(char*)*c->randlen*2);
+                    c->randptr = (char**)zrealloc(c->randptr,sizeof(char*)*c->randlen*2);
                     c->randfree += c->randlen;
                 }
                 c->randptr[c->randlen++] = p;
@@ -444,14 +444,14 @@ static void showLatencyReport(void) {
     }
 }
 
-static void benchmark(char *title, char *cmd, int len) {
+static void benchmark(const char *title, const char *cmd, int len) {
     client c;
 
     config.title = title;
     config.requests_issued = 0;
     config.requests_finished = 0;
 
-    c = createClient(cmd,len,NULL);
+    c = (client)createClient(cmd,len,NULL);
     createMissingClients(c);
 
     config.start = mstime();
@@ -602,7 +602,7 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
 
 /* Return true if the named test was selected using the -t command line
  * switch, or if all the tests are selected (no -t passed by user). */
-int test_is_selected(char *name) {
+int test_is_selected(const char *name) {
     char buf[256];
     int l = strlen(name);
 
@@ -651,7 +651,7 @@ int main(int argc, const char **argv) {
     argc -= i;
     argv += i;
 
-    config.latency = zmalloc(sizeof(long long)*config.requests);
+    config.latency = (long long int*)zmalloc(sizeof(long long)*config.requests);
 
     if (config.keepalive == 0) {
         printf("WARNING: keepalive disabled, you probably need 'echo 1 > /proc/sys/net/ipv4/tcp_tw_reuse' for Linux and 'sudo sysctl -w net.inet.tcp.msl=1000' for Mac OS X in order to use a lot of clients/requests\n");
@@ -684,7 +684,7 @@ int main(int argc, const char **argv) {
 
     /* Run default benchmark suite. */
     do {
-        data = zmalloc(config.datasize+1);
+        data = (char*)zmalloc(config.datasize+1);
         memset(data,'x',config.datasize);
         data[config.datasize] = '\0';
 

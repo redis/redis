@@ -412,7 +412,7 @@ int dictSdsKeyCaseCompare(void *privdata, const void *key1,
 {
     DICT_NOTUSED(privdata);
 
-    return strcasecmp(key1, key2) == 0;
+    return strcasecmp((const char*)key1, (const char*)key2) == 0;
 }
 
 void dictRedisObjectDestructor(void *privdata, void *val)
@@ -420,25 +420,25 @@ void dictRedisObjectDestructor(void *privdata, void *val)
     DICT_NOTUSED(privdata);
 
     if (val == NULL) return; /* Values of swapped out keys as set to NULL */
-    decrRefCount(val);
+    decrRefCount((robj*)val);
 }
 
 void dictSdsDestructor(void *privdata, void *val)
 {
     DICT_NOTUSED(privdata);
 
-    sdsfree(val);
+    sdsfree((sds)val);
 }
 
 int dictObjKeyCompare(void *privdata, const void *key1,
         const void *key2)
 {
-    const robj *o1 = key1, *o2 = key2;
+    const robj *o1 = (robj*)key1, *o2 = (robj*)key2;
     return dictSdsKeyCompare(privdata,o1->ptr,o2->ptr);
 }
 
 unsigned int dictObjHash(const void *key) {
-    const robj *o = key;
+    const robj *o = (robj*)key;
     return dictGenHashFunction(o->ptr, sdslen((sds)o->ptr));
 }
 
@@ -630,8 +630,8 @@ int htNeedsResize(dict *dict) {
 /* If the percentage of used slots in the HT reaches REDIS_HT_MINFILL
  * we resize the hash table to save memory */
 void tryResizeHashTables(int dbid) {
-    if (htNeedsResize(server.db[dbid].dict))
-        dictResize(server.db[dbid].dict);
+    if (htNeedsResize(server.db[dbid].theDict))
+        dictResize(server.db[dbid].theDict);
     if (htNeedsResize(server.db[dbid].expires))
         dictResize(server.db[dbid].expires);
 }
@@ -645,8 +645,8 @@ void tryResizeHashTables(int dbid) {
  * is returned. */
 int incrementallyRehash(int dbid) {
     /* Keys dictionary */
-    if (dictIsRehashing(server.db[dbid].dict)) {
-        dictRehashMilliseconds(server.db[dbid].dict,1);
+    if (dictIsRehashing(server.db[dbid].theDict)) {
+        dictRehashMilliseconds(server.db[dbid].theDict,1);
         return 1; /* already used our millisecond for this loop... */
     }
     /* Expires */
@@ -686,13 +686,15 @@ void updateDictResizePolicy(void) {
 int activeExpireCycleTryExpire(redisDb *db, struct dictEntry *de, long long now) {
     long long t = dictGetSignedIntegerVal(de);
     if (now > t) {
-        sds key = dictGetKey(de);
+        sds key = (sds)dictGetKey(de);
         robj *keyobj = createStringObject(key,sdslen(key));
 
         propagateExpire(db,keyobj);
         dbDelete(db,keyobj);
         notifyKeyspaceEvent(REDIS_NOTIFY_EXPIRED,
-            "expired",keyobj,db->id);
+                            "expired",
+                            keyobj,
+                            db->id);
         decrRefCount(keyobj);
         server.stat_expiredkeys++;
         return 1;
@@ -945,7 +947,7 @@ void clientsCron(void) {
          * first element and we don't incur into O(N) computation. */
         listRotate(server.clients);
         head = listFirst(server.clients);
-        c = listNodeValue(head);
+        c = (redisClient *)listNodeValue(head);
         /* The following functions do different service checks on the client.
          * The protocol is that they return non-zero if the client was
          * terminated. */
@@ -1068,8 +1070,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         for (j = 0; j < server.dbnum; j++) {
             long long size, used, vkeys;
 
-            size = dictSlots(server.db[j].dict);
-            used = dictSize(server.db[j].dict);
+            size = dictSlots(server.db[j].theDict);
+            used = dictSize(server.db[j].theDict);
             vkeys = dictSize(server.db[j].expires);
             if (used || vkeys) {
                 redisLog(REDIS_VERBOSE,"DB %d: %lld keys (%lld volatile) in %lld slots HT.",j,used,vkeys,size);
@@ -1590,7 +1592,7 @@ void initServer() {
     createSharedObjects();
     adjustOpenFilesLimit();
     server.el = aeCreateEventLoop(server.maxclients+REDIS_EVENTLOOP_FDSET_INCR);
-    server.db = zmalloc(sizeof(redisDb)*server.dbnum);
+    server.db = (redisDb*)zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Open the TCP listening socket for the user commands. */
     if (server.port != 0 &&
@@ -1615,7 +1617,7 @@ void initServer() {
 
     /* Create the Redis databases, and initialize other internal state. */
     for (j = 0; j < server.dbnum; j++) {
-        server.db[j].dict = dictCreate(&dbDictType,NULL);
+        server.db[j].theDict = dictCreate(&dbDictType,NULL);
         server.db[j].expires = dictCreate(&keyptrDictType,NULL);
         server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].ready_keys = dictCreate(&setDictType,NULL);
@@ -1715,7 +1717,7 @@ void populateCommandTable(void) {
 
     for (j = 0; j < numcommands; j++) {
         struct redisCommand *c = redisCommandTable+j;
-        char *f = c->sflags;
+        const char *f = c->sflags;
         int retval1, retval2;
 
         while(*f != '\0') {
@@ -1769,7 +1771,7 @@ int redisOpArrayAppend(redisOpArray *oa, struct redisCommand *cmd, int dbid,
 {
     redisOp *op;
 
-    oa->ops = zrealloc(oa->ops,sizeof(redisOp)*(oa->numops+1));
+    oa->ops = (redisOp*)zrealloc(oa->ops,sizeof(redisOp)*(oa->numops+1));
     op = oa->ops+oa->numops;
     op->cmd = cmd;
     op->dbid = dbid;
@@ -1797,14 +1799,14 @@ void redisOpArrayFree(redisOpArray *oa) {
 /* ====================== Commands lookup and execution ===================== */
 
 struct redisCommand *lookupCommand(sds name) {
-    return dictFetchValue(server.commands, name);
+    return (struct redisCommand*)dictFetchValue(server.commands, name);
 }
 
-struct redisCommand *lookupCommandByCString(char *s) {
+struct redisCommand *lookupCommandByCString(const char *s) {
     struct redisCommand *cmd;
     sds name = sdsnew(s);
 
-    cmd = dictFetchValue(server.commands, name);
+    cmd = (struct redisCommand*)dictFetchValue(server.commands, name);
     sdsfree(name);
     return cmd;
 }
@@ -1817,9 +1819,10 @@ struct redisCommand *lookupCommandByCString(char *s) {
  * rewriteClientCommandVector() in order to set client->cmd pointer
  * correctly even if the command was renamed. */
 struct redisCommand *lookupCommandOrOriginal(sds name) {
-    struct redisCommand *cmd = dictFetchValue(server.commands, name);
+    struct redisCommand *cmd = (struct redisCommand*)dictFetchValue(server.commands, 
+                                                             name);
 
-    if (!cmd) cmd = dictFetchValue(server.orig_commands,name);
+    if (!cmd) cmd = (struct redisCommand*)dictFetchValue(server.orig_commands, name);
     return cmd;
 }
 
@@ -1947,7 +1950,7 @@ int processCommand(redisClient *c) {
      * go through checking for replication and QUIT will cause trouble
      * when FORCE_REPLICATION is enabled and would be implemented in
      * a regular command proc. */
-    if (!strcasecmp(c->argv[0]->ptr,"quit")) {
+    if (!strcasecmp((const char*)(c->argv[0]->ptr),"quit")) {
         addReply(c,shared.ok);
         c->flags |= REDIS_CLOSE_AFTER_REPLY;
         return REDIS_ERR;
@@ -1955,7 +1958,7 @@ int processCommand(redisClient *c) {
 
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
-    c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
+    c->cmd = c->lastcmd = lookupCommand((sds)(c->argv[0]->ptr));
     if (!c->cmd) {
         flagTransaction(c);
         addReplyErrorFormat(c,"unknown command '%s'",
@@ -2228,7 +2231,7 @@ int time_independent_strcmp(char *a, char *b) {
 void authCommand(redisClient *c) {
     if (!server.requirepass) {
         addReplyError(c,"Client sent AUTH, but no password is set");
-    } else if (!time_independent_strcmp(c->argv[1]->ptr, server.requirepass)) {
+    } else if (!time_independent_strcmp((char*)(c->argv[1]->ptr), server.requirepass)) {
       c->authenticated = 1;
       addReply(c,shared.ok);
     } else {
@@ -2280,7 +2283,7 @@ void bytesToHuman(char *s, unsigned long long n) {
 /* Create the string returned by the INFO command. This is decoupled
  * by the INFO command itself as we need to report the same information
  * on memory corruption problems. */
-sds genRedisInfoString(char *section) {
+sds genRedisInfoString(const char *section) {
     sds info = sdsempty();
     time_t uptime = server.unixtime-server.stat_starttime;
     int j, numcommands;
@@ -2301,7 +2304,7 @@ sds genRedisInfoString(char *section) {
     /* Server */
     if (allsections || defsections || !strcasecmp(section,"server")) {
         struct utsname name;
-        char *mode;
+        const char *mode;
 
         if (server.cluster_enabled) mode = "cluster";
         else if (server.sentinel_mode) mode = "sentinel";
@@ -2589,8 +2592,8 @@ sds genRedisInfoString(char *section) {
 
             listRewind(server.slaves,&li);
             while((ln = listNext(&li))) {
-                redisClient *slave = listNodeValue(ln);
-                char *state = NULL;
+                redisClient *slave = (redisClient *)listNodeValue(ln);
+                const char *state = NULL;
                 char ip[REDIS_IP_STR_LEN];
                 int port;
                 long lag = 0;
@@ -2680,7 +2683,7 @@ sds genRedisInfoString(char *section) {
         for (j = 0; j < server.dbnum; j++) {
             long long keys, vkeys;
 
-            keys = dictSize(server.db[j].dict);
+            keys = dictSize(server.db[j].theDict);
             vkeys = dictSize(server.db[j].expires);
             if (keys || vkeys) {
                 info = sdscatprintf(info,
@@ -2693,7 +2696,7 @@ sds genRedisInfoString(char *section) {
 }
 
 void infoCommand(redisClient *c) {
-    char *section = c->argc == 2 ? c->argv[1]->ptr : "default";
+    const char *section = c->argc == 2 ? (char*)(c->argv[1]->ptr) : "default";
 
     if (c->argc > 2) {
         addReply(c,shared.syntaxerr);
@@ -2745,7 +2748,7 @@ int freeMemoryIfNeeded(void) {
 
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
-            redisClient *slave = listNodeValue(ln);
+            redisClient *slave = (redisClient *)listNodeValue(ln);
             unsigned long obuf_bytes = getClientOutputBufferMemoryUsage(slave);
             if (obuf_bytes > mem_used)
                 mem_used = 0;
@@ -2780,7 +2783,7 @@ int freeMemoryIfNeeded(void) {
             if (server.maxmemory_policy == REDIS_MAXMEMORY_ALLKEYS_LRU ||
                 server.maxmemory_policy == REDIS_MAXMEMORY_ALLKEYS_RANDOM)
             {
-                dict = server.db[j].dict;
+                dict = server.db[j].theDict;
             } else {
                 dict = server.db[j].expires;
             }
@@ -2791,7 +2794,7 @@ int freeMemoryIfNeeded(void) {
                 server.maxmemory_policy == REDIS_MAXMEMORY_VOLATILE_RANDOM)
             {
                 de = dictGetRandomKey(dict);
-                bestkey = dictGetKey(de);
+                bestkey = (sds)dictGetKey(de);
             }
 
             /* volatile-lru and allkeys-lru policy */
@@ -2804,12 +2807,12 @@ int freeMemoryIfNeeded(void) {
                     robj *o;
 
                     de = dictGetRandomKey(dict);
-                    thiskey = dictGetKey(de);
+                    thiskey = (sds)dictGetKey(de);
                     /* When policy is volatile-lru we need an additional lookup
                      * to locate the real key, as dict is set to db->expires. */
                     if (server.maxmemory_policy == REDIS_MAXMEMORY_VOLATILE_LRU)
-                        de = dictFind(db->dict, thiskey);
-                    o = dictGetVal(de);
+                        de = dictFind(db->theDict, thiskey);
+                    o = (robj*)dictGetVal(de);
                     thisval = estimateObjectIdleTime(o);
 
                     /* Higher idle time is better candidate for deletion */
@@ -2827,7 +2830,7 @@ int freeMemoryIfNeeded(void) {
                     long thisval;
 
                     de = dictGetRandomKey(dict);
-                    thiskey = dictGetKey(de);
+                    thiskey = (sds)dictGetKey(de);
                     thisval = (long) dictGetVal(de);
 
                     /* Expire sooner (minor expire unix timestamp) is better
@@ -2955,8 +2958,8 @@ void usage() {
 
 void redisAsciiArt(void) {
 #include "asciilogo.h"
-    char *buf = zmalloc(1024*16);
-    char *mode = "stand alone";
+    char *buf = (char*)zmalloc(1024*16);
+    const char *mode = "stand alone";
 
     if (server.cluster_enabled) mode = "cluster";
     else if (server.sentinel_mode) mode = "sentinel";
@@ -3038,7 +3041,7 @@ void redisOutOfMemoryHandler(size_t allocation_size) {
     redisPanic("Redis aborting for OUT OF MEMORY");
 }
 
-void redisSetProcTitle(char *title) {
+void redisSetProcTitle(const char *title) {
 #ifdef USE_SETPROCTITLE
     setproctitle("%s %s:%d",
         title,

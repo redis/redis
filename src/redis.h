@@ -403,7 +403,7 @@ typedef struct redisObject {
 } while(0);
 
 typedef struct redisDb {
-    dict *dict;                 /* The keyspace for this DB */
+    dict *theDict;                 /* The keyspace for this DB */
     dict *expires;              /* Timeout of keys with a timeout set */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP) */
     dict *ready_keys;           /* Blocked keys that received a PUSH */
@@ -545,7 +545,7 @@ typedef struct zskiplist {
 } zskiplist;
 
 typedef struct zset {
-    dict *dict;
+    dict *theDict;
     zskiplist *zsl;
 } zset;
 
@@ -805,8 +805,8 @@ struct redisServer {
                              execution. */
     int lua_kill;         /* Kill the script if true. */
     /* Assert & bug reporting */
-    char *assert_failed;
-    char *assert_file;
+    const char *assert_failed;
+    const char *assert_file;
     int assert_line;
     int bug_report_start; /* True if bug report header was already logged. */
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
@@ -820,10 +820,10 @@ typedef struct pubsubPattern {
 typedef void redisCommandProc(redisClient *c);
 typedef int *redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, int *numkeys, int flags);
 struct redisCommand {
-    char *name;
+    const char *name;
     redisCommandProc *proc;
     int arity;
-    char *sflags; /* Flags as string representation, one char per flag. */
+    const char *sflags; /* Flags as string representation, one char per flag. */
     int flags;    /* The actual flags, obtained from the 'sflags' field. */
     /* Use a function to determine keys arguments in a command line.
      * Used for Redis Cluster redirect. */
@@ -921,7 +921,7 @@ void getRandomHexChars(char *p, unsigned int len);
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 void exitFromChild(int retcode);
 size_t redisPopcount(void *s, long count);
-void redisSetProcTitle(char *title);
+void redisSetProcTitle(const char *title);
 
 /* networking.c -- Networking and Client related operations */
 redisClient *createClient(int fd);
@@ -939,14 +939,14 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask);
 void addReplyBulk(redisClient *c, robj *obj);
-void addReplyBulkCString(redisClient *c, char *s);
-void addReplyBulkCBuffer(redisClient *c, void *p, size_t len);
+void addReplyBulkCString(redisClient *c, const char *s);
+void addReplyBulkCBuffer(redisClient *c, const void *p, size_t len);
 void addReplyBulkLongLong(redisClient *c, long long ll);
 void acceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void addReply(redisClient *c, robj *obj);
 void addReplySds(redisClient *c, sds s);
-void addReplyError(redisClient *c, char *err);
-void addReplyStatus(redisClient *c, char *status);
+void addReplyError(redisClient *c, const char *err);
+void addReplyStatus(redisClient *c, const char *status);
 void addReplyDouble(redisClient *c, double d);
 void addReplyLongLong(redisClient *c, long long ll);
 void addReplyMultiBulkLen(redisClient *c, long length);
@@ -964,7 +964,7 @@ unsigned long getClientOutputBufferMemoryUsage(redisClient *c);
 void freeClientsInAsyncFreeQueue(void);
 void asyncCloseClientOnOutputBufferLimitReached(redisClient *c);
 int getClientLimitClassByName(char *name);
-char *getClientLimitClassName(int class);
+const char *getClientLimitClassName(int aClass);
 void flushSlavesOutputBuffers(void);
 void disconnectSlaves(void);
 int listenToPort(int port, int *fds, int *count);
@@ -1017,9 +1017,9 @@ void freeSetObject(robj *o);
 void freeZsetObject(robj *o);
 void freeHashObject(robj *o);
 robj *createObject(int type, void *ptr);
-robj *createStringObject(char *ptr, size_t len);
-robj *createRawStringObject(char *ptr, size_t len);
-robj *createEmbeddedStringObject(char *ptr, size_t len);
+robj *createStringObject(const char *ptr, size_t len);
+robj *createRawStringObject(const char *ptr, size_t len);
+robj *createEmbeddedStringObject(const char *ptr, size_t len);
 robj *dupStringObject(robj *o);
 int isObjectRepresentableAsLongLong(robj *o, long long *llongval);
 robj *tryObjectEncoding(robj *o);
@@ -1041,7 +1041,7 @@ int getDoubleFromObjectOrReply(redisClient *c, robj *o, double *target, const ch
 int getLongLongFromObject(robj *o, long long *target);
 int getLongDoubleFromObject(robj *o, long double *target);
 int getLongDoubleFromObjectOrReply(redisClient *c, robj *o, long double *target, const char *msg);
-char *strEncoding(int encoding);
+const char *strEncoding(int encoding);
 int compareStringObjects(robj *a, robj *b);
 int collateStringObjects(robj *a, robj *b);
 int equalStringObjects(robj *a, robj *b);
@@ -1049,7 +1049,7 @@ unsigned long estimateObjectIdleTime(robj *o);
 #define sdsEncodedObject(objptr) (objptr->encoding == REDIS_ENCODING_RAW || objptr->encoding == REDIS_ENCODING_EMBSTR)
 
 /* Synchronous I/O with timeout */
-ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout);
+ssize_t syncWrite(int fd, const char *ptr, ssize_t size, long long timeout);
 ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout);
 ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout);
 
@@ -1120,13 +1120,13 @@ int freeMemoryIfNeeded(void);
 int processCommand(redisClient *c);
 void setupSignalHandlers(void);
 struct redisCommand *lookupCommand(sds name);
-struct redisCommand *lookupCommandByCString(char *s);
+struct redisCommand *lookupCommandByCString(const char *s);
 struct redisCommand *lookupCommandOrOriginal(sds name);
 void call(redisClient *c, int flags);
 void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int flags);
 void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc, int target);
 void forceCommandPropagation(redisClient *c, int flags);
-int prepareForShutdown();
+int prepareForShutdown(int flags);
 #ifdef __GNUC__
 void redisLog(int level, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
@@ -1185,7 +1185,7 @@ int listMatchPubsubPattern(void *a, void *b);
 int pubsubPublishMessage(robj *channel, robj *message);
 
 /* Keyspace events notification */
-void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);
+void notifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
 int keyspaceEventsStringToFlags(char *classes);
 sds keyspaceEventsFlagsToString(int flags);
 
@@ -1194,7 +1194,8 @@ void loadServerConfig(char *filename, char *options);
 void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams();
 struct rewriteConfigState; /* Forward declaration to export API. */
-void rewriteConfigRewriteLine(struct rewriteConfigState *state, char *option, sds line, int force);
+void rewriteConfigRewriteLine(struct rewriteConfigState *state, 
+                              const char *option, sds line, int force);
 int rewriteConfig(char *path);
 
 /* db.c -- Keyspace access API */
@@ -1246,7 +1247,7 @@ void clusterBeforeSleep(void);
 void initSentinelConfig(void);
 void initSentinel(void);
 void sentinelTimer(void);
-char *sentinelHandleConfiguration(char **argv, int argc);
+const char *sentinelHandleConfiguration(char **argv, int argc);
 void sentinelIsRunning(void);
 
 /* Scripting */
@@ -1410,24 +1411,31 @@ void replconfCommand(redisClient *c);
 void waitCommand(redisClient *c);
 
 #if defined(__GNUC__)
+#ifdef __cplusplus
+void *calloc(size_t count, size_t size) throw() __attribute__ ((deprecated));
+void free(void *ptr) throw() __attribute__ ((deprecated));
+void *malloc(size_t size) throw() __attribute__ ((deprecated));
+void *realloc(void *ptr, size_t size) throw() __attribute__ ((deprecated));
+#else
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
 void free(void *ptr) __attribute__ ((deprecated));
 void *malloc(size_t size) __attribute__ ((deprecated));
 void *realloc(void *ptr, size_t size) __attribute__ ((deprecated));
 #endif
+#endif
 
 /* Debugging stuff */
-void _redisAssertWithInfo(redisClient *c, robj *o, char *estr, char *file, int line);
-void _redisAssert(char *estr, char *file, int line);
-void _redisPanic(char *msg, char *file, int line);
+void _redisAssertWithInfo(redisClient *c, robj *o, const char *estr, const char *file, int line);
+void _redisAssert(const char *estr, const char *file, int line);
+void _redisPanic(const char *msg, const char *file, int line);
 void bugReportStart(void);
 void redisLogObjectDebugInfo(robj *o);
 void sigsegvHandler(int sig, siginfo_t *info, void *secret);
-sds genRedisInfoString(char *section);
+sds genRedisInfoString(const char *section);
 void enableWatchdog(int period);
 void disableWatchdog(void);
 void watchdogScheduleSignal(int period);
-void redisLogHexDump(int level, char *descr, void *value, size_t len);
+void redisLogHexDump(int level, const char *descr, void *value, size_t len);
 
 #define redisDebug(fmt, ...) \
     printf("DEBUG %s:%d > " fmt "\n", __FILE__, __LINE__, __VA_ARGS__)

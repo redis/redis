@@ -140,7 +140,7 @@ void rioInitWithBuffer(rio *r, sds s) {
 /* This function can be installed both in memory and file streams when checksum
  * computation is needed. */
 void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len) {
-    r->cksum = crc64(r->cksum,buf,len);
+    r->cksum = crc64(r->cksum,(const unsigned char*)buf,len);
 }
 
 /* Set the file-based rio object to auto-fsync every 'bytes' file written.

@@ -367,7 +367,7 @@ static void mp_encode_lua_table_as_map(lua_State *L, mp_buf *buf, int level) {
  * of keys from numerical keys from 1 up to N, with N being the total number
  * of elements, without any hole in the middle. */
 static int table_is_an_array(lua_State *L) {
-    long count = 0, max = 0, idx = 0;
+    long count = 0, idx = 0;
     lua_Number n;
 
     lua_pushnil(L);
@@ -379,7 +379,6 @@ static int table_is_an_array(lua_State *L) {
         idx = n;
         if (idx != n || idx < 1) goto not_array;
         count++;
-        max = idx;
     }
     /* We have the total number of elements in "count". Also we have
      * the max index encountered in "idx". We can't reach this code

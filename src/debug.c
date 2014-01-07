@@ -51,7 +51,7 @@
  * So digest(a,b,c,d) will be the same of digest(b,a,c,d) */
 void xorDigest(unsigned char *digest, void *ptr, size_t len) {
     SHA1_CTX ctx;
-    unsigned char hash[20], *s = ptr;
+    unsigned char hash[20], *s = (unsigned char*)ptr;
     int j;
 
     SHA1Init(&ctx);
@@ -64,7 +64,7 @@ void xorDigest(unsigned char *digest, void *ptr, size_t len) {
 
 void xorObjectDigest(unsigned char *digest, robj *o) {
     o = getDecodedObject(o);
-    xorDigest(digest,o->ptr,sdslen(o->ptr));
+    xorDigest(digest,o->ptr,sdslen((sds)o->ptr));
     decrRefCount(o);
 }
 
@@ -84,7 +84,7 @@ void xorObjectDigest(unsigned char *digest, robj *o) {
  */
 void mixDigest(unsigned char *digest, void *ptr, size_t len) {
     SHA1_CTX ctx;
-    char *s = ptr;
+    char *s = (char*)ptr;
 
     xorDigest(digest,s,len);
     SHA1Init(&ctx);
@@ -94,7 +94,7 @@ void mixDigest(unsigned char *digest, void *ptr, size_t len) {
 
 void mixObjectDigest(unsigned char *digest, robj *o) {
     o = getDecodedObject(o);
-    mixDigest(digest,o->ptr,sdslen(o->ptr));
+    mixDigest(digest,o->ptr,sdslen((sds)o->ptr));
     decrRefCount(o);
 }
 
@@ -117,8 +117,8 @@ void computeDatasetDigest(unsigned char *final) {
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
 
-        if (dictSize(db->dict) == 0) continue;
-        di = dictGetIterator(db->dict);
+        if (dictSize(db->theDict) == 0) continue;
+        di = dictGetIterator(db->theDict);
 
         /* hash the DB id, so the same dataset moved in a different
          * DB will lead to a different digest */
@@ -132,12 +132,12 @@ void computeDatasetDigest(unsigned char *final) {
             long long expiretime;
 
             memset(digest,0,20); /* This key-val digest */
-            key = dictGetKey(de);
+            key = (sds)dictGetKey(de);
             keyobj = createStringObject(key,sdslen(key));
 
             mixDigest(digest,key,sdslen(key));
 
-            o = dictGetVal(de);
+            o = (robj*)dictGetVal(de);
 
             aux = htonl(o->type);
             mixDigest(digest,&aux,sizeof(aux));
@@ -167,7 +167,7 @@ void computeDatasetDigest(unsigned char *final) {
                 unsigned char eledigest[20];
 
                 if (o->encoding == REDIS_ENCODING_ZIPLIST) {
-                    unsigned char *zl = o->ptr;
+                    unsigned char *zl = (unsigned char *)o->ptr;
                     unsigned char *eptr, *sptr;
                     unsigned char *vstr;
                     unsigned int vlen;
@@ -197,13 +197,13 @@ void computeDatasetDigest(unsigned char *final) {
                         zzlNext(zl,&eptr,&sptr);
                     }
                 } else if (o->encoding == REDIS_ENCODING_SKIPLIST) {
-                    zset *zs = o->ptr;
-                    dictIterator *di = dictGetIterator(zs->dict);
+                    zset *zs = (zset*)o->ptr;
+                    dictIterator *di = (dictIterator*)dictGetIterator(zs->theDict);
                     dictEntry *de;
 
                     while((de = dictNext(di)) != NULL) {
-                        robj *eleobj = dictGetKey(de);
-                        double *score = dictGetVal(de);
+                        robj *eleobj = (robj*)dictGetKey(de);
+                        double *score = (double*)dictGetVal(de);
 
                         snprintf(buf,sizeof(buf),"%.17g",*score);
                         memset(eledigest,0,20);
@@ -237,7 +237,7 @@ void computeDatasetDigest(unsigned char *final) {
                 redisPanic("Unknown object type");
             }
             /* If the key has an expire, add it to the mix */
-            if (expiretime != -1) xorDigest(digest,"!!expire!!",10);
+            if (expiretime != -1) xorDigest(digest,(void*)"!!expire!!",10);
             /* We can finally xor the key-val digest to the final digest */
             xorDigest(final,digest,20);
             decrRefCount(keyobj);
@@ -247,16 +247,16 @@ void computeDatasetDigest(unsigned char *final) {
 }
 
 void debugCommand(redisClient *c) {
-    if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
+    if (!strcasecmp((char*)c->argv[1]->ptr,"segfault")) {
         *((char*)-1) = 'x';
-    } else if (!strcasecmp(c->argv[1]->ptr,"oom")) {
+    } else if (!strcasecmp((char*)c->argv[1]->ptr,"oom")) {
         void *ptr = zmalloc(ULONG_MAX); /* Should trigger an out of memory. */
         zfree(ptr);
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"assert")) {
+    } else if (!strcasecmp((char*)c->argv[1]->ptr,"assert")) {
         if (c->argc >= 3) c->argv[2] = tryObjectEncoding(c->argv[2]);
         redisAssertWithInfo(c,c->argv[0],1 == 2);
-    } else if (!strcasecmp(c->argv[1]->ptr,"reload")) {
+    } else if (!strcasecmp((char*)c->argv[1]->ptr,"reload")) {
         if (rdbSave(server.rdb_filename) != REDIS_OK) {
             addReply(c,shared.err);
             return;
@@ -268,7 +268,7 @@ void debugCommand(redisClient *c) {
         }
         redisLog(REDIS_WARNING,"DB reloaded by DEBUG RELOAD");
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
+    } else if (!strcasecmp((char*)c->argv[1]->ptr,"loadaof")) {
         emptyDb(NULL);
         if (loadAppendOnlyFile(server.aof_filename) != REDIS_OK) {
             addReply(c,shared.err);
@@ -277,16 +277,16 @@ void debugCommand(redisClient *c) {
         server.dirty = 0; /* Prevent AOF / replication */
         redisLog(REDIS_WARNING,"Append Only File loaded by DEBUG LOADAOF");
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"object") && c->argc == 3) {
+    } else if (!strcasecmp((char*)c->argv[1]->ptr,"object") && c->argc == 3) {
         dictEntry *de;
         robj *val;
-        char *strenc;
+        const char *strenc;
 
-        if ((de = dictFind(c->db->dict,c->argv[2]->ptr)) == NULL) {
+        if ((de = dictFind(c->db->theDict,c->argv[2]->ptr)) == NULL) {
             addReply(c,shared.nokeyerr);
             return;
         }
-        val = dictGetVal(de);
+        val = (robj*)dictGetVal(de);
         strenc = strEncoding(val->encoding);
 
         addReplyStatusFormat(c,
@@ -296,17 +296,17 @@ void debugCommand(redisClient *c) {
             (void*)val, val->refcount,
             strenc, (long long) rdbSavedObjectLen(val),
             val->lru, estimateObjectIdleTime(val));
-    } else if (!strcasecmp(c->argv[1]->ptr,"sdslen") && c->argc == 3) {
+    } else if (!strcasecmp((char*)c->argv[1]->ptr,"sdslen") && c->argc == 3) {
         dictEntry *de;
         robj *val;
         sds key;
 
-        if ((de = dictFind(c->db->dict,c->argv[2]->ptr)) == NULL) {
+        if ((de = dictFind(c->db->theDict,c->argv[2]->ptr)) == NULL) {
             addReply(c,shared.nokeyerr);
             return;
         }
-        val = dictGetVal(de);
-        key = dictGetKey(de);
+        val = (robj*)dictGetVal(de);
+        key = (sds)dictGetKey(de);
 
         if (val->type != REDIS_STRING || !sdsEncodedObject(val)) {
             addReplyError(c,"Not an sds encoded string.");
@@ -316,10 +316,10 @@ void debugCommand(redisClient *c) {
                 "val_sds_len:%lld, val_sds_avail:%lld",
                 (long long) sdslen(key),
                 (long long) sdsavail(key),
-                (long long) sdslen(val->ptr),
-                (long long) sdsavail(val->ptr));
+                (long long) sdslen((sds)val->ptr),
+                (long long) sdsavail((sds)val->ptr));
         }
-    } else if (!strcasecmp(c->argv[1]->ptr,"populate") && c->argc == 3) {
+    } else if (!strcasecmp((char*)c->argv[1]->ptr,"populate") && c->argc == 3) {
         long keys, j;
         robj *key, *val;
         char buf[128];
@@ -339,7 +339,7 @@ void debugCommand(redisClient *c) {
             decrRefCount(key);
         }
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"digest") && c->argc == 2) {
+    } else if (!strcasecmp((char*)c->argv[1]->ptr,"digest") && c->argc == 2) {
         unsigned char digest[20];
         sds d = sdsempty();
         int j;
@@ -349,8 +349,8 @@ void debugCommand(redisClient *c) {
             d = sdscatprintf(d, "%02x",digest[j]);
         addReplyStatus(c,d);
         sdsfree(d);
-    } else if (!strcasecmp(c->argv[1]->ptr,"sleep") && c->argc == 3) {
-        double dtime = strtod(c->argv[2]->ptr,NULL);
+    } else if (!strcasecmp((char*)c->argv[1]->ptr,"sleep") && c->argc == 3) {
+        double dtime = strtod((char*)c->argv[2]->ptr,NULL);
         long long utime = dtime*1000000;
         struct timespec tv;
 
@@ -358,10 +358,10 @@ void debugCommand(redisClient *c) {
         tv.tv_nsec = (utime % 1000000) * 1000;
         nanosleep(&tv, NULL);
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"set-active-expire") &&
+    } else if (!strcasecmp((char*)c->argv[1]->ptr,"set-active-expire") &&
                c->argc == 3)
     {
-        server.active_expire_enabled = atoi(c->argv[2]->ptr);
+        server.active_expire_enabled = atoi((char*)c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else {
         addReplyErrorFormat(c, "Unknown DEBUG subcommand or wrong number of arguments for '%s'",
@@ -371,13 +371,13 @@ void debugCommand(redisClient *c) {
 
 /* =========================== Crash handling  ============================== */
 
-void _redisAssert(char *estr, char *file, int line) {
+void _redisAssert(const char *estr, const char *file, int line) {
     bugReportStart();
     redisLog(REDIS_WARNING,"=== ASSERTION FAILED ===");
     redisLog(REDIS_WARNING,"==> %s:%d '%s' is not true",file,line,estr);
 #ifdef HAVE_BACKTRACE
     server.assert_failed = estr;
-    server.assert_file = file;
+    server.assert_file = (char*)file;
     server.assert_line = line;
     redisLog(REDIS_WARNING,"(forcing SIGSEGV to print the bug report.)");
 #endif
@@ -413,9 +413,9 @@ void redisLogObjectDebugInfo(robj *o) {
     redisLog(REDIS_WARNING,"Object encoding: %d", o->encoding);
     redisLog(REDIS_WARNING,"Object refcount: %d", o->refcount);
     if (o->type == REDIS_STRING && sdsEncodedObject(o)) {
-        redisLog(REDIS_WARNING,"Object raw string len: %zu", sdslen(o->ptr));
-        if (sdslen(o->ptr) < 4096) {
-            sds repr = sdscatrepr(sdsempty(),o->ptr,sdslen(o->ptr));
+        redisLog(REDIS_WARNING,"Object raw string len: %zu", sdslen((sds)o->ptr));
+        if (sdslen((sds)o->ptr) < 4096) {
+            sds repr = sdscatrepr(sdsempty(),(char*)o->ptr,sdslen((sds)o->ptr));
             redisLog(REDIS_WARNING,"Object raw string content: %s", repr);
             sdsfree(repr);
         }
@@ -438,13 +438,13 @@ void _redisAssertPrintObject(robj *o) {
     redisLogObjectDebugInfo(o);
 }
 
-void _redisAssertWithInfo(redisClient *c, robj *o, char *estr, char *file, int line) {
+void _redisAssertWithInfo(redisClient *c, robj *o, const char *estr, const char *file, int line) {
     if (c) _redisAssertPrintClientInfo(c);
     if (o) _redisAssertPrintObject(o);
     _redisAssert(estr,file,line);
 }
 
-void _redisPanic(char *msg, char *file, int line) {
+void _redisPanic(const char *msg, const char *file, int line) {
     bugReportStart();
     redisLog(REDIS_WARNING,"------------------------------------------------");
     redisLog(REDIS_WARNING,"!!! Software Failure. Press left mouse button to continue");
@@ -693,9 +693,9 @@ void logCurrentClient(void) {
         dictEntry *de;
 
         key = getDecodedObject(cc->argv[1]);
-        de = dictFind(cc->db->dict, key->ptr);
+        de = dictFind(cc->db->theDict, key->ptr);
         if (de) {
-            val = dictGetVal(de);
+            val = (robj*)dictGetVal(de);
             redisLog(REDIS_WARNING,"key '%s' found in DB containing the following object:", (char*)key->ptr);
             redisLogObjectDebugInfo(val);
         }
@@ -748,7 +748,7 @@ int memtest_test_linux_anonymous_maps(void) {
     /* Test all the regions as an unique sequential region.
      * 1) Take the CRC64 of the memory region. */
     for (j = 0; j < regions; j++) {
-        crc1 = crc64(crc1,(void*)start_vect[j],size_vect[j]);
+        crc1 = crc64(crc1,(unsigned char*)(void*)start_vect[j],size_vect[j]);
     }
 
     /* 2) Invert bits, swap adjacent words, swap again, invert bits.
@@ -764,7 +764,7 @@ int memtest_test_linux_anonymous_maps(void) {
 
     /* 3) Take the CRC64 sum again. */
     for (j = 0; j < regions; j++)
-        crc2 = crc64(crc2,(void*)start_vect[j],size_vect[j]);
+        crc2 = crc64(crc2,(unsigned char*)(void*)start_vect[j],size_vect[j]);
 
     /* 4) Swap + Swap again */
     for (j = 0; j < regions; j++)
@@ -774,7 +774,7 @@ int memtest_test_linux_anonymous_maps(void) {
 
     /* 5) Take the CRC64 sum again. */
     for (j = 0; j < regions; j++)
-        crc3 = crc64(crc3,(void*)start_vect[j],size_vect[j]);
+        crc3 = crc64(crc3,(unsigned char*)(void*)start_vect[j],size_vect[j]);
 
     /* NOTE: It is very important to close the file descriptor only now
      * because closing it before may result into unmapping of some memory
@@ -855,9 +855,9 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
 
 /* ==================== Logging functions for debugging ===================== */
 
-void redisLogHexDump(int level, char *descr, void *value, size_t len) {
+void redisLogHexDump(int level, const char *descr, void *value, size_t len) {
     char buf[65], *b;
-    unsigned char *v = value;
+    unsigned char *v = (unsigned char *)value;
     char charset[] = "0123456789abcdef";
 
     redisLog(level,"%s (hexdump):", descr);

@@ -45,7 +45,7 @@ void replicationSendAck(void);
 
 void createReplicationBacklog(void) {
     redisAssert(server.repl_backlog == NULL);
-    server.repl_backlog = zmalloc(server.repl_backlog_size);
+    server.repl_backlog = (char*)zmalloc(server.repl_backlog_size);
     server.repl_backlog_histlen = 0;
     server.repl_backlog_idx = 0;
     /* When a new backlog buffer is created, we increment the replication
@@ -79,7 +79,7 @@ void resizeReplicationBacklog(long long newsize) {
          * worse often we need to alloc additional space before freeing the
          * old buffer. */
         zfree(server.repl_backlog);
-        server.repl_backlog = zmalloc(server.repl_backlog_size);
+        server.repl_backlog = (char*)zmalloc(server.repl_backlog_size);
         server.repl_backlog_histlen = 0;
         server.repl_backlog_idx = 0;
         /* Next byte we have is... the next since the buffer is emtpy. */
@@ -98,7 +98,7 @@ void freeReplicationBacklog(void) {
  * server.master_repl_offset, because there is no case where we want to feed
  * the backlog without incrementing the buffer. */
 void feedReplicationBacklog(void *ptr, size_t len) {
-    unsigned char *p = ptr;
+    unsigned char *p = (unsigned char*)ptr;
 
     server.master_repl_offset += len;
 
@@ -133,7 +133,7 @@ void feedReplicationBacklogWithObject(robj *o) {
         len = ll2string(llstr,sizeof(llstr),(long)o->ptr);
         p = llstr;
     } else {
-        len = sdslen(o->ptr);
+        len = sdslen((sds)o->ptr);
         p = o->ptr;
     }
     feedReplicationBacklog(p,len);
@@ -175,7 +175,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         /* Send it to slaves. */
         listRewind(slaves,&li);
         while((ln = listNext(&li))) {
-            redisClient *slave = ln->value;
+            redisClient *slave = (redisClient*)ln->value;
             addReply(slave,selectcmd);
         }
 
@@ -214,7 +214,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     /* Write the command to every slave. */
     listRewind(slaves,&li);
     while((ln = listNext(&li))) {
-        redisClient *slave = ln->value;
+        redisClient *slave = (redisClient *)ln->value;
 
         /* Don't feed slaves that are still waiting for BGSAVE to start */
         if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_START) continue;
@@ -258,7 +258,7 @@ void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **
             cmdrepr = sdscatprintf(cmdrepr, "\"%ld\"", (long)argv[j]->ptr);
         } else {
             cmdrepr = sdscatrepr(cmdrepr,(char*)argv[j]->ptr,
-                        sdslen(argv[j]->ptr));
+                        sdslen((sds)argv[j]->ptr));
         }
         if (j != argc-1)
             cmdrepr = sdscatlen(cmdrepr," ",1);
@@ -268,7 +268,7 @@ void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **
 
     listRewind(monitors,&li);
     while((ln = listNext(&li))) {
-        redisClient *monitor = ln->value;
+        redisClient *monitor = (redisClient*)ln->value;
         addReply(monitor,cmdobj);
     }
     decrRefCount(cmdobj);
@@ -333,7 +333,7 @@ long long addReplyReplicationBacklog(redisClient *c, long long offset) {
  * with the usual full resync. */
 int masterTryPartialResynchronization(redisClient *c) {
     long long psync_offset, psync_len;
-    char *master_runid = c->argv[1]->ptr;
+    char *master_runid = (char*)c->argv[1]->ptr;
     char buf[128];
     int buflen;
 
@@ -442,12 +442,12 @@ void syncCommand(redisClient *c) {
      *
      * So the slave knows the new runid and offset to try a PSYNC later
      * if the connection with the master is lost. */
-    if (!strcasecmp(c->argv[0]->ptr,"psync")) {
+    if (!strcasecmp((char*)c->argv[0]->ptr,"psync")) {
         if (masterTryPartialResynchronization(c) == REDIS_OK) {
             server.stat_sync_partial_ok++;
             return; /* No full resync needed, return. */
         } else {
-            char *master_runid = c->argv[1]->ptr;
+            char *master_runid = (char*)c->argv[1]->ptr;
             
             /* Increment stats for failed PSYNCs, but only if the
              * runid is not "?", as this is used by slaves to force a full
@@ -477,7 +477,7 @@ void syncCommand(redisClient *c) {
 
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
-            slave = ln->value;
+            slave = (redisClient*)ln->value;
             if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_END) break;
         }
         if (ln) {
@@ -540,14 +540,14 @@ void replconfCommand(redisClient *c) {
 
     /* Process every option-value pair. */
     for (j = 1; j < c->argc; j+=2) {
-        if (!strcasecmp(c->argv[j]->ptr,"listening-port")) {
+        if (!strcasecmp((char*)c->argv[j]->ptr,"listening-port")) {
             long port;
 
             if ((getLongFromObjectOrReply(c,c->argv[j+1],
                     &port,NULL) != REDIS_OK))
                 return;
             c->slave_listening_port = port;
-        } else if (!strcasecmp(c->argv[j]->ptr,"ack")) {
+        } else if (!strcasecmp((char*)c->argv[j]->ptr,"ack")) {
             /* REPLCONF ACK is used by slave to inform the master the amount
              * of replication stream that it processed so far. It is an
              * internal only command that normal clients should never use. */
@@ -561,7 +561,7 @@ void replconfCommand(redisClient *c) {
             c->repl_ack_time = server.unixtime;
             /* Note: this command does not reply anything! */
             return;
-        } else if (!strcasecmp(c->argv[j]->ptr,"getack")) {
+        } else if (!strcasecmp((char*)c->argv[j]->ptr,"getack")) {
             /* REPLCONF GETACK is used in order to request an ACK ASAP
              * to the slave. */
             if (server.masterhost && server.master) replicationSendAck();
@@ -576,7 +576,7 @@ void replconfCommand(redisClient *c) {
 }
 
 void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
-    redisClient *slave = privdata;
+    redisClient *slave = (redisClient*)privdata;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     char buf[REDIS_IOBUF_LEN];
@@ -648,7 +648,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr) {
 
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
-        redisClient *slave = ln->value;
+        redisClient *slave = (redisClient*)ln->value;
 
         if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_START) {
             startbgsave = 1;
@@ -692,7 +692,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr) {
             listRewind(server.slaves,&li);
             redisLog(REDIS_WARNING,"SYNC failed. BGSAVE failed");
             while((ln = listNext(&li))) {
-                redisClient *slave = ln->value;
+                redisClient *slave = (redisClient*)ln->value;
 
                 if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_START)
                     freeClient(slave);
@@ -937,7 +937,7 @@ char *sendSynchronousCommand(int fd, ...) {
 #define PSYNC_FULLRESYNC 1
 #define PSYNC_NOT_SUPPORTED 2
 int slaveTryPartialResynchronization(int fd) {
-    char *psync_runid;
+    const char *psync_runid;
     char psync_offset[32];
     sds reply;
 
@@ -1290,8 +1290,8 @@ void slaveofCommand(redisClient *c) {
 
     /* The special host/port combination "NO" "ONE" turns the instance
      * into a master. Otherwise the new master address is set. */
-    if (!strcasecmp(c->argv[1]->ptr,"no") &&
-        !strcasecmp(c->argv[2]->ptr,"one")) {
+    if (!strcasecmp((char*)c->argv[1]->ptr,"no") &&
+        !strcasecmp((char*)c->argv[2]->ptr,"one")) {
         if (server.masterhost) {
             replicationUnsetMaster();
             redisLog(REDIS_NOTICE,"MASTER MODE enabled (user request)");
@@ -1303,7 +1303,7 @@ void slaveofCommand(redisClient *c) {
             return;
 
         /* Check if we are already attached to the specified slave */
-        if (server.masterhost && !strcasecmp(server.masterhost,c->argv[1]->ptr)
+        if (server.masterhost && !strcasecmp(server.masterhost,(char*)c->argv[1]->ptr)
             && server.masterport == port) {
             redisLog(REDIS_NOTICE,"SLAVE OF would result into synchronization with the master we are already connected with. No operation performed.");
             addReplySds(c,sdsnew("+OK Already connected to specified master\r\n"));
@@ -1311,7 +1311,7 @@ void slaveofCommand(redisClient *c) {
         }
         /* There was no previous master or the user specified a different one,
          * we can continue. */
-        replicationSetMaster(c->argv[1]->ptr, port);
+        replicationSetMaster((char*)c->argv[1]->ptr, port);
         redisLog(REDIS_NOTICE,"SLAVE OF %s:%d enabled (user request)",
             server.masterhost, server.masterport);
     }
@@ -1445,7 +1445,7 @@ void refreshGoodSlavesCount(void) {
 
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
-        redisClient *slave = ln->value;
+        redisClient *slave = (redisClient*)ln->value;
         time_t lag = server.unixtime - slave->repl_ack_time;
 
         if (slave->replstate == REDIS_REPL_ONLINE &&
@@ -1519,7 +1519,7 @@ void replicationScriptCacheAdd(sds sha1) {
     if (listLength(server.repl_scriptcache_fifo) == server.repl_scriptcache_size)
     {
         listNode *ln = listLast(server.repl_scriptcache_fifo);
-        sds oldest = listNodeValue(ln);
+        sds oldest = (sds)listNodeValue(ln);
 
         retval = dictDelete(server.repl_scriptcache_dict,oldest);
         redisAssert(retval == DICT_OK);
@@ -1581,7 +1581,7 @@ int replicationCountAcksByOffset(long long offset) {
 
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
-        redisClient *slave = ln->value;
+        redisClient *slave = (redisClient *)ln->value;
 
         if (slave->replstate != REDIS_REPL_ONLINE) continue;
         if (slave->repl_ack_off >= offset) count++;
@@ -1643,7 +1643,7 @@ void processClientsWaitingReplicas(void) {
 
     listRewind(server.clients_waiting_acks,&li);
     while((ln = listNext(&li))) {
-        redisClient *c = ln->value;
+        redisClient *c = (redisClient*)ln->value;
 
         /* Every time we find a client that is satisfied for a given
          * offset and number of replicas, we remember it so the next client
@@ -1730,7 +1730,7 @@ void replicationCron(void) {
          * last-io timer preventing a timeout. */
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
-            redisClient *slave = ln->value;
+            redisClient *slave = (redisClient*)ln->value;
 
             if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_START ||
                 slave->replstate == REDIS_REPL_WAIT_BGSAVE_END) {
@@ -1748,7 +1748,7 @@ void replicationCron(void) {
 
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
-            redisClient *slave = ln->value;
+            redisClient *slave = (redisClient*)ln->value;
 
             if (slave->replstate != REDIS_REPL_ONLINE) continue;
             if (slave->flags & REDIS_PRE_PSYNC_SLAVE) continue;

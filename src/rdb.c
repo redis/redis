@@ -253,7 +253,7 @@ robj *rdbLoadLzfStringObject(rio *rdb) {
 
     if ((clen = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
     if ((len = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
-    if ((c = zmalloc(clen)) == NULL) goto err;
+    if ((c = (unsigned char *)zmalloc(clen)) == NULL) goto err;
     if ((val = sdsnewlen(NULL,len)) == NULL) goto err;
     if (rioRead(rdb,c,clen) == 0) goto err;
     if (lzf_decompress(c,clen,val,len) == 0) goto err;
@@ -326,7 +326,7 @@ int rdbSaveStringObject(rio *rdb, robj *obj) {
         return rdbSaveLongLongAsStringObject(rdb,(long)obj->ptr);
     } else {
         redisAssertWithInfo(NULL,obj,sdsEncodedObject(obj));
-        return rdbSaveRawString(rdb,obj->ptr,sdslen(obj->ptr));
+        return rdbSaveRawString(rdb,(unsigned char*)obj->ptr,sdslen((sds)obj->ptr));
     }
 }
 
@@ -487,19 +487,19 @@ int rdbSaveObject(rio *rdb, robj *o) {
         if (o->encoding == REDIS_ENCODING_ZIPLIST) {
             size_t l = ziplistBlobLen((unsigned char*)o->ptr);
 
-            if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
+            if ((n = rdbSaveRawString(rdb,(unsigned char*)o->ptr,l)) == -1) return -1;
             nwritten += n;
         } else if (o->encoding == REDIS_ENCODING_LINKEDLIST) {
-            list *list = o->ptr;
+            list *myList = (list*)o->ptr;
             listIter li;
             listNode *ln;
 
-            if ((n = rdbSaveLen(rdb,listLength(list))) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,listLength(myList))) == -1) return -1;
             nwritten += n;
 
-            listRewind(list,&li);
+            listRewind(myList,&li);
             while((ln = listNext(&li))) {
-                robj *eleobj = listNodeValue(ln);
+                robj *eleobj = (robj*)listNodeValue(ln);
                 if ((n = rdbSaveStringObject(rdb,eleobj)) == -1) return -1;
                 nwritten += n;
             }
@@ -509,7 +509,7 @@ int rdbSaveObject(rio *rdb, robj *o) {
     } else if (o->type == REDIS_SET) {
         /* Save a set value */
         if (o->encoding == REDIS_ENCODING_HT) {
-            dict *set = o->ptr;
+            dict *set = (dict*)o->ptr;
             dictIterator *di = dictGetIterator(set);
             dictEntry *de;
 
@@ -517,7 +517,7 @@ int rdbSaveObject(rio *rdb, robj *o) {
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
-                robj *eleobj = dictGetKey(de);
+                robj *eleobj = (robj*)dictGetKey(de);
                 if ((n = rdbSaveStringObject(rdb,eleobj)) == -1) return -1;
                 nwritten += n;
             }
@@ -525,7 +525,7 @@ int rdbSaveObject(rio *rdb, robj *o) {
         } else if (o->encoding == REDIS_ENCODING_INTSET) {
             size_t l = intsetBlobLen((intset*)o->ptr);
 
-            if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
+            if ((n = rdbSaveRawString(rdb,(unsigned char*)o->ptr,l)) == -1) return -1;
             nwritten += n;
         } else {
             redisPanic("Unknown set encoding");
@@ -535,19 +535,19 @@ int rdbSaveObject(rio *rdb, robj *o) {
         if (o->encoding == REDIS_ENCODING_ZIPLIST) {
             size_t l = ziplistBlobLen((unsigned char*)o->ptr);
 
-            if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
+            if ((n = rdbSaveRawString(rdb,(unsigned char*)o->ptr,l)) == -1) return -1;
             nwritten += n;
         } else if (o->encoding == REDIS_ENCODING_SKIPLIST) {
-            zset *zs = o->ptr;
-            dictIterator *di = dictGetIterator(zs->dict);
+            zset *zs = (zset *)o->ptr;
+            dictIterator *di = dictGetIterator(zs->theDict);
             dictEntry *de;
 
-            if ((n = rdbSaveLen(rdb,dictSize(zs->dict))) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,dictSize(zs->theDict))) == -1) return -1;
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
-                robj *eleobj = dictGetKey(de);
-                double *score = dictGetVal(de);
+                robj *eleobj = (robj*)dictGetKey(de);
+                double *score = (double *)dictGetVal(de);
 
                 if ((n = rdbSaveStringObject(rdb,eleobj)) == -1) return -1;
                 nwritten += n;
@@ -563,19 +563,19 @@ int rdbSaveObject(rio *rdb, robj *o) {
         if (o->encoding == REDIS_ENCODING_ZIPLIST) {
             size_t l = ziplistBlobLen((unsigned char*)o->ptr);
 
-            if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
+            if ((n = rdbSaveRawString(rdb,(unsigned char*)o->ptr,l)) == -1) return -1;
             nwritten += n;
 
         } else if (o->encoding == REDIS_ENCODING_HT) {
-            dictIterator *di = dictGetIterator(o->ptr);
+            dictIterator *di = dictGetIterator((dict*)o->ptr);
             dictEntry *de;
 
             if ((n = rdbSaveLen(rdb,dictSize((dict*)o->ptr))) == -1) return -1;
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
-                robj *key = dictGetKey(de);
-                robj *val = dictGetVal(de);
+                robj *key = (robj*)dictGetKey(de);
+                robj *val = (robj*)dictGetVal(de);
 
                 if ((n = rdbSaveStringObject(rdb,key)) == -1) return -1;
                 nwritten += n;
@@ -654,7 +654,7 @@ int rdbSave(char *filename) {
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
-        dict *d = db->dict;
+        dict *d = db->theDict;
         if (dictSize(d) == 0) continue;
         di = dictGetSafeIterator(d);
         if (!di) {
@@ -668,8 +668,8 @@ int rdbSave(char *filename) {
 
         /* Iterate this DB writing every entry */
         while((de = dictNext(di)) != NULL) {
-            sds keystr = dictGetKey(de);
-            robj key, *o = dictGetVal(de);
+            sds keystr = (sds)dictGetKey(de);
+            robj key, *o = (robj*)dictGetVal(de);
             long long expire;
             
             initStaticStringObject(key,keystr);
@@ -797,17 +797,20 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
              * the object to a real list. */
             if (o->encoding == REDIS_ENCODING_ZIPLIST &&
                 sdsEncodedObject(ele) &&
-                sdslen(ele->ptr) > server.list_max_ziplist_value)
+                sdslen((sds)ele->ptr) > server.list_max_ziplist_value)
                     listTypeConvert(o,REDIS_ENCODING_LINKEDLIST);
 
             if (o->encoding == REDIS_ENCODING_ZIPLIST) {
                 dec = getDecodedObject(ele);
-                o->ptr = ziplistPush(o->ptr,dec->ptr,sdslen(dec->ptr),REDIS_TAIL);
+                o->ptr = ziplistPush((unsigned char*)o->ptr,
+                                     (unsigned char*)dec->ptr,
+                                     sdslen((sds)dec->ptr),
+                                     REDIS_TAIL);
                 decrRefCount(dec);
                 decrRefCount(ele);
             } else {
                 ele = tryObjectEncoding(ele);
-                listAddNodeTail(o->ptr,ele);
+                listAddNodeTail((list*)o->ptr,ele);
             }
         }
     } else if (rdbtype == REDIS_RDB_TYPE_SET) {
@@ -820,7 +823,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             /* It's faster to expand the dict to the right size asap in order
              * to avoid rehashing */
             if (len > DICT_HT_INITIAL_SIZE)
-                dictExpand(o->ptr,len);
+                dictExpand((dict*)o->ptr,len);
         } else {
             o = createIntsetObject();
         }
@@ -834,10 +837,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             if (o->encoding == REDIS_ENCODING_INTSET) {
                 /* Fetch integer value from element */
                 if (isObjectRepresentableAsLongLong(ele,&llval) == REDIS_OK) {
-                    o->ptr = intsetAdd(o->ptr,llval,NULL);
+                    o->ptr = intsetAdd((intset*)o->ptr,llval,NULL);
                 } else {
                     setTypeConvert(o,REDIS_ENCODING_HT);
-                    dictExpand(o->ptr,len);
+                    dictExpand((dict*)o->ptr,len);
                 }
             }
 
@@ -857,7 +860,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 
         if ((zsetlen = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
         o = createZsetObject();
-        zs = o->ptr;
+        zs = (zset*)o->ptr;
 
         /* Load every single element of the list/set */
         while(zsetlen--) {
@@ -870,11 +873,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             if (rdbLoadDoubleValue(rdb,&score) == -1) return NULL;
 
             /* Don't care about integer-encoded strings. */
-            if (sdsEncodedObject(ele) && sdslen(ele->ptr) > maxelelen)
-                maxelelen = sdslen(ele->ptr);
+            if (sdsEncodedObject(ele) && sdslen((sds)ele->ptr) > maxelelen)
+                maxelelen = sdslen((sds)ele->ptr);
 
             znode = zslInsert(zs->zsl,score,ele);
-            dictAdd(zs->dict,ele,&znode->score);
+            dictAdd(zs->theDict,ele,&znode->score);
             incrRefCount(ele); /* added to skiplist */
         }
 
@@ -909,11 +912,17 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             redisAssert(sdsEncodedObject(value));
 
             /* Add pair to ziplist */
-            o->ptr = ziplistPush(o->ptr, field->ptr, sdslen(field->ptr), ZIPLIST_TAIL);
-            o->ptr = ziplistPush(o->ptr, value->ptr, sdslen(value->ptr), ZIPLIST_TAIL);
+            o->ptr = ziplistPush((unsigned char*)o->ptr, 
+                                 (unsigned char*)field->ptr, 
+                                 sdslen((sds)field->ptr), 
+                                 ZIPLIST_TAIL);
+            o->ptr = ziplistPush((unsigned char*)o->ptr, 
+                                 (unsigned char*)value->ptr, 
+                                 sdslen((sds)value->ptr), 
+                                 ZIPLIST_TAIL);
             /* Convert to hash table if size threshold is exceeded */
-            if (sdslen(field->ptr) > server.hash_max_ziplist_value ||
-                sdslen(value->ptr) > server.hash_max_ziplist_value)
+            if (sdslen((sds)field->ptr) > server.hash_max_ziplist_value ||
+                sdslen((sds)value->ptr) > server.hash_max_ziplist_value)
             {
                 decrRefCount(field);
                 decrRefCount(value);
@@ -956,8 +965,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 
         if (aux == NULL) return NULL;
         o = createObject(REDIS_STRING,NULL); /* string is just placeholder */
-        o->ptr = zmalloc(sdslen(aux->ptr));
-        memcpy(o->ptr,aux->ptr,sdslen(aux->ptr));
+        o->ptr = zmalloc(sdslen((sds)aux->ptr));
+        memcpy(o->ptr,aux->ptr,sdslen((sds)aux->ptr));
         decrRefCount(aux);
 
         /* Fix the object encoding, and make sure to convert the encoded
@@ -972,7 +981,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                  * when loading dumps created by Redis 2.4 gets deprecated. */
                 {
                     unsigned char *zl = ziplistNew();
-                    unsigned char *zi = zipmapRewind(o->ptr);
+                    unsigned char *zi = zipmapRewind((unsigned char*)o->ptr);
                     unsigned char *fstr, *vstr;
                     unsigned int flen, vlen;
                     unsigned int maxlen = 0;
@@ -999,13 +1008,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             case REDIS_RDB_TYPE_LIST_ZIPLIST:
                 o->type = REDIS_LIST;
                 o->encoding = REDIS_ENCODING_ZIPLIST;
-                if (ziplistLen(o->ptr) > server.list_max_ziplist_entries)
+                if (ziplistLen((unsigned char*)o->ptr) > server.list_max_ziplist_entries)
                     listTypeConvert(o,REDIS_ENCODING_LINKEDLIST);
                 break;
             case REDIS_RDB_TYPE_SET_INTSET:
                 o->type = REDIS_SET;
                 o->encoding = REDIS_ENCODING_INTSET;
-                if (intsetLen(o->ptr) > server.set_max_intset_entries)
+                if (intsetLen((intset*)o->ptr) > server.set_max_intset_entries)
                     setTypeConvert(o,REDIS_ENCODING_HT);
                 break;
             case REDIS_RDB_TYPE_ZSET_ZIPLIST:
