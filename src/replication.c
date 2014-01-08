@@ -1005,7 +1005,7 @@ int slaveTryPartialResynchronization(int fd) {
 
     /* If we reach this point we receied either an error since the master does
      * not understand PSYNC, or an unexpected reply from the master.
-     * Reply with PSYNC_NOT_SUPPORTED in both cases. */
+     * Return PSYNC_NOT_SUPPORTED to the caller in both cases. */
 
     if (strncmp(reply,"-ERR",4)) {
         /* If it's not an error, log the unexpected event. */
