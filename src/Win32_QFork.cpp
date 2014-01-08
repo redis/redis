@@ -201,7 +201,7 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
         return TRUE;
     }
     catch(std::system_error syserr) {
-        printf( "QForkSlaveInit:  0x%08x -- %s\n", syserr.code(), syserr.what() );
+        printf( "QForkSlaveInit:  0x%08x -- %s\n", syserr.code().value(), syserr.what() );
         g_pQForkControl = NULL;
         if(g_pQForkControl != NULL) {
             if(g_pQForkControl->operationFailed != NULL) {
@@ -522,7 +522,7 @@ BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, i
         return TRUE;
     }
     catch(std::system_error syserr) {
-        printf("BeginForkOperation: system error caught. error code=0x%08x, message=%s\n", syserr.code(), syserr.what());
+        printf("BeginForkOperation: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
     }
     catch(std::runtime_error syserr) {
         printf("BeginForkOperation: runtime error caught. message=%s\n", syserr.what());
@@ -566,7 +566,7 @@ BOOL AbortForkOperation()
         return EndForkOperation();
     }
     catch(std::system_error syserr) {
-        printf("0x%08x - %s\n", syserr.code(), syserr.what());
+        printf("0x%08x - %s\n", syserr.code().value(), syserr.what());
 
         // If we can not properly restore fork state, then another fork operation is not possible. 
         exit(1);
@@ -791,7 +791,7 @@ BOOL EndForkOperation() {
         return TRUE;
     }
     catch(std::system_error syserr) {
-        printf("0x%08x - %s\n", syserr.code(), syserr.what());
+        printf("0x%08x - %s\n", syserr.code().value(), syserr.what());
 
         // If we can not properly restore fork state, then another fork operation is not possible. 
         exit(1);
