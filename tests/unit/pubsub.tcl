@@ -356,4 +356,15 @@ start_server {tags {"pubsub"}} {
         r config set maxmemory 0
         $rd1 close
     }
+
+    test "Keyspace notifications: test CONFIG GET/SET of event flags" {
+        r config set notify-keyspace-events gKE
+        assert_equal {gKE} [lindex [r config get notify-keyspace-events] 1]
+        r config set notify-keyspace-events {$lshzxeKE}
+        assert_equal {$lshzxeKE} [lindex [r config get notify-keyspace-events] 1]
+        r config set notify-keyspace-events KA
+        assert_equal {AK} [lindex [r config get notify-keyspace-events] 1]
+        r config set notify-keyspace-events EA
+        assert_equal {AE} [lindex [r config get notify-keyspace-events] 1]
+    }
 }
