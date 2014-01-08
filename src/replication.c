@@ -459,7 +459,7 @@ void syncCommand(redisClient *c) {
         /* If a slave uses SYNC, we are dealing with an old implementation
          * of the replication protocol (like redis-cli --slave). Flag the client
          * so that we don't expect to receive REPLCONF ACK feedbacks. */
-        c->flags |= REDIS_PRE_PSYNC_SLAVE;
+        c->flags |= REDIS_PRE_PSYNC;
     }
 
     /* Full resynchronization. */
@@ -843,6 +843,10 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         server.master->reploff = server.repl_master_initial_offset;
         memcpy(server.master->replrunid, server.repl_master_runid,
             sizeof(server.repl_master_runid));
+        /* If master offset is set to -1, this master is old and is not
+         * PSYNC capable, so we flag it accordingly. */
+        if (server.master->reploff == -1)
+            server.master->flags |= REDIS_PRE_PSYNC;
         redisLog(REDIS_NOTICE, "MASTER <-> SLAVE sync: Finished with success");
         /* Restart the AOF subsystem now that we finished the sync. This
          * will trigger an AOF rewrite, and when done will start appending
@@ -1706,8 +1710,11 @@ void replicationCron(void) {
         }
     }
 
-    /* Send ACK to master from time to time. */
-    if (server.masterhost && server.master)
+    /* Send ACK to master from time to time.
+     * Note that we do not send periodic acks to masters that don't
+     * support PSYNC and replication offsets. */
+    if (server.masterhost && server.master &&
+        !(server.master->flags & REDIS_PRE_PSYNC))
         replicationSendAck();
     
     /* If we have attached slaves, PING them from time to time.
@@ -1751,7 +1758,7 @@ void replicationCron(void) {
             redisClient *slave = ln->value;
 
             if (slave->replstate != REDIS_REPL_ONLINE) continue;
-            if (slave->flags & REDIS_PRE_PSYNC_SLAVE) continue;
+            if (slave->flags & REDIS_PRE_PSYNC) continue;
             if ((server.unixtime - slave->repl_ack_time) > server.repl_timeout)
             {
                 char ip[REDIS_IP_STR_LEN];
