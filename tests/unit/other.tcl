@@ -108,7 +108,6 @@ start_server {tags {"other"}} {
     }
 
     test {EXPIRES after a reload (snapshot + append only file rewrite)} {
-
         r flushdb
         r set x 10
         r expire x 1000
@@ -119,12 +118,7 @@ start_server {tags {"other"}} {
         r bgrewriteaof
         waitForBgrewriteaof r
         r debug loadaof
-		if { $::tcl_platform(platform) == "windows" } {
-			# how to detect that loadaof is done? Windows needs this delay otherwise.
-			after 100
-		}
         set ttl [r ttl x]
-puts "ttl=$ttl"
         set e2 [expr {$ttl > 900 && $ttl <= 1000}]
         list $e1 $e2
     } {1 1}

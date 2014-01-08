@@ -2271,7 +2271,6 @@ start_server {tags {"other"}} {
 # On Windows there are issues with expiring keys and the bgsave/flushload mechanism. 
 # It looks like a race condition.
     test {BGSAVE expires} {
-if { $::tcl_platform(platform) != "windows" } {
         waitForBgsave r
         r flushdb
         r set x 10
@@ -2285,14 +2284,9 @@ if { $::tcl_platform(platform) != "windows" } {
         set e1 [expr {$ttl > 900 && $ttl <= 1000}]
         assert_equal $e1 1
         r flushdb
-} else {
-	fail "Win32: bypassing broken unit test"
-}
-    }
-#	 {OK}
+    } {OK}
 
     test {BGSAVE expires stress} {
-if { $::tcl_platform(platform) != "windows" } {
         waitForBgsave r
         r flushdb
         r save
@@ -2308,10 +2302,6 @@ if { $::tcl_platform(platform) != "windows" } {
 			after 200
 		}
         r flushdb
-} else {
-	fail "Win32: bypassing broken unit test"
-}	
-    }
-#	 {OK}
+     } {OK}
 
 }

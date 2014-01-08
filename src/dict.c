@@ -93,10 +93,18 @@ unsigned int dictIdentityHashFunction(unsigned int key)
     return key;
 }
 
-static uint32_t dict_hash_function_seed = 5381;
+#define DICT_HASH_FUNCTION_SEED_UNITIALIZED 5381
 
-void dictSetHashFunctionSeed(uint32_t seed) {
-    dict_hash_function_seed = seed;
+static uint32_t dict_hash_function_seed = DICT_HASH_FUNCTION_SEED_UNITIALIZED;
+
+int dictSetHashFunctionSeed(uint32_t seed) {
+    if (dict_hash_function_seed == DICT_HASH_FUNCTION_SEED_UNITIALIZED) {
+        dict_hash_function_seed = seed;
+        return 0;
+    } else {
+        errno = E_FAIL;
+        return -1;
+    }
 }
 
 uint32_t dictGetHashFunctionSeed(void) {

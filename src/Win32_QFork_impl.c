@@ -3,10 +3,11 @@
 
 int rewriteAppendOnlyFile(char *filename);
 
-void SetupGlobals(LPVOID globalData, size_t globalDataSize)
+void SetupGlobals(LPVOID globalData, size_t globalDataSize, uint32_t dictHashSeed)
 {
 #ifndef NO_QFORKIMPL
     memcpy(&server, globalData, globalDataSize);
+    dictSetHashFunctionSeed(dictHashSeed);
 #endif
 }
 

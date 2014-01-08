@@ -175,7 +175,7 @@ void dictEnableResize(void);
 void dictDisableResize(void);
 int dictRehash(dict *d, int n);
 int dictRehashMilliseconds(dict *d, int ms);
-void dictSetHashFunctionSeed(unsigned int initval);
+int dictSetHashFunctionSeed(unsigned int initval);
 unsigned int dictGetHashFunctionSeed(void);
 
 /* Hash table types */

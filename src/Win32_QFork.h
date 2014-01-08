@@ -30,13 +30,14 @@ typedef struct QForkBeginInfo {
     char filename[MAX_PATH];
     BYTE globalData[MAX_GLOBAL_DATA];
     size_t globalDataSize;
+    unsigned __int32 dictHashSeed;
 } QForkStartupInfo;
     
 StartupStatus QForkStartup(int argc, char** argv);
 BOOL QForkShutdown();
 
 // For master process use only
-BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, int sizeOfGlobalData, DWORD* childPID);
+BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, int sizeOfGlobalData, DWORD* childPID, unsigned __int32 dictHashSeed);
 OperationStatus GetForkOperationStatus();
 BOOL EndForkOperation();
 BOOL AbortForkOperation();

@@ -172,7 +172,7 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
         WaitForSingleObject(g_pQForkControl->startOperation, INFINITE);
 
         // copy redis globals into current process
-        SetupGlobals(g_pQForkControl->globalData.globalData, g_pQForkControl->globalData.globalDataSize);
+        SetupGlobals(g_pQForkControl->globalData.globalData, g_pQForkControl->globalData.globalDataSize, g_pQForkControl->globalData.dictHashSeed);
 
         // execute requiested operation
         if (g_pQForkControl->typeOfOperation == OperationType::otRDB) {
@@ -445,7 +445,7 @@ BOOL QForkShutdown() {
     return TRUE;
 }
 
-BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, int sizeOfGlobalData, DWORD* childPID) {
+BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, int sizeOfGlobalData, DWORD* childPID, uint32_t dictHashSeed) {
     try {
         // copy operation data
         g_pQForkControl->typeOfOperation = type;
@@ -455,6 +455,7 @@ BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, i
         }
         memcpy(&(g_pQForkControl->globalData.globalData), globalData, sizeOfGlobalData);
         g_pQForkControl->globalData.globalDataSize = sizeOfGlobalData;
+        g_pQForkControl->globalData.dictHashSeed = dictHashSeed;
 
         GetDLMallocGlobalState(&g_pQForkControl->DLMallocGlobalStateSize, NULL);
         if (g_pQForkControl->DLMallocGlobalStateSize > sizeof(g_pQForkControl->DLMallocGlobalState)) {

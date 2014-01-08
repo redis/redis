@@ -481,22 +481,6 @@ long long getExpire(redisDb *db, robj *key) {
     return dictGetSignedIntegerVal(de);
 }
 
-#ifdef _WIN32
-/* Return the expire time of the specified key, or -1 if no expire
- * is associated with this key (i.e. the key is non volatile)
-   Called from background save - do not try and find key in normal dict,
-    since find on RO dict does not work */
-time_t getExpireForSave(redisDb *db, robj *key) {
-    dictEntry *de;
-
-    /* No expire? return ASAP */
-    if (dictSize(db->expires) == 0 ||
-       (de = dictFind(db->expires,key->ptr)) == NULL) return -1;
-
-    return dictGetSignedIntegerVal(de);
-}
-#endif
-
 /* Propagate expires into slaves and the AOF file.
  * When a key expires in the master, a DEL operation for this key is sent
  * to all the slaves and the AOF file if enabled.
