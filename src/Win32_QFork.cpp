@@ -120,7 +120,7 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
         SmartFileView<QForkControl> sfvMasterQForkControl( 
             shMMFile, 
             FILE_MAP_COPY, 
-            string("Could not map view of QForkControl in slave,. Is memory marked PAGE_WRITECOPY?"));
+            string("Could not map view of QForkControl in slave. Is system swap file large enough?"));
         g_pQForkControl = sfvMasterQForkControl;
 
 
@@ -158,7 +158,7 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
             FILE_MAP_COPY,
             0, 0, 0,
             g_pQForkControl->heapStart,
-            string("could not map heap in forked process. Is memory marked PAGE_WRITECOPY?"));
+            string("could not map heap in forked process. Is system swap file large enough?"));
 
         // setup DLMalloc global data
         if( SetDLMallocGlobalState(g_pQForkControl->DLMallocGlobalStateSize, g_pQForkControl->DLMallocGlobalState) != 0) {
@@ -864,7 +864,7 @@ BOOL FreeHeapBlock(LPVOID block, size_t size)
     if (size == 0) {
         return FALSE;
     }
-    // determine block number from pointer
+
     INT_PTR ptrDiff = reinterpret_cast<byte*>(block) - reinterpret_cast<byte*>(g_pQForkControl->heapStart);
     if (ptrDiff < 0 || (ptrDiff % g_pQForkControl->heapBlockSize) != 0) {
         DebugBreak();
