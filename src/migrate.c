@@ -197,12 +197,34 @@ void migrateCommand(redisClient *c) {
         size_t pos = 0, towrite;
         int nwritten = 0;
 
+#ifdef _WIN32
+        while ((towrite = sdslen(buf)-pos) > 0) {
+            towrite = (towrite > (64*1024) ? (64*1024) : towrite);
+            while (nwritten != (signed)towrite) {
+                nwritten = syncWrite(fd,buf+pos,(ssize_t)towrite,timeout);
+                if (nwritten != (signed)towrite) {
+                    DWORD err = GetLastError();
+                    if (err == WSAEWOULDBLOCK) {
+                        // Likely send buffer is full. A short delay or two is sufficient to allow this to work.
+                        redisLog(REDIS_VERBOSE,"In migrate. WSAEWOULDBLOCK with synchronous socket: sleeping for 0.1s");
+                        Sleep(100); 
+                    } else {
+                        redisLog(REDIS_WARNING,"SyncWrite failure toWrite=%d  written=%d err=%d timeout=%d ", towrite, nwritten, GetLastError(), timeout);
+                        goto socket_wr_err;
+                    }
+                }
+            }
+            pos += nwritten;
+            nwritten = 0;
+        }
+#else
         while ((towrite = sdslen(buf)-pos) > 0) {
             towrite = (towrite > (64*1024) ? (64*1024) : towrite);
             nwritten = syncWrite(fd,buf+pos,(ssize_t)towrite,timeout);
             if (nwritten != (signed)towrite) goto socket_wr_err;
             pos += nwritten;
         }
+#endif
     }
 
     /* Read back the reply. */
@@ -252,6 +274,9 @@ socket_wr_err:
     return;
 
 socket_rd_err:
+#ifdef _WIN32
+    redisLog(REDIS_WARNING,"syncReadLine failure err=%d timeout=%d ", GetLastError(), timeout);
+#endif
     addReplySds(c,sdsnew("-IOERR error or timeout reading from target node\r\n"));
     sdsfree(cmd.io.buffer.ptr);
 #ifdef WIN32_IOCP
