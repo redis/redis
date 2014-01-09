@@ -16,6 +16,16 @@ start_server {tags {"dump"}} {
         r get foo
     } {bar}
 
+    test {RESTORE can set an expire that overflows a 32 bit integer} {
+        r set foo bar
+        set encoded [r dump foo]
+        r del foo
+        r restore foo 2569591501 $encoded
+        set ttl [r pttl foo]
+        assert {$ttl >= (2569591501-3000) && $ttl <= 2569591501}
+        r get foo
+    } {bar}
+
     test {RESTORE returns an error of the key already exists} {
         r set foo bar
         set e {}

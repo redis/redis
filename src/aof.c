@@ -449,6 +449,7 @@ struct redisClient *createFakeClient(void) {
     c->argv = NULL;
     c->bufpos = 0;
     c->flags = 0;
+    c->btype = REDIS_BLOCKED_NONE;
     /* We set the fake client as a slave waiting for the synchronization
      * so that Redis will not try to send replies to this client. */
     c->replstate = REDIS_REPL_WAIT_BGSAVE_START;
@@ -591,7 +592,7 @@ int rioWriteBulkObject(rio *r, robj *obj) {
      * in a child process when this function is called). */
     if (obj->encoding == REDIS_ENCODING_INT) {
         return rioWriteBulkLongLong(r,(long)obj->ptr);
-    } else if (obj->encoding == REDIS_ENCODING_RAW) {
+    } else if (sdsEncodedObject(obj)) {
         return rioWriteBulkString(r,obj->ptr,sdslen(obj->ptr));
     } else {
         redisPanic("Unknown string encoding");
@@ -771,7 +772,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
     return 1;
 }
 
-/* Write either the key or the value of the currently selected item of an hash.
+/* Write either the key or the value of the currently selected item of a hash.
  * The 'hi' argument passes a valid Redis hash iterator.
  * The 'what' filed specifies if to write a key or a value and can be
  * either REDIS_HASH_KEY or REDIS_HASH_VALUE.
@@ -962,8 +963,7 @@ int rewriteAppendOnlyFileBackground(void) {
         char tmpfile[256];
 
         /* Child */
-        if (server.ipfd > 0) close(server.ipfd);
-        if (server.sofd > 0) close(server.sofd);
+        closeListeningSockets(0);
         redisSetProcTitle("redis-aof-rewrite");
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
         if (rewriteAppendOnlyFile(tmpfile) == REDIS_OK) {
@@ -971,7 +971,7 @@ int rewriteAppendOnlyFileBackground(void) {
 
             if (private_dirty) {
                 redisLog(REDIS_NOTICE,
-                    "AOF rewrite: %lu MB of memory used by copy-on-write",
+                    "AOF rewrite: %zu MB of memory used by copy-on-write",
                     private_dirty/(1024*1024));
             }
             exitFromChild(0);
@@ -998,6 +998,7 @@ int rewriteAppendOnlyFileBackground(void) {
          * accumulated by the parent into server.aof_rewrite_buf will start
          * with a SELECT statement and it will be safe to merge. */
         server.aof_selected_db = -1;
+        replicationScriptCacheFlush();
         return REDIS_OK;
     }
     return REDIS_OK; /* unreached */

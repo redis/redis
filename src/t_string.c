@@ -217,7 +217,7 @@ void setrangeCommand(redisClient *c) {
         /* Create a copy when the object is shared or encoded. */
         if (o->refcount != 1 || o->encoding != REDIS_ENCODING_RAW) {
             robj *decoded = getDecodedObject(o);
-            o = createStringObject(decoded->ptr, sdslen(decoded->ptr));
+            o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
             decrRefCount(decoded);
             dbOverwrite(c->db,c->argv[1],o);
         }
@@ -436,7 +436,7 @@ void appendCommand(redisClient *c) {
         /* If the object is shared or encoded, we have to make a copy */
         if (o->refcount != 1 || o->encoding != REDIS_ENCODING_RAW) {
             robj *decoded = getDecodedObject(o);
-            o = createStringObject(decoded->ptr, sdslen(decoded->ptr));
+            o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
             decrRefCount(decoded);
             dbOverwrite(c->db,c->argv[1],o);
         }

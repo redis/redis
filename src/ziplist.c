@@ -105,12 +105,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include <assert.h>
 #include <limits.h>
 #include "zmalloc.h"
 #include "util.h"
 #include "ziplist.h"
 #include "endianconv.h"
+#include "redisassert.h"
 
 #define ZIP_END 255
 #define ZIP_BIGLEN 254
@@ -1041,7 +1041,8 @@ void pop(unsigned char *zl, int where) {
 }
 
 int randstring(char *target, unsigned int min, unsigned int max) {
-    int p, len = min+rand()%(max-min+1);
+    int p = 0;
+    int len = min+rand()%(max-min+1);
     int minval, maxval;
     switch(rand() % 3) {
     case 0:

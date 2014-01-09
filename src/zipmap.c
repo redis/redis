@@ -4,7 +4,7 @@
  * efficient.
  *
  * The Redis Hash type uses this data structure for hashes composed of a small
- * number of elements, to switch to an hash table once a given number of
+ * number of elements, to switch to a hash table once a given number of
  * elements is reached.
  *
  * Given that many times Redis Hashes are used to represent objects composed
@@ -78,7 +78,6 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <assert.h>
 #include "zmalloc.h"
 #include "endianconv.h"
 

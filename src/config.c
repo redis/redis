@@ -29,6 +29,7 @@
  */
 
 #include "redis.h"
+#include "cluster.h"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -125,8 +126,15 @@ void loadServerConfigFromString(char *config) {
             if (server.port < 0 || server.port > 65535) {
                 err = "Invalid port"; goto loaderr;
             }
-        } else if (!strcasecmp(argv[0],"bind") && argc == 2) {
-            server.bindaddr = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"bind") && argc >= 2) {
+            int j, addresses = argc-1;
+
+            if (addresses > REDIS_BINDADDR_MAX) {
+                err = "Too many bind addresses specified"; goto loaderr;
+            }
+            for (j = 0; j < addresses; j++)
+                server.bindaddr[j] = zstrdup(argv[j+1]);
+            server.bindaddr_count = addresses;
         } else if (!strcasecmp(argv[0],"unixsocket") && argc == 2) {
             server.unixsocket = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocketperm") && argc == 2) {
@@ -306,6 +314,10 @@ void loadServerConfigFromString(char *config) {
             }
             server.aof_state = yes ? REDIS_AOF_ON : REDIS_AOF_OFF;
         } else if (!strcasecmp(argv[0],"appendfilename") && argc == 2) {
+            if (!pathIsBaseName(argv[1])) {
+                err = "appendfilename can't be a path, just a filename";
+                goto loaderr;
+            }
             zfree(server.aof_filename);
             server.aof_filename = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"no-appendfsync-on-rewrite")
@@ -352,6 +364,10 @@ void loadServerConfigFromString(char *config) {
             zfree(server.pidfile);
             server.pidfile = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"dbfilename") && argc == 2) {
+            if (!pathIsBaseName(argv[1])) {
+                err = "dbfilename can't be a path, just a filename";
+                goto loaderr;
+            }
             zfree(server.rdb_filename);
             server.rdb_filename = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"hash-max-ziplist-entries") && argc == 2) {
@@ -400,7 +416,7 @@ void loadServerConfigFromString(char *config) {
             zfree(server.cluster_configfile);
             server.cluster_configfile = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"cluster-node-timeout") && argc == 2) {
-            server.cluster_node_timeout = atoi(argv[1]);
+            server.cluster_node_timeout = strtoll(argv[1],NULL,10);
             if (server.cluster_node_timeout <= 0) {
                 err = "cluster node timeout must be 1 or greater"; goto loaderr;
             }
@@ -440,6 +456,16 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"slave-priority") && argc == 2) {
             server.slave_priority = atoi(argv[1]);
+        } else if (!strcasecmp(argv[0],"min-slaves-to-write") && argc == 2) {
+            server.repl_min_slaves_to_write = atoi(argv[1]);
+            if (server.repl_min_slaves_to_write < 0) {
+                err = "Invalid value for min-slaves-to-write."; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"min-slaves-max-lag") && argc == 2) {
+            server.repl_min_slaves_max_lag = atoi(argv[1]);
+            if (server.repl_min_slaves_max_lag < 0) {
+                err = "Invalid value for min-slaves-max-lag."; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"notify-keyspace-events") && argc == 2) {
             int flags = keyspaceEventsStringToFlags(argv[1]);
 
@@ -525,11 +551,15 @@ void loadServerConfig(char *filename, char *options) {
 void configSetCommand(redisClient *c) {
     robj *o;
     long long ll;
-    redisAssertWithInfo(c,c->argv[2],c->argv[2]->encoding == REDIS_ENCODING_RAW);
-    redisAssertWithInfo(c,c->argv[2],c->argv[3]->encoding == REDIS_ENCODING_RAW);
+    redisAssertWithInfo(c,c->argv[2],sdsEncodedObject(c->argv[2]));
+    redisAssertWithInfo(c,c->argv[3],sdsEncodedObject(c->argv[3]));
     o = c->argv[3];
 
     if (!strcasecmp(c->argv[2]->ptr,"dbfilename")) {
+        if (!pathIsBaseName(o->ptr)) {
+            addReplyError(c, "dbfilename can't be a path, just a filename");
+            return;
+        }
         zfree(server.rdb_filename);
         server.rdb_filename = zstrdup(o->ptr);
     } else if (!strcasecmp(c->argv[2]->ptr,"requirepass")) {
@@ -549,10 +579,35 @@ void configSetCommand(redisClient *c) {
             }
             freeMemoryIfNeeded();
         }
+    } else if (!strcasecmp(c->argv[2]->ptr,"maxclients")) {
+        int orig_value = server.maxclients;
+
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
+
+        /* Try to check if the OS is capable of supporting so many FDs. */
+        server.maxclients = ll;
+        if (ll > orig_value) {
+            adjustOpenFilesLimit();
+            if (server.maxclients != ll) {
+                addReplyErrorFormat(c,"The operating system is not able to handle the specified number of clients, try with %d", server.maxclients);
+                server.maxclients = orig_value;
+                return;
+            }
+            if (aeGetSetSize(server.el) <
+                server.maxclients + REDIS_EVENTLOOP_FDSET_INCR)
+            {
+                if (aeResizeSetSize(server.el,
+                    server.maxclients + REDIS_EVENTLOOP_FDSET_INCR) == AE_ERR)
+                {
+                    addReplyError(c,"The event loop API used by Redis is not able to handle the specified number of clients");
+                    server.maxclients = orig_value;
+                    return;
+                }
+            }
+        }
     } else if (!strcasecmp(c->argv[2]->ptr,"hz")) {
-        if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
-            ll < 0) goto badfmt;
-        server.hz = (int) ll;
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
+        server.hz = ll;
         if (server.hz < REDIS_MIN_HZ) server.hz = REDIS_MIN_HZ;
         if (server.hz > REDIS_MAX_HZ) server.hz = REDIS_MAX_HZ;
     } else if (!strcasecmp(c->argv[2]->ptr,"maxmemory-policy")) {
@@ -799,8 +854,18 @@ void configSetCommand(redisClient *c) {
         server.repl_disable_tcp_nodelay = yn;
     } else if (!strcasecmp(c->argv[2]->ptr,"slave-priority")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
-            ll <= 0) goto badfmt;
+            ll < 0) goto badfmt;
         server.slave_priority = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"min-slaves-to-write")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
+            ll < 0) goto badfmt;
+        server.repl_min_slaves_to_write = ll;
+        refreshGoodSlavesCount();
+    } else if (!strcasecmp(c->argv[2]->ptr,"min-slaves-max-lag")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
+            ll < 0) goto badfmt;
+        server.repl_min_slaves_max_lag = ll;
+        refreshGoodSlavesCount();
     } else if (!strcasecmp(c->argv[2]->ptr,"cluster-node-timeout")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll <= 0) goto badfmt;
@@ -854,13 +919,12 @@ void configGetCommand(redisClient *c) {
     char *pattern = o->ptr;
     char buf[128];
     int matches = 0;
-    redisAssertWithInfo(c,o,o->encoding == REDIS_ENCODING_RAW);
+    redisAssertWithInfo(c,o,sdsEncodedObject(o));
 
     /* String values */
     config_get_string_field("dbfilename",server.rdb_filename);
     config_get_string_field("requirepass",server.requirepass);
     config_get_string_field("masterauth",server.masterauth);
-    config_get_string_field("bind",server.bindaddr);
     config_get_string_field("unixsocket",server.unixsocket);
     config_get_string_field("logfile",server.logfile);
     config_get_string_field("pidfile",server.pidfile);
@@ -902,6 +966,8 @@ void configGetCommand(redisClient *c) {
     config_get_numerical_field("maxclients",server.maxclients);
     config_get_numerical_field("watchdog-period",server.watchdog_period);
     config_get_numerical_field("slave-priority",server.slave_priority);
+    config_get_numerical_field("min-slaves-to-write",server.repl_min_slaves_to_write);
+    config_get_numerical_field("min-slaves-max-lag",server.repl_min_slaves_max_lag);
     config_get_numerical_field("hz",server.hz);
     config_get_numerical_field("cluster-node-timeout",server.cluster_node_timeout);
 
@@ -974,8 +1040,8 @@ void configGetCommand(redisClient *c) {
         int j;
 
         for (j = 0; j < server.saveparamslen; j++) {
-            buf = sdscatprintf(buf,"%ld %d",
-                    server.saveparams[j].seconds,
+            buf = sdscatprintf(buf,"%jd %d",
+                    (intmax_t)server.saveparams[j].seconds,
                     server.saveparams[j].changes);
             if (j != server.saveparamslen-1)
                 buf = sdscatlen(buf," ",1);
@@ -1045,6 +1111,14 @@ void configGetCommand(redisClient *c) {
         decrRefCount(flagsobj);
         matches++;
     }
+    if (stringmatch(pattern,"bind",0)) {
+        sds aux = sdsjoin(server.bindaddr,server.bindaddr_count," ");
+
+        addReplyBulkCString(c,"bind");
+        addReplyBulkCString(c,aux);
+        sdsfree(aux);
+        matches++;
+    }
     setDeferredMultiBulkLength(c,replylen,matches*2);
 }
 
@@ -1052,54 +1126,42 @@ void configGetCommand(redisClient *c) {
  * CONFIG REWRITE implementation
  *----------------------------------------------------------------------------*/
 
-/* IGNORE:
- *
- * rename-command
- * include
- *
- * Special handling:
- *
- * notify-keyspace-events
- * client-output-buffer-limit
- * save
- * appendonly
- * appendfsync
- * dir
- * maxmemory-policy
- * loglevel
- * unixsocketperm
- * slaveof
- *
- * Type of config directives:
- *
- * CUSTOM
- * VERBATIM
- * YESNO
- * L
- * LL
- *
- */
+#define REDIS_CONFIG_REWRITE_SIGNATURE "# Generated by CONFIG REWRITE"
 
 /* We use the following dictionary type to store where a configuration
  * option is mentioned in the old configuration file, so it's
  * like "maxmemory" -> list of line numbers (first line is zero). */
-unsigned int dictSdsHash(const void *key);
-int dictSdsKeyCompare(void *privdata, const void *key1, const void *key2);
+unsigned int dictSdsCaseHash(const void *key);
+int dictSdsKeyCaseCompare(void *privdata, const void *key1, const void *key2);
 void dictSdsDestructor(void *privdata, void *val);
 void dictListDestructor(void *privdata, void *val);
 
+/* Sentinel config rewriting is implemented inside sentinel.c by
+ * rewriteConfigSentinelOption(). */
+void rewriteConfigSentinelOption(struct rewriteConfigState *state);
+
 dictType optionToLineDictType = {
-    dictSdsHash,                /* hash function */
+    dictSdsCaseHash,            /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictSdsKeyCompare,          /* key compare */
+    dictSdsKeyCaseCompare,      /* key compare */
     dictSdsDestructor,          /* key destructor */
     dictListDestructor          /* val destructor */
+};
+
+dictType optionSetDictType = {
+    dictSdsCaseHash,            /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictSdsKeyCaseCompare,      /* key compare */
+    dictSdsDestructor,          /* key destructor */
+    NULL                        /* val destructor */
 };
 
 /* The config rewrite state. */
 struct rewriteConfigState {
     dict *option_to_line; /* Option -> list of config file lines map */
+    dict *rewritten;      /* Dictionary of already processed options */
     int numlines;         /* Number of lines in current config */
     sds *lines;           /* Current lines as an array of sds strings */
     int has_tail;         /* True if we already added directives that were
@@ -1123,6 +1185,16 @@ void rewriteConfigAddLineNumberToOption(struct rewriteConfigState *state, sds op
     listAddNodeTail(l,(void*)(long)linenum);
 }
 
+/* Add the specified option to the set of processed options.
+ * This is useful as only unused lines of processed options will be blanked
+ * in the config file, while options the rewrite process does not understand
+ * remain untouched. */
+void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, char *option) {
+    sds opt = sdsnew(option);
+
+    if (dictAdd(state->rewritten,opt,NULL) != DICT_OK) sdsfree(opt);
+}
+
 /* Read the old file, split it into lines to populate a newly created
  * config rewrite state, and return it to the caller.
  *
@@ -1137,6 +1209,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     if (fp == NULL && errno != ENOENT) return NULL;
 
     state->option_to_line = dictCreate(&optionToLineDictType,NULL);
+    state->rewritten = dictCreate(&optionSetDictType,NULL);
     state->numlines = 0;
     state->lines = NULL;
     state->has_tail = 0;
@@ -1152,6 +1225,8 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
 
         /* Handle comments and empty lines. */
         if (line[0] == '#' || line[0] == '\0') {
+            if (!state->has_tail && !strcmp(line,REDIS_CONFIG_REWRITE_SIGNATURE))
+                state->has_tail = 1;
             rewriteConfigAppendLine(state,line);
             continue;
         }
@@ -1184,7 +1259,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
 
 /* Rewrite the specified configuration option with the new "line".
  * It progressively uses lines of the file that were already used for the same
- * configuraiton option in the old version of the file, removing that line from
+ * configuration option in the old version of the file, removing that line from
  * the map of options -> line numbers.
  *
  * If there are lines associated with a given configuration option and
@@ -1201,6 +1276,8 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
 void rewriteConfigRewriteLine(struct rewriteConfigState *state, char *option, sds line, int force) {
     sds o = sdsnew(option);
     list *l = dictFetchValue(state->option_to_line,o);
+
+    rewriteConfigMarkAsProcessed(state,option);
 
     if (!l && !force) {
         /* Option not used previously, and we are not forced to use it. */
@@ -1223,7 +1300,7 @@ void rewriteConfigRewriteLine(struct rewriteConfigState *state, char *option, sd
         /* Append a new line. */
         if (!state->has_tail) {
             rewriteConfigAppendLine(state,
-                sdsnew("# Generated by CONFIG REWRITE"));
+                sdsnew(REDIS_CONFIG_REWRITE_SIGNATURE));
             state->has_tail = 1;
         }
         rewriteConfigAppendLine(state,line);
@@ -1258,7 +1335,6 @@ void rewriteConfigBytesOption(struct rewriteConfigState *state, char *option, lo
     rewriteConfigFormatMemory(buf,sizeof(buf),value);
     line = sdscatprintf(sdsempty(),"%s %s",option,buf);
     rewriteConfigRewriteLine(state,option,line,force);
-
 }
 
 /* Rewrite a yes/no option. */
@@ -1277,7 +1353,10 @@ void rewriteConfigStringOption(struct rewriteConfigState *state, char *option, c
 
     /* String options set to NULL need to be not present at all in the
      * configuration file to be set to NULL again at the next reboot. */
-    if (value == NULL) return;
+    if (value == NULL) {
+        rewriteConfigMarkAsProcessed(state,option);
+        return;
+    }
 
     /* Compare the strings as sds strings to have a binary safe comparison. */
     if (defvalue && strcmp(value,defvalue) == 0) force = 0;
@@ -1310,7 +1389,7 @@ void rewriteConfigOctalOption(struct rewriteConfigState *state, char *option, in
  * specified. See how the function is used for more information. */
 void rewriteConfigEnumOption(struct rewriteConfigState *state, char *option, int value, ...) {
     va_list ap;
-    char *enum_name, *matching_name;
+    char *enum_name, *matching_name = NULL;
     int enum_val, def_val, force;
     sds line;
     
@@ -1335,7 +1414,7 @@ void rewriteConfigEnumOption(struct rewriteConfigState *state, char *option, int
 void rewriteConfigSyslogfacilityOption(struct rewriteConfigState *state) {
     int value = server.syslog_facility, j;
     int force = value != LOG_LOCAL0;
-    char *name, *option = "syslog-facility";
+    char *name = NULL, *option = "syslog-facility";
     sds line;
 
     for (j = 0; validSyslogFacilities[j].name; j++) {
@@ -1361,13 +1440,18 @@ void rewriteConfigSaveOption(struct rewriteConfigState *state) {
             server.saveparams[j].seconds, server.saveparams[j].changes);
         rewriteConfigRewriteLine(state,"save",line,1);
     }
+    /* Mark "save" as processed in case server.saveparamslen is zero. */
+    rewriteConfigMarkAsProcessed(state,"save");
 }
 
 /* Rewrite the dir option, always using absolute paths.*/
 void rewriteConfigDirOption(struct rewriteConfigState *state) {
     char cwd[1024];
 
-    if (getcwd(cwd,sizeof(cwd)) == NULL) return; /* no rewrite on error. */
+    if (getcwd(cwd,sizeof(cwd)) == NULL) {
+        rewriteConfigMarkAsProcessed(state,"dir");
+        return; /* no rewrite on error. */
+    }
     rewriteConfigStringOption(state,"dir",cwd,NULL);
 }
 
@@ -1378,21 +1462,13 @@ void rewriteConfigSlaveofOption(struct rewriteConfigState *state) {
 
     /* If this is a master, we want all the slaveof config options
      * in the file to be removed. */
-    if (server.masterhost == NULL) return;
+    if (server.masterhost == NULL) {
+        rewriteConfigMarkAsProcessed(state,"slaveof");
+        return;
+    }
     line = sdscatprintf(sdsempty(),"%s %s %d", option,
         server.masterhost, server.masterport);
     rewriteConfigRewriteLine(state,option,line,1);
-}
-
-/* Rewrite the appendonly option. */
-void rewriteConfigAppendonlyOption(struct rewriteConfigState *state) {
-    int force = server.aof_state != REDIS_AOF_OFF;
-    char *option = "appendonly";
-    sds line;
-    
-    line = sdscatprintf(sdsempty(),"%s %s", option,
-        (server.aof_state == REDIS_AOF_OFF) ? "no" : "yes");
-    rewriteConfigRewriteLine(state,option,line,force);
 }
 
 /* Rewrite the notify-keyspace-events option. */
@@ -1436,6 +1512,28 @@ void rewriteConfigClientoutputbufferlimitOption(struct rewriteConfigState *state
     }
 }
 
+/* Rewrite the bind option. */
+void rewriteConfigBindOption(struct rewriteConfigState *state) {
+    int force = 1;
+    sds line, addresses;
+    char *option = "bind";
+
+    /* Nothing to rewrite if we don't have bind addresses. */
+    if (server.bindaddr_count == 0) {
+        rewriteConfigMarkAsProcessed(state,option);
+        return;
+    }
+
+    /* Rewrite as bind <addr1> <addr2> ... <addrN> */
+    addresses = sdsjoin(server.bindaddr,server.bindaddr_count," ");
+    line = sdsnew(option);
+    line = sdscatlen(line, " ", 1);
+    line = sdscatsds(line, addresses);
+    sdsfree(addresses);
+
+    rewriteConfigRewriteLine(state,option,line,force);
+}
+
 /* Glue together the configuration lines in the current configuration
  * rewrite state into a single string, stripping multiple empty lines. */
 sds rewriteConfigGetContentFromState(struct rewriteConfigState *state) {
@@ -1460,6 +1558,7 @@ sds rewriteConfigGetContentFromState(struct rewriteConfigState *state) {
 void rewriteConfigReleaseState(struct rewriteConfigState *state) {
     sdsfreesplitres(state->lines,state->numlines);
     dictRelease(state->option_to_line);
+    dictRelease(state->rewritten);
     zfree(state);
 }
 
@@ -1477,6 +1576,14 @@ void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
 
     while((de = dictNext(di)) != NULL) {
         list *l = dictGetVal(de);
+        sds option = dictGetKey(de);
+
+        /* Don't blank lines about options the rewrite process
+         * don't understand. */
+        if (dictFind(state->rewritten,option) == NULL) {
+            redisLog(REDIS_DEBUG,"Not rewritten option: %s", option);
+            continue;
+        }
 
         while(listLength(l)) {
             listNode *ln = listFirst(l);
@@ -1566,12 +1673,10 @@ int rewriteConfig(char *path) {
     /* Step 2: rewrite every single option, replacing or appending it inside
      * the rewrite state. */
 
-    /* TODO: Turn every default into a define, use it also in
-     * initServerConfig(). */
     rewriteConfigYesNoOption(state,"daemonize",server.daemonize,0);
     rewriteConfigStringOption(state,"pidfile",server.pidfile,REDIS_DEFAULT_PID_FILE);
     rewriteConfigNumericalOption(state,"port",server.port,REDIS_SERVERPORT);
-    rewriteConfigStringOption(state,"bind",server.bindaddr,NULL);
+    rewriteConfigBindOption(state);
     rewriteConfigStringOption(state,"unixsocket",server.unixsocket,NULL);
     rewriteConfigOctalOption(state,"unixsocketperm",server.unixsocketperm,REDIS_DEFAULT_UNIX_SOCKET_PERM);
     rewriteConfigNumericalOption(state,"timeout",server.maxidletime,REDIS_MAXIDLETIME);
@@ -1603,6 +1708,8 @@ int rewriteConfig(char *path) {
     rewriteConfigBytesOption(state,"repl-backlog-ttl",server.repl_backlog_time_limit,REDIS_DEFAULT_REPL_BACKLOG_TIME_LIMIT);
     rewriteConfigYesNoOption(state,"repl-disable-tcp-nodelay",server.repl_disable_tcp_nodelay,REDIS_DEFAULT_REPL_DISABLE_TCP_NODELAY);
     rewriteConfigNumericalOption(state,"slave-priority",server.slave_priority,REDIS_DEFAULT_SLAVE_PRIORITY);
+    rewriteConfigNumericalOption(state,"min-slaves-to-write",server.repl_min_slaves_to_write,REDIS_DEFAULT_MIN_SLAVES_TO_WRITE);
+    rewriteConfigNumericalOption(state,"min-slaves-max-lag",server.repl_min_slaves_max_lag,REDIS_DEFAULT_MIN_SLAVES_MAX_LAG);
     rewriteConfigStringOption(state,"requirepass",server.requirepass,NULL);
     rewriteConfigNumericalOption(state,"maxclients",server.maxclients,REDIS_MAX_CLIENTS);
     rewriteConfigBytesOption(state,"maxmemory",server.maxmemory,REDIS_DEFAULT_MAXMEMORY);
@@ -1615,7 +1722,8 @@ int rewriteConfig(char *path) {
         "noeviction", REDIS_MAXMEMORY_NO_EVICTION,
         NULL, REDIS_DEFAULT_MAXMEMORY_POLICY);
     rewriteConfigNumericalOption(state,"maxmemory-samples",server.maxmemory_samples,REDIS_DEFAULT_MAXMEMORY_SAMPLES);
-    rewriteConfigAppendonlyOption(state);
+    rewriteConfigYesNoOption(state,"appendonly",server.aof_state != REDIS_AOF_OFF,0);
+    rewriteConfigStringOption(state,"appendfilename",server.aof_filename,REDIS_DEFAULT_AOF_FILENAME);
     rewriteConfigEnumOption(state,"appendfsync",server.aof_fsync,
         "everysec", AOF_FSYNC_EVERYSEC,
         "always", AOF_FSYNC_ALWAYS,
@@ -1642,6 +1750,7 @@ int rewriteConfig(char *path) {
     rewriteConfigClientoutputbufferlimitOption(state);
     rewriteConfigNumericalOption(state,"hz",server.hz,REDIS_DEFAULT_HZ);
     rewriteConfigYesNoOption(state,"aof-rewrite-incremental-fsync",server.aof_rewrite_incremental_fsync,REDIS_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC);
+    if (server.sentinel_mode) rewriteConfigSentinelOption(state);
 
     /* Step 3: remove all the orphaned lines in the old file, that is, lines
      * that were used by a config option and are no longer used, like in case
@@ -1694,7 +1803,7 @@ void configCommand(redisClient *c) {
         }
     } else {
         addReplyError(c,
-            "CONFIG subcommand must be one of GET, SET, RESETSTAT");
+            "CONFIG subcommand must be one of GET, SET, RESETSTAT, REWRITE");
     }
     return;
 

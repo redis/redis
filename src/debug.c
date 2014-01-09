@@ -261,7 +261,7 @@ void debugCommand(redisClient *c) {
             addReply(c,shared.err);
             return;
         }
-        emptyDb();
+        emptyDb(NULL);
         if (rdbLoad(server.rdb_filename) != REDIS_OK) {
             addReplyError(c,"Error trying to load the RDB dump");
             return;
@@ -269,7 +269,7 @@ void debugCommand(redisClient *c) {
         redisLog(REDIS_WARNING,"DB reloaded by DEBUG RELOAD");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
-        emptyDb();
+        emptyDb(NULL);
         if (loadAppendOnlyFile(server.aof_filename) != REDIS_OK) {
             addReply(c,shared.err);
             return;
@@ -296,6 +296,29 @@ void debugCommand(redisClient *c) {
             (void*)val, val->refcount,
             strenc, (long long) rdbSavedObjectLen(val),
             val->lru, estimateObjectIdleTime(val));
+    } else if (!strcasecmp(c->argv[1]->ptr,"sdslen") && c->argc == 3) {
+        dictEntry *de;
+        robj *val;
+        sds key;
+
+        if ((de = dictFind(c->db->dict,c->argv[2]->ptr)) == NULL) {
+            addReply(c,shared.nokeyerr);
+            return;
+        }
+        val = dictGetVal(de);
+        key = dictGetKey(de);
+
+        if (val->type != REDIS_STRING || !sdsEncodedObject(val)) {
+            addReplyError(c,"Not an sds encoded string.");
+        } else {
+            addReplyStatusFormat(c,
+                "key_sds_len:%lld, key_sds_avail:%lld, "
+                "val_sds_len:%lld, val_sds_avail:%lld",
+                (long long) sdslen(key),
+                (long long) sdsavail(key),
+                (long long) sdslen(val->ptr),
+                (long long) sdsavail(val->ptr));
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"populate") && c->argc == 3) {
         long keys, j;
         robj *key, *val;
@@ -329,8 +352,11 @@ void debugCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"sleep") && c->argc == 3) {
         double dtime = strtod(c->argv[2]->ptr,NULL);
         long long utime = dtime*1000000;
+        struct timespec tv;
 
-        usleep(utime);
+        tv.tv_sec = utime / 1000000;
+        tv.tv_nsec = (utime % 1000000) * 1000;
+        nanosleep(&tv, NULL);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"set-active-expire") &&
                c->argc == 3)
@@ -370,9 +396,7 @@ void _redisAssertPrintClientInfo(redisClient *c) {
         char buf[128];
         char *arg;
 
-        if (c->argv[j]->type == REDIS_STRING &&
-            c->argv[j]->encoding == REDIS_ENCODING_RAW)
-        {
+        if (c->argv[j]->type == REDIS_STRING && sdsEncodedObject(c->argv[j])) {
             arg = (char*) c->argv[j]->ptr;
         } else {
             snprintf(buf,sizeof(buf),"Object type: %d, encoding: %d",
@@ -388,10 +412,13 @@ void redisLogObjectDebugInfo(robj *o) {
     redisLog(REDIS_WARNING,"Object type: %d", o->type);
     redisLog(REDIS_WARNING,"Object encoding: %d", o->encoding);
     redisLog(REDIS_WARNING,"Object refcount: %d", o->refcount);
-    if (o->type == REDIS_STRING && o->encoding == REDIS_ENCODING_RAW) {
+    if (o->type == REDIS_STRING && sdsEncodedObject(o)) {
         redisLog(REDIS_WARNING,"Object raw string len: %zu", sdslen(o->ptr));
-        if (sdslen(o->ptr) < 4096)
-            redisLog(REDIS_WARNING,"Object raw string content: \"%s\"", (char*)o->ptr);
+        if (sdslen(o->ptr) < 4096) {
+            sds repr = sdscatrepr(sdsempty(),o->ptr,sdslen(o->ptr));
+            redisLog(REDIS_WARNING,"Object raw string content: %s", repr);
+            sdsfree(repr);
+        }
     } else if (o->type == REDIS_LIST) {
         redisLog(REDIS_WARNING,"List length: %d", (int) listTypeLength(o));
     } else if (o->type == REDIS_SET) {
@@ -616,11 +643,12 @@ void logRegisters(ucontext_t *uc) {
 void logStackTrace(ucontext_t *uc) {
     void *trace[100];
     int trace_size = 0, fd;
+    int log_to_stdout = server.logfile[0] == '\0';
 
     /* Open the log file in append mode. */
-    fd = server.logfile ?
-        open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644) :
-        STDOUT_FILENO;
+    fd = log_to_stdout ?
+        STDOUT_FILENO :
+        open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
     if (fd == -1) return;
 
     /* Generate the stack trace */
@@ -634,7 +662,7 @@ void logStackTrace(ucontext_t *uc) {
     backtrace_symbols_fd(trace, trace_size, fd);
 
     /* Cleanup */
-    if (server.logfile) close(fd);
+    if (!log_to_stdout) close(fd);
 }
 
 /* Log information about the "current" client, that is, the client that is

@@ -152,9 +152,20 @@ char *redisProtocolToLuaType_MultiBulk(lua_State *lua, char *reply) {
 }
 
 void luaPushError(lua_State *lua, char *error) {
+    lua_Debug dbg;
+
     lua_newtable(lua);
     lua_pushstring(lua,"err");
-    lua_pushstring(lua, error);
+
+    /* Attempt to figure out where this function was called, if possible */
+    if(lua_getstack(lua, 1, &dbg) && lua_getinfo(lua, "nSl", &dbg)) {
+        sds msg = sdscatprintf(sdsempty(), "%s: %d: %s",
+            dbg.source, dbg.currentline, error);
+        lua_pushstring(lua, msg);
+        sdsfree(msg);
+    } else {
+        lua_pushstring(lua, error);
+    }
     lua_settable(lua,-3);
 }
 
@@ -258,6 +269,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
                 "Write commands not allowed after non deterministic commands");
             goto cleanup;
         } else if (server.masterhost && server.repl_slave_ro &&
+                   !server.loading &&
                    !(server.lua_caller->flags & REDIS_MASTER))
         {
             luaPushError(lua, shared.roslaveerr->ptr);
@@ -609,6 +621,26 @@ void scriptingInit(void) {
         lua_pcall(lua,0,0,0);
     }
 
+    /* Add a helper function we use for pcall error reporting.
+     * Note that when the error is in the C function we want to report the
+     * information about the caller, that's what makes sense from the point
+     * of view of the user debugging a script. */
+    {
+        char *errh_func =       "function __redis__err__handler(err)\n"
+                                "  local i = debug.getinfo(2,'nSl')\n"
+                                "  if i and i.what == 'C' then\n"
+                                "    i = debug.getinfo(3,'nSl')\n"
+                                "  end\n"
+                                "  if i then\n"
+                                "    return i.source .. ':' .. i.currentline .. ': ' .. err\n"
+                                "  else\n"
+                                "    return err\n"
+                                "  end\n"
+                                "end\n";
+        luaL_loadbuffer(lua,errh_func,strlen(errh_func),"@err_handler_def");
+        lua_pcall(lua,0,0,0);
+    }
+
     /* Create the (non connected) client that we use to execute Redis commands
      * inside the Lua interpreter.
      * Note: there is no need to create it again when this function is called
@@ -829,21 +861,30 @@ void evalGenericCommand(redisClient *c, int evalsha) {
         funcname[42] = '\0';
     }
 
+    /* Push the pcall error handler function on the stack. */
+    lua_getglobal(lua, "__redis__err__handler");
+
     /* Try to lookup the Lua function */
     lua_getglobal(lua, funcname);
-    if (lua_isnil(lua,1)) {
+    if (lua_isnil(lua,-1)) {
         lua_pop(lua,1); /* remove the nil from the stack */
         /* Function not defined... let's define it if we have the
          * body of the function. If this is an EVALSHA call we can just
          * return an error. */
         if (evalsha) {
+            lua_pop(lua,1); /* remove the error handler from the stack. */
             addReply(c, shared.noscripterr);
             return;
         }
-        if (luaCreateFunction(c,lua,funcname,c->argv[1]) == REDIS_ERR) return;
+        if (luaCreateFunction(c,lua,funcname,c->argv[1]) == REDIS_ERR) {
+            lua_pop(lua,1); /* remove the error handler from the stack. */
+            /* The error is sent to the client by luaCreateFunction()
+             * itself when it returns REDIS_ERR. */
+            return;
+        }
         /* Now the following is guaranteed to return non nil */
         lua_getglobal(lua, funcname);
-        redisAssert(!lua_isnil(lua,1));
+        redisAssert(!lua_isnil(lua,-1));
     }
 
     /* Populate the argv and keys table accordingly to the arguments that
@@ -854,7 +895,7 @@ void evalGenericCommand(redisClient *c, int evalsha) {
     /* Select the right DB in the context of the Lua client */
     selectDb(server.lua_client,c->db->id);
     
-    /* Set an hook in order to be able to stop the script execution if it
+    /* Set a hook in order to be able to stop the script execution if it
      * is running for too much time.
      * We set the hook only if the time limit is enabled as the hook will
      * make the Lua script execution slower. */
@@ -866,10 +907,10 @@ void evalGenericCommand(redisClient *c, int evalsha) {
         delhook = 1;
     }
 
-    /* At this point whatever this script was never seen before or if it was
+    /* At this point whether this script was never seen before or if it was
      * already defined, we can call it. We have zero arguments and expect
      * a single return value. */
-    err = lua_pcall(lua,0,1,0);
+    err = lua_pcall(lua,0,1,-2);
 
     /* Perform some cleanup that we need to do both on error and success. */
     if (delhook) lua_sethook(lua,luaMaskCountHook,0,0); /* Disable hook */
@@ -887,30 +928,37 @@ void evalGenericCommand(redisClient *c, int evalsha) {
     if (err) {
         addReplyErrorFormat(c,"Error running script (call to %s): %s\n",
             funcname, lua_tostring(lua,-1));
-        lua_pop(lua,1); /* Consume the Lua reply. */
+        lua_pop(lua,2); /* Consume the Lua reply and remove error handler. */
     } else {
         /* On success convert the Lua return value into Redis protocol, and
          * send it to * the client. */
-        luaReplyToRedisReply(c,lua);
+        luaReplyToRedisReply(c,lua); /* Convert and consume the reply. */
+        lua_pop(lua,1); /* Remove the error handler. */
     }
 
-    /* If we have slaves attached we want to replicate this command as
-     * EVAL instead of EVALSHA. We do this also in the AOF as currently there
-     * is no easy way to propagate a command in a different way in the AOF
-     * and in the replication link.
+    /* EVALSHA should be propagated to Slave and AOF file as full EVAL, unless
+     * we are sure that the script was already in the context of all the
+     * attached slaves *and* the current AOF file if enabled.
      *
-     * IMPROVEMENT POSSIBLE:
-     * 1) Replicate this command as EVALSHA in the AOF.
-     * 2) Remember what slave already received a given script, and replicate
-     *    the EVALSHA against this slaves when possible.
-     */
+     * To do so we use a cache of SHA1s of scripts that we already propagated
+     * as full EVAL, that's called the Replication Script Cache.
+     *
+     * For repliation, everytime a new slave attaches to the master, we need to
+     * flush our cache of scripts that can be replicated as EVALSHA, while
+     * for AOF we need to do so every time we rewrite the AOF file. */
     if (evalsha) {
-        robj *script = dictFetchValue(server.lua_scripts,c->argv[1]->ptr);
+        if (!replicationScriptCacheExists(c->argv[1]->ptr)) {
+            /* This script is not in our script cache, replicate it as
+             * EVAL, then add it into the script cache, as from now on
+             * slaves and AOF know about it. */
+            robj *script = dictFetchValue(server.lua_scripts,c->argv[1]->ptr);
 
-        redisAssertWithInfo(c,NULL,script != NULL);
-        rewriteClientCommandArgument(c,0,
-            resetRefCount(createStringObject("EVAL",4)));
-        rewriteClientCommandArgument(c,1,script);
+            replicationScriptCacheAdd(c->argv[1]->ptr);
+            redisAssertWithInfo(c,NULL,script != NULL);
+            rewriteClientCommandArgument(c,0,
+                resetRefCount(createStringObject("EVAL",4)));
+            rewriteClientCommandArgument(c,1,script);
+        }
     }
 }
 
@@ -977,7 +1025,8 @@ void scriptCommand(redisClient *c) {
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"flush")) {
         scriptingReset();
         addReply(c,shared.ok);
-        server.dirty++; /* Replicating this command is a good idea. */
+        replicationScriptCacheFlush();
+        server.dirty++; /* Propagating this command is a good idea. */
     } else if (c->argc >= 2 && !strcasecmp(c->argv[1]->ptr,"exists")) {
         int j;
 
@@ -1005,11 +1054,12 @@ void scriptCommand(redisClient *c) {
         }
         addReplyBulkCBuffer(c,funcname+2,40);
         sdsfree(sha);
+        forceCommandPropagation(c,REDIS_PROPAGATE_REPL|REDIS_PROPAGATE_AOF);
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"kill")) {
         if (server.lua_caller == NULL) {
             addReplySds(c,sdsnew("-NOTBUSY No scripts in execution right now.\r\n"));
         } else if (server.lua_write_dirty) {
-            addReplySds(c,sdsnew("-UNKILLABLE Sorry the script already executed write commands against the dataset. You can either wait the script termination or kill the server in an hard way using the SHUTDOWN NOSAVE command.\r\n"));
+            addReplySds(c,sdsnew("-UNKILLABLE Sorry the script already executed write commands against the dataset. You can either wait the script termination or kill the server in a hard way using the SHUTDOWN NOSAVE command.\r\n"));
         } else {
             server.lua_kill = 1;
             addReply(c,shared.ok);

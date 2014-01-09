@@ -39,13 +39,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
-#include <assert.h>
 #include <limits.h>
 #include <sys/time.h>
 #include <ctype.h>
 
 #include "dict.h"
 #include "zmalloc.h"
+#include "redisassert.h"
 
 /* Using dictEnableResize() / dictDisableResize() we make possible to
  * enable/disable resizing of the hash table as needed. This is very important
@@ -53,7 +53,7 @@
  * around when there is a child performing saving operations.
  *
  * Note that even when dict_can_resize is set to 0, not all resizes are
- * prevented: an hash table is still allowed to grow if the ratio between
+ * prevented: a hash table is still allowed to grow if the ratio between
  * the number of elements and the buckets > dict_force_resize_ratio. */
 static int dict_can_resize = 1;
 static unsigned int dict_force_resize_ratio = 5;
@@ -444,13 +444,14 @@ int dictDeleteNoFree(dict *ht, const void *key) {
 }
 
 /* Destroy an entire dictionary */
-int _dictClear(dict *d, dictht *ht)
-{
+int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
     unsigned long i;
 
     /* Free all the elements */
     for (i = 0; i < ht->size && ht->used > 0; i++) {
         dictEntry *he, *nextHe;
+
+        if (callback && (i & 65535) == 0) callback(d->privdata);
 
         if ((he = ht->table[i]) == NULL) continue;
         while(he) {
@@ -472,8 +473,8 @@ int _dictClear(dict *d, dictht *ht)
 /* Clear & Release the hash table */
 void dictRelease(dict *d)
 {
-    _dictClear(d,&d->ht[0]);
-    _dictClear(d,&d->ht[1]);
+    _dictClear(d,&d->ht[0],NULL);
+    _dictClear(d,&d->ht[1],NULL);
     zfree(d);
 }
 
@@ -505,6 +506,44 @@ void *dictFetchValue(dict *d, const void *key) {
     return he ? dictGetVal(he) : NULL;
 }
 
+/* A fingerprint is a 64 bit number that represents the state of the dictionary
+ * at a given time, it's just a few dict properties xored together.
+ * When an unsafe iterator is initialized, we get the dict fingerprint, and check
+ * the fingerprint again when the iterator is released.
+ * If the two fingerprints are different it means that the user of the iterator
+ * performed forbidden operations against the dictionary while iterating. */
+long long dictFingerprint(dict *d) {
+    long long integers[6], hash = 0;
+    int j;
+
+    integers[0] = (long) d->ht[0].table;
+    integers[1] = d->ht[0].size;
+    integers[2] = d->ht[0].used;
+    integers[3] = (long) d->ht[1].table;
+    integers[4] = d->ht[1].size;
+    integers[5] = d->ht[1].used;
+
+    /* We hash N integers by summing every successive integer with the integer
+     * hashing of the previous sum. Basically:
+     *
+     * Result = hash(hash(hash(int1)+int2)+int3) ...
+     *
+     * This way the same set of integers in a different order will (likely) hash
+     * to a different number. */
+    for (j = 0; j < 6; j++) {
+        hash += integers[j];
+        /* For the hashing step we use Tomas Wang's 64 bit integer hash. */
+        hash = (~hash) + (hash << 21); // hash = (hash << 21) - hash - 1;
+        hash = hash ^ (hash >> 24);
+        hash = (hash + (hash << 3)) + (hash << 8); // hash * 265
+        hash = hash ^ (hash >> 14);
+        hash = (hash + (hash << 2)) + (hash << 4); // hash * 21
+        hash = hash ^ (hash >> 28);
+        hash = hash + (hash << 31);
+    }
+    return hash;
+}
+
 dictIterator *dictGetIterator(dict *d)
 {
     dictIterator *iter = zmalloc(sizeof(*iter));
@@ -530,8 +569,12 @@ dictEntry *dictNext(dictIterator *iter)
     while (1) {
         if (iter->entry == NULL) {
             dictht *ht = &iter->d->ht[iter->table];
-            if (iter->safe && iter->index == -1 && iter->table == 0)
-                iter->d->iterators++;
+            if (iter->index == -1 && iter->table == 0) {
+                if (iter->safe)
+                    iter->d->iterators++;
+                else
+                    iter->fingerprint = dictFingerprint(iter->d);
+            }
             iter->index++;
             if (iter->index >= (signed) ht->size) {
                 if (dictIsRehashing(iter->d) && iter->table == 0) {
@@ -558,8 +601,12 @@ dictEntry *dictNext(dictIterator *iter)
 
 void dictReleaseIterator(dictIterator *iter)
 {
-    if (iter->safe && !(iter->index == -1 && iter->table == 0))
-        iter->d->iterators--;
+    if (!(iter->index == -1 && iter->table == 0)) {
+        if (iter->safe)
+            iter->d->iterators--;
+        else
+            assert(iter->fingerprint == dictFingerprint(iter->d));
+    }
     zfree(iter);
 }
 
@@ -602,6 +649,173 @@ dictEntry *dictGetRandomKey(dict *d)
     return he;
 }
 
+/* Function to reverse bits. Algorithm from:
+ * http://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel */
+static unsigned long rev(unsigned long v) {
+    unsigned long s = 8 * sizeof(v); // bit size; must be power of 2
+    unsigned long mask = ~0;
+    while ((s >>= 1) > 0) {
+        mask ^= (mask << s);
+        v = ((v >> s) & mask) | ((v << s) & ~mask);
+    }
+    return v;
+}
+
+/* dictScan() is used to iterate over the elements of a dictionary.
+ *
+ * Iterating works in the following way:
+ *
+ * 1) Initially you call the function using a cursor (v) value of 0.
+ * 2) The function performs one step of the iteration, and returns the
+ *    new cursor value that you must use in the next call.
+ * 3) When the returned cursor is 0, the iteration is complete.
+ *
+ * The function guarantees that all the elements that are present in the
+ * dictionary from the start to the end of the iteration are returned.
+ * However it is possible that some element is returned multiple time.
+ *
+ * For every element returned, the callback 'fn' passed as argument is
+ * called, with 'privdata' as first argument and the dictionar entry
+ * 'de' as second argument.
+ *
+ * HOW IT WORKS.
+ *
+ * The algorithm used in the iteration was designed by Pieter Noordhuis.
+ * The main idea is to increment a cursor starting from the higher order
+ * bits, that is, instead of incrementing the cursor normally, the bits
+ * of the cursor are reversed, then the cursor is incremented, and finally
+ * the bits are reversed again.
+ *
+ * This strategy is needed because the hash table may be resized from one
+ * call to the other call of the same iteration.
+ *
+ * dict.c hash tables are always power of two in size, and they
+ * use chaining, so the position of an element in a given table is given
+ * always by computing the bitwise AND between Hash(key) and SIZE-1
+ * (where SIZE-1 is always the mask that is equivalent to taking the rest
+ *  of the division between the Hash of the key and SIZE).
+ *
+ * For example if the current hash table size is 64, the mask is
+ * (in binary) 1111. The position of a key in the hash table will be always
+ * the last four bits of the hash output, and so forth.
+ *
+ * WHAT HAPPENS IF THE TABLE CHANGES IN SIZE?
+ *
+ * If the hash table grows, elements can go anyway in one multiple of
+ * the old bucket: for example let's say that we already iterated with
+ * a 4 bit cursor 1100, since the mask is 1111 (hash table size = 16).
+ *
+ * If the hash table will be resized to 64 elements, and the new mask will
+ * be 111111, the new buckets that you obtain substituting in ??1100
+ * either 0 or 1, can be targeted only by keys that we already visited
+ * when scanning the bucket 1100 in the smaller hash table.
+ *
+ * By iterating the higher bits first, because of the inverted counter, the
+ * cursor does not need to restart if the table size gets bigger, and will
+ * just continue iterating with cursors that don't have '1100' at the end,
+ * nor any other combination of final 4 bits already explored.
+ *
+ * Similarly when the table size shrinks over time, for example going from
+ * 16 to 8, If a combination of the lower three bits (the mask for size 8
+ * is 111) was already completely explored, it will not be visited again
+ * as we are sure that, we tried for example, both 0111 and 1111 (all the
+ * variations of the higher bit) so we don't need to test it again.
+ *
+ * WAIT... YOU HAVE *TWO* TABLES DURING REHASHING!
+ *
+ * Yes, this is true, but we always iterate the smaller one of the tables,
+ * testing also all the expansions of the current cursor into the larger
+ * table. So for example if the current cursor is 101 and we also have a
+ * larger table of size 16, we also test (0)101 and (1)101 inside the larger
+ * table. This reduces the problem back to having only one table, where
+ * the larger one, if exists, is just an expansion of the smaller one.
+ *
+ * LIMITATIONS
+ *
+ * This iterator is completely stateless, and this is a huge advantage,
+ * including no additional memory used.
+ *
+ * The disadvantages resulting from this design are:
+ *
+ * 1) It is possible that we return duplicated elements. However this is usually
+ *    easy to deal with in the application level.
+ * 2) The iterator must return multiple elements per call, as it needs to always
+ *    return all the keys chained in a given bucket, and all the expansions, so
+ *    we are sure we don't miss keys moving.
+ * 3) The reverse cursor is somewhat hard to understand at first, but this
+ *    comment is supposed to help.
+ */
+unsigned long dictScan(dict *d,
+                       unsigned long v,
+                       dictScanFunction *fn,
+                       void *privdata)
+{
+    dictht *t0, *t1;
+    const dictEntry *de;
+    unsigned long m0, m1;
+
+    if (dictSize(d) == 0) return 0;
+
+    if (!dictIsRehashing(d)) {
+        t0 = &(d->ht[0]);
+        m0 = t0->sizemask;
+
+        /* Emit entries at cursor */
+        de = t0->table[v & m0];
+        while (de) {
+            fn(privdata, de);
+            de = de->next;
+        }
+
+    } else {
+        t0 = &d->ht[0];
+        t1 = &d->ht[1];
+
+        /* Make sure t0 is the smaller and t1 is the bigger table */
+        if (t0->size > t1->size) {
+            t0 = &d->ht[1];
+            t1 = &d->ht[0];
+        }
+
+        m0 = t0->sizemask;
+        m1 = t1->sizemask;
+
+        /* Emit entries at cursor */
+        de = t0->table[v & m0];
+        while (de) {
+            fn(privdata, de);
+            de = de->next;
+        }
+
+        /* Iterate over indices in larger table that are the expansion
+         * of the index pointed to by the cursor in the smaller table */
+        do {
+            /* Emit entries at cursor */
+            de = t1->table[v & m1];
+            while (de) {
+                fn(privdata, de);
+                de = de->next;
+            }
+
+            /* Increment bits not covered by the smaller mask */
+            v = (((v | m0) + 1) & ~m0) | (v & m0);
+
+            /* Continue while bits covered by mask difference is non-zero */
+        } while (v & (m0 ^ m1));
+    }
+
+    /* Set unmasked bits so incrementing the reversed cursor
+     * operates on the masked bits of the smaller table */
+    v |= ~m0;
+
+    /* Increment the reverse cursor */
+    v = rev(v);
+    v++;
+    v = rev(v);
+
+    return v;
+}
+
 /* ------------------------- private functions ------------------------------ */
 
 /* Expand the hash table if needed */
@@ -640,7 +854,7 @@ static unsigned long _dictNextPower(unsigned long size)
 }
 
 /* Returns the index of a free slot that can be populated with
- * an hash entry for the given 'key'.
+ * a hash entry for the given 'key'.
  * If the key already exists, -1 is returned.
  *
  * Note that if we are in the process of rehashing the hash table, the
@@ -669,9 +883,9 @@ static int _dictKeyIndex(dict *d, const void *key)
     return idx;
 }
 
-void dictEmpty(dict *d) {
-    _dictClear(d,&d->ht[0]);
-    _dictClear(d,&d->ht[1]);
+void dictEmpty(dict *d, void(callback)(void*)) {
+    _dictClear(d,&d->ht[0],callback);
+    _dictClear(d,&d->ht[1],callback);
     d->rehashidx = -1;
     d->iterators = 0;
 }

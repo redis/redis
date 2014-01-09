@@ -17,6 +17,7 @@ set ::all_tests {
     unit/auth
     unit/protocol
     unit/basic
+    unit/scan
     unit/type/list
     unit/type/list-2
     unit/type/list-3
@@ -45,6 +46,7 @@ set ::all_tests {
     unit/limits
     unit/obuf-limits
     unit/bitops
+    unit/memefficiency
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
@@ -186,7 +188,7 @@ proc test_server_main {} {
     if {!$::quiet} {
         puts "Starting test server at port $port"
     }
-    socket -server accept_test_clients $port
+    socket -server accept_test_clients -myaddr 127.0.0.1 $port
 
     # Start the client instances
     set ::clients_pids {}
@@ -465,7 +467,7 @@ proc close_replication_stream {s} {
 # With the parallel test running multiple Redis instances at the same time
 # we need a fast enough computer, otherwise a lot of tests may generate
 # false positives.
-# If the computer is too slow we revert the sequetial test without any
+# If the computer is too slow we revert the sequential test without any
 # parallelism, that is, clients == 1.
 proc is_a_slow_computer {} {
     set start [clock milliseconds]

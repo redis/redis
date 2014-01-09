@@ -43,7 +43,7 @@ void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
     if (o->encoding != REDIS_ENCODING_ZIPLIST) return;
 
     for (i = start; i <= end; i++) {
-        if (argv[i]->encoding == REDIS_ENCODING_RAW &&
+        if (sdsEncodedObject(argv[i]) &&
             sdslen(argv[i]->ptr) > server.hash_max_ziplist_value)
         {
             hashTypeConvert(o, REDIS_ENCODING_HT);
@@ -758,4 +758,14 @@ void hexistsCommand(redisClient *c) {
         checkType(c,o,REDIS_HASH)) return;
 
     addReply(c, hashTypeExists(o,c->argv[2]) ? shared.cone : shared.czero);
+}
+
+void hscanCommand(redisClient *c) {
+    robj *o;
+    unsigned long cursor;
+
+    if (parseScanCursorOrReply(c,c->argv[2],&cursor) == REDIS_ERR) return;
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
+        checkType(c,o,REDIS_HASH)) return;
+    scanGenericCommand(c,o,cursor);
 }

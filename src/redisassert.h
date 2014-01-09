@@ -1,8 +1,13 @@
-/* See endianconv.c top comments for more information
+/* redisassert.h -- Drop in replacemnet assert.h that prints the stack trace
+ *                  in the Redis logs.
+ *
+ * This file should be included instead of "assert.h" inside libraries used by
+ * Redis that are using assertions, so instead of Redis disappearing with
+ * SIGABORT, we get the details and stack trace inside the log file.
  *
  * ----------------------------------------------------------------------------
  *
- * Copyright (c) 2011-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2006-2012, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,47 +33,15 @@
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
- */ 
+ */
 
-#ifndef __ENDIANCONV_H
-#define __ENDIANCONV_H
+#ifndef __REDIS_ASSERT_H__
+#define __REDIS_ASSERT_H__
 
-#include "config.h"
-#include <stdint.h>
+#include <unistd.h> /* for _exit() */
 
-void memrev16(void *p);
-void memrev32(void *p);
-void memrev64(void *p);
-uint16_t intrev16(uint16_t v);
-uint32_t intrev32(uint32_t v);
-uint64_t intrev64(uint64_t v);
+#define assert(_e) ((_e)?(void)0 : (_redisAssert(#_e,__FILE__,__LINE__),_exit(1)))
 
-/* variants of the function doing the actual convertion only if the target
- * host is big endian */
-#if (BYTE_ORDER == LITTLE_ENDIAN)
-#define memrev16ifbe(p)
-#define memrev32ifbe(p)
-#define memrev64ifbe(p)
-#define intrev16ifbe(v) (v)
-#define intrev32ifbe(v) (v)
-#define intrev64ifbe(v) (v)
-#else
-#define memrev16ifbe(p) memrev16(p)
-#define memrev32ifbe(p) memrev32(p)
-#define memrev64ifbe(p) memrev64(p)
-#define intrev16ifbe(v) intrev16(v)
-#define intrev32ifbe(v) intrev32(v)
-#define intrev64ifbe(v) intrev64(v)
-#endif
-
-/* The functions htonu64() and ntohu64() convert the specified value to
- * network byte ordering and back. In big endian systems they are no-ops. */
-#if (BYTE_ORDER == BIG_ENDIAN)
-#define htonu64(v) (v)
-#define ntohu64(v) (v)
-#else
-#define htonu64(v) intrev64(v)
-#define ntohu64(v) intrev64(v)
-#endif
+void _redisAssert(char *estr, char *file, int line);
 
 #endif

@@ -48,8 +48,8 @@ redisSortOperation *createSortOperation(int type, robj *pattern) {
  * 1) The first occurrence of '*' in 'pattern' is substituted with 'subst'.
  *
  * 2) If 'pattern' matches the "->" string, everything on the left of
- *    the arrow is treated as the name of an hash field, and the part on the
- *    left as the key name containing an hash. The value of the specified
+ *    the arrow is treated as the name of a hash field, and the part on the
+ *    left as the key name containing a hash. The value of the specified
  *    field is returned.
  *
  * 3) If 'pattern' equals "#", the function simply returns 'subst' itself so
@@ -163,12 +163,22 @@ int sortCompare(const void *s1, const void *s2) {
                 else
                     cmp = 1;
             } else {
-                /* We have both the objects, use strcoll */
-                cmp = strcoll(so1->u.cmpobj->ptr,so2->u.cmpobj->ptr);
+                /* We have both the objects, compare them. */
+                if (server.sort_store) {
+                    cmp = compareStringObjects(so1->u.cmpobj,so2->u.cmpobj);
+                } else {
+                    /* Here we can use strcoll() directly as we are sure that
+                     * the objects are decoded string objects. */
+                    cmp = strcoll(so1->u.cmpobj->ptr,so2->u.cmpobj->ptr);
+                }
             }
         } else {
             /* Compare elements directly. */
-            cmp = compareStringObjects(so1->obj,so2->obj);
+            if (server.sort_store) {
+                cmp = compareStringObjects(so1->obj,so2->obj);
+            } else {
+                cmp = collateStringObjects(so1->obj,so2->obj);
+            }
         }
     }
     return server.sort_desc ? -cmp : cmp;
@@ -401,7 +411,7 @@ void sortCommand(redisClient *c) {
             if (alpha) {
                 if (sortby) vector[j].u.cmpobj = getDecodedObject(byval);
             } else {
-                if (byval->encoding == REDIS_ENCODING_RAW) {
+                if (sdsEncodedObject(byval)) {
                     char *eptr;
 
                     vector[j].u.score = strtod(byval->ptr,&eptr);
@@ -432,6 +442,7 @@ void sortCommand(redisClient *c) {
         server.sort_desc = desc;
         server.sort_alpha = alpha;
         server.sort_bypattern = sortby ? 1 : 0;
+        server.sort_store = storekey ? 1 : 0;
         if (sortby && (start != 0 || end != vectorlen-1))
             pqsort(vector,vectorlen,sizeof(redisSortObject),sortCompare, start,end);
         else

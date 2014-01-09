@@ -495,11 +495,8 @@ void srandmemberWithCountCommand(redisClient *c) {
 
             if (encoding == REDIS_ENCODING_INTSET) {
                 retval = dictAdd(d,createStringObjectFromLongLong(llele),NULL);
-            } else if (ele->encoding == REDIS_ENCODING_RAW) {
+            } else {
                 retval = dictAdd(d,dupStringObject(ele),NULL);
-            } else if (ele->encoding == REDIS_ENCODING_INT) {
-                retval = dictAdd(d,
-                    createStringObjectFromLongLong((long)ele->ptr),NULL);
             }
             redisAssert(retval == DICT_OK);
         }
@@ -527,10 +524,8 @@ void srandmemberWithCountCommand(redisClient *c) {
             encoding = setTypeRandomElement(set,&ele,&llele);
             if (encoding == REDIS_ENCODING_INTSET) {
                 ele = createStringObjectFromLongLong(llele);
-            } else if (ele->encoding == REDIS_ENCODING_RAW) {
+            } else {
                 ele = dupStringObject(ele);
-            } else if (ele->encoding == REDIS_ENCODING_INT) {
-                ele = createStringObjectFromLongLong((long)ele->ptr);
             }
             /* Try to add the object to the dictionary. If it already exists
              * free it, otherwise increment the number of objects we have
@@ -825,6 +820,7 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
         while((ele = setTypeNextObject(si)) != NULL) {
             for (j = 1; j < setnum; j++) {
                 if (!sets[j]) continue; /* no key is an empty set. */
+                if (sets[j] == sets[0]) break; /* same set! */
                 if (setTypeIsMember(sets[j],ele)) break;
             }
             if (j == setnum) {
@@ -910,4 +906,14 @@ void sdiffCommand(redisClient *c) {
 
 void sdiffstoreCommand(redisClient *c) {
     sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],REDIS_OP_DIFF);
+}
+
+void sscanCommand(redisClient *c) {
+    robj *set;
+    unsigned long cursor;
+
+    if (parseScanCursorOrReply(c,c->argv[2],&cursor) == REDIS_ERR) return;
+    if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
+        checkType(c,set,REDIS_SET)) return;
+    scanGenericCommand(c,set,cursor);
 }
