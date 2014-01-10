@@ -138,22 +138,24 @@ int dbExists(redisDb *db, robj *key) {
 robj *dbRandomKey(redisDb *db) {
     struct dictEntry *de;
 
+    unsigned long retry = dictSize(db->dict);
     while(1) {
         sds key;
         robj *keyobj;
 
         de = dictGetRandomKey(db->dict);
         if (de == NULL) return NULL;
-
+    
         key = dictGetKey(de);
         keyobj = createStringObject(key,sdslen(key));
         if (dictFind(db->expires,key)) {
             if (expireIfNeeded(db,keyobj)) {
                 decrRefCount(keyobj);
-                /* Escaping from infinite loop by RANDOMKEY if slave has only expired key. */
-                if (server.masterhost != NULL && dictSize(db->dict) == dictSize(db->expires)) {
-                    return NULL;
+                /* Escaping from loop by retry count although it expired */
+                if (retry <= 0) {
+                    return keyobj;
                 }
+                retry--;
                 continue; /* search for another key. This expired. */
             }
         }
