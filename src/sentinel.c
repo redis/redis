@@ -942,7 +942,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
 }
 
 /* Release this instance and all its slaves, sentinels, hiredis connections.
- * This function also takes care of unlinking the instance from the main
+ * This function does not take care of unlinking the instance from the main
  * masters table (if it is a master) or from its master sentinels/slaves table
  * if it is a slave or sentinel. */
 void releaseSentinelRedisInstance(sentinelRedisInstance *ri) {
