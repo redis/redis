@@ -2520,6 +2520,7 @@ void sentinelCommand(redisClient *c) {
                 break;
             }
         } else {
+            sentinelFlushConfig();
             addReply(c,shared.ok);
         }
     } else {
