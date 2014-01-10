@@ -2375,7 +2375,7 @@ void sentinelCommand(redisClient *c) {
             return;
         addReplyDictOfRedisInstances(c,ri->sentinels);
     } else if (!strcasecmp(c->argv[1]->ptr,"is-master-down-by-addr")) {
-        /* SENTINEL IS-MASTER-DOWN-BY-ADDR <ip> <port> <current-epoch> <runid> */
+        /* SENTINEL IS-MASTER-DOWN-BY-ADDR <ip> <port> <current-epoch> <runid>*/
         sentinelRedisInstance *ri;
         long long req_epoch;
         uint64_t leader_epoch = 0;
