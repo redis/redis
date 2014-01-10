@@ -163,12 +163,21 @@ int anetTcpKeepAlive(char *err, int fd)
     return ANET_OK;
 }
 
-int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len)
+/* anetGenericResolve() is called by anetResolve() and anetResolveIP() to
+ * do the actual work. It resolves the hostname "host" and set the string
+ * representation of the IP address into the buffer pointed by "ipbuf".
+ *
+ * If flags is set to ANET_IP_ONLY the function only resolves hostnames
+ * that are actually already IPv4 or IPv6 addresses. This turns the function
+ * into a validating / normalizing function. */
+int anetGenericResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len,
+                       int flags)
 {
     struct addrinfo hints, *info;
     int rv;
 
     memset(&hints,0,sizeof(hints));
+    if (flags & ANET_IP_ONLY) hints.ai_flags = AI_NUMERICHOST;
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;  /* specify socktype to avoid dups */
 
@@ -186,6 +195,14 @@ int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len)
 
     freeaddrinfo(info);
     return ANET_OK;
+}
+
+int anetResolve(char *err, char *host, char *ipbuf, size_t ipbuf_len) {
+    return anetGenericResolve(err,host,ipbuf,ipbuf_len,ANET_NONE);
+}
+
+int anetResolveIP(char *err, char *host, char *ipbuf, size_t ipbuf_len) {
+    return anetGenericResolve(err,host,ipbuf,ipbuf_len,ANET_IP_ONLY);
 }
 
 static int anetSetReuseAddr(char *err, int fd) {
