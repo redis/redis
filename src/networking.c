@@ -671,8 +671,13 @@ void freeClient(redisClient *c) {
      * Case 1: we lost the connection with a slave. */
     if (c->flags & REDIS_SLAVE) {
         list *l;
-        if (c->replstate == REDIS_REPL_SEND_BULK && c->repldbfd != -1)
+        if (c->replstate == REDIS_REPL_SEND_BULK && c->repldbfd != -1) {
             close(c->repldbfd);
+#ifdef _WIN32
+            DeleteFileA(c->replFileCopy);
+            memset(c->replFileCopy, 0, MAX_PATH);
+#endif
+        }
         l = (c->flags & REDIS_MONITOR) ? server.monitors : server.slaves;
         ln = listSearchKey(l,c);
         redisAssert(ln != NULL);

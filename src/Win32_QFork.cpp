@@ -582,7 +582,7 @@ BOOL AbortForkOperation()
 BOOL EndForkOperation() {
     try {
 #ifdef _DEBUG
-        printf("sending termiation signal\n");
+        printf("EndForkOperation: sending termination signal\n");
 #endif
         SetEvent(g_pQForkControl->terminateForkedProcess);
         if( g_hForkedProcess != 0 )

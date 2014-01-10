@@ -411,6 +411,7 @@ typedef struct redisClient {
     int replstate;          /* replication state if this is a slave */
     int repldbfd;           /* replication DB file descriptor */
 #ifdef _WIN32
+    char replFileCopy[_MAX_PATH];   
     long long repldboff;        /* replication DB file offset */
     long long repldbsize;       /* replication DB file size */
 #else

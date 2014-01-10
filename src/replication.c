@@ -243,6 +243,10 @@ void sendBulkToSlaveDataDone(aeEventLoop *el, int fd, void *privdata, int nwritt
     slave->repldboff += nwritten;
     if (slave->repldboff == slave->repldbsize) {
         close(slave->repldbfd);
+#ifdef _WIN32
+        DeleteFileA(slave->replFileCopy);
+        memset(slave->replFileCopy, 0, MAX_PATH);
+#endif
         slave->repldbfd = -1;
         aeDeleteFileEvent(server.el,slave->fd,AE_WRITABLE);
         slave->replstate = REDIS_REPL_ONLINE;
@@ -343,6 +347,10 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
     slave->repldboff += nwritten;
     if (slave->repldboff == slave->repldbsize) {
         close(slave->repldbfd);
+#ifdef _WIN32
+        DeleteFileA(slave->replFileCopy);
+        memset(slave->replFileCopy, 0, MAX_PATH);
+#endif
         slave->repldbfd = -1;
         aeDeleteFileEvent(server.el,slave->fd,AE_WRITABLE);
         slave->replstate = REDIS_REPL_ONLINE;
@@ -383,7 +391,20 @@ void updateSlavesWaitingBgsave(int bgsaveerr) {
                 continue;
             }
 #ifdef _WIN32
-            if ((slave->repldbfd = open(server.rdb_filename,O_RDONLY|_O_BINARY,0)) == -1 ||
+            /* As multiple slaves join asynchronously with the master, the synchronization process can launch multiple
+               RDB background saves before the first slaves are fully synchronized. This can cause a race condition 
+               for the RDB file produced by the forked process with the RDB file being used to feed the slaves.
+               I don't think this patch totally eliminates the race condition, but it does eliminate the deadlock 
+               that occurs when the forked process tries to copy the file it produces over the the RDB file being 
+               held open by the slave feeding code. */
+            sprintf(slave->replFileCopy,"%d_%s",  slave->fd, server.rdb_filename);
+            if(CopyFileA( server.rdb_filename, slave->replFileCopy, FALSE) == FALSE) {
+                freeClient(slave);
+                redisLog(REDIS_WARNING,"Failed to duplicate RDB file. Failing SYNC: %d", GetLastError());
+                continue;
+            }
+
+            if ((slave->repldbfd = open(slave->replFileCopy,O_RDONLY|_O_BINARY,0)) == -1 ||
 #else
             if ((slave->repldbfd = open(server.rdb_filename,O_RDONLY)) == -1 ||
 #endif
