@@ -2270,6 +2270,30 @@ void addReplySentinelRedisInstance(redisClient *c, sentinelRedisInstance *ri) {
         addReplyBulkCString(c,"quorum");
         addReplyBulkLongLong(c,ri->quorum);
         fields++;
+
+        addReplyBulkCString(c,"down-after-milliseconds");
+        addReplyBulkLongLong(c,ri->down_after_period);
+        fields++;
+
+        addReplyBulkCString(c,"failover-timeout");
+        addReplyBulkLongLong(c,ri->failover_timeout);
+        fields++;
+
+        addReplyBulkCString(c,"parallel-syncs");
+        addReplyBulkLongLong(c,ri->parallel_syncs);
+        fields++;
+
+        if (ri->notification_script) {
+            addReplyBulkCString(c,"notification-script");
+            addReplyBulkCString(c,ri->notification_script);
+            fields++;
+        }
+
+        if (ri->client_reconfig_script) {
+            addReplyBulkCString(c,"client-reconfig-script");
+            addReplyBulkCString(c,ri->client_reconfig_script);
+            fields++;
+        }
     }
 
     /* Only slaves */
