@@ -55,6 +55,7 @@
 #include "sds.h"     /* Dynamic safe strings */
 #include "dict.h"    /* Hash tables */
 #include "adlist.h"  /* Linked lists */
+#include "matrix.h"  /* Matrices */
 #include "zmalloc.h" /* total memory usage aware version of malloc/free */
 #include "anet.h"    /* Networking the easy way */
 #include "ziplist.h" /* Compact list data structure */
