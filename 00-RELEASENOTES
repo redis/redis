@@ -14,6 +14,26 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.4 ] Release date: 13 Jan 2014
+
+# UPGRADE URGENCY: MODERATE for Redis and Sentinel.
+
+* [FIX] Makefile compatibility with non common make variants improved.
+* [FIX] SDIFF crash in very unlikely to trigger state fixed.
+* [FIX] Config rewriting fixed: don't wipe options unknown to the rewrite
+        process.
+* [FIX] Set TCP port to 0 works again to disable TCP networking.
+* [FIX] Fixed replication with old Redis instances as masters by not
+        sending REPLCONF ACK to them.
+* [FIX] Fix keyspace notifications rewrite and CONFIG GET output.
+* [FIX] Fix RESTORE TTL handling in 32 bit systems (32 bit overflow).
+
+* [NEW] Sentinel now has a run time configuration API.
+* [NEW] Log when we lost connection with master or slave.
+* [NEW] When instance is turned from slave to master now inherits the
+        old master replication offset when possible. This improves the
+        Sentinel failover procedure.
+
 --[ Redis 2.8.3 ] Release date: 11 Dec 2013
 
 # UPGRADE URGENCY: MODERATE for Redis, HIGH for Sentinel.
