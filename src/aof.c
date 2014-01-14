@@ -126,7 +126,7 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
 }
 
 /* Write the buffer (possibly composed of multiple blocks) into the specified
- * fd. If no short write or any other error happens -1 is returned,
+ * fd. If a short write or any other error happens -1 is returned,
  * otherwise the number of bytes written is returned. */
 ssize_t aofRewriteBufferWrite(int fd) {
     listNode *ln;
