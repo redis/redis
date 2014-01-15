@@ -38,6 +38,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 
 clusterNode *createClusterNode(char *nodename, int flags);
 int clusterAddNode(clusterNode *node);
@@ -226,20 +227,45 @@ fmterr:
 /* Cluster node configuration is exactly the same as CLUSTER NODES output.
  *
  * This function writes the node config and returns 0, on error -1
- * is returned. */
+ * is returned.
+ *
+ * Note: we need to write the file in an atomic way from the point of view
+ * of the POSIX filesystem semantics, so that if the server is stopped
+ * or crashes during the write, we'll end with either the old file or the
+ * new one. Since we have the full payload to write available we can use
+ * a single write to write the whole file. If the pre-existing file was
+ * bigger we pad our payload with newlines that are anyway ignored and truncate
+ * the file afterward. */
 int clusterSaveConfig(int do_fsync) {
     sds ci = clusterGenNodesDescription(REDIS_NODE_HANDSHAKE);
+    size_t content_size = sdslen(ci);
+    struct stat sb;
     int fd;
     
-    if ((fd = open(server.cluster_configfile,O_WRONLY|O_CREAT|O_TRUNC,0644))
+    if ((fd = open(server.cluster_configfile,O_WRONLY|O_CREAT,0644))
         == -1) goto err;
+
+    /* Pad the new payload if the existing file length is greater. */
+    if (fstat(fd,&sb) != -1) {
+        if (sb.st_size > content_size) {
+            ci = sdsgrowzero(ci,sb.st_size);
+            memset(ci+content_size,'\n',sb.st_size-content_size);
+        }
+    }
     if (write(fd,ci,sdslen(ci)) != (ssize_t)sdslen(ci)) goto err;
     if (do_fsync) fsync(fd);
+
+    /* Truncate the file if needed to remove the final \n padding that
+     * is just garbage. */
+    if (content_size != sdslen(ci) && ftruncate(fd,content_size) == -1) {
+        /* ftruncate() failing is not a critical error. */
+    }
     close(fd);
     sdsfree(ci);
     return 0;
 
 err:
+    if (fd != -1) close(fd);
     sdsfree(ci);
     return -1;
 }
