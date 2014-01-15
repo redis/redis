@@ -2207,7 +2207,8 @@ void clusterCron(void) {
     }
 
     clusterHandleSlaveFailover();
-    if (update_state) clusterUpdateState();
+    if (update_state || server.cluster->state == REDIS_CLUSTER_FAIL)
+        clusterUpdateState();
 }
 
 /* This function is called before the event handler returns to sleep for
