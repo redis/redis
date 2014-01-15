@@ -2327,6 +2327,7 @@ int clusterDelNodeSlots(clusterNode *node) {
  * -------------------------------------------------------------------------- */
 
 #define REDIS_CLUSTER_MAX_REJOIN_DELAY 5000
+#define REDIS_CLUSTER_MIN_REJOIN_DELAY 500
 
 void clusterUpdateState(void) {
     int j, new_state;
@@ -2392,6 +2393,8 @@ void clusterUpdateState(void) {
          * a configuration update. */
         if (rejoin_delay > REDIS_CLUSTER_MAX_REJOIN_DELAY)
             rejoin_delay = REDIS_CLUSTER_MAX_REJOIN_DELAY;
+        if (rejoin_delay < REDIS_CLUSTER_MIN_REJOIN_DELAY)
+            rejoin_delay = REDIS_CLUSTER_MIN_REJOIN_DELAY;
 
         if (new_state == REDIS_CLUSTER_OK &&
             server.cluster->myself->flags & REDIS_NODE_MASTER &&
