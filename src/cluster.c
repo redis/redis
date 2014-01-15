@@ -671,7 +671,7 @@ void clusterRenameNode(clusterNode *node, char *newname) {
  *
  * Currently the REDIS_CLUSTER_BLACKLIST_TTL is set to 1 minute, this means
  * that redis-trib has 60 seconds to send CLUSTER FORGET messages to nodes
- * in the cluster without dealing with the problem if other nodes re-adding
+ * in the cluster without dealing with the problem of other nodes re-adding
  * back the node to nodes we already sent the FORGET command to.
  *
  * The data structure used is a hash table with an sds string representing
@@ -721,6 +721,7 @@ int clusterBlacklistExists(char *nodeid) {
     sds id = sdsnewlen(nodeid,REDIS_CLUSTER_NAMELEN);
     int retval;
 
+    clusterBlacklistCleanup();
     retval = dictFind(server.cluster->nodes_black_list,id) != NULL;
     sdsfree(id);
     return retval;
