@@ -708,10 +708,14 @@ void clusterBlacklistAddNode(clusterNode *node) {
     sds id = sdsnewlen(node->name,REDIS_CLUSTER_NAMELEN);
 
     clusterBlacklistCleanup();
-    if (dictAdd(server.cluster->nodes_black_list,id,NULL) == DICT_ERR)
-        sdsfree(id); /* Key was already there. */
-    de = dictFind(server.cluster->nodes_black_list,node->name);
+    if (dictAdd(server.cluster->nodes_black_list,id,NULL) == DICT_OK) {
+        /* If the key was added, duplicate the sds string representation of
+         * the key for the next lookup. We'll free it at the end. */
+        id = sdsdup(id);
+    }
+    de = dictFind(server.cluster->nodes_black_list,id);
     dictSetUnsignedIntegerVal(de,time(NULL));
+    sdsfree(id);
 }
 
 /* Return non-zero if the specified node ID exists in the blacklist.
