@@ -12,7 +12,7 @@
 #define REDIS_CLUSTER_PORT_INCR 10000 /* Cluster port = baseport + PORT_INCR */
 #define REDIS_CLUSTER_IPLEN INET6_ADDRSTRLEN /* IPv6 address string length */
 
-/* The following defines are amunt of time, sometimes expressed as
+/* The following defines are amount of time, sometimes expressed as
  * multiplicators of the node timeout value (when ending with MULT). */
 #define REDIS_CLUSTER_DEFAULT_NODE_TIMEOUT 15000
 #define REDIS_CLUSTER_FAIL_REPORT_VALIDITY_MULT 2 /* Fail report validity. */
@@ -42,7 +42,7 @@ typedef struct clusterLink {
 #define REDIS_NODE_HANDSHAKE 32 /* We have still to exchange the first ping */
 #define REDIS_NODE_NOADDR   64  /* We don't know the address of this node */
 #define REDIS_NODE_MEET 128     /* Send a MEET message to this node */
-#define REDIS_NODE_PROMOTED 256 /* Master was a slave propoted by failover */
+#define REDIS_NODE_PROMOTED 256 /* Master was a slave promoted by failover */
 #define REDIS_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
 
 /* This structure represent elements of node->fail_reports. */
@@ -88,7 +88,7 @@ typedef struct clusterState {
     int failover_auth_count;    /* Number of votes received so far. */
     int failover_auth_sent;     /* True if we already asked for votes. */
     uint64_t failover_auth_epoch; /* Epoch of the current election. */
-    /* The followign fields are uesd by masters to take state on elections. */
+    /* The following fields are used by masters to take state on elections. */
     uint64_t last_vote_epoch;   /* Epoch of the last vote granted. */
     int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
     long long stats_bus_messages_sent;  /* Num of msg sent via cluster bus. */
