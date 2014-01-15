@@ -101,11 +101,18 @@ int clusterLoadConfig(char *filename) {
     line = zmalloc(maxline);
     while(fgets(line,maxline,fp) != NULL) {
         int argc;
-        sds *argv = sdssplitargs(line,&argc);
-        if (argv == NULL) goto fmterr;
-
+        sds *argv;
         clusterNode *n, *master;
         char *p, *s;
+
+        /* Skip blank lines, they can be created either by users manually
+         * editing nodes.conf or by the config writing process if stopped
+         * before the truncate() call. */
+        if (line[0] == '\n') continue;
+
+        /* Split the line into arguments for processing. */
+        argv = sdssplitargs(line,&argc);
+        if (argv == NULL) goto fmterr;
 
         /* Create this node if it does not exist */
         n = clusterLookupNode(argv[0]);
