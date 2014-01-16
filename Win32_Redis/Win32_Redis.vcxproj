@@ -11,22 +11,24 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{52193A97-D010-41D6-BF2B-33E8E764E308}</ProjectGuid>
-    <RootNamespace>RedisCheckDump</RootNamespace>
+    <ProjectGuid>{8C07F811-C81C-432C-B334-1AE6FAECF951}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>Win32_Redis</RootNamespace>
+    <ProjectName>Win32_Interop</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <CharacterSet>MultiByte</CharacterSet>
     <PlatformToolset>v110</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <WholeProgramOptimization>true</WholeProgramOptimization>
-    <CharacterSet>MultiByte</CharacterSet>
     <PlatformToolset>v110</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -38,61 +40,58 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <TargetName>redis-check-dump</TargetName>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <TargetName>redis-check-dump</TargetName>
-  </PropertyGroup>
+  <PropertyGroup />
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;USE_DL_PREFIX;LACKS_STDLIB_H;_DEBUG;_CONSOLE;%(PreprocessorDefinitions);WIN32_IOCP;WIN32_IOCP;NO_QFORKIMPL</PreprocessorDefinitions>
-      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
-      <DisableSpecificWarnings>4996</DisableSpecificWarnings>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_LIB;%(PreprocessorDefinitions);_WIN32IOCP;USE_DL_PREFIX;LACKS_STDLIB_H;USE_DLMALLOC;_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(SolutionDir)..\deps\lua\src</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
+      <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <OutputFile>$(OutDir)redis-check-dump$(TargetExt)</OutputFile>
-      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <RandomizedBaseAddress>false</RandomizedBaseAddress>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
+      <PrecompiledHeader>
+      </PrecompiledHeader>
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>WIN32;USE_DL_PREFIX;LACKS_STDLIB_H;NDEBUG;_CONSOLE;%(PreprocessorDefinitions);WIN32_IOCP;WIN32_IOCP;NO_QFORKIMPL</PreprocessorDefinitions>
-      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
-      <DisableSpecificWarnings>4996</DisableSpecificWarnings>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_LIB;%(PreprocessorDefinitions);_WIN32IOCP;USE_DL_PREFIX;LACKS_STDLIB_H;USE_DLMALLOC;_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(SolutionDir)..\deps\lua\src</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
+      <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <OutputFile>$(OutDir)redis-check-dump$(TargetExt)</OutputFile>
-      <AdditionalDependencies>kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <RandomizedBaseAddress>false</RandomizedBaseAddress>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\src\crc64.c" />
-    <ClCompile Include="..\..\src\lzf_c.c" />
-    <ClCompile Include="..\..\src\lzf_d.c" />
-    <ClCompile Include="..\..\src\redis-check-dump.c" />
+    <ClCompile Include="..\src\win32fixes.c" />
+    <ClCompile Include="..\src\Win32_dlmalloc.c" />
+    <ClCompile Include="..\src\Win32_FDAPI.cpp" />
+    <ClCompile Include="..\src\Win32_QFork.cpp" />
+    <ClCompile Include="..\src\Win32_QFork_impl.c" />
+    <ClCompile Include="..\src\win32_rfdmap.cpp" />
+    <ClCompile Include="..\src\win32_wsiocp.c" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\APIBridge\APIBridge.vcxproj">
-      <Project>{0a28b490-79de-4d7f-bb46-d75cf0d026ed}</Project>
-    </ProjectReference>
-    <ProjectReference Include="..\..\Win32_Redis\Win32_Redis.vcxproj">
-      <Project>{8c07f811-c81c-432c-b334-1ae6faecf951}</Project>
-    </ProjectReference>
+    <ClInclude Include="..\src\win32fixes.h" />
+    <ClInclude Include="..\src\Win32_dlmalloc.h" />
+    <ClInclude Include="..\src\Win32_FDAPI.h" />
+    <ClInclude Include="..\src\Win32_QFork.h" />
+    <ClInclude Include="..\src\Win32_QFork_impl.h" />
+    <ClInclude Include="..\src\win32_rfdmap.h" />
+    <ClInclude Include="..\src\Win32_SmartHandle.h" />
+    <ClInclude Include="..\src\win32_wsiocp.h" />
+    <ClInclude Include="..\src\WS2tcpip.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

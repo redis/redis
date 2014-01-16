@@ -82,20 +82,14 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\..\src\redis-check-aof.c" />
-    <ClCompile Include="..\..\src\win32fixes.c" />
-    <ClCompile Include="..\..\src\Win32_dlmalloc.c" />
-    <ClCompile Include="..\..\src\Win32_FDAPI.cpp" />
-    <ClCompile Include="..\..\src\Win32_QFork.cpp" />
-    <ClCompile Include="..\..\src\Win32_QFork_impl.c" />
-    <ClCompile Include="..\..\src\win32_rfdmap.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\APIBridge\APIBridge.vcxproj">
       <Project>{0a28b490-79de-4d7f-bb46-d75cf0d026ed}</Project>
     </ProjectReference>
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="..\..\src\Win32_QFork_impl.h" />
+    <ProjectReference Include="..\..\Win32_Redis\Win32_Redis.vcxproj">
+      <Project>{8c07f811-c81c-432c-b334-1ae6faecf951}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

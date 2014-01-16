@@ -1,3 +1,25 @@
+/*
+ * Copyright (c), Microsoft Open Technologies, Inc.
+ * All rights reserved.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *  - Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *  - Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #include <Windows.h>
 #include <errno.h>
 #include <stdio.h>
@@ -123,7 +145,6 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
             string("Could not map view of QForkControl in slave. Is system swap file large enough?"));
         g_pQForkControl = sfvMasterQForkControl;
 
-
         // duplicate handles and stuff into control structure (master protected by PAGE_WRITECOPY)
         SmartHandle dupHeapFileHandle(shParent, sfvMasterQForkControl->heapMemoryMapFile);
         g_pQForkControl->heapMemoryMapFile = dupHeapFileHandle;
@@ -139,30 +160,24 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
         g_pQForkControl->terminateForkedProcess = dupTerminateProcess;
 
        // create section handle on MM file
-#ifdef _DEBUG
-        printf("creating section on shared memory map file\n");
-#endif
        SIZE_T mmSize = g_pQForkControl->availableBlocksInHeap * cAllocationGranularity;
        SmartFileMapHandle sfmhMapFile(
            g_pQForkControl->heapMemoryMapFile, 
            PAGE_WRITECOPY, 
            HIDWORD(mmSize), LODWORD(mmSize),
-           string("Could not open file mapping object in slave"));
+           string("QForkSlaveInit: Could not open file mapping object in slave"));
        g_pQForkControl->heapMemoryMap = sfmhMapFile;
 
-#ifdef _DEBUG
-        printf("trying to map heap at: 0x%08x\n", g_pQForkControl->heapStart);
-#endif
         SmartFileView<byte> sfvHeap(
             g_pQForkControl->heapMemoryMap,
             FILE_MAP_COPY,
             0, 0, 0,
             g_pQForkControl->heapStart,
-            string("could not map heap in forked process. Is system swap file large enough?"));
+            string("QForkSlaveInit: Could not map heap in forked process. Is system swap file large enough?"));
 
         // setup DLMalloc global data
         if( SetDLMallocGlobalState(g_pQForkControl->DLMallocGlobalStateSize, g_pQForkControl->DLMallocGlobalState) != 0) {
-            throw std::runtime_error("DLMalloc global state copy failed.");
+            throw std::runtime_error("QForkSlaveInit: DLMalloc global state copy failed.");
         }
 
         // signal parent that we are ready
@@ -171,7 +186,7 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
         // wait for parent to signal operation start
         WaitForSingleObject(g_pQForkControl->startOperation, INFINITE);
 
-        // copy redis globals into current process
+        // copy redis globals into fork process
         SetupGlobals(g_pQForkControl->globalData.globalData, g_pQForkControl->globalData.globalDataSize, g_pQForkControl->globalData.dictHashSeed);
 
         // execute requiested operation
@@ -180,28 +195,19 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
         } else if (g_pQForkControl->typeOfOperation == OperationType::otAOF) {
             do_aofSave(g_pQForkControl->globalData.filename);
         } else {
-            DebugBreak();
+            throw runtime_error("unexpected operation type");
         }
 
         // let parent know weare done
         SetEvent(g_pQForkControl->operationComplete);
 
-#ifdef _DEBUG
-        printf("waiting for termination signal\n");
-#endif
-
         // parent will notify us when to quit
         WaitForSingleObject(g_pQForkControl->terminateForkedProcess, INFINITE);
-
-#ifdef _DEBUG
-        printf("fork terminating\n");
-#endif
 
         g_pQForkControl = NULL;
         return TRUE;
     }
     catch(std::system_error syserr) {
-        printf( "QForkSlaveInit:  0x%08x -- %s\n", syserr.code().value(), syserr.what() );
         g_pQForkControl = NULL;
         if(g_pQForkControl != NULL) {
             if(g_pQForkControl->operationFailed != NULL) {
@@ -211,11 +217,11 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
         return FALSE;
     }
     catch(std::runtime_error runerr) {
-        printf( "QForkSlaveInit:  %s\n", runerr.what() );
         g_pQForkControl = NULL;
         SetEvent(g_pQForkControl->operationFailed);
         return FALSE;
     }
+    return FALSE;
 }
 
 
@@ -451,7 +457,7 @@ BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, i
         g_pQForkControl->typeOfOperation = type;
         strcpy_s(g_pQForkControl->globalData.filename, fileName);
         if (sizeOfGlobalData > MAX_GLOBAL_DATA) {
-            DebugBreak();
+            throw std::runtime_error("Global state too large.");
         }
         memcpy(&(g_pQForkControl->globalData.globalData), globalData, sizeOfGlobalData);
         g_pQForkControl->globalData.globalDataSize = sizeOfGlobalData;
@@ -485,22 +491,22 @@ BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, i
         }
 
         // Launch the "forked" process
-        TCHAR fileName[MAX_PATH];
-        if (0 == GetModuleFileName(NULL, fileName, MAX_PATH)) {
+        char fileName[MAX_PATH];
+        if (0 == GetModuleFileNameA(NULL, fileName, MAX_PATH)) {
             throw system_error(
                 GetLastError(),
                 system_category(),
                 "Failed to get module name.");
         }
 
-        STARTUPINFO si;
-        memset(&si,0, sizeof(STARTUPINFO));
-        si.cb = sizeof(STARTUPINFO);
-        TCHAR arguments[_MAX_PATH];
+        STARTUPINFOA si;
+        memset(&si,0, sizeof(STARTUPINFOA));
+        si.cb = sizeof(STARTUPINFOA);
+        char arguments[_MAX_PATH];
         memset(arguments,0,_MAX_PATH);
         PROCESS_INFORMATION pi;
         sprintf_s(arguments, _MAX_PATH, "%s %ld %ld", qforkFlag, g_hQForkControlFileMap, GetCurrentProcessId());
-        if (FALSE == CreateProcess(fileName, arguments, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
+        if (FALSE == CreateProcessA(fileName, arguments, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
             throw system_error( 
                 GetLastError(),
                 system_category(),
@@ -581,9 +587,6 @@ BOOL AbortForkOperation()
 
 BOOL EndForkOperation() {
     try {
-#ifdef _DEBUG
-        printf("EndForkOperation: sending termination signal\n");
-#endif
         SetEvent(g_pQForkControl->terminateForkedProcess);
         if( g_hForkedProcess != 0 )
         {
@@ -699,7 +702,7 @@ BOOL EndForkOperation() {
             }
         }
 #ifdef _DEBUG
-        cout << cowList.size() << " of " << (mmSize / pageSize) << " are modified" << endl;
+//        cout << cowList.size() << " of " << (mmSize / pageSize) << " are modified" << endl;
 #endif
 
         if (cowList.size() > 0) {
@@ -717,9 +720,6 @@ BOOL EndForkOperation() {
             pwsi = NULL;
 
             // discard local changes
-#ifdef _DEBUG
-            printf("remap heap\n");
-#endif
             if (UnmapViewOfFile(g_pQForkControl->heapStart) == FALSE) {
                 throw std::system_error(
                     GetLastError(),
@@ -739,9 +739,6 @@ BOOL EndForkOperation() {
                     system_category(),
                     "EndForkOperation: Remapping ForkControl block failed.");
             }
-#ifdef _DEBUG
-    printf( "heap remapped\n");
-#endif
 
             // copied back local changes to remapped view
             bufPageIndex = 0;
@@ -867,13 +864,11 @@ BOOL FreeHeapBlock(LPVOID block, size_t size)
 
     INT_PTR ptrDiff = reinterpret_cast<byte*>(block) - reinterpret_cast<byte*>(g_pQForkControl->heapStart);
     if (ptrDiff < 0 || (ptrDiff % g_pQForkControl->heapBlockSize) != 0) {
-        DebugBreak();
         return FALSE;
     }
 
     int blockIndex = (int)(ptrDiff / g_pQForkControl->heapBlockSize);
     if (blockIndex >= g_pQForkControl->availableBlocksInHeap) {
-        DebugBreak();
         return FALSE;
     }
 
@@ -882,7 +877,6 @@ BOOL FreeHeapBlock(LPVOID block, size_t size)
     if (VirtualUnlock(block, size) == FALSE) {
         DWORD err = GetLastError();
         if (err != ERROR_NOT_LOCKED) {
-            DebugBreak();
             return FALSE;
         }
     };
@@ -914,7 +908,6 @@ extern "C"
             return 1;
         } else {
             // unexpected status return
-            DebugBreak();
             return 2;
         }
     }

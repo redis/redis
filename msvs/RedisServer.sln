@@ -31,6 +31,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "lua", "lua\lua\lua.vcxproj"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "APIBridge", "..\src\APIBridge\APIBridge.vcxproj", "{0A28B490-79DE-4D7F-BB46-D75CF0D026ED}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Win32_Redis", "..\Win32_Redis\Win32_Redis.vcxproj", "{8C07F811-C81C-432C-B334-1AE6FAECF951}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -69,6 +71,10 @@ Global
 		{0A28B490-79DE-4D7F-BB46-D75CF0D026ED}.Debug|x64.Build.0 = Debug|x64
 		{0A28B490-79DE-4D7F-BB46-D75CF0D026ED}.Release|x64.ActiveCfg = Release|x64
 		{0A28B490-79DE-4D7F-BB46-D75CF0D026ED}.Release|x64.Build.0 = Release|x64
+		{8C07F811-C81C-432C-B334-1AE6FAECF951}.Debug|x64.ActiveCfg = Debug|x64
+		{8C07F811-C81C-432C-B334-1AE6FAECF951}.Debug|x64.Build.0 = Debug|x64
+		{8C07F811-C81C-432C-B334-1AE6FAECF951}.Release|x64.ActiveCfg = Release|x64
+		{8C07F811-C81C-432C-B334-1AE6FAECF951}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

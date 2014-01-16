@@ -105,7 +105,7 @@ int replace_rename(const char *src, const char *dst) {
     /* anti-virus may lock file - error code 5. Retry until it works or get a different error */
     int retries = 50;
     while (1) {
-        if (MoveFileEx(src, dst, MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED | MOVEFILE_WRITE_THROUGH)) {
+        if (MoveFileExA(src, dst, MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED | MOVEFILE_WRITE_THROUGH)) {
             return 0;
         } else {
             errno = GetLastError();
@@ -455,9 +455,9 @@ double wstrtod(const char *nptr, char **eptr) {
             neg = 1;
         }
 
-        if (strnicmp("INF", nptr, 3) == 0) {
+        if (_strnicmp("INF", nptr, 3) == 0) {
             if (eptr != NULL) {
-                if (strnicmp("INFINITE", nptr, 8) == 0)
+                if (_strnicmp("INFINITE", nptr, 8) == 0)
                     *eptr = (char*)(nptr + 8);
                 else
                     *eptr = (char*)(nptr + 3);
@@ -466,7 +466,7 @@ double wstrtod(const char *nptr, char **eptr) {
                 return -HUGE_VAL;
             else
                 return HUGE_VAL;
-        } else if (strnicmp("NAN", nptr, 3) == 0) {
+        } else if (_strnicmp("NAN", nptr, 3) == 0) {
             if (eptr != NULL)
                 *eptr = (char*)(nptr + 3);
             /* create a NaN : 0 * infinity*/
@@ -480,7 +480,7 @@ double wstrtod(const char *nptr, char **eptr) {
 }
 
 int strerror_r(int err, char* buf, size_t buflen) {
-    int size = FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM |
+    int size = FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM |
                             FORMAT_MESSAGE_IGNORE_INSERTS,
                             NULL,
                             err,
@@ -505,7 +505,7 @@ int strerror_r(int err, char* buf, size_t buflen) {
 
 char wsa_strerror_buf[128];
 char *wsa_strerror(int err) {
-    int size = FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM |
+    int size = FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM |
                             FORMAT_MESSAGE_IGNORE_INSERTS,
                             NULL,
                             err,
