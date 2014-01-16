@@ -28,15 +28,38 @@
 
 #define QFORK_MAIN_IMPL
 #include "Win32_QFork.h"
-#include "Win32_QFork_impl.h"
 
+#include "Win32_QFork_impl.h"
 #include "Win32_dlmalloc.h"
 #include "Win32_SmartHandle.h"
-
-
 #include <vector>
 #include <iostream>
 using namespace std;
+
+//#define DEBUG_WITH_PROCMON
+#ifdef DEBUG_WITH_PROCMON
+#define FILE_DEVICE_PROCMON_LOG 0x00009535
+#define IOCTL_EXTERNAL_LOG_DEBUGOUT (ULONG) CTL_CODE( FILE_DEVICE_PROCMON_LOG, 0x81, METHOD_BUFFERED, FILE_WRITE_ACCESS )
+
+HANDLE hProcMonDevice = INVALID_HANDLE_VALUE;
+BOOL WriteToProcmon (wstring message)
+{
+    if (hProcMonDevice != INVALID_HANDLE_VALUE) {
+        DWORD nb = 0;
+        return DeviceIoControl(
+            hProcMonDevice, 
+            IOCTL_EXTERNAL_LOG_DEBUGOUT,
+            (LPVOID)(message.c_str()),
+            (DWORD)(message.length() * sizeof(wchar_t)),
+            NULL,
+            0,
+            &nb,
+            NULL);
+    } else {
+        return FALSE;
+    }
+}
+#endif
 
 /*
 Redis is an in memory DB. We need to share the redis database with a quasi-forked process so that we can do the RDB and AOF saves 
@@ -490,6 +513,38 @@ BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, i
                 "BeginForkOperation: VirtualProtect failed");
         }
 
+        // ensure events are in the correst state
+        if (ResetEvent(g_pQForkControl->operationComplete) == FALSE ) {
+            throw std::system_error(
+                GetLastError(),
+                system_category(), 
+                "BeginForkOperation: ResetEvent() failed.");
+        }
+        if (ResetEvent(g_pQForkControl->operationFailed) == FALSE ) {
+            throw std::system_error(
+                GetLastError(),
+                system_category(), 
+                "BeginForkOperation: ResetEvent() failed.");
+        }
+        if (ResetEvent(g_pQForkControl->startOperation) == FALSE ) {
+            throw std::system_error(
+                GetLastError(),
+                system_category(),
+                "BeginForkOperation: ResetEvent() failed.");
+        }
+        if (ResetEvent(g_pQForkControl->forkedProcessReady) == FALSE) {
+            throw std::system_error(
+                GetLastError(),
+                system_category(),
+                "BeginForkOperation: ResetEvent() failed.");
+        }
+        if (ResetEvent(g_pQForkControl->terminateForkedProcess) == FALSE) {
+            throw std::system_error(
+                GetLastError(), 
+                system_category(),
+                "BeginForkOperation: ResetEvent() failed.");
+        }
+
         // Launch the "forked" process
         char fileName[MAX_PATH];
         if (0 == GetModuleFileNameA(NULL, fileName, MAX_PATH)) {
@@ -887,6 +942,7 @@ BOOL FreeHeapBlock(LPVOID block, size_t size)
     return TRUE;
 }
 
+
 extern "C"
 {
     // The external main() is redefined as redis_main() by Win32_QFork.h.
@@ -894,6 +950,18 @@ extern "C"
     // is invoked so that the QFork allocator can be setup prior to anything 
     // Redis will allocate.
     int main(int argc, char* argv[]) {
+#ifdef DEBUG_WITH_PROCMON
+        hProcMonDevice = 
+            CreateFile( 
+                L"\\\\.\\Global\\ProcmonDebugLogger", 
+                GENERIC_READ|GENERIC_WRITE, 
+                FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE, 
+                NULL, 
+                OPEN_EXISTING, 
+                FILE_ATTRIBUTE_NORMAL, 
+                NULL );
+#endif
+
         StartupStatus status = QForkStartup(argc, argv);
         if (status == ssCONTINUE_AS_MASTER) {
             int retval = redis_main(argc, argv);
