@@ -808,6 +808,45 @@ class RedisTrib
         new.r.cluster("meet",first[:host],first[:port])
     end
 
+    def delnode_cluster_cmd(argv,opt)
+        id = argv[1].downcase
+        xputs ">>> Removing node #{id} from cluster #{argv[0]}"
+
+        # Load cluster information
+        load_cluster_info_from_node(argv[0])
+
+        # Check if the node exists and is not empty
+        node = get_node_by_name(id)
+
+        if !node
+            xputs "[ERR] No such node ID #{id}"
+            exit 1
+        end
+
+        if node.slots.length != 0
+            xputs "[ERR] Node #{node} is not empty! Reshard data away and try again."
+            exit 1
+        end
+
+        # Send CLUSTER FORGET to all the nodes but the node to remove
+        xputs ">>> Sending CLUSTER FORGET messages to the cluster..."
+        @nodes.each{|n|
+            next if n == node
+            if n.info[:replicate] && n.info[:replicate].downcase == node_id
+                # Reconfigure the slave to replicate with some other node
+                xputs ">>> #{n} as replica of #{master}"
+                # TODO: implement get_master_with_least_replicas
+                master = get_master_with_least_replicas
+                n.r.cluster("replicate",master.info[:name])
+            end
+            n.r.cluster("forget",argv[1])
+        }
+
+        # Finally shutdown the node
+        xputs ">>> SHUTDOWN the node."
+        node.r.shutdown
+    end
+
     def help_cluster_cmd(opt)
         show_help
         exit 0
@@ -849,6 +888,7 @@ COMMANDS={
     "fix"     => ["fix_cluster_cmd", 2, "host:port"],
     "reshard" => ["reshard_cluster_cmd", 2, "host:port"],
     "addnode" => ["addnode_cluster_cmd", 3, "new_host:new_port existing_host:existing_port"],
+    "delnode" => ["delnode_cluster_cmd", 3, "host:port node_id"],
     "help"    => ["help_cluster_cmd", 1, "(show this help)"]
 }
 
@@ -868,7 +908,7 @@ def show_help
         o = "[#{o.strip}]" if o.length > 0
         puts "  #{k.ljust(10)} #{v[2]} #{o}"
     }
-    puts "\nFor check, fix, reshard, you can specify host:port of any working node.\n"
+    puts "\nFor check, fix, reshard, delnode, you can specify host:port of any working node.\n"
 end
 
 # Sanity check
