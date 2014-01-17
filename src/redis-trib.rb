@@ -304,6 +304,17 @@ class RedisTrib
         return nil
     end
 
+    # This function returns the master that has the least number of replicas
+    # in the cluster. If there are multiple masters with the same smaller
+    # number of replicas, one at random is returned.
+    def get_master_with_least_replicas
+        masters = @nodes.select{|n| n.has_flag? "master"}
+        sorted = masters.sort{|a,b|
+            a.info[:replicas].length <=> b.info[:replicas].length
+        }
+        sorted[0]
+    end
+
     def check_cluster
         xputs ">>> Performing Cluster Check (using node #{@nodes[0]})"
         show_nodes
@@ -596,6 +607,29 @@ class RedisTrib
             fnode.load_info()
             add_node(fnode)
         }
+        populate_nodes_replicas_info
+    end
+
+    # This function is called by load_cluster_info_from_node in order to
+    # add additional information to every node as a list of replicas.
+    def populate_nodes_replicas_info
+        # Start adding the new field to every node.
+        @nodes.each{|n|
+            n.info[:replicas] = []
+        }
+
+        # Populate the replicas field using the replicate field of slave
+        # nodes.
+        @nodes.each{|n|
+            if n.info[:replicate]
+                master = get_node_by_name(n.info[:replicate])
+                if !master
+                    xputs "*** WARNING: #{n} claims to be slave of unknown node ID #{n.info[:replicate]}."
+                else
+                    master.info[:replicas] << n
+                end
+            end
+        }
     end
 
     # Given a list of source nodes return a "resharding plan"
@@ -795,6 +829,20 @@ class RedisTrib
         load_cluster_info_from_node(argv[1])
         check_cluster
 
+        # If --master-id was specified, try to resolve it now so that we
+        # abort before starting with the node configuration.
+        if opt['slave']
+            if opt['master-id']
+                master = get_node_by_name(opt['master-id'])
+                if !master
+                    xputs "[ERR] No such master ID #{opt['master-id']}"
+                end
+            else
+                master = get_master_with_least_replicas
+                xputs "Automatically selected master #{master}"
+            end
+        end
+
         # Add the new node
         new = ClusterNode.new(argv[0])
         new.connect(:abort => true)
@@ -802,10 +850,20 @@ class RedisTrib
         new.load_info
         new.assert_empty
         first = @nodes.first.info
+        add_node(new)
 
         # Send CLUSTER MEET command to the new node
         xputs ">>> Send CLUSTER MEET to node #{new} to make it join the cluster."
         new.r.cluster("meet",first[:host],first[:port])
+
+        # Additional configuration is needed if the node is added as
+        # a slave.
+        if opt['slave']
+            wait_cluster_join
+            xputs ">>> Configure node as replica of #{master}."
+            new.r.cluster("replicate",master.info[:name])
+        end
+        xputs "[OK] New node added correctly."
     end
 
     def delnode_cluster_cmd(argv,opt)
@@ -835,7 +893,6 @@ class RedisTrib
             if n.info[:replicate] && n.info[:replicate].downcase == node_id
                 # Reconfigure the slave to replicate with some other node
                 xputs ">>> #{n} as replica of #{master}"
-                # TODO: implement get_master_with_least_replicas
                 master = get_master_with_least_replicas
                 n.r.cluster("replicate",master.info[:name])
             end
@@ -893,7 +950,8 @@ COMMANDS={
 }
 
 ALLOWED_OPTIONS={
-    "create" => {"replicas" => true}
+    "create" => {"replicas" => true},
+    "addnode" => {"slave" => false, "master-id" => true}
 }
 
 def show_help
