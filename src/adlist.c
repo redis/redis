@@ -71,7 +71,7 @@ void listRelease(list *list)
     zfree(list);
 }
 
-/* Add a new node to the list, to head, contaning the specified 'value'
+/* Add a new node to the list, to head, containing the specified 'value'
  * pointer as value.
  *
  * On error, NULL is returned and no operation is performed (i.e. the
