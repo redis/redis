@@ -2912,10 +2912,12 @@ void clusterCommand(redisClient *c) {
             return;
         }
 
-        /* We should have no assigned slots to accept to replicate some
-         * other node. */
-        if (server.cluster->myself->numslots != 0 ||
-            dictSize(server.db[0].dict) != 0)
+        /* If the instance is currently a master, it should have no assigned
+         * slots nor keys to accept to replicate some other node.
+         * Slaves can switch to another master without issues. */
+        if (server.cluster->myself->flags & REDIS_NODE_MASTER &&
+            (server.cluster->myself->numslots != 0 ||
+            dictSize(server.db[0].dict) != 0))
         {
             addReplyError(c,"To set a master the node must be empty and without assigned slots.");
             return;
