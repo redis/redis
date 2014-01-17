@@ -44,7 +44,7 @@
 #define fseeko64 _fseeki64
 #define strcasecmp _stricmp
 #define strtoll _strtoi64
-#if _MSC_VER < 1700
+#if _MSC_VER < 1800
 #define isnan _isnan
 #define isfinite _finite
 #define isinf(x) (!_finite(x))
