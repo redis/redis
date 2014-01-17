@@ -847,7 +847,7 @@ class RedisTrib
         node.r.shutdown
     end
 
-    def help_cluster_cmd(opt)
+    def help_cluster_cmd(argv,opt)
         show_help
         exit 0
     end
