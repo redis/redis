@@ -1261,6 +1261,7 @@ void replicationSetMaster(char *ip, int port) {
     cancelReplicationHandshake();
     server.repl_state = REDIS_REPL_CONNECT;
     server.master_repl_offset = 0;
+    server.repl_down_since = 0;
 }
 
 /* Cancel replication, setting the instance as a master itself. */
