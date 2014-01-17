@@ -248,6 +248,8 @@ class ClusterNode
         end
         if self.info[:replicate]
             is += "\n   replicates #{info[:replicate]}"
+        elsif self.has_flag?("master") && self.info[:replicas]
+            is += "\n   #{info[:replicas].length} additional replica(s)"
         end
         is
     end
