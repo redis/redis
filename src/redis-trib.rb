@@ -119,17 +119,19 @@ class ClusterNode
         nodes.each{|n|
             # name addr flags role ping_sent ping_recv link_status slots
             split = n.split
-            name,addr,flags,role,ping_sent,ping_recv,config_epoch,link_status = split[0..6]
+            name,addr,flags,master_id,ping_sent,ping_recv,config_epoch,link_status = split[0..6]
             slots = split[8..-1]
             info = {
                 :name => name,
                 :addr => addr,
                 :flags => flags.split(","),
-                :role => role,
+                :replicate => master_id,
                 :ping_sent => ping_sent.to_i,
                 :ping_recv => ping_recv.to_i,
                 :link_status => link_status
             }
+            info[:replicate] = false if master_id == "-"
+
             if info[:flags].index("myself")
                 @info = @info.merge(info)
                 @info[:slots] = {}
@@ -238,12 +240,16 @@ class ClusterNode
         role = self.has_flag?("master") ? "M" : "S"
 
         if self.info[:replicate] and @dirty
-            "S: #{self.info[:name]} #{self.to_s}"
+            is = "S: #{self.info[:name]} #{self.to_s}"
         else
-            "#{role}: #{self.info[:name]} #{self.to_s}\n"+
+            is = "#{role}: #{self.info[:name]} #{self.to_s}\n"+
             "   slots:#{slots} (#{self.slots.length} slots) "+
             "#{(self.info[:flags]-["myself"]).join(",")}"
         end
+        if self.info[:replicate]
+            is += "\n   replicates #{info[:replicate]}"
+        end
+        is
     end
 
     # Return a single string representing nodes and associated slots.
