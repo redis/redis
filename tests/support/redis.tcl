@@ -1,4 +1,4 @@
-# Tcl clinet library - used by test-redis.tcl script for now
+# Tcl client library - used by test-redis.tcl script for now
 # Copyright (C) 2009 Salvatore Sanfilippo
 # Released under the BSD license like Redis itself
 #
