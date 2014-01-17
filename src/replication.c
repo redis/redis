@@ -81,7 +81,7 @@ void resizeReplicationBacklog(long long newsize) {
         server.repl_backlog = zmalloc(server.repl_backlog_size);
         server.repl_backlog_histlen = 0;
         server.repl_backlog_idx = 0;
-        /* Next byte we have is... the next since the buffer is emtpy. */
+        /* Next byte we have is... the next since the buffer is empty. */
         server.repl_backlog_off = server.master_repl_offset+1;
     }
 }
@@ -375,7 +375,7 @@ int masterTryPartialResynchronization(redisClient *c) {
     listAddNodeTail(server.slaves,c);
     /* We can't use the connection buffers since they are used to accumulate
      * new commands at this stage. But we are sure the socket send buffer is
-     * emtpy so this write will never fail actually. */
+     * empty so this write will never fail actually. */
     buflen = snprintf(buf,sizeof(buf),"+CONTINUE\r\n");
     if (write(c->fd,buf,buflen) != buflen) {
         freeClientAsync(c);
@@ -1436,7 +1436,7 @@ void replicationDiscardCachedMaster(void) {
 /* Turn the cached master into the current master, using the file descriptor
  * passed as argument as the socket for the new master.
  *
- * This funciton is called when successfully setup a partial resynchronization
+ * This function is called when successfully setup a partial resynchronization
  * so the stream of data that we'll receive will start from were this
  * master left. */
 void replicationResurrectCachedMaster(int newfd) {
@@ -1577,7 +1577,7 @@ int replicationScriptCacheExists(sds sha1) {
 
 /* --------------------------- REPLICATION CRON  ----------------------------- */
 
-/* Replication cron funciton, called 1 time per second. */
+/* Replication cron function, called 1 time per second. */
 void replicationCron(void) {
     /* Non blocking connection timeout? */
     if (server.masterhost &&
