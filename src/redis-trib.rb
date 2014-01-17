@@ -964,13 +964,12 @@ def show_help
     puts "Usage: redis-trib <command> <options> <arguments ...>\n\n"
     COMMANDS.each{|k,v|
         o = ""
+        puts "  #{k.ljust(10)} #{v[2]}"
         if ALLOWED_OPTIONS[k]
             ALLOWED_OPTIONS[k].each{|optname,has_arg|
-                o += "--#{optname}" + (has_arg ? " <arg>" : "") + " "
+                puts "             --#{optname}" + (has_arg ? " <arg>" : "")
             }
         end
-        o = "[#{o.strip}]" if o.length > 0
-        puts "  #{k.ljust(10)} #{v[2]} #{o}"
     }
     puts "\nFor check, fix, reshard, delnode, you can specify host:port of any working node.\n"
 end
