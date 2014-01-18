@@ -90,7 +90,7 @@ int clusterLoadConfig(char *filename) {
    
     if (fp == NULL) return REDIS_ERR;
 
-    /* Parse the file. Note that single liens of the cluster config file can
+    /* Parse the file. Note that single lines of the cluster config file can
      * be really long as they include all the hash slots of the node.
      * This means in the worst possible case, half of the Redis slots will be
      * present in a single line, possibly in importing or migrating state, so
@@ -661,7 +661,7 @@ void clusterRenameNode(clusterNode *node, char *newname) {
  * CLUSTER nodes blacklist
  *
  * The nodes blacklist is just a way to ensure that a given node with a given
- * Node ID is not readded before some time elapsed (this time is specified
+ * Node ID is not readd-ed before some time elapsed (this time is specified
  * in seconds in REDIS_CLUSTER_BLACKLIST_TTL).
  *
  * This is useful when we want to remove a node from the cluster completely:
@@ -887,7 +887,7 @@ int clusterStartHandshake(char *ip, int port) {
 
     /* Add the node with a random address (NULL as first argument to
      * createClusterNode()). Everything will be fixed during the
-     * handskake. */
+     * handshake. */
     n = createClusterNode(NULL,REDIS_NODE_HANDSHAKE|REDIS_NODE_MEET);
     memcpy(n->ip,norm_ip,sizeof(n->ip));
     n->port = port;
@@ -1064,7 +1064,7 @@ void clusterSetNodeAsMaster(clusterNode *n) {
  * node (see the function comments for more info).
  *
  * The 'sender' is the node for which we received a configuration update.
- * Sometimes it is not actaully the "Sender" of the information, like in the case
+ * Sometimes it is not actually the "Sender" of the information, like in the case
  * we receive the info via an UPDATE packet. */
 void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoch,
                                   unsigned char *slots)
@@ -1233,7 +1233,7 @@ int clusterProcessPacket(clusterLink *link) {
                         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                                              CLUSTER_TODO_UPDATE_STATE);
                     }
-                    /* Free this node as we alrady have it. This will
+                    /* Free this node as we already have it. This will
                      * cause the link to be freed as well. */
                     freeClusterNode(link->node);
                     return 0;
@@ -1420,7 +1420,7 @@ int clusterProcessPacket(clusterLink *link) {
             }
         } else {
             redisLog(REDIS_NOTICE,
-                "Ignoring FAIL message from unknonw node %.40s about %.40s",
+                "Ignoring FAIL message from unknown node %.40s about %.40s",
                 hdr->sender, hdr->data.fail.about.nodename);
         }
     } else if (type == CLUSTERMSG_TYPE_PUBLISH) {
@@ -1472,7 +1472,7 @@ int clusterProcessPacket(clusterLink *link) {
         /* If in our current config the node is a slave, set it as a master. */
         if (n->flags & REDIS_NODE_SLAVE) clusterSetNodeAsMaster(n);
 
-        /* Check the bitmap of served slots and udpate our
+        /* Check the bitmap of served slots and update our
          * config accordingly. */
         clusterUpdateSlotsConfigWith(n,reportedConfigEpoch,
             hdr->data.update.nodecfg.slots);
@@ -2469,7 +2469,7 @@ int verifyClusterConfigWithData(void) {
          * assigned to this slot. Fix this condition. */
 
         update_config++;
-        /* Case A: slot is unassigned. Take responsability for it. */
+        /* Case A: slot is unassigned. Take responsibility for it. */
         if (server.cluster->slots[j] == NULL) {
             redisLog(REDIS_WARNING, "I've keys about slot %d that is "
                                     "unassigned. Taking responsability "
@@ -2665,7 +2665,7 @@ void clusterCommand(redisClient *c) {
         int del = !strcasecmp(c->argv[1]->ptr,"delslots");
 
         memset(slots,0,REDIS_CLUSTER_SLOTS);
-        /* Check that all the arguments are parsable and that all the
+        /* Check that all the arguments are parse-able and that all the
          * slots are not already busy. */
         for (j = 2; j < c->argc; j++) {
             if ((slot = getSlotOrReply(c,c->argv[j])) == -1) {
@@ -2763,7 +2763,7 @@ void clusterCommand(redisClient *c) {
             }
             /* If this node was the slot owner and the slot was marked as
              * migrating, assigning the slot to another node will clear
-             * the migratig status. */
+             * the migrating status. */
             if (server.cluster->slots[slot] == server.cluster->myself &&
                 server.cluster->migrating_slots_to[slot])
                 server.cluster->migrating_slots_to[slot] = NULL;
@@ -3077,14 +3077,14 @@ void restoreCommand(redisClient *c) {
  * This sockets are closed when the max number we cache is reached, and also
  * in serverCron() when they are around for more than a few seconds. */
 #define MIGRATE_SOCKET_CACHE_ITEMS 64 /* max num of items in the cache. */
-#define MIGRATE_SOCKET_CACHE_TTL 10 /* close cached socekts after 10 sec. */
+#define MIGRATE_SOCKET_CACHE_TTL 10 /* close cached sockets after 10 sec. */
 
 typedef struct migrateCachedSocket {
     int fd;
     time_t last_use_time;
 } migrateCachedSocket;
 
-/* Return a TCP scoket connected with the target instance, possibly returning
+/* Return a TCP socket connected with the target instance, possibly returning
  * a cached one.
  *
  * This function is responsible of sending errors to the client if a
@@ -3093,7 +3093,7 @@ typedef struct migrateCachedSocket {
  * attempt to free it after usage.
  *
  * If the caller detects an error while using the socket, migrateCloseSocket()
- * should be called so that the connection will be craeted from scratch
+ * should be called so that the connection will be created from scratch
  * the next time. */
 int migrateGetSocket(redisClient *c, robj *host, robj *port, long timeout) {
     int fd;
@@ -3347,7 +3347,7 @@ void askingCommand(redisClient *c) {
     addReply(c,shared.ok);
 }
 
-/* The READONLY command is uesd by clients to enter the read-only mode.
+/* The READONLY command is used by clients to enter the read-only mode.
  * In this mode slaves will not redirect clients as long as clients access
  * with read-only commands to keys that are served by the slave's master. */
 void readonlyCommand(redisClient *c) {
