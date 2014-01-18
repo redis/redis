@@ -22,7 +22,7 @@
 
 #include "Win32_FDAPI.h"
 #include "win32_rfdmap.h"
-#include "APIBridge\APIBridge.h"
+#include "..\APIBridge\APIBridge.h"
 #include <exception>
 #include <mswsock.h>
 #include <sys/stat.h>

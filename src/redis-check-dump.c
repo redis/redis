@@ -37,7 +37,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #ifdef _WIN32
-#include "win32fixes.h"
+#include "Win32_Interop/win32fixes.h"
 #else
 #include <sys/mman.h>
 #include <arpa/inet.h>

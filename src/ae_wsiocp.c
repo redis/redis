@@ -24,10 +24,10 @@
 
 #include <string.h>
 #include "ae.h"
-#include "win32fixes.h"
+#include "win32_Interop/win32fixes.h"
 #include "zmalloc.h"
 #include "adlist.h"
-#include "win32_wsiocp.h"
+#include "win32_Interop/win32_wsiocp.h"
 #include <mswsock.h>
 #include <Guiddef.h>
 

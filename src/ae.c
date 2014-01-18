@@ -39,7 +39,7 @@
 #else
 #include <sys/types.h> 
 #include <sys/timeb.h>
-#include "..\..\src\Win32_FDAPI.h"
+#include "..\..\src\win32_Interop\Win32_FDAPI.h"
 #endif
 #include <stdlib.h>
 #include <string.h>

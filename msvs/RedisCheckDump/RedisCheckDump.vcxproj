@@ -93,7 +93,7 @@
     <ProjectReference Include="..\..\src\APIBridge\APIBridge.vcxproj">
       <Project>{0a28b490-79de-4d7f-bb46-d75cf0d026ed}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\..\Win32_Redis\Win32_Redis.vcxproj">
+    <ProjectReference Include="..\..\src\Win32_Interop\Win32_Interop.vcxproj">
       <Project>{8c07f811-c81c-432c-b334-1ae6faecf951}</Project>
     </ProjectReference>
   </ItemGroup>

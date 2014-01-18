@@ -20,8 +20,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "redis.h"
-#include "rdb.h"
+#include "..\redis.h"
+#include "..\rdb.h"
 
 void SetupGlobals(LPVOID globalData, size_t globalDataSize, uint32_t dictHashSeed)
 {

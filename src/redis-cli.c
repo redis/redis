@@ -50,7 +50,7 @@
 #ifndef STDIN_FILENO
   #define STDIN_FILENO (_fileno(stdin))
 #endif
-#include "win32fixes.h"
+#include "win32_Interop/win32fixes.h"
 #include <windows.h>
 #define strcasecmp _stricmp
 #define strncasecmp _strnicmp
@@ -64,7 +64,7 @@
 #ifndef STDIN_FILENO
   #define STDIN_FILENO (_fileno(stdin))
 #endif
-#include "win32fixes.h"
+#include "win32_Interop/win32fixes.h"
 #include <windows.h>
 #define strcasecmp _stricmp
 #define strncasecmp _strnicmp

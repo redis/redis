@@ -21,9 +21,9 @@
  */
 
 #include "win32fixes.h"
-#include "ae.h"
-#include "adlist.h"
-#include "zmalloc.h"
+#include "..\ae.h"
+#include "..\adlist.h"
+#include "..\zmalloc.h"
 #include <mswsock.h>
 #include <Guiddef.h>
 #include "win32_wsiocp.h"

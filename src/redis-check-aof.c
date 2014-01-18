@@ -39,7 +39,7 @@
 #include "config.h"
 
 #ifdef _WIN32
-#include "win32fixes.h"
+#include "Win32_Interop\win32fixes.h"
 #define strcasecmp _stricmp
 #define strncasecmp _strnicmp
 #endif

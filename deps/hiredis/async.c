@@ -43,7 +43,7 @@
 #include "dict.c"
 #include "sds.h"
 #ifdef _WIN32
-  #include "../../src/win32fixes.h"
+  #include "../../src/win32_Interop/win32fixes.h"
 #endif
 
 #define _EL_ADD_READ(ctx) do { \

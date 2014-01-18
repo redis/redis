@@ -37,7 +37,7 @@
 #include <sys/time.h> /* for struct timeval */
 #endif
 #ifdef _WIN32
-    #include "..\..\src\Win32_FDAPI.h"
+    #include "..\..\src\win32_Interop\Win32_FDAPI.h"
     #include <windows.h>
 
     #ifndef va_copy

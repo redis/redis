@@ -28,7 +28,7 @@ A million repetitions of "a"
 #include "solarisfixes.h"
 #endif
 #ifdef _WIN32
-#include "win32fixes.h"
+#include "win32_Interop/win32fixes.h"
 #endif
 #include "sha1.h"
 #include "config.h"

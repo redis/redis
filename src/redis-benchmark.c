@@ -42,7 +42,7 @@
 #include <assert.h>
 
 #ifdef _WIN32
-#include "win32fixes.h"
+#include "win32_Interop/win32fixes.h"
 int fmode = _O_BINARY;
 #endif
 

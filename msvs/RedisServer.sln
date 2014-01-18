@@ -31,7 +31,7 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "lua", "lua\lua\lua.vcxproj"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "APIBridge", "..\src\APIBridge\APIBridge.vcxproj", "{0A28B490-79DE-4D7F-BB46-D75CF0D026ED}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Win32_Redis", "..\Win32_Redis\Win32_Redis.vcxproj", "{8C07F811-C81C-432C-B334-1AE6FAECF951}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Win32_Interop", "..\src\Win32_Interop\Win32_Interop.vcxproj", "{8C07F811-C81C-432C-B334-1AE6FAECF951}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

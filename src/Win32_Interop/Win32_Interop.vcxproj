@@ -10,6 +10,26 @@
       <Platform>x64</Platform>
     </ProjectConfiguration>
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="win32fixes.c" />
+    <ClCompile Include="Win32_dlmalloc.c" />
+    <ClCompile Include="Win32_FDAPI.cpp" />
+    <ClCompile Include="Win32_QFork.cpp" />
+    <ClCompile Include="Win32_QFork_impl.c" />
+    <ClCompile Include="win32_rfdmap.cpp" />
+    <ClCompile Include="win32_wsiocp.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="win32fixes.h" />
+    <ClInclude Include="Win32_dlmalloc.h" />
+    <ClInclude Include="Win32_FDAPI.h" />
+    <ClInclude Include="Win32_QFork.h" />
+    <ClInclude Include="Win32_QFork_impl.h" />
+    <ClInclude Include="win32_rfdmap.h" />
+    <ClInclude Include="Win32_SmartHandle.h" />
+    <ClInclude Include="win32_wsiocp.h" />
+    <ClInclude Include="WS2tcpip.h" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{8C07F811-C81C-432C-B334-1AE6FAECF951}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
@@ -76,26 +96,6 @@
       <OptimizeReferences>true</OptimizeReferences>
     </Link>
   </ItemDefinitionGroup>
-  <ItemGroup>
-    <ClCompile Include="..\src\win32fixes.c" />
-    <ClCompile Include="..\src\Win32_dlmalloc.c" />
-    <ClCompile Include="..\src\Win32_FDAPI.cpp" />
-    <ClCompile Include="..\src\Win32_QFork.cpp" />
-    <ClCompile Include="..\src\Win32_QFork_impl.c" />
-    <ClCompile Include="..\src\win32_rfdmap.cpp" />
-    <ClCompile Include="..\src\win32_wsiocp.c" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="..\src\win32fixes.h" />
-    <ClInclude Include="..\src\Win32_dlmalloc.h" />
-    <ClInclude Include="..\src\Win32_FDAPI.h" />
-    <ClInclude Include="..\src\Win32_QFork.h" />
-    <ClInclude Include="..\src\Win32_QFork_impl.h" />
-    <ClInclude Include="..\src\win32_rfdmap.h" />
-    <ClInclude Include="..\src\Win32_SmartHandle.h" />
-    <ClInclude Include="..\src\win32_wsiocp.h" />
-    <ClInclude Include="..\src\WS2tcpip.h" />
-  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

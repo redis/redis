@@ -48,7 +48,7 @@
 #endif
 #include <errno.h>
 #ifdef _WIN32
-#include "win32fixes.h"
+#include "win32_Interop/win32fixes.h"
 #else
 #include <pthread.h>
 #include <syslog.h>

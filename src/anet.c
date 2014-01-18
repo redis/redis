@@ -47,7 +47,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #ifdef _WIN32
-#include "win32fixes.h"
+#include "win32_Interop/win32fixes.h"
 #define ANET_NOTUSED(V) V
 #endif
 
