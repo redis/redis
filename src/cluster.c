@@ -222,7 +222,6 @@ int clusterLoadConfig(char *filename) {
     redisLog(REDIS_NOTICE,"Node configuration loaded, I'm %.40s",
         server.cluster->myself->name);
     clusterSetStartupEpoch();
-    clusterUpdateState();
     return REDIS_OK;
 
 fmterr:
@@ -2320,13 +2319,29 @@ int clusterDelNodeSlots(clusterNode *node) {
  * Cluster state evaluation function
  * -------------------------------------------------------------------------- */
 
+/* The following are defines that are only used in the evaluation function
+ * and are based on heuristics. Actaully the main point about the rejoin and
+ * writable delay is that they should be a few orders of magnitude larger
+ * than the network latency. */
 #define REDIS_CLUSTER_MAX_REJOIN_DELAY 5000
 #define REDIS_CLUSTER_MIN_REJOIN_DELAY 500
+#define REDIS_CLUSTER_WRITABLE_DELAY 2000
 
 void clusterUpdateState(void) {
     int j, new_state;
     int unreachable_masters = 0;
     static mstime_t among_minority_time;
+    static mstime_t first_call_time = 0;
+
+    /* If this is a master node, wait some time before turning the state
+     * into OK, since it is not a good idea to rejoin the cluster as a writable
+     * master, after a reboot, without giving the cluster a chance to
+     * reconfigure this node. Note that the delay is calculated starting from
+     * the first call to this function and not since the server start, in order
+     * to don't count the DB loading time. */
+    if (first_call_time == 0) first_call_time = mstime();
+    if (server.cluster->myself->flags & REDIS_NODE_MASTER &&
+        mstime() - first_call_time < REDIS_CLUSTER_WRITABLE_DELAY) return;
 
     /* Start assuming the state is OK. We'll turn it into FAIL if there
      * are the right conditions. */
