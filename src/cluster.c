@@ -2501,8 +2501,12 @@ void clusterSetMaster(clusterNode *n) {
     if (myself->flags & REDIS_NODE_MASTER) {
         myself->flags &= ~REDIS_NODE_MASTER;
         myself->flags |= REDIS_NODE_SLAVE;
+    } else {
+        if (myself->slaveof)
+            clusterNodeRemoveSlave(myself->slaveof,myself);
     }
     myself->slaveof = n;
+    clusterNodeAddSlave(n,myself);
     replicationSetMaster(n->ip, n->port);
 }
 
