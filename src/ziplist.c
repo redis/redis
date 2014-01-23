@@ -739,8 +739,8 @@ unsigned char *ziplistPrev(unsigned char *zl, unsigned char *p) {
     }
 }
 
-/* Get entry pointed to by 'p' and store in either 'e' or 'v' depending
- * on the encoding of the entry. 'e' is always set to NULL to be able
+/* Get entry pointed to by 'p' and store in either '*sstr' or 'sval' depending
+ * on the encoding of the entry. '*sstr' is always set to NULL to be able
  * to find out whether the string pointer or the integer value was set.
  * Return 0 if 'p' points to the end of the ziplist, 1 otherwise. */
 unsigned int ziplistGet(unsigned char *p, unsigned char **sstr, unsigned int *slen, long long *sval) {
@@ -788,7 +788,8 @@ unsigned char *ziplistDeleteRange(unsigned char *zl, unsigned int index, unsigne
     return (p == NULL) ? zl : __ziplistDelete(zl,p,num);
 }
 
-/* Compare entry pointer to by 'p' with 'entry'. Return 1 if equal. */
+/* Compare entry pointer to by 'p' with 'sstr' of length 'slen'. */
+/* Return 1 if equal. */
 unsigned int ziplistCompare(unsigned char *p, unsigned char *sstr, unsigned int slen) {
     zlentry entry;
     unsigned char sencoding;
