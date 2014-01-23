@@ -257,6 +257,7 @@ BOOL QForkMasterInit() {
         0, sizeof(QForkControl),
         NULL);
     if (g_hQForkControlFileMap == NULL) {
+        printf( "Problem with CreateFileMapping\n");
         errno = EBADF;
         goto err;
     }
@@ -267,6 +268,7 @@ BOOL QForkMasterInit() {
         0, 0,
         0);
     if (g_pQForkControl == NULL) {
+        printf( "Problem with MapViewOfFile\n");
         errno = ENOMEM;
         goto err;
     }
@@ -274,6 +276,7 @@ BOOL QForkMasterInit() {
     // This must be called only once per process! Calling it more times than that will not recreate existing 
     // section, and dlmalloc will ultimately fail with an access violation. Once is good.
     if (dlmallopt(M_GRANULARITY, cAllocationGranularity) == 0) {
+        printf( "DLMalloc failed initializing allocation granularity.\n");
         errno = ENOMEM;
         goto err;
     }
@@ -286,6 +289,7 @@ BOOL QForkMasterInit() {
     SIZE_T maxPhysicalMapping = ms.ullTotalPhys - cSystemReserve;
     g_pQForkControl->availableBlocksInHeap = (int)(maxPhysicalMapping / cAllocationGranularity);
     if (g_pQForkControl->availableBlocksInHeap <= 0) {
+        printf( "Not enough physical memory to initialize Redis. Physical memory must be greater than 3GB.\n");
         errno = ENOMEM;
         goto err;
     }
@@ -308,6 +312,7 @@ BOOL QForkMasterInit() {
             FILE_ATTRIBUTE_NORMAL| FILE_FLAG_DELETE_ON_CLOSE,
             NULL );
     if (g_pQForkControl->heapMemoryMapFile == INVALID_HANDLE_VALUE) {
+        printf( "Problem creating memory mapped file.\n");
         errno = EBADF;
         goto err;
     }
@@ -322,6 +327,7 @@ BOOL QForkMasterInit() {
             LODWORD(mmSize),
             NULL);
     if (g_pQForkControl->heapMemoryMap == NULL) {
+        printf( "Problem mapping heap.\n");
         errno = EBADF;
         goto err;
     }
@@ -336,6 +342,7 @@ BOOL QForkMasterInit() {
         MEM_RESERVE | MEM_COMMIT | MEM_TOP_DOWN, 
         PAGE_READWRITE);
     if (pHigh == NULL) {
+        printf( "Viirtual memory reservation failed.\n");
         DWORD err = GetLastError();
         errno = ENOMEM;
         goto err;
@@ -354,6 +361,7 @@ BOOL QForkMasterInit() {
             0,  
             pHigh);
     if (g_pQForkControl->heapStart == NULL) {
+        printf( "Mapping view of heap failed.\n");
         DWORD err = GetLastError();
         errno = ENOMEM;
         goto err;
@@ -395,6 +403,12 @@ BOOL QForkMasterInit() {
     return TRUE;
 
 err:
+    printf( "Error ocurred initializing Redis.");
+    if( GetLastError() != 0 ) {
+        printf( " GetLastError() returns 0x%08x", GetLastError());
+    }
+    printf( "\n");
+
     return FALSE;
 }
 
