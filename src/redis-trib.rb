@@ -912,6 +912,34 @@ class RedisTrib
         node.r.shutdown
     end
 
+    def set_timeout_cluster_cmd(argv,opt)
+        timeout = argv[1].to_i
+        if timeout < 100
+            puts "Setting a node timeout of less than 100 milliseconds is a bad idea."
+            exit 1
+        end
+
+        # Load cluster information
+        load_cluster_info_from_node(argv[0])
+        ok_count = 0
+        err_count = 0
+
+        # Send CLUSTER FORGET to all the nodes but the node to remove
+        xputs ">>> Reconfiguring node timeout in every cluster node..."
+        @nodes.each{|n|
+            begin
+                n.r.config("set","cluster-node-timeout",timeout)
+                n.r.config("rewrite")
+                ok_count += 1
+                xputs "*** New timeout set for #{n}"
+            rescue => e
+                puts "ERR setting node-timeot for #{n}: #{e}"
+                err_count += 1
+            end
+        }
+        xputs ">>> New node timeout set. #{ok_count} OK, #{err_count} ERR."
+    end
+
     def help_cluster_cmd(argv,opt)
         show_help
         exit 0
@@ -952,8 +980,9 @@ COMMANDS={
     "check"   => ["check_cluster_cmd", 2, "host:port"],
     "fix"     => ["fix_cluster_cmd", 2, "host:port"],
     "reshard" => ["reshard_cluster_cmd", 2, "host:port"],
-    "addnode" => ["addnode_cluster_cmd", 3, "new_host:new_port existing_host:existing_port"],
-    "delnode" => ["delnode_cluster_cmd", 3, "host:port node_id"],
+    "add-node" => ["addnode_cluster_cmd", 3, "new_host:new_port existing_host:existing_port"],
+    "del-node" => ["delnode_cluster_cmd", 3, "host:port node_id"],
+    "set-timeout" => ["set_timeout_cluster_cmd", 3, "host:port milliseconds"],
     "help"    => ["help_cluster_cmd", 1, "(show this help)"]
 }
 
@@ -966,14 +995,14 @@ def show_help
     puts "Usage: redis-trib <command> <options> <arguments ...>\n\n"
     COMMANDS.each{|k,v|
         o = ""
-        puts "  #{k.ljust(10)} #{v[2]}"
+        puts "  #{k.ljust(15)} #{v[2]}"
         if ALLOWED_OPTIONS[k]
             ALLOWED_OPTIONS[k].each{|optname,has_arg|
-                puts "             --#{optname}" + (has_arg ? " <arg>" : "")
+                puts "                  --#{optname}" + (has_arg ? " <arg>" : "")
             }
         end
     }
-    puts "\nFor check, fix, reshard, delnode, you can specify host:port of any working node.\n"
+    puts "\nFor check, fix, reshard, del-node, set-timeout you can specify the host and port of any working node in the cluster.\n"
 end
 
 # Sanity check
