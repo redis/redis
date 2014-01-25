@@ -650,7 +650,7 @@ void freeClient(redisClient *c) {
     }
 
     /* Log link disconnection with slave */
-    if (c->flags & REDIS_SLAVE) {
+    if ((c->flags & REDIS_SLAVE) && !(c->flags & REDIS_MONITOR)) {
         char ip[REDIS_IP_STR_LEN];
 
         if (anetPeerToString(c->fd,ip,sizeof(ip),NULL) != -1) {
