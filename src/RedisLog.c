@@ -45,7 +45,7 @@ void setLogFile(const char* logFileName)
         free((void*)logFile);
         logFile = NULL;
     }
-    logFile = (char*)malloc(strlen(logFile));
+    logFile = (char*)malloc(strlen(logFileName));
     if (logFile==NULL) {
         redisLog(REDIS_WARNING, "memory allocation failure");
         return;
