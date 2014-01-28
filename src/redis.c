@@ -2026,7 +2026,7 @@ int processCommand(redisClient *c) {
     if (server.stop_writes_on_bgsave_err &&
         server.saveparamslen > 0
         && server.lastbgsave_status == REDIS_ERR &&
-        server.masterhost != NULL &&
+        server.masterhost == NULL &&
         (c->cmd->flags & REDIS_CMD_WRITE ||
          c->cmd->proc == pingCommand))
     {
