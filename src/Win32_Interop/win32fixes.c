@@ -84,6 +84,24 @@ pid_t wait3(int *stat_loc, int options, void *rusage) {
     REDIS_NOTUSED(stat_loc);
     REDIS_NOTUSED(options);
     REDIS_NOTUSED(rusage);
+//JEP: BUGBUG 
+// http://linux.die.net/man/2/wait3 says:
+//    "wait3(status, options, rusage); is equivalent to: waitpid(-1, status, options);   "
+//
+// http://linux.die.net/man/2/waitpid says:
+//    "The value of pid can be: 
+//    < -1 meaning wait for any child process whose process group ID is equal to the absolute value of pid.
+//    -1 meaning wait for any child process.
+//    0 meaning wait for any child process whose process group ID is equal to that of the calling process.
+//    > 0 meaning wait for the child whose process ID is equal to the value of pid."
+//
+// On Windows waitpid evaluates to _cwait, so the -1 passed referrs to the current process. Thus it will never signal.
+//
+// Since windows parent->child relationships are unreliable (process ids are recycled leading to unexpected PID relationships),
+// the hiredis mechanism of process signaling will have to be changed. It should be using process handles on Windows.
+
+    
+
     return (pid_t) waitpid((intptr_t) -1, 0, WAIT_FLAGS);
 }
 
