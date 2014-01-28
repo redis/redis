@@ -171,6 +171,12 @@
     <ProjectReference Include="..\src\Win32_Interop\Win32_Interop.vcxproj">
       <Project>{8c07f811-c81c-432c-b334-1ae6faecf951}</Project>
     </ProjectReference>
+    <ProjectReference Include="hiredis\hiredis.vcxproj">
+      <Project>{13e85053-54b3-487b-8ddb-3430b1c1b3bf}</Project>
+    </ProjectReference>
+    <ProjectReference Include="lua\lua\lua.vcxproj">
+      <Project>{170b0909-5f75-467f-9501-c99dec16c6dc}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
