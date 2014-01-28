@@ -175,8 +175,9 @@ typedef struct {
     uint16_t type;      /* Message type */
     uint16_t count;     /* Only used for some kind of messages. */
     uint64_t currentEpoch;  /* The epoch accordingly to the sending node. */
-    uint64_t configEpoch;   /* The config epoch if it's a master, or the last epoch
-                               advertised by its master if it is a slave. */
+    uint64_t configEpoch;   /* The config epoch if it's a master, or the last
+                               epoch advertised by its master if it is a
+                               slave. */
     char sender[REDIS_CLUSTER_NAMELEN]; /* Name of the sender node */
     unsigned char myslots[REDIS_CLUSTER_SLOTS/8];
     char slaveof[REDIS_CLUSTER_NAMELEN];
@@ -190,7 +191,7 @@ typedef struct {
 
 #define CLUSTERMSG_MIN_LEN (sizeof(clusterMsg)-sizeof(union clusterMsgData))
 
-/* ----------------------- API exported outside cluster.c ------------------------- */
+/* ---------------------- API exported outside cluster.c -------------------- */
 clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
 
 #endif /* __REDIS_CLUSTER_H */
