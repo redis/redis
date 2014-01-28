@@ -61,10 +61,12 @@ struct clusterNode {
     int numslaves;  /* Number of slave nodes, if this is a master */
     struct clusterNode **slaves; /* pointers to slave nodes */
     struct clusterNode *slaveof; /* pointer to the master node */
-    mstime_t ping_sent;       /* Unix time we sent latest ping */
-    mstime_t pong_received;   /* Unix time we received the pong */
-    mstime_t fail_time;       /* Unix time when FAIL flag was set */
-    mstime_t voted_time;      /* Last time we voted for a slave of this master */
+    mstime_t ping_sent;      /* Unix time we sent latest ping */
+    mstime_t pong_received;  /* Unix time we received the pong */
+    mstime_t fail_time;      /* Unix time when FAIL flag was set */
+    mstime_t voted_time;     /* Last time we voted for a slave of this master */
+    mstime_t repl_offset_time;  /* Unix time we received offset for this node */
+    long long repl_offset;      /* Last known repl offset for this node. */
     char ip[REDIS_IP_STR_LEN];  /* Latest known IP address of this node */
     int port;                   /* Latest known port of this node */
     clusterLink *link;          /* TCP/IP link with this node */

@@ -440,6 +440,8 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     node->port = 0;
     node->fail_reports = listCreate();
     node->voted_time = 0;
+    node->repl_offset_time = 0;
+    node->repl_offset = 0;
     listSetFreeMethod(node->fail_reports,zfree);
     return node;
 }
