@@ -1615,34 +1615,47 @@ void clusterBroadcastMessage(void *buf, size_t len) {
 /* Build the message header */
 void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
     int totlen = 0;
-    clusterNode *master;
+    uint64_t offset;
+    clusterNode *master, *myself = server.cluster->myself;
 
     /* If this node is a master, we send its slots bitmap and configEpoch.
      * If this node is a slave we send the master's information instead (the
      * node is flagged as slave so the receiver knows that it is NOT really
      * in charge for this slots. */
-    master = (server.cluster->myself->flags & REDIS_NODE_SLAVE &&
-              server.cluster->myself->slaveof) ?
-              server.cluster->myself->slaveof : server.cluster->myself;
+    master = (myself->flags & REDIS_NODE_SLAVE && myself->slaveof) ?
+              myself->slaveof : myself;
 
     memset(hdr,0,sizeof(*hdr));
     hdr->type = htons(type);
-    memcpy(hdr->sender,server.cluster->myself->name,REDIS_CLUSTER_NAMELEN);
+    memcpy(hdr->sender,myself->name,REDIS_CLUSTER_NAMELEN);
 
     memcpy(hdr->myslots,master->slots,sizeof(hdr->myslots));
     memset(hdr->slaveof,0,REDIS_CLUSTER_NAMELEN);
-    if (server.cluster->myself->slaveof != NULL) {
-        memcpy(hdr->slaveof,server.cluster->myself->slaveof->name,
-                                    REDIS_CLUSTER_NAMELEN);
-    }
+    if (myself->slaveof != NULL)
+        memcpy(hdr->slaveof,myself->slaveof->name, REDIS_CLUSTER_NAMELEN);
     hdr->port = htons(server.port);
-    hdr->flags = htons(server.cluster->myself->flags);
+    hdr->flags = htons(myself->flags);
     hdr->state = server.cluster->state;
 
     /* Set the currentEpoch and configEpochs. */
     hdr->currentEpoch = htonu64(server.cluster->currentEpoch);
     hdr->configEpoch = htonu64(master->configEpoch);
 
+    /* Set the replication offset. */
+    if (myself->flags & REDIS_NODE_SLAVE) {
+        if (server.master)
+            offset = server.master->reploff;
+        else if (server.cached_master)
+            offset = server.cached_master->reploff;
+        else
+            offset = 0;
+    } else {
+        offset = server.master_repl_offset;
+    }
+    hdr->offset = htonu64(offset);
+
+    /* Compute the message length for certain messages. For other messages
+     * this is up to the caller. */
     if (type == CLUSTERMSG_TYPE_FAIL) {
         totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
         totlen += sizeof(clusterMsgDataFail);

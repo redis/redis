@@ -178,6 +178,8 @@ typedef struct {
     uint64_t configEpoch;   /* The config epoch if it's a master, or the last
                                epoch advertised by its master if it is a
                                slave. */
+    uint64_t offset;    /* Master replication offset if node is a master or
+                           processed replication offset if node is a slave. */
     char sender[REDIS_CLUSTER_NAMELEN]; /* Name of the sender node */
     unsigned char myslots[REDIS_CLUSTER_SLOTS/8];
     char slaveof[REDIS_CLUSTER_NAMELEN];
