@@ -140,6 +140,9 @@ void loadServerConfigFromString(char *config) {
                 err = "Invalid log level. Must be one of debug, notice, warning";
                 goto loaderr;
             }
+#ifdef _WIN32
+            setLogVerbosityLevel(server.verbosity);
+#endif
         } else if (!strcasecmp(argv[0],"logfile") && argc == 2) {
             FILE *logfp;
 
