@@ -40,6 +40,11 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 
+/* A global reference to myself is handy to make code more clear.
+ * Myself always points to server.cluster->myself, that is, the clusterNode
+ * that represents this node. */
+clusterNode *myself = NULL;
+
 clusterNode *createClusterNode(char *nodename, int flags);
 int clusterAddNode(clusterNode *node);
 void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
@@ -133,7 +138,7 @@ int clusterLoadConfig(char *filename) {
             if (p) *p = '\0';
             if (!strcasecmp(s,"myself")) {
                 redisAssert(server.cluster->myself == NULL);
-                server.cluster->myself = n;
+                myself = server.cluster->myself = n;
                 n->flags |= REDIS_NODE_MYSELF;
             } else if (!strcasecmp(s,"master")) {
                 n->flags |= REDIS_NODE_MASTER;
@@ -310,7 +315,7 @@ void clusterInit(void) {
     if (clusterLoadConfig(server.cluster_configfile) == REDIS_ERR) {
         /* No configuration found. We will just use the random name provided
          * by the createClusterNode() function. */
-        server.cluster->myself =
+        myself = server.cluster->myself =
             createClusterNode(NULL,REDIS_NODE_MYSELF|REDIS_NODE_MASTER);
         redisLog(REDIS_NOTICE,"No cluster configuration found, I'm %.40s",
             server.cluster->myself->name);
@@ -1616,7 +1621,7 @@ void clusterBroadcastMessage(void *buf, size_t len) {
 void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
     int totlen = 0;
     uint64_t offset;
-    clusterNode *master, *myself = server.cluster->myself;
+    clusterNode *master;
 
     /* If this node is a master, we send its slots bitmap and configEpoch.
      * If this node is a slave we send the master's information instead (the
@@ -1750,7 +1755,6 @@ void clusterSendPing(clusterLink *link, int type) {
 void clusterBroadcastPong(int target) {
     dictIterator *di;
     dictEntry *de;
-    clusterNode *myself = server.cluster->myself;
 
     di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
@@ -2525,8 +2529,6 @@ int verifyClusterConfigWithData(void) {
 /* Set the specified node 'n' as master. Setup the node as a slave if
  * needed. */
 void clusterSetMaster(clusterNode *n) {
-    clusterNode *myself = server.cluster->myself;
-
     redisAssert(n != myself);
     redisAssert(myself->numslots == 0);
 
