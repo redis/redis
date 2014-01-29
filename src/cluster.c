@@ -1737,10 +1737,20 @@ void clusterSendPing(clusterLink *link, int type) {
  * In Redis Cluster pongs are not used just for failure detection, but also
  * to carry important configuration information. So broadcasting a pong is
  * useful when something changes in the configuration and we want to make
- * the cluster aware ASAP (for instance after a slave promotion). */
-void clusterBroadcastPong(void) {
+ * the cluster aware ASAP (for instance after a slave promotion).
+ *
+ * The 'target' argument specifies the receiving instances using the
+ * defines below:
+ *
+ * CLUSTER_BROADCAST_ALL -> All known instances.
+ * CLUSTER_BROADCAST_LOCAL_SLAVES -> All slaves in my master-slaves ring.
+ */
+#define CLUSTER_BROADCAST_ALL 0
+#define CLUSTER_BROADCAST_LOCAL_SLAVES 1
+void clusterBroadcastPong(int target) {
     dictIterator *di;
     dictEntry *de;
+    clusterNode *myself = server.cluster->myself;
 
     di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
@@ -1748,6 +1758,13 @@ void clusterBroadcastPong(void) {
 
         if (!node->link) continue;
         if (node->flags & (REDIS_NODE_MYSELF|REDIS_NODE_HANDSHAKE)) continue;
+        if (target == CLUSTER_BROADCAST_LOCAL_SLAVES) {
+            int local_slave =
+                node->flags & REDIS_NODE_SLAVE &&
+                node->slaveof &&
+                (node->slaveof == myself || node->slaveof == myself->slaveof);
+            if (!local_slave) continue;
+        }
         clusterSendPing(node->link,CLUSTERMSG_TYPE_PONG);
     }
     dictReleaseIterator(di);
@@ -2038,7 +2055,7 @@ void clusterHandleSlaveFailover(void) {
 
         /* 5) Pong all the other nodes so that they can update the state
          *    accordingly and detect that we switched to master role. */
-        clusterBroadcastPong();
+        clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
     }
 }
 
