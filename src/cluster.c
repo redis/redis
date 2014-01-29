@@ -2037,7 +2037,6 @@ void clusterHandleSlaveFailover(void) {
                 "Slave rank updated to #%d, added %lld milliseconds of delay.",
                 newrank, added_delay);
         }
-        return;
     }
 
     /* Return ASAP if we can't still start the election. */
