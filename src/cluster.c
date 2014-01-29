@@ -1181,6 +1181,9 @@ int clusterProcessPacket(clusterLink *link) {
             sender->configEpoch = senderConfigEpoch;
             clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
         }
+        /* Update the replication offset info for this node. */
+        sender->repl_offset = ntohu64(hdr->offset);
+        sender->repl_offset_time = mstime();
     }
 
     /* Process packets by type. */
