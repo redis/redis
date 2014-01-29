@@ -1635,16 +1635,10 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
     hdr->configEpoch = htonu64(master->configEpoch);
 
     /* Set the replication offset. */
-    if (nodeIsSlave(myself)) {
-        if (server.master)
-            offset = server.master->reploff;
-        else if (server.cached_master)
-            offset = server.cached_master->reploff;
-        else
-            offset = 0;
-    } else {
+    if (nodeIsSlave(myself))
+        offset = replicationGetSlaveOffset();
+    else
         offset = server.master_repl_offset;
-    }
     hdr->offset = htonu64(offset);
 
     /* Compute the message length for certain messages. For other messages
@@ -1925,6 +1919,34 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     clusterSendFailoverAuth(node);
     server.cluster->last_vote_epoch = server.cluster->currentEpoch;
     node->slaveof->voted_time = mstime();
+}
+
+/* This function returns the "rank" of this instance, a slave, in the context
+ * of its master-slaves ring. The rank of the slave is given by the number of
+ * other slaves for the same master that have a better replication offset
+ * compared to the local one (better means, greater, so they claim more data).
+ *
+ * A slave with rank 0 is the one with the greatest (most up to date)
+ * replication offset, and so forth. Note that because how the rank is computed
+ * multiple slaves may have the same rank, in case they have the same offset.
+ *
+ * The slave rank is used to add a delay to start an election in order to
+ * get voted and replace a failing master. Slaves with better replication
+ * offsets are more likely to win. */
+int clusterGetSlaveRank(void) {
+    long long myoffset;
+    int j, rank = 0;
+    clusterNode *master;
+
+    redisAssert(nodeIsSlave(myself));
+    master = myself->slaveof;
+    if (master == NULL) return 0; /* Never called by slaves without master. */
+
+    myoffset = replicationGetSlaveOffset();
+    for (j = 0; j < master->numslaves; j++)
+        if (master->slaves[j] != myself &&
+            master->slaves[j]->repl_offset > myoffset) rank++;
+    return rank;
 }
 
 /* This function is called if we are a slave node and our master serving

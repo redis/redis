@@ -1672,6 +1672,26 @@ void processClientsWaitingReplicas(void) {
     }
 }
 
+/* Return the slave replication offset for this instance, that is
+ * the offset for which we already processed the master replication stream. */
+long long replicationGetSlaveOffset(void) {
+    long long offset = 0;
+
+    if (server.masterhost != NULL) {
+        if (server.master) {
+            offset = server.master->reploff;
+        } else if (server.cached_master) {
+            offset = server.cached_master->reploff;
+        }
+    }
+    /* offset may be -1 when the master does not support it at all, however
+     * this function is designed to return an offset that can express the
+     * amount of data processed by the master, so we return a positive
+     * integer. */
+    if (offset < 0) offset = 0;
+    return offset;
+}
+
 /* --------------------------- REPLICATION CRON  ---------------------------- */
 
 /* Replication cron funciton, called 1 time per second. */
