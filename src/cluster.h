@@ -33,7 +33,7 @@ typedef struct clusterLink {
     struct clusterNode *node;   /* Node related to this link if any, or NULL */
 } clusterLink;
 
-/* Node flags */
+/* Cluster node flags and macros. */
 #define REDIS_NODE_MASTER 1     /* The node is a master */
 #define REDIS_NODE_SLAVE 2      /* The node is a slave */
 #define REDIS_NODE_PFAIL 4      /* Failure? Need acknowledge */
@@ -44,6 +44,14 @@ typedef struct clusterLink {
 #define REDIS_NODE_MEET 128     /* Send a MEET message to this node */
 #define REDIS_NODE_PROMOTED 256 /* Master was a slave propoted by failover */
 #define REDIS_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
+
+#define nodeIsMaster(n) ((n)->flags & REDIS_NODE_MASTER)
+#define nodeIsSlave(n) ((n)->flags & REDIS_NODE_SLAVE)
+#define nodeInHandshake(n) ((n)->flags & REDIS_NODE_HANDSHAKE)
+#define nodeHasAddr(n) (!((n)->flags & REDIS_NODE_NOADDR))
+#define nodeWithoutAddr(n) ((n)->flags & REDIS_NODE_NOADDR)
+#define nodeTimedOut(n) ((n)->flags & REDIS_NODE_PFAIL)
+#define nodeFailed(n) ((n)->flags & REDIS_NODE_FAIL)
 
 /* This structure represent elements of node->fail_reports. */
 struct clusterNodeFailReport {
