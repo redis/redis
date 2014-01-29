@@ -2011,9 +2011,11 @@ void clusterHandleSlaveFailover(void) {
         server.cluster->failover_auth_time +=
             server.cluster->failover_auth_rank * 1000;
         redisLog(REDIS_WARNING,
-            "Start of election delayed for %lld milliseconds (rank is #%d).",
+            "Start of election delayed for %lld milliseconds "
+            "(rank #%d, offset %lld).",
             server.cluster->failover_auth_time - mstime(),
-            server.cluster->failover_auth_rank);
+            server.cluster->failover_auth_rank,
+            replicationGetSlaveOffset());
         return;
     }
 
