@@ -2016,6 +2016,10 @@ void clusterHandleSlaveFailover(void) {
             server.cluster->failover_auth_time - mstime(),
             server.cluster->failover_auth_rank,
             replicationGetSlaveOffset());
+        /* Now that we have a scheduled election, broadcast our offset
+         * to all the other slaves so that they'll updated their offsets
+         * if our offset is better. */
+        clusterBroadcastPong(CLUSTER_BROADCAST_LOCAL_SLAVES);
         return;
     }
 
