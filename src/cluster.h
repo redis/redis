@@ -97,6 +97,7 @@ typedef struct clusterState {
     mstime_t failover_auth_time; /* Time of previous or next election. */
     int failover_auth_count;    /* Number of votes received so far. */
     int failover_auth_sent;     /* True if we already asked for votes. */
+    int failover_auth_rank;     /* This slave rank for current auth request. */
     uint64_t failover_auth_epoch; /* Epoch of the current election. */
     /* The followign fields are uesd by masters to take state on elections. */
     uint64_t last_vote_epoch;   /* Epoch of the last vote granted. */

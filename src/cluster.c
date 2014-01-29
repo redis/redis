@@ -301,6 +301,7 @@ void clusterInit(void) {
         dictCreate(&clusterNodesBlackListDictType,NULL);
     server.cluster->failover_auth_time = 0;
     server.cluster->failover_auth_count = 0;
+    server.cluster->failover_auth_rank = 0;
     server.cluster->failover_auth_epoch = 0;
     server.cluster->last_vote_epoch = 0;
     server.cluster->stats_bus_messages_sent = 0;
@@ -2000,13 +2001,36 @@ void clusterHandleSlaveFailover(void) {
     {
         server.cluster->failover_auth_time = mstime() +
             500 + /* Fixed delay of 500 milliseconds, let FAIL msg propagate. */
-            data_age / 10 + /* Add 100 milliseconds for every second of age. */
             random() % 500; /* Random delay between 0 and 500 milliseconds. */
         server.cluster->failover_auth_count = 0;
         server.cluster->failover_auth_sent = 0;
+        server.cluster->failover_auth_rank = clusterGetSlaveRank();
+        /* We add another delay that is proportional to the slave rank.
+         * Specifically 1 second * rank. This way slaves that have a probably
+         * less updated replication offset, are penalized. */
+        server.cluster->failover_auth_time +=
+            server.cluster->failover_auth_rank * 1000;
         redisLog(REDIS_WARNING,
-            "Start of election delayed for %lld milliseconds.",
-            server.cluster->failover_auth_time - mstime());
+            "Start of election delayed for %lld milliseconds (rank is #%d).",
+            server.cluster->failover_auth_time - mstime(),
+            server.cluster->failover_auth_rank);
+        return;
+    }
+
+    /* It is possible that we received more updated offsets from other
+     * slaves for the same master since we computed our election delay.
+     * Update the delay if our rank changed. */
+    if (server.cluster->failover_auth_sent == 0) {
+        int newrank = clusterGetSlaveRank();
+        if (newrank > server.cluster->failover_auth_rank) {
+            long long added_delay =
+                (newrank - server.cluster->failover_auth_rank) * 1000;
+            server.cluster->failover_auth_time += added_delay;
+            server.cluster->failover_auth_rank = newrank;
+            redisLog(REDIS_WARNING,
+                "Slave rank updated to #%d, added %lld milliseconds of delay.",
+                newrank, added_delay);
+        }
         return;
     }
 
