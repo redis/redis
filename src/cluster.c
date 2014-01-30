@@ -1964,14 +1964,6 @@ void clusterHandleSlaveFailover(void) {
     int needed_quorum = (server.cluster->size / 2) + 1;
     int j;
 
-    /* Set data_age to the number of seconds we are disconnected from
-     * the master. */
-    if (server.repl_state == REDIS_REPL_CONNECTED) {
-        data_age = (server.unixtime - server.master->lastinteraction) * 1000;
-    } else {
-        data_age = (server.unixtime - server.repl_down_since) * 1000;
-    }
-
     /* Pre conditions to run the function:
      * 1) We are a slave.
      * 2) Our master is flagged as FAIL.
@@ -1980,6 +1972,14 @@ void clusterHandleSlaveFailover(void) {
         myself->slaveof == NULL ||
         !nodeFailed(myself->slaveof) ||
         myself->slaveof->numslots == 0) return;
+
+    /* Set data_age to the number of seconds we are disconnected from
+     * the master. */
+    if (server.repl_state == REDIS_REPL_CONNECTED) {
+        data_age = (server.unixtime - server.master->lastinteraction) * 1000;
+    } else {
+        data_age = (server.unixtime - server.repl_down_since) * 1000;
+    }
 
     /* Remove the node timeout from the data age as it is fine that we are
      * disconnected from our master at least for the time it was down to be
