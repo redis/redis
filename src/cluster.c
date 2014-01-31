@@ -2141,12 +2141,13 @@ void clusterHandleSlaveMigration(int max_slaves) {
     /* Step 1: Don't migrate if the cluster state is not ok. */
     if (server.cluster->state != REDIS_CLUSTER_OK) return;
 
-    /* Step 2: Don't migrate if my master has just me as working slave. */
+    /* Step 2: Don't migrate if my master will not be left with at least
+     *         'migration-barrier' slaves after my migration. */
     if (mymaster == NULL) return;
     for (j = 0; j < mymaster->numslaves; j++)
         if (!nodeFailed(mymaster->slaves[j]) &&
             !nodeTimedOut(mymaster->slaves[j])) okslaves++;
-    if (okslaves == 1) return;
+    if (okslaves <= server.cluster_migration_barrier) return;
 
     /* Step 3: Idenitfy a candidate for migration, and check if among the
      * masters with the greatest number of ok slaves, I'm the one with the

@@ -21,6 +21,7 @@
 #define REDIS_CLUSTER_SLAVE_VALIDITY_MULT 10 /* Slave data validity. */
 #define REDIS_CLUSTER_FAILOVER_AUTH_RETRY_MULT 4 /* Auth request retry time. */
 #define REDIS_CLUSTER_FAILOVER_DELAY 5 /* Seconds */
+#define REDIS_CLUSTER_DEFAULT_MIGRATION_BARRIER 1
 
 struct clusterNode;
 
