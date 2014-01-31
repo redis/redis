@@ -1266,7 +1266,7 @@ void initServerConfig() {
     server.runid[REDIS_RUN_ID_SIZE] = '\0';
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.port = REDIS_SERVERPORT;
-    server.backlog = REDIS_BACKLOG;
+    server.tcp_backlog = REDIS_TCP_BACKLOG;
     server.bindaddr_count = 0;
     server.unixsocket = NULL;
     server.unixsocketperm = REDIS_DEFAULT_UNIX_SOCKET_PERM;
@@ -1470,9 +1470,11 @@ int listenToPort(int port, int *fds, int *count) {
         if (server.bindaddr[j] == NULL) {
             /* Bind * for both IPv6 and IPv4, we enter here only if
              * server.bindaddr_count == 0. */
-            fds[*count] = anetTcp6Server(server.neterr,port,NULL, server.backlog);
+            fds[*count] = anetTcp6Server(server.neterr,port,NULL,
+                server.tcp_backlog);
             if (fds[*count] != ANET_ERR) (*count)++;
-            fds[*count] = anetTcpServer(server.neterr,port,NULL, server.backlog);
+            fds[*count] = anetTcpServer(server.neterr,port,NULL,
+                server.tcp_backlog);
             if (fds[*count] != ANET_ERR) (*count)++;
             /* Exit the loop if we were able to bind * on IPv4 or IPv6,
              * otherwise fds[*count] will be ANET_ERR and we'll print an
@@ -1480,10 +1482,12 @@ int listenToPort(int port, int *fds, int *count) {
             if (*count) break;
         } else if (strchr(server.bindaddr[j],':')) {
             /* Bind IPv6 address. */
-            fds[*count] = anetTcp6Server(server.neterr,port,server.bindaddr[j], server.backlog);
+            fds[*count] = anetTcp6Server(server.neterr,port,server.bindaddr[j],
+                server.tcp_backlog);
         } else {
             /* Bind IPv4 address. */
-            fds[*count] = anetTcpServer(server.neterr,port,server.bindaddr[j], server.backlog);
+            fds[*count] = anetTcpServer(server.neterr,port,server.bindaddr[j],
+                server.tcp_backlog);
         }
         if (fds[*count] == ANET_ERR) {
             redisLog(REDIS_WARNING,
@@ -1531,7 +1535,8 @@ void initServer() {
     /* Open the listening Unix domain socket. */
     if (server.unixsocket != NULL) {
         unlink(server.unixsocket); /* don't care if this fails */
-        server.sofd = anetUnixServer(server.neterr,server.unixsocket,server.unixsocketperm, server.backlog);
+        server.sofd = anetUnixServer(server.neterr,server.unixsocket,
+            server.unixsocketperm, server.tcp_backlog);
         if (server.sofd == ANET_ERR) {
             redisLog(REDIS_WARNING, "Opening socket: %s", server.neterr);
             exit(1);
