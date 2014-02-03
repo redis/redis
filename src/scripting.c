@@ -441,7 +441,7 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     REDIS_NOTUSED(ar);
     REDIS_NOTUSED(lua);
 
-    elapsed = (ustime()/1000) - server.lua_time_start;
+    elapsed = mstime() - server.lua_time_start;
     if (elapsed >= server.lua_time_limit && server.lua_timedout == 0) {
         redisLog(REDIS_WARNING,"Lua slow script detected: still in execution after %lld milliseconds. You can try killing the script using the SCRIPT KILL command.",elapsed);
         server.lua_timedout = 1;
@@ -900,7 +900,7 @@ void evalGenericCommand(redisClient *c, int evalsha) {
      * We set the hook only if the time limit is enabled as the hook will
      * make the Lua script execution slower. */
     server.lua_caller = c;
-    server.lua_time_start = ustime()/1000;
+    server.lua_time_start = mstime();
     server.lua_kill = 0;
     if (server.lua_time_limit > 0 && server.masterhost == NULL) {
         lua_sethook(lua,luaMaskCountHook,LUA_MASKCOUNT,100000);
