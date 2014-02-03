@@ -368,6 +368,8 @@
  * Data types
  *----------------------------------------------------------------------------*/
 
+typedef long long mstime_t; /* millisecond time type. */
+
 /* A redis object, that is a type able to hold a string / list / set */
 
 /* The actual Redis Object */
