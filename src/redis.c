@@ -1174,6 +1174,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Close clients that need to be closed asynchronous */
     freeClientsInAsyncFreeQueue();
 
+    /* Clear the paused clients flag if needed. */
+    clientsArePaused(); /* Don't check return value, just use the side effect. */
+
     /* Replication cron function -- used to reconnect to master and
      * to detect transfer failures. */
     run_with_period(1000) replicationCron();
@@ -1594,6 +1597,7 @@ void initServer() {
     server.ready_keys = listCreate();
     server.clients_waiting_acks = listCreate();
     server.get_ack_from_slaves = 0;
+    server.clients_paused = 0;
 
     createSharedObjects();
     adjustOpenFilesLimit();
