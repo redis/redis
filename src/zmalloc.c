@@ -40,7 +40,11 @@ void zlibc_free(void *ptr) {
 }
 
 #include <string.h>
+#ifdef _WIN32
+#include "win32_Interop/win32fixes.h"
+#else
 #include <pthread.h>
+#endif
 #include "config.h"
 #include "zmalloc.h"
 
@@ -65,6 +69,11 @@ void zlibc_free(void *ptr) {
 #define calloc(count,size) je_calloc(count,size)
 #define realloc(ptr,size) je_realloc(ptr,size)
 #define free(ptr) je_free(ptr)
+#elif defined(USE_DLMALLOC)
+#define malloc(size) dlmalloc(size)
+#define calloc(count,size) dlcalloc(count,size)
+#define realloc(ptr,size) dlrealloc(ptr,size)
+#define free(ptr) dlfree(ptr)
 #endif
 
 #ifdef HAVE_ATOMIC
@@ -107,11 +116,20 @@ void zlibc_free(void *ptr) {
 
 static size_t used_memory = 0;
 static int zmalloc_thread_safe = 0;
+#ifdef _WIN32
+pthread_mutex_t used_memory_mutex;
+#else
 pthread_mutex_t used_memory_mutex = PTHREAD_MUTEX_INITIALIZER;
+#endif
 
 static void zmalloc_default_oom(size_t size) {
+#ifdef _WIN32
+    fprintf(stderr, "zmalloc: Out of memory trying to allocate %llu bytes\n",
+        (unsigned long long)size);
+#else
     fprintf(stderr, "zmalloc: Out of memory trying to allocate %zu bytes\n",
         size);
+#endif
     fflush(stderr);
     abort();
 }
@@ -234,9 +252,23 @@ size_t zmalloc_used_memory(void) {
     return um;
 }
 
+#ifdef _WIN32
+void zmalloc_free_used_memory_mutex(void) {
+    /* Windows fix: Callabe mutex destroy.  */
+    if (zmalloc_thread_safe)
+        pthread_mutex_destroy(&used_memory_mutex);
+}
+void zmalloc_enable_thread_safeness(void) {
+    if (!zmalloc_thread_safe)
+        pthread_mutex_init(&used_memory_mutex,0);
+
+    zmalloc_thread_safe = 1;
+}
+#else
 void zmalloc_enable_thread_safeness(void) {
     zmalloc_thread_safe = 1;
 }
+#endif
 
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
     zmalloc_oom_handler = oom_handler;

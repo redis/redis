@@ -59,6 +59,12 @@
 #include <malloc/malloc.h>
 #define HAVE_MALLOC_SIZE 1
 #define zmalloc_size(p) malloc_size(p)
+
+#elif defined(USE_DLMALLOC)
+#include "win32_Interop/win32_dlmalloc.h"
+#define ZMALLOC_LIB ("dlmalloc-" __xstr(2) "." __xstr(8) )
+#define HAVE_MALLOC_SIZE 1
+#define zmalloc_size(p) dlmalloc_usable_size(p)
 #endif
 
 #ifndef ZMALLOC_LIB
@@ -77,6 +83,9 @@ float zmalloc_get_fragmentation_ratio(void);
 size_t zmalloc_get_rss(void);
 size_t zmalloc_get_private_dirty(void);
 void zlibc_free(void *ptr);
+#ifdef _WIN32
+void zmalloc_free_used_memory_mutex(void);
+#endif
 
 #ifndef HAVE_MALLOC_SIZE
 size_t zmalloc_size(void *ptr);

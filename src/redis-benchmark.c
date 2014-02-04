@@ -33,12 +33,19 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#ifndef _WIN32
 #include <unistd.h>
-#include <errno.h>
 #include <time.h>
 #include <sys/time.h>
+#endif
+#include <errno.h>
 #include <signal.h>
 #include <assert.h>
+
+#ifdef _WIN32
+#include "win32_Interop/win32fixes.h"
+int fmode = _O_BINARY;
+#endif
 
 #include "ae.h"
 #include "hiredis.h"
@@ -121,8 +128,12 @@ static long long mstime(void) {
 
 static void freeClient(client c) {
     listNode *ln;
-    aeDeleteFileEvent(config.el,c->context->fd,AE_WRITABLE);
-    aeDeleteFileEvent(config.el,c->context->fd,AE_READABLE);
+    aeDeleteFileEvent(config.el,(int)c->context->fd,AE_WRITABLE);
+    aeDeleteFileEvent(config.el,(int)c->context->fd,AE_READABLE);
+#ifdef WIN32_IOCP
+    aeWinCloseSocket((int)c->context->fd);
+    c->context->fd = 0;
+#endif
     redisFree(c->context);
     sdsfree(c->obuf);
     zfree(c->randptr);
@@ -144,9 +155,9 @@ static void freeAllClients(void) {
 }
 
 static void resetClient(client c) {
-    aeDeleteFileEvent(config.el,c->context->fd,AE_WRITABLE);
-    aeDeleteFileEvent(config.el,c->context->fd,AE_READABLE);
-    aeCreateFileEvent(config.el,c->context->fd,AE_WRITABLE,writeHandler,c);
+    aeDeleteFileEvent(config.el,(int)c->context->fd,AE_WRITABLE);
+    aeDeleteFileEvent(config.el,(int)c->context->fd,AE_READABLE);
+    aeCreateFileEvent(config.el,(int)c->context->fd,AE_WRITABLE,writeHandler,c);
     c->written = 0;
     c->pending = config.pipeline;
 }
@@ -186,6 +197,10 @@ static void clientDone(client c) {
 static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     client c = privdata;
     void *reply = NULL;
+#ifdef WIN32_IOCP
+    int nread;
+    char buf[1024*16];
+#endif
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(fd);
     REDIS_NOTUSED(mask);
@@ -195,10 +210,28 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
      * is not part of the latency, so calculate it only once, here. */
     if (c->latency < 0) c->latency = ustime()-(c->start);
 
+#ifdef WIN32_IOCP
+    nread = read(c->context->fd,buf,sizeof(buf));
+    if (nread == -1) {
+        errno = WSAGetLastError();
+        if ((errno == ENOENT) || (errno == WSAEWOULDBLOCK)) {
+            errno = EAGAIN;
+            aeWinReceiveDone((int)c->context->fd);
+            return;
+        } else {
+            fprintf(stderr,"Error: %s\n",c->context->errstr);
+            exit(1);
+        }
+    } else if (redisBufferReadDone(c->context, buf, nread) != REDIS_OK) {
+#else
     if (redisBufferRead(c->context) != REDIS_OK) {
+#endif
         fprintf(stderr,"Error: %s\n",c->context->errstr);
         exit(1);
     } else {
+#ifdef WIN32_IOCP
+        aeWinReceiveDone((int)c->context->fd);
+#endif
         while(c->pending) {
             if (redisGetReply(c->context,&reply) != REDIS_OK) {
                 fprintf(stderr,"Error: %s\n",c->context->errstr);
@@ -241,6 +274,19 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 }
 
+#ifdef _WIN32
+static void writeHandlerDone(aeEventLoop *el, int fd, void *privdata, int nwritten) {
+    aeWinSendReq *req = (aeWinSendReq *)privdata;
+    client c = (client)req->client;
+
+    c->written += nwritten;
+    if (sdslen(c->obuf) == c->written) {
+        aeDeleteFileEvent(config.el,(int)c->context->fd,AE_WRITABLE);
+        aeCreateFileEvent(config.el,(int)c->context->fd,AE_READABLE,readHandler,c);
+    }
+}
+#endif
+
 static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     client c = privdata;
     REDIS_NOTUSED(el);
@@ -263,6 +309,16 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     if (sdslen(c->obuf) > c->written) {
         void *ptr = c->obuf+c->written;
+#ifdef WIN32_IOCP
+        int result = aeWinSocketSend(c->context->fd,(char*)ptr,(int)(sdslen(c->obuf)-c->written), 
+                                        el, c, NULL, writeHandlerDone);
+        if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
+            if (errno != EPIPE)
+                fprintf(stderr, "Writing to socket %s\n", wsa_strerror(errno));
+            freeClient(c);
+            return;
+        }
+#else
         int nwritten = write(c->context->fd,ptr,sdslen(c->obuf)-c->written);
         if (nwritten == -1) {
             if (errno != EPIPE)
@@ -275,6 +331,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             aeDeleteFileEvent(config.el,c->context->fd,AE_WRITABLE);
             aeCreateFileEvent(config.el,c->context->fd,AE_READABLE,readHandler,c);
         }
+#endif
     }
 }
 
@@ -305,7 +362,16 @@ static client createClient(char *cmd, size_t len, client from) {
     client c = zmalloc(sizeof(struct _client));
 
     if (config.hostsocket == NULL) {
+#ifdef WIN32_IOCP
+        struct sockaddr_in sa;
+        c->context = redisPreConnectNonBlock(config.hostip,config.hostport, &sa);
+        if (aeWinSocketConnect(c->context->fd, (struct sockaddr *)&sa, sizeof(sa)) != 0) {
+            c->context->err = errno;
+            strerror_r(errno,c->context->errstr,sizeof(c->context->errstr));
+        }
+#else
         c->context = redisConnectNonBlock(config.hostip,config.hostport);
+#endif
     } else {
         c->context = redisConnectUnixNonBlock(config.hostsocket);
     }
@@ -411,7 +477,7 @@ static void createMissingClients(client c) {
 }
 
 static int compareLatency(const void *a, const void *b) {
-    return (*(long long*)a)-(*(long long*)b);
+    return (int)((*(long long*)a)-(*(long long*)b));
 }
 
 static void showLatencyReport(void) {
@@ -431,7 +497,7 @@ static void showLatencyReport(void) {
         qsort(config.latency,config.requests,sizeof(long long),compareLatency);
         for (i = 0; i < config.requests; i++) {
             if (config.latency[i]/1000 != curlat || i == (config.requests-1)) {
-                curlat = config.latency[i]/1000;
+                curlat = (int)config.latency[i]/1000;
                 perc = ((float)(i+1)*100)/config.requests;
                 printf("%.2f%% <= %d milliseconds\n", perc, curlat);
             }
@@ -588,13 +654,15 @@ usage:
 }
 
 int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData) {
+    float dt;
+    float rps;
     REDIS_NOTUSED(eventLoop);
     REDIS_NOTUSED(id);
     REDIS_NOTUSED(clientData);
 
     if (config.csv) return 250;
-    float dt = (float)(mstime()-config.start)/1000.0;
-    float rps = (float)config.requests_finished/dt;
+    dt = (float)((mstime()-config.start)/1000.0);
+    rps = (float)(config.requests_finished/dt);
     printf("%s: %.2f\r", config.title, rps);
     fflush(stdout);
     return 250; /* every 250ms */
@@ -604,7 +672,7 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
  * switch, or if all the tests are selected (no -t passed by user). */
 int test_is_selected(char *name) {
     char buf[256];
-    int l = strlen(name);
+    int l = (int)strlen(name);
 
     if (config.tests == NULL) return 1;
     buf[0] = ',';

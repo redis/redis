@@ -32,6 +32,7 @@
 
 #include "fmacros.h"
 #include <sys/types.h>
+#ifndef _WIN32
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <sys/un.h>
@@ -39,17 +40,23 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <netdb.h>
+#endif
 #include <fcntl.h>
 #include <string.h>
-#include <netdb.h>
 #include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
+#ifndef _WIN32
 #include <poll.h>
+#endif
 #include <limits.h>
 
 #include "net.h"
 #include "sds.h"
+#ifdef _WIN32
+  #include "../../src/win32_Interop/win32fixes.h"
+#endif
 
 /* Defined in hiredis.c */
 void __redisSetError(redisContext *c, int type, const char *str);
@@ -94,7 +101,7 @@ static int redisSetBlocking(redisContext *c, int fd, int blocking) {
     /* Set the socket nonblocking.
      * Note that fcntl(2) for F_GETFL and F_SETFL can't be
      * interrupted by a signal. */
-    if ((flags = fcntl(fd, F_GETFL)) == -1) {
+    if ((flags = fcntl(fd, F_GETFL,0)) == -1) {
         __redisSetErrorFromErrno(c,REDIS_ERR_IO,"fcntl(F_GETFL)");
         close(fd);
         return REDIS_ERR;
@@ -192,6 +199,7 @@ int redisCheckSocketError(redisContext *c, int fd) {
     return REDIS_OK;
 }
 
+
 int redisContextSetTimeout(redisContext *c, struct timeval tv) {
     if (setsockopt(c->fd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv)) == -1) {
         __redisSetErrorFromErrno(c,REDIS_ERR_IO,"setsockopt(SO_RCVTIMEO)");
@@ -204,6 +212,107 @@ int redisContextSetTimeout(redisContext *c, struct timeval tv) {
     return REDIS_OK;
 }
 
+#ifdef _WIN32
+int redisContextPreConnectTcp(redisContext *c, const char *addr, int port,
+                            struct timeval *timeout, struct sockaddr_in *sa) {
+    int s;
+    int blocking = (c->flags & REDIS_BLOCK);
+    unsigned long inAddress;
+
+    if ((s = redisCreateSocket(c,AF_INET)) < 0) {
+        return REDIS_ERR;
+    }
+
+    sa->sin_family = AF_INET;
+    sa->sin_port = htons(port);
+
+    inAddress = inet_addr(addr);
+    if (inAddress == INADDR_NONE || inAddress == INADDR_ANY) {
+        struct hostent *he;
+
+        he = gethostbyname(addr);
+        if (he == NULL) {
+            __redisSetError(c,REDIS_ERR_OTHER,
+                sdscatprintf(sdsempty(),"can't resolve: %s\n", addr));
+            close(s);
+            return REDIS_ERR;
+        }
+        memcpy(&sa->sin_addr, he->h_addr, sizeof(struct in_addr));
+    }
+    else {
+        sa->sin_addr.s_addr = inAddress;
+    }
+
+    if (redisSetTcpNoDelay(c,s) != REDIS_OK)
+        return REDIS_ERR;
+
+    if (blocking ==  0) {
+        if (redisSetBlocking(c,s,0) != REDIS_OK)
+            return REDIS_ERR;
+    }
+
+    c->fd = s;
+    return REDIS_OK;
+}
+
+int redisContextConnectTcp(redisContext *c, const char *addr, int port, struct timeval *timeout) {
+    int s;
+    int blocking = (c->flags & REDIS_BLOCK);
+    struct sockaddr_in sa;
+    unsigned long inAddress;
+
+    if ((s = redisCreateSocket(c,AF_INET)) < 0)
+        return REDIS_ERR;
+
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons(port);
+
+    inAddress = inet_addr(addr);
+    if (inAddress == INADDR_NONE || inAddress == INADDR_ANY) {
+        struct hostent *he;
+
+        he = gethostbyname(addr);
+        if (he == NULL) {
+            __redisSetError(c,REDIS_ERR_OTHER,
+                sdscatprintf(sdsempty(),"can't resolve: %s\n", addr));
+            close(s);
+            return REDIS_ERR;
+        }
+        memcpy(&sa.sin_addr, he->h_addr, sizeof(struct in_addr));
+    }
+    else {
+        sa.sin_addr.s_addr = inAddress;
+    }
+
+    if (redisSetTcpNoDelay(c,s) != REDIS_OK)
+        return REDIS_ERR;
+
+    if (blocking ==  0) {
+        if (redisSetBlocking(c,s,0) != REDIS_OK)
+            return REDIS_ERR;
+    }
+    if (connect(s, (struct sockaddr*)&sa, sizeof(sa)) == -1) {
+        errno = WSAGetLastError();
+        if ((errno == WSAEINVAL) || (errno == WSAEWOULDBLOCK))
+            errno = EINPROGRESS;
+        if (errno == EINPROGRESS && !blocking) {
+            /* This is ok. */
+        } else {
+            if (redisContextWaitReady(c,s,timeout) != REDIS_OK)
+                return REDIS_ERR;
+        }
+    }
+
+    if (blocking) {
+        if (redisSetBlocking(c,s,1) != REDIS_OK)
+            return REDIS_ERR;
+    }
+
+    c->fd = s;
+    c->flags |= REDIS_CONNECTED;
+    return REDIS_OK;
+}
+#else
 int redisContextConnectTcp(redisContext *c, const char *addr, int port, struct timeval *timeout) {
     int s, rv;
     char _port[6];  /* strlen("65535"); */
@@ -267,7 +376,17 @@ end:
     freeaddrinfo(servinfo);
     return rv;  // Need to return REDIS_OK if alright
 }
+#endif
 
+#ifdef _WIN32
+int redisContextConnectUnix(redisContext *c, const char *path, struct timeval *timeout) {
+    (void) timeout;
+    __redisSetError(c,REDIS_ERR_IO,
+        sdscatprintf(sdsempty(),"Unix sockets are not suported on Windows platform. (%s)\n", path));
+
+    return REDIS_ERR;
+}
+#else
 int redisContextConnectUnix(redisContext *c, const char *path, struct timeval *timeout) {
     int s;
     int blocking = (c->flags & REDIS_BLOCK);
@@ -297,3 +416,4 @@ int redisContextConnectUnix(redisContext *c, const char *path, struct timeval *t
     c->flags |= REDIS_CONNECTED;
     return REDIS_OK;
 }
+#endif

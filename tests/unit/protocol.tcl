@@ -73,6 +73,8 @@ start_server {tags {"protocol"}} {
         incr c
         test "Protocol desync regression test #$c" {
             set s [socket [srv 0 host] [srv 0 port]]
+            # windows - set nonblocking
+            fconfigure $s -blocking false
             puts -nonewline $s $seq
             set payload [string repeat A 1024]"\n"
             set test_start [clock seconds]
@@ -83,10 +85,16 @@ start_server {tags {"protocol"}} {
                     flush $s
                     incr payload_size [string length $payload]
                 }]} {
+                    #windows - don't read after reset
                     set retval [gets $s]
                     close $s
-                    break
+                   break
                 } else {
+                    #windows - if data available, read line
+                    if {[read $s 1] ne ""}  {
+						set retval [gets $s]
+						if {[string match {*Protocol error*} $retval]} { break }
+					}
                     set elapsed [expr {[clock seconds]-$test_start}]
                     if {$elapsed > $test_time_limit} {
                         close $s

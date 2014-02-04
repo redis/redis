@@ -31,11 +31,17 @@
  */
 
 #include <stdio.h>
-#include <sys/time.h>
 #include <sys/types.h>
-#include <unistd.h>
+#ifndef _WIN32
+  #include <sys/time.h>
+  #include <unistd.h> 
+  #include <poll.h>
+#else
+  #include <sys/types.h> 
+  #include <sys/timeb.h>
+  #include "..\..\src\win32_Interop\Win32_FDAPI.h"
+#endif
 #include <stdlib.h>
-#include <poll.h>
 #include <string.h>
 #include <time.h>
 #include <errno.h>
@@ -46,6 +52,9 @@
 
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
+#ifdef WIN32_IOCP
+#include "ae_wsiocp.c"
+#else
 #ifdef HAVE_EVPORT
 #include "ae_evport.c"
 #else
@@ -58,6 +67,7 @@
         #include "ae_select.c"
         #endif
     #endif
+#endif
 #endif
 
 aeEventLoop *aeCreateEventLoop(int setsize) {
@@ -135,11 +145,14 @@ void aeStop(aeEventLoop *eventLoop) {
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
+    aeFileEvent *fe;
+
+
     if (fd >= eventLoop->setsize) {
         errno = ERANGE;
         return AE_ERR;
     }
-    aeFileEvent *fe = &eventLoop->events[fd];
+    fe = &eventLoop->events[fd];
 
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
@@ -154,8 +167,9 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
 
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 {
+    aeFileEvent *fe;
     if (fd >= eventLoop->setsize) return;
-    aeFileEvent *fe = &eventLoop->events[fd];
+    fe = &eventLoop->events[fd];
 
     if (fe->mask == AE_NONE) return;
     fe->mask = fe->mask & (~mask);
@@ -171,26 +185,36 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask)
 }
 
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
+    aeFileEvent *fe;
     if (fd >= eventLoop->setsize) return 0;
-    aeFileEvent *fe = &eventLoop->events[fd];
+    fe = &eventLoop->events[fd];
 
     return fe->mask;
 }
 
 static void aeGetTime(long *seconds, long *milliseconds)
 {
+#ifdef _WIN32
+    struct _timeb tb;
+
+    memset(&tb,0,sizeof(struct _timeb));
+    _ftime_s(&tb);
+    (*seconds) = (long)tb.time;
+    (*milliseconds) = (long)tb.millitm;
+#else
     struct timeval tv;
 
     gettimeofday(&tv, NULL);
     *seconds = tv.tv_sec;
     *milliseconds = tv.tv_usec/1000;
+#endif
 }
 
 static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) {
     long cur_sec, cur_ms, when_sec, when_ms;
 
     aeGetTime(&cur_sec, &cur_ms);
-    when_sec = cur_sec + milliseconds/1000;
+    when_sec = (long)(cur_sec + milliseconds/1000);
     when_ms = cur_ms + milliseconds%1000;
     if (when_ms >= 1000) {
         when_sec ++;
@@ -305,7 +329,11 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
         if (now_sec > te->when_sec ||
             (now_sec == te->when_sec && now_ms >= te->when_ms))
         {
+#ifdef _WIN32
+            long long retval;
+#else
             int retval;
+#endif
 
             id = te->id;
             retval = te->timeProc(eventLoop, id, te->clientData);
@@ -399,10 +427,12 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
         numevents = aeApiPoll(eventLoop, tvp);
         for (j = 0; j < numevents; j++) {
-            aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
+            aeFileEvent *fe;
             int mask = eventLoop->fired[j].mask;
             int fd = eventLoop->fired[j].fd;
             int rfired = 0;
+
+            fe = &eventLoop->events[eventLoop->fired[j].fd];
 
 	    /* note the fe->mask & mask & ... code: maybe an already processed
              * event removed an element that fired and we still didn't
@@ -436,7 +466,7 @@ int aeWait(int fd, int mask, long long milliseconds) {
     if (mask & AE_READABLE) pfd.events |= POLLIN;
     if (mask & AE_WRITABLE) pfd.events |= POLLOUT;
 
-    if ((retval = poll(&pfd, 1, milliseconds))== 1) {
+    if ((retval = poll(&pfd, 1, (int)milliseconds))== 1) {
         if (pfd.revents & POLLIN) retmask |= AE_READABLE;
         if (pfd.revents & POLLOUT) retmask |= AE_WRITABLE;
 	if (pfd.revents & POLLERR) retmask |= AE_WRITABLE;

@@ -83,7 +83,7 @@ proc start_write_load {host port seconds} {
 }
 
 proc stop_write_load {handle} {
-    catch {exec /bin/kill -9 $handle}
+    kill_proc2 $handle
 }
 
 start_server {tags {"repl"}} {

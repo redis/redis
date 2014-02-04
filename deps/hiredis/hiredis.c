@@ -32,7 +32,9 @@
 #include "fmacros.h"
 #include <string.h>
 #include <stdlib.h>
-#include <unistd.h>
+#ifndef _WIN32
+  #include <unistd.h>
+#endif
 #include <assert.h>
 #include <errno.h>
 #include <ctype.h>
@@ -40,6 +42,9 @@
 #include "hiredis.h"
 #include "net.h"
 #include "sds.h"
+#ifdef _WIN32
+  #include "../../src/win32_Interop/win32fixes.h"
+#endif
 
 static redisReply *createReplyObject(int type);
 static void *createStringObject(const redisReadTask *task, char *str, size_t len);
@@ -116,7 +121,7 @@ static void *createStringObject(const redisReadTask *task, char *str, size_t len
     memcpy(buf,str,len);
     buf[len] = '\0';
     r->str = buf;
-    r->len = len;
+    r->len = (int)len;
 
     if (task->parent) {
         parent = task->parent->obj;
@@ -259,7 +264,7 @@ static char *readBytes(redisReader *r, unsigned int bytes) {
 /* Find pointer to \r\n. */
 static char *seekNewline(char *s, size_t len) {
     int pos = 0;
-    int _len = len-1;
+    int _len = (int)(len-1);
 
     /* Position should be < len-1 because the character at "pos" should be
      * followed by a \n. Note that strchr cannot be used because it doesn't
@@ -319,7 +324,7 @@ static char *readLine(redisReader *r, int *_len) {
     p = r->buf+r->pos;
     s = seekNewline(p,(r->len-r->pos));
     if (s != NULL) {
-        len = s-(r->buf+r->pos);
+        len = (int)(s-(r->buf+r->pos));
         r->pos += len+2; /* skip \r\n */
         if (_len) *_len = len;
         return p;
@@ -390,7 +395,11 @@ static int processBulkItem(redisReader *r) {
     redisReadTask *cur = &(r->rstack[r->ridx]);
     void *obj = NULL;
     char *p, *s;
+#ifdef _WIN32
+    long long len;
+#else
     long len;
+#endif
     unsigned long bytelen;
     int success = 0;
 
@@ -398,7 +407,7 @@ static int processBulkItem(redisReader *r) {
     s = seekNewline(p,r->len-r->pos);
     if (s != NULL) {
         p = r->buf+r->pos;
-        bytelen = s-(r->buf+r->pos)+2; /* include \r\n */
+        bytelen = (int)(s-(r->buf+r->pos)+2); /* include \r\n */
         len = readLongLong(p);
 
         if (len < 0) {
@@ -410,10 +419,10 @@ static int processBulkItem(redisReader *r) {
             success = 1;
         } else {
             /* Only continue when the buffer contains the entire bulk item. */
-            bytelen += len+2; /* include \r\n */
+            bytelen += (unsigned long)len+2; /* include \r\n */
             if (r->pos+bytelen <= r->len) {
                 if (r->fn && r->fn->createString)
-                    obj = r->fn->createString(cur,s+2,len);
+                    obj = r->fn->createString(cur,s+2,(size_t)len);
                 else
                     obj = (void*)REDIS_REPLY_STRING;
                 success = 1;
@@ -443,7 +452,11 @@ static int processMultiBulkItem(redisReader *r) {
     redisReadTask *cur = &(r->rstack[r->ridx]);
     void *obj;
     char *p;
+#ifdef _WIN32
+    long long elements;
+#else
     long elements;
+#endif
     int root = 0;
 
     /* Set error for nested multi bulks with depth > 7 */
@@ -471,7 +484,7 @@ static int processMultiBulkItem(redisReader *r) {
             moveToNextTask(r);
         } else {
             if (r->fn && r->fn->createArray)
-                obj = r->fn->createArray(cur,elements);
+                obj = r->fn->createArray(cur,(int)elements);
             else
                 obj = (void*)REDIS_REPLY_ARRAY;
 
@@ -482,7 +495,7 @@ static int processMultiBulkItem(redisReader *r) {
 
             /* Modify task stack when there are more than 0 elements. */
             if (elements > 0) {
-                cur->elements = elements;
+                cur->elements = (int)elements;
                 cur->obj = obj;
                 r->ridx++;
                 r->rstack[r->ridx].type = -1;
@@ -680,7 +693,7 @@ static int intlen(int i) {
 
 /* Helper that calculates the bulk length given a certain string length. */
 static size_t bulklen(size_t len) {
-    return 1+intlen(len)+2+len+2;
+    return (size_t)(1+intlen((int)len)+2+(int)len+2);
 }
 
 int redisvFormatCommand(char **target, const char *format, va_list ap) {
@@ -711,7 +724,7 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
                     if (newargv == NULL) goto err;
                     curargv = newargv;
                     curargv[argc++] = curarg;
-                    totlen += bulklen(sdslen(curarg));
+                    totlen += (int)bulklen(sdslen(curarg));
 
                     /* curarg is put in argv so it can be overwritten. */
                     curarg = sdsempty();
@@ -863,7 +876,7 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
         if (newargv == NULL) goto err;
         curargv = newargv;
         curargv[argc++] = curarg;
-        totlen += bulklen(sdslen(curarg));
+        totlen += (int)bulklen(sdslen(curarg));
     } else {
         sdsfree(curarg);
     }
@@ -875,14 +888,18 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
     totlen += 1+intlen(argc)+2;
 
     /* Build the command at protocol level */
-    cmd = malloc(totlen+1);
+    cmd = (char *)malloc(totlen+1);
     if (cmd == NULL) goto err;
 
     pos = sprintf(cmd,"*%d\r\n",argc);
     for (j = 0; j < argc; j++) {
+#ifdef _WIN32
+        pos += sprintf(cmd+pos,"$%llu\r\n",(unsigned long long)sdslen(curargv[j]));
+#else
         pos += sprintf(cmd+pos,"$%zu\r\n",sdslen(curargv[j]));
+#endif
         memcpy(cmd+pos,curargv[j],sdslen(curargv[j]));
-        pos += sdslen(curargv[j]);
+        pos += (int)sdslen(curargv[j]);
         sdsfree(curargv[j]);
         cmd[pos++] = '\r';
         cmd[pos++] = '\n';
@@ -946,7 +963,7 @@ int redisFormatCommandArgv(char **target, int argc, const char **argv, const siz
     totlen = 1+intlen(argc)+2;
     for (j = 0; j < argc; j++) {
         len = argvlen ? argvlen[j] : strlen(argv[j]);
-        totlen += bulklen(len);
+        totlen += (int)bulklen(len);
     }
 
     /* Build the command at protocol level */
@@ -957,9 +974,13 @@ int redisFormatCommandArgv(char **target, int argc, const char **argv, const siz
     pos = sprintf(cmd,"*%d\r\n",argc);
     for (j = 0; j < argc; j++) {
         len = argvlen ? argvlen[j] : strlen(argv[j]);
+#ifdef _WIN32
+        pos += sprintf(cmd+pos,"$%llu\r\n",(unsigned long long)len);
+#else
         pos += sprintf(cmd+pos,"$%zu\r\n",len);
+#endif
         memcpy(cmd+pos,argv[j],len);
-        pos += len;
+        pos += (int)len;
         cmd[pos++] = '\r';
         cmd[pos++] = '\n';
     }
@@ -1001,8 +1022,9 @@ static redisContext *redisContextInit(void) {
 }
 
 void redisFree(redisContext *c) {
-    if (c->fd > 0)
+    if (c->fd > 0) {
         close(c->fd);
+    }
     if (c->obuf != NULL)
         sdsfree(c->obuf);
     if (c->reader != NULL)
@@ -1055,6 +1077,31 @@ redisContext *redisConnectUnixNonBlock(const char *path) {
     return c;
 }
 
+/* initializers if caller handles connection */
+redisContext *redisConnected() {
+    redisContext *c = redisContextInit();
+    c->fd = -1;
+    c->flags |= REDIS_BLOCK;
+    return c;
+}
+
+redisContext *redisConnectedNonBlock() {
+    redisContext *c = redisContextInit();
+    c->fd = -1;
+    c->flags &= ~REDIS_BLOCK;
+    return c;
+}
+
+#ifdef _WIN32
+redisContext *redisPreConnectNonBlock(const char *ip, int port, struct sockaddr_in *sa) {
+    redisContext *c = redisContextInit();
+    c->fd = -1;
+    c->flags &= ~REDIS_BLOCK;
+    redisContextPreConnectTcp(c, ip, port, NULL, sa);
+    return c;
+}
+#endif
+
 /* Set read/write timeout on a blocking socket. */
 int redisSetTimeout(redisContext *c, struct timeval tv) {
     if (c->flags & REDIS_BLOCK)
@@ -1095,6 +1142,33 @@ int redisBufferRead(redisContext *c) {
     return REDIS_OK;
 }
 
+#ifdef _WIN32
+/* Use this function if the caller has already read the data. It will
+ * feed bytes to the reply parser.
+ *
+ * After this function is called, you may use redisContextReadReply to
+ * see if there is a reply available. */
+int redisBufferReadDone(redisContext *c, char *buf, int nread) {
+    if (nread == -1) {
+        if (errno == EAGAIN && !(c->flags & REDIS_BLOCK)) {
+            /* Try again later */
+        } else {
+            __redisSetError(c,REDIS_ERR_IO,NULL);
+            return REDIS_ERR;
+        }
+    } else if (nread == 0) {
+        __redisSetError(c,REDIS_ERR_EOF, sdsnew("Server closed the connection"));
+        return REDIS_ERR;
+    } else {
+        if (redisReaderFeed(c->reader,buf,nread) != REDIS_OK) {
+            __redisSetError(c,c->reader->err,c->reader->errstr);
+            return REDIS_ERR;
+        }
+    }
+    return REDIS_OK;
+}
+#endif
+
 /* Write the output buffer to the socket.
  *
  * Returns REDIS_OK when the buffer is empty, or (a part of) the buffer was
@@ -1132,6 +1206,23 @@ int redisBufferWrite(redisContext *c, int *done) {
     if (done != NULL) *done = (sdslen(c->obuf) == 0);
     return REDIS_OK;
 }
+
+#ifdef _WIN32
+/* Use this function if the caller has already written the data.
+ */
+int redisBufferWriteDone(redisContext *c, int nwritten, int *done) {
+    if (nwritten > 0) {
+        if (nwritten == (signed)sdslen(c->obuf)) {
+            sdsfree(c->obuf);
+            c->obuf = sdsempty();
+        } else {
+            sdsrange(c->obuf, nwritten, -1);
+        }
+    }
+    if (done != NULL) *done = (sdslen(c->obuf) == 0);
+    return REDIS_OK;
+}
+#endif
 
 /* Internal helper function to try and get a reply from the reader,
  * or set an error in the context otherwise. */

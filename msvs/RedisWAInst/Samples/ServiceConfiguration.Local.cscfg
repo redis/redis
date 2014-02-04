@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ServiceConfiguration serviceName="Redis.WorkerRole" xmlns="http://schemas.microsoft.com/ServiceHosting/2008/10/ServiceConfiguration" osFamily="1" osVersion="*" schemaVersion="2012-10.1.8">
+  <Role name="RedisMaster">
+    <Instances count="1" />
+    <ConfigurationSettings>
+      <Setting name="DataConnectionString" value="UseDevelopmentStorage=true" />
+      <Setting name="Microsoft.WindowsAzure.Plugins.Diagnostics.ConnectionString" value="UseDevelopmentStorage=true" />
+      <Setting name="CloudDriveSize" value="4096" />
+    </ConfigurationSettings>
+    <Certificates></Certificates>
+  </Role>  
+  <Role name="RedisSlave">
+    <Instances count="2" />
+    <ConfigurationSettings>
+      <Setting name="Microsoft.WindowsAzure.Plugins.Diagnostics.ConnectionString" value="UseDevelopmentStorage=true" />
+      <Setting name="RedisMasterHostWorkerRoleExternalEndpointPort" value="6379" />
+      <Setting name="DataConnectionString" value="UseDevelopmentStorage=true" />
+      <Setting name="CloudDriveSize" value="4096" />
+    </ConfigurationSettings>
+    <Certificates></Certificates>
+  </Role>
+</ServiceConfiguration>

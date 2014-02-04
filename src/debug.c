@@ -31,7 +31,9 @@
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
 #include "crc64.h"
 
+#ifndef _WIN32
 #include <arpa/inet.h>
+#endif
 #include <signal.h>
 
 #ifdef HAVE_BACKTRACE
@@ -55,7 +57,7 @@ void xorDigest(unsigned char *digest, void *ptr, size_t len) {
     int j;
 
     SHA1Init(&ctx);
-    SHA1Update(&ctx,s,len);
+    SHA1Update(&ctx,s,(u_int32_t)len);
     SHA1Final(hash,&ctx);
 
     for (j = 0; j < 20; j++)
@@ -350,19 +352,40 @@ void debugCommand(redisClient *c) {
         addReplyStatus(c,d);
         sdsfree(d);
     } else if (!strcasecmp(c->argv[1]->ptr,"sleep") && c->argc == 3) {
+#ifdef _WIN32
         double dtime = strtod(c->argv[2]->ptr,NULL);
-        long long utime = dtime*1000000;
+        long long utime = (long long)(dtime*1000000);
+        usleep(utime);
+#else
+        double dtime = strtod(c->argv[2]->ptr,NULL);
+        long long utime = (long long)(dtime*1000000);
         struct timespec tv;
 
         tv.tv_sec = utime / 1000000;
         tv.tv_nsec = (utime % 1000000) * 1000;
         nanosleep(&tv, NULL);
+#endif
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"set-active-expire") &&
                c->argc == 3)
     {
         server.active_expire_enabled = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"set-active-expire") &&
+               c->argc == 3)
+    {
+        server.active_expire_enabled = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
+#ifdef _WIN32
+    } else if (!strcasecmp(c->argv[1]->ptr,"flushload")) {
+        emptyDb(NULL);
+        if (rdbLoad(server.rdb_filename) != REDIS_OK) {
+            addReplyError(c,"Error trying to load the RDB dump");
+            return;
+        }
+        redisLog(REDIS_WARNING,"DB reloaded by DEBUG flushload");
+        addReply(c,shared.ok);
+#endif
     } else {
         addReplyErrorFormat(c, "Unknown DEBUG subcommand or wrong number of arguments for '%s'",
             (char*)c->argv[1]->ptr);
@@ -880,7 +903,20 @@ void redisLogHexDump(int level, char *descr, void *value, size_t len) {
 }
 
 /* =========================== Software Watchdog ============================ */
+#ifdef _WIN32
+/* No support for debug watchdog */
+void watchdogScheduleSignal(int period) {
+    REDIS_NOTUSED(period);
+}
+void enableWatchdog(int period) {
+    REDIS_NOTUSED(period);
+}
+void disableWatchdog(void) {
+}
+#else
+#ifdef HAVE_BACKTRACE
 #include <sys/time.h>
+#endif
 
 void watchdogSignalHandler(int sig, siginfo_t *info, void *secret) {
 #ifdef HAVE_BACKTRACE
@@ -950,3 +986,4 @@ void disableWatchdog(void) {
     sigaction(SIGALRM, &act, NULL);
     server.watchdog_period = 0;
 }
+#endif

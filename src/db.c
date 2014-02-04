@@ -219,13 +219,17 @@ void flushallCommand(redisClient *c) {
     server.dirty += emptyDb(NULL);
     addReply(c,shared.ok);
     if (server.rdb_child_pid != -1) {
+#ifdef _WIN32
+        AbortForkOperation();
+#else
         kill(server.rdb_child_pid,SIGUSR1);
+#endif
         rdbRemoveTempFile(server.rdb_child_pid);
     }
     if (server.saveparamslen > 0) {
         /* Normally rdbSave() will reset dirty, but we don't want this here
          * as otherwise FLUSHALL will not be replicated nor put into the AOF. */
-        int saved_dirty = server.dirty;
+        long long saved_dirty = server.dirty;
         rdbSave(server.rdb_filename);
         server.dirty = saved_dirty;
     }
@@ -286,7 +290,7 @@ void keysCommand(redisClient *c) {
     dictIterator *di;
     dictEntry *de;
     sds pattern = c->argv[1]->ptr;
-    int plen = sdslen(pattern), allkeys;
+    int plen = (int)sdslen(pattern), allkeys;
     unsigned long numkeys = 0;
     void *replylen = addDeferredMultiBulkLength(c);
 
@@ -296,7 +300,7 @@ void keysCommand(redisClient *c) {
         sds key = dictGetKey(de);
         robj *keyobj;
 
-        if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
+        if (allkeys || stringmatchlen(pattern,plen,key,(int)sdslen(key),0)) {
             keyobj = createStringObject(key,sdslen(key));
             if (expireIfNeeded(c->db,keyobj) == 0) {
                 addReplyBulk(c,keyobj);
@@ -482,9 +486,9 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
     /* Step 3: Filter elements. */
     node = listFirst(keys);
     while (node) {
+        int filter = 0;
         robj *kobj = listNodeValue(node);
         nextnode = listNextNode(node);
-        int filter = 0;
 
         /* Filter element if it does not match the pattern. */
         if (!filter && use_pattern) {

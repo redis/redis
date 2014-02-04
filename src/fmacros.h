@@ -36,7 +36,7 @@
 #define _GNU_SOURCE
 #endif
 
-#if defined(__linux__) || defined(__OpenBSD__)
+#if defined(__linux__) || defined(__OpenBSD__) || defined(__NetBSD__)
 #define _XOPEN_SOURCE 700
 /*
  * On NetBSD, _XOPEN_SOURCE undefines _NETBSD_SOURCE and
@@ -48,5 +48,9 @@
 
 #define _LARGEFILE_SOURCE
 #define _FILE_OFFSET_BITS 64
+
+#ifdef _WIN32
+#define off off_t
+#endif
 
 #endif

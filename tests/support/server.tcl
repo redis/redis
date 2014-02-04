@@ -24,7 +24,22 @@ proc check_valgrind_errors stderr {
     }
 }
 
-proc kill_server config {
+if { $tcl_platform(platform) == "windows" } {
+  proc kill_server config {
+      # nothing to kill when running against external server
+      if {$::external} return
+
+      kill_proc $config
+
+      # Check valgrind errors if needed
+      if {$::valgrind} {
+          check_valgrind_errors [dict get $config stderr]
+      }
+  }
+}
+
+if { $tcl_platform(platform) != "windows" } {
+  proc kill_server config {
     # nothing to kill when running against external server
     if {$::external} return
 
@@ -65,14 +80,57 @@ proc kill_server config {
     if {$::valgrind} {
         check_valgrind_errors [dict get $config stderr]
     }
+  }
 }
 
-proc is_alive config {
+
+if { $tcl_platform(platform) == "windows" } {
+    proc is_alive config {
+        set pid [dict get $config pid]
+        set mfilter {PID eq }
+        append mfilter $pid
+        if { [string first $pid [exec tasklist.exe -FI ${mfilter}]] != -1 } {
+            return 1
+        } else {
+            return 0
+        }
+    }
+}
+
+if { $tcl_platform(platform) == "windows" } {
+    proc kill_proc config {
+        set pid [dict get $config pid]
+        catch {exec taskkill.exe -F -T -PID $pid}
+    }
+}
+
+if { $tcl_platform(platform) == "windows" } {
+    proc kill_proc2 pid {
+        catch {exec taskkill.exe -F -T -PID $pid}
+    }
+}
+
+if { $tcl_platform(platform) != "windows" } {
+  proc is_alive config {
     set pid [dict get $config pid]
     if {[catch {exec ps -p $pid} err]} {
         return 0
     } else {
         return 1
+    }
+  }
+}
+
+if { $tcl_platform(platform) != "windows" } {
+    proc kill_proc config {
+        set pid [dict get $config pid]
+        catch {exec /bin/kill $pid}
+    }
+}
+
+if { $tcl_platform(platform) != "windows" } {
+    proc kill_proc2 pid {
+        catch {exec /bin/kill -9 $pid}
     }
 }
 

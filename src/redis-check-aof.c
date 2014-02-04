@@ -32,9 +32,17 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 #include <sys/stat.h>
 #include "config.h"
+
+#ifdef _WIN32
+#include "Win32_Interop\win32fixes.h"
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+#endif
 
 #define ERROR(...) { \
     char __buf[1024]; \
@@ -43,7 +51,11 @@
 }
 
 static char error[1024];
+#ifdef _WIN32
+long long epos;
+#else
 static off_t epos;
+#endif
 
 int consumeNewline(char *buf) {
     if (strncmp(buf,"\r\n",2) != 0) {
@@ -70,7 +82,7 @@ int readLong(FILE *fp, char prefix, long *target) {
 int readBytes(FILE *fp, char *target, long length) {
     long real;
     epos = ftello(fp);
-    real = fread(target,1,length,fp);
+    real = (long)fread(target,1,length,fp);
     if (real != length) {
         ERROR("Expected to read %ld bytes, got %ld bytes",length,real);
         return 0;
@@ -109,7 +121,7 @@ off_t process(FILE *fp) {
     char *str;
 
     while(1) {
-        if (!multi) pos = ftello(fp);
+        if (!multi) pos = (off_t)ftello(fp);
         if (!readArgc(fp, &argc)) break;
 
         for (i = 0; i < argc; i++) {
@@ -149,6 +161,22 @@ off_t process(FILE *fp) {
 int main(int argc, char **argv) {
     char *filename;
     int fix = 0;
+    FILE *fp;
+    struct redis_stat sb;
+#ifdef _WIN32
+    long long size;
+    long long pos;
+    long long diff;
+
+    _fmode = _O_BINARY;
+    _setmode(_fileno(stdin), _O_BINARY);
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_BINARY);
+#else
+    off_t size;
+    off_t pos;
+    off_t diff;
+#endif
 
     if (argc < 2) {
         printf("Usage: %s [--fix] <file.aof>\n", argv[0]);
@@ -167,26 +195,29 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    FILE *fp = fopen(filename,"r+");
+#ifdef _WIN32
+    fp = fopen(filename,"r+b");
+#else
+    fp = fopen(filename,"r+");
+#endif
     if (fp == NULL) {
         printf("Cannot open file: %s\n", filename);
         exit(1);
     }
 
-    struct redis_stat sb;
     if (redis_fstat(fileno(fp),&sb) == -1) {
         printf("Cannot stat file: %s\n", filename);
         exit(1);
     }
 
-    off_t size = sb.st_size;
+    size = sb.st_size;
     if (size == 0) {
         printf("Empty file: %s\n", filename);
         exit(1);
     }
 
-    off_t pos = process(fp);
-    off_t diff = size-pos;
+    pos = process(fp);
+    diff = size-pos;
     printf("AOF analyzed: size=%lld, ok_up_to=%lld, diff=%lld\n",
         (long long) size, (long long) pos, (long long) diff);
     if (diff > 0) {

@@ -43,5 +43,8 @@ int redisCheckSocketError(redisContext *c, int fd);
 int redisContextSetTimeout(redisContext *c, struct timeval tv);
 int redisContextConnectTcp(redisContext *c, const char *addr, int port, struct timeval *timeout);
 int redisContextConnectUnix(redisContext *c, const char *path, struct timeval *timeout);
+#ifdef _WIN32
+int redisContextPreConnectTcp(redisContext *c, const char *addr, int port, struct timeval *timeout, struct sockaddr_in *sa);
+#endif
 
 #endif

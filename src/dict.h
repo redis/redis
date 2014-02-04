@@ -65,12 +65,21 @@ typedef struct dictType {
 
 /* This is our hash table structure. Every dictionary has two of this as we
  * implement incremental rehashing, for the old to the new table. */
+#ifdef _WIN32
+typedef struct dictht {
+    dictEntry **table;
+    size_t size;
+    size_t sizemask;
+    size_t used;
+} dictht;
+#else
 typedef struct dictht {
     dictEntry **table;
     unsigned long size;
     unsigned long sizemask;
     unsigned long used;
 } dictht;
+#endif
 
 typedef struct dict {
     dictType *type;
@@ -141,7 +150,11 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 
 /* API */
 dict *dictCreate(dictType *type, void *privDataPtr);
+#ifdef _WIN32
+int dictExpand(dict *d, size_t size);
+#else
 int dictExpand(dict *d, unsigned long size);
+#endif
 int dictAdd(dict *d, void *key, void *val);
 dictEntry *dictAddRaw(dict *d, void *key);
 int dictReplace(dict *d, void *key, void *val);
@@ -165,7 +178,7 @@ void dictEnableResize(void);
 void dictDisableResize(void);
 int dictRehash(dict *d, int n);
 int dictRehashMilliseconds(dict *d, int ms);
-void dictSetHashFunctionSeed(unsigned int initval);
+int dictSetHashFunctionSeed(unsigned int initval);
 unsigned int dictGetHashFunctionSeed(void);
 unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, void *privdata);
 

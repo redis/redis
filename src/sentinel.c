@@ -33,12 +33,22 @@
 #include "async.h"
 
 #include <ctype.h>
+#ifndef _WIN32
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
+#else
+#include <stdlib.h>
+#endif
 #include <fcntl.h>
 
+#ifdef _WIN32
+#define strtoull _strtoui64
+#endif
+
+#ifndef _WIN32
 extern char **environ;
+#endif
 
 #define REDIS_SENTINEL_PORT 26379
 
@@ -226,16 +236,16 @@ typedef struct redisAeEvents {
 } redisAeEvents;
 
 static void redisAeReadEvent(aeEventLoop *el, int fd, void *privdata, int mask) {
+    redisAeEvents *e = (redisAeEvents*)privdata;
     ((void)el); ((void)fd); ((void)mask);
 
-    redisAeEvents *e = (redisAeEvents*)privdata;
     redisAsyncHandleRead(e->context);
 }
 
 static void redisAeWriteEvent(aeEventLoop *el, int fd, void *privdata, int mask) {
+    redisAeEvents *e = (redisAeEvents*)privdata;
     ((void)el); ((void)fd); ((void)mask);
 
-    redisAeEvents *e = (redisAeEvents*)privdata;
     redisAsyncHandleWrite(e->context);
 }
 
@@ -1482,7 +1492,7 @@ void sentinelFlushConfig(void) {
     server.hz = REDIS_DEFAULT_HZ;
     if (rewriteConfig(server.configfile) != -1) {
         /* Rewrite succeded, fsync it. */
-        if ((fd = open(server.configfile,O_RDONLY)) != -1) {
+        if ((fd = open(server.configfile,O_RDONLY, 0)) != -1) {
             fsync(fd);
             close(fd);
         }
@@ -1983,6 +1993,8 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
         sentinelRedisInstance *si;
 
         if (numtokens == 8) {
+            sentinelRedisInstance *msgmaster;
+
             /* First, try to see if we already have this sentinel. */
             port = atoi(token[1]);
             master_port = atoi(token[6]);
@@ -1990,7 +2002,6 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
                             master->sentinels,token[0],port,token[2]);
             current_epoch = strtoull(token[3],NULL,10);
             master_config_epoch = strtoull(token[7],NULL,10);
-            sentinelRedisInstance *msgmaster;
 
             if (!si) {
                 /* If not, remove all the sentinels that have the same runid
@@ -2560,8 +2571,8 @@ void sentinelInfoCommand(redisClient *c) {
     }
 
     if (!strcasecmp(section,"server") || defsections) {
-        if (sections++) info = sdscat(info,"\r\n");
         sds serversection = genRedisInfoString("server");
+        if (sections++) info = sdscat(info,"\r\n");
         info = sdscatlen(info,serversection,sdslen(serversection));
         sdsfree(serversection);
     }
@@ -2618,10 +2629,10 @@ void sentinelSetCommand(redisClient *c) {
 
     /* Process option - value pairs. */
     for (j = 3; j < c->argc; j += 2) {
+        long long ll;
+        robj *o = c->argv[j+1];
         option = c->argv[j]->ptr;
         value = c->argv[j+1]->ptr;
-        robj *o = c->argv[j+1];
-        long long ll;
 
         if (!strcasecmp(option,"down-after-milliseconds")) {
             /* down-after-millisecodns <milliseconds> */

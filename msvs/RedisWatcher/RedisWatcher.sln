@@ -1,0 +1,42 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual Studio 2010
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RedisWatcher", "RedisWatcher\RedisWatcher.vcxproj", "{A249484F-526D-4725-9434-430F74837FFE}"
+EndProject
+Project("{930C7802-8A8C-48F9-8165-68863BCCD9DD}") = "Install", "Install\Install.wixproj", "{F152845B-DB83-4862-909C-0476930233C1}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Mixed Platforms = Debug|Mixed Platforms
+		Debug|Win32 = Debug|Win32
+		Debug|x86 = Debug|x86
+		Release|Mixed Platforms = Release|Mixed Platforms
+		Release|Win32 = Release|Win32
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A249484F-526D-4725-9434-430F74837FFE}.Debug|Mixed Platforms.ActiveCfg = Debug|Win32
+		{A249484F-526D-4725-9434-430F74837FFE}.Debug|Mixed Platforms.Build.0 = Debug|Win32
+		{A249484F-526D-4725-9434-430F74837FFE}.Debug|Win32.ActiveCfg = Debug|Win32
+		{A249484F-526D-4725-9434-430F74837FFE}.Debug|Win32.Build.0 = Debug|Win32
+		{A249484F-526D-4725-9434-430F74837FFE}.Debug|x86.ActiveCfg = Debug|Win32
+		{A249484F-526D-4725-9434-430F74837FFE}.Release|Mixed Platforms.ActiveCfg = Release|Win32
+		{A249484F-526D-4725-9434-430F74837FFE}.Release|Mixed Platforms.Build.0 = Release|Win32
+		{A249484F-526D-4725-9434-430F74837FFE}.Release|Win32.ActiveCfg = Release|Win32
+		{A249484F-526D-4725-9434-430F74837FFE}.Release|Win32.Build.0 = Release|Win32
+		{A249484F-526D-4725-9434-430F74837FFE}.Release|x86.ActiveCfg = Release|Win32
+		{F152845B-DB83-4862-909C-0476930233C1}.Debug|Mixed Platforms.ActiveCfg = Debug|x86
+		{F152845B-DB83-4862-909C-0476930233C1}.Debug|Mixed Platforms.Build.0 = Debug|x86
+		{F152845B-DB83-4862-909C-0476930233C1}.Debug|Win32.ActiveCfg = Debug|x86
+		{F152845B-DB83-4862-909C-0476930233C1}.Debug|x86.ActiveCfg = Debug|x86
+		{F152845B-DB83-4862-909C-0476930233C1}.Debug|x86.Build.0 = Debug|x86
+		{F152845B-DB83-4862-909C-0476930233C1}.Release|Mixed Platforms.ActiveCfg = Release|x86
+		{F152845B-DB83-4862-909C-0476930233C1}.Release|Mixed Platforms.Build.0 = Release|x86
+		{F152845B-DB83-4862-909C-0476930233C1}.Release|Win32.ActiveCfg = Release|x86
+		{F152845B-DB83-4862-909C-0476930233C1}.Release|x86.ActiveCfg = Release|x86
+		{F152845B-DB83-4862-909C-0476930233C1}.Release|x86.Build.0 = Release|x86
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

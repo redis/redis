@@ -29,10 +29,14 @@
  */
 
 #include "redis.h"
+#ifdef _WIN32
+#include <direct.h>
+#endif
 
 #include <fcntl.h>
 #include <sys/stat.h>
 
+#ifndef _WIN32
 static struct {
     const char     *name;
     const int       value;
@@ -48,6 +52,7 @@ static struct {
     {"local7",  LOG_LOCAL7},
     {NULL, 0}
 };
+#endif
 
 clientBufferLimitsConfig clientBufferLimitsDefaults[REDIS_CLIENT_LIMIT_NUM_CLASSES] = {
     {0, 0, 0}, /* normal */
@@ -83,7 +88,7 @@ void loadServerConfigFromString(char *config) {
     int linenum = 0, totlines, i;
     sds *lines;
 
-    lines = sdssplitlen(config,strlen(config),"\n",1,&totlines);
+    lines = sdssplitlen(config,(int)strlen(config),"\n",1,&totlines);
 
     for (i = 0; i < totlines; i++) {
         sds *argv;
@@ -181,7 +186,12 @@ void loadServerConfigFromString(char *config) {
                     err = sdscatprintf(sdsempty(),
                         "Can't open the log file: %s", strerror(errno));
                     goto loaderr;
+                } else {
+#ifdef _WIN32
+                    setLogFile( server.logfile );
+#endif
                 }
+
                 fclose(logfp);
             }
         } else if (!strcasecmp(argv[0],"syslog-enabled") && argc == 2) {
@@ -192,6 +202,11 @@ void loadServerConfigFromString(char *config) {
             if (server.syslog_ident) zfree(server.syslog_ident);
             server.syslog_ident = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"syslog-facility") && argc == 2) {
+#ifdef _WIN32
+            // Skip error - just ignore Syslog
+            // err "Syslog is not supported on Windows platform.";
+            // goto loaderr;
+#else
             int i;
 
             for (i = 0; validSyslogFacilities[i].name; i++) {
@@ -205,6 +220,7 @@ void loadServerConfigFromString(char *config) {
                 err = "Invalid log facility. Must be one of USER or between LOCAL0-LOCAL7";
                 goto loaderr;
             }
+#endif
         } else if (!strcasecmp(argv[0],"databases") && argc == 2) {
             server.dbnum = atoi(argv[1]);
             if (server.dbnum < 1) {
@@ -506,7 +522,11 @@ void loadServerConfig(char *filename, char *options) {
         if (filename[0] == '-' && filename[1] == '\0') {
             fp = stdin;
         } else {
+#ifdef _WIN32
+            if ((fp = fopen(filename,"rb")) == NULL) {
+#else
             if ((fp = fopen(filename,"r")) == NULL) {
+#endif
                 redisLog(REDIS_WARNING,
                     "Fatal error, can't open config file '%s'", filename);
                 exit(1);
@@ -660,7 +680,7 @@ void configSetCommand(redisClient *c) {
         server.aof_rewrite_incremental_fsync = yn;
     } else if (!strcasecmp(c->argv[2]->ptr,"save")) {
         int vlen, j;
-        sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
+        sds *v = sdssplitlen(o->ptr,(int)sdslen(o->ptr)," ",1,&vlen);
 
         /* Perform sanity check before setting the new config:
          * - Even number of args
@@ -749,9 +769,12 @@ void configSetCommand(redisClient *c) {
         } else {
             goto badfmt;
         }
+#ifdef _WIN32
+        setLogVerbosityLevel(server.verbosity);
+#endif
     } else if (!strcasecmp(c->argv[2]->ptr,"client-output-buffer-limit")) {
         int vlen, j;
-        sds *v = sdssplitlen(o->ptr,sdslen(o->ptr)," ",1,&vlen);
+        sds *v = sdssplitlen(o->ptr,(int)sdslen(o->ptr)," ",1,&vlen);
 
         /* We need a multiple of 4: <class> <hard> <soft> <soft_seconds> */
         if (vlen % 4) {
@@ -815,7 +838,7 @@ void configSetCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[2]->ptr,"watchdog-period")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         if (ll)
-            enableWatchdog(ll);
+            enableWatchdog((int)ll);
         else
             disableWatchdog();
     } else if (!strcasecmp(c->argv[2]->ptr,"rdbcompression")) {
@@ -1386,6 +1409,7 @@ void rewriteConfigEnumOption(struct rewriteConfigState *state, char *option, int
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
+#ifndef _WIN32
 /* Rewrite the syslog-fability option. */
 void rewriteConfigSyslogfacilityOption(struct rewriteConfigState *state) {
     int value = server.syslog_facility, j;
@@ -1402,6 +1426,7 @@ void rewriteConfigSyslogfacilityOption(struct rewriteConfigState *state) {
     line = sdscatprintf(sdsempty(),"%s %s",option,name);
     rewriteConfigRewriteLine(state,option,line,force);
 }
+#endif
 
 /* Rewrite the save option. */
 void rewriteConfigSaveOption(struct rewriteConfigState *state) {
@@ -1666,7 +1691,9 @@ int rewriteConfig(char *path) {
     rewriteConfigStringOption(state,"logfile",server.logfile,REDIS_DEFAULT_LOGFILE);
     rewriteConfigYesNoOption(state,"syslog-enabled",server.syslog_enabled,REDIS_DEFAULT_SYSLOG_ENABLED);
     rewriteConfigStringOption(state,"syslog-ident",server.syslog_ident,REDIS_DEFAULT_SYSLOG_IDENT);
+#ifndef _WIN32
     rewriteConfigSyslogfacilityOption(state);
+#endif
     rewriteConfigSaveOption(state);
     rewriteConfigNumericalOption(state,"databases",server.dbnum,REDIS_DEFAULT_DBNUM);
     rewriteConfigYesNoOption(state,"stop-writes-on-bgsave-error",server.stop_writes_on_bgsave_err,REDIS_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR);

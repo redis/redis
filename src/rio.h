@@ -36,6 +36,10 @@
 #include <stdint.h>
 #include "sds.h"
 
+#ifdef _WIN32
+  #define inline __inline
+#endif
+
 struct _rio {
     /* Backend functions.
      * Since this functions do not tolerate short writes or reads the return
@@ -105,7 +109,7 @@ static inline size_t rioRead(rio *r, void *buf, size_t len) {
     return 1;
 }
 
-static inline off_t rioTell(rio *r) {
+static __inline off_t rioTell(rio *r) {
     return r->tell(r);
 }
 

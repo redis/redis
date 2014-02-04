@@ -48,9 +48,16 @@
 #include "fmacros.h"
 #include <string.h>
 #include <stdio.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 #include "rio.h"
 #include "util.h"
+#ifdef _WIN32
+//#include "win32fixes.h"
+#endif
+#include "config.h"
+#include "redis.h"
 #include "crc64.h"
 #include "config.h"
 #include "redis.h"
@@ -58,7 +65,7 @@
 /* Returns 1 or 0 for success/failure. */
 static size_t rioBufferWrite(rio *r, const void *buf, size_t len) {
     r->io.buffer.ptr = sdscatlen(r->io.buffer.ptr,(char*)buf,len);
-    r->io.buffer.pos += len;
+    r->io.buffer.pos += (off_t)len;
     return 1;
 }
 
@@ -67,7 +74,7 @@ static size_t rioBufferRead(rio *r, void *buf, size_t len) {
     if (sdslen(r->io.buffer.ptr)-r->io.buffer.pos < len)
         return 0; /* not enough buffer to return len bytes. */
     memcpy(buf,r->io.buffer.ptr+r->io.buffer.pos,len);
-    r->io.buffer.pos += len;
+    r->io.buffer.pos += (off_t)len;
     return 1;
 }
 
@@ -81,7 +88,7 @@ static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
     size_t retval;
 
     retval = fwrite(buf,len,1,r->io.file.fp);
-    r->io.file.buffered += len;
+    r->io.file.buffered += (off_t)len;
 
     if (r->io.file.autosync &&
         r->io.file.buffered >= r->io.file.autosync)
@@ -99,7 +106,7 @@ static size_t rioFileRead(rio *r, void *buf, size_t len) {
 
 /* Returns read/write position in file. */
 static off_t rioFileTell(rio *r) {
-    return ftello(r->io.file.fp);
+    return (off_t)ftello(r->io.file.fp);
 }
 
 static const rio rioBufferIO = {

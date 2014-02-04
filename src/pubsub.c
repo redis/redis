@@ -122,8 +122,8 @@ int pubsubSubscribePattern(redisClient *c, robj *pattern) {
     int retval = 0;
 
     if (listSearchKey(c->pubsub_patterns,pattern) == NULL) {
-        retval = 1;
         pubsubPattern *pat;
+        retval = 1;
         listAddNodeTail(c->pubsub_patterns,pattern);
         incrRefCount(pattern);
         pat = zmalloc(sizeof(*pat));
@@ -248,9 +248,9 @@ int pubsubPublishMessage(robj *channel, robj *message) {
             pubsubPattern *pat = ln->value;
 
             if (stringmatchlen((char*)pat->pattern->ptr,
-                                sdslen(pat->pattern->ptr),
+                                (int)sdslen(pat->pattern->ptr),
                                 (char*)channel->ptr,
-                                sdslen(channel->ptr),0)) {
+                                (int)sdslen(channel->ptr),0)) {
                 addReply(pat->client,shared.mbulkhdr[4]);
                 addReply(pat->client,shared.pmessagebulk);
                 addReplyBulk(pat->client,pat->pattern);

@@ -42,12 +42,18 @@
 #include <string.h>
 #include <time.h>
 #include <limits.h>
+#ifndef _WIN32
 #include <unistd.h>
-#include <errno.h>
 #include <inttypes.h>
+#endif
+#include <errno.h>
+#ifdef _WIN32
+#include "win32_Interop/win32fixes.h"
+#else
 #include <pthread.h>
 #include <syslog.h>
 #include <netinet/in.h>
+#endif
 #include <lua.h>
 #include <signal.h>
 
@@ -61,6 +67,8 @@
 #include "intset.h"  /* Compact integer set structure */
 #include "version.h" /* Version macro */
 #include "util.h"    /* Misc functions useful in many places */
+
+#include "redisLog.h" /* moved logging for hiredis and RedisCli usage /*
 
 /* Error codes */
 #define REDIS_OK                0
@@ -79,7 +87,11 @@
 #define REDIS_SHARED_SELECT_CMDS 10
 #define REDIS_SHARED_INTEGERS 10000
 #define REDIS_SHARED_BULKHDR_LEN 32
+#ifdef _WIN32
+// see redisLog.h
+#else
 #define REDIS_MAX_LOGMSG_LEN    1024 /* Default maximum length of syslog messages */
+#endif
 #define REDIS_AOF_REWRITE_PERC  100
 #define REDIS_AOF_REWRITE_MIN_SIZE (1024*1024)
 #define REDIS_AOF_REWRITE_ITEMS_PER_CMD 64
@@ -178,6 +190,11 @@
 #define REDIS_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
 #define REDIS_ENCODING_INTSET 6  /* Encoded as intset */
 #define REDIS_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
+#ifdef _WIN32
+#define REDIS_ENCODING_HTARRAY  12        /* read-only dict array for bgsave */
+#define REDIS_ENCODING_LINKEDLISTARRAY 13 /* read-only list array for bgsave */
+#define REDIS_ENCODING_HTZARRAY  14       /* read-only zset dict array for bgsave */
+#endif
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
@@ -272,6 +289,9 @@
 #define REDIS_SORT_DESC 2
 #define REDIS_SORTKEY_MAX 1024
 
+#ifdef _WIN32
+// see redisLog.h
+#else
 /* Log levels */
 #define REDIS_DEBUG 0
 #define REDIS_VERBOSE 1
@@ -279,6 +299,7 @@
 #define REDIS_WARNING 3
 #define REDIS_LOG_RAW (1<<10) /* Modifier to log without timestamp */
 #define REDIS_DEFAULT_VERBOSITY REDIS_NOTICE
+#endif
 
 /* Anti-warning macro... */
 #define REDIS_NOTUSED(V) ((void) V)
@@ -467,8 +488,14 @@ typedef struct redisClient {
     int authenticated;      /* when requirepass is non-NULL */
     int replstate;          /* replication state if this is a slave */
     int repldbfd;           /* replication DB file descriptor */
-    off_t repldboff;        /* replication DB file offset */
+#ifdef _WIN32
+    char replFileCopy[_MAX_PATH];   
+    long long repldboff;        /* replication DB file offset */
+    long long repldbsize;       /* replication DB file size */
+#else
+    long repldboff;         /* replication DB file offset */
     off_t repldbsize;       /* replication DB file size */
+#endif
     long long reploff;      /* replication offset if this is our master */
     long long repl_ack_off; /* replication ack offset, if this is a slave */
     long long repl_ack_time;/* replication ack time, if this is a slave */
@@ -597,8 +624,13 @@ struct redisServer {
     char neterr[ANET_ERR_LEN];  /* Error buffer for anet.c */
     /* RDB / AOF loading information */
     int loading;                /* We are loading data from disk if true */
+#ifdef _WIN32
+    long long loading_total_bytes;
+    long long loading_loaded_bytes;
+#else
     off_t loading_total_bytes;
     off_t loading_loaded_bytes;
+#endif
     time_t loading_start_time;
     off_t loading_process_events_interval_bytes;
     /* Fast pointers to often looked up command */
@@ -643,9 +675,15 @@ struct redisServer {
     char *aof_filename;             /* Name of the AOF file */
     int aof_no_fsync_on_rewrite;    /* Don't fsync if a rewrite is in prog. */
     int aof_rewrite_perc;           /* Rewrite AOF if % growth is > M and... */
+#ifdef _WIN32
+    long long aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
+    long long aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
+    long long aof_current_size;         /* AOF current size. */
+#else
     off_t aof_rewrite_min_size;     /* the AOF file is at least N bytes. */
     off_t aof_rewrite_base_size;    /* AOF size on latest startup or rewrite. */
     off_t aof_current_size;         /* AOF current size. */
+#endif
     int aof_rewrite_scheduled;      /* Rewrite once BGSAVE terminates. */
     pid_t aof_child_pid;            /* PID if rewriting process */
     list *aof_rewrite_buf_blocks;   /* Hold changes during an AOF rewrite. */
@@ -801,7 +839,11 @@ struct redisCommand {
 
 struct redisFunctionSym {
     char *name;
+#ifdef _WIN32
+    size_t pointer;
+#else
     unsigned long pointer;
+#endif
 };
 
 typedef struct _redisSortObject {
@@ -926,7 +968,7 @@ unsigned long getClientOutputBufferMemoryUsage(redisClient *c);
 void freeClientsInAsyncFreeQueue(void);
 void asyncCloseClientOnOutputBufferLimitReached(redisClient *c);
 int getClientLimitClassByName(char *name);
-char *getClientLimitClassName(int class);
+char *getClientLimitClassName(int cl);
 void flushSlavesOutputBuffers(void);
 void disconnectSlaves(void);
 
@@ -1035,6 +1077,10 @@ void stopLoading(void);
 
 /* RDB persistence */
 #include "rdb.h"
+#ifdef _WIN32
+robj *cowEnsureWriteCopy(redisDb *db, robj *key, robj *val);
+void cowEnsureExpiresCopy(redisDb *db);
+#endif
 
 /* AOF persistence */
 void flushAppendOnlyFile(int force);
@@ -1155,6 +1201,9 @@ int removeExpire(redisDb *db, robj *key);
 void propagateExpire(redisDb *db, robj *key);
 int expireIfNeeded(redisDb *db, robj *key);
 long long getExpire(redisDb *db, robj *key);
+#ifdef _WIN32
+time_t getExpireForSave(redisDb *db, robj *key);
+#endif
 void setExpire(redisDb *db, robj *key, long long when);
 robj *lookupKey(redisDb *db, robj *key);
 robj *lookupKeyRead(redisDb *db, robj *key);
@@ -1354,7 +1403,9 @@ void _redisAssert(char *estr, char *file, int line);
 void _redisPanic(char *msg, char *file, int line);
 void bugReportStart(void);
 void redisLogObjectDebugInfo(robj *o);
+#ifdef HAVE_BACKTRACE
 void sigsegvHandler(int sig, siginfo_t *info, void *secret);
+#endif
 sds genRedisInfoString(char *section);
 void enableWatchdog(int period);
 void disableWatchdog(void);

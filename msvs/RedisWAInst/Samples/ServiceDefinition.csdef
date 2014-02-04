@@ -1,0 +1,53 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<ServiceDefinition name="Redis.WorkerRole" xmlns="http://schemas.microsoft.com/ServiceHosting/2008/10/ServiceDefinition" schemaVersion="2012-10.1.8">
+  
+  <WorkerRole name="RedisMaster" vmsize="Small">
+    <Runtime executionContext="elevated">
+      <EntryPoint>
+        <NetFxEntryPoint assemblyName="RedisServer.dll" targetFrameworkVersion="v4.0" />
+      </EntryPoint>
+    </Runtime>
+    <Startup>
+      <Task taskType="simple" commandLine="startup.cmd" executionContext="elevated">
+        <Environment></Environment>
+      </Task>
+    </Startup>
+    <Endpoints>
+      <InternalEndpoint name="RedisMasterServiceEndpoint" protocol="tcp"/>
+      <InputEndpoint name="RedisMasterEndpoint" protocol="tcp" port="6379" localPort="6380"/>
+    </Endpoints>
+    <Imports>
+      <Import moduleName="Diagnostics" />
+    </Imports>
+    <ConfigurationSettings>
+      <Setting name="DataConnectionString" />
+      <!--<Setting name="RedisMasterHostWorkerRoleExternalEndpointPort" />-->
+      <Setting name="CloudDriveSize" />
+    </ConfigurationSettings>
+  </WorkerRole>
+    
+  <WorkerRole name="RedisSlave" vmsize="Small">
+    <Runtime executionContext="elevated">
+      <EntryPoint>
+        <NetFxEntryPoint assemblyName="RedisServer.dll" targetFrameworkVersion="v4.0" />
+      </EntryPoint>
+    </Runtime>
+    <Startup>
+      <Task taskType="simple" commandLine="startup.cmd" executionContext="elevated">
+        <Environment></Environment>
+      </Task>
+    </Startup>
+    <Endpoints>
+      <InternalEndpoint name="RedisSlaveServiceEndpoint" protocol="tcp"/>
+      <InputEndpoint name="RedisSlave" protocol="tcp" port="6179" localPort="6180" />
+    </Endpoints>
+    <Imports>
+      <Import moduleName="Diagnostics" />
+    </Imports>
+    <ConfigurationSettings>
+      <Setting name="DataConnectionString" />
+      <Setting name="RedisMasterHostWorkerRoleExternalEndpointPort" />
+      <Setting name="CloudDriveSize" />
+    </ConfigurationSettings>
+  </WorkerRole>
+</ServiceDefinition>

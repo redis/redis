@@ -60,6 +60,9 @@
 
 #include "redis.h"
 #include "bio.h"
+#ifdef _WIN32
+#include "win32_Interop/win32fixes.h"
+#endif
 
 static pthread_t bio_threads[REDIS_BIO_NUM_OPS];
 static pthread_mutex_t bio_mutex[REDIS_BIO_NUM_OPS];
@@ -108,7 +111,7 @@ void bioInit(void) {
     pthread_attr_getstacksize(&attr,&stacksize);
     if (!stacksize) stacksize = 1; /* The world is full of Solaris Fixes */
     while (stacksize < REDIS_THREAD_STACK_SIZE) stacksize *= 2;
-    pthread_attr_setstacksize(&attr, stacksize);
+    pthread_attr_setstacksize(&attr, ((ssize_t)stacksize));
 
     /* Ready to spawn our threads. We use the single argument the thread
      * function accepts in order to pass the job ID the thread is
@@ -139,13 +142,22 @@ void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3) {
 
 void *bioProcessBackgroundJobs(void *arg) {
     struct bio_job *job;
+#ifdef _WIN32
+    size_t type = (size_t) arg;
+#else
     unsigned long type = (unsigned long) arg;
+#endif
     sigset_t sigset;
 
     /* Make the thread killable at any time, so that bioKillThreads()
      * can work reliably. */
+#ifndef _WIN32
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+#else
+    // if the ptherad support is important, then the current implementation in win32fixes.h 
+    // needs much rework. Cancellability requires a shared event.
+#endif
 
     pthread_mutex_lock(&bio_mutex[type]);
     /* Block SIGALRM so we are sure that only the main thread will
@@ -203,6 +215,7 @@ unsigned long long bioPendingJobsOfType(int type) {
  * Currently Redis does this only on crash (for instance on SIGSEGV) in order
  * to perform a fast memory check without other threads messing with memory. */
 void bioKillThreads(void) {
+#ifndef _WIN32
     int err, j;
 
     for (j = 0; j < REDIS_BIO_NUM_OPS; j++) {
@@ -217,4 +230,8 @@ void bioKillThreads(void) {
             }
         }
     }
+#else
+    // pthreads routines in win32fixes needs rework for this to work properly. 
+    // utility of this is questionable on windows.
+#endif
 }

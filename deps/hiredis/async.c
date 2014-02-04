@@ -32,7 +32,9 @@
 #include "fmacros.h"
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <strings.h>
+#endif
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
@@ -40,6 +42,9 @@
 #include "net.h"
 #include "dict.c"
 #include "sds.h"
+#ifdef _WIN32
+  #include "../../src/win32_Interop/win32fixes.h"
+#endif
 
 #define _EL_ADD_READ(ctx) do { \
         if ((ctx)->ev.addRead) (ctx)->ev.addRead((ctx)->ev.data); \
@@ -57,23 +62,28 @@
         if ((ctx)->ev.cleanup) (ctx)->ev.cleanup((ctx)->ev.data); \
     } while(0);
 
+#ifdef _WIN32
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+#endif
+
 /* Forward declaration of function in hiredis.c */
 void __redisAppendCommand(redisContext *c, char *cmd, size_t len);
 
 /* Functions managing dictionary of callbacks for pub/sub. */
 static unsigned int callbackHash(const void *key) {
-    return dictGenHashFunction((unsigned char*)key,sdslen((char*)key));
+    return dictGenHashFunction((unsigned char*)key,(int)sdslen((char*)key));
 }
 
 static void *callbackValDup(void *privdata, const void *src) {
-    ((void) privdata);
     redisCallback *dup = malloc(sizeof(*dup));
+    ((void) privdata);
     memcpy(dup,src,sizeof(*dup));
     return dup;
 }
 
 static int callbackKeyCompare(void *privdata, const void *key1, const void *key2) {
-    int l1, l2;
+    size_t l1, l2;
     ((void) privdata);
 
     l1 = sdslen((sds)key1);
@@ -141,12 +151,26 @@ static void __redisAsyncCopyError(redisAsyncContext *ac) {
     ac->errstr = c->errstr;
 }
 
+#ifdef WIN32_IOCP
+redisAsyncContext *redisAsyncConnect(const char *ip, int port) {
+    struct sockaddr_in sa;
+    redisContext *c = redisPreConnectNonBlock(ip, port, &sa);
+    redisAsyncContext *ac = redisAsyncInitialize(c);
+    if (aeWinSocketConnect(c->fd, (struct sockaddr *)&sa, sizeof(sa)) != 0) {
+        c->err = errno;
+        strerror_r(errno,c->errstr,sizeof(c->errstr));
+    }
+    __redisAsyncCopyError(ac);
+    return ac;
+}
+#else
 redisAsyncContext *redisAsyncConnect(const char *ip, int port) {
     redisContext *c = redisConnectNonBlock(ip,port);
     redisAsyncContext *ac = redisAsyncInitialize(c);
     __redisAsyncCopyError(ac);
     return ac;
 }
+#endif
 
 redisAsyncContext *redisAsyncConnectUnix(const char *path) {
     redisContext *c = redisConnectUnixNonBlock(path);
@@ -442,7 +466,7 @@ void redisProcessCallbacks(redisAsyncContext *ac) {
 static int __redisAsyncHandleConnect(redisAsyncContext *ac) {
     redisContext *c = &(ac->c);
 
-    if (redisCheckSocketError(c,c->fd) == REDIS_ERR) {
+    if (redisCheckSocketError(c,(int)c->fd) == REDIS_ERR) {
         /* Try again later when connect(2) is still in progress. */
         if (errno == EINPROGRESS)
             return REDIS_OK;
@@ -508,6 +532,46 @@ void redisAsyncHandleWrite(redisAsyncContext *ac) {
         _EL_ADD_READ(ac);
     }
 }
+
+#ifdef _WIN32
+/* The redisAsyncHandleWrite is split into a Prep and Complete routines
+   To allow using a write routine suitable for async behavior.
+   For Windows this will use IOCP on write. */
+int redisAsyncHandleWritePrep(redisAsyncContext *ac) {
+    redisContext *c = &(ac->c);
+
+    if (!(c->flags & REDIS_CONNECTED)) {
+        /* Abort connect was not successful. */
+        if (__redisAsyncHandleConnect(ac) != REDIS_OK)
+            return REDIS_ERR;
+        /* Try again later when the context is still not connected. */
+        if (!(c->flags & REDIS_CONNECTED))
+            return REDIS_ERR;
+    }
+    return REDIS_OK;
+}
+
+int redisAsyncHandleWriteComplete(redisAsyncContext *ac, int written) {
+    redisContext *c = &(ac->c);
+    int done = 0;
+    int rc;
+
+    rc = redisBufferWriteDone(c, written, &done);
+    if (rc == REDIS_ERR) {
+        __redisAsyncDisconnect(ac);
+    } else {
+        /* Continue writing when not done, stop writing otherwise */
+        if (!done)
+            _EL_ADD_WRITE(ac);
+        else
+            _EL_DEL_WRITE(ac);
+
+        /* Always schedule reads after writes */
+        _EL_ADD_READ(ac);
+    }
+    return REDIS_OK;
+}
+#endif
 
 /* Sets a pointer to the first argument and its length starting at p. Returns
  * the number of bytes to skip to get to the following argument. */

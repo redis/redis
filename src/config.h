@@ -39,8 +39,13 @@
 #define redis_fstat fstat64
 #define redis_stat stat64
 #else
+#ifdef _WIN32
+#define redis_fstat fdapi_fstat64
+#define redis_stat __stat64
+#else
 #define redis_fstat fstat
 #define redis_stat stat
+#endif
 #endif
 
 /* Test for proc filesystem */
@@ -172,6 +177,12 @@ void setproctitle(const char *fmt, ...);
 #define BYTE_ORDER BIG_ENDIAN
 #endif
 #endif
+#endif
+#endif
+
+#ifdef _WIN32
+#ifndef BYTE_ORDER
+#define BYTE_ORDER LITTLE_ENDIAN
 #endif
 #endif
 

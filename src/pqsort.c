@@ -41,12 +41,17 @@
 
 #include <errno.h>
 #include <stdlib.h>
+#ifdef _WIN32
+#define inline __inline
+#endif
 
 static inline char	*med3 (char *, char *, char *,
     int (*)(const void *, const void *));
 static inline void	 swapfunc (char *, char *, size_t, int);
 
+#ifndef _WIN32
 #define min(a, b)	(a) < (b) ? a : b
+#endif
 
 /*
  * Qsort routine from Bentley & McIlroy's "Engineering a Sort Function".
@@ -62,8 +67,14 @@ static inline void	 swapfunc (char *, char *, size_t, int);
         } while (--i > 0);				\
 }
 
+
+#ifdef _WIN32
+#define SWAPINIT(a, es) swaptype = ((char *)a - (char *)0) % sizeof(size_t) || \
+	es % sizeof(size_t) ? 2 : es == sizeof(size_t)? 0 : 1;
+#else
 #define SWAPINIT(a, es) swaptype = ((char *)a - (char *)0) % sizeof(long) || \
 	es % sizeof(long) ? 2 : es == sizeof(long)? 0 : 1;
+#endif
 
 static inline void
 swapfunc(char *a, char *b, size_t n, int swaptype)

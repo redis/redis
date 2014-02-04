@@ -33,8 +33,12 @@
 #include <assert.h>
 #include <limits.h>
 #include <errno.h>
+#ifndef _WIN32
 #include <termios.h>
 #include <sys/ioctl.h>
+#else
+#include "win32_Interop/win32fixes.h"
+#endif
 #include "config.h"
 
 #if (ULONG_MAX == 4294967295UL)
@@ -51,6 +55,14 @@
 #else
 #define ULONG_ONEZERO 0xaaaaaaaaaaaaaaaaUL
 #define ULONG_ZEROONE 0x5555555555555555UL
+#endif
+
+#ifdef _WIN32
+typedef struct winsize
+{
+    unsigned short ws_row;
+    unsigned short ws_col;
+};
 #endif
 
 static struct winsize ws;
@@ -88,7 +100,7 @@ void memtest_progress_step(size_t curr, size_t size, char c) {
  * address, and finally verified. This test is very fast but may detect
  * ASAP big issues with the memory subsystem. */
 void memtest_addressing(unsigned long *l, size_t bytes) {
-    unsigned long words = bytes/sizeof(unsigned long);
+    unsigned long words = (unsigned long)(bytes/sizeof(unsigned long));
     unsigned long j, *p;
 
     /* Fill */
@@ -116,8 +128,8 @@ void memtest_addressing(unsigned long *l, size_t bytes) {
  * effectiveness of caches, and making it hard for the OS to transfer
  * pages on the swap. */
 void memtest_fill_random(unsigned long *l, size_t bytes) {
-    unsigned long step = 4096/sizeof(unsigned long);
-    unsigned long words = bytes/sizeof(unsigned long)/2;
+    unsigned long step = (unsigned long)(4096/sizeof(unsigned long));
+    unsigned long words = (unsigned long)(bytes/sizeof(unsigned long)/2);
     unsigned long iwords = words/step;  /* words per iteration */
     unsigned long off, w, *l1, *l2;
 
@@ -148,8 +160,8 @@ void memtest_fill_random(unsigned long *l, size_t bytes) {
 void memtest_fill_value(unsigned long *l, size_t bytes, unsigned long v1,
                         unsigned long v2, char sym)
 {
-    unsigned long step = 4096/sizeof(unsigned long);
-    unsigned long words = bytes/sizeof(unsigned long)/2;
+    unsigned long step = (unsigned long)(4096/sizeof(unsigned long));
+    unsigned long words = (unsigned long)(bytes/sizeof(unsigned long)/2);
     unsigned long iwords = words/step;  /* words per iteration */
     unsigned long off, w, *l1, *l2, v;
 
@@ -177,7 +189,7 @@ void memtest_fill_value(unsigned long *l, size_t bytes, unsigned long v1,
 }
 
 void memtest_compare(unsigned long *l, size_t bytes) {
-    unsigned long words = bytes/sizeof(unsigned long)/2;
+    unsigned long words = (unsigned long)(bytes/sizeof(unsigned long)/2);
     unsigned long w, *l1, *l2;
 
     assert((bytes & 4095) == 0);
@@ -211,8 +223,13 @@ void memtest_test(size_t megabytes, int passes) {
     int pass = 0;
 
     if (m == NULL) {
+#ifdef _WIN32
+        fprintf(stderr,"Unable to allocate %llu megabytes: %s",
+            (long long)megabytes, strerror(errno));
+#else
         fprintf(stderr,"Unable to allocate %zu megabytes: %s",
             megabytes, strerror(errno));
+#endif
         exit(1);
     }
     while (pass != passes) {
@@ -266,10 +283,24 @@ void memtest_non_destructive_swap(void *addr, size_t size) {
 }
 
 void memtest(size_t megabytes, int passes) {
+#ifdef _WIN32
+    HANDLE hOut;
+    CONSOLE_SCREEN_BUFFER_INFO b;
+
+    hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (GetConsoleScreenBufferInfo(hOut, &b)) {
+        ws.ws_col = b.dwSize.X;
+        ws.ws_row = b.dwSize.Y;
+    } else {
+        ws.ws_col = 80;
+        ws.ws_row = 20;
+    }
+#else
     if (ioctl(1, TIOCGWINSZ, &ws) == -1) {
         ws.ws_col = 80;
         ws.ws_row = 20;
     }
+#endif
     memtest_test(megabytes,passes);
     printf("\nYour memory passed this test.\n");
     printf("Please if you are still in doubt use the following two tools:\n");

@@ -38,7 +38,9 @@
 #ifndef __REDIS_ASSERT_H__
 #define __REDIS_ASSERT_H__
 
+#ifndef _WIN32
 #include <unistd.h> /* for _exit() */
+#endif
 
 #define assert(_e) ((_e)?(void)0 : (_redisAssert(#_e,__FILE__,__LINE__),_exit(1)))
 

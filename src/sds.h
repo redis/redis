@@ -36,6 +36,10 @@
 #include <sys/types.h>
 #include <stdarg.h>
 
+#ifdef _WIN32
+//#define inline __inline
+#endif
+
 typedef char *sds;
 
 struct sdshdr {
@@ -44,12 +48,12 @@ struct sdshdr {
     char buf[];
 };
 
-static inline size_t sdslen(const sds s) {
+static __inline size_t sdslen(const sds s) {
     struct sdshdr *sh = (void*)(s-(sizeof(struct sdshdr)));
     return sh->len;
 }
 
-static inline size_t sdsavail(const sds s) {
+static __inline size_t sdsavail(const sds s) {
     struct sdshdr *sh = (void*)(s-(sizeof(struct sdshdr)));
     return sh->free;
 }
