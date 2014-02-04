@@ -14,6 +14,28 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.5 ] Release date: 4 Feb 2014
+
+# UPGRADE URGENCY: HIGH for Redis, LOW for Sentinel. Redis users using Lua
+                   scripts with expires, and Redis users relying on the
+                   ability of Redis to block writes on RDB saving errors
+                   should plan to upgrade ASAP.
+
+* [FIX] Fixed a replication bug caused by Lua scripts + expired keys: keys could
+        expire in the middle of scripts causing non-deterministic behavior.
+* [FIX] MISCONFIG error if condition fixed, the server was no longer able
+        to stop writes on RDB misconfiguration after this error was introduced.
+* [FIX] REDIS_AOF_REWRITE_MIN_SIZE is now 64mb like example redis.conf default.
+* [FIX] Perform fflush() before fsync() in rio.c (bug without actual effects).
+* [FIX] Don't log MONITOR clients as disconnecting slaves.
+* [FIX] SENTINEL MASTER arity check fixed. Crashed the Sentinel instance when
+        the command was given without arguments.
+
+* [NEW] Allow CONFIG and SHUTDOWN while in stale-slave state.
+* [NEW] Support for configurable TCP listen(2) backlog size.
+* [NEW] redis-cli supports SCAN via the --scan and --pattern options.
+* [NEW] SENTINEL SET master quorum via runtime API implemented.
+
 --[ Redis 2.8.4 ] Release date: 13 Jan 2014
 
 # UPGRADE URGENCY: MODERATE for Redis and Sentinel.
