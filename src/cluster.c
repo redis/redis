@@ -1896,6 +1896,10 @@ void clusterRequestFailoverAuth(void) {
     uint32_t totlen;
 
     clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST);
+    /* If this is a manual failover, set the CLUSTERMSG_FLAG0_FORCEACK bit
+     * in the header to communicate the nodes receiving the message that
+     * they should authorized the failover even if the master is working. */
+    if (server.cluster->mf_end) hdr->mflags[0] |= CLUSTERMSG_FLAG0_FORCEACK;
     totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
     hdr->totlen = htonl(totlen);
     clusterBroadcastMessage(buf,totlen);
@@ -1933,6 +1937,7 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     uint64_t requestCurrentEpoch = ntohu64(request->currentEpoch);
     uint64_t requestConfigEpoch = ntohu64(request->configEpoch);
     unsigned char *claimed_slots = request->myslots;
+    int force_ack = request->mflags[0] & CLUSTERMSG_FLAG0_FORCEACK;
     int j;
 
     /* IF we are not a master serving at least 1 slot, we don't have the
@@ -1947,8 +1952,11 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     /* I already voted for this epoch? Return ASAP. */
     if (server.cluster->last_vote_epoch == server.cluster->currentEpoch) return;
 
-    /* Node must be a slave and its master down. */
-    if (nodeIsMaster(node) || master == NULL || !nodeFailed(master)) return;
+    /* Node must be a slave and its master down.
+     * The master can be non failing if the request is flagged
+     * with CLUSTERMSG_FLAG0_FORCEACK (manual failover). */
+    if (nodeIsMaster(node) || master == NULL ||
+        (!nodeFailed(master) && !force_ack)) return;
 
     /* We did not voted for a slave about this master for two
      * times the node timeout. This is not strictly needed for correctness
