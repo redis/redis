@@ -122,7 +122,9 @@ const int cMaxBlocks = 1 << 16;                                  // 64KB*64K sec
 const SIZE_T cSystemReserve = 3 * 1024i64 * 1024i64 * 1024i64;   // Reserve left for Windows to operate on when we are heavily loaded.
 const wchar_t* cMapFileBaseName = L"RedisQFork";
 const char* qforkFlag = "--QFork";
+const char* maxheapgbFlag = "--maxheapgb";
 const int cDeadForkWait = 30000;
+const SIZE_T cBytesInGB = (SIZE_T)1024 * (SIZE_T)1024 * (SIZE_T)1024;
 
 typedef enum BlockState {
     bsINVALID = 0,
@@ -248,167 +250,189 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
 }
 
 
-BOOL QForkMasterInit() {
-    // allocate file map for qfork control so it can be passed to the forked process
-    g_hQForkControlFileMap = CreateFileMappingW(
-        INVALID_HANDLE_VALUE,
-        NULL,
-        PAGE_READWRITE,
-        0, sizeof(QForkControl),
-        NULL);
-    if (g_hQForkControlFileMap == NULL) {
-        printf( "Problem with CreateFileMapping\n");
-        errno = EBADF;
-        goto err;
-    }
-
-    g_pQForkControl = (QForkControl*)MapViewOfFile(
-        g_hQForkControlFileMap, 
-        FILE_MAP_ALL_ACCESS,
-        0, 0,
-        0);
-    if (g_pQForkControl == NULL) {
-        printf( "Problem with MapViewOfFile\n");
-        errno = ENOMEM;
-        goto err;
-    }
-
-    // This must be called only once per process! Calling it more times than that will not recreate existing 
-    // section, and dlmalloc will ultimately fail with an access violation. Once is good.
-    if (dlmallopt(M_GRANULARITY, cAllocationGranularity) == 0) {
-        printf( "DLMalloc failed initializing allocation granularity.\n");
-        errno = ENOMEM;
-        goto err;
-    }
-    g_pQForkControl->heapBlockSize = cAllocationGranularity;
-
-    // determine the number of blocks we can allocate
-    MEMORYSTATUSEX ms;
-    ms.dwLength = sizeof(MEMORYSTATUSEX);
-    GlobalMemoryStatusEx(&ms);
-    SIZE_T maxPhysicalMapping = ms.ullTotalPhys - cSystemReserve;
-    g_pQForkControl->availableBlocksInHeap = (int)(maxPhysicalMapping / cAllocationGranularity);
-    if (g_pQForkControl->availableBlocksInHeap <= 0) {
-        printf( "Not enough physical memory to initialize Redis. Physical memory must be greater than 3GB.\n");
-        errno = ENOMEM;
-        goto err;
-    }
-
-    wchar_t heapMemoryMapPath[MAX_PATH];
-    swprintf_s( 
-        heapMemoryMapPath, 
-        MAX_PATH, 
-        L"%s_%d.dat", 
-        cMapFileBaseName, 
-        GetCurrentProcessId());
-
-    g_pQForkControl->heapMemoryMapFile = 
-        CreateFileW( 
-            heapMemoryMapPath,
-            GENERIC_READ | GENERIC_WRITE,
-            0,
-            NULL,
-            CREATE_ALWAYS,
-            FILE_ATTRIBUTE_NORMAL| FILE_FLAG_DELETE_ON_CLOSE,
-            NULL );
-    if (g_pQForkControl->heapMemoryMapFile == INVALID_HANDLE_VALUE) {
-        printf( "Problem creating memory mapped file.\n");
-        errno = EBADF;
-        goto err;
-    }
-
-    SIZE_T mmSize = g_pQForkControl->availableBlocksInHeap * cAllocationGranularity;
-    g_pQForkControl->heapMemoryMap = 
-        CreateFileMappingW( 
-            g_pQForkControl->heapMemoryMapFile,
+BOOL QForkMasterInit( int maxHeapGB ) {
+    try {
+        // allocate file map for qfork control so it can be passed to the forked process
+        g_hQForkControlFileMap = CreateFileMappingW(
+            INVALID_HANDLE_VALUE,
             NULL,
             PAGE_READWRITE,
-            HIDWORD(mmSize),
-            LODWORD(mmSize),
+            0, sizeof(QForkControl),
             NULL);
-    if (g_pQForkControl->heapMemoryMap == NULL) {
-        printf( "Problem mapping heap.\n");
-        errno = EBADF;
-        goto err;
-    }
-            
-    // Find a place in the virtual memory space where we can reserve space for our allocations that is likely
-    // to be available in the forked process.  (If this ever fails in the forked process, we will have to launch
-    // the forked process and negotiate for a shared memory address here.)
-    LPVOID pHigh = VirtualAllocEx( 
-        GetCurrentProcess(),
-        NULL,
-        mmSize,
-        MEM_RESERVE | MEM_COMMIT | MEM_TOP_DOWN, 
-        PAGE_READWRITE);
-    if (pHigh == NULL) {
-        printf( "Viirtual memory reservation failed.\n");
-        DWORD err = GetLastError();
-        errno = ENOMEM;
-        goto err;
-    }
-    if (VirtualFree(pHigh, 0, MEM_RELEASE) == FALSE) {
-        DWORD err = GetLastError();
-        errno = ENOMEM;
-        goto err;
-    }
+        if (g_hQForkControlFileMap == NULL) {
+            throw std::system_error(
+                GetLastError(),
+                system_category(),
+                "QForkMasterInit: CreateFileMapping failed");
+        }
 
-    g_pQForkControl->heapStart = 
-        MapViewOfFileEx(
-            g_pQForkControl->heapMemoryMap,
+        g_pQForkControl = (QForkControl*)MapViewOfFile(
+            g_hQForkControlFileMap, 
             FILE_MAP_ALL_ACCESS,
-            0,0,                            
-            0,  
-            pHigh);
-    if (g_pQForkControl->heapStart == NULL) {
-        printf( "Mapping view of heap failed.\n");
-        DWORD err = GetLastError();
-        errno = ENOMEM;
-        goto err;
-    }
+            0, 0,
+            0);
+        if (g_pQForkControl == NULL) {
+            throw std::system_error(
+                GetLastError(),
+                system_category(),
+                "QForkMasterInit: MapViewOfFile failed");
+        }
 
-    for (int n = 0; n < cMaxBlocks; n++) {
-        g_pQForkControl->heapBlockMap[n] = 
-            ((n < g_pQForkControl->availableBlocksInHeap) ?
-            BlockState::bsUNMAPPED : BlockState::bsINVALID);
-    }
+        // This must be called only once per process! Calling it more times than that will not recreate existing 
+        // section, and dlmalloc will ultimately fail with an access violation. Once is good.
+        if (dlmallopt(M_GRANULARITY, cAllocationGranularity) == 0) {
+            throw std::system_error(
+                GetLastError(),
+                system_category(),
+                "QForkMasterInit: DLMalloc failed initializing allocation granularity.");
+        }
+        g_pQForkControl->heapBlockSize = cAllocationGranularity;
 
-    g_pQForkControl->typeOfOperation = OperationType::otINVALID;
-    g_pQForkControl->forkedProcessReady = CreateEvent(NULL,TRUE,FALSE,NULL);
-    if (g_pQForkControl->forkedProcessReady == NULL) {
-        errno = EBADF;
-        goto err;
-    }
-    g_pQForkControl->startOperation = CreateEvent(NULL,TRUE,FALSE,NULL);
-    if (g_pQForkControl->startOperation == NULL) {
-        errno = EBADF;
-        goto err;
-    }
-    g_pQForkControl->operationComplete = CreateEvent(NULL,TRUE,FALSE,NULL);
-    if (g_pQForkControl->operationComplete == NULL) {
-        errno = EBADF;
-        goto err;
-    }
-    g_pQForkControl->operationFailed = CreateEvent(NULL,TRUE,FALSE,NULL);
-    if (g_pQForkControl->operationFailed == NULL) {
-        errno = EBADF;
-        goto err;
-    }
-    g_pQForkControl->terminateForkedProcess = CreateEvent(NULL,TRUE,FALSE,NULL);
-    if (g_pQForkControl->terminateForkedProcess == NULL) {
-        errno = EBADF;
-        goto err;
-    }
+        // determine the number of blocks we can allocate
+        MEMORYSTATUSEX ms;
+        ms.dwLength = sizeof(MEMORYSTATUSEX);
+        GlobalMemoryStatusEx(&ms);
+        SIZE_T maxPhysicalMapping = ms.ullTotalPhys - cSystemReserve;
+        if (maxHeapGB != -1) {
+            SIZE_T maxHeap = (SIZE_T)maxHeapGB * cBytesInGB;
+            maxPhysicalMapping = min(maxPhysicalMapping,maxHeap);
+        }
+        g_pQForkControl->availableBlocksInHeap = (int)(maxPhysicalMapping / cAllocationGranularity);
+        if (g_pQForkControl->availableBlocksInHeap <= 0) {
+            throw std::runtime_error(
+                "QForkMasterInit: Not enough physical memory to initialize Redis. Physical memory must be greater than 3GB.");
+        }
 
-    return TRUE;
+        wchar_t heapMemoryMapPath[MAX_PATH];
+        swprintf_s( 
+            heapMemoryMapPath, 
+            MAX_PATH, 
+            L"%s_%d.dat", 
+            cMapFileBaseName, 
+            GetCurrentProcessId());
 
-err:
-    printf( "Error ocurred initializing Redis.");
-    if( GetLastError() != 0 ) {
-        printf( " GetLastError() returns 0x%08x", GetLastError());
+        g_pQForkControl->heapMemoryMapFile = 
+            CreateFileW( 
+                heapMemoryMapPath,
+                GENERIC_READ | GENERIC_WRITE,
+                0,
+                NULL,
+                CREATE_ALWAYS,
+                FILE_ATTRIBUTE_NORMAL| FILE_FLAG_DELETE_ON_CLOSE,
+                NULL );
+        if (g_pQForkControl->heapMemoryMapFile == INVALID_HANDLE_VALUE) {
+            throw std::system_error(
+                GetLastError(),
+                system_category(),
+                "QForkMasterInit: CreateFileW failed.");
+        }
+
+        SIZE_T mmSize = g_pQForkControl->availableBlocksInHeap * cAllocationGranularity;
+        g_pQForkControl->heapMemoryMap = 
+            CreateFileMappingW( 
+                g_pQForkControl->heapMemoryMapFile,
+                NULL,
+                PAGE_READWRITE,
+                HIDWORD(mmSize),
+                LODWORD(mmSize),
+                NULL);
+        if (g_pQForkControl->heapMemoryMap == NULL) {
+            throw std::system_error(
+                GetLastError(),
+                system_category(),
+                "QForkMasterInit: CreateFileMapping failed.");
+        }
+            
+        // Find a place in the virtual memory space where we can reserve space for our allocations that is likely
+        // to be available in the forked process.  (If this ever fails in the forked process, we will have to launch
+        // the forked process and negotiate for a shared memory address here.)
+        LPVOID pHigh = VirtualAllocEx( 
+            GetCurrentProcess(),
+            NULL,
+            mmSize,
+            MEM_RESERVE | MEM_COMMIT | MEM_TOP_DOWN, 
+            PAGE_READWRITE);
+        if (pHigh == NULL) {
+            throw std::system_error(
+                GetLastError(),
+                system_category(),
+                "QForkMasterInit: VirtualAllocEx failed.");
+        }
+        if (VirtualFree(pHigh, 0, MEM_RELEASE) == FALSE) {
+            throw std::system_error(
+                GetLastError(),
+                system_category(),
+                "QForkMasterInit: VirtualFree failed.");
+        }
+
+        g_pQForkControl->heapStart = 
+            MapViewOfFileEx(
+                g_pQForkControl->heapMemoryMap,
+                FILE_MAP_ALL_ACCESS,
+                0,0,                            
+                0,  
+                pHigh);
+        if (g_pQForkControl->heapStart == NULL) {
+            throw std::system_error(
+                GetLastError(),
+                system_category(),
+                "QForkMasterInit: MapViewOfFileEx failed.");
+        }
+
+        for (int n = 0; n < cMaxBlocks; n++) {
+            g_pQForkControl->heapBlockMap[n] = 
+                ((n < g_pQForkControl->availableBlocksInHeap) ?
+                BlockState::bsUNMAPPED : BlockState::bsINVALID);
+        }
+
+        g_pQForkControl->typeOfOperation = OperationType::otINVALID;
+        g_pQForkControl->forkedProcessReady = CreateEvent(NULL,TRUE,FALSE,NULL);
+        if (g_pQForkControl->forkedProcessReady == NULL) {
+            throw std::system_error(
+                GetLastError(),
+                system_category(),
+                "QForkMasterInit: CreateEvent failed.");
+        }
+        g_pQForkControl->startOperation = CreateEvent(NULL,TRUE,FALSE,NULL);
+        if (g_pQForkControl->startOperation == NULL) {
+            throw std::system_error(
+                GetLastError(),
+                system_category(),
+                "QForkMasterInit: CreateEvent failed.");
+        }
+        g_pQForkControl->operationComplete = CreateEvent(NULL,TRUE,FALSE,NULL);
+        if (g_pQForkControl->operationComplete == NULL) {
+            throw std::system_error(
+                GetLastError(),
+                system_category(),
+                "QForkMasterInit: CreateEvent failed.");
+        }
+        g_pQForkControl->operationFailed = CreateEvent(NULL,TRUE,FALSE,NULL);
+        if (g_pQForkControl->operationFailed == NULL) {
+            throw std::system_error(
+                GetLastError(),
+                system_category(),
+                "QForkMasterInit: CreateEvent failed.");
+        }
+        g_pQForkControl->terminateForkedProcess = CreateEvent(NULL,TRUE,FALSE,NULL);
+        if (g_pQForkControl->terminateForkedProcess == NULL) {
+            throw std::system_error(
+                GetLastError(),
+                system_category(),
+                "QForkMasterInit: CreateEvent failed.");
+        }
+
+        return TRUE;
     }
-    printf( "\n");
-
+    catch(std::system_error syserr) {
+        printf("QForkMasterInit: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
+    }
+    catch(std::runtime_error runerr) {
+        printf("QForkMasterInit: runtime error caught. message=%s\n", runerr.what());
+    }
+    catch(...) {
+        printf("QForkMasterInit: other exception caught.\n");
+    }
     return FALSE;
 }
 
@@ -418,6 +442,7 @@ StartupStatus QForkStartup(int argc, char** argv) {
     bool foundSlaveFlag = false;
     HANDLE QForkConrolMemoryMapHandle = NULL;
     DWORD PPID = 0;
+    int maxHeapGB = -1;
     if ((argc == 3) && (strcmp(argv[0], qforkFlag) == 0)) {
         // slave command line looks like: --QFork [QForkConrolMemoryMap handle] [parent process id]
         foundSlaveFlag = true;
@@ -425,12 +450,28 @@ StartupStatus QForkStartup(int argc, char** argv) {
         QForkConrolMemoryMapHandle = (HANDLE)strtoul(argv[1],&endPtr,10);
         char* end = NULL;
         PPID = strtoul(argv[2], &end, 10);
+    } else {
+        for (int n = 0; n < argc - 1; n++) {
+            if (_stricmp(argv[n],maxheapgbFlag) == 0) {
+                maxHeapGB = atoi(argv[n+1]);
+                if (maxHeapGB == 0) {
+                    printf (
+                        "%s specified. Unable to convert %s to the maximum number of gigabytes to use for the heap.\n", 
+                        maxheapgbFlag,
+                        argv[n+1] );
+                    printf( "Failing startup.\n");
+                    return StartupStatus::ssFAILED;
+                } else {
+                    break;
+                }
+            }
+        }
     }
 
     if (foundSlaveFlag) {
         return QForkSlaveInit( QForkConrolMemoryMapHandle, PPID ) ? StartupStatus::ssSLAVE_EXIT : StartupStatus::ssFAILED;
     } else {
-        return QForkMasterInit() ? StartupStatus::ssCONTINUE_AS_MASTER : StartupStatus::ssFAILED;
+        return QForkMasterInit(maxHeapGB) ? StartupStatus::ssCONTINUE_AS_MASTER : StartupStatus::ssFAILED;
     }
 }
 
@@ -599,8 +640,8 @@ BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, i
     catch(std::system_error syserr) {
         printf("BeginForkOperation: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
     }
-    catch(std::runtime_error syserr) {
-        printf("BeginForkOperation: runtime error caught. message=%s\n", syserr.what());
+    catch(std::runtime_error runerr) {
+        printf("BeginForkOperation: runtime error caught. message=%s\n", runerr.what());
     }
     catch(...) {
         printf("BeginForkOperation: other exception caught.\n");
