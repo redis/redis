@@ -59,7 +59,7 @@ fi
 #read the redis config file
 _REDIS_CONFIG_FILE="/etc/redis/$REDIS_PORT.conf"
 read -p "Please select the redis config file name [$_REDIS_CONFIG_FILE] " REDIS_CONFIG_FILE
-if [ !"$REDIS_CONFIG_FILE" ] ; then
+if [ ! "$REDIS_CONFIG_FILE" ] ; then
 	REDIS_CONFIG_FILE=$_REDIS_CONFIG_FILE
 	echo "Selected default - $REDIS_CONFIG_FILE"
 fi
@@ -69,7 +69,7 @@ mkdir -p `dirname "$REDIS_CONFIG_FILE"` || die "Could not create redis config di
 #read the redis log file path
 _REDIS_LOG_FILE="/var/log/redis_$REDIS_PORT.log"
 read -p "Please select the redis log file name [$_REDIS_LOG_FILE] " REDIS_LOG_FILE
-if [ !"$REDIS_LOG_FILE" ] ; then
+if [ ! "$REDIS_LOG_FILE" ] ; then
 	REDIS_LOG_FILE=$_REDIS_LOG_FILE
 	echo "Selected default - $REDIS_LOG_FILE"
 fi
@@ -78,7 +78,7 @@ fi
 #get the redis data directory
 _REDIS_DATA_DIR="/var/lib/redis/$REDIS_PORT"
 read -p "Please select the data directory for this instance [$_REDIS_DATA_DIR] " REDIS_DATA_DIR
-if [ !"$REDIS_DATA_DIR" ] ; then
+if [ ! "$REDIS_DATA_DIR" ] ; then
 	REDIS_DATA_DIR=$_REDIS_DATA_DIR
 	echo "Selected default - $REDIS_DATA_DIR"
 fi
@@ -100,8 +100,8 @@ fi
 
 #render the tmplates
 TMP_FILE="/tmp/$REDIS_PORT.conf"
-DEFAULT_CONFIG="../redis.conf"
-INIT_TPL_FILE="./redis_init_script.tpl"
+DEFAULT_CONFIG="`dirname $0`/../redis.conf"
+INIT_TPL_FILE="`dirname $0`/./redis_init_script.tpl"
 INIT_SCRIPT_DEST="/etc/init.d/redis_$REDIS_PORT"
 PIDFILE="/var/run/redis_$REDIS_PORT.pid"
 
@@ -123,7 +123,7 @@ s#^dir .+\$#dir ${REDIS_DATA_DIR}#;\
 s#^pidfile .+\$#pidfile ${PIDFILE}#;\
 s#^daemonize no\$#daemonize yes#;" 
 echo $SED_EXPR
-sed -r "$SED_EXPR" $DEFAULT_CONFIG  >> $TMP_FILE
+sed -r "$SED_EXPR" "$DEFAULT_CONFIG"  >> $TMP_FILE
 
 #cat $TPL_FILE | while read line; do eval "echo \"$line\"" >> $TMP_FILE; done
 cp -f $TMP_FILE $REDIS_CONFIG_FILE || exit 1
@@ -159,7 +159,7 @@ REDIS_CHKCONFIG_INFO=\
 # Description: Redis daemon\n
 ### END INIT INFO\n\n"
 
-if [ !`which chkconfig` ] ; then 
+if [ ! `which chkconfig` ] ; then 
 	#combine the header and the template (which is actually a static footer)
 	echo $REDIS_INIT_HEADER > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
 else
@@ -173,7 +173,7 @@ echo "Copied $TMP_FILE => $INIT_SCRIPT_DEST"
 
 #Install the service
 echo "Installing service..."
-if [ !`which chkconfig` ] ; then 
+if [ ! `which chkconfig` ] ; then 
 	#if we're not a chkconfig box assume we're able to use update-rc.d
 	update-rc.d redis_$REDIS_PORT defaults && echo "Success!"
 else
