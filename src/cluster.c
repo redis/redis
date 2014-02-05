@@ -2023,6 +2023,8 @@ void clusterHandleSlaveFailover(void) {
     mstime_t data_age;
     mstime_t auth_age = mstime() - server.cluster->failover_auth_time;
     int needed_quorum = (server.cluster->size / 2) + 1;
+    int manual_failover = server.cluster->mf_end != 0 &&
+                          server.cluster->mf_can_start;
     int j;
 
     /* Pre conditions to run the function:
@@ -2031,8 +2033,10 @@ void clusterHandleSlaveFailover(void) {
      * 3) It is serving slots. */
     if (nodeIsMaster(myself) ||
         myself->slaveof == NULL ||
-        (!nodeFailed(myself->slaveof) && server.cluster->mf_end == 0) ||
+        (!nodeFailed(myself->slaveof) && !manual_failover) ||
         myself->slaveof->numslots == 0) return;
+
+    /* If this is a manual failover, are we ready to start? */
 
     /* Set data_age to the number of seconds we are disconnected from
      * the master. */
