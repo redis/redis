@@ -22,6 +22,8 @@
 #define REDIS_CLUSTER_FAILOVER_AUTH_RETRY_MULT 4 /* Auth request retry time. */
 #define REDIS_CLUSTER_FAILOVER_DELAY 5 /* Seconds */
 #define REDIS_CLUSTER_DEFAULT_MIGRATION_BARRIER 1
+#define REDIS_CLUSTER_MF_TIMEOUT 5000 /* Milliseconds to do a manual failover. */
+#define REDIS_CLUSTER_MF_PAUSE_MULT 2 /* Master pause manual failover mult. */
 
 struct clusterNode;
 
@@ -100,6 +102,16 @@ typedef struct clusterState {
     int failover_auth_sent;     /* True if we already asked for votes. */
     int failover_auth_rank;     /* This slave rank for current auth request. */
     uint64_t failover_auth_epoch; /* Epoch of the current election. */
+    /* Manual failover state in common. */
+    mstime_t mf_end;            /* Manual failover time limit (ms unixtime).
+                                   It is zero if there is no MF in progress. */
+    /* Manual failover state of master. */
+    clusterNode *mf_slave;      /* Slave performing the manual failover. */
+    /* Manual failover state of slave. */
+    long long mf_master_offset; /* Master offset the slave needs to start MF
+                                   or zero if stil not received. */
+    int mf_can_start;           /* If non-zero signal that the manual failover
+                                   can start requesting masters vote. */
     /* The followign fields are uesd by masters to take state on elections. */
     uint64_t last_vote_epoch;   /* Epoch of the last vote granted. */
     int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
@@ -127,6 +139,7 @@ typedef struct clusterState {
 #define CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST 5 /* May I failover? */
 #define CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK 6     /* Yes, you have my vote */
 #define CLUSTERMSG_TYPE_UPDATE 7        /* Another node slots configuration */
+#define CLUSTERMSG_TYPE_MFSTART 8       /* Pause clients for manual failover */
 
 /* Initially we don't know our "name", but we'll find it once we connect
  * to the first node, using the getsockname() function. Then we'll use this
@@ -180,6 +193,7 @@ union clusterMsgData {
     } update;
 };
 
+
 typedef struct {
     uint32_t totlen;    /* Total length of this message */
     uint16_t type;      /* Message type */
@@ -197,11 +211,15 @@ typedef struct {
     uint16_t port;      /* Sender TCP base port */
     uint16_t flags;     /* Sender node flags */
     unsigned char state; /* Cluster state from the POV of the sender */
-    unsigned char notused2[3]; /* Reserved for future use. For alignment. */
+    unsigned char mflags[3]; /* Message flags: CLUSTERMSG_FLAG[012]_... */
     union clusterMsgData data;
 } clusterMsg;
 
 #define CLUSTERMSG_MIN_LEN (sizeof(clusterMsg)-sizeof(union clusterMsgData))
+
+/* Message flags better specify the packet content or are used to
+ * provide some information about the node state. */
+#define CLUSTERMSG_FLAG0_PAUSED (1<<0) /* Master paused for manual failover. */
 
 /* ---------------------- API exported outside cluster.c -------------------- */
 clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
