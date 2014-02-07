@@ -1792,7 +1792,7 @@ void forceCommandPropagation(redisClient *c, int flags) {
 
 /* Call() is the core of Redis execution of a command */
 void call(redisClient *c, int flags) {
-    long long dirty, start = ustime(), duration;
+    long long dirty, start, duration;
     int client_old_flags = c->flags;
 
     /* Sent the command to clients in MONITOR mode, only if the commands are
@@ -1808,9 +1808,10 @@ void call(redisClient *c, int flags) {
     c->flags &= ~(REDIS_FORCE_AOF|REDIS_FORCE_REPL);
     redisOpArrayInit(&server.also_propagate);
     dirty = server.dirty;
+    start = ustime();
     c->cmd->proc(c);
-    dirty = server.dirty-dirty;
     duration = ustime()-start;
+    dirty = server.dirty-dirty;
 
     /* When EVAL is called loading the AOF we don't want commands called
      * from Lua to go into the slowlog or to populate statistics. */
