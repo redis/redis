@@ -2190,7 +2190,8 @@ int prepareForShutdown(int flags) {
     }
     /* Close the listening sockets. Apparently this allows faster restarts. */
     closeListeningSockets(1);
-    redisLog(REDIS_WARNING,"Redis is now ready to exit, bye bye...");
+    redisLog(REDIS_WARNING,"%s is now ready to exit, bye bye...",
+        server.sentinel_mode ? "Sentinel" : "Redis");
     return REDIS_OK;
 }
 
