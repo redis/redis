@@ -17,6 +17,8 @@
 /* Test for proc filesystem */
 #ifdef __linux__
 #define HAVE_PROCFS 1
+#elif __sun
+#define HAVE_PROC_PSINFO 1
 #endif
 
 /* Test for task_info() */

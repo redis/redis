@@ -294,6 +294,26 @@ size_t zmalloc_get_rss(void) {
 
     return t_info.resident_size;
 }
+#elif defined(HAVE_PROC_PSINFO)
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <procfs.h>
+#include <sys/proc.h>
+size_t zmalloc_get_rss(void) {
+    static const char *filename = "/proc/self/psinfo";
+    const int Kb = 1024;
+    int fd;
+    psinfo_t psinfo;
+    if ((fd = open(filename,O_RDONLY)) == -1) return 0;
+    if (read(fd,&psinfo,sizeof(psinfo)) < sizeof(psinfo)) {
+        close(fd);
+        return 0;
+    }
+    close(fd);
+    return (psinfo.pr_rssize * Kb);
+}
 #else
 size_t zmalloc_get_rss(void) {
     /* If we can't get the RSS in an OS-specific way for this system just
