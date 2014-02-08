@@ -3572,7 +3572,9 @@ int main(int argc, char **argv) {
     #ifdef __linux__
         linuxOvercommitMemoryWarning();
     #endif
-        loadDataFromDisk();
+        if (server.masterhost == NULL) {
+            loadDataFromDisk();
+        }
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == REDIS_ERR) {
                 redisLog(REDIS_WARNING,
