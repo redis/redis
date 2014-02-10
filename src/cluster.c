@@ -1168,7 +1168,7 @@ int clusterProcessPacket(clusterLink *link) {
     /* Perform sanity checks */
     if (totlen < 16) return 1; /* At least signature, version, totlen, count. */
     if (hdr->sig[0] != 'R' || hdr->sig[1] != 'C' ||
-        hdr->sig[2] != 'i' || hdr->sig[3] != 'b') return 1; /* Bad signature. */
+        hdr->sig[2] != 'm' || hdr->sig[3] != 'b') return 1; /* Bad signature. */
     if (ntohs(hdr->ver) != 0) return 1; /* Can't handle versions other than 0. */
     if (totlen > sdslen(link->rcvbuf)) return 1;
     if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_PONG ||
@@ -1682,7 +1682,7 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
     memset(hdr,0,sizeof(*hdr));
     hdr->sig[0] = 'R';
     hdr->sig[1] = 'C';
-    hdr->sig[2] = 'i';
+    hdr->sig[2] = 'm';
     hdr->sig[3] = 'b';
     hdr->type = htons(type);
     memcpy(hdr->sender,myself->name,REDIS_CLUSTER_NAMELEN);

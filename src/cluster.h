@@ -195,7 +195,7 @@ union clusterMsgData {
 
 
 typedef struct {
-    char sig[4];        /* Siganture "RCib" (Redis Cluster internal bus). */
+    char sig[4];        /* Siganture "RCmb" (Redis Cluster message bus). */
     uint16_t ver;       /* Protocol version, currently set to 0. */
     uint16_t notused0;  /* 2 bytes not used. */
     uint32_t totlen;    /* Total length of this message */
