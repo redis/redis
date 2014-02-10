@@ -1112,8 +1112,10 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
         if (bitmapTestBit(slots,j)) {
             /* We rebind the slot to the new node claiming it if:
              * 1) The slot was unassigned.
-             * 2) The new node claims it with a greater configEpoch. */
-            if (server.cluster->slots[j] == sender) continue;
+             * 2) The new node claims it with a greater configEpoch.
+             * 3) We are not currently importing the slot. */
+            if (server.cluster->slots[j] == sender ||
+                server.cluster->importing_slots_from[j]) continue;
             if (server.cluster->slots[j] == NULL ||
                 server.cluster->slots[j]->configEpoch < senderConfigEpoch)
             {
