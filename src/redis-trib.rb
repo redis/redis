@@ -470,6 +470,9 @@ class RedisTrib
         #         importing state in 1 slot. That's trivial to address.
         if migrating.length == 1 && importing.length == 1
             move_slot(migrating[0],importing[0],slot,:verbose=>true)
+        elsif migrating.length == 1 && importing.length == 0
+            xputs ">>> Setting #{slot} as STABLE"
+            migrating[0].r.cluster("setslot",slot,"stable")
         else
             xputs "[ERR] Sorry, Redis-trib can't fix this slot yet (work in progress)"
         end
