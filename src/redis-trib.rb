@@ -898,7 +898,7 @@ class RedisTrib
         xputs ">>> Sending CLUSTER FORGET messages to the cluster..."
         @nodes.each{|n|
             next if n == node
-            if n.info[:replicate] && n.info[:replicate].downcase == node_id
+            if n.info[:replicate] && n.info[:replicate].downcase == id
                 # Reconfigure the slave to replicate with some other node
                 xputs ">>> #{n} as replica of #{master}"
                 master = get_master_with_least_replicas
