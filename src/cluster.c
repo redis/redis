@@ -1166,9 +1166,10 @@ int clusterProcessPacket(clusterLink *link) {
         type, (unsigned long) totlen);
 
     /* Perform sanity checks */
-    if (totlen < 16) return 1; /* At least signature, totlen, count. */
+    if (totlen < 16) return 1; /* At least signature, version, totlen, count. */
     if (hdr->sig[0] != 'R' || hdr->sig[1] != 'C' ||
         hdr->sig[2] != 'i' || hdr->sig[3] != 'b') return 1; /* Bad signature. */
+    if (ntohs(hdr->ver) != 0) return 1; /* Can't handle versions other than 0. */
     if (totlen > sdslen(link->rcvbuf)) return 1;
     if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_PONG ||
         type == CLUSTERMSG_TYPE_MEET)
