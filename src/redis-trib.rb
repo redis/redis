@@ -988,7 +988,7 @@ COMMANDS={
 
 ALLOWED_OPTIONS={
     "create" => {"replicas" => true},
-    "addnode" => {"slave" => false, "master-id" => true}
+    "add-node" => {"slave" => false, "master-id" => true}
 }
 
 def show_help
