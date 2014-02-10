@@ -359,11 +359,11 @@ class RedisTrib
         @nodes.each{|n|
             if n.info[:migrating].size > 0
                 cluster_error \
-                    "[WARNING] Node #{n} has slots in migrating state."
+                    "[WARNING] Node #{n} has slots in migrating state (#{n.info[:migrating].keys.join(",")})."
                 open_slots += n.info[:migrating].keys
             elsif n.info[:importing].size > 0
                 cluster_error \
-                    "[WARNING] Node #{n} has slots in importing state."
+                    "[WARNING] Node #{n} has slots in importing state (#{n.info[:importing].keys.join(",")})."
                 open_slots += n.info[:importing].keys
             end
         }
