@@ -830,9 +830,10 @@ void clearNodeFailureIfNeeded(clusterNode *node) {
 
     /* For slaves we always clear the FAIL flag if we can contact the
      * node again. */
-    if (nodeIsSlave(node)) {
+    if (nodeIsSlave(node) || node->numslots == 0) {
         redisLog(REDIS_NOTICE,
-            "Clear FAIL state for node %.40s: slave is reachable again.",
+            "Clear FAIL state for node %.40s: %s is reachable again.",
+                nodeIsSlave(node) ? "slave" : "master without slots",
                 node->name);
         node->flags &= ~REDIS_NODE_FAIL;
         clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
