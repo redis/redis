@@ -116,7 +116,6 @@ class ClusterNode
     def load_info(o={})
         self.connect
         nodes = @r.cluster("nodes").split("\n")
-        puts @r.cluster("nodes")
         nodes.each{|n|
             # name addr flags role ping_sent ping_recv link_status slots
             split = n.split
