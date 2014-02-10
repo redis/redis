@@ -116,6 +116,7 @@ class ClusterNode
     def load_info(o={})
         self.connect
         nodes = @r.cluster("nodes").split("\n")
+        puts @r.cluster("nodes")
         nodes.each{|n|
             # name addr flags role ping_sent ping_recv link_status slots
             split = n.split
@@ -900,8 +901,8 @@ class RedisTrib
             next if n == node
             if n.info[:replicate] && n.info[:replicate].downcase == id
                 # Reconfigure the slave to replicate with some other node
-                xputs ">>> #{n} as replica of #{master}"
                 master = get_master_with_least_replicas
+                xputs ">>> #{n} as replica of #{master}"
                 n.r.cluster("replicate",master.info[:name])
             end
             n.r.cluster("forget",argv[1])
