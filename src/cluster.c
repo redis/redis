@@ -2264,7 +2264,7 @@ void clusterHandleSlaveMigration(int max_slaves) {
         if (nodeIsSlave(node) || nodeFailed(node)) continue;
         okslaves = clusterCountNonFailingSlaves(node);
 
-        if (okslaves == 0 && target == NULL) target = node;
+        if (okslaves == 0 && target == NULL && node->numslots > 0) target = node;
         if (okslaves == max_slaves) {
             for (j = 0; j < node->numslaves; j++) {
                 if (memcmp(node->slaves[j]->name,
@@ -2487,7 +2487,7 @@ void clusterCron(void) {
         if (nodeIsSlave(myself) && nodeIsMaster(node) && !nodeFailed(node)) {
             int okslaves = clusterCountNonFailingSlaves(node);
 
-            if (okslaves == 0) orphaned_masters++;
+            if (okslaves == 0 && node->numslots > 0) orphaned_masters++;
             if (okslaves > max_slaves) max_slaves = okslaves;
             if (nodeIsSlave(myself) && myself->slaveof == node)
                 this_slaves = okslaves;
