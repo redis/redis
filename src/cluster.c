@@ -3154,10 +3154,10 @@ void clusterCommand(redisClient *c) {
                     return;
                 }
             }
-            /* If this node was the slot owner and the slot was marked as
-             * migrating, assigning the slot to another node will clear
+            /* If this slot is in migrating status but we have no keys
+             * for it assigning the slot to another node will clear
              * the migratig status. */
-            if (server.cluster->slots[slot] == myself &&
+            if (countKeysInSlot(slot) == 0 &&
                 server.cluster->migrating_slots_to[slot])
                 server.cluster->migrating_slots_to[slot] = NULL;
 
