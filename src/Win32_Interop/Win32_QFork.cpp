@@ -125,6 +125,7 @@ const char* qforkFlag = "--QFork";
 const char* maxheapgbFlag = "--maxheapgb";
 const int cDeadForkWait = 30000;
 const SIZE_T cBytesInGB = (SIZE_T)1024 * (SIZE_T)1024 * (SIZE_T)1024;
+const size_t pageSize = 4096;
 
 typedef enum BlockState {
     bsINVALID = 0,
@@ -288,11 +289,14 @@ BOOL QForkMasterInit( int maxHeapGB ) {
         }
         g_pQForkControl->heapBlockSize = cAllocationGranularity;
 
-        // determine the number of blocks we can allocate
-        MEMORYSTATUSEX ms;
-        ms.dwLength = sizeof(MEMORYSTATUSEX);
-        GlobalMemoryStatusEx(&ms);
-        SIZE_T maxPhysicalMapping = ms.ullTotalPhys - cSystemReserve;
+        // determine the number of blocks we can allocate (heap must be completely mappable in physical memory for qfork to succeed)
+		PERFORMANCE_INFORMATION perfinfo;
+		perfinfo.cb = sizeof(PERFORMANCE_INFORMATION);
+		if (FALSE == GetPerformanceInfo(&perfinfo, sizeof(PERFORMANCE_INFORMATION))) {
+			throw system_error(GetLastError(), system_category(), "GetPerformanceInfo failed");
+		}
+		SIZE_T maxPhysicalPages = (perfinfo.PhysicalTotal * 8) / 10;
+        SIZE_T maxPhysicalMapping = maxPhysicalPages * pageSize;
         if (maxHeapGB != -1) {
             SIZE_T maxHeap = (SIZE_T)maxHeapGB * cBytesInGB;
             maxPhysicalMapping = min(maxPhysicalMapping,maxHeap);
@@ -776,7 +780,6 @@ BOOL EndForkOperation() {
         typedef COWList::iterator COWListIterator;
         COWList cowList;
         HANDLE hProcess = GetCurrentProcess();
-        const size_t pageSize = 4096;
         size_t mmSize = g_pQForkControl->availableBlocksInHeap * g_pQForkControl->heapBlockSize;
         int pages = (int)(mmSize / pageSize);
         PSAPI_WORKING_SET_EX_INFORMATION* pwsi =
