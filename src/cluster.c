@@ -3174,9 +3174,13 @@ void clusterCommand(redisClient *c) {
                  * FIXME: the new version should be agreed otherwise a race
                  * is possible if while a manual resharding is in progress
                  * the master is failed over by a slave. */
-                server.cluster->currentEpoch++;
-                myself->configEpoch = server.cluster->currentEpoch;
-                clusterDoBeforeSleep(CLUSTER_TODO_FSYNC_CONFIG);
+                uint64_t maxEpoch = clusterGetMaxEpoch();
+
+                if (myself->configEpoch != maxEpoch) {
+                    server.cluster->currentEpoch++;
+                    myself->configEpoch = server.cluster->currentEpoch;
+                    clusterDoBeforeSleep(CLUSTER_TODO_FSYNC_CONFIG);
+                }
                 server.cluster->importing_slots_from[slot] = NULL;
             }
             clusterDelSlot(slot);
