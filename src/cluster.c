@@ -664,7 +664,11 @@ void clusterDelNode(clusterNode *delnode) {
     }
     dictReleaseIterator(di);
 
-    /* 3) Free the node, unlinking it from the cluster. */
+    /* 3) Remove this node from its master's slaves if needed. */
+    if (nodeIsSlave(delnode) && delnode->slaveof)
+        clusterNodeRemoveSlave(delnode->slaveof,delnode);
+
+    /* 4) Free the node, unlinking it from the cluster. */
     freeClusterNode(delnode);
 }
 
