@@ -73,21 +73,19 @@ void resetManualFailover(void);
  * Initialization
  * -------------------------------------------------------------------------- */
 
-/* This function is called at startup in order to set the currentEpoch
- * (which is not saved on permanent storage) to the greatest configEpoch found
- * in the loaded nodes (configEpoch is stored on permanent storage as soon as
- * it changes for some node). */
-void clusterSetStartupEpoch() {
+/* Return the greatest configEpoch found in the cluster. */
+uint64_t clusterGetMaxEpoch(void) {
+    uint64_t max = 0;
     dictIterator *di;
     dictEntry *de;
 
     di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
-        if (node->configEpoch > server.cluster->currentEpoch)
-            server.cluster->currentEpoch = node->configEpoch;
+        if (node->configEpoch > max) max = node->configEpoch;
     }
     dictReleaseIterator(di);
+    return max;
 }
 
 int clusterLoadConfig(char *filename) {
@@ -227,7 +225,10 @@ int clusterLoadConfig(char *filename) {
     /* Config sanity check */
     redisAssert(server.cluster->myself != NULL);
     redisLog(REDIS_NOTICE,"Node configuration loaded, I'm %.40s", myself->name);
-    clusterSetStartupEpoch();
+    /* Set the currentEpoch to the max epoch found in the master.
+     * FIXME: this should actually be part of the persistent state, as
+     * documented in the Github issue #1479. */
+    server.cluster->currentEpoch = clusterGetMaxEpoch();
     return REDIS_OK;
 
 fmterr:
