@@ -472,6 +472,9 @@ class RedisTrib
         elsif migrating.length == 1 && importing.length == 0
             xputs ">>> Setting #{slot} as STABLE"
             migrating[0].r.cluster("setslot",slot,"stable")
+        elsif migrating.length == 0 && importing.length == 1
+            xputs ">>> Setting #{slot} as STABLE"
+            importing[0].r.cluster("setslot",slot,"stable")
         else
             xputs "[ERR] Sorry, Redis-trib can't fix this slot yet (work in progress)"
         end
