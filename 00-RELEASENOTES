@@ -12,7 +12,7 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
---[ Redis 3.0.0 Beta 1 (version 2.9.50) ] Release date: ...
+--[ Redis 3.0.0 Beta 1 (version 2.9.50) ] Release date: 11 Feb 2014
 
 This is the first beta of Redis 3.0.0 (official version is 2.8.50).
 
