@@ -3166,8 +3166,6 @@ void clusterCommand(redisClient *c) {
             if (n == myself &&
                 server.cluster->importing_slots_from[slot])
             {
-                clusterNode *old_owner =
-                    server.cluster->importing_slots_from[slot];
                 /* This slot was manually migrated, set this node configEpoch
                  * to a new epoch so that the new version can be propagated
                  * by the cluster.
@@ -3175,11 +3173,9 @@ void clusterCommand(redisClient *c) {
                  * FIXME: the new version should be agreed otherwise a race
                  * is possible if while a manual resharding is in progress
                  * the master is failed over by a slave. */
-                if (old_owner->configEpoch > myself->configEpoch) {
-                    server.cluster->currentEpoch++;
-                    myself->configEpoch = server.cluster->currentEpoch;
-                    clusterDoBeforeSleep(CLUSTER_TODO_FSYNC_CONFIG);
-                }
+                server.cluster->currentEpoch++;
+                myself->configEpoch = server.cluster->currentEpoch;
+                clusterDoBeforeSleep(CLUSTER_TODO_FSYNC_CONFIG);
                 server.cluster->importing_slots_from[slot] = NULL;
             }
             clusterDelSlot(slot);
