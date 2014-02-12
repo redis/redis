@@ -1120,12 +1120,17 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
 
-    /* AOF: we may have postponed buffer flush, or were not able to
-     * write our buffer because of write(2) error. Try again here. */
-    if (server.aof_flush_postponed_start ||
-        server.aof_last_write_status == REDIS_ERR)
-    {
-        flushAppendOnlyFile(0);
+    /* AOF postponed flush: Try at every cron cycle if the slow fsync
+     * completed. */
+    if (server.aof_flush_postponed_start) flushAppendOnlyFile(0);
+
+    /* AOF write errors: in this case we have a buffer to flush as well and
+     * clear the AOF error in case of success to make the DB writable again,
+     * however to try every second is enough in case of 'hz' is set to
+     * an higher frequency. */
+    run_with_period(1000) {
+        if (server.aof_last_write_status == REDIS_ERR)
+            flushAppendOnlyFile(0);
     }
 
     /* Close clients that need to be closed asynchronous */
