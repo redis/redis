@@ -14,6 +14,28 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.6 ] Release date: 13 Feb 2014
+
+# UPGRADE URGENCY: HIGH for Redis, LOW for Sentinel. Redis users using Lua
+                   scripts with EVALSHA and attached slaves and/or AOF
+                   persistence should consider upgrading ASAP.
+
+* [FIX] Fixed an critical EVALSHA script cache bug: scripts executed may not
+        propagate to AOF / Slaves correctly under certain conditions.
+        See issue #1549 at Github for more information.
+* [FIX] Fixed multiple bugs resulting into closing the link with master or slave
+        during replication without good reasons. This will result in useless
+        resynchronizations, or infinite loops where the replication link can't
+        be established.
+* [FIX] Don't count the time needed to populate the buffers of clients waiting
+        in MONITOR mode when populating the Slow Log entries.
+
+* [NEW] AOF write errors (like no space on device) no longer abort Redis if the
+        fsync policy is none or every second. The database enters a read-only
+        mode where every write is refused with an error. Normal operations are
+        restored as soon as Redis is able to append again data to the AOF file.
+* [NEW] Sentinel now accepts SHUTDOWN command.
+
 --[ Redis 2.8.5 ] Release date: 4 Feb 2014
 
 # UPGRADE URGENCY: HIGH for Redis, LOW for Sentinel. Redis users using Lua
