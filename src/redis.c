@@ -954,6 +954,15 @@ void databasesCron(void) {
     }
 }
 
+/* We take a cached value of the unix time in the global state because with
+ * virtual memory and aging there is to store the current time in objects at
+ * every object access, and accuracy is not needed. To access a global var is
+ * a lot faster than calling time(NULL) */
+void updateCachedTime(void) {
+    server.unixtime = time(NULL);
+    server.mstime = mstime();
+}
+
 /* This is our timer interrupt, called server.hz times per second.
  * Here is where we do a number of things that need to be done asynchronously.
  * For instance:
@@ -983,12 +992,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * handler if we don't return here fast enough. */
     if (server.watchdog_period) watchdogScheduleSignal(server.watchdog_period);
 
-    /* We take a cached value of the unix time in the global state because
-     * with virtual memory and aging there is to store the current time
-     * in objects at every object access, and accuracy is not needed.
-     * To access a global var is faster than calling time(NULL) */
-    server.unixtime = time(NULL);
-    server.mstime = mstime();
+    /* Update the time cache. */
+    updateCachedTime();
 
     run_with_period(100) trackOperationsPerSecond();
 
@@ -1599,12 +1604,11 @@ void initServer() {
     server.ops_sec_idx = 0;
     server.ops_sec_last_sample_time = mstime();
     server.ops_sec_last_sample_ops = 0;
-    server.unixtime = time(NULL);
-    server.mstime = mstime();
     server.lastbgsave_status = REDIS_OK;
     server.aof_last_write_status = REDIS_OK;
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
+    updateCachedTime();
 
     /* Create the serverCron() time event, that's our main way to process
      * background operations. */

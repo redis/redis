@@ -1066,6 +1066,10 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     if (server.loading_process_events_interval_bytes &&
         (r->processed_bytes + len)/server.loading_process_events_interval_bytes > r->processed_bytes/server.loading_process_events_interval_bytes)
     {
+        /* The DB can take some non trivial amount of time to load. Update
+         * our cached time since it is used to create and update the last
+         * interaction time with clients and for other important things. */
+        updateCachedTime();
         if (server.masterhost && server.repl_state == REDIS_REPL_TRANSFER)
             replicationSendNewlineToMaster();
         loadingProgress(r->processed_bytes);
