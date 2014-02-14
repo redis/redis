@@ -72,14 +72,28 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond} {
                 if {[$master debug digest] ne [$slave debug digest]} {
                     set csv1 [csvdump r]
                     set csv2 [csvdump {r -1}]
-                    set fd [open /tmp/repldump1.txt w]
+					if { $::tcl_platform(platform) == "windows" } {
+						set tmpdir $::env(TEMP)
+						set fd [open [file join $tmpdir repldump1.txt] w]
+					} else {
+						set fd [open /tmp/repldump1.txt w]
+					}
+				
                     puts -nonewline $fd $csv1
                     close $fd
-                    set fd [open /tmp/repldump2.txt w]
+					if { $::tcl_platform(platform) == "windows" } {
+						set fd [open [file join $tmpdir repldump2.txt] w]
+					} else {
+						set fd [open /tmp/repldump2.txt w]
+					}
                     puts -nonewline $fd $csv2
                     close $fd
                     puts "Master - Slave inconsistency"
-                    puts "Run diff -u against /tmp/repldump*.txt for more info"
+					if { $::tcl_platform(platform) == "windows" } {
+						puts "Run fc against repldump*.txt in $tmpdir for more info"
+					} else {
+						puts "Run diff -u against /tmp/repldump*.txt for more info"
+					}
                 }
                 assert_equal [r debug digest] [r -1 debug digest]
                 eval $cond
