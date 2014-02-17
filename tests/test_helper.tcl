@@ -164,21 +164,6 @@ proc cleanup {} {
     if {!$::quiet} {puts "OK"}
 }
 
-proc find_available_port start {
-    for {set j $start} {$j < $start+1024} {incr j} {
-        if {[catch {
-            set fd [socket 127.0.0.1 $j]
-        }]} {
-            return $j
-        } else {
-            close $fd
-        }
-    }
-    if {$j == $start+1024} {
-        error "Can't find a non busy port in the $start-[expr {$start+1023}] range."
-    }
-}
-
 proc test_server_main {} {
     cleanup
     set tclsh [info nameofexecutable]
