@@ -47,7 +47,12 @@ proc spawn_instance {type base_port count} {
         close $cfg
 
         # Finally exec it and remember the pid for later cleanup.
-        set sentinel_pid [exec ../../src/redis-sentinel $cfgfile &]
+        if {$type eq "redis"} {
+            set prgname redis-server
+        } else {
+            set prgname redis-sentinel
+        }
+        set sentinel_pid [exec ../../src/${prgname} $cfgfile &]
         lappend ::pids $sentinel_pid
 
         # Check availability
@@ -133,6 +138,26 @@ proc R {n args} {
     [dict get $r link] {*}$args
 }
 
+proc get_info_field {info field} {
+    set fl [string length $field]
+    append field :
+    foreach line [split $info "\n"] {
+        set line [string trim $line "\r\n "]
+        if {[string range $line 0 $fl] eq $field} {
+            return [string range $line [expr {$fl+1}] end]
+        }
+    }
+    return {}
+}
+
+proc SI {n field} {
+    get_info_field [S $n info] $field
+}
+
+proc RI {n field} {
+    get_info_field [R $n info] $field
+}
+
 # Iterate over IDs of sentinel or redis instances.
 proc foreach_sentinel_id {idvar code} {
     upvar 1 $idvar id
@@ -145,6 +170,36 @@ proc foreach_redis_id {idvar code} {
     upvar 1 $idvar id
     for {set id 0} {$id < [llength $::redis_instances]} {incr id} {
         uplevel 1 $code
+    }
+}
+
+# Get the specific attribute of the specified instance type, id.
+proc get_instance_attrib {type id attrib} {
+    dict get [lindex [set ::${type}_instances] $id] $attrib
+}
+
+# Create a master-slave cluster of the given number of total instances.
+# The first instance "0" is the master, all others are configured as
+# slaves.
+proc create_redis_master_slave_cluster n {
+    foreach_redis_id id {
+        if {$id == 0} {
+            # Our master.
+            R $id flushall
+            R $id slaveof no one
+        } elseif {$id < $n} {
+            R $id slaveof [get_instance_attrib redis 0 host] \
+                          [get_instance_attrib redis 0 port]
+        } else {
+            # Instances not part of the cluster.
+            R $id slaveof no one
+        }
+    }
+    # Wait for all the slaves to sync.
+    wait_for_condition 100 50 {
+        [RI 0 connected_slaves] == ($n-1)
+    } else {
+        fail "Unable to create a master-slaves cluster."
     }
 }
 
