@@ -3,3 +3,7 @@ test "Sentinels aren't monitoring any master" {
         assert {[S $id sentinel masters] eq {}}
     }
 }
+
+test "Sentinels can start monitoring a master" {
+    create_redis_master_slave_cluster 3
+}
