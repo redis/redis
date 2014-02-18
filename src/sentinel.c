@@ -3364,14 +3364,17 @@ void sentinelFailoverReconfNextSlave(sentinelRedisInstance *master) {
         /* Skip the promoted slave, and already configured slaves. */
         if (slave->flags & (SRI_PROMOTED|SRI_RECONF_DONE)) continue;
 
-        /* Clear the SRI_RECONF_SENT flag if too much time elapsed without
-         * the slave moving forward to the next state. */
+        /* If too much time elapsed without the slave moving forward to
+         * the next state, consider it reconfigured even if it is not.
+         * Sentinels will detect the slave as misconfigured and fix its
+         * configuration later. */
         if ((slave->flags & SRI_RECONF_SENT) &&
             (mstime() - slave->slave_reconf_sent_time) >
             SENTINEL_SLAVE_RECONF_RETRY_PERIOD)
         {
             sentinelEvent(REDIS_NOTICE,"-slave-reconf-sent-timeout",slave,"%@");
             slave->flags &= ~SRI_RECONF_SENT;
+            slave->flags |= SRI_RECONF_DONE;
         }
 
         /* Nothing to do for instances that are disconnected or already
