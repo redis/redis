@@ -56,10 +56,11 @@ proc spawn_instance {type base_port count} {
         }
 
         # Push the instance into the right list
-        lappend ${type}_instances [list \
+        lappend ::${type}_instances [list \
+            pid $sentinel_pid \
             host 127.0.0.1 \
             port $port \
-            [redis 127.0.0.1 $port] \
+            link [redis 127.0.0.1 $port] \
         ]
     }
 }
@@ -112,6 +113,38 @@ proc run_tests {} {
     foreach test $tests {
         puts [colorstr green "### [lindex [file split $test] end]"]
         source $test
+    }
+}
+
+# The "S" command is used to interact with the N-th Sentinel.
+# The general form is:
+#
+# S <sentinel-id> command arg arg arg ...
+#
+# Example to ping the Sentinel 0 (first instance): S 0 PING
+proc S {n args} {
+    set s [lindex $::sentinel_instances $n]
+    [dict get $s link] {*}$args
+}
+
+# Like R but to chat with Redis instances.
+proc R {n args} {
+    set r [lindex $::redis_instances $n]
+    [dict get $r link] {*}$args
+}
+
+# Iterate over IDs of sentinel or redis instances.
+proc foreach_sentinel_id {idvar code} {
+    upvar 1 $idvar id
+    for {set id 0} {$id < [llength $::sentinel_instances]} {incr id} {
+        uplevel 1 $code
+    }
+}
+
+proc foreach_redis_id {idvar code} {
+    upvar 1 $idvar id
+    for {set id 0} {$id < [llength $::redis_instances]} {incr id} {
+        uplevel 1 $code
     }
 }
 
