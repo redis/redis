@@ -34,6 +34,8 @@
 #include "Win32_SmartHandle.h"
 #include <vector>
 #include <iostream>
+#include <fstream>
+#include <sstream>
 using namespace std;
 
 //#define DEBUG_WITH_PROCMON
@@ -122,9 +124,8 @@ const int cMaxBlocks = 1 << 16;                                  // 64KB*64K sec
 const SIZE_T cSystemReserve = 3 * 1024i64 * 1024i64 * 1024i64;   // Reserve left for Windows to operate on when we are heavily loaded.
 const wchar_t* cMapFileBaseName = L"RedisQFork";
 const char* qforkFlag = "--QFork";
-const char* maxheapgbFlag = "--maxheapgb";
+const char* maxmemoryFlag = "maxmemory";
 const int cDeadForkWait = 30000;
-const SIZE_T cBytesInGB = (SIZE_T)1024 * (SIZE_T)1024 * (SIZE_T)1024;
 const size_t pageSize = 4096;
 
 typedef enum BlockState {
@@ -251,7 +252,7 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
 }
 
 
-BOOL QForkMasterInit( int maxHeapGB ) {
+BOOL QForkMasterInit( __int64 maxmemoryBytes ) {
     try {
         // allocate file map for qfork control so it can be passed to the forked process
         g_hQForkControlFileMap = CreateFileMappingW(
@@ -295,16 +296,20 @@ BOOL QForkMasterInit( int maxHeapGB ) {
 		if (FALSE == GetPerformanceInfo(&perfinfo, sizeof(PERFORMANCE_INFORMATION))) {
 			throw system_error(GetLastError(), system_category(), "GetPerformanceInfo failed");
 		}
-		SIZE_T maxPhysicalPages = (perfinfo.PhysicalTotal * 8) / 10;
-        SIZE_T maxPhysicalMapping = maxPhysicalPages * pageSize;
-        if (maxHeapGB != -1) {
-            SIZE_T maxHeap = (SIZE_T)maxHeapGB * cBytesInGB;
-            maxPhysicalMapping = min(maxPhysicalMapping,maxHeap);
+		SIZE_T maxSystemReservePages = 3i64 * 1024i64 * 1024i64 * 1024i64 / pageSize;
+		SIZE_T twentyPercentPhysical = (perfinfo.PhysicalTotal * 2i64) / 10i64;
+		SIZE_T maxPhysicalPagesToUse = perfinfo.PhysicalTotal - min(maxSystemReservePages,twentyPercentPhysical);
+        SIZE_T maxPhysicalMapping = maxPhysicalPagesToUse * pageSize;
+        if (maxmemoryBytes != -1) {
+			SIZE_T allocationBlocks = maxmemoryBytes / cAllocationGranularity;
+			allocationBlocks += ((maxmemoryBytes % cAllocationGranularity) != 0);
+			allocationBlocks = max(2, allocationBlocks);
+			maxPhysicalMapping = min(maxPhysicalMapping,allocationBlocks * cAllocationGranularity);
         }
         g_pQForkControl->availableBlocksInHeap = (int)(maxPhysicalMapping / cAllocationGranularity);
         if (g_pQForkControl->availableBlocksInHeap <= 0) {
             throw std::runtime_error(
-                "QForkMasterInit: Not enough physical memory to initialize Redis. Physical memory must be greater than 3GB.");
+                "QForkMasterInit: Not enough physical memory to initialize Redis.");
         }
 
         wchar_t heapMemoryMapPath[MAX_PATH];
@@ -446,7 +451,7 @@ StartupStatus QForkStartup(int argc, char** argv) {
     bool foundSlaveFlag = false;
     HANDLE QForkConrolMemoryMapHandle = NULL;
     DWORD PPID = 0;
-    int maxHeapGB = -1;
+    int maxmemory = -1;
     if ((argc == 3) && (strcmp(argv[0], qforkFlag) == 0)) {
         // slave command line looks like: --QFork [QForkConrolMemoryMap handle] [parent process id]
         foundSlaveFlag = true;
@@ -455,17 +460,45 @@ StartupStatus QForkStartup(int argc, char** argv) {
         char* end = NULL;
         PPID = strtoul(argv[2], &end, 10);
     } else {
-        for (int n = 0; n < argc - 1; n++) {
-            if (_stricmp(argv[n],maxheapgbFlag) == 0) {
-                maxHeapGB = atoi(argv[n+1]);
-                if (maxHeapGB == 0) {
+		bool maxMemoryFlagFound = false;
+        for (int n = 1; n < argc; n++) {
+			if (maxMemoryFlagFound)
+				break;
+
+			// check for maxmemory flag in .conf file
+			if( n == 1  && strncmp(argv[n],"--",2) != 0 ) {
+				ifstream config;
+				config.open(argv[n]);
+				if (config.fail())
+					continue;
+				while (!config.eof()) {
+					string line;
+					getline(config,line);
+					istringstream iss(line);
+					string token;
+					if (getline(iss, token, ' ') && (_stricmp(token.c_str(), maxmemoryFlag) == 0)) {
+						string maxmemoryString;
+						if (getline(iss, maxmemoryString, ' ')) {
+							maxmemory = _atoi64(maxmemoryString.c_str());
+							maxMemoryFlagFound = true;
+							break;
+						}
+					}
+				}
+				continue;
+			}
+            if( strncmp(argv[n],"--", 2) == 0 &&
+				_stricmp(argv[n]+2,maxmemoryFlag) == 0) {
+                maxmemory = _atoi64(argv[n+1]);
+                if (maxmemory == 0) {
                     printf (
-                        "%s specified. Unable to convert %s to the maximum number of gigabytes to use for the heap.\n", 
-                        maxheapgbFlag,
+                        "%s specified. Unable to convert %s to the maximum number of bytes to use for the heap.\n", 
+                        maxmemory,
                         argv[n+1] );
                     printf( "Failing startup.\n");
                     return StartupStatus::ssFAILED;
                 } else {
+					maxMemoryFlagFound = true;
                     break;
                 }
             }
@@ -475,7 +508,7 @@ StartupStatus QForkStartup(int argc, char** argv) {
     if (foundSlaveFlag) {
         return QForkSlaveInit( QForkConrolMemoryMapHandle, PPID ) ? StartupStatus::ssSLAVE_EXIT : StartupStatus::ssFAILED;
     } else {
-        return QForkMasterInit(maxHeapGB) ? StartupStatus::ssCONTINUE_AS_MASTER : StartupStatus::ssFAILED;
+        return QForkMasterInit(maxmemory) ? StartupStatus::ssCONTINUE_AS_MASTER : StartupStatus::ssFAILED;
     }
 }
 

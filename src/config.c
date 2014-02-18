@@ -491,10 +491,6 @@ void loadServerConfigFromString(char *config) {
                 err = sentinelHandleConfiguration(argv+1,argc-1);
                 if (err) goto loaderr;
             }
-#ifdef _WIN32
-        } else if (!strcasecmp(argv[0],"maxheapgb")) {
-            // this flag is for QFork infrastructure and has already been handled
-#endif
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
