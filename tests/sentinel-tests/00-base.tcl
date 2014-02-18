@@ -72,3 +72,23 @@ test "Basic failover works if the master is down" {
 test "New master [join $addr {:}] role matches" {
     assert {[RI $master_id role] eq {master}}
 }
+
+test "All the other slaves now point to the new master" {
+    foreach_redis_id id {
+        if {$id != $master_id && $id != 0} {
+            wait_for_condition 1000 50 {
+                [RI $id master_port] == [lindex $addr 1]
+            } else {
+                fail "Redis ID $id not configured to replicate with new master"
+            }
+        }
+    }
+}
+
+test "The old master eventually gets reconfigured as a slave" {
+    wait_for_condition 1000 50 {
+        [RI 0 master_port] == [lindex $addr 1]
+    } else {
+        fail "Old master not reconfigured as slave of new master"
+    }
+}
