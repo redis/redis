@@ -116,7 +116,7 @@ proc test {descr code} {
 proc run_tests {} {
     set tests [lsort [glob ../sentinel-tests/*]]
     foreach test $tests {
-        puts [colorstr green "### [lindex [file split $test] end]"]
+        puts [colorstr yellow "Testing unit: [lindex [file split $test] end]"]
         source $test
     }
 }
@@ -159,18 +159,26 @@ proc RI {n field} {
 }
 
 # Iterate over IDs of sentinel or redis instances.
-proc foreach_sentinel_id {idvar code} {
+proc foreach_instance_id {instances idvar code} {
     upvar 1 $idvar id
-    for {set id 0} {$id < [llength $::sentinel_instances]} {incr id} {
-        uplevel 1 $code
+    for {set id 0} {$id < [llength $instances]} {incr id} {
+        set errcode [catch {uplevel 1 $code} result]
+        if {$errcode == 1} {
+            error $result $::errorInfo $::errorCode
+        } elseif {$errcode != 0} {
+            return -code $errcode $result
+        }
     }
 }
 
+proc foreach_sentinel_id {idvar code} {
+    set errcode [catch {uplevel 1 [list foreach_instance_id $::sentinel_instances $idvar $code]} result]
+    return -code $errcode $result
+}
+
 proc foreach_redis_id {idvar code} {
-    upvar 1 $idvar id
-    for {set id 0} {$id < [llength $::redis_instances]} {incr id} {
-        uplevel 1 $code
-    }
+    set errcode [catch {uplevel 1 [list foreach_instance_id $::redis_instances $idvar $code]} result]
+    return -code $errcode $result
 }
 
 # Get the specific attribute of the specified instance type, id.
@@ -201,6 +209,15 @@ proc create_redis_master_slave_cluster n {
     } else {
         fail "Unable to create a master-slaves cluster."
     }
+}
+
+proc get_instance_id_by_port {type port} {
+    foreach_${type}_id id {
+        if {[get_instance_attrib $type $id port] == $port} {
+            return $id
+        }
+    }
+    fail "Instance $type port $port not found."
 }
 
 if {[catch main e]} {
