@@ -1,3 +1,5 @@
+# Check the basic monitoring and failover capabilities.
+
 test "Sentinels aren't monitoring any master" {
     foreach_sentinel_id id {
         assert {[S $id sentinel masters] eq {}}
@@ -127,6 +129,7 @@ test "Failover is not possible without majority agreement" {
         S $id SENTINEL MONITOR mymaster \
               [get_instance_attrib redis $master_id host] \
               [get_instance_attrib redis $master_id port] $quorum
+        S $id SENTINEL SET mymaster down-after-milliseconds 2000
     }
 }
 
@@ -146,7 +149,7 @@ test "Failover works if we configure for absolute agreement" {
 
     R $master_id debug sleep 5
     foreach_sentinel_id id {
-        wait_for_condition 100 50 {
+        wait_for_condition 1000 50 {
             [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port
         } else {
             fail "At least one Sentinel did not received failover info"
@@ -164,4 +167,3 @@ test "Failover works if we configure for absolute agreement" {
 test "New master [join $addr {:}] role matches" {
     assert {[RI $master_id role] eq {master}}
 }
-
