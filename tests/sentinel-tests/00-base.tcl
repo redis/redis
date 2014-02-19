@@ -161,3 +161,7 @@ test "Failover works if we configure for absolute agreement" {
     }
 }
 
+test "New master [join $addr {:}] role matches" {
+    assert {[RI $master_id role] eq {master}}
+}
+
