@@ -18,6 +18,7 @@ set ::redis_base_port 30000
 set ::instances_count 5 ; # How many Sentinels / Instances we use at max
 set ::pids {} ; # We kill everything at exit
 set ::dirs {} ; # We remove all the temp dirs at exit
+set ::run_matching {} ; # If non empty, only tests matching pattern are run.
 
 if {[catch {cd tests/sentinel-tmp}]} {
     puts "tests/sentinel-tmp directory not found."
@@ -87,7 +88,28 @@ proc abort_sentinel_test msg {
     exit 1
 }
 
+proc parse_options {} {
+    for {set j 0} {$j < [llength $::argv]} {incr j} {
+        set opt [lindex $::argv $j]
+        set val [lindex $::argv [expr $j+1]]
+        if {$opt eq "--single"} {
+            incr j
+            set ::run_matching "*${val}*"
+        } elseif {$opt eq "--help"} {
+            puts "Hello, I'm sentinel.tcl and I run Sentinel unit tests."
+            puts "\nOptions:"
+            puts "--single <pattern>        Only runs tests specified by pattern."
+            puts "--help                    Shows this help."
+            exit 0
+        } else {
+            puts "Unknown option $opt"
+            exit 1
+        }
+    }
+}
+
 proc main {} {
+    parse_options
     spawn_instance sentinel $::sentinel_base_port $::instances_count
     spawn_instance redis $::redis_base_port $::instances_count
     run_tests
@@ -116,6 +138,9 @@ proc test {descr code} {
 proc run_tests {} {
     set tests [lsort [glob ../sentinel-tests/*]]
     foreach test $tests {
+        if {$::run_matching ne {} && [string match $::run_matching $test] == 0} {
+            continue
+        }
         puts [colorstr yellow "Testing unit: [lindex [file split $test] end]"]
         source $test
     }

@@ -16,6 +16,7 @@ test "Sentinels can start monitoring a master" {
     set sentinels [llength $::sentinel_instances]
     set quorum [expr {$sentinels/2+1}]
     foreach_sentinel_id id {
+        catch {S $id SENTINEL REMOVE mymaster}
         S $id SENTINEL MONITOR mymaster \
               [get_instance_attrib redis $master_id host] \
               [get_instance_attrib redis $master_id port] $quorum
