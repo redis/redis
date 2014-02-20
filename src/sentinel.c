@@ -1770,6 +1770,14 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         ri->role_reported_time = mstime();
         ri->role_reported = role;
         if (role == SRI_SLAVE) ri->slave_conf_change_time = mstime();
+        /* Log the event with +role-change if the new role is coherent or
+         * with -role-change if there is a mismatch with the current config. */
+        sentinelEvent(REDIS_VERBOSE,
+            ((ri->flags & (SRI_MASTER|SRI_SLAVE)) == role) ?
+            "+role-change" : "-role-change",
+            ri, "%@ new reported role is %s",
+            role == SRI_MASTER ? "master" : "slave",
+            ri->flags & SRI_MASTER ? "master" : "slave");
     }
 
     /* Handle master -> slave role switch. */
