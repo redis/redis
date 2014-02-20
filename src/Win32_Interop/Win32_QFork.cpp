@@ -303,6 +303,7 @@ BOOL QForkMasterInit( __int64 maxmemoryBytes ) {
         if (maxmemoryBytes != -1) {
 			SIZE_T allocationBlocks = maxmemoryBytes / cAllocationGranularity;
 			allocationBlocks += ((maxmemoryBytes % cAllocationGranularity) != 0);
+			allocationBlocks = (SIZE_T)ceil(allocationBlocks * 1.5);				// extra reserve for fragmentation
 			allocationBlocks = max(2, allocationBlocks);
 			maxPhysicalMapping = min(maxPhysicalMapping,allocationBlocks * cAllocationGranularity);
         }
@@ -961,7 +962,7 @@ LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
 
     size_t mapped = 0;
     int startIndex = allocateHigh ? g_pQForkControl->availableBlocksInHeap - 1 : contiguousBlocksToAllocate - 1;
-    int endIndex = allocateHigh ? 0 : g_pQForkControl->availableBlocksInHeap - contiguousBlocksToAllocate;
+    int endIndex = allocateHigh ? -1 : g_pQForkControl->availableBlocksInHeap - contiguousBlocksToAllocate + 1;
     int direction = allocateHigh ? -1 : 1;
     int blockIndex = 0;
     int contiguousBlocksFound = 0;
