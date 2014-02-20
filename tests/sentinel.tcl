@@ -141,6 +141,7 @@ proc run_tests {} {
         if {$::run_matching ne {} && [string match $::run_matching $test] == 0} {
             continue
         }
+        if {[file isdirectory $test]} continue
         puts [colorstr yellow "Testing unit: [lindex [file split $test] end]"]
         source $test
     }
