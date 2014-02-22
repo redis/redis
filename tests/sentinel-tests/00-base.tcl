@@ -23,20 +23,11 @@ test "Sentinels are able to auto-discover slaves" {
     }
 }
 
-test "Can change master parameters via SENTINEL SET" {
-    foreach_sentinel_id id {
-        S $id SENTINEL SET mymaster down-after-milliseconds 2000
-    }
-    foreach_sentinel_id id {
-        assert {[dict get [S $id sentinel master mymaster] down-after-milliseconds] == 2000}
-    }
-}
-
 test "Basic failover works if the master is down" {
     set old_port [RI $master_id tcp_port]
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
     assert {[lindex $addr 1] == $old_port}
-    R $master_id debug sleep 5
+    R $master_id debug sleep 10
     foreach_sentinel_id id {
         wait_for_condition 100 50 {
             [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port
@@ -79,7 +70,7 @@ test "ODOWN is not possible without enough Sentinels reports" {
     set old_port [RI $master_id tcp_port]
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
     assert {[lindex $addr 1] == $old_port}
-    R $master_id debug sleep 5
+    R $master_id debug sleep 10
 
     # Make sure failover did not happened.
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
@@ -95,7 +86,7 @@ test "Failover is not possible without majority agreement" {
     for {set id 0} {$id < $quorum} {incr id} {
         S $id SENTINEL REMOVE mymaster
     }
-    R $master_id debug sleep 5
+    R $master_id debug sleep 10
 
     # Make sure failover did not happened.
     set addr [S $quorum SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
@@ -124,7 +115,7 @@ test "Failover works if we configure for absolute agreement" {
         }
     }
 
-    R $master_id debug sleep 5
+    R $master_id debug sleep 10
     foreach_sentinel_id id {
         wait_for_condition 1000 50 {
             [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port

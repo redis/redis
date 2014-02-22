@@ -17,7 +17,16 @@ test "Sentinels can start monitoring a master" {
     }
     foreach_sentinel_id id {
         assert {[S $id sentinel master mymaster] ne {}}
+        S $id SENTINEL SET mymaster down-after-milliseconds 2000
     }
 }
 
-
+test "Sentinels can talk with the master" {
+    foreach_sentinel_id id {
+        wait_for_condition 100 50 {
+            [catch {S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster}] == 0
+        } else {
+            fail "Sentinel $id can't talk with the master."
+        }
+    }
+}
