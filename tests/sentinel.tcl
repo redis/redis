@@ -53,8 +53,8 @@ proc spawn_instance {type base_port count} {
         } else {
             set prgname redis-sentinel
         }
-        set sentinel_pid [exec ../../src/${prgname} $cfgfile &]
-        lappend ::pids $sentinel_pid
+        set pid [exec ../../src/${prgname} $cfgfile &]
+        lappend ::pids $pid
 
         # Check availability
         if {[server_is_up 127.0.0.1 $port 100] == 0} {
@@ -63,7 +63,7 @@ proc spawn_instance {type base_port count} {
 
         # Push the instance into the right list
         lappend ::${type}_instances [list \
-            pid $sentinel_pid \
+            pid $pid \
             host 127.0.0.1 \
             port $port \
             link [redis 127.0.0.1 $port] \
@@ -212,6 +212,13 @@ proc get_instance_attrib {type id attrib} {
     dict get [lindex [set ::${type}_instances] $id] $attrib
 }
 
+# Set the specific attribute of the specified instance type, id.
+proc set_instance_attrib {type id attrib newval} {
+    set d [lindex [set ::${type}_instances] $id]
+    dict set d $attrib $newval
+    lset ::${type}_instances $id $d
+}
+
 # Create a master-slave cluster of the given number of total instances.
 # The first instance "0" is the master, all others are configured as
 # slaves.
@@ -219,8 +226,8 @@ proc create_redis_master_slave_cluster n {
     foreach_redis_id id {
         if {$id == 0} {
             # Our master.
-            R $id flushall
             R $id slaveof no one
+            R $id flushall
         } elseif {$id < $n} {
             R $id slaveof [get_instance_attrib redis 0 host] \
                           [get_instance_attrib redis 0 port]
@@ -244,6 +251,47 @@ proc get_instance_id_by_port {type port} {
         }
     }
     fail "Instance $type port $port not found."
+}
+
+# Kill an instance of the specified type/id with SIGKILL.
+# This function will mark the instance PID as -1 to remember that this instance
+# is no longer running and will remove its PID from the list of pids that
+# we kill at cleanup.
+#
+# The instance can be restarted with restart-instance.
+proc kill_instance {type id} {
+    set pid [get_instance_attrib $type $id pid]
+    exec kill -9 $pid
+    set_instance_attrib $type $id pid -1
+    set_instance_attrib $type $id link you_tried_to_talk_with_killed_instance
+
+    # Remove the PID from the list of pids to kill at exit.
+    set ::pids [lsearch -all -inline -not -exact $::pids $pid]
+}
+
+# Restart an instance previously killed by kill_instance
+proc restart_instance {type id} {
+    set dirname "${type}_${id}"
+    set cfgfile [file join $dirname $type.conf]
+    set port [get_instance_attrib $type $id port]
+
+    # Execute the instance with its old setup and append the new pid
+    # file for cleanup.
+    if {$type eq "redis"} {
+        set prgname redis-server
+    } else {
+        set prgname redis-sentinel
+    }
+    set pid [exec ../../src/${prgname} $cfgfile &]
+    lappend ::pids $pid
+
+    # Check that the instance is running
+    if {[server_is_up 127.0.0.1 $port 100] == 0} {
+        abort_sentinel_test "Problems starting $type #$j: ping timeout"
+    }
+
+    # Connect with it with a fresh link
+    set_instance_attrib $type $id link [redis 127.0.0.1 $port]
 }
 
 if {[catch main e]} {
