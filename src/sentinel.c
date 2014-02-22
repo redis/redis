@@ -2468,8 +2468,6 @@ void sentinelCommand(redisClient *c) {
         ri = sentinelGetMasterByName(c->argv[2]->ptr);
         if (ri == NULL) {
             addReply(c,shared.nullmultibulk);
-        } else if (ri->info_refresh == 0) {
-            addReplySds(c,sdsnew("-IDONTKNOW I have not enough information to reply. Please ask another Sentinel.\r\n"));
         } else {
             sentinelAddr *addr = sentinelGetCurrentMasterAddress(ri);
 
