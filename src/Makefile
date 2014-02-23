@@ -82,6 +82,11 @@ ifeq ($(MALLOC),tcmalloc_minimal)
 	FINAL_LIBS+= -ltcmalloc_minimal
 endif
 
+ifdef HAVE_SYSTEMD
+    FINAL_CFLAGS+= -DHAVE_SYSTEMD
+    FINAL_LIBS+= -lsystemd-daemon
+endif
+
 ifeq ($(MALLOC),jemalloc)
 	DEPENDENCY_TARGETS+= jemalloc
 	FINAL_CFLAGS+= -DUSE_JEMALLOC -I../deps/jemalloc/include

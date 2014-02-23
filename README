@@ -66,6 +66,18 @@ If you want to see a more verbose output use the following:
 
     % make V=1
 
+Systemd watchdog support
+------------------------
+
+Redis support systemd watchdog protocol, to restart it automatically
+if the process is stuck or not responding. You need to have a version
+209 or newer of systemd, and compile Redis with:
+
+    % make HAVE_SYSTEMD=1
+
+By default, this will be a non operation unless systemd unit is configured
+to use a watchdog.
+
 Running Redis
 -------------
 

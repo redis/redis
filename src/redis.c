@@ -51,6 +51,9 @@
 #include <sys/resource.h>
 #include <sys/utsname.h>
 #include <locale.h>
+#ifdef HAVE_SYSTEMD
+#include <systemd/sd-daemon.h>
+#endif
 
 /* Our shared "common" objects */
 
@@ -1214,6 +1217,16 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     return 1000/server.hz;
 }
 
+#ifdef HAVE_SYSTEMD
+/* This function signal that redis is still
+ * alive to systemd on a regular basis, determined
+ * by sd_watchdog_enabled */
+int serverSystemdWatchdog(struct aeEventLoop *eventLoop, long long id, void *clientData) {
+    sd_notify(0, "WATCHDOG=1");
+    return (int) clientData;
+}
+#endif
+
 /* This function gets called every time Redis is entering the
  * main loop of the event driven library, that is, before to sleep
  * for ready file descriptors. */
@@ -1591,6 +1604,9 @@ int listenToPort(int port, int *fds, int *count) {
 
 void initServer() {
     int j;
+#ifdef HAVE_SYSTEMD
+    uint64_t watchdog_delay;
+#endif
 
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
@@ -1693,6 +1709,17 @@ void initServer() {
         redisPanic("Can't create the serverCron time event.");
         exit(1);
     }
+
+#ifdef HAVE_SYSTEMD
+    if (sd_watchdog_enabled(1, &watchdog_delay)) {
+	// watchdog_delay is in usec, and upstream recommend to ping every half of the interval
+	int delay = watchdog_delay/2000;
+        if(aeCreateTimeEvent(server.el, delay, serverSystemdWatchdog, delay, NULL) == AE_ERR) {
+            redisPanic("Can't create the serverSystemdWatchdog time event.");
+            exit(1);
+        }
+    }
+#endif
 
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
