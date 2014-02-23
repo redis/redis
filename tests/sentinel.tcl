@@ -124,11 +124,13 @@ proc main {} {
 # on error in order to give the developer a chance to understand more about
 # the error condition while the instances are still running.
 proc pause_on_error {} {
+    puts ""
     puts [colorstr yellow "*** Please inspect the error now ***"]
-    puts "\nType \"continue\" to resume the test."
-    while {[gets stdin] ne {continue}} {
-        puts "> "
+    puts "\nType \"continue\" to resume the test.\n"
+    while 1 {
+        puts -nonewline "> "
         flush stdout
+        if {[gets stdin] eq {continue}} break
     }
 }
 
