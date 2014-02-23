@@ -11,6 +11,7 @@ source tests/support/server.tcl
 source tests/support/test.tcl
 
 set ::verbose 0
+set ::pause_on_error 0
 set ::sentinel_instances {}
 set ::redis_instances {}
 set ::sentinel_base_port 20000
@@ -95,10 +96,13 @@ proc parse_options {} {
         if {$opt eq "--single"} {
             incr j
             set ::run_matching "*${val}*"
+        } elseif {$opt eq "--pause-on-error"} {
+            set ::pause_on_error 1
         } elseif {$opt eq "--help"} {
             puts "Hello, I'm sentinel.tcl and I run Sentinel unit tests."
             puts "\nOptions:"
             puts "--single <pattern>        Only runs tests specified by pattern."
+            puts "--pause-on-error          Pause for manual inspection on error."
             puts "--help                    Shows this help."
             exit 0
         } else {
@@ -116,6 +120,18 @@ proc main {} {
     cleanup
 }
 
+# If --pause-on-error option was passed at startup this function is called
+# on error in order to give the developer a chance to understand more about
+# the error condition while the instances are still running.
+proc pause_on_error {} {
+    puts [colorstr yellow "*** Please inspect the error now ***"]
+    puts "\nType \"continue\" to resume the test."
+    while {[gets stdin] ne {continue}} {
+        puts "> "
+        flush stdout
+    }
+}
+
 # We redefine 'test' as for Sentinel we don't use the server-client
 # architecture for the test, everything is sequential.
 proc test {descr code} {
@@ -126,6 +142,7 @@ proc test {descr code} {
         if {[string match "assertion:*" $error]} {
             set msg [string range $error 10 end]
             puts [colorstr red $msg]
+            if {$::pause_on_error} pause_on_error
         } else {
             # Re-raise, let handler up the stack take care of this.
             error $error $::errorInfo
