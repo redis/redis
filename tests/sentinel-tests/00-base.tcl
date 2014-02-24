@@ -2,27 +2,6 @@
 
 source "../sentinel-tests/includes/init-tests.tcl"
 
-test "Sentinels are able to auto-discover other sentinels" {
-    set sentinels [llength $::sentinel_instances]
-    foreach_sentinel_id id {
-        wait_for_condition 100 50 {
-            [dict get [S $id SENTINEL MASTER mymaster] num-other-sentinels] == ($sentinels-1)
-        } else {
-            fail "At least some sentinel can't detect some other sentinel"
-        }
-    }
-}
-
-test "Sentinels are able to auto-discover slaves" {
-    foreach_sentinel_id id {
-        wait_for_condition 100 50 {
-            [dict get [S $id SENTINEL MASTER mymaster] num-slaves] == $redis_slaves
-        } else {
-            fail "At least some sentinel can't detect some slave"
-        }
-    }
-}
-
 test "Basic failover works if the master is down" {
     set old_port [RI $master_id tcp_port]
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
