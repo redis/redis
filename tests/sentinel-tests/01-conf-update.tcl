@@ -3,10 +3,6 @@
 source "../sentinel-tests/includes/init-tests.tcl"
 
 test "We can failover with Sentinel 1 crashed" {
-    foreach_sentinel_id id {
-        S $id SENTINEL SET mymaster down-after-milliseconds 2000
-    }
-
     set old_port [RI $master_id tcp_port]
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
     assert {[lindex $addr 1] == $old_port}
