@@ -102,14 +102,18 @@ char *redisGitDirty(void);
  * Utility functions
  *--------------------------------------------------------------------------- */
 
-static long long mstime(void) {
+static long long ustime(void) {
     struct timeval tv;
-    long long mst;
+    long long ust;
 
     gettimeofday(&tv, NULL);
-    mst = ((long long)tv.tv_sec)*1000;
-    mst += tv.tv_usec/1000;
-    return mst;
+    ust = ((long long)tv.tv_sec)*1000000;
+    ust += tv.tv_usec;
+    return ust;
+}
+
+static long long mstime(void) {
+    return ustime()/1000;
 }
 
 static void cliRefreshPrompt(void) {
@@ -950,6 +954,10 @@ static int noninteractive(int argc, char **argv) {
     return retval;
 }
 
+/*------------------------------------------------------------------------------
+ * Eval mode
+ *--------------------------------------------------------------------------- */
+
 static int evalMode(int argc, char **argv) {
     sds script = sdsempty();
     FILE *fp;
@@ -987,6 +995,10 @@ static int evalMode(int argc, char **argv) {
     /* Call it */
     return cliSendCommand(argc+3-got_comma, argv2, config.repeat);
 }
+
+/*------------------------------------------------------------------------------
+ * Latency and latency history modes
+ *--------------------------------------------------------------------------- */
 
 #define LATENCY_SAMPLE_RATE 10 /* milliseconds. */
 #define LATENCY_HISTORY_DEFAULT_INTERVAL 15000 /* milliseconds. */
@@ -1031,6 +1043,10 @@ static void latencyMode(void) {
         usleep(LATENCY_SAMPLE_RATE * 1000);
     }
 }
+
+/*------------------------------------------------------------------------------
+ * Slave mode
+ *--------------------------------------------------------------------------- */
 
 /* Sends SYNC and reads the number of bytes in the payload. Used both by
  * slaveMode() and getRDB(). */
@@ -1095,6 +1111,10 @@ static void slaveMode(void) {
     config.output = original_output;
 }
 
+/*------------------------------------------------------------------------------
+ * RDB transfer mode
+ *--------------------------------------------------------------------------- */
+
 /* This function implements --rdb, so it uses the replication protocol in order
  * to fetch the RDB file from a remote server. */
 static void getRDB(void) {
@@ -1139,6 +1159,10 @@ static void getRDB(void) {
     fprintf(stderr,"Transfer finished with success.\n");
     exit(0);
 }
+
+/*------------------------------------------------------------------------------
+ * Bulk import (pipe) mode
+ *--------------------------------------------------------------------------- */
 
 static void pipeMode(void) {
     int fd = context->fd;
@@ -1291,6 +1315,10 @@ static void pipeMode(void) {
         exit(0);
 }
 
+/*------------------------------------------------------------------------------
+ * Find big keys
+ *--------------------------------------------------------------------------- */
+
 #define TYPE_STRING 0
 #define TYPE_LIST   1
 #define TYPE_SET    2
@@ -1376,6 +1404,10 @@ static void findBigKeys(void) {
         if (reply3) freeReplyObject(reply3);
     }
 }
+
+/*------------------------------------------------------------------------------
+ * Stats mode
+ *--------------------------------------------------------------------------- */
 
 /* Return the specified INFO field from the INFO command output "info".
  * A new buffer is allocated for the result, that needs to be free'd.
@@ -1515,6 +1547,10 @@ static void statMode() {
         usleep(config.interval);
     }
 }
+
+/*------------------------------------------------------------------------------
+ * Scan mode
+ *--------------------------------------------------------------------------- */
 
 static void scanMode() {
     redisReply *reply;
