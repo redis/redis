@@ -1,5 +1,17 @@
 # Initialization tests -- most units will start including this.
 
+test "(init) Restart killed instances" {
+    foreach type {redis sentinel} {
+        foreach_${type}_id id {
+            if {[get_instance_attrib $type $id pid] == -1} {
+                puts -nonewline "$type/$id "
+                flush stdout
+                restart_instance $type $id
+            }
+        }
+    }
+}
+
 set redis_slaves 4
 test "(init) Create a master-slaves cluster of [expr $redis_slaves+1] instances" {
     create_redis_master_slave_cluster [expr {$redis_slaves+1}]
