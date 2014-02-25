@@ -200,10 +200,10 @@ static int anetCreateSocket(char *err, int domain) {
 
 #define ANET_CONNECT_NONE 0
 #define ANET_CONNECT_NONBLOCK 1
-static int anetTcpGenericConnect(char *err, char *addr, int port, int flags)
+static int anetTcpGenericConnect(char *err, char *addr, int port, int flags, char *bindaddr)
 {
     int s;
-    struct sockaddr_in sa;
+    struct sockaddr_in sa, src_sa;
 
     if ((s = anetCreateSocket(err,AF_INET)) == ANET_ERR)
         return ANET_ERR;
@@ -225,6 +225,14 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, int flags)
         if (anetNonBlock(err,s) != ANET_OK)
             return ANET_ERR;
     }
+
+    if (bindaddr && strncmp(bindaddr, "127.", 4) != 0) {
+        memset(&src_sa, 0, sizeof(src_sa));
+        src_sa.sin_family = AF_INET;
+        src_sa.sin_addr.s_addr = inet_addr(bindaddr);
+        bind(s, (struct sockaddr *)&src_sa, sizeof(src_sa));
+    }
+
     if (connect(s, (struct sockaddr*)&sa, sizeof(sa)) == -1) {
         if (errno == EINPROGRESS &&
             flags & ANET_CONNECT_NONBLOCK)
@@ -239,12 +247,12 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, int flags)
 
 int anetTcpConnect(char *err, char *addr, int port)
 {
-    return anetTcpGenericConnect(err,addr,port,ANET_CONNECT_NONE);
+    return anetTcpGenericConnect(err,addr,port,ANET_CONNECT_NONE,NULL);
 }
 
-int anetTcpNonBlockConnect(char *err, char *addr, int port)
+int anetTcpNonBlockConnect(char *err, char *addr, int port, char *bindaddr)
 {
-    return anetTcpGenericConnect(err,addr,port,ANET_CONNECT_NONBLOCK);
+    return anetTcpGenericConnect(err,addr,port,ANET_CONNECT_NONBLOCK,bindaddr);
 }
 
 int anetUnixGenericConnect(char *err, char *path, int flags)
