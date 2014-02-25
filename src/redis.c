@@ -1306,6 +1306,7 @@ void initServerConfig() {
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
     server.repl_disable_tcp_nodelay = 0;
     server.slave_priority = REDIS_DEFAULT_SLAVE_PRIORITY;
+    server.repl_min_transfer_size = 0;
 
     /* Client output buffer limits */
     server.client_obuf_limits[REDIS_CLIENT_LIMIT_CLASS_NORMAL].hard_limit_bytes = 0;
