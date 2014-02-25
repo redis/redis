@@ -1622,10 +1622,10 @@ static void scanMode() {
 /* This is just some computation the compiler can't optimize out.
  * Should run in less than 100-200 microseconds even using very
  * slow hardware. Runs in less than 10 microseconds in modern HW. */
-uint64_t compute_something_fast(void) {
+unsigned long compute_something_fast(void) {
     uint8_t s[256], i, j, t;
     int count = 1000, k;
-    uint64_t output = 0;
+    unsigned long output = 0;
 
     for (k = 0; k < 256; k++) s[k] = k;
 
