@@ -280,6 +280,9 @@ proc get_instance_id_by_port {type port} {
 # The instance can be restarted with restart-instance.
 proc kill_instance {type id} {
     set pid [get_instance_attrib $type $id pid]
+    if {$pid == -1} {
+        error "You tried to kill $type $id twice."
+    }
     exec kill -9 $pid
     set_instance_attrib $type $id pid -1
     set_instance_attrib $type $id link you_tried_to_talk_with_killed_instance
@@ -302,6 +305,7 @@ proc restart_instance {type id} {
         set prgname redis-sentinel
     }
     set pid [exec ../../src/${prgname} $cfgfile &]
+    set_instance_attrib $type $id pid $pid
     lappend ::pids $pid
 
     # Check that the instance is running
