@@ -731,7 +731,7 @@ static int parseOptions(int argc, char **argv) {
             config.stat_mode = 1;
         } else if (!strcmp(argv[i],"--scan")) {
             config.scan_mode = 1;
-        } else if (!strcmp(argv[i],"--pattern")) {
+        } else if (!strcmp(argv[i],"--pattern") && !lastarg) {
             config.pattern = argv[++i];
         } else if (!strcmp(argv[i],"--intrinsic-latency") && !lastarg) {
             config.intrinsic_latency_mode = 1;
