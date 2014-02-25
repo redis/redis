@@ -145,6 +145,8 @@ proc test {descr code} {
             set msg [string range $error 10 end]
             puts [colorstr red $msg]
             if {$::pause_on_error} pause_on_error
+            puts "(Jumping to next unit after error)"
+            return -code continue
         } else {
             # Re-raise, let handler up the stack take care of this.
             error $error $::errorInfo
