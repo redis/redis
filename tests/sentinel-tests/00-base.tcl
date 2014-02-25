@@ -6,7 +6,7 @@ test "Basic failover works if the master is down" {
     set old_port [RI $master_id tcp_port]
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
     assert {[lindex $addr 1] == $old_port}
-    R $master_id debug sleep 10
+    kill_instance redis $master_id
     foreach_sentinel_id id {
         wait_for_condition 100 50 {
             [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port
@@ -14,6 +14,7 @@ test "Basic failover works if the master is down" {
             fail "At least one Sentinel did not received failover info"
         }
     }
+    restart_instance redis $master_id
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
     set master_id [get_instance_id_by_port redis [lindex $addr 1]]
 }
@@ -49,11 +50,12 @@ test "ODOWN is not possible without N (quorum) Sentinels reports" {
     set old_port [RI $master_id tcp_port]
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
     assert {[lindex $addr 1] == $old_port}
-    R $master_id debug sleep 10
+    kill_instance redis $master_id
 
     # Make sure failover did not happened.
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
     assert {[lindex $addr 1] == $old_port}
+    restart_instance redis $master_id
 }
 
 test "Failover is not possible without majority agreement" {
@@ -66,11 +68,13 @@ test "Failover is not possible without majority agreement" {
         kill_instance sentinel $id
     }
 
-    R $master_id debug sleep 10
+    # Kill the current master
+    kill_instance redis $master_id
 
     # Make sure failover did not happened.
     set addr [S $quorum SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
     assert {[lindex $addr 1] == $old_port}
+    restart_instance redis $master_id
 
     # Cleanup: restart Sentinels to monitor the master.
     for {set id 0} {$id < $quorum} {incr id} {
@@ -92,7 +96,8 @@ test "Failover works if we configure for absolute agreement" {
         }
     }
 
-    R $master_id debug sleep 10
+    kill_instance redis $master_id
+
     foreach_sentinel_id id {
         wait_for_condition 1000 50 {
             [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port
@@ -100,6 +105,7 @@ test "Failover works if we configure for absolute agreement" {
             fail "At least one Sentinel did not received failover info"
         }
     }
+    restart_instance redis $master_id
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
     set master_id [get_instance_id_by_port redis [lindex $addr 1]]
 
