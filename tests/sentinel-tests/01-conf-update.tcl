@@ -33,3 +33,7 @@ test "After Sentinel 1 is restarted, its config gets updated" {
         fail "Restarted Sentinel did not received failover info"
     }
 }
+
+test "New master [join $addr {:}] role matches" {
+    assert {[RI $master_id role] eq {master}}
+}
