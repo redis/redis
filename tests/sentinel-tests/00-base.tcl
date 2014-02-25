@@ -42,7 +42,7 @@ test "The old master eventually gets reconfigured as a slave" {
     }
 }
 
-test "ODOWN is not possible without enough Sentinels reports" {
+test "ODOWN is not possible without N (quorum) Sentinels reports" {
     foreach_sentinel_id id {
         S $id SENTINEL SET mymaster quorum [expr $sentinels+1]
     }
@@ -61,22 +61,20 @@ test "Failover is not possible without majority agreement" {
         S $id SENTINEL SET mymaster quorum $quorum
     }
 
-    # Make majority of sentinels stop monitoring the master
+    # Crash majority of sentinels
     for {set id 0} {$id < $quorum} {incr id} {
-        S $id SENTINEL REMOVE mymaster
+        kill_instance sentinel $id
     }
+
     R $master_id debug sleep 10
 
     # Make sure failover did not happened.
     set addr [S $quorum SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
     assert {[lindex $addr 1] == $old_port}
 
-    # Cleanup: reconfigure the Sentinels to monitor the master.
+    # Cleanup: restart Sentinels to monitor the master.
     for {set id 0} {$id < $quorum} {incr id} {
-        S $id SENTINEL MONITOR mymaster \
-              [get_instance_attrib redis $master_id host] \
-              [get_instance_attrib redis $master_id port] $quorum
-        S $id SENTINEL SET mymaster down-after-milliseconds 2000
+        restart_instance sentinel $id
     }
 }
 
