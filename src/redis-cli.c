@@ -1623,7 +1623,7 @@ static void scanMode() {
  * Should run in less than 100-200 microseconds even using very
  * slow hardware. Runs in less than 10 microseconds in modern HW. */
 unsigned long compute_something_fast(void) {
-    uint8_t s[256], i, j, t;
+    unsigned char s[256], i, j, t;
     int count = 1000, k;
     unsigned long output = 0;
 
