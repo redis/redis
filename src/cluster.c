@@ -389,7 +389,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
     if (cfd == ANET_ERR) {
-        redisLog(REDIS_VERBOSE,"Accepting cluster node: %s", server.neterr);
+        redisLog(REDIS_WARNING,"Error accepting cluster node: %s", server.neterr);
         return;
     }
     anetNonBlock(NULL,cfd);
