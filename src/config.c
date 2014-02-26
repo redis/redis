@@ -491,7 +491,11 @@ void loadServerConfigFromString(char *config) {
                 err = sentinelHandleConfiguration(argv+1,argc-1);
                 if (err) goto loaderr;
             }
-        } else {
+#ifdef _WIN32
+		} else if (!strcasecmp(argv[0],"bypass-system-reserve")) {
+			// handled in qfork init. bypass here,
+#endif
+		} else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
         sdsfreesplitres(argv,argc);

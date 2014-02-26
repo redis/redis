@@ -121,12 +121,15 @@ How the parent invokes the QFork process:
 
 const SIZE_T cAllocationGranularity = 1 << 26;                   // 64MB per dlmalloc heap block 
 const int cMaxBlocks = 1 << 16;                                  // 64KB*64K sections = 4TB. 4TB is the largest memory config Windows supports at present.
-const SIZE_T cSystemReserve = 3 * 1024i64 * 1024i64 * 1024i64;   // Reserve left for Windows to operate on when we are heavily loaded.
 const wchar_t* cMapFileBaseName = L"RedisQFork";
 const char* qforkFlag = "--QFork";
 const char* maxmemoryFlag = "maxmemory";
 const int cDeadForkWait = 30000;
 const size_t pageSize = 4096;
+
+// for Azure team testing
+const char* bypassSystemReserveFlag = "bypass-system-reserve";
+
 
 typedef enum BlockState {
     bsINVALID = 0,
@@ -252,7 +255,7 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
 }
 
 
-BOOL QForkMasterInit( __int64 maxmemoryBytes ) {
+BOOL QForkMasterInit( __int64 maxmemoryBytes, bool bypassSystemReserve ) {
     try {
         // allocate file map for qfork control so it can be passed to the forked process
         g_hQForkControlFileMap = CreateFileMappingW(
@@ -298,7 +301,7 @@ BOOL QForkMasterInit( __int64 maxmemoryBytes ) {
 		}
 		SIZE_T maxSystemReservePages = 3i64 * 1024i64 * 1024i64 * 1024i64 / pageSize;
 		SIZE_T twentyPercentPhysical = (perfinfo.PhysicalTotal * 2i64) / 10i64;
-		SIZE_T maxPhysicalPagesToUse = perfinfo.PhysicalTotal - min(maxSystemReservePages,twentyPercentPhysical);
+		SIZE_T maxPhysicalPagesToUse = perfinfo.PhysicalTotal - min(maxSystemReservePages, bypassSystemReserve ? 0 : twentyPercentPhysical);
         SIZE_T maxPhysicalMapping = maxPhysicalPagesToUse * pageSize;
         if (maxmemoryBytes != -1) {
 			SIZE_T allocationBlocks = maxmemoryBytes / cAllocationGranularity;
@@ -452,7 +455,8 @@ StartupStatus QForkStartup(int argc, char** argv) {
     bool foundSlaveFlag = false;
     HANDLE QForkConrolMemoryMapHandle = NULL;
     DWORD PPID = 0;
-    int maxmemory = -1;
+    __int64 maxmemory = -1;
+	bool bypassSystemReserve = false;
     if ((argc == 3) && (strcmp(argv[0], qforkFlag) == 0)) {
         // slave command line looks like: --QFork [QForkConrolMemoryMap handle] [parent process id]
         foundSlaveFlag = true;
@@ -463,10 +467,7 @@ StartupStatus QForkStartup(int argc, char** argv) {
     } else {
 		bool maxMemoryFlagFound = false;
         for (int n = 1; n < argc; n++) {
-			if (maxMemoryFlagFound)
-				break;
-
-			// check for maxmemory flag in .conf file
+			// check for maxmemory + reserve bypass flags in .conf file
 			if( n == 1  && strncmp(argv[n],"--",2) != 0 ) {
 				ifstream config;
 				config.open(argv[n]);
@@ -477,39 +478,45 @@ StartupStatus QForkStartup(int argc, char** argv) {
 					getline(config,line);
 					istringstream iss(line);
 					string token;
-					if (getline(iss, token, ' ') && (_stricmp(token.c_str(), maxmemoryFlag) == 0)) {
-						string maxmemoryString;
-						if (getline(iss, maxmemoryString, ' ')) {
-							maxmemory = _atoi64(maxmemoryString.c_str());
-							maxMemoryFlagFound = true;
-							break;
+					if (getline(iss, token, ' ')) {
+						if (_stricmp(token.c_str(), maxmemoryFlag) == 0) {
+							string maxmemoryString;
+							if (getline(iss, maxmemoryString, ' ')) {
+								maxmemory = _atoi64(maxmemoryString.c_str());
+								maxMemoryFlagFound = true;
+							}
+						}
+						else if( _stricmp(token.c_str(), bypassSystemReserveFlag) == 0 ) {
+							bypassSystemReserve = true;
 						}
 					}
 				}
 				continue;
 			}
-            if( strncmp(argv[n],"--", 2) == 0 &&
-				_stricmp(argv[n]+2,maxmemoryFlag) == 0) {
-                maxmemory = _atoi64(argv[n+1]);
-                if (maxmemory == 0) {
-                    printf (
-                        "%s specified. Unable to convert %s to the maximum number of bytes to use for the heap.\n", 
-                        maxmemory,
-                        argv[n+1] );
-                    printf( "Failing startup.\n");
-                    return StartupStatus::ssFAILED;
-                } else {
-					maxMemoryFlagFound = true;
-                    break;
-                }
-            }
+            if( strncmp(argv[n],"--", 2) == 0) {
+				if (_stricmp(argv[n]+2,maxmemoryFlag) == 0) {
+					maxmemory = _atoi64(argv[n+1]);
+					if (maxmemory == 0) {
+						printf (
+							"%s specified. Unable to convert %s to the maximum number of bytes to use for the heap.\n", 
+							maxmemory,
+							argv[n+1] );
+						printf( "Failing startup.\n");
+						return StartupStatus::ssFAILED;
+					} else {
+						maxMemoryFlagFound = true;
+	                }
+				} else if(_stricmp(argv[n]+2,bypassSystemReserveFlag) == 0) {
+					bypassSystemReserve = true;
+				}
+			}
         }
     }
 
     if (foundSlaveFlag) {
         return QForkSlaveInit( QForkConrolMemoryMapHandle, PPID ) ? StartupStatus::ssSLAVE_EXIT : StartupStatus::ssFAILED;
     } else {
-        return QForkMasterInit(maxmemory) ? StartupStatus::ssCONTINUE_AS_MASTER : StartupStatus::ssFAILED;
+		return QForkMasterInit(maxmemory,bypassSystemReserve) ? StartupStatus::ssCONTINUE_AS_MASTER : StartupStatus::ssFAILED;
     }
 }
 
@@ -848,9 +855,6 @@ BOOL EndForkOperation() {
                 }
             }
         }
-#ifdef _DEBUG
-//        cout << cowList.size() << " of " << (mmSize / pageSize) << " are modified" << endl;
-#endif
 
         if (cowList.size() > 0) {
             LPBYTE cowBuffer = (LPBYTE)malloc(cowList.size() * pageSize);
@@ -953,7 +957,7 @@ int totalFreeCalls = 0;
 
 LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
     totalAllocCalls++;
-    LPVOID retPtr = (LPVOID)-1;
+    LPVOID retPtr = (LPVOID)NULL;
     if (size % g_pQForkControl->heapBlockSize != 0 ) {
         errno = EINVAL;
         return retPtr;
