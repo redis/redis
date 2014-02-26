@@ -915,11 +915,11 @@ int clusterStartHandshake(char *ip, int port) {
     if (sa.ss_family == AF_INET)
         inet_ntop(AF_INET,
             (void*)&(((struct sockaddr_in *)&sa)->sin_addr),
-            norm_ip,REDIS_CLUSTER_IPLEN);
+            norm_ip,REDIS_IP_STR_LEN);
     else
         inet_ntop(AF_INET6,
             (void*)&(((struct sockaddr_in6 *)&sa)->sin6_addr),
-            norm_ip,REDIS_CLUSTER_IPLEN);
+            norm_ip,REDIS_IP_STR_LEN);
 
     if (clusterHandshakeInProgress(norm_ip,port)) {
         errno = EAGAIN;
@@ -1021,7 +1021,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
 
 /* IP -> string conversion. 'buf' is supposed to at least be 46 bytes. */
 void nodeIp2String(char *buf, clusterLink *link) {
-    anetPeerToString(link->fd, buf, REDIS_CLUSTER_IPLEN, NULL);
+    anetPeerToString(link->fd, buf, REDIS_IP_STR_LEN, NULL);
 }
 
 /* Update the node address to the IP address that can be extracted
