@@ -50,7 +50,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <AdditionalIncludeDirectories>$(SolutionDir)..\deps\hiredis;$(SolutionDir)..\deps\linenoise;$(SolutionDir)..\deps\lua\src</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>WIN32;USE_DL_PREFIX;LACKS_STDLIB_H;_DEBUG;_CONSOLE;%(PreprocessorDefinitions);WIN32_IOCP;WIN32_IOCP;NO_QFORKIMPL</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;USE_DL_PREFIX;LACKS_STDLIB_H;_DEBUG;_CONSOLE;%(PreprocessorDefinitions);NO_QFORKIMPL;WIN32_IOCP</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <DisableSpecificWarnings>4996</DisableSpecificWarnings>
     </ClCompile>

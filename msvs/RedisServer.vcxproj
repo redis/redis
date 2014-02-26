@@ -47,7 +47,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <PreprocessorDefinitions>_WIN32IOCP;WIN32;USE_DL_PREFIX;LACKS_STDLIB_H;_DEBUG;_CONSOLE;__x86_64__;%(PreprocessorDefinitions);WIN32_IOCP;WIN32_IOCP;USE_DLMALLOC</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;USE_DL_PREFIX;LACKS_STDLIB_H;_DEBUG;_CONSOLE;__x86_64__;%(PreprocessorDefinitions);USE_DLMALLOC;WIN32_IOCP</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(SolutionDir)..\deps\lua\src;$(SolutionDir)..\deps\hiredis</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
@@ -86,6 +86,9 @@
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
     </Link>
+    <PostBuildEvent>
+      <Command>powershell -executionpolicy unrestricted -command compressOutputToReleaseFolder.ps1</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\src\adlist.c" />

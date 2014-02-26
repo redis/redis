@@ -53,7 +53,7 @@
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>_WIN32IOCP;WIN32;USE_DL_PREFIX;LACKS_STDLIB_H;_DEBUG;_CONSOLE;%(PreprocessorDefinitions);WIN32_IOCP;WIN32_IOCP;NO_QFORKIMPL</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;USE_DL_PREFIX;LACKS_STDLIB_H;_DEBUG;_CONSOLE;%(PreprocessorDefinitions);NO_QFORKIMPL;WIN32_IOCP</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(SolutionDir)..\deps\hiredis;$(SolutionDir)..\deps\lua\src</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <DisableSpecificWarnings>4996</DisableSpecificWarnings>

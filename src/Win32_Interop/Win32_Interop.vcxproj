@@ -69,7 +69,7 @@
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_LIB;%(PreprocessorDefinitions);_WIN32IOCP;USE_DL_PREFIX;LACKS_STDLIB_H;USE_DLMALLOC;_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_LIB;%(PreprocessorDefinitions);USE_DL_PREFIX;LACKS_STDLIB_H;USE_DLMALLOC;_CRT_SECURE_NO_WARNINGS;WIN32_IOCP</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(SolutionDir)..\deps\lua\src</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>

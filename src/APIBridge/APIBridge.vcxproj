@@ -51,7 +51,7 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_CRT_SECURE_NO_WARNINGS;_DEBUG;_WINDOWS;_USRDLL;APIBRIDGE_EXPORTS;%(PreprocessorDefinitions);WIN32_IOCP;WIN32_IOCP</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_CRT_SECURE_NO_WARNINGS;_DEBUG;_WINDOWS;_USRDLL;APIBRIDGE_EXPORTS;%(PreprocessorDefinitions);WIN32_IOCP</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <PrecompiledHeaderFile>
       </PrecompiledHeaderFile>

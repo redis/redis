@@ -49,7 +49,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;USE_DL_PREFIX;LACKS_STDLIB_H;%(PreprocessorDefinitions);WIN32_IOCP;WIN32_IOCP;NO_QFORKIMPL</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;USE_DL_PREFIX;LACKS_STDLIB_H;%(PreprocessorDefinitions);NO_QFORKIMPL;WIN32_IOCP</PreprocessorDefinitions>
       <DisableSpecificWarnings>4996</DisableSpecificWarnings>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <AdditionalIncludeDirectories>$(SolutionDir)..\deps\lua\src</AdditionalIncludeDirectories>
