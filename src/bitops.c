@@ -60,11 +60,18 @@ static int getBitOffsetFromArgument(redisClient *c, robj *o, size_t *offset) {
  * work with a input string length up to 512 MB. */
 size_t redisPopcount(void *s, long count) {
     size_t bits = 0;
-    unsigned char *p;
-    uint32_t *p4 = s;
+    unsigned char *p = s;
+    uint32_t *p4;
     static const unsigned char bitsinbyte[256] = {0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8};
 
+    /* Count initial bytes not aligned to 32 bit. */
+    while((unsigned long)p & 3 && count) {
+        bits += bitsinbyte[*p++];
+        count--;
+    }
+
     /* Count bits 16 bytes at a time */
+    p4 = (uint32_t*)p;
     while(count>=16) {
         uint32_t aux1, aux2, aux3, aux4;
 
