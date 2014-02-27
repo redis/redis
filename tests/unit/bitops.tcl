@@ -303,6 +303,39 @@ start_server {tags {"bitops"}} {
     test {BITPOS bit=0 changes behavior if end is given} {
         r set str "\xff\xff\xff"
         assert {[r bitpos str 0] == 24}
+        assert {[r bitpos str 0 0] == 24}
         assert {[r bitpos str 0 0 -1] == -1}
+    }
+
+    test {BITPOS bit=1 fuzzy testing using SETBIT} {
+        r del str
+        set max 524288; # 64k
+        set first_one_pos -1
+        for {set j 0} {$j < 1000} {incr j} {
+            assert {[r bitpos str 1] == $first_one_pos}
+            set pos [randomInt $max]
+            r setbit str $pos 1
+            if {$first_one_pos == -1 || $first_one_pos > $pos} {
+                # Update the position of the first 1 bit in the array
+                # if the bit we set is on the left of the previous one.
+                set first_one_pos $pos
+            }
+        }
+    }
+
+    test {BITPOS bit=0 fuzzy testing using SETBIT} {
+        set max 524288; # 64k
+        set first_zero_pos $max
+        r set str [string repeat "\xff" [expr $max/8]]
+        for {set j 0} {$j < 1000} {incr j} {
+            assert {[r bitpos str 0] == $first_zero_pos}
+            set pos [randomInt $max]
+            r setbit str $pos 0
+            if {$first_zero_pos > $pos} {
+                # Update the position of the first 0 bit in the array
+                # if the bit we clear is on the left of the previous one.
+                set first_zero_pos $pos
+            }
+        }
     }
 }
