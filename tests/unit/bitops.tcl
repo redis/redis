@@ -98,6 +98,18 @@ start_server {tags {"bitops"}} {
         }
     } {1}
 
+    test {BITCOUNT misaligned prefix} {
+        r del str
+        r set str ab
+        r bitcount str 1 -1
+    } {3}
+
+    test {BITCOUNT misaligned prefix + full words + remainder} {
+        r del str
+        r set str __PPxxxxxxxxxxxxxxxxRR__
+        r bitcount str 2 -3
+    } {74}
+
     test {BITOP NOT (empty string)} {
         r set s ""
         r bitop not dest s
