@@ -52,11 +52,25 @@ start_server {tags {"bitops"}} {
         }
     }
 
-    test {BITCOUNT fuzzing} {
+    test {BITCOUNT fuzzing without start/end} {
         for {set j 0} {$j < 100} {incr j} {
             set str [randstring 0 3000]
             r set str $str
             assert {[r bitcount str] == [count_bits $str]}
+        }
+    }
+
+    test {BITCOUNT fuzzing with start/end} {
+        for {set j 0} {$j < 100} {incr j} {
+            set str [randstring 0 3000]
+            r set str $str
+            set l [string length $str]
+            set start [randomInt $l]
+            set end [randomInt $l]
+            if {$start > $end} {
+                lassign [list $end $start] start end
+            }
+            assert {[r bitcount str $start $end] == [count_bits [string range $str $start $end]]}
         }
     }
 
