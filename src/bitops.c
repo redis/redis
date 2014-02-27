@@ -505,12 +505,13 @@ void bitcountCommand(redisClient *c) {
     }
 }
 
-/* BITPOS key bit [start end] */
+/* BITPOS key bit [start [end]] */
 void bitposCommand(redisClient *c) {
     robj *o;
     long bit, start, end, strlen;
     unsigned char *p;
     char llbuf[32];
+    int end_given = 0;
 
     /* Parse the bit argument to understand what we are looking for, set
      * or clear bits. */
@@ -541,11 +542,16 @@ void bitposCommand(redisClient *c) {
     }
 
     /* Parse start/end range if any. */
-    if (c->argc == 5) {
+    if (c->argc == 4 || c->argc == 5) {
         if (getLongFromObjectOrReply(c,c->argv[3],&start,NULL) != REDIS_OK)
             return;
-        if (getLongFromObjectOrReply(c,c->argv[4],&end,NULL) != REDIS_OK)
-            return;
+        if (c->argc == 5) {
+            if (getLongFromObjectOrReply(c,c->argv[4],&end,NULL) != REDIS_OK)
+                return;
+            end_given = 1;
+        } else {
+            end = strlen-1;
+        }
         /* Convert negative indexes */
         if (start < 0) start = strlen+start;
         if (end < 0) end = strlen+end;
@@ -570,14 +576,14 @@ void bitposCommand(redisClient *c) {
         long bytes = end-start+1;
         long pos = redisBitpos(p+start,bytes,bit);
 
-        /* If we are looking for clear bits, and our range does not includes
-         * the end of the string, but terminates before, we can't consider the
-         * right of the range as zero padded.
+        /* If we are looking for clear bits, and the user specified an exact
+         * range with start-end, we can't consider the right of the range as
+         * zero padded (as we do when no explicit end is given).
          *
-         * so if redisBitpos() returns the first bit outside the string,
+         * So if redisBitpos() returns the first bit outside the range,
          * we return -1 to the caller, to mean, in the specified range there
          * is not a single "0" bit. */
-        if (end != strlen-1 && bit == 0 && pos == bytes*8) {
+        if (end_given && bit == 0 && pos == bytes*8) {
             addReplyLongLong(c,-1);
             return;
         }
