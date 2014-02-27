@@ -148,7 +148,7 @@ typedef struct {
     char nodename[REDIS_CLUSTER_NAMELEN];
     uint32_t ping_sent;
     uint32_t pong_received;
-    char ip[16];    /* IP address last time it was seen */
+    char ip[REDIS_IP_STR_LEN];    /* IP address last time it was seen */
     uint16_t port;  /* port last time it was seen */
     uint16_t flags;
     uint32_t notused; /* for 64 bit alignment */
