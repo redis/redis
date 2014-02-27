@@ -203,4 +203,106 @@ start_server {tags {"bitops"}} {
         r set a "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
         r bitop or x a b
     } {32}
+
+    test {BITPOS bit=0 with empty key returns 0} {
+        r del str
+        r bitpos str 0
+    } {0}
+
+    test {BITPOS bit=1 with empty key returns -1} {
+        r del str
+        r bitpos str 1
+    } {-1}
+
+    test {BITPOS bit=0 with string less than 1 word works} {
+        r set str "\xff\xf0\x00"
+        r bitpos str 0
+    } {12}
+
+    test {BITPOS bit=1 with string less than 1 word works} {
+        r set str "\x00\x0f\x00"
+        r bitpos str 1
+    } {12}
+
+    test {BITPOS bit=0 starting at unaligned address} {
+        r set str "\xff\xf0\x00"
+        r bitpos str 0 1
+    } {12}
+
+    test {BITPOS bit=1 starting at unaligned address} {
+        r set str "\x00\x0f\xff"
+        r bitpos str 1 1
+    } {12}
+
+    test {BITPOS bit=0 unaligned+full word+reminder} {
+        r del str
+        r set str "\xff\xff\xff" ; # Prefix
+        # Followed by two (or four in 32 bit systems) full words
+        r append str "\xff\xff\xff\xff\xff\xff\xff\xff"
+        r append str "\xff\xff\xff\xff\xff\xff\xff\xff"
+        r append str "\xff\xff\xff\xff\xff\xff\xff\xff"
+        # First zero bit.
+        r append str "\x0f"
+        assert {[r bitpos str 0] == 216}
+        assert {[r bitpos str 0 1] == 216}
+        assert {[r bitpos str 0 2] == 216}
+        assert {[r bitpos str 0 3] == 216}
+        assert {[r bitpos str 0 4] == 216}
+        assert {[r bitpos str 0 5] == 216}
+        assert {[r bitpos str 0 6] == 216}
+        assert {[r bitpos str 0 7] == 216}
+        assert {[r bitpos str 0 8] == 216}
+    }
+
+    test {BITPOS bit=1 unaligned+full word+reminder} {
+        r del str
+        r set str "\x00\x00\x00" ; # Prefix
+        # Followed by two (or four in 32 bit systems) full words
+        r append str "\x00\x00\x00\x00\x00\x00\x00\x00"
+        r append str "\x00\x00\x00\x00\x00\x00\x00\x00"
+        r append str "\x00\x00\x00\x00\x00\x00\x00\x00"
+        # First zero bit.
+        r append str "\xf0"
+        assert {[r bitpos str 1] == 216}
+        assert {[r bitpos str 1 1] == 216}
+        assert {[r bitpos str 1 2] == 216}
+        assert {[r bitpos str 1 3] == 216}
+        assert {[r bitpos str 1 4] == 216}
+        assert {[r bitpos str 1 5] == 216}
+        assert {[r bitpos str 1 6] == 216}
+        assert {[r bitpos str 1 7] == 216}
+        assert {[r bitpos str 1 8] == 216}
+    }
+
+    test {BITPOS bit=1 returns -1 if string is all 0 bits} {
+        r set str ""
+        for {set j 0} {$j < 20} {incr j} {
+            assert {[r bitpos str 1] == -1}
+            r append str "\x00"
+        }
+    }
+
+    test {BITPOS bit=0 works with intervals} {
+        r set str "\x00\xff\x00"
+        assert {[r bitpos str 0 0 -1] == 0}
+        assert {[r bitpos str 0 1 -1] == 16}
+        assert {[r bitpos str 0 2 -1] == 16}
+        assert {[r bitpos str 0 2 200] == 16}
+        assert {[r bitpos str 0 1 1] == -1}
+    }
+
+    test {BITPOS bit=1 works with intervals} {
+        r set str "\x00\xff\x00"
+        assert {[r bitpos str 1 0 -1] == 8}
+        assert {[r bitpos str 1 1 -1] == 8}
+        assert {[r bitpos str 1 2 -1] == -1}
+        assert {[r bitpos str 1 2 200] == -1}
+        assert {[r bitpos str 1 1 1] == 8}
+    }
+
+    test {BITPOS bit=0 changes behavior if end is given} {
+        r set str "\xff\xff\xff"
+        assert {[r bitpos str 0] == 24}
+        assert {[r bitpos str 0 0 -1] == -1}
+    }
 }
