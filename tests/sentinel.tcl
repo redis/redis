@@ -212,6 +212,8 @@ proc foreach_instance_id {instances idvar code} {
         set errcode [catch {uplevel 1 $code} result]
         if {$errcode == 1} {
             error $result $::errorInfo $::errorCode
+        } elseif {$errcode == 4} {
+            continue
         } elseif {$errcode != 0} {
             return -code $errcode $result
         }
