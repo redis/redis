@@ -8,7 +8,7 @@ test "Basic failover works if the master is down" {
     assert {[lindex $addr 1] == $old_port}
     kill_instance redis $master_id
     foreach_sentinel_id id {
-        wait_for_condition 100 50 {
+        wait_for_condition 1000 50 {
             [lindex [S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster] 1] != $old_port
         } else {
             fail "At least one Sentinel did not received failover info"
