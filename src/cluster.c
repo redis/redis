@@ -2424,9 +2424,14 @@ void clusterCron(void) {
             mstime_t old_ping_sent;
             clusterLink *link;
 
-            fd = anetTcpNonBlockConnect(server.neterr, node->ip,
-                node->port+REDIS_CLUSTER_PORT_INCR);
-            if (fd == -1) continue;
+            fd = anetTcpNonBlockBindConnect(server.neterr, node->ip,
+                node->port+REDIS_CLUSTER_PORT_INCR, server.bindaddr[0]);
+            if (fd == -1) {
+                redisLog(REDIS_DEBUG, "Unable to connect to "
+                    "Cluster Client [%s]:%d", node->ip,
+                    node->port+REDIS_CLUSTER_PORT_INCR);
+                continue;
+            }
             link = createClusterLink(node);
             link->fd = fd;
             node->link = link;
