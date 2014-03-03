@@ -2298,9 +2298,12 @@ sds genRedisInfoString(char *section) {
         char peak_hmem[64];
         size_t zmalloc_used = zmalloc_used_memory();
 
-        if (zmalloc_used > server.stat_peak_memory) {
+        /* Peak memory is updated from time to time by serverCron() so it
+         * may happen that the instantaneous value is slightly bigger than
+         * the peak value. This may confuse users, so we update the peak
+         * if found smaller than the current memory usage. */
+        if (zmalloc_used > server.stat_peak_memory)
             server.stat_peak_memory = zmalloc_used;
-        }
 
         bytesToHuman(hmem,zmalloc_used);
         bytesToHuman(peak_hmem,server.stat_peak_memory);
