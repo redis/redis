@@ -1,1 +1,1 @@
-# Test runting reconfiguration command SENTINEL SET.
+# Test runtime reconfiguration command SENTINEL SET.
