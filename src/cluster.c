@@ -3180,7 +3180,9 @@ void clusterCommand(redisClient *c) {
                  * the master is failed over by a slave. */
                 uint64_t maxEpoch = clusterGetMaxEpoch();
 
-                if (myself->configEpoch != maxEpoch) {
+                if (myself->configEpoch == 0 ||
+                    myself->configEpoch != maxEpoch)
+                {
                     server.cluster->currentEpoch++;
                     myself->configEpoch = server.cluster->currentEpoch;
                     clusterDoBeforeSleep(CLUSTER_TODO_FSYNC_CONFIG);
