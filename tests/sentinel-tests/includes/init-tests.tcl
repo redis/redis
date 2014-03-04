@@ -30,6 +30,8 @@ test "(init) Sentinels can start monitoring a master" {
     foreach_sentinel_id id {
         assert {[S $id sentinel master mymaster] ne {}}
         S $id SENTINEL SET mymaster down-after-milliseconds 2000
+        S $id SENTINEL SET mymaster failover-timeout 20000
+        S $id SENTINEL SET mymaster parallel-syncs 10
     }
 }
 
