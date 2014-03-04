@@ -101,9 +101,9 @@ proc parse_options {} {
         } elseif {$opt eq "--help"} {
             puts "Hello, I'm sentinel.tcl and I run Sentinel unit tests."
             puts "\nOptions:"
-            puts "--single <pattern>        Only runs tests specified by pattern."
-            puts "--pause-on-error          Pause for manual inspection on error."
-            puts "--help                    Shows this help."
+            puts "--single <pattern>      Only runs tests specified by pattern."
+            puts "--pause-on-error        Pause for manual inspection on error."
+            puts "--help                  Shows this help."
             exit 0
         } else {
             puts "Unknown option $opt"
@@ -137,7 +137,8 @@ proc pause_on_error {} {
 # We redefine 'test' as for Sentinel we don't use the server-client
 # architecture for the test, everything is sequential.
 proc test {descr code} {
-    puts -nonewline "> $descr: "
+    set ts [clock format [clock seconds] -format %H:%M:%S]
+    puts -nonewline "$ts> $descr: "
     flush stdout
 
     if {[catch {set retval [uplevel 1 $code]} error]} {
