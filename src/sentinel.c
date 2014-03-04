@@ -84,6 +84,7 @@ typedef struct sentinelAddr {
 #define SENTINEL_DEFAULT_FAILOVER_TIMEOUT (60*3*1000)
 #define SENTINEL_MAX_PENDING_COMMANDS 100
 #define SENTINEL_ELECTION_TIMEOUT 10000
+#define SENTINEL_MAX_DESYNC 1000
 
 /* Failover machine different states. */
 #define SENTINEL_FAILOVER_STATE_NONE 0  /* No failover in progress. */
@@ -2943,7 +2944,7 @@ char *sentinelVoteLeader(sentinelRedisInstance *master, uint64_t req_epoch, char
          * time to now, in order to force a delay before we can start a
          * failover for the same master. */
         if (strcasecmp(master->leader,server.runid))
-            master->failover_start_time = mstime();
+            master->failover_start_time = mstime()+rand()%SENTINEL_MAX_DESYNC;
     }
 
     *leader_epoch = master->leader_epoch;
@@ -3088,7 +3089,7 @@ void sentinelStartFailover(sentinelRedisInstance *master) {
     sentinelEvent(REDIS_WARNING,"+new-epoch",master,"%llu",
         (unsigned long long) sentinel.current_epoch);
     sentinelEvent(REDIS_WARNING,"+try-failover",master,"%@");
-    master->failover_start_time = mstime();
+    master->failover_start_time = mstime()+rand()%SENTINEL_MAX_DESYNC;
     master->failover_state_change_time = mstime();
 }
 
