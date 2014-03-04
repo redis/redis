@@ -261,7 +261,7 @@ proc create_redis_master_slave_cluster n {
         }
     }
     # Wait for all the slaves to sync.
-    wait_for_condition 100 50 {
+    wait_for_condition 1000 50 {
         [RI 0 connected_slaves] == ($n-1)
     } else {
         fail "Unable to create a master-slaves cluster."
