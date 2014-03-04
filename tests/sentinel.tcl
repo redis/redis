@@ -12,6 +12,7 @@ source tests/support/test.tcl
 
 set ::verbose 0
 set ::pause_on_error 0
+set ::simulate_error 0
 set ::sentinel_instances {}
 set ::redis_instances {}
 set ::sentinel_base_port 20000
@@ -98,11 +99,14 @@ proc parse_options {} {
             set ::run_matching "*${val}*"
         } elseif {$opt eq "--pause-on-error"} {
             set ::pause_on_error 1
+        } elseif {$opt eq "--fail"} {
+            set ::simulate_error 1
         } elseif {$opt eq "--help"} {
             puts "Hello, I'm sentinel.tcl and I run Sentinel unit tests."
             puts "\nOptions:"
             puts "--single <pattern>      Only runs tests specified by pattern."
             puts "--pause-on-error        Pause for manual inspection on error."
+            puts "--fail                  Simulate a test failure."
             puts "--help                  Shows this help."
             exit 0
         } else {
@@ -130,7 +134,23 @@ proc pause_on_error {} {
     while 1 {
         puts -nonewline "> "
         flush stdout
-        if {[gets stdin] eq {continue}} break
+        set line [gets stdin]
+        set argv [split $line " "]
+        set cmd [lindex $argv 0]
+        if {$cmd eq {continue}} {
+            break
+        } elseif {$cmd eq {show-sentinel-logs}} {
+            set count 10
+            if {[lindex $argv 1] ne {}} {set count [lindex $argv 1]}
+            foreach_sentinel_id id {
+                puts "=== SENTINEL $id ===="
+                puts [exec tail -$count sentinel_$id/log.txt]
+                puts "---------------------\n"
+            }
+        } else {
+            set errcode [catch {eval $line} retval]
+            puts "$retval"
+        }
     }
 }
 
