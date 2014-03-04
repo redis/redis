@@ -1810,6 +1810,7 @@ void configCommand(redisClient *c) {
         server.stat_keyspace_hits = 0;
         server.stat_keyspace_misses = 0;
         server.stat_numcommands = 0;
+        server.ops_sec_last_sample_ops = 0;
         server.stat_numconnections = 0;
         server.stat_expiredkeys = 0;
         server.stat_rejected_conn = 0;
