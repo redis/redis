@@ -2,6 +2,12 @@
 
 source "../sentinel-tests/includes/init-tests.tcl"
 
+if {$::simulate_error} {
+    test "This test will fail" {
+        fail "Simulated error"
+    }
+}
+
 test "Basic failover works if the master is down" {
     set old_port [RI $master_id tcp_port]
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
