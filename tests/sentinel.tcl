@@ -130,7 +130,7 @@ proc main {} {
 proc pause_on_error {} {
     puts ""
     puts [colorstr yellow "*** Please inspect the error now ***"]
-    puts "\nType \"continue\" to resume the test.\n"
+    puts "\nType \"continue\" to resume the test, \"help\" for help screen.\n"
     while 1 {
         puts -nonewline "> "
         flush stdout
@@ -147,9 +147,49 @@ proc pause_on_error {} {
                 puts [exec tail -$count sentinel_$id/log.txt]
                 puts "---------------------\n"
             }
+        } elseif {$cmd eq {ls}} {
+            foreach_redis_id id {
+                puts -nonewline "Redis $id"
+                set errcode [catch {
+                    set str {}
+                    append str "@[RI $id tcp_port]: "
+                    append str "[RI $id role] "
+                    if {[RI $id role] eq {slave}} {
+                        append str "[RI $id master_host]:[RI $id master_port]"
+                    }
+                    set str
+                } retval]
+                if {$errcode} {
+                    puts " -- $retval"
+                } else {
+                    puts $retval
+                }
+            }
+            foreach_sentinel_id id {
+                puts -nonewline "Sentinel $id"
+                set errcode [catch {
+                    set str {}
+                    append str "@[SI $id tcp_port]: "
+                    append str "[join [S $id sentinel get-master-addr-by-name mymaster]]"
+                    set str
+                } retval]
+                if {$errcode} {
+                    puts " -- $retval"
+                } else {
+                    puts $retval
+                }
+            }
+        } elseif {$cmd eq {help}} {
+            puts "ls                     List Sentinel and Redis instances."
+            puts "show-sentinel-logs \[N\] Show latest N lines of logs."
+            puts "S <id> cmd ... arg     Call command in Sentinel <id>."
+            puts "R <id> cmd ... arg     Call command in Redis <id>."
+            puts "SI <id> <field>        Show Sentinel <id> INFO <field>."
+            puts "RI <id> <field>        Show Sentinel <id> INFO <field>."
+            puts "continue               Resume test."
         } else {
             set errcode [catch {eval $line} retval]
-            puts "$retval"
+            if {$retval ne {}} {puts "$retval"}
         }
     }
 }
