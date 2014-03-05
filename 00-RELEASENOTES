@@ -14,6 +14,52 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.7 ] Release date: 5 Mar 2014
+
+# UPGRADE URGENCY: LOW for Redis, LOW for Sentinel. However this release adds
+                   new features so users may want to upgrade in order to
+                   exploit the new functionalities.
+
+* [FIX] Sometimes the absolute config file path was obtained in a wrong way.
+        This happened when there was a "dir" directive inside the config file
+        and at the same time the configuration file was given as a relative
+        path to redis-server or redis-sentinel executables.
+* [FIX] redis-cli: Automatically enter --slave mode when SYNC or PSYNC are
+        called during an interactive session.
+* [FIX] Sentinel "IDONTKNOW" error removed as it does not made sense with the
+        new Sentinel design. This error was actually a fix for a design error
+        in the first implementation of Sentinel.
+* [FIX] Sentinel: added a missing exit() call to abort after config file
+        checks at startup. This error was introduced with an improvement in
+        a previous 2.8 release.
+* [FIX] BITCOUNT: fixed unaligned access causing issues in sparc and other
+        archs not capable of dealing with unaligned accesses. This also makes
+        the code faster in archs where unaligned accesses are allowed.
+* [FIX] Sentinel: better nodes fail over start time desynchronization to avoid
+        split-brain during the voting process needed to get authorization to
+        fail over. This means the system is less likely to need to retry
+        and will fail over faster. No changes in behavior / correctness.
+* [FIX] Force INFO used_memory_peak to match peak memory. This generated some
+        confusion among users even if it was not an actual bug.
+
+* [NEW] Sentinel unit tests and framework. More tests needed and units must
+        be improved in order to have less false positives, but it is a start
+        and features a debugging console that is useful to fix tests or to
+        inspect bugs causing tests failures.
+* [NEW] New Sentinel events: +/-monitor and +set used to monitor when an
+        instance to monitor is added or removed, or when a configuration
+        is modified via SENTINEL SET.
+* [NEW] Redis-cli updated to use SCAN instead of random sampling via
+        RANDOMKEY in order to implement --bigkeys feature. Moreover the
+        implementation now supports pipelining and reports more information
+        at the end of the scan. Much faster, much better. A special thank
+        you to Michael Grunder for this improvement.
+* [NEW] redis-cli now supports a new --intrinsic-latency mode that is able
+        to meter the latency of a system due to kernel / hypervisor.
+        How to use it is explained at http://redis.io/topics/latency.
+* [NEW] New command BITPOS: find first bit set or clear in a bitmap.
+* [NEW] CONFIG REWRITE calls are now logged.
+
 --[ Redis 2.8.6 ] Release date: 13 Feb 2014
 
 # UPGRADE URGENCY: HIGH for Redis, LOW for Sentinel. Redis users using Lua
