@@ -593,7 +593,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         if (cfd == ANET_ERR) {
             if (errno != EWOULDBLOCK)
                 redisLog(REDIS_VERBOSE,
-                    "Accepting cluster node: %s", server.neterr);
+                    "Error accepting cluster node: %s", server.neterr);
             return;
         }
         anetNonBlock(NULL,cfd);
