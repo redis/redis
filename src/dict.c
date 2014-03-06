@@ -239,7 +239,7 @@ int dictExpand(dict *d, unsigned long size)
 /* Performs N steps of incremental rehashing. Returns 1 if there are still
  * keys to move from the old to the new hash table, otherwise 0 is returned.
  * Note that a rehashing step consists in moving a bucket (that may have more
- * thank one key as we use chaining) from the old to the new hash table. */
+ * than one key as we use chaining) from the old to the new hash table. */
 int dictRehash(dict *d, int n) {
     if (!dictIsRehashing(d)) return 0;
 
@@ -695,7 +695,7 @@ static unsigned long rev(unsigned long v) {
  * (where SIZE-1 is always the mask that is equivalent to taking the rest
  *  of the division between the Hash of the key and SIZE).
  *
- * For example if the current hash table size is 64, the mask is
+ * For example if the current hash table size is 16, the mask is
  * (in binary) 1111. The position of a key in the hash table will be always
  * the last four bits of the hash output, and so forth.
  *
