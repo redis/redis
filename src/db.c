@@ -993,9 +993,23 @@ int *zunionInterGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *num
         *numkeys = 0;
         return NULL;
     }
-    keys = zmalloc(sizeof(int)*num);
+
+    /* Keys in z{union,inter}store come from two places:
+       argv[1] = storage key,
+       argv[3...n] = keys to intersect */
+
+    /* (num+1) is (argv[2] + 1) to account for argv[1] too */
+    keys = zmalloc(sizeof(int)*(num+1));
+
+    /* Add all key positions for argv[3...n] to keys[] */
     for (i = 0; i < num; i++) keys[i] = 3+i;
-    *numkeys = num;
+
+    /* Now add the argv[1] key position (the storage key target)
+       to our list of command positions containing keys.
+       num is the number of source keys, but we initialized
+       keys[] to size num+1, so keys[num] is safe and valid and okay. */
+    keys[num] = 1;
+    *numkeys = num+1;  /* Total keys = {union,inter} keys + storage key */
     return keys;
 }
 
