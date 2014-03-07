@@ -24,6 +24,13 @@
 #define REDIS_CLUSTER_MF_TIMEOUT 5000 /* Milliseconds to do a manual failover. */
 #define REDIS_CLUSTER_MF_PAUSE_MULT 2 /* Master pause manual failover mult. */
 
+/* Redirection errors returned by getNodeByQuery(). */
+#define REDIS_CLUSTER_REDIR_NONE 0          /* Node can serve the request. */
+#define REDIS_CLUSTER_REDIR_CROSS_SLOT 1    /* Keys in different slots. */
+#define REDIS_CLUSTER_REDIR_UNSTABLE 2      /* Keys in slot resharding. */
+#define REDIS_CLUSTER_REDIR_ASK 3           /* -ASK redirection required. */
+#define REDIS_CLUSTER_REDIR_MOVED 4         /* -MOVED redirection required. */
+
 struct clusterNode;
 
 /* clusterLink encapsulates everything needed to talk with a remote node. */
