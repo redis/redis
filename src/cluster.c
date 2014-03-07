@@ -3957,13 +3957,14 @@ clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **arg
         return server.cluster->migrating_slots_to[slot];
     }
 
-    /* If we are receiving the slot, we have all the keys, and the client
-     * correctly flagged the request as "ASKING", we can serve
-     * the request, otherwise the only option is to send a TRYAGAIN error. */
+    /* If we are receiving the slot, and the client correctly flagged the
+     * request as "ASKING", we can serve the request. However if the request
+     * involves multiple keys and we don't have them all, the only option is
+     * to send a TRYAGAIN error. */
     if (importing_slot &&
         (c->flags & REDIS_ASKING || cmd->flags & REDIS_CMD_ASKING))
     {
-        if (missing_keys) {
+        if (multiple_keys && missing_keys) {
             if (error_code) *error_code = REDIS_CLUSTER_REDIR_UNSTABLE;
             return NULL;
         } else {
