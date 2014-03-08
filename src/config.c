@@ -492,8 +492,9 @@ void loadServerConfigFromString(char *config) {
                 if (err) goto loaderr;
             }
 #ifdef _WIN32
-		} else if (!strcasecmp(argv[0],"bypass-system-reserve")) {
-			// handled in qfork init. bypass here,
+		} else if (!strcasecmp(argv[0],"maxheap")) {
+			// ignore. This is taken care of in the qfork code.
+						
 #endif
 		} else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
