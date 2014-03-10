@@ -39,6 +39,12 @@
 #include <stdint.h>
 using namespace std;
 
+extern "C"
+{
+	// forward def from util.h. 
+	long long memtoll(const char *p, int *err);
+}
+
 //#define DEBUG_WITH_PROCMON
 #ifdef DEBUG_WITH_PROCMON
 #define FILE_DEVICE_PROCMON_LOG 0x00009535
@@ -489,6 +495,7 @@ StartupStatus QForkStartup(int argc, char** argv) {
     DWORD PPID = 0;
     __int64 maxheapBytes = -1;
     __int64 maxmemoryBytes = -1;
+	int memtollerr = 0;
 
 	SYSTEM_INFO si;
     GetSystemInfo(&si);
@@ -518,12 +525,28 @@ StartupStatus QForkStartup(int argc, char** argv) {
 						if (_stricmp(token.c_str(), maxmemoryFlag) == 0) {
 							string maxmemoryString;
 							if (getline(iss, maxmemoryString, ' ')) {
-								maxmemoryBytes = _atoi64(maxmemoryString.c_str());
+								maxmemoryBytes = memtoll(maxmemoryString.c_str(),&memtollerr);
+								if( memtollerr != 0) {
+									printf (
+										"%s specified. Unable to convert %s to the number of bytes for the maxmemory flag.\n", 
+										maxmemoryBytes,
+										argv[n+1] );
+									printf( "Failing startup.\n");
+									return StartupStatus::ssFAILED;
+								}
 							}
 						} else if( _stricmp(token.c_str(), maxheapFlag) == 0 ) {
 							string maxheapString;
 							if (getline(iss, maxheapString, ' ')) {
-								maxheapBytes = _atoi64(maxheapString.c_str());
+								maxheapBytes = memtoll(maxheapString.c_str(),&memtollerr);
+								if( memtollerr != 0) {
+									printf (
+										"%s specified. Unable to convert %s to the number of bytes for the maxmemory flag.\n", 
+										maxmemoryBytes,
+										argv[n+1] );
+									printf( "Failing startup.\n");
+									return StartupStatus::ssFAILED;
+								}
 							}
 						}
 					}
@@ -532,8 +555,8 @@ StartupStatus QForkStartup(int argc, char** argv) {
 			}
             if( strncmp(argv[n],"--", 2) == 0) {
 				if (_stricmp(argv[n]+2,maxmemoryFlag) == 0) {
-					maxmemoryBytes = _atoi64(argv[n+1]);
-					if (maxmemoryBytes == 0) {
+					maxmemoryBytes = memtoll(argv[n+1],&memtollerr);
+					if( memtollerr != 0) {
 						printf (
 							"%s specified. Unable to convert %s to the number of bytes for the maxmemory flag.\n", 
 							maxmemoryBytes,
@@ -542,11 +565,11 @@ StartupStatus QForkStartup(int argc, char** argv) {
 						return StartupStatus::ssFAILED;
 					}
 				} else if(_stricmp(argv[n]+2,maxheapFlag) == 0) {
-					maxheapBytes = _atoi64(argv[n+1]);
-					if (maxheapBytes == 0) {
+					maxheapBytes = memtoll(argv[n+1],&memtollerr);
+					if( memtollerr != 0) {
 						printf (
-							"%s specified. Unable to convert %s to the number of bytes for the maxheap flag.\n", 
-							maxheapBytes,
+							"%s specified. Unable to convert %s to the number of bytes for the maxmemory flag.\n", 
+							maxmemoryBytes,
 							argv[n+1] );
 						printf( "Failing startup.\n");
 						return StartupStatus::ssFAILED;
