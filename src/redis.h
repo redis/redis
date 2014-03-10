@@ -826,7 +826,7 @@ typedef struct pubsubPattern {
 } pubsubPattern;
 
 typedef void redisCommandProc(redisClient *c);
-typedef int *redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, int *numkeys, int flags);
+typedef int *redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 struct redisCommand {
     char *name;
     redisCommandProc *proc;
@@ -1237,13 +1237,9 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor);
 int parseScanCursorOrReply(redisClient *c, robj *o, unsigned long *cursor);
 
 /* API to get key arguments from commands */
-#define REDIS_GETKEYS_ALL 0
-#define REDIS_GETKEYS_PRELOAD 1
-int *getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, int *numkeys, int flags);
+int *getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 void getKeysFreeResult(int *result);
-int *noPreloadGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *numkeys, int flags);
-int *renameGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *numkeys, int flags);
-int *zunionInterGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *numkeys, int flags);
+int *zunionInterGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *numkeys);
 
 /* Cluster */
 void clusterInit(void);
