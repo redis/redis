@@ -1028,6 +1028,51 @@ int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) 
     return keys;
 }
 
+/* Helper function to extract keys from the SORT command.
+ *
+ * SORT <sort-key> ... STORE <store-key> ...
+ *
+ * The first argument of SORT is always a key, however a list of options
+ * follow in SQL-alike style. Here we parse just the minimum in order to
+ * correctly identify keys in the "STORE" option. */
+int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+    int i, j, num, *keys;
+    REDIS_NOTUSED(cmd);
+
+    num = 0;
+    keys = zmalloc(sizeof(int)*2); /* Alloc 2 places for the worst case. */
+
+    keys[num++] = 1; /* <sort-key> is always present. */
+
+    /* Search for STORE option. By default we consider options to don't
+     * have arguments, so if we find an unknown option name we scan the
+     * next. However there are options with 1 or 2 arguments, so we
+     * provide a list here in order to skip the right number of args. */
+    struct {
+        char *name;
+        int skip;
+    } skiplist[] = {
+        {"limit", 2},
+        {"get", 1},
+        {"by", 1},
+        {NULL, 0} /* End of elements. */
+    };
+
+    for (i = 2; i < argc; i++) {
+        for (j = 0; skiplist[j].name != NULL; j++) {
+            if (!strcasecmp(argv[i]->ptr,skiplist[j].name)) {
+                i += skiplist[j].skip;
+                break;
+            } else if (!strcasecmp(argv[i]->ptr,"store") && i+1 < argc) {
+                keys[num++] = i+1; /* <store-key> */
+                break;
+            }
+        }
+    }
+    *numkeys = num;
+    return keys;
+}
+
 /* Slot to Key API. This is used by Redis Cluster in order to obtain in
  * a fast way a key that belongs to a specified hash slot. This is useful
  * while rehashing the cluster. */
