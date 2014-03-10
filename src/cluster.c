@@ -2063,6 +2063,18 @@ void clusterHandleSlaveFailover(void) {
     int manual_failover = server.cluster->mf_end != 0 &&
                           server.cluster->mf_can_start;
     int j;
+    mstime_t auth_timeout, auth_retry_time;
+
+    /* Compute the failover timeout (the max time we have to send votes
+     * and wait for replies), and the failover retry time (the time to wait
+     * before waiting again.
+     *
+     * Timeout is MIN(NODE_TIMEOUT*2,2000) milliseconds.
+     * Retry is two times the Timeout.
+     */
+    auth_timeout = server.cluster_node_timeout*2;
+    if (auth_timeout < 2000) auth_timeout = 2000;
+    auth_retry_time = auth_timeout*2;
 
     /* Pre conditions to run the function:
      * 1) We are a slave.
@@ -2072,8 +2084,6 @@ void clusterHandleSlaveFailover(void) {
         myself->slaveof == NULL ||
         (!nodeFailed(myself->slaveof) && !manual_failover) ||
         myself->slaveof->numslots == 0) return;
-
-    /* If this is a manual failover, are we ready to start? */
 
     /* Set data_age to the number of seconds we are disconnected from
      * the master. */
@@ -2097,10 +2107,9 @@ void clusterHandleSlaveFailover(void) {
         (server.cluster_node_timeout * REDIS_CLUSTER_SLAVE_VALIDITY_MULT))
         return;
 
-    /* Compute the time at which we can start an election. */
-    if (auth_age >
-        server.cluster_node_timeout * REDIS_CLUSTER_FAILOVER_AUTH_RETRY_MULT)
-    {
+    /* If the previous failover attempt timedout and the retry time has
+     * elapsed, we can setup a new one. */
+    if (auth_age > auth_retry_time) {
         server.cluster->failover_auth_time = mstime() +
             500 + /* Fixed delay of 500 milliseconds, let FAIL msg propagate. */
             random() % 500; /* Random delay between 0 and 500 milliseconds. */
@@ -2152,7 +2161,7 @@ void clusterHandleSlaveFailover(void) {
     if (mstime() < server.cluster->failover_auth_time) return;
 
     /* Return ASAP if the election is too old to be valid. */
-    if (auth_age > server.cluster_node_timeout) return;
+    if (auth_age > auth_timeout) return;
 
     /* Ask for votes if needed. */
     if (server.cluster->failover_auth_sent == 0) {
