@@ -1020,6 +1020,7 @@ int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) 
     }
 
     keys = zmalloc(sizeof(int)*num);
+    *numkeys = num;
 
     /* Add all key positions for argv[3...n] to keys[] */
     for (i = 0; i < num; i++) keys[i] = 3+i;
