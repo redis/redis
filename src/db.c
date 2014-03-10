@@ -998,6 +998,29 @@ int *zunionInterGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *nu
     return keys;
 }
 
+/* Helper function to extract keys from the following commands:
+ * EVAL <script> <num-keys> <key> <key> ... <key> [more stuff]
+ * EVALSHA <script> <num-keys> <key> <key> ... <key> [more stuff] */
+int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
+    int i, num, *keys;
+    REDIS_NOTUSED(cmd);
+
+    num = atoi(argv[2]->ptr);
+    /* Sanity check. Don't return any key if the command is going to
+     * reply with syntax error. */
+    if (num > (argc-3)) {
+        *numkeys = 0;
+        return NULL;
+    }
+
+    keys = zmalloc(sizeof(int)*num);
+
+    /* Add all key positions for argv[3...n] to keys[] */
+    for (i = 0; i < num; i++) keys[i] = 3+i;
+
+    return keys;
+}
+
 /* Slot to Key API. This is used by Redis Cluster in order to obtain in
  * a fast way a key that belongs to a specified hash slot. This is useful
  * while rehashing the cluster. */
