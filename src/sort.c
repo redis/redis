@@ -231,8 +231,15 @@ void sortCommand(redisClient *c) {
         } else if (!strcasecmp(c->argv[j]->ptr,"alpha")) {
             alpha = 1;
         } else if (!strcasecmp(c->argv[j]->ptr,"limit") && leftargs >= 2) {
-            if ((getLongFromObjectOrReply(c, c->argv[j+1], &limit_start, NULL) != REDIS_OK) ||
-                (getLongFromObjectOrReply(c, c->argv[j+2], &limit_count, NULL) != REDIS_OK)) return;
+            if ((getLongFromObjectOrReply(c, c->argv[j+1], &limit_start, NULL)
+                 != REDIS_OK) ||
+                (getLongFromObjectOrReply(c, c->argv[j+2], &limit_count, NULL)
+                 != REDIS_OK))
+            {
+                decrRefCount(sortval);
+                listRelease(operations);
+                return;
+            }
             j+=2;
         } else if (!strcasecmp(c->argv[j]->ptr,"store") && leftargs >= 1) {
             storekey = c->argv[j+1];
