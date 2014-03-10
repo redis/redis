@@ -930,6 +930,8 @@ void persistCommand(redisClient *c) {
  * API to get key arguments from commands
  * ---------------------------------------------------------------------------*/
 
+/* The base case is to use the keys position as given in the command table
+ * (firstkey, lastkey, step). */
 int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, int *numkeys) {
     int j, i = 0, last, *keys;
     REDIS_NOTUSED(argv);
@@ -949,6 +951,11 @@ int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, in
     return keys;
 }
 
+/* Return keys as an heap allocated array of integers. The length of the array
+ * is returned by reference into *numkeys.
+ *
+ * This function uses the command table if a command-specific helper function
+ * is not required, otherwise it calls the command-specific function. */
 int *getKeysFromCommand(struct redisCommand *cmd,robj **argv, int argc, int *numkeys) {
     if (cmd->getkeys_proc) {
         return cmd->getkeys_proc(cmd,argv,argc,numkeys);
@@ -957,11 +964,15 @@ int *getKeysFromCommand(struct redisCommand *cmd,robj **argv, int argc, int *num
     }
 }
 
+/* Free the result of getKeysFromCommand. */
 void getKeysFreeResult(int *result) {
     zfree(result);
 }
 
-int *zunionInterGetKeys(struct redisCommand *cmd,robj **argv, int argc, int *numkeys) {
+/* Helper function to extract keys from following commands:
+ * ZUNIONSTORE <destkey> <num-keys> <key> <key> ... <key> <options>
+ * ZINTERSTORE <destkey> <num-keys> <key> <key> ... <key> <options> */
+int *zunionInterGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
     int i, num, *keys;
     REDIS_NOTUSED(cmd);
 
