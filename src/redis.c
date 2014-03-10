@@ -1582,7 +1582,7 @@ int listenToPort(int port, int *fds, int *count) {
             redisLog(REDIS_WARNING,
                 "Creating Server TCP listening socket %s:%d: %s",
                 server.bindaddr[j] ? server.bindaddr[j] : "*",
-                server.port, server.neterr);
+                port, server.neterr);
             return REDIS_ERR;
         }
         (*count)++;
