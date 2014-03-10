@@ -283,6 +283,10 @@ void loadServerConfigFromString(char *config) {
                 err = "repl-backlog-ttl can't be negative ";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"repl-sync-eval-as-multi") && argc == 2) {
+            if ((server.repl_sync_eval_as_multi = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"masterauth") && argc == 2) {
         	server.masterauth = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"slave-serve-stale-data") && argc == 2) {
@@ -849,6 +853,11 @@ void configSetCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[2]->ptr,"repl-backlog-ttl")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.repl_backlog_time_limit = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"repl-sync-eval-as-multi")) {
+        int yn = yesnotoi(o->ptr);
+
+        if (yn == -1) goto badfmt;
+        server.repl_sync_eval_as_multi = yn;
     } else if (!strcasecmp(c->argv[2]->ptr,"watchdog-period")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         if (ll)
@@ -986,6 +995,7 @@ void configGetCommand(redisClient *c) {
     config_get_numerical_field("repl-timeout",server.repl_timeout);
     config_get_numerical_field("repl-backlog-size",server.repl_backlog_size);
     config_get_numerical_field("repl-backlog-ttl",server.repl_backlog_time_limit);
+    config_get_bool_field("repl-sync-eval-as-multi", server.repl_sync_eval_as_multi);
     config_get_numerical_field("maxclients",server.maxclients);
     config_get_numerical_field("watchdog-period",server.watchdog_period);
     config_get_numerical_field("slave-priority",server.slave_priority);
@@ -1732,6 +1742,7 @@ int rewriteConfig(char *path) {
     rewriteConfigNumericalOption(state,"repl-timeout",server.repl_timeout,REDIS_REPL_TIMEOUT);
     rewriteConfigBytesOption(state,"repl-backlog-size",server.repl_backlog_size,REDIS_DEFAULT_REPL_BACKLOG_SIZE);
     rewriteConfigBytesOption(state,"repl-backlog-ttl",server.repl_backlog_time_limit,REDIS_DEFAULT_REPL_BACKLOG_TIME_LIMIT);
+    rewriteConfigYesNoOption(state,"repl-sync-eval-as-multi",server.repl_sync_eval_as_multi,0);
     rewriteConfigYesNoOption(state,"repl-disable-tcp-nodelay",server.repl_disable_tcp_nodelay,REDIS_DEFAULT_REPL_DISABLE_TCP_NODELAY);
     rewriteConfigNumericalOption(state,"slave-priority",server.slave_priority,REDIS_DEFAULT_SLAVE_PRIORITY);
     rewriteConfigNumericalOption(state,"min-slaves-to-write",server.repl_min_slaves_to_write,REDIS_DEFAULT_MIN_SLAVES_TO_WRITE);
