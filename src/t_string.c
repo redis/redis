@@ -137,6 +137,11 @@ void setexCommand(redisClient *c) {
     setGenericCommand(c,REDIS_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_SECONDS,NULL,NULL);
 }
 
+void setnxexCommand(redisClient *c) {
+    c->argv[3] = tryObjectEncoding(c->argv[3]);
+    setGenericCommand(c,REDIS_SET_NX,c->argv[1],c->argv[3],c->argv[2],UNIT_SECONDS,shared.cone,shared.czero);
+}
+
 void psetexCommand(redisClient *c) {
     c->argv[3] = tryObjectEncoding(c->argv[3]);
     setGenericCommand(c,REDIS_SET_NO_FLAGS,c->argv[1],c->argv[3],c->argv[2],UNIT_MILLISECONDS,NULL,NULL);

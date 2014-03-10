@@ -1283,6 +1283,7 @@ void echoCommand(redisClient *c);
 void setCommand(redisClient *c);
 void setnxCommand(redisClient *c);
 void setexCommand(redisClient *c);
+void setnxexCommand(redisClient *c);
 void psetexCommand(redisClient *c);
 void getCommand(redisClient *c);
 void delCommand(redisClient *c);
