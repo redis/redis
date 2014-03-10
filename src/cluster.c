@@ -2411,8 +2411,9 @@ void clusterCron(void) {
                 node->port+REDIS_CLUSTER_PORT_INCR, server.bindaddr[0]);
             if (fd == -1) {
                 redisLog(REDIS_DEBUG, "Unable to connect to "
-                    "Cluster Client [%s]:%d", node->ip,
-                    node->port+REDIS_CLUSTER_PORT_INCR);
+                    "Cluster Node [%s]:%d -> %s", node->ip,
+                    node->port+REDIS_CLUSTER_PORT_INCR,
+                    server.neterr);
                 continue;
             }
             link = createClusterLink(node);
