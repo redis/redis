@@ -5,7 +5,10 @@ default: all
 .DEFAULT:
 	cd src && $(MAKE) $@
 
-install:
+deps:
+	cd deps && $(MAKE) $@
+
+install: deps
 	cd src && $(MAKE) $@
 
 .PHONY: install
