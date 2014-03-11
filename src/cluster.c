@@ -1546,6 +1546,10 @@ int clusterProcessPacket(clusterLink *link) {
         /* If in our current config the node is a slave, set it as a master. */
         if (nodeIsSlave(n)) clusterSetNodeAsMaster(n);
 
+        /* Update the node's configEpoch. */
+        n->configEpoch = reportedConfigEpoch;
+        clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
+
         /* Check the bitmap of served slots and udpate our
          * config accordingly. */
         clusterUpdateSlotsConfigWith(n,reportedConfigEpoch,
