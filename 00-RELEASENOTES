@@ -12,9 +12,102 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 3.0.0 Beta 2 (version 2.9.51) ] Release date: 11 mar 2014
+
+This is the second beta of Redis 3.0.0.
+
+>> General
+
+* [FIX] Sometimes the absolute config file path was obtained in a wrong way.
+        This happened when there was a "dir" directive inside the config file
+        and at the same time the configuration file was given as a relative
+        path to redis-server or redis-sentinel executables.
+* [FIX] redis-cli: Automatically enter --slave mode when SYNC or PSYNC are
+        called during an interactive session.
+* [FIX] BITCOUNT: fixed unaligned access causing issues in sparc and other
+        archs not capable of dealing with unaligned accesses. This also makes
+        the code faster in archs where unaligned accesses are allowed.
+* [FIX] Force INFO used_memory_peak to match peak memory. This generated some
+        confusion among users even if it was not an actual bug.
+* [FIX] Fixed an critical EVALSHA script cache bug: scripts executed may not
+        propagate to AOF / Slaves correctly under certain conditions.
+        See issue #1549 at Github for more information.
+* [FIX] Fixed multiple bugs resulting into closing the link with master or slave
+        during replication without good reasons. This will result in useless
+        resynchronizations, or infinite loops where the replication link can't
+        be established.
+* [FIX] Don't count the time needed to populate the buffers of clients waiting
+        in MONITOR mode when populating the Slow Log entries.
+
+* [NEW] Redis-cli updated to use SCAN instead of random sampling via
+        RANDOMKEY in order to implement --bigkeys feature. Moreover the
+        implementation now supports pipelining and reports more information
+        at the end of the scan. Much faster, much better. A special thank
+        you to Michael Grunder for this improvement.
+* [NEW] redis-cli now supports a new --intrinsic-latency mode that is able
+        to meter the latency of a system due to kernel / hypervisor.
+        How to use it is explained at http://redis.io/topics/latency.
+* [NEW] New command BITPOS: find first bit set or clear in a bitmap.
+* [NEW] CONFIG REWRITE calls are now logged.
+* [NEW] AOF write errors (like no space on device) no longer abort Redis if the
+        fsync policy is none or every second. The database enters a read-only
+        mode where every write is refused with an error. Normal operations are
+        restored as soon as Redis is able to append again data to the AOF file.
+* [NEW] Sentinel now accepts SHUTDOWN command.
+
+
+>> Cluster
+
+* [FIX] Bind the first interface listed in the "bind" configuration directive
+        if any, in order to perform outgoing connections. This fixes Cluster
+        usage when an address is bound but there are multiple interfaces that
+        may be used to connect with other nodes.
+* [FIX] When an "Importing" slot is closed via CLUSTER SETSLOT NODE ...
+        increment the configEpoch in the special case it is zero.
+* [FIX] Current transaction is invalidated on redirection errors.
+* [FIX] Abort if port does not allow for a valid cluster bus port that is
+        always at fixed +10000 offset.
+* [FIX] Keys extraction algorithm fixed for ZUNIONSTORE/ZINTERSTORE and SORT.
+* [FIX] Better failover timeout and retry times: failover should now work
+        reliabily when node-timeout is very small (a few milliseconds).
+* [FIX] Don't allow SORT GET/BY options in Cluster mode.
+* [FIX] Clear importing/migrating state when turning from master to slave role.
+* [FIX] Set slot error if we receive an update for a busy slot.
+* [FIX] Update node configEpoch on UPDATE messages.
+
+* [NEW] Support multi-key operations as long as keys resolve to the same
+        hash slot, and the slot is not migrating, or it is migrating but all
+        the mentioned keys are available.
+* [NEW] New DEBUG command CMDKEYS available to debug / test keys identification
+        in Redis commands.
+* [NEW] redis-trib: create subcommand is now able to assign spare slaves.
+* [NEW] redis-trib: new subcommand 'call'. Exec command in all nodes.
+
+
+>> Sentinel
+
+* [FIX] Sentinel "IDONTKNOW" error removed as it does not made sense with the
+        new Sentinel design. This error was actually a fix for a design error
+        in the first implementation of Sentinel.
+* [FIX] Sentinel: added a missing exit() call to abort after config file
+        checks at startup. This error was introduced with an improvement in
+        a previous 2.8 release.
+* [FIX] Sentinel: better nodes fail over start time desynchronization to avoid
+        split-brain during the voting process needed to get authorization to
+        fail over. This means the system is less likely to need to retry
+        and will fail over faster. No changes in behavior / correctness.
+
+* [NEW] Sentinel unit tests and framework. More tests needed and units must
+        be improved in order to have less false positives, but it is a start
+        and features a debugging console that is useful to fix tests or to
+        inspect bugs causing tests failures.
+* [NEW] New Sentinel events: +/-monitor and +set used to monitor when an
+        instance to monitor is added or removed, or when a configuration
+        is modified via SENTINEL SET.
+
 --[ Redis 3.0.0 Beta 1 (version 2.9.50) ] Release date: 11 Feb 2014
 
-This is the first beta of Redis 3.0.0 (official version is 2.8.50).
+This is the first beta of Redis 3.0.0.
 
 The following is a list of improvements in Redis 3.0, compared to Redis 2.8.
 
