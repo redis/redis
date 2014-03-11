@@ -551,9 +551,8 @@ static int cliReadReply(int output_raw_strings) {
         sdsfree(config.hostip);
         config.hostip = sdsnew(p+1);
         config.hostport = atoi(s+1);
-        if (config.interactive)
-            printf("-> Redirected to slot [%d] located at %s:%d\n",
-                slot, config.hostip, config.hostport);
+        printf("-> Redirected to slot [%d] located at %s:%d\n",
+            slot, config.hostip, config.hostport);
         config.cluster_reissue_command = 1;
         cliRefreshPrompt();
     }
@@ -953,11 +952,21 @@ static int noninteractive(int argc, char **argv) {
     if (config.stdinarg) {
         argv = zrealloc(argv, (argc+1)*sizeof(char*));
         argv[argc] = readArgFromStdin();
-        retval = cliSendCommand(argc+1, argv, config.repeat);
-    } else {
-        /* stdin is probably a tty, can be tested with S_ISCHR(s.st_mode) */
-        retval = cliSendCommand(argc, argv, config.repeat);
+        argc++;
     }
+
+    while (1) {
+        config.cluster_reissue_command = 0;
+        retval = cliSendCommand(argc,argv,config.repeat);
+
+        /* Issue the command again if we got redirected in cluster mode */
+        if (config.cluster_mode && config.cluster_reissue_command) {
+            cliConnect(1);
+        } else {
+            break;
+        }
+    }
+
     return retval;
 }
 
