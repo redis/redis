@@ -68,6 +68,7 @@ int bitmapTestBit(unsigned char *bitmap, int pos);
 void clusterDoBeforeSleep(int flags);
 void clusterSendUpdate(clusterLink *link, clusterNode *node);
 void resetManualFailover(void);
+void clusterCloseAllSlots(void);
 
 /* -----------------------------------------------------------------------------
  * Initialization
@@ -309,12 +310,8 @@ void clusterInit(void) {
     server.cluster->last_vote_epoch = 0;
     server.cluster->stats_bus_messages_sent = 0;
     server.cluster->stats_bus_messages_received = 0;
-    memset(server.cluster->migrating_slots_to,0,
-        sizeof(server.cluster->migrating_slots_to));
-    memset(server.cluster->importing_slots_from,0,
-        sizeof(server.cluster->importing_slots_from));
-    memset(server.cluster->slots,0,
-        sizeof(server.cluster->slots));
+    memset(server.cluster->slots,0, sizeof(server.cluster->slots));
+    clusterCloseAllSlots();
     if (clusterLoadConfig(server.cluster_configfile) == REDIS_ERR) {
         /* No configuration found. We will just use the random name provided
          * by the createClusterNode() function. */
@@ -2714,6 +2711,15 @@ int clusterDelNodeSlots(clusterNode *node) {
         deleted++;
     }
     return deleted;
+}
+
+/* Clear the migrating / importing state for all the slots.
+ * This is useful at initialization and when turning a master into slave. */
+void clusterCloseAllSlots(void) {
+    memset(server.cluster->migrating_slots_to,0,
+        sizeof(server.cluster->migrating_slots_to));
+    memset(server.cluster->importing_slots_from,0,
+        sizeof(server.cluster->importing_slots_from));
 }
 
 /* -----------------------------------------------------------------------------
