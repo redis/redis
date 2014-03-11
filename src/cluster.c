@@ -1099,9 +1099,7 @@ void clusterSetNodeAsMaster(clusterNode *n) {
  * The 'sender' is the node for which we received a configuration update.
  * Sometimes it is not actaully the "Sender" of the information, like in the case
  * we receive the info via an UPDATE packet. */
-void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoch,
-                                  unsigned char *slots)
-{
+void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoch, unsigned char *slots) {
     int j;
     clusterNode *curmaster, *newmaster = NULL;
 
@@ -1112,15 +1110,34 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
 
     for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
         if (bitmapTestBit(slots,j)) {
+            /* The slot is already bound to the sender of this message. */
+            if (server.cluster->slots[j] == sender) continue;
+
+            /* The slot is in importing state, it should be modified only
+             * manually via redis-trib (example: a resharding is in progress
+             * and the migrating side slot was already closed and is advertising
+             * a new config. We still want the slot to be closed manually). */
+            if (server.cluster->importing_slots_from[j]) continue;
+
             /* We rebind the slot to the new node claiming it if:
              * 1) The slot was unassigned or the new node claims it with a
              *    greater configEpoch.
              * 2) We are not currently importing the slot. */
-            if (server.cluster->slots[j] == sender ||
-                server.cluster->importing_slots_from[j]) continue;
             if (server.cluster->slots[j] == NULL ||
                 server.cluster->slots[j]->configEpoch < senderConfigEpoch)
             {
+                /* Was this slot mine, and still contains keys? Something
+                 * odd happened, put the slot in importing state so that
+                 * redis-trib fix can detect the condition (and no further
+                 * updates will be processed before the slot gets fixed). */
+                if (server.cluster->slots[j] == myself &&
+                    countKeysInSlot(j) &&
+                    sender != myself)
+                {
+                    redisLog(REDIS_WARNING,"Slot update for a slot I still have keys received. Putting the slot in IMPORTING state. Please run the 'redis-trib fix' command.");
+                    server.cluster->importing_slots_from[j] = sender;
+                }
+
                 if (server.cluster->slots[j] == curmaster)
                     newmaster = sender;
                 clusterDelSlot(j);
