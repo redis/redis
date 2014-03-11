@@ -705,7 +705,12 @@ class RedisTrib
             keys = source.r.cluster("getkeysinslot",slot,10)
             break if keys.length == 0
             keys.each{|key|
-                source.r.migrate(target.info[:host],target.info[:port],key,0,1000)
+                source.r.migrate(key, {
+                    :host    => target.info[:host],
+                    :port    => target.info[:port],
+                    :db      => 0,
+                    :timeout => 1000
+                })
                 print "." if o[:verbose]
                 STDOUT.flush
             }
