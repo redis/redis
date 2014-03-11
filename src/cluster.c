@@ -1113,9 +1113,9 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
     for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
         if (bitmapTestBit(slots,j)) {
             /* We rebind the slot to the new node claiming it if:
-             * 1) The slot was unassigned.
-             * 2) The new node claims it with a greater configEpoch.
-             * 3) We are not currently importing the slot. */
+             * 1) The slot was unassigned or the new node claims it with a
+             *    greater configEpoch.
+             * 2) We are not currently importing the slot. */
             if (server.cluster->slots[j] == sender ||
                 server.cluster->importing_slots_from[j]) continue;
             if (server.cluster->slots[j] == NULL ||
