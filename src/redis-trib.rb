@@ -553,22 +553,28 @@ class RedisTrib
         # Select N replicas for every master.
         # We try to split the replicas among all the IPs with spare nodes
         # trying to avoid the host where the master is running, if possible.
-        masters.each{|m|
-            i = 0
-            while i < @replicas
-                ips.each{|ip,nodes_list|
-                    next if nodes_list.length == 0
-                    # Skip instances with the same IP as the master if we
-                    # have some more IPs available.
-                    next if ip == m.info[:host] && nodes_count > nodes_list.length
-                    slave = nodes_list.shift
-                    slave.set_as_replica(m.info[:name])
-                    nodes_count -= 1
-                    i += 1
-                    puts "#{m} replica ##{i} is #{slave}"
-                    break if masters.length == masters_count
-                }
-            end
+        #
+        # Note that we loop two times, the first with spare_loop set to false,
+        # the second with the var set to true. The second loop changes the
+        # while condition so to assign remaining slaves.
+        [false,true].each{|spare_loop|
+            masters.each{|m|
+                i = 0
+                while (!spare_loop && i < @replicas) || \
+                      (spare_loop && nodes_count > 0)
+                    ips.each{|ip,nodes_list|
+                        next if nodes_list.length == 0
+                        # Skip instances with the same IP as the master if we
+                        # have some more IPs available.
+                        next if ip == m.info[:host] && nodes_count > nodes_list.length
+                        slave = nodes_list.shift
+                        slave.set_as_replica(m.info[:name])
+                        nodes_count -= 1
+                        i += 1
+                        puts "Adding replica #{slave} to #{m}"
+                    }
+                end
+            }
         }
     end
 
