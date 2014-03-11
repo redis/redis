@@ -952,6 +952,23 @@ class RedisTrib
         xputs ">>> New node timeout set. #{ok_count} OK, #{err_count} ERR."
     end
 
+    def call_cluster_cmd(argv,opt)
+        cmd = argv[1..-1]
+        cmd[0] = cmd[0].upcase
+
+        # Load cluster information
+        load_cluster_info_from_node(argv[0])
+        xputs ">>> Calling #{cmd.join(" ")}"
+        @nodes.each{|n|
+            begin
+                res = n.r.send(*cmd)
+                puts "#{n}: #{res}"
+            rescue => e
+                puts "#{n}: #{e}"
+            end
+        }
+    end
+
     def help_cluster_cmd(argv,opt)
         show_help
         exit 0
@@ -995,6 +1012,7 @@ COMMANDS={
     "add-node" => ["addnode_cluster_cmd", 3, "new_host:new_port existing_host:existing_port"],
     "del-node" => ["delnode_cluster_cmd", 3, "host:port node_id"],
     "set-timeout" => ["set_timeout_cluster_cmd", 3, "host:port milliseconds"],
+    "call" =>    ["call_cluster_cmd", -3, "host:port command arg arg .. arg"],
     "help"    => ["help_cluster_cmd", 1, "(show this help)"]
 }
 
