@@ -2897,8 +2897,8 @@ int verifyClusterConfigWithData(void) {
  * SLAVE nodes handling
  * -------------------------------------------------------------------------- */
 
-/* Set the specified node 'n' as master. Setup the node as a slave if
- * needed. */
+/* Set the specified node 'n' as master for this node.
+ * If this node is currently a master, it is turned into a slave. */
 void clusterSetMaster(clusterNode *n) {
     redisAssert(n != myself);
     redisAssert(myself->numslots == 0);
@@ -2906,6 +2906,7 @@ void clusterSetMaster(clusterNode *n) {
     if (nodeIsMaster(myself)) {
         myself->flags &= ~REDIS_NODE_MASTER;
         myself->flags |= REDIS_NODE_SLAVE;
+        clusterCloseAllSlots();
     } else {
         if (myself->slaveof)
             clusterNodeRemoveSlave(myself->slaveof,myself);
