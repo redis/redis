@@ -865,6 +865,7 @@ static void repl() {
     sds *argv;
 
     config.interactive = 1;
+    linenoiseSetMultiLine(1);
     linenoiseSetCompletionCallback(completionCallback);
 
     /* Only use history when stdin is a tty. */
