@@ -690,9 +690,9 @@ int rdbSave(char *filename) {
     rioWrite(&rdb,&cksum,8);
 
     /* Make sure data will not remain on the OS's output buffers */
-    fflush(fp);
-    fsync(fileno(fp));
-    fclose(fp);
+    if (fflush(fp) == EOF) goto werr;
+    if (fsync(fileno(fp)) == -1) goto werr;
+    if (fclose(fp) == EOF) goto werr;
 
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
