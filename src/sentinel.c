@@ -371,6 +371,7 @@ dictType leaderVotesDictType = {
 void sentinelCommand(redisClient *c);
 void sentinelInfoCommand(redisClient *c);
 void sentinelSetCommand(redisClient *c);
+void sentinelPublishCommand(redisClient *c);
 
 struct redisCommand sentinelcmds[] = {
     {"ping",pingCommand,1,"",0,NULL,0,0,0,0,0},
@@ -379,6 +380,7 @@ struct redisCommand sentinelcmds[] = {
     {"unsubscribe",unsubscribeCommand,-1,"",0,NULL,0,0,0,0,0},
     {"psubscribe",psubscribeCommand,-2,"",0,NULL,0,0,0,0,0},
     {"punsubscribe",punsubscribeCommand,-1,"",0,NULL,0,0,0,0,0},
+    {"publish",sentinelPublishCommand,3,"",0,NULL,0,0,0,0,0},
     {"info",sentinelInfoCommand,-1,"",0,NULL,0,0,0,0,0},
     {"shutdown",shutdownCommand,-1,"",0,NULL,0,0,0,0,0}
 };
@@ -2737,6 +2739,21 @@ badfmt: /* Bad format errors */
     if (changes) sentinelFlushConfig();
     addReplyErrorFormat(c,"Invalid argument '%s' for SENTINEL SET '%s'",
             value, option);
+}
+
+/* Our fake PUBLISH command: it is actually useful only to receive hello messages
+ * from the other sentinel instances, and publishing to a channel other than
+ * SENTINEL_HELLO_CHANNEL is forbidden.
+ *
+ * Because we have a Sentinel PUBLISH, the code to send hello messages is the same
+ * for all the three kind of instances: masters, slaves, sentinels. */
+void sentinelPublishCommand(redisClient *c) {
+    if (strcmp(c->argv[1]->ptr,SENTINEL_HELLO_CHANNEL)) {
+        addReplyError(c, "Only HELLO messages are accepted by Sentinel instances.");
+        return;
+    }
+    sentinelProcessHelloMessage(c->argv[2]->ptr,sdslen(c->argv[2]->ptr));
+    addReplyLongLong(c,1);
 }
 
 /* ===================== SENTINEL availability checks ======================= */
