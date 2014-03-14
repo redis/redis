@@ -1346,7 +1346,7 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
         ri->auth_pass = sdsnew(argv[2]);
     } else if (!strcasecmp(argv[0],"current-epoch") && argc == 2) {
         /* current-epoch <epoch> */
-        unsigned long long current_epoch = strtoull(argv[2],NULL,10);
+        unsigned long long current_epoch = strtoull(argv[1],NULL,10);
         if (current_epoch > sentinel.current_epoch)
             sentinel.current_epoch = current_epoch;
     } else if (!strcasecmp(argv[0],"config-epoch") && argc == 3) {
