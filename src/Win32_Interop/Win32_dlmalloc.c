@@ -566,7 +566,7 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #ifdef _WIN32_WCE /* WINCE reportedly does not clear */
 #define MMAP_CLEARS 0
 #else
-#define MMAP_CLEARS 1
+#define MMAP_CLEARS 0
 #endif /* _WIN32_WCE */
 #endif /*MMAP_CLEARS */
 #endif  /* WIN32 */
