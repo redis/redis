@@ -1168,7 +1168,7 @@ void redisLog(int level, const char *fmt, ...);
 #endif
 void redisLogRaw(int level, const char *msg);
 void redisLogFromHandler(int level, const char *msg);
-void usage();
+void usage(void);
 void updateDictResizePolicy(void);
 int htNeedsResize(dict *dict);
 void oom(const char *msg);
@@ -1228,7 +1228,7 @@ sds keyspaceEventsFlagsToString(int flags);
 /* Configuration */
 void loadServerConfig(char *filename, char *options);
 void appendServerSaveParams(time_t seconds, int changes);
-void resetServerSaveParams();
+void resetServerSaveParams(void);
 struct rewriteConfigState; /* Forward declaration to export API. */
 void rewriteConfigRewriteLine(struct rewriteConfigState *state, char *option, sds line, int force);
 int rewriteConfig(char *path);
