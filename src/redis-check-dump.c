@@ -168,7 +168,7 @@ int readBytes(void *target, long num) {
     return 1;
 }
 
-int processHeader() {
+int processHeader(void) {
     char buf[10] = "_________";
     int dump_version;
 
@@ -602,7 +602,7 @@ void printErrorStack(entry *e) {
     }
 }
 
-void process() {
+void process(void) {
     uint64_t num_errors = 0, num_valid_ops = 0, num_valid_bytes = 0;
     entry entry;
     int dump_version = processHeader();
