@@ -119,7 +119,7 @@ REDIS_CHECK_AOF_OBJ=redis-check-aof.o
 
 all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_DUMP_NAME) $(REDIS_CHECK_AOF_NAME)
 	@echo ""
-	@echo "Hint: To run 'make test' is a good idea ;)"
+	@echo "Hint: It's a good idea to run 'make test' ;)"
 	@echo ""
 
 .PHONY: all
