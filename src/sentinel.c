@@ -129,6 +129,10 @@ typedef struct sentinelRedisInstance {
     mstime_t pc_last_activity; /* Last time we received any message. */
     mstime_t last_avail_time; /* Last time the instance replied to ping with
                                  a reply we consider valid. */
+    mstime_t last_ping_time;  /* Last time a pending ping was sent in the
+                                 context of the current command connection
+                                 with the instance. 0 if still not sent or
+                                 if pong already received. */
     mstime_t last_pong_time;  /* Last time the instance replied to ping,
                                  whatever the reply was. That's used to check
                                  if the link is idle and must be reconnected. */
@@ -329,6 +333,7 @@ int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port);
 char *sentinelVoteLeader(sentinelRedisInstance *master, uint64_t req_epoch, char *req_runid, uint64_t *leader_epoch);
 void sentinelFlushConfig(void);
 void sentinelGenerateInitialMonitorEvents(void);
+int sentinelSendPing(sentinelRedisInstance *ri);
 
 /* ========================= Dictionary types =============================== */
 
@@ -925,6 +930,11 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->cc_conn_time = 0;
     ri->pc_conn_time = 0;
     ri->pc_last_activity = 0;
+    /* We set the last_ping_time to "now" even if we actually don't have yet
+     * a connection with the node, nor we sent a ping.
+     * This is useful to detect a timeout in case we'll not be able to connect
+     * with the node at all. */
+    ri->last_ping_time = mstime();
     ri->last_avail_time = mstime();
     ri->last_pong_time = mstime();
     ri->last_pub_time = mstime();
@@ -1161,6 +1171,7 @@ void sentinelResetMaster(sentinelRedisInstance *ri, int flags) {
     sdsfree(ri->slave_master_host);
     ri->runid = NULL;
     ri->slave_master_host = NULL;
+    ri->last_ping_time = mstime();
     ri->last_avail_time = mstime();
     ri->last_pong_time = mstime();
     ri->role_reported_time = mstime();
@@ -1655,6 +1666,9 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
                                             sentinelDisconnectCallback);
             sentinelSendAuthIfNeeded(ri,ri->cc);
             sentinelSetClientName(ri,ri->cc,"cmd");
+
+            /* Send a PING ASAP when reconnecting. */
+            sentinelSendPing(ri);
         }
     }
     /* Pub / Sub */
@@ -1990,6 +2004,7 @@ void sentinelPingReplyCallback(redisAsyncContext *c, void *reply, void *privdata
             strncmp(r->str,"MASTERDOWN",10) == 0)
         {
             ri->last_avail_time = mstime();
+            ri->last_ping_time = 0; /* Flag the pong as received. */
         } else {
             /* Send a SCRIPT KILL command if the instance appears to be
              * down because of a busy script. */
@@ -2186,11 +2201,31 @@ int sentinelSendHello(sentinelRedisInstance *ri) {
     return REDIS_OK;
 }
 
+/* Send a PING to the specified instance and refresh the last_ping_time
+ * if it is zero (that is, if we received a pong for the previous ping).
+ *
+ * On error zero is returned, and we can't consider the PING command
+ * queued in the connection. */
+int sentinelSendPing(sentinelRedisInstance *ri) {
+    int retval = redisAsyncCommand(ri->cc,
+        sentinelPingReplyCallback, NULL, "PING");
+    if (retval == REDIS_OK) {
+        ri->pending_commands++;
+        /* We update the ping time only if we received the pong for
+         * the previous ping, otherwise we are technically waiting
+         * since the first ping that did not received a reply. */
+        if (ri->last_ping_time == 0) ri->last_ping_time = mstime();
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
 /* Send periodic PING, INFO, and PUBLISH to the Hello channel to
  * the specified master or slave instance. */
-void sentinelPingInstance(sentinelRedisInstance *ri) {
+void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
     mstime_t now = mstime();
-    mstime_t info_period;
+    mstime_t info_period, ping_period;
     int retval;
 
     /* Return ASAP if we have already a PING or INFO already pending, or
@@ -2216,6 +2251,12 @@ void sentinelPingInstance(sentinelRedisInstance *ri) {
         info_period = SENTINEL_INFO_PERIOD;
     }
 
+    /* We ping instances every time the last received pong is older than
+     * the configured 'down-after-milliseconds' time, but every second
+     * anyway if 'down-after-milliseconds' is greater than 1 second. */
+    ping_period = ri->down_after_period;
+    if (ping_period > SENTINEL_PING_PERIOD) ping_period = SENTINEL_PING_PERIOD;
+
     if ((ri->flags & SRI_SENTINEL) == 0 &&
         (ri->info_refresh == 0 ||
         (now - ri->info_refresh) > info_period))
@@ -2223,14 +2264,10 @@ void sentinelPingInstance(sentinelRedisInstance *ri) {
         /* Send INFO to masters and slaves, not sentinels. */
         retval = redisAsyncCommand(ri->cc,
             sentinelInfoReplyCallback, NULL, "INFO");
-        if (retval != REDIS_OK) return;
-        ri->pending_commands++;
-    } else if ((now - ri->last_pong_time) > SENTINEL_PING_PERIOD) {
+        if (retval == REDIS_OK) ri->pending_commands++;
+    } else if ((now - ri->last_pong_time) > ping_period) {
         /* Send PING to all the three kinds of instances. */
-        retval = redisAsyncCommand(ri->cc,
-            sentinelPingReplyCallback, NULL, "PING");
-        if (retval != REDIS_OK) return;
-        ri->pending_commands++;
+        sentinelSendPing(ri);
     } else if ((now - ri->last_pub_time) > SENTINEL_PUBLISH_PERIOD) {
         /* PUBLISH hello messages to all the three kinds of instances. */
         sentinelSendHello(ri);
@@ -2305,6 +2342,11 @@ void addReplySentinelRedisInstance(redisClient *c, sentinelRedisInstance *ri) {
         addReplyBulkCString(c,(char*)sentinelFailoverStateStr(ri->failover_state));
         fields++;
     }
+
+    addReplyBulkCString(c,"last-ping-sent");
+    addReplyBulkLongLong(c,
+        ri->last_ping_time ? (mstime() - ri->last_ping_time) : 0);
+    fields++;
 
     addReplyBulkCString(c,"last-ok-ping-reply");
     addReplyBulkLongLong(c,mstime() - ri->last_avail_time);
@@ -2805,16 +2847,23 @@ void sentinelPublishCommand(redisClient *c) {
 
 /* Is this instance down from our point of view? */
 void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
-    mstime_t elapsed = mstime() - ri->last_avail_time;
+    mstime_t elapsed = 0;
+
+    if (ri->last_ping_time)
+        elapsed = mstime() - ri->last_ping_time;
 
     /* Check if we are in need for a reconnection of one of the 
      * links, because we are detecting low activity.
      *
      * 1) Check if the command link seems connected, was connected not less
-     *    than SENTINEL_MIN_LINK_RECONNECT_PERIOD, but still we have an
-     *    idle time that is greater than down_after_period / 2 seconds. */
+     *    than SENTINEL_MIN_LINK_RECONNECT_PERIOD, but still we have a
+     *    pending ping for more than half the timeout. */
     if (ri->cc &&
         (mstime() - ri->cc_conn_time) > SENTINEL_MIN_LINK_RECONNECT_PERIOD &&
+        ri->last_ping_time != 0 && /* Ther is a pending ping... */
+        /* The pending ping is delayed, and we did not received
+         * error replies as well. */
+        (mstime() - ri->last_ping_time) > (ri->down_after_period/2) &&
         (mstime() - ri->last_pong_time) > (ri->down_after_period/2))
     {
         sentinelKillLink(ri,ri->cc);
@@ -3570,7 +3619,7 @@ void sentinelHandleRedisInstance(sentinelRedisInstance *ri) {
     /* ========== MONITORING HALF ============ */
     /* Every kind of instance */
     sentinelReconnectInstance(ri);
-    sentinelPingInstance(ri);
+    sentinelSendPeriodicCommands(ri);
 
     /* ============== ACTING HALF ============= */
     /* We don't proceed with the acting half if we are in TILT mode.
