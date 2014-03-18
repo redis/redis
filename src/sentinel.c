@@ -1882,6 +1882,10 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             ri->flags & SRI_MASTER ? "master" : "slave");
     }
 
+    /* None of the following conditions are processed when in tilt mode, so
+     * return asap. */
+    if (sentinel.tilt) return;
+
     /* Handle master -> slave role switch. */
     if ((ri->flags & SRI_MASTER) && role == SRI_SLAVE) {
         /* Nothing to do, but masters claiming to be slaves are
@@ -1893,8 +1897,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     if ((ri->flags & SRI_SLAVE) && role == SRI_MASTER) {
         /* If this is a promoted slave we can change state to the
          * failover state machine. */
-        if (!sentinel.tilt &&
-            (ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
+        if ((ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
             (ri->master->failover_state ==
                 SENTINEL_FAILOVER_STATE_WAIT_PROMOTION))
         {
@@ -1912,7 +1915,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                 ri->master,"%@");
             sentinelCallClientReconfScript(ri->master,SENTINEL_LEADER,
                 "start",ri->master->addr,ri->addr);
-        } else if (!sentinel.tilt) {
+        } else {
             /* A slave turned into a master. We want to force our view and
              * reconfigure as slave. Wait some time after the change before
              * going forward, to receive new configs if any. */
@@ -1932,7 +1935,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     }
 
     /* Handle slaves replicating to a different master address. */
-    if ((ri->flags & SRI_SLAVE) && !sentinel.tilt &&
+    if ((ri->flags & SRI_SLAVE) &&
         role == SRI_SLAVE &&
         (ri->slave_master_port != ri->master->addr->port ||
          strcasecmp(ri->slave_master_host,ri->master->addr->ip)))
@@ -1952,10 +1955,6 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                 sentinelEvent(REDIS_NOTICE,"+fix-slave-config",ri,"%@");
         }
     }
-
-    /* None of the following conditions are processed when in tilt mode, so
-     * return asap. */
-    if (sentinel.tilt) return;
 
     /* Detect if the slave that is in the process of being reconfigured
      * changed state. */
