@@ -2154,13 +2154,11 @@ cleanup:
 /* This is our Pub/Sub callback for the Hello channel. It's useful in order
  * to discover other sentinels attached at the same master. */
 void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privdata) {
-    sentinelRedisInstance *ri = c->data, *master;
+    sentinelRedisInstance *ri = c->data;
     redisReply *r;
 
     if (!reply || !ri) return;
     r = reply;
-
-    master = (ri->flags & SRI_MASTER) ? ri : ri->master;
 
     /* Update the last activity in the pubsub channel. Note that since we
      * receive our messages as well this timestamp can be used to detect
