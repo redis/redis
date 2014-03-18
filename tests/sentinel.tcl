@@ -275,6 +275,8 @@ proc foreach_instance_id {instances idvar code} {
             error $result $::errorInfo $::errorCode
         } elseif {$errcode == 4} {
             continue
+        } elseif {$errcode == 3} {
+            break
         } elseif {$errcode != 0} {
             return -code $errcode $result
         }
