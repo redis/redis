@@ -329,6 +329,8 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master);
 void sentinelScheduleScriptExecution(char *path, ...);
 void sentinelStartFailover(sentinelRedisInstance *master);
 void sentinelDiscardReplyCallback(redisAsyncContext *c, void *reply, void *privdata);
+int sentinelIsElectableSlave(sentinelRedisInstance *ri);
+int sentinelIsStickySlave(sentinelRedisInstance *ri);
 int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port);
 char *sentinelVoteLeader(sentinelRedisInstance *master, uint64_t req_epoch, char *req_runid, uint64_t *leader_epoch);
 void sentinelFlushConfig(void);
@@ -1226,6 +1228,7 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *ip,
         sentinelRedisInstance *slave = dictGetVal(de);
 
         if (sentinelAddrIsEqual(slave->addr,newaddr)) continue;
+        if (sentinelIsStickySlave(slave)) continue;
         slaves = zrealloc(slaves,sizeof(sentinelAddr*)*(numslaves+1));
         slaves[numslaves++] = createSentinelAddr(slave->addr->ip,
                                                  slave->addr->port);
@@ -1918,7 +1921,8 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
              * going forward, to receive new configs if any. */
             mstime_t wait_time = SENTINEL_PUBLISH_PERIOD*4;
 
-            if (sentinelMasterLooksSane(ri->master) &&
+            if (!sentinelIsStickySlave(ri) &&
+               sentinelMasterLooksSane(ri->master) &&
                sentinelRedisInstanceNoDownFor(ri,wait_time) &&
                mstime() - ri->role_reported_time > wait_time)
             {
@@ -1933,7 +1937,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
 
     /* Handle slaves replicating to a different master address. */
     if ((ri->flags & SRI_SLAVE) && !sentinel.tilt &&
-        role == SRI_SLAVE &&
+        role == SRI_SLAVE && !sentinelIsStickySlave(ri) &&
         (ri->slave_master_port != ri->master->addr->port ||
          strcasecmp(ri->slave_master_host,ri->master->addr->ip)))
     {
@@ -3184,6 +3188,16 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     return winner;
 }
 
+inline int sentinelIsElectableSlave(sentinelRedisInstance *ri) {
+    return ri->slave_priority != 0 && ri->slave_priority != -1;
+}
+
+/* Sticky slave always follows manually configured master, not affected
+ * by sentinel, this is to mirror Redis cluster. */
+inline int sentinelIsStickySlave(sentinelRedisInstance *ri) {
+    return ri->slave_priority == -1;
+}
+
 /* Send SLAVEOF to the specified instance, always followed by a
  * CONFIG REWRITE command in order to store the new configuration on disk
  * when possible (that is, if the Redis instance is recent enough to support
@@ -3338,7 +3352,7 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
 
         if (slave->flags & (SRI_S_DOWN|SRI_O_DOWN|SRI_DISCONNECTED)) continue;
         if (mstime() - slave->last_avail_time > SENTINEL_PING_PERIOD*5) continue;
-        if (slave->slave_priority == 0) continue;
+        if (!sentinelIsElectableSlave(slave)) continue;
 
         /* If the master is in SDOWN state we get INFO for slaves every second.
          * Otherwise we get it with the usual period so we need to account for
@@ -3468,6 +3482,7 @@ void sentinelFailoverDetectEnd(sentinelRedisInstance *master) {
 
         if (slave->flags & (SRI_PROMOTED|SRI_RECONF_DONE)) continue;
         if (slave->flags & SRI_S_DOWN) continue;
+        if (sentinelIsStickySlave(slave)) continue;
         not_reconfigured++;
     }
     dictReleaseIterator(di);
@@ -3496,6 +3511,9 @@ void sentinelFailoverDetectEnd(sentinelRedisInstance *master) {
         while((de = dictNext(di)) != NULL) {
             sentinelRedisInstance *slave = dictGetVal(de);
             int retval;
+
+            if (sentinelIsStickySlave(slave))
+                continue;
 
             if (slave->flags &
                 (SRI_RECONF_DONE|SRI_RECONF_SENT|SRI_DISCONNECTED)) continue;
@@ -3534,6 +3552,8 @@ void sentinelFailoverReconfNextSlave(sentinelRedisInstance *master) {
     {
         sentinelRedisInstance *slave = dictGetVal(de);
         int retval;
+
+        if (sentinelIsStickySlave(slave)) continue;
 
         /* Skip the promoted slave, and already configured slaves. */
         if (slave->flags & (SRI_PROMOTED|SRI_RECONF_DONE)) continue;
