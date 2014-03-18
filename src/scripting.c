@@ -936,9 +936,6 @@ void evalGenericCommand(redisClient *c, int evalsha) {
         funcname[42] = '\0';
     }
 
-    /* Push the pcall error handler function on the stack. */
-    lua_getglobal(lua, "__redis__err__handler");
-
     /* Try to lookup the Lua function */
     lua_getglobal(lua, funcname);
     if (lua_isnil(lua,-1)) {
@@ -947,12 +944,10 @@ void evalGenericCommand(redisClient *c, int evalsha) {
          * body of the function. If this is an EVALSHA call we can just
          * return an error. */
         if (evalsha) {
-            lua_pop(lua,1); /* remove the error handler from the stack. */
             addReply(c, shared.noscripterr);
             return;
         }
         if (luaCreateFunction(c,lua,funcname,c->argv[1]) == REDIS_ERR) {
-            lua_pop(lua,1); /* remove the error handler from the stack. */
             /* The error is sent to the client by luaCreateFunction()
              * itself when it returns REDIS_ERR. */
             return;
@@ -981,6 +976,10 @@ void evalGenericCommand(redisClient *c, int evalsha) {
         lua_sethook(lua,luaMaskCountHook,LUA_MASKCOUNT,100000);
         delhook = 1;
     }
+
+    /* Push the pcall error handler function on the stack. */
+    lua_getglobal(lua,"__redis__err__handler");
+    lua_insert(lua,-2);
 
     /* At this point whether this script was never seen before or if it was
      * already defined, we can call it. We have zero arguments and expect
