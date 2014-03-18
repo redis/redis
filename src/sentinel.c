@@ -1298,6 +1298,24 @@ sentinelAddr *sentinelGetCurrentMasterAddress(sentinelRedisInstance *master) {
     }
 }
 
+/* This function sets the down_after_period field value in 'master' to all
+ * the slaves and sentinel instances connected to this master. */
+void sentinelPropagateDownAfterPeriod(sentinelRedisInstance *master) {
+    dictIterator *di;
+    dictEntry *de;
+    int j;
+    dict *d[] = {master->slaves, master->sentinels, NULL};
+
+    for (j = 0; d[j]; j++) {
+        di = dictGetIterator(d[j]);
+        while((de = dictNext(di)) != NULL) {
+            sentinelRedisInstance *ri = dictGetVal(de);
+            ri->down_after_period = master->down_after_period;
+        }
+        dictReleaseIterator(di);
+    }
+}
+
 /* ============================ Config handling ============================= */
 char *sentinelHandleConfiguration(char **argv, int argc) {
     sentinelRedisInstance *ri;
@@ -1323,6 +1341,7 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
         ri->down_after_period = atoi(argv[2]);
         if (ri->down_after_period <= 0)
             return "negative or zero time parameter.";
+        sentinelPropagateDownAfterPeriod(ri);
     } else if (!strcasecmp(argv[0],"failover-timeout") && argc == 3) {
         /* failover-timeout <name> <milliseconds> */
         ri = sentinelGetMasterByName(argv[1]);
@@ -2762,6 +2781,7 @@ void sentinelSetCommand(redisClient *c) {
             if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll <= 0)
                 goto badfmt;
             ri->down_after_period = ll;
+            sentinelPropagateDownAfterPeriod(ri);
             changes++;
         } else if (!strcasecmp(option,"failover-timeout")) {
             /* failover-timeout <milliseconds> */
