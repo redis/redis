@@ -2368,6 +2368,10 @@ void addReplySentinelRedisInstance(redisClient *c, sentinelRedisInstance *ri) {
         fields++;
     }
 
+    addReplyBulkCString(c,"down-after-milliseconds");
+    addReplyBulkLongLong(c,ri->down_after_period);
+    fields++;
+
     /* Masters and Slaves */
     if (ri->flags & (SRI_MASTER|SRI_SLAVE)) {
         addReplyBulkCString(c,"info-refresh");
@@ -2400,10 +2404,6 @@ void addReplySentinelRedisInstance(redisClient *c, sentinelRedisInstance *ri) {
 
         addReplyBulkCString(c,"quorum");
         addReplyBulkLongLong(c,ri->quorum);
-        fields++;
-
-        addReplyBulkCString(c,"down-after-milliseconds");
-        addReplyBulkLongLong(c,ri->down_after_period);
         fields++;
 
         addReplyBulkCString(c,"failover-timeout");
