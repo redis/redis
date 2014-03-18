@@ -1,0 +1,28 @@
+language: c
+
+# Two compilers because clang and GCC output different errors.
+compiler:
+    - clang
+    - gcc
+
+# env lets us spawn one VM per value of a variable.
+# TEST_TARGET runs make test and make test-sentinel concurrently
+# REDIS_CFLAGS fails to compile on warning to alert us about... warnings.
+# What gets run:
+# {gcc,   make -j REDIS_CFLAGS="",      make test}
+# {gcc,   make -j REDIS_CFLAGS="",      make test-sentinel}
+# {gcc,   make -j REDIS_CFLAGS=-Werror, make}  # The last make is a noop
+# {clang, make -j REDIS_CFLAGS="",      make test}
+# {clang, make -j REDIS_CFLAGS="",      make test-sentinel}
+# {clang, make -j REDIS_CFLAGS=-Werror, make}  # The last make is a noop
+env:
+    - TEST_TARGET=test
+    - TEST_TARGET=test-sentinel
+    - REDIS_CFLAGS="-Werror"
+
+# Redis testing needs tcl
+install:
+    - sudo apt-get install tcl -y
+
+# We start from inside src so -j is evaluated properly
+script: cd src; make -j REDIS_CFLAGS=$REDIS_CFLAGS && make $TEST_TARGET
