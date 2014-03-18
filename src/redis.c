@@ -2420,7 +2420,9 @@ sds genRedisInfoString(char *section) {
     if (allsections || defsections || !strcasecmp(section,"memory")) {
         char hmem[64];
         char peak_hmem[64];
+        char client_output_hmem[64];
         size_t zmalloc_used = zmalloc_used_memory();
+        unsigned long client_output_mem;
 
         /* Peak memory is updated from time to time by serverCron() so it
          * may happen that the instantaneous value is slightly bigger than
@@ -2429,8 +2431,11 @@ sds genRedisInfoString(char *section) {
         if (zmalloc_used > server.stat_peak_memory)
             server.stat_peak_memory = zmalloc_used;
 
+        client_output_mem = allClientsOutputBufferMemoryUsage();
+
         bytesToHuman(hmem,zmalloc_used);
         bytesToHuman(peak_hmem,server.stat_peak_memory);
+        bytesToHuman(client_output_hmem,client_output_mem);
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Memory\r\n"
@@ -2440,6 +2445,8 @@ sds genRedisInfoString(char *section) {
             "used_memory_peak:%zu\r\n"
             "used_memory_peak_human:%s\r\n"
             "used_memory_lua:%lld\r\n"
+            "used_memory_output_buffers:%lu\r\n"
+            "used_memory_output_buffers_human:%s\r\n"
             "mem_fragmentation_ratio:%.2f\r\n"
             "mem_allocator:%s\r\n",
             zmalloc_used,
@@ -2448,6 +2455,8 @@ sds genRedisInfoString(char *section) {
             server.stat_peak_memory,
             peak_hmem,
             ((long long)lua_gc(server.lua,LUA_GCCOUNT,0))*1024LL,
+            client_output_mem,
+            client_output_hmem,
             zmalloc_get_fragmentation_ratio(),
             ZMALLOC_LIB
             );
