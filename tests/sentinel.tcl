@@ -356,6 +356,12 @@ proc kill_instance {type id} {
     set ::pids [lsearch -all -inline -not -exact $::pids $pid]
 }
 
+# Return true of the instance of the specified type/id is killed.
+proc instance_is_killed {type id} {
+    set pid [get_instance_attrib $type $id pid]
+    return $pid == -1
+}
+
 # Restart an instance previously killed by kill_instance
 proc restart_instance {type id} {
     set dirname "${type}_${id}"
