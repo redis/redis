@@ -1102,7 +1102,8 @@ void populateCommandTable(void);
 void resetCommandTableStats(void);
 void adjustOpenFilesLimit(void);
 void closeListeningSockets(int unlink_unix_socket);
-void updateCachedTime();
+void updateCachedTime(void);
+void resetServerStats(void);
 
 /* Set data type */
 robj *setTypeCreate(robj *value);
