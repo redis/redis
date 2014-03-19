@@ -1590,6 +1590,27 @@ int listenToPort(int port, int *fds, int *count) {
     return REDIS_OK;
 }
 
+/* Resets the stats that we expose via INFO or other means that we want
+ * to reset via CONFIG RESETSTAT. The function is also used in order to
+ * initialize these fields in initServer() at server startup. */
+void resetServerStats(void) {
+    server.stat_numcommands = 0;
+    server.stat_numconnections = 0;
+    server.stat_expiredkeys = 0;
+    server.stat_evictedkeys = 0;
+    server.stat_keyspace_misses = 0;
+    server.stat_keyspace_hits = 0;
+    server.stat_fork_time = 0;
+    server.stat_rejected_conn = 0;
+    server.stat_sync_full = 0;
+    server.stat_sync_partial_ok = 0;
+    server.stat_sync_partial_err = 0;
+    memset(server.ops_sec_samples,0,sizeof(server.ops_sec_samples));
+    server.ops_sec_idx = 0;
+    server.ops_sec_last_sample_time = mstime();
+    server.ops_sec_last_sample_ops = 0;
+}
+
 void initServer() {
     int j;
 
@@ -1665,23 +1686,10 @@ void initServer() {
     server.rdb_save_time_last = -1;
     server.rdb_save_time_start = -1;
     server.dirty = 0;
-    server.stat_numcommands = 0;
-    server.stat_numconnections = 0;
-    server.stat_expiredkeys = 0;
-    server.stat_evictedkeys = 0;
+    resetServerStats();
+    /* A few stats we don't want to reset: server startup time, and peak mem. */
     server.stat_starttime = time(NULL);
-    server.stat_keyspace_misses = 0;
-    server.stat_keyspace_hits = 0;
     server.stat_peak_memory = 0;
-    server.stat_fork_time = 0;
-    server.stat_rejected_conn = 0;
-    server.stat_sync_full = 0;
-    server.stat_sync_partial_ok = 0;
-    server.stat_sync_partial_err = 0;
-    memset(server.ops_sec_samples,0,sizeof(server.ops_sec_samples));
-    server.ops_sec_idx = 0;
-    server.ops_sec_last_sample_time = mstime();
-    server.ops_sec_last_sample_ops = 0;
     server.lastbgsave_status = REDIS_OK;
     server.aof_last_write_status = REDIS_OK;
     server.aof_last_write_errno = 0;

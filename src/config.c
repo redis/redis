@@ -1807,15 +1807,7 @@ void configCommand(redisClient *c) {
         configGetCommand(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"resetstat")) {
         if (c->argc != 2) goto badarity;
-        server.stat_keyspace_hits = 0;
-        server.stat_keyspace_misses = 0;
-        server.stat_numcommands = 0;
-        server.ops_sec_last_sample_ops = 0;
-        server.stat_numconnections = 0;
-        server.stat_expiredkeys = 0;
-        server.stat_rejected_conn = 0;
-        server.stat_fork_time = 0;
-        server.aof_delayed_fsync = 0;
+        resetServerStats();
         resetCommandTableStats();
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"rewrite")) {
