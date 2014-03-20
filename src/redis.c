@@ -844,10 +844,9 @@ void activeExpireCycle(int type) {
 }
 
 void updateLRUClock(void) {
-    server.lruclock = (server.unixtime/REDIS_LRU_CLOCK_RESOLUTION) &
+    server.lruclock = (mstime()/REDIS_LRU_CLOCK_RESOLUTION) &
                                                 REDIS_LRU_CLOCK_MAX;
 }
-
 
 /* Add a sample to the operations per second array of samples. */
 void trackOperationsPerSecond(void) {
