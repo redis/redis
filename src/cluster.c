@@ -685,7 +685,7 @@ void clusterDelNode(clusterNode *delnode) {
 /* Node lookup by name */
 clusterNode *clusterLookupNode(char *name) {
     sds s = sdsnewlen(name, REDIS_CLUSTER_NAMELEN);
-    struct dictEntry *de;
+    dictEntry *de;
 
     de = dictFind(server.cluster->nodes,s);
     sdsfree(s);
@@ -1770,7 +1770,7 @@ void clusterSendPing(clusterLink *link, int type) {
         
     /* Populate the gossip fields */
     while(freshnodes > 0 && gossipcount < 3) {
-        struct dictEntry *de = dictGetRandomKey(server.cluster->nodes);
+        dictEntry *de = dictGetRandomKey(server.cluster->nodes);
         clusterNode *this = dictGetVal(de);
         clusterMsgDataGossip *gossip;
         int j;
