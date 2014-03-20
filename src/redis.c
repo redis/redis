@@ -2845,16 +2845,35 @@ struct evictionPoolEntry *evictionPoolAlloc(void) {
  * We insert keys on place in ascending order, so keys with the smaller
  * idle time are on the left, and keys with the higher idle time on the
  * right. */
-void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEntry *pool) {
-    int j, k;
 
-    for (j = 0; j < server.maxmemory_samples; j++) {
+#define EVICTION_SAMPLES_ARRAY_SIZE 16
+void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEntry *pool) {
+    int j, k, count;
+    dictEntry *_samples[EVICTION_SAMPLES_ARRAY_SIZE];
+    dictEntry **samples;
+
+    /* Try to use a static buffer: this function is a big hit...
+     * Note: it was actually measured that this helps. */
+    if (server.maxmemory_samples <= EVICTION_SAMPLES_ARRAY_SIZE) {
+        samples = _samples;
+    } else {
+        samples = zmalloc(sizeof(samples[0])*server.maxmemory_samples);
+    }
+
+#if 1 /* Use bulk get by default. */
+    count = dictGetRandomKeys(sampledict,samples,server.maxmemory_samples);
+#else
+    count = server.maxmemory_samples;
+    for (j = 0; j < count; j++) samples[j] = dictGetRandomKey(sampledict);
+#endif
+
+    for (j = 0; j < count; j++) {
         unsigned long long idle;
         sds key;
         robj *o;
         dictEntry *de;
 
-        de = dictGetRandomKey(sampledict);
+        de = samples[j];
         key = dictGetKey(de);
         /* If the dictionary we are sampling from is not the main
          * dictionary (but the expires one) we need to lookup the key
@@ -2896,6 +2915,7 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
         pool[k].key = sdsdup(key);
         pool[k].idle = idle;
     }
+    if (samples != _samples) zfree(samples);
 }
 
 int freeMemoryIfNeeded(void) {
