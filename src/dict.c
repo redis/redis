@@ -649,6 +649,58 @@ dictEntry *dictGetRandomKey(dict *d)
     return he;
 }
 
+/* This is a version of dictGetRandomKey() that is modified in order to
+ * return multiple entries by jumping at a random place of the hash table
+ * and scanning linearly for entries.
+ *
+ * Returned pointers to hash table entries are stored into 'des' that
+ * points to an array of dictEntry pointers. The array must have room for
+ * at least 'count' elements, that is the argument we pass to the function
+ * to tell how many random elements we need.
+ *
+ * The function returns the number of items stored into 'des', that may
+ * be less than 'count' if the hash table has less than 'count' elements
+ * inside.
+ *
+ * Note that this function is not suitable when you need a good distribution
+ * of the returned items, but only when you need to "sample" a given number
+ * of continuous elements to run some kind of algorithm or to produce
+ * statistics. However the function is much faster than dictGetRandomKey()
+ * at producing N elements, and the elements are guaranteed to be non
+ * repeating. */
+int dictGetRandomKeys(dict *d, dictEntry **des, int count) {
+    int j; /* internal hash table id, 0 or 1. */
+    int stored = 0;
+
+    if (dictSize(d) < count) count = dictSize(d);
+    while(stored < count) {
+        for (j = 0; j < 2; j++) {
+            /* Pick a random point inside the hash table 0 or 1. */
+            unsigned int i = random() & d->ht[j].sizemask;
+            int size = d->ht[j].size;
+
+            /* Make sure to visit every bucket by iterating 'size' times. */
+            while(size--) {
+                dictEntry *he = d->ht[j].table[i];
+                while (he) {
+                    /* Collect all the elements of the buckets found non
+                     * empty while iterating. */
+                    *des = he;
+                    des++;
+                    he = he->next;
+                    stored++;
+                    if (stored == count) return stored;
+                }
+                i = (i+1) & d->ht[j].sizemask;
+            }
+            /* If there is only one table and we iterated it all, we should
+             * already have 'count' elements. Assert this condition. */
+            assert(dictIsRehashing(d) != 0);
+        }
+    }
+    return stored; /* Never reached. */
+}
+
 /* Function to reverse bits. Algorithm from:
  * http://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel */
 static unsigned long rev(unsigned long v) {
