@@ -394,6 +394,12 @@ typedef struct redisObject {
     void *ptr;
 } robj;
 
+/* Macro used to obtain the current LRU clock.
+ * If the current resolution is lower than the frequency we refresh the
+ * LRU clock (as it should be in production servers) we return the
+ * precomputed value, otherwise we need to resort to a function call. */
+#define LRU_CLOCK() ((1000/server.hz <= REDIS_LRU_CLOCK_RESOLUTION) ? server.lruclock : getLRUClock())
+
 /* Macro used to initialize a Redis object allocated on the stack.
  * Note that this macro is taken near the structure definition to make sure
  * we'll update it when the structure is changed, to avoid bugs like
@@ -1055,7 +1061,7 @@ char *strEncoding(int encoding);
 int compareStringObjects(robj *a, robj *b);
 int collateStringObjects(robj *a, robj *b);
 int equalStringObjects(robj *a, robj *b);
-unsigned long estimateObjectIdleTime(robj *o);
+unsigned long long estimateObjectIdleTime(robj *o);
 #define sdsEncodedObject(objptr) (objptr->encoding == REDIS_ENCODING_RAW || objptr->encoding == REDIS_ENCODING_EMBSTR)
 
 /* Synchronous I/O with timeout */
@@ -1156,6 +1162,7 @@ void adjustOpenFilesLimit(void);
 void closeListeningSockets(int unlink_unix_socket);
 void updateCachedTime(void);
 void resetServerStats(void);
+unsigned int getLRUClock(void);
 
 /* Set data type */
 robj *setTypeCreate(robj *value);

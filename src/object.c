@@ -651,10 +651,11 @@ char *strEncoding(int encoding) {
 /* Given an object returns the min number of seconds the object was never
  * requested, using an approximated LRU algorithm. */
 unsigned long long estimateObjectIdleTime(robj *o) {
-    if (server.lruclock >= o->lru) {
-        return (server.lruclock - o->lru) * REDIS_LRU_CLOCK_RESOLUTION;
+    unsigned long long lruclock = LRU_CLOCK();
+    if (lruclock >= o->lru) {
+        return (lruclock - o->lru) * REDIS_LRU_CLOCK_RESOLUTION;
     } else {
-        return ((REDIS_LRU_CLOCK_MAX - o->lru) + server.lruclock) *
+        return (lruclock + (REDIS_LRU_CLOCK_MAX - o->lru)) *
                     REDIS_LRU_CLOCK_RESOLUTION;
     }
 }
