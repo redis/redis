@@ -688,7 +688,7 @@ void updateDictResizePolicy(void) {
  *
  * The parameter 'now' is the current time in milliseconds as is passed
  * to the function to avoid too many gettimeofday() syscalls. */
-int activeExpireCycleTryExpire(redisDb *db, struct dictEntry *de, long long now) {
+int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
     long long t = dictGetSignedIntegerVal(de);
     if (now > t) {
         sds key = dictGetKey(de);
@@ -2852,7 +2852,7 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
         unsigned long long idle;
         sds key;
         robj *o;
-        struct dictEntry *de;
+        dictEntry *de;
 
         de = dictGetRandomKey(sampledict);
         key = dictGetKey(de);
@@ -2939,7 +2939,7 @@ int freeMemoryIfNeeded(void) {
         for (j = 0; j < server.dbnum; j++) {
             long bestval = 0; /* just to prevent warning */
             sds bestkey = NULL;
-            struct dictEntry *de;
+            dictEntry *de;
             redisDb *db = server.db+j;
             dict *dict;
 
