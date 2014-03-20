@@ -382,13 +382,14 @@ typedef long long mstime_t; /* millisecond time type. */
 /* A redis object, that is a type able to hold a string / list / set */
 
 /* The actual Redis Object */
-#define REDIS_LRU_CLOCK_MAX ((1<<22)-1) /* Max value of obj->lru */
+#define REDIS_LRU_BITS 22
+#define REDIS_LRU_CLOCK_MAX ((1<<REDIS_LRU_BITS)-1) /* Max value of obj->lru */
 #define REDIS_LRU_CLOCK_RESOLUTION 10 /* LRU clock resolution in seconds */
 typedef struct redisObject {
     unsigned type:4;
     unsigned notused:2;     /* Not used */
     unsigned encoding:4;
-    unsigned lru:22;        /* lru time (relative to server.lruclock) */
+    unsigned lru:REDIS_LRU_BITS; /* lru time (relative to server.lruclock) */
     int refcount;
     void *ptr;
 } robj;
