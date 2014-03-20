@@ -270,6 +270,8 @@ struct redisCommand redisCommandTable[] = {
     {"wait",waitCommand,3,"rs",0,NULL,0,0,0,0,0}
 };
 
+struct evictionPoolEntry *evictionPoolAlloc(void);
+
 /*============================ Utility functions ============================ */
 
 /* Low level logging. To use only for very big messages, otherwise
@@ -1666,6 +1668,7 @@ void initServer() {
         server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].ready_keys = dictCreate(&setDictType,NULL);
         server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
+        server.db[j].eviction_pool = evictionPoolAlloc();
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
     }
@@ -2783,8 +2786,9 @@ void monitorCommand(redisClient *c) {
 
 /* ============================ Maxmemory directive  ======================== */
 
-/* This function gets called when 'maxmemory' is set on the config file to limit
- * the max memory used by the server, before processing a command.
+/* freeMemoryIfNeeded() gets called when 'maxmemory' is set on the config
+ * file to limit the max memory used by the server, before processing a
+ * command.
  *
  * The goal of the function is to free enough memory to keep Redis under the
  * configured memory limit.
@@ -2797,7 +2801,103 @@ void monitorCommand(redisClient *c) {
  * function returns REDIS_OK, otherwise REDIS_ERR is returned, and the caller
  * should block the execution of commands that will result in more memory
  * used by the server.
- */
+ *
+ * ------------------------------------------------------------------------
+ *
+ * LRU approximation algorithm
+ *
+ * Redis uses an approximation of the LRU algorithm that runs in constant
+ * memory. Every time there is a key to expire, we sample a N keys (with
+ * N very small, usually in around 5) to populate a pool of best keys to
+ * evict of M keys (the pool size is defined by REDIS_EVICTION_POOL_SIZE).
+ *
+ * The N keys sampled are added in the pool of good keys to expire (the one
+ * with an old access time) if they are better then one of the current keys
+ * in the pool.
+ *
+ * After the pool is populated, the best key we have in the pool is expired.
+ * However note that we don't remove keys from the pool when they are deleted
+ * so the pool may contain keys that no longer exist.
+ *
+ * When we try to evict a key, and all the entries in the pool don't exist
+ * we populate it again. This time we'll be sure that the pool has at least
+ * one key that can be evicted, if there is at least one key that can be
+ * evicted in the whole database. */
+
+/* Create a new eviction pool. */
+struct evictionPoolEntry *evictionPoolAlloc(void) {
+    struct evictionPoolEntry *ep;
+    int j;
+
+    ep = zmalloc(sizeof(*ep)*REDIS_EVICTION_POOL_SIZE);
+    for (j = 0; j < REDIS_EVICTION_POOL_SIZE; j++) {
+        ep[j].idle = 0;
+        ep[j].key = NULL;
+    }
+    return ep;
+}
+
+/* This is an helper function for freeMemoryIfNeeded(), it is used in order
+ * to populate the evictionPool with a few entries every time we want to
+ * expire a key. Keys with idle time smaller than one of the current
+ * keys are added. Keys are always added if there are free entries.
+ *
+ * We insert keys on place in ascending order, so keys with the smaller
+ * idle time are on the left, and keys with the higher idle time on the
+ * right. */
+void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEntry *pool) {
+    int j, k;
+
+    for (j = 0; j < server.maxmemory_samples; j++) {
+        unsigned long long idle;
+        sds key;
+        robj *o;
+        struct dictEntry *de;
+
+        de = dictGetRandomKey(sampledict);
+        key = dictGetKey(de);
+        /* If the dictionary we are sampling from is not the main
+         * dictionary (but the expires one) we need to lookup the key
+         * again in the key dictionary to obtain the value object. */
+        if (sampledict != keydict) de = dictFind(keydict, key);
+        o = dictGetVal(de);
+        idle = estimateObjectIdleTime(o);
+
+        /* Insert the element inside the pool.
+         * First, find the first empty bucket or the first populated
+         * bucket that has an idle time smaller than our idle time. */
+        k = 0;
+        while (k < REDIS_EVICTION_POOL_SIZE &&
+               pool[k].key &&
+               pool[k].idle < idle) k++;
+        if (k == 0 && pool[REDIS_EVICTION_POOL_SIZE-1].key != NULL) {
+            /* Can't insert is the element is < the worst element we have
+             * and there are no empty buckets. */
+            continue;
+        } else if (k < REDIS_EVICTION_POOL_SIZE && pool[k].key == NULL) {
+            /* Inserting into empty position. No setup needed before insert. */
+        } else {
+            /* Inserting in the middle. Now k points to the first element
+             * greater than the element to insert.  */
+            if (pool[REDIS_EVICTION_POOL_SIZE-1].key == NULL) {
+                /* Free space on the right? Insert at k shifting
+                 * all the elements from k to end to the right. */
+                memmove(pool+k+1,pool+k,
+                    sizeof(pool[0])*(REDIS_EVICTION_POOL_SIZE-k-1));
+            } else {
+                /* No free space on right? Insert at k-1 */
+                k--;
+                /* Shift all elements on the left of k (included) to the
+                 * left, so we discard the element with smaller idle time. */
+                sdsfree(pool[0].key);
+                memmove(pool,pool+1,sizeof(pool[0])*k);
+            }
+        }
+        pool[k].key = sdsdup(key);
+        pool[k].idle = idle;
+    }
+}
+
 int freeMemoryIfNeeded(void) {
     size_t mem_used, mem_tofree, mem_freed;
     int slaves = listLength(server.slaves);
@@ -2864,24 +2964,34 @@ int freeMemoryIfNeeded(void) {
             else if (server.maxmemory_policy == REDIS_MAXMEMORY_ALLKEYS_LRU ||
                 server.maxmemory_policy == REDIS_MAXMEMORY_VOLATILE_LRU)
             {
-                for (k = 0; k < server.maxmemory_samples; k++) {
-                    sds thiskey;
-                    long thisval;
-                    robj *o;
+                struct evictionPoolEntry *pool = db->eviction_pool;
 
-                    de = dictGetRandomKey(dict);
-                    thiskey = dictGetKey(de);
-                    /* When policy is volatile-lru we need an additional lookup
-                     * to locate the real key, as dict is set to db->expires. */
-                    if (server.maxmemory_policy == REDIS_MAXMEMORY_VOLATILE_LRU)
-                        de = dictFind(db->dict, thiskey);
-                    o = dictGetVal(de);
-                    thisval = estimateObjectIdleTime(o);
+                while(bestkey == NULL) {
+                    evictionPoolPopulate(dict, db->dict, db->eviction_pool);
+                    /* Go backward from best to worst element to evict. */
+                    for (k = REDIS_EVICTION_POOL_SIZE-1; k >= 0; k--) {
+                        if (pool[k].key == NULL) continue;
+                        de = dictFind(dict,pool[k].key);
 
-                    /* Higher idle time is better candidate for deletion */
-                    if (bestkey == NULL || thisval > bestval) {
-                        bestkey = thiskey;
-                        bestval = thisval;
+                        /* Remove the entry from the pool. */
+                        sdsfree(pool[k].key);
+                        /* Shift all elements on its right to left. */
+                        memmove(pool+k,pool+k+1,
+                            sizeof(pool[0])*(REDIS_EVICTION_POOL_SIZE-k));
+                        /* Clear the element on the right which is empty
+                         * since we shifted one position to the left.  */
+                        pool[REDIS_EVICTION_POOL_SIZE-1].key = NULL;
+                        pool[REDIS_EVICTION_POOL_SIZE-1].idle = 0;
+
+                        /* If the key exists, is our pick. Otherwise it is
+                         * a ghost and we need to try the next element. */
+                        if (de) {
+                            bestkey = dictGetKey(de);
+                            break;
+                        } else {
+                            /* Ghost... */
+                            continue;
+                        }
                     }
                 }
             }
