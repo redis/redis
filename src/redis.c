@@ -2807,12 +2807,12 @@ void monitorCommand(redisClient *c) {
  * LRU approximation algorithm
  *
  * Redis uses an approximation of the LRU algorithm that runs in constant
- * memory. Every time there is a key to expire, we sample a N keys (with
+ * memory. Every time there is a key to expire, we sample N keys (with
  * N very small, usually in around 5) to populate a pool of best keys to
  * evict of M keys (the pool size is defined by REDIS_EVICTION_POOL_SIZE).
  *
  * The N keys sampled are added in the pool of good keys to expire (the one
- * with an old access time) if they are better then one of the current keys
+ * with an old access time) if they are better than one of the current keys
  * in the pool.
  *
  * After the pool is populated, the best key we have in the pool is expired.
@@ -2890,7 +2890,7 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
                pool[k].key &&
                pool[k].idle < idle) k++;
         if (k == 0 && pool[REDIS_EVICTION_POOL_SIZE-1].key != NULL) {
-            /* Can't insert is the element is < the worst element we have
+            /* Can't insert if the element is < the worst element we have
              * and there are no empty buckets. */
             continue;
         } else if (k < REDIS_EVICTION_POOL_SIZE && pool[k].key == NULL) {
