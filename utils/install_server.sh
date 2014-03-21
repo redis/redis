@@ -30,12 +30,17 @@
 # this scripts should be run as root
 
 die () {
-	echo "ERROR: $1. Aborting!" 
+	echo "ERROR: $1. Aborting!"
 	exit 1
 }
 
 #Initial defaults
 _REDIS_PORT=6379
+
+#Absolute path to this script
+SCRIPT=$(readlink -f $0)
+#Absolute path this script is in
+SCRIPTPATH=$(dirname $SCRIPT)
 
 echo "Welcome to the redis service installer"
 echo "This script will help you easily set up a running redis server
@@ -50,16 +55,16 @@ fi
 
 
 #Read the redis port
-read  -p "Please select the redis port for this instance: [$_REDIS_PORT] " REDIS_PORT 
+read  -p "Please select the redis port for this instance: [$_REDIS_PORT] " REDIS_PORT
 if [ ! `echo $REDIS_PORT | egrep "^[0-9]+\$"`  ] ; then
 	echo "Selecting default: $_REDIS_PORT"
-	REDIS_PORT=$_REDIS_PORT 
+	REDIS_PORT=$_REDIS_PORT
 fi
 
 #read the redis config file
 _REDIS_CONFIG_FILE="/etc/redis/$REDIS_PORT.conf"
 read -p "Please select the redis config file name [$_REDIS_CONFIG_FILE] " REDIS_CONFIG_FILE
-if [ !"$REDIS_CONFIG_FILE" ] ; then
+if [ ! "$REDIS_CONFIG_FILE" ] ; then
 	REDIS_CONFIG_FILE=$_REDIS_CONFIG_FILE
 	echo "Selected default - $REDIS_CONFIG_FILE"
 fi
@@ -69,7 +74,7 @@ mkdir -p `dirname "$REDIS_CONFIG_FILE"` || die "Could not create redis config di
 #read the redis log file path
 _REDIS_LOG_FILE="/var/log/redis_$REDIS_PORT.log"
 read -p "Please select the redis log file name [$_REDIS_LOG_FILE] " REDIS_LOG_FILE
-if [ !"$REDIS_LOG_FILE" ] ; then
+if [ ! "$REDIS_LOG_FILE" ] ; then
 	REDIS_LOG_FILE=$_REDIS_LOG_FILE
 	echo "Selected default - $REDIS_LOG_FILE"
 fi
@@ -78,7 +83,7 @@ fi
 #get the redis data directory
 _REDIS_DATA_DIR="/var/lib/redis/$REDIS_PORT"
 read -p "Please select the data directory for this instance [$_REDIS_DATA_DIR] " REDIS_DATA_DIR
-if [ !"$REDIS_DATA_DIR" ] ; then
+if [ ! "$REDIS_DATA_DIR" ] ; then
 	REDIS_DATA_DIR=$_REDIS_DATA_DIR
 	echo "Selected default - $REDIS_DATA_DIR"
 fi
@@ -89,19 +94,19 @@ _REDIS_EXECUTABLE=`which redis-server`
 read -p "Please select the redis executable path [$_REDIS_EXECUTABLE] " REDIS_EXECUTABLE
 if [ ! -f "$REDIS_EXECUTABLE" ] ; then
 	REDIS_EXECUTABLE=$_REDIS_EXECUTABLE
-	
+
 	if [ ! -f "$REDIS_EXECUTABLE" ] ; then
 		echo "Mmmmm...  it seems like you don't have a redis executable. Did you run make install yet?"
 		exit 1
 	fi
-	
+
 fi
 
 
 #render the tmplates
 TMP_FILE="/tmp/$REDIS_PORT.conf"
-DEFAULT_CONFIG="../redis.conf"
-INIT_TPL_FILE="./redis_init_script.tpl"
+DEFAULT_CONFIG="$SCRIPTPATH/../redis.conf"
+INIT_TPL_FILE="$SCRIPTPATH/redis_init_script.tpl"
 INIT_SCRIPT_DEST="/etc/init.d/redis_$REDIS_PORT"
 PIDFILE="/var/run/redis_$REDIS_PORT.pid"
 
@@ -109,7 +114,7 @@ PIDFILE="/var/run/redis_$REDIS_PORT.pid"
 
 #check the default for redis cli
 CLI_EXEC=`which redis-cli`
-if [ ! "$CLI_EXEC" ] ; then 
+if [ ! "$CLI_EXEC" ] ; then
 	CLI_EXEC=`dirname $REDIS_EXECUTABLE`"/redis-cli"
 fi
 
@@ -121,7 +126,7 @@ SED_EXPR="s#^port [0-9]{4}\$#port ${REDIS_PORT}#;\
 s#^logfile .+\$#logfile ${REDIS_LOG_FILE}#;\
 s#^dir .+\$#dir ${REDIS_DATA_DIR}#;\
 s#^pidfile .+\$#pidfile ${PIDFILE}#;\
-s#^daemonize no\$#daemonize yes#;" 
+s#^daemonize no\$#daemonize yes#;"
 echo $SED_EXPR
 sed -r "$SED_EXPR" $DEFAULT_CONFIG  >> $TMP_FILE
 
@@ -159,9 +164,9 @@ REDIS_CHKCONFIG_INFO=\
 # Description: Redis daemon\n
 ### END INIT INFO\n\n"
 
-if [ !`which chkconfig` ] ; then 
+if [ ! `which chkconfig` ] ; then
 	#combine the header and the template (which is actually a static footer)
-	echo $REDIS_INIT_HEADER > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
+	echo -e $REDIS_INIT_HEADER > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
 else
 	#if we're a box with chkconfig on it we want to include info for chkconfig
 	echo -e $REDIS_INIT_HEADER $REDIS_CHKCONFIG_INFO > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
@@ -173,7 +178,7 @@ echo "Copied $TMP_FILE => $INIT_SCRIPT_DEST"
 
 #Install the service
 echo "Installing service..."
-if [ !`which chkconfig` ] ; then 
+if [ ! `which chkconfig` ] ; then
 	#if we're not a chkconfig box assume we're able to use update-rc.d
 	update-rc.d redis_$REDIS_PORT defaults && echo "Success!"
 else
@@ -181,7 +186,7 @@ else
 	chkconfig --add redis_$REDIS_PORT && echo "Successfully added to chkconfig!"
 	chkconfig --level 345 redis_$REDIS_PORT on && echo "Successfully added to runlevels 345!"
 fi
-	
+
 /etc/init.d/redis_$REDIS_PORT start || die "Failed starting service..."
 
 #tada
