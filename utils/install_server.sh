@@ -97,11 +97,13 @@ if [ ! -f "$REDIS_EXECUTABLE" ] ; then
 	
 fi
 
+#get the utils folder path to use in templates
+UTIL_DIR="$(cd $(dirname $0) && pwd)"
 
-#render the tmplates
+#render the templates
 TMP_FILE="/tmp/$REDIS_PORT.conf"
-DEFAULT_CONFIG="../redis.conf"
-INIT_TPL_FILE="./redis_init_script.tpl"
+DEFAULT_CONFIG="$UTIL_DIR/../redis.conf"
+INIT_TPL_FILE="$UTIL_DIR/./redis_init_script.tpl"
 INIT_SCRIPT_DEST="/etc/init.d/redis_$REDIS_PORT"
 PIDFILE="/var/run/redis_$REDIS_PORT.pid"
 
