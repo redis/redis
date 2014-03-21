@@ -1436,6 +1436,36 @@ void rewriteClientCommandArgument(redisClient *c, int i, robj *newval) {
     }
 }
 
+/* Get size of allocated output buffers for all clients */
+unsigned long allClientsOutputBufferMemoryUsage() {
+    listNode *ln;
+    listIter li;
+    unsigned long mem_output_buffers = 0;
+
+    listRewind(server.clients,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        redisClient *c = listNodeValue(ln);
+        mem_output_buffers += getClientOutputBufferMemoryUsage(c);
+    }
+
+    return mem_output_buffers;
+}
+
+/* Get size of input buffers for all clients */
+unsigned long allClientsInputBufferMemoryUsage() {
+    listNode *ln;
+    listIter li;
+    unsigned long mem_input_buffers = 0;
+
+    listRewind(server.clients,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        redisClient *c = listNodeValue(ln);
+        mem_input_buffers += sdslen(c->querybuf);
+    }
+
+    return mem_input_buffers;
+}
+
 /* This function returns the number of bytes that Redis is virtually
  * using to store the reply still not read by the client.
  * It is "virtual" since the reply output list may contain objects that
