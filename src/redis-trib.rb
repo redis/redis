@@ -554,14 +554,28 @@ class RedisTrib
         # We try to split the replicas among all the IPs with spare nodes
         # trying to avoid the host where the master is running, if possible.
         #
-        # Note that we loop two times, the first with spare_loop set to false,
-        # the second with the var set to true. The second loop changes the
-        # while condition so to assign remaining slaves.
-        [false,true].each{|spare_loop|
+        # Note we loop two times.  The first loop assigns the requested
+        # number of replicas to each master.  The second loop assigns any
+        # remaining instances as extra replicas to masters.  Some masters
+        # may end up with more than their requested number of replicas, but
+        # all nodes will be used.
+        assignment_verbose = false
+
+        [:requested,:unused].each{|assign|
             masters.each{|m|
-                i = 0
-                while (!spare_loop && i < @replicas) || \
-                      (spare_loop && nodes_count > 0)
+                assigned_replicas = 0
+                while assigned_replicas < @replicas
+                    break if nodes_count == 0
+                    if assignment_verbose
+                        if assign == :requested
+                            puts "Requesting total of #{@replicas} replicas " \
+                                 "(#{assigned_replicas} replicas assigned " \
+                                 "so far with #{nodes_count} total remaining)."
+                        elsif assign == :unused
+                            puts "Assigning extra instance to replication " \
+                                 "role too (#{nodes_count} remaining)."
+                        end
+                    end
                     ips.each{|ip,nodes_list|
                         next if nodes_list.length == 0
                         # Skip instances with the same IP as the master if we
@@ -570,7 +584,7 @@ class RedisTrib
                         slave = nodes_list.shift
                         slave.set_as_replica(m.info[:name])
                         nodes_count -= 1
-                        i += 1
+                        assigned_replicas += 1
                         puts "Adding replica #{slave} to #{m}"
                     }
                 end
