@@ -767,12 +767,12 @@ unsigned char *ziplistInsert(unsigned char *zl, unsigned char *p, unsigned char 
     return __ziplistInsert(zl,p,s,slen);
 }
 
-/* Delete a single entry from the ziplist, pointed to by *p.
+/* Delete 'num' entries from the ziplist, pointed to by *p.
  * Also update *p in place, to be able to iterate over the
  * ziplist, while deleting entries. */
-unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p) {
+unsigned char *ziplistDeleteRangeFromOffset(unsigned char *zl, unsigned char **p, unsigned int num) {
     size_t offset = *p-zl;
-    zl = __ziplistDelete(zl,*p,1);
+    zl = __ziplistDelete(zl,*p,num);
 
     /* Store pointer to current element in p, because ziplistDelete will
      * do a realloc which might result in a different "zl"-pointer.
@@ -781,6 +781,14 @@ unsigned char *ziplistDelete(unsigned char *zl, unsigned char **p) {
     *p = zl+offset;
     return zl;
 }
+
+/* Delete a single entry from the ziplist, pointed to by *p.
+ * Also update *p in place, to be able to iterate over the
+ * ziplist, while deleting entries. */
+unsigned char *ziplistDelete(unsigned char *zl,unsigned char **p) {
+    return ziplistDeleteRangeFromOffset(zl, p, 1);
+}
+
 
 /* Delete a range of entries from the ziplist. */
 unsigned char *ziplistDeleteRange(unsigned char *zl, unsigned int index, unsigned int num) {

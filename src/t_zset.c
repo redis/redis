@@ -635,8 +635,7 @@ unsigned char *zzlDelete(unsigned char *zl, unsigned char *eptr) {
     unsigned char *p = eptr;
 
     /* TODO: add function to ziplist API to delete N elements from offset. */
-    zl = ziplistDelete(zl,&p);
-    zl = ziplistDelete(zl,&p);
+    zl = ziplistDeleteRangeFromOffset(zl,&p,2);
     return zl;
 }
 
@@ -719,8 +718,7 @@ unsigned char *zzlDeleteRangeByScore(unsigned char *zl, zrangespec range, unsign
         score = zzlGetScore(sptr);
         if (zslValueLteMax(score,&range)) {
             /* Delete both the element and the score. */
-            zl = ziplistDelete(zl,&eptr);
-            zl = ziplistDelete(zl,&eptr);
+            zl = ziplistDeleteRangeFromOffset(zl,&eptr,2);
             num++;
         } else {
             /* No longer in range. */
