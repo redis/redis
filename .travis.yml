@@ -18,11 +18,13 @@ compiler:
 env:
     - TEST_TARGET=test
     - TEST_TARGET=test-sentinel
+    - TEST_TARGET=test-cluster-bring-up
     - REDIS_CFLAGS="-Werror"
 
 # Redis testing needs tcl
 install:
     - sudo apt-get install tcl -y
+    - gem install redis
 
 # We start from inside src so -j is evaluated properly
 script: cd src; make -j REDIS_CFLAGS=$REDIS_CFLAGS && make $TEST_TARGET
