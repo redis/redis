@@ -1389,6 +1389,7 @@ void zrevrangeCommand(redisClient *c);
 void zcardCommand(redisClient *c);
 void zremCommand(redisClient *c);
 void zscoreCommand(redisClient *c);
+void zsumscoreCommand(redisClient *c);
 void zremrangebyscoreCommand(redisClient *c);
 void multiCommand(redisClient *c);
 void execCommand(redisClient *c);
