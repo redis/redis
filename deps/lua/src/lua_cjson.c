@@ -502,7 +502,7 @@ static int lua_array_length(lua_State *l, json_config_t *cfg, strbuf_t *json)
     while (lua_next(l, -2) != 0) {
         /* table, key, value */
         if (lua_type(l, -2) == LUA_TNUMBER &&
-            (k = lua_tonumber(l, -2))) {
+            (k = lua_tonumberx(l, -2, NULL))) {
             /* Integer >= 1 ? */
             if (floor(k) == k && k >= 1) {
                 if (k > max)
@@ -586,7 +586,7 @@ static void json_append_array(lua_State *l, json_config_t *cfg, int current_dept
 static void json_append_number(lua_State *l, json_config_t *cfg,
                                strbuf_t *json, int lindex)
 {
-    double num = lua_tonumber(l, lindex);
+    double num = lua_tonumberx(l, lindex, NULL);
     int len;
 
     if (cfg->encode_invalid_numbers == 0) {
@@ -1331,7 +1331,7 @@ static int json_protect_conversion(lua_State *l)
     /* pcall() the function stored as upvalue(1) */
     lua_pushvalue(l, lua_upvalueindex(1));
     lua_insert(l, 1);
-    err = lua_pcall(l, 1, 1, 0);
+    err = lua_pcallk(l, 1, 1, 0, 0, NULL);
     if (!err)
         return 1;
 

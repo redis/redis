@@ -22,7 +22,7 @@ SYSLIBS=
 MYCFLAGS=
 MYLDFLAGS=
 MYLIBS=
-MYOBJS=
+MYOBJS=lua_cjson.o strbuf.o fpconv.o lua_struct.o lua_cmsgpack.o
 
 # == END OF USER SETTINGS -- NO NEED TO CHANGE ANYTHING BELOW THIS LINE =======
 
