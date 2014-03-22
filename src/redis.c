@@ -1446,6 +1446,17 @@ void adjustOpenFilesLimit(void) {
                 limit.rlim_max = f;
                 if (setrlimit(RLIMIT_NOFILE,&limit) != -1) break;
                 f -= REDIS_EVENTLOOP_FDSET_INCR;
+                if (f > limit.rlim_cur) {
+                    /* Instead of getting smaller, f just got bigger.
+                     * That means it wrapped around its unsigned floor
+                     * and is now closer to 2^64.  We can't help anymore. */
+                    redisLog(REDIS_WARNING,"Failed to set max file limit. "
+                        "You requested maxclients of %d "
+                        "but your 'ulimit -n' is set to %llu. "
+                        "Please increase your 'ulimit -n' to at least %llu.",
+                        server.maxclients, oldlimit, maxfiles);
+                    exit(1);
+                }
             }
             if (f < oldlimit) f = oldlimit;
             if (f != maxfiles) {
