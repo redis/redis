@@ -732,7 +732,7 @@ struct redisServer {
     list *repl_scriptcache_fifo;        /* First in, first out LRU eviction. */
     int repl_scriptcache_size;          /* Max number of elements. */
     /* Limits */
-    unsigned int maxclients;        /* Max number of simultaneous clients */
+    int maxclients;                 /* Max number of simultaneous clients */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
     int maxmemory_policy;           /* Policy for key eviction */
     int maxmemory_samples;          /* Pricision of random sampling */
