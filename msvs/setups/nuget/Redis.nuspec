@@ -7,7 +7,7 @@
     <authors>Jonathan Pickett</authors>
     <owners>Microsoft Open Technologies, Inc.</owners>
     <summary>Redis is a very popular open-source, networked, in-memory, key-value data store known for high performance, flexibility, a rich set of data structures, and a simple straightforward API.</summary>
-    <description>A production-ready Windows port of Redis, including 64-bit support, an installer for Windows Azure, Chocolatey support, and much more.</description>
+    <description>A production-ready Windows port of Redis, including 64-bit support, Chocolatey support, and much more.</description>
     <projectUrl>https://msopentech.com/opentech-projects/redis/</projectUrl>
     <tags>Redis nosql cache</tags>
     <copyright>Copyright Microsoft Open Technologies, Inc.</copyright>
