@@ -138,7 +138,7 @@ REDIS_INIT_HEADER=\
 #Configurations injected by install_server below....\n\n
 EXEC=$REDIS_EXECUTABLE\n
 CLIEXEC=$CLI_EXEC\n
-PIDFILE=$PIDFILE\n
+PIDFILE=\"$PIDFILE\"\n
 CONF=\"$REDIS_CONFIG_FILE\"\n\n
 REDISPORT=\"$REDIS_PORT\"\n\n
 ###############\n\n"
@@ -173,7 +173,7 @@ echo "Copied $TMP_FILE => $INIT_SCRIPT_DEST"
 
 #Install the service
 echo "Installing service..."
-if [ !`which chkconfig` ] ; then 
+if [ ! `which chkconfig` ] ; then 
 	#if we're not a chkconfig box assume we're able to use update-rc.d
 	update-rc.d redis_$REDIS_PORT defaults && echo "Success!"
 else
