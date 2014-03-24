@@ -69,16 +69,16 @@ mkdir -p `dirname "$REDIS_CONFIG_FILE"` || die "Could not create redis config di
 #read the redis log file path
 _REDIS_LOG_FILE="/var/log/redis_$REDIS_PORT.log"
 read -p "Please select the redis log file name [$_REDIS_LOG_FILE] " REDIS_LOG_FILE
-if [ !"$REDIS_LOG_FILE" ] ; then
+if [ -z "$REDIS_LOG_FILE" ] ; then
 	REDIS_LOG_FILE=$_REDIS_LOG_FILE
 	echo "Selected default - $REDIS_LOG_FILE"
 fi
-
+mkdir -p `dirname ${REDIS_LOG_FILE}` || die "Could not create log dir"
 
 #get the redis data directory
 _REDIS_DATA_DIR="/var/lib/redis/$REDIS_PORT"
 read -p "Please select the data directory for this instance [$_REDIS_DATA_DIR] " REDIS_DATA_DIR
-if [ !"$REDIS_DATA_DIR" ] ; then
+if [ -z "$REDIS_DATA_DIR" ] ; then
 	REDIS_DATA_DIR=$_REDIS_DATA_DIR
 	echo "Selected default - $REDIS_DATA_DIR"
 fi
@@ -125,47 +125,55 @@ s#^daemonize no\$#daemonize yes#;"
 echo $SED_EXPR
 sed -r "$SED_EXPR" $DEFAULT_CONFIG  >> $TMP_FILE
 
-#cat $TPL_FILE | while read line; do eval "echo \"$line\"" >> $TMP_FILE; done
-cp -f $TMP_FILE $REDIS_CONFIG_FILE || exit 1
-
-#Generate sample script from template file
+cp -f $TMP_FILE $REDIS_CONFIG_FILE.default || exit 1
+if [ ! -f ${REDIS_CONFIG_FILE} ]
+then
+	cp -f ${TMP_FILE} ${REDIS_CONFIG_FILE}
+	echo "Not overwriting existing config (${REDIS_CONFIG_FILE})"
+	echo "Please inspect:"
+	echo "	${REDIS_CONFIG_FILE}.default"
+	echo "for changes and new features."
+fi
 rm -f $TMP_FILE
 
-#we hard code the configs here to avoid issues with templates containing env vars
-#kinda lame but works!
-REDIS_INIT_HEADER=\
-"#/bin/sh\n
-#Configurations injected by install_server below....\n\n
-EXEC=$REDIS_EXECUTABLE\n
-CLIEXEC=$CLI_EXEC\n
-PIDFILE=$PIDFILE\n
-CONF=\"$REDIS_CONFIG_FILE\"\n\n
-REDISPORT=\"$REDIS_PORT\"\n\n
-###############\n\n"
+###
+# Generate sample script from template file
+###
+# Refactor this code:
+# - No need to check which system we are on. The init info are comments and
+#   do not interfere with update_rc.d systems. Additionally:
+#     Ubuntu/debian by default does not come with chkconfig, but does issue a
+#     warning if init info is not available.
+# - Using \n an \" to be able to store this in a variable that cannot be
+#   overridden has no upsides. Use Mr. Heredoc's cat.
 
-REDIS_CHKCONFIG_INFO=\
-"# REDHAT chkconfig header\n\n
-# chkconfig: - 58 74\n
-# description: redis_6379 is the redis daemon.\n
-### BEGIN INIT INFO\n
-# Provides: redis_6379\n
-# Required-Start: $network $local_fs $remote_fs\n
-# Required-Stop: $network $local_fs $remote_fs\n
-# Default-Start: 2 3 4 5\n
-# Default-Stop: 0 1 6\n
-# Should-Start: $syslog $named\n
-# Should-Stop: $syslog $named\n
-# Short-Description: start and stop redis_6379\n
-# Description: Redis daemon\n
-### END INIT INFO\n\n"
+cat > ${TMP_FILE} <<EOT
+#/bin/sh
+#Configurations injected by install_server below....
 
-if [ !`which chkconfig` ] ; then 
-	#combine the header and the template (which is actually a static footer)
-	echo $REDIS_INIT_HEADER > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
-else
-	#if we're a box with chkconfig on it we want to include info for chkconfig
-	echo -e $REDIS_INIT_HEADER $REDIS_CHKCONFIG_INFO > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
-fi
+EXEC=$REDIS_EXECUTABLE
+CLIEXEC=$CLI_EXEC
+PIDFILE=$PIDFILE
+CONF="$REDIS_CONFIG_FILE"
+REDISPORT="$REDIS_PORT"
+###############
+# SysV Init Information
+# chkconfig: - 58 74
+# description: redis_${REDIS_PORT} is the redis daemon.
+### BEGIN INIT INFO
+# Provides: redis_${REDIS_PORT}
+# Required-Start: \$network \$local_fs \$remote_fs
+# Required-Stop: \$network \$local_fs \$remote_fs
+# Default-Start: 2 3 4 5
+# Default-Stop: 0 1 6
+# Should-Start: \$syslog \$named
+# Should-Stop: \$syslog \$named
+# Short-Description: start and stop redis_${REDIS_PORT}
+# Description: Redis daemon
+### END INIT INFO
+
+EOT
+cat ${INIT_TPL_FILE} >> ${TMP_FILE}
 
 #copy to /etc/init.d
 cp -f $TMP_FILE $INIT_SCRIPT_DEST && chmod +x $INIT_SCRIPT_DEST || die "Could not copy redis init script to  $INIT_SCRIPT_DEST"
@@ -173,7 +181,7 @@ echo "Copied $TMP_FILE => $INIT_SCRIPT_DEST"
 
 #Install the service
 echo "Installing service..."
-if [ !`which chkconfig` ] ; then 
+if [ -z `which chkconfig 2>/dev/null` ] ; then 
 	#if we're not a chkconfig box assume we're able to use update-rc.d
 	update-rc.d redis_$REDIS_PORT defaults && echo "Success!"
 else

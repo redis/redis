@@ -25,7 +25,19 @@ case "$1" in
                 echo "Redis stopped"
         fi
         ;;
+    status)
+        if [ ! -f $PIDFILE ]
+        then
+            echo 'Redis is not running'
+        else
+            echo 'Redis is running ('`cat $PIDFILE`')'
+        fi
+        ;;
+    restart)
+        $0 stop
+        $0 start
+        ;;
     *)
-        echo "Please use start or stop as first argument"
+        echo "Please use start, stop, restart or status as first argument"
         ;;
 esac
