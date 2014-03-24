@@ -40,7 +40,7 @@ robj *createObject(int type, void *ptr) {
     o->refcount = 1;
 
     /* Set the LRU to the current lruclock (minutes resolution). */
-    o->lru = getLRUClock();
+    o->lru = LRU_CLOCK();
     return o;
 }
 
@@ -61,7 +61,7 @@ robj *createEmbeddedStringObject(char *ptr, size_t len) {
     o->encoding = REDIS_ENCODING_EMBSTR;
     o->ptr = sh+1;
     o->refcount = 1;
-    o->lru = getLRUClock();
+    o->lru = LRU_CLOCK();
 
     sh->len = len;
     sh->free = 0;
