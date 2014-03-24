@@ -586,6 +586,7 @@ class RedisTrib
                         nodes_count -= 1
                         assigned_replicas += 1
                         puts "Adding replica #{slave} to #{m}"
+                        break
                     }
                 end
             }
