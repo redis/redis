@@ -1062,6 +1062,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     if (zmalloc_used_memory() > server.stat_peak_memory)
         server.stat_peak_memory = zmalloc_used_memory();
 
+    /* Sample the RSS here since this is a relatively slow call. */
+    server.resident_set_size = zmalloc_get_rss();
+
     /* We received a SIGTERM, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
     if (server.shutdown_asap) {
@@ -1690,6 +1693,7 @@ void initServer() {
     /* A few stats we don't want to reset: server startup time, and peak mem. */
     server.stat_starttime = time(NULL);
     server.stat_peak_memory = 0;
+    server.resident_set_size = 0;
     server.lastbgsave_status = REDIS_OK;
     server.aof_last_write_status = REDIS_OK;
     server.aof_last_write_errno = 0;
@@ -2459,11 +2463,11 @@ sds genRedisInfoString(char *section) {
             "mem_allocator:%s\r\n",
             zmalloc_used,
             hmem,
-            zmalloc_get_rss(),
+            server.resident_set_size,
             server.stat_peak_memory,
             peak_hmem,
             ((long long)lua_gc(server.lua,LUA_GCCOUNT,0))*1024LL,
-            zmalloc_get_fragmentation_ratio(),
+            zmalloc_get_fragmentation_ratio(server.resident_set_size),
             ZMALLOC_LIB
             );
     }
