@@ -321,8 +321,8 @@ size_t zmalloc_get_rss(void) {
 #endif
 
 /* Fragmentation = RSS / allocated-bytes */
-float zmalloc_get_fragmentation_ratio(void) {
-    return (float)zmalloc_get_rss()/zmalloc_used_memory();
+float zmalloc_get_fragmentation_ratio(size_t rss) {
+    return (float)rss/zmalloc_used_memory();
 }
 
 #if defined(HAVE_PROC_SMAPS)
