@@ -42,8 +42,8 @@ echo "This script will help you easily set up a running redis server
 
 "
 
-#check for root user TODO: replace this with a call to "id"
-if [ `whoami` != "root" ] ; then
+#check for root user
+if [ `id -u` != 0 ] ; then
 	echo "You must run this script as root. Sorry!"
 	exit 1
 fi
