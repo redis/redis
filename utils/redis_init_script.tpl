@@ -16,6 +16,7 @@ case "$1" in
         else
                 PID=$(cat $PIDFILE)
                 echo "Stopping ..."
+                # Add "-h [bind address]" if Redis *does not* listen on localhost
                 $CLIEXEC -p $REDISPORT shutdown
                 while [ -x /proc/${PID} ]
                 do
