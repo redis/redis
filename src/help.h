@@ -753,7 +753,13 @@ struct commandHelp {
     "destination numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX]",
     "Add multiple sorted sets and store the resulting sorted set in a new key",
     4,
-    "2.0.0" }
+    "2.0.0" },
+    { "ZLEX",
+    "key startscore asciistring start stop [BREAKMODE {[POSTALPHASTOP|NOBREAK]}] [WITHSCORES] [WITHHEADER] ",
+    "    Return a range of elements using the lexicographical index.\n  description: Return a range of ZSET elements, using the redis-native lexicographical (alphabetical) index on members of a sorted set, starting at 'startscore' plus 'asciistring'.\n    The sorted set does not have to contain an exact member 'asciistring', opposed to ZRANK and ZREVRANK commands.\n    The 'start' parameter may be negative, to get a preroll of sorted set elements before the actual start (total number of results will never be more than 'stop' - 'start' + 1).\n    Use a range of '0 -1' to get all results.\n    Use BREAKMODE POSTALPHASTOP if you want the query to stop (non inclusive) at a member that does not begin with 'asciistring'. POSTALPHASTOP plus 'start 0' makes ZLEX work as a case-sensitive STARTSWITH query.\n    Use BREAKMODE NOBREAK if you want the query to continue even when encountering a different score (WITHSCORES makes sense in this mode).\n    WITHHEADER adds two header entries at the top of this list, if there are any results. The first is the RANK of the index entry in the sorted set, the second is the actual offset which might be different when a non-zero 'start' gets out of bounds.\n  notes:\n    [#1] Due to the underlying data structure with possible skip list encoding, no collation or utf-8 interpretation is applied. If such functionality is required, collate the value passed to the ZADD command.\n    [#2] The match is raw-byte safe, including null characters.\n    [#3] A negative 'start' parameter (preroll) never causes an overflow past the start of (a score of, without 'NOBREAK') the sorted set. As a result, you might want to use the WITHHEADER option to determine which element is the actual offset to the start element.\n    [#4] Time complexity: O(log(N)+M) with N being the number of elements in the sorted set and M the number of elements being returned.",
+    4,
+    "2.8.7" }
+
 };
 
 #endif

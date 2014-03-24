@@ -452,6 +452,19 @@ int sdscmp(const sds s1, const sds s2) {
     return cmp;
 }
 
+int sdsncmp(const sds s1, const sds s2, const size_t num) {
+    size_t l1, l2, minlen, nlen;
+    int cmp;
+
+    l1 = sdslen(s1);
+    l2 = sdslen(s2);
+    minlen = (l1 < l2) ? l1 : l2;
+    nlen = (minlen < num) ? minlen : num;
+    cmp = memcmp(s1,s2,nlen);
+    if (cmp == 0 && minlen < num) return (int)(l1-l2);
+    return cmp;
+}
+
 /* Split 's' with separator in 'sep'. An array
  * of sds strings is returned. *count will be set
  * by reference to the number of tokens returned.

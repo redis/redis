@@ -160,6 +160,32 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj) {
     return x;
 }
 
+/* Don't insert (element,score) pair in skiplist, but just pretend to do it and return the position. Used by ZLEX. */
+zskiplistNode *zslInsertPretend(zskiplist *zsl, double score, robj *obj, unsigned long *ret_rank) {
+    zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
+    unsigned int rank[ZSKIPLIST_MAXLEVEL];
+    int i;
+
+    *ret_rank = 0;
+
+    redisAssert(!isnan(score));
+    x = zsl->header;
+    for (i = zsl->level-1; i >= 0; i--) {
+        /* store rank that is crossed to reach the insert position */
+        rank[i] = i == (zsl->level-1) ? 0 : rank[i+1];
+        while (x->level[i].forward &&
+            (x->level[i].forward->score < score ||
+                (x->level[i].forward->score == score &&
+                compareStringObjects(x->level[i].forward->obj,obj) < 0))) {
+            rank[i] += x->level[i].span;
+            *ret_rank += x->level[i].span;
+            x = x->level[i].forward;
+        }
+        update[i] = x;
+    }
+    return x;
+}
+
 /* Internal function used by zslDelete, zslDeleteByScore and zslDeleteByRank */
 void zslDeleteNode(zskiplist *zsl, zskiplistNode *x, zskiplistNode **update) {
     int i;
@@ -703,6 +729,44 @@ unsigned char *zzlInsert(unsigned char *zl, robj *ele, double score) {
     return zl;
 }
 
+/* Don't insert (element,score) pair in ziplist, but just pretend to do it and return the position. Used by ZLEX. */
+unsigned char *zzlInsertPretend(unsigned char *zl, robj *ele, double score, unsigned long *ret_rank) {
+    unsigned char *eptr = ziplistIndex(zl,0), *sptr;
+    unsigned char *zlptrr = NULL;
+    unsigned long rank = 1;
+    double s;
+
+    ele = getDecodedObject(ele);
+
+    while (eptr != NULL) {
+        sptr = ziplistNext(zl,eptr);
+        redisAssertWithInfo(NULL,ele,sptr != NULL);
+        s = zzlGetScore(sptr);
+
+        if (s > score) {
+            /* First element with score larger than score for element to be
+             * inserted. This means we should take its spot in the list to
+             * maintain ordering. */
+            zlptrr = eptr;
+            break;
+        } else if (s == score) {
+            /* Ensure lexicographical ordering for elements. */
+            if (zzlCompareElements(eptr,ele->ptr,(unsigned int)sdslen(ele->ptr)) >= 0) {
+                zlptrr = eptr;
+                break;
+            }
+        }
+
+        /* Move to next element. */
+        rank++;
+        eptr = ziplistNext(zl,sptr);
+    }
+
+    decrRefCount(ele);
+    *ret_rank = rank - 1;
+    return zlptrr;
+}
+
 unsigned char *zzlDeleteRangeByScore(unsigned char *zl, zrangespec range, unsigned long *deleted) {
     unsigned char *eptr, *sptr;
     double score;
@@ -979,6 +1043,225 @@ void zaddCommand(redisClient *c) {
 
 void zincrbyCommand(redisClient *c) {
     zaddGenericCommand(c,1);
+}
+
+void zlexCommand(redisClient *c) {
+    robj *key = c->argv[1];
+    robj *cbegins = c->argv[3], *zobj;
+    char bbegins[128], *abegins;
+    unsigned long lenbegins;
+    double bscore;
+    int i, llen, rangelen, offs, retcount = 0, withsco = 0, withhdr = 0, breakmode = 0, hdr = 1;
+    long start, end, hdr_offs = 0, preroll = 0;
+    unsigned long ret_rank = 0;
+    void *replylen = NULL;
+
+    if (getDoubleFromObjectOrReply(c,c->argv[2],&bscore,NULL) != REDIS_OK)
+      return;
+
+    if ((getLongFromObjectOrReply(c, c->argv[4], &start, NULL) != REDIS_OK) ||
+        (getLongFromObjectOrReply(c, c->argv[5], &end, NULL) != REDIS_OK)) return;
+
+    if (c->argc> 10) {
+      addReply(c,shared.syntaxerr);
+      return;
+    }
+
+    if (c->argc >= 7 && c->argc <= 10) {
+      if (!strcasecmp(c->argv[c->argc - 1]->ptr,"breakmode")) {
+        addReply(c,shared.syntaxerr);
+        return;
+      }
+      for (i = 6; i < 9; i++)
+      {
+        if ((i < c->argc) && (!strcasecmp(c->argv[i]->ptr,"breakmode"))) 
+        {
+          if (!strcasecmp(c->argv[i+1]->ptr,"postalphastop"))
+            breakmode=1;
+          if (!breakmode && !strcasecmp(c->argv[i+1]->ptr,"nobreak"))
+            breakmode=2;
+          if (!breakmode)
+          {
+            addReply(c,shared.syntaxerr);
+            return;
+          }
+        }
+        if (breakmode) break;
+      }
+      for (i = 6; i < 10; i++)
+      {
+        if ((i < c->argc) && (!strcasecmp(c->argv[i]->ptr,"withscores"))) withsco = 1;
+        if ((i < c->argc) && (!strcasecmp(c->argv[i]->ptr,"withheader"))) withhdr = 1;
+        if (withsco && withhdr) break;
+      }
+      if ((c->argc == 10) && (!withsco || !withhdr || !breakmode)) {
+        addReply(c,shared.syntaxerr);
+        return;
+      }
+    }
+
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.emptymultibulk)) == NULL
+         || checkType(c,zobj,REDIS_ZSET)) return;
+
+    /* Sanitize indexes. */
+    /* Start below 0 is allowed, but total range is always below llen.
+     * The range is empty when start > end or start >= length. */
+    llen = zsetLength(zobj);
+    if (start > end || start >= llen) {
+        addReply(c,shared.emptymultibulk);
+        return;
+    }
+    if (end >= llen) end = llen-1;
+    rangelen = (end-start)+1;
+
+    /* We don't know in advance how many matching elements there are in the
+      * zlex result, so we push this object that will represent the multi-bulk
+      * length in the output buffer, and will "fix" it later */
+    replylen = addDeferredMultiBulkLength(c);
+
+    if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
+        unsigned char *zl = zobj->ptr;
+        unsigned char *eptr, *sptr = NULL, *epeek = NULL, *speek = NULL, *zptr;
+        unsigned char *vstr;
+        unsigned int vlen;
+        long long vlong;
+        unsigned char vbuf[32];
+
+        eptr = ziplistIndex(zl,2*start);
+        redisAssertWithInfo(c,zobj,eptr != NULL);
+
+        if (cbegins->encoding != REDIS_ENCODING_RAW) {
+            ll2string(bbegins,sizeof(bbegins),(long) cbegins->ptr);
+            abegins = bbegins;
+        } else {
+            abegins = cbegins->ptr;
+        }
+        lenbegins = stringObjectLen(cbegins);
+
+        zptr = zzlInsertPretend(zobj->ptr,cbegins,bscore,&ret_rank);
+        if (zptr) {
+          eptr = zptr;
+          redisAssertWithInfo(c,zobj,eptr != NULL);
+          sptr = ziplistNext(zl,eptr);
+        }
+        else
+          eptr = NULL;
+
+        if (eptr) {
+            epeek = eptr;
+            speek = sptr;
+          if (start > 0) for (offs=start; eptr && offs; offs--) {
+              zzlNext(zl,&epeek,&speek);
+              if (epeek) {
+                if ((breakmode != 2) && (zzlGetScore(speek) != bscore)) break;
+                hdr_offs++;
+                eptr = epeek;
+                sptr = speek;
+              }
+              else break;
+          }
+          else if (start < 0) for (offs=start; eptr && offs; offs++) {
+              zzlPrev(zl,&epeek,&speek);
+              if (epeek){
+                if ((breakmode != 2) && (zzlGetScore(speek) != bscore)) break;
+                hdr_offs--;
+                eptr = epeek;
+                sptr = speek;
+              }
+              else break;
+          }
+        }
+
+        if (eptr) {
+          preroll = hdr_offs < 0 ? hdr_offs : 0;
+          while (rangelen-- && eptr && sptr) {
+              redisAssertWithInfo(c,zobj,eptr != NULL && sptr != NULL);
+              redisAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
+              if (vstr == NULL) {
+                  /* Store string representation of long long in buf, for ascii/memcmp comparison. */
+                  vlen = ll2string((char*)vbuf,sizeof(vbuf),vlong);
+                  vstr = vbuf;
+              }
+              if ((breakmode != 1  || (preroll ? preroll++ : (lenbegins <= vlen) && (memcmp(vstr,abegins,lenbegins) == 0))) && ((breakmode == 2) || (zzlGetScore(sptr) == bscore))) {
+                if (hdr)
+                {
+                  hdr = 0;
+                  if (withhdr)
+                  {
+                    addReplyLongLong(c,ret_rank);
+                    addReplyLongLong(c,hdr_offs);
+                  }
+                }
+                retcount++;
+                if (vstr == NULL)
+                    addReplyBulkLongLong(c,vlong);
+                else
+                    addReplyBulkCBuffer(c,vstr,vlen);
+                if (withsco)
+                    addReplyDouble(c,zzlGetScore(sptr));
+                zzlNext(zl,&eptr,&sptr);
+              } else break;
+          }
+        }
+
+    } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
+        zset *zs = zobj->ptr;
+        zskiplist *zsl = zs->zsl;
+        zskiplistNode *ln, *lnpeek;
+        robj *ele;
+
+        ln = zslInsertPretend(zsl,bscore,cbegins,&ret_rank);
+        ln = ln->level[0].forward;
+
+        if (start > 0) for (offs=start; ln && offs; offs--) {
+            lnpeek = ln->level[0].forward;
+            if (lnpeek){
+              if ((breakmode != 2) && (lnpeek->score != bscore)) break;
+              hdr_offs++;
+              ln = lnpeek;
+              if (lnpeek == zsl->tail) break;
+            }
+            else break;
+        }
+        else if (start < 0) for (offs=start; ln && offs; offs++) {
+            lnpeek = ln->backward;
+            if (lnpeek){
+              if ((breakmode != 2) && (lnpeek->score != bscore)) break;
+              if (lnpeek == zsl->header) break;
+              hdr_offs--;
+              ln = lnpeek;
+            }
+            else break;
+        }
+
+        if (ln)
+        {
+          preroll = hdr_offs < 0 ? hdr_offs : 0;
+          while(rangelen-- && ln && (breakmode != 1  || (preroll ? preroll++ : (compareStringObjectsN(ln->obj,cbegins,stringObjectLen(cbegins)) == 0))) && ((breakmode == 2) || (ln->score == bscore)))
+          {
+            ele = ln->obj;
+            if (ele) {
+              if (hdr)
+              {
+                hdr = 0;
+                if (withhdr)
+                {
+                  addReplyLongLong(c,ret_rank);
+                  addReplyLongLong(c,hdr_offs);
+                }
+              }
+              retcount++;
+              addReplyBulk(c,ele);
+              if (withsco)
+                addReplyDouble(c,ln->score);
+            }
+            ln = ln->level[0].forward;
+          }
+        }
+    } else {
+        redisPanic("Unknown sorted set encoding");
+    }
+    setDeferredMultiBulkLength(c, replylen, (withsco ? retcount * 2 : retcount) + ((!hdr && withhdr) ? 2 : 0));
 }
 
 void zremCommand(redisClient *c) {
