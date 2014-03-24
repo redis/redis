@@ -133,18 +133,11 @@ rm -f $TMP_FILE
 
 #we hard code the configs here to avoid issues with templates containing env vars
 #kinda lame but works!
-REDIS_INIT_HEADER=\
-"#/bin/sh\n
-#Configurations injected by install_server below....\n\n
-EXEC=$REDIS_EXECUTABLE\n
-CLIEXEC=$CLI_EXEC\n
-PIDFILE=$PIDFILE\n
-CONF=\"$REDIS_CONFIG_FILE\"\n\n
-REDISPORT=\"$REDIS_PORT\"\n\n
-###############\n\n"
-
+if [ ! `which chkconfig` ] ; then 
+REDIS_CHKCONFIG_INFO=""
+else
 REDIS_CHKCONFIG_INFO=\
-"# REDHAT chkconfig header\n\n
+"# REDHAT chkconfig header\n
 # chkconfig: - 58 74\n
 # description: redis_6379 is the redis daemon.\n
 ### BEGIN INIT INFO\n
@@ -158,14 +151,20 @@ REDIS_CHKCONFIG_INFO=\
 # Short-Description: start and stop redis_6379\n
 # Description: Redis daemon\n
 ### END INIT INFO\n\n"
-
-if [ !`which chkconfig` ] ; then 
-	#combine the header and the template (which is actually a static footer)
-	echo $REDIS_INIT_HEADER > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
-else
-	#if we're a box with chkconfig on it we want to include info for chkconfig
-	echo -e $REDIS_INIT_HEADER $REDIS_CHKCONFIG_INFO > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
 fi
+
+REDIS_INIT_HEADER=\
+"#/bin/sh\n
+$REDIS_CHKCONFIG_INFO
+#Configurations injected by install_server below....\n\n
+EXEC=$REDIS_EXECUTABLE\n
+CLIEXEC=$CLI_EXEC\n
+PIDFILE=$PIDFILE\n
+CONF=\"$REDIS_CONFIG_FILE\"\n\n
+REDISPORT=\"$REDIS_PORT\"\n\n
+###############\n\n"
+
+echo -e $REDIS_INIT_HEADER > $TMP_FILE && cat $INIT_TPL_FILE >> $TMP_FILE || die "Could not write init script to $TMP_FILE"
 
 #copy to /etc/init.d
 cp -f $TMP_FILE $INIT_SCRIPT_DEST && chmod +x $INIT_SCRIPT_DEST || die "Could not copy redis init script to  $INIT_SCRIPT_DEST"
@@ -173,7 +172,7 @@ echo "Copied $TMP_FILE => $INIT_SCRIPT_DEST"
 
 #Install the service
 echo "Installing service..."
-if [ !`which chkconfig` ] ; then 
+if [ ! `which chkconfig` ] ; then 
 	#if we're not a chkconfig box assume we're able to use update-rc.d
 	update-rc.d redis_$REDIS_PORT defaults && echo "Success!"
 else
