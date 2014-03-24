@@ -1560,7 +1560,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
  *
  * On failure the function logs a warning on the Redis log. */
 void sentinelFlushConfig(void) {
-    int fd;
+    int fd = -1;
     int saved_hz = server.hz;
     int rewrite_status;
 
@@ -1572,7 +1572,6 @@ void sentinelFlushConfig(void) {
     if ((fd = open(server.configfile,O_RDONLY)) == -1) goto werr;
     if (fsync(fd) == -1) goto werr;
     if (close(fd) == EOF) goto werr;
-
     return;
 
 werr:
