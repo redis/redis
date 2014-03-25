@@ -14,6 +14,45 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.8 ] Release date: 25 Mar 2014
+
+# UPGRADE URGENCY: HIGH for Redis, LOW for Sentinel. There is a potentially
+                   critical bug fix causing data loss in Redis but it requires
+                   a combination of disk full and the use of the
+                   SHUTDOWN command.
+
+* [FIX] Fixed data loss when SHUTDOWN was used with a disk full condition.
+* [FIX] Fixed a memory leak in the SORT syntax error processing.
+* [FIX] When Sentinel down-after-milliseconds parameter is modified at runtime
+        now it gets propagated to all the slaves and sentinel instances
+        of the master.
+* [FIX] `install_server.sh` script finally fixed.
+* [FIX] Different fixes to maxclients handling.
+
+* [NEW] Sentinels are now able to send update messages in a peer-to-peer
+        fashion even if no Redis instances are available. Now the Sentinel
+        liveness property that the most updated configuration in a given
+        partition is propagated to all the Sentinels is extended to partitions
+        without reachable instances.
+* [NEW] Sentinel safety properties are now ensured in a crash-recovery system
+        model since some state is persisted on disk before replying to other
+        nodes, and reloaded at startup.
+* [NEW] Sentinel now uses CLIENT SETNAME so that it is easy to identify
+        Sentinels using CLIENT LIST among other clients.
+* [NEW] Sentinel failure detection and reconnection code improved.
+* [NEW] Use all 24 bits (instead of 22) for the Redis objects LRU field.
+        Note that the new LRU algorithm using eviction pools was not backported
+        from unstable for safery / code maturity concerns.
+* [NEW] Majory speedup for the INFO command (it is now 6 times faster).
+* [NEW] More Sentinel unit tests.
+* [NEW] New command DEBUG ERROR returns the specified error. Example:
+        DEBUG ERROR "LOADING database". This is handy to write Redis client
+        libraries unit tests.
+* [NEW] redis-cli now supports multi-line editing via updated linenoise lib.
+
+Thanks to Matt Stancliff and Jan-Erik Rediger for the work done in the context
+of this release.
+
 --[ Redis 2.8.7 ] Release date: 5 Mar 2014
 
 # UPGRADE URGENCY: LOW for Redis, LOW for Sentinel. However this release adds
