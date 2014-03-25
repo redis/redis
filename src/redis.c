@@ -3040,7 +3040,7 @@ int freeMemoryIfNeeded(void) {
                         sdsfree(pool[k].key);
                         /* Shift all elements on its right to left. */
                         memmove(pool+k,pool+k+1,
-                            sizeof(pool[0])*(REDIS_EVICTION_POOL_SIZE-k));
+                            sizeof(pool[0])*(REDIS_EVICTION_POOL_SIZE-k-1));
                         /* Clear the element on the right which is empty
                          * since we shifted one position to the left.  */
                         pool[REDIS_EVICTION_POOL_SIZE-1].key = NULL;
