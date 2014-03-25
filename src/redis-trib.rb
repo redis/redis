@@ -510,7 +510,6 @@ class RedisTrib
     def alloc_slots
         nodes_count = @nodes.length
         masters_count = @nodes.length / (@replicas+1)
-        slots_per_node = ClusterHashSlots / masters_count
         masters = []
         slaves = []
 
@@ -541,13 +540,18 @@ class RedisTrib
         end
 
         # Alloc slots on masters
-        i = 0
+        slots_per_node = ClusterHashSlots.to_f / masters_count
+        first = 0
+        cursor = 0.0
         masters.each_with_index{|n,masternum|
-            first = i*slots_per_node
-            last = first+slots_per_node-1
-            last = ClusterHashSlots-1 if masternum == masters.length-1
+            last = (cursor+slots_per_node-1).round
+            if last > ClusterHashSlots || masternum == masters.length-1
+                last = ClusterHashSlots-1
+            end
+            last = first if last < first # Min step is 1.
             n.add_slots first..last
-            i += 1
+            first = last+1
+            cursor += slots_per_node
         }
 
         # Select N replicas for every master.
