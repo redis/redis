@@ -3320,9 +3320,11 @@ void clusterCommand(redisClient *c) {
                  * to a new epoch so that the new version can be propagated
                  * by the cluster.
                  *
-                 * FIXME: the new version should be agreed otherwise a race
-                 * is possible if while a manual resharding is in progress
-                 * the master is failed over by a slave. */
+                 * Note that if this ever results in a collision with another
+                 * node getting the same configEpoch, for example because a
+                 * failover happens at the same time we close the slot, the
+                 * configEpoch collision resolution will fix it assigning
+                 * a different epoch to each node. */
                 uint64_t maxEpoch = clusterGetMaxEpoch();
 
                 if (myself->configEpoch == 0 ||
