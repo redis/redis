@@ -1375,7 +1375,7 @@ int clusterProcessPacket(clusterLink *link) {
                 /* If we already have this node, try to change the
                  * IP/port of the node with the new one. */
                 if (sender) {
-                    redisLog(REDIS_WARNING,
+                    redisLog(REDIS_VERBOSE,
                         "Handshake: we already know node %.40s, "
                         "updating the address if needed.", sender->name);
                     if (nodeUpdateAddressIfNeeded(sender,link,ntohs(hdr->port)))
