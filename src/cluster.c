@@ -1110,6 +1110,11 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
      * interested to check if slots are taken away from curmaster. */
     curmaster = nodeIsMaster(myself) ? myself : myself->slaveof;
 
+    if (sender == myself) {
+        redisLog(REDIS_WARNING,"Discarding UPDATE message about myself.");
+        return;
+    }
+
     for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
         if (bitmapTestBit(slots,j)) {
             /* The slot is already bound to the sender of this message. */
@@ -1137,9 +1142,14 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                     sender != myself)
                 {
                     redisLog(REDIS_WARNING,
-                        "I received a slot update for a slot I've still "
-                        "keys into. Putting the slot in IMPORTING state. "
-                        "Please run the 'redis-trib fix' command.");
+                        "I received an update for slot %d. "
+                        "%.40s claims it with config %llu, "
+                        "I've it assigned to myself with config %llu. "
+                        "I've still keys about this slot! "
+                        "Putting the slot in IMPORTING state. "
+                        "Please run the 'redis-trib fix' command.",
+                        j, sender->name, senderConfigEpoch,
+                        myself->configEpoch);
                     server.cluster->importing_slots_from[j] = sender;
                 }
 
