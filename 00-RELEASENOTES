@@ -308,6 +308,9 @@ that you should be aware of:
 
 The following commands changed behavior:
 
+    * The TTL and PTTL commands now return -2 if the key does not exist and
+      -1 if it exists but has no associated expire. Redis 2.6 and previous
+      versions used to return -1 for both the conditions.
     * SORT with ALPHA now sorts according to local collation locale if no STORE
       option is used.
     * ZADD/ZINCRBY are now able to accept a bigger range of values as valid
