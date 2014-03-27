@@ -200,6 +200,9 @@ int clusterLoadConfig(char *filename) {
             continue;
         }
 
+        /* Regular config lines have at least eight fields */
+        if (argc < 8) goto fmterr;
+
         /* Create this node if it does not exist */
         n = clusterLookupNode(argv[0]);
         if (!n) {
@@ -300,11 +303,12 @@ int clusterLoadConfig(char *filename) {
 
         sdsfreesplitres(argv,argc);
     }
+    /* Config sanity check */
+    if (server.cluster->myself == NULL) goto fmterr;
+
     zfree(line);
     fclose(fp);
 
-    /* Config sanity check */
-    redisAssert(server.cluster->myself != NULL);
     redisLog(REDIS_NOTICE,"Node configuration loaded, I'm %.40s", myself->name);
 
     /* Something that should never happen: currentEpoch smaller than
@@ -319,7 +323,7 @@ fmterr:
     redisLog(REDIS_WARNING,
         "Unrecoverable error: corrupted cluster config file.");
     zfree(line);
-    fclose(fp);
+    if (fp) fclose(fp);
     exit(1);
 }
 
