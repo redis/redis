@@ -118,7 +118,7 @@ typedef struct clusterState {
     int mf_can_start;           /* If non-zero signal that the manual failover
                                    can start requesting masters vote. */
     /* The followign fields are uesd by masters to take state on elections. */
-    uint64_t last_vote_epoch;   /* Epoch of the last vote granted. */
+    uint64_t lastVoteEpoch;     /* Epoch of the last vote granted. */
     int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
     long long stats_bus_messages_sent;  /* Num of msg sent via cluster bus. */
     long long stats_bus_messages_received; /* Num of msg rcvd via cluster bus.*/
