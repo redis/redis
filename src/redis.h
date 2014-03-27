@@ -820,6 +820,7 @@ struct redisServer {
     int cluster_enabled;      /* Is cluster enabled? */
     mstime_t cluster_node_timeout; /* Cluster node timeout. */
     char *cluster_configfile; /* Cluster auto-generated config file name. */
+    FILE *cluster_configfile_fp; /* fp of open cluster config file we flock() */
     struct clusterState *cluster;  /* State of the cluster */
     int cluster_migration_barrier; /* Cluster replicas migration barrier. */
     /* Scripting */
