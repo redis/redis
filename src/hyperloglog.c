@@ -277,6 +277,19 @@ uint64_t hllCount(uint8_t *registers) {
     int ez = 0; /* Number of registers equal to 0. */
     int j;
 
+    /* We precompute 2^(-reg[j]) in a small table in order to
+     * speedup the computation of SUM(2^-register[0..i]). */
+    static int initialized = 0;
+    static double PE[64];
+    if (!initialized) {
+        PE[0] = 1; /* 2^(-reg[j]) is 1 when m is 0. */
+        for (j = 1; j < 64; j++) {
+            /* 2^(-reg[j]) is the same as 1/2^reg[j]. */
+            PE[j] = 1.0/(1ULL << j);
+        }
+        initialized = 1;
+    }
+
     for (j = 0; j < REDIS_HLL_REGISTERS; j++) {
         uint8_t reg;
 
@@ -286,7 +299,7 @@ uint64_t hllCount(uint8_t *registers) {
             ez++;
             E += 1; /* 2^(-reg[j]) is 1 when m is 0. */
         } else {
-            E += 1.0/(1ULL << reg); /* 2^(-reg[j]) is the same as 1/2^reg[j]. */
+            E += PE[reg]; /* Precomputed 2^(-reg[j]). */
         }
     }
     /* Muliply the inverse of E for alpha_m * m^2 to have the raw estimate. */
