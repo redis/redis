@@ -236,13 +236,18 @@ int hllAdd(uint8_t *registers, unsigned char *ele, size_t elesize) {
 
     /* Count the number of zeroes starting from bit REDIS_HLL_REGISTERS
      * (that is a power of two corresponding to the first bit we don't use
-     * as index). The max run can be 64-P bits.
+     * as index). The max run can be 64-P+1 bits.
+     *
+     * Note that the final "1" ending the sequence of zeroes must be
+     * included in the count, so if we find "001" the count is 3, and
+     * the smallest count possible is no zeroes at all, just a 1 bit
+     * at the first position, that is a count of 1.
      *
      * This may sound like inefficient, but actually in the average case
      * there are high probabilities to find a 1 after a few iterations. */
     hash = MurmurHash64A(ele,elesize,0);
     bit = REDIS_HLL_REGISTERS;
-    count = 0;
+    count = 1;
     while((hash & bit) == 0) {
         count++;
         /* Test the next bit. Note that if we run out of bits in the 64
@@ -281,7 +286,7 @@ uint64_t hllCount(uint8_t *registers) {
             ez++;
             E += 1; /* 2^(-reg[j]) is 1 when m is 0. */
         } else {
-            E += 1.0/(2ULL << reg); /* 2^(-reg[j]) is the same as 1/2^reg[j]. */
+            E += 1.0/(1ULL << reg); /* 2^(-reg[j]) is the same as 1/2^reg[j]. */
         }
     }
     /* Muliply the inverse of E for alpha_m * m^2 to have the raw estimate. */
