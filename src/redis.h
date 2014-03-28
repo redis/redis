@@ -1352,6 +1352,7 @@ void bitposCommand(redisClient *c);
 void replconfCommand(redisClient *c);
 void hllSelftestCommand(redisClient *c);
 void hllAddCommand(redisClient *c);
+void hllCountCommand(redisClient *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
