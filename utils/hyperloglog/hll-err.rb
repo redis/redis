@@ -9,13 +9,19 @@ require 'digest/sha1'
 
 r = Redis.new
 r.del('hll')
-(1..1000000000).each{|i|
-    ele = Digest::SHA1.hexdigest(i.to_s)
-    r.hlladd('hll',ele)
-    if i != 0 && (i%10000) == 0
-        approx = r.hllcount('hll')
-        abs_err = (approx-i).abs
-        rel_err = 100.to_f*abs_err/i
-        puts "#{i} vs #{approx}: #{rel_err}%"
-    end
-}
+i = 0
+while true do
+    100.times {
+        elements = []
+        1000.times {
+            ele = Digest::SHA1.hexdigest(i.to_s)
+            elements << ele
+            i += 1
+        }
+        r.hlladd('hll',*elements)
+    }
+    approx = r.hllcount('hll')
+    abs_err = (approx-i).abs
+    rel_err = 100.to_f*abs_err/i
+    puts "#{i} vs #{approx}: #{rel_err}%"
+end
