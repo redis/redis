@@ -267,7 +267,8 @@ struct redisCommand redisCommandTable[] = {
     {"bitop",bitopCommand,-4,"wm",0,NULL,2,-1,1,0,0},
     {"bitcount",bitcountCommand,-2,"r",0,NULL,1,1,1,0,0},
     {"bitpos",bitposCommand,-3,"r",0,NULL,1,1,1,0,0},
-    {"wait",waitCommand,3,"rs",0,NULL,0,0,0,0,0}
+    {"wait",waitCommand,3,"rs",0,NULL,0,0,0,0,0},
+    {"hllselftest",hllSelftestCommand,1,"r",0,NULL,0,0,0,0,0},
 };
 
 struct evictionPoolEntry *evictionPoolAlloc(void);
