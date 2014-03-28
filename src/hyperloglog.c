@@ -62,6 +62,7 @@
  * We use macros to make sure the code is inlined since speed is critical
  * especially in order to compute the approximated cardinality in
  * HLLCOUNT where we need to access all the registers at once.
+ * For the same reason we also want to avoid conditionals in this code path.
  *
  * +--------+--------+--------+------//
  * |00000011|11112222|22333333|444444
@@ -106,21 +107,26 @@
  * we need to bitwise-OR the new bits.
  *
  * This time let's try with 'pos' = 1, so our first byte at 'b' is 0,
- * "ls" is 6, and "rs" is 2.
+ *
+ * "ls" is 6, and you may notice it is actually the position of the first
+ * bit inside the byte. "rs" is 8-ls = 2
  *
  *   +--------+
  *   |00000011|  <- Our initial byte at "b"
  *   +--------+
  *
- * We store at "mask" the value 255, consisting of a byte with all bits
- * set to 1. We left-shift it of "rs" bits to the left.
+ * To create a AND-mask to clear the bits about this position, we just
+ * initialize the mask with 2^6-1, right shift it of "ls" bits, and invert
+ * it.
  *
  *   +--------+
- *   |11111100|  <- "mask" after the left-shift of 'rs' bits.
+ *   |11111100|  <- "mask" starts at 2^6-1
+ *   |00000011|  <- "mask" after right shift of "ls" bits.
+ *   |11111100|  <- "mask" after invert.
  *   +--------+
  *
  * Now we can bitwise-AND the byte at "b" with the mask, and bitwise-OR
- * it with "val" right-shifted of "ls" to set the new bits.
+ * it with "val" right-shifted of "ls" bits to set the new bits.
  *
  * Now let's focus on the next byte b+1:
  *
@@ -128,13 +134,13 @@
  *   |11112222| <- byte at b+1
  *   +--------+
  *
- * To build the AND mask for the next byte b+1 we left shift it by "rs"
- * amount of bits a byte with value 2^6-1. Later we negate (bitwise-not) it.
+ * To build the AND mask we start again with the 2^6-1 value, left shift
+ * it by "rs" bits, and invert it.
  *
  *   +--------+
- *   |11111100|  <- "filter" set at 2&6-1
- *   |11110000|  <- "filter" after the left shift of "rs" bits.
- *   |00001111|  <- "filter" after bitwise not.
+ *   |11111100|  <- "mask" set at 2&6-1
+ *   |11110000|  <- "mask" after the left shift of "rs" bits.
+ *   |00001111|  <- "mask" after bitwise not.
  *   +--------+
  *
  * Now we can mask it with b+1 to clear the old bits, and bitwise-OR
@@ -165,10 +171,9 @@
     int _byte = regnum*REDIS_HLL_BITS/8; \
     int _leftshift = regnum*REDIS_HLL_BITS&7; \
     int _rightshift = 8 - _leftshift; \
-    uint8_t m1 = 255, m2 = REDIS_HLL_REGISTER_MAX; \
-    _p[_byte] &= m1 << _rightshift; \
+    _p[_byte] &= ~(REDIS_HLL_REGISTER_MAX >> _leftshift); \
     _p[_byte] |= val >> _leftshift; \
-    _p[_byte+1] &= ~(m2 << _rightshift); \
+    _p[_byte+1] &= ~(REDIS_HLL_REGISTER_MAX << _rightshift); \
     _p[_byte+1] |= val << _rightshift; \
 } while(0)
 
