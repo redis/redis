@@ -30,6 +30,7 @@
  */
 
 #include "redis.h"
+#include "crc64.h"
 
 /* The Redis HyperLogLog implementation is based on the following ideas:
  *
@@ -53,6 +54,7 @@
 
 #define REDIS_HLL_P 14 /* The greater is P, the smaller the error. */
 #define REDIS_HLL_REGISTERS (1<<REDIS_HLL_P) /* With P=14, 16384 registers. */
+#define REDIS_HLL_P_MASK (REDIS_HLL_REGISTERS-1) /* Mask to index register. */
 #define REDIS_HLL_BITS 6 /* Enough to count up to 63 leading zeroes. */
 #define REDIS_HLL_REGISTER_MAX ((1<<REDIS_HLL_BITS)-1)
 #define REDIS_HLL_SIZE ((REDIS_HLL_REGISTERS*REDIS_HLL_BITS+7)/8)
@@ -179,6 +181,49 @@
 } while(0)
 
 /* ========================= HyperLogLog algorithm  ========================= */
+
+/* "Add" the element in the hyperloglog data structure.
+ * Actually nothing is added, but the max 0 pattern counter of the subset
+ * the element belongs to is incremented if needed.
+ *
+ * 'registers' is expected to have room for REDIS_HLL_REGISTERS plus an
+ * additional byte on the right. This requirement is met by sds strings
+ * automatically since they are implicitly null terminated.
+ *
+ * The function always succeed, however if as a result of the operation
+ * the approximated cardinality changed, 1 is returned. Otherwise 0
+ * is returned. */
+int hllAdd(uint8_t *registers, uint8_t *ele, size_t elesize) {
+    uint64_t hash, bit, index;
+    uint8_t oldcount, count;
+
+    /* Count the number of zeroes starting from bit REDIS_HLL_REGISTERS
+     * (that is a power of two corresponding to the first bit we don't use
+     * as index). The max run can be 64-P bits.
+     *
+     * This may sound like inefficient, but actually in the average case
+     * there are high probabilities to find a 1 after a few iterations. */
+    hash = crc64(0,ele,elesize);
+    bit = REDIS_HLL_REGISTERS;
+    count = 0;
+    while((hash & bit) == 0) {
+        count++;
+        /* Test the next bit. Note that if we run out of bits in the 64
+         * bit integer, bit will be set to 0, and the while test will fail,
+         * so we can save the explicit check and yet the algorithm will
+         * terminate. */
+        bit <<= 1;
+    }
+
+    index = hash & REDIS_HLL_P_MASK; /* Index a register inside registers. */
+    HLL_GET_REGISTER(oldcount,registers,index);
+    if (count > oldcount) {
+        HLL_SET_REGISTER(registers,index,count);
+        return 1;
+    } else {
+        return 0;
+    }
+}
 
 /* ========================== HyperLogLog commands ========================== */
 
