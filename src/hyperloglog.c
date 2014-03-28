@@ -149,25 +149,27 @@
 /* Store the value of the register at position 'regnum' into variable 'target'.
  * 'p' is an array of unsigned bytes. */
 #define HLL_GET_REGISTER(target,p,regnum) do { \
+    uint8_t *_p = (uint8_t*) p; \
     int _byte = regnum*REDIS_HLL_BITS/8; \
     int _leftshift = regnum*REDIS_HLL_BITS&7; \
     int _rightshift = 8 - _leftshift; \
-    target = ((p[_byte] << _leftshift) | \
-             (p[_byte+1] >> _rightshift)) & \
+    target = ((_p[_byte] << _leftshift) | \
+             (_p[_byte+1] >> _rightshift)) & \
              ((1<<REDIS_HLL_BITS)-1); \
 } while(0)
 
 /* Set the value of the register at position 'regnum' to 'val'.
  * 'p' is an array of unsigned bytes. */
 #define HLL_SET_REGISTER(p,regnum,val) do { \
+    uint8_t *_p = (uint8_t*) p; \
     int _byte = regnum*REDIS_HLL_BITS/8; \
     int _leftshift = regnum*REDIS_HLL_BITS&7; \
     int _rightshift = 8 - _leftshift; \
-    unsigned int m1 = 255, m2 = REDIS_HLL_REGISTER_MAX; \
-    p[_byte] &= m1 << _rightshift; \
-    p[_byte] |= val >> _leftshift; \
-    p[_byte+1] &= ~(m2 << _rightshift); \
-    p[_byte+1] |= val << _rightshift; \
+    uint8_t m1 = 255, m2 = REDIS_HLL_REGISTER_MAX; \
+    _p[_byte] &= m1 << _rightshift; \
+    _p[_byte] |= val >> _leftshift; \
+    _p[_byte+1] &= ~(m2 << _rightshift); \
+    _p[_byte+1] |= val << _rightshift; \
 } while(0)
 
 /* ========================= HyperLogLog algorithm  ========================= */
