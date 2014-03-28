@@ -155,7 +155,7 @@
     int _rightshift = 8 - _leftshift; \
     target = ((_p[_byte] << _leftshift) | \
              (_p[_byte+1] >> _rightshift)) & \
-             ((1<<REDIS_HLL_BITS)-1); \
+             REDIS_HLL_REGISTER_MAX; \
 } while(0)
 
 /* Set the value of the register at position 'regnum' to 'val'.
