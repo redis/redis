@@ -160,9 +160,9 @@
  * 'p' is an array of unsigned bytes. */
 #define HLL_GET_REGISTER(target,p,regnum) do { \
     uint8_t *_p = (uint8_t*) p; \
-    int _byte = regnum*REDIS_HLL_BITS/8; \
-    int _leftshift = regnum*REDIS_HLL_BITS&7; \
-    int _rightshift = 8 - _leftshift; \
+    unsigned long _byte = regnum*REDIS_HLL_BITS/8; \
+    unsigned long _leftshift = regnum*REDIS_HLL_BITS&7; \
+    unsigned long _rightshift = 8 - _leftshift; \
     target = ((_p[_byte] << _leftshift) | \
              (_p[_byte+1] >> _rightshift)) & \
              REDIS_HLL_REGISTER_MAX; \
@@ -172,9 +172,9 @@
  * 'p' is an array of unsigned bytes. */
 #define HLL_SET_REGISTER(p,regnum,val) do { \
     uint8_t *_p = (uint8_t*) p; \
-    int _byte = regnum*REDIS_HLL_BITS/8; \
-    int _leftshift = regnum*REDIS_HLL_BITS&7; \
-    int _rightshift = 8 - _leftshift; \
+    unsigned long _byte = regnum*REDIS_HLL_BITS/8; \
+    unsigned long _leftshift = regnum*REDIS_HLL_BITS&7; \
+    unsigned long _rightshift = 8 - _leftshift; \
     _p[_byte] &= ~(REDIS_HLL_REGISTER_MAX >> _leftshift); \
     _p[_byte] |= val >> _leftshift; \
     _p[_byte+1] &= ~(REDIS_HLL_REGISTER_MAX << _rightshift); \
@@ -290,10 +290,10 @@ uint64_t hllCount(uint8_t *registers) {
         initialized = 1;
     }
 
+    /* Compute SUM(2^-register[0..i]). */
     for (j = 0; j < REDIS_HLL_REGISTERS; j++) {
-        uint8_t reg;
+        unsigned long reg;
 
-        /* Compute SUM(2^-register[0..i]). */
         HLL_GET_REGISTER(reg,registers,j);
         if (reg == 0) {
             ez++;
