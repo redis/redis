@@ -320,8 +320,10 @@ static int cliSelect() {
 
     reply = redisCommand(context,"SELECT %d",config.dbnum);
     if (reply != NULL) {
+        int result = REDIS_OK;
+        if (reply->type == REDIS_REPLY_ERROR) result = REDIS_ERR;
         freeReplyObject(reply);
-        return REDIS_OK;
+        return result;
     }
     return REDIS_ERR;
 }
@@ -650,6 +652,8 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
             if (!strcasecmp(command,"select") && argc == 2) {
                 config.dbnum = atoi(argv[1]);
                 cliRefreshPrompt();
+            } else if (!strcasecmp(command,"auth") && argc == 2) {
+                cliSelect();
             }
         }
         if (config.interval) usleep(config.interval);
