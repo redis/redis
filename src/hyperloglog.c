@@ -69,38 +69,68 @@
  * For the same reason we also want to avoid conditionals in this code path.
  *
  * +--------+--------+--------+------//
- * |00000011|11112222|22333333|444444
+ * |11000000|22221111|33333322|55444444
  * +--------+--------+--------+------//
  *
- * Assuming we want to access counter at zero based index 'pos' = 2.
- * (In the example it is "222222")
+ * Note: in the above representation the most significant bit (MSB)
+ * of every byte is on the left. We start using bits from the LSB to MSB,
+ * and so forth passing to the next byte.
  *
- * The first byte "b" containing our data is:
- *   b = 6 * pos / 8 -> 1
+ * Example, we want to access to counter at pos = 1 ("111111" in the
+ * illustration above).
  *
- *   +--------+
- *   |11112222|  <- Our byte at "b"
- *   +--------+
+ * The index of the first byte b0 containing our data is:
  *
- * The amount of left shifting "ls" in the first byte is:
- *   ls = 6 * pos & 7 -> 4
+ *  b0 = 6 * pos / 8 = 0
  *
  *   +--------+
- *   |2222    |  <- Left shift 4 pos.
+ *   |11000000|  <- Our byte at b0
  *   +--------+
  *
- * To add the bits in the next byte b+1, we need to right shift them right of
- * "rs" bits positions before xoring it to our current value in the first byte
- * (after the left shift):
- *   rs = 8 - ls -> 4
+ * The position of the first bit (counting from the LSB = 0) in the byte
+ * is given by:
+ *
+ *  fb = 6 * pos % 8 -> 6
+ *
+ * Right shift b0 of 'fb' bits.
  *
  *   +--------+
- *   |    2233|  <- Byte "b+1" right shifted 4 pos.
+ *   |11000000|  <- Initial value of b0
+ *   |00000011|  <- After right shift of 6 pos.
  *   +--------+
  *
- * Now we can just bitwise-OR the two bytes and mask for 2^6-1 in order to
- * clear bits 6 and 7 if they are set, that are not part of our 6 bit unsigned
- * integer.
+ * Left shift b1 of bits 8-fb bits (2 bits)
+ *
+ *   +--------+
+ *   |22221111|  <- Initial value of b1
+ *   |22111100|  <- After left shift of 2 bits.
+ *   +--------+
+ *
+ * OR the two bits, and finally AND with 111111 (63 in decimal) to
+ * clean the higher order bits we are not interested in:
+ *
+ *   +--------+
+ *   |00000011|  <- b0 right shifted
+ *   |22111100|  <- b1 left shifted
+ *   |22111111|  <- b0 OR b1
+ *   |  111111|  <- (b0 OR b1) AND 63, our value.
+ *   +--------+
+ *
+ * We can try with a different example, like pos = 0. In this case
+ * the 6-bit counter is actually contained in a single byte.
+ *
+ *  b0 = 6 * pos / 8 = 0
+ *
+ *   +--------+
+ *   |11000000|  <- Our byte at b0
+ *   +--------+
+ *
+ *  fb = 6 * pos % 8 = 0
+ *
+ *  So we right shift of 0 bits (no shift in practice) and
+ *  left shift the next byte of 8 bits, even if we don't use it,
+ *  but this has the effect of clearing the bits so the result
+ *  will not be affacted after the OR.
  *
  * -------------------------------------------------------------------------
  *
@@ -110,41 +140,40 @@
  * We need two steps, in one we need to clear the bits, and in the other
  * we need to bitwise-OR the new bits.
  *
- * This time let's try with 'pos' = 1, so our first byte at 'b' is 0,
+ * Let's try with 'pos' = 1, so our first byte at 'b' is 0,
  *
- * "ls" is 6, and you may notice it is actually the position of the first
- * bit inside the byte. "rs" is 8-ls = 2
+ * "fb" is 6 in this case.
  *
  *   +--------+
- *   |00000011|  <- Our initial byte at "b"
+ *   |11000000|  <- Our byte at b0
  *   +--------+
  *
  * To create a AND-mask to clear the bits about this position, we just
- * initialize the mask with 2^6-1, right shift it of "ls" bits, and invert
- * it.
+ * initialize the mask with the value 63, left shift it of "fs" bits,
+ * and finally invert the result.
  *
  *   +--------+
- *   |11111100|  <- "mask" starts at 2^6-1
- *   |00000011|  <- "mask" after right shift of "ls" bits.
- *   |11111100|  <- "mask" after invert.
+ *   |00111111|  <- "mask" starts at 63
+ *   |11000000|  <- "mask" after left shift of "ls" bits.
+ *   |00111111|  <- "mask" after invert.
  *   +--------+
  *
  * Now we can bitwise-AND the byte at "b" with the mask, and bitwise-OR
- * it with "val" right-shifted of "ls" bits to set the new bits.
+ * it with "val" left-shifted of "ls" bits to set the new bits.
  *
- * Now let's focus on the next byte b+1:
- *
- *   +--------+
- *   |11112222| <- byte at b+1
- *   +--------+
- *
- * To build the AND mask we start again with the 2^6-1 value, left shift
- * it by "rs" bits, and invert it.
+ * Now let's focus on the next byte b1:
  *
  *   +--------+
- *   |11111100|  <- "mask" set at 2&6-1
- *   |11110000|  <- "mask" after the left shift of "rs" bits.
- *   |00001111|  <- "mask" after bitwise not.
+ *   |22221111|  <- Initial value of b1
+ *   +--------+
+ *
+ * To build the AND mask we start again with the 63 value, right shift
+ * it by 8-fb bits, and invert it.
+ *
+ *   +--------+
+ *   |00111111|  <- "mask" set at 2&6-1
+ *   |00001111|  <- "mask" after the right shift by 8-fb = 2 bits
+ *   |11110000|  <- "mask" after bitwise not.
  *   +--------+
  *
  * Now we can mask it with b+1 to clear the old bits, and bitwise-OR
@@ -161,11 +190,11 @@
 #define HLL_GET_REGISTER(target,p,regnum) do { \
     uint8_t *_p = (uint8_t*) p; \
     unsigned long _byte = regnum*REDIS_HLL_BITS/8; \
-    unsigned long _leftshift = regnum*REDIS_HLL_BITS&7; \
-    unsigned long _rightshift = 8 - _leftshift; \
-    target = ((_p[_byte] << _leftshift) | \
-             (_p[_byte+1] >> _rightshift)) & \
-             REDIS_HLL_REGISTER_MAX; \
+    unsigned long _fb = regnum*REDIS_HLL_BITS&7; \
+    unsigned long _fb8 = 8 - _fb; \
+    unsigned long b0 = _p[_byte]; \
+    unsigned long b1 = _p[_byte+1]; \
+    target = ((b0 >> _fb) | (b1 << _fb8)) & REDIS_HLL_REGISTER_MAX; \
 } while(0)
 
 /* Set the value of the register at position 'regnum' to 'val'.
@@ -173,12 +202,13 @@
 #define HLL_SET_REGISTER(p,regnum,val) do { \
     uint8_t *_p = (uint8_t*) p; \
     unsigned long _byte = regnum*REDIS_HLL_BITS/8; \
-    unsigned long _leftshift = regnum*REDIS_HLL_BITS&7; \
-    unsigned long _rightshift = 8 - _leftshift; \
-    _p[_byte] &= ~(REDIS_HLL_REGISTER_MAX >> _leftshift); \
-    _p[_byte] |= val >> _leftshift; \
-    _p[_byte+1] &= ~(REDIS_HLL_REGISTER_MAX << _rightshift); \
-    _p[_byte+1] |= val << _rightshift; \
+    unsigned long _fb = regnum*REDIS_HLL_BITS&7; \
+    unsigned long _fb8 = 8 - _fb; \
+    unsigned long _v = val; \
+    _p[_byte] &= ~(REDIS_HLL_REGISTER_MAX << _fb); \
+    _p[_byte] |= _v << _fb; \
+    _p[_byte+1] &= ~(REDIS_HLL_REGISTER_MAX >> _fb8); \
+    _p[_byte+1] |= _v >> _fb8; \
 } while(0)
 
 /* ========================= HyperLogLog algorithm  ========================= */
@@ -301,21 +331,21 @@ uint64_t hllCount(uint8_t *registers) {
         for (j = 0; j < 1024; j++) {
             /* Handle 16 registers per iteration. */
             r0 = r[0] & 63; if (r0 == 0) ez++;
-            r1 = (r[0] << 6 | r[1] >> 2) & 63; if (r1 == 0) ez++;
-            r2 = (r[1] << 4 | r[2] >> 4) & 63; if (r2 == 0) ez++;
-            r3 = ((r[2] << 2) | (r[3] >> 6)) & 63; if (r3 == 0) ez++;
+            r1 = (r[0] >> 6 | r[1] << 2) & 63; if (r1 == 0) ez++;
+            r2 = (r[1] >> 4 | r[2] << 4) & 63; if (r2 == 0) ez++;
+            r3 = (r[2] >> 2) & 63; if (r3 == 0) ez++;
             r4 = r[3] & 63; if (r4 == 0) ez++;
-            r5 = (r[3] << 6 | r[4] >> 2) & 63; if (r5 == 0) ez++;
-            r6 = (r[4] << 4 | r[5] >> 4) & 63; if (r6 == 0) ez++;
-            r7 = (r[5] << 2 | r[6] >> 6) & 63; if (r7 == 0) ez++;
+            r5 = (r[3] >> 6 | r[4] << 2) & 63; if (r5 == 0) ez++;
+            r6 = (r[4] >> 4 | r[5] << 4) & 63; if (r6 == 0) ez++;
+            r7 = (r[5] >> 2) & 63; if (r7 == 0) ez++;
             r8 = r[6] & 63; if (r8 == 0) ez++;
-            r9 = (r[6] << 6 | r[7] >> 2) & 63; if (r9 == 0) ez++;
-            r10 = (r[7] << 4 | r[8] >> 4) & 63; if (r10 == 0) ez++;
-            r11 = (r[8] << 2 | r[9] >> 6) & 63; if (r11 == 0) ez++;
+            r9 = (r[6] >> 6 | r[7] << 2) & 63; if (r9 == 0) ez++;
+            r10 = (r[7] >> 4 | r[8] << 4) & 63; if (r10 == 0) ez++;
+            r11 = (r[8] >> 2) & 63; if (r11 == 0) ez++;
             r12 = r[9] & 63; if (r12 == 0) ez++;
-            r13 = (r[9] << 6 | r[10] >> 2) & 63; if (r13 == 0) ez++;
-            r14 = (r[10] << 4 | r[11] >> 4) & 63; if (r14 == 0) ez++;
-            r15 = (r[11] << 2 | r[12] >> 6) & 63; if (r15 == 0) ez++;
+            r13 = (r[9] >> 6 | r[10] << 2) & 63; if (r13 == 0) ez++;
+            r14 = (r[10] >> 4 | r[11] << 4) & 63; if (r14 == 0) ez++;
+            r15 = (r[11] >> 2) & 63; if (r15 == 0) ez++;
 
             /* Additional parens will allow the compiler to optimize the
              * code more with a loss of precision that is not very relevant
