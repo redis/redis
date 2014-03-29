@@ -294,7 +294,7 @@ uint64_t hllCount(uint8_t *registers) {
      * Redis default is to use 16384 registers 6 bits each. The code works
      * with other values by modifying the defines, but for our target value
      * we take a faster path with unrolled loops. */
-    if (REDIS_HLL_REGISTERS == 16384 && REDIS_HLL_BITS == 6 && 1) {
+    if (REDIS_HLL_REGISTERS == 16384 && REDIS_HLL_BITS == 6) {
         uint8_t *r = registers;
         unsigned long r0, r1, r2, r3, r4, r5, r6, r7, r8, r9,
                       r10, r11, r12, r13, r14, r15;
@@ -304,15 +304,15 @@ uint64_t hllCount(uint8_t *registers) {
             r1 = (r[0] << 6 | r[1] >> 2) & 63; if (r1 == 0) ez++;
             r2 = (r[1] << 4 | r[2] >> 4) & 63; if (r2 == 0) ez++;
             r3 = ((r[2] << 2) | (r[3] >> 6)) & 63; if (r3 == 0) ez++;
-            r4 = (r[3] | r[4] >> 8) & 63; if (r4 == 0) ez++;
+            r4 = r[3] & 63; if (r4 == 0) ez++;
             r5 = (r[3] << 6 | r[4] >> 2) & 63; if (r5 == 0) ez++;
             r6 = (r[4] << 4 | r[5] >> 4) & 63; if (r6 == 0) ez++;
             r7 = (r[5] << 2 | r[6] >> 6) & 63; if (r7 == 0) ez++;
-            r8 = (r[6] | r[7] >> 8) & 63; if (r8 == 0) ez++;
+            r8 = r[6] & 63; if (r8 == 0) ez++;
             r9 = (r[6] << 6 | r[7] >> 2) & 63; if (r9 == 0) ez++;
             r10 = (r[7] << 4 | r[8] >> 4) & 63; if (r10 == 0) ez++;
             r11 = (r[8] << 2 | r[9] >> 6) & 63; if (r11 == 0) ez++;
-            r12 = (r[9] | r[10] >> 8) & 63; if (r12 == 0) ez++;
+            r12 = r[9] & 63; if (r12 == 0) ez++;
             r13 = (r[9] << 6 | r[10] >> 2) & 63; if (r13 == 0) ez++;
             r14 = (r[10] << 4 | r[11] >> 4) & 63; if (r14 == 0) ez++;
             r15 = (r[11] << 2 | r[12] >> 6) & 63; if (r15 == 0) ez++;
