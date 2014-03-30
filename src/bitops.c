@@ -223,14 +223,7 @@ void setbitCommand(redisClient *c) {
         dbAdd(c->db,c->argv[1],o);
     } else {
         if (checkType(c,o,REDIS_STRING)) return;
-
-        /* Create a copy when the object is shared or encoded. */
-        if (o->refcount != 1 || o->encoding != REDIS_ENCODING_RAW) {
-            robj *decoded = getDecodedObject(o);
-            o = createStringObject(decoded->ptr, sdslen(decoded->ptr));
-            decrRefCount(decoded);
-            dbOverwrite(c->db,c->argv[1],o);
-        }
+        o = dbUnshareStringValue(c->db,c->argv[1],o);
     }
 
     /* Grow sds value to the right length if necessary */
