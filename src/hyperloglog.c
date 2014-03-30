@@ -424,14 +424,7 @@ void hllAddCommand(redisClient *c) {
                 REDIS_HLL_SIZE);
             return;
         }
-
-        /* If the object is shared or encoded, we have to make a copy. */
-        if (o->refcount != 1 || o->encoding != REDIS_ENCODING_RAW) {
-            robj *decoded = getDecodedObject(o);
-            o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
-            decrRefCount(decoded);
-            dbOverwrite(c->db,c->argv[1],o);
-        }
+        o = dbUnshareStringValue(c->db,c->argv[1],o);
     }
     /* Perform the low level ADD operation for every element. */
     registers = o->ptr;
