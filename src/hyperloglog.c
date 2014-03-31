@@ -440,6 +440,7 @@ void hllAddCommand(redisClient *c) {
          * is guaranteed to return bytes initialized to zero. */
         o = createObject(REDIS_STRING,sdsnewlen(NULL,REDIS_HLL_SIZE));
         dbAdd(c->db,c->argv[1],o);
+        updated++;
     } else {
         /* Key exists, check type */
         if (checkType(c,o,REDIS_STRING))
