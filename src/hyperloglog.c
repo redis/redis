@@ -339,7 +339,7 @@ int hllAdd(uint8_t *registers, unsigned char *ele, size_t elesize) {
 uint64_t hllCount(uint8_t *registers) {
     double m = REDIS_HLL_REGISTERS;
     double alpha = 0.7213/(1+1.079/m);
-    double E = 0;
+    double E = 0, linearcounting_factor;
     int ez = 0; /* Number of registers equal to 0. */
     int j;
 
@@ -407,8 +407,16 @@ uint64_t hllCount(uint8_t *registers) {
     /* Muliply the inverse of E for alpha_m * m^2 to have the raw estimate. */
     E = (1/E)*alpha*m*m;
 
-    /* Apply corrections for small cardinalities. */
-    if (E < m*2.5 && ez != 0) {
+    /* Use the LINEARCOUNTING algorithm for small cardinalities. Note that
+     * the HyperLogLog paper suggests using this correction for E < m*2.5
+     * while we are using it for E < m*3 since this was verified to have
+     * better median / max error rate in the 40000 - 50000 cardinality
+     * interval when P * is 14 (m = 16k).
+     *
+     * However for other values of P we resort to the paper's value of 2.5
+     * since no test was performed for other values. */
+    linearcounting_factor = (m == 16384) ? 3 : 2.5;
+    if (E < m*linearcounting_factor && ez != 0) {
         E = m*log(m/ez); /* LINEARCOUNTING() */
     }
     /* We don't apply the correction for E > 1/30 of 2^32 since we use
