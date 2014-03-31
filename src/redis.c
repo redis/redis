@@ -268,10 +268,10 @@ struct redisCommand redisCommandTable[] = {
     {"bitcount",bitcountCommand,-2,"r",0,NULL,1,1,1,0,0},
     {"bitpos",bitposCommand,-3,"r",0,NULL,1,1,1,0,0},
     {"wait",waitCommand,3,"rs",0,NULL,0,0,0,0,0},
-    {"hllselftest",hllSelftestCommand,1,"r",0,NULL,0,0,0,0,0},
-    {"hlladd",hllAddCommand,-2,"wm",0,NULL,1,1,1,0,0},
-    {"hllcount",hllCountCommand,2,"w",0,NULL,1,1,1,0,0},
-    {"hllmerge",hllMergeCommand,-2,"wm",0,NULL,1,-1,1,0,0}
+    {"pselftest",pselftestCommand,1,"r",0,NULL,0,0,0,0,0},
+    {"padd",paddCommand,-2,"wm",0,NULL,1,1,1,0,0},
+    {"pcount",pcountCommand,2,"w",0,NULL,1,1,1,0,0},
+    {"pmerge",pmergeCommand,-2,"wm",0,NULL,1,-1,1,0,0}
 };
 
 struct evictionPoolEntry *evictionPoolAlloc(void);
