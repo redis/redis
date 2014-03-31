@@ -544,7 +544,7 @@ void hllCountCommand(redisClient *c) {
 void hllMergeCommand(redisClient *c) {
     uint8_t max[REDIS_HLL_REGISTERS];
     uint8_t *registers;
-    int j;
+    int j, i;
 
     /* Compute an HLL with M[i] = MAX(M[i]_j).
      * We we the maximum into the max array of registers. We'll write
@@ -566,11 +566,13 @@ void hllMergeCommand(redisClient *c) {
             return;
         }
 
-        /* Get the register and set it at max[j] if it's the greatest
-         * value so far. */
+        /* Merge with this HLL with our 'max' HHL by setting max[i]
+         * to MAX(max[i],hll[i]). */
         registers = o->ptr;
-        HLL_GET_REGISTER(val,registers,j);
-        if (val > max[j]) max[j] = val;
+        for (i = 0; i < REDIS_HLL_REGISTERS; i++) {
+            HLL_GET_REGISTER(val,registers,i);
+            if (val > max[i]) max[i] = val;
+        }
     }
 
     /* Create / unshare the destination key's value if needed. */
