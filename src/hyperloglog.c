@@ -522,6 +522,12 @@ void hllCountCommand(redisClient *c) {
             registers[REDIS_HLL_SIZE-3] = (card >> 40) & 0xff;
             registers[REDIS_HLL_SIZE-2] = (card >> 48) & 0xff;
             registers[REDIS_HLL_SIZE-1] = (card >> 56) & 0xff;
+            /* This is not considered a read-only command even if the
+             * data structure is not modified, since the cached value
+             * may be modified and given that the HLL is a Redis string
+             * we need to propagate the change. */
+            signalModifiedKey(c->db,c->argv[1]);
+            server.dirty++;
         }
         addReplyLongLong(c,card);
     }
