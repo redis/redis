@@ -47,23 +47,32 @@ def filter_samples(numsets,filter)
         dataset[i] = run_experiment(r,i,100000,1)
     }
     dataset[0].each_with_index{|ele,index|
-        ele[1] = ele[1].abs if filter == :max
-        card,err=ele
         if filter == :max
+            card=ele[0]
+            err=ele[1].abs
             (1...numsets).each{|i|
                 err = dataset[i][index][1] if err < dataset[i][index][1]
             }
+            puts "#{card} #{err}"
         elsif filter == :avg
-            (1...numsets).each{|i|
+            card=ele[0]
+            err = 0
+            (0...numsets).each{|i|
                 err += dataset[i][index][1]
             }
             err /= numsets
+            puts "#{card} #{err}"
+        elsif filter == :all
+            (0...numsets).each{|i|
+                card,err = dataset[i][index]
+                puts "#{card} #{err}"
+            }
         else
             raise "Unknown filter #{filter}"
         end
-        puts "#{card} #{err}"
     }
 end
 
-filter_samples(100,:max)
+filter_samples(100,:all)
+#filter_samples(100,:max)
 #filter_samples(100,:avg)
