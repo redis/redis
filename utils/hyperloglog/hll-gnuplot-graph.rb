@@ -47,6 +47,7 @@ def filter_samples(numsets,filter)
         dataset[i] = run_experiment(r,i,100000,1)
     }
     dataset[0].each_with_index{|ele,index|
+        ele[1] = ele[1].abs if filter == :max
         card,err=ele
         if filter == :max
             (1...numsets).each{|i|
