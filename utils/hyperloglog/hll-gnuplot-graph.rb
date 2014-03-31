@@ -30,9 +30,9 @@ def run_experiment(r,seed,max,step)
                 elements << ele
                 i += 1
             }
-            r.padd('hll',*elements)
+            r.pfadd('hll',*elements)
         }
-        approx = r.pcount('hll')
+        approx = r.pfcount('hll')
         err = approx-i
         rel_err = 100.to_f*err/i
         samples << [i,rel_err]
