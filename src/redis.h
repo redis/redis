@@ -1351,10 +1351,10 @@ void bitopCommand(redisClient *c);
 void bitcountCommand(redisClient *c);
 void bitposCommand(redisClient *c);
 void replconfCommand(redisClient *c);
-void hllSelftestCommand(redisClient *c);
-void hllAddCommand(redisClient *c);
-void hllCountCommand(redisClient *c);
-void hllMergeCommand(redisClient *c);
+void pselftestCommand(redisClient *c);
+void paddCommand(redisClient *c);
+void pcountCommand(redisClient *c);
+void pmergeCommand(redisClient *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));

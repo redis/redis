@@ -18,9 +18,9 @@ while true do
             elements << ele
             i += 1
         }
-        r.hlladd('hll',*elements)
+        r.padd('hll',*elements)
     }
-    approx = r.hllcount('hll')
+    approx = r.pcount('hll')
     abs_err = (approx-i).abs
     rel_err = 100.to_f*abs_err/i
     puts "#{i} vs #{approx}: #{rel_err}%"
