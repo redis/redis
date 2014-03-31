@@ -339,7 +339,7 @@ int hllAdd(uint8_t *registers, unsigned char *ele, size_t elesize) {
 uint64_t hllCount(uint8_t *registers) {
     double m = REDIS_HLL_REGISTERS;
     double alpha = 0.7213/(1+1.079/m);
-    double E = 0, linearcounting_factor;
+    double E = 0;
     int ez = 0; /* Number of registers equal to 0. */
     int j;
 
@@ -407,17 +407,24 @@ uint64_t hllCount(uint8_t *registers) {
     /* Muliply the inverse of E for alpha_m * m^2 to have the raw estimate. */
     E = (1/E)*alpha*m*m;
 
-    /* Use the LINEARCOUNTING algorithm for small cardinalities. Note that
-     * the HyperLogLog paper suggests using this correction for E < m*2.5
-     * while we are using it for E < m*3 since this was verified to have
-     * better median / max error rate in the 40000 - 50000 cardinality
-     * interval when P * is 14 (m = 16k).
-     *
-     * However for other values of P we resort to the paper's value of 2.5
-     * since no test was performed for other values. */
-    linearcounting_factor = (m == 16384) ? 3 : 2.5;
-    if (E < m*linearcounting_factor && ez != 0) {
+    /* Use the LINEARCOUNTING algorithm for small cardinalities.
+     * For larger values but up to 72000 HyperLogLog raw approximation is
+     * used since linear counting error starts to increase. However HyperLogLog
+     * shows a strong bias in the range 2.5*16384 - 72000, so we try to
+     * compensate for it. */
+    if (E < m*2.5 && ez != 0) {
         E = m*log(m/ez); /* LINEARCOUNTING() */
+    } else if (m == 16384 && E < 72000) {
+        /* We did polynomial regression of the bias for this range, this
+         * way we can compute the bias for a given cardinality and correct
+         * according to it. Only apply the correction for P=14 that's what
+         * we use and the value the correction was verified with. */
+        double bias = 5.9119*1.0e-18*(E*E*E*E)
+                      -1.4253*1.0e-12*(E*E*E)+
+                      1.2940*1.0e-7*(E*E)
+                      -5.2921*1.0e-3*E+
+                      83.3216;
+        E -= E*(bias/100);
     }
     /* We don't apply the correction for E > 1/30 of 2^32 since we use
      * a 64 bit function and 6 bit counters. To apply the correction for
