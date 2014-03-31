@@ -435,8 +435,8 @@ uint64_t hllCount(uint8_t *registers) {
 
 /* ========================== HyperLogLog commands ========================== */
 
-/* PADD var ele ele ele ... ele => :0 or :1 */
-void paddCommand(redisClient *c) {
+/* PFADD var ele ele ele ... ele => :0 or :1 */
+void pfaddCommand(redisClient *c) {
     robj *o = lookupKeyWrite(c->db,c->argv[1]);
     uint8_t *registers;
     int updated = 0, j;
@@ -482,8 +482,8 @@ void paddCommand(redisClient *c) {
     addReply(c, updated ? shared.cone : shared.czero);
 }
 
-/* PCOUNT var -> approximated cardinality of set. */
-void pcountCommand(redisClient *c) {
+/* PFCOUNT var -> approximated cardinality of set. */
+void pfcountCommand(redisClient *c) {
     robj *o = lookupKeyRead(c->db,c->argv[1]);
     uint8_t *registers;
     uint64_t card;
@@ -540,8 +540,8 @@ void pcountCommand(redisClient *c) {
     }
 }
 
-/* PMERGE dest src1 src2 src3 ... srcN => OK */
-void pmergeCommand(redisClient *c) {
+/* PFMERGE dest src1 src2 src3 ... srcN => OK */
+void pfmergeCommand(redisClient *c) {
     uint8_t max[REDIS_HLL_REGISTERS];
     uint8_t *registers;
     int j, i;
@@ -614,7 +614,7 @@ void pmergeCommand(redisClient *c) {
  * the correct value to be retained and not affect adjacent values. */
 
 #define REDIS_HLL_TEST_CYCLES 1000
-void pselftestCommand(redisClient *c) {
+void pfselftestCommand(redisClient *c) {
     int j, i;
     sds bitcounters = sdsnewlen(NULL,REDIS_HLL_SIZE);
     uint8_t bytecounters[REDIS_HLL_REGISTERS];
