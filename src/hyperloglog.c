@@ -29,9 +29,10 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "redis.h"
+
 #include <stdint.h>
 #include <math.h>
-#include "redis.h"
 
 /* The Redis HyperLogLog implementation is based on the following ideas:
  *
