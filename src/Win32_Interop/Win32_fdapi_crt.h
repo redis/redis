@@ -20,27 +20,14 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 #pragma once
+#include <cstdint>
 
-/* Log levels */
-#define REDIS_DEBUG 0
-#define REDIS_VERBOSE 1
-#define REDIS_NOTICE 2
-#define REDIS_WARNING 3
-#define REDIS_LOG_RAW (1<<10) /* Modifier to log without timestamp */
-#define REDIS_DEFAULT_VERBOSITY REDIS_NOTICE
-#define REDIS_MAX_LOGMSG_LEN    1024 /* Default maximum length of syslog messages */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-void setLogVerbosityLevel (int level);
-void setLogFile (const char* logFileName);
-void redisLogRaw(int level, const char *msg);
-void redisLog(int level, const char *fmt, ...);
-void redisLogFromHandler(int level, const char *msg);
-
-#ifdef __cplusplus
-}
-#endif
-
+int crt_close(int fd);
+int crt_read(int fd, void *buffer, unsigned int count);
+int crt_write(int fd, const void *buffer, unsigned int count);
+int crt_open(const char *filename, int oflag, int pmode);
+intptr_t crtget_osfhandle(int fd);
+int crtsetmode(int fd, int mode);
+int crt_isatty(int fd);
+int crt_access(const char *pathname, int mode);
+__int64 crt_lseek64(int fd, __int64 offset, int origin);

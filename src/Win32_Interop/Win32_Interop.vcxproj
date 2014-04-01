@@ -15,9 +15,11 @@
     <ClCompile Include="win32fixes.c" />
     <ClCompile Include="Win32_dlmalloc.c" />
     <ClCompile Include="Win32_FDAPI.cpp" />
+    <ClCompile Include="Win32_fdapi_crt.cpp" />
     <ClCompile Include="Win32_QFork.cpp" />
     <ClCompile Include="Win32_QFork_impl.c" />
     <ClCompile Include="win32_rfdmap.cpp" />
+    <ClCompile Include="Win32_variadicFunctor.cpp" />
     <ClCompile Include="win32_wsiocp.c" />
   </ItemGroup>
   <ItemGroup>
@@ -25,10 +27,12 @@
     <ClInclude Include="win32fixes.h" />
     <ClInclude Include="Win32_dlmalloc.h" />
     <ClInclude Include="Win32_FDAPI.h" />
+    <ClInclude Include="Win32_fdapi_crt.h" />
     <ClInclude Include="Win32_QFork.h" />
     <ClInclude Include="Win32_QFork_impl.h" />
     <ClInclude Include="win32_rfdmap.h" />
     <ClInclude Include="Win32_SmartHandle.h" />
+    <ClInclude Include="Win32_variadicFunctor.h" />
     <ClInclude Include="win32_wsiocp.h" />
     <ClInclude Include="WS2tcpip.h" />
   </ItemGroup>
@@ -42,13 +46,13 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v110</PlatformToolset>
+    <PlatformToolset>v120</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v110</PlatformToolset>
+    <PlatformToolset>v120</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -71,6 +75,7 @@
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;_DEBUG;_LIB;%(PreprocessorDefinitions);USE_DL_PREFIX;LACKS_STDLIB_H;USE_DLMALLOC;_CRT_SECURE_NO_WARNINGS;WIN32_IOCP</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(SolutionDir)..\deps\lua\src</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>

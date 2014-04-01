@@ -21,26 +21,35 @@
 */
 #pragma once
 
-/* Log levels */
-#define REDIS_DEBUG 0
-#define REDIS_VERBOSE 1
-#define REDIS_NOTICE 2
-#define REDIS_WARNING 3
-#define REDIS_LOG_RAW (1<<10) /* Modifier to log without timestamp */
-#define REDIS_DEFAULT_VERBOSITY REDIS_NOTICE
-#define REDIS_MAX_LOGMSG_LEN    1024 /* Default maximum length of syslog messages */
+#include <Windows.h>
+#include <string>
+#include <map>
+using namespace std;
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+class DLLMap : map<string, HMODULE> {
+public:
+	static DLLMap& getInstance();
 
-void setLogVerbosityLevel (int level);
-void setLogFile (const char* logFileName);
-void redisLogRaw(int level, const char *msg);
-void redisLog(int level, const char *fmt, ...);
-void redisLogFromHandler(int level, const char *msg);
+private:
+	DLLMap();
+	DLLMap(DLLMap const&);	  // Don't implement to guarantee singleton semantics
+	void operator=(DLLMap const&); // Don't implement to guarantee singleton semantics
 
-#ifdef __cplusplus
-}
-#endif
+public:
+	LPVOID getProcAddress(string dll, string functionName);
+	virtual ~DLLMap();
+};
 
+
+template <typename R, typename... T>
+class dllfunctor_stdcall {
+public:
+	dllfunctor_stdcall(string dll, string function)
+	{
+		_f = (R(__stdcall *)(T...))DLLMap::getInstance().getProcAddress(dll, function.c_str());
+	}
+	R operator()(T... args) { return _f(args...); }
+
+private:
+	R(__stdcall *_f)(T...);
+};

@@ -1,6 +1,8 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 2012
+# Visual Studio 2013
+VisualStudioVersion = 12.0.21005.1
+MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RedisServer", "RedisServer.vcxproj", "{46842776-68A5-EC98-6A09-1859BBFC73AA}"
 	ProjectSection(ProjectDependencies) = postProject
 		{170B0909-5F75-467F-9501-C99DEC16C6DC} = {170B0909-5F75-467F-9501-C99DEC16C6DC}
@@ -28,8 +30,6 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RedisCli", "RedisCli\RedisC
 	EndProjectSection
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "lua", "lua\lua\lua.vcxproj", "{170B0909-5F75-467F-9501-C99DEC16C6DC}"
-EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "APIBridge", "..\src\APIBridge\APIBridge.vcxproj", "{0A28B490-79DE-4D7F-BB46-D75CF0D026ED}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Win32_Interop", "..\src\Win32_Interop\Win32_Interop.vcxproj", "{8C07F811-C81C-432C-B334-1AE6FAECF951}"
 EndProject
@@ -67,10 +67,6 @@ Global
 		{170B0909-5F75-467F-9501-C99DEC16C6DC}.Debug|x64.Build.0 = Debug|x64
 		{170B0909-5F75-467F-9501-C99DEC16C6DC}.Release|x64.ActiveCfg = Release|x64
 		{170B0909-5F75-467F-9501-C99DEC16C6DC}.Release|x64.Build.0 = Release|x64
-		{0A28B490-79DE-4D7F-BB46-D75CF0D026ED}.Debug|x64.ActiveCfg = Debug|x64
-		{0A28B490-79DE-4D7F-BB46-D75CF0D026ED}.Debug|x64.Build.0 = Debug|x64
-		{0A28B490-79DE-4D7F-BB46-D75CF0D026ED}.Release|x64.ActiveCfg = Release|x64
-		{0A28B490-79DE-4D7F-BB46-D75CF0D026ED}.Release|x64.Build.0 = Release|x64
 		{8C07F811-C81C-432C-B334-1AE6FAECF951}.Debug|x64.ActiveCfg = Debug|x64
 		{8C07F811-C81C-432C-B334-1AE6FAECF951}.Debug|x64.Build.0 = Debug|x64
 		{8C07F811-C81C-432C-B334-1AE6FAECF951}.Release|x64.ActiveCfg = Release|x64

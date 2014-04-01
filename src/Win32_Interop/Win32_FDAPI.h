@@ -181,7 +181,7 @@ extern redis_inet_addr inet_addr;
 extern redis_inet_ntoa inet_ntoa;
 extern redis_WSAGetOverlappedResult WSAGetOverlappedResult;
 
-extern redis_close close;
+extern redis_close fdapi_close;
 extern redis_open open;
 extern redis_accept accept;
 extern redis_setsockopt setsockopt;
@@ -203,14 +203,14 @@ extern redis_htonl htonl;
 extern redis_getpeername getpeername;
 extern redis_getsockname getsockname;
 extern redis_ntohs ntohs;
-extern redis_setmode _setmode;
+extern redis_setmode fdapi_setmode;
 
 extern redis_select select;
 extern redis_ntohl ntohl;
 extern redis_isatty isatty;
 extern redis_access access;
 extern redis_lseek64 lseek64;
-extern redis_get_osfhandle _get_osfhandle;
+extern redis_get_osfhandle fdapi_get_osfhandle;
 extern redis_freeaddrinfo freeaddrinfo;
 extern redis_getaddrinfo getaddrinfo;
 extern redis_inet_ntop inet_ntop;
@@ -222,6 +222,13 @@ BOOL FDAPI_AcceptEx(int listenFD,int acceptFD,PVOID lpOutputBuffer,DWORD dwRecei
 BOOL FDAPI_ConnectEx(int fd,const struct sockaddr *name,int namelen,PVOID lpSendBuffer,DWORD dwSendDataLength,LPDWORD lpdwBytesSent,LPOVERLAPPED lpOverlapped);
 void FDAPI_GetAcceptExSockaddrs(int fd, PVOID lpOutputBuffer,DWORD dwReceiveDataLength,DWORD dwLocalAddressLength,DWORD dwRemoteAddressLength,LPSOCKADDR *LocalSockaddr,LPINT LocalSockaddrLength,LPSOCKADDR *RemoteSockaddr,LPINT RemoteSockaddrLength);
 int FDAPI_UpdateAcceptContext( int fd );
+
+// macroize CRT definitions to point to our own
+#ifndef FDAPI_NOCRTREDEFS
+#define close(fd) fdapi_close(fd)
+#define setmode(fd,mode) fdapi_setmode(fd,mode)
+#define _get_osfhandle(fd) fdapi_get_osfhandle(fd)
+#endif
 
 #ifdef __cplusplus
 }

@@ -19,28 +19,43 @@
 * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
-#pragma once
+#include "Win32_variadicFunctor.h"
 
-/* Log levels */
-#define REDIS_DEBUG 0
-#define REDIS_VERBOSE 1
-#define REDIS_NOTICE 2
-#define REDIS_WARNING 3
-#define REDIS_LOG_RAW (1<<10) /* Modifier to log without timestamp */
-#define REDIS_DEFAULT_VERBOSITY REDIS_NOTICE
-#define REDIS_MAX_LOGMSG_LEN    1024 /* Default maximum length of syslog messages */
+#include <windows.h>
+#include <stdexcept>
+#include <map>
+using namespace std;
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-void setLogVerbosityLevel (int level);
-void setLogFile (const char* logFileName);
-void redisLogRaw(int level, const char *msg);
-void redisLog(int level, const char *fmt, ...);
-void redisLogFromHandler(int level, const char *msg);
-
-#ifdef __cplusplus
+DLLMap& DLLMap::getInstance() {
+	static DLLMap    instance; // Instantiated on first use. Guaranteed to be destroyed.
+	return instance;
 }
-#endif
 
+DLLMap::DLLMap() { };
+
+LPVOID DLLMap::getProcAddress(string dll, string functionName)
+{
+	if (find(dll) == end()) {
+		HMODULE mod = LoadLibraryA(dll.c_str());
+		if (mod == NULL) {
+			throw system_error(GetLastError(), system_category(), "LoadLibrary failed");
+		}
+		(*this)[dll] = mod;
+	}
+
+	HMODULE mod = (*this)[dll];
+	LPVOID fp = GetProcAddress(mod, functionName.c_str());
+	if (fp == nullptr) {
+		throw system_error(GetLastError(), system_category(), "LoadLibrary failed");
+	}
+
+	return fp;
+}
+
+DLLMap::~DLLMap()
+{
+	for each(auto modPair in (*this))
+	{
+		FreeLibrary(modPair.second);
+	}
+}
