@@ -10,7 +10,7 @@ require 'redis'
 require 'digest/sha1'
 
 # Generate an array of [cardinality,relative_error] pairs
-# in the 0 - max range with step of 1000*step.
+# in the 0 - max range, with the specified step.
 #
 # 'r' is the Redis object used to perform the queries.
 # 'seed' must be different every time you want a test performed
@@ -22,16 +22,15 @@ def run_experiment(r,seed,max,step)
     r.del('hll')
     i = 0
     samples = []
+    step = 1000 if step > 1000
     while i < max do
+        elements = []
         step.times {
-            elements = []
-            1000.times {
-                ele = Digest::SHA1.hexdigest(i.to_s+seed.to_s)
-                elements << ele
-                i += 1
-            }
-            r.pfadd('hll',*elements)
+            ele = Digest::SHA1.hexdigest(i.to_s+seed.to_s)
+            elements << ele
+            i += 1
         }
+        r.pfadd('hll',*elements)
         approx = r.pfcount('hll')
         err = approx-i
         rel_err = 100.to_f*err/i
@@ -40,11 +39,12 @@ def run_experiment(r,seed,max,step)
     samples
 end
 
-def filter_samples(numsets,filter)
+def filter_samples(numsets,max,step,filter)
     r = Redis.new
     dataset = {}
     (0...numsets).each{|i|
-        dataset[i] = run_experiment(r,i,100000,1)
+        dataset[i] = run_experiment(r,i,max,step)
+        STDERR.puts "Set #{i}"
     }
     dataset[0].each_with_index{|ele,index|
         if filter == :max
@@ -62,6 +62,14 @@ def filter_samples(numsets,filter)
             }
             err /= numsets
             puts "#{card} #{err}"
+        elsif filter == :absavg
+            card=ele[0]
+            err = 0
+            (0...numsets).each{|i|
+                err += dataset[i][index][1].abs
+            }
+            err /= numsets
+            puts "#{card} #{err}"
         elsif filter == :all
             (0...numsets).each{|i|
                 card,err = dataset[i][index]
@@ -73,6 +81,7 @@ def filter_samples(numsets,filter)
     }
 end
 
-filter_samples(100,:all)
-#filter_samples(100,:max)
-#filter_samples(100,:avg)
+filter_samples(100,100000,1000,:absavg)
+#filter_samples(100,1000,10,:all)
+#filter_samples(100,10000,1000,:max)
+#filter_samples(100,10000,1000,:avg)
