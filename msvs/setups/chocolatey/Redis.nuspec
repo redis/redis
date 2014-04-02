@@ -14,9 +14,6 @@
     <licenseUrl>https://github.com/MSOpenTech/redis/blob/2.8.4_msopen/license.txt</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <iconUrl>http://redis.io/images/redis.png</iconUrl>
-    <dependencies>
-      <dependency id="vcredist2012" />
-    </dependencies>
     <releaseNotes></releaseNotes>
   </metadata>
   <files>
