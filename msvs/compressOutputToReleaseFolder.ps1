@@ -18,10 +18,6 @@ ForEach( $file in [System.IO.Directory]::EnumerateFiles($SourceDir, "*.exe" ) ) 
 	[System.IO.File]::Copy($file, [System.IO.Path]::Combine( $PubDir, [System.IO.Path]::GetFileName($file) ) )
 }
 
-ForEach( $file in [System.IO.Directory]::EnumerateFiles($SourceDir, "*.dll" ) ) {
-	[System.IO.File]::Copy($file, [System.IO.Path]::Combine( $PubDir, [System.IO.Path]::GetFileName($file) ) )
-}
-
 If ( [System.IO.File]::Exists($Destination) ) {
 	[System.IO.File]::Delete($Destination)
 }
