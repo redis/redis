@@ -242,6 +242,11 @@ void sortCommand(redisClient *c) {
             }
             j+=2;
         } else if (!strcasecmp(c->argv[j]->ptr,"store") && leftargs >= 1) {
+            if (server.cluster_enabled) {
+                addReplyError(c,"store option of SORT denied in Cluster mode.");
+                syntax_error++;
+                break;
+            }
             storekey = c->argv[j+1];
             j++;
         } else if (!strcasecmp(c->argv[j]->ptr,"by") && leftargs >= 1) {
