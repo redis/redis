@@ -81,7 +81,8 @@ def filter_samples(numsets,max,step,filter)
     }
 end
 
-filter_samples(100,100000,1000,:absavg)
-#filter_samples(100,1000,10,:all)
-#filter_samples(100,10000,1000,:max)
-#filter_samples(100,10000,1000,:avg)
+if ARGV.length != 4
+    puts "Usage: hll-gnuplot-graph <samples> <max> <step> (max|avg|absavg|all)"
+    exit 1
+end
+filter_samples(ARGV[0].to_i,ARGV[1].to_i,ARGV[2].to_i,ARGV[3].to_sym)
