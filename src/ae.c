@@ -40,6 +40,7 @@
   #include <sys/types.h> 
   #include <sys/timeb.h>
   #include "..\..\src\win32_Interop\Win32_FDAPI.h"
+#include "..\..\src\win32_Interop\Win32_Service.h"
 #endif
 #include <stdlib.h>
 #include <string.h>
@@ -380,6 +381,11 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
     int processed = 0, numevents;
+
+#ifdef _WIN32	
+	if (ServiceStopIssued() == TRUE)
+		aeStop(eventLoop);
+#endif
 
     /* Nothing to do? return ASAP */
     if (!(flags & AE_TIME_EVENTS) && !(flags & AE_FILE_EVENTS)) return 0;

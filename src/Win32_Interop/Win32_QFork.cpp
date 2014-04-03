@@ -32,11 +32,13 @@
 #include "Win32_QFork_impl.h"
 #include "Win32_dlmalloc.h"
 #include "Win32_SmartHandle.h"
+#include "Win32_Service.h"
 #include <vector>
 #include <iostream>
 #include <fstream>
 #include <sstream>
 #include <stdint.h>
+#include <exception>
 using namespace std;
 
 extern "C"
@@ -784,7 +786,7 @@ BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, i
         char arguments[_MAX_PATH];
         memset(arguments,0,_MAX_PATH);
         PROCESS_INFORMATION pi;
-        sprintf_s(arguments, _MAX_PATH, "%s %ld %ld", qforkFlag, g_hQForkControlFileMap, GetCurrentProcessId());
+        sprintf_s(arguments, _MAX_PATH, "%s %p %ld", qforkFlag, g_hQForkControlFileMap, GetCurrentProcessId());
         if (FALSE == CreateProcessA(fileName, arguments, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
             throw system_error( 
                 GetLastError(),
@@ -1171,33 +1173,45 @@ extern "C"
     // is invoked so that the QFork allocator can be setup prior to anything 
     // Redis will allocate.
     int main(int argc, char* argv[]) {
+		try {
 #ifdef DEBUG_WITH_PROCMON
-        hProcMonDevice = 
-            CreateFile( 
-                L"\\\\.\\Global\\ProcmonDebugLogger", 
-                GENERIC_READ|GENERIC_WRITE, 
-                FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE, 
-                NULL, 
-                OPEN_EXISTING, 
-                FILE_ATTRIBUTE_NORMAL, 
-                NULL );
+			hProcMonDevice = 
+				CreateFile( 
+				L"\\\\.\\Global\\ProcmonDebugLogger", 
+				GENERIC_READ|GENERIC_WRITE, 
+				FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE, 
+				NULL, 
+				OPEN_EXISTING, 
+				FILE_ATTRIBUTE_NORMAL, 
+				NULL );
 #endif
 
-        StartupStatus status = QForkStartup(argc, argv);
-        if (status == ssCONTINUE_AS_MASTER) {
-            int retval = redis_main(argc, argv);
-            QForkShutdown();
-            return retval;
-        } else if (status == ssSLAVE_EXIT) {
-            // slave is done - clean up and exit
-            QForkShutdown();
-            return 1;
-        } else if (status == ssFAILED) {
-            // master or slave failed initialization
-            return 1;
-        } else {
-            // unexpected status return
-            return 2;
-        }
+			// service commands do not launch an instance of redis directly
+			if (HandleServiceCommands(argc, argv) == TRUE)
+				return 0;
+
+			StartupStatus status = QForkStartup(argc, argv);
+			if (status == ssCONTINUE_AS_MASTER) {
+				int retval = redis_main(argc, argv);
+				QForkShutdown();
+				return retval;
+			} else if (status == ssSLAVE_EXIT) {
+				// slave is done - clean up and exit
+				QForkShutdown();
+				return 1;
+			} else if (status == ssFAILED) {
+				// master or slave failed initialization
+				return 1;
+			} else {
+				// unexpected status return
+				return 2;
+			}
+		} catch (std::system_error syserr) {
+			printf("main: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
+		} catch (std::runtime_error runerr) {
+			printf("main: runtime error caught. message=%s\n", runerr.what());
+		} catch (...) {
+			printf("main: other exception caught.\n");
+		}
     }
 }
