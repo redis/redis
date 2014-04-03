@@ -541,6 +541,9 @@ void pfcountCommand(redisClient *c) {
             card |= (uint64_t)registers[REDIS_HLL_SIZE-9] << 56;
         } else {
             /* Recompute it and update the cached value. */
+            o = dbUnshareStringValue(c->db,c->argv[1],o);
+            registers = o->ptr;
+
             card = hllCount(registers);
             registers[REDIS_HLL_SIZE-16] = card & 0xff;
             registers[REDIS_HLL_SIZE-15] = (card >> 8) & 0xff;
