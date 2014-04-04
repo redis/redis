@@ -201,6 +201,58 @@ start_server {tags {"scripting"}} {
         } 0
     } {a b}
 
+    test {EVAL - cmsgpack can pack double?} {
+        r eval {local encoded = cmsgpack.pack(0.1)
+                local h = ""
+                for i = 1, #encoded do
+                    h = h .. string.format("%02x",string.byte(encoded,i))
+                end
+                return h
+        } 0
+    } {cb3fb999999999999a}
+
+    test {EVAL - cmsgpack can pack negative int64?} {
+        r eval {local encoded = cmsgpack.pack(-1099511627776)
+                local h = ""
+                for i = 1, #encoded do
+                    h = h .. string.format("%02x",string.byte(encoded,i))
+                end
+                return h
+        } 0
+    } {d3ffffff0000000000}
+
+    test {EVAL - cmsgpack can pack and unpack circular references?} {
+        r eval {local a = {x=nil,y=5}
+                local b = {x=a}
+                a['x'] = b
+                local encoded = cmsgpack.pack(a)
+                local h = ""
+                -- cmsgpack encodes to a depth of 16, but can't encode
+                -- references, so the encoded object has a deep copy recusive
+                -- depth of 16.
+                for i = 1, #encoded do
+                    h = h .. string.format("%02x",string.byte(encoded,i))
+                end
+                -- when unpacked, re.x.x != re because the unpack creates
+                -- individual tables down to a depth of 16.
+                -- (that's why the encoded output is so large)
+                local re = cmsgpack.unpack(encoded)
+                assert(re)
+                assert(re.x)
+                assert(re.x.x.y == re.y)
+                assert(re.x.x.x.x.y == re.y)
+                assert(re.x.x.x.x.x.x.y == re.y)
+                assert(re.x.x.x.x.x.x.x.x.x.x.y == re.y)
+                -- maximum working depth:
+                assert(re.x.x.x.x.x.x.x.x.x.x.x.x.x.x.y == re.y)
+                -- now the last x would be b above and has no y
+                assert(re.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x)
+                -- so, the final x.x is at the depth limit and was assigned nil
+                assert(re.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x == nil)
+                return {h, re.x.x.x.x.x.x.x.x.y == re.y, re.y == 5}
+        } 0
+    } {82a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a178c0 1 1}
+
     test {SCRIPTING FLUSH - is able to clear the scripts cache?} {
         r set mykey myval
         set v [r evalsha fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey]
