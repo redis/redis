@@ -150,6 +150,10 @@ robj *dupStringObject(robj *o) {
         d->encoding = REDIS_ENCODING_INT;
         d->ptr = o->ptr;
         return d;
+    case REDIS_ENCODING_LZF:
+        d = createObject(REDIS_STRING,sdsdup(o->ptr));
+        d->encoding = REDIS_ENCODING_LZF;
+        return d;
     default:
         redisPanic("Wrong encoding.");
         break;
@@ -329,11 +333,19 @@ int checkType(redisClient *c, robj *o, int type) {
 
 int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
     redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
-    if (o->encoding == REDIS_ENCODING_INT) {
+    if (intEncodedObject(o)) {
         if (llval) *llval = (long) o->ptr;
         return REDIS_OK;
-    } else {
+    } else if (sdsEncodedObject(o)) {
         return string2ll(o->ptr,sdslen(o->ptr),llval) ? REDIS_OK : REDIS_ERR;
+    } else if (lzfEncodedObject(o)) {
+        int retval;
+        robj *decoded = getDecodedObject(o);
+        retval = string2ll(o->ptr,sdslen(o->ptr),llval) ? REDIS_OK : REDIS_ERR;
+        decrRefCount(decoded);
+        return retval;
+    } else {
+        redisPanic("Unknown encoding.");
     }
 }
 
@@ -464,13 +476,13 @@ robj *getDecodedObject(robj *o) {
         incrRefCount(o);
         return o;
     }
-    if (o->type == REDIS_STRING && o->encoding == REDIS_ENCODING_INT) {
+    if (o->type == REDIS_STRING && intEncodedObject(o)) {
         char buf[32];
 
         ll2string(buf,32,(long)o->ptr);
         dec = createStringObject(buf,strlen(buf));
         return dec;
-    } else if (o->type == REDIS_STRING && o->encoding == REDIS_ENCODING_LZF) {
+    } else if (o->type == REDIS_STRING && lzfEncodedObject(o)) {
         int origlen = stringObjectLen(o);
         sds orig = sdsnewlen(NULL,origlen);
         unsigned char *p = o->ptr;
@@ -498,8 +510,15 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
     redisAssertWithInfo(NULL,a,a->type == REDIS_STRING && b->type == REDIS_STRING);
     char bufa[128], bufb[128], *astr, *bstr;
     size_t alen, blen, minlen;
+    int decr = 0;
 
     if (a == b) return 0;
+
+    if (lzfEncodedObject(a) || lzfEncodedObject(b)) {
+        a = getDecodedObject(a);
+        b = getDecodedObject(b);
+        decr = 1;
+    }
     if (sdsEncodedObject(a)) {
         astr = a->ptr;
         alen = sdslen(astr);
@@ -524,6 +543,10 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
         if (cmp == 0) return alen-blen;
         return cmp;
     }
+    if (decr) {
+        decrRefCount(a);
+        decrRefCount(b);
+    }
 }
 
 /* Wrapper for compareStringObjectsWithFlags() using binary comparison. */
@@ -541,8 +564,7 @@ int collateStringObjects(robj *a, robj *b) {
  * this function is faster then checking for (compareStringObject(a,b) == 0)
  * because it can perform some more optimization. */
 int equalStringObjects(robj *a, robj *b) {
-    if (a->encoding == REDIS_ENCODING_INT &&
-        b->encoding == REDIS_ENCODING_INT){
+    if (intEncodedObject(a) && intEncodedObject(b)) {
         /* If both strings are integer encoded just check if the stored
          * long is the same. */
         return a->ptr == b->ptr;
@@ -588,8 +610,14 @@ int getDoubleFromObject(robj *o, double *target) {
                 errno == EINVAL ||
                 isnan(value))
                 return REDIS_ERR;
-        } else if (o->encoding == REDIS_ENCODING_INT) {
+        } else if (intEncodedObject(o)) {
             value = (long)o->ptr;
+        } else if (lzfEncodedObject(o)) {
+            int retval;
+            o = getDecodedObject(o);
+            retval = getDoubleFromObject(o,target);
+            decrRefCount(o);
+            return retval;
         } else {
             redisPanic("Unknown string encoding");
         }
@@ -626,8 +654,14 @@ int getLongDoubleFromObject(robj *o, long double *target) {
             if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
                 errno == ERANGE || isnan(value))
                 return REDIS_ERR;
-        } else if (o->encoding == REDIS_ENCODING_INT) {
+        } else if (intEncodedObject(o)) {
             value = (long)o->ptr;
+        } else if (lzfEncodedObject(o)) {
+            int retval;
+            o = getDecodedObject(o);
+            retval = getLongDoubleFromObject(o,target);
+            decrRefCount(o);
+            return retval;
         } else {
             redisPanic("Unknown string encoding");
         }
@@ -664,8 +698,14 @@ int getLongLongFromObject(robj *o, long long *target) {
             if (isspace(((char*)o->ptr)[0]) || eptr[0] != '\0' ||
                 errno == ERANGE)
                 return REDIS_ERR;
-        } else if (o->encoding == REDIS_ENCODING_INT) {
+        } else if (intEncodedObject(o)) {
             value = (long)o->ptr;
+        } else if (lzfEncodedObject(o)) {
+            int retval;
+            o = getDecodedObject(o);
+            retval = getLongLongFromObject(o,target);
+            decrRefCount(o);
+            return retval;
         } else {
             redisPanic("Unknown string encoding");
         }
