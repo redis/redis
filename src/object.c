@@ -399,11 +399,8 @@ robj *tryObjectEncoding(robj *o) {
     }
 
     /* Try LZF compression for objects up to REDIS_ENCODING_LZF_MAX_SIZE
-     * and greater than REDIS_ENCODING_EMBSTR_SIZE_LIMIT.
-     *
-     * TODO: add fast compressibility test using LZF against a few
-     * characters and don't going forward if this test does not passes. */
-    if (len <= REDIS_ENCODING_LZF_MAX_SIZE) {
+     * and greater than REDIS_ENCODING_EMBSTR_SIZE_LIMIT. */
+    if (server.mem_compression && len <= REDIS_ENCODING_LZF_MAX_SIZE) {
         /* Allocate four more bytes in our buffer since we need to store
          * the size of the compressed string as header. */
         unsigned char compr[4+REDIS_ENCODING_LZF_MAX_COMPR_SIZE];

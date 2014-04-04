@@ -107,6 +107,7 @@
 #define REDIS_DEFAULT_SYSLOG_ENABLED 0
 #define REDIS_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR 1
 #define REDIS_DEFAULT_RDB_COMPRESSION 1
+#define REDIS_DEFAULT_MEM_COMPRESSION 0
 #define REDIS_DEFAULT_RDB_CHECKSUM 1
 #define REDIS_DEFAULT_RDB_FILENAME "dump.rdb"
 #define REDIS_DEFAULT_SLAVE_SERVE_STALE_DATA 1
@@ -810,8 +811,9 @@ struct redisServer {
     size_t set_max_intset_entries;
     size_t zset_max_ziplist_entries;
     size_t zset_max_ziplist_value;
+    int mem_compression;    /* In memory LZF compression. */
     time_t unixtime;        /* Unix time sampled every cron cycle. */
-    long long mstime;       /* Like 'unixtime' but with milliseconds resolution. */
+    long long mstime;       /* Like unixtime but in milliseconds. */
     /* Pubsub */
     dict *pubsub_channels;  /* Map channels to list of subscribed clients */
     list *pubsub_patterns;  /* A list of pubsub_patterns */
