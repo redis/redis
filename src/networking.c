@@ -319,6 +319,11 @@ void addReply(redisClient *c, robj *obj) {
         if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != REDIS_OK)
             _addReplyObjectToList(c,obj);
         decrRefCount(obj);
+    } else if (obj->encoding == REDIS_ENCODING_LZF) {
+        obj = getDecodedObject(obj);
+        if (_addReplyToBuffer(c,obj->ptr,sdslen(obj->ptr)) != REDIS_OK)
+            _addReplyObjectToList(c,obj);
+        decrRefCount(obj);
     } else {
         redisPanic("Wrong obj->encoding in addReply()");
     }
@@ -488,7 +493,7 @@ void addReplyBulkLen(redisClient *c, robj *obj) {
 
     if (sdsEncodedObject(obj)) {
         len = sdslen(obj->ptr);
-    } else {
+    } else if (obj->encoding == REDIS_ENCODING_INT) {
         long n = (long)obj->ptr;
 
         /* Compute how many bytes will take this integer as a radix 10 string */
@@ -500,6 +505,9 @@ void addReplyBulkLen(redisClient *c, robj *obj) {
         while((n = n/10) != 0) {
             len++;
         }
+    } else {
+        /* LZF and others not handled explicitly. */
+        len = stringObjectLen(obj);
     }
 
     if (len < REDIS_SHARED_BULKHDR_LEN)

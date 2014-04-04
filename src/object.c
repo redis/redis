@@ -29,6 +29,7 @@
  */
 
 #include "redis.h"
+#include "lzf.h"    /* LZF compression library */
 #include <math.h>
 #include <ctype.h>
 
@@ -210,7 +211,8 @@ robj *createZsetZiplistObject(void) {
 }
 
 void freeStringObject(robj *o) {
-    if (o->encoding == REDIS_ENCODING_RAW) {
+    if (o->encoding == REDIS_ENCODING_RAW ||
+        o->encoding == REDIS_ENCODING_LZF) {
         sdsfree(o->ptr);
     }
 }
@@ -335,7 +337,9 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
     }
 }
 
-/* Try to encode a string object in order to save space */
+/* Try to encode a string object in order to save space. */
+#define REDIS_ENCODING_LZF_MAX_SIZE (1024*64)
+#define REDIS_ENCODING_LZF_MAX_COMPR_SIZE (1024*32)
 robj *tryObjectEncoding(robj *o) {
     long value;
     sds s = o->ptr;
@@ -394,6 +398,35 @@ robj *tryObjectEncoding(robj *o) {
         return emb;
     }
 
+    /* Try LZF compression for objects up to REDIS_ENCODING_LZF_MAX_SIZE
+     * and greater than REDIS_ENCODING_EMBSTR_SIZE_LIMIT.
+     *
+     * TODO: add fast compressibility test using LZF against a few
+     * characters and don't going forward if this test does not passes. */
+    if (len <= REDIS_ENCODING_LZF_MAX_SIZE) {
+        /* Allocate four more bytes in our buffer since we need to store
+         * the size of the compressed string as header. */
+        unsigned char compr[4+REDIS_ENCODING_LZF_MAX_COMPR_SIZE];
+        size_t comprlen, outlen;
+
+        /* Save want to save at least 25% of memory for this to make sense. */
+        outlen = len-4-(len/4);
+        if (outlen > REDIS_ENCODING_LZF_MAX_SIZE)
+            outlen = REDIS_ENCODING_LZF_MAX_SIZE;
+        comprlen = lzf_compress(s,len,compr+4,outlen);
+        if (comprlen != 0) {
+            /* Object successfully compressed within the required space. */
+            compr[0] = len & 0xff;
+            compr[1] = (len >> 8) & 0xff;
+            compr[2] = (len >> 16) & 0xff;
+            compr[3] = (len >> 24) & 0xff;
+            if (o->encoding == REDIS_ENCODING_RAW) sdsfree(o->ptr);
+            o->encoding = REDIS_ENCODING_LZF;
+            o->ptr = sdsnewlen(compr,comprlen+4);
+            return o;
+        }
+    }
+
     /* We can't encode the object...
      *
      * Do the last try, and at least optimize the SDS string inside
@@ -428,6 +461,14 @@ robj *getDecodedObject(robj *o) {
         ll2string(buf,32,(long)o->ptr);
         dec = createStringObject(buf,strlen(buf));
         return dec;
+    } else if (o->type == REDIS_STRING && o->encoding == REDIS_ENCODING_LZF) {
+        int origlen = stringObjectLen(o);
+        sds orig = sdsnewlen(NULL,origlen);
+        unsigned char *p = o->ptr;
+
+        if (lzf_decompress(p+4,sdslen(o->ptr)-4,orig,origlen) == 0)
+            redisPanic("LZF error during object decoding.");
+        return createObject(REDIS_STRING,orig);
     } else {
         redisPanic("Unknown encoding type");
     }
@@ -501,13 +542,21 @@ int equalStringObjects(robj *a, robj *b) {
     }
 }
 
+/* Returns the original (uncompressed) size of an LZF encoded object.
+ * Only called by stringObjectLen() that should be the main interface. */
+size_t stringObjectUncompressedLen(robj *o) {
+    unsigned char *p = o->ptr;
+    return p[0] | (p[1]<<8) | (p[2]<<16) | (p[3]<<24);
+}
+
 size_t stringObjectLen(robj *o) {
     redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
     if (sdsEncodedObject(o)) {
         return sdslen(o->ptr);
+    } else if (o->encoding == REDIS_ENCODING_LZF) {
+        return stringObjectUncompressedLen(o);
     } else {
         char buf[32];
-
         return ll2string(buf,32,(long)o->ptr);
     }
 }
@@ -656,6 +705,7 @@ char *strEncoding(int encoding) {
     case REDIS_ENCODING_INTSET: return "intset";
     case REDIS_ENCODING_SKIPLIST: return "skiplist";
     case REDIS_ENCODING_EMBSTR: return "embstr";
+    case REDIS_ENCODING_LZF: return "lzf";
     default: return "unknown";
     }
 }

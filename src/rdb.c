@@ -209,11 +209,41 @@ int rdbTryIntegerEncoding(char *s, size_t len, unsigned char *enc) {
     return rdbEncodeInteger(value,enc);
 }
 
-int rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
-    size_t comprlen, outlen;
+/* Save an already compressed object in LZF encoding.
+ *
+ * On success the length of the strored object is returned, otherwise
+ * 0 is returned. */
+int rdbSaveLzfStringObject(rio *rdb, unsigned char *out, size_t len, size_t comprlen) {
     unsigned char byte;
     int n, nwritten = 0;
+
+    /* Data compressed! Let's save it on disk */
+    byte = (REDIS_RDB_ENCVAL<<6)|REDIS_RDB_ENC_LZF;
+    if ((n = rdbWriteRaw(rdb,&byte,1)) == -1) goto writeerr;
+    nwritten += n;
+    if ((n = rdbSaveLen(rdb,comprlen)) == -1) goto writeerr;
+    nwritten += n;
+    if ((n = rdbSaveLen(rdb,len)) == -1) goto writeerr;
+    nwritten += n;
+    if ((n = rdbWriteRaw(rdb,out,comprlen)) == -1) goto writeerr;
+    nwritten += n;
+    return nwritten;
+
+writeerr:
+    zfree(out);
+    return -1;
+}
+
+/* Try to compress the string at 's' for 'len' bytes using LZF.
+ * If successful save the object with LZF encoding, otherwise
+ * returns 0 if the string can't be compressed, or -1 if the
+ * compressed string can't be saved.
+ *
+ * On success the number of bytes used is returned. */
+int rdbTrySaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
+    size_t comprlen, outlen;
     void *out;
+    int retval;
 
     /* We require at least four bytes compression for this to be worth it */
     if (len <= 4) return 0;
@@ -224,26 +254,9 @@ int rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
         zfree(out);
         return 0;
     }
-    /* Data compressed! Let's save it on disk */
-    byte = (REDIS_RDB_ENCVAL<<6)|REDIS_RDB_ENC_LZF;
-    if ((n = rdbWriteRaw(rdb,&byte,1)) == -1) goto writeerr;
-    nwritten += n;
-
-    if ((n = rdbSaveLen(rdb,comprlen)) == -1) goto writeerr;
-    nwritten += n;
-
-    if ((n = rdbSaveLen(rdb,len)) == -1) goto writeerr;
-    nwritten += n;
-
-    if ((n = rdbWriteRaw(rdb,out,comprlen)) == -1) goto writeerr;
-    nwritten += n;
-
+    retval = rdbSaveLzfStringObject(rdb,out,len,comprlen);
     zfree(out);
-    return nwritten;
-
-writeerr:
-    zfree(out);
-    return -1;
+    return retval;
 }
 
 robj *rdbLoadLzfStringObject(rio *rdb) {
@@ -283,7 +296,7 @@ int rdbSaveRawString(rio *rdb, unsigned char *s, size_t len) {
     /* Try LZF compression - under 20 bytes it's unable to compress even
      * aaaaaaaaaaaaaaaaaa so skip it */
     if (server.rdb_compression && len > 20) {
-        n = rdbSaveLzfStringObject(rdb,s,len);
+        n = rdbTrySaveLzfStringObject(rdb,s,len);
         if (n == -1) return -1;
         if (n > 0) return n;
         /* Return value of 0 means data can't be compressed, save the old way */
@@ -324,6 +337,11 @@ int rdbSaveStringObject(rio *rdb, robj *obj) {
      * object is already integer encoded. */
     if (obj->encoding == REDIS_ENCODING_INT) {
         return rdbSaveLongLongAsStringObject(rdb,(long)obj->ptr);
+    } else if (obj->encoding == REDIS_ENCODING_LZF) {
+        /* Data is already compressed, save it with LZF encoding. */
+        int len = stringObjectLen(obj);
+        unsigned char *p = obj->ptr;
+        return rdbSaveLzfStringObject(rdb,p+4,len,sdslen(obj->ptr)-4);
     } else {
         redisAssertWithInfo(NULL,obj,sdsEncodedObject(obj));
         return rdbSaveRawString(rdb,obj->ptr,sdslen(obj->ptr));

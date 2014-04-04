@@ -261,6 +261,7 @@ void getbitCommand(redisClient *c) {
 
     byte = bitoffset >> 3;
     bit = 7 - (bitoffset & 0x7);
+    if (lzfEncodedObject(o)) o = dbUnshareStringValue(c->db,c->argv[1],o);
     if (sdsEncodedObject(o)) {
         if (byte < sdslen(o->ptr))
             bitval = ((uint8_t*)o->ptr)[byte] & (1 << bit);
