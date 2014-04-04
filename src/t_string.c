@@ -242,6 +242,7 @@ void getrangeCommand(redisClient *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptybulk)) == NULL ||
         checkType(c,o,REDIS_STRING)) return;
 
+    if (lzfEncodedObject(o)) o = dbUnshareStringValue(c->db,c->argv[1],o);
     if (o->encoding == REDIS_ENCODING_INT) {
         str = llbuf;
         strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
