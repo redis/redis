@@ -2392,7 +2392,7 @@ sds genRedisInfoString(char *section) {
     if (section) {
         allsections = strcasecmp(section,"all") == 0;
         defsections = strcasecmp(section,"default") == 0;
-		serversections = strcasecmp(section,"server") == 0;
+        serversections = strcasecmp(section,"server") == 0;
     }
 
     getrusage(RUSAGE_SELF, &self_ru);
