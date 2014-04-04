@@ -108,6 +108,7 @@
 #define REDIS_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR 1
 #define REDIS_DEFAULT_RDB_COMPRESSION 1
 #define REDIS_DEFAULT_MEM_COMPRESSION 0
+#define REDIS_DEFAULT_MEM_COMPRESSION_MAX_SIZE (1024*64)
 #define REDIS_DEFAULT_RDB_CHECKSUM 1
 #define REDIS_DEFAULT_RDB_FILENAME "dump.rdb"
 #define REDIS_DEFAULT_SLAVE_SERVE_STALE_DATA 1
@@ -812,6 +813,7 @@ struct redisServer {
     size_t zset_max_ziplist_entries;
     size_t zset_max_ziplist_value;
     int mem_compression;    /* In memory LZF compression. */
+    size_t mem_compression_max_size; /* Try to compress up to this size. */
     time_t unixtime;        /* Unix time sampled every cron cycle. */
     long long mstime;       /* Like unixtime but in milliseconds. */
     /* Pubsub */

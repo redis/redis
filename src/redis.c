@@ -1398,6 +1398,7 @@ void initServerConfig() {
     server.requirepass = NULL;
     server.rdb_compression = REDIS_DEFAULT_RDB_COMPRESSION;
     server.mem_compression = REDIS_DEFAULT_MEM_COMPRESSION;
+    server.mem_compression_max_size = REDIS_DEFAULT_MEM_COMPRESSION_MAX_SIZE;
     server.rdb_checksum = REDIS_DEFAULT_RDB_CHECKSUM;
     server.stop_writes_on_bgsave_err = REDIS_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR;
     server.activerehashing = REDIS_DEFAULT_ACTIVE_REHASHING;

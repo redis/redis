@@ -338,8 +338,7 @@ int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
 }
 
 /* Try to encode a string object in order to save space. */
-#define REDIS_ENCODING_LZF_MAX_SIZE (1024*64)
-#define REDIS_ENCODING_LZF_MAX_COMPR_SIZE (1024*32)
+#define LZF_COMPR_STATIC_BUF (1024*32)
 robj *tryObjectEncoding(robj *o) {
     long value;
     sds s = o->ptr;
@@ -398,18 +397,23 @@ robj *tryObjectEncoding(robj *o) {
         return emb;
     }
 
-    /* Try LZF compression for objects up to REDIS_ENCODING_LZF_MAX_SIZE
+    /* Try LZF compression for objects up to server.mem_compression_max_size
      * and greater than REDIS_ENCODING_EMBSTR_SIZE_LIMIT. */
-    if (server.mem_compression && len <= REDIS_ENCODING_LZF_MAX_SIZE) {
+    if (server.mem_compression && len <= server.mem_compression_max_size) {
         /* Allocate four more bytes in our buffer since we need to store
          * the size of the compressed string as header. */
-        unsigned char compr[4+REDIS_ENCODING_LZF_MAX_COMPR_SIZE];
+        unsigned char compr_static[LZF_COMPR_STATIC_BUF];
+        unsigned char *compr = compr_static;
         size_t comprlen, outlen;
 
         /* Save want to save at least 25% of memory for this to make sense. */
         outlen = len-4-(len/4);
-        if (outlen > REDIS_ENCODING_LZF_MAX_SIZE)
-            outlen = REDIS_ENCODING_LZF_MAX_SIZE;
+
+        /* Use an heap allocated buffer if the output is too big for our
+         * static buffer. We use the trick to directly allocating an empty
+         * SDS string so we can use it directly to create the object later. */
+        if (outlen+4 > LZF_COMPR_STATIC_BUF)
+            compr = (unsigned char*) sdsnewlen(NULL,outlen+4);
         comprlen = lzf_compress(s,len,compr+4,outlen);
         if (comprlen != 0) {
             /* Object successfully compressed within the required space. */
@@ -419,9 +423,17 @@ robj *tryObjectEncoding(robj *o) {
             compr[3] = (len >> 24) & 0xff;
             if (o->encoding == REDIS_ENCODING_RAW) sdsfree(o->ptr);
             o->encoding = REDIS_ENCODING_LZF;
-            o->ptr = sdsnewlen(compr,comprlen+4);
+            if (compr == compr_static) {
+                /* When compressing to the static buffer we have to
+                 * generate the SDS string here. */
+                o->ptr = sdsnewlen(compr,comprlen+4);
+            } else {
+                /* Already an SDS, use it. */
+                o->ptr = compr;
+            }
             return o;
         }
+        if (compr != compr_static) sdsfree((char*)compr);
     }
 
     /* We can't encode the object...
