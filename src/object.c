@@ -341,64 +341,76 @@ robj *tryObjectEncoding(robj *o) {
     sds s = o->ptr;
     size_t len;
 
-    if (o->encoding == REDIS_ENCODING_INT)
-        return o; /* Already encoded */
+    /* Make sure this is a string object, the only type we encode
+     * in this function. Other types use encoded memory efficient
+     * representations but are handled by the commands implementing
+     * the type. */
+    redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
+
+    /* We try some specialized encoding only for objects that are
+     * RAW or EMBSTR encoded, in other words objects that are still
+     * in represented by an actually array of chars. */
+    if (!sdsEncodedObject(o)) return o;
 
     /* It's not safe to encode shared objects: shared objects can be shared
-     * everywhere in the "object space" of Redis. Encoded objects can only
-     * appear as "values" (and not, for instance, as keys) */
+     * everywhere in the "object space" of Redis and may end in places where
+     * they are not handled. We handle them only as values in the keyspace. */
      if (o->refcount > 1) return o;
-
-    /* Currently we try to encode only strings */
-    redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
 
     /* Check if we can represent this string as a long integer.
      * Note that we are sure that a string larger than 21 chars is not
-     * representable as a 64 bit integer. */
+     * representable as a 32 nor 64 bit integer. */
     len = sdslen(s);
-    if (len > 21 || !string2l(s,len,&value)) {
-        /* Integer encoding not possible. Check if we can use EMBSTR. */
-        if (sdslen(s) <= REDIS_ENCODING_EMBSTR_SIZE_LIMIT) {
-            robj *emb = createEmbeddedStringObject(s,sdslen(s));
+    if (len <= 21 && string2l(s,len,&value)) {
+        /* This object is encodable as a long. Try to use a shared object.
+         * Note that we avoid using shared integers when maxmemory is used
+         * because every object needs to have a private LRU field for the LRU
+         * algorithm to work well. */
+        if (server.maxmemory == 0 &&
+            value >= 0 &&
+            value < REDIS_SHARED_INTEGERS)
+        {
             decrRefCount(o);
-            return emb;
+            incrRefCount(shared.integers[value]);
+            return shared.integers[value];
         } else {
-            /* We can't encode the object...
-             *
-             * Do the last try, and at least optimize the SDS string inside
-             * the string object to require little space, in case there
-             * is more than 10% of free space at the end of the SDS string.
-             *
-             * We do that only for relatively large strings as this branch
-             * is only entered if the length of the string is greater than
-             * REDIS_ENCODING_EMBSTR_SIZE_LIMIT. */
-            if (o->encoding == REDIS_ENCODING_RAW &&
-                sdsavail(s) > len/10)
-            {
-                o->ptr = sdsRemoveFreeSpace(o->ptr);
-            }
-            /* Return the original object. */
+            if (o->encoding == REDIS_ENCODING_RAW) sdsfree(o->ptr);
+            o->encoding = REDIS_ENCODING_INT;
+            o->ptr = (void*) value;
             return o;
         }
     }
 
-    /* Ok, this object can be encoded...
-     *
-     * Can I use a shared object? Only if the object is inside a given range
-     *
-     * Note that we also avoid using shared integers when maxmemory is used
-     * because every object needs to have a private LRU field for the LRU
-     * algorithm to work well. */
-    if (server.maxmemory == 0 && value >= 0 && value < REDIS_SHARED_INTEGERS) {
+    /* If the string is small and is still RAW encoded,
+     * try the EMBSTR encoding which is more efficient.
+     * In this representation the object and the SDS string are allocated
+     * in the same chunk of memory to save space and cache misses. */
+    if (len <= REDIS_ENCODING_EMBSTR_SIZE_LIMIT) {
+        robj *emb;
+
+        if (o->encoding == REDIS_ENCODING_EMBSTR) return o;
+        emb = createEmbeddedStringObject(s,sdslen(s));
         decrRefCount(o);
-        incrRefCount(shared.integers[value]);
-        return shared.integers[value];
-    } else {
-        if (o->encoding == REDIS_ENCODING_RAW) sdsfree(o->ptr);
-        o->encoding = REDIS_ENCODING_INT;
-        o->ptr = (void*) value;
-        return o;
+        return emb;
     }
+
+    /* We can't encode the object...
+     *
+     * Do the last try, and at least optimize the SDS string inside
+     * the string object to require little space, in case there
+     * is more than 10% of free space at the end of the SDS string.
+     *
+     * We do that only for relatively large strings as this branch
+     * is only entered if the length of the string is greater than
+     * REDIS_ENCODING_EMBSTR_SIZE_LIMIT. */
+    if (o->encoding == REDIS_ENCODING_RAW &&
+        sdsavail(s) > len/10)
+    {
+        o->ptr = sdsRemoveFreeSpace(o->ptr);
+    }
+
+    /* Return the original object. */
+    return o;
 }
 
 /* Get a decoded version of an encoded object (returned as a new object).
