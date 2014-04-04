@@ -1081,8 +1081,10 @@ int compareStringObjects(robj *a, robj *b);
 int collateStringObjects(robj *a, robj *b);
 int equalStringObjects(robj *a, robj *b);
 unsigned long long estimateObjectIdleTime(robj *o);
-#define sdsEncodedObject(objptr) (objptr->encoding == REDIS_ENCODING_RAW || objptr->encoding == REDIS_ENCODING_EMBSTR)
+#define rawEncodedObject(objptr) (objptr->encoding == REDIS_ENCODING_RAW)
 #define lzfEncodedObject(objptr) (objptr->encoding == REDIS_ENCODING_LZF)
+#define intEncodedObject(objptr) (objptr->encoding == REDIS_ENCODING_INT)
+#define sdsEncodedObject(objptr) (objptr->encoding == REDIS_ENCODING_RAW || objptr->encoding == REDIS_ENCODING_EMBSTR)
 
 /* Synchronous I/O with timeout */
 ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout);
