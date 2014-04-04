@@ -276,7 +276,9 @@ struct redisCommand redisCommandTable[] = {
     {"pfmerge",pfmergeCommand,-2,"wm",0,NULL,1,-1,1,0,0},
     {"pfgetreg",pfgetregCommand,2,"r",0,NULL,0,0,0,0,0},
     {"xget",xgetCommand,-3,"r",0,NULL,1,1,1,0,0},
-    {"xset",xsetCommand,-4,"wm",0,NULL,1,1,1,0,0}
+    {"xset",xsetCommand,-4,"wm",0,NULL,1,1,1,0,0},
+    {"xzeros",xzerosCommand,-3,"wm",0,NULL,1,1,1,0,0},
+    {"xones",xonesCommand,-3,"wm",0,NULL,1,1,1,0,0}
 };
 
 struct evictionPoolEntry *evictionPoolAlloc(void);

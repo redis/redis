@@ -11,4 +11,14 @@ start_server {
         assert_equal {4 4} [r xset xgetmat 3 3 1]
         assert_equal {2 4 4 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1} [r xget xgetmat -1 -1]
     }
+
+    test {XZEROS} {
+      assert_equal {4 4} [r xzeros xzerosmat 4 4]
+      assert_equal {2 4 4 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0} [r xget xzerosmat -1 -1]
+    }
+
+    test {XONES} {
+      assert_equal {4 4} [r xones xonesmat 4 4]
+      assert_equal {2 4 4 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1} [r xget xonesmat -1 -1]
+    }
 }

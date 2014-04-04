@@ -1470,6 +1470,8 @@ void pfmergeCommand(redisClient *c);
 void pfgetregCommand(redisClient *c);
 void xgetCommand(redisClient *c);
 void xsetCommand(redisClient *c);
+void xzerosCommand(redisClient *c);
+void xonesCommand(redisClient *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));
