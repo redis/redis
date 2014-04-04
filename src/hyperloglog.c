@@ -316,7 +316,7 @@ int hllAdd(uint8_t *registers, unsigned char *ele, size_t elesize) {
      *
      * This may sound like inefficient, but actually in the average case
      * there are high probabilities to find a 1 after a few iterations. */
-    hash = MurmurHash64A(ele,elesize,0);
+    hash = MurmurHash64A(ele,elesize,0xadc83b19ULL);
     hash |= ((uint64_t)1<<63); /* Make sure the loop terminates. */
     bit = REDIS_HLL_REGISTERS; /* First bit not used to address the register. */
     count = 1; /* Initialized to 1 since we count the "00000...1" pattern. */
