@@ -63,15 +63,17 @@ slowlogEntry *slowlogCreateEntry(robj **argv, int argc, long long duration) {
         } else {
             /* Trim too long strings as well... */
             if (argv[j]->type == REDIS_STRING &&
-                sdsEncodedObject(argv[j]) &&
-                sdslen(argv[j]->ptr) > SLOWLOG_ENTRY_MAX_STRING)
+                (sdsEncodedObject(argv[j]) || lzfEncodedObject(argv[j])) &&
+                stringObjectLen(argv[j]) > SLOWLOG_ENTRY_MAX_STRING)
             {
-                sds s = sdsnewlen(argv[j]->ptr, SLOWLOG_ENTRY_MAX_STRING);
+                robj *o = getDecodedObject(argv[j]);
+                sds s = sdsnewlen(o->ptr, SLOWLOG_ENTRY_MAX_STRING);
 
                 s = sdscatprintf(s,"... (%lu more bytes)",
                     (unsigned long)
-                    sdslen(argv[j]->ptr) - SLOWLOG_ENTRY_MAX_STRING);
+                    stringObjectLen(argv[j]) - SLOWLOG_ENTRY_MAX_STRING);
                 se->argv[j] = createObject(REDIS_STRING,s);
+                decrRefCount(o);
             } else {
                 se->argv[j] = argv[j];
                 incrRefCount(argv[j]);
