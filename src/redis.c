@@ -2562,10 +2562,9 @@ sds genRedisInfoString(char *section) {
     int allsections = 0, defsections = 0;
     int sections = 0;
 
-    if (section) {
-        allsections = strcasecmp(section,"all") == 0;
-        defsections = strcasecmp(section,"default") == 0;
-    }
+    if (section == NULL) section = "default";
+    allsections = strcasecmp(section,"all") == 0;
+    defsections = strcasecmp(section,"default") == 0;
 
     getrusage(RUSAGE_SELF, &self_ru);
     getrusage(RUSAGE_CHILDREN, &c_ru);
