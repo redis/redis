@@ -458,6 +458,7 @@ void bitcountCommand(redisClient *c) {
 
     /* Set the 'p' pointer to the string, that can be just a stack allocated
      * array if our string was integer encoded. */
+    if (lzfEncodedObject(o)) o = dbUnshareStringValue(c->db,c->argv[1],o);
     if (o->encoding == REDIS_ENCODING_INT) {
         p = (unsigned char*) llbuf;
         strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
@@ -527,6 +528,7 @@ void bitposCommand(redisClient *c) {
 
     /* Set the 'p' pointer to the string, that can be just a stack allocated
      * array if our string was integer encoded. */
+    if (lzfEncodedObject(o)) o = dbUnshareStringValue(c->db,c->argv[1],o);
     if (o->encoding == REDIS_ENCODING_INT) {
         p = (unsigned char*) llbuf;
         strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
