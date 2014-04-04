@@ -184,6 +184,25 @@ start_server {tags {"scripting"}} {
         set e
     } {*against a key*}
 
+    test {EVAL - Numerical sanity check from bitop} {
+        r eval {assert(0x7fffffff == 2147483647, "broken hex literals");
+                assert(0xffffffff == -1 or 0xffffffff == 2^32-1,
+                    "broken hex literals");
+                assert(tostring(-1) == "-1", "broken tostring()");
+                assert(tostring(0xffffffff) == "-1" or
+                    tostring(0xffffffff) == "4294967295",
+                    "broken tostring()")
+        } 0
+    } {}
+
+    test {EVAL - Verify minimal bitop functionality} {
+        r eval {assert(bit.tobit(1) == 1);
+                assert(bit.band(1) == 1);
+                assert(bit.bxor(1,2) == 3);
+                assert(bit.bor(1,2,4,8,16,32,64,128) == 255)
+        } 0
+    } {}
+
     test {SCRIPTING FLUSH - is able to clear the scripts cache?} {
         r set mykey myval
         set v [r evalsha fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey]
