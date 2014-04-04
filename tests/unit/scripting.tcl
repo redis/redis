@@ -184,6 +184,23 @@ start_server {tags {"scripting"}} {
         set e
     } {*against a key*}
 
+    test {EVAL - JSON numeric decoding} {
+        # We must return the table as a string because otherwise
+        # Redis converts floats to ints and we get 0 and 1023 instead
+        # of 0.0003 and 1023.2 as the parsed output.
+        r eval {return
+                 table.concat(
+                   cjson.decode(
+                    "[0.0, -5e3, -1, 0.3e-3, 1023.2, 0e10]"), " ")
+        } 0
+    } {0 -5000 -1 0.0003 1023.2 0}
+
+    test {EVAL - JSON string decoding} {
+        r eval {local decoded = cjson.decode('{"keya": "a", "keyb": "b"}')
+                return {decoded.keya, decoded.keyb}
+        } 0
+    } {a b}
+
     test {SCRIPTING FLUSH - is able to clear the scripts cache?} {
         r set mykey myval
         set v [r evalsha fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey]
