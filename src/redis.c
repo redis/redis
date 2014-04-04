@@ -2559,12 +2559,13 @@ sds genRedisInfoString(char *section) {
     int j, numcommands;
     struct rusage self_ru, c_ru;
     unsigned long lol, bib;
-    int allsections = 0, defsections = 0;
+    int allsections = 0, defsections = 0, serversections = 0;
     int sections = 0;
 
     if (section) {
         allsections = strcasecmp(section,"all") == 0;
         defsections = strcasecmp(section,"default") == 0;
+        serversections = strcasecmp(section,"server") == 0;
     }
 
     getrusage(RUSAGE_SELF, &self_ru);
@@ -2572,7 +2573,7 @@ sds genRedisInfoString(char *section) {
     getClientsMaxBuffers(&lol,&bib);
 
     /* Server */
-    if (allsections || defsections || !strcasecmp(section,"server")) {
+    if (allsections || defsections || serversections) {
         static int call_uname = 1;
         static struct utsname name;
         char *mode;
