@@ -2348,6 +2348,7 @@ sds genRedisInfoString(char *section) {
         char hmem[64];
         char peak_hmem[64];
         size_t zmalloc_used = zmalloc_used_memory();
+        size_t lua_memory = lua_gc(server.lua,LUA_GCCOUNT,0)*1024LL;
 
         /* Peak memory is updated from time to time by serverCron() so it
          * may happen that the instantaneous value is slightly bigger than
@@ -2366,7 +2367,7 @@ sds genRedisInfoString(char *section) {
             "used_memory_rss:%zu\r\n"
             "used_memory_peak:%zu\r\n"
             "used_memory_peak_human:%s\r\n"
-            "used_memory_lua:%lld\r\n"
+            "used_memory_lua:%zu\r\n"
             "mem_fragmentation_ratio:%.2f\r\n"
             "mem_allocator:%s\r\n",
             zmalloc_used,
@@ -2374,8 +2375,8 @@ sds genRedisInfoString(char *section) {
             server.resident_set_size,
             server.stat_peak_memory,
             peak_hmem,
-            ((long long)lua_gc(server.lua,LUA_GCCOUNT,0))*1024LL,
-            zmalloc_get_fragmentation_ratio(server.resident_set_size),
+            lua_memory,
+            zmalloc_get_fragmentation_ratio(server.resident_set_size - lua_memory),
             ZMALLOC_LIB
             );
     }
