@@ -1472,6 +1472,7 @@ void xgetCommand(redisClient *c);
 void xsetCommand(redisClient *c);
 void xzerosCommand(redisClient *c);
 void xonesCommand(redisClient *c);
+void xeyeCommand(redisClient *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));

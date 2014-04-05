@@ -139,3 +139,10 @@ void xzerosCommand(redisClient *c) {
 void xonesCommand(redisClient *c) {
   createMatrixGenericCommand(c,1,1);
 }
+
+void xeyeCommand(redisClient *c) {
+  long long size;
+  getLongLongFromObjectOrReply(c,c->argv[2],&size,NULL);
+
+  createMatrixGenericCommand(c,1,size + 1);
+}

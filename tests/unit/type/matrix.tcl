@@ -21,4 +21,9 @@ start_server {
       assert_equal {4 4} [r xones xonesmat 4 4]
       assert_equal {2 4 4 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1} [r xget xonesmat -1 -1]
     }
+
+    test {XEYE} {
+      assert_equal {4 4} [r xeye identitymat 4 4]
+      assert_equal {2 4 4 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1} [r xget identitymat -1 -1]
+    }
 }
