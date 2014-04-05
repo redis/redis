@@ -1173,8 +1173,8 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                 {
                     redisLog(REDIS_WARNING,
                         "I received an update for slot %d. "
-                        "%.40s claims it with config %llu, "
-                        "I've it assigned to myself with config %llu. "
+                        "%.40s claims it with config %"PRIu64", "
+                        "I've it assigned to myself with config %"PRIu64". "
                         "I've still keys about this slot! "
                         "Putting the slot in IMPORTING state. "
                         "Please run the 'redis-trib fix' command.",
