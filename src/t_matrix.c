@@ -1,7 +1,8 @@
 #include "redis.h"
 
 void addReplyMatrixShape(redisClient *c, matrix *matrix) {
-    addReplyMultiBulkLen(c,matrix->dims);
+    addReplyMultiBulkLen(c,matrix->dims + 1);
+    addReplyBulkLongLong(c,matrix->dims);
     for (int i = 0; i < matrix->dims; i++) {
         addReplyBulkLongLong(c,matrix->shape[i]);
     }
