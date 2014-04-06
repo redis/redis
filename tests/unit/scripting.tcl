@@ -40,15 +40,15 @@ start_server {tags {"scripting"}} {
 
     test {EVAL - is Lua able to call Redis API?} {
         r set mykey myval
-        r eval {return redis.call('get','mykey')} 0
+        r eval {return redis.call('get',KEYS[1])} 1 mykey
     } {myval}
 
     test {EVALSHA - Can we call a SHA1 if already defined?} {
-        r evalsha 9bd632c7d33e571e9f24556ebed26c3479a87129 0
+        r evalsha fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey
     } {myval}
 
     test {EVALSHA - Can we call a SHA1 in uppercase?} {
-        r evalsha 9BD632C7D33E571E9F24556EBED26C3479A87129 0
+        r evalsha FD758D1589D044DD850A6F05D52F2EEFD27F033F 1 mykey
     } {myval}
 
     test {EVALSHA - Do we get an error on invalid SHA1?} {
@@ -175,18 +175,18 @@ start_server {tags {"scripting"}} {
         set e {}
         r set foo bar
         catch {
-            r eval "redis.call('lpush','foo','val')" 0
+            r eval {redis.call('lpush',KEYS[1],'val')} 1 foo
         } e
         set e
     } {*against a key*}
 
     test {SCRIPTING FLUSH - is able to clear the scripts cache?} {
         r set mykey myval
-        set v [r evalsha 9bd632c7d33e571e9f24556ebed26c3479a87129 0]
+        set v [r evalsha fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey]
         assert_equal $v myval
         set e ""
         r script flush
-        catch {r evalsha 9bd632c7d33e571e9f24556ebed26c3479a87129 0} e
+        catch {r evalsha fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey} e
         set e
     } {NOSCRIPT*}
 
@@ -204,25 +204,25 @@ start_server {tags {"scripting"}} {
     test "In the context of Lua the output of random commands gets ordered" {
         r del myset
         r sadd myset a b c d e f g h i l m n o p q r s t u v z aa aaa azz
-        r eval {return redis.call('smembers','myset')} 0
+        r eval {return redis.call('smembers',KEYS[1])} 1 myset
     } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z}
 
     test "SORT is normally not alpha re-ordered for the scripting engine" {
         r del myset
         r sadd myset 1 2 3 4 10
-        r eval {return redis.call('sort','myset','desc')} 0
+        r eval {return redis.call('sort',KEYS[1],'desc')} 1 myset
     } {10 4 3 2 1}
 
     test "SORT BY <constant> output gets ordered for scripting" {
         r del myset
         r sadd myset a b c d e f g h i l m n o p q r s t u v z aa aaa azz
-        r eval {return redis.call('sort','myset','by','_')} 0
+        r eval {return redis.call('sort',KEYS[1],'by','_')} 1 myset
     } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z}
 
     test "SORT BY <constant> with GET gets ordered for scripting" {
         r del myset
         r sadd myset a b c
-        r eval {return redis.call('sort','myset','by','_','get','#','get','_:*')} 0
+        r eval {return redis.call('sort',KEYS[1],'by','_','get','#','get','_:*')} 1 myset
     } {a {} b {} c {}}
 
     test "redis.sha1hex() implementation" {
@@ -300,9 +300,9 @@ start_server {tags {"scripting"}} {
     test {EVAL processes writes from AOF in read-only slaves} {
         r flushall
         r config set appendonly yes
-        r eval {redis.call("set","foo","100")} 0
-        r eval {redis.call("incr","foo")} 0
-        r eval {redis.call("incr","foo")} 0
+        r eval {redis.call("set",KEYS[1],"100")} 1 foo
+        r eval {redis.call("incr",KEYS[1])} 1 foo
+        r eval {redis.call("incr",KEYS[1])} 1 foo
         wait_for_condition 50 100 {
             [s aof_rewrite_in_progress] == 0
         } else {
@@ -338,7 +338,7 @@ start_server {tags {"scripting"}} {
     test {Timedout scripts that modified data can't be killed by SCRIPT KILL} {
         set rd [redis_deferring_client]
         r config set lua-time-limit 10
-        $rd eval {redis.call('set','x','y'); while true do end} 0
+        $rd eval {redis.call('set',KEYS[1],'y'); while true do end} 1 x
         after 200
         catch {r ping} e
         assert_match {BUSY*} $e
@@ -365,13 +365,13 @@ start_server {tags {"scripting repl"}} {
     start_server {} {
         test {Before the slave connects we issue two EVAL commands} {
             # One with an error, but still executing a command.
-            # SHA is: 6e8bd6bdccbe78899e3cc06b31b6dbf4324c2e56
+            # SHA is: 67164fc43fa971f76fd1aaeeaf60c1c178d25876
             catch {
-                r eval {redis.call('incr','x'); redis.call('nonexisting')} 0
+                r eval {redis.call('incr',KEYS[1]); redis.call('nonexisting')} 1 x
             }
             # One command is correct:
-            # SHA is: ae3477e27be955de7e1bc9adfdca626b478d3cb2
-            r eval {return redis.call('incr','x')} 0
+            # SHA is: 6f5ade10a69975e903c6d07b10ea44c6382381a5
+            r eval {return redis.call('incr',KEYS[1])} 1 x
         } {2}
 
         test {Connect a slave to the main instance} {
@@ -388,9 +388,9 @@ start_server {tags {"scripting repl"}} {
             # The server should replicate successful and unsuccessful
             # commands as EVAL instead of EVALSHA.
             catch {
-                r evalsha 6e8bd6bdccbe78899e3cc06b31b6dbf4324c2e56 0
+                r evalsha 67164fc43fa971f76fd1aaeeaf60c1c178d25876 1 x
             }
-            r evalsha ae3477e27be955de7e1bc9adfdca626b478d3cb2 0
+            r evalsha 6f5ade10a69975e903c6d07b10ea44c6382381a5 1 x
         } {4}
 
         test {If EVALSHA was replicated as EVAL, 'x' should be '4'} {
@@ -405,9 +405,9 @@ start_server {tags {"scripting repl"}} {
             set rd [redis_deferring_client]
             $rd brpop a 0
             r eval {
-                redis.call("lpush","a","1");
-                redis.call("lpush","a","2");
-            } 0
+                redis.call("lpush",KEYS[1],"1");
+                redis.call("lpush",KEYS[1],"2");
+            } 1 a
             set res [$rd read]
             $rd close
             wait_for_condition 50 100 {
@@ -420,9 +420,9 @@ start_server {tags {"scripting repl"}} {
 
         test {EVALSHA replication when first call is readonly} {
             r del x
-            r eval {if tonumber(KEYS[1]) > 0 then redis.call('incr', 'x') end} 1 0
-            r evalsha 38fe3ddf5284a1d48f37f824b4c4e826879f3cb9 1 0
-            r evalsha 38fe3ddf5284a1d48f37f824b4c4e826879f3cb9 1 1
+            r eval {if tonumber(ARGV[1]) > 0 then redis.call('incr', KEYS[1]) end} 1 x 0
+            r evalsha 6e0e2745aa546d0b50b801a20983b70710aef3ce 1 x 0
+            r evalsha 6e0e2745aa546d0b50b801a20983b70710aef3ce 1 x 1
             wait_for_condition 50 100 {
                 [r -1 get x] eq {1}
             } else {
