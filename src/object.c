@@ -170,6 +170,17 @@ robj *createZiplistObject(void) {
     return o;
 }
 
+robj *createMatrixObject(long long dims, long long shape[]) {
+    matrix *m = matrixZero(dims, shape);
+    robj *o = createObject(REDIS_MATRIX,m);
+    o->encoding = REDIS_ENCODING_MATRIX;
+    return o;
+}
+
+void freeMatrixObject(robj *o) {
+    matrixFree(o->ptr);
+}
+
 robj *createSetObject(void) {
     dict *d = dictCreate(&setDictType,NULL);
     robj *o = createObject(REDIS_SET,d);
@@ -285,6 +296,7 @@ void decrRefCount(robj *o) {
         case REDIS_SET: freeSetObject(o); break;
         case REDIS_ZSET: freeZsetObject(o); break;
         case REDIS_HASH: freeHashObject(o); break;
+        case REDIS_MATRIX: freeMatrixObject(o); break;
         default: redisPanic("Unknown object type"); break;
         }
         zfree(o);

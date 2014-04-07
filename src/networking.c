@@ -540,6 +540,20 @@ void addReplyBulkLongLong(redisClient *c, long long ll) {
     addReplyBulkCBuffer(c,buf,len);
 }
 
+/* Add a double as a bulk reply */
+void addReplyBulkDouble(redisClient *c, double d) {
+    char dbuf[128];
+    int slen;
+    if (isinf(d)) {
+        /* Libc in odd systems (Hi Solaris!) will format infinite in a
+         * different way, so better to handle it in an explicit way. */
+        addReplyBulkCString(c, d > 0 ? "inf" : "-inf");
+    } else {
+        slen = snprintf(dbuf,sizeof(dbuf),"%.17g",d);
+        addReplyBulkCBuffer(c,dbuf,slen);
+    }
+}
+
 /* Copy 'src' client output buffers into 'dst' client output buffers.
  * The function takes care of freeing the old output buffers of the
  * destination client. */

@@ -116,6 +116,9 @@ t_set.o: t_set.c redis.h fmacros.h config.h ../deps/lua/src/lua.h \
 t_string.o: t_string.c redis.h fmacros.h config.h ../deps/lua/src/lua.h \
  ../deps/lua/src/luaconf.h ae.h sds.h dict.h adlist.h zmalloc.h anet.h \
  ziplist.h intset.h version.h util.h rdb.h rio.h
+t_matrix.o: t_matrix.c redis.h fmacros.h config.h ../deps/lua/src/lua.h \
+ ../deps/lua/src/luaconf.h ae.h sds.h dict.h adlist.h zmalloc.h anet.h \
+ ziplist.h intset.h version.h util.h rdb.h rio.h matrix.h
 t_zset.o: t_zset.c redis.h fmacros.h config.h ../deps/lua/src/lua.h \
  ../deps/lua/src/luaconf.h ae.h sds.h dict.h adlist.h zmalloc.h anet.h \
  ziplist.h intset.h version.h util.h rdb.h rio.h
