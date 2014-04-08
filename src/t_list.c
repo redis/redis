@@ -29,8 +29,6 @@
 
 #include "redis.h"
 
-void signalListAsReady(redisClient *c, robj *key);
-
 /*-----------------------------------------------------------------------------
  * List API
  *----------------------------------------------------------------------------*/
@@ -297,14 +295,11 @@ void listTypeConvert(robj *subject, int enc) {
 void pushGenericCommand(redisClient *c, int where) {
     int j, waiting = 0, pushed = 0;
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
-    int may_have_waiting_clients = (lobj == NULL);
 
     if (lobj && lobj->type != REDIS_LIST) {
         addReply(c,shared.wrongtypeerr);
         return;
     }
-
-    if (may_have_waiting_clients) signalListAsReady(c,c->argv[1]);
 
     for (j = 2; j < c->argc; j++) {
         c->argv[j] = tryObjectEncoding(c->argv[j]);
@@ -709,7 +704,6 @@ void rpoplpushHandlePush(redisClient *c, robj *dstkey, robj *dstobj, robj *value
     if (!dstobj) {
         dstobj = createZiplistObject();
         dbAdd(c->db,dstkey,dstobj);
-        signalListAsReady(c,dstkey);
     }
     signalModifiedKey(c->db,dstkey);
     listTypePush(dstobj,value,REDIS_HEAD);
@@ -855,19 +849,19 @@ void unblockClientWaitingData(redisClient *c) {
  * made by a script or in the context of MULTI/EXEC.
  *
  * The list will be finally processed by handleClientsBlockedOnLists() */
-void signalListAsReady(redisClient *c, robj *key) {
+void signalListAsReady(redisDb *db, robj *key) {
     readyList *rl;
 
     /* No clients blocking for this key? No need to queue it. */
-    if (dictFind(c->db->blocking_keys,key) == NULL) return;
+    if (dictFind(db->blocking_keys,key) == NULL) return;
 
     /* Key was already signaled? No need to queue it again. */
-    if (dictFind(c->db->ready_keys,key) != NULL) return;
+    if (dictFind(db->ready_keys,key) != NULL) return;
 
     /* Ok, we need to queue this key into server.ready_keys. */
     rl = zmalloc(sizeof(*rl));
     rl->key = key;
-    rl->db = c->db;
+    rl->db = db;
     incrRefCount(key);
     listAddNodeTail(server.ready_keys,rl);
 
@@ -875,7 +869,7 @@ void signalListAsReady(redisClient *c, robj *key) {
      * to avoid adding it multiple times into a list with a simple O(1)
      * check. */
     incrRefCount(key);
-    redisAssert(dictAdd(c->db->ready_keys,key,NULL) == DICT_OK);
+    redisAssert(dictAdd(db->ready_keys,key,NULL) == DICT_OK);
 }
 
 /* This is a helper function for handleClientsBlockedOnLists(). It's work
