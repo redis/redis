@@ -402,7 +402,7 @@ void getRandomHexChars(char *p, unsigned int len) {
     /* Turn it into hex digits taking just 4 bits out of 8 for every byte. */
     for (j = 0; j < len; j++)
         p[j] = charset[p[j] & 0x0F];
-    fclose(fp);
+    if (fp) fclose(fp);
 }
 
 /* Given the filename, return the absolute path as an SDS string, or NULL
