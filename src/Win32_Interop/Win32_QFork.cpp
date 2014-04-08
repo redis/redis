@@ -786,7 +786,7 @@ BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, i
         char arguments[_MAX_PATH];
         memset(arguments,0,_MAX_PATH);
         PROCESS_INFORMATION pi;
-        sprintf_s(arguments, _MAX_PATH, "%s %p %ld", qforkFlag, g_hQForkControlFileMap, GetCurrentProcessId());
+        sprintf_s(arguments, _MAX_PATH, "%s %llu %lu", qforkFlag, (uint64_t)g_hQForkControlFileMap, GetCurrentProcessId());
         if (FALSE == CreateProcessA(fileName, arguments, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
             throw system_error( 
                 GetLastError(),
