@@ -1327,7 +1327,11 @@ void initServerConfig() {
     server.saveparams = NULL;
     server.loading = 0;
     server.logfile = zstrdup(REDIS_DEFAULT_LOGFILE);
-    server.syslog_enabled = REDIS_DEFAULT_SYSLOG_ENABLED;
+#ifdef _WIN32
+	server.syslog_enabled = RunningAsService() ? 1 : REDIS_DEFAULT_SYSLOG_ENABLED;
+#else
+	server.syslog_enabled = REDIS_DEFAULT_SYSLOG_ENABLED;
+#endif
     server.syslog_ident = zstrdup(REDIS_DEFAULT_SYSLOG_IDENT);
     server.syslog_facility = LOG_LOCAL0;
     server.daemonize = REDIS_DEFAULT_DAEMONIZE;

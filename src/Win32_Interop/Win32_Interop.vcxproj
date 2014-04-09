@@ -14,6 +14,7 @@
     <ClCompile Include="..\RedisLog.c" />
     <ClCompile Include="win32fixes.c" />
     <ClCompile Include="Win32_dlmalloc.c" />
+    <ClCompile Include="Win32_EventLog.cpp" />
     <ClCompile Include="Win32_FDAPI.cpp" />
     <ClCompile Include="Win32_fdapi_crt.cpp" />
     <ClCompile Include="Win32_QFork.cpp" />
@@ -27,6 +28,7 @@
     <ClInclude Include="..\redisLog.h" />
     <ClInclude Include="win32fixes.h" />
     <ClInclude Include="Win32_dlmalloc.h" />
+    <ClInclude Include="Win32_EventLog.h" />
     <ClInclude Include="Win32_FDAPI.h" />
     <ClInclude Include="Win32_fdapi_crt.h" />
     <ClInclude Include="Win32_QFork.h" />
@@ -37,6 +39,18 @@
     <ClInclude Include="Win32_variadicFunctor.h" />
     <ClInclude Include="win32_wsiocp.h" />
     <ClInclude Include="WS2tcpip.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="EventLog.mc">
+      <FileType>Document</FileType>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">md resources
+mc.exe -A -b -c -h . -r resources EventLog.mc
+rc.exe -foresources/EventLog.res resources/EventLog.rc</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">EventLog.h</Outputs>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="resources\EventLog.res" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{8C07F811-C81C-432C-B334-1AE6FAECF951}</ProjectGuid>

@@ -75,6 +75,7 @@ HANDLE g_ServiceStopEvent = INVALID_HANDLE_VALUE;
 vector<string> serviceRunArguments;
 SERVICE_STATUS_HANDLE g_StatusHandle;
 const ULONGLONG cThirtySeconds = 30 * 1000;
+BOOL g_isRunningAsService = FALSE;
 
 extern "C" int main(int argc, char** argv);
 
@@ -398,6 +399,7 @@ extern "C" BOOL HandleServiceCommands(int argc, char **argv) {
 				ServiceUninstall();
 				return TRUE;
 			} else if (servicearg == "--service-run") {
+				g_isRunningAsService = TRUE;
 				BuildServiceRunArguments(argc, argv);
 				ServiceRun();
 				return TRUE;
@@ -431,5 +433,9 @@ extern "C" BOOL HandleServiceCommands(int argc, char **argv) {
 extern "C" BOOL ServiceStopIssued() {
 	if (g_ServiceStopEvent == INVALID_HANDLE_VALUE) return FALSE;
 	return (WaitForSingleObject(g_ServiceStopEvent, 0) == WAIT_OBJECT_0) ? TRUE : FALSE;
+}
+
+extern "C" BOOL RunningAsService() {
+	return g_isRunningAsService;
 }
 
