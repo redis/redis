@@ -91,8 +91,8 @@
  * Sparse representation
  * ===
  *
- * The sparse representation encodes registers using three possible
- * kind of "opcodes", two composed of just one byte, and one composed
+ * The sparse representation encodes registers using a run length
+ * encoding composed of three opcodes, two using one byte, and one using
  * of two bytes. The opcodes are called ZERO, XZERO and VAL.
  *
  * ZERO opcode is represented as 00xxxxxx. The 6-bit integer represented
@@ -106,15 +106,15 @@
  * registers set to 0. This opcode can represent from 65 to 16384 contiguous
  * registers set to the value of 0.
  *
- * VAL opcode is represented as 1vvvvxxx. It contains a 4-bit integer
- * representing the value of a register, and a 3-bit integer representing
- * the number of contiguous registers set to that value 'vvvv'.
- * As with the other opcodes, to obtain the value and run length, the
- * integers vvvv and xxx must be additioned to 1.
- * This opcode can represent values from 1 to 16, repeated from 1 to 8 times.
+ * VAL opcode is represented as 1vvvvvxx. It contains a 5-bit integer
+ * representing the value of a register, and a 2-bit integer representing
+ * the number of contiguous registers set to that value 'vvvvv'.
+ * To obtain the value and run length, the integers vvvvv and xx must be
+ * incremented by one. This opcode can represent values from 1 to 32,
+ * repeated from 1 to 4 times.
  *
  * The sparse representation can't represent registers with a value greater
- * than 16, however it is very unlikely that we find such a register in an
+ * than 32, however it is very unlikely that we find such a register in an
  * HLL with a cardinality where the sparse representation is still more
  * memory efficient than the dense representation. When this happens the
  * HLL is converted to the dense representation.
@@ -137,33 +137,37 @@
  * cardinality there is a big win in terms of space efficiency, traded
  * with CPU time since the sparse representation is slower to access:
  *
- * The following table shows real-world space savings obtained:
+ * The following table shows average cardinality vs bytes used, 100
+ * samples per cardinality (when the set was not representable because
+ * of registers with too big value, the dense representation size was used
+ * as a sample).
  *
- * cardinality 1: 5 bytes (0.00244140625 bits/reg, 1 registers)
- * cardinality 10: 31 bytes (0.01513671875 bits/reg, 10 registers)
- * cardinality 100: 271 bytes (0.13232421875 bits/reg, 100 registers)
- * cardinality 1000: 1906 bytes (0.9306640625 bits/reg, 971 registers)
- * cardinality 2000: 3517 bytes (1.71728515625 bits/reg, 1888 registers)
- * cardinality 3000: 4918 bytes (2.4013671875 bits/reg, 2745 registers)
- * cardinality 4000: 6129 bytes (2.99267578125 bits/reg, 3552 registers)
- * cardinality 5000: 7206 bytes (3.5185546875 bits/reg, 4297 registers)
- * cardinality 6000: 8099 bytes (3.95458984375 bits/reg, 5013 registers)
- * cardinality 7000: 8868 bytes (4.330078125 bits/reg, 5673 registers)
- * cardinality 8000: 9571 bytes (4.67333984375 bits/reg, 6312 registers)
- * cardinality 9000: 10138 bytes (4.9501953125 bits/reg, 6901 registers)
- * cardinality 10000: 10717 bytes (5.23291015625 bits/reg, 7473 registers})
- * cardinality 11000: 11137 bytes (5.43798828125 bits/reg, 8005 registers})
- * cardinality 12000: 11514 bytes (5.6220703125 bits/reg, 8517 registers})
- * cardinality 13000: 11809 bytes (5.76611328125 bits/reg, 8962 registers})
- * cardinality 14000: 12055 bytes (5.88623046875 bits/reg, 9384 registers})
- * cardinality 15000: 12285 bytes (5.99853515625 bits/reg, 9790 registers})
- * cardinality 16000: 12459 bytes (6.08349609375 bits/reg, 10180 registers})
+ * 100 267
+ * 200 485
+ * 300 678
+ * 400 859
+ * 500 1033
+ * 600 1205
+ * 700 1375
+ * 800 1544
+ * 900 1713
+ * 1000 1882
+ * 2000 3480
+ * 3000 4879
+ * 4000 6089
+ * 5000 7138
+ * 6000 8042
+ * 7000 8823
+ * 8000 9500
+ * 9000 10088
+ * 10000 10591
  *
- * At cardinality around ~16000 is when it is no longer more space efficient
- * to use the sparse representation. However the exact maximum length of the
- * sparse representation when this implementation switches to the dense
- * representation is configured via the define REDIS_HLL_SPARSE_MAX and
- * can be smaller than 12k in order to save CPU time.
+ * The dense representation uses 12288 bytes, so there is a big win up to
+ * a cardinality of ~2000-3000. For bigger cardinalities the constant times
+ * involved in updating the sparse representation is not justified by the
+ * memory savings. The exact maximum length of the sparse representation
+ * when this implementation switches to the dense representation is
+ * configured via the define REDIS_HLL_SPARSE_MAX.
  */
 
 #define REDIS_HLL_P 14 /* The greater is P, the smaller the error. */
@@ -332,11 +336,11 @@
  * The macros parameter is expected to be an uint8_t pointer. */
 #define HLL_SPARSE_IS_ZERO(p) (((*p) & 0xc0) == 0) /* 00xxxxxx */
 #define HLL_SPARSE_IS_XZERO(p) (((*p) & 0xc0) == 0x40) /* 01xxxxxx */
-#define HLL_SPARSE_IS_VAL(p) ((*p) & 0x80) /* 1vvvvxxx */
+#define HLL_SPARSE_IS_VAL(p) ((*p) & 0x80) /* 1vvvvvxx */
 #define HLL_SPARSE_ZERO_LEN(p) ((*p) & 0x3f)
 #define HLL_SPARSE_XZERO_LEN(p) ((((*p) & 0x3f) << 6) | (*p))
-#define HLL_SPARSE_VAL_VALUE(p) (((*p) >> 3) & 0xf)
-#define HLL_SPARSE_VAL_LEN(p) ((*p) & 0x7)
+#define HLL_SPARSE_VAL_VALUE(p) (((*p) >> 2) & 0x1f)
+#define HLL_SPARSE_VAL_LEN(p) ((*p) & 0x3)
 
 /* ========================= HyperLogLog algorithm  ========================= */
 
