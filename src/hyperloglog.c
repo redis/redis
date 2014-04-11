@@ -112,7 +112,7 @@
  * XZERO opcode is represented by two bytes 01xxxxxx yyyyyyyy. The 14-bit
  * integer represented by the bits 'xxxxxx' as most significant bits and
  * 'yyyyyyyy' as least significant bits, plus 1, means that there are N
- * registers set to 0. This opcode can represent from 65 to 16384 contiguous
+ * registers set to 0. This opcode can represent from 0 to 16384 contiguous
  * registers set to the value of 0.
  *
  * VAL opcode is represented as 1vvvvvxx. It contains a 5-bit integer
@@ -357,13 +357,30 @@ struct hllhdr {
 
 /* Macros to access the sparse representation.
  * The macros parameter is expected to be an uint8_t pointer. */
+#define HLL_SPARSE_XZERO_BIT 0x40 /* 01xxxxxx */
+#define HLL_SPARSE_VAL_BIT 0x80 /* 1vvvvvxx */
 #define HLL_SPARSE_IS_ZERO(p) (((*p) & 0xc0) == 0) /* 00xxxxxx */
-#define HLL_SPARSE_IS_XZERO(p) (((*p) & 0xc0) == 0x40) /* 01xxxxxx */
-#define HLL_SPARSE_IS_VAL(p) ((*p) & 0x80) /* 1vvvvvxx */
-#define HLL_SPARSE_ZERO_LEN(p) ((*p) & 0x3f)
-#define HLL_SPARSE_XZERO_LEN(p) ((((*p) & 0x3f) << 6) | (*p))
-#define HLL_SPARSE_VAL_VALUE(p) (((*p) >> 2) & 0x1f)
-#define HLL_SPARSE_VAL_LEN(p) ((*p) & 0x3)
+#define HLL_SPARSE_IS_XZERO(p) (((*p) & 0xc0) == HLL_SPARSE_XZERO_BIT)
+#define HLL_SPARSE_IS_VAL(p) ((*p) & HLL_SPARSE_VAL_BIT)
+#define HLL_SPARSE_ZERO_LEN(p) (((*p) & 0x3f)+1)
+#define HLL_SPARSE_XZERO_LEN(p) (((((*p) & 0x3f) << 6) | (*p))+1)
+#define HLL_SPARSE_VAL_VALUE(p) ((((*p) >> 2) & 0x1f)+1)
+#define HLL_SPARSE_VAL_LEN(p) (((*p) & 0x3)+1)
+#define HLL_SPARSE_VAL_MAX_VALUE 32
+#define HLL_SPARSE_VAL_MAX_LEN 4
+#define HLL_SPARSE_ZERO_MAX_LEN 64
+#define HLL_SPARSE_XZERO_MAX_LEN 16384
+#define HLL_SPARSE_VAL_SET(p,val,len) do { \
+    *(p) = (((val)-1)<<2|((len)-1))|HLL_SPARSE_VAL_BIT; \
+} while(0)
+#define HLL_SPARSE_ZERO_SET(p,len) do { \
+    *(p) = (len)-1; \
+} while(0)
+#define HLL_SPARSE_XZERO_SET(p,len) do { \
+    int _l = (len)-1; \
+    *(p) = (_l>>8) | HLL_SPARSE_XZERO_BIT; \
+    *(p+1) = (_l&0xff); \
+} while(0)
 
 /* ========================= HyperLogLog algorithm  ========================= */
 
@@ -538,6 +555,248 @@ double hllDenseSum(uint8_t *registers, double *PE, int *ezp) {
 
 /* ================== Sparse representation implementation  ================= */
 
+sds hllSparseToDense(sds *sparse) {
+    return sdsnew("TODO");
+}
+
+/* "Add" the element in the sparse hyperloglog data structure.
+ * Actually nothing is added, but the max 0 pattern counter of the subset
+ * the element belongs to is incremented if needed.
+ *
+ * The object 'o' is the String object holding the HLL. The function requires
+ * a reference to the object in order to be able to enlarge the string if
+ * needed.
+ *
+ * On success, the function returns 1 if the cardinality changed, or 0
+ * if the register for this element was not updated.
+ *
+ * As a side effect the function may promote the HLL representation from
+ * sparse to dense: this happens when a register requires to be set to a value
+ * not representable with the sparse representation, or when the resulting
+ * size would be greater than HLL_SPARSE_MAX. */
+int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
+    struct hllhdr *hdr;
+    uint8_t oldcount, count, *sparse, *end, *p, *prev, *next;
+    int index, first, span;
+    int is_zero = 0, is_xzero = 0, is_val = 0, runlen = 0;
+
+    /* Update the register if this element produced a longer run of zeroes. */
+    count = hllPatLen(ele,elesize,&index);
+
+    /* If the count is too big to be representable by the sparse representation
+     * switch to dense representation. */
+    if (count > HLL_SPARSE_VAL_MAX_VALUE) goto promote;
+
+    /* When updating a sparse representation, sometimes we may need to
+     * enlarge the buffer for up to 3 bytes in the worst case (XZERO split
+     * into XZERO-VAL-XZERO). Make sure there is enough space right now
+     * so that the pointers we take during the execution of the function
+     * will be valid all the time. */
+    o->ptr = sdsMakeRoomFor(o->ptr,3);
+
+    /* Step 1: we need to locate the opcode we need to modify to check
+     * if a value update is actually needed. */
+    sparse = p = ((uint8_t*)o->ptr) + HLL_HDR_SIZE;
+    end = p + sdslen(o->ptr) - HLL_HDR_SIZE;
+
+    first = 0;
+    prev = NULL; /* Points to previos opcode at the end of the loop. */
+    next = NULL; /* Points to the next opcode at the end of the loop. */
+    while(p < end) {
+        /* Set span to the number of registers covered by this opcode. */
+        if (HLL_SPARSE_IS_ZERO(p)) span = HLL_SPARSE_ZERO_LEN(p);
+        else if (HLL_SPARSE_IS_XZERO(p)) span = HLL_SPARSE_XZERO_LEN(p);
+        else span = HLL_SPARSE_VAL_LEN(p);
+        /* Break if this opcode covers the register as 'index'. */
+        if (first+span >= index) break;
+        prev = p;
+        p += (HLL_SPARSE_IS_XZERO(p)) ? 2 : 1;
+        first += span;
+    }
+
+    next = HLL_SPARSE_IS_XZERO(p) ? p+2 : p+1;
+    if (next >= end) next = NULL;
+
+    /* Cache current opcode type to avoid using the macro again and
+     * again for something that will not change.
+     * Also cache the run-length of the opcode. */
+    if (HLL_SPARSE_IS_ZERO(p)) {
+        is_zero = 1;
+        runlen = HLL_SPARSE_ZERO_LEN(p);
+    } else if (HLL_SPARSE_IS_XZERO(p)) {
+        is_xzero = 1;
+        runlen = HLL_SPARSE_XZERO_LEN(p);
+    } else {
+        is_val = 1;
+        runlen = HLL_SPARSE_VAL_LEN(p);
+    }
+
+    /* Step 2: After the loop:
+     *
+     * 'first' stores to the index of the first register covered
+     *  by the current opcode, which is pointed by 'p'.
+     *
+     * 'next' ad 'prev' store respectively the next and previous opcode,
+     *  or NULL if the opcode at 'p' is respectively the last or first.
+     *
+     * 'span' is set to the number of registers covered by the current
+     *  opcode.
+     *
+     * There are different cases in order to update the data structure
+     * in place without generating it from scratch:
+     *
+     * A) If it is a VAL opcode already set to a value >= our 'count'
+     *    no update is needed, regardless of the VAL run-length field.
+     *    In this case PFADD returns 0 since no changes are performed.
+     *
+     * B) If it is a VAL opcode with len = 1 (representing only our
+     *    register) and the value is less than 'count', we just update it
+     *    since this is a trivial case. */
+    if (is_val) {
+        oldcount = HLL_SPARSE_VAL_VALUE(p);
+        /* Case A. */
+        if (oldcount >= count) return 0;
+
+        /* Case B. */
+        if (runlen == 1) {
+            HLL_SPARSE_VAL_SET(p,count,1);
+            goto updated;
+        }
+    }
+
+    /* C) Another trivial to handle case is a ZERO opcode with a len of 1.
+     * We can just replace it with a VAL opcode with our value and len of 1. */
+    if (is_zero && runlen == 1) {
+        HLL_SPARSE_VAL_SET(p,count,1);
+        goto updated;
+    }
+
+    /* D) General case.
+     *
+     * The other cases are more complex: our register requires to be updated
+     * and is either currently represented by a VAL opcode with len > 1,
+     * by a ZERO opcode with len > 1, or by an XZERO opcode.
+     *
+     * In those cases the original opcode must be split into muliple
+     * opcodes. The worst case is an XZERO split in the middle resuling into
+     * XZERO - VAL - XZERO, so the resulting sequence max length is
+     * 5 bytes.
+     *
+     * We perform the split writing the new sequence into the 'new' buffer
+     * with 'newlen' as length. Later the new sequence is inserted in place
+     * of the old one, possibly moving what is on the right a few bytes
+     * if the new sequence is longer than the older one. */
+    uint8_t seq[5], *n = seq;
+    int last = first+span-1; /* Last register covered by the sequence. */
+    int len;
+
+    if (is_zero || is_xzero) {
+        /* Handle splitting of ZERO / XZERO. */
+        if (index != first) {
+            len = index-first;
+            if (len > HLL_SPARSE_ZERO_MAX_LEN) {
+                HLL_SPARSE_XZERO_SET(n,len);
+                n += 2;
+            } else {
+                HLL_SPARSE_ZERO_SET(n,len);
+                n++;
+            }
+        }
+        HLL_SPARSE_VAL_SET(n,count,1);
+        n++;
+        if (index != last) {
+            len = last-index;
+            if (len > HLL_SPARSE_ZERO_MAX_LEN) {
+                HLL_SPARSE_XZERO_SET(n,len);
+                n += 2;
+            } else {
+                HLL_SPARSE_ZERO_SET(n,len);
+                n++;
+            }
+        }
+    } else {
+        /* Handle splitting of VAL. */
+        int curval = HLL_SPARSE_VAL_VALUE(p);
+
+        if (index != first) {
+            len = index-first;
+            HLL_SPARSE_VAL_SET(n,curval,len);
+            n++;
+        }
+        HLL_SPARSE_VAL_SET(n,count,1);
+        n++;
+        if (index != last) {
+            len = last-index;
+            HLL_SPARSE_VAL_SET(n,curval,len);
+            n++;
+        }
+    }
+
+    /* Step 3: substitute the new sequence with the old one.
+     *
+     * Note that we already allocated space on the sds string
+     * calling sdsMakeRoomFor(). */
+     int seqlen = seq-n;
+     int oldlen = is_xzero ? 2 : 1;
+     int deltalen = seqlen-oldlen;
+     if (deltalen && next) {
+        memmove(next+deltalen,next,next-sparse);
+        sdsIncrLen(o->ptr,deltalen);
+     }
+     memcpy(p,seq,seqlen);
+
+updated:
+    /* Step 4: Merge adjacent values if possible.
+     *
+     * The representation was updated, however the resulting representation
+     * may not be optimal: adjacent opcodes may be merged into a single one.
+     * We start from the opcode before the one we updated trying to merge
+     * opcodes up to the next 5 opcodes (since we need to consider the three
+     * opcodes resuling from the worst-case split of the updated opcode,
+     * plus the two opcodes at the left and right of the original one). */
+    hdr = o->ptr;
+    HLL_INVALIDATE_CACHE(hdr);
+    return 1;
+
+promote: /* Promote to dense representation. */
+    o->ptr = hllSparseToDense(o->ptr);
+    hdr = o->ptr;
+    return hllDenseAdd(hdr->registers, ele, elesize);
+}
+
+/* Compute SUM(2^-reg) in the sparse representation.
+ * PE is an array with a pre-computer table of values 2^-reg indexed by reg.
+ * As a side effect the integer pointed by 'ezp' is set to the number
+ * of zero registers. */
+double hllSparseSum(uint8_t *sparse, int sparselen, double *PE, int *ezp) {
+    double E = 0;
+    int ez = 0, idx = 0, runlen, regval;
+    uint8_t *end = sparse+sparselen, *p = sparse;
+
+    while(p < end) {
+        /* Set span to the number of registers covered by this opcode. */
+        if (HLL_SPARSE_IS_ZERO(p)) {
+            runlen = HLL_SPARSE_ZERO_LEN(p);
+            idx += runlen;
+            ez += runlen;
+            E += 1; /* 2^(-reg[j]) is 1 when m is 0. */
+        } else if (HLL_SPARSE_IS_XZERO(p)) {
+            runlen = HLL_SPARSE_XZERO_LEN(p);
+            idx += runlen;
+            ez += runlen;
+            E += 1; /* 2^(-reg[j]) is 1 when m is 0. */
+        } else {
+            runlen = HLL_SPARSE_VAL_LEN(p);
+            regval = HLL_SPARSE_VAL_VALUE(p);
+            idx += runlen;
+            E += PE[regval]*runlen;
+        }
+    }
+    redisAssert(idx == HLL_REGISTERS);
+    *ezp = ez;
+    return E;
+}
+
 /* ========================= HyperLogLog Count ==============================
  * This is the core of the algorithm where the approximated count is computed.
  * The function uses the lower level hllDenseSum() and hllSparseSum() functions
@@ -545,7 +804,8 @@ double hllDenseSum(uint8_t *registers, double *PE, int *ezp) {
  * representation-specific, while all the rest is common. */
 
 /* Return the approximated cardinality of the set based on the armonic
- * mean of the registers values. */
+ * mean of the registers values. 'hdr' points to the start of the SDS
+ * representing the String object holding the HLL representation. */
 uint64_t hllCount(struct hllhdr *hdr) {
     double m = HLL_REGISTERS;
     double alpha = 0.7213/(1+1.079/m);
@@ -570,7 +830,7 @@ uint64_t hllCount(struct hllhdr *hdr) {
     if (hdr->encoding == HLL_DENSE) {
         E = hllDenseSum(hdr->registers,PE,&ez);
     } else {
-        E = 0; /* FIXME */
+        E = hllSparseSum(hdr->registers,sdslen((sds)hdr)-HLL_HDR_SIZE,PE,&ez);
     }
 
     /* Muliply the inverse of E for alpha_m * m^2 to have the raw estimate. */
