@@ -581,9 +581,11 @@ sds hllSparseToDense(sds sparse) {
         if (HLL_SPARSE_IS_ZERO(p)) {
             runlen = HLL_SPARSE_ZERO_LEN(p);
             idx += runlen;
+            p++;
         } else if (HLL_SPARSE_IS_XZERO(p)) {
             runlen = HLL_SPARSE_XZERO_LEN(p);
             idx += runlen;
+            p += 2;
         } else {
             runlen = HLL_SPARSE_VAL_LEN(p);
             regval = HLL_SPARSE_VAL_VALUE(p);
@@ -591,6 +593,7 @@ sds hllSparseToDense(sds sparse) {
                 HLL_DENSE_SET_REGISTER(hdr->registers,idx,regval);
                 idx++;
             }
+            p++;
         }
     }
 
@@ -821,16 +824,19 @@ double hllSparseSum(uint8_t *sparse, int sparselen, double *PE, int *ezp) {
             idx += runlen;
             ez += runlen;
             E += 1; /* 2^(-reg[j]) is 1 when m is 0. */
+            p++;
         } else if (HLL_SPARSE_IS_XZERO(p)) {
             runlen = HLL_SPARSE_XZERO_LEN(p);
             idx += runlen;
             ez += runlen;
             E += 1; /* 2^(-reg[j]) is 1 when m is 0. */
+            p += 2;
         } else {
             runlen = HLL_SPARSE_VAL_LEN(p);
             regval = HLL_SPARSE_VAL_VALUE(p);
             idx += runlen;
             E += PE[regval]*runlen;
+            p++;
         }
     }
     redisAssert(idx == HLL_REGISTERS);
