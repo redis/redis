@@ -779,7 +779,7 @@ int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
      *
      * Note that we already allocated space on the sds string
      * calling sdsMakeRoomFor(). */
-     int seqlen = seq-n;
+     int seqlen = n-seq;
      int oldlen = is_xzero ? 2 : 1;
      int deltalen = seqlen-oldlen;
 
