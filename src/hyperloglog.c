@@ -913,8 +913,8 @@ robj *createHLLObject(void) {
     sds s;
     uint8_t *p;
     int sparselen = HLL_HDR_SIZE +
-                    ((HLL_REGISTERS+(HLL_SPARSE_XZERO_MAX_LEN-1)) /
-                     HLL_SPARSE_XZERO_MAX_LEN);
+                    (((HLL_REGISTERS+(HLL_SPARSE_XZERO_MAX_LEN-1)) /
+                     HLL_SPARSE_XZERO_MAX_LEN)*2);
     int aux;
 
     /* Populate the sparse representation with as many XZERO opcodes as
