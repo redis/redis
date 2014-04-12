@@ -220,7 +220,12 @@ typedef struct sentinelScriptJob {
                                execution at any time. If the script is not
                                running and it's not 0, it means: do not run
                                before the specified time. */
+#ifdef _WIN32
+    HANDLE hScriptProcess;  /* handle of process executing script */
+    pid_t processId;        /* Script execution pid. (for reporting only) */
+#else
     pid_t pid;              /* Script execution pid. */
+#endif
 } sentinelScriptJob;
 
 /* ======================= hiredis ae.c adapters =============================
@@ -240,14 +245,43 @@ static void redisAeReadEvent(aeEventLoop *el, int fd, void *privdata, int mask) 
     ((void)el); ((void)fd); ((void)mask);
 
     redisAsyncHandleRead(e->context);
+#ifdef WIN32_IOCP
+    aeWinReceiveDone(fd);
+#endif
 }
 
+#ifdef WIN32_IOCP
+static void writeHandlerDone(aeEventLoop *el, int fd, void *privdata, int nwritten) {
+    aeWinSendReq *req = (aeWinSendReq *)privdata;
+    redisAeEvents *e = (redisAeEvents *)req->client;
+
+    redisAsyncHandleWriteComplete(e->context, nwritten);
+}
+
+static void redisAeWriteEvent(aeEventLoop *el, int fd, void *privdata, int mask) {
+    redisAeEvents *e = (redisAeEvents*)privdata;
+    redisContext *c = &(e->context->c);
+    int result;
+    ((void)el); ((void)fd); ((void)mask);
+
+    if (redisAsyncHandleWritePrep(e->context) == REDIS_OK) {
+        result = aeWinSocketSend((int)c->fd,(char*)c->obuf,(int)(sdslen(c->obuf)), 
+                                        el, e, NULL, writeHandlerDone);
+        if (result == SOCKET_ERROR && errno != WSA_IO_PENDING) {
+            if (errno != EPIPE)
+                fprintf(stderr, "Writing to socket %s\n", wsa_strerror(errno));
+            return;
+        }
+    }
+}
+#else
 static void redisAeWriteEvent(aeEventLoop *el, int fd, void *privdata, int mask) {
     redisAeEvents *e = (redisAeEvents*)privdata;
     ((void)el); ((void)fd); ((void)mask);
 
     redisAsyncHandleWrite(e->context);
 }
+#endif
 
 static void redisAeAddRead(void *privdata) {
     redisAeEvents *e = (redisAeEvents*)privdata;
@@ -289,6 +323,10 @@ static void redisAeCleanup(void *privdata) {
     redisAeEvents *e = (redisAeEvents*)privdata;
     redisAeDelRead(privdata);
     redisAeDelWrite(privdata);
+#ifdef WIN32_IOCP
+    aeWinCloseSocket((int)e->fd);
+    e->fd = 0;
+#endif
     zfree(e);
 }
 
@@ -596,7 +634,12 @@ void sentinelScheduleScriptExecution(char *path, ...) {
     sj->retry_num = 0;
     sj->argv = zmalloc(sizeof(char*)*(argc+1));
     sj->start_time = 0;
+#ifdef _WIN32
+    sj->hScriptProcess = INVALID_HANDLE_VALUE;
+    sj->processId = 0;
+#else
     sj->pid = 0;
+#endif
     memcpy(sj->argv,argv,sizeof(char*)*(argc+1));
 
     listAddNodeTail(sentinel.scripts_queue,sj);
@@ -623,6 +666,7 @@ void sentinelScheduleScriptExecution(char *path, ...) {
 
 /* Lookup a script in the scripts queue via pid, and returns the list node
  * (so that we can easily remove it from the queue if needed). */
+#ifndef _WIN32
 listNode *sentinelGetScriptListNodeByPid(pid_t pid) {
     listNode *ln;
     listIter li;
@@ -636,6 +680,7 @@ listNode *sentinelGetScriptListNodeByPid(pid_t pid) {
     }
     return NULL;
 }
+#endif
 
 /* Run pending scripts if we are not already at max number of running
  * scripts. */
@@ -662,6 +707,38 @@ void sentinelRunPendingScripts(void) {
         sj->flags |= SENTINEL_SCRIPT_RUNNING;
         sj->start_time = mstime();
         sj->retry_num++;
+
+#ifdef _WIN32
+        {
+            PROCESS_INFORMATION pi;
+            char args[1024];
+            int j = 1;
+            int pos = 0;
+            while(sj->argv[j]) {
+                int arglen = strlen(sj->argv[j]);
+                memcpy(args+pos, sj->argv[j], arglen);
+                pos += arglen;
+                memcpy(args+pos, " ", 1);
+                pos += 1;
+                j++;
+            }
+            if(TRUE == CreateProcessA(sj->argv[0], args, NULL, NULL, FALSE, 0, NULL, NULL, NULL, &pi)) {
+                sj->hScriptProcess = pi.hProcess;
+                sj->processId = pi.dwProcessId;
+                CloseHandle( pi.hThread );
+
+                sentinel.running_scripts++;
+                sentinelEvent(REDIS_DEBUG,"+script-child",NULL,"%ld",(long)sj->processId);
+            } else {
+                sentinelEvent(REDIS_WARNING,"-script-error",NULL,
+                              "%s %d %d", sj->argv[0], 99, 0);
+                sj->flags &= ~SENTINEL_SCRIPT_RUNNING;
+                sj->processId = 0;
+                sj->hScriptProcess = INVALID_HANDLE_VALUE;
+            }
+        }
+    }
+#else
         pid = fork();
 
         if (pid == -1) {
@@ -683,6 +760,7 @@ void sentinelRunPendingScripts(void) {
             sentinelEvent(REDIS_DEBUG,"+script-child",NULL,"%ld",(long)pid);
         }
     }
+#endif
 }
 
 /* How much to delay the execution of a script that we need to retry after
@@ -704,6 +782,49 @@ mstime_t sentinelScriptRetryDelay(int retry_num) {
  * a signal, or returned exit code "1", it is scheduled to run again if
  * the max number of retries did not already elapsed. */
 void sentinelCollectTerminatedScripts(void) {
+#ifdef _WIN32
+    listNode *ln;
+    listIter li;
+    DWORD exitCode;
+
+    listRewind(sentinel.scripts_queue,&li);
+    while (sentinel.running_scripts < SENTINEL_SCRIPT_MAX_RUNNING &&
+           (ln = listNext(&li)) != NULL) {
+        sentinelScriptJob *sj = ln->value;
+
+        if(sj->hScriptProcess == INVALID_HANDLE_VALUE)
+            continue;
+
+        if(WaitForSingleObject(sj->hScriptProcess,0) == WAIT_OBJECT_0) {
+            GetExitCodeProcess(sj->hScriptProcess,&exitCode);
+            sentinelEvent(REDIS_DEBUG,"-script-child",NULL,"%ld %d %d",
+            (long)sj->processId, exitCode, 0);
+
+            /* at this point the process ID may be recycled by Windows */
+            CloseHandle(sj->hScriptProcess);
+
+            /* If the script returns an exit code of "1" (that means: please retry), 
+            * we reschedule it if the max number of retries is not already reached. */
+            if (exitCode == 1 && sj->retry_num != SENTINEL_SCRIPT_MAX_RETRY) {
+                sj->hScriptProcess = INVALID_HANDLE_VALUE;
+                sj->processId = 0;
+                sj->flags &= ~SENTINEL_SCRIPT_RUNNING;
+                sj->start_time = mstime() +
+                                 sentinelScriptRetryDelay(sj->retry_num);
+            } else {
+                /* Otherwise let's remove the script, but log the event if the
+                 * execution did not terminated in the best of the ways. */
+                if (exitCode != 0) {
+                    sentinelEvent(REDIS_WARNING,"-script-error",NULL,
+                                  "%s %d", sj->argv[0], exitCode);
+                }
+                listDelNode(sentinel.scripts_queue,ln);
+                sentinelReleaseScriptJob(sj);
+                sentinel.running_scripts--;
+            }
+        }
+    }
+#else
     int statloc;
     pid_t pid;
 
@@ -746,6 +867,7 @@ void sentinelCollectTerminatedScripts(void) {
             sentinel.running_scripts--;
         }
     }
+#endif
 }
 
 /* Kill scripts in timeout, they'll be collected by the
@@ -762,9 +884,15 @@ void sentinelKillTimedoutScripts(void) {
         if (sj->flags & SENTINEL_SCRIPT_RUNNING &&
             (now - sj->start_time) > SENTINEL_SCRIPT_MAX_RUNTIME)
         {
+#ifdef _WIN32
+            sentinelEvent(REDIS_WARNING,"-script-timeout",NULL,"%s %ld",
+                sj->argv[0], (long)sj->processId);
+            TerminateProcess(sj->hScriptProcess,1);
+#else
             sentinelEvent(REDIS_WARNING,"-script-timeout",NULL,"%s %ld",
                 sj->argv[0], (long)sj->pid);
             kill(sj->pid,SIGKILL);
+#endif
         }
     }
 }
@@ -793,7 +921,11 @@ void sentinelPendingScriptsCommand(redisClient *c) {
             (sj->flags & SENTINEL_SCRIPT_RUNNING) ? "running" : "scheduled");
 
         addReplyBulkCString(c,"pid");
+#ifdef _WIN32
+        addReplyBulkLongLong(c,sj->processId);
+#else
         addReplyBulkLongLong(c,sj->pid);
+#endif
 
         if (sj->flags & SENTINEL_SCRIPT_RUNNING) {
             addReplyBulkCString(c,"run-time");
