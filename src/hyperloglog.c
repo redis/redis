@@ -925,11 +925,11 @@ robj *createHLLObject(void) {
 
     /* Populate the sparse representation with as many XZERO opcodes as
      * needed to represent all the registers. */
-    aux = sparselen;
+    aux = HLL_REGISTERS;
     s = sdsnewlen(NULL,sparselen);
     p = (uint8_t*)s + HLL_HDR_SIZE;
     while(aux) {
-        int xzero = HLL_SPARSE_XZERO_MAX_LEN-1;
+        int xzero = HLL_SPARSE_XZERO_MAX_LEN;
         if (xzero > aux) xzero = aux;
         HLL_SPARSE_XZERO_SET(p,xzero);
         p += 2;
