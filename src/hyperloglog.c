@@ -365,7 +365,7 @@ struct hllhdr {
 #define HLL_SPARSE_IS_XZERO(p) (((*p) & 0xc0) == HLL_SPARSE_XZERO_BIT)
 #define HLL_SPARSE_IS_VAL(p) ((*p) & HLL_SPARSE_VAL_BIT)
 #define HLL_SPARSE_ZERO_LEN(p) (((*p) & 0x3f)+1)
-#define HLL_SPARSE_XZERO_LEN(p) (((((*p) & 0x3f) << 6) | (*p))+1)
+#define HLL_SPARSE_XZERO_LEN(p) (((((*p) & 0x3f) << 8) | (*(p+1)))+1)
 #define HLL_SPARSE_VAL_VALUE(p) ((((*p) >> 2) & 0x1f)+1)
 #define HLL_SPARSE_VAL_LEN(p) (((*p) & 0x3)+1)
 #define HLL_SPARSE_VAL_MAX_VALUE 32
