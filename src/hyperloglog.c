@@ -905,19 +905,37 @@ uint64_t hllCount(struct hllhdr *hdr) {
 
 /* ========================== HyperLogLog commands ========================== */
 
-/* An HyperLogLog object is a string with space for 16k 6-bit integers,
- * a cached 64 bit cardinality value, and a 4 byte "magic" and additional
- * 4 bytes for version reserved for future use. */
+/* Create an HLL object. We always create the HLL using sparse encoding.
+ * This will be upgraded to the dense representation as needed. */
 robj *createHLLObject(void) {
     robj *o;
-    char *p;
+    struct hllhdr *hdr;
+    sds s;
+    uint8_t *p;
+    int sparselen = HLL_HDR_SIZE +
+                    ((HLL_REGISTERS+(HLL_SPARSE_XZERO_MAX_LEN-1)) /
+                     HLL_SPARSE_XZERO_MAX_LEN);
+    int aux;
 
-    /* Create a string of the right size filled with zero bytes.
-     * Note that the cached cardinality is set to 0 as a side effect
-     * that is exactly the cardinality of an empty HLL. */
-    o = createObject(REDIS_STRING,sdsnewlen(NULL,HLL_DENSE_SIZE));
-    p = o->ptr;
-    memcpy(p,"HYLL",4);
+    /* Populate the sparse representation with as many XZERO opcodes as
+     * needed to represent all the registers. */
+    aux = sparselen;
+    s = sdsnewlen(NULL,sparselen);
+    p = (uint8_t*)s + HLL_HDR_SIZE;
+    while(aux) {
+        int xzero = HLL_SPARSE_XZERO_MAX_LEN-1;
+        if (xzero > aux) xzero = aux;
+        HLL_SPARSE_XZERO_SET(p,xzero);
+        p += 2;
+        aux -= xzero;
+    }
+    redisAssert((p-(uint8_t*)s) == sparselen);
+
+    /* Create the actual object. */
+    o = createObject(REDIS_STRING,s);
+    hdr = o->ptr;
+    memcpy(hdr->magic,"HYLL",4);
+    hdr->encoding = HLL_SPARSE;
     return o;
 }
 
