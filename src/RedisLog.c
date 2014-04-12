@@ -99,7 +99,7 @@ void redisLogRaw(int level, const char *msg) {
 	if (logFile) fclose(fp);
 
 #ifdef _WIN32
-	LogToEventLog(server.syslog_ident, msg);
+	if (server.syslog_enabled) WriteEventLog(server.syslog_ident, msg);
 #else
     if (server.syslog_enabled) syslog(syslogLevelMap[level], "%s", msg);
 #endif

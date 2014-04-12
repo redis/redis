@@ -56,7 +56,7 @@ This code implements the following new command line arguments for redis:
 #include <windows.h>
 #include <tchar.h>
 #include <strsafe.h>
-
+#include "Win32_EventLog.h"
 #include <algorithm>
 #include <string>
 #include <sstream>
@@ -72,10 +72,12 @@ using namespace std;
 
 SERVICE_STATUS g_ServiceStatus = { 0 };
 HANDLE g_ServiceStopEvent = INVALID_HANDLE_VALUE;
+HANDLE g_ServiceStoppedEvent = INVALID_HANDLE_VALUE;
 vector<string> serviceRunArguments;
 SERVICE_STATUS_HANDLE g_StatusHandle;
 const ULONGLONG cThirtySeconds = 30 * 1000;
 BOOL g_isRunningAsService = FALSE;
+const int cPreshutdownInterval = 180000;
 
 extern "C" int main(int argc, char** argv);
 
@@ -120,6 +122,14 @@ VOID ServiceInstall(int argc, char ** argv) {
 		throw std::system_error(GetLastError(), system_category(), "CreateService failed");
 	}
 
+	SERVICE_PRESHUTDOWN_INFO preshutdownInfo;
+	preshutdownInfo.dwPreshutdownTimeout = cPreshutdownInterval;
+	if (FALSE == ChangeServiceConfig2(shService, SERVICE_CONFIG_PRESHUTDOWN_INFO, &preshutdownInfo)) {
+		throw std::system_error(GetLastError(), system_category(), "ChangeServiceConfig2 failed");
+	}
+
+	RedisEventLog().InstallEventLogSource(szPath);
+
 	cout << "Redis successfully installed as a service." << endl;
 }
 
@@ -138,6 +148,7 @@ VOID ServiceStart() {
 	if (FALSE == StartServiceA(shService, 0, NULL)) {
 		throw std::system_error(GetLastError(), system_category(), "StartService failed");
 	}
+
 
 	// it will take atleast a couple of seconds for the service to start.
 	Sleep(2000);
@@ -176,7 +187,7 @@ VOID ServiceStop() {
 	}
 	SERVICE_STATUS status;
 	if (FALSE == ControlService(shService, SERVICE_CONTROL_STOP, &status)) {
-		throw std::system_error(GetLastError(), system_category(), "ChangeServiceConfig failed");
+		throw std::system_error(GetLastError(), system_category(), "ControlService failed");
 	}
 
 	ULONGLONG start = GetTickCount64();
@@ -202,12 +213,14 @@ VOID ServiceUninstall() {
 		throw std::system_error(GetLastError(), system_category(), "OpenSCManager failed");
 	}
 	shService = OpenServiceA(shSCManager, SERVICE_NAME, SERVICE_ALL_ACCESS);
-	if (shSCManager.Invalid()) {
-		throw std::system_error(GetLastError(), system_category(), "OpenService failed");
+	if (shService.Valid()) {
+		if (FALSE == DeleteService(shService)) {
+			throw std::system_error(GetLastError(), system_category(), "DeleteService failed");
+		}
 	}
-	if (FALSE == DeleteService(shService)) {
-		throw std::system_error(GetLastError(), system_category(), "DeleteService failed");
-	}
+
+	RedisEventLog().UninstallEventLogSource();
+
 	cout << "Redis service successfully uninstalled." << endl;
 }
 
@@ -253,6 +266,8 @@ DWORD WINAPI ServiceWorkerThread(LPVOID lpParam) {
 		delete argv;
 		argv = nullptr;
 
+		SetEvent(g_ServiceStoppedEvent);
+
 		return ERROR_SUCCESS;
 	} catch (std::system_error syserr) {
 		stringstream err;
@@ -269,12 +284,11 @@ DWORD WINAPI ServiceWorkerThread(LPVOID lpParam) {
 	return  ERROR_PROCESS_ABORTED;
 }
 
-VOID WINAPI ServiceCtrlHandler(DWORD CtrlCode) {
-	switch (CtrlCode) {
-		case SERVICE_CONTROL_STOP:
-
-			if (g_ServiceStatus.dwCurrentState != SERVICE_RUNNING)
-				break;
+DWORD WINAPI ServiceCtrlHandler(DWORD dwControl, DWORD dwEventType, LPVOID lpEventData, LPVOID lpContext) {
+	switch (dwControl) {
+		case SERVICE_CONTROL_PRESHUTDOWN:
+		{
+			SetEvent(g_ServiceStopEvent);
 
 			g_ServiceStatus.dwControlsAccepted = 0;
 			g_ServiceStatus.dwCurrentState = SERVICE_STOP_PENDING;
@@ -285,20 +299,51 @@ VOID WINAPI ServiceCtrlHandler(DWORD CtrlCode) {
 				throw std::system_error(GetLastError(), system_category(), "SetServiceStatus failed");
 			}
 
-			// This will signal the worker thread to start shutting down
-			SetEvent(g_ServiceStopEvent);
-
 			break;
+		}
+
+		case SERVICE_CONTROL_STOP:
+		{
+			DWORD start = GetTickCount();
+			while (GetTickCount() - start > cPreshutdownInterval) {
+				if (WaitForSingleObject(g_ServiceStoppedEvent, cPreshutdownInterval / 10) == WAIT_OBJECT_0) {
+					break;
+				}
+
+				g_ServiceStatus.dwControlsAccepted = 0;
+				g_ServiceStatus.dwCurrentState = SERVICE_STOP_PENDING;
+				g_ServiceStatus.dwWin32ExitCode = 0;
+				g_ServiceStatus.dwCheckPoint = 4;
+
+				if (SetServiceStatus(g_StatusHandle, &g_ServiceStatus) == FALSE) {
+					throw std::system_error(GetLastError(), system_category(), "SetServiceStatus failed");
+				}
+			}
+
+			g_ServiceStatus.dwControlsAccepted = 0;
+			g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
+			g_ServiceStatus.dwWin32ExitCode = 0;
+			g_ServiceStatus.dwCheckPoint = 4;
+
+			if (SetServiceStatus(g_StatusHandle, &g_ServiceStatus) == FALSE) {
+				throw std::system_error(GetLastError(), system_category(), "SetServiceStatus failed");
+			}
+			break;
+		}
 
 		default:
+		{
 			break;
+		}
 	}
+
+	return NO_ERROR;
 }
 
 VOID WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
 	DWORD Status = E_FAIL;
 
-	g_StatusHandle = RegisterServiceCtrlHandlerA(SERVICE_NAME, ServiceCtrlHandler);
+	g_StatusHandle = RegisterServiceCtrlHandlerExA(SERVICE_NAME, ServiceCtrlHandler,NULL);
 	if (g_StatusHandle == NULL) {
 		return;
 	}
@@ -315,6 +360,7 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
 		throw std::system_error(GetLastError(), system_category(), "SetServiceStatus failed");
 	}
 
+	g_ServiceStoppedEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 	g_ServiceStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 	if (g_ServiceStopEvent == NULL) {
 		g_ServiceStatus.dwControlsAccepted = 0;
@@ -329,7 +375,7 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR *argv) {
 		return;
 	}
 
-	g_ServiceStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP;
+	g_ServiceStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_PRESHUTDOWN;
 	g_ServiceStatus.dwCurrentState = SERVICE_RUNNING;
 	g_ServiceStatus.dwWin32ExitCode = 0;
 	g_ServiceStatus.dwCheckPoint = 0;
@@ -389,43 +435,40 @@ void BuildServiceRunArguments(int argc, char** argv) {
 extern "C" BOOL HandleServiceCommands(int argc, char **argv) {
 	try {
 		if (argc > 1) {
-
-			string servicearg = argv[1];
-			std::transform(servicearg.begin(), servicearg.end(), servicearg.begin(), ::tolower);
-			if (servicearg == "--service-install") {
-				ServiceInstall(argc, argv);
-				return TRUE;
-			} else if (servicearg == "--service-uninstall") {
-				ServiceUninstall();
-				return TRUE;
-			} else if (servicearg == "--service-run") {
-				g_isRunningAsService = TRUE;
-				BuildServiceRunArguments(argc, argv);
-				ServiceRun();
-				return TRUE;
-			} else if (servicearg == "--service-start") {
-				ServiceStart();
-				return TRUE;
-			} else if (servicearg == "--service-stop") {
-				ServiceStop();
-				return TRUE;
-			}
+				string servicearg = argv[1];
+				std::transform(servicearg.begin(), servicearg.end(), servicearg.begin(), ::tolower);
+				if (servicearg == "--service-install") {
+					ServiceInstall(argc, argv);
+					return TRUE;
+				} else if (servicearg == "--service-uninstall") {
+					ServiceUninstall();
+					return TRUE;
+				} else if (servicearg == "--service-run") {
+					g_isRunningAsService = TRUE;
+					BuildServiceRunArguments(argc, argv);
+					ServiceRun();
+					return TRUE;
+				} else if (servicearg == "--service-start") {
+					ServiceStart();
+					return TRUE;
+				} else if (servicearg == "--service-stop") {
+					ServiceStop();
+					return TRUE;
+				}
 		}
 
 		// not a service command. start redis normally.
 		return FALSE;
 	} catch (std::system_error syserr) {
-		stringstream err;
-		err << "HandleServiceCommands: system error caught. error code=0x" << hex << syserr.code().value() << ", message = " << syserr.what() << endl;
-		OutputDebugStringA(err.str().c_str());
+		cout << "HandleServiceCommands: system error caught. error code=" << syserr.code().value() << ", message = " << syserr.what() << endl;
 		exit(1);
 	} catch (std::runtime_error runerr) {
 		stringstream err;
-		err << "HandleServiceCommands: runtime error caught. message=" << runerr.what() << endl;
+		cout << "HandleServiceCommands: runtime error caught. message=" << runerr.what() << endl;
 		OutputDebugStringA(err.str().c_str());
 		exit(1);
 	} catch (...) {
-		OutputDebugStringA("HandleServiceCommands: other exception caught.");
+		cout << "HandleServiceCommands: other exception caught." << endl;
 		exit(1);
 	}
 }

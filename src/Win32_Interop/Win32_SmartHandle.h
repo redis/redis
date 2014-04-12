@@ -343,3 +343,43 @@ public:
 		m_handle = NULL;
 	}
 } SmartServiceHandle;
+
+typedef class SmartRegistryHandle {
+private:
+	HKEY m_handle;
+
+public:
+	operator HKEY() {
+		return m_handle;
+	}
+
+	operator HKEY* () {
+		return &m_handle;
+	}
+
+	SmartRegistryHandle & operator= (const HKEY handle) {
+		m_handle = handle;
+		return *this;
+	}
+
+	SmartRegistryHandle() {
+		m_handle = NULL;
+	}
+
+	SmartRegistryHandle(const HKEY handle) {
+		m_handle = handle;
+	}
+
+	BOOL Valid() {
+		return (m_handle != NULL);
+	}
+
+	BOOL Invalid() {
+		return (m_handle == NULL);
+	}
+
+	~SmartRegistryHandle() {
+		RegCloseKey(m_handle);
+		m_handle = NULL;
+	}
+} SmartRegistryHandle;

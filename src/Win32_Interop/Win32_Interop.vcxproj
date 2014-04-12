@@ -49,9 +49,6 @@ rc.exe -foresources/EventLog.res resources/EventLog.rc</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">EventLog.h</Outputs>
     </CustomBuild>
   </ItemGroup>
-  <ItemGroup>
-    <Resource Include="resources\EventLog.res" />
-  </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{8C07F811-C81C-432C-B334-1AE6FAECF951}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
