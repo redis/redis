@@ -560,11 +560,15 @@ double hllDenseSum(uint8_t *registers, double *PE, int *ezp) {
 /* Convert the HLL with sparse representation given as input in its dense
  * representation. Both representations are represented by SDS strings, and
  * the input representation is freed as a side effect. */
-sds hllSparseToDense(sds sparse) {
-    sds dense;
+void hllSparseToDense(robj *o) {
+    sds sparse = o->ptr, dense;
     struct hllhdr *hdr, *oldhdr = (struct hllhdr*)sparse;
     int idx = 0, runlen, regval;
     uint8_t *p = (uint8_t*)sparse, *end = p+sdslen(sparse);
+
+    /* If the representation is already the right one return ASAP. */
+    hdr = (struct hllhdr*) sparse;
+    if (hdr->encoding == HLL_DENSE) return;
 
     /* Create a string of the right size filled with zero bytes.
      * Note that the cached cardinality is set to 0 as a side effect
@@ -597,9 +601,9 @@ sds hllSparseToDense(sds sparse) {
         }
     }
 
-    /* Free the old representation and return the new one. */
-    sdsfree(sparse);
-    return dense;
+    /* Free the old representation and set the new one. */
+    sdsfree(o->ptr);
+    o->ptr = dense;
 }
 
 /* "Add" the element in the sparse hyperloglog data structure.
@@ -805,7 +809,7 @@ updated:
     return 1;
 
 promote: /* Promote to dense representation. */
-    o->ptr = hllSparseToDense(o->ptr);
+    hllSparseToDense(o);
     hdr = o->ptr;
     return hllDenseAdd(hdr->registers, ele, elesize);
 }
