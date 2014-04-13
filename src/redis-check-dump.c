@@ -138,8 +138,10 @@ typedef struct {
  * at runtime to avoid strange compiler optimizations. */
 static double R_Zero, R_PosInf, R_NegInf, R_Nan;
 
+#define MAX_TYPES_NUM 256
+#define MAX_TYPE_NAME_LEN 16
 /* store string types for output */
-static char types[256][16];
+static char types[MAX_TYPES_NUM][MAX_TYPE_NAME_LEN];
 
 /* Return true if 't' is a valid object type. */
 int checkType(unsigned char t) {
