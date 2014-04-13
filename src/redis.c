@@ -1978,7 +1978,7 @@ void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
 }
 
 /* It is possible to call the function forceCommandPropagation() inside a
- * Redis command implementaiton in order to to force the propagation of a
+ * Redis command implementation in order to to force the propagation of a
  * specific command execution into AOF / Replication. */
 void forceCommandPropagation(redisClient *c, int flags) {
     if (flags & REDIS_PROPAGATE_REPL) c->flags |= REDIS_FORCE_REPL;
