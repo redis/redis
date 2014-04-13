@@ -612,6 +612,7 @@ sds hllSparseToDense(sds sparse) {
  *
  * On success, the function returns 1 if the cardinality changed, or 0
  * if the register for this element was not updated.
+ * On error (if the representation is invalid) -1 is returned.
  *
  * As a side effect the function may promote the HLL representation from
  * sparse to dense: this happens when a register requires to be set to a value
@@ -645,6 +646,7 @@ int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
     first = 0;
     prev = NULL; /* Points to previos opcode at the end of the loop. */
     next = NULL; /* Points to the next opcode at the end of the loop. */
+    span = 0;
     while(p < end) {
         /* Set span to the number of registers covered by this opcode. */
         if (HLL_SPARSE_IS_ZERO(p)) span = HLL_SPARSE_ZERO_LEN(p);
@@ -656,6 +658,7 @@ int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
         p += (HLL_SPARSE_IS_XZERO(p)) ? 2 : 1;
         first += span;
     }
+    if (span == 0) return -1; /* Invalid format. */
 
     next = HLL_SPARSE_IS_XZERO(p) ? p+2 : p+1;
     if (next >= end) next = NULL;
