@@ -202,7 +202,7 @@ struct hllhdr {
 #define HLL_SPARSE 1 /* Sparse encoding */
 #define HLL_MAX_ENCODING 1
 
-#define HLL_SPARSE_MAX 12000
+#define HLL_SPARSE_MAX 3000
 
 static char *invalid_hll_err = "Corrupted HLL object detected";
 
