@@ -801,7 +801,7 @@ int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
      int oldlen = is_xzero ? 2 : 1;
      int deltalen = seqlen-oldlen;
 
-     if (deltalen > 0 && sdslen(o->ptr) > HLL_SPARSE_MAX) goto promote;
+     if (deltalen > 0 && sdslen(o->ptr)+deltalen > HLL_SPARSE_MAX) goto promote;
      if (deltalen && next) memmove(next+deltalen,next,next-sparse);
      sdsIncrLen(o->ptr,deltalen);
      memcpy(p,seq,seqlen);
