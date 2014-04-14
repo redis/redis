@@ -202,7 +202,7 @@ struct hllhdr {
 #define HLL_SPARSE 1 /* Sparse encoding */
 #define HLL_MAX_ENCODING 1
 
-#define HLL_SPARSE_MAX 3000
+#define HLL_SPARSE_MAX 12000
 
 /* =========================== Low level bit macros ========================= */
 
@@ -663,14 +663,23 @@ int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
     next = NULL; /* Points to the next opcode at the end of the loop. */
     span = 0;
     while(p < end) {
+        int oplen;
+
         /* Set span to the number of registers covered by this opcode. */
-        if (HLL_SPARSE_IS_ZERO(p)) span = HLL_SPARSE_ZERO_LEN(p);
-        else if (HLL_SPARSE_IS_XZERO(p)) span = HLL_SPARSE_XZERO_LEN(p);
-        else span = HLL_SPARSE_VAL_LEN(p);
+        if (HLL_SPARSE_IS_ZERO(p)) {
+            span = HLL_SPARSE_ZERO_LEN(p);
+            oplen = 1;
+        } else if (HLL_SPARSE_IS_XZERO(p)) {
+            span = HLL_SPARSE_XZERO_LEN(p);
+            oplen = 2;
+        } else {
+            span = HLL_SPARSE_VAL_LEN(p);
+            oplen = 1;
+        }
         /* Break if this opcode covers the register as 'index'. */
         if (index <= first+span-1) break;
         prev = p;
-        p += (HLL_SPARSE_IS_XZERO(p)) ? 2 : 1;
+        p += oplen;
         first += span;
     }
     if (span == 0) return -1; /* Invalid format. */
