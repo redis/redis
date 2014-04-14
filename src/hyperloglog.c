@@ -805,16 +805,47 @@ int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
      if (deltalen && next) memmove(next+deltalen,next,end-next);
      sdsIncrLen(o->ptr,deltalen);
      memcpy(p,seq,seqlen);
+     end += deltalen;
 
 updated:
     /* Step 4: Merge adjacent values if possible.
      *
      * The representation was updated, however the resulting representation
-     * may not be optimal: adjacent opcodes may be merged into a single one.
-     * We start from the opcode before the one we updated trying to merge
-     * opcodes up to the next 5 opcodes (since we need to consider the three
-     * opcodes resuling from the worst-case split of the updated opcode,
-     * plus the two opcodes at the left and right of the original one). */
+     * may not be optimal: adjacent VAL opcodes can sometimes be merged into
+     * a single one. */
+    p = prev ? prev : sparse;
+    int scanlen = 5; /* Scan up to 5 upcodes starting from prev. */
+    while (p < end && scanlen--) {
+        if (HLL_SPARSE_IS_XZERO(p)) {
+            p += 2;
+            continue;
+        } else if (HLL_SPARSE_IS_ZERO(p)) {
+            p++;
+            continue;
+        }
+        /* We need two adjacent VAL opcodes to try a merge, having
+         * the same value, and a len that first the VAL opcode max len. */
+        if (p+1 < end && HLL_SPARSE_IS_VAL(p+1)) {
+            int v1 = HLL_SPARSE_VAL_VALUE(p);
+            int v2 = HLL_SPARSE_VAL_VALUE(p+1);
+            if (v1 == v2) {
+                int len = HLL_SPARSE_VAL_LEN(p)+HLL_SPARSE_VAL_LEN(p+1);
+                if (len <= HLL_SPARSE_VAL_MAX_LEN) {
+                    HLL_SPARSE_VAL_SET(p+1,v1,len);
+                    memmove(p,p+1,end-p);
+                    sdsIncrLen(o->ptr,-1);
+                    end--;
+                    /* After a merge we reiterate without incrementing 'p'
+                     * in order to try to merge the just merged value with
+                     * a value on its right. */
+                    continue;
+                }
+            }
+        }
+        p++;
+    }
+
+    /* Invalidate the cached cardinality. */
     hdr = o->ptr;
     HLL_INVALIDATE_CACHE(hdr);
     return 1;
