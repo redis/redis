@@ -824,7 +824,7 @@ updated:
             continue;
         }
         /* We need two adjacent VAL opcodes to try a merge, having
-         * the same value, and a len that first the VAL opcode max len. */
+         * the same value, and a len that fits the VAL opcode max len. */
         if (p+1 < end && HLL_SPARSE_IS_VAL(p+1)) {
             int v1 = HLL_SPARSE_VAL_VALUE(p);
             int v2 = HLL_SPARSE_VAL_VALUE(p+1);
