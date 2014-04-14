@@ -668,7 +668,7 @@ int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
         else if (HLL_SPARSE_IS_XZERO(p)) span = HLL_SPARSE_XZERO_LEN(p);
         else span = HLL_SPARSE_VAL_LEN(p);
         /* Break if this opcode covers the register as 'index'. */
-        if (first+span >= index) break;
+        if (index <= first+span-1) break;
         prev = p;
         p += (HLL_SPARSE_IS_XZERO(p)) ? 2 : 1;
         first += span;
