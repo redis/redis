@@ -440,7 +440,7 @@ uint64_t MurmurHash64A (const void * key, int len, unsigned int seed) {
 /* Given a string element to add to the HyperLogLog, returns the length
  * of the pattern 000..1 of the element hash. As a side effect 'regp' is
  * set to the register index this element hashes to. */
-int hllPatLen(unsigned char *ele, size_t elesize, int *regp) {
+int hllPatLen(unsigned char *ele, size_t elesize, long *regp) {
     uint64_t hash, bit, index;
     int count;
 
@@ -483,7 +483,7 @@ int hllPatLen(unsigned char *ele, size_t elesize, int *regp) {
  * is returned. */
 int hllDenseAdd(uint8_t *registers, unsigned char *ele, size_t elesize) {
     uint8_t oldcount, count;
-    int index;
+    long index;
 
     /* Update the register if this element produced a longer run of zeroes. */
     count = hllPatLen(ele,elesize,&index);
@@ -636,8 +636,8 @@ int hllSparseToDense(robj *o) {
 int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
     struct hllhdr *hdr;
     uint8_t oldcount, count, *sparse, *end, *p, *prev, *next;
-    int index, first, span;
-    int is_zero = 0, is_xzero = 0, is_val = 0, runlen = 0;
+    long index, first, span;
+    long is_zero = 0, is_xzero = 0, is_val = 0, runlen = 0;
 
     /* Update the register if this element produced a longer run of zeroes. */
     count = hllPatLen(ele,elesize,&index);
@@ -663,18 +663,21 @@ int hllSparseAdd(robj *o, unsigned char *ele, size_t elesize) {
     next = NULL; /* Points to the next opcode at the end of the loop. */
     span = 0;
     while(p < end) {
-        int oplen;
+        long oplen;
 
-        /* Set span to the number of registers covered by this opcode. */
+        /* Set span to the number of registers covered by this opcode.
+         *
+         * This is the most performance critical loop of the sparse
+         * representation. Sorting the conditionals from the most to the
+         * least frequent opcode in many-bytes sparse HLLs is faster. */
+        oplen = 1;
         if (HLL_SPARSE_IS_ZERO(p)) {
             span = HLL_SPARSE_ZERO_LEN(p);
-            oplen = 1;
-        } else if (HLL_SPARSE_IS_XZERO(p)) {
+        } else if (HLL_SPARSE_IS_VAL(p)) {
+            span = HLL_SPARSE_VAL_LEN(p);
+        } else { /* XZERO. */
             span = HLL_SPARSE_XZERO_LEN(p);
             oplen = 2;
-        } else {
-            span = HLL_SPARSE_VAL_LEN(p);
-            oplen = 1;
         }
         /* Break if this opcode covers the register as 'index'. */
         if (index <= first+span-1) break;
