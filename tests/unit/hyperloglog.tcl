@@ -60,9 +60,9 @@ start_server {tags {"hll"}} {
         r pfcount hll
     } {5}
 
-    test {PFGETREG returns the HyperLogLog raw registers} {
+    test {PFDEBUG GETREG returns the HyperLogLog raw registers} {
         r del hll
         r pfadd hll 1 2 3
-        llength [r pfgetreg hll]
+        llength [r pfdebug getreg hll]
     } {16384}
 }
