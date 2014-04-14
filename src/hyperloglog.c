@@ -361,13 +361,13 @@ struct hllhdr {
  * The macros parameter is expected to be an uint8_t pointer. */
 #define HLL_SPARSE_XZERO_BIT 0x40 /* 01xxxxxx */
 #define HLL_SPARSE_VAL_BIT 0x80 /* 1vvvvvxx */
-#define HLL_SPARSE_IS_ZERO(p) (((*p) & 0xc0) == 0) /* 00xxxxxx */
-#define HLL_SPARSE_IS_XZERO(p) (((*p) & 0xc0) == HLL_SPARSE_XZERO_BIT)
-#define HLL_SPARSE_IS_VAL(p) ((*p) & HLL_SPARSE_VAL_BIT)
-#define HLL_SPARSE_ZERO_LEN(p) (((*p) & 0x3f)+1)
-#define HLL_SPARSE_XZERO_LEN(p) (((((*p) & 0x3f) << 8) | (*(p+1)))+1)
-#define HLL_SPARSE_VAL_VALUE(p) ((((*p) >> 2) & 0x1f)+1)
-#define HLL_SPARSE_VAL_LEN(p) (((*p) & 0x3)+1)
+#define HLL_SPARSE_IS_ZERO(p) (((*(p)) & 0xc0) == 0) /* 00xxxxxx */
+#define HLL_SPARSE_IS_XZERO(p) (((*(p)) & 0xc0) == HLL_SPARSE_XZERO_BIT)
+#define HLL_SPARSE_IS_VAL(p) ((*(p)) & HLL_SPARSE_VAL_BIT)
+#define HLL_SPARSE_ZERO_LEN(p) (((*(p)) & 0x3f)+1)
+#define HLL_SPARSE_XZERO_LEN(p) (((((*(p)) & 0x3f) << 8) | (*((p)+1)))+1)
+#define HLL_SPARSE_VAL_VALUE(p) ((((*(p)) >> 2) & 0x1f)+1)
+#define HLL_SPARSE_VAL_LEN(p) (((*(p)) & 0x3)+1)
 #define HLL_SPARSE_VAL_MAX_VALUE 32
 #define HLL_SPARSE_VAL_MAX_LEN 4
 #define HLL_SPARSE_ZERO_MAX_LEN 64
@@ -381,7 +381,7 @@ struct hllhdr {
 #define HLL_SPARSE_XZERO_SET(p,len) do { \
     int _l = (len)-1; \
     *(p) = (_l>>8) | HLL_SPARSE_XZERO_BIT; \
-    *(p+1) = (_l&0xff); \
+    *((p)+1) = (_l&0xff); \
 } while(0)
 
 /* ========================= HyperLogLog algorithm  ========================= */
