@@ -865,7 +865,17 @@ updated:
 promote: /* Promote to dense representation. */
     if (hllSparseToDense(o) == REDIS_ERR) return -1; /* Corrupted HLL. */
     hdr = o->ptr;
-    return hllDenseAdd(hdr->registers, ele, elesize);
+
+    /* We need to call hllDenseAdd() to perform the operation after the
+     * conversion. However the result must be 1, since if we need to
+     * convert from sparse to dense a register requires to be updated.
+     *
+     * Note that this in turn means that PFADD will make sure the command
+     * is propagated to slaves / AOF, so if there is a sparse -> dense
+     * convertion, it will be performed in all the slaves as well. */
+    int dense_retval = hllDenseAdd(hdr->registers, ele, elesize);
+    redisAssert(dense_retval == 1);
+    return dense_retval;
 }
 
 /* Compute SUM(2^-reg) in the sparse representation.
