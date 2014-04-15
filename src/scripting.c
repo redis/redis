@@ -960,6 +960,18 @@ void evalGenericCommand(redisClient *c, int evalsha) {
             rewriteClientCommandArgument(c,1,script);
             forceCommandPropagation(c,REDIS_PROPAGATE_REPL|REDIS_PROPAGATE_AOF);
         }
+    } else if (!server.lua_write_dirty &&
+               !replicationScriptCacheExists(c->argv[1]->ptr)) {
+        robj *script = createStringObject("SCRIPT", 6);
+        robj *load = createStringObject("LOAD", 4);
+
+        /* Rewrite as SCRIPT LOAD.  Note that SHA1 expansion has already
+         * been done here.
+         */
+        rewriteClientCommandVector(c, 3, script, load, c->argv[1]);
+        decrRefCount(script);
+        decrRefCount(load);
+        forceCommandPropagation(c,REDIS_PROPAGATE_REPL|REDIS_PROPAGATE_AOF);
     }
 }
 
