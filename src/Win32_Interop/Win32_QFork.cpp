@@ -164,6 +164,7 @@ QForkControl* g_pQForkControl;
 HANDLE g_hQForkControlFileMap;
 HANDLE g_hForkedProcess;
 DWORD g_systemAllocationGranularity;
+int g_SlaveExitCode = 0; // For slave process
 
 BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
     try {
@@ -227,9 +228,9 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
 
         // execute requested operation
         if (g_pQForkControl->typeOfOperation == OperationType::otRDB) {
-            do_rdbSave(g_pQForkControl->globalData.filename);
+			g_SlaveExitCode = do_rdbSave(g_pQForkControl->globalData.filename);
         } else if (g_pQForkControl->typeOfOperation == OperationType::otAOF) {
-            do_aofSave(g_pQForkControl->globalData.filename);
+			g_SlaveExitCode = do_aofSave(g_pQForkControl->globalData.filename);
         } else {
             throw runtime_error("unexpected operation type");
         }
@@ -794,6 +795,8 @@ BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, i
                 "Problem creating slave process" );
         }
         (*childPID) = pi.dwProcessId;
+		g_hForkedProcess = pi.hProcess;
+		CloseHandle(pi.hThread);
 
         // wait for "forked" process to map memory
         if(WaitForSingleObject(g_pQForkControl->forkedProcessReady,10000) != WAIT_OBJECT_0) {
@@ -848,9 +851,10 @@ BOOL AbortForkOperation()
                     "EndForkOperation: Killing forked process failed.");
             }
             g_hForkedProcess = 0;
+			CloseHandle(g_hForkedProcess);
         }
 
-        return EndForkOperation();
+        return EndForkOperation(NULL);
     }
     catch(std::system_error syserr) {
         printf("0x%08x - %s\n", syserr.code().value(), syserr.what());
@@ -866,7 +870,7 @@ BOOL AbortForkOperation()
 }
 
 
-BOOL EndForkOperation() {
+BOOL EndForkOperation(int * pExitCode) {
     try {
         SetEvent(g_pQForkControl->terminateForkedProcess);
         if( g_hForkedProcess != 0 )
@@ -879,8 +883,13 @@ BOOL EndForkOperation() {
                         "EndForkOperation: Killing forked process failed.");
                 }
             }
+			
+			if (pExitCode != NULL) {
+				GetExitCodeProcess(g_hForkedProcess, (DWORD*)pExitCode);
+			}
+
 			CloseHandle(g_hForkedProcess);
-            g_hForkedProcess = 0;
+			g_hForkedProcess = 0;
         }
 
         if (ResetEvent(g_pQForkControl->operationComplete) == FALSE ) {
@@ -1198,7 +1207,7 @@ extern "C"
 			} else if (status == ssSLAVE_EXIT) {
 				// slave is done - clean up and exit
 				QForkShutdown();
-				return 1;
+				return g_SlaveExitCode;
 			} else if (status == ssFAILED) {
 				// master or slave failed initialization
 				return 1;

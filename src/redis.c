@@ -1077,27 +1077,20 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Check if a background saving or AOF rewrite in progress terminated. */
     if (server.rdb_child_pid != -1 || server.aof_child_pid != -1) {
 #ifdef _WIN32
-        if (GetForkOperationStatus() == osCOMPLETE) {
-            OperationType type = server.rdb_child_pid != -1 ? otRDB : otAOF;
-            redisLog(REDIS_WARNING,"fork operation complete");
-            EndForkOperation();
-            if (type == otRDB) {
-                backgroundSaveDoneHandler(0, 0);
-            } else {
-                backgroundRewriteDoneHandler(0, 0);
-            }
-            updateDictResizePolicy();
-        } else if (GetForkOperationStatus() == osFAILED) {
-            OperationType type = server.rdb_child_pid != -1 ? otRDB : otAOF;
-            redisLog(REDIS_WARNING,"fork operation failed");
-            EndForkOperation();
-            if (type == otRDB) {
-                backgroundSaveDoneHandler(0, 1);
-            } else {
-                backgroundRewriteDoneHandler(0, 1);
-            }
-            updateDictResizePolicy();
-        }
+		if (GetForkOperationStatus() == osCOMPLETE || GetForkOperationStatus() == osFAILED) {
+			int exitCode;
+			int bySignal;
+			OperationType type = ((server.rdb_child_pid != -1) ? otRDB : otAOF);
+			bySignal = (int)(GetForkOperationStatus() == osFAILED);
+			redisLog(REDIS_WARNING, (bySignal ? "fork operation failed" : "fork operation complete"));
+			EndForkOperation(&exitCode);
+			if (type == otRDB) {
+				backgroundSaveDoneHandler(exitCode, bySignal);
+			} else {
+				backgroundRewriteDoneHandler(exitCode, bySignal);
+			}
+			updateDictResizePolicy();
+		}
 #else
         int statloc;
         pid_t pid;

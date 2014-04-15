@@ -61,7 +61,7 @@ BOOL QForkShutdown();
 // For master process use only
 BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, int sizeOfGlobalData, DWORD* childPID, unsigned __int32 dictHashSeed);
 OperationStatus GetForkOperationStatus();
-BOOL EndForkOperation();
+BOOL EndForkOperation(int * pExitCode); 
 BOOL AbortForkOperation();
 
 // For DLMalloc use only
