@@ -64,7 +64,15 @@ void redisLogRaw(int level, const char *msg) {
     FILE *fp;
     char buf[64];
     int rawmode = (level & REDIS_LOG_RAW);
-    int log_to_stdout = (logFile == NULL) ? 1 : (logFile[0] == '\0');
+	int log_to_stdout;
+	log_to_stdout = 0;
+	if (logFile == NULL) {
+		log_to_stdout = 1;
+	} else {
+		if ((logFile[0] == '\0') || (_stricmp(logFile, "stdout") == 0)) {
+			log_to_stdout = 1;
+		}
+	}
 
     level &= 0xff; /* clear flags */
     if (level < verbosity) return;
@@ -96,7 +104,7 @@ void redisLogRaw(int level, const char *msg) {
     }
     fflush(fp);
     
-	if (logFile) fclose(fp);
+	if (log_to_stdout == 0) fclose(fp);
 
 #ifdef _WIN32
 	if (server.syslog_enabled) WriteEventLog(server.syslog_ident, msg);
