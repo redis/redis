@@ -162,6 +162,7 @@
 #define REDIS_CMD_STALE 1024                /* "t" flag */
 #define REDIS_CMD_SKIP_MONITOR 2048         /* "M" flag */
 #define REDIS_CMD_ASKING 4096               /* "k" flag */
+#define REDIS_CMD_VOLATILE 8192             /* "v" flag */
 
 /* Object types */
 #define REDIS_STRING 0
@@ -840,6 +841,7 @@ struct redisServer {
     int lua_timedout;     /* True if we reached the time limit for script
                              execution. */
     int lua_kill;         /* Kill the script if true. */
+    int lua_volatile;     /* LUA is running in volatile mode */
     /* Assert & bug reporting */
     char *assert_failed;
     char *assert_file;

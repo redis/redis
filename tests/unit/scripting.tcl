@@ -363,6 +363,47 @@ start_server {tags {"scripting"}} {
 
 start_server {tags {"scripting repl"}} {
     start_server {} {
+        test {Connect a slave to the main instance} {
+            r -1 slaveof [srv 0 host] [srv 0 port]
+            wait_for_condition 50 100 {
+                [s -1 role] eq {slave} &&
+                [string match {*master_link_status:up*} [r -1 info replication]]
+            } else {
+                fail "Can't turn the instance into a slave"
+            }
+        }
+
+        test {VEVAL is not replicated} {
+            r eval {redis.call('set','volatile-key','set-by-eval')} 0
+            r veval {redis.call('set','volatile-key','veval')} 0
+            after 200
+            r -1 get volatile-key
+        } {set-by-eval}
+
+        test {VEVALSH is not replicated} {
+            r script load {redis.call('set','volatile-key',ARGV[1])}
+            r evalsha 2d7cf56562d13c6b2480d84f17d1784491158287 0 set-by-evalsha
+            r vevalsha 2d7cf56562d13c6b2480d84f17d1784491158287 0 set-by-vevalsha
+            after 200
+            r -1 get volatile-key
+        } {set-by-evalsha}
+
+        test {redis.nvcall is prohibited from non-volatile scripts} {
+            catch {eval {redis.nvcall('set','key','value')} 0} e
+            assert_match {*invalid*} $e
+        } {}
+
+        test {redis.nvcall is replicated from non-volatile scripts} {
+            r del volatile-key
+            r veval {redis.nvcall('set','volatile-key','set-by-nvcall')} 0
+            after 200
+            r -1 get volatile-key
+        } {set-by-nvcall}
+    }
+}
+
+start_server {tags {"scripting repl"}} {
+    start_server {} {
         test {Before the slave connects we issue two EVAL commands} {
             # One with an error, but still executing a command.
             # SHA is: 6e8bd6bdccbe78899e3cc06b31b6dbf4324c2e56
