@@ -200,12 +200,13 @@ void luaSortArray(lua_State *lua) {
     lua_pop(lua,1);             /* Stack: array (sorted) */
 }
 
-int luaRedisGenericCommand(lua_State *lua, int raise_error) {
+int luaRedisGenericCommand(lua_State *lua, int raise_error, int replicate) {
     int j, argc = lua_gettop(lua);
     struct redisCommand *cmd;
     robj **argv;
     redisClient *c = server.lua_client;
     sds reply;
+    int call_flags;
 
     /* Require at least one argument */
     if (argc == 0) {
@@ -300,8 +301,10 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     if (cmd->flags & REDIS_CMD_WRITE) server.lua_write_dirty = 1;
 
     /* Run the command */
+    call_flags = REDIS_CALL_SLOWLOG | REDIS_CALL_STATS;
+    if (replicate) call_flags |= REDIS_CALL_PROPAGATE;
     c->cmd = cmd;
-    call(c,REDIS_CALL_SLOWLOG | REDIS_CALL_STATS);
+    call(c,call_flags);
 
     /* Convert the result of the Redis command into a suitable Lua type.
      * The first thing we need is to create a single string from the client
@@ -347,11 +350,20 @@ cleanup:
 }
 
 int luaRedisCallCommand(lua_State *lua) {
-    return luaRedisGenericCommand(lua,1);
+    return luaRedisGenericCommand(lua,1,0);
 }
 
 int luaRedisPCallCommand(lua_State *lua) {
-    return luaRedisGenericCommand(lua,0);
+    return luaRedisGenericCommand(lua,0,0);
+}
+
+int luaRedisNVCallCommand(lua_State *lua) {
+    if (!server.lua_volatile) {
+        luaPushError(lua,
+            "redis.nvcall() can be called from volatile scripts only");
+        return 1;
+    }
+    return luaRedisGenericCommand(lua,0,1);
 }
 
 /* This adds redis.sha1hex(string) to Lua scripts using the same hashing
@@ -557,6 +569,11 @@ void scriptingInit(void) {
     /* redis.pcall */
     lua_pushstring(lua,"pcall");
     lua_pushcfunction(lua,luaRedisPCallCommand);
+    lua_settable(lua,-3);
+
+    /* redis.nvcall */
+    lua_pushstring(lua,"nvcall");
+    lua_pushcfunction(lua,luaRedisNVCallCommand);
     lua_settable(lua,-3);
 
     /* redis.log and log levels. */
@@ -835,6 +852,7 @@ void evalGenericCommand(redisClient *c, int evalsha) {
      * is called after a random command was used. */
     server.lua_random_dirty = 0;
     server.lua_write_dirty = 0;
+    server.lua_volatile = (c->cmd ? (c->cmd->flags & REDIS_CMD_VOLATILE) : 0);
 
     /* Get the number of arguments that are keys */
     if (getLongLongFromObjectOrReply(c,c->argv[2],&numkeys,NULL) != REDIS_OK)

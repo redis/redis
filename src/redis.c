@@ -101,7 +101,7 @@ struct redisCommand *commandTable;
  * m: may increase memory usage once called. Don't allow if out of memory.
  * a: admin command, like SAVE or SHUTDOWN.
  * p: Pub/Sub related command.
- * f: force replication of this command, regardless of server.dirty.
+ * v: volatile command, don't propagate to slaves or AOF.
  * s: command not allowed in scripts.
  * R: random command. Command is not deterministic, that is, the same command
  *    with the same arguments, with the same key space, may have different
@@ -263,6 +263,8 @@ struct redisCommand redisCommandTable[] = {
     {"client",clientCommand,-2,"ar",0,NULL,0,0,0,0,0},
     {"eval",evalCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
     {"evalsha",evalShaCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
+    {"veval",evalCommand,-3,"sv",0,zunionInterGetKeys,0,0,0,0,0},
+    {"vevalsha",evalShaCommand,-3,"sv",0,zunionInterGetKeys,0,0,0,0,0},
     {"slowlog",slowlogCommand,-2,"r",0,NULL,0,0,0,0,0},
     {"script",scriptCommand,-2,"ras",0,NULL,0,0,0,0,0},
     {"time",timeCommand,1,"rR",0,NULL,0,0,0,0,0},
@@ -1821,6 +1823,7 @@ void populateCommandTable(void) {
             case 'S': c->flags |= REDIS_CMD_SORT_FOR_SCRIPT; break;
             case 'l': c->flags |= REDIS_CMD_LOADING; break;
             case 't': c->flags |= REDIS_CMD_STALE; break;
+            case 'v': c->flags |= REDIS_CMD_VOLATILE; break;
             case 'M': c->flags |= REDIS_CMD_SKIP_MONITOR; break;
             case 'k': c->flags |= REDIS_CMD_ASKING; break;
             default: redisPanic("Unsupported command flag"); break;
@@ -1995,7 +1998,7 @@ void call(redisClient *c, int flags) {
     }
 
     /* Propagate the command into the AOF and replication link */
-    if (flags & REDIS_CALL_PROPAGATE) {
+    if ((flags & REDIS_CALL_PROPAGATE) && !(c->cmd->flags & REDIS_CMD_VOLATILE)) {
         int flags = REDIS_PROPAGATE_NONE;
 
         if (c->flags & REDIS_FORCE_REPL) flags |= REDIS_PROPAGATE_REPL;
