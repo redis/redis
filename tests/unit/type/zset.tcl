@@ -296,6 +296,62 @@ start_server {tags {"zset"}} {
             assert_error "*not*float*" {r zrangebyscore fooz 1 NaN}
         }
 
+        proc create_default_lex_zset {} {
+            create_zset zset {0 alpha 0 bar 0 cool 0 down
+                              0 elephant 0 foo 0 great 0 hill
+                              0 omega}
+        }
+
+        test "ZRANGEBYLEX/ZREVRANGEBYLEX/ZCOUNT basics" {
+            create_default_lex_zset
+
+            # inclusive range
+            assert_equal {alpha bar cool} [r zrangebylex zset - \[cool]
+            assert_equal {bar cool down} [r zrangebylex zset \[bar \[down]
+            assert_equal {great hill omega} [r zrangebylex zset \[g +]
+            assert_equal {cool bar alpha} [r zrevrangebylex zset \[cool -]
+            assert_equal {down cool bar} [r zrevrangebylex zset \[down \[bar]
+            assert_equal {omega hill great foo elephant down} [r zrevrangebylex zset + \[d]
+            assert_equal 3 [r zlexcount zset \[ele \[h]
+
+            # exclusive range
+            assert_equal {alpha bar} [r zrangebylex zset - (cool]
+            assert_equal {cool} [r zrangebylex zset (bar (down]
+            assert_equal {hill omega} [r zrangebylex zset (great +]
+            assert_equal {bar alpha} [r zrevrangebylex zset (cool -]
+            assert_equal {cool} [r zrevrangebylex zset (down (bar]
+            assert_equal {omega hill} [r zrevrangebylex zset + (great]
+            assert_equal 2 [r zlexcount zset (ele (great]
+
+            # inclusive and exclusive
+            assert_equal {} [r zrangebylex zset (az (b]
+            assert_equal {} [r zrangebylex zset (z +]
+            assert_equal {} [r zrangebylex zset - \[aaaa]
+            assert_equal {} [r zrevrangebylex zset \[elez \[elex]
+            assert_equal {} [r zrevrangebylex zset (hill (omega]
+        }
+
+        test "ZRANGEBYSLEX with LIMIT" {
+            create_default_lex_zset
+            assert_equal {alpha bar} [r zrangebylex zset - \[cool LIMIT 0 2]
+            assert_equal {bar cool} [r zrangebylex zset - \[cool LIMIT 1 2]
+            assert_equal {} [r zrangebylex zset \[bar \[down LIMIT 0 0]
+            assert_equal {} [r zrangebylex zset \[bar \[down LIMIT 2 0]
+            assert_equal {bar} [r zrangebylex zset \[bar \[down LIMIT 0 1]
+            assert_equal {cool} [r zrangebylex zset \[bar \[down LIMIT 1 1]
+            assert_equal {bar cool down} [r zrangebylex zset \[bar \[down LIMIT 0 100]
+            assert_equal {omega hill great foo elephant} [r zrevrangebylex zset + \[d LIMIT 0 5]
+            assert_equal {omega hill great foo} [r zrevrangebylex zset + \[d LIMIT 0 4]
+        }
+
+        test "ZRANGEBYLEX with invalid lex range specifiers" {
+            assert_error "*not*string*" {r zrangebylex fooz foo bar}
+            assert_error "*not*string*" {r zrangebylex fooz \[foo bar}
+            assert_error "*not*string*" {r zrangebylex fooz foo \[bar}
+            assert_error "*not*string*" {r zrangebylex fooz +x \[bar}
+            assert_error "*not*string*" {r zrangebylex fooz -x \[bar}
+        }
+
         test "ZREMRANGEBYSCORE basics" {
             proc remrangebyscore {min max} {
                 create_zset zset {1 a 2 b 3 c 4 d 5 e}
