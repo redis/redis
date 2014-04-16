@@ -214,6 +214,18 @@ start_server {tags {"zset"}} {
             create_zset zset {-inf a 1 b 2 c 3 d 4 e 5 f +inf g}
         }
 
+        proc create_lex_zset {} {
+            create_zset zset {0 zzz 0 goon 0 goo 0 goof 0 abc}
+        }
+
+        proc create_lex_zset_num {} {
+            create_zset zset {0 987 0 986 0 7888 0 322 0 8886}
+        }
+
+        proc create_lex_zset_varscore {} {
+            create_zset zset {1.2 zzzz 1.2 zzz 0.9 zzz2 1.1 goon 1 goo 0.9 go 1 g 1 goof 0.9 abc}
+        }
+
         test "ZRANGEBYSCORE/ZREVRANGEBYSCORE/ZCOUNT basics" {
             create_default_zset
 
@@ -294,6 +306,54 @@ start_server {tags {"zset"}} {
             assert_error "*not*float*" {r zrangebyscore fooz str 1}
             assert_error "*not*float*" {r zrangebyscore fooz 1 str}
             assert_error "*not*float*" {r zrangebyscore fooz 1 NaN}
+        }
+
+        test "ZLEX basics" {
+            create_lex_zset
+            
+            # normal range
+            assert_equal {goof}     [r zlex zset 0 gooey  0 0]
+            assert_equal {goof}     [r zlex zset 0 goof   0 0]
+
+            # preroll range
+            assert_equal {goo goof} [r zlex zset 0 gooey -1 0]
+            assert_equal {abc goo goof goon} [r zlex zset 0 goof -3 0]
+        }
+
+        test "ZLEX withheader" {
+            create_lex_zset
+
+            # preroll range
+            assert_equal {2 -2 abc goo goof goon} [r zlex zset 0 goof -3 0 withheader]
+
+            # postroll range
+            assert_equal {2 2 zzz} [r zlex zset 0 goof 4 4 withheader]
+        }
+
+        test "ZLEX postalphastop ascii" {
+            create_lex_zset
+
+            # normal range
+            assert_equal {1 0 goo goof goon} [r zlex zset 0 goo 0 4 breakmode postalphastop withheader]
+            
+            # preroll range
+            assert_equal {1 -1 abc goo goof goon} [r zlex zset 0 goo -1 4 breakmode postalphastop withheader]
+        }
+
+        test "ZLEX postalphastop num" {
+            create_lex_zset_num
+
+            # normal range num
+            assert_equal {3 0 986 987} [r zlex zset 0 9 0 4 breakmode postalphastop withheader]
+        }
+
+        test "ZLEX postalphastop varscore" {
+            create_lex_zset_varscore
+
+            # normal range
+            assert_equal {4 0 goo 1 goof 1} [r zlex zset 1 go 0 4 breakmode postalphastop withheader withscores]
+            # preroll range, score check overflow
+            assert_equal {4 -1 g 1 goo 1 goof 1} [r zlex zset 1 go -2 4 breakmode postalphastop withheader withscores]
         }
 
         test "ZREMRANGEBYSCORE basics" {

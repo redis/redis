@@ -406,6 +406,37 @@ int collateStringObjects(robj *a, robj *b) {
     return compareStringObjectsWithFlags(a,b,REDIS_COMPARE_COLL);
 }
 
+/* Compare two string objects via strncmp() or alike.
+ * Note that the objects may be integer-encoded. In such a case we
+ * use ll2string() to get a string representation of the numbers on the stack
+ * and compare the strings, it's much faster than calling getDecodedObject().
+ *
+ * Important note: if objects are not integer encoded, but binary-safe strings,
+ * sdsncmp() from sds.c will apply memcmp() so this function can be considered
+ * binary safe. */
+int compareStringObjectsN(robj *a, robj *b, size_t num) {
+    char bufa[128], bufb[128], *astr, *bstr;
+    int bothsds = 1;
+    redisAssertWithInfo(NULL,a,a->type == REDIS_STRING && b->type == REDIS_STRING);
+
+    if (a == b) return 0;
+    if (a->encoding != REDIS_ENCODING_RAW) {
+        ll2string(bufa,sizeof(bufa),(long) a->ptr);
+        astr = bufa;
+        bothsds = 0;
+    } else {
+        astr = a->ptr;
+    }
+    if (b->encoding != REDIS_ENCODING_RAW) {
+        ll2string(bufb,sizeof(bufb),(long) b->ptr);
+        bstr = bufb;
+        bothsds = 0;
+    } else {
+        bstr = b->ptr;
+    }
+    return bothsds ? sdsncmp(astr,bstr,num) : strncmp(astr,bstr,num);
+}
+
 /* Equal string objects return 1 if the two objects are the same from the
  * point of view of a string comparison, otherwise 0 is returned. Note that
  * this function is faster then checking for (compareStringObject(a,b) == 0)
