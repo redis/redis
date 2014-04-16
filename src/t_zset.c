@@ -444,7 +444,7 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
   * respectively if the item is exclusive or inclusive. REDIS_OK will be
   * returned.
   *
-  * If the stirng is not a valid range REDIS_ERR is returned, and the value
+  * If the string is not a valid range REDIS_ERR is returned, and the value
   * of *dest and *ex is undefined. */
 int zslParseLexRangeItem(robj *item, robj **dest, int *ex) {
     char *c = item->ptr;
@@ -475,8 +475,14 @@ int zslParseLexRangeItem(robj *item, robj **dest, int *ex) {
     }
 }
 
-/* Populate the rangespec according to the objects min and max. */
+/* Populate the rangespec according to the objects min and max.
+ *
+ * Return REDIS_OK on success. On error REDIS_ERR is returned.
+ * When OK is returned the structure must be freed with zslFreeLexRange(),
+ * otherwise no release is needed. */
 static int zslParseLexRange(robj *min, robj *max, zlexrangespec *spec) {
+    /* The range can't be valid if objects are integer encoded.
+     * Every item must start with ( or [. */
     if (min->encoding == REDIS_ENCODING_INT ||
         max->encoding == REDIS_ENCODING_INT) return REDIS_ERR;
 
@@ -489,6 +495,13 @@ static int zslParseLexRange(robj *min, robj *max, zlexrangespec *spec) {
     } else {
         return REDIS_OK;
     }
+}
+
+/* Free a lex range structure, must be called only after zelParseLexRange()
+ * populated the structure with success (REDIS_OK returned). */
+void zslFreeLexRange(zlexrangespec *spec) {
+    decrRefCount(spec->min);
+    decrRefCount(spec->max);
 }
 
 /* This is just a wrapper to compareStringObjects() that is able to
@@ -816,16 +829,16 @@ int zzlIsInLexRange(unsigned char *zl, zlexrangespec *range) {
 
 /* Find pointer to the first element contained in the specified lex range.
  * Returns NULL when no element is contained in the range. */
-unsigned char *zzlFirstInLexRange(unsigned char *zl, zlexrangespec range) {
+unsigned char *zzlFirstInLexRange(unsigned char *zl, zlexrangespec *range) {
     unsigned char *eptr = ziplistIndex(zl,0), *sptr;
 
     /* If everything is out of range, return early. */
-    if (!zzlIsInLexRange(zl,&range)) return NULL;
+    if (!zzlIsInLexRange(zl,range)) return NULL;
 
     while (eptr != NULL) {
-        if (zzlLexValueGteMin(eptr,&range)) {
+        if (zzlLexValueGteMin(eptr,range)) {
             /* Check if score <= max. */
-            if (zzlLexValueLteMax(eptr,&range))
+            if (zzlLexValueLteMax(eptr,range))
                 return eptr;
             return NULL;
         }
@@ -841,16 +854,16 @@ unsigned char *zzlFirstInLexRange(unsigned char *zl, zlexrangespec range) {
 
 /* Find pointer to the last element contained in the specified lex range.
  * Returns NULL when no element is contained in the range. */
-unsigned char *zzlLastInLexRange(unsigned char *zl, zlexrangespec range) {
+unsigned char *zzlLastInLexRange(unsigned char *zl, zlexrangespec *range) {
     unsigned char *eptr = ziplistIndex(zl,-2), *sptr;
 
     /* If everything is out of range, return early. */
-    if (!zzlIsInLexRange(zl,&range)) return NULL;
+    if (!zzlIsInLexRange(zl,range)) return NULL;
 
     while (eptr != NULL) {
-        if (zzlLexValueLteMax(eptr,&range)) {
+        if (zzlLexValueLteMax(eptr,range)) {
             /* Check if score >= min. */
-            if (zzlLexValueGteMin(eptr,&range))
+            if (zzlLexValueGteMin(eptr,range))
                 return eptr;
             return NULL;
         }
@@ -2373,17 +2386,22 @@ void zlexcountCommand(redisClient *c) {
 
     /* Lookup the sorted set */
     if ((zobj = lookupKeyReadOrReply(c, key, shared.czero)) == NULL ||
-        checkType(c, zobj, REDIS_ZSET)) return;
+        checkType(c, zobj, REDIS_ZSET))
+    {
+        zslFreeLexRange(&range);
+        return;
+    }
 
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
         unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
 
         /* Use the first element in range as the starting point */
-        eptr = zzlFirstInLexRange(zl,range);
+        eptr = zzlFirstInLexRange(zl,&range);
 
         /* No "first" element */
         if (eptr == NULL) {
+            zslFreeLexRange(&range);
             addReply(c, shared.czero);
             return;
         }
@@ -2429,6 +2447,7 @@ void zlexcountCommand(redisClient *c) {
         redisPanic("Unknown sorted set encoding");
     }
 
+    zslFreeLexRange(&range);
     addReplyLongLong(c, count);
 }
 
@@ -2468,6 +2487,7 @@ void genericZrangebylexCommand(redisClient *c, int reverse) {
                     (getLongFromObjectOrReply(c, c->argv[pos+2], &limit, NULL) != REDIS_OK)) return;
                 pos += 3; remaining -= 3;
             } else {
+                zslFreeLexRange(&range);
                 addReply(c,shared.syntaxerr);
                 return;
             }
@@ -2476,7 +2496,11 @@ void genericZrangebylexCommand(redisClient *c, int reverse) {
 
     /* Ok, lookup the key and get the range */
     if ((zobj = lookupKeyReadOrReply(c,key,shared.emptymultibulk)) == NULL ||
-        checkType(c,zobj,REDIS_ZSET)) return;
+        checkType(c,zobj,REDIS_ZSET))
+    {
+        zslFreeLexRange(&range);
+        return;
+    }
 
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
         unsigned char *zl = zobj->ptr;
@@ -2487,14 +2511,15 @@ void genericZrangebylexCommand(redisClient *c, int reverse) {
 
         /* If reversed, get the last node in range as starting point. */
         if (reverse) {
-            eptr = zzlLastInLexRange(zl,range);
+            eptr = zzlLastInLexRange(zl,&range);
         } else {
-            eptr = zzlFirstInLexRange(zl,range);
+            eptr = zzlFirstInLexRange(zl,&range);
         }
 
         /* No "first" element in the specified interval. */
         if (eptr == NULL) {
             addReply(c, shared.emptymultibulk);
+            zslFreeLexRange(&range);
             return;
         }
 
@@ -2558,6 +2583,7 @@ void genericZrangebylexCommand(redisClient *c, int reverse) {
         /* No "first" element in the specified interval. */
         if (ln == NULL) {
             addReply(c, shared.emptymultibulk);
+            zslFreeLexRange(&range);
             return;
         }
 
@@ -2598,6 +2624,7 @@ void genericZrangebylexCommand(redisClient *c, int reverse) {
         redisPanic("Unknown sorted set encoding");
     }
 
+    zslFreeLexRange(&range);
     setDeferredMultiBulkLength(c, replylen, rangelen);
 }
 
