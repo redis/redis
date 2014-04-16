@@ -758,10 +758,11 @@ int main(int argc, char **argv) {
     int fd;
 #ifdef _WIN32
     off size;
+	struct _stat64 stat;
 #else
     off_t size;
+	struct stat stat;
 #endif
-    struct stat stat;
     void *data;
 
     /* expect the first argument to be the dump file */

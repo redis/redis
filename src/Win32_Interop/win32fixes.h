@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <signal.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <windows.h>
 #include <float.h>
 #include <fcntl.h>    /* _O_BINARY */

@@ -228,6 +228,9 @@ int FDAPI_UpdateAcceptContext( int fd );
 #define close(fd) fdapi_close(fd)
 #define setmode(fd,mode) fdapi_setmode(fd,mode)
 #define _get_osfhandle(fd) fdapi_get_osfhandle(fd)
+
+#define _INC_STAT_INL
+#define fstat(_Desc, _Stat) fdapi_fstat64(_Desc,_Stat)
 #endif
 
 #ifdef __cplusplus

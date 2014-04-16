@@ -1091,7 +1091,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 /* Mark that we are loading in the global state and setup the fields
  * needed to provide loading stats. */
 void startLoading(FILE *fp) {
-    struct stat sb;
+#ifdef _WIN32
+	struct _stat64 sb;
+#else
+	struct stat sb;
+#endif
 
     /* Load the DB */
     server.loading = 1;
