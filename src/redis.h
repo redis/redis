@@ -1308,6 +1308,7 @@ void zrevrangebyscoreCommand(redisClient *c);
 void zrangebylexCommand(redisClient *c);
 void zrevrangebylexCommand(redisClient *c);
 void zcountCommand(redisClient *c);
+void zlexcountCommand(redisClient *c);
 void zrevrangeCommand(redisClient *c);
 void zcardCommand(redisClient *c);
 void zremCommand(redisClient *c);
