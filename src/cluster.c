@@ -3502,6 +3502,23 @@ void clusterCommand(redisClient *c) {
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"replicate") && c->argc == 3) {
         /* CLUSTER REPLICATE <NODE ID> */
+        /* CLUSTER REPLICATE NONE */
+        if (!strcasecmp(c->argv[2]->ptr,"none")) {
+            /* Abort if already a master */
+            if (nodeIsMaster(myself)) {
+                addReplyError(c,"I'm already a master");
+                return;
+            }
+            /* Remove slave and update flags */
+            if (myself->slaveof) clusterNodeRemoveSlave(myself->slaveof,myself);
+            myself->flags &= ~REDIS_NODE_SLAVE;
+            myself->flags |= REDIS_NODE_MASTER;
+            myself->slaveof = NULL;
+            clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
+            addReply(c,shared.ok);
+            return;
+        }
+
         clusterNode *n = clusterLookupNode(c->argv[2]->ptr);
 
         /* Lookup the specified node in our table. */
