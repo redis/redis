@@ -546,11 +546,12 @@ double hllDenseSum(uint8_t *registers, double *PE, int *ezp) {
             HLL_DENSE_GET_REGISTER(reg,registers,j);
             if (reg == 0) {
                 ez++;
-                E += 1; /* 2^(-reg[j]) is 1 when m is 0. */
+                /* Increment E at the end of the loop. */
             } else {
                 E += PE[reg]; /* Precomputed 2^(-reg[j]). */
             }
         }
+        E += ez; /* Add 2^0 'ez' times. */
     }
     *ezp = ez;
     return E;
@@ -894,13 +895,13 @@ double hllSparseSum(uint8_t *sparse, int sparselen, double *PE, int *ezp, int *i
             runlen = HLL_SPARSE_ZERO_LEN(p);
             idx += runlen;
             ez += runlen;
-            E += 1*runlen; /* 2^(-reg[j]) is 1 when m is 0. */
+            /* Increment E at the end of the loop. */
             p++;
         } else if (HLL_SPARSE_IS_XZERO(p)) {
             runlen = HLL_SPARSE_XZERO_LEN(p);
             idx += runlen;
             ez += runlen;
-            E += 1*runlen; /* 2^(-reg[j]) is 1 when m is 0. */
+            /* Increment E at the end of the loop. */
             p += 2;
         } else {
             runlen = HLL_SPARSE_VAL_LEN(p);
@@ -911,6 +912,7 @@ double hllSparseSum(uint8_t *sparse, int sparselen, double *PE, int *ezp, int *i
         }
     }
     if (idx != HLL_REGISTERS && invalid) *invalid = 1;
+    E += ez; /* Add 2^0 'ez' times. */
     *ezp = ez;
     return E;
 }
@@ -932,11 +934,13 @@ double hllRawSum(uint8_t *registers, double *PE, int *ezp) {
         reg = registers[j];
         if (reg == 0) {
             ez++;
-            E += 1; /* 2^(-reg[j]) is 1 when m is 0. */
+            /* Increment E at the end of the loop. */
         } else {
             E += PE[reg]; /* Precomputed 2^(-reg[j]). */
         }
     }
+    E += ez; /* 2^(-reg[j]) is 1 when m is 0, add it 'ez' times for every
+                zero register in the HLL. */
     *ezp = ez;
     return E;
 }
