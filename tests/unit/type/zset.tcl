@@ -764,6 +764,71 @@ start_server {tags {"zset"}} {
             assert_equal {} $err
         }
 
+        test "ZRANGEBYLEX fuzzy test, 200 ranges in $elements element sorted set - $encoding" {
+            set lexset {}
+            r del zset
+            for {set j 0} {$j < $elements} {incr j} {
+                set e [randstring 0 30 alpha]
+                lappend lexset $e
+                r zadd zset 0 $e
+            }
+            set lexset [lsort -unique $lexset]
+            for {set j 0} {$j < 100} {incr j} {
+                set min [randstring 0 30 alpha]
+                set max [randstring 0 30 alpha]
+                set mininc [randomInt 2]
+                set maxinc [randomInt 2]
+                if {$mininc} {set cmin "\[$min"} else {set cmin "($min"}
+                if {$maxinc} {set cmax "\[$max"} else {set cmax "($max"}
+                set rev [randomInt 2]
+                if {$rev} {
+                    set cmd zrevrangebylex
+                } else {
+                    set cmd zrangebylex
+                }
+
+                # Make sure data is the same in both sides
+                assert {[r zrange zset 0 -1] eq $lexset}
+
+                # Get the Redis output
+                set output [r $cmd zset $cmin $cmax]
+                if {$rev} {
+                    set outlen [r zlexcount zset $cmax $cmin]
+                } else {
+                    set outlen [r zlexcount zset $cmin $cmax]
+                }
+
+                # Compute the same output via Tcl
+                set o {}
+                set copy $lexset
+                if {(!$rev && [string compare $min $max] > 0) ||
+                    ($rev && [string compare $max $min] > 0)} {
+                    # Empty output when ranges are inverted.
+                } else {
+                    if {$rev} {
+                        # Invert the Tcl array using Redis itself.
+                        set copy [r zrevrange zset 0 -1]
+                        # Invert min / max as well
+                        lassign [list $min $max $mininc $maxinc] \
+                            max min maxinc mininc
+                    }
+                    foreach e $copy {
+                        set mincmp [string compare $e $min]
+                        set maxcmp [string compare $e $max]
+                        if {
+                             ($mininc && $mincmp >= 0 || !$mininc && $mincmp > 0)
+                             &&
+                             ($maxinc && $maxcmp <= 0 || !$maxinc && $maxcmp < 0)
+                        } {
+                            lappend o $e
+                        }
+                    }
+                }
+                assert {$o eq $output}
+                assert {$outlen eq [llength $output]}
+            }
+        }
+
         test "ZSETs skiplist implementation backlink consistency test - $encoding" {
             set diff 0
             for {set j 0} {$j < $elements} {incr j} {
