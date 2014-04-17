@@ -31,7 +31,11 @@
 #ifndef __HIREDIS_AE_H__
 #define __HIREDIS_AE_H__
 #include <sys/types.h>
+#ifdef _WIN32
+#include "..\..\src\ae.h"
+#else
 #include <ae.h>
+#endif
 #include "../hiredis.h"
 #include "../async.h"
 
