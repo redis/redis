@@ -235,18 +235,18 @@ int zslIsInRange(zskiplist *zsl, zrangespec *range) {
 
 /* Find the first node that is contained in the specified range.
  * Returns NULL when no element is contained in the range. */
-zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec range) {
+zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec *range) {
     zskiplistNode *x;
     int i;
 
     /* If everything is out of range, return early. */
-    if (!zslIsInRange(zsl,&range)) return NULL;
+    if (!zslIsInRange(zsl,range)) return NULL;
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
         /* Go forward while *OUT* of range. */
         while (x->level[i].forward &&
-            !zslValueGteMin(x->level[i].forward->score,&range))
+            !zslValueGteMin(x->level[i].forward->score,range))
                 x = x->level[i].forward;
     }
 
@@ -255,24 +255,24 @@ zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec range) {
     redisAssert(x != NULL);
 
     /* Check if score <= max. */
-    if (!zslValueLteMax(x->score,&range)) return NULL;
+    if (!zslValueLteMax(x->score,range)) return NULL;
     return x;
 }
 
 /* Find the last node that is contained in the specified range.
  * Returns NULL when no element is contained in the range. */
-zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec range) {
+zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range) {
     zskiplistNode *x;
     int i;
 
     /* If everything is out of range, return early. */
-    if (!zslIsInRange(zsl,&range)) return NULL;
+    if (!zslIsInRange(zsl,range)) return NULL;
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
         /* Go forward while *IN* range. */
         while (x->level[i].forward &&
-            zslValueLteMax(x->level[i].forward->score,&range))
+            zslValueLteMax(x->level[i].forward->score,range))
                 x = x->level[i].forward;
     }
 
@@ -280,7 +280,7 @@ zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec range) {
     redisAssert(x != NULL);
 
     /* Check if score >= min. */
-    if (!zslValueGteMin(x->score,&range)) return NULL;
+    if (!zslValueGteMin(x->score,range)) return NULL;
     return x;
 }
 
@@ -288,16 +288,16 @@ zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec range) {
  * Min and max are inclusive, so a score >= min || score <= max is deleted.
  * Note that this function takes the reference to the hash table view of the
  * sorted set, in order to remove the elements from the hash table too. */
-unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec range, dict *dict) {
+unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dict) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     unsigned long removed = 0;
     int i;
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
-        while (x->level[i].forward && (range.minex ?
-            x->level[i].forward->score <= range.min :
-            x->level[i].forward->score < range.min))
+        while (x->level[i].forward && (range->minex ?
+            x->level[i].forward->score <= range->min :
+            x->level[i].forward->score < range->min))
                 x = x->level[i].forward;
         update[i] = x;
     }
@@ -306,7 +306,9 @@ unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec range, dict *dict
     x = x->level[0].forward;
 
     /* Delete nodes while in range. */
-    while (x && (range.maxex ? x->score < range.max : x->score <= range.max)) {
+    while (x &&
+           (range->maxex ? x->score < range->max : x->score <= range->max))
+    {
         zskiplistNode *next = x->level[0].forward;
         zslDeleteNode(zsl,x,update);
         dictDelete(dict,x->obj);
@@ -547,18 +549,18 @@ int zslIsInLexRange(zskiplist *zsl, zlexrangespec *range) {
 
 /* Find the first node that is contained in the specified lex range.
  * Returns NULL when no element is contained in the range. */
-zskiplistNode *zslFirstInLexRange(zskiplist *zsl, zlexrangespec range) {
+zskiplistNode *zslFirstInLexRange(zskiplist *zsl, zlexrangespec *range) {
     zskiplistNode *x;
     int i;
 
     /* If everything is out of range, return early. */
-    if (!zslIsInLexRange(zsl,&range)) return NULL;
+    if (!zslIsInLexRange(zsl,range)) return NULL;
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
         /* Go forward while *OUT* of range. */
         while (x->level[i].forward &&
-            !zslLexValueGteMin(x->level[i].forward->obj,&range))
+            !zslLexValueGteMin(x->level[i].forward->obj,range))
                 x = x->level[i].forward;
     }
 
@@ -567,24 +569,24 @@ zskiplistNode *zslFirstInLexRange(zskiplist *zsl, zlexrangespec range) {
     redisAssert(x != NULL);
 
     /* Check if score <= max. */
-    if (!zslLexValueLteMax(x->obj,&range)) return NULL;
+    if (!zslLexValueLteMax(x->obj,range)) return NULL;
     return x;
 }
 
 /* Find the last node that is contained in the specified range.
  * Returns NULL when no element is contained in the range. */
-zskiplistNode *zslLastInLexRange(zskiplist *zsl, zlexrangespec range) {
+zskiplistNode *zslLastInLexRange(zskiplist *zsl, zlexrangespec *range) {
     zskiplistNode *x;
     int i;
 
     /* If everything is out of range, return early. */
-    if (!zslIsInLexRange(zsl,&range)) return NULL;
+    if (!zslIsInLexRange(zsl,range)) return NULL;
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
         /* Go forward while *IN* range. */
         while (x->level[i].forward &&
-            zslLexValueLteMax(x->level[i].forward->obj,&range))
+            zslLexValueLteMax(x->level[i].forward->obj,range))
                 x = x->level[i].forward;
     }
 
@@ -592,7 +594,7 @@ zskiplistNode *zslLastInLexRange(zskiplist *zsl, zlexrangespec range) {
     redisAssert(x != NULL);
 
     /* Check if score >= min. */
-    if (!zslLexValueGteMin(x->obj,&range)) return NULL;
+    if (!zslLexValueGteMin(x->obj,range)) return NULL;
     return x;
 }
 
@@ -730,21 +732,21 @@ int zzlIsInRange(unsigned char *zl, zrangespec *range) {
 
 /* Find pointer to the first element contained in the specified range.
  * Returns NULL when no element is contained in the range. */
-unsigned char *zzlFirstInRange(unsigned char *zl, zrangespec range) {
+unsigned char *zzlFirstInRange(unsigned char *zl, zrangespec *range) {
     unsigned char *eptr = ziplistIndex(zl,0), *sptr;
     double score;
 
     /* If everything is out of range, return early. */
-    if (!zzlIsInRange(zl,&range)) return NULL;
+    if (!zzlIsInRange(zl,range)) return NULL;
 
     while (eptr != NULL) {
         sptr = ziplistNext(zl,eptr);
         redisAssert(sptr != NULL);
 
         score = zzlGetScore(sptr);
-        if (zslValueGteMin(score,&range)) {
+        if (zslValueGteMin(score,range)) {
             /* Check if score <= max. */
-            if (zslValueLteMax(score,&range))
+            if (zslValueLteMax(score,range))
                 return eptr;
             return NULL;
         }
@@ -758,21 +760,21 @@ unsigned char *zzlFirstInRange(unsigned char *zl, zrangespec range) {
 
 /* Find pointer to the last element contained in the specified range.
  * Returns NULL when no element is contained in the range. */
-unsigned char *zzlLastInRange(unsigned char *zl, zrangespec range) {
+unsigned char *zzlLastInRange(unsigned char *zl, zrangespec *range) {
     unsigned char *eptr = ziplistIndex(zl,-2), *sptr;
     double score;
 
     /* If everything is out of range, return early. */
-    if (!zzlIsInRange(zl,&range)) return NULL;
+    if (!zzlIsInRange(zl,range)) return NULL;
 
     while (eptr != NULL) {
         sptr = ziplistNext(zl,eptr);
         redisAssert(sptr != NULL);
 
         score = zzlGetScore(sptr);
-        if (zslValueLteMax(score,&range)) {
+        if (zslValueLteMax(score,range)) {
             /* Check if score >= min. */
-            if (zslValueGteMin(score,&range))
+            if (zslValueGteMin(score,range))
                 return eptr;
             return NULL;
         }
@@ -977,7 +979,7 @@ unsigned char *zzlInsert(unsigned char *zl, robj *ele, double score) {
     return zl;
 }
 
-unsigned char *zzlDeleteRangeByScore(unsigned char *zl, zrangespec range, unsigned long *deleted) {
+unsigned char *zzlDeleteRangeByScore(unsigned char *zl, zrangespec *range, unsigned long *deleted) {
     unsigned char *eptr, *sptr;
     double score;
     unsigned long num = 0;
@@ -991,7 +993,7 @@ unsigned char *zzlDeleteRangeByScore(unsigned char *zl, zrangespec range, unsign
      * byte and ziplistNext will return NULL. */
     while ((sptr = ziplistNext(zl,eptr)) != NULL) {
         score = zzlGetScore(sptr);
-        if (zslValueLteMax(score,&range)) {
+        if (zslValueLteMax(score,range)) {
             /* Delete both the element and the score. */
             zl = ziplistDelete(zl,&eptr);
             zl = ziplistDelete(zl,&eptr);
@@ -1364,7 +1366,7 @@ void zremrangeGenericCommand(redisClient *c, int rangetype) {
             zobj->ptr = zzlDeleteRangeByRank(zobj->ptr,start+1,end+1,&deleted);
             break;
         case ZRANGE_SCORE:
-            zobj->ptr = zzlDeleteRangeByScore(zobj->ptr,range,&deleted);
+            zobj->ptr = zzlDeleteRangeByScore(zobj->ptr,&range,&deleted);
             break;
         }
         if (zzlLength(zobj->ptr) == 0) {
@@ -1378,7 +1380,7 @@ void zremrangeGenericCommand(redisClient *c, int rangetype) {
             deleted = zslDeleteRangeByRank(zs->zsl,start+1,end+1,zs->dict);
             break;
         case ZRANGE_SCORE:
-            deleted = zslDeleteRangeByScore(zs->zsl,range,zs->dict);
+            deleted = zslDeleteRangeByScore(zs->zsl,&range,zs->dict);
             break;
         }
         if (htNeedsResize(zs->dict)) dictResize(zs->dict);
@@ -2153,9 +2155,9 @@ void genericZrangebyscoreCommand(redisClient *c, int reverse) {
 
         /* If reversed, get the last node in range as starting point. */
         if (reverse) {
-            eptr = zzlLastInRange(zl,range);
+            eptr = zzlLastInRange(zl,&range);
         } else {
-            eptr = zzlFirstInRange(zl,range);
+            eptr = zzlFirstInRange(zl,&range);
         }
 
         /* No "first" element in the specified interval. */
@@ -2221,9 +2223,9 @@ void genericZrangebyscoreCommand(redisClient *c, int reverse) {
 
         /* If reversed, get the last node in range as starting point. */
         if (reverse) {
-            ln = zslLastInRange(zsl,range);
+            ln = zslLastInRange(zsl,&range);
         } else {
-            ln = zslFirstInRange(zsl,range);
+            ln = zslFirstInRange(zsl,&range);
         }
 
         /* No "first" element in the specified interval. */
@@ -2310,7 +2312,7 @@ void zcountCommand(redisClient *c) {
         double score;
 
         /* Use the first element in range as the starting point */
-        eptr = zzlFirstInRange(zl,range);
+        eptr = zzlFirstInRange(zl,&range);
 
         /* No "first" element */
         if (eptr == NULL) {
@@ -2342,7 +2344,7 @@ void zcountCommand(redisClient *c) {
         unsigned long rank;
 
         /* Find first element in range */
-        zn = zslFirstInRange(zsl, range);
+        zn = zslFirstInRange(zsl, &range);
 
         /* Use rank of first element, if any, to determine preliminary count */
         if (zn != NULL) {
@@ -2350,7 +2352,7 @@ void zcountCommand(redisClient *c) {
             count = (zsl->length - (rank - 1));
 
             /* Find last element in range */
-            zn = zslLastInRange(zsl, range);
+            zn = zslLastInRange(zsl, &range);
 
             /* Use rank of last element, if any, to determine the actual count */
             if (zn != NULL) {
@@ -2420,7 +2422,7 @@ void zlexcountCommand(redisClient *c) {
         unsigned long rank;
 
         /* Find first element in range */
-        zn = zslFirstInLexRange(zsl, range);
+        zn = zslFirstInLexRange(zsl, &range);
 
         /* Use rank of first element, if any, to determine preliminary count */
         if (zn != NULL) {
@@ -2428,7 +2430,7 @@ void zlexcountCommand(redisClient *c) {
             count = (zsl->length - (rank - 1));
 
             /* Find last element in range */
-            zn = zslLastInLexRange(zsl, range);
+            zn = zslLastInLexRange(zsl, &range);
 
             /* Use rank of last element, if any, to determine the actual count */
             if (zn != NULL) {
@@ -2568,9 +2570,9 @@ void genericZrangebylexCommand(redisClient *c, int reverse) {
 
         /* If reversed, get the last node in range as starting point. */
         if (reverse) {
-            ln = zslLastInLexRange(zsl,range);
+            ln = zslLastInLexRange(zsl,&range);
         } else {
-            ln = zslFirstInLexRange(zsl,range);
+            ln = zslFirstInLexRange(zsl,&range);
         }
 
         /* No "first" element in the specified interval. */

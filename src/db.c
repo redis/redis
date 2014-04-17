@@ -1143,7 +1143,7 @@ unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int coun
     range.min = range.max = hashslot;
     range.minex = range.maxex = 0;
     
-    n = zslFirstInRange(server.cluster->slots_to_keys, range);
+    n = zslFirstInRange(server.cluster->slots_to_keys, &range);
     while(n && n->score == hashslot && count--) {
         keys[j++] = n->obj;
         n = n->level[0].forward;
@@ -1161,7 +1161,7 @@ unsigned int countKeysInSlot(unsigned int hashslot) {
     range.minex = range.maxex = 0;
 
     /* Find first element in range */
-    zn = zslFirstInRange(zsl, range);
+    zn = zslFirstInRange(zsl, &range);
 
     /* Use rank of first element, if any, to determine preliminary count */
     if (zn != NULL) {
@@ -1169,7 +1169,7 @@ unsigned int countKeysInSlot(unsigned int hashslot) {
         count = (zsl->length - (rank - 1));
 
         /* Find last element in range */
-        zn = zslLastInRange(zsl, range);
+        zn = zslLastInRange(zsl, &range);
 
         /* Use rank of last element, if any, to determine the actual count */
         if (zn != NULL) {
