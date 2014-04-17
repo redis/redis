@@ -928,16 +928,24 @@ double hllSparseSum(uint8_t *sparse, int sparselen, double *PE, int *ezp, int *i
 double hllRawSum(uint8_t *registers, double *PE, int *ezp) {
     double E = 0;
     int j, ez = 0;
-    unsigned long reg;
+    uint64_t *word = (uint64_t*) registers;
+    uint8_t *bytes;
 
-    for (j = 0; j < HLL_REGISTERS; j++) {
-        reg = registers[j];
-        if (reg == 0) {
-            ez++;
-            /* Increment E at the end of the loop. */
+    for (j = 0; j < HLL_REGISTERS/8; j++) {
+        if (*word == 0) {
+            ez += 8;
         } else {
-            E += PE[reg]; /* Precomputed 2^(-reg[j]). */
+            bytes = (uint8_t*) word;
+            if (bytes[0]) E += PE[bytes[0]]; else ez++;
+            if (bytes[1]) E += PE[bytes[1]]; else ez++;
+            if (bytes[2]) E += PE[bytes[2]]; else ez++;
+            if (bytes[3]) E += PE[bytes[3]]; else ez++;
+            if (bytes[4]) E += PE[bytes[4]]; else ez++;
+            if (bytes[5]) E += PE[bytes[5]]; else ez++;
+            if (bytes[6]) E += PE[bytes[6]]; else ez++;
+            if (bytes[7]) E += PE[bytes[7]]; else ez++;
         }
+        word++;
     }
     E += ez; /* 2^(-reg[j]) is 1 when m is 0, add it 'ez' times for every
                 zero register in the HLL. */
