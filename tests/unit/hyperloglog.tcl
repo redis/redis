@@ -136,6 +136,21 @@ start_server {tags {"hll"}} {
         r pfcount hll
     } {5}
 
+    test {PFCOUNT multiple-keys merge returns cardinality of union} {
+        r del hll1 hll2 hll3
+        for {set x 1} {$x < 10000} {incr x} {
+            # Force dense representation of hll2
+            r pfadd hll1 "foo-$x"
+            r pfadd hll2 "bar-$x"
+            r pfadd hll3 "zap-$x"
+
+            set card [r pfcount hll1 hll2 hll3]
+            set realcard [expr {$x*3}]
+            set err [expr {abs($card-$realcard)}]
+            assert {$err < (double($card)/100)*5}
+        }
+    }
+
     test {PFDEBUG GETREG returns the HyperLogLog raw registers} {
         r del hll
         r pfadd hll 1 2 3
