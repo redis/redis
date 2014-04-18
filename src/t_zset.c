@@ -1406,7 +1406,7 @@ void zremrangeGenericCommand(redisClient *c, int rangetype) {
 
     /* Step 2: Lookup & range sanity checks if needed. */
     if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero)) == NULL ||
-        checkType(c,zobj,REDIS_ZSET)) return;
+        checkType(c,zobj,REDIS_ZSET)) goto cleanup;
 
     if (rangetype == ZRANGE_RANK) {
         /* Sanitize indexes. */
@@ -1419,7 +1419,7 @@ void zremrangeGenericCommand(redisClient *c, int rangetype) {
          * The range is empty when start > end or start >= length. */
         if (start > end || start >= llen) {
             addReply(c,shared.czero);
-            return;
+            goto cleanup;
         }
         if (end >= llen) end = llen-1;
     }
@@ -1473,6 +1473,9 @@ void zremrangeGenericCommand(redisClient *c, int rangetype) {
     }
     server.dirty += deleted;
     addReplyLongLong(c,deleted);
+
+cleanup:
+    if (rangetype == ZRANGE_LEX) zslFreeLexRange(&lexrange);
 }
 
 void zremrangebyrankCommand(redisClient *c) {
