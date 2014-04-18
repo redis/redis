@@ -764,7 +764,7 @@ start_server {tags {"zset"}} {
             assert_equal {} $err
         }
 
-        test "ZRANGEBYLEX fuzzy test, 200 ranges in $elements element sorted set - $encoding" {
+        test "ZRANGEBYLEX fuzzy test, 100 ranges in $elements element sorted set - $encoding" {
             set lexset {}
             r del zset
             for {set j 0} {$j < $elements} {incr j} {
@@ -826,6 +826,46 @@ start_server {tags {"zset"}} {
                 }
                 assert {$o eq $output}
                 assert {$outlen eq [llength $output]}
+            }
+        }
+
+        test "ZREMRANGEBYLEX fuzzy test, 100 ranges in $elements element sorted set - $encoding" {
+            set lexset {}
+            r del zset zsetcopy
+            for {set j 0} {$j < $elements} {incr j} {
+                set e [randstring 0 30 alpha]
+                lappend lexset $e
+                r zadd zset 0 $e
+            }
+            set lexset [lsort -unique $lexset]
+            for {set j 0} {$j < 100} {incr j} {
+                # Copy...
+                r zunionstore zsetcopy 1 zset
+                set lexsetcopy $lexset
+
+                set min [randstring 0 30 alpha]
+                set max [randstring 0 30 alpha]
+                set mininc [randomInt 2]
+                set maxinc [randomInt 2]
+                if {$mininc} {set cmin "\[$min"} else {set cmin "($min"}
+                if {$maxinc} {set cmax "\[$max"} else {set cmax "($max"}
+
+                # Make sure data is the same in both sides
+                assert {[r zrange zset 0 -1] eq $lexset}
+
+                # Get the range we are going to remove
+                set torem [r zrangebylex zset $cmin $cmax]
+                set toremlen [r zlexcount zset $cmin $cmax]
+                r zremrangebylex zsetcopy $cmin $cmax
+                set output [r zrange zsetcopy 0 -1]
+
+                # Remove the range with Tcl from the original list
+                if {$toremlen} {
+                    set first [lsearch -exact $lexsetcopy [lindex $torem 0]]
+                    set last [expr {$first+$toremlen-1}]
+                    set lexsetcopy [lreplace $lexsetcopy $first $last]
+                }
+                assert {$lexsetcopy eq $output}
             }
         }
 
