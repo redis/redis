@@ -38,7 +38,6 @@
 
 #ifdef _WIN32
   #define inline __inline
-  #define va_copy(d,s) d = (s)
 #endif
 
 typedef char *sds;

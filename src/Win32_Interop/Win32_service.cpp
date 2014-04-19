@@ -54,6 +54,8 @@ This code implements the following new command line arguments for redis:
 */
 
 #include <windows.h>
+#include <windowsx.h>
+#include <shlobj.h>
 #include <tchar.h>
 #include <strsafe.h>
 #include "Win32_EventLog.h"
@@ -62,6 +64,7 @@ This code implements the following new command line arguments for redis:
 #include <sstream>
 #include <vector>
 #include <iostream>
+#include "..\redisLog.h"
 using namespace std;
 
 #include "Win32_SmartHandle.h"
@@ -79,7 +82,94 @@ const ULONGLONG cThirtySeconds = 30 * 1000;
 BOOL g_isRunningAsService = FALSE;
 const int cPreshutdownInterval = 180000;
 
+const char* cServiceInstallPipeName = "\\\\.\\pipe\\redis-service-install";
+
 extern "C" int main(int argc, char** argv);
+
+void WriteServiceInstallMessage(string message) {
+	HANDLE pipe = CreateFileA(cServiceInstallPipeName, GENERIC_WRITE,
+		FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL, NULL);
+	if (pipe != INVALID_HANDLE_VALUE) {
+		DWORD bytesWritten = 0;
+		WriteFile(pipe, message.c_str(), (DWORD)message.length(), &bytesWritten, NULL);
+		CloseHandle(pipe);
+	} else {
+		cout << message;
+	}
+}
+
+BOOL RelaunchAsElevatedProcess(int argc, char** argv) {
+	// create pipe for launched process to communicate back on
+	SmartHandle pipe = 
+		CreateNamedPipeA( 
+			cServiceInstallPipeName, PIPE_ACCESS_INBOUND, 
+			PIPE_TYPE_BYTE, 1, 0, 0, PIPE_NOWAIT, NULL);
+
+	stringstream  paramString;
+	bool first = true;
+	for (int n = 1; n < argc; n++) {
+		if (first) {
+			first = false;
+		} else {
+			paramString << " ";
+		}
+		paramString << argv[n];
+	}
+	CHAR params[32768];
+	memset(params, 0, 32768);
+	memcpy(params, paramString.str().c_str(), paramString.str().length());
+
+	// Launch itself as administrator.
+	SHELLEXECUTEINFOA sei = { 0 };
+	sei.cbSize = sizeof(SHELLEXECUTEINFOA);
+	sei.lpVerb = "runas";
+	sei.lpFile = _pgmptr;
+	sei.lpParameters = params;
+	sei.hwnd = 0;
+	sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+	sei.lpDirectory = 0;
+	sei.hInstApp = 0;
+
+	if (ShellExecuteExA(&sei)) {
+		if (sei.hProcess != NULL) {
+			const int messageBufferSize = 10000;
+			char buffer[messageBufferSize + 1];
+			DWORD bytesRead;
+			while (WaitForSingleObject(sei.hProcess, 0) != WAIT_OBJECT_0) {
+				DWORD result = ReadFile(pipe, buffer, messageBufferSize, &bytesRead, NULL);
+				if (result != 0 && bytesRead > 0) {
+					buffer[bytesRead] = '\0';	// ensure received message is null terminated;
+					cout << buffer;
+				}
+			}
+			CloseHandle(sei.hProcess);
+		}
+		return TRUE;
+	} else {
+		throw std::system_error(GetLastError(), system_category(), "ShellExecuteExA failed");
+	}
+}
+
+bool IsProcessElevated() {
+	DWORD dwError = ERROR_SUCCESS;
+	SmartHandle shToken;
+
+	// Open the primary access token of the process with TOKEN_QUERY.
+	if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, shToken)) {
+		throw std::system_error(GetLastError(), system_category(), "OpenProcessTokenFailed failed");
+	}
+
+	// Retrieve token elevation information.
+	TOKEN_ELEVATION elevation;
+	DWORD dwSize;
+	if (!GetTokenInformation(shToken, TokenElevation, &elevation,
+		sizeof(elevation), &dwSize)) {
+		throw std::system_error(GetLastError(), system_category(), "OpenProcessTokenFailed failed");
+	}
+
+	return  (elevation.TokenIsElevated != 0);
+}
 
 VOID ServiceInstall(int argc, char ** argv) {
 	SmartServiceHandle shSCManager;
@@ -87,8 +177,8 @@ VOID ServiceInstall(int argc, char ** argv) {
 	CHAR szPath[MAX_PATH];
 
 	// build arguments to pass to service when it auto starts
-	if (!GetModuleFileNameA(NULL, szPath, MAX_PATH)) {
-		throw std::system_error(GetLastError(), system_category(), "GetModuleFileNameA failed");
+	if (GetModuleFileNameA(NULL, szPath, MAX_PATH) == 0) {
+		throw std::system_error(GetLastError(), system_category(), "ServiceInstall: GetModuleFileNameA failed");
 	}
 	stringstream args;
 	for (int a = 0; a < argc; a++) {
@@ -129,8 +219,8 @@ VOID ServiceInstall(int argc, char ** argv) {
 	}
 
 	RedisEventLog().InstallEventLogSource(szPath);
-
-	cout << "Redis successfully installed as a service." << endl;
+		
+	WriteServiceInstallMessage("Redis successfully installed as a service.");
 }
 
 VOID ServiceStart() {
@@ -149,7 +239,6 @@ VOID ServiceStart() {
 		throw std::system_error(GetLastError(), system_category(), "StartService failed");
 	}
 
-
 	// it will take atleast a couple of seconds for the service to start.
 	Sleep(2000);
 
@@ -157,16 +246,16 @@ VOID ServiceStart() {
 	ULONGLONG start = GetTickCount64();
 	while (QueryServiceStatus(shService, &status) == TRUE) {
 		if (status.dwCurrentState == SERVICE_RUNNING) {
-			cout << "Redis service successfully started." << endl;
+			WriteServiceInstallMessage("Redis service successfully started.");
 			break;
 		} else if (status.dwCurrentState == SERVICE_STOPPED) {
-			cout << "Redis service failed to start." << endl;
+			WriteServiceInstallMessage( "Redis service failed to start.");
 			break;
 		}
 
 		ULONGLONG current = GetTickCount64();
 		if (current - start >= cThirtySeconds) {
-			cout << "Redis service start timed out." << endl;
+			WriteServiceInstallMessage("Redis service start timed out.");
 			break;
 		}
 	}
@@ -193,12 +282,12 @@ VOID ServiceStop() {
 	ULONGLONG start = GetTickCount64();
 	while (QueryServiceStatus(shService, &status) == TRUE) {
 		if (status.dwCurrentState == SERVICE_STOPPED) {
-			cout << "Redis service successfully stopped." << endl;
+			WriteServiceInstallMessage("Redis service successfully stopped.");
 			break;
 		}
 		ULONGLONG current = GetTickCount64();
 		if (current - start >= cThirtySeconds) {
-			cout << "Redis service stop timed out." << endl;
+			WriteServiceInstallMessage("Redis service stop timed out.");
 			break;
 		}
 	}
@@ -221,7 +310,7 @@ VOID ServiceUninstall() {
 
 	RedisEventLog().UninstallEventLogSource();
 
-	cout << "Redis service successfully uninstalled." << endl;
+	WriteServiceInstallMessage("Redis service successfully uninstalled.");
 }
 
 DWORD WINAPI ServiceWorkerThread(LPVOID lpParam) {
@@ -246,7 +335,7 @@ DWORD WINAPI ServiceWorkerThread(LPVOID lpParam) {
 		// should fix this.
 		char szFilePath[MAX_PATH];
 		if (GetModuleFileNameA(NULL, szFilePath, MAX_PATH) == 0) {
-			throw std::system_error(GetLastError(), system_category(), "GetModuleFileName failed");
+			throw std::system_error(GetLastError(), system_category(), "ServiceWrokerThread: GetModuleFileName failed");
 		}
 		string currentDir = szFilePath;
 		auto pos = currentDir.rfind("\\");
@@ -417,8 +506,8 @@ void BuildServiceRunArguments(int argc, char** argv) {
 	for (int n = 0; n < argc; n++) {
 		if (n == 0) {
 			CHAR szPath[MAX_PATH];
-			if (!GetModuleFileNameA(NULL, szPath, MAX_PATH)) {
-				throw std::system_error(GetLastError(), system_category(), "GetModuleFileNameA failed");
+			if (GetModuleFileNameA(NULL, szPath, MAX_PATH) == 0) {
+				throw std::system_error(GetLastError(), system_category(), "BuildServiceRunArguments: GetModuleFileNameA failed");
 			}
 			stringstream ss;
 			ss << "\"" << szPath << "\"";
@@ -438,37 +527,57 @@ extern "C" BOOL HandleServiceCommands(int argc, char **argv) {
 				string servicearg = argv[1];
 				std::transform(servicearg.begin(), servicearg.end(), servicearg.begin(), ::tolower);
 				if (servicearg == "--service-install") {
-					ServiceInstall(argc, argv);
-					return TRUE;
+					if (!IsProcessElevated()) {
+						return RelaunchAsElevatedProcess(argc, argv);
+					} else {
+						ServiceInstall(argc, argv);
+						return TRUE;
+					}
 				} else if (servicearg == "--service-uninstall") {
-					ServiceUninstall();
-					return TRUE;
+					if (!IsProcessElevated()) {
+						return RelaunchAsElevatedProcess(argc, argv);
+					} else {
+						ServiceUninstall();
+						return TRUE;
+					}
 				} else if (servicearg == "--service-run") {
 					g_isRunningAsService = TRUE;
 					BuildServiceRunArguments(argc, argv);
 					ServiceRun();
 					return TRUE;
 				} else if (servicearg == "--service-start") {
-					ServiceStart();
-					return TRUE;
+					if (!IsProcessElevated()) {
+						return RelaunchAsElevatedProcess(argc, argv);
+					} else {
+						ServiceStart();
+						return TRUE;
+					}
 				} else if (servicearg == "--service-stop") {
-					ServiceStop();
-					return TRUE;
+					if (!IsProcessElevated()) {
+						return RelaunchAsElevatedProcess(argc, argv);
+					} else {
+						ServiceStop();
+						return TRUE;
+					}
 				}
 		}
 
 		// not a service command. start redis normally.
 		return FALSE;
 	} catch (std::system_error syserr) {
-		cout << "HandleServiceCommands: system error caught. error code=" << syserr.code().value() << ", message = " << syserr.what() << endl;
+		stringstream ss;
+		ss << "HandleServiceCommands: system error caught. error code=" << syserr.code().value() << ", message = " << syserr.what() << endl;
+		WriteServiceInstallMessage(ss.str());
 		exit(1);
 	} catch (std::runtime_error runerr) {
 		stringstream err;
 		cout << "HandleServiceCommands: runtime error caught. message=" << runerr.what() << endl;
-		OutputDebugStringA(err.str().c_str());
+		WriteServiceInstallMessage(err.str());
 		exit(1);
 	} catch (...) {
-		cout << "HandleServiceCommands: other exception caught." << endl;
+		stringstream ss;
+		ss << "HandleServiceCommands: other exception caught." << endl;
+		WriteServiceInstallMessage(ss.str());
 		exit(1);
 	}
 }
@@ -481,4 +590,6 @@ extern "C" BOOL ServiceStopIssued() {
 extern "C" BOOL RunningAsService() {
 	return g_isRunningAsService;
 }
+
+
 

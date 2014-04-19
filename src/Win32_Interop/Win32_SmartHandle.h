@@ -48,7 +48,11 @@ private:
     HANDLE m_handle;
 
 public:
-    SmartHandle( HANDLE handle )
+	SmartHandle() {
+		m_handle = NULL;
+	}
+
+	SmartHandle( HANDLE handle )
     {
         m_handle = handle;
         if(Invalid())
@@ -68,7 +72,11 @@ public:
             throw std::system_error(GetLastError(), system_category(), "handle duplication failed");
     }
 
-    operator HANDLE()
+	operator PHANDLE () {
+		return &m_handle;
+	}
+	
+	operator HANDLE()
     {
         return m_handle;
     }

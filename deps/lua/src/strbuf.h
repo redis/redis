@@ -28,9 +28,6 @@
 #ifdef _WIN32
 #include <float.h>
 #define inline __inline
-#define isnan _isnan
-#define isfinite _finite
-#define isinf(x) (!_finite(x))
 #define strncasecmp _strnicmp
 #endif
 
