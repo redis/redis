@@ -753,7 +753,22 @@ struct commandHelp {
     "destination numkeys key [key ...] [WEIGHTS weight] [AGGREGATE SUM|MIN|MAX]",
     "Add multiple sorted sets and store the resulting sorted set in a new key",
     4,
-    "2.0.0" }
+    "2.0.0" },
+    { "ZRANGEBYLEX",
+    "key min max [LIMIT offset count]",
+    "Return all the elements in a sorted set with a lexicographical value between min and max - given that all elements in the set have the same score",
+    4,
+    "2.8.9" },
+    { "ZREMRANGEBYLEX",
+    "key min max",
+    "Rremove all elements in a sorted set, between the lexicographical range specified by min and max - given that all elements in the set have the same score",
+    4,
+    "2.8.9" },
+    { "ZLEXCOUNT",
+    "key min max",
+    "Get the number of elements in a sorted set with a lexicographical value between min and max - given that all elements in the set have the same score",
+    4,
+    "2.8.9" },
 };
 
 #endif
