@@ -11,7 +11,8 @@ GROUPS = [
   "transactions",
   "connection",
   "server",
-  "scripting"
+  "scripting",
+  "hyperloglog"
 ].freeze
 
 GROUPS_BY_NAME = Hash[*
