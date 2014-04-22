@@ -312,6 +312,9 @@
 #define REDIS_ZSET_MAX_ZIPLIST_ENTRIES 128
 #define REDIS_ZSET_MAX_ZIPLIST_VALUE 64
 
+/* HyperLogLog defines */
+#define REDIS_DEFAULT_HLL_SPARSE_MAX_BYTES 3000
+
 /* Sets operations codes */
 #define REDIS_OP_UNION 0
 #define REDIS_OP_DIFF 1
@@ -809,6 +812,7 @@ struct redisServer {
     size_t set_max_intset_entries;
     size_t zset_max_ziplist_entries;
     size_t zset_max_ziplist_value;
+    size_t hll_sparse_max_bytes;
     time_t unixtime;        /* Unix time sampled every cron cycle. */
     long long mstime;       /* Like 'unixtime' but with milliseconds resolution. */
     /* Pubsub */
@@ -1147,8 +1151,8 @@ void zslFree(zskiplist *zsl);
 zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj);
 unsigned char *zzlInsert(unsigned char *zl, robj *ele, double score);
 int zslDelete(zskiplist *zsl, double score, robj *obj);
-zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec range);
-zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec range);
+zskiplistNode *zslFirstInRange(zskiplist *zsl, zrangespec *range);
+zskiplistNode *zslLastInRange(zskiplist *zsl, zrangespec *range);
 double zzlGetScore(unsigned char *sptr);
 void zzlNext(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
 void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
@@ -1396,11 +1400,13 @@ void zrevrangebyscoreCommand(redisClient *c);
 void zrangebylexCommand(redisClient *c);
 void zrevrangebylexCommand(redisClient *c);
 void zcountCommand(redisClient *c);
+void zlexcountCommand(redisClient *c);
 void zrevrangeCommand(redisClient *c);
 void zcardCommand(redisClient *c);
 void zremCommand(redisClient *c);
 void zscoreCommand(redisClient *c);
 void zremrangebyscoreCommand(redisClient *c);
+void zremrangebylexCommand(redisClient *c);
 void multiCommand(redisClient *c);
 void execCommand(redisClient *c);
 void discardCommand(redisClient *c);
@@ -1460,7 +1466,7 @@ void pfselftestCommand(redisClient *c);
 void pfaddCommand(redisClient *c);
 void pfcountCommand(redisClient *c);
 void pfmergeCommand(redisClient *c);
-void pfgetregCommand(redisClient *c);
+void pfdebugCommand(redisClient *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));

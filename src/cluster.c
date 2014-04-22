@@ -1178,8 +1178,9 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                         "I've still keys about this slot! "
                         "Putting the slot in IMPORTING state. "
                         "Please run the 'redis-trib fix' command.",
-                        j, sender->name, senderConfigEpoch,
-                        myself->configEpoch);
+                        j, sender->name,
+                        (unsigned long long) senderConfigEpoch,
+                        (unsigned long long) myself->configEpoch);
                     server.cluster->importing_slots_from[j] = sender;
                 }
 

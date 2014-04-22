@@ -39,6 +39,82 @@ start_server {tags {"hll"}} {
         set res
     } {5 10}
 
+    test {HyperLogLogs are promote from sparse to dense} {
+        r del hll
+        r config set hll-sparse-max-bytes 3000
+        set n 0
+        while {$n < 100000} {
+            set elements {}
+            for {set j 0} {$j < 100} {incr j} {lappend elements [expr rand()]}
+            incr n 100
+            r pfadd hll {*}$elements
+            set card [r pfcount hll]
+            set err [expr {abs($card-$n)}]
+            assert {$err < (double($card)/100)*5}
+            if {$n < 1000} {
+                assert {[r pfdebug encoding hll] eq {sparse}}
+            } elseif {$n > 10000} {
+                assert {[r pfdebug encoding hll] eq {dense}}
+            }
+        }
+    }
+
+    test {HyperLogLog sparse encoding stress test} {
+        for {set x 0} {$x < 1000} {incr x} {
+            r del hll1 hll2
+            set numele [randomInt 100]
+            set elements {}
+            for {set j 0} {$j < $numele} {incr j} {
+                lappend elements [expr rand()]
+            }
+            # Force dense representation of hll2
+            r pfadd hll2
+            r pfdebug todense hll2
+            r pfadd hll1 {*}$elements
+            r pfadd hll2 {*}$elements
+            assert {[r pfdebug encoding hll1] eq {sparse}}
+            assert {[r pfdebug encoding hll2] eq {dense}}
+            # Cardinality estimated should match exactly.
+            assert {[r pfcount hll1] eq [r pfcount hll2]}
+        }
+    }
+
+    test {Corrupted sparse HyperLogLogs are detected: Additionl at tail} {
+        r del hll
+        r pfadd hll a b c
+        r append hll "hello"
+        set e {}
+        catch {r pfcount hll} e
+        set e
+    } {*INVALIDOBJ*}
+
+    test {Corrupted sparse HyperLogLogs are detected: Broken magic} {
+        r del hll
+        r pfadd hll a b c
+        r setrange hll 0 "0123"
+        set e {}
+        catch {r pfcount hll} e
+        set e
+    } {*WRONGTYPE*}
+
+    test {Corrupted sparse HyperLogLogs are detected: Invalid encoding} {
+        r del hll
+        r pfadd hll a b c
+        r setrange hll 4 "x"
+        set e {}
+        catch {r pfcount hll} e
+        set e
+    } {*WRONGTYPE*}
+
+    test {Corrupted dense HyperLogLogs are detected: Wrong length} {
+        r del hll
+        r pfadd hll a b c
+        r setrange hll 4 "\x00"
+        set e {}
+        catch {r pfcount hll} e
+        set e
+    } {*WRONGTYPE*}
+
     test {PFADD, PFCOUNT, PFMERGE type checking works} {
         r set foo bar
         catch {r pfadd foo 1} e
@@ -60,9 +136,24 @@ start_server {tags {"hll"}} {
         r pfcount hll
     } {5}
 
-    test {PFGETREG returns the HyperLogLog raw registers} {
+    test {PFCOUNT multiple-keys merge returns cardinality of union} {
+        r del hll1 hll2 hll3
+        for {set x 1} {$x < 10000} {incr x} {
+            # Force dense representation of hll2
+            r pfadd hll1 "foo-$x"
+            r pfadd hll2 "bar-$x"
+            r pfadd hll3 "zap-$x"
+
+            set card [r pfcount hll1 hll2 hll3]
+            set realcard [expr {$x*3}]
+            set err [expr {abs($card-$realcard)}]
+            assert {$err < (double($card)/100)*5}
+        }
+    }
+
+    test {PFDEBUG GETREG returns the HyperLogLog raw registers} {
         r del hll
         r pfadd hll 1 2 3
-        llength [r pfgetreg hll]
+        llength [r pfdebug getreg hll]
     } {16384}
 }
