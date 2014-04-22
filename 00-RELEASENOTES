@@ -14,6 +14,16 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.9 ] Release date: 22 Apr 2014
+
+# UPGRADE URGENCY: LOW, only new features introduced, no bugs fixed.
+
+* [NEW] The HyperLogLog data structure. You can read more about it
+        in this blog post. http://antirez.com/news/75
+* [NEW] The Sorted Set data type has now support for lexicographic range
+        queries, check the new commands ZRANGEBYLEX, ZLEXCOUNT and
+        ZREMRANGEBYLEX, which are documented at http://redis.io.
+
 --[ Redis 2.8.8 ] Release date: 25 Mar 2014
 
 # UPGRADE URGENCY: HIGH for Redis, LOW for Sentinel. There is a potentially
