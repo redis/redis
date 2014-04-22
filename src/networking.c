@@ -997,35 +997,58 @@ int processMultibulkBuffer(redisClient *c) {
     while(c->multibulklen) {
         /* Read bulk length if unknown */
         if (c->bulklen == -1) {
-            newline = strchr(c->querybuf+pos,'\r');
-            if (newline == NULL) {
-                if (sdslen(c->querybuf) > REDIS_INLINE_MAX_SIZE) {
-                    addReplyError(c,"Protocol error: too big bulk count string");
-                    setProtocolError(c,0);
+            char *p = c->querybuf+pos;
+
+            /* Parse $<num>\r\n. Note that we can be certain that
+             * there is either a "\r" if the protcol is correct and
+             * the bulk header is complete, or "\0" (because of sds.c API
+             * that gurantees null-term) if no "\r" is encountered. */
+            if (*p != '$') {
+                if (*p == '\0') {
+                    break;
+                } else {
+                    addReplyErrorFormat(c,
+                        "Protocol error: expected '$', got '%c'", *p);
+                    setProtocolError(c, p - c->querybuf);
+                    return REDIS_ERR;
                 }
-                break;
+            }
+            p++; /* Skip $ */
+
+            /* Parse the number. */
+            ll = 0;
+            while(*p >= '0' && *p <= '9') {
+                ll *= 10;
+                ll += *p - '0';
+                p++;
             }
 
-            /* Buffer should also contain \n */
-            if (newline-(c->querybuf) > ((signed)sdslen(c->querybuf)-2))
-                break;
-
-            if (c->querybuf[pos] != '$') {
-                addReplyErrorFormat(c,
-                    "Protocol error: expected '$', got '%c'",
-                    c->querybuf[pos]);
-                setProtocolError(c,pos);
-                return REDIS_ERR;
+            if (*p != '\r') {
+                if (*p == '\0') { /* No complete bulk header found. */
+                    if (sdslen(c->querybuf) > REDIS_INLINE_MAX_SIZE) {
+                        addReplyError(c,
+                            "Protocol error: too big bulk count string");
+                        setProtocolError(c, p - c->querybuf);
+                        return REDIS_ERR;
+                    }
+                    break;
+                } else {
+                    addReplyError(c,"Protocol error: invalid bulk length");
+                    setProtocolError(c, p - c->querybuf);
+                    return REDIS_ERR;
+                }
             }
 
-            ok = string2ll(c->querybuf+pos+1,newline-(c->querybuf+pos+1),&ll);
-            if (!ok || ll < 0 || ll > 512*1024*1024) {
+            if (*(p+1) == '\0') break; /* We need a "\n" as well. */
+            p += 2; /* Skip \r\n. */
+
+            if (ll < 0 || ll > 512*1024*1024) {
                 addReplyError(c,"Protocol error: invalid bulk length");
-                setProtocolError(c,pos);
+                setProtocolError(c, p - c->querybuf);
                 return REDIS_ERR;
             }
 
-            pos += newline-(c->querybuf+pos)+2;
+            pos = p - c->querybuf;
             if (ll >= REDIS_MBULK_BIG_ARG) {
                 size_t qblen;
 
