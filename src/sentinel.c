@@ -3250,7 +3250,7 @@ int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port) {
 
     ri->pending_commands++;
     if (redisAsyncCommand(ri->cc,
-        sentinelDiscardReplyCallback, NULL, "%s SET", config_command) == REDIS_OK)
+        sentinelDiscardReplyCallback, NULL, "%s REWRITE", config_command) == REDIS_OK)
     {
         ri->pending_commands++;
     }
