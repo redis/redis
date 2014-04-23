@@ -128,35 +128,68 @@ HANDLE FDAPI_CreateIoCompletionPortOnFD(int FD, HANDLE ExistingCompletionPort, U
     return INVALID_HANDLE_VALUE;
 }
 
-BOOL FDAPI_AcceptEx(int listenFD,int acceptFD,PVOID lpOutputBuffer,DWORD dwReceiveDataLength,DWORD dwLocalAddressLength,DWORD dwRemoteAddressLength,LPDWORD lpdwBytesReceived,LPOVERLAPPED lpOverlapped)
+auto f_WSAIoctl = dllfunctor_stdcall<int, SOCKET, DWORD, LPVOID, DWORD, LPVOID, DWORD, LPVOID, LPWSAOVERLAPPED, LPWSAOVERLAPPED_COMPLETION_ROUTINE>("ws2_32.dll", "WSAIoctl");
+BOOL FDAPI_AcceptEx(int listenFD, int acceptFD, PVOID lpOutputBuffer, DWORD dwReceiveDataLength, DWORD dwLocalAddressLength, DWORD dwRemoteAddressLength, LPDWORD lpdwBytesReceived, LPOVERLAPPED lpOverlapped)
 {
     try
     {
         SOCKET sListen = RFDMap::getInstance().lookupSocket(listenFD);
         SOCKET sAccept = RFDMap::getInstance().lookupSocket(acceptFD);
-        if( sListen != INVALID_SOCKET &&  sAccept != INVALID_SOCKET) {
-            LPFN_ACCEPTEX acceptex;
-            const GUID wsaid_acceptex = WSAID_ACCEPTEX;
-            DWORD bytes;
+		if (sListen != INVALID_SOCKET &&  sAccept != INVALID_SOCKET) {
+			LPFN_ACCEPTEX acceptex;
+			const GUID wsaid_acceptex = WSAID_ACCEPTEX;
+			DWORD bytes;
 
-            if( SOCKET_ERROR == 
-                    WSAIoctl(listenFD,
-                             SIO_GET_EXTENSION_FUNCTION_POINTER,
-                             (void *)&wsaid_acceptex,
-                             sizeof(GUID),
-                             &acceptex,
-                             sizeof(LPFN_ACCEPTEX),
-                             &bytes,
-                             NULL,
-                             NULL)) {
-                return FALSE;
-            }
+			if (SOCKET_ERROR ==
+				f_WSAIoctl(sListen,
+				SIO_GET_EXTENSION_FUNCTION_POINTER,
+				(void *)&wsaid_acceptex,
+				sizeof(GUID),
+				&acceptex,
+				sizeof(LPFN_ACCEPTEX),
+				&bytes,
+				NULL,
+				NULL)) {
+				return FALSE;
+			}
 
-            return acceptex(sListen, sAccept, lpOutputBuffer,dwReceiveDataLength, dwLocalAddressLength, dwRemoteAddressLength, lpdwBytesReceived, lpOverlapped);
-        }
+			return acceptex(sListen, sAccept, lpOutputBuffer, dwReceiveDataLength, dwLocalAddressLength, dwRemoteAddressLength, lpdwBytesReceived, lpOverlapped);
+		}
     } CATCH_AND_REPORT()
 
     return FALSE;
+}
+
+bool IsWindowsVersionAtLeast(WORD wMajorVersion, WORD wMinorVersion, WORD wServicePackMajor) {
+	OSVERSIONINFOEXW osvi = { sizeof(osvi), 0, 0, 0, 0, { 0 }, 0, 0 };
+	DWORDLONG        const dwlConditionMask = VerSetConditionMask(
+		VerSetConditionMask(
+		VerSetConditionMask(
+		0, VER_MAJORVERSION, VER_GREATER_EQUAL),
+		VER_MINORVERSION, VER_GREATER_EQUAL),
+		VER_SERVICEPACKMAJOR, VER_GREATER_EQUAL);
+
+	osvi.dwMajorVersion = wMajorVersion;
+	osvi.dwMinorVersion = wMinorVersion;
+	osvi.wServicePackMajor = wServicePackMajor;
+
+	return VerifyVersionInfoW(&osvi, VER_MAJORVERSION | VER_MINORVERSION | VER_SERVICEPACKMAJOR, dwlConditionMask) != FALSE;
+}
+
+void EnableFastLoopback(SOCKET s) {
+	// if Win8+, use fast path option on loopback 
+//	if ( false ) {
+	if (IsWindowsVersionAtLeast(HIBYTE(_WIN32_WINNT_WIN8), LOBYTE(_WIN32_WINNT_WIN8), 0)) {
+#ifndef SIO_LOOPBACK_FAST_PATH
+		const DWORD SIO_LOOPBACK_FAST_PATH = 0x98000010;	// from Win8 SDK
+#endif
+		int enabled = 1;
+		DWORD result_byte_count = -1;
+		int result = f_WSAIoctl(s, SIO_LOOPBACK_FAST_PATH, &enabled, sizeof(enabled), NULL, 0, &result_byte_count, NULL, NULL);
+		if (result != 0) {
+			throw std::system_error(WSAGetLastError(), system_category(), "WSAIoctl failed");
+		}
+	}
 }
 
 BOOL FDAPI_ConnectEx(int fd,const struct sockaddr *name,int namelen,PVOID lpSendBuffer,DWORD dwSendDataLength,LPDWORD lpdwBytesSent,LPOVERLAPPED lpOverlapped)
@@ -181,6 +214,8 @@ BOOL FDAPI_ConnectEx(int fd,const struct sockaddr *name,int namelen,PVOID lpSend
                              NULL)) {
                 return FALSE;
             }
+
+			EnableFastLoopback(s);
 
             return connectex(s,name,namelen,lpSendBuffer,dwSendDataLength,lpdwBytesSent,lpOverlapped);
         }
@@ -426,6 +461,7 @@ int redis_connect_impl(int sockfd, const struct sockaddr *addr, size_t addrlen) 
             errno = EBADF;
             return -1;
         }
+		EnableFastLoopback(s);
         int r = f_connect(s, addr, (int)addrlen);
         errno = WSAGetLastError();
         if ((errno == WSAEINVAL) || (errno == WSAEWOULDBLOCK) || (errno == WSA_IO_PENDING)) {
@@ -549,12 +585,14 @@ int redis_fstat_impl(int fd, struct __stat64 *buffer) {
     return -1;
 }
 
+
 auto f_listen = dllfunctor_stdcall<int, SOCKET, int>("ws2_32.dll", "listen");
 int redis_listen_impl(int sockfd, int backlog) {
    try {
         SOCKET s = RFDMap::getInstance().lookupSocket( sockfd );
         if( s != INVALID_SOCKET ) {
-            return f_listen( s, backlog );
+			EnableFastLoopback(s);
+			return f_listen( s, backlog );
         } else {
             errno = EBADF;
             return 0;
@@ -652,7 +690,6 @@ BOOL redis_WSAGetOverlappedResult_impl(int rfd, LPWSAOVERLAPPED lpOverlapped, LP
     return SOCKET_ERROR;
 }
 
-auto f_WSAIoctl = dllfunctor_stdcall<int, SOCKET, DWORD, LPVOID, DWORD, LPVOID, DWORD, LPVOID, LPWSAOVERLAPPED, LPWSAOVERLAPPED_COMPLETION_ROUTINE>("ws2_32.dll", "WSAIoctl");
 int redis_WSAIoctl_impl(RFD rfd,DWORD dwIoControlCode,LPVOID lpvInBuffer,DWORD cbInBuffer,LPVOID lpvOutBuffer,DWORD cbOutBuffer,LPDWORD lpcbBytesReturned,LPWSAOVERLAPPED lpOverlapped,LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine) {
    try {
         SOCKET s = RFDMap::getInstance().lookupSocket( rfd );
