@@ -29,31 +29,37 @@ if {[catch {cd tests/sentinel-tmp}]} {
 }
 
 # Spawn a redis or sentinel instance, depending on 'type'.
-proc spawn_instance {type base_port count} {
+proc spawn_instance {type base_port count {conf {}}} {
     for {set j 0} {$j < $count} {incr j} {
         set port [find_available_port $base_port]
         incr base_port
         puts "Starting $type #$j at port $port"
 
-        # Create a directory for this Sentinel.
+        # Create a directory for this instance.
         set dirname "${type}_${j}"
         lappend ::dirs $dirname
         catch {exec rm -rf $dirname}
         file mkdir $dirname
 
-        # Write the Sentinel config file.
+        # Write the instance config file.
         set cfgfile [file join $dirname $type.conf]
         set cfg [open $cfgfile w]
         puts $cfg "port $port"
         puts $cfg "dir ./$dirname"
         puts $cfg "logfile log.txt"
+        # Add additional config files
+        foreach directive $conf {
+            puts $cfg $directive
+        }
         close $cfg
 
         # Finally exec it and remember the pid for later cleanup.
         if {$type eq "redis"} {
             set prgname redis-server
-        } else {
+        } elseif {$type eq "sentinel"} {
             set prgname redis-sentinel
+        } else {
+            error "Unknown instance type."
         }
         set pid [exec ../../src/${prgname} $cfgfile &]
         lappend ::pids $pid
