@@ -534,6 +534,7 @@ void copyClientOutputBuffer(redisClient *dst, redisClient *src) {
     dst->reply_bytes = src->reply_bytes;
 }
 
+#define MAX_ACCEPTS_PER_CALL 1000
 static void acceptCommonHandler(int fd, int flags) {
     redisClient *c;
     if ((c = createClient(fd)) == NULL) {
@@ -563,36 +564,43 @@ static void acceptCommonHandler(int fd, int flags) {
 }
 
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cport, cfd;
+    int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
     char cip[REDIS_IP_STR_LEN];
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
 
-    cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
-    if (cfd == ANET_ERR) {
-        redisLog(REDIS_WARNING,"Accepting client connection: %s", server.neterr);
-        return;
+    while(max--) {
+        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
+        if (cfd == ANET_ERR) {
+            if (errno != EWOULDBLOCK)
+                redisLog(REDIS_WARNING,
+                    "Accepting client connection: %s", server.neterr);
+            return;
+        }
+        redisLog(REDIS_VERBOSE,"Accepted %s:%d", cip, cport);
+        acceptCommonHandler(cfd,0);
     }
-    redisLog(REDIS_VERBOSE,"Accepted %s:%d", cip, cport);
-    acceptCommonHandler(cfd,0);
 }
 
 void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cfd;
+    int cfd, max = MAX_ACCEPTS_PER_CALL;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
 
-    cfd = anetUnixAccept(server.neterr, fd);
-    if (cfd == ANET_ERR) {
-        redisLog(REDIS_WARNING,"Accepting client connection: %s", server.neterr);
-        return;
+    while(max--) {
+        cfd = anetUnixAccept(server.neterr, fd);
+        if (cfd == ANET_ERR) {
+            if (errno != EWOULDBLOCK)
+                redisLog(REDIS_WARNING,
+                    "Accepting client connection: %s", server.neterr);
+            return;
+        }
+        redisLog(REDIS_VERBOSE,"Accepted connection to %s", server.unixsocket);
+        acceptCommonHandler(cfd,REDIS_UNIX_SOCKET);
     }
-    redisLog(REDIS_VERBOSE,"Accepted connection to %s", server.unixsocket);
-    acceptCommonHandler(cfd,REDIS_UNIX_SOCKET);
 }
-
 
 static void freeClientArgv(redisClient *c) {
     int j;
