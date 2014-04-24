@@ -1072,7 +1072,7 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
         if (server.masterhost && server.repl_state == REDIS_REPL_TRANSFER)
             replicationSendNewlineToMaster();
         loadingProgress(r->processed_bytes);
-        aeProcessEvents(server.el, AE_FILE_EVENTS|AE_DONT_WAIT);
+        processEventsWhileBlocked();
     }
 }
 
