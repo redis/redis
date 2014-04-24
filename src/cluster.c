@@ -90,12 +90,38 @@ uint64_t clusterGetMaxEpoch(void) {
     return max;
 }
 
+int clusterConfigFlock() {
+    int fd = fileno(server.cluster_configfile_fp);
+
+    if ((fd != -1) && (flock(fd, LOCK_EX|LOCK_NB) == -1)) {
+        return REDIS_ERR;
+    }
+    return REDIS_OK;
+}
+
+FILE *clusterConfigOpen(char *filename, char *mode) {
+    FILE *fp = fopen(filename,mode);
+    server.cluster_configfile_fp = fp;
+    return fp;
+}
+
+void clusterConfigClose() {
+    FILE *fp = server.cluster_configfile_fp;
+    if (fp) {
+        flock(fileno(fp), LOCK_UN);
+        fclose(fp);
+    }
+    server.cluster_configfile_fp = NULL;
+}
+
 int clusterLoadConfig(char *filename) {
-    FILE *fp = fopen(filename,"r");
+    FILE *fp;
     char *line;
     int maxline, j;
-   
-    if (fp == NULL) return REDIS_ERR;
+
+    if ((fp = clusterConfigOpen(filename, "r")) == NULL) return REDIS_ERR;
+
+    if (clusterConfigFlock() == REDIS_ERR) goto lockerr;
 
     /* Parse the file. Note that single liens of the cluster config file can
      * be really long as they include all the hash slots of the node.
@@ -241,7 +267,6 @@ int clusterLoadConfig(char *filename) {
         sdsfreesplitres(argv,argc);
     }
     zfree(line);
-    fclose(fp);
 
     /* Config sanity check */
     redisAssert(server.cluster->myself != NULL);
@@ -255,10 +280,18 @@ int clusterLoadConfig(char *filename) {
     }
     return REDIS_OK;
 
+lockerr:
+    redisLog(REDIS_WARNING,"Unable to start Redis Cluster. "
+        "Your cluster-config-file \"%s\" is being used "
+        "by another instance.  Please provide a unique cluster-config-file.",
+        server.cluster_configfile);
+     clusterConfigClose();
+     exit(1);
+
 fmterr:
     redisLog(REDIS_WARNING,
         "Unrecoverable error: corrupted cluster config file.");
-    fclose(fp);
+    clusterConfigClose();
     exit(1);
 }
 
@@ -278,7 +311,10 @@ int clusterSaveConfig(int do_fsync) {
     sds ci;
     size_t content_size;
     struct stat sb;
+    FILE *fp = server.cluster_configfile_fp;
     int fd;
+
+    if (!fp || (fd = fileno(fp)) == -1) goto reopen;
 
     /* Get the nodes description and concatenate our "vars" directive to
      * save currentEpoch and lastVoteEpoch. */
@@ -288,8 +324,8 @@ int clusterSaveConfig(int do_fsync) {
         (unsigned long long) server.cluster->lastVoteEpoch);
     content_size = sdslen(ci);
     
-    if ((fd = open(server.cluster_configfile,O_WRONLY|O_CREAT,0644))
-        == -1) goto err;
+    /* Always start writing from beginning of file */
+    if ((lseek(fd, 0, SEEK_SET) == -1)) goto err;
 
     /* Pad the new payload if the existing file length is greater. */
     if (fstat(fd,&sb) != -1) {
@@ -299,21 +335,44 @@ int clusterSaveConfig(int do_fsync) {
         }
     }
     if (write(fd,ci,sdslen(ci)) != (ssize_t)sdslen(ci)) goto err;
-    if (do_fsync) fsync(fd);
+    if (do_fsync && (fsync(fd) == -1)) goto err;
 
     /* Truncate the file if needed to remove the final \n padding that
      * is just garbage. */
     if (content_size != sdslen(ci) && ftruncate(fd,content_size) == -1) {
         /* ftruncate() failing is not a critical error. */
     }
-    close(fd);
     sdsfree(ci);
-    return 0;
+    return REDIS_OK;
 
 err:
-    if (fd != -1) close(fd);
+    redisLog(REDIS_WARNING, "Unable to write cluster config file \"%s\": %s",
+        server.cluster_configfile, strerror(errno));
     sdsfree(ci);
-    return -1;
+    return REDIS_ERR;
+
+reopen:
+    /* Attempt to re-open config.   We don't exit or flag for shutdown here
+     * because an absent * cluster configuration shouldn't exit. */
+    if ((fp = clusterConfigOpen(server.cluster_configfile,"w")) == NULL) {
+        redisLog(REDIS_WARNING, "Unable to open cluster config %s.",
+            server.cluster_configfile);
+        return REDIS_ERR;
+    } else {
+        if (clusterConfigFlock() == REDIS_ERR) {
+            redisLog(REDIS_WARNING, "Cluster config \"%s\" is already open "
+                "by another Redis Cluster instance.  Cluster configs "
+                "must be unique per instance.",
+                server.cluster_configfile);
+            clusterConfigClose();
+            return REDIS_ERR;
+
+        } else {
+            redisLog(REDIS_NOTICE, "Using cluster-config-file \"%s\"",
+                server.cluster_configfile);
+           return clusterSaveConfig(1);
+        }
+    }
 }
 
 void clusterSaveConfigOrDie(int do_fsync) {
