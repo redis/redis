@@ -358,6 +358,9 @@
 #define REDIS_NOTIFY_EVICTED (1<<9)     /* e */
 #define REDIS_NOTIFY_ALL (REDIS_NOTIFY_GENERIC | REDIS_NOTIFY_STRING | REDIS_NOTIFY_LIST | REDIS_NOTIFY_SET | REDIS_NOTIFY_HASH | REDIS_NOTIFY_ZSET | REDIS_NOTIFY_EXPIRED | REDIS_NOTIFY_EVICTED)      /* A */
 
+/* Get the first bind addr or NULL */
+#define REDIS_BIND_ADDR (server.bindaddr_count ? server.bindaddr[0] : NULL)
+
 /* Using the following macro you can run code inside serverCron() with the
  * specified period, specified in milliseconds.
  * The actual resolution depends on server.hz. */
