@@ -1,6 +1,6 @@
 # Check the basic monitoring and failover capabilities.
 
-source "../sentinel-tests/includes/init-tests.tcl"
+source "../tests/includes/init-tests.tcl"
 
 if {$::simulate_error} {
     test "This test will fail" {

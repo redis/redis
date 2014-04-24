@@ -1,6 +1,6 @@
 # Test Sentinel configuration consistency after partitions heal.
 
-source "../sentinel-tests/includes/init-tests.tcl"
+source "../tests/includes/init-tests.tcl"
 
 test "We can failover with Sentinel 1 crashed" {
     set old_port [RI $master_id tcp_port]
