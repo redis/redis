@@ -1,14 +1,19 @@
-# Sentinel test suite. Copyright (C) 2014 Salvatore Sanfilippo antirez@gmail.com
+# Multi-instance test framework.
+# This is used in order to test Sentinel and Redis Cluster, and provides
+# basic capabilities for spawning and handling N parallel Redis / Sentinel
+# instances.
+#
+# Copyright (C) 2014 Salvatore Sanfilippo antirez@gmail.com
 # This softare is released under the BSD License. See the COPYING file for
 # more information.
 
 package require Tcl 8.5
 
 set tcl_precision 17
-source tests/support/redis.tcl
-source tests/support/util.tcl
-source tests/support/server.tcl
-source tests/support/test.tcl
+source ../support/redis.tcl
+source ../support/util.tcl
+source ../support/server.tcl
+source ../support/test.tcl
 
 set ::verbose 0
 set ::pause_on_error 0
@@ -22,8 +27,8 @@ set ::pids {} ; # We kill everything at exit
 set ::dirs {} ; # We remove all the temp dirs at exit
 set ::run_matching {} ; # If non empty, only tests matching pattern are run.
 
-if {[catch {cd tests/sentinel-tmp}]} {
-    puts "tests/sentinel-tmp directory not found."
+if {[catch {cd tmp}]} {
+    puts "tmp directory not found."
     puts "Please run this test from the Redis source root."
     exit 1
 }
@@ -61,7 +66,7 @@ proc spawn_instance {type base_port count {conf {}}} {
         } else {
             error "Unknown instance type."
         }
-        set pid [exec ../../src/${prgname} $cfgfile &]
+        set pid [exec ../../../src/${prgname} $cfgfile &]
         lappend ::pids $pid
 
         # Check availability
@@ -120,14 +125,6 @@ proc parse_options {} {
             exit 1
         }
     }
-}
-
-proc main {} {
-    parse_options
-    spawn_instance sentinel $::sentinel_base_port $::instances_count
-    spawn_instance redis $::redis_base_port $::instances_count
-    run_tests
-    cleanup
 }
 
 # If --pause-on-error option was passed at startup this function is called
@@ -224,7 +221,7 @@ proc test {descr code} {
 }
 
 proc run_tests {} {
-    set tests [lsort [glob ../sentinel-tests/*]]
+    set tests [lsort [glob ../tests/*]]
     foreach test $tests {
         if {$::run_matching ne {} && [string match $::run_matching $test] == 0} {
             continue
@@ -383,7 +380,7 @@ proc restart_instance {type id} {
     } else {
         set prgname redis-sentinel
     }
-    set pid [exec ../../src/${prgname} $cfgfile &]
+    set pid [exec ../../../src/${prgname} $cfgfile &]
     set_instance_attrib $type $id pid $pid
     lappend ::pids $pid
 
@@ -396,7 +393,3 @@ proc restart_instance {type id} {
     set_instance_attrib $type $id link [redis 127.0.0.1 $port]
 }
 
-if {[catch main e]} {
-    puts $::errorInfo
-    cleanup
-}
