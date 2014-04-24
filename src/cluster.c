@@ -2647,8 +2647,7 @@ void clusterCron(void) {
             clusterLink *link;
 
             fd = anetTcpNonBlockBindConnect(server.neterr, node->ip,
-                node->port+REDIS_CLUSTER_PORT_INCR,
-                    server.bindaddr_count ? server.bindaddr[0] : NULL);
+                node->port+REDIS_CLUSTER_PORT_INCR, REDIS_BIND_ADDR);
             if (fd == -1) {
                 redisLog(REDIS_DEBUG, "Unable to connect to "
                     "Cluster Node [%s]:%d -> %s", node->ip,
