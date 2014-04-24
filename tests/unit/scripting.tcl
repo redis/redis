@@ -326,6 +326,7 @@ start_server {tags {"scripting"}} {
         catch {r ping} e
         assert_match {BUSY*} $e
         r script kill
+        after 200 ; # Give some time to Lua to call the hook again...
         assert_equal [r ping] "PONG"
     }
 
