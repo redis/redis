@@ -559,7 +559,7 @@ int loadAppendOnlyFile(char *filename) {
         /* Serve the clients from time to time */
         if (!(loops++ % 1000)) {
             loadingProgress(ftello(fp));
-            aeProcessEvents(server.el, AE_FILE_EVENTS|AE_DONT_WAIT);
+            processEventsWhileBlocked();
         }
 
         if (fgets(buf,sizeof(buf),fp) == NULL) {
