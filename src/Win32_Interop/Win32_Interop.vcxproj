@@ -47,6 +47,10 @@
 mc.exe -A -b -c -h . -r resources EventLog.mc
 rc.exe -foresources/EventLog.res resources/EventLog.rc</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">EventLog.h</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">md resources
+mc.exe -A -b -c -h . -r resources EventLog.mc
+rc.exe -foresources/EventLog.res resources/EventLog.rc</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">EventLog.h</Outputs>
     </CustomBuild>
   </ItemGroup>
   <PropertyGroup Label="Globals">
