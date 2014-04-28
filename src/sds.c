@@ -773,25 +773,13 @@ int is_hex_digit(char c) {
 /* Helper function for sdssplitargs() that converts a hex digit into an
  * integer from 0 to 15 */
 int hex_digit_to_int(char c) {
-    switch(c) {
-    case '0': return 0;
-    case '1': return 1;
-    case '2': return 2;
-    case '3': return 3;
-    case '4': return 4;
-    case '5': return 5;
-    case '6': return 6;
-    case '7': return 7;
-    case '8': return 8;
-    case '9': return 9;
-    case 'a': case 'A': return 10;
-    case 'b': case 'B': return 11;
-    case 'c': case 'C': return 12;
-    case 'd': case 'D': return 13;
-    case 'e': case 'E': return 14;
-    case 'f': case 'F': return 15;
-    default: return 0;
-    }
+    if (c>='0' && c<='9')
+        return c - '0';
+    if (c>='a' && c<='f')
+        return c - 'a' + 10;
+    if (c>='A' && c<='F')
+        return c - 'A' + 10;
+    return 0;
 }
 
 /* Split a line into arguments, where every argument can be in the
@@ -950,11 +938,9 @@ sds sdsmapchars(sds s, const char *from, const char *to, size_t setlen) {
  * Returns the result as an sds string. */
 sds sdsjoin(char **argv, int argc, char *sep) {
     sds join = sdsempty();
-    int j;
-
-    for (j = 0; j < argc; j++) {
-        join = sdscat(join, argv[j]);
-        if (j != argc-1) join = sdscat(join,sep);
+    for (; argc>0; --argc, ++argc) {
+        join = sdscat(join, *argv);
+        if (argc > 1) join = sdscat(join,sep);
     }
     return join;
 }
