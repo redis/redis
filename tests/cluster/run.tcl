@@ -6,6 +6,8 @@ cd tests/cluster
 source cluster.tcl
 source ../instances.tcl
 
+set ::instances_count 5 ; # How many instances we use at max.
+
 proc main {} {
     parse_options
     spawn_instance redis $::redis_base_port $::instances_count {

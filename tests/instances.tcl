@@ -22,7 +22,6 @@ set ::sentinel_instances {}
 set ::redis_instances {}
 set ::sentinel_base_port 20000
 set ::redis_base_port 30000
-set ::instances_count 5 ; # How many Sentinels / Instances we use at max
 set ::pids {} ; # We kill everything at exit
 set ::dirs {} ; # We remove all the temp dirs at exit
 set ::run_matching {} ; # If non empty, only tests matching pattern are run.
