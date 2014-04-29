@@ -6,7 +6,7 @@ cd tests/cluster
 source cluster.tcl
 source ../instances.tcl
 
-set ::instances_count 5 ; # How many instances we use at max.
+set ::instances_count 20 ; # How many instances we use at max.
 
 proc main {} {
     parse_options
