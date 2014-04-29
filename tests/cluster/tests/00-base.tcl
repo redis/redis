@@ -50,3 +50,27 @@ test "Check if nodes auto-discovery works" {
         }
     }
 }
+
+test "After the join, every node gets a different config epoch" {
+    set trynum 60
+    while {[incr trynum -1] != 0} {
+        # We check that this condition is true for *all* the nodes.
+        set ok 1 ; # Will be set to 0 every time a node is not ok.
+        foreach_redis_id id {
+            set epochs {}
+            foreach n [get_cluster_nodes $id] {
+                lappend epochs [dict get $n config_epoch]
+            }
+            if {[lsort $epochs] != [lsort -unique $epochs]} {
+                set ok 0 ; # At least one collision!
+            }
+        }
+        if {$ok} break
+        after 1000
+        puts -nonewline .
+        flush stdout
+    }
+    if {$trynum == 0} {
+        fail "Config epoch conflict resolution is not working."
+    }
+}
