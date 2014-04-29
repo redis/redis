@@ -42,3 +42,22 @@ proc get_myself id {
     return {}
 }
 
+# Return the value of the specified CLUSTER INFO field.
+proc CI {n field} {
+    get_info_field [R $n cluster info] $field
+}
+
+# Assuming nodes are reest, this function performs slots allocation.
+# Only the first 'n' nodes are used.
+proc cluster_allocate_slots {n} {
+    set slot 16383
+    while {$slot >= 0} {
+        # Allocate successive slots to random nodes.
+        set node [randomInt $n]
+        lappend slots_$node $slot
+        incr slot -1
+    }
+    for {set j 0} {$j < $n} {incr j} {
+        R $j cluster addslots {*}[set slots_${j}]
+    }
+}

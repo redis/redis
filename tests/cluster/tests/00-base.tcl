@@ -51,6 +51,16 @@ test "Check if nodes auto-discovery works" {
     }
 }
 
+test "Before slots allocation, all nodes report cluster failure" {
+    foreach_redis_id id {
+        assert {[CI $id cluster_state] eq {fail}}
+    }
+}
+
+test "It is possible to perform slot allocation" {
+    cluster_allocate_slots 5
+}
+
 test "After the join, every node gets a different config epoch" {
     set trynum 60
     while {[incr trynum -1] != 0} {
