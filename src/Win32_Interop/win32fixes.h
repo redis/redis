@@ -36,6 +36,7 @@
 
 #include "Win32_FDAPI.h"    
 #include "Win32_QFork.h"
+#include "Win32_Service.h"
 
 #define fseeko fseeko64
 #define ftello ftello64

@@ -28,7 +28,8 @@ extern "C"
 #endif
 
 	BOOL RunningAsService();
-	BOOL HandleServiceCommands(int argc, char **argv);
+    const char* GetServiceName();
+    BOOL HandleServiceCommands(int argc, char **argv);
 	BOOL ServiceStopIssued();
 
 #ifdef __cplusplus

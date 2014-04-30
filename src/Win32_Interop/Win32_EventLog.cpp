@@ -128,7 +128,8 @@ void RedisEventLog::LogMessageToEventLog(LPCSTR msg, const WORD type) {
 extern "C" void WriteEventLog(const char* sysLogInstance, const char* msg) {
 	try {
 		stringstream ss;
-		ss << sysLogInstance << ":: " << msg;
+        ss << "syslog-ident = " << sysLogInstance << endl;
+        ss << msg;
 		RedisEventLog().LogMessageToEventLog(ss.str().c_str(),EVENTLOG_INFORMATION_TYPE);
 	} catch (...) {
 	}
