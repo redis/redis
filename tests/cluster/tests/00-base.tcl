@@ -84,3 +84,13 @@ test "After the join, every node gets a different config epoch" {
         fail "Config epoch conflict resolution is not working."
     }
 }
+
+test "Nodes should report cluster_state is ok now" {
+    foreach_redis_id id {
+        wait_for_condition 1000 50 {
+            [CI $id cluster_state] eq {ok}
+        } else {
+            fail "Cluster node $id cluster_state:[CI $id cluster_state]"
+        }
+    }
+}
