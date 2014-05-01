@@ -69,6 +69,15 @@ static void redisAeAddRead(void *privdata) {
     }
 }
 
+#ifdef _WIN32
+static void redisAeForceAddRead(void *privdata) {
+    redisAeEvents *e = (redisAeEvents*)privdata;
+    aeEventLoop *loop = e->loop;
+    e->reading = 1;
+    aeCreateFileEvent(loop, e->fd, AE_READABLE, redisAeReadEvent, e);
+}
+#endif
+
 static void redisAeDelRead(void *privdata) {
     redisAeEvents *e = (redisAeEvents*)privdata;
     aeEventLoop *loop = e->loop;
@@ -120,6 +129,9 @@ static int redisAeAttach(aeEventLoop *loop, redisAsyncContext *ac) {
 
     /* Register functions to start/stop listening for events */
     ac->ev.addRead = redisAeAddRead;
+#ifdef _WIN32
+    ac->ev.forceAddRead = redisAeForceAddRead;
+#endif
     ac->ev.delRead = redisAeDelRead;
     ac->ev.addWrite = redisAeAddWrite;
     ac->ev.delWrite = redisAeDelWrite;

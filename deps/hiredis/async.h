@@ -76,6 +76,9 @@ typedef struct redisAsyncContext {
         /* Hooks that are called when the library expects to start
          * reading/writing. These functions should be idempotent. */
         void (*addRead)(void *privdata);
+#ifdef _WIN32
+        void (*forceAddRead)(void *privdata);
+#endif
         void (*delRead)(void *privdata);
         void (*addWrite)(void *privdata);
         void (*delWrite)(void *privdata);

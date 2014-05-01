@@ -49,6 +49,11 @@
 #define _EL_ADD_READ(ctx) do { \
         if ((ctx)->ev.addRead) (ctx)->ev.addRead((ctx)->ev.data); \
     } while(0)
+#ifdef _WIN32
+#define _EL_FORCE_ADD_READ(ctx) do { \
+        if ((ctx)->ev.forceAddRead) (ctx)->ev.forceAddRead((ctx)->ev.data); \
+    } while (0)
+#endif
 #define _EL_DEL_READ(ctx) do { \
         if ((ctx)->ev.delRead) (ctx)->ev.delRead((ctx)->ev.data); \
     } while(0)
@@ -126,6 +131,9 @@ static redisAsyncContext *redisAsyncInitialize(redisContext *c) {
 
     ac->ev.data = NULL;
     ac->ev.addRead = NULL;
+#ifdef _WIN32
+    ac->ev.forceAddRead = NULL;
+#endif
     ac->ev.delRead = NULL;
     ac->ev.addWrite = NULL;
     ac->ev.delWrite = NULL;
@@ -501,7 +509,11 @@ void redisAsyncHandleRead(redisAsyncContext *ac) {
         __redisAsyncDisconnect(ac);
     } else {
         /* Always re-schedule reads */
+#ifdef _WIN32
+        _EL_FORCE_ADD_READ(ac);
+#else
         _EL_ADD_READ(ac);
+#endif
         redisProcessCallbacks(ac);
     }
 }
