@@ -166,12 +166,31 @@ proc ::redis_cluster::__dispatch__ {id method args} {
         }
 
         # Execute the command in the node we think is the slot owner.
-        set node [dict get $::redis_cluster::nodes($id) $node_addr]
-        set link [dict get $node link]
-        if {[catch {$link $method {*}$args} e]} {
-            # TODO: trap redirection error
+        set retry 10
+        while {[incr retry -1]} {
+            if {$retry < 5} {after 100}
+            set node [dict get $::redis_cluster::nodes($id) $node_addr]
+            set link [dict get $node link]
+            if {[catch {$link $method {*}$args} e]} {
+                if {[string range $e 0 4] eq {MOVED}} {
+                    # MOVED redirection.
+                    ::redis_cluster::__method__refresh_nodes_map $id
+                    set node_addr [dict get $::redis_cluster::slots($id) $slot]
+                    continue
+                } elseif {[string range $e 0 2] eq {ASK}} {
+                    # ASK redirection.
+                    set node_addr [lindex $e 2]
+                    continue
+                } else {
+                    # Non redirecting error.
+                    error $e $::errorInfo $::errorCode
+                }
+            } else {
+                # OK query went fine
+                return $e
+            }
         }
-        return $e
+        error "Too many redirections or failures contacting Redis Cluster."
     } else {
         uplevel 1 [list ::redis_cluster::__method__$method $id] $args
     }
