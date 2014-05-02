@@ -109,6 +109,7 @@ proc ::redis_cluster::__method__refresh_nodes_map {id} {
             port $port \
             flags $flags \
             slaveof $slaveof \
+            slots $slots \
             link $link \
         ]
         dict set nodes $addr $node
@@ -116,10 +117,32 @@ proc ::redis_cluster::__method__refresh_nodes_map {id} {
 
     set ::redis_cluster::nodes($id) $nodes
 
-    # TODO: Populates the slots -> nodes map.
+    # Populates the slots -> nodes map.
     dict for {addr node} $nodes {
-        puts "$addr -> $node"
+        foreach slotrange [dict get $node slots] {
+            lassign [split $slotrange -] start end
+            if {$end == {}} {set end $start}
+            for {set j $start} {$j <= $end} {incr j} {
+                dict set ::redis_cluster::slots($id) $j $addr
+            }
+        }
     }
+}
+
+# Free a redis_cluster handle.
+proc ::redis_cluster::__method__close {id} {
+    catch {
+        set nodes $::redis_cluster::nodes($id)
+        dict for {addr node} $nodes {
+            catch {
+                [dict get $node link] close
+            }
+        }
+    }
+    catch {unset ::redis_cluster::startup_nodes($id)}
+    catch {unset ::redis_cluster::nodes($id)}
+    catch {unset ::redis_cluster::slots($id)}
+    catch {interp alias {} ::redis_cluster::instance$id {}}
 }
 
 proc ::redis_cluster::__dispatch__ {id method args} {
