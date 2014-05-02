@@ -16,9 +16,12 @@ span.apii {
 }
 
 p+h1, ul+h1 {
+	font-style: normal ;
 	padding-top: 0.4em ;
 	padding-bottom: 0.4em ;
-	padding-left: 30px ;
-	margin-left: -30px ;
-	background-color: #E0E0FF ;
+	padding-left: 16px ;
+	margin-left: -16px ;
+	background-color: #D0D0FF ;
+	border-radius: 8px ;
+	border: solid #000080 1px ;
 }

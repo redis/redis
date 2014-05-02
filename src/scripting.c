@@ -181,7 +181,7 @@ void luaSortArray(lua_State *lua) {
     lua_pushstring(lua,"sort");
     lua_gettable(lua,-2);       /* Stack: array, table, table.sort */
     lua_pushvalue(lua,-3);      /* Stack: array, table, table.sort, array */
-    if (lua_pcall(lua,1,0,0)) {
+    if (lua_pcall(lua,1,0,0) != LUA_OK) {
         /* Stack: array, table, error */
 
         /* We are not interested in the error, we assume that the problem is
@@ -219,9 +219,9 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     for (j = 0; j < argc; j++) {
         if (!lua_isstring(lua,j+1)) break;
         argv[j] = createStringObject((char*)lua_tostring(lua,j+1),
-                                     lua_strlen(lua,j+1));
+                                     lua_rawlen(lua,j+1));
     }
-    
+
     /* Check if one of the arguments passed by the Lua script
      * is not a string or an integer (lua_isstring() return true for
      * integers as well). */
@@ -461,9 +461,8 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
 }
 
 void luaLoadLib(lua_State *lua, const char *libname, lua_CFunction luafunc) {
-  lua_pushcfunction(lua, luafunc);
-  lua_pushstring(lua, libname);
-  lua_call(lua, 1, 0);
+  luaL_requiref(lua, libname, luafunc, 1);
+  lua_pop(lua, 1);
 }
 
 LUALIB_API int (luaopen_cjson) (lua_State *L);
@@ -471,11 +470,13 @@ LUALIB_API int (luaopen_struct) (lua_State *L);
 LUALIB_API int (luaopen_cmsgpack) (lua_State *L);
 
 void luaLoadLibraries(lua_State *lua) {
-    luaLoadLib(lua, "", luaopen_base);
+    luaLoadLib(lua, "_G", luaopen_base);
     luaLoadLib(lua, LUA_TABLIBNAME, luaopen_table);
     luaLoadLib(lua, LUA_STRLIBNAME, luaopen_string);
     luaLoadLib(lua, LUA_MATHLIBNAME, luaopen_math);
-    luaLoadLib(lua, LUA_DBLIBNAME, luaopen_debug); 
+    luaLoadLib(lua, LUA_DBLIBNAME, luaopen_debug);
+    luaLoadLib(lua, LUA_COLIBNAME, luaopen_coroutine);
+    luaLoadLib(lua, LUA_BITLIBNAME, luaopen_bit32);
     luaLoadLib(lua, "cjson", luaopen_cjson);
     luaLoadLib(lua, "struct", luaopen_struct);
     luaLoadLib(lua, "cmsgpack", luaopen_cmsgpack);
@@ -483,6 +484,7 @@ void luaLoadLibraries(lua_State *lua) {
 #if 0 /* Stuff that we don't load currently, for sandboxing concerns. */
     luaLoadLib(lua, LUA_LOADLIBNAME, luaopen_package);
     luaLoadLib(lua, LUA_OSLIBNAME, luaopen_os);
+    luaLoadLib(lua, LUA_IOLIBNAME, luaopen_io);
 #endif
 }
 
@@ -526,7 +528,7 @@ void scriptingEnableGlobalsProtection(lua_State *lua) {
 
     for (j = 0; s[j] != NULL; j++) code = sdscatlen(code,s[j],strlen(s[j]));
     luaL_loadbuffer(lua,code,sdslen(code),"@enable_strict_lua");
-    lua_pcall(lua,0,0,0);
+    redisAssert(lua_pcall(lua,0,0,0) == LUA_OK);
     sdsfree(code);
 }
 
@@ -535,7 +537,7 @@ void scriptingEnableGlobalsProtection(lua_State *lua) {
  * assuming that we call scriptingRelease() before.
  * See scriptingReset() for more information. */
 void scriptingInit(void) {
-    lua_State *lua = lua_open();
+    lua_State *lua = luaL_newstate();
 
     luaLoadLibraries(lua);
     luaRemoveUnsupportedFunctions(lua);
@@ -617,7 +619,7 @@ void scriptingInit(void) {
                                 "  return a<b\n"
                                 "end\n";
         luaL_loadbuffer(lua,compare_func,strlen(compare_func),"@cmp_func_def");
-        lua_pcall(lua,0,0,0);
+        redisAssert(lua_pcall(lua,0,0,0) == LUA_OK);
     }
 
     /* Add a helper function we use for pcall error reporting.
@@ -637,7 +639,7 @@ void scriptingInit(void) {
                                 "  end\n"
                                 "end\n";
         luaL_loadbuffer(lua,errh_func,strlen(errh_func),"@err_handler_def");
-        lua_pcall(lua,0,0,0);
+        redisAssert(lua_pcall(lua,0,0,0) == LUA_OK);
     }
 
     /* Create the (non connected) client that we use to execute Redis commands
@@ -697,7 +699,7 @@ void luaReplyToRedisReply(redisClient *c, lua_State *lua) {
 
     switch(t) {
     case LUA_TSTRING:
-        addReplyBulkCBuffer(c,(char*)lua_tostring(lua,-1),lua_strlen(lua,-1));
+        addReplyBulkCBuffer(c,(char*)lua_tostring(lua,-1),lua_rawlen(lua,-1));
         break;
     case LUA_TBOOLEAN:
         addReply(c,lua_toboolean(lua,-1) ? shared.cone : shared.nullbulk);
@@ -795,7 +797,7 @@ int luaCreateFunction(redisClient *c, lua_State *lua, char *funcname, robj *body
         return REDIS_ERR;
     }
     sdsfree(funcdef);
-    if (lua_pcall(lua,0,0,0)) {
+    if (lua_pcall(lua,0,0,0) != LUA_OK) {
         addReplyErrorFormat(c,"Error running script (new function): %s\n",
             lua_tostring(lua,-1));
         lua_pop(lua,1);

@@ -14,7 +14,7 @@
 #define LUACMSGPACK_MAX_NESTING  16 /* Max tables nesting. */
 
 /* ==============================================================================
- * MessagePack implementation and bindings for Lua 5.1.
+ * MessagePack implementation and bindings for Lua 5.1/5.2.
  * Copyright(C) 2012 Salvatore Sanfilippo <antirez@gmail.com>
  *
  * http://github.com/antirez/lua-cmsgpack
@@ -328,7 +328,11 @@ static void mp_encode_lua_type(lua_State *L, mp_buf *buf, int level);
 
 /* Convert a lua table into a message pack list. */
 static void mp_encode_lua_table_as_array(lua_State *L, mp_buf *buf, int level) {
+#if LUA_VERSION_NUM == 502
+    size_t len = lua_rawlen(L,-1), j;
+#else
     size_t len = lua_objlen(L,-1), j;
+#endif
 
     mp_encode_array(buf,len);
     for (j = 1; j <= len; j++) {
@@ -687,14 +691,22 @@ static int mp_unpack(lua_State *L) {
 
 /* ---------------------------------------------------------------------------- */
 
+#if LUA_VERSION_NUM == 502
+static const struct luaL_Reg thislib[] = {
+#else
 static const struct luaL_reg thislib[] = {
+#endif
     {"pack", mp_pack},
     {"unpack", mp_unpack},
     {NULL, NULL}
 };
 
 LUALIB_API int luaopen_cmsgpack (lua_State *L) {
+#if LUA_VERSION_NUM == 502
+    luaL_newlib(L, thislib);
+#else
     luaL_register(L, "cmsgpack", thislib);
+#endif
 
     lua_pushliteral(L, LUACMSGPACK_VERSION);
     lua_setfield(L, -2, "_VERSION");
