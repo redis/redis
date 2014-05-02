@@ -57,9 +57,9 @@ proc ::redis_cluster::__method__refresh_nodes_map {id} {
     # Contact the first responding startup node.
     set idx 0; # Index of the node that will respond.
     foreach start_node $::redis_cluster::startup_nodes($id) {
-        lassign [split $start_node :] host port
+        lassign [split $start_node :] start_host start_port
         if {[catch {
-            set r [redis $host $port]
+            set r [redis $start_host $start_port]
             set nodes_descr [$r cluster nodes]
             $r close
         }]} {
@@ -81,11 +81,45 @@ proc ::redis_cluster::__method__refresh_nodes_map {id} {
         set left [lrange $l 0 [expr {$idx-1}]]
         set right [lrange $l [expr {$idx+1}] end]
         set l [concat [lindex $l $idx] $left $right]
-        set :redis_cluster::startup_nodes($id) $l
+        set ::redis_cluster::startup_nodes($id) $l
     }
 
-    puts $nodes_descr
-    exit
+    # Parse CLUSTER NODES output to populate the nodes description.
+    set nodes {} ; # addr -> node description hash.
+    foreach line [split $nodes_descr "\n"] {
+        set line [string trim $line]
+        if {$line eq {}} continue
+        set args [split $line " "]
+        lassign $args nodeid addr flags slaveof pingsent pongrecv configepoch linkstate
+        set slots [lrange $args 8 end]
+        if {$addr eq {:0}} {
+            set addr $start_host:$start_port
+        }
+        lassign [split $addr :] host port
+
+        # Connect to the node
+        set link {}
+        catch {set link [redis $host $port]}
+
+        # Build this node description as an hash.
+        set node [dict create \
+            id $nodeid \
+            addr $addr \
+            host $host \
+            port $port \
+            flags $flags \
+            slaveof $slaveof \
+            link $link \
+        ]
+        dict set nodes $addr $node
+    }
+
+    set ::redis_cluster::nodes($id) $nodes
+
+    # TODO: Populates the slots -> nodes map.
+    dict for {addr node} $nodes {
+        puts "$addr -> $node"
+    }
 }
 
 proc ::redis_cluster::__dispatch__ {id method args} {
