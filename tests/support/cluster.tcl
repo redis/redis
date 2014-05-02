@@ -14,7 +14,7 @@ package provide redis_cluster 0.1
 
 namespace eval redis_cluster {}
 set ::redis_cluster::id 0
-array set ::redis_cluster::start_nodes {}
+array set ::redis_cluster::startup_nodes {}
 array set ::redis_cluster::nodes {}
 array set ::redis_cluster::slots {}
 
@@ -36,12 +36,56 @@ set ::redis_cluster::plain_commands {
 
 proc redis_cluster {nodes} {
     set id [incr ::redis_cluster::id]
-    set ::redis_cluster::start_nodes($id) $nodes
+    set ::redis_cluster::startup_nodes($id) $nodes
     set ::redis_cluster::nodes($id) {}
     set ::redis_cluster::slots($id) {}
     set handle [interp alias {} ::redis_cluster::instance$id {} ::redis_cluster::__dispatch__ $id]
     $handle refresh_nodes_map
     return $handle
+}
+
+# Totally reset the slots / nodes state for the client, calls
+# CLUSTER NODES in the first startup node available, populates the
+# list of nodes ::redis_cluster::nodes($id) with an hash mapping node
+# ip:port to a representation of the node (another hash), and finally
+# maps ::redis_cluster::slots($id) with an hash mapping slot numbers
+# to node IDs.
+#
+# This function is called when a new Redis Cluster client is initialized
+# and every time we get a -MOVED redirection error.
+proc ::redis_cluster::__method__refresh_nodes_map {id} {
+    # Contact the first responding startup node.
+    set idx 0; # Index of the node that will respond.
+    foreach start_node $::redis_cluster::startup_nodes($id) {
+        lassign [split $start_node :] host port
+        if {[catch {
+            set r [redis $host $port]
+            set nodes_descr [$r cluster nodes]
+            $r close
+        }]} {
+            incr idx
+            continue ; # Try next.
+        } else {
+            break; # Good node found.
+        }
+    }
+
+    if {$idx == [llength $::redis_cluster::startup_nodes($id)]} {
+        error "No good startup node found."
+    }
+
+    # Put the node that responded as first in the list if it is not
+    # already the first.
+    if {$idx != 0} {
+        set l $::redis_cluster::startup_nodes($id)
+        set left [lrange $l 0 [expr {$idx-1}]]
+        set right [lrange $l [expr {$idx+1}] end]
+        set l [concat [lindex $l $idx] $left $right]
+        set :redis_cluster::startup_nodes($id) $l
+    }
+
+    puts $nodes_descr
+    exit
 }
 
 proc ::redis_cluster::__dispatch__ {id method args} {
@@ -59,20 +103,20 @@ proc ::redis_cluster::__dispatch__ {id method args} {
         }
 
         # Get the node mapped to this slot.
-        set node_id [dict get $::redis_cluster::slots($id) $slot]
-        if {$node_id eq {}} {
+        set node_addr [dict get $::redis_cluster::slots($id) $slot]
+        if {$node_addr eq {}} {
             error "No mapped node for slot $slot."
         }
 
         # Execute the command in the node we think is the slot owner.
-        set node [dict get $::redis_cluster::nodes($id) $node_id]
+        set node [dict get $::redis_cluster::nodes($id) $node_addr]
         set link [dict get $node link]
         if {[catch {$link $method {*}$args} e]} {
             # TODO: trap redirection error
         }
         return $e
     } else {
-        uplevel 1 [list ::redis_cluster::__method__$method $id $fd] $args
+        uplevel 1 [list ::redis_cluster::__method__$method $id] $args
     }
 }
 
@@ -150,4 +194,14 @@ proc ::redis_cluster::hash {key} {
 # If the keys hash to multiple slots, an empty string is returned to
 # signal that the command can't be run in Redis Cluster.
 proc ::redis_cluster::get_slot_from_keys {keys} {
+    set slot {}
+    foreach k $keys {
+        set s [::redis_cluster::hash $k]
+        if {$slot eq {}} {
+            set slot $s
+        } elseif {$slot != $s} {
+            return {} ; # Error
+        }
+    }
+    return $slot
 }
