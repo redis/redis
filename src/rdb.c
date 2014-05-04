@@ -665,6 +665,8 @@ int rdbSave(char *filename) {
         /* Write the SELECT DB opcode */
         if (rdbSaveType(&rdb,REDIS_RDB_OPCODE_SELECTDB) == -1) goto werr;
         if (rdbSaveLen(&rdb,j) == -1) goto werr;
+        if (rdbSaveType(&rdb,REDIS_RDB_OPCODE_DB_DICT_SIZE) == -1) goto werr;
+        if (rdbSaveLen(&rdb,dictSize(d)) == -1) goto werr;
 
         /* Iterate this DB writing every entry */
         while((de = dictNext(di)) != NULL) {
@@ -1140,6 +1142,12 @@ int rdbLoad(char *filename) {
                 exit(1);
             }
             db = server.db+dbid;
+            continue;
+        }
+        else if (type == REDIS_RDB_OPCODE_DB_DICT_SIZE) {
+            uint32_t dictSize;
+            if ((dictSize = rdbLoadLen(&rdb,NULL)) != REDIS_RDB_LENERR)
+                dictExpand(db->dict,dictSize);
             continue;
         }
         /* Read key */
