@@ -44,7 +44,7 @@ case "$1" in
                     echo "Waiting for Redis to shutdown ..."
                     sleep 1
                 done
-                rm -rf /var/run/blacklist.pid
+                rm -rf /var/run/redis.pid
                 echo "Redis stopped"
         fi
                 if [ -f $PIDFILE ]
@@ -53,7 +53,7 @@ case "$1" in
         else
                 echo "Starting Redis server..."
                 $EXEC
-                PID=$(pgrep blacklist)
+                PID=$(pgrep redis)
                 echo ${PID} > PIDFILE
         fi
 
