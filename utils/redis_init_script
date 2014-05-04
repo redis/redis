@@ -3,12 +3,11 @@
 # Simple Redis init.d script conceived to work on Linux systems
 # as it does use of the /proc filesystem.
 
-REDISPORT=6379
 EXEC=/usr/local/bin/redis-server
 CLIEXEC=/usr/local/bin/redis-cli
 
-PIDFILE=/var/run/redis_${REDISPORT}.pid
-CONF="/etc/redis/${REDISPORT}.conf"
+PIDFILE=/var/run/redis.pid
+CONF="/etc/redis/redis.conf"
 
 case "$1" in
     start)
@@ -18,8 +17,47 @@ case "$1" in
         else
                 echo "Starting Redis server..."
                 $EXEC $CONF
+                PID=$(pgrep redis)
+                echo ${PID} > var/run/redis.pid
         fi
         ;;
+    status)
+        if [ -f $PIDFILE ]
+        then
+                PID=$(cat $PIDFILE)
+                echo "Redis is running with pid ${PID} "
+        else
+                echo "Redis is stopped"
+        fi
+        ;;
+    restart)
+        echo -n "Restarting Redis: "
+        if [ ! -f $PIDFILE ]
+        then
+                echo "$PIDFILE does not exist, process is not running"
+        else
+                PID=$(cat $PIDFILE)
+                echo "Stopping ..."
+                kill -9 ${PID}
+                while [ -x /proc/${PID} ]
+                do
+                    echo "Waiting for Redis to shutdown ..."
+                    sleep 1
+                done
+                rm -rf /var/run/blacklist.pid
+                echo "Redis stopped"
+        fi
+                if [ -f $PIDFILE ]
+        then
+                echo "$PIDFILE exists, process is already running or crashed"
+        else
+                echo "Starting Redis server..."
+                $EXEC
+                PID=$(pgrep blacklist)
+                echo ${PID} > PIDFILE
+        fi
+
+        ;;    
     stop)
         if [ ! -f $PIDFILE ]
         then
@@ -27,16 +65,17 @@ case "$1" in
         else
                 PID=$(cat $PIDFILE)
                 echo "Stopping ..."
-                $CLIEXEC -p $REDISPORT shutdown
+                kill -9 ${PID}
                 while [ -x /proc/${PID} ]
                 do
                     echo "Waiting for Redis to shutdown ..."
                     sleep 1
                 done
+                rm -rf /var/run/redis.pid
                 echo "Redis stopped"
         fi
         ;;
     *)
-        echo "Please use start or stop as first argument"
+         echo "Usage: $0 {start|stop|status|restart}"
         ;;
 esac
