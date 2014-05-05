@@ -187,7 +187,7 @@ void setproctitle(const char *fmt, ...);
 
 #if (__i386 || __amd64) && __GNUC__
 #define GNUC_VERSION (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
-#if GNUC_VERSION >= 40100
+#if (GNUC_VERSION >= 40100) || defined(__clang__)
 #define HAVE_ATOMIC
 #endif
 #endif
