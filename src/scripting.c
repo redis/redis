@@ -306,13 +306,21 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     /* Convert the result of the Redis command into a suitable Lua type.
      * The first thing we need is to create a single string from the client
      * output buffers. */
-    reply = sdsnewlen(c->buf,c->bufpos);
-    c->bufpos = 0;
-    while(listLength(c->reply)) {
-        robj *o = listNodeValue(listFirst(c->reply));
+    if (listLength(c->reply) == 0 && c->bufpos < REDIS_REPLY_CHUNK_BYTES) {
+        /* This is a fast path for the common case of a reply inside the
+         * client static buffer. Don't create an SDS string but just use
+         * the client buffer directly. */
+        c->buf[c->bufpos] = '\0';
+        reply = c->buf;
+    } else {
+        reply = sdsnewlen(c->buf,c->bufpos);
+        c->bufpos = 0;
+        while(listLength(c->reply)) {
+            robj *o = listNodeValue(listFirst(c->reply));
 
-        reply = sdscatlen(reply,o->ptr,sdslen(o->ptr));
-        listDelNode(c->reply,listFirst(c->reply));
+            reply = sdscatlen(reply,o->ptr,sdslen(o->ptr));
+            listDelNode(c->reply,listFirst(c->reply));
+        }
     }
     if (raise_error && reply[0] != '-') raise_error = 0;
     redisProtocolToLuaType(lua,reply);
@@ -322,7 +330,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         (reply[0] == '*' && reply[1] != '-')) {
             luaSortArray(lua);
     }
-    sdsfree(reply);
+    if (reply != c->buf) sdsfree(reply);
     c->reply_bytes = 0;
 
 cleanup:
