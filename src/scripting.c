@@ -306,11 +306,8 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     /* Convert the result of the Redis command into a suitable Lua type.
      * The first thing we need is to create a single string from the client
      * output buffers. */
-    reply = sdsempty();
-    if (c->bufpos) {
-        reply = sdscatlen(reply,c->buf,c->bufpos);
-        c->bufpos = 0;
-    }
+    reply = sdsnewlen(c->buf,c->bufpos);
+    c->bufpos = 0;
     while(listLength(c->reply)) {
         robj *o = listNodeValue(listFirst(c->reply));
 
