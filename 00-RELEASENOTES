@@ -12,11 +12,52 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 3.0.0 Beta 3 (version 2.9.52) ] Release date: 5 may 2014
+
+This is the third beta of Redis 3.0.0.
+
+>> General changes
+
+* [NEW] New data structure: the HyperLogLog (see 2.8 release notes).
+* [NEW] Lexicograhical range queries in sorted sets (see 2.8 release notes).
+* [NEW] LRU algorithm precision greatly improved.
+
+* [FIX] Redis is now much more responsive to reply with LOADING / BUSY errors.
+
+>> Cluster changes
+
+* [NEW] Cluster testing framework and initial tests.
+* [NEW] Cluster epochs collision resolution (make Redis Cluster more resilient
+        to admin and programming errors).
+* [NEW] Persist / fsync some global state to ensure correct crash-recovery
+        semantics.
+* [NEW] New command introduced: CLUSTER SET-CONFIG-EPOCH, still not used
+        by redis-trib. Will be used to speedup the assignment of unique
+        epochs to different nodes at cluster creation time. For now this is
+        handled as a side effect of the cluster epochs collision resolution.
+
+* [FIX] Different fixes to redis-trib cluster creation.
+* [FIX] Fix an error in the CLUSTER NODES output for nodes slots.
+
+>> Sentinel changes
+
+* [NEW] Sentinels are now able to send update messages in a peer-to-peer
+        fashion even if no Redis instances are available. Now the Sentinel
+        liveness property that the most updated configuration in a given
+        partition is propagated to all the Sentinels is extended to partitions
+        without reachable instances.
+* [NEW] Sentinel safety properties are now ensured in a crash-recovery system
+        model since some state is persisted on disk before replying to other
+        nodes, and reloaded at startup.
+* [NEW] Sentinel now uses CLIENT SETNAME so that it is easy to identify
+        Sentinels using CLIENT LIST among other clients.
+* [NEW] Sentinel failure detection and reconnection code improved.
+
 --[ Redis 3.0.0 Beta 2 (version 2.9.51) ] Release date: 11 mar 2014
 
 This is the second beta of Redis 3.0.0.
 
->> General
+>> General changes
 
 * [FIX] Sometimes the absolute config file path was obtained in a wrong way.
         This happened when there was a "dir" directive inside the config file
@@ -56,7 +97,7 @@ This is the second beta of Redis 3.0.0.
 * [NEW] Sentinel now accepts SHUTDOWN command.
 
 
->> Cluster
+>> Cluster changes
 
 * [FIX] Bind the first interface listed in the "bind" configuration directive
         if any, in order to perform outgoing connections. This fixes Cluster
@@ -84,7 +125,7 @@ This is the second beta of Redis 3.0.0.
 * [NEW] redis-trib: new subcommand 'call'. Exec command in all nodes.
 
 
->> Sentinel
+>> Sentinel changes
 
 * [FIX] Sentinel "IDONTKNOW" error removed as it does not made sense with the
         new Sentinel design. This error was actually a fix for a design error
