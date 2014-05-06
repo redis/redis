@@ -226,9 +226,12 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     }
 
     for (j = 0; j < argc; j++) {
-        if (!lua_isstring(lua,j+1)) break;
-        argv[j] = createStringObject((char*)lua_tostring(lua,j+1),
-                                     lua_strlen(lua,j+1));
+        char *obj_s;
+        size_t obj_len;
+
+        obj_s = (char*)lua_tolstring(lua,j+1,&obj_len);
+        if (obj_s == NULL) break; /* Not a string. */
+        argv[j] = createStringObject(obj_s, obj_len);
     }
     
     /* Check if one of the arguments passed by the Lua script
