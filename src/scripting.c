@@ -203,9 +203,12 @@ void luaSortArray(lua_State *lua) {
 int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     int j, argc = lua_gettop(lua);
     struct redisCommand *cmd;
-    robj **argv;
     redisClient *c = server.lua_client;
     sds reply;
+
+    /* Cached across calls. */
+    static robj **argv = NULL;
+    static int argv_size = 0;
 
     /* Require at least one argument */
     if (argc == 0) {
@@ -215,7 +218,13 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     }
 
     /* Build the arguments vector */
-    argv = zmalloc(sizeof(robj*)*argc);
+    if (!argv) {
+        argv = zmalloc(sizeof(robj*)*argc);
+    } else if (argv_size < argc) {
+        argv = zrealloc(argv,sizeof(robj*)*argc);
+        argv_size = argc;
+    }
+
     for (j = 0; j < argc; j++) {
         if (!lua_isstring(lua,j+1)) break;
         argv[j] = createStringObject((char*)lua_tostring(lua,j+1),
@@ -231,7 +240,6 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
             decrRefCount(argv[j]);
             j--;
         }
-        zfree(argv);
         luaPushError(lua,
             "Lua redis() command arguments must be strings or integers");
         return 1;
@@ -339,7 +347,10 @@ cleanup:
      * argv/argc of the client instead of the local variables. */
     for (j = 0; j < c->argc; j++)
         decrRefCount(c->argv[j]);
-    zfree(c->argv);
+    if (c->argv != argv) {
+        zfree(c->argv);
+        argv = NULL;
+    }
 
     if (raise_error) {
         /* If we are here we should have an error in the stack, in the
