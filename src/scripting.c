@@ -200,6 +200,8 @@ void luaSortArray(lua_State *lua) {
     lua_pop(lua,1);             /* Stack: array (sorted) */
 }
 
+#define LUA_CMD_OBJCACHE_SIZE 32
+#define LUA_CMD_OBJCACHE_MAX_LEN 64
 int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     int j, argc = lua_gettop(lua);
     struct redisCommand *cmd;
@@ -209,6 +211,8 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     /* Cached across calls. */
     static robj **argv = NULL;
     static int argv_size = 0;
+    static robj *cached_objects[LUA_CMD_OBJCACHE_SIZE];
+    static int cached_objects_len[LUA_CMD_OBJCACHE_SIZE];
 
     /* Require at least one argument */
     if (argc == 0) {
@@ -231,7 +235,20 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
 
         obj_s = (char*)lua_tolstring(lua,j+1,&obj_len);
         if (obj_s == NULL) break; /* Not a string. */
-        argv[j] = createStringObject(obj_s, obj_len);
+
+        /* Try to use a cached object. */
+        if (cached_objects[j] && cached_objects_len[j] >= obj_len) {
+            char *s = cached_objects[j]->ptr;
+            struct sdshdr *sh = (void*)(s-(sizeof(struct sdshdr)));
+
+            argv[j] = cached_objects[j];
+            cached_objects[j] = NULL;
+            memcpy(s,obj_s,obj_len+1);
+            sh->free += sh->len - obj_len;
+            sh->len = obj_len;
+        } else {
+            argv[j] = createStringObject(obj_s, obj_len);
+        }
     }
     
     /* Check if one of the arguments passed by the Lua script
@@ -348,8 +365,28 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
 cleanup:
     /* Clean up. Command code may have changed argv/argc so we use the
      * argv/argc of the client instead of the local variables. */
-    for (j = 0; j < c->argc; j++)
-        decrRefCount(c->argv[j]);
+    for (j = 0; j < c->argc; j++) {
+        robj *o = c->argv[j];
+
+        /* Try to cache the object in the cached_objects array.
+         * The object must be small, SDS-encoded, and with refcount = 1
+         * (we must be the only owner) for us to cache it. */
+        if (j < LUA_CMD_OBJCACHE_SIZE &&
+            o->refcount == 1 &&
+            (o->encoding == REDIS_ENCODING_RAW ||
+             o->encoding == REDIS_ENCODING_EMBSTR) &&
+            sdslen(o->ptr) <= LUA_CMD_OBJCACHE_MAX_LEN)
+        {
+            struct sdshdr *sh = (void*)(((char*)(o->ptr))-(sizeof(struct sdshdr)));
+
+            if (cached_objects[j]) decrRefCount(cached_objects[j]);
+            cached_objects[j] = o;
+            cached_objects_len[j] = sh->free + sh->len;
+        } else {
+            decrRefCount(o);
+        }
+    }
+
     if (c->argv != argv) {
         zfree(c->argv);
         argv = NULL;
