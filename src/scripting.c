@@ -860,8 +860,12 @@ void evalGenericCommand(redisClient *c, int evalsha) {
         int j;
         char *sha = c->argv[1]->ptr;
 
+        /* Convert to lowercase. We don't use tolower since the function
+         * managed to always show up in the profiler output consuming
+         * a non trivial amount of time. */
         for (j = 0; j < 40; j++)
-            funcname[j+2] = tolower(sha[j]);
+            funcname[j+2] = (sha[j] >= 'A' && sha[j] <= 'Z') ?
+                sha[j]+('a'-'A') : sha[j];
         funcname[42] = '\0';
     }
 
