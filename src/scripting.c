@@ -312,6 +312,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
          * the client buffer directly. */
         c->buf[c->bufpos] = '\0';
         reply = c->buf;
+        c->bufpos = 0;
     } else {
         reply = sdsnewlen(c->buf,c->bufpos);
         c->bufpos = 0;
