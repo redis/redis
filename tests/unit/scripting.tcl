@@ -311,8 +311,21 @@ start_server {tags {"scripting"}} {
         r config set slave-read-only yes
         r slaveof 127.0.0.1 0
         r debug loadaof
-        r get foo
+        set res [r get foo]
+        r slaveof no one
+        set res
     } {102}
+
+    test {We can call scripts rewriting client->argv from Lua} {
+        r del myset
+        r sadd myset a b c
+        r mset a 1 b 2 c 3 d 4
+        assert {[r spop myset] ne {}}
+        assert {[r spop myset] ne {}}
+        assert {[r spop myset] ne {}}
+        assert {[r mget a b c d] eq {1 2 3 4}}
+        assert {[r spop myset] eq {}}
+    }
 }
 
 # Start a new server since the last test in this stanza will kill the
