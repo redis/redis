@@ -373,8 +373,7 @@ cleanup:
          * (we must be the only owner) for us to cache it. */
         if (j < LUA_CMD_OBJCACHE_SIZE &&
             o->refcount == 1 &&
-            (o->encoding == REDIS_ENCODING_RAW ||
-             o->encoding == REDIS_ENCODING_EMBSTR) &&
+            o->encoding == REDIS_ENCODING_RAW &&
             sdslen(o->ptr) <= LUA_CMD_OBJCACHE_MAX_LEN)
         {
             struct sdshdr *sh = (void*)(((char*)(o->ptr))-(sizeof(struct sdshdr)));
