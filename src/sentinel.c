@@ -2127,6 +2127,7 @@ void sentinelProcessHelloMessage(char *hello, int hello_len) {
             {
                 sentinelAddr *old_addr;
 
+                sentinelEvent(REDIS_WARNING,"+config-update-from",si,"%@");
                 sentinelEvent(REDIS_WARNING,"+switch-master",
                     master,"%s %s %d %s %d",
                     master->name,
