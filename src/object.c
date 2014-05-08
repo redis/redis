@@ -52,13 +52,33 @@ robj *createRawStringObject(char *ptr, size_t len) {
 
 /* Create a string object with encoding REDIS_ENCODING_EMBSTR, that is
  * an object where the sds string is actually an unmodifiable string
- * allocated in the same chunk as the object itself. */
-robj *createEmbeddedStringObject(char *ptr, size_t len) {
-    robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr)+len+1);
-    struct sdshdr *sh = (void*)(o+1);
+ * allocated in the same chunk as the object itself.
+ *
+ * We try to cache and reuse EMBSTR allocated objects according to
+ * size classes modeled after the jemalloc size classes. */
+#define REDIS_ENCODING_EMBSTR_SIZE_LIMIT 39
+#define EMB_OBJ_CACHE_CLASSES 3 /* 32, 48, 64 */
+#define EMB_OBJ_CACHE_SIZE 1024
+robj *emb_obj_cache[EMB_OBJ_CACHE_CLASSES][EMB_OBJ_CACHE_SIZE];
+unsigned long emb_obj_cache_len[EMB_OBJ_CACHE_CLASSES];
 
-    o->type = REDIS_STRING;
-    o->encoding = REDIS_ENCODING_EMBSTR;
+robj *createEmbeddedStringObject(char *ptr, size_t len) {
+    robj *o;
+    struct sdshdr *sh;
+    int alloc_size = sizeof(robj)+sizeof(struct sdshdr)+len+1;
+    int cache_class = (((alloc_size+15)-((alloc_size+15)&15))-32)/16;
+
+    /* Try to reuse a cached object. */
+    if (cache_class < EMB_OBJ_CACHE_CLASSES && emb_obj_cache_len[cache_class]) {
+        emb_obj_cache_len[cache_class]--;
+        o = emb_obj_cache[cache_class][emb_obj_cache_len[cache_class]];
+    } else {
+        o = zmalloc(alloc_size);
+        o->type = REDIS_STRING;
+        o->encoding = REDIS_ENCODING_EMBSTR;
+    }
+
+    sh = (void*)(o+1);
     o->ptr = sh+1;
     o->refcount = 1;
     o->lru = LRU_CLOCK();
@@ -80,7 +100,6 @@ robj *createEmbeddedStringObject(char *ptr, size_t len) {
  *
  * The current limit of 39 is chosen so that the biggest string object
  * we allocate as EMBSTR will still fit into the 64 byte arena of jemalloc. */
-#define REDIS_ENCODING_EMBSTR_SIZE_LIMIT 39
 robj *createStringObject(char *ptr, size_t len) {
     if (len <= REDIS_ENCODING_EMBSTR_SIZE_LIMIT)
         return createEmbeddedStringObject(ptr,len);
@@ -215,7 +234,21 @@ robj *createZsetZiplistObject(void) {
 void freeStringObject(robj *o) {
     if (o->encoding == REDIS_ENCODING_RAW) {
         sdsfree(o->ptr);
+    } else if (o->encoding == REDIS_ENCODING_EMBSTR) {
+        struct sdshdr *sh = (void*)(o+1);
+        int alloc_size = sizeof(robj)+sizeof(struct sdshdr)+sh->len+1;
+        int cache_class = (((alloc_size+15)-((alloc_size+15)&15))-32)/16;
+
+        /* Try to cache the object instead of freeing it. */
+        if (cache_class < EMB_OBJ_CACHE_CLASSES &&
+            emb_obj_cache_len[cache_class] != EMB_OBJ_CACHE_SIZE)
+        {
+            emb_obj_cache[cache_class][emb_obj_cache_len[cache_class]] = o;
+            emb_obj_cache_len[cache_class]++;
+            return; /* Don't free the object. */
+        }
     }
+    zfree(o);
 }
 
 void freeListObject(robj *o) {
@@ -229,6 +262,7 @@ void freeListObject(robj *o) {
     default:
         redisPanic("Unknown list encoding type");
     }
+    zfree(o);
 }
 
 void freeSetObject(robj *o) {
@@ -242,6 +276,7 @@ void freeSetObject(robj *o) {
     default:
         redisPanic("Unknown set encoding type");
     }
+    zfree(o);
 }
 
 void freeZsetObject(robj *o) {
@@ -259,6 +294,7 @@ void freeZsetObject(robj *o) {
     default:
         redisPanic("Unknown sorted set encoding");
     }
+    zfree(o);
 }
 
 void freeHashObject(robj *o) {
@@ -273,6 +309,7 @@ void freeHashObject(robj *o) {
         redisPanic("Unknown hash encoding type");
         break;
     }
+    zfree(o);
 }
 
 void incrRefCount(robj *o) {
@@ -290,7 +327,6 @@ void decrRefCount(robj *o) {
         case REDIS_HASH: freeHashObject(o); break;
         default: redisPanic("Unknown object type"); break;
         }
-        zfree(o);
     } else {
         o->refcount--;
     }
