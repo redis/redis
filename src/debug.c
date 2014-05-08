@@ -249,6 +249,18 @@ void computeDatasetDigest(unsigned char *final) {
 void debugCommand(redisClient *c) {
     if (!strcasecmp(c->argv[1]->ptr,"segfault")) {
         *((char*)-1) = 'x';
+    } else if (!strcasecmp(c->argv[1]->ptr,"embstr-classes")) {
+        int j;
+        char *buf = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                    "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+
+        for (j = 1; j < 48; j++) {
+            robj *o = createEmbeddedStringObject(buf,j);
+            size_t size = zmalloc_size(o);
+
+            printf("%d %d (%d)\n", j, (int)size, (int)(sizeof(robj)+sizeof(struct sdshdr)+j+1));
+            decrRefCount(o);
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"oom")) {
         void *ptr = zmalloc(ULONG_MAX); /* Should trigger an out of memory. */
         zfree(ptr);
