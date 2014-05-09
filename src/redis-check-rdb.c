@@ -133,18 +133,13 @@ typedef struct {
     char success;
 } entry;
 
-/* Global vars that are actually used as constants. The following double
- * values are used for double on-disk serialization, and are initialized
- * at runtime to avoid strange compiler optimizations. */
-static double R_Zero, R_PosInf, R_NegInf, R_Nan;
-
 #define MAX_TYPES_NUM 256
 #define MAX_TYPE_NAME_LEN 16
 /* store string types for output */
 static char types[MAX_TYPES_NUM][MAX_TYPE_NAME_LEN];
 
 /* Return true if 't' is a valid object type. */
-int checkType(unsigned char t) {
+static int checkType(unsigned char t) {
     /* In case a new object type is added, update the following
      * condition as necessary. */
     return
@@ -154,7 +149,7 @@ int checkType(unsigned char t) {
 }
 
 /* when number of bytes to read is negative, do a peek */
-int readBytes(void *target, long num) {
+static int readBytes(void *target, long num) {
     char peek = (num < 0) ? 1 : 0;
     num = (num < 0) ? -num : num;
 
@@ -188,7 +183,7 @@ int processHeader(void) {
     return dump_version;
 }
 
-int loadType(entry *e) {
+static int loadType(entry *e) {
     uint32_t offset = CURR_OFFSET;
 
     /* this byte needs to qualify as type */
@@ -208,7 +203,7 @@ int loadType(entry *e) {
     return 0;
 }
 
-int peekType() {
+static int peekType() {
     unsigned char t;
     if (readBytes(&t, -1) && (checkType(t)))
         return t;
@@ -216,7 +211,7 @@ int peekType() {
 }
 
 /* discard time, just consume the bytes */
-int processTime(int type) {
+static int processTime(int type) {
     uint32_t offset = CURR_OFFSET;
     unsigned char t[8];
     int timelen = (type == REDIS_EXPIRETIME_MS) ? 8 : 4;
@@ -231,7 +226,7 @@ int processTime(int type) {
     return 0;
 }
 
-uint32_t loadLength(int *isencoded) {
+static uint32_t loadLength(int *isencoded) {
     unsigned char buf[2];
     uint32_t len;
     int type;
@@ -257,7 +252,7 @@ uint32_t loadLength(int *isencoded) {
     }
 }
 
-char *loadIntegerObject(int enctype) {
+static char *loadIntegerObject(int enctype) {
     uint32_t offset = CURR_OFFSET;
     unsigned char enc[4];
     long long val;
@@ -289,7 +284,7 @@ char *loadIntegerObject(int enctype) {
     return buf;
 }
 
-char* loadLzfStringObject() {
+static char* loadLzfStringObject() {
     unsigned int slen, clen;
     char *c, *s;
 
@@ -313,7 +308,7 @@ char* loadLzfStringObject() {
 }
 
 /* returns NULL when not processable, char* when valid */
-char* loadStringObject() {
+static char* loadStringObject() {
     uint32_t offset = CURR_OFFSET;
     int isencoded;
     uint32_t len;
@@ -336,7 +331,7 @@ char* loadStringObject() {
 
     if (len == REDIS_RDB_LENERR) return NULL;
 
-    char *buf = malloc(sizeof(char) * (len+1));
+    char *buf = zmalloc(sizeof(char) * (len+1));
     if (buf == NULL) return NULL;
     buf[len] = '\0';
     if (!readBytes(buf, len)) {
@@ -346,7 +341,7 @@ char* loadStringObject() {
     return buf;
 }
 
-int processStringObject(char** store) {
+static int processStringObject(char** store) {
     unsigned long offset = CURR_OFFSET;
     char *key = loadStringObject();
     if (key == NULL) {
@@ -363,7 +358,7 @@ int processStringObject(char** store) {
     return 1;
 }
 
-double* loadDoubleValue() {
+static double* loadDoubleValue() {
     char buf[256];
     unsigned char len;
     double* val;
@@ -386,7 +381,7 @@ double* loadDoubleValue() {
     }
 }
 
-int processDoubleValue(double** store) {
+static int processDoubleValue(double** store) {
     unsigned long offset = CURR_OFFSET;
     double *val = loadDoubleValue();
     if (val == NULL) {
@@ -403,7 +398,7 @@ int processDoubleValue(double** store) {
     return 1;
 }
 
-int loadPair(entry *e) {
+static int loadPair(entry *e) {
     uint32_t offset = CURR_OFFSET;
     uint32_t i;
 
@@ -486,7 +481,7 @@ int loadPair(entry *e) {
     return 1;
 }
 
-entry loadEntry() {
+static entry loadEntry() {
     entry e = { NULL, -1, 0 };
     uint32_t length, offset[4];
 
@@ -544,7 +539,7 @@ entry loadEntry() {
     return e;
 }
 
-void printCentered(int indent, int width, char* body) {
+static void printCentered(int indent, int width, char* body) {
     char head[256], tail[256];
     memset(head, '\0', 256);
     memset(tail, '\0', 256);
@@ -554,21 +549,21 @@ void printCentered(int indent, int width, char* body) {
     printf("%s %s %s\n", head, body, tail);
 }
 
-void printValid(uint64_t ops, uint64_t bytes) {
+static void printValid(uint64_t ops, uint64_t bytes) {
     char body[80];
     sprintf(body, "Processed %llu valid opcodes (in %llu bytes)",
         (unsigned long long) ops, (unsigned long long) bytes);
     printCentered(4, 80, body);
 }
 
-void printSkipped(uint64_t bytes, uint64_t offset) {
+static void printSkipped(uint64_t bytes, uint64_t offset) {
     char body[80];
     sprintf(body, "Skipped %llu bytes (resuming at 0x%08llx)",
         (unsigned long long) bytes, (unsigned long long) offset);
     printCentered(4, 80, body);
 }
 
-void printErrorStack(entry *e) {
+static void printErrorStack(entry *e) {
     unsigned int i;
     char body[64];
 
@@ -708,24 +703,18 @@ void process(void) {
     }
 }
 
-int main(int argc, char **argv) {
-    /* expect the first argument to be the dump file */
-    if (argc <= 1) {
-        printf("Usage: %s <dump.rdb>\n", argv[0]);
-        exit(0);
-    }
-
+int redis_check_rdb(char *rdbfilename) {
     int fd;
     off_t size;
     struct stat stat;
     void *data;
 
-    fd = open(argv[1], O_RDONLY);
+    fd = open(rdbfilename, O_RDONLY);
     if (fd < 1) {
-        ERROR("Cannot open file: %s\n", argv[1]);
+        ERROR("Cannot open file: %s\n", rdbfilename);
     }
     if (fstat(fd, &stat) == -1) {
-        ERROR("Cannot stat: %s\n", argv[1]);
+        ERROR("Cannot stat: %s\n", rdbfilename);
     } else {
         size = stat.st_size;
     }
@@ -736,7 +725,7 @@ int main(int argc, char **argv) {
 
     data = mmap(NULL, size, PROT_READ, MAP_SHARED, fd, 0);
     if (data == MAP_FAILED) {
-        ERROR("Cannot mmap: %s\n", argv[1]);
+        ERROR("Cannot mmap: %s\n", rdbfilename);
     }
 
     /* Initialize static vars */
