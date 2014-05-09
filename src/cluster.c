@@ -492,32 +492,38 @@ void freeClusterLink(clusterLink *link) {
     zfree(link);
 }
 
+#define MAX_CLUSTER_ACCEPTS_PER_CALL 1000
 void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
+    int max = MAX_CLUSTER_ACCEPTS_PER_CALL;
     char cip[REDIS_IP_STR_LEN];
     clusterLink *link;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
 
-    cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
-    if (cfd == ANET_ERR) {
-        redisLog(REDIS_VERBOSE,"Accepting cluster node: %s", server.neterr);
-        return;
-    }
-    anetNonBlock(NULL,cfd);
-    anetEnableTcpNoDelay(NULL,cfd);
+    while(max--) {
+        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
+        if (cfd == ANET_ERR) {
+            if (errno != EWOULDBLOCK)
+                redisLog(REDIS_VERBOSE,
+                    "Accepting cluster node: %s", server.neterr);
+            return;
+        }
+        anetNonBlock(NULL,cfd);
+        anetEnableTcpNoDelay(NULL,cfd);
 
-    /* Use non-blocking I/O for cluster messages. */
-    redisLog(REDIS_VERBOSE,"Accepted cluster node %s:%d", cip, cport);
-    /* Create a link object we use to handle the connection.
-     * It gets passed to the readable handler when data is available.
-     * Initiallly the link->node pointer is set to NULL as we don't know
-     * which node is, but the right node is references once we know the
-     * node identity. */
-    link = createClusterLink(NULL);
-    link->fd = cfd;
-    aeCreateFileEvent(server.el,cfd,AE_READABLE,clusterReadHandler,link);
+        /* Use non-blocking I/O for cluster messages. */
+        redisLog(REDIS_VERBOSE,"Accepted cluster node %s:%d", cip, cport);
+        /* Create a link object we use to handle the connection.
+         * It gets passed to the readable handler when data is available.
+         * Initiallly the link->node pointer is set to NULL as we don't know
+         * which node is, but the right node is references once we know the
+         * node identity. */
+        link = createClusterLink(NULL);
+        link->fd = cfd;
+        aeCreateFileEvent(server.el,cfd,AE_READABLE,clusterReadHandler,link);
+    }
 }
 
 /* -----------------------------------------------------------------------------
