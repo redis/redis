@@ -134,6 +134,7 @@ const wchar_t* cMapFileBaseName = L"RedisQFork";
 const char* qforkFlag = "--QFork";
 const char* maxmemoryFlag = "maxmemory";
 const char* maxheapFlag = "maxheap";
+const char* includeFlag = "include";
 const int cDeadForkWait = 30000;
 size_t pageSize = 0;
 
@@ -490,6 +491,67 @@ LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
 	return EXCEPTION_CONTINUE_SEARCH;
 }
 
+/*
+    Returns true if we have successfully parsed the conf file and its recursive includes. 
+    If maxheap and/or maxmemory is specified these will be set on exit. If maxheap/maxmemory 
+    are specified in master and/or recursive conf files, the first encountered flag is taken.
+*/
+bool ParseConfFile(string file, __int64& maxheapBytes, __int64& maxmemoryBytes) {
+    int memtollerr = 0;
+    ifstream config;
+    config.open(file);
+    if (config.fail()) {
+        return false;
+    }
+
+    while (!config.eof()) {
+        string line;
+        getline(config, line);
+        istringstream iss(line);
+        string token;
+        if (getline(iss, token, ' ')) {
+            if (_stricmp(token.c_str(), maxmemoryFlag) == 0) {
+                string maxmemoryString;
+                if (getline(iss, maxmemoryString, ' ')) {
+                    if (maxmemoryBytes == -1) {
+                        maxmemoryBytes = memtoll(maxmemoryString.c_str(), &memtollerr);
+                        if (memtollerr != 0) {
+                            printf(
+                                "Unable to convert %s to the number of bytes for the maxmemory flag.\n",
+                                maxmemoryString.c_str());
+                            printf("Failing startup.\n");
+                            return false;
+                        }
+                    }
+                }
+            } else if (_stricmp(token.c_str(), maxheapFlag) == 0) {
+                string maxheapString;
+                if (getline(iss, maxheapString, ' ')) {
+                    if (maxheapBytes == -1) {
+                        maxheapBytes = memtoll(maxheapString.c_str(), &memtollerr);
+                        if (memtollerr != 0) {
+                            printf(
+                                "Unable to convert %s to the number of bytes for the maxmemory flag.\n",
+                                maxheapString.c_str());
+                            printf("Failing startup.\n");
+                            return false;
+                        }
+                    }
+                }
+            } else if (_stricmp(token.c_str(), includeFlag) == 0) {
+                string includeFile;
+                if (getline(iss, includeFile, ' ')) {
+                    if (!ParseConfFile(includeFile, maxheapBytes, maxmemoryBytes)) {
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
 
 // QFork API
 StartupStatus QForkStartup(int argc, char** argv) {
@@ -498,7 +560,7 @@ StartupStatus QForkStartup(int argc, char** argv) {
     DWORD PPID = 0;
     __int64 maxheapBytes = -1;
     __int64 maxmemoryBytes = -1;
-	int memtollerr = 0;
+    int memtollerr = 0;
 
 	SYSTEM_INFO si;
     GetSystemInfo(&si);
@@ -515,46 +577,11 @@ StartupStatus QForkStartup(int argc, char** argv) {
         for (int n = 1; n < argc; n++) {
 			// check for flags in .conf file
 			if( n == 1  && strncmp(argv[n],"--",2) != 0 ) {
-				ifstream config;
-				config.open(argv[n]);
-				if (config.fail())
-					continue;
-				while (!config.eof()) {
-					string line;
-					getline(config,line);
-					istringstream iss(line);
-					string token;
-					if (getline(iss, token, ' ')) {
-						if (_stricmp(token.c_str(), maxmemoryFlag) == 0) {
-							string maxmemoryString;
-							if (getline(iss, maxmemoryString, ' ')) {
-								maxmemoryBytes = memtoll(maxmemoryString.c_str(),&memtollerr);
-								if( memtollerr != 0) {
-									printf (
-										"%s specified. Unable to convert %s to the number of bytes for the maxmemory flag.\n", 
-										maxmemoryBytes,
-										argv[n+1] );
-									printf( "Failing startup.\n");
-									return StartupStatus::ssFAILED;
-								}
-							}
-						} else if( _stricmp(token.c_str(), maxheapFlag) == 0 ) {
-							string maxheapString;
-							if (getline(iss, maxheapString, ' ')) {
-								maxheapBytes = memtoll(maxheapString.c_str(),&memtollerr);
-								if( memtollerr != 0) {
-									printf (
-										"%s specified. Unable to convert %s to the number of bytes for the maxmemory flag.\n", 
-										maxmemoryBytes,
-										argv[n+1] );
-									printf( "Failing startup.\n");
-									return StartupStatus::ssFAILED;
-								}
-							}
-						}
-					}
-				}
-				continue;
+                if (!ParseConfFile(argv[1], maxheapBytes, maxmemoryBytes)) {
+                    return StartupStatus::ssFAILED;
+                } else {
+                    continue;
+                }
 			}
             if( strncmp(argv[n],"--", 2) == 0) {
 				if (_stricmp(argv[n]+2,maxmemoryFlag) == 0) {
