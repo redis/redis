@@ -1019,6 +1019,14 @@ class RedisTrib
                 break
             end
         end
+
+        # Enforce mandatory options
+        ALLOWED_OPTIONS[cmd].each {|option,val|
+            if !options[option] && val == :required
+                puts "Option '--#{option}' is required for subcommand '#{cmd}'"
+                exit 1
+            end
+        }
         return options,idx
     end
 end
