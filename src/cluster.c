@@ -509,11 +509,12 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     anetEnableTcpNoDelay(NULL,cfd);
 
     /* Use non-blocking I/O for cluster messages. */
-    /* IPV6: might want to wrap a v6 address in [] */
     redisLog(REDIS_VERBOSE,"Accepted cluster node %s:%d", cip, cport);
-    /* We need to create a temporary node in order to read the incoming
-     * packet in a valid contest. This node will be released once we
-     * read the packet and reply. */
+    /* Create a link object we use to handle the connection.
+     * It gets passed to the readable handler when data is available.
+     * Initiallly the link->node pointer is set to NULL as we don't know
+     * which node is, but the right node is references once we know the
+     * node identity. */
     link = createClusterLink(NULL);
     link->fd = cfd;
     aeCreateFileEvent(server.el,cfd,AE_READABLE,clusterReadHandler,link);
