@@ -32,6 +32,10 @@
 #include <math.h>
 #include <ctype.h>
 
+#ifdef __CYGWIN__
+#define strtold(a,b) ((long double)strtod((a),(b)))
+#endif
+
 robj *createObject(int type, void *ptr) {
     robj *o = zmalloc(sizeof(*o));
     o->type = type;
