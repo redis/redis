@@ -2318,9 +2318,10 @@ void clusterHandleSlaveFailover(void) {
     /* Set data_age to the number of seconds we are disconnected from
      * the master. */
     if (server.repl_state == REDIS_REPL_CONNECTED) {
-        data_age = (server.unixtime - server.master->lastinteraction) * 1000;
+        data_age = (mstime_t)(server.unixtime - server.master->lastinteraction)
+                   * 1000;
     } else {
-        data_age = (server.unixtime - server.repl_down_since) * 1000;
+        data_age = (mstime_t)(server.unixtime - server.repl_down_since) * 1000;
     }
 
     /* Remove the node timeout from the data age as it is fine that we are
@@ -2335,7 +2336,7 @@ void clusterHandleSlaveFailover(void) {
      *
      * Check bypassed for manual failovers. */
     if (data_age >
-        (server.repl_ping_slave_period * 1000) +
+        ((mstime_t)server.repl_ping_slave_period * 1000) +
         (server.cluster_node_timeout * REDIS_CLUSTER_SLAVE_VALIDITY_MULT))
     {
         if (!manual_failover) return;
