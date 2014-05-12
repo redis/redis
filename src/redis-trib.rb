@@ -724,7 +724,7 @@ class RedisTrib
             keys = source.r.cluster("getkeysinslot",slot,10)
             break if keys.length == 0
             keys.each{|key|
-                source.r.client.call(["migrate",target.info[:host],target.info[:port],key,0,1000])
+                source.r.client.call(["migrate",target.info[:host],target.info[:port],key,0,15000])
                 print "." if o[:verbose]
                 STDOUT.flush
             }
@@ -1024,7 +1024,7 @@ class RedisTrib
                 slot = key_to_slot(k)
                 target = slots[slot]
                 puts "Migrating #{k} to #{target}"
-                source.client.call(["migrate",target.info[:host],target.info[:port],k,0,1000])
+                source.client.call(["migrate",target.info[:host],target.info[:port],k,0,15000])
             }
         end
     end
