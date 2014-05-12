@@ -2305,7 +2305,8 @@ void clusterHandleSlaveFailover(void) {
     if (auth_timeout < 2000) auth_timeout = 2000;
     auth_retry_time = auth_timeout*2;
 
-    /* Pre conditions to run the function:
+    /* Pre conditions to run the function, that must be met both in case
+     * of an automatic or manual failover:
      * 1) We are a slave.
      * 2) Our master is flagged as FAIL, or this is a manual failover.
      * 3) It is serving slots. */
@@ -2330,11 +2331,15 @@ void clusterHandleSlaveFailover(void) {
 
     /* Check if our data is recent enough. For now we just use a fixed
      * constant of ten times the node timeout since the cluster should
-     * react much faster to a master down. */
+     * react much faster to a master down.
+     *
+     * Check bypassed for manual failovers. */
     if (data_age >
         (server.repl_ping_slave_period * 1000) +
         (server.cluster_node_timeout * REDIS_CLUSTER_SLAVE_VALIDITY_MULT))
-        return;
+    {
+        if (!manual_failover) return;
+    }
 
     /* If the previous failover attempt timedout and the retry time has
      * elapsed, we can setup a new one. */
@@ -2370,7 +2375,9 @@ void clusterHandleSlaveFailover(void) {
 
     /* It is possible that we received more updated offsets from other
      * slaves for the same master since we computed our election delay.
-     * Update the delay if our rank changed. */
+     * Update the delay if our rank changed.
+     *
+     * Not performed if this is a manual failover. */
     if (server.cluster->failover_auth_sent == 0 &&
         server.cluster->mf_end == 0)
     {
