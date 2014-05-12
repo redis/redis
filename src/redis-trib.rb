@@ -609,6 +609,22 @@ class RedisTrib
         }
     end
 
+    # Redis Cluster config epoch collision resolution code is able to eventually
+    # set a different epoch to each node after a new cluster is created, but
+    # it is slow compared to assign a progressive config epoch to each node
+    # before joining the cluster. However we do just a best-effort try here
+    # since if we fail is not a problem.
+    def assign_config_epoch
+        config_epoch = 1
+        @nodes.each{|n|
+            begin
+                n.r.cluster("set-config-epoch",config_epoch)
+            rescue
+            end
+            config_epoch += 1
+        }
+    end
+
     def join_cluster
         # We use a brute force approach to make sure the node will meet
         # each other, that is, sending CLUSTER MEET messages to all the nodes
@@ -850,6 +866,8 @@ class RedisTrib
         yes_or_die "Can I set the above configuration?"
         flush_nodes_config
         xputs ">>> Nodes configuration updated"
+        xputs ">>> Assign a different config epoch to each node"
+        assign_config_epoch
         xputs ">>> Sending CLUSTER MEET messages to join the cluster"
         join_cluster
         # Give one second for the join to start, in order to avoid that
