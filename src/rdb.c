@@ -671,7 +671,7 @@ int rdbSave(char *filename) {
             sds keystr = dictGetKey(de);
             robj key, *o = dictGetVal(de);
             long long expire;
-            
+
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
             if (rdbSaveKeyValuePair(&rdb,&key,o,expire,now) == -1) goto werr;
@@ -1151,7 +1151,7 @@ int rdbLoad(char *filename) {
          * received from the master. In the latter case, the master is
          * responsible for key expiry. If we would expire keys here, the
          * snapshot taken by the master may not be reflected on the slave. */
-        if (server.masterhost == NULL && expiretime != -1 && expiretime < now) {
+        if (server.masterhost == NULL && expiretime != -1 && expiretime < now && server.honor_ttl) {
             decrRefCount(key);
             decrRefCount(val);
             continue;

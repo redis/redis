@@ -69,7 +69,7 @@
 /* Static server configuration */
 #define REDIS_DEFAULT_HZ        10      /* Time interrupt calls/sec. */
 #define REDIS_MIN_HZ            1
-#define REDIS_MAX_HZ            500 
+#define REDIS_MAX_HZ            500
 #define REDIS_SERVERPORT        6379    /* TCP port */
 #define REDIS_TCP_BACKLOG       511     /* TCP listen backlog */
 #define REDIS_MAXIDLETIME       0       /* default client timeout: infinite */
@@ -697,6 +697,7 @@ struct redisServer {
     int dbnum;                      /* Total number of configured DBs */
     int daemonize;                  /* True if running as a daemon */
     clientBufferLimitsConfig client_obuf_limits[REDIS_CLIENT_LIMIT_NUM_CLASSES];
+    int honor_ttl;
     /* AOF persistence */
     int aof_state;                  /* REDIS_AOF_(ON|OFF|WAIT_REWRITE) */
     int aof_fsync;                  /* Kind of fsync() policy */
