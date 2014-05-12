@@ -492,31 +492,38 @@ void freeClusterLink(clusterLink *link) {
     zfree(link);
 }
 
+#define MAX_CLUSTER_ACCEPTS_PER_CALL 1000
 void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
+    int max = MAX_CLUSTER_ACCEPTS_PER_CALL;
     char cip[REDIS_IP_STR_LEN];
     clusterLink *link;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
 
-    cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
-    if (cfd == ANET_ERR) {
-        redisLog(REDIS_VERBOSE,"Accepting cluster node: %s", server.neterr);
-        return;
-    }
-    anetNonBlock(NULL,cfd);
-    anetEnableTcpNoDelay(NULL,cfd);
+    while(max--) {
+        cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
+        if (cfd == ANET_ERR) {
+            if (errno != EWOULDBLOCK)
+                redisLog(REDIS_VERBOSE,
+                    "Accepting cluster node: %s", server.neterr);
+            return;
+        }
+        anetNonBlock(NULL,cfd);
+        anetEnableTcpNoDelay(NULL,cfd);
 
-    /* Use non-blocking I/O for cluster messages. */
-    /* IPV6: might want to wrap a v6 address in [] */
-    redisLog(REDIS_VERBOSE,"Accepted cluster node %s:%d", cip, cport);
-    /* We need to create a temporary node in order to read the incoming
-     * packet in a valid contest. This node will be released once we
-     * read the packet and reply. */
-    link = createClusterLink(NULL);
-    link->fd = cfd;
-    aeCreateFileEvent(server.el,cfd,AE_READABLE,clusterReadHandler,link);
+        /* Use non-blocking I/O for cluster messages. */
+        redisLog(REDIS_VERBOSE,"Accepted cluster node %s:%d", cip, cport);
+        /* Create a link object we use to handle the connection.
+         * It gets passed to the readable handler when data is available.
+         * Initiallly the link->node pointer is set to NULL as we don't know
+         * which node is, but the right node is references once we know the
+         * node identity. */
+        link = createClusterLink(NULL);
+        link->fd = cfd;
+        aeCreateFileEvent(server.el,cfd,AE_READABLE,clusterReadHandler,link);
+    }
 }
 
 /* -----------------------------------------------------------------------------
@@ -3280,17 +3287,19 @@ void clusterCommand(redisClient *c) {
     }
 
     if (!strcasecmp(c->argv[1]->ptr,"meet") && c->argc == 4) {
-        long port;
+        long long port;
 
-        if (getLongFromObjectOrReply(c, c->argv[3], &port, NULL) != REDIS_OK) {
-            addReplyError(c,"Invalid TCP port specified");
+        if (getLongLongFromObject(c->argv[3], &port) != REDIS_OK) {
+            addReplyErrorFormat(c,"Invalid TCP port specified: %s",
+                                (char*)c->argv[3]->ptr);
             return;
         }
 
         if (clusterStartHandshake(c->argv[2]->ptr,port) == 0 &&
             errno == EINVAL)
         {
-            addReplyError(c,"Invalid node address specified");
+            addReplyErrorFormat(c,"Invalid node address specified: %s:%s",
+                            (char*)c->argv[2]->ptr, (char*)c->argv[3]->ptr);
         } else {
             addReply(c,shared.ok);
         }
@@ -3782,7 +3791,7 @@ void restoreCommand(redisClient *c) {
 
     /* Make sure this key does not already exist here... */
     if (!replace && lookupKeyWrite(c->db,c->argv[1]) != NULL) {
-        addReplyError(c,"Target key name is busy.");
+        addReply(c,shared.busykeyerr);
         return;
     }
 

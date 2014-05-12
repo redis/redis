@@ -1316,6 +1316,8 @@ void createSharedObjects(void) {
         "-EXECABORT Transaction discarded because of previous errors.\r\n"));
     shared.noreplicaserr = createObject(REDIS_STRING,sdsnew(
         "-NOREPLICAS Not enough good slaves to write.\r\n"));
+    shared.busykeyerr = createObject(REDIS_STRING,sdsnew(
+        "-BUSYKEY Target key name already exists.\r\n"));
     shared.space = createObject(REDIS_STRING,sdsnew(" "));
     shared.colon = createObject(REDIS_STRING,sdsnew(":"));
     shared.plus = createObject(REDIS_STRING,sdsnew("+"));
