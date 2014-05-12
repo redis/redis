@@ -205,8 +205,6 @@ int zslDelete(zskiplist *zsl, double score, robj *obj) {
         zslDeleteNode(zsl, x, update);
         zslFreeNode(x);
         return 1;
-    } else {
-        return 0; /* not found */
     }
     return 0; /* not found */
 }
