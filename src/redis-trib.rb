@@ -1023,8 +1023,15 @@ class RedisTrib
                 # Migrate keys using the MIGRATE command.
                 slot = key_to_slot(k)
                 target = slots[slot]
-                puts "Migrating #{k} to #{target}"
-                source.client.call(["migrate",target.info[:host],target.info[:port],k,0,15000])
+                print "Migrating #{k} to #{target}: "
+                STDOUT.flush
+                begin
+                    source.client.call(["migrate",target.info[:host],target.info[:port],k,0,15000])
+                rescue => e
+                    puts e
+                else
+                    puts "OK"
+                end
             }
         end
     end
