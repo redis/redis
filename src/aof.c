@@ -233,6 +233,10 @@ void stopAppendOnly(void) {
 /* Called when the user switches from "appendonly no" to "appendonly yes"
  * at runtime using the CONFIG command. */
 int startAppendOnly(void) {
+    if (server.nopersist) {
+        redisLog(REDIS_WARNING, "Persistence disabled.  Not writing AOF.");
+        return REDIS_ERR;
+    }
     server.aof_last_fsync = server.unixtime;
     server.aof_fd = open(server.aof_filename,O_WRONLY|O_APPEND|O_CREAT,0644);
     redisAssert(server.aof_state == REDIS_AOF_OFF);
@@ -274,6 +278,9 @@ void flushAppendOnlyFile(int force) {
     ssize_t nwritten;
     int sync_in_progress = 0;
     mstime_t latency;
+
+    if (server.nopersist)
+        return;
 
     if (sdslen(server.aof_buf) == 0) return;
 
@@ -598,12 +605,18 @@ void freeFakeClient(struct redisClient *c) {
  * fatal error an error message is logged and the program exists. */
 int loadAppendOnlyFile(char *filename) {
     struct redisClient *fakeClient;
-    FILE *fp = fopen(filename,"r");
+    FILE *fp = NULL;
     struct redis_stat sb;
     int old_aof_state = server.aof_state;
     long loops = 0;
     off_t valid_up_to = 0; /* Offset of the latest well-formed command loaded. */
 
+    if (server.nopersist) {
+        redisLog(REDIS_WARNING, "Persistence disabled.  Not opening AOF.");
+        return REDIS_ERR;
+    }
+
+    fp = fopen(filename, "r");
     if (fp && redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) {
         server.aof_current_size = 0;
         fclose(fp);
@@ -1029,6 +1042,11 @@ int rewriteAppendOnlyFile(char *filename) {
     char byte;
     size_t processed = 0;
 
+    if (server.nopersist) {
+        redisLog(REDIS_WARNING, "Persistence disabled.  Not rewriting AOF.");
+        return REDIS_ERR;
+    }
+
     /* Note that we have to use a different temp name here compared to the
      * one used by rewriteAppendOnlyFileBackground() function. */
     snprintf(tmpfile,256,"temp-rewriteaof-%d.aof", (int) getpid());
@@ -1320,6 +1338,10 @@ int rewriteAppendOnlyFileBackground(void) {
 }
 
 void bgrewriteaofCommand(redisClient *c) {
+    if (server.nopersist) {
+        addReplyError(c,"Persistence disabled.  No AOF to rewrite.");
+        return;
+    }
     if (server.aof_child_pid != -1) {
         addReplyError(c,"Background append only file rewriting already in progress");
     } else if (server.rdb_child_pid != -1) {

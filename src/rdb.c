@@ -643,6 +643,11 @@ int rdbSaveRio(rio *rdb, int *error) {
     long long now = mstime();
     uint64_t cksum;
 
+    if (server.nopersist) {
+        redisLog(REDIS_WARNING, "Persistence disabled.  Not saving RDB.");
+        return REDIS_ERR;
+    }
+
     if (server.rdb_checksum)
         rdb->update_cksum = rioGenericUpdateChecksum;
     snprintf(magic,sizeof(magic),"REDIS%04d",REDIS_RDB_VERSION);
@@ -1134,6 +1139,11 @@ int rdbLoad(char *filename) {
     FILE *fp;
     rio rdb;
 
+    if (server.nopersist) {
+        redisLog(REDIS_WARNING, "Persistence disabled.  Not loading RDB.");
+        return REDIS_ERR;
+    }
+
     if ((fp = fopen(filename,"r")) == NULL) return REDIS_ERR;
 
     rioInitWithFile(&rdb,fp);
@@ -1519,6 +1529,10 @@ int rdbSaveToSlavesSockets(void) {
 }
 
 void saveCommand(redisClient *c) {
+    if (server.nopersist) {
+        addReplyError(c,"Persistence disabled.  Not saving RDB.");
+        return;
+    }
     if (server.rdb_child_pid != -1) {
         addReplyError(c,"Background save already in progress");
         return;
@@ -1531,6 +1545,10 @@ void saveCommand(redisClient *c) {
 }
 
 void bgsaveCommand(redisClient *c) {
+    if (server.nopersist) {
+        addReplyError(c,"Persistence disabled.  Not saving RDB.");
+        return;
+    }
     if (server.rdb_child_pid != -1) {
         addReplyError(c,"Background save already in progress");
     } else if (server.aof_child_pid != -1) {

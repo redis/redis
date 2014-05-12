@@ -464,6 +464,11 @@ void syncCommand(redisClient *c) {
     /* ignore SYNC if already slave or in monitor mode */
     if (c->flags & REDIS_SLAVE) return;
 
+    if (server.nopersist) {
+        addReplyError(c,"Persistence disabled.  No SYNC allowed.");
+        return;
+    }
+
     /* Refuse SYNC requests if we are a slave but the link with our master
      * is not ok... */
     if (server.masterhost && server.repl_state != REDIS_REPL_CONNECTED) {
@@ -601,6 +606,11 @@ void replconfCommand(redisClient *c) {
         /* Number of arguments must be odd to make sure that every
          * option has a corresponding value. */
         addReply(c,shared.syntaxerr);
+        return;
+    }
+
+    if (server.nopersist) {
+        addReplyError(c,"Persistence disabled.  No replication allowed.");
         return;
     }
 
@@ -1215,6 +1225,11 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     REDIS_NOTUSED(privdata);
     REDIS_NOTUSED(mask);
 
+    if (server.noreplication) {
+        redisLog(REDIS_WARNING, "Replication disabled.  Not syncing master.");
+        return;
+    }
+
     /* If this event fired after the user turned the instance into a master
      * with SLAVEOF NO ONE we must just return ASAP. */
     if (server.repl_state == REDIS_REPL_NONE) {
@@ -1472,6 +1487,11 @@ void slaveofCommand(redisClient *c) {
      * configured using the current address of the master node. */
     if (server.cluster_enabled) {
         addReplyError(c,"SLAVEOF not allowed in cluster mode.");
+        return;
+    }
+
+    if (server.noreplication) {
+        addReplyError(c,"SLAVEOF denied because disable-replication is set.");
         return;
     }
 

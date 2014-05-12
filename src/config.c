@@ -521,6 +521,14 @@ void loadServerConfigFromString(char *config) {
             if (server.repl_min_slaves_max_lag < 0) {
                 err = "Invalid value for min-slaves-max-lag."; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"disable-all-persistence") && argc == 2) {
+            if ((server.nopersist = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"disable-replication") && argc == 2) {
+            if ((server.noreplication = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"notify-keyspace-events") && argc == 2) {
             int flags = keyspaceEventsStringToFlags(argv[1]);
 
@@ -544,6 +552,64 @@ void loadServerConfigFromString(char *config) {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
         sdsfreesplitres(argv,argc);
+    }
+
+    if (server.nopersist) {
+        /* No data persistence means no replication either */
+        server.noreplication = 1;
+
+        /* The settings below are just for convenience to stop Redis from
+         * attempting save operations by default.
+         * If someone enables RDB or AOF at runtime using CONFIG SET, the
+         * persistence disable guards inside each AOF/RDB/replication/cluster
+         * write functions will continue to deny any persistence. */
+        resetServerSaveParams(); /* Kill any "save" options previously set */
+        server.aof_fsync = AOF_FSYNC_NO; /* Don't try to sync because no AOF */
+        server.aof_state = REDIS_AOF_OFF; /* Don't try to AOF */
+        server.stop_writes_on_bgsave_err = 0; /* Don't stop on save errors */
+
+        /* Disable commands related to persistence */
+        char *cmds[] = {"save", "bgsave", "bgrewriteaof"};
+        for (size_t i = 0; i < sizeof(cmds)/sizeof(*cmds); i++) {
+            sds cmd = sdsnew(cmds[i]);
+
+            if ((dictDelete(server.commands, cmd) != DICT_OK)) {
+                redisLog(REDIS_WARNING, "Could not disable command %s", cmd);
+            }
+
+            sdsfree(cmd);
+        }
+
+#if _POSIX_MEMLOCK == 1
+        /* No persist = don't leak data to swap space either.
+         * Forces all memory to remain in memory. */
+        /* NOTE: This only works if you either:
+         *   - run as root
+         *   - have CAP_IPC_LOCK capability
+         */
+        if ((mlockall(MCL_CURRENT|MCL_FUTURE) == -1)) {
+            redisLog(REDIS_WARNING, "Unable to force memory locking. "
+                "Some of your data may leak into your OS swap space.");
+        }
+#endif
+    }
+
+    if (server.noreplication) {
+        /* No replication implies no cluster. */
+        server.cluster_enabled = 0;
+
+        /* Disable commands related to replication/clustering */
+        char *cmds[] = {"migrate", "replconf", "sync",
+                        "psync", "cluster", "slaveof"};
+        for (size_t i = 0; i < sizeof(cmds)/sizeof(*cmds); i++) {
+            sds cmd = sdsnew(cmds[i]);
+
+            if ((dictDelete(server.commands, cmd) != DICT_OK)) {
+                redisLog(REDIS_WARNING, "Could not disable command %s", cmd);
+            }
+
+            sdsfree(cmd);
+        }
     }
 
     /* Sanity checks. */
@@ -1902,6 +1968,10 @@ void configCommand(redisClient *c) {
         if (c->argc != 2) goto badarity;
         if (server.configfile == NULL) {
             addReplyError(c,"The server is running without a config file");
+            return;
+        }
+        if (server.nopersist) {
+            addReplyError(c,"Persistence disabled.  No config writing allowed.");
             return;
         }
         if (rewriteConfig(server.configfile) == -1) {

@@ -1401,6 +1401,8 @@ void initServerConfig(void) {
     server.unixsocketperm = REDIS_DEFAULT_UNIX_SOCKET_PERM;
     server.ipfd_count = 0;
     server.sofd = -1;
+    server.nopersist = 0;
+    server.noreplication = 0;
     server.dbnum = REDIS_DEFAULT_DBNUM;
     server.verbosity = REDIS_DEFAULT_VERBOSITY;
     server.maxidletime = REDIS_MAXIDLETIME;
@@ -1871,7 +1873,7 @@ void initServer(void) {
     scriptingInit();
     slowlogInit();
     latencyMonitorInit();
-    bioInit();
+    if (!server.nopersist) bioInit();
 }
 
 /* Populates the Redis Command Table starting from the hard coded list
@@ -2360,6 +2362,12 @@ int prepareForShutdown(int flags) {
         aof_fsync(server.aof_fd);
     }
     if ((server.saveparamslen > 0 && !nosave) || save) {
+
+        if (server.nopersist) {
+            redisLog(REDIS_WARNING,"Persistence disabled.  Not writing RDB.");
+            return REDIS_ERR;
+        }
+
         redisLog(REDIS_NOTICE,"Saving the final RDB snapshot before exiting.");
         /* Snapshotting. Perform a SYNC SAVE and exit */
         if (rdbSave(server.rdb_filename) != REDIS_OK) {
@@ -3540,6 +3548,14 @@ int checkForSentinelMode(int argc, char **argv) {
 /* Function called at startup to load RDB or AOF file in memory. */
 void loadDataFromDisk(void) {
     long long start = ustime();
+
+    if (server.nopersist) {
+        redisLog(REDIS_WARNING, "Persistence disabled. "
+            "No RDB, AOF, replication, or cluster allowed.");
+        return;
+    }
+
+    start = ustime();
     if (server.aof_state == REDIS_AOF_ON) {
         if (loadAppendOnlyFile(server.aof_filename) == REDIS_OK)
             redisLog(REDIS_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
