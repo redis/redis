@@ -56,14 +56,21 @@ proc redis_cluster {nodes} {
 proc ::redis_cluster::__method__refresh_nodes_map {id} {
     # Contact the first responding startup node.
     set idx 0; # Index of the node that will respond.
+    set errmsg {}
     foreach start_node $::redis_cluster::startup_nodes($id) {
         lassign [split $start_node :] start_host start_port
         if {[catch {
+            set r {}
             set r [redis $start_host $start_port]
             set nodes_descr [$r cluster nodes]
             $r close
-        }]} {
+            puts $e
+        } e]} {
+            if {$r ne {}} {catch {$r close}}
             incr idx
+            if {[string length $errmsg] < 200} {
+                append errmsg " $start_node: $e"
+            }
             continue ; # Try next.
         } else {
             break; # Good node found.
@@ -71,7 +78,7 @@ proc ::redis_cluster::__method__refresh_nodes_map {id} {
     }
 
     if {$idx == [llength $::redis_cluster::startup_nodes($id)]} {
-        error "No good startup node found."
+        error "No good startup node found. $errmsg"
     }
 
     # Put the node that responded as first in the list if it is not
@@ -113,6 +120,7 @@ proc ::redis_cluster::__method__refresh_nodes_map {id} {
             link $link \
         ]
         dict set nodes $addr $node
+        lappend ::redis_cluster::startup_nodes($id) $addr
     }
 
     set ::redis_cluster::nodes($id) $nodes
@@ -127,6 +135,9 @@ proc ::redis_cluster::__method__refresh_nodes_map {id} {
             }
         }
     }
+
+    # Only retain unique entries in the startup nodes list
+    set ::redis_cluster::startup_nodes($id) [lsort -unique $::redis_cluster::startup_nodes($id)]
 }
 
 # Free a redis_cluster handle.
@@ -166,13 +177,16 @@ proc ::redis_cluster::__dispatch__ {id method args} {
         }
 
         # Execute the command in the node we think is the slot owner.
-        set retry 10
+        set retry 100
         while {[incr retry -1]} {
             if {$retry < 5} {after 100}
             set node [dict get $::redis_cluster::nodes($id) $node_addr]
             set link [dict get $node link]
             if {[catch {$link $method {*}$args} e]} {
-                if {[string range $e 0 4] eq {MOVED}} {
+                if {$link eq {} || \
+                    [string range $e 0 4] eq {MOVED} || \
+                    [string range $e 0 2] eq {I/O} \
+                } {
                     # MOVED redirection.
                     ::redis_cluster::__method__refresh_nodes_map $id
                     set node_addr [dict get $::redis_cluster::slots($id) $slot]
