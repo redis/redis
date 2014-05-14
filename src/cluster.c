@@ -502,6 +502,10 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
 
+    /* If the server is starting up, don't accept cluster connections:
+     * UPDATE messages may interact with the database content. */
+    if (server.masterhost == NULL && server.loading) return;
+
     while(max--) {
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
