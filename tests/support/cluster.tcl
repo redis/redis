@@ -64,7 +64,6 @@ proc ::redis_cluster::__method__refresh_nodes_map {id} {
             set r [redis $start_host $start_port]
             set nodes_descr [$r cluster nodes]
             $r close
-            puts $e
         } e]} {
             if {$r ne {}} {catch {$r close}}
             incr idx
@@ -123,6 +122,13 @@ proc ::redis_cluster::__method__refresh_nodes_map {id} {
         lappend ::redis_cluster::startup_nodes($id) $addr
     }
 
+    # Close all the existing links in the old nodes map, and set the new
+    # map as current.
+    foreach n $::redis_cluster::nodes($id) {
+        catch {
+            [dict get $n link] close
+        }
+    }
     set ::redis_cluster::nodes($id) $nodes
 
     # Populates the slots -> nodes map.
