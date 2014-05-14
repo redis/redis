@@ -1212,6 +1212,15 @@ void clusterSetNodeAsMaster(clusterNode *n) {
 void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoch, unsigned char *slots) {
     int j;
     clusterNode *curmaster, *newmaster = NULL;
+    /* The dirty slots list is a list of slots for which we lose the ownership
+     * while having still keys inside. This usually happens after a failover
+     * or after a manual cluster reconfiguration operated by the admin.
+     *
+     * If the update message is not able to demote a master to slave (in this
+     * case we'll resync with the master updating the whole key space), we
+     * need to delete all the keys in the slots we lost ownership. */
+    uint16_t dirty_slots[REDIS_CLUSTER_SLOTS];
+    int dirty_slots_count = 0;
 
     /* Here we set curmaster to this node or the node this node
      * replicates to if it's a slave. In the for loop we are
@@ -1241,25 +1250,14 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
             if (server.cluster->slots[j] == NULL ||
                 server.cluster->slots[j]->configEpoch < senderConfigEpoch)
             {
-                /* Was this slot mine, and still contains keys? Something
-                 * odd happened, put the slot in importing state so that
-                 * redis-trib fix can detect the condition (and no further
-                 * updates will be processed before the slot gets fixed). */
+                /* Was this slot mine, and still contains keys? Mark it as
+                 * a dirty slot. */
                 if (server.cluster->slots[j] == myself &&
                     countKeysInSlot(j) &&
                     sender != myself)
                 {
-                    redisLog(REDIS_WARNING,
-                        "I received an update for slot %d. "
-                        "%.40s claims it with config %llu, "
-                        "I've it assigned to myself with config %llu. "
-                        "I've still keys about this slot! "
-                        "Putting the slot in IMPORTING state. "
-                        "Please run the 'redis-trib fix' command.",
-                        j, sender->name,
-                        (unsigned long long) senderConfigEpoch,
-                        (unsigned long long) myself->configEpoch);
-                    server.cluster->importing_slots_from[j] = sender;
+                    dirty_slots[dirty_slots_count] = j;
+                    dirty_slots_count++;
                 }
 
                 if (server.cluster->slots[j] == curmaster)
@@ -1288,6 +1286,16 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                              CLUSTER_TODO_UPDATE_STATE|
                              CLUSTER_TODO_FSYNC_CONFIG);
+    } else if (dirty_slots_count) {
+        /* If we are here, we received an update message which removed
+         * ownership for certain slots we still have keys about, but still
+         * we are serving some slots, so this master node was not demoted to
+         * a slave.
+         *
+         * In order to maintain a consistent state between keys and slots
+         * we need to remove all the keys from the slots we lost. */
+        for (j = 0; j < dirty_slots_count; j++)
+            delKeysInSlot(dirty_slots[j]);
     }
 }
 
