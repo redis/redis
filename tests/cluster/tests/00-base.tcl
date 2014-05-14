@@ -52,9 +52,7 @@ test "Check if nodes auto-discovery works" {
 }
 
 test "Before slots allocation, all nodes report cluster failure" {
-    foreach_redis_id id {
-        assert {[CI $id cluster_state] eq {fail}}
-    }
+    assert_cluster_state fail
 }
 
 test "It is possible to perform slot allocation" {
@@ -86,13 +84,7 @@ test "After the join, every node gets a different config epoch" {
 }
 
 test "Nodes should report cluster_state is ok now" {
-    foreach_redis_id id {
-        wait_for_condition 1000 50 {
-            [CI $id cluster_state] eq {ok}
-        } else {
-            fail "Cluster node $id cluster_state:[CI $id cluster_state]"
-        }
-    }
+    assert_cluster_state ok
 }
 
 test "It is possible to write and read from the cluster" {
