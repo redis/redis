@@ -545,7 +545,7 @@ void luaLoadLibraries(lua_State *lua) {
 
 /* This function creates a global fucntion, sandbox(), used to make sandboxed calls */
 void scriptingBuildSandbox(lua_State *lua) {
-    char *s[100];
+    char *s[56];
     sds code = sdsempty();
     int j = 0;
 
@@ -556,56 +556,21 @@ void scriptingBuildSandbox(lua_State *lua) {
     s[j++] = "local unpack = unpack\n";
     s[j++] = "local pcall = pcall\n";
     s[j++] = "local setfenv = setfenv\n";
-    s[j++] = "local loadstring = loadstring\n";
-    s[j++] = "local debug_setupvalue = debug.setupvalue\n";
-    s[j++] = "local debug_getupvalue = debug.getupvalue\n";
-    s[j++] = "local debug_getinfo = debug.getinfo\n";
-    s[j++] = "local dump = string.dump\n";    
-    s[j++] = "local copymember = {\n";
-    s[j++] = "    ['function'] = function(val, memo)\n";
-    s[j++] = "        local copy;\n";
-    s[j++] = "        pcall(function() --handling the error is faster than getting debug info\n";
-    s[j++] = "            copy = loadstring(dump(val))\n";
-    s[j++] = "        end)\n";
-    s[j++] = "        if not copy then\n";
-    s[j++] = "            return val\n";
-    s[j++] = "        end\n";
-    s[j++] = "        \n";
-    s[j++] = "        local info = debug_getinfo(val,'u')\n";
-    s[j++] = "        if info and info.ups and info.ups>0 then\n";
-    s[j++] = "            for i=1,i<info.ups do\n";
-    s[j++] = "                debug_setupvalue(copy, i,  debug_getupvalue(val, i))\n";
-    s[j++] = "            end\n";
-    s[j++] = "        end\n";
-    s[j++] = "        memo[val] = copy\n";
-    s[j++] = "        return copy\n";
-    s[j++] = "    end\n";
-    s[j++] = "}\n";
-    s[j++] = "setmetatable(copymember, {__call = function(self, val, memo) \n";
-    s[j++] = "    if copymember[typeof(val)] then\n";
-    s[j++] = "        return copymember[typeof(val)](val, memo)\n";
-    s[j++] = "    else\n";
-    s[j++] = "        return val\n";
-    s[j++] = "    end\n";
-    s[j++] = "end})\n";
-    s[j++] = "\n";
-    s[j++] = "local function deepcopy(orig, memo)\n";
+    s[j++] = "local function copy(orig, memo)\n";
     s[j++] = "    memo = memo or {}\n";
-    s[j++] = "    local orig_type = typeof(orig)\n";
-    s[j++] = "    local copy\n";
-    s[j++] = "    if orig_type == 'table' then\n";
-    s[j++] = "        copy = {}\n";
-    s[j++] = "        memo[orig] = copy\n";
+    s[j++] = "    local new_copy\n";
+    s[j++] = "    if typeof(orig) == 'table' then\n";
+    s[j++] = "        new_copy = {}\n";
+    s[j++] = "        memo[orig] = new_copy\n";
     s[j++] = "        for orig_key, orig_value in next, orig, nil do\n";
-    s[j++] = "            copy[memo[orig_key] or deepcopy(orig_key, memo)] = memo[orig_value] or deepcopy(orig_value, memo)\n";
+    s[j++] = "            new_copy[memo[orig_key] or copy(orig_key, memo)] = memo[orig_value] or copy(orig_value, memo)\n";
     s[j++] = "        end\n";
-    s[j++] = "        setmetatable(copy, memo[getmetatable(orig)] or deepcopy(getmetatable(orig), memo))\n";
+    s[j++] = "        setmetatable(new_copy, memo[getmetatable(orig)] or copy(getmetatable(orig), memo))\n";
     s[j++] = "    else -- number, string, boolean, etc\n";
-    s[j++] = "        copy = copymember(orig, memo)\n";
+    s[j++] = "        new_copy = orig\n";
     s[j++] = "    end\n";
-    s[j++] = "    return copy\n";
+    s[j++] = "    return new_copy\n";
     s[j++] = "end\n";
-    s[j++] = "local copy = deepcopy\n";
     s[j++] = "\n";
     s[j++] = "local function removeViaHash(tab, toRemove)\n";
     s[j++] = "    for k,v in pairs(toRemove) do\n";
@@ -651,10 +616,11 @@ void scriptingBuildSandbox(lua_State *lua) {
     s[j++] = "    local _Gcopy = copy(_G)\n";
     s[j++] = "    removeViaHash(_Gcopy, blacklist)\n";
     s[j++] = "    \n";
-    s[j++] = "    local fcopy = loadstring(dump(func), nil, nil, _Gcopy) --Copy the function and reload it to pickle upvalues\n";
-    s[j++] = "    \n";
-    s[j++] = "    setfenv(fcopy, _Gcopy)\n";
-    s[j++] = "    return fcopy()\n";
+    s[j++] = "    setfenv(func, _Gcopy)\n"; //Sandbox the function
+    s[j++] = "    local r = func()\n"; //Run the function
+    s[j++] = "    setfenv(func, _G)\n"; //Set its environment back to save space (Otherwise we'd save the environment for no reason)
+    s[j++] = "    collectgarbage()\n"; //Force collection of the newly unneeded environment (It's pretty large)
+    s[j++] = "    return r\n";
     s[j++] = "end\n";
     s[j++] = NULL;
 
