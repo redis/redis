@@ -123,9 +123,13 @@ void loadServerConfigFromString(char *config) {
                 err = "Invalid tcp-keepalive value"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"port") && argc == 2) {
-            server.port = atoi(argv[1]);
-            if (server.port < 0 || server.port > 65535) {
-                err = "Invalid port"; goto loaderr;
+            if(!strcasecmp(argv[1], "rand")) {
+                server.port = -42;
+            } else {
+                server.port = atoi(argv[1]);
+                if (server.port < 0 || server.port > 65535) {
+                    err = "Invalid port"; goto loaderr;
+                }
             }
         } else if (!strcasecmp(argv[0],"tcp-backlog") && argc == 2) {
             server.tcp_backlog = atoi(argv[1]);
