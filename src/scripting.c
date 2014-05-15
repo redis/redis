@@ -552,6 +552,8 @@ void scriptingBuildSandbox(lua_State *lua) {
     s[j++] = "local typeof = type\n";
     s[j++] = "local setmetatable = setmetatable\n";
     s[j++] = "local setfenv = setfenv\n";
+    s[j++] = "local rawset = rawset\n";
+    s[j++] = "local rawget = rawget\n";
     s[j++] = "\n";
     s[j++] = "local blacklist = {\n";
     s[j++] = "    ['dofile'] = true,\n";
@@ -582,17 +584,25 @@ void scriptingBuildSandbox(lua_State *lua) {
     */
     s[j++] = "}\n";
     s[j++] = "local function lazycopy(t)\n";
+    s[j++] = "    local _set = {}\n";
     s[j++] = "    return setmetatable({}, {\n";
     s[j++] = "        __index = function(self, i)\n";
+    s[j++] = "            if (_set[i]) then return rawget(self, i) end\n";
     s[j++] = "            if blacklist[i] and blacklist[i]==true then return\n"; 
     s[j++] = "            elseif blacklist[i] then return blacklist[i] end\n";
     s[j++] = "            if t[i] then\n";
     s[j++] = "                if typeof(t[i])=='table' then\n";
-    s[j++] = "                    return lazycopy(t[i])\n";
+    s[j++] = "                    _set[i] = true;\n"; //This way we get the same copy each time we copy _G
+    s[j++] = "                    rawset(self, i, lazycopy(t[i]))\n";
+    s[j++] = "                    return rawget(self, i)\n";
     s[j++] = "                else\n";
     s[j++] = "                    return t[i]\n";
     s[j++] = "                end\n";
     s[j++] = "            end\n"; 
+    s[j++] = "        end,\n";
+    s[j++] = "        __newindex = function(self, i, v)\n";
+    s[j++] = "            _set[i] = true;\n";
+    s[j++] = "            return rawset(self, i, v)\n";
     s[j++] = "        end\n";
     s[j++] = "    })\n";
     s[j++] = "end\n";
