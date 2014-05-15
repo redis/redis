@@ -549,39 +549,9 @@ void scriptingBuildSandbox(lua_State *lua) {
     sds code = sdsempty();
     int j = 0;
 
-    s[j++] = "local pairs = pairs\n";
     s[j++] = "local typeof = type\n";
     s[j++] = "local setmetatable = setmetatable\n";
-    s[j++] = "local getmetatable = getmetatable\n";
-    s[j++] = "local unpack = unpack\n";
-    s[j++] = "local pcall = pcall\n";
     s[j++] = "local setfenv = setfenv\n";
-    s[j++] = "local function copy(orig, memo)\n";
-    s[j++] = "    memo = memo or {}\n";
-    s[j++] = "    local new_copy\n";
-    s[j++] = "    if typeof(orig) == 'table' then\n";
-    s[j++] = "        new_copy = {}\n";
-    s[j++] = "        memo[orig] = new_copy\n";
-    s[j++] = "        for orig_key, orig_value in next, orig, nil do\n";
-    s[j++] = "            new_copy[memo[orig_key] or copy(orig_key, memo)] = memo[orig_value] or copy(orig_value, memo)\n";
-    s[j++] = "        end\n";
-    s[j++] = "        setmetatable(new_copy, memo[getmetatable(orig)] or copy(getmetatable(orig), memo))\n";
-    s[j++] = "    else -- number, string, boolean, etc\n";
-    s[j++] = "        new_copy = orig\n";
-    s[j++] = "    end\n";
-    s[j++] = "    return new_copy\n";
-    s[j++] = "end\n";
-    s[j++] = "\n";
-    s[j++] = "local function removeViaHash(tab, toRemove)\n";
-    s[j++] = "    for k,v in pairs(toRemove) do\n";
-    s[j++] = "        if tab[k] and v==true then tab[k]=nil\n"; //Remove value from table
-    s[j++] = "        elseif tab[k] and typeof(v)~='table' then tab[k] = v\n"; //Override value
-    s[j++] = "        elseif typeof(tab[k])=='table' then\n"; //Inspect children
-    s[j++] = "            removeViaHash(tab[k], v)\n";
-    s[j++] = "        end\n";
-    s[j++] = "    end\n";
-    s[j++] = "    return tab\n";
-    s[j++] = "end\n";
     s[j++] = "\n";
     s[j++] = "local blacklist = {\n";
     s[j++] = "    ['dofile'] = true,\n";
@@ -611,16 +581,25 @@ void scriptingBuildSandbox(lua_State *lua) {
     on its contents can result in a desync.
     */
     s[j++] = "}\n";
+    s[j++] = "local function lazycopy(t)\n";
+    s[j++] = "    return setmetatable({}, {\n";
+    s[j++] = "        __index = function(self, i)\n";
+    s[j++] = "            if blacklist[i] and blacklist[i]==true then return\n"; 
+    s[j++] = "            elseif blacklist[i] then return blacklist[i] end\n";
+    s[j++] = "            if t[i] then\n";
+    s[j++] = "                if typeof(t[i])=='table' then\n";
+    s[j++] = "                    return lazycopy(t[i])\n";
+    s[j++] = "                else\n";
+    s[j++] = "                    return t[i]\n";
+    s[j++] = "                end\n";
+    s[j++] = "            end\n"; 
+    s[j++] = "        end\n";
+    s[j++] = "    })\n";
+    s[j++] = "end\n";
     s[j++] = "\n";
     s[j++] = "function sandbox(func)\n";
-    s[j++] = "    local _Gcopy = copy(_G)\n";
-    s[j++] = "    removeViaHash(_Gcopy, blacklist)\n";
-    s[j++] = "    \n";
-    s[j++] = "    setfenv(func, _Gcopy)\n"; //Sandbox the function
-    s[j++] = "    local r = func()\n"; //Run the function
-    s[j++] = "    setfenv(func, _G)\n"; //Set its environment back to save space (Otherwise we'd save the environment for no reason)
-    s[j++] = "    collectgarbage()\n"; //Force collection of the newly unneeded environment (It's pretty large)
-    s[j++] = "    return r\n";
+    s[j++] = "    setfenv(func, lazycopy(_G))\n"; //Sandbox the function
+    s[j++] = "    return func()\n";
     s[j++] = "end\n";
     s[j++] = NULL;
 
