@@ -2504,10 +2504,7 @@ void clusterHandleSlaveFailover(void) {
          * this slave to a master.
          *
          * 1) Turn this node into a master. */
-        clusterNodeRemoveSlave(myself->slaveof, myself);
-        myself->flags &= ~REDIS_NODE_SLAVE;
-        myself->flags |= REDIS_NODE_MASTER;
-        myself->slaveof = NULL;
+        clusterSetNodeAsMaster(myself);
         replicationUnsetMaster();
 
         /* 2) Claim all the slots assigned to our master. */
