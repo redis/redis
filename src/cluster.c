@@ -3799,7 +3799,7 @@ void clusterCommand(redisClient *c) {
         if (c->argc == 3) {
             if (!strcasecmp(c->argv[2]->ptr,"hard")) {
                 hard = 1;
-            } else if (!strcasecmp(c->argv[2]->ptr,"hard")) {
+            } else if (!strcasecmp(c->argv[2]->ptr,"soft")) {
                 hard = 0;
             } else {
                 addReply(c,shared.syntaxerr);
