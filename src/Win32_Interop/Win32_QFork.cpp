@@ -138,6 +138,10 @@ const char* includeFlag = "include";
 const int cDeadForkWait = 30000;
 size_t pageSize = 0;
 
+#ifndef _WIN64
+size_t cDefaultmaxHeap32Bit = pow(2, 29);
+#endif
+
 enum class BlockState : std::uint8_t {bsINVALID = 0, bsUNMAPPED = 1, bsMAPPED = 2};
 
 struct QForkControl {
@@ -199,7 +203,12 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
        SmartFileMapHandle sfmhMapFile(
            g_pQForkControl->heapMemoryMapFile, 
            PAGE_WRITECOPY, 
-           HIDWORD(mmSize), LODWORD(mmSize),
+#ifdef _WIN64           
+           HIDWORD(mmSize),
+#else      
+           0,
+#endif
+           LODWORD(mmSize),
            string("Could not open file mapping object in slave"));
        g_pQForkControl->heapMemoryMap = sfmhMapFile;
 
@@ -303,7 +312,7 @@ BOOL QForkMasterInit( __int64 maxheapBytes ) {
         g_pQForkControl->heapBlockSize = cAllocationGranularity;
 
 		// ensure the number of blocks is a multiple of cAllocationGranularity
-		SIZE_T allocationBlocks = maxheapBytes / cAllocationGranularity;
+        SIZE_T allocationBlocks = (SIZE_T)maxheapBytes / cAllocationGranularity;
 		allocationBlocks += ((maxheapBytes % cAllocationGranularity) != 0);
 
         g_pQForkControl->availableBlocksInHeap = (int)allocationBlocks;
@@ -348,7 +357,11 @@ BOOL QForkMasterInit( __int64 maxheapBytes ) {
                 g_pQForkControl->heapMemoryMapFile,
                 NULL,
                 PAGE_READWRITE,
+#ifdef _WIN64           
                 HIDWORD(mmSize),
+#else      
+                0,
+#endif
                 LODWORD(mmSize),
                 NULL);
         if (g_pQForkControl->heapMemoryMap == NULL) {
@@ -461,12 +474,16 @@ LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
 		{
 			intptr_t startOfMapping = failingMemoryAddress - failingMemoryAddress % g_systemAllocationGranularity;
 			intptr_t mmfOffset = startOfMapping - heapStart;
-			size_t bytesToMap = min( g_systemAllocationGranularity, heapEnd - startOfMapping);
+            size_t bytesToMap = min((size_t)g_systemAllocationGranularity, (size_t)(heapEnd - startOfMapping));
 			LPVOID pMapped =  MapViewOfFileEx( 
 				g_pQForkControl->heapMemoryMap, 
 				FILE_MAP_COPY,
-				HIDWORD(mmfOffset),
-				LODWORD(mmfOffset),
+#ifdef _WIN64           
+                HIDWORD(mmfOffset),
+#else      
+                0,
+#endif
+                LODWORD(mmfOffset),
 				bytesToMap,
 				(LPVOID)startOfMapping);
 			if(pMapped != NULL)
@@ -656,7 +673,11 @@ StartupStatus QForkStartup(int argc, char** argv) {
 	}
 	if( maxheapBytes == -1 )
 	{
-		maxheapBytes = perfinfo.PhysicalTotal * pageSize;
+#ifdef _WIN64		
+        maxheapBytes = perfinfo.PhysicalTotal * pageSize;
+#else
+        maxheapBytes = cDefaultmaxHeap32Bit;
+#endif
 	}
 
 

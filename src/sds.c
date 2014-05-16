@@ -299,7 +299,15 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
     size_t buflen = 16;
 
     while(1) {
+#ifdef _WIN32
+        // from the vsnprintf documentation in MSDN: 
+        // "To ensure that there is room for the terminating null, 
+        // be sure that count is strictly less than the buffer length 
+        // and initialize the buffer to null prior to calling the function."
+        buf = zcalloc(buflen+1);
+#else
         buf = zmalloc(buflen);
+#endif
         if (buf == NULL) return NULL;
         buf[buflen-2] = '\0';
         va_copy(cpy,ap);

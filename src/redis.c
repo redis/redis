@@ -1298,7 +1298,7 @@ void initServerConfig() {
     server.hz = REDIS_DEFAULT_HZ;
     server.runid[REDIS_RUN_ID_SIZE] = '\0';
 #ifdef _WIN32
-    server.arch_bits = 64;
+    server.arch_bits = (sizeof(void*) == 8) ? 64 : 32;
 #else
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
 #endif
@@ -2311,8 +2311,8 @@ sds genRedisInfoString(char *section) {
             "run_id:%s\r\n"
             "tcp_port:%d\r\n"
 #ifdef _WIN32
-            "uptime_in_seconds:%ld\r\n"
-            "uptime_in_days:%ld\r\n"
+            "uptime_in_seconds:%lld\r\n"
+            "uptime_in_days:%lld\r\n"
 #else
             "uptime_in_seconds:%jd\r\n"
             "uptime_in_days:%jd\r\n"
