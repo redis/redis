@@ -1151,19 +1151,25 @@ invalid:
     return REDIS_ERR;
 }
 
-/* PFADD var ele ele ele ... ele => :0 or :1 */
-void pfaddCommand(redisClient *c) {
+/* Generic routine implementing PFADD and PFADDXX */
+void pfaddGenericCommand(redisClient *c, int xx) {
     robj *o = lookupKeyWrite(c->db,c->argv[1]);
     struct hllhdr *hdr;
     int updated = 0, j;
 
     if (o == NULL) {
-        /* Create the key with a string value of the exact length to
-         * hold our HLL data structure. sdsnewlen() when NULL is passed
-         * is guaranteed to return bytes initialized to zero. */
-        o = createHLLObject();
-        dbAdd(c->db,c->argv[1],o);
-        updated++;
+        if(!xx) {
+            /* Create the key with a string value of the exact length to
+             * hold our HLL data structure. sdsnewlen() when NULL is passed
+             * is guaranteed to return bytes initialized to zero. */
+            o = createHLLObject();
+            dbAdd(c->db,c->argv[1],o);
+            updated++;
+        } else {
+            /* Return a null bulk reply as the key doesn't exist */
+            addReply(c, shared.nullbulk);
+            return;
+        }
     } else {
         if (isHLLObjectOrReply(c,o) != REDIS_OK) return;
         o = dbUnshareStringValue(c->db,c->argv[1],o);
@@ -1340,6 +1346,14 @@ void pfmergeCommand(redisClient *c) {
     notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
     server.dirty++;
     addReply(c,shared.ok);
+}
+
+void pfaddCommand(redisClient *c) {
+    pfaddGenericCommand(c, 0);
+}
+
+void pfaddxxCommand(redisClient *c) {
+    pfaddGenericCommand(c, 1);
 }
 
 /* ========================== Testing / Debugging  ========================== */

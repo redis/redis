@@ -25,6 +25,11 @@ start_server {tags {"hll"}} {
         r pfadd hll ""
     }
 
+    test {PFADDXX returns nil when key doesn't exist} {
+        r del hll
+        r pfaddxx hll
+    } {}
+
     # Note that the self test stresses much better the
     # cardinality estimation error. We are testing just the
     # command implementation itself here.
