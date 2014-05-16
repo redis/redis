@@ -178,7 +178,6 @@ bool IsWindowsVersionAtLeast(WORD wMajorVersion, WORD wMinorVersion, WORD wServi
 
 void EnableFastLoopback(SOCKET s) {
 	// if Win8+, use fast path option on loopback 
-//	if ( false ) {
 	if (IsWindowsVersionAtLeast(HIBYTE(_WIN32_WINNT_WIN8), LOBYTE(_WIN32_WINNT_WIN8), 0)) {
 #ifndef SIO_LOOPBACK_FAST_PATH
 		const DWORD SIO_LOOPBACK_FAST_PATH = 0x98000010;	// from Win8 SDK

@@ -41,6 +41,9 @@
 #include <exception>
 using namespace std;
 
+const long long cSentinelHeapSize = 30 * 1024 * 1024;
+extern "C" int checkForSentinelMode(int argc, char **argv);
+
 extern "C"
 {
 	// forward def from util.h. 
@@ -656,9 +659,13 @@ StartupStatus QForkStartup(int argc, char** argv) {
 	}
 	if( maxheapBytes == -1 )
 	{
-		maxheapBytes = perfinfo.PhysicalTotal * pageSize;
+        if (checkForSentinelMode(argc, argv)) {
+            // Sentinel mode does not need a large heap. This conserves disk space and page file reservation requirements.
+            maxheapBytes = cSentinelHeapSize;
+        } else {
+            maxheapBytes = perfinfo.PhysicalTotal * pageSize;
+        }
 	}
-
 
     if (foundSlaveFlag) {
 		LPVOID exceptionHandler = AddVectoredExceptionHandler( 1, VectoredHeapMapper );

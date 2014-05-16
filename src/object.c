@@ -601,7 +601,7 @@ unsigned long estimateObjectIdleTime(robj *o) {
     }
 }
 
-/* This is a helper function for the DEBUG command. We need to lookup keys
+/* This is a helper function for the OBJECT command. We need to lookup keys
  * without any modification of LRU or other parameters. */
 robj *objectCommandLookup(redisClient *c, robj *key) {
     dictEntry *de;

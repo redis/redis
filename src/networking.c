@@ -582,7 +582,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     REDIS_NOTUSED(privdata);
 
     cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
-    if (cfd == AE_ERR) {
+    if (cfd == ANET_ERR) {
         redisLog(REDIS_WARNING,"Accepting client connection: %s", server.neterr);
         return;
     }
@@ -597,7 +597,7 @@ void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     REDIS_NOTUSED(privdata);
 
     cfd = anetUnixAccept(server.neterr, fd);
-    if (cfd == AE_ERR) {
+    if (cfd == ANET_ERR) {
         redisLog(REDIS_WARNING,"Accepting client connection: %s", server.neterr);
         return;
     }
@@ -662,7 +662,7 @@ void freeClient(redisClient *c) {
     }
 
     /* Log link disconnection with slave */
-    if (c->flags & REDIS_SLAVE) {
+    if ((c->flags & REDIS_SLAVE) && !(c->flags & REDIS_MONITOR)) {
         char ip[REDIS_IP_STR_LEN];
 
         if (anetPeerToString(c->fd,ip,sizeof(ip),NULL) != -1) {

@@ -53,41 +53,17 @@ proc assert_type {type key} {
 # executed.
 proc wait_for_condition {maxtries delay e _else_ elsescript} {
     while {[incr maxtries -1] >= 0} {
-        if {[uplevel 1 [list expr $e]]} break
+        set errcode [catch {uplevel 1 [list expr $e]} result]
+        if {$errcode == 0} {
+            if {$result} break
+        } else {
+            return -code $errcode $result
+        }
         after $delay
     }
     if {$maxtries == -1} {
-        uplevel 1 $elsescript
-    }
-}
-
-# Test if TERM looks like to support colors
-proc color_term {} {
-    expr {[info exists ::env(TERM)] && [string match *xterm* $::env(TERM)]}
-}
-
-proc colorstr {color str} {
-    if {[color_term]} {
-        set b 0
-        if {[string range $color 0 4] eq {bold-}} {
-            set b 1
-            set color [string range $color 5 end]
-        }
-        switch $color {
-            red {set colorcode {31}}
-            green {set colorcode {32}}
-            yellow {set colorcode {33}}
-            blue {set colorcode {34}}
-            magenta {set colorcode {35}}
-            cyan {set colorcode {36}}
-            white {set colorcode {37}}
-            default {set colorcode {37}}
-        }
-        if {$colorcode ne {}} {
-            return "\033\[$b;${colorcode};40m$str\033\[0m"
-        }
-    } else {
-        return $str
+        set errcode [catch [uplevel 1 $elsescript] result]
+        return -code $errcode $result
     }
 }
 

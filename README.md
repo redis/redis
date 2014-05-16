@@ -1,8 +1,8 @@
-Redis on Windows 2.8.4
+Redis on Windows 2.8.9
 ===
 ## What's new in this release
 
-- This is a port for Windows based on Redis 2.8. The latest version merged in 2.8.4.
+- This is a port for Windows based on Redis 2.8. The latest version merged in 2.8.9.
 - There is support for the x64 version. We have dropped support for the 32-bit version.
 - The binaries (unsigned) have been moved to a zip file in the \bin folder to make them easier to find. The Release build automatically updates the
   zip file.
@@ -12,7 +12,7 @@ Redis on Windows 2.8.4
 - We are moving towards moving all Windows-specific changes into the Win32_Interop library.
 
 ## Repo branches
-- 2.8.4.msopen: This is the branch for the Windows Redis port based on Redis 2.8
+- 2.8.4_msopen: This is the branch for the Windows Redis port based on Redis 2.8
 - 2.6: This is the branch for the Windows Redis port based on Redis 2.6.
 - 2.4: This branch has the Windows Redis port based on Redis 2.4.
 
