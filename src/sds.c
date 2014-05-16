@@ -312,11 +312,24 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
     while(1) {
         buf[buflen-2] = '\0';
         va_copy(cpy,ap);
+#ifdef _WIN32
+        // see comment below
+        vsnprintf(buf, buflen-1, fmt, cpy);
+#else
         vsnprintf(buf, buflen, fmt, cpy);
+#endif
         if (buf[buflen-2] != '\0') {
             if (buf != staticbuf) zfree(buf);
             buflen *= 2;
+#ifdef _WIN32
+            // from the vsnprintf documentation in MSDN: 
+            // "To ensure that there is room for the terminating null, 
+            // be sure that count is strictly less than the buffer length 
+            // and initialize the buffer to null prior to calling the function."
+            buf = zcalloc(buflen);
+#else
             buf = zmalloc(buflen);
+#endif
             if (buf == NULL) return NULL;
             continue;
         }
