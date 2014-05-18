@@ -188,8 +188,8 @@ struct hllhdr {
 };
 
 /* The cached cardinality MSB is used to signal validity of the cached value. */
-#define HLL_INVALIDATE_CACHE(hdr) (hdr)->card[0] |= (1<<7)
-#define HLL_VALID_CACHE(hdr) (((hdr)->card[0] & (1<<7)) == 0)
+#define HLL_INVALIDATE_CACHE(hdr) (hdr)->card[7] |= (1<<7)
+#define HLL_VALID_CACHE(hdr) (((hdr)->card[7] & (1<<7)) == 0)
 
 #define HLL_P 14 /* The greater is P, the smaller the error. */
 #define HLL_REGISTERS (1<<HLL_P) /* With P=14, 16384 registers. */
@@ -953,7 +953,7 @@ double hllRawSum(uint8_t *registers, double *PE, int *ezp) {
     return E;
 }
 
-/* Return the approximated cardinality of the set based on the armonic
+/* Return the approximated cardinality of the set based on the harmonic
  * mean of the registers values. 'hdr' points to the start of the SDS
  * representing the String object holding the HLL representation.
  *
@@ -1385,7 +1385,7 @@ void pfselftestCommand(redisClient *c) {
     /* Test 2: approximation error.
      * The test adds unique elements and check that the estimated value
      * is always reasonable bounds.
-     * 
+     *
      * We check that the error is smaller than 4 times than the expected
      * standard error, to make it very unlikely for the test to fail because
      * of a "bad" run.
