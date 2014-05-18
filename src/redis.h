@@ -291,6 +291,12 @@
 #define REDIS_LOG_RAW (1<<10) /* Modifier to log without timestamp */
 #define REDIS_DEFAULT_VERBOSITY REDIS_NOTICE
 
+/* Colorization settings */
+#define REDIS_COLOR_OFF 0
+#define REDIS_COLOR_ON 1
+#define REDIS_COLOR_AUTO 2
+#define REDIS_DEFAULT_COLOR REDIS_COLOR_AUTO
+
 /* Anti-warning macro... */
 #define REDIS_NOTUSED(V) ((void) V)
 
@@ -740,6 +746,7 @@ struct redisServer {
     redisOpArray also_propagate;    /* Additional command to propagate. */
     /* Logging */
     char *logfile;                  /* Path of log file */
+    int color;                      /* Colorize log output? */
     int syslog_enabled;             /* Is syslog enabled? */
     char *syslog_ident;             /* Syslog ident */
     int syslog_facility;            /* Syslog facility */

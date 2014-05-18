@@ -191,6 +191,14 @@ void loadServerConfigFromString(char *config) {
                 }
                 fclose(logfp);
             }
+        } else if (!strcasecmp(argv[0],"color") && argc == 2) {
+            if (!strcasecmp(argv[1],"off")) server.color = REDIS_COLOR_OFF;
+            else if (!strcasecmp(argv[1],"on")) server.color = REDIS_COLOR_ON;
+            else if (!strcasecmp(argv[1],"auto")) server.color = REDIS_COLOR_AUTO;
+            else {
+                err = "Invalid log color option. Must be one of off, on, auto";
+                goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"syslog-enabled") && argc == 2) {
             if ((server.syslog_enabled = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
@@ -1721,6 +1729,11 @@ int rewriteConfig(char *path) {
         "warning", REDIS_WARNING,
         NULL, REDIS_DEFAULT_VERBOSITY);
     rewriteConfigStringOption(state,"logfile",server.logfile,REDIS_DEFAULT_LOGFILE);
+    rewriteConfigEnumOption(state,"color",server.color,
+        "off", REDIS_COLOR_OFF,
+        "on", REDIS_COLOR_ON,
+        "auto", REDIS_COLOR_AUTO,
+        NULL, REDIS_DEFAULT_COLOR);
     rewriteConfigYesNoOption(state,"syslog-enabled",server.syslog_enabled,REDIS_DEFAULT_SYSLOG_ENABLED);
     rewriteConfigStringOption(state,"syslog-ident",server.syslog_ident,REDIS_DEFAULT_SYSLOG_IDENT);
     rewriteConfigSyslogfacilityOption(state);
