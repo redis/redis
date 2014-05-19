@@ -363,7 +363,7 @@ proc kill_instance {type id} {
 # Return true of the instance of the specified type/id is killed.
 proc instance_is_killed {type id} {
     set pid [get_instance_attrib $type $id pid]
-    return $pid == -1
+    expr {$pid == -1}
 }
 
 # Restart an instance previously killed by kill_instance
