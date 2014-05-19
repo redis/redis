@@ -2,16 +2,8 @@
 
 source "../tests/includes/init-tests.tcl"
 
-proc create_cluster {masters slaves} {
-    cluster_allocate_slots $masters
-    if {$slaves} {
-        cluster_allocate_slaves $masters $slaves
-    }
-    assert_cluster_state ok
-}
-
 test "Create a 5 nodes cluster" {
-    create_cluster 5 0
+    create_cluster 5 5
 }
 
 test "Killing one master node" {
@@ -27,5 +19,14 @@ test "Restarting master node" {
 }
 
 test "Cluster should be up again" {
+    assert_cluster_state ok
+}
+
+test "Killing two slave nodes" {
+    kill_instance redis 5
+    kill_instance redis 6
+}
+
+test "Cluster should be still up" {
     assert_cluster_state ok
 }
