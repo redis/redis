@@ -237,7 +237,9 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         if (obj_s == NULL) break; /* Not a string. */
 
         /* Try to use a cached object. */
-        if (cached_objects[j] && cached_objects_len[j] >= obj_len) {
+        if (j < LUA_CMD_OBJCACHE_SIZE && cached_objects[j] && 
+            cached_objects_len[j] >= obj_len) 
+        {
             char *s = cached_objects[j]->ptr;
             struct sdshdr *sh = (void*)(s-(sizeof(struct sdshdr)));
 
