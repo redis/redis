@@ -139,10 +139,10 @@ class ClusterNode
                     if s[0..0] == '['
                         if s.index("->-") # Migrating
                             slot,dst = s[1..-1].split("->-")
-                            @info[:migrating][slot] = dst
+                            @info[:migrating][slot.to_i] = dst
                         elsif s.index("-<-") # Importing
                             slot,src = s[1..-1].split("-<-")
-                            @info[:importing][slot] = src
+                            @info[:importing][slot.to_i] = src
                         end
                     elsif s.index("-")
                         start,stop = s.split("-")
@@ -445,10 +445,33 @@ class RedisTrib
         end
     end
 
+    # Return the owner of the specified slot
+    def get_slot_owner(slot)
+        @nodes.each{|n|
+            n.slots.each{|s,_|
+                return n if s == slot
+            }
+        }
+        nil
+    end
+
     # Slot 'slot' was found to be in importing or migrating state in one or
     # more nodes. This function fixes this condition by migrating keys where
     # it seems more sensible.
     def fix_open_slot(slot)
+        puts ">>> Fixing open slot #{slot}"
+
+        # Try to obtain the current slot owner, according to the current
+        # nodes configuration.
+        owner = get_slot_owner(slot)
+
+        # If there is no slot owner, set as owner the slot with the biggest
+        # number of keys, among the set of migrating / importing nodes.
+        if !owner
+            xputs "*** Fix me, some work to do here."
+            exit 1
+        end
+
         migrating = []
         importing = []
         @nodes.each{|n|
@@ -457,11 +480,11 @@ class RedisTrib
                 migrating << n
             elsif n.info[:importing][slot]
                 importing << n
-            elsif n.r.cluster("countkeysinslot",slot) > 0
+            elsif n.r.cluster("countkeysinslot",slot) > 0 && n != owner
                 xputs "*** Found keys about slot #{slot} in node #{n}!"
+                importing << n
             end
         }
-        puts ">>> Fixing open slot #{slot}"
         puts "Set as migrating in: #{migrating.join(",")}"
         puts "Set as importing in: #{importing.join(",")}"
 
@@ -469,12 +492,14 @@ class RedisTrib
         #         importing state in 1 slot. That's trivial to address.
         if migrating.length == 1 && importing.length == 1
             move_slot(migrating[0],importing[0],slot,:verbose=>true,:fix=>true)
-        elsif migrating.length == 1 && importing.length == 0
-            xputs ">>> Setting #{slot} as STABLE"
-            migrating[0].r.cluster("setslot",slot,"stable")
-        elsif migrating.length == 0 && importing.length == 1
-            xputs ">>> Setting #{slot} as STABLE"
-            importing[0].r.cluster("setslot",slot,"stable")
+        elsif migrating.length == 0 && importing.length > 0
+            xputs ">>> Moving all the #{slot} slot keys to its owner #{owner}"
+            importing.each {|node|
+                next if node == owner
+                move_slot(node,owner,slot,:verbose=>true,:fix=>true,:cold=>true)
+                xputs ">>> Setting #{slot} as STABLE in #{node}"
+                importing[0].r.cluster("setslot",slot,"stable")
+            }
         else
             xputs "[ERR] Sorry, Redis-trib can't fix this slot yet (work in progress)"
         end
@@ -727,14 +752,22 @@ class RedisTrib
         }
     end
 
+    # Move slots between source and target nodes using MIGRATE.
+    #
+    # Options: 
+    # :verbose -- Print a dot for every moved key.
+    # :fix     -- We are moving in the context of a fix. Use REPLACE.
+    # :cold    -- Move keys without opening / reconfiguring the nodes.
     def move_slot(source,target,slot,o={})
         # We start marking the slot as importing in the destination node,
         # and the slot as migrating in the target host. Note that the order of
         # the operations is important, as otherwise a client may be redirected
         # to the target node that does not yet know it is importing this slot.
         print "Moving slot #{slot} from #{source} to #{target}: "; STDOUT.flush
-        target.r.cluster("setslot",slot,"importing",source.info[:name])
-        source.r.cluster("setslot",slot,"migrating",target.info[:name])
+        if !o[:cold]
+            target.r.cluster("setslot",slot,"importing",source.info[:name])
+            source.r.cluster("setslot",slot,"migrating",target.info[:name])
+        end
         # Migrate all the keys from source to target using the MIGRATE command
         while true
             keys = source.r.cluster("getkeysinslot",slot,10)
@@ -756,11 +789,14 @@ class RedisTrib
                 STDOUT.flush
             }
         end
+
         puts
         # Set the new node as the owner of the slot in all the known nodes.
-        @nodes.each{|n|
-            n.r.cluster("setslot",slot,"node",target.info[:name])
-        }
+        if !o[:cold]
+            @nodes.each{|n|
+                n.r.cluster("setslot",slot,"node",target.info[:name])
+            }
+        end
     end
 
     # redis-trib subcommands implementations
