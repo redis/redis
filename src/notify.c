@@ -52,6 +52,8 @@ int keyspaceEventsStringToFlags(char *classes) {
         case 'z': flags |= REDIS_NOTIFY_ZSET; break;
         case 'x': flags |= REDIS_NOTIFY_EXPIRED; break;
         case 'e': flags |= REDIS_NOTIFY_EVICTED; break;
+        case 'k': flags |= REDIS_NOTIFY_KEYHIT; break;
+        case 'm': flags |= REDIS_NOTIFY_KEYMISS; break;
         case 'K': flags |= REDIS_NOTIFY_KEYSPACE; break;
         case 'E': flags |= REDIS_NOTIFY_KEYEVENT; break;
         default: return -1;
@@ -79,6 +81,8 @@ sds keyspaceEventsFlagsToString(int flags) {
         if (flags & REDIS_NOTIFY_ZSET) res = sdscatlen(res,"z",1);
         if (flags & REDIS_NOTIFY_EXPIRED) res = sdscatlen(res,"x",1);
         if (flags & REDIS_NOTIFY_EVICTED) res = sdscatlen(res,"e",1);
+        if (flags & REDIS_NOTIFY_KEYHIT) res = sdscatlen(res,"k",1);
+        if (flags & REDIS_NOTIFY_KEYMISS) res = sdscatlen(res,"m",1);
     }
     if (flags & REDIS_NOTIFY_KEYSPACE) res = sdscatlen(res,"K",1);
     if (flags & REDIS_NOTIFY_KEYEVENT) res = sdscatlen(res,"E",1);

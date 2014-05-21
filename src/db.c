@@ -62,10 +62,13 @@ robj *lookupKeyRead(redisDb *db, robj *key) {
 
     expireIfNeeded(db,key);
     val = lookupKey(db,key);
-    if (val == NULL)
+    if (val == NULL) {
+        notifyKeyspaceEvent(REDIS_NOTIFY_KEYMISS, "key-miss", key, db->id);
         server.stat_keyspace_misses++;
-    else
+    } else {
+        notifyKeyspaceEvent(REDIS_NOTIFY_KEYHIT, "key-hit", key, db->id);
         server.stat_keyspace_hits++;
+    }
     return val;
 }
 

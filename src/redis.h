@@ -365,6 +365,10 @@
 #define REDIS_NOTIFY_ZSET (1<<7)        /* z */
 #define REDIS_NOTIFY_EXPIRED (1<<8)     /* x */
 #define REDIS_NOTIFY_EVICTED (1<<9)     /* e */
+#define REDIS_NOTIFY_KEYHIT (1<<10)     /* k */
+#define REDIS_NOTIFY_KEYMISS (1<<11)    /* m */
+/* Todo : need to have a decision, whether REDIS_NOTIFY_KEYHIT and
+   REDIS_NOTIFY_KEYMISS are been included to REDIS_NOTIFY_ALL or not. */
 #define REDIS_NOTIFY_ALL (REDIS_NOTIFY_GENERIC | REDIS_NOTIFY_STRING | REDIS_NOTIFY_LIST | REDIS_NOTIFY_SET | REDIS_NOTIFY_HASH | REDIS_NOTIFY_ZSET | REDIS_NOTIFY_EXPIRED | REDIS_NOTIFY_EVICTED)      /* A */
 
 /* Using the following macro you can run code inside serverCron() with the
