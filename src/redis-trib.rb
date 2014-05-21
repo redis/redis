@@ -469,6 +469,8 @@ class RedisTrib
         # number of keys, among the set of migrating / importing nodes.
         if !owner
             xputs "*** Fix me, some work to do here."
+            # Select owner...
+            # Use ADDSLOTS to assign the slot.
             exit 1
         end
 
@@ -498,7 +500,7 @@ class RedisTrib
                 next if node == owner
                 move_slot(node,owner,slot,:verbose=>true,:fix=>true,:cold=>true)
                 xputs ">>> Setting #{slot} as STABLE in #{node}"
-                importing[0].r.cluster("setslot",slot,"stable")
+                node.r.cluster("setslot",slot,"stable")
             }
         else
             xputs "[ERR] Sorry, Redis-trib can't fix this slot yet (work in progress)"
