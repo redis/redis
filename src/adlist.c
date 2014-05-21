@@ -52,6 +52,16 @@ list *listCreate(void)
     return list;
 }
 
+
+/* Release the list node memory */
+inline void listReleaseNode(list *list, listNode *node)
+{
+    if (list->free)
+        list->free(node->value);
+    zfree(node);
+}
+
+
 /* Free the whole list.
  *
  * This function can't fail. */
@@ -64,8 +74,7 @@ void listRelease(list *list)
     len = list->len;
     while(len--) {
         next = current->next;
-        if (list->free) list->free(current->value);
-        zfree(current);
+        listReleaseNode(list, current);
         current = next;
     }
     zfree(list);
@@ -152,6 +161,61 @@ list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
     return list;
 }
 
+
+/* Optimized to removes the numbers of nodes starting from the head.
+ * It's up to the caller to free the private value of the nodes.
+ *
+ * This function can't fail. */
+void listDelHead(list *list, unsigned long nu)
+{
+    if(nu == 0)
+        return;
+
+    listNode *node = listFirst(list);
+    listNode *tmp = NULL;
+    list->len -= nu;
+
+    while(nu > 0) {
+        tmp = node;
+        node = node->next;
+        listReleaseNode(list, tmp);
+        --nu;
+    }
+    if (node)
+        node->prev = NULL;
+    else
+        list->tail = NULL;
+    list->head = node;
+}
+
+
+/* Optimized to removes the numbers of nodes starting from the tail.
+ * It's up to the caller to free the private value of the nodes.
+ *
+ * This function can't fail. */
+void listDelTail(list *list, unsigned long nu)
+{
+    if(nu == 0)
+        return;
+
+    listNode *node = listLast(list);
+    listNode *tmp = NULL;
+    list->len -= nu;
+
+    while(nu > 0) {
+        tmp = node;
+        node = node->prev;
+        listReleaseNode(list, tmp);
+        --nu;
+    }
+    if (node)
+        node->next = NULL;
+    else
+        list->head = NULL;
+    list->tail = node;
+}
+
+
 /* Remove the specified node from the specified list.
  * It's up to the caller to free the private value of the node.
  *
@@ -166,10 +230,10 @@ void listDelNode(list *list, listNode *node)
         node->next->prev = node->prev;
     else
         list->tail = node->prev;
-    if (list->free) list->free(node->value);
-    zfree(node);
+    listReleaseNode(list, node);
     list->len--;
 }
+
 
 /* Returns a list iterator 'iter'. After the initialization every
  * call to listNext() will return the next element of the list.

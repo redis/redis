@@ -588,9 +588,8 @@ void lrangeCommand(redisClient *c) {
 
 void ltrimCommand(redisClient *c) {
     robj *o;
-    long start, end, llen, j, ltrim, rtrim;
+    long start, end, llen, ltrim, rtrim;
     list *list;
-    listNode *ln;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != REDIS_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != REDIS_OK)) return;
@@ -622,14 +621,8 @@ void ltrimCommand(redisClient *c) {
         o->ptr = ziplistDeleteRange(o->ptr,-rtrim,rtrim);
     } else if (o->encoding == REDIS_ENCODING_LINKEDLIST) {
         list = o->ptr;
-        for (j = 0; j < ltrim; j++) {
-            ln = listFirst(list);
-            listDelNode(list,ln);
-        }
-        for (j = 0; j < rtrim; j++) {
-            ln = listLast(list);
-            listDelNode(list,ln);
-        }
+        listDelHead(list, ltrim);
+        listDelTail(list, rtrim);
     } else {
         redisPanic("Unknown list encoding");
     }
