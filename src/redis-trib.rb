@@ -468,7 +468,7 @@ class RedisTrib
         # Case 1: The slot is in migrating state in one slot, and in
         #         importing state in 1 slot. That's trivial to address.
         if migrating.length == 1 && importing.length == 1
-            move_slot(migrating[0],importing[0],slot,:verbose=>true)
+            move_slot(migrating[0],importing[0],slot,:verbose=>true,:fix=>true)
         elsif migrating.length == 1 && importing.length == 0
             xputs ">>> Setting #{slot} as STABLE"
             migrating[0].r.cluster("setslot",slot,"stable")
@@ -740,7 +740,18 @@ class RedisTrib
             keys = source.r.cluster("getkeysinslot",slot,10)
             break if keys.length == 0
             keys.each{|key|
-                source.r.client.call(["migrate",target.info[:host],target.info[:port],key,0,15000])
+                begin
+                    source.r.client.call(["migrate",target.info[:host],target.info[:port],key,0,15000])
+                rescue => e
+                    if o[:fix] && e.to_s =~ /BUSYKEY/
+                        xputs "*** Target key #{key} exists. Replace it for FIX."
+                        source.r.client.call(["migrate",target.info[:host],target.info[:port],key,0,15000,:replace])
+                    else
+                        puts ""
+                        xputs "[ERR] #{e}"
+                        exit 1
+                    end
+                end
                 print "." if o[:verbose]
                 STDOUT.flush
             }
