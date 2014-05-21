@@ -162,7 +162,7 @@ list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
 }
 
 
-/* Optimized to removes the numbers of nodes starting from the head.
+/* Optimized to remove the specified number of nodes starting from the head.
  * It's up to the caller to free the private value of the nodes.
  *
  * This function can't fail. */
@@ -189,7 +189,7 @@ void listDelHead(list *list, unsigned long nu)
 }
 
 
-/* Optimized to removes the numbers of nodes starting from the tail.
+/* Optimized to remove the specified number of nodes starting from the tail.
  * It's up to the caller to free the private value of the nodes.
  *
  * This function can't fail. */
