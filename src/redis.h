@@ -619,6 +619,7 @@ struct clusterState;
 
 struct redisServer {
     /* General */
+    pid_t pid;                  /* Main process pid. */
     char *configfile;           /* Absolute config file path, or NULL */
     int hz;                     /* serverCron() calls frequency in hertz */
     redisDb *db;
