@@ -60,7 +60,8 @@ robj *lookupKey(redisDb *db, robj *key) {
 robj *lookupKeyRead(redisDb *db, robj *key) {
     robj *val;
 
-    if (expireIfNeeded(db,key)) {
+    /*Make expired keys invisible to non-master clients.*/
+    if (expireIfNeeded(db,key) && server.current_client != server.master) {
         val = NULL;
     } else {
         val = lookupKey(db,key);
