@@ -359,9 +359,8 @@ void redisLogFromHandler(int level, const char *msg) {
                          open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
     if (fd == -1) return;
     ll2string(buf,sizeof(buf),getpid());
-    if (write(fd,"[",1) == -1) goto err;
     if (write(fd,buf,strlen(buf)) == -1) goto err;
-    if (write(fd," | signal handler] (",20) == -1) goto err;
+    if (write(fd,":signal-handler (",17) == -1) goto err;
     ll2string(buf,sizeof(buf),time(NULL));
     if (write(fd,buf,strlen(buf)) == -1) goto err;
     if (write(fd,") ",2) == -1) goto err;
