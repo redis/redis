@@ -31,7 +31,7 @@ start_server {tags {"dump"}} {
         set e {}
         catch {r restore foo 0 "..."} e
         set e
-    } {*is busy*}
+    } {*BUSYKEY*}
 
     test {RESTORE can overwrite an existing key with REPLACE} {
         r set foo bar1
