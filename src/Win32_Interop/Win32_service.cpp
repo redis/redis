@@ -59,6 +59,7 @@ this should preceed the other arguments passed to redis. For instance:
 #include <shlobj.h>
 #include <tchar.h>
 #include <strsafe.h>
+#include <aclapi.h>
 #include "Win32_EventLog.h"
 #include <algorithm>
 #include <string>
@@ -187,10 +188,76 @@ VOID InitializeServiceName(int argc, char** argv) {
     }
 }
 
+DWORD AddAceToObjectsSecurityDescriptor(
+    LPSTR pszObjName,          
+    SE_OBJECT_TYPE ObjectType,  
+    LPSTR pszTrustee,          
+    TRUSTEE_FORM TrusteeForm,   
+    DWORD dwAccessRights,       
+    ACCESS_MODE AccessMode,     
+    DWORD dwInheritance         
+    ) {
+    DWORD dwRes = 0;
+    PACL pOldDACL = NULL, pNewDACL = NULL;
+    PSECURITY_DESCRIPTOR pSD = NULL;
+    EXPLICIT_ACCESSA ea;
+
+    if (NULL == pszObjName)
+        return ERROR_INVALID_PARAMETER;
+
+    dwRes = GetNamedSecurityInfoA(pszObjName, ObjectType,
+        DACL_SECURITY_INFORMATION,
+        NULL, NULL, &pOldDACL, NULL, &pSD);
+    if (ERROR_SUCCESS != dwRes) {
+        printf("GetNamedSecurityInfo Error %u\n", dwRes);
+        goto Cleanup;
+    }
+
+    ZeroMemory(&ea, sizeof(EXPLICIT_ACCESS));
+    ea.grfAccessPermissions = dwAccessRights;
+    ea.grfAccessMode = AccessMode;
+    ea.grfInheritance = dwInheritance;
+    ea.Trustee.TrusteeForm = TrusteeForm;
+    ea.Trustee.ptstrName = pszTrustee;
+
+    dwRes = SetEntriesInAclA(1, &ea, pOldDACL, &pNewDACL);
+    if (ERROR_SUCCESS != dwRes) {
+        printf("SetEntriesInAcl Error %u\n", dwRes);
+        goto Cleanup;
+    }
+
+    dwRes = SetNamedSecurityInfoA(pszObjName, ObjectType,
+        DACL_SECURITY_INFORMATION,
+        NULL, NULL, pNewDACL, NULL);
+    if (ERROR_SUCCESS != dwRes) {
+        printf("SetNamedSecurityInfo Error %u\n", dwRes);
+        goto Cleanup;
+    }
+
+Cleanup:
+
+    if (pSD != NULL)
+        LocalFree((HLOCAL)pSD);
+    if (pNewDACL != NULL)
+        LocalFree((HLOCAL)pNewDACL);
+
+    return dwRes;
+}
+
+VOID SetAccessACLOnFolder(string user, string folder) {
+    if (0 != AddAceToObjectsSecurityDescriptor( 
+                (LPSTR)(folder.c_str()), SE_OBJECT_TYPE::SE_FILE_OBJECT,
+                (LPSTR)(user.c_str()), TRUSTEE_FORM::TRUSTEE_IS_NAME,
+                GENERIC_ALL, GRANT_ACCESS, SUB_CONTAINERS_AND_OBJECTS_INHERIT)) {
+        throw std::system_error(GetLastError(), system_category(), "ServiceInstall: AddAceToObjectsSecurityDescriptor failed");
+    }
+}
+
 VOID ServiceInstall(int argc, char ** argv) {
     SmartServiceHandle shSCManager;
     SmartServiceHandle shService;
     CHAR szPath[MAX_PATH];
+    string userName = "NT AUTHORITY\\NetworkService";
 
     InitializeServiceName(argc, argv);
 
@@ -227,7 +294,7 @@ VOID ServiceInstall(int argc, char ** argv) {
         SERVICE_ERROR_NORMAL,
         args.str().c_str(),
         NULL, NULL, NULL,
-        "NT AUTHORITY\\NetworkService",
+        userName.c_str(),
         NULL);
     if (shService.Invalid()) {
         throw std::system_error(GetLastError(), system_category(), "CreateService failed");
@@ -241,6 +308,11 @@ VOID ServiceInstall(int argc, char ** argv) {
 
     RedisEventLog().InstallEventLogSource(szPath);
 
+    // make sure NT AUTHORITY\\NetworkService" has rights to the directory the service is installed in (for RDB write)
+    string folder = szPath;
+    folder = folder.substr(0, folder.rfind('\\'));
+    SetAccessACLOnFolder(userName, folder);
+    
     WriteServiceInstallMessage("Redis successfully installed as a service.");
 }
 
