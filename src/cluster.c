@@ -2410,14 +2410,14 @@ void clusterHandleSlaveFailover(void) {
     if (data_age > server.cluster_node_timeout)
         data_age -= server.cluster_node_timeout;
 
-    /* Check if our data is recent enough. For now we just use a fixed
-     * constant of ten times the node timeout since the cluster should
-     * react much faster to a master down.
+    /* Check if our data is recent enough according to the slave validity
+     * factor configured by the user.
      *
      * Check bypassed for manual failovers. */
-    if (data_age >
-        ((mstime_t)server.repl_ping_slave_period * 1000) +
-        (server.cluster_node_timeout * REDIS_CLUSTER_SLAVE_VALIDITY_MULT))
+    if (server.cluster_slave_validity_factor &&
+        data_age >
+        (((mstime_t)server.repl_ping_slave_period * 1000) +
+         (server.cluster_node_timeout * server.cluster_slave_validity_factor)))
     {
         if (!manual_failover) return;
     }
