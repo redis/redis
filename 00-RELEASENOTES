@@ -166,7 +166,13 @@ Migrating from 2.8 to 3.0
 =========================
 
 Redis 3.0 is mostly a strict subset of 2.8, you should not have any problem
-upgrading your application from 2.8 to 3.0.
+upgrading your application from 2.8 to 3.0. However this is a lost of small
+non-backward compatible changes introduced in the 3.0 release:
+
+* The log format was modified. The prefix of each line included the pid
+  in the following format [1234]. Now instead it is 1234:? Where
+  '?' is actually the role of the instance. M for master, S for slave, C
+  if this process is a saving child (for RDB/AOF), and X for Sentinel.
 
 --------------------------------------------------------------------------------
 
