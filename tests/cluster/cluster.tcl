@@ -106,3 +106,25 @@ proc create_cluster {masters slaves} {
     }
     assert_cluster_state ok
 }
+
+# Set the cluster node-timeout to all the reachalbe nodes.
+proc set_cluster_node_timeout {to} {
+    foreach_redis_id id {
+        catch {R $id CONFIG SET cluster-node-timeout $to}
+    }
+}
+
+# Check if the cluster is writable and readable. Use node "id"
+# as a starting point to talk with the cluster.
+proc cluster_write_test {id} {
+    set prefix [randstring 20 20 alpha]
+    set port [get_instance_attrib redis $id port]
+    set cluster [redis_cluster 127.0.0.1:$port]
+    for {set j 0} {$j < 100} {incr j} {
+        $cluster set key.$j $prefix.$j
+    }
+    for {set j 0} {$j < 100} {incr j} {
+        assert {[$cluster get key.$j] eq "$prefix.$j"}
+    }
+    $cluster close
+}

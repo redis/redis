@@ -55,13 +55,5 @@ test "Nodes should report cluster_state is ok now" {
 }
 
 test "It is possible to write and read from the cluster" {
-    set port [get_instance_attrib redis 0 port]
-    set cluster [redis_cluster 127.0.0.1:$port]
-    for {set j 0} {$j < 100} {incr j} {
-        $cluster set key.$j $j
-    }
-    for {set j 0} {$j < 100} {incr j} {
-        assert {[$cluster get key.$j] eq $j}
-    }
-    $cluster close
+    cluster_write_test 0
 }
