@@ -166,7 +166,7 @@ Migrating from 2.8 to 3.0
 =========================
 
 Redis 3.0 is mostly a strict subset of 2.8, you should not have any problem
-upgrading your application from 2.8 to 3.0. However this is a lost of small
+upgrading your application from 2.8 to 3.0. However this is a list of small
 non-backward compatible changes introduced in the 3.0 release:
 
 * The log format was modified. The prefix of each line included the pid
