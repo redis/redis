@@ -12,6 +12,46 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 3.0.0 Beta 4 (version 2.9.53) ] Release date: 23 may 2014
+
+This is the fourth beta of Redis 3.0.0.
+
+>> General changes
+
+* [NEW] Scripting engine performances improvements.
+* [NEW] Log format slightly changed to report current node role.
+
+* [FIX] Correct the HyperLogLog stale cache flag to prevent unnecessary
+        computation.
+
+>> Cluster changes
+
+* [NEW] redis-trib: ability to import data from standalone Redis instances.
+* [NEW] redis-trib: "fix" subcommand much better at fixing errors.
+* [NEW] CLUSTER FAILOVER FORCE implemented.
+* [NEW] CLUSTER RESET implemented, it is now possible to completely reset
+        nodes and create a new cluster without restarting anything.
+* [NEW] Slave validity factor (max estimated data age to still failover)
+        is now under the control of the user, and can be configured via
+        redis.conf or CONFIG SET. Option name cluster-slave-validity-factor.
+* [NEW] Cluster test: failure detection and failover initial tests.
+* [NEW] CLUSTER MEET: better error messages when address is invalid.
+* [NEW] Bulk-accept new Cluster nodes in the Cluster bus instead of
+        performing just a single accept() per event fired.
+
+* [FIX] Bypass data_age check for manual failovers.
+* [FIX] Fixed data_age computation / check integer overflow.
+* [FIX] Various fixes to Tcl client.tcl Redis Cluster client used in tests.
+* [FIX] Better handling of stolen slots.
+* [FIX] Don't accept cluster bus connections during startup.
+
+>> Sentinel changes
+
+* [NEW] Generate +config-update-from event when a new config is received.
+* [NEW] Log when a failover will be re-attempted again.
+
+* [FIX] Sentinel: Add "dir /tmp" directive in example sentinel.conf.
+
 --[ Redis 3.0.0 Beta 3 (version 2.9.52) ] Release date: 5 may 2014
 
 This is the third beta of Redis 3.0.0.
