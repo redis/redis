@@ -3076,6 +3076,7 @@ void clusterUpdateState(void) {
      * to don't count the DB loading time. */
     if (first_call_time == 0) first_call_time = mstime();
     if (nodeIsMaster(myself) &&
+        server.cluster->state == REDIS_CLUSTER_FAIL &&
         mstime() - first_call_time < REDIS_CLUSTER_WRITABLE_DELAY) return;
 
     /* Start assuming the state is OK. We'll turn it into FAIL if there
