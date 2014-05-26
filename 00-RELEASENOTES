@@ -12,6 +12,12 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 3.0.0 Beta 5 (version 2.9.54) ] Release date: 26 may 2014
+
+This is the 5th beta of Redis 3.0.0. It does not include any real
+worthwhile change (just three days passed since the previous beta), but
+fixes two stupid bugs preventing cluster tests to pass.
+
 --[ Redis 3.0.0 Beta 4 (version 2.9.53) ] Release date: 23 may 2014
 
 This is the fourth beta of Redis 3.0.0.
