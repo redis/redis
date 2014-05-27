@@ -3324,11 +3324,14 @@ void redisSetProcTitle(char *title) {
     if (server.cluster_enabled) server_mode = " [cluster]";
     else if (server.sentinel_mode) server_mode = " [sentinel]";
 
-    setproctitle("%s %s:%d%s",
+    char *configfile = server.configfile ? server.configfile : "[default configuration]";
+
+    setproctitle("%s %s:%d%s %s",
         title,
         server.bindaddr_count ? server.bindaddr[0] : "*",
         server.port,
-        server_mode);
+        server_mode,
+        configfile);
 #else
     REDIS_NOTUSED(title);
 #endif
