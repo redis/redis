@@ -427,6 +427,13 @@ void clusterInit(void) {
          * by the createClusterNode() function. */
         myself = server.cluster->myself =
             createClusterNode(NULL,REDIS_NODE_MYSELF|REDIS_NODE_MASTER);
+        if (server.bindaddr_count) {
+            /* If we have a bind directive, use configuration from
+             * redis.conf as IP:Port of myself. */
+            strncpy(server.cluster->myself->ip,
+                    server.bindaddr[0], REDIS_IP_STR_LEN);
+            server.cluster->myself->port = server.port;
+        }
         redisLog(REDIS_NOTICE,"No cluster configuration found, I'm %.40s",
             myself->name);
         clusterAddNode(myself);
