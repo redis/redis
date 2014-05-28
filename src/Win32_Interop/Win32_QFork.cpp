@@ -324,6 +324,26 @@ BOOL QForkMasterInit( __int64 maxheapBytes ) {
                 "Invalid number of heap blocks.");
         }
 
+        // FILE_FLAG_DELETE_ON_CLOSE will not clean up files in the case of a BSOD or power failure.
+        // Clean up anything we can to prevent excessive disk usage.
+        wchar_t heapMemoryMapWildCard[MAX_PATH];
+        WIN32_FIND_DATA fd;
+        swprintf_s(
+            heapMemoryMapWildCard,
+            MAX_PATH,
+            L"%s_*.dat",
+            cMapFileBaseName);
+        HANDLE hFind = FindFirstFile(heapMemoryMapWildCard, &fd);
+        while (hFind != INVALID_HANDLE_VALUE) {
+            // Failure likely means the file is in use by another redis instance.
+            DeleteFile(fd.cFileName);
+
+            if (FALSE == FindNextFile(hFind, &fd)) {
+                CloseHandle(hFind);
+                hFind = INVALID_HANDLE_VALUE;
+            }
+        }
+
         wchar_t heapMemoryMapPath[MAX_PATH];
         swprintf_s( 
             heapMemoryMapPath, 
