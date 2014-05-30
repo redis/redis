@@ -44,7 +44,12 @@
 #if _MSC_VER > 1000
 #pragma once
 #endif
+
+#if WINVER <= _WIN32_WINNT_WS03
+#include "win32_winapifamily.h"
+#else
 #include <winapifamily.h>
+#endif
 
 #pragma region Desktop Family
 #if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)

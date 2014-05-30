@@ -339,7 +339,7 @@ BOOL QForkMasterInit( __int64 maxheapBytes ) {
             DeleteFile(fd.cFileName);
 
             if (FALSE == FindNextFile(hFind, &fd)) {
-                CloseHandle(hFind);
+                FindClose(hFind);
                 hFind = INVALID_HANDLE_VALUE;
             }
         }

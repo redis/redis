@@ -187,6 +187,7 @@ int aeWinReceiveDone(int fd) {
     aeSockState *sockstate;
     int result;
     WSABUF zreadbuf;
+    DWORD bytesReceived = 0;
 
     if ((sockstate = aeGetSockState(iocpState, fd)) == NULL) {
         errno = WSAEINVAL;
@@ -206,7 +207,7 @@ int aeWinReceiveDone(int fd) {
     result = WSARecv(fd,
                      &zreadbuf,
                      1,
-                     NULL,
+                     &bytesReceived,
                      &wsarecvflags,
                      &sockstate->ov_read,
                      NULL);
@@ -228,6 +229,7 @@ int aeWinSocketSend(int fd, char *buf, int len,
     aeSockState *sockstate;
     int result;
     asendreq *areq;
+    DWORD bytesSent = 0;
 
     sockstate = aeGetSockState(iocpState, fd);
 
@@ -262,7 +264,7 @@ int aeWinSocketSend(int fd, char *buf, int len,
     result = WSASend(fd,
                     &areq->wbuf,
                     1,
-                    NULL,
+                    &bytesSent,
                     0,
                     &areq->ov,
                     NULL);
