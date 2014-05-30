@@ -1880,6 +1880,9 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                 return;
             }
 
+            /* Remove the duplicates from the set of keys to operate
+             * on. It is not safe to access the zset we are iterating,
+             * so explicitly check for equal object. */
             for (k = 0; k < i; k++) {
                 if (src[k].subject == obj) {
                     break;
@@ -1946,7 +1949,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
 
     if (op == REDIS_OP_INTER) {
         /* sort sets from the smallest to largest, this will improve our
-         * algorithm's performance */
+         * algorithm's performance (ZINTER* only) */
         qsort(src,setnum,sizeof(zsetopsrc),zuiCompareByCardinality);
 
         /* Skip everything if the smallest input is empty. */
@@ -1961,12 +1964,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                 if (isnan(score)) score = 0;
 
                 for (j = 1; j < setnum; j++) {
-                    /* It is not safe to access the zset we are
-                     * iterating, so explicitly check for equal object. */
-                    if (src[j].subject == src[0].subject) {
-                        value = zval.score*src[j].weight;
-                        zunionInterAggregate(&score,value,aggregate);
-                    } else if (zuiFind(&src[j],&zval,&value)) {
+                    if (zuiFind(&src[j],&zval,&value)) {
                         value *= src[j].weight;
                         zunionInterAggregate(&score,value,aggregate);
                     } else {
@@ -2000,6 +1998,8 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                 double score, *value;
                 dictEntry *de;
 
+                /* We want to look at the dictionary entry. It acts
+                 * like an accumulating aggregate. */
                 if ((de = dictFind(dstzset->dict,zuiObjectFromValue(&zval))) != NULL)
                     value = (double *)dictGetVal(de);
 
@@ -2007,11 +2007,16 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                 score = src[i].weight * zval.score;
                 if (isnan(score)) score = 0;
 
+                /* If we are operating on an already inserted value,
+                 * add to its aggregation. */
                 if (de) {
                     zunionInterAggregate(value,score,aggregate);
                     continue;
                 }
 
+                /* Else, we are now inserting a new key. Note, ZSET
+                 * orders on insert, so perhaps there is a better data
+                 * structure to use for this intermediate data. */
                 tmp = zuiObjectFromValue(&zval);
                 znode = zslInsert(dstzset->zsl,score,tmp);
                 incrRefCount(zval.ele); /* added to skiplist */
@@ -2025,6 +2030,11 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
             }
             zuiClearIterator(&src[i]);
         }
+
+        /* Potentially most controversial change. Also, the highest
+         * likelihood of memory leaks are contained here. Anyway, sort
+         * the ZSET by reinserting into a new ZSET. Free the old
+         * one. */
         robj *tdstobj;
         zset *tdstzset;
         tdstobj = createZsetObject();
@@ -2038,11 +2048,14 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
         while (zuiNext(&tsrc,&zval)) {
             tmp = zuiObjectFromValue(&zval);
             znode = zslInsert(tdstzset->zsl,zval.score,tmp);
+            /* Note, incrementing refcnts on a struct in the stack?
+             * How does that work? */
             incrRefCount(zval.ele); /* added to skiplist */
             dictAdd(tdstzset->dict,tmp,&znode->score);
             incrRefCount(zval.ele); /* added to dictionary */
         }
         zuiClearIterator(&tsrc);
+        /* Free old data structure? Is this how? */
         decrRefCount(dstobj);
         dstobj = tdstobj;
         dstzset = tdstzset;
