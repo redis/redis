@@ -1841,7 +1841,7 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
 }
 
 void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
-    int i, j;
+    int i, j, k;
     long setnum;
     int aggregate = REDIS_AGGR_SUM;
     zsetopsrc *src;
@@ -1880,9 +1880,21 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                 return;
             }
 
-            src[i].subject = obj;
-            src[i].type = obj->type;
-            src[i].encoding = obj->encoding;
+            for (k = 0; k < i; k++) {
+                if (src[k].subject == obj) {
+                    break;
+                }
+            }
+
+            if (k == i) {
+                src[i].subject = obj;
+                src[i].type = obj->type;
+                src[i].encoding = obj->encoding;
+            } else {
+                i -= 1;
+                setnum -= 1;
+                continue;
+            }
         } else {
             src[i].subject = NULL;
         }
@@ -1928,15 +1940,15 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
         }
     }
 
-    /* sort sets from the smallest to largest, this will improve our
-     * algorithm's performance */
-    qsort(src,setnum,sizeof(zsetopsrc),zuiCompareByCardinality);
-
     dstobj = createZsetObject();
     dstzset = dstobj->ptr;
     memset(&zval, 0, sizeof(zval));
 
     if (op == REDIS_OP_INTER) {
+        /* sort sets from the smallest to largest, this will improve our
+         * algorithm's performance */
+        qsort(src,setnum,sizeof(zsetopsrc),zuiCompareByCardinality);
+
         /* Skip everything if the smallest input is empty. */
         if (zuiLength(&src[0]) > 0) {
             /* Precondition: as src[0] is non-empty and the inputs are ordered
@@ -1985,30 +1997,19 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
 
             zuiInitIterator(&src[i]);
             while (zuiNext(&src[i],&zval)) {
-                double score, value;
+                double score, *value;
+                dictEntry *de;
 
-                /* Skip an element that when already processed */
-                if (dictFind(dstzset->dict,zuiObjectFromValue(&zval)) != NULL)
-                    continue;
+                if ((de = dictFind(dstzset->dict,zuiObjectFromValue(&zval))) != NULL)
+                    value = (double *)dictGetVal(de);
 
                 /* Initialize score */
                 score = src[i].weight * zval.score;
                 if (isnan(score)) score = 0;
 
-                /* We need to check only next sets to see if this element
-                 * exists, since we process every element just one time so
-                 * it can't exist in a previous set (otherwise it would be
-                 * already processed). */
-                for (j = (i+1); j < setnum; j++) {
-                    /* It is not safe to access the zset we are
-                     * iterating, so explicitly check for equal object. */
-                    if(src[j].subject == src[i].subject) {
-                        value = zval.score*src[j].weight;
-                        zunionInterAggregate(&score,value,aggregate);
-                    } else if (zuiFind(&src[j],&zval,&value)) {
-                        value *= src[j].weight;
-                        zunionInterAggregate(&score,value,aggregate);
-                    }
+                if (de) {
+                    zunionInterAggregate(value,score,aggregate);
+                    continue;
                 }
 
                 tmp = zuiObjectFromValue(&zval);
@@ -2024,6 +2025,27 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
             }
             zuiClearIterator(&src[i]);
         }
+        robj *tdstobj;
+        zset *tdstzset;
+        tdstobj = createZsetObject();
+        tdstzset = tdstobj->ptr;
+        memset(&zval, 0, sizeof(zval));
+        zsetopsrc tsrc;
+        tsrc.subject = dstobj;
+        tsrc.type = dstobj->type;
+        tsrc.encoding = dstobj->encoding;
+        zuiInitIterator(&tsrc);
+        while (zuiNext(&tsrc,&zval)) {
+            tmp = zuiObjectFromValue(&zval);
+            znode = zslInsert(tdstzset->zsl,zval.score,tmp);
+            incrRefCount(zval.ele); /* added to skiplist */
+            dictAdd(tdstzset->dict,tmp,&znode->score);
+            incrRefCount(zval.ele); /* added to dictionary */
+        }
+        zuiClearIterator(&tsrc);
+        decrRefCount(dstobj);
+        dstobj = tdstobj;
+        dstzset = tdstzset;
     } else {
         redisPanic("Unknown operator");
     }
