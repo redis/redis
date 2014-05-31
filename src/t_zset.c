@@ -1841,7 +1841,7 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
 }
 
 void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
-    int i, j, k;
+    int i, j;
     long setnum;
     int aggregate = REDIS_AGGR_SUM;
     zsetopsrc *src;
@@ -1880,24 +1880,9 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                 return;
             }
 
-            /* Remove the duplicates from the set of keys to operate
-             * on. It is not safe to access the zset we are iterating,
-             * so explicitly check for equal object. */
-            for (k = 0; k < i; k++) {
-                if (src[k].subject == obj) {
-                    break;
-                }
-            }
-
-            if (k == i) {
-                src[i].subject = obj;
-                src[i].type = obj->type;
-                src[i].encoding = obj->encoding;
-            } else {
-                i -= 1;
-                setnum -= 1;
-                continue;
-            }
+            src[i].subject = obj;
+            src[i].type = obj->type;
+            src[i].encoding = obj->encoding;
         } else {
             src[i].subject = NULL;
         }
@@ -1964,7 +1949,12 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                 if (isnan(score)) score = 0;
 
                 for (j = 1; j < setnum; j++) {
-                    if (zuiFind(&src[j],&zval,&value)) {
+                    /* It is not safe to access the zset we are
+                     * iterating, so explicitly check for equal object. */
+                    if (src[j].subject == src[0].subject) {
+                        value = zval.score*src[j].weight;
+                        zunionInterAggregate(&score,value,aggregate);
+                    } else if (zuiFind(&src[j],&zval,&value)) {
                         value *= src[j].weight;
                         zunionInterAggregate(&score,value,aggregate);
                     } else {
