@@ -1169,7 +1169,7 @@ void zsetConvert(robj *zobj, int encoding) {
 }
 
 /*-----------------------------------------------------------------------------
- * Sorted set commands 
+ * Sorted set commands
  *----------------------------------------------------------------------------*/
 
 /* This generic command implements both ZADD and ZINCRBY. */
@@ -1840,6 +1840,40 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
     }
 }
 
+inline static void zunionCloneAndFree(robj **dstobj, zset **dstzset) {
+        zsetopsrc tsrc;
+        zsetopval zval;
+        zskiplistNode *znode;
+        robj *tdstobj, *tmp;
+        zset *tdstzset;
+
+        tdstobj = createZsetObject();
+        tdstzset = tdstobj->ptr;
+        memset(&zval, 0, sizeof(zval));
+
+        tsrc.subject = *dstobj;
+        tsrc.type = (*dstobj)->type;
+        tsrc.encoding = (*dstobj)->encoding;
+
+        zuiInitIterator(&tsrc);
+        while (zuiNext(&tsrc,&zval)) {
+            tmp = zuiObjectFromValue(&zval);
+            znode = zslInsert(tdstzset->zsl,zval.score,tmp);
+            /* Note, incrementing refcnts on a struct in the stack?
+             * How does that work? */
+            incrRefCount(zval.ele); /* added to skiplist */
+            dictAdd(tdstzset->dict,tmp,&znode->score);
+            incrRefCount(zval.ele); /* added to dictionary */
+        }
+        zuiClearIterator(&tsrc);
+
+        /* Free old data structure? Is this how? */
+        decrRefCount(*dstobj);
+
+        *dstobj = tdstobj;
+        *dstzset = tdstzset;
+}
+
 void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
     int i, j;
     long setnum;
@@ -2025,30 +2059,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
          * likelihood of memory leaks are contained here. Anyway, sort
          * the ZSET by reinserting into a new ZSET. Free the old
          * one. */
-        robj *tdstobj;
-        zset *tdstzset;
-        tdstobj = createZsetObject();
-        tdstzset = tdstobj->ptr;
-        memset(&zval, 0, sizeof(zval));
-        zsetopsrc tsrc;
-        tsrc.subject = dstobj;
-        tsrc.type = dstobj->type;
-        tsrc.encoding = dstobj->encoding;
-        zuiInitIterator(&tsrc);
-        while (zuiNext(&tsrc,&zval)) {
-            tmp = zuiObjectFromValue(&zval);
-            znode = zslInsert(tdstzset->zsl,zval.score,tmp);
-            /* Note, incrementing refcnts on a struct in the stack?
-             * How does that work? */
-            incrRefCount(zval.ele); /* added to skiplist */
-            dictAdd(tdstzset->dict,tmp,&znode->score);
-            incrRefCount(zval.ele); /* added to dictionary */
-        }
-        zuiClearIterator(&tsrc);
-        /* Free old data structure? Is this how? */
-        decrRefCount(dstobj);
-        dstobj = tdstobj;
-        dstzset = tdstzset;
+        zunionCloneAndFree(&dstobj, &dstzset);
     } else {
         redisPanic("Unknown operator");
     }
