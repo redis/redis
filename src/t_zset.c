@@ -1333,6 +1333,7 @@ void zremCommand(redisClient *c) {
                 zobj->ptr = zzlDelete(zobj->ptr,eptr);
                 if (zzlLength(zobj->ptr) == 0) {
                     dbDelete(c->db,key);
+                    keyremoved = 1;
                     break;
                 }
             }
@@ -1356,6 +1357,7 @@ void zremCommand(redisClient *c) {
                 if (htNeedsResize(zs->dict)) dictResize(zs->dict);
                 if (dictSize(zs->dict) == 0) {
                     dbDelete(c->db,key);
+                    keyremoved = 1;
                     break;
                 }
             }
