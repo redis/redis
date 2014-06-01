@@ -338,7 +338,7 @@ VOID ServiceStart(int argc, char ** argv) {
     Sleep(2000);
 
     SERVICE_STATUS status;
-    ULONGLONG start = GetTickCount64();
+    DWORD start = GetTickCount();
     while (QueryServiceStatus(shService, &status) == TRUE) {
         if (status.dwCurrentState == SERVICE_RUNNING) {
             WriteServiceInstallMessage("Redis service successfully started.");
@@ -348,7 +348,7 @@ VOID ServiceStart(int argc, char ** argv) {
             break;
         }
 
-        ULONGLONG current = GetTickCount64();
+        DWORD current = GetTickCount();
         if (current - start >= cThirtySeconds) {
             WriteServiceInstallMessage("Redis service start timed out.");
             break;
@@ -376,13 +376,13 @@ VOID ServiceStop(int argc, char ** argv) {
         throw std::system_error(GetLastError(), system_category(), "ControlService failed");
     }
 
-    ULONGLONG start = GetTickCount64();
+    DWORD start = GetTickCount();
     while (QueryServiceStatus(shService, &status) == TRUE) {
         if (status.dwCurrentState == SERVICE_STOPPED) {
             WriteServiceInstallMessage("Redis service successfully stopped.");
             break;
         }
-        ULONGLONG current = GetTickCount64();
+        DWORD current = GetTickCount();
         if (current - start >= cThirtySeconds) {
             WriteServiceInstallMessage("Redis service stop timed out.");
             break;
