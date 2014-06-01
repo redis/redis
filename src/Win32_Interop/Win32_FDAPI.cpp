@@ -27,6 +27,7 @@
 #include <sys/stat.h>
 #include "Win32_fdapi_crt.h"
 #include "Win32_variadicFunctor.h"
+#include "Win32_ANSI.h"
 #include <string>
 using namespace std;
 
@@ -516,11 +517,29 @@ ssize_t redis_write_impl(int fd, const void *buf, size_t count) {
         } else {
             int posixFD = RFDMap::getInstance().lookupPosixFD( fd );
             if( posixFD != -1 ) {
-                int retval = crt_write(posixFD, buf,(unsigned int)count);
-                if(retval == -1) {
-                    errno = GetLastError();
+                if (posixFD == fileno(stdout)) {
+                    DWORD bytesWritten = 0;
+                    if (FALSE != ParseAndPrintANSIString(GetStdHandle(STD_OUTPUT_HANDLE), buf, count, &bytesWritten)) {
+                        return (int)bytesWritten;
+                    } else {
+                        errno = GetLastError();
+                        return 0;
+                    }
+                } else if (posixFD == fileno(stderr)) {
+                    DWORD bytesWritten = 0;
+                    if (FALSE != ParseAndPrintANSIString(GetStdHandle(STD_ERROR_HANDLE), buf, count, &bytesWritten)) {
+                        return (int)bytesWritten;
+                    } else {
+                        errno = GetLastError();
+                        return 0;
+                    }
+                } else {
+                    int retval = crt_write(posixFD, buf, (unsigned int)count);
+                    if (retval == -1) {
+                        errno = GetLastError();
+                    }
+                    return retval;
                 }
-                return retval;
             }
             else {
                 errno = EBADF;

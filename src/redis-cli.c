@@ -51,6 +51,7 @@
   #define STDIN_FILENO (_fileno(stdin))
 #endif
 #include "win32_Interop/win32fixes.h"
+#include "win32_Interop/Win32_ANSI.h"
 #include <windows.h>
 #define strcasecmp _stricmp
 #define strncasecmp _strnicmp
@@ -64,8 +65,6 @@
 #ifndef STDIN_FILENO
   #define STDIN_FILENO (_fileno(stdin))
 #endif
-#include "win32_Interop/win32fixes.h"
-#include <windows.h>
 #define strcasecmp _stricmp
 #define strncasecmp _strnicmp
 #define strtoull _strtoui64
@@ -237,6 +236,21 @@ static void cliOutputCommandHelp(struct commandHelp *help, int group) {
 /* Print generic help. */
 static void cliOutputGenericHelp() {
     sds version = cliVersion();
+#ifdef _WIN32
+    int i = 0;
+    int groupslen = sizeof(commandGroups) / sizeof(char*);
+    printf(
+        "\x1b[0mredis-cli %s\r\n"
+        "Type: \"help @<group>\" to get a list of commands in <group>\r\n",
+        version );
+    printf("         Where <group> is one of:\n");
+    for (i = 0; i < groupslen; i++) {
+        printf("            \x1b[1m%s\x1b[0m\n", commandGroups[i]);
+    }
+    printf(
+        "      \"help <command>\" for help on <command>\r\n"
+        "      \"quit\" to exit\r\n" );
+#else
     printf(
         "redis-cli %s\r\n"
         "Type: \"help @<group>\" to get a list of commands in <group>\r\n"
@@ -245,6 +259,7 @@ static void cliOutputGenericHelp() {
         "      \"quit\" to exit\r\n",
         version
     );
+#endif
     sdsfree(version);
 }
 

@@ -110,6 +110,7 @@
 #ifdef _WIN32
   #include "../../src/win32_Interop/win32fixes.h"
   #define REDIS_NOTUSED(V) ((void) V)
+  #include "../../src/win32_Interop/win32_ANSI.h"
 #endif
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100

@@ -38,6 +38,7 @@
 #include <sys/ioctl.h>
 #else
 #include "win32_Interop/win32fixes.h"
+#include "win32_Interop/win32_ANSI.h"
 #endif
 #include "config.h"
 
