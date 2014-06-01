@@ -20,7 +20,7 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-/* Derived from ANSI.c by Jason Hood, from his ansicon project: https://github.com/adoxa/ansicon. */
+/* Derived from ANSI.c by Jason Hood, from his ansicon project (https://github.com/adoxa/ansicon), with modifications. */
 
 #include <windows.h>
 #include <stdio.h>
