@@ -2929,29 +2929,10 @@ struct evictionPoolEntry *evictionPoolAlloc(void) {
  * We insert keys on place in ascending order, so keys with the smaller
  * idle time are on the left, and keys with the higher idle time on the
  * right. */
+void evictionPoolPopulate(dictEntry **samples, int sample_count, struct evictionPoolEntry *pool) {
+    int j, k;
 
-#define EVICTION_SAMPLES_ARRAY_SIZE 16
-void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEntry *pool) {
-    int j, k, count;
-    dictEntry *_samples[EVICTION_SAMPLES_ARRAY_SIZE];
-    dictEntry **samples;
-
-    /* Try to use a static buffer: this function is a big hit...
-     * Note: it was actually measured that this helps. */
-    if (server.maxmemory_samples <= EVICTION_SAMPLES_ARRAY_SIZE) {
-        samples = _samples;
-    } else {
-        samples = zmalloc(sizeof(samples[0])*server.maxmemory_samples);
-    }
-
-#if 1 /* Use bulk get by default. */
-    count = dictGetRandomKeys(sampledict,samples,server.maxmemory_samples);
-#else
-    count = server.maxmemory_samples;
-    for (j = 0; j < count; j++) samples[j] = dictGetRandomKey(sampledict);
-#endif
-
-    for (j = 0; j < count; j++) {
+    for (j = 0; j < sample_count; j++) {
         unsigned long long idle;
         sds key;
         robj *o;
@@ -2959,10 +2940,6 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
 
         de = samples[j];
         key = dictGetKey(de);
-        /* If the dictionary we are sampling from is not the main
-         * dictionary (but the expires one) we need to lookup the key
-         * again in the key dictionary to obtain the value object. */
-        if (sampledict != keydict) de = dictFind(keydict, key);
         o = dictGetVal(de);
         idle = estimateObjectIdleTime(o);
 
@@ -2999,7 +2976,6 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
         pool[k].key = sdsdup(key);
         pool[k].idle = idle;
     }
-    if (samples != _samples) zfree(samples);
 }
 
 int freeMemoryIfNeeded(void) {
@@ -3050,9 +3026,9 @@ int freeMemoryIfNeeded(void) {
             if (server.maxmemory_policy == REDIS_MAXMEMORY_ALLKEYS_LRU ||
                 server.maxmemory_policy == REDIS_MAXMEMORY_ALLKEYS_RANDOM)
             {
-                dict = server.db[j].dict;
+                dict = db->dict;
             } else {
-                dict = server.db[j].expires;
+                dict = db->expires;
             }
             if (dictSize(dict) == 0) continue;
 
@@ -3071,7 +3047,31 @@ int freeMemoryIfNeeded(void) {
                 struct evictionPoolEntry *pool = db->eviction_pool;
 
                 while(bestkey == NULL) {
-                    evictionPoolPopulate(dict, db->dict, db->eviction_pool);
+                    dictEntry *samples[server.maxmemory_samples];
+#if 1 /* Use bulk get by default. */
+                    int count = dictGetRandomKeys(dict,samples,server.maxmemory_samples);
+#else
+                    int count = server.maxmemory_samples;
+                    for (k = 0; k < count; k++) samples[k] = dictGetRandomKey(dict);
+#endif
+                    /* If the dictionary we are sampling from is not the main
+                     * dictionary (but the expires one) we need to lookup the key
+                     * again in the key dictionary to obtain the value object. */
+                    if (dict != db->dict)
+                        for (k = 0; k < count; k++) {
+                            sds key;
+                            dictEntry *de = samples[k];
+                            key = dictGetKey(de);
+                            /* Optimization: if sample is expired, just evict it instead of fussing with LRU's */
+                            if (server.mstime > dictGetSignedIntegerVal(de)) {
+                                bestkey = key;
+                                break;
+                            }
+                            samples[k] = dictFind(db->dict, key);
+                        }
+                    if (bestkey) break;
+
+                    evictionPoolPopulate(samples, count, db->eviction_pool);
                     /* Go backward from best to worst element to evict. */
                     for (k = REDIS_EVICTION_POOL_SIZE-1; k >= 0; k--) {
                         if (pool[k].key == NULL) continue;
@@ -3104,17 +3104,20 @@ int freeMemoryIfNeeded(void) {
             else if (server.maxmemory_policy == REDIS_MAXMEMORY_VOLATILE_TTL) {
                 for (k = 0; k < server.maxmemory_samples; k++) {
                     sds thiskey;
-                    long thisval;
+                    long long thisval;
 
                     de = dictGetRandomKey(dict);
                     thiskey = dictGetKey(de);
-                    thisval = (long) dictGetVal(de);
+                    thisval = dictGetSignedIntegerVal(de);
 
                     /* Expire sooner (minor expire unix timestamp) is better
                      * candidate for deletion */
                     if (bestkey == NULL || thisval < bestval) {
                         bestkey = thiskey;
                         bestval = thisval;
+                        /* Optimization: if found key is expired, not need to look further */
+                        if (server.mstime > bestval)
+                            break;
                     }
                 }
             }
