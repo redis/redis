@@ -460,9 +460,9 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int 
     }
 
 #ifdef _WIN32
-    if (aeWinListen(s, 512) == SOCKET_ERROR) {
+    if (aeWinListen(s, backlog) == SOCKET_ERROR) {
 #else
-    if (listen(s, 511) == -1) {
+    if (listen(s, backlog) == -1) {
 #endif
         anetSetError(err, "listen: %s", strerror(errno));
         close(s);

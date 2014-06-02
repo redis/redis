@@ -371,6 +371,16 @@ void debugCommand(redisClient *c) {
     {
         server.active_expire_enabled = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
+#ifdef _WIN32
+    } else if (!strcasecmp(c->argv[1]->ptr, "flushload")) {
+        emptyDb(NULL);
+        if (rdbLoad(server.rdb_filename) != REDIS_OK) {
+            addReplyError(c, "Error trying to load the RDB dump");
+            return;
+        }
+        redisLog(REDIS_WARNING, "DB reloaded by DEBUG flushload");
+        addReply(c, shared.ok);
+#endif
     } else if (!strcasecmp(c->argv[1]->ptr,"error") && c->argc == 3) {
         sds errstr = sdsnewlen("-",1);
 

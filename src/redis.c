@@ -2493,9 +2493,9 @@ sds genRedisInfoString(char *section) {
             "used_memory_lua:%lld\r\n"
             "mem_fragmentation_ratio:%.2f\r\n"
             "mem_allocator:%s\r\n",
-            (long long)zmalloc_used_memory(),
+            (long long)zmalloc_used,
             hmem,
-            (long long)zmalloc_get_rss(),
+            (long long)server.resident_set_size,
             (long long)server.stat_peak_memory,
             peak_hmem,
             ((long long)lua_gc(server.lua,LUA_GCCOUNT,0))*1024LL,
@@ -2543,7 +2543,8 @@ sds genRedisInfoString(char *section) {
             "aof_rewrite_scheduled:%d\r\n"
             "aof_last_rewrite_time_sec:%lld\r\n"
             "aof_current_rewrite_time_sec:%lld\r\n"
-            "aof_last_bgrewrite_status:%s\r\n",
+            "aof_last_bgrewrite_status:%s\r\n"
+            "aof_last_write_status:%s\r\n", 
             server.loading,
             server.dirty,
             server.rdb_child_pid != -1,
@@ -2558,7 +2559,8 @@ sds genRedisInfoString(char *section) {
             (long long)server.aof_rewrite_time_last,
             (server.aof_child_pid == -1) ?
                 (long long)-1 : (long long)(time(NULL)-server.aof_rewrite_time_start),
-            (server.aof_lastbgrewrite_status == REDIS_OK) ? "ok" : "err");
+            (server.aof_lastbgrewrite_status == REDIS_OK) ? "ok" : "err",
+            (server.aof_last_write_status == REDIS_OK) ? "ok" : "err");
 #else
     /* Persistence */
     if (allsections || defsections || !strcasecmp(section,"persistence")) {
