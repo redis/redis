@@ -1714,7 +1714,9 @@ void sentinelFlushConfig(void) {
 
     if (rewrite_status == -1) goto werr;
     if ((fd = open(server.configfile,O_RDONLY,0)) == -1) goto werr;
+#ifndef _WIN32
     if (fsync(fd) == -1) goto werr;
+#endif
     if (close(fd) == EOF) goto werr;
     return;
 
