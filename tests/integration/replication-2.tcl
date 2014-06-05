@@ -6,6 +6,66 @@ start_server {tags {"repl"}} {
             s -1 role
         } {slave}
 
+        test {If min-slaves-to-write is honored, write is accepted} {
+            r config set min-slaves-to-write 1
+            r config set min-slaves-max-lag 10
+            r set foo 12345
+            wait_for_condition 50 100 {
+                [r -1 get foo] eq {12345}
+            } else {
+                fail "Write did not reached slave"
+            }
+        }
+
+        test {No write if min-slaves-to-write is < attached slaves} {
+            r config set min-slaves-to-write 2
+            r config set min-slaves-max-lag 10
+            catch {r set foo 12345} err
+            set err
+        } {NOREPLICAS*}
+
+        test {If min-slaves-to-write is honored, write is accepted (again)} {
+            r config set min-slaves-to-write 1
+            r config set min-slaves-max-lag 10
+            r set foo 12345
+            wait_for_condition 50 100 {
+                [r -1 get foo] eq {12345}
+            } else {
+                fail "Write did not reached slave"
+            }
+        }
+
+        test {No write if min-slaves-max-lag is > of the slave lag} {
+            r -1 deferred 1
+            r config set min-slaves-to-write 1
+            r config set min-slaves-max-lag 2
+            r -1 debug sleep 6
+            assert {[r set foo 12345] eq {OK}}
+            after 4000
+            catch {r set foo 12345} err
+            assert {[r -1 read] eq {OK}}
+            r -1 deferred 0
+            set err
+        } {NOREPLICAS*}
+
+        test {min-slaves-to-write is ignored by slaves} {
+            r config set min-slaves-to-write 1
+            r config set min-slaves-max-lag 10
+            r -1 config set min-slaves-to-write 1
+            r -1 config set min-slaves-max-lag 10
+            r set foo aaabbb
+            wait_for_condition 50 100 {
+                [r -1 get foo] eq {aaabbb}
+            } else {
+                fail "Write did not reached slave"
+            }
+        }
+
+        # Fix parameters for the next test to work
+        r config set min-slaves-to-write 0
+        r -1 config set min-slaves-to-write 0
+        r flushall
+
         test {MASTER and SLAVE dataset should be identical after complex ops} {
             createComplexDataset r 10000
             after 500
