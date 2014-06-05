@@ -14,6 +14,30 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.10 ] Release date: 5 Jun 2014
+
+# UPGRADE URGENCY: HIGH if you use min-slaves-to-write option.
+
+* [FIX] IMPORTANT! A min-slaves-to-write option active in a slave totally
+        prevented the slave from acception the master stream of commands.
+        This release includes testes for min-slaves-to-write, and a fix
+        for this issue.
+* [FIX] Sometimes DEL returned 1 for already expired keys. Fixed.
+* [FIX] Fix test false positive because new osx 'leaks' output.
+* [FIX] PFCOUNT HLL cache invalidation fixed: no wrong value was reported
+        but the cache was not used at all, leading to lower performances.
+* [FIX] Accept(2) multiple clients per readable-event invocation, and better
+        processing of I/O while loading or busy running a timedout script.
+        Basically now the LOADING / BUSY errors are reported at a decent
+        speed.
+* [FIX] A softwaer watchdog crash fixed.
+* [FIX] Fixed a Lua -> Redis numerical precision loss.
+
+* [NEW] Lua scripting engine speed improved.
+* [NEW] Sentinel generates one new event for humans to understand better
+        what is happening during a failover: +config-update-from.
+        Also the time at which a failover will be re-attempted is logged.
+
 --[ Redis 2.8.9 ] Release date: 22 Apr 2014
 
 # UPGRADE URGENCY: LOW, only new features introduced, no bugs fixed.
