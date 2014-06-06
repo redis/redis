@@ -670,7 +670,7 @@ void freeClient(redisClient *c) {
                           REDIS_BLOCKED|
                           REDIS_UNBLOCKED)))
         {
-            replicationCacheMaster(c);
+            replicationCachedMaster(c);
             return;
         }
     }

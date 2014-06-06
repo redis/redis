@@ -1360,7 +1360,7 @@ void replicationSendAck(void) {
  * replicationResurrectCachedMaster() that is used after a successful PSYNC
  * handshake in order to reactivate the cached master.
  */
-void replicationCacheMaster(redisClient *c) {
+void replicationCachedMaster(redisClient *c) {
     listNode *ln;
 
     redisAssert(server.master != NULL && server.cached_master == NULL);
