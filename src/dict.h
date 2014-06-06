@@ -50,6 +50,7 @@ typedef struct dictEntry {
         void *val;
         uint64_t u64;
         int64_t s64;
+        double d;
     } v;
     struct dictEntry *next;
 } dictEntry;
@@ -114,6 +115,9 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 #define dictSetUnsignedIntegerVal(entry, _val_) \
     do { entry->v.u64 = _val_; } while(0)
 
+#define dictSetDoubleVal(entry, _val_) \
+    do { entry->v.d = _val_; } while(0)
+
 #define dictFreeKey(d, entry) \
     if ((d)->type->keyDestructor) \
         (d)->type->keyDestructor((d)->privdata, (entry)->key)
@@ -135,6 +139,7 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 #define dictGetVal(he) ((he)->v.val)
 #define dictGetSignedIntegerVal(he) ((he)->v.s64)
 #define dictGetUnsignedIntegerVal(he) ((he)->v.u64)
+#define dictGetDoubleVal(he) ((he)->v.d)
 #define dictSlots(d) ((d)->ht[0].size+(d)->ht[1].size)
 #define dictSize(d) ((d)->ht[0].used+(d)->ht[1].used)
 #define dictIsRehashing(ht) ((ht)->rehashidx != -1)
