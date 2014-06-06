@@ -1101,7 +1101,7 @@ void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **
 void updateSlavesWaitingBgsave(int bgsaveerr);
 void replicationCron(void);
 void replicationHandleMasterDisconnection(void);
-void replicationCacheMaster(redisClient *c);
+void replicationCachedMaster(redisClient *c);
 void resizeReplicationBacklog(long long newsize);
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
