@@ -1988,8 +1988,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
         if (setnum) {
             /* Our union is at least as large as the largest set.
              * Resize the dictionary ASAP to avoid useless rehashing. */
-            int minlen = setnum ? zuiLength(&src[setnum-1]) : 0;
-            dictExpand(accumulator,minlen);
+            dictExpand(accumulator,zuiLength(&src[setnum-1]));
         }
 
         /* Step 1: Create a dictionary of elements -> aggregated-scores
