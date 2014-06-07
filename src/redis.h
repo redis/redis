@@ -1300,6 +1300,7 @@ void ttlCommand(redisClient *c);
 void pttlCommand(redisClient *c);
 void persistCommand(redisClient *c);
 void slaveofCommand(redisClient *c);
+void roleCommand(redisClient *c);
 void debugCommand(redisClient *c);
 void msetCommand(redisClient *c);
 void msetnxCommand(redisClient *c);

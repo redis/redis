@@ -1300,6 +1300,43 @@ void slaveofCommand(redisClient *c) {
     addReply(c,shared.ok);
 }
 
+/* ROLE command: provide information about the role of the instance
+ * (master or slave) and additional information related to replication
+ * in an easy to process format. */
+void roleCommand(redisClient *c) {
+    if (server.masterhost == NULL) {
+        listIter li;
+        listNode *ln;
+        void *mbcount;
+        int slaves = 0;
+
+        addReplyMultiBulkLen(c,3);
+        addReplyBulkCBuffer(c,"master",6);
+        addReplyLongLong(c,server.master_repl_offset);
+        mbcount = addDeferredMultiBulkLength(c);
+        listRewind(server.slaves,&li);
+        while((ln = listNext(&li))) {
+            redisClient *slave = ln->value;
+            char ip[REDIS_IP_STR_LEN];
+
+            if (anetPeerToString(slave->fd,ip,sizeof(ip),NULL) == -1) continue;
+            if (slave->replstate != REDIS_REPL_ONLINE) continue;
+            addReplyMultiBulkLen(c,3);
+            addReplyBulkCString(c,ip);
+            addReplyBulkLongLong(c,slave->slave_listening_port);
+            addReplyBulkLongLong(c,slave->repl_ack_off);
+            slaves++;
+        }
+        setDeferredMultiBulkLength(c,mbcount,slaves);
+    } else {
+        addReplyMultiBulkLen(c,4);
+        addReplyBulkCBuffer(c,"slave",5);
+        addReplyBulkCString(c,server.masterhost);
+        addReplyLongLong(c,server.masterport);
+        addReplyLongLong(c,server.master->reploff);
+    }
+}
+
 /* Send a REPLCONF ACK command to the master to inform it about the current
  * processed offset. If we are not connected with a master, the command has
  * no effects. */
