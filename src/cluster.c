@@ -2516,7 +2516,8 @@ void clusterHandleSlaveFailover(void) {
         }
 
         /* 3) Update my configEpoch to the epoch of the election. */
-        myself->configEpoch = server.cluster->failover_auth_epoch;
+        if (myself->configEpoch < server.cluster->failover_auth_epoch)
+            myself->configEpoch = server.cluster->failover_auth_epoch;
 
         /* 4) Update state and save config. */
         clusterUpdateState();
