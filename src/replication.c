@@ -1329,11 +1329,23 @@ void roleCommand(redisClient *c) {
         }
         setDeferredMultiBulkLength(c,mbcount,slaves);
     } else {
+        char *slavestate = NULL;
+
         addReplyMultiBulkLen(c,4);
         addReplyBulkCBuffer(c,"slave",5);
         addReplyBulkCString(c,server.masterhost);
         addReplyLongLong(c,server.masterport);
-        addReplyLongLong(c,server.master->reploff);
+        switch(server.repl_state) {
+        case REDIS_REPL_NONE: slavestate = "none"; break;
+        case REDIS_REPL_CONNECT: slavestate = "connect"; break;
+        case REDIS_REPL_CONNECTING: slavestate = "connecting"; break;
+        case REDIS_REPL_RECEIVE_PONG: /* see next */
+        case REDIS_REPL_TRANSFER: slavestate = "sync"; break;
+        case REDIS_REPL_CONNECTED: slavestate = "connected"; break;
+        default: slavestate = "unknown"; break;
+        }
+        addReplyBulkCString(c,slavestate);
+        addReplyLongLong(c,server.master ? server.master->reploff : -1);
     }
 }
 
