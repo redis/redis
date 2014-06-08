@@ -293,6 +293,13 @@ start_server {
             assert_equal 0 [r scard myset]
         }
 
+        test "SPOP with <count>=1 - $type" {
+            create_set myset $contents
+            assert_encoding $type myset
+            assert_equal $contents [lsort [list [r spop myset 1] [r spop myset 1] [r spop myset 1]]]
+            assert_equal 0 [r scard myset]
+        }
+
         test "SRANDMEMBER - $type" {
             create_set myset $contents
             unset -nocomplain myset
@@ -303,6 +310,41 @@ start_server {
             assert_equal $contents [lsort [array names myset]]
         }
     }
+
+    foreach {type contents} {
+        hashtable {a b c d e f g h i j k l m n o p q r s t u v w x y z} 
+        intset {1 10 11 12 13 14 15 16 17 18 19 2 20 21 22 23 24 25 26 3 4 5 6 7 8 9}
+    } {
+        test "SPOP with <count>" {
+            create_set myset $contents
+            assert_encoding $type myset
+            assert_equal $contents [lsort [concat [r spop myset 11] [r spop myset 9] [r spop myset 0] [r spop myset 4] [r spop myset 1] [r spop myset 0] [r spop myset 1] [r spop myset 0]]]
+            assert_equal 0 [r scard myset]
+        }
+    }
+
+    # As seen in intsetRandomMembers
+    test "SPOP using integers, testing Knuth's and Floyd's algorithm" {
+        create_set myset {1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20}
+        assert_encoding intset myset
+        assert_equal 20 [r scard myset]
+        r spop myset 1
+        assert_equal 19 [r scard myset]
+        r spop myset 2
+        assert_equal 17 [r scard myset]
+        r spop myset 3
+        assert_equal 14 [r scard myset]
+        r spop myset 10
+        assert_equal 4 [r scard myset]
+        r spop myset 10
+        assert_equal 0 [r scard myset]
+        r spop myset 1
+        assert_equal 0 [r scard myset]
+    } {}
+
+    test "SPOP using integers with Knuth's algorithm" {
+        r spop nonexisting_key 100
+    } {}
 
     test "SRANDMEMBER with <count> against non existing key" {
         r srandmember nonexisting_key 100
