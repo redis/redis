@@ -154,9 +154,9 @@ start_server {
         r zadd zset 10 d
         r zadd zset 3 e
         r eval {
-            return {redis.call('sort','zset','by','nosort','asc'),
-                    redis.call('sort','zset','by','nosort','desc')}
-        } 0
+            return {redis.call('sort',KEYS[1],'by','nosort','asc'),
+                    redis.call('sort',KEYS[1],'by','nosort','desc')}
+        } 1 zset
     } {{a c e b d} {d b e c a}}
 
     test "SORT sorted set: +inf and -inf handling" {
