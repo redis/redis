@@ -41,6 +41,12 @@
 #include "bio.h"
 #endif /* HAVE_BACKTRACE */
 
+#ifdef __CYGWIN__
+#ifndef SA_ONSTACK
+#define SA_ONSTACK 0x08000000
+#endif
+#endif
+
 /* ================================= Debugging ============================== */
 
 /* Compute the sha1 of string at 's' with 'len' bytes long.
