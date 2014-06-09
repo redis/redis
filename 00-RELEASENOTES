@@ -12,6 +12,31 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 3.0.0 Beta 6 (version 2.9.55) ] Release date: 9 jun 2014
+
+This is the 6th beta of Redis 3.0.0.
+
+>> General changes
+
+* [FIX] Fix software watchdog signal handler crash due to re-entering.
+* [FIX] Better Lua number -> string conversion for Lua scripts.
+* [FIX] Serious replication bug when min-slaves-* feature is used in slaves
+        configuration fixed.
+* [FIX] Blocking pop on lists now works when the list is created by commands
+        other than *PUSH* (for example SORT STORE).
+
+>> Cluster changes
+
+* [FIX] CRITICAL: For a bug in the implementation of CLUSTER SET-CONFIG-EPOCH
+        introduced with beta-3 (especially beta-4 where the command
+        is actually used by redis-trib), a configEpoch for a node could
+        jump backward, breaking the eventual consistency property of the
+        slots -> nodes mapping in the cluster.
+
+>> Sentinel changes
+
+* No changes for Sentinel in this release.
+
 --[ Redis 3.0.0 Beta 5 (version 2.9.54) ] Release date: 26 may 2014
 
 This is the 5th beta of Redis 3.0.0. It does not include any real
