@@ -908,7 +908,11 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
         int nread;
         char seq[3];
 
+#ifdef _WIN32
+        nread = win32read(&c);
+#else
         nread = read(l.ifd,&c,1);
+#endif
         if (nread <= 0) return (int)l.len;
 
         /* Only autocomplete when the callback is set. It returns < 0 when
