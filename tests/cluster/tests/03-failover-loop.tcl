@@ -22,8 +22,19 @@ while {[incr iterations -1]} {
     set key [randstring 20 20 alpha]
     set val [randstring 20 20 alpha]
     set role [RI $tokill role]
-
-    set current_epoch [CI $other cluster_current_epoch]
+    if {$role eq {master}} {
+        set slave {}
+        set myid [dict get [get_myself $tokill] id]
+        foreach_redis_id id {
+            if {$id == $tokill} continue
+            if {[dict get [get_myself $id] slaveof] eq $myid} {
+                set slave $id
+            }
+        }
+        if {$slave eq {}} {
+            fail "Unable to retrieve slave's ID for master #$tokill"
+        }
+    }
 
     puts "--- Iteration $iterations ---"
 
@@ -35,6 +46,7 @@ while {[incr iterations -1]} {
                 fail "Slave of node #$tokill is not ok"
             }
         }
+        set slave_config_epoch [CI $slave cluster_my_epoch]
     }
 
     test "Killing node #$tokill" {
@@ -42,11 +54,11 @@ while {[incr iterations -1]} {
     }
 
     if {$role eq {master}} {
-        test "Wait failover" {
+        test "Wait failover by #$slave with old epoch $slave_config_epoch" {
             wait_for_condition 1000 50 {
-                [CI $other cluster_current_epoch] > $current_epoch
+                [CI $slave cluster_my_epoch] > $slave_config_epoch
             } else {
-                fail "No failover detected"
+                fail "No failover detected, epoch is still [CI $slave cluster_my_epoch]"
             }
         }
     }
