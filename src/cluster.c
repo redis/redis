@@ -2288,22 +2288,57 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     if (nodeIsSlave(myself) || myself->numslots == 0) return;
 
     /* Request epoch must be >= our currentEpoch. */
-    if (requestCurrentEpoch < server.cluster->currentEpoch) return;
+    if (requestCurrentEpoch < server.cluster->currentEpoch) {
+        redisLog(REDIS_WARNING,
+            "Failover auth denied to %.40s: reqEpoch (%llu) < curEpoch(%llu)",
+            node->name,
+            (unsigned long long) requestCurrentEpoch,
+            (unsigned long long) server.cluster->currentEpoch);
+        return;
+    }
 
     /* I already voted for this epoch? Return ASAP. */
-    if (server.cluster->lastVoteEpoch == server.cluster->currentEpoch) return;
+    if (server.cluster->lastVoteEpoch == server.cluster->currentEpoch) {
+        redisLog(REDIS_WARNING,
+                "Failover auth denied to %.40s: already voted for epoch %llu",
+                node->name,
+                (unsigned long long) server.cluster->currentEpoch);
+        return;
+    }
 
     /* Node must be a slave and its master down.
      * The master can be non failing if the request is flagged
      * with CLUSTERMSG_FLAG0_FORCEACK (manual failover). */
     if (nodeIsMaster(node) || master == NULL ||
-        (!nodeFailed(master) && !force_ack)) return;
+        (!nodeFailed(master) && !force_ack))
+    {
+        if (nodeIsMaster(node)) {
+            redisLog(REDIS_WARNING,
+                    "Failover auth denied to %.40s: it is a master node",
+                    node->name);
+        } else if (master == NULL) {
+            redisLog(REDIS_WARNING,
+                    "Failover auth denied to %.40s: I don't know its master",
+                    node->name);
+        } else if (!nodeFailed(master)) {
+            redisLog(REDIS_WARNING,
+                    "Failover auth denied to %.40s: its master is up",
+                    node->name);
+        }
+        return;
+    }
 
     /* We did not voted for a slave about this master for two
      * times the node timeout. This is not strictly needed for correctness
      * of the algorithm but makes the base case more linear. */
     if (mstime() - node->slaveof->voted_time < server.cluster_node_timeout * 2)
+    {
+        redisLog(REDIS_WARNING,
+                "Failover auth denied to %.40s: already voted for epoch %llu",
+                node->name,
+                (unsigned long long) server.cluster->currentEpoch);
         return;
+    }
 
     /* The slave requesting the vote must have a configEpoch for the claimed
      * slots that is >= the one of the masters currently serving the same
@@ -2318,6 +2353,12 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
         /* If we reached this point we found a slot that in our current slots
          * is served by a master with a greater configEpoch than the one claimed
          * by the slave requesting our vote. Refuse to vote for this slave. */
+        redisLog(REDIS_WARNING,
+                "Failover auth denied to %.40s: "
+                "slot %d epoch (%llu) > reqEpoch (%llu)",
+                node->name, j,
+                (unsigned long long) server.cluster->slots[j]->configEpoch,
+                (unsigned long long) requestConfigEpoch);
         return;
     }
 
