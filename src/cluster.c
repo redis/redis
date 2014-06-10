@@ -2288,7 +2288,10 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
      * size + 1 */
     if (nodeIsSlave(myself) || myself->numslots == 0) return;
 
-    /* Request epoch must be >= our currentEpoch. */
+    /* Request epoch must be >= our currentEpoch.
+     * Note that it is impossible for it to actually be greater since
+     * our currentEpoch was updated as a side effect of receiving this
+     * request, if the request epoch was greater. */
     if (requestCurrentEpoch < server.cluster->currentEpoch) {
         redisLog(REDIS_WARNING,
             "Failover auth denied to %.40s: reqEpoch (%llu) < curEpoch(%llu)",
