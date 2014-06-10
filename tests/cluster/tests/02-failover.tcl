@@ -18,8 +18,18 @@ test "Instance #5 is a slave" {
     assert {[RI 5 role] eq {slave}}
 }
 
+set current_epoch [CI 1 cluster_current_epoch]
+
 test "Killing one master node" {
     kill_instance redis 0
+}
+
+test "Wait for failover" {
+    wait_for_condition 1000 50 {
+        [CI 1 cluster_current_epoch] > $current_epoch
+    } else {
+        fail "No failover detected"
+    }
 }
 
 test "Cluster should eventually be up again" {
