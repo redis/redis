@@ -89,3 +89,9 @@ while {[incr iterations -1]} {
         assert {$err eq $val}
     }
 }
+
+test "Post condition: current_epoch >= my_epoch everywhere" {
+    foreach_redis_id id {
+        assert {[CI $id cluster_current_epoch] >= [CI $id cluster_my_epoch]}
+    }
+}
