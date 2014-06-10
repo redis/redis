@@ -2338,9 +2338,11 @@ void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request) {
     if (mstime() - node->slaveof->voted_time < server.cluster_node_timeout * 2)
     {
         redisLog(REDIS_WARNING,
-                "Failover auth denied to %.40s: already voted for epoch %llu",
+                "Failover auth denied to %.40s: "
+                "can't vote about this master before %lld milliseconds",
                 node->name,
-                (unsigned long long) server.cluster->currentEpoch);
+                (long long) ((server.cluster_node_timeout*2)-
+                             (mstime() - node->slaveof->voted_time)));
         return;
     }
 
