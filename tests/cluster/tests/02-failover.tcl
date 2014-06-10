@@ -33,3 +33,15 @@ test "Cluster is writable" {
 test "Instance #5 is now a master" {
     assert {[RI 5 role] eq {master}}
 }
+
+test "Restarting the previously killed master node" {
+    restart_instance redis 0
+}
+
+test "Instance #0 gets converted into a slave" {
+    wait_for_condition 1000 50 {
+        [RI 0 role] eq {slave}
+    } else {
+        fail "Old master was not converted into slave"
+    }
+}
