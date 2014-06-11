@@ -68,8 +68,10 @@ while {[incr iterations -1]} {
     }
 
     test "Cluster is writable" {
-        catch {$cluster set $key $val} err
-        assert {$err eq {OK}}
+        for {set i 0} {$i < 100} {incr i} {
+            catch {$cluster set $key:$i $val:$i} err
+            assert {$err eq {OK}}
+        }
     }
 
     test "Restarting node #$tokill" {
@@ -85,8 +87,10 @@ while {[incr iterations -1]} {
     }
 
     test "We can read back the value we set before" {
-        catch {$cluster get $key} err
-        assert {$err eq $val}
+        for {set i 0} {$i < 100} {incr i} {
+            catch {$cluster get $key:$i} err
+            assert {$err eq "$val:$i"}
+        }
     }
 }
 
