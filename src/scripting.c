@@ -200,11 +200,6 @@ void luaSortArray(lua_State *lua) {
     lua_pop(lua,1);             /* Stack: array (sorted) */
 }
 
-int luaReallyIsString(lua_State *L, int index) {
-    int t = lua_type(L, index);
-    return t == LUA_TSTRING;
-}
-
 #define LUA_CMD_OBJCACHE_SIZE 32
 #define LUA_CMD_OBJCACHE_MAX_LEN 64
 int luaRedisGenericCommand(lua_State *lua, int raise_error) {
@@ -239,7 +234,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         size_t obj_len;
         char dbuf[64];
 
-        if (!luaReallyIsString(lua, j+1) && lua_isnumber(lua, j+1)) {
+        if (lua_type(lua,j+1) == LUA_TNUMBER) {
             /* We can't use lua_tolstring() for number -> string conversion
              * since Lua uses a format specifier that loses precision. */
             lua_Number num = lua_tonumber(lua,j+1);
