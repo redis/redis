@@ -14,6 +14,19 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.11 ] Release date: 11 Jun 2014
+
+# UPGRADE URGENCY: HIGH if you use Lua scripting, LOW otherwise.
+
+* [FIX] A previous fix for Lua -> Redis numerical precision enhancement
+        introduced a new problem. In Redis 2.8.10 commands called from Lua
+        passing a string that "looks like" a very large number, may actually
+        use as argument the string converted as a float. This bug is now
+        fixed.
+* [FIX] Now commands other than *PUSH* adding elements to a list will be able
+        to awake clients blocked in a blocking POP operation.
+* [FIX] Cygwin compilation fixes.
+
 --[ Redis 2.8.10 ] Release date: 5 Jun 2014
 
 # UPGRADE URGENCY: HIGH if you use min-slaves-to-write option.
