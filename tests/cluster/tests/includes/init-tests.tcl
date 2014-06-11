@@ -23,8 +23,9 @@ test "Cluster nodes hard reset" {
     foreach_redis_id id {
         catch {R $id flushall} ; # May fail for readonly slaves.
         R $id cluster reset hard
-        R $id config set cluster-node-timeout 3000
         R $id cluster set-config-epoch [expr {$id+1}]
+        R $id config set cluster-node-timeout 3000
+        R $id config rewrite
     }
 }
 
