@@ -185,7 +185,24 @@ void loadServerConfigFromString(char *config) {
             FILE *logfp;
 
             zfree(server.logfile);
+#ifdef _WIN32
+            int length = strlen(argv[1]);
+            if ((argv[0] == '\''  &&  argv[length-1] == '\'')  ||
+                (argv[0] == '\"'  &&  argv[length-1] == '\"')) {
+                if (length == 2) {
+                    server.logfile[0] = zstrdup("\0");
+                } else {
+                    size_t l = length - 2 + 1;
+                    char *p = zmalloc(l);
+                    memcpy(p, argv[1]+1, l);
+                    server.logfile[0] = p;
+                }
+            } else {
+                server.logfile = zstrdup(argv[1]);
+            }
+#else
             server.logfile = zstrdup(argv[1]);
+#endif
             if (server.logfile[0] != '\0') {
                 /* Test if we are able to open the file. The server will not
                  * be able to abort just for this problem later... */
@@ -206,14 +223,18 @@ void loadServerConfigFromString(char *config) {
             if ((server.syslog_enabled = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
+#ifdef _WIN32
+            setSyslogEnabled(server.syslog_enabled);
+#endif
         } else if (!strcasecmp(argv[0],"syslog-ident") && argc == 2) {
             if (server.syslog_ident) zfree(server.syslog_ident);
             server.syslog_ident = zstrdup(argv[1]);
-        } else if (!strcasecmp(argv[0],"syslog-facility") && argc == 2) {
 #ifdef _WIN32
-            // Skip error - just ignore Syslog
-            // err "Syslog is not supported on Windows platform.";
-            // goto loaderr;
+            setSyslogIdent(server.syslog_ident);
+#endif
+        } else if (!strcasecmp(argv[0], "syslog-facility") && argc == 2) {
+#ifdef _WIN32
+            // Skip error - just ignore syslog-facility
 #else
             int i;
 

@@ -45,6 +45,7 @@
 #ifdef _WIN32
 #include "win32_Interop/win32fixes.h"
 int fmode = _O_BINARY;
+#include <time.h>
 #endif
 
 #include "ae.h"

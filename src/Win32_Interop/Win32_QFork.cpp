@@ -33,9 +33,12 @@
 #include "Win32_dlmalloc.h"
 #include "Win32_SmartHandle.h"
 #include "Win32_Service.h"
+#include "Win32_CommandLine.h"
+#include "..\redisLog.h"
+
 #include <vector>
+#include <map>
 #include <iostream>
-#include <fstream>
 #include <sstream>
 #include <stdint.h>
 #include <exception>
@@ -134,10 +137,6 @@ How the parent invokes the QFork process:
 const SIZE_T cAllocationGranularity = 1 << 18;                    // 256KB per heap block (matches large block allocation threshold of dlmalloc)
 const int cMaxBlocks = 1 << 24;                                   // 256KB * 16M heap blocks = 4TB. 4TB is the largest memory config Windows supports at present.
 const wchar_t* cMapFileBaseName = L"RedisQFork";
-const char* qforkFlag = "--QFork";
-const char* maxmemoryFlag = "maxmemory";
-const char* maxheapFlag = "maxheap";
-const char* includeFlag = "include";
 const int cDeadForkWait = 30000;
 size_t pageSize = 0;
 
@@ -258,7 +257,7 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
         return TRUE;
     }
     catch(std::system_error syserr) {
-        printf("QForkSlaveInit: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
+        ::redisLog(REDIS_WARNING, "QForkSlaveInit: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
         g_pQForkControl = NULL;
         if(g_pQForkControl != NULL) {
             if(g_pQForkControl->operationFailed != NULL) {
@@ -268,7 +267,7 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
         return FALSE;
     }
     catch(std::runtime_error runerr) {
-        printf("QForkSlaveInit: runtime error caught. message=%s\n", runerr.what());
+        ::redisLog(REDIS_WARNING, "QForkSlaveInit: runtime error caught. message=%s\n", runerr.what());
         g_pQForkControl = NULL;
         SetEvent(g_pQForkControl->operationFailed);
         return FALSE;
@@ -476,13 +475,13 @@ BOOL QForkMasterInit( __int64 maxheapBytes ) {
         return TRUE;
     }
     catch(std::system_error syserr) {
-        printf("QForkMasterInit: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
+        ::redisLog(REDIS_WARNING, "QForkMasterInit: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
     }
     catch(std::runtime_error runerr) {
-        printf("QForkMasterInit: runtime error caught. message=%s\n", runerr.what());
+        ::redisLog(REDIS_WARNING, "QForkMasterInit: runtime error caught. message=%s\n", runerr.what());
     }
     catch(...) {
-        printf("QForkMasterInit: other exception caught.\n");
+        ::redisLog(REDIS_WARNING, "QForkMasterInit: other exception caught.\n");
     }
     return FALSE;
 }
@@ -515,83 +514,21 @@ LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
 			}
 			else
 			{
-				printf("\nF(0x%p)", startOfMapping);
-				printf( "\t MapViewOfFileEx failed with error 0x%08X. \n", GetLastError() );
-				printf( "\t heapStart 0x%p\n", heapStart);
-				printf( "\t heapEnd 0x%p\n", heapEnd);
-				printf( "\t failing access location 0x%p\n", failingMemoryAddress);
-				printf( "\t offset into mmf to start mapping 0x%016X\n", mmfOffset);
-				printf( "\t start of new mapping 0x%p \n", startOfMapping);
-				printf( "\t bytes to map 0x%08x \n", bytesToMap);
-				printf( "\t continuing exception handler search \n" );
+                ::redisLog(REDIS_WARNING, "\nF(0x%p)", startOfMapping);
+                ::redisLog(REDIS_WARNING, "\t MapViewOfFileEx failed with error 0x%08X. \n", GetLastError());
+                ::redisLog(REDIS_WARNING, "\t heapStart 0x%p\n", heapStart);
+                ::redisLog(REDIS_WARNING, "\t heapEnd 0x%p\n", heapEnd);
+                ::redisLog(REDIS_WARNING, "\t failing access location 0x%p\n", failingMemoryAddress);
+                ::redisLog(REDIS_WARNING, "\t offset into mmf to start mapping 0x%016X\n", mmfOffset);
+                ::redisLog(REDIS_WARNING, "\t start of new mapping 0x%p \n", startOfMapping);
+                ::redisLog(REDIS_WARNING, "\t bytes to map 0x%08x \n", bytesToMap);
+                ::redisLog(REDIS_WARNING, "\t continuing exception handler search \n");
 			}
 		}
 	}
 
 	return EXCEPTION_CONTINUE_SEARCH;
 }
-
-/*
-    Returns true if we have successfully parsed the conf file and its recursive includes. 
-    If maxheap and/or maxmemory is specified these will be set on exit. If maxheap/maxmemory 
-    are specified in master and/or recursive conf files, the first encountered flag is taken.
-*/
-bool ParseConfFile(string file, __int64& maxheapBytes, __int64& maxmemoryBytes) {
-    int memtollerr = 0;
-    ifstream config;
-    config.open(file);
-    if (config.fail()) {
-        return false;
-    }
-
-    while (!config.eof()) {
-        string line;
-        getline(config, line);
-        istringstream iss(line);
-        string token;
-        if (getline(iss, token, ' ')) {
-            if (_stricmp(token.c_str(), maxmemoryFlag) == 0) {
-                string maxmemoryString;
-                if (getline(iss, maxmemoryString, ' ')) {
-                    if (maxmemoryBytes == -1) {
-                        maxmemoryBytes = memtoll(maxmemoryString.c_str(), &memtollerr);
-                        if (memtollerr != 0) {
-                            printf(
-                                "Unable to convert %s to the number of bytes for the maxmemory flag.\n",
-                                maxmemoryString.c_str());
-                            printf("Failing startup.\n");
-                            return false;
-                        }
-                    }
-                }
-            } else if (_stricmp(token.c_str(), maxheapFlag) == 0) {
-                string maxheapString;
-                if (getline(iss, maxheapString, ' ')) {
-                    if (maxheapBytes == -1) {
-                        maxheapBytes = memtoll(maxheapString.c_str(), &memtollerr);
-                        if (memtollerr != 0) {
-                            printf(
-                                "Unable to convert %s to the number of bytes for the maxmemory flag.\n",
-                                maxheapString.c_str());
-                            printf("Failing startup.\n");
-                            return false;
-                        }
-                    }
-                }
-            } else if (_stricmp(token.c_str(), includeFlag) == 0) {
-                string includeFile;
-                if (getline(iss, includeFile, ' ')) {
-                    if (!ParseConfFile(includeFile, maxheapBytes, maxmemoryBytes)) {
-                        return false;
-                    }
-                }
-            }
-        }
-    }
-
-    return true;
-}
-
 
 // QFork API
 StartupStatus QForkStartup(int argc, char** argv) {
@@ -606,54 +543,29 @@ StartupStatus QForkStartup(int argc, char** argv) {
     GetSystemInfo(&si);
     g_systemAllocationGranularity = si.dwAllocationGranularity;
 
-    if ((argc == 3) && (strcmp(argv[0], qforkFlag) == 0)) {
+    if (g_argMap.find(cQFork) != g_argMap.end()) {
         // slave command line looks like: --QFork [QForkConrolMemoryMap handle] [parent process id]
         foundSlaveFlag = true;
         char* endPtr;
-        QForkConrolMemoryMapHandle = (HANDLE)strtoul(argv[1],&endPtr,10);
+        QForkConrolMemoryMapHandle = (HANDLE)strtoul(g_argMap[cQFork].at(0).at(0).c_str(),&endPtr,10);
         char* end = NULL;
-        PPID = strtoul(argv[2], &end, 10);
+        PPID = strtoul(g_argMap[cQFork].at(0).at(1).c_str(), &end, 10);
     } else {
-        for (int n = 1; n < argc; n++) {
-			// check for flags in .conf file
-			if( n == 1  && strncmp(argv[n],"--",2) != 0 ) {
-                if (!ParseConfFile(argv[1], maxheapBytes, maxmemoryBytes)) {
-                    return StartupStatus::ssFAILED;
-                } else {
-                    continue;
-                }
-			}
-            if( strncmp(argv[n],"--", 2) == 0) {
-				if (_stricmp(argv[n]+2,maxmemoryFlag) == 0) {
-					maxmemoryBytes = memtoll(argv[n+1],&memtollerr);
-					if( memtollerr != 0) {
-						printf (
-							"%s specified. Unable to convert %s to the number of bytes for the maxmemory flag.\n", 
-							maxmemoryBytes,
-							argv[n+1] );
-						printf( "Failing startup.\n");
-						return StartupStatus::ssFAILED;
-					}
-				} else if(_stricmp(argv[n]+2,maxheapFlag) == 0) {
-					maxheapBytes = memtoll(argv[n+1],&memtollerr);
-					if( memtollerr != 0) {
-						printf (
-							"%s specified. Unable to convert %s to the number of bytes for the maxmemory flag.\n", 
-							maxmemoryBytes,
-							argv[n+1] );
-						printf( "Failing startup.\n");
-						return StartupStatus::ssFAILED;
-					}
-				}
-			}
+        if (g_argMap.find(cMaxHeap) != g_argMap.end()) {
+            int mtollerr = 0;
+            maxheapBytes = memtoll(g_argMap[cMaxHeap].at(0).at(0).c_str(), &memtollerr);
+        }
+        if (g_argMap.find(cMaxMemory) != g_argMap.end()) {
+            int mtollerr = 0;
+            maxmemoryBytes = memtoll(g_argMap[cMaxMemory].at(0).at(0).c_str(), &memtollerr);
         }
     }
 
 	PERFORMANCE_INFORMATION perfinfo;
 	perfinfo.cb = sizeof(PERFORMANCE_INFORMATION);
 	if (FALSE == GetPerformanceInfo(&perfinfo, sizeof(PERFORMANCE_INFORMATION))) {
-		printf ( "GetPerformanceInfo failed.\n" ); 
-		printf( "Failing startup.\n" );
+        ::redisLog(REDIS_WARNING, "GetPerformanceInfo failed.\n");
+        ::redisLog(REDIS_WARNING, "Failing startup.\n");
 		return StartupStatus::ssFAILED;
 	}
 	pageSize = perfinfo.PageSize;
@@ -862,7 +774,7 @@ BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, i
         char arguments[_MAX_PATH];
         memset(arguments,0,_MAX_PATH);
         PROCESS_INFORMATION pi;
-        sprintf_s(arguments, _MAX_PATH, "%s %llu %lu", qforkFlag, (uint64_t)g_hQForkControlFileMap, GetCurrentProcessId());
+        sprintf_s(arguments, _MAX_PATH, "%s --%s %llu %lu", fileName, cQFork.c_str(), (uint64_t)g_hQForkControlFileMap, GetCurrentProcessId());
         if (FALSE == CreateProcessA(fileName, arguments, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
             throw system_error( 
                 GetLastError(),
@@ -887,13 +799,13 @@ BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, i
         return TRUE;
     }
     catch(std::system_error syserr) {
-        printf("BeginForkOperation: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
+        ::redisLog(REDIS_WARNING, "BeginForkOperation: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
     }
     catch(std::runtime_error runerr) {
-        printf("BeginForkOperation: runtime error caught. message=%s\n", runerr.what());
+        ::redisLog(REDIS_WARNING, "BeginForkOperation: runtime error caught. message=%s\n", runerr.what());
     }
     catch(...) {
-        printf("BeginForkOperation: other exception caught.\n");
+        ::redisLog(REDIS_WARNING, "BeginForkOperation: other exception caught.\n");
     }
     return FALSE;
 }
@@ -932,13 +844,13 @@ BOOL AbortForkOperation()
         return EndForkOperation(NULL);
     }
     catch(std::system_error syserr) {
-        printf("0x%08x - %s\n", syserr.code().value(), syserr.what());
+        ::redisLog(REDIS_WARNING, "AbortForkOperation(): 0x%08x - %s\n", syserr.code().value(), syserr.what());
 
         // If we can not properly restore fork state, then another fork operation is not possible. 
         exit(1);
     }
     catch( ... ) {
-        printf("Some other exception caught in EndForkOperation().\n");
+        ::redisLog(REDIS_WARNING, "Some other exception caught in EndForkOperation().\n");
         exit(1);
     }
     return FALSE;
@@ -1150,13 +1062,13 @@ BOOL EndForkOperation(int * pExitCode) {
         return TRUE;
     }
     catch(std::system_error syserr) {
-        printf("0x%08x - %s\n", syserr.code().value(), syserr.what());
+        ::redisLog(REDIS_WARNING, "EndForkOperation: 0x%08x - %s\n", syserr.code().value(), syserr.what());
 
         // If we can not properly restore fork state, then another fork operation is not possible. 
         exit(1);
     }
     catch( ... ) {
-        printf("Some other exception caught in EndForkOperation().\n");
+        ::redisLog(REDIS_WARNING, "Some other exception caught in EndForkOperation().\n");
         exit(1);
     }
     return FALSE;
@@ -1249,6 +1161,20 @@ BOOL FreeHeapBlock(LPVOID block, size_t size)
     return TRUE;
 }
 
+void SetupLogging() {
+    bool serviceRun = g_argMap.find(cServiceRun) != g_argMap.end();
+    string syslogEnabledValue = (g_argMap.find(cSyslogEnabled) != g_argMap.end() ? g_argMap[cSyslogEnabled].at(0).at(0) : cNo);
+    bool syslogEnabled = (syslogEnabledValue.compare(cYes) == 0) || serviceRun;
+    string syslogIdent = (g_argMap.find(cSyslogIdent) != g_argMap.end() ? g_argMap[cSyslogIdent].at(0).at(0) : cDefaultSyslogIdent);
+    string logFileName = (g_argMap.find(cLogfile) != g_argMap.end() ? g_argMap[cLogfile].at(0).at(0) : cDefaultLogfile);
+
+    setSyslogEnabled(syslogEnabled);
+    if (syslogEnabled) {
+        setSyslogIdent(syslogIdent.c_str());
+    } else {
+        setLogFile(logFileName.c_str());
+    }
+}
 
 extern "C"
 {
@@ -1257,20 +1183,28 @@ extern "C"
     // is invoked so that the QFork allocator can be setup prior to anything 
     // Redis will allocate.
     int main(int argc, char* argv[]) {
-		try {
+        try {
+            ParseCommandLineArguments(argc, argv);
+            SetupLogging();
+        } catch (runtime_error &re) {
+            cout << re.what() << endl;
+            exit(-1);
+        }
+        
+        try {
 #ifdef DEBUG_WITH_PROCMON
-			hProcMonDevice = 
-				CreateFile( 
-				L"\\\\.\\Global\\ProcmonDebugLogger", 
-				GENERIC_READ|GENERIC_WRITE, 
-				FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE, 
-				NULL, 
-				OPEN_EXISTING, 
-				FILE_ATTRIBUTE_NORMAL, 
-				NULL );
+            hProcMonDevice =
+                CreateFile(
+                L"\\\\.\\Global\\ProcmonDebugLogger",
+                GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                NULL,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                NULL);
 #endif
 
-			// service commands do not launch an instance of redis directly
+            // service commands do not launch an instance of redis directly
 			if (HandleServiceCommands(argc, argv) == TRUE)
 				return 0;
 
@@ -1291,11 +1225,11 @@ extern "C"
 				return 2;
 			}
 		} catch (std::system_error syserr) {
-			printf("main: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
+            ::redisLog(REDIS_WARNING, "main: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
 		} catch (std::runtime_error runerr) {
-			printf("main: runtime error caught. message=%s\n", runerr.what());
+            ::redisLog(REDIS_WARNING, "main: runtime error caught. message=%s\n", runerr.what());
 		} catch (...) {
-			printf("main: other exception caught.\n");
+            ::redisLog(REDIS_WARNING, "main: other exception caught.\n");
 		}
     }
 }

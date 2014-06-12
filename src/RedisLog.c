@@ -35,7 +35,17 @@
 #include <time.h>
 
 static int verbosity = REDIS_WARNING;
+static int syslogEnabled = 0;
+static char syslogIdent[MAX_PATH];
 static char* logFile = NULL;
+
+void setSyslogEnabled(int flag) {
+    syslogEnabled = flag;
+}
+
+void setSyslogIdent(const char* ident) {
+    strcpy_s(syslogIdent, MAX_PATH, ident);
+}
 
 void setLogVerbosityLevel(int level)
 {
@@ -48,11 +58,12 @@ void setLogFile(const char* logFileName)
         free((void*)logFile);
         logFile = NULL;
     }
-    logFile = (char*)malloc(strlen(logFileName));
+    logFile = (char*)malloc(strlen(logFileName)+1);
     if (logFile==NULL) {
         redisLog(REDIS_WARNING, "memory allocation failure");
         return;
     }
+    memset(logFile, 0, strlen(logFileName) + 1);
     strcpy (logFile,logFileName);
 }
 
@@ -107,7 +118,7 @@ void redisLogRaw(int level, const char *msg) {
 	if (log_to_stdout == 0) fclose(fp);
 
 #ifdef _WIN32
-	if (server.syslog_enabled) WriteEventLog(server.syslog_ident, msg);
+	if (syslogEnabled) WriteEventLog(syslogIdent, msg);
 #else
     if (server.syslog_enabled) syslog(syslogLevelMap[level], "%s", msg);
 #endif

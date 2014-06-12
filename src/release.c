@@ -41,6 +41,8 @@
 #include "release.h"
 #endif
 
+#include <string.h>
+
 #include "version.h"
 #include "crc64.h"
 

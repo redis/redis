@@ -34,7 +34,9 @@
 extern "C" {
 #endif
 
-void setLogVerbosityLevel (int level);
+void setSyslogEnabled(int flag);
+void setSyslogIdent(const char* ident);
+void setLogVerbosityLevel(int level);
 void setLogFile (const char* logFileName);
 void redisLogRaw(int level, const char *msg);
 void redisLog(int level, const char *fmt, ...);

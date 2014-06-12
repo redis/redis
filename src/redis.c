@@ -1366,8 +1366,10 @@ void initServerConfig() {
         server.syslog_ident = zstrdup(REDIS_DEFAULT_SYSLOG_IDENT);
         server.syslog_enabled = REDIS_DEFAULT_SYSLOG_ENABLED;
     }
+    setSyslogEnabled(server.syslog_enabled);
+    setSyslogIdent(server.syslog_ident);
 #else
-	  server.syslog_enabled = REDIS_DEFAULT_SYSLOG_ENABLED;
+	server.syslog_enabled = REDIS_DEFAULT_SYSLOG_ENABLED;
     server.syslog_ident = zstrdup(REDIS_DEFAULT_SYSLOG_IDENT);
 #endif
     server.syslog_facility = LOG_LOCAL0;

@@ -29,9 +29,10 @@
 #include "Win32_variadicFunctor.h"
 #include "Win32_ANSI.h"
 #include <string>
+#include "..\redisLog.h"
 using namespace std;
 
-#define CATCH_AND_REPORT()  catch(const std::exception &){printf("std exception");}catch(...){printf("other exception");}
+#define CATCH_AND_REPORT()  catch(const std::exception &){::redisLog(REDIS_WARNING, "FDAPI: std exception");}catch(...){::redisLog(REDIS_WARNING, "FDAPI: other exception");}
 
 extern "C" {
 // FD lookup Winsock equivalents for Win32_wsiocp.c
@@ -455,7 +456,6 @@ int redis_poll_impl(struct pollfd *fds, nfds_t nfds, int timeout) {
                 return -1;
             }
 
-            int n = 0;
             nfds_t i;
             for (i = 0; i < nfds; i++) {
                 if (fds[i].fd < 0) {
@@ -469,22 +469,15 @@ int redis_poll_impl(struct pollfd *fds, nfds_t nfds, int timeout) {
                 if (pollCopy[i].events & POLLIN) FD_SET(pollCopy[i].fd, &readSet);
                 if (pollCopy[i].events & POLLOUT) FD_SET(pollCopy[i].fd, &writeSet);
                 if (pollCopy[i].events & POLLERR) FD_SET(pollCopy[i].fd, &excepSet);
-                if (pollCopy[i].fd >= n) {
-                    n = pollCopy[i].fd + 1;
-                }
-            }
-
-            if (n == 0) {
-                return 0;
             }
 
             if (timeout < 0) {
-                ret = select(n, &readSet, &writeSet, &excepSet, NULL);
+                ret = select(0, &readSet, &writeSet, &excepSet, NULL);
             } else {
                 struct timeval tv;
                 tv.tv_sec = timeout / 1000;
                 tv.tv_usec = 1000 * (timeout % 1000);
-                ret = select(n, &readSet, &writeSet, &excepSet, &tv);
+                ret = select(0, &readSet, &writeSet, &excepSet, &tv);
             }
 
             if (ret < 0) {
@@ -591,17 +584,17 @@ ssize_t redis_write_impl(int fd, const void *buf, size_t count) {
         } else {
             int posixFD = RFDMap::getInstance().lookupPosixFD( fd );
             if( posixFD != -1 ) {
-                if (posixFD == fileno(stdout)) {
+                if (posixFD == _fileno(stdout)) {
                     DWORD bytesWritten = 0;
-                    if (FALSE != ParseAndPrintANSIString(GetStdHandle(STD_OUTPUT_HANDLE), buf, count, &bytesWritten)) {
+                    if (FALSE != ParseAndPrintANSIString(GetStdHandle(STD_OUTPUT_HANDLE), buf, (DWORD)count, &bytesWritten)) {
                         return (int)bytesWritten;
                     } else {
                         errno = GetLastError();
                         return 0;
                     }
-                } else if (posixFD == fileno(stderr)) {
+                } else if (posixFD == _fileno(stderr)) {
                     DWORD bytesWritten = 0;
-                    if (FALSE != ParseAndPrintANSIString(GetStdHandle(STD_ERROR_HANDLE), buf, count, &bytesWritten)) {
+                    if (FALSE != ParseAndPrintANSIString(GetStdHandle(STD_ERROR_HANDLE), buf, (DWORD)count, &bytesWritten)) {
                         return (int)bytesWritten;
                     } else {
                         errno = GetLastError();

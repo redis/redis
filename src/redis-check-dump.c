@@ -773,9 +773,9 @@ int main(int argc, char **argv) {
 
 #ifdef _WIN32
     _fmode = _O_BINARY;
-    _setmode(_fileno(stdin), _O_BINARY);
-    _setmode(_fileno(stdout), _O_BINARY);
-    _setmode(_fileno(stderr), _O_BINARY);
+    setmode(_fileno(stdin), _O_BINARY);
+    setmode(_fileno(stdout), _O_BINARY);
+    setmode(_fileno(stderr), _O_BINARY);
 
     fd = open(argv[1], O_RDONLY|_O_BINARY,0);
 #else

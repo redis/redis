@@ -169,9 +169,9 @@ int main(int argc, char **argv) {
     long long diff;
 
     _fmode = _O_BINARY;
-    _setmode(_fileno(stdin), _O_BINARY);
-    _setmode(_fileno(stdout), _O_BINARY);
-    _setmode(_fileno(stderr), _O_BINARY);
+    setmode(_fileno(stdin), _O_BINARY);
+    setmode(_fileno(stdout), _O_BINARY);
+    setmode(_fileno(stderr), _O_BINARY);
 #else
     off_t size;
     off_t pos;

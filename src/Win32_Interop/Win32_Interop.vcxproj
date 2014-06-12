@@ -22,6 +22,7 @@
     <ClCompile Include="..\RedisLog.c" />
     <ClCompile Include="win32fixes.c" />
     <ClCompile Include="Win32_ANSI.c" />
+    <ClCompile Include="Win32_CommandLine.cpp" />
     <ClCompile Include="Win32_dlmalloc.c" />
     <ClCompile Include="Win32_EventLog.cpp" />
     <ClCompile Include="Win32_FDAPI.cpp" />
@@ -37,6 +38,7 @@
     <ClInclude Include="..\redisLog.h" />
     <ClInclude Include="win32fixes.h" />
     <ClInclude Include="Win32_ANSI.h" />
+    <ClInclude Include="Win32_CommandLine.h" />
     <ClInclude Include="Win32_dlmalloc.h" />
     <ClInclude Include="Win32_EventLog.h" />
     <ClInclude Include="Win32_FDAPI.h" />
