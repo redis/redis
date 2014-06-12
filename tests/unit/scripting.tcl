@@ -110,17 +110,21 @@ start_server {tags {"scripting"}} {
         } 0
     } {boolean 1}
 
-    test {EVAL - Is Lua affecting the currently selected DB?} {
+    test {EVAL - Is the Lua client using the currently selected DB?} {
         r set mykey "this is DB 9"
         r select 10
         r set mykey "this is DB 10"
         r eval {return redis.pcall('get','mykey')} 0
     } {this is DB 10}
 
-    test {EVAL - Is Lua seleced DB retained?} {
+    test {EVAL - SELECT inside Lua should not affect the caller} {
+        # here we DB 10 is selected
+        r set mykey "original value"
         r eval {return redis.pcall('select','9')} 0
-        r get mykey
-    } {this is DB 9}
+        set res [r get mykey]
+        r select 9
+        set res
+    } {original value}
 
     if 0 {
         test {EVAL - Script can't run more than configured time limit} {
