@@ -993,7 +993,6 @@ void evalGenericCommand(redisClient *c, int evalsha) {
                           readQueryFromClient,c);
     }
     server.lua_caller = NULL;
-    selectDb(c,server.lua_client->db->id); /* set DB ID from Lua client */
 
     /* Call the Lua garbage collector from time to time to avoid a
      * full cycle performed by Lua, which adds too latency.
