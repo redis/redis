@@ -1716,7 +1716,17 @@ void initServer() {
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Open the TCP listening socket for the user commands. */
-    if (server.port != 0 &&
+    if (server.port == -42){
+        /* Redis interprets port 0 to disable TCP 
+           Use -42 to get port 0's default behavior or getting a random open port
+        */
+        if (listenToPort(0,server.ipfd,&server.ipfd_count) == REDIS_ERR)
+            exit(1);
+        struct sockaddr_in sin;
+        socklen_t salen = sizeof(sin);
+        getsockname(server.ipfd[0],(struct sockaddr*)&sin,&salen);
+        server.port = ntohs(sin.sin_port);
+    } else if (server.port != 0 &&
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == REDIS_ERR)
         exit(1);
 
