@@ -475,5 +475,27 @@ start_server {tags {"scripting repl"}} {
                 fail "Expected 1 in x, but value is '[r -1 get x]'"
             }
         }
+
+        test {Lua scripts using SELECT are replicated correctly} {
+            r eval {
+                redis.call("set","foo1","bar1")
+                redis.call("select","10")
+                redis.call("incr","x")
+                redis.call("select","11")
+                redis.call("incr","z")
+            } 0
+            r eval {
+                redis.call("set","foo1","bar1")
+                redis.call("select","10")
+                redis.call("incr","x")
+                redis.call("select","11")
+                redis.call("incr","z")
+            } 0
+            wait_for_condition 50 100 {
+                [r -1 debug digest] eq [r debug digest]
+            } else {
+                fail "Master-Slave desync after Lua script using SELECT."
+            }
+        }
     }
 }
