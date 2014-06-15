@@ -201,6 +201,7 @@ int sigaction(int sig, struct sigaction *in, struct sigaction *out);
 
 /* Sockets */
 
+#if _MSC_VER < 1800
 #ifndef ECONNRESET
 #define ECONNRESET WSAECONNRESET
 #endif
@@ -211,6 +212,7 @@ int sigaction(int sig, struct sigaction *in, struct sigaction *out);
 
 #ifndef ETIMEDOUT
 #define ETIMEDOUT WSAETIMEDOUT
+#endif
 #endif
 
 #define rename(a,b) replace_rename(a,b)
