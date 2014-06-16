@@ -451,6 +451,7 @@ typedef struct readyList {
 /* With multiplexing we need to take per-client state.
  * Clients are taken in a liked list. */
 typedef struct redisClient {
+    uint64_t id;            /* Client incremental unique ID. */
     int fd;
     redisDb *db;
     int dictid;
@@ -602,7 +603,8 @@ struct redisServer {
     list *clients_to_close;     /* Clients to close asynchronously */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     redisClient *current_client; /* Current client, only used on crash report */
-    char neterr[ANET_ERR_LEN];  /* Error buffer for anet.c */
+    char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
+    uint64_t next_client_id;    /* Next client unique ID. Incremental. */
     /* RDB / AOF loading information */
     int loading;                /* We are loading data from disk if true */
     off_t loading_total_bytes;

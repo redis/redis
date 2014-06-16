@@ -1366,6 +1366,7 @@ void initServerConfig() {
     server.lua_time_limit = REDIS_LUA_TIME_LIMIT;
     server.lua_client = NULL;
     server.lua_timedout = 0;
+    server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.loading_process_events_interval_bytes = (1024*1024*2);
 
     updateLRUClock();
