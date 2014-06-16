@@ -83,6 +83,7 @@ redisClient *createClient(int fd) {
     }
 
     selectDb(c,0);
+    c->id = server.next_client_id++;
     c->fd = fd;
     c->name = NULL;
     c->bufpos = 0;
@@ -1302,7 +1303,8 @@ sds catClientInfoString(sds s, redisClient *client) {
     if (emask & AE_WRITABLE) *p++ = 'w';
     *p = '\0';
     return sdscatfmt(s,
-        "addr=%s fd=%i name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U obl=%U oll=%U omem=%U events=%s cmd=%s",
+        "id=%U addr=%s fd=%i name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U obl=%U oll=%U omem=%U events=%s cmd=%s",
+        (unsigned long long) client->id,
         getClientPeerId(client),
         client->fd,
         client->name ? (char*)client->name->ptr : "",
