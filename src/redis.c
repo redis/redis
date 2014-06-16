@@ -1485,7 +1485,7 @@ void initServerConfig() {
     server.repl_no_slaves_since = time(NULL);
 
     /* Client output buffer limits */
-    for (j = 0; j < REDIS_CLIENT_LIMIT_NUM_CLASSES; j++)
+    for (j = 0; j < REDIS_CLIENT_TYPE_COUNT; j++)
         server.client_obuf_limits[j] = clientBufferLimitsDefaults[j];
 
     /* Double constants initialization */
