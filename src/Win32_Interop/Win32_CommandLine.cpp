@@ -353,7 +353,7 @@ static RedisParamterMapper g_redisArgMap =
     { "client-output-buffer-limit",     &fp4 },    // client-output-buffer-limit [class] [hard limit] [soft limit] [soft seconds]
     { "hz",                             &fp1 },    // hz [number]
     { "aof-rewrite-incremental-fsync",  &fp1 },    // aof-rewrite-incremental-fsync [yes/no]
-    { "include",                        &fp1 },    // include [path]
+    { cInclude,                        &fp1 },    // include [path]
 
     // sentinel commands
     { "sentinel",                       &sp }
@@ -378,7 +378,6 @@ std::vector<std::string> split(const std::string &s, char delim) {
 void ParseConfFile(string confFile, ArgumentMap& argMap) {
     ifstream config;
     string line;
-    string token;
     string value;
 
 #ifdef _DEBUG
@@ -399,9 +398,11 @@ void ParseConfFile(string confFile, ArgumentMap& argMap) {
         vector<string> tokens = split(line, ' ');
         if (tokens.size() > 0) {
             string parameter = tokens.at(0);
-            if (parameter.at(0) == '#') continue;
-
-            if (g_redisArgMap.find(parameter) == g_redisArgMap.end()) {
+            if (parameter.at(0) == '#') {
+                continue;
+            } else if (parameter.compare(cInclude) == 0) {
+                ParseConfFile(tokens.at(1), argMap);
+            } else if (g_redisArgMap.find(parameter) == g_redisArgMap.end()) {
                 stringstream err;
                 err << "unknown conf file parameter : " + parameter;
                 throw runtime_error(err.str());

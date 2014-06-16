@@ -48,6 +48,7 @@ const string cServiceName = "service-name";
 const string cSyslogEnabled = "syslog-enabled";
 const string cSyslogIdent= "syslog-ident";
 const string cLogfile = "logfile";
+const string cInclude = "include";
 
 const string cMaxHeap = "maxheap";
 const string cMaxMemory = "maxmemory";
