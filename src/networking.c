@@ -1357,6 +1357,7 @@ void clientCommand(redisClient *c) {
         int type = -1;
         uint64_t id = 0;
         int killed = 0;
+        int close_this_client = 0;
 
         /* Parse arguments. */
         if (c->argc == 3) {
@@ -1396,7 +1397,7 @@ void clientCommand(redisClient *c) {
 
             /* Kill it. */
             if (c == client) {
-                client->flags |= REDIS_CLOSE_AFTER_REPLY;
+                close_this_client = 1;
             } else {
                 freeClient(client);
             }
@@ -1412,6 +1413,10 @@ void clientCommand(redisClient *c) {
         } else {
             addReplyLongLong(c,killed);
         }
+
+        /* If this client has to be closed, flag it as CLOSE_AFTER_REPLY
+         * only after we queued the reply to its output buffers. */
+        if (close_this_client) c->flags |= REDIS_CLOSE_AFTER_REPLY;
     } else if (!strcasecmp(c->argv[1]->ptr,"setname") && c->argc == 3) {
         int j, len = sdslen(c->argv[2]->ptr);
         char *p = c->argv[2]->ptr;
