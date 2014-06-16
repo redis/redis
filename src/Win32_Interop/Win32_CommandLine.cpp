@@ -417,35 +417,55 @@ void ParseConfFile(string confFile, ArgumentMap& argMap) {
 void ParseCommandLineArguments(int argc, char** argv) {
     if (argc < 2) return;
 
-    bool confFile = (string(argv[1]).substr(0, 2).compare("--") != 0);
+    bool confFile = false;
+    string confFilePath;
     for (int n = (confFile ? 2 : 1); n < argc; n++) {
-        string argument = string(argv[n]).substr(2, argument.length() - 2);
-        transform(argument.begin(), argument.end(), argument.begin(), ::tolower);
+        if (string(argv[n]).substr(0, 2) == "--") {
+            string argument = string(argv[n]).substr(2, argument.length() - 2);
+            transform(argument.begin(), argument.end(), argument.begin(), ::tolower);
 
-        if (g_redisArgMap.find(argument) == g_redisArgMap.end()) {
-            stringstream err;
-            err << "unknown argument: " << argument;
-            throw runtime_error(err.str());
-        }
-        
-        vector<string> params;
-        if (argument == cSentinel)  {
-            try {
-                vector<string> sentinelSubCommands = g_redisArgMap[argument]->Extract(n, argc, argv);
-                for (auto p : sentinelSubCommands) {
-                    params.push_back(p);
-                }
-            } catch (runtime_error re) {
-                // if no subcommands could be mapped, then assume this is the parameterless --sentinel command line only argument
+            if (g_redisArgMap.find(argument) == g_redisArgMap.end()) {
+                stringstream err;
+                err << "unknown argument: " << argument;
+                throw runtime_error(err.str());
             }
+
+            vector<string> params;
+            if (argument == cSentinel) {
+                try {
+                    vector<string> sentinelSubCommands = g_redisArgMap[argument]->Extract(n, argc, argv);
+                    for (auto p : sentinelSubCommands) {
+                        params.push_back(p);
+                    }
+                } catch (runtime_error re) {
+                    // if no subcommands could be mapped, then assume this is the parameterless --sentinel command line only argument
+                }
+            } else if (argument == cServiceRun ) {
+                // When the service starts the current directory is %systemdir%. This needs to be changed to the 
+                // directory the executable is in so that the .conf file can be loaded.
+                char szFilePath[MAX_PATH];
+                if (GetModuleFileNameA(NULL, szFilePath, MAX_PATH) == 0) {
+                    throw std::system_error(GetLastError(), system_category(), "ParseCommandLineArguments: GetModuleFileName failed");
+                }
+                string currentDir = szFilePath;
+                auto pos = currentDir.rfind("\\");
+                currentDir.erase(pos);
+
+                if (FALSE == SetCurrentDirectoryA(currentDir.c_str())) {
+                    throw std::system_error(GetLastError(), system_category(), "SetCurrentDirectory failed");
+                }
+            } else {
+                params = g_redisArgMap[argument]->Extract(n, argc, argv);
+            }
+            g_argMap[argument].push_back(params);
+            n += (int)params.size();
         } else {
-            params = g_redisArgMap[argument]->Extract(n, argc, argv);
+            confFile = true;
+            confFilePath = argv[n];
         }
-        g_argMap[argument].push_back(params);
-        n += (int)params.size();
     }
 
-    if (confFile) ParseConfFile(argv[1], g_argMap);
+    if (confFile) ParseConfFile(confFilePath, g_argMap);
 
 #ifdef _DEBUG
     cout << "arguments seen:" << endl;
