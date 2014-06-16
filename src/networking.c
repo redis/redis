@@ -1481,30 +1481,31 @@ unsigned long getClientOutputBufferMemoryUsage(redisClient *c) {
  * classes of clients.
  *
  * The function will return one of the following:
- * REDIS_CLIENT_LIMIT_CLASS_NORMAL -> Normal client
- * REDIS_CLIENT_LIMIT_CLASS_SLAVE  -> Slave or client executing MONITOR command
- * REDIS_CLIENT_LIMIT_CLASS_PUBSUB -> Client subscribed to Pub/Sub channels
+ * REDIS_CLIENT_TYPE_NORMAL -> Normal client
+ * REDIS_CLIENT_TYPE_SLAVE  -> Slave or client executing MONITOR command
+ * REDIS_CLIENT_TYPE_PUBSUB -> Client subscribed to Pub/Sub channels
  */
-int getClientLimitClass(redisClient *c) {
-    if (c->flags & REDIS_SLAVE) return REDIS_CLIENT_LIMIT_CLASS_SLAVE;
+int getClientType(redisClient *c) {
+    if ((c->flags & REDIS_SLAVE) && !(c->flags & REDIS_MONITOR))
+        return REDIS_CLIENT_TYPE_SLAVE;
     if (dictSize(c->pubsub_channels) || listLength(c->pubsub_patterns))
-        return REDIS_CLIENT_LIMIT_CLASS_PUBSUB;
-    return REDIS_CLIENT_LIMIT_CLASS_NORMAL;
+        return REDIS_CLIENT_TYPE_PUBSUB;
+    return REDIS_CLIENT_TYPE_NORMAL;
 }
 
-int getClientLimitClassByName(char *name) {
-    if (!strcasecmp(name,"normal")) return REDIS_CLIENT_LIMIT_CLASS_NORMAL;
-    else if (!strcasecmp(name,"slave")) return REDIS_CLIENT_LIMIT_CLASS_SLAVE;
-    else if (!strcasecmp(name,"pubsub")) return REDIS_CLIENT_LIMIT_CLASS_PUBSUB;
+int getClientTypeByName(char *name) {
+    if (!strcasecmp(name,"normal")) return REDIS_CLIENT_TYPE_NORMAL;
+    else if (!strcasecmp(name,"slave")) return REDIS_CLIENT_TYPE_SLAVE;
+    else if (!strcasecmp(name,"pubsub")) return REDIS_CLIENT_TYPE_PUBSUB;
     else return -1;
 }
 
-char *getClientLimitClassName(int class) {
+char *getClientTypeName(int class) {
     switch(class) {
-    case REDIS_CLIENT_LIMIT_CLASS_NORMAL:   return "normal";
-    case REDIS_CLIENT_LIMIT_CLASS_SLAVE:    return "slave";
-    case REDIS_CLIENT_LIMIT_CLASS_PUBSUB:   return "pubsub";
-    default:                                return NULL;
+    case REDIS_CLIENT_TYPE_NORMAL: return "normal";
+    case REDIS_CLIENT_TYPE_SLAVE:  return "slave";
+    case REDIS_CLIENT_TYPE_PUBSUB: return "pubsub";
+    default:                       return NULL;
     }
 }
 
@@ -1518,7 +1519,7 @@ int checkClientOutputBufferLimits(redisClient *c) {
     int soft = 0, hard = 0, class;
     unsigned long used_mem = getClientOutputBufferMemoryUsage(c);
 
-    class = getClientLimitClass(c);
+    class = getClientType(c);
     if (server.client_obuf_limits[class].hard_limit_bytes &&
         used_mem >= server.client_obuf_limits[class].hard_limit_bytes)
         hard = 1;
