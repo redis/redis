@@ -3442,6 +3442,74 @@ int getSlotOrReply(redisClient *c, robj *o) {
     return (int) slot;
 }
 
+void clusterReplyMultiBulkSlots(redisClient *c) {
+    /* Format: 1) 1) start slot
+     *            2) end slot
+     *            3) 1) master IP
+     *               2) master port
+     *            4) 1) replica IP
+     *               2) replica port
+     *           ... continued until done
+     */
+
+    int repliedRangeCount = 0;
+    void *slotreplylen = addDeferredMultiBulkLength(c);
+
+    dictEntry *de;
+    dictIterator *di = dictGetSafeIterator(server.cluster->nodes);
+    while((de = dictNext(di)) != NULL) {
+        clusterNode *node = dictGetVal(de);
+        int j = 0, start = -1;
+
+        /* If node is down or not a master, skip it. */
+        if (node->flags & REDIS_NODE_FAIL || !(node->flags & REDIS_NODE_MASTER))
+            continue;
+
+        for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
+            int bit;
+
+            if ((bit = clusterNodeGetSlotBit(node,j)) != 0) {
+                if (start == -1) start = j;
+            }
+            if (start != -1 && (!bit || j == REDIS_CLUSTER_SLOTS-1)) {
+                if (bit && j == REDIS_CLUSTER_SLOTS-1) j++;
+
+                /* nested size: slots (2) + master (1) + slaves */
+                addReplyMultiBulkLen(c, 2 + 1 + node->numslaves);
+
+                /* If slot exists in output map, add to it's list.
+                 * else, create a new output map for this slot */
+                if (start == j-1) {
+                    addReplyLongLong(c, start); /* only one slot; low==high */
+                    addReplyLongLong(c, start);
+                } else {
+                    addReplyLongLong(c, start); /* low */
+                    addReplyLongLong(c, j-1);   /* high */
+                }
+                start = -1;
+
+                /* First node reply position is always the master */
+                addReplyMultiBulkLen(c, 2);
+                addReplyBulkCString(c, node->ip);
+                addReplyLongLong(c, node->port);
+
+                /* Remaining nodes in reply are replicas for slot range */
+                int i;
+                for (i = 0; i < node->numslaves; i++) {
+                    /* This loop is copy/pasted from clusterGenNodeDescription()
+                     * with modifications for per-slot node aggregation */
+                    addReplyMultiBulkLen(c, 2);
+                    addReplyBulkCString(c, node->slaves[i]->ip);
+                    addReplyLongLong(c, node->slaves[i]->port);
+                }
+                repliedRangeCount++;
+            }
+        }
+    }
+    dictReleaseIterator(di);
+    setDeferredMultiBulkLength(c, slotreplylen, repliedRangeCount);
+}
+
 void clusterCommand(redisClient *c) {
     if (server.cluster_enabled == 0) {
         addReplyError(c,"This instance has cluster support disabled");
@@ -3473,6 +3541,9 @@ void clusterCommand(redisClient *c) {
         o = createObject(REDIS_STRING,ci);
         addReplyBulk(c,o);
         decrRefCount(o);
+    } else if (!strcasecmp(c->argv[1]->ptr,"slots") && c->argc == 2) {
+        /* CLUSTER SLOTS */
+        clusterReplyMultiBulkSlots(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"flushslots") && c->argc == 2) {
         /* CLUSTER FLUSHSLOTS */
         if (dictSize(server.db[0].dict) != 0) {
