@@ -1232,6 +1232,7 @@ uint64_t redisBuildId(void);
 void authCommand(redisClient *c);
 void pingCommand(redisClient *c);
 void echoCommand(redisClient *c);
+void commandsCommand(redisClient *c);
 void setCommand(redisClient *c);
 void setnxCommand(redisClient *c);
 void setexCommand(redisClient *c);
