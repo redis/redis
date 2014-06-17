@@ -2699,6 +2699,7 @@ sds genRedisInfoString(char *section) {
         char hmem[64];
         char peak_hmem[64];
         size_t zmalloc_used = zmalloc_used_memory();
+        char *evict_policy = maxmemoryToString();
 
         /* Peak memory is updated from time to time by serverCron() so it
          * may happen that the instantaneous value is slightly bigger than
@@ -2719,7 +2720,8 @@ sds genRedisInfoString(char *section) {
             "used_memory_peak_human:%s\r\n"
             "used_memory_lua:%lld\r\n"
             "mem_fragmentation_ratio:%.2f\r\n"
-            "mem_allocator:%s\r\n",
+            "mem_allocator:%s\r\n"
+            "maxmemory_policy:%s\r\n",
             zmalloc_used,
             hmem,
             server.resident_set_size,
@@ -2727,7 +2729,8 @@ sds genRedisInfoString(char *section) {
             peak_hmem,
             ((long long)lua_gc(server.lua,LUA_GCCOUNT,0))*1024LL,
             zmalloc_get_fragmentation_ratio(server.resident_set_size),
-            ZMALLOC_LIB
+            ZMALLOC_LIB,
+            evict_policy
             );
     }
 

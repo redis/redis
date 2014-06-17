@@ -1255,6 +1255,7 @@ void closeListeningSockets(int unlink_unix_socket);
 void updateCachedTime(void);
 void resetServerStats(void);
 unsigned int getLRUClock(void);
+char *maxmemoryToString(void);
 
 /* Set data type */
 robj *setTypeCreate(robj *value);
