@@ -1004,6 +1004,20 @@ badfmt: /* Bad format errors */
     } \
 } while(0);
 
+char *maxmemoryToString() {
+    char *s;
+    switch(server.maxmemory_policy) {
+    case REDIS_MAXMEMORY_VOLATILE_LRU: s = "volatile-lru"; break;
+    case REDIS_MAXMEMORY_VOLATILE_TTL: s = "volatile-ttl"; break;
+    case REDIS_MAXMEMORY_VOLATILE_RANDOM: s = "volatile-random"; break;
+    case REDIS_MAXMEMORY_ALLKEYS_LRU: s = "allkeys-lru"; break;
+    case REDIS_MAXMEMORY_ALLKEYS_RANDOM: s = "allkeys-random"; break;
+    case REDIS_MAXMEMORY_NO_EVICTION: s = "noeviction"; break;
+    default: s = "unknown"; break;
+    }
+    return s;
+}
+
 void configGetCommand(redisClient *c) {
     robj *o = c->argv[2];
     void *replylen = addDeferredMultiBulkLength(c);
@@ -1112,19 +1126,8 @@ void configGetCommand(redisClient *c) {
         matches++;
     }
     if (stringmatch(pattern,"maxmemory-policy",0)) {
-        char *s;
-
-        switch(server.maxmemory_policy) {
-        case REDIS_MAXMEMORY_VOLATILE_LRU: s = "volatile-lru"; break;
-        case REDIS_MAXMEMORY_VOLATILE_TTL: s = "volatile-ttl"; break;
-        case REDIS_MAXMEMORY_VOLATILE_RANDOM: s = "volatile-random"; break;
-        case REDIS_MAXMEMORY_ALLKEYS_LRU: s = "allkeys-lru"; break;
-        case REDIS_MAXMEMORY_ALLKEYS_RANDOM: s = "allkeys-random"; break;
-        case REDIS_MAXMEMORY_NO_EVICTION: s = "noeviction"; break;
-        default: s = "unknown"; break; /* too harmless to panic */
-        }
         addReplyBulkCString(c,"maxmemory-policy");
-        addReplyBulkCString(c,s);
+        addReplyBulkCString(c,maxmemoryToString());
         matches++;
     }
     if (stringmatch(pattern,"appendfsync",0)) {
