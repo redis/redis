@@ -18,4 +18,5 @@ proc main {} {
 if {[catch main e]} {
     puts $::errorInfo
     cleanup
+    exit 1
 }
