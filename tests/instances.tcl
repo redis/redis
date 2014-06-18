@@ -74,11 +74,13 @@ proc spawn_instance {type base_port count {conf {}}} {
         }
 
         # Push the instance into the right list
+        set link [redis 127.0.0.1 $port]
+        $link reconnect 1
         lappend ::${type}_instances [list \
             pid $pid \
             host 127.0.0.1 \
             port $port \
-            link [redis 127.0.0.1 $port] \
+            link $link \
         ]
     }
 }
@@ -398,6 +400,8 @@ proc restart_instance {type id} {
     }
 
     # Connect with it with a fresh link
-    set_instance_attrib $type $id link [redis 127.0.0.1 $port]
+    set link [redis 127.0.0.1 $port]
+    $link reconnect 1
+    set_instance_attrib $type $id link $link
 }
 
