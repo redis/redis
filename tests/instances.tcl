@@ -1,14 +1,19 @@
-# Sentinel test suite. Copyright (C) 2014 Salvatore Sanfilippo antirez@gmail.com
+# Multi-instance test framework.
+# This is used in order to test Sentinel and Redis Cluster, and provides
+# basic capabilities for spawning and handling N parallel Redis / Sentinel
+# instances.
+#
+# Copyright (C) 2014 Salvatore Sanfilippo antirez@gmail.com
 # This softare is released under the BSD License. See the COPYING file for
 # more information.
 
 package require Tcl 8.5
 
 set tcl_precision 17
-source tests/support/redis.tcl
-source tests/support/util.tcl
-source tests/support/server.tcl
-source tests/support/test.tcl
+source ../support/redis.tcl
+source ../support/util.tcl
+source ../support/server.tcl
+source ../support/test.tcl
 
 set ::verbose 0
 set ::pause_on_error 0
@@ -17,45 +22,50 @@ set ::sentinel_instances {}
 set ::redis_instances {}
 set ::sentinel_base_port 20000
 set ::redis_base_port 30000
-set ::instances_count 5 ; # How many Sentinels / Instances we use at max
 set ::pids {} ; # We kill everything at exit
 set ::dirs {} ; # We remove all the temp dirs at exit
 set ::run_matching {} ; # If non empty, only tests matching pattern are run.
 
-if {[catch {cd tests/sentinel-tmp}]} {
-    puts "tests/sentinel-tmp directory not found."
+if {[catch {cd tmp}]} {
+    puts "tmp directory not found."
     puts "Please run this test from the Redis source root."
     exit 1
 }
 
 # Spawn a redis or sentinel instance, depending on 'type'.
-proc spawn_instance {type base_port count} {
+proc spawn_instance {type base_port count {conf {}}} {
     for {set j 0} {$j < $count} {incr j} {
         set port [find_available_port $base_port]
         incr base_port
         puts "Starting $type #$j at port $port"
 
-        # Create a directory for this Sentinel.
+        # Create a directory for this instance.
         set dirname "${type}_${j}"
         lappend ::dirs $dirname
         catch {exec rm -rf $dirname}
         file mkdir $dirname
 
-        # Write the Sentinel config file.
+        # Write the instance config file.
         set cfgfile [file join $dirname $type.conf]
         set cfg [open $cfgfile w]
         puts $cfg "port $port"
         puts $cfg "dir ./$dirname"
         puts $cfg "logfile log.txt"
+        # Add additional config files
+        foreach directive $conf {
+            puts $cfg $directive
+        }
         close $cfg
 
         # Finally exec it and remember the pid for later cleanup.
         if {$type eq "redis"} {
             set prgname redis-server
-        } else {
+        } elseif {$type eq "sentinel"} {
             set prgname redis-sentinel
+        } else {
+            error "Unknown instance type."
         }
-        set pid [exec ../../src/${prgname} $cfgfile &]
+        set pid [exec ../../../src/${prgname} $cfgfile &]
         lappend ::pids $pid
 
         # Check availability
@@ -64,11 +74,13 @@ proc spawn_instance {type base_port count} {
         }
 
         # Push the instance into the right list
+        set link [redis 127.0.0.1 $port]
+        $link reconnect 1
         lappend ::${type}_instances [list \
             pid $pid \
             host 127.0.0.1 \
             port $port \
-            link [redis 127.0.0.1 $port] \
+            link $link \
         ]
     }
 }
@@ -116,14 +128,6 @@ proc parse_options {} {
     }
 }
 
-proc main {} {
-    parse_options
-    spawn_instance sentinel $::sentinel_base_port $::instances_count
-    spawn_instance redis $::redis_base_port $::instances_count
-    run_tests
-    cleanup
-}
-
 # If --pause-on-error option was passed at startup this function is called
 # on error in order to give the developer a chance to understand more about
 # the error condition while the instances are still running.
@@ -139,6 +143,14 @@ proc pause_on_error {} {
         set cmd [lindex $argv 0]
         if {$cmd eq {continue}} {
             break
+        } elseif {$cmd eq {show-redis-logs}} {
+            set count 10
+            if {[lindex $argv 1] ne {}} {set count [lindex $argv 1]}
+            foreach_redis_id id {
+                puts "=== REDIS $id ===="
+                puts [exec tail -$count redis_$id/log.txt]
+                puts "---------------------\n"
+            }
         } elseif {$cmd eq {show-sentinel-logs}} {
             set count 10
             if {[lindex $argv 1] ne {}} {set count [lindex $argv 1]}
@@ -182,6 +194,7 @@ proc pause_on_error {} {
         } elseif {$cmd eq {help}} {
             puts "ls                     List Sentinel and Redis instances."
             puts "show-sentinel-logs \[N\] Show latest N lines of logs."
+            puts "show-redis-logs \[N\]    Show latest N lines of logs."
             puts "S <id> cmd ... arg     Call command in Sentinel <id>."
             puts "R <id> cmd ... arg     Call command in Redis <id>."
             puts "SI <id> <field>        Show Sentinel <id> INFO <field>."
@@ -218,7 +231,7 @@ proc test {descr code} {
 }
 
 proc run_tests {} {
-    set tests [lsort [glob ../sentinel-tests/*]]
+    set tests [lsort [glob ../tests/*]]
     foreach test $tests {
         if {$::run_matching ne {} && [string match $::run_matching $test] == 0} {
             continue
@@ -361,7 +374,7 @@ proc kill_instance {type id} {
 # Return true of the instance of the specified type/id is killed.
 proc instance_is_killed {type id} {
     set pid [get_instance_attrib $type $id pid]
-    return $pid == -1
+    expr {$pid == -1}
 }
 
 # Restart an instance previously killed by kill_instance
@@ -377,7 +390,7 @@ proc restart_instance {type id} {
     } else {
         set prgname redis-sentinel
     }
-    set pid [exec ../../src/${prgname} $cfgfile &]
+    set pid [exec ../../../src/${prgname} $cfgfile &]
     set_instance_attrib $type $id pid $pid
     lappend ::pids $pid
 
@@ -387,11 +400,8 @@ proc restart_instance {type id} {
     }
 
     # Connect with it with a fresh link
-    set_instance_attrib $type $id link [redis 127.0.0.1 $port]
+    set link [redis 127.0.0.1 $port]
+    $link reconnect 1
+    set_instance_attrib $type $id link $link
 }
 
-if {[catch main e]} {
-    puts $::errorInfo
-    cleanup
-    exit 1
-}

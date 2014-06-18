@@ -5,7 +5,7 @@
 # 2) That partitioned slaves point to new master when they are partitioned
 #    away during failover and return at a latter time.
 
-source "../sentinel-tests/includes/init-tests.tcl"
+source "../tests/includes/init-tests.tcl"
 
 proc 03_test_slaves_replication {} {
     uplevel 1 {
