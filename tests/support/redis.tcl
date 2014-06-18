@@ -105,6 +105,7 @@ proc ::redis::__method__close {id fd} {
     catch {close $fd}
     catch {unset ::redis::fd($id)}
     catch {unset ::redis::blocking($id)}
+    catch {unset ::redis::deferred($id)}
     catch {unset ::redis::state($id)}
     catch {unset ::redis::statestack($id)}
     catch {unset ::redis::callback($id)}
