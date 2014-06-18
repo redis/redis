@@ -393,4 +393,5 @@ proc restart_instance {type id} {
 if {[catch main e]} {
     puts $::errorInfo
     cleanup
+    exit 1
 }
