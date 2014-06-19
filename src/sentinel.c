@@ -1902,7 +1902,8 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     if ((ri->flags & SRI_SLAVE) && role == SRI_MASTER) {
         /* If this is a promoted slave we can change state to the
          * failover state machine. */
-        if ((ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
+        if ((ri->flags & SRI_PROMOTED) &&
+            (ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
             (ri->master->failover_state ==
                 SENTINEL_FAILOVER_STATE_WAIT_PROMOTION))
         {
@@ -1926,9 +1927,10 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
              * going forward, to receive new configs if any. */
             mstime_t wait_time = SENTINEL_PUBLISH_PERIOD*4;
 
-            if (sentinelMasterLooksSane(ri->master) &&
-               sentinelRedisInstanceNoDownFor(ri,wait_time) &&
-               mstime() - ri->role_reported_time > wait_time)
+            if (!(ri->flags & SRI_PROMOTED) &&
+                 sentinelMasterLooksSane(ri->master) &&
+                 sentinelRedisInstanceNoDownFor(ri,wait_time) &&
+                 mstime() - ri->role_reported_time > wait_time)
             {
                 int retval = sentinelSendSlaveOf(ri,
                         ri->master->addr->ip,
