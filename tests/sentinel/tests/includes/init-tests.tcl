@@ -37,7 +37,7 @@ test "(init) Sentinels can start monitoring a master" {
 
 test "(init) Sentinels can talk with the master" {
     foreach_sentinel_id id {
-        wait_for_condition 100 50 {
+        wait_for_condition 1000 50 {
             [catch {S $id SENTINEL GET-MASTER-ADDR-BY-NAME mymaster}] == 0
         } else {
             fail "Sentinel $id can't talk with the master."
@@ -48,7 +48,7 @@ test "(init) Sentinels can talk with the master" {
 test "(init) Sentinels are able to auto-discover other sentinels" {
     set sentinels [llength $::sentinel_instances]
     foreach_sentinel_id id {
-        wait_for_condition 100 50 {
+        wait_for_condition 1000 50 {
             [dict get [S $id SENTINEL MASTER mymaster] num-other-sentinels] == ($sentinels-1)
         } else {
             fail "At least some sentinel can't detect some other sentinel"
@@ -58,7 +58,7 @@ test "(init) Sentinels are able to auto-discover other sentinels" {
 
 test "(init) Sentinels are able to auto-discover slaves" {
     foreach_sentinel_id id {
-        wait_for_condition 100 50 {
+        wait_for_condition 1000 50 {
             [dict get [S $id SENTINEL MASTER mymaster] num-slaves] == $redis_slaves
         } else {
             fail "At least some sentinel can't detect some slave"
