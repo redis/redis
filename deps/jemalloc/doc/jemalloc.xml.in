@@ -33,11 +33,17 @@
     <refname>aligned_alloc</refname>
     <refname>realloc</refname>
     <refname>free</refname>
-    <refname>malloc_usable_size</refname>
-    <refname>malloc_stats_print</refname>
+    <refname>mallocx</refname>
+    <refname>rallocx</refname>
+    <refname>xallocx</refname>
+    <refname>sallocx</refname>
+    <refname>dallocx</refname>
+    <refname>nallocx</refname>
     <refname>mallctl</refname>
     <refname>mallctlnametomib</refname>
     <refname>mallctlbymib</refname>
+    <refname>malloc_stats_print</refname>
+    <refname>malloc_usable_size</refname>
     <refname>allocm</refname>
     <refname>rallocm</refname>
     <refname>sallocm</refname>
@@ -92,16 +98,37 @@
       <refsect2>
         <title>Non-standard API</title>
         <funcprototype>
-          <funcdef>size_t <function>malloc_usable_size</function></funcdef>
-          <paramdef>const void *<parameter>ptr</parameter></paramdef>
+          <funcdef>void *<function>mallocx</function></funcdef>
+          <paramdef>size_t <parameter>size</parameter></paramdef>
+          <paramdef>int <parameter>flags</parameter></paramdef>
         </funcprototype>
         <funcprototype>
-          <funcdef>void <function>malloc_stats_print</function></funcdef>
-          <paramdef>void <parameter>(*write_cb)</parameter>
-            <funcparams>void *, const char *</funcparams>
-          </paramdef>
-          <paramdef>void *<parameter>cbopaque</parameter></paramdef>
-          <paramdef>const char *<parameter>opts</parameter></paramdef>
+          <funcdef>void *<function>rallocx</function></funcdef>
+          <paramdef>void *<parameter>ptr</parameter></paramdef>
+          <paramdef>size_t <parameter>size</parameter></paramdef>
+          <paramdef>int <parameter>flags</parameter></paramdef>
+        </funcprototype>
+        <funcprototype>
+          <funcdef>size_t <function>xallocx</function></funcdef>
+          <paramdef>void *<parameter>ptr</parameter></paramdef>
+          <paramdef>size_t <parameter>size</parameter></paramdef>
+          <paramdef>size_t <parameter>extra</parameter></paramdef>
+          <paramdef>int <parameter>flags</parameter></paramdef>
+        </funcprototype>
+        <funcprototype>
+          <funcdef>size_t <function>sallocx</function></funcdef>
+          <paramdef>void *<parameter>ptr</parameter></paramdef>
+          <paramdef>int <parameter>flags</parameter></paramdef>
+        </funcprototype>
+        <funcprototype>
+          <funcdef>void <function>dallocx</function></funcdef>
+          <paramdef>void *<parameter>ptr</parameter></paramdef>
+          <paramdef>int <parameter>flags</parameter></paramdef>
+        </funcprototype>
+        <funcprototype>
+          <funcdef>size_t <function>nallocx</function></funcdef>
+          <paramdef>size_t <parameter>size</parameter></paramdef>
+          <paramdef>int <parameter>flags</parameter></paramdef>
         </funcprototype>
         <funcprototype>
           <funcdef>int <function>mallctl</function></funcdef>
@@ -125,6 +152,18 @@
           <paramdef>size_t *<parameter>oldlenp</parameter></paramdef>
           <paramdef>void *<parameter>newp</parameter></paramdef>
           <paramdef>size_t <parameter>newlen</parameter></paramdef>
+        </funcprototype>
+        <funcprototype>
+          <funcdef>void <function>malloc_stats_print</function></funcdef>
+          <paramdef>void <parameter>(*write_cb)</parameter>
+            <funcparams>void *, const char *</funcparams>
+          </paramdef>
+          <paramdef>void *<parameter>cbopaque</parameter></paramdef>
+          <paramdef>const char *<parameter>opts</parameter></paramdef>
+        </funcprototype>
+        <funcprototype>
+          <funcdef>size_t <function>malloc_usable_size</function></funcdef>
+          <paramdef>const void *<parameter>ptr</parameter></paramdef>
         </funcprototype>
         <funcprototype>
           <funcdef>void <function>(*malloc_message)</function></funcdef>
@@ -225,41 +264,102 @@
     </refsect2>
     <refsect2>
       <title>Non-standard API</title>
+      <para>The <function>mallocx<parameter/></function>,
+      <function>rallocx<parameter/></function>,
+      <function>xallocx<parameter/></function>,
+      <function>sallocx<parameter/></function>,
+      <function>dallocx<parameter/></function>, and
+      <function>nallocx<parameter/></function> functions all have a
+      <parameter>flags</parameter> argument that can be used to specify
+      options.  The functions only check the options that are contextually
+      relevant.  Use bitwise or (<code language="C">|</code>) operations to
+      specify one or more of the following:
+        <variablelist>
+          <varlistentry>
+            <term><constant>MALLOCX_LG_ALIGN(<parameter>la</parameter>)
+            </constant></term>
 
-      <para>The <function>malloc_usable_size<parameter/></function> function
-      returns the usable size of the allocation pointed to by
-      <parameter>ptr</parameter>.  The return value may be larger than the size
-      that was requested during allocation.  The
-      <function>malloc_usable_size<parameter/></function> function is not a
-      mechanism for in-place <function>realloc<parameter/></function>; rather
-      it is provided solely as a tool for introspection purposes.  Any
-      discrepancy between the requested allocation size and the size reported
-      by <function>malloc_usable_size<parameter/></function> should not be
-      depended on, since such behavior is entirely implementation-dependent.
+            <listitem><para>Align the memory allocation to start at an address
+            that is a multiple of <code language="C">(1 &lt;&lt;
+            <parameter>la</parameter>)</code>.  This macro does not validate
+            that <parameter>la</parameter> is within the valid
+            range.</para></listitem>
+          </varlistentry>
+          <varlistentry>
+            <term><constant>MALLOCX_ALIGN(<parameter>a</parameter>)
+            </constant></term>
+
+            <listitem><para>Align the memory allocation to start at an address
+            that is a multiple of <parameter>a</parameter>, where
+            <parameter>a</parameter> is a power of two.  This macro does not
+            validate that <parameter>a</parameter> is a power of 2.
+            </para></listitem>
+          </varlistentry>
+          <varlistentry>
+            <term><constant>MALLOCX_ZERO</constant></term>
+
+            <listitem><para>Initialize newly allocated memory to contain zero
+            bytes.  In the growing reallocation case, the real size prior to
+            reallocation defines the boundary between untouched bytes and those
+            that are initialized to contain zero bytes.  If this macro is
+            absent, newly allocated memory is uninitialized.</para></listitem>
+          </varlistentry>
+          <varlistentry>
+            <term><constant>MALLOCX_ARENA(<parameter>a</parameter>)
+            </constant></term>
+
+            <listitem><para>Use the arena specified by the index
+            <parameter>a</parameter> (and by necessity bypass the thread
+            cache).  This macro has no effect for huge regions, nor for regions
+            that were allocated via an arena other than the one specified.
+            This macro does not validate that <parameter>a</parameter>
+            specifies an arena index in the valid range.</para></listitem>
+          </varlistentry>
+        </variablelist>
       </para>
 
-      <para>The <function>malloc_stats_print<parameter/></function> function
-      writes human-readable summary statistics via the
-      <parameter>write_cb</parameter> callback function pointer and
-      <parameter>cbopaque</parameter> data passed to
-      <parameter>write_cb</parameter>, or
-      <function>malloc_message<parameter/></function> if
-      <parameter>write_cb</parameter> is <constant>NULL</constant>.  This
-      function can be called repeatedly.  General information that never
-      changes during execution can be omitted by specifying "g" as a character
-      within the <parameter>opts</parameter> string.  Note that
-      <function>malloc_message<parameter/></function> uses the
-      <function>mallctl*<parameter/></function> functions internally, so
-      inconsistent statistics can be reported if multiple threads use these
-      functions simultaneously.  If <option>--enable-stats</option> is
-      specified during configuration, &ldquo;m&rdquo; and &ldquo;a&rdquo; can
-      be specified to omit merged arena and per arena statistics, respectively;
-      &ldquo;b&rdquo; and &ldquo;l&rdquo; can be specified to omit per size
-      class statistics for bins and large objects, respectively.  Unrecognized
-      characters are silently ignored.  Note that thread caching may prevent
-      some statistics from being completely up to date, since extra locking
-      would be required to merge counters that track thread cache operations.
-      </para>
+      <para>The <function>mallocx<parameter/></function> function allocates at
+      least <parameter>size</parameter> bytes of memory, and returns a pointer
+      to the base address of the allocation.  Behavior is undefined if
+      <parameter>size</parameter> is <constant>0</constant>, or if request size
+      overflows due to size class and/or alignment constraints.</para>
+
+      <para>The <function>rallocx<parameter/></function> function resizes the
+      allocation at <parameter>ptr</parameter> to be at least
+      <parameter>size</parameter> bytes, and returns a pointer to the base
+      address of the resulting allocation, which may or may not have moved from
+      its original location.  Behavior is undefined if
+      <parameter>size</parameter> is <constant>0</constant>, or if request size
+      overflows due to size class and/or alignment constraints.</para>
+
+      <para>The <function>xallocx<parameter/></function> function resizes the
+      allocation at <parameter>ptr</parameter> in place to be at least
+      <parameter>size</parameter> bytes, and returns the real size of the
+      allocation.  If <parameter>extra</parameter> is non-zero, an attempt is
+      made to resize the allocation to be at least <code
+      language="C">(<parameter>size</parameter> +
+      <parameter>extra</parameter>)</code> bytes, though inability to allocate
+      the extra byte(s) will not by itself result in failure to resize.
+      Behavior is undefined if <parameter>size</parameter> is
+      <constant>0</constant>, or if <code
+      language="C">(<parameter>size</parameter> + <parameter>extra</parameter>
+      &gt; <constant>SIZE_T_MAX</constant>)</code>.</para>
+
+      <para>The <function>sallocx<parameter/></function> function returns the
+      real size of the allocation at <parameter>ptr</parameter>.</para>
+
+      <para>The <function>dallocx<parameter/></function> function causes the
+      memory referenced by <parameter>ptr</parameter> to be made available for
+      future allocations.</para>
+
+      <para>The <function>nallocx<parameter/></function> function allocates no
+      memory, but it performs the same size computation as the
+      <function>mallocx<parameter/></function> function, and returns the real
+      size of the allocation that would result from the equivalent
+      <function>mallocx<parameter/></function> function call.  Behavior is
+      undefined if <parameter>size</parameter> is <constant>0</constant>, or if
+      request size overflows due to size class and/or alignment
+      constraints.</para>
 
       <para>The <function>mallctl<parameter/></function> function provides a
       general interface for introspecting the memory allocator, as well as
@@ -297,15 +397,14 @@
       it is legitimate to construct code like the following: <programlisting
       language="C"><![CDATA[
 unsigned nbins, i;
-
-int mib[4];
+size_t mib[4];
 size_t len, miblen;
 
 len = sizeof(nbins);
 mallctl("arenas.nbins", &nbins, &len, NULL, 0);
 
 miblen = 4;
-mallnametomib("arenas.bin.0.size", mib, &miblen);
+mallctlnametomib("arenas.bin.0.size", mib, &miblen);
 for (i = 0; i < nbins; i++) {
 	size_t bin_size;
 
@@ -314,6 +413,41 @@ for (i = 0; i < nbins; i++) {
 	mallctlbymib(mib, miblen, &bin_size, &len, NULL, 0);
 	/* Do something with bin_size... */
 }]]></programlisting></para>
+
+      <para>The <function>malloc_stats_print<parameter/></function> function
+      writes human-readable summary statistics via the
+      <parameter>write_cb</parameter> callback function pointer and
+      <parameter>cbopaque</parameter> data passed to
+      <parameter>write_cb</parameter>, or
+      <function>malloc_message<parameter/></function> if
+      <parameter>write_cb</parameter> is <constant>NULL</constant>.  This
+      function can be called repeatedly.  General information that never
+      changes during execution can be omitted by specifying "g" as a character
+      within the <parameter>opts</parameter> string.  Note that
+      <function>malloc_message<parameter/></function> uses the
+      <function>mallctl*<parameter/></function> functions internally, so
+      inconsistent statistics can be reported if multiple threads use these
+      functions simultaneously.  If <option>--enable-stats</option> is
+      specified during configuration, &ldquo;m&rdquo; and &ldquo;a&rdquo; can
+      be specified to omit merged arena and per arena statistics, respectively;
+      &ldquo;b&rdquo; and &ldquo;l&rdquo; can be specified to omit per size
+      class statistics for bins and large objects, respectively.  Unrecognized
+      characters are silently ignored.  Note that thread caching may prevent
+      some statistics from being completely up to date, since extra locking
+      would be required to merge counters that track thread cache operations.
+      </para>
+
+      <para>The <function>malloc_usable_size<parameter/></function> function
+      returns the usable size of the allocation pointed to by
+      <parameter>ptr</parameter>.  The return value may be larger than the size
+      that was requested during allocation.  The
+      <function>malloc_usable_size<parameter/></function> function is not a
+      mechanism for in-place <function>realloc<parameter/></function>; rather
+      it is provided solely as a tool for introspection purposes.  Any
+      discrepancy between the requested allocation size and the size reported
+      by <function>malloc_usable_size<parameter/></function> should not be
+      depended on, since such behavior is entirely implementation-dependent.
+      </para>
     </refsect2>
     <refsect2>
       <title>Experimental API</title>
@@ -358,7 +492,7 @@ for (i = 0; i < nbins; i++) {
             <listitem><para>Initialize newly allocated memory to contain zero
             bytes.  In the growing reallocation case, the real size prior to
             reallocation defines the boundary between untouched bytes and those
-            that are initialized to contain zero bytes.  If this option is
+            that are initialized to contain zero bytes.  If this macro is
             absent, newly allocated memory is uninitialized.</para></listitem>
           </varlistentry>
           <varlistentry>
@@ -373,9 +507,11 @@ for (i = 0; i < nbins; i++) {
             </constant></term>
 
             <listitem><para>Use the arena specified by the index
-            <parameter>a</parameter>.  This macro does not validate that
-            <parameter>a</parameter> specifies an arena in the valid
-            range.</para></listitem>
+            <parameter>a</parameter> (and by necessity bypass the thread
+            cache).  This macro has no effect for huge regions, nor for regions
+            that were allocated via an arena other than the one specified.
+            This macro does not validate that <parameter>a</parameter>
+            specifies an arena index in the valid range.</para></listitem>
           </varlistentry>
         </variablelist>
       </para>
@@ -385,8 +521,9 @@ for (i = 0; i < nbins; i++) {
       <parameter>*ptr</parameter> to the base address of the allocation, and
       sets <parameter>*rsize</parameter> to the real size of the allocation if
       <parameter>rsize</parameter> is not <constant>NULL</constant>.  Behavior
-      is undefined if <parameter>size</parameter> is
-      <constant>0</constant>.</para>
+      is undefined if <parameter>size</parameter> is <constant>0</constant>, or
+      if request size overflows due to size class and/or alignment
+      constraints.</para>
 
       <para>The <function>rallocm<parameter/></function> function resizes the
       allocation at <parameter>*ptr</parameter> to be at least
@@ -396,11 +533,12 @@ for (i = 0; i < nbins; i++) {
       <parameter>rsize</parameter> is not <constant>NULL</constant>.  If
       <parameter>extra</parameter> is non-zero, an attempt is made to resize
       the allocation to be at least <code
-      language="C"><parameter>size</parameter> +
+      language="C">(<parameter>size</parameter> +
       <parameter>extra</parameter>)</code> bytes, though inability to allocate
       the extra byte(s) will not by itself result in failure.  Behavior is
-      undefined if <parameter>size</parameter> is <constant>0</constant>, or if
-      <code language="C">(<parameter>size</parameter> +
+      undefined if <parameter>size</parameter> is <constant>0</constant>, if
+      request size overflows due to size class and/or alignment constraints, or
+      if <code language="C">(<parameter>size</parameter> +
       <parameter>extra</parameter> &gt;
       <constant>SIZE_T_MAX</constant>)</code>.</para>
 
@@ -417,8 +555,9 @@ for (i = 0; i < nbins; i++) {
       <parameter>rsize</parameter> is not <constant>NULL</constant> it sets
       <parameter>*rsize</parameter> to the real size of the allocation that
       would result from the equivalent <function>allocm<parameter/></function>
-      function call.  Behavior is undefined if
-      <parameter>size</parameter> is <constant>0</constant>.</para>
+      function call.  Behavior is undefined if <parameter>size</parameter> is
+      <constant>0</constant>, or if request size overflows due to size class
+      and/or alignment constraints.</para>
     </refsect2>
   </refsect1>
   <refsect1 id="tuning">
@@ -432,7 +571,14 @@ for (i = 0; i < nbins; i++) {
     referenced by the symbolic link named <filename
     class="symlink">/etc/malloc.conf</filename>, and the value of the
     environment variable <envar>MALLOC_CONF</envar>, will be interpreted, in
-    that order, from left to right as options.</para>
+    that order, from left to right as options.  Note that
+    <varname>malloc_conf</varname> may be read before
+    <function>main<parameter/></function> is entered, so the declaration of
+    <varname>malloc_conf</varname> should specify an initializer that contains
+    the final value to be read by jemalloc.  <varname>malloc_conf</varname> is
+    a compile-time setting, whereas <filename
+    class="symlink">/etc/malloc.conf</filename> and <envar>MALLOC_CONF</envar>
+    can be safely set any time prior to program invocation.</para>
 
     <para>An options string is a comma-separated list of option:value pairs.
     There is one key corresponding to each <link
@@ -598,7 +744,7 @@ for (i = 0; i < nbins; i++) {
     which controls refreshing of cached dynamic statistics.</para>
 
     <variablelist>
-      <varlistentry>
+      <varlistentry id="version">
         <term>
           <mallctl>version</mallctl>
           (<type>const char *</type>)
@@ -619,7 +765,7 @@ for (i = 0; i < nbins; i++) {
         detecting whether another thread caused a refresh.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="config.debug">
         <term>
           <mallctl>config.debug</mallctl>
           (<type>bool</type>)
@@ -629,7 +775,7 @@ for (i = 0; i < nbins; i++) {
         build configuration.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="config.dss">
         <term>
           <mallctl>config.dss</mallctl>
           (<type>bool</type>)
@@ -639,7 +785,7 @@ for (i = 0; i < nbins; i++) {
         build configuration.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="config.fill">
         <term>
           <mallctl>config.fill</mallctl>
           (<type>bool</type>)
@@ -649,7 +795,7 @@ for (i = 0; i < nbins; i++) {
         build configuration.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="config.lazy_lock">
         <term>
           <mallctl>config.lazy_lock</mallctl>
           (<type>bool</type>)
@@ -659,7 +805,7 @@ for (i = 0; i < nbins; i++) {
         during build configuration.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="config.mremap">
         <term>
           <mallctl>config.mremap</mallctl>
           (<type>bool</type>)
@@ -669,7 +815,7 @@ for (i = 0; i < nbins; i++) {
         build configuration.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="config.munmap">
         <term>
           <mallctl>config.munmap</mallctl>
           (<type>bool</type>)
@@ -679,7 +825,7 @@ for (i = 0; i < nbins; i++) {
         build configuration.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="config.prof">
         <term>
           <mallctl>config.prof</mallctl>
           (<type>bool</type>)
@@ -689,7 +835,7 @@ for (i = 0; i < nbins; i++) {
         build configuration.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="config.prof_libgcc">
         <term>
           <mallctl>config.prof_libgcc</mallctl>
           (<type>bool</type>)
@@ -699,7 +845,7 @@ for (i = 0; i < nbins; i++) {
         specified during build configuration.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="config.prof_libunwind">
         <term>
           <mallctl>config.prof_libunwind</mallctl>
           (<type>bool</type>)
@@ -709,7 +855,7 @@ for (i = 0; i < nbins; i++) {
         during build configuration.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="config.stats">
         <term>
           <mallctl>config.stats</mallctl>
           (<type>bool</type>)
@@ -719,7 +865,7 @@ for (i = 0; i < nbins; i++) {
         build configuration.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="config.tcache">
         <term>
           <mallctl>config.tcache</mallctl>
           (<type>bool</type>)
@@ -729,7 +875,7 @@ for (i = 0; i < nbins; i++) {
         during build configuration.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="config.tls">
         <term>
           <mallctl>config.tls</mallctl>
           (<type>bool</type>)
@@ -739,7 +885,7 @@ for (i = 0; i < nbins; i++) {
         build configuration.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="config.utrace">
         <term>
           <mallctl>config.utrace</mallctl>
           (<type>bool</type>)
@@ -749,7 +895,7 @@ for (i = 0; i < nbins; i++) {
         build configuration.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="config.valgrind">
         <term>
           <mallctl>config.valgrind</mallctl>
           (<type>bool</type>)
@@ -759,7 +905,7 @@ for (i = 0; i < nbins; i++) {
         build configuration.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="config.xmalloc">
         <term>
           <mallctl>config.xmalloc</mallctl>
           (<type>bool</type>)
@@ -784,16 +930,6 @@ for (i = 0; i < nbins; i++) {
         </para></listitem>
       </varlistentry>
 
-      <varlistentry id="opt.lg_chunk">
-        <term>
-          <mallctl>opt.lg_chunk</mallctl>
-          (<type>size_t</type>)
-          <literal>r-</literal>
-        </term>
-        <listitem><para>Virtual memory chunk size (log base 2).  The default
-        chunk size is 4 MiB (2^22).</para></listitem>
-      </varlistentry>
-
       <varlistentry id="opt.dss">
         <term>
           <mallctl>opt.dss</mallctl>
@@ -805,7 +941,23 @@ for (i = 0; i < nbins; i++) {
         related to <citerefentry><refentrytitle>mmap</refentrytitle>
         <manvolnum>2</manvolnum></citerefentry> allocation.  The following
         settings are supported: &ldquo;disabled&rdquo;, &ldquo;primary&rdquo;,
-        and &ldquo;secondary&rdquo; (default).</para></listitem>
+        and &ldquo;secondary&rdquo;.  The default is &ldquo;secondary&rdquo; if
+        <link linkend="config.dss"><mallctl>config.dss</mallctl></link> is
+        true, &ldquo;disabled&rdquo; otherwise.
+        </para></listitem>
+      </varlistentry>
+
+      <varlistentry id="opt.lg_chunk">
+        <term>
+          <mallctl>opt.lg_chunk</mallctl>
+          (<type>size_t</type>)
+          <literal>r-</literal>
+        </term>
+        <listitem><para>Virtual memory chunk size (log base 2).  If a chunk
+        size outside the supported size range is specified, the size is
+        silently clipped to the minimum/maximum supported size.  The default
+        chunk size is 4 MiB (2^22).
+        </para></listitem>
       </varlistentry>
 
       <varlistentry id="opt.narenas">
@@ -924,7 +1076,8 @@ for (i = 0; i < nbins; i++) {
         <listitem><para>Zero filling enabled/disabled.  If enabled, each byte
         of uninitialized allocated memory will be initialized to 0.  Note that
         this initialization only happens once for each byte, so
-        <function>realloc<parameter/></function> and
+        <function>realloc<parameter/></function>,
+        <function>rallocx<parameter/></function> and
         <function>rallocm<parameter/></function> calls do not zero memory that
         was previously allocated.  This is intended for debugging and will
         impact performance negatively.  This option is disabled by default.
@@ -1053,7 +1206,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <term>
           <mallctl>opt.prof_active</mallctl>
           (<type>bool</type>)
-          <literal>r-</literal>
+          <literal>rw</literal>
           [<option>--enable-prof</option>]
         </term>
         <listitem><para>Profiling activated/deactivated.  This is a secondary
@@ -1165,7 +1318,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         by default.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="thread.arena">
         <term>
           <mallctl>thread.arena</mallctl>
           (<type>unsigned</type>)
@@ -1192,7 +1345,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         cases.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="thread.allocatedp">
         <term>
           <mallctl>thread.allocatedp</mallctl>
           (<type>uint64_t *</type>)
@@ -1219,7 +1372,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         cases.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="thread.deallocatedp">
         <term>
           <mallctl>thread.deallocatedp</mallctl>
           (<type>uint64_t *</type>)
@@ -1233,7 +1386,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <function>mallctl*<parameter/></function> calls.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="thread.tcache.enabled">
         <term>
           <mallctl>thread.tcache.enabled</mallctl>
           (<type>bool</type>)
@@ -1247,7 +1400,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         </para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="thread.tcache.flush">
         <term>
           <mallctl>thread.tcache.flush</mallctl>
           (<type>void</type>)
@@ -1286,8 +1439,12 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <listitem><para>Set the precedence of dss allocation as related to mmap
         allocation for arena &lt;i&gt;, or for all arenas if &lt;i&gt; equals
         <link
-        linkend="arenas.narenas"><mallctl>arenas.narenas</mallctl></link>.  See
-        <link linkend="opt.dss"><mallctl>opt.dss</mallctl></link> for supported
+        linkend="arenas.narenas"><mallctl>arenas.narenas</mallctl></link>.  Note
+        that even during huge allocation this setting is read from the arena
+        that would be chosen for small or large allocation so that applications
+        can depend on consistent dss versus mmap allocation regardless of
+        allocation size.  See <link
+        linkend="opt.dss"><mallctl>opt.dss</mallctl></link> for supported
         settings.
         </para></listitem>
       </varlistentry>
@@ -1313,7 +1470,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         initialized.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="arenas.quantum">
         <term>
           <mallctl>arenas.quantum</mallctl>
           (<type>size_t</type>)
@@ -1322,7 +1479,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <listitem><para>Quantum size.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="arenas.page">
         <term>
           <mallctl>arenas.page</mallctl>
           (<type>size_t</type>)
@@ -1331,7 +1488,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <listitem><para>Page size.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="arenas.tcache_max">
         <term>
           <mallctl>arenas.tcache_max</mallctl>
           (<type>size_t</type>)
@@ -1341,7 +1498,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <listitem><para>Maximum thread-cached size class.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="arenas.nbins">
         <term>
           <mallctl>arenas.nbins</mallctl>
           (<type>unsigned</type>)
@@ -1350,7 +1507,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <listitem><para>Number of bin size classes.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="arenas.nhbins">
         <term>
           <mallctl>arenas.nhbins</mallctl>
           (<type>unsigned</type>)
@@ -1370,7 +1527,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <listitem><para>Maximum size supported by size class.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="arenas.bin.i.nregs">
         <term>
           <mallctl>arenas.bin.&lt;i&gt;.nregs</mallctl>
           (<type>uint32_t</type>)
@@ -1379,7 +1536,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <listitem><para>Number of regions per page run.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="arenas.bin.i.run_size">
         <term>
           <mallctl>arenas.bin.&lt;i&gt;.run_size</mallctl>
           (<type>size_t</type>)
@@ -1388,7 +1545,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <listitem><para>Number of bytes per page run.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="arenas.nlruns">
         <term>
           <mallctl>arenas.nlruns</mallctl>
           (<type>size_t</type>)
@@ -1397,7 +1554,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <listitem><para>Total number of large size classes.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="arenas.lrun.i.size">
         <term>
           <mallctl>arenas.lrun.&lt;i&gt;.size</mallctl>
           (<type>size_t</type>)
@@ -1407,7 +1564,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         class.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="arenas.purge">
         <term>
           <mallctl>arenas.purge</mallctl>
           (<type>unsigned</type>)
@@ -1417,7 +1574,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         for all arenas if none is specified.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="arenas.extend">
         <term>
           <mallctl>arenas.extend</mallctl>
           (<type>unsigned</type>)
@@ -1441,7 +1598,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         </para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="prof.dump">
         <term>
           <mallctl>prof.dump</mallctl>
           (<type>const char *</type>)
@@ -1457,7 +1614,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         option.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="prof.interval">
         <term>
           <mallctl>prof.interval</mallctl>
           (<type>uint64_t</type>)
@@ -1517,7 +1674,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         entirely devoted to allocator metadata.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.mapped">
         <term>
           <mallctl>stats.mapped</mallctl>
           (<type>size_t</type>)
@@ -1531,7 +1688,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         does not include inactive chunks.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.chunks.current">
         <term>
           <mallctl>stats.chunks.current</mallctl>
           (<type>size_t</type>)
@@ -1543,7 +1700,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         </para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.chunks.total">
         <term>
           <mallctl>stats.chunks.total</mallctl>
           (<type>uint64_t</type>)
@@ -1553,7 +1710,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <listitem><para>Cumulative number of chunks allocated.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.chunks.high">
         <term>
           <mallctl>stats.chunks.high</mallctl>
           (<type>size_t</type>)
@@ -1564,7 +1721,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         </para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.huge.allocated">
         <term>
           <mallctl>stats.huge.allocated</mallctl>
           (<type>size_t</type>)
@@ -1575,7 +1732,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         </para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.huge.nmalloc">
         <term>
           <mallctl>stats.huge.nmalloc</mallctl>
           (<type>uint64_t</type>)
@@ -1586,7 +1743,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         </para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.huge.ndalloc">
         <term>
           <mallctl>stats.huge.ndalloc</mallctl>
           (<type>uint64_t</type>)
@@ -1597,7 +1754,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         </para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.dss">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.dss</mallctl>
           (<type>const char *</type>)
@@ -1611,7 +1768,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         </para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.nthreads">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.nthreads</mallctl>
           (<type>unsigned</type>)
@@ -1621,7 +1778,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         arena.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.pactive">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.pactive</mallctl>
           (<type>size_t</type>)
@@ -1642,7 +1799,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         similar has not been called.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.mapped">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.mapped</mallctl>
           (<type>size_t</type>)
@@ -1652,7 +1809,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <listitem><para>Number of mapped bytes.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.npurge">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.npurge</mallctl>
           (<type>uint64_t</type>)
@@ -1663,7 +1820,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         </para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.nmadvise">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.nmadvise</mallctl>
           (<type>uint64_t</type>)
@@ -1675,9 +1832,9 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         similar calls made to purge dirty pages.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.purged">
         <term>
-          <mallctl>stats.arenas.&lt;i&gt;.npurged</mallctl>
+          <mallctl>stats.arenas.&lt;i&gt;.purged</mallctl>
           (<type>uint64_t</type>)
           <literal>r-</literal>
           [<option>--enable-stats</option>]
@@ -1685,7 +1842,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <listitem><para>Number of pages purged.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.small.allocated">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.small.allocated</mallctl>
           (<type>size_t</type>)
@@ -1696,7 +1853,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         </para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.small.nmalloc">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.small.nmalloc</mallctl>
           (<type>uint64_t</type>)
@@ -1707,7 +1864,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         small bins.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.small.ndalloc">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.small.ndalloc</mallctl>
           (<type>uint64_t</type>)
@@ -1718,7 +1875,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         </para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.small.nrequests">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.small.nrequests</mallctl>
           (<type>uint64_t</type>)
@@ -1729,7 +1886,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         </para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.large.allocated">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.large.allocated</mallctl>
           (<type>size_t</type>)
@@ -1740,7 +1897,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         </para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.large.nmalloc">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.large.nmalloc</mallctl>
           (<type>uint64_t</type>)
@@ -1751,7 +1908,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         directly by the arena.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.large.ndalloc">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.large.ndalloc</mallctl>
           (<type>uint64_t</type>)
@@ -1762,7 +1919,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         directly by the arena.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.large.nrequests">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.large.nrequests</mallctl>
           (<type>uint64_t</type>)
@@ -1773,7 +1930,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         </para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.bins.j.allocated">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.bins.&lt;j&gt;.allocated</mallctl>
           (<type>size_t</type>)
@@ -1784,7 +1941,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         bin.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.bins.j.nmalloc">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.bins.&lt;j&gt;.nmalloc</mallctl>
           (<type>uint64_t</type>)
@@ -1795,7 +1952,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         </para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.bins.j.ndalloc">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.bins.&lt;j&gt;.ndalloc</mallctl>
           (<type>uint64_t</type>)
@@ -1806,7 +1963,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         </para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.bins.j.nrequests">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.bins.&lt;j&gt;.nrequests</mallctl>
           (<type>uint64_t</type>)
@@ -1817,7 +1974,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         requests.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.bins.j.nfills">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.bins.&lt;j&gt;.nfills</mallctl>
           (<type>uint64_t</type>)
@@ -1827,7 +1984,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <listitem><para>Cumulative number of tcache fills.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.bins.j.nflushes">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.bins.&lt;j&gt;.nflushes</mallctl>
           (<type>uint64_t</type>)
@@ -1837,7 +1994,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <listitem><para>Cumulative number of tcache flushes.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.bins.j.nruns">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.bins.&lt;j&gt;.nruns</mallctl>
           (<type>uint64_t</type>)
@@ -1847,7 +2004,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <listitem><para>Cumulative number of runs created.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.bins.j.nreruns">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.bins.&lt;j&gt;.nreruns</mallctl>
           (<type>uint64_t</type>)
@@ -1858,7 +2015,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         to allocate changed.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.bins.j.curruns">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.bins.&lt;j&gt;.curruns</mallctl>
           (<type>size_t</type>)
@@ -1868,7 +2025,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <listitem><para>Current number of runs.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.lruns.j.nmalloc">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.lruns.&lt;j&gt;.nmalloc</mallctl>
           (<type>uint64_t</type>)
@@ -1879,7 +2036,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         class served directly by the arena.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.lruns.j.ndalloc">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.lruns.&lt;j&gt;.ndalloc</mallctl>
           (<type>uint64_t</type>)
@@ -1890,7 +2047,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         size class served directly by the arena.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.lruns.j.nrequests">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.lruns.&lt;j&gt;.nrequests</mallctl>
           (<type>uint64_t</type>)
@@ -1901,7 +2058,7 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         class.</para></listitem>
       </varlistentry>
 
-      <varlistentry>
+      <varlistentry id="stats.arenas.i.lruns.j.curruns">
         <term>
           <mallctl>stats.arenas.&lt;i&gt;.lruns.&lt;j&gt;.curruns</mallctl>
           (<type>size_t</type>)
@@ -2027,9 +2184,26 @@ malloc_conf = "xmalloc:true";]]></programlisting>
     </refsect2>
     <refsect2>
       <title>Non-standard API</title>
-      <para>The <function>malloc_usable_size<parameter/></function> function
-      returns the usable size of the allocation pointed to by
-      <parameter>ptr</parameter>.  </para>
+      <para>The <function>mallocx<parameter/></function> and
+      <function>rallocx<parameter/></function> functions return a pointer to
+      the allocated memory if successful; otherwise a <constant>NULL</constant>
+      pointer is returned to indicate insufficient contiguous memory was
+      available to service the allocation request.  </para>
+
+      <para>The <function>xallocx<parameter/></function> function returns the
+      real size of the resulting resized allocation pointed to by
+      <parameter>ptr</parameter>, which is a value less than
+      <parameter>size</parameter> if the allocation could not be adequately
+      grown in place.  </para>
+
+      <para>The <function>sallocx<parameter/></function> function returns the
+      real size of the allocation pointed to by <parameter>ptr</parameter>.
+      </para>
+
+      <para>The <function>nallocx<parameter/></function> returns the real size
+      that would result from a successful equivalent
+      <function>mallocx<parameter/></function> function call, or zero if
+      insufficient memory is available to perform the size computation.  </para>
 
       <para>The <function>mallctl<parameter/></function>,
       <function>mallctlnametomib<parameter/></function>, and
@@ -2045,12 +2219,6 @@ malloc_conf = "xmalloc:true";]]></programlisting>
             large or too small.  Alternatively, <parameter>*oldlenp</parameter>
             is too large or too small; in this case as much data as possible
             are read despite the error.</para></listitem>
-          </varlistentry>
-          <varlistentry>
-            <term><errorname>ENOMEM</errorname></term>
-
-            <listitem><para><parameter>*oldlenp</parameter> is too short to
-            hold the requested value.</para></listitem>
           </varlistentry>
           <varlistentry>
             <term><errorname>ENOENT</errorname></term>
@@ -2080,6 +2248,10 @@ malloc_conf = "xmalloc:true";]]></programlisting>
           </varlistentry>
         </variablelist>
       </para>
+
+      <para>The <function>malloc_usable_size<parameter/></function> function
+      returns the usable size of the allocation pointed to by
+      <parameter>ptr</parameter>.  </para>
     </refsect2>
     <refsect2>
       <title>Experimental API</title>

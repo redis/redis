@@ -97,9 +97,8 @@ tcache_bin_flush_small(tcache_bin_t *tbin, size_t binind, unsigned rem,
 		arena_bin_t *bin = &arena->bins[binind];
 
 		if (config_prof && arena == tcache->arena) {
-			malloc_mutex_lock(&arena->lock);
-			arena_prof_accum(arena, tcache->prof_accumbytes);
-			malloc_mutex_unlock(&arena->lock);
+			if (arena_prof_accum(arena, tcache->prof_accumbytes))
+				prof_idump();
 			tcache->prof_accumbytes = 0;
 		}
 
@@ -176,11 +175,14 @@ tcache_bin_flush_large(tcache_bin_t *tbin, size_t binind, unsigned rem,
 		arena_chunk_t *chunk = (arena_chunk_t *)CHUNK_ADDR2BASE(
 		    tbin->avail[0]);
 		arena_t *arena = chunk->arena;
+		UNUSED bool idump;
 
+		if (config_prof)
+			idump = false;
 		malloc_mutex_lock(&arena->lock);
 		if ((config_prof || config_stats) && arena == tcache->arena) {
 			if (config_prof) {
-				arena_prof_accum(arena,
+				idump = arena_prof_accum_locked(arena,
 				    tcache->prof_accumbytes);
 				tcache->prof_accumbytes = 0;
 			}
@@ -212,6 +214,8 @@ tcache_bin_flush_large(tcache_bin_t *tbin, size_t binind, unsigned rem,
 			}
 		}
 		malloc_mutex_unlock(&arena->lock);
+		if (config_prof && idump)
+			prof_idump();
 	}
 	if (config_stats && merged_stats == false) {
 		/*
@@ -256,8 +260,8 @@ tcache_arena_dissociate(tcache_t *tcache)
 		/* Unlink from list of extant tcaches. */
 		malloc_mutex_lock(&tcache->arena->lock);
 		ql_remove(&tcache->arena->tcache_ql, tcache, link);
-		malloc_mutex_unlock(&tcache->arena->lock);
 		tcache_stats_merge(tcache, tcache->arena);
+		malloc_mutex_unlock(&tcache->arena->lock);
 	}
 }
 
@@ -288,7 +292,7 @@ tcache_create(arena_t *arena)
 	else if (size <= tcache_maxclass)
 		tcache = (tcache_t *)arena_malloc_large(arena, size, true);
 	else
-		tcache = (tcache_t *)icallocx(size, false, arena);
+		tcache = (tcache_t *)icalloct(size, false, arena);
 
 	if (tcache == NULL)
 		return (NULL);
@@ -343,11 +347,9 @@ tcache_destroy(tcache_t *tcache)
 		}
 	}
 
-	if (config_prof && tcache->prof_accumbytes > 0) {
-		malloc_mutex_lock(&tcache->arena->lock);
-		arena_prof_accum(tcache->arena, tcache->prof_accumbytes);
-		malloc_mutex_unlock(&tcache->arena->lock);
-	}
+	if (config_prof && tcache->prof_accumbytes > 0 &&
+	    arena_prof_accum(tcache->arena, tcache->prof_accumbytes))
+		prof_idump();
 
 	tcache_size = arena_salloc(tcache, false);
 	if (tcache_size <= SMALL_MAXCLASS) {
@@ -364,7 +366,7 @@ tcache_destroy(tcache_t *tcache)
 
 		arena_dalloc_large(arena, chunk, tcache);
 	} else
-		idallocx(tcache, false);
+		idalloct(tcache, false);
 }
 
 void
@@ -397,10 +399,13 @@ tcache_thread_cleanup(void *arg)
 	}
 }
 
+/* Caller must own arena->lock. */
 void
 tcache_stats_merge(tcache_t *tcache, arena_t *arena)
 {
 	unsigned i;
+
+	cassert(config_stats);
 
 	/* Merge and reset tcache stats. */
 	for (i = 0; i < NBINS; i++) {
