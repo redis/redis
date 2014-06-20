@@ -25,7 +25,7 @@
  *   uint32_t state      : Seed value.
  *   const uint32_t a, c : See above discussion.
  */
-#define prng32(r, lg_range, state, a, c) do {				\
+#define	prng32(r, lg_range, state, a, c) do {				\
 	assert(lg_range > 0);						\
 	assert(lg_range <= 32);						\
 									\
@@ -35,7 +35,7 @@
 } while (false)
 
 /* Same as prng32(), but 64 bits of pseudo-randomness, using uint64_t. */
-#define prng64(r, lg_range, state, a, c) do {				\
+#define	prng64(r, lg_range, state, a, c) do {				\
 	assert(lg_range > 0);						\
 	assert(lg_range <= 64);						\
 									\
