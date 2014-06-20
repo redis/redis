@@ -91,7 +91,7 @@
     <ClCompile Include="..\..\..\src\adlist.c" />
     <ClCompile Include="..\..\..\src\ae.c" />
     <ClCompile Include="..\..\..\src\zmalloc.c" />
-    <ClCompile Include="AsyncSubscribe.c" />
+    <ClCompile Include="example-ae-win.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\src\ae.h" />
