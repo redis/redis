@@ -1331,7 +1331,7 @@ void roleCommand(redisClient *c) {
     } else {
         char *slavestate = NULL;
 
-        addReplyMultiBulkLen(c,4);
+        addReplyMultiBulkLen(c,5);
         addReplyBulkCBuffer(c,"slave",5);
         addReplyBulkCString(c,server.masterhost);
         addReplyLongLong(c,server.masterport);
