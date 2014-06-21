@@ -2152,6 +2152,12 @@ int prepareForShutdown(int flags) {
         /* Kill the AOF saving child as the AOF we already have may be longer
          * but contains the full dataset anyway. */
         if (server.aof_child_pid != -1) {
+            /* If we have AOF enabled but haven't written the AOF yet, don't
+             * shutdown or else the dataset will be lost. */
+            if (server.aof_state == REDIS_AOF_WAIT_REWRITE) {
+                redisLog(REDIS_WARNING, "Writing initial AOF, can't exit.");
+                return REDIS_ERR;
+            }
             redisLog(REDIS_WARNING,
                 "There is a child rewriting the AOF. Killing it!");
             kill(server.aof_child_pid,SIGUSR1);
