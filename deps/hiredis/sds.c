@@ -292,24 +292,37 @@ sds sdscpy(sds s, const char *t) {
 /* Like sdscatpritf() but gets va_list instead of being variadic. */
 sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
     va_list cpy;
-    char *buf, *t;
-    size_t buflen = 16;
+    char staticbuf[1024], *buf = staticbuf, *t;
+    size_t buflen = strlen(fmt)*2;
 
-    while(1) {
+    /* We try to start using a static buffer for speed.
+     * If not possible we revert to heap allocation. */
+    if (buflen > sizeof(staticbuf)) {
         buf = zmalloc(buflen);
         if (buf == NULL) return NULL;
+    } else {
+        buflen = sizeof(staticbuf);
+    }
+
+    /* Try with buffers two times bigger every time we fail to
+     * fit the string in the current buffer size. */
+    while(1) {
         buf[buflen-2] = '\0';
         va_copy(cpy,ap);
         vsnprintf(buf, buflen, fmt, cpy);
         if (buf[buflen-2] != '\0') {
-            zfree(buf);
+            if (buf != staticbuf) zfree(buf);
             buflen *= 2;
+            buf = zmalloc(buflen);
+            if (buf == NULL) return NULL;
             continue;
         }
         break;
     }
+
+    /* Finally concat the obtained string to the SDS string and return it. */
     t = sdscat(s, buf);
-    zfree(buf);
+    if (buf != staticbuf) zfree(buf);
     return t;
 }
 
@@ -383,7 +396,7 @@ sds sdstrim(sds s, const char *cset) {
  * Example:
  *
  * s = sdsnew("Hello World");
- * sdstrim(s,1,-1); => "ello Worl"
+ * sdsrange(s,1,-1); => "ello World"
  */
 void sdsrange(sds s, int start, int end) {
     struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
@@ -582,7 +595,7 @@ int is_hex_digit(char c) {
            (c >= 'A' && c <= 'F');
 }
 
-/* Helper function for sdssplitargs() that converts an hex digit into an
+/* Helper function for sdssplitargs() that converts a hex digit into an
  * integer from 0 to 15 */
 int hex_digit_to_int(char c) {
     switch(c) {
