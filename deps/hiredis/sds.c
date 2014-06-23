@@ -457,7 +457,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
     i = initlen; /* Position of the next byte to write to dest str. */
     while(*f) {
         char next, *str;
-        size_t l;
+        int l;
         long long num;
         unsigned long long unum;
 
