@@ -63,6 +63,7 @@ int main(void) {
         }
     }
     freeReplyObject(reply);
+    redisFree(c);
 
     return 0;
 }
