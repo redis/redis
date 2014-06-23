@@ -14,6 +14,44 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.12 ] Release date: 23 Jun 2014
+
+# UPGRADE URGENCY: HIGH for Redis, CRITICAL for Sentinel.
+
+# WARNING: This release contains a non backward compatible semantical change
+           to Lua script that should affect an almost zero number of users.
+
+* [FIX / BREAKS BACKWARD COMPATIBILITY] Using SELECT inside Lua scripts no
+       longer makes the selected DB to be set in the calling client.
+       So Lua can still use SELECT, but the client calling the script will
+       remain set to the original DB. Thix fixes an issue with Redis
+       replication of Lua scripts that called SELECT without reverting the
+       selected DB to the original one. (Salvatore Sanfilippo)
+* [FIX] Sentinel failover was instalbe if the master was detected as available
+        during the failover (especially during manual failovers) because
+        of an implementation error (lack of checking of
+        SRI_PROMOTED flag). (Salvatore Sanfilippo)
+* [FIX] Cancel SHUTDOWN if initial AOF is being written. (Matt Stancliff)
+* [FIX] Sentinel: bind source address for outcoming connections. (Matt
+        Stancliff).
+* [FIX] Less timing sensitive Sentinel tests. (Salvatore Sanfilippo).
+
+* [NEW] redis-cli --intrinsic-latency stopped with SIGINT still reports
+        stats (Matt Stancliff)
+* [NEW] Sentinels broadcast an HELLO message ASAP after a failover in order to
+        reach a consistent state faster (before it relied for periodic HELLO
+        messages). (Salvatore Sanfilippo).
+* [NEW] Jemalloc updated to 3.6.0. (Salvatore Sanfilippo)
+* [NEW] CLIENT LIST speedup. (Salvatore Sanfilippo)
+* [NEW] CLIENT LIST new unique incremental ID to every client. (Salvatore
+        Sanfilippo)
+* [NEW] ROLE command added. (Salvatore Sanfilippo)
+* [NEW] CLIENT KILL new form to kill by client type and ID (see doc at
+        redis.io for more info). (Salvatore Sanfilippo)
+* [NEW] Sentinel now disconnects clients when instances are reconfigured
+        (see http://redis.io/topics/sentinel-clients). (Salvatore Sanfilippo)
+* [NEW] Hiredis update to latest version. (Matt Stancliff)
+
 --[ Redis 2.8.11 ] Release date: 11 Jun 2014
 
 # UPGRADE URGENCY: HIGH if you use Lua scripting, LOW otherwise.
