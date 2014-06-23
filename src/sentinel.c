@@ -380,6 +380,7 @@ void sentinelCommand(redisClient *c);
 void sentinelInfoCommand(redisClient *c);
 void sentinelSetCommand(redisClient *c);
 void sentinelPublishCommand(redisClient *c);
+void sentinelRoleCommand(redisClient *c);
 
 struct redisCommand sentinelcmds[] = {
     {"ping",pingCommand,1,"",0,NULL,0,0,0,0,0},
@@ -390,6 +391,7 @@ struct redisCommand sentinelcmds[] = {
     {"punsubscribe",punsubscribeCommand,-1,"",0,NULL,0,0,0,0,0},
     {"publish",sentinelPublishCommand,3,"",0,NULL,0,0,0,0,0},
     {"info",sentinelInfoCommand,-1,"",0,NULL,0,0,0,0,0},
+    {"role",sentinelRoleCommand,1,"l",0,NULL,0,0,0,0,0},
     {"shutdown",shutdownCommand,-1,"",0,NULL,0,0,0,0,0}
 };
 
@@ -2797,6 +2799,25 @@ void sentinelInfoCommand(redisClient *c) {
         (unsigned long)sdslen(info)));
     addReplySds(c,info);
     addReply(c,shared.crlf);
+}
+
+/* Implements Sentinel verison of the ROLE command. The output is
+ * "sentinel" and the list of currently monitored master names. */
+void sentinelRoleCommand(redisClient *c) {
+    dictIterator *di;
+    dictEntry *de;
+
+    addReplyMultiBulkLen(c,2);
+    addReplyBulkCBuffer(c,"sentinel",8);
+    addReplyMultiBulkLen(c,dictSize(sentinel.masters));
+
+    di = dictGetIterator(sentinel.masters);
+    while((de = dictNext(di)) != NULL) {
+        sentinelRedisInstance *ri = dictGetVal(de);
+
+        addReplyBulkCString(c,ri->name);
+    }
+    dictReleaseIterator(di);
 }
 
 /* SENTINEL SET <mastername> [<option> <value> ...] */
