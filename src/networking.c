@@ -1335,6 +1335,7 @@ void clientCommand(redisClient *c) {
         if (c->argc == 3) {
             /* Old style syntax: CLIENT KILL <addr> */
             addr = c->argv[2]->ptr;
+            skipme = 0; /* With the old form, you can kill yourself. */
         } else if (c->argc > 3) {
             int i = 2; /* Next option index. */
 
