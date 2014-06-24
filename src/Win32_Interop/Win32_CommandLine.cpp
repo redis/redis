@@ -124,11 +124,74 @@ static FixedParam fp2 = FixedParam(2);
 static FixedParam fp3 = FixedParam(3);
 static FixedParam fp4 = FixedParam(4);
 
+typedef class SaveParams : public ParamExtractor {
+public:
+    SaveParams() {}
+
+    bool isStringAnInt(string test)  {
+        int x;
+        char c;
+        istringstream s(test);
+ 
+        if (!(s >> x) ||            // not convertable to an int
+            (s >> c)) {             // some character past the int
+            return false;
+        } else {
+            return true;
+        }
+    }
+
+    vector<string> Extract(int argStartIndex, int argc, char** argv) {
+        vector<string> params;
+        int argIndex = argStartIndex + 1;
+
+        // save [seconds] [changes]
+        // or 
+        // save ""      -- turns off RDB persistence
+        if (strcmp(argv[argIndex], "\"\"") == 0 || strcmp(argv[argIndex], "''") == 0) {
+            params.push_back(argv[argIndex]);
+        } else if (
+            isStringAnInt(argv[argIndex]) && 
+            isStringAnInt(argv[argIndex+1])) {
+            params.push_back(argv[argIndex]);
+            params.push_back(argv[argIndex+1]);
+        } else {
+            stringstream err;
+            err << "Not enough parameters available for " << argv[argStartIndex];
+            throw runtime_error(err.str());
+        }
+        return params;
+    }
+
+    virtual vector<string> Extract(vector<string> tokens, int startIndex = 0) {
+        vector<string> params;
+        int parameterIndex = 1 + startIndex;
+        if ((tokens.size() > parameterIndex) &&
+            (tokens.at(parameterIndex) == string("\"\"") ||
+            tokens.at(parameterIndex) == string("''"))) {
+            params.push_back(tokens.at(parameterIndex));
+        } else if ((tokens.size() > parameterIndex + 1) &&
+                   isStringAnInt(tokens.at(parameterIndex)) &&
+                   isStringAnInt(tokens.at(parameterIndex + 1))) {
+            params.push_back(tokens.at(parameterIndex));
+            params.push_back(tokens.at(parameterIndex + 1));
+        } else {
+            stringstream err;
+            err << "Not enough parameters available for " << tokens.at(startIndex);
+            throw runtime_error(err.str());
+        }
+        return params;
+    };
+
+} SaveParams;
+
+static SaveParams savep = SaveParams();
+
 typedef class BindParams : public ParamExtractor {
 public:
     BindParams() {}
 
-    dllfunctor_stdcall<int, LPCSTR, INT, LPWSAPROTOCOL_INFO, LPSOCKADDR, LPINT> f_WSAStringToAddressA = 
+    dllfunctor_stdcall<int, LPCSTR, INT, LPWSAPROTOCOL_INFO, LPSOCKADDR, LPINT> f_WSAStringToAddressA =
         dllfunctor_stdcall<int, LPCSTR, INT, LPWSAPROTOCOL_INFO, LPSOCKADDR, LPINT>("ws2_32.dll", "WSAStringToAddressA");
 
     bool IsIPAddress(string address) {
@@ -200,6 +263,7 @@ public:
     };
 
 } BindParams;
+
 
 static BindParams bp = BindParams();
 
@@ -307,7 +371,7 @@ static RedisParamterMapper g_redisArgMap =
     { "syslog-ident",                   &fp1 },    // syslog-ident [string]
     { "syslog-facility",                &fp1 },    // syslog-facility [string]
     { "databases",                      &fp1 },    // databases [number]
-    { "save",                           &fp2 },    // save [seconds] [changes]
+    { "save",                           &savep },  // save [seconds] [changes] or save ""
     { "stop-writes-on-bgsave-error",    &fp1 },    // stop-writes-on-bgsave-error [yes/no] 
     { "rdbcompression",                 &fp1 },    // rdbcompression [yes/no]
     { "rdbchecksum",                    &fp1 },    // rdbchecksum [yes/no]
@@ -353,7 +417,7 @@ static RedisParamterMapper g_redisArgMap =
     { "client-output-buffer-limit",     &fp4 },    // client-output-buffer-limit [class] [hard limit] [soft limit] [soft seconds]
     { "hz",                             &fp1 },    // hz [number]
     { "aof-rewrite-incremental-fsync",  &fp1 },    // aof-rewrite-incremental-fsync [yes/no]
-    { cInclude,                        &fp1 },    // include [path]
+    { cInclude,                         &fp1 },    // include [path]
 
     // sentinel commands
     { "sentinel",                       &sp }

@@ -1359,6 +1359,8 @@ void initServerConfig() {
     server.loading = 0;
     server.logfile = zstrdup(REDIS_DEFAULT_LOGFILE);
 #ifdef _WIN32
+    // this is handled before redis_main() in Win32_QFork.cpp:::SetupLogging()
+    /*
     if (RunningAsService()) {
         server.syslog_enabled = 1;
         server.syslog_ident = zstrdup(GetServiceName());
@@ -1368,6 +1370,7 @@ void initServerConfig() {
     }
     setSyslogEnabled(server.syslog_enabled);
     setSyslogIdent(server.syslog_ident);
+    */
 #else
 	server.syslog_enabled = REDIS_DEFAULT_SYSLOG_ENABLED;
     server.syslog_ident = zstrdup(REDIS_DEFAULT_SYSLOG_IDENT);
