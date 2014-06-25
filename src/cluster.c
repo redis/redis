@@ -3467,9 +3467,9 @@ void clusterReplyMultiBulkSlots(redisClient *c) {
         clusterNode *node = dictGetVal(de);
         int j = 0, start = -1;
 
-        /* If node is down or not a master, skip it. */
-        if (node->flags & REDIS_NODE_FAIL || !(node->flags & REDIS_NODE_MASTER))
-            continue;
+        /* Skip slaves (that are iterated when producing the output of their
+         * master) and  masters not serving any slot. */
+        if (!nodeIsMaster(node) || node->numslots == 0) continue;
 
         for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
             int bit;
