@@ -466,6 +466,11 @@ void clusterInit(void) {
 
     /* The slots -> keys map is a sorted set. Init it. */
     server.cluster->slots_to_keys = zslCreate();
+
+    /* Set myself->port to my listening port, we'll just need to discover
+     * the IP address via MEET messages. */
+    myself->port = server.port;
+
     resetManualFailover();
 }
 
@@ -1530,6 +1535,26 @@ int clusterProcessPacket(clusterLink *link) {
     /* Process packets by type. */
     if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_MEET) {
         redisLog(REDIS_DEBUG,"Ping packet received: %p", (void*)link->node);
+
+        /* We use incoming MEET messages in order to set the address
+         * for 'myself', since only other cluster nodes will send us
+         * MEET messagses on handshakes, when the cluster joins, or
+         * later if we changed address, and those nodes will use our
+         * official address to connect to us. So by obtaining this address
+         * from the socket is a simple way to discover / update our own
+         * address in the cluster without it being hardcoded in the config. */
+        if (type == CLUSTERMSG_TYPE_MEET) {
+            char ip[REDIS_IP_STR_LEN];
+
+            if (anetSockName(link->fd,ip,sizeof(ip),NULL) != -1 &&
+                strcmp(ip,myself->ip))
+            {
+                memcpy(myself->ip,ip,REDIS_IP_STR_LEN);
+                redisLog(REDIS_WARNING,"IP address for this node updated to %s",
+                    myself->ip);
+                clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
+            }
+        }
 
         /* Add this node if it is new for us and the msg type is MEET.
          * In this stage we don't try to add the node with the right
