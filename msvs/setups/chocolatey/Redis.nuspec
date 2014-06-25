@@ -14,7 +14,7 @@
     <licenseUrl>https://github.com/MSOpenTech/redis/blob/2.8.4_msopen/license.txt</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <iconUrl>http://redis.io/images/redis.png</iconUrl>
-    <releaseNotes></releaseNotes>
+    <releaseNotes>Includes changes from redis 2.8.9. Please see the release notes for the UNIX 2.8 branch to understand how this impacts Redis functionality. This release adds support for running redis as a Windows Service. Please see RedisService.docx file for documentation.</releaseNotes>
   </metadata>
   <files>
     <file src="..\signed_binaries\*.*" target=".\" />

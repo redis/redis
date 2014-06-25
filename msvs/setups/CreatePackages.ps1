@@ -12,7 +12,7 @@ New-Item ($PackagesDir+"\Chocolatey") -type directory  | Out-Null
 New-Item ($PackagesDir+"\NuGet") -type directory  | Out-Null
 
 Set-Location $ChocolateyDir
-invoke-expression cpack
+invoke-expression "chocolatey pack Redis.nuspec"
 Copy-Item *.nupkg ..\packages\Chocolatey
 
 Set-Location $NugetDir
