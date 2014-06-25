@@ -3458,8 +3458,8 @@ void clusterReplyMultiBulkSlots(redisClient *c) {
      *           ... continued until done
      */
 
-    int repliedRangeCount = 0;
-    void *slotreplylen = addDeferredMultiBulkLength(c);
+    int num_masters = 0;
+    void *slot_replylen = addDeferredMultiBulkLength(c);
 
     dictEntry *de;
     dictIterator *di = dictGetSafeIterator(server.cluster->nodes);
@@ -3472,16 +3472,16 @@ void clusterReplyMultiBulkSlots(redisClient *c) {
         if (!nodeIsMaster(node) || node->numslots == 0) continue;
 
         for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
-            int bit;
+            int bit, i;
 
             if ((bit = clusterNodeGetSlotBit(node,j)) != 0) {
                 if (start == -1) start = j;
             }
             if (start != -1 && (!bit || j == REDIS_CLUSTER_SLOTS-1)) {
-                if (bit && j == REDIS_CLUSTER_SLOTS-1) j++;
+                int nested_elements = 3; /* slots (2) + master addr (1). */
+                void *nested_replylen = addDeferredMultiBulkLength(c);
 
-                /* nested size: slots (2) + master (1) + slaves */
-                addReplyMultiBulkLen(c, 2 + 1 + node->numslaves);
+                if (bit && j == REDIS_CLUSTER_SLOTS-1) j++;
 
                 /* If slot exists in output map, add to it's list.
                  * else, create a new output map for this slot */
@@ -3500,20 +3500,22 @@ void clusterReplyMultiBulkSlots(redisClient *c) {
                 addReplyLongLong(c, node->port);
 
                 /* Remaining nodes in reply are replicas for slot range */
-                int i;
                 for (i = 0; i < node->numslaves; i++) {
                     /* This loop is copy/pasted from clusterGenNodeDescription()
                      * with modifications for per-slot node aggregation */
+                    if (nodeFailed(node->slaves[i])) continue;
                     addReplyMultiBulkLen(c, 2);
                     addReplyBulkCString(c, node->slaves[i]->ip);
                     addReplyLongLong(c, node->slaves[i]->port);
+                    nested_elements++;
                 }
-                repliedRangeCount++;
+                setDeferredMultiBulkLength(c, nested_replylen, nested_elements);
+                num_masters++;
             }
         }
     }
     dictReleaseIterator(di);
-    setDeferredMultiBulkLength(c, slotreplylen, repliedRangeCount);
+    setDeferredMultiBulkLength(c, slot_replylen, num_masters);
 }
 
 void clusterCommand(redisClient *c) {
