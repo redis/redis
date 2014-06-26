@@ -1383,7 +1383,9 @@ void clientCommand(redisClient *c) {
         while ((ln = listNext(&li)) != NULL) {
             client = listNodeValue(ln);
             if (addr && strcmp(getClientPeerId(client),addr) != 0) continue;
-            if (type != -1 && getClientType(client) != type) continue;
+            if (type != -1 &&
+                (client->flags & REDIS_MASTER ||
+                 getClientType(client) != type)) continue;
             if (id != 0 && client->id != id) continue;
             if (c == client && skipme) continue;
 
