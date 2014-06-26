@@ -185,7 +185,7 @@ void setproctitle(const char *fmt, ...);
 #error "Undefined or invalid BYTE_ORDER"
 #endif
 
-#if (__i386 || __amd64) && __GNUC__
+#if (__i386 || __amd64 || __powerpc__) && __GNUC__
 #define GNUC_VERSION (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
 #if (GNUC_VERSION >= 40100) || defined(__clang__)
 #define HAVE_ATOMIC
