@@ -3598,7 +3598,7 @@ void clusterCommand(redisClient *c) {
             if (slots[j]) {
                 int retval;
 
-                /* If this slot was set as importing we can clear this 
+                /* If this slot was set as importing we can clear this
                  * state as now we are the real owner of the slot. */
                 if (server.cluster->importing_slots_from[j])
                     server.cluster->importing_slots_from[j] = NULL;

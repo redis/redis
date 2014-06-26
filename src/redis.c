@@ -356,7 +356,7 @@ void redisLogFromHandler(int level, const char *msg) {
 
     if ((level&0xff) < server.verbosity || (log_to_stdout && server.daemonize))
         return;
-    fd = log_to_stdout ? STDOUT_FILENO : 
+    fd = log_to_stdout ? STDOUT_FILENO :
                          open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
     if (fd == -1) return;
     ll2string(buf,sizeof(buf),getpid());
@@ -1140,7 +1140,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         if ((pid = wait3(&statloc,WNOHANG,NULL)) != 0) {
             int exitcode = WEXITSTATUS(statloc);
             int bysignal = 0;
-            
+
             if (WIFSIGNALED(statloc)) bysignal = WTERMSIG(statloc);
 
             if (pid == server.rdb_child_pid) {
@@ -1506,7 +1506,7 @@ void initServerConfig() {
     server.lpushCommand = lookupCommandByCString("lpush");
     server.lpopCommand = lookupCommandByCString("lpop");
     server.rpopCommand = lookupCommandByCString("rpop");
-    
+
     /* Slow log */
     server.slowlog_log_slower_than = REDIS_SLOWLOG_LOG_SLOWER_THAN;
     server.slowlog_max_len = REDIS_SLOWLOG_MAX_LEN;
@@ -2452,7 +2452,7 @@ sds genRedisInfoString(char *section) {
         if (server.cluster_enabled) mode = "cluster";
         else if (server.sentinel_mode) mode = "sentinel";
         else mode = "standalone";
-    
+
         if (sections++) info = sdscat(info,"\r\n");
 
         if (call_uname) {
