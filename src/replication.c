@@ -198,7 +198,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
             long objlen = stringObjectLen(argv[j]);
 
             /* We need to feed the buffer with the object as a bulk reply
-             * not just as a plain string, so create the $..CRLF payload len 
+             * not just as a plain string, so create the $..CRLF payload len
              * ad add the final CRLF */
             aux[0] = '$';
             len = ll2string(aux+1,sizeof(aux)-1,objlen);
@@ -1620,7 +1620,7 @@ void replicationCron(void) {
     if (server.masterhost && server.master &&
         !(server.master->flags & REDIS_PRE_PSYNC))
         replicationSendAck();
-    
+
     /* If we have attached slaves, PING them from time to time.
      * So slaves can implement an explicit timeout to masters, and will
      * be able to detect a link disconnection even if the TCP connection

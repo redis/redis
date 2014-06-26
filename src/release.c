@@ -27,7 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* Every time the Redis Git SHA1 or Dirty status changes only this small 
+/* Every time the Redis Git SHA1 or Dirty status changes only this small
  * file is recompiled, as we access this information in all the other
  * files using this functions. */
 

@@ -69,7 +69,7 @@ static inline void
 swapfunc(char *a, char *b, size_t n, int swaptype)
 {
 
-	if (swaptype <= 1) 
+	if (swaptype <= 1)
 		swapcode(long, a, b, n)
 	else
 		swapcode(char, a, b, n)
@@ -160,9 +160,9 @@ loop:	SWAPINIT(a, es);
                     (lrange > _r && rrange > _r)))
 		    _pqsort(a, r / es, es, cmp, lrange, rrange);
         }
-	if ((r = pd - pc) > es) { 
+	if ((r = pd - pc) > es) {
                 void *_l, *_r;
-                
+
 		/* Iterate rather than recurse to save stack space */
 		a = pn - r;
 		n = r / es;

@@ -149,7 +149,7 @@ void migrateCommand(redisClient *c) {
         addReplySds(c,sdsnew("+NOKEY\r\n"));
         return;
     }
-    
+
     /* Connect */
     fd = anetTcpNonBlockConnect(server.neterr,c->argv[1]->ptr,
                 atoi(c->argv[2]->ptr));

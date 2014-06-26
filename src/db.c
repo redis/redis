@@ -103,7 +103,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
  * The program is aborted if the key was not already present. */
 void dbOverwrite(redisDb *db, robj *key, robj *val) {
     struct dictEntry *de = dictFind(db->dict,key->ptr);
-    
+
     redisAssertWithInfo(NULL,key,de != NULL);
     dictReplace(db->dict, key->ptr, val);
 }
@@ -816,7 +816,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
      * the slave key expiration is controlled by the master that will
      * send us synthesized DEL operations for expired keys.
      *
-     * Still we try to return the right information to the caller, 
+     * Still we try to return the right information to the caller,
      * that is, 0 if we think the key should be still valid, 1 if
      * we think the key is expired at this time. */
     if (server.masterhost != NULL) return now > when;
