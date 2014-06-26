@@ -200,7 +200,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
 
             /* We need to feed the buffer with the object as a bulk reply
              * not just as a plain string, so create the $..CRLF payload len 
-             * ad add the final CRLF */
+             * and add the final CRLF */
             aux[0] = '$';
             len = ll2string(aux+1,sizeof(aux)-1,objlen);
             aux[len+1] = '\r';
@@ -408,7 +408,7 @@ need_full_resync:
     return REDIS_ERR;
 }
 
-/* SYNC ad PSYNC command implemenation. */
+/* SYNC and PSYNC command implemenation. */
 void syncCommand(redisClient *c) {
     /* ignore SYNC if already slave or in monitor mode */
     if (c->flags & REDIS_SLAVE) return;
