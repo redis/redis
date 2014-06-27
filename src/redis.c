@@ -273,7 +273,7 @@ struct redisCommand redisCommandTable[] = {
     {"bitcount",bitcountCommand,-2,"r",0,NULL,1,1,1,0,0},
     {"bitpos",bitposCommand,-3,"r",0,NULL,1,1,1,0,0},
     {"wait",waitCommand,3,"rs",0,NULL,0,0,0,0,0},
-    {"commands",commandsCommand,0,"rlt",0,NULL,0,0,0,0,0},
+    {"command",commandCommand,0,"rlt",0,NULL,0,0,0,0,0},
     {"pfselftest",pfselftestCommand,1,"r",0,NULL,0,0,0,0,0},
     {"pfadd",pfaddCommand,-2,"wm",0,NULL,1,1,1,0,0},
     {"pfcount",pfcountCommand,-2,"w",0,NULL,1,1,1,0,0},
@@ -2446,7 +2446,7 @@ void addReplyCommand(redisClient *c, struct redisCommand *cmd) {
     }
 }
 
-void commandsCommand(redisClient *c) {
+void commandCommand(redisClient *c) {
     dictIterator *di;
     dictEntry *de;
 
