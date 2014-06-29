@@ -358,6 +358,11 @@ start_server {tags {"scripting"}} {
             return redis.call("get", "key")
         } 0
     } {12039611435714932082}
+
+    test {Verify negative arg count is error instead of crash (issue #1842)} {
+        catch { r eval { return "hello" } -12 } e
+        set e
+    } {ERR Number of keys can't be negative}
 }
 
 # Start a new server since the last test in this stanza will kill the
