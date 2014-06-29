@@ -255,7 +255,7 @@ void getrangeCommand(redisClient *c) {
     if (end < 0) end = strlen+end;
     if (start < 0) start = 0;
     if (end < 0) end = 0;
-    if ((unsigned)end >= strlen) end = strlen-1;
+    if ((size_t)end >= strlen) end = strlen-1;
 
     /* Precondition: end >= 0 && end < strlen, so the only condition where
      * nothing can be returned is: start > end. */
