@@ -769,4 +769,9 @@ start_server {tags {"basic"}} {
         r keys *
         r keys *
     } {dlskeriewrioeuwqoirueioqwrueoqwrueqw}
+
+    test {GETRANGE with huge ranges, Github issue #1844} {
+        r set foo bar
+        r getrange foo 0 4294967297
+    } {bar}
 }
