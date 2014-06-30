@@ -12,6 +12,39 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 3.0.0 Beta 7 (version 2.9.56) ] Release date: 30 jun 2014
+
+This is the 7th beta of Redis 3.0.0.
+
+>> General changes
+
+* [FIX] Scripting fixes backported from unstable, see Redis 2.8.12 changelog
+        for more info. (Salvatore Sanfilippo)
+* [FIX] Cancel SHUTDOWN if initial AOF is being written. (Matt Stancliff)
+
+* [NEW] New command: COMMAND, for commands introspection (Matt Stancliff &
+        Salvatore Sanfilippo)
+* [NEW] hiredis: Update to latest version. (Matt Stancliff)
+* [NEW] Jemalloc updated to 3.6.0. (Salvatore Sanfilippo)
+
+>> Cluster changes
+
+* [FIX] Cluster: clear NOADDR flag when updating node address.
+        (Salvatore Sanfilippo)
+
+* [NEW] New CLUSTER SLOTS command to simplify Cluster clients operations.
+        (Matt Stancliff)
+* [NEW] More Cluster tests. (Salvatore Sanfilippo)
+* [NEW] Log when failover authorization are granted / denied.
+        (Salvatore Sanfilippo)
+
+>> Sentinel changes
+
+* [FIX] A few Sentinel bugs fixed and improvements, see Redis 2.8.12
+        changelog for more info.  (Salvatore Sanfilippo & Matt Stancliff)
+* [NEW] New Sentinel-Client handshake protocol, ROLE command, CLIENT KILL,
+        all backported to 3.0 branch. (Salvatore Sanfilippo)
+
 --[ Redis 3.0.0 Beta 6 (version 2.9.55) ] Release date: 9 jun 2014
 
 This is the 6th beta of Redis 3.0.0.
