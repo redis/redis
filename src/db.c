@@ -858,7 +858,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
  *
  * unit is either UNIT_SECONDS or UNIT_MILLISECONDS, and is only used for
  * the argv[2] parameter. The basetime is always specified in milliseconds. */
-void expireGenericCommand(redisClient *c, long long basetime, int unit) {
+void expireGenericCommand(redisClient *c, long long basetime, int unit, int nx) {
     robj *key = c->argv[1], *param = c->argv[2];
     long long when; /* unix time in milliseconds when the key will expire. */
 
@@ -870,6 +870,12 @@ void expireGenericCommand(redisClient *c, long long basetime, int unit) {
 
     /* No key, return zero. */
     if (lookupKeyRead(c->db,key) == NULL) {
+        addReply(c,shared.czero);
+        return;
+    }
+
+    /* If nx set and expire already set, return zero. */
+    if (nx && getExpire(c->db,c->argv[1]) != -1) {
         addReply(c,shared.czero);
         return;
     }
@@ -905,19 +911,35 @@ void expireGenericCommand(redisClient *c, long long basetime, int unit) {
 }
 
 void expireCommand(redisClient *c) {
-    expireGenericCommand(c,mstime(),UNIT_SECONDS);
+    expireGenericCommand(c,mstime(),UNIT_SECONDS,0);
+}
+
+void expirenxCommand(redisClient *c) {
+    expireGenericCommand(c,mstime(),UNIT_SECONDS,1);
 }
 
 void expireatCommand(redisClient *c) {
-    expireGenericCommand(c,0,UNIT_SECONDS);
+    expireGenericCommand(c,0,UNIT_SECONDS,0);
+}
+
+void expireatnxCommand(redisClient *c) {
+    expireGenericCommand(c,0,UNIT_SECONDS,1);
 }
 
 void pexpireCommand(redisClient *c) {
-    expireGenericCommand(c,mstime(),UNIT_MILLISECONDS);
+    expireGenericCommand(c,mstime(),UNIT_MILLISECONDS,0);
+}
+
+void pexpirenxCommand(redisClient *c) {
+    expireGenericCommand(c,mstime(),UNIT_MILLISECONDS,1);
 }
 
 void pexpireatCommand(redisClient *c) {
-    expireGenericCommand(c,0,UNIT_MILLISECONDS);
+    expireGenericCommand(c,0,UNIT_MILLISECONDS,0);
+}
+
+void pexpireatnxCommand(redisClient *c) {
+    expireGenericCommand(c,0,UNIT_MILLISECONDS,1);
 }
 
 void ttlGenericCommand(redisClient *c, int output_ms) {
