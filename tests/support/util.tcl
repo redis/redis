@@ -315,12 +315,14 @@ proc roundFloat f {
 
 proc find_available_port start {
     for {set j $start} {$j < $start+1024} {incr j} {
-        if {[catch {
-            set fd [socket 127.0.0.1 $j]
-        }]} {
+        if {[catch {set fd1 [socket 127.0.0.1 $j]}] &&
+            [catch {set fd2 [socket 127.0.0.1 [expr $j+10000]]}]} {
             return $j
         } else {
-            close $fd
+            catch {
+                close $fd1
+                close $fd2
+            }
         }
     }
     if {$j == $start+1024} {
