@@ -1213,6 +1213,7 @@ void setTypeReleaseIterator(setTypeIterator *si);
 int setTypeNext(setTypeIterator *si, robj **objele, int64_t *llele);
 robj *setTypeNextObject(setTypeIterator *si);
 int setTypeRandomElement(robj *setobj, robj **objele, int64_t *llele);
+int setTypeRandomElements(robj *set, int count, robj *auxSet);
 unsigned long setTypeSize(robj *subject);
 void setTypeConvert(robj *subject, int enc);
 

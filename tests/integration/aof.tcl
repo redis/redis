@@ -126,6 +126,30 @@ tags {"aof"} {
         }
     }
 
+    ## Test that SPOP with <count> (that modifies the client's argc/argv) is correctly free'd
+    create_aof {
+        append_to_aof [formatCommand sadd set foo]
+        append_to_aof [formatCommand sadd set bar]
+        append_to_aof [formatCommand sadd set gah]
+        append_to_aof [formatCommand spop set 2]
+    }
+
+    start_server_aof [list dir $server_path] {
+        test "AOF+SPOP: Server should have been started" {
+            assert_equal 1 [is_alive $srv]
+        }
+
+        test "AOF+SPOP: Set should have 1 member" {
+            set client [redis [dict get $srv host] [dict get $srv port]]
+            wait_for_condition 50 100 {
+                [catch {$client ping} e] == 0
+            } else {
+                fail "Loading DB is taking too much time."
+            }
+            assert_equal 1 [$client scard set]
+        }
+    }
+
     ## Test that EXPIREAT is loaded correctly
     create_aof {
         append_to_aof [formatCommand rpush list foo]

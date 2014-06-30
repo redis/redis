@@ -325,7 +325,7 @@ start_server {tags {"scripting"}} {
         r sadd myset a b c
         r mset a 1 b 2 c 3 d 4
         assert {[r spop myset] ne {}}
-        assert {[r spop myset] ne {}}
+        assert {[r spop myset 1] ne {}}
         assert {[r spop myset] ne {}}
         assert {[r mget a b c d] eq {1 2 3 4}}
         assert {[r spop myset] eq {}}
