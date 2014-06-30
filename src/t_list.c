@@ -293,7 +293,7 @@ void listTypeConvert(robj *subject, int enc) {
  *----------------------------------------------------------------------------*/
 
 void pushGenericCommand(redisClient *c, int where) {
-    int j, waiting = 0, pushed = 0;
+    int j, pushed = 0;
     robj *lobj = lookupKeyWrite(c->db,c->argv[1]);
 
     if (lobj && lobj->type != REDIS_LIST) {
@@ -310,7 +310,7 @@ void pushGenericCommand(redisClient *c, int where) {
         listTypePush(lobj,c->argv[j],where);
         pushed++;
     }
-    addReplyLongLong(c, waiting + (lobj ? listTypeLength(lobj) : 0));
+    addReplyLongLong(c, (lobj ? listTypeLength(lobj) : 0));
     if (pushed) {
         char *event = (where == REDIS_HEAD) ? "lpush" : "rpush";
 
@@ -328,79 +328,139 @@ void rpushCommand(redisClient *c) {
     pushGenericCommand(c,REDIS_TAIL);
 }
 
-void pushxGenericCommand(redisClient *c, robj *refval, robj *val, int where) {
+void pushxGenericCommand(redisClient *c, int where) {
+    int j, pushed = 0;
     robj *subject;
-    listTypeIterator *iter;
-    listTypeEntry entry;
-    int inserted = 0;
 
     if ((subject = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,subject,REDIS_LIST)) return;
 
-    if (refval != NULL) {
-        /* We're not sure if this value can be inserted yet, but we cannot
-         * convert the list inside the iterator. We don't want to loop over
-         * the list twice (once to see if the value can be inserted and once
-         * to do the actual insert), so we assume this value can be inserted
-         * and convert the ziplist to a regular list if necessary. */
-        listTypeTryConversion(subject,val);
+    for (j = 2; j < c->argc; j++) {
+        c->argv[j] = tryObjectEncoding(c->argv[j]);
+        listTypePush(subject,c->argv[j],where);
+        pushed++;
+    }
+    addReplyLongLong(c,listTypeLength(subject));
 
-        /* Seek refval from head to tail */
+    if (pushed) {
+        char *event = (where == REDIS_HEAD) ? "lpush" : "rpush";
+        signalModifiedKey(c->db,c->argv[1]);
+        notifyKeyspaceEvent(REDIS_NOTIFY_LIST,event,c->argv[1],c->db->id);
+    }
+    server.dirty += pushed;
+}
+
+void lpushxCommand(redisClient *c) {
+    pushxGenericCommand(c,REDIS_HEAD);
+}
+
+void rpushxCommand(redisClient *c) {
+    pushxGenericCommand(c,REDIS_TAIL);
+}
+
+void linsertCommand(redisClient *c) {
+    int where, start, stop, inc, j;
+    robj *subject;
+    listTypeIterator *iter;
+    listTypeEntry entry;
+    int found = 0;
+    int n = c->argc - 4;
+
+    c->argv[4] = tryObjectEncoding(c->argv[4]);
+    if (strcasecmp(c->argv[2]->ptr,"after") == 0) {
+        /* we will iterate over the arguments in reverse order */
+        where = REDIS_TAIL;
+        start = c->argc - 1;
+        stop = 3;
+        inc = -1;
+    } else if (strcasecmp(c->argv[2]->ptr,"before") == 0) {
+        where = REDIS_HEAD;
+        start = 4;
+        stop = c->argc;
+        inc = 1;
+    } else {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+
+    if ((subject = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
+        checkType(c,subject,REDIS_LIST)) return;
+
+    /* We're not sure if the values can be inserted yet, but we cannot
+     * convert the list inside the iterator. We don't always want to loop
+     * over the list twice (once to see if the values can be inserted and
+     * once to do the actual insert), so we assume the values can be
+     * inserted and convert the ziplist to a regular list if necessary. */
+    for (j = start; j != stop; j += inc) {
+        listTypeTryConversion(subject,c->argv[j]);
+    }
+
+    /* With more than one element to insert, it is more efficient to
+     * convert ziplists to regular lists first if needed. */
+    if ((subject->encoding == REDIS_ENCODING_ZIPLIST) && (n>1) &&
+        (ziplistLen(subject->ptr)+n > server.list_max_ziplist_entries)) {
         iter = listTypeInitIterator(subject,0,REDIS_TAIL);
         while (listTypeNext(iter,&entry)) {
-            if (listTypeEqual(&entry,refval)) {
-                listTypeInsert(&entry,val,where);
-                inserted = 1;
+            if (listTypeEqual(&entry,c->argv[3])) {
+                found = 1;
                 break;
             }
         }
         listTypeReleaseIterator(iter);
-
-        if (inserted) {
-            /* Check if the length exceeds the ziplist length threshold. */
-            if (subject->encoding == REDIS_ENCODING_ZIPLIST &&
-                ziplistLen(subject->ptr) > server.list_max_ziplist_entries)
-                    listTypeConvert(subject,REDIS_ENCODING_LINKEDLIST);
-            signalModifiedKey(c->db,c->argv[1]);
-            notifyKeyspaceEvent(REDIS_NOTIFY_LIST,"linsert",
-                                c->argv[1],c->db->id);
-            server.dirty++;
+        if (found) {
+            listTypeConvert(subject,REDIS_ENCODING_LINKEDLIST);
         } else {
             /* Notify client of a failed insert */
             addReply(c,shared.cnegone);
             return;
         }
-    } else {
-        char *event = (where == REDIS_HEAD) ? "lpush" : "rpush";
+    }
 
-        listTypePush(subject,val,where);
+    if (subject->encoding == REDIS_ENCODING_ZIPLIST) {
+        /* Iterators cannot be reused safely in ziplists, so use a new one
+         * for each value to insert. Seek pivot from head to tail. */
+        for (j = start; j != stop; j += inc) {
+            iter = listTypeInitIterator(subject,0,REDIS_TAIL);
+            while (listTypeNext(iter,&entry)) {
+                if (listTypeEqual(&entry,c->argv[3])) {
+                    listTypeInsert(&entry,c->argv[j],where);
+                    found = 1;
+                    break;
+                }
+            }
+            listTypeReleaseIterator(iter);
+            if (!found) break;
+        }
+        if (found && ziplistLen(subject->ptr) > server.list_max_ziplist_entries)
+            listTypeConvert(subject,REDIS_ENCODING_LINKEDLIST);
+    } else {
+        /* Iterator can be reused in regular lists.
+         * We find the pivot, then insert all the arguments at once,
+         * which results in lower complexity. */
+        iter = listTypeInitIterator(subject,0,REDIS_TAIL);
+        while (listTypeNext(iter,&entry)) {
+            if (listTypeEqual(&entry,c->argv[3])) {
+                for (j = start; j != stop; j += inc) {
+                    listTypeInsert(&entry,c->argv[j],where);
+                    found = 1;
+                }
+                break;
+            }
+        }
+        listTypeReleaseIterator(iter);
+    }
+
+    if (found) {
         signalModifiedKey(c->db,c->argv[1]);
-        notifyKeyspaceEvent(REDIS_NOTIFY_LIST,event,c->argv[1],c->db->id);
-        server.dirty++;
+        notifyKeyspaceEvent(REDIS_NOTIFY_LIST,"linsert",c->argv[1],c->db->id);
+        server.dirty += n;
+    } else {
+        /* Notify client of a failed insert */
+        addReply(c,shared.cnegone);
+        return;
     }
 
     addReplyLongLong(c,listTypeLength(subject));
-}
-
-void lpushxCommand(redisClient *c) {
-    c->argv[2] = tryObjectEncoding(c->argv[2]);
-    pushxGenericCommand(c,NULL,c->argv[2],REDIS_HEAD);
-}
-
-void rpushxCommand(redisClient *c) {
-    c->argv[2] = tryObjectEncoding(c->argv[2]);
-    pushxGenericCommand(c,NULL,c->argv[2],REDIS_TAIL);
-}
-
-void linsertCommand(redisClient *c) {
-    c->argv[4] = tryObjectEncoding(c->argv[4]);
-    if (strcasecmp(c->argv[2]->ptr,"after") == 0) {
-        pushxGenericCommand(c,c->argv[3],c->argv[4],REDIS_TAIL);
-    } else if (strcasecmp(c->argv[2]->ptr,"before") == 0) {
-        pushxGenericCommand(c,c->argv[3],c->argv[4],REDIS_HEAD);
-    } else {
-        addReply(c,shared.syntaxerr);
-    }
 }
 
 void llenCommand(redisClient *c) {

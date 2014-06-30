@@ -520,7 +520,9 @@ start_server {
             create_$type xlist "$large c"
             assert_equal 3 [r rpushx xlist d]
             assert_equal 4 [r lpushx xlist a]
-            assert_equal "a $large c d" [r lrange xlist 0 -1]
+            assert_equal 6 [r rpushx xlist 42 x]
+            assert_equal 9 [r lpushx xlist y3 y2 y1]
+            assert_equal "y1 y2 y3 a $large c d 42 x" [r lrange xlist 0 -1]
         }
 
         test "LINSERT - $type" {
@@ -539,6 +541,11 @@ start_server {
             # check inserting integer encoded value
             assert_equal 9 [r linsert xlist before aa 42]
             assert_equal 42 [r lrange xlist 0 0]
+
+            # check linsert is variadic
+            assert_equal 12 [r linsert xlist before zz foo 42 bar]
+            assert_equal 14 [r linsert xlist after d x y]
+            assert_equal "42 aa a $large foo 42 bar zz c yy d x y dd" [r lrange xlist 0 15]
         }
     }
 
