@@ -1173,7 +1173,7 @@ void zsetConvert(robj *zobj, int encoding) {
  *----------------------------------------------------------------------------*/
 
 /* This generic command implements both ZADD and ZINCRBY. */
-void zaddGenericCommand(redisClient *c, int incr) {
+void zaddGenericCommand(redisClient *c, int incr, int nx) {
     static char *nanerr = "resulting score is not a number (NaN)";
     robj *key = c->argv[1];
     robj *ele;
@@ -1187,6 +1187,8 @@ void zaddGenericCommand(redisClient *c, int incr) {
         addReply(c,shared.syntaxerr);
         return;
     }
+
+    if (incr) nx = 0;
 
     /* Start parsing all the scores, we need to emit any syntax error
      * before executing additions to the sorted set, as the command should
@@ -1224,6 +1226,8 @@ void zaddGenericCommand(redisClient *c, int incr) {
             /* Prefer non-encoded element when dealing with ziplists. */
             ele = c->argv[3+j*2];
             if ((eptr = zzlFind(zobj->ptr,ele,&curscore)) != NULL) {
+                if (nx) continue;
+
                 if (incr) {
                     score += curscore;
                     if (isnan(score)) {
@@ -1258,6 +1262,8 @@ void zaddGenericCommand(redisClient *c, int incr) {
             ele = c->argv[3+j*2] = tryObjectEncoding(c->argv[3+j*2]);
             de = dictFind(zs->dict,ele);
             if (de != NULL) {
+                if (nx) continue;
+
                 curobj = dictGetKey(de);
                 curscore = *(double*)dictGetVal(de);
 
@@ -1309,11 +1315,15 @@ cleanup:
 }
 
 void zaddCommand(redisClient *c) {
-    zaddGenericCommand(c,0);
+    zaddGenericCommand(c,0,0);
+}
+
+void zaddnxCommand(redisClient *c) {
+    zaddGenericCommand(c,0,1);
 }
 
 void zincrbyCommand(redisClient *c) {
-    zaddGenericCommand(c,1);
+    zaddGenericCommand(c,1,0);
 }
 
 void zremCommand(redisClient *c) {

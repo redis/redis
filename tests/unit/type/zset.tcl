@@ -915,6 +915,17 @@ start_server {tags {"zset"}} {
         }
     }
 
+    test {ZADDNX basic} {
+        set ret [r zaddnx mykey 1 one 2 two 3 three] 
+        assert {$ret == 3}
+        
+        set ret [r zaddnx mykey 3 one] 
+        assert {$ret == 0}
+
+        set ret [r zaddnx mykey 2 one 4 four] 
+        assert {$ret == 1}
+    }
+
     tags {"slow"} {
         stressers ziplist
         stressers skiplist
