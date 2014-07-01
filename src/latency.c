@@ -69,6 +69,8 @@ void latencyMonitorInit(void) {
  * server.latency_monitor_threshold. */
 void latencyAddSample(char *event, mstime_t latency) {
     struct latencyTimeSeries *ts = dictFetchValue(server.latency_events,event);
+    time_t now = time(NULL);
+    int prev;
 
     /* Create the time series if it does not exist. */
     if (ts == NULL) {
@@ -77,6 +79,15 @@ void latencyAddSample(char *event, mstime_t latency) {
         ts->max = 0;
         memset(ts->samples,0,sizeof(ts->samples));
         dictAdd(server.latency_events,zstrdup(event),ts);
+    }
+
+    /* If the previous sample is in the same second, we update our old sample
+     * if this latency is > of the old one, or just return. */
+    prev = (ts->idx + LATENCY_TS_LEN - 1) % LATENCY_TS_LEN;
+    if (ts->samples[prev].time == now) {
+        if (latency > ts->samples[prev].latency)
+            ts->samples[prev].latency = latency;
+        return;
     }
 
     ts->samples[ts->idx].time = time(NULL);
