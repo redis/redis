@@ -36,7 +36,7 @@ void latencyAddSample(char *event, mstime_t latency);
 /* Add the sample only if the elapsed time is >= to the configured threshold. */
 #define latencyAddSampleIfNeeded(event,var) \
     if (server.latency_monitor_threshold && \
-        var >= server.latency_monitor_threshold) \
-          latencyAddSample(event,var);
+        (var) >= server.latency_monitor_threshold) \
+          latencyAddSample((event),(var));
 
 #endif /* __LATENCY_H */
