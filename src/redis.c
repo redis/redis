@@ -1512,6 +1512,9 @@ void initServerConfig() {
     server.slowlog_log_slower_than = REDIS_SLOWLOG_LOG_SLOWER_THAN;
     server.slowlog_max_len = REDIS_SLOWLOG_MAX_LEN;
 
+    /* Latency monitor */
+    server.latency_monitor_threshold = REDIS_DEFAULT_LATENCY_MONITOR_THRESHOLD;
+
     /* Debugging */
     server.assert_failed = "<no assertion failed>";
     server.assert_file = "<no file>";
@@ -1821,6 +1824,7 @@ void initServer() {
     replicationScriptCacheInit();
     scriptingInit();
     slowlogInit();
+    latencyMonitorInit();
     bioInit();
 }
 
