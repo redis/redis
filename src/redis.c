@@ -858,10 +858,11 @@ void activeExpireCycle(int type) {
              * expire. So after a given amount of milliseconds return to the
              * caller waiting for the other active expire cycle. */
             iteration++;
-            if ((iteration & 0xf) == 0 && /* check once every 16 iterations. */
-                (ustime()-start) > timelimit)
-            {
-                timelimit_exit = 1;
+            if ((iteration & 0xf) == 0) { /* check once every 16 iterations. */
+                long long elapsed = ustime()-start;
+
+                latencyAddSampleIfNeeded("expire-cycle",elapsed/1000);
+                if (elapsed > timelimit) timelimit_exit = 1;
             }
             if (timelimit_exit) return;
             /* We don't repeat the cycle if there are less than 25% of keys
@@ -3120,6 +3121,7 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
 int freeMemoryIfNeeded(void) {
     size_t mem_used, mem_tofree, mem_freed;
     int slaves = listLength(server.slaves);
+    mstime_t latency;
 
     /* Remove the size of slaves output buffers and AOF buffer from the
      * count of used memory. */
@@ -3152,6 +3154,7 @@ int freeMemoryIfNeeded(void) {
     /* Compute how much memory we need to free. */
     mem_tofree = mem_used - server.maxmemory;
     mem_freed = 0;
+    latencyStartMonitor(latency);
     while (mem_freed < mem_tofree) {
         int j, k, keys_freed = 0;
 
@@ -3265,8 +3268,14 @@ int freeMemoryIfNeeded(void) {
                 if (slaves) flushSlavesOutputBuffers();
             }
         }
-        if (!keys_freed) return REDIS_ERR; /* nothing to free... */
+        if (!keys_freed) {
+            latencyEndMonitor(latency);
+            latencyAddSampleIfNeeded("eviction-cycle",latency);
+            return REDIS_ERR; /* nothing to free... */
+        }
     }
+    latencyEndMonitor(latency);
+    latencyAddSampleIfNeeded("eviction-cycle",latency);
     return REDIS_OK;
 }
 
