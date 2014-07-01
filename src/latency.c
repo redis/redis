@@ -107,6 +107,27 @@ void latencyCommandReplyWithSamples(redisClient *c, struct latencyTimeSeries *ts
     setDeferredMultiBulkLength(c,replylen,samples);
 }
 
+/* latencyCommand() helper to produce the reply for the LATEST subcommand,
+ * listing the last latency sample for every event type registered so far. */
+void latencyCommandReplyWithLatestEvents(redisClient *c) {
+    dictIterator *di;
+    dictEntry *de;
+
+    addReplyMultiBulkLen(c,dictSize(server.latency_events));
+    di = dictGetIterator(server.latency_events);
+    while((de = dictNext(di)) != NULL) {
+        char *event = dictGetKey(de);
+        struct latencyTimeSeries *ts = dictGetVal(de);
+        int last = (ts->idx + LATENCY_TS_LEN - 1) % LATENCY_TS_LEN;
+
+        addReplyMultiBulkLen(c,3);
+        addReplyBulkCString(c,event);
+        addReplyLongLong(c,ts->samples[last].time);
+        addReplyLongLong(c,ts->samples[last].latency);
+    }
+    dictReleaseIterator(di);
+}
+
 /* LATENCY command implementations.
  *
  * LATENCY SAMPLES: return time-latency samples for the specified event.
@@ -122,6 +143,9 @@ void latencyCommand(redisClient *c) {
         ts = dictFetchValue(server.latency_events,c->argv[2]->ptr);
         if (ts == NULL) goto nodataerr;
         latencyCommandReplyWithSamples(c,ts);
+    } else if (!strcasecmp(c->argv[1]->ptr,"latest") && c->argc == 2) {
+        /* LATENCY LATEST */
+        latencyCommandReplyWithLatestEvents(c);
     } else {
         addReply(c,shared.syntaxerr);
         return;
