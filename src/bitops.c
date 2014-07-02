@@ -531,7 +531,7 @@ void bitposCommand(redisClient *c) {
         strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
     } else {
         p = (unsigned char*) o->ptr;
-        strlen = sdslen(o->ptr);
+        strlen = (long)sdslen(o->ptr);
     }
 
     /* Parse start/end range if any. */

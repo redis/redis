@@ -37,6 +37,10 @@
 #include <math.h>
 #include <ctype.h>
 
+#ifdef __CYGWIN__
+#define strtold(a,b) ((long double)strtod((a),(b)))
+#endif
+
 robj *createObject(int type, void *ptr) {
     robj *o = zmalloc(sizeof(*o));
     o->type = type;
@@ -401,7 +405,7 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
 
         minlen = (alen < blen) ? alen : blen;
         cmp = memcmp(astr,bstr,minlen);
-        if (cmp == 0) return alen-blen;
+        if (cmp == 0) return (int)(alen-blen);
         return cmp;
     }
 }

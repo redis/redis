@@ -327,8 +327,8 @@ void pubsubCommand(redisClient *c) {
             robj *cobj = dictGetKey(de);
             sds channel = cobj->ptr;
 
-            if (!pat || stringmatchlen(pat, sdslen(pat),
-                                       channel, sdslen(channel),0))
+            if (!pat || stringmatchlen(pat, (int)sdslen(pat),
+                                       channel, (int)sdslen(channel),0))
             {
                 addReplyBulk(c,cobj);
                 mblen++;

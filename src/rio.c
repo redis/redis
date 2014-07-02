@@ -185,7 +185,7 @@ size_t rioWriteBulkCount(rio *r, char prefix, int count) {
 size_t rioWriteBulkString(rio *r, const char *buf, size_t len) {
     size_t nwritten;
 
-    if ((nwritten = rioWriteBulkCount(r,'$',len)) == 0) return 0;
+    if ((nwritten = rioWriteBulkCount(r,'$',(int)len)) == 0) return 0;
     if (len > 0 && rioWrite(r,buf,len) == 0) return 0;
     if (rioWrite(r,"\r\n",2) == 0) return 0;
     return nwritten+len+2;

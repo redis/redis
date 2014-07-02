@@ -268,9 +268,10 @@ int w32initWinSock(void);
 void *mmap(void *start, size_t length, int prot, int flags, int fd, off offset);
 int munmap(void *start, size_t length);
 
-int fork(void);
 int gettimeofday(struct timeval *tv, struct timezone *tz);
 time_t gettimeofdaysecs(unsigned int *usec);
+
+char *ctime_r(const time_t *clock, char *buf);
 
 /* strtod does not handle Inf and Nan
 We need to do the check before calling strtod */

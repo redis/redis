@@ -539,4 +539,17 @@ char *wsa_strerror(int err) {
     return wsa_strerror_buf;
 }
 
+char *ctime_r(const time_t *clock, char *buf)  {
+    // Note: ctime_r is documented (http://www.mkssoftware.com/docs/man3/ctime_r.3.asp) to be reentrant. 
+    // _ctime64 is not thread safe. Since this is used only in sentinel.c, and Redis is single threaded, 
+    // I am bypasing the critical section needed to guard against reentrancy.
+    char* t = _ctime64(clock);
+    if (t != NULL) {
+        strcpy(buf, t);
+    } else {
+        buf[0] = 0;
+    }
+    return buf;
+}
+
 #endif

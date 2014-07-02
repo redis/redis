@@ -197,7 +197,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         feedReplicationBacklog(aux,len+3);
 
         for (j = 0; j < argc; j++) {
-            long objlen = stringObjectLen(argv[j]);
+            long objlen = (long)stringObjectLen(argv[j]);
 
             /* We need to feed the buffer with the object as a bulk reply
              * not just as a plain string, so create the $..CRLF payload len 
@@ -240,7 +240,6 @@ void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **
     int j;
     sds cmdrepr = sdsnew("+");
     robj *cmdobj;
-    char peerid[REDIS_PEER_ID_LEN];
     struct timeval tv;
 
     gettimeofday(&tv,NULL);
@@ -250,8 +249,7 @@ void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **
     } else if (c->flags & REDIS_UNIX_SOCKET) {
         cmdrepr = sdscatprintf(cmdrepr,"[%d unix:%s] ",dictid,server.unixsocket);
     } else {
-        getClientPeerId(c,peerid,sizeof(peerid));
-        cmdrepr = sdscatprintf(cmdrepr,"[%d %s] ",dictid,peerid);
+        cmdrepr = sdscatprintf(cmdrepr,"[%d %s] ",dictid,getClientPeerId(c));
     }
 
     for (j = 0; j < argc; j++) {
@@ -1464,6 +1462,55 @@ void slaveofCommand(redisClient *c) {
     addReply(c,shared.ok);
 }
 
+/* ROLE command: provide information about the role of the instance
+ * (master or slave) and additional information related to replication
+ * in an easy to process format. */
+void roleCommand(redisClient *c) {
+    if (server.masterhost == NULL) {
+        listIter li;
+        listNode *ln;
+        void *mbcount;
+        int slaves = 0;
+
+        addReplyMultiBulkLen(c,3);
+        addReplyBulkCBuffer(c,"master",6);
+        addReplyLongLong(c,server.master_repl_offset);
+        mbcount = addDeferredMultiBulkLength(c);
+        listRewind(server.slaves,&li);
+        while((ln = listNext(&li))) {
+            redisClient *slave = ln->value;
+            char ip[REDIS_IP_STR_LEN];
+
+            if (anetPeerToString(slave->fd,ip,sizeof(ip),NULL) == -1) continue;
+            if (slave->replstate != REDIS_REPL_ONLINE) continue;
+            addReplyMultiBulkLen(c,3);
+            addReplyBulkCString(c,ip);
+            addReplyBulkLongLong(c,slave->slave_listening_port);
+            addReplyBulkLongLong(c,slave->repl_ack_off);
+            slaves++;
+        }
+        setDeferredMultiBulkLength(c,mbcount,slaves);
+    } else {
+        char *slavestate = NULL;
+
+        addReplyMultiBulkLen(c,5);
+        addReplyBulkCBuffer(c,"slave",5);
+        addReplyBulkCString(c,server.masterhost);
+        addReplyLongLong(c,server.masterport);
+        switch(server.repl_state) {
+        case REDIS_REPL_NONE: slavestate = "none"; break;
+        case REDIS_REPL_CONNECT: slavestate = "connect"; break;
+        case REDIS_REPL_CONNECTING: slavestate = "connecting"; break;
+        case REDIS_REPL_RECEIVE_PONG: /* see next */
+        case REDIS_REPL_TRANSFER: slavestate = "sync"; break;
+        case REDIS_REPL_CONNECTED: slavestate = "connected"; break;
+        default: slavestate = "unknown"; break;
+        }
+        addReplyBulkCString(c,slavestate);
+        addReplyLongLong(c,server.master ? server.master->reploff : -1);
+    }
+}
+
 /* Send a REPLCONF ACK command to the master to inform it about the current
  * processed offset. If we are not connected with a master, the command has
  * no effects. */
@@ -1524,6 +1571,12 @@ void replicationCacheMaster(redisClient *c) {
 
     /* Set fd to -1 so that we can safely call freeClient(c) later. */
     c->fd = -1;
+
+    /* Invalidate the Peer ID cache. */
+    if (c->peerid) {
+        sdsfree(c->peerid);
+        c->peerid = NULL;
+    }
 
     /* Caching the master happens instead of the actual freeClient() call,
      * so make sure to adjust the replication state. This function will

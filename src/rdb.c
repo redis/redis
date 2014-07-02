@@ -402,7 +402,7 @@ int rdbSaveDoubleValue(rio *rdb, double val) {
         double min = -4503599627370495; /* (2^52)-1 */
         double max = 4503599627370496; /* -(2^52) */
         if (val > min && val < max && val == ((double)((long long)val)))
-            ll2string((char*)buf+1,sizeof(buf),(long long)val);
+            ll2string((char*)buf+1,sizeof(buf)-1,(long long)val);
         else
 #endif
             snprintf((char*)buf+1,sizeof(buf)-1,"%.17g",val);
@@ -414,7 +414,7 @@ int rdbSaveDoubleValue(rio *rdb, double val) {
 
 /* For information about double serialization check rdbSaveDoubleValue() */
 int rdbLoadDoubleValue(rio *rdb, double *val) {
-    char buf[128];
+    char buf[256];
     unsigned char len;
 #ifdef _WIN32
     double scannedVal = 0;
@@ -455,10 +455,6 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             return rdbSaveType(rdb,REDIS_RDB_TYPE_LIST_ZIPLIST);
         else if (o->encoding == REDIS_ENCODING_LINKEDLIST)
             return rdbSaveType(rdb,REDIS_RDB_TYPE_LIST);
-#ifdef _WIN32
-        else if (o->encoding == REDIS_ENCODING_LINKEDLISTARRAY)
-            return rdbSaveType(rdb,REDIS_RDB_TYPE_LIST);
-#endif
         else
             redisPanic("Unknown list encoding");
     case REDIS_SET:
@@ -466,10 +462,6 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             return rdbSaveType(rdb,REDIS_RDB_TYPE_SET_INTSET);
         else if (o->encoding == REDIS_ENCODING_HT)
             return rdbSaveType(rdb,REDIS_RDB_TYPE_SET);
-#ifdef _WIN32
-        else if (o->encoding == REDIS_ENCODING_HTARRAY)
-            return rdbSaveType(rdb,REDIS_RDB_TYPE_SET);
-#endif
         else
             redisPanic("Unknown set encoding");
     case REDIS_ZSET:
@@ -477,10 +469,6 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             return rdbSaveType(rdb,REDIS_RDB_TYPE_ZSET_ZIPLIST);
         else if (o->encoding == REDIS_ENCODING_SKIPLIST)
             return rdbSaveType(rdb,REDIS_RDB_TYPE_ZSET);
-#ifdef _WIN32
-        else if (o->encoding == REDIS_ENCODING_HTZARRAY)
-            return rdbSaveType(rdb,REDIS_RDB_TYPE_ZSET);
-#endif
         else
             redisPanic("Unknown sorted set encoding");
     case REDIS_HASH:
@@ -488,10 +476,6 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             return rdbSaveType(rdb,REDIS_RDB_TYPE_HASH_ZIPLIST);
         else if (o->encoding == REDIS_ENCODING_HT)
             return rdbSaveType(rdb,REDIS_RDB_TYPE_HASH);
-#ifdef _WIN32
-        else if (o->encoding == REDIS_ENCODING_HTARRAY)
-            return rdbSaveType(rdb,REDIS_RDB_TYPE_HASH);
-#endif
         else
             redisPanic("Unknown hash encoding");
     default:
@@ -548,7 +532,7 @@ int rdbSaveObject(rio *rdb, robj *o) {
             dictEntry *de;
             dictIterator *di = dictGetIterator(set);
 
-            if ((n = rdbSaveLen(rdb,dictSize(set))) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,(uint32_t)dictSize(set))) == -1) return -1;
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
@@ -577,7 +561,7 @@ int rdbSaveObject(rio *rdb, robj *o) {
             dictEntry *de;
             dictIterator *di = dictGetIterator(zs->dict);
 
-            if ((n = rdbSaveLen(rdb,dictSize(zs->dict))) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,(uint32_t)dictSize(zs->dict))) == -1) return -1;
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
@@ -605,7 +589,7 @@ int rdbSaveObject(rio *rdb, robj *o) {
             dictIterator *di = dictGetIterator(o->ptr);
             dictEntry *de;
 
-            if ((n = rdbSaveLen(rdb,dictSize((dict*)o->ptr))) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,(uint32_t)dictSize((dict*)o->ptr))) == -1) return -1;
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
@@ -1133,8 +1117,8 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
         updateCachedTime();
         if (server.masterhost && server.repl_state == REDIS_REPL_TRANSFER)
             replicationSendNewlineToMaster();
-        loadingProgress(r->processed_bytes);
-        aeProcessEvents(server.el, AE_FILE_EVENTS|AE_DONT_WAIT);
+        loadingProgress((off_t)r->processed_bytes);
+        processEventsWhileBlocked();
     }
 }
 

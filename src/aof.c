@@ -519,6 +519,7 @@ struct redisClient *createFakeClient(void) {
     c->reply_bytes = 0;
     c->obuf_soft_limit_reached_time = 0;
     c->watched_keys = listCreate();
+    c->peerid = NULL;
     listSetFreeMethod(c->reply,decrRefCountVoid);
     listSetDupMethod(c->reply,dupClientReplyValue);
     initClientMultiState(c);
@@ -580,7 +581,7 @@ int loadAppendOnlyFile(char *filename) {
         /* Serve the clients from time to time */
         if (!(loops++ % 1000)) {
             loadingProgress((off_t)ftello(fp));
-            aeProcessEvents(server.el, AE_FILE_EVENTS|AE_DONT_WAIT);
+            processEventsWhileBlocked();
         }
 
         if (fgets(buf,sizeof(buf),fp) == NULL) {
@@ -881,8 +882,8 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
     hi = hashTypeInitIterator(o);
     while (hashTypeNext(hi) != REDIS_ERR) {
         if (count == 0) {
-            int cmd_items = (items > REDIS_AOF_REWRITE_ITEMS_PER_CMD) ?
-                REDIS_AOF_REWRITE_ITEMS_PER_CMD : items;
+            int cmd_items = (int)((items > REDIS_AOF_REWRITE_ITEMS_PER_CMD) ?
+                REDIS_AOF_REWRITE_ITEMS_PER_CMD : items);
 
             if (rioWriteBulkCount(r,'*',2+cmd_items*2) == 0) return 0;
             if (rioWriteBulkString(r,"HMSET",5) == 0) return 0;

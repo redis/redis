@@ -74,6 +74,23 @@ start_server {tags {"repl"}} {
             if {$::valgrind} {after 2000}
             list [r -1 dbsize] [r 0 dbsize]
         } {0 0}
+
+        test {ROLE in master reports master with a slave} {
+            set res [r -1 role]
+            lassign $res role offset slaves
+            assert {$role eq {master}}
+            assert {$offset > 0}
+            assert {[llength $slaves] == 1}
+            lassign [lindex $slaves 0] master_host master_port slave_offset
+            assert {$slave_offset < $offset}
+        }
+
+        test {ROLE in slave reports slave in connected state} {
+            set res [r role]
+            lassign $res role master_host master_port slave_state slave_offset
+            assert {$role eq {slave}}
+            assert {$slave_state eq {connected}}
+        }
     }
 }
 

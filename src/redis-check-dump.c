@@ -787,7 +787,7 @@ int main(int argc, char **argv) {
     if (fstat(fd, &stat) == -1) {
         ERROR("Cannot stat: %s\n", argv[1]);
     } else {
-        size = stat.st_size;
+        size = (off_t)stat.st_size;
     }
 
     if (sizeof(size_t) == sizeof(int32_t) && size >= INT_MAX) {

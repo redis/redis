@@ -11,4 +11,4 @@ then
     echo "You need tcl 8.5 or newer in order to run the Redis Sentinel test"
     exit 1
 fi
-$TCLSH tests/sentinel.tcl $*
+$TCLSH tests/sentinel/run.tcl $*

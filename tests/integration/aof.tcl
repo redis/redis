@@ -91,8 +91,13 @@ tags {"aof"} {
             assert_equal 1 [is_alive $srv]
         }
 
-        test "Fixed AOF: Keyspace should contain values that were parsable" {
+        test "Fixed AOF: Keyspace should contain values that were parsable" {   
             set client [redis [dict get $srv host] [dict get $srv port]]
+            wait_for_condition 50 100 {
+                [catch {$client ping} e] == 0
+            } else {
+                fail "Loading DB is taking too much time."
+            }
             assert_equal "hello" [$client get foo]
             assert_equal "" [$client get bar]
         }
@@ -112,6 +117,11 @@ tags {"aof"} {
 
         test "AOF+SPOP: Set should have 1 member" {
             set client [redis [dict get $srv host] [dict get $srv port]]
+            wait_for_condition 50 100 {
+                [catch {$client ping} e] == 0
+            } else {
+                fail "Loading DB is taking too much time."
+            }
             assert_equal 1 [$client scard set]
         }
     }
@@ -130,6 +140,11 @@ tags {"aof"} {
 
         test "AOF+EXPIRE: List should be empty" {
             set client [redis [dict get $srv host] [dict get $srv port]]
+            wait_for_condition 50 100 {
+                [catch {$client ping} e] == 0
+            } else {
+                fail "Loading DB is taking too much time."
+            }
             assert_equal 0 [$client llen list]
         }
     }

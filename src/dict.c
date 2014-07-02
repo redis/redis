@@ -817,7 +817,7 @@ unsigned long dictScan(dict *d,
 
     if (!dictIsRehashing(d)) {
         t0 = &(d->ht[0]);
-        m0 = t0->sizemask;
+        m0 = (unsigned long)t0->sizemask;
 
         /* Emit entries at cursor */
         de = t0->table[v & m0];
@@ -836,8 +836,8 @@ unsigned long dictScan(dict *d,
             t1 = &d->ht[0];
         }
 
-        m0 = t0->sizemask;
-        m1 = t1->sizemask;
+        m0 = (unsigned long)t0->sizemask;
+        m1 = (unsigned long)t1->sizemask;
 
         /* Emit entries at cursor */
         de = t0->table[v & m0];

@@ -14,6 +14,81 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.12 ] Release date: 23 Jun 2014
+
+# UPGRADE URGENCY: HIGH for Redis, CRITICAL for Sentinel.
+
+# WARNING: This release contains a non backward compatible semantical change
+           to Lua script that should affect an almost zero number of users.
+
+* [FIX / BREAKS BACKWARD COMPATIBILITY] Using SELECT inside Lua scripts no
+       longer makes the selected DB to be set in the calling client.
+       So Lua can still use SELECT, but the client calling the script will
+       remain set to the original DB. Thix fixes an issue with Redis
+       replication of Lua scripts that called SELECT without reverting the
+       selected DB to the original one. (Salvatore Sanfilippo)
+* [FIX] Sentinel failover was instalbe if the master was detected as available
+        during the failover (especially during manual failovers) because
+        of an implementation error (lack of checking of
+        SRI_PROMOTED flag). (Salvatore Sanfilippo)
+* [FIX] Cancel SHUTDOWN if initial AOF is being written. (Matt Stancliff)
+* [FIX] Sentinel: bind source address for outcoming connections. (Matt
+        Stancliff).
+* [FIX] Less timing sensitive Sentinel tests. (Salvatore Sanfilippo).
+
+* [NEW] redis-cli --intrinsic-latency stopped with SIGINT still reports
+        stats (Matt Stancliff)
+* [NEW] Sentinels broadcast an HELLO message ASAP after a failover in order to
+        reach a consistent state faster (before it relied for periodic HELLO
+        messages). (Salvatore Sanfilippo).
+* [NEW] Jemalloc updated to 3.6.0. (Salvatore Sanfilippo)
+* [NEW] CLIENT LIST speedup. (Salvatore Sanfilippo)
+* [NEW] CLIENT LIST new unique incremental ID to every client. (Salvatore
+        Sanfilippo)
+* [NEW] ROLE command added. (Salvatore Sanfilippo)
+* [NEW] CLIENT KILL new form to kill by client type and ID (see doc at
+        redis.io for more info). (Salvatore Sanfilippo)
+* [NEW] Sentinel now disconnects clients when instances are reconfigured
+        (see http://redis.io/topics/sentinel-clients). (Salvatore Sanfilippo)
+* [NEW] Hiredis update to latest version. (Matt Stancliff)
+
+--[ Redis 2.8.11 ] Release date: 11 Jun 2014
+
+# UPGRADE URGENCY: HIGH if you use Lua scripting, LOW otherwise.
+
+* [FIX] A previous fix for Lua -> Redis numerical precision enhancement
+        introduced a new problem. In Redis 2.8.10 commands called from Lua
+        passing a string that "looks like" a very large number, may actually
+        use as argument the string converted as a float. This bug is now
+        fixed.
+* [FIX] Now commands other than *PUSH* adding elements to a list will be able
+        to awake clients blocked in a blocking POP operation.
+* [FIX] Cygwin compilation fixes.
+
+--[ Redis 2.8.10 ] Release date: 5 Jun 2014
+
+# UPGRADE URGENCY: HIGH if you use min-slaves-to-write option.
+
+* [FIX] IMPORTANT! A min-slaves-to-write option active in a slave totally
+        prevented the slave from acception the master stream of commands.
+        This release includes testes for min-slaves-to-write, and a fix
+        for this issue.
+* [FIX] Sometimes DEL returned 1 for already expired keys. Fixed.
+* [FIX] Fix test false positive because new osx 'leaks' output.
+* [FIX] PFCOUNT HLL cache invalidation fixed: no wrong value was reported
+        but the cache was not used at all, leading to lower performances.
+* [FIX] Accept(2) multiple clients per readable-event invocation, and better
+        processing of I/O while loading or busy running a timedout script.
+        Basically now the LOADING / BUSY errors are reported at a decent
+        speed.
+* [FIX] A softwaer watchdog crash fixed.
+* [FIX] Fixed a Lua -> Redis numerical precision loss.
+
+* [NEW] Lua scripting engine speed improved.
+* [NEW] Sentinel generates one new event for humans to understand better
+        what is happening during a failover: +config-update-from.
+        Also the time at which a failover will be re-attempted is logged.
+
 --[ Redis 2.8.9 ] Release date: 22 Apr 2014
 
 # UPGRADE URGENCY: LOW, only new features introduced, no bugs fixed.

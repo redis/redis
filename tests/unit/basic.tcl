@@ -261,6 +261,14 @@ start_server {tags {"basic"}} {
         assert_equal 20 [r get x]
     }
 
+    test "DEL against expired key" {
+        r debug set-active-expire 0
+        r setex keyExpire 1 valExpire
+        after 1100
+        assert_equal 0 [r del keyExpire]
+        r debug set-active-expire 1
+    }
+
     test {EXISTS} {
         set res {}
         r set newkey test
@@ -282,9 +290,9 @@ start_server {tags {"basic"}} {
         puts -nonewline $fd "SET k1 xyzk\r\nGET k1\r\nPING\r\n"
         flush $fd
         set res {}
-        append res [string match OK* [::redis::redis_read_reply $fd]]
-        append res [::redis::redis_read_reply $fd]
-        append res [string match PONG* [::redis::redis_read_reply $fd]]
+        append res [string match OK* [r read]]
+        append res [r read]
+        append res [string match PONG* [r read]]
         format $res
     } {1xyzk1}
 

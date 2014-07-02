@@ -742,7 +742,7 @@ void ANSI_printf(char *format, ...) {
 
     if (retVal > 0) {
         DWORD bytesWritten = 0;
-        ParseAndPrintANSIString(GetStdHandle(STD_OUTPUT_HANDLE), buffer, strlen(buffer), &bytesWritten);
+        ParseAndPrintANSIString(GetStdHandle(STD_OUTPUT_HANDLE), buffer, (DWORD)strlen(buffer), &bytesWritten);
     }
 }
 

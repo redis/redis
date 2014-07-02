@@ -54,7 +54,7 @@ static struct {
 };
 #endif
 
-clientBufferLimitsConfig clientBufferLimitsDefaults[REDIS_CLIENT_LIMIT_NUM_CLASSES] = {
+clientBufferLimitsConfig clientBufferLimitsDefaults[REDIS_CLIENT_TYPE_COUNT] = {
     {0, 0, 0}, /* normal */
     {1024*1024*256, 1024*1024*64, 60}, /* slave */
     {1024*1024*32, 1024*1024*8, 60}  /* pubsub */
@@ -186,16 +186,16 @@ void loadServerConfigFromString(char *config) {
 
             zfree(server.logfile);
 #ifdef _WIN32
-            int length = strlen(argv[1]);
-            if ((argv[0] == '\''  &&  argv[length-1] == '\'')  ||
-                (argv[0] == '\"'  &&  argv[length-1] == '\"')) {
+            int length = (int)sdslen(argv[1]);
+            if ((argv[1][0] == '\''  &&  argv[1][length-1] == '\'')  ||
+                (argv[1][0] == '\"'  &&  argv[1][length-1] == '\"')) {
                 if (length == 2) {
-                    server.logfile[0] = zstrdup("\0");
+                    server.logfile = zstrdup("\0");
                 } else {
                     size_t l = length - 2 + 1;
                     char *p = zmalloc(l);
                     memcpy(p, argv[1]+1, l);
-                    server.logfile[0] = p;
+                    server.logfile = p;
                 }
             } else {
                 server.logfile = zstrdup(argv[1]);
@@ -461,11 +461,11 @@ void loadServerConfigFromString(char *config) {
         {
             server.slowlog_log_slower_than = strtoll(argv[1],NULL,10);
         } else if (!strcasecmp(argv[0],"slowlog-max-len") && argc == 2) {
-            server.slowlog_max_len = strtoll(argv[1],NULL,10);
+            server.slowlog_max_len = (unsigned long)(strtoll(argv[1],NULL,10));
         } else if (!strcasecmp(argv[0],"client-output-buffer-limit") &&
                    argc == 5)
         {
-            int class = getClientLimitClassByName(argv[1]);
+            int class = getClientTypeByName(argv[1]);
             unsigned long long hard, soft;
             int soft_seconds;
 
@@ -630,7 +630,7 @@ void configSetCommand(redisClient *c) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 1) goto badfmt;
 
         /* Try to check if the OS is capable of supporting so many FDs. */
-        server.maxclients = ll;
+        server.maxclients = (int)ll;
         if (ll > orig_value) {
             adjustOpenFilesLimit();
             if (server.maxclients != ll) {
@@ -652,7 +652,7 @@ void configSetCommand(redisClient *c) {
         }
     } else if (!strcasecmp(c->argv[2]->ptr,"hz")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
-        server.hz = ll;
+        server.hz = (int)ll;
         if (server.hz < REDIS_MIN_HZ) server.hz = REDIS_MIN_HZ;
         if (server.hz > REDIS_MAX_HZ) server.hz = REDIS_MAX_HZ;
     } else if (!strcasecmp(c->argv[2]->ptr,"maxmemory-policy")) {
@@ -674,15 +674,15 @@ void configSetCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[2]->ptr,"maxmemory-samples")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll <= 0) goto badfmt;
-        server.maxmemory_samples = ll;
+        server.maxmemory_samples = (int)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"timeout")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0 || ll > LONG_MAX) goto badfmt;
-        server.maxidletime = ll;
+        server.maxidletime = (int)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"tcp-keepalive")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0 || ll > INT_MAX) goto badfmt;
-        server.tcpkeepalive = ll;
+        server.tcpkeepalive = (int)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"appendfsync")) {
         if (!strcasecmp(o->ptr,"no")) {
             server.aof_fsync = AOF_FSYNC_NO;
@@ -713,7 +713,7 @@ void configSetCommand(redisClient *c) {
         }
     } else if (!strcasecmp(c->argv[2]->ptr,"auto-aof-rewrite-percentage")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
-        server.aof_rewrite_perc = ll;
+        server.aof_rewrite_perc = (int)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"auto-aof-rewrite-min-size")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.aof_rewrite_min_size = ll;
@@ -737,7 +737,7 @@ void configSetCommand(redisClient *c) {
             char *eptr;
             long val;
 
-            val = strtoll(v[j], &eptr, 10);
+            val = (long)strtoll(v[j], &eptr, 10);
             if (eptr[0] != '\0' ||
                 ((j & 1) == 0 && val < 1) ||
                 ((j & 1) == 1 && val < 0)) {
@@ -752,7 +752,7 @@ void configSetCommand(redisClient *c) {
             int changes;
 
             seconds = strtoll(v[j],NULL,10);
-            changes = strtoll(v[j+1],NULL,10);
+            changes = (int)strtoll(v[j+1],NULL,10);
             appendServerSaveParams(seconds, changes);
         }
         sdsfreesplitres(v,vlen);
@@ -837,12 +837,12 @@ void configSetCommand(redisClient *c) {
             long val;
 
             if ((j % 4) == 0) {
-                if (getClientLimitClassByName(v[j]) == -1) {
+                if (getClientTypeByName(v[j]) == -1) {
                     sdsfreesplitres(v,vlen);
                     goto badfmt;
                 }
             } else {
-                val = strtoll(v[j], &eptr, 10);
+                val = (long)strtoll(v[j], &eptr, 10);
                 if (eptr[0] != '\0' || val < 0) {
                     sdsfreesplitres(v,vlen);
                     goto badfmt;
@@ -855,10 +855,10 @@ void configSetCommand(redisClient *c) {
             unsigned long long hard, soft;
             int soft_seconds;
 
-            class = getClientLimitClassByName(v[j]);
+            class = getClientTypeByName(v[j]);
             hard = strtoll(v[j+1],NULL,10);
             soft = strtoll(v[j+2],NULL,10);
-            soft_seconds = strtoll(v[j+3],NULL,10);
+            soft_seconds = (int)strtoll(v[j+3],NULL,10);
 
             server.client_obuf_limits[class].hard_limit_bytes = hard;
             server.client_obuf_limits[class].soft_limit_bytes = soft;
@@ -872,10 +872,10 @@ void configSetCommand(redisClient *c) {
         server.stop_writes_on_bgsave_err = yn;
     } else if (!strcasecmp(c->argv[2]->ptr,"repl-ping-slave-period")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll <= 0) goto badfmt;
-        server.repl_ping_slave_period = ll;
+        server.repl_ping_slave_period = (int)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"repl-timeout")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll <= 0) goto badfmt;
-        server.repl_timeout = ll;
+        server.repl_timeout = (int)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"repl-backlog-size")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll <= 0) goto badfmt;
         resizeReplicationBacklog(ll);
@@ -906,16 +906,16 @@ void configSetCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[2]->ptr,"slave-priority")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0) goto badfmt;
-        server.slave_priority = ll;
+        server.slave_priority = (int)ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"min-slaves-to-write")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0) goto badfmt;
-        server.repl_min_slaves_to_write = ll;
+        server.repl_min_slaves_to_write = (int)ll;
         refreshGoodSlavesCount();
     } else if (!strcasecmp(c->argv[2]->ptr,"min-slaves-max-lag")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0) goto badfmt;
-        server.repl_min_slaves_max_lag = ll;
+        server.repl_min_slaves_max_lag = (int)ll;
         refreshGoodSlavesCount();
     } else {
         addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
@@ -1118,13 +1118,13 @@ void configGetCommand(redisClient *c) {
         sds buf = sdsempty();
         int j;
 
-        for (j = 0; j < REDIS_CLIENT_LIMIT_NUM_CLASSES; j++) {
+        for (j = 0; j < REDIS_CLIENT_TYPE_COUNT; j++) {
             buf = sdscatprintf(buf,"%s %llu %llu %ld",
-                    getClientLimitClassName(j),
+                    getClientTypeName(j),
                     server.client_obuf_limits[j].hard_limit_bytes,
                     server.client_obuf_limits[j].soft_limit_bytes,
                     (long) server.client_obuf_limits[j].soft_limit_seconds);
-            if (j != REDIS_CLIENT_LIMIT_NUM_CLASSES-1)
+            if (j != REDIS_CLIENT_TYPE_COUNT-1)
                 buf = sdscatlen(buf," ",1);
         }
         addReplyBulkCString(c,"client-output-buffer-limit");
@@ -1541,7 +1541,7 @@ void rewriteConfigClientoutputbufferlimitOption(struct rewriteConfigState *state
     int j;
     char *option = "client-output-buffer-limit";
 
-    for (j = 0; j < REDIS_CLIENT_LIMIT_NUM_CLASSES; j++) {
+    for (j = 0; j < REDIS_CLIENT_TYPE_COUNT; j++) {
         int force = (server.client_obuf_limits[j].hard_limit_bytes !=
                     clientBufferLimitsDefaults[j].hard_limit_bytes) ||
                     (server.client_obuf_limits[j].soft_limit_bytes !=
@@ -1557,7 +1557,7 @@ void rewriteConfigClientoutputbufferlimitOption(struct rewriteConfigState *state
                 server.client_obuf_limits[j].soft_limit_bytes);
 
         line = sdscatprintf(sdsempty(),"%s %s %s %s %ld",
-                option, getClientLimitClassName(j), hard, soft,
+                option, getClientTypeName(j), hard, soft,
                 (long) server.client_obuf_limits[j].soft_limit_seconds);
         rewriteConfigRewriteLine(state,option,line,force);
     }
@@ -1663,7 +1663,7 @@ void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
 int rewriteConfigOverwriteFile(char *configfile, sds content) {
     int retval = 0;
     int fd = open(configfile,O_RDWR|O_CREAT,0644);
-    int content_size = sdslen(content), padding = 0;
+    int content_size = (int)sdslen(content), padding = 0;
 #ifdef _WIN32
 	struct _stat64 sb;
 #else
@@ -1684,7 +1684,7 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
     if (content_size < sb.st_size) {
         /* If the old file was bigger, pad the content with
          * a newline plus as many "#" chars as required. */
-        padding = sb.st_size - content_size;
+        padding = (int)(sb.st_size - content_size);
         content_padded = sdsgrowzero(content_padded,sb.st_size);
         content_padded[content_size] = '\n';
         memset(content_padded+content_size+1,'#',padding-1);

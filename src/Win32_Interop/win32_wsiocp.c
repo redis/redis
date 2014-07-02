@@ -28,6 +28,7 @@
 #include <Guiddef.h>
 #include "win32_wsiocp.h"
 #include "Win32_FDAPI.h"
+#include <errno.h>
 
 
 static void *iocpState;
@@ -138,7 +139,7 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
 
     areq = sockstate->reqs;
     if (areq == NULL) {
-        errno = WSAEINVAL;
+        errno = EWOULDBLOCK;
         return SOCKET_ERROR;
     }
 

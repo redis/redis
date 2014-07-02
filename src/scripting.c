@@ -200,12 +200,19 @@ void luaSortArray(lua_State *lua) {
     lua_pop(lua,1);             /* Stack: array (sorted) */
 }
 
+#define LUA_CMD_OBJCACHE_SIZE 32
+#define LUA_CMD_OBJCACHE_MAX_LEN 64
 int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     int j, argc = lua_gettop(lua);
     struct redisCommand *cmd;
-    robj **argv;
     redisClient *c = server.lua_client;
     sds reply;
+
+    /* Cached across calls. */
+    static robj **argv = NULL;
+    static int argv_size = 0;
+    static robj *cached_objects[LUA_CMD_OBJCACHE_SIZE];
+    static int cached_objects_len[LUA_CMD_OBJCACHE_SIZE];
 
     /* Require at least one argument */
     if (argc == 0) {
@@ -215,13 +222,47 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     }
 
     /* Build the arguments vector */
-    argv = zmalloc(sizeof(robj*)*argc);
-    for (j = 0; j < argc; j++) {
-        if (!lua_isstring(lua,j+1)) break;
-        argv[j] = createStringObject((char*)lua_tostring(lua,j+1),
-                                     lua_strlen(lua,j+1));
+    if (!argv) {
+        argv = zmalloc(sizeof(robj*)*argc);
+    } else if (argv_size < argc) {
+        argv = zrealloc(argv,sizeof(robj*)*argc);
+        argv_size = argc;
     }
-    
+
+    for (j = 0; j < argc; j++) {
+        char *obj_s;
+        size_t obj_len;
+        char dbuf[64];
+
+        if (lua_type(lua,j+1) == LUA_TNUMBER) {
+            /* We can't use lua_tolstring() for number -> string conversion
+             * since Lua uses a format specifier that loses precision. */
+            lua_Number num = lua_tonumber(lua,j+1);
+
+            obj_len = snprintf(dbuf,sizeof(dbuf),"%.17g",(double)num);
+            obj_s = dbuf;
+        } else {
+            obj_s = (char*)lua_tolstring(lua,j+1,&obj_len);
+            if (obj_s == NULL) break; /* Not a string. */
+        }
+
+        /* Try to use a cached object. */
+        if (j < LUA_CMD_OBJCACHE_SIZE && cached_objects[j] &&
+            cached_objects_len[j] >= obj_len)
+        {
+            char *s = cached_objects[j]->ptr;
+            struct sdshdr *sh = (void*)(s-(sizeof(struct sdshdr)));
+
+            argv[j] = cached_objects[j];
+            cached_objects[j] = NULL;
+            memcpy(s,obj_s,obj_len+1);
+            sh->free += (int)(sh->len - obj_len);
+            sh->len = (int)obj_len;
+        } else {
+            argv[j] = createStringObject(obj_s, obj_len);
+        }
+    }
+
     /* Check if one of the arguments passed by the Lua script
      * is not a string or an integer (lua_isstring() return true for
      * integers as well). */
@@ -231,7 +272,6 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
             decrRefCount(argv[j]);
             j--;
         }
-        zfree(argv);
         luaPushError(lua,
             "Lua redis() command arguments must be strings or integers");
         return 1;
@@ -306,16 +346,22 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     /* Convert the result of the Redis command into a suitable Lua type.
      * The first thing we need is to create a single string from the client
      * output buffers. */
-    reply = sdsempty();
-    if (c->bufpos) {
-        reply = sdscatlen(reply,c->buf,c->bufpos);
+    if (listLength(c->reply) == 0 && c->bufpos < REDIS_REPLY_CHUNK_BYTES) {
+        /* This is a fast path for the common case of a reply inside the
+         * client static buffer. Don't create an SDS string but just use
+         * the client buffer directly. */
+        c->buf[c->bufpos] = '\0';
+        reply = c->buf;
         c->bufpos = 0;
-    }
-    while(listLength(c->reply)) {
-        robj *o = listNodeValue(listFirst(c->reply));
+    } else {
+        reply = sdsnewlen(c->buf,c->bufpos);
+        c->bufpos = 0;
+        while(listLength(c->reply)) {
+            robj *o = listNodeValue(listFirst(c->reply));
 
-        reply = sdscatlen(reply,o->ptr,sdslen(o->ptr));
-        listDelNode(c->reply,listFirst(c->reply));
+            reply = sdscatlen(reply,o->ptr,sdslen(o->ptr));
+            listDelNode(c->reply,listFirst(c->reply));
+        }
     }
     if (raise_error && reply[0] != '-') raise_error = 0;
     redisProtocolToLuaType(lua,reply);
@@ -325,15 +371,37 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         (reply[0] == '*' && reply[1] != '-')) {
             luaSortArray(lua);
     }
-    sdsfree(reply);
+    if (reply != c->buf) sdsfree(reply);
     c->reply_bytes = 0;
 
 cleanup:
     /* Clean up. Command code may have changed argv/argc so we use the
      * argv/argc of the client instead of the local variables. */
-    for (j = 0; j < c->argc; j++)
-        decrRefCount(c->argv[j]);
-    zfree(c->argv);
+    for (j = 0; j < c->argc; j++) {
+        robj *o = c->argv[j];
+
+        /* Try to cache the object in the cached_objects array.
+         * The object must be small, SDS-encoded, and with refcount = 1
+         * (we must be the only owner) for us to cache it. */
+        if (j < LUA_CMD_OBJCACHE_SIZE &&
+            o->refcount == 1 &&
+            o->encoding == REDIS_ENCODING_RAW &&
+            sdslen(o->ptr) <= LUA_CMD_OBJCACHE_MAX_LEN)
+        {
+            struct sdshdr *sh = (void*)(((char*)(o->ptr))-(sizeof(struct sdshdr)));
+
+            if (cached_objects[j]) decrRefCount(cached_objects[j]);
+            cached_objects[j] = o;
+            cached_objects_len[j] = sh->free + sh->len;
+        } else {
+            decrRefCount(o);
+        }
+    }
+
+    if (c->argv != argv) {
+        zfree(c->argv);
+        argv = NULL;
+    }
 
     if (raise_error) {
         /* If we are here we should have an error in the stack, in the
@@ -452,8 +520,7 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
          * here when the EVAL command will return. */
          aeDeleteFileEvent(server.el, server.lua_caller->fd, AE_READABLE);
     }
-    if (server.lua_timedout)
-        aeProcessEvents(server.el, AE_FILE_EVENTS|AE_DONT_WAIT);
+    if (server.lua_timedout) processEventsWhileBlocked();
     if (server.lua_kill) {
         redisLog(REDIS_WARNING,"Lua script killed by user with SCRIPT KILL.");
         lua_pushstring(lua,"Script killed by user with SCRIPT KILL...");
@@ -476,7 +543,7 @@ void luaLoadLibraries(lua_State *lua) {
     luaLoadLib(lua, LUA_TABLIBNAME, luaopen_table);
     luaLoadLib(lua, LUA_STRLIBNAME, luaopen_string);
     luaLoadLib(lua, LUA_MATHLIBNAME, luaopen_math);
-    luaLoadLib(lua, LUA_DBLIBNAME, luaopen_debug); 
+    luaLoadLib(lua, LUA_DBLIBNAME, luaopen_debug);
     luaLoadLib(lua, "cjson", luaopen_cjson);
     luaLoadLib(lua, "struct", luaopen_struct);
     luaLoadLib(lua, "cmsgpack", luaopen_cmsgpack);
@@ -856,8 +923,12 @@ void evalGenericCommand(redisClient *c, int evalsha) {
         int j;
         char *sha = c->argv[1]->ptr;
 
+        /* Convert to lowercase. We don't use tolower since the function
+         * managed to always show up in the profiler output consuming
+         * a non trivial amount of time. */
         for (j = 0; j < 40; j++)
-            funcname[j+2] = tolower(sha[j]);
+            funcname[j+2] = (sha[j] >= 'A' && sha[j] <= 'Z') ?
+                sha[j]+('a'-'A') : sha[j];
         funcname[42] = '\0';
     }
 
@@ -894,7 +965,7 @@ void evalGenericCommand(redisClient *c, int evalsha) {
 
     /* Select the right DB in the context of the Lua client */
     selectDb(server.lua_client,c->db->id);
-    
+
     /* Set a hook in order to be able to stop the script execution if it
      * is running for too much time.
      * We set the hook only if the time limit is enabled as the hook will
@@ -922,8 +993,23 @@ void evalGenericCommand(redisClient *c, int evalsha) {
                           readQueryFromClient,c);
     }
     server.lua_caller = NULL;
-    selectDb(c,server.lua_client->db->id); /* set DB ID from Lua client */
-    lua_gc(lua,LUA_GCSTEP,1);
+
+    /* Call the Lua garbage collector from time to time to avoid a
+     * full cycle performed by Lua, which adds too latency.
+     *
+     * The call is performed every LUA_GC_CYCLE_PERIOD executed commands
+     * (and for LUA_GC_CYCLE_PERIOD collection steps) because calling it
+     * for every command uses too much CPU. */
+    #define LUA_GC_CYCLE_PERIOD 50
+    {
+        static long gc_count = 0;
+
+        gc_count++;
+        if (gc_count == LUA_GC_CYCLE_PERIOD) {
+            lua_gc(lua,LUA_GCSTEP,LUA_GC_CYCLE_PERIOD);
+            gc_count = 0;
+        }
+    }
 
     if (err) {
         addReplyErrorFormat(c,"Error running script (call to %s): %s\n",

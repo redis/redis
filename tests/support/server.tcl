@@ -55,7 +55,8 @@ if { $tcl_platform(platform) != "windows" } {
                     test "Check for memory leaks (pid $pid)" {
                         set output {0 leaks}
                         catch {exec leaks $pid} output
-                        if {[string match {*process does not exist*} $output]} {
+                        if {[string match {*process does not exist*} $output] ||
+                            [string match {*cannot examine*} $output]} {
                             # In a few tests we kill the server process.
                             set output "0 leaks"
                         }

@@ -408,6 +408,29 @@ start_server {
       $rd read
     } {}
 
+    test "BLPOP when new key is moved into place" {
+        set rd [redis_deferring_client]
+
+        $rd blpop foo 5
+        r lpush bob abc def hij
+        r rename bob foo
+        $rd read
+    } {foo hij}
+
+    test "BLPOP when result key is created by SORT..STORE" {
+        set rd [redis_deferring_client]
+
+        # zero out list from previous test without explicit delete
+        r lpop foo
+        r lpop foo
+        r lpop foo
+
+        $rd blpop foo 5
+        r lpush notfoo hello hola aguacate konichiwa zanzibar
+        r sort notfoo ALPHA store foo
+        $rd read
+    } {foo aguacate}
+
     foreach {pop} {BLPOP BRPOP} {
         test "$pop: with single empty list argument" {
             set rd [redis_deferring_client]

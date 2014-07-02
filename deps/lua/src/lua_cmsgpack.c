@@ -152,10 +152,10 @@ static void mp_encode_bytes(mp_buf *buf, const unsigned char *s, size_t len) {
         hdrlen = 3;
     } else {
         hdr[0] = 0xdb;
-        hdr[1] = (len&0xff000000)>>24;
-        hdr[2] = (len&0xff0000)>>16;
-        hdr[3] = (len&0xff00)>>8;
-        hdr[4] = len&0xff;
+        hdr[1] = (unsigned char)((len&0xff000000)>>24);
+        hdr[2] = (unsigned char)((len & 0xff0000) >> 16);
+        hdr[3] = (unsigned char)((len & 0xff00) >> 8);
+        hdr[4] = (unsigned char)(len & 0xff);
         hdrlen = 5;
     }
     mp_buf_append(buf,hdr,hdrlen);

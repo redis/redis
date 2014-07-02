@@ -477,7 +477,7 @@ static void json_append_string(lua_State *l, strbuf_t *json, int lindex)
      * This buffer is reused constantly for small strings
      * If there are any excess pages, they won't be hit anyway.
      * This gains ~5% speedup. */
-    strbuf_ensure_empty_length(json, len * 6 + 2);
+    strbuf_ensure_empty_length(json, (int)(len * 6 + 2));
 
     strbuf_append_char_unsafe(json, '\"');
     for (i = 0; i < len; i++) {
@@ -1255,7 +1255,7 @@ static int json_decode(lua_State *l)
     if (len >= 2 && (!json[0] || !json[1]))
         luaL_error(l, "JSON parser does not support UTF-16 or UTF-32");
 
-    lua_json_decode(l, json, len);
+    lua_json_decode(l, json, (int)len);
 
     return 1;
 }

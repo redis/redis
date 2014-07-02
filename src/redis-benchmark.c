@@ -399,7 +399,7 @@ static client createClient(char *cmd, size_t len, client from) {
     if (config.dbnum != 0) {
         c->obuf = sdscatprintf(c->obuf,"*2\r\n$6\r\nSELECT\r\n$%d\r\n%s\r\n",
             (int)sdslen(config.dbnumstr),config.dbnumstr);
-        c->selectlen = sdslen(c->obuf);
+        c->selectlen = (int)sdslen(c->obuf);
     } else {
         c->selectlen = 0;
     }
@@ -690,7 +690,7 @@ int main(int argc, const char **argv) {
 
     client c;
 
-    srandom(time(NULL));
+    srandom((unsigned int)time(NULL));
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
 
