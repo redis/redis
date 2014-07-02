@@ -78,6 +78,10 @@ void sparklineSequenceAddSample(struct sequence *seq, double value, char *label)
 
 /* Free a sequence. */
 void freeSparklineSequence(struct sequence *seq) {
+    int j;
+
+    for (j = 0; j < seq->length; j++)
+        zfree(seq->samples[j].label);
     zfree(seq->samples);
     zfree(seq);
 }
