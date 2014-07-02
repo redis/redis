@@ -145,7 +145,7 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
     int j;
     struct sequence *seq = createSparklineSequence();
     sds graph = sdsempty();
-    uint32_t min, max;
+    uint32_t min = 0, max = 0;
 
     for (j = 0; j < LATENCY_TS_LEN; j++) {
         int i = (ts->idx + j) % LATENCY_TS_LEN;
