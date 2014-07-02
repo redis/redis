@@ -58,6 +58,8 @@ void latencyAddSample(char *event, mstime_t latency);
 /* Start monitoring an event. We just set the current time. */
 #define latencyStartMonitor(var) if (server.latency_monitor_threshold) { \
     var = mstime(); \
+} else { \
+    var = 0; \
 }
 
 /* End monitoring an event, compute the difference with the current time
