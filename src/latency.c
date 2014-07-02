@@ -131,10 +131,11 @@ void latencyCommandReplyWithLatestEvents(redisClient *c) {
         struct latencyTimeSeries *ts = dictGetVal(de);
         int last = (ts->idx + LATENCY_TS_LEN - 1) % LATENCY_TS_LEN;
 
-        addReplyMultiBulkLen(c,3);
+        addReplyMultiBulkLen(c,4);
         addReplyBulkCString(c,event);
         addReplyLongLong(c,ts->samples[last].time);
         addReplyLongLong(c,ts->samples[last].latency);
+        addReplyLongLong(c,ts->max);
     }
     dictReleaseIterator(di);
 }
