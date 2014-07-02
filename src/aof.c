@@ -272,7 +272,7 @@ void flushAppendOnlyFile(int force) {
      * active, and when the above two conditions are missing.
      * We also use an additional event name to save all samples which is
      * useful for graphing / monitoring purposes. */
-    if (server.aof_flush_postponed_start != 0) {
+    if (sync_in_progress) {
         latencyAddSampleIfNeeded("aof-write-pending-fsync",latency);
     } else if (server.aof_child_pid != -1 || server.rdb_child_pid != -1) {
         latencyAddSampleIfNeeded("aof-write-active-child",latency);
