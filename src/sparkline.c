@@ -161,9 +161,8 @@ sds sparklineRenderRange(sds output, struct sequence *seq, int rows, int offset,
 }
 
 /* Turn a sequence into its ASCII representation */
-sds sparklineRender(struct sequence *seq, int columns, int rows, int flags) {
+sds sparklineRender(sds output, struct sequence *seq, int columns, int rows, int flags) {
     int j;
-    sds output = sdsempty();
 
     for (j = 0; j < seq->length; j += columns) {
         int sublen = (seq->length-j) < columns ? (seq->length-j) : columns;

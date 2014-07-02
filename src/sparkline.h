@@ -51,6 +51,6 @@ struct sequence *createSparklineSequence(void);
 void sparklineSequenceAddSample(struct sequence *seq, double value, char *label);
 void freeSparklineSequence(struct sequence *seq);
 sds sparklineRenderRange(sds output, struct sequence *seq, int rows, int offset, int len, int flags);
-sds sparklineRender(struct sequence *seq, int columns, int rows, int flags);
+sds sparklineRender(sds output, struct sequence *seq, int columns, int rows, int flags);
 
 #endif /* __SPARKLINE_H */
