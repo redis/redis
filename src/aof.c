@@ -258,19 +258,31 @@ void flushAppendOnlyFile(int force) {
             redisLog(REDIS_NOTICE,"Asynchronous AOF fsync is taking too long (disk is busy?). Writing the AOF buffer without waiting for fsync to complete, this may slow down Redis.");
         }
     }
-    /* If you are following this code path, then we are going to write so
-     * set reset the postponed flush sentinel to zero. */
-    server.aof_flush_postponed_start = 0;
-
     /* We want to perform a single write. This should be guaranteed atomic
      * at least if the filesystem we are writing is a real physical one.
      * While this will save us against the server being killed I don't think
      * there is much to do about the whole server stopping for power problems
      * or alike */
+
     latencyStartMonitor(latency);
     nwritten = write(server.aof_fd,server.aof_buf,sdslen(server.aof_buf));
     latencyEndMonitor(latency);
+    /* We want to capture different events for delayed writes:
+     * when the delay happens with a pending fsync, or with a saving child
+     * active, and when the above two conditions are missing.
+     * We also use an additional event name to save all samples which is
+     * useful for graphing / monitoring purposes. */
+    if (server.aof_flush_postponed_start != 0) {
+        latencyAddSampleIfNeeded("aof-write-pending-fsync",latency);
+    } else if (server.aof_child_pid != -1 || server.rdb_child_pid != -1) {
+        latencyAddSampleIfNeeded("aof-write-active-child",latency);
+    } else {
+        latencyAddSampleIfNeeded("aof-write-alone",latency);
+    }
     latencyAddSampleIfNeeded("aof-write",latency);
+
+    /* We performed the write so reset the postponed flush sentinel to zero. */
+    server.aof_flush_postponed_start = 0;
 
     if (nwritten != (signed)sdslen(server.aof_buf)) {
         static time_t last_write_error_log = 0;
