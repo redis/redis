@@ -182,7 +182,7 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
     for (j = 0; j < LATENCY_GRAPH_COLS; j++)
         graph = sdscatlen(graph,"-",1);
     graph = sdscatlen(graph,"\n",1);
-    graph = sparklineRender(graph,seq,LATENCY_GRAPH_COLS,4,SPARKLINE_NO_FLAGS);
+    graph = sparklineRender(graph,seq,LATENCY_GRAPH_COLS,4,SPARKLINE_FILL);
     freeSparklineSequence(seq);
     return graph;
 }
