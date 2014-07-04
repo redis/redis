@@ -731,6 +731,16 @@ struct redisServer {
     int aof_rewrite_incremental_fsync;/* fsync incrementally while rewriting? */
     int aof_last_write_status;      /* REDIS_OK or REDIS_ERR */
     int aof_last_write_errno;       /* Valid if aof_last_write_status is ERR */
+    /* AOF pipes used to communicate between parent and child during rewrite. */
+    int aof_pipe_write_data_to_child;
+    int aof_pipe_read_data_from_parent;
+    int aof_pipe_write_ack_to_parent;
+    int aof_pipe_read_ack_from_child;
+    int aof_pipe_write_ack_to_child;
+    int aof_pipe_read_ack_from_parent;
+    int aof_stop_sending_diff;     /* If true stop sending accumulated diffs
+                                      to child process. */
+    sds aof_child_diff;             /* AOF diff accumulator child side. */
     /* RDB persistence */
     long long dirty;                /* Changes to DB from the last save */
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
