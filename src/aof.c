@@ -965,8 +965,8 @@ int rewriteAppendOnlyFile(char *filename) {
     char tmpfile[256];
     int j;
     long long now = mstime();
-    unsigned long ops = 0;
     char byte;
+    size_t processed = 0;
 
     /* Note that we have to use a different temp name here compared to the
      * one used by rewriteAppendOnlyFileBackground() function. */
@@ -1038,7 +1038,10 @@ int rewriteAppendOnlyFile(char *filename) {
                 if (rioWriteBulkLongLong(&aof,expiretime) == 0) goto werr;
             }
             /* Read some diff from the parent process from time to time. */
-            if (ops++ % 1000) aofReadDiffFromParent();
+            if (aof.processed_bytes > processed+REDIS_AOF_AUTOSYNC_BYTES) {
+                processed = aof.processed_bytes;
+                aofReadDiffFromParent();
+            }
         }
         dictReleaseIterator(di);
     }
