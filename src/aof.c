@@ -92,20 +92,24 @@ unsigned long aofRewriteBufferSize(void) {
  * rewrite. We send pieces of our AOF differences buffer so that the final
  * write when the child finishes the rewrite will be small. */
 void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
-    listNode *ln = listFirst(server.aof_rewrite_buf_blocks);
-    aofrwblock *block = ln ? ln->value : NULL;
+    listNode *ln;
+    aofrwblock *block;
     ssize_t nwritten;
 
-    if (server.aof_stop_sending_diff || !block) {
-        aeDeleteFileEvent(server.el,server.aof_pipe_write_data_to_child,
-                          AE_WRITABLE);
-        return;
+    while(1) {
+        ln = listFirst(server.aof_rewrite_buf_blocks);
+        block = ln ? ln->value : NULL;
+        if (server.aof_stop_sending_diff || !block) {
+            aeDeleteFileEvent(server.el,server.aof_pipe_write_data_to_child,
+                              AE_WRITABLE);
+            return;
+        }
+        nwritten = write(server.aof_pipe_write_data_to_child,block->buf,block->used);
+        if (nwritten <= 0) return;
+        memmove(block->buf,block->buf+nwritten,block->used-nwritten);
+        block->used -= nwritten;
+        if (block->used == 0) listDelNode(server.aof_rewrite_buf_blocks,ln);
     }
-    nwritten = write(server.aof_pipe_write_data_to_child,block->buf,block->used);
-    if (nwritten <= 0) return;
-    memmove(block->buf,block->buf+nwritten,block->used-nwritten);
-    block->used -= nwritten;
-    if (block->used == 0) listDelNode(server.aof_rewrite_buf_blocks,ln);
 }
 
 /* Append data to the AOF rewrite buffer, allocating new blocks if needed. */
