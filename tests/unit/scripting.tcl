@@ -30,6 +30,122 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {this is an error}
 
+    test {EVAL - Lua int64 -> Reids int64 type support} {
+        r eval { 
+            local a = int64.new('1')
+            return type(a)
+        } 0
+    } {userdata}
+
+    test {EVAL - Lua int64 -> Redis int64 type conversion} {
+        r eval {
+            return {
+                int64.tostring(int64.new('1')),
+                int64.tostring(int64.new(1024)),
+                int64.tostring(int64.new('-1')),
+                int64.tostring(int64.new('f', 16))
+            }
+        } 0
+    } {1 1024 -1 15}
+
+    test {EVAL - Lua int64 -> Redis int64 support} {
+        r eval {
+            local a = int64.new('2147483648')
+            local b = int64.new('9223372036854775807')
+            return {
+                int64.tostring(a + b),
+                int64.tostring(b - a),
+            }
+        } 0
+    } {-9223372034707292161 9223372034707292159}
+
+    test {EVAL - Lua int64 -> Redis negative int64 support} {
+        r eval {
+            local a = int64.new('-1')
+            local b = int64.new('10')
+            return {
+                int64.tostring(a + b),
+                int64.tostring(b - a),
+                int64.tostring(b * a),
+                int64.tostring(b / a),
+            }
+        } 0
+    } {9 11 -10 -10}
+
+    test {EVAL - Lua int64 -> Redis int64 addition support} {
+        r eval {
+            local a = int64.new('1')
+            local b = int64.new('10')
+            return {
+                int64.tostring(a + b)
+            }
+        } 0
+    } {11}
+
+    test {EVAL - Lua int64 -> Redis int64 subtraction support} {
+        r eval {
+            local a = int64.new('1')
+            local b = int64.new('10')
+            return {
+                int64.tostring(a - b)
+            }
+        } 0
+    } {-9}
+
+    test {EVAL - Lua int64 -> Redis int64 multiplication support} {
+        r eval {
+            local a = int64.new('1')
+            local b = int64.new('10')
+            local c = int64.new('0')
+            return {
+                int64.tostring(a * b),
+                int64.tostring(a * c),
+            }
+        } 0
+    } {10 0}
+
+    test {EVAL - Lua int64 -> Redis int64 division support} {
+        r eval {
+            local a = int64.new('1')
+            local b = int64.new('10')
+            return {
+                int64.tostring(b / a),
+            }
+        } 0
+    } {10}
+
+    test {EVAL - Lua int64 -> Redis int64 division exception} {
+        set e {}
+        catch {
+            r eval {
+                local a = int64.new('0')
+                local b = int64.new('10')
+                int64.tostring(b / a)
+            } 0
+        } e
+        set e
+    } {*div by zero}
+
+    test {EVAL - Lua int64 -> Redis int64 compare support} {
+        r eval {
+            local a = int64.new('-1')
+            local b = int64.new('10')
+            local c = int64.new('0')
+            return {
+                a > b,
+                b > a,
+                a < c,
+                c < a,
+                a == a,
+                a == b,
+                a >= c,
+                c >= a,
+                a <= c,
+                c <= a,
+            }
+        } 0
+    } {{} 1 1 {} 1 {} {} 1 1 {}}
+
     test {EVAL - Lua table -> Redis protocol type conversion} {
         r eval {return {1,2,3,'ciao',{1,2}}} 0
     } {1 2 3 ciao {1 2}}
