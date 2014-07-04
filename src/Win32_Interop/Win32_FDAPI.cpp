@@ -45,6 +45,7 @@ redis_WSACleanup WSACleanup = NULL;
 redis_WSAGetOverlappedResult WSAGetOverlappedResult = NULL;
 
 // other API forwards
+redis_fwrite fdapi_fwrite = NULL;
 redis_setmode fdapi_setmode = NULL;
 redis_select select = NULL;
 redis_ntohl ntohl = NULL;
@@ -906,6 +907,10 @@ int redis_setmode_impl(int fd,int mode) {
     return crtsetmode(fd,mode);
 }
 
+size_t redis_fwrite_impl(const void * _Str, size_t _Size, size_t _Count, FILE * _File) {
+    return crtfwrite(_Str, _Size, _Count, _File);
+}
+
 auto f_select = dllfunctor_stdcall<int, int, fd_set*, fd_set*, fd_set*, const struct timeval*>("ws2_32.dll", "select");
 int redis_select_impl(int nfds, fd_set *readfds, fd_set *writefds,fd_set *exceptfds, struct timeval *timeout) {
    try { 
@@ -1053,6 +1058,7 @@ private:
         inet_addr = redis_inet_addr_impl;
         gethostbyname = redis_gethostbyname_impl;
         inet_ntoa = redis_inet_ntoa_impl; 
+        fdapi_fwrite = redis_fwrite_impl;
         fdapi_setmode = redis_setmode_impl;
         WSASetLastError = redis_WSASetLastError_impl;
         WSAGetLastError = redis_WSAGetLastError_impl;

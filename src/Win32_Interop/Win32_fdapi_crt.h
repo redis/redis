@@ -21,6 +21,7 @@
 */
 #pragma once
 #include <cstdint>
+#include <stdio.h>
 
 int crt_close(int fd);
 int crt_read(int fd, void *buffer, unsigned int count);
@@ -28,6 +29,7 @@ int crt_write(int fd, const void *buffer, unsigned int count);
 int crt_open(const char *filename, int oflag, int pmode);
 intptr_t crtget_osfhandle(int fd);
 int crtsetmode(int fd, int mode);
+size_t crtfwrite(const void * _Str, size_t _Size, size_t _Count, FILE * _File);
 int crt_isatty(int fd);
 int crt_access(const char *pathname, int mode);
 __int64 crt_lseek64(int fd, __int64 offset, int origin);

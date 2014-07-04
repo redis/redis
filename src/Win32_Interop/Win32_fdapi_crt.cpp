@@ -19,6 +19,7 @@
 * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
+
 #include "Win32_fdapi_crt.h"
 #include <io.h>
 #include <stdlib.h>
@@ -46,6 +47,25 @@ intptr_t crtget_osfhandle(int fd) {
 int crtsetmode(int fd, int mode) {
 	return ::_setmode(fd, mode);
 }
+
+size_t crtfwrite(const void * _Str, size_t _Size, size_t _Count, FILE * _File) {
+    // fwrite() somehow locks its view of the buffer. If during a fork operation the buffer has not been loaded into the forkee's process space,
+    // the VEH will be called to load the missing pages. Although the page gets loaded, fwrite() will not see the loaded page. The result is
+    // that fwrite will fail with errno set to ERROR_INVALID_USER_BUFFER. The fix is to force the buffer into memory before fwrite(). This only
+    // impacts wirites that straddle page boundaries.
+    const intptr_t pageSize = 4096;
+    char* p = (char*)_Str;
+    char* pageStart = p - ((intptr_t)p % pageSize);
+    char* pEnd = p + _Size;
+    if ((intptr_t)(pEnd - pageStart) > pageSize)  {
+        for (size_t n = 0; n < _Size; n++) {
+            char x = *((char*)_Str + n);
+        }
+    }
+
+    return ::fwrite(_Str, _Size, _Count, _File);
+}
+
 
 int crt_isatty(int fd) {
 	return _isatty(fd);

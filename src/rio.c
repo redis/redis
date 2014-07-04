@@ -54,7 +54,7 @@
 #include "rio.h"
 #include "util.h"
 #ifdef _WIN32
-//#include "win32fixes.h"
+#include "Win32_Interop\Win32_FDAPI.h"
 #endif
 #include "config.h"
 #include "redis.h"
@@ -86,7 +86,6 @@ static off_t rioBufferTell(rio *r) {
 /* Returns 1 or 0 for success/failure. */
 static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
     size_t retval;
-
     retval = fwrite(buf,len,1,r->io.file.fp);
     r->io.file.buffered += (off_t)len;
 

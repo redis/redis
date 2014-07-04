@@ -40,6 +40,7 @@ typedef int ssize_t;
 #define INCL_WINSOCK_API_PROTOTYPES 0 // Important! Do not include Winsock API definitions to avoid conflicts with API entry points defnied below.
 #include <WinSock2.h>
 #include <fcntl.h>
+#include <stdio.h>
 
 // the following are required to be defined before WS2tcpip is included.
 typedef void (*redis_WSASetLastError)(int iError);
@@ -149,6 +150,7 @@ typedef BOOL (*redis_WSAGetOverlappedResult)(int rfd,LPWSAOVERLAPPED lpOverlappe
 
 // other API forwards
 typedef int (*redis_setmode)(int fd,int mode);
+typedef size_t (*redis_fwrite)(const void * _Str, size_t _Size, size_t _Count, FILE * _File);
 
 // API prototypes must match the unix implementation
 typedef int (*redis_socket)(int af,int type,int protocol);
@@ -227,6 +229,7 @@ extern redis_getpeername getpeername;
 extern redis_getsockname getsockname;
 extern redis_ntohs ntohs;
 extern redis_setmode fdapi_setmode;
+extern redis_fwrite fdapi_fwrite;
 
 extern redis_select select;
 extern redis_ntohl ntohl;
@@ -250,6 +253,7 @@ int FDAPI_UpdateAcceptContext( int fd );
 #ifndef FDAPI_NOCRTREDEFS
 #define close(fd) fdapi_close(fd)
 #define setmode(fd,mode) fdapi_setmode(fd,mode)
+#define fwrite(Str, Size, Count, File) fdapi_fwrite(Str,Size,Count,File)
 #define _get_osfhandle(fd) fdapi_get_osfhandle(fd)
 
 #define _INC_STAT_INL
