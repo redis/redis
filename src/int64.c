@@ -1,3 +1,8 @@
+/*
+ * NOTE: This implementation is mainly based on: https://github.com/cloudwu/lua-int64
+ *
+ */
+
 #include <lua.h>
 #include <lauxlib.h>
 #include <stdint.h>
