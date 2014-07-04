@@ -104,10 +104,13 @@ void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
                               AE_WRITABLE);
             return;
         }
-        nwritten = write(server.aof_pipe_write_data_to_child,block->buf,block->used);
-        if (nwritten <= 0) return;
-        memmove(block->buf,block->buf+nwritten,block->used-nwritten);
-        block->used -= nwritten;
+        if (block->used > 0) {
+            nwritten = write(server.aof_pipe_write_data_to_child,
+                             block->buf,block->used);
+            if (nwritten <= 0) return;
+            memmove(block->buf,block->buf+nwritten,block->used-nwritten);
+            block->used -= nwritten;
+        }
         if (block->used == 0) listDelNode(server.aof_rewrite_buf_blocks,ln);
     }
 }
