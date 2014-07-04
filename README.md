@@ -20,8 +20,7 @@ Redis on Windows
 
 ## Important: More documentation is available
 
-Please read the documentation in msvs\setups\documentation. This is the documentation that is bundled with the binaries, and contains vital information  
-about configuring and deploying Redis on Windows.
+Please read the documentation in msvs\setups\documentation. This is the documentation that is bundled with the binaries, and contains vital information about configuring and deploying Redis on Windows.
 
 ## How to build Redis using Visual Studio
 
@@ -45,13 +44,11 @@ To run the Redis test suite requires some manual work:
   need symbolic links for src\redis-server, src\redis-benchmark, src\redis-check-aof, src\redis-check-dump, src\redis-cli, and src\redis-sentinel.
 - The tests make use of TCL. This must be installed separately.
 - To run the tests you need to have a Unix shell on your machine, or MinGW tools in your path. To execute the tests, run the following command: 
-  'tclsh8.5.exe tests/test_helper.tcl --clients <n>`. If a Unix shell is not installed you may see the following error message: "couldn't execute "cat": no 
-  such file or directory".
+  "tclsh8.5.exe tests/test_helper.tcl --clients N", where N is the number of parallel clients . If a Unix shell is not installed you may see the 
+  following error message: "couldn't execute "cat": no such file or directory".
 - By default the test suite launches 16 parallel tests. I will get time out errors on an iCore 7-2620m@2.7Ghz with some of the tests when the number of clients 
   is greater than 6. 
   
- 
-
 ## Known issues
 
 None.
