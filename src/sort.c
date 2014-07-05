@@ -165,7 +165,7 @@ int sortCompare(const void *s1, const void *s2) {
             } else {
                 /* We have both the objects, compare them. */
                 if (server.sort_store) {
-                    cmp = compareStringObjects(so1->u.cmpobj,so2->u.cmpobj);
+                    cmp = collateStringObjects(so1->u.cmpobj,so2->u.cmpobj);
                 } else {
                     /* Here we can use strcoll() directly as we are sure that
                      * the objects are decoded string objects. */
@@ -174,11 +174,7 @@ int sortCompare(const void *s1, const void *s2) {
             }
         } else {
             /* Compare elements directly. */
-            if (server.sort_store) {
-                cmp = compareStringObjects(so1->obj,so2->obj);
-            } else {
-                cmp = collateStringObjects(so1->obj,so2->obj);
-            }
+            cmp = collateStringObjects(so1->obj,so2->obj);
         }
     }
     return server.sort_desc ? -cmp : cmp;
