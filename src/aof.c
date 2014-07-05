@@ -1088,8 +1088,8 @@ int rewriteAppendOnlyFile(char *filename) {
 
     /* Write the received diff to the file. */
     redisLog(REDIS_NOTICE,
-        "Concatenating %llu bytes of AOF diff received from parent.",
-        (unsigned long long) sdslen(server.aof_child_diff));
+        "Concatenating %.2f MB of AOF diff received from parent.",
+        (double) sdslen(server.aof_child_diff) / (1024*1024));
     if (rioWrite(&aof,server.aof_child_diff,sdslen(server.aof_child_diff)) == 0)
         goto werr;
 
@@ -1329,7 +1329,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
         latencyAddSampleIfNeeded("aof-rewrite-diff-write",latency);
 
         redisLog(REDIS_NOTICE,
-            "Parent diff successfully flushed to the rewritten AOF (%lu bytes)", aofRewriteBufferSize());
+            "Redidual parent diff successfully flushed to the rewritten AOF (%.2f MB)", (double) aofRewriteBufferSize() / (1024*1024));
 
         /* The only remaining thing to do is to rename the temporary file to
          * the configured file and switch the file descriptor used to do AOF
