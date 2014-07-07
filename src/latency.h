@@ -50,6 +50,16 @@ struct latencyTimeSeries {
     struct latencySample samples[LATENCY_TS_LEN]; /* Latest history. */
 };
 
+/* Latency statistics structure. */
+struct latencyStats {
+    uint32_t all_time_high; /* Absolute max observed since latest reset. */
+    uint32_t avg;           /* Average of current samples. */
+    uint32_t min;           /* Min of current samples. */
+    uint32_t max;           /* Max of current samples. */
+    uint32_t mad;           /* Mean absolute deviation. */
+    uint32_t samples;       /* Number of non-zero samples. */
+};
+
 void latencyMonitorInit(void);
 void latencyAddSample(char *event, mstime_t latency);
 
