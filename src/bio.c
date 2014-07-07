@@ -137,6 +137,24 @@ void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3) {
     pthread_mutex_unlock(&bio_mutex[type]);
 }
 
+
+static void aof_write(int aof_fd, sds aof_buf) {
+    ssize_t nwritten = 0;
+    ssize_t n;
+    while (nwritten<sdslen(aof_buf)) {
+        n = write(aof_fd, aof_buf+nwritten, sdslen(aof_buf)-nwritten);
+        if (n < 0) {
+            redisLog(REDIS_WARNING, "Warning: aof_write error with: %d %s", errno, strerror(errno));
+            continue;
+        }
+        nwritten += n;
+    }
+    redisLog(REDIS_VERBOSE, "aof_write in bio write %ld bytes", nwritten);
+
+    sdsfree(aof_buf);
+    return;
+}
+
 void *bioProcessBackgroundJobs(void *arg) {
     struct bio_job *job;
     unsigned long type = (unsigned long) arg;
@@ -176,6 +194,8 @@ void *bioProcessBackgroundJobs(void *arg) {
             close((long)job->arg1);
         } else if (type == REDIS_BIO_AOF_FSYNC) {
             aof_fsync((long)job->arg1);
+        } else if (type == REDIS_BIO_AOF_WRITE) {
+            aof_write((long)job->arg1, (sds)job->arg2);
         } else {
             redisPanic("Wrong job type in bioProcessBackgroundJobs().");
         }

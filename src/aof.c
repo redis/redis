@@ -160,6 +160,10 @@ void aof_background_fsync(int fd) {
     bioCreateBackgroundJob(REDIS_BIO_AOF_FSYNC,(void*)(long)fd,NULL,NULL);
 }
 
+void aof_background_write(int fd, sds buf) {
+    bioCreateBackgroundJob(REDIS_BIO_AOF_WRITE,(void*)(long)fd,buf,NULL);
+}
+
 /* Called when the user switches from "appendonly yes" to "appendonly no"
  * at runtime using the CONFIG command. */
 void stopAppendOnly(void) {
@@ -256,6 +260,10 @@ void flushAppendOnlyFile(int force) {
             server.aof_delayed_fsync++;
             redisLog(REDIS_NOTICE,"Asynchronous AOF fsync is taking too long (disk is busy?). Writing the AOF buffer without waiting for fsync to complete, this may slow down Redis.");
         }
+
+        aof_background_write(server.aof_fd, server.aof_buf);
+        server.aof_buf = sdsempty();
+        return;
     }
     /* If you are following this code path, then we are going to write so
      * set reset the postponed flush sentinel to zero. */
