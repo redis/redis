@@ -221,8 +221,8 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
 void latencyCommand(redisClient *c) {
     struct latencyTimeSeries *ts;
 
-    if (!strcasecmp(c->argv[1]->ptr,"samples") && c->argc == 3) {
-        /* LATENCY SAMPLES <event> */
+    if (!strcasecmp(c->argv[1]->ptr,"history") && c->argc == 3) {
+        /* LATENCY HISTORY <event> */
         ts = dictFetchValue(server.latency_events,c->argv[2]->ptr);
         if (ts == NULL) goto nodataerr;
         latencyCommandReplyWithSamples(c,ts);
