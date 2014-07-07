@@ -35,8 +35,7 @@
 
 #include "redis.h"
 
-/* Dictionary type for latency events. Key/Val destructors are set to NULL
- * since we never delete latency time series at runtime. */
+/* Dictionary type for latency events. */
 int dictStringKeyCompare(void *privdata, const void *key1, const void *key2) {
     return strcmp(key1,key2) == 0;
 }
@@ -45,13 +44,15 @@ unsigned int dictStringHash(const void *key) {
     return dictGenHashFunction(key, strlen(key));
 }
 
+void dictVanillaFree(void *privdata, void *val);
+
 dictType latencyTimeSeriesDictType = {
     dictStringHash,             /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictStringKeyCompare,       /* key compare */
-    NULL,                       /* key destructor */
-    NULL                        /* val destructor */
+    dictVanillaFree,            /* key destructor */
+    dictVanillaFree             /* val destructor */
 };
 
 /* ---------------------------- Latency API --------------------------------- */
@@ -96,6 +97,29 @@ void latencyAddSample(char *event, mstime_t latency) {
 
     ts->idx++;
     if (ts->idx == LATENCY_TS_LEN) ts->idx = 0;
+}
+
+/* Reset data for the specified event, or all the events data if 'event' is
+ * NULL.
+ *
+ * Note: this is O(N) even when event_to_reset is not NULL because makes
+ * the code simpler and we have a small fixed max number of events. */
+int latencyResetEvent(char *event_to_reset) {
+    dictIterator *di;
+    dictEntry *de;
+    int resets = 0;
+
+    di = dictGetSafeIterator(server.latency_events);
+    while((de = dictNext(di)) != NULL) {
+        char *event = dictGetKey(de);
+
+        if (event_to_reset == NULL || strcasecmp(event,event_to_reset) == 0) {
+            dictDelete(server.latency_events, event);
+            resets++;
+        }
+    }
+    dictReleaseIterator(di);
+    return resets;
 }
 
 /* ---------------------- Latency command implementation -------------------- */
@@ -219,6 +243,17 @@ void latencyCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"latest") && c->argc == 2) {
         /* LATENCY LATEST */
         latencyCommandReplyWithLatestEvents(c);
+    } else if (!strcasecmp(c->argv[1]->ptr,"reset") && c->argc >= 2) {
+        /* LATENCY RESET */
+        if (c->argc == 2) {
+            addReplyLongLong(c,latencyResetEvent(NULL));
+        } else {
+            int j, resets = 0;
+
+            for (j = 2; j < c->argc; j++)
+                resets += latencyResetEvent(c->argv[j]->ptr);
+            addReplyLongLong(c,resets);
+        }
     } else {
         addReply(c,shared.syntaxerr);
     }
