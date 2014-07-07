@@ -122,6 +122,56 @@ int latencyResetEvent(char *event_to_reset) {
     return resets;
 }
 
+/* ------------------------ Latency reporting (doctor) ---------------------- */
+
+/* Analyze the samples avaialble for a given event and return a structure
+ * populate with different metrics, average, MAD, min, max, and so forth.
+ * Check latency.h definition of struct latenctStat for more info.
+ * If the specified event has no elements the structure is populate with
+ * zero values. */
+void analyzeLatencyForEvent(char *event, struct latencyStats *ls) {
+    struct latencyTimeSeries *ts = dictFetchValue(server.latency_events,event);
+    int j;
+    uint64_t sum;
+
+    ls->all_time_high = ts ? ts->max : 0;
+    ls->avg = 0;
+    ls->min = 0;
+    ls->max = 0;
+    ls->mad = 0;
+    ls->samples = 0;
+    if (!ts) return;
+
+    /* First pass, populate everything but the MAD. */
+    sum = 0;
+    for (j = 0; j < LATENCY_TS_LEN; j++) {
+        if (ts->samples[j].time == 0) continue;
+        ls->samples++;
+        if (ls->samples == 1) {
+            ls->min = ls->max = ts->samples[j].latency;
+        } else {
+            if (ls->min > ts->samples[j].latency)
+                ls->min = ts->samples[j].latency;
+            if (ls->max < ts->samples[j].latency)
+                ls->max = ts->samples[j].latency;
+        }
+        sum += ts->samples[j].latency;
+    }
+    if (ls->samples) ls->avg = sum / ls->samples;
+
+    /* Second pass, compute MAD. */
+    sum = 0;
+    for (j = 0; j < LATENCY_TS_LEN; j++) {
+        int64_t delta;
+
+        if (ts->samples[j].time == 0) continue;
+        delta = ls->avg - ts->samples[j].latency;
+        if (delta < 0) delta = -delta;
+        sum += delta;
+    }
+    if (ls->samples) ls->mad = sum / ls->samples;
+}
+
 /* ---------------------- Latency command implementation -------------------- */
 
 /* latencyCommand() helper to produce a time-delay reply for all the samples
