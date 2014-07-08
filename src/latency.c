@@ -199,9 +199,9 @@ sds createLatencyReport(void) {
     int advise_local_disk = 0;      /* Avoid remote disks. */
     int advise_ssd = 0;             /* Use an SSD drive. */
     int advise_write_load_info = 0; /* Print info about AOF and write load. */
-    int advise_hz;                  /* Use higher HZ. */
-    int advise_large_objects;       /* Deletion of large objects. */
-    int advise_relax_fsync_policy;  /* appendfsync always is slow. */
+    int advise_hz = 0               /* Use higher HZ. */
+    int advise_large_objects = 0;   /* Deletion of large objects. */
+    int advise_relax_fsync_policy = 0; /* appendfsync always is slow. */
     int advices = 0;
 
     /* Return ASAP if the latency engine is disabled and it looks like it
