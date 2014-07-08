@@ -237,6 +237,12 @@ void flushAppendOnlyFile(int force) {
 
     if (sdslen(server.aof_buf) == 0) return;
 
+    if (server.aof_fsync == AOF_FSYNC_NO) {
+        aof_background_write(server.aof_fd, server.aof_buf);
+        server.aof_current_size += sdslen(server.aof_buf);
+        server.aof_buf = sdsempty();
+        return;
+    }
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC)
         sync_in_progress = bioPendingJobsOfType(REDIS_BIO_AOF_FSYNC) != 0;
 
@@ -261,9 +267,6 @@ void flushAppendOnlyFile(int force) {
             redisLog(REDIS_NOTICE,"Asynchronous AOF fsync is taking too long (disk is busy?). Writing the AOF buffer without waiting for fsync to complete, this may slow down Redis.");
         }
 
-        aof_background_write(server.aof_fd, server.aof_buf);
-        server.aof_buf = sdsempty();
-        return;
     }
     /* If you are following this code path, then we are going to write so
      * set reset the postponed flush sentinel to zero. */

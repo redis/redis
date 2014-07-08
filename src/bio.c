@@ -132,7 +132,11 @@ void bioCreateBackgroundJob(int type, void *arg1, void *arg2, void *arg3) {
     job->arg3 = arg3;
     pthread_mutex_lock(&bio_mutex[type]);
     listAddNodeTail(bio_jobs[type],job);
-    bio_pending[type]++;
+    if (type == REDIS_BIO_AOF_WRITE) {
+        bio_pending[type]+= sdslen((sds)arg2);
+    } else {
+        bio_pending[type]++;
+    }
     pthread_cond_signal(&bio_condvar[type]);
     pthread_mutex_unlock(&bio_mutex[type]);
 }
@@ -145,6 +149,8 @@ static void aof_write(int aof_fd, sds aof_buf) {
         n = write(aof_fd, aof_buf+nwritten, sdslen(aof_buf)-nwritten);
         if (n < 0) {
             redisLog(REDIS_WARNING, "Warning: aof_write error with: %d %s", errno, strerror(errno));
+            sdsfree(aof_buf);
+            return;
             continue;
         }
         nwritten += n;
@@ -182,13 +188,17 @@ void *bioProcessBackgroundJobs(void *arg) {
             pthread_cond_wait(&bio_condvar[type],&bio_mutex[type]);
             continue;
         }
+        if (bio_pending[type] > 1024*1024*100) {
+            redisLog(REDIS_NOTICE,
+                "bio job[%lu] jobs: %lu, lenght:%lu", type, listLength(bio_jobs[type]), bio_pending[type]);
+        }
         /* Pop the job from the queue. */
         ln = listFirst(bio_jobs[type]);
         job = ln->value;
         /* It is now possible to unlock the background system as we know have
          * a stand alone job structure to process.*/
         pthread_mutex_unlock(&bio_mutex[type]);
-
+        int joblen = 1;
         /* Process the job accordingly to its type. */
         if (type == REDIS_BIO_CLOSE_FILE) {
             close((long)job->arg1);
@@ -196,6 +206,7 @@ void *bioProcessBackgroundJobs(void *arg) {
             aof_fsync((long)job->arg1);
         } else if (type == REDIS_BIO_AOF_WRITE) {
             aof_write((long)job->arg1, (sds)job->arg2);
+            joblen = sdslen((sds)job->arg2);
         } else {
             redisPanic("Wrong job type in bioProcessBackgroundJobs().");
         }
@@ -205,7 +216,8 @@ void *bioProcessBackgroundJobs(void *arg) {
          * jobs to process we'll block again in pthread_cond_wait(). */
         pthread_mutex_lock(&bio_mutex[type]);
         listDelNode(bio_jobs[type],ln);
-        bio_pending[type]--;
+
+        bio_pending[type]-=joblen;
     }
 }
 
