@@ -29,12 +29,22 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond} {
             set load_handle1 [start_bg_complex_data $master_host $master_port 11 100000]
             set load_handle2 [start_bg_complex_data $master_host $master_port 12 100000]
 
-            test {First server should have role slave after SLAVEOF} {
+            test {Slave should be able to synchronize with the master} {
                 $slave slaveof $master_host $master_port
                 wait_for_condition 50 100 {
-                    [s 0 role] eq {slave}
+                    [lindex [r role] 0] eq {slave} &&
+                    [lindex [r role] 3] eq {connected}
                 } else {
                     fail "Replication not started."
+                }
+            }
+
+            # Check that the background clients are actually writing.
+            test {Detect write load to master} {
+                wait_for_condition 50 100 {
+                    [$master dbsize] > 100
+                } else {
+                    fail "Can't detect write load from background clients."
                 }
             }
 
@@ -92,7 +102,7 @@ test_psync {ok psync} 6 1000000 3600 0 {
     assert {[s -1 sync_partial_ok] > 0}
 }
 
-test_psync {no backlog} 6 100 3600 0 {
+test_psync {no backlog} 6 100 3600 0.5 {
     assert {[s -1 sync_partial_err] > 0}
 }
 

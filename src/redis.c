@@ -243,7 +243,7 @@ struct redisCommand redisCommandTable[] = {
     {"pttl",pttlCommand,2,"r",0,NULL,1,1,1,0,0},
     {"persist",persistCommand,2,"w",0,NULL,1,1,1,0,0},
     {"slaveof",slaveofCommand,3,"ast",0,NULL,0,0,0,0,0},
-    {"role",roleCommand,1,"ast",0,NULL,0,0,0,0,0},
+    {"role",roleCommand,1,"last",0,NULL,0,0,0,0,0},
     {"debug",debugCommand,-2,"as",0,NULL,0,0,0,0,0},
     {"config",configCommand,-2,"art",0,NULL,0,0,0,0,0},
     {"subscribe",subscribeCommand,-2,"rpslt",0,NULL,0,0,0,0,0},
@@ -273,6 +273,7 @@ struct redisCommand redisCommandTable[] = {
     {"bitcount",bitcountCommand,-2,"r",0,NULL,1,1,1,0,0},
     {"bitpos",bitposCommand,-3,"r",0,NULL,1,1,1,0,0},
     {"wait",waitCommand,3,"rs",0,NULL,0,0,0,0,0},
+    {"command",commandCommand,0,"rlt",0,NULL,0,0,0,0,0},
     {"pfselftest",pfselftestCommand,1,"r",0,NULL,0,0,0,0,0},
     {"pfadd",pfaddCommand,-2,"wm",0,NULL,1,1,1,0,0},
     {"pfcount",pfcountCommand,-2,"w",0,NULL,1,1,1,0,0},
@@ -356,7 +357,7 @@ void redisLogFromHandler(int level, const char *msg) {
 
     if ((level&0xff) < server.verbosity || (log_to_stdout && server.daemonize))
         return;
-    fd = log_to_stdout ? STDOUT_FILENO : 
+    fd = log_to_stdout ? STDOUT_FILENO :
                          open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
     if (fd == -1) return;
     ll2string(buf,sizeof(buf),getpid());
@@ -1140,7 +1141,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         if ((pid = wait3(&statloc,WNOHANG,NULL)) != 0) {
             int exitcode = WEXITSTATUS(statloc);
             int bysignal = 0;
-            
+
             if (WIFSIGNALED(statloc)) bysignal = WTERMSIG(statloc);
 
             if (pid == server.rdb_child_pid) {
@@ -1451,6 +1452,7 @@ void initServerConfig() {
     server.lua_client = NULL;
     server.lua_timedout = 0;
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);
+    server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.loading_process_events_interval_bytes = (1024*1024*2);
 
     server.lruclock = getLRUClock();
@@ -1485,7 +1487,7 @@ void initServerConfig() {
     server.repl_no_slaves_since = time(NULL);
 
     /* Client output buffer limits */
-    for (j = 0; j < REDIS_CLIENT_LIMIT_NUM_CLASSES; j++)
+    for (j = 0; j < REDIS_CLIENT_TYPE_COUNT; j++)
         server.client_obuf_limits[j] = clientBufferLimitsDefaults[j];
 
     /* Double constants initialization */
@@ -1505,7 +1507,7 @@ void initServerConfig() {
     server.lpushCommand = lookupCommandByCString("lpush");
     server.lpopCommand = lookupCommandByCString("lpop");
     server.rpopCommand = lookupCommandByCString("rpop");
-    
+
     /* Slow log */
     server.slowlog_log_slower_than = REDIS_SLOWLOG_LOG_SLOWER_THAN;
     server.slowlog_max_len = REDIS_SLOWLOG_MAX_LEN;
@@ -2287,6 +2289,12 @@ int prepareForShutdown(int flags) {
         /* Kill the AOF saving child as the AOF we already have may be longer
          * but contains the full dataset anyway. */
         if (server.aof_child_pid != -1) {
+            /* If we have AOF enabled but haven't written the AOF yet, don't
+             * shutdown or else the dataset will be lost. */
+            if (server.aof_state == REDIS_AOF_WAIT_REWRITE) {
+                redisLog(REDIS_WARNING, "Writing initial AOF, can't exit.");
+                return REDIS_ERR;
+            }
             redisLog(REDIS_WARNING,
                 "There is a child rewriting the AOF. Killing it!");
             kill(server.aof_child_pid,SIGUSR1);
@@ -2394,6 +2402,96 @@ void timeCommand(redisClient *c) {
     addReplyBulkLongLong(c,tv.tv_usec);
 }
 
+
+/* Helper function for addReplyCommand() to output flags. */
+int addReplyCommandFlag(redisClient *c, struct redisCommand *cmd, int f, char *reply) {
+    if (cmd->flags & f) {
+        addReplyStatus(c, reply);
+        return 1;
+    }
+    return 0;
+}
+
+/* Output the representation of a Redis command. Used by the COMMAND command. */
+void addReplyCommand(redisClient *c, struct redisCommand *cmd) {
+    if (!cmd) {
+        addReply(c, shared.nullbulk);
+    } else {
+        /* We are adding: command name, arg count, flags, first, last, offset */
+        addReplyMultiBulkLen(c, 6);
+        addReplyBulkCString(c, cmd->name);
+        addReplyLongLong(c, cmd->arity);
+
+        int flagcount = 0;
+        void *flaglen = addDeferredMultiBulkLength(c);
+        flagcount += addReplyCommandFlag(c,cmd,REDIS_CMD_WRITE, "write");
+        flagcount += addReplyCommandFlag(c,cmd,REDIS_CMD_READONLY, "readonly");
+        flagcount += addReplyCommandFlag(c,cmd,REDIS_CMD_DENYOOM, "denyoom");
+        flagcount += addReplyCommandFlag(c,cmd,REDIS_CMD_ADMIN, "admin");
+        flagcount += addReplyCommandFlag(c,cmd,REDIS_CMD_PUBSUB, "pubsub");
+        flagcount += addReplyCommandFlag(c,cmd,REDIS_CMD_NOSCRIPT, "noscript");
+        flagcount += addReplyCommandFlag(c,cmd,REDIS_CMD_RANDOM, "random");
+        flagcount += addReplyCommandFlag(c,cmd,REDIS_CMD_SORT_FOR_SCRIPT,"sort_for_script");
+        flagcount += addReplyCommandFlag(c,cmd,REDIS_CMD_LOADING, "loading");
+        flagcount += addReplyCommandFlag(c,cmd,REDIS_CMD_STALE, "stale");
+        flagcount += addReplyCommandFlag(c,cmd,REDIS_CMD_SKIP_MONITOR, "skip_monitor");
+        flagcount += addReplyCommandFlag(c,cmd,REDIS_CMD_ASKING, "asking");
+        if (cmd->getkeys_proc) {
+            addReplyStatus(c, "movablekeys");
+            flagcount += 1;
+        }
+        setDeferredMultiBulkLength(c, flaglen, flagcount);
+
+        addReplyLongLong(c, cmd->firstkey);
+        addReplyLongLong(c, cmd->lastkey);
+        addReplyLongLong(c, cmd->keystep);
+    }
+}
+
+/* COMMAND <subcommand> <args> */
+void commandCommand(redisClient *c) {
+    dictIterator *di;
+    dictEntry *de;
+
+    if (c->argc == 1) {
+        addReplyMultiBulkLen(c, dictSize(server.commands));
+        di = dictGetIterator(server.commands);
+        while ((de = dictNext(di)) != NULL) {
+            addReplyCommand(c, dictGetVal(de));
+        }
+        dictReleaseIterator(di);
+    } else if (!strcasecmp(c->argv[1]->ptr, "info")) {
+        int i;
+        addReplyMultiBulkLen(c, c->argc-2);
+        for (i = 2; i < c->argc; i++) {
+            addReplyCommand(c, dictFetchValue(server.commands, c->argv[i]->ptr));
+        }
+    } else if (!strcasecmp(c->argv[1]->ptr, "count") && c->argc == 2) {
+        addReplyLongLong(c, dictSize(server.commands));
+    } else if (!strcasecmp(c->argv[1]->ptr,"getkeys") && c->argc >= 3) {
+        struct redisCommand *cmd = lookupCommand(c->argv[2]->ptr);
+        int *keys, numkeys, j;
+
+        if (!cmd) {
+            addReplyErrorFormat(c,"Invalid command specified");
+            return;
+        } else if ((cmd->arity > 0 && cmd->arity != c->argc-2) ||
+                   ((c->argc-2) < -cmd->arity))
+        {
+            addReplyError(c,"Invalid number of arguments specified for command");
+            return;
+        }
+
+        keys = getKeysFromCommand(cmd,c->argv+2,c->argc-2,&numkeys);
+        addReplyMultiBulkLen(c,numkeys);
+        for (j = 0; j < numkeys; j++) addReplyBulk(c,c->argv[keys[j]+2]);
+        getKeysFreeResult(keys);
+    } else {
+        addReplyError(c, "Unknown subcommand or wrong number of arguments.");
+        return;
+    }
+}
+
 /* Convert an amount of bytes into a human readable string in the form
  * of 100B, 2G, 100M, 4K, and so forth. */
 void bytesToHuman(char *s, unsigned long long n) {
@@ -2445,7 +2543,7 @@ sds genRedisInfoString(char *section) {
         if (server.cluster_enabled) mode = "cluster";
         else if (server.sentinel_mode) mode = "sentinel";
         else mode = "standalone";
-    
+
         if (sections++) info = sdscat(info,"\r\n");
 
         if (call_uname) {

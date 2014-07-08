@@ -67,7 +67,10 @@ void zlibc_free(void *ptr) {
 #define free(ptr) je_free(ptr)
 #endif
 
-#ifdef HAVE_ATOMIC
+#if defined(__ATOMIC_RELAXED)
+#define update_zmalloc_stat_add(__n) __atomic_add_fetch(&used_memory, (__n), __ATOMIC_RELAXED)
+#define update_zmalloc_stat_sub(__n) __atomic_sub_fetch(&used_memory, (__n), __ATOMIC_RELAXED)
+#elif defined(HAVE_ATOMIC)
 #define update_zmalloc_stat_add(__n) __sync_add_and_fetch(&used_memory, (__n))
 #define update_zmalloc_stat_sub(__n) __sync_sub_and_fetch(&used_memory, (__n))
 #else
@@ -219,8 +222,8 @@ size_t zmalloc_used_memory(void) {
     size_t um;
 
     if (zmalloc_thread_safe) {
-#ifdef HAVE_ATOMIC
-        um = __sync_add_and_fetch(&used_memory, 0);
+#if defined(__ATOMIC_RELAXED) || defined(HAVE_ATOMIC)
+        um = update_zmalloc_stat_add(0);
 #else
         pthread_mutex_lock(&used_memory_mutex);
         um = used_memory;

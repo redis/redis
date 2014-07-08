@@ -466,6 +466,11 @@ void clusterInit(void) {
 
     /* The slots -> keys map is a sorted set. Init it. */
     server.cluster->slots_to_keys = zslCreate();
+
+    /* Set myself->port to my listening port, we'll just need to discover
+     * the IP address via MEET messages. */
+    myself->port = server.port;
+
     resetManualFailover();
 }
 
@@ -1243,6 +1248,7 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link, int port) {
     memcpy(node->ip,ip,sizeof(ip));
     node->port = port;
     if (node->link) freeClusterLink(node->link);
+    node->flags &= ~REDIS_NODE_NOADDR;
     redisLog(REDIS_WARNING,"Address updated for node %.40s, now %s:%d",
         node->name, node->ip, node->port);
 
@@ -1529,6 +1535,26 @@ int clusterProcessPacket(clusterLink *link) {
     /* Process packets by type. */
     if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_MEET) {
         redisLog(REDIS_DEBUG,"Ping packet received: %p", (void*)link->node);
+
+        /* We use incoming MEET messages in order to set the address
+         * for 'myself', since only other cluster nodes will send us
+         * MEET messagses on handshakes, when the cluster joins, or
+         * later if we changed address, and those nodes will use our
+         * official address to connect to us. So by obtaining this address
+         * from the socket is a simple way to discover / update our own
+         * address in the cluster without it being hardcoded in the config. */
+        if (type == CLUSTERMSG_TYPE_MEET) {
+            char ip[REDIS_IP_STR_LEN];
+
+            if (anetSockName(link->fd,ip,sizeof(ip),NULL) != -1 &&
+                strcmp(ip,myself->ip))
+            {
+                memcpy(myself->ip,ip,REDIS_IP_STR_LEN);
+                redisLog(REDIS_WARNING,"IP address for this node updated to %s",
+                    myself->ip);
+                clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
+            }
+        }
 
         /* Add this node if it is new for us and the msg type is MEET.
          * In this stage we don't try to add the node with the right
@@ -2793,8 +2819,7 @@ void clusterCron(void) {
             clusterLink *link;
 
             fd = anetTcpNonBlockBindConnect(server.neterr, node->ip,
-                node->port+REDIS_CLUSTER_PORT_INCR,
-                    server.bindaddr_count ? server.bindaddr[0] : NULL);
+                node->port+REDIS_CLUSTER_PORT_INCR, REDIS_BIND_ADDR);
             if (fd == -1) {
                 redisLog(REDIS_DEBUG, "Unable to connect to "
                     "Cluster Node [%s]:%d -> %s", node->ip,
@@ -3423,6 +3448,76 @@ int getSlotOrReply(redisClient *c, robj *o) {
     return (int) slot;
 }
 
+void clusterReplyMultiBulkSlots(redisClient *c) {
+    /* Format: 1) 1) start slot
+     *            2) end slot
+     *            3) 1) master IP
+     *               2) master port
+     *            4) 1) replica IP
+     *               2) replica port
+     *           ... continued until done
+     */
+
+    int num_masters = 0;
+    void *slot_replylen = addDeferredMultiBulkLength(c);
+
+    dictEntry *de;
+    dictIterator *di = dictGetSafeIterator(server.cluster->nodes);
+    while((de = dictNext(di)) != NULL) {
+        clusterNode *node = dictGetVal(de);
+        int j = 0, start = -1;
+
+        /* Skip slaves (that are iterated when producing the output of their
+         * master) and  masters not serving any slot. */
+        if (!nodeIsMaster(node) || node->numslots == 0) continue;
+
+        for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
+            int bit, i;
+
+            if ((bit = clusterNodeGetSlotBit(node,j)) != 0) {
+                if (start == -1) start = j;
+            }
+            if (start != -1 && (!bit || j == REDIS_CLUSTER_SLOTS-1)) {
+                int nested_elements = 3; /* slots (2) + master addr (1). */
+                void *nested_replylen = addDeferredMultiBulkLength(c);
+
+                if (bit && j == REDIS_CLUSTER_SLOTS-1) j++;
+
+                /* If slot exists in output map, add to it's list.
+                 * else, create a new output map for this slot */
+                if (start == j-1) {
+                    addReplyLongLong(c, start); /* only one slot; low==high */
+                    addReplyLongLong(c, start);
+                } else {
+                    addReplyLongLong(c, start); /* low */
+                    addReplyLongLong(c, j-1);   /* high */
+                }
+                start = -1;
+
+                /* First node reply position is always the master */
+                addReplyMultiBulkLen(c, 2);
+                addReplyBulkCString(c, node->ip);
+                addReplyLongLong(c, node->port);
+
+                /* Remaining nodes in reply are replicas for slot range */
+                for (i = 0; i < node->numslaves; i++) {
+                    /* This loop is copy/pasted from clusterGenNodeDescription()
+                     * with modifications for per-slot node aggregation */
+                    if (nodeFailed(node->slaves[i])) continue;
+                    addReplyMultiBulkLen(c, 2);
+                    addReplyBulkCString(c, node->slaves[i]->ip);
+                    addReplyLongLong(c, node->slaves[i]->port);
+                    nested_elements++;
+                }
+                setDeferredMultiBulkLength(c, nested_replylen, nested_elements);
+                num_masters++;
+            }
+        }
+    }
+    dictReleaseIterator(di);
+    setDeferredMultiBulkLength(c, slot_replylen, num_masters);
+}
+
 void clusterCommand(redisClient *c) {
     if (server.cluster_enabled == 0) {
         addReplyError(c,"This instance has cluster support disabled");
@@ -3454,6 +3549,9 @@ void clusterCommand(redisClient *c) {
         o = createObject(REDIS_STRING,ci);
         addReplyBulk(c,o);
         decrRefCount(o);
+    } else if (!strcasecmp(c->argv[1]->ptr,"slots") && c->argc == 2) {
+        /* CLUSTER SLOTS */
+        clusterReplyMultiBulkSlots(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"flushslots") && c->argc == 2) {
         /* CLUSTER FLUSHSLOTS */
         if (dictSize(server.db[0].dict) != 0) {
@@ -3500,7 +3598,7 @@ void clusterCommand(redisClient *c) {
             if (slots[j]) {
                 int retval;
 
-                /* If this slot was set as importing we can clear this 
+                /* If this slot was set as importing we can clear this
                  * state as now we are the real owner of the slot. */
                 if (server.cluster->importing_slots_from[j])
                     server.cluster->importing_slots_from[j] = NULL;

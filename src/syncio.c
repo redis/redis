@@ -119,7 +119,7 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
 
 /* Read a line making sure that every char will not require more than 'timeout'
  * milliseconds to be read.
- * 
+ *
  * On success the number of bytes read is returned, otherwise -1.
  * On success the string is always correctly terminated with a 0 byte. */
 ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout) {

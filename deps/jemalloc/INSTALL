@@ -55,11 +55,16 @@ any of the following arguments (not a definitive list) to 'configure':
     jemalloc overlays the default malloc zone, but makes no attempt to actually
     replace the "malloc", "calloc", etc. symbols.
 
+--without-export
+    Don't export public APIs. This can be useful when building jemalloc as a
+    static library, or to avoid exporting public APIs when using the zone
+    allocator on OSX.
+
 --with-private-namespace=<prefix>
-    Prefix all library-private APIs with <prefix>.  For shared libraries,
+    Prefix all library-private APIs with <prefix>je_.  For shared libraries,
     symbol visibility mechanisms prevent these symbols from being exported, but
     for static libraries, naming collisions are a real possibility.  By
-    default, the prefix is "" (empty string).
+    default, <prefix> is empty, which results in a symbol prefix of je_ .
 
 --with-install-suffix=<suffix>
     Append <suffix> to the base name of all installed files, such that multiple
@@ -74,6 +79,25 @@ any of the following arguments (not a definitive list) to 'configure':
 --enable-debug
     Enable assertions and validation code.  This incurs a substantial
     performance hit, but is very useful during application development.
+    Implies --enable-ivsalloc.
+
+--enable-code-coverage
+    Enable code coverage support, for use during jemalloc test development.
+    Additional testing targets are available if this option is enabled:
+
+      coverage
+      coverage_unit
+      coverage_integration
+      coverage_stress
+
+    These targets do not clear code coverage results from previous runs, and
+    there are interactions between the various coverage targets, so it is
+    usually advisable to run 'make clean' between repeated code coverage runs.
+
+--enable-ivsalloc
+    Enable validation code, which verifies that pointers reside within
+    jemalloc-owned chunks before dereferencing them. This incurs a substantial
+    performance hit.
 
 --disable-stats
     Disable statistics gathering functionality.  See the "opt.stats_print"
@@ -135,6 +159,10 @@ any of the following arguments (not a definitive list) to 'configure':
 
 --disable-experimental
     Disable support for the experimental API (*allocm()).
+
+--disable-zone-allocator
+    Disable zone allocator for Darwin. This means jemalloc won't be hooked as
+    the default allocator on OSX/iOS.
 
 --enable-utrace
     Enable utrace(2)-based allocation tracing.  This feature is not broadly

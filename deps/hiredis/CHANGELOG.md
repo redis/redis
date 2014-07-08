@@ -1,3 +1,11 @@
+### 0.11.0
+
+* Increase the maximum multi-bulk reply depth to 7.
+
+* Increase the read buffer size from 2k to 16k.
+
+* Use poll(2) instead of select(2) to support large fds (>= 1024).
+
 ### 0.10.1
 
 * Makefile overhaul. Important to check out if you override one or more

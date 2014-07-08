@@ -83,6 +83,7 @@ redisClient *createClient(int fd) {
     }
 
     selectDb(c,0);
+    c->id = server.next_client_id++;
     c->fd = fd;
     c->name = NULL;
     c->bufpos = 0;
@@ -1302,7 +1303,8 @@ sds catClientInfoString(sds s, redisClient *client) {
     if (emask & AE_WRITABLE) *p++ = 'w';
     *p = '\0';
     return sdscatfmt(s,
-        "addr=%s fd=%i name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U obl=%U oll=%U omem=%U events=%s cmd=%s",
+        "id=%U addr=%s fd=%i name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U obl=%U oll=%U omem=%U events=%s cmd=%s",
+        (unsigned long long) client->id,
         getClientPeerId(client),
         client->fd,
         client->name ? (char*)client->name->ptr : "",
@@ -1344,27 +1346,98 @@ void clientCommand(redisClient *c) {
     redisClient *client;
 
     if (!strcasecmp(c->argv[1]->ptr,"list") && c->argc == 2) {
+        /* CLIENT LIST */
         sds o = getAllClientsInfoString();
         addReplyBulkCBuffer(c,o,sdslen(o));
         sdsfree(o);
-    } else if (!strcasecmp(c->argv[1]->ptr,"kill") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"kill")) {
+        /* CLIENT KILL <ip:port>
+         * CLIENT KILL <option> [value] ... <option> [value] */
+        char *addr = NULL;
+        int type = -1;
+        uint64_t id = 0;
+        int skipme = 1;
+        int killed = 0, close_this_client = 0;
+
+        if (c->argc == 3) {
+            /* Old style syntax: CLIENT KILL <addr> */
+            addr = c->argv[2]->ptr;
+            skipme = 0; /* With the old form, you can kill yourself. */
+        } else if (c->argc > 3) {
+            int i = 2; /* Next option index. */
+
+            /* New style syntax: parse options. */
+            while(i < c->argc) {
+                int moreargs = c->argc > i+1;
+
+                if (!strcasecmp(c->argv[i]->ptr,"id") && moreargs) {
+                    long long tmp;
+
+                    if (getLongLongFromObjectOrReply(c,c->argv[i+1],&tmp,NULL)
+                        != REDIS_OK) return;
+                    id = tmp;
+                } else if (!strcasecmp(c->argv[i]->ptr,"type") && moreargs) {
+                    type = getClientTypeByName(c->argv[i+1]->ptr);
+                    if (type == -1) {
+                        addReplyErrorFormat(c,"Unknown client type '%s'",
+                            (char*) c->argv[i+1]->ptr);
+                        return;
+                    }
+                } else if (!strcasecmp(c->argv[i]->ptr,"addr") && moreargs) {
+                    addr = c->argv[i+1]->ptr;
+                } else if (!strcasecmp(c->argv[i]->ptr,"skipme") && moreargs) {
+                    if (!strcasecmp(c->argv[i+1]->ptr,"yes")) {
+                        skipme = 1;
+                    } else if (!strcasecmp(c->argv[i+1]->ptr,"no")) {
+                        skipme = 0;
+                    } else {
+                        addReply(c,shared.syntaxerr);
+                        return;
+                    }
+                } else {
+                    addReply(c,shared.syntaxerr);
+                    return;
+                }
+                i += 2;
+            }
+        } else {
+            addReply(c,shared.syntaxerr);
+            return;
+        }
+
+        /* Iterate clients killing all the matching clients. */
         listRewind(server.clients,&li);
         while ((ln = listNext(&li)) != NULL) {
-            char *peerid;
-
             client = listNodeValue(ln);
-            peerid = getClientPeerId(client);
-            if (strcmp(peerid,c->argv[2]->ptr) == 0) {
-                addReply(c,shared.ok);
-                if (c == client) {
-                    client->flags |= REDIS_CLOSE_AFTER_REPLY;
-                } else {
-                    freeClient(client);
-                }
-                return;
+            if (addr && strcmp(getClientPeerId(client),addr) != 0) continue;
+            if (type != -1 &&
+                (client->flags & REDIS_MASTER ||
+                 getClientType(client) != type)) continue;
+            if (id != 0 && client->id != id) continue;
+            if (c == client && skipme) continue;
+
+            /* Kill it. */
+            if (c == client) {
+                close_this_client = 1;
+            } else {
+                freeClient(client);
             }
+            killed++;
         }
-        addReplyError(c,"No such client");
+
+        /* Reply according to old/new format. */
+        if (c->argc == 3) {
+            if (killed == 0)
+                addReplyError(c,"No such client");
+            else
+                addReply(c,shared.ok);
+        } else {
+            addReplyLongLong(c,killed);
+        }
+
+        /* If this client has to be closed, flag it as CLOSE_AFTER_REPLY
+         * only after we queued the reply to its output buffers. */
+        if (close_this_client) c->flags |= REDIS_CLOSE_AFTER_REPLY;
     } else if (!strcasecmp(c->argv[1]->ptr,"setname") && c->argc == 3) {
         int j, len = sdslen(c->argv[2]->ptr);
         char *p = c->argv[2]->ptr;
@@ -1422,7 +1495,7 @@ void rewriteClientCommandVector(redisClient *c, int argc, ...) {
     va_start(ap,argc);
     for (j = 0; j < argc; j++) {
         robj *a;
-        
+
         a = va_arg(ap, robj*);
         argv[j] = a;
         incrRefCount(a);
@@ -1444,7 +1517,7 @@ void rewriteClientCommandVector(redisClient *c, int argc, ...) {
  * The new val ref count is incremented, and the old decremented. */
 void rewriteClientCommandArgument(redisClient *c, int i, robj *newval) {
     robj *oldval;
-   
+
     redisAssertWithInfo(c,NULL,i < c->argc);
     oldval = c->argv[i];
     c->argv[i] = newval;
@@ -1481,30 +1554,31 @@ unsigned long getClientOutputBufferMemoryUsage(redisClient *c) {
  * classes of clients.
  *
  * The function will return one of the following:
- * REDIS_CLIENT_LIMIT_CLASS_NORMAL -> Normal client
- * REDIS_CLIENT_LIMIT_CLASS_SLAVE  -> Slave or client executing MONITOR command
- * REDIS_CLIENT_LIMIT_CLASS_PUBSUB -> Client subscribed to Pub/Sub channels
+ * REDIS_CLIENT_TYPE_NORMAL -> Normal client
+ * REDIS_CLIENT_TYPE_SLAVE  -> Slave or client executing MONITOR command
+ * REDIS_CLIENT_TYPE_PUBSUB -> Client subscribed to Pub/Sub channels
  */
-int getClientLimitClass(redisClient *c) {
-    if (c->flags & REDIS_SLAVE) return REDIS_CLIENT_LIMIT_CLASS_SLAVE;
+int getClientType(redisClient *c) {
+    if ((c->flags & REDIS_SLAVE) && !(c->flags & REDIS_MONITOR))
+        return REDIS_CLIENT_TYPE_SLAVE;
     if (dictSize(c->pubsub_channels) || listLength(c->pubsub_patterns))
-        return REDIS_CLIENT_LIMIT_CLASS_PUBSUB;
-    return REDIS_CLIENT_LIMIT_CLASS_NORMAL;
+        return REDIS_CLIENT_TYPE_PUBSUB;
+    return REDIS_CLIENT_TYPE_NORMAL;
 }
 
-int getClientLimitClassByName(char *name) {
-    if (!strcasecmp(name,"normal")) return REDIS_CLIENT_LIMIT_CLASS_NORMAL;
-    else if (!strcasecmp(name,"slave")) return REDIS_CLIENT_LIMIT_CLASS_SLAVE;
-    else if (!strcasecmp(name,"pubsub")) return REDIS_CLIENT_LIMIT_CLASS_PUBSUB;
+int getClientTypeByName(char *name) {
+    if (!strcasecmp(name,"normal")) return REDIS_CLIENT_TYPE_NORMAL;
+    else if (!strcasecmp(name,"slave")) return REDIS_CLIENT_TYPE_SLAVE;
+    else if (!strcasecmp(name,"pubsub")) return REDIS_CLIENT_TYPE_PUBSUB;
     else return -1;
 }
 
-char *getClientLimitClassName(int class) {
+char *getClientTypeName(int class) {
     switch(class) {
-    case REDIS_CLIENT_LIMIT_CLASS_NORMAL:   return "normal";
-    case REDIS_CLIENT_LIMIT_CLASS_SLAVE:    return "slave";
-    case REDIS_CLIENT_LIMIT_CLASS_PUBSUB:   return "pubsub";
-    default:                                return NULL;
+    case REDIS_CLIENT_TYPE_NORMAL: return "normal";
+    case REDIS_CLIENT_TYPE_SLAVE:  return "slave";
+    case REDIS_CLIENT_TYPE_PUBSUB: return "pubsub";
+    default:                       return NULL;
     }
 }
 
@@ -1518,7 +1592,7 @@ int checkClientOutputBufferLimits(redisClient *c) {
     int soft = 0, hard = 0, class;
     unsigned long used_mem = getClientOutputBufferMemoryUsage(c);
 
-    class = getClientLimitClass(c);
+    class = getClientType(c);
     if (server.client_obuf_limits[class].hard_limit_bytes &&
         used_mem >= server.client_obuf_limits[class].hard_limit_bytes)
         hard = 1;

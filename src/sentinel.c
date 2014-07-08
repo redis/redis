@@ -336,6 +336,7 @@ char *sentinelVoteLeader(sentinelRedisInstance *master, uint64_t req_epoch, char
 void sentinelFlushConfig(void);
 void sentinelGenerateInitialMonitorEvents(void);
 int sentinelSendPing(sentinelRedisInstance *ri);
+int sentinelForceHelloUpdateForMaster(sentinelRedisInstance *master);
 
 /* ========================= Dictionary types =============================== */
 
@@ -379,6 +380,7 @@ void sentinelCommand(redisClient *c);
 void sentinelInfoCommand(redisClient *c);
 void sentinelSetCommand(redisClient *c);
 void sentinelPublishCommand(redisClient *c);
+void sentinelRoleCommand(redisClient *c);
 
 struct redisCommand sentinelcmds[] = {
     {"ping",pingCommand,1,"",0,NULL,0,0,0,0,0},
@@ -389,6 +391,7 @@ struct redisCommand sentinelcmds[] = {
     {"punsubscribe",punsubscribeCommand,-1,"",0,NULL,0,0,0,0,0},
     {"publish",sentinelPublishCommand,3,"",0,NULL,0,0,0,0,0},
     {"info",sentinelInfoCommand,-1,"",0,NULL,0,0,0,0,0},
+    {"role",sentinelRoleCommand,1,"l",0,NULL,0,0,0,0,0},
     {"shutdown",shutdownCommand,-1,"",0,NULL,0,0,0,0,0}
 };
 
@@ -1675,7 +1678,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
 
     /* Commands connection. */
     if (ri->cc == NULL) {
-        ri->cc = redisAsyncConnect(ri->addr->ip,ri->addr->port);
+        ri->cc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,REDIS_BIND_ADDR);
         if (ri->cc->err) {
             sentinelEvent(REDIS_DEBUG,"-cmd-link-reconnection",ri,"%@ #%s",
                 ri->cc->errstr);
@@ -1697,7 +1700,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
     }
     /* Pub / Sub */
     if ((ri->flags & (SRI_MASTER|SRI_SLAVE)) && ri->pc == NULL) {
-        ri->pc = redisAsyncConnect(ri->addr->ip,ri->addr->port);
+        ri->pc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,REDIS_BIND_ADDR);
         if (ri->pc->err) {
             sentinelEvent(REDIS_DEBUG,"-pubsub-link-reconnection",ri,"%@ #%s",
                 ri->pc->errstr);
@@ -1902,7 +1905,8 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     if ((ri->flags & SRI_SLAVE) && role == SRI_MASTER) {
         /* If this is a promoted slave we can change state to the
          * failover state machine. */
-        if ((ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
+        if ((ri->flags & SRI_PROMOTED) &&
+            (ri->master->flags & SRI_FAILOVER_IN_PROGRESS) &&
             (ri->master->failover_state ==
                 SENTINEL_FAILOVER_STATE_WAIT_PROMOTION))
         {
@@ -1920,15 +1924,17 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                 ri->master,"%@");
             sentinelCallClientReconfScript(ri->master,SENTINEL_LEADER,
                 "start",ri->master->addr,ri->addr);
+            sentinelForceHelloUpdateForMaster(ri->master);
         } else {
             /* A slave turned into a master. We want to force our view and
              * reconfigure as slave. Wait some time after the change before
              * going forward, to receive new configs if any. */
             mstime_t wait_time = SENTINEL_PUBLISH_PERIOD*4;
 
-            if (sentinelMasterLooksSane(ri->master) &&
-               sentinelRedisInstanceNoDownFor(ri,wait_time) &&
-               mstime() - ri->role_reported_time > wait_time)
+            if (!(ri->flags & SRI_PROMOTED) &&
+                 sentinelMasterLooksSane(ri->master) &&
+                 sentinelRedisInstanceNoDownFor(ri,wait_time) &&
+                 mstime() - ri->role_reported_time > wait_time)
             {
                 int retval = sentinelSendSlaveOf(ri,
                         ri->master->addr->ip,
@@ -2057,7 +2063,7 @@ void sentinelPublishReplyCallback(redisAsyncContext *c, void *reply, void *privd
     r = reply;
 
     /* Only update pub_time if we actually published our message. Otherwise
-     * we'll retry against in 100 milliseconds. */
+     * we'll retry again in 100 milliseconds. */
     if (r->type != REDIS_REPLY_ERROR)
         ri->last_pub_time = mstime();
 }
@@ -2220,6 +2226,38 @@ int sentinelSendHello(sentinelRedisInstance *ri) {
             SENTINEL_HELLO_CHANNEL,payload);
     if (retval != REDIS_OK) return REDIS_ERR;
     ri->pending_commands++;
+    return REDIS_OK;
+}
+
+/* Reset last_pub_time in all the instances in the specified dictionary
+ * in order to force the delivery of an Hello update ASAP. */
+void sentinelForceHelloUpdateDictOfRedisInstances(dict *instances) {
+    dictIterator *di;
+    dictEntry *de;
+
+    di = dictGetSafeIterator(instances);
+    while((de = dictNext(di)) != NULL) {
+        sentinelRedisInstance *ri = dictGetVal(de);
+        if (ri->last_pub_time >= (SENTINEL_PUBLISH_PERIOD+1))
+            ri->last_pub_time -= (SENTINEL_PUBLISH_PERIOD+1);
+    }
+    dictReleaseIterator(di);
+}
+
+/* This function forces the delivery of an "Hello" message (see
+ * sentinelSendHello() top comment for further information) to all the Redis
+ * and Sentinel instances related to the specified 'master'.
+ *
+ * It is technically not needed since we send an update to every instance
+ * with a period of SENTINEL_PUBLISH_PERIOD milliseconds, however when a
+ * Sentinel upgrades a configuration it is a good idea to deliever an update
+ * to the other Sentinels ASAP. */
+int sentinelForceHelloUpdateForMaster(sentinelRedisInstance *master) {
+    if (!(master->flags & SRI_MASTER)) return REDIS_ERR;
+    if (master->last_pub_time >= (SENTINEL_PUBLISH_PERIOD+1))
+        master->last_pub_time -= (SENTINEL_PUBLISH_PERIOD+1);
+    sentinelForceHelloUpdateDictOfRedisInstances(master->sentinels);
+    sentinelForceHelloUpdateDictOfRedisInstances(master->slaves);
     return REDIS_OK;
 }
 
@@ -2763,6 +2801,25 @@ void sentinelInfoCommand(redisClient *c) {
     addReply(c,shared.crlf);
 }
 
+/* Implements Sentinel verison of the ROLE command. The output is
+ * "sentinel" and the list of currently monitored master names. */
+void sentinelRoleCommand(redisClient *c) {
+    dictIterator *di;
+    dictEntry *de;
+
+    addReplyMultiBulkLen(c,2);
+    addReplyBulkCBuffer(c,"sentinel",8);
+    addReplyMultiBulkLen(c,dictSize(sentinel.masters));
+
+    di = dictGetIterator(sentinel.masters);
+    while((de = dictNext(di)) != NULL) {
+        sentinelRedisInstance *ri = dictGetVal(de);
+
+        addReplyBulkCString(c,ri->name);
+    }
+    dictReleaseIterator(di);
+}
+
 /* SENTINEL SET <mastername> [<option> <value> ...] */
 void sentinelSetCommand(redisClient *c) {
     sentinelRedisInstance *ri;
@@ -3203,21 +3260,53 @@ int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port) {
 
     ll2string(portstr,sizeof(portstr),port);
 
+    /* If host is NULL we send SLAVEOF NO ONE that will turn the instance
+     * into a master. */
     if (host == NULL) {
         host = "NO";
         memcpy(portstr,"ONE",4);
     }
 
+    /* In order to send SLAVEOF in a safe way, we send a transaction performing
+     * the following tasks:
+     * 1) Reconfigure the instance according to the specified host/port params.
+     * 2) Rewrite the configuraiton.
+     * 3) Disconnect all clients (but this one sending the commnad) in order
+     *    to trigger the ask-master-on-reconnection protocol for connected
+     *    clients.
+     *
+     * Note that we don't check the replies returned by commands, since we
+     * will observe instead the effects in the next INFO output. */
+    retval = redisAsyncCommand(ri->cc,
+        sentinelDiscardReplyCallback, NULL, "MULTI");
+    if (retval == REDIS_ERR) return retval;
+    ri->pending_commands++;
+
     retval = redisAsyncCommand(ri->cc,
         sentinelDiscardReplyCallback, NULL, "SLAVEOF %s %s", host, portstr);
     if (retval == REDIS_ERR) return retval;
-
     ri->pending_commands++;
-    if (redisAsyncCommand(ri->cc,
-        sentinelDiscardReplyCallback, NULL, "CONFIG REWRITE") == REDIS_OK)
-    {
-        ri->pending_commands++;
-    }
+
+    retval = redisAsyncCommand(ri->cc,
+        sentinelDiscardReplyCallback, NULL, "CONFIG REWRITE");
+    if (retval == REDIS_ERR) return retval;
+    ri->pending_commands++;
+
+    /* CLIENT KILL TYPE <type> is only supported starting from Redis 2.8.12,
+     * however sending it to an instance not understanding this command is not
+     * an issue because CLIENT is variadic command, so Redis will not
+     * recognized as a syntax error, and the transaction will not fail (but
+     * only the unsupported command will fail). */
+    retval = redisAsyncCommand(ri->cc,
+        sentinelDiscardReplyCallback, NULL, "CLIENT KILL TYPE normal");
+    if (retval == REDIS_ERR) return retval;
+    ri->pending_commands++;
+
+    retval = redisAsyncCommand(ri->cc,
+        sentinelDiscardReplyCallback, NULL, "EXEC");
+    if (retval == REDIS_ERR) return retval;
+    ri->pending_commands++;
+
     return REDIS_OK;
 }
 

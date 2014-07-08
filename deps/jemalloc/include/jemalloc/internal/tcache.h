@@ -140,11 +140,11 @@ void	tcache_dalloc_large(tcache_t *tcache, void *ptr, size_t size);
 #if (defined(JEMALLOC_ENABLE_INLINE) || defined(JEMALLOC_TCACHE_C_))
 /* Map of thread-specific caches. */
 malloc_tsd_externs(tcache, tcache_t *)
-malloc_tsd_funcs(JEMALLOC_INLINE, tcache, tcache_t *, NULL,
+malloc_tsd_funcs(JEMALLOC_ALWAYS_INLINE, tcache, tcache_t *, NULL,
     tcache_thread_cleanup)
 /* Per thread flag that allows thread caches to be disabled. */
 malloc_tsd_externs(tcache_enabled, tcache_enabled_t)
-malloc_tsd_funcs(JEMALLOC_INLINE, tcache_enabled, tcache_enabled_t,
+malloc_tsd_funcs(JEMALLOC_ALWAYS_INLINE, tcache_enabled, tcache_enabled_t,
     tcache_enabled_default, malloc_tsd_no_cleanup)
 
 JEMALLOC_INLINE void
@@ -206,7 +206,7 @@ tcache_enabled_set(bool enabled)
 	}
 }
 
-JEMALLOC_INLINE tcache_t *
+JEMALLOC_ALWAYS_INLINE tcache_t *
 tcache_get(bool create)
 {
 	tcache_t *tcache;
@@ -258,7 +258,7 @@ tcache_get(bool create)
 	return (tcache);
 }
 
-JEMALLOC_INLINE void
+JEMALLOC_ALWAYS_INLINE void
 tcache_event(tcache_t *tcache)
 {
 
@@ -271,7 +271,7 @@ tcache_event(tcache_t *tcache)
 		tcache_event_hard(tcache);
 }
 
-JEMALLOC_INLINE void *
+JEMALLOC_ALWAYS_INLINE void *
 tcache_alloc_easy(tcache_bin_t *tbin)
 {
 	void *ret;
@@ -287,7 +287,7 @@ tcache_alloc_easy(tcache_bin_t *tbin)
 	return (ret);
 }
 
-JEMALLOC_INLINE void *
+JEMALLOC_ALWAYS_INLINE void *
 tcache_alloc_small(tcache_t *tcache, size_t size, bool zero)
 {
 	void *ret;
@@ -297,6 +297,7 @@ tcache_alloc_small(tcache_t *tcache, size_t size, bool zero)
 	binind = SMALL_SIZE2BIN(size);
 	assert(binind < NBINS);
 	tbin = &tcache->tbins[binind];
+	size = arena_bin_info[binind].reg_size;
 	ret = tcache_alloc_easy(tbin);
 	if (ret == NULL) {
 		ret = tcache_alloc_small_hard(tcache, tbin, binind);
@@ -313,6 +314,7 @@ tcache_alloc_small(tcache_t *tcache, size_t size, bool zero)
 			} else if (opt_zero)
 				memset(ret, 0, size);
 		}
+		VALGRIND_MAKE_MEM_UNDEFINED(ret, size);
 	} else {
 		if (config_fill && opt_junk) {
 			arena_alloc_junk_small(ret, &arena_bin_info[binind],
@@ -330,7 +332,7 @@ tcache_alloc_small(tcache_t *tcache, size_t size, bool zero)
 	return (ret);
 }
 
-JEMALLOC_INLINE void *
+JEMALLOC_ALWAYS_INLINE void *
 tcache_alloc_large(tcache_t *tcache, size_t size, bool zero)
 {
 	void *ret;
@@ -367,6 +369,7 @@ tcache_alloc_large(tcache_t *tcache, size_t size, bool zero)
 				else if (opt_zero)
 					memset(ret, 0, size);
 			}
+			VALGRIND_MAKE_MEM_UNDEFINED(ret, size);
 		} else {
 			VALGRIND_MAKE_MEM_UNDEFINED(ret, size);
 			memset(ret, 0, size);
@@ -382,7 +385,7 @@ tcache_alloc_large(tcache_t *tcache, size_t size, bool zero)
 	return (ret);
 }
 
-JEMALLOC_INLINE void
+JEMALLOC_ALWAYS_INLINE void
 tcache_dalloc_small(tcache_t *tcache, void *ptr, size_t binind)
 {
 	tcache_bin_t *tbin;
@@ -406,7 +409,7 @@ tcache_dalloc_small(tcache_t *tcache, void *ptr, size_t binind)
 	tcache_event(tcache);
 }
 
-JEMALLOC_INLINE void
+JEMALLOC_ALWAYS_INLINE void
 tcache_dalloc_large(tcache_t *tcache, void *ptr, size_t size)
 {
 	size_t binind;
