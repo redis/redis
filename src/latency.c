@@ -391,7 +391,7 @@ sds createLatencyReport(void) {
         }
 
         if (advise_data_writeback) {
-            report = sdscat(report,"- Mounting ext3/4 filesystems with mode=writeback can provide a performance boost compared to mode=ordered, however this mode of operation provides less guarantees, and sometimes it can happen that after a hard crash the AOF file will have an half-written command at the end and will require to be repaired before Redis restarts.\n");
+            report = sdscat(report,"- Mounting ext3/4 filesystems with data=writeback can provide a performance boost compared to data=ordered, however this mode of operation provides less guarantees, and sometimes it can happen that after a hard crash the AOF file will have an half-written command at the end and will require to be repaired before Redis restarts.\n");
         }
 
         if (advise_disk_contention) {
