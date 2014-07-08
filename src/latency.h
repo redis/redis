@@ -58,6 +58,7 @@ struct latencyStats {
     uint32_t max;           /* Max of current samples. */
     uint32_t mad;           /* Mean absolute deviation. */
     uint32_t samples;       /* Number of non-zero samples. */
+    time_t period;          /* Number of seconds since first event and now. */
 };
 
 void latencyMonitorInit(void);
