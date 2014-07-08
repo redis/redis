@@ -1235,6 +1235,7 @@ int rewriteAppendOnlyFileBackground(void) {
     } else {
         /* Parent */
         server.stat_fork_time = ustime()-start;
+        server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
         latencyAddSampleIfNeeded("fork",server.stat_fork_time/1000);
         if (childpid == -1) {
             redisLog(REDIS_WARNING,
