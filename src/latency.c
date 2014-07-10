@@ -524,8 +524,11 @@ void latencyCommand(redisClient *c) {
     if (!strcasecmp(c->argv[1]->ptr,"history") && c->argc == 3) {
         /* LATENCY HISTORY <event> */
         ts = dictFetchValue(server.latency_events,c->argv[2]->ptr);
-        if (ts == NULL) goto nodataerr;
-        latencyCommandReplyWithSamples(c,ts);
+        if (ts == NULL) {
+            addReplyMultiBulkLen(c,0);
+        } else {
+            latencyCommandReplyWithSamples(c,ts);
+        }
     } else if (!strcasecmp(c->argv[1]->ptr,"graph") && c->argc == 3) {
         /* LATENCY GRAPH <event> */
         sds graph;
