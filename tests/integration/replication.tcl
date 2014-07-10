@@ -94,15 +94,6 @@ start_server {tags {"repl"}} {
     }
 }
 
-proc start_write_load {host port seconds} {
-    set tclsh [info nameofexecutable]
-    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds &
-}
-
-proc stop_write_load {handle} {
-    catch {exec /bin/kill -9 $handle}
-}
-
 start_server {tags {"repl"}} {
     set master [srv 0 client]
     set master_host [srv 0 host]
