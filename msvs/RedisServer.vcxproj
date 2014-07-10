@@ -144,7 +144,7 @@
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
     </Link>
     <PostBuildEvent>
-      <Command>powershell -executionpolicy unrestricted -command compressOutputToReleaseFolder.ps1</Command>
+      <Command>powershell -executionpolicy unrestricted -command .\compressOutputToReleaseFolder.ps1</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
