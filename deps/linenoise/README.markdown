@@ -10,7 +10,7 @@ Line editing with some support for history is a really important feature for com
 
 So what usually happens is either:
 
- * Large programs with configure scripts disabling line editing if readline is not present in the system, or not supporting it at all since readline is GPL licensed and libedit (the BSD clone) is not as known and available as readline is (Readl world example of this problem: Tclsh).
+ * Large programs with configure scripts disabling line editing if readline is not present in the system, or not supporting it at all since readline is GPL licensed and libedit (the BSD clone) is not as known and available as readline is (Real world example of this problem: Tclsh).
  * Smaller programs not using a configure script not supporting line editing at all (A problem we had with Redis-cli for instance).
  
 The result is a pollution of binaries without line editing support.
