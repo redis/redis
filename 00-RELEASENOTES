@@ -14,6 +14,24 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.13 ] Release date: 14 Jul 2014
+
+# UPGRADE URGENCY: LOW for Redis and Sentinel, this is a features enhancement
+                   release mostly. Since this release introduces the latency
+                   monitoring feature, Redis 2.8 users experiencing latency
+                   issues are strongly encouraged to upgrade.
+
+* [FIX] CLIENT KILL minor backward compatibility fixes. (Salvatore Sanfilippo)
+* [FIX] Enable HAVE_ATOMIC for PowerPC. (Matt Stancliff)
+* [FIX] More robust PSYNC and AOF rewrites tests. (Salvatore Sanfilippo)
+* [FIX] Solaris build fixed. (Matt Stancliff, Salvatore Sanfilippo)
+
+* [NEW] The new latency monitoring feature, as documented at
+        http://redis.io/topics/latency-monitor (Salvatore Sanfilippo)
+* [NEW] The COMMAND command, exposing the Redis command table
+        as an API. (Matt Stancliff)
+* [NEW] Update used memory with C11 __atomic. (Matt Stancliff)
+
 --[ Redis 2.8.12 ] Release date: 23 Jun 2014
 
 # UPGRADE URGENCY: HIGH for Redis, CRITICAL for Sentinel.
