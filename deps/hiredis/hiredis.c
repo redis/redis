@@ -1135,11 +1135,11 @@ redisContext *redisConnectFd(int fd) {
 }
 
 #ifdef _WIN32
-redisContext *redisPreConnectNonBlock(const char *ip, int port, struct sockaddr_in *sa) {
+redisContext *redisPreConnectNonBlock(const char *ip, int port, SOCKADDR_STORAGE *ss) {
     redisContext *c = redisContextInit();
     c->fd = -1;
     c->flags &= ~REDIS_BLOCK;
-    redisContextPreConnectTcp(c, ip, port, NULL, sa);
+    redisContextPreConnectTcp(c, ip, port, NULL, ss);
     return c;
 }
 #endif

@@ -260,31 +260,14 @@ static int anetCreateSocket(char *err, int domain) {
 #define ANET_CONNECT_NONBLOCK 1
 static int anetTcpGenericConnect(char *err, char *addr, int port, int flags) {
     int rfd;
-    struct sockaddr_in sa;
-    unsigned long inAddress;
+    SOCKADDR_STORAGE ss;
 
-    if ((rfd = anetCreateSocket(err,AF_INET)) == ANET_ERR) {
+    ParseStorageAddress(addr, port, &ss);
+
+    if ((rfd = anetCreateSocket(err,ss.ss_family)) == ANET_ERR) {
         return ANET_ERR;
     }
-    sa.sin_family = AF_INET;
-    sa.sin_port = htons((u_short)port);
-    inAddress = inet_addr(addr);
-    if (inAddress == INADDR_NONE || inAddress == INADDR_ANY) {
-        struct hostent *he;
-
-        he = gethostbyname(addr);
-        if (he == NULL) {
-            anetSetError(err, "can't resolve: %s\n", addr);
-            close(rfd);
-            return ANET_ERR;
-        }
-        memcpy(&sa.sin_addr, he->h_addr, sizeof(struct in_addr));
-    }
-    else {
-      sa.sin_addr.s_addr = inAddress;
-    }
-
-    if (aeWinSocketConnect(rfd, (struct sockaddr*)&sa, sizeof(sa)) == SOCKET_ERROR) {
+    if (aeWinSocketConnect(rfd, &ss ) == SOCKET_ERROR) {
         if ((errno == WSAEWOULDBLOCK || errno == WSA_IO_PENDING)) errno = EINPROGRESS;
         if (errno == EINPROGRESS && flags & ANET_CONNECT_NONBLOCK) {
             return rfd;

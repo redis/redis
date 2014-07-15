@@ -49,7 +49,7 @@ int redisContextConnectUnix(redisContext *c, const char *path, const struct time
 int redisKeepAlive(redisContext *c, int interval);
 
 #ifdef _WIN32
-int redisContextPreConnectTcp(redisContext *c, const char *addr, int port, struct timeval *timeout, struct sockaddr_in *sa);
+int redisContextPreConnectTcp(redisContext *c, const char *addr, int port, struct timeval *timeout, SOCKADDR_STORAGE *ss);
 #endif
 
 #endif

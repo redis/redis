@@ -249,6 +249,10 @@ BOOL FDAPI_ConnectEx(int fd,const struct sockaddr *name,int namelen,PVOID lpSend
 void FDAPI_GetAcceptExSockaddrs(int fd, PVOID lpOutputBuffer,DWORD dwReceiveDataLength,DWORD dwLocalAddressLength,DWORD dwRemoteAddressLength,LPSOCKADDR *LocalSockaddr,LPINT LocalSockaddrLength,LPSOCKADDR *RemoteSockaddr,LPINT RemoteSockaddrLength);
 int FDAPI_UpdateAcceptContext( int fd );
 
+// other networking functions
+BOOL ParseStorageAddress(const char *ip, int port, SOCKADDR_STORAGE* pSotrageAddr);
+int StorageSize(SOCKADDR_STORAGE *ss);
+
 // macroize CRT definitions to point to our own
 #ifndef FDAPI_NOCRTREDEFS
 #define close(fd) fdapi_close(fd)

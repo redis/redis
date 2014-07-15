@@ -287,32 +287,21 @@ int redisContextSetTimeout(redisContext *c, const struct timeval tv) {
 }
 
 #ifdef _WIN32
-int redisContextPreConnectTcp(redisContext *c, const char *addr, int port,
-struct timeval *timeout, struct sockaddr_in *sa) {
-    int blocking = (c->flags & REDIS_BLOCK);
-    unsigned long inAddress;
 
-    if (REDIS_OK != redisCreateSocket(c, AF_INET)) {
-        return REDIS_ERR;
+int redisContextPreConnectTcp(
+    redisContext *c, 
+    const char *addr, 
+    int port,
+    struct timeval *timeout, 
+    SOCKADDR_STORAGE* ss) {
+    int blocking = (c->flags & REDIS_BLOCK);
+
+    if (ParseStorageAddress(addr, port, ss) == FALSE) {
+        DebugBreak();
     }
 
-    sa->sin_family = AF_INET;
-    sa->sin_port = htons(port);
-
-    inAddress = inet_addr(addr);
-    if (inAddress == INADDR_NONE || inAddress == INADDR_ANY) {
-        struct hostent *he;
-
-        he = gethostbyname(addr);
-        if (he == NULL) {
-            __redisSetError(c, REDIS_ERR_OTHER,
-                sdscatprintf(sdsempty(), "can't resolve: %s\n", addr));
-            close(c->fd);
-            return REDIS_ERR;
-        }
-        memcpy(&sa->sin_addr, he->h_addr, sizeof(struct in_addr));
-    } else {
-        sa->sin_addr.s_addr = inAddress;
+    if (REDIS_OK != redisCreateSocket(c, ss->ss_family)) {
+        return REDIS_ERR;
     }
 
     if (redisSetTcpNoDelay(c) != REDIS_OK)

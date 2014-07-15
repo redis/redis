@@ -1022,6 +1022,43 @@ const char* redis_inet_ntop_impl(int af, const void *src, char *dst, size_t size
     }
 }
 
+BOOL ParseStorageAddress(const char *ip, int port, SOCKADDR_STORAGE* pSotrageAddr) {
+    struct addrinfo hints, *res;
+    int status;
+    char port_buffer[6];
+
+    sprintf(port_buffer, "%hu", port);
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    /* Setting AI_PASSIVE will give you a wildcard address if addr is NULL */
+    hints.ai_flags = AI_NUMERICHOST | AI_NUMERICSERV | AI_PASSIVE;
+
+    if ((status = getaddrinfo(ip, port_buffer, &hints, &res) != 0)) {
+        fprintf(stderr, "getaddrinfo: %S\n", gai_strerror(status));
+        return FALSE;
+    }
+
+    /* Note, we're taking the first valid address, there may be more than one */
+    memcpy(pSotrageAddr, res->ai_addr, res->ai_addrlen);
+
+    freeaddrinfo(res);
+    return TRUE;
+}
+
+int StorageSize(SOCKADDR_STORAGE *ss) {
+    switch (ss->ss_family) {
+        case AF_INET:
+            return sizeof(SOCKADDR_IN);
+        case AF_INET6:
+            return sizeof(SOCKADDR_IN6);
+        default:
+            return -1;
+    }
+}
+
+
 class Win32_FDSockMap {
 public:
     static Win32_FDSockMap& getInstance() {

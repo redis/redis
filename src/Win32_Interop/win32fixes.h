@@ -299,7 +299,8 @@ int aeWinSocketSend(int fd, char *buf, int len,
                     void *eventLoop, void *client, void *data, void *proc);
 int aeWinListen(int rfd, int backlog);
 int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len);
-int aeWinSocketConnect(int fd, const struct sockaddr *sa, int len);
+int aeWinSocketConnect(int fd, const SOCKADDR_STORAGE *ss);
+int aeWinSocketConnectBind(int fd, const SOCKADDR_STORAGE *ss, const char* source_addr);
 
 int strerror_r(int err, char* buf, size_t buflen);
 char *wsa_strerror(int err);

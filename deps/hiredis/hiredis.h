@@ -197,7 +197,7 @@ int redisFreeKeepFd(redisContext *c);
 int redisBufferRead(redisContext *c);
 int redisBufferWrite(redisContext *c, int *done);
 #ifdef _WIN32
-redisContext *redisPreConnectNonBlock(const char *ip, int port, struct sockaddr_in *sa);
+redisContext *redisPreConnectNonBlock(const char *ip, int port, SOCKADDR_STORAGE *sa);
 int redisBufferReadDone(redisContext *c, char *buf, int nread);
 int redisBufferWriteDone(redisContext *c, int nwritten, int *done);
 #endif

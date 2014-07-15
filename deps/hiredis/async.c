@@ -167,12 +167,24 @@ static void __redisAsyncCopyError(redisAsyncContext *ac) {
 
 #ifdef WIN32_IOCP
 redisAsyncContext *redisAsyncConnect(const char *ip, int port) {
-    struct sockaddr_in sa;
-    redisContext *c = redisPreConnectNonBlock(ip, port, &sa);
+    SOCKADDR_STORAGE ss;
+    redisContext *c = redisPreConnectNonBlock(ip, port, &ss);
     redisAsyncContext *ac = redisAsyncInitialize(c);
-    if (aeWinSocketConnect(ac->c.fd, (struct sockaddr *)&sa, sizeof(sa)) != 0) {
+    if (aeWinSocketConnect(ac->c.fd, &ss) != 0) {
+         ac->c.err = errno;
+        strerror_r(errno, ac->c.errstr, sizeof(ac->c.errstr));
+    }
+    __redisAsyncCopyError(ac);
+    return ac;
+}
+
+redisAsyncContext *redisAsyncConnectBind(const char *ip, int port, const char *source_addr) {
+    SOCKADDR_STORAGE ss;
+    redisContext *c = redisPreConnectNonBlock(ip, port, &ss);
+    redisAsyncContext *ac = redisAsyncInitialize(c);
+    if (aeWinSocketConnectBind(ac->c.fd, &ss, source_addr) != 0) {
         ac->c.err = errno;
-        strerror_r(errno,ac->c.errstr,sizeof(ac->c.errstr));
+        strerror_r(errno, ac->c.errstr, sizeof(ac->c.errstr));
     }
     __redisAsyncCopyError(ac);
     return ac;
@@ -195,7 +207,6 @@ redisAsyncContext *redisAsyncConnect(const char *ip, int port) {
     __redisAsyncCopyError(ac);
     return ac;
 }
-#endif
 
 redisAsyncContext *redisAsyncConnectBind(const char *ip, int port,
     const char *source_addr) {
@@ -204,6 +215,7 @@ redisAsyncContext *redisAsyncConnectBind(const char *ip, int port,
     __redisAsyncCopyError(ac);
     return ac;
 }
+#endif
 
 redisAsyncContext *redisAsyncConnectUnix(const char *path) {
     redisContext *c;

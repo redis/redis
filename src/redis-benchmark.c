@@ -364,9 +364,9 @@ static client createClient(char *cmd, size_t len, client from) {
 
     if (config.hostsocket == NULL) {
 #ifdef WIN32_IOCP
-        struct sockaddr_in sa;
-        c->context = redisPreConnectNonBlock(config.hostip,config.hostport, &sa);
-        if (aeWinSocketConnect(c->context->fd, (struct sockaddr *)&sa, sizeof(sa)) != 0) {
+        SOCKADDR_STORAGE ss;
+        c->context = redisPreConnectNonBlock(config.hostip,config.hostport, &ss);
+        if (aeWinSocketConnect(c->context->fd, &ss) != 0) {
             c->context->err = errno;
             strerror_r(errno,c->context->errstr,sizeof(c->context->errstr));
         }

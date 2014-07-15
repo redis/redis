@@ -281,12 +281,14 @@ int aeWinSocketSend(int fd, char *buf, int len,
     return SOCKET_ERROR;
 }
 
+
+
+
 /* for non-blocking connect with IOCP */
-int aeWinSocketConnect(int fd, const struct sockaddr *sa, int len) {
+int aeWinSocketConnect(int fd, const SOCKADDR_STORAGE *ss) {
     const GUID wsaid_connectex = WSAID_CONNECTEX;
     DWORD result;
     aeSockState *sockstate;
-    struct sockaddr_in addr;
 
     if ((sockstate = aeGetSockState(iocpState, fd)) == NULL) {
         errno = WSAEINVAL;
@@ -298,14 +300,97 @@ int aeWinSocketConnect(int fd, const struct sockaddr *sa, int len) {
     }
 
     memset(&sockstate->ov_read, 0, sizeof(sockstate->ov_read));
+    
     /* need to bind sock before connectex */
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = 0;
-    result = bind(fd, (struct sockaddr *)&addr, sizeof(addr));
+    switch (ss->ss_family) {
+        case AF_INET:
+        {
+            SOCKADDR_IN addr;
+            memset(&addr, 0, sizeof(SOCKADDR_IN));
+            addr.sin_family = ss->ss_family;
+            addr.sin_addr.S_un.S_addr = INADDR_ANY;
+            addr.sin_port = 0;
+            result = bind(fd, (SOCKADDR*)&addr, sizeof(addr));
 
-    result = FDAPI_ConnectEx(fd, sa, len, NULL, 0, NULL, &sockstate->ov_read);
+            result = FDAPI_ConnectEx(fd, (SOCKADDR*)ss, sizeof(SOCKADDR_IN), NULL, 0, NULL, &sockstate->ov_read);
+            break;
+        }
+        case AF_INET6:
+        {
+            SOCKADDR_IN6 addr;
+            memset(&addr, 0, sizeof(SOCKADDR_IN6));
+            addr.sin6_family = ss->ss_family;
+            memset(&(addr.sin6_addr.u.Byte), 0, 16);
+            addr.sin6_port = 0;
+            result = bind(fd, (SOCKADDR*)&addr, sizeof(addr));
+
+            result = FDAPI_ConnectEx(fd, (SOCKADDR*)ss, sizeof(SOCKADDR_IN6), NULL, 0, NULL, &sockstate->ov_read);
+            break;
+        }
+        default:
+        {
+            DebugBreak();
+        }
+    }
+
+    if (result != TRUE) {
+        result = WSAGetLastError();
+        if (result == ERROR_IO_PENDING) {
+            errno = WSA_IO_PENDING;
+            sockstate->masks |= CONNECT_PENDING;
+        } else {
+            errno = result;
+            return SOCKET_ERROR;
+        }
+    }
+    return 0;
+}
+
+int aeWinSocketConnectBind(int fd, const SOCKADDR_STORAGE *ss, const char* source_addr) {
+    const GUID wsaid_connectex = WSAID_CONNECTEX;
+    DWORD result;
+    aeSockState *sockstate;
+
+    if ((sockstate = aeGetSockState(iocpState, fd)) == NULL) {
+        errno = WSAEINVAL;
+        return SOCKET_ERROR;
+    }
+
+    if (aeWinSocketAttach(fd) != 0) {
+        return SOCKET_ERROR;
+    }
+
+    memset(&sockstate->ov_read, 0, sizeof(sockstate->ov_read));
+
+    /* need to bind sock before connectex */
+    switch (ss->ss_family) {
+        case AF_INET:
+        {
+            SOCKADDR_IN addr;
+            memset(&addr, 0, sizeof(SOCKADDR_IN));
+            addr.sin_family = ss->ss_family;
+            addr.sin_addr.S_un.S_addr = INADDR_ANY;
+            addr.sin_port = 0;
+            result = bind(fd, (SOCKADDR*)&addr, sizeof(addr));
+            break;
+        }
+        case AF_INET6:
+        {
+            SOCKADDR_IN6 addr;
+            memset(&addr, 0, sizeof(SOCKADDR_IN6));
+            addr.sin6_family = ss->ss_family;
+            memset(&(addr.sin6_addr.u.Byte), 0, 16);
+            addr.sin6_port = 0;
+            result = bind(fd, (SOCKADDR*)&addr, sizeof(addr));
+            break;
+        }
+        default:
+        {
+                   DebugBreak();
+        }
+    }
+
+    result = FDAPI_ConnectEx(fd, (const LPSOCKADDR)ss, StorageSize(ss), NULL, 0, NULL, &sockstate->ov_read);
     if (result != TRUE) {
         result = WSAGetLastError();
         if (result == ERROR_IO_PENDING) {
