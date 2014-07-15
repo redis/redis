@@ -82,6 +82,7 @@
 #include "endianconv.h"
 #ifdef _WIN32
 #define inline __inline
+#include "Win32_Interop\Win32_FDAPI.h"
 #endif
 
 #define ZIPMAP_BIGLEN 254

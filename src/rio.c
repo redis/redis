@@ -53,14 +53,14 @@
 #endif
 #include "rio.h"
 #include "util.h"
-#ifdef _WIN32
-#include "Win32_Interop\Win32_FDAPI.h"
-#endif
 #include "config.h"
 #include "redis.h"
 #include "crc64.h"
 #include "config.h"
-#include "redis.h"
+
+#ifdef _WIN32
+#include "Win32_Interop\Win32_FDAPI.h"
+#endif
 
 /* Returns 1 or 0 for success/failure. */
 static size_t rioBufferWrite(rio *r, const void *buf, size_t len) {
