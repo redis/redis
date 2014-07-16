@@ -333,7 +333,7 @@ int rdbSaveStringObject(rio *rdb, robj *obj) {
 robj *rdbGenericLoadStringObject(rio *rdb, int encode) {
     int isencoded;
     uint32_t len;
-    sds val;
+    robj *o;
 
     len = rdbLoadLen(rdb,&isencoded);
     if (isencoded) {
@@ -350,12 +350,13 @@ robj *rdbGenericLoadStringObject(rio *rdb, int encode) {
     }
 
     if (len == REDIS_RDB_LENERR) return NULL;
-    val = sdsnewlen(NULL,len);
-    if (len && rioRead(rdb,val,len) == 0) {
-        sdsfree(val);
+    o = encode ? createStringObject(NULL,len) :
+                 createRawStringObject(NULL,len);
+    if (len && rioRead(rdb,o->ptr,len) == 0) {
+        decrRefCount(o);
         return NULL;
     }
-    return createObject(REDIS_STRING,val);
+    return o;
 }
 
 robj *rdbLoadStringObject(rio *rdb) {
