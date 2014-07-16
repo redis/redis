@@ -376,7 +376,7 @@ static RedisParamterMapper g_redisArgMap =
     { "rdbcompression",                 &fp1 },    // rdbcompression [yes/no]
     { "rdbchecksum",                    &fp1 },    // rdbchecksum [yes/no]
     { "dbfilename",                     &fp1 },    // dbfilename [filename]
-    { "dir",                            &fp1 },    // dir [path]
+    { cDir,                             &fp1 },    // dir [path]
     { "slaveof",                        &fp2 },    // slaveof [masterip] [master port] 
     { "masterauth",                     &fp1 },    // masterauth [master-password]
     { "slave-serve-stale-data",         &fp1 },    // slave-serve-stale-data [yes/no]
