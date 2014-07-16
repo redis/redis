@@ -1561,7 +1561,7 @@ unsigned long getClientOutputBufferMemoryUsage(redisClient *c) {
 int getClientType(redisClient *c) {
     if ((c->flags & REDIS_SLAVE) && !(c->flags & REDIS_MONITOR))
         return REDIS_CLIENT_TYPE_SLAVE;
-    if (dictSize(c->pubsub_channels) || listLength(c->pubsub_patterns))
+    if (c->flags & REDIS_PUBSUB)
         return REDIS_CLIENT_TYPE_PUBSUB;
     return REDIS_CLIENT_TYPE_NORMAL;
 }
