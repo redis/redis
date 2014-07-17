@@ -333,7 +333,7 @@ int rdbSaveStringObject(rio *rdb, robj *obj) {
 robj *rdbGenericLoadStringObject(rio *rdb, int encode) {
     int isencoded;
     uint32_t len;
-    sds val;
+    robj *o;
 
     len = rdbLoadLen(rdb,&isencoded);
     if (isencoded) {
@@ -350,12 +350,13 @@ robj *rdbGenericLoadStringObject(rio *rdb, int encode) {
     }
 
     if (len == REDIS_RDB_LENERR) return NULL;
-    val = sdsnewlen(NULL,len);
-    if (len && rioRead(rdb,val,len) == 0) {
-        sdsfree(val);
+    o = encode ? createStringObject(NULL,len) :
+                 createRawStringObject(NULL,len);
+    if (len && rioRead(rdb,o->ptr,len) == 0) {
+        decrRefCount(o);
         return NULL;
     }
-    return createObject(REDIS_STRING,val);
+    return o;
 }
 
 robj *rdbLoadStringObject(rio *rdb) {
@@ -745,6 +746,8 @@ int rdbSaveBackground(char *filename) {
     } else {
         /* Parent */
         server.stat_fork_time = ustime()-start;
+        server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
+        latencyAddSampleIfNeeded("fork",server.stat_fork_time/1000);
         if (childpid == -1) {
             server.lastbgsave_status = REDIS_ERR;
             redisLog(REDIS_WARNING,"Can't save in background: fork: %s",
@@ -1200,9 +1203,14 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
         redisLog(REDIS_WARNING, "Background saving error");
         server.lastbgsave_status = REDIS_ERR;
     } else {
+        mstime_t latency;
+
         redisLog(REDIS_WARNING,
             "Background saving terminated by signal %d", bysignal);
+        latencyStartMonitor(latency);
         rdbRemoveTempFile(server.rdb_child_pid);
+        latencyEndMonitor(latency);
+        latencyAddSampleIfNeeded("rdb-unlink-temp-file",latency);
         /* SIGUSR1 is whitelisted, so we have a way to kill a child without
          * tirggering an error conditon. */
         if (bysignal != SIGUSR1)

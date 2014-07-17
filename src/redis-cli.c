@@ -599,8 +599,11 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
                       (!strcasecmp(argv[1],"nodes") ||
                        !strcasecmp(argv[1],"info"))) ||
         (argc == 2 && !strcasecmp(command,"client") &&
-                       !strcasecmp(argv[1],"list")))
-
+                       !strcasecmp(argv[1],"list")) ||
+        (argc == 3 && !strcasecmp(command,"latency") &&
+                       !strcasecmp(argv[1],"graph")) ||
+        (argc == 2 && !strcasecmp(command,"latency") &&
+                       !strcasecmp(argv[1],"doctor")))
     {
         output_raw = 1;
     }
