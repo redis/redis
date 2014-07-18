@@ -821,50 +821,92 @@ class RedisTrib
             puts "*** Please fix your cluster problems before resharding"
             exit 1
         end
-        numslots = 0
-        while numslots <= 0 or numslots > ClusterHashSlots
-            print "How many slots do you want to move (from 1 to #{ClusterHashSlots})? "
-            numslots = STDIN.gets.to_i
+
+        # Get number of slots
+        if opt['slots']
+            numslots = opt['slots'].to_i
+        else
+            numslots = 0
+            while numslots <= 0 or numslots > ClusterHashSlots
+                print "How many slots do you want to move (from 1 to #{ClusterHashSlots})? "
+                numslots = STDIN.gets.to_i
+            end
         end
-        target = nil
-        while not target
-            print "What is the receiving node ID? "
-            target = get_node_by_name(STDIN.gets.chop)
+
+        # Get the target instance
+        if opt['to']
+            target = get_node_by_name(opt['to'])
             if !target || target.has_flag?("slave")
                 xputs "*** The specified node is not known or not a master, please retry."
-                target = nil
+                exit 1
             end
-        end
-        sources = []
-        xputs "Please enter all the source node IDs."
-        xputs "  Type 'all' to use all the nodes as source nodes for the hash slots."
-        xputs "  Type 'done' once you entered all the source nodes IDs."
-        while true
-            print "Source node ##{sources.length+1}:"
-            line = STDIN.gets.chop
-            src = get_node_by_name(line)
-            if line == "done"
-                if sources.length == 0
-                    puts "No source nodes given, operation aborted"
-                    exit 1
-                else
-                    break
+        else
+            target = nil
+            while not target
+                print "What is the receiving node ID? "
+                target = get_node_by_name(STDIN.gets.chop)
+                if !target || target.has_flag?("slave")
+                    xputs "*** The specified node is not known or not a master, please retry."
+                    target = nil
                 end
-            elsif line == "all"
-                @nodes.each{|n|
-                    next if n.info[:name] == target.info[:name]
-                    next if n.has_flag?("slave")
-                    sources << n
-                }
-                break
-            elsif !src || src.has_flag?("slave")
-                xputs "*** The specified node is not known or is not a master, please retry."
-            elsif src.info[:name] == target.info[:name]
-                xputs "*** It is not possible to use the target node as source node."
-            else
-                sources << src
             end
         end
+
+        # Get the source instances
+        sources = []
+        if opt['from']
+            opt['from'].split(',').each{|node_id|
+                src = get_node_by_name(node_id)
+                if !src || src.has_flag?("slave")
+                    xputs "*** The specified node is not known or is not a master, please retry."
+                    exit 1
+                end
+                sources << src
+            }
+        else
+            xputs "Please enter all the source node IDs."
+            xputs "  Type 'all' to use all the nodes as source nodes for the hash slots."
+            xputs "  Type 'done' once you entered all the source nodes IDs."
+            while true
+                print "Source node ##{sources.length+1}:"
+                line = STDIN.gets.chop
+                src = get_node_by_name(line)
+                if line == "done"
+                    break
+                elsif line == "all"
+                    sources = "all"
+                    break
+                elsif !src || src.has_flag?("slave")
+                    xputs "*** The specified node is not known or is not a master, please retry."
+                elsif src.info[:name] == target.info[:name]
+                    xputs "*** It is not possible to use the target node as source node."
+                else
+                    sources << src
+                end
+            end
+        end
+
+        if sources.length == 0
+            puts "*** No source nodes given, operation aborted"
+            exit 1
+        end
+
+        # Handle soures == all.
+        if sources == "all"
+            sources = []
+            @nodes.each{|n|
+                next if n.info[:name] == target.info[:name]
+                next if n.has_flag?("slave")
+                sources << n
+            }
+        end
+
+        # Check if the destination node is the same of any source nodes.
+        if sources.index(target)
+            xputs "*** Target node is also listed among the source nodes!"
+            exit 1
+        end
+
         puts "\nReady to move #{numslots} slots."
         puts "  Source nodes:"
         sources.each{|s| puts "    "+s.info_string}
@@ -873,9 +915,11 @@ class RedisTrib
         reshard_table = compute_reshard_table(sources,numslots)
         puts "  Resharding plan:"
         show_reshard_table(reshard_table)
-        print "Do you want to proceed with the proposed reshard plan (yes/no)? "
-        yesno = STDIN.gets.chop
-        exit(1) if (yesno != "yes")
+        if !opt['yes']
+            print "Do you want to proceed with the proposed reshard plan (yes/no)? "
+            yesno = STDIN.gets.chop
+            exit(1) if (yesno != "yes")
+        end
         reshard_table.each{|e|
             move_slot(e[:source],target,e[:slot],:verbose=>true)
         }
@@ -1253,7 +1297,8 @@ COMMANDS={
 ALLOWED_OPTIONS={
     "create" => {"replicas" => true},
     "add-node" => {"slave" => false, "master-id" => true},
-    "import" => {"from" => :required}
+    "import" => {"from" => :required},
+    "reshard" => {"from" => true, "to" => true, "slots" => true, "yes" => false}
 }
 
 def show_help
