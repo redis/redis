@@ -1,4 +1,28 @@
 start_server {tags {"maxmemory"}} {
+    test "Without maxmemory small integers are shared" {
+        r config set maxmemory 0
+        r set a 1
+        assert {[r object refcount a] > 1}
+    }
+
+    test "With maxmemory and non-LRU policy integers are still shared" {
+        r config set maxmemory 1073741824
+        r config set maxmemory-policy allkeys-random
+        r set a 1
+        assert {[r object refcount a] > 1}
+    }
+
+    test "With maxmemory and LRU policy integers are not shared" {
+        r config set maxmemory 1073741824
+        r config set maxmemory-policy allkeys-lru
+        r set a 1
+        r config set maxmemory-policy volatile-lru
+        r set b 1
+        assert {[r object refcount a] == 1}
+        assert {[r object refcount b] == 1}
+        r config set maxmemory 0
+    }
+
     foreach policy {
         allkeys-random allkeys-lru volatile-lru volatile-random volatile-ttl
     } {
