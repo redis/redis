@@ -224,7 +224,7 @@ struct redisCommand redisCommandTable[] = {
     {"scan",scanCommand,-2,"rR",0,NULL,0,0,0,0,0},
     {"dbsize",dbsizeCommand,1,"rF",0,NULL,0,0,0,0,0},
     {"auth",authCommand,2,"rsltF",0,NULL,0,0,0,0,0},
-    {"ping",pingCommand,1,"rtF",0,NULL,0,0,0,0,0},
+    {"ping",pingCommand,-1,"rtF",0,NULL,0,0,0,0,0},
     {"echo",echoCommand,2,"rF",0,NULL,0,0,0,0,0},
     {"save",saveCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"bgsave",bgsaveCommand,1,"ar",0,NULL,0,0,0,0,0},
@@ -907,8 +907,7 @@ int clientsCronHandleTimeout(redisClient *c) {
         !(c->flags & REDIS_SLAVE) &&    /* no timeout for slaves */
         !(c->flags & REDIS_MASTER) &&   /* no timeout for masters */
         !(c->flags & REDIS_BLOCKED) &&  /* no timeout for BLPOP */
-        dictSize(c->pubsub_channels) == 0 && /* no timeout for pubsub */
-        listLength(c->pubsub_patterns) == 0 &&
+        !(c->flags & REDIS_PUBSUB) &&   /* no timeout for Pub/Sub clients */
         (now - c->lastinteraction > server.maxidletime))
     {
         redisLog(REDIS_VERBOSE,"Closing idle client");
@@ -2211,8 +2210,8 @@ int processCommand(redisClient *c) {
     }
 
     /* Only allow SUBSCRIBE and UNSUBSCRIBE in the context of Pub/Sub */
-    if ((dictSize(c->pubsub_channels) > 0 || listLength(c->pubsub_patterns) > 0)
-        &&
+    if (c->flags & REDIS_PUBSUB &&
+        c->cmd->proc != pingCommand &&
         c->cmd->proc != subscribeCommand &&
         c->cmd->proc != unsubscribeCommand &&
         c->cmd->proc != psubscribeCommand &&
@@ -2399,8 +2398,28 @@ void authCommand(redisClient *c) {
     }
 }
 
+/* The PING command. It works in a different way if the client is in
+ * in Pub/Sub mode. */
 void pingCommand(redisClient *c) {
-    addReply(c,shared.pong);
+    /* The command takes zero or one arguments. */
+    if (c->argc > 2) {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+
+    if (c->flags & REDIS_PUBSUB) {
+        addReply(c,shared.mbulkhdr[2]);
+        addReplyBulkCBuffer(c,"pong",4);
+        if (c->argc == 1)
+            addReplyBulkCBuffer(c,"",0);
+        else
+            addReplyBulk(c,c->argv[1]);
+    } else {
+        if (c->argc == 1)
+            addReply(c,shared.pong);
+        else
+            addReplyBulk(c,c->argv[1]);
+    }
 }
 
 void echoCommand(redisClient *c) {

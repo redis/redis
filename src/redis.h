@@ -241,6 +241,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_FORCE_REPL (1<<15)  /* Force replication of current cmd. */
 #define REDIS_PRE_PSYNC (1<<16)   /* Instance don't understand PSYNC. */
 #define REDIS_READONLY (1<<17)    /* Cluster client is in read-only state. */
+#define REDIS_PUBSUB (1<<18)      /* Client is in Pub/Sub mode. */
 
 /* Client block type (btype field in client structure)
  * if REDIS_BLOCKED flag is set. */
