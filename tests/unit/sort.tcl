@@ -95,6 +95,14 @@ start_server {
         assert_encoding ziplist sort-res
     }
 
+    test "SORT extracts STORE correctly" {
+        r command getkeys sort abc store def
+    } {abc def}
+
+    test "SORT extracts multiple STORE correctly" {
+        r command getkeys sort abc store invalid store stillbad store def
+    } {abc def}
+
     test "SORT DESC" {
         assert_equal [lsort -decreasing -integer $result] [r sort tosort DESC]
     }

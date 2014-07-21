@@ -1076,7 +1076,7 @@ int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) 
  * follow in SQL-alike style. Here we parse just the minimum in order to
  * correctly identify keys in the "STORE" option. */
 int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
-    int i, j, num, *keys;
+    int i, j, num, *keys, found_store = 0;
     REDIS_NOTUSED(cmd);
 
     num = 0;
@@ -1107,12 +1107,13 @@ int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) 
                 /* Note: we don't increment "num" here and continue the loop
                  * to be sure to process the *last* "STORE" option if multiple
                  * ones are provided. This is same behavior as SORT. */
+                found_store = 1;
                 keys[num] = i+1; /* <store-key> */
                 break;
             }
         }
     }
-    *numkeys = num;
+    *numkeys = num + found_store;
     return keys;
 }
 
