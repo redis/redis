@@ -33,7 +33,7 @@ proc process_is_running {pid} {
 # - At the end of the test, we wait for the resharding process to stop.
 # - Finally the keys are checked to see if they contain the value they should.
 
-set numkeys 10000
+set numkeys 50000
 set numops 200000
 set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
 catch {unset content}
