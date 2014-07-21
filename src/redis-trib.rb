@@ -856,6 +856,10 @@ class RedisTrib
         sources = []
         if opt['from']
             opt['from'].split(',').each{|node_id|
+                if node_id == "all"
+                    sources = "all"
+                    break
+                end
                 src = get_node_by_name(node_id)
                 if !src || src.has_flag?("slave")
                     xputs "*** The specified node is not known or is not a master, please retry."
