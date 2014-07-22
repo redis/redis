@@ -447,21 +447,37 @@ std::vector<std::string> split(const std::string &s, char delim) {
 vector<string> Tokenize(string line)  {
     vector<string> tokens;
     stringstream token;
-    for (string::iterator sit = line.begin(); sit != line.end(); sit++) {
+
+    // no need to parse empty lines, or comment lines (which may have unbalanced quotes)
+    if ((line.length() == 0)  || 
+        ((line.length() != 0) && (*line.begin()) == '#')) {
+        return tokens;
+    }
+
+    for (string::const_iterator sit = line.begin(); sit != line.end(); sit++) {
         char c = *(sit);
         if (isspace(c) && token.str().length() > 0) {
             tokens.push_back(token.str());
             token.str("");
         } else if (c == '\'' || c == '\"') {
             char endQuote = c;
-            while (++sit != line.end()) {
-                if (*sit == endQuote) break;
-                token << *sit;
+            string::const_iterator endQuoteIt = sit;
+            while (++endQuoteIt != line.end()) {
+                if (*endQuoteIt == endQuote) break;
             }
-            string path = token.str();
-            replace(path.begin(), path.end(), '/', '\\');
-            tokens.push_back(path);
-            token.str("");
+            if (endQuoteIt != line.end())  {
+                while (++sit != endQuoteIt) {
+                    token << (*sit);
+                }
+
+                string path = token.str();
+                replace(path.begin(), path.end(), '/', '\\');
+                tokens.push_back(path);
+                token.str("");
+            } else {
+                // stuff the imbalanced quote character and continue
+                token << (*sit);
+            }
         } else {
             token << c;
         }
