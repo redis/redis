@@ -1842,6 +1842,40 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
     }
 }
 
+inline static void zunionCloneAndFree(robj **dstobj, zset **dstzset) {
+        zsetopsrc tsrc;
+        zsetopval zval;
+        zskiplistNode *znode;
+        robj *tdstobj, *tmp;
+        zset *tdstzset;
+
+        tdstobj = createZsetObject();
+        tdstzset = tdstobj->ptr;
+        memset(&zval, 0, sizeof(zval));
+
+        tsrc.subject = *dstobj;
+        tsrc.type = (*dstobj)->type;
+        tsrc.encoding = (*dstobj)->encoding;
+
+        zuiInitIterator(&tsrc);
+        while (zuiNext(&tsrc,&zval)) {
+            tmp = zuiObjectFromValue(&zval);
+            znode = zslInsert(tdstzset->zsl,zval.score,tmp);
+            /* Note, incrementing refcnts on a struct in the stack?
+             * How does that work? */
+            incrRefCount(zval.ele); /* added to skiplist */
+            dictAdd(tdstzset->dict,tmp,&znode->score);
+            incrRefCount(zval.ele); /* added to dictionary */
+        }
+        zuiClearIterator(&tsrc);
+
+        /* Free old data structure? Is this how? */
+        decrRefCount(*dstobj);
+
+        *dstobj = tdstobj;
+        *dstzset = tdstzset;
+}
+
 void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
     int i, j;
     long setnum;
@@ -1930,15 +1964,15 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
         }
     }
 
-    /* sort sets from the smallest to largest, this will improve our
-     * algorithm's performance */
-    qsort(src,setnum,sizeof(zsetopsrc),zuiCompareByCardinality);
-
     dstobj = createZsetObject();
     dstzset = dstobj->ptr;
     memset(&zval, 0, sizeof(zval));
 
     if (op == REDIS_OP_INTER) {
+        /* sort sets from the smallest to largest, this will improve our
+         * algorithm's performance (ZINTER* only) */
+        qsort(src,setnum,sizeof(zsetopsrc),zuiCompareByCardinality);
+
         /* Skip everything if the smallest input is empty. */
         if (zuiLength(&src[0]) > 0) {
             /* Precondition: as src[0] is non-empty and the inputs are ordered
@@ -1987,32 +2021,28 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
 
             zuiInitIterator(&src[i]);
             while (zuiNext(&src[i],&zval)) {
-                double score, value;
+                double score, *value;
+                dictEntry *de;
 
-                /* Skip an element that when already processed */
-                if (dictFind(dstzset->dict,zuiObjectFromValue(&zval)) != NULL)
-                    continue;
+                /* We want to look at the dictionary entry. It acts
+                 * like an accumulating aggregate. */
+                if ((de = dictFind(dstzset->dict,zuiObjectFromValue(&zval))) != NULL)
+                    value = (double *)dictGetVal(de);
 
                 /* Initialize score */
                 score = src[i].weight * zval.score;
                 if (isnan(score)) score = 0;
 
-                /* We need to check only next sets to see if this element
-                 * exists, since we process every element just one time so
-                 * it can't exist in a previous set (otherwise it would be
-                 * already processed). */
-                for (j = (i+1); j < setnum; j++) {
-                    /* It is not safe to access the zset we are
-                     * iterating, so explicitly check for equal object. */
-                    if(src[j].subject == src[i].subject) {
-                        value = zval.score*src[j].weight;
-                        zunionInterAggregate(&score,value,aggregate);
-                    } else if (zuiFind(&src[j],&zval,&value)) {
-                        value *= src[j].weight;
-                        zunionInterAggregate(&score,value,aggregate);
-                    }
+                /* If we are operating on an already inserted value,
+                 * add to its aggregation. */
+                if (de) {
+                    zunionInterAggregate(value,score,aggregate);
+                    continue;
                 }
 
+                /* Else, we are now inserting a new key. Note, ZSET
+                 * orders on insert, so perhaps there is a better data
+                 * structure to use for this intermediate data. */
                 tmp = zuiObjectFromValue(&zval);
                 znode = zslInsert(dstzset->zsl,score,tmp);
                 incrRefCount(zval.ele); /* added to skiplist */
@@ -2026,6 +2056,12 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
             }
             zuiClearIterator(&src[i]);
         }
+
+        /* Potentially most controversial change. Also, the highest
+         * likelihood of memory leaks are contained here. Anyway, sort
+         * the ZSET by reinserting into a new ZSET. Free the old
+         * one. */
+        zunionCloneAndFree(&dstobj, &dstzset);
     } else {
         redisPanic("Unknown operator");
     }
