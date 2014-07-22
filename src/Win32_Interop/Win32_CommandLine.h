@@ -35,7 +35,7 @@ using namespace std;
 typedef map<string, vector<vector<string>>> ArgumentMap;
 extern ArgumentMap g_argMap;
 
-void ParseConfFile(string confFile, ArgumentMap& argMap);
+void ParseConfFile(string confFile, string cwd, ArgumentMap& argMap);
 void ParseCommandLineArguments(int argc, char** argv);
 
 const string cQFork = "qfork";

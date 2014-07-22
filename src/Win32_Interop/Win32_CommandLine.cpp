@@ -32,6 +32,8 @@
 // definition. #undef solves the warning messages.
 #undef close
 
+#include <Shlwapi.h>
+
 #include <algorithm>
 #include <fstream>
 #include <iostream>
@@ -40,22 +42,25 @@
 #include <functional>
 using namespace std;
 
+#pragma comment (lib, "Shlwapi.lib")
 
 ArgumentMap g_argMap;
 
 string stripQuotes(string s) {
-    if (s.at(0) == '\'' &&  s.at(s.length() - 1) == '\'') {
-        if (s.length() > 2) {
-            return s.substr(1, s.length() - 2);
-        } else {
-            return string("");
+    if (s.length() >= 2) {
+        if (s.at(0) == '\'' &&  s.at(s.length() - 1) == '\'') {
+            if (s.length() > 2) {
+                return s.substr(1, s.length() - 2);
+            } else {
+                return string("");
+            }
         }
-    }
-    if (s.at(0) == '\"' &&  s.at(s.length() - 1) == '\"') {
-        if (s.length() > 2) {
-            return s.substr(1, s.length() - 2);
-        } else {
-            return string("");
+        if (s.at(0) == '\"' &&  s.at(s.length() - 1) == '\"') {
+            if (s.length() > 2) {
+                return s.substr(1, s.length() - 2);
+            } else {
+                return string("");
+            }
         }
     }
     return s;
@@ -439,7 +444,36 @@ std::vector<std::string> split(const std::string &s, char delim) {
     return elems;
 }
 
-void ParseConfFile(string confFile, ArgumentMap& argMap) {
+vector<string> Tokenize(string line)  {
+    vector<string> tokens;
+    stringstream token;
+    for (string::iterator sit = line.begin(); sit != line.end(); sit++) {
+        char c = *(sit);
+        if (isspace(c) && token.str().length() > 0) {
+            tokens.push_back(token.str());
+            token.str("");
+        } else if (c == '\'' || c == '\"') {
+            char endQuote = c;
+            while (++sit != line.end()) {
+                if (*sit == endQuote) break;
+                token << *sit;
+            }
+            string path = token.str();
+            replace(path.begin(), path.end(), '/', '\\');
+            tokens.push_back(path);
+            token.str("");
+        } else {
+            token << c;
+        }
+    }
+    if (token.str().length() > 0) {
+        tokens.push_back(token.str());
+    }
+
+    return tokens;
+}
+
+void ParseConfFile(string confFile, string cwd, ArgumentMap& argMap) {
     ifstream config;
     string line;
     string value;
@@ -447,25 +481,31 @@ void ParseConfFile(string confFile, ArgumentMap& argMap) {
 #ifdef _DEBUG
     cout << "processing " << confFile << endl;
 #endif
+    char fullConfFilePath[MAX_PATH];
+    if (PathIsRelativeA(confFile.c_str())) {
+        if (NULL == PathCombineA(fullConfFilePath, cwd.c_str(), confFile.c_str())) {
+            throw std::system_error(GetLastError(), system_category(), "PathCombineA failed");
+        }
+    } else {
+        strcpy(fullConfFilePath, confFile.c_str());
+    }
 
-    config.open(confFile);
+    config.open(fullConfFilePath);
     if (config.fail()) {
         stringstream ss;
-        char buffer[MAX_PATH];
-        ::GetCurrentDirectoryA(MAX_PATH, buffer);
-        ss << "Failed to open the .conf file: " << confFile << " CWD=" << buffer;
+        ss << "Failed to open the .conf file: " << confFile << " CWD=" << cwd.c_str();
         throw runtime_error(ss.str());
     }
 
     while (!config.eof()) {
         getline(config, line);
-        vector<string> tokens = split(line, ' ');
+        vector<string> tokens = Tokenize(line);
         if (tokens.size() > 0) {
             string parameter = tokens.at(0);
             if (parameter.at(0) == '#') {
                 continue;
             } else if (parameter.compare(cInclude) == 0) {
-                ParseConfFile(tokens.at(1), argMap);
+                ParseConfFile(tokens.at(1), cwd, argMap);
             } else if (g_redisArgMap.find(parameter) == g_redisArgMap.end()) {
                 stringstream err;
                 err << "unknown conf file parameter : " + parameter;
@@ -529,7 +569,12 @@ void ParseCommandLineArguments(int argc, char** argv) {
         }
     }
 
-    if (confFile) ParseConfFile(confFilePath, g_argMap);
+    char cwd[MAX_PATH];
+    if (0 == ::GetCurrentDirectoryA(MAX_PATH, cwd)) {
+        throw std::system_error(GetLastError(), system_category(), "ParseCommandLineArguments: GetCurrentDirectoryA failed");
+    }
+    
+    if (confFile) ParseConfFile(confFilePath, cwd, g_argMap);
 
 #ifdef _DEBUG
     cout << "arguments seen:" << endl;
