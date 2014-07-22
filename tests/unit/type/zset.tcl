@@ -498,6 +498,46 @@ start_server {tags {"zset"}} {
             assert_equal {a 1 b 2 c 3 d 3} [r zrange zsetc 0 -1 withscores]
         }
 
+        test "ZUNIONSTORE with AGGREGATE SUM - $encoding" {
+            assert_equal 4 [r zunionstore zsetc 2 zseta zsetb aggregate sum]
+            assert_equal {a 1 b 3 d 3 c 5} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZUNIONSTORE with AGGREGATE COUNT - $encoding" {
+            assert_equal 4 [r zunionstore zsetc 2 zseta zsetb aggregate count]
+            assert_equal {a 1 d 1 b 2 c 2} [r zrange zsetc 0 -1 withscores]
+        }
+        
+        test "ZUNIONSTORE with AGGREGATE AVG - $encoding" {
+            assert_equal 4 [r zunionstore zsetc 2 zseta zsetb aggregate avg]
+            assert_equal {a 1 b 1.5 c 2.5 d 3} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZUNIONSTORE with weighted AGGREGATE MIN - $encoding" {
+            assert_equal 4 [r zunionstore zsetc 2 zseta zsetb weights 1.5 2.5 aggregate min]
+            assert_equal {a 1.5 b 2.5 c 4.5 d 7.5} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZUNIONSTORE with weighted AGGREGATE MAX - $encoding" {
+            assert_equal 4 [r zunionstore zsetc 2 zseta zsetb weights 1.5 2.5 aggregate max]
+            assert_equal {a 1.5 b 3 c 5 d 7.5} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZUNIONSTORE with weighted AGGREGATE SUM - $encoding" {
+            assert_equal 4 [r zunionstore zsetc 2 zseta zsetb weights 1.5 2.5 aggregate sum]
+            assert_equal {a 1.5 b 5.5 d 7.5 c 9.5} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZUNIONSTORE with weighted AGGREGATE COUNT - $encoding" {
+            assert_equal 4 [r zunionstore zsetc 2 zseta zsetb weights 1.5 2.5 aggregate count]
+            assert_equal {a 1.5 d 2.5 b 4 c 4} [r zrange zsetc 0 -1 withscores]
+        }
+        
+        test "ZUNIONSTORE with weighted AGGREGATE AVG - $encoding" {
+            assert_equal 4 [r zunionstore zsetc 2 zseta zsetb weights 1.5 2.5 aggregate avg]
+            assert_equal {a 1 b 1.375 c 2.375 d 3} [r zrange zsetc 0 -1 withscores]
+        }
+
         test "ZINTERSTORE basics - $encoding" {
             assert_equal 2 [r zinterstore zsetc 2 zseta zsetb]
             assert_equal {b 3 c 5} [r zrange zsetc 0 -1 withscores]
@@ -525,6 +565,46 @@ start_server {tags {"zset"}} {
         test "ZINTERSTORE with AGGREGATE MAX - $encoding" {
             assert_equal 2 [r zinterstore zsetc 2 zseta zsetb aggregate max]
             assert_equal {b 2 c 3} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZINTERSTORE with AGGREGATE SUM - $encoding" {
+            assert_equal 2 [r zinterstore zsetc 2 zseta zsetb aggregate sum]
+            assert_equal {b 3 c 5} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZINTERSTORE with AGGREGATE COUNT - $encoding" {
+            assert_equal 2 [r zinterstore zsetc 2 zseta zsetb aggregate count]
+            assert_equal {b 2 c 2} [r zrange zsetc 0 -1 withscores]
+        }
+        
+        test "ZINTERSTORE with AGGREGATE AVG - $encoding" {
+            assert_equal 2 [r zinterstore zsetc 2 zseta zsetb aggregate avg]
+            assert_equal {b 1.5 c 2.5} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZINTERSTORE with weighted AGGREGATE MIN - $encoding" {
+            assert_equal 2 [r zinterstore zsetc 2 zseta zsetb weights 1.5 2.5 aggregate min]
+            assert_equal {b 2.5 c 4.5} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZINTERSTORE with weighted AGGREGATE MAX - $encoding" {
+            assert_equal 2 [r zinterstore zsetc 2 zseta zsetb weights 1.5 2.5 aggregate max]
+            assert_equal {b 3 c 5} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZINTERSTORE with weighted AGGREGATE SUM - $encoding" {
+            assert_equal 2 [r zinterstore zsetc 2 zseta zsetb weights 1.5 2.5 aggregate sum]
+            assert_equal {b 5.5 c 9.5} [r zrange zsetc 0 -1 withscores]
+        }
+
+        test "ZINTERSTORE with weighted AGGREGATE COUNT - $encoding" {
+            assert_equal 2 [r zinterstore zsetc 2 zseta zsetb weights 1.5 2.5 aggregate count]
+            assert_equal {b 4 c 4} [r zrange zsetc 0 -1 withscores]
+        }
+        
+        test "ZINTERSTORE with weighted AGGREGATE AVG - $encoding" {
+            assert_equal 2 [r zinterstore zsetc 2 zseta zsetb weights 1.5 2.5 aggregate avg]
+            assert_equal {b 1.375 c 2.375} [r zrange zsetc 0 -1 withscores]
         }
 
         foreach cmd {ZUNIONSTORE ZINTERSTORE} {
