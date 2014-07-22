@@ -588,6 +588,28 @@ start_server {tags {"zset"}} {
         r zrange to_here 0 -1
     } {100}
 
+    test {ZUNIONSTORE result is sorted} {
+        # Create two sets with common and not common elements, perform
+        # the UNION, check that elements are still sorted.
+        r del one two dest
+        set cmd1 [list r zadd one]
+        set cmd2 [list r zadd two]
+        for {set j 0} {$j < 1000} {incr j} {
+            lappend cmd1 [expr rand()] [randomInt 1000]
+            lappend cmd2 [expr rand()] [randomInt 1000]
+        }
+        {*}$cmd1
+        {*}$cmd2
+        assert {[r zcard one] > 100}
+        assert {[r zcard two] > 100}
+        r zunionstore dest 2 one two
+        set oldscore 0
+        foreach {ele score} [r zrange dest 0 -1 withscores] {
+            assert {$score >= $oldscore}
+            set oldscore $score
+        }
+    }
+
     proc stressers {encoding} {
         if {$encoding == "ziplist"} {
             # Little extra to allow proper fuzzing in the sorting stresser
