@@ -470,9 +470,15 @@ vector<string> Tokenize(string line)  {
                     token << (*sit);
                 }
 
+                // The code above strips quotes. In certain cases (save "") the quotes should be preserved around empty strings
+                if (token.str().length() == 0)
+                    token << endQuote << endQuote;
+
+                // correct paths for windows nomenclature
                 string path = token.str();
                 replace(path.begin(), path.end(), '/', '\\');
                 tokens.push_back(path);
+
                 token.str("");
             } else {
                 // stuff the imbalanced quote character and continue
