@@ -37,6 +37,7 @@
 #include <unistd.h>
 #include <sys/time.h>
 #include <float.h>
+#include <stdint.h>
 
 #include "util.h"
 
