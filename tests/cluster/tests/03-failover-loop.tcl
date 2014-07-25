@@ -54,8 +54,11 @@ while {[incr iterations -1]} {
             catch {$cluster set $key:$i $val:$i} err
             assert {$err eq {OK}}
         }
-        # Wait for the write to propagate to the slave
-        R $tokill wait 1 20000
+        # Wait for the write to propagate to the slave if we
+        # are going to kill a master.
+        if {$role eq {master}} {
+            R $tokill wait 1 20000
+        }
     }
 
     test "Killing node #$tokill" {
