@@ -2674,6 +2674,10 @@ void clusterHandleSlaveMigration(int max_slaves) {
 
         /* Only iterate over working masters. */
         if (nodeIsSlave(node) || nodeFailed(node)) continue;
+        /* If this master never had slaves so far, don't migrate. We want
+         * to migrate to a master that remained orphaned, not masters that
+         * were never configured to have slaves. */
+        if (node->numslaves == 0) continue;
         okslaves = clusterCountNonFailingSlaves(node);
 
         if (okslaves == 0 && target == NULL && node->numslots > 0)
@@ -2912,7 +2916,11 @@ void clusterCron(void) {
         if (nodeIsSlave(myself) && nodeIsMaster(node) && !nodeFailed(node)) {
             int okslaves = clusterCountNonFailingSlaves(node);
 
-            if (okslaves == 0 && node->numslots > 0) orphaned_masters++;
+            /* A master is orphaned if it is serving a non-zero number of
+             * slots, have no working slaves, but used to have at least one
+             * slave. */
+            if (okslaves == 0 && node->numslots > 0 && node->numslaves)
+                orphaned_masters++;
             if (okslaves > max_slaves) max_slaves = okslaves;
             if (nodeIsSlave(myself) && myself->slaveof == node)
                 this_slaves = okslaves;
