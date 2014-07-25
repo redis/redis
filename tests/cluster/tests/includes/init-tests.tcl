@@ -14,8 +14,13 @@ test "(init) Restart killed instances" {
 
 test "Cluster nodes are reachable" {
     foreach_redis_id id {
-        # Every node should just know itself.
-        assert {[R $id ping] eq {PONG}}
+        # Every node should be reachable.
+        wait_for_condition 1000 50 {
+            [R $id ping] eq {PONG}
+        } else {
+            catch {R $id ping} err
+            fail "Node #$id keeps replying '$err' to PING."
+        }
     }
 }
 
