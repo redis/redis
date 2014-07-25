@@ -16,7 +16,8 @@ test "Cluster nodes are reachable" {
     foreach_redis_id id {
         # Every node should be reachable.
         wait_for_condition 1000 50 {
-            [R $id ping] eq {PONG}
+            ([catch {R $id ping} ping_reply] == 0) &&
+            ($ping_reply eq {PONG})
         } else {
             catch {R $id ping} err
             fail "Node #$id keeps replying '$err' to PING."
