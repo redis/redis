@@ -2202,21 +2202,30 @@ void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privd
  * Returns REDIS_OK if the PUBLISH was queued correctly, otherwise
  * REDIS_ERR is returned. */
 int sentinelSendHello(sentinelRedisInstance *ri) {
+    char *sendip;
     char ip[REDIS_IP_STR_LEN];
     char payload[REDIS_IP_STR_LEN+1024];
     int retval;
     sentinelRedisInstance *master = (ri->flags & SRI_MASTER) ? ri : ri->master;
     sentinelAddr *master_addr = sentinelGetCurrentMasterAddress(master);
 
+    sendip = ip;
+    if (server.bindaddr_count == 0) {
     /* Try to obtain our own IP address. */
-    if (anetSockName(ri->cc->c.fd,ip,sizeof(ip),NULL) == -1) return REDIS_ERR;
+        if (anetSockName(ri->cc->c.fd,ip,sizeof(ip),NULL) == -1) {
+             return REDIS_ERR;
+        }
+    } else {
+        sendip = server.bindaddr[0];
+    }
+
     if (ri->flags & SRI_DISCONNECTED) return REDIS_ERR;
 
     /* Format and send the Hello message. */
     snprintf(payload,sizeof(payload),
         "%s,%d,%s,%llu," /* Info about this sentinel. */
         "%s,%s,%d,%llu", /* Info about current master. */
-        ip, server.port, server.runid,
+        sendip, server.port, server.runid,
         (unsigned long long) sentinel.current_epoch,
         /* --- */
         master->name,master_addr->ip,master_addr->port,
