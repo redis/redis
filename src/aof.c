@@ -139,10 +139,15 @@ ssize_t aofRewriteBufferWrite(int fd) {
         ssize_t nwritten;
 
         if (block->used) {
-            nwritten = write(fd,block->buf,block->used);
-            if (nwritten != block->used) {
-                if (nwritten == 0) errno = EIO;
-                return -1;
+            if (server.aof_fsync == AOF_FSYNC_NO) {
+                aof_background_write(fd, sdsnewlen(block->buf,block->used));
+                nwritten = block->used;
+            } else {
+                nwritten = write(fd,block->buf,block->used);
+                if (nwritten != block->used) {
+                    if (nwritten == 0) errno = EIO;
+                    return -1;
+                }
             }
             count += nwritten;
         }
@@ -158,6 +163,10 @@ ssize_t aofRewriteBufferWrite(int fd) {
  * file descriptor (the one of the AOF file) in another thread. */
 void aof_background_fsync(int fd) {
     bioCreateBackgroundJob(REDIS_BIO_AOF_FSYNC,(void*)(long)fd,NULL,NULL);
+}
+
+void aof_background_write(int fd, sds buf) {
+    bioCreateBackgroundJob(REDIS_BIO_AOF_WRITE,(void*)(long)fd,buf,NULL);
 }
 
 /* Called when the user switches from "appendonly yes" to "appendonly no"
@@ -234,6 +243,12 @@ void flushAppendOnlyFile(int force) {
 
     if (sdslen(server.aof_buf) == 0) return;
 
+    if (server.aof_fsync == AOF_FSYNC_NO) {
+        aof_background_write(server.aof_fd, server.aof_buf);
+        server.aof_current_size += sdslen(server.aof_buf);
+        server.aof_buf = sdsempty();
+        return;
+    }
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC)
         sync_in_progress = bioPendingJobsOfType(REDIS_BIO_AOF_FSYNC) != 0;
 
@@ -257,6 +272,7 @@ void flushAppendOnlyFile(int force) {
             server.aof_delayed_fsync++;
             redisLog(REDIS_NOTICE,"Asynchronous AOF fsync is taking too long (disk is busy?). Writing the AOF buffer without waiting for fsync to complete, this may slow down Redis.");
         }
+
     }
     /* We want to perform a single write. This should be guaranteed atomic
      * at least if the filesystem we are writing is a real physical one.
