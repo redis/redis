@@ -45,6 +45,7 @@ using namespace std;
 #pragma comment (lib, "Shlwapi.lib")
 
 ArgumentMap g_argMap;
+vector<string> g_pathsAccessed;
 
 string stripQuotes(string s) {
     if (s.length() >= 2) {
@@ -517,6 +518,13 @@ void ParseConfFile(string confFile, string cwd, ArgumentMap& argMap) {
         stringstream ss;
         ss << "Failed to open the .conf file: " << confFile << " CWD=" << cwd.c_str();
         throw runtime_error(ss.str());
+    } else  {
+        char confFileDir[MAX_PATH];
+        strcpy(confFileDir, fullConfFilePath);
+        if (FALSE == PathRemoveFileSpecA(confFileDir)) {
+            throw std::system_error(GetLastError(), system_category(), "PathRemoveFileSpecA failed");
+        }
+        g_pathsAccessed.push_back(confFileDir);
     }
 
     while (!config.eof()) {
@@ -598,6 +606,21 @@ void ParseCommandLineArguments(int argc, char** argv) {
     
     if (confFile) ParseConfFile(confFilePath, cwd, g_argMap);
 
+    // grab directory where RDB/AOF/DAT files will be created so that service install can add access allowed ACE to path
+    string fileCreationDirectory = ".\\";
+    if (g_argMap.find(cDir) != g_argMap.end()) {
+        fileCreationDirectory = g_argMap[cDir][0][0];
+        replace(fileCreationDirectory.begin(), fileCreationDirectory.end(), '/', '\\');
+    }
+    if (PathIsRelativeA(fileCreationDirectory.c_str())) {
+        char fullPath[MAX_PATH];
+        if (NULL == PathCombineA(fullPath, cwd, fileCreationDirectory.c_str())) {
+            throw std::system_error(GetLastError(), system_category(), "PathCombineA failed");
+        }
+        fileCreationDirectory = fullPath;
+    }
+    g_pathsAccessed.push_back(fileCreationDirectory);
+
 #ifdef _DEBUG
     cout << "arguments seen:" << endl;
     for (auto key : g_argMap) {
@@ -619,3 +642,8 @@ void ParseCommandLineArguments(int argc, char** argv) {
     }
 #endif
 }
+
+vector<string> GetAccessPaths() {
+    return g_pathsAccessed;
+}
+

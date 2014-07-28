@@ -399,7 +399,8 @@ BOOL QForkMasterInit( __int64 maxheapBytes ) {
         sprintf_s(
             heapMemoryMapWildCard,
             MAX_PATH,
-            "%s_*.dat",
+            "%s%s_*.dat",
+            GetWorkingDirectory().c_str(),
             cMapFileBaseName);
         HANDLE hFind = FindFirstFileA(heapMemoryMapWildCard, &fd);
         while (hFind != INVALID_HANDLE_VALUE) {

@@ -37,6 +37,7 @@ extern ArgumentMap g_argMap;
 
 void ParseConfFile(string confFile, string cwd, ArgumentMap& argMap);
 void ParseCommandLineArguments(int argc, char** argv);
+vector<string> GetAccessPaths();
 
 const string cQFork = "qfork";
 const string cServiceRun = "service-run";
