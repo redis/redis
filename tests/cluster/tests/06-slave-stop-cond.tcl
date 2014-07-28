@@ -4,8 +4,7 @@
 
 source "../tests/includes/init-tests.tcl"
 
-# Create a cluster with 5 master and 10 slaves, so that we have 2
-# slaves for each master.
+# Create a cluster with 5 master and 5 slaves.
 test "Create a 5 nodes cluster" {
     create_cluster 5 5
 }
