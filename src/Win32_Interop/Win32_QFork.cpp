@@ -25,6 +25,8 @@
 #include <stdio.h>
 #include <wchar.h>
 #include <Psapi.h>
+#include <ShlObj.h>
+#include <Shlwapi.h>
 
 #define QFORK_MAIN_IMPL
 #include "Win32_QFork.h"
@@ -332,16 +334,41 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
     return FALSE;
 }
 
+string g_MMFDir;
 string GetWorkingDirectory() {
-    string workingDir = ".\\";
-    if (g_argMap.find(cDir) != g_argMap.end()) {
-        workingDir = g_argMap[cDir][0][0];
+    if (g_MMFDir.length() == 0) {
+        char defaultDir[_MAX_PATH];
+        HRESULT hr;
+        if (S_OK != (hr = SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, SHGFP_TYPE_CURRENT, defaultDir))) {
+            throw std::system_error(hr,system_category(),"SHGetFolderPathA failed");
+        }
+
+        string workingDir = defaultDir;
+        if (g_argMap.find(cHeapDir) != g_argMap.end()) {
+            workingDir = g_argMap[cHeapDir][0][0];
+            std::replace(workingDir.begin(), workingDir.end(), '/', '\\');
+
+            if (PathIsRelativeA(workingDir.c_str())) {
+                char cwd[MAX_PATH];
+                if (0 == ::GetCurrentDirectoryA(MAX_PATH, cwd)) {
+                    throw std::system_error(GetLastError(), system_category(), "GetCurrentDirectoryA failed");
+                }
+                char fullPath[_MAX_PATH];
+                if (NULL == PathCombineA(fullPath, cwd, workingDir.c_str())) {
+                    throw std::system_error(GetLastError(), system_category(), "PathCombineA failed");
+                }
+                workingDir = fullPath;
+            }
+        }
+
+        if (workingDir.at(workingDir.length() - 1) != '\\') {
+            workingDir = workingDir.append("\\");
+        }
+
+        g_MMFDir = workingDir;
     }
-    std::replace(workingDir.begin(), workingDir.end(), '/', '\\');
-    if (workingDir.at(workingDir.length() - 1) != '\\') {
-        workingDir = workingDir.append("\\");
-    }
-    return workingDir;
+
+    return g_MMFDir;
 }
 
 BOOL QForkMasterInit( __int64 maxheapBytes ) {

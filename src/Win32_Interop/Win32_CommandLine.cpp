@@ -353,6 +353,7 @@ static RedisParamterMapper g_redisArgMap =
     // QFork flags
     { cQFork,                           &fp2 },    // qfork [QForkConrolMemoryMap handle] [parent process id]
     { cMaxHeap,                         &fp1 },    // maxheap [number]
+    { cHeapDir,                         &fp1 },    // heapdir [path]
 
     // service commands
     { cServiceName,                     &fp1 },    // service-name [name]
