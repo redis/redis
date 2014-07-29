@@ -32,6 +32,8 @@
 // definition. #undef solves the warning messages.
 #undef close
 
+#include <Shlwapi.h>
+
 #include <algorithm>
 #include <fstream>
 #include <iostream>
@@ -40,22 +42,26 @@
 #include <functional>
 using namespace std;
 
+#pragma comment (lib, "Shlwapi.lib")
 
 ArgumentMap g_argMap;
+vector<string> g_pathsAccessed;
 
 string stripQuotes(string s) {
-    if (s.at(0) == '\'' &&  s.at(s.length() - 1) == '\'') {
-        if (s.length() > 2) {
-            return s.substr(1, s.length() - 2);
-        } else {
-            return string("");
+    if (s.length() >= 2) {
+        if (s.at(0) == '\'' &&  s.at(s.length() - 1) == '\'') {
+            if (s.length() > 2) {
+                return s.substr(1, s.length() - 2);
+            } else {
+                return string("");
+            }
         }
-    }
-    if (s.at(0) == '\"' &&  s.at(s.length() - 1) == '\"') {
-        if (s.length() > 2) {
-            return s.substr(1, s.length() - 2);
-        } else {
-            return string("");
+        if (s.at(0) == '\"' &&  s.at(s.length() - 1) == '\"') {
+            if (s.length() > 2) {
+                return s.substr(1, s.length() - 2);
+            } else {
+                return string("");
+            }
         }
     }
     return s;
@@ -376,7 +382,7 @@ static RedisParamterMapper g_redisArgMap =
     { "rdbcompression",                 &fp1 },    // rdbcompression [yes/no]
     { "rdbchecksum",                    &fp1 },    // rdbchecksum [yes/no]
     { "dbfilename",                     &fp1 },    // dbfilename [filename]
-    { "dir",                            &fp1 },    // dir [path]
+    { cDir,                             &fp1 },    // dir [path]
     { "slaveof",                        &fp2 },    // slaveof [masterip] [master port] 
     { "masterauth",                     &fp1 },    // masterauth [master-password]
     { "slave-serve-stale-data",         &fp1 },    // slave-serve-stale-data [yes/no]
@@ -440,7 +446,58 @@ std::vector<std::string> split(const std::string &s, char delim) {
     return elems;
 }
 
-void ParseConfFile(string confFile, ArgumentMap& argMap) {
+vector<string> Tokenize(string line)  {
+    vector<string> tokens;
+    stringstream token;
+
+    // no need to parse empty lines, or comment lines (which may have unbalanced quotes)
+    if ((line.length() == 0)  || 
+        ((line.length() != 0) && (*line.begin()) == '#')) {
+        return tokens;
+    }
+
+    for (string::const_iterator sit = line.begin(); sit != line.end(); sit++) {
+        char c = *(sit);
+        if (isspace(c) && token.str().length() > 0) {
+            tokens.push_back(token.str());
+            token.str("");
+        } else if (c == '\'' || c == '\"') {
+            char endQuote = c;
+            string::const_iterator endQuoteIt = sit;
+            while (++endQuoteIt != line.end()) {
+                if (*endQuoteIt == endQuote) break;
+            }
+            if (endQuoteIt != line.end())  {
+                while (++sit != endQuoteIt) {
+                    token << (*sit);
+                }
+
+                // The code above strips quotes. In certain cases (save "") the quotes should be preserved around empty strings
+                if (token.str().length() == 0)
+                    token << endQuote << endQuote;
+
+                // correct paths for windows nomenclature
+                string path = token.str();
+                replace(path.begin(), path.end(), '/', '\\');
+                tokens.push_back(path);
+
+                token.str("");
+            } else {
+                // stuff the imbalanced quote character and continue
+                token << (*sit);
+            }
+        } else {
+            token << c;
+        }
+    }
+    if (token.str().length() > 0) {
+        tokens.push_back(token.str());
+    }
+
+    return tokens;
+}
+
+void ParseConfFile(string confFile, string cwd, ArgumentMap& argMap) {
     ifstream config;
     string line;
     string value;
@@ -448,25 +505,38 @@ void ParseConfFile(string confFile, ArgumentMap& argMap) {
 #ifdef _DEBUG
     cout << "processing " << confFile << endl;
 #endif
+    char fullConfFilePath[MAX_PATH];
+    if (PathIsRelativeA(confFile.c_str())) {
+        if (NULL == PathCombineA(fullConfFilePath, cwd.c_str(), confFile.c_str())) {
+            throw std::system_error(GetLastError(), system_category(), "PathCombineA failed");
+        }
+    } else {
+        strcpy(fullConfFilePath, confFile.c_str());
+    }
 
-    config.open(confFile);
+    config.open(fullConfFilePath);
     if (config.fail()) {
         stringstream ss;
-        char buffer[MAX_PATH];
-        ::GetCurrentDirectoryA(MAX_PATH, buffer);
-        ss << "Failed to open the .conf file: " << confFile << " CWD=" << buffer;
+        ss << "Failed to open the .conf file: " << confFile << " CWD=" << cwd.c_str();
         throw runtime_error(ss.str());
+    } else  {
+        char confFileDir[MAX_PATH];
+        strcpy(confFileDir, fullConfFilePath);
+        if (FALSE == PathRemoveFileSpecA(confFileDir)) {
+            throw std::system_error(GetLastError(), system_category(), "PathRemoveFileSpecA failed");
+        }
+        g_pathsAccessed.push_back(confFileDir);
     }
 
     while (!config.eof()) {
         getline(config, line);
-        vector<string> tokens = split(line, ' ');
+        vector<string> tokens = Tokenize(line);
         if (tokens.size() > 0) {
             string parameter = tokens.at(0);
             if (parameter.at(0) == '#') {
                 continue;
             } else if (parameter.compare(cInclude) == 0) {
-                ParseConfFile(tokens.at(1), argMap);
+                ParseConfFile(tokens.at(1), cwd, argMap);
             } else if (g_redisArgMap.find(parameter) == g_redisArgMap.end()) {
                 stringstream err;
                 err << "unknown conf file parameter : " + parameter;
@@ -530,7 +600,27 @@ void ParseCommandLineArguments(int argc, char** argv) {
         }
     }
 
-    if (confFile) ParseConfFile(confFilePath, g_argMap);
+    char cwd[MAX_PATH];
+    if (0 == ::GetCurrentDirectoryA(MAX_PATH, cwd)) {
+        throw std::system_error(GetLastError(), system_category(), "ParseCommandLineArguments: GetCurrentDirectoryA failed");
+    }
+    
+    if (confFile) ParseConfFile(confFilePath, cwd, g_argMap);
+
+    // grab directory where RDB/AOF/DAT files will be created so that service install can add access allowed ACE to path
+    string fileCreationDirectory = ".\\";
+    if (g_argMap.find(cDir) != g_argMap.end()) {
+        fileCreationDirectory = g_argMap[cDir][0][0];
+        replace(fileCreationDirectory.begin(), fileCreationDirectory.end(), '/', '\\');
+    }
+    if (PathIsRelativeA(fileCreationDirectory.c_str())) {
+        char fullPath[MAX_PATH];
+        if (NULL == PathCombineA(fullPath, cwd, fileCreationDirectory.c_str())) {
+            throw std::system_error(GetLastError(), system_category(), "PathCombineA failed");
+        }
+        fileCreationDirectory = fullPath;
+    }
+    g_pathsAccessed.push_back(fileCreationDirectory);
 
 #ifdef _DEBUG
     cout << "arguments seen:" << endl;
@@ -553,3 +643,8 @@ void ParseCommandLineArguments(int argc, char** argv) {
     }
 #endif
 }
+
+vector<string> GetAccessPaths() {
+    return g_pathsAccessed;
+}
+

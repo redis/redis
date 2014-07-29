@@ -42,6 +42,7 @@
 #include <sstream>
 #include <stdint.h>
 #include <exception>
+#include <algorithm>
 using namespace std;
 
 const long long cSentinelHeapSize = 30 * 1024 * 1024;
@@ -136,7 +137,7 @@ How the parent invokes the QFork process:
 
 const SIZE_T cAllocationGranularity = 1 << 18;                    // 256KB per heap block (matches large block allocation threshold of dlmalloc)
 const int cMaxBlocks = 1 << 24;                                   // 256KB * 16M heap blocks = 4TB. 4TB is the largest memory config Windows supports at present.
-const wchar_t* cMapFileBaseName = L"RedisQFork";
+const char* cMapFileBaseName = "RedisQFork";
 const int cDeadForkWait = 30000;
 size_t pageSize = 0;
 
@@ -206,8 +207,10 @@ bool ReportSpecialSystemErrors(int error) {
                 "\n"
                 "The Windows version of Redis allocates a large memory mapped file for sharing\n" 
                 "the heap with the forked process used in persistence operations. This file\n" 
-                "will be created in the current working directory. Windows is reporting that\n"
-                "there is insufficient disk space available for this file (Windows error 0x70).\n" 
+                "will be created in the current working directory or the directory specified by\n"
+                "the 'dir' directive in the .conf file. Windows is reporting that there is \n"
+                "insufficient disk space available for this file (Windows error 0x70).\n"
+                "\n" 
                 "You may fix this problem by either reducing the size of the Redis heap with\n"
                 "the --maxheap flag, or by starting redis from a working directory with\n"
                 "sufficient space available for the Redis heap. \n"
@@ -329,6 +332,18 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
     return FALSE;
 }
 
+string GetWorkingDirectory() {
+    string workingDir = ".\\";
+    if (g_argMap.find(cDir) != g_argMap.end()) {
+        workingDir = g_argMap[cDir][0][0];
+    }
+    std::replace(workingDir.begin(), workingDir.end(), '/', '\\');
+    if (workingDir.at(workingDir.length() - 1) != '\\') {
+        workingDir = workingDir.append("\\");
+    }
+    return workingDir;
+}
+
 BOOL QForkMasterInit( __int64 maxheapBytes ) {
     try {
         // allocate file map for qfork control so it can be passed to the forked process
@@ -379,34 +394,38 @@ BOOL QForkMasterInit( __int64 maxheapBytes ) {
 
         // FILE_FLAG_DELETE_ON_CLOSE will not clean up files in the case of a BSOD or power failure.
         // Clean up anything we can to prevent excessive disk usage.
-        wchar_t heapMemoryMapWildCard[MAX_PATH];
-        WIN32_FIND_DATA fd;
-        swprintf_s(
+        char heapMemoryMapWildCard[MAX_PATH];
+        WIN32_FIND_DATAA fd;
+        sprintf_s(
             heapMemoryMapWildCard,
             MAX_PATH,
-            L"%s_*.dat",
+            "%s%s_*.dat",
+            GetWorkingDirectory().c_str(),
             cMapFileBaseName);
-        HANDLE hFind = FindFirstFile(heapMemoryMapWildCard, &fd);
+        HANDLE hFind = FindFirstFileA(heapMemoryMapWildCard, &fd);
         while (hFind != INVALID_HANDLE_VALUE) {
             // Failure likely means the file is in use by another redis instance.
-            DeleteFile(fd.cFileName);
+            DeleteFileA(fd.cFileName);
 
-            if (FALSE == FindNextFile(hFind, &fd)) {
+            if (FALSE == FindNextFileA(hFind, &fd)) {
                 FindClose(hFind);
                 hFind = INVALID_HANDLE_VALUE;
             }
         }
 
-        wchar_t heapMemoryMapPath[MAX_PATH];
-        swprintf_s( 
-            heapMemoryMapPath, 
-            MAX_PATH, 
-            L"%s_%d.dat", 
+        string workingDir = GetWorkingDirectory();
+
+        char heapMemoryMapPath[MAX_PATH];
+        sprintf_s(
+            heapMemoryMapPath,
+            MAX_PATH,
+            "%s%s_%d.dat",
+            workingDir.c_str(),
             cMapFileBaseName, 
             GetCurrentProcessId());
 
         g_pQForkControl->heapMemoryMapFile = 
-            CreateFileW( 
+            CreateFileA( 
                 heapMemoryMapPath,
                 GENERIC_READ | GENERIC_WRITE,
                 0,

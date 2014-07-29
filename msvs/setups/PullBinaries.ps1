@@ -2,7 +2,7 @@
 
 $CurDir = split-path -parent $MyInvocation.MyCommand.Definition
 
-$SourceZip = [System.IO.Path]::Combine($CurDir, "..\..\bin\Release\redis-2.8.9.zip" )
+$SourceZip = [System.IO.Path]::Combine($CurDir, "..\..\bin\Release\redis-2.8.12.zip" )
 $Destination = [System.IO.Path]::Combine($CurDir, "signed_binaries" )
 
 [System.IO.Directory]::CreateDirectory($Destination) | Out-Null

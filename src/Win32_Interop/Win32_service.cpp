@@ -90,18 +90,39 @@ const char* cServiceInstallPipeName = "\\\\.\\pipe\\redis-service-install";
 
 extern "C" int main(int argc, char** argv);
 
-void WriteServiceInstallMessage(string message) {
-    HANDLE pipe = CreateFileA(cServiceInstallPipeName, GENERIC_WRITE,
-        FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL, NULL);
-    if (pipe != INVALID_HANDLE_VALUE) {
-        DWORD bytesWritten = 0;
-        WriteFile(pipe, message.c_str(), (DWORD)message.length(), &bytesWritten, NULL);
-        CloseHandle(pipe);
-    } else {
-        ::redisLog(REDIS_WARNING, message.c_str());
+typedef class ServicePipeWriter {
+public:
+    static ServicePipeWriter& getInstance() {
+        static ServicePipeWriter    instance;
+        return instance;
     }
-}
+
+private:
+    HANDLE pipe = INVALID_HANDLE_VALUE;
+    ServicePipeWriter() {
+        pipe = CreateFileA(cServiceInstallPipeName, GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL, NULL);
+    }
+    ServicePipeWriter(ServicePipeWriter const&);
+    void operator=(ServicePipeWriter const&);
+    ~ServicePipeWriter() {
+        if (pipe != INVALID_HANDLE_VALUE) {
+            CloseHandle(pipe);
+            pipe = INVALID_HANDLE_VALUE;
+        }
+    }
+
+public:
+    void Write(string message) {
+        if (pipe != INVALID_HANDLE_VALUE) {
+            DWORD bytesWritten = 0;
+            WriteFile(pipe, message.c_str(), (DWORD)message.length(), &bytesWritten, NULL);
+        } else {
+            ::redisLog(REDIS_WARNING, message.c_str());
+        }
+    }
+} ServicePipeWriter;
 
 BOOL RelaunchAsElevatedProcess(int argc, char** argv) {
     // create pipe for launched process to communicate back on
@@ -118,7 +139,12 @@ BOOL RelaunchAsElevatedProcess(int argc, char** argv) {
         } else {
             paramString << " ";
         }
-        paramString << argv[n];
+        string arg = argv[n];
+        if (arg.find(' ') != string::npos)  {
+            paramString << "\"" << arg << "\"";
+        } else {
+            paramString << arg;
+        }
     }
     CHAR params[32768];
     memset(params, 0, 32768);
@@ -261,6 +287,7 @@ VOID ServiceInstall(int argc, char ** argv) {
     if (GetModuleFileNameA(NULL, szPath, MAX_PATH) == 0) {
         throw std::system_error(GetLastError(), system_category(), "ServiceInstall: GetModuleFileNameA failed");
     }
+
     stringstream args;
     for (int a = 0; a < argc; a++) {
         if (a == 0) {
@@ -271,7 +298,12 @@ VOID ServiceInstall(int argc, char ** argv) {
                 // replace --service-install argument with --service-run
                 args << "--" << cServiceRun;
             } else {
-                args << argv[a];
+                string arg = argv[a];
+                if (arg.find(' ') != arg.npos)  {
+                    args << "\"" << argv[a] << "\"";
+                } else {
+                    args << argv[a];
+                }
             }
         }
     }
@@ -280,6 +312,7 @@ VOID ServiceInstall(int argc, char ** argv) {
     if (shSCManager.Invalid()) {
         throw std::system_error(GetLastError(), system_category(), "OpenSCManager failed");
     }
+
     shService = CreateServiceA(
         shSCManager,
         g_serviceName,
@@ -304,12 +337,16 @@ VOID ServiceInstall(int argc, char ** argv) {
 
     RedisEventLog().InstallEventLogSource(szPath);
 
-    // make sure NT AUTHORITY\\NetworkService" has rights to the directory the service is installed in (for RDB write)
-    string folder = szPath;
-    folder = folder.substr(0, folder.rfind('\\'));
-    SetAccessACLOnFolder(userName, folder);
-    
-    WriteServiceInstallMessage("Redis successfully installed as a service.");
+    // make sure NT AUTHORITY\\NetworkService" has rights to every directory where a files may be accessed (CONF,AOF,RDB,DAT)
+    stringstream aceMessage;
+    aceMessage << "Granting read/write access to 'NT AUTHORITY\\NetworkService' on: ";
+    for (auto folder : GetAccessPaths()) {
+        SetAccessACLOnFolder(userName, folder);
+        aceMessage << "\"" << folder.c_str() << "\" ";
+    }
+    ServicePipeWriter::getInstance().Write(aceMessage.str().c_str());
+
+    ServicePipeWriter::getInstance().Write("Redis successfully installed as a service.");
 }
 
 VOID ServiceStart(int argc, char ** argv) {
@@ -337,16 +374,16 @@ VOID ServiceStart(int argc, char ** argv) {
     DWORD start = GetTickCount();
     while (QueryServiceStatus(shService, &status) == TRUE) {
         if (status.dwCurrentState == SERVICE_RUNNING) {
-            WriteServiceInstallMessage("Redis service successfully started.");
+            ServicePipeWriter::getInstance().Write("Redis service successfully started.");
             break;
         } else if (status.dwCurrentState == SERVICE_STOPPED) {
-            WriteServiceInstallMessage("Redis service failed to start.");
+            ServicePipeWriter::getInstance().Write("Redis service failed to start.");
             break;
         }
 
         DWORD current = GetTickCount();
         if (current - start >= cThirtySeconds) {
-            WriteServiceInstallMessage("Redis service start timed out.");
+            ServicePipeWriter::getInstance().Write("Redis service start timed out.");
             break;
         }
     }
@@ -375,12 +412,12 @@ VOID ServiceStop(int argc, char ** argv) {
     DWORD start = GetTickCount();
     while (QueryServiceStatus(shService, &status) == TRUE) {
         if (status.dwCurrentState == SERVICE_STOPPED) {
-            WriteServiceInstallMessage("Redis service successfully stopped.");
+            ServicePipeWriter::getInstance().Write("Redis service successfully stopped.");
             break;
         }
         DWORD current = GetTickCount();
         if (current - start >= cThirtySeconds) {
-            WriteServiceInstallMessage("Redis service stop timed out.");
+            ServicePipeWriter::getInstance().Write("Redis service stop timed out.");
             break;
         }
     }
@@ -405,7 +442,7 @@ VOID ServiceUninstall(int argc, char** argv) {
 
     RedisEventLog().UninstallEventLogSource();
 
-    WriteServiceInstallMessage("Redis service successfully uninstalled.");
+    ServicePipeWriter::getInstance().Write("Redis service successfully uninstalled.");
 }
 
 DWORD WINAPI ServiceWorkerThread(LPVOID lpParam) {
@@ -671,17 +708,17 @@ extern "C" BOOL HandleServiceCommands(int argc, char **argv) {
     } catch (std::system_error syserr) {
         stringstream ss;
         ss << "HandleServiceCommands: system error caught. error code=" << syserr.code().value() << ", message = " << syserr.what() << endl;
-        WriteServiceInstallMessage(ss.str());
+        ServicePipeWriter::getInstance().Write(ss.str());
         exit(1);
     } catch (std::runtime_error runerr) {
         stringstream err;
         err << "HandleServiceCommands: runtime error caught. message=" << runerr.what() << endl;
-        WriteServiceInstallMessage(err.str());
+        ServicePipeWriter::getInstance().Write(err.str());
         exit(1);
     } catch (...) {
         stringstream ss;
         ss << "HandleServiceCommands: other exception caught." << endl;
-        WriteServiceInstallMessage(ss.str());
+        ServicePipeWriter::getInstance().Write(ss.str());
         exit(1);
     }
 }

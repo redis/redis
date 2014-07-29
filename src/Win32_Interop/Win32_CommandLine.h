@@ -35,8 +35,9 @@ using namespace std;
 typedef map<string, vector<vector<string>>> ArgumentMap;
 extern ArgumentMap g_argMap;
 
-void ParseConfFile(string confFile, ArgumentMap& argMap);
+void ParseConfFile(string confFile, string cwd, ArgumentMap& argMap);
 void ParseCommandLineArguments(int argc, char** argv);
+vector<string> GetAccessPaths();
 
 const string cQFork = "qfork";
 const string cServiceRun = "service-run";
@@ -49,6 +50,7 @@ const string cSyslogEnabled = "syslog-enabled";
 const string cSyslogIdent= "syslog-ident";
 const string cLogfile = "logfile";
 const string cInclude = "include";
+const string cDir = "dir";
 
 const string cMaxHeap = "maxheap";
 const string cMaxMemory = "maxmemory";

@@ -1033,7 +1033,7 @@ BOOL ParseStorageAddress(const char *ip, int port, SOCKADDR_STORAGE* pSotrageAdd
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     /* Setting AI_PASSIVE will give you a wildcard address if addr is NULL */
-    hints.ai_flags = AI_NUMERICHOST | AI_NUMERICSERV | AI_PASSIVE;
+    hints.ai_flags = AI_NUMERICSERV | AI_PASSIVE;
 
     if ((status = getaddrinfo(ip, port_buffer, &hints, &res) != 0)) {
         fprintf(stderr, "getaddrinfo: %S\n", gai_strerror(status));
