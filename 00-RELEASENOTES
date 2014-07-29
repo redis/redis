@@ -12,6 +12,46 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 3.0.0 Beta 8 (version 2.9.57) ] Release date: 29 jul 2014
+
+This is the 8th beta of Redis 3.0.0.
+
+>> General changes
+
+* [FIX] Solaris compilation issues. (Matt Stancliff, Salvatore Sanfilippo)
+* [FIX] Allow shared integer objects if maxmemory policy is not LRU based.
+        (Salvatore Sanfilippo)
+* [FIX] PFSELFTEST: less false positives. (Salvatore Sanfilippo)
+* [FIX] Fail SYNC if background save child aborted due to a signal. (Yossi
+        Gottlieb)
+
+* [NEW] Latency framework backported from unstable branch. (Salvatore
+        Sanfilippo)
+* [NEW] AOF rewrite improved for latency. (Salvatore Sanfilippo)
+* [NEW] Pub/Sub PING. (Salvatore Sanfilippo)
+* [NEW] Much faster ZUNIONSTORE. (Kyle Hubert, Salvatore Sanfilippo)
+* [NEW] Faster ll2string() implementation. (Salvatore Sanfilippo)
+
+>> Cluster changes
+
+* [FIX] CLUSTER RESET: Flush slave dataset on reset. (Salvatore Sanfilippo)
+* [FIX] Replica migration: don't migrate to masters that never had slaves
+        in the past, but only to masters that remained orphaned after
+        failure events. (Salvatore Sanfilippo)
+
+* [NEW] redis-trib: allow to reshard in non-interactive way. (Salvatore
+        Sanfilippo)
+* [NEW] Cluster test: unit 04, check consistency during resharding. (Salvatore
+        Sanfilippo)
+* [NEW] Cluster test: unit 05, slave selection. (Salvatore Sanfilippo)
+* [NEW] Cluster test: unit 06, slaves with stale data can't failover. (Salvatore
+        Sanfilippo)
+* [NEW] Cluster test: unit 07, replicas migration. (Salvatore Sanfilippo)
+
+>> Sentinel changes
+
+* No Sentinel changes in this release.
+
 --[ Redis 3.0.0 Beta 7 (version 2.9.56) ] Release date: 30 jun 2014
 
 This is the 7th beta of Redis 3.0.0.
