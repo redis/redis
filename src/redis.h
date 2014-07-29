@@ -626,6 +626,11 @@ typedef struct redisOpArray {
 
 struct clusterState;
 
+#ifdef _AIX
+#undef hz
+#endif
+
+
 struct redisServer {
     /* General */
     pid_t pid;                  /* Main process pid. */
