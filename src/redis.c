@@ -2403,7 +2403,8 @@ void authCommand(redisClient *c) {
 void pingCommand(redisClient *c) {
     /* The command takes zero or one arguments. */
     if (c->argc > 2) {
-        addReply(c,shared.syntaxerr);
+        addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
+            c->cmd->name);
         return;
     }
 
@@ -3380,10 +3381,11 @@ void usage() {
 void redisAsciiArt(void) {
 #include "asciilogo.h"
     char *buf = zmalloc(1024*16);
-    char *mode = "stand alone";
+    char *mode;
 
     if (server.cluster_enabled) mode = "cluster";
     else if (server.sentinel_mode) mode = "sentinel";
+    else mode = "standalone";
 
     snprintf(buf,1024*16,ascii_logo,
         REDIS_VERSION,

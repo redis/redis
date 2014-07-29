@@ -49,6 +49,18 @@ while {[incr iterations -1]} {
         set slave_config_epoch [CI $slave cluster_my_epoch]
     }
 
+    test "Cluster is writable before failover" {
+        for {set i 0} {$i < 100} {incr i} {
+            catch {$cluster set $key:$i $val:$i} err
+            assert {$err eq {OK}}
+        }
+        # Wait for the write to propagate to the slave if we
+        # are going to kill a master.
+        if {$role eq {master}} {
+            R $tokill wait 1 20000
+        }
+    }
+
     test "Killing node #$tokill" {
         kill_instance redis $tokill
     }
@@ -67,9 +79,9 @@ while {[incr iterations -1]} {
         assert_cluster_state ok
     }
 
-    test "Cluster is writable" {
+    test "Cluster is writable again" {
         for {set i 0} {$i < 100} {incr i} {
-            catch {$cluster set $key:$i $val:$i} err
+            catch {$cluster set $key:$i:2 $val:$i:2} err
             assert {$err eq {OK}}
         }
     }
@@ -90,6 +102,8 @@ while {[incr iterations -1]} {
         for {set i 0} {$i < 100} {incr i} {
             catch {$cluster get $key:$i} err
             assert {$err eq "$val:$i"}
+            catch {$cluster get $key:$i:2} err
+            assert {$err eq "$val:$i:2"}
         }
     }
 }

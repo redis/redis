@@ -481,7 +481,8 @@ void clusterInit(void) {
  * 3) If the node is a slave, it turns into a master.
  * 5) Only for hard reset: a new Node ID is generated.
  * 6) Only for hard reset: currentEpoch and configEpoch are set to 0.
- * 7) The new configuration is saved and the cluster state updated.  */
+ * 7) The new configuration is saved and the cluster state updated.
+ * 8) If the node was a slave, the whole data set is flushed away. */
 void clusterReset(int hard) {
     dictIterator *di;
     dictEntry *de;
@@ -491,6 +492,7 @@ void clusterReset(int hard) {
     if (nodeIsSlave(myself)) {
         clusterSetNodeAsMaster(myself);
         replicationUnsetMaster();
+        emptyDb(NULL);
     }
 
     /* Close slots, reset manual failover state. */
@@ -2672,6 +2674,10 @@ void clusterHandleSlaveMigration(int max_slaves) {
 
         /* Only iterate over working masters. */
         if (nodeIsSlave(node) || nodeFailed(node)) continue;
+        /* If this master never had slaves so far, don't migrate. We want
+         * to migrate to a master that remained orphaned, not masters that
+         * were never configured to have slaves. */
+        if (node->numslaves == 0) continue;
         okslaves = clusterCountNonFailingSlaves(node);
 
         if (okslaves == 0 && target == NULL && node->numslots > 0)
@@ -2910,7 +2916,11 @@ void clusterCron(void) {
         if (nodeIsSlave(myself) && nodeIsMaster(node) && !nodeFailed(node)) {
             int okslaves = clusterCountNonFailingSlaves(node);
 
-            if (okslaves == 0 && node->numslots > 0) orphaned_masters++;
+            /* A master is orphaned if it is serving a non-zero number of
+             * slots, have no working slaves, but used to have at least one
+             * slave. */
+            if (okslaves == 0 && node->numslots > 0 && node->numslaves)
+                orphaned_masters++;
             if (okslaves > max_slaves) max_slaves = okslaves;
             if (nodeIsSlave(myself) && myself->slaveof == node)
                 this_slaves = okslaves;

@@ -373,7 +373,9 @@ robj *tryObjectEncoding(robj *o) {
          * Note that we avoid using shared integers when maxmemory is used
          * because every object needs to have a private LRU field for the LRU
          * algorithm to work well. */
-        if (server.maxmemory == 0 &&
+        if ((server.maxmemory == 0 ||
+             (server.maxmemory_policy != REDIS_MAXMEMORY_VOLATILE_LRU &&
+              server.maxmemory_policy != REDIS_MAXMEMORY_ALLKEYS_LRU)) &&
             value >= 0 &&
             value < REDIS_SHARED_INTEGERS)
         {
