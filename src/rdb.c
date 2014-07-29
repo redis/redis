@@ -773,17 +773,17 @@ void rdbRemoveTempFile(pid_t childpid) {
 /* Load a Redis object of the specified type from the specified file.
  * On success a newly allocated object is returned, otherwise NULL. */
 robj *rdbLoadObject(int rdbtype, rio *rdb) {
-    robj *o, *ele, *dec;
+    robj *ele, *dec, *o = NULL;
     size_t len;
     unsigned int i;
 
     if (rdbtype == REDIS_RDB_TYPE_STRING) {
         /* Read string value */
-        if ((o = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
+        if ((o = rdbLoadEncodedStringObject(rdb)) == NULL) goto err;
         o = tryObjectEncoding(o);
     } else if (rdbtype == REDIS_RDB_TYPE_LIST) {
         /* Read list value */
-        if ((len = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
+        if ((len = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) goto err;
 
         /* Use a real list when there are too many entries */
         if (len > server.list_max_ziplist_entries) {
@@ -794,7 +794,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 
         /* Load every single element of the list */
         while(len--) {
-            if ((ele = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
+            if ((ele = rdbLoadEncodedStringObject(rdb)) == NULL) goto err;
 
             /* If we are using a ziplist and the value is too big, convert
              * the object to a real list. */
@@ -815,7 +815,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         }
     } else if (rdbtype == REDIS_RDB_TYPE_SET) {
         /* Read list/set value */
-        if ((len = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
+        if ((len = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) goto err;
 
         /* Use a regular set when there are too many entries. */
         if (len > server.set_max_intset_entries) {
@@ -831,7 +831,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         /* Load every single element of the list/set */
         for (i = 0; i < len; i++) {
             long long llval;
-            if ((ele = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
+            if ((ele = rdbLoadEncodedStringObject(rdb)) == NULL) goto err;
             ele = tryObjectEncoding(ele);
 
             if (o->encoding == REDIS_ENCODING_INTSET) {
@@ -858,7 +858,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         size_t maxelelen = 0;
         zset *zs;
 
-        if ((zsetlen = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
+        if ((zsetlen = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) goto err;
         o = createZsetObject();
         zs = o->ptr;
 
@@ -868,9 +868,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             double score;
             zskiplistNode *znode;
 
-            if ((ele = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
+            if ((ele = rdbLoadEncodedStringObject(rdb)) == NULL) goto err;
             ele = tryObjectEncoding(ele);
-            if (rdbLoadDoubleValue(rdb,&score) == -1) return NULL;
+            if (rdbLoadDoubleValue(rdb,&score) == -1) {
+                decrRefCount(ele);
+                goto err;
+            }
 
             /* Don't care about integer-encoded strings. */
             if (sdsEncodedObject(ele) && sdslen(ele->ptr) > maxelelen)
@@ -890,7 +893,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         int ret;
 
         len = rdbLoadLen(rdb, NULL);
-        if (len == REDIS_RDB_LENERR) return NULL;
+        if (len == REDIS_RDB_LENERR) goto err;
 
         o = createHashObject();
 
@@ -905,10 +908,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             len--;
             /* Load raw strings */
             field = rdbLoadStringObject(rdb);
-            if (field == NULL) return NULL;
+            if (field == NULL) goto err;
             redisAssert(sdsEncodedObject(field));
             value = rdbLoadStringObject(rdb);
-            if (value == NULL) return NULL;
+            if (value == NULL) {
+                decrRefCount(field);
+                goto err;
+            }
             redisAssert(sdsEncodedObject(value));
 
             /* Add pair to ziplist */
@@ -934,9 +940,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             len--;
             /* Load encoded strings */
             field = rdbLoadEncodedStringObject(rdb);
-            if (field == NULL) return NULL;
+            if (field == NULL) goto err;
             value = rdbLoadEncodedStringObject(rdb);
-            if (value == NULL) return NULL;
+            if (value == NULL) {
+                decrRefCount(field);
+                goto err;
+            }
 
             field = tryObjectEncoding(field);
             value = tryObjectEncoding(value);
@@ -957,7 +966,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
     {
         robj *aux = rdbLoadStringObject(rdb);
 
-        if (aux == NULL) return NULL;
+        if (aux == NULL) {
+            decrRefCount(aux);
+            goto err;
+        }
         o = createObject(REDIS_STRING,NULL); /* string is just placeholder */
         o->ptr = zmalloc(sdslen(aux->ptr));
         memcpy(o->ptr,aux->ptr,sdslen(aux->ptr));
@@ -1031,6 +1043,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         redisPanic("Unknown object type");
     }
     return o;
+err:
+    if (o)
+        decrRefCount(o);
+    return NULL;
 }
 
 /* Mark that we are loading in the global state and setup the fields
