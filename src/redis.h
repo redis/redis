@@ -582,6 +582,10 @@ typedef struct redisOpArray {
  * Global server state
  *----------------------------------------------------------------------------*/
 
+#ifdef _AIX
+#undef hz
+#endif
+
 struct redisServer {
     /* General */
     char *configfile;           /* Absolute config file path, or NULL */

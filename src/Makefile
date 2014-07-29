@@ -63,12 +63,18 @@ else
 ifeq ($(uname_S),Darwin)
 	# Darwin (nothing to do)
 else
+ifeq ($(uname_S),AIX)
+        # AIX
+        FINAL_LDFLAGS+= -Wl,-bexpall
+        FINAL_LIBS+= -pthread -lcrypt -lbsd
+
+else
 	# All the other OSes (notably Linux)
 	FINAL_LDFLAGS+= -rdynamic
 	FINAL_LIBS+= -pthread
 endif
 endif
-
+endif
 # Include paths to dependencies
 FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src
 
