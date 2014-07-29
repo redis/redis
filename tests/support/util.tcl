@@ -357,3 +357,15 @@ proc colorstr {color str} {
         return $str
     }
 }
+
+# Execute a background process writing random data for the specified number
+# of seconds to the specified Redis instance.
+proc start_write_load {host port seconds} {
+    set tclsh [info nameofexecutable]
+    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds &
+}
+
+# Stop a process generating write load executed with start_write_load.
+proc stop_write_load {handle} {
+    catch {exec /bin/kill -9 $handle}
+}

@@ -1,8 +1,8 @@
-/* See endianconv.c top comments for more information
+/* sparkline.h -- ASCII Sparklines header file
  *
- * ----------------------------------------------------------------------------
+ * ---------------------------------------------------------------------------
  *
- * Copyright (c) 2011-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright(C) 2011-2014 Salvatore Sanfilippo <antirez@gmail.com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -13,9 +13,6 @@
  *   * Redistributions in binary form must reproduce the above copyright
  *     notice, this list of conditions and the following disclaimer in the
  *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
@@ -30,35 +27,30 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __ENDIANCONV_H
-#define __ENDIANCONV_H
+#ifndef __SPARKLINE_H
+#define __SPARKLINE_H
 
-#include "config.h"
-#include <stdint.h>
+/* A sequence is represented of many "samples" */
+struct sample {
+    double value;
+    char *label;
+};
 
-void memrev16(void *p);
-void memrev32(void *p);
-void memrev64(void *p);
-uint16_t intrev16(uint16_t v);
-uint32_t intrev32(uint32_t v);
-uint64_t intrev64(uint64_t v);
+struct sequence {
+    int length;
+    int labels;
+    struct sample *samples;
+    double min, max;
+};
 
-/* variants of the function doing the actual convertion only if the target
- * host is big endian */
-#if (BYTE_ORDER == LITTLE_ENDIAN)
-#define memrev16ifbe(p)
-#define memrev32ifbe(p)
-#define memrev64ifbe(p)
-#define intrev16ifbe(v) (v)
-#define intrev32ifbe(v) (v)
-#define intrev64ifbe(v) (v)
-#else
-#define memrev16ifbe(p) memrev16(p)
-#define memrev32ifbe(p) memrev32(p)
-#define memrev64ifbe(p) memrev64(p)
-#define intrev16ifbe(v) intrev16(v)
-#define intrev32ifbe(v) intrev32(v)
-#define intrev64ifbe(v) intrev64(v)
-#endif
+#define SPARKLINE_NO_FLAGS 0
+#define SPARKLINE_FILL 1      /* Fill the area under the curve. */
+#define SPARKLINE_LOG_SCALE 2 /* Use logarithmic scale. */
 
-#endif
+struct sequence *createSparklineSequence(void);
+void sparklineSequenceAddSample(struct sequence *seq, double value, char *label);
+void freeSparklineSequence(struct sequence *seq);
+sds sparklineRenderRange(sds output, struct sequence *seq, int rows, int offset, int len, int flags);
+sds sparklineRender(sds output, struct sequence *seq, int columns, int rows, int flags);
+
+#endif /* __SPARKLINE_H */

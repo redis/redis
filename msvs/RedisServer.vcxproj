@@ -187,6 +187,7 @@
     <ClCompile Include="..\src\endianconv.c" />
     <ClCompile Include="..\src\hyperloglog.c" />
     <ClCompile Include="..\src\intset.c" />
+    <ClCompile Include="..\src\latency.c" />
     <ClCompile Include="..\src\lzf_c.c" />
     <ClCompile Include="..\src\lzf_d.c" />
     <ClCompile Include="..\src\memtest.c" />
@@ -209,6 +210,7 @@
     <ClCompile Include="..\src\sha1.c" />
     <ClCompile Include="..\src\slowlog.c" />
     <ClCompile Include="..\src\sort.c" />
+    <ClCompile Include="..\src\sparkline.c" />
     <ClCompile Include="..\src\syncio.c" />
     <ClCompile Include="..\src\t_hash.c" />
     <ClCompile Include="..\src\t_list.c" />
@@ -231,6 +233,7 @@
     <ClInclude Include="..\src\fmacros.h" />
     <ClInclude Include="..\src\help.h" />
     <ClInclude Include="..\src\intset.h" />
+    <ClInclude Include="..\src\latency.h" />
     <ClInclude Include="..\src\lzf.h" />
     <ClInclude Include="..\src\lzfP.h" />
     <ClInclude Include="..\src\pqsort.h" />
@@ -242,6 +245,7 @@
     <ClInclude Include="..\src\sha1.h" />
     <ClInclude Include="..\src\slowlog.h" />
     <ClInclude Include="..\src\solarisfixes.h" />
+    <ClInclude Include="..\src\sparkline.h" />
     <ClInclude Include="..\src\testhelp.h" />
     <ClInclude Include="..\src\util.h" />
     <ClInclude Include="..\src\version.h" />
