@@ -27,7 +27,7 @@ start_server {tags {"introspection"}} {
     test {CLIENT LIST shows empty fields for unassigned names} {
         r client list
     } {*name= *}
-    
+
     test {CLIENT SETNAME does not accept spaces} {
         catch {r client setname "foo bar"} e
         set e
