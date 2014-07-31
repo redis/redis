@@ -83,7 +83,7 @@ start_server {tags {"basic"}} {
             for {set x 9999} {$x >= 0} {incr x -1} {
                 set val [r get $x]
                 if {$val ne $x} {
-                    set err "Eleemnt at position $x is $val instead of $x"
+                    set err "Element at position $x is $val instead of $x"
                     break
                 }
             }

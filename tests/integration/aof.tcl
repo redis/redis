@@ -169,7 +169,7 @@ tags {"aof"} {
             assert_equal 1 [is_alive $srv]
         }
 
-        test "Fixed AOF: Keyspace should contain values that were parsable" {   
+        test "Fixed AOF: Keyspace should contain values that were parseable" {
             set client [redis [dict get $srv host] [dict get $srv port]]
             wait_for_condition 50 100 {
                 [catch {$client ping} e] == 0

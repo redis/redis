@@ -83,7 +83,7 @@ test "Cluster should eventually be up again" {
     assert_cluster_state ok
 }
 
-test "Node #10 should eventaully replicate node #5" {
+test "Node #10 should eventually replicate node #5" {
     set port5 [get_instance_attrib redis 5 port]
     wait_for_condition 1000 50 {
         ([lindex [R 10 role] 2] == $port5) &&
