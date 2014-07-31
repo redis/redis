@@ -183,7 +183,7 @@ static unsigned int zipIntSize(unsigned char encoding) {
     return 0;
 }
 
-/* Encode the length 'l' writing it in 'p'. If p is NULL it just returns
+/* Encode the length 'rawlen' writing it in 'p'. If p is NULL it just returns
  * the amount of bytes required to encode such a length. */
 static unsigned int zipEncodeLength(unsigned char *p, unsigned char encoding, unsigned int rawlen) {
     unsigned char len = 1, buf[5];
