@@ -1157,13 +1157,14 @@ void aofUpdateCurrentSize(void) {
 /* A background append only file rewriting (BGREWRITEAOF) terminated its work.
  * Handle this. */
 void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
+#ifdef _WIN32
+    char tmpfile_old[256];
+#endif
+
     if (!bysignal && exitcode == 0) {
         int newfd, oldfd;
         char tmpfile[256];
         long long now = ustime();
-#ifdef _WIN32
-        char tmpfile_old[256];
-#endif
 
         redisLog(REDIS_NOTICE,
             "Background AOF rewrite terminated with success");
@@ -1332,6 +1333,9 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 cleanup:
     aofRewriteBufferReset();
     aofRemoveTempFile(server.aof_child_pid);
+#ifdef _WIN32
+    unlink(tmpfile_old);
+#endif
     server.aof_child_pid = -1;
     server.aof_rewrite_time_last = time(NULL)-server.aof_rewrite_time_start;
     server.aof_rewrite_time_start = -1;
