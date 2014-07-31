@@ -1,5 +1,5 @@
 # Redis test suite. Copyright (C) 2009 Salvatore Sanfilippo antirez@gmail.com
-# This softare is released under the BSD License. See the COPYING file for
+# This software is released under the BSD License. See the COPYING file for
 # more information.
 
 package require Tcl 8.5
