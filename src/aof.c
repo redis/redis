@@ -74,7 +74,7 @@ void aofRewriteBufferReset(void) {
     listSetFreeMethod(server.aof_rewrite_buf_blocks,zfree);
 }
 
-/* Return the current size of the AOF rewite buffer. */
+/* Return the current size of the AOF rewrite buffer. */
 unsigned long aofRewriteBufferSize(void) {
     listNode *ln;
     listIter li;
@@ -245,7 +245,7 @@ int startAppendOnly(void) {
         redisLog(REDIS_WARNING,"Redis needs to enable the AOF but can't trigger a background AOF rewrite operation. Check the above logs for more info about the error.");
         return REDIS_ERR;
     }
-    /* We correctly switched on AOF, now wait for the rewite to be complete
+    /* We correctly switched on AOF, now wait for the rewrite to be complete
      * in order to append data on disk. */
     server.aof_state = REDIS_AOF_WAIT_REWRITE;
     return REDIS_OK;
