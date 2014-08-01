@@ -196,6 +196,10 @@ start_server {tags {"pubsub"}} {
         $rd1 close
     }
 
+    test "NUMSUB returns numbers, not strings (#1561)" {
+        r pubsub numsub abc def
+    } {abc 0 def 0}
+
     test "Mix SUBSCRIBE and PSUBSCRIBE" {
         set rd1 [redis_deferring_client]
         assert_equal {1} [subscribe $rd1 {foo.bar}]
