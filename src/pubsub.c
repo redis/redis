@@ -355,7 +355,7 @@ void pubsubCommand(redisClient *c) {
             list *l = dictFetchValue(server.pubsub_channels,c->argv[j]);
 
             addReplyBulk(c,c->argv[j]);
-            addReplyBulkLongLong(c,l ? listLength(l) : 0);
+            addReplyLongLong(c,l ? listLength(l) : 0);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"numpat") && c->argc == 2) {
         /* PUBSUB NUMPAT */
