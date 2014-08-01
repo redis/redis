@@ -104,6 +104,19 @@ void loadServerConfigFromString(char *config) {
             goto loaderr;
         }
 
+        /* Remove any comments after the arguments */
+        int i;
+        for (i = 0; i < argc; i++) {
+            if (argv[i][0] == '#') {
+                int j;
+                for (j = i; j < argc; j++) {
+                    sdsfree(argv[j]);
+                }
+                argc = i;
+                break;
+            }
+        }
+
         /* Skip this line if the resulting command vector is empty. */
         if (argc == 0) {
             sdsfreesplitres(argv,argc);
