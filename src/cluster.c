@@ -3289,14 +3289,13 @@ int verifyClusterConfigWithData(void) {
         update_config++;
         /* Case A: slot is unassigned. Take responsability for it. */
         if (server.cluster->slots[j] == NULL) {
-            redisLog(REDIS_WARNING, "I've keys about slot %d that is "
-                                    "unassigned. Taking responsability "
-                                    "for it.",j);
+            redisLog(REDIS_WARNING, "I have keys for unassigned slot %d. "
+                                    "Taking responsibility for it.",j);
             clusterAddSlot(myself,j);
         } else {
-            redisLog(REDIS_WARNING, "I've keys about slot %d that is "
-                                    "already assigned to a different node. "
-                                    "Setting it in importing state.",j);
+            redisLog(REDIS_WARNING, "I have keys for slot %d, but the slot is "
+                                    "assigned to another node. "
+                                    "Setting it to importing state.",j);
             server.cluster->importing_slots_from[j] = server.cluster->slots[j];
         }
     }
