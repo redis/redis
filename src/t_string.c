@@ -29,6 +29,7 @@
 
 #include "redis.h"
 #include <math.h> /* isnan(), isinf() */
+#include <ctype.h> /* tolower() */
 
 /*-----------------------------------------------------------------------------
  * String Commands
@@ -69,7 +70,10 @@ void setGenericCommand(redisClient *c, int flags, robj *key, robj *val, robj *ex
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != REDIS_OK)
             return;
         if (milliseconds <= 0) {
-            addReplyError(c,"invalid expire time in SETEX");
+            char *set = "SETEX", *pset = "PSETEX";
+            char *cmd = c->argv[0]->ptr;
+            char *proper_name = tolower(*cmd) == 's' ? set : pset;
+            addReplyErrorFormat(c, "invalid expire time in %s", proper_name);
             return;
         }
         if (unit == UNIT_SECONDS) milliseconds *= 1000;
