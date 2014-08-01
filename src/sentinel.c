@@ -384,6 +384,7 @@ void sentinelRoleCommand(redisClient *c);
 
 struct redisCommand sentinelcmds[] = {
     {"ping",pingCommand,1,"",0,NULL,0,0,0,0,0},
+    {"auth",authCommand,2,"rsltF",0,NULL,0,0,0,0,0},
     {"sentinel",sentinelCommand,-2,"",0,NULL,0,0,0,0,0},
     {"subscribe",subscribeCommand,-2,"",0,NULL,0,0,0,0,0},
     {"unsubscribe",unsubscribeCommand,-1,"",0,NULL,0,0,0,0,0},
