@@ -731,6 +731,8 @@ static int parseOptions(int argc, char **argv) {
             config.auth = argv[++i];
         } else if (!strcmp(argv[i],"--raw")) {
             config.output = OUTPUT_RAW;
+        } else if (!strcmp(argv[i],"--no-raw")) {
+            config.output = OUTPUT_STANDARD;
         } else if (!strcmp(argv[i],"--csv")) {
             config.output = OUTPUT_CSV;
         } else if (!strcmp(argv[i],"--latency")) {
@@ -821,6 +823,7 @@ static void usage() {
 "  -c                 Enable cluster mode (follow -ASK and -MOVED redirections).\n"
 "  --raw              Use raw formatting for replies (default when STDOUT is\n"
 "                     not a tty).\n"
+"  --no-raw           Force formatted output even when STDOUT is not a tty.\n"
 "  --csv              Output in CSV format.\n"
 "  --latency          Enter a special mode continuously sampling latency.\n"
 "  --latency-history  Like --latency but tracking latency changes over time.\n"
