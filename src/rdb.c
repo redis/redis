@@ -943,7 +943,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 
             /* Add pair to hash table */
             ret = dictAdd((dict*)o->ptr, field, value);
-            redisAssert(ret == REDIS_OK);
+            redisAssert(ret == DICT_OK);
         }
 
         /* All pairs should be read by now */
