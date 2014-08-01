@@ -334,16 +334,30 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
     return FALSE;
 }
 
+string GetLocalAppDataFolder() {
+    char localAppDataPath[_MAX_PATH];
+    HRESULT hr;
+    if (S_OK != (hr = SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, SHGFP_TYPE_CURRENT, localAppDataPath))) {
+        throw std::system_error(hr, system_category(), "SHGetFolderPathA failed");
+    }
+    char redisAppDataPath[_MAX_PATH];
+    if (NULL == PathCombineA(redisAppDataPath, localAppDataPath, "Redis")) {
+        throw std::system_error(hr, system_category(), "PathCombineA failed");
+    }
+
+    if (PathIsDirectoryA(redisAppDataPath) == FALSE) {
+        if (CreateDirectoryA(redisAppDataPath, NULL) == FALSE) {
+            throw std::system_error(hr, system_category(), "CreateDirectoryA failed");
+        }
+    }
+
+    return redisAppDataPath;
+}
+
 string g_MMFDir;
 string GetWorkingDirectory() {
     if (g_MMFDir.length() == 0) {
-        char defaultDir[_MAX_PATH];
-        HRESULT hr;
-        if (S_OK != (hr = SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, SHGFP_TYPE_CURRENT, defaultDir))) {
-            throw std::system_error(hr,system_category(),"SHGetFolderPathA failed");
-        }
-
-        string workingDir = defaultDir;
+        string workingDir;
         if (g_argMap.find(cHeapDir) != g_argMap.end()) {
             workingDir = g_argMap[cHeapDir][0][0];
             std::replace(workingDir.begin(), workingDir.end(), '/', '\\');
@@ -359,6 +373,8 @@ string GetWorkingDirectory() {
                 }
                 workingDir = fullPath;
             }
+        } else {
+            workingDir = GetLocalAppDataFolder();
         }
 
         if (workingDir.at(workingDir.length() - 1) != '\\') {
