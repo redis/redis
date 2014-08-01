@@ -61,6 +61,7 @@
 #include "intset.h"  /* Compact integer set structure */
 #include "version.h" /* Version macro */
 #include "util.h"    /* Misc functions useful in many places */
+#include "rbtree.h"
 
 /* Error codes */
 #define REDIS_OK                0
@@ -902,6 +903,10 @@ struct redisServer {
     int assert_line;
     int bug_report_start; /* True if bug report header was already logged. */
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
+
+    int white_ips_enable;
+    struct rbtree white_ips_list;
+    struct rbnode white_ips_sentinel;
 };
 
 typedef struct pubsubPattern {

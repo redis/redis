@@ -459,6 +459,23 @@ void loadServerConfigFromString(char *config) {
                 err = sentinelHandleConfiguration(argv+1,argc-1);
                 if (err) goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"white-ips-enable") && argc == 2) {
+            if ((server.white_ips_enable = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"white-ips-list") && argc == 2) {
+            char ip_buf[32], *start, *point;
+            int len;
+
+            for (start = point = &argv[1]; *point; point++) {
+                if (*point == ',') {
+                    len = point - start;
+                    memcpy(ip_buf, start, len);
+                    ip_buf[len] = '\0';
+                    start = point + 1;
+                }
+            }
+
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
