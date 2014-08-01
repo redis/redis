@@ -716,7 +716,17 @@ void moveCommand(redisClient *c) {
     /* Obtain source and target DB pointers */
     src = c->db;
     srcid = c->db->id;
-    if (selectDb(c,atoi(c->argv[2]->ptr)) == REDIS_ERR) {
+
+    char *after_number = NULL;
+    int requested_db = (int)strtol(c->argv[2]->ptr, &after_number, 10);
+
+    /* If the remainder isn't end of the string, we had non-number input. */
+    if (*after_number != '\0') {
+        addReply(c, shared.outofrangeerr);
+        return;
+    }
+
+    if (selectDb(c,requested_db) == REDIS_ERR) {
         addReply(c,shared.outofrangeerr);
         return;
     }
