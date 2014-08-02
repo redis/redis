@@ -164,6 +164,7 @@ int clusterLoadConfig(char *filename) {
                         argv[j]);
                 }
             }
+            sdsfreesplitres(argv,argc);
             continue;
         }
 
