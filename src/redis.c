@@ -66,7 +66,6 @@ double R_Zero, R_PosInf, R_NegInf, R_Nan;
 
 /* Global vars */
 struct redisServer server; /* server global state */
-struct redisCommand *commandTable;
 
 /* Our command table.
  *
