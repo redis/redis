@@ -337,6 +337,12 @@
 #define REDIS_NOTIFY_EVICTED (1<<9)     /* e */
 #define REDIS_NOTIFY_ALL (REDIS_NOTIFY_GENERIC | REDIS_NOTIFY_STRING | REDIS_NOTIFY_LIST | REDIS_NOTIFY_SET | REDIS_NOTIFY_HASH | REDIS_NOTIFY_ZSET | REDIS_NOTIFY_EXPIRED | REDIS_NOTIFY_EVICTED)      /* A */
 
+
+#define REDIS_WHITE_BLACK_LIST_WHITE  1
+#define REDIS_WHITE_BLACK_LIST_BLACK  2
+#define REDIS_WHITE_BLACK_LIST_NONE   0
+
+
 /* Using the following macro you can run code inside serverCron() with the
  * specified period, specified in milliseconds.
  * The actual resolution depends on server.hz. */
@@ -904,9 +910,9 @@ struct redisServer {
     int bug_report_start; /* True if bug report header was already logged. */
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
 
-    int white_ips_enable;
-    struct rbtree white_ips_list;
-    struct rbnode white_ips_sentinel;
+    int white_black_ips_enable;
+    struct rbtree white_black_ips_list;
+    struct rbnode white_black_ips_sentinel;
 };
 
 typedef struct pubsubPattern {

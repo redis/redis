@@ -64,6 +64,25 @@ rbtree_min(struct rbtree *tree)
     return rbtree_node_min(node, sentinel);
 }
 
+struct rbnode *
+rbtree_find(struct rbtree *tree, int64_t key)
+{
+    struct rbnode *node = tree->root;
+    struct rbnode *sentinel = tree->sentinel;
+
+    while (node != sentinel) {
+        if (node->key == key) {
+            return node;
+        } else if (key > node->key) {
+            node = node->right;
+        } else {
+            node = node->left;
+        }
+    }
+
+    return NULL;
+}
+
 static void
 rbtree_left_rotate(struct rbnode **root, struct rbnode *sentinel,
                    struct rbnode *node)

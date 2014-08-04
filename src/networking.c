@@ -542,6 +542,7 @@ static void acceptCommonHandler(int fd, int flags) {
         freeClient(c);
         return;
     }
+
     server.stat_numconnections++;
     c->flags |= flags;
 }
@@ -549,6 +550,7 @@ static void acceptCommonHandler(int fd, int flags) {
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
     char cip[128];
+    int denied = 0;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
@@ -558,8 +560,31 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         redisLog(REDIS_WARNING,"Accepting client connection: %s", server.neterr);
         return;
     }
+
+    if (server.white_black_ips_enable == REDIS_WHITE_BLACK_LIST_WHITE ||
+        server.white_black_ips_enable == REDIS_WHITE_BLACK_LIST_BLACK)
+    {
+        in_addr_t addr;
+        struct rbnode *node;
+
+        addr = inet_addr(cip);
+
+        node = rbtree_find(&server.white_black_ips_list, (int64_t)addr);
+        if ((server.white_black_ips_enable == REDIS_WHITE_BLACK_LIST_WHITE && !node) ||
+            (server.white_black_ips_enable == REDIS_WHITE_BLACK_LIST_BLACK && node))
+        {
+            char *err = "-ERR access denied\r\n";
+
+            /* That's a best effort error message, don't check write errors */
+            if (write(cfd, err, strlen(err)) == -1) {
+                /* Nothing to do, Just to avoid the warning... */
+            }
+            return;
+        }
+    }
+
     redisLog(REDIS_VERBOSE,"Accepted %s:%d", cip, cport);
-    acceptCommonHandler(cfd,0);
+    acceptCommonHandler(cfd, 0);
 }
 
 void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
@@ -574,7 +599,7 @@ void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         return;
     }
     redisLog(REDIS_VERBOSE,"Accepted connection to %s", server.unixsocket);
-    acceptCommonHandler(cfd,REDIS_UNIX_SOCKET);
+    acceptCommonHandler(cfd, REDIS_UNIX_SOCKET);
 }
 
 

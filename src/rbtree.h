@@ -41,6 +41,7 @@ struct rbtree {
 void rbtree_node_init(struct rbnode *node);
 void rbtree_init(struct rbtree *tree, struct rbnode *node);
 struct rbnode *rbtree_min(struct rbtree *tree);
+struct rbnode *rbtree_find(struct rbtree *tree, int64_t key);
 void rbtree_insert(struct rbtree *tree, struct rbnode *node);
 void rbtree_delete(struct rbtree *tree, struct rbnode *node);
 

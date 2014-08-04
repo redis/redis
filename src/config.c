@@ -32,6 +32,7 @@
 
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <arpa/inet.h>
 
 static struct {
     const char     *name;
@@ -269,7 +270,7 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"masterauth") && argc == 2) {
-        	server.masterauth = zstrdup(argv[1]);
+            server.masterauth = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"slave-serve-stale-data") && argc == 2) {
             if ((server.repl_serve_stale_data = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
@@ -459,21 +460,62 @@ void loadServerConfigFromString(char *config) {
                 err = sentinelHandleConfiguration(argv+1,argc-1);
                 if (err) goto loaderr;
             }
-        } else if (!strcasecmp(argv[0],"white-ips-enable") && argc == 2) {
-            if ((server.white_ips_enable = yesnotoi(argv[1])) == -1) {
-                err = "argument must be 'yes' or 'no'"; goto loaderr;
+        } else if (!strcasecmp(argv[0],"white-black-ips-enable") && argc == 2) {
+            if (!strcmp(argv[1], "white")) {
+                server.white_black_ips_enable = REDIS_WHITE_BLACK_LIST_WHITE;
+            } else if (!strcmp(argv[1], "black")) {
+                server.white_black_ips_enable = REDIS_WHITE_BLACK_LIST_BLACK;
+            } else {
+                server.white_black_ips_enable = REDIS_WHITE_BLACK_LIST_NONE;
             }
-        } else if (!strcasecmp(argv[0],"white-ips-list") && argc == 2) {
+
+        } else if (!strcasecmp(argv[0],"white-black-ips-list") && argc == 2) {
             char ip_buf[32], *start, *point;
             int len;
+            in_addr_t addr;
+            struct rbnode *ip_node;
 
             for (start = point = &argv[1]; *point; point++) {
                 if (*point == ',') {
                     len = point - start;
-                    memcpy(ip_buf, start, len);
-                    ip_buf[len] = '\0';
+                    if (len <= 0) {
+                        continue;
+                    }
+
+                    memcpy(ip_buf, start, len); ip_buf[len] = '\0';
+
+                    addr = inet_addr(ip_buf);
+
+                    ip_node = malloc(sizeof(struct rbnode));
+                    if (!ip_node) {
+                        break;
+                    }
+
+                    ip_node->key = (int64_t)addr;
+                    ip_node->data = (void *)1;
+
+                    rbtree_insert(&server.white_black_ips_list, ip_node);
+
                     start = point + 1;
                 }
+            }
+
+            if (point > start) {
+                len = point - start;
+
+                memcpy(ip_buf, start, len); ip_buf[len] = '\0';
+
+                addr = inet_addr(ip_buf);
+                
+                ip_node = malloc(sizeof(struct rbnode));
+                if (!ip_node) {
+                    break;
+                }
+
+                ip_node->key = (int64_t)addr;
+                ip_node->data = (void *)1;
+
+                rbtree_insert(&server.white_black_ips_list, ip_node);
             }
 
         } else {

@@ -2835,6 +2835,10 @@ int main(int argc, char **argv) {
     gettimeofday(&tv,NULL);
     dictSetHashFunctionSeed(tv.tv_sec^tv.tv_usec^getpid());
     server.sentinel_mode = checkForSentinelMode(argc,argv);
+
+    /* white black list feature */
+    rbtree_init(&server.white_black_ips_list, &server.white_black_ips_sentinel);
+
     initServerConfig();
 
     /* We need to init sentinel right now as parsing the configuration file
