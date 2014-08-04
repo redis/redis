@@ -2208,6 +2208,8 @@ int sentinelSendHello(sentinelRedisInstance *ri) {
     sentinelRedisInstance *master = (ri->flags & SRI_MASTER) ? ri : ri->master;
     sentinelAddr *master_addr = sentinelGetCurrentMasterAddress(master);
 
+    if (ri->flags & SRI_DISCONNECTED) return REDIS_ERR;
+
     /* Try to obtain our own IP address. */
     if (REDIS_BIND_ADDR != NULL) {
         memcpy(ip, REDIS_BIND_ADDR, REDIS_IP_STR_LEN);
@@ -2215,8 +2217,6 @@ int sentinelSendHello(sentinelRedisInstance *ri) {
         if (anetSockName(ri->cc->c.fd,ip,sizeof(ip),NULL) == -1)
             return REDIS_ERR;
     }
-
-    if (ri->flags & SRI_DISCONNECTED) return REDIS_ERR;
 
     /* Format and send the Hello message. */
     snprintf(payload,sizeof(payload),
