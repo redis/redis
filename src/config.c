@@ -475,7 +475,7 @@ void loadServerConfigFromString(char *config) {
             in_addr_t addr;
             struct rbnode *ip_node;
 
-            for (start = point = &argv[1]; *point; point++) {
+            for (start = point = argv[1]; *point; point++) {
                 if (*point == ',') {
                     len = point - start;
                     if (len <= 0) {
