@@ -152,3 +152,16 @@ Please see the CONTRIBUTING file in this source distribution for more
 information.
 
 Enjoy!
+
+================================================================================
+
+white black ip list feature
+
+redis.conf setting
+------------------
+
+# enable white black ip list feature
+white-black-ips-enable white|black|none
+
+# set white black ip list
+white-black-ips-list 127.0.0.1,192.168.1.10
