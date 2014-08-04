@@ -18,6 +18,8 @@
 #ifndef _NC_RBTREE_
 #define _NC_RBTREE_
 
+#include <stdint.h>
+
 #define rbtree_red(_node)           ((_node)->color = 1)
 #define rbtree_black(_node)         ((_node)->color = 0)
 #define rbtree_is_red(_node)        ((_node)->color)
