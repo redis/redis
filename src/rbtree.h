@@ -19,6 +19,7 @@
 #define _NC_RBTREE_
 
 #include <stdint.h>
+#include <stdlib.h>
 
 #define rbtree_red(_node)           ((_node)->color = 1)
 #define rbtree_black(_node)         ((_node)->color = 0)
