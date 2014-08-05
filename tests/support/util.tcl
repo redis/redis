@@ -351,7 +351,7 @@ proc colorstr {color str} {
             default {set colorcode {37}}
         }
         if {$colorcode ne {}} {
-            return "\033\[$b;${colorcode};40m$str\033\[0m"
+            return "\033\[$b;${colorcode};49m$str\033\[0m"
         }
     } else {
         return $str
