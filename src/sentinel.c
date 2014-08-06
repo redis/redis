@@ -2743,24 +2743,30 @@ numargserr:
 
 /* SENTINEL INFO [section] */
 void sentinelInfoCommand(redisClient *c) {
-    char *section = c->argc == 2 ? c->argv[1]->ptr : "default";
-    sds info = sdsempty();
-    int defsections = !strcasecmp(section,"default");
-    int sections = 0;
-
     if (c->argc > 2) {
         addReply(c,shared.syntaxerr);
         return;
     }
 
-    if (!strcasecmp(section,"server") || defsections) {
+    int defsections = 0, allsections = 0;
+    char *section = c->argc == 2 ? c->argv[1]->ptr : NULL;
+    if (section) {
+        allsections = !strcasecmp(section,"all");
+        defsections = !strcasecmp(section,"default");
+    } else {
+        defsections = 1;
+    }
+
+    int sections = 0;
+    sds info = sdsempty();
+    if (defsections || allsections || !strcasecmp(section,"server")) {
         if (sections++) info = sdscat(info,"\r\n");
         sds serversection = genRedisInfoString("server");
         info = sdscatlen(info,serversection,sdslen(serversection));
         sdsfree(serversection);
     }
 
-    if (!strcasecmp(section,"sentinel") || defsections) {
+    if (defsections || allsections || !strcasecmp(section,"sentinel")) {
         dictIterator *di;
         dictEntry *de;
         int master_id = 0;
@@ -2793,6 +2799,13 @@ void sentinelInfoCommand(redisClient *c) {
                 dictSize(ri->sentinels)+1);
         }
         dictReleaseIterator(di);
+    }
+
+    /* If info length is 0, then the user asked for a non-existing section. */
+    if (sdslen(info) == 0) {
+        addReply(c,shared.syntaxerr);
+        sdsfree(info);
+        return;
     }
 
     addReplySds(c,sdscatprintf(sdsempty(),"$%lu\r\n",
