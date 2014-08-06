@@ -398,15 +398,6 @@ static client createClient(char *cmd, size_t len, client from) {
 
 static void createMissingClients(client c) {
     int n = 0;
-    char *buf = c->obuf;
-    size_t buflen = sdslen(c->obuf);
-
-    /* If we are cloning from a client with a SELECT prefix, skip it since the
-     * client will be created with the prefixed SELECT if needed. */
-    if (c->selectlen) {
-        buf += c->selectlen;
-        buflen -= c->selectlen;
-    }
 
     while(config.liveclients < config.numclients) {
         createClient(NULL,0,c);
