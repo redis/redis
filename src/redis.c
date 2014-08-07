@@ -3117,6 +3117,18 @@ static void sigShutdownHandler(int sig) {
         msg = "Received shutdown signal, scheduling shutdown...";
     };
 
+    /* SIGINT is often delivered via Ctrl+C in an interactive session.
+     * If we receive the signal the second time, we interpret this as
+     * the user really wanting to quit ASAP without waiting to persist
+     * on disk. */
+    if (server.shutdown_asap && sig == SIGINT) {
+        redisLogFromHandler(REDIS_WARNING, "You insist... exiting now.");
+        rdbRemoveTempFile(getpid());
+        exit(1); /* Exit with an error since this was not a clean shutdown. */
+    } else if (server.loading) {
+        exit(0);
+    }
+
     redisLogFromHandler(REDIS_WARNING, msg);
     server.shutdown_asap = 1;
 }
@@ -3130,7 +3142,7 @@ void setupSignalHandlers(void) {
     act.sa_flags = 0;
     act.sa_handler = sigShutdownHandler;
     sigaction(SIGTERM, &act, NULL);
-    signal(SIGINT, sigShutdownHandler);
+    sigaction(SIGINT, &act, NULL);
 
 #ifdef HAVE_BACKTRACE
     sigemptyset(&act.sa_mask);
