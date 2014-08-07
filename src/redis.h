@@ -582,6 +582,8 @@ typedef struct redisOpArray {
  * Global server state
  *----------------------------------------------------------------------------*/
 
+/* AIX defines hz to __hz, we don't use this define and in order to allow
+ * Redis build on AIX we need to undef it. */
 #ifdef _AIX
 #undef hz
 #endif
