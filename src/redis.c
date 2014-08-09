@@ -223,6 +223,7 @@ struct redisCommand redisCommandTable[] = {
     {"keys",keysCommand,2,"rS",0,NULL,0,0,0,0,0},
     {"scan",scanCommand,-2,"rR",0,NULL,0,0,0,0,0},
     {"dbsize",dbsizeCommand,1,"rF",0,NULL,0,0,0,0,0},
+    {"dbname",dbnameCommand,2,"w",0,NULL,0,0,0,0,0},
     {"auth",authCommand,2,"rsltF",0,NULL,0,0,0,0,0},
     {"ping",pingCommand,-1,"rtF",0,NULL,0,0,0,0,0},
     {"echo",echoCommand,2,"rF",0,NULL,0,0,0,0,0},
@@ -1759,6 +1760,7 @@ void initServer() {
         server.db[j].eviction_pool = evictionPoolAlloc();
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
+        server.db[j].name = sdsnewlen("",0);
     }
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
     server.pubsub_patterns = listCreate();
@@ -2974,8 +2976,8 @@ sds genRedisInfoString(char *section) {
             vkeys = dictSize(server.db[j].expires);
             if (keys || vkeys) {
                 info = sdscatprintf(info,
-                    "db%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",
-                    j, keys, vkeys, server.db[j].avg_ttl);
+                    "db%d:keys=%lld,expires=%lld,avg_ttl=%lld,name=%s\r\n",
+                    j, keys, vkeys, server.db[j].avg_ttl, server.db[j].name);
             }
         }
     }

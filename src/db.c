@@ -320,6 +320,13 @@ void selectCommand(redisClient *c) {
     }
 }
 
+void dbnameCommand(redisClient *c) {
+    sds name = c->argv[1]->ptr;
+    c->db->name = sdsnewlen(name,sdslen(name));
+
+    addReply(c,shared.ok);
+}
+
 void randomkeyCommand(redisClient *c) {
     robj *key;
 
