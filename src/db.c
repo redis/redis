@@ -1017,30 +1017,41 @@ void getKeysFreeResult(int *result) {
 
 /* Helper function to extract keys from following commands:
  * ZUNIONSTORE <destkey> <num-keys> <key> <key> ... <key> <options>
- * ZINTERSTORE <destkey> <num-keys> <key> <key> ... <key> <options> */
+ * ZINTERSTORE <destkey> <num-keys> <key> <key> ... <key> <options>
+ * ZFILTERSTORE <destkey> <num-keys> <template> <key> <key> ... <key> <options> */
 int *zunionInterGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
-    int i, num, *keys;
+    int i, instart, num, *keys;
     REDIS_NOTUSED(cmd);
+
+    /* ZFILTERSTORE has one extra key */
+    instart = !strcasecmp(argv[0]->ptr, "zfilterstore") ? 4 : 3;
 
     num = atoi(argv[2]->ptr);
     /* Sanity check. Don't return any key if the command is going to
      * reply with syntax error. */
-    if (num > (argc-3)) {
+    if (num > (argc-instart)) {
         *numkeys = 0;
         return NULL;
     }
 
     /* Keys in z{union,inter}store come from two places:
      * argv[1] = storage key,
-     * argv[3...n] = keys to intersect */
-    keys = zmalloc(sizeof(int)*(num+1));
+     * argv[3...n] = keys to intersect
+     * ZFILTERSTORE input keys start at argv[4] */
+    keys = zmalloc(sizeof(int)*(num+2));
 
-    /* Add all key positions for argv[3...n] to keys[] */
-    for (i = 0; i < num; i++) keys[i] = 3+i;
+    /* Add all key positions for argv[instart...n] to keys[] */
+    for (i = 0; i < num; i++) keys[i] = instart+i;
 
-    /* Finally add the argv[1] key position (the storage key target). */
+    /* Add the argv[1] key position (the storage key target). */
     keys[num] = 1;
-    *numkeys = num+1;  /* Total keys = {union,inter} keys + storage key */
+
+    /* If this is a ZFILTERSTORE command, add our template key */
+    if (instart == 4)
+        keys[++num] = 3;
+
+    /* Set total keys and return */
+    *numkeys = num+1;
     return keys;
 }
 

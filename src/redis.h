@@ -326,6 +326,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_OP_UNION 0
 #define REDIS_OP_DIFF 1
 #define REDIS_OP_INTER 2
+#define REDIS_OP_FILTER 3
 
 /* Redis maxmemory strategies */
 #define REDIS_MAXMEMORY_VOLATILE_LRU 0
@@ -1460,6 +1461,7 @@ void hlenCommand(redisClient *c);
 void zremrangebyrankCommand(redisClient *c);
 void zunionstoreCommand(redisClient *c);
 void zinterstoreCommand(redisClient *c);
+void zfilterstoreCommand(redisClient *c);
 void zscanCommand(redisClient *c);
 void hkeysCommand(redisClient *c);
 void hvalsCommand(redisClient *c);

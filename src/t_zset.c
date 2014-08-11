@@ -1842,11 +1842,95 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
     }
 }
 
+/* Aggregate values from a ZSET that exist in a template set into a dictionary,
+ * by iterating the template.  This strategy is used when the template is
+ * smaller than the source set */
+void zfilterTemplateToSource(zsetopsrc *tmpl, zsetopsrc *src, dict *dictagg,
+                             int aggop, unsigned int *maxelelen)
+{
+    zsetopval zval;
+    robj *tmp;
+    dictEntry *de;
+    double value;
+
+    /* Iterate through our template */
+    zuiInitIterator(tmpl);
+    while (zuiNext(tmpl, &zval)) {
+        /* Look for this value in our source set */
+        if (zuiFind(src,&zval,&value)) {
+            value *= src->weight;
+
+            /* Add this item to our aggregate if it's not found */
+            de = dictFind(dictagg,zuiObjectFromValue(&zval));
+            if (de == NULL) {
+                tmp = zuiObjectFromValue(&zval);
+
+                if (sdsEncodedObject(tmp) && sdslen(tmp->ptr) > *maxelelen)
+                    *maxelelen = sdslen(tmp->ptr);
+
+                de = dictAddRaw(dictagg, tmp);
+                dictSetDoubleVal(de, 0);
+                incrRefCount(tmp);
+            }
+
+            /* Increment score */
+            zunionInterAggregate(&de->v.d,value,aggop);
+        }
+    }
+    zuiClearIterator(tmpl);
+}
+
+/* Aggregate values from a source set that exist in our template, by iterating
+ * the source set and looking for values in our template.  This strategy is used
+ * when our template is larger than the source set */
+void zfilterSourceToTemplate(zsetopsrc *tmpl, zsetopsrc *src, dict *dictagg,
+                             int aggop, unsigned int *maxelelen)
+{
+    zsetopval zval;
+    robj *tmp;
+    dictEntry *de;
+    double score, dummy;
+    int found;
+
+    zuiInitIterator(src);
+    while (zuiNext(src, &zval)) {
+        found = 0;
+
+        score = src->weight * zval.score;
+        if (isnan(score)) score = 0;
+
+        /* If the source and template are the same, we're already on the value
+         * and know it will exist.  Otherwise search in our template. */
+        if (src->subject == tmpl->subject || zuiFind(tmpl,&zval,&dummy)) {
+            /* Look for the item in our dictionary */
+            de = dictFind(dictagg,zuiObjectFromValue(&zval));
+
+            /* Create it if it doesn't exist */
+            if (de == NULL) {
+                tmp = zuiObjectFromValue(&zval);
+
+                /* Keep track of maximum element for encoding */
+                if (sdsEncodedObject(tmp) && sdslen(tmp->ptr) > *maxelelen)
+                    *maxelelen = sdslen(tmp->ptr);
+
+                de = dictAddRaw(dictagg,tmp);
+                dictSetDoubleVal(de, 0);
+                incrRefCount(tmp);
+            }
+
+            /* Aggregate score */
+            zunionInterAggregate(&de->v.d,score,aggop);
+        }
+
+    }
+    zuiClearIterator(src);
+}
+
 void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
-    int i, j;
+    int i, j, instart;
     long setnum;
     int aggregate = REDIS_AGGR_SUM;
-    zsetopsrc *src;
+    zsetopsrc *src, *fsrc;
     zsetopval zval;
     robj *tmp;
     unsigned int maxelelen = 0;
@@ -1855,25 +1939,48 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
     zskiplistNode *znode;
     int touched = 0;
 
+    /* Actual input sets start at 4 if we're filtering */
+    instart = op == REDIS_OP_FILTER ? 4 : 3;
+
     /* expect setnum input keys to be given */
     if ((getLongFromObjectOrReply(c, c->argv[2], &setnum, NULL) != REDIS_OK))
         return;
 
     if (setnum < 1) {
         addReplyError(c,
-            "at least 1 input key is needed for ZUNIONSTORE/ZINTERSTORE");
+            "at least 1 input key is needed for ZUNIONSTORE/ZINTERSTORE/ZFILTERSTORE");
         return;
     }
 
     /* test if the expected number of keys would overflow */
-    if (setnum > c->argc-3) {
+    if (setnum > c->argc-instart) {
         addReply(c,shared.syntaxerr);
         return;
     }
 
+    /* If we're filtering, verify our filter is the right type */
+    if (op == REDIS_OP_FILTER) {
+        fsrc = zcalloc(sizeof(zsetopsrc));
+
+        robj *obj = lookupKeyWrite(c->db, c->argv[3]);
+        if (obj != NULL) {
+            if (obj->type != REDIS_ZSET && obj->type != REDIS_SET) {
+                zfree(fsrc);
+                addReply(c,shared.wrongtypeerr);
+                return;
+            }
+
+            fsrc->subject = obj;
+            fsrc->type = obj->type;
+            fsrc->encoding = obj->encoding;
+        } else {
+            fsrc->subject = NULL;
+        }
+    }
+
     /* read keys to be used for input */
     src = zcalloc(sizeof(zsetopsrc) * setnum);
-    for (i = 0, j = 3; i < setnum; i++, j++) {
+    for (i = 0, j = instart; i < setnum; i++, j++) {
         robj *obj = lookupKeyWrite(c->db,c->argv[j]);
         if (obj != NULL) {
             if (obj->type != REDIS_ZSET && obj->type != REDIS_SET) {
@@ -1938,7 +2045,59 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
     dstzset = dstobj->ptr;
     memset(&zval, 0, sizeof(zval));
 
-    if (op == REDIS_OP_INTER) {
+    if (op == REDIS_OP_FILTER) {
+        unsigned long long fcard;
+
+        /* If our template is empty, or all input sets are empty, we can skip
+         * the whole process */
+        fcard = zuiLength(fsrc);
+        if (fcard > 0 && zuiLength(&src[setnum-1])>0) {
+            dict *dictagg;
+            dictIterator *di;
+            dictEntry *de;
+            double score;
+
+            /* Create our dictionary for aggregation */
+            dictagg = dictCreate(&setDictType,NULL);
+
+            /* Iterate over sets, aggregating */
+            for (j=0; j < setnum; j++) {
+                /* Skip if this set is empty */
+                if (zuiLength(&src[j]) == 0)
+                    continue;
+
+                /* If the set we're on is larger than our template set, we'll
+                 * aggregate by iterating the template.  Otherwise we'll
+                 * aggregate by iterating the source. */
+                if (zuiLength(&src[j]) > fcard) {
+                    zfilterTemplateToSource(fsrc, &src[j], dictagg,
+                        aggregate, &maxelelen);
+                } else {
+                    zfilterSourceToTemplate(fsrc, &src[j], dictagg,
+                        aggregate, &maxelelen);
+                }
+            }
+
+            /* Grab our iterator for converting to a sorted set and expand our
+             * hash table as we know how big it's going to be. */
+            di = dictGetIterator(dictagg);
+            dictExpand(dstzset->dict,dictSize(dictagg));
+
+            /* Convert to a sorted set */
+            while ((de = dictNext(di)) != NULL) {
+                robj *ele = dictGetKey(de);
+                score = dictGetDoubleVal(de);
+                znode = zslInsert(dstzset->zsl,score,ele);
+                incrRefCount(ele); /* added to skiplist */
+                dictAdd(dstzset->dict,ele,&znode->score);
+                incrRefCount(ele); /* added to dictionary */
+            }
+            dictReleaseIterator(di);
+
+            dictRelease(dictagg);
+        }
+        zfree(fsrc);
+    } else if (op == REDIS_OP_INTER) {
         /* Skip everything if the smallest input is empty. */
         if (zuiLength(&src[0]) > 0) {
             /* Precondition: as src[0] is non-empty and the inputs are ordered
@@ -2062,6 +2221,17 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
         server.dirty++;
     }
     if (dstzset->zsl->length) {
+        /* Which operation */
+        char *opstr;
+
+        /* The operation that was performed */
+        if (op == REDIS_OP_UNION)
+            opstr = "zunionstore";
+        else if (op == REDIS_OP_INTER)
+            opstr = "zinterstore";
+        else
+            opstr = "zfilterstore";
+
         /* Convert to ziplist when in limits. */
         if (dstzset->zsl->length <= server.zset_max_ziplist_entries &&
             maxelelen <= server.zset_max_ziplist_value)
@@ -2070,9 +2240,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
         dbAdd(c->db,dstkey,dstobj);
         addReplyLongLong(c,zsetLength(dstobj));
         if (!touched) signalModifiedKey(c->db,dstkey);
-        notifyKeyspaceEvent(REDIS_NOTIFY_ZSET,
-            (op == REDIS_OP_UNION) ? "zunionstore" : "zinterstore",
-            dstkey,c->db->id);
+        notifyKeyspaceEvent(REDIS_NOTIFY_ZSET,opstr,dstkey,c->db->id);
         server.dirty++;
     } else {
         decrRefCount(dstobj);
@@ -2089,6 +2257,10 @@ void zunionstoreCommand(redisClient *c) {
 
 void zinterstoreCommand(redisClient *c) {
     zunionInterGenericCommand(c,c->argv[1], REDIS_OP_INTER);
+}
+
+void zfilterstoreCommand(redisClient *c) {
+    zunionInterGenericCommand(c,c->argv[1], REDIS_OP_FILTER);
 }
 
 void zrangeGenericCommand(redisClient *c, int reverse) {
