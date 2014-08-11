@@ -455,3 +455,12 @@ void strlenCommand(redisClient *c) {
         checkType(c,o,REDIS_STRING)) return;
     addReplyLongLong(c,stringObjectLen(o));
 }
+
+void strhashCommand(redisClient *c) {
+    robj *o;
+    unsigned char hash[20];
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
+        checkType(c,o,REDIS_STRING)) return;
+    stringObjectSHA1(o,hash);
+    addReplyBulkCBuffer(c,hash,sizeof(hash));
+}

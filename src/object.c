@@ -29,6 +29,7 @@
  */
 
 #include "redis.h"
+#include "sha1.h"
 #include <math.h>
 #include <ctype.h>
 
@@ -519,6 +520,19 @@ size_t stringObjectLen(robj *o) {
 
         return ll2string(buf,32,(long)o->ptr);
     }
+}
+
+void stringObjectSHA1(robj *o, unsigned char hash[20]) {
+    char buf[32];
+    SHA1_CTX ctx;
+    SHA1Init(&ctx);
+    redisAssert(o->type == REDIS_STRING);
+    if (o->encoding == REDIS_ENCODING_RAW) {
+        SHA1Update(&ctx,o->ptr,sdslen(o->ptr));
+    } else {
+        SHA1Update(&ctx,(unsigned char*)buf,ll2string(buf,sizeof(buf),(long)o->ptr));
+    }
+    SHA1Final(hash,&ctx);
 }
 
 int getDoubleFromObject(robj *o, double *target) {
