@@ -20,7 +20,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "Win32_FDAPI.h"
+
 #include <Windows.h>
+#include <WinNT.h>
 #include <errno.h>
 #include <stdio.h>
 #include <wchar.h>
@@ -45,7 +48,12 @@
 #include <stdint.h>
 #include <exception>
 #include <algorithm>
+#include <memory>
 using namespace std;
+
+#ifndef PAGE_REVERT_TO_FILE_MAP
+#define PAGE_REVERT_TO_FILE_MAP 0x80000000  // From Win8.1 SDK
+#endif
 
 const long long cSentinelHeapSize = 30 * 1024 * 1024;
 extern "C" int checkForSentinelMode(int argc, char **argv);
@@ -974,6 +982,84 @@ BOOL AbortForkOperation()
     return FALSE;
 }
 
+void RejoinCOWPages(HANDLE mmHandle, byte* mmStart, size_t mmSize) {
+    SmartFileView<byte> copyView(
+        mmHandle,
+        FILE_MAP_WRITE,
+        0,
+        0,
+        mmSize,
+        string("RejoinCOWPages: Could not map COW back-copy view."));
+    HANDLE hProcess = GetCurrentProcess();
+    int pages = (int)(mmSize / pageSize);
+    shared_ptr<PSAPI_WORKING_SET_EX_INFORMATION> pwsi(
+        new PSAPI_WORKING_SET_EX_INFORMATION[pages],
+        [](PSAPI_WORKING_SET_EX_INFORMATION *p) { delete[] p; });
+    if (pwsi == NULL) {
+        throw new system_error(
+            GetLastError(),
+            system_category(),
+            "pwsi == NULL");
+    }
+    memset(pwsi.get(), 0, sizeof(PSAPI_WORKING_SET_EX_INFORMATION)* pages);
+    int virtualLockFailures = 0;
+    for (int page = 0; page < pages; page++) {
+        pwsi.get()[page].VirtualAddress = mmStart + page * pageSize;
+    }
+
+    if (QueryWorkingSetEx(
+        hProcess,
+        pwsi.get(),
+        sizeof(PSAPI_WORKING_SET_EX_INFORMATION)* pages) == FALSE) {
+        throw system_error(
+            GetLastError(),
+            system_category(),
+            "RejoinCOWPages: QueryWorkingSet failure");
+    }
+
+    for (int page = 0; page < pages; page++) {
+        if (pwsi.get()[page].VirtualAttributes.Valid == 1) {
+            // A 0 share count indicates a COW page
+            if (pwsi.get()[page].VirtualAttributes.ShareCount == 0) {
+                memcpy(copyView + (page*pageSize), mmStart + (page*pageSize), pageSize);
+            }
+        }
+    }
+
+    // If the COWs are not discarded, then there is no way of propagating changes into subsequent fork operations. 
+    if (IsWindowsVersionAtLeast(8, 0, 0)) {
+        // restores all page protections on the view and culls the COW pages.
+        DWORD oldProtect;
+        if (FALSE == VirtualProtect(mmStart, pages * pageSize, PAGE_READWRITE | PAGE_REVERT_TO_FILE_MAP, &oldProtect)) {
+            throw std::system_error(GetLastError(), std::system_category(), "RejoinCOWPages: COW cull failed");
+        }
+    } else {
+        // Prior to Win8 unmapping the view was the only way to discard the COW pages from the view. Unfortunately this forces
+        // the view to be completely flushed to disk, which is a bit inefficient.
+        if (UnmapViewOfFile(mmStart) == FALSE) {
+            throw std::system_error(
+                GetLastError(),
+                system_category(),
+                "RejoinCOWPages: UnmapViewOfFile failed.");
+        }
+        // There is a race condition here. Something could map into the virtual address space used by the heap at the moment 
+        // we are discarding local changes. There is nothing to do but report the problem and exit. This problem does not 
+        // exist with the code above in Win8+ as the view is never unmapped.
+        LPVOID remapped =
+            MapViewOfFileEx(
+            mmHandle,
+            FILE_MAP_ALL_ACCESS,
+            0, 0,
+            0,
+            mmStart);
+        if (remapped == NULL) {
+            throw std::system_error(
+                GetLastError(),
+                system_category(),
+                "RejoinCOWPages: MapViewOfFileEx failed. Please upgrade your OS to Win8 or newer.");
+        }
+    }
+}
 
 BOOL EndForkOperation(int * pExitCode) {
     try {
@@ -1028,154 +1114,16 @@ BOOL EndForkOperation(int * pExitCode) {
                 "EndForkOperation: ResetEvent() failed.");
         }
 
-        // restore protection constants on shared memory blocks 
-        DWORD oldProtect = 0;
-        if (VirtualProtect(g_pQForkControl, sizeof(QForkControl), PAGE_READWRITE, &oldProtect) == FALSE) {
-            throw std::system_error(
-                GetLastError(), 
-                system_category(),
-                "EndForkOperation: VirtualProtect failed.");
-        }
-        if (VirtualProtect( 
-            g_pQForkControl->heapStart, 
-            g_pQForkControl->availableBlocksInHeap * g_pQForkControl->heapBlockSize, 
-            PAGE_READWRITE, 
-            &oldProtect) == FALSE ) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(),
-                "EndForkOperation: VirtualProtect failed.");
-        }
+        // move local changes back into memory mapped views for next fork operation
+        RejoinCOWPages(
+            g_pQForkControl->heapMemoryMap,
+            (byte*)g_pQForkControl->heapStart,
+            g_pQForkControl->availableBlocksInHeap * cAllocationGranularity);
 
-        //
-        // What can be done to unify COW pages back into the section?
-        //
-        // 1. find the modified pages
-        // 2. copy the modified pages into a buffer
-        // 3. close the section map (discarding local changes)
-        // 4. reopen the section map
-        // 5. copy modified pages over reopened section map
-        //
-        // This assumes that the forked process is reasonably quick, such that this copy is not a huge burden.
-        //
-        typedef vector<INT_PTR> COWList;
-        typedef COWList::iterator COWListIterator;
-        COWList cowList;
-        HANDLE hProcess = GetCurrentProcess();
-        size_t mmSize = g_pQForkControl->availableBlocksInHeap * g_pQForkControl->heapBlockSize;
-        int pages = (int)(mmSize / pageSize);
-        PSAPI_WORKING_SET_EX_INFORMATION* pwsi =
-            new PSAPI_WORKING_SET_EX_INFORMATION[pages];
-        if (pwsi == NULL) {
-            throw new system_error(
-                GetLastError(),
-                system_category(),
-                "pwsi == NULL");
-        }
-        memset(pwsi, 0, sizeof(PSAPI_WORKING_SET_EX_INFORMATION) * pages);
-        int virtualLockFailures = 0;
-        for (int page = 0; page < pages; page++) {
-            pwsi[page].VirtualAddress = (BYTE*)g_pQForkControl->heapStart + page * pageSize;
-        }
-                
-        if (QueryWorkingSetEx( 
-                hProcess, 
-                pwsi, 
-                sizeof(PSAPI_WORKING_SET_EX_INFORMATION) * pages) == FALSE) {
-            throw system_error( 
-                GetLastError(),
-                system_category(),
-                "QueryWorkingSet failure");
-        }
-
-        for (int page = 0; page < pages; page++) {
-            if (pwsi[page].VirtualAttributes.Valid == 1) {
-                // A 0 share count indicates a COW page
-                if (pwsi[page].VirtualAttributes.ShareCount == 0) {
-                    cowList.push_back(page);
-                }
-            }
-        }
-
-        if (cowList.size() > 0) {
-            LPBYTE cowBuffer = (LPBYTE)malloc(cowList.size() * pageSize);
-            int bufPageIndex = 0;
-            for (COWListIterator cli = cowList.begin(); cli != cowList.end(); cli++) {
-                memcpy(
-                    cowBuffer + (bufPageIndex * pageSize),
-                    (BYTE*)g_pQForkControl->heapStart + ((*cli) * pageSize),
-                    pageSize);
-                bufPageIndex++;
-            }
-
-            delete [] pwsi;
-            pwsi = NULL;
-
-            // discard local changes
-            if (UnmapViewOfFile(g_pQForkControl->heapStart) == FALSE) {
-                throw std::system_error(
-                    GetLastError(),
-                    system_category(),
-                    "EndForkOperation: UnmapViewOfFile failed.");
-            }
-            g_pQForkControl->heapStart = 
-                MapViewOfFileEx(
-                    g_pQForkControl->heapMemoryMap,
-                    FILE_MAP_ALL_ACCESS,
-                    0,0,                            
-                    0,  
-                    g_pQForkControl->heapStart);
-            if (g_pQForkControl->heapStart == NULL) {
-                throw std::system_error(
-                    GetLastError(),
-                    system_category(),
-                    "EndForkOperation: Remapping ForkControl block failed.");
-            }
-
-            // copied back local changes to remapped view
-            bufPageIndex = 0;
-            for (COWListIterator cli = cowList.begin(); cli != cowList.end(); cli++) {
-                memcpy(
-                    (BYTE*)g_pQForkControl->heapStart + ((*cli) * pageSize),
-                    cowBuffer + (bufPageIndex * pageSize),
-                    pageSize);
-                bufPageIndex++;
-            }
-            delete cowBuffer;
-            cowBuffer = NULL;
-        }
-
-        // now do the same with qfork control
-        LPVOID controlCopy = malloc(sizeof(QForkControl));
-        if(controlCopy == NULL) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(),
-                "EndForkOperation: allocation failed.");
-        }
-        memcpy(controlCopy, g_pQForkControl, sizeof(QForkControl));
-        if (UnmapViewOfFile(g_pQForkControl) == FALSE) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(),
-                "EndForkOperation: UnmapViewOfFile failed.");
-        }
-        g_pQForkControl = (QForkControl*)
-            MapViewOfFileEx(
-                g_hQForkControlFileMap,
-                FILE_MAP_ALL_ACCESS,
-                0,0,                            
-                0,  
-                g_pQForkControl);
-        if (g_pQForkControl == NULL) {
-            throw std::system_error(
-                GetLastError(), 
-                system_category(), 
-                "EndForkOperation: Remapping ForkControl failed.");
-        }
-        memcpy(g_pQForkControl, controlCopy,sizeof(QForkControl));
-        delete controlCopy;
-        controlCopy = NULL;
+        RejoinCOWPages(
+            g_hQForkControlFileMap,
+            (byte*)g_pQForkControl,
+            sizeof(QForkControl));
 
         return TRUE;
     }

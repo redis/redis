@@ -265,5 +265,7 @@ int StorageSize(SOCKADDR_STORAGE *ss);
 #endif
 
 #ifdef __cplusplus
+
+bool IsWindowsVersionAtLeast(WORD wMajorVersion, WORD wMinorVersion, WORD wServicePackMajor);
 }
 #endif
