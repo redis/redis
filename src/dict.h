@@ -87,7 +87,8 @@ typedef struct dict {
  * should be called while iterating. */
 typedef struct dictIterator {
     dict *d;
-    int table, index, safe;
+    int table, safe;
+    long index;
     dictEntry *entry, *nextEntry;
     long long fingerprint; /* unsafe iterator fingerprint for misuse detection */
 } dictIterator;
