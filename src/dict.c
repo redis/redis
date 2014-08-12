@@ -576,7 +576,7 @@ dictEntry *dictNext(dictIterator *iter)
                     iter->fingerprint = dictFingerprint(iter->d);
             }
             iter->index++;
-            if (iter->index >= (signed) ht->size) {
+            if (iter->index >= (signed long) ht->size) {
                 if (dictIsRehashing(iter->d) && iter->table == 0) {
                     iter->table++;
                     iter->index = 0;
