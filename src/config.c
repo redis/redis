@@ -629,7 +629,7 @@ void configSetCommand(redisClient *c) {
                 server.maxclients = orig_value;
                 return;
             }
-            if (aeGetSetSize(server.el) <
+            if ((unsigned int) aeGetSetSize(server.el) <
                 server.maxclients + REDIS_EVENTLOOP_FDSET_INCR)
             {
                 if (aeResizeSetSize(server.el,

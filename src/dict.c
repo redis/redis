@@ -668,9 +668,9 @@ dictEntry *dictGetRandomKey(dict *d)
  * statistics. However the function is much faster than dictGetRandomKey()
  * at producing N elements, and the elements are guaranteed to be non
  * repeating. */
-int dictGetRandomKeys(dict *d, dictEntry **des, int count) {
+unsigned int dictGetRandomKeys(dict *d, dictEntry **des, unsigned int count) {
     int j; /* internal hash table id, 0 or 1. */
-    int stored = 0;
+    unsigned int stored = 0;
 
     if (dictSize(d) < count) count = dictSize(d);
     while(stored < count) {
