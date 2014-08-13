@@ -212,7 +212,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     static robj **argv = NULL;
     static int argv_size = 0;
     static robj *cached_objects[LUA_CMD_OBJCACHE_SIZE];
-    static int cached_objects_len[LUA_CMD_OBJCACHE_SIZE];
+    static size_t cached_objects_len[LUA_CMD_OBJCACHE_SIZE];
 
     /* Require at least one argument */
     if (argc == 0) {

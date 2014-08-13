@@ -323,7 +323,7 @@ int clusterSaveConfig(int do_fsync) {
 
     /* Pad the new payload if the existing file length is greater. */
     if (fstat(fd,&sb) != -1) {
-        if (sb.st_size > content_size) {
+        if (sb.st_size > (off_t)content_size) {
             ci = sdsgrowzero(ci,sb.st_size);
             memset(ci+content_size,'\n',sb.st_size-content_size);
         }
@@ -1907,7 +1907,7 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     ssize_t nread;
     clusterMsg *hdr;
     clusterLink *link = (clusterLink*) privdata;
-    int readlen, rcvbuflen;
+    unsigned int readlen, rcvbuflen;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
 
@@ -3982,7 +3982,7 @@ void clusterCommand(redisClient *c) {
                 "configEpoch set to %llu via CLUSTER SET-CONFIG-EPOCH",
                 (unsigned long long) myself->configEpoch);
 
-            if (server.cluster->currentEpoch < epoch)
+            if (server.cluster->currentEpoch < (uint64_t)epoch)
                 server.cluster->currentEpoch = epoch;
             /* No need to fsync the config here since in the unlucky event
              * of a failure to persist the config, the conflict resolution code
