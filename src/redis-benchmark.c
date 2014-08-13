@@ -213,7 +213,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                 freeReplyObject(reply);
 
                 if (c->selectlen) {
-                    int j;
+                    size_t j;
 
                     /* This is the OK from SELECT. Just discard the SELECT
                      * from the buffer. */
@@ -359,7 +359,7 @@ static client createClient(char *cmd, size_t len, client from) {
             c->randfree = 0;
             c->randptr = zmalloc(sizeof(char*)*c->randlen);
             /* copy the offsets. */
-            for (j = 0; j < c->randlen; j++) {
+            for (j = 0; j < (int)c->randlen; j++) {
                 c->randptr[j] = c->obuf + (from->randptr[j]-from->obuf);
                 /* Adjust for the different select prefix length. */
                 c->randptr[j] += c->selectlen - from->selectlen;

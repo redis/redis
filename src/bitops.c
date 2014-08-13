@@ -107,12 +107,12 @@ size_t redisPopcount(void *s, long count) {
  * no zero bit is found, it returns count*8 assuming the string is zero
  * padded on the right. However if 'bit' is 1 it is possible that there is
  * not a single set bit in the bitmap. In this special case -1 is returned. */
-long redisBitpos(void *s, long count, int bit) {
+long redisBitpos(void *s, unsigned long count, int bit) {
     unsigned long *l;
     unsigned char *c;
     unsigned long skipval, word = 0, one;
     long pos = 0; /* Position of bit, to return to the caller. */
-    int j;
+    unsigned long j;
 
     /* Process whole words first, seeking for first word that is not
      * all ones or all zeros respectively if we are lookig for zeros
@@ -276,11 +276,12 @@ void getbitCommand(redisClient *c) {
 void bitopCommand(redisClient *c) {
     char *opname = c->argv[1]->ptr;
     robj *o, *targetkey = c->argv[2];
-    long op, j, numkeys;
+    unsigned long op, j, numkeys;
     robj **objects;      /* Array of source objects. */
     unsigned char **src; /* Array of source strings pointers. */
-    long *len, maxlen = 0; /* Array of length of src strings, and max len. */
-    long minlen = 0;    /* Min len among the input keys. */
+    unsigned long *len, maxlen = 0; /* Array of length of src strings,
+                                       and max len. */
+    unsigned long minlen = 0;    /* Min len among the input keys. */
     unsigned char *res = NULL; /* Resulting string. */
 
     /* Parse the operation name. */
@@ -320,9 +321,10 @@ void bitopCommand(redisClient *c) {
         }
         /* Return an error if one of the keys is not a string. */
         if (checkType(c,o,REDIS_STRING)) {
-            for (j = j-1; j >= 0; j--) {
-                if (objects[j])
-                    decrRefCount(objects[j]);
+            unsigned long i;
+            for (i = 0; i < j; i++) {
+                if (objects[i])
+                    decrRefCount(objects[i]);
             }
             zfree(src);
             zfree(len);
@@ -340,7 +342,7 @@ void bitopCommand(redisClient *c) {
     if (maxlen) {
         res = (unsigned char*) sdsnewlen(NULL,maxlen);
         unsigned char output, byte;
-        long i;
+        unsigned long i;
 
         /* Fast path: as far as we have data for all the input bitmaps we
          * can take a fast path that performs much better than the

@@ -707,8 +707,8 @@ void activeExpireCycle(int type) {
     static int timelimit_exit = 0;      /* Time limit hit in previous call? */
     static long long last_fast_cycle = 0; /* When last fast cycle ran. */
 
-    unsigned int j, iteration = 0;
-    unsigned int dbs_per_call = REDIS_DBCRON_DBS_PER_CALL;
+    int j, iteration = 0;
+    int dbs_per_call = REDIS_DBCRON_DBS_PER_CALL;
     long long start = ustime(), timelimit;
 
     if (type == ACTIVE_EXPIRE_CYCLE_FAST) {
@@ -944,8 +944,8 @@ void databasesCron(void) {
          * cron loop iteration. */
         static unsigned int resize_db = 0;
         static unsigned int rehash_db = 0;
-        unsigned int dbs_per_call = REDIS_DBCRON_DBS_PER_CALL;
-        unsigned int j;
+        int dbs_per_call = REDIS_DBCRON_DBS_PER_CALL;
+        int j;
 
         /* Don't test more DBs than we have. */
         if (dbs_per_call > server.dbnum) dbs_per_call = server.dbnum;
@@ -1472,7 +1472,7 @@ void adjustOpenFilesLimit(void) {
              * to the higher value supported less than maxfiles. */
             f = maxfiles;
             while(f > oldlimit) {
-                int decr_step = 16;
+                rlim_t decr_step = 16;
 
                 limit.rlim_cur = f;
                 limit.rlim_max = f;
@@ -2223,9 +2223,9 @@ int time_independent_strcmp(char *a, char *b) {
      * a or b are fixed (our password) length, and the difference is only
      * relative to the length of the user provided string, so no information
      * leak is possible in the following two lines of code. */
-    int alen = strlen(a);
-    int blen = strlen(b);
-    int j;
+    unsigned int alen = strlen(a);
+    unsigned int blen = strlen(b);
+    unsigned int j;
     int diff = 0;
 
     /* We can't compare strings longer than our static buffers.

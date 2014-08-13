@@ -1028,7 +1028,7 @@ int processMultibulkBuffer(redisClient *c) {
                 qblen = sdslen(c->querybuf);
                 /* Hint the sds library about the amount of bytes this string is
                  * going to contain. */
-                if (qblen < ll+2)
+                if (qblen < (size_t)ll+2)
                     c->querybuf = sdsMakeRoomFor(c->querybuf,ll+2-qblen);
             }
             c->bulklen = ll;

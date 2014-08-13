@@ -140,7 +140,7 @@ ssize_t aofRewriteBufferWrite(int fd) {
 
         if (block->used) {
             nwritten = write(fd,block->buf,block->used);
-            if (nwritten != block->used) {
+            if (nwritten != (ssize_t)block->used) {
                 if (nwritten == 0) errno = EIO;
                 return -1;
             }

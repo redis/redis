@@ -754,9 +754,9 @@ struct redisServer {
     /* Replication script cache. */
     dict *repl_scriptcache_dict;        /* SHA1 all slaves are aware of. */
     list *repl_scriptcache_fifo;        /* First in, first out LRU eviction. */
-    int repl_scriptcache_size;          /* Max number of elements. */
+    unsigned int repl_scriptcache_size; /* Max number of elements. */
     /* Limits */
-    int maxclients;                 /* Max number of simultaneous clients */
+    unsigned int maxclients;            /* Max number of simultaneous clients */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
     int maxmemory_policy;           /* Policy for key eviction */
     int maxmemory_samples;          /* Pricision of random sampling */
