@@ -66,7 +66,6 @@ double R_Zero, R_PosInf, R_NegInf, R_Nan;
 
 /* Global vars */
 struct redisServer server; /* server global state */
-struct redisCommand *commandTable;
 
 /* Our command table.
  *
@@ -267,7 +266,7 @@ struct redisCommand redisCommandTable[] = {
     {"readwrite",readwriteCommand,1,"rF",0,NULL,0,0,0,0,0},
     {"dump",dumpCommand,2,"ar",0,NULL,1,1,1,0,0},
     {"object",objectCommand,3,"r",0,NULL,2,2,2,0,0},
-    {"client",clientCommand,-2,"ar",0,NULL,0,0,0,0,0},
+    {"client",clientCommand,-2,"ars",0,NULL,0,0,0,0,0},
     {"eval",evalCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
     {"evalsha",evalShaCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
     {"slowlog",slowlogCommand,-2,"r",0,NULL,0,0,0,0,0},
@@ -1376,7 +1375,7 @@ void createSharedObjects(void) {
     shared.maxstring = createStringObject("maxstring",9);
 }
 
-void initServerConfig() {
+void initServerConfig(void) {
     int j;
 
     getRandomHexChars(server.runid,REDIS_RUN_ID_SIZE);
@@ -1696,7 +1695,7 @@ void resetServerStats(void) {
     server.ops_sec_last_sample_ops = 0;
 }
 
-void initServer() {
+void initServer(void) {
     int j;
 
     signal(SIGHUP, SIG_IGN);
@@ -2331,7 +2330,7 @@ int prepareForShutdown(int flags) {
             return REDIS_ERR;
         }
     }
-    if (server.daemonize) {
+    if (server.daemonize || server.pidfile) {
         redisLog(REDIS_NOTICE,"Removing the pid file.");
         unlink(server.pidfile);
     }
@@ -2547,6 +2546,15 @@ void bytesToHuman(char *s, unsigned long long n) {
     } else if (n < (1024LL*1024*1024*1024)) {
         d = (double)n/(1024LL*1024*1024);
         sprintf(s,"%.2fG",d);
+    } else if (n < (1024LL*1024*1024*1024*1024)) {
+        d = (double)n/(1024LL*1024*1024*1024);
+        sprintf(s,"%.2fT",d);
+    } else if (n < (1024LL*1024*1024*1024*1024*1024)) {
+        d = (double)n/(1024LL*1024*1024*1024*1024);
+        sprintf(s,"%.2fP",d);
+    } else {
+        /* Let's hope we never need this */
+        sprintf(s,"%lluB",n);
     }
 }
 
@@ -2559,12 +2567,16 @@ sds genRedisInfoString(char *section) {
     int j, numcommands;
     struct rusage self_ru, c_ru;
     unsigned long lol, bib;
-    int allsections = 0, defsections = 0;
+    int allsections = 0, defsections = 0, serversections = 0;
     int sections = 0;
 
     if (section) {
         allsections = strcasecmp(section,"all") == 0;
         defsections = strcasecmp(section,"default") == 0;
+        serversections = strcasecmp(section,"server") == 0;
+    } else {
+        /* If !section, the strcasecmp() calls below will die. */
+        return sdsempty();
     }
 
     getrusage(RUSAGE_SELF, &self_ru);
@@ -2572,7 +2584,7 @@ sds genRedisInfoString(char *section) {
     getClientsMaxBuffers(&lol,&bib);
 
     /* Server */
-    if (allsections || defsections || !strcasecmp(section,"server")) {
+    if (allsections || defsections || serversections) {
         static int call_uname = 1;
         static struct utsname name;
         char *mode;
@@ -3350,7 +3362,7 @@ void daemonize(void) {
     }
 }
 
-void version() {
+void version(void) {
     printf("Redis server v=%s sha=%s:%d malloc=%s bits=%d build=%llx\n",
         REDIS_VERSION,
         redisGitSHA1(),
@@ -3361,7 +3373,7 @@ void version() {
     exit(0);
 }
 
-void usage() {
+void usage(void) {
     fprintf(stderr,"Usage: ./redis-server [/path/to/redis.conf] [options]\n");
     fprintf(stderr,"       ./redis-server - (read config from stdin)\n");
     fprintf(stderr,"       ./redis-server -v or --version\n");
@@ -3399,25 +3411,32 @@ void redisAsciiArt(void) {
     zfree(buf);
 }
 
-static void sigtermHandler(int sig) {
-    REDIS_NOTUSED(sig);
+static void sigShutdownHandler(int sig) {
+    char *msg;
 
-    redisLogFromHandler(REDIS_WARNING,"Received SIGTERM, scheduling shutdown...");
+    switch (sig) {
+    case SIGINT:
+        msg = "Received SIGINT scheduling shutdown...";
+        break;
+    case SIGTERM:
+        msg = "Received SIGTERM scheduling shutdown...";
+        break;
+    default:
+        msg = "Received shutdown signal, scheduling shutdown...";
+    };
+
+    redisLogFromHandler(REDIS_WARNING, msg);
     server.shutdown_asap = 1;
 }
 
 void setupSignalHandlers(void) {
     struct sigaction act;
-
-    /* When the SA_SIGINFO flag is set in sa_flags then sa_sigaction is used.
-     * Otherwise, sa_handler is used. */
     sigemptyset(&act.sa_mask);
-    act.sa_flags = 0;
-    act.sa_handler = sigtermHandler;
-    sigaction(SIGTERM, &act, NULL);
+
+    signal(SIGTERM, sigShutdownHandler);
+    signal(SIGINT, sigShutdownHandler);
 
 #ifdef HAVE_BACKTRACE
-    sigemptyset(&act.sa_mask);
     act.sa_flags = SA_NODEFER | SA_RESETHAND | SA_SIGINFO;
     act.sa_sigaction = sigsegvHandler;
     sigaction(SIGSEGV, &act, NULL);
@@ -3545,6 +3564,13 @@ int main(int argc, char **argv) {
             }
             j++;
         }
+        if (server.sentinel_mode && configfile && *configfile == '-') {
+            redisLog(REDIS_WARNING,
+                "Sentinel config from STDIN not allowed.");
+            redisLog(REDIS_WARNING,
+                "Sentinel needs config file on disk to save state.  Exiting...");
+            exit(1);
+        }
         if (configfile) server.configfile = getAbsolutePath(configfile);
         resetServerSaveParams();
         loadServerConfig(configfile,options);
@@ -3554,7 +3580,7 @@ int main(int argc, char **argv) {
     }
     if (server.daemonize) daemonize();
     initServer();
-    if (server.daemonize) createPidFile();
+    if (server.daemonize || server.pidfile) createPidFile();
     redisSetProcTitle(argv[0]);
     redisAsciiArt();
 
@@ -3564,7 +3590,9 @@ int main(int argc, char **argv) {
     #ifdef __linux__
         linuxOvercommitMemoryWarning();
     #endif
-        loadDataFromDisk();
+        if (server.masterhost == NULL) {
+            loadDataFromDisk();
+        }
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == REDIS_ERR) {
                 redisLog(REDIS_WARNING,

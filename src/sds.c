@@ -197,7 +197,7 @@ size_t sdsAllocSize(sds s) {
  * ... check for nread <= 0 and handle it ...
  * sdsIncrLen(s, nread);
  */
-void sdsIncrLen(sds s, int incr) {
+void sdsIncrLen(sds s, long incr) {
     struct sdshdr *sh = (void*) (s-(sizeof(struct sdshdr)));
 
     assert(sh->free >= incr);
@@ -388,6 +388,7 @@ sds sdscatvprintf(sds s, const char *fmt, va_list ap) {
         buf[buflen-2] = '\0';
         va_copy(cpy,ap);
         vsnprintf(buf, buflen, fmt, cpy);
+        va_end(ap);
         if (buf[buflen-2] != '\0') {
             if (buf != staticbuf) zfree(buf);
             buflen *= 2;

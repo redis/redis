@@ -30,6 +30,10 @@
 #ifndef __CONFIG_H
 #define __CONFIG_H
 
+#ifdef __unix
+#include <features.h>
+#endif
+
 #ifdef __APPLE__
 #include <AvailabilityMacros.h>
 #endif
@@ -56,7 +60,7 @@
 #endif
 
 /* Test for backtrace() */
-#if defined(__APPLE__) || defined(__linux__)
+#if (defined(__APPLE__) || defined(__linux__)) && !defined(__UCLIBC__)
 #define HAVE_BACKTRACE 1
 #endif
 
@@ -187,8 +191,13 @@ void setproctitle(const char *fmt, ...);
 
 #if (__i386 || __amd64 || __powerpc__) && __GNUC__
 #define GNUC_VERSION (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
-#if (GNUC_VERSION >= 40100) || defined(__clang__)
+#if defined(__clang__)
 #define HAVE_ATOMIC
+#endif
+#if (defined(__GLIBC__) && defined(__GLIBC_PREREQ))
+#if (GNUC_VERSION >= 40100 && __GLIBC_PREREQ(2, 6))
+#define HAVE_ATOMIC
+#endif
 #endif
 #endif
 

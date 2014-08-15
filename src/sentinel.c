@@ -455,19 +455,19 @@ void sentinelIsRunning(void) {
  *  EINVAL: Invalid port number.
  */
 sentinelAddr *createSentinelAddr(char *hostname, int port) {
-    char buf[32];
+    char ip[REDIS_IP_STR_LEN];
     sentinelAddr *sa;
 
     if (port <= 0 || port > 65535) {
         errno = EINVAL;
         return NULL;
     }
-    if (anetResolve(NULL,hostname,buf,sizeof(buf)) == ANET_ERR) {
+    if (anetResolve(NULL,hostname,ip,sizeof(ip)) == ANET_ERR) {
         errno = ENOENT;
         return NULL;
     }
     sa = zmalloc(sizeof(*sa));
-    sa->ip = sdsnew(buf);
+    sa->ip = sdsnew(ip);
     sa->port = port;
     return sa;
 }
@@ -2682,7 +2682,7 @@ void sentinelCommand(redisClient *c) {
         /* SENTINEL MONITOR <name> <ip> <port> <quorum> */
         sentinelRedisInstance *ri;
         long quorum, port;
-        char buf[32];
+        char ip[REDIS_IP_STR_LEN];
 
         if (c->argc != 6) goto numargserr;
         if (getLongFromObjectOrReply(c,c->argv[5],&quorum,"Invalid quorum")
@@ -2692,7 +2692,7 @@ void sentinelCommand(redisClient *c) {
         /* Make sure the IP field is actually a valid IP before passing it
          * to createSentinelRedisInstance(), otherwise we may trigger a
          * DNS lookup at runtime. */
-        if (anetResolveIP(NULL,c->argv[3]->ptr,buf,sizeof(buf)) == ANET_ERR) {
+        if (anetResolveIP(NULL,c->argv[3]->ptr,ip,sizeof(ip)) == ANET_ERR) {
             addReplyError(c,"Invalid IP address specified");
             return;
         }
@@ -2743,24 +2743,30 @@ numargserr:
 
 /* SENTINEL INFO [section] */
 void sentinelInfoCommand(redisClient *c) {
-    char *section = c->argc == 2 ? c->argv[1]->ptr : "default";
-    sds info = sdsempty();
-    int defsections = !strcasecmp(section,"default");
-    int sections = 0;
-
     if (c->argc > 2) {
         addReply(c,shared.syntaxerr);
         return;
     }
 
-    if (!strcasecmp(section,"server") || defsections) {
+    int defsections = 0, allsections = 0;
+    char *section = c->argc == 2 ? c->argv[1]->ptr : NULL;
+    if (section) {
+        allsections = !strcasecmp(section,"all");
+        defsections = !strcasecmp(section,"default");
+    } else {
+        defsections = 1;
+    }
+
+    int sections = 0;
+    sds info = sdsempty();
+    if (defsections || allsections || !strcasecmp(section,"server")) {
         if (sections++) info = sdscat(info,"\r\n");
         sds serversection = genRedisInfoString("server");
         info = sdscatlen(info,serversection,sdslen(serversection));
         sdsfree(serversection);
     }
 
-    if (!strcasecmp(section,"sentinel") || defsections) {
+    if (defsections || allsections || !strcasecmp(section,"sentinel")) {
         dictIterator *di;
         dictEntry *de;
         int master_id = 0;
@@ -2793,6 +2799,13 @@ void sentinelInfoCommand(redisClient *c) {
                 dictSize(ri->sentinels)+1);
         }
         dictReleaseIterator(di);
+    }
+
+    /* If info length is 0, then the user asked for a non-existing section. */
+    if (sdslen(info) == 0) {
+        addReply(c,shared.syntaxerr);
+        sdsfree(info);
+        return;
     }
 
     addReplySds(c,sdscatprintf(sdsempty(),"$%lu\r\n",

@@ -73,6 +73,39 @@ void clusterCloseAllSlots(void);
 void clusterSetNodeAsMaster(clusterNode *n);
 void clusterDelNode(clusterNode *delnode);
 
+struct redisNodeFlags {
+    uint16_t flag;
+    char     *attr;
+};
+
+static struct redisNodeFlags nodeflags[] = {
+    {REDIS_NODE_MYSELF,    "myself,"},
+    {REDIS_NODE_MASTER,    "master,"},
+    {REDIS_NODE_SLAVE,     "slave,"},
+    {REDIS_NODE_PFAIL,     "fail?,"},
+    {REDIS_NODE_FAIL,      "fail,"},
+    {REDIS_NODE_HANDSHAKE, "handshake,"},
+    {REDIS_NODE_NOADDR,    "noaddr,"}
+};
+
+sds representRedisNodeFlags(sds ci, uint16_t flags) {
+    if (flags == 0) {
+        ci = sdscat(ci,"noflags");
+    } else {
+        int size = sizeof(nodeflags) / sizeof(struct redisNodeFlags);
+        for (int i=0; i < size; i++) {
+            struct redisNodeFlags *nodeflag = nodeflags + i;
+            if (flags & nodeflag->flag) {
+                ci = sdscat(ci, nodeflag->attr);
+            }
+        }
+
+        if (ci[sdslen(ci)-1] == ',') ci[sdslen(ci)-1] = ' ';
+    }
+
+    return ci;
+}
+
 /* -----------------------------------------------------------------------------
  * Initialization
  * -------------------------------------------------------------------------- */
@@ -163,8 +196,12 @@ int clusterLoadConfig(char *filename) {
                         argv[j]);
                 }
             }
+            sdsfreesplitres(argv,argc);
             continue;
         }
+
+        /* Regular config lines have at least eight fields */
+        if (argc < 8) goto fmterr;
 
         /* Create this node if it does not exist */
         n = clusterLookupNode(argv[0]);
@@ -266,11 +303,12 @@ int clusterLoadConfig(char *filename) {
 
         sdsfreesplitres(argv,argc);
     }
+    /* Config sanity check */
+    if (server.cluster->myself == NULL) goto fmterr;
+
     zfree(line);
     fclose(fp);
 
-    /* Config sanity check */
-    redisAssert(server.cluster->myself != NULL);
     redisLog(REDIS_NOTICE,"Node configuration loaded, I'm %.40s", myself->name);
 
     /* Something that should never happen: currentEpoch smaller than
@@ -284,7 +322,8 @@ int clusterLoadConfig(char *filename) {
 fmterr:
     redisLog(REDIS_WARNING,
         "Unrecoverable error: corrupted cluster config file.");
-    fclose(fp);
+    zfree(line);
+    if (fp) fclose(fp);
     exit(1);
 }
 
@@ -1144,20 +1183,11 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
     clusterNode *sender = link->node ? link->node : clusterLookupNode(hdr->sender);
 
     while(count--) {
-        sds ci = sdsempty();
         uint16_t flags = ntohs(g->flags);
         clusterNode *node;
 
-        if (flags == 0) ci = sdscat(ci,"noflags,");
-        if (flags & REDIS_NODE_MYSELF) ci = sdscat(ci,"myself,");
-        if (flags & REDIS_NODE_MASTER) ci = sdscat(ci,"master,");
-        if (flags & REDIS_NODE_SLAVE) ci = sdscat(ci,"slave,");
-        if (flags & REDIS_NODE_PFAIL) ci = sdscat(ci,"fail?,");
-        if (flags & REDIS_NODE_FAIL) ci = sdscat(ci,"fail,");
-        if (flags & REDIS_NODE_HANDSHAKE) ci = sdscat(ci,"handshake,");
-        if (flags & REDIS_NODE_NOADDR) ci = sdscat(ci,"noaddr,");
-        if (ci[sdslen(ci)-1] == ',') ci[sdslen(ci)-1] = ' ';
-
+        sds ci = sdsempty();
+        ci = representRedisNodeFlags(ci, flags);
         redisLog(REDIS_DEBUG,"GOSSIP %.40s %s:%d %s",
             g->nodename,
             g->ip,
@@ -3296,14 +3326,13 @@ int verifyClusterConfigWithData(void) {
         update_config++;
         /* Case A: slot is unassigned. Take responsability for it. */
         if (server.cluster->slots[j] == NULL) {
-            redisLog(REDIS_WARNING, "I've keys about slot %d that is "
-                                    "unassigned. Taking responsability "
-                                    "for it.",j);
+            redisLog(REDIS_WARNING, "I have keys for unassigned slot %d. "
+                                    "Taking responsibility for it.",j);
             clusterAddSlot(myself,j);
         } else {
-            redisLog(REDIS_WARNING, "I've keys about slot %d that is "
-                                    "already assigned to a different node. "
-                                    "Setting it in importing state.",j);
+            redisLog(REDIS_WARNING, "I have keys for slot %d, but the slot is "
+                                    "assigned to another node. "
+                                    "Setting it to importing state.",j);
             server.cluster->importing_slots_from[j] = server.cluster->slots[j];
         }
     }
@@ -3354,15 +3383,7 @@ sds clusterGenNodeDescription(clusterNode *node) {
         node->port);
 
     /* Flags */
-    if (node->flags == 0) ci = sdscat(ci,"noflags,");
-    if (node->flags & REDIS_NODE_MYSELF) ci = sdscat(ci,"myself,");
-    if (node->flags & REDIS_NODE_MASTER) ci = sdscat(ci,"master,");
-    if (node->flags & REDIS_NODE_SLAVE) ci = sdscat(ci,"slave,");
-    if (node->flags & REDIS_NODE_PFAIL) ci = sdscat(ci,"fail?,");
-    if (node->flags & REDIS_NODE_FAIL) ci = sdscat(ci,"fail,");
-    if (node->flags & REDIS_NODE_HANDSHAKE) ci =sdscat(ci,"handshake,");
-    if (node->flags & REDIS_NODE_NOADDR) ci = sdscat(ci,"noaddr,");
-    if (ci[sdslen(ci)-1] == ',') ci[sdslen(ci)-1] = ' ';
+    ci = representRedisNodeFlags(ci, node->flags);
 
     /* Slave of... or just "-" */
     if (node->slaveof)

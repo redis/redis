@@ -537,7 +537,7 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
         int filter = 0;
 
         /* Filter element if it does not match the pattern. */
-        if (!filter && use_pattern) {
+        if (use_pattern) {
             if (sdsEncodedObject(kobj)) {
                 if (!stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0))
                     filter = 1;
@@ -716,7 +716,17 @@ void moveCommand(redisClient *c) {
     /* Obtain source and target DB pointers */
     src = c->db;
     srcid = c->db->id;
-    if (selectDb(c,atoi(c->argv[2]->ptr)) == REDIS_ERR) {
+
+    char *after_number = NULL;
+    int requested_db = (int)strtol(c->argv[2]->ptr, &after_number, 10);
+
+    /* If the remainder isn't end of the string, we had non-number input. */
+    if (*after_number != '\0') {
+        addReply(c, shared.outofrangeerr);
+        return;
+    }
+
+    if (selectDb(c,requested_db) == REDIS_ERR) {
         addReply(c,shared.outofrangeerr);
         return;
     }
@@ -982,7 +992,7 @@ int *getKeysUsingCommandTable(struct redisCommand *cmd,robj **argv, int argc, in
     }
     last = cmd->lastkey;
     if (last < 0) last = argc+last;
-    keys = zmalloc(sizeof(int)*((last - cmd->firstkey)+1));
+    keys = zmalloc(sizeof(int)*((last - cmd->firstkey)+1) / cmd->keystep);
     for (j = cmd->firstkey; j <= last; j += cmd->keystep) {
         redisAssert(j < argc);
         keys[i++] = j;
@@ -1076,7 +1086,7 @@ int *evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) 
  * follow in SQL-alike style. Here we parse just the minimum in order to
  * correctly identify keys in the "STORE" option. */
 int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) {
-    int i, j, num, *keys;
+    int i, j, num, *keys, found_store = 0;
     REDIS_NOTUSED(cmd);
 
     num = 0;
@@ -1107,12 +1117,13 @@ int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys) 
                 /* Note: we don't increment "num" here and continue the loop
                  * to be sure to process the *last* "STORE" option if multiple
                  * ones are provided. This is same behavior as SORT. */
+                found_store = 1;
                 keys[num] = i+1; /* <store-key> */
                 break;
             }
         }
     }
-    *numkeys = num;
+    *numkeys = num + found_store;
     return keys;
 }
 

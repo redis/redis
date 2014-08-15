@@ -276,6 +276,7 @@ static int anetTcpGenericConnect(char *err, char *addr, int port,
                 anetSetError(err, "bind: %s", strerror(errno));
                 goto end;
             }
+            freeaddrinfo(bservinfo);
         }
         if (connect(s,p->ai_addr,p->ai_addrlen) == -1) {
             /* If the socket is non-blocking, it is ok for connect() to

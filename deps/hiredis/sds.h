@@ -39,8 +39,8 @@
 typedef char *sds;
 
 struct sdshdr {
-    int len;
-    int free;
+    unsigned int len;
+    unsigned int free;
     char buf[];
 };
 
@@ -94,7 +94,7 @@ sds sdsjoin(char **argv, int argc, char *sep);
 
 /* Low level functions exposed to the user API */
 sds sdsMakeRoomFor(sds s, size_t addlen);
-void sdsIncrLen(sds s, int incr);
+void sdsIncrLen(sds s, long incr);
 sds sdsRemoveFreeSpace(sds s);
 size_t sdsAllocSize(sds s);
 

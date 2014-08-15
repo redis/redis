@@ -626,6 +626,11 @@ typedef struct redisOpArray {
 
 struct clusterState;
 
+#ifdef _AIX
+#undef hz
+#endif
+
+
 struct redisServer {
     /* General */
     pid_t pid;                  /* Main process pid. */
@@ -993,11 +998,10 @@ void freeClient(redisClient *c);
 void freeClientAsync(redisClient *c);
 void resetClient(redisClient *c);
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask);
-void addReply(redisClient *c, robj *obj);
 void *addDeferredMultiBulkLength(redisClient *c);
 void setDeferredMultiBulkLength(redisClient *c, void *node, long length);
-void addReplySds(redisClient *c, sds s);
 void processInputBuffer(redisClient *c);
+void acceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask);
@@ -1005,7 +1009,6 @@ void addReplyBulk(redisClient *c, robj *obj);
 void addReplyBulkCString(redisClient *c, char *s);
 void addReplyBulkCBuffer(redisClient *c, void *p, size_t len);
 void addReplyBulkLongLong(redisClient *c, long long ll);
-void acceptHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 void addReply(redisClient *c, robj *obj);
 void addReplySds(redisClient *c, sds s);
 void addReplyError(redisClient *c, char *err);
@@ -1210,7 +1213,7 @@ void redisLog(int level, const char *fmt, ...);
 #endif
 void redisLogRaw(int level, const char *msg);
 void redisLogFromHandler(int level, const char *msg);
-void usage();
+void usage(void);
 void updateDictResizePolicy(void);
 int htNeedsResize(dict *dict);
 void oom(const char *msg);
@@ -1270,7 +1273,7 @@ sds keyspaceEventsFlagsToString(int flags);
 /* Configuration */
 void loadServerConfig(char *filename, char *options);
 void appendServerSaveParams(time_t seconds, int changes);
-void resetServerSaveParams();
+void resetServerSaveParams(void);
 struct rewriteConfigState; /* Forward declaration to export API. */
 void rewriteConfigRewriteLine(struct rewriteConfigState *state, char *option, sds line, int force);
 int rewriteConfig(char *path);

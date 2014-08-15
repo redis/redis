@@ -73,7 +73,7 @@ void appendServerSaveParams(time_t seconds, int changes) {
     server.saveparamslen++;
 }
 
-void resetServerSaveParams() {
+void resetServerSaveParams(void) {
     zfree(server.saveparams);
     server.saveparams = NULL;
     server.saveparamslen = 0;
@@ -102,6 +102,19 @@ void loadServerConfigFromString(char *config) {
         if (argv == NULL) {
             err = "Unbalanced quotes in configuration line";
             goto loaderr;
+        }
+
+        /* Remove any comments after the arguments */
+        int i;
+        for (i = 0; i < argc; i++) {
+            if (argv[i][0] == '#') {
+                int j;
+                for (j = i; j < argc; j++) {
+                    sdsfree(argv[j]);
+                }
+                argc = i;
+                break;
+            }
         }
 
         /* Skip this line if the resulting command vector is empty. */
