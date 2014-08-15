@@ -224,6 +224,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     /* Build the arguments vector */
     if (!argv) {
         argv = zmalloc(sizeof(robj*)*argc);
+        argv_size = argc;
     } else if (argv_size < argc) {
         argv = zrealloc(argv,sizeof(robj*)*argc);
         argv_size = argc;
