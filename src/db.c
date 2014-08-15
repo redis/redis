@@ -421,7 +421,7 @@ int parseScanCursorOrReply(redisClient *c, robj *o, unsigned long *cursor) {
  * In the case of a Hash object the function returns both the field and value
  * of every element on the Hash. */
 void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
-    int rv;
+    int len;
     int i, j;
     char buf[REDIS_LONGSTR_SIZE];
     list *keys = listCreate();
@@ -542,11 +542,8 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
                 if (!stringmatchlen(pat, patlen, kobj->ptr, sdslen(kobj->ptr), 0))
                     filter = 1;
             } else {
-                char buf[REDIS_LONGSTR_SIZE];
-                int len;
-
                 redisAssert(kobj->encoding == REDIS_ENCODING_INT);
-                len = ll2string(buf,sizeof(buf),(long)kobj->ptr);
+                len = ll2string(buf, sizeof(buf), (long)kobj->ptr);
                 if (!stringmatchlen(pat, patlen, buf, len, 0)) filter = 1;
             }
         }
@@ -577,9 +574,9 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
 
     /* Step 4: Reply to the client. */
     addReplyMultiBulkLen(c, 2);
-    rv = snprintf(buf, sizeof(buf), "%lu", cursor);
-    redisAssert(rv < sizeof(buf));
-    addReplyBulkCBuffer(c, buf, rv);
+    len = snprintf(buf, sizeof(buf), "%lu", cursor);
+    redisAssert(len < sizeof(buf));
+    addReplyBulkCBuffer(c, buf, len);
 
     addReplyMultiBulkLen(c, listLength(keys));
     while ((node = listFirst(keys)) != NULL) {
