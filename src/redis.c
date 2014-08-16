@@ -3399,25 +3399,32 @@ void redisAsciiArt(void) {
     zfree(buf);
 }
 
-static void sigtermHandler(int sig) {
-    REDIS_NOTUSED(sig);
+static void sigShutdownHandler(int sig) {
+    char *msg;
 
-    redisLogFromHandler(REDIS_WARNING,"Received SIGTERM, scheduling shutdown...");
+    switch (sig) {
+    case SIGINT:
+        msg = "Received SIGINT scheduling shutdown...";
+        break;
+    case SIGTERM:
+        msg = "Received SIGTERM scheduling shutdown...";
+        break;
+    default:
+        msg = "Received shutdown signal, scheduling shutdown...";
+    };
+
+    redisLogFromHandler(REDIS_WARNING, msg);
     server.shutdown_asap = 1;
 }
 
 void setupSignalHandlers(void) {
     struct sigaction act;
-
-    /* When the SA_SIGINFO flag is set in sa_flags then sa_sigaction is used.
-     * Otherwise, sa_handler is used. */
     sigemptyset(&act.sa_mask);
-    act.sa_flags = 0;
-    act.sa_handler = sigtermHandler;
-    sigaction(SIGTERM, &act, NULL);
+
+    signal(SIGTERM, sigShutdownHandler);
+    signal(SIGINT, sigShutdownHandler);
 
 #ifdef HAVE_BACKTRACE
-    sigemptyset(&act.sa_mask);
     act.sa_flags = SA_NODEFER | SA_RESETHAND | SA_SIGINFO;
     act.sa_sigaction = sigsegvHandler;
     sigaction(SIGSEGV, &act, NULL);
