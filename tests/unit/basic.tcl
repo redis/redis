@@ -52,6 +52,12 @@ start_server {tags {"basic"}} {
         r get foo
     } [string repeat "abcd" 1000000]
 
+    test {Very big key in SET} {
+        set buf [string repeat "abcd" 1000000]
+        catch {r set $buf "foo"} err
+        format $err
+    } {ERR*}
+
     tags {"slow"} {
         test {Very big payload random access} {
             set err {}
