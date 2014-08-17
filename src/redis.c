@@ -2018,6 +2018,29 @@ int processCommand(redisClient *c) {
         return REDIS_OK;
     }
 
+    if (c->cmd->flags & REDIS_CMD_WRITE) {
+      int numkeys, i;
+      int *keys = getKeysFromCommand(c->cmd, c->argv, c->argc, &numkeys, c->cmd->flags);
+      robj *long_key = NULL;
+
+      for (i = 0; i < numkeys; i++) {
+        if (stringObjectLen(c->argv[keys[i]]) > 1024) {
+          long_key = c->argv[keys[i]];
+          break;
+        }
+      }
+
+      getKeysFreeResult(keys);
+
+      if (long_key) {
+        flagTransaction(c);
+        addReplyErrorFormat(c,"The key used is too long it was '%zu' characters, the maximum is 1024",
+           stringObjectLen(long_key));
+
+        return REDIS_OK;
+      }
+    }
+
     /* Handle the maxmemory directive.
      *
      * First we try to free some memory if possible (if there are volatile
