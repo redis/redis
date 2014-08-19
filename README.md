@@ -51,4 +51,16 @@ To run the Redis test suite requires some manual work:
   
 ## Known issues
 
-None.
+Problem:
+On versions of Windows prior to Windows 8/Server 2012, when an AOF or RDB operation is complete and the child process is being rejoined with the parent, it is 
+possible for Redis to unexpectedly terminate.
+
+Cause:
+The PAGE_REVERT_TO_FILE_MAP flag is not usable in VirtualProtect() in earlier versions of the OS. This flag allows for removing copy on write(COW) pages from 
+a memory mapped view without unmapping the view. In prior versions of the OS, the only way to purge COW pages is to unmap and then remap the memory mapped view. 
+Between the unmapping and remapping operations a third party process(e.g., an anti-virus program) could allocate virtual memory occupied by the memory mapped view. 
+As this view is used for the Redis heap, failure to remap is a fatal error. (See RejoinCOWPages() in src\Win32_Interop\Win32_QFork.cpp)
+
+Solution:
+If you encounter this problem, host Redis on Windows 8/Server 2012 or newer.
+
