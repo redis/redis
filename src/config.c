@@ -224,6 +224,8 @@ void loadServerConfigFromString(char *config) {
             if (server.maxclients < 1) {
                 err = "Invalid max clients limit"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"max-key-size") && argc == 2) {
+            server.max_key_size = memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"maxmemory") && argc == 2) {
             server.maxmemory = memtoll(argv[1],NULL);
         } else if (!strcasecmp(argv[0],"maxmemory-policy") && argc == 2) {
@@ -762,6 +764,9 @@ void configSetCommand(redisClient *c) {
             addReplyErrorFormat(c,"Changing directory: %s", strerror(errno));
             return;
         }
+    } else if (!strcasecmp(c->argv[2]->ptr,"max-key-size")) {
+        if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
+        server.max_key_size = ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"hash-max-ziplist-entries")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.hash_max_ziplist_entries = ll;
@@ -1027,6 +1032,7 @@ void configGetCommand(redisClient *c) {
     config_get_numerical_field("cluster-node-timeout",server.cluster_node_timeout);
     config_get_numerical_field("cluster-migration-barrier",server.cluster_migration_barrier);
     config_get_numerical_field("cluster-slave-validity-factor",server.cluster_slave_validity_factor);
+    config_get_numerical_field("max-key-size", server.max_key_size)
 
     /* Bool (yes/no) values */
     config_get_bool_field("no-appendfsync-on-rewrite",
@@ -1772,6 +1778,7 @@ int rewriteConfig(char *path) {
     rewriteConfigStringOption(state,"requirepass",server.requirepass,NULL);
     rewriteConfigNumericalOption(state,"maxclients",server.maxclients,REDIS_MAX_CLIENTS);
     rewriteConfigBytesOption(state,"maxmemory",server.maxmemory,REDIS_DEFAULT_MAXMEMORY);
+    rewriteConfigBytesOption(state,"max-key-size",server.max_key_size,REDIS_DEFAULT_MAX_KEY_SIZE);
     rewriteConfigEnumOption(state,"maxmemory-policy",server.maxmemory_policy,
         "volatile-lru", REDIS_MAXMEMORY_VOLATILE_LRU,
         "allkeys-lru", REDIS_MAXMEMORY_ALLKEYS_LRU,

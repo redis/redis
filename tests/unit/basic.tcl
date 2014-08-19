@@ -53,6 +53,7 @@ start_server {tags {"basic"}} {
     } [string repeat "abcd" 1000000]
 
     test {Very big key in SET} {
+        r config set max-key-size 1024
         set buf [string repeat "abcd" 1000000]
         catch {r set $buf "foo"} err
         format $err
