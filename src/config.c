@@ -530,7 +530,9 @@ void loadServerConfigFromString(char *config) {
 #ifdef _WIN32
 		} else if (!strcasecmp(argv[0],"maxheap")) {
 			// ignore. This is taken care of in the qfork code.
-		} else if (!strcasecmp(argv[0],"service-name")) {
+        } else if (!strcasecmp(argv[0], "heapdir")) {
+            // ignore. This is taken care of in the qfork code.
+        } else if (!strcasecmp(argv[0], "service-name")) {
 			// ignore. This is taken care of in the win32_service code.
 #endif
 		} else {

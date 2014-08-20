@@ -271,6 +271,10 @@ void flushAppendOnlyFile(int force) {
             redisLog(REDIS_NOTICE,"Asynchronous AOF fsync is taking too long (disk is busy?). Writing the AOF buffer without waiting for fsync to complete, this may slow down Redis.");
         }
     }
+    /* If you are following this code path, then we are going to write so
+     * set reset the postponed flush sentinel to zero. */
+    server.aof_flush_postponed_start = 0;
+
     /* We want to perform a single write. This should be guaranteed atomic
      * at least if the filesystem we are writing is a real physical one.
      * While this will save us against the server being killed I don't think
@@ -1183,14 +1187,15 @@ void aofUpdateCurrentSize(void) {
 /* A background append only file rewriting (BGREWRITEAOF) terminated its work.
  * Handle this. */
 void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
+#ifdef _WIN32
+    char tmpfile_old[256];
+#endif
+
     if (!bysignal && exitcode == 0) {
         int newfd, oldfd;
         char tmpfile[256];
         long long now = ustime();
         mstime_t latency;
-#ifdef _WIN32
-        char tmpfile_old[256];
-#endif
 
         redisLog(REDIS_NOTICE,
             "Background AOF rewrite terminated with success");
@@ -1366,6 +1371,9 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 cleanup:
     aofRewriteBufferReset();
     aofRemoveTempFile(server.aof_child_pid);
+#ifdef _WIN32
+    unlink(tmpfile_old);
+#endif
     server.aof_child_pid = -1;
     server.aof_rewrite_time_last = time(NULL)-server.aof_rewrite_time_start;
     server.aof_rewrite_time_start = -1;
