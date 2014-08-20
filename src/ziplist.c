@@ -576,19 +576,19 @@ static unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsig
 
 /* Insert item at "p". */
 static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsigned char *s, unsigned int slen) {
-    size_t curlen = intrev32ifbe(ZIPLIST_BYTES(zl)), reqlen, prevlen = 0;
+    size_t curlen = intrev32ifbe(ZIPLIST_BYTES(zl)), reqlen;
+    unsigned int prevlensize, prevlen = 0;
     size_t offset;
     int nextdiff = 0;
     unsigned char encoding = 0;
     long long value = 123456789; /* initialized to avoid warning. Using a value
                                     that is easy to see if for some reason
                                     we use it uninitialized. */
-    zlentry entry, tail;
+    zlentry tail;
 
     /* Find out prevlen for the entry that is inserted. */
     if (p[0] != ZIP_END) {
-        entry = zipEntry(p);
-        prevlen = entry.prevrawlen;
+        ZIP_DECODE_PREVLEN(p, prevlensize, prevlen);
     } else {
         unsigned char *ptail = ZIPLIST_ENTRY_TAIL(zl);
         if (ptail[0] != ZIP_END) {
@@ -676,15 +676,15 @@ unsigned char *ziplistPush(unsigned char *zl, unsigned char *s, unsigned int sle
  * doesn't contain an element at the provided index, NULL is returned. */
 unsigned char *ziplistIndex(unsigned char *zl, int index) {
     unsigned char *p;
-    zlentry entry;
+    unsigned int prevlensize, prevlen = 0;
     if (index < 0) {
         index = (-index)-1;
         p = ZIPLIST_ENTRY_TAIL(zl);
         if (p[0] != ZIP_END) {
-            entry = zipEntry(p);
-            while (entry.prevrawlen > 0 && index--) {
-                p -= entry.prevrawlen;
-                entry = zipEntry(p);
+            ZIP_DECODE_PREVLEN(p, prevlensize, prevlen);
+            while (prevlen > 0 && index--) {
+                p -= prevlen;
+                ZIP_DECODE_PREVLEN(p, prevlensize, prevlen);
             }
         }
     } else {
@@ -722,7 +722,7 @@ unsigned char *ziplistNext(unsigned char *zl, unsigned char *p) {
 
 /* Return pointer to previous entry in ziplist. */
 unsigned char *ziplistPrev(unsigned char *zl, unsigned char *p) {
-    zlentry entry;
+    unsigned int prevlensize, prevlen = 0;
 
     /* Iterating backwards from ZIP_END should return the tail. When "p" is
      * equal to the first element of the list, we're already at the head,
@@ -733,9 +733,9 @@ unsigned char *ziplistPrev(unsigned char *zl, unsigned char *p) {
     } else if (p == ZIPLIST_ENTRY_HEAD(zl)) {
         return NULL;
     } else {
-        entry = zipEntry(p);
-        assert(entry.prevrawlen > 0);
-        return p-entry.prevrawlen;
+        ZIP_DECODE_PREVLEN(p, prevlensize, prevlen);
+        assert(prevlen > 0);
+        return p-prevlen;
     }
 }
 

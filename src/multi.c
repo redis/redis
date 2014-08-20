@@ -72,7 +72,7 @@ void queueMultiCommand(redisClient *c) {
 void discardTransaction(redisClient *c) {
     freeClientMultiState(c);
     initClientMultiState(c);
-    c->flags &= ~(REDIS_MULTI|REDIS_DIRTY_CAS|REDIS_DIRTY_EXEC);;
+    c->flags &= ~(REDIS_MULTI|REDIS_DIRTY_CAS|REDIS_DIRTY_EXEC);
     unwatchAllKeys(c);
 }
 
