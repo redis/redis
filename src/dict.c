@@ -160,8 +160,8 @@ unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len) {
 
 /* ----------------------------- API implementation ------------------------- */
 
-/* Reset a hash table already initialized with ht_init().
- * NOTE: This function should only be called by ht_destroy(). */
+/* Reset a hash table
+ * NOTE: This function should only be called after free bucket (ht->table) */
 static void _dictReset(dictht *ht)
 {
     ht->table = NULL;
