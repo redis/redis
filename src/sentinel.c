@@ -1424,6 +1424,8 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
             return "Wrong hostname or port for sentinel.";
         }
         if (argc == 5) si->runid = sdsnew(argv[4]);
+    } else if (!(fopen(argv[0],"r") == NULL) && argc == 1) {
+    	return "Ensure that the Sentinel option comes after the configuration filepath: redis /path/to/my/redis.conf --sentinel";
     } else {
         return "Unrecognized sentinel configuration statement.";
     }
