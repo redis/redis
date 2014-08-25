@@ -95,6 +95,10 @@ void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
     listNode *ln;
     aofrwblock *block;
     ssize_t nwritten;
+    REDIS_NOTUSED(el);
+    REDIS_NOTUSED(fd);
+    REDIS_NOTUSED(privdata);
+    REDIS_NOTUSED(mask);
 
     while(1) {
         ln = listFirst(server.aof_rewrite_buf_blocks);
@@ -177,7 +181,7 @@ ssize_t aofRewriteBufferWrite(int fd) {
 
         if (block->used) {
             nwritten = write(fd,block->buf,block->used);
-            if (nwritten != block->used) {
+            if (nwritten != (ssize_t)block->used) {
                 if (nwritten == 0) errno = EIO;
                 return -1;
             }
@@ -1128,6 +1132,9 @@ werr:
  * parent sends a '!' as well to acknowledge. */
 void aofChildPipeReadable(aeEventLoop *el, int fd, void *privdata, int mask) {
     char byte;
+    REDIS_NOTUSED(el);
+    REDIS_NOTUSED(privdata);
+    REDIS_NOTUSED(mask);
 
     if (read(fd,&byte,1) == 1 && byte == '!') {
         redisLog(REDIS_NOTICE,"AOF rewrite child asks to stop sending diffs.");

@@ -142,7 +142,7 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 #define dictGetDoubleVal(he) ((he)->v.d)
 #define dictSlots(d) ((d)->ht[0].size+(d)->ht[1].size)
 #define dictSize(d) ((d)->ht[0].used+(d)->ht[1].used)
-#define dictIsRehashing(ht) ((ht)->rehashidx != -1)
+#define dictIsRehashing(d) ((d)->rehashidx != -1)
 
 /* API */
 dict *dictCreate(dictType *type, void *privDataPtr);
@@ -162,7 +162,7 @@ dictIterator *dictGetSafeIterator(dict *d);
 dictEntry *dictNext(dictIterator *iter);
 void dictReleaseIterator(dictIterator *iter);
 dictEntry *dictGetRandomKey(dict *d);
-int dictGetRandomKeys(dict *d, dictEntry **des, int count);
+unsigned int dictGetRandomKeys(dict *d, dictEntry **des, unsigned int count);
 void dictPrintStats(dict *d);
 unsigned int dictGenHashFunction(const void *key, int len);
 unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len);
