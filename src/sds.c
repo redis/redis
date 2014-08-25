@@ -206,7 +206,6 @@ void sdsIncrLen(sds s, int incr) {
         assert(sh->len >= (unsigned int)(-incr));
     sh->len += incr;
     sh->free -= incr;
-    assert(sh->free >= 0);
     s[sh->len] = '\0';
 }
 
