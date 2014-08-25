@@ -1433,7 +1433,7 @@ void initServerConfig(void) {
     server.aof_flush_postponed_start = 0;
     server.aof_rewrite_incremental_fsync = REDIS_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC;
     server.aof_load_truncated = REDIS_DEFAULT_AOF_LOAD_TRUNCATED;
-    server.pidfile = zstrdup(REDIS_DEFAULT_PID_FILE);
+    server.pidfile = NULL;
     server.rdb_filename = zstrdup(REDIS_DEFAULT_RDB_FILENAME);
     server.aof_filename = zstrdup(REDIS_DEFAULT_AOF_FILENAME);
     server.requirepass = NULL;
@@ -3393,6 +3393,10 @@ void linuxMemoryWarnings(void) {
 #endif /* __linux__ */
 
 void createPidFile(void) {
+    /* If pidfile requested, but no pidfile defined, use
+     * default pidfile path */
+    if (!server.pidfile) server.pidfile = zstrdup(REDIS_DEFAULT_PID_FILE);
+
     /* Try to write the pid file in a best-effort way. */
     FILE *fp = fopen(server.pidfile,"w");
     if (fp) {
