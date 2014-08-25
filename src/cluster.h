@@ -62,12 +62,12 @@ typedef struct clusterLink {
 #define nodeFailed(n) ((n)->flags & REDIS_NODE_FAIL)
 
 /* This structure represent elements of node->fail_reports. */
-struct clusterNodeFailReport {
+typedef struct clusterNodeFailReport {
     struct clusterNode *node;  /* Node reporting the failure condition. */
     mstime_t time;             /* Time of the last report from this node. */
-} typedef clusterNodeFailReport;
+} clusterNodeFailReport;
 
-struct clusterNode {
+typedef struct clusterNode {
     mstime_t ctime; /* Node object creation time. */
     char name[REDIS_CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
     int flags;      /* REDIS_NODE_... */
@@ -87,8 +87,7 @@ struct clusterNode {
     int port;                   /* Latest known port of this node */
     clusterLink *link;          /* TCP/IP link with this node */
     list *fail_reports;         /* List of nodes signaling this as failing */
-};
-typedef struct clusterNode clusterNode;
+} clusterNode;
 
 typedef struct clusterState {
     clusterNode *myself;  /* This node */
