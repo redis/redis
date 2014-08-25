@@ -61,6 +61,10 @@
 #endif
 
 /* Test for polling API */
+#ifdef _AIX
+#define HAVE_POLLSET 1
+#endif
+
 #ifdef __linux__
 #define HAVE_EPOLL 1
 #endif
