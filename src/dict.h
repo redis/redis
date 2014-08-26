@@ -77,7 +77,7 @@ typedef struct dict {
     dictType *type;
     void *privdata;
     dictht ht[2];
-    int rehashidx; /* rehashing not in progress if rehashidx == -1 */
+    long rehashidx; /* rehashing not in progress if rehashidx == -1 */
     int iterators; /* number of iterators currently running */
 } dict;
 
@@ -87,9 +87,11 @@ typedef struct dict {
  * should be called while iterating. */
 typedef struct dictIterator {
     dict *d;
-    int table, index, safe;
+    long index;
+    int table, safe;
     dictEntry *entry, *nextEntry;
-    long long fingerprint; /* unsafe iterator fingerprint for misuse detection */
+    /* unsafe iterator fingerprint for misuse detection. */
+    long long fingerprint;
 } dictIterator;
 
 typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
