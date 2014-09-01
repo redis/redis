@@ -14,6 +14,40 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.14 ] Release date: 1 Sep 2014
+
+# UPGRADE URGENCY: HIGH for Lua scripting users, the server could crash because
+                   of a bug introduced in Redis 2.8.10, otherwise LOW.
+                   LOW for Redis Sentinel.
+
+* [FIX] Don't prevent use of shared integers if maxmemory policy is non-LRU.
+        (Salvatore Sanfilippo)
+* [FIX] Fail SYNC if background save child aborted due to a signal.
+        (Yossi Gottlieb)
+* [FIX] Different small redis-cli fixes. (Dov Murik, Charsyam, cubicdaiya,
+        Kashif Rasul, Jan-Erik Rediger, Matt Stancliff)
+* [FIX] AIX compilation fixes. (Siah Lyimo)
+* [FIX] A number of other smaller issues.
+* [FIX] Improved SIGINT handling (Matt Stancliff, Salvatore Sanfilippo)
+* [FIX] Use unsigned types in SDS header to raise limit to 4GB.
+        (Matt Stancliff, Salvatore Sanfilippo)
+* [FIX] Handle signed/unsigned comparisons with more care around the code.
+        (Salvatore Sanfilippo)
+* [FIX] Colorized test output fixed to don't change the background color.
+        (Mariano Pérez Rodríguez)
+* [FIX] More Sentinel IPv6 fixes. (Eiichi Sato)
+* [FIX] Deny CLIENT command in scripts. (Matt Stancliff)
+* [FIX] Allow datasets with more than 2 billion of keys, initial work.
+* [FIX] Fix a Lua scripting crash by storing the length of the static
+        argv when first allocated. (Paddy Byers)
+
+* [NEW] Pub/Sub PING. (Salvatore Sanfilippo)
+* [NEW] Much faster ZUNIONSTORE. (Kyle Hubert, Salvatore Sanfilippo)
+* [NEW] Faster ll2string() implementation. (Salvatore Sanfilippo)
+* [NEW] **WARNING, minor API change**: PUBSUB NUMSUB: return type modified
+        to integer. (Matt Stancliff)
+* [NEW] redis-benchmark support for AUTH. (CharSyam)
+
 --[ Redis 2.8.13 ] Release date: 14 Jul 2014
 
 # UPGRADE URGENCY: LOW for Redis and Sentinel, this is a features enhancement
