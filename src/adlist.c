@@ -124,7 +124,16 @@ list *listAddNodeTail(list *list, void *value)
     return list;
 }
 
-list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
+/* Add a new node to the list, with the specified 'value' pointer
+ * as its value.
+ *
+ * If 'after' evaluates to true, the new node will be added immediately
+ * after 'old_node'. Otherwise, it will be inserted before.
+ *
+ * On error, NULL is returned and the list remains unaltered.
+ * On success the 'list' pointer passed to the function is returned. */
+list *listInsertNode(list *list, listNode *old_node, void *value, int after)
+{
     listNode *node;
 
     if ((node = zmalloc(sizeof(*node))) == NULL)
