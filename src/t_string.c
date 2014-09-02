@@ -259,7 +259,7 @@ void getrangeCommand(redisClient *c) {
 
     /* Precondition: end >= 0 && end < strlen, so the only condition where
      * nothing can be returned is: start > end. */
-    if (start > end) {
+    if (start > end || strlen == 0) {
         addReply(c,shared.emptybulk);
     } else {
         addReplyBulkCBuffer(c,(char*)str+start,end-start+1);
