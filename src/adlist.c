@@ -242,14 +242,15 @@ listNode *listNext(listIter *iter)
     return current;
 }
 
-/* Duplicate the whole list. On out of memory NULL is returned.
- * On success a copy of the original list is returned.
+/* Duplicate an entire list.
  *
  * The 'Dup' method set with listSetDupMethod() function is used
  * to copy the node value. Otherwise the same pointer value of
  * the original node is used as value of the copied node.
  *
- * The original list both on success or error is never modified. */
+ * On out of memory, NULL is returned.
+ * On success, a copy of the original list is returned.
+ * In both cases, the original list is never modified. */
 list *listDup(list *orig)
 {
     list *copy;
@@ -284,15 +285,16 @@ list *listDup(list *orig)
     return copy;
 }
 
-/* Search the list for a node matching a given key.
+/* Search a list for a node matching a given key, starting from
+ * the head.
+ *
  * The match is performed using the 'match' method
  * set with listSetMatchMethod(). If no 'match' method
  * is set, the 'value' pointer of every node is directly
  * compared with the 'key' pointer.
  *
- * On success the first matching node pointer is returned
- * (search starts from head). If no matching node exists
- * NULL is returned. */
+ * On success, the first matching node pointer is returned.
+ * If no matching node exists, NULL is returned. */
 listNode *listSearchKey(list *list, void *key)
 {
     listIter *iter;
