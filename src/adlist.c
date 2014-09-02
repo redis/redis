@@ -33,9 +33,10 @@
 #include "adlist.h"
 #include "zmalloc.h"
 
-/* Create a new list. The created list can be freed with
- * AlFreeList(), but private value of every node need to be freed
- * by the user before to call AlFreeList().
+/* Create a new list.
+ *
+ * The created list can be freed with AlFreeList(), but private
+ * values of every node must be freed by the user first.
  *
  * On error, NULL is returned. Otherwise the pointer to the new list. */
 list *listCreate(void)
@@ -52,7 +53,7 @@ list *listCreate(void)
     return list;
 }
 
-/* Free the whole list.
+/* Free an entire list.
  *
  * This function can't fail. */
 void listRelease(list *list)
@@ -71,8 +72,8 @@ void listRelease(list *list)
     zfree(list);
 }
 
-/* Add a new node to the list, to head, contaning the specified 'value'
- * pointer as value.
+/* Add a new node to the head of a list, with the specified 'value'
+ * pointer as its value.
  *
  * On error, NULL is returned and no operation is performed (i.e. the
  * list remains unaltered).
@@ -97,8 +98,8 @@ list *listAddNodeHead(list *list, void *value)
     return list;
 }
 
-/* Add a new node to the list, to tail, containing the specified 'value'
- * pointer as value.
+/* Add a new node to the tail of a list, with the specified 'value'
+ * pointer as its value.
  *
  * On error, NULL is returned and no operation is performed (i.e. the
  * list remains unaltered).
@@ -152,7 +153,7 @@ list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
     return list;
 }
 
-/* Remove the specified node from the specified list.
+/* Remove a node from a list.
  * It's up to the caller to free the private value of the node.
  *
  * This function can't fail. */
@@ -188,7 +189,7 @@ listIter *listGetIterator(list *list, int direction)
     return iter;
 }
 
-/* Release the iterator memory */
+/* Release an iterator's memory */
 void listReleaseIterator(listIter *iter) {
     zfree(iter);
 }
@@ -204,7 +205,7 @@ void listRewindTail(list *list, listIter *li) {
     li->direction = AL_START_TAIL;
 }
 
-/* Return the next element of an iterator.
+/* Get the next element of an iterator.
  * It's valid to remove the currently returned element using
  * listDelNode(), but not to remove other elements.
  *
@@ -324,7 +325,7 @@ listNode *listIndex(list *list, long index) {
     return n;
 }
 
-/* Rotate the list removing the tail node and inserting it to the head. */
+/* Rotate a list removing the tail node and inserting it at the head. */
 void listRotate(list *list) {
     listNode *tail = list->tail;
 
@@ -333,7 +334,7 @@ void listRotate(list *list) {
     /* Detach current tail */
     list->tail = tail->prev;
     list->tail->next = NULL;
-    /* Move it as head */
+    /* Move it to head */
     list->head->prev = tail;
     tail->prev = NULL;
     tail->next = list->head;
