@@ -189,7 +189,8 @@ listIter *listGetIterator(list *list, int direction)
 {
     listIter *iter;
 
-    if ((iter = zmalloc(sizeof(*iter))) == NULL) return NULL;
+    if ((iter = zmalloc(sizeof(*iter))) == NULL)
+		return NULL;
     if (direction == AL_START_HEAD)
         iter->next = list->head;
     else
@@ -222,7 +223,7 @@ void listRewindTail(list *list, listIter *li) {
  * or NULL if there are no more elements, so the classical usage patter
  * is:
  *
- * iter = listGetIterator(list,<direction>);
+ * iter = listGetIterator(list, <direction>);
  * while ((node = listNext(iter)) != NULL) {
  *     doSomethingWith(listNodeValue(node));
  * }
