@@ -198,18 +198,21 @@ listIter *listGetIterator(list *list, int direction)
 }
 
 /* Release an iterator's memory */
-void listReleaseIterator(listIter *iter) {
+void listReleaseIterator(listIter *iter)
+{
     zfree(iter);
 }
 
 /* Set an iterator to start at the head of a list, moving forwards */
-void listRewind(list *list, listIter *li) {
+void listRewind(list *list, listIter *li)
+{
     li->next = list->head;
     li->direction = AL_START_HEAD;
 }
 
 /* Set an iterator to start at the tail of a list, moving backwards */
-void listRewindTail(list *list, listIter *li) {
+void listRewindTail(list *list, listIter *li)
+{
     li->next = list->tail;
     li->direction = AL_START_TAIL;
 }
@@ -322,7 +325,8 @@ listNode *listSearchKey(list *list, void *key)
  * and so on. Negative indices can be used to count
  * from the tail: -1 is the last element, -2 the penultimate
  * and so on. If the index is out of range NULL is returned. */
-listNode *listIndex(list *list, long index) {
+listNode *listIndex(list *list, long index)
+{
     listNode *n;
 
     if (index < 0) {
@@ -337,7 +341,8 @@ listNode *listIndex(list *list, long index) {
 }
 
 /* Rotate a list removing the tail node and inserting it at the head. */
-void listRotate(list *list) {
+void listRotate(list *list)
+{
     listNode *tail = list->tail;
 
     if (listLength(list) <= 1) return;
