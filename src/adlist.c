@@ -204,12 +204,13 @@ void listReleaseIterator(listIter *iter) {
     zfree(iter);
 }
 
-/* Create an iterator in the list private iterator structure */
+/* Set an iterator to start at the head of a list, moving forwards */
 void listRewind(list *list, listIter *li) {
     li->next = list->head;
     li->direction = AL_START_HEAD;
 }
 
+/* Set an iterator to start at the tail of a list, moving backwards */
 void listRewindTail(list *list, listIter *li) {
     li->next = list->tail;
     li->direction = AL_START_TAIL;
