@@ -75,9 +75,8 @@ void listRelease(list *list)
 /* Add a new node to the head of a list, with the specified 'value'
  * pointer as its value.
  *
- * On error, NULL is returned and no operation is performed (i.e. the
- * list remains unaltered).
- * On success the 'list' pointer you pass to the function is returned. */
+ * On error, NULL is returned and the list remains unaltered.
+ * On success, the 'list' pointer passed to the function is returned. */
 list *listAddNodeHead(list *list, void *value)
 {
     listNode *node;
@@ -101,9 +100,8 @@ list *listAddNodeHead(list *list, void *value)
 /* Add a new node to the tail of a list, with the specified 'value'
  * pointer as its value.
  *
- * On error, NULL is returned and no operation is performed (i.e. the
- * list remains unaltered).
- * On success the 'list' pointer you pass to the function is returned. */
+ * On error, NULL is returned and the list remains unaltered.
+ * On success the 'list' pointer passed to the function is returned. */
 list *listAddNodeTail(list *list, void *value)
 {
     listNode *node;
@@ -181,8 +179,8 @@ void listDelNode(list *list, listNode *node)
     list->len--;
 }
 
-/* Returns a list iterator 'iter'. After the initialization every
- * call to listNext() will return the next element of the list.
+/* Create a list iterator. After initialization, every call
+ * to listNext() will return the next element of the list.
  *
  * This function can't fail. */
 listIter *listGetIterator(list *list, int direction)
@@ -221,7 +219,7 @@ void listRewindTail(list *list, listIter *li) {
  * listDelNode(), but not to remove other elements.
  *
  * The function returns a pointer to the next element of the list,
- * or NULL if there are no more elements, so the classical usage patter
+ * or NULL if there are no more elements, so the classical usage pattern
  * is:
  *
  * iter = listGetIterator(list, <direction>);
@@ -321,8 +319,8 @@ listNode *listSearchKey(list *list, void *key)
 
 /* Return the element at the specified zero-based index
  * where 0 is the head, 1 is the element next to head
- * and so on. Negative integers are used in order to count
- * from the tail, -1 is the last element, -2 the penultimate
+ * and so on. Negative indices can be used to count
+ * from the tail: -1 is the last element, -2 the penultimate
  * and so on. If the index is out of range NULL is returned. */
 listNode *listIndex(list *list, long index) {
     listNode *n;
