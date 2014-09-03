@@ -21,4 +21,5 @@ Copy-Item *.nupkg ..\packages\NuGet
 
 Set-Location $CurDir
 
-Write-Host "The .nuspec files are in the 'packages' directory" -foregroundcolor black -backgroundcolor green
+Write-Host "The .nupkg files are in the 'packages' directory." -foregroundcolor black -backgroundcolor green
+Write-Host "Run PushPackages to push them." -foregroundcolor red -backgroundcolor yellow
