@@ -1458,6 +1458,7 @@ void initServerConfig(void) {
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.loading_process_events_interval_bytes = (1024*1024*2);
+    server.max_key_size = REDIS_DEFAULT_MAX_KEY_SIZE;
 
     server.lruclock = getLRUClock();
     resetServerSaveParams();
@@ -2148,6 +2149,29 @@ int processCommand(redisClient *c) {
                 return REDIS_OK;
             }
         }
+    }
+
+    if (server.max_key_size && c->cmd->flags & REDIS_CMD_WRITE) {
+      int numkeys, i;
+      int *keys = getKeysFromCommand(c->cmd, c->argv, c->argc, &numkeys);
+      robj *long_key = NULL;
+
+      for (i = 0; i < numkeys; i++) {
+        if (stringObjectLen(c->argv[keys[i]]) > server.max_key_size) {
+          long_key = c->argv[keys[i]];
+          break;
+        }
+      }
+
+      getKeysFreeResult(keys);
+
+      if (long_key) {
+        flagTransaction(c);
+        addReplyErrorFormat(c,"The key used is too long it was '%zu' characters, the maximum is %zu",
+           stringObjectLen(long_key), server.max_key_size);
+
+        return REDIS_OK;
+      }
     }
 
     /* Handle the maxmemory directive.
