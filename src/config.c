@@ -1415,7 +1415,7 @@ void rewriteConfigStringOption(struct rewriteConfigState *state, char *option, c
         return;
     }
 
-    /* Compare the strings as sds strings to have a binary safe comparison. */
+    /* Set force to zero if the value is set to its default. */
     if (defvalue && strcmp(value,defvalue) == 0) force = 0;
 
     line = sdsnew(option);
