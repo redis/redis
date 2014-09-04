@@ -1,0 +1,13 @@
+version: 2.8.13.{build}
+
+branches:
+# whitelist
+    only:
+        - '2.8'
+        - appveyor
+
+install:
+    - git submodule -q update --init
+
+build:
+    project: msvs\RedisServer.sln
