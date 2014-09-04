@@ -1433,7 +1433,8 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
         if (argc == 5) si->runid = sdsnew(argv[4]);
     } else if (!strcasecmp(argv[0],"announce-ip") && argc == 2) {
         /* announce-ip <ip-address> */
-        sentinel.announce_ip = sdsnew(argv[1]);
+        if (strlen(argv[1]))
+            sentinel.announce_ip = sdsnew(argv[1]);
     } else if (!strcasecmp(argv[0],"announce-port") && argc == 2) {
         /* announce-port <port> */
         sentinel.announce_port = atoi(argv[1]);
