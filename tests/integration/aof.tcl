@@ -56,7 +56,7 @@ tags {"aof"} {
 
     start_server_aof [list dir $server_path] {
         test "Short read: Server should have logged an error" {
-            set pattern "*Bad file format reading the append only file*"
+            set pattern "*Unexpected end of file reading the append only file*"
             set retry 10
             while {$retry} {
                 set result [exec tail -n1 < [dict get $srv stdout]]
