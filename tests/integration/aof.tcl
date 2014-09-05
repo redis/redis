@@ -23,6 +23,31 @@ proc start_server_aof {overrides code} {
 }
 
 tags {"aof"} {
+    ## Test that the server exits when the AOF contains a format error
+    create_aof {
+        append_to_aof [formatCommand set foo hello]
+        append_to_aof "!!!"
+        append_to_aof [formatCommand set foo hello]
+    }
+
+    start_server_aof [list dir $server_path] {
+        test "Bad format: Server should have logged an error" {
+            set pattern "*Bad file format reading the append only file*"
+            set retry 10
+            while {$retry} {
+                set result [exec tail -n1 < [dict get $srv stdout]]
+                if {[string match $pattern $result]} {
+                    break
+                }
+                incr retry -1
+                after 1000
+            }
+            if {$retry == 0} {
+                error "assertion:expected error not found on config file"
+            }
+        }
+    }
+
     ## Test the server doesn't start when the AOF contains an unfinished MULTI
     create_aof {
         append_to_aof [formatCommand set foo hello]
