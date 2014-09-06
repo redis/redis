@@ -7,7 +7,7 @@ $CurDir = [System.IO.Directory]::GetCurrentDirectory()
 $PubDir = [System.IO.Path]::Combine($CurDir, "x64\Release\pub" )
 $SourceDir = [System.IO.Path]::Combine($CurDir, "x64\Release" )
 $DocumentationDir = [System.IO.Path]::Combine($CurDir, "setups\documentation" )
-$Destination = [System.IO.Path]::Combine($CurDir, "..\bin\Release\redis-2.8.12.zip" )
+$Destination = [System.IO.Path]::Combine($CurDir, "..\bin\Release\redis-2.8.14.zip" )
 
 [System.IO.Directory]::CreateDirectory($PubDir) | Out-Null
 

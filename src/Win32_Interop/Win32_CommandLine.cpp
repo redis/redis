@@ -425,6 +425,7 @@ static RedisParamterMapper g_redisArgMap =
     { "client-output-buffer-limit",     &fp4 },    // client-output-buffer-limit [class] [hard limit] [soft limit] [soft seconds]
     { "hz",                             &fp1 },    // hz [number]
     { "aof-rewrite-incremental-fsync",  &fp1 },    // aof-rewrite-incremental-fsync [yes/no]
+    { "latency-monitor-threshold",      &fp1 },    // latency-monitor-threshold [number]
     { cInclude,                         &fp1 },    // include [path]
 
     // sentinel commands

@@ -35,6 +35,7 @@
 #include <string.h>
 #include <stdlib.h>
 #ifndef _WIN32
+#include <signal.h>
 #include <unistd.h>
 #endif
 #include <time.h>
@@ -119,10 +120,11 @@ static struct config {
     sds mb_delim;
     char prompt[128];
     char *eval;
+    int last_cmd_type;
 } config;
 
 static volatile sig_atomic_t force_cancel_loop = 0;
-static void usage();
+static void usage(void);
 static void slaveMode(void);
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
@@ -156,7 +158,7 @@ static void cliRefreshPrompt(void) {
                        strchr(config.hostip,':') ? "[%s]:%d" : "%s:%d",
                        config.hostip, config.hostport);
     /* Add [dbnum] if needed */
-    if (config.dbnum != 0)
+    if (config.dbnum != 0 && config.last_cmd_type != REDIS_REPLY_ERROR)
         len += snprintf(config.prompt+len,sizeof(config.prompt)-len,"[%d]",
             config.dbnum);
     snprintf(config.prompt+len,sizeof(config.prompt)-len,"> ");
@@ -182,7 +184,7 @@ typedef struct {
 static helpEntry *helpEntries;
 static int helpEntriesLen;
 
-static sds cliVersion() {
+static sds cliVersion(void) {
     sds version;
     version = sdscatprintf(sdsempty(), "%s", REDIS_VERSION);
 
@@ -196,7 +198,7 @@ static sds cliVersion() {
     return version;
 }
 
-static void cliInitHelp() {
+static void cliInitHelp(void) {
     int commandslen = sizeof(commandHelp)/sizeof(struct commandHelp);
     int groupslen = sizeof(commandGroups)/sizeof(char*);
     int i, len, pos = 0;
@@ -235,7 +237,7 @@ static void cliOutputCommandHelp(struct commandHelp *help, int group) {
 }
 
 /* Print generic help. */
-static void cliOutputGenericHelp() {
+static void cliOutputGenericHelp(void) {
     sds version = cliVersion();
     printf(
         "redis-cli %s\r\n"
@@ -345,8 +347,10 @@ static int cliSelect() {
 
     reply = redisCommand(context,"SELECT %d",config.dbnum);
     if (reply != NULL) {
+        int result = REDIS_OK;
+        if (reply->type == REDIS_REPLY_ERROR) result = REDIS_ERR;
         freeReplyObject(reply);
-        return REDIS_OK;
+        return result;
     }
     return REDIS_ERR;
 }
@@ -390,7 +394,7 @@ static int cliConnect(int force) {
     return REDIS_OK;
 }
 
-static void cliPrintContextError() {
+static void cliPrintContextError(void) {
     if (context == NULL) return;
     fprintf(stderr,"Error: %s\n",context->errstr);
 }
@@ -539,8 +543,11 @@ static int cliReadReply(int output_raw_strings) {
     int output = 1;
 
     if (redisGetReply(context,&_reply) != REDIS_OK) {
-        if (config.shutdown)
+        if (config.shutdown) {
+            redisFree(context);
+            context = NULL;
             return REDIS_OK;
+        }
         if (config.interactive) {
             /* Filter cases where we should reconnect */
             if (context->err == REDIS_ERR_IO && errno == ECONNRESET)
@@ -554,6 +561,8 @@ static int cliReadReply(int output_raw_strings) {
     }
 
     reply = (redisReply*)_reply;
+
+    config.last_cmd_type = reply->type;
 
     /* Check if we need to connect to a different node and reissue the
      * request. */
@@ -628,8 +637,11 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
                       (!strcasecmp(argv[1],"nodes") ||
                        !strcasecmp(argv[1],"info"))) ||
         (argc == 2 && !strcasecmp(command,"client") &&
-                       !strcasecmp(argv[1],"list")))
-
+                       !strcasecmp(argv[1],"list")) ||
+        (argc == 3 && !strcasecmp(command,"latency") &&
+                       !strcasecmp(argv[1],"graph")) ||
+        (argc == 2 && !strcasecmp(command,"latency") &&
+                       !strcasecmp(argv[1],"doctor")))
     {
         output_raw = 1;
     }
@@ -665,6 +677,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
             printf("Entering slave output mode...  (press Ctrl-C to quit)\n");
             slaveMode();
             config.slave_mode = 0;
+            free(argvlen);
             return REDIS_ERR;  /* Error = slaveMode lost connection to master */
         }
 
@@ -676,6 +689,8 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
             if (!strcasecmp(command,"select") && argc == 2) {
                 config.dbnum = atoi(argv[1]);
                 cliRefreshPrompt();
+            } else if (!strcasecmp(command,"auth") && argc == 2) {
+                cliSelect();
             }
         }
         if (config.interval) usleep(config.interval);
@@ -750,6 +765,8 @@ static int parseOptions(int argc, char **argv) {
             config.auth = argv[++i];
         } else if (!strcmp(argv[i],"--raw")) {
             config.output = OUTPUT_RAW;
+        } else if (!strcmp(argv[i],"--no-raw")) {
+            config.output = OUTPUT_STANDARD;
         } else if (!strcmp(argv[i],"--csv")) {
             config.output = OUTPUT_CSV;
         } else if (!strcmp(argv[i],"--latency")) {
@@ -821,7 +838,7 @@ static sds readArgFromStdin(void) {
     return arg;
 }
 
-static void usage() {
+static void usage(void) {
     sds version = cliVersion();
     fprintf(stderr,
 "redis-cli %s\n"
@@ -840,6 +857,7 @@ static void usage() {
 "  -c                 Enable cluster mode (follow -ASK and -MOVED redirections).\n"
 "  --raw              Use raw formatting for replies (default when STDOUT is\n"
 "                     not a tty).\n"
+"  --no-raw           Force formatted output even when STDOUT is not a tty.\n"
 "  --csv              Output in CSV format.\n"
 "  --latency          Enter a special mode continuously sampling latency.\n"
 "  --latency-history  Like --latency but tracking latency changes over time.\n"
@@ -888,8 +906,7 @@ static char **convertToSds(int count, char** args) {
   return sds;
 }
 
-#define LINE_BUFLEN 4096
-static void repl() {
+static void repl(void) {
     sds historyfile = NULL;
     int history = 0;
     char *line;
@@ -1189,7 +1206,7 @@ static void getRDB(void) {
 
     while(payload) {
         ssize_t nread, nwritten;
-        
+
         nread = read(s,buf,(payload > sizeof(buf)) ? sizeof(buf) : payload);
         if (nread <= 0) {
             fprintf(stderr,"I/O Error reading RDB payload from socket\n");
@@ -1272,7 +1289,7 @@ static void pipeMode(void) {
                         errors++;
                     } else if (eof && reply->type == REDIS_REPLY_STRING &&
                                       reply->len == 20) {
-                        /* Check if this is the reply to our final ECHO 
+                        /* Check if this is the reply to our final ECHO
                          * command. If so everything was received
                          * from the server. */
                         if (memcmp(reply->str,magic,20) == 0) {
@@ -1293,7 +1310,7 @@ static void pipeMode(void) {
                 /* Transfer current buffer to server. */
                 if (obuf_len != 0) {
                     ssize_t nwritten = write(fd,obuf+obuf_pos,(unsigned int)obuf_len);
-                    
+
                     if (nwritten == -1) {
                         if (errno != EAGAIN && errno != EINTR) {
                             fprintf(stderr, "Error writing to the server: %s\n",
@@ -1396,7 +1413,7 @@ static redisReply *sendScan(unsigned long long *it) {
     /* Validate our types are correct */
     assert(reply->element[0]->type == REDIS_REPLY_STRING);
     assert(reply->element[1]->type == REDIS_REPLY_ARRAY);
-    
+
     /* Update iterator */
     *it = atoi(reply->element[0]->str);
 
@@ -1408,7 +1425,7 @@ static int getDbSize(void) {
     int size;
 
     reply = redisCommand(context, "DBSIZE");
-    
+
     if(reply == NULL || reply->type != REDIS_REPLY_INTEGER) {
         fprintf(stderr, "Couldn't determine DBSIZE!\n");
         exit(1);
@@ -1442,7 +1459,7 @@ static int toIntType(char *key, char *type) {
 
 static void getKeyTypes(redisReply *keys, int *types) {
     redisReply *reply;
-    int i;
+    unsigned int i;
 
     /* Pipeline TYPE commands */
     for(i=0;i<keys->elements;i++) {
@@ -1461,25 +1478,25 @@ static void getKeyTypes(redisReply *keys, int *types) {
             exit(1);
         }
 
-        types[i] = toIntType(keys->element[i]->str, reply->str); 
+        types[i] = toIntType(keys->element[i]->str, reply->str);
         freeReplyObject(reply);
     }
 }
 
-static void getKeySizes(redisReply *keys, int *types, 
-                        unsigned long long *sizes) 
+static void getKeySizes(redisReply *keys, int *types,
+                        unsigned long long *sizes)
 {
     redisReply *reply;
     char *sizecmds[] = {"STRLEN","LLEN","SCARD","HLEN","ZCARD"};
-    int i;
+    unsigned int i;
 
     /* Pipeline size commands */
     for(i=0;i<keys->elements;i++) {
         /* Skip keys that were deleted */
-        if(types[i]==TYPE_NONE) 
+        if(types[i]==TYPE_NONE)
             continue;
 
-        redisAppendCommand(context, "%s %s", sizecmds[types[i]], 
+        redisAppendCommand(context, "%s %s", sizecmds[types[i]],
             keys->element[i]->str);
     }
 
@@ -1499,14 +1516,14 @@ static void getKeySizes(redisReply *keys, int *types,
         } else if(reply->type != REDIS_REPLY_INTEGER) {
             /* Theoretically the key could have been removed and
              * added as a different type between TYPE and SIZE */
-            fprintf(stderr, 
+            fprintf(stderr,
                 "Warning:  %s on '%s' failed (may have changed type)\n",
                  sizecmds[types[i]], keys->element[i]->str);
             sizes[i] = 0;
         } else {
             sizes[i] = reply->integer;
         }
-            
+
         freeReplyObject(reply);
     }
 }
@@ -1518,7 +1535,8 @@ static void findBigKeys(void) {
     char *typename[] = {"string","list","set","hash","zset"};
     char *typeunit[] = {"bytes","items","members","fields","members"};
     redisReply *reply, *keys;
-    int type, *types=NULL, arrsize=0, i;
+    unsigned int arrsize=0, i;
+    int type, *types=NULL;
     double pct;
 
     /* Total keys pre scanning */
@@ -1563,12 +1581,12 @@ static void findBigKeys(void) {
         /* Retreive types and then sizes */
         getKeyTypes(keys, types);
         getKeySizes(keys, types, sizes);
-        
+
         /* Now update our stats */
         for(i=0;i<keys->elements;i++) {
             if((type = types[i]) == TYPE_NONE)
                 continue;
-            
+
             totalsize[type] += sizes[i];
             counts[type]++;
             totlen += keys->element[i]->len;
@@ -1588,7 +1606,7 @@ static void findBigKeys(void) {
                 }
 
                 /* Keep track of the biggest size for this type */
-                biggest[type] = sizes[i];                
+                biggest[type] = sizes[i];
             }
 
             /* Update overall progress */
@@ -1601,7 +1619,7 @@ static void findBigKeys(void) {
         if(sampled && (sampled %100) == 0 && config.interval) {
             usleep(config.interval);
         }
-        
+
         freeReplyObject(reply);
     } while(it != 0);
 
@@ -1702,7 +1720,7 @@ void bytesToHuman(char *s, long long n) {
     }
 }
 
-static void statMode() {
+static void statMode(void) {
     redisReply *reply;
     long aux, requests = 0;
     int i = 0;
@@ -1788,7 +1806,7 @@ static void statMode() {
  * Scan mode
  *--------------------------------------------------------------------------- */
 
-static void scanMode() {
+static void scanMode(void) {
     redisReply *reply;
     unsigned long long cur = 0;
 
@@ -1805,7 +1823,7 @@ static void scanMode() {
             printf("ERROR: %s\n", reply->str);
             exit(1);
         } else {
-            int j;
+            unsigned int j;
 
             cur = strtoull(reply->element[0]->str,NULL,10);
             for (j = 0; j < reply->element[1]->elements; j++)
@@ -1876,11 +1894,15 @@ static void intrinsicLatencyMode(void) {
             printf("Max latency so far: %lld microseconds.\n", max_latency);
         }
 
+        double avg_us = (double)run_time/runs;
+        double avg_ns = avg_us * 10e3;
         if (force_cancel_loop || end > test_end) {
-            printf("\n%lld total runs (avg %lld microseconds per run).\n",
-                runs, run_time/runs);
-            printf("Worst run took %.02fx times the average.\n",
-                (double) max_latency / (run_time/runs));
+            printf("\n%lld total runs "
+                "(avg latency: "
+                "%.4f microseconds / %.2f nanoseconds per run).\n",
+                runs, avg_us, avg_ns);
+            printf("Worst run took %.0fx longer than the average latency.\n",
+                max_latency / avg_us);
             exit(0);
         }
     }
@@ -1919,6 +1941,8 @@ int main(int argc, char **argv) {
     config.stdinarg = 0;
     config.auth = NULL;
     config.eval = NULL;
+    config.last_cmd_type = -1;
+
     if (!isatty(fileno(stdout)) && (getenv("FAKETTY") == NULL))
         config.output = OUTPUT_RAW;
     else
@@ -1926,12 +1950,6 @@ int main(int argc, char **argv) {
     config.mb_delim = sdsnew("\n");
     cliInitHelp();
 
-#ifdef _WIN32
-    _fmode = _O_BINARY;
-    setmode(_fileno(stdin), _O_BINARY);
-    setmode(_fileno(stdout), _O_BINARY);
-    setmode(_fileno(stderr), _O_BINARY);
-#endif
     firstarg = parseOptions(argc,argv);
     argc -= firstarg;
     argv += firstarg;

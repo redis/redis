@@ -82,7 +82,7 @@ start_server {tags {"repl"}} {
             assert {$offset > 0}
             assert {[llength $slaves] == 1}
             lassign [lindex $slaves 0] master_host master_port slave_offset
-            assert {$slave_offset < $offset}
+            assert {$slave_offset <= $offset}
         }
 
         test {ROLE in slave reports slave in connected state} {
@@ -92,15 +92,6 @@ start_server {tags {"repl"}} {
             assert {$slave_state eq {connected}}
         }
     }
-}
-
-proc start_write_load {host port seconds} {
-    set tclsh [info nameofexecutable]
-    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds &
-}
-
-proc stop_write_load {handle} {
-    kill_proc2 $handle
 }
 
 start_server {tags {"repl"}} {

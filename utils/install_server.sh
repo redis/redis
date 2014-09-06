@@ -152,7 +152,7 @@ rm -f $TMP_FILE
 #we hard code the configs here to avoid issues with templates containing env vars
 #kinda lame but works!
 REDIS_INIT_HEADER=\
-"#/bin/sh\n
+"#!/bin/sh\n
 #Configurations injected by install_server below....\n\n
 EXEC=$REDIS_EXECUTABLE\n
 CLIEXEC=$CLI_EXEC\n
@@ -193,7 +193,7 @@ fi
 #     warning if init info is not available.
 
 cat > ${TMP_FILE} <<EOT
-#/bin/sh
+#!/bin/sh
 #Configurations injected by install_server below....
 
 EXEC=$REDIS_EXECUTABLE

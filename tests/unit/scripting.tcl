@@ -358,6 +358,23 @@ start_server {tags {"scripting"}} {
             return redis.call("get", "key")
         } 0
     } {12039611435714932082}
+
+    test {Verify negative arg count is error instead of crash (issue #1842)} {
+        catch { r eval { return "hello" } -12 } e
+        set e
+    } {ERR Number of keys can't be negative}
+
+    test {Correct handling of reused argv (issue #1939)} {
+        r eval {
+              for i = 0, 10 do
+                  redis.call('SET', 'a', '1')
+                  redis.call('MGET', 'a', 'b', 'c')
+                  redis.call('EXPIRE', 'a', 0)
+                  redis.call('GET', 'a')
+                  redis.call('MGET', 'a', 'b', 'c')
+              end
+        } 0
+    }
 }
 
 # Start a new server since the last test in this stanza will kill the

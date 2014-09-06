@@ -404,6 +404,12 @@ start_server {tags {"basic"}} {
         r move mykey 10
     } {0}
 
+    test {MOVE against non-integer DB (#1428)} {
+        r set mykey hello
+        catch {r move mykey notanumber} e
+        set e
+    } {*ERR*index out of range}
+
     test {SET/GET keys in different DBs} {
         r set a hello
         r set b world
@@ -769,4 +775,9 @@ start_server {tags {"basic"}} {
         r keys *
         r keys *
     } {dlskeriewrioeuwqoirueioqwrueoqwrueqw}
+
+    test {GETRANGE with huge ranges, Github issue #1844} {
+        r set foo bar
+        r getrange foo 0 4294967297
+    } {bar}
 }
