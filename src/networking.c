@@ -1191,7 +1191,7 @@ int processMultibulkBuffer(redisClient *c) {
                 qblen = sdslen(c->querybuf);
                 /* Hint the sds library about the amount of bytes this string is
                  * going to contain. */
-                if (qblen < (size_t)(ll+2))
+                if (qblen < (size_t)ll+2)
                     c->querybuf = sdsMakeRoomFor(c->querybuf,ll+2-qblen);
             }
             c->bulklen = (long)ll;
@@ -1706,7 +1706,7 @@ unsigned long getClientOutputBufferMemoryUsage(redisClient *c) {
 int getClientType(redisClient *c) {
     if ((c->flags & REDIS_SLAVE) && !(c->flags & REDIS_MONITOR))
         return REDIS_CLIENT_TYPE_SLAVE;
-    if (dictSize(c->pubsub_channels) || listLength(c->pubsub_patterns))
+    if (c->flags & REDIS_PUBSUB)
         return REDIS_CLIENT_TYPE_PUBSUB;
     return REDIS_CLIENT_TYPE_NORMAL;
 }

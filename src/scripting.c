@@ -212,7 +212,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     static robj **argv = NULL;
     static int argv_size = 0;
     static robj *cached_objects[LUA_CMD_OBJCACHE_SIZE];
-    static int cached_objects_len[LUA_CMD_OBJCACHE_SIZE];
+    static size_t cached_objects_len[LUA_CMD_OBJCACHE_SIZE];
 
     /* Require at least one argument */
     if (argc == 0) {
@@ -224,6 +224,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     /* Build the arguments vector */
     if (!argv) {
         argv = zmalloc(sizeof(robj*)*argc);
+        argv_size = argc;
     } else if (argv_size < argc) {
         argv = zrealloc(argv,sizeof(robj*)*argc);
         argv_size = argc;
@@ -908,6 +909,9 @@ void evalGenericCommand(redisClient *c, int evalsha) {
         return;
     if (numkeys > (c->argc - 3)) {
         addReplyError(c,"Number of keys can't be greater than number of args");
+        return;
+    } else if (numkeys < 0) {
+        addReplyError(c,"Number of keys can't be negative");
         return;
     }
 

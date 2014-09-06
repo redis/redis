@@ -36,7 +36,11 @@
 #define _GNU_SOURCE
 #endif
 
-#if defined(__linux__) || defined(__OpenBSD__) || defined(__NetBSD__)
+#if defined(_AIX)
+#define _ALL_SOURCE
+#endif
+
+#if defined(__linux__) || defined(__OpenBSD__)
 #define _XOPEN_SOURCE 700
 /*
  * On NetBSD, _XOPEN_SOURCE undefines _NETBSD_SOURCE and

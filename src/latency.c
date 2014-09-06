@@ -37,6 +37,7 @@
 
 /* Dictionary type for latency events. */
 int dictStringKeyCompare(void *privdata, const void *key1, const void *key2) {
+    REDIS_NOTUSED(privdata);
     return strcmp(key1,key2) == 0;
 }
 
@@ -87,13 +88,13 @@ void latencyAddSample(char *event, mstime_t latency) {
     prev = (ts->idx + LATENCY_TS_LEN - 1) % LATENCY_TS_LEN;
     if (ts->samples[prev].time == now) {
         if (latency > ts->samples[prev].latency)
-            ts->samples[prev].latency = latency;
+            ts->samples[prev].latency = (int32_t)latency;
         return;
     }
 
-    ts->samples[ts->idx].time = time(NULL);
-    ts->samples[ts->idx].latency = latency;
-    if (latency > ts->max) ts->max = latency;
+    ts->samples[ts->idx].time = (int32_t)time(NULL);
+    ts->samples[ts->idx].latency = (int32_t)latency;
+    if (latency > ts->max) ts->max = (int32_t)latency;
 
     ts->idx++;
     if (ts->idx == LATENCY_TS_LEN) ts->idx = 0;
@@ -167,7 +168,7 @@ void analyzeLatencyForEvent(char *event, struct latencyStats *ls) {
      * the oldest event time. We need to make the first an average and
      * the second a range of seconds. */
     if (ls->samples) {
-        ls->avg = sum / ls->samples;
+        ls->avg = (int32_t)(sum / ls->samples);
         ls->period = time(NULL) - ls->period;
         if (ls->period == 0) ls->period = 1;
     }
@@ -182,7 +183,7 @@ void analyzeLatencyForEvent(char *event, struct latencyStats *ls) {
         if (delta < 0) delta = -delta;
         sum += delta;
     }
-    if (ls->samples) ls->mad = sum / ls->samples;
+    if (ls->samples) ls->mad = (int32_t)(sum / ls->samples);
 }
 
 /* Create a human readable report of latency events for this Redis instance. */
@@ -487,7 +488,7 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
         }
         /* Use as label the number of seconds / minutes / hours / days
          * ago the event happened. */
-        elapsed = time(NULL) - ts->samples[i].time;
+        elapsed = (int)(time(NULL) - ts->samples[i].time);
         if (elapsed < 60)
             snprintf(buf,sizeof(buf),"%ds",elapsed);
         else if (elapsed < 3600)

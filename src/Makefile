@@ -19,7 +19,7 @@ DEPENDENCY_TARGETS=hiredis linenoise lua
 
 # Default settings
 STD=-std=c99 -pedantic
-WARN=-Wall
+WARN=-Wall -W
 OPT=$(OPTIMIZATION)
 
 PREFIX?=/usr/local
@@ -58,17 +58,23 @@ ifeq ($(uname_S),SunOS)
 	# SunOS
 	INSTALL=cp -pf
 	FINAL_CFLAGS+= -D__EXTENSIONS__ -D_XPG6
-	FINAL_LIBS+= -ldl -lnsl -lsocket -lpthread
+	FINAL_LIBS+= -ldl -lnsl -lsocket -lresolv -lpthread
 else
 ifeq ($(uname_S),Darwin)
 	# Darwin (nothing to do)
+else
+ifeq ($(uname_S),AIX)
+        # AIX
+        FINAL_LDFLAGS+= -Wl,-bexpall
+        FINAL_LIBS+= -pthread -lcrypt -lbsd
+
 else
 	# All the other OSes (notably Linux)
 	FINAL_LDFLAGS+= -rdynamic
 	FINAL_LIBS+= -pthread
 endif
 endif
-
+endif
 # Include paths to dependencies
 FINAL_CFLAGS+= -I../deps/hiredis -I../deps/linenoise -I../deps/lua/src
 
@@ -119,7 +125,7 @@ REDIS_CHECK_AOF_OBJ=redis-check-aof.o
 
 all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_DUMP_NAME) $(REDIS_CHECK_AOF_NAME)
 	@echo ""
-	@echo "Hint: To run 'make test' is a good idea ;)"
+	@echo "Hint: It's a good idea to run 'make test' ;)"
 	@echo ""
 
 .PHONY: all

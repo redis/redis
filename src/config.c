@@ -77,7 +77,7 @@ void appendServerSaveParams(time_t seconds, int changes) {
     server.saveparamslen++;
 }
 
-void resetServerSaveParams() {
+void resetServerSaveParams(void) {
     zfree(server.saveparams);
     server.saveparams = NULL;
     server.saveparamslen = 0;
@@ -648,7 +648,7 @@ void configSetCommand(redisClient *c) {
                 server.maxclients = orig_value;
                 return;
             }
-            if (aeGetSetSize(server.el) <
+            if ((unsigned int) aeGetSetSize(server.el) <
                 server.maxclients + REDIS_EVENTLOOP_FDSET_INCR)
             {
                 if (aeResizeSetSize(server.el,
