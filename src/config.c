@@ -526,6 +526,24 @@ void loadServerConfigFromString(char *config) {
             // ignore. This is taken care of in the qfork code.
         } else if (!strcasecmp(argv[0], "service-name")) {
 			// ignore. This is taken care of in the win32_service code.
+        } else if (!strcasecmp(argv[0], "persistence-available")) {
+            if (strcasecmp(argv[1], "no") == 0) {
+                //remove BGSAVE and BGREWRITEAOF when persistence is disabled
+                int retval;
+                sds bgsave;
+                sds bgrewriteaof;
+
+                bgsave = sdsnew("bgsave");
+                bgrewriteaof = sdsnew("bgrewriteaof");
+
+                retval = dictDelete(server.commands, bgsave);
+                redisAssert(retval == DICT_OK);
+                retval = dictDelete(server.commands, bgrewriteaof);
+                redisAssert(retval == DICT_OK);
+
+                sdsfree(bgsave);
+                sdsfree(bgrewriteaof);
+            }
 #endif
 		} else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;

@@ -90,7 +90,7 @@ public:
         if (argStartIndex + parameterCount >= argc) {
             stringstream err;
             err << "Not enough parameters available for " << argv[argStartIndex];
-            throw runtime_error(err.str());
+            throw invalid_argument(err.str());
         }
         vector<string> params;
         for (int argIndex = argStartIndex + 1; argIndex < argStartIndex + 1 + parameterCount; argIndex++) {
@@ -106,7 +106,7 @@ public:
         if ((int)(tokens.size() - 1) < parameterCount + startIndex) {
             stringstream err;
             err << "Not enough parameters available for " << tokens.at(0);
-            throw runtime_error(err.str());
+            throw invalid_argument(err.str());
         }
         vector<string> params;
         int skipCount = 1 + startIndex;
@@ -164,7 +164,7 @@ public:
         } else {
             stringstream err;
             err << "Not enough parameters available for " << argv[argStartIndex];
-            throw runtime_error(err.str());
+            throw invalid_argument(err.str());
         }
         return params;
     }
@@ -184,7 +184,7 @@ public:
         } else {
             stringstream err;
             err << "Not enough parameters available for " << tokens.at(startIndex);
-            throw runtime_error(err.str());
+            throw invalid_argument(err.str());
         }
         return params;
     };
@@ -300,11 +300,11 @@ public:
         stringstream err;
         if (argStartIndex + 1 >= argc) {
             err << "Not enough parameters available for " << argv[argStartIndex];
-            throw runtime_error(err.str());
+            throw invalid_argument(err.str());
         }
         if (subCommands.find(argv[argStartIndex + 1]) == subCommands.end()) {
             err << "Could not find sentinal subcommand " << argv[argStartIndex + 1];
-            throw runtime_error(err.str());
+            throw invalid_argument(err.str());
         }
 
         vector<string> params;
@@ -322,12 +322,12 @@ public:
         stringstream err;
         if (tokens.size() < 2) {
             err << "Not enough parameters available for " << tokens.at(0);
-            throw runtime_error(err.str());
+            throw invalid_argument(err.str());
         }
         string subcommand = tokens.at(startIndex + 1);
         if (subCommands.find(subcommand) == subCommands.end()) {
             err << "Could not find sentinal subcommand " << subcommand;
-            throw runtime_error(err.str());
+            throw invalid_argument(err.str());
         }
 
         vector<string> params;
@@ -354,6 +354,7 @@ static RedisParamterMapper g_redisArgMap =
     { cQFork,                           &fp2 },    // qfork [QForkConrolMemoryMap handle] [parent process id]
     { cMaxHeap,                         &fp1 },    // maxheap [number]
     { cHeapDir,                         &fp1 },    // heapdir [path]
+    { cPersistenceAvailable,            &fp1 },    // persistence-available [yes/no]
 
     // service commands
     { cServiceName,                     &fp1 },    // service-name [name]
@@ -518,7 +519,7 @@ void ParseConfFile(string confFile, string cwd, ArgumentMap& argMap) {
     if (config.fail()) {
         stringstream ss;
         ss << "Failed to open the .conf file: " << confFile << " CWD=" << cwd.c_str();
-        throw runtime_error(ss.str());
+        throw invalid_argument(ss.str());
     } else  {
         char confFileDir[MAX_PATH];
         strcpy(confFileDir, fullConfFilePath);
@@ -540,11 +541,42 @@ void ParseConfFile(string confFile, string cwd, ArgumentMap& argMap) {
             } else if (g_redisArgMap.find(parameter) == g_redisArgMap.end()) {
                 stringstream err;
                 err << "unknown conf file parameter : " + parameter;
-                throw runtime_error(err.str());
+                throw invalid_argument(err.str());
             }
 
             vector<string> params = g_redisArgMap[parameter]->Extract(tokens);
             g_argMap[parameter].push_back(params);
+        }
+    }
+}
+
+vector<string> incompatibleNoPersistenceCommands{
+    "min_slaves_towrite",
+    "min_slaves_max_lag",
+    "appendonly",
+    "appendfilename",
+    "appendfsync",
+    "no_append_fsync_on_rewrite",
+    "auto_aof_rewrite_percentage",
+    "auto_aof_rewrite_on_size",
+    "aof_rewrite_incremental_fsync"
+};
+
+void ValidateCommandlineCombinations() {
+    if (g_argMap.find(cPersistenceAvailable) != g_argMap.end()) {
+        if (g_argMap[cPersistenceAvailable].at(0).at(0) == cNo) {
+            string incompatibleCommand = "";
+            for (auto command : incompatibleNoPersistenceCommands) {
+                if (g_argMap.find(command) != g_argMap.end()) {
+                    incompatibleCommand = command;
+                    break;
+                }
+            }
+            if (incompatibleCommand.length() > 0) {
+                stringstream ss;
+                ss << "'" << cPersistenceAvailable << " " << cNo << "' command not compatible with '" << incompatibleCommand << "'. Exiting.";
+                throw std::invalid_argument(ss.str().c_str());
+            }
         }
     }
 }
@@ -562,7 +594,7 @@ void ParseCommandLineArguments(int argc, char** argv) {
             if (g_redisArgMap.find(argument) == g_redisArgMap.end()) {
                 stringstream err;
                 err << "unknown argument: " << argument;
-                throw runtime_error(err.str());
+                throw invalid_argument(err.str());
             }
 
             vector<string> params;
@@ -572,7 +604,7 @@ void ParseCommandLineArguments(int argc, char** argv) {
                     for (auto p : sentinelSubCommands) {
                         params.push_back(p);
                     }
-                } catch (runtime_error re) {
+                } catch (invalid_argument iaerr) {
                     // if no subcommands could be mapped, then assume this is the parameterless --sentinel command line only argument
                 }
             } else if (argument == cServiceRun ) {
@@ -642,6 +674,8 @@ void ParseCommandLineArguments(int argc, char** argv) {
         }
     }
 #endif
+
+    ValidateCommandlineCombinations();
 }
 
 vector<string> GetAccessPaths() {

@@ -60,7 +60,13 @@ extern "C" int checkForSentinelMode(int argc, char **argv);
 
 extern "C"
 {
-	// forward def from util.h. 
+  void*(*g_malloc)(size_t) = nullptr;
+  void*(*g_calloc)(size_t, size_t) = nullptr;
+  void*(*g_realloc)(void*, size_t) = nullptr;
+  void(*g_free)(void*) = nullptr;
+  size_t(*g_msize)(void*) = nullptr;
+  
+  // forward def from util.h. 
 	long long memtoll(const char *p, int *err);
 }
 
@@ -218,15 +224,15 @@ bool ReportSpecialSystemErrors(int error) {
                 "The Windows version of Redis allocates a large memory mapped file for sharing\n" 
                 "the heap with the forked process used in persistence operations. This file\n" 
                 "will be created in the current working directory or the directory specified by\n"
-                "the 'dir' directive in the .conf file. Windows is reporting that there is \n"
+                "the 'heapdir' directive in the .conf file. Windows is reporting that there is \n"
                 "insufficient disk space available for this file (Windows error 0x70).\n"
                 "\n" 
                 "You may fix this problem by either reducing the size of the Redis heap with\n"
-                "the --maxheap flag, or by starting redis from a working directory with\n"
-                "sufficient space available for the Redis heap. \n"
+                "the --maxheap flag, or by moving the heap file to a local drive with sufficient\n"
+                "space."
                 "\n"
                 "Please see the documentation included with the binary distributions for more \n"
-                "details on the --maxheap flag.\n"
+                "details on the --maxheap and --heapdir flags.\n"
                 "\n"
                 "Redis can not continue. Exiting."
                 );
@@ -1244,6 +1250,14 @@ void SetupLogging() {
 
 extern "C"
 {
+    BOOL IsPersistenceAvailable() {
+        if (g_argMap.find(cPersistenceAvailable) != g_argMap.end()) {
+            return (g_argMap[cPersistenceAvailable].at(0).at(0) != cNo);
+        } else {
+            return true;
+        }
+    }
+
     // The external main() is redefined as redis_main() by Win32_QFork.h.
     // The CRT will call this replacement main() before the previous main()
     // is invoked so that the QFork allocator can be setup prior to anything 
@@ -1252,11 +1266,19 @@ extern "C"
         try {
             ParseCommandLineArguments(argc, argv);
             SetupLogging();
-        } catch (runtime_error &re) {
-            cout << re.what() << endl;
+        } catch (system_error syserr) {
+            exit(-1);
+        } catch (runtime_error runerr) {
+            cout << runerr.what() << endl;
+            exit(-1);
+        } catch (invalid_argument &iaerr) {
+            cout << iaerr.what() << endl;
+            exit(-1);
+        } catch (exception othererr) {
+            cout << othererr.what() << endl;
             exit(-1);
         }
-        
+
         try {
 #ifdef DEBUG_WITH_PROCMON
             hProcMonDevice =
@@ -1271,25 +1293,45 @@ extern "C"
 #endif
 
             // service commands do not launch an instance of redis directly
-			if (HandleServiceCommands(argc, argv) == TRUE)
-				return 0;
+            if (HandleServiceCommands(argc, argv) == TRUE) {
+                return 0;
+            }
 
-			StartupStatus status = QForkStartup(argc, argv);
-			if (status == ssCONTINUE_AS_MASTER) {
-				int retval = redis_main(argc, argv);
-				QForkShutdown();
-				return retval;
-			} else if (status == ssSLAVE_EXIT) {
-				// slave is done - clean up and exit
-				QForkShutdown();
-				return g_SlaveExitCode;
-			} else if (status == ssFAILED) {
-				// master or slave failed initialization
-				return 1;
-			} else {
-				// unexpected status return
-				return 2;
-			}
+            // Setup memory allocation scheme for persistence mode
+            if (IsPersistenceAvailable() == TRUE) {
+                g_malloc = dlmalloc;
+                g_calloc = dlcalloc;
+                g_realloc = dlrealloc;
+                g_free = dlfree;
+                g_msize = reinterpret_cast<size_t(*)(void*)>(dlmalloc_usable_size);
+            } else {
+                g_malloc = malloc;
+                g_calloc = calloc;
+                g_realloc = realloc;
+                g_free = free;
+                g_msize = _msize;
+            }
+
+            if (IsPersistenceAvailable() == TRUE) {
+  		        StartupStatus status = QForkStartup(argc, argv);
+  		        if (status == ssCONTINUE_AS_MASTER) {
+  			        int retval = redis_main(argc, argv);
+  			        QForkShutdown();
+  			        return retval;
+  		        } else if (status == ssSLAVE_EXIT) {
+  			        // slave is done - clean up and exit
+  			        QForkShutdown();
+  			        return g_SlaveExitCode;
+  		        } else if (status == ssFAILED) {
+  			        // master or slave failed initialization
+  			        return 1;
+  		        } else {
+  			        // unexpected status return
+  			        return 2;
+  		        }
+            } else {
+                return redis_main(argc, argv);
+            }
 		} catch (std::system_error syserr) {
             ::redisLog(REDIS_WARNING, "main: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
 		} catch (std::runtime_error runerr) {

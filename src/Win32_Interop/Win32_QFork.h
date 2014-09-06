@@ -68,6 +68,14 @@ BOOL AbortForkOperation();
 LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh);
 int FreeHeapBlock(LPVOID block, size_t size);
 
+// for no persistence optimization/feature
+BOOL IsPersistenceAvailable();
+extern void*(*g_malloc)(size_t);
+extern void*(*g_calloc)(size_t, size_t);
+extern void*(*g_realloc)(void*, size_t);
+extern void(*g_free)(void*);
+extern size_t(*g_msize)(void*);
+
 #ifndef NO_QFORKIMPL
 #ifdef QFORK_MAIN_IMPL
 int redis_main(int argc, char** argv);

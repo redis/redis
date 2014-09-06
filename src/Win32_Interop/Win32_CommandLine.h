@@ -52,6 +52,7 @@ const string cLogfile = "logfile";
 const string cInclude = "include";
 const string cDir = "dir";
 const string cHeapDir = "heapdir";
+const string cPersistenceAvailable = "persistence-available";
 
 const string cMaxHeap = "maxheap";
 const string cMaxMemory = "maxmemory";
