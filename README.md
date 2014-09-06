@@ -11,7 +11,7 @@ Redis on Windows
 
 ## Redis 2.8 Branch
 
-- This is a port for Windows based on Redis 2.8. The latest version merged in 2.8.12.
+- This is a port for Windows based on Redis 2.8. The latest version merged in 2.8.14.
 - There is support for the 64-bit version. We have dropped official support for the 32-bit version, though you can build it from source if desired.
 - The binaries (unsigned) have been moved to a zip file in the \bin folder to make them easier to find. The Release build automatically updates the
   zip file.
@@ -21,10 +21,9 @@ Redis on Windows
 - We are moving towards moving all Windows-specific changes into the Win32_Interop library.
 - Redis can be installed as a Windows Service.
 
-## What's new since 2.8.9
+## What's new since 2.8.12
 
 - See the Redis release notes: http://download.redis.io/redis-stable/00-RELEASENOTES
-- The Windows codebase has a few bug fixes and better error messages for our fork() API replacement.
 
 ## Important: More documentation is available
 
