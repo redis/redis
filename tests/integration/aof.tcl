@@ -23,6 +23,32 @@ proc start_server_aof {overrides code} {
 }
 
 tags {"aof"} {
+    ## Server can start when aof-load-truncated is set to yes and AOF
+    ## is truncated, with an incomplete MULTI block.
+    create_aof {
+        append_to_aof [formatCommand set foo hello]
+        append_to_aof [formatCommand multi]
+        append_to_aof [formatCommand set bar world]
+    }
+
+    start_server_aof [list dir $server_path aof-load-truncated yes] {
+        test "Unfinished MULTI: Server should start if load-truncated is yes" {
+            assert_equal 1 [is_alive $srv]
+        }
+    }
+
+    ## Should also start with truncated AOF without incomplete MULTI block.
+    create_aof {
+        append_to_aof [formatCommand set foo hello]
+        append_to_aof [string range [formatCommand set bar world] 0 end-1]
+    }
+
+    start_server_aof [list dir $server_path aof-load-truncated yes] {
+        test "Short read: Server should start if load-truncated is yes" {
+            assert_equal 1 [is_alive $srv]
+        }
+    }
+
     ## Test that the server exits when the AOF contains a format error
     create_aof {
         append_to_aof [formatCommand set foo hello]
@@ -30,7 +56,7 @@ tags {"aof"} {
         append_to_aof [formatCommand set foo hello]
     }
 
-    start_server_aof [list dir $server_path aof-load-truncated no] {
+    start_server_aof [list dir $server_path aof-load-truncated yes] {
         test "Bad format: Server should have logged an error" {
             set pattern "*Bad file format reading the append only file*"
             set retry 10
