@@ -483,6 +483,11 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
 
     if (ht) {
         void *privdata[2];
+        /* We set the max number of iterations to ten times the specified
+         * COUNT, so if the hash table is in a pathological state (very
+         * sparsely populated) we avoid to block too much time at the cost
+         * of returning no or very few elements. */
+        long maxiterations = count*10;
 
         /* We pass two pointers to the callback: the list to which it will
          * add new elements, and the object containing the dictionary so that
@@ -491,7 +496,9 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
         privdata[1] = o;
         do {
             cursor = dictScan(ht, cursor, scanCallback, privdata);
-        } while (cursor && listLength(keys) < (unsigned long)count);
+        } while (cursor &&
+              maxiterations-- &&
+              listLength(keys) < (unsigned long)count);
     } else if (o->type == REDIS_SET) {
         int pos = 0;
         int64_t ll;
