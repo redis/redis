@@ -847,8 +847,13 @@ void replicationEmptyDbCallback(void *privdata) {
 #define REPL_MAX_WRITTEN_BEFORE_FSYNC (1024*1024*8) /* 8 MB */
 void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     char buf[4096];
+#ifdef _WIN64
+    int64_t nread, readlen;
+    int64_t left;
+#else
     ssize_t nread, readlen;
     off_t left;
+#endif
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(privdata);
     REDIS_NOTUSED(mask);
@@ -881,7 +886,11 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
             redisLog(REDIS_WARNING,"Bad protocol from MASTER, the first byte is not '$' (we received '%s'), are you sure the host and port are right?", buf);
             goto error;
         }
+#ifdef _WIN64
+        server.repl_transfer_size = strtoll(buf+1,NULL,10);
+#else
         server.repl_transfer_size = strtol(buf+1,NULL,10);
+#endif
         redisLog(REDIS_NOTICE,
             "MASTER <-> SLAVE sync: receiving %lld bytes from master",
             (long long) server.repl_transfer_size);
@@ -896,10 +905,17 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (nread <= 0) {
         if (server.repl_transfer_size) {
             errno = WSAGetLastError();
+#ifdef _WIN64
+            redisLog(REDIS_WARNING,"I/O error %d (left %lld) trying to sync with MASTER: %s",
+                errno, server.repl_transfer_size,
+                (nread == -1) ? wsa_strerror(errno) : "connection lost");
+        }
+#else
             redisLog(REDIS_WARNING,"I/O error %d (left %d) trying to sync with MASTER: %s",
                 errno, server.repl_transfer_size,
                 (nread == -1) ? wsa_strerror(errno) : "connection lost");
         }
+#endif
         replicationAbortSyncTransfer();
         return;
     }
@@ -926,8 +942,13 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (server.repl_transfer_read >=
         server.repl_transfer_last_fsync_off + REPL_MAX_WRITTEN_BEFORE_FSYNC)
     {
+#ifdef _WIN64
+        int64_t sync_size = server.repl_transfer_read -
+            server.repl_transfer_last_fsync_off;
+#else
         off_t sync_size = server.repl_transfer_read -
                           server.repl_transfer_last_fsync_off;
+#endif
         rdb_fsync_range(server.repl_transfer_fd,
             server.repl_transfer_last_fsync_off, sync_size);
         server.repl_transfer_last_fsync_off += sync_size;
