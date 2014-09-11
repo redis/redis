@@ -3240,13 +3240,14 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     redisAssert(master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS));
     counters = dictCreate(&leaderVotesDictType,NULL);
 
+    voters = dictSize(master->sentinels)+1; /* All the other sentinels and me. */
+
     /* Count other sentinels votes */
     di = dictGetIterator(master->sentinels);
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
         if (ri->leader != NULL && ri->leader_epoch == sentinel.current_epoch)
             sentinelLeaderIncr(counters,ri->leader);
-        voters++;
     }
     dictReleaseIterator(di);
 
@@ -3280,7 +3281,6 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
             winner = myvote;
         }
     }
-    voters++; /* Anyway, count me as one of the voters. */
 
     voters_quorum = voters/2+1;
     if (winner && (max_votes < voters_quorum || max_votes < master->quorum))
