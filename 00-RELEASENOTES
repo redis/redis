@@ -14,6 +14,30 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.15 ] Release date: 12 Sep 2014
+
+# UPGRADE URGENCY: LOW for Redis, HIGH for Sentinel.
+
+* [FIX] Sentinel critical bug fixed: the absolute majority was computed in a
+        wrong way because of a programming error. Now the implementation does
+        what the specification says and the majority to authorize a failover
+        (that should not be confused with the ODOWN quorum) is the majority of
+        *all* the Sentinels ever seen for a given master, regardless of their
+        current state.
+* [FIX] GETRANGE test no longer fails for 32 bit builds (Matt Stancliff).
+* [FIX] Limit SCAN latency when the hash table is in an odd state (very few
+        populted buckets because rehashing is in progress). (Xiaost and
+        Salvatore Sanfilippo)
+
+* [NEW] Redis is now able to load truncated AOF files without requiring a
+        redis-check-aof utility run. The default now is to load truncated
+        (but apparently not corrupted) AOFs, you can change this in redis.conf.
+        (Salvatore Sanfilippo).
+* [NEW] Sentinel: ability to announce itself with an arbitrary IP/port to work
+        in the context of natted networks. However this is probably still
+        not enough since there is no equivalent mechanism for slaves listed
+        in the master INFO output. (Dara Kong and Salvatore Sanfilippo)
+
 --[ Redis 2.8.14 ] Release date: 1 Sep 2014
 
 # UPGRADE URGENCY: HIGH for Lua scripting users, the server could crash because
