@@ -1230,7 +1230,7 @@ void formatPeerId(char *peerid, size_t peerid_len, char *ip, int port) {
 }
 
 /* A Redis "Peer ID" is a colon separated ip:port pair.
- * For IPv4 it's in the form x.y.z.k:pork, example: "127.0.0.1:1234".
+ * For IPv4 it's in the form x.y.z.k:port, example: "127.0.0.1:1234".
  * For IPv6 addresses we use [] around the IP part, like in "[::1]:1234".
  * For Unix sockets we use path:0, like in "/tmp/redis:0".
  *
