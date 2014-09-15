@@ -516,6 +516,10 @@ int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
 }
 
 int anetUnixAccept(char *err, int s) {
+    return anetBasicAccept(err, s);
+}
+
+int anetBasicAccept(char *err, int s) {
     int fd;
     struct sockaddr_un sa;
     socklen_t salen = sizeof(sa);

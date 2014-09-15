@@ -51,6 +51,7 @@
 #include <sys/resource.h>
 #include <sys/utsname.h>
 #include <locale.h>
+#include <stdlib.h>
 
 /* Our shared "common" objects */
 
@@ -1388,6 +1389,7 @@ void initServerConfig(void) {
     server.bindaddr_count = 0;
     server.unixsocket = NULL;
     server.unixsocketperm = REDIS_DEFAULT_UNIX_SOCKET_PERM;
+    server.inhfd_count = 0;
     server.ipfd_count = 0;
     server.sofd = -1;
     server.dbnum = REDIS_DEFAULT_DBNUM;
@@ -1697,6 +1699,25 @@ void resetServerStats(void) {
     server.ops_sec_last_sample_ops = 0;
 }
 
+void inheritListenFds(pid_t pid, int *fds, int *count) {
+    const char *e;
+    int n, fd;
+
+    if ((e = getenv("LISTEN_PID")) == NULL || (pid_t)strtoull(e,NULL,10) != pid)
+        return;
+
+    if ((e = getenv("LISTEN_FDS")) == NULL || (n = atoi(e)) <= 0)
+        return;
+
+    /* Inherited FDs start at 3 */
+
+    for (fd = 3; fd < 3+n; fd++) {
+        fcntl(fd, F_SETFD, FD_CLOEXEC);
+        fds[*count] = fd;
+        (*count)++;
+    }
+}
+
 void initServer(void) {
     int j;
 
@@ -1727,6 +1748,8 @@ void initServer(void) {
     server.el = aeCreateEventLoop(server.maxclients+REDIS_EVENTLOOP_FDSET_INCR);
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
+    inheritListenFds(server.pid,server.inhfd,&server.inhfd_count);
+
     /* Open the TCP listening socket for the user commands. */
     if (server.port != 0 &&
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == REDIS_ERR)
@@ -1745,7 +1768,7 @@ void initServer(void) {
     }
 
     /* Abort if there are no listening sockets at all. */
-    if (server.ipfd_count == 0 && server.sofd < 0) {
+    if (server.inhfd_count == 0 && server.ipfd_count == 0 && server.sofd < 0) {
         redisLog(REDIS_WARNING, "Configured to not listen anywhere, exiting.");
         exit(1);
     }
@@ -1793,8 +1816,16 @@ void initServer(void) {
         exit(1);
     }
 
-    /* Create an event handler for accepting new connections in TCP and Unix
-     * domain sockets. */
+    /* Create an event handler for accepting new connections in inherited,
+     * TCP and Unix domain sockets. */
+    for (j = 0; j < server.inhfd_count; j++) {
+        if (aeCreateFileEvent(server.el, server.inhfd[j], AE_READABLE,
+            acceptInheritedHandler,(void*)(uintptr_t)j) == AE_ERR)
+            {
+                redisPanic(
+                    "Unrecoverable error creating server.inhfd file event.");
+            }
+    }
     for (j = 0; j < server.ipfd_count; j++) {
         if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,
             acceptTcpHandler,NULL) == AE_ERR)
@@ -2274,8 +2305,8 @@ int processCommand(redisClient *c) {
 
 /*================================== Shutdown =============================== */
 
-/* Close listening sockets. Also unlink the unix domain socket if
- * unlink_unix_socket is non-zero. */
+/* Close listening sockets, except for inherited. Also unlink the unix domain
+ * socket if unlink_unix_socket is non-zero. */
 void closeListeningSockets(int unlink_unix_socket) {
     int j;
 
@@ -3614,6 +3645,8 @@ int main(int argc, char **argv) {
                 exit(1);
             }
         }
+        if (server.inhfd_count > 0)
+            redisLog(REDIS_NOTICE,"The server is now ready to accept connections to inherited sockets");
         if (server.ipfd_count > 0)
             redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
         if (server.sofd > 0)

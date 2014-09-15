@@ -621,6 +621,24 @@ void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 }
 
+void acceptInheritedHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
+    int cfd, max = MAX_ACCEPTS_PER_CALL, nsock = (uintptr_t)privdata;
+    REDIS_NOTUSED(el);
+    REDIS_NOTUSED(mask);
+
+    while(max--) {
+        cfd = anetBasicAccept(server.neterr, fd);
+        if (cfd == ANET_ERR) {
+            if (errno != EWOULDBLOCK)
+                redisLog(REDIS_WARNING,
+                    "Accepting client connection: %s", server.neterr);
+            return;
+        }
+        redisLog(REDIS_VERBOSE,"Accepted connection to inherited socket #%d", nsock);
+        acceptCommonHandler(cfd,REDIS_INHERITED_SOCKET);
+    }
+}
+
 static void freeClientArgv(redisClient *c) {
     int j;
     for (j = 0; j < c->argc; j++)
@@ -1233,6 +1251,7 @@ void formatPeerId(char *peerid, size_t peerid_len, char *ip, int port) {
  * For IPv4 it's in the form x.y.z.k:port, example: "127.0.0.1:1234".
  * For IPv6 addresses we use [] around the IP part, like in "[::1]:1234".
  * For Unix sockets we use path:0, like in "/tmp/redis:0".
+ * For inherited sockets we use fixed string "inherited:0".
  *
  * A Peer ID always fits inside a buffer of REDIS_PEER_ID_LEN bytes, including
  * the null term.
@@ -1249,6 +1268,10 @@ int genClientPeerId(redisClient *client, char *peerid, size_t peerid_len) {
     if (client->flags & REDIS_UNIX_SOCKET) {
         /* Unix socket client. */
         snprintf(peerid,peerid_len,"%s:0",server.unixsocket);
+        return REDIS_OK;
+    } else if (client->flags & REDIS_INHERITED_SOCKET) {
+        /* Inherited socket client. */
+        snprintf(peerid,peerid_len,"inherited:0");
         return REDIS_OK;
     } else {
         /* TCP client. */
@@ -1293,6 +1316,7 @@ sds catClientInfoString(sds s, redisClient *client) {
     if (client->flags & REDIS_UNBLOCKED) *p++ = 'u';
     if (client->flags & REDIS_CLOSE_ASAP) *p++ = 'A';
     if (client->flags & REDIS_UNIX_SOCKET) *p++ = 'U';
+    if (client->flags & REDIS_INHERITED_SOCKET) *p++ = 'I';
     if (client->flags & REDIS_READONLY) *p++ = 'r';
     if (p == flags) *p++ = 'N';
     *p++ = '\0';
