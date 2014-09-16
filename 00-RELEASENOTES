@@ -14,6 +14,39 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.16 ] Release date: 16 Sep 2014
+
+# UPGRADE URGENCY: HIGH for Redis if you are using 2.8.15 + AOF.
+                   LOW for Sentinel.
+
+* [FIX] The ability to load truncated AOF files introduced with Redis 2.8.15
+        contains a bug fixed in this release: after loading the file was not
+        truncated to the last valid command, so the new commands are appended
+        after a non well formed command. This means that:
+
+        1) The first AOF rewrite triggered by the server will automatically
+           fix the problem.
+        2) However, if the server is restarted before the rewrite, Redis may
+           not be able to load the file and you need to manually fix it.
+
+        In order to fix a corrupted file you should start the redis-check-aof
+        utility WITHOUT the --fix option, just to check the offset where the
+        corruption is found. Around the offset reported by the check utility
+        you'll find, inside your AOF file, a command which is not complete
+        according to the Redis protocol. Just remove this incomplete command
+        leafing the file unaltered before and after the offending command,
+        and restart the server.
+
+        IMPORTANT #1: Redis 2.8.15 is the only stable version of Redis with
+        this bug so probably no actual real-world problem happened since the
+        problem is automatically fixed at the first automatic AOF rewrite.
+
+        IMPORTANT #2: Before upgrading to Redis 2.8.16, if you are using Redis
+        2.8.15 with AOF enabled, make sure to trigger a manual AOF rewrite
+        using the BGREWRITEAOF command.
+
+* [FIX] SAVE is no longer propagated to AOF / slaves.
+
 --[ Redis 2.8.15 ] Release date: 12 Sep 2014
 
 # UPGRADE URGENCY: LOW for Redis, HIGH for Sentinel.
