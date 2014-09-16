@@ -39,13 +39,40 @@ tags {"aof"} {
 
     ## Should also start with truncated AOF without incomplete MULTI block.
     create_aof {
-        append_to_aof [formatCommand set foo hello]
-        append_to_aof [string range [formatCommand set bar world] 0 end-1]
+        append_to_aof [formatCommand incr foo]
+        append_to_aof [formatCommand incr foo]
+        append_to_aof [formatCommand incr foo]
+        append_to_aof [formatCommand incr foo]
+        append_to_aof [formatCommand incr foo]
+        append_to_aof [string range [formatCommand incr foo] 0 end-1]
     }
 
     start_server_aof [list dir $server_path aof-load-truncated yes] {
         test "Short read: Server should start if load-truncated is yes" {
             assert_equal 1 [is_alive $srv]
+        }
+
+        set client [redis [dict get $srv host] [dict get $srv port]]
+
+        test "Truncated AOF loaded: we expect foo to be equal to 5" {
+            assert {[$client get foo] eq "5"}
+        }
+
+        test "Append a new command after loading an incomplete AOF" {
+            $client incr foo
+        }
+    }
+
+    # Now the AOF file is expected to be correct
+    start_server_aof [list dir $server_path aof-load-truncated yes] {
+        test "Short read + command: Server should start" {
+            assert_equal 1 [is_alive $srv]
+        }
+
+        set client [redis [dict get $srv host] [dict get $srv port]]
+
+        test "Truncated AOF loaded: we expect foo to be equal to 6 now" {
+            assert {[$client get foo] eq "6"}
         }
     }
 
