@@ -1914,6 +1914,7 @@ void call(redisClient *c, int flags) {
     c->cmd->proc(c);
     duration = ustime()-start;
     dirty = server.dirty-dirty;
+    if (dirty < 0) dirty = 0;
 
     /* When EVAL is called loading the AOF we don't want commands called
      * from Lua to go into the slowlog or to populate statistics. */
