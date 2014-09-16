@@ -231,31 +231,14 @@ void setrangeCommand(redisClient *c) {
 
 void getrangeCommand(redisClient *c) {
     robj *o;
-#ifdef _WIN64
-    int64_t start, end;
-#else
-    long start, end;
-#endif
+    long long start, end;
     char *str, llbuf[32];
     size_t strlen;
 
-
-#ifdef _WIN64
-    // In the VS compiler, longs are not upgraded to 64-bits wien compiled as 64-bits.  With GCC this is not the case.
-    // (https://software.intel.com/en-us/articles/size-of-long-integer-type-on-different-architecture-and-os).
-    //
-    // The immediate fix here is to use a 64bit type and call the conversion appropriate function. Longer term we need to 
-    // eliminate the use of 'long' throughout the code base.  
-    if (getLongLongFromObjectOrReply(c, c->argv[2], &start, NULL) != REDIS_OK)
+    if (getLongLongFromObjectOrReply(c,c->argv[2],&start,NULL) != REDIS_OK)
         return;
     if (getLongLongFromObjectOrReply(c,c->argv[3],&end,NULL) != REDIS_OK)
         return;
-#else
-    if (getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != REDIS_OK)
-        return;
-    if (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != REDIS_OK)
-        return;
-#endif
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptybulk)) == NULL ||
         checkType(c,o,REDIS_STRING)) return;
 
@@ -268,15 +251,15 @@ void getrangeCommand(redisClient *c) {
     }
 
     /* Convert negative indexes */
-    if (start < 0) start = (long)(strlen+start);
-    if (end < 0) end = (long)(strlen+end);
+    if (start < 0) start = strlen+start;
+    if (end < 0) end = strlen+end;
     if (start < 0) start = 0;
     if (end < 0) end = 0;
-    if ((size_t)end >= strlen) end = strlen-1;
+    if ((unsigned long long)end >= strlen) end = strlen-1;
 
     /* Precondition: end >= 0 && end < strlen, so the only condition where
      * nothing can be returned is: start > end. */
-    if (start > end) {
+    if (start > end || strlen == 0) {
         addReply(c,shared.emptybulk);
     } else {
         addReplyBulkCBuffer(c,(char*)str+start,end-start+1);

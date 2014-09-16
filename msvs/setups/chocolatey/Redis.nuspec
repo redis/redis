@@ -3,7 +3,7 @@
   <metadata>
     <id>redis-64</id>
     <title>redis-64</title>
-    <version>2.8.14</version>
+    <version>2.8.15</version>
     <authors>Jonathan Pickett</authors>
     <owners>Microsoft Open Technologies, Inc.</owners>
     <summary>Redis is a very popular open-source, networked, in-memory, key-value data store known for high performance, flexibility, a rich set of data structures, and a simple straightforward API.</summary>
@@ -14,7 +14,7 @@
     <licenseUrl>https://github.com/MSOpenTech/redis/blob/2.8/license.txt</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <iconUrl>http://redis.io/images/redis.png</iconUrl>
-    <releaseNotes>Includes the changes from Redis 2.8.12 -> 2.8.14. Please see the release notes for the UNIX 2.8 branch to understand how this impacts Redis functionality.</releaseNotes>
+    <releaseNotes>Includes the changes from Redis 2.8.12 -> 2.8.15. Please see the release notes for the UNIX 2.8 branch to understand how this impacts Redis functionality.</releaseNotes>
   </metadata>
   <files>
     <file src="..\signed_binaries\*.*" target=".\" />

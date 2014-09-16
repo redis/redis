@@ -550,6 +550,14 @@ struct redisClient *createFakeClient(void) {
     return c;
 }
 
+void freeFakeClientArgv(struct redisClient *c) {
+    int j;
+
+    for (j = 0; j < c->argc; j++)
+        decrRefCount(c->argv[j]);
+    zfree(c->argv);
+}
+
 void freeFakeClient(struct redisClient *c) {
     sdsfree(c->querybuf);
     listRelease(c->reply);
@@ -615,18 +623,35 @@ int loadAppendOnlyFile(char *filename) {
                 goto readerr;
         }
         if (buf[0] != '*') goto fmterr;
+        if (buf[1] == '\0') goto readerr;
         argc = atoi(buf+1);
         if (argc < 1) goto fmterr;
 
         argv = zmalloc(sizeof(robj*)*argc);
+        fakeClient->argc = argc;
+        fakeClient->argv = argv;
+
         for (j = 0; j < argc; j++) {
-            if (fgets(buf,sizeof(buf),fp) == NULL) goto readerr;
+            if (fgets(buf,sizeof(buf),fp) == NULL) {
+                fakeClient->argc = j; /* Free up to j-1. */
+                freeFakeClientArgv(fakeClient);
+                goto readerr;
+            }
             if (buf[0] != '$') goto fmterr;
             len = strtol(buf+1,NULL,10);
             argsds = sdsnewlen(NULL,len);
-            if (len && fread(argsds,len,1,fp) == 0) goto fmterr;
+            if (len && fread(argsds,len,1,fp) == 0) {
+                sdsfree(argsds);
+                fakeClient->argc = j; /* Free up to j-1. */
+                freeFakeClientArgv(fakeClient);
+                goto readerr;
+            }
             argv[j] = createObject(REDIS_STRING,argsds);
-            if (fread(buf,2,1,fp) == 0) goto fmterr; /* discard CRLF */
+            if (fread(buf,2,1,fp) == 0) {
+                fakeClient->argc = j+1; /* Free up to j. */
+                freeFakeClientArgv(fakeClient);
+                goto readerr; /* discard CRLF */
+            }
         }
 
         /* Command lookup */
@@ -635,9 +660,8 @@ int loadAppendOnlyFile(char *filename) {
             redisLog(REDIS_WARNING,"Unknown command '%s' reading the append only file", (char*)argv[0]->ptr);
             exit(1);
         }
+
         /* Run the command in the context of a fake client */
-        fakeClient->argc = argc;
-        fakeClient->argv = argv;
         cmd->proc(fakeClient);
 
         /* The fake client should not have a reply */
@@ -647,15 +671,14 @@ int loadAppendOnlyFile(char *filename) {
 
         /* Clean up. Command code may have changed argv/argc so we use the
          * argv/argc of the client instead of the local variables. */
-        for (j = 0; j < fakeClient->argc; j++)
-            decrRefCount(fakeClient->argv[j]);
-        zfree(fakeClient->argv);
+        freeFakeClientArgv(fakeClient);
     }
 
     /* This point can only be reached when EOF is reached without errors.
      * If the client is in the middle of a MULTI/EXEC, log error and quit. */
-    if (fakeClient->flags & REDIS_MULTI) goto readerr;
+    if (fakeClient->flags & REDIS_MULTI) goto uxeof;
 
+loaded_ok: /* DB loaded, cleanup and return REDIS_OK to the caller. */
     fclose(fp);
     freeFakeClient(fakeClient);
     server.aof_state = old_aof_state;
@@ -664,14 +687,23 @@ int loadAppendOnlyFile(char *filename) {
     server.aof_rewrite_base_size = server.aof_current_size;
     return REDIS_OK;
 
-readerr:
-    if (feof(fp)) {
-        redisLog(REDIS_WARNING,"Unexpected end of file reading the append only file");
-    } else {
+readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
+    if (!feof(fp)) {
         redisLog(REDIS_WARNING,"Unrecoverable error reading the append only file: %s", strerror(errno));
+        exit(1);
     }
+
+uxeof: /* Unexpected AOF end of file. */
+    if (server.aof_load_truncated) {
+        redisLog(REDIS_WARNING,"!!! Warning: short read while loading the AOF file !!!");
+        redisLog(REDIS_WARNING,
+            "AOF loaded anyway because aof-load-truncated is enabled");
+        goto loaded_ok;
+    }
+    redisLog(REDIS_WARNING,"Unexpected end of file reading the append only file. You can: 1) Make a backup of your AOF file, then use ./redis-check-aof --fix <filename>. 2) Alternatively you can set the 'aof-load-truncated' configuration option to yes and restart the server.");
     exit(1);
-fmterr:
+
+fmterr: /* Format error. */
     redisLog(REDIS_WARNING,"Bad file format reading the append only file: make a backup of your AOF file, then use ./redis-check-aof --fix <filename>");
     exit(1);
 }
@@ -1158,7 +1190,7 @@ void aofRemoveTempFile(pid_t childpid) {
     unlink(tmpfile);
 }
 
-/* Update the server.aof_current_size filed explicitly using stat(2)
+/* Update the server.aof_current_size field explicitly using stat(2)
  * to check the size of the file. This is useful after a rewrite or after
  * a restart, normally the size is updated just adding the write length
  * to the current length, that is much faster. */
