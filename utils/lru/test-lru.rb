@@ -49,9 +49,9 @@ inserted = r.dbsize
 first_set_max_id = id
 puts "#{r.dbsize} keys inserted"
 
-# Access keys sequencially
+# Access keys sequentially
 
-puts "Access keys sequencially"
+puts "Access keys sequentially"
 (1..first_set_max_id).each{|id|
     r.get(id)
 #    sleep 0.001
