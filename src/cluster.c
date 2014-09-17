@@ -3171,12 +3171,14 @@ void clusterUpdateState(void) {
     new_state = REDIS_CLUSTER_OK;
 
     /* Check if all the slots are covered. */
-    for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
-        if (server.cluster->slots[j] == NULL ||
-            server.cluster->slots[j]->flags & (REDIS_NODE_FAIL))
-        {
-            new_state = REDIS_CLUSTER_FAIL;
-            break;
+    if (server.cluster_require_full_coverage) {
+        for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
+            if (server.cluster->slots[j] == NULL ||
+                server.cluster->slots[j]->flags & (REDIS_NODE_FAIL))
+            {
+                new_state = REDIS_CLUSTER_FAIL;
+                break;
+            }
         }
     }
 
