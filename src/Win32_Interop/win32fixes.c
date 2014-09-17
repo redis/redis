@@ -552,4 +552,24 @@ char *ctime_r(const time_t *clock, char *buf)  {
     return buf;
 }
 
+int truncate(const char *path, long long length) {
+    LARGE_INTEGER newSize;
+    HANDLE toTruncate;
+    toTruncate = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_WRITE | FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (toTruncate != INVALID_HANDLE_VALUE) {
+        newSize.QuadPart = length;
+        if (FALSE == SetFilePointerEx(toTruncate, newSize, NULL, FILE_BEGIN)) {
+            errno = ENOENT;
+            return -1;
+        } else {
+            return 0;
+        }
+    } else {
+        errno = ENOENT;
+        return -1;
+    }
+}
+
+
+
 #endif

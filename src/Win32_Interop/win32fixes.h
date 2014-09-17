@@ -328,5 +328,9 @@ typedef struct {
 } siginfo_t;
 #endif
 
+int truncate(const char *path, long long length);
+
+#define lseek lseek64
+
 #endif /* WIN32 */
 #endif /* WIN32FIXES_H */

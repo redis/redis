@@ -579,7 +579,11 @@ int loadAppendOnlyFile(char *filename) {
     struct redis_stat sb;
     int old_aof_state = server.aof_state;
     long loops = 0;
+#ifdef _WIN64
+    int64_t valid_up_to = 0; /* Offset of the latest well-formed command loaded. */
+#else
     off_t valid_up_to = 0; /* Offset of the latest well-formed command loaded. */
+#endif
 
     if (fp && redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) {
         server.aof_current_size = 0;
