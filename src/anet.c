@@ -539,10 +539,13 @@ int anetPeerToString(int fd, char *ip, size_t ip_len, int *port) {
         struct sockaddr_in *s = (struct sockaddr_in *)&sa;
         if (ip) inet_ntop(AF_INET,(void*)&(s->sin_addr),ip,ip_len);
         if (port) *port = ntohs(s->sin_port);
-    } else {
+    } else if (sa.ss_family == AF_INET6) {
         struct sockaddr_in6 *s = (struct sockaddr_in6 *)&sa;
         if (ip) inet_ntop(AF_INET6,(void*)&(s->sin6_addr),ip,ip_len);
         if (port) *port = ntohs(s->sin6_port);
+    } else {
+        if (ip) ip[0] = '\0';
+        if (port) *port = 0;
     }
     return 0;
 }
