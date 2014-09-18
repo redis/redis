@@ -541,7 +541,7 @@ int anetPeerToString(int fd, char *ip, size_t ip_len, int *port) {
         if (ip) inet_ntop(AF_INET6,(void*)&(s->sin6_addr),ip,ip_len);
         if (port) *port = ntohs(s->sin6_port);
     } else if (sa.ss_family == AF_UNIX) {
-        if (ip) strncpy(ip,"unixsocket",ip_len);
+        if (ip) strncpy(ip,"/unixsocket",ip_len);
         if (port) *port = 0;
     } else {
         goto error;
