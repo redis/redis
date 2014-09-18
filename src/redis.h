@@ -1223,6 +1223,7 @@ void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
 unsigned int zsetLength(robj *zobj);
 void zsetConvert(robj *zobj, int encoding);
 unsigned long zslGetRank(zskiplist *zsl, double score, robj *o);
+unsigned long zslGetRankUnique(zskiplist *zsl, double score, robj *o, int reverse);
 
 /* Core functions */
 int freeMemoryIfNeeded(void);
