@@ -14,6 +14,16 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.17 ] Release date: 19 Sep 2014
+
+# UPGRADE URGENCY: HIGH for Redis Sentinel.
+                   LOW for Redis Server (unmodified compared to 2.8.16).
+
+* [FIX] Resolved a memory leak in the hiredis library causing a memory leak
+        in Redis Sentinel when a monitored instance or another Sentinel is
+        unavailable. Every reconnection attempt will leak a small amount of
+        memory, but in the long run the process can reach a considerable size.
+
 --[ Redis 2.8.16 ] Release date: 16 Sep 2014
 
 # UPGRADE URGENCY: HIGH for Redis if you are using 2.8.15 + AOF.
