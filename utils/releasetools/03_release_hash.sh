@@ -5,4 +5,4 @@ echo $ENTRY >> ~/hack/redis-hashes/README
 vi ~/hack/redis-hashes/README
 echo "Press any key to commit, Ctrl-C to abort)."
 read yes
-(cd ~/hack/redis-hashes; git commit -a -m '${1} hash.'; git push)
+(cd ~/hack/redis-hashes; git commit -a -m "${1} hash."; git push)
