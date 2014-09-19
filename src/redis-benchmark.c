@@ -251,10 +251,11 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     /* Initialize request when nothing was written. */
     if (c->written == 0) {
         /* Enforce upper bound to number of requests. */
-        if (config.requests_issued++ >= config.requests) {
+        if (config.requests_issued >= config.requests) {
             freeClient(c);
             return;
         }
+        config.requests_issued += c->pending;
 
         /* Really initialize: randomize keys and set start time. */
         if (config.randomkeys) randomizeClientKey(c);
