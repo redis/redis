@@ -84,7 +84,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <AdditionalIncludeDirectories>$(SolutionDir)..\deps\hiredis;$(SolutionDir)..\deps\linenoise;$(SolutionDir)..\deps\lua\src</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>WIN32;USE_DL_PREFIX;LACKS_STDLIB_H;_DEBUG;_CONSOLE;%(PreprocessorDefinitions);NO_QFORKIMPL;WIN32_IOCP</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32_IOCP;WIN32;USE_DL_PREFIX;LACKS_STDLIB_H;_DEBUG;_CONSOLE;%(PreprocessorDefinitions);NO_QFORKIMPL</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <DisableSpecificWarnings>4996</DisableSpecificWarnings>
     </ClCompile>
@@ -121,13 +121,14 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
-      <Optimization>MaxSpeed</Optimization>
+      <Optimization>Full</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <AdditionalIncludeDirectories>$(SolutionDir)..\deps\hiredis;$(SolutionDir)..\deps\linenoise;$(SolutionDir)..\deps\lua\src</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>WIN32;USE_DL_PREFIX;LACKS_STDLIB_H;NDEBUG;_CONSOLE;%(PreprocessorDefinitions);WIN32_IOCP;WIN32_IOCP;NO_QFORKIMPL</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32_IOCP;WIN32;USE_DL_PREFIX;LACKS_STDLIB_H;NDEBUG;_CONSOLE;%(PreprocessorDefinitions);NO_QFORKIMPL</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <DisableSpecificWarnings>4996</DisableSpecificWarnings>
+      <WholeProgramOptimization>true</WholeProgramOptimization>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>

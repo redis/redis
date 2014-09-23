@@ -130,7 +130,7 @@ rc.exe -foresources/EventLog.res resources/EventLog.rc</Command>
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_LIB;%(PreprocessorDefinitions);USE_DL_PREFIX;LACKS_STDLIB_H;USE_DLMALLOC;_CRT_SECURE_NO_WARNINGS;WIN32_IOCP;PSAPI_VERSION=1</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32_IOCP;WIN32;_DEBUG;_LIB;%(PreprocessorDefinitions);USE_DL_PREFIX;LACKS_STDLIB_H;USE_DLMALLOC;_CRT_SECURE_NO_WARNINGS;PSAPI_VERSION=1</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(ProjectDir)..\..\deps\lua\src</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
     </ClCompile>
@@ -169,12 +169,13 @@ rc.exe -foresources/EventLog.res resources/EventLog.rc</Command>
       <WarningLevel>Level3</WarningLevel>
       <PrecompiledHeader>
       </PrecompiledHeader>
-      <Optimization>MaxSpeed</Optimization>
+      <Optimization>Full</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_LIB;%(PreprocessorDefinitions);_WIN32IOCP;USE_DL_PREFIX;LACKS_STDLIB_H;USE_DLMALLOC;_CRT_SECURE_NO_WARNINGS;PSAPI_VERSION=1</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32_IOCP;WIN32;NDEBUG;_LIB;%(PreprocessorDefinitions);USE_DL_PREFIX;LACKS_STDLIB_H;USE_DLMALLOC;_CRT_SECURE_NO_WARNINGS;PSAPI_VERSION=1</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(ProjectDir)..\..\deps\lua\src</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <WholeProgramOptimization>true</WholeProgramOptimization>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>

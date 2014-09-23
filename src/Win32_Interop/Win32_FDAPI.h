@@ -39,6 +39,7 @@ typedef int ssize_t;
 
 #define INCL_WINSOCK_API_PROTOTYPES 0 // Important! Do not include Winsock API definitions to avoid conflicts with API entry points defnied below.
 #include <WinSock2.h>
+#undef FD_ISSET
 #include <fcntl.h>
 #include <stdio.h>
 
@@ -185,6 +186,7 @@ typedef int (*redis_isatty)(int fd);
 typedef int (*redis_access)(const char *pathname, int mode);
 typedef u_int64 (*redis_lseek64)(int fd, u_int64 offset, int whence); 
 typedef intptr_t (*redis_get_osfhandle)(int fd);
+typedef int(*redis_FD_ISSET)(int fd, fd_set *);
 
 // access() mode definitions 
 #define X_OK    0
@@ -240,6 +242,7 @@ extern redis_get_osfhandle fdapi_get_osfhandle;
 extern redis_freeaddrinfo freeaddrinfo;
 extern redis_getaddrinfo getaddrinfo;
 extern redis_inet_ntop inet_ntop;
+extern redis_FD_ISSET FD_ISSET;
 
 // other FD based APIs
 BOOL SetFDInformation(int FD, DWORD mask, DWORD flags);

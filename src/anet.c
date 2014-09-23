@@ -457,7 +457,7 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int 
         return ANET_ERR;
     }
 
-#ifdef _WIN32
+#ifdef WIN32_IOCP
     if (aeWinListen(s, backlog) == SOCKET_ERROR) {
 #else
     if (listen(s, backlog) == -1) {

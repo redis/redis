@@ -84,6 +84,7 @@ redis_ntohs ntohs = NULL;
 redis_freeaddrinfo freeaddrinfo = NULL;
 redis_getaddrinfo getaddrinfo = NULL;
 redis_inet_ntop inet_ntop = NULL;
+redis_FD_ISSET FD_ISSET = NULL;
 }
 
 auto f_WSAStartup = dllfunctor_stdcall<int, WORD, LPWSADATA>("ws2_32.dll", "WSAStartup");
@@ -344,7 +345,8 @@ int redis_accept_impl(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
             } else {
                 errno = WSAGetLastError();
                 if((errno==ENOENT)||(errno==WSAEWOULDBLOCK)) {
-                    errno=EAGAIN;
+                    errno = EAGAIN;
+                    return RFDMap::invalidRFD;
                 }
             }
         }
@@ -407,8 +409,27 @@ int redis_fcntl_impl(int fd, int cmd, int flags = 0 ) {
     return -1;
 }
 
-#undef FD_ISSET
+static auto f_WSAFDIsSet = dllfunctor_stdcall<int, SOCKET, fd_set*>("ws2_32.dll", "__WSAFDIsSet");
 #define FD_ISSET(fd, set) f_WSAFDIsSet((SOCKET)(fd), (fd_set *)(set))
+int redis_FD_ISSET_impl(int fd, fd_set* pSet) {
+    fd_set copy;
+    FD_ZERO(&copy);
+    for (u_int n = 0; n < pSet->fd_count; n++)  {
+        SOCKET s = RFDMap::getInstance().lookupSocket((RFD)(pSet->fd_array[n]));
+        if (s == INVALID_SOCKET) {
+            errno = EBADF;
+            return -1;
+        }
+        FD_SET(s, &copy);
+    }
+    SOCKET s = RFDMap::getInstance().lookupSocket(fd);
+    if (s == INVALID_SOCKET) {
+        errno = EBADF;
+        return -1;
+    }
+    return f_WSAFDIsSet(s, &copy);
+}
+
 int redis_poll_impl(struct pollfd *fds, nfds_t nfds, int timeout) {
     try {
         struct pollfd* pollCopy = new struct pollfd[nfds];
@@ -441,8 +462,6 @@ int redis_poll_impl(struct pollfd *fds, nfds_t nfds, int timeout) {
 
             return ret;
         } else {
-            static auto f_WSAFDIsSet = dllfunctor_stdcall<int, SOCKET, fd_set*>("ws2_32.dll", "__WSAFDIsSet");
-
             int ret;
             fd_set readSet;
             fd_set writeSet;
@@ -1113,6 +1132,8 @@ private:
         freeaddrinfo = redis_freeaddrinfo_impl;
         getaddrinfo = redis_getaddrinfo_impl;
         inet_ntop = redis_inet_ntop_impl;
+        FD_ISSET = redis_FD_ISSET_impl;
+        accept = redis_accept_impl;
     }
 
     ~Win32_FDSockMap() {
