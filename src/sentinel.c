@@ -203,6 +203,10 @@ struct sentinelState {
     mstime_t tilt_start_time;   /* When TITL started. */
     mstime_t previous_time;     /* Last time we ran the time handler. */
     list *scripts_queue;    /* Queue of user scripts to execute. */
+    char *announce_ip;      /* IP addr that is gossiped to other sentinels if
+                               not NULL. */
+    int announce_port;      /* Port that is gossiped to other sentinels if
+                               non zero. */
 } sentinel;
 
 /* A script execution job. */
@@ -425,6 +429,8 @@ void initSentinel(void) {
     sentinel.previous_time = mstime();
     sentinel.running_scripts = 0;
     sentinel.scripts_queue = listCreate();
+    sentinel.announce_ip = NULL;
+    sentinel.announce_port = 0;
 }
 
 /* This function gets called when the server is in Sentinel mode, started,
@@ -1425,6 +1431,13 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
             return "Wrong hostname or port for sentinel.";
         }
         if (argc == 5) si->runid = sdsnew(argv[4]);
+    } else if (!strcasecmp(argv[0],"announce-ip") && argc == 2) {
+        /* announce-ip <ip-address> */
+        if (strlen(argv[1]))
+            sentinel.announce_ip = sdsnew(argv[1]);
+    } else if (!strcasecmp(argv[0],"announce-port") && argc == 2) {
+        /* announce-port <port> */
+        sentinel.announce_port = atoi(argv[1]);
     } else {
         return "Unrecognized sentinel configuration statement.";
     }
@@ -1555,6 +1568,20 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
     line = sdscatprintf(sdsempty(),
         "sentinel current-epoch %llu", (unsigned long long) sentinel.current_epoch);
     rewriteConfigRewriteLine(state,"sentinel",line,1);
+
+    /* sentinel announce-ip. */
+    if (sentinel.announce_ip) {
+        line = sdsnew("sentinel announce-ip ");
+        line = sdscatrepr(line, sentinel.announce_ip, sdslen(sentinel.announce_ip));
+        rewriteConfigRewriteLine(state,"sentinel",line,1);
+    }
+
+    /* sentinel announce-port. */
+    if (sentinel.announce_port) {
+        line = sdscatprintf(sdsempty(),"sentinel announce-port %d",
+                            sentinel.announce_port);
+        rewriteConfigRewriteLine(state,"sentinel",line,1);
+    }
 
     dictReleaseIterator(di);
 }
@@ -2213,18 +2240,30 @@ int sentinelSendHello(sentinelRedisInstance *ri) {
     char ip[REDIS_IP_STR_LEN];
     char payload[REDIS_IP_STR_LEN+1024];
     int retval;
+    char *announce_ip;
+    int announce_port;
     sentinelRedisInstance *master = (ri->flags & SRI_MASTER) ? ri : ri->master;
     sentinelAddr *master_addr = sentinelGetCurrentMasterAddress(master);
 
-    /* Try to obtain our own IP address. */
-    if (anetSockName(ri->cc->c.fd,ip,sizeof(ip),NULL) == -1) return REDIS_ERR;
     if (ri->flags & SRI_DISCONNECTED) return REDIS_ERR;
+
+    /* Use the specified announce address if specified, otherwise try to
+     * obtain our own IP address. */
+    if (sentinel.announce_ip) {
+        announce_ip = sentinel.announce_ip;
+    } else {
+        if (anetSockName(ri->cc->c.fd,ip,sizeof(ip),NULL) == -1)
+            return REDIS_ERR;
+        announce_ip = ip;
+    }
+    announce_port = sentinel.announce_port ?
+                    sentinel.announce_port : server.port;
 
     /* Format and send the Hello message. */
     snprintf(payload,sizeof(payload),
         "%s,%d,%s,%llu," /* Info about this sentinel. */
         "%s,%s,%d,%llu", /* Info about current master. */
-        ip, server.port, server.runid,
+        announce_ip, announce_port, server.runid,
         (unsigned long long) sentinel.current_epoch,
         /* --- */
         master->name,master_addr->ip,master_addr->port,
@@ -3185,9 +3224,9 @@ int sentinelLeaderIncr(dict *counters, char *runid) {
 /* Scan all the Sentinels attached to this master to check if there
  * is a leader for the specified epoch.
  *
- * To be a leader for a given epoch, we should have the majorify of
- * the Sentinels we know that reported the same instance as
- * leader for the same epoch. */
+ * To be a leader for a given epoch, we should have the majority of
+ * the Sentinels we know (ever seen since the last SENTINEL RESET) that
+ * reported the same instance as leader for the same epoch. */
 char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     dict *counters;
     dictIterator *di;
@@ -3201,13 +3240,14 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     redisAssert(master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS));
     counters = dictCreate(&leaderVotesDictType,NULL);
 
+    voters = dictSize(master->sentinels)+1; /* All the other sentinels and me. */
+
     /* Count other sentinels votes */
     di = dictGetIterator(master->sentinels);
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
         if (ri->leader != NULL && ri->leader_epoch == sentinel.current_epoch)
             sentinelLeaderIncr(counters,ri->leader);
-        voters++;
     }
     dictReleaseIterator(di);
 
@@ -3241,7 +3281,6 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
             winner = myvote;
         }
     }
-    voters++; /* Anyway, count me as one of the voters. */
 
     voters_quorum = voters/2+1;
     if (winner && (max_votes < voters_quorum || max_votes < master->quorum))
