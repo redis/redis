@@ -686,8 +686,13 @@ class RedisTrib
                     f[:flags].index("fail")
             fnode = ClusterNode.new(f[:addr])
             fnode.connect()
-            fnode.load_info()
-            add_node(fnode)
+            next if !fnode.r
+            begin
+                fnode.load_info()
+                add_node(fnode)
+            rescue => e
+                xputs "[ERR] Unable to load info for node #{fnode}"
+            end
         }
         populate_nodes_replicas_info
     end
