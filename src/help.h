@@ -172,7 +172,7 @@ struct commandHelp {
     "2.6.0" },
     { "EVALSHA",
     "sha1 numkeys key [key ...] arg [arg ...]",
-    "Execute a Lua script server side",
+    "Execute a cached Lua script server side by its SHA1 digest",
     10,
     "2.6.0" },
     { "EXEC",
