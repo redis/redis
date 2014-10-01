@@ -1349,7 +1349,10 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             goto cleanup;
         }
         if (server.aof_fd != -1) {
-            server.aof_fd = open(tmpfile_old, O_WRONLY|O_APPEND|O_CREAT|_O_BINARY,0644);
+            server.aof_fd = open(
+                tmpfile_old,
+                O_WRONLY|O_APPEND|O_CREAT|_O_BINARY|_O_TEMPORARY,     // _O_TEMPORARY forces delete on close flag in CreateFile call. File will be deleted in REDIS_BIO_CLOSE_FILE job.
+                0644);
         }
 #else
         if (server.aof_fd == -1) {
@@ -1427,9 +1430,6 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
 cleanup:
     aofRewriteBufferReset();
     aofRemoveTempFile(server.aof_child_pid);
-#ifdef _WIN32
-    unlink(tmpfile_old);
-#endif
     server.aof_child_pid = -1;
     server.aof_rewrite_time_last = time(NULL)-server.aof_rewrite_time_start;
     server.aof_rewrite_time_start = -1;
