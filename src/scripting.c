@@ -554,47 +554,89 @@ void luaLoadLibraries(lua_State *lua) {
 #endif
 }
 
-/* Remove a functions that we don't want to expose to the Redis scripting
- * environment. */
-void luaRemoveUnsupportedFunctions(lua_State *lua) {
-    lua_pushnil(lua);
-    lua_setglobal(lua,"loadfile");
-}
-
-/* This function installs metamethods in the global table _G that prevent
- * the creation of globals accidentally.
- *
- * It should be the last to be called in the scripting engine initialization
- * sequence, because it may interact with creation of globals. */
-void scriptingEnableGlobalsProtection(lua_State *lua) {
-    char *s[32];
+/* This function creates a global fucntion, sandbox(), used to make sandboxed calls */
+void scriptingBuildSandbox(lua_State *lua) {
+    char *s[56];
     sds code = sdsempty();
     int j = 0;
 
-    /* strict.lua from: http://metalua.luaforge.net/src/lib/strict.lua.html.
-     * Modified to be adapted to Redis. */
-    s[j++]="local mt = {}\n";
-    s[j++]="setmetatable(_G, mt)\n";
-    s[j++]="mt.__newindex = function (t, n, v)\n";
-    s[j++]="  if debug.getinfo(2) then\n";
-    s[j++]="    local w = debug.getinfo(2, \"S\").what\n";
-    s[j++]="    if w ~= \"main\" and w ~= \"C\" then\n";
-    s[j++]="      error(\"Script attempted to create global variable '\"..tostring(n)..\"'\", 2)\n";
-    s[j++]="    end\n";
-    s[j++]="  end\n";
-    s[j++]="  rawset(t, n, v)\n";
-    s[j++]="end\n";
-    s[j++]="mt.__index = function (t, n)\n";
-    s[j++]="  if debug.getinfo(2) and debug.getinfo(2, \"S\").what ~= \"C\" then\n";
-    s[j++]="    error(\"Script attempted to access unexisting global variable '\"..tostring(n)..\"'\", 2)\n";
-    s[j++]="  end\n";
-    s[j++]="  return rawget(t, n)\n";
-    s[j++]="end\n";
-    s[j++]=NULL;
+    s[j++] = "local typeof = type\n";
+    s[j++] = "local setmetatable = setmetatable\n";
+    s[j++] = "local setfenv = setfenv\n";
+    s[j++] = "local rawset = rawset\n";
+    s[j++] = "local rawget = rawget\n";
+    s[j++] = "\n";
+    s[j++] = "local blacklist = {\n";
+    s[j++] = "    ['dofile'] = true,\n";
+    s[j++] = "    ['loadfile'] = true,\n";
+    s[j++] = "    ['loadstring'] = true,\n";
+    /*
+    Blacklisting these prevents unwanted scripts from being loaded
+    Also, it stops potential path traversals
+    */
+    s[j++] = "    ['setfenv'] = true,\n";
+    s[j++] = "    ['getfenv'] = true,\n";
+    /*
+    These get information from outside the sandbox, so need to be blacklisted
+    */
+    s[j++] = "    ['sandbox'] = true,\n";
+    /*
+    This won't function inside the sandbox without the above, so remove it
+    */
+    s[j++] = "    ['debug'] = true,\n"; 
+    /*
+    Debug library is slow and allows one to escape the sandbox trivially
+    */
+    s[j++] = "    ['EVAL'] = true,\n"; 
+    /*
+    Leaking the EVAL table into scripts is bad.
+    It can be different between masters and slaves, so letting scripts act
+    on its contents can result in a desync.
+    */
+    s[j++] = "}\n";
+    s[j++] = "local function lazycopy(t)\n";
+    s[j++] = "    local _set = {}\n";
+    s[j++] = "    return setmetatable({}, {\n";
+    s[j++] = "        __index = function(self, i)\n";
+    s[j++] = "            if (_set[i]) then return rawget(self, i) end\n";
+    s[j++] = "            if blacklist[i] and blacklist[i]==true then return\n"; 
+    s[j++] = "            elseif blacklist[i] then return blacklist[i] end\n";
+    s[j++] = "            if t[i] then\n";
+    s[j++] = "                if typeof(t[i])=='table' then\n";
+    s[j++] = "                    _set[i] = true;\n"; //This way we get the same copy each time we copy _G
+    s[j++] = "                    rawset(self, i, lazycopy(t[i]))\n";
+    s[j++] = "                    return rawget(self, i)\n";
+    s[j++] = "                else\n";
+    s[j++] = "                    return t[i]\n";
+    s[j++] = "                end\n";
+    s[j++] = "            end\n"; 
+    s[j++] = "        end,\n";
+    s[j++] = "        __newindex = function(self, i, v)\n";
+    s[j++] = "            _set[i] = true;\n";
+    s[j++] = "            return rawset(self, i, v)\n";
+    s[j++] = "        end\n";
+    s[j++] = "    })\n";
+    s[j++] = "end\n";
+    s[j++] = "\n";
+    s[j++] = "function sandbox(func)\n";
+    s[j++] = "    setfenv(func, lazycopy(_G))\n"; //Sandbox the function
+    s[j++] = "    return func()\n";
+    s[j++] = "end\n";
+    s[j++] = NULL;
 
     for (j = 0; s[j] != NULL; j++) code = sdscatlen(code,s[j],strlen(s[j]));
-    luaL_loadbuffer(lua,code,sdslen(code),"@enable_strict_lua");
-    lua_pcall(lua,0,0,0);
+    int alloc_err = luaL_loadbuffer(lua,code,sdslen(code),"@enable_sandbox");
+    if (alloc_err) {
+        printf("Error compiling sandboxing code.\n");
+        redisAssert(0);
+    }
+    int err = lua_pcall(lua,0,0,0);
+
+    if (err) {
+        const char* err_msg = lua_tolstring(lua, -1, NULL);
+        printf("Sandbox initialization error: %s\n", err_msg);
+        redisAssert(0);
+    }
     sdsfree(code);
 }
 
@@ -606,7 +648,6 @@ void scriptingInit(void) {
     lua_State *lua = lua_open();
 
     luaLoadLibraries(lua);
-    luaRemoveUnsupportedFunctions(lua);
 
     /* Initialize a dictionary we use to map SHAs to scripts.
      * This is useful for replication, as we need to replicate EVALSHA
@@ -662,6 +703,10 @@ void scriptingInit(void) {
 
     /* Finally set the table as 'redis' global var. */
     lua_setglobal(lua,"redis");
+    
+    /* Create a global table to store EVAL chunks in */
+    lua_newtable(lua);
+    lua_setglobal(lua,"EVAL");
 
     /* Replace math.random and math.randomseed with our implementations. */
     lua_getglobal(lua,"math");
@@ -717,10 +762,10 @@ void scriptingInit(void) {
         server.lua_client->flags |= REDIS_LUA_CLIENT;
     }
 
-    /* Lua beginners ofter don't use "local", this is likely to introduce
-     * subtle bugs in their code. To prevent problems we protect accesses
-     * to global variables. */
-    scriptingEnableGlobalsProtection(lua);
+    /* To help ensure the atomicity of Lua scripts,
+     * create a sandbox to make all Lua calls in. 
+     * This way, no state can leak between Lua calls*/
+    scriptingBuildSandbox(lua);
 
     server.lua = lua;
 }
@@ -841,7 +886,7 @@ void luaSetGlobalArray(lua_State *lua, char *var, robj **elev, int elec) {
  * The function name musts be a 2 characters long string, since all the
  * functions we defined in the Lua context are in the form:
  *
- *   f_<hex sha1 sum>
+ *   EVAL['<hex sha1 sum>']
  *
  * On success REDIS_OK is returned, and nothing is left on the Lua stack.
  * On error REDIS_ERR is returned and an appropriate error is set in the
@@ -849,33 +894,29 @@ void luaSetGlobalArray(lua_State *lua, char *var, robj **elev, int elec) {
 int luaCreateFunction(redisClient *c, lua_State *lua, char *funcname, robj *body) {
     sds funcdef = sdsempty();
 
-    funcdef = sdscat(funcdef,"function ");
-    funcdef = sdscatlen(funcdef,funcname,42);
-    funcdef = sdscatlen(funcdef,"() ",3);
     funcdef = sdscatlen(funcdef,body->ptr,sdslen(body->ptr));
-    funcdef = sdscatlen(funcdef," end",4);
+
+    lua_getglobal(lua,"EVAL");
+    lua_pushstring(lua, funcname);
 
     if (luaL_loadbuffer(lua,funcdef,sdslen(funcdef),"@user_script")) {
         addReplyErrorFormat(c,"Error compiling script (new function): %s\n",
             lua_tostring(lua,-1));
-        lua_pop(lua,1);
+        lua_pop(lua,3);
         sdsfree(funcdef);
         return REDIS_ERR;
     }
     sdsfree(funcdef);
-    if (lua_pcall(lua,0,0,0)) {
-        addReplyErrorFormat(c,"Error running script (new function): %s\n",
-            lua_tostring(lua,-1));
-        lua_pop(lua,1);
-        return REDIS_ERR;
-    }
+
+    lua_settable(lua, -3); //Set the chunk into the table
+    lua_pop(lua, 1); //Remove the EVAL table from the stack
 
     /* We also save a SHA1 -> Original script map in a dictionary
      * so that we can replicate / write in the AOF all the
      * EVALSHA commands as EVAL using the original script. */
     {
         int retval = dictAdd(server.lua_scripts,
-                             sdsnewlen(funcname+2,40),body);
+                             sdsnewlen(funcname,40),body);
         redisAssertWithInfo(c,NULL,retval == DICT_OK);
         incrRefCount(body);
     }
@@ -884,7 +925,7 @@ int luaCreateFunction(redisClient *c, lua_State *lua, char *funcname, robj *body
 
 void evalGenericCommand(redisClient *c, int evalsha) {
     lua_State *lua = server.lua;
-    char funcname[43];
+    char funcname[41];
     long long numkeys;
     int delhook = 0, err;
 
@@ -916,11 +957,9 @@ void evalGenericCommand(redisClient *c, int evalsha) {
 
     /* We obtain the script SHA1, then check if this function is already
      * defined into the Lua state */
-    funcname[0] = 'f';
-    funcname[1] = '_';
     if (!evalsha) {
         /* Hash the code if this is an EVAL call */
-        sha1hex(funcname+2,c->argv[1]->ptr,sdslen(c->argv[1]->ptr));
+        sha1hex(funcname,c->argv[1]->ptr,sdslen(c->argv[1]->ptr));
     } else {
         /* We already have the SHA if it is a EVALSHA */
         int j;
@@ -930,34 +969,42 @@ void evalGenericCommand(redisClient *c, int evalsha) {
          * managed to always show up in the profiler output consuming
          * a non trivial amount of time. */
         for (j = 0; j < 40; j++)
-            funcname[j+2] = (sha[j] >= 'A' && sha[j] <= 'Z') ?
+            funcname[j] = (sha[j] >= 'A' && sha[j] <= 'Z') ?
                 sha[j]+('a'-'A') : sha[j];
-        funcname[42] = '\0';
+        funcname[40] = '\0';
     }
 
     /* Push the pcall error handler function on the stack. */
     lua_getglobal(lua, "__redis__err__handler");
 
+    /* Get the EVAL table to look for a cached copy */
+    lua_getglobal(lua, "EVAL");
+    /* Get the sandboxing function */
+    lua_getglobal(lua, "sandbox");
+
     /* Try to lookup the Lua function */
-    lua_getglobal(lua, funcname);
+    lua_pushstring(lua, funcname);
+    lua_gettable(lua, -3);
+
     if (lua_isnil(lua,-1)) {
         lua_pop(lua,1); /* remove the nil from the stack */
         /* Function not defined... let's define it if we have the
          * body of the function. If this is an EVALSHA call we can just
          * return an error. */
         if (evalsha) {
-            lua_pop(lua,1); /* remove the error handler from the stack. */
+            lua_pop(lua,3); /* remove the error handler from the stack and EVAL. */
             addReply(c, shared.noscripterr);
             return;
         }
         if (luaCreateFunction(c,lua,funcname,c->argv[1]) == REDIS_ERR) {
-            lua_pop(lua,1); /* remove the error handler from the stack. */
+            lua_pop(lua,3); /* remove the error handler from the stack and EVAL. */
             /* The error is sent to the client by luaCreateFunction()
              * itself when it returns REDIS_ERR. */
             return;
         }
         /* Now the following is guaranteed to return non nil */
-        lua_getglobal(lua, funcname);
+        lua_pushstring(lua, funcname);
+        lua_gettable(lua, -3);
         redisAssert(!lua_isnil(lua,-1));
     }
 
@@ -984,7 +1031,7 @@ void evalGenericCommand(redisClient *c, int evalsha) {
     /* At this point whether this script was never seen before or if it was
      * already defined, we can call it. We have zero arguments and expect
      * a single return value. */
-    err = lua_pcall(lua,0,1,-2);
+    err = lua_pcall(lua,1,1,-4);
 
     /* Perform some cleanup that we need to do both on error and success. */
     if (delhook) lua_sethook(lua,luaMaskCountHook,0,0); /* Disable hook */
@@ -1017,12 +1064,12 @@ void evalGenericCommand(redisClient *c, int evalsha) {
     if (err) {
         addReplyErrorFormat(c,"Error running script (call to %s): %s\n",
             funcname, lua_tostring(lua,-1));
-        lua_pop(lua,2); /* Consume the Lua reply and remove error handler. */
+        lua_pop(lua,3); /* Consume the Lua reply and remove error handler and the EVAL table. */
     } else {
         /* On success convert the Lua return value into Redis protocol, and
          * send it to * the client. */
         luaReplyToRedisReply(c,lua); /* Convert and consume the reply. */
-        lua_pop(lua,1); /* Remove the error handler. */
+        lua_pop(lua,2); /* Remove the error handler and EVAL table. */
     }
 
     /* EVALSHA should be propagated to Slave and AOF file as full EVAL, unless
@@ -1128,13 +1175,11 @@ void scriptCommand(redisClient *c) {
                 addReply(c,shared.czero);
         }
     } else if (c->argc == 3 && !strcasecmp(c->argv[1]->ptr,"load")) {
-        char funcname[43];
+        char funcname[41];
         sds sha;
 
-        funcname[0] = 'f';
-        funcname[1] = '_';
-        sha1hex(funcname+2,c->argv[2]->ptr,sdslen(c->argv[2]->ptr));
-        sha = sdsnewlen(funcname+2,40);
+        sha1hex(funcname,c->argv[2]->ptr,sdslen(c->argv[2]->ptr));
+        sha = sdsnewlen(funcname,40);
         if (dictFind(server.lua_scripts,sha) == NULL) {
             if (luaCreateFunction(c,server.lua,funcname,c->argv[2])
                     == REDIS_ERR) {
@@ -1142,7 +1187,7 @@ void scriptCommand(redisClient *c) {
                 return;
             }
         }
-        addReplyBulkCBuffer(c,funcname+2,40);
+        addReplyBulkCBuffer(c,funcname,40);
         sdsfree(sha);
         forceCommandPropagation(c,REDIS_PROPAGATE_REPL|REDIS_PROPAGATE_AOF);
     } else if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"kill")) {

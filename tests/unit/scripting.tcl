@@ -234,15 +234,29 @@ start_server {tags {"scripting"}} {
              [r eval {return redis.sha1hex('Pizza & Mandolino')} 0]
     } {da39a3ee5e6b4b0d3255bfef95601890afd80709 74822d82031af7493c20eefa13bd07ec4fada82f}
 
-    test {Globals protection reading an undeclared global variable} {
-        catch {r eval {return a} 0} e
-        set e
-    } {*ERR*attempted to access unexisting global*}
+    test {Sandbox - globals are not carried over between invocations} {
+        r eval {a=10; table.a=10;} 0
+        r eval "return {type(a),type(table.a)}" 0
+    } {nil nil}
 
-    test {Globals protection setting an undeclared global*} {
-        catch {r eval {a=10} 0} e
+    test {Sandbox - some standard globals do not exist in the sandbox} {
+        catch {r eval {debug.getinfo(1, 'S')} 0} e
         set e
-    } {*ERR*attempted to create global*}
+    } {ERR*nil value*}
+
+    test {Sandbox - overriding an existing variable does nothing in future calls} {
+        r eval {math.random = nil} 0
+        r eval {return type(math.random)~='nil'} 0
+    } {1}
+
+    test {Sandbox - overriding an existing variable functions within that context} {
+        r eval {math.random = nil; return type(math.random)=='nil'} 0
+    } {1}
+
+    test {Sandbox - attempting to override the global metatable messes up... nothing} {
+        list [r eval {setmetatable(_G, {}); A=10; math.random=nil; return {A, type(math.random)=='nil', type(debug)=='nil'}} 0] \
+             [r eval {return {type(A)=='nil', type(math.random)~='nil'}} 0]
+    } {{10 1 1} {1 1}}    
 
     test {Test an example script DECR_IF_GT} {
         set decr_if_gt {
