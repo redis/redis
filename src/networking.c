@@ -1230,9 +1230,9 @@ void formatPeerId(char *peerid, size_t peerid_len, char *ip, int port) {
 }
 
 /* A Redis "Peer ID" is a colon separated ip:port pair.
- * For IPv4 it's in the form x.y.z.k:pork, example: "127.0.0.1:1234".
+ * For IPv4 it's in the form x.y.z.k:port, example: "127.0.0.1:1234".
  * For IPv6 addresses we use [] around the IP part, like in "[::1]:1234".
- * For Unix socekts we use path:0, like in "/tmp/redis:0".
+ * For Unix sockets we use path:0, like in "/tmp/redis:0".
  *
  * A Peer ID always fits inside a buffer of REDIS_PEER_ID_LEN bytes, including
  * the null term.
@@ -1259,7 +1259,7 @@ int genClientPeerId(redisClient *client, char *peerid, size_t peerid_len) {
 }
 
 /* This function returns the client peer id, by creating and caching it
- * if client->perrid is NULL, otherwise returning the cached value.
+ * if client->peerid is NULL, otherwise returning the cached value.
  * The Peer ID never changes during the life of the client, however it
  * is expensive to compute. */
 char *getClientPeerId(redisClient *c) {

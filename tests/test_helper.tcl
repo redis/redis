@@ -1,5 +1,5 @@
 # Redis test suite. Copyright (C) 2009 Salvatore Sanfilippo antirez@gmail.com
-# This softare is released under the BSD License. See the COPYING file for
+# This software is released under the BSD License. See the COPYING file for
 # more information.
 
 package require Tcl 8.5
@@ -306,7 +306,7 @@ proc signal_idle_client fd {
     }
 }
 
-# The the_end funciton gets called when all the test units were already
+# The the_end function gets called when all the test units were already
 # executed, so the test finished.
 proc the_end {} {
     # TODO: print the status, exit with the rigth exit code.

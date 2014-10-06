@@ -18,7 +18,7 @@
 #         $r ping [list handlePong]
 #     }
 # }
-# 
+#
 # set r [redis]
 # $r blocking 0
 # $r get fo [list handlePong]

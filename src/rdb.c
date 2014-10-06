@@ -475,7 +475,7 @@ int rdbLoadObjectType(rio *rdb) {
     return type;
 }
 
-/* Save a Redis object. Returns -1 on error, 0 on success. */
+/* Save a Redis object. Returns -1 on error, number of bytes written on success. */
 int rdbSaveObject(rio *rdb, robj *o) {
     int n, nwritten = 0;
 

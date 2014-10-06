@@ -89,7 +89,7 @@ while {[incr iterations -1]} {
     test "Restarting node #$tokill" {
         restart_instance redis $tokill
     }
-    
+
     test "Instance #$tokill is now a slave" {
         wait_for_condition 1000 50 {
             [RI $tokill role] eq {slave}
