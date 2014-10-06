@@ -2989,6 +2989,10 @@ sds genRedisInfoString(char *section) {
             }
         }
     }
+
+    if (sections != 9 && sections != 1)
+        info = sdscatprintf(info, "ERR section not found\r\n");
+
     return info;
 }
 
