@@ -213,7 +213,7 @@ void setbitCommand(redisClient *c) {
     robj *o;
     char *err = "bit is not an integer or out of range";
     size_t bitoffset;
-    int byte, bit;
+    int byte, bit, changed;
     int byteval, bitval;
     long on;
 
@@ -234,6 +234,7 @@ void setbitCommand(redisClient *c) {
     if (o == NULL) {
         o = createObject(REDIS_STRING,sdsnewlen(NULL, byte+1));
         dbAdd(c->db,c->argv[1],o);
+        changed = 1;
     } else {
         if (checkType(c,o,REDIS_STRING)) return;
         o = dbUnshareStringValue(c->db,c->argv[1],o);
@@ -245,13 +246,19 @@ void setbitCommand(redisClient *c) {
     bit = 7 - (bitoffset & 0x7);
     bitval = byteval & (1 << bit);
 
-    /* Update byte with new bit value and return original value */
-    byteval &= ~(1 << bit);
-    byteval |= ((on & 0x1) << bit);
-    ((uint8_t*)o->ptr)[byte] = byteval;
-    signalModifiedKey(c->db,c->argv[1]);
-    notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
-    server.dirty++;
+    changed |= bitval != on;
+
+    if (changed) {
+        /* Update byte with new bit value */
+        byteval &= ~(1 << bit);
+        byteval |= on << bit;
+        ((uint8_t*)o->ptr)[byte] = byteval;
+        signalModifiedKey(c->db,c->argv[1]);
+        notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
+        server.dirty++;
+    }
+
+    /* Return the original value */
     addReply(c, bitval ? shared.cone : shared.czero);
 }
 

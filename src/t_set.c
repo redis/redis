@@ -291,8 +291,8 @@ void saddCommand(redisClient *c) {
     if (added) {
         signalModifiedKey(c->db,c->argv[1]);
         notifyKeyspaceEvent(REDIS_NOTIFY_SET,"sadd",c->argv[1],c->db->id);
+        server.dirty += added;
     }
-    server.dirty += added;
     addReplyLongLong(c,added);
 }
 
