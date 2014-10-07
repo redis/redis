@@ -450,6 +450,32 @@ start_server {tags {"basic"}} {
         format $res
     } {hello world foo bared}
 
+    test {SUM} {
+        r flushdb
+        r set foo 0.9
+        r set bar 1
+        r set baz BAZ
+        set res {}
+        lappend res [r sum foo bar]
+        lappend res [r sum foo bar baz]
+        lappend res [r sum nonexisting1 nonexisting2 baz]
+        lappend res [r sum foo nonexisting1 baz]
+        format $res
+    } {1 1 0 0}
+
+    test {SUMFLOAT} {
+        r flushdb
+        r set foo 0.1
+        r set bar 1
+        r set baz BAZ
+        set res {}
+        lappend res [roundFloat [r sumfloat foo bar]]
+        lappend res [roundFloat [r sumfloat foo bar baz]]
+        lappend res [roundFloat [r sumfloat nonexisting1 nonexisting2 baz]]
+        lappend res [roundFloat [r sumfloat foo nonexisting1 baz]]
+        format $res
+    } {1.1 1.1 0 0.1}
+
     test {MGET} {
         r flushdb
         r set foo BAR

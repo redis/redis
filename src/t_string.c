@@ -284,6 +284,42 @@ void mgetCommand(redisClient *c) {
     }
 }
 
+void sumCommand(redisClient *c) {
+    long long value = 0.0, cur_value = 0.0;
+    int j;
+
+    for (j = 1; j < c->argc; j++) {
+        robj *o = lookupKeyRead(c->db,c->argv[j]);
+        if (o == NULL) {
+            continue;
+        }
+        if (getLongLongFromObject(o,&cur_value) != REDIS_OK)
+            continue;
+        else {
+            value+=cur_value;
+        }
+    }
+    addReplyLongLong(c, value);
+}
+
+void sumfloatCommand(redisClient *c) {
+    long double value = 0.0, cur_value = 0.0;
+    int j;
+
+    for (j = 1; j < c->argc; j++) {
+        robj *o = lookupKeyRead(c->db,c->argv[j]);
+        if (o == NULL) {
+            continue;
+        }
+        if (getLongDoubleFromObject(o,&cur_value) != REDIS_OK)
+            continue;
+        else {
+            value+=cur_value;
+        }
+    }
+    addReplyDouble(c, value);
+}
+
 void msetGenericCommand(redisClient *c, int nx) {
     int j, busykeys = 0;
 

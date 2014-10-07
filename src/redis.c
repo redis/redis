@@ -137,6 +137,8 @@ struct redisCommand redisCommandTable[] = {
     {"incr",incrCommand,2,"wmF",0,NULL,1,1,1,0,0},
     {"decr",decrCommand,2,"wmF",0,NULL,1,1,1,0,0},
     {"mget",mgetCommand,-2,"r",0,NULL,1,-1,1,0,0},
+    {"sum",sumCommand,-2,"r",0,NULL,1,-1,1,0,0},
+    {"sumfloat",sumfloatCommand,-2,"r",0,NULL,1,-1,1,0,0},
     {"rpush",rpushCommand,-3,"wmF",0,NULL,1,1,1,0,0},
     {"lpush",lpushCommand,-3,"wmF",0,NULL,1,1,1,0,0},
     {"rpushx",rpushxCommand,3,"wmF",0,NULL,1,1,1,0,0},

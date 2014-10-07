@@ -1419,6 +1419,8 @@ void lremCommand(redisClient *c);
 void rpoplpushCommand(redisClient *c);
 void infoCommand(redisClient *c);
 void mgetCommand(redisClient *c);
+void sumCommand(redisClient *c);
+void sumfloatCommand(redisClient *c);
 void monitorCommand(redisClient *c);
 void expireCommand(redisClient *c);
 void expireatCommand(redisClient *c);
