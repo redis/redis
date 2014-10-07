@@ -62,6 +62,14 @@ typedef struct clusterLink {
 #define nodeTimedOut(n) ((n)->flags & REDIS_NODE_PFAIL)
 #define nodeFailed(n) ((n)->flags & REDIS_NODE_FAIL)
 
+/* Reasons why a slave is not able to failover. */
+#define REDIS_CLUSTER_CANT_FAILOVER_NONE 0
+#define REDIS_CLUSTER_CANT_FAILOVER_DATA_AGE 1
+#define REDIS_CLUSTER_CANT_FAILOVER_WAITING_DELAY 2
+#define REDIS_CLUSTER_CANT_FAILOVER_EXPIRED 3
+#define REDIS_CLUSTER_CANT_FAILOVER_WAITING_VOTES 4
+#define REDIS_CLUSTER_CANT_FAILOVER_RELOG_PERIOD (60*5) /* seconds. */
+
 /* This structure represent elements of node->fail_reports. */
 typedef struct clusterNodeFailReport {
     struct clusterNode *node;  /* Node reporting the failure condition. */
@@ -107,6 +115,8 @@ typedef struct clusterState {
     int failover_auth_sent;     /* True if we already asked for votes. */
     int failover_auth_rank;     /* This slave rank for current auth request. */
     uint64_t failover_auth_epoch; /* Epoch of the current election. */
+    int cant_failover_reason;   /* Why a slave is currently not able to
+                                   failover. See the CANT_FAILOVER_* macros. */
     /* Manual failover state in common. */
     mstime_t mf_end;            /* Manual failover time limit (ms unixtime).
                                    It is zero if there is no MF in progress. */

@@ -417,6 +417,7 @@ void clusterInit(void) {
     server.cluster->failover_auth_count = 0;
     server.cluster->failover_auth_rank = 0;
     server.cluster->failover_auth_epoch = 0;
+    server.cluster->cant_failover_reason = REDIS_CLUSTER_CANT_FAILOVER_NONE;
     server.cluster->lastVoteEpoch = 0;
     server.cluster->stats_bus_messages_sent = 0;
     server.cluster->stats_bus_messages_received = 0;
@@ -2430,6 +2431,68 @@ int clusterGetSlaveRank(void) {
     return rank;
 }
 
+/* This function is called by clusterHandleSlaveFailover() in order to
+ * let the slave log why it is not able to failover. Sometimes there are
+ * not the conditions, but since the failover function is called again and
+ * again, we can't log the same things continuously.
+ *
+ * This function works by logging only if a given set of conditions are
+ * true:
+ *
+ * 1) The reason for which the failover can't be initiated changed.
+ *    The reasons also include a NONE reason we reset the state to
+ *    when the slave finds that its master is fine (no FAIL flag).
+ * 2) Also, the log is emitted again if the master is still down and
+ *    the reason for not failing over is still the same, but more than
+ *    REDIS_CLUSTER_CANT_FAILOVER_RELOG_PERIOD seconds elapsed.
+ * 3) Finally, the function only logs if the slave is down for more than
+ *    five seconds + NODE_TIMEOUT. This way nothing is logged when a
+ *    failover starts in a reasonable time.
+ *
+ * The function is called with the reason why the slave can't failover
+ * which is one of the integer macros REDIS_CLUSTER_CANT_FAILOVER_*.
+ *
+ * The function is guaranteed to be called only if 'myself' is a slave. */
+void clusterLogCantFailover(int reason) {
+    char *msg;
+    static time_t lastlog_time = 0;
+    mstime_t nolog_fail_time = server.cluster_node_timeout + 5000;
+
+    /* Don't log if we have the same reason for some time. */
+    if (reason == server.cluster->cant_failover_reason &&
+        time(NULL)-lastlog_time < REDIS_CLUSTER_CANT_FAILOVER_RELOG_PERIOD)
+        return;
+
+    server.cluster->cant_failover_reason = reason;
+
+    /* We also don't emit any log if the master failed no long ago, the
+     * goal of this function is to log slaves in a stalled condition for
+     * a long time. */
+    if (myself->slaveof &&
+        nodeFailed(myself->slaveof) &&
+        (mstime() - myself->slaveof->fail_time) < nolog_fail_time) return;
+
+    switch(reason) {
+    case REDIS_CLUSTER_CANT_FAILOVER_DATA_AGE:
+        msg = "Disconnected from master for longer than allowed.";
+        break;
+    case REDIS_CLUSTER_CANT_FAILOVER_WAITING_DELAY:
+        msg = "Waiting the delay before I can start a new failover.";
+        break;
+    case REDIS_CLUSTER_CANT_FAILOVER_EXPIRED:
+        msg = "Failover attempt expired.";
+        break;
+    case REDIS_CLUSTER_CANT_FAILOVER_WAITING_VOTES:
+        msg = "Waiting for votes, but majority still not reached.";
+        break;
+    default:
+        msg = "Unknown reason code.";
+        break;
+    }
+    lastlog_time = time(NULL);
+    redisLog(REDIS_WARNING,"Currently unable to failover: %s", msg);
+}
+
 /* This function is called if we are a slave node and our master serving
  * a non-zero amount of hash slots is in FAIL state.
  *
@@ -2468,7 +2531,13 @@ void clusterHandleSlaveFailover(void) {
     if (nodeIsMaster(myself) ||
         myself->slaveof == NULL ||
         (!nodeFailed(myself->slaveof) && !manual_failover) ||
-        myself->slaveof->numslots == 0) return;
+        myself->slaveof->numslots == 0)
+    {
+        /* There are no reasons to failover, so we set the reason why we
+         * are returning without failing over to NONE. */
+        server.cluster->cant_failover_reason = REDIS_CLUSTER_CANT_FAILOVER_NONE;
+        return;
+    }
 
     /* Set data_age to the number of seconds we are disconnected from
      * the master. */
@@ -2494,7 +2563,10 @@ void clusterHandleSlaveFailover(void) {
         (((mstime_t)server.repl_ping_slave_period * 1000) +
          (server.cluster_node_timeout * server.cluster_slave_validity_factor)))
     {
-        if (!manual_failover) return;
+        if (!manual_failover) {
+            clusterLogCantFailover(REDIS_CLUSTER_CANT_FAILOVER_DATA_AGE);
+            return;
+        }
     }
 
     /* If the previous failover attempt timedout and the retry time has
@@ -2550,10 +2622,16 @@ void clusterHandleSlaveFailover(void) {
     }
 
     /* Return ASAP if we can't still start the election. */
-    if (mstime() < server.cluster->failover_auth_time) return;
+    if (mstime() < server.cluster->failover_auth_time) {
+        clusterLogCantFailover(REDIS_CLUSTER_CANT_FAILOVER_WAITING_DELAY);
+        return;
+    }
 
     /* Return ASAP if the election is too old to be valid. */
-    if (auth_age > auth_timeout) return;
+    if (auth_age > auth_timeout) {
+        clusterLogCantFailover(REDIS_CLUSTER_CANT_FAILOVER_EXPIRED);
+        return;
+    }
 
     /* Ask for votes if needed. */
     if (server.cluster->failover_auth_sent == 0) {
@@ -2608,6 +2686,8 @@ void clusterHandleSlaveFailover(void) {
 
         /* 6) If there was a manual failover in progress, clear the state. */
         resetManualFailover();
+    } else {
+        clusterLogCantFailover(REDIS_CLUSTER_CANT_FAILOVER_WAITING_VOTES);
     }
 }
 
