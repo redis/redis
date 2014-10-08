@@ -1768,6 +1768,7 @@ void initServer(void) {
     server.cronloops = 0;
     server.rdb_child_pid = -1;
     server.aof_child_pid = -1;
+    server.rdb_child_type = REDIS_RDB_CHILD_TYPE_NONE;
     aofRewriteBufferReset();
     server.aof_buf = sdsempty();
     server.lastsave = time(NULL); /* At startup we consider the DB saved. */
