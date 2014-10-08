@@ -776,6 +776,7 @@ int rdbSaveBackground(char *filename) {
         redisLog(REDIS_NOTICE,"Background saving started by pid %d",childpid);
         server.rdb_save_time_start = time(NULL);
         server.rdb_child_pid = childpid;
+        server.rdb_child_type = REDIS_RDB_CHILD_TYPE_DISK;
         updateDictResizePolicy();
         return REDIS_OK;
     }
@@ -1236,6 +1237,7 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
             server.lastbgsave_status = REDIS_ERR;
     }
     server.rdb_child_pid = -1;
+    server.rdb_child_type = REDIS_RDB_CHILD_TYPE_NONE;
     server.rdb_save_time_last = time(NULL)-server.rdb_save_time_start;
     server.rdb_save_time_start = -1;
     /* Possibly there are slaves waiting for a BGSAVE in order to be served

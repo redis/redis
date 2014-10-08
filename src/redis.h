@@ -361,6 +361,11 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_PROPAGATE_AOF 1
 #define REDIS_PROPAGATE_REPL 2
 
+/* RDB active child save type. */
+#define REDIS_RDB_CHILD_TYPE_NONE 0
+#define REDIS_RDB_CHILD_TYPE_DISK 1     /* RDB is written to disk. */
+#define REDIS_RDB_CHILD_TYPE_SOCKET 2   /* RDB is written to slave socket. */
+
 /* Keyspace changes notification classes. Every class is associated with a
  * character for configuration purposes. */
 #define REDIS_NOTIFY_KEYSPACE (1<<0)    /* K */
@@ -764,6 +769,7 @@ struct redisServer {
     time_t lastbgsave_try;          /* Unix time of last attempted bgsave */
     time_t rdb_save_time_last;      /* Time used by last RDB save run. */
     time_t rdb_save_time_start;     /* Current RDB save start time. */
+    int rdb_child_type;             /* Type of save by active child. */
     int lastbgsave_status;          /* REDIS_OK or REDIS_ERR */
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
     /* Propagation of commands in AOF / replication */
