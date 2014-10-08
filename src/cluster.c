@@ -1533,7 +1533,7 @@ int clusterProcessPacket(clusterLink *link) {
         }
     }
 
-    /* Process packets by type. */
+    /* Initial processing of PING and MEET requests replying with a PONG. */
     if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_MEET) {
         redisLog(REDIS_DEBUG,"Ping packet received: %p", (void*)link->node);
 
@@ -1571,14 +1571,17 @@ int clusterProcessPacket(clusterLink *link) {
             clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
         }
 
-        /* Get info from the gossip section */
-        clusterProcessGossipSection(hdr,link);
+        /* If this is a MEET packet from an unknown node, we still process
+         * the gossip section here since we have to trust the sender because
+         * of the message type. */
+        if (!sender && type == CLUSTERMSG_TYPE_MEET)
+            clusterProcessGossipSection(hdr,link);
 
         /* Anyway reply with a PONG */
         clusterSendPing(link,CLUSTERMSG_TYPE_PONG);
     }
 
-    /* PING or PONG: process config information. */
+    /* PING, PONG, MEET: process config information. */
     if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_PONG ||
         type == CLUSTERMSG_TYPE_MEET)
     {
@@ -1775,7 +1778,7 @@ int clusterProcessPacket(clusterLink *link) {
         }
 
         /* Get info from the gossip section */
-        clusterProcessGossipSection(hdr,link);
+        if (sender) clusterProcessGossipSection(hdr,link);
     } else if (type == CLUSTERMSG_TYPE_FAIL) {
         clusterNode *failing;
 
