@@ -7,7 +7,9 @@ fconfigure stdin -buffering none
 
 while 1 {
     set c [read stdin 1]
-    if {$c eq {.}} {
+    if {$c eq {}} {
+        exit 0; # EOF
+    } elseif {$c eq {.}} {
         puts -nonewline .
         flush stdout
     }
