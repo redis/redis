@@ -3235,7 +3235,7 @@ void clusterCloseAllSlots(void) {
 
 void clusterUpdateState(void) {
     int j, new_state;
-    int unreachable_masters = 0;
+    int reachable_masters = 0;
     static mstime_t among_minority_time;
     static mstime_t first_call_time = 0;
 
@@ -3271,8 +3271,8 @@ void clusterUpdateState(void) {
     /* Compute the cluster size, that is the number of master nodes
      * serving at least a single slot.
      *
-     * At the same time count the number of unreachable masters with
-     * at least one node. */
+     * At the same time count the number of reachable masters having
+     * at least one slot. */
     {
         dictIterator *di;
         dictEntry *de;
@@ -3284,20 +3284,19 @@ void clusterUpdateState(void) {
 
             if (nodeIsMaster(node) && node->numslots) {
                 server.cluster->size++;
-                if (node->flags & (REDIS_NODE_FAIL|REDIS_NODE_PFAIL))
-                    unreachable_masters++;
+                if ((node->flags & (REDIS_NODE_FAIL|REDIS_NODE_PFAIL)) == 0)
+                    reachable_masters++;
             }
         }
         dictReleaseIterator(di);
     }
 
-    /* If we can't reach at least half the masters, change the cluster state
-     * to FAIL, as we are not even able to mark nodes as FAIL in this side
-     * of the netsplit because of lack of majority. */
+    /* If we are in a minority partition, change the cluster state
+     * to FAIL. */
     {
         int needed_quorum = (server.cluster->size / 2) + 1;
 
-        if (unreachable_masters >= needed_quorum) {
+        if (reachable_masters < needed_quorum) {
             new_state = REDIS_CLUSTER_FAIL;
             among_minority_time = mstime();
         }
