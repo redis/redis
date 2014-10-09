@@ -12,6 +12,67 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 3.0.0 RC1 (version 2.9.101) ] Release date: 9 oct 2014
+
+This is the first release candidate of Redis Cluster.
+
+>> General changes
+
+* [FIX] An very large number of small fixes, old and new, merged in the
+        context of a the issue #1906. Please see the issue page here
+        for exact credits: https://github.com/antirez/redis/pull/1906
+        of each commit. (Matt Stancliff and many others).
+* [FIX] SAVE is no longer propagated to AOF / slaves.
+* [FIX] GETRANGE test no longer fails for 32 bit builds (Matt Stancliff).
+* [FIX] Limit SCAN latency when the hash table is in an odd state (very few
+        populted buckets because rehashing is in progress). (Xiaost and
+        Salvatore Sanfilippo)
+
+* [NEW] Redis is now able to load truncated AOF files without requiring a
+        redis-check-aof utility run. The default now is to load truncated
+        (but apparently not corrupted) AOFs, you can change this in redis.conf.
+        (Salvatore Sanfilippo).
+* [NEW] DEBUG POPULATE two args form implemented. It is now possible to
+        call it with DEBUG POPULATE <count> <prefix>. Default prefix
+        is "key:" as usually.
+* [NEW] INCR: Modify incremented object in-place when possible. This results
+        in speed improvements + possibly better memory locality.
+
+>> Cluster changes
+
+* [FIX] Cluster: claim ping_sent time even if we can't connect.
+* [FIX] redis-trib should not abort easily on connection issues.
+* [FIX] Cluster test: less console-spammy resharding test.
+* [FIX] Fix logic to detect we are among a minority.
+* [FIX] Process gossip section only for known nodes.
+
+* [NEW] Redis Cluster is stable and tested enough, there is a clear MVP,
+        so it was promoted from beta to stable.
+* [NEW] New unit 09, Pub/Sub across the cluster.
+* [NEW] New unit 08, update messages.
+* [NEW] New cluster option to work with partial slots coverage.
+* [NEW] More chatty cluster slaves when failover is stalled. They log reason
+        with rate limiting, only when reason changes or a given time
+        has elapsed.
+
+>> Sentinel changes
+
+* [FIX] Sentinel critical bug fixed: the absolute majority was computed in a
+        wrong way because of a programming error. Now the implementation does
+        what the specification says and the majority to authorize a failover
+        (that should not be confused with the ODOWN quorum) is the majority of
+        *all* the Sentinels ever seen for a given master, regardless of their
+        current state.
+* [FIX] Resolved a memory leak in the hiredis library causing a memory leak
+        in Redis Sentinel when a monitored instance or another Sentinel is
+        unavailable. Every reconnection attempt will leak a small amount of
+        memory, but in the long run the process can reach a considerable size.
+
+* [NEW] Sentinel: ability to announce itself with an arbitrary IP/port to work
+        in the context of natted networks. However this is probably still
+        not enough since there is no equivalent mechanism for slaves listed
+        in the master INFO output. (Dara Kong and Salvatore Sanfilippo)
+
 --[ Redis 3.0.0 Beta 8 (version 2.9.57) ] Release date: 29 jul 2014
 
 This is the 8th beta of Redis 3.0.0.
