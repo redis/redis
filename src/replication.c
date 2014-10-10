@@ -468,7 +468,7 @@ void syncCommand(redisClient *c) {
     if (server.rdb_child_pid != -1) {
         /* Ok a background save is in progress. Let's check if it is a good
          * one for replication, i.e. if there is another slave that is
-         * registering differences since the server forked to save */
+         * registering differences since the server forked to save. */
         redisClient *slave;
         listNode *ln;
         listIter li;
@@ -480,18 +480,23 @@ void syncCommand(redisClient *c) {
         }
         if (ln) {
             /* Perfect, the server is already registering differences for
-             * another slave. Set the right state, and copy the buffer. */
+             * another slave. Set the right state, and copy the buffer.
+             *
+             * Note that if we found a slave in WAIT_BGSAVE_END state, this
+             * means that the current child is of type
+             * REDIS_RDB_CHILD_TYPE_DISK, since the first slave in this state
+             * can only be added when an RDB save with disk target is started. */
             copyClientOutputBuffer(c,slave);
             c->replstate = REDIS_REPL_WAIT_BGSAVE_END;
             redisLog(REDIS_NOTICE,"Waiting for end of BGSAVE for SYNC");
         } else {
             /* No way, we need to wait for the next BGSAVE in order to
-             * register differences */
+             * register differences. */
             c->replstate = REDIS_REPL_WAIT_BGSAVE_START;
             redisLog(REDIS_NOTICE,"Waiting for next BGSAVE for SYNC");
         }
     } else {
-        /* Ok we don't have a BGSAVE in progress, let's start one */
+        /* Ok we don't have a BGSAVE in progress, let's start one. */
         redisLog(REDIS_NOTICE,"Starting BGSAVE for SYNC");
         if (rdbSaveBackground(server.rdb_filename) != REDIS_OK) {
             redisLog(REDIS_NOTICE,"Replication failed, can't BGSAVE");
