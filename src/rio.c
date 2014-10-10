@@ -142,6 +142,66 @@ void rioInitWithFile(rio *r, FILE *fp) {
     r->io.file.autosync = 0;
 }
 
+/* ------------------- File descriptors set implementation ------------------- */
+
+/* Returns 1 or 0 for success/failure. */
+static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
+    size_t retval;
+    int j;
+    unsigned char *p = (unsigned char*) buf;
+
+    /* Write in little chunchs so that when there are big writes we
+     * parallelize while the kernel is sending data in background to
+     * the TCP socket. */
+    while(len) {
+        size_t count = len < 1024 ? len : 1024;
+        for (j = 0; j < r->io.fdset.numfds; j++) {
+            retval = write(r->io.fdset.fds[j],p,count);
+            if (retval != count) return 0;
+        }
+        p += count;
+        len -= count;
+        r->io.fdset.pos += count;
+    }
+    return 1;
+}
+
+/* Returns 1 or 0 for success/failure. */
+static size_t rioFdsetRead(rio *r, void *buf, size_t len) {
+    REDIS_NOTUSED(r);
+    REDIS_NOTUSED(buf);
+    REDIS_NOTUSED(len);
+    return 0; /* Error, this target does not support reading. */
+}
+
+/* Returns read/write position in file. */
+static off_t rioFdsetTell(rio *r) {
+    return r->io.fdset.pos;
+}
+
+static const rio rioFdsetIO = {
+    rioFdsetRead,
+    rioFdsetWrite,
+    rioFdsetTell,
+    NULL,           /* update_checksum */
+    0,              /* current checksum */
+    0,              /* bytes read or written */
+    0,              /* read/write chunk size */
+    { { NULL, 0 } } /* union for io-specific vars */
+};
+
+void rioInitWithFdset(rio *r, int *fds, int numfds) {
+    *r = rioFdsetIO;
+    r->io.fdset.fds = zmalloc(sizeof(int)*numfds);
+    memcpy(r->io.fdset.fds,fds,sizeof(int)*numfds);
+    r->io.fdset.numfds = numfds;
+    r->io.fdset.pos = 0;
+}
+
+void rioFreeFdset(rio *r) {
+    zfree(r->io.fdset.fds);
+}
+
 /* ---------------------------- Generic functions ---------------------------- */
 
 /* This function can be installed both in memory and file streams when checksum
