@@ -55,6 +55,8 @@
 #include "config.h"
 #include "redis.h"
 
+/* ------------------------- Buffer I/O implementation ----------------------- */
+
 /* Returns 1 or 0 for success/failure. */
 static size_t rioBufferWrite(rio *r, const void *buf, size_t len) {
     r->io.buffer.ptr = sdscatlen(r->io.buffer.ptr,(char*)buf,len);
@@ -75,6 +77,25 @@ static size_t rioBufferRead(rio *r, void *buf, size_t len) {
 static off_t rioBufferTell(rio *r) {
     return r->io.buffer.pos;
 }
+
+static const rio rioBufferIO = {
+    rioBufferRead,
+    rioBufferWrite,
+    rioBufferTell,
+    NULL,           /* update_checksum */
+    0,              /* current checksum */
+    0,              /* bytes read or written */
+    0,              /* read/write chunk size */
+    { { NULL, 0 } } /* union for io-specific vars */
+};
+
+void rioInitWithBuffer(rio *r, sds s) {
+    *r = rioBufferIO;
+    r->io.buffer.ptr = s;
+    r->io.buffer.pos = 0;
+}
+
+/* --------------------- Stdio file pointer implementation ------------------- */
 
 /* Returns 1 or 0 for success/failure. */
 static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
@@ -103,17 +124,6 @@ static off_t rioFileTell(rio *r) {
     return ftello(r->io.file.fp);
 }
 
-static const rio rioBufferIO = {
-    rioBufferRead,
-    rioBufferWrite,
-    rioBufferTell,
-    NULL,           /* update_checksum */
-    0,              /* current checksum */
-    0,              /* bytes read or written */
-    0,              /* read/write chunk size */
-    { { NULL, 0 } } /* union for io-specific vars */
-};
-
 static const rio rioFileIO = {
     rioFileRead,
     rioFileWrite,
@@ -132,11 +142,7 @@ void rioInitWithFile(rio *r, FILE *fp) {
     r->io.file.autosync = 0;
 }
 
-void rioInitWithBuffer(rio *r, sds s) {
-    *r = rioBufferIO;
-    r->io.buffer.ptr = s;
-    r->io.buffer.pos = 0;
-}
+/* ---------------------------- Generic functions ---------------------------- */
 
 /* This function can be installed both in memory and file streams when checksum
  * computation is needed. */
@@ -157,7 +163,8 @@ void rioSetAutoSync(rio *r, off_t bytes) {
     r->io.file.autosync = bytes;
 }
 
-/* ------------------------------ Higher level interface ---------------------------
+/* --------------------------- Higher level interface --------------------------
+ *
  * The following higher level functions use lower level rio.c functions to help
  * generating the Redis protocol for the Append Only File. */
 
