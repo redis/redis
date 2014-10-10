@@ -61,15 +61,23 @@ struct _rio {
 
     /* Backend-specific vars. */
     union {
+        /* In-memory buffer target. */
         struct {
             sds ptr;
             off_t pos;
         } buffer;
+        /* Stdio file pointer target. */
         struct {
             FILE *fp;
             off_t buffered; /* Bytes written since last fsync. */
             off_t autosync; /* fsync after 'autosync' bytes written. */
         } file;
+        /* Multiple FDs target (used to write to N sockets). */
+        struct {
+            int *fds;
+            int numfds;
+            off_t pos;
+        } fdset;
     } io;
 };
 
@@ -111,6 +119,7 @@ static inline off_t rioTell(rio *r) {
 
 void rioInitWithFile(rio *r, FILE *fp);
 void rioInitWithBuffer(rio *r, sds s);
+void rioInitWithFdset(rio *r, int *fds, int numfds);
 
 size_t rioWriteBulkCount(rio *r, char prefix, int count);
 size_t rioWriteBulkString(rio *r, const char *buf, size_t len);
