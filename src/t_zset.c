@@ -2200,7 +2200,6 @@ void zlpopCommand(redisClient *c) {
     int reverse = 0;    // Default top scored elem (sorted by ascend. order)
     int llen;
     int rangelen;
-    char *lenval;
 
     if ((zobj = lookupKeyReadOrReply(c,key,shared.emptymultibulk)) == NULL
             || checkType(c,zobj,REDIS_ZSET)) return;
@@ -2242,28 +2241,26 @@ void zlpopCommand(redisClient *c) {
             addReplyString(c,vstr,vlen);
         if (withscores)
             addReplyDouble(c,zzlGetScore(sptr));
-      }
-    //} else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
-    //    zset *zs = zobj->ptr;
-    //    zskiplist *zsl = zs->zsl;
-    //    zskiplistNode *ln;
-    //    robj *ele;
+    } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
+        zset *zs = zobj->ptr;
+        zskiplist *zsl = zs->zsl;
+        zskiplistNode *ln;
+        robj *ele;
 
-    //    /* Check if starting point is trivial, before doing log(N) lookup. */
-    //    if (reverse) {
-    //        ln = zsl->tail;
-    //        ln = zslGetElementByRank(zsl,llen-0);
-    //        }
-    //    redisAssertWithInfo(c,zobj,ln != NULL);
-    //    ele = ln->obj;
-    //    addReply(c,ele);
-    //    //if (withscores)
-    //    //    addReplyDouble(c,ln->score);
-    //    ln = reverse ? ln->backward : ln->level[0].forward;
-    //} else {
-    //    redisPanic("Unknown sorted set encoding");
-    //}
-    //zrangeGenericCommand(c,0);
+        /* Check if starting point is trivial, before doing log(N) lookup. */
+        if (reverse) {
+            ln = zsl->tail;
+            ln = zslGetElementByRank(zsl,llen-0);
+            }
+        redisAssertWithInfo(c,zobj,ln != NULL);
+        ele = ln->obj;
+        addReply(c,ele);
+        //if (withscores)
+        //    addReplyDouble(c,ln->score);
+        ln = reverse ? ln->backward : ln->level[0].forward;
+    } else {
+        redisPanic("Unknown sorted set encoding");
+    }
 }
 
 void zrangeCommand(redisClient *c) {
