@@ -108,6 +108,19 @@ start_server {tags {"zset"}} {
             r zrem ztmp a b c d e f g
         } {3}
 
+        test "zlpop basics - $encoding" {
+            r del ztmp
+            r zadd ztmp 1 a
+            r zadd ztmp 2 b
+            r zadd ztmp 3 c
+            r zadd ztmp 4 d
+
+            # Top scored key
+            assert_equal {a} [r zlpop ztmp ]
+
+            # withscores
+            assert_equal {a 1} [r zlpop ztmp withscores]
+        }
         test "ZRANGE basics - $encoding" {
             r del ztmp
             r zadd ztmp 1 a

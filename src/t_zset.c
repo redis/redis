@@ -2194,62 +2194,76 @@ void zrangeGenericCommand(redisClient *c, int reverse) {
 void zlpopCommand(redisClient *c) {
     robj *key = c->argv[1];
     robj *zobj;
-    int withscores = 1; // Always witscores.
+    long start = 0;
+    long end;
+    int withscores = 0; // Always witscores.
     int reverse = 0;    // Default top scored elem (sorted by ascend. order)
     int llen;
+    int rangelen;
+    char *lenval;
 
-    if (c->argc > 2) {
-        addReply(c,shared.syntaxerr);
-        return;
-    }
     if ((zobj = lookupKeyReadOrReply(c,key,shared.emptymultibulk)) == NULL
             || checkType(c,zobj,REDIS_ZSET)) return;
 
+    if (c->argc == 3 && !strcasecmp(c->argv[2]->ptr,"withscores")) {
+        withscores = 1;
+    }
     llen = zsetLength(zobj);
-    addReplyMultiBulkLen(c, 2 );
+    if (start < 0) start = llen+start;
+    if (end < 0) end = llen+end;
+    if (start < 0) start = 0;
+
+    if (start > end || start >= llen) {
+        addReply(c,shared.emptymultibulk);
+        return;
+    }
+    if (end >= llen) end = llen-1;
+    rangelen = (end-start)+1;
+    addReplyMultiBulkLen(c, withscores ? 2:1);
 
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
         unsigned char *zl = zobj->ptr;
-        unsigned char *sptr;
+        unsigned char *sptr, *eptr;
         unsigned char *vstr;
         unsigned int vlen;
         long long vlong;
 
         if (reverse)
-            sptr = ziplistIndex(zl,-2);
+            eptr = ziplistIndex(zl,-2-(2*start));
         else
-            sptr = ziplistIndex(zl,0);
+            eptr = ziplistIndex(zl,2*start);
 
-        redisAssertWithInfo(c,zobj,sptr != NULL);
-
-        redisAssertWithInfo(c,zobj,ziplistGet(sptr,&vstr,&vlen,&vlong));
+       redisAssertWithInfo(c,zobj,eptr != NULL);
+       sptr = ziplistNext(zl,eptr);
+       redisAssertWithInfo(c,zobj,ziplistGet(sptr,&vstr,&vlen,&vlong));
         if (vstr == NULL)
             addReplyLongLong(c,vlong);
         else
             addReplyString(c,vstr,vlen);
+        if (withscores)
+            addReplyDouble(c,zzlGetScore(sptr));
+      }
+    //} else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
+    //    zset *zs = zobj->ptr;
+    //    zskiplist *zsl = zs->zsl;
+    //    zskiplistNode *ln;
+    //    robj *ele;
 
-        //addReplyDouble(c,zzlGetScore(sptr));
-
-    } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
-        zset *zs = zobj->ptr;
-        zskiplist *zsl = zs->zsl;
-        zskiplistNode *ln;
-        robj *ele;
-
-        /* Check if starting point is trivial, before doing log(N) lookup. */
-        if (reverse) {
-            ln = zsl->tail;
-            ln = zslGetElementByRank(zsl,llen-0);
-            }
-        redisAssertWithInfo(c,zobj,ln != NULL);
-        ele = ln->obj;
-        addReply(c,ele);
-        //if (withscores)
-        //    addReplyDouble(c,ln->score);
-        ln = reverse ? ln->backward : ln->level[0].forward;
-    } else {
-        redisPanic("Unknown sorted set encoding");
-    }
+    //    /* Check if starting point is trivial, before doing log(N) lookup. */
+    //    if (reverse) {
+    //        ln = zsl->tail;
+    //        ln = zslGetElementByRank(zsl,llen-0);
+    //        }
+    //    redisAssertWithInfo(c,zobj,ln != NULL);
+    //    ele = ln->obj;
+    //    addReply(c,ele);
+    //    //if (withscores)
+    //    //    addReplyDouble(c,ln->score);
+    //    ln = reverse ? ln->backward : ln->level[0].forward;
+    //} else {
+    //    redisPanic("Unknown sorted set encoding");
+    //}
+    //zrangeGenericCommand(c,0);
 }
 
 void zrangeCommand(redisClient *c) {
