@@ -531,6 +531,31 @@ void lsetCommand(redisClient *c) {
     }
 }
 
+void linfoCommand(redisClient *c) {
+    sds info;
+    info = sdsnewlen("__linfo@",8);
+    info = sdscatsds(info,c->argv[1]->ptr);
+
+    robj *kobj, *aobj;
+    kobj = createObject(REDIS_STRING,info);
+    aobj = lookupKeyReadOrReply(c,kobj,shared.nullbulk);
+    decrRefCount(kobj);
+    if (aobj == NULL || checkType(c,aobj,REDIS_HASH)) return;
+
+    robj *objList = lookupKeyReadOrReply(c,c->argv[1],shared.czero);
+    if (objList == NULL || checkType(c,objList,REDIS_LIST)) return;
+
+    addReplyMultiBulkLen(c, 8);
+    addReplyStatus(c,"size");
+    addReplyLongLong(c,listTypeLength(objList));
+    addReplyStatus(c,"total_size");
+    addHashFieldToReply(c, aobj, shared.totalsize);
+    addReplyStatus(c,"created_at");
+    addHashFieldToReply(c, aobj, shared.createdat);
+    addReplyStatus(c,"updated_at");
+    addHashFieldToReply(c, aobj, shared.updatedat);
+}
+
 void popGenericCommand(redisClient *c, int where) {
     robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nullbulk);
     if (o == NULL || checkType(c,o,REDIS_LIST)) return;
