@@ -151,6 +151,7 @@ struct redisCommand redisCommandTable[] = {
     {"ltrim",ltrimCommand,4,"w",0,NULL,1,1,1,0,0},
     {"lrem",lremCommand,4,"w",0,NULL,1,1,1,0,0},
     {"rpoplpush",rpoplpushCommand,3,"wm",0,NULL,1,2,1,0,0},
+    {"linfo",linfoCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"sadd",saddCommand,-3,"wmF",0,NULL,1,1,1,0,0},
     {"srem",sremCommand,-3,"wF",0,NULL,1,1,1,0,0},
     {"smove",smoveCommand,4,"wF",0,NULL,1,2,1,0,0},
@@ -1294,6 +1295,11 @@ void createSharedObjects(void) {
      * string in string comparisons for the ZRANGEBYLEX command. */
     shared.minstring = createStringObject("minstring",9);
     shared.maxstring = createStringObject("maxstring",9);
+
+    /*List additional infomation keys*/
+    shared.totalsize = createStringObject("total_size",10);
+    shared.createdat = createStringObject("created_at",10);
+    shared.updatedat = createStringObject("updated_at",10);
 }
 
 void initServerConfig(void) {

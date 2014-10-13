@@ -301,6 +301,13 @@ void pushGenericCommand(redisClient *c, int where) {
         return;
     }
 
+    /* Get additional infomation robj*/
+    sds info;
+    info = sdsnewlen("__linfo@",8);
+    info = sdscatsds(info,c->argv[1]->ptr);
+    robj *aobj = hashTypeLookupWriteOrCreate(c,createObject(REDIS_STRING,info));
+    if (!aobj) return;
+
     for (j = 2; j < c->argc; j++) {
         c->argv[j] = tryObjectEncoding(c->argv[j]);
         if (!lobj) {
@@ -312,6 +319,39 @@ void pushGenericCommand(redisClient *c, int where) {
     }
     addReplyLongLong(c, waiting + (lobj ? listTypeLength(lobj) : 0));
     if (pushed) {
+        /* Set list additional information */
+        long long totalsize = 0, oldvalue;
+        robj *current, *new;
+        struct timeval tv;
+        gettimeofday(&tv,NULL);
+
+        if (listTypeLength(lobj) == pushed) {
+            if (!hashTypeExists(aobj, shared.createdat)) {
+                hashTypeSet(aobj,shared.createdat,createStringObjectFromLongLong(tv.tv_sec));
+                server.dirty++;
+            }
+        }
+
+        hashTypeSet(aobj,shared.updatedat,createStringObjectFromLongLong(tv.tv_sec));
+        server.dirty++;
+
+        if ((current = hashTypeGetObject(aobj,shared.totalsize)) != NULL) {
+            getLongLongFromObject(current,&totalsize);
+            decrRefCount(current);
+        }
+
+        oldvalue = totalsize;
+        if ((pushed < 0 && oldvalue < 0 && pushed < (LLONG_MIN-oldvalue)) ||
+            (pushed > 0 && oldvalue > 0 && pushed > (LLONG_MAX-oldvalue))) {
+            totalsize = 0;
+        }
+
+        totalsize += pushed;
+        new = createStringObjectFromLongLong(totalsize);
+        hashTypeSet(aobj,shared.totalsize,new);
+        decrRefCount(new);
+        server.dirty++;
+
         char *event = (where == REDIS_HEAD) ? "lpush" : "rpush";
 
         signalModifiedKey(c->db,c->argv[1]);

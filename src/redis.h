@@ -518,7 +518,7 @@ struct sharedObjectsStruct {
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
     *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop,
-    *lpush, *emptyscan, *minstring, *maxstring,
+    *lpush, *emptyscan, *minstring, *maxstring, *totalsize, *createdat, *updatedat,
     *select[REDIS_SHARED_SELECT_CMDS],
     *integers[REDIS_SHARED_INTEGERS],
     *mbulkhdr[REDIS_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -1174,6 +1174,7 @@ void hashTypeCurrentFromZiplist(hashTypeIterator *hi, int what,
 void hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what, robj **dst);
 robj *hashTypeCurrentObject(hashTypeIterator *hi, int what);
 robj *hashTypeLookupWriteOrCreate(redisClient *c, robj *key);
+void addHashFieldToReply(redisClient *c, robj *o, robj *field);
 
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(redisClient *c, int notify);
@@ -1290,6 +1291,7 @@ void llenCommand(redisClient *c);
 void lindexCommand(redisClient *c);
 void lrangeCommand(redisClient *c);
 void ltrimCommand(redisClient *c);
+void linfoCommand(redisClient *c);
 void typeCommand(redisClient *c);
 void lsetCommand(redisClient *c);
 void saddCommand(redisClient *c);
