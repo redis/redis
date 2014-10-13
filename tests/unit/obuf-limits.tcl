@@ -70,4 +70,35 @@ start_server {tags {"obuf-limits"}} {
         assert {$omem >= 100000 && $time_elapsed < 6}
         $rd1 close
     }
+
+    test {Client output buffer soft limit only enforced if continuously overreached} {
+        r config set client-output-buffer-limit {pubsub 0 100000 3}
+        set rd1 [redis_deferring_client]
+
+        $rd1 subscribe foo
+        set reply [$rd1 read]
+        assert {$reply eq "subscribe foo 1"}
+
+        set omem 0
+        set start_time 0
+        set time_elapsed 0
+
+        # Start soft limit time tracking server-side.
+        r publish foo [string repeat "a" 100001]
+        $rd1 read
+        after 4000
+
+        # Exceed the soft limit again. If reading does not clear the
+        # time tracker then $rd1 will now get disconnected.
+        r publish foo [string repeat "a" 100001]
+        $rd1 read
+
+        # $rd1 should still be connected and receiving messages.
+        after 1000
+        r publish foo bar
+        set reply [$rd1 read]
+        assert {$reply eq "message foo bar"}
+
+        $rd1 close
+    }
 }

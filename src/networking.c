@@ -32,6 +32,7 @@
 #include <math.h>
 
 static void setProtocolError(redisClient *c, int pos);
+int checkClientOutputBufferLimits(redisClient *c);
 
 /* To evaluate the output buffer size of a client we need to get size of
  * allocated objects, however we can't used zmalloc_size() directly on sds
@@ -868,6 +869,13 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
          * that take some time to just fill the socket output buffer.
          * We just rely on data / pings received for timeout detection. */
         if (!(c->flags & REDIS_MASTER)) c->lastinteraction = server.unixtime;
+
+        /* If the client was in violation of the output buffer soft
+         * limit enough data might have been sent that the remaining
+         * buffer is now below the limit. Must update soft limit
+         * tracking or another large write sent to this client might
+         * think it has continuously been in violation. */
+        checkClientOutputBufferLimits(c);
     }
     if (c->bufpos == 0 && listLength(c->reply) == 0) {
         c->sentlen = 0;
