@@ -144,7 +144,9 @@ void rioInitWithFile(rio *r, FILE *fp) {
 
 /* ------------------- File descriptors set implementation ------------------- */
 
-/* Returns 1 or 0 for success/failure. */
+/* Returns 1 or 0 for success/failure.
+ * The function returns success as long as we are able to correctly write
+ * to at least one file descriptor. */
 static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
     size_t retval;
     int j;
@@ -155,10 +157,21 @@ static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
      * the TCP socket. */
     while(len) {
         size_t count = len < 1024 ? len : 1024;
+        int broken = 0;
         for (j = 0; j < r->io.fdset.numfds; j++) {
+            if (r->io.fdset.state[j] != 0) {
+                /* Skip FDs alraedy in error. */
+                broken++;
+                continue;
+            }
             retval = write(r->io.fdset.fds[j],p,count);
-            if (retval != count) return 0;
+            if (retval != count) {
+                /* Mark this FD as broken. */
+                r->io.fdset.state[j] = errno;
+                if (r->io.fdset.state[j] == 0) r->io.fdset.state[j] = EIO;
+            }
         }
+        if (broken == r->io.fdset.numfds) return 0; /* All the FDs in error. */
         p += count;
         len -= count;
         r->io.fdset.pos += count;
@@ -191,15 +204,20 @@ static const rio rioFdsetIO = {
 };
 
 void rioInitWithFdset(rio *r, int *fds, int numfds) {
+    int j;
+
     *r = rioFdsetIO;
     r->io.fdset.fds = zmalloc(sizeof(int)*numfds);
+    r->io.fdset.state = zmalloc(sizeof(int)*numfds);
     memcpy(r->io.fdset.fds,fds,sizeof(int)*numfds);
+    for (j = 0; j < numfds; j++) r->io.fdset.state[j] = 0;
     r->io.fdset.numfds = numfds;
     r->io.fdset.pos = 0;
 }
 
 void rioFreeFdset(rio *r) {
     zfree(r->io.fdset.fds);
+    zfree(r->io.fdset.state);
 }
 
 /* ---------------------------- Generic functions ---------------------------- */
