@@ -1480,6 +1480,7 @@ void initServerConfig(void) {
     server.repl_slave_ro = REDIS_DEFAULT_SLAVE_READ_ONLY;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
     server.repl_disable_tcp_nodelay = REDIS_DEFAULT_REPL_DISABLE_TCP_NODELAY;
+    server.repl_diskless = REDIS_DEFAULT_RDB_DISKLESS;
     server.slave_priority = REDIS_DEFAULT_SLAVE_PRIORITY;
     server.master_repl_offset = 0;
 
