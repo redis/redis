@@ -74,7 +74,8 @@ struct _rio {
         } file;
         /* Multiple FDs target (used to write to N sockets). */
         struct {
-            int *fds;
+            int *fds;       /* File descriptors. */
+            int *state;     /* Error state of each fd. 0 (if ok) or errno. */
             int numfds;
             off_t pos;
         } fdset;
