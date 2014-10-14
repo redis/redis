@@ -96,6 +96,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_REPL_TIMEOUT 60
 #define REDIS_REPL_PING_SLAVE_PERIOD 10
 #define REDIS_RUN_ID_SIZE 40
+#define REDIS_EOF_MARK_SIZE 40
 #define REDIS_OPS_SEC_SAMPLES 16
 #define REDIS_DEFAULT_REPL_BACKLOG_SIZE (1024*1024)    /* 1mb */
 #define REDIS_DEFAULT_REPL_BACKLOG_TIME_LIMIT (60*60)  /* 1 hour */
@@ -113,6 +114,8 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_DEFAULT_RDB_COMPRESSION 1
 #define REDIS_DEFAULT_RDB_CHECKSUM 1
 #define REDIS_DEFAULT_RDB_FILENAME "dump.rdb"
+#define REDIS_DEFAULT_RDB_DISKLESS 0
+#define REIDS_DEFAULT_RDB_DISKLESS_DELAY 5
 #define REDIS_DEFAULT_SLAVE_SERVE_STALE_DATA 1
 #define REDIS_DEFAULT_SLAVE_READ_ONLY 1
 #define REDIS_DEFAULT_REPL_DISABLE_TCP_NODELAY 0
@@ -796,6 +799,7 @@ struct redisServer {
     int repl_min_slaves_to_write;   /* Min number of slaves to write. */
     int repl_min_slaves_max_lag;    /* Max lag of <count> slaves to write. */
     int repl_good_slaves_count;     /* Number of slaves with lag <= max_lag. */
+    int repl_diskless;              /* Send RDB to slaves sockets directly. */
     /* Replication (slave) */
     char *masterauth;               /* AUTH with this password with master */
     char *masterhost;               /* Hostname of master */
@@ -1138,7 +1142,7 @@ ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout);
 /* Replication */
 void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
 void replicationFeedMonitors(redisClient *c, list *monitors, int dictid, robj **argv, int argc);
-void updateSlavesWaitingBgsave(int bgsaveerr);
+void updateSlavesWaitingBgsave(int bgsaveerr, int type);
 void replicationCron(void);
 void replicationHandleMasterDisconnection(void);
 void replicationCacheMaster(redisClient *c);
