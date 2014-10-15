@@ -1328,6 +1328,7 @@ void backgroundSaveDoneHandler(int exitcode, int bysignal) {
  * that are currently in REDIS_REPL_WAIT_BGSAVE_START state. */
 int rdbSaveToSlavesSockets(void) {
     int *fds;
+    uint64_t *clientids;
     int numfds;
     listNode *ln;
     listIter li;
@@ -1347,6 +1348,10 @@ int rdbSaveToSlavesSockets(void) {
     /* Collect the file descriptors of the slaves we want to transfer
      * the RDB to, which are i WAIT_BGSAVE_START state. */
     fds = zmalloc(sizeof(int)*listLength(server.slaves));
+    /* We also allocate an array of corresponding client IDs. This will
+     * be useful for the child process in order to build the report
+     * (sent via unix pipe) that will be sent to the parent. */
+    clientids = zmalloc(sizeof(uint64_t)*listLength(server.slaves));
     numfds = 0;
 
     listRewind(server.slaves,&li);
@@ -1354,6 +1359,7 @@ int rdbSaveToSlavesSockets(void) {
         redisClient *slave = ln->value;
 
         if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_START) {
+            clientids[numfds] = slave->id;
             fds[numfds++] = slave->fd;
             slave->replstate = REDIS_REPL_WAIT_BGSAVE_END;
         }
@@ -1381,10 +1387,44 @@ int rdbSaveToSlavesSockets(void) {
                     "RDB: %zu MB of memory used by copy-on-write",
                     private_dirty/(1024*1024));
             }
+
+            /* If we are returning OK, at least one slave was served
+             * with the RDB file as expected, so we need to send a report
+             * to the parent via the pipe. The format of the message is:
+             * just an array of uint64_t integers (to avoid alignment concerns),
+             * where the first element is the number of uint64_t elements
+             * that follows, representing slave client IDs that were
+             * successfully served. */
+            void *msg = zmalloc(sizeof(uint64_t)*(1+numfds));
+            uint64_t *len = msg;
+            uint64_t *ids = len+1;
+            int j, msglen;
+
+            *len = 0;
+            for (j = 0; j < numfds; j++) {
+                /* No error? Add it. */
+                if (slave_sockets.io.fdset.state[j] == 0) {
+                    ids[*len] = clientids[j];
+                    (*len)++;
+                }
+            }
+
+            /* Write the message to the parent. If we have no good slaves or
+             * we are unable to transfer the message to the parent, we exit
+             * with an error so that the parent will abort the replication
+             * process with all the childre that were waiting. */
+            msglen = sizeof(uint64_t)*(1+(*len));
+            if (*len == 0 ||
+                write(server.rdb_pipe_write_result_to_parent,msg,msglen)
+                != msglen)
+            {
+                retval = REDIS_ERR;
+            }
         }
         exitFromChild((retval == REDIS_OK) ? 0 : 1);
     } else {
         /* Parent */
+        zfree(clientids); /* Not used by parent. Free ASAP. */
         server.stat_fork_time = ustime()-start;
         server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
         latencyAddSampleIfNeeded("fork",server.stat_fork_time/1000);
