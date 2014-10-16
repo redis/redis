@@ -417,9 +417,9 @@ int startBgsaveForReplication(void) {
     int retval;
 
     redisLog(REDIS_NOTICE,"Starting BGSAVE for SYNC with target: %s",
-        server.repl_diskless ? "slaves sockets" : "disk");
+        server.repl_diskless_sync ? "slaves sockets" : "disk");
 
-    if (server.repl_diskless)
+    if (server.repl_diskless_sync)
         retval = rdbSaveToSlavesSockets();
     else
         retval = rdbSaveBackground(server.rdb_filename);
@@ -523,7 +523,7 @@ void syncCommand(redisClient *c) {
         c->replstate = REDIS_REPL_WAIT_BGSAVE_START;
         redisLog(REDIS_NOTICE,"Waiting for next BGSAVE for SYNC");
     } else {
-        if (server.repl_diskless) {
+        if (server.repl_diskless_sync) {
             /* Diskless replication RDB child is created inside
              * replicationCron() since we want to delay its start a
              * few seconds to wait for more slaves to arrive. */
@@ -1944,7 +1944,7 @@ void replicationCron(void) {
     /* If we are using diskless replication and there are slaves waiting
      * in WAIT_BGSAVE_START state, check if enough seconds elapsed and
      * start one. */
-    if (server.repl_diskless && server.rdb_child_pid == -1 &&
+    if (server.repl_diskless_sync && server.rdb_child_pid == -1 &&
         server.aof_child_pid == -1)
     {
         time_t idle, max_idle = 0;
@@ -1962,7 +1962,7 @@ void replicationCron(void) {
             }
         }
 
-        if (slaves_waiting && max_idle > REDIS_DEFAULT_RDB_DISKLESS_DELAY) {
+        if (slaves_waiting && max_idle > REDIS_DEFAULT_RDB_DISKLESS_SYNC_DELAY) {
             /* Let's start a BGSAVE with disk target. */
             if (startBgsaveForReplication() == REDIS_OK) {
                 /* It started! We need to change the state of slaves

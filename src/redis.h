@@ -114,8 +114,8 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_DEFAULT_RDB_COMPRESSION 1
 #define REDIS_DEFAULT_RDB_CHECKSUM 1
 #define REDIS_DEFAULT_RDB_FILENAME "dump.rdb"
-#define REDIS_DEFAULT_RDB_DISKLESS 0
-#define REDIS_DEFAULT_RDB_DISKLESS_DELAY 5
+#define REDIS_DEFAULT_RDB_DISKLESS_SYNC 0
+#define REDIS_DEFAULT_RDB_DISKLESS_SYNC_DELAY 5
 #define REDIS_DEFAULT_SLAVE_SERVE_STALE_DATA 1
 #define REDIS_DEFAULT_SLAVE_READ_ONLY 1
 #define REDIS_DEFAULT_REPL_DISABLE_TCP_NODELAY 0
@@ -801,7 +801,7 @@ struct redisServer {
     int repl_min_slaves_to_write;   /* Min number of slaves to write. */
     int repl_min_slaves_max_lag;    /* Max lag of <count> slaves to write. */
     int repl_good_slaves_count;     /* Number of slaves with lag <= max_lag. */
-    int repl_diskless;              /* Send RDB to slaves sockets directly. */
+    int repl_diskless_sync;         /* Send RDB to slaves sockets directly. */
     /* Replication (slave) */
     char *masterauth;               /* AUTH with this password with master */
     char *masterhost;               /* Hostname of master */
