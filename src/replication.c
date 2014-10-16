@@ -689,17 +689,20 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 }
 
-/* This function is called at the end of every background saving.
- * The argument bgsaveerr is REDIS_OK if the background saving succeeded
- * otherwise REDIS_ERR is passed to the function.
- * The 'type' argument is the type of the child that terminated
- * (if it had a disk or socket target).
+/* This function is called at the end of every background saving,
+ * or when the replication RDB transfer strategy is modified from
+ * disk to socket or the other way around.
  *
  * The goal of this function is to handle slaves waiting for a successful
  * background saving in order to perform non-blocking synchronization, and
  * to schedule a new BGSAVE if there are slaves that attached while a
  * BGSAVE was in progress, but it was not a good one for replication (no
- * other slave was accumulating differences). */
+ * other slave was accumulating differences).
+ *
+ * The argument bgsaveerr is REDIS_OK if the background saving succeeded
+ * otherwise REDIS_ERR is passed to the function.
+ * The 'type' argument is the type of the child that terminated
+ * (if it had a disk or socket target). */
 void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
     listNode *ln;
     int startbgsave = 0;
@@ -722,8 +725,8 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
              * the slave online. */
             if (type == REDIS_RDB_CHILD_TYPE_SOCKET) {
                 putSlaveOnline(slave);
-            redisLog(REDIS_NOTICE,
-                "Synchronization with slave succeeded (socket)");
+                redisLog(REDIS_NOTICE,
+                    "Synchronization with slave succeeded (socket)");
             } else {
                 if (bgsaveerr != REDIS_OK) {
                     freeClient(slave);
@@ -1943,10 +1946,12 @@ void replicationCron(void) {
 
     /* If we are using diskless replication and there are slaves waiting
      * in WAIT_BGSAVE_START state, check if enough seconds elapsed and
-     * start one. */
-    if (server.repl_diskless_sync && server.rdb_child_pid == -1 &&
-        server.aof_child_pid == -1)
-    {
+     * start a BGSAVE.
+     *
+     * This code is also useful to trigger a BGSAVE if the diskless
+     * replication was turned off with CONFIG SET, while there were already
+     * slaves in WAIT_BGSAVE_START state. */
+    if (server.rdb_child_pid == -1 && server.aof_child_pid == -1) {
         time_t idle, max_idle = 0;
         int slaves_waiting = 0;
         listNode *ln;
