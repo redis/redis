@@ -212,7 +212,7 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     }
 
     /* Write the command to every slave. */
-    listRewind(slaves,&li);
+    listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         redisClient *slave = ln->value;
 
@@ -1939,6 +1939,41 @@ void replicationCron(void) {
         listLength(server.repl_scriptcache_fifo) != 0)
     {
         replicationScriptCacheFlush();
+    }
+
+    /* If we are using diskless replication and there are slaves waiting
+     * in WAIT_BGSAVE_START state, check if enough seconds elapsed and
+     * start one. */
+    if (server.repl_diskless && server.rdb_child_pid == -1 &&
+        server.aof_child_pid == -1)
+    {
+        time_t idle, max_idle = 0;
+        int slaves_waiting = 0;
+        listNode *ln;
+        listIter li;
+
+        listRewind(server.slaves,&li);
+        while((ln = listNext(&li))) {
+            redisClient *slave = ln->value;
+            if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_START) {
+                idle = server.unixtime - slave->lastinteraction;
+                if (idle > max_idle) max_idle = idle;
+                slaves_waiting++;
+            }
+        }
+
+        if (slaves_waiting && max_idle > REDIS_DEFAULT_RDB_DISKLESS_DELAY) {
+            /* Let's start a BGSAVE with disk target. */
+            if (startBgsaveForReplication() == REDIS_OK) {
+                /* It started! We need to change the state of slaves
+                 * from WAIT_BGSAVE_START to WAIT_BGSAVE_END. */
+                while((ln = listNext(&li))) {
+                    redisClient *slave = ln->value;
+                    if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_START)
+                        slave->replstate = REDIS_REPL_WAIT_BGSAVE_END;
+                }
+            }
+        }
     }
 
     /* Refresh the number of slaves with lag <= min-slaves-max-lag. */
