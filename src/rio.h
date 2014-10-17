@@ -43,6 +43,7 @@ struct _rio {
     size_t (*read)(struct _rio *, void *buf, size_t len);
     size_t (*write)(struct _rio *, const void *buf, size_t len);
     off_t (*tell)(struct _rio *);
+    int (*flush)(struct _rio *);
     /* The update_cksum method if not NULL is used to compute the checksum of
      * all the data that was read or written so far. The method should be
      * designed so that can be called with the current checksum, and the buf
@@ -78,6 +79,7 @@ struct _rio {
             int *state;     /* Error state of each fd. 0 (if ok) or errno. */
             int numfds;
             off_t pos;
+            sds buf;
         } fdset;
     } io;
 };
@@ -116,6 +118,10 @@ static inline size_t rioRead(rio *r, void *buf, size_t len) {
 
 static inline off_t rioTell(rio *r) {
     return r->tell(r);
+}
+
+static inline int rioFlush(rio *r) {
+    return r->flush(r);
 }
 
 void rioInitWithFile(rio *r, FILE *fp);

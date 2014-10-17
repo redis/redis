@@ -1425,6 +1425,9 @@ int rdbSaveToSlavesSockets(void) {
         redisSetProcTitle("redis-rdb-to-slaves");
 
         retval = rdbSaveRioWithEOFMark(&slave_sockets,NULL);
+        if (retval == REDIS_OK && rioFlush(&slave_sockets) == 0)
+            retval = REDIS_ERR;
+
         if (retval == REDIS_OK) {
             size_t private_dirty = zmalloc_get_private_dirty();
 
