@@ -864,6 +864,9 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
             usemark = 1;
             memcpy(eofmark,buf+5,REDIS_RUN_ID_SIZE);
             memset(lastbytes,0,REDIS_RUN_ID_SIZE);
+            /* Set any repl_transfer_size to avoid entering this code path
+             * at the next call. */
+            server.repl_transfer_size = 0;
             redisLog(REDIS_NOTICE,
                 "MASTER <-> SLAVE sync: receiving streamed RDB from master");
         } else {
