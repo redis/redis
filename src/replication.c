@@ -1950,7 +1950,9 @@ void replicationCron(void) {
             redisClient *slave = ln->value;
 
             if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_START ||
-                slave->replstate == REDIS_REPL_WAIT_BGSAVE_END) {
+                (slave->replstate == REDIS_REPL_WAIT_BGSAVE_END &&
+                 server.rdb_child_type != REDIS_RDB_CHILD_TYPE_SOCKET))
+            {
                 if (write(slave->fd, "\n", 1) == -1) {
                     /* Don't worry, it's just a ping. */
                 }
