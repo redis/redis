@@ -1347,6 +1347,8 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
                 redisLog(REDIS_WARNING,
                 "Slave %llu correctly received the streamed RDB file.",
                 slave->id);
+                /* Restore the socket as non-blocking. */
+                anetNonBlock(NULL,slave->fd);
             }
         }
     }
@@ -1408,6 +1410,10 @@ int rdbSaveToSlavesSockets(void) {
             clientids[numfds] = slave->id;
             fds[numfds++] = slave->fd;
             slave->replstate = REDIS_REPL_WAIT_BGSAVE_END;
+            /* Put the socket in non-blocking mode to simplify RDB transfer.
+             * We'll restore it when the children returns (since duped socket
+             * will share the O_NONBLOCK attribute with the parent). */
+            anetBlock(NULL,slave->fd);
         }
     }
 
