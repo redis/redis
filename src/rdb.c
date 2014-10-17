@@ -1299,11 +1299,11 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
      * can continue to be emtpy, so that it's just a speical case of the
      * normal code path. */
     ok_slaves = zmalloc(sizeof(uint64_t)); /* Make space for the count. */
-    ok_slaves = 0;
+    ok_slaves[0] = 0;
     if (!bysignal && exitcode == 0) {
         int readlen = sizeof(uint64_t);
 
-        if (read(server.rdb_pipe_read_result_from_child, ok_slaves, readlen) !=
+        if (read(server.rdb_pipe_read_result_from_child, ok_slaves, readlen) ==
                  readlen)
         {
             readlen = ok_slaves[0]*sizeof(uint64_t);
@@ -1335,14 +1335,18 @@ void backgroundSaveDoneHandlerSocket(int exitcode, int bysignal) {
         if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_END) {
             uint64_t j;
 
-            for (j = 1; j < ok_slaves[0]; j++) {
-                if (slave->id == ok_slaves[j]) break; /* Found in the OK list. */
+            for (j = 0; j < ok_slaves[0]; j++) {
+                if (slave->id == ok_slaves[j+1]) break; /* Found in OK list. */
             }
             if (j == ok_slaves[0]) {
                 redisLog(REDIS_WARNING,
                 "Closing slave %llu: child->slave RDB transfer failed.",
                 slave->id);
                 freeClient(slave);
+            } else {
+                redisLog(REDIS_WARNING,
+                "Slave %llu correctly received the streamed RDB file.",
+                slave->id);
             }
         }
     }
