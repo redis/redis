@@ -197,8 +197,17 @@ static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
                 broken++;
                 continue;
             }
-            retval = write(r->io.fdset.fds[j],p,count);
-            if (retval != count) {
+
+            /* Make sure to write 'count' bytes to the socket regardless
+             * of short writes. */
+            size_t nwritten = 0;
+            while(nwritten != count) {
+                retval = write(r->io.fdset.fds[j],p+nwritten,count-nwritten);
+                if (retval <= 0) break;
+                nwritten += retval;
+            }
+
+            if (nwritten != count) {
                 /* Mark this FD as broken. */
                 r->io.fdset.state[j] = errno;
                 if (r->io.fdset.state[j] == 0) r->io.fdset.state[j] = EIO;
