@@ -881,10 +881,10 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     /* Read bulk data */
     if (usemark) {
+        readlen = sizeof(buf);
+    } else {
         left = server.repl_transfer_size - server.repl_transfer_read;
         readlen = (left < (signed)sizeof(buf)) ? left : (signed)sizeof(buf);
-    } else {
-        readlen = sizeof(buf);
     }
 
     nread = read(fd,buf,readlen);
