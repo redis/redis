@@ -167,7 +167,7 @@ void rioInitWithFile(rio *r, FILE *fp) {
  * if there is some pending buffer, so this function is also used in order
  * to implement rioFdsetFlush(). */
 static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
-    size_t retval;
+    ssize_t retval;
     int j;
     unsigned char *p = (unsigned char*) buf;
     int doflush = (buf == NULL && len == 0);
