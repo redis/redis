@@ -982,6 +982,7 @@ void configSetCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[2]->ptr,"name")) {
         zfree(server.name);
         server.name = zstrdup(((char*)o->ptr)[0] ? o->ptr : "");
+        PROCTITLE_UPDATE();
     } else {
         addReplyErrorFormat(c,"Unsupported CONFIG parameter: %s",
             (char*)c->argv[2]->ptr);

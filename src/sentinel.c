@@ -453,6 +453,7 @@ void sentinelIsRunning(void) {
     /* We want to generate a +monitor event for every configured master
      * at startup. */
     sentinelGenerateInitialMonitorEvents();
+    PROCTITLE_UPDATE();
 }
 
 /* ============================== sentinelAddr ============================== */
@@ -991,6 +992,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
 
     /* Add into the right table. */
     dictAdd(table, ri->name, ri);
+    redisSetProcTitle(NULL);
     return ri;
 }
 
@@ -1192,6 +1194,7 @@ void sentinelResetMaster(sentinelRedisInstance *ri, int flags) {
     ri->role_reported = SRI_MASTER;
     if (flags & SENTINEL_GENERATE_EVENT)
         sentinelEvent(REDIS_WARNING,"+reset-master",ri,"%@");
+    PROCTITLE_UPDATE();
 }
 
 /* Call sentinelResetMaster() on every master with a name matching the specified
@@ -1607,6 +1610,7 @@ void sentinelFlushConfig(void) {
     if ((fd = open(server.configfile,O_RDONLY)) == -1) goto werr;
     if (fsync(fd) == -1) goto werr;
     if (close(fd) == EOF) goto werr;
+    PROCTITLE_UPDATE();
     return;
 
 werr:
@@ -2911,6 +2915,57 @@ void sentinelInfoCommand(redisClient *c) {
     addReplyBulkSds(c, info);
 }
 
+
+/* Return a string describing the masters this sentinel watches.
+ * String looks like one of:
+ *   (no monitors)
+ *   (master-name ip:port (optional description if failing); ...)
+ */
+sds sentinelWatchingMasters() {
+    dictIterator *di;
+    dictEntry *de;
+
+    int master_count = dictSize(sentinel.masters);
+
+    if (master_count == 0) {
+        return sdsnew("(no monitors)");
+    } else {
+        int i = 0;
+        sds masters_fmt[master_count];
+
+        di = dictGetIterator(sentinel.masters);
+        while((de = dictNext(di)) != NULL) {
+            sentinelRedisInstance *ri = dictGetVal(de);
+            sds fmt = sdsempty();
+            if (ri->flags & SRI_FAILOVER_IN_PROGRESS) {
+                fmt = sdscatfmt(fmt, "%s [down, trying failover]", ri->name);
+            } else if (ri->flags & SRI_DISCONNECTED) {
+                fmt = sdscatfmt(fmt, "%s [not connected]", ri->name);
+            } else if (ri->flags & SRI_O_DOWN) {
+                fmt = sdscatfmt(fmt, "%s [down, no failover]", ri->name);
+            } else if (ri->flags == 1) {
+                /* flags == 1 means: is master, has no errors */
+                fmt = sdscatfmt(fmt, "%s=%s:%i",
+                    ri->name, ri->addr->ip, ri->addr->port);
+            } else {
+                fmt = sdscatfmt(fmt, "%s [has error]", ri->name);
+            }
+            masters_fmt[i++] = fmt;
+        }
+        dictReleaseIterator(di);
+
+        sds masters = sdsjoin(masters_fmt, master_count, "; ");
+        sds self_desc = sdscatfmt(sdsnew("("), "%S)", masters);
+        sdsfree(masters);
+
+        for (i = 0; i < master_count; i++) {
+            sdsfree(masters_fmt[i]);
+        }
+
+        return self_desc;
+    }
+}
+
 /* Implements Sentinel verison of the ROLE command. The output is
  * "sentinel" and the list of currently monitored master names. */
 void sentinelRoleCommand(redisClient *c) {
@@ -3130,11 +3185,13 @@ void sentinelCheckObjectivelyDown(sentinelRedisInstance *master) {
                 quorum, master->quorum);
             master->flags |= SRI_O_DOWN;
             master->o_down_since_time = mstime();
+            PROCTITLE_UPDATE();
         }
     } else {
         if (master->flags & SRI_O_DOWN) {
             sentinelEvent(REDIS_WARNING,"-odown",master,"%@");
             master->flags &= ~SRI_O_DOWN;
+            PROCTITLE_UPDATE();
         }
     }
 }
@@ -3433,6 +3490,7 @@ void sentinelStartFailover(sentinelRedisInstance *master) {
     sentinelEvent(REDIS_WARNING,"+try-failover",master,"%@");
     master->failover_start_time = mstime()+rand()%SENTINEL_MAX_DESYNC;
     master->failover_state_change_time = mstime();
+    PROCTITLE_UPDATE();
 }
 
 /* This function checks if there are the conditions to start the failover,
@@ -3845,6 +3903,7 @@ void sentinelAbortFailover(sentinelRedisInstance *ri) {
         ri->promoted_slave->flags &= ~SRI_PROMOTED;
         ri->promoted_slave = NULL;
     }
+    PROCTITLE_UPDATE();
 }
 
 /* ======================== SENTINEL timer handler ==========================

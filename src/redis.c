@@ -1249,6 +1249,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         migrateCloseTimedoutSockets();
     }
 
+    run_with_period(1000) {
+        if (server.update_proctitle) {
+            redisSetProcTitle(NULL);
+            server.update_proctitle = 0;
+        }
+    }
+
     server.cronloops++;
     return 1000/server.hz;
 }
@@ -1509,7 +1516,7 @@ void initServerConfig(void) {
     server.repl_no_slaves_since = time(NULL);
 
     /* Process Title Customization */
-    server.name = REDIS_DEFAULT_SERVER_NAME;
+    server.name = zstrdup(REDIS_DEFAULT_SERVER_NAME);
 
     /* Client output buffer limits */
     for (j = 0; j < REDIS_CLIENT_TYPE_COUNT; j++)
@@ -3609,19 +3616,158 @@ void redisOutOfMemoryHandler(size_t allocation_size) {
     redisPanic("Redis aborting for OUT OF MEMORY");
 }
 
-void redisSetProcTitle(char *title) {
-#ifdef USE_SETPROCTITLE
-    char *server_mode = "";
-    if (server.cluster_enabled) server_mode = " [cluster]";
-    else if (server.sentinel_mode) server_mode = " [sentinel]";
+/* Max length of each individual field in title */
+/* Copy a C string to our buffer storage */
+#define bufCopyAndReturn(_free, _len, _dst, _src) \
+                        if (_free < _len) { \
+                            return -1; \
+                        } else { \
+                            memcpy(_dst, _src, _len); \
+                            return _len; \
+                        }
+/* Copy sds to our stack storage */
+#define bufSdsToStorage(_sds, _state) \
+                        do { \
+                            strncpy(storage, _sds, sizeof(storage)-1); \
+                            sdsfree(_sds); \
+                            _state = storage; \
+                         } while(0);
+/* Format a string into our stack storage */
+#define bufSprintfStorage(_state, _fmt, ...) \
+                        do { \
+                            snprintf(storage, sizeof(storage), \
+                                _fmt, __VA_ARGS__); \
+                            _state = storage; \
+                         } while(0);
+int populateTitleKeyword(char *buf, size_t buf_free, char section) {
+    size_t len = 0;
+    char storage[128] = {0};
+    char *name, *mode, *state, *role, *config, *ip;
+    char *fmt;
+    int count;
+    switch (section) {
+    case 'e': /* executable */
+        len = strlen(server.argv0);
+        bufCopyAndReturn(buf_free, len, buf, server.argv0);
+        break;
+    case 'n': /* name */
+        if (server.name[0] == '\0') return 0;
+        bufSprintfStorage(name, "[%s]", server.name);
+        len = strlen(storage);
+        bufCopyAndReturn(buf_free, len, buf, name);
+        break;
+    case 'm': /* mode */
+        if (server.cluster_enabled) mode = "cluster";
+        else if (server.sentinel_mode) mode = "sentinel";
+        else return 0;
+        len = strlen(mode);
+        bufCopyAndReturn(buf_free, len, buf, mode);
+        break;
+    case 's': /* state */
+        if (server.cluster_enabled) {
+            sds desc = clusterSelfDesc();
+            bufSdsToStorage(desc, state);
+        } else if (server.masterhost != NULL) {
+            bufSprintfStorage(state, "(%s to %s:%d)",
+                slaveDesc(), server.masterhost, server.masterport);
+        } else if (server.sentinel_mode) {
+            sds desc = sentinelWatchingMasters();
+            bufSdsToStorage(desc, state);
+        } else {
+            count = listLength(server.slaves);
+            /* Use static matches for common counts */
+            if (count == 0) {
+                return 0;
+            } else if (count == 1 ) {
+                state = "(1 replica)";
+            } else {
+                bufSprintfStorage(state, "(%d replicas)", count);
+            }
+        }
+        len = strlen(state);
+        bufCopyAndReturn(buf_free, len, buf, state);
+        break;
+    case 'r': /* role */
+        /* if sentinel, no role because sentinel is listed as a "mode";
+         * if masterhost, we are a replica.
+         * if !cluster && repl_offset == 0, no role because standalone
+         *   (we don't want standalone nodes marked as "master")
+         * if !masterhost, we are a master;
+         */
+        role = "";
+        if (server.sentinel_mode) return 0;
+        else if (server.masterhost) role = "replica";
+        else if (!server.cluster_enabled && server.master_repl_offset == 0)
+            return 0;
+        else if (server.masterhost == NULL) role = "master";
+        len = strlen(role);
+        bufCopyAndReturn(buf_free, len, buf, role);
+        break;
+    case 'c': /* config */
+        config = server.configfile;
+        /* If no config or if server.name set, no show config in proctitle */
+        if (!config || server.name[0] != '\0') return 0;
+        len = strlen(config);
+        bufCopyAndReturn(buf_free, len, buf, config);
+        break;
+    case 'i': /* ip0:port (or, ipv6 [ip0]:port) */
+        fmt = "%s:%d";
+        if (server.bindaddr_count > 0) {
+            ip = server.bindaddr[0];
+            if (strchr(ip,':')) fmt = "[%s]:%d";
+        } else {
+            ip = "*";
+        }
+        bufSprintfStorage(state, fmt, ip, server.port);
+        len = strlen(state);
+        bufCopyAndReturn(buf_free, len, buf, state);
+        break;
+    default:
+        return len;
+    }
+}
 
-    setproctitle("%s %s:%d%s",
-        title,
-        server.bindaddr_count ? server.bindaddr[0] : "*",
-        server.port,
-        server_mode);
+int generateProcTitle(char *buf, const size_t len, int bg) {
+    int buf_free = len;
+    char *buf_orig = buf;
+    char sections[] = {'e', 'n', 'c', 'i', 'm', 'r', 's'};
+    /* The letters describe this format order:
+       "{{exec}} {{name}} {{conf}} {{ip0:port}} {{mode}} {{role}} {{state}}"
+     */
+    size_t i;
+    for (i = 0; i < sizeof(sections); i++) {
+        if (bg && sections[i] == 's') continue; /* no state for bg threads */
+        if (buf_free <= 0) break; /* no more write space, stop trying. */
+        int wrote_len = populateTitleKeyword(buf,buf_free,sections[i]);
+        /* If we wrote contents, increment buffer */
+        if (wrote_len > 0) {
+            buf_free -= wrote_len;
+            buf += wrote_len;
+            /* if we have available buffer room, add space between sections */
+            if (buf_free > 0) {
+                *buf++ = ' ';
+                buf_free--;
+            }
+        } else {
+            /* If wrote_len == -1, then section was too big for buffer.
+             * We ignore any failed sections and continue writing. */
+        }
+    }
+    buf_orig[len-1] = '\0';
+    return 1;
+}
+
+void redisSetProcTitle(char *comment) {
+#ifdef USE_SETPROCTITLE
+    char buf[256] = {0};
+
+    generateProcTitle(buf, sizeof(buf), comment != NULL);
+
+    if (comment) setproctitle("[%s] %s", comment, buf);
+    else setproctitle(buf);
+
 #else
-    REDIS_NOTUSED(title);
+    REDIS_NOTUSED(comment);
 #endif
 }
 
@@ -3761,6 +3907,8 @@ int main(int argc, char **argv) {
     gettimeofday(&tv,NULL);
     dictSetHashFunctionSeed(tv.tv_sec^tv.tv_usec^getpid());
     server.sentinel_mode = checkForSentinelMode(argc,argv);
+    server.argv0 = zstrdup(argv[0]);
+
     initServerConfig();
 
     /* We need to init sentinel right now as parsing the configuration file
