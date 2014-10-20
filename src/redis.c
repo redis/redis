@@ -1508,6 +1508,9 @@ void initServerConfig(void) {
     server.repl_backlog_time_limit = REDIS_DEFAULT_REPL_BACKLOG_TIME_LIMIT;
     server.repl_no_slaves_since = time(NULL);
 
+    /* Process Title Customization */
+    server.name = REDIS_DEFAULT_SERVER_NAME;
+
     /* Client output buffer limits */
     for (j = 0; j < REDIS_CLIENT_TYPE_COUNT; j++)
         server.client_obuf_limits[j] = clientBufferLimitsDefaults[j];
