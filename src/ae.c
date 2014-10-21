@@ -382,8 +382,9 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             } else {
                 tvp->tv_usec = (shortest->when_ms - now_ms)*1000;
             }
-            if (tvp->tv_sec < 0) tvp->tv_sec = 0;
-            if (tvp->tv_usec < 0) tvp->tv_usec = 0;
+            if (tvp->tv_sec < 0) {
+                tvp->tv_sec = tvp->tv_usec = 0;
+            }
         } else {
             /* If we have to check for events but need to return
              * ASAP because of AE_DONT_WAIT we need to set the timeout
