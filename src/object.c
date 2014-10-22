@@ -699,6 +699,29 @@ unsigned long long estimateObjectIdleTime(robj *o) {
     }
 }
 
+/* Same as ttlCommand but without modifying the idle time of the key.
+ * Return the expire time of the specified key, or -1 if no expire
+ * is associated with this key (i.e. the key is non volatile) */
+long long estimateObjectTtl(redisDb *db, robj *key) {
+    dictEntry *de;
+    long long expire, ttl = -1;
+
+    /* No expire? return ASAP */
+    if (dictSize(db->expires) == 0 ||
+       (de = dictFind(db->expires,key->ptr)) == NULL) return -1;
+
+    /* The entry was found in the expire dict, this means it should also
+     * be present in the main dict (safety check). */
+    redisAssertWithInfo(NULL,key,dictFind(db->dict,key->ptr) != NULL);
+
+    expire = dictGetSignedIntegerVal(de);
+
+    ttl = expire-mstime();
+    if (ttl < 0) ttl = 0;
+
+    return ((ttl+500)/1000); // in fashion of ttlGenericCommand, change from ms to s
+}
+
 /* This is a helper function for the OBJECT command. We need to lookup keys
  * without any modification of LRU or other parameters. */
 robj *objectCommandLookup(redisClient *c, robj *key) {
@@ -716,7 +739,7 @@ robj *objectCommandLookupOrReply(redisClient *c, robj *key, robj *reply) {
 }
 
 /* Object command allows to inspect the internals of an Redis Object.
- * Usage: OBJECT <refcount|encoding|idletime> <key> */
+ * Usage: OBJECT <refcount|encoding|idletime|ttl> <key> */
 void objectCommand(redisClient *c) {
     robj *o;
 
@@ -732,8 +755,12 @@ void objectCommand(redisClient *c) {
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
                 == NULL) return;
         addReplyLongLong(c,estimateObjectIdleTime(o)/1000);
+    } else if (!strcasecmp(c->argv[1]->ptr,"ttl") && c->argc == 3) {
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
+                == NULL) return;
+        addReplyLongLong(c,estimateObjectTtl(c->db, c->argv[2]));
     } else {
-        addReplyError(c,"Syntax error. Try OBJECT (refcount|encoding|idletime)");
+        addReplyError(c,"Syntax error. Try OBJECT (refcount|encoding|idletime|ttl)");
     }
 }
 
