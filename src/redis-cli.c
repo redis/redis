@@ -640,6 +640,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
                 printf("Reading messages... (press Ctrl-C to quit)\n");
             while (1) {
                 if (cliReadReply(output_raw) != REDIS_OK) exit(1);
+                fflush(stdout);
             }
         }
 
