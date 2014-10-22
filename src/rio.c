@@ -203,7 +203,14 @@ static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
             size_t nwritten = 0;
             while(nwritten != count) {
                 retval = write(r->io.fdset.fds[j],p+nwritten,count-nwritten);
-                if (retval <= 0) break;
+                if (retval <= 0) {
+                    /* With blocking sockets, which is the sole user of this
+                     * rio target, EWOULDBLOCK is returned only because of
+                     * the SO_SNDTIMEO socket option, so we translate the error
+                     * into one more recognizable by the user. */
+                    if (retval == -1 && errno == EWOULDBLOCK) errno = ETIMEDOUT;
+                    break;
+                }
                 nwritten += retval;
             }
 
