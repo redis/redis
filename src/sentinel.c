@@ -115,6 +115,9 @@ typedef struct sentinelAddr {
 #define SENTINEL_SCRIPT_MAX_RETRY 10
 #define SENTINEL_SCRIPT_RETRY_DELAY 30000 /* 30 seconds between retries. */
 
+#define SENTINEL_CONFIG_COMMAND "CONFIG"
+#define SENTINEL_SLAVEOF_COMMAND "SLAVEOF"
+
 typedef struct sentinelRedisInstance {
     int flags;      /* See SRI_... defines */
     char *name;     /* Master name from the point of view of this sentinel. */
@@ -207,6 +210,8 @@ struct sentinelState {
                                not NULL. */
     int announce_port;      /* Port that is gossiped to other sentinels if
                                non zero. */
+    char *config_command;    /* CONFIG command sent to redis instancees */
+    char *slave_of_command;   /* SLAVEOF command sent to redis instancees */
 } sentinel;
 
 /* A script execution job. */
@@ -431,6 +436,8 @@ void initSentinel(void) {
     sentinel.scripts_queue = listCreate();
     sentinel.announce_ip = NULL;
     sentinel.announce_port = 0;
+    sentinel.config_command = SENTINEL_CONFIG_COMMAND;
+    sentinel.slave_of_command = SENTINEL_SLAVEOF_COMMAND;
 }
 
 /* This function gets called when the server is in Sentinel mode, started,
@@ -1438,6 +1445,14 @@ char *sentinelHandleConfiguration(char **argv, int argc) {
     } else if (!strcasecmp(argv[0],"announce-port") && argc == 2) {
         /* announce-port <port> */
         sentinel.announce_port = atoi(argv[1]);
+    } else if (!strcasecmp(argv[0],"rename-config") && argc == 2) {
+        /* rename-config <config-name> */
+        if (strlen(argv[1]))
+            sentinel.config_command = sdsnew(argv[1]);
+    } else if (!strcasecmp(argv[0],"rename-slaveof") && argc == 2) {
+        /* rename-slaveof <slaveof-name> */
+        if (strlen(argv[1]))
+            sentinel.slave_of_command = sdsnew(argv[1]);
     } else {
         return "Unrecognized sentinel configuration statement.";
     }
@@ -3331,12 +3346,12 @@ int sentinelSendSlaveOf(sentinelRedisInstance *ri, char *host, int port) {
     ri->pending_commands++;
 
     retval = redisAsyncCommand(ri->cc,
-        sentinelDiscardReplyCallback, NULL, "SLAVEOF %s %s", host, portstr);
+        sentinelDiscardReplyCallback, NULL, "%s %s %s", sentinel.slave_of_command, host, portstr);
     if (retval == REDIS_ERR) return retval;
     ri->pending_commands++;
 
     retval = redisAsyncCommand(ri->cc,
-        sentinelDiscardReplyCallback, NULL, "CONFIG REWRITE");
+        sentinelDiscardReplyCallback, NULL, "%s REWRITE", sentinel.config_command);
     if (retval == REDIS_ERR) return retval;
     ri->pending_commands++;
 
