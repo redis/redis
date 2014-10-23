@@ -107,6 +107,28 @@ typedef struct _client {
 static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 static void createMissingClients(client c);
 
+#ifdef WIN32_IOCP
+/*acquires high resolution time stamps on windows, more details can be found here http://msdn.microsoft.com/en-us/library/windows/desktop/dn553408(v=vs.85).aspx */
+static long long getQPCTimeStamp()
+{
+	LARGE_INTEGER time;
+	QueryPerformanceCounter(&time);
+	return time.QuadPart;
+}
+static long long getQPCElapsedMicroSeconds(long long startime, long long endtime)
+{
+	long long elapsedMicroseconds = endtime - startime;
+	LARGE_INTEGER Frequency;
+	QueryPerformanceFrequency(&Frequency);
+
+	// To guard against loss-of-precision, we convert
+	// to microseconds *before* dividing by ticks-per-second.
+	elapsedMicroseconds *= 1000000;
+	elapsedMicroseconds /= Frequency.QuadPart;
+	return elapsedMicroseconds;
+}
+#endif
+
 /* Implementation */
 static long long ustime(void) {
     struct timeval tv;
@@ -210,7 +232,14 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     /* Calculate latency only for the first read event. This means that the
      * server already sent the reply and we need to parse it. Parsing overhead
      * is not part of the latency, so calculate it only once, here. */
-    if (c->latency < 0) c->latency = ustime()-(c->start);
+	if (c->latency < 0)
+	{
+#ifdef WIN32_IOCP
+		c->latency = getQPCElapsedMicroSeconds(c->start, getQPCTimeStamp());
+#else
+		c->latency = ustime() - (c->start);
+#endif
+	}
 
 #ifdef WIN32_IOCP
     nread = read(c->context->fd,buf,sizeof(buf));
@@ -305,7 +334,11 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
         /* Really initialize: randomize keys and set start time. */
         if (config.randomkeys) randomizeClientKey(c);
-        c->start = ustime();
+#ifdef WIN32_IOCP
+		c->start = getQPCTimeStamp();
+#else
+		c->start = ustime();
+#endif
         c->latency = -1;
     }
 
