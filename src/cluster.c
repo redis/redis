@@ -178,7 +178,7 @@ int clusterLoadConfig(char *filename) {
             clusterAddNode(n);
         }
         /* Address and port */
-        if ((p = strchr(argv[1],':')) == NULL) goto fmterr;
+        if ((p = strrchr(argv[1],':')) == NULL) goto fmterr;
         *p = '\0';
         memcpy(n->ip,argv[1],strlen(argv[1])+1);
         n->port = atoi(p+1);
