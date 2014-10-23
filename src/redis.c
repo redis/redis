@@ -282,7 +282,14 @@ struct redisCommand redisCommandTable[] = {
     {"pfcount",pfcountCommand,-2,"w",0,NULL,1,1,1,0,0},
     {"pfmerge",pfmergeCommand,-2,"wm",0,NULL,1,-1,1,0,0},
     {"pfdebug",pfdebugCommand,-3,"w",0,NULL,0,0,0,0,0},
-    {"latency",latencyCommand,-2,"arslt",0,NULL,0,0,0,0,0}
+    {"latency",latencyCommand,-2,"arslt",0,NULL,0,0,0,0,0},
+    {"qpos",qposCommand,3,"wsF",0,NULL,1,1,1,0,0},
+    {"qpush",qpushCommand,-3,"wF",0,NULL,1,1,1,0,0},
+    {"qpop",qpopCommand,2,"wsF",0,NULL,1,1,1,0,0},
+    {"qinfo",qinfoCommand,2,"rF",0,NULL,1,1,1,0,0},
+    {"qrange",qrangeCommand,4,"rF",0,NULL,1,1,1,0,0},
+    {"qdel",qdelCommand,2,"wF",0,NULL,1,1,1,0,0},
+    {"qget",qgetCommand,3,"rF",0,NULL,1,1,1,0,0}
 };
 
 struct evictionPoolEntry *evictionPoolAlloc(void);
@@ -647,6 +654,16 @@ dictType replScriptCacheDictType = {
     NULL                        /* val destructor */
 };
 
+/* Queue */
+dictType queueDictType = {
+    dictEncObjHash,             /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictEncObjKeyCompare,       /* key compare */
+    dictRedisObjectDestructor,  /* key destructor */
+    dictRedisObjectDestructor   /* val destructor */
+};
+
 int htNeedsResize(dict *dict) {
     long long size, used;
 
@@ -926,6 +943,16 @@ int clientsCronHandleTimeout(redisClient *c) {
     return 0;
 }
 
+/* Check for queue */
+int clientsCronHandleQueue(redisClient *c) {
+    if (c->queue_ready) {
+        c->queue_ready = 0;
+        queuePopMessage(c);
+    }
+
+    return 0;
+}
+
 /* The client query buffer is an sds.c string that can end with a lot of
  * free space not used, this function reclaims space if needed.
  *
@@ -978,6 +1005,7 @@ void clientsCron(void) {
          * terminated. */
         if (clientsCronHandleTimeout(c)) continue;
         if (clientsCronResizeQueryBuffer(c)) continue;
+        if (clientsCronHandleQueue(c)) continue;
     }
 }
 
@@ -1785,6 +1813,9 @@ void initServer(void) {
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
     updateCachedTime();
+    
+    /* Queue */
+    server.queue_clients = dictCreate(&keylistDictType,NULL);
 
     /* Create the serverCron() time event, that's our main way to process
      * background operations. */

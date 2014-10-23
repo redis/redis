@@ -216,6 +216,14 @@ robj *createZsetZiplistObject(void) {
     return o;
 }
 
+robj *createQueueObject(void) {
+    queue *q = queueCreate();
+    robj *o = createObject(REDIS_QUEUE,q);
+    queueSetFreeMethod(q,decrRefCountVoid);
+    o->encoding = REDIS_ENCODING_QUEUE;
+    return o;
+}
+
 void freeStringObject(robj *o) {
     if (o->encoding == REDIS_ENCODING_RAW) {
         sdsfree(o->ptr);
@@ -279,6 +287,12 @@ void freeHashObject(robj *o) {
     }
 }
 
+void freeQueueObject(robj *o) {
+    if (o->encoding == REDIS_ENCODING_QUEUE) {
+        queueRelease((queue*) o->ptr);
+    }
+}
+
 void incrRefCount(robj *o) {
     o->refcount++;
 }
@@ -292,6 +306,7 @@ void decrRefCount(robj *o) {
         case REDIS_SET: freeSetObject(o); break;
         case REDIS_ZSET: freeZsetObject(o); break;
         case REDIS_HASH: freeHashObject(o); break;
+        case REDIS_QUEUE: freeQueueObject(o); break;
         default: redisPanic("Unknown object type"); break;
         }
         zfree(o);

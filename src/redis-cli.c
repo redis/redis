@@ -95,6 +95,7 @@ static struct config {
     char prompt[128];
     char *eval;
     int last_cmd_type;
+    int queue_mode;
 } config;
 
 static volatile sig_atomic_t force_cancel_loop = 0;
@@ -622,6 +623,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
         !strcasecmp(command,"psubscribe")) config.pubsub_mode = 1;
     if (!strcasecmp(command,"sync") ||
         !strcasecmp(command,"psync")) config.slave_mode = 1;
+    if (!strcasecmp(command,"qpop")) config.queue_mode = 1;
 
     /* Setup argument length */
     argvlen = malloc(argc*sizeof(size_t));
@@ -635,7 +637,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
             fflush(stdout);
         }
 
-        if (config.pubsub_mode) {
+        if (config.pubsub_mode || config.queue_mode) {
             if (config.output != OUTPUT_RAW)
                 printf("Reading messages... (press Ctrl-C to quit)\n");
             while (1) {
@@ -1902,6 +1904,7 @@ int main(int argc, char **argv) {
     config.auth = NULL;
     config.eval = NULL;
     config.last_cmd_type = -1;
+    config.queue_mode = 0;
 
     if (!isatty(fileno(stdout)) && (getenv("FAKETTY") == NULL))
         config.output = OUTPUT_RAW;

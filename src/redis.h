@@ -57,6 +57,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "sds.h"     /* Dynamic safe strings */
 #include "dict.h"    /* Hash tables */
 #include "adlist.h"  /* Linked lists */
+#include "queue.h"   /* Queue */
 #include "zmalloc.h" /* total memory usage aware version of malloc/free */
 #include "anet.h"    /* Networking the easy way */
 #include "ziplist.h" /* Compact list data structure */
@@ -169,6 +170,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_CMD_SKIP_MONITOR 2048         /* "M" flag */
 #define REDIS_CMD_ASKING 4096               /* "k" flag */
 #define REDIS_CMD_FAST 8192                 /* "F" flag */
+#define REDIS_CMD_QUEUE 16384               /* "q" flag */
 
 /* Object types */
 #define REDIS_STRING 0
@@ -176,6 +178,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_SET 2
 #define REDIS_ZSET 3
 #define REDIS_HASH 4
+#define REDIS_QUEUE 5
 
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
@@ -189,6 +192,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_ENCODING_INTSET 6  /* Encoded as intset */
 #define REDIS_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
 #define REDIS_ENCODING_EMBSTR 8  /* Embedded sds string encoding */
+#define REDIS_ENCODING_QUEUE 9  /* Encoded as queue */ 
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
@@ -243,6 +247,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_PRE_PSYNC (1<<16)   /* Instance don't understand PSYNC. */
 #define REDIS_READONLY (1<<17)    /* Cluster client is in read-only state. */
 #define REDIS_PUBSUB (1<<18)      /* Client is in Pub/Sub mode. */
+#define REDIS_QUEUEMODE (1<<19)   /* Client is in Queue mode. */
 
 /* Client block type (btype field in client structure)
  * if REDIS_BLOCKED flag is set. */
@@ -545,6 +550,12 @@ typedef struct redisClient {
     /* Response buffer */
     int bufpos;
     char buf[REDIS_REPLY_CHUNK_BYTES];
+
+    /* Queue */
+    long long queue_index;
+    robj *queue;
+    robj *queue_key;
+    int queue_ready;
 } redisClient;
 
 struct saveparam {
@@ -883,6 +894,8 @@ struct redisServer {
     int assert_line;
     int bug_report_start; /* True if bug report header was already logged. */
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
+    /* Queue */
+    dict *queue_clients;
 };
 
 typedef struct pubsubPattern {
@@ -982,6 +995,7 @@ extern dictType shaScriptObjectDictType;
 extern double R_Zero, R_PosInf, R_NegInf, R_Nan;
 extern dictType hashDictType;
 extern dictType replScriptCacheDictType;
+extern dictType queueDictType;
 
 /*-----------------------------------------------------------------------------
  * Functions prototypes
@@ -1092,6 +1106,7 @@ void freeListObject(robj *o);
 void freeSetObject(robj *o);
 void freeZsetObject(robj *o);
 void freeHashObject(robj *o);
+void freeQueueObject(robj *o);
 robj *createObject(int type, void *ptr);
 robj *createStringObject(char *ptr, size_t len);
 robj *createRawStringObject(char *ptr, size_t len);
@@ -1110,6 +1125,7 @@ robj *createIntsetObject(void);
 robj *createHashObject(void);
 robj *createZsetObject(void);
 robj *createZsetZiplistObject(void);
+robj *createQueueObject(void);
 int getLongFromObjectOrReply(redisClient *c, robj *o, long *target, const char *msg);
 int checkType(redisClient *c, robj *o, int type);
 int getLongLongFromObjectOrReply(redisClient *c, robj *o, long long *target, const char *msg);
@@ -1350,6 +1366,11 @@ char *redisGitSHA1(void);
 char *redisGitDirty(void);
 uint64_t redisBuildId(void);
 
+/* Queue */
+void queuePopMessage(redisClient *c);
+void queueUnpopClient(redisClient *c);
+int queuePushMessage(robj *key, robj *value, long long index);
+
 /* Commands prototypes */
 void authCommand(redisClient *c);
 void pingCommand(redisClient *c);
@@ -1509,6 +1530,13 @@ void pfcountCommand(redisClient *c);
 void pfmergeCommand(redisClient *c);
 void pfdebugCommand(redisClient *c);
 void latencyCommand(redisClient *c);
+void qposCommand(redisClient *c);
+void qpushCommand(redisClient *c);
+void qpopCommand(redisClient *c);
+void qinfoCommand(redisClient *c);
+void qrangeCommand(redisClient *c);
+void qgetCommand(redisClient *c);
+void qdelCommand(redisClient *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));

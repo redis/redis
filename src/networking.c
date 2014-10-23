@@ -120,6 +120,10 @@ redisClient *createClient(int fd) {
     c->pubsub_channels = dictCreate(&setDictType,NULL);
     c->pubsub_patterns = listCreate();
     c->peerid = NULL;
+    c->queue_index = 0;
+    c->queue = NULL;
+    c->queue_key = NULL;
+    c->queue_ready = 0;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     if (fd != -1) listAddNodeTail(server.clients,c);
@@ -703,6 +707,14 @@ void freeClient(redisClient *c) {
     pubsubUnsubscribeAllPatterns(c,0);
     dictRelease(c->pubsub_channels);
     listRelease(c->pubsub_patterns);
+
+    /* Queue */
+    c->queue_ready = 0;
+    if (c->queue_key) {
+        queueUnpopClient(c);
+        if (c->queue) decrRefCount(c->queue);
+        if (c->queue_key) decrRefCount(c->queue_key);
+    }
 
     /* Close socket, unregister events, and remove list of replies and
      * accumulated arguments. */
@@ -1303,7 +1315,7 @@ sds catClientInfoString(sds s, redisClient *client) {
     if (emask & AE_WRITABLE) *p++ = 'w';
     *p = '\0';
     return sdscatfmt(s,
-        "id=%U addr=%s fd=%i name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U obl=%U oll=%U omem=%U events=%s cmd=%s",
+        "id=%U addr=%s fd=%i name=%s age=%I idle=%I flags=%s db=%i sub=%i psub=%i multi=%i qbuf=%U qbuf-free=%U obl=%U oll=%U omem=%U events=%s cmd=%s queue=%s queue-index=%U",
         (unsigned long long) client->id,
         getClientPeerId(client),
         client->fd,
@@ -1321,7 +1333,9 @@ sds catClientInfoString(sds s, redisClient *client) {
         (unsigned long long) listLength(client->reply),
         (unsigned long long) getClientOutputBufferMemoryUsage(client),
         events,
-        client->lastcmd ? client->lastcmd->name : "NULL");
+        client->lastcmd ? client->lastcmd->name : "NULL", 
+        client->queue_key ? (char*)client->queue_key->ptr : "NULL", 
+        (unsigned long long)client->queue_index);
 }
 
 sds getAllClientsInfoString(void) {

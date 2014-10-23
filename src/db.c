@@ -96,6 +96,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
 
     redisAssertWithInfo(NULL,key,retval == REDIS_OK);
     if (val->type == REDIS_LIST) signalListAsReady(db, key);
+    //TODO:QUEUE
     if (server.cluster_enabled) slotToKeyAdd(key);
  }
 
