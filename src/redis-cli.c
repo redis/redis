@@ -793,13 +793,12 @@ static int parseOptions(int argc, char **argv) {
 
 static sds readArgFromStdin(void) {
     char buf[1024];
+    ssize_t nread;
     sds arg = sdsempty();
 
-    while(1) {
-        int nread = read(fileno(stdin),buf,1024);
-
-        if (nread == 0) break;
-        else if (nread == -1) {
+    while ((nread = read(STDIN_FILENO,buf,sizeof(buf))) != 0) {
+        if (nread == -1) {
+            if (errno == EINTR) continue;
             perror("Reading from standard input");
             exit(1);
         }
@@ -1095,6 +1094,9 @@ unsigned long long sendSync(int fd) {
     while(1) {
         nread = read(fd,p,1);
         if (nread <= 0) {
+            int block_mode = context->flags & REDIS_BLOCK;
+            if ((errno == EAGAIN && !block_mode) || errno == EINTR)
+                continue;
             fprintf(stderr,"Error reading bulk length while SYNCing\n");
             exit(1);
         }
@@ -1124,6 +1126,9 @@ static void slaveMode(void) {
 
         nread = read(fd,buf,(payload > sizeof(buf)) ? sizeof(buf) : payload);
         if (nread <= 0) {
+            int block_mode = context->flags & REDIS_BLOCK;
+            if ((errno == EAGAIN && !block_mode) || errno == EINTR)
+                continue;
             fprintf(stderr,"Error reading RDB payload while SYNCing\n");
             exit(1);
         }
@@ -1169,6 +1174,9 @@ static void getRDB(void) {
 
         nread = read(s,buf,(payload > sizeof(buf)) ? sizeof(buf) : payload);
         if (nread <= 0) {
+            int block_mode = context->flags & REDIS_BLOCK;
+            if ((errno == EAGAIN && !block_mode) || errno == EINTR)
+                continue;
             fprintf(stderr,"I/O Error reading RDB payload from socket\n");
             exit(1);
         }
@@ -1224,18 +1232,17 @@ static void pipeMode(void) {
             ssize_t nread;
 
             /* Read from socket and feed the hiredis reader. */
-            do {
-                nread = read(fd,ibuf,sizeof(ibuf));
-                if (nread == -1 && errno != EAGAIN && errno != EINTR) {
-                    fprintf(stderr, "Error reading from the server: %s\n",
-                        strerror(errno));
+            while ((nread = read(fd,ibuf,sizeof(ibuf))) != 0) {
+                if (nread == -1) {
+                    int block_mode = context->flags & REDIS_BLOCK;
+                    if ((errno == EAGAIN && !block_mode) || errno == EINTR)
+                        continue;
+                    perror("Error reading from the server");
                     exit(1);
                 }
-                if (nread > 0) {
-                    redisReaderFeed(reader,ibuf,nread);
-                    last_read_time = time(NULL);
-                }
-            } while(nread > 0);
+                redisReaderFeed(reader,ibuf,nread);
+                last_read_time = time(NULL);
+            }
 
             /* Consume replies. */
             do {
@@ -1272,12 +1279,12 @@ static void pipeMode(void) {
                     ssize_t nwritten = write(fd,obuf+obuf_pos,obuf_len);
 
                     if (nwritten == -1) {
-                        if (errno != EAGAIN && errno != EINTR) {
-                            fprintf(stderr, "Error writing to the server: %s\n",
-                                strerror(errno));
-                            exit(1);
-                        } else {
+                        int block_mode = context->flags & REDIS_BLOCK;
+                        if ((errno == EAGAIN && !block_mode) || errno == EINTR)
                             nwritten = 0;
+                        else {
+                            perror("Error writing to the server");
+                            exit(1);
                         }
                     }
                     obuf_len -= nwritten;
@@ -1286,7 +1293,18 @@ static void pipeMode(void) {
                 }
                 /* If buffer is empty, load from stdin. */
                 if (obuf_len == 0 && !eof) {
-                    ssize_t nread = read(STDIN_FILENO,obuf,sizeof(obuf));
+                    ssize_t nread;
+
+                    while ((nread = read(STDIN_FILENO,obuf,sizeof(obuf))) != 0) {
+                        if (nread == -1) {
+                            if (errno == EINTR) continue;
+                            perror("Error reading from stdin");
+                            exit(1);
+                        }
+                        obuf_len = nread;
+                        obuf_pos = 0;
+                        break;
+                    }
 
                     if (nread == 0) {
                         /* The ECHO sequence starts with a "\r\n" so that if there
@@ -1308,13 +1326,6 @@ static void pipeMode(void) {
                         obuf_len = sizeof(echo)-1;
                         obuf_pos = 0;
                         printf("All data transferred. Waiting for the last reply...\n");
-                    } else if (nread == -1) {
-                        fprintf(stderr, "Error reading from stdin: %s\n",
-                            strerror(errno));
-                        exit(1);
-                    } else {
-                        obuf_len = nread;
-                        obuf_pos = 0;
                     }
                 }
                 if (obuf_len == 0 && eof) break;
