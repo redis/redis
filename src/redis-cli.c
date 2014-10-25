@@ -1092,6 +1092,7 @@ unsigned long long sendSync(int fd) {
     /* Read $<payload>\r\n, making sure to read just up to "\n" */
     p = buf;
     while(1) {
+        errno = 0;
         nread = read(fd,p,1);
         if (nread <= 0) {
             int block_mode = context->flags & REDIS_BLOCK;
@@ -1124,6 +1125,7 @@ static void slaveMode(void) {
     while(payload) {
         ssize_t nread;
 
+        errno = 0;
         nread = read(fd,buf,(payload > sizeof(buf)) ? sizeof(buf) : payload);
         if (nread <= 0) {
             int block_mode = context->flags & REDIS_BLOCK;
@@ -1172,6 +1174,7 @@ static void getRDB(void) {
     while(payload) {
         ssize_t nread, nwritten;
 
+        errno = 0;
         nread = read(s,buf,(payload > sizeof(buf)) ? sizeof(buf) : payload);
         if (nread <= 0) {
             int block_mode = context->flags & REDIS_BLOCK;
