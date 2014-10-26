@@ -15,7 +15,7 @@ case "$1" in
             echo "$PIDFILE does not exist, process is not running"
         else
             PID=$(cat $PIDFILE)
-            AUTH=$(grep -Po "^requirepass +\K[^ ]*" $CONF)
+            AUTH=$(grep ^requirepass $CONF | awk '{print $2}')
             if [ "$AUTH" != "" ]
             then
                 AUTH="-a $AUTH"
