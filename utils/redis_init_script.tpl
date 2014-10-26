@@ -26,11 +26,12 @@ case "$1" in
         fi
         ;;
     status)
-        if [ ! -f $PIDFILE ]
+        PID=$(cat $PIDFILE)
+        if [ ! -x /proc/${PID} ]
         then
             echo 'Redis is not running'
         else
-            echo "Redis is running ($(<$PIDFILE))"
+            echo "Redis is running ($PID)"
         fi
         ;;
     restart)
