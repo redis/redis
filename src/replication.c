@@ -528,7 +528,8 @@ void syncCommand(redisClient *c) {
              * replicationCron() since we want to delay its start a
              * few seconds to wait for more slaves to arrive. */
             c->replstate = REDIS_REPL_WAIT_BGSAVE_START;
-            redisLog(REDIS_NOTICE,"Delay next BGSAVE for SYNC");
+            if (server.repl_diskless_sync_delay)
+                redisLog(REDIS_NOTICE,"Delay next BGSAVE for SYNC");
         } else {
             /* Ok we don't have a BGSAVE in progress, let's start one. */
             if (startBgsaveForReplication() != REDIS_OK) {
