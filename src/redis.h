@@ -1162,6 +1162,7 @@ void unblockClientWaitingReplicas(redisClient *c);
 int replicationCountAcksByOffset(long long offset);
 void replicationSendNewlineToMaster(void);
 long long replicationGetSlaveOffset(void);
+char *replicationGetSlaveName(redisClient *c);
 
 /* Generic persistence functions */
 void startLoading(FILE *fp);
