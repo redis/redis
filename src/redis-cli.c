@@ -302,7 +302,7 @@ static void completionCallback(const char *buf, linenoiseCompletions *lc) {
  *--------------------------------------------------------------------------- */
 
 /* Send AUTH command to the server */
-static int cliAuth() {
+static int cliAuth(void) {
     redisReply *reply;
     if (config.auth == NULL) return REDIS_OK;
 
@@ -315,7 +315,7 @@ static int cliAuth() {
 }
 
 /* Send SELECT dbnum to the server */
-static int cliSelect() {
+static int cliSelect(void) {
     redisReply *reply;
     if (config.dbnum == 0) return REDIS_OK;
 
