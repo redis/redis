@@ -369,7 +369,8 @@ int masterTryPartialResynchronization(redisClient *c) {
                 "Runid mismatch (Client asked for runid '%s', my runid is '%s')",
                 master_runid, server.runid);
         } else {
-            redisLog(REDIS_NOTICE,"Full resync requested by slave.");
+            redisLog(REDIS_NOTICE,"Full resync requested by slave %s",
+                replicationGetSlaveName(c));
         }
         goto need_full_resync;
     }
@@ -382,10 +383,10 @@ int masterTryPartialResynchronization(redisClient *c) {
         psync_offset > (server.repl_backlog_off + server.repl_backlog_histlen))
     {
         redisLog(REDIS_NOTICE,
-            "Unable to partial resync with the slave for lack of backlog (Slave request was: %lld).", psync_offset);
+            "Unable to partial resync with slave %s for lack of backlog (Slave request was: %lld).", replicationGetSlaveName(c), psync_offset);
         if (psync_offset > server.master_repl_offset) {
             redisLog(REDIS_WARNING,
-                "Warning: slave tried to PSYNC with an offset that is greater than the master replication offset.");
+                "Warning: slave %s tried to PSYNC with an offset that is greater than the master replication offset.", replicationGetSlaveName(c));
         }
         goto need_full_resync;
     }
@@ -408,7 +409,9 @@ int masterTryPartialResynchronization(redisClient *c) {
     }
     psync_len = addReplyReplicationBacklog(c,psync_offset);
     redisLog(REDIS_NOTICE,
-        "Partial resynchronization request accepted. Sending %lld bytes of backlog starting from offset %lld.", psync_len, psync_offset);
+        "Partial resynchronization request from %s accepted. Sending %lld bytes of backlog starting from offset %lld.",
+            replicationGetSlaveName(c),
+            psync_len, psync_offset);
     /* Note that we don't need to set the selected DB at server.slaveseldb
      * to -1 to force the master to emit SELECT, since the slave already
      * has this state from the previous connection with the master. */
@@ -475,7 +478,8 @@ void syncCommand(redisClient *c) {
         return;
     }
 
-    redisLog(REDIS_NOTICE,"Slave asks for synchronization");
+    redisLog(REDIS_NOTICE,"Slave %s asks for synchronization",
+        replicationGetSlaveName(c));
 
     /* Try a partial resynchronization if this is a PSYNC command.
      * If it fails, we continue with usual full resynchronization, however
@@ -750,7 +754,8 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
             if (type == REDIS_RDB_CHILD_TYPE_SOCKET) {
                 putSlaveOnline(slave);
                 redisLog(REDIS_NOTICE,
-                    "Synchronization with slave succeeded (socket)");
+                    "Synchronization with slave %s succeeded (socket)",
+                        replicationGetSlaveName(slave));
             } else {
                 if (bgsaveerr != REDIS_OK) {
                     freeClient(slave);
