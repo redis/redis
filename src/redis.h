@@ -1078,6 +1078,7 @@ int replicationScriptCacheExists(sds sha1);
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
 void replicationSendNewlineToMaster(void);
+char *replicationGetSlaveName(redisClient *c);
 
 /* Generic persistence functions */
 void startLoading(FILE *fp);
