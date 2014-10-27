@@ -2034,9 +2034,9 @@ void replicationCron(void) {
             }
         }
 
-        if (slaves_waiting && max_idle > REDIS_DEFAULT_REPL_DISKLESS_SYNC_DELAY)
-        {
-            /* Let's start a BGSAVE with disk target. */
+        if (slaves_waiting && max_idle > server.repl_diskless_sync_delay) {
+            /* Start a BGSAVE. Usually with socket target, or with disk target
+             * if there was a recent socket -> disk config change. */
             if (startBgsaveForReplication() == REDIS_OK) {
                 /* It started! We need to change the state of slaves
                  * from WAIT_BGSAVE_START to WAIT_BGSAVE_END. */
