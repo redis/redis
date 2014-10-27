@@ -1137,7 +1137,7 @@ class RedisTrib
         # right node as needed.
         cursor = nil
         while cursor != 0
-            cursor,keys = source.scan(cursor,:count,1000)
+            cursor,keys = source.scan(cursor, :count => 1000)
             cursor = cursor.to_i
             keys.each{|k|
                 # Migrate keys using the MIGRATE command.
