@@ -30,6 +30,7 @@
 #include "redis.h"
 #include <math.h>
 
+//TODO:signal, notify, cluster, scanCallback, aof, rdb, sortCommand
 /*-----------------------------------------------------------------------------
  * Queue API
  *----------------------------------------------------------------------------*/
@@ -41,7 +42,7 @@ void queuePopMessage(redisClient *c) {
 
     int count = 0;
     queue *q = (queue *)c->queue->ptr;
-    queueEntry *entry = queueFind(q, c->queue_index);
+    queueEntry *entry = queueIndex(q, c->queue_index);
 
     while (entry && count++ < QUEUE_SEND_MAX_SIZE) {
         addReply(c, shared.mbulkhdr[2]);
@@ -58,7 +59,9 @@ void queuePopMessage(redisClient *c) {
         c->queue_ready = 1;
     }
 
-    redisLog(REDIS_NOTICE, "Pop,Size:%ld, Current:%ld, Ready:%ld", q->len, c->queue_index, c->queue_ready);
+    server.dirty += count;
+
+    redisLog(REDIS_DEBUG, "Queue pop, Size:%lld, Current:%lld, Ready:%i", q->len, c->queue_index, c->queue_ready);
 }
 
 void queuePopComet(redisClient *c) {
@@ -82,32 +85,46 @@ void queueUnpopComet(redisClient *c, robj *key) {
     list *clients = NULL;
     listNode *ln;
 
-    incrRefCount(key);
-
     de = dictFind(server.queue_clients, key);
-    if (de == NULL) {
-        redisLog(REDIS_NOTICE, "Unpop,Key:%s", (char *)key->ptr);
-        return;
-    }
+    if (de == NULL) return;
 
     clients = dictGetVal(de);
     ln = listSearchKey(clients, c);
-    if (ln == NULL) {
-        redisLog(REDIS_NOTICE, "Unpop,Client:%s", (char *)key->ptr);
-        return;
-    }
+    if (ln == NULL) return;
 
     listDelNode(clients, ln);
 
     if (listLength(clients) == 0) {
+        incrRefCount(key);
         dictDelete(server.queue_clients, key);
-    }
-
-    incrRefCount(key);
+        decrRefCount(key);
+    }    
 }
 
 void queueUnpopClient(redisClient *c) {
     queueUnpopComet(c, c->queue_key);
+}
+
+int queueUnpopKey(robj *key) {
+    dictEntry *de = dictFind(server.queue_clients, key);
+    if (de == NULL) return 0;
+
+    list *clients = dictGetVal(de);
+    listNode *ln;
+    listIter li;
+
+    listRewind(clients, &li);
+    while ((ln = listNext(&li))) {
+        redisClient *c = listNodeValue(ln);
+        addReplyError(c, "Queue has been removed.");
+        //freeClient(c);
+    }
+
+    incrRefCount(key);
+    dictDelete(server.queue_clients, key);
+    decrRefCount(key);
+
+    return 1;
 }
 
 int queuePushMessage(robj *key, robj *value, long long index) {
@@ -121,7 +138,7 @@ int queuePushMessage(robj *key, robj *value, long long index) {
 
     listRewind(list, &li);
     while ((ln = listNext(&li)) != NULL) {
-        redisClient *c = ln->value;
+        redisClient *c = listNodeValue(ln);
         if (c->queue_index + 1 == index) {
             addReplyMultiBulkLen(c, 2);
             addReplyBulk(c, createStringObjectFromLongLong(c->queue_index));
@@ -168,7 +185,6 @@ void qposCommand(redisClient *c) {
 }
 
 void qpushCommand(redisClient *c) {
-    //TODO:signal,notify,cluster
     int j, pushed = 0;
     robj *qobj = lookupKeyWrite(c->db, c->argv[1]);
 
@@ -188,17 +204,15 @@ void qpushCommand(redisClient *c) {
             qobj = createQueueObject();
             dbAdd(c->db, c->argv[1], qobj);
         }
-        
+
         if (queueAdd(qobj->ptr, c->argv[j]) != NULL) {
+            incrRefCount(c->argv[j]);
             queuePushMessage(c->argv[1], c->argv[j], ((queue *)qobj->ptr)->len);
             pushed++;
         }
-
-        incrRefCount(c->argv[j]);
     }
 
     server.dirty += pushed;
-    
     addReplyLongLong(c, pushed);
 }
 
@@ -227,17 +241,95 @@ void qpopCommand(redisClient *c) {
 }
 
 void qinfoCommand(redisClient *c) {
-    addReplyBulk(c, c->argv[1]);
+    robj *qobj = lookupKeyRead(c->db, c->argv[1]);
+    if (qobj == NULL || qobj->type != REDIS_QUEUE) {
+        addReply(c, shared.wrongtypeerr);
+        return;
+    }
+
+    queue *q = (queue *)qobj->ptr;
+
+    addReplyMultiBulkLen(c, 2);
+    addReplyStatus(c, "length");
+    addReplyBulk(c, createStringObjectFromLongLong(q->len));
 }
 
 void qrangeCommand(redisClient *c) {
-    addReplyBulk(c, c->argv[1]);
+    robj *qobj = lookupKeyRead(c->db, c->argv[1]);
+    if (qobj == NULL || qobj->type != REDIS_QUEUE) {
+        addReply(c, shared.wrongtypeerr);
+        return;
+    }
+
+    queue *q = (queue *)qobj->ptr;
+
+    long long start, end, qlen, rangelen;
+    if ((getLongLongFromObjectOrReply(c, c->argv[2], &start, NULL) != REDIS_OK) ||
+        (getLongLongFromObjectOrReply(c, c->argv[3], &end, NULL) != REDIS_OK)) return;
+
+    qlen = q->len;
+
+    if (start < 0) start = qlen + start;
+    if (end < 0) end = qlen + end;
+    if (start < 0) start = 0;
+
+    if (start > end || start >= qlen) {
+        addReply(c, shared.emptymultibulk);
+        return;
+    }
+
+    if (end >= qlen) end = qlen - 1;
+    rangelen = (end - start) + 1;
+
+    addReplyMultiBulkLen(c, rangelen);
+    
+    queueEntry *entry = queueIndex(q, start);
+    while (rangelen--) {
+        if (entry) {
+            addReplyBulk(c, entry->value);
+            entry = entry->next;    
+        } else {
+            addReplyBulk(c, shared.nullbulk);
+        }
+    }
 }
 
 void qdelCommand(redisClient *c) {
-    addReplyBulk(c, c->argv[1]);
+    robj *qobj = lookupKeyRead(c->db, c->argv[1]);
+    if (qobj == NULL || qobj->type != REDIS_QUEUE) {
+        addReply(c, shared.wrongtypeerr);
+        return;
+    }
+
+    //unpop queue key
+    queueUnpopKey(c->argv[1]);
+
+    if (dbDelete(c->db, c->argv[1])) {
+        signalModifiedKey(c->db, c->argv[1]);
+        notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+        server.dirty++;
+
+        addReplyLongLong(c, 1);
+    } else {
+        addReplyLongLong(c, 0);
+    }
 }
 
 void qgetCommand(redisClient *c) {
-    addReplyBulk(c, c->argv[1]);
+    robj *qobj = lookupKeyRead(c->db, c->argv[1]);
+    if (qobj == NULL || qobj->type != REDIS_QUEUE) {
+        addReply(c, shared.wrongtypeerr);
+        return;
+    }
+
+    queue *q = (queue *)qobj->ptr;
+
+    long long index;
+    if (getLongLongFromObjectOrReply(c, c->argv[2], &index, NULL) != REDIS_OK) return;
+    
+    queueEntry *entry = queueIndex(q, index);
+    if (entry == NULL)
+        addReplyBulk(c, shared.nullbulk);
+    else
+        addReplyBulk(c, entry->value);
 }

@@ -38,43 +38,30 @@ typedef struct queueEntry {
     struct queueEntry *next;
 } queueEntry;
 
-typedef struct queueNode {
+typedef struct queue {
     long long len;
     long long startidx;
     queueEntry *head;
     queueEntry *tail;
-    struct queueNode *next;
-} queueNode;
-
-typedef struct queue {
-    long long len;
-    queueNode *head;
     void (*free)(void *ptr); 
 } queue;
 
 /* Macros */
 #define queueLength(q) ((q)->len)
 #define queueHead(q) ((q)->head)
+#define queueTail(q) ((q)->tail)
 #define queueSetFreeMethod(q, m) ((q)->free = (m))
-#define queueNodeLength(n) ((n)->len)
-#define queueNodeStartIndex(n) ((n)->startidx)
-#define queueNodeHead(n) ((n)->head)
-#define queueNodeTail(n) ((n)->tail)
-#define queueNodeNext(n) ((n)->next)
+#define queueStartIndex(q) ((q)->startidx)
 #define queueEntryValue(e) ((e)->value)
 #define queueEntryNext(e) ((e)->next)
 
 /* API */
-
 queue *queueCreate(void);
 queueEntry *queueAdd(queue *q, void *value);
-queueEntry *queueFind(queue *q, long long index);
+queueEntry *queueIndex(queue *q, long long index);
 
 void queueRelease(queue *q);
-void queueNodeRelease(queueNode *n, queue *q);
-void queueEntryRelease(queueEntry *e, queue *q);
 
-#define QUEUE_NODE_MAX_SIZE 1000000
 #define QUEUE_SEND_MAX_SIZE 1000
 
 #endif // __INTSET_H

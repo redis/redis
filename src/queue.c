@@ -38,118 +38,67 @@ queue *queueCreate(void) {
 
     if ((queue = zmalloc(sizeof(*queue))) == NULL)
         return NULL;
+
     queue->len = 0;
+    queue->startidx = 0;
     queue->head = NULL;
+    queue->tail = NULL;
     queue->free = NULL;
     return queue;
 }
 
-static queueNode *queueNodeCreate(void) {
-    struct queueNode *node;
-
-    if ((node = zmalloc(sizeof(*node))) == NULL)
-        return NULL;
-    node->len = 0;
-    node->startidx = 0;
-    node->head = node->tail = NULL;
-    node->next = NULL;
-    return node;
-}
-
 queueEntry *queueAdd(queue *q, void *value) {
-    queueNode *headNode, *nextNode;
-    headNode = q->head;
-
-    if (headNode == NULL || headNode->len > QUEUE_NODE_MAX_SIZE) {
-        nextNode = headNode;
-        if ((headNode = queueNodeCreate()) == NULL) {
-            return NULL;
-        }
-
-        q->head = headNode;
-        headNode->next = nextNode;
-        headNode->startidx = q->len;
-    }
-
     queueEntry *entry = NULL;
 
     if ((entry = zmalloc(sizeof(*entry))) == NULL)
         return NULL;
 
     entry->value = value;
+    entry->next = NULL;
 
-    if (headNode->len == 0) {
-        headNode->head = headNode->tail = entry;
+    if (q->len == 0) {
+        q->head = q->tail = entry;
     } else {
-        headNode->tail->next = entry;
-        headNode->tail = entry;
+        q->tail->next = entry;
+        q->tail = entry;
     }
 
-    headNode->len++;
     q->len++;
 
     return entry;
 }
 
-queueEntry *queueFind(queue *q, long long index) {
-    long long len;
-    queueNode *node, *nextNode;
-    queueEntry *entry, *nextEntry;
+queueEntry *queueIndex(queue *q, long long index) {
+    long long len = 0;
+    if (index == q->len - 1 || index == -1) return q->tail;
+    if (index == q->startidx || index == 0) return q->head;
 
-    node = q->head;
+    if (index < 0) len = (q->len - q->startidx) + index;
+    else len = index - q->startidx;
+
+    if (len < 0) return q->head;
+
+    queueEntry *e = q->head;
     
-    while(node) {
-        if (index >= node->startidx) {
-            if (index + 1 == node->startidx + node->len) {
-                return node->tail;
-            } else if (index + 1 > node->startidx + node->len) {
-                return NULL;
-            } else {
-                len = index - node->startidx;
-                entry = node->head;
-                while (len--) {
-                    nextEntry = entry->next;
-                    entry = nextEntry;
-                }
-
-                return entry;
-            }
-        }
-
-        nextNode = node->next;
-        node = nextNode;
+    while (len-- && e) {
+        e = e->next;
     }
 
-    return NULL;
+    return e;
 }
 
 void queueRelease(queue *q) {
-    queueNode *node, *next;
-    node = q->head;
+    queueEntry *current, *next;
+    current = q->head;
 
-    while(node) {
-        next = node->next;
-        queueNodeRelease(node, q);
-        node = next;
+    while (current) {
+        next = current->next;
+
+        if (q->free) q->free(current->value);
+        zfree(current);
+
+        current = next;
     }
 
     zfree(q);
-}
-
-void queueNodeRelease(queueNode *n, queue *q) {
-    queueEntry *entry, *next;
-    entry = n->head;
-
-    while(entry) {
-        next = entry->next;
-        queueEntryRelease(entry, q);
-        entry = next;
-    }
-
-    zfree(n);
-}
-
-void queueEntryRelease(queueEntry *e, queue *q) {
-    if (q->free) q->free(e->value);
-    zfree(e);
 }

@@ -460,6 +460,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             return rdbSaveType(rdb,REDIS_RDB_TYPE_HASH);
         else
             redisPanic("Unknown hash encoding");
+    case REDIS_QUEUE:
+        return rdbSaveType(rdb, REDIS_RDB_TYPE_QUEUE);
     default:
         redisPanic("Unknown object type");
     }
@@ -587,6 +589,23 @@ int rdbSaveObject(rio *rdb, robj *o) {
 
         } else {
             redisPanic("Unknown hash encoding");
+        }
+
+    } else if (o->type == REDIS_QUEUE) {
+        queue *queue = o->ptr;
+        queueEntry *qe = queue->head;
+
+        if ((n = rdbSaveLen(rdb, queueLength(queue))) == -1) return -1;
+        nwritten += n;
+
+        if ((n = rdbSaveLen(rdb, queueStartIndex(queue))) == -1) return -1;
+        nwritten += n;
+
+        while (qe) {
+            robj *eleobj = queueEntryValue(qe);
+            if ((n = rdbSaveStringObject(rdb, eleobj)) == -1) return -1;
+            nwritten += n;
+            qe = queueEntryNext(qe);
         }
 
     } else {
@@ -1027,6 +1046,24 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                 redisPanic("Unknown encoding");
                 break;
         }
+
+    } else if (rdbtype == REDIS_RDB_TYPE_QUEUE) {
+        size_t startidx, size;
+        if ((len = rdbLoadLen(rdb, NULL)) == REDIS_RDB_LENERR) return NULL;
+        if ((startidx = rdbLoadLen(rdb, NULL)) == REDIS_RDB_LENERR) return NULL;
+        size = len - startidx;
+        o = createQueueObject();
+        queue *q = (queue *)o->ptr;
+
+        while(size--) {
+            if ((ele = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
+            ele = tryObjectEncoding(ele);
+            queueAdd(q, ele);
+        }
+
+        q->startidx = startidx;
+        q->len = len;
+
     } else {
         redisPanic("Unknown object type");
     }

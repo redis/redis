@@ -1369,6 +1369,7 @@ uint64_t redisBuildId(void);
 /* Queue */
 void queuePopMessage(redisClient *c);
 void queueUnpopClient(redisClient *c);
+int queueUnpopKey(robj *key);
 int queuePushMessage(robj *key, robj *value, long long index);
 
 /* Commands prototypes */
