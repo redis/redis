@@ -94,79 +94,82 @@ start_server {tags {"repl"}} {
     }
 }
 
-start_server {tags {"repl"}} {
-    set master [srv 0 client]
-    set master_host [srv 0 host]
-    set master_port [srv 0 port]
-    set slaves {}
-    set load_handle0 [start_write_load $master_host $master_port 3]
-    set load_handle1 [start_write_load $master_host $master_port 5]
-    set load_handle2 [start_write_load $master_host $master_port 20]
-    set load_handle3 [start_write_load $master_host $master_port 8]
-    set load_handle4 [start_write_load $master_host $master_port 4]
-    start_server {} {
-        lappend slaves [srv 0 client]
+foreach dl {no yes} {
+    start_server {tags {"repl"}} {
+        set master [srv 0 client]
+        $master config set repl-diskless-sync $dl
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+        set slaves {}
+        set load_handle0 [start_write_load $master_host $master_port 3]
+        set load_handle1 [start_write_load $master_host $master_port 5]
+        set load_handle2 [start_write_load $master_host $master_port 20]
+        set load_handle3 [start_write_load $master_host $master_port 8]
+        set load_handle4 [start_write_load $master_host $master_port 4]
         start_server {} {
             lappend slaves [srv 0 client]
             start_server {} {
                 lappend slaves [srv 0 client]
-                test "Connect multiple slaves at the same time (issue #141)" {
-                    # Send SALVEOF commands to slaves
-                    [lindex $slaves 0] slaveof $master_host $master_port
-                    [lindex $slaves 1] slaveof $master_host $master_port
-                    [lindex $slaves 2] slaveof $master_host $master_port
+                start_server {} {
+                    lappend slaves [srv 0 client]
+                    test "Connect multiple slaves at the same time (issue #141), diskless=$dl" {
+                        # Send SALVEOF commands to slaves
+                        [lindex $slaves 0] slaveof $master_host $master_port
+                        [lindex $slaves 1] slaveof $master_host $master_port
+                        [lindex $slaves 2] slaveof $master_host $master_port
 
-                    # Wait for all the three slaves to reach the "online" state
-                    set retry 500
-                    while {$retry} {
-                        set info [r -3 info]
-                        if {[string match {*slave0:*state=online*slave1:*state=online*slave2:*state=online*} $info]} {
-                            break
-                        } else {
-                            incr retry -1
-                            after 100
+                        # Wait for all the three slaves to reach the "online" state
+                        set retry 500
+                        while {$retry} {
+                            set info [r -3 info]
+                            if {[string match {*slave0:*state=online*slave1:*state=online*slave2:*state=online*} $info]} {
+                                break
+                            } else {
+                                incr retry -1
+                                after 100
+                            }
                         }
-                    }
-                    if {$retry == 0} {
-                        error "assertion:Slaves not correctly synchronized"
-                    }
+                        if {$retry == 0} {
+                            error "assertion:Slaves not correctly synchronized"
+                        }
 
-                    # Stop the write load
-                    stop_write_load $load_handle0
-                    stop_write_load $load_handle1
-                    stop_write_load $load_handle2
-                    stop_write_load $load_handle3
-                    stop_write_load $load_handle4
+                        # Stop the write load
+                        stop_write_load $load_handle0
+                        stop_write_load $load_handle1
+                        stop_write_load $load_handle2
+                        stop_write_load $load_handle3
+                        stop_write_load $load_handle4
 
-                    # Wait that slaves exit the "loading" state
-                    wait_for_condition 500 100 {
-                        ![string match {*loading:1*} [[lindex $slaves 0] info]] &&
-                        ![string match {*loading:1*} [[lindex $slaves 1] info]] &&
-                        ![string match {*loading:1*} [[lindex $slaves 2] info]]
-                    } else {
-                        fail "Slaves still loading data after too much time"
+                        # Wait that slaves exit the "loading" state
+                        wait_for_condition 500 100 {
+                            ![string match {*loading:1*} [[lindex $slaves 0] info]] &&
+                            ![string match {*loading:1*} [[lindex $slaves 1] info]] &&
+                            ![string match {*loading:1*} [[lindex $slaves 2] info]]
+                        } else {
+                            fail "Slaves still loading data after too much time"
+                        }
+
+                        # Make sure that slaves and master have same number of keys
+                        wait_for_condition 500 100 {
+                            [$master dbsize] == [[lindex $slaves 0] dbsize] &&
+                            [$master dbsize] == [[lindex $slaves 1] dbsize] &&
+                            [$master dbsize] == [[lindex $slaves 2] dbsize]
+                        } else {
+                            fail "Different number of keys between masted and slave after too long time."
+                        }
+
+                        # Check digests
+                        set digest [$master debug digest]
+                        set digest0 [[lindex $slaves 0] debug digest]
+                        set digest1 [[lindex $slaves 1] debug digest]
+                        set digest2 [[lindex $slaves 2] debug digest]
+                        assert {$digest ne 0000000000000000000000000000000000000000}
+                        assert {$digest eq $digest0}
+                        assert {$digest eq $digest1}
+                        assert {$digest eq $digest2}
                     }
-
-                    # Make sure that slaves and master have same number of keys
-                    wait_for_condition 500 100 {
-                        [$master dbsize] == [[lindex $slaves 0] dbsize] &&
-                        [$master dbsize] == [[lindex $slaves 1] dbsize] &&
-                        [$master dbsize] == [[lindex $slaves 2] dbsize]
-                    } else {
-                        fail "Different number of keys between masted and slave after too long time."
-                    }
-
-                    # Check digests
-                    set digest [$master debug digest]
-                    set digest0 [[lindex $slaves 0] debug digest]
-                    set digest1 [[lindex $slaves 1] debug digest]
-                    set digest2 [[lindex $slaves 2] debug digest]
-                    assert {$digest ne 0000000000000000000000000000000000000000}
-                    assert {$digest eq $digest0}
-                    assert {$digest eq $digest1}
-                    assert {$digest eq $digest2}
-                }
-           }
+               }
+            }
         }
     }
 }
