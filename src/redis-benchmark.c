@@ -107,7 +107,7 @@ typedef struct _client {
 static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 static void createMissingClients(client c);
 
-#ifdef WIN32_IOCP
+#ifdef _WIN32
 /*acquires high resolution time stamps on windows, more details can be found here http://msdn.microsoft.com/en-us/library/windows/desktop/dn553408(v=vs.85).aspx */
 static long long getQPCTimeStamp()
 {
@@ -234,7 +234,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
      * is not part of the latency, so calculate it only once, here. */
 	if (c->latency < 0)
 	{
-#ifdef WIN32_IOCP
+#ifdef _WIN32
 		c->latency = getQPCElapsedMicroSeconds(c->start, getQPCTimeStamp());
 #else
 		c->latency = ustime() - (c->start);
@@ -334,7 +334,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
         /* Really initialize: randomize keys and set start time. */
         if (config.randomkeys) randomizeClientKey(c);
-#ifdef WIN32_IOCP
+#ifdef _WIN32
 		c->start = getQPCTimeStamp();
 #else
 		c->start = ustime();
