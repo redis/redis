@@ -30,7 +30,6 @@
 #include "redis.h"
 #include <math.h>
 
-//TODO:signal, notify, cluster, scanCallback, aof, rdb, sortCommand
 /*-----------------------------------------------------------------------------
  * Queue API
  *----------------------------------------------------------------------------*/
@@ -58,8 +57,6 @@ void queuePopMessage(redisClient *c) {
     } else {
         c->queue_ready = 1;
     }
-
-    server.dirty += count;
 
     redisLog(REDIS_DEBUG, "Queue pop, Size:%lld, Current:%lld, Ready:%i", q->len, c->queue_index, c->queue_ready);
 }
@@ -212,7 +209,12 @@ void qpushCommand(redisClient *c) {
         }
     }
 
-    server.dirty += pushed;
+    if (pushed) {
+        signalModifiedKey(c->db, c->argv[1]);
+        notifyKeyspaceEvent(REDIS_NOTIFY_QUEUE, "qpush", c->argv[1], c->db->id);
+        server.dirty += pushed;
+    }
+    
     addReplyLongLong(c, pushed);
 }
 
@@ -328,8 +330,10 @@ void qgetCommand(redisClient *c) {
     if (getLongLongFromObjectOrReply(c, c->argv[2], &index, NULL) != REDIS_OK) return;
     
     queueEntry *entry = queueIndex(q, index);
-    if (entry == NULL)
+    if (entry == NULL) {
         addReplyBulk(c, shared.nullbulk);
-    else
+    }
+    else {
         addReplyBulk(c, entry->value);
+    }
 }
