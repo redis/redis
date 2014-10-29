@@ -2062,7 +2062,11 @@ void replicationCron(void) {
              * if there was a recent socket -> disk config change. */
             if (startBgsaveForReplication() == REDIS_OK) {
                 /* It started! We need to change the state of slaves
-                 * from WAIT_BGSAVE_START to WAIT_BGSAVE_END. */
+                 * from WAIT_BGSAVE_START to WAIT_BGSAVE_END in case
+                 * the current target is disk. Otherwise it was already done
+                 * by rdbSaveToSlavesSockets() which is called by
+                 * startBgsaveForReplication(). */
+                listRewind(server.slaves,&li);
                 while((ln = listNext(&li))) {
                     redisClient *slave = ln->value;
                     if (slave->replstate == REDIS_REPL_WAIT_BGSAVE_START)
