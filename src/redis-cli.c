@@ -967,10 +967,22 @@ static void repl(void) {
                     strcasecmp(argv[0],"exit") == 0)
                 {
                     exit(0);
-                } else if (argc == 3 && !strcasecmp(argv[0],"connect")) {
-                    sdsfree(config.hostip);
-                    config.hostip = sdsnew(argv[1]);
-                    config.hostport = atoi(argv[2]);
+                } else if ((!strcasecmp(argv[0],"enable") ||
+                            !strcasecmp(argv[0],"en"))) {
+                    if (argc == 2 && !strcasecmp(argv[1],"cluster"))
+                        config.cluster_mode = 1;
+                } else if ((!strcasecmp(argv[0],"disable") ||
+                            !strcasecmp(argv[0],"dis") ||
+                            !strcasecmp(argv[0],"no"))) {
+                    if (argc == 2 && !strcasecmp(argv[1],"cluster"))
+                        config.cluster_mode = 0;
+                } else if ((!strcasecmp(argv[0],"connect") ||
+                            !strcasecmp(argv[0],"con"))) {
+                    if (argc >= 2) {
+                        sdsfree(config.hostip);
+                        config.hostip = sdsnew(argv[1]);
+                    }
+                    if (argc == 3) config.hostport = atoi(argv[2]);
                     cliRefreshPrompt();
                     cliConnect(1);
                 } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
