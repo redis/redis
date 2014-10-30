@@ -913,10 +913,12 @@ static void repl(void) {
                     strcasecmp(argv[0],"exit") == 0)
                 {
                     exit(0);
-                } else if (argc == 3 && !strcasecmp(argv[0],"connect")) {
+                } else if (!strcasecmp(argv[0],"connect")) {
                     sdsfree(config.hostip);
-                    config.hostip = sdsnew(argv[1]);
-                    config.hostport = atoi(argv[2]);
+                    if(argc == 3){
+                    	config.hostip = sdsnew(argv[1]);
+                    	config.hostport = atoi(argv[2]);
+                    }
                     cliRefreshPrompt();
                     cliConnect(1);
                 } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
