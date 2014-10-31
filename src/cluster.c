@@ -178,7 +178,7 @@ int clusterLoadConfig(char *filename) {
             clusterAddNode(n);
         }
         /* Address and port */
-        if ((p = strchr(argv[1],':')) == NULL) goto fmterr;
+        if ((p = strrchr(argv[1],':')) == NULL) goto fmterr;
         *p = '\0';
         memcpy(n->ip,argv[1],strlen(argv[1])+1);
         n->port = atoi(p+1);
@@ -4307,8 +4307,8 @@ int migrateGetSocket(redisClient *c, robj *host, robj *port, long timeout) {
     }
 
     /* Create the socket */
-    fd = anetTcpNonBlockConnect(server.neterr,c->argv[1]->ptr,
-                atoi(c->argv[2]->ptr));
+    fd = anetTcpNonBlockBindConnect(server.neterr,c->argv[1]->ptr,
+                atoi(c->argv[2]->ptr),REDIS_BIND_ADDR);
     if (fd == -1) {
         sdsfree(name);
         addReplyErrorFormat(c,"Can't connect to target node: %s",

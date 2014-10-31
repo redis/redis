@@ -524,7 +524,8 @@ static int cliReadReply(int output_raw_strings) {
         }
         if (config.interactive) {
             /* Filter cases where we should reconnect */
-            if (context->err == REDIS_ERR_IO && errno == ECONNRESET)
+            if (context->err == REDIS_ERR_IO &&
+                (errno == ECONNRESET || errno == EPIPE))
                 return REDIS_ERR;
             if (context->err == REDIS_ERR_EOF)
                 return REDIS_ERR;
@@ -1913,6 +1914,8 @@ int main(int argc, char **argv) {
     firstarg = parseOptions(argc,argv);
     argc -= firstarg;
     argv += firstarg;
+
+    signal(SIGPIPE, SIG_IGN);
 
     /* Latency mode */
     if (config.latency_mode) {
