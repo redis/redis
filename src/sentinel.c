@@ -169,6 +169,7 @@ typedef struct sentinelRedisInstance {
     mstime_t slave_reconf_sent_time; /* Time at which we sent SLAVE OF <new> */
     struct sentinelRedisInstance *master; /* Master instance if it's slave. */
     char *slave_master_host;    /* Master host as reported by INFO */
+    char *slave_master_host_ip; /* Master host resolved to IP */
     int slave_master_port;      /* Master port as reported by INFO */
     int slave_master_link_status; /* Master link status as reported by INFO */
     unsigned long long slave_repl_offset; /* Slave replication offset. */
@@ -961,6 +962,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->slave_priority = SENTINEL_DEFAULT_SLAVE_PRIORITY;
     ri->slave_reconf_sent_time = 0;
     ri->slave_master_host = NULL;
+    ri->slave_master_host_ip = NULL;
     ri->slave_master_port = 0;
     ri->slave_master_link_status = SENTINEL_MASTER_LINK_STATUS_DOWN;
     ri->slave_repl_offset = 0;
@@ -1013,6 +1015,7 @@ void releaseSentinelRedisInstance(sentinelRedisInstance *ri) {
     sdsfree(ri->notification_script);
     sdsfree(ri->client_reconfig_script);
     sdsfree(ri->slave_master_host);
+    sdsfree(ri->slave_master_host_ip);
     sdsfree(ri->leader);
     sdsfree(ri->auth_pass);
     releaseSentinelAddr(ri->addr);
@@ -1182,8 +1185,10 @@ void sentinelResetMaster(sentinelRedisInstance *ri, int flags) {
     ri->promoted_slave = NULL;
     sdsfree(ri->runid);
     sdsfree(ri->slave_master_host);
+    sdsfree(ri->slave_master_host_ip);
     ri->runid = NULL;
     ri->slave_master_host = NULL;
+    ri->slave_master_host_ip = NULL;
     ri->last_ping_time = mstime();
     ri->last_avail_time = mstime();
     ri->last_pong_time = mstime();
@@ -1861,11 +1866,26 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         if (role == SRI_SLAVE) {
             /* master_host:<host> */
             if (sdslen(l) >= 12 && !memcmp(l,"master_host:",12)) {
+                char *masterhost = l+12; /* always IP address */
+
                 if (ri->slave_master_host == NULL ||
-                    strcasecmp(l+12,ri->slave_master_host))
+                    strcasecmp(masterhost,ri->slave_master_host))
                 {
                     sdsfree(ri->slave_master_host);
-                    ri->slave_master_host = sdsnew(l+12);
+                    sdsfree(ri->slave_master_host_ip);
+
+                    ri->slave_master_host = sdsnew(masterhost);
+
+                    char ipbuf[REDIS_IP_STR_LEN];
+                    if (anetResolve(NULL,
+                        masterhost,ipbuf,sizeof(ipbuf)) == ANET_OK) {
+                        ri->slave_master_host_ip = sdsnew(ipbuf);
+                    } else {
+                        sentinelEvent(REDIS_NOTICE,
+                            "-noresolve",ri,"%@ can't resolve %s",masterhost);
+                        ri->slave_master_host_ip = sdsnew(masterhost);
+                    }
+
                     ri->slave_conf_change_time = mstime();
                 }
             }
@@ -1978,7 +1998,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     if ((ri->flags & SRI_SLAVE) &&
         role == SRI_SLAVE &&
         (ri->slave_master_port != ri->master->addr->port ||
-         strcasecmp(ri->slave_master_host,ri->master->addr->ip)))
+         strcasecmp(ri->slave_master_host_ip,ri->master->addr->ip)))
     {
         mstime_t wait_time = ri->master->failover_timeout;
 
@@ -2003,8 +2023,8 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     {
         /* SRI_RECONF_SENT -> SRI_RECONF_INPROG. */
         if ((ri->flags & SRI_RECONF_SENT) &&
-            ri->slave_master_host &&
-            strcmp(ri->slave_master_host,
+            ri->slave_master_host_ip &&
+            strcmp(ri->slave_master_host_ip,
                     ri->master->promoted_slave->addr->ip) == 0 &&
             ri->slave_master_port == ri->master->promoted_slave->addr->port)
         {
@@ -2549,6 +2569,11 @@ void addReplySentinelRedisInstance(redisClient *c, sentinelRedisInstance *ri) {
         addReplyBulkCString(c,"master-host");
         addReplyBulkCString(c,
             ri->slave_master_host ? ri->slave_master_host : "?");
+        fields++;
+
+        addReplyBulkCString(c,"master-host-ip");
+        addReplyBulkCString(c,
+            ri->slave_master_host_ip ? ri->slave_master_host_ip : "?");
         fields++;
 
         addReplyBulkCString(c,"master-port");
