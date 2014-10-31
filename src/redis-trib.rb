@@ -50,14 +50,16 @@ end
 class ClusterNode
     def initialize(addr)
         s = addr.split(":")
-        if s.length != 2
-            puts "Invalid node name #{addr}"
-            exit 1
+        if s.length < 2
+           puts "Invalid IP or Port (given as #{addr}) - use IP:Port format"
+           exit 1
         end
+        port = s.pop # removes port from split array
+        ip = s.join(":") # if s.length > 1 here, it's IPv6, so restore address
         @r = nil
         @info = {}
-        @info[:host] = s[0]
-        @info[:port] = s[1]
+        @info[:host] = ip
+        @info[:port] = port
         @info[:slots] = {}
         @info[:migrating] = {}
         @info[:importing] = {}
