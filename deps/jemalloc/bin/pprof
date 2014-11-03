@@ -4734,7 +4734,7 @@ sub MapToSymbols {
       } else {
 	# MapSymbolsWithNM tags each routine with its starting address,
 	# useful in case the image has multiple occurrences of this
-	# routine.  (It uses a syntax that resembles template paramters,
+	# routine.  (It uses a syntax that resembles template parameters,
 	# that are automatically stripped out by ShortFunctionName().)
 	# addr2line does not provide the same information.  So we check
 	# if nm disambiguated our symbol, and if so take the annotated
@@ -5086,7 +5086,7 @@ sub GetProcedureBoundaries {
   # "nm -f $image" is supposed to fail on GNU nm, but if:
   #
   # a. $image starts with [BbSsPp] (for example, bin/foo/bar), AND
-  # b. you have a.out in your current directory (a not uncommon occurence)
+  # b. you have a.out in your current directory (a not uncommon occurrence)
   #
   # then "nm -f $image" succeeds because -f only looks at the first letter of
   # the argument, which looks valid because it's [BbSsPp], and then since

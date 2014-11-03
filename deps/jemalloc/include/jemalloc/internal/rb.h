@@ -198,7 +198,7 @@ a_prefix##reverse_iter(a_rbt_type *rbtree, a_type *start,		\
  *                 int (a_cmp *)(a_type *a_node, a_type *a_other);
  *                                       ^^^^^^
  *                                    or a_key
- *               Interpretation of comparision function return values:
+ *               Interpretation of comparison function return values:
  *                 -1 : a_node <  a_other
  *                  0 : a_node == a_other
  *                  1 : a_node >  a_other

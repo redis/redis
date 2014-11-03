@@ -501,7 +501,7 @@ static int costatus (lua_State *L, lua_State *co) {
       else
         return CO_SUS;  /* initial state */
     }
-    default:  /* some error occured */
+    default:  /* some error occurred */
       return CO_DEAD;
   }
 }

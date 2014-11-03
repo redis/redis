@@ -43,7 +43,7 @@
 #define REDIS_OK 0
 
 /* When an error occurs, the err flag in a context is set to hold the type of
- * error that occured. REDIS_ERR_IO means there was an I/O error and you
+ * error that occurred. REDIS_ERR_IO means there was an I/O error and you
  * should use the "errno" variable to find out what is wrong.
  * For other values, the "errstr" field will hold a description. */
 #define REDIS_ERR_IO 1 /* Error in read or write */
