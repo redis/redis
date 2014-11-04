@@ -889,13 +889,17 @@ static int _dictExpandIfNeeded(dict *d)
 /* Our hash table capability is a power of two */
 static unsigned long _dictNextPower(unsigned long size)
 {
-    unsigned long i = DICT_HT_INITIAL_SIZE;
-
     if (size >= LONG_MAX) return LONG_MAX;
-    while(1) {
-        if (i >= size)
-            return i;
-        i *= 2;
+    
+    if (size <= DICT_HT_INITIAL_SIZE){
+        return DICT_HT_INITIAL_SIZE;
+    }
+    else{
+        while(size & (size-1)){
+            size |= size-1;
+            size++;
+        }
+        return size;
     }
 }
 
