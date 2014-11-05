@@ -492,7 +492,11 @@ typedef struct redisClient {
     int multibulklen;       /* number of multi bulk arguments left to read */
     long bulklen;           /* length of bulk argument in multi bulk request */
     list *reply;
-    unsigned long reply_bytes; /* Tot bytes of objects in reply list */
+#ifdef _WIN64
+	uint64_t reply_bytes; /* Tot bytes of objects in reply list */
+#else
+	unsigned long reply_bytes; /* Tot bytes of objects in reply list */
+#endif
     int sentlen;            /* Amount of bytes already sent in the current
                                buffer or object being sent. */
     time_t ctime;           /* Client creation time */
@@ -988,7 +992,11 @@ void addReplyError(redisClient *c, char *err);
 void addReplyStatus(redisClient *c, char *status);
 void addReplyDouble(redisClient *c, double d);
 void addReplyLongLong(redisClient *c, long long ll);
+#ifdef _WIN64
+void addReplyMultiBulkLen(redisClient *c, int64_t length);
+#else
 void addReplyMultiBulkLen(redisClient *c, long length);
+#endif
 void copyClientOutputBuffer(redisClient *dst, redisClient *src);
 void *dupClientReplyValue(void *o);
 void getClientsMaxBuffers(unsigned long *longest_output_list,
@@ -999,7 +1007,11 @@ sds catClientInfoString(sds s, redisClient *client);
 sds getAllClientsInfoString(void);
 void rewriteClientCommandVector(redisClient *c, int argc, ...);
 void rewriteClientCommandArgument(redisClient *c, int i, robj *newval);
+#ifdef _WIN64
+uint64_t getClientOutputBufferMemoryUsage(redisClient *c);
+#else
 unsigned long getClientOutputBufferMemoryUsage(redisClient *c);
+#endif
 void freeClientsInAsyncFreeQueue(void);
 void asyncCloseClientOnOutputBufferLimitReached(redisClient *c);
 int getClientType(redisClient *c);

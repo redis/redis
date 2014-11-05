@@ -918,7 +918,7 @@ BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, i
 		CloseHandle(pi.hThread);
 
         // wait for "forked" process to map memory
-        if(WaitForSingleObject(g_pQForkControl->forkedProcessReady,10000) != WAIT_OBJECT_0) {
+		if (WaitForSingleObject(g_pQForkControl->forkedProcessReady, cDeadForkWait) != WAIT_OBJECT_0) {
             throw system_error(
                 GetLastError(),
                 system_category(),

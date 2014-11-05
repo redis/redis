@@ -190,7 +190,7 @@ void _addReplyObjectToList(redisClient *c, robj *o) {
     if (listLength(c->reply) == 0) {
         incrRefCount(o);
         listAddNodeTail(c->reply,o);
-        c->reply_bytes += (unsigned long)zmalloc_size_sds(o->ptr);
+        c->reply_bytes += zmalloc_size_sds(o->ptr);
     } else {
         tail = listNodeValue(listLast(c->reply));
 
@@ -198,14 +198,14 @@ void _addReplyObjectToList(redisClient *c, robj *o) {
         if (tail->ptr != NULL &&
             sdslen(tail->ptr)+sdslen(o->ptr) <= REDIS_REPLY_CHUNK_BYTES)
         {
-            c->reply_bytes -= (unsigned long)zmalloc_size_sds(tail->ptr);
+            c->reply_bytes -= zmalloc_size_sds(tail->ptr);
             tail = dupLastObjectIfNeeded(c->reply);
             tail->ptr = sdscatlen(tail->ptr,o->ptr,sdslen(o->ptr));
-            c->reply_bytes += (unsigned long)zmalloc_size_sds(tail->ptr);
+            c->reply_bytes += zmalloc_size_sds(tail->ptr);
         } else {
             incrRefCount(o);
             listAddNodeTail(c->reply,o);
-            c->reply_bytes += (unsigned long)zmalloc_size_sds(o->ptr);
+            c->reply_bytes += zmalloc_size_sds(o->ptr);
         }
     }
     asyncCloseClientOnOutputBufferLimitReached(c);
@@ -223,7 +223,7 @@ void _addReplySdsToList(redisClient *c, sds s) {
 
     if (listLength(c->reply) == 0) {
         listAddNodeTail(c->reply,createObject(REDIS_STRING,s));
-        c->reply_bytes += (unsigned long)zmalloc_size_sds(s);
+        c->reply_bytes += zmalloc_size_sds(s);
     } else {
         tail = listNodeValue(listLast(c->reply));
 
@@ -231,14 +231,14 @@ void _addReplySdsToList(redisClient *c, sds s) {
         if (tail->ptr != NULL &&
             sdslen(tail->ptr)+sdslen(s) <= REDIS_REPLY_CHUNK_BYTES)
         {
-            c->reply_bytes -= (unsigned long)zmalloc_size_sds(tail->ptr);
+            c->reply_bytes -= zmalloc_size_sds(tail->ptr);
             tail = dupLastObjectIfNeeded(c->reply);
             tail->ptr = sdscatlen(tail->ptr,s,sdslen(s));
-            c->reply_bytes += (unsigned long)zmalloc_size_sds(tail->ptr);
+            c->reply_bytes += zmalloc_size_sds(tail->ptr);
             sdsfree(s);
         } else {
             listAddNodeTail(c->reply,createObject(REDIS_STRING,s));
-            c->reply_bytes += (unsigned long)zmalloc_size_sds(s);
+            c->reply_bytes += zmalloc_size_sds(s);
         }
     }
     asyncCloseClientOnOutputBufferLimitReached(c);
@@ -253,7 +253,7 @@ void _addReplyStringToList(redisClient *c, char *s, size_t len) {
         robj *o = createStringObject(s,len);
 
         listAddNodeTail(c->reply,o);
-        c->reply_bytes += (unsigned long)zmalloc_size_sds(o->ptr);
+        c->reply_bytes += zmalloc_size_sds(o->ptr);
     } else {
         tail = listNodeValue(listLast(c->reply));
 
@@ -261,15 +261,15 @@ void _addReplyStringToList(redisClient *c, char *s, size_t len) {
         if (tail->ptr != NULL &&
             sdslen(tail->ptr)+len <= REDIS_REPLY_CHUNK_BYTES)
         {
-            c->reply_bytes -= (unsigned long)zmalloc_size_sds(tail->ptr);
+            c->reply_bytes -= zmalloc_size_sds(tail->ptr);
             tail = dupLastObjectIfNeeded(c->reply);
             tail->ptr = sdscatlen(tail->ptr,s,len);
-            c->reply_bytes += (unsigned long)zmalloc_size_sds(tail->ptr);
+            c->reply_bytes += zmalloc_size_sds(tail->ptr);
         } else {
             robj *o = createStringObject(s,len);
 
             listAddNodeTail(c->reply,o);
-            c->reply_bytes += (unsigned long)zmalloc_size_sds(o->ptr);
+            c->reply_bytes += zmalloc_size_sds(o->ptr);
         }
     }
     asyncCloseClientOnOutputBufferLimitReached(c);
@@ -404,16 +404,16 @@ void setDeferredMultiBulkLength(redisClient *c, void *node, long length) {
 
     len = listNodeValue(ln);
     len->ptr = sdscatprintf(sdsempty(),"*%ld\r\n",length);
-    c->reply_bytes += (unsigned long)zmalloc_size_sds(len->ptr);
+    c->reply_bytes += zmalloc_size_sds(len->ptr);
     if (ln->next != NULL) {
         next = listNodeValue(ln->next);
 
         /* Only glue when the next node is non-NULL (an sds in this case) */
         if (next->ptr != NULL) {
-            c->reply_bytes -= (unsigned long)zmalloc_size_sds(len->ptr);
-            c->reply_bytes -= (unsigned long)zmalloc_size_sds(next->ptr);
+            c->reply_bytes -= zmalloc_size_sds(len->ptr);
+            c->reply_bytes -= zmalloc_size_sds(next->ptr);
             len->ptr = sdscatlen(len->ptr,next->ptr,sdslen(next->ptr));
-            c->reply_bytes += (unsigned long)zmalloc_size_sds(len->ptr);
+            c->reply_bytes += zmalloc_size_sds(len->ptr);
             listDelNode(c->reply,ln->next);
         }
     }
@@ -468,7 +468,11 @@ void addReplyLongLong(redisClient *c, long long ll) {
         addReplyLongLongWithPrefix(c,ll,':');
 }
 
+#ifdef _WIN64
+void addReplyMultiBulkLen(redisClient *c, int64_t length) {
+#else
 void addReplyMultiBulkLen(redisClient *c, long length) {
+#endif
     if (length < REDIS_SHARED_BULKHDR_LEN)
         addReply(c,shared.mbulkhdr[length]);
     else
@@ -1689,7 +1693,12 @@ void rewriteClientCommandArgument(redisClient *c, int i, robj *newval) {
  * Note: this function is very fast so can be called as many time as
  * the caller wishes. The main usage of this function currently is
  * enforcing the client output length limits. */
+#ifdef _WIN64
+uint64_t getClientOutputBufferMemoryUsage(redisClient *c) {
+#else
 unsigned long getClientOutputBufferMemoryUsage(redisClient *c) {
+#endif
+
     unsigned long list_item_size = sizeof(listNode)+sizeof(robj);
 
     return c->reply_bytes + (list_item_size*listLength(c->reply));
@@ -1735,7 +1744,11 @@ char *getClientTypeName(int class) {
  *               Otherwise zero is returned. */
 int checkClientOutputBufferLimits(redisClient *c) {
     int soft = 0, hard = 0, class;
-    unsigned long used_mem = getClientOutputBufferMemoryUsage(c);
+#ifdef _WIN64
+	uint64_t used_mem = getClientOutputBufferMemoryUsage(c);
+#else
+	unsigned long used_mem = getClientOutputBufferMemoryUsage(c);
+#endif
 
     class = getClientType(c);
     if (server.client_obuf_limits[class].hard_limit_bytes &&

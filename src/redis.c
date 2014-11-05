@@ -738,7 +738,7 @@ void activeExpireCycle(int type) {
      * 2) If last time we hit the time limit, we want to scan all DBs
      * in this iteration, as there is work to do in some DB and we don't want
      * expired keys to use memory for too much time. */
-    if ((dbs_per_call > (unsigned)server.dbnum) || timelimit_exit)
+    if ((dbs_per_call > server.dbnum) || timelimit_exit)
         dbs_per_call = server.dbnum;
 
     /* We can use at max ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC percentage of CPU time
@@ -959,7 +959,7 @@ void databasesCron(void) {
         int j;
 
         /* Don't test more DBs than we have. */
-        if (dbs_per_call > (unsigned)server.dbnum) dbs_per_call = server.dbnum;
+        if (dbs_per_call > server.dbnum) dbs_per_call = server.dbnum;
 
         /* Resize */
         for (j = 0; j < dbs_per_call; j++) {
@@ -3073,7 +3073,11 @@ int freeMemoryIfNeeded(void) {
         listRewind(server.slaves,&li);
         while((ln = listNext(&li))) {
             redisClient *slave = listNodeValue(ln);
-            unsigned long obuf_bytes = getClientOutputBufferMemoryUsage(slave);
+#ifdef _WIN64
+			uint64_t obuf_bytes = getClientOutputBufferMemoryUsage(slave);
+#else
+			unsigned long obuf_bytes = getClientOutputBufferMemoryUsage(slave);
+#endif
             if (obuf_bytes > mem_used)
                 mem_used = 0;
             else
