@@ -6,6 +6,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Xml;
 using System.Reflection;
+using System.Diagnostics;
 
 namespace ReleasePackagingTool
 {
@@ -30,6 +31,7 @@ namespace ReleasePackagingTool
                 p.UpdateReleaseNotes(version);
                 p.UpdateNuSpecFiles(version);
                 p.BuildReleasePackage(version);
+                p.DocxToMd();
                 Console.Write("Release packaging complete.");
                 Environment.ExitCode = 0;
             }
@@ -49,9 +51,43 @@ namespace ReleasePackagingTool
             return line.Substring(start + 1, last - start - 1);
         }
 
+        void DocxToMd()
+        {
+            // locate converter (pandoc v1.13.0+) 
+            string pandocToolPath = Path.Combine(rootPath, @"msvs\tools\pandoc\pandoc.exe");
+            if (File.Exists(pandocToolPath))
+            {
+                var files = Directory.EnumerateFiles(Path.Combine(rootPath, @"msvs\setups\documentation"), "*.docx");
+                foreach (string sourceFile in files)
+                {
+                    string fileName = Path.GetFileName(sourceFile);
+                    string destFile = Path.ChangeExtension(Path.Combine(rootPath, fileName), "md");
+                    System.Diagnostics.Process p = new Process();
+                    p.StartInfo.FileName = pandocToolPath;
+                    p.StartInfo.UseShellExecute = false;
+                    p.StartInfo.Arguments = string.Format(
+                                                "-f {0} -t {1} -o \"{2}\" \"{3}\"",
+                                                "docx",
+                                                "markdown_github",
+                                                destFile,
+                                                sourceFile);
+                    p.Start();
+                    p.WaitForExit();
+                    if (p.ExitCode != 0)
+                    {
+                        Console.WriteLine("conversion of'{0}' to '{1}' failed.", sourceFile, destFile);
+                    }
+                }
+            }
+            else
+            {
+                Console.WriteLine("pandoc tool not found. docx-->md conversion will not take place.");
+            }
+        }
+
         void UpdateReleaseNotes(string redisVersion)
         {
-            string releaseNotesPath = Path.Combine(rootPath, @"msvs\setups\documentation\Redis Release Notes.docx");
+            string releaseNotesPath = Path.Combine(rootPath, @"msvs\setups\documentation\Redis on Windows Release Notes.docx");
             string templatePath = Path.Combine(rootPath, @"msvs\setups\documentation\templates\Redis Release Notes Template.docx");
 
             ForceFileErase(releaseNotesPath);
@@ -134,8 +170,8 @@ namespace ReleasePackagingTool
             List<string> docuementNames = new List<string>()
             {
                 "Redis on Windows.docx",
-                "Redis Release Notes.docx",
-                "RedisService.docx",
+                "Redis on Windows Release Notes.docx",
+                "Windows Service Documentation.docx",
                 "redis.windows.conf"
             };
 
