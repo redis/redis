@@ -89,6 +89,7 @@ redisClient *createClient(int fd) {
     c->ctime = c->lastinteraction = server.unixtime;
     c->authenticated = 0;
     c->replstate = REDIS_REPL_NONE;
+    c->repl_put_online_on_ack = 0;
     c->reploff = 0;
     c->repl_ack_off = 0;
     c->repl_ack_time = 0;
