@@ -45,6 +45,7 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/uio.h>
+#include <sys/un.h>
 #include <limits.h>
 #include <float.h>
 #include <math.h>
@@ -1403,6 +1404,7 @@ void initServerConfig(void) {
     server.syslog_ident = zstrdup(REDIS_DEFAULT_SYSLOG_IDENT);
     server.syslog_facility = LOG_LOCAL0;
     server.daemonize = REDIS_DEFAULT_DAEMONIZE;
+    server.supervised = 0;
     server.aof_state = REDIS_AOF_OFF;
     server.aof_fsync = REDIS_DEFAULT_AOF_FSYNC;
     server.aof_no_fsync_on_rewrite = REDIS_DEFAULT_AOF_NO_FSYNC_ON_REWRITE;
@@ -3517,6 +3519,73 @@ void redisSetProcTitle(char *title) {
 #endif
 }
 
+/*
+ * Check whether systemd or upstart have been used to start redis.
+ */
+int redisIsSupervised(void) {
+    const char *upstart_job = getenv("UPSTART_JOB");
+    const char *notify_socket = getenv("NOTIFY_SOCKET");
+    int fd = 1;
+    struct sockaddr_un su;
+    struct iovec iov;
+    struct msghdr hdr;
+
+    if (upstart_job == NULL && notify_socket == NULL)
+        return 0;
+
+    if (upstart_job != NULL) {
+        if (strcmp(upstart_job, "redis") != 0)
+            return 0;
+
+        redisLog(REDIS_NOTICE, "supervised by upstart, will stop to signal readyness");
+        raise(SIGSTOP);
+        unsetenv("UPSTART_JOB");
+
+        return 1;
+    }
+
+    /*
+     * If we got here, we're supervised by systemd.
+     */
+    if ((strchr("@/", notify_socket[0])) == NULL ||
+        strlen(notify_socket) < 2)
+        return 0;
+
+    redisLog(REDIS_NOTICE, "supervised by systemd, will signal readyness");
+    if ((fd = socket(AF_UNIX, SOCK_DGRAM, 0)) < 0) {
+        redisLog(REDIS_WARNING, "cannot contact systemd socket %s", notify_socket);
+        return 0;
+    }
+
+    bzero(&su, sizeof(su));
+    su.sun_family = AF_UNIX;
+    strncpy (su.sun_path, notify_socket, sizeof(su.sun_path) -1);
+    su.sun_path[sizeof(su.sun_path) - 1] = '\0';
+
+    if (notify_socket[0] == '@')
+        su.sun_path[0] = '\0';
+
+    bzero(&iov, sizeof(iov));
+    iov.iov_base = "READY=1";
+    iov.iov_len = strlen("READY=1");
+
+    bzero(&hdr, sizeof(hdr));
+    hdr.msg_name = &su;
+    hdr.msg_namelen = offsetof(struct sockaddr_un, sun_path) +
+        strlen(notify_socket);
+    hdr.msg_iov = &iov;
+    hdr.msg_iovlen = 1;
+
+    unsetenv("NOTIFY_SOCKET");
+    if (sendmsg(fd, &hdr, MSG_NOSIGNAL) < 0) {
+        redisLog(REDIS_WARNING, "cannot send notification to systemd");
+        close(fd);
+        return 0;
+    }
+    close(fd);
+    return 1;
+}
+
 int main(int argc, char **argv) {
     struct timeval tv;
 
@@ -3596,9 +3665,11 @@ int main(int argc, char **argv) {
     } else {
         redisLog(REDIS_WARNING, "Warning: no config file specified, using the default config. In order to specify a config file use %s /path/to/%s.conf", argv[0], server.sentinel_mode ? "sentinel" : "redis");
     }
-    if (server.daemonize) daemonize();
+
+    server.supervised = redisIsSupervised();
+    if (server.daemonize && server.supervised == 0) daemonize();
     initServer();
-    if (server.daemonize) createPidFile();
+    if (server.daemonize && server.supervised == 0) createPidFile();
     redisSetProcTitle(argv[0]);
     redisAsciiArt();
 
