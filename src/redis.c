@@ -30,6 +30,7 @@
 #include "redis.h"
 #include "slowlog.h"
 #include "bio.h"
+#include "latency.h"
 
 #include <time.h>
 #include <signal.h>
@@ -3035,9 +3036,12 @@ int linuxOvercommitMemoryValue(void) {
     return atoi(buf);
 }
 
-void linuxOvercommitMemoryWarning(void) {
+void linuxMemoryWarnings(void) {
     if (linuxOvercommitMemoryValue() == 0) {
         redisLog(REDIS_WARNING,"WARNING overcommit_memory is set to 0! Background save may fail under low memory condition. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.");
+    }
+    if (THPIsEnabled()) {
+        redisLog(REDIS_WARNING,"WARNING you have Transparent Huge Pages (THP) support enabled in your kernel. This will create latency and memory usage issues with Redis. To fix this issue run the command 'echo never > /sys/kernel/mm/transparent_hugepage/enabled' as root, and add it to your /etc/rc.local in order to retain the setting after a reboot. Redis must be restarted after THP is disabled.");
     }
 }
 #endif /* __linux__ */
@@ -3304,7 +3308,7 @@ int main(int argc, char **argv) {
         /* Things not needed when running in Sentinel mode. */
         redisLog(REDIS_WARNING,"Server started, Redis version " REDIS_VERSION);
     #ifdef __linux__
-        linuxOvercommitMemoryWarning();
+        linuxMemoryWarnings();
     #endif
         loadDataFromDisk();
         if (server.ipfd_count > 0)
