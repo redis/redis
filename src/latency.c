@@ -56,6 +56,32 @@ dictType latencyTimeSeriesDictType = {
     dictVanillaFree             /* val destructor */
 };
 
+/* ------------------------- Utility functions ------------------------------ */
+
+#ifdef __linux__
+/* Returns 1 if Transparent Huge Pages support is enabled in the kernel.
+ * Otherwise (or if we are unable to check) 0 is returned. */
+int THPIsEnabled(void) {
+    char buf[1024];
+
+    FILE *fp = fopen("/sys/kernel/mm/transparent_hugepage/enabled","r");
+    if (!fp) return 0;
+    if (fgets(buf,sizeof(buf),fp) == NULL) {
+        fclose(fp);
+        return 0;
+    }
+    fclose(fp);
+    return (strstr(buf,"[never]") == NULL) ? 1 : 0;
+}
+
+/* Report the amount of AnonHugePages in smap, in bytes. If the return
+ * value of the function is non-zero, the process is being targeted by
+ * THP support, and is likely to have memory usage / latency issues. */
+int THPGetAnonHugePagesSize(void) {
+    return zmalloc_get_smap_bytes_by_field("AnonHugePages:");
+}
+#endif
+
 /* ---------------------------- Latency API --------------------------------- */
 
 /* Latency monitor initialization. We just need to create the dictionary
