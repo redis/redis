@@ -180,11 +180,10 @@ robj *dupStringObject(robj *o) {
     }
 }
 
-robj *createListObject(void) {
-    list *l = listCreate();
+robj *createQuicklistObject(void) {
+    quicklist *l = quicklistCreate();
     robj *o = createObject(REDIS_LIST,l);
-    listSetFreeMethod(l,decrRefCountVoid);
-    o->encoding = REDIS_ENCODING_LINKEDLIST;
+    o->encoding = REDIS_ENCODING_QUICKLIST;
     return o;
 }
 
@@ -242,11 +241,8 @@ void freeStringObject(robj *o) {
 
 void freeListObject(robj *o) {
     switch (o->encoding) {
-    case REDIS_ENCODING_LINKEDLIST:
-        listRelease((list*) o->ptr);
-        break;
-    case REDIS_ENCODING_ZIPLIST:
-        zfree(o->ptr);
+    case REDIS_ENCODING_QUICKLIST:
+        quicklistRelease(o->ptr);
         break;
     default:
         redisPanic("Unknown list encoding type");
@@ -678,7 +674,7 @@ char *strEncoding(int encoding) {
     case REDIS_ENCODING_RAW: return "raw";
     case REDIS_ENCODING_INT: return "int";
     case REDIS_ENCODING_HT: return "hashtable";
-    case REDIS_ENCODING_LINKEDLIST: return "linkedlist";
+    case REDIS_ENCODING_QUICKLIST: return "quicklist";
     case REDIS_ENCODING_ZIPLIST: return "ziplist";
     case REDIS_ENCODING_INTSET: return "intset";
     case REDIS_ENCODING_SKIPLIST: return "skiplist";

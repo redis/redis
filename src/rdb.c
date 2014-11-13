@@ -433,9 +433,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
     case REDIS_STRING:
         return rdbSaveType(rdb,REDIS_RDB_TYPE_STRING);
     case REDIS_LIST:
-        if (o->encoding == REDIS_ENCODING_ZIPLIST)
-            return rdbSaveType(rdb,REDIS_RDB_TYPE_LIST_ZIPLIST);
-        else if (o->encoding == REDIS_ENCODING_LINKEDLIST)
+        if (o->encoding == REDIS_ENCODING_QUICKLIST)
             return rdbSaveType(rdb,REDIS_RDB_TYPE_LIST);
         else
             redisPanic("Unknown list encoding");
@@ -477,7 +475,7 @@ int rdbLoadObjectType(rio *rdb) {
 
 /* Save a Redis object. Returns -1 on error, number of bytes written on success. */
 int rdbSaveObject(rio *rdb, robj *o) {
-    int n, nwritten = 0;
+    int n = 0, nwritten = 0;
 
     if (o->type == REDIS_STRING) {
         /* Save a string value */
@@ -485,25 +483,23 @@ int rdbSaveObject(rio *rdb, robj *o) {
         nwritten += n;
     } else if (o->type == REDIS_LIST) {
         /* Save a list value */
-        if (o->encoding == REDIS_ENCODING_ZIPLIST) {
-            size_t l = ziplistBlobLen((unsigned char*)o->ptr);
+        if (o->encoding == REDIS_ENCODING_QUICKLIST) {
+            quicklist *list = o->ptr;
+            quicklistIter *li = quicklistGetIterator(list, AL_START_HEAD);
+            quicklistEntry entry;
 
-            if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
-            nwritten += n;
-        } else if (o->encoding == REDIS_ENCODING_LINKEDLIST) {
-            list *list = o->ptr;
-            listIter li;
-            listNode *ln;
-
-            if ((n = rdbSaveLen(rdb,listLength(list))) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,quicklistCount(list))) == -1) return -1;
             nwritten += n;
 
-            listRewind(list,&li);
-            while((ln = listNext(&li))) {
-                robj *eleobj = listNodeValue(ln);
-                if ((n = rdbSaveStringObject(rdb,eleobj)) == -1) return -1;
+            while (quicklistNext(li,&entry)) {
+                if (entry.value) {
+                    if ((n = rdbSaveRawString(rdb,entry.value,entry.sz)) == -1) return -1;
+                } else {
+                    if ((n = rdbSaveLongLongAsStringObject(rdb,entry.longval)) == -1) return -1;
+                }
                 nwritten += n;
             }
+            quicklistReleaseIterator(li);
         } else {
             redisPanic("Unknown list encoding");
         }
@@ -831,33 +827,17 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         /* Read list value */
         if ((len = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
 
-        /* Use a real list when there are too many entries */
-        if (len > server.list_max_ziplist_entries) {
-            o = createListObject();
-        } else {
-            o = createZiplistObject();
-        }
+        o = createQuicklistObject();
 
         /* Load every single element of the list */
         while(len--) {
             if ((ele = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
-
-            /* If we are using a ziplist and the value is too big, convert
-             * the object to a real list. */
-            if (o->encoding == REDIS_ENCODING_ZIPLIST &&
-                sdsEncodedObject(ele) &&
-                sdslen(ele->ptr) > server.list_max_ziplist_value)
-                    listTypeConvert(o,REDIS_ENCODING_LINKEDLIST);
-
-            if (o->encoding == REDIS_ENCODING_ZIPLIST) {
-                dec = getDecodedObject(ele);
-                o->ptr = ziplistPush(o->ptr,dec->ptr,sdslen(dec->ptr),REDIS_TAIL);
-                decrRefCount(dec);
-                decrRefCount(ele);
-            } else {
-                ele = tryObjectEncoding(ele);
-                listAddNodeTail(o->ptr,ele);
-            }
+            dec = getDecodedObject(ele);
+            size_t len = sdslen(dec->ptr);
+            size_t zlen = server.list_max_ziplist_entries;
+            o->ptr = quicklistPushTail(o->ptr, zlen, dec->ptr, len);
+            decrRefCount(dec);
+            decrRefCount(ele);
         }
     } else if (rdbtype == REDIS_RDB_TYPE_SET) {
         /* Read list/set value */
@@ -1048,8 +1028,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             case REDIS_RDB_TYPE_LIST_ZIPLIST:
                 o->type = REDIS_LIST;
                 o->encoding = REDIS_ENCODING_ZIPLIST;
-                if (ziplistLen(o->ptr) > server.list_max_ziplist_entries)
-                    listTypeConvert(o,REDIS_ENCODING_LINKEDLIST);
+                listTypeConvert(o,REDIS_ENCODING_QUICKLIST);
                 break;
             case REDIS_RDB_TYPE_SET_INTSET:
                 o->type = REDIS_SET;
