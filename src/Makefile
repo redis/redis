@@ -46,6 +46,10 @@ ifeq ($(USE_JEMALLOC),yes)
 	MALLOC=jemalloc
 endif
 
+ifeq ($(USE_JEMALLOC),no)
+	MALLOC=libc
+endif
+
 # Override default settings if possible
 -include .make-settings
 
