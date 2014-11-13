@@ -529,10 +529,10 @@ int pathIsBaseName(char *path) {
     return strchr(path,'/') == NULL && strchr(path,'\\') == NULL;
 }
 
-#ifdef UTIL_TEST_MAIN
+#ifdef REDIS_TEST
 #include <assert.h>
 
-void test_string2ll(void) {
+static void test_string2ll(void) {
     char buf[32];
     long long v;
 
@@ -587,7 +587,7 @@ void test_string2ll(void) {
     assert(string2ll(buf,strlen(buf),&v) == 0);
 }
 
-void test_string2l(void) {
+static void test_string2l(void) {
     char buf[32];
     long v;
 
@@ -636,7 +636,11 @@ void test_string2l(void) {
 #endif
 }
 
-int main(int argc, char **argv) {
+#define UNUSED(x) (void)(x)
+int utilTest(int argc, char **argv) {
+    UNUSED(argc);
+    UNUSED(argv);
+
     test_string2ll();
     test_string2l();
     return 0;

@@ -3655,6 +3655,30 @@ int redisIsSupervised(void) {
 int main(int argc, char **argv) {
     struct timeval tv;
 
+#ifdef REDIS_TEST
+    if (argc == 3 && !strcasecmp(argv[1], "test")) {
+        if (!strcasecmp(argv[2], "ziplist")) {
+            return ziplistTest(argc, argv);
+        } else if (!strcasecmp(argv[2], "intset")) {
+            return intsetTest(argc, argv);
+        } else if (!strcasecmp(argv[2], "zipmap")) {
+            return zipmapTest(argc, argv);
+        } else if (!strcasecmp(argv[2], "sha1test")) {
+            return sha1Test(argc, argv);
+        } else if (!strcasecmp(argv[2], "util")) {
+            return utilTest(argc, argv);
+        } else if (!strcasecmp(argv[2], "sds")) {
+            return sdsTest(argc, argv);
+        } else if (!strcasecmp(argv[2], "endianconv")) {
+            return endianconvTest(argc, argv);
+        } else if (!strcasecmp(argv[2], "crc64")) {
+            return crc64Test(argc, argv);
+        }
+
+        return -1; /* test not found */
+    }
+#endif
+
     /* We need to initialize our libraries, and the server configuration. */
 #ifdef INIT_SETPROCTITLE_REPLACEMENT
     spt_init(argc, argv);

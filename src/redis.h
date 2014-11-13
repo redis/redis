@@ -66,6 +66,12 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "latency.h" /* Latency monitor API */
 #include "sparkline.h" /* ASII graphs API */
 
+/* Following includes allow test functions to be called from Redis main() */
+#include "zipmap.h"
+#include "sha1.h"
+#include "endianconv.h"
+#include "crc64.h"
+
 /* Error codes */
 #define REDIS_OK                0
 #define REDIS_ERR               -1
