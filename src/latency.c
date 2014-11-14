@@ -73,6 +73,7 @@ int THPIsEnabled(void) {
     fclose(fp);
     return (strstr(buf,"[never]") == NULL) ? 1 : 0;
 }
+#endif
 
 /* Report the amount of AnonHugePages in smap, in bytes. If the return
  * value of the function is non-zero, the process is being targeted by
@@ -80,7 +81,6 @@ int THPIsEnabled(void) {
 int THPGetAnonHugePagesSize(void) {
     return zmalloc_get_smap_bytes_by_field("AnonHugePages:");
 }
-#endif
 
 /* ---------------------------- Latency API --------------------------------- */
 
