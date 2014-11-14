@@ -184,25 +184,6 @@ start_server {tags {"scripting"}} {
         set e
     } {*against a key*}
 
-    test {EVAL - Numerical sanity check from bitop} {
-        r eval {assert(0x7fffffff == 2147483647, "broken hex literals");
-                assert(0xffffffff == -1 or 0xffffffff == 2^32-1,
-                    "broken hex literals");
-                assert(tostring(-1) == "-1", "broken tostring()");
-                assert(tostring(0xffffffff) == "-1" or
-                    tostring(0xffffffff) == "4294967295",
-                    "broken tostring()")
-        } 0
-    } {}
-
-    test {EVAL - Verify minimal bitop functionality} {
-        r eval {assert(bit.tobit(1) == 1);
-                assert(bit.band(1) == 1);
-                assert(bit.bxor(1,2) == 3);
-                assert(bit.bor(1,2,4,8,16,32,64,128) == 255)
-        } 0
-    } {}
-
     test {EVAL - JSON numeric decoding} {
         # We must return the table as a string because otherwise
         # Redis converts floats to ints and we get 0 and 1023 instead
@@ -271,6 +252,25 @@ start_server {tags {"scripting"}} {
                 return {h, re.x.x.x.x.x.x.x.x.y == re.y, re.y == 5}
         } 0
     } {82a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a178c0 1 1}
+
+    test {EVAL - Numerical sanity check from bitop} {
+        r eval {assert(0x7fffffff == 2147483647, "broken hex literals");
+                assert(0xffffffff == -1 or 0xffffffff == 2^32-1,
+                    "broken hex literals");
+                assert(tostring(-1) == "-1", "broken tostring()");
+                assert(tostring(0xffffffff) == "-1" or
+                    tostring(0xffffffff) == "4294967295",
+                    "broken tostring()")
+        } 0
+    } {}
+
+    test {EVAL - Verify minimal bitop functionality} {
+        r eval {assert(bit.tobit(1) == 1);
+                assert(bit.band(1) == 1);
+                assert(bit.bxor(1,2) == 3);
+                assert(bit.bor(1,2,4,8,16,32,64,128) == 255)
+        } 0
+    } {}
 
     test {SCRIPTING FLUSH - is able to clear the scripts cache?} {
         r set mykey myval
