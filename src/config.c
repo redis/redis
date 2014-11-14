@@ -385,6 +385,8 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"pidfile") && argc == 2) {
             zfree(server.pidfile);
             server.pidfile = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"lockfile") && argc == 2) {
+            server.lockfile = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"dbfilename") && argc == 2) {
             if (!pathIsBaseName(argv[1])) {
                 err = "dbfilename can't be a path, just a filename";
@@ -1019,6 +1021,7 @@ void configGetCommand(redisClient *c) {
     config_get_string_field("unixsocket",server.unixsocket);
     config_get_string_field("logfile",server.logfile);
     config_get_string_field("pidfile",server.pidfile);
+    config_get_string_field("lockfile",server.lockfile);
 
     /* Numerical values */
     config_get_numerical_field("maxmemory",server.maxmemory);
@@ -1781,6 +1784,7 @@ int rewriteConfig(char *path) {
 
     rewriteConfigYesNoOption(state,"daemonize",server.daemonize,0);
     rewriteConfigStringOption(state,"pidfile",server.pidfile,REDIS_DEFAULT_PID_FILE);
+    rewriteConfigStringOption(state,"lockfile",server.lockfile,NULL);
     rewriteConfigNumericalOption(state,"port",server.port,REDIS_SERVERPORT);
     rewriteConfigNumericalOption(state,"tcp-backlog",server.tcp_backlog,REDIS_TCP_BACKLOG);
     rewriteConfigBindOption(state);
