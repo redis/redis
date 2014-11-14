@@ -635,6 +635,7 @@ void ServiceRun() {
 
 void BuildServiceRunArguments(int argc, char** argv) {
     InitializeServiceName();
+	string serviceNameFullArgument = "--" + cServiceName;
 
     // build argument list to be used by ServiceRun
     for (int n = 0; n < argc; n++) {
@@ -650,7 +651,7 @@ void BuildServiceRunArguments(int argc, char** argv) {
             // bypass --service-run argument
             continue;
         } else {
-            if (_stricmp(argv[n], cServiceName.c_str()) == 0) {
+			if (_stricmp(argv[n], serviceNameFullArgument.c_str()) == 0) {
                 // bypass --service-name argument and the name of the service
                 n++;
                 continue; 
