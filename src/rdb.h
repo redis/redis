@@ -31,7 +31,7 @@
 #define __REDIS_RDB_H
 
 #include <stdio.h>
-#include <sys/file.h>
+#include <sys/file.h> /*For LOCK_EX marco in flock */
 #include "rio.h"
 
 /* TBD: include only necessary headers. */
