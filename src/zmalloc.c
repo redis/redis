@@ -356,7 +356,7 @@ size_t zmalloc_get_smap_bytes_by_field(char *field) {
 }
 #else
 size_t zmalloc_get_smap_bytes_by_field(char *field) {
-    REDIS_NOTUSED(field);
+    ((void) field);
     return 0;
 }
 #endif
