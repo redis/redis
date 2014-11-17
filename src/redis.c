@@ -1433,11 +1433,11 @@ void initServerConfig(void) {
     server.maxclients = REDIS_MAX_CLIENTS;
     server.bpop_blocked_clients = 0;
     server.maxmemory = REDIS_DEFAULT_MAXMEMORY;
+    server.maxmemory_enforced = REDIS_DEFAULT_MAXMEMORY;
+    server.maxmemory_adjusted = REDIS_DEFAULT_MAXMEMORY;
     server.maxmemory_policy = REDIS_DEFAULT_MAXMEMORY_POLICY;
     server.maxmemory_samples = REDIS_DEFAULT_MAXMEMORY_SAMPLES;
     server.rss_aware_maxmemory = REDIS_DEFAULT_RSS_AWARE_MAXMEMORY;
-    server.maxmemory_enforced = 0;
-    server.maxmemory_adjusted = 0;
     server.hash_max_ziplist_entries = REDIS_HASH_MAX_ZIPLIST_ENTRIES;
     server.hash_max_ziplist_value = REDIS_HASH_MAX_ZIPLIST_VALUE;
     server.list_max_ziplist_entries = REDIS_LIST_MAX_ZIPLIST_ENTRIES;
