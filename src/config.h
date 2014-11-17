@@ -48,11 +48,13 @@
 #define HAVE_PROC_STAT 1
 #define HAVE_PROC_MAPS 1
 #define HAVE_PROC_SMAPS 1
+#define HAVE_RSS_REPORTING 1
 #endif
 
 /* Test for task_info() */
 #if defined(__APPLE__)
 #define HAVE_TASKINFO 1
+#define HAVE_RSS_REPORTING 1
 #endif
 
 /* Test for backtrace() */

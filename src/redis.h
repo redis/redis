@@ -121,6 +121,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_DEFAULT_REPL_DISABLE_TCP_NODELAY 0
 #define REDIS_DEFAULT_MAXMEMORY 0
 #define REDIS_DEFAULT_MAXMEMORY_SAMPLES 5
+#define REDIS_DEFAULT_RSS_AWARE_MAXMEMORY 0
 #define REDIS_DEFAULT_AOF_FILENAME "appendonly.aof"
 #define REDIS_DEFAULT_AOF_NO_FSYNC_ON_REWRITE 0
 #define REDIS_DEFAULT_AOF_LOAD_TRUNCATED 1
@@ -839,6 +840,14 @@ struct redisServer {
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
     int maxmemory_policy;           /* Policy for key eviction */
     int maxmemory_samples;          /* Pricision of random sampling */
+    /* RSS aware maxmemory additional state:
+     * the adjusted maxmemory is adjusted for fragmentation, however we
+     * enforce maxmemory_enforced instead, which follows the adjusted value
+     * in small steps at eviction cycle to avoid too fast changes in the
+     * enforced maxmemory value. */
+    int rss_aware_maxmemory;                /* Non zero if enabled. */
+    unsigned long long maxmemory_adjusted;  /* Maxmemory adjusted for frag. */
+    unsigned long long maxmemory_enforced;  /* Currently enforced maxmemory. */
     /* Blocked clients */
     unsigned int bpop_blocked_clients; /* Number of clients blocked by lists */
     list *unblocked_clients; /* list of clients to unblock before next loop */

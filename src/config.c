@@ -226,6 +226,10 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"maxmemory") && argc == 2) {
             server.maxmemory = memtoll(argv[1],NULL);
+        } else if (!strcasecmp(argv[0],"rss-aware-maxmemory") && argc==2) {
+            if ((server.rss_aware_maxmemory = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"maxmemory-policy") && argc == 2) {
             if (!strcasecmp(argv[1],"volatile-lru")) {
                 server.maxmemory_policy = REDIS_MAXMEMORY_VOLATILE_LRU;
@@ -637,6 +641,11 @@ void configSetCommand(redisClient *c) {
             }
             freeMemoryIfNeeded();
         }
+    } else if (!strcasecmp(c->argv[2]->ptr,"rss-aware-maxmemory")) {
+        int yn = yesnotoi(o->ptr);
+
+        if (yn == -1) goto badfmt;
+        server.rss_aware_maxmemory = yn;
     } else if (!strcasecmp(c->argv[2]->ptr,"maxclients")) {
         int orig_value = server.maxclients;
 
@@ -1093,6 +1102,8 @@ void configGetCommand(redisClient *c) {
             server.aof_rewrite_incremental_fsync);
     config_get_bool_field("aof-load-truncated",
             server.aof_load_truncated);
+    config_get_bool_field("rss-aware-maxmemory",
+            server.rss_aware_maxmemory);
 
     /* Everything we can't handle with macros follows. */
 
