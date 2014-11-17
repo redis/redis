@@ -226,8 +226,7 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"maxmemory") && argc == 2) {
             server.maxmemory = memtoll(argv[1],NULL);
-            server.maxmemory_adjusted = server.maxmemory;
-            server.maxmemory_enforced = server.maxmemory;
+            server.maxmemory_enforced = (double) server.maxmemory / server.maxmemory_frag_guess;
         } else if (!strcasecmp(argv[0],"rss-aware-maxmemory") && argc==2) {
             if ((server.rss_aware_maxmemory = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
@@ -637,8 +636,7 @@ void configSetCommand(redisClient *c) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0) goto badfmt;
         server.maxmemory = ll;
-        server.maxmemory_adjusted = ll;
-        server.maxmemory_enforced = ll;
+        server.maxmemory_enforced = (double) server.maxmemory / server.maxmemory_frag_guess;
         if (server.maxmemory) {
             if (server.maxmemory < zmalloc_used_memory()) {
                 redisLog(REDIS_WARNING,"WARNING: the new maxmemory value set via CONFIG SET is smaller than the current memory usage. This will result in keys eviction and/or inability to accept new write commands depending on the maxmemory-policy.");

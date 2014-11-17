@@ -1433,8 +1433,8 @@ void initServerConfig(void) {
     server.maxclients = REDIS_MAX_CLIENTS;
     server.bpop_blocked_clients = 0;
     server.maxmemory = REDIS_DEFAULT_MAXMEMORY;
-    server.maxmemory_enforced = REDIS_DEFAULT_MAXMEMORY;
-    server.maxmemory_adjusted = REDIS_DEFAULT_MAXMEMORY;
+    server.maxmemory_frag_guess = REDIS_DEFAULT_MAXMEMORY_FRAG_GUESS;
+    server.maxmemory_enforced = (double) REDIS_DEFAULT_MAXMEMORY / server.maxmemory_frag_guess;
     server.maxmemory_policy = REDIS_DEFAULT_MAXMEMORY_POLICY;
     server.maxmemory_samples = REDIS_DEFAULT_MAXMEMORY_SAMPLES;
     server.rss_aware_maxmemory = REDIS_DEFAULT_RSS_AWARE_MAXMEMORY;
@@ -3157,7 +3157,7 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
 }
 
 int freeMemoryIfNeeded(void) {
-    size_t mem_used, mem_tofree, mem_freed;
+    size_t mem_used, mem_tofree, mem_freed, mem_target = server.maxmemory;
     int slaves = listLength(server.slaves);
     mstime_t latency;
 
@@ -3183,14 +3183,72 @@ int freeMemoryIfNeeded(void) {
         mem_used -= aofRewriteBufferSize();
     }
 
+    /* If we use RSS aware maxmemory, update the target memory using
+     * the current fragmentation figure. */
+#ifdef HAVE_RSS_REPORTING
+    if (server.rss_aware_maxmemory &&
+        server.maxmemory_policy != REDIS_MAXMEMORY_NO_EVICTION)
+    {
+        static unsigned long iterations = 0;
+        static unsigned long sampling_stage = 1;
+        static float last_observed_frag = 0;
+
+        /* For some time, we analyze what happens during memory pressure, when
+         * objects are evicted and reallocated. */
+        if (mem_used > server.maxmemory_enforced) {
+            unsigned long sample_cycles = 1000000;
+
+            /* Every sample_cycle cycles we sample the fragmentation, and
+             * compare it with the previos one. If it is no longer raising,
+             * we take it as a guess of the fragmentation with this workload. */
+            if (sampling_stage && iterations < sample_cycles) {
+                iterations++;
+                if (iterations == sample_cycles) {
+                    float current_frag = zmalloc_get_fragmentation_ratio(server.resident_set_size);
+                    if (last_observed_frag == 0) {
+                        /* First sample we get. */
+                        last_observed_frag = current_frag;
+                    } else {
+                        if (current_frag <= last_observed_frag) {
+                            size_t enforced_new;
+
+                            sampling_stage = 0;
+                            server.maxmemory_frag_guess = current_frag;
+                            /* Update the global fragmentation guess and use
+                             * it (also used it for successive
+                             * "CONFIG SET maxmemory" commands). */
+                            if (server.maxmemory_frag_guess < 1)
+                                server.maxmemory_frag_guess = 1;
+                            else if (server.maxmemory_frag_guess > 2)
+                                server.maxmemory_frag_guess = 2;
+
+                            /* Only set the new limit if it is higher than our
+                             * initial guess, otherwise it is futile: RSS will
+                             * not go backward anyway. */
+                            enforced_new = (double) server.maxmemory /
+                                           server.maxmemory_frag_guess;
+                            if (enforced_new > server.maxmemory_enforced)
+                                server.maxmemory_enforced = enforced_new;
+                            redisLog(REDIS_NOTICE,"RSS aware maxmemory, fragmentation looks stable at: %f", server.maxmemory_frag_guess);
+                        }
+                        last_observed_frag = current_frag;
+                    }
+                    iterations = 0;
+                }
+            }
+        }
+        mem_target = server.maxmemory_enforced;
+    }
+#endif
+
     /* Check if we are over the memory limit. */
-    if (mem_used <= server.maxmemory) return REDIS_OK;
+    if (mem_used <= mem_target) return REDIS_OK;
 
     if (server.maxmemory_policy == REDIS_MAXMEMORY_NO_EVICTION)
         return REDIS_ERR; /* We need to free memory, but policy forbids. */
 
     /* Compute how much memory we need to free. */
-    mem_tofree = mem_used - server.maxmemory;
+    mem_tofree = mem_used - mem_target;
     mem_freed = 0;
     latencyStartMonitor(latency);
     while (mem_freed < mem_tofree) {
