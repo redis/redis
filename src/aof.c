@@ -1119,7 +1119,7 @@ int rewriteAppendOnlyFileBackground(void) {
     start = ustime();
 
     snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
-    if (BeginForkOperation(otAOF, tmpfile, &server, sizeof(server), &server.aof_child_pid, dictGetHashFunctionSeed()) == FALSE) {
+    if (BeginForkOperation(otAOF, tmpfile, &server, sizeof(server), &server.aof_child_pid, dictGetHashFunctionSeed(), server.logfile) == FALSE) {
             redisLog(REDIS_WARNING,
                 "Can't rewrite append only file in background: fork: %s",
                 strerror(errno));

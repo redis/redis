@@ -28,7 +28,12 @@
 #define REDIS_WARNING 3
 #define REDIS_LOG_RAW (1<<10) /* Modifier to log without timestamp */
 #define REDIS_DEFAULT_VERBOSITY REDIS_NOTICE
-#define REDIS_MAX_LOGMSG_LEN    1024 /* Default maximum length of syslog messages */
+/*
+ * Default maximum length of syslog messages.
+ * Empirical results show that 1024 is also the maximum size that WriteFile can
+ * write atomically.
+ */
+#define REDIS_MAX_LOGMSG_LEN    1024
 
 #ifdef __cplusplus
 extern "C" {

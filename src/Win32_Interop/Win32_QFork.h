@@ -59,7 +59,7 @@ StartupStatus QForkStartup(int argc, char** argv);
 BOOL QForkShutdown();
 
 // For master process use only
-BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, int sizeOfGlobalData, DWORD* childPID, unsigned __int32 dictHashSeed);
+BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, int sizeOfGlobalData, DWORD* childPID, unsigned __int32 dictHashSeed, char* logfile);
 OperationStatus GetForkOperationStatus();
 BOOL EndForkOperation(int * pExitCode); 
 BOOL AbortForkOperation();

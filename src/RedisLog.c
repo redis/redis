@@ -33,11 +33,15 @@
 #include "win32_Interop/Win32_EventLog.h"
 #endif
 #include <time.h>
+#include <assert.h>
 
+static const char ellipsis[] = "[...]";
+static const char ellipsisWithNewLine[] = "[...]\n";
 static int verbosity = REDIS_WARNING;
 static int syslogEnabled = 0;
 static char syslogIdent[MAX_PATH];
-static char* logFile = NULL;
+static HANDLE hLogFile = INVALID_HANDLE_VALUE;
+static int isStdout = 0;
 
 void setSyslogEnabled(int flag) {
     syslogEnabled = flag;
@@ -52,76 +56,116 @@ void setLogVerbosityLevel(int level)
     verbosity = level;
 }
 
+/* We keep the file handle open to improve performance.
+* This assumes that calls to redisLog and setLogFile will not happen concurrently.
+*/
 void setLogFile(const char* logFileName)
 {
-    if (logFile != NULL) {
-        free((void*)logFile);
-        logFile = NULL;
+    if (hLogFile != INVALID_HANDLE_VALUE) {
+        if (!isStdout) CloseHandle(hLogFile);
+        hLogFile = INVALID_HANDLE_VALUE;
     }
-    logFile = (char*)malloc(strlen(logFileName)+1);
-    if (logFile==NULL) {
-        redisLog(REDIS_WARNING, "memory allocation failure");
-        return;
-    }
-    memset(logFile, 0, strlen(logFileName) + 1);
-    strcpy (logFile,logFileName);
-}
 
+    if (logFileName == NULL || (logFileName[0] == '\0') || (_stricmp(logFileName, "stdout") == 0)) {
+        hLogFile = GetStdHandle(STD_OUTPUT_HANDLE);
+        isStdout = 1;
+    }
+    else {
+        int len;
+        UINT codePage = CP_ACP;
+        wchar_t *widePath;
+
+        /* Convert the path from ansi to unicode, to support paths longer than MAX_PATH */
+        if ((len = MultiByteToWideChar(codePage, 0, logFileName, -1, 0, 0)) == 0) return;
+        if ((widePath = (wchar_t*)malloc(len * sizeof(wchar_t))) == NULL) return;
+        if (MultiByteToWideChar(codePage, 0, logFileName, -1, widePath, len) == 0) {
+            free(widePath);
+            return;
+        }
+
+        /* Passing FILE_APPEND_DATA without FILE_WRITE_DATA is essential for getting atomic appends across processes. */
+        hLogFile = CreateFileW(
+            widePath,
+            FILE_APPEND_DATA,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            NULL,
+            OPEN_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL, 
+            NULL);
+
+        if (hLogFile == INVALID_HANDLE_VALUE) {
+            DWORD err = GetLastError();
+            LPSTR messageBuffer = NULL;
+            FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                NULL, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&messageBuffer, 0, NULL);
+            fprintf(stderr, "Could not open logfile %s: %s\n", logFileName, messageBuffer);
+            LocalFree(messageBuffer);
+        }
+
+        free(widePath);
+        isStdout = 0;
+    }
+}
+    
 void redisLogRaw(int level, const char *msg) {
-#ifndef _WIN32
-    const int syslogLevelMap[] = { LOG_DEBUG, LOG_INFO, LOG_NOTICE, LOG_WARNING };
-#endif
     const char *c = ".-*#";
-    FILE *fp;
-    char buf[64];
+    DWORD dwBytesWritten;
+    /* The complete message needs to be passed to WriteFile at once, to ensure
+     * atomicity of log entries across processes.
+     * So we format the complete message into a buffer first.
+     * Any output that doesn't fit the size of this buffer will be truncated.
+     */
+    char buf[REDIS_MAX_LOGMSG_LEN];
+    const char *completeMessage;
+    DWORD completeMessageLength;
     int rawmode = (level & REDIS_LOG_RAW);
-	int log_to_stdout;
-	log_to_stdout = 0;
-	if (logFile == NULL) {
-		log_to_stdout = 1;
-	} else {
-		if ((logFile[0] == '\0') || (_stricmp(logFile, "stdout") == 0)) {
-			log_to_stdout = 1;
-		}
-	}
 
     level &= 0xff; /* clear flags */
     if (level < verbosity) return;
 
-    fp = log_to_stdout ? stdout : fopen(logFile,"a");
-    if (!fp) return;
+    if (hLogFile == INVALID_HANDLE_VALUE) return;
 
     if (rawmode) {
-        fprintf(fp,"%s",msg);
+        completeMessage = msg;
+        completeMessageLength = (DWORD)strlen(msg);
     } else {
-        int off;
-#ifdef _WIN32
+        int vlen, off = 0;
         time_t secs;
         unsigned int usecs;
         struct tm * now ;
 
+        completeMessage = buf; 
         secs = gettimeofdaysecs(&usecs);
         now = localtime(&secs);
-        off = (int)strftime(buf,sizeof(buf),"%d %b %H:%M:%S.",now);
-        snprintf(buf+off,sizeof(buf)-off,"%03d",usecs/1000);
-#else
-        struct timeval tv;
-
-        gettimeofday(&tv,NULL);
-        off = strftime(buf,sizeof(buf),"%d %b %H:%M:%S.",localtime(&tv.tv_sec));
-        snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
-#endif
-        fprintf(fp,"[%d] %s %c %s\n",(int)_getpid(),buf,c[level],msg);
+        vlen = snprintf(buf + off, sizeof(buf) - off, "[%d] ", (int)_getpid());
+        assert(vlen >= 0); off += vlen;
+        vlen = (int)strftime(buf + off, sizeof(buf) - off, "%d %b %H:%M:%S.", now);
+        assert(vlen >= 0); off += vlen;
+        vlen = snprintf(buf + off, sizeof(buf) - off, "%03d %c ", usecs / 1000, c[level]);
+        assert(vlen >= 0); off += vlen;
+        vlen = snprintf(buf + off, sizeof(buf) - off, "%s\n", msg);
+        if (vlen >= 0 && (off + vlen < sizeof(buf))) {
+            completeMessageLength = off + vlen;
+        }
+        else {
+            /* The MS CRT implementation of vsnprintf/snprintf returns -1 if the formatted output doesn't fit the buffer,
+            * in addition to when an encoding error occurs. Proceeding with a zero-terminated ellipsis at the end of the
+            * buffer seems a better option than not logging this message at all.
+            */
+            strncpy(buf + sizeof(buf)-sizeof(ellipsisWithNewLine), ellipsisWithNewLine, sizeof(ellipsisWithNewLine));
+            completeMessageLength = sizeof(buf)-1;
+        }
     }
-    fflush(fp);
-    
-	if (log_to_stdout == 0) fclose(fp);
+    WriteFile(hLogFile, completeMessage, completeMessageLength, &dwBytesWritten, NULL);
 
-#ifdef _WIN32
-	if (syslogEnabled) WriteEventLog(syslogIdent, msg);
-#else
-    if (server.syslog_enabled) syslog(syslogLevelMap[level], "%s", msg);
+    /* FlushFileBuffers() ensures that all data and metadata is written to disk, but it's effect
+     * on performance is severe.
+     */
+#ifdef FLUSH_LOG_WRITES
+    FlushFileBuffers(hLogFile);
 #endif
+
+    if (syslogEnabled) WriteEventLog(syslogIdent, msg);
 }
 
 /* Like redisLogRaw() but with printf-alike support. This is the function that
@@ -130,12 +174,21 @@ void redisLogRaw(int level, const char *msg) {
 void redisLog(int level, const char *fmt, ...) {
     va_list ap;
     char msg[REDIS_MAX_LOGMSG_LEN];
+    int vlen;
 
     if ((level&0xff) < verbosity) return;
 
     va_start(ap, fmt);
-    vsnprintf(msg, sizeof(msg), fmt, ap);
+    vlen = vsnprintf(msg, sizeof(msg), fmt, ap);
     va_end(ap);
+
+    /* The MS CRT implementation of vsnprintf/snprintf returns -1 if the formatted output doesn't fit the buffer,
+     * in addition to when an encoding error occurs. Proceeding with a zero-terminated ellipsis at the end of the
+     * buffer seems a better option than not logging this message at all.
+     */
+    if (vlen < 0 || vlen >= sizeof(msg)) {
+        strncpy(msg + sizeof(msg) - sizeof(ellipsis), ellipsis, sizeof(ellipsis));
+    }
 
     redisLogRaw(level,msg);
 }
@@ -147,28 +200,6 @@ void redisLog(int level, const char *fmt, ...) {
  * of view of Redis. Signals that are going to kill the server anyway and
  * where we need printf-alike features are served by redisLog(). */
 void redisLogFromHandler(int level, const char *msg) {
-#ifndef _WIN32
-    int fd;
-    int log_to_stdout = logfile[0] == '\0';
-    char buf[64];
-
-    if ((level&0xff) < verbosity || (log_to_stdout && server.daemonize))
-        return;
-    fd = log_to_stdout ? STDOUT_FILENO :
-                         open(server.logfile, O_APPEND|O_CREAT|O_WRONLY, 0644);
-    if (fd == -1) return;
-    ll2string(buf,sizeof(buf),getpid());
-    if (write(fd,"[",1) == -1) goto err;
-    if (write(fd,buf,(unsigned int)strlen(buf)) == -1) goto err;
-    if (write(fd," | signal handler] (",20) == -1) goto err;
-    ll2string(buf,sizeof(buf),time(NULL));
-    if (write(fd,buf,(unsigned int)strlen(buf)) == -1) goto err;
-    if (write(fd,") ",2) == -1) goto err;
-    if (write(fd,msg,(unsigned int)strlen(msg)) == -1) goto err;
-    if (write(fd,"\n",1) == -1) goto err;
-err:
-    if (!log_to_stdout) close(fd);
-#endif
 }
 
 

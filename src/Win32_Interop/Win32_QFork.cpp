@@ -820,7 +820,7 @@ BOOL QForkShutdown() {
     return TRUE;
 }
 
-BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, int sizeOfGlobalData, DWORD* childPID, uint32_t dictHashSeed) {
+BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, int sizeOfGlobalData, DWORD* childPID, uint32_t dictHashSeed, char* logfile) {
     try {
         // copy operation data
         g_pQForkControl->typeOfOperation = type;
@@ -906,7 +906,17 @@ BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, i
         char arguments[_MAX_PATH];
         memset(arguments,0,_MAX_PATH);
         PROCESS_INFORMATION pi;
-        sprintf_s(arguments, _MAX_PATH, "\"%s\" --%s %llu %lu", fileName, cQFork.c_str(), (uint64_t)g_hQForkControlFileMap, GetCurrentProcessId());
+        sprintf_s(
+            arguments,
+            _MAX_PATH,
+            "\"%s\" --%s %llu %lu --%s \"%s\"",
+            fileName,
+            cQFork.c_str(),
+            (uint64_t)g_hQForkControlFileMap,
+            GetCurrentProcessId(),
+            cLogfile.c_str(),
+            (logfile != NULL && logfile[0] != '\0') ? logfile : "stdout");
+        
         if (FALSE == CreateProcessA(fileName, arguments, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
             throw system_error( 
                 GetLastError(),
