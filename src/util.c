@@ -636,6 +636,47 @@ static void test_string2l(void) {
 #endif
 }
 
+static void test_ll2string(void) {
+    char buf[32];
+    long long v;
+    int sz;
+
+    v = 0;
+    sz = ll2string(buf, sizeof buf, v);
+    assert(sz == 1);
+    assert(!strcmp(buf, "0"));
+
+    v = -1;
+    sz = ll2string(buf, sizeof buf, v);
+    assert(sz == 2);
+    assert(!strcmp(buf, "-1"));
+
+    v = 99;
+    sz = ll2string(buf, sizeof buf, v);
+    assert(sz == 2);
+    assert(!strcmp(buf, "99"));
+
+    v = -99;
+    sz = ll2string(buf, sizeof buf, v);
+    assert(sz == 3);
+    assert(!strcmp(buf, "-99"));
+
+    v = -2147483648;
+    sz = ll2string(buf, sizeof buf, v);
+    assert(sz == 11);
+    assert(!strcmp(buf, "-2147483648"));
+
+    v = LLONG_MIN;
+    sz = ll2string(buf, sizeof buf, v);
+    assert(sz == 20);
+    assert(!strcmp(buf, "-9223372036854775808"));
+
+    v = LLONG_MAX;
+    sz = ll2string(buf, sizeof buf, v);
+    assert(sz == 19);
+    assert(!strcmp(buf, "9223372036854775807"));
+}
+
 #define UNUSED(x) (void)(x)
 int utilTest(int argc, char **argv) {
     UNUSED(argc);
@@ -643,6 +684,7 @@ int utilTest(int argc, char **argv) {
 
     test_string2ll();
     test_string2l();
+    test_ll2string();
     return 0;
 }
 #endif
