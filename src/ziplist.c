@@ -1016,7 +1016,7 @@ void stress(int pos, int num, int maxsize, int dnum) {
     }
 }
 
-void pop(unsigned char *zl, int where) {
+unsigned char * pop(unsigned char *zl, int where) {
     unsigned char *p, *vstr;
     unsigned int vlen;
     long long vlong;
@@ -1028,13 +1028,14 @@ void pop(unsigned char *zl, int where) {
         else
             printf("Pop tail: ");
 
-        if (vstr)
+        if (vstr) {
             if (vlen && fwrite(vstr,vlen,1,stdout) == 0) perror("fwrite");
+        }
         else
             printf("%lld", vlong);
 
         printf("\n");
-        ziplistDeleteRange(zl,-1,1);
+        return ziplistDelete(zl,&p);
     } else {
         printf("ERROR: Could not pop\n");
         exit(1);
@@ -1099,16 +1100,16 @@ int main(int argc, char **argv) {
     zl = createList();
     ziplistRepr(zl);
 
-    pop(zl,ZIPLIST_TAIL);
+    zl = pop(zl,ZIPLIST_TAIL);
     ziplistRepr(zl);
 
-    pop(zl,ZIPLIST_HEAD);
+    zl = pop(zl,ZIPLIST_HEAD);
     ziplistRepr(zl);
 
-    pop(zl,ZIPLIST_TAIL);
+    zl = pop(zl,ZIPLIST_TAIL);
     ziplistRepr(zl);
 
-    pop(zl,ZIPLIST_TAIL);
+    zl = pop(zl,ZIPLIST_TAIL);
     ziplistRepr(zl);
 
     printf("Get element at index 3:\n");
