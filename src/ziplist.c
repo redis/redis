@@ -697,15 +697,14 @@ unsigned char *ziplistMerge(unsigned char *prezl, unsigned char *sufzl) {
         prezlbytes = intrev32ifbe(ZIPLIST_BYTES(prezl));
         zl = zmalloc(prezlbytes);
         memcpy(zl,prezl,prezlbytes);
+        return zl;
     }
     else if (sufzl == NULL)
     {
         sufzlbytes = intrev32ifbe(ZIPLIST_BYTES(sufzl));
         zl = zmalloc(sufzlbytes);
         memcpy(zl,sufzl,sufzlbytes);
-    }
-    if (prezl == NULL || sufzl == NULL) {
-        return NULL;
+        return zl;
     }
 
     /*get prezl's bytes & length*/
