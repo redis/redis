@@ -143,6 +143,7 @@
 #define ZIPLIST_TAIL_OFFSET(zl) (*((uint32_t*)((zl)+sizeof(uint32_t))))
 #define ZIPLIST_LENGTH(zl)      (*((uint16_t*)((zl)+sizeof(uint32_t)*2)))
 #define ZIPLIST_HEADER_SIZE     (sizeof(uint32_t)*2+sizeof(uint16_t))
+#define ZIPLIST_END_SIZE        (sizeof(uint8_t))
 #define ZIPLIST_ENTRY_HEAD(zl)  ((zl)+ZIPLIST_HEADER_SIZE)
 #define ZIPLIST_ENTRY_TAIL(zl)  ((zl)+intrev32ifbe(ZIPLIST_TAIL_OFFSET(zl)))
 #define ZIPLIST_ENTRY_END(zl)   ((zl)+intrev32ifbe(ZIPLIST_BYTES(zl))-1)
@@ -662,6 +663,76 @@ static unsigned char *__ziplistInsert(unsigned char *zl, unsigned char *p, unsig
         zipSaveInteger(p,value,encoding);
     }
     ZIPLIST_INCR_LENGTH(zl,1);
+    return zl;
+}
+
+
+/*
+ * This function MERGE prezl and sufzl and returns a NEW zl without destroy
+ * prezl and sufzl.
+ *
+ * prezl: <prezlbytes><prezltail><prezllen><preentry1>...<preentryN><zlend>
+ * sufzl: <sufzlbytes><sufzltail><sufzllen><sufentry1>...<sufentryN><zlend>
+ *
+ * It appends "<sufentry1>...<sufentryN>" to * "<preentry1>...<preentryN>" to
+ * form a new zl (with wrong prevlen in sufentry1, wrong zlbytes, wrong zltail
+ * & wrong zllen)
+ *
+ *  ...<prezlen><preentry1>...<preentryN><sufentry1>...<sufentryN><zlend>
+ *
+ * Then it fixes zlbytes, zltail & zllen.
+ * Finally it calls __ziplistCascadeUpdate with p = preentryN to adjust
+ * sufentry1 and recursively sufentry2 ... if needed.
+ */
+unsigned char *ziplistMerge(unsigned char *prezl, unsigned char *sufzl) {
+    unsigned char *zl;
+    size_t zlbytes, zllength;
+    size_t prezlbytes, prezllength;
+    size_t sufzlbytes, sufzllength;
+
+    if (prezl == NULL && sufzl == NULL)
+        return NULL;
+    if (prezl == NULL)
+    {
+        prezlbytes = intrev32ifbe(ZIPLIST_BYTES(prezl));
+        zl = zmalloc(prezlbytes);
+        memcpy(zl,prezl,prezlbytes);
+        return zl;
+    }
+    else if (sufzl == NULL)
+    {
+        sufzlbytes = intrev32ifbe(ZIPLIST_BYTES(sufzl));
+        zl = zmalloc(sufzlbytes);
+        memcpy(zl,sufzl,sufzlbytes);
+        return zl;
+    }
+
+    /*get prezl's bytes & length*/
+    prezlbytes = intrev32ifbe(ZIPLIST_BYTES(prezl));
+    prezllength = intrev16ifbe(ZIPLIST_LENGTH(prezl));
+
+    /*get sufzl's bytes & length*/
+    sufzlbytes = intrev32ifbe(ZIPLIST_BYTES(sufzl));
+    sufzllength = intrev16ifbe(ZIPLIST_LENGTH(sufzl));
+
+    /*compute new zl's bytes(without adjust) & length*/
+    zlbytes = prezlbytes + sufzlbytes - ZIPLIST_HEADER_SIZE - ZIPLIST_END_SIZE;
+    zllength = prezllength + sufzllength;
+    /*new zl's length should be limited within UINT16_MAX*/
+    zllength = zllength > UINT16_MAX ? UINT16_MAX : zllength;
+
+    /*alloc space for zl append sufzl to prezl and fix zlbytes, zltail & zllen*/
+    zl = zmalloc(zlbytes);
+    memcpy(zl,prezl,prezlbytes-1);
+    memcpy(zl+prezlbytes-1,sufzl+ZIPLIST_HEADER_SIZE,\
+            sufzlbytes-ZIPLIST_HEADER_SIZE);
+    ZIPLIST_BYTES(zl) = intrev32ifbe(zlbytes);
+    ZIPLIST_TAIL_OFFSET(zl) = intrev32ifbe(prezlbytes + \
+                                intrev32ifbe(ZIPLIST_TAIL_OFFSET(sufzl)) - \
+                                ZIPLIST_HEADER_SIZE);
+    ZIPLIST_LENGTH(zl) = intrev16ifbe(zllength);
+    /*adjust zl with __ziplistCascadeUpdate*/
+    zl = __ziplistCascadeUpdate(zl,zl+intrev32ifbe(ZIPLIST_TAIL_OFFSET(prezl)));
     return zl;
 }
 
