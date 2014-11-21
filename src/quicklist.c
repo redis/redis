@@ -351,65 +351,28 @@ int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
 static quicklistNode *_quicklistZiplistMerge(quicklist *quicklist,
                                              quicklistNode *a,
                                              quicklistNode *b) {
-    /* Merge into node with largest initial count */
-    quicklistNode *target = a->count > b->count ? a : b;
+    D("Requested merge (a,b) (%u, %u)", a->count, b->count);
 
-    if (a->count == 0 || b->count == 0)
-        return NULL;
+    if ((ziplistMerge(&a->zl, &b->zl))) {
+        /* We merged ziplists! Now remove the unused quicklistNode. */
+        quicklistNode *keep = NULL, *nokeep = NULL;
+        if (!a->zl) {
+            nokeep = a;
+            keep = b;
+        } else if (!b->zl) {
+            nokeep = b;
+            keep = a;
+        }
+        keep->count = ziplistLen(keep->zl);
 
-    D("Requested merge (a,b) (%u, %u) and picked target %u", a->count, b->count,
-      target->count);
+        nokeep->count = 0;
+        __quicklistDelNode(quicklist, nokeep);
 
-    int where;
-    unsigned char *p = NULL;
-    if (target == a) {
-        /* If target is node a, we append node b to node a, in-order */
-        where = ZIPLIST_TAIL;
-        p = ziplistIndex(b->zl, 0);
-        D("WILL TRAVERSE B WITH LENGTH: %u, %u", b->count, ziplistLen(b->zl));
+        return keep;
     } else {
-        /* If target b, we prepend node a to node b, in reverse order of a */
-        where = ZIPLIST_HEAD;
-        p = ziplistIndex(a->zl, -1);
-        D("WILL TRAVERSE A WITH LENGTH: %u, %u", a->count, ziplistLen(a->zl));
+        /* else, the merge returned NULL and nothing changed. */
+        return NULL;
     }
-
-    unsigned char *val;
-    unsigned int sz;
-    long long longval;
-    char lv[32] = { 0 };
-    /* NOTE: We could potentially create a built-in ziplist operation
-     * allowing direct merging of two ziplists.  It would be more memory
-     * efficient (one big realloc instead of incremental), but it's more
-     * complex than using the existing ziplist API to read/push as below. */
-    while (ziplistGet(p, &val, &sz, &longval)) {
-        if (!val) {
-            sz = ll2string(lv, sizeof(lv), longval);
-            val = (unsigned char *)lv;
-        }
-        target->zl = ziplistPush(target->zl, val, sz, where);
-        if (target == a) {
-            p = ziplistNext(b->zl, p);
-            b->count--;
-            a->count++;
-        } else {
-            p = ziplistPrev(a->zl, p);
-            a->count--;
-            b->count++;
-        }
-        D("Loop A: %u, B: %u", a->count, b->count);
-    }
-
-    /* At this point, target is populated and not-target needs
-     * to be free'd and removed from the quicklist. */
-    if (target == a) {
-        D("Deleting node B with current count: %d", b->count);
-        __quicklistDelNode(quicklist, b);
-    } else if (target == b) {
-        D("Deleting node A with current count: %d", a->count);
-        __quicklistDelNode(quicklist, a);
-    }
-    return target;
 }
 
 /* Attempt to merge ziplists within two nodes on either side of 'center'.
