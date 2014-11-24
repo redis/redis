@@ -118,7 +118,8 @@ foreach dl {no yes} {
                         [lindex $slaves 1] slaveof $master_host $master_port
                         [lindex $slaves 2] slaveof $master_host $master_port
 
-                        # Wait for all the three slaves to reach the "online" state
+                        # Wait for all the three slaves to reach the "online"
+                        # state from the POV of the master.
                         set retry 500
                         while {$retry} {
                             set info [r -3 info]
@@ -133,6 +134,17 @@ foreach dl {no yes} {
                             error "assertion:Slaves not correctly synchronized"
                         }
 
+                        # Wait that slaves acknowledge they are online so
+                        # we are sure that DBSIZE and DEBUG DIGEST will not
+                        # fail because of timing issues.
+                        wait_for_condition 500 100 {
+                            [lindex [[lindex $slaves 0] role] 3] eq {connected} &&
+                            [lindex [[lindex $slaves 1] role] 3] eq {connected} &&
+                            [lindex [[lindex $slaves 2] role] 3] eq {connected}
+                        } else {
+                            fail "Slaves still not connected after some time"
+                        }
+
                         # Stop the write load
                         stop_write_load $load_handle0
                         stop_write_load $load_handle1
@@ -140,16 +152,8 @@ foreach dl {no yes} {
                         stop_write_load $load_handle3
                         stop_write_load $load_handle4
 
-                        # Wait that slaves exit the "loading" state
-                        wait_for_condition 500 100 {
-                            ![string match {*loading:1*} [[lindex $slaves 0] info]] &&
-                            ![string match {*loading:1*} [[lindex $slaves 1] info]] &&
-                            ![string match {*loading:1*} [[lindex $slaves 2] info]]
-                        } else {
-                            fail "Slaves still loading data after too much time"
-                        }
-
-                        # Make sure that slaves and master have same number of keys
+                        # Make sure that slaves and master have same
+                        # number of keys
                         wait_for_condition 500 100 {
                             [$master dbsize] == [[lindex $slaves 0] dbsize] &&
                             [$master dbsize] == [[lindex $slaves 1] dbsize] &&
