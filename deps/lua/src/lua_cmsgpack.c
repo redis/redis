@@ -13,11 +13,9 @@
 #define LUACMSGPACK_COPYRIGHT   "Copyright (C) 2012, Salvatore Sanfilippo"
 #define LUACMSGPACK_DESCRIPTION "MessagePack C implementation for Lua"
 
-#define LUACMSGPACK_MAX_NESTING  16 /* Max tables nesting. */
-
 /* Allows a preprocessor directive to override MAX_NESTING */
 #ifndef LUACMSGPACK_MAX_NESTING
-    #define LUACMSGPACK_MAX_NESTING  16
+    #define LUACMSGPACK_MAX_NESTING  16 /* Max tables nesting. */
 #endif
 
 #if (_XOPEN_SOURCE >= 600 || _ISOC99_SOURCE || _POSIX_C_SOURCE >= 200112L)
@@ -32,8 +30,19 @@
 #define IS_INT64_EQUIVALENT(x) IS_INT_TYPE_EQUIVALENT(x, int64_t)
 #define IS_INT_EQUIVALENT(x) IS_INT_TYPE_EQUIVALENT(x, int)
 
+/* If size of pointer is equal to a 4 byte integer, we're on 32 bits. */
+#if UINTPTR_MAX == UINT_MAX
+    #define BITS_32 1
+#else
+    #define BITS_32 0
+#endif
+
 #if LUA_VERSION_NUM < 503
-    #define lua_pushunsigned(L, n) lua_pushinteger(L, n)
+    #if BITS_32
+        #define lua_pushunsigned(L, n) lua_pushnumber(L, n)
+    #else
+        #define lua_pushunsigned(L, n) lua_pushinteger(L, n)
+    #endif
 #endif
 
 /* =============================================================================
@@ -72,7 +81,7 @@ static void memrevifle(void *ptr, size_t len) {
     int test = 1;
     unsigned char *testp = (unsigned char*) &test;
 
-    if (testp[0] == 0) return; /* Big endian, nothign to do. */
+    if (testp[0] == 0) return; /* Big endian, nothing to do. */
     len /= 2;
     while(len--) {
         aux = *p;
@@ -84,7 +93,7 @@ static void memrevifle(void *ptr, size_t len) {
 }
 
 /* ---------------------------- String buffer ----------------------------------
- * This is a simple implementation of string buffers. The only opereation
+ * This is a simple implementation of string buffers. The only operation
  * supported is creating empty buffers and appending bytes to it.
  * The string buffer uses 2x preallocation on every realloc for O(N) append
  * behavior.  */
@@ -108,7 +117,7 @@ static mp_buf *mp_buf_new(lua_State *L) {
     mp_buf *buf = NULL;
 
     /* Old size = 0; new size = sizeof(*buf) */
-    buf = (mp_buf*)mp_realloc(L, buf, 0, sizeof(*buf));
+    buf = (mp_buf*)mp_realloc(L, NULL, 0, sizeof(*buf));
 
     buf->L = L;
     buf->b = NULL;
@@ -143,7 +152,7 @@ void mp_buf_free(mp_buf *buf) {
  * be used to report errors. */
 
 #define MP_CUR_ERROR_NONE   0
-#define MP_CUR_ERROR_EOF    1   /* Not enough data to complete opereation. */
+#define MP_CUR_ERROR_EOF    1   /* Not enough data to complete operation. */
 #define MP_CUR_ERROR_BADFMT 2   /* Bad data format */
 
 typedef struct mp_cur {
@@ -160,7 +169,7 @@ static void mp_cur_init(mp_cur *cursor, const unsigned char *s, size_t len) {
 
 #define mp_cur_consume(_c,_len) do { _c->p += _len; _c->left -= _len; } while(0)
 
-/* When there is not enough room we set an error in the cursor and return, this
+/* When there is not enough room we set an error in the cursor and return. This
  * is very common across the code so we have a macro to make the code look
  * a bit simpler. */
 #define mp_cur_need(_c,_len) do { \
@@ -350,7 +359,11 @@ static void mp_encode_lua_bool(lua_State *L, mp_buf *buf) {
 
 /* Lua 5.3 has a built in 64-bit integer type */
 static void mp_encode_lua_integer(lua_State *L, mp_buf *buf) {
+#if (LUA_VERSION_NUM < 503) && BITS_32
+    lua_Number i = lua_tonumber(L,-1);
+#else
     lua_Integer i = lua_tointeger(L,-1);
+#endif
     mp_encode_int(buf, (int64_t)i);
 }
 
@@ -392,7 +405,7 @@ static void mp_encode_lua_table_as_map(lua_State *L, mp_buf *buf, int level) {
     /* First step: count keys into table. No other way to do it with the
      * Lua API, we need to iterate a first time. Note that an alternative
      * would be to do a single run, and then hack the buffer to insert the
-     * map opcodes for message pack. Too hachish for this lib. */
+     * map opcodes for message pack. Too hackish for this lib. */
     lua_pushnil(L);
     while(lua_next(L,-2)) {
         lua_pop(L,1); /* remove value, keep key for next iteration. */
@@ -432,11 +445,12 @@ static int table_is_an_array(lua_State *L) {
         lua_pop(L,1); /* Stack: ... key */
         /* The <= 0 check is valid here because we're comparing indexes. */
 #if LUA_VERSION_NUM < 503
-        if (!lua_isnumber(L,-1) || (n = lua_tonumber(L, -1)) <= 0 ||
-            !IS_INT_EQUIVALENT(n)) {
+        if ((LUA_TNUMBER != lua_type(L,-1)) || (n = lua_tonumber(L, -1)) <= 0 ||
+            !IS_INT_EQUIVALENT(n))
 #else
-        if (!lua_isinteger(L,-1) || (n = lua_tointeger(L, -1)) <= 0) {
+        if (!lua_isinteger(L,-1) || (n = lua_tointeger(L, -1)) <= 0)
 #endif
+        {
             lua_settop(L, stacktop);
             return 0;
         }
@@ -473,7 +487,7 @@ static void mp_encode_lua_null(lua_State *L, mp_buf *buf) {
 static void mp_encode_lua_type(lua_State *L, mp_buf *buf, int level) {
     int t = lua_type(L,-1);
 
-    /* Limit the encoding of nested tables to a specfiied maximum depth, so that
+    /* Limit the encoding of nested tables to a specified maximum depth, so that
      * we survive when called against circular references in tables. */
     if (t == LUA_TTABLE && level == LUACMSGPACK_MAX_NESTING) t = LUA_TNIL;
     switch(t) {
@@ -630,7 +644,11 @@ void mp_decode_to_lua_type(lua_State *L, mp_cur *c) {
         break;
     case 0xd3:  /* int 64 */
         mp_cur_need(c,9);
+#if LUA_VERSION_NUM < 503
+        lua_pushnumber(L,
+#else
         lua_pushinteger(L,
+#endif
             ((int64_t)c->p[1] << 56) |
             ((int64_t)c->p[2] << 48) |
             ((int64_t)c->p[3] << 40) |
