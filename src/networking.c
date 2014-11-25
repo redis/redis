@@ -905,8 +905,10 @@ int processInlineBuffer(redisClient *c) {
     sdsrange(c->querybuf,querylen+2,-1);
 
     /* Setup argv array on client structure */
-    if (c->argv) zfree(c->argv);
-    c->argv = zmalloc(sizeof(robj*)*argc);
+    if (argc) {
+        if (c->argv) zfree(c->argv);
+        c->argv = zmalloc(sizeof(robj*)*argc);
+    }
 
     /* Create redis objects for all arguments. */
     for (c->argc = 0, j = 0; j < argc; j++) {
