@@ -134,6 +134,9 @@ char *redisGitDirty(void);
  *--------------------------------------------------------------------------- */
 
 static long long ustime(void) {
+#ifdef _WIN32
+    return GetHighResRelativeTime(1000000);
+#else
     struct timeval tv;
     long long ust;
 
@@ -141,6 +144,7 @@ static long long ustime(void) {
     ust = ((long long)tv.tv_sec)*1000000;
     ust += tv.tv_usec;
     return ust;
+#endif
 }
 
 static long long mstime(void) {

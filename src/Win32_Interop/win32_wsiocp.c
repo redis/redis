@@ -443,15 +443,12 @@ int aeWinSocketAttach(int fd) {
 
 void aeShutdown(int fd) {
     char rbuf[100];
-    struct timeval timenow;
     long long waitmsecs = 50;      /* wait up to 50 millisecs */
     long long endms;
     long long nowms;
 
     /* wait for last item to complete up to tosecs seconds*/
-    gettimeofday(&timenow, NULL);
-    endms = ((long long)timenow.tv_sec * 1000) +
-                    ((long long)timenow.tv_usec / 1000) + waitmsecs;
+    endms = GetHighResRelativeTime(1000) + waitmsecs;
 
     if (shutdown(fd, SD_SEND) != SOCKET_ERROR) {
         /* read data until no more or error to ensure shutdown completed */
@@ -460,9 +457,7 @@ void aeShutdown(int fd) {
             if (rc == 0 || rc == SOCKET_ERROR)
                 break;
             else {
-                gettimeofday(&timenow, NULL);
-                nowms = ((long long)timenow.tv_sec * 1000) +
-                            ((long long)timenow.tv_usec / 1000);
+                nowms = GetHighResRelativeTime(1000);
                 if (nowms > endms)
                     break;
             }

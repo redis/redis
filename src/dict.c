@@ -326,7 +326,7 @@ int dictRehash(dict *d, int n) {
 
 long long timeInMilliseconds(void) {
 #ifdef _WIN32
-    return GetTickCount();
+    return GetHighResRelativeTime(1000);
 #else
     struct timeval tv;
 

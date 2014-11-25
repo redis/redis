@@ -268,8 +268,12 @@ int w32initWinSock(void);
 void *mmap(void *start, size_t length, int prot, int flags, int fd, off offset);
 int munmap(void *start, size_t length);
 
-int gettimeofday(struct timeval *tv, struct timezone *tz);
+void InitTimeFunctions();
+unsigned long long GetHighResRelativeTime(double scale);
+int gettimeofday_fast(struct timeval *tv, struct timezone *tz);
+int gettimeofday_highres(struct timeval *tv, struct timezone *tz);
 time_t gettimeofdaysecs(unsigned int *usec);
+#define gettimeofday gettimeofday_highres
 
 char *ctime_r(const time_t *clock, char *buf);
 

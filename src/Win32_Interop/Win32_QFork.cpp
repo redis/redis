@@ -57,6 +57,7 @@ using namespace std;
 
 const long long cSentinelHeapSize = 30 * 1024 * 1024;
 extern "C" int checkForSentinelMode(int argc, char **argv);
+extern "C" void InitTimeFunctions();
 
 extern "C"
 {
@@ -1274,6 +1275,7 @@ extern "C"
     // Redis will allocate.
     int main(int argc, char* argv[]) {
         try {
+            InitTimeFunctions();
             ParseCommandLineArguments(argc, argv);
             SetupLogging();
         } catch (system_error syserr) {

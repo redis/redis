@@ -107,30 +107,12 @@ typedef struct _client {
 static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 static void createMissingClients(client c);
 
-#ifdef _WIN32
-/*acquires high resolution time stamps on windows, more details can be found here http://msdn.microsoft.com/en-us/library/windows/desktop/dn553408(v=vs.85).aspx */
-static long long getQPCTimeStamp()
-{
-	LARGE_INTEGER time;
-	QueryPerformanceCounter(&time);
-	return time.QuadPart;
-}
-static long long getQPCElapsedMicroSeconds(long long startime, long long endtime)
-{
-	long long elapsedMicroseconds = endtime - startime;
-	LARGE_INTEGER Frequency;
-	QueryPerformanceFrequency(&Frequency);
-
-	// To guard against loss-of-precision, we convert
-	// to microseconds *before* dividing by ticks-per-second.
-	elapsedMicroseconds *= 1000000;
-	elapsedMicroseconds /= Frequency.QuadPart;
-	return elapsedMicroseconds;
-}
-#endif
 
 /* Implementation */
 static long long ustime(void) {
+#ifdef _WIN32
+    return GetHighResRelativeTime(1000000);
+#else
     struct timeval tv;
     long long ust;
 
@@ -138,9 +120,13 @@ static long long ustime(void) {
     ust = ((long)tv.tv_sec)*1000000;
     ust += tv.tv_usec;
     return ust;
+#endif
 }
 
 static long long mstime(void) {
+#ifdef _WIN32
+    return GetHighResRelativeTime(1000);
+#else
     struct timeval tv;
     long long mst;
 
@@ -148,6 +134,7 @@ static long long mstime(void) {
     mst = ((long long)tv.tv_sec)*1000;
     mst += tv.tv_usec/1000;
     return mst;
+#endif
 }
 
 static void freeClient(client c) {
@@ -234,11 +221,7 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
      * is not part of the latency, so calculate it only once, here. */
 	if (c->latency < 0)
 	{
-#ifdef _WIN32
-		c->latency = getQPCElapsedMicroSeconds(c->start, getQPCTimeStamp());
-#else
 		c->latency = ustime() - (c->start);
-#endif
 	}
 
 #ifdef WIN32_IOCP
@@ -334,11 +317,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
         /* Really initialize: randomize keys and set start time. */
         if (config.randomkeys) randomizeClientKey(c);
-#ifdef _WIN32
-		c->start = getQPCTimeStamp();
-#else
-		c->start = ustime();
-#endif
+        c->start = ustime();
         c->latency = -1;
     }
 
