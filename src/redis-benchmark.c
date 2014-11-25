@@ -738,9 +738,21 @@ int main(int argc, const char **argv) {
             free(cmd);
         }
 
+        if (test_is_selected("rpush")) {
+            len = redisFormatCommand(&cmd,"RPUSH mylist %s",data);
+            benchmark("RPUSH",cmd,len);
+            free(cmd);
+        }
+
         if (test_is_selected("lpop")) {
             len = redisFormatCommand(&cmd,"LPOP mylist");
             benchmark("LPOP",cmd,len);
+            free(cmd);
+        }
+
+        if (test_is_selected("rpop")) {
+            len = redisFormatCommand(&cmd,"RPOP mylist");
+            benchmark("RPOP",cmd,len);
             free(cmd);
         }
 
