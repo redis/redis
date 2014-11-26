@@ -38,6 +38,7 @@ typedef struct quicklistNode {
     struct quicklistNode *next;
     unsigned char *zl;
     unsigned int count; /* cached count of items in ziplist */
+    unsigned int sz;    /* ziplist size in bytes */
 } quicklistNode;
 
 typedef struct quicklist {
@@ -71,20 +72,19 @@ typedef struct quicklistEntry {
 /* Prototypes */
 quicklist *quicklistCreate(void);
 void quicklistRelease(quicklist *quicklist);
-quicklist *quicklistPushHead(quicklist *quicklist, const size_t fill,
-                             void *value, const size_t sz);
-quicklist *quicklistPushTail(quicklist *quicklist, const size_t fill,
-                             void *value, const size_t sz);
-void quicklistPush(quicklist *quicklist, const size_t fill, void *value,
+quicklist *quicklistPushHead(quicklist *quicklist, const int fill, void *value,
+                             const size_t sz);
+quicklist *quicklistPushTail(quicklist *quicklist, const int fill, void *value,
+                             const size_t sz);
+void quicklistPush(quicklist *quicklist, const int fill, void *value,
                    const size_t sz, int where);
 void quicklistAppendZiplist(quicklist *quicklist, unsigned char *zl);
 quicklist *quicklistAppendValuesFromZiplist(quicklist *quicklist,
-                                            const size_t fill,
-                                            unsigned char *zl);
-quicklist *quicklistCreateFromZiplist(size_t fill, unsigned char *zl);
-void quicklistInsertAfter(quicklist *quicklist, const size_t fill,
+                                            const int fill, unsigned char *zl);
+quicklist *quicklistCreateFromZiplist(int fill, unsigned char *zl);
+void quicklistInsertAfter(quicklist *quicklist, const int fill,
                           quicklistEntry *node, void *value, const size_t sz);
-void quicklistInsertBefore(quicklist *quicklist, const size_t fill,
+void quicklistInsertBefore(quicklist *quicklist, const int fill,
                            quicklistEntry *node, void *value, const size_t sz);
 void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry);
 int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
@@ -100,7 +100,7 @@ int quicklistIndex(const quicklist *quicklist, const long long index,
                    quicklistEntry *entry);
 void quicklistRewind(quicklist *quicklist, quicklistIter *li);
 void quicklistRewindTail(quicklist *quicklist, quicklistIter *li);
-void quicklistRotate(quicklist *quicklist, const size_t fill);
+void quicklistRotate(quicklist *quicklist, const int fill);
 int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
                        unsigned int *sz, long long *sval,
                        void *(*saver)(unsigned char *data, unsigned int sz));
