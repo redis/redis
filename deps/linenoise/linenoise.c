@@ -195,6 +195,7 @@ static int win32read(char *c) {
     DWORD foo;
     INPUT_RECORD b;
     KEY_EVENT_RECORD e;
+    BOOL altgr;
 
     while (1) {
         if (!ReadConsoleInput(hIn, &b, 1, &foo)) return 0;
@@ -205,10 +206,9 @@ static int win32read(char *c) {
             e = b.Event.KeyEvent;
             *c = b.Event.KeyEvent.uChar.AsciiChar;
 
-            //if (e.dwControlKeyState & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED)) {
-            /* Alt+key ignored */
-            //} else
-            if (e.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) {
+            altgr = e.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_ALT_PRESSED);
+
+            if (e.dwControlKeyState & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED) && !altgr) {
 
                 /* Ctrl+Key */
                 switch (*c) {
