@@ -1482,7 +1482,8 @@ int clusterProcessPacket(clusterLink *link) {
     } else if (type == CLUSTERMSG_TYPE_PUBLISH) {
         uint32_t explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
 
-        explen += sizeof(clusterMsgDataPublish) +
+        explen += sizeof(clusterMsgDataPublish) -
+                8 +
                 ntohl(hdr->data.publish.msg.channel_len) +
                 ntohl(hdr->data.publish.msg.message_len);
         if (totlen != explen) return 1;
@@ -2184,7 +2185,7 @@ void clusterSendPublish(clusterLink *link, robj *channel, robj *message) {
 
     clusterBuildMessageHdr(hdr,CLUSTERMSG_TYPE_PUBLISH);
     totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-    totlen += sizeof(clusterMsgDataPublish) + channel_len + message_len;
+    totlen += sizeof(clusterMsgDataPublish) - 8 + channel_len + message_len;
 
     hdr->data.publish.msg.channel_len = htonl(channel_len);
     hdr->data.publish.msg.message_len = htonl(message_len);
