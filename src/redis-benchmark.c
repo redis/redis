@@ -555,7 +555,7 @@ usage:
 " -s <socket>        Server socket (overrides host and port)\n"
 " -a <password>      Password for Redis Auth\n"
 " -c <clients>       Number of parallel connections (default 50)\n"
-" -n <requests>      Total number of requests (default 10000)\n"
+" -n <requests>      Total number of requests (default 100000)\n"
 " -d <size>          Data size of SET/GET value in bytes (default 2)\n"
 " -dbnum <db>        SELECT the specified db number (default 0)\n"
 " -k <boolean>       1=keep alive 0=reconnect (default 1)\n"
@@ -635,7 +635,7 @@ int main(int argc, const char **argv) {
     signal(SIGPIPE, SIG_IGN);
 
     config.numclients = 50;
-    config.requests = 10000;
+    config.requests = 100000;
     config.liveclients = 0;
     config.el = aeCreateEventLoop(1024*10);
     aeCreateTimeEvent(config.el,1,showThroughput,NULL,NULL);
