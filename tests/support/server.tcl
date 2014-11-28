@@ -240,6 +240,12 @@ proc start_server {options {code undefined}} {
         return
     }
 
+    # Wait for actual startup
+    while {![info exists _pid]} {
+        regexp {PID:\s(\d+)} [exec cat $stdout] _ _pid
+        after 100
+    }
+
     # setup properties to be able to initialize a client object
     set host $::host
     set port $::port
