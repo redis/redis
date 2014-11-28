@@ -65,6 +65,8 @@ set ::file ""; # If set, runs only the tests in this comma separated list
 set ::curfile ""; # Hold the filename of the current suite
 set ::accurate 0; # If true runs fuzz tests with more iterations
 set ::force_failure 0
+set ::timeout 600; # 10 minutes without progresses will quit the test.
+set ::last_progress [clock seconds]
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -200,11 +202,18 @@ proc test_server_main {} {
     vwait forever
 }
 
-# This function gets called 10 times per second, for now does nothing but
-# may be used in the future in order to detect test clients taking too much
-# time to execute the task.
+# This function gets called 10 times per second.
 proc test_server_cron {} {
-    # Do some work here.
+    set elapsed [expr {[clock seconds]-$::last_progress}]
+
+    if {$elapsed > $::timeout} {
+        set err "\[[colorstr red TIMEOUT]\]: clients state report follows."
+        puts $err
+        show_clients_state
+        kill_clients
+        the_end
+    }
+
     after 100 test_server_cron
 }
 
@@ -230,6 +239,8 @@ proc read_from_test_client fd {
     set bytes [gets $fd]
     set payload [read $fd $bytes]
     foreach {status data} $payload break
+    set ::last_progress [clock seconds]
+
     if {$status eq {ready}} {
         if {!$::quiet} {
             puts "\[$status\]: $data"
@@ -256,9 +267,7 @@ proc read_from_test_client fd {
         set ::active_clients_task($fd) "(ERR) $data"
     } elseif {$status eq {exception}} {
         puts "\[[colorstr red $status]\]: $data"
-        foreach p $::clients_pids {
-            catch {exec kill -9 $p}
-        }
+        kill_clients
         exit 1
     } elseif {$status eq {testing}} {
         set ::active_clients_task($fd) "(IN PROGRESS) $data"
@@ -269,6 +278,24 @@ proc read_from_test_client fd {
     }
 }
 
+proc show_clients_state {} {
+    # The following loop is only useful for debugging tests that may
+    # enter an infinite loop. Commented out normally.
+    foreach x $::active_clients {
+        if {[info exist ::active_clients_task($x)]} {
+            puts "$x => $::active_clients_task($x)"
+        } else {
+            puts "$x => ???"
+        }
+    }
+}
+
+proc kill_clients {} {
+    foreach p $::clients_pids {
+        catch {exec kill $p}
+    }
+}
+
 # A new client is idle. Remove it from the list of active clients and
 # if there are still test units to run, launch them.
 proc signal_idle_client fd {
@@ -276,17 +303,7 @@ proc signal_idle_client fd {
     set ::active_clients \
         [lsearch -all -inline -not -exact $::active_clients $fd]
 
-    if 0 {
-        # The following loop is only useful for debugging tests that may
-        # enter an infinite loop. Commented out normally.
-        foreach x $::active_clients {
-            if {[info exist ::active_clients_task($x)]} {
-                puts "$x => $::active_clients_task($x)"
-            } else {
-                puts "$x => ???"
-            }
-        }
-    }
+    if 0 {show_clients_state}
 
     # New unit to process?
     if {$::next_test != [llength $::all_tests]} {
