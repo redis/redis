@@ -693,8 +693,8 @@ int main(int argc, const char **argv) {
     }
 
     /* Run default benchmark suite. */
+    data = zmalloc(config.datasize+1);
     do {
-        data = zmalloc(config.datasize+1);
         memset(data,'x',config.datasize);
         data[config.datasize] = '\0';
 
