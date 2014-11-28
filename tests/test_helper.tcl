@@ -67,6 +67,7 @@ set ::accurate 0; # If true runs fuzz tests with more iterations
 set ::force_failure 0
 set ::timeout 600; # 10 minutes without progresses will quit the test.
 set ::last_progress [clock seconds]
+set ::active_servers {} ; # Pids of active Redis instances.
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -211,6 +212,7 @@ proc test_server_cron {} {
         puts $err
         show_clients_state
         kill_clients
+        force_kill_all_servers
         the_end
     }
 
@@ -268,9 +270,14 @@ proc read_from_test_client fd {
     } elseif {$status eq {exception}} {
         puts "\[[colorstr red $status]\]: $data"
         kill_clients
+        force_kill_all_servers
         exit 1
     } elseif {$status eq {testing}} {
         set ::active_clients_task($fd) "(IN PROGRESS) $data"
+    } elseif {$status eq {server-spawned}} {
+        lappend ::active_servers $data
+    } elseif {$status eq {server-killed}} {
+        set ::active_servers [lsearch -all -inline -not -exact $::active_servers $data]
     } else {
         if {!$::quiet} {
             puts "\[$status\]: $data"
@@ -293,6 +300,13 @@ proc show_clients_state {} {
 proc kill_clients {} {
     foreach p $::clients_pids {
         catch {exec kill $p}
+    }
+}
+
+proc force_kill_all_servers {} {
+    foreach p $::active_servers {
+        puts "Killing still running Redis server $p"
+        catch {exec kill -9 $p}
     }
 }
 
@@ -378,7 +392,8 @@ proc print_help_screen {} {
         "--quiet            Don't show individual tests."
         "--single <unit>    Just execute the specified unit (see next option)."
         "--list-tests       List all the available test units."
-        "--clients <num>    Number of test clients (16)."
+        "--clients <num>    Number of test clients (default 16)."
+        "--timeout <sec>    Test timeout in seconds (default 10 min)."
         "--force-failure    Force the execution of a test that always fails."
         "--help             Print this help screen."
     } "\n"]
@@ -426,6 +441,9 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         incr j
     } elseif {$opt eq {--clients}} {
         set ::numclients $arg
+        incr j
+    } elseif {$opt eq {--timeout}} {
+        set ::timeout $arg
         incr j
     } elseif {$opt eq {--help}} {
         print_help_screen
