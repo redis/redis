@@ -176,7 +176,10 @@ typedef struct {
 typedef struct {
     uint32_t channel_len;
     uint32_t message_len;
-    unsigned char bulk_data[8]; /* defined as 8 just for alignment concerns. */
+    /* We can't reclare bulk_data as bulk_data[] since this structure is
+     * nested. The 8 bytes are removed from the count during the message
+     * length computation. */
+    unsigned char bulk_data[8];
 } clusterMsgDataPublish;
 
 typedef struct {
