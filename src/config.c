@@ -79,8 +79,11 @@ void resetServerSaveParams(void) {
     server.saveparamslen = 0;
 }
 
+#define MAX_ERR_BUF_SIZE    512
+
 void loadServerConfigFromString(char *config) {
     char *err = NULL;
+    char errbuf[MAX_ERR_BUF_SIZE];
     int linenum = 0, totlines, i;
     int slaveof_linenum = 0;
     sds *lines;
@@ -539,6 +542,13 @@ void loadServerConfigFromString(char *config) {
                 }
                 err = sentinelHandleConfiguration(argv+1,argc-1);
                 if (err) goto loaderr;
+            }
+        } else if(!strncasecmp(argv[0], "module_", 7) && argc == 2) {
+            /* load redis modules */
+            if(-1 == loadServerModule(argv[1])) {
+                snprintf(errbuf, MAX_ERR_BUF_SIZE, "load module `%s:%s` fail", argv[0], argv[1]);
+                err = errbuf;
+                goto loaderr;
             }
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;

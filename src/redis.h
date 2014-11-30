@@ -65,6 +65,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "util.h"    /* Misc functions useful in many places */
 #include "latency.h" /* Latency monitor API */
 #include "sparkline.h" /* ASII graphs API */
+#include "plugin.h" /* Plug-in API */
 
 /* Error codes */
 #define REDIS_OK                0
@@ -897,7 +898,16 @@ struct redisServer {
     int assert_line;
     int bug_report_start; /* True if bug report header was already logged. */
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
+
+    list* modules; /* plug-in modules */
 };
+
+/* redis module */
+typedef struct redisModule {
+    char* path;
+    void* handle;
+    redisPlugin* plugin;
+} redisModule;
 
 typedef struct pubsubPattern {
     redisClient *client;

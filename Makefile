@@ -4,6 +4,7 @@ default: all
 
 .DEFAULT:
 	cd src && $(MAKE) $@
+	cd modules && $(MAKE) $@
 
 install:
 	cd src && $(MAKE) $@
