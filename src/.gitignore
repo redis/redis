@@ -3,3 +3,5 @@
 *.gcov
 redis.info
 lcov-html
+*.o
+*.swp

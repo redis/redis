@@ -65,6 +65,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "util.h"    /* Misc functions useful in many places */
 #include "latency.h" /* Latency monitor API */
 #include "sparkline.h" /* ASII graphs API */
+#include "plugin.h" /* Plug-in API */
 
 /* Error codes */
 #define REDIS_OK                0
