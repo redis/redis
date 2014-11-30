@@ -28,7 +28,55 @@
  */
 
 #include "redis.h"
+#include <sys/types.h>
+#include <unistd.h>
+#include <dlfcn.h>
+#include <string.h>
 
+int loadServerModule(const char* szModule)
+{
+    redisPlugin* (*module_entry)(void);
+    redisModule *m = zmalloc(sizeof(redisModule));
+    if(!m) return -1;
+
+    m->handle = dlopen(szModule, RTLD_LAZY);
+    if (!m->handle) {
+        zfree(m);
+        return -1;
+    }
+
+    dlerror();
+
+    module_entry = (redisPlugin* (*)(void))dlsym(m->handle, "redis_get_module");
+    if (dlerror() != NULL) goto loaderr;
+
+    m->plugin = (*module_entry)();
+    if (!m->plugin || !m->plugin->name || !m->plugin->init || !m->plugin->commands) 
+        goto loaderr;
+
+    /* module initialize */
+    if (0 != m->plugin->init()) goto loaderr;
+
+    int i = 0;
+    while (m->plugin->commands[i].name) {
+        sds name = sdsnew(m->plugin->commands[i].name);
+
+        if (DICT_OK != dictAdd(server.commands, name, &m->plugin->commands[i])) {
+            sdsfree(name);
+            redisLog(REDIS_WARNING, "command name `%s` already exists", name);
+        }
+        ++i;
+    }
+
+    m->path = zstrdup(szModule);
+    listAddNodeTail(server.modules, m);
+    return 0;
+
+loaderr:
+    dlclose(m->handle);
+    zfree(m);
+    return -1;
+}
 
 
 

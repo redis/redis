@@ -32,17 +32,41 @@
 #define __PLUGIN_H__
 
 #ifdef __cplusplus
-extern "C" {
+
+#define REDIS_GET_MODULE(module)                                                    \
+    extern "C" redisPlugin* redis_get_module(void)                                  \
+    {                                                                               \
+        return &module;                                                             \
+    }                                                                               \
+
+#else
+
+#define REDIS_GET_MODULE(module)                                                    \
+    redisPlugin* redis_get_module(void)                                             \
+    {                                                                               \
+        return &module;                                                             \
+    }                                                                               \
+
 #endif
 
-typedef void redisPluginInit();
+#define START_FUNCTIONS(functions)                                                  \
+    struct redisCommand functions[] = {                                             \
+
+#define FUNCTION(name, func, arity, sflags, flags)                                  \
+        {name, func, arity, sflags, flags, NULL, 0, 0, 0, 0, 0}                     \
+
+#define END_FUNCTIONS()                                                             \
+        {NULL, NULL, 0, NULL, 0, NULL, 0, 0, 0, 0, 0}                               \
+    };                                                                              \
+
+typedef int redisPluginInit(void);
+
 typedef struct redisPlugin {
-    char* name;
+    const char* name;
     redisPluginInit* init;
+    struct redisCommand* commands;
 } redisPlugin;
 
-#ifdef __cplusplus
-}
-#endif
+int loadServerModule(const char* szModule);
 
 #endif /* __PLUGIN_H__ */
