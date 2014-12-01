@@ -213,11 +213,11 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                 }
 
                 freeReplyObject(reply);
-                // This is an OK for prefix commands such as auth and select.
+                /* This is an OK for prefix commands such as auth and select.*/
                 if (c->prefix_pending > 0) {
                     c->prefix_pending--;
                     c->pending--;
-                    // Discard prefix commands on first response.
+                    /* Discard prefix commands on first response.*/
                     if (c->prefixlen > 0) {
                         size_t j;
                         sdsrange(c->obuf, c->prefixlen, -1);
