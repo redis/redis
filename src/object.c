@@ -120,17 +120,25 @@ robj *createStringObjectFromLongDouble(long double value) {
      * that is "non surprising" for the user (that is, most small decimal
      * numbers will be represented in a way that when converted back into
      * a string are exactly the same as what the user typed.) */
-    len = snprintf(buf,sizeof(buf),"%.17Lf", value);
-    /* Now remove trailing zeroes after the '.' */
-    if (strchr(buf,'.') != NULL) {
-        char *p = buf+len-1;
-        while(*p == '0') {
-            p--;
-            len--;
-        }
-        if (*p == '.') len--;
-    }
+    len = snprintf(buf,sizeof(buf),"%.17Lg", value);
     return createStringObject(buf,len);
+}
+
+robj *createStringObjectFromDouble(double value) {
+    char *d;
+    char buf[64];
+    int len;
+
+    if (isinf(value)) {
+        /* Libc in odd systems (Hi Solaris!) will format infinite in a
+         * different way, so better to handle it in an explicit way. */
+          d = value > 0 ? "inf" : "-inf";
+        len = value > 0 ? 3 : 4;
+    } else {
+        d = buf;
+        len = snprintf(buf,sizeof(buf),"%.17g", value);
+    }
+    return createStringObject(d,len);
 }
 
 /* Duplicate a string object, with the guarantee that the returned object

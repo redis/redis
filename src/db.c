@@ -381,7 +381,7 @@ void scanCallback(void *privdata, const dictEntry *de) {
     } else if (o->type == REDIS_ZSET) {
         key = dictGetKey(de);
         incrRefCount(key);
-        val = createStringObjectFromLongDouble(*(double*)dictGetVal(de));
+        val = createStringObjectFromDouble(*(double *)dictGetVal(de));
     } else {
         redisPanic("Type not handled in SCAN callback.");
     }
