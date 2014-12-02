@@ -124,6 +124,23 @@ robj *createStringObjectFromLongDouble(long double value) {
     return createStringObject(buf,len);
 }
 
+robj *createStringObjectFromDouble(double value) {
+    char *d;
+    char buf[64];
+    int len;
+
+    if (isinf(value)) {
+        /* Libc in odd systems (Hi Solaris!) will format infinite in a
+         * different way, so better to handle it in an explicit way. */
+          d = value > 0 ? "inf" : "-inf";
+        len = value > 0 ? 3 : 4;
+    } else {
+        d = buf;
+        len = snprintf(buf,sizeof(buf),"%.17g", value);
+    }
+    return createStringObject(d,len);
+}
+
 /* Duplicate a string object, with the guarantee that the returned object
  * has the same encoding as the original one.
  *

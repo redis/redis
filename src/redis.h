@@ -1117,6 +1117,7 @@ robj *getDecodedObject(robj *o);
 size_t stringObjectLen(robj *o);
 robj *createStringObjectFromLongLong(long long value);
 robj *createStringObjectFromLongDouble(long double value);
+robj *createStringObjectFromDouble(double value);
 robj *createListObject(void);
 robj *createZiplistObject(void);
 robj *createSetObject(void);
