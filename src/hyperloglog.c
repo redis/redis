@@ -1213,7 +1213,7 @@ void pfcountCommand(redisClient *c) {
         for (j = 1; j < c->argc; j++) {
             /* Check type and size. */
             robj *o = lookupKeyRead(c->db,c->argv[j]);
-            if (o == NULL) continue; /* Assume empty HLL for non existing var. */
+            if (o == NULL) continue; /* Assume empty HLL for non existing var.*/
             if (isHLLObjectOrReply(c,o) != REDIS_OK) return;
 
             /* Merge with this HLL with our 'max' HHL by setting max[i]
