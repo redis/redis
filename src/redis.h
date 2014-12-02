@@ -1116,7 +1116,7 @@ robj *tryObjectEncoding(robj *o);
 robj *getDecodedObject(robj *o);
 size_t stringObjectLen(robj *o);
 robj *createStringObjectFromLongLong(long long value);
-robj *createStringObjectFromLongDouble(long double value);
+robj *createStringObjectFromLongDouble(long double value, int humanfriendly);
 robj *createListObject(void);
 robj *createZiplistObject(void);
 robj *createSetObject(void);
