@@ -839,6 +839,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
          *
          * However if we are over the maxmemory limit we ignore that and
          * just deliver as much data as it is possible to deliver. */
+        server.stat_net_output_bytes += totwritten;
         if (totwritten > REDIS_MAX_WRITE_PER_EVENT &&
             (server.maxmemory == 0 ||
              zmalloc_used_memory() < server.maxmemory)) break;
@@ -1181,6 +1182,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         sdsIncrLen(c->querybuf,nread);
         c->lastinteraction = server.unixtime;
         if (c->flags & REDIS_MASTER) c->reploff += nread;
+        server.stat_net_input_bytes += nread;
     } else {
         server.current_client = NULL;
         return;
