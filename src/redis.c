@@ -825,27 +825,30 @@ void updateLRUClock(void) {
 
 
 /* Add a sample to the operations per second array of samples. */
-void trackOperationsPerSecond(void) {
-    long long t = mstime() - server.ops_sec_last_sample_time;
-    long long ops = server.stat_numcommands - server.ops_sec_last_sample_ops;
+void trackInstantaneousMetric(int metric, long long current_reading) {
+    long long t = mstime() - server.inst_metric[metric].last_sample_time;
+    long long ops = current_reading -
+                    server.inst_metric[metric].last_sample_count;
     long long ops_sec;
 
     ops_sec = t > 0 ? (ops*1000/t) : 0;
 
-    server.ops_sec_samples[server.ops_sec_idx] = ops_sec;
-    server.ops_sec_idx = (server.ops_sec_idx+1) % REDIS_OPS_SEC_SAMPLES;
-    server.ops_sec_last_sample_time = mstime();
-    server.ops_sec_last_sample_ops = server.stat_numcommands;
+    server.inst_metric[metric].samples[server.inst_metric[metric].idx] =
+        ops_sec;
+    server.inst_metric[metric].idx++;
+    server.inst_metric[metric].idx %= REDIS_METRIC_SAMPLES;
+    server.inst_metric[metric].last_sample_time = mstime();
+    server.inst_metric[metric].last_sample_count = current_reading;
 }
 
 /* Return the mean of all the samples. */
-long long getOperationsPerSecond(void) {
+long long getInstantaneousMetric(int metric) {
     int j;
     long long sum = 0;
 
-    for (j = 0; j < REDIS_OPS_SEC_SAMPLES; j++)
-        sum += server.ops_sec_samples[j];
-    return sum / REDIS_OPS_SEC_SAMPLES;
+    for (j = 0; j < REDIS_METRIC_SAMPLES; j++)
+        sum += server.inst_metric[metric].samples[j];
+    return sum / REDIS_METRIC_SAMPLES;
 }
 
 /* Check for timeouts. Returns non-zero if the client was terminated */
@@ -1012,7 +1015,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Update the time cache. */
     updateCachedTime();
 
-    run_with_period(100) trackOperationsPerSecond();
+    run_with_period(100) {
+        trackInstantaneousMetric(REDIS_METRIC_COMMAND,server.stat_numcommands);
+        trackInstantaneousMetric(REDIS_METRIC_NET_INPUT,
+                server.stat_net_input_bytes);
+        trackInstantaneousMetric(REDIS_METRIC_NET_OUTPUT,
+                server.stat_net_output_bytes);
+    }
 
     /* We have just 22 bits per object for LRU information.
      * So we use an (eventually wrapping) LRU clock with 10 seconds resolution.
@@ -1596,6 +1605,8 @@ int listenToPort(int port, int *fds, int *count) {
  * to reset via CONFIG RESETSTAT. The function is also used in order to
  * initialize these fields in initServer() at server startup. */
 void resetServerStats(void) {
+    int j;
+
     server.stat_numcommands = 0;
     server.stat_numconnections = 0;
     server.stat_expiredkeys = 0;
@@ -1608,10 +1619,15 @@ void resetServerStats(void) {
     server.stat_sync_full = 0;
     server.stat_sync_partial_ok = 0;
     server.stat_sync_partial_err = 0;
-    memset(server.ops_sec_samples,0,sizeof(server.ops_sec_samples));
-    server.ops_sec_idx = 0;
-    server.ops_sec_last_sample_time = mstime();
-    server.ops_sec_last_sample_ops = 0;
+    for (j = 0; j < REDIS_METRIC_COUNT; j++) {
+        server.inst_metric[j].idx = 0;
+        server.inst_metric[j].last_sample_time = mstime();
+        server.inst_metric[j].last_sample_count = 0;
+        memset(server.inst_metric[j].samples,0,
+            sizeof(server.inst_metric[j].samples));
+    }
+    server.stat_net_input_bytes = 0;
+    server.stat_net_output_bytes = 0;
 }
 
 void initServer(void) {
@@ -2633,6 +2649,10 @@ sds genRedisInfoString(char *section) {
             "total_connections_received:%lld\r\n"
             "total_commands_processed:%lld\r\n"
             "instantaneous_ops_per_sec:%lld\r\n"
+            "total_net_input_bytes:%lld\r\n"
+            "total_net_output_bytes:%lld\r\n"
+            "instantaneous_input_kbps:%.2f\r\n"
+            "instantaneous_output_kbps:%.2f\r\n"
             "rejected_connections:%lld\r\n"
             "sync_full:%lld\r\n"
             "sync_partial_ok:%lld\r\n"
@@ -2646,7 +2666,11 @@ sds genRedisInfoString(char *section) {
             "latest_fork_usec:%lld\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
-            getOperationsPerSecond(),
+            getInstantaneousMetric(REDIS_METRIC_COMMAND),
+            server.stat_net_input_bytes,
+            server.stat_net_output_bytes,
+            (float)getInstantaneousMetric(REDIS_METRIC_NET_INPUT)/1024,
+            (float)getInstantaneousMetric(REDIS_METRIC_NET_OUTPUT)/1024,
             server.stat_rejected_conn,
             server.stat_sync_full,
             server.stat_sync_partial_ok,
