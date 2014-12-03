@@ -97,7 +97,6 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_REPL_PING_SLAVE_PERIOD 10
 #define REDIS_RUN_ID_SIZE 40
 #define REDIS_EOF_MARK_SIZE 40
-#define REDIS_OPS_SEC_SAMPLES 16
 #define REDIS_DEFAULT_REPL_BACKLOG_SIZE (1024*1024)    /* 1mb */
 #define REDIS_DEFAULT_REPL_BACKLOG_TIME_LIMIT (60*60)  /* 1 hour */
 #define REDIS_REPL_BACKLOG_MIN_SIZE (1024*16)          /* 16k */
@@ -139,6 +138,13 @@ typedef long long mstime_t; /* millisecond time type. */
 #define ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC 25 /* CPU max % for keys collection */
 #define ACTIVE_EXPIRE_CYCLE_SLOW 0
 #define ACTIVE_EXPIRE_CYCLE_FAST 1
+
+/* Instantaneous metrics tracking. */
+#define REDIS_METRIC_SAMPLES 16     /* Number of samples per metric. */
+#define REDIS_METRIC_COMMAND 0      /* Number of commands executed. */
+#define REDIS_METRIC_NET_INPUT 1    /* Bytes read to network .*/
+#define REDIS_METRIC_NET_OUTPUT 2   /* Bytes written to network. */
+#define REDIS_METRIC_COUNT 3
 
 /* Protocol and I/O related defines */
 #define REDIS_MAX_QUERYBUF_LEN  (1024*1024*1024) /* 1GB max query buffer. */
@@ -710,12 +716,16 @@ struct redisServer {
     long long slowlog_log_slower_than; /* SLOWLOG time limit (to get logged) */
     unsigned long slowlog_max_len;     /* SLOWLOG max number of items logged */
     size_t resident_set_size;       /* RSS sampled in serverCron(). */
-    /* The following two are used to track instantaneous "load" in terms
-     * of operations per second. */
-    long long ops_sec_last_sample_time; /* Timestamp of last sample (in ms) */
-    long long ops_sec_last_sample_ops;  /* numcommands in last sample */
-    long long ops_sec_samples[REDIS_OPS_SEC_SAMPLES];
-    int ops_sec_idx;
+    long long stat_net_input_bytes; /* Bytes read from network. */
+    long long stat_net_output_bytes; /* Bytes written to network. */
+    /* The following two are used to track instantaneous metrics, like
+     * number of operations per second, network traffic. */
+    struct {
+        long long last_sample_time; /* Timestamp of last sample in ms */
+        long long last_sample_count;/* Count in last sample */
+        long long samples[REDIS_METRIC_SAMPLES];
+        int idx;
+    } inst_metric[REDIS_METRIC_COUNT];
     /* Configuration */
     int verbosity;                  /* Loglevel in redis.conf */
     int maxidletime;                /* Client timeout in seconds */
