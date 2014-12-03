@@ -360,7 +360,7 @@ void bitopCommand(redisClient *c) {
          * can take a fast path that performs much better than the
          * vanilla algorithm. */
         j = 0;
-        if (minlen && numkeys <= 16) {
+        if (minlen >= sizeof(unsigned long)*4 && numkeys <= 16) {
             unsigned long *lp[16];
             unsigned long *lres = (unsigned long*) res;
 
