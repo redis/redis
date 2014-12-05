@@ -3,7 +3,7 @@
 #!/bin/bash
 nsamples=1
 sleeptime=0
-pid=$(pidof redis-server)
+pid=$(ps auxww | grep 'redis-server' | grep -v grep | awk '{print $2}')
 
 for x in $(seq 1 $nsamples)
   do
