@@ -18,14 +18,8 @@
     #define LUACMSGPACK_MAX_NESTING  16 /* Max tables nesting. */
 #endif
 
-#if (_XOPEN_SOURCE >= 600 || _ISOC99_SOURCE || _POSIX_C_SOURCE >= 200112L)
-    #define IS_FINITE(x) isfinite(x)
-#else
-    #define IS_FINITE(x) ((x) == (x) && (x) + 1 > (x))
-#endif
-
 /* Check if float or double can be an integer without loss of precision */
-#define IS_INT_TYPE_EQUIVALENT(x, T) (IS_FINITE(x) && (T)(x) == (x))
+#define IS_INT_TYPE_EQUIVALENT(x, T) (!isinf(x) && (T)(x) == (x))
 
 #define IS_INT64_EQUIVALENT(x) IS_INT_TYPE_EQUIVALENT(x, int64_t)
 #define IS_INT_EQUIVALENT(x) IS_INT_TYPE_EQUIVALENT(x, int)
