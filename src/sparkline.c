@@ -63,7 +63,7 @@ struct sequence *createSparklineSequence(void) {
 
 /* Add a new sample into a sequence. */
 void sparklineSequenceAddSample(struct sequence *seq, double value, char *label) {
-    label = label == NULL ? label : zstrdup(label);
+    label = (label == NULL || label[0] == '\0') ? NULL : zstrdup(label);
     if (seq->length == 0) {
         seq->min = seq->max = value;
     } else {
