@@ -1915,8 +1915,6 @@ int main(int argc, char **argv) {
     argc -= firstarg;
     argv += firstarg;
 
-    signal(SIGPIPE, SIG_IGN);
-
     /* Latency mode */
     if (config.latency_mode) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
@@ -1965,6 +1963,9 @@ int main(int argc, char **argv) {
 
     /* Start interactive mode when no command is provided */
     if (argc == 0 && !config.eval) {
+        /* Ignore SIGPIPE in interactive mode to force a reconnect */
+        signal(SIGPIPE, SIG_IGN);
+
         /* Note that in repl mode we don't abort on connection error.
          * A new attempt will be performed for every command send. */
         cliConnect(0);
