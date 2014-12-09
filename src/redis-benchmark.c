@@ -93,6 +93,8 @@ typedef struct _client {
     int selectlen;  /* If non-zero, a SELECT of 'selectlen' bytes is currently
                        used as a prefix of the pipline of commands. This gets
                        discarded the first time it's sent. */
+    int authed; /* true if already added AUTH to buffer */
+    int authlen; /* see selectlen comment above*/
 } *client;
 
 /* Prototypes */
@@ -213,6 +215,23 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
                 freeReplyObject(reply);
 
+                if (c->authlen) {
+                    size_t j;
+
+                    /* This is the OK from AUTH. Just discard the AUTH
+                     * from the buffer. */
+                    /* Note: there is no error checking here.  If user provides
+                     * incorrect password, there's no notification. */
+                    c->pending--;
+                    sdsrange(c->obuf,c->authlen,-1);
+                    /* We also need to fix the pointers to the strings
+                     * we need to randomize. */
+                    for (j = 0; j < c->randlen; j++)
+                        c->randptr[j] -= c->authlen;
+                    c->authlen = 0;
+                    continue;
+                }
+
                 if (c->selectlen) {
                     size_t j;
 
@@ -303,7 +322,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
  * if needed. */
 static client createClient(char *cmd, size_t len, client from) {
     int j;
-    client c = zmalloc(sizeof(struct _client));
+    client c = zcalloc(sizeof(struct _client));
 
     if (config.hostsocket == NULL) {
         c->context = redisConnectNonBlock(config.hostip,config.hostport);
@@ -326,11 +345,13 @@ static client createClient(char *cmd, size_t len, client from) {
      * the example client buffer. */
     c->obuf = sdsempty();
 
-    if (config.auth) {
+    if (config.auth && !c->authed) {
         char *buf = NULL;
         int len = redisFormatCommand(&buf, "AUTH %s", config.auth);
         c->obuf = sdscatlen(c->obuf, buf, len);
         free(buf);
+        c->authlen = sdslen(c->obuf);
+        c->authed = 1;
     }
 
     /* If a DB number different than zero is selected, prefix our request
@@ -348,8 +369,8 @@ static client createClient(char *cmd, size_t len, client from) {
     /* Append the request itself. */
     if (from) {
         c->obuf = sdscatlen(c->obuf,
-            from->obuf+from->selectlen,
-            sdslen(from->obuf)-from->selectlen);
+            from->obuf+from->authlen+from->selectlen,
+            sdslen(from->obuf)-from->authlen-from->selectlen);
     } else {
         for (j = 0; j < config.pipeline; j++)
             c->obuf = sdscatlen(c->obuf,cmd,len);
@@ -359,6 +380,7 @@ static client createClient(char *cmd, size_t len, client from) {
     c->pending = config.pipeline;
     c->randptr = NULL;
     c->randlen = 0;
+    if (c->authlen) c->pending++;
     if (c->selectlen) c->pending++;
 
     /* Find substrings in the output buffer that need to be randomized. */
@@ -370,6 +392,8 @@ static client createClient(char *cmd, size_t len, client from) {
             /* copy the offsets. */
             for (j = 0; j < (int)c->randlen; j++) {
                 c->randptr[j] = c->obuf + (from->randptr[j]-from->obuf);
+                /* Adjust for the different auth prefix length. */
+                c->randptr[j] += c->authlen - from->authlen;
                 /* Adjust for the different select prefix length. */
                 c->randptr[j] += c->selectlen - from->selectlen;
             }
