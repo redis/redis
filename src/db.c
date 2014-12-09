@@ -96,6 +96,7 @@ void dbAdd(redisDb *db, robj *key, robj *val) {
 
     redisAssertWithInfo(NULL,key,retval == REDIS_OK);
     if (val->type == REDIS_LIST) signalListAsReady(db, key);
+    //TODO:QUEUE
     if (server.cluster_enabled) slotToKeyAdd(key);
  }
 
@@ -626,6 +627,7 @@ void typeCommand(redisClient *c) {
         case REDIS_SET: type = "set"; break;
         case REDIS_ZSET: type = "zset"; break;
         case REDIS_HASH: type = "hash"; break;
+        case REDIS_QUEUE: type = "queue"; break;
         default: type = "unknown"; break;
         }
     }
