@@ -35,6 +35,9 @@
 #include <errno.h>
 #include <termios.h>
 #include <sys/ioctl.h>
+#if defined(__sun)
+#include <stropts.h>
+#endif
 #include "config.h"
 
 #if (ULONG_MAX == 4294967295UL)

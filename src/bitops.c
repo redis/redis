@@ -70,16 +70,19 @@ size_t redisPopcount(void *s, long count) {
         count--;
     }
 
-    /* Count bits 16 bytes at a time */
+    /* Count bits 28 bytes at a time */
     p4 = (uint32_t*)p;
-    while(count>=16) {
-        uint32_t aux1, aux2, aux3, aux4;
+    while(count>=28) {
+        uint32_t aux1, aux2, aux3, aux4, aux5, aux6, aux7;
 
         aux1 = *p4++;
         aux2 = *p4++;
         aux3 = *p4++;
         aux4 = *p4++;
-        count -= 16;
+        aux5 = *p4++;
+        aux6 = *p4++;
+        aux7 = *p4++;
+        count -= 28;
 
         aux1 = aux1 - ((aux1 >> 1) & 0x55555555);
         aux1 = (aux1 & 0x33333333) + ((aux1 >> 2) & 0x33333333);
@@ -89,10 +92,19 @@ size_t redisPopcount(void *s, long count) {
         aux3 = (aux3 & 0x33333333) + ((aux3 >> 2) & 0x33333333);
         aux4 = aux4 - ((aux4 >> 1) & 0x55555555);
         aux4 = (aux4 & 0x33333333) + ((aux4 >> 2) & 0x33333333);
-        bits += ((((aux1 + (aux1 >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24) +
-                ((((aux2 + (aux2 >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24) +
-                ((((aux3 + (aux3 >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24) +
-                ((((aux4 + (aux4 >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24);
+        aux5 = aux5 - ((aux5 >> 1) & 0x55555555);
+        aux5 = (aux5 & 0x33333333) + ((aux5 >> 2) & 0x33333333);
+        aux6 = aux6 - ((aux6 >> 1) & 0x55555555);
+        aux6 = (aux6 & 0x33333333) + ((aux6 >> 2) & 0x33333333);
+        aux7 = aux7 - ((aux7 >> 1) & 0x55555555);
+        aux7 = (aux7 & 0x33333333) + ((aux7 >> 2) & 0x33333333);
+        bits += ((((aux1 + (aux1 >> 4)) & 0x0F0F0F0F) +
+                    ((aux2 + (aux2 >> 4)) & 0x0F0F0F0F) +
+                    ((aux3 + (aux3 >> 4)) & 0x0F0F0F0F) +
+                    ((aux4 + (aux4 >> 4)) & 0x0F0F0F0F) +
+                    ((aux5 + (aux5 >> 4)) & 0x0F0F0F0F) +
+                    ((aux6 + (aux6 >> 4)) & 0x0F0F0F0F) +
+                    ((aux7 + (aux7 >> 4)) & 0x0F0F0F0F))* 0x01010101) >> 24;
     }
     /* Count the remaining bytes. */
     p = (unsigned char*)p4;
@@ -348,7 +360,7 @@ void bitopCommand(redisClient *c) {
          * can take a fast path that performs much better than the
          * vanilla algorithm. */
         j = 0;
-        if (minlen && numkeys <= 16) {
+        if (minlen >= sizeof(unsigned long)*4 && numkeys <= 16) {
             unsigned long *lp[16];
             unsigned long *lres = (unsigned long*) res;
 
