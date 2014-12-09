@@ -51,10 +51,9 @@
  * <len> is the length of the following string (key or value).
  * <len> lengths are encoded in a single value or in a 5 bytes value.
  * If the first byte value (as an unsigned 8 bit value) is between 0 and
- * 252, it's a single-byte length. If it is 253 then a four bytes unsigned
+ * 253, it's a single-byte length. If it is 254 then a four bytes unsigned
  * integer follows (in the host byte ordering). A value of 255 is used to
- * signal the end of the hash. The special value 254 is used to mark
- * empty space that can be used to add new key/value pairs.
+ * signal the end of the hash.
  *
  * <free> is the number of free unused bytes after the string, resulting
  * from modification of values associated to a key. For instance if "foo"
