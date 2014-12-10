@@ -1014,6 +1014,18 @@ int main(void) {
             memcmp(x,"--4294967295,18446744073709551615--",35) == 0)
 
         sdsfree(x);
+        x = sdsnew(" x ");
+        sdstrim(x," x");
+        test_cond("sdstrim() works when all chars match",
+            sdslen(x) == 0)
+
+        sdsfree(x);
+        x = sdsnew(" x ");
+        sdstrim(x," ");
+        test_cond("sdstrim() works when a single char remains",
+            sdslen(x) == 1 && x[0] == 'x')
+
+        sdsfree(x);
         x = sdsnew("xxciaoyyy");
         sdstrim(x,"xy");
         test_cond("sdstrim() correctly trims characters",
