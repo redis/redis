@@ -60,7 +60,11 @@ robj *lookupKey(redisDb *db, robj *key) {
 robj *lookupKeyRead(redisDb *db, robj *key) {
     robj *val;
 
-    expireIfNeeded(db,key);
+    int retval = expireIfNeeded(db,key);
+    if (retval > 0) {
+        server.stat_keyspace_misses++;
+        return NULL;
+    }
     val = lookupKey(db,key);
     if (val == NULL)
         server.stat_keyspace_misses++;
