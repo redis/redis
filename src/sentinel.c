@@ -2796,10 +2796,8 @@ void sentinelCommand(redisClient *c) {
          */
         dictType copy_keeper = instancesDictType;
         copy_keeper.valDestructor = NULL;
-        dict *masters_local = NULL;
-        if (c->argc == 2) {
-            masters_local = sentinel.masters;
-        } else {
+        dict *masters_local = sentinel.masters;
+        if (c->argc > 2) {
             masters_local = dictCreate(&copy_keeper, NULL);
 
             for (int i = 2; i < c->argc; i++) {
