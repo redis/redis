@@ -123,7 +123,7 @@ HISTORY for Lua 5.1
       o:f(x,y):g(z)
       f"string" is sugar for f("string")
   + strings may now contain arbitrary binary data (e.g., embedded zeros).
-  + major code re-organization and clean-up; reduced module interdependecies.
+  + major code re-organization and clean-up; reduced module interdependencies.
   + no arbitrary limits on the total number of constants and globals.
   + support for multiple global contexts.
   + better syntax error messages.

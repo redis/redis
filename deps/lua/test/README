@@ -21,6 +21,6 @@ Here is a one-line summary of each program:
    sort.lua		two implementations of a sort function
    table.lua		make table, grouping all data for the same item
    trace-calls.lua	trace calls
-   trace-globals.lua	trace assigments to global variables
+   trace-globals.lua	trace assignments to global variables
    xd.lua		hex dump
 

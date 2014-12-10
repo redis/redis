@@ -660,7 +660,7 @@ void freeClient(redisClient *c) {
     /* If this is marked as current client unset it */
     if (server.current_client == c) server.current_client = NULL;
 
-    /* If it is our master that's beging disconnected we should make sure
+    /* If it is our master that's beginning disconnected we should make sure
      * to cache the state to try a partial resynchronization later.
      *
      * Note that before doing this we make sure that the client is not in

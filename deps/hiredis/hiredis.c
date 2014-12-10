@@ -1162,10 +1162,10 @@ int redisBufferRead(redisContext *c) {
 /* Write the output buffer to the socket.
  *
  * Returns REDIS_OK when the buffer is empty, or (a part of) the buffer was
- * succesfully written to the socket. When the buffer is empty after the
+ * successfully written to the socket. When the buffer is empty after the
  * write operation, "done" is set to 1 (if given).
  *
- * Returns REDIS_ERR if an error occured trying to write and sets
+ * Returns REDIS_ERR if an error occurred trying to write and sets
  * c->errstr to hold the appropriate error string.
  */
 int redisBufferWrite(redisContext *c, int *done) {
@@ -1321,7 +1321,7 @@ int redisAppendCommandArgv(redisContext *c, int argc, const char **argv, const s
  * context is non-blocking, the "reply" pointer will not be used and the
  * command is simply appended to the write buffer.
  *
- * Returns the reply when a reply was succesfully retrieved. Returns NULL
+ * Returns the reply when a reply was successfully retrieved. Returns NULL
  * otherwise. When NULL is returned in a blocking context, the error field
  * in the context will be set.
  */
