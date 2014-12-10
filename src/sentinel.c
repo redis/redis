@@ -2790,13 +2790,9 @@ void sentinelCommand(redisClient *c) {
          *   1.) master name
          *   2.) 1.) info from master
          *       2.) info from replica
-         *       .
-         *       .
-         *   3.) next master name ...
-         *   4.) 1.) info from master
-         *       2.) info from replica
-         *       .
-         *       .
+         *       ...
+         *   3.) other master name
+         *   ...
          */
         dictType copy_keeper = instancesDictType;
         copy_keeper.valDestructor = NULL;
