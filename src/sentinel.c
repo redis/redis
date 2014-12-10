@@ -2786,14 +2786,10 @@ void sentinelCommand(redisClient *c) {
         sentinelSetCommand(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"info-cache")) {
         if (c->argc < 2) goto numargserr;
-        /* Reply format:
-         *   1.) master name
-         *   2.) 1.) info from master
-         *       2.) info from replica
-         *       ...
-         *   3.) other master name
-         *   ...
-         */
+
+        /* Create an ad-hoc dictionary type so that we can iterate
+         * a dictionary composed of just the master groups the user
+         * requested. */
         dictType copy_keeper = instancesDictType;
         copy_keeper.valDestructor = NULL;
         dict *masters_local = sentinel.masters;
@@ -2808,8 +2804,14 @@ void sentinelCommand(redisClient *c) {
             }
         }
 
-        /* Now we can iterate over individually requested masters the
-         * same way we iterate over the entire sentinel->masters dict. */
+        /* Reply format:
+         *   1.) master name
+         *   2.) 1.) info from master
+         *       2.) info from replica
+         *       ...
+         *   3.) other master name
+         *   ...
+         */
         addReplyMultiBulkLen(c,dictSize(masters_local) * 2);
 
         dictIterator  *di;
