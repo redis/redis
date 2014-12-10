@@ -60,7 +60,32 @@ robj *lookupKey(redisDb *db, robj *key) {
 robj *lookupKeyRead(redisDb *db, robj *key) {
     robj *val;
 
-    expireIfNeeded(db,key);
+    if (expireIfNeeded(db,key) == 1) {
+        /* Key expired. If we are in the context of a master, expireIfNeeded()
+         * returns 0 only when the key does not exist at all, so it's save
+         * to return NULL ASAP. */
+        if (server.masterhost == NULL) return NULL;
+
+        /* However if we are in the context of a slave, expireIfNeeded() will
+         * not really try to expire the key, it only returns information
+         * about the "logical" status of the key: key expiring is up to the
+         * master in order to have a consistent view of master's data set.
+         *
+         * However, if the command caller is not the master, and as additional
+         * safety measure, the command invoked is a read-only command, we can
+         * safely return NULL here, and provide a more consistent behavior
+         * to clients accessign expired values in a read-only fashion, that
+         * will say the key as non exisitng.
+         *
+         * Notably this covers GETs when slaves are used to scale reads. */
+        if (server.current_client &&
+            server.current_client != server.master &&
+            server.current_client->cmd &&
+            server.current_client->cmd->flags & REDIS_CMD_READONLY)
+        {
+            return NULL;
+        }
+    }
     val = lookupKey(db,key);
     if (val == NULL)
         server.stat_keyspace_misses++;
@@ -877,7 +902,7 @@ void expireGenericCommand(redisClient *c, long long basetime, int unit) {
     when += basetime;
 
     /* No key, return zero. */
-    if (lookupKeyRead(c->db,key) == NULL) {
+    if (lookupKeyWrite(c->db,key) == NULL) {
         addReply(c,shared.czero);
         return;
     }

@@ -334,7 +334,7 @@ void pushxGenericCommand(redisClient *c, robj *refval, robj *val, int where) {
     listTypeEntry entry;
     int inserted = 0;
 
-    if ((subject = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
+    if ((subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,subject,REDIS_LIST)) return;
 
     if (refval != NULL) {
