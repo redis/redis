@@ -88,6 +88,17 @@ void sdsfree(sds s) {
     zfree(s-sizeof(struct sdshdr));
 }
 
+/* Remove sds header so we can use buffer as malloc'd byte array.
+ * Returns the contents of 's' usable as a full malloc'd C string. */
+char *sdsnative(sds s) {
+    if (!s) return NULL;
+
+    size_t len = sdslen(s);
+    char *base = s-sizeof(struct sdshdr);
+    memmove(base, s, len);
+    return zrealloc(base, len);
+}
+
 /* Set the sds string length to the length as obtained with strlen(), so
  * considering as content only up to the first null term character.
  *
