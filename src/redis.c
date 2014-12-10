@@ -3534,9 +3534,6 @@ int redisIsSupervised(void) {
         return 0;
 
     if (upstart_job != NULL) {
-        if (strcmp(upstart_job, "redis") != 0)
-            return 0;
-
         redisLog(REDIS_NOTICE, "supervised by upstart, will stop to signal readyness");
         raise(SIGSTOP);
         unsetenv("UPSTART_JOB");
