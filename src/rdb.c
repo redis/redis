@@ -981,13 +981,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                rdbtype == REDIS_RDB_TYPE_ZSET_ZIPLIST ||
                rdbtype == REDIS_RDB_TYPE_HASH_ZIPLIST)
     {
-        robj *aux = rdbLoadStringObject(rdb);
-
-        if (aux == NULL) return NULL;
-        o = createObject(REDIS_STRING,NULL); /* string is just placeholder */
-        o->ptr = zmalloc(sdslen(aux->ptr));
-        memcpy(o->ptr,aux->ptr,sdslen(aux->ptr));
-        decrRefCount(aux);
+        o = rdbLoadStringObject(rdb);
+        if (o == NULL) return NULL;
+        o->ptr = sdsnative(o->ptr);
 
         /* Fix the object encoding, and make sure to convert the encoded
          * data type into the base type if accordingly to the current
