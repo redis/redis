@@ -221,6 +221,10 @@ lcov:
 	@geninfo -o redis.info .
 	@genhtml --legend -o lcov-html redis.info
 
+test-sds: sds.c sds.h
+	$(REDIS_CC) sds.c zmalloc.c -DSDS_TEST_MAIN -o /tmp/sds_test
+	/tmp/sds_test
+
 .PHONY: lcov
 
 bench: $(REDIS_BENCHMARK_NAME)
