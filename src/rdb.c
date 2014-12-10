@@ -434,7 +434,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         return rdbSaveType(rdb,REDIS_RDB_TYPE_STRING);
     case REDIS_LIST:
         if (o->encoding == REDIS_ENCODING_QUICKLIST)
-            return rdbSaveType(rdb,REDIS_RDB_TYPE_LIST);
+            return rdbSaveType(rdb,REDIS_RDB_TYPE_LIST_QUICKLIST);
         else
             redisPanic("Unknown list encoding");
     case REDIS_SET:
@@ -484,22 +484,16 @@ int rdbSaveObject(rio *rdb, robj *o) {
     } else if (o->type == REDIS_LIST) {
         /* Save a list value */
         if (o->encoding == REDIS_ENCODING_QUICKLIST) {
-            quicklist *list = o->ptr;
-            quicklistIter *li = quicklistGetIterator(list, AL_START_HEAD);
-            quicklistEntry entry;
+            quicklist *ql = o->ptr;
+            quicklistNode *node = ql->head;
 
-            if ((n = rdbSaveLen(rdb,quicklistCount(list))) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,ql->len)) == -1) return -1;
             nwritten += n;
 
-            while (quicklistNext(li,&entry)) {
-                if (entry.value) {
-                    if ((n = rdbSaveRawString(rdb,entry.value,entry.sz)) == -1) return -1;
-                } else {
-                    if ((n = rdbSaveLongLongAsStringObject(rdb,entry.longval)) == -1) return -1;
-                }
+            do {
+                if ((n = rdbSaveRawString(rdb,node->zl,node->sz)) == -1) return -1;
                 nwritten += n;
-            }
-            quicklistReleaseIterator(li);
+            } while ((node = node->next));
         } else {
             redisPanic("Unknown list encoding");
         }
@@ -974,7 +968,19 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 
         /* All pairs should be read by now */
         redisAssert(len == 0);
+    } else if (rdbtype == REDIS_RDB_TYPE_LIST_QUICKLIST) {
+        if ((len = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
+        o = createQuicklistObject();
 
+        while (len--) {
+            if ((ele = rdbLoadStringObject(rdb)) == NULL) return NULL;
+            /* 'ele' contains a sds of the ziplist, but we need to extract
+             * the actual ziplist for future usage. We must copy the
+             * sds contents to a new buffer. */
+            unsigned char *zl = (unsigned char *)sdsnative(ele->ptr);
+            zfree(ele); /* free robj container since we keep the ziplist */
+            quicklistAppendZiplist(o->ptr, zl);
+        }
     } else if (rdbtype == REDIS_RDB_TYPE_HASH_ZIPMAP  ||
                rdbtype == REDIS_RDB_TYPE_LIST_ZIPLIST ||
                rdbtype == REDIS_RDB_TYPE_SET_INTSET   ||
