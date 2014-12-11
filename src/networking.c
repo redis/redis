@@ -1230,7 +1230,7 @@ void getClientsMaxBuffers(unsigned long *longest_output_list,
  * On failure the function still populates 'peerid' with the "?:0" string
  * in case you want to relax error checking or need to display something
  * anyway (see anetPeerToString implementation for more info). */
-static void genClientPeerId(redisClient *client, char *peerid,
+void genClientPeerId(redisClient *client, char *peerid,
                             size_t peerid_len) {
     if (client->flags & REDIS_UNIX_SOCKET) {
         /* Unix socket client. */

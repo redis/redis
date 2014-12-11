@@ -1031,9 +1031,11 @@ sentinelRedisInstance *sentinelRedisInstanceLookupSlave(
 {
     sds key;
     sentinelRedisInstance *slave;
+    char buf[REDIS_PEER_ID_LEN];
 
     redisAssert(ri->flags & SRI_MASTER);
-    key = sdsformatip(ip, port);
+    anetFormatAddr(buf,sizeof(buf),ip,port);
+    key = sdsnew(buf);
     slave = dictFetchValue(ri->slaves,key);
     sdsfree(key);
     return slave;

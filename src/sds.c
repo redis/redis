@@ -962,15 +962,6 @@ sds sdsjoin(char **argv, int argc, char *sep) {
     return join;
 }
 
-sds sdsformatip(char *ip, int port) {
-    if (port >= 0)
-        return sdscatfmt(sdsempty(),
-            strchr(ip,':') ? "[%s]:%i" : "%s:%i", ip, port);
-    else
-        return sdscatfmt(sdsempty(),
-            strchr(ip,':') ? "[%s]" : "%s", ip);
-}
-
 #ifdef SDS_TEST_MAIN
 #include <stdio.h>
 #include "testhelp.h"
