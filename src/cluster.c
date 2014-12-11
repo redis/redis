@@ -1553,7 +1553,7 @@ int clusterProcessPacket(clusterLink *link) {
             {
                 memcpy(myself->ip,ip,REDIS_IP_STR_LEN);
 
-                anetFormatIP(ip, sizeof(ip), myself->ip, -1);
+                anetFormatAddr(ip, sizeof(ip), myself->ip, -1);
                 redisLog(REDIS_WARNING,"IP address for this node updated to %s",
                     ip);
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
