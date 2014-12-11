@@ -67,14 +67,11 @@ static const size_t optimization_level[] = { 4096, 8192, 16384, 32768, 65536 };
     } while (0)
 
 /* Create a new quicklist.
- * Free with quicklistRelease().
- *
- * On error, NULL is returned. Otherwise the pointer to the new quicklist. */
+ * Free with quicklistRelease(). */
 quicklist *quicklistCreate(void) {
     struct quicklist *quicklist;
 
-    if ((quicklist = zmalloc(sizeof(*quicklist))) == NULL)
-        return NULL;
+    quicklist = zmalloc(sizeof(*quicklist));
     quicklist->head = quicklist->tail = NULL;
     quicklist->len = 0;
     quicklist->count = 0;
@@ -83,8 +80,7 @@ quicklist *quicklistCreate(void) {
 
 static quicklistNode *quicklistCreateNode(void) {
     quicklistNode *node;
-    if ((node = zmalloc(sizeof(*node))) == NULL)
-        return NULL;
+    node = zmalloc(sizeof(*node));
     node->zl = NULL;
     node->count = 0;
     node->sz = 0;
@@ -537,14 +533,7 @@ static quicklistNode *_quicklistSplitNode(quicklistNode *node, int offset,
     size_t zl_sz = ziplistBlobLen(node->zl);
 
     quicklistNode *new_node = quicklistCreateNode();
-    if (!new_node)
-        return NULL;
-
     new_node->zl = zmalloc(zl_sz);
-    if (!new_node->zl) {
-        zfree(new_node);
-        return NULL;
-    }
 
     /* Copy original ziplist so we can split it */
     memcpy(new_node->zl, node->zl, zl_sz);
@@ -782,8 +771,7 @@ int quicklistCompare(unsigned char *p1, unsigned char *p2, int p2_len) {
 quicklistIter *quicklistGetIterator(const quicklist *quicklist, int direction) {
     quicklistIter *iter;
 
-    if ((iter = zmalloc(sizeof(*iter))) == NULL)
-        return NULL;
+    iter = zmalloc(sizeof(*iter));
 
     if (direction == AL_START_HEAD) {
         iter->current = quicklist->head;
@@ -904,7 +892,7 @@ int quicklistNext(quicklistIter *iter, quicklistEntry *entry) {
     }
 }
 
-/* Duplicate the quicklist. On out of memory NULL is returned.
+/* Duplicate the quicklist.
  * On success a copy of the original quicklist is returned.
  *
  * The original quicklist both on success or error is never modified.
@@ -912,20 +900,15 @@ int quicklistNext(quicklistIter *iter, quicklistEntry *entry) {
  * Returns newly allocated quicklist. */
 quicklist *quicklistDup(quicklist *orig) {
     quicklist *copy;
-    int failure = 0;
 
-    if ((copy = quicklistCreate()) == NULL)
-        return NULL;
+    copy = quicklistCreate();
 
     for (quicklistNode *current = orig->head; current;
          current = current->next) {
         quicklistNode *node = quicklistCreateNode();
 
         size_t ziplen = ziplistBlobLen(current->zl);
-        if ((node->zl = zmalloc(ziplen)) == NULL) {
-            failure = 1;
-            break;
-        }
+        node->zl = zmalloc(ziplen);
         memcpy(node->zl, current->zl, ziplen);
 
         node->count = current->count;
@@ -936,12 +919,6 @@ quicklist *quicklistDup(quicklist *orig) {
     }
 
     /* copy->count must equal orig->count here */
-
-    if (failure) {
-        quicklistRelease(copy);
-        return NULL;
-    }
-
     return copy;
 }
 
@@ -1100,8 +1077,7 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
 static void *_quicklistSaver(unsigned char *data, unsigned int sz) {
     unsigned char *vstr;
     if (data) {
-        if ((vstr = zmalloc(sz)) == NULL)
-            return 0;
+        vstr = zmalloc(sz);
         memcpy(data, vstr, sz);
         return vstr;
     }
