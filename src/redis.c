@@ -3586,6 +3586,7 @@ int redisIsSupervised(void) {
     struct sockaddr_un su;
     struct iovec iov;
     struct msghdr hdr;
+    int sendto_flags = 0;
 
     if (upstart_job == NULL && notify_socket == NULL)
         return 0;
@@ -3631,8 +3632,11 @@ int redisIsSupervised(void) {
     hdr.msg_iovlen = 1;
 
     unsetenv("NOTIFY_SOCKET");
-    if (sendmsg(fd, &hdr, MSG_NOSIGNAL) < 0) {
-        redisLog(REDIS_WARNING, "cannot send notification to systemd");
+#ifdef HAVE_MSG_NOSIGNAL
+    sendto_flags |= MSG_NOSIGNAL;
+#endif
+    if (sendmsg(fd, &hdr, sendto_flags) < 0) {
+        redisLog(REDIS_WARNING, "Cannot send notification to systemd");
         close(fd);
         return 0;
     }
