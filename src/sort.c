@@ -270,7 +270,9 @@ void sortCommand(redisClient *c) {
      * The other types (list, sorted set) will retain their native order
      * even if no sort order is requested, so they remain stable across
      * scripting and replication. */
-    if ((dontsort && sortval->type == REDIS_SET))
+    if (dontsort &&
+        sortval->type == REDIS_SET &&
+        (storekey || c->flags & REDIS_LUA_CLIENT))
     {
         /* Force ALPHA sorting */
         dontsort = 0;
