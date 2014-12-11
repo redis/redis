@@ -43,10 +43,7 @@ void listTypePush(robj *subject, robj *value, int where) {
         int pos = (where == REDIS_HEAD) ? QUICKLIST_HEAD : QUICKLIST_TAIL;
         value = getDecodedObject(value);
         size_t len = sdslen(value->ptr);
-        size_t zlen = server.list_max_ziplist_entries;
-        /* If this value is greater than our allowed values, create it in
-         * an isolated ziplist */
-        quicklistPush(subject->ptr, zlen, value->ptr, len, pos);
+        quicklistPush(subject->ptr, value->ptr, len, pos);
         decrRefCount(value);
     } else {
         redisPanic("Unknown list encoding");
@@ -146,12 +143,11 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
         value = getDecodedObject(value);
         sds str = value->ptr;
         size_t len = sdslen(str);
-        size_t zlen = server.list_max_ziplist_entries;
         if (where == REDIS_TAIL) {
-            quicklistInsertAfter((quicklist *)entry->entry.quicklist, zlen,
+            quicklistInsertAfter((quicklist *)entry->entry.quicklist,
                                  &entry->entry, str, len);
         } else if (where == REDIS_HEAD) {
-            quicklistInsertBefore((quicklist *)entry->entry.quicklist, zlen,
+            quicklistInsertBefore((quicklist *)entry->entry.quicklist,
                                   &entry->entry, str, len);
         }
         decrRefCount(value);
@@ -188,7 +184,7 @@ void listTypeConvert(robj *subject, int enc) {
         size_t zlen = server.list_max_ziplist_entries;
 
         subject->encoding = REDIS_ENCODING_QUICKLIST;
-        subject->ptr = quicklistCreateFromZiplist(zlen, subject->ptr);
+        subject->ptr = quicklistCreateFromZiplist(zlen, 0 /*FIXME*/, subject->ptr);
     } else {
         redisPanic("Unsupported list conversion");
     }
@@ -211,6 +207,8 @@ void pushGenericCommand(redisClient *c, int where) {
         c->argv[j] = tryObjectEncoding(c->argv[j]);
         if (!lobj) {
             lobj = createQuicklistObject();
+            quicklistSetFill(lobj->ptr, server.list_max_ziplist_entries);
+            quicklistSetCompress(lobj->ptr, 0 /*FIXME*/);
             dbAdd(c->db,c->argv[1],lobj);
         }
         listTypePush(lobj,c->argv[j],where);
@@ -539,6 +537,8 @@ void rpoplpushHandlePush(redisClient *c, robj *dstkey, robj *dstobj, robj *value
     /* Create the list if the key does not exist */
     if (!dstobj) {
         dstobj = createQuicklistObject();
+        quicklistSetFill(dstobj->ptr, server.list_max_ziplist_entries);
+        quicklistSetCompress(dstobj->ptr, 0 /*FIXME*/);
         dbAdd(c->db,dstkey,dstobj);
     }
     signalModifiedKey(c->db,dstkey);
