@@ -209,10 +209,33 @@ int rdbTryIntegerEncoding(char *s, size_t len, unsigned char *enc) {
     return rdbEncodeInteger(value,enc);
 }
 
-int rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
-    size_t comprlen, outlen;
+int rdbSaveLzfBlob(rio *rdb, void *data, size_t compress_len,
+                   size_t original_len) {
     unsigned char byte;
     int n, nwritten = 0;
+
+    /* Data compressed! Let's save it on disk */
+    byte = (REDIS_RDB_ENCVAL<<6)|REDIS_RDB_ENC_LZF;
+    if ((n = rdbWriteRaw(rdb,&byte,1)) == -1) goto writeerr;
+    nwritten += n;
+
+    if ((n = rdbSaveLen(rdb,compress_len)) == -1) goto writeerr;
+    nwritten += n;
+
+    if ((n = rdbSaveLen(rdb,original_len)) == -1) goto writeerr;
+    nwritten += n;
+
+    if ((n = rdbWriteRaw(rdb,data,compress_len)) == -1) goto writeerr;
+    nwritten += n;
+
+    return nwritten;
+
+writeerr:
+    return -1;
+}
+
+int rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
+    size_t comprlen, outlen;
     void *out;
 
     /* We require at least four bytes compression for this to be worth it */
@@ -224,26 +247,9 @@ int rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
         zfree(out);
         return 0;
     }
-    /* Data compressed! Let's save it on disk */
-    byte = (REDIS_RDB_ENCVAL<<6)|REDIS_RDB_ENC_LZF;
-    if ((n = rdbWriteRaw(rdb,&byte,1)) == -1) goto writeerr;
-    nwritten += n;
-
-    if ((n = rdbSaveLen(rdb,comprlen)) == -1) goto writeerr;
-    nwritten += n;
-
-    if ((n = rdbSaveLen(rdb,len)) == -1) goto writeerr;
-    nwritten += n;
-
-    if ((n = rdbWriteRaw(rdb,out,comprlen)) == -1) goto writeerr;
-    nwritten += n;
-
+    size_t nwritten = rdbSaveLzfBlob(rdb, out, comprlen, len);
     zfree(out);
     return nwritten;
-
-writeerr:
-    zfree(out);
-    return -1;
 }
 
 robj *rdbLoadLzfStringObject(rio *rdb) {
@@ -491,8 +497,15 @@ int rdbSaveObject(rio *rdb, robj *o) {
             nwritten += n;
 
             do {
-                if ((n = rdbSaveRawString(rdb,node->zl,node->sz)) == -1) return -1;
-                nwritten += n;
+                if (quicklistNodeIsCompressed(node)) {
+                    void *data;
+                    size_t compress_len = quicklistGetLzf(node, &data);
+                    if ((n = rdbSaveLzfBlob(rdb,data,compress_len,node->sz)) == -1) return -1;
+                    nwritten += n;
+                } else {
+                    if ((n = rdbSaveRawString(rdb,node->zl,node->sz)) == -1) return -1;
+                    nwritten += n;
+                }
             } while ((node = node->next));
         } else {
             redisPanic("Unknown list encoding");
@@ -822,14 +835,15 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         if ((len = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
 
         o = createQuicklistObject();
+        quicklistSetFill(o->ptr, server.list_max_ziplist_entries);
+        quicklistSetCompress(o->ptr, 0 /*FIXME*/);
 
         /* Load every single element of the list */
         while(len--) {
             if ((ele = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
             dec = getDecodedObject(ele);
             size_t len = sdslen(dec->ptr);
-            size_t zlen = server.list_max_ziplist_entries;
-            o->ptr = quicklistPushTail(o->ptr, zlen, dec->ptr, len);
+            o->ptr = quicklistPushTail(o->ptr, dec->ptr, len);
             decrRefCount(dec);
             decrRefCount(ele);
         }
