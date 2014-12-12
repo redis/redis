@@ -249,8 +249,14 @@ void listTypeDelete(listTypeEntry *entry) {
         li->subject->ptr = ziplistDelete(li->subject->ptr,&p);
 
         /* Update position of the iterator depending on the direction */
-        if (li->direction == REDIS_TAIL)
+        if (li->direction == REDIS_TAIL) {
+            /* If the deleted element is the last one of the ziplist,
+             * set zi NULL instead of a pointer to ZIP_END */
+            unsigned char *zl = li->subject->ptr;
+            if ((size_t)(p - zl) == ziplistBlobLen(zl) - 1)
+                p = NULL;
             li->zi = p;
+        }
         else
             li->zi = ziplistPrev(li->subject->ptr,p);
     } else if (entry->li->encoding == REDIS_ENCODING_LINKEDLIST) {
