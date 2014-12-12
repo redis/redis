@@ -521,6 +521,9 @@ static unsigned char *__ziplistDelete(unsigned char *zl, unsigned char *p, unsig
     int nextdiff = 0;
     zlentry first, tail;
 
+    if (p[0] == ZIP_END)
+        return zl;
+
     first = zipEntry(p);
     for (i = 0; p[0] != ZIP_END && i < num; i++) {
         p += zipRawEntryLength(p);
