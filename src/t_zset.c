@@ -564,7 +564,7 @@ int zslIsInLexRange(zskiplist *zsl, zlexrangespec *range) {
     zskiplistNode *x;
 
     /* Test for ranges that will always be empty. */
-    if (compareStringObjectsForLexRange(range->min,range->max) > 1 ||
+    if (compareStringObjectsForLexRange(range->min,range->max) > 0 ||
             (compareStringObjects(range->min,range->max) == 0 &&
             (range->minex || range->maxex)))
         return 0;
@@ -841,7 +841,7 @@ int zzlIsInLexRange(unsigned char *zl, zlexrangespec *range) {
     unsigned char *p;
 
     /* Test for ranges that will always be empty. */
-    if (compareStringObjectsForLexRange(range->min,range->max) > 1 ||
+    if (compareStringObjectsForLexRange(range->min,range->max) > 0 ||
             (compareStringObjects(range->min,range->max) == 0 &&
             (range->minex || range->maxex)))
         return 0;
