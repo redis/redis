@@ -363,7 +363,7 @@ int dictReplace(dict *d, void *key, void *val)
     dictEntry *entry, auxentry;
 
     /* Try to add the element. If the key
-     * does not exists dictAdd will suceed. */
+     * does not exists dictAdd will succeed. */
     if (dictAdd(d, key, val) == DICT_OK)
         return 1;
     /* It already exists, get the entry */

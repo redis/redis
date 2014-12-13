@@ -121,7 +121,7 @@ start_server {tags {"expire"}} {
         list $a $b
     } {somevalue {}}
 
-    test {TTL returns tiem to live in seconds} {
+    test {TTL returns time to live in seconds} {
         r del x
         r setex x 10 somevalue
         set ttl [r ttl x]
