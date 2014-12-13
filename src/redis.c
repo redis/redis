@@ -1938,7 +1938,7 @@ void call(redisClient *c, int flags) {
      * not generated from reading an AOF. */
     if (listLength(server.monitors) &&
         !server.loading &&
-        !(c->cmd->flags & REDIS_CMD_SKIP_MONITOR))
+        !(c->cmd->flags & (REDIS_CMD_SKIP_MONITOR|REDIS_CMD_ADMIN)))
     {
         replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
     }
