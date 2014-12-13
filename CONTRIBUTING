@@ -20,7 +20,7 @@ each source file that you contribute.
 
 # How to provide a patch for a new feature
 
-1. Drop a message to the Redis Google Group with a proposal of semantics/API.
+1. If it is a major feature or a semantical change, write an RCP (Redis Change Proposal). Check the documentation here: https://github.com/redis/redis-rcp
 
 2. If in step 1 you get an acknowledge from the project leaders, use the
    following procedure to submit a patch:
@@ -30,5 +30,7 @@ each source file that you contribute.
     c. Push to your branch (git push origin my_branch)
     d. Initiate a pull request on github ( http://help.github.com/send-pull-requests/ )
     e. Done :)
+
+For minor fixes just open a pull request on Github.
 
 Thanks!
