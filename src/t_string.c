@@ -103,20 +103,24 @@ void setCommand(redisClient *c) {
         char *a = c->argv[j]->ptr;
         robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
 
-        if (!(flags & REDIS_SET_NX) && (a[0] == 'n' || a[0] == 'N') &&
-            (a[1] == 'x' || a[1] == 'X') && a[2] == '\0') {
+        if ((a[0] == 'n' || a[0] == 'N') &&
+            (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
+            !(flags & REDIS_SET_XX)) {
             flags |= REDIS_SET_NX;
-        } else if (!(flags & REDIS_SET_XX) && (a[0] == 'x' || a[0] == 'X') &&
-                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0') {
+        } else if ((a[0] == 'x' || a[0] == 'X') &&
+                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
+                   !(flags & REDIS_SET_NX)) {
             flags |= REDIS_SET_XX;
-        } else if (!(flags & REDIS_SET_EX) && (a[0] == 'e' || a[0] == 'E') &&
-                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' && next) {
+        } else if ((a[0] == 'e' || a[0] == 'E') &&
+                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
+                   !(flags & REDIS_SET_PX) && next) {
             flags |= REDIS_SET_EX;
             unit = UNIT_SECONDS;
             expire = next;
             j++;
-        } else if (!(flags & REDIS_SET_PX) && (a[0] == 'p' || a[0] == 'P') &&
-                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' && next) {
+        } else if ((a[0] == 'p' || a[0] == 'P') &&
+                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
+                   !(flags & REDIS_SET_EX) && next) {
             flags |= REDIS_SET_PX;
             unit = UNIT_MILLISECONDS;
             expire = next;
