@@ -2073,7 +2073,7 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
 /* Send a PING or PONG packet to the specified node, making sure to add enough
  * gossip informations. */
 void clusterSendPing(clusterLink *link, int type) {
-    unsigned char buf[sizeof(clusterMsg)];
+    unsigned char buf[sizeof(clusterMsg)+sizeof(clusterMsgDataGossip)*3];
     clusterMsg *hdr = (clusterMsg*) buf;
     int gossipcount = 0, totlen;
     /* freshnodes is the number of nodes we can still use to populate the
