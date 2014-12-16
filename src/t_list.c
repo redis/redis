@@ -181,10 +181,10 @@ void listTypeConvert(robj *subject, int enc) {
     redisAssertWithInfo(NULL,subject,subject->encoding==REDIS_ENCODING_ZIPLIST);
 
     if (enc == REDIS_ENCODING_QUICKLIST) {
-        size_t zlen = server.list_max_ziplist_entries;
-
+        size_t zlen = server.list_max_ziplist_size;
+        int depth = server.list_compress_depth;
+        subject->ptr = quicklistCreateFromZiplist(zlen, depth, subject->ptr);
         subject->encoding = REDIS_ENCODING_QUICKLIST;
-        subject->ptr = quicklistCreateFromZiplist(zlen, 0 /*FIXME*/, subject->ptr);
     } else {
         redisPanic("Unsupported list conversion");
     }
@@ -207,8 +207,8 @@ void pushGenericCommand(redisClient *c, int where) {
         c->argv[j] = tryObjectEncoding(c->argv[j]);
         if (!lobj) {
             lobj = createQuicklistObject();
-            quicklistSetFill(lobj->ptr, server.list_max_ziplist_entries);
-            quicklistSetCompress(lobj->ptr, 0 /*FIXME*/);
+            quicklistSetOptions(lobj->ptr, server.list_max_ziplist_size,
+                                server.list_compress_depth);
             dbAdd(c->db,c->argv[1],lobj);
         }
         listTypePush(lobj,c->argv[j],where);
@@ -537,8 +537,8 @@ void rpoplpushHandlePush(redisClient *c, robj *dstkey, robj *dstobj, robj *value
     /* Create the list if the key does not exist */
     if (!dstobj) {
         dstobj = createQuicklistObject();
-        quicklistSetFill(dstobj->ptr, server.list_max_ziplist_entries);
-        quicklistSetCompress(dstobj->ptr, 0 /*FIXME*/);
+        quicklistSetOptions(dstobj->ptr, server.list_max_ziplist_size,
+                            server.list_compress_depth);
         dbAdd(c->db,dstkey,dstobj);
     }
     signalModifiedKey(c->db,dstkey);

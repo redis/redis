@@ -835,15 +835,15 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
         if ((len = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
 
         o = createQuicklistObject();
-        quicklistSetFill(o->ptr, server.list_max_ziplist_entries);
-        quicklistSetCompress(o->ptr, 0 /*FIXME*/);
+        quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
+                            server.list_compress_depth);
 
         /* Load every single element of the list */
         while(len--) {
             if ((ele = rdbLoadEncodedStringObject(rdb)) == NULL) return NULL;
             dec = getDecodedObject(ele);
             size_t len = sdslen(dec->ptr);
-            o->ptr = quicklistPushTail(o->ptr, dec->ptr, len);
+            quicklistPushTail(o->ptr, dec->ptr, len);
             decrRefCount(dec);
             decrRefCount(ele);
         }
@@ -985,6 +985,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
     } else if (rdbtype == REDIS_RDB_TYPE_LIST_QUICKLIST) {
         if ((len = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
         o = createQuicklistObject();
+        quicklistSetOptions(o->ptr, server.list_max_ziplist_size,
+                            server.list_compress_depth);
 
         while (len--) {
             if ((ele = rdbLoadStringObject(rdb)) == NULL) return NULL;
