@@ -77,6 +77,14 @@ static const size_t optimization_level[] = { 4096, 8192, 16384, 32768, 65536 };
         (e)->sz = 0;                                                           \
     } while (0);
 
+#if __GNUC__ >= 3
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#else
+#define likely(x) (x)
+#define unlikely(x) (x)
+#endif
+
 /* Create a new quicklist.
  * Free with quicklistRelease(). */
 quicklist *quicklistCreate(void) {
@@ -405,7 +413,7 @@ static int _quicklistNodeSizeMeetsOptimizationRequirement(const size_t sz,
 
 static int _quicklistNodeAllowInsert(const quicklistNode *node, const int fill,
                                      const size_t sz) {
-    if (!node)
+    if (unlikely(!node))
         return 0;
 
     int ziplist_overhead;
@@ -418,14 +426,14 @@ static int _quicklistNodeAllowInsert(const quicklistNode *node, const int fill,
     /* size of forward offset */
     if (sz < 64)
         ziplist_overhead += 1;
-    else if (sz < 16384)
+    else if (likely(sz < 16384))
         ziplist_overhead += 2;
     else
         ziplist_overhead += 5;
 
     /* new_sz overestimates if 'sz' encodes to an integer type */
     unsigned int new_sz = node->sz + sz + ziplist_overhead;
-    if (_quicklistNodeSizeMeetsOptimizationRequirement(new_sz, fill))
+    if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(new_sz, fill)))
         return 1;
     else if (!sizeMeetsSafetyLimit(new_sz))
         return 0;
@@ -443,7 +451,7 @@ static int _quicklistNodeAllowMerge(const quicklistNode *a,
     /* approximate merged ziplist size (- 11 to remove one ziplist
      * header/trailer) */
     unsigned int merge_sz = a->sz + b->sz - 11;
-    if (_quicklistNodeSizeMeetsOptimizationRequirement(merge_sz, fill))
+    if (likely(_quicklistNodeSizeMeetsOptimizationRequirement(merge_sz, fill)))
         return 1;
     else if (!sizeMeetsSafetyLimit(merge_sz))
         return 0;
@@ -464,7 +472,8 @@ static int _quicklistNodeAllowMerge(const quicklistNode *a,
  * Returns 1 if new head created. */
 int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
     quicklistNode *orig_head = quicklist->head;
-    if (_quicklistNodeAllowInsert(quicklist->head, quicklist->fill, sz)) {
+    if (likely(
+            _quicklistNodeAllowInsert(quicklist->head, quicklist->fill, sz))) {
         quicklist->head->zl =
             ziplistPush(quicklist->head->zl, value, sz, ZIPLIST_HEAD);
         quicklistNodeUpdateSz(quicklist->head);
@@ -486,7 +495,8 @@ int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
  * Returns 1 if new tail created. */
 int quicklistPushTail(quicklist *quicklist, void *value, size_t sz) {
     quicklistNode *orig_tail = quicklist->tail;
-    if (_quicklistNodeAllowInsert(quicklist->tail, quicklist->fill, sz)) {
+    if (likely(
+            _quicklistNodeAllowInsert(quicklist->tail, quicklist->fill, sz))) {
         quicklist->tail->zl =
             ziplistPush(quicklist->tail->zl, value, sz, ZIPLIST_TAIL);
         quicklistNodeUpdateSz(quicklist->tail);
@@ -649,8 +659,8 @@ void quicklistDelEntry(quicklistIter *iter, quicklistEntry *entry) {
 int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
                             int sz) {
     quicklistEntry entry;
-    if (quicklistIndex(quicklist, index, &entry)) {
-        //        quicklistDecompressNode(entry.node);
+    if (likely(quicklistIndex(quicklist, index, &entry))) {
+        /* quicklistIndex provides an uncompressed node */
         entry.node->zl = ziplistDelete(entry.node->zl, &entry.zi);
         entry.node->zl = ziplistInsert(entry.node->zl, entry.zi, data, sz);
         quicklistCompress(quicklist, entry.node);
@@ -1223,7 +1233,7 @@ int quicklistIndex(const quicklist *quicklist, const long long idx,
     if (index >= quicklist->count)
         return 0;
 
-    while (n) {
+    while (likely(n)) {
         if ((accum + n->count) > index) {
             break;
         } else {
@@ -1253,7 +1263,8 @@ int quicklistIndex(const quicklist *quicklist, const long long idx,
     quicklistDecompressNodeForUse(entry->node);
     entry->zi = ziplistIndex(entry->node->zl, entry->offset);
     ziplistGet(entry->zi, &entry->value, &entry->sz, &entry->longval);
-    //    quicklistCompress(quicklist, entry->node);
+    /* The caller will use our result, so we don't re-compress here.
+     * The caller can recompress or delete the node as needed. */
     return 1;
 }
 
