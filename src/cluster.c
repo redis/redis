@@ -2520,7 +2520,7 @@ void clusterHandleSlaveFailover(void) {
 
     /* Compute the failover timeout (the max time we have to send votes
      * and wait for replies), and the failover retry time (the time to wait
-     * before waiting again.
+     * before trying to get voted again).
      *
      * Timeout is MIN(NODE_TIMEOUT*2,2000) milliseconds.
      * Retry is two times the Timeout.
