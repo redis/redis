@@ -908,6 +908,8 @@ struct redisServer {
     int assert_line;
     int bug_report_start; /* True if bug report header was already logged. */
     int watchdog_period;  /* Software watchdog period in ms. 0 = off */
+    /* System hardware info */
+    size_t system_memory_size;  /* Total memory in system as reported by OS */
 };
 
 typedef struct pubsubPattern {
@@ -1255,6 +1257,7 @@ void closeListeningSockets(int unlink_unix_socket);
 void updateCachedTime(void);
 void resetServerStats(void);
 unsigned int getLRUClock(void);
+char *maxmemoryToString(void);
 
 /* Set data type */
 robj *setTypeCreate(robj *value);
