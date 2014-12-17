@@ -368,7 +368,15 @@ size_t zmalloc_get_private_dirty(void) {
 /* Returns the size of physical memory (RAM) in bytes.
  * It looks ugly, but this is the cleanest way to achive cross platform results.
  * Cleaned up from:
+ *
  * http://nadeausoftware.com/articles/2012/09/c_c_tip_how_get_physical_memory_size_system
+ *
+ * Note that this function:
+ * 1) Was released under the following CC attribution license:
+ *    http://creativecommons.org/licenses/by/3.0/deed.en_US.
+ * 2) Was originally implemented by David Robert Nadeau.
+ * 3) Was modified for Redis by Matt Stancliff.
+ * 4) This note exists in order to comply with the original license.
  */
 size_t zmalloc_get_memory_size(void) {
 #if defined(__unix__) || defined(__unix) || defined(unix) || \
