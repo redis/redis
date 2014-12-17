@@ -77,6 +77,7 @@ float zmalloc_get_fragmentation_ratio(size_t rss);
 size_t zmalloc_get_rss(void);
 size_t zmalloc_get_private_dirty(void);
 size_t zmalloc_get_smap_bytes_by_field(char *field);
+size_t zmalloc_get_memory_size(void);
 void zlibc_free(void *ptr);
 
 #ifndef HAVE_MALLOC_SIZE
