@@ -46,6 +46,7 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/uio.h>
+#include <sys/un.h>
 #include <limits.h>
 #include <float.h>
 #include <math.h>
@@ -247,7 +248,7 @@ struct redisCommand redisCommandTable[] = {
     {"pttl",pttlCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"persist",persistCommand,2,"wF",0,NULL,1,1,1,0,0},
     {"slaveof",slaveofCommand,3,"ast",0,NULL,0,0,0,0,0},
-    {"role",roleCommand,1,"last",0,NULL,0,0,0,0,0},
+    {"role",roleCommand,1,"lst",0,NULL,0,0,0,0,0},
     {"debug",debugCommand,-2,"as",0,NULL,0,0,0,0,0},
     {"config",configCommand,-2,"art",0,NULL,0,0,0,0,0},
     {"subscribe",subscribeCommand,-2,"rpslt",0,NULL,0,0,0,0,0},
@@ -259,19 +260,19 @@ struct redisCommand redisCommandTable[] = {
     {"watch",watchCommand,-2,"rsF",0,NULL,1,-1,1,0,0},
     {"unwatch",unwatchCommand,1,"rsF",0,NULL,0,0,0,0,0},
     {"cluster",clusterCommand,-2,"ar",0,NULL,0,0,0,0,0},
-    {"restore",restoreCommand,-4,"awm",0,NULL,1,1,1,0,0},
-    {"restore-asking",restoreCommand,-4,"awmk",0,NULL,1,1,1,0,0},
-    {"migrate",migrateCommand,-6,"aw",0,NULL,0,0,0,0,0},
+    {"restore",restoreCommand,-4,"wm",0,NULL,1,1,1,0,0},
+    {"restore-asking",restoreCommand,-4,"wmk",0,NULL,1,1,1,0,0},
+    {"migrate",migrateCommand,-6,"w",0,NULL,0,0,0,0,0},
     {"asking",askingCommand,1,"r",0,NULL,0,0,0,0,0},
     {"readonly",readonlyCommand,1,"rF",0,NULL,0,0,0,0,0},
     {"readwrite",readwriteCommand,1,"rF",0,NULL,0,0,0,0,0},
-    {"dump",dumpCommand,2,"ar",0,NULL,1,1,1,0,0},
+    {"dump",dumpCommand,2,"r",0,NULL,1,1,1,0,0},
     {"object",objectCommand,3,"r",0,NULL,2,2,2,0,0},
-    {"client",clientCommand,-2,"ars",0,NULL,0,0,0,0,0},
+    {"client",clientCommand,-2,"rs",0,NULL,0,0,0,0,0},
     {"eval",evalCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
     {"evalsha",evalShaCommand,-3,"s",0,evalGetKeys,0,0,0,0,0},
     {"slowlog",slowlogCommand,-2,"r",0,NULL,0,0,0,0,0},
-    {"script",scriptCommand,-2,"ras",0,NULL,0,0,0,0,0},
+    {"script",scriptCommand,-2,"rs",0,NULL,0,0,0,0,0},
     {"time",timeCommand,1,"rRF",0,NULL,0,0,0,0,0},
     {"bitop",bitopCommand,-4,"wm",0,NULL,2,-1,1,0,0},
     {"bitcount",bitcountCommand,-2,"r",0,NULL,1,1,1,0,0},
@@ -1413,6 +1414,7 @@ void initServerConfig(void) {
     server.syslog_ident = zstrdup(REDIS_DEFAULT_SYSLOG_IDENT);
     server.syslog_facility = LOG_LOCAL0;
     server.daemonize = REDIS_DEFAULT_DAEMONIZE;
+    server.supervised = 0;
     server.aof_state = REDIS_AOF_OFF;
     server.aof_fsync = REDIS_DEFAULT_AOF_FSYNC;
     server.aof_no_fsync_on_rewrite = REDIS_DEFAULT_AOF_NO_FSYNC_ON_REWRITE;
@@ -2031,7 +2033,7 @@ void call(redisClient *c, int flags) {
      * not generated from reading an AOF. */
     if (listLength(server.monitors) &&
         !server.loading &&
-        !(c->cmd->flags & REDIS_CMD_SKIP_MONITOR))
+        !(c->cmd->flags & (REDIS_CMD_SKIP_MONITOR|REDIS_CMD_ADMIN)))
     {
         replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
     }
@@ -3574,6 +3576,74 @@ void redisSetProcTitle(char *title) {
 #endif
 }
 
+/*
+ * Check whether systemd or upstart have been used to start redis.
+ */
+int redisIsSupervised(void) {
+    const char *upstart_job = getenv("UPSTART_JOB");
+    const char *notify_socket = getenv("NOTIFY_SOCKET");
+    int fd = 1;
+    struct sockaddr_un su;
+    struct iovec iov;
+    struct msghdr hdr;
+    int sendto_flags = 0;
+
+    if (upstart_job == NULL && notify_socket == NULL)
+        return 0;
+
+    if (upstart_job != NULL) {
+        redisLog(REDIS_NOTICE, "supervised by upstart, will stop to signal readyness");
+        raise(SIGSTOP);
+        unsetenv("UPSTART_JOB");
+
+        return 1;
+    }
+
+    /*
+     * If we got here, we're supervised by systemd.
+     */
+    if ((strchr("@/", notify_socket[0])) == NULL ||
+        strlen(notify_socket) < 2)
+        return 0;
+
+    redisLog(REDIS_NOTICE, "supervised by systemd, will signal readyness");
+    if ((fd = socket(AF_UNIX, SOCK_DGRAM, 0)) < 0) {
+        redisLog(REDIS_WARNING, "cannot contact systemd socket %s", notify_socket);
+        return 0;
+    }
+
+    bzero(&su, sizeof(su));
+    su.sun_family = AF_UNIX;
+    strncpy (su.sun_path, notify_socket, sizeof(su.sun_path) -1);
+    su.sun_path[sizeof(su.sun_path) - 1] = '\0';
+
+    if (notify_socket[0] == '@')
+        su.sun_path[0] = '\0';
+
+    bzero(&iov, sizeof(iov));
+    iov.iov_base = "READY=1";
+    iov.iov_len = strlen("READY=1");
+
+    bzero(&hdr, sizeof(hdr));
+    hdr.msg_name = &su;
+    hdr.msg_namelen = offsetof(struct sockaddr_un, sun_path) +
+        strlen(notify_socket);
+    hdr.msg_iov = &iov;
+    hdr.msg_iovlen = 1;
+
+    unsetenv("NOTIFY_SOCKET");
+#ifdef HAVE_MSG_NOSIGNAL
+    sendto_flags |= MSG_NOSIGNAL;
+#endif
+    if (sendmsg(fd, &hdr, sendto_flags) < 0) {
+        redisLog(REDIS_WARNING, "Cannot send notification to systemd");
+        close(fd);
+        return 0;
+    }
+    close(fd);
+    return 1;
+}
+
 int main(int argc, char **argv) {
     struct timeval tv;
 
@@ -3653,9 +3723,11 @@ int main(int argc, char **argv) {
     } else {
         redisLog(REDIS_WARNING, "Warning: no config file specified, using the default config. In order to specify a config file use %s /path/to/%s.conf", argv[0], server.sentinel_mode ? "sentinel" : "redis");
     }
-    if (server.daemonize) daemonize();
+
+    server.supervised = redisIsSupervised();
+    if (server.daemonize && server.supervised == 0) daemonize();
     initServer();
-    if (server.daemonize) createPidFile();
+    if (server.daemonize && server.supervised == 0) createPidFile();
     redisSetProcTitle(argv[0]);
     redisAsciiArt();
 

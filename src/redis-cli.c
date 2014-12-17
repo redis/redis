@@ -60,6 +60,8 @@
 #define OUTPUT_CSV 2
 #define REDIS_CLI_KEEPALIVE_INTERVAL 15 /* seconds */
 #define REDIS_CLI_DEFAULT_PIPE_TIMEOUT 30 /* seconds */
+#define REDIS_CLI_HISTFILE_ENV "REDISCLI_HISTFILE"
+#define REDIS_CLI_HISTFILE_DEFAULT ".rediscli_history"
 
 static redisContext *context;
 static struct config {
@@ -128,14 +130,37 @@ static void cliRefreshPrompt(void) {
         len = snprintf(config.prompt,sizeof(config.prompt),"redis %s",
                        config.hostsocket);
     else
-        len = snprintf(config.prompt,sizeof(config.prompt),
-                       strchr(config.hostip,':') ? "[%s]:%d" : "%s:%d",
-                       config.hostip, config.hostport);
+        len = anetFormatAddr(config.prompt, sizeof(config.prompt),
+                           config.hostip, config.hostport);
     /* Add [dbnum] if needed */
     if (config.dbnum != 0 && config.last_cmd_type != REDIS_REPLY_ERROR)
         len += snprintf(config.prompt+len,sizeof(config.prompt)-len,"[%d]",
             config.dbnum);
     snprintf(config.prompt+len,sizeof(config.prompt)-len,"> ");
+}
+
+static sds getHistoryPath() {
+    char *path = NULL;
+    sds historyPath = NULL;
+
+    /* check the env for a histfile override */
+    path = getenv(REDIS_CLI_HISTFILE_ENV);
+    if (path != NULL && *path != '\0') {
+        if (!strcmp("/dev/null", path)) {
+            return NULL;
+        }
+
+        /* if the env is set, return it */
+        historyPath = sdscatprintf(sdsempty(), "%s", path);
+    } else {
+        char *home = getenv("HOME");
+        if (home != NULL && *home != '\0') {
+            /* otherwise, return the default */
+            historyPath = sdscatprintf(sdsempty(), "%s/%s", home, REDIS_CLI_HISTFILE_DEFAULT);
+        }
+    }
+
+    return historyPath;
 }
 
 /*------------------------------------------------------------------------------
@@ -302,7 +327,7 @@ static void completionCallback(const char *buf, linenoiseCompletions *lc) {
  *--------------------------------------------------------------------------- */
 
 /* Send AUTH command to the server */
-static int cliAuth() {
+static int cliAuth(void) {
     redisReply *reply;
     if (config.auth == NULL) return REDIS_OK;
 
@@ -315,7 +340,7 @@ static int cliAuth() {
 }
 
 /* Send SELECT dbnum to the server */
-static int cliSelect() {
+static int cliSelect(void) {
     redisReply *reply;
     if (config.dbnum == 0) return REDIS_OK;
 
@@ -878,6 +903,33 @@ static char **convertToSds(int count, char** args) {
   return sds;
 }
 
+static int issueCommandRepeat(int argc, char **argv, long repeat) {
+    while (1) {
+        config.cluster_reissue_command = 0;
+        if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
+            cliConnect(1);
+
+            /* If we still cannot send the command print error.
+             * We'll try to reconnect the next time. */
+            if (cliSendCommand(argc,argv,repeat) != REDIS_OK) {
+                cliPrintContextError();
+                return REDIS_ERR;
+            }
+         }
+         /* Issue the command again if we got redirected in cluster mode */
+         if (config.cluster_mode && config.cluster_reissue_command) {
+            cliConnect(1);
+         } else {
+             break;
+        }
+    }
+    return REDIS_OK;
+}
+
+static int issueCommand(int argc, char **argv) {
+    return issueCommandRepeat(argc, argv, config.repeat);
+}
+
 static void repl(void) {
     sds historyfile = NULL;
     int history = 0;
@@ -891,10 +943,9 @@ static void repl(void) {
 
     /* Only use history when stdin is a tty. */
     if (isatty(fileno(stdin))) {
-        history = 1;
-
-        if (getenv("HOME") != NULL) {
-            historyfile = sdscatprintf(sdsempty(),"%s/.rediscli_history",getenv("HOME"));
+        historyfile = getHistoryPath();
+        if (historyfile != NULL) {
+            history = 1;
             linenoiseHistoryLoad(historyfile);
         }
     }
@@ -934,26 +985,8 @@ static void repl(void) {
                         repeat = 1;
                     }
 
-                    while (1) {
-                        config.cluster_reissue_command = 0;
-                        if (cliSendCommand(argc-skipargs,argv+skipargs,repeat)
-                            != REDIS_OK)
-                        {
-                            cliConnect(1);
+                    issueCommandRepeat(argc-skipargs, argv+skipargs, repeat);
 
-                            /* If we still cannot send the command print error.
-                             * We'll try to reconnect the next time. */
-                            if (cliSendCommand(argc-skipargs,argv+skipargs,repeat)
-                                != REDIS_OK)
-                                cliPrintContextError();
-                        }
-                        /* Issue the command again if we got redirected in cluster mode */
-                        if (config.cluster_mode && config.cluster_reissue_command) {
-                            cliConnect(1);
-                        } else {
-                            break;
-                        }
-                    }
                     elapsed = mstime()-start_time;
                     if (elapsed >= 500) {
                         printf("(%.2fs)\n",(double)elapsed/1000);
@@ -974,10 +1007,9 @@ static int noninteractive(int argc, char **argv) {
     if (config.stdinarg) {
         argv = zrealloc(argv, (argc+1)*sizeof(char*));
         argv[argc] = readArgFromStdin();
-        retval = cliSendCommand(argc+1, argv, config.repeat);
+        retval = issueCommand(argc+1, argv);
     } else {
-        /* stdin is probably a tty, can be tested with S_ISCHR(s.st_mode) */
-        retval = cliSendCommand(argc, argv, config.repeat);
+        retval = issueCommand(argc, argv);
     }
     return retval;
 }
@@ -1021,7 +1053,7 @@ static int evalMode(int argc, char **argv) {
     argv2[2] = sdscatprintf(sdsempty(),"%d",keys);
 
     /* Call it */
-    return cliSendCommand(argc+3-got_comma, argv2, config.repeat);
+    return issueCommand(argc+3-got_comma, argv2);
 }
 
 /*------------------------------------------------------------------------------
