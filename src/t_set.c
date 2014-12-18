@@ -225,11 +225,11 @@ int setTypeRandomElement(robj *setobj, robj **objele, int64_t *llele) {
  * at producing N elements, and the elements are guaranteed to be non
  * repeating. 
  */
-int setTypeRandomElements(robj *set, int count, robj *aux_set) {
-    int set_size;
-    int elements_to_return = count;
-    int elements_copied = 0;
-    int current_element = 0;
+unsigned long setTypeRandomElements(robj *set, unsigned long count, robj *aux_set) {
+    unsigned long set_size;
+    unsigned long elements_to_return = count;
+    unsigned long elements_copied = 0;
+    unsigned long current_element = 0;
 
     /* Like all setType* functions, we assume good behavior on part of the caller,
      * so no extra parameter checks are made. */
@@ -480,7 +480,7 @@ void scardCommand(redisClient *c) {
 void spopWithCountCommand(redisClient *c) {
     long l;
     unsigned long count, size;
-    int elements_returned;
+    unsigned long elements_returned;
     robj *set, *aux, *aux_set;
     int64_t llele;
 
