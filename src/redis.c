@@ -1477,33 +1477,33 @@ void adjustOpenFilesLimit(void) {
         /* Set the max number of files if the current limit is not enough
          * for our needs. */
         if (oldlimit < maxfiles) {
-            rlim_t f;
+            rlim_t bestlimit;
             int setrlimit_error = 0;
 
             /* Try to set the file limit to match 'maxfiles' or at least
              * to the higher value supported less than maxfiles. */
-            f = maxfiles;
-            while(f > oldlimit) {
+            bestlimit = maxfiles;
+            while(bestlimit > oldlimit) {
                 rlim_t decr_step = 16;
 
-                limit.rlim_cur = f;
-                limit.rlim_max = f;
+                limit.rlim_cur = bestlimit;
+                limit.rlim_max = bestlimit;
                 if (setrlimit(RLIMIT_NOFILE,&limit) != -1) break;
                 setrlimit_error = errno;
 
-                /* We failed to set file limit to 'f'. Try with a
+                /* We failed to set file limit to 'bestlimit'. Try with a
                  * smaller limit decrementing by a few FDs per iteration. */
-                if (f < decr_step) break;
-                f -= decr_step;
+                if (bestlimit < decr_step) break;
+                bestlimit -= decr_step;
             }
 
             /* Assume that the limit we get initially is still valid if
              * our last try was even lower. */
-            if (f < oldlimit) f = oldlimit;
+            if (bestlimit < oldlimit) bestlimit = oldlimit;
 
-            if (f != maxfiles) {
+            if (bestlimit < maxfiles) {
                 int old_maxclients = server.maxclients;
-                server.maxclients = f-REDIS_MIN_RESERVED_FDS;
+                server.maxclients = bestlimit-REDIS_MIN_RESERVED_FDS;
                 if (server.maxclients < 1) {
                     redisLog(REDIS_WARNING,"Your current 'ulimit -n' "
                         "of %llu is not enough for Redis to start. "
@@ -1524,7 +1524,7 @@ void adjustOpenFilesLimit(void) {
                     "maxclients has been reduced to %d to compensate for "
                     "low ulimit. "
                     "If you need higher maxclients increase 'ulimit -n'.",
-                    (unsigned long long) oldlimit, server.maxclients);
+                    (unsigned long long) bestlimit, server.maxclients);
             } else {
                 redisLog(REDIS_NOTICE,"Increased maximum number of open files "
                     "to %llu (it was originally set to %llu).",
