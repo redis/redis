@@ -39,7 +39,7 @@
 #define ERROR(...) { \
     char __buf[1024]; \
     sprintf(__buf, __VA_ARGS__); \
-    sprintf(error, "0x%16llx: %s", (long long)epos, __buf); \
+    sprintf(error, "0x%016llx: %s", (long long)epos, __buf); \
 }
 
 static char error[1024];
@@ -60,7 +60,7 @@ int readLong(FILE *fp, char prefix, long *target) {
         return 0;
     }
     if (buf[0] != prefix) {
-        ERROR("Expected prefix '%c', got: '%c'",buf[0],prefix);
+        ERROR("Expected prefix '%c', got: '%c'",prefix,buf[0]);
         return 0;
     }
     *target = strtol(buf+1,&eptr,10);
