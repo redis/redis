@@ -45,6 +45,7 @@ uint64_t intrev64(uint64_t v);
 
 /* variants of the function doing the actual convertion only if the target
  * host is big endian */
+
 #if (BYTE_ORDER == LITTLE_ENDIAN)
 #define memrev16ifbe(p)
 #define memrev32ifbe(p)
@@ -52,6 +53,13 @@ uint64_t intrev64(uint64_t v);
 #define intrev16ifbe(v) (v)
 #define intrev32ifbe(v) (v)
 #define intrev64ifbe(v) (v)
+#elif defined(__GNUC__) || defined(__clang__)
+#define memrev16ifbe(p) (*(uint16_t *)(p) = __builtin_bswap16(*(uint16_t *)p))
+#define memrev32ifbe(p) (*(uint32_t *)(p) = __builtin_bswap32(*(uint32_t *)p))
+#define memrev64ifbe(p) (*(uint64_t *)(p) = __builtin_bswap64(*(uint64_t *)p))
+#define intrev16ifbe(v) __builtin_bswap16(v)
+#define intrev32ifbe(v) __builtin_bswap32(v)
+#define intrev64ifbe(v) __builtin_bswap64(v)
 #else
 #define memrev16ifbe(p) memrev16(p)
 #define memrev32ifbe(p) memrev32(p)
@@ -66,6 +74,9 @@ uint64_t intrev64(uint64_t v);
 #if (BYTE_ORDER == BIG_ENDIAN)
 #define htonu64(v) (v)
 #define ntohu64(v) (v)
+#elif defined(__GNUC__) || defined(__clang__)
+#define htonu64(v) __builtin_bswap64(v)
+#define ntohu64(v) __builtin_bswap64(v)
 #else
 #define htonu64(v) intrev64(v)
 #define ntohu64(v) intrev64(v)
