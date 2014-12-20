@@ -18,7 +18,7 @@ OPTIMIZATION?=-O2
 DEPENDENCY_TARGETS=hiredis linenoise lua
 
 # Default settings
-STD=-std=c99 -pedantic
+STD=-std=c99 -pedantic -DREDIS_STATIC=''
 WARN=-Wall -W
 OPT=$(OPTIMIZATION)
 
