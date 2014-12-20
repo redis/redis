@@ -711,6 +711,10 @@ int main(int argc, const char **argv) {
 
     client c;
 
+#ifdef _WIN32
+    InitTimeFunctions();
+#endif
+
     srandom((unsigned int)time(NULL));
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);

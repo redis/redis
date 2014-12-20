@@ -18,6 +18,7 @@
 #include <locale.h>
 #include <math.h>
 #include <string.h>
+#include <assert.h>
 //#include <io.h>
 
 /* Redefined here to avoid redis.h so it can be used in other projects */
@@ -401,47 +402,78 @@ struct timezone
   int  tz_dsttime;     /* type of dst correction */
 };
 
-static VOID (WINAPI *fnGetSystemTimePreciseAsFileTime)(LPFILETIME);
+/* fnGetSystemTimePreciseAsFileTime is NULL if and only if it hasn't been initialized. */
+static VOID (WINAPI *fnGetSystemTimePreciseAsFileTime)(LPFILETIME) = NULL;
 
-/* Interval (in seconds) of the high-resolution clock. */
+/* Interval (in seconds) of the high-resolution clock.
+ * Special values:
+ *   0 : it hasn't been initialized
+ *  -1 : the system doesn't have high-resolution clock support 
+ */
 static double highResTimeInterval = 0;
+
+void InitHighResRelativeTime()
+{
+    LARGE_INTEGER perfFrequency;
+
+    if (highResTimeInterval != 0)
+        return;
+
+    /* Retrieve high-resolution timer frequency
+    * and precompute its reciprocal.
+    */
+    if (QueryPerformanceFrequency(&perfFrequency)) {
+        highResTimeInterval = 1.0 / perfFrequency.QuadPart;
+    } else {
+        highResTimeInterval = -1;
+    }
+
+    assert(highResTimeInterval != 0);
+}
+
+void InitHighResAbsoluteTime()
+{
+    FARPROC fp;
+    HMODULE module;
+
+    if (fnGetSystemTimePreciseAsFileTime != NULL)
+        return;
+
+    /* Use GetSystemTimeAsFileTime as fallbcak where GetSystemTimePreciseAsFileTime is not available */
+    fnGetSystemTimePreciseAsFileTime = GetSystemTimeAsFileTime;
+    module = GetModuleHandleA("kernel32.dll");
+    if (module) {
+        fp = GetProcAddress(module, "GetSystemTimePreciseAsFileTime");
+        if (fp) {
+            fnGetSystemTimePreciseAsFileTime = (VOID(WINAPI*)(LPFILETIME)) fp;
+        }
+    }
+
+    assert(fnGetSystemTimePreciseAsFileTime != NULL);
+}
 
 void InitTimeFunctions()
 {
-  FARPROC fp;
-  HMODULE module;
-  LARGE_INTEGER perfFrequency;
-
-  /* Use GetSystemTimeAsFileTime as fallbcak where GetSystemTimePreciseAsFileTime is not available */
-  fnGetSystemTimePreciseAsFileTime = GetSystemTimeAsFileTime;
-  module = GetModuleHandleA("kernel32.dll");
-  if (module) {
-    fp = GetProcAddress(module, "GetSystemTimePreciseAsFileTime");
-    if (fp) {
-      fnGetSystemTimePreciseAsFileTime = (VOID (WINAPI*)(LPFILETIME)) fp;
-    }
-  }
-
-  /* Retrieve high-resolution timer frequency
-   * and precompute its reciprocal. 
-   */
-  if (QueryPerformanceFrequency(&perfFrequency)) {
-    highResTimeInterval = 1.0 / perfFrequency.QuadPart;
-  } else {
-      highResTimeInterval = 0;
-  }
+    InitHighResRelativeTime();
+    InitHighResAbsoluteTime();
 }
 
 unsigned long long GetHighResRelativeTime(double scale) {
   LARGE_INTEGER counter;
 
-  /* If the performance interval is zero, there's no support. */
-  if (highResTimeInterval == 0) {
-    return 0;
+  if (highResTimeInterval <= 0) {
+      if (highResTimeInterval == 0) {
+          InitHighResRelativeTime();
+      }
+
+      /* If the performance interval is less than zero, there's no support. */
+      if (highResTimeInterval < 0) {
+          return 0;
+      }
   }
 
   if (!QueryPerformanceCounter(&counter)) {
-    return 0;
+      return 0;
   }
 
   /* Because we have no guarantee about the order of magnitude of the
@@ -453,8 +485,8 @@ unsigned long long GetHighResRelativeTime(double scale) {
 
 time_t gettimeofdaysecs(unsigned int *usec)
 {
-  FILETIME ft;
-  time_t tmpres = 0;
+    FILETIME ft;
+    time_t tmpres = 0;
 
     GetSystemTimeAsFileTime(&ft);
 
@@ -471,37 +503,37 @@ time_t gettimeofdaysecs(unsigned int *usec)
 
 int gettimeofday_fast(struct timeval *tv, struct timezone *tz)
 {
-  FILETIME ft;
-  unsigned __int64 tmpres = 0;
-  static int tzflag;
+    FILETIME ft;
+    unsigned __int64 tmpres = 0;
+    static int tzflag;
 
-  if (NULL != tv)
-  {
-    GetSystemTimeAsFileTime(&ft);
-
-    tmpres |= ft.dwHighDateTime;
-    tmpres <<= 32;
-    tmpres |= ft.dwLowDateTime;
-
-    /*converting file time to unix epoch*/
-    tmpres /= 10;  /*convert into microseconds*/
-    tmpres -= DELTA_EPOCH_IN_MICROSECS; 
-    tv->tv_sec = (long)(tmpres / 1000000UL);
-    tv->tv_usec = (long)(tmpres % 1000000UL);
-  }
-
-  if (NULL != tz)
-  {
-    if (!tzflag)
+    if (NULL != tv)
     {
-      _tzset();
-      tzflag++;
-    }
-    tz->tz_minuteswest = _timezone / 60;
-    tz->tz_dsttime = _daylight;
-  }
+        GetSystemTimeAsFileTime(&ft);
 
-  return 0;
+        tmpres |= ft.dwHighDateTime;
+        tmpres <<= 32;
+        tmpres |= ft.dwLowDateTime;
+
+        /*converting file time to unix epoch*/
+        tmpres /= 10;  /*convert into microseconds*/
+        tmpres -= DELTA_EPOCH_IN_MICROSECS; 
+        tv->tv_sec = (long)(tmpres / 1000000UL);
+        tv->tv_usec = (long)(tmpres % 1000000UL);
+    }
+
+    if (NULL != tz)
+    {
+        if (!tzflag)
+        {
+            _tzset();
+            tzflag++;
+        }
+        tz->tz_minuteswest = _timezone / 60;
+        tz->tz_dsttime = _daylight;
+    }
+
+    return 0;
 }
 
 int gettimeofday_highres(struct timeval *tv, struct timezone *tz)
@@ -510,30 +542,34 @@ int gettimeofday_highres(struct timeval *tv, struct timezone *tz)
   unsigned __int64 tmpres = 0;
   static int tzflag;
 
+  if (NULL == fnGetSystemTimePreciseAsFileTime) {
+      InitHighResAbsoluteTime();
+  }
+
   if (NULL != tv)
   {
-    fnGetSystemTimePreciseAsFileTime(&ft);
+      fnGetSystemTimePreciseAsFileTime(&ft);
 
-    tmpres |= ft.dwHighDateTime;
-    tmpres <<= 32;
-    tmpres |= ft.dwLowDateTime;
+      tmpres |= ft.dwHighDateTime;
+      tmpres <<= 32;
+      tmpres |= ft.dwLowDateTime;
 
-    /*converting file time to unix epoch*/
-    tmpres /= 10;  /*convert into microseconds*/
-    tmpres -= DELTA_EPOCH_IN_MICROSECS; 
-    tv->tv_sec = (long)(tmpres / 1000000UL);
-    tv->tv_usec = (long)(tmpres % 1000000UL);
+      /*converting file time to unix epoch*/
+      tmpres /= 10;  /*convert into microseconds*/
+      tmpres -= DELTA_EPOCH_IN_MICROSECS; 
+      tv->tv_sec = (long)(tmpres / 1000000UL);
+      tv->tv_usec = (long)(tmpres % 1000000UL);
   }
 
   if (NULL != tz)
   {
-    if (!tzflag)
-    {
-      _tzset();
-      tzflag++;
-    }
-    tz->tz_minuteswest = _timezone / 60;
-    tz->tz_dsttime = _daylight;
+      if (!tzflag)
+      {
+          _tzset();
+          tzflag++;
+      }
+      tz->tz_minuteswest = _timezone / 60;
+      tz->tz_dsttime = _daylight;
   }
 
   return 0;
