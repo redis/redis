@@ -39,6 +39,10 @@
 #include <stdio.h> /* for printf (debug printing), snprintf (genstr) */
 #endif
 
+#ifndef REDIS_STATIC
+#define REDIS_STATIC static
+#endif
+
 /* Optimization levels for size-based filling */
 static const size_t optimization_level[] = { 4096, 8192, 16384, 32768, 65536 };
 
@@ -131,7 +135,7 @@ quicklist *quicklistNew(int fill, int compress) {
     return quicklist;
 }
 
-static quicklistNode *quicklistCreateNode(void) {
+REDIS_STATIC quicklistNode *quicklistCreateNode(void) {
     quicklistNode *node;
     node = zmalloc(sizeof(*node));
     node->zl = NULL;
@@ -171,7 +175,7 @@ void quicklistRelease(quicklist *quicklist) {
 /* Compress the ziplist in 'node' and update encoding details.
  * Returns 1 if ziplist compressed successfully.
  * Returns 0 if compression failed or if ziplist too small to compress. */
-static int __quicklistCompressNode(quicklistNode *node) {
+REDIS_STATIC int __quicklistCompressNode(quicklistNode *node) {
 #ifdef REDIS_TEST
     node->attempted_compress = 1;
 #endif
@@ -208,7 +212,7 @@ static int __quicklistCompressNode(quicklistNode *node) {
 
 /* Uncompress the ziplist in 'node' and update encoding details.
  * Returns 1 on successful decode, 0 on failure to decode. */
-static int __quicklistDecompressNode(quicklistNode *node) {
+REDIS_STATIC int __quicklistDecompressNode(quicklistNode *node) {
 #ifdef REDIS_TEST
     node->attempted_compress = 0;
 #endif
@@ -258,8 +262,8 @@ size_t quicklistGetLzf(const quicklistNode *node, void **data) {
  * The only way to guarantee interior nodes get compressed is to iterate
  * to our "interior" compress depth then compress the next node we find.
  * If compress depth is larger than the entire list, we return immediately. */
-static void __quicklistCompress(const quicklist *quicklist,
-                                quicklistNode *node) {
+REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
+                                      quicklistNode *node) {
     /* If length is less than our compress depth (from both sides),
      * we can't compress anything. */
     if (!quicklistAllowsCompression(quicklist) ||
@@ -345,8 +349,9 @@ static void __quicklistCompress(const quicklist *quicklist,
  * Insert 'new_node' before 'old_node' if 'after' is 0.
  * Note: 'new_node' is *always* uncompressed, so if we assign it to
  *       head or tail, we do not need to uncompress it. */
-static void __quicklistInsertNode(quicklist *quicklist, quicklistNode *old_node,
-                                  quicklistNode *new_node, int after) {
+REDIS_STATIC void __quicklistInsertNode(quicklist *quicklist,
+                                        quicklistNode *old_node,
+                                        quicklistNode *new_node, int after) {
     if (after) {
         new_node->prev = old_node;
         if (old_node) {
@@ -380,20 +385,21 @@ static void __quicklistInsertNode(quicklist *quicklist, quicklistNode *old_node,
 }
 
 /* Wrappers for node inserting around existing node. */
-static void _quicklistInsertNodeBefore(quicklist *quicklist,
-                                       quicklistNode *old_node,
-                                       quicklistNode *new_node) {
+REDIS_STATIC void _quicklistInsertNodeBefore(quicklist *quicklist,
+                                             quicklistNode *old_node,
+                                             quicklistNode *new_node) {
     __quicklistInsertNode(quicklist, old_node, new_node, 0);
 }
 
-static void _quicklistInsertNodeAfter(quicklist *quicklist,
-                                      quicklistNode *old_node,
-                                      quicklistNode *new_node) {
+REDIS_STATIC void _quicklistInsertNodeAfter(quicklist *quicklist,
+                                            quicklistNode *old_node,
+                                            quicklistNode *new_node) {
     __quicklistInsertNode(quicklist, old_node, new_node, 1);
 }
 
-static int _quicklistNodeSizeMeetsOptimizationRequirement(const size_t sz,
-                                                          const int fill) {
+REDIS_STATIC int
+_quicklistNodeSizeMeetsOptimizationRequirement(const size_t sz,
+                                               const int fill) {
     if (fill >= 0)
         return 0;
 
@@ -411,8 +417,8 @@ static int _quicklistNodeSizeMeetsOptimizationRequirement(const size_t sz,
 
 #define sizeMeetsSafetyLimit(sz) ((sz) <= SIZE_SAFETY_LIMIT)
 
-static int _quicklistNodeAllowInsert(const quicklistNode *node, const int fill,
-                                     const size_t sz) {
+REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
+                                           const int fill, const size_t sz) {
     if (unlikely(!node))
         return 0;
 
@@ -443,8 +449,9 @@ static int _quicklistNodeAllowInsert(const quicklistNode *node, const int fill,
         return 0;
 }
 
-static int _quicklistNodeAllowMerge(const quicklistNode *a,
-                                    const quicklistNode *b, const int fill) {
+REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
+                                          const quicklistNode *b,
+                                          const int fill) {
     if (!a || !b)
         return 0;
 
@@ -569,7 +576,8 @@ quicklist *quicklistCreateFromZiplist(int fill, int compress,
         }                                                                      \
     } while (0)
 
-static void __quicklistDelNode(quicklist *quicklist, quicklistNode *node) {
+REDIS_STATIC void __quicklistDelNode(quicklist *quicklist,
+                                     quicklistNode *node) {
     if (node->next)
         node->next->prev = node->prev;
     if (node->prev)
@@ -602,8 +610,8 @@ static void __quicklistDelNode(quicklist *quicklist, quicklistNode *node) {
  *
  * Returns 1 if the entire node was deleted, 0 if node still exists.
  * Also updates in/out param 'p' with the next offset in the ziplist. */
-static int quicklistDelIndex(quicklist *quicklist, quicklistNode *node,
-                             unsigned char **p) {
+REDIS_STATIC int quicklistDelIndex(quicklist *quicklist, quicklistNode *node,
+                                   unsigned char **p) {
     int gone = 0;
 
     node->zl = ziplistDelete(node->zl, p);
@@ -683,9 +691,9 @@ int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
  *
  * Returns the input node picked to merge against or NULL if
  * merging was not possible. */
-static quicklistNode *_quicklistZiplistMerge(quicklist *quicklist,
-                                             quicklistNode *a,
-                                             quicklistNode *b) {
+REDIS_STATIC quicklistNode *_quicklistZiplistMerge(quicklist *quicklist,
+                                                   quicklistNode *a,
+                                                   quicklistNode *b) {
     D("Requested merge (a,b) (%u, %u)", a->count, b->count);
 
     quicklistDecompressNode(a);
@@ -721,7 +729,8 @@ static quicklistNode *_quicklistZiplistMerge(quicklist *quicklist,
  *   - (center->prev, center)
  *   - (center, center->next)
  */
-static void _quicklistMergeNodes(quicklist *quicklist, quicklistNode *center) {
+REDIS_STATIC void _quicklistMergeNodes(quicklist *quicklist,
+                                       quicklistNode *center) {
     int fill = quicklist->fill;
     quicklistNode *prev, *prev_prev, *next, *next_next, *target;
     prev = prev_prev = next = next_next = target = NULL;
@@ -784,8 +793,8 @@ static void _quicklistMergeNodes(quicklist *quicklist, quicklistNode *center) {
  * The input node keeps all elements not taken by the returned node.
  *
  * Returns newly created node or NULL if split not possible. */
-static quicklistNode *_quicklistSplitNode(quicklistNode *node, int offset,
-                                          int after) {
+REDIS_STATIC quicklistNode *_quicklistSplitNode(quicklistNode *node, int offset,
+                                                int after) {
     size_t zl_sz = node->sz;
 
     quicklistNode *new_node = quicklistCreateNode();
@@ -819,8 +828,8 @@ static quicklistNode *_quicklistSplitNode(quicklistNode *node, int offset,
  *
  * If after==1, the new value is inserted after 'entry', otherwise
  * the new value is inserted before 'entry'. */
-static void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
-                             void *value, const size_t sz, int after) {
+REDIS_STATIC void _quicklistInsert(quicklist *quicklist, quicklistEntry *entry,
+                                   void *value, const size_t sz, int after) {
     int full = 0, at_tail = 0, at_head = 0, full_next = 0, full_prev = 0;
     int fill = quicklist->fill;
     quicklistNode *node = entry->node;
@@ -1359,7 +1368,7 @@ int quicklistPopCustom(quicklist *quicklist, int where, unsigned char **data,
 }
 
 /* Return a malloc'd copy of data passed in */
-static void *_quicklistSaver(unsigned char *data, unsigned int sz) {
+REDIS_STATIC void *_quicklistSaver(unsigned char *data, unsigned int sz) {
     unsigned char *vstr;
     if (data) {
         if ((vstr = zmalloc(sz)) == NULL)
