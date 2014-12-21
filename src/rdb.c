@@ -1491,7 +1491,9 @@ int rdbSaveToSlavesSockets(void) {
             {
                 retval = REDIS_ERR;
             }
+            zfree(msg);
         }
+        zfree(clientids);
         exitFromChild((retval == REDIS_OK) ? 0 : 1);
     } else {
         /* Parent */
