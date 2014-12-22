@@ -32,6 +32,8 @@
 #include "slowlog.h"
 #include "bio.h"
 #include "latency.h"
+#include "crc16speed.h"
+#include "crc64speed.h"
 
 #include <time.h>
 #include <signal.h>
@@ -3692,6 +3694,8 @@ int main(int argc, char **argv) {
     gettimeofday(&tv,NULL);
     dictSetHashFunctionSeed(tv.tv_sec^tv.tv_usec^getpid());
     server.sentinel_mode = checkForSentinelMode(argc,argv);
+    crc16speed_init();
+    crc64speed_init();
     initServerConfig();
 
     /* We need to init sentinel right now as parsing the configuration file

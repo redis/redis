@@ -40,7 +40,7 @@
 #include <stdint.h>
 #include <limits.h>
 #include "lzf.h"
-#include "crc64.h"
+#include "crc64speed.h"
 
 /* Object types */
 #define REDIS_STRING 0
@@ -682,7 +682,7 @@ void process(void) {
 
     /* Verify checksum */
     if (dump_version >= 5) {
-        uint64_t crc = crc64(0,positions[0].data,positions[0].size);
+        uint64_t crc = crc64speed(0,positions[0].data,positions[0].size);
         uint64_t crc2;
         unsigned char *p = (unsigned char*)positions[0].data+positions[0].size;
         crc2 = ((uint64_t)p[0] << 0) |
@@ -763,6 +763,7 @@ int main(int argc, char **argv) {
     R_NegInf = -1.0/R_Zero;
     R_Nan = R_Zero/R_Zero;
 
+    crc64speed_init();
     process();
 
     munmap(data, size);

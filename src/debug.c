@@ -29,7 +29,7 @@
 
 #include "redis.h"
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
-#include "crc64.h"
+#include "crc64speed.h"
 
 #include <arpa/inet.h>
 #include <signal.h>
@@ -815,7 +815,7 @@ int memtest_test_linux_anonymous_maps(void) {
     /* Test all the regions as an unique sequential region.
      * 1) Take the CRC64 of the memory region. */
     for (j = 0; j < regions; j++) {
-        crc1 = crc64(crc1,(void*)start_vect[j],size_vect[j]);
+        crc1 = crc64speed(crc1,(void*)start_vect[j],size_vect[j]);
     }
 
     /* 2) Invert bits, swap adjacent words, swap again, invert bits.
@@ -831,7 +831,7 @@ int memtest_test_linux_anonymous_maps(void) {
 
     /* 3) Take the CRC64 sum again. */
     for (j = 0; j < regions; j++)
-        crc2 = crc64(crc2,(void*)start_vect[j],size_vect[j]);
+        crc2 = crc64speed(crc2,(void*)start_vect[j],size_vect[j]);
 
     /* 4) Swap + Swap again */
     for (j = 0; j < regions; j++)
@@ -841,7 +841,7 @@ int memtest_test_linux_anonymous_maps(void) {
 
     /* 5) Take the CRC64 sum again. */
     for (j = 0; j < regions; j++)
-        crc3 = crc64(crc3,(void*)start_vect[j],size_vect[j]);
+        crc3 = crc64speed(crc3,(void*)start_vect[j],size_vect[j]);
 
     /* NOTE: It is very important to close the file descriptor only now
      * because closing it before may result into unmapping of some memory
