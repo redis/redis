@@ -31,6 +31,7 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <ctype.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -74,7 +75,7 @@
  *
  * 00|000000 => if the two MSB are 00 the len is the 6 bits of this byte
  * 01|000000 00000000 =>  01, the len is 14 byes, 6 bits + 8 bits of next byte
- * 10|000000 [32 bit integer] => if it's 01, a full 32 bit len will follow
+ * 10|000000 [32 bit integer] => if it's 10, a full 32 bit len will follow
  * 11|000000 this means: specially encoded object will follow. The six bits
  *           number specify the kind of object that follows.
  *           See the REDIS_RDB_ENC_* defines.
@@ -181,7 +182,11 @@ int processHeader(void) {
         ERROR("Wrong signature in header\n");
     }
 
-    dump_version = (int)strtol(buf + 5, NULL, 10);
+    char *end;
+    dump_version = (int)strtol(buf + 5, &end, 10);
+    if (end != &buf[9] || isspace(buf[5])) {
+        ERROR("Wrong RDB format version\n");
+    }
     if (dump_version < 1 || dump_version > 6) {
         ERROR("Unknown RDB format version: %d\n", dump_version);
     }
@@ -285,6 +290,8 @@ char *loadIntegerObject(int enctype) {
     /* convert val into string */
     char *buf;
     buf = malloc(sizeof(char) * 128);
+    if (buf == NULL)
+        ERROR("Memory is not enough for checking.\n");
     sprintf(buf, "%lld", val);
     return buf;
 }
@@ -297,12 +304,16 @@ char* loadLzfStringObject() {
     if ((slen = loadLength(NULL)) == REDIS_RDB_LENERR) return NULL;
 
     c = malloc(clen);
+    if (c == NULL)
+        ERROR("Memory is not enough for checking.\n");
     if (!readBytes(c, clen)) {
         free(c);
         return NULL;
     }
 
     s = malloc(slen+1);
+    if (s == NULL)
+        ERROR("Memory is not enough for checking.\n");
     if (lzf_decompress(c,clen,s,slen) == 0) {
         free(c); free(s);
         return NULL;
@@ -337,7 +348,8 @@ char* loadStringObject() {
     if (len == REDIS_RDB_LENERR) return NULL;
 
     char *buf = malloc(sizeof(char) * (len+1));
-    if (buf == NULL) return NULL;
+    if (buf == NULL)
+        ERROR("Memory is not enough for checking.\n");
     buf[len] = '\0';
     if (!readBytes(buf, len)) {
         free(buf);
@@ -351,7 +363,6 @@ int processStringObject(char** store) {
     char *key = loadStringObject();
     if (key == NULL) {
         SHIFT_ERROR(offset, "Error reading string object");
-        free(key);
         return 0;
     }
 
@@ -381,7 +392,12 @@ double* loadDoubleValue() {
             return NULL;
         }
         buf[len] = '\0';
-        sscanf(buf, "%lg", val);
+        char *end;
+        *val = strtod(buf, &end);
+        if (end != &buf[len] || isspace(buf[0])) {
+            free(val);
+            return NULL;
+        }
         return val;
     }
 }
@@ -391,7 +407,6 @@ int processDoubleValue(double** store) {
     double *val = loadDoubleValue();
     if (val == NULL) {
         SHIFT_ERROR(offset, "Error reading double value");
-        free(val);
         return 0;
     }
 
@@ -450,19 +465,6 @@ int loadPair(entry *e) {
         }
     break;
     case REDIS_ZSET:
-        for (i = 0; i < length; i++) {
-            offset = CURR_OFFSET;
-            if (!processStringObject(NULL)) {
-                SHIFT_ERROR(offset, "Error reading element key at index %d (length: %d)", i, length);
-                return 0;
-            }
-            offset = CURR_OFFSET;
-            if (!processDoubleValue(NULL)) {
-                SHIFT_ERROR(offset, "Error reading element value at index %d (length: %d)", i, length);
-                return 0;
-            }
-        }
-    break;
     case REDIS_HASH:
         for (i = 0; i < length; i++) {
             offset = CURR_OFFSET;
@@ -580,6 +582,7 @@ void printErrorStack(entry *e) {
         sprintf(body, "Error trace (%s: (unknown))", types[e->type]);
     } else {
         char tmp[41];
+        tmp[40] = '\0';
         strncpy(tmp, e->key, 40);
 
         /* display truncation at the last 3 chars */
@@ -588,8 +591,10 @@ void printErrorStack(entry *e) {
         }
 
         /* display unprintable characters as ? */
-        for (i = 0; i < strlen(tmp); i++) {
-            if (tmp[i] <= 32) tmp[i] = '?';
+        unsigned int tmplen = strlen(tmp);
+        for (i = 0; i < tmplen; i++) {
+            if (!isprint(tmp[i]))
+                tmp[i] = '?';
         }
         sprintf(body, "Error trace (%s: %s)", types[e->type], tmp);
     }
@@ -610,7 +615,7 @@ void process(void) {
 
     /* Exclude the final checksum for RDB >= 5. Will be checked at the end. */
     if (dump_version >= 5) {
-        if (positions[0].size < 8) {
+        if (positions[0].size - positions[0].offset < 8) {
             printf("RDB version >= 5 but no room for checksum.\n");
             exit(1);
         }
@@ -694,7 +699,15 @@ void process(void) {
                ((uint64_t)p[6] << 48) |
                ((uint64_t)p[7] << 56);
         if (crc != crc2) {
+            /* last byte should be EOF, add error */
+            errors.level = 0;
             SHIFT_ERROR(positions[0].offset, "RDB CRC64 does not match.");
+
+            /* this is an EOF error so reset type */
+            entry.type = -1;
+            printErrorStack(&entry);
+
+            num_errors++;
         } else {
             printf("CRC64 checksum is OK\n");
         }
