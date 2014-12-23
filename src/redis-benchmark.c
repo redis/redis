@@ -96,7 +96,7 @@ static long long ustime(void) {
     struct timeval tv;
     long long ust;
 
-    gettimeofday(&tv, NULL);
+    redis_gettimeofday(&tv, NULL);
     ust = ((long)tv.tv_sec)*1000000;
     ust += tv.tv_usec;
     return ust;
@@ -106,7 +106,7 @@ static long long mstime(void) {
     struct timeval tv;
     long long mst;
 
-    gettimeofday(&tv, NULL);
+    redis_gettimeofday(&tv, NULL);
     mst = ((long)tv.tv_sec)*1000;
     mst += tv.tv_usec/1000;
     return mst;
