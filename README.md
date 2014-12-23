@@ -11,10 +11,9 @@ Redis on Windows
 
 ## Redis 2.8 Branch
 
-- This is a port for Windows based on Redis 2.8. The latest version merged in 2.8.14.
+- This is a port for Windows based on Redis 2.8.
 - There is support for the 64-bit version. We have dropped official support for the 32-bit version, though you can build it from source if desired.
-- The binaries (unsigned) have been moved to a zip file in the \bin folder to make them easier to find. The Release build automatically updates the
-  zip file.
+- You can download the latest binaries (unsigned) from [http://github.com/MSOpenTech/redis/releases](http://github.com/MSOpenTech/redis/releases "Release page"). For releases prior to 2.8.17.1, the binaries can found in a zip file inside the source archive, under the bin/release folder.
 - Signed binaries can be downloaded using Nuget and Chocolatey.
 - There is a replacement for the UNIX fork() API that simulates the copy-on-write behavior using a memory mapped file.
 - Because Redis makes some assumptions about the values of File Descriptors, we have built a virtual file descriptor mapping layer. 

@@ -1,4 +1,2 @@
-!release
-!debug
-!release/*
-!debug/*
+release/
+debug/
