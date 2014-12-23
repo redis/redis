@@ -40,6 +40,10 @@
 #include <arpa/inet.h>
 #include <sys/stat.h>
 
+#define RDB_LOAD_NONE   0
+#define RDB_LOAD_ENC    (1<<0)
+#define RDB_LOAD_PLAIN  (1<<1)
+
 static int rdbWriteRaw(rio *rdb, void *p, size_t len) {
     if (rdb && rioWrite(rdb,p,len) == 0)
         return -1;
@@ -161,9 +165,11 @@ int rdbEncodeInteger(long long value, unsigned char *enc) {
 }
 
 /* Loads an integer-encoded object with the specified encoding type "enctype".
- * If the "encode" argument is set the function may return an integer-encoded
- * string object, otherwise it always returns a raw string object. */
-robj *rdbLoadIntegerObject(rio *rdb, int enctype, int encode) {
+ * The returned value changes according to the flags, see
+ * rdbGenerincLoadStringObject() for more info. */
+void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags) {
+    int plain = flags & RDB_LOAD_PLAIN;
+    int encode = flags & RDB_LOAD_ENC;
     unsigned char enc[4];
     long long val;
 
@@ -184,10 +190,17 @@ robj *rdbLoadIntegerObject(rio *rdb, int enctype, int encode) {
         val = 0; /* anti-warning */
         redisPanic("Unknown RDB integer encoding type");
     }
-    if (encode)
+    if (plain) {
+        char buf[REDIS_LONGSTR_SIZE], *p;
+        int len = ll2string(buf,sizeof(buf),val);
+        p = zmalloc(len);
+        memcpy(p,buf,len);
+        return p;
+    } else if (encode) {
         return createStringObjectFromLongLong(val);
-    else
+    } else {
         return createObject(REDIS_STRING,sdsfromlonglong(val));
+    }
 }
 
 /* String objects in the form "2391" "-100" without any space and with a
@@ -252,7 +265,11 @@ int rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
     return nwritten;
 }
 
-robj *rdbLoadLzfStringObject(rio *rdb) {
+/* Load an LZF compressed string in RDB format. The returned value
+ * changes according to 'flags'. For more info check the
+ * rdbGenericLoadStringObject() function. */
+void *rdbLoadLzfStringObject(rio *rdb, int flags) {
+    int plain = flags & RDB_LOAD_PLAIN;
     unsigned int len, clen;
     unsigned char *c = NULL;
     sds val = NULL;
@@ -260,14 +277,29 @@ robj *rdbLoadLzfStringObject(rio *rdb) {
     if ((clen = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
     if ((len = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR) return NULL;
     if ((c = zmalloc(clen)) == NULL) goto err;
-    if ((val = sdsnewlen(NULL,len)) == NULL) goto err;
+
+    /* Allocate our target according to the uncompressed size. */
+    if (plain) {
+        val = zmalloc(len);
+    } else {
+        if ((val = sdsnewlen(NULL,len)) == NULL) goto err;
+    }
+
+    /* Load the compressed representation and uncompress it to target. */
     if (rioRead(rdb,c,clen) == 0) goto err;
     if (lzf_decompress(c,clen,val,len) == 0) goto err;
     zfree(c);
-    return createObject(REDIS_STRING,val);
+
+    if (plain)
+        return val;
+    else
+        return createObject(REDIS_STRING,val);
 err:
     zfree(c);
-    sdsfree(val);
+    if (plain)
+        zfree(val);
+    else
+        sdsfree(val);
     return NULL;
 }
 
@@ -336,10 +368,21 @@ int rdbSaveStringObject(rio *rdb, robj *obj) {
     }
 }
 
-robj *rdbGenericLoadStringObject(rio *rdb, int encode) {
+/* Load a string object from an RDB file according to flags:
+ *
+ * RDB_LOAD_NONE (no flags): load an RDB object, unencoded.
+ * RDB_LOAD_ENC: If the returned type is a Redis object, try to
+ *               encode it in a special way to be more memory
+ *               efficient. When this flag is passed the function
+ *               no longer guarantees that obj->ptr is an SDS string.
+ * RDB_LOAD_PLAIN: Return a plain string allocated with zmalloc()
+ *                 instead of a Redis object.
+ */
+void *rdbGenericLoadStringObject(rio *rdb, int flags) {
+    int encode = flags & RDB_LOAD_ENC;
+    int plain = flags & RDB_LOAD_PLAIN;
     int isencoded;
     uint32_t len;
-    robj *o;
 
     len = rdbLoadLen(rdb,&isencoded);
     if (isencoded) {
@@ -347,30 +390,39 @@ robj *rdbGenericLoadStringObject(rio *rdb, int encode) {
         case REDIS_RDB_ENC_INT8:
         case REDIS_RDB_ENC_INT16:
         case REDIS_RDB_ENC_INT32:
-            return rdbLoadIntegerObject(rdb,len,encode);
+            return rdbLoadIntegerObject(rdb,len,flags);
         case REDIS_RDB_ENC_LZF:
-            return rdbLoadLzfStringObject(rdb);
+            return rdbLoadLzfStringObject(rdb,flags);
         default:
             redisPanic("Unknown RDB encoding type");
         }
     }
 
     if (len == REDIS_RDB_LENERR) return NULL;
-    o = encode ? createStringObject(NULL,len) :
-                 createRawStringObject(NULL,len);
-    if (len && rioRead(rdb,o->ptr,len) == 0) {
-        decrRefCount(o);
-        return NULL;
+    if (!plain) {
+        robj *o = encode ? createStringObject(NULL,len) :
+                           createRawStringObject(NULL,len);
+        if (len && rioRead(rdb,o->ptr,len) == 0) {
+            decrRefCount(o);
+            return NULL;
+        }
+        return o;
+    } else {
+        void *buf = zmalloc(len);
+        if (len && rioRead(rdb,buf,len) == 0) {
+            zfree(buf);
+            return NULL;
+        }
+        return buf;
     }
-    return o;
 }
 
 robj *rdbLoadStringObject(rio *rdb) {
-    return rdbGenericLoadStringObject(rdb,0);
+    return rdbGenericLoadStringObject(rdb,RDB_LOAD_NONE);
 }
 
 robj *rdbLoadEncodedStringObject(rio *rdb) {
-    return rdbGenericLoadStringObject(rdb,1);
+    return rdbGenericLoadStringObject(rdb,RDB_LOAD_ENC);
 }
 
 /* Save a double value. Doubles are saved as strings prefixed by an unsigned
