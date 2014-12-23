@@ -30,6 +30,7 @@
 #ifndef __REDIS_UTIL_H
 #define __REDIS_UTIL_H
 
+#include <sys/time.h>
 #include "sds.h"
 
 int stringmatchlen(const char *p, int plen, const char *s, int slen, int nocase);
@@ -41,5 +42,6 @@ int string2l(const char *s, size_t slen, long *value);
 int d2string(char *buf, size_t len, double value);
 sds getAbsolutePath(char *filename);
 int pathIsBaseName(char *path);
+int redis_gettimeofday(struct timeval *tp, struct timezone *tzp);
 
 #endif

@@ -52,6 +52,7 @@
 #include "help.h"
 #include "anet.h"
 #include "ae.h"
+#include "util.h"
 
 #define REDIS_NOTUSED(V) ((void) V)
 
@@ -113,7 +114,7 @@ static long long ustime(void) {
     struct timeval tv;
     long long ust;
 
-    gettimeofday(&tv, NULL);
+    redis_gettimeofday(&tv, NULL);
     ust = ((long long)tv.tv_sec)*1000000;
     ust += tv.tv_usec;
     return ust;

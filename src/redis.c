@@ -316,7 +316,7 @@ void redisLogRaw(int level, const char *msg) {
         int role_char;
         pid_t pid = getpid();
 
-        gettimeofday(&tv,NULL);
+        redis_gettimeofday(&tv,NULL);
         off = strftime(buf,sizeof(buf),"%d %b %H:%M:%S.",localtime(&tv.tv_sec));
         snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
         if (server.sentinel_mode) {
@@ -384,7 +384,7 @@ long long ustime(void) {
     struct timeval tv;
     long long ust;
 
-    gettimeofday(&tv, NULL);
+    redis_gettimeofday(&tv, NULL);
     ust = ((long long)tv.tv_sec)*1000000;
     ust += tv.tv_usec;
     return ust;
@@ -2473,9 +2473,9 @@ void echoCommand(redisClient *c) {
 void timeCommand(redisClient *c) {
     struct timeval tv;
 
-    /* gettimeofday() can only fail if &tv is a bad address so we
+    /* redis_gettimeofday() can only fail if &tv is a bad addresss so we
      * don't check for errors. */
-    gettimeofday(&tv,NULL);
+    redis_gettimeofday(&tv,NULL);
     addReplyMultiBulkLen(c,2);
     addReplyBulkLongLong(c,tv.tv_sec);
     addReplyBulkLongLong(c,tv.tv_usec);
@@ -3667,7 +3667,7 @@ int main(int argc, char **argv) {
     zmalloc_enable_thread_safeness();
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     srand(time(NULL)^getpid());
-    gettimeofday(&tv,NULL);
+    redis_gettimeofday(&tv,NULL);
     dictSetHashFunctionSeed(tv.tv_sec^tv.tv_usec^getpid());
     server.sentinel_mode = checkForSentinelMode(argc,argv);
     initServerConfig();

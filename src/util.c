@@ -442,7 +442,7 @@ void getRandomHexChars(char *p, unsigned int len) {
         pid_t pid = getpid();
 
         /* Use time and PID to fill the initial array. */
-        gettimeofday(&tv,NULL);
+        redis_gettimeofday(&tv,NULL);
         if (l >= sizeof(tv.tv_usec)) {
             memcpy(x,&tv.tv_usec,sizeof(tv.tv_usec));
             l -= sizeof(tv.tv_usec);
@@ -527,6 +527,27 @@ sds getAbsolutePath(char *filename) {
  * environments where Redis runs. */
 int pathIsBaseName(char *path) {
     return strchr(path,'/') == NULL && strchr(path,'\\') == NULL;
+}
+
+/* gettimeofday(2) is slow on some systems such as FreeBSD, so use
+ * clock_gettime(2). The reason it is slow is due to clock synchronization.
+ * FreeBSD gettimeofday(2) forces sync of all CPU clocks to ensure
+ * monotonically increasing values from consecutive reads regardless of CPU
+ * scheduling. This causes pipeline flushes or delays. */  
+int redis_gettimeofday(struct timeval *tp, struct timezone *tzp) {
+#ifndef USE_CLOCK_REALTIME_FAST
+    return gettimeofday(tp, tzp);
+#else
+    struct timespec ts;
+    int r = clock_gettime(CLOCK_REALTIME_FAST, &ts);
+    tp->tv_sec = ts.tv_sec;
+    tp->tv_usec = ts.tv_nsec/1000;
+    if (NULL != tzp) {
+        tzp->tz_minuteswest = 0;
+        tzp->tz_dsttime = 0;
+    }
+    return r;
+#endif /* USE_CLOCK_REALTIME_FAST */
 }
 
 #ifdef UTIL_TEST_MAIN

@@ -75,6 +75,10 @@
 #define HAVE_KQUEUE 1
 #endif
 
+#if defined(__FreeBSD__)
+#define USE_CLOCK_REALTIME_FAST
+#endif
+
 #ifdef __sun
 #include <sys/feature_tests.h>
 #ifdef _DTRACE_VERSION
