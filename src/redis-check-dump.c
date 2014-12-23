@@ -676,7 +676,11 @@ void process(void) {
     if (entry.type != REDIS_EOF) {
         /* last byte should be EOF, add error */
         errors.level = 0;
-        SHIFT_ERROR(positions[0].offset, "Expected EOF, got %s", types[entry.type]);
+        char const *entrytype = "UNKNOWN";
+        if (entry.type>=0 && entry.type<MAX_TYPES_NUM &&
+                strlen(types[entry.type])!=0)
+            entrytype=types[entry.type];
+        SHIFT_ERROR(positions[0].offset, "Expected EOF, got %s", entrytype);
 
         /* this is an EOF error so reset type */
         entry.type = -1;
