@@ -2784,6 +2784,7 @@ void sentinelCommand(redisClient *c) {
         sentinelSetCommand(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"info-cache")) {
         if (c->argc < 2) goto numargserr;
+        mstime_t now = mstime();
 
         /* Create an ad-hoc dictionary type so that we can iterate
          * a dictionary composed of just the master groups the user
@@ -2819,6 +2820,8 @@ void sentinelCommand(redisClient *c) {
             sentinelRedisInstance *ri = dictGetVal(de);
             addReplyBulkCBuffer(c,ri->name,strlen(ri->name));
             addReplyMultiBulkLen(c,dictSize(ri->slaves) + 1); /* +1 for self */
+            addReplyMultiBulkLen(c,2);
+            addReplyLongLong(c, now - ri->info_refresh);
             if (ri->info)
                 addReplyBulkCBuffer(c,ri->info,sdslen(ri->info));
             else
@@ -2829,6 +2832,8 @@ void sentinelCommand(redisClient *c) {
             sdi = dictGetIterator(ri->slaves);
             while ((sde = dictNext(sdi)) != NULL) {
                 sentinelRedisInstance *sri = dictGetVal(sde);
+                addReplyMultiBulkLen(c,2);
+                addReplyLongLong(c, now - sri->info_refresh);
                 if (sri->info)
                     addReplyBulkCBuffer(c,sri->info,sdslen(sri->info));
                 else
