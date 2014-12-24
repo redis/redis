@@ -204,6 +204,8 @@ static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
             while(nwritten != count) {
                 retval = write(r->io.fdset.fds[j],p+nwritten,count-nwritten);
                 if (retval <= 0) {
+                    if (retval == -1 && errno == EINTR)
+                        continue;
                     /* With blocking sockets, which is the sole user of this
                      * rio target, EWOULDBLOCK is returned only because of
                      * the SO_SNDTIMEO socket option, so we translate the error
@@ -218,6 +220,7 @@ static size_t rioFdsetWrite(rio *r, const void *buf, size_t len) {
                 /* Mark this FD as broken. */
                 r->io.fdset.state[j] = errno;
                 if (r->io.fdset.state[j] == 0) r->io.fdset.state[j] = EIO;
+                broken++;
             }
         }
         if (broken == r->io.fdset.numfds) return 0; /* All the FDs in error. */
@@ -268,9 +271,8 @@ void rioInitWithFdset(rio *r, int *fds, int numfds) {
 
     *r = rioFdsetIO;
     r->io.fdset.fds = zmalloc(sizeof(int)*numfds);
-    r->io.fdset.state = zmalloc(sizeof(int)*numfds);
+    r->io.fdset.state = zcalloc(sizeof(int)*numfds);
     memcpy(r->io.fdset.fds,fds,sizeof(int)*numfds);
-    for (j = 0; j < numfds; j++) r->io.fdset.state[j] = 0;
     r->io.fdset.numfds = numfds;
     r->io.fdset.pos = 0;
     r->io.fdset.buf = sdsempty();
