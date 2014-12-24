@@ -184,6 +184,94 @@ start_server {tags {"scripting"}} {
         set e
     } {*against a key*}
 
+    test {EVAL - JSON numeric decoding} {
+        # We must return the table as a string because otherwise
+        # Redis converts floats to ints and we get 0 and 1023 instead
+        # of 0.0003 and 1023.2 as the parsed output.
+        r eval {return
+                 table.concat(
+                   cjson.decode(
+                    "[0.0, -5e3, -1, 0.3e-3, 1023.2, 0e10]"), " ")
+        } 0
+    } {0 -5000 -1 0.0003 1023.2 0}
+
+    test {EVAL - JSON string decoding} {
+        r eval {local decoded = cjson.decode('{"keya": "a", "keyb": "b"}')
+                return {decoded.keya, decoded.keyb}
+        } 0
+    } {a b}
+
+    test {EVAL - cmsgpack can pack double?} {
+        r eval {local encoded = cmsgpack.pack(0.1)
+                local h = ""
+                for i = 1, #encoded do
+                    h = h .. string.format("%02x",string.byte(encoded,i))
+                end
+                return h
+        } 0
+    } {cb3fb999999999999a}
+
+    test {EVAL - cmsgpack can pack negative int64?} {
+        r eval {local encoded = cmsgpack.pack(-1099511627776)
+                local h = ""
+                for i = 1, #encoded do
+                    h = h .. string.format("%02x",string.byte(encoded,i))
+                end
+                return h
+        } 0
+    } {d3ffffff0000000000}
+
+    test {EVAL - cmsgpack can pack and unpack circular references?} {
+        r eval {local a = {x=nil,y=5}
+                local b = {x=a}
+                a['x'] = b
+                local encoded = cmsgpack.pack(a)
+                local h = ""
+                -- cmsgpack encodes to a depth of 16, but can't encode
+                -- references, so the encoded object has a deep copy recusive
+                -- depth of 16.
+                for i = 1, #encoded do
+                    h = h .. string.format("%02x",string.byte(encoded,i))
+                end
+                -- when unpacked, re.x.x != re because the unpack creates
+                -- individual tables down to a depth of 16.
+                -- (that's why the encoded output is so large)
+                local re = cmsgpack.unpack(encoded)
+                assert(re)
+                assert(re.x)
+                assert(re.x.x.y == re.y)
+                assert(re.x.x.x.x.y == re.y)
+                assert(re.x.x.x.x.x.x.y == re.y)
+                assert(re.x.x.x.x.x.x.x.x.x.x.y == re.y)
+                -- maximum working depth:
+                assert(re.x.x.x.x.x.x.x.x.x.x.x.x.x.x.y == re.y)
+                -- now the last x would be b above and has no y
+                assert(re.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x)
+                -- so, the final x.x is at the depth limit and was assigned nil
+                assert(re.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x == nil)
+                return {h, re.x.x.x.x.x.x.x.x.y == re.y, re.y == 5}
+        } 0
+    } {82a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a17882a17905a17881a178c0 1 1}
+
+    test {EVAL - Numerical sanity check from bitop} {
+        r eval {assert(0x7fffffff == 2147483647, "broken hex literals");
+                assert(0xffffffff == -1 or 0xffffffff == 2^32-1,
+                    "broken hex literals");
+                assert(tostring(-1) == "-1", "broken tostring()");
+                assert(tostring(0xffffffff) == "-1" or
+                    tostring(0xffffffff) == "4294967295",
+                    "broken tostring()")
+        } 0
+    } {}
+
+    test {EVAL - Verify minimal bitop functionality} {
+        r eval {assert(bit.tobit(1) == 1);
+                assert(bit.band(1) == 1);
+                assert(bit.bxor(1,2) == 3);
+                assert(bit.bor(1,2,4,8,16,32,64,128) == 255)
+        } 0
+    } {}
+
     test {SCRIPTING FLUSH - is able to clear the scripts cache?} {
         r set mykey myval
         set v [r evalsha fd758d1589d044dd850a6f05d52f2eefd27f033f 1 mykey]

@@ -554,7 +554,8 @@ static int cliReadReply(int output_raw_strings) {
         }
         if (config.interactive) {
             /* Filter cases where we should reconnect */
-            if (context->err == REDIS_ERR_IO && errno == ECONNRESET)
+            if (context->err == REDIS_ERR_IO &&
+                (errno == ECONNRESET || errno == EPIPE))
                 return REDIS_ERR;
             if (context->err == REDIS_ERR_EOF)
                 return REDIS_ERR;
@@ -863,6 +864,7 @@ static void usage(void) {
 "                     not a tty).\n"
 "  --no-raw           Force formatted output even when STDOUT is not a tty.\n"
 "  --csv              Output in CSV format.\n"
+"  --stat             Print rolling stats about server: mem, clients, ...\n"
 "  --latency          Enter a special mode continuously sampling latency.\n"
 "  --latency-history  Like --latency but tracking latency changes over time.\n"
 "                     Default time interval is 15 sec. Change it using -i.\n"
@@ -1555,7 +1557,7 @@ static void findBigKeys(void) {
     for(i=0;i<TYPE_NONE; i++) {
         maxkeys[i] = sdsempty();
         if(!maxkeys[i]) {
-            fprintf(stderr, "Failed to allocate memory for largest key names!");
+            fprintf(stderr, "Failed to allocate memory for largest key names!\n");
             exit(1);
         }
     }
@@ -1957,6 +1959,8 @@ int main(int argc, char **argv) {
     firstarg = parseOptions(argc,argv);
     argc -= firstarg;
     argv += firstarg;
+
+    signal(SIGPIPE, SIG_IGN);
 
     /* Latency mode */
     if (config.latency_mode) {

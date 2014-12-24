@@ -47,6 +47,7 @@ struct _rio {
     size_t (*read)(struct _rio *, void *buf, size_t len);
     size_t (*write)(struct _rio *, const void *buf, size_t len);
     off_t (*tell)(struct _rio *);
+    int (*flush)(struct _rio *);
     /* The update_cksum method if not NULL is used to compute the checksum of
      * all the data that was read or written so far. The method should be
      * designed so that can be called with the current checksum, and the buf
@@ -65,15 +66,25 @@ struct _rio {
 
     /* Backend-specific vars. */
     union {
+        /* In-memory buffer target. */
         struct {
             sds ptr;
             off_t pos;
         } buffer;
+        /* Stdio file pointer target. */
         struct {
             FILE *fp;
             off_t buffered; /* Bytes written since last fsync. */
             off_t autosync; /* fsync after 'autosync' bytes written. */
         } file;
+        /* Multiple FDs target (used to write to N sockets). */
+        struct {
+            int *fds;       /* File descriptors. */
+            int *state;     /* Error state of each fd. 0 (if ok) or errno. */
+            int numfds;
+            off_t pos;
+            sds buf;
+        } fdset;
     } io;
 };
 
@@ -113,8 +124,13 @@ static __inline off_t rioTell(rio *r) {
     return r->tell(r);
 }
 
+static inline int rioFlush(rio *r) {
+    return r->flush(r);
+}
+
 void rioInitWithFile(rio *r, FILE *fp);
 void rioInitWithBuffer(rio *r, sds s);
+void rioInitWithFdset(rio *r, int *fds, int numfds);
 
 size_t rioWriteBulkCount(rio *r, char prefix, int count);
 size_t rioWriteBulkString(rio *r, const char *buf, size_t len);

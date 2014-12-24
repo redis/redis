@@ -568,7 +568,7 @@ void hincrbyfloatCommand(redisClient *c) {
     }
 
     value += incr;
-    new = createStringObjectFromLongDouble(value);
+    new = createStringObjectFromLongDouble(value,1);
     hashTypeTryObjectEncoding(o,&c->argv[2],NULL);
     hashTypeSet(o,c->argv[2],new);
     addReplyBulk(c,new);

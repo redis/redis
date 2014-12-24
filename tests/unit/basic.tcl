@@ -83,7 +83,7 @@ start_server {tags {"basic"}} {
             for {set x 9999} {$x >= 0} {incr x -1} {
                 set val [r get $x]
                 if {$val ne $x} {
-                    set err "Eleemnt at position $x is $val instead of $x"
+                    set err "Element at position $x is $val instead of $x"
                     break
                 }
             }
@@ -300,7 +300,7 @@ start_server {tags {"basic"}} {
         catch {r foobaredcommand} err
         string match ERR* $err
     } {1}
-    
+
     test {RENAME basic usage} {
         r set mykey hello
         r rename mykey mykey1
@@ -426,7 +426,7 @@ start_server {tags {"basic"}} {
         r select 9
         format $res
     } {hello world foo bared}
-    
+
     test {MGET} {
         r flushdb
         r set foo BAR
@@ -482,7 +482,7 @@ start_server {tags {"basic"}} {
         r set foo bar
         list [r getset foo xyz] [r get foo]
     } {bar xyz}
-    
+
     test {MSET base case} {
         r mset x 10 y "foo bar" z "x x x x x x x\n\n\r\n"
         r mget x y z

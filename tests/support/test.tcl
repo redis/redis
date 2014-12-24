@@ -29,7 +29,7 @@ proc assert_error {pattern code} {
     if {[catch {uplevel 1 $code} error]} {
         assert_match $pattern $error
     } else {
-        error "assertion:Expected an error but nothing was catched"
+        error "assertion:Expected an error but nothing was caught"
     }
 }
 

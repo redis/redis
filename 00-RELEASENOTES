@@ -14,6 +14,36 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.18 ] Release date: 4 Dec 2014
+
+# UPGRADE URGENCY: LOW for both Redis and Sentinel. This release mostly
+                   adds new features to Redis, and contains non critical
+                   fixes.
+
+* [FIX] Linenoise updated to be more VT100 compatible. (Salvatore Sanfilippo)
+* [FIX] A number of typos fixed inside comments. (Various authors)
+* [FIX] redis-cli no longer quits after long timeouts. (Matt Stancliff)
+* [FIX] Test framework improved to detect never terminating scripts, cleanup
+        instances on crashes. (Salvatore Sanfilippo)
+* [FIX] PFCOUNT can be used on slaves now. (Salvatore Sanfilippo)
+* [FIX] ZSCAN no longer report very small scores as 0. (Matt Stancliff,
+        Michael Grunder, Salvatore Sanfilippo)
+* [FIX] Don't show the ASCII logo if syslog is enabled. Redis is now
+        an Enterprise Grade product. (Salvatore Sanfilippo)
+
+* [NEW] EXPERIMENTAL: Diskless replication, for more info check the doc at
+        http://redis.io/topics/replication. (Salvatore Sanfilippo).
+* [NEW] Transparent Huge Pages detection and reporting in logs and
+        LATENCY DOCTOR output. (Salvatore Sanfilippo)
+* [NEW] Many Lua scripting enhancements: Bitops API, cjson upgrade and tests,
+        cmsgpack upgrade. (Matt Stancliff)
+* [NEW] Total and instantaneous Network bandwidth tracking in INFO.
+* [NEW] DEBUG POPULATE two args form implemented (old form still works).
+        The second argument is the key prefix. Default is "key:" (Salvatore
+        Sanfilippo)
+* [NEW] Check that tcp-backlog is matched by /proc/sys/net/core/somaxconn, and
+        warn about it if not. (Salvatore Sanfilippo)
+
 --[ Redis 2.8.17 ] Release date: 19 Sep 2014
 
 # UPGRADE URGENCY: HIGH for Redis Sentinel.

@@ -749,6 +749,11 @@ union luai_Cast { double l_d; long l_l; };
 #endif
 
 
+#ifdef _WIN32
+#define snprintf _snprintf
+#endif
+
+
 
 /* =================================================================== */
 

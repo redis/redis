@@ -2253,7 +2253,7 @@ void sentinelPublishReplyCallback(redisAsyncContext *c, void *reply, void *privd
  * or sent directly to this sentinel via the (fake) PUBLISH command of Sentinel.
  *
  * If the master name specified in the message is not known, the message is
- * discareded. */
+ * discarded. */
 void sentinelProcessHelloMessage(char *hello, int hello_len) {
     /* Format is composed of 8 tokens:
      * 0=ip,1=port,2=runid,3=current_epoch,4=master_name,

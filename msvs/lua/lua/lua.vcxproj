@@ -89,7 +89,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32_IOCP;WIN32;_DEBUG;_LIB;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32_IOCP;WIN32;_DEBUG;_LIB;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions);LUA_ANSI;ENABLE_CJSON_GLOBAL</PreprocessorDefinitions>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <DisableSpecificWarnings>4244;4018</DisableSpecificWarnings>
@@ -104,7 +104,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_LIB;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions);WIN32_IOCP;_WIN32_WINNT=0x0501</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_LIB;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions);WIN32_IOCP;_WIN32_WINNT=0x0501;LUA_ANSI;ENABLE_CJSON_GLOBAL</PreprocessorDefinitions>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <DisableSpecificWarnings>4244;4018</DisableSpecificWarnings>
@@ -118,7 +118,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
-      <PreprocessorDefinitions>WIN32_IOCP;WIN32;NDEBUG;_LIB;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32_IOCP;WIN32;NDEBUG;_LIB;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions);LUA_ANSI;ENABLE_CJSON_GLOBAL</PreprocessorDefinitions>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <DisableSpecificWarnings>4244;4018</DisableSpecificWarnings>
@@ -134,7 +134,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_LIB;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions);WIN32_IOCP;WIN32_IOCP;_WIN32_WINNT=0x0501</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_LIB;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions);WIN32_IOCP;WIN32_IOCP;_WIN32_WINNT=0x0501;LUA_ANSI;ENABLE_CJSON_GLOBAL</PreprocessorDefinitions>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <DisableSpecificWarnings>4244;4018</DisableSpecificWarnings>
@@ -146,6 +146,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\..\deps\lua\src\fpconv.c" />
     <ClCompile Include="..\..\..\deps\lua\src\lapi.c" />
     <ClCompile Include="..\..\..\deps\lua\src\lauxlib.c" />
     <ClCompile Include="..\..\..\deps\lua\src\lbaselib.c" />
@@ -173,6 +174,7 @@
     <ClCompile Include="..\..\..\deps\lua\src\ltablib.c" />
     <ClCompile Include="..\..\..\deps\lua\src\ltm.c" />
     <ClCompile Include="..\..\..\deps\lua\src\lua.c" />
+    <ClCompile Include="..\..\..\deps\lua\src\lua_bit.c" />
     <ClCompile Include="..\..\..\deps\lua\src\lua_cjson.c" />
     <ClCompile Include="..\..\..\deps\lua\src\lua_cmsgpack.c" />
     <ClCompile Include="..\..\..\deps\lua\src\lua_struct.c" />
@@ -183,6 +185,7 @@
     <ClCompile Include="..\..\..\deps\lua\src\strbuf.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\..\deps\lua\src\fpconv.h" />
     <ClInclude Include="..\..\..\deps\lua\src\lapi.h" />
     <ClInclude Include="..\..\..\deps\lua\src\lauxlib.h" />
     <ClInclude Include="..\..\..\deps\lua\src\lcode.h" />

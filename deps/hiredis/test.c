@@ -51,7 +51,7 @@ static redisContext *select_database(redisContext *c) {
     assert(reply != NULL);
     freeReplyObject(reply);
 
-    /* Make sure the DB is emtpy */
+    /* Make sure the DB is empty */
     reply = redisCommand(c,"DBSIZE");
     assert(reply != NULL);
     if (reply->type == REDIS_REPLY_INTEGER && reply->integer == 0) {

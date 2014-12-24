@@ -145,6 +145,7 @@ ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout) {
             *ptr = '\0';
             nread++;
         }
+        size--;
     }
     return nread;
 }

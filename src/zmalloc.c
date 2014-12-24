@@ -360,27 +360,39 @@ float zmalloc_get_fragmentation_ratio(size_t rss) {
     return (float)rss/zmalloc_used_memory();
 }
 
+/* Get the sum of the specified field (converted form kb to bytes) in
+ * /proc/self/smaps. The field must be specified with trailing ":" as it
+ * apperas in the smaps output.
+ *
+ * Example: zmalloc_get_smap_bytes_by_field("Rss:");
+ */
 #if defined(HAVE_PROC_SMAPS)
-size_t zmalloc_get_private_dirty(void) {
+size_t zmalloc_get_smap_bytes_by_field(char *field) {
     char line[1024];
-    size_t pd = 0;
+    size_t bytes = 0;
     FILE *fp = fopen("/proc/self/smaps","r");
+    int flen = strlen(field);
 
     if (!fp) return 0;
     while(fgets(line,sizeof(line),fp) != NULL) {
-        if (strncmp(line,"Private_Dirty:",14) == 0) {
+        if (strncmp(line,field,flen) == 0) {
             char *p = strchr(line,'k');
             if (p) {
                 *p = '\0';
-                pd += strtol(line+14,NULL,10) * 1024;
+                bytes += strtol(line+flen,NULL,10) * 1024;
             }
         }
     }
     fclose(fp);
-    return pd;
+    return bytes;
 }
 #else
-size_t zmalloc_get_private_dirty(void) {
+size_t zmalloc_get_smap_bytes_by_field(char *field) {
+    ((void) field);
     return 0;
 }
 #endif
+
+size_t zmalloc_get_private_dirty(void) {
+    return zmalloc_get_smap_bytes_by_field("Private_Dirty:");
+}

@@ -30,6 +30,7 @@
 #include "redis.h"
 #include "slowlog.h"
 #include "bio.h"
+#include "latency.h"
 
 #include <time.h>
 #include <signal.h>
@@ -279,7 +280,7 @@ struct redisCommand redisCommandTable[] = {
     {"command",commandCommand,0,"rlt",0,NULL,0,0,0,0,0},
     {"pfselftest",pfselftestCommand,1,"r",0,NULL,0,0,0,0,0},
     {"pfadd",pfaddCommand,-2,"wmF",0,NULL,1,1,1,0,0},
-    {"pfcount",pfcountCommand,-2,"w",0,NULL,1,1,1,0,0},
+    {"pfcount",pfcountCommand,-2,"r",0,NULL,1,1,1,0,0},
     {"pfmerge",pfmergeCommand,-2,"wm",0,NULL,1,-1,1,0,0},
     {"pfdebug",pfdebugCommand,-3,"w",0,NULL,0,0,0,0,0},
     {"latency",latencyCommand,-2,"arslt",0,NULL,0,0,0,0,0}
@@ -399,7 +400,7 @@ void exitFromChild(int retcode) {
 /*====================== Hash table type implementation  ==================== */
 
 /* This is a hash table type that uses the SDS dynamic strings library as
- * keys and radis objects as values (objects can hold SDS strings,
+ * keys and redis objects as values (objects can hold SDS strings,
  * lists, sets). */
 
 void dictVanillaFree(void *privdata, void *val)
@@ -836,27 +837,30 @@ void updateLRUClock(void) {
 
 
 /* Add a sample to the operations per second array of samples. */
-void trackOperationsPerSecond(void) {
-    long long t = mstime() - server.ops_sec_last_sample_time;
-    long long ops = server.stat_numcommands - server.ops_sec_last_sample_ops;
+void trackInstantaneousMetric(int metric, long long current_reading) {
+    long long t = mstime() - server.inst_metric[metric].last_sample_time;
+    long long ops = current_reading -
+                    server.inst_metric[metric].last_sample_count;
     long long ops_sec;
 
     ops_sec = t > 0 ? (ops*1000/t) : 0;
 
-    server.ops_sec_samples[server.ops_sec_idx] = ops_sec;
-    server.ops_sec_idx = (server.ops_sec_idx+1) % REDIS_OPS_SEC_SAMPLES;
-    server.ops_sec_last_sample_time = mstime();
-    server.ops_sec_last_sample_ops = server.stat_numcommands;
+    server.inst_metric[metric].samples[server.inst_metric[metric].idx] =
+        ops_sec;
+    server.inst_metric[metric].idx++;
+    server.inst_metric[metric].idx %= REDIS_METRIC_SAMPLES;
+    server.inst_metric[metric].last_sample_time = mstime();
+    server.inst_metric[metric].last_sample_count = current_reading;
 }
 
 /* Return the mean of all the samples. */
-long long getOperationsPerSecond(void) {
+long long getInstantaneousMetric(int metric) {
     int j;
     long long sum = 0;
 
-    for (j = 0; j < REDIS_OPS_SEC_SAMPLES; j++)
-        sum += server.ops_sec_samples[j];
-    return sum / REDIS_OPS_SEC_SAMPLES;
+    for (j = 0; j < REDIS_METRIC_SAMPLES; j++)
+        sum += server.inst_metric[metric].samples[j];
+    return sum / REDIS_METRIC_SAMPLES;
 }
 
 /* Check for timeouts. Returns non-zero if the client was terminated */
@@ -1023,7 +1027,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Update the time cache. */
     updateCachedTime();
 
-    run_with_period(100) trackOperationsPerSecond();
+    run_with_period(100) {
+        trackInstantaneousMetric(REDIS_METRIC_COMMAND,server.stat_numcommands);
+        trackInstantaneousMetric(REDIS_METRIC_NET_INPUT,
+                server.stat_net_input_bytes);
+        trackInstantaneousMetric(REDIS_METRIC_NET_OUTPUT,
+                server.stat_net_output_bytes);
+    }
 
     /* We have just 22 bits per object for LRU information.
      * So we use an (eventually wrapping) LRU clock with 10 seconds resolution.
@@ -1453,6 +1463,8 @@ void initServerConfig(void) {
     server.repl_slave_ro = REDIS_DEFAULT_SLAVE_READ_ONLY;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
     server.repl_disable_tcp_nodelay = REDIS_DEFAULT_REPL_DISABLE_TCP_NODELAY;
+    server.repl_diskless_sync = REDIS_DEFAULT_REPL_DISKLESS_SYNC;
+    server.repl_diskless_sync_delay = REDIS_DEFAULT_REPL_DISKLESS_SYNC_DELAY;
     server.slave_priority = REDIS_DEFAULT_SLAVE_PRIORITY;
     server.master_repl_offset = 0;
 
@@ -1584,6 +1596,23 @@ void adjustOpenFilesLimit(void) {
 #endif
 }
 
+/* Check that server.tcp_backlog can be actually enforced in Linux according
+ * to the value of /proc/sys/net/core/somaxconn, or warn about it. */
+void checkTcpBacklogSettings(void) {
+#ifdef HAVE_PROC_SOMAXCONN
+    FILE *fp = fopen("/proc/sys/net/core/somaxconn","r");
+    char buf[1024];
+    if (!fp) return;
+    if (fgets(buf,sizeof(buf),fp) != NULL) {
+        int somaxconn = atoi(buf);
+        if (somaxconn > 0 && somaxconn < server.tcp_backlog) {
+            redisLog(REDIS_WARNING,"WARNING: The TCP backlog setting of %d cannot be enforced because /proc/sys/net/core/somaxconn is set to the lower value of %d.", server.tcp_backlog, somaxconn);
+        }
+    }
+    fclose(fp);
+#endif
+}
+
 /* Initialize a set of file descriptors to listen to the specified 'port'
  * binding the addresses specified in the Redis server configuration.
  *
@@ -1654,6 +1683,8 @@ int listenToPort(int port, int *fds, int *count) {
  * to reset via CONFIG RESETSTAT. The function is also used in order to
  * initialize these fields in initServer() at server startup. */
 void resetServerStats(void) {
+    int j;
+
     server.stat_numcommands = 0;
     server.stat_numconnections = 0;
     server.stat_expiredkeys = 0;
@@ -1666,10 +1697,15 @@ void resetServerStats(void) {
     server.stat_sync_full = 0;
     server.stat_sync_partial_ok = 0;
     server.stat_sync_partial_err = 0;
-    memset(server.ops_sec_samples,0,sizeof(server.ops_sec_samples));
-    server.ops_sec_idx = 0;
-    server.ops_sec_last_sample_time = mstime();
-    server.ops_sec_last_sample_ops = 0;
+    for (j = 0; j < REDIS_METRIC_COUNT; j++) {
+        server.inst_metric[j].idx = 0;
+        server.inst_metric[j].last_sample_time = mstime();
+        server.inst_metric[j].last_sample_count = 0;
+        memset(server.inst_metric[j].samples,0,
+            sizeof(server.inst_metric[j].samples));
+    }
+    server.stat_net_input_bytes = 0;
+    server.stat_net_output_bytes = 0;
 }
 
 void initServer(void) {
@@ -1758,6 +1794,7 @@ void initServer(void) {
     server.cronloops = 0;
     server.rdb_child_pid = -1;
     server.aof_child_pid = -1;
+    server.rdb_child_type = REDIS_RDB_CHILD_TYPE_NONE;
     aofRewriteBufferReset();
     server.aof_buf = sdsempty();
     server.lastsave = time(NULL); /* At startup we consider the DB saved. */
@@ -1971,7 +2008,7 @@ void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
 }
 
 /* It is possible to call the function forceCommandPropagation() inside a
- * Redis command implementaiton in order to to force the propagation of a
+ * Redis command implementation in order to to force the propagation of a
  * specific command execution into AOF / Replication. */
 void forceCommandPropagation(redisClient *c, int flags) {
     if (flags & REDIS_PROPAGATE_REPL) c->flags |= REDIS_FORCE_REPL;
@@ -2822,6 +2859,10 @@ sds genRedisInfoString(char *section) {
             "total_connections_received:%lld\r\n"
             "total_commands_processed:%lld\r\n"
             "instantaneous_ops_per_sec:%lld\r\n"
+            "total_net_input_bytes:%lld\r\n"
+            "total_net_output_bytes:%lld\r\n"
+            "instantaneous_input_kbps:%.2f\r\n"
+            "instantaneous_output_kbps:%.2f\r\n"
             "rejected_connections:%lld\r\n"
             "sync_full:%lld\r\n"
             "sync_partial_ok:%lld\r\n"
@@ -2835,7 +2876,11 @@ sds genRedisInfoString(char *section) {
             "latest_fork_usec:%lld\r\n",
             server.stat_numconnections,
             server.stat_numcommands,
-            getOperationsPerSecond(),
+            getInstantaneousMetric(REDIS_METRIC_COMMAND),
+            server.stat_net_input_bytes,
+            server.stat_net_output_bytes,
+            (float)getInstantaneousMetric(REDIS_METRIC_NET_INPUT)/1024,
+            (float)getInstantaneousMetric(REDIS_METRIC_NET_OUTPUT)/1024,
             server.stat_rejected_conn,
             server.stat_sync_full,
             server.stat_sync_partial_ok,
@@ -3230,9 +3275,12 @@ int linuxOvercommitMemoryValue(void) {
     return atoi(buf);
 }
 
-void linuxOvercommitMemoryWarning(void) {
+void linuxMemoryWarnings(void) {
     if (linuxOvercommitMemoryValue() == 0) {
         redisLog(REDIS_WARNING,"WARNING overcommit_memory is set to 0! Background save may fail under low memory condition. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.");
+    }
+    if (THPIsEnabled()) {
+        redisLog(REDIS_WARNING,"WARNING you have Transparent Huge Pages (THP) support enabled in your kernel. This will create latency and memory usage issues with Redis. To fix this issue run the command 'echo never > /sys/kernel/mm/transparent_hugepage/enabled' as root, and add it to your /etc/rc.local in order to retain the setting after a reboot. Redis must be restarted after THP is disabled.");
     }
 }
 #endif /* __linux__ */
@@ -3302,15 +3350,27 @@ void redisAsciiArt(void) {
 
     if (server.sentinel_mode) mode = "sentinel";
 
-    snprintf(buf,1024*16,ascii_logo,
-        REDIS_VERSION,
-        redisGitSHA1(),
-        strtol(redisGitDirty(),NULL,10) > 0,
-        (sizeof(void *) == 8) ? "64" : "32",
-        mode, server.port,
-        (long) getpid()
-    );
-    redisLogRaw(REDIS_NOTICE|REDIS_LOG_RAW,buf);
+    if (server.syslog_enabled) {
+        redisLog(REDIS_NOTICE,
+            "Redis %s (%s/%d) %s bit, %s mode, port %d, pid %ld ready to start.",
+            REDIS_VERSION,
+            redisGitSHA1(),
+            strtol(redisGitDirty(),NULL,10) > 0,
+            (sizeof(void *) == 8) ? "64" : "32",
+            mode, server.port,
+            (long) getpid()
+        );
+    } else {
+        snprintf(buf,1024*16,ascii_logo,
+            REDIS_VERSION,
+            redisGitSHA1(),
+            strtol(redisGitDirty(),NULL,10) > 0,
+            (sizeof(void *) == 8) ? "64" : "32",
+            mode, server.port,
+            (long) getpid()
+        );
+        redisLogRaw(REDIS_NOTICE|REDIS_LOG_RAW,buf);
+    }
     zfree(buf);
 }
 
@@ -3508,8 +3568,9 @@ int main(int argc, char **argv) {
         /* Things not needed when running in Sentinel mode. */
         redisLog(REDIS_WARNING,"Server started, Redis version " REDIS_VERSION);
     #ifdef __linux__
-        linuxOvercommitMemoryWarning();
+        linuxMemoryWarnings();
     #endif
+        checkTcpBacklogSettings();
         loadDataFromDisk();
         if (server.ipfd_count > 0)
             redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);

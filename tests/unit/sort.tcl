@@ -179,7 +179,7 @@ start_server {
         assert_equal [lsort -real $floats] [r sort mylist]
     }
 
-    test "SORT with STORE returns zero if result is empty (github isse 224)" {
+    test "SORT with STORE returns zero if result is empty (github issue 224)" {
         r flushdb
         r sort foo store bar
     } {0}

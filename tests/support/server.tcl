@@ -85,6 +85,9 @@ if { $tcl_platform(platform) != "windows" } {
     if {$::valgrind} {
         check_valgrind_errors [dict get $config stderr]
     }
+
+    # Remove this pid from the set of active pids in the test server.
+    send_data_packet $::test_server_fd server-killed $pid
   }
 }
 
@@ -236,10 +239,10 @@ proc start_server {options {code undefined}} {
             dict set config $directive $arguments
         }
     }
-    
+
     # use a different directory every time a server is started
     dict set config dir [tmpdir server]
-    
+
     # start every server on a different port
     set ::port [find_available_port [expr {$::port+1}]]
     dict set config port $::port
@@ -248,7 +251,7 @@ proc start_server {options {code undefined}} {
     foreach {directive arguments} [concat $::global_overrides $overrides] {
         dict set config $directive $arguments
     }
-    
+
     # write new configuration to temporary file
     set config_file [tmpfile redis.conf]
     set fp [open $config_file w+]
@@ -262,11 +265,14 @@ proc start_server {options {code undefined}} {
     set stderr [format "%s/%s" [dict get $config "dir"] "stderr"]
 
     if {$::valgrind} {
-        exec valgrind --suppressions=src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full src/redis-server $config_file > $stdout 2> $stderr &
+        set pid [exec valgrind --suppressions=src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full src/redis-server $config_file > $stdout 2> $stderr &]
     } else {
-        exec src/redis-server $config_file > $stdout 2> $stderr &
+        set pid [exec src/redis-server $config_file > $stdout 2> $stderr &]
     }
-    
+
+    # Tell the test server about this new instance.
+    send_data_packet $::test_server_fd server-spawned $pid
+
     # check that the server actually started
     # ugly but tries to be as fast as possible...
     if {$::valgrind} {set retrynum 1000} else {set retrynum 100}
@@ -291,10 +297,10 @@ proc start_server {options {code undefined}} {
         start_server_error $config_file $err
         return
     }
-    
-    # find out the pid
-    while {![info exists pid]} {
-        regexp {\[(\d+)\]} [exec cat $stdout] _ pid
+
+    # Wait for actual startup
+    while {![info exists _pid]} {
+        regexp {PID:\s(\d+)} [exec cat $stdout] _ _pid
         after 100
     }
 
