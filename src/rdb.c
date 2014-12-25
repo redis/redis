@@ -1087,8 +1087,9 @@ void startLoading(FILE *fp) {
     /* Load the DB */
     server.loading = 1;
     server.loading_start_time = time(NULL);
+    server.loading_loaded_bytes = 0;
     if (fstat(fileno(fp), &sb) == -1) {
-        server.loading_total_bytes = 1; /* just to avoid division by zero */
+        server.loading_total_bytes = 0;
     } else {
         server.loading_total_bytes = sb.st_size;
     }
@@ -1491,7 +1492,9 @@ int rdbSaveToSlavesSockets(void) {
             {
                 retval = REDIS_ERR;
             }
+            zfree(msg);
         }
+        zfree(clientids);
         exitFromChild((retval == REDIS_OK) ? 0 : 1);
     } else {
         /* Parent */

@@ -53,6 +53,7 @@
 #include <sys/resource.h>
 #include <sys/utsname.h>
 #include <locale.h>
+#include <sys/sysctl.h>
 
 /* Our shared "common" objects */
 
@@ -161,7 +162,7 @@ struct redisCommand redisCommandTable[] = {
     {"smove",smoveCommand,4,"wF",0,NULL,1,2,1,0,0},
     {"sismember",sismemberCommand,3,"rF",0,NULL,1,1,1,0,0},
     {"scard",scardCommand,2,"rF",0,NULL,1,1,1,0,0},
-    {"spop",spopCommand,2,"wRsF",0,NULL,1,1,1,0,0},
+    {"spop",spopCommand,-2,"wRsF",0,NULL,1,1,1,0,0},
     {"srandmember",srandmemberCommand,-2,"rR",0,NULL,1,1,1,0,0},
     {"sinter",sinterCommand,-2,"rS",0,NULL,1,-1,1,0,0},
     {"sinterstore",sinterstoreCommand,-3,"wm",0,NULL,1,-1,1,0,0},
@@ -1565,33 +1566,33 @@ void adjustOpenFilesLimit(void) {
         /* Set the max number of files if the current limit is not enough
          * for our needs. */
         if (oldlimit < maxfiles) {
-            rlim_t f;
+            rlim_t bestlimit;
             int setrlimit_error = 0;
 
             /* Try to set the file limit to match 'maxfiles' or at least
              * to the higher value supported less than maxfiles. */
-            f = maxfiles;
-            while(f > oldlimit) {
+            bestlimit = maxfiles;
+            while(bestlimit > oldlimit) {
                 rlim_t decr_step = 16;
 
-                limit.rlim_cur = f;
-                limit.rlim_max = f;
+                limit.rlim_cur = bestlimit;
+                limit.rlim_max = bestlimit;
                 if (setrlimit(RLIMIT_NOFILE,&limit) != -1) break;
                 setrlimit_error = errno;
 
-                /* We failed to set file limit to 'f'. Try with a
+                /* We failed to set file limit to 'bestlimit'. Try with a
                  * smaller limit decrementing by a few FDs per iteration. */
-                if (f < decr_step) break;
-                f -= decr_step;
+                if (bestlimit < decr_step) break;
+                bestlimit -= decr_step;
             }
 
             /* Assume that the limit we get initially is still valid if
              * our last try was even lower. */
-            if (f < oldlimit) f = oldlimit;
+            if (bestlimit < oldlimit) bestlimit = oldlimit;
 
-            if (f != maxfiles) {
+            if (bestlimit < maxfiles) {
                 int old_maxclients = server.maxclients;
-                server.maxclients = f-REDIS_MIN_RESERVED_FDS;
+                server.maxclients = bestlimit-REDIS_MIN_RESERVED_FDS;
                 if (server.maxclients < 1) {
                     redisLog(REDIS_WARNING,"Your current 'ulimit -n' "
                         "of %llu is not enough for Redis to start. "
@@ -1612,7 +1613,7 @@ void adjustOpenFilesLimit(void) {
                     "maxclients has been reduced to %d to compensate for "
                     "low ulimit. "
                     "If you need higher maxclients increase 'ulimit -n'.",
-                    (unsigned long long) oldlimit, server.maxclients);
+                    (unsigned long long) bestlimit, server.maxclients);
             } else {
                 redisLog(REDIS_NOTICE,"Increased maximum number of open files "
                     "to %llu (it was originally set to %llu).",
@@ -1759,6 +1760,7 @@ void initServer(void) {
     server.clients_waiting_acks = listCreate();
     server.get_ack_from_slaves = 0;
     server.clients_paused = 0;
+    server.system_memory_size = zmalloc_get_memory_size();
 
     createSharedObjects();
     adjustOpenFilesLimit();
@@ -2479,7 +2481,6 @@ void timeCommand(redisClient *c) {
     addReplyBulkLongLong(c,tv.tv_usec);
 }
 
-
 /* Helper function for addReplyCommand() to output flags. */
 int addReplyCommandFlag(redisClient *c, struct redisCommand *cmd, int f, char *reply) {
     if (cmd->flags & f) {
@@ -2698,7 +2699,10 @@ sds genRedisInfoString(char *section) {
     if (allsections || defsections || !strcasecmp(section,"memory")) {
         char hmem[64];
         char peak_hmem[64];
+        char total_system_hmem[64];
         size_t zmalloc_used = zmalloc_used_memory();
+        size_t total_system_mem = server.system_memory_size;
+        char *evict_policy = maxmemoryToString();
 
         /* Peak memory is updated from time to time by serverCron() so it
          * may happen that the instantaneous value is slightly bigger than
@@ -2709,6 +2713,8 @@ sds genRedisInfoString(char *section) {
 
         bytesToHuman(hmem,zmalloc_used);
         bytesToHuman(peak_hmem,server.stat_peak_memory);
+        bytesToHuman(total_system_hmem,total_system_mem);
+
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Memory\r\n"
@@ -2717,17 +2723,23 @@ sds genRedisInfoString(char *section) {
             "used_memory_rss:%zu\r\n"
             "used_memory_peak:%zu\r\n"
             "used_memory_peak_human:%s\r\n"
+            "total_system_memory:%lu\r\n"
+            "total_system_memory_human:%s\r\n"
             "used_memory_lua:%lld\r\n"
             "mem_fragmentation_ratio:%.2f\r\n"
-            "mem_allocator:%s\r\n",
+            "mem_allocator:%s\r\n"
+            "maxmemory_policy:%s\r\n",
             zmalloc_used,
             hmem,
             server.resident_set_size,
             server.stat_peak_memory,
             peak_hmem,
+            (unsigned long)total_system_mem,
+            total_system_hmem,
             ((long long)lua_gc(server.lua,LUA_GCCOUNT,0))*1024LL,
             zmalloc_get_fragmentation_ratio(server.resident_set_size),
-            ZMALLOC_LIB
+            ZMALLOC_LIB,
+            evict_policy
             );
     }
 
@@ -2792,14 +2804,14 @@ sds genRedisInfoString(char *section) {
                                     server.loading_loaded_bytes;
 
             perc = ((double)server.loading_loaded_bytes /
-                   server.loading_total_bytes) * 100;
+                   (server.loading_total_bytes+1)) * 100;
 
-            elapsed = server.unixtime-server.loading_start_time;
+            elapsed = time(NULL)-server.loading_start_time;
             if (elapsed == 0) {
                 eta = 1; /* A fake 1 second figure if we don't have
                             enough info */
             } else {
-                eta = (elapsed*remaining_bytes)/server.loading_loaded_bytes;
+                eta = (elapsed*remaining_bytes)/(server.loading_loaded_bytes+1);
             }
 
             info = sdscatprintf(info,
