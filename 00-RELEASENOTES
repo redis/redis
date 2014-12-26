@@ -14,6 +14,36 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.19 ] Release date: 16 Dec 2014
+
+# UPGRADE URGENCY: LOW for both Redis and Sentinel. This release mostly
+                   fixes small issues.
+
+02d465c Don't log admin commands in MONITOR. (antirez)
+4d8f426 List of commands flagged as admin commands modified. (antirez)
+e47e460 Lua cmsgpack lib updated to latest version. (antirez)
+5509c14 Add symlink to redis-sentinel during make install (Rhommel Lamas)
+7de1ef7 SORT: Don't sort Set elements if not needed. (antirez)
+e945a54 Fix zero-ordering SORT when called against lists (Matt Stancliff)
+d81c383 Update redis_init_script.tpl (Ben Dowling)
+dba57ea FIXED redis-benchmark's idle mode.With idle mode shouldn't create write event (zhanghailei)
+888ea17 zipmap.c: update comments above (Sun He)
+86ebc13 replaced // comments  #2150 (Deepak Verma)
+3d73f08 redis-benchmark AUTH command to be discarded after the first send #2150 (azure provisioned user)
+76d53a6 sds.c: Correct two spelling mistakes in comments (Sun He)
+4848cf9 sds.c/sdscatvprintf: set va_end to finish va_list cpy (Sun He)
+d2f584f sds.c: Correct some comments (Sun He)
+2ed3f09 Update whatisdoing.sh (Serghei Iakovlev)
+77b997d Include stropts only if __sun is defined. (antirez)
+d409371 Fix implicit declaration of ioctl on Solaris (Jan-Erik Rediger)
+23b96c0 Silence _BSD_SOURCE warnings in glibc 2.20 and forward (Johan Bergström)
+a47a042 Mark whatisdoing.sh as deprecated in top-comment. (antirez)
+b5737d2 getting pid fixes (Serghei Iakovlev)
+a598e08 sparkline.c: AddSample skip Empty label (Sun He)
+7d480ab sparkline.c: mov label-ini into the AddSample Function (Sun He)
+2f3c860 Only ignore sigpipe in interactive mode (Jan-Erik Rediger)
+0c211a1 Simplify lua_cmsgpack macro and fix build on old Linux distros. (antirez)
+
 --[ Redis 2.8.18 ] Release date: 4 Dec 2014
 
 # UPGRADE URGENCY: LOW for both Redis and Sentinel. This release mostly

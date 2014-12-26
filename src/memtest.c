@@ -36,6 +36,9 @@
 #ifndef _WIN32
 #include <termios.h>
 #include <sys/ioctl.h>
+#if defined(__sun)
+#include <stropts.h>
+#endif
 #else
 #include "win32_Interop/win32fixes.h"
 #include "win32_Interop/win32_ANSI.h"

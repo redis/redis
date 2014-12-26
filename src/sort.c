@@ -264,16 +264,15 @@ void sortCommand(redisClient *c) {
         j++;
     }
 
-    /* For the STORE option, or when SORT is called from a Lua script,
-     * we want to force a specific ordering even when no explicit ordering
-     * was asked (SORT BY nosort). This guarantees that replication / AOF
-     * is deterministic.
+    /* When sorting a set with no sort specified, we must sort the output
+     * so the result is consistent across scripting and replication.
      *
-     * However in the case 'dontsort' is true, but the type to sort is a
-     * sorted set, we don't need to do anything as ordering is guaranteed
-     * in this special case. */
-    if ((storekey || c->flags & REDIS_LUA_CLIENT) &&
-        (dontsort && sortval->type != REDIS_ZSET))
+     * The other types (list, sorted set) will retain their native order
+     * even if no sort order is requested, so they remain stable across
+     * scripting and replication. */
+    if (dontsort &&
+        sortval->type == REDIS_SET &&
+        (storekey || c->flags & REDIS_LUA_CLIENT))
     {
         /* Force ALPHA sorting */
         dontsort = 0;
