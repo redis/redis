@@ -32,6 +32,7 @@
 #include "zipmap.h"
 #include "endianconv.h"
 
+#include <ctype.h>
 #include <math.h>
 #include <sys/types.h>
 #include <sys/time.h>
@@ -957,18 +958,23 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
             if (value == NULL) return NULL;
             redisAssert(sdsEncodedObject(value));
 
-            /* Add pair to ziplist */
-            o->ptr = ziplistPush(o->ptr, field->ptr, sdslen(field->ptr), ZIPLIST_TAIL);
-            o->ptr = ziplistPush(o->ptr, value->ptr, sdslen(value->ptr), ZIPLIST_TAIL);
             /* Convert to hash table if size threshold is exceeded */
             if (sdslen(field->ptr) > server.hash_max_ziplist_value ||
                 sdslen(value->ptr) > server.hash_max_ziplist_value)
             {
-                decrRefCount(field);
-                decrRefCount(value);
                 hashTypeConvert(o, REDIS_ENCODING_HT);
+                field = tryObjectEncoding(field);
+                value = tryObjectEncoding(value);
+
+                /* Add pair to hash table */
+                ret = dictAdd((dict*)o->ptr, field, value);
+                redisAssert(ret == DICT_OK);
                 break;
             }
+            /* Add pair to ziplist */
+            o->ptr = ziplistPush(o->ptr, field->ptr, sdslen(field->ptr), ZIPLIST_TAIL);
+            o->ptr = ziplistPush(o->ptr, value->ptr, sdslen(value->ptr), ZIPLIST_TAIL);
+
             decrRefCount(field);
             decrRefCount(value);
         }
@@ -1148,7 +1154,14 @@ int rdbLoad(char *filename) {
         errno = EINVAL;
         return REDIS_ERR;
     }
-    rdbver = atoi(buf+5);
+    char *end;
+    rdbver = strtol(buf+5, &end, 10);
+    if (end != &buf[9] || isspace(buf[5])) {
+        fclose(fp);
+        redisLog(REDIS_WARNING,"Format error in RDB version");
+        errno = EINVAL;
+        return REDIS_ERR;
+    }
     if (rdbver < 1 || rdbver > REDIS_RDB_VERSION) {
         fclose(fp);
         redisLog(REDIS_WARNING,"Can't handle RDB format version %d",rdbver);
@@ -1178,11 +1191,17 @@ int rdbLoad(char *filename) {
             if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
         }
 
-        if (type == REDIS_RDB_OPCODE_EOF)
-            break;
+        if (type == REDIS_RDB_OPCODE_EOF) {
+            if (expiretime != -1)
+                goto eoferr;
+            else
+                break;
+        }
 
         /* Handle SELECT DB opcode as a special case */
         if (type == REDIS_RDB_OPCODE_SELECTDB) {
+            if (expiretime != -1)
+                goto eoferr;
             if ((dbid = rdbLoadLen(&rdb,NULL)) == REDIS_RDB_LENERR)
                 goto eoferr;
             if (dbid >= (unsigned)server.dbnum) {
