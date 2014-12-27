@@ -147,11 +147,11 @@ static void __redisAsyncCopyError(redisAsyncContext *ac) {
     ac->errstr = c->errstr;
 }
 
-redisAsyncContext *redisAsyncConnect(const char *ip, int port) {
+redisAsyncContext *redisAsyncConnect(const char *ip, int port, int ssl, char* certfile, char* certdir ) {
     redisContext *c;
     redisAsyncContext *ac;
 
-    c = redisConnectNonBlock(ip,port);
+    c = redisConnectNonBlock(ip,port,ssl,certfile,certdir);
     if (c == NULL)
         return NULL;
 
@@ -165,13 +165,13 @@ redisAsyncContext *redisAsyncConnect(const char *ip, int port) {
     return ac;
 }
 
-redisAsyncContext *redisAsyncConnectBind(const char *ip, int port,
-                                         const char *source_addr) {
-    redisContext *c = redisConnectBindNonBlock(ip,port,source_addr);
+redisAsyncContext *redisAsyncConnectBind(const char *ip, int port, int ssl, char* certfile, char* certdir, const char *source_addr) {
+    redisContext *c = redisConnectBindNonBlock(ip,port, ssl, certfile, certdir, source_addr);
     redisAsyncContext *ac = redisAsyncInitialize(c);
     __redisAsyncCopyError(ac);
     return ac;
 }
+
 
 redisAsyncContext *redisAsyncConnectUnix(const char *path) {
     redisContext *c;

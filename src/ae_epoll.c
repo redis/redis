@@ -123,8 +123,9 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
 
             if (e->events & EPOLLIN) mask |= AE_READABLE;
             if (e->events & EPOLLOUT) mask |= AE_WRITABLE;
-            if (e->events & EPOLLERR) mask |= AE_WRITABLE;
-            if (e->events & EPOLLHUP) mask |= AE_WRITABLE;
+           // TODO: bbroerman - Not sure why, but I took this out in the older version. 
+           // if (e->events & EPOLLERR) mask |= AE_WRITABLE;
+           // if (e->events & EPOLLHUP) mask |= AE_WRITABLE;
             eventLoop->fired[j].fd = e->data.fd;
             eventLoop->fired[j].mask = mask;
         }

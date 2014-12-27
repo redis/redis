@@ -53,6 +53,9 @@ static struct config {
     aeEventLoop *el;
     const char *hostip;
     int hostport;
+    int ssl;
+    char *certfile;
+    char *certdir;
     const char *hostsocket;
     int numclients;
     int liveclients;
@@ -148,7 +151,7 @@ static void freeAllClients(void) {
 static void resetClient(client c) {
     aeDeleteFileEvent(config.el,c->context->fd,AE_WRITABLE);
     aeDeleteFileEvent(config.el,c->context->fd,AE_READABLE);
-    aeCreateFileEvent(config.el,c->context->fd,AE_WRITABLE,writeHandler,c);
+    aeCreateFileEvent(config.el,c->context->fd,AE_WRITABLE,writeHandler,c,0);
     c->written = 0;
     c->pending = config.pipeline;
 }
@@ -276,7 +279,7 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         c->written += nwritten;
         if (sdslen(c->obuf) == c->written) {
             aeDeleteFileEvent(config.el,c->context->fd,AE_WRITABLE);
-            aeCreateFileEvent(config.el,c->context->fd,AE_READABLE,readHandler,c);
+            aeCreateFileEvent(config.el,c->context->fd,AE_READABLE,readHandler,c,0);
         }
     }
 }
@@ -307,7 +310,7 @@ static client createClient(char *cmd, size_t len, client from) {
     client c = zmalloc(sizeof(struct _client));
 
     if (config.hostsocket == NULL) {
-        c->context = redisConnectNonBlock(config.hostip,config.hostport);
+        c->context = redisConnectNonBlock(config.hostip,config.hostport,config.ssl, config.certfile, config.certdir);
     } else {
         c->context = redisConnectUnixNonBlock(config.hostsocket);
     }
@@ -393,7 +396,7 @@ static client createClient(char *cmd, size_t len, client from) {
         }
     }
     if (config.idlemode == 0)
-        aeCreateFileEvent(config.el,c->context->fd,AE_WRITABLE,writeHandler,c);
+    aeCreateFileEvent(config.el,c->context->fd,AE_WRITABLE,writeHandler,c,0);
     listAddNodeTail(config.clients,c);
     config.liveclients++;
     return c;
@@ -489,6 +492,14 @@ int parseOptions(int argc, const char **argv) {
         } else if (!strcmp(argv[i],"-p")) {
             if (lastarg) goto invalid;
             config.hostport = atoi(argv[++i]);
+        } else if (!strcmp(argv[i],"-ssl") ) {
+            config.ssl = 1;
+        } else if (!strcmp(argv[i],"-cafile") && !lastarg) {
+            sdsfree(config.certfile);
+            config.certfile = sdsnew(argv[++i]);
+        } else if (!strcmp(argv[i],"-cadir") && !lastarg) {
+            sdsfree(config.certdir);
+            config.certdir = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-s")) {
             if (lastarg) goto invalid;
             config.hostsocket = strdup(argv[++i]);
@@ -557,6 +568,9 @@ usage:
 " -p <port>          Server port (default 6379)\n"
 " -s <socket>        Server socket (overrides host and port)\n"
 " -a <password>      Password for Redis Auth\n"
+" -ssl               Connect to the server using SSL\n"
+" -cadir <certdir>    Use the specified root CA cert directory.\n "
+" -cafile <certfile>  Use the specified root CA cert file.\n "
 " -c <clients>       Number of parallel connections (default 50)\n"
 " -n <requests>      Total number of requests (default 100000)\n"
 " -d <size>          Data size of SET/GET value in bytes (default 2)\n"

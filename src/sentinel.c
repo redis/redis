@@ -254,7 +254,7 @@ static void redisAeAddRead(void *privdata) {
     aeEventLoop *loop = e->loop;
     if (!e->reading) {
         e->reading = 1;
-        aeCreateFileEvent(loop,e->fd,AE_READABLE,redisAeReadEvent,e);
+        aeCreateFileEvent(loop,e->fd,AE_READABLE,redisAeReadEvent,e,0);
     }
 }
 
@@ -272,7 +272,7 @@ static void redisAeAddWrite(void *privdata) {
     aeEventLoop *loop = e->loop;
     if (!e->writing) {
         e->writing = 1;
-        aeCreateFileEvent(loop,e->fd,AE_WRITABLE,redisAeWriteEvent,e);
+        aeCreateFileEvent(loop,e->fd,AE_WRITABLE,redisAeWriteEvent,e,0);
     }
 }
 
@@ -1708,7 +1708,8 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
 
     /* Commands connection. */
     if (ri->cc == NULL) {
-        ri->cc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,REDIS_BIND_ADDR);
+    	// TODO: Need to add SSL connect here if configured in the sentinelRedisInstance config objet.
+        ri->cc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,server.ssl, server.ssl_root_file, server.ssl_root_dir, REDIS_BIND_ADDR);
         if (ri->cc->err) {
             sentinelEvent(REDIS_DEBUG,"-cmd-link-reconnection",ri,"%@ #%s",
                 ri->cc->errstr);
@@ -1730,7 +1731,8 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
     }
     /* Pub / Sub */
     if ((ri->flags & (SRI_MASTER|SRI_SLAVE)) && ri->pc == NULL) {
-        ri->pc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,REDIS_BIND_ADDR);
+    // TODO: Need to add SSL connect here if configured in the sentinelRedisInstance config objet.
+        ri->pc = redisAsyncConnectBind(ri->addr->ip,ri->addr->port,server.ssl, server.ssl_root_file, server.ssl_root_dir,REDIS_BIND_ADDR);
         if (ri->pc->err) {
             sentinelEvent(REDIS_DEBUG,"-pubsub-link-reconnection",ri,"%@ #%s",
                 ri->pc->errstr);

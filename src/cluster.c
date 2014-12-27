@@ -31,6 +31,7 @@
 #include "redis.h"
 #include "cluster.h"
 #include "endianconv.h"
+#include "anet.h"
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -40,6 +41,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/file.h>
+#include <openssl/ssl.h> // SSL and SSL_CTX for SSL connections
 
 /* A global reference to myself is handy to make code more clear.
  * Myself always points to server.cluster->myself, that is, the clusterNode
@@ -466,7 +468,7 @@ void clusterInit(void) {
 
         for (j = 0; j < server.cfd_count; j++) {
             if (aeCreateFileEvent(server.el, server.cfd[j], AE_READABLE,
-                clusterAcceptHandler, NULL) == AE_ERR)
+                clusterAcceptHandler, NULL,1) == AE_ERR)
                     redisPanic("Unrecoverable error creating Redis Cluster "
                                 "file event.");
         }
@@ -608,7 +610,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
          * node identity. */
         link = createClusterLink(NULL);
         link->fd = cfd;
-        aeCreateFileEvent(server.el,cfd,AE_READABLE,clusterReadHandler,link);
+        aeCreateFileEvent(server.el,cfd,AE_READABLE,clusterReadHandler,link,1);
     }
 }
 
@@ -1985,7 +1987,7 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 void clusterSendMessage(clusterLink *link, unsigned char *msg, size_t msglen) {
     if (sdslen(link->sndbuf) == 0 && msglen != 0)
         aeCreateFileEvent(server.el,link->fd,AE_WRITABLE,
-                    clusterWriteHandler,link);
+                    clusterWriteHandler,link,1);
 
     link->sndbuf = sdscatlen(link->sndbuf, msg, msglen);
     server.cluster->stats_bus_messages_sent++;
@@ -2927,7 +2929,7 @@ void clusterCron(void) {
             link->fd = fd;
             node->link = link;
             aeCreateFileEvent(server.el,link->fd,AE_READABLE,
-                    clusterReadHandler,link);
+                    clusterReadHandler,link,1);
             /* Queue a PING in the new connection ASAP: this is crucial
              * to avoid false positives in failure detection.
              *
@@ -4269,6 +4271,7 @@ void restoreCommand(redisClient *c) {
 
 typedef struct migrateCachedSocket {
     int fd;
+    anetSSLConnection *ssl_ctn;
     time_t last_use_time;
 } migrateCachedSocket;
 
@@ -4283,8 +4286,9 @@ typedef struct migrateCachedSocket {
  * If the caller detects an error while using the socket, migrateCloseSocket()
  * should be called so that the connection will be created from scratch
  * the next time. */
-int migrateGetSocket(redisClient *c, robj *host, robj *port, long timeout) {
+migrateCachedSocket* migrateGetSocket(redisClient *c, robj *host, robj *port, long timeout) {
     int fd;
+    anetSSLConnection* sslctn = NULL;
     sds name = sdsempty();
     migrateCachedSocket *cs;
 
@@ -4296,7 +4300,7 @@ int migrateGetSocket(redisClient *c, robj *host, robj *port, long timeout) {
     if (cs) {
         sdsfree(name);
         cs->last_use_time = server.unixtime;
-        return cs->fd;
+        return cs;
     }
 
     /* No cached socket, create one. */
@@ -4305,36 +4309,61 @@ int migrateGetSocket(redisClient *c, robj *host, robj *port, long timeout) {
         dictEntry *de = dictGetRandomKey(server.migrate_cached_sockets);
         cs = dictGetVal(de);
         close(cs->fd);
+        if( NULL != cs->ssl_ctn ) {
+        	anetCleanupSSL( cs->ssl_ctn );
+        	zfree( cs->ssl_ctn );
+        }
         zfree(cs);
         dictDelete(server.migrate_cached_sockets,dictGetKey(de));
     }
 
-    /* Create the socket */
-    fd = anetTcpNonBlockBindConnect(server.neterr,c->argv[1]->ptr,
+    //TODO: Here, we should detect if SSL is enabled, and if so, call a BindConnect variant (with the source addr)
+    // to get the SSL object.
+    if( server.ssl ) {
+    	sslctn = zmalloc(sizeof(sslctn));
+    	if( ANET_ERR == anetSSLGenericConnect( server.neterr,c->argv[1]->ptr, atoi(c->argv[2]->ptr),
+    			ANET_CONNECT_NONBLOCK, sslctn, server.ssl_root_file, server.ssl_root_dir, server.ssl_srvr_cert_common_name ) ) {
+    		sdsfree(name);
+    		addReplyErrorFormat(c,"Can't connect to target node: %s",
+    				server.neterr);
+    		return NULL;
+    	}
+    	fd = sslctn->sd;
+    } else {
+    	/* Create the socket */
+    	fd = anetTcpNonBlockBindConnect(server.neterr,c->argv[1]->ptr,
                 atoi(c->argv[2]->ptr),REDIS_BIND_ADDR);
-    if (fd == -1) {
-        sdsfree(name);
-        addReplyErrorFormat(c,"Can't connect to target node: %s",
-            server.neterr);
-        return -1;
+    	if (fd == -1) {
+        	sdsfree(name);
+        	addReplyErrorFormat(c,"Can't connect to target node: %s",
+        		server.neterr);
+        	return NULL;
+    	}
     }
+
     anetEnableTcpNoDelay(server.neterr,fd);
 
     /* Check if it connects within the specified timeout. */
-    if ((aeWait(fd,AE_WRITABLE,timeout) & AE_WRITABLE) == 0) {
+    if ((aeWait(fd,sslctn->ssl,AE_WRITABLE,timeout) & AE_WRITABLE) == 0) {
         sdsfree(name);
         addReplySds(c,
             sdsnew("-IOERR error or timeout connecting to the client\r\n"));
-        close(fd);
-        return -1;
+        if( server.ssl ) {
+        	anetCleanupSSL( sslctn );
+        	zfree(sslctn);
+        } else {
+        	close(fd);
+        }
+        return NULL;
     }
 
     /* Add to the cache and return it to the caller. */
     cs = zmalloc(sizeof(*cs));
+    cs->ssl_ctn = sslctn;
     cs->fd = fd;
     cs->last_use_time = server.unixtime;
     dictAdd(server.migrate_cached_sockets,name,cs);
-    return fd;
+    return cs;
 }
 
 /* Free a migrate cached connection. */
@@ -4352,6 +4381,10 @@ void migrateCloseSocket(robj *host, robj *port) {
     }
 
     close(cs->fd);
+    if( NULL != cs->ssl_ctn ) {
+       	anetCleanupSSL( cs->ssl_ctn );
+       	zfree( cs->ssl_ctn );
+    }
     zfree(cs);
     dictDelete(server.migrate_cached_sockets,name);
     sdsfree(name);
@@ -4366,6 +4399,10 @@ void migrateCloseTimedoutSockets(void) {
 
         if ((server.unixtime - cs->last_use_time) > MIGRATE_SOCKET_CACHE_TTL) {
             close(cs->fd);
+            if( NULL != cs->ssl_ctn ) {
+               	anetCleanupSSL( cs->ssl_ctn );
+               	zfree( cs->ssl_ctn );
+            }
             zfree(cs);
             dictDelete(server.migrate_cached_sockets,dictGetKey(de));
         }
@@ -4375,13 +4412,14 @@ void migrateCloseTimedoutSockets(void) {
 
 /* MIGRATE host port key dbid timeout [COPY | REPLACE] */
 void migrateCommand(redisClient *c) {
-    int fd, copy, replace, j;
+    int copy, replace, j;
     long timeout;
     long dbid;
     long long ttl, expireat;
     robj *o;
     rio cmd, payload;
     int retry_num = 0;
+    migrateCachedSocket *cs;
 
 try_again:
     /* Initialization */
@@ -4417,8 +4455,8 @@ try_again:
     }
 
     /* Connect */
-    fd = migrateGetSocket(c,c->argv[1],c->argv[2],timeout);
-    if (fd == -1) return; /* error sent to the client by migrateGetSocket() */
+    cs = migrateGetSocket(c,c->argv[1],c->argv[2],timeout);
+    if (cs == NULL) return; /* error sent to the client by migrateGetSocket() */
 
     /* Create RESTORE payload and generate the protocol to call the command. */
     rioInitWithBuffer(&cmd,sdsempty());
@@ -4463,7 +4501,12 @@ try_again:
 
         while ((towrite = sdslen(buf)-pos) > 0) {
             towrite = (towrite > (64*1024) ? (64*1024) : towrite);
-            nwritten = syncWrite(fd,buf+pos,towrite,timeout);
+
+            if(NULL != cs->ssl_ctn)
+            	nwritten = syncWrite(cs->fd,cs->ssl_ctn->ssl,buf+pos,towrite,timeout);
+            else
+            	nwritten = syncWrite(cs->fd,NULL,buf+pos,towrite,timeout);
+
             if (nwritten != (signed)towrite) goto socket_wr_err;
             pos += nwritten;
         }
@@ -4475,9 +4518,12 @@ try_again:
         char buf2[1024];
 
         /* Read the two replies */
-        if (syncReadLine(fd, buf1, sizeof(buf1), timeout) <= 0)
+        SSL* ssl = NULL;
+        if(NULL != cs->ssl_ctn) ssl = cs->ssl_ctn->ssl;
+
+        if (syncReadLine(cs->fd, ssl, buf1, sizeof(buf1), timeout) <= 0)
             goto socket_rd_err;
-        if (syncReadLine(fd, buf2, sizeof(buf2), timeout) <= 0)
+        if (syncReadLine(cs->fd, ssl, buf2, sizeof(buf2), timeout) <= 0)
             goto socket_rd_err;
         if (buf1[0] == '-' || buf2[0] == '-') {
             addReplyErrorFormat(c,"Target instance replied with error: %s",

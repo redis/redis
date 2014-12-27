@@ -74,7 +74,7 @@ redisClient *createClient(int fd) {
         if (server.tcpkeepalive)
             anetKeepAlive(NULL,fd,server.tcpkeepalive);
         if (aeCreateFileEvent(server.el,fd,AE_READABLE,
-            readQueryFromClient, c) == AE_ERR)
+        readQueryFromClient, c, 1) == AE_ERR)
         {
             close(fd);
             zfree(c);
@@ -87,6 +87,11 @@ redisClient *createClient(int fd) {
     c->fd = fd;
     c->name = NULL;
     c->bufpos = 0;
+    c->ssl.bio = NULL;
+    c->ssl.ssl = NULL;
+    c->ssl.ctx = NULL;
+    c->ssl.conn_str = NULL;
+    c->ssl.sd = -1;
     c->querybuf = sdsempty();
     c->querybuf_peak = 0;
     c->reqtype = 0;
@@ -151,7 +156,7 @@ int prepareClientToWrite(redisClient *c) {
         (c->replstate == REDIS_REPL_NONE ||
          c->replstate == REDIS_REPL_ONLINE) &&
         aeCreateFileEvent(server.el, c->fd, AE_WRITABLE,
-        sendReplyToClient, c) == AE_ERR) return REDIS_ERR;
+        sendReplyToClient, c, 1) == AE_ERR) return REDIS_ERR;
     return REDIS_OK;
 }
 
@@ -555,15 +560,22 @@ void copyClientOutputBuffer(redisClient *dst, redisClient *src) {
 }
 
 #define MAX_ACCEPTS_PER_CALL 1000
-static void acceptCommonHandler(int fd, int flags) {
+static void acceptCommonHandler(int fd, anetSSLConnection *sslctn, int flags) {
     redisClient *c;
     if ((c = createClient(fd)) == NULL) {
         redisLog(REDIS_WARNING,
             "Error registering fd event for the new client: %s (fd=%d)",
             strerror(errno),fd);
         close(fd); /* May be already closed, just ignore errors */
+        anetCleanupSSL( sslctn );
         return;
     }
+
+    // If we're talking SSL, and we have a valid SSL connection, set the client's pointer to the ssl connection info.
+    if( server.ssl && sslctn->ssl != NULL ) {
+      c->ssl = *sslctn;
+    }
+
     /* If maxclient directive is set and this is one client more... close the
      * connection. Note that we create the client instead to check before
      * for this condition, since now the socket is already set in non-blocking
@@ -572,7 +584,9 @@ static void acceptCommonHandler(int fd, int flags) {
         char *err = "-ERR max number of clients reached\r\n";
 
         /* That's a best effort error message, don't check write errors */
-        if (write(c->fd,err,strlen(err)) == -1) {
+        if( c->ssl.ssl ) {
+          SSL_write(c->ssl.ssl, err, strlen(err));
+        } else if (write(c->fd,err,strlen(err)) == -1) {
             /* Nothing to do, Just to avoid the warning... */
         }
         server.stat_rejected_conn++;
@@ -586,9 +600,16 @@ static void acceptCommonHandler(int fd, int flags) {
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd, max = MAX_ACCEPTS_PER_CALL;
     char cip[REDIS_IP_STR_LEN];
+    anetSSLConnection sslctn;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
+
+    sslctn.ctx = NULL;
+    sslctn.ssl = NULL;
+    sslctn.bio = NULL;
+    sslctn.conn_str = NULL;
+
 
     while(max--) {
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
@@ -598,16 +619,37 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     "Accepting client connection: %s", server.neterr);
             return;
         }
+
+    if( server.ssl ) {
+      redisLog(REDIS_VERBOSE,"Switching connection to SSL");
+      int ret = anetSSLAccept( server.neterr, cfd, server, &sslctn );
+
+      redisLog( REDIS_WARNING, "RET: d ", ret );
+
+      if( ret < 0 ) {
+        redisLog(REDIS_WARNING,"Error accepting SSL client connection." );
+        anetCleanupSSL( &sslctn );
+        close( cfd );
+        return;
+      }
+    }
+    
         redisLog(REDIS_VERBOSE,"Accepted %s:%d", cip, cport);
-        acceptCommonHandler(cfd,0);
+	acceptCommonHandler(cfd, &sslctn, 0);
     }
 }
 
 void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cfd, max = MAX_ACCEPTS_PER_CALL;
+    anetSSLConnection dummy_sslctn;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
+
+    dummy_sslctn.ctx = NULL;
+    dummy_sslctn.ssl = NULL;
+    dummy_sslctn.bio = NULL;
+    dummy_sslctn.conn_str = NULL;
 
     while(max--) {
         cfd = anetUnixAccept(server.neterr, fd);
@@ -618,7 +660,7 @@ void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
         redisLog(REDIS_VERBOSE,"Accepted connection to %s", server.unixsocket);
-        acceptCommonHandler(cfd,REDIS_UNIX_SOCKET);
+    	acceptCommonHandler(cfd, &dummy_sslctn, REDIS_UNIX_SOCKET);
     }
 }
 
@@ -710,7 +752,7 @@ void freeClient(redisClient *c) {
     }
     listRelease(c->reply);
     freeClientArgv(c);
-
+    anetCleanupSSL( &(c->ssl) );
     /* Remove from the list of clients */
     if (c->fd != -1) {
         ln = listSearchKey(server.clients,c);
@@ -797,7 +839,24 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     while(c->bufpos > 0 || listLength(c->reply)) {
         if (c->bufpos > 0) {
+
+              if( c->ssl.ssl ) {
+                nwritten = SSL_write(c->ssl.ssl,c->buf+c->sentlen,c->bufpos-c->sentlen);
+                if( nwritten < 0 ) {
+                  int errorCode = SSL_get_error( c->ssl.ssl, nwritten );
+                  if( SSL_ERROR_WANT_READ == errorCode || SSL_ERROR_WANT_WRITE == errorCode) {
+                    nwritten = 0;
+                  } else {
+                    char error[65535];
+                    ERR_error_string_n(ERR_get_error(), error, 65535);
+                    redisLog( REDIS_WARNING, "SSL ERROR: %s", error);
+                  }
+                }
+
+              } else {
             nwritten = write(fd,c->buf+c->sentlen,c->bufpos-c->sentlen);
+              }
+
             if (nwritten <= 0) break;
             c->sentlen += nwritten;
             totwritten += nwritten;
@@ -819,7 +878,23 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
                 continue;
             }
 
+
+                if( c->ssl.ssl ) {
+                  nwritten = SSL_write(c->ssl.ssl,((char*)o->ptr)+c->sentlen,objlen-c->sentlen);
+                  if( nwritten < 0 ) {
+                    int errorCode = SSL_get_error( c->ssl.ssl, nwritten );
+                    if( SSL_ERROR_WANT_READ == errorCode || SSL_ERROR_WANT_WRITE == errorCode) {
+                      nwritten = 0;
+                    } else {
+                      char error[65535];
+                      ERR_error_string_n(ERR_get_error(), error, 65535);
+                      redisLog( REDIS_WARNING, "SSL ERROR: %s", error);
+                    }
+                  }
+                } else {
             nwritten = write(fd, ((char*)o->ptr)+c->sentlen,objlen-c->sentlen);
+                }
+
             if (nwritten <= 0) break;
             c->sentlen += nwritten;
             totwritten += nwritten;
@@ -1164,20 +1239,53 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
     c->querybuf = sdsMakeRoomFor(c->querybuf, readlen);
-    nread = read(fd, c->querybuf+qblen, readlen);
-    if (nread == -1) {
-        if (errno == EAGAIN) {
-            nread = 0;
+
+    // SSL:
+    if( c->ssl.ssl ) {
+    
+      nread = SSL_read(c->ssl.ssl, c->querybuf+qblen, readlen);
+      
+      if( nread <= 0 ) {
+        int errorCode = SSL_get_error( c->ssl.ssl, nread );
+        if( SSL_ERROR_WANT_READ == errorCode || SSL_ERROR_WANT_WRITE == errorCode) {
+          nread = 0;
         } else {
+          int error_nbr = ERR_get_error();
+          
+          if( error_nbr != 0 ) {
+            char error[65535];
+            ERR_error_string_n(error_nbr, error, 65535);
+            redisLog( REDIS_WARNING, "SSL ERROR: %s", error);
+          }
+          
+          if( nread == 0 && error_nbr == 0 ) {
+            redisLog(REDIS_VERBOSE, "Client closed connection");          
+          } else {
             redisLog(REDIS_VERBOSE, "Reading from client: %s",strerror(errno));
-            freeClient(c);
-            return;
+          }
+          
+          freeClient(c);
+          return;
         }
-    } else if (nread == 0) {
-        redisLog(REDIS_VERBOSE, "Client closed connection");
-        freeClient(c);
-        return;
+      }
+    } else {
+      nread = read(fd, c->querybuf+qblen, readlen);
     }
+    
+      if (nread == -1) {
+          if (errno == EAGAIN) {
+              nread = 0;
+          } else {
+              redisLog(REDIS_VERBOSE, "Reading from client: %s",strerror(errno));
+              freeClient(c);
+              return;
+          }
+      } else if (nread == 0) {
+          redisLog(REDIS_VERBOSE, "Client closed connection");
+          freeClient(c);
+          return;
+      }
+
     if (nread) {
         sdsIncrLen(c->querybuf,nread);
         c->lastinteraction = server.unixtime;
@@ -1187,6 +1295,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         server.current_client = NULL;
         return;
     }
+
     if (sdslen(c->querybuf) > server.client_max_querybuf_len) {
         sds ci = catClientInfoString(sdsempty(),c), bytes = sdsempty();
 
@@ -1197,6 +1306,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         freeClient(c);
         return;
     }
+
     processInputBuffer(c);
     server.current_client = NULL;
 }

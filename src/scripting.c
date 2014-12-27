@@ -995,7 +995,7 @@ void evalGenericCommand(redisClient *c, int evalsha) {
         /* Restore the readable handler that was unregistered when the
          * script timeout was detected. */
         aeCreateFileEvent(server.el,c->fd,AE_READABLE,
-                          readQueryFromClient,c);
+                              readQueryFromClient,c,0);
     }
     server.lua_caller = NULL;
 

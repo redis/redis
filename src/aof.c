@@ -162,7 +162,7 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
      * not one already. */
     if (aeGetFileEvents(server.el,server.aof_pipe_write_data_to_child) == 0) {
         aeCreateFileEvent(server.el, server.aof_pipe_write_data_to_child,
-            AE_WRITABLE, aofChildWriteDiffData, NULL);
+            AE_WRITABLE, aofChildWriteDiffData, NULL,1);
     }
 }
 
@@ -1121,7 +1121,7 @@ int rewriteAppendOnlyFile(char *filename) {
     int nodata = 0;
     mstime_t start = mstime();
     while(mstime()-start < 1000 && nodata < 20) {
-        if (aeWait(server.aof_pipe_read_data_from_parent, AE_READABLE, 1) <= 0)
+        if (aeWait(server.aof_pipe_read_data_from_parent, NULL, AE_READABLE, 1) <= 0)
         {
             nodata++;
             continue;
@@ -1138,7 +1138,7 @@ int rewriteAppendOnlyFile(char *filename) {
     /* We read the ACK from the server using a 10 seconds timeout. Normally
      * it should reply ASAP, but just in case we lose its reply, we are sure
      * the child will eventually get terminated. */
-    if (syncRead(server.aof_pipe_read_ack_from_parent,&byte,1,5000) != 1 ||
+    if (syncRead(server.aof_pipe_read_ack_from_parent,NULL,&byte,1,5000) != 1 ||
         byte != '!') goto werr;
     redisLog(REDIS_NOTICE,"Parent agreed to stop sending diffs. Finalizing AOF...");
 
@@ -1220,7 +1220,7 @@ int aofCreatePipes(void) {
     /* Parent -> children data is non blocking. */
     if (anetNonBlock(NULL,fds[0]) != ANET_OK) goto error;
     if (anetNonBlock(NULL,fds[1]) != ANET_OK) goto error;
-    if (aeCreateFileEvent(server.el, fds[2], AE_READABLE, aofChildPipeReadable, NULL) == AE_ERR) goto error;
+    if (aeCreateFileEvent(server.el, fds[2], AE_READABLE, aofChildPipeReadable, NULL,0) == AE_ERR) goto error;
 
     server.aof_pipe_write_data_to_child = fds[1];
     server.aof_pipe_read_data_from_parent = fds[0];

@@ -141,6 +141,30 @@ void loadServerConfigFromString(char *config) {
             for (j = 0; j < addresses; j++)
                 server.bindaddr[j] = zstrdup(argv[j+1]);
             server.bindaddr_count = addresses;
+          server.ssl_dhk_file = zstrdup(argv[1]);
+        } else if( !strcasecmp(argv[0],"ssl") && argc == 2) {
+          if( !strcasecmp(argv[1],"y") || !strcasecmp(argv[1],"yes") ||
+              !strcasecmp(argv[1],"t") || !strcasecmp(argv[1],"true") ) {
+            server.ssl = 1;
+          }
+        } else if( !strcasecmp(argv[0],"ssl_ca_root_dir") && argc == 2) {
+          server.ssl_root_dir = zstrdup(argv[1]);
+        } else if( !strcasecmp(argv[0],"ssl_ca_root_file") && argc == 2) {
+          server.ssl_root_file = zstrdup(argv[1]);
+        } else if( !strcasecmp(argv[0],"ssl_cert_file") && argc == 2) {
+          server.ssl_cert_file = zstrdup(argv[1]);
+        } else if( !strcasecmp(argv[0],"ssl_pk_file") && argc == 2) {
+          server.ssl_pk_file = zstrdup(argv[1]);
+        } else if( !strcasecmp(argv[0],"ssl_dhk_file") && argc == 2) {
+          server.ssl_dhk_file = zstrdup(argv[1]);
+        } else if( !strcasecmp(argv[0],"ssl_cert_common_name") && argc == 2) {
+          server.ssl_srvr_cert_common_name = zstrdup(argv[1]);
+        } else if( !strcasecmp(argv[0],"ssl_cert_pass") && argc == 2) {          
+          server.ssl_srvr_cert_passwd = zstrdup(argv[1]);
+        } else if( !strcasecmp(argv[0],"ssl_cert_common_name") && argc == 2) {
+          server.ssl_srvr_cert_common_name = zstrdup(argv[1]);
+        } else if( !strcasecmp(argv[0],"ssl_cert_pass") && argc == 2) {
+          server.ssl_srvr_cert_passwd = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocket") && argc == 2) {
             server.unixsocket = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocketperm") && argc == 2) {
@@ -555,6 +579,30 @@ void loadServerConfigFromString(char *config) {
     }
 
     sdsfreesplitres(lines,totlines);
+
+    if( server.ssl ) {
+      if( NULL == server.ssl_root_dir && NULL == server.ssl_root_file ) {
+        fprintf( stderr, "\n*** FATAL CONFIG FILE ERROR ***\n");
+        fprintf( stderr, "SSL is enabled, but no certificate root file or directory is set.\n");
+        exit(1);
+      }
+      if( NULL == server.ssl_cert_file ) {
+        fprintf( stderr, "\n*** FATAL CONFIG FILE ERROR ***\n");
+        fprintf( stderr, "SSL is enabled, but no certificate file is specified.\n");
+        exit(1);
+      }
+      if( NULL == server.ssl_pk_file ) {
+        fprintf( stderr, "\n*** FATAL CONFIG FILE ERROR ***\n");
+        fprintf( stderr, "SSL is enabled, but no Pubilc Key file is specified.\n");
+        exit(1);
+      }
+      if( NULL == server.ssl_dhk_file ) {
+        fprintf( stderr, "\n*** FATAL CONFIG FILE ERROR ***\n");
+        fprintf( stderr, "SSL is enabled, but no Diffie-Hellman data file is specified.\n");
+        exit(1);
+      }
+    }
+
     return;
 
 loaderr:

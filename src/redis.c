@@ -1401,6 +1401,13 @@ void initServerConfig(void) {
     server.unixsocket = NULL;
     server.unixsocketperm = REDIS_DEFAULT_UNIX_SOCKET_PERM;
     server.ipfd_count = 0;
+    server.ssl_root_dir = NULL;
+    server.ssl_root_file = NULL;
+    server.ssl_cert_file = NULL;
+    server.ssl_pk_file = NULL;
+    server.ssl_dhk_file = NULL;
+    server.ssl_srvr_cert_common_name = NULL;
+    server.ssl_srvr_cert_passwd = NULL;
     server.sofd = -1;
     server.dbnum = REDIS_DEFAULT_DBNUM;
     server.verbosity = REDIS_DEFAULT_VERBOSITY;
@@ -1767,6 +1774,15 @@ void initServer(void) {
     server.el = aeCreateEventLoop(server.maxclients+REDIS_EVENTLOOP_FDSET_INCR);
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
+    if( server.ssl ) {
+      anetSSLPrepare( );
+    }
+
+    server.repl_transfer_ssl.ssl = NULL;
+    server.repl_transfer_ssl.bio = NULL;
+    server.repl_transfer_ssl.ctx = NULL;
+    server.repl_transfer_ssl.conn_str = NULL;
+
     /* Open the TCP listening socket for the user commands. */
     if (server.port != 0 &&
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == REDIS_ERR)
@@ -1838,14 +1854,14 @@ void initServer(void) {
      * domain sockets. */
     for (j = 0; j < server.ipfd_count; j++) {
         if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,
-            acceptTcpHandler,NULL) == AE_ERR)
+            acceptTcpHandler,NULL,0) == AE_ERR)
             {
                 redisPanic(
                     "Unrecoverable error creating server.ipfd file event.");
             }
     }
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
-        acceptUnixHandler,NULL) == AE_ERR) redisPanic("Unrecoverable error creating server.sofd file event.");
+        acceptUnixHandler,NULL,0) == AE_ERR) redisPanic("Unrecoverable error creating server.sofd file event.");
 
     /* Open the AOF file if needed. */
     if (server.aof_state == REDIS_AOF_ON) {

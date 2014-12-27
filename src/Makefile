@@ -58,7 +58,7 @@ ifeq ($(uname_S),SunOS)
 	# SunOS
 	INSTALL=cp -pf
 	FINAL_CFLAGS+= -D__EXTENSIONS__ -D_XPG6
-	FINAL_LIBS+= -ldl -lnsl -lsocket -lresolv -lpthread
+	FINAL_LIBS+= -ldl -lnsl -lsocket -lresolv -lpthread -lssl -lcrypto
 else
 ifeq ($(uname_S),Darwin)
 	# Darwin (nothing to do)
@@ -66,12 +66,12 @@ else
 ifeq ($(uname_S),AIX)
         # AIX
         FINAL_LDFLAGS+= -Wl,-bexpall
-        FINAL_LIBS+= -pthread -lcrypt -lbsd
+        FINAL_LIBS+= -pthread -lcrypt -lbsd -lssl -lcrypto
 
 else
 	# All the other OSes (notably Linux)
 	FINAL_LDFLAGS+= -rdynamic
-	FINAL_LIBS+= -pthread
+	FINAL_LIBS+= -pthread -lssl -lcrypto
 endif
 endif
 endif

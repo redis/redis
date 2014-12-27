@@ -574,6 +574,7 @@ redisReader *redisReaderCreate(void) {
     return r;
 }
 
+
 void redisReaderFree(redisReader *r) {
     if (r->reply != NULL && r->fn && r->fn->freeObject)
         r->fn->freeObject(r->reply);
@@ -825,6 +826,7 @@ int redisvFormatCommand(char **target, const char *format, va_list ap) {
                             goto fmt_valid;
                         }
                         goto fmt_invalid;
+
                     }
 
                 fmt_invalid:
@@ -1001,6 +1003,7 @@ static redisContext *redisContextInit(void) {
 }
 
 void redisFree(redisContext *c) {
+    cleanupSSL( &(c->ssl) );
     if (c->fd > 0)
         close(c->fd);
     if (c->obuf != NULL)
@@ -1020,7 +1023,7 @@ int redisFreeKeepFd(redisContext *c) {
 /* Connect to a Redis instance. On error the field error in the returned
  * context will be set to the return value of the error function.
  * When no set of reply functions is given, the default set will be used. */
-redisContext *redisConnect(const char *ip, int port) {
+redisContext *redisConnect(const char *ip, int port, int ssl, char* certfile, char* certdir ) {
     redisContext *c;
 
     c = redisContextInit();
@@ -1028,11 +1031,18 @@ redisContext *redisConnect(const char *ip, int port) {
         return NULL;
 
     c->flags |= REDIS_BLOCK;
-    redisContextConnectTcp(c,ip,port,NULL);
+
+    if( ssl ) {
+      setupSSL();
+      redisContextConnectSSL(c,ip,port,certfile,certdir,NULL);
+    } else {
+      redisContextConnectTcp(c,ip,port,NULL);
+    }
+
     return c;
 }
 
-redisContext *redisConnectWithTimeout(const char *ip, int port, const struct timeval tv) {
+redisContext *redisConnectWithTimeout(const char *ip, int port,const struct timeval tv, int ssl, char* certfile, char* certdir) {
     redisContext *c;
 
     c = redisContextInit();
@@ -1040,11 +1050,18 @@ redisContext *redisConnectWithTimeout(const char *ip, int port, const struct tim
         return NULL;
 
     c->flags |= REDIS_BLOCK;
-    redisContextConnectTcp(c,ip,port,&tv);
+
+    if( ssl ) {
+      setupSSL();
+      redisContextConnectSSL(c,ip,port,certfile,certdir,&tv);
+    } else {
+      redisContextConnectTcp(c,ip,port,&tv);
+    }
+
     return c;
 }
 
-redisContext *redisConnectNonBlock(const char *ip, int port) {
+redisContext *redisConnectNonBlock(const char *ip, int port, int ssl, char* certfile, char* certdir) {
     redisContext *c;
 
     c = redisContextInit();
@@ -1052,15 +1069,31 @@ redisContext *redisConnectNonBlock(const char *ip, int port) {
         return NULL;
 
     c->flags &= ~REDIS_BLOCK;
-    redisContextConnectTcp(c,ip,port,NULL);
+
+    if( ssl ) {
+      setupSSL();
+      redisContextConnectSSL(c,ip,port,certfile,certdir,NULL);
+    } else {
+      redisContextConnectTcp(c,ip,port,NULL);
+    }
+
     return c;
 }
 
 redisContext *redisConnectBindNonBlock(const char *ip, int port,
+									   int ssl, char* certfile, char* certdir,
                                        const char *source_addr) {
     redisContext *c = redisContextInit();
     c->flags &= ~REDIS_BLOCK;
-    redisContextConnectBindTcp(c,ip,port,NULL,source_addr);
+
+    if( ssl ) {
+    	setupSSL();
+    	// TODO: Create a bind version of this...
+        redisContextConnectSSL(c,ip,port,certfile,certdir,NULL);
+    } else {
+       	redisContextConnectBindTcp(c,ip,port,NULL,source_addr);
+    }
+
     return c;
 }
 
@@ -1139,7 +1172,29 @@ int redisBufferRead(redisContext *c) {
     if (c->err)
         return REDIS_ERR;
 
-    nread = read(c->fd,buf,sizeof(buf));
+    if( c->ssl.ssl ) {
+
+      nread = SSL_read( c->ssl.ssl, buf, sizeof(buf));
+
+      if( nread < 0 ) {
+        int errorCode = SSL_get_error( c->ssl.ssl, nread );
+        if( SSL_ERROR_WANT_READ == errorCode || SSL_ERROR_WANT_WRITE == errorCode) {
+          return REDIS_OK;
+        } else if( SSL_ERROR_ZERO_RETURN == errorCode ) {
+          __redisSetError(c,REDIS_ERR_EOF,"Server closed the connection");
+          return REDIS_ERR;
+        } else {
+          char error[65535];
+          ERR_error_string_n(ERR_get_error(), error, 65535);
+          __redisSetError(c,REDIS_ERR_IO,error);
+          return REDIS_ERR;
+        }
+      }
+
+    } else {
+      nread = read(c->fd,buf,sizeof(buf));
+    }
+
     if (nread == -1) {
         if ((errno == EAGAIN && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
             /* Try again later */
@@ -1176,7 +1231,12 @@ int redisBufferWrite(redisContext *c, int *done) {
         return REDIS_ERR;
 
     if (sdslen(c->obuf) > 0) {
-        nwritten = write(c->fd,c->obuf,sdslen(c->obuf));
+        if( c->ssl.ssl ) {
+          nwritten = SSL_write( c->ssl.ssl, c->obuf, sdslen(c->obuf));
+        } else {
+          nwritten = write(c->fd,c->obuf,sdslen(c->obuf));
+        }
+
         if (nwritten == -1) {
             if ((errno == EAGAIN && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
                 /* Try again later */

@@ -46,7 +46,7 @@
  * done within 'timeout' milliseconds the operation succeeds and 'size' is
  * returned. Otherwise the operation fails, -1 is returned, and an unspecified
  * partial write could be performed against the file descriptor. */
-ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout) {
+ssize_t syncWrite(int fd, SSL* ssl, char *ptr, ssize_t size, long long timeout) {
     ssize_t nwritten, ret = size;
     long long start = mstime();
     long long remaining = timeout;
@@ -58,17 +58,33 @@ ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout) {
 
         /* Optimistically try to write before checking if the file descriptor
          * is actually writable. At worst we get EAGAIN. */
-        nwritten = write(fd,ptr,size);
+          if( ssl ) {
+            nwritten = SSL_write( ssl, ptr, size );
+            if( nwritten < 0 ) {
+              int errorCode = SSL_get_error( ssl, nwritten );
+              if( SSL_ERROR_WANT_READ == errorCode || SSL_ERROR_WANT_WRITE == errorCode) {
+                nwritten = 0;
+              } else {
+                char error[65535];
+                ERR_error_string_n(ERR_get_error(), error, 65535);
+                redisLog( REDIS_WARNING, "SSL ERROR: %s", error);
+              }
+            }
+
+          } else {
+            nwritten = write(fd,ptr,size);
+          }
+
         if (nwritten == -1) {
             if (errno != EAGAIN) return -1;
         } else {
-            ptr += nwritten;
-            size -= nwritten;
+          ptr += nwritten;
+          size -= nwritten;
         }
         if (size == 0) return ret;
 
         /* Wait */
-        aeWait(fd,AE_WRITABLE,wait);
+        aeWait(fd,ssl,AE_WRITABLE,wait);
         elapsed = mstime() - start;
         if (elapsed >= timeout) {
             errno = ETIMEDOUT;
@@ -82,8 +98,8 @@ ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout) {
  * within 'timeout' milliseconds the operation succeed and 'size' is returned.
  * Otherwise the operation fails, -1 is returned, and an unspecified amount of
  * data could be read from the file descriptor. */
-ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
-    ssize_t nread, totread = 0;
+ssize_t syncRead(int fd, SSL* ssl, char *ptr, ssize_t size, long long timeout) {
+  ssize_t nread, totread = 0;
     long long start = mstime();
     long long remaining = timeout;
 
@@ -95,7 +111,36 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
 
         /* Optimistically try to read before checking if the file descriptor
          * is actually readable. At worst we get EAGAIN. */
+
+      if( ssl ) {
+        nread = SSL_read(ssl, ptr, size);
+
+        if( nread <= 0 ) {
+          int errorCode = SSL_get_error( ssl, nread );
+          if( SSL_ERROR_WANT_READ == errorCode || SSL_ERROR_WANT_WRITE == errorCode) {
+            nread = 0;
+          } else {
+            int error_nbr = ERR_get_error();
+
+            if( error_nbr != 0 ) {
+              char error[65535];
+              ERR_error_string_n(error_nbr, error, 65535);
+              redisLog( REDIS_WARNING, "SSL ERROR: %s", error);
+            }
+
+            if( nread == 0 && error_nbr == 0 ) {
+              redisLog(REDIS_VERBOSE, "Client closed connection");
+            } else {
+              redisLog(REDIS_VERBOSE, "Reading from client: %s",strerror(errno));
+              nread = -1;
+            }
+
+          }
+        }
+
+      } else {
         nread = read(fd,ptr,size);
+      }
         if (nread == 0) return -1; /* short read. */
         if (nread == -1) {
             if (errno != EAGAIN) return -1;
@@ -107,14 +152,14 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
         if (size == 0) return totread;
 
         /* Wait */
-        aeWait(fd,AE_READABLE,wait);
+        aeWait(fd,ssl,AE_READABLE,wait);
         elapsed = mstime() - start;
         if (elapsed >= timeout) {
             errno = ETIMEDOUT;
             return -1;
         }
         remaining = timeout - elapsed;
-    }
+  }
 }
 
 /* Read a line making sure that every char will not require more than 'timeout'
@@ -122,14 +167,14 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout) {
  *
  * On success the number of bytes read is returned, otherwise -1.
  * On success the string is always correctly terminated with a 0 byte. */
-ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout) {
+ssize_t syncReadLine(int fd, SSL* ssl, char *ptr, ssize_t size, long long timeout) {
     ssize_t nread = 0;
 
     size--;
     while(size) {
         char c;
 
-        if (syncRead(fd,&c,1,timeout) == -1) return -1;
+        if (syncRead(fd,ssl,&c,1,timeout) == -1) return -1;
         if (c == '\n') {
             *ptr = '\0';
             if (nread && *(ptr-1) == '\r') *(ptr-1) = '\0';

@@ -94,7 +94,7 @@ hiredis-example-libuv:
 	@false
 else
 hiredis-example-libuv: examples/example-libuv.c adapters/libuv.h $(STLIBNAME)
-	$(CC) -o examples/$@ $(REAL_CFLAGS) $(REAL_LDFLAGS) -I. -I$(LIBUV_DIR)/include $< $(LIBUV_DIR)/.libs/libuv.a -lpthread $(STLIBNAME)
+	$(CC) -o examples/$@ $(REAL_CFLAGS) $(REAL_LDFLAGS) -I. -I$(LIBUV_DIR)/include $< $(LIBUV_DIR)/.libs/libuv.a -lpthread  -lssl -lcrypto $(STLIBNAME)
 endif
 
 hiredis-example: examples/example.c $(STLIBNAME)
@@ -103,7 +103,7 @@ hiredis-example: examples/example.c $(STLIBNAME)
 examples: $(EXAMPLES)
 
 hiredis-test: test.o $(STLIBNAME)
-	$(CC) -o $@ $(REAL_LDFLAGS) $< $(STLIBNAME)
+	$(CC) -o $@ $(REAL_LDFLAGS)  -lssl -lcrypto $< $(STLIBNAME)
 
 test: hiredis-test
 	./hiredis-test

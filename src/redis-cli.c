@@ -67,6 +67,9 @@ static redisContext *context;
 static struct config {
     char *hostip;
     int hostport;
+    int ssl;
+    char *certfile;
+    char *certdir;
     char *hostsocket;
     long repeat;
     long interval;
@@ -362,7 +365,7 @@ static int cliConnect(int force) {
             redisFree(context);
 
         if (config.hostsocket == NULL) {
-            context = redisConnect(config.hostip,config.hostport);
+            context = redisConnect(config.hostip,config.hostport,config.ssl, config.certfile, config.certdir);
         } else {
             context = redisConnectUnix(config.hostsocket);
         }
@@ -710,7 +713,7 @@ static redisReply *reconnectingInfo(void) {
             fflush(stdout);
 
             redisFree(c);
-            c = redisConnect(config.hostip,config.hostport);
+            c = redisConnect(config.hostip,config.hostport, config.ssl, config.certfile, config.certdir );
             usleep(1000000);
         }
 
@@ -746,6 +749,14 @@ static int parseOptions(int argc, char **argv) {
             usage();
         } else if (!strcmp(argv[i],"-x")) {
             config.stdinarg = 1;
+        } else if (!strcmp(argv[i],"-ssl") ) {
+            config.ssl = 1;
+        } else if (!strcmp(argv[i],"-cafile") && !lastarg) {
+            sdsfree(config.certfile);
+            config.certfile = sdsnew(argv[++i]);
+        } else if (!strcmp(argv[i],"-cadir") && !lastarg) {
+            sdsfree(config.certdir);
+            config.certdir = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-p") && !lastarg) {
             config.hostport = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"-s") && !lastarg) {
@@ -814,6 +825,18 @@ static int parseOptions(int argc, char **argv) {
             }
         }
     }
+    
+    if( config.ssl ) {
+      if( NULL != config.certfile && NULL != config.certdir ) {
+        printf("redis-cli: Invalid option. Both CA Root file and CA Root directory specified. Using directory.\n");
+        sdsfree( config.certfile );
+        config.certfile = NULL;
+      } if( NULL == config.certfile && NULL == config.certdir ) {
+        config.certdir = sdsnew("/etc/ssl/certs");
+      }
+    }
+
+
     return i;
 }
 
@@ -843,8 +866,11 @@ static void usage(void) {
 "  -h <hostname>      Server hostname (default: 127.0.0.1).\n"
 "  -p <port>          Server port (default: 6379).\n"
 "  -s <socket>        Server socket (overrides hostname and port).\n"
-"  -a <password>      Password to use when connecting to the server.\n"
-"  -r <repeat>        Execute specified command N times.\n"
+"  -ssl                Use SSL."
+"  -cadir <certdir>    Use the specified root CA cert directory.\n "
+"  -cafile <certfile>  Use the specified root CA cert file.\n "
+"  -a <password>       Password to use when connecting to the server\n"
+"  -r <repeat>         Execute specified command N times\n"
 "  -i <interval>      When -r is used, waits <interval> seconds per command.\n"
 "                     It is possible to specify sub-second times like -i 0.1.\n"
 "  -n <db>            Database number.\n"
@@ -1251,7 +1277,7 @@ static void pipeMode(void) {
         int mask = AE_READABLE;
 
         if (!eof || obuf_len != 0) mask |= AE_WRITABLE;
-        mask = aeWait(fd,mask,1000);
+        mask = aeWait(fd,NULL,mask,1000);
 
         /* Handle the readable state: we can read replies from the server. */
         if (mask & AE_READABLE) {
@@ -1912,6 +1938,8 @@ int main(int argc, char **argv) {
     config.hostip = sdsnew("127.0.0.1");
     config.hostport = 6379;
     config.hostsocket = NULL;
+    config.certfile = NULL;
+    config.certdir = NULL;
     config.repeat = 1;
     config.interval = 0;
     config.dbnum = 0;
@@ -1933,6 +1961,7 @@ int main(int argc, char **argv) {
     config.pipe_timeout = REDIS_CLI_DEFAULT_PIPE_TIMEOUT;
     config.bigkeys = 0;
     config.stdinarg = 0;
+    config.ssl = 0;
     config.auth = NULL;
     config.eval = NULL;
     config.last_cmd_type = -1;

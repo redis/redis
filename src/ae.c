@@ -133,7 +133,7 @@ void aeStop(aeEventLoop *eventLoop) {
 }
 
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
-        aeFileProc *proc, void *clientData)
+        aeFileProc *proc, void *clientData, int clientDataType )
 {
     if (fd >= eventLoop->setsize) {
         errno = ERANGE;
@@ -147,6 +147,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
     if (mask & AE_READABLE) fe->rfileProc = proc;
     if (mask & AE_WRITABLE) fe->wfileProc = proc;
     fe->clientData = clientData;
+    fe->clientDataType = clientDataType;
     if (fd > eventLoop->maxfd)
         eventLoop->maxfd = fd;
     return AE_OK;
@@ -352,7 +353,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
     int processed = 0, numevents;
-
+    
     /* Nothing to do? return ASAP */
     if (!(flags & AE_TIME_EVENTS) && !(flags & AE_FILE_EVENTS)) return 0;
 
@@ -421,30 +422,40 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
     /* Check time events */
     if (flags & AE_TIME_EVENTS)
         processed += processTimeEvents(eventLoop);
-
+        
     return processed; /* return the number of processed file/time events */
 }
 
 /* Wait for milliseconds until the given file descriptor becomes
- * writable/readable/exception */
-int aeWait(int fd, int mask, long long milliseconds) {
-    struct pollfd pfd;
-    int retmask = 0, retval;
+ * writable/readable/exception
+ *
+ * BBROERMAN: Added check for SSL (if passed) pending bytes, and returning immediately
+ *  if present (instead of poll) and only calling poll if SSL_pending returns 0
+ *
+ */
+int aeWait(int fd, SSL* ssl, int mask, long long milliseconds ) {
+  struct pollfd pfd;
+  int retmask = 0, retval;
 
-    memset(&pfd, 0, sizeof(pfd));
-    pfd.fd = fd;
-    if (mask & AE_READABLE) pfd.events |= POLLIN;
-    if (mask & AE_WRITABLE) pfd.events |= POLLOUT;
+  memset(&pfd, 0, sizeof(pfd));
+  pfd.fd = fd;
+  if (mask & AE_READABLE) pfd.events |= POLLIN;
+  if (mask & AE_WRITABLE) pfd.events |= POLLOUT;
 
-    if ((retval = poll(&pfd, 1, milliseconds))== 1) {
-        if (pfd.revents & POLLIN) retmask |= AE_READABLE;
-        if (pfd.revents & POLLOUT) retmask |= AE_WRITABLE;
-	if (pfd.revents & POLLERR) retmask |= AE_WRITABLE;
-        if (pfd.revents & POLLHUP) retmask |= AE_WRITABLE;
-        return retmask;
-    } else {
-        return retval;
-    }
+  if( ssl ) {
+    if( SSL_pending( ssl ))
+      if (mask & AE_READABLE) return AE_READABLE;
+  }
+
+  if ((retval = poll(&pfd, 1, milliseconds)) == 1) {
+    if (pfd.revents & POLLIN) retmask |= AE_READABLE;
+    if (pfd.revents & POLLOUT) retmask |= AE_WRITABLE;
+    if (pfd.revents & POLLERR) retmask |= AE_WRITABLE;
+    if (pfd.revents & POLLHUP) retmask |= AE_WRITABLE;
+    return retmask;
+  } else {
+    return retval;
+  }
 }
 
 void aeMain(aeEventLoop *eventLoop) {

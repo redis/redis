@@ -61,7 +61,7 @@ static void redisAeAddRead(void *privdata) {
     aeEventLoop *loop = e->loop;
     if (!e->reading) {
         e->reading = 1;
-        aeCreateFileEvent(loop,e->fd,AE_READABLE,redisAeReadEvent,e);
+        aeCreateFileEvent(loop,e->fd,AE_READABLE,redisAeReadEvent,e,0);
     }
 }
 
@@ -79,7 +79,7 @@ static void redisAeAddWrite(void *privdata) {
     aeEventLoop *loop = e->loop;
     if (!e->writing) {
         e->writing = 1;
-        aeCreateFileEvent(loop,e->fd,AE_WRITABLE,redisAeWriteEvent,e);
+        aeCreateFileEvent(loop,e->fd,AE_WRITABLE,redisAeWriteEvent,e,0);
     }
 }
 

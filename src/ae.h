@@ -33,6 +33,8 @@
 #ifndef __AE_H__
 #define __AE_H__
 
+#include <openssl/ssl.h>
+
 #define AE_OK 0
 #define AE_ERR -1
 
@@ -64,6 +66,7 @@ typedef struct aeFileEvent {
     aeFileProc *rfileProc;
     aeFileProc *wfileProc;
     void *clientData;
+    int clientDataType;
 } aeFileEvent;
 
 /* Time event structure */
@@ -102,7 +105,7 @@ aeEventLoop *aeCreateEventLoop(int setsize);
 void aeDeleteEventLoop(aeEventLoop *eventLoop);
 void aeStop(aeEventLoop *eventLoop);
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
-        aeFileProc *proc, void *clientData);
+        aeFileProc *proc, void *clientData, int clientDataType);
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask);
 int aeGetFileEvents(aeEventLoop *eventLoop, int fd);
 long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
@@ -110,7 +113,7 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
         aeEventFinalizerProc *finalizerProc);
 int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id);
 int aeProcessEvents(aeEventLoop *eventLoop, int flags);
-int aeWait(int fd, int mask, long long milliseconds);
+int aeWait(int fd, SSL *ssl, int mask, long long milliseconds);
 void aeMain(aeEventLoop *eventLoop);
 char *aeGetApiName(void);
 void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep);

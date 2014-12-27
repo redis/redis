@@ -47,6 +47,14 @@
 #undef ip_len
 #endif
 
+#define ANET_CONNECT_NONE 0
+#define ANET_CONNECT_NONBLOCK 1
+
+#include "redis-server.h" // required structures for server
+#include <openssl/bio.h>  // BIO objects for I/O
+#include <openssl/ssl.h>  // SSL and SSL_CTX for SSL connections
+#include <openssl/err.h>  // Error reporting
+
 int anetTcpConnect(char *err, char *addr, int port);
 int anetTcpNonBlockConnect(char *err, char *addr, int port);
 int anetTcpNonBlockBindConnect(char *err, char *addr, int port, char *source_addr);
@@ -73,5 +81,11 @@ int anetSockName(int fd, char *ip, size_t ip_len, int *port);
 int anetFormatAddr(char *fmt, size_t fmt_len, char *ip, int port);
 int anetFormatPeer(int fd, char *fmt, size_t fmt_len);
 int anetFormatSock(int fd, char *fmt, size_t fmt_len);
+
+int anetSSLGenericConnect( char* err, char* addr, int port, int flags, anetSSLConnection* sslctn, char* certFilePath, char* certDirPath, char* commonname );
+int anetSSLAccept( char *err, int fd, redisServer server, anetSSLConnection *ctn);
+void anetSSLPrepare( );
+void anetCleanupSSL( anetSSLConnection *sslctn );
+int wildcmp(const char *wild, const char *string, int len);
 
 #endif

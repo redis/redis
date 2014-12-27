@@ -87,7 +87,7 @@ static redisContext *connect(struct config config) {
     redisContext *c = NULL;
 
     if (config.type == CONN_TCP) {
-        c = redisConnect(config.tcp.host, config.tcp.port);
+        c = redisConnect(config.tcp.host, config.tcp.port, 0, NULL, NULL);
     } else if (config.type == CONN_UNIX) {
         c = redisConnectUnix(config.unix.path);
     } else if (config.type == CONN_FD) {
@@ -322,7 +322,7 @@ static void test_blocking_connection_errors(void) {
     redisContext *c;
 
     test("Returns error when host cannot be resolved: ");
-    c = redisConnect((char*)"idontexist.local", 6379);
+    c = redisConnect((char*)"idontexist.local", 6379, 0, NULL, NULL);
     test_cond(c->err == REDIS_ERR_OTHER &&
         (strcmp(c->errstr,"Name or service not known") == 0 ||
          strcmp(c->errstr,"Can't resolve: idontexist.local") == 0 ||
@@ -332,7 +332,7 @@ static void test_blocking_connection_errors(void) {
     redisFree(c);
 
     test("Returns error when the port is not open: ");
-    c = redisConnect((char*)"localhost", 1);
+    c = redisConnect((char*)"localhost", 1, 0, NULL, NULL);
     test_cond(c->err == REDIS_ERR_IO &&
         strcmp(c->errstr,"Connection refused") == 0);
     redisFree(c);

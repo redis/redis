@@ -34,6 +34,9 @@
 #include <stdio.h> /* for size_t */
 #include <stdarg.h> /* for va_list */
 #include <sys/time.h> /* for struct timeval */
+#include <openssl/bio.h> // BIO objects for I/O
+#include <openssl/ssl.h> // SSL and SSL_CTX for SSL connections
+#include <openssl/err.h> // Error reporting
 
 #define HIREDIS_MAJOR 0
 #define HIREDIS_MINOR 11
@@ -162,20 +165,30 @@ int redisvFormatCommand(char **target, const char *format, va_list ap);
 int redisFormatCommand(char **target, const char *format, ...);
 int redisFormatCommandArgv(char **target, int argc, const char **argv, const size_t *argvlen);
 
+
+typedef struct SSLConnection {
+    SSL_CTX* ctx;    // SSL Context
+    SSL*  ssl;       // SSL object
+    BIO*  bio;       // The SSL BIO class
+    char* conn_str;  // Connection String.
+    int   sd;        // raw client socket.
+} SSLConnection;
+
 /* Context for a connection to Redis */
 typedef struct redisContext {
     int err; /* Error flags, 0 when there is no error */
     char errstr[128]; /* String representation of error when applicable */
     int fd;
+    SSLConnection ssl;
     int flags;
     char *obuf; /* Write buffer */
     redisReader *reader; /* Protocol reader */
 } redisContext;
 
-redisContext *redisConnect(const char *ip, int port);
-redisContext *redisConnectWithTimeout(const char *ip, int port, const struct timeval tv);
-redisContext *redisConnectNonBlock(const char *ip, int port);
-redisContext *redisConnectBindNonBlock(const char *ip, int port, const char *source_addr);
+redisContext *redisConnect(const char *ip, int port, int ssl, char* certfile, char* certdir);
+redisContext *redisConnectWithTimeout(const char *ip, int port, const struct timeval tv, int ssl, char* certfile, char* certdir);
+redisContext *redisConnectNonBlock(const char *ip, int port, int ssl, char* certfile, char* certdir);
+redisContext *redisConnectBindNonBlock(const char *ip, int port, int ssl, char* certfile, char* certdir, const char *source_addr);
 redisContext *redisConnectUnix(const char *path);
 redisContext *redisConnectUnixWithTimeout(const char *path, const struct timeval tv);
 redisContext *redisConnectUnixNonBlock(const char *path);
@@ -186,6 +199,7 @@ void redisFree(redisContext *c);
 int redisFreeKeepFd(redisContext *c);
 int redisBufferRead(redisContext *c);
 int redisBufferWrite(redisContext *c, int *done);
+
 
 /* In a blocking context, this function first checks if there are unconsumed
  * replies to return and returns one if so. Otherwise, it flushes the output

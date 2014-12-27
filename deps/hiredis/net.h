@@ -48,4 +48,9 @@ int redisContextConnectBindTcp(redisContext *c, const char *addr, int port,
 int redisContextConnectUnix(redisContext *c, const char *path, const struct timeval *timeout);
 int redisKeepAlive(redisContext *c, int interval);
 
+int redisContextConnectSSL(redisContext *c, const char *addr, int port, char* certfile, char* certdir, struct timeval *timeout);
+void cleanupSSL( SSLConnection* ctn );
+void setupSSL();
+
+
 #endif
