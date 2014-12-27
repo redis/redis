@@ -93,7 +93,6 @@
 
 int rdbSaveType(rio *rdb, unsigned char type);
 int rdbLoadType(rio *rdb);
-int rdbSaveTime(rio *rdb, time_t t);
 time_t rdbLoadTime(rio *rdb);
 int rdbSaveLen(rio *rdb, uint32_t len);
 uint32_t rdbLoadLen(rio *rdb, int *isencoded);
