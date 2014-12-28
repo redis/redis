@@ -405,10 +405,29 @@ int masterTryPartialResynchronization(redisClient *c) {
      * new commands at this stage. But we are sure the socket send buffer is
      * empty so this write will never fail actually. */
     buflen = snprintf(buf,sizeof(buf),"+CONTINUE\r\n");
-    if (write(c->fd,buf,buflen) != buflen) {
-        freeClientAsync(c);
-        return REDIS_OK;
+
+    if( c->ssl.ssl ) {
+    	ssize_t nwritten = SSL_write(c->ssl.ssl,buf,buflen);
+        if( nwritten != buflen ) {
+        	int errorCode = SSL_get_error( c->ssl.ssl, nwritten );
+            if( SSL_ERROR_WANT_READ == errorCode || SSL_ERROR_WANT_WRITE == errorCode) {
+            	freeClientAsync(c);
+                return REDIS_OK;
+            } else {
+                 char error[65535];
+                 ERR_error_string_n(ERR_get_error(), error, 65535);
+                 redisLog( REDIS_WARNING, "SSL ERROR: %s", error);
+                 freeClientAsync(c);
+                 return REDIS_OK;
+            }
+        }
+    } else {
+    	if (write(c->fd,buf,buflen) != buflen) {
+    	    freeClientAsync(c);
+    	    return REDIS_OK;
+    	}
     }
+
     psync_len = addReplyReplicationBacklog(c,psync_offset);
     redisLog(REDIS_NOTICE,
         "Partial resynchronization request from %s accepted. Sending %lld bytes of backlog starting from offset %lld.",
@@ -430,10 +449,29 @@ need_full_resync:
     /* Again, we can't use the connection buffers (see above). */
     buflen = snprintf(buf,sizeof(buf),"+FULLRESYNC %s %lld\r\n",
                       server.runid,psync_offset);
-    if (write(c->fd,buf,buflen) != buflen) {
-        freeClientAsync(c);
-        return REDIS_OK;
+
+    if( c->ssl.ssl ) {
+    	ssize_t nwritten = SSL_write(c->ssl.ssl,buf,buflen);
+        if( nwritten != buflen ) {
+        	int errorCode = SSL_get_error( c->ssl.ssl, nwritten );
+            if( SSL_ERROR_WANT_READ == errorCode || SSL_ERROR_WANT_WRITE == errorCode) {
+            	freeClientAsync(c);
+                return REDIS_OK;
+            } else {
+                 char error[65535];
+                 ERR_error_string_n(ERR_get_error(), error, 65535);
+                 redisLog( REDIS_WARNING, "SSL ERROR: %s", error);
+                 freeClientAsync(c);
+                 return REDIS_OK;
+            }
+        }
+    } else {
+    	if (write(c->fd,buf,buflen) != buflen) {
+    	    freeClientAsync(c);
+    	    return REDIS_OK;
+    	}
     }
+
     return REDIS_ERR;
 }
 
@@ -662,7 +700,7 @@ void putSlaveOnline(redisClient *slave) {
     slave->repl_put_online_on_ack = 0;
     slave->repl_ack_time = server.unixtime;
     if (aeCreateFileEvent(server.el, slave->fd, AE_WRITABLE,
-        sendReplyToClient, slave,0) == AE_ERR) {
+        sendReplyToClient, slave,1) == AE_ERR) {
         redisLog(REDIS_WARNING,"Unable to register writable event for slave bulk transfer: %s", strerror(errno));
         freeClient(slave);
         return;
@@ -883,9 +921,25 @@ void replicationSendNewlineToMaster(void) {
     static time_t newline_sent;
     if (time(NULL) != newline_sent) {
         newline_sent = time(NULL);
-        if (write(server.repl_transfer_s,"\n",1) == -1) {
-            /* Pinging back in this stage is best-effort. */
+
+        if( server.ssl ) {
+        	ssize_t nwritten = SSL_write(server.repl_transfer_ssl.ssl,"\n",1);
+            if( nwritten != 1 ) {
+            	int errorCode = SSL_get_error( server.repl_transfer_ssl.ssl, nwritten );
+                if( SSL_ERROR_WANT_READ == errorCode || SSL_ERROR_WANT_WRITE == errorCode) {
+                    // do nothing...
+                } else {
+                     char error[65535];
+                     ERR_error_string_n(ERR_get_error(), error, 65535);
+                     redisLog( REDIS_WARNING, "SSL ERROR: %s", error);
+                }
+            }
+        } else {
+            if (write(server.repl_transfer_s,"\n",1) == -1) {
+                /* Pinging back in this stage is best-effort. */
+            }
         }
+
     }
 }
 
