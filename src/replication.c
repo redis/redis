@@ -766,31 +766,30 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
     
     nwritten = 0;
     if( slave->ssl.ssl != NULL ) {
-      nwritten = SSL_write(slave->ssl.ssl,buf,buflen);
-      if( nwritten < 0 ) {
-        int errorCode = SSL_get_error( slave->ssl.ssl, nwritten );
-        redisLog( REDIS_WARNING, "replication.c 772 SSL NWRITTEN < 0");
-        if( SSL_ERROR_WANT_READ == errorCode || SSL_ERROR_WANT_WRITE == errorCode) {
-          redisLog( REDIS_WARNING, "replication.c 774 errorCode = %d", errorCode);
-          nwritten = 0;
-        } else {
-          char error[65535];
-          ERR_error_string_n(ERR_get_error(), error, 65535);
-          redisLog( REDIS_WARNING, "replication.c 777 SSL ERROR: %s", error);
-          return;
+        nwritten = SSL_write(slave->ssl.ssl,buf,buflen);
+        if( nwritten < 0 ) {
+            int errorCode = SSL_get_error( slave->ssl.ssl, nwritten );
+            redisLog( REDIS_WARNING, "replication.c 772 SSL NWRITTEN < 0");
+            if( SSL_ERROR_WANT_READ == errorCode || SSL_ERROR_WANT_WRITE == errorCode) {
+            	redisLog( REDIS_WARNING, "replication.c 774 errorCode = %d", errorCode);
+            	nwritten = 0;
+            } else {
+            	char error[65535];
+            	ERR_error_string_n(ERR_get_error(), error, 65535);
+            	redisLog( REDIS_WARNING, "replication.c 777 SSL ERROR: %s", error);
+            	return;
+            }
         }
-      }
     } else {
-      nwritten = write(fd,buf,buflen);
-      if(nwritten == -1) {
-          if (errno != EAGAIN) {
-              redisLog(REDIS_WARNING,"Write error sending DB to slave: %s",
-                  strerror(errno));
+        nwritten = write(fd,buf,buflen);
+        if(nwritten == -1) {
+            if (errno != EAGAIN) {
+                redisLog(REDIS_WARNING,"Write error sending DB to slave: %s",
+                strerror(errno));
+            }
+            return;
         }
-        return;
     }
-
-}
 
     slave->repldboff += nwritten;
     server.stat_net_output_bytes += nwritten;
