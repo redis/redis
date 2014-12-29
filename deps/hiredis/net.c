@@ -403,7 +403,7 @@ int redisContextConnectSSL(redisContext *c, const char *addr, int port, char* ce
   sprintf( connect_str, "%s:%d", addr, port );
   c->ssl.conn_str = connect_str;
 
-  // We're connection to google.com on port 443.
+  // We're connection to the REDIS server at host:port
   BIO_set_conn_hostname(bio, connect_str);
 
   SSL_CTX_load_verify_locations(ctx, certfile, certdir);
