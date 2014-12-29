@@ -51,7 +51,7 @@
 char* global_ssl_cert_password = NULL;
 
 int password_callback(char* buffer, int num, int rwflag, void* userdata) {
-    if ( NULL == global_ssl_cert_password || num < (strlen(global_ssl_cert_password) + 1)) {
+    if ( NULL == global_ssl_cert_password || num < (int)(strlen(global_ssl_cert_password) + 1)) {
       return(0);
     }
     strcpy(buffer, global_ssl_cert_password);
@@ -405,7 +405,7 @@ int anetSSLGenericConnect( char* err, char* addr, int port, int flags, anetSSLCo
   sprintf( connect_str, "%s:%d", addr, port );
   sslctn->conn_str = connect_str;
 
-  // We're connection to google.com on port 443.
+  // We're connection to to the redis server at IP:port.
   BIO_set_conn_hostname(bio, connect_str);
 
   SSL_CTX_load_verify_locations(ctx, certFilePath, certDirPath);
