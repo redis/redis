@@ -459,6 +459,7 @@ void clusterInit(void) {
         exit(1);
     }
 
+    //TODO: This needs to support binding / connecting over SSL.
     if (listenToPort(server.port+REDIS_CLUSTER_PORT_INCR,
         server.cfd,&server.cfd_count) == REDIS_ERR)
     {
@@ -468,7 +469,7 @@ void clusterInit(void) {
 
         for (j = 0; j < server.cfd_count; j++) {
             if (aeCreateFileEvent(server.el, server.cfd[j], AE_READABLE,
-                clusterAcceptHandler, NULL,1) == AE_ERR)
+                clusterAcceptHandler, NULL,0) == AE_ERR)
                     redisPanic("Unrecoverable error creating Redis Cluster "
                                 "file event.");
         }
@@ -591,6 +592,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     if (server.masterhost == NULL && server.loading) return;
 
     while(max--) {
+    	// TODO: This needs to be re-done to accept SSL connections.
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
             if (errno != EWOULDBLOCK)
@@ -1901,6 +1903,7 @@ void clusterWriteHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
 
+    // TODO: This should be updated for SSL_write if the link is SSL.
     nwritten = write(fd, link->sndbuf, sdslen(link->sndbuf));
     if (nwritten <= 0) {
         redisLog(REDIS_DEBUG,"I/O error writing to node link: %s",
@@ -1951,6 +1954,7 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             if (readlen > sizeof(buf)) readlen = sizeof(buf);
         }
 
+        // TODO: This should be updated for SSL_read if the link is SSL.
         nread = read(fd,buf,readlen);
         if (nread == -1 && errno == EAGAIN) return; /* No more data ready. */
 
@@ -2910,6 +2914,7 @@ void clusterCron(void) {
             mstime_t old_ping_sent;
             clusterLink *link;
 
+            // TODO: This needs to connect with SSL if configured.
             fd = anetTcpNonBlockBindConnect(server.neterr, node->ip,
                 node->port+REDIS_CLUSTER_PORT_INCR, REDIS_BIND_ADDR);
             if (fd == -1) {
@@ -4499,14 +4504,12 @@ try_again:
         size_t pos = 0, towrite;
         int nwritten = 0;
 
+        SSL* ssl = NULL;
+        if(NULL != cs->ssl_ctn) ssl = cs->ssl_ctn->ssl;
+
         while ((towrite = sdslen(buf)-pos) > 0) {
             towrite = (towrite > (64*1024) ? (64*1024) : towrite);
-
-            if(NULL != cs->ssl_ctn)
-            	nwritten = syncWrite(cs->fd,cs->ssl_ctn->ssl,buf+pos,towrite,timeout);
-            else
-            	nwritten = syncWrite(cs->fd,NULL,buf+pos,towrite,timeout);
-
+          	nwritten = syncWrite(cs->fd,ssl,buf+pos,towrite,timeout);
             if (nwritten != (signed)towrite) goto socket_wr_err;
             pos += nwritten;
         }
