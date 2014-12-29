@@ -459,7 +459,6 @@ void clusterInit(void) {
         exit(1);
     }
 
-    //TODO: This needs to support binding / connecting over SSL.
     if (listenToPort(server.port+REDIS_CLUSTER_PORT_INCR,
         server.cfd,&server.cfd_count) == REDIS_ERR)
     {
@@ -580,6 +579,7 @@ void freeClusterLink(clusterLink *link) {
 #define MAX_CLUSTER_ACCEPTS_PER_CALL 1000
 void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     int cport, cfd;
+    anetSSLConnection sslctn;
     int max = MAX_CLUSTER_ACCEPTS_PER_CALL;
     char cip[REDIS_IP_STR_LEN];
     clusterLink *link;
@@ -587,12 +587,16 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     REDIS_NOTUSED(mask);
     REDIS_NOTUSED(privdata);
 
+    sslctn.ctx = NULL;
+    sslctn.ssl = NULL;
+    sslctn.bio = NULL;
+    sslctn.conn_str = NULL;
+
     /* If the server is starting up, don't accept cluster connections:
      * UPDATE messages may interact with the database content. */
     if (server.masterhost == NULL && server.loading) return;
 
     while(max--) {
-    	// TODO: This needs to be re-done to accept SSL connections.
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
             if (errno != EWOULDBLOCK)
@@ -605,12 +609,29 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
         /* Use non-blocking I/O for cluster messages. */
         redisLog(REDIS_VERBOSE,"Accepted cluster node %s:%d", cip, cport);
+
         /* Create a link object we use to handle the connection.
          * It gets passed to the readable handler when data is available.
          * Initiallly the link->node pointer is set to NULL as we don't know
          * which node is, but the right node is references once we know the
          * node identity. */
         link = createClusterLink(NULL);
+
+        if( server.ssl ) {
+              redisLog(REDIS_VERBOSE,"Switching connection to SSL");
+              int ret = anetSSLAccept( server.neterr, cfd, server, &sslctn );
+
+              redisLog( REDIS_WARNING, "RET: %d ", ret );
+
+              if( ret < 0 ) {
+                  redisLog(REDIS_WARNING,"Error accepting SSL client connection." );
+                  anetCleanupSSL( &sslctn );
+                  close( cfd );
+                  return;
+              }
+        }
+
+        link->ssl = sslctn;
         link->fd = cfd;
         aeCreateFileEvent(server.el,cfd,AE_READABLE,clusterReadHandler,link,1);
     }
@@ -1903,14 +1924,29 @@ void clusterWriteHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(mask);
 
-    // TODO: This should be updated for SSL_write if the link is SSL.
-    nwritten = write(fd, link->sndbuf, sdslen(link->sndbuf));
-    if (nwritten <= 0) {
-        redisLog(REDIS_DEBUG,"I/O error writing to node link: %s",
-            strerror(errno));
-        handleLinkIOError(link);
-        return;
+    if( link->ssl.ssl ) {
+    	nwritten = SSL_write(link->ssl.ssl,link->sndbuf, sdslen(link->sndbuf));
+    	if( nwritten <= 0 ) {
+    		int errorCode = SSL_get_error( link->ssl.ssl, nwritten );
+    		if( SSL_ERROR_WANT_READ == errorCode || SSL_ERROR_WANT_WRITE == errorCode) {
+    			return;
+            } else {
+                redisLog(REDIS_DEBUG,"I/O error writing to node link: %s",
+                    strerror(errno));
+                handleLinkIOError(link);
+                return;
+            }
+        }
+    } else {
+        nwritten = write(fd, link->sndbuf, sdslen(link->sndbuf));
+        if (nwritten <= 0) {
+            redisLog(REDIS_DEBUG,"I/O error writing to node link: %s",
+                strerror(errno));
+            handleLinkIOError(link);
+            return;
+        }
     }
+
     sdsrange(link->sndbuf,nwritten,-1);
     if (sdslen(link->sndbuf) == 0)
         aeDeleteFileEvent(server.el, link->fd, AE_WRITABLE);
@@ -1954,9 +1990,28 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             if (readlen > sizeof(buf)) readlen = sizeof(buf);
         }
 
-        // TODO: This should be updated for SSL_read if the link is SSL.
-        nread = read(fd,buf,readlen);
-        if (nread == -1 && errno == EAGAIN) return; /* No more data ready. */
+        if( link->ssl.ssl ) {
+              nread = SSL_read( link->ssl.ssl, buf, sizeof(buf));
+              if( nread < 0 ) {
+            	  int errorCode = SSL_get_error( link->ssl.ssl, nread );
+            	  if( SSL_ERROR_WANT_READ == errorCode || SSL_ERROR_WANT_WRITE == errorCode) {
+            		  return;
+            	  } else if( SSL_ERROR_ZERO_RETURN == errorCode ) {
+            		  redisLog(REDIS_DEBUG,"SSL ERROR: Server closed the connection");
+            		  handleLinkIOError(link);
+            		  return;
+            	  } else {
+            		  char error[65535];
+            		  ERR_error_string_n(ERR_get_error(), error, 65535);
+            		  redisLog(REDIS_DEBUG,"SSL ERROR: %s", error);
+            		  handleLinkIOError(link);
+            		  return;
+            	  }
+              }
+        } else {
+        	nread = read(fd,buf,readlen);
+            if (nread == -1 && errno == EAGAIN) return; /* No more data ready. */
+        }
 
         if (nread <= 0) {
             /* I/O error... */
@@ -2911,12 +2966,25 @@ void clusterCron(void) {
 
         if (node->link == NULL) {
             int fd;
+            anetSSLConnection sslctn;
             mstime_t old_ping_sent;
             clusterLink *link;
 
             // TODO: This needs to connect with SSL if configured.
-            fd = anetTcpNonBlockBindConnect(server.neterr, node->ip,
-                node->port+REDIS_CLUSTER_PORT_INCR, REDIS_BIND_ADDR);
+            if( server.ssl ) {
+              fd = anetSSLGenericConnect(server.neterr, node->ip, node->port+REDIS_CLUSTER_PORT_INCR, 0, &sslctn, server.ssl_root_file, server.ssl_root_dir, server.ssl_srvr_cert_common_name );
+              if( fd < 0 ) {
+            	  if (node->ping_sent == 0) node->ping_sent = mstime();
+            	                  redisLog(REDIS_DEBUG, "Unable to connect to "
+            	                      "Cluster Node [%s]:%d -> %s", node->ip,
+            	                      node->port+REDIS_CLUSTER_PORT_INCR,
+            	                      server.neterr);
+            	                  continue;
+              }
+            } else {
+            	fd = anetTcpNonBlockBindConnect(server.neterr, node->ip, node->port+REDIS_CLUSTER_PORT_INCR, REDIS_BIND_ADDR);
+            }
+
             if (fd == -1) {
                 /* We got a synchronous error from connect before
                  * clusterSendPing() had a chance to be called.
@@ -2932,6 +3000,7 @@ void clusterCron(void) {
             }
             link = createClusterLink(node);
             link->fd = fd;
+            link->ssl = sslctn;
             node->link = link;
             aeCreateFileEvent(server.el,link->fd,AE_READABLE,
                     clusterReadHandler,link,1);
@@ -4322,8 +4391,7 @@ migrateCachedSocket* migrateGetSocket(redisClient *c, robj *host, robj *port, lo
         dictDelete(server.migrate_cached_sockets,dictGetKey(de));
     }
 
-    //TODO: Here, we should detect if SSL is enabled, and if so, call a BindConnect variant (with the source addr)
-    // to get the SSL object.
+    //TODO: WE need to do something in anesSSLGenericConnect that allows us to bind to any/all of the interfaces like anetTcpNonBlockBindConnect does.
     if( server.ssl ) {
     	sslctn = zmalloc(sizeof(sslctn));
     	if( ANET_ERR == anetSSLGenericConnect( server.neterr,c->argv[1]->ptr, atoi(c->argv[2]->ptr),
