@@ -845,9 +845,7 @@ int anetSSLAccept( char *err, int fd, struct redisServer server, anetSSLConnecti
       Servers must specify the ciphers they can use, to verify that both the client and the server can use the same cipher.
       If you don't do this, you'll get errors relating to "no shared ciphers" or "no common ciphers".
 
-      In this case, we allow ALL ciphers, even potentially insecure ones. For real-world use the string here should specify non-weak ciphers.
-
-      An example: ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH
+      Use all non-week cyphers: ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH
       All ciphers with the exception of: ones with anonymous Diffie-Hellman, low-strength ciphers, export ciphers, md5 hashing. Ordered from strongest to weakest.
       Note that as ciphers become broken, it will be necessary to change the available cipher list to remain secure.
     */
