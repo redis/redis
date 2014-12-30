@@ -1837,6 +1837,16 @@ int rewriteConfig(char *path) {
     rewriteConfigBindOption(state);
     rewriteConfigStringOption(state,"unixsocket",server.unixsocket,NULL);
     rewriteConfigOctalOption(state,"unixsocketperm",server.unixsocketperm,REDIS_DEFAULT_UNIX_SOCKET_PERM);
+
+    rewriteConfigYesNoOption(state,"ssl",server.ssl,0);
+    rewriteConfigStringOption(state,"ssl_ca_root_dir",server.ssl_root_dir,NULL);
+    rewriteConfigStringOption(state,"ssl_ca_root_file",server.ssl_root_file,NULL);
+    rewriteConfigStringOption(state,"ssl_cert_file",server.ssl_cert_file,NULL);
+    rewriteConfigStringOption(state,"ssl_pk_file",server.ssl_pk_file,NULL);
+    rewriteConfigStringOption(state,"ssl_dhk_file",server.ssl_dhk_file,NULL);
+    rewriteConfigStringOption(state,"ssl_cert_common_name",server.ssl_srvr_cert_common_name,NULL);
+    rewriteConfigStringOption(state,"ssl_cert_pass",server.ssl_srvr_cert_passwd,NULL);
+
     rewriteConfigNumericalOption(state,"timeout",server.maxidletime,REDIS_MAXIDLETIME);
     rewriteConfigNumericalOption(state,"tcp-keepalive",server.tcpkeepalive,REDIS_DEFAULT_TCP_KEEPALIVE);
     rewriteConfigEnumOption(state,"loglevel",server.verbosity,
