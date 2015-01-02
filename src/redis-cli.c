@@ -1246,6 +1246,11 @@ static void pipeMode(void) {
     char magic[20]; /* Special reply we recognize. */
     time_t last_read_time = time(NULL);
 
+#ifdef _WIN32
+    /* Prevent translation or CRLF sequences. */
+    setmode(STDIN_FILENO,_O_BINARY);
+#endif
+
     srand((unsigned int)time(NULL));
 
     /* Use non blocking I/O. */
