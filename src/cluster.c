@@ -556,6 +556,10 @@ clusterLink *createClusterLink(clusterNode *node) {
     link->sndbuf = sdsempty();
     link->rcvbuf = sdsempty();
     link->node = node;
+    link->ssl.ssl = NULL;
+    link->ssl.bio = NULL;
+    link->ssl.ctx = NULL;
+    link->ssl.sd = -1;
     link->fd = -1;
     return link;
 }
@@ -629,9 +633,15 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                   close( cfd );
                   return;
               }
+
+              link->ssl.ssl = sslctn.ssl;
+              link->ssl.ctx = sslctn.ctx;
+              link->ssl.bio = sslctn.bio;
+              link->ssl.conn_str = sslctn.conn_str;
+              link->ssl.sd = sslctn.sd;
+
         }
 
-        link->ssl = sslctn;
         link->fd = cfd;
         aeCreateFileEvent(server.el,cfd,AE_READABLE,clusterReadHandler,link,1);
     }
@@ -3000,7 +3010,13 @@ void clusterCron(void) {
             }
             link = createClusterLink(node);
             link->fd = fd;
-            link->ssl = sslctn;
+            if( server.ssl && sslctn.ssl != NULL ) {
+            	link->ssl.ssl = sslctn.ssl;
+            	link->ssl.ctx = sslctn.ctx;
+            	link->ssl.bio = sslctn.bio;
+            	link->ssl.conn_str = sslctn.conn_str;
+            	link->ssl.sd = sslctn.sd;
+            }
             node->link = link;
             aeCreateFileEvent(server.el,link->fd,AE_READABLE,
                     clusterReadHandler,link,1);
@@ -4417,11 +4433,14 @@ migrateCachedSocket* migrateGetSocket(redisClient *c, robj *host, robj *port, lo
     anetEnableTcpNoDelay(server.neterr,fd);
 
     /* Check if it connects within the specified timeout. */
-    if ((aeWait(fd,sslctn->ssl,AE_WRITABLE,timeout) & AE_WRITABLE) == 0) {
+    SSL *ssl = NULL;
+    if( NULL != sslctn ) ssl = sslctn->ssl;
+
+    if ((aeWait(fd,ssl,AE_WRITABLE,timeout) & AE_WRITABLE) == 0) {
         sdsfree(name);
         addReplySds(c,
             sdsnew("-IOERR error or timeout connecting to the client\r\n"));
-        if( server.ssl ) {
+        if( NULL != sslctn ) {
         	anetCleanupSSL( sslctn );
         	zfree(sslctn);
         } else {
