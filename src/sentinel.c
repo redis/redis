@@ -190,6 +190,7 @@ typedef struct sentinelRedisInstance {
      * are set to NULL no script is executed. */
     char *notification_script;
     char *client_reconfig_script;
+    sds info; /* cached INFO output */
 } sentinelRedisInstance;
 
 /* Main state. */
@@ -896,7 +897,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     sentinelRedisInstance *ri;
     sentinelAddr *addr;
     dict *table = NULL;
-    char slavename[128], *sdsname;
+    char slavename[REDIS_PEER_ID_LEN], *sdsname;
 
     redisAssert(flags & (SRI_MASTER|SRI_SLAVE|SRI_SENTINEL));
     redisAssert((flags & SRI_MASTER) || master != NULL);
@@ -907,9 +908,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
 
     /* For slaves and sentinel we use ip:port as name. */
     if (flags & (SRI_SLAVE|SRI_SENTINEL)) {
-        snprintf(slavename,sizeof(slavename),
-            strchr(hostname,':') ? "[%s]:%d" : "%s:%d",
-            hostname,port);
+        anetFormatAddr(slavename, sizeof(slavename), hostname, port);
         name = slavename;
     }
 
@@ -983,6 +982,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->promoted_slave = NULL;
     ri->notification_script = NULL;
     ri->client_reconfig_script = NULL;
+    ri->info = NULL;
 
     /* Role */
     ri->role_reported = ri->flags & (SRI_MASTER|SRI_SLAVE);
@@ -1015,6 +1015,7 @@ void releaseSentinelRedisInstance(sentinelRedisInstance *ri) {
     sdsfree(ri->slave_master_host);
     sdsfree(ri->leader);
     sdsfree(ri->auth_pass);
+    sdsfree(ri->info);
     releaseSentinelAddr(ri->addr);
 
     /* Clear state into the master if needed. */
@@ -1030,11 +1031,11 @@ sentinelRedisInstance *sentinelRedisInstanceLookupSlave(
 {
     sds key;
     sentinelRedisInstance *slave;
+    char buf[REDIS_PEER_ID_LEN];
 
     redisAssert(ri->flags & SRI_MASTER);
-    key = sdscatprintf(sdsempty(),
-        strchr(ip,':') ? "[%s]:%d" : "%s:%d",
-        ip,port);
+    anetFormatAddr(buf,sizeof(buf),ip,port);
+    key = sdsnew(buf);
     slave = dictFetchValue(ri->slaves,key);
     sdsfree(key);
     return slave;
@@ -1785,6 +1786,10 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     int numlines, j;
     int role = 0;
 
+    /* cache full INFO output for instance */
+    sdsfree(ri->info);
+    ri->info = sdsnew(info);
+
     /* The following fields must be reset to a given value in the case they
      * are not found at all in the INFO output. */
     ri->master_link_down_time = 0;
@@ -2106,7 +2111,7 @@ void sentinelPublishReplyCallback(redisAsyncContext *c, void *reply, void *privd
  * or sent directly to this sentinel via the (fake) PUBLISH command of Sentinel.
  *
  * If the master name specified in the message is not known, the message is
- * discareded. */
+ * discarded. */
 void sentinelProcessHelloMessage(char *hello, int hello_len) {
     /* Format is composed of 8 tokens:
      * 0=ip,1=port,2=runid,3=current_epoch,4=master_name,
@@ -2777,6 +2782,67 @@ void sentinelCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[1]->ptr,"set")) {
         if (c->argc < 3 || c->argc % 2 == 0) goto numargserr;
         sentinelSetCommand(c);
+    } else if (!strcasecmp(c->argv[1]->ptr,"info-cache")) {
+        if (c->argc < 2) goto numargserr;
+        mstime_t now = mstime();
+
+        /* Create an ad-hoc dictionary type so that we can iterate
+         * a dictionary composed of just the master groups the user
+         * requested. */
+        dictType copy_keeper = instancesDictType;
+        copy_keeper.valDestructor = NULL;
+        dict *masters_local = sentinel.masters;
+        if (c->argc > 2) {
+            masters_local = dictCreate(&copy_keeper, NULL);
+
+            for (int i = 2; i < c->argc; i++) {
+                sentinelRedisInstance *ri;
+                ri = sentinelGetMasterByName(c->argv[i]->ptr);
+                if (!ri) continue; /* ignore non-existing names */
+                dictAdd(masters_local, ri->name, ri);
+            }
+        }
+
+        /* Reply format:
+         *   1.) master name
+         *   2.) 1.) info from master
+         *       2.) info from replica
+         *       ...
+         *   3.) other master name
+         *   ...
+         */
+        addReplyMultiBulkLen(c,dictSize(masters_local) * 2);
+
+        dictIterator  *di;
+        dictEntry *de;
+        di = dictGetIterator(masters_local);
+        while ((de = dictNext(di)) != NULL) {
+            sentinelRedisInstance *ri = dictGetVal(de);
+            addReplyBulkCBuffer(c,ri->name,strlen(ri->name));
+            addReplyMultiBulkLen(c,dictSize(ri->slaves) + 1); /* +1 for self */
+            addReplyMultiBulkLen(c,2);
+            addReplyLongLong(c, now - ri->info_refresh);
+            if (ri->info)
+                addReplyBulkCBuffer(c,ri->info,sdslen(ri->info));
+            else
+                addReply(c,shared.nullbulk);
+
+            dictIterator *sdi;
+            dictEntry *sde;
+            sdi = dictGetIterator(ri->slaves);
+            while ((sde = dictNext(sdi)) != NULL) {
+                sentinelRedisInstance *sri = dictGetVal(sde);
+                addReplyMultiBulkLen(c,2);
+                addReplyLongLong(c, now - sri->info_refresh);
+                if (sri->info)
+                    addReplyBulkCBuffer(c,sri->info,sdslen(sri->info));
+                else
+                    addReply(c,shared.nullbulk);
+            }
+            dictReleaseIterator(sdi);
+        }
+        dictReleaseIterator(di);
+        if (masters_local != sentinel.masters) dictRelease(masters_local);
     } else {
         addReplyErrorFormat(c,"Unknown sentinel subcommand '%s'",
                                (char*)c->argv[1]->ptr);

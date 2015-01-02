@@ -48,6 +48,7 @@
 #define HAVE_PROC_STAT 1
 #define HAVE_PROC_MAPS 1
 #define HAVE_PROC_SMAPS 1
+#define HAVE_PROC_SOMAXCONN 1
 #endif
 
 /* Test for task_info() */
@@ -58,6 +59,11 @@
 /* Test for backtrace() */
 #if defined(__APPLE__) || defined(__linux__)
 #define HAVE_BACKTRACE 1
+#endif
+
+/* MSG_NOSIGNAL. */
+#ifdef __linux__
+#define HAVE_MSG_NOSIGNAL 1
 #endif
 
 /* Test for polling API */

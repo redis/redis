@@ -11,7 +11,7 @@
 #define REDIS_CLUSTER_NAMELEN 40    /* sha1 hex length */
 #define REDIS_CLUSTER_PORT_INCR 10000 /* Cluster port = baseport + PORT_INCR */
 
-/* The following defines are amunt of time, sometimes expressed as
+/* The following defines are amount of time, sometimes expressed as
  * multiplicators of the node timeout value (when ending with MULT). */
 #define REDIS_CLUSTER_DEFAULT_NODE_TIMEOUT 15000
 #define REDIS_CLUSTER_DEFAULT_SLAVE_VALIDITY 10 /* Slave max data age factor. */
@@ -51,7 +51,7 @@ typedef struct clusterLink {
 #define REDIS_NODE_HANDSHAKE 32 /* We have still to exchange the first ping */
 #define REDIS_NODE_NOADDR   64  /* We don't know the address of this node */
 #define REDIS_NODE_MEET 128     /* Send a MEET message to this node */
-#define REDIS_NODE_PROMOTED 256 /* Master was a slave propoted by failover */
+#define REDIS_NODE_PROMOTED 256 /* Master was a slave promoted by failover */
 #define REDIS_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
 
 #define nodeIsMaster(n) ((n)->flags & REDIS_NODE_MASTER)
@@ -61,6 +61,14 @@ typedef struct clusterLink {
 #define nodeWithoutAddr(n) ((n)->flags & REDIS_NODE_NOADDR)
 #define nodeTimedOut(n) ((n)->flags & REDIS_NODE_PFAIL)
 #define nodeFailed(n) ((n)->flags & REDIS_NODE_FAIL)
+
+/* Reasons why a slave is not able to failover. */
+#define REDIS_CLUSTER_CANT_FAILOVER_NONE 0
+#define REDIS_CLUSTER_CANT_FAILOVER_DATA_AGE 1
+#define REDIS_CLUSTER_CANT_FAILOVER_WAITING_DELAY 2
+#define REDIS_CLUSTER_CANT_FAILOVER_EXPIRED 3
+#define REDIS_CLUSTER_CANT_FAILOVER_WAITING_VOTES 4
+#define REDIS_CLUSTER_CANT_FAILOVER_RELOG_PERIOD (60*5) /* seconds. */
 
 /* This structure represent elements of node->fail_reports. */
 typedef struct clusterNodeFailReport {
@@ -107,6 +115,8 @@ typedef struct clusterState {
     int failover_auth_sent;     /* True if we already asked for votes. */
     int failover_auth_rank;     /* This slave rank for current auth request. */
     uint64_t failover_auth_epoch; /* Epoch of the current election. */
+    int cant_failover_reason;   /* Why a slave is currently not able to
+                                   failover. See the CANT_FAILOVER_* macros. */
     /* Manual failover state in common. */
     mstime_t mf_end;            /* Manual failover time limit (ms unixtime).
                                    It is zero if there is no MF in progress. */
@@ -117,7 +127,7 @@ typedef struct clusterState {
                                    or zero if stil not received. */
     int mf_can_start;           /* If non-zero signal that the manual failover
                                    can start requesting masters vote. */
-    /* The followign fields are uesd by masters to take state on elections. */
+    /* The followign fields are used by masters to take state on elections. */
     uint64_t lastVoteEpoch;     /* Epoch of the last vote granted. */
     int todo_before_sleep; /* Things to do in clusterBeforeSleep(). */
     long long stats_bus_messages_sent;  /* Num of msg sent via cluster bus. */
@@ -166,7 +176,10 @@ typedef struct {
 typedef struct {
     uint32_t channel_len;
     uint32_t message_len;
-    unsigned char bulk_data[8]; /* defined as 8 just for alignment concerns. */
+    /* We can't reclare bulk_data as bulk_data[] since this structure is
+     * nested. The 8 bytes are removed from the count during the message
+     * length computation. */
+    unsigned char bulk_data[8];
 } clusterMsgDataPublish;
 
 typedef struct {

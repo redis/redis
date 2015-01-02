@@ -56,6 +56,32 @@ dictType latencyTimeSeriesDictType = {
     dictVanillaFree             /* val destructor */
 };
 
+/* ------------------------- Utility functions ------------------------------ */
+
+#ifdef __linux__
+/* Returns 1 if Transparent Huge Pages support is enabled in the kernel.
+ * Otherwise (or if we are unable to check) 0 is returned. */
+int THPIsEnabled(void) {
+    char buf[1024];
+
+    FILE *fp = fopen("/sys/kernel/mm/transparent_hugepage/enabled","r");
+    if (!fp) return 0;
+    if (fgets(buf,sizeof(buf),fp) == NULL) {
+        fclose(fp);
+        return 0;
+    }
+    fclose(fp);
+    return (strstr(buf,"[never]") == NULL) ? 1 : 0;
+}
+#endif
+
+/* Report the amount of AnonHugePages in smap, in bytes. If the return
+ * value of the function is non-zero, the process is being targeted by
+ * THP support, and is likely to have memory usage / latency issues. */
+int THPGetAnonHugePagesSize(void) {
+    return zmalloc_get_smap_bytes_by_field("AnonHugePages:");
+}
+
 /* ---------------------------- Latency API --------------------------------- */
 
 /* Latency monitor initialization. We just need to create the dictionary
@@ -203,6 +229,7 @@ sds createLatencyReport(void) {
     int advise_hz = 0;              /* Use higher HZ. */
     int advise_large_objects = 0;   /* Deletion of large objects. */
     int advise_relax_fsync_policy = 0; /* appendfsync always is slow. */
+    int advise_disable_thp = 0;     /* AnonHugePages detected. */
     int advices = 0;
 
     /* Return ASAP if the latency engine is disabled and it looks like it
@@ -346,9 +373,15 @@ sds createLatencyReport(void) {
     }
     dictReleaseIterator(di);
 
-    if (eventnum == 0) {
+    /* Add non event based advices. */
+    if (THPGetAnonHugePagesSize() > 0) {
+        advise_disable_thp = 1;
+        advices++;
+    }
+
+    if (eventnum == 0 && advices == 0) {
         report = sdscat(report,"Dave, no latency spike was observed during the lifetime of this Redis instance, not in the slightest bit. I honestly think you ought to sit down calmly, take a stress pill, and think things over.\n");
-    } else if (advices == 0) {
+    } else if (eventnum > 0 && advices == 0) {
         report = sdscat(report,"\nWhile there are latency events logged, I'm not able to suggest any easy fix. Please use the Redis community to get some help, providing this report in your help request.\n");
     } else {
         /* Add all the suggestions accumulated so far. */
@@ -418,6 +451,10 @@ sds createLatencyReport(void) {
         if (advise_large_objects) {
             report = sdscat(report,"- Deleting, expiring or evicting (because of maxmemory policy) large objects is a blocking operation. If you have very large objects that are often deleted, expired, or evicted, try to fragment those objects into multiple smaller objects.\n");
         }
+
+        if (advise_disable_thp) {
+            report = sdscat(report,"- I detected a non zero amount of anonymous huge pages used by your process. This creates very serious latency events in different conditions, especially when Redis is persisting on disk. To disable THP support use the command 'echo never > /sys/kernel/mm/transparent_hugepage/enabled', make sure to also add it into /etc/rc.local so that the command will be executed again after a reboot. Note that even if you have already disabled THP, you still need to restart the Redis process to get rid of the huge pages already created.\n");
+        }
     }
 
     return report;
@@ -475,7 +512,6 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
     for (j = 0; j < LATENCY_TS_LEN; j++) {
         int i = (ts->idx + j) % LATENCY_TS_LEN;
         int elapsed;
-        char *label;
         char buf[64];
 
         if (ts->samples[i].time == 0) continue;
@@ -497,8 +533,7 @@ sds latencyCommandGenSparkeline(char *event, struct latencyTimeSeries *ts) {
             snprintf(buf,sizeof(buf),"%dh",elapsed/3600);
         else
             snprintf(buf,sizeof(buf),"%dd",elapsed/(3600*24));
-        label = zstrdup(buf);
-        sparklineSequenceAddSample(seq,ts->samples[i].latency,label);
+        sparklineSequenceAddSample(seq,ts->samples[i].latency,buf);
     }
 
     graph = sdscatprintf(graph,

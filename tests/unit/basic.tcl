@@ -83,7 +83,7 @@ start_server {tags {"basic"}} {
             for {set x 9999} {$x >= 0} {incr x -1} {
                 set val [r get $x]
                 if {$val ne $x} {
-                    set err "Eleemnt at position $x is $val instead of $x"
+                    set err "Element at position $x is $val instead of $x"
                     break
                 }
             }
@@ -149,6 +149,29 @@ start_server {tags {"basic"}} {
         r set novar 17179869184
         r decrby novar 17179869185
     } {-1}
+
+    test {INCR uses shared objects in the 0-9999 range} {
+        r set foo -1
+        r incr foo
+        assert {[r object refcount foo] > 1}
+        r set foo 9998
+        r incr foo
+        assert {[r object refcount foo] > 1}
+        r incr foo
+        assert {[r object refcount foo] == 1}
+    }
+
+    test {INCR can modify objects in-place} {
+        r set foo 20000
+        r incr foo
+        assert {[r object refcount foo] == 1}
+        set old [lindex [split [r debug object foo]] 1]
+        r incr foo
+        set new [lindex [split [r debug object foo]] 1]
+        assert {[string range $old 0 2] eq "at:"}
+        assert {[string range $new 0 2] eq "at:"}
+        assert {$old eq $new}
+    }
 
     test {INCRBYFLOAT against non existing key} {
         r del novar
@@ -300,7 +323,7 @@ start_server {tags {"basic"}} {
         catch {r foobaredcommand} err
         string match ERR* $err
     } {1}
-    
+
     test {RENAME basic usage} {
         r set mykey hello
         r rename mykey mykey1
@@ -426,7 +449,7 @@ start_server {tags {"basic"}} {
         r select 9
         format $res
     } {hello world foo bared}
-    
+
     test {MGET} {
         r flushdb
         r set foo BAR
@@ -482,7 +505,7 @@ start_server {tags {"basic"}} {
         r set foo bar
         list [r getset foo xyz] [r get foo]
     } {bar xyz}
-    
+
     test {MSET base case} {
         r mset x 10 y "foo bar" z "x x x x x x x\n\n\r\n"
         r mget x y z

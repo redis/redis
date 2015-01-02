@@ -226,4 +226,14 @@ start_server {tags {"scan"}} {
         set res [r zscan mykey 0 MATCH foo* COUNT 10000]
         lsort -unique [lindex $res 1]
     }
+
+    test "ZSCAN scores: regression test for issue #2175" {
+        r del mykey
+        for {set j 0} {$j < 500} {incr j} {
+            r zadd mykey 9.8813129168249309e-323 $j
+        }
+        set res [lindex [r zscan mykey 0] 1]
+        set first_score [lindex $res 1]
+        assert {$first_score != 0}
+    }
 }

@@ -100,6 +100,7 @@ redisClient *createClient(int fd) {
     c->ctime = c->lastinteraction = server.unixtime;
     c->authenticated = 0;
     c->replstate = REDIS_REPL_NONE;
+    c->repl_put_online_on_ack = 0;
     c->reploff = 0;
     c->repl_ack_off = 0;
     c->repl_ack_time = 0;
@@ -678,12 +679,8 @@ void freeClient(redisClient *c) {
 
     /* Log link disconnection with slave */
     if ((c->flags & REDIS_SLAVE) && !(c->flags & REDIS_MONITOR)) {
-        char ip[REDIS_IP_STR_LEN];
-
-        if (anetPeerToString(c->fd,ip,sizeof(ip),NULL) != -1) {
-            redisLog(REDIS_WARNING,"Connection with slave %s:%d lost.",
-                ip, c->slave_listening_port);
-        }
+        redisLog(REDIS_WARNING,"Connection with slave %s lost.",
+            replicationGetSlaveName(c));
     }
 
     /* Free the query buffer */
@@ -842,6 +839,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
          *
          * However if we are over the maxmemory limit we ignore that and
          * just deliver as much data as it is possible to deliver. */
+        server.stat_net_output_bytes += totwritten;
         if (totwritten > REDIS_MAX_WRITE_PER_EVENT &&
             (server.maxmemory == 0 ||
              zmalloc_used_memory() < server.maxmemory)) break;
@@ -929,8 +927,10 @@ int processInlineBuffer(redisClient *c) {
     sdsrange(c->querybuf,querylen+2,-1);
 
     /* Setup argv array on client structure */
-    if (c->argv) zfree(c->argv);
-    c->argv = zmalloc(sizeof(robj*)*argc);
+    if (argc) {
+        if (c->argv) zfree(c->argv);
+        c->argv = zmalloc(sizeof(robj*)*argc);
+    }
 
     /* Create redis objects for all arguments. */
     for (c->argc = 0, j = 0; j < argc; j++) {
@@ -1182,6 +1182,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         sdsIncrLen(c->querybuf,nread);
         c->lastinteraction = server.unixtime;
         if (c->flags & REDIS_MASTER) c->reploff += nread;
+        server.stat_net_input_bytes += nread;
     } else {
         server.current_client = NULL;
         return;
@@ -1218,48 +1219,30 @@ void getClientsMaxBuffers(unsigned long *longest_output_list,
     *biggest_input_buffer = bib;
 }
 
-/* This is a helper function for genClientPeerId().
- * It writes the specified ip/port to "peerid" as a null termiated string
- * in the form ip:port if ip does not contain ":" itself, otherwise
- * [ip]:port format is used (for IPv6 addresses basically). */
-void formatPeerId(char *peerid, size_t peerid_len, char *ip, int port) {
-    if (strchr(ip,':'))
-        snprintf(peerid,peerid_len,"[%s]:%d",ip,port);
-    else
-        snprintf(peerid,peerid_len,"%s:%d",ip,port);
-}
-
 /* A Redis "Peer ID" is a colon separated ip:port pair.
- * For IPv4 it's in the form x.y.z.k:pork, example: "127.0.0.1:1234".
+ * For IPv4 it's in the form x.y.z.k:port, example: "127.0.0.1:1234".
  * For IPv6 addresses we use [] around the IP part, like in "[::1]:1234".
- * For Unix socekts we use path:0, like in "/tmp/redis:0".
+ * For Unix sockets we use path:0, like in "/tmp/redis:0".
  *
  * A Peer ID always fits inside a buffer of REDIS_PEER_ID_LEN bytes, including
  * the null term.
  *
- * The function returns REDIS_OK on succcess, and REDIS_ERR on failure.
- *
  * On failure the function still populates 'peerid' with the "?:0" string
  * in case you want to relax error checking or need to display something
  * anyway (see anetPeerToString implementation for more info). */
-int genClientPeerId(redisClient *client, char *peerid, size_t peerid_len) {
-    char ip[REDIS_IP_STR_LEN];
-    int port;
-
+void genClientPeerId(redisClient *client, char *peerid,
+                            size_t peerid_len) {
     if (client->flags & REDIS_UNIX_SOCKET) {
         /* Unix socket client. */
         snprintf(peerid,peerid_len,"%s:0",server.unixsocket);
-        return REDIS_OK;
     } else {
         /* TCP client. */
-        int retval = anetPeerToString(client->fd,ip,sizeof(ip),&port);
-        formatPeerId(peerid,peerid_len,ip,port);
-        return (retval == -1) ? REDIS_ERR : REDIS_OK;
+        anetFormatPeer(client->fd,peerid,peerid_len);
     }
 }
 
 /* This function returns the client peer id, by creating and caching it
- * if client->perrid is NULL, otherwise returning the cached value.
+ * if client->peerid is NULL, otherwise returning the cached value.
  * The Peer ID never changes during the life of the client, however it
  * is expensive to compute. */
 char *getClientPeerId(redisClient *c) {
