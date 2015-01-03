@@ -269,7 +269,24 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     if (sdslen(c->obuf) > c->written) {
         void *ptr = c->obuf+c->written;
-        int nwritten = write(c->context->fd,ptr,sdslen(c->obuf)-c->written);
+        int nwritten = 0;
+
+        if( NULL != c->context->ssl.ssl ) {
+        	nwritten = SSL_write(c->context->ssl.ssl,ptr, sdslen(c->obuf)-c->written);
+        	if( nwritten < 0 ) {
+        		int errorCode = SSL_get_error( c->context->ssl.ssl, nwritten );
+        		if( SSL_ERROR_WANT_READ == errorCode || SSL_ERROR_WANT_WRITE == errorCode) {
+        			nwritten = 0;
+        		} else {
+        			char error[65535];
+        			ERR_error_string_n(ERR_get_error(), error, 65535);
+        			redisLog( REDIS_WARNING, "SSL ERROR: %s", error);
+        		}
+        	}
+        } else {
+        	nwritten = write(c->context->fd, ptr, sdslen(c->obuf)-c->written);
+        }
+
         if (nwritten == -1) {
             if (errno != EPIPE)
                 fprintf(stderr, "Writing to socket: %s\n", strerror(errno));
