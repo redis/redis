@@ -372,7 +372,7 @@ int anetSSLGenericConnect( char* err, char* addr, int port, int flags, anetSSLCo
   sslctn->conn_str = NULL;
 
   // Set up a SSL_CTX object, which will tell our BIO object how to do its work
-  SSL_CTX* ctx = SSL_CTX_new(SSLv3_client_method());
+  SSL_CTX* ctx = SSL_CTX_new(TLSv1_1_client_method());
   sslctn->ctx = ctx;
 
   // Create a SSL object pointer, which our BIO object will provide.
@@ -767,7 +767,7 @@ int anetSSLAccept( char *err, int fd, struct redisServer server, anetSSLConnecti
   ctn->sd = fd;
 
   // Create the SSL Context ( server method )
-  SSL_CTX* ctx = SSL_CTX_new(SSLv3_server_method());
+  SSL_CTX* ctx = SSL_CTX_new(TLSv1_1_server_method());
   ctn->ctx = ctx;
 
    /*

@@ -369,7 +369,7 @@ int redisContextConnectSSL(redisContext *c, const char *addr, int port, char* ce
   c->ssl.bio = NULL;
 
   // Set up a SSL_CTX object, which will tell our BIO object how to do its work
-  SSL_CTX* ctx = SSL_CTX_new(SSLv3_client_method());
+  SSL_CTX* ctx = SSL_CTX_new(TLSv1_1_client_method());
   c->ssl.ctx = ctx;
 
   // Create a SSL object pointer, which our BIO object will provide.
