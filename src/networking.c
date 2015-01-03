@@ -573,7 +573,11 @@ static void acceptCommonHandler(int fd, anetSSLConnection *sslctn, int flags) {
 
     // If we're talking SSL, and we have a valid SSL connection, set the client's pointer to the ssl connection info.
     if( server.ssl && sslctn->ssl != NULL ) {
-      c->ssl = *sslctn;
+    	c->ssl.ctx = sslctn->ctx;
+    	c->ssl.ssl = sslctn->ssl;
+    	c->ssl.bio = sslctn->bio;
+    	c->ssl.conn_str = sslctn->conn_str;
+    	c->ssl.sd = sslctn->sd;
     }
 
     /* If maxclient directive is set and this is one client more... close the
@@ -620,22 +624,22 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
 
-    if( server.ssl ) {
-      redisLog(REDIS_VERBOSE,"Switching connection to SSL");
-      int ret = anetSSLAccept( server.neterr, cfd, server, &sslctn );
+        if( server.ssl ) {
+        	redisLog(REDIS_VERBOSE,"Switching connection to SSL");
+        	int ret = anetSSLAccept( server.neterr, cfd, server, &sslctn );
 
-      redisLog( REDIS_WARNING, "RET: %d ", ret );
+        	redisLog( REDIS_WARNING, "RET: %d ", ret );
 
-      if( ret < 0 ) {
-        redisLog(REDIS_WARNING,"Error accepting SSL client connection." );
-        anetCleanupSSL( &sslctn );
-        close( cfd );
-        return;
-      }
-    }
+        	if( ret < 0 ) {
+        		redisLog(REDIS_WARNING,"Error accepting SSL client connection." );
+        		anetCleanupSSL( &sslctn );
+        		close( cfd );
+        		return;
+        	}
+        }
     
         redisLog(REDIS_VERBOSE,"Accepted %s:%d", cip, cport);
-	acceptCommonHandler(cfd, &sslctn, 0);
+        acceptCommonHandler(cfd, &sslctn, 0);
     }
 }
 
@@ -854,7 +858,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
                 }
 
               } else {
-            nwritten = write(fd,c->buf+c->sentlen,c->bufpos-c->sentlen);
+            	  nwritten = write(fd,c->buf+c->sentlen,c->bufpos-c->sentlen);
               }
 
             if (nwritten <= 0) break;
@@ -892,7 +896,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
                     }
                   }
                 } else {
-            nwritten = write(fd, ((char*)o->ptr)+c->sentlen,objlen-c->sentlen);
+                	nwritten = write(fd, ((char*)o->ptr)+c->sentlen,objlen-c->sentlen);
                 }
 
             if (nwritten <= 0) break;
@@ -917,8 +921,9 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         server.stat_net_output_bytes += totwritten;
         if (totwritten > REDIS_MAX_WRITE_PER_EVENT &&
             (server.maxmemory == 0 ||
-             zmalloc_used_memory() < server.maxmemory)) break;
+            	zmalloc_used_memory() < server.maxmemory)) break;
     }
+
     if (nwritten == -1) {
         if (errno == EAGAIN) {
             nwritten = 0;
@@ -929,6 +934,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
     }
+
     if (totwritten > 0) {
         /* For clients representing masters we don't count sending data
          * as an interaction, since we always send REPLCONF ACK commands
@@ -936,6 +942,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
          * We just rely on data / pings received for timeout detection. */
         if (!(c->flags & REDIS_MASTER)) c->lastinteraction = server.unixtime;
     }
+
     if (c->bufpos == 0 && listLength(c->reply) == 0) {
         c->sentlen = 0;
         aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
