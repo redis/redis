@@ -654,20 +654,15 @@ void spopCommand(redisClient *c) {
 /* handle the "SRANDMEMBER key <count>" variant. The normal version of the
  * command is handled by the srandmemberCommand() function itself. */
 
-/* How many times bigger should be the set compared to the requested size
- * for us to don't use the "remove elements" strategy? Read later in the
- * implementation for more info. */
-#define SRANDMEMBER_SUB_STRATEGY_MUL 3
-
 void srandmemberWithCountCommand(redisClient *c) {
     long l;
-    unsigned long count, size;
+    unsigned long count, size, elements_returned;
     int uniq = 1;
-    robj *set, *ele;
+    robj *set, *aux_set, *objele;
     int64_t llele;
     int encoding;
+    setTypeIterator *si;
 
-    dict *d;
 
     if (getLongFromObjectOrReply(c,c->argv[2],&l,NULL) != REDIS_OK) return;
     if (l >= 0) {
@@ -696,11 +691,11 @@ void srandmemberWithCountCommand(redisClient *c) {
     if (!uniq) {
         addReplyMultiBulkLen(c,count);
         while(count--) {
-            encoding = setTypeRandomElement(set,&ele,&llele);
+            encoding = setTypeRandomElement(set,&objele,&llele);
             if (encoding == REDIS_ENCODING_INTSET) {
                 addReplyBulkLongLong(c,llele);
             } else {
-                addReplyBulk(c,ele);
+                addReplyBulk(c,objele);
             }
         }
         return;
@@ -714,82 +709,37 @@ void srandmemberWithCountCommand(redisClient *c) {
         return;
     }
 
-    /* For CASE 3 and CASE 4 we need an auxiliary dictionary. */
-    d = dictCreate(&setDictType,NULL);
-
     /* CASE 3:
-     * The number of elements inside the set is not greater than
-     * SRANDMEMBER_SUB_STRATEGY_MUL times the number of requested elements.
-     * In this case we create a set from scratch with all the elements, and
-     * subtract random elements to reach the requested number of elements.
-     *
-     * This is done because if the number of requsted elements is just
-     * a bit less than the number of elements in the set, the natural approach
-     * used into CASE 3 is highly inefficient. */
-    if (count*SRANDMEMBER_SUB_STRATEGY_MUL > size) {
-        setTypeIterator *si;
+     * The number of requested elements is less than the number of
+     * elements inside the set. */
 
-        /* Add all the elements into the temporary dictionary. */
-        si = setTypeInitIterator(set);
-        while((encoding = setTypeNext(si,&ele,&llele)) != -1) {
-            int retval = DICT_ERR;
+    /* We need an auxiliary set. Optimistically, we create a set using an
+     * Intset internally. */
+    objele = createStringObjectFromLongLong(0);
+    aux_set = setTypeCreate(objele);
+    decrRefCount(objele);
 
-            if (encoding == REDIS_ENCODING_INTSET) {
-                retval = dictAdd(d,createStringObjectFromLongLong(llele),NULL);
-            } else {
-                retval = dictAdd(d,dupStringObject(ele),NULL);
-            }
-            redisAssert(retval == DICT_OK);
+    /* Get the count requested of random elements from the set into our
+     * auxiliary set. */
+    elements_returned = setTypeRandomElements(set, count, aux_set);
+    redisAssert(elements_returned == count);
+    addReplyMultiBulkLen(c, count);
+
+    si = setTypeInitIterator(aux_set);
+    while ((encoding = setTypeNext(si, &objele, &llele)) != -1) {
+        if (encoding == REDIS_ENCODING_HT) {
+            addReplyBulk(c, objele);
         }
-        setTypeReleaseIterator(si);
-        redisAssert(dictSize(d) == size);
-
-        /* Remove random elements to reach the right count. */
-        while(size > count) {
-            dictEntry *de;
-
-            de = dictGetRandomKey(d);
-            dictDelete(d,dictGetKey(de));
-            size--;
+        else if (encoding == REDIS_ENCODING_INTSET) {
+            addReplyBulkLongLong(c,llele);
+        }
+        else {
+            redisPanic("Unknown set encoding");
         }
     }
+    setTypeReleaseIterator(si);
 
-    /* CASE 4: We have a big set compared to the requested number of elements.
-     * In this case we can simply get random elements from the set and add
-     * to the temporary set, trying to eventually get enough unique elements
-     * to reach the specified count. */
-    else {
-        unsigned long added = 0;
-
-        while(added < count) {
-            encoding = setTypeRandomElement(set,&ele,&llele);
-            if (encoding == REDIS_ENCODING_INTSET) {
-                ele = createStringObjectFromLongLong(llele);
-            } else {
-                ele = dupStringObject(ele);
-            }
-            /* Try to add the object to the dictionary. If it already exists
-             * free it, otherwise increment the number of objects we have
-             * in the result dictionary. */
-            if (dictAdd(d,ele,NULL) == DICT_OK)
-                added++;
-            else
-                decrRefCount(ele);
-        }
-    }
-
-    /* CASE 3 & 4: send the result to the user. */
-    {
-        dictIterator *di;
-        dictEntry *de;
-
-        addReplyMultiBulkLen(c,count);
-        di = dictGetIterator(d);
-        while((de = dictNext(di)) != NULL)
-            addReplyBulk(c,dictGetKey(de));
-        dictReleaseIterator(di);
-        dictRelease(d);
-    }
+    decrRefCount(aux_set);
 }
 
 void srandmemberCommand(redisClient *c) {
