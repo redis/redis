@@ -717,7 +717,7 @@ long long estimateObjectTtl(redisDb *db, robj *key) {
     expire = dictGetSignedIntegerVal(de);
 
     ttl = expire-mstime();
-    if (ttl < 0) ttl = 0;
+    if (ttl < 0) return -1;
 
     return ((ttl+500)/1000); // in fashion of ttlGenericCommand, change from ms to s
 }
