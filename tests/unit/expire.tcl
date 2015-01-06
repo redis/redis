@@ -198,4 +198,34 @@ start_server {tags {"expire"}} {
         r set foo b
         lsort [r keys *]
     } {a e foo s t}
+    
+    test {OBJECT TTL does not affect the TTL of the key} {
+        r del mykey
+        r set mykey foo
+        # No expire set, both should return -1
+        assert {[r object ttl mykey] == -1}
+        assert {[r ttl mykey] == -1}
+        r expire mykey 100
+        
+        # After setting the expire to 100 seconds, both methods should return a TTL right below 100 seconds
+        assert {[r ttl mykey] > 95 && [r ttl mykey] <= 100}
+        assert {[r object ttl mykey] > 95 && [r object ttl mykey] <= 100}
+        assert {[r object idletime mykey] <= 5}
+
+        # Now sleep for 5 seconds
+        r debug sleep 5
+        
+        # The idletime should be at least 5 seconds
+        assert {[r object idletime mykey]  >= 5}
+        
+        # The TTL should be right below 95 seconds
+        assert {[r object ttl mykey] > 90 && [r object ttl mykey] <= 95}
+        
+        # The idletime should be intact
+        assert {[r object idletime mykey]  >= 5}
+        
+        # Now notice that when running the regular TTL command we affect the idletime 
+        assert {[r ttl mykey] > 90 && [r ttl mykey] <= 95}
+        assert {[r object idletime mykey]  == 0}
+    }
 }
