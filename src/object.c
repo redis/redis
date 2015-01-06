@@ -739,7 +739,7 @@ robj *objectCommandLookupOrReply(redisClient *c, robj *key, robj *reply) {
 }
 
 /* Object command allows to inspect the internals of an Redis Object.
- * Usage: OBJECT <refcount|encoding|idletime|ttl> <key> */
+ * Usage: OBJECT <refcount|encoding|idletime|ttl|serializedlength> <key> */
 void objectCommand(redisClient *c) {
     robj *o;
 
@@ -759,6 +759,10 @@ void objectCommand(redisClient *c) {
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
                 == NULL) return;
         addReplyLongLong(c,estimateObjectTtl(c->db, c->argv[2]));
+    } else if (!strcasecmp(c->argv[1]->ptr,"serializedlength") && c->argc == 3) {
+        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nullbulk))
+                == NULL) return;
+        addReplyLongLong(c, (long long) rdbSavedObjectLen(o));
     } else {
         addReplyError(c,"Syntax error. Try OBJECT (refcount|encoding|idletime|ttl)");
     }
