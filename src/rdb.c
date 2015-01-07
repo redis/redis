@@ -714,6 +714,21 @@ int rdbSaveRio(rio *rdb, int *error) {
         if (rdbSaveType(rdb,REDIS_RDB_OPCODE_SELECTDB) == -1) goto werr;
         if (rdbSaveLen(rdb,j) == -1) goto werr;
 
+        /* Write the RESIZE DB opcode. We trim the size to UINT32_MAX, which
+         * is currently the largest type we are able to represent in RDB sizes.
+         * However this does not limit the actual size of the DB to load since
+         * these sizes are just hints to resize the hash tables. */
+        uint32_t db_size, expires_size;
+        db_size = (dictSize(db->dict) <= UINT32_MAX) ?
+                                dictSize(db->dict) :
+                                UINT32_MAX;
+        expires_size = (dictSize(db->dict) <= UINT32_MAX) ?
+                                dictSize(db->expires) :
+                                UINT32_MAX;
+        if (rdbSaveType(rdb,REDIS_RDB_OPCODE_RESIZEDB) == -1) goto werr;
+        if (rdbSaveLen(rdb,db_size) == -1) goto werr;
+        if (rdbSaveLen(rdb,expires_size) == -1) goto werr;
+
         /* Iterate this DB writing every entry */
         while((de = dictNext(di)) != NULL) {
             sds keystr = dictGetKey(de);
@@ -1226,7 +1241,7 @@ int rdbLoad(char *filename) {
         if (type == REDIS_RDB_OPCODE_EOF)
             break;
 
-        /* Handle SELECT DB opcode as a special case */
+        /* Handle special opcodes: SELECTDB, RESIZEDB, AUX. */
         if (type == REDIS_RDB_OPCODE_SELECTDB) {
             if ((dbid = rdbLoadLen(&rdb,NULL)) == REDIS_RDB_LENERR)
                 goto eoferr;
@@ -1235,6 +1250,15 @@ int rdbLoad(char *filename) {
                 exit(1);
             }
             db = server.db+dbid;
+            continue;
+        } else if (type == REDIS_RDB_OPCODE_RESIZEDB) {
+            uint32_t db_size, expires_size;
+            if ((db_size = rdbLoadLen(&rdb,NULL)) == REDIS_RDB_LENERR)
+                goto eoferr;
+            if ((expires_size = rdbLoadLen(&rdb,NULL)) == REDIS_RDB_LENERR)
+                goto eoferr;
+            dictExpand(db->dict,db_size);
+            dictExpand(db->expires,expires_size);
             continue;
         }
         /* Read key */
