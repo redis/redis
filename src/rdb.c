@@ -1223,7 +1223,12 @@ int rdbLoad(char *filename) {
 
         /* Read type. */
         if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
+
+        /* Handle special types. */
         if (type == REDIS_RDB_OPCODE_EXPIRETIME) {
+            /* EXPIRETIME: load an expire associated with the next key
+             * to load. Note that after loading an expire we need to
+             * load the actual type, and continue. */
             if ((expiretime = rdbLoadTime(&rdb)) == -1) goto eoferr;
             /* We read the time so we need to read the object type again. */
             if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
@@ -1231,27 +1236,30 @@ int rdbLoad(char *filename) {
              * into milliseconds. */
             expiretime *= 1000;
         } else if (type == REDIS_RDB_OPCODE_EXPIRETIME_MS) {
-            /* Milliseconds precision expire times introduced with RDB
-             * version 3. */
+            /* EXPIRETIME_MS: milliseconds precision expire times introduced
+             * with RDB v3. Like EXPIRETIME but no with more precision. */
             if ((expiretime = rdbLoadMillisecondTime(&rdb)) == -1) goto eoferr;
             /* We read the time so we need to read the object type again. */
             if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
-        }
-
-        if (type == REDIS_RDB_OPCODE_EOF)
+        } else if (type == REDIS_RDB_OPCODE_EOF) {
+            /* EOF: End of file, exit the main loop. */
             break;
-
-        /* Handle special opcodes: SELECTDB, RESIZEDB, AUX. */
-        if (type == REDIS_RDB_OPCODE_SELECTDB) {
+        } else if (type == REDIS_RDB_OPCODE_SELECTDB) {
+            /* SELECTDB: Select the specified database. */
             if ((dbid = rdbLoadLen(&rdb,NULL)) == REDIS_RDB_LENERR)
                 goto eoferr;
             if (dbid >= (unsigned)server.dbnum) {
-                redisLog(REDIS_WARNING,"FATAL: Data file was created with a Redis server configured to handle more than %d databases. Exiting\n", server.dbnum);
+                redisLog(REDIS_WARNING,
+                    "FATAL: Data file was created with a Redis "
+                    "server configured to handle more than %d "
+                    "databases. Exiting\n", server.dbnum);
                 exit(1);
             }
             db = server.db+dbid;
-            continue;
+            continue; /* Read type again. */
         } else if (type == REDIS_RDB_OPCODE_RESIZEDB) {
+            /* RESIZEDB: Hint about the size of the keys in the currently
+             * selected data base, in order to avoid useless rehashing. */
             uint32_t db_size, expires_size;
             if ((db_size = rdbLoadLen(&rdb,NULL)) == REDIS_RDB_LENERR)
                 goto eoferr;
@@ -1259,8 +1267,9 @@ int rdbLoad(char *filename) {
                 goto eoferr;
             dictExpand(db->dict,db_size);
             dictExpand(db->expires,expires_size);
-            continue;
+            continue; /* Read type again. */
         }
+
         /* Read key */
         if ((key = rdbLoadStringObject(&rdb)) == NULL) goto eoferr;
         /* Read value */
