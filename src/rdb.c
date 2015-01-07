@@ -1041,12 +1041,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                             server.list_compress_depth);
 
         while (len--) {
-            if ((ele = rdbLoadStringObject(rdb)) == NULL) return NULL;
-            /* 'ele' contains a sds of the ziplist, but we need to extract
-             * the actual ziplist for future usage. We must copy the
-             * sds contents to a new buffer. */
-            unsigned char *zl = (unsigned char *)sdsnative(ele->ptr);
-            zfree(ele); /* free robj container since we keep the ziplist */
+            unsigned char *zl = rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN);
+            if (zl == NULL) return NULL;
             quicklistAppendZiplist(o->ptr, zl);
         }
     } else if (rdbtype == REDIS_RDB_TYPE_HASH_ZIPMAP  ||
@@ -1055,9 +1051,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
                rdbtype == REDIS_RDB_TYPE_ZSET_ZIPLIST ||
                rdbtype == REDIS_RDB_TYPE_HASH_ZIPLIST)
     {
-        o = rdbLoadStringObject(rdb);
-        if (o == NULL) return NULL;
-        o->ptr = sdsnative(o->ptr);
+        unsigned char *encoded = rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN);
+        if (encoded == NULL) return NULL;
+        o = createObject(REDIS_STRING,encoded); /* Obj type fixed below. */
 
         /* Fix the object encoding, and make sure to convert the encoded
          * data type into the base type if accordingly to the current
