@@ -764,7 +764,7 @@ void objectCommand(redisClient *c) {
                 == NULL) return;
         addReplyLongLong(c, (long long) rdbSavedObjectLen(o));
     } else {
-        addReplyError(c,"Syntax error. Try OBJECT (refcount|encoding|idletime|ttl)");
+        addReplyError(c,"Syntax error. Try OBJECT (refcount|encoding|idletime|ttl|serializedlength)");
     }
 }
 
