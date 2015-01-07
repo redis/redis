@@ -43,59 +43,32 @@
 
 #include <stdint.h>
 
-#define N	16
-#define MASK	((1 << N) - 1)
-#define LOW(x)	((unsigned)(x) & MASK)
-#define HIGH(x)	LOW((x) >> N)
+/* LOW16 & HIGH16 macros of a uint32_t type */
+#define MASK16 0xffff
+#define LOW16(x) ((unsigned)(x) & MASK16)
+#define HIGH16(x) LOW16((x) >> 16)
 
-/* Initial X: 0x1234ABCD330E */
-#define X0	0x330E
-#define X1	0xABCD
-#define X2	0x1234
+/* MASK48 is used for "mod 2^48" operation */
+#define MASK48 0xffffffffffffULL
 
 /* A: 0x5DEECE66D */
-#define A0	0xE66D
-#define A1	0xDEEC
-#define A2	0x5
-
+#define A 0x5deece66dULL
 /* C: 0xB */
-#define C	0xB
+#define C 0xbULL
+/* Initial X: 0x1234ABCD330E */
+uint64_t X = 0x1234abcd330eULL;
 
-static uint32_t x[3] = { X0, X1, X2 }, a[3] = { A0, A1, A2 }, c = C;
 static void next(void);
 
 int32_t redisLrand48() {
     next();
-    return (((int32_t)x[2] << (N - 1)) + (x[1] >> 1));
+    return (int32_t)(X >> 17);
 }
 
 void redisSrand48(int32_t seedval) {
-    x[0] = X0;
-    x[1] = LOW(seedval);
-    x[2] = HIGH(seedval);
+    X = ((uint64_t)HIGH16(seedval)<<32) | (LOW16(seedval)<<16) | 0x330e;
 }
 
 static void next(void) {
-    /* Z = (X * A) mod 2^48
-     *
-     * Every block is 16 bits
-     *     Z: | z2 | z1 | z0 |
-     *     X: |x[2]|x[1]|x[0]|
-     *     A: |a[2]|a[1]|a[0]|
-     */
-    uint32_t y0, y1, y2;
-    y0 = x[0] * a[0];
-    y1 = x[0] * a[1] + x[1] * a[0];
-    y2 = x[1] * a[1] + x[0] * a[2] + x[2] * a[0];
-    uint32_t z0, z1, z2;
-    z0 = LOW(y0);
-    z1 = LOW(HIGH(y0) + LOW(y1));
-    z2 = LOW(HIGH(HIGH(y0) + LOW(y1)) + HIGH(y1) + y2);
-
-    /* X = (Z + c) mod 2^48
-     *   = (X * A + c) mod 2^48
-     */
-    x[0] = LOW(z0 + c);
-    x[1] = LOW(z1 + HIGH(z0 + c));
-    x[2] = LOW(z2 + HIGH(z1 + HIGH(z0 + c)));
+    X = (X * A + C) & MASK48;
 }
