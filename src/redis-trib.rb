@@ -72,7 +72,7 @@ class ClusterNode
         @friends
     end
 
-    def slots 
+    def slots
         @info[:slots]
     end
 
@@ -154,7 +154,7 @@ class ClusterNode
                     end
                 } if slots
                 @dirty = false
-                @r.cluster("info").split("\n").each{|e|    
+                @r.cluster("info").split("\n").each{|e|
                     k,v=e.split(":")
                     k = k.to_sym
                     v.chop!
@@ -213,7 +213,7 @@ class ClusterNode
         #
         # Note: this could be easily written without side effects,
         # we use 'slots' just to split the computation into steps.
-        
+
         # First step: we want an increasing array of integers
         # for instance: [1,2,3,4,5,8,9,20,21,22,23,24,25,30]
         slots = @info[:slots].keys.sort
@@ -273,7 +273,7 @@ class ClusterNode
     def info
         @info
     end
-    
+
     def is_dirty?
         @dirty
     end
@@ -789,7 +789,7 @@ class RedisTrib
 
     # Move slots between source and target nodes using MIGRATE.
     #
-    # Options: 
+    # Options:
     # :verbose -- Print a dot for every moved key.
     # :fix     -- We are moving in the context of a fix. Use REPLACE.
     # :cold    -- Move keys without opening / reconfiguring the nodes.
@@ -1232,7 +1232,7 @@ end
 
 #################################################################################
 # Libraries
-# 
+#
 # We try to don't depend on external libs since this is a critical part
 # of Redis Cluster.
 #################################################################################
