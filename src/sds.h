@@ -60,6 +60,7 @@ sds sdsempty(void);
 size_t sdslen(const sds s);
 sds sdsdup(const sds s);
 void sdsfree(sds s);
+char *sdsnative(sds s);
 size_t sdsavail(const sds s);
 sds sdsgrowzero(sds s, size_t len);
 sds sdscatlen(sds s, const void *t, size_t len);
@@ -97,5 +98,9 @@ sds sdsMakeRoomFor(sds s, size_t addlen);
 void sdsIncrLen(sds s, int incr);
 sds sdsRemoveFreeSpace(sds s);
 size_t sdsAllocSize(sds s);
+
+#ifdef REDIS_TEST
+int sdsTest(int argc, char *argv[]);
+#endif
 
 #endif

@@ -770,52 +770,29 @@ int rioWriteBulkObject(rio *r, robj *obj) {
 int rewriteListObject(rio *r, robj *key, robj *o) {
     long long count = 0, items = listTypeLength(o);
 
-    if (o->encoding == REDIS_ENCODING_ZIPLIST) {
-        unsigned char *zl = o->ptr;
-        unsigned char *p = ziplistIndex(zl,0);
-        unsigned char *vstr;
-        unsigned int vlen;
-        long long vlong;
+    if (o->encoding == REDIS_ENCODING_QUICKLIST) {
+        quicklist *list = o->ptr;
+        quicklistIter *li = quicklistGetIterator(list, AL_START_HEAD);
+        quicklistEntry entry;
 
-        while(ziplistGet(p,&vstr,&vlen,&vlong)) {
+        while (quicklistNext(li,&entry)) {
             if (count == 0) {
                 int cmd_items = (items > REDIS_AOF_REWRITE_ITEMS_PER_CMD) ?
                     REDIS_AOF_REWRITE_ITEMS_PER_CMD : items;
-
                 if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
                 if (rioWriteBulkString(r,"RPUSH",5) == 0) return 0;
                 if (rioWriteBulkObject(r,key) == 0) return 0;
             }
-            if (vstr) {
-                if (rioWriteBulkString(r,(char*)vstr,vlen) == 0) return 0;
+
+            if (entry.value) {
+                if (rioWriteBulkString(r,(char*)entry.value,entry.sz) == 0) return 0;
             } else {
-                if (rioWriteBulkLongLong(r,vlong) == 0) return 0;
+                if (rioWriteBulkLongLong(r,entry.longval) == 0) return 0;
             }
-            p = ziplistNext(zl,p);
             if (++count == REDIS_AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
         }
-    } else if (o->encoding == REDIS_ENCODING_LINKEDLIST) {
-        list *list = o->ptr;
-        listNode *ln;
-        listIter li;
-
-        listRewind(list,&li);
-        while((ln = listNext(&li))) {
-            robj *eleobj = listNodeValue(ln);
-
-            if (count == 0) {
-                int cmd_items = (items > REDIS_AOF_REWRITE_ITEMS_PER_CMD) ?
-                    REDIS_AOF_REWRITE_ITEMS_PER_CMD : items;
-
-                if (rioWriteBulkCount(r,'*',2+cmd_items) == 0) return 0;
-                if (rioWriteBulkString(r,"RPUSH",5) == 0) return 0;
-                if (rioWriteBulkObject(r,key) == 0) return 0;
-            }
-            if (rioWriteBulkObject(r,eleobj) == 0) return 0;
-            if (++count == REDIS_AOF_REWRITE_ITEMS_PER_CMD) count = 0;
-            items--;
-        }
+        quicklistReleaseIterator(li);
     } else {
         redisPanic("Unknown list encoding");
     }

@@ -88,6 +88,17 @@ void sdsfree(sds s) {
     zfree(s-sizeof(struct sdshdr));
 }
 
+/* Remove sds header so we can use buffer as malloc'd byte array.
+ * Returns the contents of 's' usable as a full malloc'd C string. */
+char *sdsnative(sds s) {
+    if (!s) return NULL;
+
+    size_t len = sdslen(s);
+    char *base = s-sizeof(struct sdshdr);
+    memmove(base, s, len);
+    return zrealloc(base, len);
+}
+
 /* Set the sds string length to the length as obtained with strlen(), so
  * considering as content only up to the first null term character.
  *
@@ -962,12 +973,15 @@ sds sdsjoin(char **argv, int argc, char *sep) {
     return join;
 }
 
-#ifdef SDS_TEST_MAIN
+#if defined(REDIS_TEST) || defined(SDS_TEST_MAIN)
 #include <stdio.h>
 #include "testhelp.h"
 #include "limits.h"
 
-int main(void) {
+#define UNUSED(x) (void)(x)
+int sdsTest(int argc, char *argv[]) {
+    UNUSED(argc);
+    UNUSED(argv);
     {
         struct sdshdr *sh;
         sds x = sdsnew("foo"), y;
@@ -1092,7 +1106,7 @@ int main(void) {
             memcmp(y,"\"\\a\\n\\x00foo\\r\"",15) == 0)
 
         {
-            int oldfree;
+            unsigned int oldfree;
 
             sdsfree(x);
             x = sdsnew("0");
@@ -1111,5 +1125,11 @@ int main(void) {
     }
     test_report()
     return 0;
+}
+#endif
+
+#ifdef SDS_TEST_MAIN
+int main(void) {
+    return sdsTest();
 }
 #endif
