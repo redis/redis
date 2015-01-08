@@ -26,6 +26,13 @@ After building Redis is a good idea to test it, using:
 
     % make test
 
+Fixing build problems with dependencies
+—--------
+Redis has some dependencies which are included to deps directory.
+“make” doesn’t rebuild deps though sources of dependencies are changed, and “make clean” cleans up src directory only.
+Only “make distclean” cleans up deps build output.
+So if build errors occur with deps you can try “make distclean” and “make” again.
+
 Fixing problems building 32 bit binaries
 ---------
 
