@@ -707,7 +707,7 @@ int rdbSaveAuxFieldStrInt(rio *rdb, char *key, long long val) {
 int rdbSaveInfoAuxFields(rio *rdb) {
     int redis_bits = (sizeof(void*) == 8) ? 64 : 32;
 
-    /* Add a few fiels about the state when the RDB was created. */
+    /* Add a few fields about the state when the RDB was created. */
     if (rdbSaveAuxFieldStrStr(rdb,"redis-ver",REDIS_VERSION) == -1) return -1;
     if (rdbSaveAuxFieldStrInt(rdb,"redis-bits",redis_bits) == -1) return -1;
     if (rdbSaveAuxFieldStrInt(rdb,"ctime",time(NULL)) == -1) return -1;
