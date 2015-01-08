@@ -19,6 +19,8 @@ rescue Errno::ENOENT
   exit 1
 end
 
+
+
 $stderr.puts "This utility is deprecated. Use the redis-copy gem instead."
 if ARGV.length != 4
     puts "Usage: redis-copy.rb <srchost> <srcport> <dsthost> <dstport>"
