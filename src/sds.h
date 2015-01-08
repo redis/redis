@@ -98,4 +98,8 @@ void sdsIncrLen(sds s, int incr);
 sds sdsRemoveFreeSpace(sds s);
 size_t sdsAllocSize(sds s);
 
+#ifdef REDIS_TEST
+int sdsTest(int argc, char *argv[]);
+#endif
+
 #endif

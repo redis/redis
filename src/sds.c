@@ -962,12 +962,15 @@ sds sdsjoin(char **argv, int argc, char *sep) {
     return join;
 }
 
-#ifdef SDS_TEST_MAIN
+#if defined(REDIS_TEST) || defined(SDS_TEST_MAIN)
 #include <stdio.h>
 #include "testhelp.h"
 #include "limits.h"
 
-int main(void) {
+#define UNUSED(x) (void)(x)
+int sdsTest(int argc, char *argv[]) {
+    UNUSED(argc);
+    UNUSED(argv);
     {
         struct sdshdr *sh;
         sds x = sdsnew("foo"), y;
@@ -1092,7 +1095,7 @@ int main(void) {
             memcmp(y,"\"\\a\\n\\x00foo\\r\"",15) == 0)
 
         {
-            int oldfree;
+            unsigned int oldfree;
 
             sdsfree(x);
             x = sdsnew("0");
@@ -1111,5 +1114,11 @@ int main(void) {
     }
     test_report()
     return 0;
+}
+#endif
+
+#ifdef SDS_TEST_MAIN
+int main(void) {
+    return sdsTest();
 }
 #endif

@@ -1,8 +1,7 @@
 start_server {
     tags {"list"}
     overrides {
-        "list-max-ziplist-value" 16
-        "list-max-ziplist-entries" 256
+        "list-max-ziplist-size" 4
     }
 } {
     source "tests/unit/type/list-common.tcl"
@@ -28,14 +27,18 @@ start_server {
                 for {set i 0} {$i < 1000} {incr i} {
                     set min [expr {int(rand()*$startlen)}]
                     set max [expr {$min+int(rand()*$startlen)}]
+                    set before_len [llength $mylist]
+                    set before_len_r [r llen mylist]
                     set mylist [lrange $mylist $min $max]
                     r ltrim mylist $min $max
-                    assert_equal $mylist [r lrange mylist 0 -1]
+                    assert_equal $mylist [r lrange mylist 0 -1] "failed trim"
 
+                    set starting [r llen mylist]
                     for {set j [r llen mylist]} {$j < $startlen} {incr j} {
                         set str [randomInt 9223372036854775807]
                         r rpush mylist $str
                         lappend mylist $str
+                        assert_equal $mylist [r lrange mylist 0 -1] "failed append match"
                     }
                 }
             }

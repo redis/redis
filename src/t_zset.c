@@ -1382,7 +1382,7 @@ void zremrangeGenericCommand(redisClient *c, int rangetype) {
     robj *key = c->argv[1];
     robj *zobj;
     int keyremoved = 0;
-    unsigned long deleted;
+    unsigned long deleted = 0;
     zrangespec range;
     zlexrangespec lexrange;
     long start, end, llen;
