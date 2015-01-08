@@ -563,8 +563,17 @@ class RedisTrib
             # Take one node from each IP until we run out of nodes
             # across every IP.
             ips.each do |ip,nodes|
-                stop = nodes.empty? and next
-                interleaved.push nodes.shift
+                if nodes.empty?
+                    # if this IP has no remaining nodes, check for termination
+                    if interleaved.length == nodes_count
+                        # stop when 'interleaved' has accumulated all nodes
+                        stop = true
+                        next
+                    end
+                else
+                    # else, move one node from this IP to 'interleaved'
+                    interleaved.push nodes.shift
+                end
             end
         end
 
