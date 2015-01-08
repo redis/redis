@@ -313,6 +313,12 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_LOG_RAW (1<<10) /* Modifier to log without timestamp */
 #define REDIS_DEFAULT_VERBOSITY REDIS_NOTICE
 
+/* Supervision options */
+#define REDIS_SUPERVISED_NONE 0
+#define REDIS_SUPERVISED_AUTODETECT 1
+#define REDIS_SUPERVISED_SYSTEMD 2
+#define REDIS_SUPERVISED_UPSTART 3
+
 /* Anti-warning macro... */
 #define REDIS_NOTUSED(V) ((void) V)
 
@@ -740,7 +746,8 @@ struct redisServer {
     int active_expire_enabled;      /* Can be disabled for testing purposes. */
     size_t client_max_querybuf_len; /* Limit for client query buffer length */
     int dbnum;                      /* Total number of configured DBs */
-    int supervised;                 /* True if supervised by upstart or systemd */
+    int supervised;                 /* 1 if supervised, 0 otherwise. */
+    int supervised_mode;            /* See REDIS_SUPERVISED_* */
     int daemonize;                  /* True if running as a daemon */
     clientBufferLimitsConfig client_obuf_limits[REDIS_CLIENT_TYPE_COUNT];
     /* AOF persistence */
