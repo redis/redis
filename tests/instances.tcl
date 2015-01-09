@@ -16,6 +16,7 @@ source ../support/server.tcl
 source ../support/test.tcl
 
 set ::verbose 0
+set ::valgrind 0
 set ::pause_on_error 0
 set ::simulate_error 0
 set ::sentinel_instances {}
@@ -65,7 +66,13 @@ proc spawn_instance {type base_port count {conf {}}} {
         } else {
             error "Unknown instance type."
         }
-        set pid [exec ../../../src/${prgname} $cfgfile &]
+
+        if {$::valgrind} {
+            set pid [exec valgrind --suppressions=../../../src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full ../../../src/${prgname} $cfgfile &]
+        } else {
+            set pid [exec ../../../src/${prgname} $cfgfile &]
+        }
+
         lappend ::pids $pid
 
         # Check availability
@@ -113,6 +120,8 @@ proc parse_options {} {
             set ::pause_on_error 1
         } elseif {$opt eq "--fail"} {
             set ::simulate_error 1
+        } elseif {$opt eq {--valgrind}} {
+            set ::valgrind 1
         } elseif {$opt eq "--help"} {
             puts "Hello, I'm sentinel.tcl and I run Sentinel unit tests."
             puts "\nOptions:"
@@ -390,7 +399,13 @@ proc restart_instance {type id} {
     } else {
         set prgname redis-sentinel
     }
-    set pid [exec ../../../src/${prgname} $cfgfile &]
+
+    if {$::valgrind} {
+        set pid [exec valgrind --suppressions=../../../src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full ../../../src/${prgname} $cfgfile &]
+    } else {
+        set pid [exec ../../../src/${prgname} $cfgfile &]
+    }
+
     set_instance_attrib $type $id pid $pid
     lappend ::pids $pid
 
