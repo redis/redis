@@ -532,13 +532,15 @@ int anetTcpAccept(char *err, int s, char *ip, size_t ip_len, int *port) {
         return ANET_ERR;
 
     if (sa.ss_family == AF_INET) {
-        struct sockaddr_in *s = (struct sockaddr_in *)&sa;
-        if (ip) inet_ntop(AF_INET,(void*)&(s->sin_addr),ip,ip_len);
-        if (port) *port = ntohs(s->sin_port);
+        struct sockaddr_in s;
+        memcpy(&s, &sa, sizeof(struct sockaddr_in));
+        if (ip) inet_ntop(AF_INET,(void*)&(s.sin_addr),ip,ip_len);
+        if (port) *port = ntohs(s.sin_port);
     } else {
-        struct sockaddr_in6 *s = (struct sockaddr_in6 *)&sa;
-        if (ip) inet_ntop(AF_INET6,(void*)&(s->sin6_addr),ip,ip_len);
-        if (port) *port = ntohs(s->sin6_port);
+        struct sockaddr_in6 s;
+        memcpy(&s, &sa, sizeof(struct sockaddr_in6));
+        if (ip) inet_ntop(AF_INET6,(void*)&(s.sin6_addr),ip,ip_len);
+        if (port) *port = ntohs(s.sin6_port);
     }
     return fd;
 }
@@ -561,13 +563,15 @@ int anetPeerToString(int fd, char *ip, size_t ip_len, int *port) {
     if (ip_len == 0) goto error;
 
     if (sa.ss_family == AF_INET) {
-        struct sockaddr_in *s = (struct sockaddr_in *)&sa;
-        if (ip) inet_ntop(AF_INET,(void*)&(s->sin_addr),ip,ip_len);
-        if (port) *port = ntohs(s->sin_port);
+        struct sockaddr_in s;
+        memcpy(&s, &sa, sizeof(struct sockaddr_in));
+        if (ip) inet_ntop(AF_INET,(void*)&(s.sin_addr),ip,ip_len);
+        if (port) *port = ntohs(s.sin_port);
     } else if (sa.ss_family == AF_INET6) {
-        struct sockaddr_in6 *s = (struct sockaddr_in6 *)&sa;
-        if (ip) inet_ntop(AF_INET6,(void*)&(s->sin6_addr),ip,ip_len);
-        if (port) *port = ntohs(s->sin6_port);
+        struct sockaddr_in6 s;
+        memcpy(&s, &sa, sizeof(struct sockaddr_in6));
+        if (ip) inet_ntop(AF_INET6,(void*)&(s.sin6_addr),ip,ip_len);
+        if (port) *port = ntohs(s.sin6_port);
     } else if (sa.ss_family == AF_UNIX) {
         if (ip) strncpy(ip,"/unixsocket",ip_len);
         if (port) *port = 0;
@@ -617,13 +621,15 @@ int anetSockName(int fd, char *ip, size_t ip_len, int *port) {
         return -1;
     }
     if (sa.ss_family == AF_INET) {
-        struct sockaddr_in *s = (struct sockaddr_in *)&sa;
-        if (ip) inet_ntop(AF_INET,(void*)&(s->sin_addr),ip,ip_len);
-        if (port) *port = ntohs(s->sin_port);
+        struct sockaddr_in s;
+        memcpy(&s, &sa, sizeof(struct sockaddr_in));
+        if (ip) inet_ntop(AF_INET,(void*)&(s.sin_addr),ip,ip_len);
+        if (port) *port = ntohs(s.sin_port);
     } else {
-        struct sockaddr_in6 *s = (struct sockaddr_in6 *)&sa;
-        if (ip) inet_ntop(AF_INET6,(void*)&(s->sin6_addr),ip,ip_len);
-        if (port) *port = ntohs(s->sin6_port);
+        struct sockaddr_in6 s;
+        memcpy(&s, &sa, sizeof(struct sockaddr_in6));
+        if (ip) inet_ntop(AF_INET6,(void*)&(s.sin6_addr),ip,ip_len);
+        if (port) *port = ntohs(s.sin6_port);
     }
     return 0;
 }
