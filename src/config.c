@@ -557,6 +557,10 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"name") && argc == 2) {
             server.name = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"proctitle-dynamic") && argc == 2) {
+            if ((server.proctitle_enable = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }

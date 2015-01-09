@@ -1249,10 +1249,12 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         migrateCloseTimedoutSockets();
     }
 
-    run_with_period(1000) {
-        if (server.update_proctitle) {
-            redisSetProcTitle(NULL);
-            server.update_proctitle = 0;
+    if (server.proctitle_enable) {
+        run_with_period(1000) {
+            if (server.proctitle_update) {
+                redisSetProcTitle(NULL);
+                server.proctitle_update = 0;
+            }
         }
     }
 
@@ -1481,6 +1483,8 @@ void initServerConfig(void) {
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.loading_process_events_interval_bytes = (1024*1024*2);
+    server.proctitle_enable = 1;
+    server.proctitle_update = 0;
 
     server.lruclock = getLRUClock();
     resetServerSaveParams();
@@ -3758,6 +3762,9 @@ int generateProcTitle(char *buf, const size_t len, int bg) {
 }
 
 void redisSetProcTitle(char *comment) {
+    if (!server.proctitle_enable)
+        return;
+
 #ifdef USE_SETPROCTITLE
     char buf[256] = {0};
 

@@ -931,7 +931,8 @@ struct redisServer {
     /* Process Title Formatting */
     char *argv0;          /* Server's initial argv[0] */
     char *name;           /* Name for server configured by the user */
-    int update_proctitle; /* Flag for serverCron() to update title */
+    int proctitle_update; /* Boolean for serverCron() to update title */
+    int proctitle_enable; /* Boolean to enable custom procititle support */
 };
 
 typedef struct pubsubPattern {
@@ -1014,7 +1015,7 @@ typedef struct {
 #define REDIS_HASH_KEY 1
 #define REDIS_HASH_VALUE 2
 
-#define PROCTITLE_UPDATE() (server.update_proctitle = 1)
+#define PROCTITLE_UPDATE() (server.proctitle_update = 1)
 
 /*-----------------------------------------------------------------------------
  * Extern declarations
