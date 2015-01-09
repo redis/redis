@@ -1031,8 +1031,8 @@ int rewriteAppendOnlyFile(char *filename) {
         }
 
         /* SELECT the new DB */
-        if (rioWrite(&aof,selectcmd,sizeof(selectcmd)-1) == 0) goto werr;
-        if (rioWriteBulkLongLong(&aof,j) == 0) goto werr;
+        if (rioWrite(&aof,selectcmd,sizeof(selectcmd)-1) == 0) goto werrReleaseDI;
+        if (rioWriteBulkLongLong(&aof,j) == 0) goto werrReleaseDI;
 
         /* Iterate this DB writing every entry */
         while((de = dictNext(di)) != NULL) {
@@ -1053,27 +1053,27 @@ int rewriteAppendOnlyFile(char *filename) {
             if (o->type == REDIS_STRING) {
                 /* Emit a SET command */
                 char cmd[]="*3\r\n$3\r\nSET\r\n";
-                if (rioWrite(&aof,cmd,sizeof(cmd)-1) == 0) goto werr;
+                if (rioWrite(&aof,cmd,sizeof(cmd)-1) == 0) goto werrReleaseDI;
                 /* Key and value */
-                if (rioWriteBulkObject(&aof,&key) == 0) goto werr;
-                if (rioWriteBulkObject(&aof,o) == 0) goto werr;
+                if (rioWriteBulkObject(&aof,&key) == 0) goto werrReleaseDI;
+                if (rioWriteBulkObject(&aof,o) == 0) goto werrReleaseDI;
             } else if (o->type == REDIS_LIST) {
-                if (rewriteListObject(&aof,&key,o) == 0) goto werr;
+                if (rewriteListObject(&aof,&key,o) == 0) goto werrReleaseDI;
             } else if (o->type == REDIS_SET) {
-                if (rewriteSetObject(&aof,&key,o) == 0) goto werr;
+                if (rewriteSetObject(&aof,&key,o) == 0) goto werrReleaseDI;
             } else if (o->type == REDIS_ZSET) {
-                if (rewriteSortedSetObject(&aof,&key,o) == 0) goto werr;
+                if (rewriteSortedSetObject(&aof,&key,o) == 0) goto werrReleaseDI;
             } else if (o->type == REDIS_HASH) {
-                if (rewriteHashObject(&aof,&key,o) == 0) goto werr;
+                if (rewriteHashObject(&aof,&key,o) == 0) goto werrReleaseDI;
             } else {
                 redisPanic("Unknown object type");
             }
             /* Save the expire time */
             if (expiretime != -1) {
                 char cmd[]="*3\r\n$9\r\nPEXPIREAT\r\n";
-                if (rioWrite(&aof,cmd,sizeof(cmd)-1) == 0) goto werr;
-                if (rioWriteBulkObject(&aof,&key) == 0) goto werr;
-                if (rioWriteBulkLongLong(&aof,expiretime) == 0) goto werr;
+                if (rioWrite(&aof,cmd,sizeof(cmd)-1) == 0) goto werrReleaseDI;
+                if (rioWriteBulkObject(&aof,&key) == 0) goto werrReleaseDI;
+                if (rioWriteBulkLongLong(&aof,expiretime) == 0) goto werrReleaseDI;
             }
             /* Read some diff from the parent process from time to time. */
             if (aof.processed_bytes > processed+1024*10) {
@@ -1144,11 +1144,12 @@ int rewriteAppendOnlyFile(char *filename) {
     redisLog(REDIS_NOTICE,"SYNC append only file rewrite performed");
     return REDIS_OK;
 
+werrReleaseDI:
+    dictReleaseIterator(di);
 werr:
     fclose(fp);
     unlink(tmpfile);
     redisLog(REDIS_WARNING,"Write error writing append only file on disk: %s", strerror(errno));
-    if (di) dictReleaseIterator(di);
     return REDIS_ERR;
 }
 
