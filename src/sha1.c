@@ -24,9 +24,7 @@ A million repetitions of "a"
 #include <stdio.h>
 #include <string.h>
 #include <sys/types.h>	/* for u_int*_t */
-#if defined(__sun)
 #include "solarisfixes.h"
-#endif
 #include "sha1.h"
 #include "config.h"
 
