@@ -404,7 +404,7 @@ int clusterLockConfig(char *filename) {
 void clusterInit(void) {
     int saveconf = 0;
 
-    server.cluster = zmalloc(sizeof(clusterState));
+    server.cluster = zcalloc(sizeof(*server.cluster));
     server.cluster->myself = NULL;
     server.cluster->currentEpoch = 0;
     server.cluster->state = REDIS_CLUSTER_FAIL;
