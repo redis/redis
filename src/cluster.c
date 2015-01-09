@@ -381,7 +381,30 @@ int clusterLockConfig(char *filename) {
             filename, strerror(errno));
         return REDIS_ERR;
     }
+	
+#ifdef __sun
+	struct flock lock;
+	
+	lock.l_start = 0;
+	lock.l_len = 0;
+	lock.l_type = F_WRLCK;
+	lock.l_whence = SEEK_SET;
 
+	if (fcntl(fd, F_SETLK, &lock) == -1) {
+        if (errno == EWOULDBLOCK) {
+            redisLog(REDIS_WARNING,
+                 "Sorry, the cluster configuration file %s is already used "
+                 "by a different Redis Cluster node. Please make sure that "
+                 "different nodes use different cluster configuration "
+                 "files.", filename);
+        } else {
+            redisLog(REDIS_WARNING,
+                "Impossible to lock %s: %s", filename, strerror(errno));
+        }
+        close(fd);
+        return REDIS_ERR;
+    }
+#else
     if (flock(fd,LOCK_EX|LOCK_NB) == -1) {
         if (errno == EWOULDBLOCK) {
             redisLog(REDIS_WARNING,
@@ -396,6 +419,8 @@ int clusterLockConfig(char *filename) {
         close(fd);
         return REDIS_ERR;
     }
+#endif
+
     /* Lock acquired: leak the 'fd' by not closing it, so that we'll retain the
      * lock to the file as long as the process exists. */
     return REDIS_OK;
