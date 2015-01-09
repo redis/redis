@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  <copyright file="wix.targets" company="Outercurve Foundation">
+    Copyright (c) 2004, Outercurve Foundation.
+    This software is released under Microsoft Reciprocal License (MS-RL).
+    The license and further copyright text can be found in the file
+    LICENSE.TXT at the root directory of the distribution.
+  </copyright>
+-->
+<!--
+  <remarks>
+    WARNING:  DO NOT MODIFY this file unless you are knowledgeable about MSBuild and have
+              created a backup copy.  Incorrect changes to this file will make it
+              impossible to load or build your projects from the command-line or the IDE.
+
+    This file defines the steps in the standard build process for WiX projects (.wixproj).
+
+    Conventions:
+      * Targets and properties that start with an underscore (_) are considered private and should not
+        be used outside of this file.
+
+    Coding Conventions:
+      * Two-space indentation of nested elements
+
+      * Self-closing elements should have a space before the /> ("<MyProperty />")
+
+      * Conditions should have a space before and after the "" and between any operators. For example:
+        <MyProperty Condition=" '$(MyProperty)' == '' ">Value</MyProperty>
+
+      * Targets should have each attribute on a single line and indented by two spaces. Also, there
+        should be a blank line between the Target and the beginning of the contents (a blank line is
+        optional before the closing </Target> tag).
+        For example:
+        <Target
+          Name="MyTarget"
+          DependsOnTargets="$(MyTargetDependsOn)">
+
+          <Message Importance="low" Text="MyTarget is doing something." />
+        </Target>
+  </remarks>
+-->
+<Project
+  xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  
+  <!-- All common targets/items/properties -->
+
+  <!-- Version specific targets/items/properties -->
+  <PropertyGroup>
+    <!-- MSBuild 4.0 -->
+    <!-- MSBuild does not do short circuit evaluation of the AND operator, so we cannot have 
+         something like '$(MSBuildToolsVersion)' != '' AND '$(MSBuildToolsVersion)' &gt;= '4.0'
+         instead set as default and override -->
+    <WixVersionTargetsPath>wix2010.targets</WixVersionTargetsPath>
+    <!-- MSBuild 2.0 - 3.5 -->
+    <WixVersionTargetsPath Condition=" '$(MSBuildToolsVersion)' == '' OR '$(MSBuildToolsVersion)' &lt; '4.0' ">wix200x.targets</WixVersionTargetsPath>
+  </PropertyGroup>
+
+  <Import Project="$(WixVersionTargetsPath)" />
+</Project>
