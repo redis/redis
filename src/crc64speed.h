@@ -17,4 +17,8 @@ uint64_t crc64speed_big(uint64_t crc, const void *s, const uint64_t l);
 
 bool crc64speed_init_native(void);
 uint64_t crc64speed_native(uint64_t crc, const void *s, const uint64_t l);
+
+#ifdef REDIS_TEST
+int crc64Test(int argc, char *argv[]);
+#endif
 #endif

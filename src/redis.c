@@ -3675,7 +3675,9 @@ int main(int argc, char **argv) {
             return sdsTest(argc, argv);
         } else if (!strcasecmp(argv[2], "endianconv")) {
             return endianconvTest(argc, argv);
-        } else if (!strcasecmp(argv[2], "crc64")) {
+        } else if (!strcasecmp(argv[2], "crc16speed")) {
+            return crc16Test(argc, argv);
+        } else if (!strcasecmp(argv[2], "crc64speed")) {
             return crc64Test(argc, argv);
         }
 

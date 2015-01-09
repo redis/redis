@@ -17,4 +17,9 @@ uint16_t crc16speed_big(uint16_t crc, const void *s, const uint64_t l);
 
 bool crc16speed_init_native(void);
 uint16_t crc16speed_native(uint16_t crc, const void *s, const uint64_t l);
+
+#ifdef REDIS_TEST
+int crc16Test(int argc, char *argv[]);
+#endif
+
 #endif
