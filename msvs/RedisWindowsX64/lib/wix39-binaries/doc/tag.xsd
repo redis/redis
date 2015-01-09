@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  <copyright file="tag.xsd" company="Outercurve Foundation">
+    Copyright (c) 2004, Outercurve Foundation.
+    This software is released under Microsoft Reciprocal License (MS-RL).
+    The license and further copyright text can be found in the file
+    LICENSE.TXT at the root directory of the distribution.
+  </copyright>
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+          xmlns:xse="http://schemas.microsoft.com/wix/2005/XmlSchemaExtension"
+         xmlns:html="http://www.w3.org/1999/xhtml"
+    targetNamespace="http://schemas.microsoft.com/wix/TagExtension"
+              xmlns="http://schemas.microsoft.com/wix/TagExtension">
+    <xs:annotation>
+        <xs:documentation>
+            The source code schema for the Windows Installer XML Toolset Software Id Tag Extension.
+        </xs:documentation>
+    </xs:annotation>
+
+    <xs:import namespace="http://schemas.microsoft.com/wix/2006/wi" />
+
+  <xs:element name="Tag">
+      <xs:annotation>
+          <xs:documentation>
+              This extension implements the ISO/IEC 19770-2 specification. A SWID tag file
+              will be generated an inserted into the Product or Bundle.
+          </xs:documentation>
+          <xs:appinfo>
+              <xse:parent namespace="http://schemas.microsoft.com/wix/2006/wi" ref="Bundle" />
+              <xse:parent namespace="http://schemas.microsoft.com/wix/2006/wi" ref="Product" />
+          </xs:appinfo>
+      </xs:annotation>
+      <xs:complexType>
+          <xs:attribute name="Name" type="xs:string">
+              <xs:annotation>
+                  <xs:documentation>
+                    Name to use in the filename for the software id tag. By default the filename
+                    uses the Bundle/@Name or Product/@Name. If the bundle name or product name contains
+                    invalid filename characters such as ":" or "?", use this attribute to provide
+                    a valid filename.
+                  </xs:documentation>
+              </xs:annotation>
+          </xs:attribute>
+          <xs:attribute name="Regid" type="xs:string" use="required">
+              <xs:annotation>
+                  <xs:documentation>
+                    The regid for the software id tag. A regid follows the format:  "regid" + "."
+                    + YYYY-MM + "." + reverse domain order. The YYYY-MM is the year and month the
+                    domain was first owned. For example: "regid.1995-08.com.example".
+                  </xs:documentation>
+              </xs:annotation>
+          </xs:attribute>
+          <xs:attribute name="Feature" type="xs:string">
+              <xs:annotation>
+                  <xs:documentation>Optional attribute to explicitly set the Feature when defining the software id tag
+                  in a Product. By default the software id tag will always be installed by a top-level hidden feature.
+                  It is recommended to <html:strong>not</html:strong> set this attribute.</xs:documentation>
+              </xs:annotation>
+          </xs:attribute>
+          <xs:attribute name="Licensed" type="YesNoTypeUnion">
+            <xs:annotation>
+              <xs:documentation>Indicates whether the software requires a license. The default is
+              "no". </xs:documentation>
+            </xs:annotation>
+          </xs:attribute>
+        <xs:attribute name="Type" type="TagTypeUnion">
+          <xs:annotation>
+            <xs:documentation>
+              Defines the type of software tag being defined. One of the following values may be used: "group",
+              "application", "patch", or "component". The default is "application" when the Tag element is a child of
+              the Product element. The default is "group" or "application" when the Tag element is under a Bundle element
+              based on the contents of the bundle's chain. The Bundle/Tag@Type will be "application" unless there are one
+              or more packages that define a software Tag@Type of "application" or "group".
+            </xs:documentation>
+          </xs:annotation>
+        </xs:attribute>
+      </xs:complexType>
+  </xs:element>
+
+  <xs:element name="TagRef">
+    <xs:annotation>
+      <xs:documentation>
+        Allows an ISO/IEC 19770-2 SWID tag file to be referenced in a Patch.
+      </xs:documentation>
+      <xs:appinfo>
+        <xse:parent namespace="http://schemas.microsoft.com/wix/2006/wi" ref="PatchFamily" />
+      </xs:appinfo>
+    </xs:annotation>
+    <xs:complexType>
+      <xs:attribute name="Regid" type="xs:string" use="required">
+        <xs:annotation>
+          <xs:documentation>
+            The regid for the software id tag. A regid follows the format:  "regid" + "."
+            + YYYY-MM + "." + reverse domain order. The YYYY-MM is the year and month the
+            domain was first owned. For example: "regid.1995-08.com.example".
+          </xs:documentation>
+        </xs:annotation>
+      </xs:attribute>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:simpleType name="TagTypeUnion">
+    <xs:annotation>
+      <xs:documentation>Values of this type will be "application", "component", "feature", "group", or "patch".</xs:documentation>
+    </xs:annotation>
+    <xs:union memberTypes="TagType PreprocessorVariables"/>
+  </xs:simpleType>
+
+  <xs:simpleType name="TagType">
+    <xs:annotation>
+      <xs:documentation>Values of this type will be "application", "component", "feature", "group", or "patch".</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:NMTOKEN">
+      <xs:enumeration value="application" />
+      <xs:enumeration value="component" />
+      <xs:enumeration value="feature" />
+      <xs:enumeration value="group" />
+      <xs:enumeration value="patch" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="YesNoTypeUnion">
+    <xs:annotation>
+      <xs:documentation>Values of this type will either be "yes" or "no".</xs:documentation>
+    </xs:annotation>
+    <xs:union memberTypes="YesNoType PreprocessorVariables"/>
+  </xs:simpleType>
+
+  <xs:simpleType name="YesNoType">
+    <xs:annotation>
+      <xs:documentation>Values of this type will either be "yes" or "no".</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:NMTOKEN">
+      <xs:enumeration value="no" />
+      <xs:enumeration value="yes" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="PreprocessorVariables">
+    <xs:annotation>
+      <xs:documentation>A type that represents that 1 or more preprocessor variables (as they appear in sources on disk, before preprocessor has run).</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="(\$\(\w+\.(\w|[.])+\))+" />
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>
