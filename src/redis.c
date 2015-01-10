@@ -1434,6 +1434,7 @@ void initServerConfig(void) {
     server.aof_rewrite_incremental_fsync = REDIS_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC;
     server.aof_load_truncated = REDIS_DEFAULT_AOF_LOAD_TRUNCATED;
     server.pidfile = zstrdup(REDIS_DEFAULT_PID_FILE);
+    server.lockfile = NULL;
     server.rdb_filename = zstrdup(REDIS_DEFAULT_RDB_FILENAME);
     server.aof_filename = zstrdup(REDIS_DEFAULT_AOF_FILENAME);
     server.requirepass = NULL;

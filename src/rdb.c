@@ -823,6 +823,7 @@ werr: /* Write error. */
 int rdbSave(char *filename) {
     char tmpfile[256];
     FILE *fp;
+    int  lock_fd = -1;
     rio rdb;
     int error = 0;
 
@@ -832,6 +833,16 @@ int rdbSave(char *filename) {
         redisLog(REDIS_WARNING, "Failed opening .rdb for saving: %s",
             strerror(errno));
         return REDIS_ERR;
+    }
+
+    /*lock fd*/
+    if(server.lockfile != NULL){
+        lock_fd = open(server.lockfile,O_CREAT,0666);
+        if(lock_fd == -1){
+            redisLog(REDIS_WARNING, "Failed to open lock file: %s",server.lockfile);
+        }else{
+            flock(lock_fd,LOCK_EX);
+        }
     }
 
     rioInitWithFile(&rdb,fp);
@@ -850,7 +861,18 @@ int rdbSave(char *filename) {
     if (rename(tmpfile,filename) == -1) {
         redisLog(REDIS_WARNING,"Error moving temp DB file on the final destination: %s", strerror(errno));
         unlink(tmpfile);
+        /*unlock fd*/
+        if(lock_fd != -1){
+            flock(lock_fd,LOCK_UN);
+            close(lock_fd);
+        }
         return REDIS_ERR;
+    }
+
+    /*unlock fd*/
+    if(lock_fd != -1){
+        flock(lock_fd,LOCK_UN);
+        close(lock_fd);
     }
     redisLog(REDIS_NOTICE,"DB saved on disk");
     server.dirty = 0;
@@ -859,6 +881,11 @@ int rdbSave(char *filename) {
     return REDIS_OK;
 
 werr:
+   /*unlock fd*/ 
+    if(lock_fd != -1){
+        flock(lock_fd,LOCK_UN);
+        close(lock_fd);
+    }
     fclose(fp);
     unlink(tmpfile);
     redisLog(REDIS_WARNING,"Write error saving DB on disk: %s", strerror(errno));
