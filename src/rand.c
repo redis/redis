@@ -56,7 +56,7 @@
 /* C: 0xB */
 #define C 0xbULL
 /* Initial X: 0x1234ABCD330E */
-uint64_t X = 0x1234abcd330eULL;
+static uint64_t X = 0x1234abcd330eULL;
 
 static void next(void);
 
