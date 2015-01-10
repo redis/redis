@@ -48,7 +48,7 @@ int stringmatchlen(const char *pattern, int patternLen,
     while(patternLen) {
         switch(pattern[0]) {
         case '*':
-            while (pattern[1] == '*') {
+            while (patternLen > 1 && pattern[1] == '*') {
                 pattern++;
                 patternLen--;
             }
@@ -90,9 +90,8 @@ int stringmatchlen(const char *pattern, int patternLen,
                 } else if (pattern[0] == ']') {
                     break;
                 } else if (patternLen == 0) {
-                    pattern--;
-                    patternLen++;
-                    break;
+                    /* no match because the '[' in pattern is not closed */
+                    return 0;
                 } else if (pattern[1] == '-' && patternLen >= 3) {
                     int start = pattern[0];
                     int end = pattern[2];
@@ -132,10 +131,11 @@ int stringmatchlen(const char *pattern, int patternLen,
             break;
         }
         case '\\':
-            if (patternLen >= 2) {
-                pattern++;
-                patternLen--;
-            }
+            if (patternLen < 2)
+                /* no match because the '\\' escape nothing */
+                return 0;
+            pattern++;
+            patternLen--;
             /* fall through */
         default:
             if (!nocase) {
@@ -152,7 +152,7 @@ int stringmatchlen(const char *pattern, int patternLen,
         pattern++;
         patternLen--;
         if (stringLen == 0) {
-            while(*pattern == '*') {
+            while(patternLen > 0 && *pattern == '*') {
                 pattern++;
                 patternLen--;
             }
