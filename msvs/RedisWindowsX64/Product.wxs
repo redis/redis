@@ -6,7 +6,7 @@
     32-bit installer
     
     Example installation (command-line):
-      msiexec /i Redis-Windows-x64.msi LOGLEVEL=verbose CONFIG=redis.windows.conf
+      msiexec /i Redis-Windows-x64.msi LOGLEVEL=verbose
   -->
   <Product Id="*" Name="Redis on Windows" Language="1033" Version="1.0.0.0" Manufacturer="MSOpenTech" UpgradeCode="{05410198-7212-4FC4-B7C8-AFEFC3DA0FBC}">
     <Package InstallerVersion="200" Compressed="yes" InstallScope="perMachine" />
