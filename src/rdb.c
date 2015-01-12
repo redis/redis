@@ -1324,8 +1324,8 @@ int rdbLoad(char *filename) {
                     auxkey->ptr);
             }
 
-            zfree(auxkey);
-            zfree(auxval);
+            decrRefCount(auxkey);
+            decrRefCount(auxval);
             continue; /* Read type again. */
         }
 
