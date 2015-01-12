@@ -1416,6 +1416,7 @@ void initServerConfig(void) {
     server.syslog_facility = LOG_LOCAL0;
     server.daemonize = REDIS_DEFAULT_DAEMONIZE;
     server.supervised = 0;
+    server.supervised_mode = REDIS_SUPERVISED_NONE;
     server.aof_state = REDIS_AOF_OFF;
     server.aof_fsync = REDIS_DEFAULT_AOF_FSYNC;
     server.aof_no_fsync_on_rewrite = REDIS_DEFAULT_AOF_NO_FSYNC_ON_REWRITE;
@@ -1433,7 +1434,7 @@ void initServerConfig(void) {
     server.aof_flush_postponed_start = 0;
     server.aof_rewrite_incremental_fsync = REDIS_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC;
     server.aof_load_truncated = REDIS_DEFAULT_AOF_LOAD_TRUNCATED;
-    server.pidfile = zstrdup(REDIS_DEFAULT_PID_FILE);
+    server.pidfile = NULL;
     server.rdb_filename = zstrdup(REDIS_DEFAULT_RDB_FILENAME);
     server.aof_filename = zstrdup(REDIS_DEFAULT_AOF_FILENAME);
     server.requirepass = NULL;
@@ -2374,7 +2375,7 @@ int prepareForShutdown(int flags) {
             return REDIS_ERR;
         }
     }
-    if (server.daemonize) {
+    if (server.daemonize || server.pidfile) {
         redisLog(REDIS_NOTICE,"Removing the pid file.");
         unlink(server.pidfile);
     }
@@ -3393,6 +3394,10 @@ void linuxMemoryWarnings(void) {
 #endif /* __linux__ */
 
 void createPidFile(void) {
+    /* If pidfile requested, but no pidfile defined, use
+     * default pidfile path */
+    if (!server.pidfile) server.pidfile = zstrdup(REDIS_DEFAULT_PID_FILE);
+
     /* Try to write the pid file in a best-effort way. */
     FILE *fp = fopen(server.pidfile,"w");
     if (fp) {
@@ -3587,8 +3592,23 @@ void redisSetProcTitle(char *title) {
 /*
  * Check whether systemd or upstart have been used to start redis.
  */
-int redisIsSupervised(void) {
+
+int redisSupervisedUpstart(void) {
     const char *upstart_job = getenv("UPSTART_JOB");
+
+    if (!upstart_job) {
+        redisLog(REDIS_WARNING,
+                "upstart supervision requested, but UPSTART_JOB not found");
+        return 0;
+    }
+
+    redisLog(REDIS_NOTICE, "supervised by upstart, will stop to signal readyness");
+    raise(SIGSTOP);
+    unsetenv("UPSTART_JOB");
+    return 1;
+}
+
+int redisSupervisedSystemd(void) {
     const char *notify_socket = getenv("NOTIFY_SOCKET");
     int fd = 1;
     struct sockaddr_un su;
@@ -3596,31 +3616,24 @@ int redisIsSupervised(void) {
     struct msghdr hdr;
     int sendto_flags = 0;
 
-    if (upstart_job == NULL && notify_socket == NULL)
+    if (!notify_socket) {
+        redisLog(REDIS_WARNING,
+                "systemd supervision requested, but NOTIFY_SOCKET not found");
         return 0;
-
-    if (upstart_job != NULL) {
-        redisLog(REDIS_NOTICE, "supervised by upstart, will stop to signal readyness");
-        raise(SIGSTOP);
-        unsetenv("UPSTART_JOB");
-
-        return 1;
     }
 
-    /*
-     * If we got here, we're supervised by systemd.
-     */
-    if ((strchr("@/", notify_socket[0])) == NULL ||
-        strlen(notify_socket) < 2)
+    if ((strchr("@/", notify_socket[0])) == NULL || strlen(notify_socket) < 2) {
         return 0;
+    }
 
     redisLog(REDIS_NOTICE, "supervised by systemd, will signal readyness");
-    if ((fd = socket(AF_UNIX, SOCK_DGRAM, 0)) < 0) {
-        redisLog(REDIS_WARNING, "cannot contact systemd socket %s", notify_socket);
+    if ((fd = socket(AF_UNIX, SOCK_DGRAM, 0)) == -1) {
+        redisLog(REDIS_WARNING,
+                "Can't connect to systemd socket %s", notify_socket);
         return 0;
     }
 
-    bzero(&su, sizeof(su));
+    memset(&su, 0, sizeof(su));
     su.sun_family = AF_UNIX;
     strncpy (su.sun_path, notify_socket, sizeof(su.sun_path) -1);
     su.sun_path[sizeof(su.sun_path) - 1] = '\0';
@@ -3628,11 +3641,11 @@ int redisIsSupervised(void) {
     if (notify_socket[0] == '@')
         su.sun_path[0] = '\0';
 
-    bzero(&iov, sizeof(iov));
+    memset(&iov, 0, sizeof(iov));
     iov.iov_base = "READY=1";
     iov.iov_len = strlen("READY=1");
 
-    bzero(&hdr, sizeof(hdr));
+    memset(&hdr, 0, sizeof(hdr));
     hdr.msg_name = &su;
     hdr.msg_namelen = offsetof(struct sockaddr_un, sun_path) +
         strlen(notify_socket);
@@ -3644,13 +3657,33 @@ int redisIsSupervised(void) {
     sendto_flags |= MSG_NOSIGNAL;
 #endif
     if (sendmsg(fd, &hdr, sendto_flags) < 0) {
-        redisLog(REDIS_WARNING, "Cannot send notification to systemd");
+        redisLog(REDIS_WARNING, "Can't send notification to systemd");
         close(fd);
         return 0;
     }
     close(fd);
     return 1;
 }
+
+int redisIsSupervised(int mode) {
+    if (mode == REDIS_SUPERVISED_AUTODETECT) {
+        const char *upstart_job = getenv("UPSTART_JOB");
+        const char *notify_socket = getenv("NOTIFY_SOCKET");
+
+        if (upstart_job) {
+            redisSupervisedUpstart();
+        } else if (notify_socket) {
+            redisSupervisedSystemd();
+        }
+    } else if (mode == REDIS_SUPERVISED_UPSTART) {
+        return redisSupervisedUpstart();
+    } else if (mode == REDIS_SUPERVISED_SYSTEMD) {
+        return redisSupervisedSystemd();
+    }
+
+    return 0;
+}
+
 
 int main(int argc, char **argv) {
     struct timeval tv;
@@ -3758,10 +3791,11 @@ int main(int argc, char **argv) {
         redisLog(REDIS_WARNING, "Warning: no config file specified, using the default config. In order to specify a config file use %s /path/to/%s.conf", argv[0], server.sentinel_mode ? "sentinel" : "redis");
     }
 
-    server.supervised = redisIsSupervised();
-    if (server.daemonize && server.supervised == 0) daemonize();
+    server.supervised = redisIsSupervised(server.supervised_mode);
+    int background = server.daemonize && !server.supervised;
+    if (background) daemonize();
     initServer();
-    if (server.daemonize && server.supervised == 0) createPidFile();
+    if (background || server.pidfile) createPidFile();
     redisSetProcTitle(argv[0]);
     redisAsciiArt();
 
