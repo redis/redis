@@ -479,6 +479,7 @@ void clusterInit(void) {
      * the IP address via MEET messages. */
     myself->port = server.port;
 
+    server.cluster->mf_end = 0;
     resetManualFailover();
 }
 
