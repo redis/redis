@@ -908,7 +908,8 @@ void sigsegvHandler(int sig, siginfo_t *info, void *secret) {
 "  Suspect RAM error? Use redis-server --test-memory to verify it.\n\n"
 );
     /* free(messages); Don't call free() with possibly corrupted memory. */
-    if (server.daemonize && server.supervised == 0) unlink(server.pidfile);
+    if (server.daemonize && server.supervised == REDIS_SUPERVISED_NONE)
+        unlink(server.pidfile);
 
     /* Make sure we exit with the right signal at the end. So for instance
      * the core will be dumped if enabled. */
