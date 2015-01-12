@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
-     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension" 
+     xmlns:fw="http://schemas.microsoft.com/wix/FirewallExtension">
   <!--
     32-bit installer
     
@@ -60,9 +61,10 @@
         The following component installs Redis as a Windows service.
       -->
       <Component Id="cmp_redis_server" Guid="*">
-        <File Source="$(var.RedisServer.TargetDir)redis-server.exe" />
+        <File Id="file_redis_server" Source="$(var.RedisServer.TargetDir)redis-server.exe" />
         <ServiceInstall Id="redisService" Name="Redis" DisplayName="Redis" Description="This service runs the Redis server" Start="auto" ErrorControl="normal" Type="ownProcess" Arguments="--service-run [CONFIG] --loglevel [LOGLEVEL]" Account="[WIX_ACCOUNT_NETWORKSERVICE]" />
         <ServiceControl Id="redisServiceControl" Name="Redis" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+        <fw:FirewallException Id="fw_redis_server" Program="[#file_redis_server]" Description="Exception for Redis server" Name="Redis" Scope="any" />
       </Component>
 
       <!--
