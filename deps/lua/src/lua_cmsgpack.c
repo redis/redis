@@ -7,6 +7,8 @@
 #include "lua.h"
 #include "lauxlib.h"
 
+#include "../../../src/solarisfixes.h"
+
 #define LUACMSGPACK_NAME        "cmsgpack"
 #define LUACMSGPACK_SAFE_NAME   "cmsgpack_safe"
 #define LUACMSGPACK_VERSION     "lua-cmsgpack 0.4.0"

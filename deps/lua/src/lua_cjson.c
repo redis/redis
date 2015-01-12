@@ -56,11 +56,6 @@
 #define CJSON_VERSION   "2.1.0"
 #endif
 
-/* Workaround for Solaris platforms missing isinf() */
-#if !defined(isinf) && (defined(USE_INTERNAL_ISINF) || defined(MISSING_ISINF))
-#define isinf(x) (!isnan(x) && isnan((x) - (x)))
-#endif
-
 #define DEFAULT_SPARSE_CONVERT 0
 #define DEFAULT_SPARSE_RATIO 2
 #define DEFAULT_SPARSE_SAFE 10
