@@ -1547,8 +1547,12 @@ int clusterProcessPacket(clusterLink *link) {
          * later if we changed address, and those nodes will use our
          * official address to connect to us. So by obtaining this address
          * from the socket is a simple way to discover / update our own
-         * address in the cluster without it being hardcoded in the config. */
-        if (type == CLUSTERMSG_TYPE_MEET) {
+         * address in the cluster without it being hardcoded in the config.
+         *
+         * However if we don't have an address at all, we update the address
+         * even with a normal PING packet. If it's wrong it will be fixed
+         * by MEET later. */
+        if (type == CLUSTERMSG_TYPE_MEET || myself->ip[0] == '\0') {
             char ip[REDIS_IP_STR_LEN];
 
             if (anetSockName(link->fd,ip,sizeof(ip),NULL) != -1 &&
