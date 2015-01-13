@@ -12,7 +12,7 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
---[ Redis 3.0.0 RC2 (version 2.9.102) ] Release date: 13 jan 2014
+--[ Redis 3.0.0 RC2 (version 2.9.102) ] Release date: 13 jan 2015
 
 Upgrade urgency: LOW.
 
