@@ -1119,6 +1119,7 @@ int clusterStartHandshake(char *ip, int port) {
 
     /* Set norm_ip as the normalized string representation of the node
      * IP address. */
+    memset(norm_ip,0,REDIS_IP_STR_LEN);
     if (sa.ss_family == AF_INET)
         inet_ntop(AF_INET,
             (void*)&(((struct sockaddr_in *)&sa)->sin_addr),
