@@ -12,6 +12,38 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 3.0.0 RC2 (version 2.9.102) ] Release date: 13 jan 2014
+
+Upgrade urgency: LOW.
+
+This is the second release candidate of Redis Cluster. The major changes
+are back porting of things implemented into the unstable branch while
+this was still possible (with the new development model adopted only
+bug fixes will be merged in the future).
+
+RC2 also fixes a few Redis Cluster non critical bugs.
+
+>> General changes
+
+* [FIX] A number of minor bug fixes.
+
+* [NEW] Diskless replication backportede.
+* [NEW] Lua bitops and updated cmsgpack backported.
+* [NEW] Transparent Huge Pages warnings and reporting backported.
+
+>> Cluster changes
+
+* [FIX] Fix PUBLISH cluster bus message count field.
+* [FIX] It is no longer possible to write outside node hash slots using Lua.
+* [FIX] Valgrind warnings (no actual bugs).
+* [FIX] Less strict in acceptiong myself->ip if it's not populated.
+
+* [NEW] Better testing of Lua scripts.
+
+>> Sentinel changes
+
+No changes to Sentinel.
+
 --[ Redis 3.0.0 RC1 (version 2.9.101) ] Release date: 9 oct 2014
 
 This is the first release candidate of Redis Cluster.
