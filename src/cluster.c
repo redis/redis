@@ -828,6 +828,7 @@ void freeClusterNode(clusterNode *n) {
     if (n->slaveof) clusterNodeRemoveSlave(n->slaveof, n);
     if (n->link) freeClusterLink(n->link);
     listRelease(n->fail_reports);
+    zfree(n->slaves);
     zfree(n);
 }
 
