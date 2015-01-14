@@ -783,8 +783,11 @@ int clusterNodeRemoveSlave(clusterNode *master, clusterNode *slave) {
 
     for (j = 0; j < master->numslaves; j++) {
         if (master->slaves[j] == slave) {
-            memmove(master->slaves+j,master->slaves+(j+1),
-                (master->numslaves-1)-j);
+            if ((j+1) < master->numslaves) {
+                int remaining_slaves = (master->numslaves - j) - 1;
+                memmove(master->slaves+j,master->slaves+(j+1),
+                        (sizeof(*master->slaves) * remaining_slaves));
+            }
             master->numslaves--;
             return REDIS_OK;
         }
