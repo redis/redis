@@ -842,6 +842,7 @@ void freeClusterNode(clusterNode *n) {
     /* Release link and associated data structures. */
     if (n->link) freeClusterLink(n->link);
     listRelease(n->fail_reports);
+    zfree(n->slaves);
     zfree(n);
 }
 
