@@ -825,6 +825,14 @@ int clusterCountNonFailingSlaves(clusterNode *n) {
 void freeClusterNode(clusterNode *n) {
     sds nodename;
 
+    /* If this node is a master, we must turn all of its slaves
+     * into masters. */
+    if (nodeIsMaster(n) && n->slaves) {
+        for (int j = 0; j < n->numslaves; j++) {
+            clusterSetNodeAsMaster(n->slaves[j]);
+        }
+    }
+
     nodename = sdsnewlen(n->name, REDIS_CLUSTER_NAMELEN);
     redisAssert(dictDelete(server.cluster->nodes,nodename) == DICT_OK);
     sdsfree(nodename);
@@ -875,7 +883,8 @@ void clusterDelNode(clusterNode *delnode) {
     }
     dictReleaseIterator(di);
 
-    /* 3) Remove this node from its master's slaves if needed. */
+    /* 3) If this node is a slave, remove this node from the
+     *    list of slaves on its master. */
     if (nodeIsSlave(delnode) && delnode->slaveof)
         clusterNodeRemoveSlave(delnode->slaveof,delnode);
 
