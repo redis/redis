@@ -1234,7 +1234,7 @@ void nodeIp2String(char *buf, clusterLink *link) {
  * The function returns 0 if the node address is still the same,
  * otherwise 1 is returned. */
 int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link, int port) {
-    char ip[REDIS_IP_STR_LEN];
+    char ip[REDIS_IP_STR_LEN] = {0};
 
     /* We don't proceed if the link is the same as the sender link, as this
      * function is designed to see if the node link is consistent with the
