@@ -202,6 +202,7 @@ struct hllhdr {
 #define HLL_SPARSE 1 /* Sparse encoding. */
 #define HLL_RAW 255 /* Only used internally, never exposed. */
 #define HLL_MAX_ENCODING 1
+#define HLL_ZERO_BOUND (sizeof(uint64_t) * 8 - HLL_P)
 
 static char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected\r\n";
 
@@ -438,12 +439,33 @@ uint64_t MurmurHash64A (const void * key, int len, unsigned int seed) {
     return h;
 }
 
+/* Count leading zeros plus one, namely pattern length of given hash. */
+int hllCountPatLen(uint64_t hash) {
+#if __GNUC__ >= 3
+    hash >>= HLL_P; /* Preserve value. */
+    if (hash == 0)
+        return HLL_ZERO_BOUND; /* Handle special case. */
+    else
+        return __builtin_ctzll(hash) + 1; /* Use builtin if possible. */
+#else
+    int count;
+    uint64_t bit;
+    hash |= ((uint64_t)1<<63); /* Make sure the loop terminates. */
+    bit = HLL_REGISTERS; /* First bit not used to address the register. */
+    count = 1; /* Initialized to 1 since we count the "00000...1" pattern. */
+    while((hash & bit) == 0) {
+        count++;
+        bit <<= 1;
+    }
+    return count;
+#endif
+}
+
 /* Given a string element to add to the HyperLogLog, returns the length
  * of the pattern 000..1 of the element hash. As a side effect 'regp' is
  * set to the register index this element hashes to. */
 int hllPatLen(unsigned char *ele, size_t elesize, long *regp) {
-    uint64_t hash, bit, index;
-    int count;
+    uint64_t hash, index;
 
     /* Count the number of zeroes starting from bit HLL_REGISTERS
      * (that is a power of two corresponding to the first bit we don't use
@@ -458,15 +480,8 @@ int hllPatLen(unsigned char *ele, size_t elesize, long *regp) {
      * there are high probabilities to find a 1 after a few iterations. */
     hash = MurmurHash64A(ele,elesize,0xadc83b19ULL);
     index = hash & HLL_P_MASK; /* Register index. */
-    hash |= ((uint64_t)1<<63); /* Make sure the loop terminates. */
-    bit = HLL_REGISTERS; /* First bit not used to address the register. */
-    count = 1; /* Initialized to 1 since we count the "00000...1" pattern. */
-    while((hash & bit) == 0) {
-        count++;
-        bit <<= 1;
-    }
     *regp = (int) index;
-    return count;
+    return hllCountPatLen(hash);
 }
 
 /* ================== Dense representation implementation  ================== */
