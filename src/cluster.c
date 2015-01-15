@@ -535,6 +535,8 @@ void clusterReset(int hard) {
         oldname = sdsnewlen(myself->name, REDIS_CLUSTER_NAMELEN);
         dictDelete(server.cluster->nodes,oldname);
         sdsfree(oldname);
+        dictRelease(server.cluster->nodes);
+        server.cluster->nodes = dictCreate(&clusterNodesDictType,NULL);
         getRandomHexChars(myself->name, REDIS_CLUSTER_NAMELEN);
         clusterAddNode(myself);
     }
