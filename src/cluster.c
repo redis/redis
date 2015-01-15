@@ -825,6 +825,15 @@ int clusterCountNonFailingSlaves(clusterNode *n) {
 void freeClusterNode(clusterNode *n) {
     sds nodename;
 
+    /* Mark slots as unassigned. */
+    for (int j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
+        if (server.cluster->importing_slots_from[j] == n)
+            server.cluster->importing_slots_from[j] = NULL;
+        if (server.cluster->migrating_slots_to[j] == n)
+            server.cluster->migrating_slots_to[j] = NULL;
+    }
+    clusterDelNodeSlots(n);
+
     /* If this node is a master, we must turn all of its slaves
      * into masters. */
     if (nodeIsMaster(n) && n->slaves) {
@@ -853,27 +862,15 @@ int clusterAddNode(clusterNode *node) {
 }
 
 /* Remove a node from the cluster:
- * 1) Mark all the nodes handled by it as unassigned.
- * 2) Remove all the failure reports sent by this node.
- * 3) Free the node, that will in turn remove it from the hash table
+ *  - Remove all the failure reports sent by this node.
+ *  - Free the node, that will in turn remove it from the hash table
  *    and from the list of slaves of its master, if it is a slave node.
  */
 void clusterDelNode(clusterNode *delnode) {
-    int j;
     dictIterator *di;
     dictEntry *de;
 
-    /* 1) Mark slots as unassigned. */
-    for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
-        if (server.cluster->importing_slots_from[j] == delnode)
-            server.cluster->importing_slots_from[j] = NULL;
-        if (server.cluster->migrating_slots_to[j] == delnode)
-            server.cluster->migrating_slots_to[j] = NULL;
-        if (server.cluster->slots[j] == delnode)
-            clusterDelSlot(j);
-    }
-
-    /* 2) Remove failure reports. */
+    /* Remove failure reports. */
     di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
@@ -883,12 +880,12 @@ void clusterDelNode(clusterNode *delnode) {
     }
     dictReleaseIterator(di);
 
-    /* 3) If this node is a slave, remove this node from the
-     *    list of slaves on its master. */
+    /* If this node is a slave, remove this node from the
+     * list of slaves on its master. */
     if (nodeIsSlave(delnode) && delnode->slaveof)
         clusterNodeRemoveSlave(delnode->slaveof,delnode);
 
-    /* 4) Free the node, unlinking it from the cluster. */
+    /* Free the node, unlinking it from the cluster. */
     freeClusterNode(delnode);
 }
 
