@@ -4067,9 +4067,9 @@ void clusterCommand(redisClient *c) {
         }
         redisLog(REDIS_WARNING,"Manual failover user request accepted.");
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"set-config-epoch") && c->argc == 3)
+    } else if (!strcasecmp(c->argv[1]->ptr,"set-config-epoch") && c->argc >= 3)
     {
-        /* CLUSTER SET-CONFIG-EPOCH <epoch>
+        /* CLUSTER SET-CONFIG-EPOCH <epoch> [RESET-HARD}
          *
          * The user is allowed to set the config epoch only when a node is
          * totally fresh: no config epoch, no other known node, and so forth.
@@ -4080,6 +4080,17 @@ void clusterCommand(redisClient *c) {
 
         if (getLongLongFromObjectOrReply(c,c->argv[2],&epoch,NULL) != REDIS_OK)
             return;
+
+        if (c->argc == 4 && !strcasecmp(c->argv[3]->ptr,"reset-hard")) {
+            /* Slaves can be reset while containing data, but not master nodes
+             * that must be empty. */
+            if (nodeIsMaster(myself) && dictSize(c->db->dict) != 0) {
+                addReplyError(c,"CLUSTER RESET can't be called with "
+                        "master nodes containing keys");
+                return;
+            }
+            clusterReset(1);
+        }
 
         if (epoch < 0) {
             addReplyErrorFormat(c,"Invalid config epoch specified: %lld",epoch);
