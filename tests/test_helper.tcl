@@ -65,6 +65,7 @@ set ::file ""; # If set, runs only the tests in this comma separated list
 set ::curfile ""; # Hold the filename of the current suite
 set ::accurate 0; # If true runs fuzz tests with more iterations
 set ::force_failure 0
+set ::failfast 0
 set ::timeout 600; # 10 minutes without progresses will quit the test.
 set ::last_progress [clock seconds]
 set ::active_servers {} ; # Pids of active Redis instances.
@@ -267,6 +268,12 @@ proc read_from_test_client fd {
         puts $err
         lappend ::failed_tests $err
         set ::active_clients_task($fd) "(ERR) $data"
+        if ($::failfast) {
+            kill_clients
+            force_kill_all_servers
+            the_end
+            exit 1
+        }
     } elseif {$status eq {exception}} {
         puts "\[[colorstr red $status]\]: $data"
         kill_clients
@@ -395,6 +402,7 @@ proc print_help_screen {} {
         "--clients <num>    Number of test clients (default 16)."
         "--timeout <sec>    Test timeout in seconds (default 10 min)."
         "--force-failure    Force the execution of a test that always fails."
+        "--failfast         Stop running the test suite after first failed test."
         "--help             Print this help screen."
     } "\n"]
 }
@@ -427,6 +435,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::accurate 1
     } elseif {$opt eq {--force-failure}} {
         set ::force_failure 1
+    } elseif {$opt eq {--failfast}} {
+        set ::failfast 1
     } elseif {$opt eq {--single}} {
         set ::all_tests $arg
         incr j
