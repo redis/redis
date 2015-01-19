@@ -406,7 +406,8 @@ cleanup:
         {
             struct sdshdr *sh = (void*)(((char*)(o->ptr))-(sizeof(struct sdshdr)));
 
-            if (cached_objects[j]) decrRefCount(cached_objects[j]);
+            if (cached_objects[j] && cached_objects[j] != o)
+                decrRefCount(cached_objects[j]);
             cached_objects[j] = o;
             cached_objects_len[j] = sh->free + sh->len;
         } else {
