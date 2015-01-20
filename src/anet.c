@@ -432,6 +432,17 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int 
     return ANET_OK;
 }
 
+static int anetTcpFastOpen(char *err, int s, int qlen) {
+#ifdef TCP_FASTOPEN
+    if (setsockopt(s, IPPROTO_TCP, TCP_FASTOPEN, &qlen, sizeof(qlen)) == -1) {
+        anetSetError(err, "setsockopt TCP_FASTOPEN: %s", strerror(errno));
+        close(s);
+        return ANET_ERR;
+    }
+#endif
+    return ANET_OK;
+}
+
 static int anetV6Only(char *err, int s) {
     int yes = 1;
     if (setsockopt(s,IPPROTO_IPV6,IPV6_V6ONLY,&yes,sizeof(yes)) == -1) {
@@ -442,7 +453,7 @@ static int anetV6Only(char *err, int s) {
     return ANET_OK;
 }
 
-static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backlog)
+static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backlog, int fastopen)
 {
     int s, rv;
     char _port[6];  /* strlen("65535") */
@@ -462,6 +473,7 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
         if ((s = socket(p->ai_family,p->ai_socktype,p->ai_protocol)) == -1)
             continue;
 
+        if (fastopen > 0 && anetTcpFastOpen(err,s,fastopen) == ANET_ERR) goto error;
         if (af == AF_INET6 && anetV6Only(err,s) == ANET_ERR) goto error;
         if (anetSetReuseAddr(err,s) == ANET_ERR) goto error;
         if (anetListen(err,s,p->ai_addr,p->ai_addrlen,backlog) == ANET_ERR) goto error;
@@ -479,14 +491,14 @@ end:
     return s;
 }
 
-int anetTcpServer(char *err, int port, char *bindaddr, int backlog)
+int anetTcpServer(char *err, int port, char *bindaddr, int backlog, int fastopen)
 {
-    return _anetTcpServer(err, port, bindaddr, AF_INET, backlog);
+    return _anetTcpServer(err, port, bindaddr, AF_INET, backlog, fastopen);
 }
 
-int anetTcp6Server(char *err, int port, char *bindaddr, int backlog)
+int anetTcp6Server(char *err, int port, char *bindaddr, int backlog, int fastopen)
 {
-    return _anetTcpServer(err, port, bindaddr, AF_INET6, backlog);
+    return _anetTcpServer(err, port, bindaddr, AF_INET6, backlog, fastopen);
 }
 
 int anetUnixServer(char *err, char *path, mode_t perm, int backlog)

@@ -134,6 +134,11 @@ void loadServerConfigFromString(char *config) {
             if (server.tcp_backlog < 0) {
                 err = "Invalid backlog value"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"tcp-fastopen") && argc == 2) {
+            server.tcp_fastopen = atoi(argv[1]);
+            if (server.tcp_fastopen < 0) {
+                err = "Invalid tcp-fastopen value"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"bind") && argc >= 2) {
             int j, addresses = argc-1;
 
@@ -1110,6 +1115,7 @@ void configGetCommand(redisClient *c) {
             server.slowlog_max_len);
     config_get_numerical_field("port",server.port);
     config_get_numerical_field("tcp-backlog",server.tcp_backlog);
+    config_get_numerical_field("tcp-fastopen",server.tcp_fastopen);
     config_get_numerical_field("databases",server.dbnum);
     config_get_numerical_field("repl-ping-slave-period",server.repl_ping_slave_period);
     config_get_numerical_field("repl-timeout",server.repl_timeout);
@@ -1833,6 +1839,7 @@ int rewriteConfig(char *path) {
     rewriteConfigStringOption(state,"pidfile",server.pidfile,REDIS_DEFAULT_PID_FILE);
     rewriteConfigNumericalOption(state,"port",server.port,REDIS_SERVERPORT);
     rewriteConfigNumericalOption(state,"tcp-backlog",server.tcp_backlog,REDIS_TCP_BACKLOG);
+    rewriteConfigNumericalOption(state,"tcp-fastopen",server.tcp_fastopen,REDIS_TCP_FASTOPEN);
     rewriteConfigBindOption(state);
     rewriteConfigStringOption(state,"unixsocket",server.unixsocket,NULL);
     rewriteConfigOctalOption(state,"unixsocketperm",server.unixsocketperm,REDIS_DEFAULT_UNIX_SOCKET_PERM);

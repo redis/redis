@@ -80,6 +80,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_MAX_HZ            500
 #define REDIS_SERVERPORT        6379    /* TCP port */
 #define REDIS_TCP_BACKLOG       511     /* TCP listen backlog */
+#define REDIS_TCP_FASTOPEN      0       /* TCP_FASTOPEN qlen */
 #define REDIS_MAXIDLETIME       0       /* default client timeout: infinite */
 #define REDIS_DEFAULT_DBNUM     16
 #define REDIS_CONFIGLINE_MAX    1024
@@ -682,6 +683,7 @@ struct redisServer {
     /* Networking */
     int port;                   /* TCP listening port */
     int tcp_backlog;            /* TCP listen() backlog */
+    int tcp_fastopen;           /* Set TCP_FASTOPEN with specified qlen if > 0 */
     char *bindaddr[REDIS_BINDADDR_MAX]; /* Addresses we should bind to */
     int bindaddr_count;         /* Number of addresses in server.bindaddr[] */
     char *unixsocket;           /* UNIX socket path */
