@@ -669,7 +669,7 @@ unsigned int dictGetRandomKeys(dict *d, dictEntry **des, unsigned int count) {
     if (dictSize(d) == 0) return 0;
     if (dictSize(d) < count) count = dictSize(d);
     /* Pick a random point inside the hash table. */
-    unsigned int i = random() & d->ht[j].sizemask;
+    int i = random() & d->ht[j].sizemask;
     /* when rehashing, if we got an index that was already moved, go to the other hash table */
     if (i < d->rehashidx) j = 1;
     int size = d->ht[j].size;
@@ -689,7 +689,7 @@ unsigned int dictGetRandomKeys(dict *d, dictEntry **des, unsigned int count) {
             /* when reaching the rehash index or out of bound, switch to the other hash table */
             i++;
             if (j==1 && (i>=d->rehashidx)) j=0;
-            if (i>=d->ht[j].size) j=1, i=0;
+            if (i>=(int)d->ht[j].size) j=1, i=0;
         }
         else
             i = (i+1) & d->ht[0].sizemask;
