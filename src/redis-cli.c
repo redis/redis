@@ -58,6 +58,7 @@
 #define OUTPUT_STANDARD 0
 #define OUTPUT_RAW 1
 #define OUTPUT_CSV 2
+#define OUTPUT_NONE 3
 #define REDIS_CLI_KEEPALIVE_INTERVAL 15 /* seconds */
 #define REDIS_CLI_DEFAULT_PIPE_TIMEOUT 30 /* seconds */
 #define REDIS_CLI_HISTFILE_ENV "REDISCLI_HISTFILE"
@@ -595,7 +596,9 @@ static int cliReadReply(int output_raw_strings) {
     }
 
     if (output) {
-        if (output_raw_strings) {
+        if (config.output == OUTPUT_NONE) {
+            out = sdsempty();
+        } else if (output_raw_strings) {
             out = cliFormatReplyRaw(reply);
         } else {
             if (config.output == OUTPUT_RAW) {
@@ -768,6 +771,8 @@ static int parseOptions(int argc, char **argv) {
             config.output = OUTPUT_STANDARD;
         } else if (!strcmp(argv[i],"--csv")) {
             config.output = OUTPUT_CSV;
+        } else if (!strcmp(argv[i],"-q")) {
+            config.output = OUTPUT_NONE;
         } else if (!strcmp(argv[i],"--latency")) {
             config.latency_mode = 1;
         } else if (!strcmp(argv[i],"--latency-history")) {
@@ -858,6 +863,7 @@ static void usage(void) {
 "                     not a tty).\n"
 "  --no-raw           Force formatted output even when STDOUT is not a tty.\n"
 "  --csv              Output in CSV format.\n"
+"  -q                 Don't output anything.\n"
 "  --stat             Print rolling stats about server: mem, clients, ...\n"
 "  --latency          Enter a special mode continuously sampling latency.\n"
 "  --latency-history  Like --latency but tracking latency changes over time.\n"
