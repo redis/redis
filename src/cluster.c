@@ -821,6 +821,14 @@ int clusterCountNonFailingSlaves(clusterNode *n) {
 
 void freeClusterNode(clusterNode *n) {
     sds nodename;
+    int j;
+
+    /* If the node is a master with associated slaves, we have to set
+     * all the slaves->slaveof fields to NULL (unknown). */
+    if (nodeIsMaster(n)) {
+        for (j = 0; j < n->numslaves; j++)
+            n->slaves[j]->slaveof = NULL;
+    }
 
     nodename = sdsnewlen(n->name, REDIS_CLUSTER_NAMELEN);
     redisAssert(dictDelete(server.cluster->nodes,nodename) == DICT_OK);
