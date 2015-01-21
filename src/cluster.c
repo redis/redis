@@ -404,7 +404,7 @@ int clusterLockConfig(char *filename) {
 void clusterInit(void) {
     int saveconf = 0;
 
-    server.cluster = zmalloc(sizeof(clusterState));
+    server.cluster = zcalloc(sizeof(*server.cluster));
     server.cluster->myself = NULL;
     server.cluster->currentEpoch = 0;
     server.cluster->state = REDIS_CLUSTER_FAIL;
@@ -535,6 +535,8 @@ void clusterReset(int hard) {
         oldname = sdsnewlen(myself->name, REDIS_CLUSTER_NAMELEN);
         dictDelete(server.cluster->nodes,oldname);
         sdsfree(oldname);
+        dictRelease(server.cluster->nodes);
+        server.cluster->nodes = dictCreate(&clusterNodesDictType,NULL);
         getRandomHexChars(myself->name, REDIS_CLUSTER_NAMELEN);
         clusterAddNode(myself);
     }
@@ -783,8 +785,11 @@ int clusterNodeRemoveSlave(clusterNode *master, clusterNode *slave) {
 
     for (j = 0; j < master->numslaves; j++) {
         if (master->slaves[j] == slave) {
-            memmove(master->slaves+j,master->slaves+(j+1),
-                (master->numslaves-1)-j);
+            if ((j+1) < master->numslaves) {
+                int remaining_slaves = (master->numslaves - j) - 1;
+                memmove(master->slaves+j,master->slaves+(j+1),
+                        (sizeof(*master->slaves) * remaining_slaves));
+            }
             master->numslaves--;
             return REDIS_OK;
         }
@@ -822,12 +827,30 @@ int clusterCountNonFailingSlaves(clusterNode *n) {
 void freeClusterNode(clusterNode *n) {
     sds nodename;
 
+    /* Mark slots as unassigned. */
+    for (int j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
+        if (server.cluster->importing_slots_from[j] == n)
+            server.cluster->importing_slots_from[j] = NULL;
+        if (server.cluster->migrating_slots_to[j] == n)
+            server.cluster->migrating_slots_to[j] = NULL;
+    }
+    clusterDelNodeSlots(n);
+
+    /* If this node is a master, we must turn all of its slaves
+     * into masters. */
+    if (nodeIsMaster(n) && n->slaves) {
+        for (int j = 0; j < n->numslaves; j++) {
+            clusterSetNodeAsMaster(n->slaves[j]);
+        }
+    }
+
     nodename = sdsnewlen(n->name, REDIS_CLUSTER_NAMELEN);
     redisAssert(dictDelete(server.cluster->nodes,nodename) == DICT_OK);
     sdsfree(nodename);
     if (n->slaveof) clusterNodeRemoveSlave(n->slaveof, n);
     if (n->link) freeClusterLink(n->link);
     listRelease(n->fail_reports);
+    zfree(n->slaves);
     zfree(n);
 }
 
@@ -841,27 +864,15 @@ int clusterAddNode(clusterNode *node) {
 }
 
 /* Remove a node from the cluster:
- * 1) Mark all the nodes handled by it as unassigned.
- * 2) Remove all the failure reports sent by this node.
- * 3) Free the node, that will in turn remove it from the hash table
+ *  - Remove all the failure reports sent by this node.
+ *  - Free the node, that will in turn remove it from the hash table
  *    and from the list of slaves of its master, if it is a slave node.
  */
 void clusterDelNode(clusterNode *delnode) {
-    int j;
     dictIterator *di;
     dictEntry *de;
 
-    /* 1) Mark slots as unassigned. */
-    for (j = 0; j < REDIS_CLUSTER_SLOTS; j++) {
-        if (server.cluster->importing_slots_from[j] == delnode)
-            server.cluster->importing_slots_from[j] = NULL;
-        if (server.cluster->migrating_slots_to[j] == delnode)
-            server.cluster->migrating_slots_to[j] = NULL;
-        if (server.cluster->slots[j] == delnode)
-            clusterDelSlot(j);
-    }
-
-    /* 2) Remove failure reports. */
+    /* Remove failure reports. */
     di = dictGetSafeIterator(server.cluster->nodes);
     while((de = dictNext(di)) != NULL) {
         clusterNode *node = dictGetVal(de);
@@ -871,11 +882,12 @@ void clusterDelNode(clusterNode *delnode) {
     }
     dictReleaseIterator(di);
 
-    /* 3) Remove this node from its master's slaves if needed. */
+    /* If this node is a slave, remove this node from the
+     * list of slaves on its master. */
     if (nodeIsSlave(delnode) && delnode->slaveof)
         clusterNodeRemoveSlave(delnode->slaveof,delnode);
 
-    /* 4) Free the node, unlinking it from the cluster. */
+    /* Free the node, unlinking it from the cluster. */
     freeClusterNode(delnode);
 }
 
@@ -1234,7 +1246,7 @@ void nodeIp2String(char *buf, clusterLink *link) {
  * The function returns 0 if the node address is still the same,
  * otherwise 1 is returned. */
 int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link, int port) {
-    char ip[REDIS_IP_STR_LEN];
+    char ip[REDIS_IP_STR_LEN] = {0};
 
     /* We don't proceed if the link is the same as the sender link, as this
      * function is designed to see if the node link is consistent with the
@@ -2784,6 +2796,7 @@ void clusterHandleSlaveMigration(int max_slaves) {
             }
         }
     }
+    dictReleaseIterator(di);
 
     /* Step 4: perform the migration if there is a target, and if I'm the
      * candidate. */
@@ -4055,9 +4068,9 @@ void clusterCommand(redisClient *c) {
         }
         redisLog(REDIS_WARNING,"Manual failover user request accepted.");
         addReply(c,shared.ok);
-    } else if (!strcasecmp(c->argv[1]->ptr,"set-config-epoch") && c->argc == 3)
+    } else if (!strcasecmp(c->argv[1]->ptr,"set-config-epoch") && c->argc >= 3)
     {
-        /* CLUSTER SET-CONFIG-EPOCH <epoch>
+        /* CLUSTER SET-CONFIG-EPOCH <epoch> [RESET-HARD}
          *
          * The user is allowed to set the config epoch only when a node is
          * totally fresh: no config epoch, no other known node, and so forth.
@@ -4068,6 +4081,17 @@ void clusterCommand(redisClient *c) {
 
         if (getLongLongFromObjectOrReply(c,c->argv[2],&epoch,NULL) != REDIS_OK)
             return;
+
+        if (c->argc == 4 && !strcasecmp(c->argv[3]->ptr,"reset-hard")) {
+            /* Slaves can be reset while containing data, but not master nodes
+             * that must be empty. */
+            if (nodeIsMaster(myself) && dictSize(c->db->dict) != 0) {
+                addReplyError(c,"CLUSTER RESET can't be called with "
+                        "master nodes containing keys");
+                return;
+            }
+            clusterReset(1);
+        }
 
         if (epoch < 0) {
             addReplyErrorFormat(c,"Invalid config epoch specified: %lld",epoch);
