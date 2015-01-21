@@ -370,15 +370,31 @@ proc get_instance_id_by_port {type port} {
 # The instance can be restarted with restart-instance.
 proc kill_instance {type id} {
     set pid [get_instance_attrib $type $id pid]
+    set port [get_instance_attrib $type $id port]
+
     if {$pid == -1} {
         error "You tried to kill $type $id twice."
     }
+
     exec kill -9 $pid
     set_instance_attrib $type $id pid -1
     set_instance_attrib $type $id link you_tried_to_talk_with_killed_instance
 
     # Remove the PID from the list of pids to kill at exit.
     set ::pids [lsearch -all -inline -not -exact $::pids $pid]
+
+    # Wait for the port it was using to be available again, so that's not
+    # an issue to start a new server ASAP with the same port.
+    set retry 10
+    while {[incr retry -1]} {
+        set port_is_free [catch {set s [socket 127.0.01 $port]}]
+        if {$port_is_free} break
+        catch {close $s}
+        after 1000
+    }
+    if {$retry == 0} {
+        error "Port $port does not return available after killing instance."
+    }
 }
 
 # Return true of the instance of the specified type/id is killed.
