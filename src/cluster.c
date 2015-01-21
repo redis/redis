@@ -819,6 +819,7 @@ int clusterCountNonFailingSlaves(clusterNode *n) {
     return okslaves;
 }
 
+/* Low level cleanup of the node structure. Only called by clusterDelNode(). */
 void freeClusterNode(clusterNode *n) {
     sds nodename;
     int j;
@@ -830,10 +831,15 @@ void freeClusterNode(clusterNode *n) {
             n->slaves[j]->slaveof = NULL;
     }
 
+    /* Remove this node from the list of slaves of its master. */
+    if (nodeIsSlave(n) && n->slaveof) clusterNodeRemoveSlave(n->slaveof,n);
+
+    /* Unlink from the set of nodes. */
     nodename = sdsnewlen(n->name, REDIS_CLUSTER_NAMELEN);
     redisAssert(dictDelete(server.cluster->nodes,nodename) == DICT_OK);
     sdsfree(nodename);
-    if (n->slaveof) clusterNodeRemoveSlave(n->slaveof, n);
+
+    /* Release link and associated data structures. */
     if (n->link) freeClusterLink(n->link);
     listRelease(n->fail_reports);
     zfree(n);
@@ -848,11 +854,16 @@ int clusterAddNode(clusterNode *node) {
     return (retval == DICT_OK) ? REDIS_OK : REDIS_ERR;
 }
 
-/* Remove a node from the cluster:
- * 1) Mark all the nodes handled by it as unassigned.
- * 2) Remove all the failure reports sent by this node.
- * 3) Free the node, that will in turn remove it from the hash table
- *    and from the list of slaves of its master, if it is a slave node.
+/* Remove a node from the cluster. The functio performs the high level
+ * cleanup, calling freeClusterNode() for the low level cleanup.
+ * Here we do the following:
+ *
+ * 1) Mark all the slots handled by it as unassigned.
+ * 2) Remove all the failure reports sent by this node and referenced by
+ *    other nodes.
+ * 3) Free the node with freeClusterNode() that will in turn remove it
+ *    from the hash table and from the list of slaves of its master, if
+ *    it is a slave node.
  */
 void clusterDelNode(clusterNode *delnode) {
     int j;
@@ -879,11 +890,7 @@ void clusterDelNode(clusterNode *delnode) {
     }
     dictReleaseIterator(di);
 
-    /* 3) Remove this node from its master's slaves if needed. */
-    if (nodeIsSlave(delnode) && delnode->slaveof)
-        clusterNodeRemoveSlave(delnode->slaveof,delnode);
-
-    /* 4) Free the node, unlinking it from the cluster. */
+    /* 3) Free the node, unlinking it from the cluster. */
     freeClusterNode(delnode);
 }
 
@@ -1619,7 +1626,7 @@ int clusterProcessPacket(clusterLink *link) {
                     }
                     /* Free this node as we already have it. This will
                      * cause the link to be freed as well. */
-                    freeClusterNode(link->node);
+                    clusterDelNode(link->node);
                     return 0;
                 }
 
@@ -2913,7 +2920,7 @@ void clusterCron(void) {
         /* A Node in HANDSHAKE state has a limited lifespan equal to the
          * configured node timeout. */
         if (nodeInHandshake(node) && now - node->ctime > handshake_timeout) {
-            freeClusterNode(node);
+            clusterDelNode(node);
             continue;
         }
 
