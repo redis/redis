@@ -105,6 +105,7 @@ proc cleanup {} {
 proc abort_sentinel_test msg {
     puts "WARNING: Aborting the test."
     puts ">>>>>>>> $msg"
+    if {$::pause_on_error} pause_on_error
     cleanup
     exit 1
 }
