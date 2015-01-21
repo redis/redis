@@ -21,6 +21,7 @@ proc main {} {
 
 if {[catch main e]} {
     puts $::errorInfo
+    if {$::pause_on_error} pause_on_error
     cleanup
     exit 1
 }
