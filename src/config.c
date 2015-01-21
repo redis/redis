@@ -162,11 +162,44 @@ void loadServerConfigFromString(char *config) {
             } else if (argc == 2 && !strcasecmp(argv[1],"")) {
                 resetServerSaveParams();
             }
-        } else if (!strcasecmp(argv[0],"dir") && argc == 2) {
-            if (chdir(argv[1]) == -1) {
-                redisLog(REDIS_WARNING,"Can't chdir to '%s': %s",
-                    argv[1], strerror(errno));
-                exit(1);
+        } else if (!strcasecmp(argv[0],"dir") && ((argc == 2) || (argc == 3))) {
+            int ret = chdir(argv[1]);
+            char *cmd = "chdir";
+            if (ret == -1) {
+                /* If 'mkdir' was specified, then try to make the directory and
+                 * 'chdir' before bailing out. */
+                if ((argc == 3) && (errno == ENOENT) &&
+                    !strcasecmp(argv[2], "mkdir")) {
+                    char tmp[256];
+                    char *p = NULL;
+                    size_t len;
+                    cmd = "mkdir";
+                    snprintf(tmp, sizeof(tmp),"%s",argv[1]);
+                    len = strlen(tmp);
+                    if(tmp[len - 1] == '/') {
+                        tmp[len - 1] = 0;
+                    }
+                    for (p = tmp + 1; *p; p++) {
+                        if(*p == '/') {
+                            *p = 0;
+                            ret = mkdir(tmp, S_IRWXU);
+                            if ((ret == -1) && (errno != EEXIST)) break;
+                            *p = '/';
+                        }
+                    }
+                    if ((ret != -1) && (errno != EEXIST)) {
+                        ret = mkdir(tmp, S_IRWXU);
+                    }
+                    if ((ret != -1) && (errno != EEXIST)) {
+                      cmd = "chdir";
+                      ret = chdir(argv[1]);
+                    }
+                }
+                if (ret == -1) {
+                    redisLog(REDIS_WARNING,"Can't %s to '%s': %s",
+                             cmd, argv[1], strerror(errno));
+                    exit(1);
+                }
             }
         } else if (!strcasecmp(argv[0],"loglevel") && argc == 2) {
             if (!strcasecmp(argv[1],"debug")) server.verbosity = REDIS_DEBUG;
