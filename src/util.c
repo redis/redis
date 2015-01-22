@@ -431,9 +431,11 @@ int d2string(char *buf, size_t len, double value) {
 void getRandomHexChars(char *p, unsigned int len) {
     char *charset = "0123456789abcdef";
     unsigned int j;
-    static int seed_initialized = 0;
     unsigned char seed[20]; /* A seed to have a different sequence each run. */
-    uint64_t counter = 0; /* The counter we hash together with the seed. */
+
+    /* Global state. */
+    static int seed_initialized = 0;
+    static uint64_t counter = 0; /* The counter we hash with the seed. */
 
     if (!seed_initialized) {
         /* Initialize a seed and use SHA1 in counter mode, where we hash
