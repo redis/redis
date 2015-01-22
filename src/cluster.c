@@ -783,8 +783,11 @@ int clusterNodeRemoveSlave(clusterNode *master, clusterNode *slave) {
 
     for (j = 0; j < master->numslaves; j++) {
         if (master->slaves[j] == slave) {
-            memmove(master->slaves+j,master->slaves+(j+1),
-                (master->numslaves-1)-j);
+            if ((j+1) < master->numslaves) {
+                int remaining_slaves = (master->numslaves - j) - 1;
+                memmove(master->slaves+j,master->slaves+(j+1),
+                        (sizeof(*master->slaves) * remaining_slaves));
+            }
             master->numslaves--;
             return REDIS_OK;
         }
@@ -819,15 +822,30 @@ int clusterCountNonFailingSlaves(clusterNode *n) {
     return okslaves;
 }
 
+/* Low level cleanup of the node structure. Only called by clusterDelNode(). */
 void freeClusterNode(clusterNode *n) {
     sds nodename;
+    int j;
 
+    /* If the node is a master with associated slaves, we have to set
+     * all the slaves->slaveof fields to NULL (unknown). */
+    if (nodeIsMaster(n)) {
+        for (j = 0; j < n->numslaves; j++)
+            n->slaves[j]->slaveof = NULL;
+    }
+
+    /* Remove this node from the list of slaves of its master. */
+    if (nodeIsSlave(n) && n->slaveof) clusterNodeRemoveSlave(n->slaveof,n);
+
+    /* Unlink from the set of nodes. */
     nodename = sdsnewlen(n->name, REDIS_CLUSTER_NAMELEN);
     redisAssert(dictDelete(server.cluster->nodes,nodename) == DICT_OK);
     sdsfree(nodename);
-    if (n->slaveof) clusterNodeRemoveSlave(n->slaveof, n);
+
+    /* Release link and associated data structures. */
     if (n->link) freeClusterLink(n->link);
     listRelease(n->fail_reports);
+    zfree(n->slaves);
     zfree(n);
 }
 
@@ -840,11 +858,16 @@ int clusterAddNode(clusterNode *node) {
     return (retval == DICT_OK) ? REDIS_OK : REDIS_ERR;
 }
 
-/* Remove a node from the cluster:
- * 1) Mark all the nodes handled by it as unassigned.
- * 2) Remove all the failure reports sent by this node.
- * 3) Free the node, that will in turn remove it from the hash table
- *    and from the list of slaves of its master, if it is a slave node.
+/* Remove a node from the cluster. The functio performs the high level
+ * cleanup, calling freeClusterNode() for the low level cleanup.
+ * Here we do the following:
+ *
+ * 1) Mark all the slots handled by it as unassigned.
+ * 2) Remove all the failure reports sent by this node and referenced by
+ *    other nodes.
+ * 3) Free the node with freeClusterNode() that will in turn remove it
+ *    from the hash table and from the list of slaves of its master, if
+ *    it is a slave node.
  */
 void clusterDelNode(clusterNode *delnode) {
     int j;
@@ -871,11 +894,7 @@ void clusterDelNode(clusterNode *delnode) {
     }
     dictReleaseIterator(di);
 
-    /* 3) Remove this node from its master's slaves if needed. */
-    if (nodeIsSlave(delnode) && delnode->slaveof)
-        clusterNodeRemoveSlave(delnode->slaveof,delnode);
-
-    /* 4) Free the node, unlinking it from the cluster. */
+    /* 3) Free the node, unlinking it from the cluster. */
     freeClusterNode(delnode);
 }
 
@@ -1234,7 +1253,7 @@ void nodeIp2String(char *buf, clusterLink *link) {
  * The function returns 0 if the node address is still the same,
  * otherwise 1 is returned. */
 int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link, int port) {
-    char ip[REDIS_IP_STR_LEN];
+    char ip[REDIS_IP_STR_LEN] = {0};
 
     /* We don't proceed if the link is the same as the sender link, as this
      * function is designed to see if the node link is consistent with the
@@ -1611,7 +1630,7 @@ int clusterProcessPacket(clusterLink *link) {
                     }
                     /* Free this node as we already have it. This will
                      * cause the link to be freed as well. */
-                    freeClusterNode(link->node);
+                    clusterDelNode(link->node);
                     return 0;
                 }
 
@@ -2784,6 +2803,7 @@ void clusterHandleSlaveMigration(int max_slaves) {
             }
         }
     }
+    dictReleaseIterator(di);
 
     /* Step 4: perform the migration if there is a target, and if I'm the
      * candidate. */
@@ -2905,7 +2925,7 @@ void clusterCron(void) {
         /* A Node in HANDSHAKE state has a limited lifespan equal to the
          * configured node timeout. */
         if (nodeInHandshake(node) && now - node->ctime > handshake_timeout) {
-            freeClusterNode(node);
+            clusterDelNode(node);
             continue;
         }
 
