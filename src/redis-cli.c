@@ -96,6 +96,7 @@ static struct config {
     sds mb_delim;
     char prompt[128];
     char *eval;
+    char *script_load;
     int last_cmd_type;
 } config;
 
@@ -795,6 +796,8 @@ static int parseOptions(int argc, char **argv) {
             config.bigkeys = 1;
         } else if (!strcmp(argv[i],"--eval") && !lastarg) {
             config.eval = argv[++i];
+        } else if (!strcmp(argv[i],"--script-load") && !lastarg) {
+            config.script_load = argv[++i];
         } else if (!strcmp(argv[i],"-c")) {
             config.cluster_mode = 1;
         } else if (!strcmp(argv[i],"-d") && !lastarg) {
@@ -1057,6 +1060,35 @@ static int evalMode(int argc, char **argv) {
 
     /* Call it */
     return issueCommand(argc+3-got_comma, argv2);
+}
+
+/*------------------------------------------------------------------------------
+ * Script load
+ *--------------------------------------------------------------------------- */
+
+static int scriptLoadMode() {
+    sds argv[3];
+    FILE *fp;
+    char buf[1024];
+    size_t nread;
+
+    argv[0] = sdsnew("SCRIPT");
+    argv[1] = sdsnew("LOAD");
+    argv[2] = sdsempty();
+
+    /* Load the script from the file, as an sds string. */
+    fp = fopen(config.script_load,"r");
+    if (!fp) {
+        fprintf(stderr,
+            "Can't open file '%s': %s\n", config.script_load, strerror(errno));
+        exit(1);
+    }
+    while((nread = fread(buf,1,sizeof(buf),fp)) != 0) {
+        argv[2] = sdscatlen(argv[2],buf,nread);
+    }
+    fclose(fp);
+
+    return issueCommand(3, argv);
 }
 
 /*------------------------------------------------------------------------------
@@ -1998,7 +2030,7 @@ int main(int argc, char **argv) {
     if (config.intrinsic_latency_mode) intrinsicLatencyMode();
 
     /* Start interactive mode when no command is provided */
-    if (argc == 0 && !config.eval) {
+    if (argc == 0 && !config.eval && !config.script_load) {
         /* Ignore SIGPIPE in interactive mode to force a reconnect */
         signal(SIGPIPE, SIG_IGN);
 
@@ -2012,6 +2044,8 @@ int main(int argc, char **argv) {
     if (cliConnect(0) != REDIS_OK) exit(1);
     if (config.eval) {
         return evalMode(argc,argv);
+    } else if (config.script_load) {
+        return scriptLoadMode();
     } else {
         return noninteractive(argc,convertToSds(argc,argv));
     }
