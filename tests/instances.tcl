@@ -33,6 +33,25 @@ if {[catch {cd tmp}]} {
     exit 1
 }
 
+# Execute the specified instance of the server specified by 'type', using
+# the provided configuration file. Returns the PID of the process.
+proc exec_instance {type cfgfile} {
+    if {$type eq "redis"} {
+        set prgname redis-server
+    } elseif {$type eq "sentinel"} {
+        set prgname redis-sentinel
+    } else {
+        error "Unknown instance type."
+    }
+
+    if {$::valgrind} {
+        set pid [exec valgrind --track-origins=yes --suppressions=../../../src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full ../../../src/${prgname} $cfgfile &]
+    } else {
+        set pid [exec ../../../src/${prgname} $cfgfile &]
+    }
+    return $pid
+}
+
 # Spawn a redis or sentinel instance, depending on 'type'.
 proc spawn_instance {type base_port count {conf {}}} {
     for {set j 0} {$j < $count} {incr j} {
@@ -59,20 +78,7 @@ proc spawn_instance {type base_port count {conf {}}} {
         close $cfg
 
         # Finally exec it and remember the pid for later cleanup.
-        if {$type eq "redis"} {
-            set prgname redis-server
-        } elseif {$type eq "sentinel"} {
-            set prgname redis-sentinel
-        } else {
-            error "Unknown instance type."
-        }
-
-        if {$::valgrind} {
-            set pid [exec valgrind --track-origins=yes --suppressions=../../../src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full ../../../src/${prgname} $cfgfile &]
-        } else {
-            set pid [exec ../../../src/${prgname} $cfgfile &]
-        }
-
+        set pid [exec_instance $type $cfgfile]
         lappend ::pids $pid
 
         # Check availability
@@ -411,18 +417,7 @@ proc restart_instance {type id} {
 
     # Execute the instance with its old setup and append the new pid
     # file for cleanup.
-    if {$type eq "redis"} {
-        set prgname redis-server
-    } else {
-        set prgname redis-sentinel
-    }
-
-    if {$::valgrind} {
-        set pid [exec valgrind --track-origins=yes --suppressions=../../../src/valgrind.sup --show-reachable=no --show-possibly-lost=no --leak-check=full ../../../src/${prgname} $cfgfile &]
-    } else {
-        set pid [exec ../../../src/${prgname} $cfgfile &]
-    }
-
+    set pid [exec_instance $type $cfgfile]
     set_instance_attrib $type $id pid $pid
     lappend ::pids $pid
 
