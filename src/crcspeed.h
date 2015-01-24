@@ -1,5 +1,4 @@
-/*
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+/* Copyright (c) 2014, Matt Stancliff <matt@genges.com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -24,29 +23,38 @@
  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- */
+ * POSSIBILITY OF SUCH DAMAGE. */
 
-/* Every time the Redis Git SHA1 or Dirty status changes only this small
- * file is recompiled, as we access this information in all the other
- * files using this functions. */
+#ifndef CRCSPEED_H
+#define CRCSPEED_H
 
-#include <string.h>
+#include <stdio.h>
+#include <inttypes.h>
 
-#include "release.h"
-#include "version.h"
-#include "crc64speed.h"
+typedef uint64_t (*crcfn64)(uint64_t, const void *, const uint64_t);
+typedef uint16_t (*crcfn16)(uint16_t, const void *, const uint64_t);
 
-char *redisGitSHA1(void) {
-    return REDIS_GIT_SHA1;
-}
+/* CRC-64 */
+void crcspeed64little_init(crcfn64 fn, uint64_t table[8][256]);
+void crcspeed64big_init(crcfn64 fn, uint64_t table[8][256]);
+void crcspeed64native_init(crcfn64 fn, uint64_t table[8][256]);
 
-char *redisGitDirty(void) {
-    return REDIS_GIT_DIRTY;
-}
+uint64_t crcspeed64little(uint64_t table[8][256], uint64_t crc, void *buf,
+                          size_t len);
+uint64_t crcspeed64big(uint64_t table[8][256], uint64_t crc, void *buf,
+                       size_t len);
+uint64_t crcspeed64native(uint64_t table[8][256], uint64_t crc, void *buf,
+                          size_t len);
 
-uint64_t redisBuildId(void) {
-    char *buildid = REDIS_VERSION REDIS_BUILD_ID REDIS_GIT_DIRTY REDIS_GIT_SHA1;
+/* CRC-16 */
+void crcspeed16little_init(crcfn16 fn, uint16_t table[8][256]);
+void crcspeed16big_init(crcfn16 fn, uint16_t table[8][256]);
+void crcspeed16native_init(crcfn16 fn, uint16_t table[8][256]);
 
-    return crc64speed(0,buildid,strlen(buildid));
-}
+uint16_t crcspeed16little(uint16_t table[8][256], uint16_t crc, void *buf,
+                          size_t len);
+uint16_t crcspeed16big(uint16_t table[8][256], uint16_t crc, void *buf,
+                       size_t len);
+uint16_t crcspeed16native(uint16_t table[8][256], uint16_t crc, void *buf,
+                          size_t len);
+#endif

@@ -51,7 +51,7 @@
 #include <unistd.h>
 #include "rio.h"
 #include "util.h"
-#include "crc64.h"
+#include "crc64speed.h"
 #include "config.h"
 #include "redis.h"
 
@@ -287,7 +287,7 @@ void rioFreeFdset(rio *r) {
 /* This function can be installed both in memory and file streams when checksum
  * computation is needed. */
 void rioGenericUpdateChecksum(rio *r, const void *buf, size_t len) {
-    r->cksum = crc64(r->cksum,buf,len);
+    r->cksum = crc64speed(r->cksum,buf,len);
 }
 
 /* Set the file-based rio object to auto-fsync every 'bytes' file written.

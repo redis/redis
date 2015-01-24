@@ -64,11 +64,14 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "sparkline.h" /* ASII graphs API */
 #include "quicklist.h"
 
+#ifdef REDIS_TEST
 /* Following includes allow test functions to be called from Redis main() */
 #include "zipmap.h"
 #include "sha1.h"
 #include "endianconv.h"
-#include "crc64.h"
+#include "crc64speed.h"
+#include "crc16speed.h"
+#endif
 
 /* Error codes */
 #define REDIS_OK                0
@@ -1032,7 +1035,6 @@ extern dictType replScriptCacheDictType;
 long long ustime(void);
 long long mstime(void);
 void getRandomHexChars(char *p, unsigned int len);
-uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 void exitFromChild(int retcode);
 size_t redisPopcount(void *s, long count);
 void redisSetProcTitle(char *title);
@@ -1366,8 +1368,7 @@ int *sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, int *numkeys);
 
 /* Cluster */
 void clusterInit(void);
-unsigned short crc16(const char *buf, int len);
-unsigned int keyHashSlot(char *key, int keylen);
+unsigned int keyHashSlot(const char *key, const int keylen);
 void clusterCron(void);
 void clusterPropagatePublish(robj *channel, robj *message);
 void migrateCloseTimedoutSockets(void);

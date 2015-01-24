@@ -31,6 +31,8 @@
 #include "redis.h"
 #include "cluster.h"
 #include "endianconv.h"
+#include "crc64speed.h"
+#include "crc16speed.h"
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -623,25 +625,25 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
  * However if the key contains the {...} pattern, only the part between
  * { and } is hashed. This may be useful in the future to force certain
  * keys to be in the same node (assuming no resharding is in progress). */
-unsigned int keyHashSlot(char *key, int keylen) {
+unsigned int keyHashSlot(const char *key, const int keylen) {
     int s, e; /* start-end indexes of { and } */
 
     for (s = 0; s < keylen; s++)
         if (key[s] == '{') break;
 
     /* No '{' ? Hash the whole key. This is the base case. */
-    if (s == keylen) return crc16(key,keylen) & 0x3FFF;
+    if (s == keylen) return crc16speed(0,key,keylen) & 0x3FFF;
 
     /* '{' found? Check if we have the corresponding '}'. */
     for (e = s+1; e < keylen; e++)
         if (key[e] == '}') break;
 
     /* No '}' or nothing betweeen {} ? Hash the whole key. */
-    if (e == keylen || e == s+1) return crc16(key,keylen) & 0x3FFF;
+    if (e == keylen || e == s+1) return crc16speed(0,key,keylen) & 0x3FFF;
 
     /* If we are here there is both a { and a } on its right. Hash
      * what is in the middle between { and }. */
-    return crc16(key+s+1,e-s-1) & 0x3FFF;
+    return crc16speed(0,key+s+1,e-s-1) & 0x3FFF;
 }
 
 /* -----------------------------------------------------------------------------
@@ -4174,8 +4176,7 @@ void createDumpPayload(rio *payload, robj *o) {
     payload->io.buffer.ptr = sdscatlen(payload->io.buffer.ptr,buf,2);
 
     /* CRC64 */
-    crc = crc64(0,(unsigned char*)payload->io.buffer.ptr,
-                sdslen(payload->io.buffer.ptr));
+    crc = crc64speed(0,payload->io.buffer.ptr, sdslen(payload->io.buffer.ptr));
     memrev64ifbe(&crc);
     payload->io.buffer.ptr = sdscatlen(payload->io.buffer.ptr,&crc,8);
 }
@@ -4198,7 +4199,7 @@ int verifyDumpPayload(unsigned char *p, size_t len) {
     if (rdbver != REDIS_RDB_VERSION) return REDIS_ERR;
 
     /* Verify CRC64 */
-    crc = crc64(0,p,len-8);
+    crc = crc64speed(0,p,len-8);
     memrev64ifbe(&crc);
     return (memcmp(&crc,footer+2,8) == 0) ? REDIS_OK : REDIS_ERR;
 }
@@ -4648,8 +4649,7 @@ clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **arg
         keyindex = getKeysFromCommand(mcmd,margv,margc,&numkeys);
         for (j = 0; j < numkeys; j++) {
             robj *thiskey = margv[keyindex[j]];
-            int thisslot = keyHashSlot((char*)thiskey->ptr,
-                                       sdslen(thiskey->ptr));
+            int thisslot = keyHashSlot(thiskey->ptr, sdslen(thiskey->ptr));
 
             if (firstkey == NULL) {
                 /* This is the first key we see. Check what is the slot
