@@ -585,6 +585,7 @@ void printErrorStack(entry *e) {
         /* display truncation at the last 3 chars */
         if (strlen(e->key) > 40) {
             memset(&tmp[37], '.', 3);
+            tmp[40] = '\0';
         }
 
         /* display unprintable characters as ? */
