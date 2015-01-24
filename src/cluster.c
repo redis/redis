@@ -2150,6 +2150,8 @@ void clusterSendPing(clusterLink *link, int type) {
         memcpy(gossip->ip,this->ip,sizeof(this->ip));
         gossip->port = htons(this->port);
         gossip->flags = htons(this->flags);
+        gossip->notused1 = 0;
+        gossip->notused2 = 0;
         gossipcount++;
     }
     totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
