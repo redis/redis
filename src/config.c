@@ -237,6 +237,8 @@ void loadServerConfigFromString(char *config) {
                 server.maxmemory_policy = REDIS_MAXMEMORY_ALLKEYS_LRU;
             } else if (!strcasecmp(argv[1],"allkeys-random")) {
                 server.maxmemory_policy = REDIS_MAXMEMORY_ALLKEYS_RANDOM;
+            } else if (!strcasecmp(argv[1],"script")) {
+                server.maxmemory_policy = REDIS_MAXMEMORY_SCRIPT;
             } else if (!strcasecmp(argv[1],"noeviction")) {
                 server.maxmemory_policy = REDIS_MAXMEMORY_NO_EVICTION;
             } else {
@@ -249,6 +251,8 @@ void loadServerConfigFromString(char *config) {
                 err = "maxmemory-samples must be 1 or greater";
                 goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"maxmemory-script") && argc == 2) {
+            server.maxmemory_script = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"slaveof") && argc == 3) {
             slaveof_linenum = linenum;
             server.masterhost = sdsnew(argv[1]);
@@ -679,6 +683,8 @@ void configSetCommand(redisClient *c) {
             server.maxmemory_policy = REDIS_MAXMEMORY_ALLKEYS_LRU;
         } else if (!strcasecmp(o->ptr,"allkeys-random")) {
             server.maxmemory_policy = REDIS_MAXMEMORY_ALLKEYS_RANDOM;
+        } else if (!strcasecmp(o->ptr,"script")) {
+            server.maxmemory_policy = REDIS_MAXMEMORY_SCRIPT;
         } else if (!strcasecmp(o->ptr,"noeviction")) {
             server.maxmemory_policy = REDIS_MAXMEMORY_NO_EVICTION;
         } else {
@@ -688,6 +694,9 @@ void configSetCommand(redisClient *c) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll <= 0) goto badfmt;
         server.maxmemory_samples = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"maxmemory-script")) {
+        zfree(server.maxmemory_script);
+        server.maxmemory_script = ((char*)o->ptr)[0] ? zstrdup(o->ptr) : NULL;
     } else if (!strcasecmp(c->argv[2]->ptr,"timeout")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR ||
             ll < 0 || ll > LONG_MAX) goto badfmt;
@@ -1019,6 +1028,7 @@ void configGetCommand(redisClient *c) {
     config_get_string_field("unixsocket",server.unixsocket);
     config_get_string_field("logfile",server.logfile);
     config_get_string_field("pidfile",server.pidfile);
+    config_get_string_field("maxmemory-script",server.maxmemory_script);
 
     /* Numerical values */
     config_get_numerical_field("maxmemory",server.maxmemory);
@@ -1120,6 +1130,7 @@ void configGetCommand(redisClient *c) {
         case REDIS_MAXMEMORY_VOLATILE_RANDOM: s = "volatile-random"; break;
         case REDIS_MAXMEMORY_ALLKEYS_LRU: s = "allkeys-lru"; break;
         case REDIS_MAXMEMORY_ALLKEYS_RANDOM: s = "allkeys-random"; break;
+        case REDIS_MAXMEMORY_SCRIPT: s = "script"; break;
         case REDIS_MAXMEMORY_NO_EVICTION: s = "noeviction"; break;
         default: s = "unknown"; break; /* too harmless to panic */
         }
@@ -1828,9 +1839,11 @@ int rewriteConfig(char *path) {
         "volatile-random", REDIS_MAXMEMORY_VOLATILE_RANDOM,
         "allkeys-random", REDIS_MAXMEMORY_ALLKEYS_RANDOM,
         "volatile-ttl", REDIS_MAXMEMORY_VOLATILE_TTL,
+        "script", REDIS_MAXMEMORY_SCRIPT,
         "noeviction", REDIS_MAXMEMORY_NO_EVICTION,
         NULL, REDIS_DEFAULT_MAXMEMORY_POLICY);
     rewriteConfigNumericalOption(state,"maxmemory-samples",server.maxmemory_samples,REDIS_DEFAULT_MAXMEMORY_SAMPLES);
+    rewriteConfigStringOption(state,"maxmemory-script",server.maxmemory_script,NULL);
     rewriteConfigYesNoOption(state,"appendonly",server.aof_state != REDIS_AOF_OFF,0);
     rewriteConfigStringOption(state,"appendfilename",server.aof_filename,REDIS_DEFAULT_AOF_FILENAME);
     rewriteConfigEnumOption(state,"appendfsync",server.aof_fsync,
