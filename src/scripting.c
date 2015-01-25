@@ -1183,7 +1183,7 @@ void scriptCommand(redisClient *c) {
 int scriptingEviction(redisDb *db) {
     /* Run our custom maxmemory-script
      *
-     * We eeturn REDIS_OK if we freed an item and REDIS_ERR if there was an
+     * We return REDIS_OK if we freed an item and REDIS_ERR if there was an
      * error or we failed to delete anything. */
 
     int j, err;
