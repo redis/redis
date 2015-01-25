@@ -518,7 +518,7 @@ static sds cliFormatReplyCSV(redisReply *r) {
         out = sdscatrepr(out,r->str,r->len);
     break;
     case REDIS_REPLY_NIL:
-        out = sdscat(out,"NIL\n");
+        out = sdscat(out,"NIL");
     break;
     case REDIS_REPLY_ARRAY:
         for (i = 0; i < r->elements; i++) {
