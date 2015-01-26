@@ -33,6 +33,7 @@
 
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <glob.h>
 
 static struct {
     const char     *name;
@@ -590,6 +591,8 @@ loaderr:
 void loadServerConfig(char *filename, char *options) {
     sds config = sdsempty();
     char buf[REDIS_CONFIGLINE_MAX+1];
+	glob_t glob_buf;
+	int i;
 
     /* Load the file content */
     if (filename) {
@@ -597,16 +600,27 @@ void loadServerConfig(char *filename, char *options) {
 
         if (filename[0] == '-' && filename[1] == '\0') {
             fp = stdin;
+			while(fgets(buf,REDIS_CONFIGLINE_MAX+1,fp) != NULL)
+				config = sdscat(config,buf);
         } else {
-            if ((fp = fopen(filename,"r")) == NULL) {
-                redisLog(REDIS_WARNING,
-                    "Fatal error, can't open config file '%s'", filename);
-                exit(1);
-            }
+			/* find config file using by regular expression */
+			if ((ret = glob(filename, 0, NULL, &glob_buf)) == 0) {
+				for (i = 0; i < (int)glob_buf.gl_pathc; i++) {
+					if ((fp = fopen(glob_buf.gl_pathv[i], "r")) != NULL) {
+						while(fgets(buf,REDIS_CONFIGLINE_MAX+1,fp) != NULL)
+							config = sdscat(config,buf);
+						fclose(fp);
+					}else {
+						redisLog(REDIS_WARNING,
+								 "Fatal error, can't open config file '%s'", glob_buf.gl_pathv[i]);
+						exit(1);
+					}
+				}
+			}else {
+				redisLog(REDIS_WARNING,
+						 "Fatal error, can't find config file '%s', ret : %d", filename, ret);
+			}
         }
-        while(fgets(buf,REDIS_CONFIGLINE_MAX+1,fp) != NULL)
-            config = sdscat(config,buf);
-        if (fp != stdin) fclose(fp);
     }
     /* Append the additional options */
     if (options) {
