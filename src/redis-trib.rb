@@ -23,6 +23,7 @@
 
 require 'rubygems'
 require 'redis'
+require 'resolv'
 
 ClusterHashSlots = 16384
 
@@ -55,7 +56,8 @@ class ClusterNode
            exit 1
         end
         port = s.pop # removes port from split array
-        ip = s.join(":") # if s.length > 1 here, it's IPv6, so restore address
+        ip = s.join(":") =~ Resolv::IPv4::Regex ? s.join(":") : Resolv.getaddresses(s.join(":"))[1]
+
         @r = nil
         @info = {}
         @info[:host] = ip
