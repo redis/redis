@@ -200,6 +200,7 @@ struct redisCommand redisCommandTable[] = {
     {"hmget",hmgetCommand,-3,"r",0,NULL,1,1,1,0,0},
     {"hincrby",hincrbyCommand,4,"wmF",0,NULL,1,1,1,0,0},
     {"hincrbyfloat",hincrbyfloatCommand,4,"wmF",0,NULL,1,1,1,0,0},
+    {"hmergebitmask",hmergebitmaskCommand,4,"wm",0,NULL,1,1,1,0,0},
     {"hdel",hdelCommand,-3,"wF",0,NULL,1,1,1,0,0},
     {"hlen",hlenCommand,2,"rF",0,NULL,1,1,1,0,0},
     {"hkeys",hkeysCommand,2,"rS",0,NULL,1,1,1,0,0},

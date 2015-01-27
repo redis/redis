@@ -1520,6 +1520,7 @@ void hgetallCommand(redisClient *c);
 void hexistsCommand(redisClient *c);
 void hscanCommand(redisClient *c);
 void configCommand(redisClient *c);
+void hmergebitmaskCommand(redisClient *c);
 void hincrbyCommand(redisClient *c);
 void hincrbyfloatCommand(redisClient *c);
 void subscribeCommand(redisClient *c);

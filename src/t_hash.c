@@ -622,6 +622,40 @@ static void addHashFieldToReply(redisClient *c, robj *o, robj *field) {
     }
 }
 
+void hmergebitmaskCommand(redisClient *c) {
+
+    robj *o, *current;
+    unsigned byte = 0;
+
+    char *bitmask = (char*)c->argv[3]->ptr;
+    size_t totlen = sdslen(bitmask);
+
+    //get hash key
+    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
+    //get hash field
+    if ((current = hashTypeGetObject(o,c->argv[2])) != NULL) {
+        //get hash field value
+//        decrRefCount(current);
+    }
+    else {
+        current = createObject(REDIS_STRING,sdsempty());
+    }
+
+    current->ptr = sdsgrowzero(current->ptr,totlen);
+
+    //do merge
+    for (byte = 0; byte < totlen; byte++)
+    {
+        ((char*)current->ptr)[byte] |= ((char*)c->argv[3]->ptr)[byte];
+    }
+    hashTypeTryObjectEncoding(o,&c->argv[2],NULL);
+    hashTypeSet(o,c->argv[2],current);
+    decrRefCount(current);
+    addReplyLongLong(c,totlen);
+    signalModifiedKey(c->db,c->argv[1]);
+    server.dirty++;
+}
+
 void hgetCommand(redisClient *c) {
     robj *o;
 
