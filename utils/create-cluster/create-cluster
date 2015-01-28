@@ -1,0 +1,66 @@
+#!/bin/bash
+
+PORT=30000
+ENDPORT=30006
+
+if [ "$1" == "start" ]
+then
+    while [ $((PORT < ENDPORT)) != "0" ]; do
+        PORT=$((PORT+1))
+        echo "Starting $PORT"
+        ../../src/redis-server --port $PORT --cluster-enabled yes --cluster-config-file nodes-${PORT}.conf --cluster-node-timeout 5 --appendonly yes --appendfilename appendonly-${PORT}.aof --dbfilename dump-${PORT}.rdb --logfile ${PORT}.log --daemonize yes
+    done
+    exit 0
+fi
+
+if [ "$1" == "create" ]
+then
+    HOSTS=""
+    while [ $((PORT < ENDPORT)) != "0" ]; do
+        PORT=$((PORT+1))
+        HOSTS="$HOSTS 127.0.0.1:$PORT"
+    done
+    ../../src/redis-trib.rb create --replicas 1 $HOSTS
+    exit 0
+fi
+
+if [ "$1" == "stop" ]
+then
+    while [ $((PORT < ENDPORT)) != "0" ]; do
+        PORT=$((PORT+1))
+        echo "Stopping $PORT"
+        redis-cli -p $PORT shutdown nosave
+    done
+    exit 0
+fi
+
+if [ "$1" == "join" ]
+then
+    while [ $((PORT < ENDPORT)) != "0" ]; do
+        PORT=$((PORT+1))
+        echo "Joining $PORT"
+        redis-cli -p $PORT CLUSTER MEET 127.0.0.1 10002
+    done
+
+    echo "Waiting 5 seconds"
+    sleep 5
+
+    PORT=30000
+    while [ $((PORT < ENDPORT)) != "0" ]; do
+        PORT=$((PORT+1))
+        echo "Replicate $PORT"
+        redis-cli -p $PORT CLUSTER REPLICATE $2 
+    done
+    exit 0
+fi
+
+if [ "$1" == "clean" ]
+then
+    rm -rf *.log
+    rm -rf appendonly*.aof
+    rm -rf dump*.rdb
+    rm -rf nodes*.conf
+    exit 0
+fi
+
+echo "Usage: $0 [start|create|stop|join|clean]"
