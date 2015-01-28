@@ -1380,6 +1380,9 @@ void sentinelTimer(void);
 char *sentinelHandleConfiguration(char **argv, int argc);
 void sentinelIsRunning(void);
 
+/* redis-check-rdb */
+int redis_check_rdb(char *rdbfilename);
+
 /* Scripting */
 void scriptingInit(void);
 
