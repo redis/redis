@@ -160,13 +160,8 @@ void quicklistRelease(quicklist *quicklist) {
     len = quicklist->len;
     while (len--) {
         next = current->next;
-
         zfree(current->zl);
-        quicklist->count -= current->count;
-
         zfree(current);
-
-        quicklist->len--;
         current = next;
     }
     zfree(quicklist);
@@ -185,6 +180,9 @@ REDIS_STATIC int __quicklistCompressNode(quicklistNode *node) {
         return 0;
 
     quicklistLZF *lzf = zmalloc(sizeof(*lzf) + node->sz);
+    if (lzf == NULL) {
+        return 0;
+    }
 
     /* Cancel if compression fails or doesn't compress small enough */
     if (((lzf->sz = lzf_compress(node->zl, node->sz, lzf->compressed,
@@ -219,6 +217,9 @@ REDIS_STATIC int __quicklistDecompressNode(quicklistNode *node) {
 
     void *decompressed = zmalloc(node->sz);
     quicklistLZF *lzf = (quicklistLZF *)node->zl;
+    if (lzf == NULL) {
+        return 0;
+    }
     if (lzf_decompress(lzf->compressed, lzf->sz, decompressed, node->sz) == 0) {
         /* Someone requested decompress, but we can't decompress.  Not good. */
         zfree(decompressed);
@@ -352,34 +353,35 @@ REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
 REDIS_STATIC void __quicklistInsertNode(quicklist *quicklist,
                                         quicklistNode *old_node,
                                         quicklistNode *new_node, int after) {
-    if (after) {
-        new_node->prev = old_node;
-        if (old_node) {
-            new_node->next = old_node->next;
-            if (old_node->next)
-                old_node->next->prev = new_node;
-            old_node->next = new_node;
-        }
-        if (quicklist->tail == old_node)
-            quicklist->tail = new_node;
-    } else {
-        new_node->next = old_node;
-        if (old_node) {
-            new_node->prev = old_node->prev;
-            if (old_node->prev)
-                old_node->prev->next = new_node;
-            old_node->prev = new_node;
-        }
-        if (quicklist->head == old_node)
-            quicklist->head = new_node;
-    }
     /* If this insert creates the only element so far, initialize head/tail. */
     if (quicklist->len == 0) {
         quicklist->head = quicklist->tail = new_node;
-    }
+    } else {
+        if (after) {
+            new_node->prev = old_node;
+            if (old_node) {
+                new_node->next = old_node->next;
+                if (old_node->next)
+                    old_node->next->prev = new_node;
+                old_node->next = new_node;
+            }
+            if (quicklist->tail == old_node)
+                quicklist->tail = new_node;
+        } else {
+            new_node->next = old_node;
+            if (old_node) {
+                new_node->prev = old_node->prev;
+                if (old_node->prev)
+                    old_node->prev->next = new_node;
+                old_node->prev = new_node;
+            }
+            if (quicklist->head == old_node)
+                quicklist->head = new_node;
+        }
 
-    if (old_node)
-        quicklistCompress(quicklist, old_node);
+        if (old_node)
+            quicklistCompress(quicklist, old_node);
+    }
 
     quicklist->len++;
 }
