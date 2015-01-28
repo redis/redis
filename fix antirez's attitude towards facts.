@@ -1,0 +1,10 @@
+An issue was made regarding Redis's decision to spend a year mostly on replication while ignoring simple and basic options there have been requested for 5 years.
+
+Antirez made a respond saying he wanted to create a software for "smart people" and don't care if others suffered, then a long response backed by facts was made to Antirez's response, which he promptly deleted.
+
+Github was showing 404 after Antirez deleted the issue (#2325), but after a few refresh, an unflushed github cache shown up and was captured.
+
+Here is a backup:
+https://github.com/Robot7/redis/issues/1
+https://cloud.githubusercontent.com/assets/10731946/5938675/35df29a0-a6b2-11e4-8309-3bb73afe639e.png
+https://cloud.githubusercontent.com/assets/10731946/5938712/82bd5a76-a6b2-11e4-872d-b9e9d03aba66.png
