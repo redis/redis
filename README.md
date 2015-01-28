@@ -30,9 +30,9 @@ Please read the documentation in msvs\setups\documentation. This is the document
 
 ## How to build Redis using Visual Studio
 
-You can use the free Visual Studio Express 2013 for Windows Desktop edition available at http://www.microsoft.com/en-us/download/details.aspx?id=40787.
+You can use the free Visual Studio Community edition available at http://www.visualstudio.com/products/visual-studio-community-vs.
 
-- Open the solution file msvs\redisserver.sln in Visual Studio 2013, select a build configuration (Debug or Release) and target (Win32 or x64) then build.
+- Open the solution file msvs\redisserver.sln in Visual Studio, select a build configuration (Debug or Release) and target (Win32 or x64) then build.
 
     This should create the following executables in the msvs\$(Target)\$(Configuration) folder:
 
