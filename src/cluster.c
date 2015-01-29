@@ -2110,8 +2110,32 @@ void clusterSendPing(clusterLink *link, int type) {
      * nodes in handshake state, disconnected, are not considered. */
     int freshnodes = dictSize(server.cluster->nodes)-2;
 
-    /* How many gossip sections we want to add? 1/10 of the available nodes
-     * and anyway at least 3. */
+    /* How many gossip sections we want to add? 1/10 of the number of nodes
+     * and anyway at least 3. Why 1/10?
+     *
+     * If we have N masters, with N/10 entries, and we consider that in
+     * node_timeout we exchange with each other node at least 4 packets
+     * (we ping in the worst case in node_timeout/2 time, and we also
+     * receive two pings from the host), we have a total of 8 packets
+     * in the node_timeout*2 falure reports validity time. So we have
+     * that, for a single PFAIL node, we can expect to receive the following
+     * number of failure reports (in the specified window of time):
+     *
+     * PROB * GOSSIP_ENTRIES_PER_PACKET * TOTAL_PACKETS:
+     *
+     * PROB = probability of being featured in a single gossip entry,
+     *        which is 1 / NUM_OF_NODES.
+     * ENTRIES = 10.
+     * TOTAL_PACKETS = 2 * 4 * NUM_OF_MASTERS.
+     *
+     * If we assume we have just masters (so num of nodes and num of masters
+     * is the same), with 1/10 we always get over the majority, and specifically
+     * 80% of the number of nodes, to account for many masters failing at the
+     * same time.
+     *
+     * Since we have non-voting slaves that lower the probability of an entry
+     * to feature our node, we set the number of entires per packet as
+     * 10% of the total nodes we have. */
     wanted = freshnodes/10;
     if (wanted < 3) wanted = 3;
 
