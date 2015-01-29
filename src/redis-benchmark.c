@@ -281,6 +281,33 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 }
 
+int
+check_authentication(void)
+{
+	redisContext *c = redisConnect(config.hostip, config.hostport);
+	redisReply *reply;
+	if (c != NULL && c->err)
+		return 1;
+
+	/* -a option is specified, try to authentication */
+	if (config.auth) {
+		reply = redisCommand(c, "AUTH %s", config.auth);
+		if ((strncmp(reply->str, "OK", 2)) != 0) {
+			redisFree(c);
+			return 1;
+		}
+	}
+	else {
+		reply = redisCommand(c, "PING");
+		if ((strncmp(reply->str, "PONG", 4)) != 0) {
+			redisFree(c);
+			return 1;
+		}
+	}
+	redisFree(c);
+	return 0;
+}
+
 /* Create a benchmark client, configured to send the command passed as 'cmd' of
  * 'len' bytes.
  *
@@ -667,6 +694,13 @@ int main(int argc, const char **argv) {
     i = parseOptions(argc,argv);
     argc -= i;
     argv += i;
+
+	/* authentication check */
+	if (check_authentication())
+	{
+		fprintf(stderr, "Authentication error at %s:%d\n", config.hostip, config.hostport);
+		exit(1);
+	}
 
     config.latency = zmalloc(sizeof(long long)*config.requests);
 
