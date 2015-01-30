@@ -24,4 +24,4 @@ In order to stop a cluster:
 1. Use "./craete-cluster stop" to stop all the instances. After you stopped the instances you can use "./create-cluster start" to restart them if you change ideas.
 2. Use "./create-cluster clean" to remove all the AOF / log files to restat with a clean environment.
 
-It is currently hardcoded that you start a cluster where each master has one slave, since the script is pretty basic.
+Use the command "./create-cluster help" to get the full list of features.
