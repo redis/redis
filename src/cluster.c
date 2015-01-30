@@ -2158,7 +2158,7 @@ void clusterSendPing(clusterLink *link, int type) {
     clusterBuildMessageHdr(hdr,type);
 
     /* Populate the gossip fields */
-    int maxiterations = wanted*2;
+    int maxiterations = wanted*3;
     while(freshnodes > 0 && gossipcount < wanted && maxiterations--) {
         dictEntry *de = dictGetRandomKey(server.cluster->nodes);
         clusterNode *this = dictGetVal(de);
@@ -2168,6 +2168,11 @@ void clusterSendPing(clusterLink *link, int type) {
         /* Don't include this node: the whole packet header is about us
          * already, so we just gossip about other nodes. */
         if (this == myself) continue;
+
+        /* Give a bias to FAIL/PFAIL nodes. */
+        if (maxiterations > wanted*2 &&
+            !(this->flags & (REDIS_NODE_PFAIL|REDIS_NODE_FAIL)))
+            continue;
 
         /* In the gossip section don't include:
          * 1) Nodes in HANDSHAKE state.
@@ -2201,8 +2206,6 @@ void clusterSendPing(clusterLink *link, int type) {
         gossip->notused2 = 0;
         gossipcount++;
     }
-    redisLog(REDIS_VERBOSE,"WANTED: %d, USED_ITER: %d, GOSSIPCOUNT: %d",
-        wanted, wanted*2-maxiterations, gossipcount);
 
     /* Ready to send... fix the totlen fiend and queue the message in the
      * output buffer. */
