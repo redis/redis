@@ -142,10 +142,12 @@ void *bioProcessBackgroundJobs(void *arg) {
     unsigned long type = (unsigned long) arg;
     sigset_t sigset;
 
+#ifdef THREAD_CANCEL_SUPPORTED
     /* Make the thread killable at any time, so that bioKillThreads()
      * can work reliably. */
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+#endif
 
     pthread_mutex_lock(&bio_mutex[type]);
     /* Block SIGALRM so we are sure that only the main thread will
@@ -203,6 +205,7 @@ unsigned long long bioPendingJobsOfType(int type) {
  * Currently Redis does this only on crash (for instance on SIGSEGV) in order
  * to perform a fast memory check without other threads messing with memory. */
 void bioKillThreads(void) {
+#ifdef THREAD_CANCEL_SUPPORTED
     int err, j;
 
     for (j = 0; j < REDIS_BIO_NUM_OPS; j++) {
@@ -217,4 +220,5 @@ void bioKillThreads(void) {
             }
         }
     }
+#endif
 }
