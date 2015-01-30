@@ -819,5 +819,7 @@ int main(int argc, const char **argv) {
         if (!config.csv) printf("\n");
     } while(config.loop);
 
+	zfree(data);
+
     return 0;
 }
