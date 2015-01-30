@@ -40,6 +40,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/file.h>
+#include <math.h>
 
 /* A global reference to myself is handy to make code more clear.
  * Myself always points to server.cluster->myself, that is, the clusterNode
@@ -2136,8 +2137,9 @@ void clusterSendPing(clusterLink *link, int type) {
      * Since we have non-voting slaves that lower the probability of an entry
      * to feature our node, we set the number of entires per packet as
      * 10% of the total nodes we have. */
-    wanted = freshnodes/10;
+    wanted = floor(dictSize(server.cluster->nodes)/10);
     if (wanted < 3) wanted = 3;
+    if (wanted > freshnodes) wanted = freshnodes;
 
     /* Compute the maxium totlen to allocate our buffer. We'll fix the totlen
      * later according to the number of gossip sections we really were able
@@ -2156,7 +2158,7 @@ void clusterSendPing(clusterLink *link, int type) {
     clusterBuildMessageHdr(hdr,type);
 
     /* Populate the gossip fields */
-    int maxiterations = wanted+10;
+    int maxiterations = wanted*2;
     while(freshnodes > 0 && gossipcount < wanted && maxiterations--) {
         dictEntry *de = dictGetRandomKey(server.cluster->nodes);
         clusterNode *this = dictGetVal(de);
@@ -2199,6 +2201,8 @@ void clusterSendPing(clusterLink *link, int type) {
         gossip->notused2 = 0;
         gossipcount++;
     }
+    redisLog(REDIS_VERBOSE,"WANTED: %d, USED_ITER: %d, GOSSIPCOUNT: %d",
+        wanted, wanted*2-maxiterations, gossipcount);
 
     /* Ready to send... fix the totlen fiend and queue the message in the
      * output buffer. */
