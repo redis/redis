@@ -12,11 +12,44 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 3.0.0 RC3 (version 2.9.103) ] Release date: 30 jan 2015
+
+Upgrade urgency: High for Redis Cluster users, Low otherwise.
+
+This is the third release candidate for Redis 3.0.0, the new RC fixes
+several critical issues with Redis Cluster.
+
+>> General changes
+
+* [FIX] AOF bug unlikely to happen in practice and mostly harmless: child
+        process segfaults when parent is not reachable via pipe. (Sun He)
+* [FIX] Scripting engine now reports an error when misused with Lua debug
+        hooks, instead of crashing. (Salvatore Sanfilippo)
+
+>> Cluster changes
+
+* [FIX] Several issues with Redis Cluster internal nodes objects handling.
+        (Matt Stancliff & Salvatore Sanfilippo)
+* [FIX] Improvements in the Cluster test.
+        (Matt Stancliff & Salvatore Sanfilippo).
+* [FIX] Cluster memory leaks / double frees (Matt Stancliff).
+* [FIX] /dev/urandom surrogate for generation of unique IDs in a more
+        cheap way. (Salvatore Sanfilippo)
+* [FIX] Fixes and improvements to PING / PONG packets gossip sections
+        in order to improve (and fix) failure detection and speedup
+        cluster info propagation. (Salvatore Sanfilippo)
+
+* [NEW] CLUSTER count-failure-reports command added. (Salvatore Sanfilippo)
+
+>> Sentinel changes
+
+No changes for Sentinel.
+
 --[ Redis 3.0.0 RC2 (version 2.9.102) ] Release date: 13 jan 2015
 
 Upgrade urgency: LOW.
 
-This is the second release candidate of Redis Cluster. The major changes
+This is the second release candidate of Redis 3.0.0. The major changes
 are back porting of things implemented into the unstable branch while
 this was still possible (with the new development model adopted only
 bug fixes will be merged in the future).
@@ -46,7 +79,7 @@ No changes to Sentinel.
 
 --[ Redis 3.0.0 RC1 (version 2.9.101) ] Release date: 9 oct 2014
 
-This is the first release candidate of Redis Cluster.
+This is the first release candidate of Redis 3.0.0.
 
 >> General changes
 
