@@ -1,8 +1,21 @@
 #!/bin/bash
 
+# Settings
 PORT=30000
-ENDPORT=30006
-TIMEOUT=15000
+TIMEOUT=2000
+NODES=6
+REPLICAS=1
+
+# You may want to put the above config parameters into config.sh in order to
+# override the defaults without modifying this script.
+
+if [ -a config.sh ]
+then
+    source "config.sh"
+fi
+
+# Computed vars
+ENDPORT=$((PORT+NODES))
 
 if [ "$1" == "start" ]
 then
@@ -21,7 +34,7 @@ then
         PORT=$((PORT+1))
         HOSTS="$HOSTS 127.0.0.1:$PORT"
     done
-    ../../src/redis-trib.rb create --replicas 1 $HOSTS
+    ../../src/redis-trib.rb create --replicas $REPLICAS $HOSTS
     exit 0
 fi
 
@@ -35,22 +48,31 @@ then
     exit 0
 fi
 
-if [ "$1" == "join" ]
+if [ "$1" == "watch" ]
+then
+    PORT=$((PORT+1))
+    while [ 1 ]; do
+        clear
+        date
+        redis-cli -p $PORT cluster nodes | head -30
+        sleep 1
+    done
+    exit 0
+fi
+
+if [ "$1" == "tail" ]
+then
+    INSTANCE=$2
+    PORT=$((PORT+INSTANCE))
+    tail -f ${PORT}.log
+    exit 0
+fi
+
+if [ "$1" == "call" ]
 then
     while [ $((PORT < ENDPORT)) != "0" ]; do
         PORT=$((PORT+1))
-        echo "Joining $PORT"
-        redis-cli -p $PORT CLUSTER MEET 127.0.0.1 10002
-    done
-
-    echo "Waiting 5 seconds"
-    sleep 5
-
-    PORT=30000
-    while [ $((PORT < ENDPORT)) != "0" ]; do
-        PORT=$((PORT+1))
-        echo "Replicate $PORT"
-        redis-cli -p $PORT CLUSTER REPLICATE $2 
+        ../../src/redis-cli -p $PORT $2 $3 $4 $5 $6 $7 $8 $9
     done
     exit 0
 fi
@@ -64,4 +86,10 @@ then
     exit 0
 fi
 
-echo "Usage: $0 [start|create|stop|join|clean]"
+echo "Usage: $0 [start|create|stop|watch|tail|clean]"
+echo "start       -- Launch Redis Cluster instances."
+echo "create      -- Create a cluster using redis-trib create."
+echo "stop        -- Stop Redis Cluster instances."
+echo "watch       -- Show CLUSTER NODES output (first 30 lines) of first node."
+echo "tail <id>   -- Run tail -f of instance at base port + ID."
+echo "clean       -- Remove all instances data, logs, configs."
