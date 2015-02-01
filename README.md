@@ -27,9 +27,10 @@ After building Redis is a good idea to test it, using:
     % make test
 
 Fixing build problems with dependencies or cached build options
-—--------
-Redis has some dependencies which are included into the "deps" directory.
-"make" does not rebuild dependencies automatically, even if something in the
+---------
+
+Redis has some dependencies which are included into the `deps` directory.
+`make` does not rebuild dependencies automatically, even if something in the
 source code of dependencies is changes.
 
 When you update the source code with `git pull` or when code inside the
@@ -42,7 +43,7 @@ This will clean: jemalloc, lua, hiredis, linenoise.
 
 Also if you force certain build options like 32bit target, no C compiler
 optimizations (for debugging purposes), and other similar build time options,
-those options are cached indefinitely until you issue a "make distclean"
+those options are cached indefinitely until you issue a `make distclean`
 command.
 
 Fixing problems building 32 bit binaries
@@ -50,15 +51,15 @@ Fixing problems building 32 bit binaries
 
 If after building Redis with a 32 bit target you need to rebuild it
 with a 64 bit target, or the other way around, you need to perform a
-"make distclean" in the root directory of the Redis distribution.
+`make distclean` in the root directory of the Redis distribution.
 
 In case of build errors when trying to build a 32 bit binary of Redis, try
 the following steps:
 
-* Install the packages libc6-dev-i386 (also try g++-multilib).
-* Try using the following command line instead of "make 32bit":
+* Install the packages `libc6-dev-i386` (also try `g++-multilib`).
+* Try using the following command line instead of `make 32bit`:
 
-    make CFLAGS="-m32 -march=native" LDFLAGS="-m32"
+    `make CFLAGS="-m32 -march=native" LDFLAGS="-m32"`
 
 Allocator
 ---------
@@ -93,7 +94,7 @@ To run Redis with the default configuration just type:
     % cd src
     % ./redis-server
     
-If you want to provide your redis.conf, you have to run it using an additional
+If you want to provide your `redis.conf`, you have to run it using an additional
 parameter (the path of the configuration file):
 
     % cd src
@@ -105,13 +106,13 @@ as options using the command line. Examples:
     % ./redis-server --port 9999 --slaveof 127.0.0.1 6379
     % ./redis-server /etc/redis/6379.conf --loglevel debug
 
-All the options in redis.conf are also supported as options using the command
+All the options in `redis.conf` are also supported as options using the command
 line, with exactly the same name.
 
 Playing with Redis
 ------------------
 
-You can use redis-cli to play with Redis. Start a redis-server instance,
+You can use `redis-cli` to play with Redis. Start a `redis-server` instance,
 then in another terminal try the following:
 
     % cd src
@@ -129,20 +130,19 @@ then in another terminal try the following:
     redis> 
 
 You can find the list of all the available commands here:
-
-    http://redis.io/commands
+http://redis.io/commands
 
 Installing Redis
 -----------------
 
-In order to install Redis binaries into /usr/local/bin just use:
+In order to install Redis binaries into `/usr/local/bin` just use:
 
     % make install
 
-You can use "make PREFIX=/some/other/directory install" if you wish to use a
+You can use `make PREFIX=/some/other/directory install` if you wish to use a
 different destination.
 
-Make install will just install binaries in your system, but will not configure
+`make install` will just install binaries in your system, but will not configure
 init scripts and configuration files in the appropriate place. This is not
 needed if you want just to play a bit with Redis, but if you are installing
 it the proper way for a production system, we have a script doing this
@@ -156,7 +156,7 @@ to run Redis properly as a background daemon that will start again on
 system reboots.
 
 You'll be able to stop and start Redis using the script named
-/etc/init.d/redis_<portnumber>, for instance /etc/init.d/redis_6379.
+`/etc/init.d/redis_<portnumber>`, for instance `/etc/init.d/redis_6379`.
 
 Code contributions
 ---
