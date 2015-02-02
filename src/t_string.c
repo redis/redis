@@ -165,21 +165,21 @@ void getCommand(redisClient *c) {
 void getsetCommand(redisClient *c) {
     int j;
     robj *expire = NULL;
-	robj *key = c->argv[1];
-	robj *val = c->argv[2];
+    robj *key = c->argv[1];
+    robj *val = c->argv[2];
     int unit = UNIT_SECONDS;
 
     for (j = 3; j < c->argc; j++) {
         char *a = c->argv[j]->ptr;
         robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
 
-		if ((a[0] == 'e' || a[0] == 'E') &&
-                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' && next) {
+        if ((a[0] == 'e' || a[0] == 'E') &&
+            (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' && next) {
             unit = UNIT_SECONDS;
             expire = next;
             j++;
         } else if ((a[0] == 'p' || a[0] == 'P') &&
-                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' && next) {
+                  (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' && next) {
             unit = UNIT_MILLISECONDS;
             expire = next;
             j++;
