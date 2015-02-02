@@ -803,4 +803,22 @@ start_server {tags {"basic"}} {
         r set foo bar
         r getrange foo 0 4294967297
     } {bar}
+	
+    test {Extended GETSET can detect syntax errors} {
+        set e {}
+        catch {r getset foo bar non-existing-option} e
+        set e
+    } {*syntax*}
+
+    test {Extended GETSET EX option} {
+        r getset foo bar ex 10
+        set ttl [r ttl foo]
+        assert {$ttl <= 10 && $ttl > 5}
+    }
+
+    test {Extended GETSET PX option} {
+        r getset foo bar px 10000
+        set ttl [r ttl foo]
+        assert {$ttl <= 10 && $ttl > 5}
+    }
 }

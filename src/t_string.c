@@ -161,12 +161,54 @@ void getCommand(redisClient *c) {
     getGenericCommand(c);
 }
 
+/* GETSET key value [EX <seconds>] [PX <milliseconds>] */
 void getsetCommand(redisClient *c) {
+    int j;
+    robj *expire = NULL;
+	robj *key = c->argv[1];
+	robj *val = c->argv[2];
+    int unit = UNIT_SECONDS;
+
+    for (j = 3; j < c->argc; j++) {
+        char *a = c->argv[j]->ptr;
+        robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
+
+		if ((a[0] == 'e' || a[0] == 'E') &&
+                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' && next) {
+            unit = UNIT_SECONDS;
+            expire = next;
+            j++;
+        } else if ((a[0] == 'p' || a[0] == 'P') &&
+                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' && next) {
+            unit = UNIT_MILLISECONDS;
+            expire = next;
+            j++;
+        } else {
+            addReply(c,shared.syntaxerr);
+            return;
+        }
+    }
+
     if (getGenericCommand(c) == REDIS_ERR) return;
-    c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setKey(c->db,c->argv[1],c->argv[2]);
-    notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"set",c->argv[1],c->db->id);
+	
+    long long milliseconds = 0; /* initialized to avoid any harmness warning */
+
+    if (expire) {
+        if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != REDIS_OK)
+            return;
+        if (milliseconds <= 0) {
+            addReplyErrorFormat(c,"invalid expire time in %s",c->cmd->name);
+            return;
+        }
+        if (unit == UNIT_SECONDS) milliseconds *= 1000;
+    }
+
+    setKey(c->db,key,val);
     server.dirty++;
+    if (expire) setExpire(c->db,key,mstime()+milliseconds);
+    notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"set",key,c->db->id);
+    if (expire) notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,
+        "expire",key,c->db->id);
 }
 
 void setrangeCommand(redisClient *c) {
