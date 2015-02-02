@@ -30,6 +30,7 @@
 #include <Psapi.h>
 #include <ShlObj.h>
 #include <Shlwapi.h>
+#include <assert.h>
 
 #define QFORK_MAIN_IMPL
 #include "Win32_QFork.h"
@@ -1170,9 +1171,16 @@ LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
     }
     int contiguousBlocksToAllocate = (int)(size / g_pQForkControl->heapBlockSize);
 
+    if (contiguousBlocksToAllocate > g_pQForkControl->availableBlocksInHeap) {
+        errno = ENOMEM;
+        return retPtr;
+    }
+
     size_t mapped = 0;
-    int startIndex = allocateHigh ? g_pQForkControl->availableBlocksInHeap - 1 : contiguousBlocksToAllocate - 1;
-    int endIndex = allocateHigh ? -1 : g_pQForkControl->availableBlocksInHeap - contiguousBlocksToAllocate + 1;
+    int startIndex = allocateHigh ? g_pQForkControl->availableBlocksInHeap - 1 : 0;
+    int endIndex = allocateHigh ?
+                   contiguousBlocksToAllocate - 2 : 
+                   g_pQForkControl->availableBlocksInHeap - contiguousBlocksToAllocate + 1;
     int direction = allocateHigh ? -1 : 1;
     int blockIndex = 0;
     int contiguousBlocksFound = 0;
@@ -1180,6 +1188,9 @@ LPVOID AllocHeapBlock(size_t size, BOOL allocateHigh) {
         blockIndex != endIndex; 
         blockIndex += direction) {
         for (int n = 0; n < contiguousBlocksToAllocate; n++) {
+            assert((blockIndex + n * direction >= 0) &&
+                   (blockIndex + n * direction < g_pQForkControl->availableBlocksInHeap));
+
             if (g_pQForkControl->heapBlockMap[blockIndex + n * direction] == BlockState::bsUNMAPPED) {
                 contiguousBlocksFound++;
             }
