@@ -3463,8 +3463,8 @@ void redisOutOfMemoryHandler(size_t allocation_size) {
 #else
     redisLog(REDIS_WARNING,"Out Of Memory allocating %zu bytes!",
         allocation_size);
-    redisPanic("Redis aborting for OUT OF MEMORY");
 #endif
+    redisPanic("Redis aborting for OUT OF MEMORY");
 }
 
 void redisSetProcTitle(char *title) {
