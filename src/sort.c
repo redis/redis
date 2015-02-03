@@ -322,16 +322,16 @@ void sortCommand(redisClient *c) {
     }
     if (end >= vectorlen) end = vectorlen-1;
 
-    /* Optimization:
+    /* Whenever possible, we load elements into the output array in a more
+     * direct way. This is possible if:
      *
-     * 1) if the object to sort is a sorted set.
+     * 1) The object to sort is a sorted set or a list (internally sorted).
      * 2) There is nothing to sort as dontsort is true (BY <constant string>).
-     * 3) We have a LIMIT option that actually reduces the number of elements
-     *    to fetch.
      *
-     * In this case to load all the objects in the vector is a huge waste of
-     * resources. We just allocate a vector that is big enough for the selected
-     * range length, and make sure to load just this part in the vector. */
+     * In this special case, if we have a LIMIT option that actually reduces
+     * the number of elements to fetch, we also optimize to just load the
+     * range we are interested in and allocating a vector that is big enough
+     * for the selected range length. */
     if ((sortval->type == REDIS_ZSET || sortval->type == REDIS_LIST) &&
         dontsort &&
         (start != 0 || end != vectorlen-1))
@@ -364,10 +364,7 @@ void sortCommand(redisClient *c) {
                 j++;
             }
             listTypeReleaseIterator(li);
-            /* The code producing the output does not know that in the case of
-             * sorted set, 'dontsort', and LIMIT, we are able to get just the
-             * range, already sorted, so we need to adjust "start" and "end"
-             * to make sure start is set to 0. */
+            /* Fix start/end: output code is not aware of this optimization. */
             end -= start;
             start = 0;
         }
@@ -427,10 +424,7 @@ void sortCommand(redisClient *c) {
             j++;
             ln = desc ? ln->backward : ln->level[0].forward;
         }
-        /* The code producing the output does not know that in the case of
-         * sorted set, 'dontsort', and LIMIT, we are able to get just the
-         * range, already sorted, so we need to adjust "start" and "end"
-         * to make sure start is set to 0. */
+        /* Fix start/end: output code is not aware of this optimization. */
         end -= start;
         start = 0;
     } else if (sortval->type == REDIS_ZSET) {
