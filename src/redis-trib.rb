@@ -52,7 +52,7 @@ class ClusterNode
     def initialize(addr)
         s = addr.split(":")
         if s.length < 2
-           puts "Invalid IP or Port (given as #{addr}) - use IP:Port format"
+           xputs "[ERR] Invalid IP or Port (given as #{addr}) - use IP:Port"
            exit 1
         end
         port = s.pop # removes port from split array
@@ -468,7 +468,7 @@ class RedisTrib
     # more nodes. This function fixes this condition by migrating keys where
     # it seems more sensible.
     def fix_open_slot(slot)
-        puts ">>> Fixing open slot #{slot}"
+        xputs ">>> Fixing open slot #{slot}"
 
         # Try to obtain the current slot owner, according to the current
         # nodes configuration.
@@ -858,7 +858,7 @@ class RedisTrib
         load_cluster_info_from_node(argv[0])
         check_cluster
         if @errors.length != 0
-            puts "*** Please fix your cluster problems before resharding"
+            xputs "*** Please fix your cluster problems before resharding"
             exit 1
         end
 
@@ -931,7 +931,7 @@ class RedisTrib
         end
 
         if sources.length == 0
-            puts "*** No source nodes given, operation aborted"
+            xputs "*** No source nodes given, operation aborted"
             exit 1
         end
 
@@ -975,10 +975,10 @@ class RedisTrib
     def check_create_parameters
         masters = @nodes.length/(@replicas+1)
         if masters < 3
-            puts "*** ERROR: Invalid configuration for cluster creation."
-            puts "*** Redis Cluster requires at least 3 master nodes."
-            puts "*** This is not possible with #{@nodes.length} nodes and #{@replicas} replicas per node."
-            puts "*** At least #{3*(@replicas+1)} nodes are required."
+            xputs "*** ERROR: Invalid configuration for cluster creation."
+            xputs "*** Redis Cluster requires at least 3 master nodes."
+            xputs "*** This is not possible with #{@nodes.length} nodes and #{@replicas} replicas per node."
+            xputs "*** At least #{3*(@replicas+1)} nodes are required."
             exit 1
         end
     end
@@ -1367,7 +1367,7 @@ end
 rt = RedisTrib.new
 cmd_spec = COMMANDS[ARGV[0].downcase]
 if !cmd_spec
-    puts "Unknown redis-trib subcommand '#{ARGV[0]}'"
+    xputs "[ERR] Unknown redis-trib subcommand '#{ARGV[0]}'"
     exit 1
 end
 
