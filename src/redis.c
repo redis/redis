@@ -3550,17 +3550,6 @@ int checkForSentinelMode(int argc, char **argv) {
     return 0;
 }
 
-/* Returns 1 if there is --check-rdb among the arguments or if
- * argv[0] is exactly "redis-check-rdb". */
-int checkForCheckRDBMode(int argc, char **argv) {
-    int j;
-
-    if (strstr(argv[0],"redis-check-rdb") != NULL) return 1;
-    for (j = 1; j < argc; j++)
-        if (!strcmp(argv[j],"--check-rdb")) return 1;
-    return 0;
-}
-
 /* Function called at startup to load RDB or AOF file in memory. */
 void loadDataFromDisk(void) {
     long long start = ustime();
@@ -3746,6 +3735,12 @@ int main(int argc, char **argv) {
         initSentinel();
     }
 
+    /* Check if we need to start in redis-check-rdb mode. We just execute
+     * the program main. However the program is part of the Redis executable
+     * so that we can easily execute an RDB check on loading errors. */
+    if (strstr(argv[0],"redis-check-rdb") != NULL)
+        exit(redis_check_rdb_main(argv,argc));
+
     if (argc >= 2) {
         int j = 1; /* First option to parse in argv[] */
         sds options = sdsempty();
@@ -3805,13 +3800,6 @@ int main(int argc, char **argv) {
         sdsfree(options);
     } else {
         redisLog(REDIS_WARNING, "Warning: no config file specified, using the default config. In order to specify a config file use %s /path/to/%s.conf", argv[0], server.sentinel_mode ? "sentinel" : "redis");
-    }
-
-    if (checkForCheckRDBMode(argc, argv)) {
-        redisLog(REDIS_WARNING, "Checking RDB file %s", server.rdb_filename);
-        redisLog(REDIS_WARNING, "To check different RDB file: "
-            "redis-check-rdb --dbfilename <dump.rdb>");
-        exit(redis_check_rdb(server.rdb_filename));
     }
 
     server.supervised = redisIsSupervised(server.supervised_mode);
