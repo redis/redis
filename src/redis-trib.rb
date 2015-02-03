@@ -56,7 +56,12 @@ class ClusterNode
            exit 1
         end
         port = s.pop # removes port from split array
-        ip = s.join(":") =~ Resolv::IPv4::Regex ? s.join(":") : Resolv.getaddresses(s.join(":"))[1]
+        host = s.join(":") # restore any :'s we deleted above for IPv6 addresses
+        ip = if host =~ Resolv::IPv4::Regex || host =~ Resolv::IPv6::Regex
+                 host
+             else
+                 Resolv.getaddress host
+             end
 
         @r = nil
         @info = {}
