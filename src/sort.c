@@ -354,7 +354,7 @@ void sortCommand(redisClient *c) {
             listTypeIterator *li;
             listTypeEntry entry;
             li = listTypeInitIterator(sortval,
-                    desc ? listTypeLength(sortval) - start - 1 : start,
+                    desc ? (long)(listTypeLength(sortval) - start - 1) : start,
                     desc ? REDIS_HEAD : REDIS_TAIL);
 
             while(j < vectorlen && listTypeNext(li,&entry)) {
