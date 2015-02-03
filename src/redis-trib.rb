@@ -306,6 +306,7 @@ class RedisTrib
     def initialize
         @nodes = []
         @fix = false
+        @mode = :default
         @errors = []
     end
 
@@ -355,7 +356,10 @@ class RedisTrib
 
     def check_cluster
         xputs ">>> Performing Cluster Check (using node #{@nodes[0]})"
-        show_nodes
+        if (@mode != :create)
+            show_nodes
+            print_readable_map
+        end
         check_config_consistency
         check_open_slots
         check_slots_coverage
@@ -1021,6 +1025,7 @@ class RedisTrib
     end
 
     def start_cluster(ask=:no)
+        @mode = :create
         show_nodes
         print_readable_map
         if ask == :verify
