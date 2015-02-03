@@ -24,6 +24,7 @@
 require 'rubygems'
 require 'redis'
 require 'resolv'
+require 'yaml'
 
 ClusterHashSlots = 16384
 
@@ -49,7 +50,7 @@ def xputs(s)
 end
 
 class ClusterNode
-    def initialize(addr)
+    def initialize(addr, local_name=nil)
         s = addr.split(":")
         if s.length < 2
            xputs "[ERR] Invalid IP or Port (given as #{addr}) - use IP:Port"
@@ -71,6 +72,8 @@ class ClusterNode
         @info[:migrating] = {}
         @info[:importing] = {}
         @info[:replicate] = false
+        @info[:replicas] = []
+        @info[:local_name] = local_name
         @dirty = false # True if we need to flush slots info into node.
         @friends = []
     end
@@ -81,6 +84,10 @@ class ClusterNode
 
     def slots
         @info[:slots]
+    end
+
+    def lname
+        @info[:local_name]
     end
 
     def has_flag?(flag)
@@ -184,9 +191,10 @@ class ClusterNode
         @dirty = true
     end
 
-    def set_as_replica(node_id)
-        @info[:replicate] = node_id
+    def set_as_replica(master)
+        @info[:replicate] = master.info[:name] # "name" is random node ID
         @dirty = true
+        master.info[:replicas].push self
     end
 
     def flush_node_config
@@ -214,7 +222,7 @@ class ClusterNode
         @dirty = false
     end
 
-    def info_string
+    def slots_as_range
         # We want to display the hash slots assigned to this node
         # as ranges, like in: "1-5,8-9,20-25,30"
         #
@@ -245,6 +253,10 @@ class ClusterNode
         slots = slots.map{|x|
             x.count == 1 ? x.first.to_s : "#{x.first}-#{x.last}"
         }.join(",")
+    end
+
+    def info_string
+        slots = slots_as_range
 
         role = self.has_flag?("master") ? "M" : "S"
 
@@ -306,7 +318,16 @@ class RedisTrib
     end
 
     def add_node(node)
-        @nodes << node
+        @nodes.each do |n|
+            if node.to_s == n.to_s
+                xputs "[ERR] Duplicate node detected -- #{n}"
+                if (n.lname)
+                    xputs "[ERR] IP/Port of #{n.lname} conflicts with #{node.lname}"
+                end
+                exit 3
+            end
+        end
+        @nodes.push node
     end
 
     def cluster_error(msg)
@@ -543,9 +564,27 @@ class RedisTrib
         print "\n"
     end
 
-    def alloc_slots
+    def alloc_slots_for_masters(masters)
+        masters_count = masters.length
+
+        # Alloc slots on masters
+        slots_per_node = ClusterHashSlots.to_f / masters_count
+        first = 0
+        cursor = 0.0
+        masters.each_with_index do |master,masternum|
+            last = (cursor+slots_per_node-1).round
+            if last > ClusterHashSlots || masternum == masters.length-1
+                last = ClusterHashSlots-1
+            end
+            last = first if last < first # Min step is 1.
+            master.add_slots first..last
+            first = last+1
+            cursor += slots_per_node
+        end
+    end
+
+    def alloc_slots_automatic(masters_count)
         nodes_count = @nodes.length
-        masters_count = @nodes.length / (@replicas+1)
         masters = []
 
         # The first step is to split instances by IP. This is useful as
@@ -589,20 +628,7 @@ class RedisTrib
 
         masters.each{|m| puts m}
 
-        # Alloc slots on masters
-        slots_per_node = ClusterHashSlots.to_f / masters_count
-        first = 0
-        cursor = 0.0
-        masters.each_with_index{|n,masternum|
-            last = (cursor+slots_per_node-1).round
-            if last > ClusterHashSlots || masternum == masters.length-1
-                last = ClusterHashSlots-1
-            end
-            last = first if last < first # Min step is 1.
-            n.add_slots first..last
-            first = last+1
-            cursor += slots_per_node
-        }
+        alloc_slots_for_masters masters
 
         # Select N replicas for every master.
         # We try to split the replicas among all the IPs with spare nodes
@@ -643,7 +669,7 @@ class RedisTrib
                     else
                         slave = interleaved.shift
                     end
-                    slave.set_as_replica(m.info[:name])
+                    slave.set_as_replica m
                     nodes_count -= 1
                     assigned_replicas += 1
                     puts "Adding replica #{slave} to #{m}"
@@ -973,37 +999,36 @@ class RedisTrib
     # the number of nodes and the specified replicas have a valid configuration
     # where there are at least three master nodes and enough replicas per node.
     def check_create_parameters
-        masters = @nodes.length/(@replicas+1)
-        if masters < 3
+        masters_count = @nodes.length/(@replicas+1)
+        if masters_count < 3
             xputs "*** ERROR: Invalid configuration for cluster creation."
             xputs "*** Redis Cluster requires at least 3 master nodes."
             xputs "*** This is not possible with #{@nodes.length} nodes and #{@replicas} replicas per node."
             xputs "*** At least #{3*(@replicas+1)} nodes are required."
             exit 1
         end
+        masters_count
     end
 
-    def create_cluster_cmd(argv,opt)
-        opt = {'replicas' => 0}.merge(opt)
-        @replicas = opt['replicas'].to_i
+    def create_node_verify(hostport, local_name=nil)
+        node = ClusterNode.new(hostport, local_name)
+        node.connect(:abort => true)
+        node.assert_cluster
+        node.load_info
+        node.assert_empty
+        add_node(node)
+        node
+    end
 
-        xputs ">>> Creating cluster"
-        argv[0..-1].each{|n|
-            node = ClusterNode.new(n)
-            node.connect(:abort => true)
-            node.assert_cluster
-            node.load_info
-            node.assert_empty
-            add_node(node)
-        }
-        check_create_parameters
-        xputs ">>> Performing hash slots allocation on #{@nodes.length} nodes..."
-        alloc_slots
+    def start_cluster(ask=:no)
         show_nodes
-        yes_or_die "Can I set the above configuration?"
+        print_readable_map
+        if ask == :verify
+            yes_or_die "Can I set the above configuration?"
+        end
+        xputs ">>> Updating nodes configuration"
         flush_nodes_config
-        xputs ">>> Nodes configuration updated"
-        xputs ">>> Assign a different config epoch to each node"
+        xputs ">>> Assigning a different config epoch to each node"
         assign_config_epoch
         xputs ">>> Sending CLUSTER MEET messages to join the cluster"
         join_cluster
@@ -1014,6 +1039,111 @@ class RedisTrib
         wait_cluster_join
         flush_nodes_config # Useful for the replicas
         check_cluster
+    end
+
+    def create_cluster_cmd(argv,opt)
+        opt = {'replicas' => 0}.merge(opt)
+        @replicas = opt['replicas'].to_i
+
+        xputs ">>> Creating cluster"
+        argv[0..-1].each{|n| create_node_verify(n)}
+        masters_count = check_create_parameters
+        xputs ">>> Performing hash slot allocation on #{masters_count} nodes..."
+        alloc_slots_automatic masters_count
+        start_cluster :verify
+    end
+
+    def print_readable_map
+        def localname(node)
+            node.lname ? "(#{node.lname}) " : ""
+        end
+
+        puts "Printing human readable map of cluster topology..."
+        @nodes.each do |node|
+            replica_count = node.info[:replicas].length
+            if (replica_count > 0)
+                puts "Group for hash slots #{node.slots_as_range} (#{replica_count+1} nodes):"
+                puts "\t#{localname node}#{node} (master)"
+                node.info[:replicas].each do |replica|
+                    puts "\t#{localname replica}#{replica} (replica)"
+                end
+            end
+        end
+    end
+
+    def create_cluster_by_file_cmd(argv, opt)
+        conf = argv[0]
+        xputs ">>> Creating cluster using file #{conf}"
+
+        parsed = YAML.load(File.open(conf))
+        # YAML gives us:
+        #   - list of nodes (logical name + hostname/ip + port)
+        #   - groups of specific master=>[replica] parings
+
+        debug = false
+        if (debug)
+            puts parsed
+        end
+
+        # Generate a name=>node map for easy node lookup
+        nodes_by_name = {}
+        parsed["nodes"].each do |node|
+            # YAML + Ruby means bare IPv6 addresses turn into symbols.
+            # Symbols don't work as IP addresses, so let's force-convert
+            # any symbols in a hash back into a string (with the ':' prepended).
+            node.each do |k,v|
+                if v.is_a? Symbol
+                    v = ":#{v.to_s}"
+                    node[k] = v
+                end
+            end
+            nodes_by_name[node["name"]] = node
+        end
+
+        def create_node_from_desc(node, replicas)
+            ipport = nil
+            if (node["addr"])
+                ipport = node["addr"]
+            else
+                ipport = "#{node["host"]}:#{node["port"]}"
+            end
+            if replicas[ipport]
+                xputs "[ERR] Node for #{ipport} already exists as a replica!"
+                exit 3
+            else
+                create_node_verify(ipport, node["name"])
+            end
+        end
+
+        # For each replication group
+        #   create master ClusterNode
+        #   For each replica of master
+        #     create replica ClusterNode
+        #     assign replica to master
+        masters = []
+        replicas_created = {}
+        parsed["topology"].each do |group|
+            # Create master for this group
+            master = create_node_from_desc nodes_by_name[group["master"]], replicas_created
+            masters.push master
+            group["replicas"].each do |replica|
+                node_desc = nodes_by_name[replica]
+
+                # Create replica
+                puts "Adding replica #{node_desc["name"]} to #{master.lname}..."
+                node = create_node_from_desc nodes_by_name[replica], replicas_created
+                replicas_created[node.to_s] = true
+
+                # Assign replica to master
+                node.set_as_replica master
+            end
+        end
+
+        # Create slot map for all masters
+        alloc_slots_for_masters masters
+
+        # Send configuration to all live nodes
+        start_cluster
     end
 
     def addnode_cluster_cmd(argv,opt)
@@ -1327,6 +1457,7 @@ end
 
 COMMANDS={
     "create"  => ["create_cluster_cmd", -2, "host1:port1 ... hostN:portN"],
+    "create-by-file"  => ["create_cluster_by_file_cmd", 2, "<cluster.yaml>"],
     "check"   => ["check_cluster_cmd", 2, "host:port"],
     "fix"     => ["fix_cluster_cmd", 2, "host:port"],
     "reshard" => ["reshard_cluster_cmd", 2, "host:port"],

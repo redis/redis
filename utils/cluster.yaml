@@ -1,0 +1,31 @@
+# Example cluster description to use with: redis-trib.rb create-by-file
+# nodes are: (name, host, port) OR (name, addr)
+#   - 'host' and 'addr' may contain hostnames or IPv4/6 addresses
+# topology groups are: (master, replicas)
+---
+nodes:
+  - name: node-1
+    host: 127.0.0.1
+    port: 7001
+  - name: node-2
+    addr: ::1:7002
+  - name: node-3
+    host: ::1
+    port: 7003
+  - name: node-4
+    host: localhost
+    port: 7004
+  - name: node-5
+    addr: 127.0.0.1:7005
+  - name: node-6
+    addr: localhost:7000
+topology:
+  - master: node-1
+    replicas:
+    - node-2
+  - master: node-3
+    replicas:
+    - node-4
+  - master: node-5
+    replicas:
+    - node-6
