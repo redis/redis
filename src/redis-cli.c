@@ -506,7 +506,7 @@ static sds cliFormatReplyCSV(redisReply *r) {
     switch (r->type) {
     case REDIS_REPLY_ERROR:
         out = sdscat(out,"(error) ");
-        out = sdscatlen(out,r->str,strlen(r->str));
+        out = sdscatrepr(out,r->str,strlen(r->str));
     break;
     case REDIS_REPLY_STATUS:
         out = sdscatrepr(out,r->str,r->len);
