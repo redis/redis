@@ -121,7 +121,7 @@ class ClusterNode
         nodes.each{|n|
             # name addr flags role ping_sent ping_recv link_status slots
             split = n.split
-            name,addr,flags,master_id,ping_sent,ping_recv,config_epoch,link_status = split[0..6]
+            name,addr,flags,master_id,ping_sent,ping_recv,_config_epoch,link_status = split[0..6]
             slots = split[8..-1]
             info = {
                 :name => name,
@@ -719,7 +719,7 @@ class RedisTrib
                 fnode.load_info()
                 add_node(fnode)
             rescue => e
-                xputs "[ERR] Unable to load info for node #{fnode}"
+                xputs "[ERR] Unable to load info for node #{fnode}: #{e}"
             end
         }
         populate_nodes_replicas_info
@@ -1218,9 +1218,9 @@ class RedisTrib
 
         # Enforce mandatory options
         if ALLOWED_OPTIONS[cmd]
-            ALLOWED_OPTIONS[cmd].each {|option,val|
-                if !options[option] && val == :required
-                    puts "Option '--#{option}' is required "+ \
+            ALLOWED_OPTIONS[cmd].each {|opt,val|
+                if !options[opt] && val == :required
+                    puts "Option '--#{opt}' is required "+ \
                          "for subcommand '#{cmd}'"
                     exit 1
                 end
@@ -1341,7 +1341,6 @@ ALLOWED_OPTIONS={
 def show_help
     puts "Usage: redis-trib <command> <options> <arguments ...>\n\n"
     COMMANDS.each{|k,v|
-        o = ""
         puts "  #{k.ljust(15)} #{v[2]}"
         if ALLOWED_OPTIONS[k]
             ALLOWED_OPTIONS[k].each{|optname,has_arg|
