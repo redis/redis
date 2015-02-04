@@ -1219,6 +1219,7 @@ int slaveTryPartialResynchronization(int fd) {
         /* No-sync replication. */
         redisLog(REDIS_NOTICE, "No-sync slave accepted without SYNC phase.");
         sdsfree(reply);
+        server.repl_master_initial_offset = 0;
         replicationCreateMasterClient(fd);
         return PSYNC_CONTINUE;
     }
