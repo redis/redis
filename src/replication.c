@@ -480,8 +480,8 @@ void syncCommand(redisClient *c) {
         return;
     }
 
-    /* Accept the slave ASAP if it is running in no-sync mode. */
-    goto attach_slave;
+    /* Accept the slave ASAP if it requested no-sync mode. */
+    if (c->flags & REDIS_SLAVE_NO_SYNC) goto attach_slave;
 
     redisLog(REDIS_NOTICE,"Slave %s asks for synchronization",
         replicationGetSlaveName(c));
