@@ -3067,7 +3067,8 @@ void zcardCommand(client *c) {
     addReplyLongLong(c,zsetLength(zobj));
 }
 
-void zscoreCommand(client *c) {
+/* This generic command implements both ZSCORE and ZMSCORE. */
+void zscoreGenericCommand(client *c, int multi) {
     robj *key = c->argv[1];
     robj *zobj;
     double score;
@@ -3075,11 +3076,47 @@ void zscoreCommand(client *c) {
     if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) return;
 
-    if (zsetScore(zobj,c->argv[2]->ptr,&score) == C_ERR) {
-        addReplyNull(c);
-    } else {
-        addReplyDouble(c,score);
+    /* if more than one member were specified, than return the result in form of a multi-bulk reply */
+    if (!multi) {
+        if (zsetScore(zobj,c->argv[2]->ptr,&score) == C_ERR) {
+            addReplyNull(c);
+        } else {
+            addReplyDouble(c,score);
+        }
+        return;
     }
+
+    addReplyArrayLen(c,c->argc - 2);
+
+    if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
+        for (int j = 2; j < c->argc; j++) {
+            if (zzlFind(zobj->ptr,c->argv[j]->ptr,&score) == NULL) {
+                addReplyNull(c);
+            } else {
+                addReplyDouble(c,score);
+            }
+        }
+    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+        for (int j = 2; j < c->argc; j++) {
+            zset *zs = zobj->ptr;
+            dictEntry *de = dictFind(zs->dict, c->argv[j]->ptr);
+            if (de == NULL) {
+                addReplyNull(c);
+                continue;
+            }
+            addReplyDouble(c, *(double*)dictGetVal(de));
+        }
+    } else {
+        serverPanic("Unknown sorted set encoding");
+    }
+}
+
+void zscoreCommand(client *c) {
+    zscoreGenericCommand(c, 0);
+}
+
+void zmscoreCommand(client *c) {
+    zscoreGenericCommand(c, 1);
 }
 
 void zrankGenericCommand(client *c, int reverse) {
