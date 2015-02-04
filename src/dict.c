@@ -666,34 +666,42 @@ dictEntry *dictGetRandomKey(dict *d)
  * at producing N elements, and the elements are guaranteed to be non
  * repeating. */
 unsigned int dictGetRandomKeys(dict *d, dictEntry **des, unsigned int count) {
-    int j; /* internal hash table id, 0 or 1. */
-    unsigned int stored = 0;
+    unsigned int j; /* internal hash table id, 0 or 1. */
+    unsigned int tables; /* 1 or 2 tables? */
+    unsigned int stored = 0, maxsizemask;
 
     if (dictSize(d) < count) count = dictSize(d);
-    while(stored < count) {
-        for (j = 0; j < 2; j++) {
-            /* Pick a random point inside the hash table 0 or 1. */
-            unsigned int i = random() & d->ht[j].sizemask;
-            int size = d->ht[j].size;
 
-            /* Make sure to visit every bucket by iterating 'size' times. */
-            while(size--) {
-                dictEntry *he = d->ht[j].table[i];
-                while (he) {
-                    /* Collect all the elements of the buckets found non
-                     * empty while iterating. */
-                    *des = he;
-                    des++;
-                    he = he->next;
-                    stored++;
-                    if (stored == count) return stored;
-                }
-                i = (i+1) & d->ht[j].sizemask;
+    /* Try to do a rehashing work proportional to 'count'. */
+    for (j = 0; j < count; j++) {
+        if (dictIsRehashing(d))
+            _dictRehashStep(d);
+        else
+            break;
+    }
+
+    tables = dictIsRehashing(d) ? 2 : 1;
+    maxsizemask = d->ht[0].sizemask;
+    if (tables > 1 && maxsizemask < d->ht[1].sizemask)
+        maxsizemask = d->ht[1].sizemask;
+
+    /* Pick a random point inside the larger table. */
+    unsigned int i = random() & maxsizemask;
+    while(stored < count) {
+        for (j = 0; j < tables; j++) {
+            if (i >= d->ht[j].size) continue; /* Out of range for this table. */
+            dictEntry *he = d->ht[j].table[i];
+            while (he) {
+                /* Collect all the elements of the buckets found non
+                 * empty while iterating. */
+                *des = he;
+                des++;
+                he = he->next;
+                stored++;
+                if (stored == count) return stored;
             }
-            /* If there is only one table and we iterated it all, we should
-             * already have 'count' elements. Assert this condition. */
-            assert(dictIsRehashing(d) != 0);
         }
+        i = (i+1) & maxsizemask;
     }
     return stored; /* Never reached. */
 }
