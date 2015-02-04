@@ -342,7 +342,10 @@ dictEntry *dictAddRaw(dict *d, void *key)
     if ((index = _dictKeyIndex(d, key)) == -1)
         return NULL;
 
-    /* Allocate the memory and store the new entry */
+    /* Allocate the memory and store the new entry.
+     * Insert the element in top, with the assumption that in a database
+     * system it is more likely that recently added entries are accessed
+     * more frequently. */
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
     entry = zmalloc(sizeof(*entry));
     entry->next = ht->table[index];

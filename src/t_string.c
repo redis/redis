@@ -61,6 +61,8 @@ static int checkStringLength(redisClient *c, long long size) {
 #define REDIS_SET_NO_FLAGS 0
 #define REDIS_SET_NX (1<<0)     /* Set if key not exists. */
 #define REDIS_SET_XX (1<<1)     /* Set if key exists. */
+#define REDIS_SET_EX (1<<2)     /* Set if time in seconds is given */
+#define REDIS_SET_PX (1<<3)     /* Set if time in ms in given */
 
 void setGenericCommand(redisClient *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
@@ -102,18 +104,28 @@ void setCommand(redisClient *c) {
         robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
 
         if ((a[0] == 'n' || a[0] == 'N') &&
-            (a[1] == 'x' || a[1] == 'X') && a[2] == '\0') {
+            (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
+            !(flags & REDIS_SET_XX))
+        {
             flags |= REDIS_SET_NX;
         } else if ((a[0] == 'x' || a[0] == 'X') &&
-                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0') {
+                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
+                   !(flags & REDIS_SET_NX))
+        {
             flags |= REDIS_SET_XX;
         } else if ((a[0] == 'e' || a[0] == 'E') &&
-                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' && next) {
+                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
+                   !(flags & REDIS_SET_PX) && next)
+        {
+            flags |= REDIS_SET_EX;
             unit = UNIT_SECONDS;
             expire = next;
             j++;
         } else if ((a[0] == 'p' || a[0] == 'P') &&
-                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' && next) {
+                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
+                   !(flags & REDIS_SET_EX) && next)
+        {
+            flags |= REDIS_SET_PX;
             unit = UNIT_MILLISECONDS;
             expire = next;
             j++;
