@@ -1496,6 +1496,7 @@ void initServerConfig(void) {
     server.repl_disable_tcp_nodelay = REDIS_DEFAULT_REPL_DISABLE_TCP_NODELAY;
     server.repl_diskless_sync = REDIS_DEFAULT_REPL_DISKLESS_SYNC;
     server.repl_diskless_sync_delay = REDIS_DEFAULT_REPL_DISKLESS_SYNC_DELAY;
+    server.repl_no_sync = REDIS_DEFAULT_REPL_NO_SYNC;
     server.slave_priority = REDIS_DEFAULT_SLAVE_PRIORITY;
     server.master_repl_offset = 0;
 

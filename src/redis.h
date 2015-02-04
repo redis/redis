@@ -119,6 +119,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_DEFAULT_RDB_FILENAME "dump.rdb"
 #define REDIS_DEFAULT_REPL_DISKLESS_SYNC 0
 #define REDIS_DEFAULT_REPL_DISKLESS_SYNC_DELAY 5
+#define REDIS_DEFAULT_REPL_NO_SYNC 0
 #define REDIS_DEFAULT_SLAVE_SERVE_STALE_DATA 1
 #define REDIS_DEFAULT_SLAVE_READ_ONLY 1
 #define REDIS_DEFAULT_REPL_DISABLE_TCP_NODELAY 0
@@ -258,6 +259,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_READONLY (1<<17)    /* Cluster client is in read-only state. */
 #define REDIS_PUBSUB (1<<18)      /* Client is in Pub/Sub mode. */
 #define REDIS_PREVENT_PROP (1<<19)  /* Don't propagate to AOF / Slaves. */
+#define REDIS_SLAVE_NO_SYNC (1<<20) /* Result of: REPLCONF use-sync 0. */
 
 /* Client block type (btype field in client structure)
  * if REDIS_BLOCKED flag is set. */
@@ -853,6 +855,7 @@ struct redisServer {
     int slave_priority;             /* Reported in INFO and used by Sentinel. */
     char repl_master_runid[REDIS_RUN_ID_SIZE+1];  /* Master run id for PSYNC. */
     long long repl_master_initial_offset;         /* Master PSYNC offset. */
+    int repl_no_sync;               /* Streaming replication, no SYNC. */
     /* Replication script cache. */
     dict *repl_scriptcache_dict;        /* SHA1 all slaves are aware of. */
     list *repl_scriptcache_fifo;        /* First in, first out LRU eviction. */

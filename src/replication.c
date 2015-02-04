@@ -480,6 +480,9 @@ void syncCommand(redisClient *c) {
         return;
     }
 
+    /* Accept the slave ASAP if it is running in no-sync mode. */
+    goto attach_slave;
+
     redisLog(REDIS_NOTICE,"Slave %s asks for synchronization",
         replicationGetSlaveName(c));
 
@@ -571,6 +574,8 @@ void syncCommand(redisClient *c) {
         }
     }
 
+attach_slave:
+
     if (server.repl_disable_tcp_nodelay)
         anetDisableTcpNoDelay(NULL, c->fd); /* Non critical if it fails. */
     c->repldbfd = -1;
@@ -579,6 +584,18 @@ void syncCommand(redisClient *c) {
     listAddNodeTail(server.slaves,c);
     if (listLength(server.slaves) == 1 && server.repl_backlog == NULL)
         createReplicationBacklog();
+
+    /* Put the slave fully online right now if it is a no-sync one. */
+    if (c->flags & REDIS_SLAVE_NO_SYNC) {
+        char buf[128];
+        int buflen;
+
+        /* Inform the slave with +NOTNEEDED that the request was accepted. */
+        buflen = snprintf(buf,sizeof(buf),"+NOTNEEDED\r\n");
+        if (write(c->fd,buf,buflen) != buflen) freeClientAsync(c);
+        aeDeleteFileEvent(server.el,c->fd,AE_WRITABLE);
+        putSlaveOnline(c);
+    }
     return;
 }
 
@@ -613,6 +630,18 @@ void replconfCommand(redisClient *c) {
                     &port,NULL) != REDIS_OK))
                 return;
             c->slave_listening_port = port;
+        } else if (!strcasecmp(c->argv[j]->ptr,"use-sync")) {
+            /* REPLCONF USE-SYNC is used in order for the slave to request
+             * synchronization-less replication, the master will just send
+             * new data without trying to synchronize the slave. */
+            long long val;
+
+            if ((getLongLongFromObject(c->argv[j+1], &val) != REDIS_OK))
+                return;
+            if (val)
+                c->flags &= ~REDIS_SLAVE_NO_SYNC;
+            else
+                c->flags |= REDIS_SLAVE_NO_SYNC;
         } else if (!strcasecmp(c->argv[j]->ptr,"ack")) {
             /* REPLCONF ACK is used by slave to inform the master the amount
              * of replication stream that it processed so far. It is an
@@ -1140,7 +1169,7 @@ int slaveTryPartialResynchronization(int fd) {
      * client structure representing the master into server.master. */
     server.repl_master_initial_offset = -1;
 
-    if (server.cached_master) {
+    if (server.cached_master && server.repl_no_sync == 0) {
         psync_runid = server.cached_master->replrunid;
         snprintf(psync_offset,sizeof(psync_offset),"%lld", server.cached_master->reploff+1);
         redisLog(REDIS_NOTICE,"Trying a partial resynchronization (request %s:%s).", psync_runid, psync_offset);
@@ -1184,6 +1213,14 @@ int slaveTryPartialResynchronization(int fd) {
         replicationDiscardCachedMaster();
         sdsfree(reply);
         return PSYNC_FULLRESYNC;
+    }
+
+    if (!strncmp(reply,"+NOTNEEDED",10)) {
+        /* No-sync replication. */
+        redisLog(REDIS_NOTICE, "No-sync slave accepted without SYNC phase.");
+        sdsfree(reply);
+        replicationCreateMasterClient(fd);
+        return PSYNC_CONTINUE;
     }
 
     if (!strncmp(reply,"+CONTINUE",9)) {
@@ -1292,10 +1329,22 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 
     /* AUTH with the master if required. */
-    if(server.masterauth) {
+    if (server.masterauth) {
         err = sendSynchronousCommand(fd,"AUTH",server.masterauth,NULL);
         if (err[0] == '-') {
             redisLog(REDIS_WARNING,"Unable to AUTH to MASTER: %s",err);
+            sdsfree(err);
+            goto error;
+        }
+        sdsfree(err);
+    }
+
+    /* Inform the master we don't want to synchronize if we are using
+     * repl-no-sync mode. */
+    if (server.repl_no_sync) {
+        err = sendSynchronousCommand(fd,"REPLCONF","use-sync","0",NULL);
+        if (err[0] == '-') {
+            redisLog(REDIS_WARNING,"Unable to enable no-sync mode: %s",err);
             sdsfree(err);
             goto error;
         }
@@ -1698,6 +1747,7 @@ void refreshGoodSlavesCount(void) {
         time_t lag = server.unixtime - slave->repl_ack_time;
 
         if (slave->replstate == REDIS_REPL_ONLINE &&
+            !(slave->flags & REDIS_SLAVE_NO_SYNC) &&
             lag <= server.repl_min_slaves_max_lag) good++;
     }
     server.repl_good_slaves_count = good;

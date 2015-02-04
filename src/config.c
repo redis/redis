@@ -276,6 +276,10 @@ void loadServerConfigFromString(char *config) {
             if ((server.repl_diskless_sync = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"repl-no-sync") && argc==2) {
+            if ((server.repl_no_sync = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"repl-diskless-sync-delay") && argc==2) {
             server.repl_diskless_sync_delay = atoi(argv[1]);
             if (server.repl_diskless_sync_delay < 0) {

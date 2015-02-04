@@ -673,7 +673,10 @@ void freeClient(redisClient *c) {
      *
      * Note that before doing this we make sure that the client is not in
      * some unexpected state, by checking its flags. */
-    if (server.master && c->flags & REDIS_MASTER) {
+    if (server.master &&
+        c->flags & REDIS_MASTER &&
+        server.repl_no_sync == 0)
+    {
         redisLog(REDIS_WARNING,"Connection with master lost.");
         if (!(c->flags & (REDIS_CLOSE_AFTER_REPLY|
                           REDIS_CLOSE_ASAP|
