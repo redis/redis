@@ -221,7 +221,7 @@ struct commandHelp {
     1,
     "2.4.0" },
     { "GETSET",
-    "key value [EX seconds] [PX milliseconds]",
+    "key value",
     "Set the string value of a key and return its old value",
     1,
     "1.0.0" },
