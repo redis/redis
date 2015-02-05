@@ -2745,7 +2745,8 @@ void zcardCommand(redisClient *c) {
     addReplyLongLong(c,zsetLength(zobj));
 }
 
-void zscoreCommand(redisClient *c) {
+/* This generic command implements both ZSCORE and ZMSCORE. */
+void zscoreGenericCommand(redisClient *c) {
     robj *key = c->argv[1];
     robj *zobj;
     double score;
@@ -2753,37 +2754,9 @@ void zscoreCommand(redisClient *c) {
     if ((zobj = lookupKeyReadOrReply(c,key,shared.nullbulk)) == NULL ||
         checkType(c,zobj,REDIS_ZSET)) return;
 
-    if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
-        if (zzlFind(zobj->ptr,c->argv[2],&score) != NULL)
-            addReplyDouble(c,score);
-        else
-            addReply(c,shared.nullbulk);
-    } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
-        zset *zs = zobj->ptr;
-        dictEntry *de;
-        
-        c->argv[2] = tryObjectEncoding(c->argv[2]);
-        de = dictFind(zs->dict,c->argv[2]);
-        if (de != NULL) {
-            score = *(double*)dictGetVal(de);
-            addReplyDouble(c,score);
-        } else {
-            addReply(c,shared.nullbulk);
-        }
-    } else {
-        redisPanic("Unknown sorted set encoding");
-    }
-}
-
-void zmscoreCommand(redisClient *c) {
-    robj *key = c->argv[1];
-    robj *zobj;
-    double score;
-
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.nullbulk)) == NULL ||
-        checkType(c,zobj,REDIS_ZSET)) return;
-
-    addReplyMultiBulkLen(c, c->argc - 2);
+    /* if more than one member were specified, than return the result in form of a multi-bulk reply */
+    if (c->argc > 3)
+        addReplyMultiBulkLen(c, c->argc - 2);
 
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
         for (int j = 2; j < c->argc; j++) {
@@ -2810,6 +2783,14 @@ void zmscoreCommand(redisClient *c) {
     } else {
         redisPanic("Unknown sorted set encoding");
     }
+}
+
+void zscoreCommand(redisClient *c) {
+    zscoreGenericCommand(c);
+}
+
+void zmscoreCommand(redisClient *c) {
+    zscoreGenericCommand(c);
 }
 
 void zrankGenericCommand(redisClient *c, int reverse) {
