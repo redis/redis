@@ -78,6 +78,7 @@ static struct config {
     sds dbnumstr;
     char *tests;
     char *auth;
+    char *data_filename;
 } config;
 
 typedef struct _client {
@@ -518,6 +519,9 @@ int parseOptions(int argc, const char **argv) {
             config.loop = 1;
         } else if (!strcmp(argv[i],"-I")) {
             config.idlemode = 1;
+        } else if (!strcmp(argv[i],"-z")) {
+            if (lastarg) goto invalid;
+            config.data_filename = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-t")) {
             if (lastarg) goto invalid;
             /* We get the list of tests to run as a string in the form
@@ -575,6 +579,10 @@ usage:
 " -t <tests>         Only run the comma separated list of tests. The test\n"
 "                    names are the same as the ones produced as output.\n"
 " -I                 Idle mode. Just open N idle connections and wait.\n\n"
+" -z <filename>      Load SET/PUSH command data from the specified file.\n"
+"  Using this option replaces the default \"xxx...\" command payload with\n"
+"  user-defined data. File length cannot be less than the configured data size.\n"
+"  It is allowed to use binary files (containing '\\0'), like \"/dev/urandom\".\n"
 "Examples:\n\n"
 " Run the benchmark with the default configuration against 127.0.0.1:6379:\n"
 "   $ redis-benchmark\n\n"
@@ -607,7 +615,7 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id, void *clientData
     if (config.idlemode == 1) {
         printf("clients: %d\r", config.liveclients);
         fflush(stdout);
-	return 250;
+        return 250;
     }
     float dt = (float)(mstime()-config.start)/1000.0;
     float rps = (float)config.requests_finished/dt;
@@ -663,6 +671,7 @@ int main(int argc, const char **argv) {
     config.tests = NULL;
     config.dbnum = 0;
     config.auth = NULL;
+    config.data_filename = NULL;
 
     i = parseOptions(argc,argv);
     argc -= i;
@@ -701,10 +710,28 @@ int main(int argc, const char **argv) {
 
     /* Run default benchmark suite. */
     data = zmalloc(config.datasize+1);
-    do {
+
+    if (config.data_filename == NULL) {
         memset(data,'x',config.datasize);
         data[config.datasize] = '\0';
+    } else {
+        FILE *fp = fopen(config.data_filename, "r");
+        if (!fp) {
+            fprintf(stderr,"Cannot open file \"%s\"\n", config.data_filename);
+            exit(1);
+        }
+        size_t cnt = fread(data, 1, config.datasize, fp);
+        if (cnt < (size_t)config.datasize) {
+            fprintf(stderr,"Error while reading data or file too short: \"%s\"\n",
+                config.data_filename);
+            fclose(fp);
+            exit(1);
+        }
+        fclose(fp);
+        data[config.datasize] = '\0';
+    }
 
+    do {
         if (test_is_selected("ping_inline") || test_is_selected("ping"))
             benchmark("PING_INLINE","PING\r\n",6);
 
@@ -715,7 +742,7 @@ int main(int argc, const char **argv) {
         }
 
         if (test_is_selected("set")) {
-            len = redisFormatCommand(&cmd,"SET key:__rand_int__ %s",data);
+            len = redisFormatCommand(&cmd,"SET key:__rand_int__ %b",data,config.datasize);
             benchmark("SET",cmd,len);
             free(cmd);
         }
@@ -733,13 +760,13 @@ int main(int argc, const char **argv) {
         }
 
         if (test_is_selected("lpush")) {
-            len = redisFormatCommand(&cmd,"LPUSH mylist %s",data);
+            len = redisFormatCommand(&cmd,"LPUSH mylist %b",data,config.datasize);
             benchmark("LPUSH",cmd,len);
             free(cmd);
         }
 
         if (test_is_selected("rpush")) {
-            len = redisFormatCommand(&cmd,"RPUSH mylist %s",data);
+            len = redisFormatCommand(&cmd,"RPUSH mylist %b",data,config.datasize);
             benchmark("RPUSH",cmd,len);
             free(cmd);
         }
@@ -775,7 +802,7 @@ int main(int argc, const char **argv) {
             test_is_selected("lrange_500") ||
             test_is_selected("lrange_600"))
         {
-            len = redisFormatCommand(&cmd,"LPUSH mylist %s",data);
+            len = redisFormatCommand(&cmd,"LPUSH mylist %b",data,config.datasize);
             benchmark("LPUSH (needed to benchmark LRANGE)",cmd,len);
             free(cmd);
         }
@@ -806,12 +833,16 @@ int main(int argc, const char **argv) {
 
         if (test_is_selected("mset")) {
             const char *argv[21];
+            size_t argvlen[21];
             argv[0] = "MSET";
+            argvlen[0] = 4;
             for (i = 1; i < 21; i += 2) {
                 argv[i] = "key:__rand_int__";
+                argvlen[i] = 16; /* 16 is strlen("key:__rand_int__). */
                 argv[i+1] = data;
+                argvlen[i+1] = config.datasize;
             }
-            len = redisFormatCommandArgv(&cmd,21,argv,NULL);
+            len = redisFormatCommandArgv(&cmd,21,argv,argvlen);
             benchmark("MSET (10 keys)",cmd,len);
             free(cmd);
         }
