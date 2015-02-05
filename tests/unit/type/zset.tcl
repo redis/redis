@@ -610,6 +610,20 @@ start_server {tags {"zset"}} {
         }
     }
 
+    test {ZSCORE with single members} {
+        r zadd zscoretest 10 x
+        r zadd zscoretest 20 y
+        
+        r zscore zscoretest x
+    } {10}
+    
+    test {ZSCORE with multiple members} {
+        r zadd zscoretest 10 x
+        r zadd zscoretest 20 y
+        
+        r zscore zscoretest x, y
+    } {10 20}
+
     proc stressers {encoding} {
         if {$encoding == "ziplist"} {
             # Little extra to allow proper fuzzing in the sorting stresser
