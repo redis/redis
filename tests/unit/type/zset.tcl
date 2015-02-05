@@ -609,19 +609,12 @@ start_server {tags {"zset"}} {
             set oldscore $score
         }
     }
-
-    test {ZSCORE with single members} {
-        r zadd zscoretest 10 x
-        r zadd zscoretest 20 y
-        
-        r zscore zscoretest x
-    } {10}
     
-    test {ZSCORE with multiple members} {
-        r zadd zscoretest 10 x
-        r zadd zscoretest 20 y
+    test {ZMSCORE retrieve} {
+        r zadd zmscoretest 10 x
+        r zadd zmscoretest 20 y
         
-        r zscore zscoretest x, y
+        r zmscore zmscoretest x y
     } {10 20}
 
     proc stressers {encoding} {

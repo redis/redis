@@ -2775,6 +2775,43 @@ void zscoreCommand(redisClient *c) {
     }
 }
 
+void zmscoreCommand(redisClient *c) {
+    robj *key = c->argv[1];
+    robj *zobj;
+    double score;
+
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.nullbulk)) == NULL ||
+        checkType(c,zobj,REDIS_ZSET)) return;
+
+    addReplyMultiBulkLen(c, c->argc - 2);
+
+    if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
+        for (int j = 2; j < c->argc; j++) {
+            if (zzlFind(zobj->ptr,c->argv[j],&score) != NULL) {
+                addReplyDouble(c,score);
+            } else {
+                addReply(c,shared.nullbulk);
+            }
+        }
+    } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
+        zset *zs = zobj->ptr;
+        dictEntry *de;
+        
+        for (int j = 2; j < c->argc; j++) {
+            c->argv[j] = tryObjectEncoding(c->argv[j]);
+            de = dictFind(zs->dict,c->argv[j]);
+            if (de != NULL) {
+                score = *(double*)dictGetVal(de);
+                addReplyDouble(c,score);
+            } else {
+                addReply(c,shared.nullbulk);
+            }
+        }
+    } else {
+        redisPanic("Unknown sorted set encoding");
+    }
+}
+
 void zrankGenericCommand(redisClient *c, int reverse) {
     robj *key = c->argv[1];
     robj *ele = c->argv[2];
