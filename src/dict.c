@@ -701,6 +701,10 @@ unsigned int dictGetRandomKeys(dict *d, dictEntry **des, unsigned int count) {
     unsigned int i = random() & maxsizemask;
     while(stored < count) {
         for (j = 0; j < tables; j++) {
+            /* Invariant of the dict.c rehashing: up to the indexes already
+             * visited in ht[0] during the rehashing, there are no populated
+             * buckets, so we can skip ht[0] for indexes between 0 and idx-1. */
+            if (j == 0 && i < d->rehashidx) continue;
             if (i >= d->ht[j].size) continue; /* Out of range for this table. */
             dictEntry *he = d->ht[j].table[i];
             while (he) {
