@@ -433,7 +433,7 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
 
     /* Parse the min-max interval. If one of the values is prefixed
      * by the "(" character, it's considered "open". For instance
-     * ZREMRANGEBYSCORE zset (1.5 (2.5 will match min < x < max
+     * ZRANGEBYSCORE zset (1.5 (2.5 will match min < x < max
      * ZRANGEBYSCORE zset 1.5 2.5 will instead match min <= x <= max */
     if (min->encoding == REDIS_ENCODING_INT) {
         spec->min = (long)min->ptr;
@@ -2748,40 +2748,28 @@ void zcardCommand(redisClient *c) {
 void zscoreCommand(redisClient *c) {
     robj *key = c->argv[1];
     robj *zobj;
-    int finded = 0, j;
     double score;
 
     if ((zobj = lookupKeyReadOrReply(c,key,shared.nullbulk)) == NULL ||
         checkType(c,zobj,REDIS_ZSET)) return;
 
-    /* if more than one member were specified, than return the result in form of a multi-bulk reply */
-    if (c->argc > 3)
-        addReplyMultiBulkLen(c, c->argc - 2);
-
     if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
-        for (j = 2; j < c->argc; j++) {
-            if (zzlFind(zobj->ptr,c->argv[j],&score) != NULL) {
-                addReplyDouble(c,score);
-                finded++;
-            }
-        }
-        if (finded == 0)
+        if (zzlFind(zobj->ptr,c->argv[2],&score) != NULL)
+            addReplyDouble(c,score);
+        else
             addReply(c,shared.nullbulk);
     } else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
         dictEntry *de;
         
-        for (j = 2; j < c->argc; j++) {
-            c->argv[j] = tryObjectEncoding(c->argv[j]);
-            de = dictFind(zs->dict,c->argv[j]);
-            if (de != NULL) {
-                score = *(double*)dictGetVal(de);
-                addReplyDouble(c,score);
-                finded++;
-            }
-        }
-        if (finded == 0)
+        c->argv[2] = tryObjectEncoding(c->argv[2]);
+        de = dictFind(zs->dict,c->argv[2]);
+        if (de != NULL) {
+            score = *(double*)dictGetVal(de);
+            addReplyDouble(c,score);
+        } else {
             addReply(c,shared.nullbulk);
+        }
     } else {
         redisPanic("Unknown sorted set encoding");
     }
