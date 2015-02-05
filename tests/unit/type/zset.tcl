@@ -611,11 +611,19 @@ start_server {tags {"zset"}} {
     }
     
     test {ZMSCORE retrieve} {
+        r del zmscoretest
         r zadd zmscoretest 10 x
         r zadd zmscoretest 20 y
         
         r zmscore zmscoretest x y
     } {10 20}
+    
+    test {ZMSCORE retrieve with missing member} {
+        r del zmscoretest
+        r zadd zmscoretest 10 x
+        
+        r zmscore zmscoretest x y
+    } {10 {}}
 
     proc stressers {encoding} {
         if {$encoding == "ziplist"} {
