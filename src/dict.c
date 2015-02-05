@@ -701,7 +701,14 @@ unsigned int dictGetRandomKeys(dict *d, dictEntry **des, unsigned int count) {
             /* Invariant of the dict.c rehashing: up to the indexes already
              * visited in ht[0] during the rehashing, there are no populated
              * buckets, so we can skip ht[0] for indexes between 0 and idx-1. */
-            if (j == 0 && i < d->rehashidx) continue;
+            if (tables == 2 && j == 0 && i < d->rehashidx) {
+                /* Moreover, if we are currently out of range in the second
+                 * table, there will be no elements in both tables up to
+                 * the current rehashing index, so we jump if possible.
+                 * (this happens when going from big to small table). */
+                if (i >= d->ht[1].size) i = d->rehashidx;
+                continue;
+            }
             if (i >= d->ht[j].size) continue; /* Out of range for this table. */
             dictEntry *he = d->ht[j].table[i];
             while (he) {
