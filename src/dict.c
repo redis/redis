@@ -282,6 +282,13 @@ int dictRehash(dict *d, int n) {
         d->ht[0].table[d->rehashidx] = NULL;
         d->rehashidx++;
     }
+    /* Check again if we already rehashed the whole table... */
+    if (d->ht[0].used == 0) {
+        zfree(d->ht[0].table);
+        d->ht[0] = d->ht[1];
+        _dictReset(&d->ht[1]);
+        d->rehashidx = -1;
+    }
     return 1;
 }
 
