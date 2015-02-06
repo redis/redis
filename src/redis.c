@@ -3148,7 +3148,7 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
     }
 
 #if 1 /* Use bulk get by default. */
-    count = dictGetRandomKeys(sampledict,samples,server.maxmemory_samples);
+    count = dictGetSomeKeys(sampledict,samples,server.maxmemory_samples);
 #else
     count = server.maxmemory_samples;
     for (j = 0; j < count; j++) samples[j] = dictGetRandomKey(sampledict);
