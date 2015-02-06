@@ -3147,13 +3147,7 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
         samples = zmalloc(sizeof(samples[0])*server.maxmemory_samples);
     }
 
-#if 1 /* Use bulk get by default. */
     count = dictGetSomeKeys(sampledict,samples,server.maxmemory_samples);
-#else
-    count = server.maxmemory_samples;
-    for (j = 0; j < count; j++) samples[j] = dictGetRandomKey(sampledict);
-#endif
-
     for (j = 0; j < count; j++) {
         unsigned long long idle;
         sds key;
