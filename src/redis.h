@@ -32,10 +32,7 @@
 
 #include "fmacros.h"
 #include "config.h"
-
-#if defined(__sun)
 #include "solarisfixes.h"
-#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -134,7 +131,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC 1
 #define REDIS_DEFAULT_MIN_SLAVES_TO_WRITE 0
 #define REDIS_DEFAULT_MIN_SLAVES_MAX_LAG 10
-#define REDIS_IP_STR_LEN INET6_ADDRSTRLEN
+#define REDIS_IP_STR_LEN 46 /* INET6_ADDRSTRLEN is 46, but we need to be sure */
 #define REDIS_PEER_ID_LEN (REDIS_IP_STR_LEN+32) /* Must be enough for ip:port */
 #define REDIS_BINDADDR_MAX 16
 #define REDIS_MIN_RESERVED_FDS 32
@@ -315,6 +312,12 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_WARNING 3
 #define REDIS_LOG_RAW (1<<10) /* Modifier to log without timestamp */
 #define REDIS_DEFAULT_VERBOSITY REDIS_NOTICE
+
+/* Supervision options */
+#define REDIS_SUPERVISED_NONE 0
+#define REDIS_SUPERVISED_AUTODETECT 1
+#define REDIS_SUPERVISED_SYSTEMD 2
+#define REDIS_SUPERVISED_UPSTART 3
 
 /* Anti-warning macro... */
 #define REDIS_NOTUSED(V) ((void) V)
@@ -743,7 +746,8 @@ struct redisServer {
     int active_expire_enabled;      /* Can be disabled for testing purposes. */
     size_t client_max_querybuf_len; /* Limit for client query buffer length */
     int dbnum;                      /* Total number of configured DBs */
-    int supervised;                 /* True if supervised by upstart or systemd */
+    int supervised;                 /* 1 if supervised, 0 otherwise. */
+    int supervised_mode;            /* See REDIS_SUPERVISED_* */
     int daemonize;                  /* True if running as a daemon */
     clientBufferLimitsConfig client_obuf_limits[REDIS_CLIENT_TYPE_COUNT];
     /* AOF persistence */
@@ -1375,6 +1379,10 @@ void initSentinel(void);
 void sentinelTimer(void);
 char *sentinelHandleConfiguration(char **argv, int argc);
 void sentinelIsRunning(void);
+
+/* redis-check-rdb */
+int redis_check_rdb(char *rdbfilename);
+int redis_check_rdb_main(char **argv, int argc);
 
 /* Scripting */
 void scriptingInit(void);

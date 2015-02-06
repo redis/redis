@@ -40,6 +40,7 @@
 #include <stdint.h>
 
 #include "util.h"
+#include "sha1.h"
 
 /* Glob-style pattern matching. */
 int stringmatchlen(const char *pattern, int patternLen,
@@ -428,11 +429,44 @@ int d2string(char *buf, size_t len, double value) {
  * having run_id == A, and you reconnect and it has run_id == B, you can be
  * sure that it is either a different instance or it was restarted. */
 void getRandomHexChars(char *p, unsigned int len) {
-    FILE *fp = fopen("/dev/urandom","r");
     char *charset = "0123456789abcdef";
     unsigned int j;
 
-    if (fp == NULL || fread(p,len,1,fp) == 0) {
+    /* Global state. */
+    static int seed_initialized = 0;
+    static unsigned char seed[20]; /* The SHA1 seed, from /dev/urandom. */
+    static uint64_t counter = 0; /* The counter we hash with the seed. */
+
+    if (!seed_initialized) {
+        /* Initialize a seed and use SHA1 in counter mode, where we hash
+         * the same seed with a progressive counter. For the goals of this
+         * function we just need non-colliding strings, there are no
+         * cryptographic security needs. */
+        FILE *fp = fopen("/dev/urandom","r");
+        if (fp && fread(seed,sizeof(seed),1,fp) == 1)
+            seed_initialized = 1;
+        if (fp) fclose(fp);
+    }
+
+    if (seed_initialized) {
+        while(len) {
+            unsigned char digest[20];
+            SHA1_CTX ctx;
+            unsigned int copylen = len > 20 ? 20 : len;
+
+            SHA1Init(&ctx);
+            SHA1Update(&ctx, seed, sizeof(seed));
+            SHA1Update(&ctx, (unsigned char*)&counter,sizeof(counter));
+            SHA1Final(digest, &ctx);
+            counter++;
+
+            memcpy(p,digest,copylen);
+            /* Convert to hex digits. */
+            for (j = 0; j < copylen; j++) p[j] = charset[p[j] & 0x0F];
+            len -= copylen;
+            p += copylen;
+        }
+    } else {
         /* If we can't read from /dev/urandom, do some reasonable effort
          * in order to create some entropy, since this function is used to
          * generate run_id and cluster instance IDs */
@@ -459,14 +493,12 @@ void getRandomHexChars(char *p, unsigned int len) {
             x += sizeof(pid);
         }
         /* Finally xor it with rand() output, that was already seeded with
-         * time() at startup. */
-        for (j = 0; j < len; j++)
+         * time() at startup, and convert to hex digits. */
+        for (j = 0; j < len; j++) {
             p[j] ^= rand();
+            p[j] = charset[p[j] & 0x0F];
+        }
     }
-    /* Turn it into hex digits taking just 4 bits out of 8 for every byte. */
-    for (j = 0; j < len; j++)
-        p[j] = charset[p[j] & 0x0F];
-    if (fp) fclose(fp);
 }
 
 /* Given the filename, return the absolute path as an SDS string, or NULL
