@@ -392,6 +392,8 @@ static RedisParamterMapper g_redisArgMap =
     { "repl-ping-slave-period",         &fp1 },    // repl-ping-slave-period [number]
     { "repl-timeout",                   &fp1 },    // repl-timeout [number]
     { "repl-disable-tcp-nodelay",       &fp1 },    // repl-disable-tcp-nodelay [yes/no]
+    { "repl-diskless-sync",             &fp1 },    // repl-diskless-sync [yes/no]
+    { "repl-diskless-sync-delay",       &fp1 },    // repl-diskless-sync-delay [number]
     { "repl-backlog-size",              &fp1 },    // repl-backlog-size [number]
     { "repl-backlog-ttl",               &fp1 },    // repl-backlog-ttl [number]
     { "slave-priority",                 &fp1 },    // slave-priority [number]

@@ -149,11 +149,15 @@ typedef struct hostent* (*redis_gethostbyname)(const char *name);
 typedef char* (*redis_inet_ntoa)(struct in_addr in);
 typedef BOOL (*redis_WSAGetOverlappedResult)(int rfd,LPWSAOVERLAPPED lpOverlapped, LPDWORD lpcbTransfer, BOOL fWait, LPDWORD lpdwFlags);
 
+typedef int (*redis_WSADuplicateSocket)(int rfd, DWORD dwProcessId, LPWSAPROTOCOL_INFO lpProtocolInfo);
+typedef int (*redis_WSASocket)(int af, int type, int protocol, LPWSAPROTOCOL_INFO lpProtocolInfo, GROUP g, DWORD dwFlags);
+
 // other API forwards
 typedef int (*redis_setmode)(int fd,int mode);
 typedef size_t (*redis_fwrite)(const void * _Str, size_t _Size, size_t _Count, FILE * _File);
 
 // API prototypes must match the unix implementation
+typedef int (*redis_pipe)(int pipefd[2]);
 typedef int (*redis_socket)(int af,int type,int protocol);
 typedef int (*redis_close)(int fd);
 typedef int (*redis_open)(const char * _Filename, int _OpenFlag, int flags);
@@ -186,6 +190,7 @@ typedef int (*redis_isatty)(int fd);
 typedef int (*redis_access)(const char *pathname, int mode);
 typedef u_int64 (*redis_lseek64)(int fd, u_int64 offset, int whence); 
 typedef intptr_t (*redis_get_osfhandle)(int fd);
+typedef int (*redis_open_osfhandle)(intptr_t osfhandle, int flags);
 typedef int(*redis_FD_ISSET)(int fd, fd_set *);
 
 // access() mode definitions 
@@ -199,6 +204,7 @@ extern "C"
 #endif
 
 // API replacements
+extern redis_pipe pipe;
 extern redis_socket socket;
 extern redis_WSASend WSASend;
 extern redis_WSARecv WSARecv;
@@ -207,6 +213,8 @@ extern redis_ioctlsocket ioctlsocket;
 extern redis_inet_addr inet_addr;
 extern redis_inet_ntoa inet_ntoa;
 extern redis_WSAGetOverlappedResult WSAGetOverlappedResult;
+extern redis_WSADuplicateSocket WSADuplicateSocket;
+extern redis_WSASocket WSASocket;
 
 extern redis_close fdapi_close;
 extern redis_open open;
@@ -239,6 +247,7 @@ extern redis_isatty isatty;
 extern redis_access access;
 extern redis_lseek64 lseek64;
 extern redis_get_osfhandle fdapi_get_osfhandle;
+extern redis_open_osfhandle fdapi_open_osfhandle;
 extern redis_freeaddrinfo freeaddrinfo;
 extern redis_getaddrinfo getaddrinfo;
 extern redis_inet_ntop inet_ntop;

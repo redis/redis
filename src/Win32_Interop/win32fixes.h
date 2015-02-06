@@ -89,8 +89,6 @@ typedef unsigned __int32 u_int32_t;
 #undef usleep
 #define usleep(x) (x == 1) ? Sleep(0) : Sleep((int)((x)/1000))
 
-#define pipe(fds) _pipe(fds, 8192, _O_BINARY|_O_NOINHERIT)
-
 /* Processes */
 #define waitpid(pid,statusp,options) _cwait (statusp, pid, WAIT_CHILD)
 

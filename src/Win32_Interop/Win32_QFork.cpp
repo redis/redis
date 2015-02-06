@@ -310,6 +310,22 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
             g_SlaveExitCode = do_rdbSave(g_pQForkControl->globalData.filename);
         } else if (g_pQForkControl->typeOfOperation == OperationType::otAOF) {
             g_SlaveExitCode = do_aofSave(g_pQForkControl->globalData.filename);
+        } else if (g_pQForkControl->typeOfOperation == OperationType::otSocket) {
+            LPWSAPROTOCOL_INFO lpProtocolInfo = (LPWSAPROTOCOL_INFO) g_pQForkControl->globalData.protocolInfo;
+            int pipe_write_fd = fdapi_open_osfhandle((intptr_t)g_pQForkControl->globalData.pipe_write_handle, _O_APPEND);
+            for (int i = 0; i < g_pQForkControl->globalData.numfds; i++) {
+                g_pQForkControl->globalData.fds[i] = WSASocket(FROM_PROTOCOL_INFO,
+                                                               FROM_PROTOCOL_INFO,
+                                                               FROM_PROTOCOL_INFO,
+                                                               &lpProtocolInfo[i],
+                                                               0,
+                                                               WSA_FLAG_OVERLAPPED);
+            }
+
+            g_SlaveExitCode = do_socketSave(g_pQForkControl->globalData.fds,
+                                            g_pQForkControl->globalData.numfds,
+                                            g_pQForkControl->globalData.clientids,
+                                            pipe_write_fd);
         } else {
             throw runtime_error("unexpected operation type");
         }
@@ -904,11 +920,22 @@ void CreateChildProcess(PROCESS_INFORMATION *pi, char* logfile, DWORD dwCreation
     g_hForkedProcess = pi->hProcess;
 }
 
-BOOL BeginForkOperation(OperationType type, LPVOID globalData, int sizeOfGlobalData, DWORD* childPID, uint32_t dictHashSeed, char* logfile) {
+typedef void (*CHILD_PID_HOOK)(DWORD pid);
+
+BOOL BeginForkOperation(OperationType type, LPVOID globalData, int sizeOfGlobalData, DWORD* childPID, uint32_t dictHashSeed, char* logfile, CHILD_PID_HOOK pidHook = NULL) {
     PROCESS_INFORMATION pi;
     try {
-        CopyForkOperationData(type, globalData, sizeOfGlobalData, dictHashSeed);
-        CreateChildProcess(&pi, logfile, 0);
+        pi.hProcess = INVALID_HANDLE_VALUE;
+
+        if(pidHook != NULL) {
+            CreateChildProcess(&pi, logfile, CREATE_SUSPENDED);
+            pidHook(pi.dwProcessId);
+            CopyForkOperationData(type, globalData, sizeOfGlobalData, dictHashSeed);
+            ResumeThread(pi.hThread);
+        } else {
+            CopyForkOperationData(type, globalData, sizeOfGlobalData, dictHashSeed);
+            CreateChildProcess(&pi, logfile, 0);
+        }
 
         *childPID = pi.dwProcessId;
         CloseHandle(pi.hThread);
@@ -931,6 +958,9 @@ BOOL BeginForkOperation(OperationType type, LPVOID globalData, int sizeOfGlobalD
     }
     catch(...) {
         ::redisLog(REDIS_WARNING, "BeginForkOperation: other exception caught.\n");
+    }
+    if(pi.hProcess != INVALID_HANDLE_VALUE) {
+        TerminateProcess(pi.hProcess, 1);
     }
     return FALSE;
 }
@@ -957,6 +987,43 @@ BOOL BeginForkOperation_Aof(
 {
     strcpy_s(g_pQForkControl->globalData.filename, filename);
     return BeginForkOperation(otAOF, globalData, sizeOfGlobalData, childPID, dictHashSeed, logfile);
+}
+
+void BeginForkOperation_Socket_PidHook(DWORD dwProcessId) {
+    WSAPROTOCOL_INFO* protocolInfo = (WSAPROTOCOL_INFO*)dlmalloc(sizeof(WSAPROTOCOL_INFO) * g_pQForkControl->globalData.numfds);
+    g_pQForkControl->globalData.protocolInfo = protocolInfo;
+    for(int i = 0; i < g_pQForkControl->globalData.numfds; i++) {
+        WSADuplicateSocket(g_pQForkControl->globalData.fds[i], dwProcessId, &protocolInfo[i]);
+    }
+}
+
+BOOL BeginForkOperation_Socket(
+    int *fds,
+    int numfds,
+    uint64_t *clientids,
+    int pipe_write_fd,
+    LPVOID globalData,
+    int sizeOfGlobalData,
+    DWORD* childPID,
+    unsigned __int32 dictHashSeed,
+    char* logfile)
+{
+    g_pQForkControl->globalData.fds = fds;
+    g_pQForkControl->globalData.numfds = numfds;
+    g_pQForkControl->globalData.clientids = clientids;
+
+    HANDLE pipe_write_handle = (HANDLE)_get_osfhandle(pipe_write_fd);
+
+    // The handle is already inheritable so there is no need to duplicate it
+    g_pQForkControl->globalData.pipe_write_handle = (pipe_write_handle);
+
+    return BeginForkOperation(otSocket,
+                              globalData,
+                              sizeOfGlobalData,
+                              childPID,
+                              dictHashSeed,
+                              logfile,
+                              BeginForkOperation_Socket_PidHook);
 }
 
 OperationStatus GetForkOperationStatus() {

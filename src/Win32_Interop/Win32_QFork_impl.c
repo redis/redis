@@ -58,3 +58,83 @@ int do_aofSave(char* filename)
     return REDIS_OK;
 }
 
+// This function is meant to be an exact replica of the fork() child path in rdbSaveToSlavesSockets
+int do_socketSave2(int *fds, int numfds, uint64_t *clientids)
+{
+#ifndef NO_QFORKIMPL
+    int retval;
+    rio slave_sockets;
+
+    server.rdb_child_pid = GetCurrentProcessId();
+
+    rioInitWithFdset(&slave_sockets,fds,numfds);
+    zfree(fds);
+
+    // On Windows we haven't duplicated the listening sockets so we shouldn't close them
+#ifndef _WIN32
+    closeListeningSockets(0);
+#endif
+
+    redisSetProcTitle("redis-rdb-to-slaves");
+    
+    retval = rdbSaveRioWithEOFMark(&slave_sockets,NULL);
+    if (retval == REDIS_OK && rioFlush(&slave_sockets) == 0)
+        retval = REDIS_ERR;
+    
+    if (retval == REDIS_OK) {
+        size_t private_dirty = zmalloc_get_private_dirty();
+    
+        if (private_dirty) {
+            redisLog(REDIS_NOTICE,
+                "RDB: %zu MB of memory used by copy-on-write",
+                private_dirty/(1024*1024));
+        }
+    
+        /* If we are returning OK, at least one slave was served
+         * with the RDB file as expected, so we need to send a report
+         * to the parent via the pipe. The format of the message is:
+         *
+         * <len> <slave[0].id> <slave[0].error> ...
+         *
+         * len, slave IDs, and slave errors, are all uint64_t integers,
+         * so basically the reply is composed of 64 bits for the len field
+         * plus 2 additional 64 bit integers for each entry, for a total
+         * of 'len' entries.
+         *
+         * The 'id' represents the slave's client ID, so that the master
+         * can match the report with a specific slave, and 'error' is
+         * set to 0 if the replication process terminated with a success
+         * or the error code if an error occurred. */
+        void *msg = zmalloc(sizeof(uint64_t)*(1+2*numfds));
+        uint64_t *len = msg;
+        uint64_t *ids = len+1;
+        int j, msglen;
+    
+        *len = numfds;
+        for (j = 0; j < numfds; j++) {
+            *ids++ = clientids[j];
+            *ids++ = slave_sockets.io.fdset.state[j];
+        }
+    
+        /* Write the message to the parent. If we have no good slaves or
+         * we are unable to transfer the message to the parent, we exit
+         * with an error so that the parent will abort the replication
+         * process with all the childre that were waiting. */
+        msglen = sizeof(uint64_t)*(1+2*numfds);
+        if (*len == 0 ||
+            write(server.rdb_pipe_write_result_to_parent,msg,msglen)
+            != msglen)
+        {
+            retval = REDIS_ERR;
+        }
+    }
+    return retval;
+#endif
+    return REDIS_OK;
+}
+
+int do_socketSave(int *fds, int numfds, uint64_t *clientids, int pipe_write_fd)
+{
+    server.rdb_pipe_write_result_to_parent = pipe_write_fd;
+    return do_socketSave2(fds, numfds, clientids);
+}

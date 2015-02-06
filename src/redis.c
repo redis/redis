@@ -1118,11 +1118,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 		if (GetForkOperationStatus() == osCOMPLETE || GetForkOperationStatus() == osFAILED) {
 			int exitCode;
 			int bySignal;
-			OperationType type = ((server.rdb_child_pid != -1) ? otRDB : otAOF);
 			bySignal = (int)(GetForkOperationStatus() == osFAILED);
 			redisLog(REDIS_WARNING, (bySignal ? "fork operation failed" : "fork operation complete"));
 			EndForkOperation(&exitCode);
-			if (type == otRDB) {
+			if (server.rdb_child_pid != -1) {
 				backgroundSaveDoneHandler(exitCode, bySignal);
 			} else {
 				backgroundRewriteDoneHandler(exitCode, bySignal);

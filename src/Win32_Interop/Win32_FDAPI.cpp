@@ -43,6 +43,8 @@ redis_WSASend WSASend = NULL;
 redis_WSARecv WSARecv = NULL;
 redis_WSACleanup WSACleanup = NULL;
 redis_WSAGetOverlappedResult WSAGetOverlappedResult = NULL;
+redis_WSADuplicateSocket WSADuplicateSocket = NULL;
+redis_WSASocket WSASocket = NULL;
 
 // other API forwards
 redis_fwrite fdapi_fwrite = NULL;
@@ -53,8 +55,10 @@ redis_isatty isatty = NULL;
 redis_access access = NULL;
 redis_lseek64 lseek64 = NULL;
 redis_get_osfhandle fdapi_get_osfhandle = NULL;
+redis_open_osfhandle fdapi_open_osfhandle = NULL;
 
 // Unix compatible FD based routines
+redis_pipe pipe = NULL;
 redis_socket socket = NULL;
 redis_close fdapi_close = NULL;
 redis_open open = NULL;
@@ -289,6 +293,21 @@ int redis_socket_impl(int af,int type,int protocol) {
 
     return rfd;
 }
+
+int redis_pipe_impl(int *pfds) {
+    int err = -1;
+    try {
+        // Not passing _O_NOINHERIT, the underlying handles are inheritable by default
+        err = crt_pipe(pfds, 8192, _O_BINARY);
+        if(err == 0) {
+            pfds[0] = RFDMap::getInstance().addPosixFD(pfds[0]);
+            pfds[1] = RFDMap::getInstance().addPosixFD(pfds[1]);
+        }
+    } CATCH_AND_REPORT()
+
+    return err;
+}
+
 
 // In unix a fd is a fd. All are closed with close().
 auto f_closesocket = dllfunctor_stdcall<int, SOCKET>("ws2_32.dll", "closesocket");
@@ -795,6 +814,40 @@ BOOL redis_WSAGetOverlappedResult_impl(int rfd, LPWSAOVERLAPPED lpOverlapped, LP
     return SOCKET_ERROR;
 }
 
+auto f_WSADuplicateSocket = dllfunctor_stdcall<int, SOCKET, DWORD, LPWSAPROTOCOL_INFO>("ws2_32.dll", "WSADuplicateSocketW");
+int redis_WSADuplicateSocket_impl(int rfd, DWORD dwProcessId, LPWSAPROTOCOL_INFO lpProtocolInfo) {
+    try {
+        SOCKET s = RFDMap::getInstance().lookupSocket( rfd );
+        if( s != INVALID_SOCKET ) {
+            return f_WSADuplicateSocket(s, dwProcessId, lpProtocolInfo);
+        } else {
+            errno = EBADF;
+            return SOCKET_ERROR;
+        }
+    } CATCH_AND_REPORT();
+
+    return SOCKET_ERROR;
+}
+
+auto f_WSASocket = dllfunctor_stdcall<SOCKET, int, int, int, LPWSAPROTOCOL_INFO, GROUP, DWORD>("ws2_32.dll", "WSASocketW");
+int redis_WSASocket_impl(int af, int type, int protocol, LPWSAPROTOCOL_INFO lpProtocolInfo, GROUP g, DWORD dwFlags) {
+    RFD rfd = RFDMap::invalidRFD;
+    try {
+        SOCKET socket = f_WSASocket(af,
+                                    type,
+                                    protocol,
+                                    lpProtocolInfo,
+                                    g,
+                                    dwFlags);
+
+        if(socket != INVALID_SOCKET) {
+            rfd = RFDMap::getInstance().addSocket(socket);
+        }
+    } CATCH_AND_REPORT()
+
+    return rfd;
+}
+
 int redis_WSAIoctl_impl(RFD rfd,DWORD dwIoControlCode,LPVOID lpvInBuffer,DWORD cbInBuffer,LPVOID lpvOutBuffer,DWORD cbOutBuffer,LPDWORD lpcbBytesReturned,LPWSAOVERLAPPED lpOverlapped,LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine) {
    try {
         SOCKET s = RFDMap::getInstance().lookupSocket( rfd );
@@ -1012,6 +1065,18 @@ intptr_t redis_get_osfhandle_impl(int fd) {
     return -1;
 }
 
+int redis_open_osfhandle_impl(intptr_t osfhandle, int flags) {
+    RFD rfd = RFDMap::invalidRFD;
+    try {
+        int posixFD = crt_open_osfhandle(osfhandle, flags);
+        if(posixFD != -1) {
+            rfd = RFDMap::getInstance().addPosixFD(posixFD);
+        }
+    } CATCH_AND_REPORT()
+
+    return rfd;
+}
+
 auto f_freeaddrinfo = dllfunctor_stdcall<void, addrinfo*>("ws2_32.dll", "freeaddrinfo");
 void redis_freeaddrinfo_impl(struct addrinfo *ai) {
     f_freeaddrinfo(ai);   
@@ -1089,6 +1154,7 @@ private:
     Win32_FDSockMap() {
         InitWinsock();
 
+        pipe = redis_pipe_impl;
         socket = redis_socket_impl;
         fdapi_close = redis_close_impl;
         open = redis_open_impl;
@@ -1123,12 +1189,15 @@ private:
         WSARecv = redis_WSARecv_impl;
         WSACleanup = redis_WSACleanup_impl;
         WSAGetOverlappedResult = redis_WSAGetOverlappedResult_impl;
+        WSADuplicateSocket = redis_WSADuplicateSocket_impl;
+        WSASocket = redis_WSASocket_impl;
         select = redis_select_impl;
         ntohl = redis_ntohl_impl;
         isatty = redis_isatty_impl;
         access = redis_access_impl;
         lseek64 = redis_lseek64_impl;
         fdapi_get_osfhandle = redis_get_osfhandle_impl;
+        fdapi_open_osfhandle = redis_open_osfhandle_impl;
         freeaddrinfo = redis_freeaddrinfo_impl;
         getaddrinfo = redis_getaddrinfo_impl;
         inet_ntop = redis_inet_ntop_impl;

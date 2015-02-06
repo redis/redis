@@ -23,10 +23,13 @@
 #include <cstdint>
 #include <stdio.h>
 
+
+int crt_pipe(int *pfds, unsigned int psize, int textmode);
 int crt_close(int fd);
 int crt_read(int fd, void *buffer, unsigned int count);
 int crt_write(int fd, const void *buffer, unsigned int count);
 int crt_open(const char *filename, int oflag, int pmode);
+int crt_open_osfhandle(intptr_t osfhandle, int flags);
 intptr_t crtget_osfhandle(int fd);
 int crtsetmode(int fd, int mode);
 size_t crtfwrite(const void * _Str, size_t _Size, size_t _Count, FILE * _File);

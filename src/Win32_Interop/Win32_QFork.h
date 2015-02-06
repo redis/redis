@@ -23,6 +23,7 @@
 #pragma once
 
 #include <Windows.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -31,7 +32,8 @@ extern "C" {
 typedef enum operationType {
     otINVALID = 0,
     otRDB = 1,
-    otAOF = 2
+    otAOF = 2,
+    otSocket = 3
 } OperationType;
 
 typedef enum operationStatus {
@@ -49,10 +51,15 @@ typedef enum startupStatus {
 
 #define MAX_GLOBAL_DATA 10000
 typedef struct QForkBeginInfo {
-    char filename[MAX_PATH];
     BYTE globalData[MAX_GLOBAL_DATA];
     size_t globalDataSize;
     unsigned __int32 dictHashSeed;
+    char filename[MAX_PATH];
+    int *fds;
+    int numfds;
+    uint64_t *clientids;
+    HANDLE pipe_write_handle;
+    LPVOID protocolInfo;
 } QForkStartupInfo;
     
 StartupStatus QForkStartup(int argc, char** argv);
@@ -69,6 +76,17 @@ BOOL BeginForkOperation_Rdb(
 
 BOOL BeginForkOperation_Aof(
     char* fileName,
+    LPVOID globalData,
+    int sizeOfGlobalData,
+    DWORD* childPID,
+    unsigned __int32 dictHashSeed,
+    char* logfile);
+
+BOOL BeginForkOperation_Socket(
+    int *fds,
+    int numfds,
+    uint64_t *clientids,
+    int pipe_write_fd,
     LPVOID globalData,
     int sizeOfGlobalData,
     DWORD* childPID,
