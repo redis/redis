@@ -248,7 +248,7 @@ bool ReportSpecialSystemErrors(int error) {
 
 BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
     try {
-		SmartHandle shParent( 
+        SmartHandle shParent( 
             OpenProcess(SYNCHRONIZE | PROCESS_DUP_HANDLE, TRUE, ParentProcessID),
             string("Could not open parent process"));
 
@@ -313,9 +313,9 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
 
         // execute requested operation
         if (g_pQForkControl->typeOfOperation == OperationType::otRDB) {
-			g_SlaveExitCode = do_rdbSave(g_pQForkControl->globalData.filename);
+            g_SlaveExitCode = do_rdbSave(g_pQForkControl->globalData.filename);
         } else if (g_pQForkControl->typeOfOperation == OperationType::otAOF) {
-			g_SlaveExitCode = do_aofSave(g_pQForkControl->globalData.filename);
+            g_SlaveExitCode = do_aofSave(g_pQForkControl->globalData.filename);
         } else {
             throw runtime_error("unexpected operation type");
         }
@@ -822,115 +822,122 @@ BOOL QForkShutdown() {
     return TRUE;
 }
 
-BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, int sizeOfGlobalData, DWORD* childPID, uint32_t dictHashSeed, char* logfile) {
+void CopyForkOperationData(OperationType type, LPVOID globalData, int sizeOfGlobalData, uint32_t dictHashSeed) {
+    // copy operation data
+    g_pQForkControl->typeOfOperation = type;
+    if (sizeOfGlobalData > MAX_GLOBAL_DATA) {
+        throw std::runtime_error("Global state too large.");
+    }
+    memcpy(&(g_pQForkControl->globalData.globalData), globalData, sizeOfGlobalData);
+    g_pQForkControl->globalData.globalDataSize = sizeOfGlobalData;
+    g_pQForkControl->globalData.dictHashSeed = dictHashSeed;
+
+    GetDLMallocGlobalState(&g_pQForkControl->DLMallocGlobalStateSize, NULL);
+    if (g_pQForkControl->DLMallocGlobalStateSize > sizeof(g_pQForkControl->DLMallocGlobalState)) {
+        throw std::runtime_error("DLMalloc global state too large.");
+    }
+    if(GetDLMallocGlobalState(&g_pQForkControl->DLMallocGlobalStateSize, g_pQForkControl->DLMallocGlobalState) != 0) {
+        throw std::runtime_error("DLMalloc global state copy failed.");
+    }
+
+    // protect both the heap and the fork control map from propagating local changes 
+    DWORD oldProtect = 0;
+    if (VirtualProtect(g_pQForkControl, sizeof(QForkControl), PAGE_WRITECOPY, &oldProtect) == FALSE) {
+        throw std::system_error(
+            GetLastError(),
+            system_category(),
+            "BeginForkOperation: VirtualProtect failed");
+    }
+    if (VirtualProtect( 
+        g_pQForkControl->heapStart, 
+        g_pQForkControl->availableBlocksInHeap * g_pQForkControl->heapBlockSize, 
+        PAGE_WRITECOPY, 
+        &oldProtect) == FALSE ) {
+        throw std::system_error(
+            GetLastError(),
+            system_category(),
+            "BeginForkOperation: VirtualProtect failed");
+    }
+}
+
+void CreateChildProcess(PROCESS_INFORMATION *pi, char* logfile, DWORD dwCreationFlags = 0) {
+    // ensure events are in the correst state
+    if (ResetEvent(g_pQForkControl->operationComplete) == FALSE ) {
+        throw std::system_error(
+            GetLastError(),
+            system_category(), 
+            "BeginForkOperation: ResetEvent() failed.");
+    }
+    if (ResetEvent(g_pQForkControl->operationFailed) == FALSE ) {
+        throw std::system_error(
+            GetLastError(),
+            system_category(), 
+            "BeginForkOperation: ResetEvent() failed.");
+    }
+    if (ResetEvent(g_pQForkControl->startOperation) == FALSE ) {
+        throw std::system_error(
+            GetLastError(),
+            system_category(),
+            "BeginForkOperation: ResetEvent() failed.");
+    }
+    if (ResetEvent(g_pQForkControl->forkedProcessReady) == FALSE) {
+        throw std::system_error(
+            GetLastError(),
+            system_category(),
+            "BeginForkOperation: ResetEvent() failed.");
+    }
+    if (ResetEvent(g_pQForkControl->terminateForkedProcess) == FALSE) {
+        throw std::system_error(
+            GetLastError(), 
+            system_category(),
+            "BeginForkOperation: ResetEvent() failed.");
+    }
+
+    // Launch the "forked" process
+    char fileName[MAX_PATH];
+    if (0 == GetModuleFileNameA(NULL, fileName, MAX_PATH)) {
+        throw system_error(
+            GetLastError(),
+            system_category(),
+            "Failed to get module name.");
+    }
+
+    STARTUPINFOA si;
+    memset(&si,0, sizeof(STARTUPINFOA));
+    si.cb = sizeof(STARTUPINFOA);
+    char arguments[_MAX_PATH];
+    memset(arguments,0,_MAX_PATH);
+    sprintf_s(
+        arguments,
+        _MAX_PATH,
+        "\"%s\" --%s %llu %lu --%s \"%s\"",
+        fileName,
+        cQFork.c_str(),
+        (uint64_t)g_hQForkControlFileMap,
+        GetCurrentProcessId(),
+        cLogfile.c_str(),
+        (logfile != NULL && logfile[0] != '\0') ? logfile : "stdout");
+    
+    if (FALSE == CreateProcessA(fileName, arguments, NULL, NULL, TRUE, dwCreationFlags, NULL, NULL, &si, pi)) {
+        throw system_error( 
+            GetLastError(),
+            system_category(),
+            "Problem creating slave process" );
+    }
+    g_hForkedProcess = pi->hProcess;
+}
+
+BOOL BeginForkOperation(OperationType type, LPVOID globalData, int sizeOfGlobalData, DWORD* childPID, uint32_t dictHashSeed, char* logfile) {
+    PROCESS_INFORMATION pi;
     try {
-        // copy operation data
-        g_pQForkControl->typeOfOperation = type;
-        strcpy_s(g_pQForkControl->globalData.filename, fileName);
-        if (sizeOfGlobalData > MAX_GLOBAL_DATA) {
-            throw std::runtime_error("Global state too large.");
-        }
-        memcpy(&(g_pQForkControl->globalData.globalData), globalData, sizeOfGlobalData);
-        g_pQForkControl->globalData.globalDataSize = sizeOfGlobalData;
-        g_pQForkControl->globalData.dictHashSeed = dictHashSeed;
+        CopyForkOperationData(type, globalData, sizeOfGlobalData, dictHashSeed);
+        CreateChildProcess(&pi, logfile, 0);
 
-        GetDLMallocGlobalState(&g_pQForkControl->DLMallocGlobalStateSize, NULL);
-        if (g_pQForkControl->DLMallocGlobalStateSize > sizeof(g_pQForkControl->DLMallocGlobalState)) {
-            throw std::runtime_error("DLMalloc global state too large.");
-        }
-        if(GetDLMallocGlobalState(&g_pQForkControl->DLMallocGlobalStateSize, g_pQForkControl->DLMallocGlobalState) != 0) {
-            throw std::runtime_error("DLMalloc global state copy failed.");
-        }
-
-        // protect both the heap and the fork control map from propagating local changes 
-        DWORD oldProtect = 0;
-        if (VirtualProtect(g_pQForkControl, sizeof(QForkControl), PAGE_WRITECOPY, &oldProtect) == FALSE) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(),
-                "BeginForkOperation: VirtualProtect failed");
-        }
-        if (VirtualProtect( 
-            g_pQForkControl->heapStart, 
-            g_pQForkControl->availableBlocksInHeap * g_pQForkControl->heapBlockSize, 
-            PAGE_WRITECOPY, 
-            &oldProtect) == FALSE ) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(),
-                "BeginForkOperation: VirtualProtect failed");
-        }
-
-        // ensure events are in the correst state
-        if (ResetEvent(g_pQForkControl->operationComplete) == FALSE ) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(), 
-                "BeginForkOperation: ResetEvent() failed.");
-        }
-        if (ResetEvent(g_pQForkControl->operationFailed) == FALSE ) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(), 
-                "BeginForkOperation: ResetEvent() failed.");
-        }
-        if (ResetEvent(g_pQForkControl->startOperation) == FALSE ) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(),
-                "BeginForkOperation: ResetEvent() failed.");
-        }
-        if (ResetEvent(g_pQForkControl->forkedProcessReady) == FALSE) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(),
-                "BeginForkOperation: ResetEvent() failed.");
-        }
-        if (ResetEvent(g_pQForkControl->terminateForkedProcess) == FALSE) {
-            throw std::system_error(
-                GetLastError(), 
-                system_category(),
-                "BeginForkOperation: ResetEvent() failed.");
-        }
-
-        // Launch the "forked" process
-        char fileName[MAX_PATH];
-        if (0 == GetModuleFileNameA(NULL, fileName, MAX_PATH)) {
-            throw system_error(
-                GetLastError(),
-                system_category(),
-                "Failed to get module name.");
-        }
-
-        STARTUPINFOA si;
-        memset(&si,0, sizeof(STARTUPINFOA));
-        si.cb = sizeof(STARTUPINFOA);
-        char arguments[_MAX_PATH];
-        memset(arguments,0,_MAX_PATH);
-        PROCESS_INFORMATION pi;
-        sprintf_s(
-            arguments,
-            _MAX_PATH,
-            "\"%s\" --%s %llu %lu --%s \"%s\"",
-            fileName,
-            cQFork.c_str(),
-            (uint64_t)g_hQForkControlFileMap,
-            GetCurrentProcessId(),
-            cLogfile.c_str(),
-            (logfile != NULL && logfile[0] != '\0') ? logfile : "stdout");
-        
-        if (FALSE == CreateProcessA(fileName, arguments, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
-            throw system_error( 
-                GetLastError(),
-                system_category(),
-                "Problem creating slave process" );
-        }
-        (*childPID) = pi.dwProcessId;
-		g_hForkedProcess = pi.hProcess;
-		CloseHandle(pi.hThread);
+        *childPID = pi.dwProcessId;
+        CloseHandle(pi.hThread);
 
         // wait for "forked" process to map memory
-		if (WaitForSingleObject(g_pQForkControl->forkedProcessReady, cDeadForkWait) != WAIT_OBJECT_0) {
+        if (WaitForSingleObject(g_pQForkControl->forkedProcessReady, cDeadForkWait) != WAIT_OBJECT_0) {
             throw system_error(
                 GetLastError(),
                 system_category(),
@@ -952,6 +959,30 @@ BOOL BeginForkOperation(OperationType type, char* fileName, LPVOID globalData, i
         ::redisLog(REDIS_WARNING, "BeginForkOperation: other exception caught.\n");
     }
     return FALSE;
+}
+
+BOOL BeginForkOperation_Rdb(
+    char *filename,
+    LPVOID globalData,
+    int sizeOfGlobalData,
+    DWORD* childPID,
+    unsigned __int32 dictHashSeed,
+    char* logfile)
+{
+    strcpy_s(g_pQForkControl->globalData.filename, filename);
+    return BeginForkOperation(otRDB, globalData, sizeOfGlobalData, childPID, dictHashSeed, logfile);
+}
+
+BOOL BeginForkOperation_Aof(
+    char *filename,
+    LPVOID globalData,
+    int sizeOfGlobalData,
+    DWORD* childPID,
+    unsigned __int32 dictHashSeed,
+    char* logfile)
+{
+    strcpy_s(g_pQForkControl->globalData.filename, filename);
+    return BeginForkOperation(otAOF, globalData, sizeOfGlobalData, childPID, dictHashSeed, logfile);
 }
 
 OperationStatus GetForkOperationStatus() {

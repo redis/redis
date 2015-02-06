@@ -788,7 +788,7 @@ int rdbSaveBackground(char *filename) {
     long long start;
     start = ustime();
     server.dirty_before_bgsave = server.dirty;
-    if (BeginForkOperation(otRDB, filename, &server, sizeof(server), &server.rdb_child_pid, dictGetHashFunctionSeed(), server.logfile)) {
+    if (BeginForkOperation_Rdb(filename, &server, sizeof(server), &server.rdb_child_pid, dictGetHashFunctionSeed(), server.logfile)) {
         server.stat_fork_time = ustime()-start;
         server.rdb_child_type = REDIS_RDB_CHILD_TYPE_DISK;
         updateDictResizePolicy();
