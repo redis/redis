@@ -246,17 +246,8 @@ int dictRehash(dict *d, int n) {
     int empty_visits = n*10; /* Max number of empty buckets to visit. */
     if (!dictIsRehashing(d)) return 0;
 
-    while(n--) {
+    while(n-- && d->ht[0].used != 0) {
         dictEntry *de, *nextde;
-
-        /* Check if we already rehashed the whole table... */
-        if (d->ht[0].used == 0) {
-            zfree(d->ht[0].table);
-            d->ht[0] = d->ht[1];
-            _dictReset(&d->ht[1]);
-            d->rehashidx = -1;
-            return 0;
-        }
 
         /* Note that rehashidx can't overflow as we are sure there are more
          * elements because ht[0].used != 0 */
@@ -282,13 +273,17 @@ int dictRehash(dict *d, int n) {
         d->ht[0].table[d->rehashidx] = NULL;
         d->rehashidx++;
     }
-    /* Check again if we already rehashed the whole table... */
+
+    /* Check if we already rehashed the whole table... */
     if (d->ht[0].used == 0) {
         zfree(d->ht[0].table);
         d->ht[0] = d->ht[1];
         _dictReset(&d->ht[1]);
         d->rehashidx = -1;
+        return 0;
     }
+
+    /* More to rehash... */
     return 1;
 }
 
