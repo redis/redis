@@ -81,7 +81,6 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     memcpy(&state->_wfds,&state->wfds,sizeof(fd_set));
 
     //
-    // TODO:
     //  Check the existing SSL connections to see if they have any pending bytes (in the SSL buffers) and process them
     // before doing a regular select. If we don't we could hang.
     //

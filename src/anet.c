@@ -66,12 +66,12 @@ int verify_callback(int ok, X509_STORE_CTX* store) {
     int depth = X509_STORE_CTX_get_error_depth(store);
     int err = X509_STORE_CTX_get_error(store);
 
-    printf("Error with certificate at depth: %d!\n", depth);
+    anetSetError("Error with certificate at depth: %d!\n", depth);
     X509_NAME_oneline(X509_get_issuer_name(cert), data, 255);
-    printf("\tIssuer: %s\n", data);
+    anetSetError("  Issuer: %s\n", data);
     X509_NAME_oneline(X509_get_subject_name(cert), data, 255);
-    printf("\tSubject: %s\n", data);
-    printf("\tError %d: %s\n", err, X509_verify_cert_error_string(err));
+    anetSetError("  Subject: %s\n", data);
+    anetSetError("  Error %d: %s\n", err, X509_verify_cert_error_string(err));
   }
 
   return ok;
@@ -449,8 +449,15 @@ int anetSSLGenericConnect( char* err, char* addr, int port, int flags, anetSSLCo
      anetCleanupSSL( sslctn );
      return ANET_ERR;
   }
+ 
+  int s = BIO_get_fd( bio, NULL );
 
-  return BIO_get_fd( bio, NULL );
+  if (flags & ANET_CONNECT_NONBLOCK) {
+       if (anetNonBlock(err,s) != ANET_OK)
+         return ANET_ERR;
+  }
+  
+  return s;
 }
 
 int anetTcpConnect(char *err, char *addr, int port)
