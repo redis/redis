@@ -640,7 +640,6 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
               link->ssl.bio = sslctn.bio;
               link->ssl.conn_str = sslctn.conn_str;
               link->ssl.sd = sslctn.sd;
-			  // cfd = sslctn.sd;
         }
 
         link->fd = cfd;
@@ -2984,23 +2983,16 @@ void clusterCron(void) {
             mstime_t old_ping_sent;
             clusterLink *link;
 
-            // TODO: This needs to connect with SSL if configured.
+            // This needs to connect with SSL if configured.
             if( server.ssl ) {
               fd = anetSSLGenericConnect(server.neterr, node->ip, node->port+REDIS_CLUSTER_PORT_INCR, 0, &sslctn, server.ssl_root_file, server.ssl_root_dir, server.ssl_srvr_cert_common_name );              
-              if( fd < 0 ) {
-            	  if (node->ping_sent == 0) node->ping_sent = mstime();
-            	                  redisLog(REDIS_DEBUG, "Unable to connect to "
-            	                      "Cluster Node [%s]:%d -> %s", node->ip,
-            	                      node->port+REDIS_CLUSTER_PORT_INCR,
-            	                      server.neterr);
-            	                  continue;
-              }
-            anetNonBlock(NULL, fd);  
+              if( fd > 0 )
+                anetNonBlock(NULL, fd);  
             } else {
             	fd = anetTcpNonBlockBindConnect(server.neterr, node->ip, node->port+REDIS_CLUSTER_PORT_INCR, REDIS_BIND_ADDR);
             }
 
-            if (fd == -1) {
+            if (fd < 0) {
                 /* We got a synchronous error from connect before
                  * clusterSendPing() had a chance to be called.
                  * If node->ping_sent is zero, failure detection can't work,
