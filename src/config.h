@@ -34,6 +34,11 @@
 #include <AvailabilityMacros.h>
 #endif
 
+#ifdef __linux__
+#include <linux/version.h>
+#include <features.h>
+#endif
+
 /* Define redis_fstat to fstat or fstat64() */
 #if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
 #define redis_fstat fstat64
@@ -86,9 +91,6 @@
 
 /* Define rdb_fsync_range to sync_file_range() on Linux, otherwise we use
  * the plain fsync() call. */
-#ifdef __linux__
-#include <linux/version.h>
-#include <features.h>
 #if defined(__GLIBC__) && defined(__GLIBC_PREREQ)
 #if (LINUX_VERSION_CODE >= 0x020611 && __GLIBC_PREREQ(2, 6))
 #define HAVE_SYNC_FILE_RANGE 1
@@ -96,7 +98,6 @@
 #else
 #if (LINUX_VERSION_CODE >= 0x020611)
 #define HAVE_SYNC_FILE_RANGE 1
-#endif
 #endif
 #endif
 
