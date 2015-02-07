@@ -687,7 +687,8 @@ typedef struct redisServer {
     char* ssl_pk_file;
     char* ssl_dhk_file;
     char* ssl_srvr_cert_common_name;
-    char* ssl_srvr_cert_passwd;    
+    char* ssl_srvr_cert_passwd;
+    char* ssl_cipher_list;
     
     list *clients;              /* List of active clients */
     list *clients_to_close;     /* Clients to close asynchronously */

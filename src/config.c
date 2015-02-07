@@ -141,7 +141,6 @@ void loadServerConfigFromString(char *config) {
             for (j = 0; j < addresses; j++)
                 server.bindaddr[j] = zstrdup(argv[j+1]);
             server.bindaddr_count = addresses;
-          server.ssl_dhk_file = zstrdup(argv[1]);
         } else if( !strcasecmp(argv[0],"ssl") && argc == 2) {
           if( !strcasecmp(argv[1],"y") || !strcasecmp(argv[1],"yes") ||
               !strcasecmp(argv[1],"t") || !strcasecmp(argv[1],"true") ) {
@@ -165,6 +164,8 @@ void loadServerConfigFromString(char *config) {
           server.ssl_srvr_cert_common_name = zstrdup(argv[1]);
         } else if( !strcasecmp(argv[0],"ssl_cert_pass") && argc == 2) {
           server.ssl_srvr_cert_passwd = zstrdup(argv[1]);
+        } else if( !strcasecmp(argv[0],"ssl_cipher_list") && argc == 2) {
+                  server.ssl_srvr_cipher_list = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocket") && argc == 2) {
             server.unixsocket = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"unixsocketperm") && argc == 2) {
@@ -1844,6 +1845,8 @@ int rewriteConfig(char *path) {
     rewriteConfigStringOption(state,"ssl_cert_file",server.ssl_cert_file,NULL);
     rewriteConfigStringOption(state,"ssl_pk_file",server.ssl_pk_file,NULL);
     rewriteConfigStringOption(state,"ssl_dhk_file",server.ssl_dhk_file,NULL);
+    rewriteConfigStringOption(state,"ssl_cipher_list",server.ssl_srvr_cipher_list,NULL);
+
     rewriteConfigStringOption(state,"ssl_cert_common_name",server.ssl_srvr_cert_common_name,NULL);
     rewriteConfigStringOption(state,"ssl_cert_pass",server.ssl_srvr_cert_passwd,NULL);
 

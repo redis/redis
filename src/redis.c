@@ -1406,6 +1406,7 @@ void initServerConfig(void) {
     server.ssl_cert_file = NULL;
     server.ssl_pk_file = NULL;
     server.ssl_dhk_file = NULL;
+    server.ssl_cipher_list = NULL;
     server.ssl_srvr_cert_common_name = NULL;
     server.ssl_srvr_cert_passwd = NULL;
     server.sofd = -1;

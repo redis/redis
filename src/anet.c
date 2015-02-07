@@ -856,7 +856,10 @@ int anetSSLAccept( char *err, int fd, struct redisServer server, anetSSLConnecti
       Note that as ciphers become broken, it will be necessary to change the available cipher list to remain secure.
     */
 
-    SSL_CTX_set_cipher_list(ctx, "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH");
+    if( NULL == server.ssl_cipher_list || 0 == strlen(server.ssl_cipher_list) )
+    	SSL_CTX_set_cipher_list(ctx, "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH");
+    else
+    	SSL_CTX_set_cipher_list(ctx, server.ssl_cipher_list);
 
     // Set up our SSL object as before
     SSL* ssl = SSL_new(ctx);
