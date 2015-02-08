@@ -808,6 +808,7 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
                     emptylen = 0;
                 }
             } else {
+                emptylen = 0;
                 while (he) {
                     /* Collect all the elements of the buckets found non
                      * empty while iterating. */
