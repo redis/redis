@@ -2014,7 +2014,7 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
                             maxelelen = sdslen(tmp->ptr);
                     }
                     /* Add the element with its initial score. */
-                    de = dictAddRaw(accumulator,tmp);
+                    de = dictAddRaw(accumulator,tmp,NULL);
                     incrRefCount(tmp);
                     dictSetDoubleVal(de,score);
                 } else {
