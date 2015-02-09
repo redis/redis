@@ -228,6 +228,7 @@ sds createLatencyReport(void) {
     int advise_write_load_info = 0; /* Print info about AOF and write load. */
     int advise_hz = 0;              /* Use higher HZ. */
     int advise_large_objects = 0;   /* Deletion of large objects. */
+    int advise_mass_eviction = 0;   /* Avoid mass eviction of keys. */
     int advise_relax_fsync_policy = 0; /* appendfsync always is slow. */
     int advise_disable_thp = 0;     /* AnonHugePages detected. */
     int advices = 0;
@@ -364,8 +365,13 @@ sds createLatencyReport(void) {
         }
 
         /* Eviction cycle. */
-        if (!strcasecmp(event,"eviction-cycle")) {
+        if (!strcasecmp(event,"eviction-del")) {
             advise_large_objects = 1;
+            advices++;
+        }
+
+        if (!strcasecmp(event,"eviction-cycle")) {
+            advise_mass_eviction = 1;
             advices++;
         }
 
@@ -450,6 +456,10 @@ sds createLatencyReport(void) {
 
         if (advise_large_objects) {
             report = sdscat(report,"- Deleting, expiring or evicting (because of maxmemory policy) large objects is a blocking operation. If you have very large objects that are often deleted, expired, or evicted, try to fragment those objects into multiple smaller objects.\n");
+        }
+
+        if (advise_mass_eviction) {
+            report = sdscat(report,"- Sudden changes to the 'maxmemory' setting via 'CONFIG SET', or allocation of large objects via sets or sorted sets intersections, STORE option of SORT, Redis Cluster large keys migrations (RESTORE command), may create sudden memory pressure forcing the server to block trying to evict keys. \n");
         }
 
         if (advise_disable_thp) {
