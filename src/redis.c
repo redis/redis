@@ -2030,9 +2030,12 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
 void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                    int target)
 {
-    robj **argvcopy = zmalloc(sizeof(robj*)*argc);
+    robj **argvcopy;
     int j;
 
+    if (server.loading) return; /* No propagation during loading. */
+
+    argvcopy = zmalloc(sizeof(robj*)*argc);
     for (j = 0; j < argc; j++) {
         argvcopy[j] = argv[j];
         incrRefCount(argv[j]);
@@ -2132,9 +2135,11 @@ void call(redisClient *c, int flags) {
         int j;
         redisOp *rop;
 
-        for (j = 0; j < server.also_propagate.numops; j++) {
-            rop = &server.also_propagate.ops[j];
-            propagate(rop->cmd, rop->dbid, rop->argv, rop->argc, rop->target);
+        if (flags & REDIS_CALL_PROPAGATE) {
+            for (j = 0; j < server.also_propagate.numops; j++) {
+                rop = &server.also_propagate.ops[j];
+                propagate(rop->cmd,rop->dbid,rop->argv,rop->argc,rop->target);
+            }
         }
         redisOpArrayFree(&server.also_propagate);
     }
