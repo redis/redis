@@ -556,10 +556,12 @@ void spopWithCountCommand(redisClient *c) {
 
     {
         setTypeIterator *si;
-        robj *objele, **propargv;
+        robj *objele, *propargv[3];
         int element_encoding;
 
         addReplyMultiBulkLen(c, elements_returned);
+        propargv[0] = createStringObject("SREM",4);
+        propargv[1] = c->argv[1];
 
         si = setTypeInitIterator(aux_set);
         while ((element_encoding = setTypeNext(si, &objele, &llele)) != -1) {
@@ -574,17 +576,13 @@ void spopWithCountCommand(redisClient *c) {
             addReplyBulk(c, objele);
 
             /* Replicate/AOF this command as an SREM operation */
-            propargv = zmalloc(sizeof(robj*)*3);
-            propargv[0] = createStringObject("SREM",4);
-            propargv[1] = c->argv[1];
-            incrRefCount(c->argv[1]);
             propargv[2] = objele;
-            incrRefCount(objele);
-
             alsoPropagate(server.sremCommand,c->db->id,propargv,3,REDIS_PROPAGATE_AOF|REDIS_PROPAGATE_REPL);
+
             decrRefCount(objele);
             server.dirty++;
         }
+        decrRefCount(propargv[0]);
         setTypeReleaseIterator(si);
     }
 

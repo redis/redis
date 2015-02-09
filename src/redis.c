@@ -2016,11 +2016,28 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
 }
 
 /* Used inside commands to schedule the propagation of additional commands
- * after the current command is propagated to AOF / Replication. */
+ * after the current command is propagated to AOF / Replication.
+ *
+ * 'cmd' must be a pointer to the Redis command to replicate, dbid is the
+ * database ID the command should be propagated into.
+ * Arguments of the command to propagte are passed as an array of redis
+ * objects pointers of len 'argc', using the 'argv' vector.
+ *
+ * The function does not take a reference to the passed 'argv' vector,
+ * so it is up to the caller to release the passed argv (but it is usually
+ * stack allocated).  The function autoamtically increments ref count of
+ * passed objects, so the caller does not need to. */
 void alsoPropagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
                    int target)
 {
-    redisOpArrayAppend(&server.also_propagate,cmd,dbid,argv,argc,target);
+    robj **argvcopy = zmalloc(sizeof(robj*)*argc);
+    int j;
+
+    for (j = 0; j < argc; j++) {
+        argvcopy[j] = argv[j];
+        incrRefCount(argv[j]);
+    }
+    redisOpArrayAppend(&server.also_propagate,cmd,dbid,argvcopy,argc,target);
 }
 
 /* It is possible to call the function forceCommandPropagation() inside a
