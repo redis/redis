@@ -38,6 +38,7 @@ set ::all_tests {
     integration/aof
     integration/rdb
     integration/convert-zipmap-hash-on-load
+    integration/logging
     unit/pubsub
     unit/slowlog
     unit/scripting
