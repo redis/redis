@@ -701,7 +701,7 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
     }
 
-    /* If the preamble was already transfered, send the RDB bulk data. */
+    /* If the preamble was already transferred, send the RDB bulk data. */
     lseek(slave->repldbfd,slave->repldboff,SEEK_SET);
     buflen = read(slave->repldbfd,buf,REDIS_IOBUF_LEN);
     if (buflen <= 0) {
@@ -1117,7 +1117,7 @@ char *sendSynchronousCommand(int fd, ...) {
  *
  * The function returns:
  *
- * PSYNC_CONTINUE: If the PSYNC command succeded and we can continue.
+ * PSYNC_CONTINUE: If the PSYNC command succeeded and we can continue.
  * PSYNC_FULLRESYNC: If PSYNC is supported but a full resync is needed.
  *                   In this case the master run_id and global replication
  *                   offset is saved.

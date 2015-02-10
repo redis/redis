@@ -2911,7 +2911,7 @@ void sentinelInfoCommand(redisClient *c) {
     addReplyBulkSds(c, info);
 }
 
-/* Implements Sentinel verison of the ROLE command. The output is
+/* Implements Sentinel version of the ROLE command. The output is
  * "sentinel" and the list of currently monitored master names. */
 void sentinelRoleCommand(redisClient *c) {
     dictIterator *di;
@@ -3050,7 +3050,7 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
      *    pending ping for more than half the timeout. */
     if (ri->cc &&
         (mstime() - ri->cc_conn_time) > SENTINEL_MIN_LINK_RECONNECT_PERIOD &&
-        ri->last_ping_time != 0 && /* Ther is a pending ping... */
+        ri->last_ping_time != 0 && /* There is a pending ping... */
         /* The pending ping is delayed, and we did not received
          * error replies as well. */
         (mstime() - ri->last_ping_time) > (ri->down_after_period/2) &&
