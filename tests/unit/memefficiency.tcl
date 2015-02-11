@@ -1,15 +1,20 @@
 proc test_memory_efficiency {range} {
     r flushall
+    set rd [redis_deferring_client]
     set base_mem [s used_memory]
     set written 0
     for {set j 0} {$j < 10000} {incr j} {
         set key key:$j
         set val [string repeat A [expr {int(rand()*$range)}]]
-        r set $key $val
+        $rd set $key $val
         incr written [string length $key]
         incr written [string length $val]
         incr written 2 ;# A separator is the minimum to store key-value data.
     }
+    for {set j 0} {$j < 10000} {incr j} {
+        $rd read ; # Discard replies
+    }
+
     set current_mem [s used_memory]
     set used [expr {$current_mem-$base_mem}]
     set efficiency [expr {double($written)/$used}]

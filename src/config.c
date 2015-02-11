@@ -60,6 +60,8 @@ clientBufferLimitsConfig clientBufferLimitsDefaults[REDIS_CLIENT_TYPE_COUNT] = {
  * Config file parsing
  *----------------------------------------------------------------------------*/
 
+int supervisedToMode(const char *str);
+
 int yesnotoi(char *s) {
     if (!strcasecmp(s,"yes")) return 1;
     else if (!strcasecmp(s,"no")) return 0;
@@ -397,9 +399,13 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"hash-max-ziplist-value") && argc == 2) {
             server.hash_max_ziplist_value = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"list-max-ziplist-entries") && argc == 2){
-            server.list_max_ziplist_entries = memtoll(argv[1], NULL);
+            /* DEAD OPTION */
         } else if (!strcasecmp(argv[0],"list-max-ziplist-value") && argc == 2) {
-            server.list_max_ziplist_value = memtoll(argv[1], NULL);
+            /* DEAD OPTION */
+        } else if (!strcasecmp(argv[0],"list-max-ziplist-size") && argc == 2) {
+            server.list_max_ziplist_size = atoi(argv[1]);
+        } else if (!strcasecmp(argv[0],"list-compress-depth") && argc == 2) {
+            server.list_compress_depth = atoi(argv[1]);
         } else if (!strcasecmp(argv[0],"set-max-intset-entries") && argc == 2) {
             server.set_max_intset_entries = memtoll(argv[1], NULL);
         } else if (!strcasecmp(argv[0],"zset-max-ziplist-entries") && argc == 2) {
@@ -529,6 +535,15 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
             server.notify_keyspace_events = flags;
+        } else if (!strcasecmp(argv[0],"supervised") && argc == 2) {
+            int mode = supervisedToMode(argv[1]);
+
+            if (mode == -1) {
+                err = "Invalid option for 'supervised'. "
+                    "Allowed values: 'upstart', 'systemd', 'auto', or 'no'";
+                goto loaderr;
+            }
+            server.supervised_mode = mode;
         } else if (!strcasecmp(argv[0],"sentinel")) {
             /* argc == 1 is handled by main() as we need to enter the sentinel
              * mode ASAP. */
@@ -795,12 +810,12 @@ void configSetCommand(redisClient *c) {
     } else if (!strcasecmp(c->argv[2]->ptr,"hash-max-ziplist-value")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.hash_max_ziplist_value = ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"list-max-ziplist-entries")) {
+    } else if (!strcasecmp(c->argv[2]->ptr,"list-max-ziplist-size")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
-        server.list_max_ziplist_entries = ll;
-    } else if (!strcasecmp(c->argv[2]->ptr,"list-max-ziplist-value")) {
+        server.list_max_ziplist_size = ll;
+    } else if (!strcasecmp(c->argv[2]->ptr,"list-compress-depth")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
-        server.list_max_ziplist_value = ll;
+        server.list_compress_depth = ll;
     } else if (!strcasecmp(c->argv[2]->ptr,"set-max-intset-entries")) {
         if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll < 0) goto badfmt;
         server.set_max_intset_entries = ll;
@@ -1018,6 +1033,33 @@ char *maxmemoryToString() {
     return s;
 }
 
+int supervisedToMode(const char *str) {
+    int mode;
+    if (!strcasecmp(str,"upstart")) {
+        mode = REDIS_SUPERVISED_UPSTART;
+    } else if (!strcasecmp(str,"systemd")) {
+        mode = REDIS_SUPERVISED_SYSTEMD;
+    } else if (!strcasecmp(str,"auto")) {
+        mode = REDIS_SUPERVISED_AUTODETECT;
+    } else if (!strcasecmp(str,"no")) {
+        mode = REDIS_SUPERVISED_NONE;
+    } else {
+        mode = -1;
+    }
+    return mode;
+}
+
+char *supervisedToString(void) {
+    char *s;
+    switch(server.supervised_mode) {
+    case REDIS_SUPERVISED_UPSTART: s = "upstart"; break;
+    case REDIS_SUPERVISED_SYSTEMD: s = "systemd"; break;
+    case REDIS_SUPERVISED_AUTODETECT: s = "auto"; break;
+    case REDIS_SUPERVISED_NONE: s = "no"; break;
+    default: s = "no"; break;
+    }
+    return s;
+}
 void configGetCommand(redisClient *c) {
     robj *o = c->argv[2];
     void *replylen = addDeferredMultiBulkLength(c);
@@ -1047,10 +1089,10 @@ void configGetCommand(redisClient *c) {
             server.hash_max_ziplist_entries);
     config_get_numerical_field("hash-max-ziplist-value",
             server.hash_max_ziplist_value);
-    config_get_numerical_field("list-max-ziplist-entries",
-            server.list_max_ziplist_entries);
-    config_get_numerical_field("list-max-ziplist-value",
-            server.list_max_ziplist_value);
+    config_get_numerical_field("list-max-ziplist-size",
+            server.list_max_ziplist_size);
+    config_get_numerical_field("list-compress-depth",
+            server.list_compress_depth);
     config_get_numerical_field("set-max-intset-entries",
             server.set_max_intset_entries);
     config_get_numerical_field("zset-max-ziplist-entries",
@@ -1171,6 +1213,11 @@ void configGetCommand(redisClient *c) {
         }
         addReplyBulkCString(c,"loglevel");
         addReplyBulkCString(c,s);
+        matches++;
+    }
+    if (stringmatch(pattern,"supervised",0)) {
+        addReplyBulkCString(c,"supervised");
+        addReplyBulkCString(c,supervisedToString());
         matches++;
     }
     if (stringmatch(pattern,"client-output-buffer-limit",0)) {
@@ -1857,8 +1904,8 @@ int rewriteConfig(char *path) {
     rewriteConfigNotifykeyspaceeventsOption(state);
     rewriteConfigNumericalOption(state,"hash-max-ziplist-entries",server.hash_max_ziplist_entries,REDIS_HASH_MAX_ZIPLIST_ENTRIES);
     rewriteConfigNumericalOption(state,"hash-max-ziplist-value",server.hash_max_ziplist_value,REDIS_HASH_MAX_ZIPLIST_VALUE);
-    rewriteConfigNumericalOption(state,"list-max-ziplist-entries",server.list_max_ziplist_entries,REDIS_LIST_MAX_ZIPLIST_ENTRIES);
-    rewriteConfigNumericalOption(state,"list-max-ziplist-value",server.list_max_ziplist_value,REDIS_LIST_MAX_ZIPLIST_VALUE);
+    rewriteConfigNumericalOption(state,"list-max-ziplist-size",server.list_max_ziplist_size,REDIS_LIST_MAX_ZIPLIST_SIZE);
+    rewriteConfigNumericalOption(state,"list-compress-depth",server.list_compress_depth,REDIS_LIST_COMPRESS_DEPTH);
     rewriteConfigNumericalOption(state,"set-max-intset-entries",server.set_max_intset_entries,REDIS_SET_MAX_INTSET_ENTRIES);
     rewriteConfigNumericalOption(state,"zset-max-ziplist-entries",server.zset_max_ziplist_entries,REDIS_ZSET_MAX_ZIPLIST_ENTRIES);
     rewriteConfigNumericalOption(state,"zset-max-ziplist-value",server.zset_max_ziplist_value,REDIS_ZSET_MAX_ZIPLIST_VALUE);
@@ -1868,6 +1915,12 @@ int rewriteConfig(char *path) {
     rewriteConfigNumericalOption(state,"hz",server.hz,REDIS_DEFAULT_HZ);
     rewriteConfigYesNoOption(state,"aof-rewrite-incremental-fsync",server.aof_rewrite_incremental_fsync,REDIS_DEFAULT_AOF_REWRITE_INCREMENTAL_FSYNC);
     rewriteConfigYesNoOption(state,"aof-load-truncated",server.aof_load_truncated,REDIS_DEFAULT_AOF_LOAD_TRUNCATED);
+    rewriteConfigEnumOption(state,"supervised",server.supervised_mode,
+        "upstart", REDIS_SUPERVISED_UPSTART,
+        "systemd", REDIS_SUPERVISED_SYSTEMD,
+        "auto", REDIS_SUPERVISED_AUTODETECT,
+        "no", REDIS_SUPERVISED_NONE,
+        NULL, REDIS_SUPERVISED_NONE);
     if (server.sentinel_mode) rewriteConfigSentinelOption(state);
 
     /* Step 3: remove all the orphaned lines in the old file, that is, lines

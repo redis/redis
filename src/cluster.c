@@ -40,6 +40,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/file.h>
+#include <math.h>
 
 /* A global reference to myself is handy to make code more clear.
  * Myself always points to server.cluster->myself, that is, the clusterNode
@@ -479,6 +480,7 @@ void clusterInit(void) {
      * the IP address via MEET messages. */
     myself->port = server.port;
 
+    server.cluster->mf_end = 0;
     resetManualFailover();
 }
 
@@ -782,8 +784,11 @@ int clusterNodeRemoveSlave(clusterNode *master, clusterNode *slave) {
 
     for (j = 0; j < master->numslaves; j++) {
         if (master->slaves[j] == slave) {
-            memmove(master->slaves+j,master->slaves+(j+1),
-                (master->numslaves-1)-j);
+            if ((j+1) < master->numslaves) {
+                int remaining_slaves = (master->numslaves - j) - 1;
+                memmove(master->slaves+j,master->slaves+(j+1),
+                        (sizeof(*master->slaves) * remaining_slaves));
+            }
             master->numslaves--;
             return REDIS_OK;
         }
@@ -818,15 +823,30 @@ int clusterCountNonFailingSlaves(clusterNode *n) {
     return okslaves;
 }
 
+/* Low level cleanup of the node structure. Only called by clusterDelNode(). */
 void freeClusterNode(clusterNode *n) {
     sds nodename;
+    int j;
 
+    /* If the node is a master with associated slaves, we have to set
+     * all the slaves->slaveof fields to NULL (unknown). */
+    if (nodeIsMaster(n)) {
+        for (j = 0; j < n->numslaves; j++)
+            n->slaves[j]->slaveof = NULL;
+    }
+
+    /* Remove this node from the list of slaves of its master. */
+    if (nodeIsSlave(n) && n->slaveof) clusterNodeRemoveSlave(n->slaveof,n);
+
+    /* Unlink from the set of nodes. */
     nodename = sdsnewlen(n->name, REDIS_CLUSTER_NAMELEN);
     redisAssert(dictDelete(server.cluster->nodes,nodename) == DICT_OK);
     sdsfree(nodename);
-    if (n->slaveof) clusterNodeRemoveSlave(n->slaveof, n);
+
+    /* Release link and associated data structures. */
     if (n->link) freeClusterLink(n->link);
     listRelease(n->fail_reports);
+    zfree(n->slaves);
     zfree(n);
 }
 
@@ -839,11 +859,16 @@ int clusterAddNode(clusterNode *node) {
     return (retval == DICT_OK) ? REDIS_OK : REDIS_ERR;
 }
 
-/* Remove a node from the cluster:
- * 1) Mark all the nodes handled by it as unassigned.
- * 2) Remove all the failure reports sent by this node.
- * 3) Free the node, that will in turn remove it from the hash table
- *    and from the list of slaves of its master, if it is a slave node.
+/* Remove a node from the cluster. The functio performs the high level
+ * cleanup, calling freeClusterNode() for the low level cleanup.
+ * Here we do the following:
+ *
+ * 1) Mark all the slots handled by it as unassigned.
+ * 2) Remove all the failure reports sent by this node and referenced by
+ *    other nodes.
+ * 3) Free the node with freeClusterNode() that will in turn remove it
+ *    from the hash table and from the list of slaves of its master, if
+ *    it is a slave node.
  */
 void clusterDelNode(clusterNode *delnode) {
     int j;
@@ -870,11 +895,7 @@ void clusterDelNode(clusterNode *delnode) {
     }
     dictReleaseIterator(di);
 
-    /* 3) Remove this node from its master's slaves if needed. */
-    if (nodeIsSlave(delnode) && delnode->slaveof)
-        clusterNodeRemoveSlave(delnode->slaveof,delnode);
-
-    /* 4) Free the node, unlinking it from the cluster. */
+    /* 3) Free the node, unlinking it from the cluster. */
     freeClusterNode(delnode);
 }
 
@@ -1118,6 +1139,7 @@ int clusterStartHandshake(char *ip, int port) {
 
     /* Set norm_ip as the normalized string representation of the node
      * IP address. */
+    memset(norm_ip,0,REDIS_IP_STR_LEN);
     if (sa.ss_family == AF_INET)
         inet_ntop(AF_INET,
             (void*)&(((struct sockaddr_in *)&sa)->sin_addr),
@@ -1232,7 +1254,7 @@ void nodeIp2String(char *buf, clusterLink *link) {
  * The function returns 0 if the node address is still the same,
  * otherwise 1 is returned. */
 int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link, int port) {
-    char ip[REDIS_IP_STR_LEN];
+    char ip[REDIS_IP_STR_LEN] = {0};
 
     /* We don't proceed if the link is the same as the sender link, as this
      * function is designed to see if the node link is consistent with the
@@ -1463,7 +1485,8 @@ int clusterProcessPacket(clusterLink *link) {
 
     /* Perform sanity checks */
     if (totlen < 16) return 1; /* At least signature, version, totlen, count. */
-    if (ntohs(hdr->ver) != 0) return 1; /* Can't handle versions other than 0.*/
+    if (ntohs(hdr->ver) != CLUSTER_PROTO_VER)
+        return 1; /* Can't handle versions other than the current one.*/
     if (totlen > sdslen(link->rcvbuf)) return 1;
     if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_PONG ||
         type == CLUSTERMSG_TYPE_MEET)
@@ -1544,18 +1567,20 @@ int clusterProcessPacket(clusterLink *link) {
          * later if we changed address, and those nodes will use our
          * official address to connect to us. So by obtaining this address
          * from the socket is a simple way to discover / update our own
-         * address in the cluster without it being hardcoded in the config. */
-        if (type == CLUSTERMSG_TYPE_MEET) {
+         * address in the cluster without it being hardcoded in the config.
+         *
+         * However if we don't have an address at all, we update the address
+         * even with a normal PING packet. If it's wrong it will be fixed
+         * by MEET later. */
+        if (type == CLUSTERMSG_TYPE_MEET || myself->ip[0] == '\0') {
             char ip[REDIS_IP_STR_LEN];
 
             if (anetSockName(link->fd,ip,sizeof(ip),NULL) != -1 &&
                 strcmp(ip,myself->ip))
             {
                 memcpy(myself->ip,ip,REDIS_IP_STR_LEN);
-
-                anetFormatAddr(ip, sizeof(ip), myself->ip, -1);
                 redisLog(REDIS_WARNING,"IP address for this node updated to %s",
-                    ip);
+                    myself->ip);
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
             }
         }
@@ -1606,7 +1631,7 @@ int clusterProcessPacket(clusterLink *link) {
                     }
                     /* Free this node as we already have it. This will
                      * cause the link to be freed as well. */
-                    freeClusterNode(link->node);
+                    clusterDelNode(link->node);
                     return 0;
                 }
 
@@ -2013,7 +2038,8 @@ void clusterBroadcastMessage(void *buf, size_t len) {
     dictReleaseIterator(di);
 }
 
-/* Build the message header */
+/* Build the message header. hdr must point to a buffer at least
+ * sizeof(clusterMsg) in bytes. */
 void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
     int totlen = 0;
     uint64_t offset;
@@ -2027,6 +2053,7 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
               myself->slaveof : myself;
 
     memset(hdr,0,sizeof(*hdr));
+    hdr->ver = htons(CLUSTER_PROTO_VER);
     hdr->sig[0] = 'R';
     hdr->sig[1] = 'C';
     hdr->sig[2] = 'm';
@@ -2073,40 +2100,90 @@ void clusterBuildMessageHdr(clusterMsg *hdr, int type) {
 /* Send a PING or PONG packet to the specified node, making sure to add enough
  * gossip informations. */
 void clusterSendPing(clusterLink *link, int type) {
-    unsigned char buf[sizeof(clusterMsg)+sizeof(clusterMsgDataGossip)*3];
-    clusterMsg *hdr = (clusterMsg*) buf;
-    int gossipcount = 0, totlen;
-    /* freshnodes is the number of nodes we can still use to populate the
-     * gossip section of the ping packet. Basically we start with the nodes
-     * we have in memory minus two (ourself and the node we are sending the
-     * message to). Every time we add a node we decrement the counter, so when
-     * it will drop to <= zero we know there is no more gossip info we can
-     * send. */
+    unsigned char *buf;
+    clusterMsg *hdr;
+    int gossipcount = 0; /* Number of gossip sections added so far. */
+    int wanted; /* Number of gossip sections we want to append if possible. */
+    int totlen; /* Total packet length. */
+    /* freshnodes is the max number of nodes we can hope to append at all:
+     * nodes available minus two (ourself and the node we are sending the
+     * message to). However practically there may be less valid nodes since
+     * nodes in handshake state, disconnected, are not considered. */
     int freshnodes = dictSize(server.cluster->nodes)-2;
 
+    /* How many gossip sections we want to add? 1/10 of the number of nodes
+     * and anyway at least 3. Why 1/10?
+     *
+     * If we have N masters, with N/10 entries, and we consider that in
+     * node_timeout we exchange with each other node at least 4 packets
+     * (we ping in the worst case in node_timeout/2 time, and we also
+     * receive two pings from the host), we have a total of 8 packets
+     * in the node_timeout*2 falure reports validity time. So we have
+     * that, for a single PFAIL node, we can expect to receive the following
+     * number of failure reports (in the specified window of time):
+     *
+     * PROB * GOSSIP_ENTRIES_PER_PACKET * TOTAL_PACKETS:
+     *
+     * PROB = probability of being featured in a single gossip entry,
+     *        which is 1 / NUM_OF_NODES.
+     * ENTRIES = 10.
+     * TOTAL_PACKETS = 2 * 4 * NUM_OF_MASTERS.
+     *
+     * If we assume we have just masters (so num of nodes and num of masters
+     * is the same), with 1/10 we always get over the majority, and specifically
+     * 80% of the number of nodes, to account for many masters failing at the
+     * same time.
+     *
+     * Since we have non-voting slaves that lower the probability of an entry
+     * to feature our node, we set the number of entires per packet as
+     * 10% of the total nodes we have. */
+    wanted = floor(dictSize(server.cluster->nodes)/10);
+    if (wanted < 3) wanted = 3;
+    if (wanted > freshnodes) wanted = freshnodes;
+
+    /* Compute the maxium totlen to allocate our buffer. We'll fix the totlen
+     * later according to the number of gossip sections we really were able
+     * to put inside the packet. */
+    totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
+    totlen += (sizeof(clusterMsgDataGossip)*wanted);
+    /* Note: clusterBuildMessageHdr() expects the buffer to be always at least
+     * sizeof(clusterMsg) or more. */
+    if (totlen < (int)sizeof(clusterMsg)) totlen = sizeof(clusterMsg);
+    buf = zcalloc(totlen);
+    hdr = (clusterMsg*) buf;
+
+    /* Populate the header. */
     if (link->node && type == CLUSTERMSG_TYPE_PING)
         link->node->ping_sent = mstime();
     clusterBuildMessageHdr(hdr,type);
 
     /* Populate the gossip fields */
-    while(freshnodes > 0 && gossipcount < 3) {
+    int maxiterations = wanted*3;
+    while(freshnodes > 0 && gossipcount < wanted && maxiterations--) {
         dictEntry *de = dictGetRandomKey(server.cluster->nodes);
         clusterNode *this = dictGetVal(de);
         clusterMsgDataGossip *gossip;
         int j;
 
+        /* Don't include this node: the whole packet header is about us
+         * already, so we just gossip about other nodes. */
+        if (this == myself) continue;
+
+        /* Give a bias to FAIL/PFAIL nodes. */
+        if (maxiterations > wanted*2 &&
+            !(this->flags & (REDIS_NODE_PFAIL|REDIS_NODE_FAIL)))
+            continue;
+
         /* In the gossip section don't include:
-         * 1) Myself.
-         * 2) Nodes in HANDSHAKE state.
+         * 1) Nodes in HANDSHAKE state.
          * 3) Nodes with the NOADDR flag set.
          * 4) Disconnected nodes if they don't have configured slots.
          */
-        if (this == myself ||
-            this->flags & (REDIS_NODE_HANDSHAKE|REDIS_NODE_NOADDR) ||
+        if (this->flags & (REDIS_NODE_HANDSHAKE|REDIS_NODE_NOADDR) ||
             (this->link == NULL && this->numslots == 0))
         {
-                freshnodes--; /* otherwise we may loop forever. */
-                continue;
+            freshnodes--; /* Tecnically not correct, but saves CPU. */
+            continue;
         }
 
         /* Check if we already added this node */
@@ -2125,13 +2202,19 @@ void clusterSendPing(clusterLink *link, int type) {
         memcpy(gossip->ip,this->ip,sizeof(this->ip));
         gossip->port = htons(this->port);
         gossip->flags = htons(this->flags);
+        gossip->notused1 = 0;
+        gossip->notused2 = 0;
         gossipcount++;
     }
+
+    /* Ready to send... fix the totlen fiend and queue the message in the
+     * output buffer. */
     totlen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
     totlen += (sizeof(clusterMsgDataGossip)*gossipcount);
     hdr->count = htons(gossipcount);
     hdr->totlen = htonl(totlen);
     clusterSendMessage(link,buf,totlen);
+    zfree(buf);
 }
 
 /* Send a PONG packet to every connected node that's not in handshake state
@@ -2778,6 +2861,7 @@ void clusterHandleSlaveMigration(int max_slaves) {
             }
         }
     }
+    dictReleaseIterator(di);
 
     /* Step 4: perform the migration if there is a target, and if I'm the
      * candidate. */
@@ -2899,7 +2983,7 @@ void clusterCron(void) {
         /* A Node in HANDSHAKE state has a limited lifespan equal to the
          * configured node timeout. */
         if (nodeInHandshake(node) && now - node->ctime > handshake_timeout) {
-            freeClusterNode(node);
+            clusterDelNode(node);
             continue;
         }
 
@@ -3886,10 +3970,7 @@ void clusterCommand(redisClient *c) {
             server.cluster->stats_bus_messages_sent,
             server.cluster->stats_bus_messages_received
         );
-        addReplySds(c,sdscatprintf(sdsempty(),"$%lu\r\n",
-            (unsigned long)sdslen(info)));
-        addReplySds(c,info);
-        addReply(c,shared.crlf);
+        addReplyBulkSds(c, info);
     } else if (!strcasecmp(c->argv[1]->ptr,"saveconfig") && c->argc == 2) {
         int retval = clusterSaveConfig(1);
 
@@ -4012,6 +4093,18 @@ void clusterCommand(redisClient *c) {
             sds ni = clusterGenNodeDescription(n->slaves[j]);
             addReplyBulkCString(c,ni);
             sdsfree(ni);
+        }
+    } else if (!strcasecmp(c->argv[1]->ptr,"count-failure-reports") &&
+               c->argc == 3)
+    {
+        /* CLUSTER COUNT-FAILURE-REPORTS <NODE ID> */
+        clusterNode *n = clusterLookupNode(c->argv[2]->ptr);
+
+        if (!n) {
+            addReplyErrorFormat(c,"Unknown node %s", (char*)c->argv[2]->ptr);
+            return;
+        } else {
+            addReplyLongLong(c,clusterNodeFailureReportsCount(n));
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"failover") &&
                (c->argc == 2 || c->argc == 3))

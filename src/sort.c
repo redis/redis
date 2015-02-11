@@ -220,7 +220,7 @@ void sortCommand(redisClient *c) {
     if (sortval)
         incrRefCount(sortval);
     else
-        sortval = createListObject();
+        sortval = createQuicklistObject();
 
     /* The SORT command has an SQL-alike syntax, parse it */
     while(j < c->argc) {
@@ -322,17 +322,17 @@ void sortCommand(redisClient *c) {
     }
     if (end >= vectorlen) end = vectorlen-1;
 
-    /* Optimization:
+    /* Whenever possible, we load elements into the output array in a more
+     * direct way. This is possible if:
      *
-     * 1) if the object to sort is a sorted set.
+     * 1) The object to sort is a sorted set or a list (internally sorted).
      * 2) There is nothing to sort as dontsort is true (BY <constant string>).
-     * 3) We have a LIMIT option that actually reduces the number of elements
-     *    to fetch.
      *
-     * In this case to load all the objects in the vector is a huge waste of
-     * resources. We just allocate a vector that is big enough for the selected
-     * range length, and make sure to load just this part in the vector. */
-    if (sortval->type == REDIS_ZSET &&
+     * In this special case, if we have a LIMIT option that actually reduces
+     * the number of elements to fetch, we also optimize to just load the
+     * range we are interested in and allocating a vector that is big enough
+     * for the selected range length. */
+    if ((sortval->type == REDIS_ZSET || sortval->type == REDIS_LIST) &&
         dontsort &&
         (start != 0 || end != vectorlen-1))
     {
@@ -343,7 +343,32 @@ void sortCommand(redisClient *c) {
     vector = zmalloc(sizeof(redisSortObject)*vectorlen);
     j = 0;
 
-    if (sortval->type == REDIS_LIST) {
+    if (sortval->type == REDIS_LIST && dontsort) {
+        /* Special handling for a list, if 'dontsort' is true.
+         * This makes sure we return elements in the list original
+         * ordering, accordingly to DESC / ASC options.
+         *
+         * Note that in this case we also handle LIMIT here in a direct
+         * way, just getting the required range, as an optimization. */
+        if (end >= start) {
+            listTypeIterator *li;
+            listTypeEntry entry;
+            li = listTypeInitIterator(sortval,
+                    desc ? (long)(listTypeLength(sortval) - start - 1) : start,
+                    desc ? REDIS_HEAD : REDIS_TAIL);
+
+            while(j < vectorlen && listTypeNext(li,&entry)) {
+                vector[j].obj = listTypeGet(&entry);
+                vector[j].u.score = 0;
+                vector[j].u.cmpobj = NULL;
+                j++;
+            }
+            listTypeReleaseIterator(li);
+            /* Fix start/end: output code is not aware of this optimization. */
+            end -= start;
+            start = 0;
+        }
+    } else if (sortval->type == REDIS_LIST) {
         listTypeIterator *li = listTypeInitIterator(sortval,0,REDIS_TAIL);
         listTypeEntry entry;
         while(listTypeNext(li,&entry)) {
@@ -399,10 +424,7 @@ void sortCommand(redisClient *c) {
             j++;
             ln = desc ? ln->backward : ln->level[0].forward;
         }
-        /* The code producing the output does not know that in the case of
-         * sorted set, 'dontsort', and LIMIT, we are able to get just the
-         * range, already sorted, so we need to adjust "start" and "end"
-         * to make sure start is set to 0. */
+        /* Fix start/end: output code is not aware of this optimization. */
         end -= start;
         start = 0;
     } else if (sortval->type == REDIS_ZSET) {
@@ -509,7 +531,7 @@ void sortCommand(redisClient *c) {
             }
         }
     } else {
-        robj *sobj = createZiplistObject();
+        robj *sobj = createQuicklistObject();
 
         /* STORE option specified, set the sorting result as a List object */
         for (j = start; j <= end; j++) {

@@ -26,6 +26,25 @@ After building Redis is a good idea to test it, using:
 
     % make test
 
+Fixing build problems with dependencies or cached build options
+—--------
+Redis has some dependencies which are included into the "deps" directory.
+"make" does not rebuild dependencies automatically, even if something in the
+source code of dependencies is changes.
+
+When you update the source code with `git pull` or when code inside the
+dependencies tree is modified in any other way, make sure to use the following
+command in order to really clean everything and rebuild from scratch:
+
+    make distclean
+
+This will clean: jemalloc, lua, hiredis, linenoise.
+
+Also if you force certain build options like 32bit target, no C compiler
+optimizations (for debugging purposes), and other similar build time options,
+those options are cached indefinitely until you issue a "make distclean"
+command.
+
 Fixing problems building 32 bit binaries
 ---------
 
