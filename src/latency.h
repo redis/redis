@@ -86,4 +86,8 @@ int THPIsEnabled(void);
         (var) >= server.latency_monitor_threshold) \
           latencyAddSample((event),(var));
 
+/* Remove time from a nested event. */
+#define latencyRemoveNestedEvent(event_var,nested_var) \
+    event_var += nested_var;
+
 #endif /* __LATENCY_H */

@@ -164,6 +164,7 @@ dictIterator *dictGetSafeIterator(dict *d);
 dictEntry *dictNext(dictIterator *iter);
 void dictReleaseIterator(dictIterator *iter);
 dictEntry *dictGetRandomKey(dict *d);
+unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count);
 unsigned int dictGetRandomKeys(dict *d, dictEntry **des, unsigned int count);
 void dictPrintStats(dict *d);
 unsigned int dictGenHashFunction(const void *key, int len);

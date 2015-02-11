@@ -3136,13 +3136,7 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
         samples = zmalloc(sizeof(samples[0])*server.maxmemory_samples);
     }
 
-#if 1 /* Use bulk get by default. */
-    count = dictGetRandomKeys(sampledict,samples,server.maxmemory_samples);
-#else
-    count = server.maxmemory_samples;
-    for (j = 0; j < count; j++) samples[j] = dictGetRandomKey(sampledict);
-#endif
-
+    count = dictGetSomeKeys(sampledict,samples,server.maxmemory_samples);
     for (j = 0; j < count; j++) {
         unsigned long long idle;
         sds key;
@@ -3197,7 +3191,7 @@ void evictionPoolPopulate(dict *sampledict, dict *keydict, struct evictionPoolEn
 int freeMemoryIfNeeded(void) {
     size_t mem_used, mem_tofree, mem_freed;
     int slaves = listLength(server.slaves);
-    mstime_t latency;
+    mstime_t latency, eviction_latency;
 
     /* Remove the size of slaves output buffers and AOF buffer from the
      * count of used memory. */
@@ -3328,7 +3322,11 @@ int freeMemoryIfNeeded(void) {
                  * AOF and Output buffer memory will be freed eventually so
                  * we only care about memory used by the key space. */
                 delta = (long long) zmalloc_used_memory();
+                latencyStartMonitor(eviction_latency);
                 dbDelete(db,keyobj);
+                latencyEndMonitor(eviction_latency);
+                latencyAddSampleIfNeeded("eviction-del",eviction_latency);
+                latencyRemoveNestedEvent(latency,eviction_latency);
                 delta -= (long long) zmalloc_used_memory();
                 mem_freed += delta;
                 server.stat_evictedkeys++;

@@ -211,6 +211,9 @@ int dictExpand(dict *d, unsigned long size)
     if (dictIsRehashing(d) || d->ht[0].used > size)
         return DICT_ERR;
 
+    /* Rehashing to the same table size is not useful. */
+    if (realsize == d->ht[0].size) return DICT_ERR;
+
     /* Allocate the new hash table and initialize all pointers to NULL */
     n.size = realsize;
     n.sizemask = realsize-1;
@@ -232,27 +235,27 @@ int dictExpand(dict *d, unsigned long size)
 
 /* Performs N steps of incremental rehashing. Returns 1 if there are still
  * keys to move from the old to the new hash table, otherwise 0 is returned.
+ *
  * Note that a rehashing step consists in moving a bucket (that may have more
- * than one key as we use chaining) from the old to the new hash table. */
+ * than one key as we use chaining) from the old to the new hash table, however
+ * since part of the hash table may be composed of empty spaces, it is not
+ * guaranteed that this function will rehash even a single bucket, since it
+ * will visit at max N*10 empty buckets in total, otherwise the amount of
+ * work it does would be unbound and the function may block for a long time. */
 int dictRehash(dict *d, int n) {
+    int empty_visits = n*10; /* Max number of empty buckets to visit. */
     if (!dictIsRehashing(d)) return 0;
 
-    while(n--) {
+    while(n-- && d->ht[0].used != 0) {
         dictEntry *de, *nextde;
-
-        /* Check if we already rehashed the whole table... */
-        if (d->ht[0].used == 0) {
-            zfree(d->ht[0].table);
-            d->ht[0] = d->ht[1];
-            _dictReset(&d->ht[1]);
-            d->rehashidx = -1;
-            return 0;
-        }
 
         /* Note that rehashidx can't overflow as we are sure there are more
          * elements because ht[0].used != 0 */
         assert(d->ht[0].size > (unsigned long)d->rehashidx);
-        while(d->ht[0].table[d->rehashidx] == NULL) d->rehashidx++;
+        while(d->ht[0].table[d->rehashidx] == NULL) {
+            d->rehashidx++;
+            if (--empty_visits == 0) return 1;
+        }
         de = d->ht[0].table[d->rehashidx];
         /* Move all the keys in this bucket from the old to the new hash HT */
         while(de) {
@@ -270,6 +273,17 @@ int dictRehash(dict *d, int n) {
         d->ht[0].table[d->rehashidx] = NULL;
         d->rehashidx++;
     }
+
+    /* Check if we already rehashed the whole table... */
+    if (d->ht[0].used == 0) {
+        zfree(d->ht[0].table);
+        d->ht[0] = d->ht[1];
+        _dictReset(&d->ht[1]);
+        d->rehashidx = -1;
+        return 0;
+    }
+
+    /* More to rehash... */
     return 1;
 }
 
@@ -616,7 +630,11 @@ dictEntry *dictGetRandomKey(dict *d)
     if (dictIsRehashing(d)) _dictRehashStep(d);
     if (dictIsRehashing(d)) {
         do {
-            h = random() % (d->ht[0].size+d->ht[1].size);
+            /* We are sure there are no elements in indexes from 0
+             * to rehashidx-1 */
+            h = d->rehashidx + (random() % (d->ht[0].size +
+                                            d->ht[1].size -
+                                            d->rehashidx));
             he = (h >= d->ht[0].size) ? d->ht[1].table[h - d->ht[0].size] :
                                       d->ht[0].table[h];
         } while(he == NULL);
@@ -643,7 +661,10 @@ dictEntry *dictGetRandomKey(dict *d)
     return he;
 }
 
-/* This is a version of dictGetRandomKey() that is modified in order to
+/* XXX: This is going to be removed soon and SPOP internals
+ *      reimplemented.
+ *
+ * This is a version of dictGetRandomKey() that is modified in order to
  * return multiple entries by jumping at a random place of the hash table
  * and scanning linearly for entries.
  *
@@ -663,19 +684,131 @@ dictEntry *dictGetRandomKey(dict *d)
  * at producing N elements, and the elements are guaranteed to be non
  * repeating. */
 unsigned int dictGetRandomKeys(dict *d, dictEntry **des, unsigned int count) {
-    int j; /* internal hash table id, 0 or 1. */
-    unsigned int stored = 0;
+    unsigned int j; /* internal hash table id, 0 or 1. */
+    unsigned int tables; /* 1 or 2 tables? */
+    unsigned int stored = 0, maxsizemask;
 
     if (dictSize(d) < count) count = dictSize(d);
-    while(stored < count) {
-        for (j = 0; j < 2; j++) {
-            /* Pick a random point inside the hash table 0 or 1. */
-            unsigned int i = random() & d->ht[j].sizemask;
-            int size = d->ht[j].size;
 
-            /* Make sure to visit every bucket by iterating 'size' times. */
-            while(size--) {
-                dictEntry *he = d->ht[j].table[i];
+    /* Try to do a rehashing work proportional to 'count'. */
+    for (j = 0; j < count; j++) {
+        if (dictIsRehashing(d))
+            _dictRehashStep(d);
+        else
+            break;
+    }
+
+    tables = dictIsRehashing(d) ? 2 : 1;
+    maxsizemask = d->ht[0].sizemask;
+    if (tables > 1 && maxsizemask < d->ht[1].sizemask)
+        maxsizemask = d->ht[1].sizemask;
+
+    /* Pick a random point inside the larger table. */
+    unsigned int i = random() & maxsizemask;
+    while(stored < count) {
+        for (j = 0; j < tables; j++) {
+            /* Invariant of the dict.c rehashing: up to the indexes already
+             * visited in ht[0] during the rehashing, there are no populated
+             * buckets, so we can skip ht[0] for indexes between 0 and idx-1. */
+            if (tables == 2 && j == 0 && i < d->rehashidx) {
+                /* Moreover, if we are currently out of range in the second
+                 * table, there will be no elements in both tables up to
+                 * the current rehashing index, so we jump if possible.
+                 * (this happens when going from big to small table). */
+                if (i >= d->ht[1].size) i = d->rehashidx;
+                continue;
+            }
+            if (i >= d->ht[j].size) continue; /* Out of range for this table. */
+            dictEntry *he = d->ht[j].table[i];
+            while (he) {
+                /* Collect all the elements of the buckets found non
+                 * empty while iterating. */
+                *des = he;
+                des++;
+                he = he->next;
+                stored++;
+                if (stored == count) return stored;
+            }
+        }
+        i = (i+1) & maxsizemask;
+    }
+    return stored; /* Never reached. */
+}
+
+
+/* This function samples the dictionary to return a few keys from random
+ * locations.
+ *
+ * It does not guarantee to return all the keys specified in 'count', nor
+ * it does guarantee to return non-duplicated elements, however it will make
+ * some effort to do both things.
+ *
+ * Returned pointers to hash table entries are stored into 'des' that
+ * points to an array of dictEntry pointers. The array must have room for
+ * at least 'count' elements, that is the argument we pass to the function
+ * to tell how many random elements we need.
+ *
+ * The function returns the number of items stored into 'des', that may
+ * be less than 'count' if the hash table has less than 'count' elements
+ * inside, or if not enough elements were found in a reasonable amount of
+ * steps.
+ *
+ * Note that this function is not suitable when you need a good distribution
+ * of the returned items, but only when you need to "sample" a given number
+ * of continuous elements to run some kind of algorithm or to produce
+ * statistics. However the function is much faster than dictGetRandomKey()
+ * at producing N elements. */
+unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
+    unsigned int j; /* internal hash table id, 0 or 1. */
+    unsigned int tables; /* 1 or 2 tables? */
+    unsigned int stored = 0, maxsizemask;
+    unsigned int maxsteps;
+
+    if (dictSize(d) < count) count = dictSize(d);
+    maxsteps = count*10;
+
+    /* Try to do a rehashing work proportional to 'count'. */
+    for (j = 0; j < count; j++) {
+        if (dictIsRehashing(d))
+            _dictRehashStep(d);
+        else
+            break;
+    }
+
+    tables = dictIsRehashing(d) ? 2 : 1;
+    maxsizemask = d->ht[0].sizemask;
+    if (tables > 1 && maxsizemask < d->ht[1].sizemask)
+        maxsizemask = d->ht[1].sizemask;
+
+    /* Pick a random point inside the larger table. */
+    unsigned int i = random() & maxsizemask;
+    unsigned int emptylen = 0; /* Continuous empty entries so far. */
+    while(stored < count && maxsteps--) {
+        for (j = 0; j < tables; j++) {
+            /* Invariant of the dict.c rehashing: up to the indexes already
+             * visited in ht[0] during the rehashing, there are no populated
+             * buckets, so we can skip ht[0] for indexes between 0 and idx-1. */
+            if (tables == 2 && j == 0 && i < d->rehashidx) {
+                /* Moreover, if we are currently out of range in the second
+                 * table, there will be no elements in both tables up to
+                 * the current rehashing index, so we jump if possible.
+                 * (this happens when going from big to small table). */
+                if (i >= d->ht[1].size) i = d->rehashidx;
+                continue;
+            }
+            if (i >= d->ht[j].size) continue; /* Out of range for this table. */
+            dictEntry *he = d->ht[j].table[i];
+
+            /* Count contiguous empty buckets, and jump to other
+             * locations if they reach 'count' (with a minimum of 5). */
+            if (he == NULL) {
+                emptylen++;
+                if (emptylen >= 5 && emptylen > count) {
+                    i = random() & maxsizemask;
+                    emptylen = 0;
+                }
+            } else {
+                emptylen = 0;
                 while (he) {
                     /* Collect all the elements of the buckets found non
                      * empty while iterating. */
@@ -685,14 +818,11 @@ unsigned int dictGetRandomKeys(dict *d, dictEntry **des, unsigned int count) {
                     stored++;
                     if (stored == count) return stored;
                 }
-                i = (i+1) & d->ht[j].sizemask;
             }
-            /* If there is only one table and we iterated it all, we should
-             * already have 'count' elements. Assert this condition. */
-            assert(dictIsRehashing(d) != 0);
         }
+        i = (i+1) & maxsizemask;
     }
-    return stored; /* Never reached. */
+    return stored;
 }
 
 /* Function to reverse bits. Algorithm from:
