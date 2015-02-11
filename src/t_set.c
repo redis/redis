@@ -517,10 +517,18 @@ void spopWithCountCommand(redisClient *c) {
         si = setTypeInitIterator(set);
         while((encoding = setTypeNext(si,&objele,&llele)) != -1) {
             if (encoding == REDIS_ENCODING_INTSET) {
-                addReplyBulkLongLong(c,llele);
+                objele = createStringObjectFromLongLong(llele);
             } else {
-                addReplyBulk(c,objele);
+                incrRefCount(objele);
             }
+            addReplyBulk(c,objele);
+
+            /* Replicate/AOF this command as an SREM operation */
+            propargv[2] = objele;
+            alsoPropagate(server.sremCommand,c->db->id,propargv,3,
+                REDIS_PROPAGATE_AOF|REDIS_PROPAGATE_REPL);
+
+            decrRefCount(objele);
         }
         setTypeReleaseIterator(si);
         decrRefCount(set);
