@@ -777,6 +777,11 @@ start_server {tags {"basic"}} {
         r set foo bar2 GT
     } {bar}
     
+    test {Extended SET GT option with no previous value} {
+        r del foo
+        r set foo bar GT
+    } {}
+    
     test {Extended SET GET with NX option should result in syntax err} {
       catch {r set foo bar NX GT} err1
       catch {r set foo bar NX GT} err2
