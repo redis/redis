@@ -46,7 +46,7 @@ static int checkStringLength(redisClient *c, long long size) {
  * options and variants. This function is called in order to implement the
  * following commands: SET, SETEX, PSETEX, SETNX.
  *
- * 'flags' changes the behavior of the command (NX or XX, see belove).
+ * 'flags' changes the behavior of the command (NX, XX or GT, see belove).
  *
  * 'expire' represents an expire to set in form of a Redis object as passed
  * by the user. It is interpreted according to the specified 'unit'.
@@ -63,6 +63,7 @@ static int checkStringLength(redisClient *c, long long size) {
 #define REDIS_SET_XX (1<<1)     /* Set if key exists. */
 #define REDIS_SET_EX (1<<2)     /* Set if time in seconds is given */
 #define REDIS_SET_PX (1<<3)     /* Set if time in ms in given */
+#define REDIS_SET_GT (1<<4)     /* Set if want to get key before set */
 
 void setGenericCommand(redisClient *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
@@ -83,16 +84,23 @@ void setGenericCommand(redisClient *c, int flags, robj *key, robj *val, robj *ex
         addReply(c, abort_reply ? abort_reply : shared.nullbulk);
         return;
     }
+    
+    if (flags & REDIS_SET_GT) {
+       getCommand(c);
+    }
+    
     setKey(c->db,key,val);
     server.dirty++;
     if (expire) setExpire(c->db,key,mstime()+milliseconds);
     notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"set",key,c->db->id);
     if (expire) notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,
         "expire",key,c->db->id);
-    addReply(c, ok_reply ? ok_reply : shared.ok);
+    if (!(flags & REDIS_SET_GT)) {
+        addReply(c, ok_reply ? ok_reply : shared.ok);
+    }
 }
 
-/* SET key value [NX] [XX] [EX <seconds>] [PX <milliseconds>] */
+/* SET key value [NX] [XX] [GT] [EX <seconds>] [PX <milliseconds>] */
 void setCommand(redisClient *c) {
     int j;
     robj *expire = NULL;
@@ -105,7 +113,8 @@ void setCommand(redisClient *c) {
 
         if ((a[0] == 'n' || a[0] == 'N') &&
             (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
-            !(flags & REDIS_SET_XX))
+            !(flags & REDIS_SET_XX) &&
+            !(flags & REDIS_SET_GT))
         {
             flags |= REDIS_SET_NX;
         } else if ((a[0] == 'x' || a[0] == 'X') &&
@@ -113,6 +122,11 @@ void setCommand(redisClient *c) {
                    !(flags & REDIS_SET_NX))
         {
             flags |= REDIS_SET_XX;
+        } else if ((a[0] == 'g' || a[0] == 'G') &&
+                   (a[1] == 't' || a[1] == 'T') && a[2] == '\0' &&
+                   !(flags & REDIS_SET_NX))
+        {
+            flags |= REDIS_SET_GT;
         } else if ((a[0] == 'e' || a[0] == 'E') &&
                    (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
                    !(flags & REDIS_SET_PX) && next)

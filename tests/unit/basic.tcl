@@ -770,7 +770,21 @@ start_server {tags {"basic"}} {
         set v2 [r set foo 2 xx]
         list $v1 $v2 [r get foo]
     } {{} OK 2}
-
+    
+    test {Extended SET GT option} {
+        r del foo
+        r set foo bar
+        r set foo bar2 GT
+    } {bar}
+    
+    test {Extended SET GET with NX option should result in syntax err} {
+      catch {r set foo bar NX GT} err1
+      catch {r set foo bar NX GT} err2
+      format $err1
+      format $err2
+      list $err1 $err2
+    } {*syntax err* *syntax err*}
+    
     test {Extended SET EX option} {
         r del foo
         r set foo bar ex 10
