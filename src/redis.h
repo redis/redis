@@ -112,6 +112,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_DEFAULT_UNIX_SOCKET_PERM 0
 #define REDIS_DEFAULT_TCP_KEEPALIVE 0
 #define REDIS_DEFAULT_LOGFILE ""
+#define REDIS_DEFAULT_READ_ONLY 0
 #define REDIS_DEFAULT_SYSLOG_ENABLED 0
 #define REDIS_DEFAULT_STOP_WRITES_ON_BGSAVE_ERROR 1
 #define REDIS_DEFAULT_RDB_COMPRESSION 1
@@ -589,7 +590,7 @@ struct sharedObjectsStruct {
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
     *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
     *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop,
-    *lpush, *emptyscan, *minstring, *maxstring,
+    *lpush, *emptyscan, *minstring, *maxstring, *readonlyerr,
     *select[REDIS_SHARED_SELECT_CMDS],
     *integers[REDIS_SHARED_INTEGERS],
     *mbulkhdr[REDIS_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -750,6 +751,7 @@ struct redisServer {
     int supervised;                 /* 1 if supervised, 0 otherwise. */
     int supervised_mode;            /* See REDIS_SUPERVISED_* */
     int daemonize;                  /* True if running as a daemon */
+    int read_only;                  /* True if this instance is read only mode */
     clientBufferLimitsConfig client_obuf_limits[REDIS_CLIENT_TYPE_COUNT];
     /* AOF persistence */
     int aof_state;                  /* REDIS_AOF_(ON|OFF|WAIT_REWRITE) */
