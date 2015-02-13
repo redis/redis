@@ -15,10 +15,10 @@ Another good example is to think at Redis as a more complex version of memcached
 
 If you want to know more, this is a list of selected starting points:
 
-* [Introduction to Redis data types][1]
-* [Try Redis directly inside your browser][2]
-* [The full list of Redis commands][3]
-* [There is much more inside the Redis official documentation][4]
+* [Introduction to Redis data types](1)
+* [Try Redis directly inside your browser](2)
+* [The full list of Redis commands](3)
+* [There is much more inside the Redis official documentation](4)
 
 [1] http://redis.io/topics/data-types-intro
 [2] http://try.redis.io
