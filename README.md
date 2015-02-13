@@ -9,7 +9,7 @@ and 64 bit systems.
 
 It may compile on Solaris derived systems (for instance SmartOS) but our
 support for this platform is *best effort* and Redis is not guaranteed to
-work as well as in Linux, OSX, and `*`BSD there.
+work as well as in Linux, OSX, and \*BSD there.
 
 It is as simple as:
 
@@ -24,7 +24,8 @@ After building Redis is a good idea to test it, using:
     % make test
 
 Fixing build problems with dependencies or cached build options
-—--------
+---------
+
 Redis has some dependencies which are included into the `deps` directory.
 `make` does not rebuild dependencies automatically, even if something in the
 source code of dependencies is changes.
@@ -39,7 +40,7 @@ This will clean: jemalloc, lua, hiredis, linenoise.
 
 Also if you force certain build options like 32bit target, no C compiler
 optimizations (for debugging purposes), and other similar build time options,
-those options are cached indefinitely until you issue a "make distclean"
+those options are cached indefinitely until you issue a `make distclean`
 command.
 
 Fixing problems building 32 bit binaries
@@ -47,15 +48,14 @@ Fixing problems building 32 bit binaries
 
 If after building Redis with a 32 bit target you need to rebuild it
 with a 64 bit target, or the other way around, you need to perform a
-"make distclean" in the root directory of the Redis distribution.
+`make distclean` in the root directory of the Redis distribution.
 
 In case of build errors when trying to build a 32 bit binary of Redis, try
 the following steps:
 
 * Install the packages libc6-dev-i386 (also try g++-multilib).
-* Try using the following command line instead of "make 32bit":
-
-    make CFLAGS="-m32 -march=native" LDFLAGS="-m32"
+* Try using the following command line instead of `make 32bit`:
+  `make CFLAGS="-m32 -march=native" LDFLAGS="-m32"`
 
 Allocator
 ---------
@@ -123,7 +123,7 @@ then in another terminal try the following:
     (integer) 1
     redis> incr mycounter
     (integer) 2
-    redis> 
+    redis>
 
 You can find the list of all the available commands at http://redis.io/commands.
 
