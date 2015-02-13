@@ -569,6 +569,7 @@ typedef struct redisClient {
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
+    list *pubsub_expatterns;/* not patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
 
     /* Response buffer */
@@ -588,8 +589,8 @@ struct sharedObjectsStruct {
     *outofrangeerr, *noscripterr, *loadingerr, *slowscripterr, *bgsaveerr,
     *masterdownerr, *roslaveerr, *execaborterr, *noautherr, *noreplicaserr,
     *busykeyerr, *oomerr, *plus, *messagebulk, *pmessagebulk, *subscribebulk,
-    *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *del, *rpop, *lpop,
-    *lpush, *emptyscan, *minstring, *maxstring,
+    *unsubscribebulk, *psubscribebulk, *punsubscribebulk, *pexsubscribebulk,
+    *pexunsubscribebulk, *del, *rpop, *lpop, *lpush, *emptyscan, *minstring, *maxstring,
     *select[REDIS_SHARED_SELECT_CMDS],
     *integers[REDIS_SHARED_INTEGERS],
     *mbulkhdr[REDIS_SHARED_BULKHDR_LEN], /* "*<value>\r\n" */
@@ -891,6 +892,7 @@ struct redisServer {
     /* Pubsub */
     dict *pubsub_channels;  /* Map channels to list of subscribed clients */
     list *pubsub_patterns;  /* A list of pubsub_patterns */
+	list *pubsub_expatterns;
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of REDIS_NOTIFY... flags. */
     /* Cluster */
@@ -1313,6 +1315,7 @@ robj *hashTypeLookupWriteOrCreate(redisClient *c, robj *key);
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(redisClient *c, int notify);
 int pubsubUnsubscribeAllPatterns(redisClient *c, int notify);
+int pubsubUnsubscribeAllExPatterns(redisClient *c, int notify);
 void freePubsubPattern(void *p);
 int listMatchPubsubPattern(void *a, void *b);
 int pubsubPublishMessage(robj *channel, robj *message);
@@ -1532,6 +1535,8 @@ void subscribeCommand(redisClient *c);
 void unsubscribeCommand(redisClient *c);
 void psubscribeCommand(redisClient *c);
 void punsubscribeCommand(redisClient *c);
+void pexsubscribeCommand(redisClient *c);
+void pexunsubscribeCommand(redisClient *c);
 void publishCommand(redisClient *c);
 void pubsubCommand(redisClient *c);
 void watchCommand(redisClient *c);

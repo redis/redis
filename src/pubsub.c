@@ -123,23 +123,38 @@ int pubsubUnsubscribeChannel(redisClient *c, robj *channel, int notify) {
     return retval;
 }
 
-/* Subscribe a client to a pattern. Returns 1 if the operation succeeded, or 0 if the client was already subscribed to that pattern. */
-int pubsubSubscribePattern(redisClient *c, robj *pattern) {
+/* Subscribe a client to a pattern. Returns 1 if the operation succeeded,
+   or 0 if the client was already subscribed to that pattern.
+   The excluding is 0 means that we store pattern to "match pattern" storage,
+   and 1 means we store pattern to "not match pattern" storage. */
+int pubsubSubscribePattern(redisClient *c, robj *pattern, int excluding) {
     int retval = 0;
+	struct list *clist, *slist;
+	robj *hdr;
 
-    if (listSearchKey(c->pubsub_patterns,pattern) == NULL) {
+	if (!excluding) {
+		clist = c->pubsub_patterns;
+		slist = server.pubsub_patterns;
+		hdr = shared.psubscribebulk;
+	} else {
+		clist = c->pubsub_expatterns;
+		slist = server.pubsub_expatterns;
+		hdr = shared.psubscribebulk;
+	}
+
+    if (listSearchKey(clist,pattern) == NULL) {
         retval = 1;
         pubsubPattern *pat;
-        listAddNodeTail(c->pubsub_patterns,pattern);
+        listAddNodeTail(clist,pattern);
         incrRefCount(pattern);
         pat = zmalloc(sizeof(*pat));
         pat->pattern = getDecodedObject(pattern);
         pat->client = c;
-        listAddNodeTail(server.pubsub_patterns,pat);
+        listAddNodeTail(slist,pat);
     }
     /* Notify the client */
     addReply(c,shared.mbulkhdr[3]);
-    addReply(c,shared.psubscribebulk);
+    addReply(c,shared.pexsubscribebulk);
     addReplyBulk(c,pattern);
     addReplyLongLong(c,clientSubscriptionsCount(c));
     return retval;
@@ -147,27 +162,39 @@ int pubsubSubscribePattern(redisClient *c, robj *pattern) {
 
 /* Unsubscribe a client from a channel. Returns 1 if the operation succeeded, or
  * 0 if the client was not subscribed to the specified channel. */
-int pubsubUnsubscribePattern(redisClient *c, robj *pattern, int notify) {
+int pubsubUnsubscribePattern(redisClient *c, robj *pattern, int notify, int excluding) {
     listNode *ln;
     pubsubPattern pat;
     int retval = 0;
+	struct list *clist, *slist;
+	robj *hdr;
+
+	if (!excluding) {
+		clist = c->pubsub_patterns;
+		slist = server.pubsub_patterns;
+		hdr = shared.punsubscribebulk;
+	} else {
+		clist = c->pubsub_expatterns;
+		slist = server.pubsub_expatterns;
+		hdr = shared.pexunsubscribebulk;
+	}
 
     incrRefCount(pattern); /* Protect the object. May be the same we remove */
-    if ((ln = listSearchKey(c->pubsub_patterns,pattern)) != NULL) {
+    if ((ln = listSearchKey(clist,pattern)) != NULL) {
         retval = 1;
-        listDelNode(c->pubsub_patterns,ln);
+        listDelNode(clist,ln);
         pat.client = c;
         pat.pattern = pattern;
-        ln = listSearchKey(server.pubsub_patterns,&pat);
-        listDelNode(server.pubsub_patterns,ln);
+        ln = listSearchKey(slist,&pat);
+        listDelNode(slist,ln);
     }
     /* Notify the client */
     if (notify) {
         addReply(c,shared.mbulkhdr[3]);
-        addReply(c,shared.punsubscribebulk);
+        addReply(c,hdr);
         addReplyBulk(c,pattern);
         addReplyLongLong(c,dictSize(c->pubsub_channels)+
-                       listLength(c->pubsub_patterns));
+                       listLength(clist));
     }
     decrRefCount(pattern);
     return retval;
@@ -208,7 +235,31 @@ int pubsubUnsubscribeAllPatterns(redisClient *c, int notify) {
     while ((ln = listNext(&li)) != NULL) {
         robj *pattern = ln->value;
 
-        count += pubsubUnsubscribePattern(c,pattern,notify);
+        count += pubsubUnsubscribePattern(c,pattern,notify,0);
+    }
+    if (notify && count == 0) {
+        /* We were subscribed to nothing? Still reply to the client. */
+        addReply(c,shared.mbulkhdr[3]);
+        addReply(c,shared.punsubscribebulk);
+        addReply(c,shared.nullbulk);
+        addReplyLongLong(c,dictSize(c->pubsub_channels)+
+                       listLength(c->pubsub_patterns));
+    }
+    return count;
+}
+
+/* Unsubscribe from all the patterns. Return the number of patterns the
+ * client was subscribed from. */
+int pubsubUnsubscribeAllExPatterns(redisClient *c, int notify) {
+    listNode *ln;
+    listIter li;
+    int count = 0;
+
+    listRewind(c->pubsub_expatterns,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        robj *pattern = ln->value;
+
+        count += pubsubUnsubscribePattern(c,pattern,notify,1);
     }
     if (notify && count == 0) {
         /* We were subscribed to nothing? Still reply to the client. */
@@ -267,6 +318,28 @@ int pubsubPublishMessage(robj *channel, robj *message) {
         }
         decrRefCount(channel);
     }
+
+	/* Send to clients listening to NOT match channels */
+	if (listLength(server.pubsub_expatterns)) {
+		listRewind(server.pubsub_expatterns,&li);
+		channel = getDecodedObject(channel);
+		while ((ln = listNext(&li)) != NULL) {
+			pubsubPattern *pat = ln->value;
+
+			if (!stringmatchlen((char*)pat->pattern->ptr,
+								sdslen(pat->pattern->ptr),
+								(char*)channel->ptr,
+								sdslen(channel->ptr),0)) {
+				addReply(pat->client,shared.mbulkhdr[4]);
+				addReply(pat->client,shared.pmessagebulk);
+				addReplyBulk(pat->client,pat->pattern);
+				addReplyBulk(pat->client,channel);
+				addReplyBulk(pat->client,message);
+				receivers++;
+			}
+		}
+		decrRefCount(channel);
+	}
     return receivers;
 }
 
@@ -298,7 +371,7 @@ void psubscribeCommand(redisClient *c) {
     int j;
 
     for (j = 1; j < c->argc; j++)
-        pubsubSubscribePattern(c,c->argv[j]);
+        pubsubSubscribePattern(c,c->argv[j],0);
     c->flags |= REDIS_PUBSUB;
 }
 
@@ -309,9 +382,28 @@ void punsubscribeCommand(redisClient *c) {
         int j;
 
         for (j = 1; j < c->argc; j++)
-            pubsubUnsubscribePattern(c,c->argv[j],1);
+            pubsubUnsubscribePattern(c,c->argv[j],1,0);
     }
     if (clientSubscriptionsCount(c) == 0) c->flags &= ~REDIS_PUBSUB;
+}
+
+void pexsubscribeCommand(redisClient *c) {
+	int j;
+	for (j = 1; j < c->argc; j++)
+		pubsubSubscribePattern(c,c->argv[j],1);
+	c->flags |= REDIS_PUBSUB;
+}
+
+void pexunsubscribeCommand(redisClient *c) {
+	if (c->argc == 1) {
+		pubsubUnsubscribeAllExPatterns(c,1);
+	} else {
+		int j;
+
+		for (j = 1; j < c->argc; j++)
+			pubsubUnsubscribePattern(c,c->argv[j],1,1);
+	}
+	if (clientSubscriptionsCount(c) == 0) c->flags &= ~REDIS_PUBSUB;
 }
 
 void publishCommand(redisClient *c) {
