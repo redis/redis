@@ -12,9 +12,48 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 3.0.0 RC4 (version 2.9.104) ] Release date: 13 feb 2015
+
+Upgrade urgency: High for Redis if you use LRU eviction, low otherwise.
+
+This is the 4th release candidate of Redis 3.0.0, it fixes problems with
+LRU eviction that are not present in older release (2.8.x is not affected)
+and adds new tools to inspect latency and load-test LRU.
+
+>> General changes
+
+* [FIX] redis-cli CSV output NIL spurious newline removed. (Matt Collier)
+* [FIX] Memory efficiency test in unit test is now much faster: it affacted
+        the total "make test" execution time in a bad way.  (Salvatore
+        Sanfilippo)
+* [FIX] Fixes and improvements to dict.c and LRU eviction. Redis 3.0.0 new
+        LRU eviction had bugs creating high latency spikes when LRU was
+        happening during the keys dictionary rehashing. This bug is not
+        present into 2.8, was 3.0 specific. As a side effect of this issue
+        dict.c is now improved, and LRU algorithm is more precise (better
+        approximates true LRU). This was a joint effort, see issue
+        #2306 for details. (Oran Agra, Sun He, Salvatore Sanfilippo).
+        Thanks to Charsyam for spotting an integer overflow.
+
+* [NEW] New latency tool: redis-cli --latency-dist is able to show an
+        xterm-256 based spectrum of latencies over time. (Salvatore Sanfilippo)
+* [NEW] redis-cli --lru-test implemented (cache workload simulator). (Salvatore
+        Sanfilippo)
+* [NEW] redis-cli --stat now shows LOAD when Redis is loading data.
+* [NEW] Support "1G" etc. units in CONFIG SET. (Chris Lamb, Salvatore
+        Sanfilippo)
+
+>> Cluster changes
+
+* None.
+
+>> Sentinel changes
+
+* None.
+
 --[ Redis 3.0.0 RC3 (version 2.9.103) ] Release date: 30 jan 2015
 
-Upgrade urgency: High for Redis Cluster users, Low otherwise.
+Upgrade urgency: High for Redis Cluster users, low otherwise.
 
 This is the third release candidate for Redis 3.0.0, the new RC fixes
 several critical issues with Redis Cluster.
