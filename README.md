@@ -1,4 +1,4 @@
-This README is just a fast "quick start" document. You can find more detailed documentation at http://redis.io.
+This README is just a fast *quick start* document. You can find more detailed documentation at http://redis.io.
 
 Building Redis
 --------------
@@ -8,8 +8,8 @@ We support big endian and little endian architectures, and both 32 bit
 and 64 bit systems.
 
 It may compile on Solaris derived systems (for instance SmartOS) but our
-support for this platform is "best effort" and Redis is not guaranteed to
-work as well as in Linux, OSX, and *BSD there.
+support for this platform is *best effort* and Redis is not guaranteed to
+work as well as in Linux, OSX, and `*`BSD there.
 
 It is as simple as:
 
