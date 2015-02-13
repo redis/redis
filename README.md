@@ -1,14 +1,11 @@
-Where to find complete Redis documentation?
--------------------------------------------
-
-This README is just a fast "quick start" document. You can find more detailed
-documentation at http://redis.io
+NOte: This README is just a fast "quick start" document. You can find more detailed documentation at http://redis.io
 
 Building Redis
 --------------
 
 Redis can be compiled and used on Linux, OSX, OpenBSD, NetBSD, FreeBSD.
-We support big endian and little endian architectures.
+We support big endian and little endian architectures, and both 32 bit
+and 64 bit systems.
 
 It may compile on Solaris derived systems (for instance SmartOS) but our
 support for this platform is "best effort" and Redis is not guaranteed to
@@ -28,8 +25,8 @@ After building Redis is a good idea to test it, using:
 
 Fixing build problems with dependencies or cached build options
 —--------
-Redis has some dependencies which are included into the "deps" directory.
-"make" does not rebuild dependencies automatically, even if something in the
+Redis has some dependencies which are included into the `deps` directory.
+`make` does not rebuild dependencies automatically, even if something in the
 source code of dependencies is changes.
 
 When you update the source code with `git pull` or when code inside the
@@ -128,9 +125,7 @@ then in another terminal try the following:
     (integer) 2
     redis> 
 
-You can find the list of all the available commands here:
-
-    http://redis.io/commands
+You can find the list of all the available commands at http://redis.io/commands.
 
 Installing Redis
 -----------------
@@ -139,7 +134,7 @@ In order to install Redis binaries into /usr/local/bin just use:
 
     % make install
 
-You can use "make PREFIX=/some/other/directory install" if you wish to use a
+You can use `make PREFIX=/some/other/directory install` if you wish to use a
 different destination.
 
 Make install will just install binaries in your system, but will not configure
@@ -156,7 +151,7 @@ to run Redis properly as a background daemon that will start again on
 system reboots.
 
 You'll be able to stop and start Redis using the script named
-/etc/init.d/redis_<portnumber>, for instance /etc/init.d/redis_6379.
+`/etc/init.d/redis_<portnumber>`, for instance `/etc/init.d/redis_6379`.
 
 Code contributions
 ---
