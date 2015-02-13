@@ -1133,8 +1133,8 @@ static void latencyMode(void) {
 #define LATENCY_DIST_GRAYS (LATENCY_DIST_MAX_GRAY-LATENCY_DIST_MIN_GRAY+1)
 
 /* Gray palette. */
-int spectrum_palette_size = 24;
-int spectrum_palette[] = {0, 233,234,235,236,237,238,239,240,241,242,243,244,245,246,247,248,249,250,251,252,253,254,255};
+int spectrum_palette_size = 18;
+int spectrum_palette[] = {0, 233,235,237,239,241,243,245,247,144,143,142,184,226,214,208,202,196};
 
 /* Structure to store samples distribution. */
 struct distsamples {
