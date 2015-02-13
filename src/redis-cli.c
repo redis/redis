@@ -64,6 +64,17 @@
 #define REDIS_CLI_HISTFILE_ENV "REDISCLI_HISTFILE"
 #define REDIS_CLI_HISTFILE_DEFAULT ".rediscli_history"
 
+/* --latency-dist palettes. */
+int spectrum_palette_color_size = 19;
+int spectrum_palette_color[] = {0,233,234,235,237,239,241,243,245,247,144,143,142,184,226,214,208,202,196};
+
+int spectrum_palette_mono_size = 13;
+int spectrum_palette_mono[] = {0,233,234,235,237,239,241,243,245,247,249,251,253};
+
+/* The actual palette in use. */
+int *spectrum_palette;
+int spectrum_palette_size;
+
 static redisContext *context;
 static struct config {
     char *hostip;
@@ -780,6 +791,9 @@ static int parseOptions(int argc, char **argv) {
             config.latency_mode = 1;
         } else if (!strcmp(argv[i],"--latency-dist")) {
             config.latency_dist_mode = 1;
+        } else if (!strcmp(argv[i],"--mono")) {
+            spectrum_palette = spectrum_palette_mono;
+            spectrum_palette_size = spectrum_palette_mono_size;
         } else if (!strcmp(argv[i],"--latency-history")) {
             config.latency_mode = 1;
             config.latency_history = 1;
@@ -1128,13 +1142,6 @@ static void latencyMode(void) {
  *--------------------------------------------------------------------------- */
 
 #define LATENCY_DIST_DEFAULT_INTERVAL 1000 /* milliseconds. */
-#define LATENCY_DIST_MIN_GRAY 233 /* Less than that is too hard to see gray. */
-#define LATENCY_DIST_MAX_GRAY 255
-#define LATENCY_DIST_GRAYS (LATENCY_DIST_MAX_GRAY-LATENCY_DIST_MIN_GRAY+1)
-
-/* Gray palette. */
-int spectrum_palette_size = 18;
-int spectrum_palette[] = {0, 233,235,237,239,241,243,245,247,144,143,142,184,226,214,208,202,196};
 
 /* Structure to store samples distribution. */
 struct distsamples {
@@ -2199,6 +2206,9 @@ int main(int argc, char **argv) {
     config.auth = NULL;
     config.eval = NULL;
     config.last_cmd_type = -1;
+
+    spectrum_palette = spectrum_palette_color;
+    spectrum_palette_size = spectrum_palette_color_size;
 
     if (!isatty(fileno(stdout)) && (getenv("FAKETTY") == NULL))
         config.output = OUTPUT_RAW;
