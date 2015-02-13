@@ -159,10 +159,13 @@ Code contributions
 Note: by contributing code to the Redis project in any form, including sending
 a pull request via Github, a code fragment or patch via private email or
 public discussion groups, you agree to release your code under the terms
-of the BSD license that you can find in the COPYING file included in the Redis
+of the BSD license that you can find in the [COPYING][1] file included in the Redis
 source distribution.
 
-Please see the CONTRIBUTING file in this source distribution for more
+Please see the [CONTRIBUTING][2] file in this source distribution for more
 information.
 
 Enjoy!
+
+[1]: https://github.com/antirez/redis/blob/unstable/COPYING
+[2]: https://github.com/antirez/redis/blob/unstable/CONTRIBUTING
