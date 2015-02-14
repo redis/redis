@@ -1397,6 +1397,7 @@ void initServerConfig(void) {
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.port = REDIS_SERVERPORT;
     server.tcp_backlog = REDIS_TCP_BACKLOG;
+    server.tcp_fastopen = REDIS_TCP_FASTOPEN;
     server.bindaddr_count = 0;
     server.unixsocket = NULL;
     server.unixsocketperm = REDIS_DEFAULT_UNIX_SOCKET_PERM;
@@ -1672,13 +1673,13 @@ int listenToPort(int port, int *fds, int *count) {
             /* Bind * for both IPv6 and IPv4, we enter here only if
              * server.bindaddr_count == 0. */
             fds[*count] = anetTcp6Server(server.neterr,port,NULL,
-                server.tcp_backlog);
+                server.tcp_backlog, server.tcp_fastopen);
             if (fds[*count] != ANET_ERR) {
                 anetNonBlock(NULL,fds[*count]);
                 (*count)++;
             }
             fds[*count] = anetTcpServer(server.neterr,port,NULL,
-                server.tcp_backlog);
+                server.tcp_backlog, server.tcp_fastopen);
             if (fds[*count] != ANET_ERR) {
                 anetNonBlock(NULL,fds[*count]);
                 (*count)++;
@@ -1690,11 +1691,11 @@ int listenToPort(int port, int *fds, int *count) {
         } else if (strchr(server.bindaddr[j],':')) {
             /* Bind IPv6 address. */
             fds[*count] = anetTcp6Server(server.neterr,port,server.bindaddr[j],
-                server.tcp_backlog);
+                server.tcp_backlog, server.tcp_fastopen);
         } else {
             /* Bind IPv4 address. */
             fds[*count] = anetTcpServer(server.neterr,port,server.bindaddr[j],
-                server.tcp_backlog);
+                server.tcp_backlog, server.tcp_fastopen);
         }
         if (fds[*count] == ANET_ERR) {
             redisLog(REDIS_WARNING,
