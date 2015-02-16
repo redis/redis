@@ -1372,7 +1372,7 @@ REDIS_STATIC void *_quicklistSaver(unsigned char *data, unsigned int sz) {
     unsigned char *vstr;
     if (data) {
         vstr = zmalloc(sz);
-        memcpy(data, vstr, sz);
+        memcpy(vstr, data, sz);
         return vstr;
     }
     return NULL;
