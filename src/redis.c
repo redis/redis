@@ -3611,6 +3611,8 @@ void redisSetProcTitle(char *title) {
     char *server_mode = "";
     if (server.cluster_enabled) server_mode = " [cluster]";
     else if (server.sentinel_mode) server_mode = " [sentinel]";
+	else if ((!server.masterhost) && (listLength(server.slaves) != 0)) server_mode = " [master]";
+	else if (server.masterhost ) server_mode = " [slave]";
 
     setproctitle("%s %s:%d%s",
         title,

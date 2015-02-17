@@ -670,6 +670,7 @@ void putSlaveOnline(redisClient *slave) {
     refreshGoodSlavesCount();
     redisLog(REDIS_NOTICE,"Synchronization with slave %s succeeded",
         replicationGetSlaveName(slave));
+	redisSetProcTitle("redis-server");
 }
 
 void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
@@ -1448,6 +1449,7 @@ void replicationSetMaster(char *ip, int port) {
     replicationDiscardCachedMaster(); /* Don't try a PSYNC. */
     freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */
     cancelReplicationHandshake();
+	redisSetProcTitle("redis-server");
     server.repl_state = REDIS_REPL_CONNECT;
     server.master_repl_offset = 0;
     server.repl_down_since = 0;
@@ -1489,6 +1491,7 @@ void slaveofCommand(redisClient *c) {
         if (server.masterhost) {
             replicationUnsetMaster();
             redisLog(REDIS_NOTICE,"MASTER MODE enabled (user request)");
+			redisSetProcTitle("redis-server");
         }
     } else {
         long port;
