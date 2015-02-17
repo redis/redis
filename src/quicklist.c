@@ -1757,7 +1757,8 @@ int quicklistTest(int argc, char *argv[]) {
 
         TEST("pop 1 string from 1") {
             quicklist *ql = quicklistNew(-2, options[_i]);
-            quicklistPushHead(ql, genstr("hello", 331), 32);
+            char *populate = genstr("hello", 331);
+            quicklistPushHead(ql, populate, 32);
             unsigned char *data;
             unsigned int sz;
             long long lv;
@@ -1765,6 +1766,9 @@ int quicklistTest(int argc, char *argv[]) {
             quicklistPop(ql, QUICKLIST_HEAD, &data, &sz, &lv);
             assert(data != NULL);
             assert(sz == 32);
+            if (strcmp(populate, (char *)data))
+                ERR("Pop'd value (%.*s) didn't equal original value (%s)", sz,
+                    data, populate);
             zfree(data);
             ql_verify(ql, 0, 0, 0, 0);
             quicklistRelease(ql);
@@ -1797,6 +1801,9 @@ int quicklistTest(int argc, char *argv[]) {
                 assert(ret == 1);
                 assert(data != NULL);
                 assert(sz == 32);
+                if (strcmp(genstr("hello", 499 - i), (char *)data))
+                    ERR("Pop'd value (%.*s) didn't equal original value (%s)",
+                        sz, data, genstr("hello", 499 - i));
                 zfree(data);
             }
             ql_verify(ql, 0, 0, 0, 0);
@@ -1816,6 +1823,10 @@ int quicklistTest(int argc, char *argv[]) {
                     assert(ret == 1);
                     assert(data != NULL);
                     assert(sz == 32);
+                    if (strcmp(genstr("hello", 499 - i), (char *)data))
+                        ERR("Pop'd value (%.*s) didn't equal original value "
+                            "(%s)",
+                            sz, data, genstr("hello", 499 - i));
                     zfree(data);
                 } else {
                     assert(ret == 0);
