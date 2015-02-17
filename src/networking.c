@@ -751,6 +751,7 @@ void freeClient(redisClient *c) {
         if (c->flags & REDIS_SLAVE && listLength(server.slaves) == 0)
             server.repl_no_slaves_since = server.unixtime;
         refreshGoodSlavesCount();
+		redisSetProcTitle("redis-server");
     }
 
     /* Master/slave cleanup Case 2:
