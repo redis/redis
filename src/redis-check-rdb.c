@@ -122,7 +122,7 @@ int processHeader(void) {
     }
 
     dump_version = (int)strtol(buf + 5, NULL, 10);
-    if (dump_version < 1 || dump_version > 6) {
+    if (dump_version < 1 || dump_version > REDIS_RDB_VERSION) {
         ERROR("Unknown RDB format version: %d", dump_version);
     }
     return dump_version;
