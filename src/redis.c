@@ -2640,25 +2640,24 @@ void bytesToHuman(char *s, unsigned long long n) {
 /* Create the string returned by the INFO command. This is decoupled
  * by the INFO command itself as we need to report the same information
  * on memory corruption problems. */
-sds genRedisInfoString(char *section) {
+sds genRedisInfoString(int section) {
     sds info = sdsempty();
     time_t uptime = server.unixtime-server.stat_starttime;
     int j, numcommands;
     struct rusage self_ru, c_ru;
     unsigned long lol, bib;
-    int allsections = 0, defsections = 0;
+    int defsections = 0;
     int sections = 0;
 
-    if (section == NULL) section = "default";
-    allsections = strcasecmp(section,"all") == 0;
-    defsections = strcasecmp(section,"default") == 0;
+    if (section < 0) section = REDIS_INFO_DEFAULT;
+    defsections = (section == REDIS_INFO_DEFAULT);
 
     getrusage(RUSAGE_SELF, &self_ru);
     getrusage(RUSAGE_CHILDREN, &c_ru);
     getClientsMaxBuffers(&lol,&bib);
 
     /* Server */
-    if (allsections || defsections || !strcasecmp(section,"server")) {
+    if (defsections || (section & REDIS_INFO_SERVER)) {
         static int call_uname = 1;
         static struct utsname name;
         char *mode;
@@ -2718,7 +2717,7 @@ sds genRedisInfoString(char *section) {
     }
 
     /* Clients */
-    if (allsections || defsections || !strcasecmp(section,"clients")) {
+    if (defsections || (section & REDIS_INFO_CLIENTS)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Clients\r\n"
@@ -2732,7 +2731,7 @@ sds genRedisInfoString(char *section) {
     }
 
     /* Memory */
-    if (allsections || defsections || !strcasecmp(section,"memory")) {
+    if (defsections || (section & REDIS_INFO_MEMORY)) {
         char hmem[64];
         char peak_hmem[64];
         char total_system_hmem[64];
@@ -2780,7 +2779,7 @@ sds genRedisInfoString(char *section) {
     }
 
     /* Persistence */
-    if (allsections || defsections || !strcasecmp(section,"persistence")) {
+    if (defsections || (section & REDIS_INFO_PERSISTENCE)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Persistence\r\n"
@@ -2866,7 +2865,7 @@ sds genRedisInfoString(char *section) {
     }
 
     /* Stats */
-    if (allsections || defsections || !strcasecmp(section,"stats")) {
+    if (defsections || (section & REDIS_INFO_STATS)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Stats\r\n"
@@ -2911,7 +2910,7 @@ sds genRedisInfoString(char *section) {
     }
 
     /* Replication */
-    if (allsections || defsections || !strcasecmp(section,"replication")) {
+    if (defsections || (section & REDIS_INFO_REPLICATION)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
             "# Replication\r\n"
@@ -3029,7 +3028,7 @@ sds genRedisInfoString(char *section) {
     }
 
     /* CPU */
-    if (allsections || defsections || !strcasecmp(section,"cpu")) {
+    if (defsections || (section & REDIS_INFO_CPU)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
         "# CPU\r\n"
@@ -3044,7 +3043,7 @@ sds genRedisInfoString(char *section) {
     }
 
     /* cmdtime */
-    if (allsections || !strcasecmp(section,"commandstats")) {
+    if (section & REDIS_INFO_COMMANDSTATS) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Commandstats\r\n");
         numcommands = sizeof(redisCommandTable)/sizeof(struct redisCommand);
@@ -3060,7 +3059,7 @@ sds genRedisInfoString(char *section) {
     }
 
     /* Cluster */
-    if (allsections || defsections || !strcasecmp(section,"cluster")) {
+    if (defsections || (section & REDIS_INFO_CLUSTER)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
         "# Cluster\r\n"
@@ -3069,7 +3068,7 @@ sds genRedisInfoString(char *section) {
     }
 
     /* Key space */
-    if (allsections || defsections || !strcasecmp(section,"keyspace")) {
+    if (defsections || (section & REDIS_INFO_KEYSPACE)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Keyspace\r\n");
         for (j = 0; j < server.dbnum; j++) {
@@ -3087,13 +3086,71 @@ sds genRedisInfoString(char *section) {
     return info;
 }
 
-void infoCommand(redisClient *c) {
-    char *section = c->argc == 2 ? c->argv[1]->ptr : "default";
+static int _getInfoFlag(redisClient *c) {
+    int i;
+    int infoFlag = 0;
 
-    if (c->argc > 2) {
+    for(i = 1; i < c->argc; i++) {
+        if(!strcasecmp(c->argv[i]->ptr, "all")) {
+            return REDIS_INFO_ALL;
+        }
+
+        if(!strcasecmp(c->argv[i]->ptr, "server")) {
+            infoFlag |= REDIS_INFO_SERVER;
+        }
+
+        if(!strcasecmp(c->argv[i]->ptr, "server")) {
+            infoFlag |= REDIS_INFO_SERVER;
+        }
+
+        if(!strcasecmp(c->argv[i]->ptr, "clients")) {
+            infoFlag |= REDIS_INFO_CLIENTS;
+        }
+
+        if(!strcasecmp(c->argv[i]->ptr, "memory")) {
+            infoFlag |= REDIS_INFO_MEMORY;
+        }
+
+        if(!strcasecmp(c->argv[i]->ptr, "persistence")) {
+            infoFlag |= REDIS_INFO_PERSISTENCE;
+        }
+
+        if(!strcasecmp(c->argv[i]->ptr, "stats")) {
+            infoFlag |= REDIS_INFO_STATS;
+        }
+
+        if(!strcasecmp(c->argv[i]->ptr, "replication")) {
+            infoFlag |= REDIS_INFO_REPLICATION;
+        }
+
+        if(!strcasecmp(c->argv[i]->ptr, "cpu")) {
+            infoFlag |= REDIS_INFO_CPU;
+        }
+
+        if(!strcasecmp(c->argv[i]->ptr, "commandstats")) {
+            infoFlag |= REDIS_INFO_COMMANDSTATS;
+        }
+
+        if(!strcasecmp(c->argv[i]->ptr, "cluster")) {
+            infoFlag |= REDIS_INFO_CLUSTER;
+        }
+
+        if(!strcasecmp(c->argv[i]->ptr, "keyspace")) {
+            infoFlag |= REDIS_INFO_KEYSPACE;
+        }
+    }
+
+    return infoFlag;
+}
+
+void infoCommand(redisClient *c) {
+    int section = c->argc >= 2 ?  _getInfoFlag(c) : REDIS_INFO_DEFAULT;
+
+    if (section == 0) {
         addReply(c,shared.syntaxerr);
         return;
     }
+
     addReplyBulkSds(c, genRedisInfoString(section));
 }
 
