@@ -3095,8 +3095,8 @@ static int _getInfoFlag(redisClient *c) {
             return REDIS_INFO_ALL;
         }
 
-        if(!strcasecmp(c->argv[i]->ptr, "server")) {
-            infoFlag |= REDIS_INFO_SERVER;
+        if(!strcasecmp(c->argv[i]->ptr, "default")) {
+            infoFlag |= REDIS_INFO_DEFAULT;
         }
 
         if(!strcasecmp(c->argv[i]->ptr, "server")) {
