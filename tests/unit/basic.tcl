@@ -368,7 +368,18 @@ start_server {tags {"basic"}} {
         format $err
     } {ERR*}
 
-    test {RENAME where source and dest key is the same} {
+    test {RENAME where source and dest key are the same (existing)} {
+        r set mykey foo
+        r rename mykey mykey
+    } {OK}
+
+    test {RENAMENX where source and dest key are the same (existing)} {
+        r set mykey foo
+        r renamenx mykey mykey
+    } {0}
+
+    test {RENAME where source and dest key are the same (non existing)} {
+        r del mykey
         catch {r rename mykey mykey} err
         format $err
     } {ERR*}

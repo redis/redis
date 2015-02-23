@@ -688,15 +688,19 @@ void shutdownCommand(redisClient *c) {
 void renameGenericCommand(redisClient *c, int nx) {
     robj *o;
     long long expire;
+    int samekey = 0;
 
-    /* To use the same key as src and dst is probably an error */
-    if (sdscmp(c->argv[1]->ptr,c->argv[2]->ptr) == 0) {
-        addReply(c,shared.sameobjecterr);
-        return;
-    }
+    /* When source and dest key is the same, no operation is performed,
+     * if the key exists, however we still return an error on unexisting key. */
+    if (sdscmp(c->argv[1]->ptr,c->argv[2]->ptr) == 0) samekey = 1;
 
     if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr)) == NULL)
         return;
+
+    if (samekey) {
+        addReply(c,nx ? shared.czero : shared.ok);
+        return;
+    }
 
     incrRefCount(o);
     expire = getExpire(c->db,c->argv[1]);
