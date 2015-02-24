@@ -543,7 +543,7 @@ typedef struct redisClient {
     int multibulklen;       /* number of multi bulk arguments left to read */
     long bulklen;           /* length of bulk argument in multi bulk request */
     list *reply;
-    size_t reply_bytes;     /* Tot bytes of objects in reply list */
+    unsigned long long reply_bytes; /* Tot bytes of objects in reply list */
     size_t sentlen;         /* Amount of bytes already sent in the current
                                buffer or object being sent. */
     time_t ctime;           /* Client creation time */
@@ -554,8 +554,8 @@ typedef struct redisClient {
     int replstate;          /* replication state if this is a slave */
     int repl_put_online_on_ack; /* Install slave write handler on ACK. */
     int repldbfd;           /* replication DB file descriptor */
-    size_t repldboff;       /* replication DB file offset */
-    size_t repldbsize;      /* replication DB file size */
+    off_t repldboff;       /* replication DB file offset */
+    off_t repldbsize;      /* replication DB file size */
     sds replpreamble;       /* replication DB preamble. */
     long long reploff;      /* replication offset if this is our master */
     long long repl_ack_off; /* replication ack offset, if this is a slave */
@@ -572,7 +572,7 @@ typedef struct redisClient {
     sds peerid;             /* Cached peer ID. */
 
     /* Response buffer */
-    size_t bufpos;
+    int bufpos;
     char buf[REDIS_REPLY_CHUNK_BYTES];
 } redisClient;
 
