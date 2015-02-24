@@ -40,6 +40,7 @@
 #else
 #include "win32_Interop/win32fixes.h"
 #include <direct.h> // for getcwd
+#include <shlwapi.h> // for PathIsRelative
 #endif
 #include <float.h>
 #include <stdint.h>
@@ -482,6 +483,7 @@ void getRandomHexChars(char *p, unsigned int len) {
  * The function does not try to normalize everything, but only the obvious
  * case of one or more "../" appearning at the start of "filename"
  * relative path. */
+#ifndef _WIN32
 sds getAbsolutePath(char *filename) {
     char cwd[1024];
     sds abspath;
@@ -526,6 +528,27 @@ sds getAbsolutePath(char *filename) {
     sdsfree(relpath);
     return abspath;
 }
+#else
+sds getAbsolutePath(char *filename) {
+    char fullPath[MAX_PATH];
+    DWORD gfpnResult;
+    sds abspath;
+    sds relpath = sdsnew(filename);
+
+    relpath = sdstrim(relpath," \r\n\t");
+
+    if (!PathIsRelative(relpath)) return relpath;
+
+    gfpnResult = GetFullPathNameA(relpath, sizeof(fullPath), fullPath, NULL);
+    sdsfree(relpath);
+
+    if (gfpnResult == 0 || gfpnResult > sizeof(fullPath)) {
+        return NULL;
+    }
+    abspath = sdsnew(fullPath);
+    return abspath;
+}
+#endif
 
 /* Return true if the specified path is just a file basename without any
  * relative or absolute path. This function just checks that no / or \
