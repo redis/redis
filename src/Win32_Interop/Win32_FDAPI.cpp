@@ -258,7 +258,7 @@ void FDAPI_GetAcceptExSockaddrs(int fd,PVOID lpOutputBuffer,DWORD dwReceiveDataL
                 return;
             }
 
-            return getacceptsockaddrs(lpOutputBuffer,dwReceiveDataLength,dwLocalAddressLength,dwRemoteAddressLength,LocalSockaddr,LocalSockaddrLength,RemoteSockaddr,RemoteSockaddrLength);
+            getacceptsockaddrs(lpOutputBuffer,dwReceiveDataLength,dwLocalAddressLength,dwRemoteAddressLength,LocalSockaddr,LocalSockaddrLength,RemoteSockaddr,RemoteSockaddrLength);
         }
     } CATCH_AND_REPORT()
 }
@@ -946,7 +946,7 @@ int redis_getpeername_impl(int sockfd, struct sockaddr *addr, socklen_t * addrle
             return f_getpeername(s,addr, addrlen);
         } else {
             errno = EBADF;
-            return 0;
+            return SOCKET_ERROR;
         }
     } CATCH_AND_REPORT();
 
