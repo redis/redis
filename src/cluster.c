@@ -4552,7 +4552,7 @@ try_again:
     {
         sds buf = cmd.io.buffer.ptr;
         size_t pos = 0, towrite;
-        int nwritten = 0;
+        ssize_t nwritten = 0;
 
         while ((towrite = sdslen(buf)-pos) > 0) {
             towrite = (towrite > (64*1024) ? (64*1024) : towrite);
