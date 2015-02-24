@@ -301,6 +301,7 @@ int aeWinSocketSend(int fd, char *buf, int len,
                     void *eventLoop, void *client, void *data, void *proc);
 int aeWinListen(int rfd, int backlog);
 int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len);
+int aeWinGetPeerName(int fd, struct sockaddr *addr, socklen_t * addrlen);
 int aeWinSocketConnect(int fd, const SOCKADDR_STORAGE *ss);
 int aeWinSocketConnectBind(int fd, const SOCKADDR_STORAGE *ss, const char* source_addr);
 

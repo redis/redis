@@ -56,6 +56,7 @@ typedef struct aeSockState {
     int wreqs;
     OVERLAPPED ov_read;
     list wreqlist;
+    SOCKADDR_STORAGE remoteAddress;
 } aeSockState;
 
 typedef aeSockState * fnGetSockState(void *apistate, int fd);
@@ -68,7 +69,7 @@ typedef void fnDelSockState(void *apistate, aeSockState *sockState);
 #define CONNECT_PENDING     0x002000
 #define CLOSE_PENDING       0x004000
 
-void aeWinInit(void *state, HANDLE iocp, fnGetSockState *getSockState, fnDelSockState *delSockState);
+void aeWinInit(void *state, HANDLE iocp, fnGetSockState *getSockState, fnGetSockState *getExistingSockState, fnDelSockState *delSockState);
 void aeWinCleanup();
 
 #endif

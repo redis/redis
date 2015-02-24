@@ -29,11 +29,13 @@
 #include "win32_wsiocp.h"
 #include "Win32_FDAPI.h"
 #include <errno.h>
+#include <assert.h>
 
 
 static void *iocpState;
 static HANDLE iocph;
 static fnGetSockState * aeGetSockState;
+static fnGetSockState * aeGetExistingSockState;
 static fnDelSockState * aeDelSockState;
 
 #define SUCCEEDED_WITH_IOCP(result)                        \
@@ -130,6 +132,7 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
     SOCKADDR *premotesa;
     int locallen, remotelen;
     aacceptreq * areq;
+    aeSockState *acceptsockstate;
 
     if ((sockstate = aeGetSockState(iocpState, fd)) == NULL) {
         errno = WSAEINVAL;
@@ -169,6 +172,13 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
 
     aeWinSocketAttach(acceptsock);
 
+    // Save remote address to support aeWinGetPeerName()
+    if ((acceptsockstate = aeGetExistingSockState(iocpState, acceptsock)) == NULL) {
+        errno = WSAEINVAL;
+        return SOCKET_ERROR;
+    }
+    memcpy(&acceptsockstate->remoteAddress, premotesa, remotelen);
+
     zfree(areq->buf);
     zfree(areq);
 
@@ -180,6 +190,20 @@ int aeWinAccept(int fd, struct sockaddr *sa, socklen_t *len) {
     return acceptsock;
 }
 
+int aeWinGetPeerName(int fd, struct sockaddr *addr, socklen_t * addrlen) {
+    aeSockState *sockState = aeGetExistingSockState(iocpState, fd);
+    if (sockState == NULL) {
+        errno = EBADF;
+        return -1;
+    } else {
+        if (sockState->remoteAddress.ss_family) {
+            memcpy(addr, &sockState->remoteAddress, *addrlen);
+            return 0;
+        } else {
+            return getpeername(fd, addr, addrlen);
+        }
+    }
+}
 
 /* after doing read caller needs to call done
  * so that we can continue to check for read events.
@@ -490,11 +514,15 @@ int aeWinCloseSocket(int fd) {
     return 0;
 }
 
-void aeWinInit(void *state, HANDLE iocp, fnGetSockState *getSockState,
-                                        fnDelSockState *delSockState) {
+void aeWinInit(void *state,
+                HANDLE iocp,
+                fnGetSockState *getSockState,
+                fnGetSockState *getExistingSockState,
+                fnDelSockState *delSockState) {
     iocpState = state;
     iocph = iocp;
     aeGetSockState = getSockState;
+    aeGetExistingSockState = getExistingSockState;
     aeDelSockState = delSockState;
 }
 
