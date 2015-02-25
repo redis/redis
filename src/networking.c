@@ -813,7 +813,7 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 
             /* If the buffer was sent, set bufpos to zero to continue with
              * the remainder of the reply. */
-            if (c->sentlen == c->bufpos) {
+            if ((int)c->sentlen == c->bufpos) {
                 c->bufpos = 0;
                 c->sentlen = 0;
             }
