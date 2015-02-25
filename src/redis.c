@@ -1335,6 +1335,8 @@ void createSharedObjects(void) {
         "-MISCONF Redis is configured to save RDB snapshots, but is currently not able to persist on disk. Commands that may modify the data set are disabled. Please check Redis logs for details about the error.\r\n"));
     shared.roslaveerr = createObject(REDIS_STRING,sdsnew(
         "-READONLY You can't write against a read only slave.\r\n"));
+    shared.readonlyerr = createObject(REDIS_STRING,sdsnew(
+        "-READONLY You can't write against a read only server.\r\n"));
     shared.noautherr = createObject(REDIS_STRING,sdsnew(
         "-NOAUTH Authentication required.\r\n"));
     shared.oomerr = createObject(REDIS_STRING,sdsnew(
@@ -1414,6 +1416,7 @@ void initServerConfig(void) {
     server.syslog_enabled = REDIS_DEFAULT_SYSLOG_ENABLED;
     server.syslog_ident = zstrdup(REDIS_DEFAULT_SYSLOG_IDENT);
     server.syslog_facility = LOG_LOCAL0;
+    server.read_only = REDIS_DEFAULT_READ_ONLY;
     server.daemonize = REDIS_DEFAULT_DAEMONIZE;
     server.supervised = 0;
     server.supervised_mode = REDIS_SUPERVISED_NONE;
@@ -2275,6 +2278,12 @@ int processCommand(redisClient *c) {
     {
         flagTransaction(c);
         addReply(c, shared.noreplicaserr);
+        return REDIS_OK;
+    }
+
+    /* Don't accept write commands if this is read only */
+    if (server.read_only && c->cmd->flags & REDIS_CMD_WRITE) {
+        addReply(c, shared.readonlyerr);
         return REDIS_OK;
     }
 
