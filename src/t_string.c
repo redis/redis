@@ -206,7 +206,7 @@ void setrangeCommand(redisClient *c) {
         if (checkStringLength(c,offset+sdslen(value)) != REDIS_OK)
             return;
 
-        o = createObject(REDIS_STRING,sdsempty());
+        o = createObject(REDIS_STRING,sdsnewlen(NULL, offset+sdslen(value)));
         dbAdd(c->db,c->argv[1],o);
     } else {
         size_t olen;
