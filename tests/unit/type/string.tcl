@@ -38,6 +38,7 @@ start_server {tags {"string"}} {
         } {}
 
         test {SET 10000 numeric keys and access all them in reverse order} {
+            r flushdb
             set err {}
             for {set x 0} {$x < 10000} {incr x} {
                 r set $x $x
@@ -53,9 +54,9 @@ start_server {tags {"string"}} {
             set _ $err
         } {}
 
-        test {DBSIZE should be 10101 now} {
+        test {DBSIZE should be 10000 now} {
             r dbsize
-        } {10101}
+        } {10000}
     }
 
     test "SETNX target key missing" {
@@ -119,6 +120,7 @@ start_server {tags {"string"}} {
     } {BAR {} FOO {}}
 
     test {GETSET (set new value)} {
+        r del foo
         list [r getset foo xyz] [r get foo]
     } {{} xyz}
 
