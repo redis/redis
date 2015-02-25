@@ -16,8 +16,10 @@ set ::all_tests {
     unit/dump
     unit/auth
     unit/protocol
-    unit/basic
+    unit/keyspace
     unit/scan
+    unit/type/string
+    unit/type/incr
     unit/type/list
     unit/type/list-2
     unit/type/list-3
