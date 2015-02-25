@@ -1295,7 +1295,7 @@ void zaddGenericCommand(redisClient *c, int incr) {
     if (incr) /* ZINCRBY */
         addReplyDouble(c,score);
     else /* ZADD */
-        addReplyLongLong(c,added);
+        addReplyLongLong(c,added+updated);
 
 cleanup:
     zfree(scores);
