@@ -403,6 +403,20 @@ typedef long long mstime_t; /* millisecond time type. */
 #define REDIS_NOTIFY_EVICTED (1<<9)     /* e */
 #define REDIS_NOTIFY_ALL (REDIS_NOTIFY_GENERIC | REDIS_NOTIFY_STRING | REDIS_NOTIFY_LIST | REDIS_NOTIFY_SET | REDIS_NOTIFY_HASH | REDIS_NOTIFY_ZSET | REDIS_NOTIFY_EXPIRED | REDIS_NOTIFY_EVICTED)      /* A */
 
+/* Classes of INFO command */
+#define REDIS_INFO_DEFAULT	(1<<1)
+#define REDIS_INFO_SERVER	(1<<2)
+#define REDIS_INFO_CLIENTS	(1<<3)
+#define REDIS_INFO_MEMORY	(1<<4)
+#define REDIS_INFO_PERSISTENCE	(1<<5)
+#define REDIS_INFO_STATS	(1<<6)
+#define REDIS_INFO_REPLICATION	(1<<7)
+#define REDIS_INFO_CPU	(1<<8)
+#define REDIS_INFO_COMMANDSTATS	(1<<9)
+#define REDIS_INFO_CLUSTER	(1<<10)
+#define REDIS_INFO_KEYSPACE	(1<<11)
+#define REDIS_INFO_ALL	(REDIS_INFO_SERVER | REDIS_INFO_CLIENTS | REDIS_INFO_MEMORY | REDIS_INFO_PERSISTENCE | REDIS_INFO_STATS | REDIS_INFO_REPLICATION | REDIS_INFO_CPU | REDIS_INFO_COMMANDSTATS | REDIS_INFO_CLUSTER | REDIS_INFO_KEYSPACE)
+
 /* Get the first bind addr or NULL */
 #define REDIS_BIND_ADDR (server.bindaddr_count ? server.bindaddr[0] : NULL)
 
@@ -1575,7 +1589,7 @@ void _redisPanic(char *msg, char *file, int line);
 void bugReportStart(void);
 void redisLogObjectDebugInfo(robj *o);
 void sigsegvHandler(int sig, siginfo_t *info, void *secret);
-sds genRedisInfoString(char *section);
+sds genRedisInfoString(int section);
 void enableWatchdog(int period);
 void disableWatchdog(void);
 void watchdogScheduleSignal(int period);

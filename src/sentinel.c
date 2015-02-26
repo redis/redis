@@ -2880,7 +2880,7 @@ void sentinelInfoCommand(redisClient *c) {
     sds info = sdsempty();
     if (defsections || allsections || !strcasecmp(section,"server")) {
         if (sections++) info = sdscat(info,"\r\n");
-        sds serversection = genRedisInfoString("server");
+        sds serversection = genRedisInfoString(REDIS_INFO_SERVER);
         info = sdscatlen(info,serversection,sdslen(serversection));
         sdsfree(serversection);
     }
