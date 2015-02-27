@@ -390,36 +390,34 @@ start_server {tags {"hash"}} {
         lappend rv [string match "ERR*not*float*" $bigerr]
     } {1 1}
 
-    test {HVSTRLEN against the small hash} {
+    test {HSTRLEN against the small hash} {
         set err {}
         foreach k [array names smallhash *] {
-            if {[string length $smallhash($k)] ne [r hvstrlen smallhash $k]} {
-                set err "[string length $smallhash($k)] != [r hvstrlen smallhash $k]"
+            if {[string length $smallhash($k)] ne [r hstrlen smallhash $k]} {
+                set err "[string length $smallhash($k)] != [r hstrlen smallhash $k]"
                 break
             }
         }
         set _ $err
     } {}
 
-    test {HVSTRLEN against the big hash} {
+    test {HSTRLEN against the big hash} {
         set err {}
         foreach k [array names bighash *] {
-            if {[string length $bighash($k)] ne [r hvstrlen bighash $k]} {
-                set err "[string length $bighash($k)] != [r hvstrlen bighash $k]"
+            if {[string length $bighash($k)] ne [r hstrlen bighash $k]} {
+                set err "[string length $bighash($k)] != [r hstrlen bighash $k]"
                 break
             }
         }
         set _ $err
     } {}
 
-    test {HVSTRLEN against non existing key} {
+    test {HSTRLEN against non existing field} {
         set rv {}
-        lappend rv [r hvstrlen smallhash __123123123__]
-        lappend rv [r hvstrlen bighash __123123123__]
+        lappend rv [r hstrlen smallhash __123123123__]
+        lappend rv [r hstrlen bighash __123123123__]
         set _ $rv
-
-    } {{} {}}
-
+    } {0 0}
 
     test {Hash ziplist regression test for large keys} {
         r hset hash kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk a

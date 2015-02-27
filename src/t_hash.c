@@ -701,24 +701,19 @@ void hdelCommand(redisClient *c) {
 
 void hlenCommand(redisClient *c) {
     robj *o;
+
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,REDIS_HASH)) return;
 
     addReplyLongLong(c,hashTypeLength(o));
 }
 
-void hvstrlenCommand(redisClient *c) {
+void hstrlenCommand(redisClient *c) {
     robj *o;
-    robj *value;
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
-        checkType(c,o,REDIS_HASH)) return;
 
-    if ((value = hashTypeGetObject(o,c->argv[2])) == NULL) {
-        addReply(c, shared.nullbulk);
-    } else {
-        addReplyLongLong(c,stringObjectLen(value));
-        decrRefCount(value);
-    }
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
+        checkType(c,o,REDIS_HASH)) return;
+    addReplyLongLong(c,hashTypeGetValueLength(o,c->argv[2]));
 }
 
 static void addHashIteratorCursorToReply(redisClient *c, hashTypeIterator *hi, int what) {
