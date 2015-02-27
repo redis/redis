@@ -30,6 +30,7 @@
 #ifndef __REDIS_UTIL_H
 #define __REDIS_UTIL_H
 
+#include <stdint.h>
 #include "sds.h"
 
 int stringmatchlen(const char *p, int plen, const char *s, int slen, int nocase);
