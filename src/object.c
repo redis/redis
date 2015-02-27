@@ -529,9 +529,7 @@ size_t stringObjectLen(robj *o) {
     if (sdsEncodedObject(o)) {
         return sdslen(o->ptr);
     } else {
-        char buf[32];
-
-        return ll2string(buf,32,(long)o->ptr);
+        return sdigits10((long)o->ptr);
     }
 }
 
