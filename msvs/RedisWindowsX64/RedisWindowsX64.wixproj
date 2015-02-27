@@ -23,6 +23,7 @@
     <CompilerAdditionalOptions>-arch x64</CompilerAdditionalOptions>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="FileComponents.wxs" />
     <Compile Include="Product.wxs" />
   </ItemGroup>
   <ItemGroup>
@@ -68,6 +69,10 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <WixExtension Include="WixUIExtension">
+      <HintPath>..\..\..\..\Program Files (x86)\WiX Toolset v3.9\bin\WixUIExtension.dll</HintPath>
+      <Name>WixUIExtension</Name>
+    </WixExtension>
     <WixExtension Include="WixFirewallExtension">
       <HintPath>$(WixToolPath)WixFirewallExtension.dll</HintPath>
       <Name>WixFirewallExtension</Name>
@@ -76,6 +81,11 @@
       <HintPath>$(WixExtDir)\WixUtilExtension.dll</HintPath>
       <Name>WixUtilExtension</Name>
     </WixExtension>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="License.rtf" />
+    <Content Include="redis_background.jpg" />
+    <Content Include="top_banner.jpg" />
   </ItemGroup>
   <Import Project="$(WixTargetsPath)" />
   <!--

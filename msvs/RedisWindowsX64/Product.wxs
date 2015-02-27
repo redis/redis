@@ -15,6 +15,13 @@
     <MediaTemplate EmbedCab="yes" />
 
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/MSOpenTech/redis" />
+    <Property Id="LOGLEVEL" Value="verbose" />
+
+    <UIRef Id="WixUI_InstallDir"/>
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="License.rtf"/>
+    <WixVariable Id="WixUIDialogBmp" Value="redis_background.jpg"/>
+    <WixVariable Id="WixUIBannerBmp" Value="top_banner.jpg"/>
 
     <Feature Id="ProductFeature" Title="Redis" Level="1">
       <ComponentGroupRef Id="ProductComponents" />
@@ -28,73 +35,5 @@
         <Directory Id="INSTALLFOLDER" Name="Redis-Windows" />
       </Directory>
     </Directory>
-  </Fragment>
-
-  <Fragment>
-    <PropertyRef Id="WIX_ACCOUNT_NETWORKSERVICE" />
-
-    <!--
-    The following properties can be customized.
-    -->
-    <Property Id="LOGLEVEL" Value="verbose" />
-    <Property Id="CONFIG" Value="redis.windows.conf" />
-
-    <!--Executable files-->
-    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
-      <Component Id="cmp_redis_benchmarkEXE" Guid="*">
-        <File Source="$(var.RedisBenchmark.TargetDir)redis-benchmark.exe" />
-      </Component>
-
-      <Component Id="cmp_redis_check_aofEXE" Guid="*">
-        <File Source="$(var.RedisCheckAof.TargetDir)redis-check-aof.exe" />
-      </Component>
-
-      <Component Id="cmp_redis_check_dumpEXE" Guid="*">
-        <File Source="$(var.RedisCheckDump.TargetDir)redis-check-dump.exe" />
-      </Component>
-
-      <Component Id="cmp_redis_cliEXE" Guid="*">
-        <File Source="$(var.RedisCli.TargetDir)redis-cli.exe" />
-      </Component>
-
-      <!--
-        The following component installs Redis as a Windows service.
-      -->
-      <Component Id="cmp_redis_server" Guid="*">
-        <File Id="file_redis_server" Source="$(var.RedisServer.TargetDir)redis-server.exe" />
-        <ServiceInstall Id="redisService" Name="Redis" DisplayName="Redis" Description="This service runs the Redis server" Start="auto" ErrorControl="normal" Type="ownProcess" Arguments="--service-run [CONFIG] --loglevel [LOGLEVEL]" Account="[WIX_ACCOUNT_NETWORKSERVICE]" />
-        <ServiceControl Id="redisServiceControl" Name="Redis" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
-        <fw:FirewallException Id="fw_redis_server" Program="[#file_redis_server]" Description="Exception for Redis server" Name="Redis" Scope="any" />
-      </Component>
-
-      <!--
-          The following component gives the NetworkService user full access to the Redis install directory.
-          It needs this to start the service.
-      -->
-      <Component Id="cmp_give_network_service_folder_permissions" Guid="{55E5EFB3-61E6-4D51-934E-BFEEFB430701}">
-        <CreateFolder>
-          <util:PermissionEx User="[WIX_ACCOUNT_NETWORKSERVICE]" GenericAll="yes" />
-        </CreateFolder>
-      </Component>
-    </ComponentGroup>
-
-    <!--Documentation files-->
-    <ComponentGroup Id="DocumentationComponents" Directory="INSTALLFOLDER" Source="..\setups\documentation">
-      <Component Id="cmp_Redis_on_Windows_Release_NotesDOCX" Guid="*">
-        <File Name="Redis on Windows Release Notes.docx" />
-      </Component>
-
-      <Component Id="cmp_Redis_on_WindowsDOCX" Guid="*">
-        <File Name="Redis on Windows.docx" />
-      </Component>
-
-      <Component Id="cmp_redis.windowsCONF" Guid="*">
-        <File Name="redis.windows.conf" />
-      </Component>
-
-      <Component Id="cmp_Windows_Service_DocumentationDOCX" Guid="*">
-        <File Name="Windows Service Documentation.docx" />
-      </Component>
-    </ComponentGroup>
   </Fragment>
 </Wix>
