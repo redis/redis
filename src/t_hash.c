@@ -707,6 +707,20 @@ void hlenCommand(redisClient *c) {
     addReplyLongLong(c,hashTypeLength(o));
 }
 
+void hvstrlenCommand(redisClient *c) {
+    robj *o;
+    robj *value;
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk)) == NULL ||
+        checkType(c,o,REDIS_HASH)) return;
+
+    if ((value = hashTypeGetObject(o,c->argv[2])) == NULL) {
+        addReply(c, shared.nullbulk);
+    } else {
+        addReplyLongLong(c,stringObjectLen(value));
+        decrRefCount(value);
+    }
+}
+
 static void addHashIteratorCursorToReply(redisClient *c, hashTypeIterator *hi, int what) {
     if (hi->encoding == REDIS_ENCODING_ZIPLIST) {
         unsigned char *vstr = NULL;
