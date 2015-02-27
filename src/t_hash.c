@@ -159,7 +159,7 @@ size_t hashTypeGetValueLength(robj *o, robj *field) {
         robj *aux;
 
         if (hashTypeGetFromHashTable(o, field, &aux) == 0)
-            len = sdslen(aux->ptr);
+            len = stringObjectLen(aux);
     } else {
         redisPanic("Unknown hash encoding");
     }
