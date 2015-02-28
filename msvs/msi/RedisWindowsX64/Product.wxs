@@ -9,10 +9,10 @@
       default install:
         msiexec /i Redis-Windows-x64.msi 
         
-      set port and turn on firewall exception:
+      set port and turn off firewall exception:
         msiexec /i Redis-Windows-x64.msi PORT=1234 FIREWALL_ON=""
       
-      set port and turn off firewall exception:
+      set port and turn on firewall exception:
         msiexec /i Redis-Windows-x64.msi PORT=1234 FIREWALL_ON=1
         
       
