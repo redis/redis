@@ -22,12 +22,27 @@
     <IntermediateOutputPath>obj\$(Configuration)\</IntermediateOutputPath>
     <CompilerAdditionalOptions>-arch x64</CompilerAdditionalOptions>
   </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
+    <DefineConstants>Debug</DefineConstants>
+    <CompilerAdditionalOptions>-arch x64</CompilerAdditionalOptions>
+    <OutputPath>bin\$(Platform)\$(Configuration)\</OutputPath>
+    <IntermediateOutputPath>obj\$(Platform)\$(Configuration)\</IntermediateOutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
+    <CompilerAdditionalOptions>-arch x64</CompilerAdditionalOptions>
+    <OutputPath>bin\$(Platform)\$(Configuration)\</OutputPath>
+    <IntermediateOutputPath>obj\$(Platform)\$(Configuration)\</IntermediateOutputPath>
+  </PropertyGroup>
   <ItemGroup>
-    <Compile Include="FileComponents.wxs" />
+    <Compile Include="Components\DocumentationComponents.wxs" />
+    <Compile Include="Components\FileComponents.wxs" />
+    <Compile Include="Components\WindowsServiceComponents.wxs" />
+    <Compile Include="Dialogs\CustomInstallDir.wxs" />
+    <Compile Include="Dialogs\FirewallDialog.wxs" />
     <Compile Include="Product.wxs" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\RedisBenchmark\RedisBenchmark.vcxproj">
+    <ProjectReference Include="..\..\RedisBenchmark\RedisBenchmark.vcxproj">
       <Name>RedisBenchmark</Name>
       <Project>{b00d4bb5-44de-405e-839c-d16f547006cf}</Project>
       <Private>True</Private>
@@ -35,7 +50,7 @@
       <RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups>
       <RefTargetDir>INSTALLFOLDER</RefTargetDir>
     </ProjectReference>
-    <ProjectReference Include="..\RedisCheckAof\RedisCheckAof.vcxproj">
+    <ProjectReference Include="..\..\RedisCheckAof\RedisCheckAof.vcxproj">
       <Name>RedisCheckAof</Name>
       <Project>{a65c2cd6-72a3-441a-aea3-d754bea9a86a}</Project>
       <Private>True</Private>
@@ -43,7 +58,7 @@
       <RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups>
       <RefTargetDir>INSTALLFOLDER</RefTargetDir>
     </ProjectReference>
-    <ProjectReference Include="..\RedisCheckDump\RedisCheckDump.vcxproj">
+    <ProjectReference Include="..\..\RedisCheckDump\RedisCheckDump.vcxproj">
       <Name>RedisCheckDump</Name>
       <Project>{52193a97-d010-41d6-bf2b-33e8e764e308}</Project>
       <Private>True</Private>
@@ -51,7 +66,7 @@
       <RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups>
       <RefTargetDir>INSTALLFOLDER</RefTargetDir>
     </ProjectReference>
-    <ProjectReference Include="..\RedisCli\RedisCli.vcxproj">
+    <ProjectReference Include="..\..\RedisCli\RedisCli.vcxproj">
       <Name>RedisCli</Name>
       <Project>{392bbb91-3934-4a56-af42-65c5728311e8}</Project>
       <Private>True</Private>
@@ -59,9 +74,17 @@
       <RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups>
       <RefTargetDir>INSTALLFOLDER</RefTargetDir>
     </ProjectReference>
-    <ProjectReference Include="..\RedisServer.vcxproj">
+    <ProjectReference Include="..\..\RedisServer.vcxproj">
       <Name>RedisServer</Name>
       <Project>{46842776-68a5-ec98-6a09-1859bbfc73aa}</Project>
+      <Private>True</Private>
+      <DoNotHarvest>True</DoNotHarvest>
+      <RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups>
+      <RefTargetDir>INSTALLFOLDER</RefTargetDir>
+    </ProjectReference>
+    <ProjectReference Include="..\RedisWindowsX64.CustomActions\RedisWindowsX64.CustomActions.csproj">
+      <Name>RedisWindowsX64.CustomActions</Name>
+      <Project>{a917027e-d229-46c9-b969-1f4ce7d5d2ca}</Project>
       <Private>True</Private>
       <DoNotHarvest>True</DoNotHarvest>
       <RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups>
@@ -83,9 +106,14 @@
     </WixExtension>
   </ItemGroup>
   <ItemGroup>
+    <Content Include="Images\redis_background.jpg" />
+    <Content Include="Images\top_banner.jpg" />
     <Content Include="License.rtf" />
-    <Content Include="redis_background.jpg" />
-    <Content Include="top_banner.jpg" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="Images" />
+    <Folder Include="Dialogs" />
+    <Folder Include="Components" />
   </ItemGroup>
   <Import Project="$(WixTargetsPath)" />
   <!--
