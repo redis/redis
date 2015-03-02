@@ -332,6 +332,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
              * another linked list). */
             if (retval != AE_NOMORE) {
                 aeAddMillisecondsToNow(retval,&te->when_sec,&te->when_ms);
+                te->id = eventLoop->timeEventNextId++;
             } else {
                 aeDeleteTimeEvent(eventLoop, id);
             }
