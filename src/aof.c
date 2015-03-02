@@ -292,6 +292,18 @@ void flushAppendOnlyFile(int force) {
 
     if (sdslen(server.aof_buf) == 0) return;
 
+    /* We are not supposed to reach here if a slave has an empty data set */
+    serverAssert(!isUnsyncedSlave());
+
+    /* Open the AOF file if needed. */
+    if (server.aof_state == AOF_ON && server.aof_fd == -1) {
+        server.aof_fd = open(server.aof_filename,O_WRONLY|O_APPEND|O_CREAT,0644);
+        if (server.aof_fd == -1) {
+            serverLog(LL_WARNING, "Can't open the append-only file: %s", strerror(errno));
+            exit(1);
+        }
+    }
+
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC)
         sync_in_progress = bioPendingJobsOfType(BIO_AOF_FSYNC) != 0;
 
@@ -620,8 +632,8 @@ int loadAppendOnlyFile(char *filename) {
     off_t valid_up_to = 0; /* Offset of latest well-formed command loaded. */
 
     if (fp == NULL) {
-        serverLog(LL_WARNING,"Fatal error: can't open the append log file for reading: %s",strerror(errno));
-        exit(1);
+        serverLog(LL_NOTICE,"Warning: Can't open the append log file for reading: %s (First run?)",strerror(errno));
+        return C_ERR;
     }
 
     /* Handle a zero-length AOF file as a special case. An emtpy AOF file
@@ -631,7 +643,7 @@ int loadAppendOnlyFile(char *filename) {
     if (fp && redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) {
         server.aof_current_size = 0;
         fclose(fp);
-        return C_ERR;
+        return C_OK;
     }
 
     /* Temporarily disable AOF, to prevent EXEC from feeding a MULTI
@@ -639,7 +651,7 @@ int loadAppendOnlyFile(char *filename) {
     server.aof_state = AOF_OFF;
 
     fakeClient = createFakeClient();
-    startLoading(fp);
+    startLoadingFile(fp);
 
     /* Check if this AOF file has an RDB preamble. In that case we need to
      * load the RDB file and later continue loading the AOF tail. */
@@ -1323,6 +1335,10 @@ int rewriteAppendOnlyFileBackground(void) {
     long long start;
 
     if (server.aof_child_pid != -1 || server.rdb_child_pid != -1) return C_ERR;
+    if (isUnsyncedSlave()) {
+        serverLog(LL_NOTICE,"AOFRW skipped, no data received from master");
+        return C_ERR;
+    }
     if (aofCreatePipes() != C_OK) return C_ERR;
     openChildInfoPipe();
     start = ustime();
