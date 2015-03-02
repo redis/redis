@@ -857,6 +857,11 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val,
     if (rdbSaveObjectType(rdb,val) == -1) return -1;
     if (rdbSaveStringObject(rdb,key) == -1) return -1;
     if (rdbSaveObject(rdb,val) == -1) return -1;
+
+    /* Delay return if required (for testing) */
+    if (server.rdb_key_save_delay)
+        usleep(server.rdb_key_save_delay);
+
     return 1;
 }
 
@@ -1042,6 +1047,11 @@ int rdbSave(char *filename, rdbSaveInfo *rsi) {
     rio rdb;
     int error = 0;
 
+    if (isUnsyncedSlave()) {
+        serverLog(LL_NOTICE, "RDB save skipped, no data received from master");
+        return C_ERR;
+    }
+
     snprintf(tmpfile,256,"temp-%d.rdb", (int) getpid());
     fp = fopen(tmpfile,"w");
     if (!fp) {
@@ -1099,6 +1109,11 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     long long start;
 
     if (server.aof_child_pid != -1 || server.rdb_child_pid != -1) return C_ERR;
+
+    if (isUnsyncedSlave()) {
+        serverLog(LL_NOTICE,"BGSAVE skipped, no data received from master");
+        return C_ERR;
+    }
 
     server.dirty_before_bgsave = server.dirty;
     server.lastbgsave_try = time(NULL);
@@ -1530,18 +1545,19 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 
 /* Mark that we are loading in the global state and setup the fields
  * needed to provide loading stats. */
-void startLoading(FILE *fp) {
-    struct stat sb;
-
+void startLoading(size_t size) {
     /* Load the DB */
     server.loading = 1;
     server.loading_start_time = time(NULL);
     server.loading_loaded_bytes = 0;
-    if (fstat(fileno(fp), &sb) == -1) {
-        server.loading_total_bytes = 0;
-    } else {
-        server.loading_total_bytes = sb.st_size;
-    }
+    server.loading_total_bytes = size;
+}
+
+void startLoadingFile(FILE *fp) {
+    struct stat sb;
+    if (fstat(fileno(fp), &sb) == -1)
+        sb.st_size = 0;
+    startLoading(sb.st_size);
 }
 
 /* Refresh the loading progress info */
@@ -1752,7 +1768,7 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi) {
     int retval;
 
     if ((fp = fopen(filename,"r")) == NULL) return C_ERR;
-    startLoading(fp);
+    startLoadingFile(fp);
     rioInitWithFile(&rdb,fp);
     retval = rdbLoadRio(&rdb,rsi);
     fclose(fp);

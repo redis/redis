@@ -40,7 +40,7 @@
 #include <sys/wait.h>
 #include <sys/param.h>
 
-void aofUpdateCurrentSize(void);
+void aofUpdateCurrentSize(int fd);
 void aofClosePipes(void);
 
 /* ----------------------------------------------------------------------------
@@ -291,6 +291,18 @@ void flushAppendOnlyFile(int force) {
     mstime_t latency;
 
     if (sdslen(server.aof_buf) == 0) return;
+
+    /* We are not supposed to reach here if a slave has an empty data set */
+    serverAssert(!isUnsyncedSlave());
+
+    /* Open the AOF file if needed. */
+    if (server.aof_state == AOF_ON && server.aof_fd == -1) {
+        server.aof_fd = open(server.aof_filename,O_WRONLY|O_APPEND|O_CREAT,0644);
+        if (server.aof_fd == -1) {
+            serverLog(LL_WARNING, "Can't open the append-only file: %s", strerror(errno));
+            exit(1);
+        }
+    }
 
     if (server.aof_fsync == AOF_FSYNC_EVERYSEC)
         sync_in_progress = bioPendingJobsOfType(BIO_AOF_FSYNC) != 0;
@@ -636,8 +648,8 @@ int loadAppendOnlyFile(char *filename) {
     off_t valid_up_to = 0; /* Offset of latest well-formed command loaded. */
 
     if (fp == NULL) {
-        serverLog(LL_WARNING,"Fatal error: can't open the append log file for reading: %s",strerror(errno));
-        exit(1);
+        serverLog(LL_NOTICE,"Warning: Can't open the append log file for reading: %s (First run?)",strerror(errno));
+        return C_ERR;
     }
 
     /* Handle a zero-length AOF file as a special case. An emtpy AOF file
@@ -647,7 +659,7 @@ int loadAppendOnlyFile(char *filename) {
     if (fp && redis_fstat(fileno(fp),&sb) != -1 && sb.st_size == 0) {
         server.aof_current_size = 0;
         fclose(fp);
-        return C_ERR;
+        return C_OK;
     }
 
     /* Temporarily disable AOF, to prevent EXEC from feeding a MULTI
@@ -655,7 +667,7 @@ int loadAppendOnlyFile(char *filename) {
     server.aof_state = AOF_OFF;
 
     fakeClient = createFakeClient();
-    startLoading(fp);
+    startLoadingFile(fp);
 
     /* Check if this AOF file has an RDB preamble. In that case we need to
      * load the RDB file and later continue loading the AOF tail. */
@@ -759,11 +771,11 @@ int loadAppendOnlyFile(char *filename) {
     if (fakeClient->flags & CLIENT_MULTI) goto uxeof;
 
 loaded_ok: /* DB loaded, cleanup and return C_OK to the caller. */
+    aofUpdateCurrentSize(fileno(fp));
     fclose(fp);
     freeFakeClient(fakeClient);
     server.aof_state = old_aof_state;
     stopLoading();
-    aofUpdateCurrentSize();
     server.aof_rewrite_base_size = server.aof_current_size;
     return C_OK;
 
@@ -1372,6 +1384,10 @@ int rewriteAppendOnlyFileBackground(void) {
     long long start;
 
     if (server.aof_child_pid != -1 || server.rdb_child_pid != -1) return C_ERR;
+    if (isUnsyncedSlave()) {
+        serverLog(LL_NOTICE,"AOFRW skipped, no data received from master");
+        return C_ERR;
+    }
     if (aofCreatePipes() != C_OK) return C_ERR;
     openChildInfoPipe();
     start = ustime();
@@ -1451,12 +1467,12 @@ void aofRemoveTempFile(pid_t childpid) {
  * to check the size of the file. This is useful after a rewrite or after
  * a restart, normally the size is updated just adding the write length
  * to the current length, that is much faster. */
-void aofUpdateCurrentSize(void) {
+void aofUpdateCurrentSize(int fd) {
     struct redis_stat sb;
     mstime_t latency;
 
     latencyStartMonitor(latency);
-    if (redis_fstat(server.aof_fd,&sb) == -1) {
+    if (redis_fstat(fd,&sb) == -1) {
         serverLog(LL_WARNING,"Unable to obtain the AOF file length. stat: %s",
             strerror(errno));
     } else {
@@ -1570,7 +1586,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             else if (server.aof_fsync == AOF_FSYNC_EVERYSEC)
                 aof_background_fsync(newfd);
             server.aof_selected_db = -1; /* Make sure SELECT is re-issued */
-            aofUpdateCurrentSize();
+            aofUpdateCurrentSize(newfd);
             server.aof_rewrite_base_size = server.aof_current_size;
 
             /* Clear regular AOF buffer since its contents was just written to

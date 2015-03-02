@@ -365,6 +365,10 @@ void loadServerConfigFromString(char *config) {
             if ((server.repl_diskless_sync = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"repl-diskless-load") && argc==2) {
+            if ((server.repl_diskless_load = yesnotoi(argv[1])) == -1) {
+                err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"repl-diskless-sync-delay") && argc==2) {
             server.repl_diskless_sync_delay = atoi(argv[1]);
             if (server.repl_diskless_sync_delay < 0) {
@@ -436,12 +440,10 @@ void loadServerConfigFromString(char *config) {
             if (server.hz < CONFIG_MIN_HZ) server.hz = CONFIG_MIN_HZ;
             if (server.hz > CONFIG_MAX_HZ) server.hz = CONFIG_MAX_HZ;
         } else if (!strcasecmp(argv[0],"appendonly") && argc == 2) {
-            int yes;
-
-            if ((yes = yesnotoi(argv[1])) == -1) {
+            if ((server.aof_enabled = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
-            server.aof_state = yes ? AOF_ON : AOF_OFF;
+            server.aof_state = server.aof_enabled ? AOF_ON : AOF_OFF;
         } else if (!strcasecmp(argv[0],"appendfilename") && argc == 2) {
             if (!pathIsBaseName(argv[1])) {
                 err = "appendfilename can't be a path, just a filename";
@@ -482,6 +484,12 @@ void loadServerConfigFromString(char *config) {
         } else if (!strcasecmp(argv[0],"aof-load-truncated") && argc == 2) {
             if ((server.aof_load_truncated = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
+            }
+        } else if (!strcasecmp(argv[0],"rdb-key-save-delay") && argc==2) {
+            server.rdb_key_save_delay = atoi(argv[1]);
+            if (server.rdb_key_save_delay < 0) {
+                err = "rdb-key-save-delay can't be negative";
+                goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"aof-use-rdb-preamble") && argc == 2) {
             if ((server.aof_use_rdb_preamble = yesnotoi(argv[1])) == -1) {
@@ -880,10 +888,13 @@ void configSetCommand(client *c) {
         int enable = yesnotoi(o->ptr);
 
         if (enable == -1) goto badfmt;
+        server.aof_enabled = enable;
         if (enable == 0 && server.aof_state != AOF_OFF) {
             stopAppendOnly();
         } else if (enable && server.aof_state == AOF_OFF) {
-            if (startAppendOnly() == C_ERR) {
+            if (isUnsyncedSlave()) {
+                serverLog(LL_NOTICE, "Not yet synced with master, skipping initial AOFRW.");
+            } else if (startAppendOnly() == C_ERR) {
                 addReplyError(c,
                     "Unable to turn on AOF. Check server logs.");
                 return;
@@ -1018,6 +1029,8 @@ void configSetCommand(client *c) {
         }
 #endif
     } config_set_bool_field(
+      "repl-diskless-load",server.repl_diskless_load) {
+    } config_set_bool_field(
       "protected-mode",server.protected_mode) {
     } config_set_bool_field(
       "stop-writes-on-bgsave-error",server.stop_writes_on_bgsave_err) {
@@ -1090,6 +1103,8 @@ void configSetCommand(client *c) {
       "repl-backlog-ttl",server.repl_backlog_time_limit,0,LLONG_MAX) {
     } config_set_numerical_field(
       "repl-diskless-sync-delay",server.repl_diskless_sync_delay,0,LLONG_MAX) {
+    } config_set_numerical_field(
+      "rdb-key-save-delay",server.rdb_key_save_delay,0,LLONG_MAX) {
     } config_set_numerical_field(
       "slave-priority",server.slave_priority,0,LLONG_MAX) {
     } config_set_numerical_field(
@@ -1276,6 +1291,7 @@ void configGetCommand(client *c) {
     config_get_numerical_field("cluster-migration-barrier",server.cluster_migration_barrier);
     config_get_numerical_field("cluster-slave-validity-factor",server.cluster_slave_validity_factor);
     config_get_numerical_field("repl-diskless-sync-delay",server.repl_diskless_sync_delay);
+    config_get_numerical_field("rdb-key-save-delay",server.rdb_key_save_delay);
     config_get_numerical_field("tcp-keepalive",server.tcpkeepalive);
 
     /* Bool (yes/no) values */
@@ -1299,6 +1315,8 @@ void configGetCommand(client *c) {
             server.repl_disable_tcp_nodelay);
     config_get_bool_field("repl-diskless-sync",
             server.repl_diskless_sync);
+    config_get_bool_field("repl-diskless-load",
+            server.repl_diskless_load);
     config_get_bool_field("aof-rewrite-incremental-fsync",
             server.aof_rewrite_incremental_fsync);
     config_get_bool_field("aof-load-truncated",
@@ -1330,7 +1348,7 @@ void configGetCommand(client *c) {
 
     if (stringmatch(pattern,"appendonly",1)) {
         addReplyBulkCString(c,"appendonly");
-        addReplyBulkCString(c,server.aof_state == AOF_OFF ? "no" : "yes");
+        addReplyBulkCString(c,server.aof_enabled ? "yes" : "no");
         matches++;
     }
     if (stringmatch(pattern,"dir",1)) {
@@ -1985,6 +2003,7 @@ int rewriteConfig(char *path) {
     rewriteConfigBytesOption(state,"repl-backlog-ttl",server.repl_backlog_time_limit,CONFIG_DEFAULT_REPL_BACKLOG_TIME_LIMIT);
     rewriteConfigYesNoOption(state,"repl-disable-tcp-nodelay",server.repl_disable_tcp_nodelay,CONFIG_DEFAULT_REPL_DISABLE_TCP_NODELAY);
     rewriteConfigYesNoOption(state,"repl-diskless-sync",server.repl_diskless_sync,CONFIG_DEFAULT_REPL_DISKLESS_SYNC);
+    rewriteConfigYesNoOption(state,"repl-diskless-load",server.repl_diskless_load,CONFIG_DEFAULT_REPL_DISKLESS_LOAD);
     rewriteConfigNumericalOption(state,"repl-diskless-sync-delay",server.repl_diskless_sync_delay,CONFIG_DEFAULT_REPL_DISKLESS_SYNC_DELAY);
     rewriteConfigNumericalOption(state,"slave-priority",server.slave_priority,CONFIG_DEFAULT_SLAVE_PRIORITY);
     rewriteConfigNumericalOption(state,"min-slaves-to-write",server.repl_min_slaves_to_write,CONFIG_DEFAULT_MIN_SLAVES_TO_WRITE);
@@ -2001,7 +2020,7 @@ int rewriteConfig(char *path) {
     rewriteConfigBytesOption(state,"active-defrag-ignore-bytes",server.active_defrag_ignore_bytes,CONFIG_DEFAULT_DEFRAG_IGNORE_BYTES);
     rewriteConfigNumericalOption(state,"active-defrag-cycle-min",server.active_defrag_cycle_min,CONFIG_DEFAULT_DEFRAG_CYCLE_MIN);
     rewriteConfigNumericalOption(state,"active-defrag-cycle-max",server.active_defrag_cycle_max,CONFIG_DEFAULT_DEFRAG_CYCLE_MAX);
-    rewriteConfigYesNoOption(state,"appendonly",server.aof_state != AOF_OFF,0);
+    rewriteConfigYesNoOption(state,"appendonly",server.aof_enabled,0);
     rewriteConfigStringOption(state,"appendfilename",server.aof_filename,CONFIG_DEFAULT_AOF_FILENAME);
     rewriteConfigEnumOption(state,"appendfsync",server.aof_fsync,aof_fsync_enum,CONFIG_DEFAULT_AOF_FSYNC);
     rewriteConfigYesNoOption(state,"no-appendfsync-on-rewrite",server.aof_no_fsync_on_rewrite,CONFIG_DEFAULT_AOF_NO_FSYNC_ON_REWRITE);
@@ -2039,6 +2058,7 @@ int rewriteConfig(char *path) {
     rewriteConfigYesNoOption(state,"lazyfree-lazy-expire",server.lazyfree_lazy_expire,CONFIG_DEFAULT_LAZYFREE_LAZY_EXPIRE);
     rewriteConfigYesNoOption(state,"lazyfree-lazy-server-del",server.lazyfree_lazy_server_del,CONFIG_DEFAULT_LAZYFREE_LAZY_SERVER_DEL);
     rewriteConfigYesNoOption(state,"slave-lazy-flush",server.repl_slave_lazy_flush,CONFIG_DEFAULT_SLAVE_LAZY_FLUSH);
+    rewriteConfigNumericalOption(state,"rdb-key-save-delay",server.rdb_key_save_delay,CONFIG_DEFAULT_RDB_KEY_SAVE_DELAY);
 
     /* Rewrite Sentinel config if in Sentinel mode. */
     if (server.sentinel_mode) rewriteConfigSentinelOption(state);

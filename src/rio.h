@@ -73,6 +73,14 @@ struct _rio {
             off_t buffered; /* Bytes written since last fsync. */
             off_t autosync; /* fsync after 'autosync' bytes written. */
         } file;
+        /* file descriptor */
+        struct {
+            int fd;       /* File descriptor. */
+            off_t pos;    /* pos in buf that was returned */
+            sds buf;      /* buffered data */
+            size_t read_limit;  /* don't allow to buffer/read more than that */
+            size_t read_so_far; /* amount of data read from the rio (not buffered) */
+        } fd;
         /* Multiple FDs target (used to write to N sockets). */
         struct {
             int *fds;       /* File descriptors. */
@@ -126,9 +134,11 @@ static inline int rioFlush(rio *r) {
 
 void rioInitWithFile(rio *r, FILE *fp);
 void rioInitWithBuffer(rio *r, sds s);
+void rioInitWithFd(rio *r, int fd, size_t read_limit);
 void rioInitWithFdset(rio *r, int *fds, int numfds);
 
 void rioFreeFdset(rio *r);
+void rioFreeFd(rio *r, sds* out_remainingBufferedData);
 
 size_t rioWriteBulkCount(rio *r, char prefix, int count);
 size_t rioWriteBulkString(rio *r, const char *buf, size_t len);

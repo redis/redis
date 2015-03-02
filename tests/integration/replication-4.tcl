@@ -1,12 +1,3 @@
-proc start_bg_complex_data {host port db ops} {
-    set tclsh [info nameofexecutable]
-    exec $tclsh tests/helpers/bg_complex_data.tcl $host $port $db $ops &
-}
-
-proc stop_bg_complex_data {handle} {
-    catch {exec /bin/kill -9 $handle}
-}
-
 start_server {tags {"repl"}} {
     start_server {} {
 
@@ -149,6 +140,90 @@ start_server {tags {"repl"}} {
                 [$master debug digest] eq [$slave debug digest]
             } else {
                 fail "SPOP replication inconsistency"
+            }
+        }
+    }
+}
+
+# test that restart of a slave that is not in sync, doens't override an existing rdb
+start_server {tags {"repl"}} {
+    start_server {} {
+        set master [srv -1 client]
+        set master_host [srv -1 host]
+        set master_port [srv -1 port]
+        set slave [srv 0 client]
+
+        $master select 0
+        $slave select 0
+
+        # Populate master
+        for {set j 0} {$j < 100} {incr j} {
+            $master set key$j $j
+        }
+
+        # Connect slave to master
+        test {First server should have role slave after SLAVEOF} {
+            $slave slaveof $master_host $master_port
+            wait_for_condition 50 100 {
+                [s 0 master_link_status] eq {up}
+            } else {
+                fail "Replication not started."
+            }
+        }
+
+        test {Slave should sync with master} {
+            wait_for_condition 50 100 {
+                [$slave dbsize] == 100
+            } else {
+                fail "Replication not completed."
+            }
+        }
+
+        # Disconnect slave
+        $slave slaveof no one
+        $slave save
+
+        # Make sure no RDB saving is in progress
+        test {Make sure no RDB saving is in progress} {
+            wait_for_condition 50 100 {
+                [s -1 rdb_bgsave_in_progress] eq {0}
+            } else {
+                fail "RDB saving never finished."
+            }
+        }
+
+        # Setup delay to simulate a long RDB transfer time
+        # 50000 microseconds * 100 keys = 5 seconds
+        $master config set rdb-key-save-delay 50000
+
+        # Connect slave to master
+        $slave slaveof $master_host $master_port
+
+        # Make sure master started sending the file
+        test {Make sure master started sending RDB} {
+            wait_for_condition 50 100 {
+                [s -1 rdb_bgsave_in_progress] eq {1}
+            } else {
+                fail "RDB saving never started."
+            }
+        }
+
+        test {Kill master and restart slave} {
+            # Kill the master mid-RDB sending
+            catch {$master shutdown}
+            
+            # Restart slave
+            catch {$slave debug restart}
+        }
+
+        after 100
+
+        # Make sure it has all 100 keys
+        test {Slave should load old RDB} {
+            wait_for_condition 50 100 {
+                [$slave dbsize] == 100
+            } else {
+                fail "RDB not loaded."
             }
         }
     }

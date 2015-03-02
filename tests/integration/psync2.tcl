@@ -1,3 +1,4 @@
+proc test_psync2 {mdl sdls sdll} {
 start_server {tags {"psync2"}} {
 start_server {} {
 start_server {} {
@@ -31,6 +32,9 @@ start_server {} {
         if {$debug_msg} {puts "Log file: [srv [expr 0-$j] stdout]"}
     }
 
+    test "PSYNC2: ### SETTING diskless master: $mdl; diskless slave (sync, load): $sdls, $sdll ###" {
+    }
+    
     set cycle 1
     while {([clock seconds]-$start_time) < $duration} {
         test "PSYNC2: --- CYCLE $cycle ---" {
@@ -45,6 +49,8 @@ start_server {} {
         set used [list $master_id]
         test "PSYNC2: \[NEW LAYOUT\] Set #$master_id as master" {
             $R($master_id) slaveof no one
+            $R($master_id) config set repl-diskless-sync $mdl
+            $R($master_id) config set repl-diskless-sync-delay 1
             if {$counter_value == 0} {
                 $R($master_id) set x $counter_value
             }
@@ -62,6 +68,9 @@ start_server {} {
             set master_port $R_port($mid)
 
             test "PSYNC2: Set #$slave_id to replicate from #$mid" {
+                $R($slave_id) config set repl-diskless-load $sdll
+                $R($slave_id) config set repl-diskless-sync $sdls
+                $R($slave_id) config set repl-diskless-sync-delay 1
                 $R($slave_id) slaveof $master_host $master_port
             }
             lappend used $slave_id
@@ -243,3 +252,12 @@ start_server {} {
     }
 
 }}}}}
+}
+
+foreach mdl {yes no} {
+    foreach sdls {yes no} {
+        foreach sdll {yes no} {                
+            test_psync2 $mdl $sdls $sdll
+        }
+    }
+}
