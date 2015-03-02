@@ -823,9 +823,13 @@ void replicationAbortSyncTransfer(void) {
 
     aeDeleteFileEvent(server.el,server.repl_transfer_s,AE_READABLE);
     close(server.repl_transfer_s);
-    close(server.repl_transfer_fd);
-    unlink(server.repl_transfer_tmpfile);
-    zfree(server.repl_transfer_tmpfile);
+    if (!server.repl_diskless_sync) {
+        close(server.repl_transfer_fd);
+        unlink(server.repl_transfer_tmpfile);
+        zfree(server.repl_transfer_tmpfile);
+        server.repl_transfer_tmpfile = NULL;
+        server.repl_transfer_fd = -1;
+    }
     server.repl_state = REDIS_REPL_CONNECT;
 }
 
@@ -877,6 +881,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
     char buf[4096];
     ssize_t nread, readlen;
     off_t left;
+    sds initialCommandStream = NULL;
     REDIS_NOTUSED(el);
     REDIS_NOTUSED(privdata);
     REDIS_NOTUSED(mask);
@@ -942,118 +947,165 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         return;
     }
 
-    /* Read bulk data */
-    if (usemark) {
-        readlen = sizeof(buf);
-    } else {
-        left = server.repl_transfer_size - server.repl_transfer_read;
-        readlen = (left < (signed)sizeof(buf)) ? left : (signed)sizeof(buf);
-    }
-
-    nread = read(fd,buf,readlen);
-    if (nread <= 0) {
-        redisLog(REDIS_WARNING,"I/O error trying to sync with MASTER: %s",
-            (nread == -1) ? strerror(errno) : "connection lost");
-        replicationAbortSyncTransfer();
-        return;
-    }
-    server.stat_net_input_bytes += nread;
-
-    /* When a mark is used, we want to detect EOF asap in order to avoid
-     * writing the EOF mark into the file... */
-    int eof_reached = 0;
-
-    if (usemark) {
-        /* Update the last bytes array, and check if it matches our delimiter.*/
-        if (nread >= REDIS_RUN_ID_SIZE) {
-            memcpy(lastbytes,buf+nread-REDIS_RUN_ID_SIZE,REDIS_RUN_ID_SIZE);
+    if (!server.repl_diskless_sync) {
+        /* read the data from the socket, store it to a file and search for the EOF */
+        if (usemark) {
+            readlen = sizeof(buf);
         } else {
-            int rem = REDIS_RUN_ID_SIZE-nread;
-            memmove(lastbytes,lastbytes+nread,rem);
-            memcpy(lastbytes+rem,buf,nread);
+            left = server.repl_transfer_size - server.repl_transfer_read;
+            readlen = (left < (signed)sizeof(buf)) ? left : (signed)sizeof(buf);
         }
-        if (memcmp(lastbytes,eofmark,REDIS_RUN_ID_SIZE) == 0) eof_reached = 1;
-    }
 
-    server.repl_transfer_lastio = server.unixtime;
-    if (write(server.repl_transfer_fd,buf,nread) != nread) {
-        redisLog(REDIS_WARNING,"Write error or short write writing to the DB dump file needed for MASTER <-> SLAVE synchronization: %s", strerror(errno));
-        goto error;
-    }
-    server.repl_transfer_read += nread;
+        nread = read(fd,buf,readlen);
+        if (nread <= 0) {
+            redisLog(REDIS_WARNING,"I/O error trying to sync with MASTER: %s",
+                (nread == -1) ? strerror(errno) : "connection lost");
+            replicationAbortSyncTransfer();
+            return;
+        }
+        server.stat_net_input_bytes += nread;
 
-    /* Delete the last 40 bytes from the file if we reached EOF. */
-    if (usemark && eof_reached) {
-        if (ftruncate(server.repl_transfer_fd,
-            server.repl_transfer_read - REDIS_RUN_ID_SIZE) == -1)
-        {
-            redisLog(REDIS_WARNING,"Error truncating the RDB file received from the master for SYNC: %s", strerror(errno));
+        /* When a mark is used, we want to detect EOF asap in order to avoid
+         * writing the EOF mark into the file... */
+        int eof_reached = 0;
+
+        if (usemark) {
+            /* Update the last bytes array, and check if it matches our delimiter.*/
+            if (nread >= REDIS_RUN_ID_SIZE) {
+                memcpy(lastbytes,buf+nread-REDIS_RUN_ID_SIZE,REDIS_RUN_ID_SIZE);
+            } else {
+                int rem = REDIS_RUN_ID_SIZE-nread;
+                memmove(lastbytes,lastbytes+nread,rem);
+                memcpy(lastbytes+rem,buf,nread);
+            }
+            if (memcmp(lastbytes,eofmark,REDIS_RUN_ID_SIZE) == 0) eof_reached = 1;
+        }
+
+        server.repl_transfer_lastio = server.unixtime;
+        if (write(server.repl_transfer_fd,buf,nread) != nread) {
+            redisLog(REDIS_WARNING,"Write error or short write writing to the DB dump file needed for MASTER <-> SLAVE synchronization: %s", strerror(errno));
             goto error;
         }
+        server.repl_transfer_read += nread;
+
+        /* Delete the last 40 bytes from the file if we reached EOF. */
+        if (usemark && eof_reached) {
+            if (ftruncate(server.repl_transfer_fd,
+                server.repl_transfer_read - REDIS_RUN_ID_SIZE) == -1)
+            {
+                redisLog(REDIS_WARNING,"Error truncating the RDB file received from the master for SYNC: %s", strerror(errno));
+                goto error;
+            }
+        }
+
+        /* Sync data on disk from time to time, otherwise at the end of the transfer
+         * we may suffer a big delay as the memory buffers are copied into the
+         * actual disk. */
+        if (server.repl_transfer_read >=
+            server.repl_transfer_last_fsync_off + REPL_MAX_WRITTEN_BEFORE_FSYNC)
+        {
+            off_t sync_size = server.repl_transfer_read -
+                              server.repl_transfer_last_fsync_off;
+            rdb_fsync_range(server.repl_transfer_fd,
+                server.repl_transfer_last_fsync_off, sync_size);
+            server.repl_transfer_last_fsync_off += sync_size;
+        }
+
+        /* Check if the transfer is now complete */
+        if (!usemark) {
+            if (server.repl_transfer_read == server.repl_transfer_size)
+                eof_reached = 1;
+        }
+        if (!eof_reached)
+            return;
     }
 
-    /* Sync data on disk from time to time, otherwise at the end of the transfer
-     * we may suffer a big delay as the memory buffers are copied into the
-     * actual disk. */
-    if (server.repl_transfer_read >=
-        server.repl_transfer_last_fsync_off + REPL_MAX_WRITTEN_BEFORE_FSYNC)
-    {
-        off_t sync_size = server.repl_transfer_read -
-                          server.repl_transfer_last_fsync_off;
-        rdb_fsync_range(server.repl_transfer_fd,
-            server.repl_transfer_last_fsync_off, sync_size);
-        server.repl_transfer_last_fsync_off += sync_size;
-    }
+    /* We reach here when the slave is using diskless replication,
+     * or when we are done reading from the socket to the rdb file. */
+    redisLog(REDIS_NOTICE, "MASTER <-> SLAVE sync: Flushing old data");
+    signalFlushedDb(-1);
+    emptyDb(replicationEmptyDbCallback);
+    /* Before loading the DB into memory we need to delete the readable
+     * handler, otherwise it will get called recursively since
+     * rdbLoad() will call the event loop to process events from time to
+     * time for non blocking loading. */
+    aeDeleteFileEvent(server.el,server.repl_transfer_s,AE_READABLE);
+    redisLog(REDIS_NOTICE, "MASTER <-> SLAVE sync: Loading DB in memory");
+    if (server.repl_diskless_sync) {
+        rio rdb;
+        rioInitWithFd(&rdb,fd);
+        /* Put the socket in blocking mode to simplify RDB transfer.
+         * We'll restore it when the RDB is received. */
+        anetBlock(NULL,fd);
+        anetRecvTimeout(NULL,fd,server.repl_timeout*1000);
 
-    /* Check if the transfer is now complete */
-    if (!usemark) {
-        if (server.repl_transfer_read == server.repl_transfer_size)
-            eof_reached = 1;
-    }
-
-    if (eof_reached) {
+        if (rdbLoadRio(&rdb, server.repl_transfer_size) != REDIS_OK) {
+            redisLog(REDIS_WARNING,"Failed trying to load the MASTER synchronization DB from disk");
+            replicationAbortSyncTransfer();
+            rioFreeFd(&rdb, NULL);
+            return;
+        }
+        if (usemark) {
+            if (!rioRead(&rdb,buf,REDIS_RUN_ID_SIZE) || memcmp(buf,eofmark,REDIS_RUN_ID_SIZE) != 0) {
+                redisLog(REDIS_WARNING,"replication stream EOF marker is broken");
+                replicationAbortSyncTransfer();
+                rioFreeFd(&rdb, NULL);
+                return;
+            }
+        }
+        /* get the unread command stream from the rio buffer */
+        rioFreeFd(&rdb, &initialCommandStream);
+        /* Restore the socket as non-blocking. */
+        anetNonBlock(NULL,fd);
+        anetRecvTimeout(NULL,fd,0);
+    } else {
         if (rename(server.repl_transfer_tmpfile,server.rdb_filename) == -1) {
             redisLog(REDIS_WARNING,"Failed trying to rename the temp DB into dump.rdb in MASTER <-> SLAVE synchronization: %s", strerror(errno));
             replicationAbortSyncTransfer();
             return;
         }
-        redisLog(REDIS_NOTICE, "MASTER <-> SLAVE sync: Flushing old data");
-        signalFlushedDb(-1);
-        emptyDb(replicationEmptyDbCallback);
-        /* Before loading the DB into memory we need to delete the readable
-         * handler, otherwise it will get called recursively since
-         * rdbLoad() will call the event loop to process events from time to
-         * time for non blocking loading. */
-        aeDeleteFileEvent(server.el,server.repl_transfer_s,AE_READABLE);
-        redisLog(REDIS_NOTICE, "MASTER <-> SLAVE sync: Loading DB in memory");
         if (rdbLoad(server.rdb_filename) != REDIS_OK) {
             redisLog(REDIS_WARNING,"Failed trying to load the MASTER synchronization DB from disk");
             replicationAbortSyncTransfer();
             return;
         }
-        /* Final setup of the connected slave <- master link */
         zfree(server.repl_transfer_tmpfile);
         close(server.repl_transfer_fd);
-        replicationCreateMasterClient(server.repl_transfer_s);
-        redisLog(REDIS_NOTICE, "MASTER <-> SLAVE sync: Finished with success");
-        /* Restart the AOF subsystem now that we finished the sync. This
-         * will trigger an AOF rewrite, and when done will start appending
-         * to the new file. */
-        if (server.aof_state != REDIS_AOF_OFF) {
-            int retry = 10;
-
-            stopAppendOnly();
-            while (retry-- && startAppendOnly() == REDIS_ERR) {
-                redisLog(REDIS_WARNING,"Failed enabling the AOF after successful master synchronization! Trying it again in one second.");
-                sleep(1);
-            }
-            if (!retry) {
-                redisLog(REDIS_WARNING,"FATAL: this slave instance finished the synchronization with its master, but the AOF can't be turned on. Exiting now.");
-                exit(1);
-            }
-        }
+        server.repl_transfer_fd = -1;
+        server.repl_transfer_tmpfile = NULL;
+    }
+    /* Final setup of the connected slave <- master link */
+    replicationCreateMasterClient(server.repl_transfer_s);
+    /* feed the initial command stream into the client input buffer */
+    if (initialCommandStream) {
+        int nread = sdslen(initialCommandStream);
+        server.current_client = server.master;
+        server.master->querybuf = sdscatsds(server.master->querybuf, initialCommandStream);
+        server.master->reploff += nread;
+        server.master->lastinteraction = server.unixtime;
+        server.stat_net_input_bytes += nread;
+        processInputBuffer(server.master);
+        server.current_client = NULL;
+        sdsfree(initialCommandStream);
     }
 
+    redisLog(REDIS_NOTICE, "MASTER <-> SLAVE sync: Finished with success");
+    /* Restart the AOF subsystem now that we finished the sync. This
+     * will trigger an AOF rewrite, and when done will start appending
+     * to the new file. */
+    if (server.aof_state != REDIS_AOF_OFF) {
+        int retry = 10;
+
+        stopAppendOnly();
+        while (retry-- && startAppendOnly() == REDIS_ERR) {
+            redisLog(REDIS_WARNING,"Failed enabling the AOF after successful master synchronization! Trying it again in one second.");
+            sleep(1);
+        }
+        if (!retry) {
+            redisLog(REDIS_WARNING,"FATAL: this slave instance finished the synchronization with its master, but the AOF can't be turned on. Exiting now.");
+            exit(1);
+        }
+    }
     return;
 
 error:
@@ -1341,16 +1393,20 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 
     /* Prepare a suitable temp file for bulk transfer */
-    while(maxtries--) {
-        snprintf(tmpfile,256,
-            "temp-%d.%ld.rdb",(int)server.unixtime,(long int)getpid());
-        dfd = open(tmpfile,O_CREAT|O_WRONLY|O_EXCL,0644);
-        if (dfd != -1) break;
-        sleep(1);
-    }
-    if (dfd == -1) {
-        redisLog(REDIS_WARNING,"Opening the temp file needed for MASTER <-> SLAVE synchronization: %s",strerror(errno));
-        goto error;
+    if (!server.repl_diskless_sync) {
+        while(maxtries--) {
+            snprintf(tmpfile,256,
+                "temp-%d.%ld.rdb",(int)server.unixtime,(long int)getpid());
+            dfd = open(tmpfile,O_CREAT|O_WRONLY|O_EXCL,0644);
+            if (dfd != -1) break;
+            sleep(1);
+        }
+        if (dfd == -1) {
+            redisLog(REDIS_WARNING,"Opening the temp file needed for MASTER <-> SLAVE synchronization: %s",strerror(errno));
+            goto error;
+        }
+        server.repl_transfer_tmpfile = zstrdup(tmpfile);
+        server.repl_transfer_fd = dfd;
     }
 
     /* Setup the non blocking download of the bulk file. */
@@ -1367,13 +1423,17 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     server.repl_transfer_size = -1;
     server.repl_transfer_read = 0;
     server.repl_transfer_last_fsync_off = 0;
-    server.repl_transfer_fd = dfd;
     server.repl_transfer_lastio = server.unixtime;
-    server.repl_transfer_tmpfile = zstrdup(tmpfile);
     return;
 
 error:
     close(fd);
+    if (server.repl_transfer_fd != -1)
+        close(server.repl_transfer_fd);
+    if (server.repl_transfer_tmpfile)
+        zfree(server.repl_transfer_tmpfile);
+    server.repl_transfer_tmpfile = NULL;
+    server.repl_transfer_fd = -1;
     server.repl_transfer_s = -1;
     server.repl_state = REDIS_REPL_CONNECT;
     return;

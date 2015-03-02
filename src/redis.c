@@ -1490,6 +1490,9 @@ void initServerConfig(void) {
     server.cached_master = NULL;
     server.repl_master_initial_offset = -1;
     server.repl_state = REDIS_REPL_NONE;
+    server.repl_transfer_tmpfile = NULL;
+    server.repl_transfer_fd = -1;
+    server.repl_transfer_s = -1;
     server.repl_syncio_timeout = REDIS_REPL_SYNCIO_TIMEOUT;
     server.repl_serve_stale_data = REDIS_DEFAULT_SLAVE_SERVE_STALE_DATA;
     server.repl_slave_ro = REDIS_DEFAULT_SLAVE_READ_ONLY;

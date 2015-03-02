@@ -1187,18 +1187,19 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 
 /* Mark that we are loading in the global state and setup the fields
  * needed to provide loading stats. */
-void startLoading(FILE *fp) {
-    struct stat sb;
-
+void startLoading(size_t size) {
     /* Load the DB */
     server.loading = 1;
     server.loading_start_time = time(NULL);
     server.loading_loaded_bytes = 0;
-    if (fstat(fileno(fp), &sb) == -1) {
-        server.loading_total_bytes = 0;
-    } else {
-        server.loading_total_bytes = sb.st_size;
-    }
+    server.loading_total_bytes = size;
+}
+
+void startLoadingFile(FILE *fp) {
+    struct stat sb;
+    if (fstat(fileno(fp), &sb) == -1)
+        sb.st_size = 0;
+    startLoading(sb.st_size);
 }
 
 /* Refresh the loading progress info */
@@ -1233,66 +1234,74 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
 }
 
 int rdbLoad(char *filename) {
+    FILE *fp;
+    int retval;
+    rio rdb;
+    struct stat sb;
+    if ((fp = fopen(filename,"r")) == NULL) return REDIS_ERR;
+    if (fstat(fileno(fp), &sb) == -1)
+        sb.st_size = 0;
+    rioInitWithFile(&rdb,fp);
+    retval = rdbLoadRio(&rdb, sb.st_size);
+    fclose(fp);
+    return retval;
+}
+
+int rdbLoadRio(rio *rdb, size_t size) {
     uint32_t dbid;
     int type, rdbver;
     redisDb *db = server.db+0;
     char buf[1024];
     long long expiretime, now = mstime();
-    FILE *fp;
-    rio rdb;
 
-    if ((fp = fopen(filename,"r")) == NULL) return REDIS_ERR;
 
-    rioInitWithFile(&rdb,fp);
-    rdb.update_cksum = rdbLoadProgressCallback;
-    rdb.max_processing_chunk = server.loading_process_events_interval_bytes;
-    if (rioRead(&rdb,buf,9) == 0) goto eoferr;
+    rdb->update_cksum = rdbLoadProgressCallback;
+    rdb->max_processing_chunk = server.loading_process_events_interval_bytes;
+    if (rioRead(rdb,buf,9) == 0) goto eoferr;
     buf[9] = '\0';
     if (memcmp(buf,"REDIS",5) != 0) {
-        fclose(fp);
         redisLog(REDIS_WARNING,"Wrong signature trying to load DB from file");
         errno = EINVAL;
         return REDIS_ERR;
     }
     rdbver = atoi(buf+5);
     if (rdbver < 1 || rdbver > REDIS_RDB_VERSION) {
-        fclose(fp);
         redisLog(REDIS_WARNING,"Can't handle RDB format version %d",rdbver);
         errno = EINVAL;
         return REDIS_ERR;
     }
 
-    startLoading(fp);
+    startLoading(size);
     while(1) {
         robj *key, *val;
         expiretime = -1;
 
         /* Read type. */
-        if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
+        if ((type = rdbLoadType(rdb)) == -1) goto eoferr;
 
         /* Handle special types. */
         if (type == REDIS_RDB_OPCODE_EXPIRETIME) {
             /* EXPIRETIME: load an expire associated with the next key
              * to load. Note that after loading an expire we need to
              * load the actual type, and continue. */
-            if ((expiretime = rdbLoadTime(&rdb)) == -1) goto eoferr;
+            if ((expiretime = rdbLoadTime(rdb)) == -1) goto eoferr;
             /* We read the time so we need to read the object type again. */
-            if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
+            if ((type = rdbLoadType(rdb)) == -1) goto eoferr;
             /* the EXPIRETIME opcode specifies time in seconds, so convert
              * into milliseconds. */
             expiretime *= 1000;
         } else if (type == REDIS_RDB_OPCODE_EXPIRETIME_MS) {
             /* EXPIRETIME_MS: milliseconds precision expire times introduced
              * with RDB v3. Like EXPIRETIME but no with more precision. */
-            if ((expiretime = rdbLoadMillisecondTime(&rdb)) == -1) goto eoferr;
+            if ((expiretime = rdbLoadMillisecondTime(rdb)) == -1) goto eoferr;
             /* We read the time so we need to read the object type again. */
-            if ((type = rdbLoadType(&rdb)) == -1) goto eoferr;
+            if ((type = rdbLoadType(rdb)) == -1) goto eoferr;
         } else if (type == REDIS_RDB_OPCODE_EOF) {
             /* EOF: End of file, exit the main loop. */
             break;
         } else if (type == REDIS_RDB_OPCODE_SELECTDB) {
             /* SELECTDB: Select the specified database. */
-            if ((dbid = rdbLoadLen(&rdb,NULL)) == REDIS_RDB_LENERR)
+            if ((dbid = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR)
                 goto eoferr;
             if (dbid >= (unsigned)server.dbnum) {
                 redisLog(REDIS_WARNING,
@@ -1307,9 +1316,9 @@ int rdbLoad(char *filename) {
             /* RESIZEDB: Hint about the size of the keys in the currently
              * selected data base, in order to avoid useless rehashing. */
             uint32_t db_size, expires_size;
-            if ((db_size = rdbLoadLen(&rdb,NULL)) == REDIS_RDB_LENERR)
+            if ((db_size = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR)
                 goto eoferr;
-            if ((expires_size = rdbLoadLen(&rdb,NULL)) == REDIS_RDB_LENERR)
+            if ((expires_size = rdbLoadLen(rdb,NULL)) == REDIS_RDB_LENERR)
                 goto eoferr;
             dictExpand(db->dict,db_size);
             dictExpand(db->expires,expires_size);
@@ -1321,8 +1330,8 @@ int rdbLoad(char *filename) {
              *
              * An AUX field is composed of two strings: key and value. */
             robj *auxkey, *auxval;
-            if ((auxkey = rdbLoadStringObject(&rdb)) == NULL) goto eoferr;
-            if ((auxval = rdbLoadStringObject(&rdb)) == NULL) goto eoferr;
+            if ((auxkey = rdbLoadStringObject(rdb)) == NULL) goto eoferr;
+            if ((auxval = rdbLoadStringObject(rdb)) == NULL) goto eoferr;
 
             if (((char*)auxkey->ptr)[0] == '%') {
                 /* All the fields with a name staring with '%' are considered
@@ -1344,9 +1353,9 @@ int rdbLoad(char *filename) {
         }
 
         /* Read key */
-        if ((key = rdbLoadStringObject(&rdb)) == NULL) goto eoferr;
+        if ((key = rdbLoadStringObject(rdb)) == NULL) goto eoferr;
         /* Read value */
-        if ((val = rdbLoadObject(type,&rdb)) == NULL) goto eoferr;
+        if ((val = rdbLoadObject(type,rdb)) == NULL) goto eoferr;
         /* Check if the key already expired. This function is used when loading
          * an RDB file from disk, either at startup, or when an RDB was
          * received from the master. In the latter case, the master is
@@ -1367,9 +1376,9 @@ int rdbLoad(char *filename) {
     }
     /* Verify the checksum if RDB version is >= 5 */
     if (rdbver >= 5 && server.rdb_checksum) {
-        uint64_t cksum, expected = rdb.cksum;
+        uint64_t cksum, expected = rdb->cksum;
 
-        if (rioRead(&rdb,&cksum,8) == 0) goto eoferr;
+        if (rioRead(rdb,&cksum,8) == 0) goto eoferr;
         memrev64ifbe(&cksum);
         if (cksum == 0) {
             redisLog(REDIS_WARNING,"RDB file was saved with checksum disabled: no check performed.");
@@ -1379,7 +1388,6 @@ int rdbLoad(char *filename) {
         }
     }
 
-    fclose(fp);
     stopLoading();
     return REDIS_OK;
 
@@ -1572,7 +1580,7 @@ int rdbSaveToSlavesSockets(void) {
             clientids[numfds] = slave->id;
             fds[numfds++] = slave->fd;
             slave->replstate = REDIS_REPL_WAIT_BGSAVE_END;
-            /* Put the socket in non-blocking mode to simplify RDB transfer.
+            /* Put the socket in blocking mode to simplify RDB transfer.
              * We'll restore it when the children returns (since duped socket
              * will share the O_NONBLOCK attribute with the parent). */
             anetBlock(NULL,slave->fd);
@@ -1646,6 +1654,7 @@ int rdbSaveToSlavesSockets(void) {
             zfree(msg);
         }
         zfree(clientids);
+        rioFreeFdset(&slave_sockets);
         exitFromChild((retval == REDIS_OK) ? 0 : 1);
     } else {
         /* Parent */
