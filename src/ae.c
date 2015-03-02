@@ -122,6 +122,13 @@ int aeResizeSetSize(aeEventLoop *eventLoop, int setsize) {
 }
 
 void aeDeleteEventLoop(aeEventLoop *eventLoop) {
+    while(eventLoop->timeEventHead) {
+        aeTimeEvent *te = eventLoop->timeEventHead;
+        eventLoop->timeEventHead = te->next;
+        if (te->finalizerProc)
+            te->finalizerProc(eventLoop, te->clientData);
+        zfree(te);
+    }
     aeApiFree(eventLoop);
     zfree(eventLoop->events);
     zfree(eventLoop->fired);
