@@ -375,3 +375,15 @@ proc start_write_load {host port seconds} {
 proc stop_write_load {handle} {
     catch {exec /bin/kill -9 $handle}
 }
+
+# Execute a background process writing complex data for the specified number
+# of ops to the specified Redis instance.
+proc start_bg_complex_data {host port db ops} {
+    set tclsh [info nameofexecutable]
+    exec $tclsh tests/helpers/bg_complex_data.tcl $host $port $db $ops &
+}
+
+# Stop a process generating write load executed with start_bg_complex_data.
+proc stop_bg_complex_data {handle} {
+    catch {exec /bin/kill -9 $handle}
+}
