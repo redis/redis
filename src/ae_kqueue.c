@@ -33,6 +33,8 @@
 #include <sys/event.h>
 #include <sys/time.h>
 
+#define AE_KIND 2
+
 typedef struct aeApiState {
     int kqfd;
     struct kevent *events;
@@ -42,7 +44,8 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
     aeApiState *state = zmalloc(sizeof(aeApiState));
 
     if (!state) return -1;
-    state->events = zmalloc(sizeof(struct kevent)*eventLoop->setsize);
+    state->events = zmalloc((sizeof(struct kevent)*eventLoop->setsize)
+            * AE_KIND);
     if (!state->events) {
         zfree(state);
         return -1;
@@ -60,7 +63,8 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
 static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
     aeApiState *state = eventLoop->apidata;
 
-    state->events = zrealloc(state->events, sizeof(struct kevent)*setsize);
+    state->events = zrealloc(state->events, (sizeof(struct kevent)*setsize)
+            * AE_KIND);
     return 0;
 }
 
@@ -109,25 +113,40 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
         struct timespec timeout;
         timeout.tv_sec = tvp->tv_sec;
         timeout.tv_nsec = tvp->tv_usec * 1000;
-        retval = kevent(state->kqfd, NULL, 0, state->events, eventLoop->setsize,
-                        &timeout);
+        retval = kevent(state->kqfd, NULL, 0, state->events,
+                eventLoop->setsize * AE_KIND, &timeout);
     } else {
-        retval = kevent(state->kqfd, NULL, 0, state->events, eventLoop->setsize,
-                        NULL);
+        retval = kevent(state->kqfd, NULL, 0, state->events,
+                eventLoop->setsize * AE_KIND, NULL);
     }
 
     if (retval > 0) {
-        int j;
+        int i, j;
 
-        numevents = retval;
-        for(j = 0; j < numevents; j++) {
+        numevents = 0;
+        for(i = 0; i < retval; i++) {
             int mask = 0;
-            struct kevent *e = state->events+j;
+            struct kevent *e = state->events+i;
 
-            if (e->filter == EVFILT_READ) mask |= AE_READABLE;
-            if (e->filter == EVFILT_WRITE) mask |= AE_WRITABLE;
-            eventLoop->fired[j].fd = e->ident;
-            eventLoop->fired[j].mask = mask;
+            if (e->filter == EVFILT_READ)
+                mask = AE_READABLE;
+            else if (e->filter == EVFILT_WRITE)
+                mask = AE_WRITABLE;
+            else
+                continue;
+
+            for (j = 0; j < numevents; j++)
+            {
+                if (eventLoop->fired[j].fd == e->ident)
+                    break;
+            }
+            if (j < numevents)
+                eventLoop->fired[j].mask |= mask;
+            else {
+                eventLoop->fired[numevents].fd = e->ident;
+                eventLoop->fired[numevents].mask = mask;
+                numevents++;
+            }
         }
     }
     return numevents;
