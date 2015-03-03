@@ -120,6 +120,11 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
                 eventLoop->setsize * AE_KIND, NULL);
     }
 
+    /* FUTURE OPTIMIZATIONS:
+     * Sort stat->events by ident at first.  O(nlgn)
+     * Because retval is usually very small, current
+     * way is not a very bad substitute.     O(n^2)
+     */
     if (retval > 0) {
         int i, j;
 
