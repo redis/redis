@@ -113,7 +113,7 @@ foreach dl {no yes} {
                 start_server {} {
                     lappend slaves [srv 0 client]
                     test "Connect multiple slaves at the same time (issue #141), diskless=$dl" {
-                        # Send SALVEOF commands to slaves
+                        # Send SLAVEOF commands to slaves
                         [lindex $slaves 0] slaveof $master_host $master_port
                         [lindex $slaves 1] slaveof $master_host $master_port
                         [lindex $slaves 2] slaveof $master_host $master_port
