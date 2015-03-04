@@ -47,6 +47,22 @@ start_server {tags {"pubsub"}} {
         __consume_subscribe_messages $client punsubscribe $channels
     }
 
+    test "Pub/Sub PING" {
+        set rd1 [redis_deferring_client]
+        subscribe $rd1 somechannel
+        # While subscribed to non-zero channels PING works in Pub/Sub mode.
+        $rd1 ping
+        $rd1 ping "foo"
+        set reply1 [$rd1 read]
+        set reply2 [$rd1 read]
+        unsubscribe $rd1 somechannel
+        # Now we are unsubscribed, PING should just return PONG.
+        $rd1 ping
+        set reply3 [$rd1 read]
+        $rd1 close
+        list $reply1 $reply2 $reply3
+    } {{pong {}} {pong foo} PONG}
+
     test "PUBLISH/SUBSCRIBE basics" {
         set rd1 [redis_deferring_client]
 
@@ -179,6 +195,10 @@ start_server {tags {"pubsub"}} {
         # clean up clients
         $rd1 close
     }
+
+    test "NUMSUB returns numbers, not strings (#1561)" {
+        r pubsub numsub abc def
+    } {abc 0 def 0}
 
     test "Mix SUBSCRIBE and PSUBSCRIBE" {
         set rd1 [redis_deferring_client]
@@ -355,5 +375,16 @@ start_server {tags {"pubsub"}} {
         assert_equal {pmessage * __keyevent@9__:evicted foo} [$rd1 read]
         r config set maxmemory 0
         $rd1 close
+    }
+
+    test "Keyspace notifications: test CONFIG GET/SET of event flags" {
+        r config set notify-keyspace-events gKE
+        assert_equal {gKE} [lindex [r config get notify-keyspace-events] 1]
+        r config set notify-keyspace-events {$lshzxeKE}
+        assert_equal {$lshzxeKE} [lindex [r config get notify-keyspace-events] 1]
+        r config set notify-keyspace-events KA
+        assert_equal {AK} [lindex [r config get notify-keyspace-events] 1]
+        r config set notify-keyspace-events EA
+        assert_equal {AE} [lindex [r config get notify-keyspace-events] 1]
     }
 }

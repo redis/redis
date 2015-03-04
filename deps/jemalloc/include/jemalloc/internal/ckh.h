@@ -5,7 +5,7 @@ typedef struct ckh_s ckh_t;
 typedef struct ckhc_s ckhc_t;
 
 /* Typedefs to allow easy function pointer passing. */
-typedef void ckh_hash_t (const void *, unsigned, size_t *, size_t *);
+typedef void ckh_hash_t (const void *, size_t[2]);
 typedef bool ckh_keycomp_t (const void *, const void *);
 
 /* Maintain counters used to get an idea of performance. */
@@ -17,7 +17,7 @@ typedef bool ckh_keycomp_t (const void *, const void *);
  * There are 2^LG_CKH_BUCKET_CELLS cells in each hash table bucket.  Try to fit
  * one bucket per L1 cache line.
  */
-#define LG_CKH_BUCKET_CELLS (LG_CACHELINE - LG_SIZEOF_PTR - 1)
+#define	LG_CKH_BUCKET_CELLS (LG_CACHELINE - LG_SIZEOF_PTR - 1)
 
 #endif /* JEMALLOC_H_TYPES */
 /******************************************************************************/
@@ -75,11 +75,9 @@ bool	ckh_insert(ckh_t *ckh, const void *key, const void *data);
 bool	ckh_remove(ckh_t *ckh, const void *searchkey, void **key,
     void **data);
 bool	ckh_search(ckh_t *ckh, const void *seachkey, void **key, void **data);
-void	ckh_string_hash(const void *key, unsigned minbits, size_t *hash1,
-    size_t *hash2);
+void	ckh_string_hash(const void *key, size_t r_hash[2]);
 bool	ckh_string_keycomp(const void *k1, const void *k2);
-void	ckh_pointer_hash(const void *key, unsigned minbits, size_t *hash1,
-    size_t *hash2);
+void	ckh_pointer_hash(const void *key, size_t r_hash[2]);
 bool	ckh_pointer_keycomp(const void *k1, const void *k2);
 
 #endif /* JEMALLOC_H_EXTERNS */

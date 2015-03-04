@@ -7,7 +7,7 @@ typedef enum {
 	dss_prec_secondary = 2,
 
 	dss_prec_limit     = 3
-} dss_prec_t ;
+} dss_prec_t;
 #define	DSS_PREC_DEFAULT	dss_prec_secondary
 #define	DSS_DEFAULT		"secondary"
 

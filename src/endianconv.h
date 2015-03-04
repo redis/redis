@@ -28,7 +28,7 @@
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
- */ 
+ */
 
 #ifndef __ENDIANCONV_H
 #define __ENDIANCONV_H
@@ -59,6 +59,20 @@ uint64_t intrev64(uint64_t v);
 #define intrev16ifbe(v) intrev16(v)
 #define intrev32ifbe(v) intrev32(v)
 #define intrev64ifbe(v) intrev64(v)
+#endif
+
+/* The functions htonu64() and ntohu64() convert the specified value to
+ * network byte ordering and back. In big endian systems they are no-ops. */
+#if (BYTE_ORDER == BIG_ENDIAN)
+#define htonu64(v) (v)
+#define ntohu64(v) (v)
+#else
+#define htonu64(v) intrev64(v)
+#define ntohu64(v) intrev64(v)
+#endif
+
+#ifdef REDIS_TEST
+int endianconvTest(int argc, char *argv[]);
 #endif
 
 #endif

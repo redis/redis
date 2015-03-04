@@ -137,7 +137,7 @@ zone_destroy(malloc_zone_t *zone)
 {
 
 	/* This function should never be called. */
-	assert(false);
+	not_reached();
 	return (NULL);
 }
 

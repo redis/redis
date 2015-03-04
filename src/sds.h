@@ -39,8 +39,8 @@
 typedef char *sds;
 
 struct sdshdr {
-    int len;
-    int free;
+    unsigned int len;
+    unsigned int free;
     char buf[];
 };
 
@@ -56,7 +56,7 @@ static inline size_t sdsavail(const sds s) {
 
 sds sdsnewlen(const void *init, size_t initlen);
 sds sdsnew(const char *init);
-sds sdsempty();
+sds sdsempty(void);
 size_t sdslen(const sds s);
 sds sdsdup(const sds s);
 void sdsfree(sds s);
@@ -76,8 +76,9 @@ sds sdscatprintf(sds s, const char *fmt, ...)
 sds sdscatprintf(sds s, const char *fmt, ...);
 #endif
 
+sds sdscatfmt(sds s, char const *fmt, ...);
 sds sdstrim(sds s, const char *cset);
-sds sdsrange(sds s, int start, int end);
+void sdsrange(sds s, int start, int end);
 void sdsupdatelen(sds s);
 void sdsclear(sds s);
 int sdscmp(const sds s1, const sds s2);
@@ -89,11 +90,16 @@ sds sdsfromlonglong(long long value);
 sds sdscatrepr(sds s, const char *p, size_t len);
 sds *sdssplitargs(const char *line, int *argc);
 sds sdsmapchars(sds s, const char *from, const char *to, size_t setlen);
+sds sdsjoin(char **argv, int argc, char *sep);
 
 /* Low level functions exposed to the user API */
 sds sdsMakeRoomFor(sds s, size_t addlen);
 void sdsIncrLen(sds s, int incr);
 sds sdsRemoveFreeSpace(sds s);
 size_t sdsAllocSize(sds s);
+
+#ifdef REDIS_TEST
+int sdsTest(int argc, char *argv[]);
+#endif
 
 #endif

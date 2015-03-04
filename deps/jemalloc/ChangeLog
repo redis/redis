@@ -3,8 +3,176 @@ bug fixes are all mentioned, but internal enhancements are omitted here for
 brevity (even though they are more fun to write about).  Much more detail can be
 found in the git revision history:
 
-    http://www.canonware.com/cgi-bin/gitweb.cgi?p=jemalloc.git
-    git://canonware.com/jemalloc.git
+    https://github.com/jemalloc/jemalloc
+
+* 3.6.0 (March 31, 2014)
+
+  This version contains a critical bug fix for a regression present in 3.5.0 and
+  3.5.1.
+
+  Bug fixes:
+  - Fix a regression in arena_chunk_alloc() that caused crashes during
+    small/large allocation if chunk allocation failed.  In the absence of this
+    bug, chunk allocation failure would result in allocation failure, e.g.  NULL
+    return from malloc().  This regression was introduced in 3.5.0.
+  - Fix backtracing for gcc intrinsics-based backtracing by specifying
+    -fno-omit-frame-pointer to gcc.  Note that the application (and all the
+    libraries it links to) must also be compiled with this option for
+    backtracing to be reliable.
+  - Use dss allocation precedence for huge allocations as well as small/large
+    allocations.
+  - Fix test assertion failure message formatting.  This bug did not manifect on
+    x86_64 systems because of implementation subtleties in va_list.
+  - Fix inconsequential test failures for hash and SFMT code.
+
+  New features:
+  - Support heap profiling on FreeBSD.  This feature depends on the proc
+    filesystem being mounted during heap profile dumping.
+
+* 3.5.1 (February 25, 2014)
+
+  This version primarily addresses minor bugs in test code.
+
+  Bug fixes:
+  - Configure Solaris/Illumos to use MADV_FREE.
+  - Fix junk filling for mremap(2)-based huge reallocation.  This is only
+    relevant if configuring with the --enable-mremap option specified.
+  - Avoid compilation failure if 'restrict' C99 keyword is not supported by the
+    compiler.
+  - Add a configure test for SSE2 rather than assuming it is usable on i686
+    systems.  This fixes test compilation errors, especially on 32-bit Linux
+    systems.
+  - Fix mallctl argument size mismatches (size_t vs. uint64_t) in the stats unit
+    test.
+  - Fix/remove flawed alignment-related overflow tests.
+  - Prevent compiler optimizations that could change backtraces in the
+    prof_accum unit test.
+
+* 3.5.0 (January 22, 2014)
+
+  This version focuses on refactoring and automated testing, though it also
+  includes some non-trivial heap profiling optimizations not mentioned below.
+
+  New features:
+  - Add the *allocx() API, which is a successor to the experimental *allocm()
+    API.  The *allocx() functions are slightly simpler to use because they have
+    fewer parameters, they directly return the results of primary interest, and
+    mallocx()/rallocx() avoid the strict aliasing pitfall that
+    allocm()/rallocm() share with posix_memalign().  Note that *allocm() is
+    slated for removal in the next non-bugfix release.
+  - Add support for LinuxThreads.
+
+  Bug fixes:
+  - Unless heap profiling is enabled, disable floating point code and don't link
+    with libm.  This, in combination with e.g. EXTRA_CFLAGS=-mno-sse on x64
+    systems, makes it possible to completely disable floating point register
+    use.  Some versions of glibc neglect to save/restore caller-saved floating
+    point registers during dynamic lazy symbol loading, and the symbol loading
+    code uses whatever malloc the application happens to have linked/loaded
+    with, the result being potential floating point register corruption.
+  - Report ENOMEM rather than EINVAL if an OOM occurs during heap profiling
+    backtrace creation in imemalign().  This bug impacted posix_memalign() and
+    aligned_alloc().
+  - Fix a file descriptor leak in a prof_dump_maps() error path.
+  - Fix prof_dump() to close the dump file descriptor for all relevant error
+    paths.
+  - Fix rallocm() to use the arena specified by the ALLOCM_ARENA(s) flag for
+    allocation, not just deallocation.
+  - Fix a data race for large allocation stats counters.
+  - Fix a potential infinite loop during thread exit.  This bug occurred on
+    Solaris, and could affect other platforms with similar pthreads TSD
+    implementations.
+  - Don't junk-fill reallocations unless usable size changes.  This fixes a
+    violation of the *allocx()/*allocm() semantics.
+  - Fix growing large reallocation to junk fill new space.
+  - Fix huge deallocation to junk fill when munmap is disabled.
+  - Change the default private namespace prefix from empty to je_, and change
+    --with-private-namespace-prefix so that it prepends an additional prefix
+    rather than replacing je_.  This reduces the likelihood of applications
+    which statically link jemalloc experiencing symbol name collisions.
+  - Add missing private namespace mangling (relevant when
+    --with-private-namespace is specified).
+  - Add and use JEMALLOC_INLINE_C so that static inline functions are marked as
+    static even for debug builds.
+  - Add a missing mutex unlock in a malloc_init_hard() error path.  In practice
+    this error path is never executed.
+  - Fix numerous bugs in malloc_strotumax() error handling/reporting.  These
+    bugs had no impact except for malformed inputs.
+  - Fix numerous bugs in malloc_snprintf().  These bugs were not exercised by
+    existing calls, so they had no impact.
+
+* 3.4.1 (October 20, 2013)
+
+  Bug fixes:
+  - Fix a race in the "arenas.extend" mallctl that could cause memory corruption
+    of internal data structures and subsequent crashes.
+  - Fix Valgrind integration flaws that caused Valgrind warnings about reads of
+    uninitialized memory in:
+    + arena chunk headers
+    + internal zero-initialized data structures (relevant to tcache and prof
+      code)
+  - Preserve errno during the first allocation.  A readlink(2) call during
+    initialization fails unless /etc/malloc.conf exists, so errno was typically
+    set during the first allocation prior to this fix.
+  - Fix compilation warnings reported by gcc 4.8.1.
+
+* 3.4.0 (June 2, 2013)
+
+  This version is essentially a small bugfix release, but the addition of
+  aarch64 support requires that the minor version be incremented.
+
+  Bug fixes:
+  - Fix race-triggered deadlocks in chunk_record().  These deadlocks were
+    typically triggered by multiple threads concurrently deallocating huge
+    objects.
+
+  New features:
+  - Add support for the aarch64 architecture.
+
+* 3.3.1 (March 6, 2013)
+
+  This version fixes bugs that are typically encountered only when utilizing
+  custom run-time options.
+
+  Bug fixes:
+  - Fix a locking order bug that could cause deadlock during fork if heap
+    profiling were enabled.
+  - Fix a chunk recycling bug that could cause the allocator to lose track of
+    whether a chunk was zeroed.  On FreeBSD, NetBSD, and OS X, it could cause
+    corruption if allocating via sbrk(2) (unlikely unless running with the
+    "dss:primary" option specified).  This was completely harmless on Linux
+    unless using mlockall(2) (and unlikely even then, unless the
+    --disable-munmap configure option or the "dss:primary" option was
+    specified).  This regression was introduced in 3.1.0 by the
+    mlockall(2)/madvise(2) interaction fix.
+  - Fix TLS-related memory corruption that could occur during thread exit if the
+    thread never allocated memory.  Only the quarantine and prof facilities were
+    susceptible.
+  - Fix two quarantine bugs:
+    + Internal reallocation of the quarantined object array leaked the old
+      array.
+    + Reallocation failure for internal reallocation of the quarantined object
+      array (very unlikely) resulted in memory corruption.
+  - Fix Valgrind integration to annotate all internally allocated memory in a
+    way that keeps Valgrind happy about internal data structure access.
+  - Fix building for s390 systems.
+
+* 3.3.0 (January 23, 2013)
+
+  This version includes a few minor performance improvements in addition to the
+  listed new features and bug fixes.
+
+  New features:
+  - Add clipping support to lg_chunk option processing.
+  - Add the --enable-ivsalloc option.
+  - Add the --without-export option.
+  - Add the --disable-zone-allocator option.
+
+  Bug fixes:
+  - Fix "arenas.extend" mallctl to output the number of arenas.
+  - Fix chunk_recycle() to unconditionally inform Valgrind that returned memory
+    is undefined.
+  - Fix build break on FreeBSD related to alloca.h.
 
 * 3.2.0 (November 9, 2012)
 

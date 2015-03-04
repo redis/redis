@@ -1,16 +1,16 @@
 /*
  * Copyright (c) 2000-2007 Marc Alexander Lehmann <schmorp@schmorp.de>
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modifica-
  * tion, are permitted provided that the following conditions are met:
- * 
+ *
  *   1.  Redistributions of source code must retain the above copyright notice,
  *       this list of conditions and the following disclaimer.
- * 
+ *
  *   2.  Redistributions in binary form must reproduce the above copyright
  *       notice, this list of conditions and the following disclaimer in the
  *       documentation and/or other materials provided with the distribution.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
  * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MER-
  * CHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO
@@ -49,7 +49,7 @@
  * the difference between 15 and 14 is very small
  * for small blocks (and 14 is usually a bit faster).
  * For a low-memory/faster configuration, use HLOG == 13;
- * For best compression, use 15 or 16 (or more, up to 23).
+ * For best compression, use 15 or 16 (or more, up to 22).
  */
 #ifndef HLOG
 # define HLOG 16
@@ -94,7 +94,7 @@
 /*
  * Avoid assigning values to errno variable? for some embedding purposes
  * (linux kernel for example), this is necessary. NOTE: this breaks
- * the documentation in lzf.h.
+ * the documentation in lzf.h. Avoiding errno has no speed impact.
  */
 #ifndef AVOID_ERRNO
 # define AVOID_ERRNO 0
@@ -121,16 +121,52 @@
 # define CHECK_INPUT 1
 #endif
 
+/*
+ * Whether to store pointers or offsets inside the hash table. On
+ * 64 bit architetcures, pointers take up twice as much space,
+ * and might also be slower. Default is to autodetect.
+ */
+/*#define LZF_USER_OFFSETS autodetect */
+
 /*****************************************************************************/
 /* nothing should be changed below */
 
+#ifdef __cplusplus
+# include <cstring>
+# include <climits>
+using namespace std;
+#else
+# include <string.h>
+# include <limits.h>
+#endif
+
+#ifndef LZF_USE_OFFSETS
+# if defined (WIN32)
+#  define LZF_USE_OFFSETS defined(_M_X64)
+# else
+#  if __cplusplus > 199711L
+#   include <cstdint>
+#  else
+#   include <stdint.h>
+#  endif
+#  define LZF_USE_OFFSETS (UINTPTR_MAX > 0xffffffffU)
+# endif
+#endif
+
 typedef unsigned char u8;
 
-typedef const u8 *LZF_STATE[1 << (HLOG)];
+#if LZF_USE_OFFSETS
+# define LZF_HSLOT_BIAS ((const u8 *)in_data)
+  typedef unsigned int LZF_HSLOT;
+#else
+# define LZF_HSLOT_BIAS 0
+  typedef const u8 *LZF_HSLOT;
+#endif
+
+typedef LZF_HSLOT LZF_STATE[1 << (HLOG)];
 
 #if !STRICT_ALIGN
 /* for unaligned accesses we need a 16 bit datatype. */
-# include <limits.h>
 # if USHRT_MAX == 65535
     typedef unsigned short u16;
 # elif UINT_MAX == 65535
@@ -142,17 +178,7 @@ typedef const u8 *LZF_STATE[1 << (HLOG)];
 #endif
 
 #if ULTRA_FAST
-# if defined(VERY_FAST)
-#  undef VERY_FAST
-# endif
-#endif
-
-#if INIT_HTAB
-# ifdef __cplusplus
-#  include <cstring>
-# else
-#  include <string.h>
-# endif
+# undef VERY_FAST
 #endif
 
 #endif

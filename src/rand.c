@@ -66,7 +66,7 @@
 #define HI_BIT	(1L << (2 * N - 1))
 
 static uint32_t x[3] = { X0, X1, X2 }, a[3] = { A0, A1, A2 }, c = C;
-static void next();
+static void next(void);
 
 int32_t redisLrand48() {
     next();
@@ -77,7 +77,7 @@ void redisSrand48(int32_t seedval) {
     SEED(X0, LOW(seedval), HIGH(seedval));
 }
 
-static void next() {
+static void next(void) {
     uint32_t p[2], q[2], r[2], carry0, carry1;
 
     MUL(a[0], x[0], p);

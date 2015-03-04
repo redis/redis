@@ -7,7 +7,13 @@ proc stop_bg_complex_data {handle} {
     catch {exec /bin/kill -9 $handle}
 }
 
-proc test_psync {backlog cond} {
+# Creates a master-slave pair and breaks the link continuously to force
+# partial resyncs attempts, all this while flooding the master with
+# write queries.
+#
+# You can specifiy backlog size, ttl, delay before reconnection, test duration
+# in seconds, and an additional condition to verify at the end.
+proc test_psync {descr duration backlog_size backlog_ttl delay cond} {
     start_server {tags {"repl"}} {
         start_server {} {
 
@@ -16,28 +22,49 @@ proc test_psync {backlog cond} {
             set master_port [srv -1 port]
             set slave [srv 0 client]
 
-            $master config set repl-backlog-size $backlog
+            $master config set repl-backlog-size $backlog_size
+            $master config set repl-backlog-ttl $backlog_ttl
 
             set load_handle0 [start_bg_complex_data $master_host $master_port 9 100000]
             set load_handle1 [start_bg_complex_data $master_host $master_port 11 100000]
             set load_handle2 [start_bg_complex_data $master_host $master_port 12 100000]
 
-            test {First server should have role slave after SLAVEOF} {
+            test {Slave should be able to synchronize with the master} {
                 $slave slaveof $master_host $master_port
-                after 1000
-                s 0 role
-            } {slave}
+                wait_for_condition 50 100 {
+                    [lindex [r role] 0] eq {slave} &&
+                    [lindex [r role] 3] eq {connected}
+                } else {
+                    fail "Replication not started."
+                }
+            }
 
-            test "Test replication partial resync with backlog $backlog" {
+            # Check that the background clients are actually writing.
+            test {Detect write load to master} {
+                wait_for_condition 50 100 {
+                    [$master dbsize] > 100
+                } else {
+                    fail "Can't detect write load from background clients."
+                }
+            }
+
+            test "Test replication partial resync: $descr" {
                 # Now while the clients are writing data, break the maste-slave
                 # link multiple times.
-                for {set j 0} {$j < 100} {incr j} {
-                    after 100 ;# 100 times 100 milliseconds = 10 seconds total test
+                for {set j 0} {$j < $duration*10} {incr j} {
+                    after 100
                     # catch {puts "MASTER [$master dbsize] keys, SLAVE [$slave dbsize] keys"}
 
                     if {($j % 20) == 0} {
                         catch {
-                            $slave client kill $master_host:$master_port
+                            if {$delay} {
+                                $slave multi
+                                $slave client kill $master_host:$master_port
+                                $slave debug sleep $delay
+                                $slave exec
+                            } else {
+                                $slave client kill $master_host:$master_port
+                            }
                         }
                     }
                 }
@@ -71,9 +98,18 @@ proc test_psync {backlog cond} {
     }
 }
 
-test_psync 1000000 {
+test_psync {ok psync} 6 1000000 3600 0 {
     assert {[s -1 sync_partial_ok] > 0}
 }
-test_psync 100 {
+
+test_psync {no backlog} 6 100 3600 0.5 {
+    assert {[s -1 sync_partial_err] > 0}
+}
+
+test_psync {ok after delay} 3 100000000 3600 3 {
+    assert {[s -1 sync_partial_ok] > 0}
+}
+
+test_psync {backlog expired} 3 100000000 1 3 {
     assert {[s -1 sync_partial_err] > 0}
 }

@@ -72,7 +72,7 @@ void queueMultiCommand(redisClient *c) {
 void discardTransaction(redisClient *c) {
     freeClientMultiState(c);
     initClientMultiState(c);
-    c->flags &= ~(REDIS_MULTI|REDIS_DIRTY_CAS|REDIS_DIRTY_EXEC);;
+    c->flags &= ~(REDIS_MULTI|REDIS_DIRTY_CAS|REDIS_DIRTY_EXEC);
     unwatchAllKeys(c);
 }
 
@@ -214,7 +214,7 @@ void watchForKey(redisClient *c, robj *key) {
     }
     /* This key is not already watched in this DB. Let's add it */
     clients = dictFetchValue(c->db->watched_keys,key);
-    if (!clients) { 
+    if (!clients) {
         clients = listCreate();
         dictAdd(c->db->watched_keys,key,clients);
         incrRefCount(key);

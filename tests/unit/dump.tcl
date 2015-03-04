@@ -16,12 +16,22 @@ start_server {tags {"dump"}} {
         r get foo
     } {bar}
 
+    test {RESTORE can set an expire that overflows a 32 bit integer} {
+        r set foo bar
+        set encoded [r dump foo]
+        r del foo
+        r restore foo 2569591501 $encoded
+        set ttl [r pttl foo]
+        assert {$ttl >= (2569591501-3000) && $ttl <= 2569591501}
+        r get foo
+    } {bar}
+
     test {RESTORE returns an error of the key already exists} {
         r set foo bar
         set e {}
         catch {r restore foo 0 "..."} e
         set e
-    } {*is busy*}
+    } {*BUSYKEY*}
 
     test {RESTORE can overwrite an existing key with REPLACE} {
         r set foo bar1
@@ -147,7 +157,7 @@ start_server {tags {"dump"}} {
     test {MIGRATE can correctly transfer large values} {
         set first [srv 0 client]
         r del key
-        for {set j 0} {$j < 5000} {incr j} {
+        for {set j 0} {$j < 40000} {incr j} {
             r rpush key 1 2 3 4 5 6 7 8 9 10
             r rpush key "item 1" "item 2" "item 3" "item 4" "item 5" \
                         "item 6" "item 7" "item 8" "item 9" "item 10"
@@ -165,7 +175,7 @@ start_server {tags {"dump"}} {
             assert {[$first exists key] == 0}
             assert {[$second exists key] == 1}
             assert {[$second ttl key] == -1}
-            assert {[$second llen key] == 5000*20}
+            assert {[$second llen key] == 40000*20}
         }
     }
 

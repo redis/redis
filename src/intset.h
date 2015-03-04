@@ -47,4 +47,8 @@ uint8_t intsetGet(intset *is, uint32_t pos, int64_t *value);
 uint32_t intsetLen(intset *is);
 size_t intsetBlobLen(intset *is);
 
+#ifdef REDIS_TEST
+int intsetTest(int argc, char *argv[]);
+#endif
+
 #endif // __INTSET_H

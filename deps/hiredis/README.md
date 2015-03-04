@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/redis/hiredis.png)](https://travis-ci.org/redis/hiredis)
+
 # HIREDIS
 
 Hiredis is a minimalistic C client library for the [Redis](http://redis.io/) database.
@@ -44,7 +46,7 @@ After trying to connect to Redis using `redisConnect` you should
 check the `err` field to see if establishing the connection was successful:
 
     redisContext *c = redisConnect("127.0.0.1", 6379);
-    if (c->err) {
+    if (c != NULL && c->err) {
         printf("Error: %s\n", c->errstr);
         // handle error
     }
@@ -66,7 +68,7 @@ When you need to pass binary safe strings in a command, the `%b` specifier can b
 used. Together with a pointer to the string, it requires a `size_t` length argument
 of the string:
 
-    reply = redisCommand(context, "SET foo %b", value, valuelen);
+    reply = redisCommand(context, "SET foo %b", value, (size_t) valuelen);
 
 Internally, Hiredis splits the command in different arguments and will
 convert it to the protocol used to communicate with Redis.
@@ -336,6 +338,9 @@ when `redisReaderGetReply` is called. This function returns an integer status
 and a reply object (as described above) via `void **reply`. The returned status
 can be either `REDIS_OK` or `REDIS_ERR`, where the latter means something went
 wrong (either a protocol error, or an out of memory error).
+
+The parser limits the level of nesting for multi bulk payloads to 7. If the
+multi bulk nesting level is higher than this, the parser returns an error.
 
 ### Customizing replies
 

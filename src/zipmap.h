@@ -32,7 +32,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _ZIMMAP_H
+#ifndef _ZIPMAP_H
 #define _ZIPMAP_H
 
 unsigned char *zipmapNew(void);
@@ -45,5 +45,9 @@ int zipmapExists(unsigned char *zm, unsigned char *key, unsigned int klen);
 unsigned int zipmapLen(unsigned char *zm);
 size_t zipmapBlobLen(unsigned char *zm);
 void zipmapRepr(unsigned char *p);
+
+#ifdef REDIS_TEST
+int zipmapTest(int argc, char *argv[]);
+#endif
 
 #endif

@@ -61,6 +61,8 @@ static int checkStringLength(redisClient *c, long long size) {
 #define REDIS_SET_NO_FLAGS 0
 #define REDIS_SET_NX (1<<0)     /* Set if key not exists. */
 #define REDIS_SET_XX (1<<1)     /* Set if key exists. */
+#define REDIS_SET_EX (1<<2)     /* Set if time in seconds is given */
+#define REDIS_SET_PX (1<<3)     /* Set if time in ms in given */
 
 void setGenericCommand(redisClient *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
@@ -69,7 +71,7 @@ void setGenericCommand(redisClient *c, int flags, robj *key, robj *val, robj *ex
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != REDIS_OK)
             return;
         if (milliseconds <= 0) {
-            addReplyError(c,"invalid expire time in SETEX");
+            addReplyErrorFormat(c,"invalid expire time in %s",c->cmd->name);
             return;
         }
         if (unit == UNIT_SECONDS) milliseconds *= 1000;
@@ -102,18 +104,28 @@ void setCommand(redisClient *c) {
         robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
 
         if ((a[0] == 'n' || a[0] == 'N') &&
-            (a[1] == 'x' || a[1] == 'X') && a[2] == '\0') {
+            (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
+            !(flags & REDIS_SET_XX))
+        {
             flags |= REDIS_SET_NX;
         } else if ((a[0] == 'x' || a[0] == 'X') &&
-                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0') {
+                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
+                   !(flags & REDIS_SET_NX))
+        {
             flags |= REDIS_SET_XX;
         } else if ((a[0] == 'e' || a[0] == 'E') &&
-                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' && next) {
+                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
+                   !(flags & REDIS_SET_PX) && next)
+        {
+            flags |= REDIS_SET_EX;
             unit = UNIT_SECONDS;
             expire = next;
             j++;
         } else if ((a[0] == 'p' || a[0] == 'P') &&
-                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' && next) {
+                   (a[1] == 'x' || a[1] == 'X') && a[2] == '\0' &&
+                   !(flags & REDIS_SET_EX) && next)
+        {
+            flags |= REDIS_SET_PX;
             unit = UNIT_MILLISECONDS;
             expire = next;
             j++;
@@ -194,7 +206,7 @@ void setrangeCommand(redisClient *c) {
         if (checkStringLength(c,offset+sdslen(value)) != REDIS_OK)
             return;
 
-        o = createObject(REDIS_STRING,sdsempty());
+        o = createObject(REDIS_STRING,sdsnewlen(NULL, offset+sdslen(value)));
         dbAdd(c->db,c->argv[1],o);
     } else {
         size_t olen;
@@ -215,12 +227,7 @@ void setrangeCommand(redisClient *c) {
             return;
 
         /* Create a copy when the object is shared or encoded. */
-        if (o->refcount != 1 || o->encoding != REDIS_ENCODING_RAW) {
-            robj *decoded = getDecodedObject(o);
-            o = createStringObject(decoded->ptr, sdslen(decoded->ptr));
-            decrRefCount(decoded);
-            dbOverwrite(c->db,c->argv[1],o);
-        }
+        o = dbUnshareStringValue(c->db,c->argv[1],o);
     }
 
     if (sdslen(value) > 0) {
@@ -236,13 +243,13 @@ void setrangeCommand(redisClient *c) {
 
 void getrangeCommand(redisClient *c) {
     robj *o;
-    long start, end;
+    long long start, end;
     char *str, llbuf[32];
     size_t strlen;
 
-    if (getLongFromObjectOrReply(c,c->argv[2],&start,NULL) != REDIS_OK)
+    if (getLongLongFromObjectOrReply(c,c->argv[2],&start,NULL) != REDIS_OK)
         return;
-    if (getLongFromObjectOrReply(c,c->argv[3],&end,NULL) != REDIS_OK)
+    if (getLongLongFromObjectOrReply(c,c->argv[3],&end,NULL) != REDIS_OK)
         return;
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptybulk)) == NULL ||
         checkType(c,o,REDIS_STRING)) return;
@@ -260,11 +267,11 @@ void getrangeCommand(redisClient *c) {
     if (end < 0) end = strlen+end;
     if (start < 0) start = 0;
     if (end < 0) end = 0;
-    if ((unsigned)end >= strlen) end = strlen-1;
+    if ((unsigned long long)end >= strlen) end = strlen-1;
 
     /* Precondition: end >= 0 && end < strlen, so the only condition where
      * nothing can be returned is: start > end. */
-    if (start > end) {
+    if (start > end || strlen == 0) {
         addReply(c,shared.emptybulk);
     } else {
         addReplyBulkCBuffer(c,(char*)str+start,end-start+1);
@@ -342,11 +349,21 @@ void incrDecrCommand(redisClient *c, long long incr) {
         return;
     }
     value += incr;
-    new = createStringObjectFromLongLong(value);
-    if (o)
-        dbOverwrite(c->db,c->argv[1],new);
-    else
-        dbAdd(c->db,c->argv[1],new);
+
+    if (o && o->refcount == 1 && o->encoding == REDIS_ENCODING_INT &&
+        (value < 0 || value >= REDIS_SHARED_INTEGERS) &&
+        value >= LONG_MIN && value <= LONG_MAX)
+    {
+        new = o;
+        o->ptr = (void*)((long)value);
+    } else {
+        new = createStringObjectFromLongLong(value);
+        if (o) {
+            dbOverwrite(c->db,c->argv[1],new);
+        } else {
+            dbAdd(c->db,c->argv[1],new);
+        }
+    }
     signalModifiedKey(c->db,c->argv[1]);
     notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"incrby",c->argv[1],c->db->id);
     server.dirty++;
@@ -392,7 +409,7 @@ void incrbyfloatCommand(redisClient *c) {
         addReplyError(c,"increment would produce NaN or Infinity");
         return;
     }
-    new = createStringObjectFromLongDouble(value);
+    new = createStringObjectFromLongDouble(value,1);
     if (o)
         dbOverwrite(c->db,c->argv[1],new);
     else
@@ -433,15 +450,8 @@ void appendCommand(redisClient *c) {
         if (checkStringLength(c,totlen) != REDIS_OK)
             return;
 
-        /* If the object is shared or encoded, we have to make a copy */
-        if (o->refcount != 1 || o->encoding != REDIS_ENCODING_RAW) {
-            robj *decoded = getDecodedObject(o);
-            o = createStringObject(decoded->ptr, sdslen(decoded->ptr));
-            decrRefCount(decoded);
-            dbOverwrite(c->db,c->argv[1],o);
-        }
-
         /* Append the value */
+        o = dbUnshareStringValue(c->db,c->argv[1],o);
         o->ptr = sdscatlen(o->ptr,append->ptr,sdslen(append->ptr));
         totlen = sdslen(o->ptr);
     }

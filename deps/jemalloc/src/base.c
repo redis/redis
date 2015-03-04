@@ -63,6 +63,7 @@ base_alloc(size_t size)
 	ret = base_next_addr;
 	base_next_addr = (void *)((uintptr_t)base_next_addr + csize);
 	malloc_mutex_unlock(&base_mtx);
+	VALGRIND_MAKE_MEM_UNDEFINED(ret, csize);
 
 	return (ret);
 }
@@ -88,6 +89,7 @@ base_node_alloc(void)
 		ret = base_nodes;
 		base_nodes = *(extent_node_t **)ret;
 		malloc_mutex_unlock(&base_mtx);
+		VALGRIND_MAKE_MEM_UNDEFINED(ret, sizeof(extent_node_t));
 	} else {
 		malloc_mutex_unlock(&base_mtx);
 		ret = (extent_node_t *)base_alloc(sizeof(extent_node_t));
@@ -100,6 +102,7 @@ void
 base_node_dealloc(extent_node_t *node)
 {
 
+	VALGRIND_MAKE_MEM_UNDEFINED(node, sizeof(extent_node_t));
 	malloc_mutex_lock(&base_mtx);
 	*(extent_node_t **)node = base_nodes;
 	base_nodes = node;

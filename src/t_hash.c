@@ -43,7 +43,7 @@ void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
     if (o->encoding != REDIS_ENCODING_ZIPLIST) return;
 
     for (i = start; i <= end; i++) {
-        if (argv[i]->encoding == REDIS_ENCODING_RAW &&
+        if (sdsEncodedObject(argv[i]) &&
             sdslen(argv[i]->ptr) > server.hash_max_ziplist_value)
         {
             hashTypeConvert(o, REDIS_ENCODING_HT);
@@ -130,7 +130,6 @@ robj *hashTypeGetObject(robj *o, robj *field) {
                 value = createStringObjectFromLongLong(vll);
             }
         }
-
     } else if (o->encoding == REDIS_ENCODING_HT) {
         robj *aux;
 
@@ -142,6 +141,29 @@ robj *hashTypeGetObject(robj *o, robj *field) {
         redisPanic("Unknown hash encoding");
     }
     return value;
+}
+
+/* Higher level function using hashTypeGet*() to return the length of the
+ * object associated with the requested field, or 0 if the field does not
+ * exist. */
+size_t hashTypeGetValueLength(robj *o, robj *field) {
+    size_t len = 0;
+    if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+        unsigned char *vstr = NULL;
+        unsigned int vlen = UINT_MAX;
+        long long vll = LLONG_MAX;
+
+        if (hashTypeGetFromZiplist(o, field, &vstr, &vlen, &vll) == 0)
+            len = vstr ? vlen : sdigits10(vll);
+    } else if (o->encoding == REDIS_ENCODING_HT) {
+        robj *aux;
+
+        if (hashTypeGetFromHashTable(o, field, &aux) == 0)
+            len = stringObjectLen(aux);
+    } else {
+        redisPanic("Unknown hash encoding");
+    }
+    return len;
 }
 
 /* Test if the specified field exists in the given hash. Returns 1 if the field
@@ -565,7 +587,7 @@ void hincrbyfloatCommand(redisClient *c) {
     }
 
     value += incr;
-    new = createStringObjectFromLongDouble(value);
+    new = createStringObjectFromLongDouble(value,1);
     hashTypeTryObjectEncoding(o,&c->argv[2],NULL);
     hashTypeSet(o,c->argv[2],new);
     addReplyBulk(c,new);
@@ -679,10 +701,19 @@ void hdelCommand(redisClient *c) {
 
 void hlenCommand(redisClient *c) {
     robj *o;
+
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,REDIS_HASH)) return;
 
     addReplyLongLong(c,hashTypeLength(o));
+}
+
+void hstrlenCommand(redisClient *c) {
+    robj *o;
+
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
+        checkType(c,o,REDIS_HASH)) return;
+    addReplyLongLong(c,hashTypeGetValueLength(o,c->argv[2]));
 }
 
 static void addHashIteratorCursorToReply(redisClient *c, hashTypeIterator *hi, int what) {
@@ -758,4 +789,14 @@ void hexistsCommand(redisClient *c) {
         checkType(c,o,REDIS_HASH)) return;
 
     addReply(c, hashTypeExists(o,c->argv[2]) ? shared.cone : shared.czero);
+}
+
+void hscanCommand(redisClient *c) {
+    robj *o;
+    unsigned long cursor;
+
+    if (parseScanCursorOrReply(c,c->argv[2],&cursor) == REDIS_ERR) return;
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
+        checkType(c,o,REDIS_HASH)) return;
+    scanGenericCommand(c,o,cursor);
 }

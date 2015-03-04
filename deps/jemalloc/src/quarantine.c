@@ -1,3 +1,4 @@
+#define	JEMALLOC_QUARANTINE_C_
 #include "jemalloc/internal/jemalloc_internal.h"
 
 /*
@@ -11,39 +12,18 @@
 /******************************************************************************/
 /* Data. */
 
-typedef struct quarantine_obj_s quarantine_obj_t;
-typedef struct quarantine_s quarantine_t;
-
-struct quarantine_obj_s {
-	void	*ptr;
-	size_t	usize;
-};
-
-struct quarantine_s {
-	size_t			curbytes;
-	size_t			curobjs;
-	size_t			first;
-#define	LG_MAXOBJS_INIT 10
-	size_t			lg_maxobjs;
-	quarantine_obj_t	objs[1]; /* Dynamically sized ring buffer. */
-};
-
-static void	quarantine_cleanup(void *arg);
-
-malloc_tsd_data(static, quarantine, quarantine_t *, NULL)
-malloc_tsd_funcs(JEMALLOC_INLINE, quarantine, quarantine_t *, NULL,
-    quarantine_cleanup)
+malloc_tsd_data(, quarantine, quarantine_t *, NULL)
 
 /******************************************************************************/
 /* Function prototypes for non-inline static functions. */
 
-static quarantine_t	*quarantine_init(size_t lg_maxobjs);
 static quarantine_t	*quarantine_grow(quarantine_t *quarantine);
+static void	quarantine_drain_one(quarantine_t *quarantine);
 static void	quarantine_drain(quarantine_t *quarantine, size_t upper_bound);
 
 /******************************************************************************/
 
-static quarantine_t *
+quarantine_t *
 quarantine_init(size_t lg_maxobjs)
 {
 	quarantine_t *quarantine;
@@ -68,8 +48,10 @@ quarantine_grow(quarantine_t *quarantine)
 	quarantine_t *ret;
 
 	ret = quarantine_init(quarantine->lg_maxobjs + 1);
-	if (ret == NULL)
+	if (ret == NULL) {
+		quarantine_drain_one(quarantine);
 		return (quarantine);
+	}
 
 	ret->curbytes = quarantine->curbytes;
 	ret->curobjs = quarantine->curobjs;
@@ -89,23 +71,29 @@ quarantine_grow(quarantine_t *quarantine)
 		memcpy(&ret->objs[ncopy_a], quarantine->objs, ncopy_b *
 		    sizeof(quarantine_obj_t));
 	}
+	idalloc(quarantine);
 
 	return (ret);
+}
+
+static void
+quarantine_drain_one(quarantine_t *quarantine)
+{
+	quarantine_obj_t *obj = &quarantine->objs[quarantine->first];
+	assert(obj->usize == isalloc(obj->ptr, config_prof));
+	idalloc(obj->ptr);
+	quarantine->curbytes -= obj->usize;
+	quarantine->curobjs--;
+	quarantine->first = (quarantine->first + 1) & ((ZU(1) <<
+	    quarantine->lg_maxobjs) - 1);
 }
 
 static void
 quarantine_drain(quarantine_t *quarantine, size_t upper_bound)
 {
 
-	while (quarantine->curbytes > upper_bound && quarantine->curobjs > 0) {
-		quarantine_obj_t *obj = &quarantine->objs[quarantine->first];
-		assert(obj->usize == isalloc(obj->ptr, config_prof));
-		idalloc(obj->ptr);
-		quarantine->curbytes -= obj->usize;
-		quarantine->curobjs--;
-		quarantine->first = (quarantine->first + 1) & ((ZU(1) <<
-		    quarantine->lg_maxobjs) - 1);
-	}
+	while (quarantine->curbytes > upper_bound && quarantine->curobjs > 0)
+		quarantine_drain_one(quarantine);
 }
 
 void
@@ -119,24 +107,16 @@ quarantine(void *ptr)
 
 	quarantine = *quarantine_tsd_get();
 	if ((uintptr_t)quarantine <= (uintptr_t)QUARANTINE_STATE_MAX) {
-		if (quarantine == NULL) {
-			if ((quarantine = quarantine_init(LG_MAXOBJS_INIT)) ==
-			    NULL) {
-				idalloc(ptr);
-				return;
-			}
-		} else {
-			if (quarantine == QUARANTINE_STATE_PURGATORY) {
-				/*
-				 * Make a note that quarantine() was called
-				 * after quarantine_cleanup() was called.
-				 */
-				quarantine = QUARANTINE_STATE_REINCARNATED;
-				quarantine_tsd_set(&quarantine);
-			}
-			idalloc(ptr);
-			return;
+		if (quarantine == QUARANTINE_STATE_PURGATORY) {
+			/*
+			 * Make a note that quarantine() was called after
+			 * quarantine_cleanup() was called.
+			 */
+			quarantine = QUARANTINE_STATE_REINCARNATED;
+			quarantine_tsd_set(&quarantine);
 		}
+		idalloc(ptr);
+		return;
 	}
 	/*
 	 * Drain one or more objects if the quarantine size limit would be
@@ -161,15 +141,24 @@ quarantine(void *ptr)
 		obj->usize = usize;
 		quarantine->curbytes += usize;
 		quarantine->curobjs++;
-		if (opt_junk)
-			memset(ptr, 0x5a, usize);
+		if (config_fill && opt_junk) {
+			/*
+			 * Only do redzone validation if Valgrind isn't in
+			 * operation.
+			 */
+			if ((config_valgrind == false || opt_valgrind == false)
+			    && usize <= SMALL_MAXCLASS)
+				arena_quarantine_junk_small(ptr, usize);
+			else
+				memset(ptr, 0x5a, usize);
+		}
 	} else {
 		assert(quarantine->curbytes == 0);
 		idalloc(ptr);
 	}
 }
 
-static void
+void
 quarantine_cleanup(void *arg)
 {
 	quarantine_t *quarantine = *(quarantine_t **)arg;

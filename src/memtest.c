@@ -35,6 +35,9 @@
 #include <errno.h>
 #include <termios.h>
 #include <sys/ioctl.h>
+#if defined(__sun)
+#include <stropts.h>
+#endif
 #include "config.h"
 
 #if (ULONG_MAX == 4294967295UL)
@@ -237,6 +240,7 @@ void memtest_test(size_t megabytes, int passes) {
         memtest_progress_end();
         memtest_compare_times(m,bytes,pass,4);
     }
+    free(m);
 }
 
 void memtest_non_destructive_invert(void *addr, size_t size) {

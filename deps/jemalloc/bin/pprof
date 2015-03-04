@@ -4197,8 +4197,12 @@ sub FindLibrary {
 # For libc libraries, the copy in /usr/lib/debug contains debugging symbols
 sub DebuggingLibrary {
   my $file = shift;
-  if ($file =~ m|^/| && -f "/usr/lib/debug$file") {
-    return "/usr/lib/debug$file";
+  if ($file =~ m|^/|) {
+      if (-f "/usr/lib/debug$file") {
+        return "/usr/lib/debug$file";
+      } elsif (-f "/usr/lib/debug$file.debug") {
+        return "/usr/lib/debug$file.debug";
+      }
   }
   return undef;
 }
@@ -4360,6 +4364,19 @@ sub ParseLibraries {
       $finish = HexExtend($2);
       $offset = $zero_offset;
       $lib = $3;
+    }
+    # FreeBSD 10.0 virtual memory map /proc/curproc/map as defined in
+    # function procfs_doprocmap (sys/fs/procfs/procfs_map.c)
+    #
+    # Example:
+    # 0x800600000 0x80061a000 26 0 0xfffff800035a0000 r-x 75 33 0x1004 COW NC vnode /libexec/ld-elf.s
+    # o.1 NCH -1
+    elsif ($l =~ /^(0x$h)\s(0x$h)\s\d+\s\d+\s0x$h\sr-x\s\d+\s\d+\s0x\d+\s(COW|NCO)\s(NC|NNC)\svnode\s(\S+\.so(\.\d+)*)/) {
+      $start = HexExtend($1);
+      $finish = HexExtend($2);
+      $offset = $zero_offset;
+      $lib = FindLibrary($5);
+
     } else {
       next;
     }
@@ -4382,6 +4399,7 @@ sub ParseLibraries {
       }
     }
 
+    if($main::opt_debug) { printf STDERR "$start:$finish ($offset) $lib\n"; }
     push(@{$result}, [$lib, $start, $finish, $offset]);
   }
 
@@ -4588,6 +4606,12 @@ sub ExtractSymbols {
     my $start = $lib->[1];
     my $finish = $lib->[2];
     my $offset = $lib->[3];
+
+    # Use debug library if it exists
+    my $debug_libname = DebuggingLibrary($libname);
+    if ($debug_libname) {
+        $libname = $debug_libname;
+    }
 
     # Get list of pcs that belong in this library.
     my $contained = [];
@@ -5019,7 +5043,7 @@ sub GetProcedureBoundariesViaNm {
 
       # Tag this routine with the starting address in case the image
       # has multiple occurrences of this routine.  We use a syntax
-      # that resembles template paramters that are automatically
+      # that resembles template parameters that are automatically
       # stripped out by ShortFunctionName()
       $this_routine .= "<$start_val>";
 

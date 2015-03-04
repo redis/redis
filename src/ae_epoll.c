@@ -45,13 +45,20 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
         zfree(state);
         return -1;
     }
-    state->epfd = epoll_create(1024); /* 1024 is just an hint for the kernel */
+    state->epfd = epoll_create(1024); /* 1024 is just a hint for the kernel */
     if (state->epfd == -1) {
         zfree(state->events);
         zfree(state);
         return -1;
     }
     eventLoop->apidata = state;
+    return 0;
+}
+
+static int aeApiResize(aeEventLoop *eventLoop, int setsize) {
+    aeApiState *state = eventLoop->apidata;
+
+    state->events = zrealloc(state->events, sizeof(struct epoll_event)*setsize);
     return 0;
 }
 
