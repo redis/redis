@@ -261,6 +261,7 @@ struct redisCommand redisCommandTable[] = {
     {"pubsub",pubsubCommand,-2,"pltrR",0,NULL,0,0,0,0,0},
     {"watch",watchCommand,-2,"rsF",0,NULL,1,-1,1,0,0},
     {"unwatch",unwatchCommand,1,"rsF",0,NULL,0,0,0,0,0},
+    {"if",ifCommand,-2,"rsF",0,NULL,2,-1,1,0,0},
     {"cluster",clusterCommand,-2,"ar",0,NULL,0,0,0,0,0},
     {"restore",restoreCommand,-4,"wm",0,NULL,1,1,1,0,0},
     {"restore-asking",restoreCommand,-4,"wmk",0,NULL,1,1,1,0,0},
@@ -2336,7 +2337,7 @@ int processCommand(redisClient *c) {
 
     /* Exec the command */
     if (c->flags & REDIS_MULTI &&
-        c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
+        c->cmd->proc != execCommand && c->cmd->proc != ifCommand &&
         c->cmd->proc != multiCommand && c->cmd->proc != watchCommand)
     {
         queueMultiCommand(c);

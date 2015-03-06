@@ -304,6 +304,9 @@ void touchWatchedKeysOnFlush(int dbid) {
     }
 }
 
+/* WATCH key key key ...
+ * Add keys to the set of watched keys. If those keys are modified
+ * before the next transaction is executed, the transaction aborts. */
 void watchCommand(redisClient *c) {
     int j;
 
@@ -316,8 +319,47 @@ void watchCommand(redisClient *c) {
     addReply(c,shared.ok);
 }
 
+/* UNWATCH
+ * Flush the set of watched keys. */
 void unwatchCommand(redisClient *c) {
     unwatchAllKeys(c);
     c->flags &= (~REDIS_DIRTY_CAS);
+    addReply(c,shared.ok);
+}
+
+/* IF XX key key key ...
+ * IF NX key key key ...
+ * Abort transaction if condition is not met. */
+void ifCommand(redisClient *c) {
+    int j;
+    int xx = 0, nx = 0;
+
+    if (!(c->flags & REDIS_MULTI)) {
+        addReplyError(c,"IF outside MULTI is not allowed");
+        return;
+    }
+
+    /* Check if it's xx or nx option, trying to do it reasonably fast. */
+    char *a = c->argv[1]->ptr;
+    if ((a[0] == 'n' || a[0] == 'N') &&
+        (a[1] == 'x' || a[1] == 'X') && a[2] == '\0')
+    {
+        nx = 1;
+    } else if ((a[0] == 'x' || a[0] == 'X') &&
+               (a[1] == 'x' || a[1] == 'X') && a[2] == '\0')
+    {
+        xx = 1;
+    } else {
+        addReply(c,shared.syntaxerr);
+        return;
+    }
+
+    /* Check if keys exist / don't exist, and flag the transaction if
+     * at least one key fails the test according to NX / XX option. */
+    for (j = 2; j < c->argc; j++) {
+        robj *o = lookupKeyRead(c->db,c->argv[j]);
+        if ((o != NULL && nx) || (o == NULL && xx))
+            c->flags |= REDIS_DIRTY_CAS;
+    }
     addReply(c,shared.ok);
 }

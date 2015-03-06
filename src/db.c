@@ -62,7 +62,7 @@ robj *lookupKeyRead(redisDb *db, robj *key) {
 
     if (expireIfNeeded(db,key) == 1) {
         /* Key expired. If we are in the context of a master, expireIfNeeded()
-         * returns 0 only when the key does not exist at all, so it's save
+         * returns 0 only when the key does not exist at all, so it's safe
          * to return NULL ASAP. */
         if (server.masterhost == NULL) return NULL;
 
