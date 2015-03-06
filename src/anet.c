@@ -614,8 +614,14 @@ int anetSockName(int fd, char *ip, size_t ip_len, int *port) {
 
     if (getsockname(fd,(struct sockaddr*)&sa,&salen) == -1) {
         if (port) *port = 0;
-        ip[0] = '?';
-        ip[1] = '\0';
+        if (ip) {
+            if (ip_len >= 2) {
+                ip[0] = '?';
+                ip[1] = '\0';
+            } else if (ip_len == 1) {
+                ip[0] = '\0';
+            }
+        }
         return -1;
     }
     if (sa.ss_family == AF_INET) {
