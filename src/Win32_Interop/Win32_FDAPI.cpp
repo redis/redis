@@ -28,6 +28,7 @@
 #include "Win32_fdapi_crt.h"
 #include "Win32_variadicFunctor.h"
 #include "Win32_ANSI.h"
+#include "win32_util.h"
 #include <string>
 #include "..\redisLog.h"
 using namespace std;
@@ -619,7 +620,11 @@ ssize_t redis_write_impl(int fd, const void *buf, size_t count) {
     try {
         SOCKET s = RFDMap::getInstance().lookupSocket( fd );
         if( s != INVALID_SOCKET ) {
-            return (int)f_send( s, (char*)buf, (unsigned int)count, 0);
+            int ret = f_send( s, (char*)buf, (unsigned int)count, 0);
+            if (ret == SOCKET_ERROR) {
+                set_errno_from_last_error();
+            }
+            return ret;
         } else {
             int posixFD = RFDMap::getInstance().lookupPosixFD( fd );
             if( posixFD != -1 ) {

@@ -31,6 +31,7 @@
     <ClCompile Include="Win32_QFork_impl.c" />
     <ClCompile Include="win32_rfdmap.cpp" />
     <ClCompile Include="Win32_service.cpp" />
+    <ClCompile Include="win32_util.c" />
     <ClCompile Include="Win32_variadicFunctor.cpp" />
     <ClCompile Include="win32_wsiocp.c" />
   </ItemGroup>
@@ -48,6 +49,7 @@
     <ClInclude Include="win32_rfdmap.h" />
     <ClInclude Include="Win32_Service.h" />
     <ClInclude Include="Win32_SmartHandle.h" />
+    <ClInclude Include="win32_util.h" />
     <ClInclude Include="Win32_variadicFunctor.h" />
     <ClInclude Include="win32_winapifamily.h" />
     <ClInclude Include="win32_wsiocp.h" />
