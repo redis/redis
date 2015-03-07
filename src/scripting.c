@@ -458,6 +458,35 @@ int luaRedisPCallCommand(lua_State *lua) {
     return luaRedisGenericCommand(lua,0);
 }
 
+int luaExistsCommand(lua_State *lua) {
+    int argc = lua_gettop(lua);
+    redisClient *c = server.lua_client;
+    char *obj_s;
+    size_t obj_len;
+    robj *key, *val;
+
+    /* Require at least one argument */
+    if (argc != 1) {
+        luaPushError(lua,
+            "redis.exists() needs exactly one argument");
+        return 1;
+    }
+
+    obj_s = (char*)lua_tolstring(lua,1,&obj_len);
+    if (obj_s == NULL) {
+        luaPushError(lua,
+            "redis.exists() argument must be a string");
+        return 1;
+    }
+
+    key = createStringObject(obj_s,obj_len);
+    val = lookupKeyRead(c->db,key);
+    decrRefCount(key);
+
+    lua_pushnumber(lua,val != NULL);
+    return 1;
+}
+
 /* This adds redis.sha1hex(string) to Lua scripts using the same hashing
  * function used for sha1ing lua scripts. */
 int luaRedisSha1hexCommand(lua_State *lua) {
@@ -662,6 +691,11 @@ void scriptingInit(void) {
     /* redis.pcall */
     lua_pushstring(lua,"pcall");
     lua_pushcfunction(lua,luaRedisPCallCommand);
+    lua_settable(lua,-3);
+
+    /* redis.exists */
+    lua_pushstring(lua,"exists");
+    lua_pushcfunction(lua,luaExistsCommand);
     lua_settable(lua,-3);
 
     /* redis.log and log levels. */
