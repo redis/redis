@@ -3,7 +3,7 @@
      xmlns:util="http://schemas.microsoft.com/wix/UtilExtension" 
      xmlns:fw="http://schemas.microsoft.com/wix/FirewallExtension">
   <!--
-    32-bit installer
+    64-bit installer
     
     Example installation (command-line):
       default install:
@@ -33,15 +33,6 @@
     <!--User interface hook-->
     <UIRef Id="CustomInstallDir"/>
     
-    <!--Custom actions-->
-    <Binary Id="RedisCustomActionsDLL" SourceFile="$(var.RedisWindowsX64.CustomActions.TargetDir)RedisWindowsX64.CustomActions.CA.dll" />
-    <CustomAction Id="ca_UpdateRedisConfig" BinaryKey="RedisCustomActionsDLL" DllEntry="UpdateRedisConfig" Execute="deferred" Return="check" />
-    <SetProperty Id="ca_UpdateRedisConfig" Value="CONFIG_PATH=[#file_redis_windowsCONF];PORT=[PORT]" Sequence="execute" Before="ca_UpdateRedisConfig" />
-    
-    <InstallExecuteSequence>
-      <Custom Action="ca_UpdateRedisConfig" After="InstallFiles"><![CDATA[NOT Installed]]></Custom>
-    </InstallExecuteSequence>
-    
     <!--Properties-->
     <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/MSOpenTech/redis" />
@@ -66,7 +57,9 @@
     <!--Directory structure to create-->
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
-        <Directory Id="INSTALLFOLDER" Name="Redis-Windows" />
+        <Directory Id="INSTALLFOLDER" Name="Redis-Windows">
+          <Directory Id="LogsFolder" Name="Logs" />
+        </Directory>
       </Directory>
     </Directory>
   </Fragment>
