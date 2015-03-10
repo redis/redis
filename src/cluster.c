@@ -3760,6 +3760,9 @@ void clusterCommand(redisClient *c) {
         o = createObject(REDIS_STRING,ci);
         addReplyBulk(c,o);
         decrRefCount(o);
+    } else if (!strcasecmp(c->argv[1]->ptr,"myid") && c->argc == 2) {
+        /* CLUSTER MYID */
+        addReplyBulkCBuffer(c,myself->name, REDIS_CLUSTER_NAMELEN);
     } else if (!strcasecmp(c->argv[1]->ptr,"slots") && c->argc == 2) {
         /* CLUSTER SLOTS */
         clusterReplyMultiBulkSlots(c);
