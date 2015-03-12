@@ -244,7 +244,7 @@ void loadServerConfigFromString(char *config) {
             server.verbosity = configEnumGetValue(loglevel_enum,argv[1]);
             if (server.verbosity == INT_MIN) {
                 err = "Invalid log level. "
-                      "Must be one of debug, notice, warning";
+                      "Must be one of debug, verbose, notice, warning";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"logfile") && argc == 2) {
