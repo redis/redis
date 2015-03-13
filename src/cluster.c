@@ -3590,7 +3590,7 @@ sds clusterGenNodeDescription(sds ci, clusterNode *node) {
             uint32_t *slotword = ((uint32_t*)node->slots)+(j/32);
             if ((start == -1 && *slotword == 0) ||
                 (start != -1 && *slotword == UINT32_MAX)) {
-                j += 32;
+                j += 31; /* The for loop will increment j one more time. */
                 continue;
             }
         }
