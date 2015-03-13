@@ -135,7 +135,7 @@ start_server {tags {"repl"}} {
 
         test {Replication of SPOP command -- alsoPropagate() API} {
             $master del myset
-            set size [randomInt 100]
+            set size [expr 1+[randomInt 100]]
             set content {}
             for {set j 0} {$j < $size} {incr j} {
                 lappend content [randomValue]
