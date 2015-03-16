@@ -2434,7 +2434,7 @@ void genericZrangebyscoreStoreCommand(redisClient *c, int reverse) {
     }
 
     /* Ok, lookup the key and get the range */
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.emptymultibulk)) == NULL ||
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.czero)) == NULL ||
         checkType(c,zobj,REDIS_ZSET)) return;
 
     if (dbDelete(c->db,dstkey)) {
@@ -2462,6 +2462,8 @@ void genericZrangebyscoreStoreCommand(redisClient *c, int reverse) {
         /* No "first" element in the specified interval. */
         if (eptr == NULL) {
             addReply(c,shared.czero);
+            if (touched)
+                notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",dstkey,c->db->id);
             return;
         }
 
@@ -2530,7 +2532,7 @@ void genericZrangebyscoreStoreCommand(redisClient *c, int reverse) {
             addReplyLongLong(c,rangelen);
             if (!touched) signalModifiedKey(c->db,dstkey);
             notifyKeyspaceEvent(REDIS_NOTIFY_ZSET,
-                (reverse == 0) ? "zrevrangebyscorestore" : "zrangebyscorestore",
+                (reverse == 1) ? "zrevrangebyscorestore" : "zrangebyscorestore",
                 dstkey,c->db->id);
             server.dirty++;
         } else {
@@ -2553,7 +2555,9 @@ void genericZrangebyscoreStoreCommand(redisClient *c, int reverse) {
 
         /* No "first" element in the specified interval. */
         if (ln == NULL) {
-            addReply(c, shared.emptymultibulk);
+            addReply(c,shared.czero);
+            if (touched)
+                notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",dstkey,c->db->id);
             return;
         }
 
@@ -2602,7 +2606,7 @@ void genericZrangebyscoreStoreCommand(redisClient *c, int reverse) {
             addReplyLongLong(c,zsetLength(dstobj));
             if (!touched) signalModifiedKey(c->db,dstkey);
             notifyKeyspaceEvent(REDIS_NOTIFY_ZSET,
-                (reverse == 0) ? "zrevrangebyscorestore" : "zrangebyscorestore",
+                (reverse == 1) ? "zrevrangebyscorestore" : "zrangebyscorestore",
                 dstkey,c->db->id);
             server.dirty++;
         } else {
