@@ -819,6 +819,18 @@ unsigned char *ziplistIndex(unsigned char *zl, int index) {
     return (p[0] == ZIP_END || index > 0) ? NULL : p;
 }
 
+/* Returns the index of an item in ziplist When the list doesn't
+ * contain the item -1 is returned. */
+int ziplistTell(unsigned char *zl, unsigned char *p) {
+    unsigned char *ptr = ziplistIndex(zl,0);
+    int index = 0;
+    while (ptr != NULL && ptr < p) {
+        ptr = ziplistNext(zl,ptr);
+        index++;
+    }
+    return ptr == p ? index : -1;
+}
+
 /* Return pointer to next entry in ziplist.
  *
  * zl is the pointer to the ziplist

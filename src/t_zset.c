@@ -2394,6 +2394,236 @@ void zrevrangebyscoreCommand(redisClient *c) {
     genericZrangebyscoreCommand(c,1);
 }
 
+/* This command implements ZRANGEBYSCORESTORE, ZREVRANGEBYSCORESTORE. */
+void genericZrangebyscoreStoreCommand(redisClient *c, int reverse) {
+    zrangespec range;
+    robj *dstkey = c->argv[1];
+    robj *zobj;
+    long offset = 0, limit = -1;
+    unsigned long rangelen = 0;
+    robj *key = c->argv[2];
+    int minidx, maxidx;
+    int touched = 0;
+
+    /* Parse the range arguments. */
+    if (reverse) {
+        /* Range is given as [max,min] */
+        maxidx = 3; minidx = 4;
+    } else {
+        /* Range is given as [min,max] */
+        minidx = 3; maxidx = 4;
+    }
+
+    if (zslParseRange(c->argv[minidx],c->argv[maxidx],&range) != REDIS_OK) {
+        addReplyError(c,"min or max is not a float");
+        return;
+    }
+
+    /* Parse optional extra arguments. */
+    if (c->argc > 5) {
+        int pos = 5;
+        if (c->argc != 8 || strcasecmp(c->argv[pos]->ptr,"limit") ||
+            ((getLongFromObjectOrReply(c, c->argv[pos+1], &offset, NULL)
+              != REDIS_OK)  ||
+            (getLongFromObjectOrReply(c, c->argv[pos+2], &limit, NULL)
+              != REDIS_OK)))
+        {
+            addReply(c,shared.syntaxerr);
+            return;
+        }
+    }
+
+    /* Ok, lookup the key and get the range */
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.emptymultibulk)) == NULL ||
+        checkType(c,zobj,REDIS_ZSET)) return;
+
+    if (dbDelete(c->db,dstkey)) {
+        signalModifiedKey(c->db,dstkey);
+        touched = 1;
+        server.dirty++;
+    }
+
+    if (zobj->encoding == REDIS_ENCODING_ZIPLIST) {
+        unsigned char *zl = zobj->ptr;
+        unsigned char *eptr, *sptr;
+        unsigned char *vstr;
+        unsigned int vlen;
+        long long vlong;
+        double score;
+        int startindex = -1, endindex = -1;
+
+        /* If reversed, get the last node in range as starting point. */
+        if (reverse) {
+            eptr = zzlLastInRange(zl,&range);
+        } else {
+            eptr = zzlFirstInRange(zl,&range);
+        }
+
+        /* No "first" element in the specified interval. */
+        if (eptr == NULL) {
+            addReply(c,shared.czero);
+            return;
+        }
+
+        /* Get score pointer for the first element. */
+        redisAssertWithInfo(c,zobj,eptr != NULL);
+        sptr = ziplistNext(zl,eptr);
+
+        /* If there is an offset, just traverse the number of elements without
+         * checking the score because that is done in the next loop. */
+        while (eptr && offset--) {
+            if (reverse) {
+                zzlPrev(zl,&eptr,&sptr);
+            } else {
+                zzlNext(zl,&eptr,&sptr);
+            }
+        }
+
+        while (eptr && limit--) {
+            score = zzlGetScore(sptr);
+
+            /* Abort when the node is no longer in range. */
+            if (reverse) {
+                if (!zslValueGteMin(score,&range)) break;
+                if (endindex == -1) {
+                    endindex = ziplistTell(zl,sptr);
+                }
+            } else {
+                if (!zslValueLteMax(score,&range)) break;
+                if (startindex == -1)
+                    startindex = ziplistTell(zl,eptr);
+            }
+
+            /* We know the element exists, so ziplistGet should always succeed */
+            redisAssertWithInfo(c,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
+
+            rangelen++;
+
+            /* Move to next node */
+            if (reverse) {
+                zzlPrev(zl,&eptr,&sptr);
+            } else {
+                zzlNext(zl,&eptr,&sptr);
+            }
+        }
+        if (reverse) {
+            startindex = endindex - rangelen * 2 + 1;
+        }
+        else {
+            endindex = startindex + rangelen * 2 - 1;
+        }
+        if (startindex >= 0 && endindex >= 0 && startindex < endindex) {
+            /* 1. Make a copy of zl
+             * 2. Delete Range [endindex+1,  -1]
+             * 3. Delete Range [0, startindex-1]
+             */
+            unsigned char *newzl = zmalloc(ziplistBlobLen(zl));
+            memcpy(newzl, zl, ziplistBlobLen(zl));
+
+            newzl = ziplistDeleteRange(newzl, endindex + 1,
+                    ziplistLen(newzl) - endindex - 1);
+            newzl = ziplistDeleteRange(newzl, 0, startindex);
+
+            robj *dstobj = createObject(REDIS_ZSET,newzl);
+            dstobj->encoding = REDIS_ENCODING_ZIPLIST;
+            dbAdd(c->db,dstkey,dstobj);
+            addReplyLongLong(c,rangelen);
+            if (!touched) signalModifiedKey(c->db,dstkey);
+            notifyKeyspaceEvent(REDIS_NOTIFY_ZSET,
+                (reverse == 0) ? "zrevrangebyscorestore" : "zrangebyscorestore",
+                dstkey,c->db->id);
+            server.dirty++;
+        } else {
+            addReply(c,shared.czero);
+            if (touched)
+                notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",dstkey,c->db->id);
+        }
+    }
+    else if (zobj->encoding == REDIS_ENCODING_SKIPLIST) {
+        zset *zs = zobj->ptr;
+        zskiplist *zsl = zs->zsl;
+        zskiplistNode *ln;
+
+        /* If reversed, get the last node in range as starting point. */
+        if (reverse) {
+            ln = zslLastInRange(zsl,&range);
+        } else {
+            ln = zslFirstInRange(zsl,&range);
+        }
+
+        /* No "first" element in the specified interval. */
+        if (ln == NULL) {
+            addReply(c, shared.emptymultibulk);
+            return;
+        }
+
+        /* If there is an offset, just traverse the number of elements without
+         * checking the score because that is done in the next loop. */
+        while (ln && offset--) {
+            if (reverse) {
+                ln = ln->backward;
+            } else {
+                ln = ln->level[0].forward;
+            }
+        }
+
+        robj *dstobj = createZsetObject();
+        zset *dstzset = (zset *)dstobj->ptr;
+        unsigned int maxelelen = 0;
+        while (ln && limit--) {
+            /* Abort when the node is no longer in range. */
+            if (reverse) {
+                if (!zslValueGteMin(ln->score,&range)) break;
+            } else {
+                if (!zslValueLteMax(ln->score,&range)) break;
+            }
+            zslInsert(dstzset->zsl,ln->score,ln->obj);
+            incrRefCount(ln->obj); /* added to skiplist */
+            dictAdd(dstzset->dict,ln->obj,&ln->score);
+            incrRefCount(ln->obj); /* added to dictionary */
+            if (sdsEncodedObject(ln->obj)) {
+                if (sdslen(ln->obj->ptr) > maxelelen)
+                    maxelelen = sdslen(ln->obj->ptr);
+            }
+
+            /* Move to next node */
+            if (reverse) {
+                ln = ln->backward;
+            } else {
+                ln = ln->level[0].forward;
+            }
+        }
+        if (dstzset->zsl->length) {
+            /* Convert to ziplist when in limits. */
+            if (dstzset->zsl->length <= server.zset_max_ziplist_entries &&
+                maxelelen <= server.zset_max_ziplist_value)
+                    zsetConvert(dstobj,REDIS_ENCODING_ZIPLIST);
+            dbAdd(c->db,dstkey,dstobj);
+            addReplyLongLong(c,zsetLength(dstobj));
+            if (!touched) signalModifiedKey(c->db,dstkey);
+            notifyKeyspaceEvent(REDIS_NOTIFY_ZSET,
+                (reverse == 0) ? "zrevrangebyscorestore" : "zrangebyscorestore",
+                dstkey,c->db->id);
+            server.dirty++;
+        } else {
+            decrRefCount(dstobj);
+            addReply(c,shared.czero);
+            if (touched)
+                notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",dstkey,c->db->id);
+        }
+    } else {
+        redisPanic("Unknown sorted set encoding");
+    }
+}
+
+void zrangebyscorestoreCommand(redisClient *c) {
+    genericZrangebyscoreStoreCommand(c,0);
+}
+
+void zrevrangebyscorestoreCommand(redisClient *c) {
+    genericZrangebyscoreStoreCommand(c,1);
+}
+
 void zcountCommand(redisClient *c) {
     robj *key = c->argv[1];
     robj *zobj;
