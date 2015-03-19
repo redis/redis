@@ -72,12 +72,12 @@ redisClient *createClient(int fd) {
      * in the context of a client. When commands are executed in other
      * contexts (for instance a Lua script) we need a non connected client. */
     if (fd != -1) {
-        anetNonBlock(NULL,fd);
-        anetEnableTcpNoDelay(NULL,fd);
-        if (server.tcpkeepalive)
-            anetKeepAlive(NULL,fd,server.tcpkeepalive);
-        if (aeCreateFileEvent(server.el,fd,AE_READABLE,
-            readQueryFromClient, c) == AE_ERR)
+        if (anetNonBlock(NULL,fd) == ANET_ERR ||
+            anetEnableTcpNoDelay(NULL,fd) == ANET_ERR ||
+            (server.tcpkeepalive &&
+                anetKeepAlive(NULL,fd,server.tcpkeepalive) == ANET_ERR) ||
+            (aeCreateFileEvent(server.el,fd,AE_READABLE,
+                                readQueryFromClient, c) == AE_ERR))
         {
             close(fd);
             zfree(c);
