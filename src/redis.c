@@ -2694,7 +2694,8 @@ sds genRedisInfoString(char *section) {
             "uptime_in_days:%jd\r\n"
             "hz:%d\r\n"
             "lru_clock:%ld\r\n"
-            "config_file:%s\r\n",
+            "config_file:%s\r\n"
+            "slowlog_len:%lu\r\n",
             REDIS_VERSION,
             redisGitSHA1(),
             strtol(redisGitDirty(),NULL,10) > 0,
@@ -2715,7 +2716,8 @@ sds genRedisInfoString(char *section) {
             (intmax_t)(uptime/(3600*24)),
             server.hz,
             (unsigned long) server.lruclock,
-            server.configfile ? server.configfile : "");
+            server.configfile ? server.configfile : "",
+            listLength(server.slowlog));
     }
 
     /* Clients */
