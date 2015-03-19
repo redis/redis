@@ -3100,6 +3100,20 @@ sds genRedisInfoString(char *section) {
             }
         }
     }
+
+    /* Monitor */
+    if (allsections || defsections || !strcasecmp(section,"monitor")) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info,
+            "slowlog_len:%lu\r\n"
+            "latency_monitor_threshold:%lld\r\n"
+            "latency_events:%lu\r\n"
+            "watchdog_period:%d\r\n",
+            listLength(server.slowlog),
+            server.latency_monitor_threshold,
+            dictSize(server.latency_events),
+            server.watchdog_period);
+    }
     return info;
 }
 
