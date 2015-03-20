@@ -12,6 +12,39 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 3.0.0 RC5 (version 2.9.105) ] Release date: 20 mar 2015
+
+Upgrade urgency: Moderate for Redis Cluster users, low otherwise.
+
+This is the 5th release candidate of Redis 3.0.0, released in order to fix
+a moderate bug in Redis Cluster. This RC does not shift in the future the
+Redis 3.0.0 final release which is scheduled in a few days (we are in the
+process of finishing the documentation for Redis Cluster).
+
+>> General changes
+
+* [FIX] Fix LATENCY command crash. (Salvatore Sanfilippo, thx to Ingmar)
+* [FIX] Config: missing activerehashing option support in CONFIG SET added.
+        (Salvatore Sanfilippo, thx to Bill Anderson)
+* [FIX] Fix for backtrace generation issue. (Mariano Pérez Rodríguez, Matt Stancliff, Salvatore Sanfilippo)
+
+* [NEW] Redis-cli --latency-dist backported from unstable.
+
+>> Cluster changes
+
+* [FIX] Avoid redundant SELECT in MIGRATE. (Tommy Wang, Salvatore Sanfilippo)
+* [FIX] More robust slave check in CLUSTER REPLICATE. (Salvatore Sanfilippo)
+* [FIX] Fixed possible Redis Cluster node crash due to wrong separation of
+        concerns between getNodeByQuery() and Cluster global state update
+        fnuction. (Salvatore Sanfilippo, thx to Ingmar)
+
+* [NEW] Add command CLUSTER MYID to easily featch instance ID. (Michel Martens)
+
+>> Sentinel changes
+
+* [NEW] Support for CLIENT command added. It was missing in the command table.
+        (Leandro López)
+
 --[ Redis 3.0.0 RC4 (version 2.9.104) ] Release date: 13 feb 2015
 
 Upgrade urgency: High for Redis if you use LRU eviction, low otherwise.
