@@ -30,6 +30,7 @@
 #define REDIS_CLUSTER_REDIR_UNSTABLE 2      /* Keys in slot resharding. */
 #define REDIS_CLUSTER_REDIR_ASK 3           /* -ASK redirection required. */
 #define REDIS_CLUSTER_REDIR_MOVED 4         /* -MOVED redirection required. */
+#define REDIS_CLUSTER_REDIR_DOWN 5          /* -CLUSTERDOWN error. */
 
 struct clusterNode;
 

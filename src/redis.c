@@ -2178,6 +2178,8 @@ int processCommand(redisClient *c) {
                      * but the slot is not "stable" currently as there is
                      * a migration or import in progress. */
                     addReplySds(c,sdsnew("-TRYAGAIN Multiple keys request during rehashing of slot\r\n"));
+                } else if (error_code == REDIS_CLUSTER_REDIR_DOWN) {
+                    addReplySds(c,sdsnew("-CLUSTERDOWN The cluster is down. Hash slot is unbound\r\n"));
                 } else {
                     redisPanic("getNodeByQuery() unknown error.");
                 }

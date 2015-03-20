@@ -4690,7 +4690,12 @@ void readwriteCommand(redisClient *c) {
  *
  * REDIS_CLUSTER_REDIR_UNSTABLE if the request contains mutliple keys
  * belonging to the same slot, but the slot is not stable (in migration or
- * importing state, likely because a resharding is in progress). */
+ * importing state, likely because a resharding is in progress).
+ *
+ * REDIS_CLUSTER_REDIR_DOWN if the request addresses a slot which is not
+ * bound to any node. In this case the cluster global state should be already
+ * "down" but it is fragile to rely on the update of the global state, so
+ * we also handle it here. */
 clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *error_code) {
     clusterNode *n = NULL;
     robj *firstkey = NULL;
@@ -4744,7 +4749,18 @@ clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **arg
                 firstkey = thiskey;
                 slot = thisslot;
                 n = server.cluster->slots[slot];
-                redisAssertWithInfo(c,firstkey,n != NULL);
+
+                /* Error: If a slot is not served, we are in "cluster down"
+                 * state. However the state is yet to be updated, so this was
+                 * not trapped earlier in processCommand(). Report the same
+                 * error to the client. */
+                if (n == NULL) {
+                    getKeysFreeResult(keyindex);
+                    if (error_code)
+                        *error_code = REDIS_CLUSTER_REDIR_DOWN;
+                    return NULL;
+                }
+
                 /* If we are migrating or importing this slot, we need to check
                  * if we have all the keys in the request (the only way we
                  * can safely serve the request, otherwise we return a TRYAGAIN
