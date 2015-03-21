@@ -1689,7 +1689,7 @@ int clientsArePaused(void) {
         while ((ln = listNext(&li)) != NULL) {
             c = listNodeValue(ln);
 
-            if (c->flags & REDIS_SLAVE) continue;
+            if (c->flags & (REDIS_SLAVE|REDIS_BLOCKED)) continue;
             listAddNodeTail(server.unblocked_clients,c);
         }
     }
