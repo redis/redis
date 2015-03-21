@@ -1676,7 +1676,9 @@ void pauseClients(mstime_t end) {
 /* Return non-zero if clients are currently paused. As a side effect the
  * function checks if the pause time was reached and clear it. */
 int clientsArePaused(void) {
-    if (server.clients_paused && server.clients_pause_end_time < server.mstime) {
+    if (server.clients_paused &&
+        server.clients_pause_end_time < server.mstime)
+    {
         listNode *ln;
         listIter li;
         redisClient *c;
@@ -1689,7 +1691,10 @@ int clientsArePaused(void) {
         while ((ln = listNext(&li)) != NULL) {
             c = listNodeValue(ln);
 
+            /* Don't touch slaves and blocked clients. The latter pending
+             * requests be processed when unblocked. */
             if (c->flags & (REDIS_SLAVE|REDIS_BLOCKED)) continue;
+            c->flags |= REDIS_UNBLOCKED;
             listAddNodeTail(server.unblocked_clients,c);
         }
     }
