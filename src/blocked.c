@@ -114,7 +114,6 @@ void processUnblockedClients(void) {
         c = ln->value;
         listDelNode(server.unblocked_clients,ln);
         c->flags &= ~REDIS_UNBLOCKED;
-        c->btype = REDIS_BLOCKED_NONE;
 
         /* Process remaining data in the input buffer. */
         if (c->querybuf && sdslen(c->querybuf) > 0) {
