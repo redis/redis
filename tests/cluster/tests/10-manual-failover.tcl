@@ -1,4 +1,4 @@
-# Check the basic monitoring and failover capabilities.
+# Check the manual failover
 
 source "../tests/includes/init-tests.tcl"
 
@@ -91,5 +91,97 @@ test "Instance #0 gets converted into a slave" {
         [RI 0 role] eq {slave}
     } else {
         fail "Old master was not converted into slave"
+    }
+}
+
+## Check that manual failover does not happen if we can't talk with the master.
+
+source "../tests/includes/init-tests.tcl"
+
+test "Create a 5 nodes cluster" {
+    create_cluster 5 5
+}
+
+test "Cluster is up" {
+    assert_cluster_state ok
+}
+
+test "Cluster is writable" {
+    cluster_write_test 0
+}
+
+test "Instance #5 is a slave" {
+    assert {[RI 5 role] eq {slave}}
+}
+
+test "Instance #5 synced with the master" {
+    wait_for_condition 1000 50 {
+        [RI 5 master_link_status] eq {up}
+    } else {
+        fail "Instance #5 master link status is not up"
+    }
+}
+
+test "Make instance #0 unreachable without killing it" {
+    R 0 deferred 1
+    R 0 DEBUG SLEEP 10
+}
+
+test "Send CLUSTER FAILOVER to instance #5" {
+    R 5 cluster failover
+}
+
+test "Instance #5 is still a slave after some time (no failover)" {
+    after 5000
+    assert {[RI 5 role] eq {master}}
+}
+
+test "Wait for instance #0 to return back alive" {
+    R 0 deferred 0
+    assert {[R 0 read] eq {OK}}
+}
+
+## Check with "force" failover happens anyway.
+
+source "../tests/includes/init-tests.tcl"
+
+test "Create a 5 nodes cluster" {
+    create_cluster 5 5
+}
+
+test "Cluster is up" {
+    assert_cluster_state ok
+}
+
+test "Cluster is writable" {
+    cluster_write_test 0
+}
+
+test "Instance #5 is a slave" {
+    assert {[RI 5 role] eq {slave}}
+}
+
+test "Instance #5 synced with the master" {
+    wait_for_condition 1000 50 {
+        [RI 5 master_link_status] eq {up}
+    } else {
+        fail "Instance #5 master link status is not up"
+    }
+}
+
+test "Make instance #0 unreachable without killing it" {
+    R 0 deferred 1
+    R 0 DEBUG SLEEP 10
+}
+
+test "Send CLUSTER FAILOVER to instance #5" {
+    R 5 cluster failover force
+}
+
+test "Instance #5 is a master after some time" {
+    wait_for_condition 1000 50 {
+        [RI 5 role] eq {master}
+    } else {
+        fail "Instance #5 is not a master after some time regardless of FORCE"
     }
 }
