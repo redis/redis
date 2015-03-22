@@ -357,8 +357,9 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     if (cmd->flags & REDIS_CMD_WRITE) server.lua_write_dirty = 1;
 
     /* If this is a Redis Cluster node, we need to make sure Lua is not
-     * trying to access non-local keys. */
-    if (server.cluster_enabled) {
+     * trying to access non-local keys, with the exception of commands
+     * received from our master. */
+    if (server.cluster_enabled && !(server.lua_caller->flags & REDIS_MASTER)) {
         /* Duplicate relevant flags in the lua client. */
         c->flags &= ~(REDIS_READONLY|REDIS_ASKING);
         c->flags |= server.lua_caller->flags & (REDIS_READONLY|REDIS_ASKING);
