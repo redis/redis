@@ -185,3 +185,8 @@ test "Instance #5 is a master after some time" {
         fail "Instance #5 is not a master after some time regardless of FORCE"
     }
 }
+
+test "Wait for instance #0 to return back alive" {
+    R 0 deferred 0
+    assert {[R 0 read] eq {OK}}
+}
