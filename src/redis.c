@@ -2158,6 +2158,8 @@ int processCommand(redisClient *c) {
      * 2) The command has no key arguments. */
     if (server.cluster_enabled &&
         !(c->flags & REDIS_MASTER) &&
+        !(c->flags & REDIS_LUA_CLIENT &&
+          server.lua_caller->flags & REDIS_MASTER) &&
         !(c->cmd->getkeys_proc == NULL && c->cmd->firstkey == 0))
     {
         int hashslot;
