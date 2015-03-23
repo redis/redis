@@ -177,7 +177,6 @@ struct QForkControl {
     HANDLE forkedProcessReady;
     HANDLE operationComplete;
     HANDLE operationFailed;
-    HANDLE terminateForkedProcess;
 
     // global data pointers to be passed to the forked process
     QForkBeginInfo globalData;
@@ -267,8 +266,6 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
         g_pQForkControl->operationComplete = dupOperationComplete;
         SmartHandle dupOperationFailed(shParent,sfvMasterQForkControl->operationFailed);
         g_pQForkControl->operationFailed = dupOperationFailed;
-        SmartHandle dupTerminateProcess(shParent,sfvMasterQForkControl->terminateForkedProcess);
-        g_pQForkControl->terminateForkedProcess = dupTerminateProcess;
 
        // create section handle on MM file
        SIZE_T mmSize = g_pQForkControl->availableBlocksInHeap * cAllocationGranularity;
@@ -332,9 +329,6 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
 
         // let parent know we are done
         SetEvent(g_pQForkControl->operationComplete);
-
-        // parent will notify us when to quit
-        WaitForSingleObject(g_pQForkControl->terminateForkedProcess, INFINITE);
 
         g_pQForkControl = NULL;
         return TRUE;
@@ -599,13 +593,6 @@ BOOL QForkMasterInit( __int64 maxheapBytes ) {
                 system_category(),
                 "CreateEvent failed.");
         }
-        g_pQForkControl->terminateForkedProcess = CreateEvent(NULL,TRUE,FALSE,NULL);
-        if (g_pQForkControl->terminateForkedProcess == NULL) {
-            throw std::system_error(
-                GetLastError(),
-                system_category(),
-                "CreateEvent failed.");
-        }
 
         return TRUE;
     }
@@ -791,10 +778,6 @@ BOOL QForkShutdown() {
             CloseHandle(g_pQForkControl->operationFailed);
             g_pQForkControl->operationFailed = NULL;
         }
-        if (g_pQForkControl->terminateForkedProcess != NULL) {
-            CloseHandle(g_pQForkControl->terminateForkedProcess);
-            g_pQForkControl->terminateForkedProcess = NULL;
-        }
         if (g_pQForkControl->heapMemoryMap != NULL) {
             CloseHandle(g_pQForkControl->heapMemoryMap);
             g_pQForkControl->heapMemoryMap = NULL;
@@ -876,12 +859,6 @@ void CreateChildProcess(PROCESS_INFORMATION *pi, char* logfile, DWORD dwCreation
     if (ResetEvent(g_pQForkControl->forkedProcessReady) == FALSE) {
         throw std::system_error(
             GetLastError(),
-            system_category(),
-            "BeginForkOperation: ResetEvent() failed.");
-    }
-    if (ResetEvent(g_pQForkControl->terminateForkedProcess) == FALSE) {
-        throw std::system_error(
-            GetLastError(), 
             system_category(),
             "BeginForkOperation: ResetEvent() failed.");
     }
@@ -1153,7 +1130,6 @@ void RejoinCOWPages(HANDLE mmHandle, byte* mmStart, size_t mmSize) {
 
 BOOL EndForkOperation(int * pExitCode) {
     try {
-        SetEvent(g_pQForkControl->terminateForkedProcess);
         if( g_hForkedProcess != 0 )
         {
             if (WaitForSingleObject(g_hForkedProcess, cDeadForkWait) == WAIT_TIMEOUT) {
@@ -1188,12 +1164,6 @@ BOOL EndForkOperation(int * pExitCode) {
         if (ResetEvent(g_pQForkControl->forkedProcessReady) == FALSE) {
             throw std::system_error(
                 GetLastError(),
-                system_category(),
-                "EndForkOperation: ResetEvent() failed.");
-        }
-        if (ResetEvent(g_pQForkControl->terminateForkedProcess) == FALSE) {
-            throw std::system_error(
-                GetLastError(), 
                 system_category(),
                 "EndForkOperation: ResetEvent() failed.");
         }
