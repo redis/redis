@@ -43,7 +43,7 @@ then
     while [ $((PORT < ENDPORT)) != "0" ]; do
         PORT=$((PORT+1))
         echo "Stopping $PORT"
-        redis-cli -p $PORT shutdown nosave
+        ../../src/redis-cli -p $PORT shutdown nosave
     done
     exit 0
 fi
@@ -54,7 +54,7 @@ then
     while [ 1 ]; do
         clear
         date
-        redis-cli -p $PORT cluster nodes | head -30
+        ../../src/redis-cli -p $PORT cluster nodes | head -30
         sleep 1
     done
     exit 0
