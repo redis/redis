@@ -26,11 +26,12 @@
 
 /* Redirection errors returned by getNodeByQuery(). */
 #define REDIS_CLUSTER_REDIR_NONE 0          /* Node can serve the request. */
-#define REDIS_CLUSTER_REDIR_CROSS_SLOT 1    /* Keys in different slots. */
-#define REDIS_CLUSTER_REDIR_UNSTABLE 2      /* Keys in slot resharding. */
+#define REDIS_CLUSTER_REDIR_CROSS_SLOT 1    /* -CROSSSLOT request. */
+#define REDIS_CLUSTER_REDIR_UNSTABLE 2      /* -TRYAGAIN redirection required */
 #define REDIS_CLUSTER_REDIR_ASK 3           /* -ASK redirection required. */
 #define REDIS_CLUSTER_REDIR_MOVED 4         /* -MOVED redirection required. */
-#define REDIS_CLUSTER_REDIR_DOWN 5          /* -CLUSTERDOWN error. */
+#define REDIS_CLUSTER_REDIR_DOWN_STATE 5    /* -CLUSTERDOWN, global state. */
+#define REDIS_CLUSTER_REDIR_DOWN_UNBOUND 6  /* -CLUSTERDOWN, unbound slot. */
 
 struct clusterNode;
 
@@ -249,5 +250,7 @@ typedef struct {
 
 /* ---------------------- API exported outside cluster.c -------------------- */
 clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
+int clusterRedirectBlockedClientIfNeeded(redisClient *c);
+void clusterRedirectClient(redisClient *c, clusterNode *n, int hashslot, int error_code);
 
 #endif /* __REDIS_CLUSTER_H */
