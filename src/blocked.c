@@ -157,3 +157,27 @@ void replyToBlockedClientTimedOut(redisClient *c) {
     }
 }
 
+/* Mass-unblock clients because something changed in the instance that makes
+ * blocking no longer safe. For example clients blocked in list operations
+ * in an instance which turns from master to slave is unsafe, so this function
+ * is called when a master turns into a slave.
+ *
+ * The semantics is to send an -UNBLOCKED error to the client, disconnecting
+ * it at the same time. */
+void disconnectAllBlockedClients(void) {
+    listNode *ln;
+    listIter li;
+
+    listRewind(server.clients,&li);
+    while((ln = listNext(&li))) {
+        redisClient *c = listNodeValue(ln);
+
+        if (c->flags & REDIS_BLOCKED) {
+            addReplySds(c,sdsnew(
+                "-UNBLOCKED force unblock from blocking operation, "
+                "instance state changed (master -> slave?)\r\n"));
+            unblockClient(c);
+            c->flags |= REDIS_CLOSE_AFTER_REPLY;
+        }
+    }
+}
