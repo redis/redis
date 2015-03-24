@@ -12,6 +12,43 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 3.0.0 RC6 (version 2.9.106) ] Release date: 24 mar 2015
+
+Upgrade urgency: HIGH because of bugs related to Redis Custer and replication.
+
+This is the 6th release candidate of Redis 3.0.0. This release fixes important
+issues discovered during stress testing, and implements safest behavior
+for blocking operations during clients reshardings, and a new much needed
+functionality of Redis Cluster manual failovers.
+
+In order to fix certain bugs quite a bit of refactoring was needed which
+is usually non advisabble in a Release Candidate, but needed in order to
+end with a clean fix.
+
+>> General changes
+
+* [FIX] Redis (non clustered & clustered) replication bug involving blocking
+        operations: see issue #2473. (Salvatore Sanfilippo)
+
+>> Cluster changes
+
+* [FIX] clientsArePaused() fix crashing the old master during manual failover.
+        (Salvatore Sanfilippo)
+* [FIX] Lua scripts replication in Redis Cluster was totally broken.
+        (Salvatore Sanfilippo)
+* [FIX] Redirect clients blocked into list operations when the hash slot
+        they are blocked into is migrated to another instance or the cluster
+        state turns into "fail". (Salvatore Sanfilippo)
+
+* [NEW] TAKEOVER option for CLUSTER FAILOVER implemented. It is now possible
+        to fix a cluster manually in the minority side of the partition, for
+        example in order to allow for multi DC setups & recovery.
+        (Salvatore Sanfilippo)
+
+>> Sentinel changes
+
+No changes in Sentinel.
+
 --[ Redis 3.0.0 RC5 (version 2.9.105) ] Release date: 20 mar 2015
 
 Upgrade urgency: Moderate for Redis Cluster users, low otherwise.
@@ -29,6 +66,7 @@ process of finishing the documentation for Redis Cluster).
 * [FIX] Fix for backtrace generation issue. (Mariano Pérez Rodríguez, Matt Stancliff, Salvatore Sanfilippo)
 
 * [NEW] Redis-cli --latency-dist backported from unstable.
+        (Salvatore Sanfilippo)
 
 >> Cluster changes
 
