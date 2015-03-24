@@ -59,6 +59,8 @@
  * When implementing a new type of blocking opeation, the implementation
  * should modify unblockClient() and replyToBlockedClientTimedOut() in order
  * to handle the btype-specific behavior of this two functions.
+ * If the blocking operation waits for certain keys to change state, the
+ * clusterRedirectBlockedClientIfNeeded() function should also be updated.
  */
 
 #include "redis.h"
