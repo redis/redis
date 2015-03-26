@@ -1037,6 +1037,27 @@ int isHLLObjectOrReply(redisClient *c, robj *o) {
     /* Dense representation string length should match exactly. */
     if (hdr->encoding == HLL_DENSE &&
         stringObjectLen(o) != HLL_DENSE_SIZE) goto invalid;
+    if (hdr->encoding == HLL_SPARSE) {
+        int i = 0;
+        uint8_t *p = o->ptr, *end = p + sdslen(o->ptr);
+        long runlen;
+        p += HLL_HDR_SIZE;
+        while(p < end) {
+            if (HLL_SPARSE_IS_ZERO(p)) {
+                runlen = HLL_SPARSE_ZERO_LEN(p);
+                i += runlen;
+                p++;
+            } else if (HLL_SPARSE_IS_XZERO(p)) {
+                runlen = HLL_SPARSE_XZERO_LEN(p);
+                i += runlen;
+                p += 2;
+            } else {
+                runlen = HLL_SPARSE_VAL_LEN(p);
+                p++;
+            }
+        }
+        if (i != HLL_REGISTERS) return REDIS_ERR;
+    }
 
     /* All tests passed. */
     return REDIS_OK;
