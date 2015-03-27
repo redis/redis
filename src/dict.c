@@ -687,10 +687,10 @@ dictEntry *dictGetRandomKey(dict *d)
  * statistics. However the function is much faster than dictGetRandomKey()
  * at producing N elements. */
 unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
-    unsigned int j; /* internal hash table id, 0 or 1. */
-    unsigned int tables; /* 1 or 2 tables? */
-    unsigned int stored = 0, maxsizemask;
-    unsigned int maxsteps;
+    unsigned long j; /* internal hash table id, 0 or 1. */
+    unsigned long tables; /* 1 or 2 tables? */
+    unsigned long stored = 0, maxsizemask;
+    unsigned long maxsteps;
 
     if (dictSize(d) < count) count = dictSize(d);
     maxsteps = count*10;
@@ -709,14 +709,14 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
         maxsizemask = d->ht[1].sizemask;
 
     /* Pick a random point inside the larger table. */
-    unsigned int i = random() & maxsizemask;
-    unsigned int emptylen = 0; /* Continuous empty entries so far. */
+    unsigned long i = random() & maxsizemask;
+    unsigned long emptylen = 0; /* Continuous empty entries so far. */
     while(stored < count && maxsteps--) {
         for (j = 0; j < tables; j++) {
             /* Invariant of the dict.c rehashing: up to the indexes already
              * visited in ht[0] during the rehashing, there are no populated
              * buckets, so we can skip ht[0] for indexes between 0 and idx-1. */
-            if (tables == 2 && j == 0 && i < (unsigned int) d->rehashidx) {
+            if (tables == 2 && j == 0 && i < (unsigned long) d->rehashidx) {
                 /* Moreover, if we are currently out of range in the second
                  * table, there will be no elements in both tables up to
                  * the current rehashing index, so we jump if possible.
