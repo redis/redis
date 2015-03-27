@@ -716,7 +716,7 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
             /* Invariant of the dict.c rehashing: up to the indexes already
              * visited in ht[0] during the rehashing, there are no populated
              * buckets, so we can skip ht[0] for indexes between 0 and idx-1. */
-            if (tables == 2 && j == 0 && i < d->rehashidx) {
+            if (tables == 2 && j == 0 && i < (unsigned int) d->rehashidx) {
                 /* Moreover, if we are currently out of range in the second
                  * table, there will be no elements in both tables up to
                  * the current rehashing index, so we jump if possible.
