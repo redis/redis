@@ -86,7 +86,7 @@ start_server {tags {"hll"}} {
         set e {}
         catch {r pfcount hll} e
         set e
-    } {*INVALIDOBJ*}
+    } {*WRONGTYPE*}
 
     test {Corrupted sparse HyperLogLogs are detected: Broken magic} {
         r del hll
