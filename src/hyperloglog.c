@@ -1173,6 +1173,7 @@ int isHLLObjectOrReply(redisClient *c, robj *o) {
                 p += 2;
             } else {
                 runlen = HLL_SPARSE_VAL_LEN(p);
+                i += runlen;
                 p++;
             }
         }
