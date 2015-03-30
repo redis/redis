@@ -1119,6 +1119,7 @@ class RedisTrib
         xputs ">>> New node timeout set. #{ok_count} OK, #{err_count} ERR."
     end
 
+    # Call a specific command on cluster nodes. use --masteronly/--slaveonly to limit what nodes the commands are run on
     def call_cluster_cmd(argv,opt)
         cmd = argv[1..-1]
         cmd[0] = cmd[0].upcase
@@ -1127,9 +1128,24 @@ class RedisTrib
         load_cluster_info_from_node(argv[0])
         xputs ">>> Calling #{cmd.join(" ")}"
         @nodes.each{|n|
+            next if (opt['masteronly'] && n.has_flag?("slave")) or (opt['slaveonly'] && n.has_flag?("master"))
             begin
                 res = n.r.send(*cmd)
                 puts "#{n}: #{res}"
+            rescue => e
+                puts "#{n}: #{e}"
+            end
+        }
+    end
+
+    # Shows the distribution of keys across shards, uses the master only to show.
+    def show_key_distribution(argv,opt)
+        load_cluster_info_from_node(argv[0])
+        puts "\n\nMaster IP\t\tKeys On Shard"
+        @nodes.each{|n| next if n.has_flag? "slave"
+            begin
+                res = n.r.send("DBSIZE")
+                puts "#{n}\t#{res}"
             rescue => e
                 puts "#{n}: #{e}"
             end
@@ -1328,6 +1344,7 @@ COMMANDS={
     "set-timeout" => ["set_timeout_cluster_cmd", 3, "host:port milliseconds"],
     "call" =>    ["call_cluster_cmd", -3, "host:port command arg arg .. arg"],
     "import" =>  ["import_cluster_cmd", 2, "host:port"],
+    "show-key-distribution" => ["show_key_distribution", 2, "host:port"],
     "help"    => ["help_cluster_cmd", 1, "(show this help)"]
 }
 
@@ -1335,7 +1352,8 @@ ALLOWED_OPTIONS={
     "create" => {"replicas" => true},
     "add-node" => {"slave" => false, "master-id" => true},
     "import" => {"from" => :required},
-    "reshard" => {"from" => true, "to" => true, "slots" => true, "yes" => false}
+    "reshard" => {"from" => true, "to" => true, "slots" => true, "yes" => false},
+    "call" => {"masteronly" => false, "slaveonly" => false}
 }
 
 def show_help
@@ -1349,7 +1367,7 @@ def show_help
             }
         end
     }
-    puts "\nFor check, fix, reshard, del-node, set-timeout you can specify the host and port of any working node in the cluster.\n"
+    puts "\nFor check, fix, reshard, del-node, set-timeout, call, and show-key-distribution you can specify the host and port of any working node in the cluster.\n"
 end
 
 # Sanity check
