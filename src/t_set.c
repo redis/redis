@@ -154,9 +154,13 @@ int setTypeNext(setTypeIterator *si, robj **objele, int64_t *llele) {
         dictEntry *de = dictNext(si->di);
         if (de == NULL) return -1;
         *objele = dictGetKey(de);
+        *llele = -123456789; /* Not needed. Defensive. */
     } else if (si->encoding == REDIS_ENCODING_INTSET) {
         if (!intsetGet(si->subject->ptr,si->ii++,llele))
             return -1;
+        *objele = NULL; /* Not needed. Defensive. */
+    } else {
+        redisPanic("Wrong set encoding in setTypeNext");
     }
     return si->encoding;
 }
@@ -204,8 +208,10 @@ int setTypeRandomElement(robj *setobj, robj **objele, int64_t *llele) {
     if (setobj->encoding == REDIS_ENCODING_HT) {
         dictEntry *de = dictGetRandomKey(setobj->ptr);
         *objele = dictGetKey(de);
+        *llele = -123456789; /* Not needed. Defensive. */
     } else if (setobj->encoding == REDIS_ENCODING_INTSET) {
         *llele = intsetRandom(setobj->ptr);
+        *objele = NULL; /* Not needed. Defensive. */
     } else {
         redisPanic("Unknown set encoding");
     }
