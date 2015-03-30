@@ -454,10 +454,10 @@ void addReplyLongLongWithPrefix(redisClient *c, long long ll, char prefix) {
     /* Things like $3\r\n or *2\r\n are emitted very often by the protocol
      * so we have a few shared objects to use if the integer is small
      * like it is most of the times. */
-    if (prefix == '*' && ll < REDIS_SHARED_BULKHDR_LEN) {
+    if (prefix == '*' && ll < REDIS_SHARED_BULKHDR_LEN && ll >= 0) {
         addReply(c,shared.mbulkhdr[ll]);
         return;
-    } else if (prefix == '$' && ll < REDIS_SHARED_BULKHDR_LEN) {
+    } else if (prefix == '$' && ll < REDIS_SHARED_BULKHDR_LEN && ll >= 0) {
         addReply(c,shared.bulkhdr[ll]);
         return;
     }
