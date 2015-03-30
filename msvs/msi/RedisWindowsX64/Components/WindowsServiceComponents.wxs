@@ -88,7 +88,7 @@
     <!--
       Custom actions that update the redis config file during installation
     -->
-    <Binary Id="RedisCADLL" SourceFile="$(var.RedisWindowsX64.CustomActions.TargetDir)RedisWindowsX64.CustomActions.CA.dll" />
+    <Binary Id="RedisCADLL" SourceFile="$(var.RedisWindowsX64.CustomActions.TargetDir)RedisWindowsX64.CustomActions.dll" />
     <CustomAction Id="ca_UpdateRedisConfig" BinaryKey="RedisCADLL" DllEntry="UpdateRedisConfig" Execute="deferred" Return="check" />
     <SetProperty Id="ca_UpdateRedisConfig" Value="CONFIG_PATH=[#file_redis_serviceCONF];PORT=[PORT];" Sequence="execute" Before="ca_UpdateRedisConfig" />
 
