@@ -121,7 +121,7 @@ class ClusterNode
         nodes.each{|n|
             # name addr flags role ping_sent ping_recv link_status slots
             split = n.split
-            name,addr,flags,master_id,ping_sent,ping_recv,config_epoch,link_status = split[0..6]
+            name,addr,flags,master_id,ping_sent,ping_srecv,config_epoch,link_status = split[0..6]
             slots = split[8..-1]
             info = {
                 :name => name,
@@ -1142,7 +1142,8 @@ class RedisTrib
     def show_key_distribution(argv,opt)
         load_cluster_info_from_node(argv[0])
         puts "\n\nMaster IP\t\tKeys On Shard"
-        @nodes.each{|n| next if n.has_flag? "slave"
+        @nodes.each{|n| 
+            next if n.has_flag? "slave"
             begin
                 res = n.r.send("DBSIZE")
                 puts "#{n}\t#{res}"
