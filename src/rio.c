@@ -189,7 +189,7 @@ static size_t rioFdRead(rio *r, void *buf, size_t len) {
         if (toread > sdsavail(r->io.fd.buf))
             toread = sdsavail(r->io.fd.buf);
         int retval = read(r->io.fd.fd, (char*)r->io.fd.buf + sdslen(r->io.fd.buf), toread);
-        if (retval == -1) {
+        if (retval <= 0) {
             if (errno == EWOULDBLOCK) errno = ETIMEDOUT;
             return 0;
         }
