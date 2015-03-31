@@ -54,10 +54,15 @@ proc kill_server config {
 
     # kill server and wait for the process to be totally exited
     catch {exec kill $pid}
+    if {$::valgrind} {
+        set max_wait 60000
+    } else {
+        set max_wait 10000
+    }
     while {[is_alive $config]} {
         incr wait 10
 
-        if {$wait >= 5000} {
+        if {$wait >= $max_wait} {
             puts "Forcing process $pid to exit..."
             catch {exec kill -KILL $pid}
         } elseif {$wait % 1000 == 0} {
