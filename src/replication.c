@@ -768,6 +768,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                  * is technically online now. */
                 slave->replstate = REDIS_REPL_ONLINE;
                 slave->repl_put_online_on_ack = 1;
+                slave->repl_ack_time = server.unixtime;
             } else {
                 if (bgsaveerr != REDIS_OK) {
                     freeClient(slave);
