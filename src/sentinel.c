@@ -155,6 +155,7 @@ typedef struct sentinelRedisInstance {
     int role_reported;
     mstime_t role_reported_time;
     mstime_t slave_conf_change_time; /* Last time slave master addr changed. */
+    int maintenance_mode; /* Whether maintenance-mode is activated or not */
 
     /* Master specific. */
     dict *sentinels;    /* Other sentinels monitoring the same master. */
@@ -3012,6 +3013,12 @@ void sentinelSetCommand(redisClient *c) {
                 goto badfmt;
             ri->quorum = ll;
             changes++;
+       } else if (!strcasecmp(option,"maintenance-mode")) {
+            /* maintenance-mode 0/1 (off/on) */
+            if (getLongLongFromObject(o,&ll) == REDIS_ERR || ll <= 0)
+                goto badfmt;
+            ri->maintenance_mode = ll;
+            changes++;
         } else {
             addReplyErrorFormat(c,"Unknown option '%s' for SENTINEL SET",
                 option);
@@ -3462,6 +3469,12 @@ void sentinelStartFailover(sentinelRedisInstance *master) {
 int sentinelStartFailoverIfNeeded(sentinelRedisInstance *master) {
     /* We can't failover if the master is not in O_DOWN state. */
     if (!(master->flags & SRI_O_DOWN)) return 0;
+
+    /* We can't failover if the master is in maintenance mode */
+    if (master->maintenance_mode == 1) {
+        redisLog(REDIS_WARNING, "Sentinel is currently in maintenance mode, failover will not occur");
+        return 0;
+    }
 
     /* Failover already in progress? */
     if (master->flags & SRI_FAILOVER_IN_PROGRESS) return 0;
