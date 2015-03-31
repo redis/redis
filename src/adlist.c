@@ -261,13 +261,21 @@ list *listDup(list *orig)
                 listReleaseIterator(iter);
                 return NULL;
             }
-        } else
+	    if (listAddNodeTail(copy, value) == NULL){
+	        if (copy->free)
+		    copy->free(value);
+		listRelease(copy);
+		listReleaseIterator(iter);
+		return NULL;
+	    }
+        } else{
             value = node->value;
-        if (listAddNodeTail(copy, value) == NULL) {
-            listRelease(copy);
-            listReleaseIterator(iter);
-            return NULL;
-        }
+            if (listAddNodeTail(copy, value) == NULL) {
+                listRelease(copy);
+                listReleaseIterator(iter);
+                return NULL;
+            }
+	}
     }
     listReleaseIterator(iter);
     return copy;
