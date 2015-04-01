@@ -1,8 +1,6 @@
 Redis 3.0 release notes
 =======================
 
-WARNING: Redis 3.0 is currently a BETA not suitable for production environments.
-
 --------------------------------------------------------------------------------
 Upgrade urgency levels:
 
