@@ -96,7 +96,7 @@ sds sdsjoin(char **argv, int argc, char *sep);
 sds sdsMakeRoomFor(sds s, size_t addlen);
 void sdsIncrLen(sds s, int incr);
 sds sdsRemoveFreeSpace(sds s);
-size_t sdsAllocSize(sds s);
+size_t sdsAllocSize(const sds s);
 
 #ifdef REDIS_TEST
 int sdsTest(int argc, char *argv[]);
