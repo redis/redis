@@ -545,7 +545,7 @@ The following is a list of improvements in Redis 3.0, compared to Redis 2.8.
 Migrating from 2.8 to 3.0
 =========================
 
-Redis 3.0 is mostly a strict subset of 2.8, you should not have any problem
+Redis 2.8 is mostly a strict subset of 3.0, you should not have any problem
 upgrading your application from 2.8 to 3.0. However this is a list of small
 non-backward compatible changes introduced in the 3.0 release:
 
