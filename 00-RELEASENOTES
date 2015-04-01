@@ -12,6 +12,51 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 3.0.0 ] Release date: 1 Apr 2015
+
+>> What's new in Redis 3.0 compared to Redis 2.8?
+
+* Redis Cluster: a distributed implementation of a subset of Redis.
+* New "embedded string" object encoding resulting in less cache
+  misses. Big speed gain under certain work loads.
+* AOF child -> parent final data transmission to minimize latency due
+  to "last write" during AOF rewrites.
+* Much improved LRU approximation algorithm for keys eviction.
+* WAIT command to block waiting for a write to be transmitted to
+  the specified number of slaves.
+* MIGRATE connection caching. Much faster keys migraitons.
+* MIGARTE new options COPY and REPLACE.
+* CLIENT PAUSE command: stop processing client requests for a
+  specified amount of time.
+* BITCOUNT performance improvements.
+* CONFIG SET accepts memory values in different units (for example
+  you can use "CONFIG SET maxmemory 1gb").
+* Redis log format slightly changed reporting in each line the role of the
+  instance (master/slave) or if it's a saving child log.
+* INCR performance improvements.
+
+>> Refactoring changes (no new features nor bug fixes)
+
+* Blocking operations full refactoring (blocked.c)
+* Client output buffer memory tracking refactored.
+
+Changes between RC6 and 3.0.0 stable:
+
+>> General changes
+
+* Fixes to diskless replication. (Oran Agra)
+* Test for BLPOP replication on role change. (Salvatore Sanfilippo)
+* prepareClientToWrite() error handling improvements. (Salvatore Sanfilippo)
+* Remove dict.c no longer used function. (Salvatore Sanfilippo)
+
+>> Cluster changes
+
+None
+
+>> Sentinel changes
+
+None
+
 --[ Redis 3.0.0 RC6 (version 2.9.106) ] Release date: 24 mar 2015
 
 Upgrade urgency: HIGH because of bugs related to Redis Custer and replication.
@@ -529,18 +574,6 @@ This is the second beta of Redis 3.0.0.
 --[ Redis 3.0.0 Beta 1 (version 2.9.50) ] Release date: 11 Feb 2014
 
 This is the first beta of Redis 3.0.0.
-
-The following is a list of improvements in Redis 3.0, compared to Redis 2.8.
-
-* [NEW] Redis Cluster: a distributed implementation of a subset of Redis.
-* [NEW] New "embedded string" object encoding resulting in less cache
-        misses. Big speed gain under certain work loads.
-* [NEW] WAIT command to block waiting for a write to be transmitted to
-        the specified number of slaves.
-* [NEW] MIGRATE connection caching. Much faster keys migraitons.
-* [NEW] MIGARTE new options COPY and REPLACE.
-* [NEW] CLIENT PAUSE command: stop processing client requests for a
-        specified amount of time.
 
 Migrating from 2.8 to 3.0
 =========================
