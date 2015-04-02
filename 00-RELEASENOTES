@@ -22,8 +22,8 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 * Much improved LRU approximation algorithm for keys eviction.
 * WAIT command to block waiting for a write to be transmitted to
   the specified number of slaves.
-* MIGRATE connection caching. Much faster keys migraitons.
-* MIGARTE new options COPY and REPLACE.
+* MIGRATE connection caching. Much faster keys migrations.
+* MIGRATE new options COPY and REPLACE.
 * CLIENT PAUSE command: stop processing client requests for a
   specified amount of time.
 * BITCOUNT performance improvements.
@@ -213,7 +213,7 @@ RC2 also fixes a few Redis Cluster non critical bugs.
 
 * [FIX] A number of minor bug fixes.
 
-* [NEW] Diskless replication backportede.
+* [NEW] Diskless replication backported.
 * [NEW] Lua bitops and updated cmsgpack backported.
 * [NEW] Transparent Huge Pages warnings and reporting backported.
 
