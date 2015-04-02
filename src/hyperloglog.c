@@ -67,16 +67,16 @@
  *
  * Both the dense and sparse representation have a 16 byte header as follows:
  *
- * +------+---+---+------+-----------+
- * | HYLL | E |N/U|  ZR  |     N     |
- * +------+---+---+------+-----------+
+ * +------+---+------+------+-----------+
+ * | HYLL | E |verion|  ZR  |     N     |
+ * +------+---+------+------+-----------+
  *
  * The first 4 bytes are a magic string set to the bytes "HYLL".
  * "E" is one byte encoding, currently set to HLL_DENSE or
  * HLL_SPARSE. N/U is one not used bytes.
- *
+ * version is the version number
  * ZR is the count of zero registers.
- * The "N" field is a double stored Sum(2^-reg)
+ * The "N" field stores Sum(2^-reg)
  *
  * Dense representation
  * ===
@@ -910,25 +910,22 @@ promote: /* Promote to dense representation. */
  * of zero registers. */
 double hllSparseSum(uint8_t *sparse, int sparselen, int *ezp) {
     double E = 0;
-    int ez = 0, idx = 0, runlen, regval;
+    int ez = 0, runlen, regval;
     uint8_t *end = sparse+sparselen, *p = sparse;
     while(p < end) {
         if (HLL_SPARSE_IS_ZERO(p)) {
             runlen = HLL_SPARSE_ZERO_LEN(p);
-            idx += runlen;
             ez += runlen;
             /* Increment E at the end of the loop. */
             p++;
         } else if (HLL_SPARSE_IS_XZERO(p)) {
             runlen = HLL_SPARSE_XZERO_LEN(p);
-            idx += runlen;
             ez += runlen;
             /* Increment E at the end of the loop. */
             p += 2;
         } else {
             runlen = HLL_SPARSE_VAL_LEN(p);
             regval = HLL_SPARSE_VAL_VALUE(p);
-            idx += runlen;
             E += PE[regval]*runlen;
             p++;
         }
@@ -1006,11 +1003,13 @@ int hllAdd(robj *o, unsigned char *ele, size_t elesize) {
     }
 }
 
-/* Merge by computing MAX(registers[i],hll[i]) the HyperLogLog 'hll'
- * with an array of uint8_t HLL_REGISTERS registers pointed by 'max'.
+/* Merge by computing MAX(rawhdr[i],hll[i]) the HyperLogLog 'hll'
+ * with the HLL_RAW 'rawhdr'.
  *
  * The hll object must be already validated via isHLLObjectOrReply()
  * or in some other way.
+ *
+ * The 'zr' and 'N' field in rawhdr should be initialized.
  *
  * If the HyperLogLog is sparse and is found to be invalid, REDIS_ERR
  * is returned, otherwise the function always succeeds. */
