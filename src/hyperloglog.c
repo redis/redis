@@ -1252,6 +1252,8 @@ void pfcountCommand(redisClient *c) {
             robj *o = lookupKeyRead(c->db,c->argv[j]);
             if (o == NULL) continue; /* Assume empty HLL for non existing var.*/
             if (isHLLObjectOrReply(c,o) != REDIS_OK) return;
+            o = dbUnshareStringValue(c->db,c->argv[j],o);
+            upcastHLL(o);
 
             /* Merge with this HLL with our 'max' HHL(of HLL_RAW kind) by
              * setting max[i](hdr + HLL_HDR_SIZE) to MAX(max[i],hll[i]). */
@@ -1304,6 +1306,8 @@ void pfmergeCommand(redisClient *c) {
         robj *o = lookupKeyRead(c->db,c->argv[j]);
         if (o == NULL) continue; /* Assume empty HLL for non existing var. */
         if (isHLLObjectOrReply(c,o) != REDIS_OK) return;
+        o = dbUnshareStringValue(c->db,c->argv[j],o);
+        upcastHLL(o);
 
         /* Merge with this HLL with our 'max' HHL by setting max[i]
          * to MAX(max[i],hll[i]). */
@@ -1326,6 +1330,7 @@ void pfmergeCommand(redisClient *c) {
          * since we checked when merging the different HLLs, so we
          * don't check again. */
         o = dbUnshareStringValue(c->db,c->argv[1],o);
+        upcastHLL(o);
     }
 
     /* Only support dense objects as destination. */
@@ -1338,7 +1343,6 @@ void pfmergeCommand(redisClient *c) {
     hdr = o->ptr;
     hdr->zr = rawhdr->zr;
     hdr->N = rawhdr->N;
-    hdr->version = HLL_VERSION;
     for (j = 0; j < HLL_REGISTERS; j++) {
         HLL_DENSE_SET_REGISTER(hdr->registers,j,registers[j]);
     }
