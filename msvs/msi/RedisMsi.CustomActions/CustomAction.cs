@@ -2,7 +2,7 @@
 using System.IO;
 using Microsoft.Deployment.WindowsInstaller;
 
-namespace RedisWindowsX64.CustomActions
+namespace RedisMsi.CustomActions
 {
     /// <summary>
     /// Defines actions to take during the MSI install that don't

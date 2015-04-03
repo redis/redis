@@ -4,11 +4,11 @@ using System.Runtime.InteropServices;
 // General Information about an assembly is controlled through the following 
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
-[assembly: AssemblyTitle("RedisWindowsX64.CustomActions")]
+[assembly: AssemblyTitle("RedisMsi.CustomActions")]
 [assembly: AssemblyDescription("")]
-[assembly: AssemblyCompany("MSOpenTech")]
-[assembly: AssemblyProduct("RedisWindowsX64.CustomActions")]
-[assembly: AssemblyCopyright("Copyright © MSOpenTech 2015")]
+[assembly: AssemblyCompany("Microsoft Open Technologies")]
+[assembly: AssemblyProduct("RedisMsi.CustomActions")]
+[assembly: AssemblyCopyright("Copyright © Microsoft Open Technologies 2015")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 

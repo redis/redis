@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2013
-VisualStudioVersion = 12.0.31101.0
+VisualStudioVersion = 12.0.21005.1
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RedisServer", "RedisServer.vcxproj", "{46842776-68A5-EC98-6A09-1859BBFC73AA}"
 	ProjectSection(ProjectDependencies) = postProject
@@ -42,9 +42,9 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ReleasePackagingTool", "Rel
 		{A65C2CD6-72A3-441A-AEA3-D754BEA9A86A} = {A65C2CD6-72A3-441A-AEA3-D754BEA9A86A}
 	EndProjectSection
 EndProject
-Project("{930C7802-8A8C-48F9-8165-68863BCCD9DD}") = "RedisWindowsX64", "msi\RedisWindowsX64\RedisWindowsX64.wixproj", "{C829D256-16B4-4DC7-9BF9-6814F76B441E}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RedisMsi.CustomActions", "msi\RedisMsi.CustomActions\RedisMsi.CustomActions.csproj", "{A917027E-D229-46C9-B969-1F4CE7D5D2CA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RedisWindowsX64.CustomActions", "msi\RedisWindowsX64.CustomActions\RedisWindowsX64.CustomActions.csproj", "{A917027E-D229-46C9-B969-1F4CE7D5D2CA}"
+Project("{930C7802-8A8C-48F9-8165-68863BCCD9DD}") = "RedisMsi", "msi\RedisMsi\RedisMsi.wixproj", "{C829D256-16B4-4DC7-9BF9-6814F76B441E}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -196,34 +196,26 @@ Global
 		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Release|x64.ActiveCfg = Release|x64
 		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Release|x64.Build.0 = Release|x64
 		{74A69E5D-6540-43CC-9975-20989BF19EB0}.Release|x86.ActiveCfg = Release|x64
-		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Debug|Mixed Platforms.ActiveCfg = Debug|x86
-		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Debug|Mixed Platforms.Build.0 = Debug|x86
-		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Debug|Win32.ActiveCfg = Debug|x86
-		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Debug|Win32.Build.0 = Debug|x86
-		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Debug|x64.ActiveCfg = Debug|x86
-		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Debug|x86.ActiveCfg = Debug|x86
-		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Debug|x86.Build.0 = Debug|x86
-		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Release|Mixed Platforms.ActiveCfg = Release|x86
-		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Release|Mixed Platforms.Build.0 = Release|x86
-		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Release|Win32.ActiveCfg = Release|x86
-		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Release|Win32.Build.0 = Release|x86
-		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Release|x64.ActiveCfg = Release|x86
-		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Release|x86.ActiveCfg = Release|x86
-		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Release|x86.Build.0 = Release|x86
-		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Debug|Mixed Platforms.ActiveCfg = Debug|x64
-		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Debug|Mixed Platforms.Build.0 = Debug|x64
+		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Debug|Mixed Platforms.ActiveCfg = Debug|x86
+		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Debug|Mixed Platforms.Build.0 = Debug|x86
 		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Debug|Win32.ActiveCfg = Debug|x86
-		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Debug|Win32.Build.0 = Debug|x86
-		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Debug|x64.ActiveCfg = Debug|x86
+		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Debug|x64.ActiveCfg = Debug|x64
 		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Debug|x86.ActiveCfg = Debug|x86
-		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Debug|x86.Build.0 = Debug|x86
 		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Release|Mixed Platforms.ActiveCfg = Release|x86
 		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Release|Mixed Platforms.Build.0 = Release|x86
 		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Release|Win32.ActiveCfg = Release|x86
-		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Release|Win32.Build.0 = Release|x86
-		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Release|x64.ActiveCfg = Release|x86
+		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Release|x64.ActiveCfg = Release|x64
 		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Release|x86.ActiveCfg = Release|x86
-		{A917027E-D229-46C9-B969-1F4CE7D5D2CA}.Release|x86.Build.0 = Release|x86
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Debug|Mixed Platforms.ActiveCfg = Debug|x86
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Debug|Mixed Platforms.Build.0 = Debug|x86
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Debug|Win32.ActiveCfg = Debug|x86
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Debug|x64.ActiveCfg = Debug|x64
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Debug|x86.ActiveCfg = Debug|x86
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Release|Mixed Platforms.ActiveCfg = Release|x86
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Release|Mixed Platforms.Build.0 = Release|x86
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Release|Win32.ActiveCfg = Release|x86
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Release|x64.ActiveCfg = Release|x64
+		{C829D256-16B4-4DC7-9BF9-6814F76B441E}.Release|x86.ActiveCfg = Release|x86
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

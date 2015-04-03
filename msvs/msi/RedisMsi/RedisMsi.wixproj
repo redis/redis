@@ -6,29 +6,32 @@
     <ProductVersion>3.9</ProductVersion>
     <ProjectGuid>c829d256-16b4-4dc7-9bf9-6814f76b441e</ProjectGuid>
     <SchemaVersion>2.0</SchemaVersion>
-    <OutputName>Redis-Windows-x64</OutputName>
     <OutputType>Package</OutputType>
     <WixTargetsPath Condition=" '$(WixTargetsPath)' == '' AND '$(MSBuildExtensionsPath32)' != '' ">$(MSBuildExtensionsPath32)\Microsoft\WiX\v3.x\Wix.targets</WixTargetsPath>
     <WixTargetsPath Condition=" '$(WixTargetsPath)' == '' ">$(MSBuildExtensionsPath)\Microsoft\WiX\v3.x\Wix.targets</WixTargetsPath>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
+    <OutputName>Redis-x86</OutputName>
     <OutputPath>bin\$(Configuration)\</OutputPath>
     <IntermediateOutputPath>obj\$(Configuration)\</IntermediateOutputPath>
     <DefineConstants>Debug</DefineConstants>
-    <CompilerAdditionalOptions>-arch x64</CompilerAdditionalOptions>
+    <CompilerAdditionalOptions>-arch x86</CompilerAdditionalOptions>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x86' ">
+    <OutputName>Redis-x86</OutputName>
     <OutputPath>bin\$(Configuration)\</OutputPath>
     <IntermediateOutputPath>obj\$(Configuration)\</IntermediateOutputPath>
-    <CompilerAdditionalOptions>-arch x64</CompilerAdditionalOptions>
+    <CompilerAdditionalOptions>-arch x86</CompilerAdditionalOptions>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' ">
+    <OutputName>Redis-x64</OutputName>
     <DefineConstants>Debug</DefineConstants>
     <CompilerAdditionalOptions>-arch x64</CompilerAdditionalOptions>
     <OutputPath>bin\$(Platform)\$(Configuration)\</OutputPath>
     <IntermediateOutputPath>obj\$(Platform)\$(Configuration)\</IntermediateOutputPath>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">
+    <OutputName>Redis-x64</OutputName>
     <CompilerAdditionalOptions>-arch x64</CompilerAdditionalOptions>
     <OutputPath>bin\$(Platform)\$(Configuration)\</OutputPath>
     <IntermediateOutputPath>obj\$(Platform)\$(Configuration)\</IntermediateOutputPath>
@@ -82,8 +85,8 @@
       <RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups>
       <RefTargetDir>INSTALLFOLDER</RefTargetDir>
     </ProjectReference>
-    <ProjectReference Include="..\RedisWindowsX64.CustomActions\RedisWindowsX64.CustomActions.csproj">
-      <Name>RedisWindowsX64.CustomActions</Name>
+    <ProjectReference Include="..\RedisMsi.CustomActions\RedisMsi.CustomActions.csproj">
+      <Name>RedisMsi.CustomActions</Name>
       <Project>{a917027e-d229-46c9-b969-1f4ce7d5d2ca}</Project>
       <Private>True</Private>
       <DoNotHarvest>True</DoNotHarvest>

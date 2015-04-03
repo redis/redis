@@ -8,8 +8,8 @@
     <ProjectGuid>{A917027E-D229-46C9-B969-1F4CE7D5D2CA}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>RedisWindowsX64.CustomActions</RootNamespace>
-    <AssemblyName>RedisWindowsX64.CustomActions</AssemblyName>
+    <RootNamespace>RedisMsi.CustomActions</RootNamespace>
+    <AssemblyName>RedisMsi.CustomActions</AssemblyName>
     <TargetFrameworkVersion>v2.0</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <WixCATargetsPath Condition=" '$(WixCATargetsPath)' == '' ">$(MSBuildExtensionsPath)\Microsoft\WiX\v3.x\Wix.CA.targets</WixCATargetsPath>

@@ -7,13 +7,13 @@
     
     Example installation (command-line):
       default install:
-        msiexec /i Redis-Windows-x64.msi 
+        msiexec /i Redis-[version].msi 
         
       set port and turn off firewall exception:
-        msiexec /i Redis-Windows-x64.msi PORT=1234 FIREWALL_ON=""
+        msiexec /i Redis-[version].msi PORT=1234 FIREWALL_ON=""
       
       set port and turn on firewall exception:
-        msiexec /i Redis-Windows-x64.msi PORT=1234 FIREWALL_ON=1
+        msiexec /i Redis-[version].msi PORT=1234 FIREWALL_ON=1
         
       
   -->
@@ -57,7 +57,7 @@
     <!--Directory structure to create-->
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
-        <Directory Id="INSTALLFOLDER" Name="Redis-Windows">
+        <Directory Id="INSTALLFOLDER" Name="Redis">
           <Directory Id="LogsFolder" Name="Logs" />
         </Directory>
       </Directory>
