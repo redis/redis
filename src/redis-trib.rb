@@ -56,6 +56,7 @@ class ClusterNode
         end
         port = s.pop # removes port from split array
         ip = s.join(":") # if s.length > 1 here, it's IPv6, so restore address
+        ip.gsub!(/[\[\]]/, '') #remove brackets if input is like [2001:0db8:85a3:08d3:1319:8a2e:0370:7344]:8080
         @r = nil
         @info = {}
         @info[:host] = ip
