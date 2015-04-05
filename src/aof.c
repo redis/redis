@@ -759,6 +759,9 @@ int rioWriteBulkObject(rio *r, robj *obj) {
     if (obj->encoding == REDIS_ENCODING_INT) {
         return rioWriteBulkLongLong(r,(long)obj->ptr);
     } else if (sdsEncodedObject(obj)) {
+        /* If the obj is an hll obj, downcast it to the first version. */
+        if (is_hllhdr(obj->ptr))
+            downcast_hllhdr(obj->ptr);
         return rioWriteBulkString(r,obj->ptr,sdslen(obj->ptr));
     } else {
         redisPanic("Unknown string encoding");

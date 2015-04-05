@@ -1572,3 +1572,65 @@ arityerr:
     addReplyErrorFormat(c,
         "Wrong number of arguments for the '%s' subcommand",cmd);
 }
+
+/* Check if the sds is a valid HLL representation. */
+int is_hllhdr(sds value) {
+    struct hllhdr *hdr;
+
+    if (sdslen(value) < sizeof(*hdr))
+        return 0;
+    hdr = (struct hllhdr *)value;
+
+    /* Magic should be "HYLL". */
+    if (hdr->magic[0] != 'H' || hdr->magic[1] != 'Y' ||
+        hdr->magic[2] != 'L' || hdr->magic[3] != 'L')
+        return 0;
+
+    if (hdr->encoding > HLL_MAX_ENCODING)
+        return 0;
+
+    /* Dense representation string length should match exactly. */
+    if (hdr->encoding == HLL_DENSE && strlen(value) != HLL_DENSE_SIZE)
+        return 0;
+    if (hdr->encoding == HLL_SPARSE) {
+        int i = 0;
+        uint8_t *p = (uint8_t *)value, *end = p + sdslen(value);
+        long runlen;
+        p += HLL_HDR_SIZE;
+        while(p < end) {
+            if (HLL_SPARSE_IS_ZERO(p)) {
+                runlen = HLL_SPARSE_ZERO_LEN(p);
+                i += runlen;
+                p++;
+            } else if (HLL_SPARSE_IS_XZERO(p)) {
+                runlen = HLL_SPARSE_XZERO_LEN(p);
+                i += runlen;
+                p += 2;
+            } else {
+                runlen = HLL_SPARSE_VAL_LEN(p);
+                i += runlen;
+                p++;
+            }
+        }
+        if (i != HLL_REGISTERS)
+            return 0;
+    }
+
+    /* All tests passed. */
+    return 1;
+}
+
+/* Downcast the hllhdr represented by value to the first version.
+ * This function will fill the gap between big & little endian.
+ * The saved hllhdr is of the first version and the cached cardin
+ * is already invalid. The hdrhll needs to recompute cardin[] for
+ * first version or upcast for the according new version. */
+void downcast_hllhdr(sds value) {
+    struct hllhdr *hdr = (struct hllhdr *)value;
+    /* Invalidate the cached cardin[] */
+    uint8_t *tmp = (uint8_t *)&(hdr->N);
+    tmp[7] = 1<<7;
+    /* Set three byte of notused[] to 0 */
+    hdr->version = 0;
+    hdr->zr = 0;
+}

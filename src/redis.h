@@ -60,6 +60,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "intset.h"  /* Compact integer set structure */
 #include "version.h" /* Version macro */
 #include "util.h"    /* Misc functions useful in many places */
+#include "hyperloglog.h"    /* Misc functions useful in many places */
 #include "latency.h" /* Latency monitor API */
 #include "sparkline.h" /* ASII graphs API */
 #include "quicklist.h"

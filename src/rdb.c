@@ -374,6 +374,9 @@ int rdbSaveStringObject(rio *rdb, robj *obj) {
         return rdbSaveLongLongAsStringObject(rdb,(long)obj->ptr);
     } else {
         redisAssertWithInfo(NULL,obj,sdsEncodedObject(obj));
+        /* If the obj is an hll obj, downcast it to the first version. */
+        if (is_hllhdr(obj->ptr))
+            downcast_hllhdr(obj->ptr);
         return rdbSaveRawString(rdb,obj->ptr,sdslen(obj->ptr));
     }
 }
