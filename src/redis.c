@@ -1479,6 +1479,9 @@ void initServerConfig(void) {
     server.cluster_configfile = zstrdup(REDIS_DEFAULT_CLUSTER_CONFIG_FILE);
     server.lua_caller = NULL;
     server.lua_time_limit = REDIS_LUA_TIME_LIMIT;
+    server.lua_memory_limit = REDIS_LUA_MEMORY_LIMIT;
+    server.lua_gc_threshold = REDIS_LUA_GC_THRESHOLD;
+    server.lua_gc_used_memory = 0;
     server.lua_client = NULL;
     server.lua_timedout = 0;
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType,NULL);

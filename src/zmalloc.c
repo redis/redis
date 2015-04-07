@@ -39,6 +39,14 @@ void zlibc_free(void *ptr) {
     free(ptr);
 }
 
+void* zlibc_malloc(size_t size){
+	return( malloc(size) );
+}
+
+void* zlibc_realloc(void *ptr, size_t size){
+	return( realloc(ptr, size) );
+}
+
 #include <string.h>
 #include <pthread.h>
 #include "config.h"

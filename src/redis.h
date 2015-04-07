@@ -362,6 +362,9 @@ typedef long long mstime_t; /* millisecond time type. */
 
 /* Scripting */
 #define REDIS_LUA_TIME_LIMIT 5000 /* milliseconds */
+#define REDIS_LUA_MEMORY_LIMIT (1024*1024*1024) /* bytes */
+#define REDIS_LUA_MEMORY_MIN (1024*100) /* bytes */
+#define REDIS_LUA_GC_THRESHOLD 75 /* percentage */
 
 /* Units */
 #define UNIT_SECONDS 0
@@ -908,6 +911,9 @@ struct redisServer {
     redisClient *lua_caller;   /* The client running EVAL right now, or NULL */
     dict *lua_scripts;         /* A dictionary of SHA1 -> Lua scripts */
     mstime_t lua_time_limit;  /* Script timeout in milliseconds */
+    unsigned long long lua_memory_limit;  /* Script memory limit */
+    int lua_gc_threshold; /* Script gc threashold */
+    unsigned long long lua_gc_used_memory;
     mstime_t lua_time_start;  /* Start time of script, milliseconds time */
     int lua_write_dirty;  /* True if a write command was called during the
                              execution of the current script. */

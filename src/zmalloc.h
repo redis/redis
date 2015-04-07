@@ -79,6 +79,8 @@ size_t zmalloc_get_private_dirty(void);
 size_t zmalloc_get_smap_bytes_by_field(char *field);
 size_t zmalloc_get_memory_size(void);
 void zlibc_free(void *ptr);
+void *zlibc_malloc(size_t size);
+void *zlibc_realloc(void *ptr, size_t size);
 
 #ifndef HAVE_MALLOC_SIZE
 size_t zmalloc_size(void *ptr);
