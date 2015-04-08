@@ -4550,11 +4550,11 @@ void migrateCloseTimedoutSockets(void) {
     dictReleaseIterator(di);
 }
 
-/* MIGRATE host port key dbid timeout [COPY | REPLACE | PASSWORD] */
+/* MIGRATE host port key dbid timeout [COPY | REPLACE | AUTH password] */
 void migrateCommand(redisClient *c) {
     migrateCachedSocket *cs;
     int copy, replace, auth, j;
-    char* password;
+    char *password;
     long timeout;
     long dbid;
     long long ttl, expireat;
@@ -4576,9 +4576,14 @@ try_again:
             copy = 1;
         } else if (!strcasecmp(c->argv[j]->ptr,"replace")) {
             replace = 1;
-        } else if (!auth) {
+        } else if (!strcasecmp(c->argv[j]->ptr,"auth")) {
             auth = 1;
-            password = c->argv[j]->ptr;
+            /* use auth option without password argument */
+            if (c->argc <= j+1) {
+                addReply(c,shared.syntaxerr);
+                return;
+            }
+            password = c->argv[++j]->ptr;
         } else {
             addReply(c,shared.syntaxerr);
             return;
@@ -4693,11 +4698,11 @@ try_again:
         //         (auth && buf1[0] == '-') ? buf1+1 : ((select && buf2[0] == '-') ? buf2+1 : buf3+1));
         //     goto socket_rd_err;
         // }
-        if ((select && buf2[0] == '-') || buf3[0] == '-') { 
-			if (!auth) {
-				/* On error assume that last_dbid is no longer valid. */
-				cs->last_dbid = -1;
-			}
+        if ((select && buf2[0] == '-') || buf3[0] == '-') {
+            /* On error assume that last_dbid is no longer valid. */
+            if (!auth) {
+                cs->last_dbid = -1;
+            }
             addReplyErrorFormat(c,"Target instance replied with error: %s",
                 (select && buf2[0] == '-') ? buf2+1 : buf3+1);
         } else {
