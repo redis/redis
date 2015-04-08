@@ -4550,10 +4550,11 @@ void migrateCloseTimedoutSockets(void) {
     dictReleaseIterator(di);
 }
 
-/* MIGRATE host port key dbid timeout [COPY | REPLACE] */
+/* MIGRATE host port key dbid timeout [COPY | REPLACE | PASSWORD] */
 void migrateCommand(redisClient *c) {
     migrateCachedSocket *cs;
-    int copy, replace, j;
+    int copy, replace, auth, j;
+    char* password;
     long timeout;
     long dbid;
     long long ttl, expireat;
@@ -4566,6 +4567,8 @@ try_again:
     copy = 0;
     replace = 0;
     ttl = 0;
+    auth = 0;
+    password = NULL;
 
     /* Parse additional options */
     for (j = 6; j < c->argc; j++) {
@@ -4573,6 +4576,9 @@ try_again:
             copy = 1;
         } else if (!strcasecmp(c->argv[j]->ptr,"replace")) {
             replace = 1;
+        } else if (!auth) {
+            auth = 1;
+            password = c->argv[j]->ptr;
         } else {
             addReply(c,shared.syntaxerr);
             return;
@@ -4599,6 +4605,13 @@ try_again:
     if (cs == NULL) return; /* error sent to the client by migrateGetSocket() */
 
     rioInitWithBuffer(&cmd,sdsempty());
+
+    /* Authentication */
+    if (auth) {
+        redisAssertWithInfo(c,NULL,rioWriteBulkCount(&cmd,'*',2));
+        redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"AUTH",4));
+        redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,password,strlen(password)));
+    }
 
     /* Send the SELECT command if the current DB is not already selected. */
     int select = cs->last_dbid != dbid; /* Should we emit SELECT? */
@@ -4656,17 +4669,35 @@ try_again:
     {
         char buf1[1024];
         char buf2[1024];
+        char buf3[1024];
 
-        /* Read the two replies */
-        if (select && syncReadLine(cs->fd, buf1, sizeof(buf1), timeout) <= 0)
+        /* Read the three replies */
+        if (auth && syncReadLine(cs->fd, buf1, sizeof(buf1), timeout) <= 0)
             goto socket_rd_err;
-        if (syncReadLine(cs->fd, buf2, sizeof(buf2), timeout) <= 0)
+        if (select && syncReadLine(cs->fd, buf2, sizeof(buf2), timeout) <= 0)
             goto socket_rd_err;
-        if ((select && buf1[0] == '-') || buf2[0] == '-') {
+        if (syncReadLine(cs->fd, buf3, sizeof(buf3), timeout) <= 0)
+            goto socket_rd_err;
+
+        // Do not need to return error about server password.
+        //
+        // If the server (c->argv[1]:c->argv[2]) have not set the password while the client
+        // sent its command with password, the following operations will continue to sucess.
+        //
+        // if the server have set the password while the client sent its command without any
+        // any password, the following operations will also fail and return the alert
+        // "NOAUTH Authentication required".
+        //
+        // if ((auth && buf1[0] == '-') || (select && buf2[0] == '-') || buf3[0] == '-') {
+        //     addReplyErrorFormat(c,"Target instance replied with error: %s",
+        //         (auth && buf1[0] == '-') ? buf1+1 : ((select && buf2[0] == '-') ? buf2+1 : buf3+1));
+        //     goto socket_rd_err;
+        // }
+        if ((select && buf2[0] == '-') || buf3[0] == '-') {
             /* On error assume that last_dbid is no longer valid. */
             cs->last_dbid = -1;
             addReplyErrorFormat(c,"Target instance replied with error: %s",
-                (select && buf1[0] == '-') ? buf1+1 : buf2+1);
+                (select && buf2[0] == '-') ? buf2+1 : buf3+1);
         } else {
             /* Update the last_dbid in migrateCachedSocket */
             cs->last_dbid = dbid;
