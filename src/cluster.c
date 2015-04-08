@@ -4693,9 +4693,11 @@ try_again:
         //         (auth && buf1[0] == '-') ? buf1+1 : ((select && buf2[0] == '-') ? buf2+1 : buf3+1));
         //     goto socket_rd_err;
         // }
-        if ((select && buf2[0] == '-') || buf3[0] == '-') {
-            /* On error assume that last_dbid is no longer valid. */
-            cs->last_dbid = -1;
+        if ((select && buf2[0] == '-') || buf3[0] == '-') { 
+			if (!auth) {
+				/* On error assume that last_dbid is no longer valid. */
+				cs->last_dbid = -1;
+			}
             addReplyErrorFormat(c,"Target instance replied with error: %s",
                 (select && buf2[0] == '-') ? buf2+1 : buf3+1);
         } else {
