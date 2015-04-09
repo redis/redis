@@ -46,8 +46,8 @@
 #include <limits.h>
 #include <math.h>
 
-#include "hiredis.h"
-#include "sds.h"
+#include <hiredis.h>
+#include <sds.h> /* use sds.h from hiredis, so that only one set of sds functions will be present in the binary */
 #include "zmalloc.h"
 #include "linenoise.h"
 #include "help.h"
