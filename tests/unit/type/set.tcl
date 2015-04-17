@@ -450,6 +450,7 @@ start_server {
     test "SMOVE non existing key" {
         setup_move
         assert_equal 0 [r smove myset1 myset2 foo]
+        assert_equal 0 [r smove myset1 myset1 foo]
         assert_equal {1 a b} [lsort [r smembers myset1]]
         assert_equal {2 3 4} [lsort [r smembers myset2]]
     }
