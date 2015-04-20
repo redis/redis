@@ -204,7 +204,7 @@ int dictResize(dict *d)
 int dictExpand(dict *d, unsigned long size)
 {
     dictht n; /* the new hash table */
-    unsigned long realsize = _dictNextPower(size);
+    unsigned long realsize;
 
     /* the size is invalid if it is smaller than the number of
      * elements already inside the hash table */
@@ -212,6 +212,7 @@ int dictExpand(dict *d, unsigned long size)
         return DICT_ERR;
 
     /* Rehashing to the same table size is not useful. */
+    realsize = _dictNextPower(size);
     if (realsize == d->ht[0].size) return DICT_ERR;
 
     /* Allocate the new hash table and initialize all pointers to NULL */
