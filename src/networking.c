@@ -797,7 +797,7 @@ void freeClient(redisClient *c) {
  * a context where calling freeClient() is not possible, because the client
  * should be valid for the continuation of the flow of the program. */
 void freeClientAsync(redisClient *c) {
-    if (c->flags & REDIS_CLOSE_ASAP) return;
+    if (c->flags & REDIS_CLOSE_ASAP || c->flags & REDIS_LUA_CLIENT) return;
     c->flags |= REDIS_CLOSE_ASAP;
     listAddNodeTail(server.clients_to_close,c);
 }
