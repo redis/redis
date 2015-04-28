@@ -923,6 +923,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     else if (flags & SRI_SENTINEL) table = master->sentinels;
     sdsname = sdsnew(name);
     if (dictFind(table,sdsname)) {
+        releaseSentinelAddr(addr);
         sdsfree(sdsname);
         errno = EBUSY;
         return NULL;
