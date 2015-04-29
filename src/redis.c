@@ -1554,6 +1554,7 @@ void initServerConfig(void) {
     server.assert_line = 0;
     server.bug_report_start = 0;
     server.watchdog_period = 0;
+    server.use_cmd_time_accounting = 0; /* XXX: this should be configurable. */
 }
 
 /* This function will try to raise the max number of open files accordingly to
@@ -2071,6 +2072,9 @@ void preventCommandPropagation(redisClient *c) {
 /* Call() is the core of Redis execution of a command */
 void call(redisClient *c, int flags) {
     long long dirty, start, duration;
+    int get_duration = server.latency_monitor_threshold != 0 ||
+                       server.slowlog_log_slower_than != 0 ||
+                       server.use_cmd_time_accounting != 0;
     int client_old_flags = c->flags;
 
     /* Sent the command to clients in MONITOR mode, only if the commands are
@@ -2086,9 +2090,9 @@ void call(redisClient *c, int flags) {
     c->flags &= ~(REDIS_FORCE_AOF|REDIS_FORCE_REPL);
     redisOpArrayInit(&server.also_propagate);
     dirty = server.dirty;
-    start = ustime();
+    if (get_duration) start = ustime();
     c->cmd->proc(c);
-    duration = ustime()-start;
+    if (get_duration) duration = ustime()-start;
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
 
@@ -2109,14 +2113,18 @@ void call(redisClient *c, int flags) {
 
     /* Log the command into the Slow log if needed, and populate the
      * per-command statistics that we show in INFO commandstats. */
-    if (flags & REDIS_CALL_SLOWLOG && c->cmd->proc != execCommand) {
+    if (get_duration &&
+        flags & REDIS_CALL_SLOWLOG &&
+        c->cmd->proc != execCommand)
+    {
         char *latency_event = (c->cmd->flags & REDIS_CMD_FAST) ?
                               "fast-command" : "command";
         latencyAddSampleIfNeeded(latency_event,duration/1000);
         slowlogPushEntryIfNeeded(c->argv,c->argc,duration);
     }
+
     if (flags & REDIS_CALL_STATS) {
-        c->cmd->microseconds += duration;
+        if (server.use_cmd_time_accounting) c->cmd->microseconds += duration;
         c->cmd->calls++;
     }
 

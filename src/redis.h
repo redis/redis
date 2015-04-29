@@ -732,6 +732,7 @@ struct redisServer {
     size_t resident_set_size;       /* RSS sampled in serverCron(). */
     long long stat_net_input_bytes; /* Bytes read from network. */
     long long stat_net_output_bytes; /* Bytes written to network. */
+    int use_cmd_time_accounting;     /* commandstats time accounting. */
     /* The following two are used to track instantaneous metrics, like
      * number of operations per second, network traffic. */
     struct {
