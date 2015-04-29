@@ -818,7 +818,21 @@ int expireIfNeeded(redisDb *db, robj *key) {
      * only the first time it is accessed and not in the middle of the
      * script execution, making propagation to slaves / AOF consistent.
      * See issue #1525 on Github for more information. */
-    now = server.lua_caller ? server.lua_time_start : mstime();
+    if (server.lua_caller) {
+        now = server.lua_time_start;
+    } else {
+        /* If this is not the Lua caller, we actually need to get the current
+         * time. However gettimeofday(), which is called by mstime(), may be
+         * expensive, so we try to use the cached time instead, as found in
+         * server.mstime, which is not very accurate, but should usually be
+         * in the range of +/- 100 milliseconds.
+         *
+         * If the time the key will expire seems to be much more in the future
+         * compared to server.mstime, we use the server.mstime approximation.
+         * Otherwise if we see the key is going to expire within two seconds
+         * we fetch the actual time from the operating system. */
+        now = (when - server.mstime > 2000) ? server.mstime : mstime();
+    }
 
     /* If we are running in the context of a slave, return ASAP:
      * the slave key expiration is controlled by the master that will
