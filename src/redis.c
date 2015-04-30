@@ -766,6 +766,7 @@ void activeExpireCycle(int type) {
     int j, iteration = 0;
     int dbs_per_call = REDIS_DBCRON_DBS_PER_CALL;
     long long start = ustime(), timelimit;
+    long long now = start/1000;
 
     if (type == ACTIVE_EXPIRE_CYCLE_FAST) {
         /* Don't start a fast cycle if the previous cycle did not exited
@@ -810,7 +811,7 @@ void activeExpireCycle(int type) {
          * of the keys were expired. */
         do {
             unsigned long num, slots;
-            long long now, ttl_sum;
+            long long ttl_sum;
             int ttl_samples;
 
             /* If there is nothing to expire try next DB ASAP. */
@@ -819,7 +820,6 @@ void activeExpireCycle(int type) {
                 break;
             }
             slots = dictSlots(db->expires);
-            now = mstime();
 
             /* When there are less than 1% filled slots getting random
              * keys is expensive, so stop here waiting for better times...
@@ -862,7 +862,9 @@ void activeExpireCycle(int type) {
              * caller waiting for the other active expire cycle. */
             iteration++;
             if ((iteration & 0xf) == 0) { /* check once every 16 iterations. */
-                long long elapsed = ustime()-start;
+                now = ustime();
+                long long elapsed = now-start;
+                now /= 1000; /* We need now in milliseconds within the loop. */
 
                 latencyAddSampleIfNeeded("expire-cycle",elapsed/1000);
                 if (elapsed > timelimit) timelimit_exit = 1;
