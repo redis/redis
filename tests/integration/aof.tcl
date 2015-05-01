@@ -69,9 +69,10 @@ tags {"aof"} {
             assert_equal 1 [is_alive $srv]
         }
 
-        set client [redis [dict get $srv host] [dict get $srv port]]
-
         test "Truncated AOF loaded: we expect foo to be equal to 6 now" {
+            assert_equal 1 [is_alive $srv]
+
+            set client [redis [dict get $srv host] [dict get $srv port]]
             assert {[$client get foo] eq "6"}
         }
     }
