@@ -1081,13 +1081,17 @@ void RejoinCOWPages(HANDLE mmHandle, byte* mmStart, size_t mmSize) {
     }
 
     // If the COWs are not discarded, then there is no way of propagating changes into subsequent fork operations. 
+#if FALSE   
+    // This doesn't work. Disabling for now.
     if (IsWindowsVersionAtLeast(8, 0, 0)) {
         // restores all page protections on the view and culls the COW pages.
         DWORD oldProtect;
         if (FALSE == VirtualProtect(mmStart, mmSize, PAGE_READWRITE | PAGE_REVERT_TO_FILE_MAP, &oldProtect)) {
             throw std::system_error(GetLastError(), std::system_category(), "RejoinCOWPages: COW cull failed");
         }
-    } else {
+    } else
+#endif
+    {
         // Prior to Win8 unmapping the view was the only way to discard the COW pages from the view. Unfortunately this forces
         // the view to be completely flushed to disk, which is a bit inefficient.
         if (UnmapViewOfFile(mmStart) == FALSE) {
