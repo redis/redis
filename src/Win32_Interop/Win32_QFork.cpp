@@ -69,7 +69,7 @@ extern "C"
   size_t(*g_msize)(void*) = nullptr;
   
   // forward def from util.h. 
-	long long memtoll(const char *p, int *err);
+  long long memtoll(const char *p, int *err);
 }
 
 //#define DEBUG_WITH_PROCMON
@@ -282,12 +282,12 @@ BOOL QForkSlaveInit(HANDLE QForkConrolMemoryMapHandle, DWORD ParentProcessID) {
        g_pQForkControl->heapMemoryMap = sfmhMapFile;
 
 
-	   // The key to mapping a heap larger than physical memory is to not map it all at once. 
-	   SmartFileView<byte> sfvHeap(
+       // The key to mapping a heap larger than physical memory is to not map it all at once. 
+       SmartFileView<byte> sfvHeap(
             g_pQForkControl->heapMemoryMap,
             FILE_MAP_COPY,
             0, 0, 
-			cAllocationGranularity,	// Only map a portion of the heap . Deal with the unmapped pages with a VEH.
+            cAllocationGranularity, // Only map a portion of the heap . Deal with the unmapped pages with a VEH.
             g_pQForkControl->heapStart,
             string("Could not map heap in forked process. Is system swap file large enough?"));
 
@@ -445,9 +445,9 @@ BOOL QForkMasterInit( __int64 maxheapBytes ) {
         }
         g_pQForkControl->heapBlockSize = cAllocationGranularity;
 
-		// ensure the number of blocks is a multiple of cAllocationGranularity
+        // ensure the number of blocks is a multiple of cAllocationGranularity
         SIZE_T allocationBlocks = (SIZE_T)maxheapBytes / cAllocationGranularity;
-		allocationBlocks += ((maxheapBytes % cAllocationGranularity) != 0);
+        allocationBlocks += ((maxheapBytes % cAllocationGranularity) != 0);
 
         g_pQForkControl->availableBlocksInHeap = (int)allocationBlocks;
         if (g_pQForkControl->availableBlocksInHeap <= 0) {
@@ -503,13 +503,13 @@ BOOL QForkMasterInit( __int64 maxheapBytes ) {
                 "CreateFileW failed.");
         }
 
-		// There is a strange random failure toawrds the end of mapping the heap in the forked process in the VEH if
-		// the underlying MMF is not larger than the MM space we are using. This seems to be some sort of 
-		// memory->file allocation granularity issue. Increasing the size of the file (by 16MB) takes care of the 
-		// issue in all cases.
-		const size_t extraMMF = 64 * cAllocationGranularity;
+        // There is a strange random failure toawrds the end of mapping the heap in the forked process in the VEH if
+        // the underlying MMF is not larger than the MM space we are using. This seems to be some sort of 
+        // memory->file allocation granularity issue. Increasing the size of the file (by 16MB) takes care of the 
+        // issue in all cases.
+        const size_t extraMMF = 64 * cAllocationGranularity;
 
-		SIZE_T mmSize = g_pQForkControl->availableBlocksInHeap * cAllocationGranularity + extraMMF; 
+        SIZE_T mmSize = g_pQForkControl->availableBlocksInHeap * cAllocationGranularity + extraMMF; 
         g_pQForkControl->heapMemoryMap = 
             CreateFileMappingW( 
                 g_pQForkControl->heapMemoryMapFile,
@@ -611,33 +611,33 @@ BOOL QForkMasterInit( __int64 maxheapBytes ) {
 }
 
 LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
-	if( info->ExceptionRecord->ExceptionCode == STATUS_ACCESS_VIOLATION && 
-		info->ExceptionRecord->NumberParameters == 2) {
-		intptr_t failingMemoryAddress = info->ExceptionRecord->ExceptionInformation[1];
-		intptr_t heapStart = (intptr_t)g_pQForkControl->heapStart;
-		intptr_t heapEnd = heapStart + ((SIZE_T)g_pQForkControl->availableBlocksInHeap * g_pQForkControl->heapBlockSize);
-		if( failingMemoryAddress >= heapStart && failingMemoryAddress <= heapEnd )
-		{
-			intptr_t startOfMapping = failingMemoryAddress - failingMemoryAddress % g_systemAllocationGranularity;
-			intptr_t mmfOffset = startOfMapping - heapStart;
+    if( info->ExceptionRecord->ExceptionCode == STATUS_ACCESS_VIOLATION && 
+        info->ExceptionRecord->NumberParameters == 2) {
+        intptr_t failingMemoryAddress = info->ExceptionRecord->ExceptionInformation[1];
+        intptr_t heapStart = (intptr_t)g_pQForkControl->heapStart;
+        intptr_t heapEnd = heapStart + ((SIZE_T)g_pQForkControl->availableBlocksInHeap * g_pQForkControl->heapBlockSize);
+        if( failingMemoryAddress >= heapStart && failingMemoryAddress <= heapEnd )
+        {
+            intptr_t startOfMapping = failingMemoryAddress - failingMemoryAddress % g_systemAllocationGranularity;
+            intptr_t mmfOffset = startOfMapping - heapStart;
             size_t bytesToMap = min((size_t)g_systemAllocationGranularity, (size_t)(heapEnd - startOfMapping));
-			LPVOID pMapped =  MapViewOfFileEx( 
-				g_pQForkControl->heapMemoryMap, 
-				FILE_MAP_COPY,
+            LPVOID pMapped =  MapViewOfFileEx( 
+                g_pQForkControl->heapMemoryMap, 
+                FILE_MAP_COPY,
 #ifdef _WIN64           
                 HIDWORD(mmfOffset),
 #else      
                 0,
 #endif
                 LODWORD(mmfOffset),
-				bytesToMap,
-				(LPVOID)startOfMapping);
-			if(pMapped != NULL)
-			{
-				return EXCEPTION_CONTINUE_EXECUTION;
-			}
-			else
-			{
+                bytesToMap,
+                (LPVOID)startOfMapping);
+            if(pMapped != NULL)
+            {
+                return EXCEPTION_CONTINUE_EXECUTION;
+            }
+            else
+            {
                 DWORD err = GetLastError();
                 ::redisLog(REDIS_WARNING, "\nF(0x%p)", startOfMapping);
                 ::redisLog(REDIS_WARNING, "\t MapViewOfFileEx failed with error 0x%08X. \n", err);
@@ -648,11 +648,11 @@ LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
                 ::redisLog(REDIS_WARNING, "\t start of new mapping 0x%p \n", startOfMapping);
                 ::redisLog(REDIS_WARNING, "\t bytes to map 0x%08x \n", bytesToMap);
                 ::redisLog(REDIS_WARNING, "\t continuing exception handler search \n");
-			}
-		}
-	}
+            }
+        }
+    }
 
-	return EXCEPTION_CONTINUE_SEARCH;
+    return EXCEPTION_CONTINUE_SEARCH;
 }
 
 // QFork API
@@ -664,7 +664,7 @@ StartupStatus QForkStartup(int argc, char** argv) {
     __int64 maxmemoryBytes = -1;
     int memtollerr = 0;
 
-	SYSTEM_INFO si;
+    SYSTEM_INFO si;
     GetSystemInfo(&si);
     g_systemAllocationGranularity = si.dwAllocationGranularity;
 
@@ -686,82 +686,82 @@ StartupStatus QForkStartup(int argc, char** argv) {
         }
     }
 
-	PERFORMANCE_INFORMATION perfinfo;
-	perfinfo.cb = sizeof(PERFORMANCE_INFORMATION);
-	if (FALSE == GetPerformanceInfo(&perfinfo, sizeof(PERFORMANCE_INFORMATION))) {
+    PERFORMANCE_INFORMATION perfinfo;
+    perfinfo.cb = sizeof(PERFORMANCE_INFORMATION);
+    if (FALSE == GetPerformanceInfo(&perfinfo, sizeof(PERFORMANCE_INFORMATION))) {
         ::redisLog(REDIS_WARNING, "GetPerformanceInfo failed.\n");
         ::redisLog(REDIS_WARNING, "Failing startup.\n");
-		return StartupStatus::ssFAILED;
-	}
-	pageSize = perfinfo.PageSize;
+        return StartupStatus::ssFAILED;
+    }
+    pageSize = perfinfo.PageSize;
 
-	/*
-	Not specifying the maxmemory or maxheap flags will result in the default behavior of: new key generation not 
-	bounded by heap usage, and the heap size equal to the size of physical memory.
+    /*
+    Not specifying the maxmemory or maxheap flags will result in the default behavior of: new key generation not 
+    bounded by heap usage, and the heap size equal to the size of physical memory.
 
-	Redis will respect the maxmemory flag by preventing new key creation when the number of bytes allocated in the heap 
-	exceeds the level specified by the maxmemory flag. This does not account for heap fragmentation or memory usage by 
-	the heap allocator. To allow for this extra space maxheapBytes is implicitly set to (1.5 * maxmemory [rounded up 
-	to the nearest cAllocationGranularity boundary]). The maxheap flag may be specified along with the maxmemory flag to
-	increase the heap further than this. 
+    Redis will respect the maxmemory flag by preventing new key creation when the number of bytes allocated in the heap 
+    exceeds the level specified by the maxmemory flag. This does not account for heap fragmentation or memory usage by 
+    the heap allocator. To allow for this extra space maxheapBytes is implicitly set to (1.5 * maxmemory [rounded up 
+    to the nearest cAllocationGranularity boundary]). The maxheap flag may be specified along with the maxmemory flag to
+    increase the heap further than this. 
 
-	If the maxmemory flag is not specified, but the maxheap flag is specified, the heap is sized according to this flag
-	(rounded up to the nearest cAllocationGranularity boundary). The heap may be configured larger than physical memory with
-	this flag. If maxmemory is sufficiently large enough, the heap will also be made larger than physical memory. This 
-	has implications for the system swap file size requirement and disk usage as discussed below. Specifying a heap larger
-	than physical memory allows Redis to continue operating into virtual memory up to the limit of the heap size specified.
+    If the maxmemory flag is not specified, but the maxheap flag is specified, the heap is sized according to this flag
+    (rounded up to the nearest cAllocationGranularity boundary). The heap may be configured larger than physical memory with
+    this flag. If maxmemory is sufficiently large enough, the heap will also be made larger than physical memory. This 
+    has implications for the system swap file size requirement and disk usage as discussed below. Specifying a heap larger
+    than physical memory allows Redis to continue operating into virtual memory up to the limit of the heap size specified.
 
-	Since the heap is entirely contained in the memory mapped file we are creating to share with the forked process, the
-	size of the memory mapped file will be equal to the size of the heap. There must be sufficient disk space for this file.
-	For instance, launching Redis on a server machine with 512GB of RAM and no flags specified for either maxmemory or 
-	maxheap will result in the allocation of a 512GB memory mapped file. Redis will fail to launch if there is not enough 
-	space available on the disk where redis is being launched from for this file.
+    Since the heap is entirely contained in the memory mapped file we are creating to share with the forked process, the
+    size of the memory mapped file will be equal to the size of the heap. There must be sufficient disk space for this file.
+    For instance, launching Redis on a server machine with 512GB of RAM and no flags specified for either maxmemory or 
+    maxheap will result in the allocation of a 512GB memory mapped file. Redis will fail to launch if there is not enough 
+    space available on the disk where redis is being launched from for this file.
 
-	During forking the system swap file will be used for managing virtual memory sharing and the copy on write pages for both 
-	forker and forkee. There must be sufficient swap space availability for this. The maximum size of this swap space commit
-	is roughly equal to (physical memory + (2 * size of the memory allocated in the redis heap)). For instance, if the heap is nearly 
-	maxed out on an 8GB machine and the heap has been configured to be twice the size of physical memory, the swap file comittment 
-	will be (physical + (2 * (2 * physical)) or (5 * physical). By default Windows will dynamically allocate a swap file that will
-	expand up to about (3.5 * physical). In this case the forked process will fail with ERROR_COMMITMENT_LIMIT (1455/0x5AF) error.  
-	The fix for this is to ensure the system swap space is sufficiently large enough to handle this. The reason that the default 
-	heap size is equal to physical memory is so that Redis will work on a freshly configured OS without requireing reconfiguring  
-	either Redis or the machine (max comittment of (3 * physical)).
-	*/
-	int64_t maxMemoryPlusHalf = (3 * maxmemoryBytes) / 2;
-	if( maxmemoryBytes != -1 ) {
-		maxheapBytes = (maxheapBytes > maxMemoryPlusHalf) ? maxheapBytes : maxMemoryPlusHalf;
-	}
-	if( maxheapBytes == -1 )
-	{
+    During forking the system swap file will be used for managing virtual memory sharing and the copy on write pages for both 
+    forker and forkee. There must be sufficient swap space availability for this. The maximum size of this swap space commit
+    is roughly equal to (physical memory + (2 * size of the memory allocated in the redis heap)). For instance, if the heap is nearly 
+    maxed out on an 8GB machine and the heap has been configured to be twice the size of physical memory, the swap file comittment 
+    will be (physical + (2 * (2 * physical)) or (5 * physical). By default Windows will dynamically allocate a swap file that will
+    expand up to about (3.5 * physical). In this case the forked process will fail with ERROR_COMMITMENT_LIMIT (1455/0x5AF) error.  
+    The fix for this is to ensure the system swap space is sufficiently large enough to handle this. The reason that the default 
+    heap size is equal to physical memory is so that Redis will work on a freshly configured OS without requireing reconfiguring  
+    either Redis or the machine (max comittment of (3 * physical)).
+    */
+    int64_t maxMemoryPlusHalf = (3 * maxmemoryBytes) / 2;
+    if( maxmemoryBytes != -1 ) {
+        maxheapBytes = (maxheapBytes > maxMemoryPlusHalf) ? maxheapBytes : maxMemoryPlusHalf;
+    }
+    if( maxheapBytes == -1 )
+    {
         if (checkForSentinelMode(argc, argv)) {
             // Sentinel mode does not need a large heap. This conserves disk space and page file reservation requirements.
             maxheapBytes = cSentinelHeapSize;
         } else {
-#ifdef _WIN64		
+#ifdef _WIN64
             maxheapBytes = perfinfo.PhysicalTotal * pageSize;
 #else
             maxheapBytes = cDefaultmaxHeap32Bit;
 #endif
         }
-	}
+    }
 
     if (foundSlaveFlag) {
-		LPVOID exceptionHandler = AddVectoredExceptionHandler( 1, VectoredHeapMapper );
-		StartupStatus retVal = StartupStatus::ssFAILED;
-		try {
-			retVal = QForkSlaveInit( QForkConrolMemoryMapHandle, PPID ) ? StartupStatus::ssSLAVE_EXIT : StartupStatus::ssFAILED;
-		} catch (...) { }
-		RemoveVectoredExceptionHandler(exceptionHandler);		
-		return retVal;
+        LPVOID exceptionHandler = AddVectoredExceptionHandler( 1, VectoredHeapMapper );
+        StartupStatus retVal = StartupStatus::ssFAILED;
+        try {
+            retVal = QForkSlaveInit( QForkConrolMemoryMapHandle, PPID ) ? StartupStatus::ssSLAVE_EXIT : StartupStatus::ssFAILED;
+        } catch (...) { }
+        RemoveVectoredExceptionHandler(exceptionHandler);       
+        return retVal;
     } else {
-		return QForkMasterInit(maxheapBytes) ? StartupStatus::ssCONTINUE_AS_MASTER : StartupStatus::ssFAILED;
+        return QForkMasterInit(maxheapBytes) ? StartupStatus::ssCONTINUE_AS_MASTER : StartupStatus::ssFAILED;
     }
 }
 
 BOOL QForkShutdown() {
     if(g_hForkedProcess != NULL) {
         TerminateProcess(g_hForkedProcess, -1);
-		CloseHandle(g_hForkedProcess);
+        CloseHandle(g_hForkedProcess);
         g_hForkedProcess = NULL;
     }
 
@@ -1032,7 +1032,7 @@ BOOL AbortForkOperation()
                     "EndForkOperation: Killing forked process failed.");
             }
             g_hForkedProcess = 0;
-			CloseHandle(g_hForkedProcess);
+            CloseHandle(g_hForkedProcess);
         }
 
         return EndForkOperation(NULL);
@@ -1131,13 +1131,13 @@ BOOL EndForkOperation(int * pExitCode) {
                         "EndForkOperation: Killing forked process failed.");
                 }
             }
-			
-			if (pExitCode != NULL) {
-				GetExitCodeProcess(g_hForkedProcess, (DWORD*)pExitCode);
-			}
 
-			CloseHandle(g_hForkedProcess);
-			g_hForkedProcess = 0;
+            if (pExitCode != NULL) {
+            GetExitCodeProcess(g_hForkedProcess, (DWORD*)pExitCode);
+            }
+
+            CloseHandle(g_hForkedProcess);
+            g_hForkedProcess = 0;
         }
 
         if (ResetEvent(g_pQForkControl->operationComplete) == FALSE ) {
@@ -1363,31 +1363,31 @@ extern "C"
             }
 
             if (IsPersistenceAvailable() == TRUE) {
-  		        StartupStatus status = QForkStartup(argc, argv);
-  		        if (status == ssCONTINUE_AS_MASTER) {
-  			        int retval = redis_main(argc, argv);
-  			        QForkShutdown();
-  			        return retval;
-  		        } else if (status == ssSLAVE_EXIT) {
-  			        // slave is done - clean up and exit
-  			        QForkShutdown();
-  			        return g_SlaveExitCode;
-  		        } else if (status == ssFAILED) {
-  			        // master or slave failed initialization
-  			        return 1;
-  		        } else {
-  			        // unexpected status return
-  			        return 2;
-  		        }
+                  StartupStatus status = QForkStartup(argc, argv);
+                  if (status == ssCONTINUE_AS_MASTER) {
+                      int retval = redis_main(argc, argv);
+                      QForkShutdown();
+                      return retval;
+                  } else if (status == ssSLAVE_EXIT) {
+                      // slave is done - clean up and exit
+                      QForkShutdown();
+                      return g_SlaveExitCode;
+                  } else if (status == ssFAILED) {
+                      // master or slave failed initialization
+                      return 1;
+                  } else {
+                      // unexpected status return
+                      return 2;
+                  }
             } else {
                 return redis_main(argc, argv);
             }
-		} catch (std::system_error syserr) {
+        } catch (std::system_error syserr) {
             ::redisLog(REDIS_WARNING, "main: system error caught. error code=0x%08x, message=%s\n", syserr.code().value(), syserr.what());
-		} catch (std::runtime_error runerr) {
+        } catch (std::runtime_error runerr) {
             ::redisLog(REDIS_WARNING, "main: runtime error caught. message=%s\n", runerr.what());
-		} catch (...) {
+        } catch (...) {
             ::redisLog(REDIS_WARNING, "main: other exception caught.\n");
-		}
+        }
     }
 }
