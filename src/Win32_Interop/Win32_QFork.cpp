@@ -638,8 +638,9 @@ LONG CALLBACK VectoredHeapMapper(PEXCEPTION_POINTERS info) {
 			}
 			else
 			{
+                DWORD err = GetLastError();
                 ::redisLog(REDIS_WARNING, "\nF(0x%p)", startOfMapping);
-                ::redisLog(REDIS_WARNING, "\t MapViewOfFileEx failed with error 0x%08X. \n", GetLastError());
+                ::redisLog(REDIS_WARNING, "\t MapViewOfFileEx failed with error 0x%08X. \n", err);
                 ::redisLog(REDIS_WARNING, "\t heapStart 0x%p\n", heapStart);
                 ::redisLog(REDIS_WARNING, "\t heapEnd 0x%p\n", heapEnd);
                 ::redisLog(REDIS_WARNING, "\t failing access location 0x%p\n", failingMemoryAddress);
@@ -1057,47 +1058,33 @@ void RejoinCOWPages(HANDLE mmHandle, byte* mmStart, size_t mmSize) {
         0,
         mmSize,
         string("RejoinCOWPages: Could not map COW back-copy view."));
-    HANDLE hProcess = GetCurrentProcess();
-    int pages = (int)(mmSize / pageSize);
-    shared_ptr<PSAPI_WORKING_SET_EX_INFORMATION> pwsi(
-        new PSAPI_WORKING_SET_EX_INFORMATION[pages],
-        [](PSAPI_WORKING_SET_EX_INFORMATION *p) { delete[] p; });
-    if (pwsi == NULL) {
-        throw new system_error(
-            GetLastError(),
-            system_category(),
-            "pwsi == NULL");
-    }
-    memset(pwsi.get(), 0, sizeof(PSAPI_WORKING_SET_EX_INFORMATION)* pages);
-    int virtualLockFailures = 0;
-    for (int page = 0; page < pages; page++) {
-        pwsi.get()[page].VirtualAddress = mmStart + page * pageSize;
-    }
 
-    if (QueryWorkingSetEx(
-        hProcess,
-        pwsi.get(),
-        sizeof(PSAPI_WORKING_SET_EX_INFORMATION)* pages) == FALSE) {
-        throw system_error(
-            GetLastError(),
-            system_category(),
-            "RejoinCOWPages: QueryWorkingSet failure");
-    }
-
-    for (int page = 0; page < pages; page++) {
-        if (pwsi.get()[page].VirtualAttributes.Valid == 1) {
-            // A 0 share count indicates a COW page
-            if (pwsi.get()[page].VirtualAttributes.ShareCount == 0) {
-                memcpy(copyView + (page*pageSize), mmStart + (page*pageSize), pageSize);
-            }
+    for (byte* mmAddress = mmStart; mmAddress < mmStart + mmSize; ) {
+        MEMORY_BASIC_INFORMATION memInfo;
+        if (!VirtualQuery(
+            mmAddress,
+            &memInfo,
+            sizeof(memInfo))) {
+            throw system_error(
+                GetLastError(),
+                system_category(),
+                "RejoinCOWPages: VirtualQuery failure");
         }
+
+        byte* regionEnd = (byte*)memInfo.BaseAddress + memInfo.RegionSize;
+
+        if (memInfo.Protect != PAGE_WRITECOPY) {
+            byte* srcEnd = min(regionEnd, mmStart + mmSize);
+            memcpy(copyView + (mmAddress - mmStart), mmAddress, srcEnd - mmAddress);
+        }
+        mmAddress = regionEnd;
     }
 
     // If the COWs are not discarded, then there is no way of propagating changes into subsequent fork operations. 
     if (IsWindowsVersionAtLeast(8, 0, 0)) {
         // restores all page protections on the view and culls the COW pages.
         DWORD oldProtect;
-        if (FALSE == VirtualProtect(mmStart, pages * pageSize, PAGE_READWRITE | PAGE_REVERT_TO_FILE_MAP, &oldProtect)) {
+        if (FALSE == VirtualProtect(mmStart, mmSize, PAGE_READWRITE | PAGE_REVERT_TO_FILE_MAP, &oldProtect)) {
             throw std::system_error(GetLastError(), std::system_category(), "RejoinCOWPages: COW cull failed");
         }
     } else {
