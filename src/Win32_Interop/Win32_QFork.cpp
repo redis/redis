@@ -1083,7 +1083,7 @@ void RejoinCOWPages(HANDLE mmHandle, byte* mmStart, size_t mmSize) {
     // If the COWs are not discarded, then there is no way of propagating changes into subsequent fork operations. 
 #if FALSE   
     // This doesn't work. Disabling for now.
-    if (IsWindowsVersionAtLeast(8, 0, 0)) {
+    if (IsWindowsVersionAtLeast(6, 2, 0)) {
         // restores all page protections on the view and culls the COW pages.
         DWORD oldProtect;
         if (FALSE == VirtualProtect(mmStart, mmSize, PAGE_READWRITE | PAGE_REVERT_TO_FILE_MAP, &oldProtect)) {
