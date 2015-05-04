@@ -7,6 +7,8 @@
 #include "lua.h"
 #include "lauxlib.h"
 
+#include "../../../src/solarisfixes.h"
+
 #define LUACMSGPACK_NAME        "cmsgpack"
 #define LUACMSGPACK_SAFE_NAME   "cmsgpack_safe"
 #define LUACMSGPACK_VERSION     "lua-cmsgpack 0.4.0"
@@ -16,6 +18,11 @@
 /* Allows a preprocessor directive to override MAX_NESTING */
 #ifndef LUACMSGPACK_MAX_NESTING
     #define LUACMSGPACK_MAX_NESTING  16 /* Max tables nesting. */
+#endif
+
+/* Workaround for Solaris platforms missing isinf() */
+#if !defined(isinf) && (defined(USE_INTERNAL_ISINF) || defined(MISSING_ISINF))
+#define isinf(x) (!isnan(x) && isnan((x) - (x)))
 #endif
 
 /* Check if float or double can be an integer without loss of precision */
