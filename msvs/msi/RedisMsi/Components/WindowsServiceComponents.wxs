@@ -12,7 +12,7 @@
       -->
       <Component Id="cmp_redis_server" Guid="{959AF3FA-9324-49CB-8915-0563398CDDF6}">
         <File Id="file_redis_serverEXE" Source="$(var.RedisServer.TargetDir)redis-server.exe" KeyPath="yes" />
-        <File Id="file_redis_serviceCONF" Source="!(wix.DocumentationFolder)\redis.service.conf" />
+        <File Id="file_redis_serviceCONF" Source="!(wix.DocumentationFolder)\redis.windows-service.conf" />
 
         <ServiceInstall Id="redisService"
                         Name="Redis"
