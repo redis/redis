@@ -1270,10 +1270,7 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *ip,
         slave = createSentinelRedisInstance(NULL,SRI_SLAVE,slaves[j]->ip,
                     slaves[j]->port, master->quorum, master);
         releaseSentinelAddr(slaves[j]);
-        if (slave) {
-            sentinelEvent(REDIS_NOTICE,"+slave",slave,"%@");
-            sentinelFlushConfig();
-        }
+        if (slave) sentinelEvent(REDIS_NOTICE,"+slave",slave,"%@");
     }
     zfree(slaves);
 
