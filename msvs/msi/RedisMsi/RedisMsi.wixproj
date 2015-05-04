@@ -45,46 +45,6 @@
     <Compile Include="Product.wxs" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\RedisBenchmark\RedisBenchmark.vcxproj">
-      <Name>RedisBenchmark</Name>
-      <Project>{b00d4bb5-44de-405e-839c-d16f547006cf}</Project>
-      <Private>True</Private>
-      <DoNotHarvest>True</DoNotHarvest>
-      <RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups>
-      <RefTargetDir>INSTALLFOLDER</RefTargetDir>
-    </ProjectReference>
-    <ProjectReference Include="..\..\RedisCheckAof\RedisCheckAof.vcxproj">
-      <Name>RedisCheckAof</Name>
-      <Project>{a65c2cd6-72a3-441a-aea3-d754bea9a86a}</Project>
-      <Private>True</Private>
-      <DoNotHarvest>True</DoNotHarvest>
-      <RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups>
-      <RefTargetDir>INSTALLFOLDER</RefTargetDir>
-    </ProjectReference>
-    <ProjectReference Include="..\..\RedisCheckDump\RedisCheckDump.vcxproj">
-      <Name>RedisCheckDump</Name>
-      <Project>{52193a97-d010-41d6-bf2b-33e8e764e308}</Project>
-      <Private>True</Private>
-      <DoNotHarvest>True</DoNotHarvest>
-      <RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups>
-      <RefTargetDir>INSTALLFOLDER</RefTargetDir>
-    </ProjectReference>
-    <ProjectReference Include="..\..\RedisCli\RedisCli.vcxproj">
-      <Name>RedisCli</Name>
-      <Project>{392bbb91-3934-4a56-af42-65c5728311e8}</Project>
-      <Private>True</Private>
-      <DoNotHarvest>True</DoNotHarvest>
-      <RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups>
-      <RefTargetDir>INSTALLFOLDER</RefTargetDir>
-    </ProjectReference>
-    <ProjectReference Include="..\..\RedisServer.vcxproj">
-      <Name>RedisServer</Name>
-      <Project>{46842776-68a5-ec98-6a09-1859bbfc73aa}</Project>
-      <Private>True</Private>
-      <DoNotHarvest>True</DoNotHarvest>
-      <RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups>
-      <RefTargetDir>INSTALLFOLDER</RefTargetDir>
-    </ProjectReference>
     <ProjectReference Include="..\RedisMsi.CustomActions\RedisMsi.CustomActions.csproj">
       <Name>RedisMsi.CustomActions</Name>
       <Project>{a917027e-d229-46c9-b969-1f4ce7d5d2ca}</Project>

@@ -1,5 +1,27 @@
-Running Redis as a Service
+﻿Running Redis as a Service
 ==========================
+
+If you installed Redis using the MSI package, then Redis was already installed as a Windows service. Nothing further to do. If you would like to change its settings, you can update the *redis.windows.conf* file and then restart the Redis service (Run -\> services.msc -\> Redis -\> Restart).
+
+During installation of the MSI you can either use the installer’s user interface to update the port that Redis listens at and the firewall exception or run it silently without a UI. The following examples show how to install from the command line:
+
+**default install (port 6379 and firewall exception ON):**
+
+*msiexec /i Redis-x64.msi *
+
+**set port and turn OFF firewall exception:**
+
+*msiexec /i Redis-x64.msi PORT=1234 FIREWALL\_ON=""*
+
+**set port and turn ON firewall exception:**
+
+*msiexec /i Redis-x64.msi PORT=1234 FIREWALL\_ON=1*
+
+**install with no user interface:**
+
+*msiexec /quiet /i Redis-x64.msi*
+
+If you did *not* install Redis using the MSI package, then you still run Redis as a Windows service by following these instructions:
 
 In order to better integrate with the Windows Services model, new command line arguments have been introduced to Redis. These service arguments require an elevated user context in order to connect to the service control manager. If these commands are invoked from a non-elevated context, Redis will attempt to create an elevated context in which to execute these commands. This will cause a User Account Control dialog to be displayed by Windows and may require Administrative user credentials in order to proceed.
 
@@ -71,4 +93,3 @@ redis-server --service-start –service-name redisService2
 redis-server --service-install –service-name redisService3 –port 10003
 
 redis-server --service-start –service-name redisService3
-

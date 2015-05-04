@@ -1,4 +1,4 @@
-MSOpenTech Redis 2.8.17 Release Notes
+MSOpenTech Redis 2.8.19 Release Notes
 =====================================
 
 Welcome to the binary release of Redis from Microsoft Open Technologies, Inc.
@@ -13,10 +13,10 @@ Porting Goals
 
 Our goal is to provide a version of Redis that runs on Windows with a performance essentially equal to the performance of Redis on an equivalent UNIX machine.
 
-What is new with the 2.8.17 release
+What is new with the 2.8.19 release
 -----------------------------------
 
-Our last official release was 2.8.12. We have merged in the changes up to 2.8.17. Please see the [release notes for the UNIX 2.8 branch](http://download.redis.io/redis-stable/00-RELEASENOTES) to understand how this impacts Redis functionality.
+Our last official release was 2.8.12. We have merged in the changes up to 2.8.19. Please see the [release notes for the UNIX 2.8 branch](http://download.redis.io/redis-stable/00-RELEASENOTES) to understand how this impacts Redis functionality.
 
 ### Network layer changes
 
@@ -32,4 +32,3 @@ How to develop for Redis
 ------------------------
 
 You will need a client library for accessing Redis. There are a wide variety of client libraries available as listed at <http://redis.io/clients>.
-

@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <?define RepoDir="$(var.ProjectDir)..\..\..\" ?>
+  <?define BinDir="$(var.RepoDir)msvs\$(var.Platform)\$(var.Configuration)\" ?>
+
   <Fragment>
     <!--Documentation files to install-->
     <ComponentGroup Id="DocumentationComponents" Directory="INSTALLFOLDER" Source="!(wix.DocumentationFolder)">

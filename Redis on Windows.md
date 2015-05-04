@@ -105,4 +105,3 @@ Service Account
 ---------------
 
 When using Redis as a Windows service, the default installation configures Redis to run under the system’s NETWORK SERVICE account. There are some environments where another account must be used (perhaps a domain service account). Configuration of this account needs to be done manually at this point with the service control manager. If this is done, it is also important to give read/write/create permission to the folder that the Redis executable is in to this user identity.
-
