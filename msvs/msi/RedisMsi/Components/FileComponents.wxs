@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <?define RepoDir="$(var.ProjectDir)..\..\..\" ?>
+  <?define BinDir="$(var.RepoDir)msvs\$(var.Platform)\$(var.Configuration)\" ?>
+
+  <Fragment>
+    <!--Files to install, other than the main executable-->
+    <ComponentGroup Id="FileComponents" Directory="INSTALLFOLDER">
+      
+      <Component Id="cmp_redis_benchmarkEXE" Guid="*">
+        <File Source="$(var.BinDir)redis-benchmark.exe" />
+      </Component>
+
+      <Component Id="cmp_redis_check_aofEXE" Guid="*">
+        <File Source="$(var.BinDir)redis-check-aof.exe" />
+      </Component>
+
+      <Component Id="cmp_redis_check_dumpEXE" Guid="*">
+        <File Source="$(var.BinDir)redis-check-dump.exe" />
+      </Component>
+
+      <Component Id="cmp_redis_cliEXE" Guid="*">
+        <File Source="$(var.BinDir)redis-cli.exe" />
+      </Component>
+      
+    </ComponentGroup>
+  </Fragment>
+</Wix>

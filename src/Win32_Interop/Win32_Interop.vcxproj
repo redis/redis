@@ -60,18 +60,26 @@
       <FileType>Document</FileType>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">md resources
 mc.exe -A -b -c -h . -r resources EventLog.mc
-rc.exe -foresources/EventLog.res resources/EventLog.rc</Command>
+rc.exe -foresources/EventLog.res resources/EventLog.rc
+link.exe -dll -noentry resources/EventLog.res -out:$(TargetDir)EventLog.dll
+</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">md resources
 mc.exe -A -b -c -h . -r resources EventLog.mc
-rc.exe -foresources/EventLog.res resources/EventLog.rc</Command>
+rc.exe -foresources/EventLog.res resources/EventLog.rc
+link.exe -dll -noentry resources/EventLog.res -out:$(TargetDir)EventLog.dll
+</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">EventLog.h</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">EventLog.h</Outputs>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">md resources
 mc.exe -A -b -c -h . -r resources EventLog.mc
-rc.exe -foresources/EventLog.res resources/EventLog.rc</Command>
+rc.exe -foresources/EventLog.res resources/EventLog.rc
+link.exe -dll -noentry resources/EventLog.res -out:$(TargetDir)EventLog.dll
+</Command>
       <Command Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">md resources
 mc.exe -A -b -c -h . -r resources EventLog.mc
-rc.exe -foresources/EventLog.res resources/EventLog.rc</Command>
+rc.exe -foresources/EventLog.res resources/EventLog.rc
+link.exe -dll -noentry resources/EventLog.res -out:$(TargetDir)EventLog.dll
+</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">EventLog.h</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">EventLog.h</Outputs>
     </CustomBuild>
@@ -165,6 +173,10 @@ rc.exe -foresources/EventLog.res resources/EventLog.rc</Command>
       <AdditionalDependencies>
       </AdditionalDependencies>
     </Lib>
+    <CustomBuild>
+      <Command>
+      </Command>
+    </CustomBuild>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -212,6 +224,10 @@ rc.exe -foresources/EventLog.res resources/EventLog.rc</Command>
       <AdditionalDependencies>
       </AdditionalDependencies>
     </Lib>
+    <CustomBuild>
+      <Command>
+      </Command>
+    </CustomBuild>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
