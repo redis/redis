@@ -20,7 +20,7 @@
   <Product Id="*" 
            Name="Redis on Windows" 
            Language="1033" 
-           Version="1.0.0.0" 
+           Version="2.8.19.1" 
            Manufacturer="MSOpenTech" 
            UpgradeCode="{05410198-7212-4FC4-B7C8-AFEFC3DA0FBC}">
     <Package InstallerVersion="200" 
