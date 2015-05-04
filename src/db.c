@@ -956,7 +956,8 @@ void expireGenericCommand(redisClient *c, long long basetime, int unit) {
 }
 
 void expireCommand(redisClient *c) {
-    expireGenericCommand(c,mstime(),UNIT_SECONDS);
+    long long now = server.hz >= 10 ? server.mstime: mstime();
+    expireGenericCommand(c,now,UNIT_SECONDS);
 }
 
 void expireatCommand(redisClient *c) {
