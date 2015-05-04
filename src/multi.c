@@ -162,6 +162,10 @@ void execCommand(redisClient *c) {
         c->mstate.commands[j].argc = c->argc;
         c->mstate.commands[j].argv = c->argv;
         c->mstate.commands[j].cmd = c->cmd;
+
+        /* From time to time, update the cached time so that if the transaction
+         * is huge, we'll have a chance to have more updated time info. */
+        if (j && j % 10000) updateCachedTime();
     }
     c->argv = orig_argv;
     c->argc = orig_argc;
