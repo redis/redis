@@ -32,10 +32,10 @@ Upgrade urgency: LOW for Redis, MODERATE for Sentinel.
 * [FIX] Scripting engine now reports an error when misused with Lua debug
         hooks, instead of crashing. (Salvatore Sanfilippo)
 * [FIX] INFO loading stats: three fixes.
+* [FIX] Fixed memory leaks in rdbSaveToSlavesSockets(). (Alon Diamant)
 
 * [NEW] Redis-cli --latency-dist backported from unstable.
         (Salvatore Sanfilippo)
-* [NEW] Fixed memory leaks in rdbSaveToSlavesSockets(). (Alon Diamant)
 
 --[ Redis 2.8.19 ] Release date: 16 Dec 2014
 
