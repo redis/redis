@@ -121,7 +121,7 @@ void processUnblockedClients(void) {
          * is blocked again. Actually processInputBuffer() checks that the
          * client is not blocked before to proceed, but things may change and
          * the code is conceptually more correct this way. */
-        if (!(c->flags & DISQUE_BLOCKED)) {
+        if (!(c->flags & REDIS_BLOCKED)) {
             if (c->querybuf && sdslen(c->querybuf) > 0) {
                 processInputBuffer(c);
             }
