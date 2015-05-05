@@ -14,6 +14,29 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 2.8.20 ] Release date: 5 May 2015
+
+Upgrade urgency: LOW for Redis, MODERATE for Sentinel.
+
+* [FIX] Sentinel memory leak due to hiredis fixed. (Salvatore Sanfilippo)
+* [FIX] Sentinel memory leak on duplicated instance. (Charsyam)
+* [FIX] Redis crash on Lua reaching output buffer limits. (Yossi Gottlieb)
+* [FIX] Sentinel flushes config on +slave events. (Bill Anderson)
+* [FIX] Fixes to diskless replication. (Oran Agra)
+* [FIX] Redis (non clustered & clustered) replication bug involving blocking
+        operations: see issue #2473. (Salvatore Sanfilippo)
+* [FIX] Config: missing activerehashing option support in CONFIG SET added.
+        (Salvatore Sanfilippo, thx to Bill Anderson)
+* [FIX] AOF bug unlikely to happen in practice and mostly harmless: child
+        process segfaults when parent is not reachable via pipe. (Sun He)
+* [FIX] Scripting engine now reports an error when misused with Lua debug
+        hooks, instead of crashing. (Salvatore Sanfilippo)
+* [FIX] INFO loading stats: three fixes.
+
+* [NEW] Redis-cli --latency-dist backported from unstable.
+        (Salvatore Sanfilippo)
+* [NEW] Fixed memory leaks in rdbSaveToSlavesSockets(). (Alon Diamant)
+
 --[ Redis 2.8.19 ] Release date: 16 Dec 2014
 
 # UPGRADE URGENCY: LOW for both Redis and Sentinel. This release mostly
