@@ -12,7 +12,7 @@ CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 
 --[ Redis 3.0.1 ] Release date: 5 May 2015
 
-Upgrade urgency: LOW for Redis, Sentinel, Cluster.
+Upgrade urgency: LOW for Redis and Cluster, MODERATE for Sentinel.
 
 * [FIX] Sentinel memory leak due to hiredis fixed. (Salvatore Sanfilippo)
 * [FIX] Sentinel memory leak on duplicated instance. (Charsyam)
