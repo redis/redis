@@ -10,6 +10,15 @@ HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
 CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
 --------------------------------------------------------------------------------
 
+--[ Redis 3.0.1 ] Release date: 5 May 2015
+
+Upgrade urgency: LOW for Redis, Sentinel, Cluster.
+
+* [FIX] Sentinel memory leak due to hiredis fixed. (Salvatore Sanfilippo)
+* [FIX] Sentinel memory leak on duplicated instance. (Charsyam)
+* [FIX] Redis crash on Lua reaching output buffer limits. (Yossi Gottlieb)
+* [FIX] Sentinel flushes config on +slave events. (Bill Anderson)
+
 --[ Redis 3.0.0 ] Release date: 1 Apr 2015
 
 >> What's new in Redis 3.0 compared to Redis 2.8?
