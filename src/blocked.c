@@ -117,9 +117,14 @@ void processUnblockedClients(void) {
         listDelNode(server.unblocked_clients,ln);
         c->flags &= ~REDIS_UNBLOCKED;
 
-        /* Process remaining data in the input buffer. */
-        if (c->querybuf && sdslen(c->querybuf) > 0) {
-            processInputBuffer(c);
+        /* Process remaining data in the input buffer, unless the client
+         * is blocked again. Actually processInputBuffer() checks that the
+         * client is not blocked before to proceed, but things may change and
+         * the code is conceptually more correct this way. */
+        if (!(c->flags & DISQUE_BLOCKED)) {
+            if (c->querybuf && sdslen(c->querybuf) > 0) {
+                processInputBuffer(c);
+            }
         }
     }
 }
