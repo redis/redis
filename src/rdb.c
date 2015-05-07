@@ -423,7 +423,7 @@ int rdbLoadDoubleValue(rio *rdb, double *val) {
 #ifdef _WIN32
     double scannedVal = 0;
     int assigned = 0;
-    memset(buf, 128, 0);
+    memset(buf, 0, sizeof(buf));
 #endif
 
     if (rioRead(rdb,&len,1) == 0) return -1;
