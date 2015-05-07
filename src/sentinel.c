@@ -1068,35 +1068,29 @@ const char *sentinelRedisInstanceTypeStr(sentinelRedisInstance *ri) {
     else return "unknown";
 }
 
-/* This function removes all the instances found in the dictionary of
- * sentinels in the specified 'master', having either:
+/* This function remove the Sentinel with the specified ID from the
+ * specified master.
  *
- * 1) The same ip/port as specified.
- * 2) The same runid.
+ * If "runid" is NULL the function returns ASAP.
  *
- * "1" and "2" don't need to verify at the same time, just one is enough.
- * If "runid" is NULL it is not checked.
- * Similarly if "ip" is NULL it is not checked.
+ * This function is useful because on Sentinels address switch, we want to
+ * remove our old entry and add a new one for the same ID but with the new
+ * address.
  *
- * This function is useful because every time we add a new Sentinel into
- * a master's Sentinels dictionary, we want to be very sure about not
- * having duplicated instances for any reason. This is important because
- * other sentinels are needed to reach ODOWN quorum, and later to get
- * voted for a given configuration epoch in order to perform the failover.
- *
- * The function returns the number of Sentinels removed. */
-int removeMatchingSentinelsFromMaster(sentinelRedisInstance *master, char *ip, int port, char *runid) {
+ * The function returns 1 if the matching Sentinel was removed, otherwise
+ * 0 if there was no Sentinel with this ID. */
+int removeMatchingSentinelFromMaster(sentinelRedisInstance *master, char *runid) {
     dictIterator *di;
     dictEntry *de;
     int removed = 0;
+
+    if (runid == NULL) return 0;
 
     di = dictGetSafeIterator(master->sentinels);
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
 
-        if ((ri->runid && runid && strcmp(ri->runid,runid) == 0) ||
-            (ip && strcmp(ri->addr->ip,ip) == 0 && port == ri->addr->port))
-        {
+        if (ri->runid && strcmp(ri->runid,runid) == 0) {
             dictDelete(master->sentinels,ri->name);
             removed++;
         }
@@ -2161,21 +2155,18 @@ void sentinelProcessHelloMessage(char *hello, int hello_len) {
 
         if (!si) {
             /* If not, remove all the sentinels that have the same runid
-             * OR the same ip/port, because it's either a restart or a
-             * network topology change. */
-            removed = removeMatchingSentinelsFromMaster(master,token[0],port,
-                            token[2]);
+             * because there was an address change, and add the same Sentinel
+             * with the new address back. */
+            removed = removeMatchingSentinelFromMaster(master,token[2]);
             if (removed) {
-                sentinelEvent(REDIS_NOTICE,"-dup-sentinel",master,
-                    "%@ #duplicate of %s:%d or %s",
-                    token[0],port,token[2]);
+                sentinelEvent(REDIS_NOTICE,"+sentinel-address-switch",master,
+                    "%@ ip %s port %d for %s", token[0],port,token[2]);
             }
 
             /* Add the new sentinel. */
             si = createSentinelRedisInstance(NULL,SRI_SENTINEL,
                             token[0],port,master->quorum,master);
             if (si) {
-                sentinelEvent(REDIS_NOTICE,"+sentinel",si,"%@");
                 /* The runid is NULL after a new instance creation and
                  * for Sentinels we don't have a later chance to fill it,
                  * so do it now. */
