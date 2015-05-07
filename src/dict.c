@@ -569,10 +569,10 @@ long long dictFingerprint(dict *d) {
     long long integers[6], hash = 0;
     int j;
 
-    integers[0] = (long) d->ht[0].table;
+    integers[0] = (long long) d->ht[0].table;
     integers[1] = d->ht[0].size;
     integers[2] = d->ht[0].used;
-    integers[3] = (long) d->ht[1].table;
+    integers[3] = (long long) d->ht[1].table;
     integers[4] = d->ht[1].size;
     integers[5] = d->ht[1].used;
 

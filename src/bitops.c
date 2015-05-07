@@ -262,7 +262,7 @@ void getbitCommand(redisClient *c) {
     byte = bitoffset >> 3;
     bit = 7 - (bitoffset & 0x7);
     if (o->encoding != REDIS_ENCODING_RAW) {
-        if (byte < (size_t)ll2string(llbuf,sizeof(llbuf),(long)o->ptr))
+        if (byte < (size_t)ll2string(llbuf,sizeof(llbuf),(long long)o->ptr))
             bitval = llbuf[byte] & (1 << bit);
     } else {
         if (byte < sdslen(o->ptr))
@@ -461,7 +461,7 @@ void bitcountCommand(redisClient *c) {
      * array if our string was integer encoded. */
     if (o->encoding == REDIS_ENCODING_INT) {
         p = (unsigned char*) llbuf;
-        strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
+        strlen = ll2string(llbuf,sizeof(llbuf),(long long)o->ptr);
     } else {
         p = (unsigned char*) o->ptr;
         strlen = (long)sdslen(o->ptr);
@@ -530,7 +530,7 @@ void bitposCommand(redisClient *c) {
      * array if our string was integer encoded. */
     if (o->encoding == REDIS_ENCODING_INT) {
         p = (unsigned char*) llbuf;
-        strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
+        strlen = ll2string(llbuf,sizeof(llbuf),(long long)o->ptr);
     } else {
         p = (unsigned char*) o->ptr;
         strlen = (long)sdslen(o->ptr);

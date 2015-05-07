@@ -244,7 +244,7 @@ void getrangeCommand(redisClient *c) {
 
     if (o->encoding == REDIS_ENCODING_INT) {
         str = llbuf;
-        strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
+        strlen = ll2string(llbuf,sizeof(llbuf),(long long)o->ptr);
     } else {
         str = o->ptr;
         strlen = sdslen(str);

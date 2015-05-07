@@ -381,7 +381,7 @@ robj *getDecodedObject(robj *o) {
     if (o->type == REDIS_STRING && o->encoding == REDIS_ENCODING_INT) {
         char buf[32];
 
-        ll2string(buf,32,(long)o->ptr);
+        ll2string(buf,32,(long long)o->ptr);
         dec = createStringObject(buf,strlen(buf));
         return dec;
     } else {
@@ -407,14 +407,14 @@ int compareStringObjectsWithFlags(robj *a, robj *b, int flags) {
 
     if (a == b) return 0;
     if (a->encoding != REDIS_ENCODING_RAW) {
-        alen = ll2string(bufa,sizeof(bufa),(long) a->ptr);
+        alen = ll2string(bufa,sizeof(bufa),(long long) a->ptr);
         astr = bufa;
     } else {
         astr = a->ptr;
         alen = sdslen(astr);
     }
     if (b->encoding != REDIS_ENCODING_RAW) {
-        blen = ll2string(bufb,sizeof(bufb),(long) b->ptr);
+        blen = ll2string(bufb,sizeof(bufb),(long long) b->ptr);
         bstr = bufb;
     } else {
         bstr = b->ptr;
@@ -461,7 +461,7 @@ size_t stringObjectLen(robj *o) {
     } else {
         char buf[32];
 
-        return ll2string(buf,32,(long)o->ptr);
+        return ll2string(buf,32,(long long)o->ptr);
     }
 }
 

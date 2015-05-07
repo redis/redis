@@ -742,7 +742,7 @@ int rioWriteBulkObject(rio *r, robj *obj) {
     /* Avoid using getDecodedObject to help copy-on-write (we are often
      * in a child process when this function is called). */
     if (obj->encoding == REDIS_ENCODING_INT) {
-        return (int)rioWriteBulkLongLong(r,(long)obj->ptr);
+        return (int)rioWriteBulkLongLong(r,(long long)obj->ptr);
     } else if (obj->encoding == REDIS_ENCODING_RAW) {
         return (int)rioWriteBulkString(r,obj->ptr,sdslen(obj->ptr));
     } else {

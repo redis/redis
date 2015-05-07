@@ -542,7 +542,7 @@ void scanGenericCommand(redisClient *c, robj *o, unsigned long cursor) {
                 int len;
 
                 redisAssert(kobj->encoding == REDIS_ENCODING_INT);
-                len = ll2string(buf,sizeof(buf),(long)kobj->ptr);
+                len = ll2string(buf,sizeof(buf),(long long)kobj->ptr);
                 if (!stringmatchlen(pat, patlen, buf, len, 0)) filter = 1;
             } else {
                 if (!stringmatchlen(pat, patlen, kobj->ptr, (int)sdslen(kobj->ptr), 0))

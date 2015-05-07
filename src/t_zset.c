@@ -1712,7 +1712,7 @@ int zuiLongLongFromValue(zsetopval *val) {
 
         if (val->ele != NULL) {
             if (val->ele->encoding == REDIS_ENCODING_INT) {
-                val->ell = (long)val->ele->ptr;
+                val->ell = (long long)val->ele->ptr;
                 val->flags |= OPVAL_VALID_LL;
             } else if (val->ele->encoding == REDIS_ENCODING_RAW) {
                 if (string2ll(val->ele->ptr,sdslen(val->ele->ptr),&val->ell))
@@ -1747,7 +1747,7 @@ int zuiBufferFromValue(zsetopval *val) {
     if (val->estr == NULL) {
         if (val->ele != NULL) {
             if (val->ele->encoding == REDIS_ENCODING_INT) {
-                val->elen = ll2string((char*)val->_buf,sizeof(val->_buf),(long)val->ele->ptr);
+                val->elen = ll2string((char*)val->_buf,sizeof(val->_buf),(long long)val->ele->ptr);
                 val->estr = val->_buf;
             } else if (val->ele->encoding == REDIS_ENCODING_RAW) {
                 val->elen = (unsigned int)sdslen(val->ele->ptr);

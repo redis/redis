@@ -499,7 +499,7 @@ void srandmemberWithCountCommand(redisClient *c) {
                 retval = dictAdd(d,dupStringObject(ele),NULL);
             } else if (ele->encoding == REDIS_ENCODING_INT) {
                 retval = dictAdd(d,
-                    createStringObjectFromLongLong((long)ele->ptr),NULL);
+                    createStringObjectFromLongLong((long long)ele->ptr),NULL);
             }
             redisAssert(retval == DICT_OK);
         }
@@ -530,7 +530,7 @@ void srandmemberWithCountCommand(redisClient *c) {
             } else if (ele->encoding == REDIS_ENCODING_RAW) {
                 ele = dupStringObject(ele);
             } else if (ele->encoding == REDIS_ENCODING_INT) {
-                ele = createStringObjectFromLongLong((long)ele->ptr);
+                ele = createStringObjectFromLongLong((long long)ele->ptr);
             }
             /* Try to add the object to the dictionary. If it already exists
              * free it, otherwise increment the number of objects we have
@@ -671,7 +671,7 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
                  * a much faster path. */
                 if (eleobj->encoding == REDIS_ENCODING_INT &&
                     sets[j]->encoding == REDIS_ENCODING_INTSET &&
-                    !intsetFind((intset*)sets[j]->ptr,(long)eleobj->ptr))
+                    !intsetFind((intset*)sets[j]->ptr,(long long)eleobj->ptr))
                 {
                     break;
                 /* else... object to object check is easy as we use the
