@@ -160,7 +160,7 @@ void feedReplicationBacklogWithObject(robj *o) {
     size_t len;
 
     if (o->encoding == REDIS_ENCODING_INT) {
-        len = ll2string(llstr,sizeof(llstr),(long)o->ptr);
+        len = ll2string(llstr,sizeof(llstr),(long long)o->ptr);
         p = llstr;
     } else {
         len = sdslen(o->ptr);
@@ -1990,7 +1990,7 @@ void replicationCron(void) {
     }
 
     /* Timed out master when we are an already connected slave? */
-    if (server.masterhost && server.repl_state == REDIS_REPL_CONNECTED &&
+	if (server.masterhost && server.repl_state == REDIS_REPL_CONNECTED &&
         (time(NULL)-server.master->lastinteraction) > server.repl_timeout)
     {
         redisLog(REDIS_WARNING,"MASTER timeout: no data nor PING received...");
