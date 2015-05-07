@@ -117,9 +117,14 @@ void processUnblockedClients(void) {
         listDelNode(server.unblocked_clients,ln);
         c->flags &= ~REDIS_UNBLOCKED;
 
-        /* Process remaining data in the input buffer. */
-        if (c->querybuf && sdslen(c->querybuf) > 0) {
-            processInputBuffer(c);
+        /* Process remaining data in the input buffer, unless the client
+         * is blocked again. Actually processInputBuffer() checks that the
+         * client is not blocked before to proceed, but things may change and
+         * the code is conceptually more correct this way. */
+        if (!(c->flags & REDIS_BLOCKED)) {
+            if (c->querybuf && sdslen(c->querybuf) > 0) {
+                processInputBuffer(c);
+            }
         }
     }
 }
@@ -137,10 +142,14 @@ void unblockClient(redisClient *c) {
     /* Clear the flags, and put the client in the unblocked list so that
      * we'll process new commands in its query buffer ASAP. */
     c->flags &= ~REDIS_BLOCKED;
-    c->flags |= REDIS_UNBLOCKED;
     c->btype = REDIS_BLOCKED_NONE;
     server.bpop_blocked_clients--;
-    listAddNodeTail(server.unblocked_clients,c);
+    /* The client may already be into the unblocked list because of a previous
+     * blocking operation, don't add back it into the list multiple times. */
+    if (!(c->flags & REDIS_UNBLOCKED)) {
+        c->flags |= REDIS_UNBLOCKED;
+        listAddNodeTail(server.unblocked_clients,c);
+    }
 }
 
 /* This function gets called when a blocked client timed out in order to
