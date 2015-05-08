@@ -1767,7 +1767,7 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
             sentinelSetClientName(ri,ri->pc,"pubsub");
             /* Now we subscribe to the Sentinels "Hello" channel. */
             retval = redisAsyncCommand(ri->pc,
-                sentinelReceiveHelloMessages, NULL, "SUBSCRIBE %s",
+                sentinelReceiveHelloMessages, ri, "SUBSCRIBE %s",
                     SENTINEL_HELLO_CHANNEL);
             if (retval != REDIS_OK) {
                 /* If we can't subscribe, the Pub/Sub connection is useless
@@ -2219,9 +2219,8 @@ cleanup:
 /* This is our Pub/Sub callback for the Hello channel. It's useful in order
  * to discover other sentinels attached at the same master. */
 void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privdata) {
-    sentinelRedisInstance *ri = c->data;
+    sentinelRedisInstance *ri = privdata;
     redisReply *r;
-    REDIS_NOTUSED(privdata);
 
     if (!reply || !ri) return;
     r = reply;
@@ -3186,9 +3185,8 @@ void sentinelCheckObjectivelyDown(sentinelRedisInstance *master) {
 /* Receive the SENTINEL is-master-down-by-addr reply, see the
  * sentinelAskMasterStateToOtherSentinels() function for more information. */
 void sentinelReceiveIsMasterDownReply(redisAsyncContext *c, void *reply, void *privdata) {
-    sentinelRedisInstance *ri = c->data;
+    sentinelRedisInstance *ri = privdata;
     redisReply *r;
-    REDIS_NOTUSED(privdata);
 
     if (ri) ri->pending_commands--;
     if (!reply || !ri) return;
@@ -3260,7 +3258,7 @@ void sentinelAskMasterStateToOtherSentinels(sentinelRedisInstance *master, int f
         /* Ask */
         ll2string(port,sizeof(port),master->addr->port);
         retval = redisAsyncCommand(ri->cc,
-                    sentinelReceiveIsMasterDownReply, NULL,
+                    sentinelReceiveIsMasterDownReply, ri,
                     "SENTINEL is-master-down-by-addr %s %s %llu %s",
                     master->addr->ip, port,
                     sentinel.current_epoch,
