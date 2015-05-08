@@ -2167,6 +2167,7 @@ void sentinelProcessHelloMessage(char *hello, int hello_len) {
             si = createSentinelRedisInstance(NULL,SRI_SENTINEL,
                             token[0],port,master->quorum,master);
             if (si) {
+                if (!removed) sentinelEvent(REDIS_NOTICE,"+sentinel",si,"%@");
                 /* The runid is NULL after a new instance creation and
                  * for Sentinels we don't have a later chance to fill it,
                  * so do it now. */
