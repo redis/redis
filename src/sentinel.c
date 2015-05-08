@@ -2222,6 +2222,7 @@ cleanup:
 void sentinelReceiveHelloMessages(redisAsyncContext *c, void *reply, void *privdata) {
     sentinelRedisInstance *ri = privdata;
     redisReply *r;
+    REDIS_NOTUSED(c);
 
     if (!reply || !ri) return;
     r = reply;
@@ -3188,6 +3189,7 @@ void sentinelCheckObjectivelyDown(sentinelRedisInstance *master) {
 void sentinelReceiveIsMasterDownReply(redisAsyncContext *c, void *reply, void *privdata) {
     sentinelRedisInstance *ri = privdata;
     redisReply *r;
+    REDIS_NOTUSED(c);
 
     if (ri) ri->pending_commands--;
     if (!reply || !ri) return;
