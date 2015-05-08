@@ -2665,7 +2665,23 @@ void sentinelCommand(redisClient *c) {
             return;
         addReplyDictOfRedisInstances(c,ri->sentinels);
     } else if (!strcasecmp(c->argv[1]->ptr,"is-master-down-by-addr")) {
-        /* SENTINEL IS-MASTER-DOWN-BY-ADDR <ip> <port> <current-epoch> <runid>*/
+        /* SENTINEL IS-MASTER-DOWN-BY-ADDR <ip> <port> <current-epoch> <runid>
+         *
+         * Arguments:
+         *
+         * ip and port are the ip and port of the master we want to be
+         * checked by Sentinel. Note that the command will not check by
+         * name but just by master, in theory different Sentinels may monitor
+         * differnet masters with the same name.
+         *
+         * current-epoch is needed in order to understand if we are allowed
+         * to vote for a failover leader or not. Each Senitnel can vote just
+         * one time per epoch.
+         *
+         * runid is "*" if we are not seeking for a vote from the Sentinel
+         * in order to elect the failover leader. Otherwise it is set to the
+         * runid we want the Sentinel to vote if it did not already voted.
+         */
         sentinelRedisInstance *ri;
         long long req_epoch;
         uint64_t leader_epoch = 0;
