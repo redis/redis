@@ -44,6 +44,7 @@
 #include "hiredis.h"
 #include "sds.h"
 #include "adlist.h"
+#include "rtime.h"
 #include "zmalloc.h"
 
 #define REDIS_NOTUSED(V) ((void) V)
@@ -101,26 +102,6 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 static void createMissingClients(client c);
 
 /* Implementation */
-static long long ustime(void) {
-    struct timeval tv;
-    long long ust;
-
-    gettimeofday(&tv, NULL);
-    ust = ((long)tv.tv_sec)*1000000;
-    ust += tv.tv_usec;
-    return ust;
-}
-
-static long long mstime(void) {
-    struct timeval tv;
-    long long mst;
-
-    gettimeofday(&tv, NULL);
-    mst = ((long long)tv.tv_sec)*1000;
-    mst += tv.tv_usec/1000;
-    return mst;
-}
-
 static void freeClient(client c) {
     listNode *ln;
     aeDeleteFileEvent(config.el,c->context->fd,AE_WRITABLE);

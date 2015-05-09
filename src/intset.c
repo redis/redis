@@ -303,12 +303,6 @@ static void ok(void) {
     printf("OK\n");
 }
 
-static long long usec(void) {
-    struct timeval tv;
-    gettimeofday(&tv,NULL);
-    return (((long long)tv.tv_sec)*1000000)+tv.tv_usec;
-}
-
 #define assert(_e) ((_e)?(void)0:(_assert(#_e,__FILE__,__LINE__),exit(1)))
 static void _assert(char *estr, char *file, int line) {
     printf("\n\n=== ASSERTION FAILED ===\n");
@@ -465,10 +459,10 @@ int intsetTest(int argc, char **argv) {
         is = createSet(bits,size);
         checkConsistency(is);
 
-        start = usec();
+        start = ustime();
         for (i = 0; i < num; i++) intsetSearch(is,rand() % ((1<<bits)-1),NULL);
         printf("%ld lookups, %ld element set, %lldusec\n",
-               num,size,usec()-start);
+               num,size,ustime()-start);
     }
 
     printf("Stress add+delete: "); {

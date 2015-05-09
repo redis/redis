@@ -44,6 +44,7 @@
 #include <ctype.h>
 
 #include "dict.h"
+#include "rtime.h"
 #include "zmalloc.h"
 #include "redisassert.h"
 
@@ -287,21 +288,14 @@ int dictRehash(dict *d, int n) {
     return 1;
 }
 
-long long timeInMilliseconds(void) {
-    struct timeval tv;
-
-    gettimeofday(&tv,NULL);
-    return (((long long)tv.tv_sec)*1000)+(tv.tv_usec/1000);
-}
-
 /* Rehash for an amount of time between ms milliseconds and ms+1 milliseconds */
 int dictRehashMilliseconds(dict *d, int ms) {
-    long long start = timeInMilliseconds();
+    long long start = mstime();
     int rehashes = 0;
 
     while(dictRehash(d,100)) {
         rehashes += 100;
-        if (timeInMilliseconds()-start > ms) break;
+        if (mstime()-start > ms) break;
     }
     return rehashes;
 }
