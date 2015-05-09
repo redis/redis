@@ -41,6 +41,7 @@
 #include <errno.h>
 
 #include "ae.h"
+#include "time.h"
 #include "zmalloc.h"
 #include "config.h"
 
@@ -179,11 +180,9 @@ int aeGetFileEvents(aeEventLoop *eventLoop, int fd) {
 
 static void aeGetTime(long *seconds, long *milliseconds)
 {
-    struct timeval tv;
-
-    gettimeofday(&tv, NULL);
-    *seconds = tv.tv_sec;
-    *milliseconds = tv.tv_usec/1000;
+    long long msec = mstime();
+    *seconds = msec / 1000ULL;
+    *milliseconds = msec % 1000ULL;
 }
 
 static void aeAddMillisecondsToNow(long long milliseconds, long *sec, long *ms) {
