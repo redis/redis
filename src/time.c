@@ -35,9 +35,20 @@
 /* Current time in usecs, used for timespan measurement. */
 long long ustime(void)
 {
+#ifdef CLOCK_MONOTONIC
+    /* High-resolution monotonically-increasing clock source. Not affected by
+     * system clock changes. */
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (ts.tv_sec * 1000000ULL) + (ts.tv_nsec / 1000ULL);
+#else
+    /* High-resolution clock source, affected by system clock changes. Not
+     * ideal for timespan calculation, as it will potentially jump forwards or
+     * backwards. */
     struct timeval tv;
     gettimeofday(&tv,NULL);
     return (((long long)tv.tv_sec)*1000000)+tv.tv_usec;
+#endif
 }
 
 long long mstime(void)
