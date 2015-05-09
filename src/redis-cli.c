@@ -48,6 +48,7 @@
 
 #include "hiredis.h"
 #include "sds.h"
+#include "time.h"
 #include "zmalloc.h"
 #include "linenoise.h"
 #include "help.h"
@@ -123,20 +124,6 @@ char *redisGitDirty(void);
 /*------------------------------------------------------------------------------
  * Utility functions
  *--------------------------------------------------------------------------- */
-
-static long long ustime(void) {
-    struct timeval tv;
-    long long ust;
-
-    gettimeofday(&tv, NULL);
-    ust = ((long long)tv.tv_sec)*1000000;
-    ust += tv.tv_usec;
-    return ust;
-}
-
-static long long mstime(void) {
-    return ustime()/1000;
-}
 
 static void cliRefreshPrompt(void) {
     int len;

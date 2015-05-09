@@ -1110,12 +1110,6 @@ static unsigned char *createIntList() {
     return zl;
 }
 
-static long long usec(void) {
-    struct timeval tv;
-    gettimeofday(&tv,NULL);
-    return (((long long)tv.tv_sec)*1000000)+tv.tv_usec;
-}
-
 static void stress(int pos, int num, int maxsize, int dnum) {
     int i,j,k;
     unsigned char *zl;
@@ -1128,13 +1122,13 @@ static void stress(int pos, int num, int maxsize, int dnum) {
         }
 
         /* Do num times a push+pop from pos */
-        start = usec();
+        start = ustime();
         for (k = 0; k < num; k++) {
             zl = ziplistPush(zl,(unsigned char*)"quux",4,pos);
             zl = ziplistDeleteRange(zl,0,1);
         }
-        printf("List size: %8d, bytes: %8d, %dx push+pop (%s): %6lld usec\n",
-            i,intrev32ifbe(ZIPLIST_BYTES(zl)),num,posstr[pos],usec()-start);
+        printf("List size: %8d, bytes: %8d, %dx push+pop (%s): %6lld ustime\n",
+            i,intrev32ifbe(ZIPLIST_BYTES(zl)),num,posstr[pos],ustime()-start);
         zfree(zl);
     }
 }
