@@ -419,4 +419,44 @@ start_server {tags {"string"}} {
         r set foo bar
         r getrange foo 0 4294967297
     } {bar}
+
+    test {OBJECT SERIALIZEDLENGTH correct value strings} {
+        # The serializedlength of strings should be the length of the string + 1 (zero byte)
+        r set foo val
+        assert {[r object serializedlength foo] == 4}
+        r set foo valval
+        assert {[r object serializedlength foo] == 7}
+        r set foo valvalval
+        assert {[r object serializedlength foo] == 10}
+    }
+    
+    test {OBJECT TTL does not affect the TTL} {
+        r del mykey
+        r set mykey foo
+        # No expire set, both should return -1
+        assert {[r object ttl mykey] == -1}
+        assert {[r ttl mykey] == -1}
+        r expire mykey 100
+        
+        # After setting the expire to 100 seconds, both methods should return a TTL right below 100 seconds
+        assert {[r ttl mykey] > 95 && [r ttl mykey] <= 100}
+        assert {[r object ttl mykey] > 95 && [r object ttl mykey] <= 100}
+        assert {[r object idletime mykey] <= 5}
+
+        # Now sleep for 5 seconds
+        r debug sleep 5
+        
+        # The idletime should be at least 5 seconds
+        assert {[r object idletime mykey]  >= 5}
+        
+        # The TTL should be right below 95 seconds
+        assert {[r object ttl mykey] > 90 && [r object ttl mykey] <= 95}
+        
+        # The idletime should be intact
+        assert {[r object idletime mykey]  >= 5}
+        
+        # Now notice that when running the regular TTL command we affect the idletime 
+        assert {[r ttl mykey] > 90 && [r ttl mykey] <= 95}
+        assert {[r object idletime mykey]  == 0}
+    }
 }
