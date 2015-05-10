@@ -59,6 +59,8 @@
  * When implementing a new type of blocking opeation, the implementation
  * should modify unblockClient() and replyToBlockedClientTimedOut() in order
  * to handle the btype-specific behavior of this two functions.
+ * If the blocking operation waits for certain keys to change state, the
+ * clusterRedirectBlockedClientIfNeeded() function should also be updated.
  */
 
 #include "redis.h"
@@ -114,13 +116,15 @@ void processUnblockedClients(void) {
         c = ln->value;
         listDelNode(server.unblocked_clients,ln);
         c->flags &= ~REDIS_UNBLOCKED;
-        c->btype = REDIS_BLOCKED_NONE;
 
-        /* Process remaining data in the input buffer. */
-        if (c->querybuf && sdslen(c->querybuf) > 0) {
-            server.current_client = c;
-            processInputBuffer(c);
-            server.current_client = NULL;
+        /* Process remaining data in the input buffer, unless the client
+         * is blocked again. Actually processInputBuffer() checks that the
+         * client is not blocked before to proceed, but things may change and
+         * the code is conceptually more correct this way. */
+        if (!(c->flags & REDIS_BLOCKED)) {
+            if (c->querybuf && sdslen(c->querybuf) > 0) {
+                processInputBuffer(c);
+            }
         }
     }
 }
@@ -138,10 +142,14 @@ void unblockClient(redisClient *c) {
     /* Clear the flags, and put the client in the unblocked list so that
      * we'll process new commands in its query buffer ASAP. */
     c->flags &= ~REDIS_BLOCKED;
-    c->flags |= REDIS_UNBLOCKED;
     c->btype = REDIS_BLOCKED_NONE;
     server.bpop_blocked_clients--;
-    listAddNodeTail(server.unblocked_clients,c);
+    /* The client may already be into the unblocked list because of a previous
+     * blocking operation, don't add back it into the list multiple times. */
+    if (!(c->flags & REDIS_UNBLOCKED)) {
+        c->flags |= REDIS_UNBLOCKED;
+        listAddNodeTail(server.unblocked_clients,c);
+    }
 }
 
 /* This function gets called when a blocked client timed out in order to
@@ -156,3 +164,27 @@ void replyToBlockedClientTimedOut(redisClient *c) {
     }
 }
 
+/* Mass-unblock clients because something changed in the instance that makes
+ * blocking no longer safe. For example clients blocked in list operations
+ * in an instance which turns from master to slave is unsafe, so this function
+ * is called when a master turns into a slave.
+ *
+ * The semantics is to send an -UNBLOCKED error to the client, disconnecting
+ * it at the same time. */
+void disconnectAllBlockedClients(void) {
+    listNode *ln;
+    listIter li;
+
+    listRewind(server.clients,&li);
+    while((ln = listNext(&li))) {
+        redisClient *c = listNodeValue(ln);
+
+        if (c->flags & REDIS_BLOCKED) {
+            addReplySds(c,sdsnew(
+                "-UNBLOCKED force unblock from blocking operation, "
+                "instance state changed (master -> slave?)\r\n"));
+            unblockClient(c);
+            c->flags |= REDIS_CLOSE_AFTER_REPLY;
+        }
+    }
+}

@@ -23,10 +23,8 @@ A million repetitions of "a"
 
 #include <stdio.h>
 #include <string.h>
-#include <sys/types.h>	/* for u_int*_t */
-#if defined(__sun)
+#include <stdint.h>
 #include "solarisfixes.h"
-#endif
 #include "sha1.h"
 #include "config.h"
 
@@ -55,12 +53,12 @@ A million repetitions of "a"
 
 /* Hash a single 512-bit block. This is the core of the algorithm. */
 
-void SHA1Transform(u_int32_t state[5], const unsigned char buffer[64])
+void SHA1Transform(uint32_t state[5], const unsigned char buffer[64])
 {
-    u_int32_t a, b, c, d, e;
+    uint32_t a, b, c, d, e;
     typedef union {
         unsigned char c[64];
-        u_int32_t l[16];
+        uint32_t l[16];
     } CHAR64LONG16;
 #ifdef SHA1HANDSOFF
     CHAR64LONG16 block[1];  /* use array to appear as a pointer */
@@ -130,9 +128,9 @@ void SHA1Init(SHA1_CTX* context)
 
 /* Run your data through this. */
 
-void SHA1Update(SHA1_CTX* context, const unsigned char* data, u_int32_t len)
+void SHA1Update(SHA1_CTX* context, const unsigned char* data, uint32_t len)
 {
-    u_int32_t i, j;
+    uint32_t i, j;
 
     j = context->count[0];
     if ((context->count[0] += len << 3) < j)
@@ -170,7 +168,7 @@ void SHA1Final(unsigned char digest[20], SHA1_CTX* context)
 
     for (i = 0; i < 2; i++)
        {
-        u_int32_t t = context->count[i];
+        uint32_t t = context->count[i];
         int j;
 
         for (j = 0; j < 4; t >>= 8, j++)
@@ -199,15 +197,18 @@ void SHA1Final(unsigned char digest[20], SHA1_CTX* context)
 }
 /* ================ end of sha1.c ================ */
 
-#if 0
+#ifdef REDIS_TEST
 #define BUFSIZE 4096
 
-int
-main(int argc, char **argv)
+#define UNUSED(x) (void)(x)
+int sha1Test(int argc, char **argv)
 {
     SHA1_CTX ctx;
     unsigned char hash[20], buf[BUFSIZE];
     int i;
+
+    UNUSED(argc);
+    UNUSED(argv);
 
     for(i=0;i<BUFSIZE;i++)
         buf[i] = i;
@@ -223,6 +224,4 @@ main(int argc, char **argv)
     printf("\n");
     return 0;
 }
-
 #endif
-

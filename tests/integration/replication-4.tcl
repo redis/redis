@@ -132,5 +132,24 @@ start_server {tags {"repl"}} {
             }
             assert {[$master dbsize] > 0}
         }
+
+        test {Replication of SPOP command -- alsoPropagate() API} {
+            $master del myset
+            set size [expr 1+[randomInt 100]]
+            set content {}
+            for {set j 0} {$j < $size} {incr j} {
+                lappend content [randomValue]
+            }
+            $master sadd myset {*}$content
+
+            set count [randomInt 100]
+            set result [$master spop myset $count]
+
+            wait_for_condition 50 100 {
+                [$master debug digest] eq [$slave debug digest]
+            } else {
+                fail "SPOP replication inconsistency"
+            }
+        }
     }
 }

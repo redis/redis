@@ -398,6 +398,7 @@ struct redisCommand sentinelcmds[] = {
     {"publish",sentinelPublishCommand,3,"",0,NULL,0,0,0,0,0},
     {"info",sentinelInfoCommand,-1,"",0,NULL,0,0,0,0,0},
     {"role",sentinelRoleCommand,1,"l",0,NULL,0,0,0,0,0},
+    {"client",clientCommand,-2,"rs",0,NULL,0,0,0,0,0},
     {"shutdown",shutdownCommand,-1,"",0,NULL,0,0,0,0,0}
 };
 
@@ -577,7 +578,7 @@ void sentinelEvent(int level, char *type, sentinelRedisInstance *ri,
     if (level == REDIS_WARNING && ri != NULL) {
         sentinelRedisInstance *master = (ri->flags & SRI_MASTER) ?
                                          ri : ri->master;
-        if (master->notification_script) {
+        if (master && master->notification_script) {
             sentinelScheduleScriptExecution(master->notification_script,
                 type,msg,NULL);
         }
@@ -921,6 +922,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     else if (flags & SRI_SENTINEL) table = master->sentinels;
     sdsname = sdsnew(name);
     if (dictFind(table,sdsname)) {
+        releaseSentinelAddr(addr);
         sdsfree(sdsname);
         errno = EBUSY;
         return NULL;
@@ -1269,10 +1271,7 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *ip,
         slave = createSentinelRedisInstance(NULL,SRI_SLAVE,slaves[j]->ip,
                     slaves[j]->port, master->quorum, master);
         releaseSentinelAddr(slaves[j]);
-        if (slave) {
-            sentinelEvent(REDIS_NOTICE,"+slave",slave,"%@");
-            sentinelFlushConfig();
-        }
+        if (slave) sentinelEvent(REDIS_NOTICE,"+slave",slave,"%@");
     }
     zfree(slaves);
 
@@ -1848,6 +1847,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                             atoi(port), ri->quorum, ri)) != NULL)
                 {
                     sentinelEvent(REDIS_NOTICE,"+slave",slave,"%@");
+                    sentinelFlushConfig();
                 }
             }
         }
@@ -2741,6 +2741,12 @@ void sentinelCommand(redisClient *c) {
             != REDIS_OK) return;
         if (getLongFromObjectOrReply(c,c->argv[4],&port,"Invalid port")
             != REDIS_OK) return;
+
+        if (quorum <= 0) {
+            addReplyError(c, "Quorum must be 1 or greater.");
+            return;
+        }
+
         /* Make sure the IP field is actually a valid IP before passing it
          * to createSentinelRedisInstance(), otherwise we may trigger a
          * DNS lookup at runtime. */
@@ -2856,24 +2862,30 @@ numargserr:
 
 /* SENTINEL INFO [section] */
 void sentinelInfoCommand(redisClient *c) {
-    char *section = c->argc == 2 ? c->argv[1]->ptr : "default";
-    sds info = sdsempty();
-    int defsections = !strcasecmp(section,"default");
-    int sections = 0;
-
     if (c->argc > 2) {
         addReply(c,shared.syntaxerr);
         return;
     }
 
-    if (!strcasecmp(section,"server") || defsections) {
+    int defsections = 0, allsections = 0;
+    char *section = c->argc == 2 ? c->argv[1]->ptr : NULL;
+    if (section) {
+        allsections = !strcasecmp(section,"all");
+        defsections = !strcasecmp(section,"default");
+    } else {
+        defsections = 1;
+    }
+
+    int sections = 0;
+    sds info = sdsempty();
+    if (defsections || allsections || !strcasecmp(section,"server")) {
         if (sections++) info = sdscat(info,"\r\n");
         sds serversection = genRedisInfoString("server");
         info = sdscatlen(info,serversection,sdslen(serversection));
         sdsfree(serversection);
     }
 
-    if (!strcasecmp(section,"sentinel") || defsections) {
+    if (defsections || allsections || !strcasecmp(section,"sentinel")) {
         dictIterator *di;
         dictEntry *de;
         int master_id = 0;
@@ -2908,10 +2920,7 @@ void sentinelInfoCommand(redisClient *c) {
         dictReleaseIterator(di);
     }
 
-    addReplySds(c,sdscatprintf(sdsempty(),"$%lu\r\n",
-        (unsigned long)sdslen(info)));
-    addReplySds(c,info);
-    addReply(c,shared.crlf);
+    addReplyBulkSds(c, info);
 }
 
 /* Implements Sentinel verison of the ROLE command. The output is

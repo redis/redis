@@ -71,7 +71,7 @@ sds sdsempty(void) {
     return sdsnewlen("",0);
 }
 
-/* Create a new sds string starting from a null termined C string. */
+/* Create a new sds string starting from a null terminated C string. */
 sds sdsnew(const char *init) {
     size_t initlen = (init == NULL) ? 0 : strlen(init);
     return sdsnewlen(init, initlen);
@@ -557,7 +557,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
  * Example:
  *
  * s = sdsnew("AA...AA.a.aa.aHelloWorld     :::");
- * s = sdstrim(s,"A. :");
+ * s = sdstrim(s,"Aa. :");
  * printf("%s\n", s);
  *
  * Output will be just "Hello World".
@@ -962,12 +962,15 @@ sds sdsjoin(char **argv, int argc, char *sep) {
     return join;
 }
 
-#ifdef SDS_TEST_MAIN
+#if defined(REDIS_TEST) || defined(SDS_TEST_MAIN)
 #include <stdio.h>
 #include "testhelp.h"
 #include "limits.h"
 
-int main(void) {
+#define UNUSED(x) (void)(x)
+int sdsTest(int argc, char *argv[]) {
+    UNUSED(argc);
+    UNUSED(argv);
     {
         struct sdshdr *sh;
         sds x = sdsnew("foo"), y;
@@ -1092,9 +1095,10 @@ int main(void) {
             memcmp(y,"\"\\a\\n\\x00foo\\r\"",15) == 0)
 
         {
-            int oldfree;
+            unsigned int oldfree;
 
             sdsfree(x);
+            sdsfree(y);
             x = sdsnew("0");
             sh = (void*) (x-(sizeof(struct sdshdr)));
             test_cond("sdsnew() free/len buffers", sh->len == 1 && sh->free == 0);
@@ -1107,9 +1111,17 @@ int main(void) {
             test_cond("sdsIncrLen() -- content", x[0] == '0' && x[1] == '1');
             test_cond("sdsIncrLen() -- len", sh->len == 2);
             test_cond("sdsIncrLen() -- free", sh->free == oldfree-1);
+
+            sdsfree(x);
         }
     }
     test_report()
     return 0;
+}
+#endif
+
+#ifdef SDS_TEST_MAIN
+int main(void) {
+    return sdsTest();
 }
 #endif

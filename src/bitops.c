@@ -229,18 +229,16 @@ void setbitCommand(redisClient *c) {
         return;
     }
 
+    byte = bitoffset >> 3;
     o = lookupKeyWrite(c->db,c->argv[1]);
     if (o == NULL) {
-        o = createObject(REDIS_STRING,sdsempty());
+        o = createObject(REDIS_STRING,sdsnewlen(NULL, byte+1));
         dbAdd(c->db,c->argv[1],o);
     } else {
         if (checkType(c,o,REDIS_STRING)) return;
         o = dbUnshareStringValue(c->db,c->argv[1],o);
+        o->ptr = sdsgrowzero(o->ptr,byte+1);
     }
-
-    /* Grow sds value to the right length if necessary */
-    byte = bitoffset >> 3;
-    o->ptr = sdsgrowzero(o->ptr,byte+1);
 
     /* Get current values */
     byteval = ((uint8_t*)o->ptr)[byte];

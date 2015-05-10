@@ -26,10 +26,12 @@
 
 /* Redirection errors returned by getNodeByQuery(). */
 #define REDIS_CLUSTER_REDIR_NONE 0          /* Node can serve the request. */
-#define REDIS_CLUSTER_REDIR_CROSS_SLOT 1    /* Keys in different slots. */
-#define REDIS_CLUSTER_REDIR_UNSTABLE 2      /* Keys in slot resharding. */
+#define REDIS_CLUSTER_REDIR_CROSS_SLOT 1    /* -CROSSSLOT request. */
+#define REDIS_CLUSTER_REDIR_UNSTABLE 2      /* -TRYAGAIN redirection required */
 #define REDIS_CLUSTER_REDIR_ASK 3           /* -ASK redirection required. */
 #define REDIS_CLUSTER_REDIR_MOVED 4         /* -MOVED redirection required. */
+#define REDIS_CLUSTER_REDIR_DOWN_STATE 5    /* -CLUSTERDOWN, global state. */
+#define REDIS_CLUSTER_REDIR_DOWN_UNBOUND 6  /* -CLUSTERDOWN, unbound slot. */
 
 struct clusterNode;
 
@@ -163,10 +165,11 @@ typedef struct {
     char nodename[REDIS_CLUSTER_NAMELEN];
     uint32_t ping_sent;
     uint32_t pong_received;
-    char ip[REDIS_IP_STR_LEN];    /* IP address last time it was seen */
-    uint16_t port;  /* port last time it was seen */
-    uint16_t flags;
-    uint32_t notused; /* for 64 bit alignment */
+    char ip[REDIS_IP_STR_LEN];  /* IP address last time it was seen */
+    uint16_t port;              /* port last time it was seen */
+    uint16_t flags;             /* node->flags copy */
+    uint16_t notused1;          /* Some room for future improvements. */
+    uint32_t notused2;
 } clusterMsgDataGossip;
 
 typedef struct {
@@ -211,6 +214,7 @@ union clusterMsgData {
     } update;
 };
 
+#define CLUSTER_PROTO_VER 0 /* Cluster bus protocol version. */
 
 typedef struct {
     char sig[4];        /* Siganture "RCmb" (Redis Cluster message bus). */
@@ -246,5 +250,7 @@ typedef struct {
 
 /* ---------------------- API exported outside cluster.c -------------------- */
 clusterNode *getNodeByQuery(redisClient *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
+int clusterRedirectBlockedClientIfNeeded(redisClient *c);
+void clusterRedirectClient(redisClient *c, clusterNode *n, int hashslot, int error_code);
 
 #endif /* __REDIS_CLUSTER_H */

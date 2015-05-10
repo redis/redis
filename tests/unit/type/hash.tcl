@@ -390,6 +390,51 @@ start_server {tags {"hash"}} {
         lappend rv [string match "ERR*not*float*" $bigerr]
     } {1 1}
 
+    test {HSTRLEN against the small hash} {
+        set err {}
+        foreach k [array names smallhash *] {
+            if {[string length $smallhash($k)] ne [r hstrlen smallhash $k]} {
+                set err "[string length $smallhash($k)] != [r hstrlen smallhash $k]"
+                break
+            }
+        }
+        set _ $err
+    } {}
+
+    test {HSTRLEN against the big hash} {
+        set err {}
+        foreach k [array names bighash *] {
+            if {[string length $bighash($k)] ne [r hstrlen bighash $k]} {
+                set err "[string length $bighash($k)] != [r hstrlen bighash $k]"
+                break
+            }
+        }
+        set _ $err
+    } {}
+
+    test {HSTRLEN against non existing field} {
+        set rv {}
+        lappend rv [r hstrlen smallhash __123123123__]
+        lappend rv [r hstrlen bighash __123123123__]
+        set _ $rv
+    } {0 0}
+
+    test {HSTRLEN corner cases} {
+        set vals {
+            -9223372036854775808 9223372036854775807 9223372036854775808
+            {} 0 -1 x
+        }
+        foreach v $vals {
+            r hmset smallhash field $v
+            r hmset bighash field $v
+            set len1 [string length $v]
+            set len2 [r hstrlen smallhash field]
+            set len3 [r hstrlen bighash field]
+            assert {$len1 == $len2}
+            assert {$len2 == $len3}
+        }
+    }
+
     test {Hash ziplist regression test for large keys} {
         r hset hash kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk a
         r hset hash kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk b

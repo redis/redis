@@ -204,7 +204,7 @@ tags {"aof"} {
         }
     }
 
-    ## Test that SPOP with <count> (that modifies the client's argc/argv) is correctly free'd
+    ## Uses the alsoPropagate() API.
     create_aof {
         append_to_aof [formatCommand sadd set foo]
         append_to_aof [formatCommand sadd set bar]

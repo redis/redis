@@ -652,7 +652,8 @@ void replconfCommand(redisClient *c) {
  *
  * It does a few things:
  *
- * 1) Put the slave in ONLINE state.
+ * 1) Put the slave in ONLINE state (useless when the function is called
+ *    because state is already ONLINE but repl_put_online_on_ack is true).
  * 2) Make sure the writable event is re-installed, since calling the SYNC
  *    command disables it, so that we can accumulate output buffer without
  *    sending it to the slave.
@@ -660,7 +661,7 @@ void replconfCommand(redisClient *c) {
 void putSlaveOnline(redisClient *slave) {
     slave->replstate = REDIS_REPL_ONLINE;
     slave->repl_put_online_on_ack = 0;
-    slave->repl_ack_time = server.unixtime;
+    slave->repl_ack_time = server.unixtime; /* Prevent false timeout. */
     if (aeCreateFileEvent(server.el, slave->fd, AE_WRITABLE,
         sendReplyToClient, slave) == AE_ERR) {
         redisLog(REDIS_WARNING,"Unable to register writable event for slave bulk transfer: %s", strerror(errno));
@@ -773,6 +774,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
                  * is technically online now. */
                 slave->replstate = REDIS_REPL_ONLINE;
                 slave->repl_put_online_on_ack = 1;
+                slave->repl_ack_time = server.unixtime; /* Timeout otherwise. */
             } else {
                 if (bgsaveerr != REDIS_OK) {
                     freeClient(slave);
@@ -852,6 +854,23 @@ void replicationSendNewlineToMaster(void) {
 void replicationEmptyDbCallback(void *privdata) {
     REDIS_NOTUSED(privdata);
     replicationSendNewlineToMaster();
+}
+
+/* Once we have a link with the master and the synchroniziation was
+ * performed, this function materializes the master client we store
+ * at server.master, starting from the specified file descriptor. */
+void replicationCreateMasterClient(int fd) {
+    server.master = createClient(fd);
+    server.master->flags |= REDIS_MASTER;
+    server.master->authenticated = 1;
+    server.repl_state = REDIS_REPL_CONNECTED;
+    server.master->reploff = server.repl_master_initial_offset;
+    memcpy(server.master->replrunid, server.repl_master_runid,
+        sizeof(server.repl_master_runid));
+    /* If master offset is set to -1, this master is old and is not
+     * PSYNC capable, so we flag it accordingly. */
+    if (server.master->reploff == -1)
+        server.master->flags |= REDIS_PRE_PSYNC;
 }
 
 /* Asynchronously read the SYNC payload we receive from a master */
@@ -1017,17 +1036,7 @@ void readSyncBulkPayload(aeEventLoop *el, int fd, void *privdata, int mask) {
         /* Final setup of the connected slave <- master link */
         zfree(server.repl_transfer_tmpfile);
         close(server.repl_transfer_fd);
-        server.master = createClient(server.repl_transfer_s);
-        server.master->flags |= REDIS_MASTER;
-        server.master->authenticated = 1;
-        server.repl_state = REDIS_REPL_CONNECTED;
-        server.master->reploff = server.repl_master_initial_offset;
-        memcpy(server.master->replrunid, server.repl_master_runid,
-            sizeof(server.repl_master_runid));
-        /* If master offset is set to -1, this master is old and is not
-         * PSYNC capable, so we flag it accordingly. */
-        if (server.master->reploff == -1)
-            server.master->flags |= REDIS_PRE_PSYNC;
+        replicationCreateMasterClient(server.repl_transfer_s);
         redisLog(REDIS_NOTICE, "MASTER <-> SLAVE sync: Finished with success");
         /* Restart the AOF subsystem now that we finished the sync. This
          * will trigger an AOF rewrite, and when done will start appending
@@ -1437,6 +1446,7 @@ void replicationSetMaster(char *ip, int port) {
     server.masterhost = sdsnew(ip);
     server.masterport = port;
     if (server.master) freeClient(server.master);
+    disconnectAllBlockedClients(); /* Clients blocked in master, now slave. */
     disconnectSlaves(); /* Force our slaves to resync with us as well. */
     replicationDiscardCachedMaster(); /* Don't try a PSYNC. */
     freeReplicationBacklog(); /* Don't allow our chained slaves to PSYNC. */

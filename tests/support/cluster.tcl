@@ -226,6 +226,8 @@ proc ::redis_cluster::get_keys_from_command {cmd argv} {
     # Special handling for other commands
     switch -exact $cmd {
         mget {return $argv}
+        eval {return [lrange $argv 2 1+[lindex $argv 1]]}
+        evalsha {return [lrange $argv 2 1+[lindex $argv 1]]}
     }
 
     # All the remaining commands are not handled.

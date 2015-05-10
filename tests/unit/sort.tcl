@@ -1,8 +1,7 @@
 start_server {
     tags {"sort"}
     overrides {
-        "list-max-ziplist-value" 16
-        "list-max-ziplist-entries" 32
+        "list-max-ziplist-size" 32
         "set-max-intset-entries" 32
     }
 } {
@@ -36,9 +35,9 @@ start_server {
     }
 
     foreach {num cmd enc title} {
-        16 lpush ziplist "Ziplist"
-        1000 lpush linkedlist "Linked list"
-        10000 lpush linkedlist "Big Linked list"
+        16 lpush quicklist "Old Ziplist"
+        1000 lpush quicklist "Old Linked list"
+        10000 lpush quicklist "Old Big Linked list"
         16 sadd intset "Intset"
         1000 sadd hashtable "Hash table"
         10000 sadd hashtable "Big Hash table"
@@ -85,14 +84,14 @@ start_server {
         r sort tosort BY weight_* store sort-res
         assert_equal $result [r lrange sort-res 0 -1]
         assert_equal 16 [r llen sort-res]
-        assert_encoding ziplist sort-res
+        assert_encoding quicklist sort-res
     }
 
     test "SORT BY hash field STORE" {
         r sort tosort BY wobj_*->weight store sort-res
         assert_equal $result [r lrange sort-res 0 -1]
         assert_equal 16 [r llen sort-res]
-        assert_encoding ziplist sort-res
+        assert_encoding quicklist sort-res
     }
 
     test "SORT extracts STORE correctly" {

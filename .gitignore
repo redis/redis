@@ -4,6 +4,7 @@
 dump.rdb
 redis-benchmark
 redis-check-aof
+redis-check-rdb
 redis-check-dump
 redis-cli
 redis-sentinel

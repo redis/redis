@@ -50,14 +50,14 @@ robj *createObject(int type, void *ptr) {
 
 /* Create a string object with encoding REDIS_ENCODING_RAW, that is a plain
  * string object where o->ptr points to a proper sds string. */
-robj *createRawStringObject(char *ptr, size_t len) {
+robj *createRawStringObject(const char *ptr, size_t len) {
     return createObject(REDIS_STRING,sdsnewlen(ptr,len));
 }
 
 /* Create a string object with encoding REDIS_ENCODING_EMBSTR, that is
  * an object where the sds string is actually an unmodifiable string
  * allocated in the same chunk as the object itself. */
-robj *createEmbeddedStringObject(char *ptr, size_t len) {
+robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr)+len+1);
     struct sdshdr *sh = (void*)(o+1);
 
@@ -85,7 +85,7 @@ robj *createEmbeddedStringObject(char *ptr, size_t len) {
  * The current limit of 39 is chosen so that the biggest string object
  * we allocate as EMBSTR will still fit into the 64 byte arena of jemalloc. */
 #define REDIS_ENCODING_EMBSTR_SIZE_LIMIT 39
-robj *createStringObject(char *ptr, size_t len) {
+robj *createStringObject(const char *ptr, size_t len) {
     if (len <= REDIS_ENCODING_EMBSTR_SIZE_LIMIT)
         return createEmbeddedStringObject(ptr,len);
     else
@@ -180,11 +180,10 @@ robj *dupStringObject(robj *o) {
     }
 }
 
-robj *createListObject(void) {
-    list *l = listCreate();
+robj *createQuicklistObject(void) {
+    quicklist *l = quicklistCreate();
     robj *o = createObject(REDIS_LIST,l);
-    listSetFreeMethod(l,decrRefCountVoid);
-    o->encoding = REDIS_ENCODING_LINKEDLIST;
+    o->encoding = REDIS_ENCODING_QUICKLIST;
     return o;
 }
 
@@ -242,11 +241,8 @@ void freeStringObject(robj *o) {
 
 void freeListObject(robj *o) {
     switch (o->encoding) {
-    case REDIS_ENCODING_LINKEDLIST:
-        listRelease((list*) o->ptr);
-        break;
-    case REDIS_ENCODING_ZIPLIST:
-        zfree(o->ptr);
+    case REDIS_ENCODING_QUICKLIST:
+        quicklistRelease(o->ptr);
         break;
     default:
         redisPanic("Unknown list encoding type");
@@ -533,9 +529,7 @@ size_t stringObjectLen(robj *o) {
     if (sdsEncodedObject(o)) {
         return sdslen(o->ptr);
     } else {
-        char buf[32];
-
-        return ll2string(buf,32,(long)o->ptr);
+        return sdigits10((long)o->ptr);
     }
 }
 
@@ -678,7 +672,7 @@ char *strEncoding(int encoding) {
     case REDIS_ENCODING_RAW: return "raw";
     case REDIS_ENCODING_INT: return "int";
     case REDIS_ENCODING_HT: return "hashtable";
-    case REDIS_ENCODING_LINKEDLIST: return "linkedlist";
+    case REDIS_ENCODING_QUICKLIST: return "quicklist";
     case REDIS_ENCODING_ZIPLIST: return "ziplist";
     case REDIS_ENCODING_INTSET: return "intset";
     case REDIS_ENCODING_SKIPLIST: return "skiplist";

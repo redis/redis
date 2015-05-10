@@ -391,7 +391,7 @@ int anetUnixNonBlockConnect(char *err, char *path)
  * (unless error or EOF condition is encountered) */
 int anetRead(int fd, char *buf, int count)
 {
-    int nread, totlen = 0;
+    ssize_t nread, totlen = 0;
     while(totlen != count) {
         nread = read(fd,buf,count-totlen);
         if (nread == 0) return totlen;
@@ -406,7 +406,7 @@ int anetRead(int fd, char *buf, int count)
  * (unless error is encountered) */
 int anetWrite(int fd, char *buf, int count)
 {
-    int nwritten, totlen = 0;
+    ssize_t nwritten, totlen = 0;
     while(totlen != count) {
         nwritten = write(fd,buf,count-totlen);
         if (nwritten == 0) return totlen;

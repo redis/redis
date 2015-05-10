@@ -261,90 +261,6 @@ int64_t intsetRandom(intset *is) {
     return _intsetGet(is,rand()%intrev32ifbe(is->length));
 }
 
-/* How many times bigger should the set length be compared to the requested
- * count of members for us to use the Floyd algorithm instead of
- * the Knuth algorithm */
-#define RANDOMMEMBERS_ALGORITHM_SELECTION_RATIO (2)
-
-/* Copies 'count' random members from the set into the 'values' array.
- * 'values' must be an array of int64_t values, of length 'count'.
- * Returns the amount of items returned. If this amount is less than 'count',
- * then the remaining 'values' are left uninitialized. */
-int intsetRandomMembers(intset *is, int64_t* values, int count) {
-
-    /* We don't check that is and values are non-NULL - the caller must
-     * play nice. */
-
-    int length = intsetLen(is);
-
-    if (count > length) {
-        /* Return everything in the set */
-        count = length;
-    }
-
-    /* Choose between the Knuth shuffle algorithm, O(1) space, O(length) time,
-     * and the Floyd algorithm, O(length) space, O(count) time. */
-    if ((RANDOMMEMBERS_ALGORITHM_SELECTION_RATIO * count) > length) {
-
-        /* If the count of members requested is almost the length of the set,
-         * use the Knuth shuffle algorithm, O(1) space, O(length) time. */
-
-        /* First, fill the values array with unique random indexes inside
-         * the set. */
-        int in, im, rn, rm;
-        im = 0;
-        for (in = 0; in < length && im < count; in++) {
-
-            rn = length - in;
-            rm = count - im;
-            if (rand() % rn < rm) {
-                values[im++] = in;
-            }
-        }
-
-    } else {
-
-        /* If the length is considerably more than the count of members
-         * requested, use Robert Floyd's algorithm, O(length) space,
-         * O(count) time.
-         * Based on Jon Bentley's Programming Pearls */
-
-        int64_t *is_used = zcalloc(sizeof(int64_t) * length);
-        int in, im, r;
-
-        r = 0;
-        im = 0;
-
-        for (in = length - count; in < length && im < count; in++) {
-
-            /* Generate a random number r */
-            r = rand() % (in + 1);
-
-            /* Do we already have the value in r? */
-            if (is_used[r]) {
-                /* Use in instead of the generated number */
-                r = in;
-            }
-
-            values[im++] = r ;
-
-            /* Mark it as used */
-            is_used[r] = 1;
-        }
-
-        zfree(is_used);
-    }
-
-    /* Replace each random index with the value stored there in the intset */
-    uint8_t encoding = intrev32ifbe(is->encoding);
-    for (int currentValue = 0; currentValue < count; currentValue++) {
-        values[currentValue] =
-            _intsetGetEncoded(is, values[currentValue], encoding);
-    }
-
-    return count;
-}
-
 /* Sets the value to the value at the given position. When this position is
  * out of range the function returns 0, when in range it returns 1. */
 uint8_t intsetGet(intset *is, uint32_t pos, int64_t *value) {
@@ -365,44 +281,46 @@ size_t intsetBlobLen(intset *is) {
     return sizeof(intset)+intrev32ifbe(is->length)*intrev32ifbe(is->encoding);
 }
 
-#ifdef INTSET_TEST_MAIN
+#ifdef REDIS_TEST
 #include <sys/time.h>
+#include <time.h>
 
-void intsetRepr(intset *is) {
-    int i;
-    for (i = 0; i < intrev32ifbe(is->length); i++) {
+#if 0
+static void intsetRepr(intset *is) {
+    for (uint32_t i = 0; i < intrev32ifbe(is->length); i++) {
         printf("%lld\n", (uint64_t)_intsetGet(is,i));
     }
     printf("\n");
 }
 
-void error(char *err) {
+static void error(char *err) {
     printf("%s\n", err);
     exit(1);
 }
+#endif
 
-void ok(void) {
+static void ok(void) {
     printf("OK\n");
 }
 
-long long usec(void) {
+static long long usec(void) {
     struct timeval tv;
     gettimeofday(&tv,NULL);
     return (((long long)tv.tv_sec)*1000000)+tv.tv_usec;
 }
 
 #define assert(_e) ((_e)?(void)0:(_assert(#_e,__FILE__,__LINE__),exit(1)))
-void _assert(char *estr, char *file, int line) {
+static void _assert(char *estr, char *file, int line) {
     printf("\n\n=== ASSERTION FAILED ===\n");
     printf("==> %s:%d '%s' is not true\n",file,line,estr);
 }
 
-intset *createSet(int bits, int size) {
+static intset *createSet(int bits, int size) {
     uint64_t mask = (1<<bits)-1;
-    uint64_t i, value;
+    uint64_t value;
     intset *is = intsetNew();
 
-    for (i = 0; i < size; i++) {
+    for (int i = 0; i < size; i++) {
         if (bits > 32) {
             value = (rand()*rand()) & mask;
         } else {
@@ -413,10 +331,8 @@ intset *createSet(int bits, int size) {
     return is;
 }
 
-void checkConsistency(intset *is) {
-    int i;
-
-    for (i = 0; i < (intrev32ifbe(is->length)-1); i++) {
+static void checkConsistency(intset *is) {
+    for (uint32_t i = 0; i < (intrev32ifbe(is->length)-1); i++) {
         uint32_t encoding = intrev32ifbe(is->encoding);
 
         if (encoding == INTSET_ENC_INT16) {
@@ -432,11 +348,15 @@ void checkConsistency(intset *is) {
     }
 }
 
-int main(int argc, char **argv) {
+#define UNUSED(x) (void)(x)
+int intsetTest(int argc, char **argv) {
     uint8_t success;
     int i;
     intset *is;
-    sranddev();
+    srand(time(NULL));
+
+    UNUSED(argc);
+    UNUSED(argv);
 
     printf("Value encodings: "); {
         assert(_intsetValueEncoding(-32768) == INTSET_ENC_INT16);
@@ -464,7 +384,7 @@ int main(int argc, char **argv) {
     }
 
     printf("Large number of random adds: "); {
-        int inserts = 0;
+        uint32_t inserts = 0;
         is = intsetNew();
         for (i = 0; i < 1024; i++) {
             is = intsetAdd(is,rand()%0x800,&success);
@@ -566,5 +486,7 @@ int main(int argc, char **argv) {
         checkConsistency(is);
         ok();
     }
+
+    return 0;
 }
 #endif
