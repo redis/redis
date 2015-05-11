@@ -2775,6 +2775,10 @@ void sentinelCommand(redisClient *c) {
             sentinelEvent(REDIS_WARNING,"+monitor",ri,"%@ quorum %d",ri->quorum);
             addReply(c,shared.ok);
         }
+    } else if (!strcasecmp(c->argv[1]->ptr,"flushconfig")) {
+        sentinelFlushConfig();
+        addReply(c,shared.ok);
+        return;
     } else if (!strcasecmp(c->argv[1]->ptr,"remove")) {
         /* SENTINEL REMOVE <name> */
         sentinelRedisInstance *ri;
