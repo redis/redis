@@ -2538,6 +2538,10 @@ void addReplySentinelRedisInstance(redisClient *c, sentinelRedisInstance *ri) {
     addReplyBulkLongLong(c,ri->link->pending_commands);
     fields++;
 
+    addReplyBulkCString(c,"link-refcount");
+    addReplyBulkLongLong(c,ri->link->refcount);
+    fields++;
+
     if (ri->flags & SRI_FAILOVER_IN_PROGRESS) {
         addReplyBulkCString(c,"failover-state");
         addReplyBulkCString(c,(char*)sentinelFailoverStateStr(ri->failover_state));
