@@ -1860,17 +1860,6 @@ void initServer(void) {
     if (server.sofd > 0 && aeCreateFileEvent(server.el,server.sofd,AE_READABLE,
         acceptUnixHandler,NULL) == AE_ERR) redisPanic("Unrecoverable error creating server.sofd file event.");
 
-    /* Open the AOF file if needed. */
-    if (server.aof_state == REDIS_AOF_ON) {
-        server.aof_fd = open(server.aof_filename,
-                               O_WRONLY|O_APPEND|O_CREAT,0644);
-        if (server.aof_fd == -1) {
-            redisLog(REDIS_WARNING, "Can't open the append-only file: %s",
-                strerror(errno));
-            exit(1);
-        }
-    }
-
     /* 32 bit instances are limited to 4GB of address space, so if there is
      * no explicit limit in the user provided configuration we set a limit
      * at 3 GB using maxmemory with 'noeviction' policy'. This avoids
@@ -3878,6 +3867,17 @@ int main(int argc, char **argv) {
             redisLog(REDIS_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
     } else {
         sentinelIsRunning();
+    }
+
+    /* Open the AOF file if needed. */
+    if (server.aof_state == REDIS_AOF_ON && server.aof_fd == -1) {
+        server.aof_fd = open(server.aof_filename,
+                               O_WRONLY|O_APPEND|O_CREAT,0644);
+        if (server.aof_fd == -1) {
+            redisLog(REDIS_WARNING, "Can't open the append-only file: %s",
+                strerror(errno));
+            exit(1);
+        }
     }
 
     /* Warning the user about suspicious maxmemory setting. */
