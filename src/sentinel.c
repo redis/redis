@@ -1458,6 +1458,13 @@ void sentinelPropagateDownAfterPeriod(sentinelRedisInstance *master) {
     }
 }
 
+char *sentinelGetInstanceTypeString(sentinelRedisInstance *ri) {
+    if (ri->flags & SRI_MASTER) return "master";
+    else if (ri->flags & SRI_SLAVE) return "slave";
+    else if (ri->flags & SRI_SENTINEL) return "sentinel";
+    else return "unknown";
+}
+
 /* ============================ Config handling ============================= */
 char *sentinelHandleConfiguration(char **argv, int argc) {
     sentinelRedisInstance *ri;
