@@ -3587,13 +3587,22 @@ int checkForSentinelMode(int argc, char **argv) {
 /* Function called at startup to load RDB or AOF file in memory. */
 void loadDataFromDisk(void) {
     long long start = ustime();
-    if (server.aof_state == REDIS_AOF_ON) {
+    struct redis_stat sb;
+    int aof_stat = redis_stat(server.aof_filename,&sb);
+    int aof_errno = errno;
+
+    if (server.aof_state == REDIS_AOF_ON && aof_stat != -1) {
         if (loadAppendOnlyFile(server.aof_filename) == REDIS_OK)
             redisLog(REDIS_NOTICE,"DB loaded from append only file: %.3f seconds",(float)(ustime()-start)/1000000);
-    } else {
+    } else if (server.aof_state != REDIS_AOF_ON || (aof_stat == -1 && aof_errno == ENOENT)) {
         if (rdbLoad(server.rdb_filename) == REDIS_OK) {
             redisLog(REDIS_NOTICE,"DB loaded from disk: %.3f seconds",
                 (float)(ustime()-start)/1000000);
+            if (server.aof_state == REDIS_AOF_ON) {
+                redisLog(REDIS_NOTICE,"Detected upgrade from RDB to AOF. Creating append only file.");
+                server.aof_state = REDIS_AOF_OFF;
+                startAppendOnly();
+            }
         } else if (errno != ENOENT) {
             redisLog(REDIS_WARNING,"Fatal error loading the DB: %s. Exiting.",strerror(errno));
             exit(1);
