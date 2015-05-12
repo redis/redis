@@ -2498,7 +2498,10 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
         retval = redisAsyncCommand(ri->link->cc,
             sentinelInfoReplyCallback, ri, "INFO");
         if (retval == REDIS_OK) ri->link->pending_commands++;
-    } else if ((now - ri->link->last_pong_time) > ping_period) {
+    } else if ((now - ri->link->last_pong_time) > ping_period &&
+                (ri->link->last_ping_time == 0 ||
+                 now - ri->link->last_ping_time > ping_period*2))
+    {
         /* Send PING to all the three kinds of instances. */
         sentinelSendPing(ri);
     } else if ((now - ri->last_pub_time) > SENTINEL_PUBLISH_PERIOD) {
