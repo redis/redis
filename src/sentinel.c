@@ -146,6 +146,8 @@ typedef struct instanceLink {
     mstime_t last_pong_time;  /* Last time the instance replied to ping,
                                  whatever the reply was. That's used to check
                                  if the link is idle and must be reconnected. */
+    mstime_t last_reconn_time;  /* Last reconnection attempt performed when
+                                   the link was down. */
 } instanceLink;
 
 typedef struct sentinelRedisInstance {
@@ -921,6 +923,7 @@ instanceLink *createInstanceLink(void) {
     link->pc = NULL;
     link->cc_conn_time = 0;
     link->pc_conn_time = 0;
+    link->last_reconn_time = 0;
     link->pc_last_activity = 0;
     /* We set the last_ping_time to "now" even if we actually don't have yet
      * a connection with the node, nor we sent a ping.
@@ -1826,6 +1829,10 @@ void sentinelSetClientName(sentinelRedisInstance *ri, redisAsyncContext *c, char
 void sentinelReconnectInstance(sentinelRedisInstance *ri) {
     if (ri->link->disconnected == 0) return;
     instanceLink *link = ri->link;
+    mstime_t now = mstime();
+
+    if (now - ri->link->last_reconn_time < SENTINEL_PING_PERIOD) return;
+    ri->link->last_reconn_time = now;
 
     /* Commands connection. */
     if (link->cc == NULL) {
