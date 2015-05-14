@@ -968,7 +968,7 @@ instanceLink *releaseInstanceLink(instanceLink *link, sentinelRedisInstance *ri)
     redisAssert(link->refcount > 0);
     link->refcount--;
     if (link->refcount != 0) {
-        if (ri) {
+        if (ri && ri->link->cc) {
             /* This instance may have pending callbacks in the hiredis async
              * context, having as 'privdata' the instance that we are going to
              * free. Let's rewrite the callback list, directly exploiting
