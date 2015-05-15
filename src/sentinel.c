@@ -117,7 +117,7 @@ typedef struct sentinelAddr {
 /* The link to a sentinelRedisInstance. When we have the same set of Sentinels
  * monitoring many masters, we have different instances representing the
  * same Sentinels, one per master, and we need to share the hiredis connections
- * among them. Oherwise if 5 Senintels are monitoring 100 masters we create
+ * among them. Oherwise if 5 Sentinels are monitoring 100 masters we create
  * 500 outgoing connections instead of 5.
  *
  * So this structure represents a reference counted link in terms of the two
@@ -1018,7 +1018,7 @@ int sentinelTryConnectionSharing(sentinelRedisInstance *ri) {
     di = dictGetIterator(sentinel.masters);
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *master = dictGetVal(de), *match;
-        /* We want to share with the same physical Senitnel referenced
+        /* We want to share with the same physical Sentinel referenced
          * in other masters, so skip our master. */
         if (master == ri->master) continue;
         match = getSentinelRedisInstanceByAddrAndRunID(master->sentinels,
@@ -1034,6 +1034,41 @@ int sentinelTryConnectionSharing(sentinelRedisInstance *ri) {
     }
     dictReleaseIterator(di);
     return REDIS_ERR;
+}
+
+/* When we detect a Sentinel to switch address (reporting a different IP/port
+ * pair in Hello messages), let's update all the matching Sentinels in the
+ * context of other masters as well and disconnect the links, so that everybody
+ * will be updated.
+ *
+ * Return the number of updated Sentinel addresses. */
+int sentinelUpdateSentinelAddressInAllMasters(sentinelRedisInstance *ri) {
+    redisAssert(ri->flags & SRI_SENTINEL);
+    dictIterator *di;
+    dictEntry *de;
+    int reconfigured = 0;
+
+    di = dictGetIterator(sentinel.masters);
+    while((de = dictNext(di)) != NULL) {
+        sentinelRedisInstance *master = dictGetVal(de), *match;
+        match = getSentinelRedisInstanceByAddrAndRunID(master->sentinels,
+                                                       NULL,0,ri->runid);
+        if (match->link->disconnected == 0) {
+            instanceLinkCloseConnection(match->link,match->link->cc);
+            instanceLinkCloseConnection(match->link,match->link->pc);
+        }
+        if (match == ri) continue; /* Address already updated for it. */
+        /* Update the address of the matching Sentinel by copying the address
+         * of the Sentinel object that received the address update. */
+        releaseSentinelAddr(match->addr);
+        match->addr = dupSentinelAddr(ri->addr);
+        reconfigured++;
+    }
+    dictReleaseIterator(di);
+    if (reconfigured)
+        sentinelEvent(REDIS_NOTICE,"+sentinel-address-update", ri,
+                    "%@ %d additional matching instances", reconfigured);
+    return reconfigured;
 }
 
 /* This function is called when an hiredis connection reported an error.
@@ -2303,6 +2338,7 @@ void sentinelProcessHelloMessage(char *hello, int hello_len) {
                  * so do it now. */
                 si->runid = sdsnew(token[2]);
                 sentinelTryConnectionSharing(si);
+                if (removed) sentinelUpdateSentinelAddressInAllMasters(si);
                 sentinelFlushConfig();
             }
         }
