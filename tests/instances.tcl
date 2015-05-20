@@ -373,6 +373,37 @@ proc create_redis_master_slave_cluster n {
     }
 }
 
+proc create_redis_relay_master_slave_cluster n {
+    foreach_redis_id id {
+        if {$id == 0} {
+            # Our write master.
+            R $id slaveof no one
+            R $id flushall
+        } elseif {$id == 1 || $id == 2} {
+            # fallback write master and relay master RM1
+            R $id slaveof [get_instance_attrib redis 0 host] \
+                          [get_instance_attrib redis 0 port]
+        } elseif {$id == 3} {
+            # fallback relay master RM2
+            R $id slaveof [get_instance_attrib redis 1 host] \
+                          [get_instance_attrib redis 1 port]
+        } elseif {$id > 3 && $id < n} {
+            # slaves of relay master RM1
+            R $id slaveof [get_instance_attrib redis 2 host] \
+                          [get_instance_attrib redis 2 port]
+        } else {
+            # Instances not part of the cluster.
+            R $id slaveof no one
+        }
+    }
+    # Wait for all the slaves to sync.
+    wait_for_condition 1000 50 {
+        [RI 0 connected_slaves] == 2 && [RI 2 connected_slaves] == ($n-4)
+    } else {
+        fail "Unable to create a master-relay_masters-slaves cluster."
+    }
+}          
+
 proc get_instance_id_by_port {type port} {
     foreach_${type}_id id {
         if {[get_instance_attrib $type $id port] == $port} {
