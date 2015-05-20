@@ -1023,6 +1023,7 @@ int sentinelTryConnectionSharing(sentinelRedisInstance *ri) {
         if (master == ri->master) continue;
         match = getSentinelRedisInstanceByAddrAndRunID(master->sentinels,
                                                        NULL,0,ri->runid);
+        if (match == NULL) continue; /* No match. */
         if (match == ri) continue; /* Should never happen but... safer. */
 
         /* We identified a matching Sentinel, great! Let's free our link
