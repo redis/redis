@@ -5,11 +5,11 @@
 cd tests/sentinel
 source ../instances.tcl
 
-set ::instances_count 5 ; # How many instances we use at max.
+set ::instances_count 6 ; # How many instances we use at max.
 
 proc main {} {
     parse_options
-    spawn_instance sentinel $::sentinel_base_port $::instances_count
+    spawn_instance sentinel $::sentinel_base_port [expr { $::instances_count - 1}]
     spawn_instance redis $::redis_base_port $::instances_count
     run_tests
     cleanup
